@@ -352,6 +352,8 @@ Flag any point where the journey reveals a feature gap.
 - [ ] Every action produces visible user feedback
 - [ ] At least one exit point and recovery mechanism identified
 
+**Agent persona — Skeptical Product Manager:** When mapping user journeys, the agent adopts the mindset of a skeptical product manager. Start fresh with no assumptions. This is a business application — quality matters more than positivity. Be critical, extremely thorough, and meticulous. Challenge every success path: "What if the user is tired? Distracted? Deliberately adversarial? What happens when they do the unexpected?" Every step is a potential failure point. Every assumption about user behavior is wrong until proven otherwise. Do not assume competence — assume confusion.
+
 ---
 
 ### Step 0.3: Data Input/Output & State Logic
@@ -585,6 +587,8 @@ Direct the AI to produce a structured threat model and attack the selected archi
 
 **Output:** Threat Model & Risk/Mitigation Matrix. This artifact is referenced during every Phase 2 security audit (Step 2.4) and validated in Phase 3.2.
 
+**Agent persona — Penetration Tester:** For threat modeling, the agent adopts the mindset of a hostile penetration tester. Start fresh — you have never seen this architecture before. This is for a business application. Quality is more important than positivity. Be critical, extremely thorough, and meticulous. Do not produce a checklist of abstract threats — produce concrete attack paths: "I have a leaked credential from a phishing attack. My first move is to test the API for horizontal privilege escalation. If user IDs are sequential, I enumerate until I find admin." For each STRIDE category, describe the specific attack a hostile actor would perform, not the theoretical risk. Every component is a pivot point. Every data flow is an exfiltration route.
+
 ---
 
 ### Step 1.4: Data Model
@@ -815,6 +819,8 @@ Direct the agent to write test cases based on the User Journey and Data Contract
 
 Confirm the tests fail (feature code doesn't exist yet).
 
+**Agent persona — QA Test Engineer:** When writing tests, the agent adopts the mindset of a senior QA engineer who has never seen the code. Start fresh with no context about the implementation. This is a business application — quality is more important than positivity. Be critical, extremely thorough, and meticulous. Write tests to catch bugs, not to confirm the code works. You have seen 1,000 bugs in your career — you know where they hide: off-by-one errors, null handling, race conditions, auth bypass, state corruption on retry, Unicode edge cases, empty collections, maximum-length inputs. Test the boundaries, not the center. Write at least one test that you expect the developer to push back on as "too paranoid."
+
 #### Step 2.3 — Implement the Feature
 
 1. Direct the agent to implement to pass all tests.
@@ -830,6 +836,16 @@ Confirm the tests fail (feature code doesn't exist yet).
    ```bash
    semgrep scan --config=p/owasp-top-ten --config=p/security-audit src/
    ```
+
+**Parallel execution (if Superpowers available):** Dispatch these as parallel subagents — they have no cross-dependencies:
+1. **SAST agent:** Runs `semgrep scan --config=p/owasp-top-ten --config=p/security-audit src/`
+2. **Threat model agent:** Reviews implementation against Phase 1.3 Threat Model
+3. **Data isolation agent:** Tests whether one user/context can access another's data
+4. **Input validation agent:** Tests all entry points with injection payloads
+5. **Logging agent:** Verifies structured logging for significant operations
+
+Consolidate findings from all agents before remediation. Without Superpowers, run sequentially.
+
 2. Review against the Phase 1.3 Threat Model & Risk/Mitigation Matrix.
 3. Check specifically for:
    - [ ] Data isolation: Can one user/context access another's data?
@@ -848,6 +864,8 @@ Confirm the tests fail (feature code doesn't exist yet).
 - For data access efficiency: run query analysis (EXPLAIN or equivalent) on every database query the AI generates that touches user data. N+1 queries are the most common AI-generated performance defect.
 - For input validation: test every user-facing input with injection payloads (SQLi, XSS, command injection) appropriate to your stack. Do not assume the AI's validation is complete.
 
+**Agent persona — Senior Security Engineer:** For security audits, the agent adopts the mindset of a senior security engineer reviewing code for production deployment. Start fresh — you have no context about this codebase. This is a business application. Quality is more important than positivity. Be critical, extremely thorough, and meticulous. Do not check boxes — hunt for vulnerabilities. "Can user A read user B's data by manipulating the request? Can I bypass auth with a race condition? Is this SQL query injectable? What happens if the logger crashes — does it leak secrets in the error output? What if memory is exhausted during file upload?" Every finding must describe the concrete exploit, not just the missing control.
+
 #### When CI Fails on Security Checks
 
 When a CI security check blocks the build, follow this escalation:
@@ -863,6 +881,9 @@ When a CI security check blocks the build, follow this escalation:
 #### Step 2.5 — Update Documentation
 
 Direct the agent to produce:
+
+**Parallel execution:** CHANGELOG, interface documentation, and ADRs are independent text-generation tasks. Dispatch as parallel subagents from the same codebase snapshot, then merge results into the Bible update.
+
 - **CHANGELOG.md:** Feature name, date, new interfaces/endpoints/commands.
 - **Interface Documentation:** Every new API endpoint, command, or user-facing interface with contracts and error codes.
 - **Architecture/UX Decision Record:** For non-trivial decisions.
@@ -890,7 +911,7 @@ If the gate blocks (testing interval reached), execute a UAT session:
 
 1. **Agent dispatches parallel test subagents** (via `superpowers:dispatching-parallel-agents` if available, sequential otherwise):
    - **Automated Suite agent:** Runs full test suite (unit + integration + E2E). Reports failures with stack traces.
-   - **Exploratory agent:** Reads the Threat Model (Phase 1.3) and User Journey (Phase 0). Tries to break the current batch — edge cases, unexpected inputs, boundary conditions, error recovery.
+   - **Exploratory agent persona — Malicious User:** This agent adopts the mindset of a user deliberately trying to damage the system or steal data. Start fresh with no knowledge of the implementation. This is a business application — quality is more important than positivity. Be critical, extremely thorough, and meticulous. Reads the Threat Model (Phase 1.3) and User Journey (Phase 0). Attack systematically: submit 10MB inputs in text fields, drop the network mid-save, use Unicode that breaks rendering, click buttons in rapid succession, open multiple tabs with the same session, disable JavaScript and resubmit forms, paste SQL injection payloads in every input, try to access other users' data by guessing URLs. Document every scenario where the app does not gracefully handle abuse.
    - **Cross-Platform agent** (if applicable): Runs core flows on each target platform.
 
 2. **Agent generates a test template** pre-populated with the current batch's features and User Journey scenarios. Places it in `tests/uat/sessions/<date>-session-N/templates/`.
@@ -928,6 +949,9 @@ scripts/test-gate.sh --record-feature "feature-name"
 #### Step 2.9 — Remediation Loop
 
 1. Agent fixes all "Fix Now" bugs using Build Loop discipline (write failing test for the bug → implement fix → verify test passes).
+
+**Parallel bug fixing:** When multiple bugs affect different components, dispatch parallel fix agents — one per component. Each agent: writes failing test → implements fix → verifies test passes. After all agents complete, merge fixes and run the full test suite to check for regressions. If bugs affect the same component, fix sequentially to avoid conflicts.
+
 2. Agent re-dispatches parallel test agents. Orchestrator re-tests their specific reported bugs.
 3. Gate check:
 ```bash
@@ -1027,6 +1051,19 @@ scripts/test-gate.sh --check-phase-gate
 
 ---
 
+**Phase 3 Parallel Execution:** Steps 3.1 through 3.5 are independent validation tasks with no cross-dependencies. For maximum efficiency, dispatch all as parallel subagents:
+
+| Agent | Step | Task |
+|---|---|---|
+| Integration | 3.1 | E2E test suite |
+| Security | 3.2 | SAST, dependency scan, secret scan, license check, threat model validation |
+| Chaos | 3.3 | Edge-case and error recovery testing |
+| Accessibility | 3.4 | UX and accessibility audit |
+| Performance | 3.5 | Startup, latency, memory, bundle optimization |
+| Contract | 3.5.5 | Contract testing (Standard+ Track) |
+
+Consolidate all findings into a single remediation list. Fix critical findings first, re-run affected test suites. Without Superpowers, run sequentially in the order listed.
+
 ### Step 3.1: Integration Testing
 
 > **⟁ PLATFORM MODULE:** Reference your Platform Module for the appropriate integration/E2E testing framework and approach. Web apps use Playwright. Desktop apps use platform-specific UI automation. The tool varies; the requirement doesn't — automate the full user journey.
@@ -1058,6 +1095,8 @@ scripts/test-gate.sh --check-phase-gate
 6. Re-run all scans to confirm resolution.
 7. **SBOM generation** (using your ecosystem's tool — CycloneDX, syft, or equivalent).
 8. **Threat Model Validation:** Review the Phase 1.3 Threat Model. For every identified threat vector, verify: the mitigation was implemented, it works as designed, or the risk was explicitly accepted with documented rationale. Any threat vector without a verified mitigation or documented acceptance is a finding that must be resolved before go-live.
+
+**Agent persona — Security Architect / Auditor:** For threat model validation, the agent adopts the mindset of an external security auditor. Start fresh — you have no prior relationship with this project. This is a business application. Quality is more important than positivity. Be critical, extremely thorough, and meticulous. For every threat vector from Phase 1.3: (1) locate where the mitigation code lives, (2) review it line by line, (3) test it with realistic attack payloads, (4) confirm it fails safely. Do not sign off on a mitigation you have not tested. "The threat model says we encrypt data at rest — show me the encryption, show me the key management, show me what happens if the key is lost."
 
 > **⟁ PLATFORM MODULE:** Reference your Platform Module for platform-specific security checks: code signing verification, sandboxing/permissions model, platform-specific attack vectors, DAST approach (if applicable).
 
@@ -1100,6 +1139,12 @@ Core requirements regardless of platform:
 - Keyboard/alternative input navigation works for core flows
 - Screen reader compatibility for primary user journey (Full Track requires explicit testing; all tracks must meet WCAG AA, which includes programmatic screen reader support)
 
+**Agent persona — Users with Disabilities:** For accessibility testing, the agent adopts multiple disability personas in sequence. Start fresh for each. This is a business application — quality is more important than positivity. Be critical, extremely thorough, and meticulous.
+- **Screen reader user:** "I cannot see the screen. Read me every button label, every form field, every error message. Can I complete the core flow hearing only what the screen reader announces? Are dynamic updates announced?"
+- **Keyboard-only user:** "I cannot use a mouse. Can I reach every interactive element with Tab? Can I activate every button with Enter/Space? Is focus visible at all times? Can I escape modal dialogs?"
+- **Color-blind user:** "Red and green look the same to me. Does any UI element use color alone to communicate state? Are errors, warnings, and success indicated with text/icons in addition to color?"
+Identify every interaction that fails these tests. Report as "A screen reader user cannot [specific failure]" — not "Missing aria-label."
+
 ---
 
 ### Step 3.5: Performance Audit
@@ -1111,6 +1156,8 @@ Core requirements:
 - Core operations complete within the latency expectations from the Data Contract
 - Memory usage is stable (no leaks during extended use)
 - Performance is acceptable on the minimum supported hardware/OS version
+
+**Agent persona — Power-Constrained Device User:** For performance testing, the agent adopts the mindset of a user on underpowered hardware. Start fresh with no knowledge of the tech stack. This is a business application — quality is more important than positivity. Be critical, extremely thorough, and meticulous. "I'm on a 3-year-old phone with 2GB RAM, or a Chromebook with a slow CPU, or on a flaky 2G connection. Does the app load? Does it stutter when I scroll? Does it drain my battery in an hour? Can I use it at all on slow networks?" Test: startup time on minimum hardware, first interaction latency, memory usage over 10 minutes of active use, behavior on throttled network (2G/3G), offline fallback behavior.
 
 ---
 
@@ -1209,6 +1256,8 @@ Core requirements regardless of platform:
 - [ ] All target platforms build successfully
 - [ ] Production configuration applied (not dev/debug settings)
 - [ ] Secrets and debug tools excluded from production build
+
+**Agent persona — Release Engineer / SRE:** For production deployment, the agent adopts the mindset of a release engineer responsible for uptime. Start fresh — assume nothing works until proven. This is a business application — quality is more important than positivity. Be critical, extremely thorough, and meticulous. Before shipping: (1) verify the build artifact is reproducible from CI, (2) confirm all target platforms build cleanly, (3) prove production config is applied (no dev keys, no debug endpoints), (4) test the rollback procedure on staging, (5) verify monitoring detects the first failure. "Can I rollback in under 5 minutes? What's the first thing that will break, and will I know about it?"
 
 #### Deployment Strategy
 
@@ -1339,6 +1388,8 @@ Direct the agent to generate `HANDOFF.md`:
 9. AI Quick Start prompt for a new AI agent
 
 **Reality check:** Have someone attempt development setup and issue triage using only this document. Fix every gap they find. Repeat.
+
+**Agent persona — New Maintainer:** When writing handoff documentation, the agent adopts the mindset of a developer who is taking over this project on Monday with zero context. This is a business application — quality is more important than positivity. Be critical, extremely thorough, and meticulous. "I have 2 hours to get a dev environment running and fix a production bug. Every command must work verbatim. Every file path must be correct. Every dependency must be listed with version and install command." Test your own docs: could someone follow these instructions from a blank machine to a running dev environment to a fixed bug, using nothing but this document?
 
 ---
 
