@@ -1,0 +1,388 @@
+{
+  "schema_version": "1.0",
+  "scope": "common",
+  "description": "Universal tools required or recommended for all Solo Orchestrator projects",
+  "tools": [
+    {
+      "category": "version_control",
+      "name": "Git",
+      "description": "Distributed version control system",
+      "required": true,
+      "phase": 0,
+      "tracks": ["light", "standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["all"],
+      "languages": ["all"],
+      "check_command": "command -v git",
+      "version_command": "git --version | awk '{print $3}'",
+      "install": {
+        "darwin_brew": "brew install git",
+        "darwin_manual": "xcode-select --install",
+        "linux_apt": "sudo apt install -y git",
+        "linux_dnf": "sudo dnf install -y git",
+        "manual": "https://git-scm.com/downloads"
+      },
+      "auto_installable": true,
+      "substitutable": false,
+      "substitution_category": null
+    },
+    {
+      "category": "json_processor",
+      "name": "jq",
+      "description": "Command-line JSON processor (required by Claude Dev Framework)",
+      "required": true,
+      "phase": 0,
+      "tracks": ["light", "standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["all"],
+      "languages": ["all"],
+      "check_command": "command -v jq",
+      "version_command": "jq --version 2>/dev/null",
+      "install": {
+        "darwin_brew": "brew install jq",
+        "linux_apt": "sudo apt install -y jq",
+        "linux_dnf": "sudo dnf install -y jq",
+        "manual": "https://jqlang.github.io/jq/download/"
+      },
+      "auto_installable": true,
+      "substitutable": false,
+      "substitution_category": null
+    },
+    {
+      "category": "runtime",
+      "name": "Node.js",
+      "description": "JavaScript runtime (required for Snyk, license-checker, JS/TS projects)",
+      "required": true,
+      "phase": 0,
+      "tracks": ["light", "standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["all"],
+      "languages": ["all"],
+      "check_command": "command -v node",
+      "version_command": "node --version | sed 's/v//'",
+      "install": {
+        "darwin_brew": "brew install node@22 && brew link --overwrite node@22",
+        "linux_apt": "sudo apt install -y nodejs npm",
+        "linux_dnf": "sudo dnf install -y nodejs npm",
+        "manual": "https://nodejs.org/"
+      },
+      "auto_installable": true,
+      "substitutable": false,
+      "substitution_category": null
+    },
+    {
+      "category": "containerization",
+      "name": "Docker",
+      "description": "Container runtime (needed for OWASP ZAP, Qdrant MCP)",
+      "required": false,
+      "phase": 0,
+      "tracks": ["light", "standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["all"],
+      "languages": ["all"],
+      "check_command": "command -v docker",
+      "version_command": "docker --version 2>/dev/null | awk '{print $3}' | tr -d ','",
+      "install": {
+        "darwin_brew": "brew install --cask docker",
+        "linux_apt": "sudo apt install -y docker.io && sudo usermod -aG docker $USER",
+        "linux_dnf": "sudo dnf install -y docker && sudo usermod -aG docker $USER",
+        "manual": "https://docs.docker.com/get-docker/"
+      },
+      "auto_installable": true,
+      "substitutable": false,
+      "substitution_category": null
+    },
+    {
+      "category": "commit_signing",
+      "name": "GPG",
+      "description": "GNU Privacy Guard (optional — used for commit signing)",
+      "required": false,
+      "phase": 0,
+      "tracks": ["light", "standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["all"],
+      "languages": ["all"],
+      "check_command": "command -v gpg",
+      "version_command": "gpg --version 2>/dev/null | head -1 | awk '{print $3}'",
+      "install": {
+        "darwin_brew": "brew install gnupg",
+        "linux_apt": "sudo apt install -y gnupg",
+        "linux_dnf": "sudo dnf install -y gnupg2",
+        "manual": "https://gnupg.org/download/"
+      },
+      "auto_installable": true,
+      "substitutable": false,
+      "substitution_category": null
+    },
+    {
+      "category": "sast",
+      "name": "Semgrep",
+      "description": "Static analysis security scanner (OWASP Top 10)",
+      "required": true,
+      "phase": 1,
+      "tracks": ["light", "standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["all"],
+      "languages": ["all"],
+      "check_command": "command -v semgrep",
+      "version_command": "semgrep --version 2>/dev/null | head -1",
+      "install": {
+        "darwin_brew": "brew install semgrep",
+        "linux_pip": "pip3 install semgrep",
+        "manual": "https://semgrep.dev/docs/getting-started/"
+      },
+      "auto_installable": true,
+      "substitutable": true,
+      "substitution_category": "SAST Scanner"
+    },
+    {
+      "category": "secret_detection",
+      "name": "gitleaks",
+      "description": "Secret detection in git repositories",
+      "required": true,
+      "phase": 1,
+      "tracks": ["light", "standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["all"],
+      "languages": ["all"],
+      "check_command": "command -v gitleaks",
+      "version_command": "gitleaks version 2>/dev/null",
+      "install": {
+        "darwin_brew": "brew install gitleaks",
+        "linux_manual": "See https://github.com/gitleaks/gitleaks/releases — download the binary for your architecture",
+        "manual": "https://github.com/gitleaks/gitleaks/releases"
+      },
+      "auto_installable": true,
+      "substitutable": true,
+      "substitution_category": "Secret Detection"
+    },
+    {
+      "category": "dependency_scanning",
+      "name": "Snyk CLI",
+      "description": "Dependency vulnerability scanning",
+      "required": true,
+      "phase": 1,
+      "tracks": ["light", "standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["all"],
+      "languages": ["all"],
+      "check_command": "command -v snyk",
+      "version_command": "snyk --version 2>/dev/null",
+      "install": {
+        "npm": "npm install -g snyk",
+        "manual": "https://docs.snyk.io/snyk-cli/install-or-update-the-snyk-cli"
+      },
+      "auto_installable": true,
+      "substitutable": true,
+      "substitution_category": "Dependency Scanner"
+    },
+    {
+      "category": "ai_agent",
+      "name": "Claude Code",
+      "description": "AI coding agent CLI",
+      "required": true,
+      "phase": 1,
+      "tracks": ["light", "standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["all"],
+      "languages": ["all"],
+      "check_command": "command -v claude",
+      "version_command": "claude --version 2>/dev/null",
+      "install": {
+        "darwin_brew": "brew install claude-code",
+        "npm": "npm install -g @anthropic-ai/claude-code",
+        "manual": "https://docs.anthropic.com/en/docs/claude-code"
+      },
+      "auto_installable": true,
+      "substitutable": false,
+      "substitution_category": null
+    },
+    {
+      "category": "claude_plugin",
+      "name": "Superpowers",
+      "description": "Agentic skills plugin for Claude Code (TDD, debugging, code review, git worktrees)",
+      "required": false,
+      "phase": 1,
+      "tracks": ["light", "standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["all"],
+      "languages": ["all"],
+      "check_command": "[ -f \"$HOME/.claude/settings.json\" ] && command -v jq &>/dev/null && [ \"$(jq -r '.enabledPlugins[\"superpowers@claude-plugins-official\"] // false' \"$HOME/.claude/settings.json\" 2>/dev/null)\" = \"true\" ]",
+      "version_command": "echo 'installed'",
+      "install": {
+        "darwin_brew": "claude plugins add superpowers",
+        "linux_apt": "claude plugins add superpowers",
+        "manual": "Run: claude → /plugins → search 'superpowers' → install"
+      },
+      "auto_installable": true,
+      "substitutable": false,
+      "substitution_category": null
+    },
+    {
+      "category": "mcp_server",
+      "name": "Context7 MCP",
+      "description": "Up-to-date library documentation via MCP (recommended for Phase 1 and Phase 2)",
+      "required": false,
+      "phase": 1,
+      "tracks": ["light", "standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["all"],
+      "languages": ["all"],
+      "check_command": "[ -f \"$HOME/.claude/settings.json\" ] && command -v jq &>/dev/null && jq -e '.mcpServers.context7 // .mcpServers[\"context7-mcp\"] // empty' \"$HOME/.claude/settings.json\" >/dev/null 2>&1",
+      "version_command": "echo 'configured'",
+      "install": {
+        "npm": "claude mcp add context7 -- npx -y @upstash/context7-mcp@latest",
+        "manual": "Run: claude mcp add context7 -- npx -y @upstash/context7-mcp@latest"
+      },
+      "auto_installable": true,
+      "substitutable": false,
+      "substitution_category": null
+    },
+    {
+      "category": "mcp_server",
+      "name": "Qdrant MCP",
+      "description": "Persistent semantic memory across Claude Code sessions",
+      "required": false,
+      "phase": 1,
+      "tracks": ["light", "standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["all"],
+      "languages": ["all"],
+      "check_command": "[ -f \"$HOME/.claude/settings.json\" ] && command -v jq &>/dev/null && jq -e '.mcpServers.qdrant // .mcpServers[\"mcp-server-qdrant\"] // empty' \"$HOME/.claude/settings.json\" >/dev/null 2>&1",
+      "version_command": "echo 'configured'",
+      "install": {
+        "manual": "Requires Docker + uv. See docs/framework/cli-setup-addendum.md for setup steps."
+      },
+      "auto_installable": false,
+      "substitutable": false,
+      "substitution_category": null
+    },
+    {
+      "category": "runtime",
+      "name": "Python 3",
+      "description": "Python runtime",
+      "required": true,
+      "phase": 1,
+      "tracks": ["light", "standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["all"],
+      "languages": ["python"],
+      "check_command": "command -v python3 || command -v python",
+      "version_command": "python3 --version 2>/dev/null | awk '{print $2}' || python --version 2>/dev/null | awk '{print $2}'",
+      "install": {
+        "darwin_brew": "brew install python",
+        "linux_apt": "sudo apt install -y python3 python3-pip python3-venv",
+        "linux_dnf": "sudo dnf install -y python3 python3-pip",
+        "manual": "https://python.org/"
+      },
+      "auto_installable": true,
+      "substitutable": false,
+      "substitution_category": null
+    },
+    {
+      "category": "runtime",
+      "name": "Rust",
+      "description": "Rust toolchain via rustup",
+      "required": true,
+      "phase": 1,
+      "tracks": ["light", "standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["all"],
+      "languages": ["rust"],
+      "check_command": "command -v cargo",
+      "version_command": "rustc --version 2>/dev/null | awk '{print $2}'",
+      "install": {
+        "darwin_brew": "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && source \"$HOME/.cargo/env\"",
+        "linux_apt": "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && source \"$HOME/.cargo/env\"",
+        "manual": "https://rustup.rs/"
+      },
+      "auto_installable": true,
+      "substitutable": false,
+      "substitution_category": null
+    },
+    {
+      "category": "runtime",
+      "name": "Go",
+      "description": "Go programming language",
+      "required": true,
+      "phase": 1,
+      "tracks": ["light", "standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["all"],
+      "languages": ["go"],
+      "check_command": "command -v go",
+      "version_command": "go version 2>/dev/null | awk '{print $3}' | sed 's/go//'",
+      "install": {
+        "darwin_brew": "brew install go",
+        "linux_apt": "sudo apt install -y golang",
+        "linux_dnf": "sudo dnf install -y golang",
+        "manual": "https://go.dev/dl/"
+      },
+      "auto_installable": true,
+      "substitutable": false,
+      "substitution_category": null
+    },
+    {
+      "category": "runtime",
+      "name": ".NET SDK",
+      "description": "C# / .NET development kit",
+      "required": true,
+      "phase": 1,
+      "tracks": ["light", "standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["all"],
+      "languages": ["csharp"],
+      "check_command": "command -v dotnet",
+      "version_command": "dotnet --version 2>/dev/null",
+      "install": {
+        "darwin_brew": "brew install dotnet",
+        "manual": "https://dotnet.microsoft.com/download"
+      },
+      "auto_installable": true,
+      "substitutable": false,
+      "substitution_category": null
+    },
+    {
+      "category": "runtime",
+      "name": "Java (Eclipse Temurin)",
+      "description": "Java Development Kit",
+      "required": true,
+      "phase": 1,
+      "tracks": ["light", "standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["all"],
+      "languages": ["kotlin", "java", "jvm"],
+      "check_command": "command -v java",
+      "version_command": "java --version 2>/dev/null | head -1",
+      "install": {
+        "darwin_brew": "brew install temurin",
+        "linux_apt": "sudo apt install -y default-jdk",
+        "linux_dnf": "sudo dnf install -y java-latest-openjdk-devel",
+        "manual": "https://adoptium.net/"
+      },
+      "auto_installable": true,
+      "substitutable": false,
+      "substitution_category": null
+    },
+    {
+      "category": "runtime",
+      "name": "Flutter SDK",
+      "description": "Flutter cross-platform framework",
+      "required": true,
+      "phase": 1,
+      "tracks": ["light", "standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["all"],
+      "languages": ["dart"],
+      "check_command": "command -v flutter",
+      "version_command": "flutter --version 2>/dev/null | head -1 | awk '{print $2}'",
+      "install": {
+        "darwin_brew": "brew install flutter",
+        "manual": "https://docs.flutter.dev/get-started/install"
+      },
+      "auto_installable": true,
+      "substitutable": false,
+      "substitution_category": null
+    }
+  ]
+}

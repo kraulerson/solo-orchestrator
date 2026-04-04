@@ -1,0 +1,128 @@
+{
+  "schema_version": "1.0",
+  "scope": "web",
+  "description": "Tools specific to web platform projects (SPAs, full-stack, APIs, static sites)",
+  "tools": [
+    {
+      "category": "performance",
+      "name": "Lighthouse",
+      "description": "Performance, accessibility, and SEO auditing",
+      "required": true,
+      "phase": 2,
+      "tracks": ["standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["web"],
+      "languages": ["all"],
+      "check_command": "command -v lighthouse",
+      "version_command": "lighthouse --version 2>/dev/null",
+      "install": {
+        "npm": "npm install -g lighthouse",
+        "manual": "npm install -g lighthouse"
+      },
+      "auto_installable": true,
+      "substitutable": true,
+      "substitution_category": "Performance Auditing"
+    },
+    {
+      "category": "dast",
+      "name": "OWASP ZAP",
+      "description": "Dynamic application security testing via Docker",
+      "required": true,
+      "phase": 3,
+      "tracks": ["standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["web"],
+      "languages": ["all"],
+      "check_command": "command -v docker && docker image inspect zaproxy/zap-stable &>/dev/null 2>&1",
+      "version_command": "echo 'docker image present'",
+      "install": {
+        "manual": "Requires Docker. Run: docker pull zaproxy/zap-stable"
+      },
+      "auto_installable": false,
+      "substitutable": true,
+      "substitution_category": "DAST Scanner"
+    },
+    {
+      "category": "license_compliance",
+      "name": "license-checker",
+      "description": "Node.js dependency license auditing",
+      "required": true,
+      "phase": 3,
+      "tracks": ["standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["web"],
+      "languages": ["typescript", "javascript"],
+      "check_command": "command -v license-checker",
+      "version_command": "license-checker --version 2>/dev/null",
+      "install": {
+        "npm": "npm install -g license-checker",
+        "manual": "npm install -g license-checker"
+      },
+      "auto_installable": true,
+      "substitutable": true,
+      "substitution_category": "License Compliance"
+    },
+    {
+      "category": "license_compliance",
+      "name": "pip-licenses",
+      "description": "Python dependency license auditing",
+      "required": true,
+      "phase": 3,
+      "tracks": ["standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["web"],
+      "languages": ["python"],
+      "check_command": "pip3 show pip-licenses &>/dev/null 2>&1 || pip show pip-licenses &>/dev/null 2>&1",
+      "version_command": "pip-licenses --version 2>/dev/null",
+      "install": {
+        "linux_pip": "pip3 install pip-licenses",
+        "darwin_brew": "pip3 install pip-licenses",
+        "manual": "pip install pip-licenses"
+      },
+      "auto_installable": true,
+      "substitutable": true,
+      "substitution_category": "License Compliance"
+    },
+    {
+      "category": "e2e_testing",
+      "name": "Playwright",
+      "description": "End-to-end browser testing framework",
+      "required": true,
+      "phase": 3,
+      "tracks": ["standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["web"],
+      "languages": ["all"],
+      "check_command": "npx playwright --version &>/dev/null 2>&1",
+      "version_command": "npx playwright --version 2>/dev/null",
+      "install": {
+        "npm": "npm init playwright@latest",
+        "manual": "npm init playwright@latest"
+      },
+      "auto_installable": false,
+      "substitutable": true,
+      "substitution_category": "E2E Testing"
+    },
+    {
+      "category": "load_testing",
+      "name": "k6",
+      "description": "Load testing tool",
+      "required": true,
+      "phase": 3,
+      "tracks": ["full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["web"],
+      "languages": ["all"],
+      "check_command": "command -v k6",
+      "version_command": "k6 version 2>/dev/null",
+      "install": {
+        "darwin_brew": "brew install k6",
+        "linux_apt": "sudo gpg -k && sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69 && echo 'deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main' | sudo tee /etc/apt/sources.list.d/k6.list && sudo apt update && sudo apt install k6",
+        "manual": "https://k6.io/docs/get-started/installation/"
+      },
+      "auto_installable": true,
+      "substitutable": true,
+      "substitution_category": "Load Testing"
+    }
+  ]
+}

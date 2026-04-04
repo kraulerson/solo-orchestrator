@@ -60,6 +60,7 @@ See the [User Guide](docs/user-guide.md) for detailed walkthrough of each step.
 | **Git** | Yes | Init script offers to install automatically (brew/apt/dnf). Or install manually: [git-scm.com](https://git-scm.com/downloads) |
 | **Node.js 18+** | Yes | Init script offers to install automatically. Required as infrastructure tooling (Snyk CLI, license-checker) regardless of your project language. Also the runtime for JS/TS projects. |
 | **Language runtime** | Yes | Python, Rust/Cargo, .NET SDK, JDK, Go, or Flutter (if not using Node.js/TypeScript). Init script offers to install your selected runtime automatically. |
+| **jq** | Yes | Init script offers to install automatically (brew/apt/dnf). Required by the Claude Dev Framework for JSON operations. |
 | **Docker** | Recommended | [docker.com](https://www.docker.com/) — installed locally. Used by OWASP ZAP (DAST scanning) and Qdrant (persistent semantic memory). Currently local Docker only — remote Docker hosts and network-accessible containers are not yet supported. |
 | **Claude Code** | Recommended | Installed by init script. Framework is optimized for Claude Code; other AI coding agents can use the methodology but the CLI Setup Addendum and Phase 2 workflow accelerators are Claude Code-specific. |
 
@@ -74,8 +75,8 @@ Init also auto-installs security tooling: Semgrep (SAST), gitleaks (secret detec
 wsl --install
 
 # After restart, open Ubuntu from the Start menu
-# Install Git (needed to clone the repo):
-sudo apt install -y git
+# Install Git and jq (needed before init can run):
+sudo apt install -y git jq
 
 # Clone and run from within WSL, not from Windows
 # The init script will offer to install Node.js and other prerequisites

@@ -1,0 +1,211 @@
+{
+  "schema_version": "1.0",
+  "scope": "desktop",
+  "description": "Tools specific to desktop platform projects (Tauri, Electron, Flutter Desktop, .NET MAUI)",
+  "tools": [
+    {
+      "category": "desktop_build_tools",
+      "name": "Tauri CLI",
+      "description": "Tauri desktop application framework CLI",
+      "required": true,
+      "phase": 2,
+      "tracks": ["light", "standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["desktop"],
+      "languages": ["rust"],
+      "check_command": "command -v cargo-tauri || cargo install --list 2>/dev/null | grep -q tauri-cli",
+      "version_command": "cargo tauri --version 2>/dev/null",
+      "install": {
+        "darwin_brew": "cargo install tauri-cli",
+        "linux_apt": "cargo install tauri-cli",
+        "manual": "cargo install tauri-cli (requires Rust toolchain)"
+      },
+      "auto_installable": true,
+      "substitutable": false,
+      "substitution_category": null
+    },
+    {
+      "category": "desktop_build_tools",
+      "name": "Xcode Command Line Tools",
+      "description": "Apple build toolchain (required for macOS desktop builds)",
+      "required": true,
+      "phase": 2,
+      "tracks": ["light", "standard", "full"],
+      "dev_os": ["darwin"],
+      "platforms": ["desktop"],
+      "languages": ["all"],
+      "check_command": "xcode-select -p &>/dev/null 2>&1",
+      "version_command": "xcodebuild -version 2>/dev/null | head -1",
+      "install": {
+        "darwin_manual": "xcode-select --install",
+        "manual": "xcode-select --install (macOS only)"
+      },
+      "auto_installable": false,
+      "substitutable": false,
+      "substitution_category": null
+    },
+    {
+      "category": "desktop_build_tools",
+      "name": "Linux Desktop Build Dependencies",
+      "description": "WebKit2GTK and build essentials for Tauri on Linux",
+      "required": true,
+      "phase": 2,
+      "tracks": ["light", "standard", "full"],
+      "dev_os": ["linux"],
+      "platforms": ["desktop"],
+      "languages": ["rust"],
+      "check_command": "dpkg -l libwebkit2gtk-4.1-dev &>/dev/null 2>&1 || rpm -q webkit2gtk4.1-devel &>/dev/null 2>&1",
+      "version_command": "dpkg -l libwebkit2gtk-4.1-dev 2>/dev/null | grep '^ii' | awk '{print $3}' || echo 'unknown'",
+      "install": {
+        "linux_apt": "sudo apt install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev",
+        "linux_dnf": "sudo dnf install -y webkit2gtk4.1-devel openssl-devel curl wget file libappindicator-gtk3-devel librsvg2-devel",
+        "manual": "Install libwebkit2gtk-4.1-dev and build-essential via your package manager"
+      },
+      "auto_installable": true,
+      "substitutable": false,
+      "substitution_category": null
+    },
+    {
+      "category": "license_compliance",
+      "name": "license-checker",
+      "description": "Node.js dependency license auditing (Electron/Tauri frontend)",
+      "required": true,
+      "phase": 3,
+      "tracks": ["standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["desktop"],
+      "languages": ["typescript", "javascript"],
+      "check_command": "command -v license-checker",
+      "version_command": "license-checker --version 2>/dev/null",
+      "install": {
+        "npm": "npm install -g license-checker",
+        "manual": "npm install -g license-checker"
+      },
+      "auto_installable": true,
+      "substitutable": true,
+      "substitution_category": "License Compliance"
+    },
+    {
+      "category": "license_compliance",
+      "name": "cargo-license",
+      "description": "Rust dependency license auditing (Tauri backend)",
+      "required": true,
+      "phase": 3,
+      "tracks": ["standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["desktop"],
+      "languages": ["rust"],
+      "check_command": "command -v cargo-license || cargo install --list 2>/dev/null | grep -q cargo-license",
+      "version_command": "cargo license --version 2>/dev/null",
+      "install": {
+        "darwin_brew": "cargo install cargo-license",
+        "linux_apt": "cargo install cargo-license",
+        "manual": "cargo install cargo-license"
+      },
+      "auto_installable": true,
+      "substitutable": true,
+      "substitution_category": "License Compliance"
+    },
+    {
+      "category": "license_compliance",
+      "name": "pip-licenses",
+      "description": "Python dependency license auditing (PyQt/PySide projects)",
+      "required": true,
+      "phase": 3,
+      "tracks": ["standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["desktop"],
+      "languages": ["python"],
+      "check_command": "pip3 show pip-licenses &>/dev/null 2>&1 || pip show pip-licenses &>/dev/null 2>&1",
+      "version_command": "pip-licenses --version 2>/dev/null",
+      "install": {
+        "linux_pip": "pip3 install pip-licenses",
+        "darwin_brew": "pip3 install pip-licenses",
+        "manual": "pip install pip-licenses"
+      },
+      "auto_installable": true,
+      "substitutable": true,
+      "substitution_category": "License Compliance"
+    },
+    {
+      "category": "license_compliance",
+      "name": "dart_license_checker",
+      "description": "Dart/Flutter dependency license auditing (Flutter Desktop)",
+      "required": true,
+      "phase": 3,
+      "tracks": ["standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["desktop"],
+      "languages": ["dart"],
+      "check_command": "dart pub global list 2>/dev/null | grep -q dart_license_checker",
+      "version_command": "echo 'installed via dart pub global'",
+      "install": {
+        "darwin_brew": "dart pub global activate dart_license_checker",
+        "linux_apt": "dart pub global activate dart_license_checker",
+        "manual": "dart pub global activate dart_license_checker"
+      },
+      "auto_installable": true,
+      "substitutable": true,
+      "substitution_category": "License Compliance"
+    },
+    {
+      "category": "license_compliance",
+      "name": "dotnet-project-licenses",
+      "description": ".NET dependency license auditing (MAUI projects)",
+      "required": true,
+      "phase": 3,
+      "tracks": ["standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["desktop"],
+      "languages": ["csharp"],
+      "check_command": "dotnet tool list -g 2>/dev/null | grep -q dotnet-project-licenses",
+      "version_command": "dotnet-project-licenses --version 2>/dev/null || echo 'installed'",
+      "install": {
+        "darwin_brew": "dotnet tool install --global dotnet-project-licenses",
+        "linux_apt": "dotnet tool install --global dotnet-project-licenses",
+        "manual": "dotnet tool install --global dotnet-project-licenses"
+      },
+      "auto_installable": true,
+      "substitutable": true,
+      "substitution_category": "License Compliance"
+    },
+    {
+      "category": "code_signing",
+      "name": "Apple Developer Program (Desktop)",
+      "description": "Required for macOS app notarization ($99/year)",
+      "required": true,
+      "phase": 4,
+      "tracks": ["standard", "full"],
+      "dev_os": ["darwin"],
+      "platforms": ["desktop"],
+      "languages": ["all"],
+      "check_command": "security find-identity -v -p codesigning 2>/dev/null | grep -q 'Developer ID'",
+      "version_command": "echo 'signing identity present'",
+      "install": {
+        "manual": "Enroll at https://developer.apple.com/programs/ ($99/year). Create Developer ID certificates for distribution."
+      },
+      "auto_installable": false,
+      "substitutable": false,
+      "substitution_category": null
+    },
+    {
+      "category": "code_signing",
+      "name": "EV Code Signing Certificate (Windows)",
+      "description": "Windows code signing to bypass SmartScreen ($200-500/year)",
+      "required": true,
+      "phase": 4,
+      "tracks": ["standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["desktop"],
+      "languages": ["all"],
+      "check_command": "false",
+      "version_command": "echo 'N/A'",
+      "install": {
+        "manual": "Purchase from DigiCert, Sectigo, or GlobalSign ($200-500/year). EV certificates eliminate SmartScreen warnings. Store as CI secret for automated signing."
+      },
+      "auto_installable": false,
+      "substitutable": false,
+      "substitution_category": null
+    }
+  ]
+}

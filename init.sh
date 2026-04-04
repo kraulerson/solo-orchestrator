@@ -160,6 +160,24 @@ check_prerequisites() {
     fi
   fi
 
+  # --- jq (required by Claude Dev Framework) ---
+  if command -v jq &>/dev/null; then
+    print_ok "jq $(jq --version 2>/dev/null)"
+  else
+    print_warn "jq not found (required by Claude Dev Framework for JSON operations)"
+    if [ "$os_type" = "Darwin" ] && command -v brew &>/dev/null; then
+      prompt_install "jq" "brew install jq"
+    elif [ "$os_type" = "Linux" ]; then
+      if command -v apt &>/dev/null; then
+        prompt_install "jq" "sudo apt install -y jq" true
+      elif command -v dnf &>/dev/null; then
+        prompt_install "jq" "sudo dnf install -y jq" true
+      else
+        echo "  Install manually: https://jqlang.github.io/jq/download/"
+      fi
+    fi
+  fi
+
   # --- Docker (optional) ---
   if command -v docker &>/dev/null; then
     print_ok "Docker $(docker --version 2>/dev/null | awk '{print $3}' | tr -d ',')"
@@ -190,6 +208,100 @@ check_prerequisites() {
         echo "  Install with: sudo dnf install -y gnupg2"
       fi
     fi
+  fi
+
+  # --- Claude Code Superpowers plugin (recommended) ---
+  if [ -f "$HOME/.claude/settings.json" ] && command -v jq &>/dev/null; then
+    local sp_installed
+    sp_installed=$(jq -r '.enabledPlugins["superpowers@claude-plugins-official"] // false' "$HOME/.claude/settings.json" 2>/dev/null || echo "false")
+    if [ "$sp_installed" = "true" ]; then
+      print_ok "Superpowers plugin installed"
+    else
+      print_warn "Superpowers plugin not found (recommended — agentic skills for development)"
+      echo "  Install: Run claude → /plugins → search 'superpowers' → install"
+    fi
+  else
+    print_info "Superpowers plugin: cannot check (no Claude settings or jq missing)"
+  fi
+
+  # --- Context7 MCP (recommended for up-to-date library docs) ---
+  if [ -f "$HOME/.claude/settings.json" ] && command -v jq &>/dev/null; then
+    if jq -e '.mcpServers.context7 // .mcpServers["context7-mcp"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1; then
+      print_ok "Context7 MCP server configured"
+    else
+      print_warn "Context7 MCP not found (recommended — up-to-date library documentation)"
+      if command -v node &>/dev/null; then
+        prompt_install "Context7 MCP" "claude mcp add context7 -- npx -y @upstash/context7-mcp@latest"
+      else
+        echo "  Requires Node.js. Install Node.js first, then: claude mcp add context7 -- npx -y @upstash/context7-mcp@latest"
+      fi
+    fi
+  else
+    print_info "Context7 MCP: cannot check (no Claude settings or jq missing)"
+  fi
+
+  # --- Qdrant MCP (recommended for persistent semantic memory) ---
+  if [ -f "$HOME/.claude/settings.json" ] && command -v jq &>/dev/null; then
+    if jq -e '.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1; then
+      print_ok "Qdrant MCP server configured"
+    else
+      print_warn "Qdrant MCP not found (recommended — persistent semantic memory across sessions)"
+      # Check if we can auto-setup: needs Docker + Python (uv)
+      if command -v docker &>/dev/null; then
+        # Check if Qdrant container is already running
+        local qdrant_running=false
+        if docker ps --format '{{.Image}}' 2>/dev/null | grep -q "qdrant"; then
+          qdrant_running=true
+          print_ok "Qdrant container already running"
+        fi
+
+        if [ "$qdrant_running" = false ]; then
+          read -rp "$(echo -e "  ${BOLD}Start a local Qdrant instance via Docker? [Y/n]${NC}: ")" qdrant_reply
+          if [[ ! "$qdrant_reply" =~ ^[Nn] ]]; then
+            print_info "Pulling and starting Qdrant..."
+            if docker run -d --name qdrant \
+              -p 6333:6333 -p 6334:6334 \
+              -v qdrant_storage:/qdrant/storage \
+              --restart unless-stopped \
+              qdrant/qdrant:latest 2>&1; then
+              print_ok "Qdrant running at http://localhost:6333"
+              qdrant_running=true
+            else
+              print_warn "Failed to start Qdrant container"
+            fi
+          fi
+        fi
+
+        # If Qdrant is running, register the MCP server
+        if [ "$qdrant_running" = true ]; then
+          if command -v uvx &>/dev/null; then
+            read -rp "$(echo -e "  ${BOLD}Register Qdrant MCP server with Claude Code? [Y/n]${NC}: ")" mcp_reply
+            if [[ ! "$mcp_reply" =~ ^[Nn] ]]; then
+              if claude mcp add -s user \
+                -e QDRANT_URL=http://localhost:6333 \
+                -e COLLECTION_NAME=claude-memory \
+                qdrant -- uvx --python 3.13 mcp-server-qdrant 2>/dev/null; then
+                print_ok "Qdrant MCP server registered (collection: claude-memory)"
+              else
+                print_warn "Failed to register Qdrant MCP. Register manually:"
+                echo "    claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory qdrant -- uvx --python 3.13 mcp-server-qdrant"
+              fi
+            fi
+          else
+            print_warn "uv/uvx not found — needed to run mcp-server-qdrant"
+            echo "  Install uv: curl -LsSf https://astral.sh/uv/install.sh | sh"
+            echo "  Then: claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory qdrant -- uvx --python 3.13 mcp-server-qdrant"
+          fi
+        fi
+      else
+        echo "  Requires Docker (for Qdrant server) and Python/uv (for MCP client)"
+        echo "  1. Install Docker: https://docs.docker.com/get-docker/"
+        echo "  2. Start Qdrant: docker run -d -p 6333:6333 -v qdrant_storage:/qdrant/storage --restart unless-stopped qdrant/qdrant:latest"
+        echo "  3. Register MCP: claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory qdrant -- uvx --python 3.13 mcp-server-qdrant"
+      fi
+    fi
+  else
+    print_info "Qdrant MCP: cannot check (no Claude settings or jq missing)"
   fi
 
   if [ ${#missing_required[@]} -gt 0 ]; then
@@ -288,183 +400,316 @@ collect_project_info() {
 }
 
 # ================================================================
-# PHASE 3: Install Security Tooling
+# PHASE 3: Resolve and Install Tools (Matrix-Driven)
 # ================================================================
-install_tools() {
-  print_step "Checking/installing security tooling..."
+resolve_and_install_tools() {
+  print_step "Resolving tool installation plan..."
   local os_type
   os_type="$(uname -s)"
+  local dev_os
+  case "$os_type" in
+    Darwin) dev_os="darwin" ;;
+    Linux)  dev_os="linux" ;;
+    *)      dev_os="linux" ;;  # best-effort fallback
+  esac
 
-  # Semgrep
-  if command -v semgrep &>/dev/null; then
-    print_ok "Semgrep $(semgrep --version 2>/dev/null | head -1)"
-  else
-    print_info "Installing Semgrep..."
-    if [ "$os_type" = "Darwin" ] && command -v brew &>/dev/null; then
-      brew install semgrep
-    else
-      pip install semgrep 2>/dev/null || pip3 install semgrep 2>/dev/null || print_warn "Could not install Semgrep. Install manually: pip install semgrep"
-    fi
+  # Run the resolver
+  local resolver_output
+  resolver_output=$("$SCRIPT_DIR/scripts/resolve-tools.sh" \
+    --dev-os "$dev_os" \
+    --platform "$PLATFORM" \
+    --language "$LANGUAGE" \
+    --track "$TRACK" \
+    --phase 2 \
+    --matrix-dir "$SCRIPT_DIR/templates/tool-matrix" 2>/dev/null) || {
+    print_warn "Tool resolver failed. Falling back to basic tool checks."
+    return 0
+  }
+
+  # Parse bucket counts
+  local auto_count manual_count installed_count deferred_count
+  auto_count=$(echo "$resolver_output" | jq '.auto_install | length')
+  manual_count=$(echo "$resolver_output" | jq '.manual_install | length')
+  installed_count=$(echo "$resolver_output" | jq '.already_installed | length')
+  deferred_count=$(echo "$resolver_output" | jq '.deferred | length')
+
+  # Display the installation plan
+  echo ""
+  echo -e "${BOLD}┌──────────────────────────────────────────────────────────┐${NC}"
+  echo -e "${BOLD}│  Tool Installation Plan ($os_type / $PLATFORM / $LANGUAGE)${NC}"
+  echo -e "${BOLD}├──────────────────────────────────────────────────────────┤${NC}"
+
+  # Already installed
+  if [ "$installed_count" -gt 0 ]; then
+    echo -e "${BOLD}│${NC}  ${GREEN}✓ Already installed${NC}"
+    echo "$resolver_output" | jq -r '.already_installed[] | "    \(.name)\(if .version != "" then " " + .version else "" end)"' | while IFS= read -r line; do
+      echo -e "${BOLD}│${NC}$line"
+    done
+    echo -e "${BOLD}│${NC}"
   fi
 
-  # gitleaks
-  if command -v gitleaks &>/dev/null; then
-    print_ok "gitleaks $(gitleaks version 2>/dev/null)"
-  else
-    print_info "Installing gitleaks..."
-    if [ "$os_type" = "Darwin" ] && command -v brew &>/dev/null; then
-      brew install gitleaks
-    elif [ "$os_type" = "Linux" ] && command -v curl &>/dev/null; then
-      local gl_version
-      gl_version=$(curl -s https://api.github.com/repos/gitleaks/gitleaks/releases/latest | grep '"tag_name"' | sed 's/.*"v\(.*\)".*/\1/')
-      if [ -n "$gl_version" ]; then
-        local arch
-        arch=$(uname -m)
-        case "$arch" in
-          x86_64) arch="x64" ;;
-          aarch64|arm64) arch="arm64" ;;
-        esac
-        local gl_url="https://github.com/gitleaks/gitleaks/releases/download/v${gl_version}/gitleaks_${gl_version}_linux_${arch}.tar.gz"
-        print_info "Downloading gitleaks $gl_version..."
-        curl -sL "$gl_url" | tar xz -C /usr/local/bin gitleaks 2>/dev/null || \
-        curl -sL "$gl_url" | sudo tar xz -C /usr/local/bin gitleaks 2>/dev/null || \
-        print_warn "Could not install gitleaks. Install manually: https://github.com/gitleaks/gitleaks/releases"
+  # Will auto-install
+  if [ "$auto_count" -gt 0 ]; then
+    echo -e "${BOLD}│${NC}  ${CYAN}⬇ Will auto-install${NC}"
+    echo "$resolver_output" | jq -r '.auto_install[] | "    \(.name) (\(.category))"' | while IFS= read -r line; do
+      echo -e "${BOLD}│${NC}$line"
+    done
+    echo -e "${BOLD}│${NC}"
+  fi
+
+  # Manual install required
+  if [ "$manual_count" -gt 0 ]; then
+    echo -e "${BOLD}│${NC}  ${YELLOW}⚠ Requires manual setup${NC}"
+    echo "$resolver_output" | jq -r '.manual_install[] | "    \(.name) — \(.instructions)"' | while IFS= read -r line; do
+      echo -e "${BOLD}│${NC}$line"
+    done
+    echo -e "${BOLD}│${NC}"
+  fi
+
+  # Deferred
+  if [ "$deferred_count" -gt 0 ]; then
+    echo -e "${BOLD}│${NC}  ${BLUE}⏳ Deferred (installed at later phases)${NC}"
+    echo "$resolver_output" | jq -r '.deferred[] | "    Phase \(.phase): \(.name) (\(.category))"' | while IFS= read -r line; do
+      echo -e "${BOLD}│${NC}$line"
+    done
+  fi
+
+  echo -e "${BOLD}└──────────────────────────────────────────────────────────┘${NC}"
+  echo ""
+
+  # Confirm
+  read -rp "$(echo -e "${BOLD}Proceed with this plan? [Y/n]${NC}: ")" response
+  if [[ "$response" =~ ^[Nn] ]]; then
+    # Offer walkthrough or manual edit
+    echo ""
+    local config_choice
+    config_choice=$(prompt_choice "How would you like to configure tools?" \
+      "Guided walkthrough (step through each category)" \
+      "Edit .claude/tool-preferences.json manually")
+
+    if [ "$config_choice" = "Guided walkthrough (step through each category)" ]; then
+      run_tool_walkthrough "$resolver_output" "$dev_os"
+      # Re-resolve after walkthrough
+      resolver_output=$("$SCRIPT_DIR/scripts/resolve-tools.sh" \
+        --dev-os "$dev_os" \
+        --platform "$PLATFORM" \
+        --language "$LANGUAGE" \
+        --track "$TRACK" \
+        --phase 2 \
+        --matrix-dir "$SCRIPT_DIR/templates/tool-matrix" \
+        --tool-prefs "$PROJECT_DIR/.claude/tool-preferences.json" 2>/dev/null) || true
+    else
+      # Write defaults and let user edit
+      write_tool_preferences "$resolver_output" "$dev_os" "$PROJECT_DIR"
+      echo ""
+      print_info "Default preferences written to: $PROJECT_DIR/.claude/tool-preferences.json"
+      print_info "Edit the file, then press Enter to continue."
+      read -rp ""
+      # Re-resolve after manual edit
+      resolver_output=$("$SCRIPT_DIR/scripts/resolve-tools.sh" \
+        --dev-os "$dev_os" \
+        --platform "$PLATFORM" \
+        --language "$LANGUAGE" \
+        --track "$TRACK" \
+        --phase 2 \
+        --matrix-dir "$SCRIPT_DIR/templates/tool-matrix" \
+        --tool-prefs "$PROJECT_DIR/.claude/tool-preferences.json" 2>/dev/null) || true
+    fi
+
+    # Update counts after re-resolution
+    auto_count=$(echo "$resolver_output" | jq '.auto_install | length')
+    manual_count=$(echo "$resolver_output" | jq '.manual_install | length')
+  fi
+
+  # Execute auto-installs
+  if [ "$auto_count" -gt 0 ]; then
+    print_step "Installing tools..."
+    for i in $(seq 0 $((auto_count - 1))); do
+      local tool_name tool_cmd
+      tool_name=$(echo "$resolver_output" | jq -r ".auto_install[$i].name")
+      tool_cmd=$(echo "$resolver_output" | jq -r ".auto_install[$i].install_cmd")
+      print_info "Installing $tool_name..."
+      if eval "$tool_cmd" 2>/dev/null; then
+        print_ok "$tool_name installed"
       else
-        print_warn "Could not determine latest gitleaks version. Install manually: https://github.com/gitleaks/gitleaks/releases"
+        print_warn "Could not install $tool_name. Install manually: $tool_cmd"
       fi
-    else
-      print_warn "Install gitleaks manually: https://github.com/gitleaks/gitleaks/releases"
-    fi
+    done
   fi
 
-  # Snyk
-  if command -v snyk &>/dev/null; then
-    print_ok "Snyk CLI $(snyk --version 2>/dev/null)"
-  else
-    print_info "Installing Snyk CLI..."
-    npm install -g snyk 2>/dev/null || print_warn "Could not install Snyk. Install manually: npm install -g snyk"
+  # Show manual install reminders
+  if [ "$manual_count" -gt 0 ]; then
+    echo ""
+    print_info "Manual setup required for:"
+    for i in $(seq 0 $((manual_count - 1))); do
+      local tool_name instructions
+      tool_name=$(echo "$resolver_output" | jq -r ".manual_install[$i].name")
+      instructions=$(echo "$resolver_output" | jq -r ".manual_install[$i].instructions")
+      echo "  • $tool_name — $instructions"
+    done
   fi
 
-  # Claude Code
-  if command -v claude &>/dev/null; then
-    print_ok "Claude Code $(claude --version 2>/dev/null)"
-  else
-    print_info "Installing Claude Code..."
-    if [ "$os_type" = "Darwin" ] && command -v brew &>/dev/null; then
-      brew install claude-code 2>/dev/null || npm install -g @anthropic-ai/claude-code 2>/dev/null || print_warn "Could not install Claude Code. See: https://docs.anthropic.com/en/docs/claude-code"
-    elif [ "$os_type" = "Linux" ]; then
-      npm install -g @anthropic-ai/claude-code 2>/dev/null || print_warn "Could not install Claude Code. See: https://docs.anthropic.com/en/docs/claude-code"
-    else
-      print_warn "Install Claude Code manually. See: https://docs.anthropic.com/en/docs/claude-code"
-    fi
-  fi
-
-  # Lighthouse (web only)
-  if [ "$PLATFORM" = "web" ]; then
-    if command -v lighthouse &>/dev/null; then
-      print_ok "Lighthouse CLI"
-    else
-      print_info "Installing Lighthouse..."
-      npm install -g lighthouse 2>/dev/null || print_warn "Could not install Lighthouse."
-    fi
-  fi
-
-  # OWASP ZAP Docker image (web only, if Docker available)
-  if [ "$PLATFORM" = "web" ] && command -v docker &>/dev/null; then
-    if docker image inspect zaproxy/zap-stable &>/dev/null 2>&1; then
-      print_ok "OWASP ZAP Docker image"
-    else
-      print_info "Pulling OWASP ZAP image..."
-      docker pull zaproxy/zap-stable 2>/dev/null || print_warn "Could not pull ZAP image."
-    fi
-  fi
+  # Store resolver output for later use by create_project
+  RESOLVER_OUTPUT="$resolver_output"
+  RESOLVER_DEV_OS="$dev_os"
 
   echo ""
-  print_ok "Tool installation complete."
+  print_ok "Tool resolution complete."
 }
 
-# ================================================================
-install_language_runtime() {
-  local os_type
-  os_type="$(uname -s)"
+run_tool_walkthrough() {
+  local resolver_output="$1"
+  local dev_os="$2"
 
-  case "$LANGUAGE" in
-    typescript|javascript)
-      if ! command -v node &>/dev/null; then
-        print_warn "Node.js is required for $LANGUAGE projects."
-        if [ "$os_type" = "Darwin" ] && command -v brew &>/dev/null; then
-          prompt_install "Node.js 22 LTS" "brew install node@22 && brew link --overwrite node@22"
-        elif [ "$os_type" = "Linux" ] && command -v apt &>/dev/null; then
-          prompt_install "Node.js" "sudo apt install -y nodejs npm" true
-        elif [ "$os_type" = "Linux" ] && command -v dnf &>/dev/null; then
-          prompt_install "Node.js" "sudo dnf install -y nodejs npm" true
-        else
-          echo "  Install Node.js 18+: https://nodejs.org/"
-        fi
-      fi ;;
-    python)
-      if ! command -v python3 &>/dev/null && ! command -v python &>/dev/null; then
-        print_warn "Python is required for $LANGUAGE projects."
-        if [ "$os_type" = "Darwin" ] && command -v brew &>/dev/null; then
-          prompt_install "Python 3" "brew install python"
-        elif [ "$os_type" = "Linux" ] && command -v apt &>/dev/null; then
-          prompt_install "Python 3" "sudo apt install -y python3 python3-pip python3-venv" true
-        elif [ "$os_type" = "Linux" ] && command -v dnf &>/dev/null; then
-          prompt_install "Python 3" "sudo dnf install -y python3 python3-pip" true
-        else
-          echo "  Install Python 3.12+: https://python.org/"
-        fi
-      fi ;;
-    rust)
-      if ! command -v cargo &>/dev/null; then
-        print_warn "Rust is required for $LANGUAGE projects."
-        prompt_install "Rust (via rustup)" "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && source \"\$HOME/.cargo/env\""
-      fi ;;
-    go)
-      if ! command -v go &>/dev/null; then
-        print_warn "Go is required for $LANGUAGE projects."
-        if [ "$os_type" = "Darwin" ] && command -v brew &>/dev/null; then
-          prompt_install "Go" "brew install go"
-        elif [ "$os_type" = "Linux" ] && command -v apt &>/dev/null; then
-          prompt_install "Go" "sudo apt install -y golang" true
-        elif [ "$os_type" = "Linux" ] && command -v dnf &>/dev/null; then
-          prompt_install "Go" "sudo dnf install -y golang" true
-        else
-          echo "  Install Go: https://go.dev/dl/"
-        fi
-      fi ;;
-    csharp)
-      if ! command -v dotnet &>/dev/null; then
-        print_warn ".NET SDK is required for $LANGUAGE projects."
-        if [ "$os_type" = "Darwin" ] && command -v brew &>/dev/null; then
-          prompt_install ".NET SDK" "brew install dotnet"
-        else
-          echo "  Install .NET SDK: https://dotnet.microsoft.com/download"
-        fi
-      fi ;;
-    kotlin|java)
-      if ! command -v java &>/dev/null; then
-        print_warn "Java is required for $LANGUAGE projects."
-        if [ "$os_type" = "Darwin" ] && command -v brew &>/dev/null; then
-          prompt_install "Java (Eclipse Temurin)" "brew install temurin"
-        elif [ "$os_type" = "Linux" ] && command -v apt &>/dev/null; then
-          prompt_install "Java (OpenJDK)" "sudo apt install -y default-jdk" true
-        elif [ "$os_type" = "Linux" ] && command -v dnf &>/dev/null; then
-          prompt_install "Java (OpenJDK)" "sudo dnf install -y java-latest-openjdk-devel" true
-        else
-          echo "  Install Java: https://adoptium.net/"
-        fi
-      fi ;;
-    dart)
-      if ! command -v flutter &>/dev/null; then
-        print_warn "Flutter SDK is required for $LANGUAGE projects."
-        if [ "$os_type" = "Darwin" ] && command -v brew &>/dev/null; then
-          prompt_install "Flutter" "brew install flutter"
-        else
-          echo "  Install Flutter: https://docs.flutter.dev/get-started/install"
-        fi
-      fi ;;
-  esac
+  # Get unique substitution categories from auto_install + manual_install
+  local categories
+  categories=$(echo "$resolver_output" | jq -r '[(.auto_install + .manual_install)[] | select(.category != null) | .category] | unique | .[]')
+
+  local prefs_substitutions="{}"
+  local prefs_skipped="[]"
+
+  for category in $categories; do
+    local tool_name
+    tool_name=$(echo "$resolver_output" | jq -r "(.auto_install + .manual_install)[] | select(.category == \"$category\") | .name" | head -1)
+
+    echo ""
+    local choice
+    choice=$(prompt_choice "$category:" \
+      "$tool_name (recommended)" \
+      "Other (enter name and check command)" \
+      "Skip")
+
+    case "$choice" in
+      *recommended*)
+        # Keep default — no action needed
+        ;;
+      *Other*)
+        local custom_name custom_check
+        custom_name=$(prompt_input "Tool name" "")
+        custom_check=$(prompt_input "Check command (shell command that returns 0 if installed)" "command -v $custom_name")
+        prefs_substitutions=$(echo "$prefs_substitutions" | jq \
+          --arg cat "$category" \
+          --arg default "$tool_name" \
+          --arg selected "$custom_name" \
+          --arg check "$custom_check" \
+          '. + {($cat): {default: $default, selected: $selected, check_command: $check}}')
+        ;;
+      *Skip*)
+        prefs_skipped=$(echo "$prefs_skipped" | jq \
+          --arg name "$tool_name" \
+          --arg cat "$category" \
+          '. + [{name: $name, category: $cat, reason: "Skipped during walkthrough"}]')
+        ;;
+    esac
+  done
+
+  # Write preferences
+  mkdir -p "$PROJECT_DIR/.claude"
+  local today
+  today=$(date +%Y-%m-%d)
+  jq -n \
+    --arg version "1.0" \
+    --arg date "$today" \
+    --arg dev_os "$dev_os" \
+    --arg platform "$PLATFORM" \
+    --arg language "$LANGUAGE" \
+    --arg track "$TRACK" \
+    --argjson substitutions "$prefs_substitutions" \
+    --argjson skipped "$prefs_skipped" \
+    '{
+      schema_version: $version,
+      resolved_at: $date,
+      context: {dev_os: $dev_os, platform: $platform, language: $language, track: $track},
+      substitutions: $substitutions,
+      additions: [],
+      skipped: $skipped,
+      installed: {}
+    }' > "$PROJECT_DIR/.claude/tool-preferences.json"
+}
+
+write_tool_preferences() {
+  local resolver_output="$1"
+  local dev_os="$2"
+  local project_dir="$3"
+
+  mkdir -p "$project_dir/.claude"
+  local today
+  today=$(date +%Y-%m-%d)
+
+  # Build installed list from already_installed
+  local installed_phase_0 installed_phase_1
+  installed_phase_0=$(echo "$resolver_output" | jq '[.already_installed[] | select(.category == "version_control" or .category == "json_processor" or .category == "runtime" or .category == "containerization" or .category == "commit_signing") | .name]')
+  installed_phase_1=$(echo "$resolver_output" | jq '[.already_installed[] | select(.category != "version_control" and .category != "json_processor" and .category != "containerization" and .category != "commit_signing") | .name]')
+
+  jq -n \
+    --arg version "1.0" \
+    --arg date "$today" \
+    --arg dev_os "$dev_os" \
+    --arg platform "$PLATFORM" \
+    --arg language "$LANGUAGE" \
+    --arg track "$TRACK" \
+    --argjson phase_0 "$installed_phase_0" \
+    --argjson phase_1 "$installed_phase_1" \
+    '{
+      schema_version: $version,
+      resolved_at: $date,
+      context: {dev_os: $dev_os, platform: $platform, language: $language, track: $track},
+      substitutions: {},
+      additions: [],
+      skipped: [],
+      installed: {phase_0: $phase_0, phase_1: $phase_1}
+    }' > "$project_dir/.claude/tool-preferences.json"
+}
+
+append_intake_tooling_summary() {
+  local resolver_output="$1"
+
+  cat >> PROJECT_INTAKE.md << 'TOOLHDR'
+
+---
+
+## Tooling Configuration
+
+> Auto-generated by init.sh. Full machine-readable config: `.claude/tool-preferences.json`
+
+TOOLHDR
+
+  # Resolved for
+  echo "**Resolved for:** $(uname -s) / $PLATFORM / $LANGUAGE / $TRACK track" >> PROJECT_INTAKE.md
+  echo "" >> PROJECT_INTAKE.md
+
+  # Installed table
+  local installed_count
+  installed_count=$(echo "$resolver_output" | jq '.already_installed | length')
+  if [ "$installed_count" -gt 0 ]; then
+    echo "### Installed" >> PROJECT_INTAKE.md
+    echo "| Tool | Category | Version |" >> PROJECT_INTAKE.md
+    echo "|---|---|---|" >> PROJECT_INTAKE.md
+    echo "$resolver_output" | jq -r '.already_installed[] | "| \(.name) | \(.category) | \(.version) |"' >> PROJECT_INTAKE.md
+    echo "" >> PROJECT_INTAKE.md
+  fi
+
+  # Manual setup table
+  local manual_count
+  manual_count=$(echo "$resolver_output" | jq '.manual_install | length')
+  if [ "$manual_count" -gt 0 ]; then
+    echo "### Manual Setup Required" >> PROJECT_INTAKE.md
+    echo "| Tool | Category | Instructions |" >> PROJECT_INTAKE.md
+    echo "|---|---|---|" >> PROJECT_INTAKE.md
+    echo "$resolver_output" | jq -r '.manual_install[] | "| \(.name) | \(.category) | \(.instructions) |"' >> PROJECT_INTAKE.md
+    echo "" >> PROJECT_INTAKE.md
+  fi
+
+  # Deferred table
+  local deferred_count
+  deferred_count=$(echo "$resolver_output" | jq '.deferred | length')
+  if [ "$deferred_count" -gt 0 ]; then
+    echo "### Deferred (Phase 3+)" >> PROJECT_INTAKE.md
+    echo "| Tool | Phase | Category |" >> PROJECT_INTAKE.md
+    echo "|---|---|---|" >> PROJECT_INTAKE.md
+    echo "$resolver_output" | jq -r '.deferred[] | "| \(.name) | \(.phase) | \(.category) |"' >> PROJECT_INTAKE.md
+    echo "" >> PROJECT_INTAKE.md
+  fi
 }
 
 # ================================================================
@@ -502,11 +747,16 @@ create_project() {
   cp "$SCRIPT_DIR/scripts/check-updates.sh" scripts/
   cp "$SCRIPT_DIR/scripts/resume.sh" scripts/
   cp "$SCRIPT_DIR/scripts/intake-wizard.sh" scripts/
-  chmod +x scripts/validate.sh scripts/check-phase-gate.sh scripts/check-updates.sh scripts/resume.sh scripts/intake-wizard.sh
+  cp "$SCRIPT_DIR/scripts/resolve-tools.sh" scripts/
+  chmod +x scripts/validate.sh scripts/check-phase-gate.sh scripts/check-updates.sh scripts/resume.sh scripts/intake-wizard.sh scripts/resolve-tools.sh
 
   # Copy intake suggestion files
   mkdir -p templates/intake-suggestions
   cp "$SCRIPT_DIR/templates/intake-suggestions/"*.json templates/intake-suggestions/
+
+  # Copy tool matrix files (for phase gate and track upgrade resolution)
+  mkdir -p templates/tool-matrix
+  cp "$SCRIPT_DIR/templates/tool-matrix/"*.json templates/tool-matrix/
 
   # Copy the correct platform module (auto-discovered)
   local platform_module="$SCRIPT_DIR/docs/platform-modules/${PLATFORM}.md"
@@ -517,58 +767,109 @@ create_project() {
     print_info "No platform module for '$PLATFORM'. The Builder's Guide works standalone."
   fi
 
-  # Clone Claude Dev Framework
+  # Initialize git early — Claude Dev Framework requires a git repo
+  print_info "Initializing Git repository..."
+  git init -q
+  # Remove hook samples so framework doesn't misdetect as existing project
+  rm -f .git/hooks/*.sample
+
+  # Install Claude Dev Framework
+  # The framework uses a global clone at ~/.claude-dev-framework shared across
+  # all projects. Its own init.sh handles per-project installation (hooks,
+  # rules, manifest, settings.json).
+  # MIT-licensed: https://github.com/kraulerson/claude-dev-framework
+  local FRAMEWORK_CLONE="$HOME/.claude-dev-framework"
+
   print_info "Installing Claude Dev Framework..."
   if command -v git &>/dev/null; then
-    # Claude Dev Framework is MIT-licensed (https://github.com/kraulerson/claude-dev-framework)
-    # License verified as compatible with the Solo Orchestrator Framework (MIT).
-    git clone -q --branch v1.0 --depth 1 https://github.com/kraulerson/claude-dev-framework.git .claude/framework 2>/dev/null
-    if [ -d ".claude/framework" ]; then
-      # Capture the commit SHA before deleting .git for version pinning
-      local framework_sha
-      framework_sha=$(git -C .claude/framework rev-parse HEAD 2>/dev/null || echo "unknown")
-      echo "$framework_sha" > .claude/framework-version.txt
-      # Remove nested .git so the framework is committed as project files (self-contained)
-      rm -rf .claude/framework/.git
-      # Select the appropriate profile based on platform
-      local profile="_base.yml"
+    # Step 1: Ensure global clone exists
+    if [ ! -d "$FRAMEWORK_CLONE/.git" ]; then
+      print_info "Cloning Claude Dev Framework to $FRAMEWORK_CLONE..."
+      git clone -q --depth 1 https://github.com/kraulerson/claude-dev-framework.git "$FRAMEWORK_CLONE" 2>/dev/null || true
+    else
+      print_ok "Claude Dev Framework already installed at $FRAMEWORK_CLONE"
+    fi
+
+    # Step 2: Run the framework's own init from the project directory
+    if [ -d "$FRAMEWORK_CLONE/.git" ] && [ -f "$FRAMEWORK_CLONE/scripts/init.sh" ]; then
+      local branch
+      branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
+      local dev_os
+      dev_os=$(uname -s)
+
+      # Map platform to framework's target platform format
+      local target_platform="$PLATFORM"
       case "$PLATFORM" in
-        web)     [ -f ".claude/framework/profiles/web-api.yml" ] && profile="web-api.yml" ;;
-        desktop) [ -f ".claude/framework/profiles/cli-tool.yml" ] && profile="cli-tool.yml" ;;
-        mobile)  [ -f ".claude/framework/profiles/mobile-app.yml" ] && profile="mobile-app.yml" ;;
+        web) target_platform="web" ;;
+        desktop) target_platform="$dev_os desktop" ;;
+        mobile) target_platform="iOS/Android" ;;
+        *) target_platform="$PLATFORM" ;;
       esac
 
-      # Create framework config pointing to the selected profile
-      mkdir -p .claude
-      cat > .claude/framework-config.yml << FWEOF
-# Claude Dev Framework — Profile Configuration
-# Auto-generated by Solo Orchestrator init.sh
-#
-# This file tells the framework which profile to use for this project.
-# Profiles inherit from _base.yml and add platform-specific rules.
-# See .claude/framework/profiles/ for available profiles.
-#
-# The framework is pinned to the commit in .claude/framework-version.txt.
-# To update: re-clone from https://github.com/kraulerson/claude-dev-framework.git
-# into .claude/framework/, capture the new commit SHA, and replace the files.
-#
-# To change: update the active_profile value and run the framework's
-# sync script, or manually copy the profile's hooks into .git/hooks/
+      # Write pre-populated discovery JSON to temp file (avoids creating
+      # .claude/ before framework init, which would trigger migration mode)
+      local discovery_tmp
+      discovery_tmp=$(mktemp)
+      if command -v jq &>/dev/null; then
+        jq -n \
+          --arg branch "$branch" \
+          --arg os "$dev_os" \
+          --arg target "$target_platform" \
+          --arg lang "$LANGUAGE" \
+          --arg today "$(date +%Y-%m-%d)" \
+          '{
+            ("branch:" + $branch): {
+              purpose: "main development branch",
+              devOS: $os,
+              targetPlatform: $target,
+              buildTools: $lang
+            },
+            futurePlatforms: null,
+            discoveryDate: $today,
+            lastReviewDate: $today
+          }' > "$discovery_tmp"
+      fi
 
-active_profile: $profile
-framework_path: .claude/framework
-FWEOF
+      # Map Solo Orchestrator platform to framework profile name
+      local fw_profile
+      case "$PLATFORM" in
+        web)     fw_profile="web-app" ;;
+        desktop) fw_profile="desktop-app" ;;
+        mobile)  fw_profile="mobile-app" ;;
+        *)       fw_profile="cli-tool" ;;
+      esac
 
-      print_ok "Claude Dev Framework installed (profile: $profile)"
-      print_info "Hooks will activate after first commit. See .claude/framework/README.md for details."
+      # Run the framework's init with:
+      #   --prepopulate: skip interactive discovery interview (v4.0.0+)
+      #   --skip-plugin-check: Superpowers/Context7 already checked above
+      # Pipe the profile name for the interactive profile detection prompt.
+      print_info "Running Claude Dev Framework init..."
+      (cd "$PROJECT_DIR" && echo "$fw_profile" | bash "$FRAMEWORK_CLONE/scripts/init.sh" \
+        --prepopulate "$discovery_tmp" --skip-plugin-check 2>&1) || {
+        print_warn "Claude Dev Framework init encountered an issue."
+        print_warn "You can run it manually later: bash ~/.claude-dev-framework/scripts/init.sh"
+      }
+      rm -f "$discovery_tmp"
+
+      if [ -f ".claude/manifest.json" ]; then
+        print_ok "Claude Dev Framework installed and configured"
+      else
+        print_warn "Claude Dev Framework install may be incomplete. Run manually: bash ~/.claude-dev-framework/scripts/init.sh"
+      fi
     else
-      print_warn "Could not clone Claude Dev Framework. The fallback pre-commit hook (gitleaks + Semgrep + test co-location) will still be installed."
-      print_warn "For deeper hook coverage, install manually: git clone https://github.com/kraulerson/claude-dev-framework.git .claude/framework"
+      print_warn "Could not install Claude Dev Framework. The fallback pre-commit hook will still be installed."
+      print_warn "Install manually: git clone https://github.com/kraulerson/claude-dev-framework.git ~/.claude-dev-framework"
+      print_warn "Then from your project: bash ~/.claude-dev-framework/scripts/init.sh"
     fi
   fi
 
   # Copy intake template
   cp "$SCRIPT_DIR/templates/project-intake.md" PROJECT_INTAKE.md
+
+  # Append tooling configuration summary to PROJECT_INTAKE.md
+  if [ -n "${RESOLVER_OUTPUT:-}" ]; then
+    append_intake_tooling_summary "$RESOLVER_OUTPUT"
+  fi
 
   # Generate phase state tracking
   print_info "Generating phase state..."
@@ -585,6 +886,12 @@ FWEOF
   }
 }
 PHEOF
+
+  # Write tool-preferences.json (from resolver output stored earlier)
+  if [ -n "${RESOLVER_OUTPUT:-}" ]; then
+    write_tool_preferences "$RESOLVER_OUTPUT" "$RESOLVER_DEV_OS" "$PROJECT_DIR"
+    print_ok "Tool preferences written to .claude/tool-preferences.json"
+  fi
 
   # Generate CLAUDE.md
   print_info "Generating CLAUDE.md..."
@@ -605,10 +912,6 @@ PHEOF
   # Generate release pipeline (platform-specific)
   print_info "Generating release pipeline..."
   generate_release
-
-  # Initialize git
-  print_info "Initializing Git repository..."
-  git init -q
 
   # Install fallback pre-commit hook
   # This provides a baseline enforcement floor (secret detection + test co-location)
@@ -764,7 +1067,7 @@ This project follows the **Solo Orchestrator Framework v1.0**.
 - Platform Module: \`docs/platform-modules/\`
 - Project Intake: \`PROJECT_INTAKE.md\` (fill this out first)
 - Approval Log: \`APPROVAL_LOG.md\` (governance approval tracking — update at each phase gate)
-- Claude Dev Framework: \`.claude/framework/\` (Git hook guardrails — profile: see \`.claude/framework-config.yml\`)
+- Claude Dev Framework: \`.claude/framework/\` (Git hook guardrails — see \`.claude/manifest.json\` for active profile and configuration)
 
 ## Operating Instructions
 You are the AI coding agent for this Solo Orchestrator project. The human is the Orchestrator — they define intent, constraints, and validation. You provide syntax, scaffolding, and pattern execution.
@@ -1324,58 +1627,51 @@ health_check() {
   [ -f ".claude/phase-state.json" ] && print_ok "Phase state tracking" || { print_fail "Phase state file missing (.claude/phase-state.json)"; ((warnings++)); }
   [ -x "scripts/validate.sh" ] && print_ok "Validation script" || { print_fail "scripts/validate.sh missing"; ((warnings++)); }
   [ -x "scripts/check-phase-gate.sh" ] && print_ok "Phase gate check script" || { print_fail "scripts/check-phase-gate.sh missing"; ((warnings++)); }
-  [ -d ".claude/framework" ] && print_ok "Claude Dev Framework" || { print_warn "Claude Dev Framework not installed"; ((warnings++)); }
+  [ -f ".claude/manifest.json" ] && print_ok "Claude Dev Framework (manifest found)" || { print_warn "Claude Dev Framework not fully installed — run: bash ~/.claude-dev-framework/scripts/init.sh"; ((warnings++)); }
   [ -x ".git/hooks/pre-commit" ] && print_ok "Pre-commit hook installed" || { print_warn "Pre-commit hook missing"; ((warnings++)); }
 
-  # Check tools
-  command -v claude &>/dev/null && print_ok "Claude Code accessible" || { print_warn "Claude Code not found"; ((warnings++)); }
-  command -v semgrep &>/dev/null && print_ok "Semgrep accessible" || { print_warn "Semgrep not found"; ((warnings++)); }
-  command -v gitleaks &>/dev/null && print_ok "gitleaks accessible" || { print_warn "gitleaks not found"; ((warnings++)); }
-  command -v snyk &>/dev/null && print_ok "Snyk accessible" || { print_warn "Snyk not found"; ((warnings++)); }
+  # Check tools via tool-preferences.json (matrix-driven) or fallback to basic checks
+  if [ -f ".claude/tool-preferences.json" ]; then
+    print_ok "Tool preferences file present"
+    # Re-run resolver to check current state
+    local dev_os
+    case "$(uname -s)" in Darwin) dev_os="darwin" ;; *) dev_os="linux" ;; esac
+    local health_output
+    health_output=$(scripts/resolve-tools.sh \
+      --dev-os "$dev_os" \
+      --platform "$PLATFORM" \
+      --language "$LANGUAGE" \
+      --track "$TRACK" \
+      --phase 2 \
+      --matrix-dir templates/tool-matrix \
+      --tool-prefs ".claude/tool-preferences.json" 2>/dev/null) || true
 
-  # Check language runtime
-  case "$LANGUAGE" in
-    typescript|javascript)
-      command -v node &>/dev/null && print_ok "Node.js runtime" || { print_fail "Node.js not found (required for $LANGUAGE)"; ((warnings++)); } ;;
-    python)
-      (command -v python3 &>/dev/null || command -v python &>/dev/null) && print_ok "Python runtime" || { print_fail "Python not found (required for $LANGUAGE)"; ((warnings++)); } ;;
-    rust)
-      command -v cargo &>/dev/null && print_ok "Rust/Cargo runtime" || { print_fail "Rust (cargo) not found (required for $LANGUAGE). Install: https://rustup.rs/"; ((warnings++)); } ;;
-    csharp)
-      command -v dotnet &>/dev/null && print_ok ".NET SDK" || { print_fail ".NET SDK not found (required for $LANGUAGE). Install: https://dotnet.microsoft.com/download"; ((warnings++)); } ;;
-    kotlin|java)
-      command -v java &>/dev/null && print_ok "Java runtime" || { print_fail "Java not found (required for $LANGUAGE). Install: https://adoptium.net/"; ((warnings++)); }
-      command -v gradle &>/dev/null && print_ok "Gradle" || { print_warn "Gradle not found (use ./gradlew wrapper or install: https://gradle.org/)"; ((warnings++)); } ;;
-    go)
-      command -v go &>/dev/null && print_ok "Go runtime" || { print_fail "Go not found (required for $LANGUAGE). Install: https://go.dev/dl/"; ((warnings++)); } ;;
-    dart)
-      command -v flutter &>/dev/null && print_ok "Flutter SDK" || { print_fail "Flutter not found (required for $LANGUAGE). Install: https://docs.flutter.dev/get-started/install"; ((warnings++)); } ;;
-  esac
+    if [ -n "$health_output" ]; then
+      echo "$health_output" | jq -r '.already_installed[] | .name' | while IFS= read -r tool; do
+        print_ok "$tool accessible"
+      done
+      local missing_required
+      missing_required=$(echo "$health_output" | jq -r '[(.auto_install + .manual_install)[] | select(.required == true) | .name] | .[]')
+      if [ -n "$missing_required" ]; then
+        echo "$missing_required" | while IFS= read -r tool; do
+          print_warn "$tool not found (required)"
+          ((warnings++)) || true
+        done
+      fi
+    fi
+  else
+    # Fallback: basic tool checks (for projects created before matrix system)
+    command -v claude &>/dev/null && print_ok "Claude Code accessible" || { print_warn "Claude Code not found"; ((warnings++)); }
+    command -v semgrep &>/dev/null && print_ok "Semgrep accessible" || { print_warn "Semgrep not found"; ((warnings++)); }
+    command -v gitleaks &>/dev/null && print_ok "gitleaks accessible" || { print_warn "gitleaks not found"; ((warnings++)); }
+    command -v snyk &>/dev/null && print_ok "Snyk accessible" || { print_warn "Snyk not found"; ((warnings++)); }
+  fi
 
   echo ""
   if [ $warnings -eq 0 ]; then
     print_ok "All health checks passed."
   else
     print_warn "$warnings warnings. Review above and resolve before starting."
-  fi
-
-  # Check specifically for security tools and print a prominent warning
-  local security_missing=()
-  command -v semgrep &>/dev/null || security_missing+=("semgrep")
-  command -v gitleaks &>/dev/null || security_missing+=("gitleaks")
-  command -v snyk &>/dev/null || security_missing+=("snyk")
-
-  if [ ${#security_missing[@]} -gt 0 ]; then
-    echo ""
-    echo -e "${YELLOW}╔══════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${YELLOW}║  REQUIRED SECURITY TOOLS MISSING: ${security_missing[*]}${NC}"
-    echo -e "${YELLOW}║                                                                  ║${NC}"
-    echo -e "${YELLOW}║  The Solo Orchestrator methodology requires these tools for       ║${NC}"
-    echo -e "${YELLOW}║  Phase 2 (security audits) and Phase 3 (validation). Install      ║${NC}"
-    echo -e "${YELLOW}║  them before starting development. The framework's security       ║${NC}"
-    echo -e "${YELLOW}║  scanning will not function without them.                         ║${NC}"
-    echo -e "${YELLOW}╚══════════════════════════════════════════════════════════════════╝${NC}"
-    echo ""
   fi
 }
 
@@ -1426,11 +1722,35 @@ print_next_steps() {
   echo "     Phase 0. Only ask me for clarifying questions.\""
   echo ""
 
-  echo "  OPTIONAL ENHANCEMENTS (see docs/framework/cli-setup-addendum.md):"
-  echo "     - Superpowers plugin (agentic skills for Phase 2)"
-  echo "     - Claude Dev Framework (Git hook guardrails)"
-  echo "     - Context7 MCP (up-to-date library documentation)"
-  echo "     - Qdrant MCP (persistent semantic memory across sessions)"
+  # Show dependency status and remaining optional enhancements
+  echo "  INSTALLED DEPENDENCIES:"
+  if [ -f "$PROJECT_DIR/.claude/manifest.json" ]; then
+    echo "     ✓ Claude Dev Framework (Git hook guardrails)"
+  else
+    echo "     ✗ Claude Dev Framework — run: bash ~/.claude-dev-framework/scripts/init.sh"
+  fi
+  if [ -f "$HOME/.claude/settings.json" ] && command -v jq &>/dev/null; then
+    local _sp _c7
+    _sp=$(jq -r '.enabledPlugins["superpowers@claude-plugins-official"] // false' "$HOME/.claude/settings.json" 2>/dev/null || echo "false")
+    _c7=$(jq -e '.mcpServers.context7 // .mcpServers["context7-mcp"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1 && echo "true" || echo "false")
+    if [ "$_sp" = "true" ]; then
+      echo "     ✓ Superpowers plugin (agentic skills for Phase 2)"
+    else
+      echo "     ✗ Superpowers plugin — run: claude → /plugins → search 'superpowers' → install"
+    fi
+    if [ "$_c7" = "true" ]; then
+      echo "     ✓ Context7 MCP (up-to-date library documentation)"
+    else
+      echo "     ✗ Context7 MCP — run: claude mcp add context7 -- npx -y @upstash/context7-mcp@latest"
+    fi
+    local _qd
+    _qd=$(jq -e '.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1 && echo "true" || echo "false")
+    if [ "$_qd" = "true" ]; then
+      echo "     ✓ Qdrant MCP (persistent semantic memory across sessions)"
+    else
+      echo "     ✗ Qdrant MCP — see docs/framework/cli-setup-addendum.md for setup"
+    fi
+  fi
   echo ""
   if [ -f "$PROJECT_DIR/.github/workflows/release.yml" ]; then
     echo "  RELEASE PIPELINE (review before first release):"
@@ -1468,16 +1788,25 @@ dry_run_summary() {
   echo "  Directory: $PROJECT_DIR"
   echo ""
 
-  echo -e "${BOLD}Tools to install (if missing):${NC}"
-  command -v semgrep &>/dev/null && echo "  [already installed] Semgrep" || echo "  [WILL INSTALL] Semgrep (SAST scanner)"
-  command -v gitleaks &>/dev/null && echo "  [already installed] gitleaks" || echo "  [WILL INSTALL] gitleaks (secret detection)"
-  command -v snyk &>/dev/null && echo "  [already installed] Snyk CLI" || echo "  [WILL INSTALL] Snyk CLI (dependency vulnerability scanner)"
-  command -v claude &>/dev/null && echo "  [already installed] Claude Code" || echo "  [WILL INSTALL] Claude Code (AI coding agent)"
-  if [ "$PLATFORM" = "web" ]; then
-    command -v lighthouse &>/dev/null && echo "  [already installed] Lighthouse" || echo "  [WILL INSTALL] Lighthouse (performance auditing)"
-    if command -v docker &>/dev/null; then
-      docker image inspect zaproxy/zap-stable &>/dev/null 2>&1 && echo "  [already installed] OWASP ZAP" || echo "  [WILL INSTALL] OWASP ZAP Docker image (DAST scanner)"
-    fi
+  echo -e "${BOLD}Tool Resolution:${NC}"
+  local dev_os
+  case "$(uname -s)" in Darwin) dev_os="darwin" ;; *) dev_os="linux" ;; esac
+  local dry_output
+  dry_output=$("$SCRIPT_DIR/scripts/resolve-tools.sh" \
+    --dev-os "$dev_os" \
+    --platform "$PLATFORM" \
+    --language "$LANGUAGE" \
+    --track "$TRACK" \
+    --phase 2 \
+    --matrix-dir "$SCRIPT_DIR/templates/tool-matrix" 2>/dev/null) || {
+    echo "  (resolver unavailable — cannot preview tools)"
+    dry_output=""
+  }
+  if [ -n "$dry_output" ]; then
+    echo "$dry_output" | jq -r '.already_installed[] | "  [already installed] \(.name) \(.version)"'
+    echo "$dry_output" | jq -r '.auto_install[] | "  [WILL INSTALL] \(.name) (\(.description))"'
+    echo "$dry_output" | jq -r '.manual_install[] | "  [MANUAL] \(.name) — \(.instructions)"'
+    echo "$dry_output" | jq -r '.deferred[] | "  [DEFERRED Phase \(.phase)] \(.name) (\(.description))"'
   fi
   echo ""
 
@@ -1488,7 +1817,9 @@ dry_run_summary() {
   echo "  .github/workflows/ci.yml              — CI pipeline ($LANGUAGE)"
   echo "  .github/workflows/release.yml         — Release pipeline ($PLATFORM)"
   echo "  .gitignore                            — Language + platform ignores"
-  echo "  .claude/framework/                    — Claude Dev Framework (git hooks)"
+  echo "  .claude/framework/                    — Claude Dev Framework hooks and rules"
+  echo "  .claude/manifest.json                 — Framework configuration and metadata"
+  echo "  .claude/settings.json                 — Claude Code hook configuration"
   echo "  .claude/phase-state.json              — Phase tracking"
   echo "  docs/framework/builders-guide.md      — Builder's Guide"
   echo "  docs/framework/governance-framework.md"
@@ -1555,8 +1886,7 @@ main() {
   if [ "$DRY_RUN" = true ]; then
     dry_run_summary
   else
-    install_language_runtime
-    install_tools
+    resolve_and_install_tools
     create_project
     health_check
     print_next_steps

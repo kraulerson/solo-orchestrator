@@ -1,0 +1,167 @@
+{
+  "schema_version": "1.0",
+  "scope": "mobile",
+  "description": "Tools specific to mobile platform projects (iOS, Android, cross-platform)",
+  "tools": [
+    {
+      "category": "mobile_build_tools",
+      "name": "EAS CLI",
+      "description": "Expo Application Services CLI for React Native builds and submissions",
+      "required": true,
+      "phase": 2,
+      "tracks": ["light", "standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["mobile"],
+      "languages": ["typescript", "javascript"],
+      "check_command": "command -v eas",
+      "version_command": "eas --version 2>/dev/null",
+      "install": {
+        "npm": "npm install -g eas-cli",
+        "manual": "npm install -g eas-cli"
+      },
+      "auto_installable": true,
+      "substitutable": false,
+      "substitution_category": null
+    },
+    {
+      "category": "mobile_build_tools",
+      "name": "Xcode Command Line Tools",
+      "description": "Apple build toolchain (required for iOS development)",
+      "required": true,
+      "phase": 2,
+      "tracks": ["light", "standard", "full"],
+      "dev_os": ["darwin"],
+      "platforms": ["mobile"],
+      "languages": ["all"],
+      "check_command": "xcode-select -p &>/dev/null 2>&1",
+      "version_command": "xcodebuild -version 2>/dev/null | head -1",
+      "install": {
+        "darwin_manual": "xcode-select --install",
+        "manual": "xcode-select --install (macOS only — iOS development requires macOS)"
+      },
+      "auto_installable": false,
+      "substitutable": false,
+      "substitution_category": null
+    },
+    {
+      "category": "mobile_build_tools",
+      "name": "CocoaPods",
+      "description": "iOS dependency manager (required for React Native and Flutter iOS builds)",
+      "required": true,
+      "phase": 2,
+      "tracks": ["light", "standard", "full"],
+      "dev_os": ["darwin"],
+      "platforms": ["mobile"],
+      "languages": ["typescript", "javascript", "dart"],
+      "check_command": "command -v pod",
+      "version_command": "pod --version 2>/dev/null",
+      "install": {
+        "darwin_brew": "brew install cocoapods",
+        "darwin_manual": "sudo gem install cocoapods",
+        "manual": "sudo gem install cocoapods (macOS only)"
+      },
+      "auto_installable": true,
+      "substitutable": false,
+      "substitution_category": null
+    },
+    {
+      "category": "mobile_build_tools",
+      "name": "Android Studio",
+      "description": "Android development IDE and SDK manager",
+      "required": true,
+      "phase": 2,
+      "tracks": ["light", "standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["mobile"],
+      "languages": ["all"],
+      "check_command": "[ -d \"$HOME/Library/Android/sdk\" ] || [ -d \"$HOME/Android/Sdk\" ] || [ -n \"$ANDROID_HOME\" ]",
+      "version_command": "echo 'SDK present'",
+      "install": {
+        "darwin_brew": "brew install --cask android-studio",
+        "manual": "Download from https://developer.android.com/studio. After install, open Android Studio → SDK Manager → install: Android SDK Platform (latest), Build-Tools, Emulator, Platform-Tools."
+      },
+      "auto_installable": true,
+      "substitutable": false,
+      "substitution_category": null
+    },
+    {
+      "category": "license_compliance",
+      "name": "license-checker",
+      "description": "Node.js dependency license auditing (React Native projects)",
+      "required": true,
+      "phase": 3,
+      "tracks": ["standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["mobile"],
+      "languages": ["typescript", "javascript"],
+      "check_command": "command -v license-checker",
+      "version_command": "license-checker --version 2>/dev/null",
+      "install": {
+        "npm": "npm install -g license-checker",
+        "manual": "npm install -g license-checker"
+      },
+      "auto_installable": true,
+      "substitutable": true,
+      "substitution_category": "License Compliance"
+    },
+    {
+      "category": "license_compliance",
+      "name": "dart_license_checker",
+      "description": "Dart/Flutter dependency license auditing",
+      "required": true,
+      "phase": 3,
+      "tracks": ["standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["mobile"],
+      "languages": ["dart"],
+      "check_command": "dart pub global list 2>/dev/null | grep -q dart_license_checker",
+      "version_command": "echo 'installed via dart pub global'",
+      "install": {
+        "manual": "dart pub global activate dart_license_checker",
+        "darwin_brew": "dart pub global activate dart_license_checker",
+        "linux_apt": "dart pub global activate dart_license_checker"
+      },
+      "auto_installable": true,
+      "substitutable": true,
+      "substitution_category": "License Compliance"
+    },
+    {
+      "category": "code_signing",
+      "name": "Apple Developer Program",
+      "description": "Required for iOS app distribution and code signing ($99/year)",
+      "required": true,
+      "phase": 4,
+      "tracks": ["standard", "full"],
+      "dev_os": ["darwin"],
+      "platforms": ["mobile"],
+      "languages": ["all"],
+      "check_command": "security find-identity -v -p codesigning 2>/dev/null | grep -q 'Apple Development'",
+      "version_command": "echo 'signing identity present'",
+      "install": {
+        "manual": "Enroll at https://developer.apple.com/programs/ ($99/year). Then create signing certificates via Xcode → Settings → Accounts."
+      },
+      "auto_installable": false,
+      "substitutable": false,
+      "substitution_category": null
+    },
+    {
+      "category": "code_signing",
+      "name": "Android Keystore",
+      "description": "Android app signing keystore for Play Store distribution",
+      "required": true,
+      "phase": 4,
+      "tracks": ["standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["mobile"],
+      "languages": ["all"],
+      "check_command": "false",
+      "version_command": "echo 'N/A'",
+      "install": {
+        "manual": "Generate with: keytool -genkey -v -keystore release.keystore -alias release -keyalg RSA -keysize 2048 -validity 10000. Store securely — loss means you cannot update your app."
+      },
+      "auto_installable": false,
+      "substitutable": false,
+      "substitution_category": null
+    }
+  ]
+}

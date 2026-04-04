@@ -109,6 +109,46 @@ if [ "$current_phase" -lt 1 ] && [ -n "$gate_0_to_1" ]; then
   ((issues++))
 fi
 
+# --- Tool Resolution Check (for phase transitions) ---
+# If transitioning to a new phase, check for deferred tools that are now needed
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+RESOLVER="$SCRIPT_DIR/scripts/resolve-tools.sh"
+TOOL_PREFS=".claude/tool-preferences.json"
+
+if [ -f "$TOOL_PREFS" ] && [ -x "$RESOLVER" ] && command -v jq &>/dev/null; then
+  dev_os=$(jq -r '.context.dev_os' "$TOOL_PREFS" 2>/dev/null || echo "")
+  platform=$(jq -r '.context.platform' "$TOOL_PREFS" 2>/dev/null || echo "")
+  language=$(jq -r '.context.language' "$TOOL_PREFS" 2>/dev/null || echo "")
+  track=$(jq -r '.context.track' "$TOOL_PREFS" 2>/dev/null || echo "")
+
+  if [ -n "$dev_os" ] && [ -n "$platform" ] && [ -n "$language" ] && [ -n "$track" ]; then
+    # Resolve for the current phase
+    tool_output=$("$RESOLVER" \
+      --dev-os "$dev_os" \
+      --platform "$platform" \
+      --language "$language" \
+      --track "$track" \
+      --phase "$current_phase" \
+      --matrix-dir "$SCRIPT_DIR/templates/tool-matrix" \
+      --tool-prefs "$TOOL_PREFS" 2>/dev/null) || tool_output=""
+
+    if [ -n "$tool_output" ]; then
+      missing_required=$(echo "$tool_output" | jq '[(.auto_install + .manual_install)[] | select(.required == true)]')
+      missing_count=$(echo "$missing_required" | jq 'length')
+
+      if [ "$missing_count" -gt 0 ]; then
+        echo ""
+        echo -e "${YELLOW}${BOLD}Required tools missing for Phase $current_phase:${NC}"
+        echo "$missing_required" | jq -r '.[] | "  • \(.name) (\(.category))"'
+        echo ""
+        echo "Run the tool resolver to install:"
+        echo "  bash scripts/resolve-tools.sh --dev-os $dev_os --platform $platform --language $language --track $track --phase $current_phase --matrix-dir templates/tool-matrix --tool-prefs $TOOL_PREFS"
+        ((issues++))
+      fi
+    fi
+  fi
+fi
+
 echo ""
 if [ $issues -eq 0 ]; then
   echo -e "${GREEN}${BOLD}Phase gates consistent.${NC}"
