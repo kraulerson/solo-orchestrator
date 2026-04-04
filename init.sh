@@ -383,6 +383,9 @@ collect_project_info() {
   # the primary language here. You will need to add CI steps for secondary languages
   # manually in .github/workflows/ci.yml after project creation.
 
+  # Testing interval (default 2, configurable in Intake)
+  TEST_INTERVAL=2
+
   # Determine project directory
   PROJECT_DIR=$(prompt_input "Project directory" "$HOME/projects/$PROJECT_NAME")
 
@@ -750,7 +753,8 @@ create_project() {
   cp "$SCRIPT_DIR/scripts/resolve-tools.sh" scripts/
   cp "$SCRIPT_DIR/scripts/upgrade-project.sh" scripts/
   cp "$SCRIPT_DIR/scripts/verify-install.sh" scripts/
-  chmod +x scripts/validate.sh scripts/check-phase-gate.sh scripts/check-updates.sh scripts/resume.sh scripts/intake-wizard.sh scripts/resolve-tools.sh scripts/upgrade-project.sh scripts/verify-install.sh
+  cp "$SCRIPT_DIR/scripts/test-gate.sh" scripts/
+  chmod +x scripts/validate.sh scripts/check-phase-gate.sh scripts/check-updates.sh scripts/resume.sh scripts/intake-wizard.sh scripts/resolve-tools.sh scripts/upgrade-project.sh scripts/verify-install.sh scripts/test-gate.sh
 
   # Copy intake suggestion files
   mkdir -p templates/intake-suggestions
@@ -759,6 +763,10 @@ create_project() {
   # Copy tool matrix files (for phase gate and track upgrade resolution)
   mkdir -p templates/tool-matrix
   cp "$SCRIPT_DIR/templates/tool-matrix/"*.json templates/tool-matrix/
+
+  # Copy UAT template and create session directory structure
+  mkdir -p tests/uat/templates tests/uat/sessions
+  cp "$SCRIPT_DIR/templates/uat-test-template.md" tests/uat/templates/test-session-template.md
 
   # Copy the correct platform module (auto-discovered)
   local platform_module="$SCRIPT_DIR/docs/platform-modules/${PLATFORM}.md"
@@ -894,6 +902,21 @@ PHEOF
     jq -n --arg s "$SCRIPT_DIR" '{source_dir: $s}' > .claude/orchestrator-source.json
     print_ok "Orchestrator source path stored"
   fi
+
+  # Generate initial build progress tracking
+  cat > .claude/build-progress.json << BPEOF
+{
+  "features_completed": [],
+  "features_since_last_test": 0,
+  "test_interval": $TEST_INTERVAL,
+  "last_test_session": null,
+  "testing_required": false,
+  "tester_count": 1,
+  "bug_tracker": "github_issues",
+  "sessions_completed": 0
+}
+BPEOF
+  print_ok "Build progress tracking initialized (test interval: every $TEST_INTERVAL features)"
 
   # Write tool-preferences.json (from resolver output stored earlier)
   if [ -n "${RESOLVER_OUTPUT:-}" ]; then
@@ -1131,6 +1154,23 @@ This project can be upgraded without losing technical work:
 - **Deployment upgrade** (personal → organizational): \`bash scripts/upgrade-project.sh --deployment organizational\`
 - **POC → Production**: \`bash scripts/upgrade-project.sh --to-production\`
 All technical artifacts carry forward unchanged. Upgrades add governance requirements, tooling, and validation — they never remove work.
+
+### Testing & Bug Workflow
+- **Testing interval:** Every $TEST_INTERVAL features (configured in Intake Section 11.5)
+- **Bug tracker:** Configured in Intake Section 11.5
+- **Process:** After every $TEST_INTERVAL features, stop construction and run a UAT session:
+  1. Check the gate: \`scripts/test-gate.sh --check-batch\`
+  2. If blocked: dispatch parallel test agents (automated suite, exploratory, cross-platform)
+  3. Generate test template for human tester(s) and wait for results
+  4. Verify submission completeness — list incomplete scenarios, ask to continue or finish
+  5. Consolidate all results into bug tracker
+  6. Triage with Orchestrator (Fix Now / Defer / Won't Fix / Post-MVP)
+  7. Fix all "Fix Now" bugs test-first
+  8. Re-test until gate passes: \`scripts/test-gate.sh --check-batch\`
+  9. Reset counter: \`scripts/test-gate.sh --reset-counter\`
+- **After each feature:** \`scripts/test-gate.sh --record-feature "feature-name"\`
+- **Gate enforcement:** Do NOT start the next feature until test-gate.sh --check-batch returns 0.
+- **Severity rules:** SEV-1 cannot be deferred. SEV-2 can be deferred during Phase 2 but must be resolved or feature removed at Phase 2→3 gate.
 CLAUDEEOF
 }
 

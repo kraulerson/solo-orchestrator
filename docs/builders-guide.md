@@ -645,6 +645,22 @@ Synthesize all Phase 1 outputs into `PROJECT_BIBLE.md`:
 10. Coding Standards (linting, formatting, naming, "never do this" rules)
 11. **Build & Distribution Strategy** (platform-specific build pipeline, packaging, distribution channels)
 12. **Test Strategy** — What is tested (unit, integration, E2E, security, accessibility, performance), what tools are used, what constitutes pass/fail for each category, entry/exit criteria for Phase 3, and where test results are stored. This is the project's test plan.
+
+**Bug Severity Classification:**
+
+| Severity | Definition | Examples |
+|---|---|---|
+| **SEV-1** | Data loss, security breach, app crash on core flow, complete feature failure | Auth bypass, database corruption, crash on login |
+| **SEV-2** | Feature broken but workaround exists, significant UX failure | Form submits but wrong data saved, layout broken on one platform |
+| **SEV-3** | Minor UX issue, cosmetic, non-core edge case | Alignment off, tooltip truncated, rare edge case |
+| **SEV-4** | Enhancement, suggestion, polish | "Would be nice if...", performance optimization |
+
+**UAT Plan** (from Intake Section 11.5):
+- Testing interval: Every N features (configured in Intake)
+- Human tester count and coordination method
+- Bug tracking tool
+- Severity SLAs (Full UAT level)
+
 13. **Orchestrator Profile Summary** — Competency gaps and automated tooling to cover them
 14. **Accessibility Requirements** — From Intake Section 9
 15. **Platform-Specific Requirements** — From your Platform Module
@@ -863,6 +879,68 @@ Verify the Bible still accurately reflects the codebase. Commit and merge.
 
 **NEVER modify the data model directly.** All changes go through the versioning tool.
 
+#### Step 2.7 — UAT Testing Session
+
+**Before starting the next feature, check the test gate:**
+```bash
+scripts/test-gate.sh --check-batch
+```
+
+If the gate blocks (testing interval reached), execute a UAT session:
+
+1. **Agent dispatches parallel test subagents** (via `superpowers:dispatching-parallel-agents` if available, sequential otherwise):
+   - **Automated Suite agent:** Runs full test suite (unit + integration + E2E). Reports failures with stack traces.
+   - **Exploratory agent:** Reads the Threat Model (Phase 1.3) and User Journey (Phase 0). Tries to break the current batch — edge cases, unexpected inputs, boundary conditions, error recovery.
+   - **Cross-Platform agent** (if applicable): Runs core flows on each target platform.
+
+2. **Agent generates a test template** pre-populated with the current batch's features and User Journey scenarios. Places it in `tests/uat/sessions/<date>-session-N/templates/`.
+
+3. **Agent tells the Orchestrator:** "Testing session started. Your test template is at `<path>`. Complete it and drop results in `submissions/`. Let me know when done."
+
+4. **Agent waits.** Does not proceed, does not poll.
+
+5. **When the Orchestrator says "results are in"**, the agent:
+   - Checks each submission against the template for completeness
+   - If scenarios are incomplete, lists which tests were skipped (and by which tester if multiple)
+   - Asks: "Continue with partial results, or finish testing?"
+
+Agent results go to `tests/uat/sessions/<date>-session-N/agent-results/`. Human submissions go to `submissions/`.
+
+**After each feature (regardless of testing interval):**
+```bash
+scripts/test-gate.sh --record-feature "feature-name"
+```
+
+#### Step 2.8 — Bug Triage
+
+1. Agent consolidates all results (agent test results + human submissions) into the configured bug tracker.
+2. Agent proposes severity for each bug (SEV-1/2/3/4 per Phase 1 classification).
+3. Orchestrator reviews and adjusts severities.
+4. Orchestrator assigns disposition per bug:
+
+| Disposition | Meaning |
+|---|---|
+| **Fix Now** | Agent fixes in this remediation cycle |
+| **Defer** | Tracked with justification. Must be resolved or feature removed at Phase 2→3 gate. SEV-1 cannot be deferred. |
+| **Won't Fix** | Accepted as-is with documented rationale (SEV-3/4 only) |
+| **Post-MVP** | Moved to Post-MVP backlog (SEV-4 enhancements) |
+
+#### Step 2.9 — Remediation Loop
+
+1. Agent fixes all "Fix Now" bugs using Build Loop discipline (write failing test for the bug → implement fix → verify test passes).
+2. Agent re-dispatches parallel test agents. Orchestrator re-tests their specific reported bugs.
+3. Gate check:
+```bash
+scripts/test-gate.sh --check-batch
+```
+   - **Pass** → reset counter, proceed to next feature batch
+   - **Block** → loop back to Step 2.8
+
+After the session completes:
+```bash
+scripts/test-gate.sh --reset-counter
+```
+
 ---
 
 ### Context Health Check (Every 3-4 Features)
@@ -911,6 +989,18 @@ Before moving to Phase 3:
 - [ ] CHANGELOG.md current
 - [ ] No unresolved security findings
 - [ ] Application builds on all target platforms
+- [ ] All UAT testing sessions completed for all feature batches
+- [ ] No open SEV-1 or SEV-2 bugs (deferred SEV-2 must be resolved or feature removed)
+- [ ] Bug triage complete — all bugs have a disposition
+
+**Bug Gate Check:**
+```bash
+scripts/test-gate.sh --check-phase-gate
+```
+- SEV-1 open → **BLOCKED** (must resolve)
+- SEV-2 open or deferred → **BLOCKED** (must resolve or remove/hide the feature — no third option)
+- SEV-3 open → **WARNING** (Orchestrator attests disposition)
+- SEV-4 → No impact
 
 ---
 
@@ -1067,7 +1157,12 @@ These artifacts serve as the audit evidence for Phase 3 completion. They are ref
 - Opt-in usage analytics only
 - Track: core feature usage, error rates, performance metrics
 
-**User testing:** At least one person who has never seen the product completes the core flow. Document confusion points.
+**Final UAT session:**
+- Run a final testing session using the same Step 2.7 process (parallel agents + human testers)
+- All configured testers participate (not just the Orchestrator)
+- For Full UAT level (Sponsored POC / Production): formal acceptance sign-off recorded in `APPROVAL_LOG.md` — product sponsor or designated tester confirms core flow works as specified in the Phase 0 Manifesto
+- Document confusion points, UX friction, and any remaining issues
+- All SEV-1/2 bugs from this session must be resolved before Phase 4
 
 **User documentation:** Direct the agent to produce end-user documentation appropriate to the platform and audience:
 - For internal tools: `USER_GUIDE.md` covering how to access, core workflows, FAQ, and who to contact for support
@@ -1210,12 +1305,15 @@ Core requirements:
 - Review error dashboard. Fix recurring errors.
 - Rotate API keys/tokens approaching expiration
 - Update SBOM
+- Run full E2E test suite before each maintenance release
+- Triage incoming bugs from production monitoring (same severity classification as Phase 2)
 
 **Quarterly (2-3 hours):**
 - Review usage: what are users doing? What are they requesting?
 - Performance comparison to last quarter
 - Infrastructure/distribution cost review
 - Prioritize post-MVP backlog based on real user signals
+- Run full regression test suite (all Phase 2 + Phase 3 tests)
 
 **Biannually (3-4 hours):**
 - Full dependency audit. Identify deprecated packages.
@@ -1236,8 +1334,9 @@ Direct the agent to generate `HANDOFF.md`:
 4. Technical debt map (specific files, nature of debt)
 5. Maintenance schedule summary
 6. Incident history
-7. Key contacts and third-party services
-8. AI Quick Start prompt for a new AI agent
+7. Bug reporting mechanism: how users report bugs post-launch, where bugs are tracked, triage cadence and severity SLAs
+8. Key contacts and third-party services
+9. AI Quick Start prompt for a new AI agent
 
 **Reality check:** Have someone attempt development setup and issue triage using only this document. Fix every gap they find. Repeat.
 

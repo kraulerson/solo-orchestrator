@@ -149,6 +149,26 @@ if [ -f "$TOOL_PREFS" ] && [ -x "$RESOLVER" ] && command -v jq &>/dev/null; then
   fi
 fi
 
+# --- Test/Bug Gate Check (for Phase 2→3) ---
+TEST_GATE="$SCRIPT_DIR/scripts/test-gate.sh"
+
+if [ -x "$TEST_GATE" ] && [ "$current_phase" -ge 2 ]; then
+  echo ""
+  echo -e "${BOLD}Bug Gate Check${NC}"
+  gate_result=0
+  bash "$TEST_GATE" --check-phase-gate || gate_result=$?
+
+  if [ "$gate_result" -eq 1 ]; then
+    echo ""
+    echo -e "${RED}[FAIL]${NC} Bug gate BLOCKED. Resolve SEV-1/2 bugs before Phase 3."
+    ((issues++))
+  elif [ "$gate_result" -eq 2 ]; then
+    echo ""
+    echo -e "${YELLOW}[WARN]${NC} Bug gate has warnings. User attestation required."
+    ((issues++))
+  fi
+fi
+
 echo ""
 if [ $issues -eq 0 ]; then
   echo -e "${GREEN}${BOLD}Phase gates consistent.${NC}"

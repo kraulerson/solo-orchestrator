@@ -225,6 +225,20 @@ All upgrade paths preserve existing technical work:
 
 Upgrades add requirements (governance, tooling, validation) — they never remove work. The tool matrix resolver automatically surfaces new tools needed for the higher track.
 
+### Testing & Bug Tracking
+
+The Build Loop includes a configurable test-fix-verify cycle:
+
+1. **Build N features** (interval configurable — default: every 2 features)
+2. **UAT testing session** — parallel AI agents (automated, exploratory, cross-platform) test alongside the human developer
+3. **Bug triage** — severity classification (SEV-1 through SEV-4), disposition assignment (Fix Now / Defer / Won't Fix / Post-MVP)
+4. **Remediation** — agent fixes bugs test-first, re-tests until gate passes
+5. **Proceed** — only when all tests pass and all Fix Now bugs are resolved
+
+Mechanical enforcement via `scripts/test-gate.sh` prevents skipping test sessions and blocks Phase 2→3 transition with unresolved SEV-1/2 bugs. Deferred bugs must be resolved or their features removed before validation begins.
+
+Bug tracking is tool-agnostic — configure your preferred tracker (GitHub Issues, Linear, Jira, BUGS.md) in the Intake.
+
 Each phase produces artifacts that gate entry into the next phase. The AI executes within constraints. The human validates at decision gates.
 
 ### The Workflow

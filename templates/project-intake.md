@@ -475,6 +475,20 @@ _Anything the agent should know that doesn't fit elsewhere. Technical debt you'r
 
 ---
 
+## 11.5. Testing & Bug Tracking
+
+| Field | Value |
+|---|---|
+| **Testing interval** | _Every N features (default: 2). How many features to build before pausing for a UAT testing session._ |
+| **Bug tracking tool** | GitHub Issues / Linear / Jira / BUGS.md / Other: ______ |
+| **Human tester count** | _Default: 1 (you, the developer). If >1, testers receive a test template per session._ |
+| **Beta tester coordination** (if >1 tester) | _How to reach testers (email, Slack, Discord). How they receive builds (TestFlight, staging URL, GitHub pre-release, download link)._ |
+| **Bug severity SLAs** (Full UAT level only) | SEV-1: ___h / SEV-2: ___d / SEV-3: ___d _(default: SEV-1 24h, SEV-2 7d, SEV-3 best effort)_ |
+
+> **How this is used:** The agent pauses construction every N features to run a UAT testing session. Agent testers run automated, exploratory, and cross-platform tests in parallel while you test manually. Bugs are compiled, triaged, and fixed before construction resumes. See Steps 2.7-2.9 in the Builder's Guide.
+
+---
+
 ## 12. Tooling Configuration
 
 > This section is auto-populated by `init.sh` based on the tool installation matrix. It records what was installed, what needs manual setup, and what is deferred to later phases. Claude reads this to understand the available tooling environment.
