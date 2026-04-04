@@ -15,6 +15,7 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
+          # Current LTS — update when next LTS releases
           dotnet-version: '8.0.x'
 
       - name: Restore dependencies

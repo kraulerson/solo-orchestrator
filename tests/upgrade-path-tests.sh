@@ -31,19 +31,19 @@ else
 fi
 
 pass() {
-  ((PASS++))
+  PASS=$((PASS + 1))
   echo -e "${GREEN}  [PASS]${NC} $1"
   RESULTS+="PASS|$1\n"
 }
 
 fail() {
-  ((FAIL++))
+  FAIL=$((FAIL + 1))
   echo -e "${RED}  [FAIL]${NC} $1"
   RESULTS+="FAIL|$1\n"
 }
 
 warn() {
-  ((WARN++))
+  WARN=$((WARN + 1))
   echo -e "${YELLOW}  [WARN]${NC} $1"
   RESULTS+="WARN|$1\n"
 }

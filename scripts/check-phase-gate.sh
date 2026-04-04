@@ -33,7 +33,7 @@ fi
 
 # Parse phase state using lightweight JSON extraction (no jq dependency)
 # This handles the simple flat structure of phase-state.json
-current_phase=$(grep -o '"current_phase"[[:space:]]*:[[:space:]]*[0-9]' "$PHASE_STATE" | grep -o '[0-9]$' || echo "0")
+current_phase=$(grep -o '"current_phase"[[:space:]]*:[[:space:]]*"*[0-9][0-9]*"*' "$PHASE_STATE" | grep -o '[0-9][0-9]*' || echo "0")
 
 get_gate_date() {
   local gate_key="$1"
@@ -60,11 +60,11 @@ if [ "$current_phase" -ge 1 ]; then
       echo -e "${GREEN}  [OK]${NC} Phase 0→1: gate dated $gate_0_to_1, approval log has entry"
     else
       echo -e "${YELLOW}[WARN]${NC} Phase 0→1: gate dated $gate_0_to_1, but APPROVAL_LOG.md has no dated entry"
-      ((issues++))
+      issues=$((issues + 1))
     fi
   else
     echo -e "${YELLOW}[WARN]${NC} Phase 0→1: current_phase is $current_phase but gate date not recorded in phase-state.json"
-    ((issues++))
+    issues=$((issues + 1))
   fi
 fi
 
@@ -75,11 +75,11 @@ if [ "$current_phase" -ge 2 ]; then
       echo -e "${GREEN}  [OK]${NC} Phase 1→2: gate dated $gate_1_to_2, approval log has entry"
     else
       echo -e "${YELLOW}[WARN]${NC} Phase 1→2: gate dated $gate_1_to_2, but APPROVAL_LOG.md has no dated entry"
-      ((issues++))
+      issues=$((issues + 1))
     fi
   else
     echo -e "${YELLOW}[WARN]${NC} Phase 1→2: current_phase is $current_phase but gate date not recorded in phase-state.json"
-    ((issues++))
+    issues=$((issues + 1))
   fi
 fi
 
@@ -90,18 +90,18 @@ if [ "$current_phase" -ge 4 ]; then
       echo -e "${GREEN}  [OK]${NC} Phase 3→4: gate dated $gate_3_to_4, approval log has entry"
     else
       echo -e "${YELLOW}[WARN]${NC} Phase 3→4: gate dated $gate_3_to_4, but APPROVAL_LOG.md has no dated entry"
-      ((issues++))
+      issues=$((issues + 1))
     fi
   else
     echo -e "${YELLOW}[WARN]${NC} Phase 3→4: current_phase is $current_phase but gate date not recorded in phase-state.json"
-    ((issues++))
+    issues=$((issues + 1))
   fi
 fi
 
 # Check for reverse inconsistency: approval log has dates but phase state doesn't reflect them
 if [ "$current_phase" -lt 1 ] && [ -n "$gate_0_to_1" ]; then
   echo -e "${YELLOW}[WARN]${NC} Phase 0→1 gate has date $gate_0_to_1 but current_phase is still $current_phase"
-  ((issues++))
+  issues=$((issues + 1))
 fi
 
 # --- Tool Resolution Check (for phase transitions) ---
@@ -138,7 +138,7 @@ if [ -f "$TOOL_PREFS" ] && [ -x "$RESOLVER" ] && command -v jq &>/dev/null; then
         echo ""
         echo "Run the tool resolver to install:"
         echo "  bash scripts/resolve-tools.sh --dev-os $dev_os --platform $platform --language $language --track $track --phase $current_phase --matrix-dir templates/tool-matrix --tool-prefs $TOOL_PREFS"
-        ((issues++))
+        issues=$((issues + 1))
       fi
     fi
   fi
@@ -156,11 +156,11 @@ if [ -x "$TEST_GATE" ] && [ "$current_phase" -ge 2 ]; then
   if [ "$gate_result" -eq 1 ]; then
     echo ""
     echo -e "${RED}[FAIL]${NC} Bug gate BLOCKED. Resolve SEV-1/2 bugs before Phase 3."
-    ((issues++))
+    issues=$((issues + 1))
   elif [ "$gate_result" -eq 2 ]; then
     echo ""
     echo -e "${YELLOW}[WARN]${NC} Bug gate has warnings. User attestation required."
-    ((issues++))
+    issues=$((issues + 1))
   fi
 fi
 

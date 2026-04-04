@@ -91,7 +91,8 @@ print_section "CI/CD Pipelines"
 
 if [ -f ".github/workflows/release.yml" ]; then
   # Check if release pipeline still has uncommented TODO placeholders
-  todo_count=$(grep -c "# TODO\|echo.*TODO" .github/workflows/release.yml 2>/dev/null || echo "0")
+  todo_count=$(grep -cE "# TODO|echo.*TODO" .github/workflows/release.yml 2>/dev/null || true)
+  todo_count=${todo_count:-0}
   if [ "$todo_count" -gt 0 ]; then
     print_ok "Release pipeline (${todo_count} TODOs remaining — configure before first release)"
   else
@@ -254,7 +255,7 @@ print_section "CLAUDE.md Currency"
 
 if [ -f "CLAUDE.md" ]; then
   # Check if key sections have been updated from template defaults
-  if grep -q "Features built:.*none yet\|Features remaining:.*see MVP Cutline" CLAUDE.md; then
+  if grep -qE "Features built:.*none yet|Features remaining:.*see MVP Cutline" CLAUDE.md; then
     if [ $phase -ge 2 ]; then
       warn "CLAUDE.md still has template defaults for 'Features built/remaining' — update for Phase 2+"
     else
@@ -266,7 +267,7 @@ if [ -f "CLAUDE.md" ]; then
 
   # Check if architecture constraints section exists (should be present after Phase 1)
   if [ $phase -ge 2 ]; then
-    if grep -q "Architecture Constraints\|## Stack\|## Architecture" CLAUDE.md; then
+    if grep -qE "Architecture Constraints|## Stack|## Architecture" CLAUDE.md; then
       print_ok "CLAUDE.md has architecture section"
     else
       warn "CLAUDE.md missing architecture constraints — should be added after Phase 1"
@@ -364,7 +365,8 @@ if [ -f "PROJECT_INTAKE.md" ] && [ -f ".github/workflows/ci.yml" ] && [ $phase -
 
   if [ $matrix_issues -eq 0 ]; then
     # Check if any rows were actually filled in
-    has_no=$(grep -i "| *No *|" PROJECT_INTAKE.md | grep -ciE "Security|Accessibility|Performance|Database" || echo "0")
+    has_no=$(grep -i "| *No *|" PROJECT_INTAKE.md | grep -ciE "Security|Accessibility|Performance|Database" || true)
+    has_no=${has_no:-0}
     if [ "$has_no" -eq 0 ]; then
       print_info "No domains marked 'No' in Competency Matrix (or matrix not yet filled out)"
     fi

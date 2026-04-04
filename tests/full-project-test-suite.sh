@@ -31,19 +31,19 @@ else
 fi
 
 pass() {
-  ((PASS++))
+  PASS=$((PASS + 1))
   echo -e "${GREEN}  [PASS]${NC} $1"
   RESULTS+="PASS|$1\n"
 }
 
 fail() {
-  ((FAIL++))
+  FAIL=$((FAIL + 1))
   echo -e "${RED}  [FAIL]${NC} $1"
   RESULTS+="FAIL|$1\n"
 }
 
 warn() {
-  ((WARN++))
+  WARN=$((WARN + 1))
   echo -e "${YELLOW}  [WARN]${NC} $1"
   RESULTS+="WARN|$1\n"
 }
@@ -351,12 +351,13 @@ for run in "${TEST_RUNS[@]}"; do
   echo -e "\n${CYAN}--- Simulating: $label ---${NC}"
 
   # Create project structure as init.sh would
-  mkdir -p "$project_dir"/{docs/framework,docs/platform-modules,docs/test-results,.claude,.github/workflows,scripts,templates/intake-suggestions,templates/tool-matrix,evaluation-prompts/Projects}
+  mkdir -p "$project_dir"/{docs/framework,docs/platform-modules,docs/test-results,.claude,.github/workflows,scripts/lib,templates/intake-suggestions,templates/tool-matrix,evaluation-prompts/Projects}
 
   # Copy files as init.sh would
   cp "$SCRIPT_DIR/docs/builders-guide.md" "$project_dir/docs/framework/" 2>/dev/null || true
   cp "$SCRIPT_DIR/docs/governance-framework.md" "$project_dir/docs/framework/" 2>/dev/null || true
   cp "$SCRIPT_DIR/templates/project-intake.md" "$project_dir/PROJECT_INTAKE.md"
+  cp "$SCRIPT_DIR/scripts/lib/helpers.sh" "$project_dir/scripts/lib/"
   cp "$SCRIPT_DIR/scripts/resolve-tools.sh" "$project_dir/scripts/"
   cp "$SCRIPT_DIR/scripts/check-phase-gate.sh" "$project_dir/scripts/"
   cp "$SCRIPT_DIR/scripts/validate.sh" "$project_dir/scripts/"
@@ -378,6 +379,26 @@ for run in "${TEST_RUNS[@]}"; do
 
   # Init git
   (cd "$project_dir" && git init -q)
+
+  # Create phase-state.json (as init.sh would)
+  cat > "$project_dir/.claude/phase-state.json" << PHASEOF
+{
+  "current_phase": 0,
+  "project": "$project_name",
+  "phase_0_to_1": "",
+  "phase_1_to_2": "",
+  "phase_3_to_4": ""
+}
+PHASEOF
+
+  # Create APPROVAL_LOG.md (as init.sh would)
+  cat > "$project_dir/APPROVAL_LOG.md" << 'LOGEOF'
+# Approval Log
+
+## Phase 0 → Phase 1
+**Date:**
+**Reviewer:**
+LOGEOF
 
   # Run resolver and write tool-preferences.json
   dev_os="darwin"

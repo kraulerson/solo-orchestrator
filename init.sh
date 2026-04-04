@@ -30,26 +30,35 @@ check_prerequisites() {
   os_type="$(uname -s)"
   local missing_required=()
 
+  # In dry-run mode, skip all interactive install prompts — just report status
+  local interactive=true
+  [ "$DRY_RUN" = true ] && interactive=false
+
+  # Minimum Node.js major version — keep in sync with templates/tool-matrix/common.json
+  local NODE_MIN_MAJOR=18
+
   # --- Git (required) ---
   if command -v git &>/dev/null; then
     print_ok "Git $(git --version | awk '{print $3}')"
   else
     print_fail "Git not found"
     local git_installed=false
-    if [ "$os_type" = "Darwin" ]; then
-      if command -v brew &>/dev/null; then
-        prompt_install "Git" "brew install git" && git_installed=true
-      else
-        echo "  Install with: xcode-select --install (includes Git)"
-        echo "  Or install Homebrew first: https://brew.sh"
-      fi
-    elif [ "$os_type" = "Linux" ]; then
-      if command -v apt &>/dev/null; then
-        prompt_install "Git" "sudo apt install -y git" true && git_installed=true
-      elif command -v dnf &>/dev/null; then
-        prompt_install "Git" "sudo dnf install -y git" true && git_installed=true
-      else
-        echo "  Install with your distribution's package manager (e.g., sudo apt install git)"
+    if [ "$interactive" = true ]; then
+      if [ "$os_type" = "Darwin" ]; then
+        if command -v brew &>/dev/null; then
+          prompt_install "Git" "brew install git" && git_installed=true
+        else
+          echo "  Install with: xcode-select --install (includes Git)"
+          echo "  Or install Homebrew first: https://brew.sh"
+        fi
+      elif [ "$os_type" = "Linux" ]; then
+        if command -v apt &>/dev/null; then
+          prompt_install "Git" "sudo apt install -y git" true && git_installed=true
+        elif command -v dnf &>/dev/null; then
+          prompt_install "Git" "sudo dnf install -y git" true && git_installed=true
+        else
+          echo "  Install with your distribution's package manager (e.g., sudo apt install git)"
+        fi
       fi
     fi
     if [ "$git_installed" = false ]; then
@@ -63,22 +72,24 @@ check_prerequisites() {
     node_version=$(node --version | sed 's/v//')
     local node_major
     node_major=$(echo "$node_version" | cut -d. -f1)
-    if [ "$node_major" -ge 18 ]; then
+    if [ "$node_major" -ge "$NODE_MIN_MAJOR" ]; then
       print_ok "Node.js $node_version"
     else
-      print_warn "Node.js $node_version (18+ recommended)"
+      print_warn "Node.js $node_version ($NODE_MIN_MAJOR+ recommended)"
     fi
   else
     print_warn "Node.js not found (used by Snyk, license-checker, and JS/TS projects)"
-    if [ "$os_type" = "Darwin" ] && command -v brew &>/dev/null; then
-      prompt_install "Node.js 22 LTS" "brew install node@22 && brew link --overwrite node@22"
-    elif [ "$os_type" = "Linux" ]; then
-      if command -v apt &>/dev/null; then
-        prompt_install "Node.js" "sudo apt install -y nodejs npm" true
-      elif command -v dnf &>/dev/null; then
-        prompt_install "Node.js" "sudo dnf install -y nodejs npm" true
-      else
-        echo "  Install Node.js 18+: https://nodejs.org/"
+    if [ "$interactive" = true ]; then
+      if [ "$os_type" = "Darwin" ] && command -v brew &>/dev/null; then
+        prompt_install "Node.js LTS" "brew install node"
+      elif [ "$os_type" = "Linux" ]; then
+        if command -v apt &>/dev/null; then
+          prompt_install "Node.js" "sudo apt install -y nodejs npm" true
+        elif command -v dnf &>/dev/null; then
+          prompt_install "Node.js" "sudo dnf install -y nodejs npm" true
+        else
+          echo "  Install Node.js 18+: https://nodejs.org/"
+        fi
       fi
     fi
   fi
@@ -88,15 +99,17 @@ check_prerequisites() {
     print_ok "jq $(jq --version 2>/dev/null)"
   else
     print_warn "jq not found (required by Claude Dev Framework for JSON operations)"
-    if [ "$os_type" = "Darwin" ] && command -v brew &>/dev/null; then
-      prompt_install "jq" "brew install jq"
-    elif [ "$os_type" = "Linux" ]; then
-      if command -v apt &>/dev/null; then
-        prompt_install "jq" "sudo apt install -y jq" true
-      elif command -v dnf &>/dev/null; then
-        prompt_install "jq" "sudo dnf install -y jq" true
-      else
-        echo "  Install manually: https://jqlang.github.io/jq/download/"
+    if [ "$interactive" = true ]; then
+      if [ "$os_type" = "Darwin" ] && command -v brew &>/dev/null; then
+        prompt_install "jq" "brew install jq"
+      elif [ "$os_type" = "Linux" ]; then
+        if command -v apt &>/dev/null; then
+          prompt_install "jq" "sudo apt install -y jq" true
+        elif command -v dnf &>/dev/null; then
+          prompt_install "jq" "sudo dnf install -y jq" true
+        else
+          echo "  Install manually: https://jqlang.github.io/jq/download/"
+        fi
       fi
     fi
   fi
@@ -153,10 +166,12 @@ check_prerequisites() {
       print_ok "Context7 MCP server configured"
     else
       print_warn "Context7 MCP not found (recommended — up-to-date library documentation)"
-      if command -v node &>/dev/null; then
-        prompt_install "Context7 MCP" "claude mcp add context7 -- npx -y @upstash/context7-mcp@latest"
-      else
-        echo "  Requires Node.js. Install Node.js first, then: claude mcp add context7 -- npx -y @upstash/context7-mcp@latest"
+      if [ "$interactive" = true ]; then
+        if command -v node &>/dev/null; then
+          prompt_install "Context7 MCP" "claude mcp add context7 -- npx -y @upstash/context7-mcp@latest"
+        else
+          echo "  Requires Node.js. Install Node.js first, then: claude mcp add context7 -- npx -y @upstash/context7-mcp@latest"
+        fi
       fi
     fi
   else
@@ -169,8 +184,10 @@ check_prerequisites() {
       print_ok "Qdrant MCP server configured"
     else
       print_warn "Qdrant MCP not found (recommended — persistent semantic memory across sessions)"
+      if [ "$interactive" = false ]; then
+        echo "  Install Docker + uv, then: claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory qdrant -- uvx --python 3.13 mcp-server-qdrant"
       # Check if we can auto-setup: needs Docker + Python (uv)
-      if command -v docker &>/dev/null; then
+      elif command -v docker &>/dev/null; then
         # Check if Qdrant container is already running
         local qdrant_running=false
         if docker ps --format '{{.Image}}' 2>/dev/null | grep -q "qdrant"; then
@@ -1153,14 +1170,14 @@ get_release_vars() {
     typescript|javascript)
       RELEASE_SETUP_ACTION="actions/setup-node@v4"
       RELEASE_SETUP_VERSION_KEY="node-version"
-      RELEASE_SETUP_VERSION_VALUE="'20'"
+      RELEASE_SETUP_VERSION_VALUE="'lts/*'"
       RELEASE_INSTALL_COMMAND="npm ci"
       RELEASE_BUILD_COMMAND="npm run build"
       ;;
     python)
       RELEASE_SETUP_ACTION="actions/setup-python@v5"
       RELEASE_SETUP_VERSION_KEY="python-version"
-      RELEASE_SETUP_VERSION_VALUE="'3.12'"
+      RELEASE_SETUP_VERSION_VALUE="'3.x'"
       RELEASE_INSTALL_COMMAND="pip install -r requirements.txt"
       RELEASE_BUILD_COMMAND="python -m build"
       ;;
@@ -1174,6 +1191,7 @@ get_release_vars() {
     csharp)
       RELEASE_SETUP_ACTION="actions/setup-dotnet@v4"
       RELEASE_SETUP_VERSION_KEY="dotnet-version"
+      # Current LTS — update when next LTS releases
       RELEASE_SETUP_VERSION_VALUE="'8.0.x'"
       RELEASE_INSTALL_COMMAND="dotnet restore"
       RELEASE_BUILD_COMMAND="dotnet build --configuration Release"
@@ -1181,6 +1199,7 @@ get_release_vars() {
     kotlin|java)
       RELEASE_SETUP_ACTION="actions/setup-java@v4"
       RELEASE_SETUP_VERSION_KEY="java-version"
+      # Current LTS — update when next LTS releases
       RELEASE_SETUP_VERSION_VALUE="'21'"
       RELEASE_INSTALL_COMMAND="echo 'Gradle handles dependencies automatically'"
       RELEASE_BUILD_COMMAND="./gradlew build"

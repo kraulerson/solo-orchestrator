@@ -18,7 +18,7 @@ echo ""
 PHASE="unknown"
 if [ -f ".claude/phase-state.json" ]; then
   # current_phase can be a bare integer (0) or quoted string ("0")
-  PHASE=$(grep -o '"current_phase"[[:space:]]*:[[:space:]]*[0-9]*' .claude/phase-state.json 2>/dev/null | grep -o '[0-9]*$' || echo "unknown")
+  PHASE=$(grep -o '"current_phase"[[:space:]]*:[[:space:]]*"*[0-9][0-9]*"*' .claude/phase-state.json 2>/dev/null | grep -o '[0-9][0-9]*' || echo "unknown")
   [ -z "$PHASE" ] && PHASE="unknown"
 fi
 
@@ -66,8 +66,10 @@ fi
 VERSION_STATUS="(run scripts/check-versions.sh for details)"
 if [ -x "scripts/check-versions.sh" ]; then
   version_output=$(bash scripts/check-versions.sh 2>&1 </dev/null) || true
-  below_min=$(echo "$version_output" | grep -c "BELOW MINIMUM" || echo "0")
-  updates=$(echo "$version_output" | grep -c "available" || echo "0")
+  below_min=$(echo "$version_output" | grep -c "BELOW MINIMUM" || true)
+  below_min=${below_min:-0}
+  updates=$(echo "$version_output" | grep -c "available" || true)
+  updates=${updates:-0}
   if [ "$below_min" -gt 0 ]; then
     VERSION_STATUS="⚠ $below_min tool(s) below minimum version — run scripts/check-versions.sh"
   elif [ "$updates" -gt 0 ]; then

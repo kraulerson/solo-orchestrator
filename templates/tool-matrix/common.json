@@ -67,7 +67,7 @@
       "min_version": "18.17.0",
       "latest_check": null,
       "install": {
-        "darwin_brew": "brew install node@22 && brew link --overwrite node@22",
+        "darwin_brew": "brew install node",
         "linux_apt": "sudo apt install -y nodejs npm",
         "linux_dnf": "sudo dnf install -y nodejs npm",
         "manual": "https://nodejs.org/"
