@@ -52,5 +52,10 @@ jobs:
 
       - name: Governance - Phase gate check
         if: hashFiles('.claude/phase-state.json') != ''
-        continue-on-error: true
         run: bash scripts/check-phase-gate.sh 2>/dev/null || echo "Phase gate check script not found — skipping"
+
+      - name: Governance - Changelog check
+        run: bash scripts/check-changelog.sh 2>/dev/null || true
+
+      - name: Governance - Session state check
+        run: bash scripts/check-session-state.sh 2>/dev/null || true
