@@ -38,6 +38,39 @@ The Builder's Guide (SOI-002-BUILD) defines the methodology. This addendum confi
 
 ---
 
+## Quick Setup — All Recommended Enhancements
+
+If you want to configure all optional enhancements at once, run these commands from your project directory. Each step is independent — skip any you do not need.
+
+**1. Context7 MCP (one command, no prerequisites):**
+```bash
+claude mcp add context7 --scope user -- npx -y @upstash/context7-mcp
+```
+
+**2. Superpowers plugin (one command, no prerequisites):**
+```bash
+claude plugins add superpowers
+```
+
+**3. Qdrant MCP (requires Docker):**
+```bash
+# Start Qdrant (runs in background)
+docker run -d --name qdrant -p 6333:6333 -p 6334:6334 \
+  -v qdrant_storage:/qdrant/storage qdrant/qdrant
+
+# Add the MCP server
+claude mcp add qdrant --scope user -- npx -y @qdrant/mcp-server-qdrant \
+  --qdrant-url http://localhost:6333 \
+  --collection-name solo-orchestrator
+```
+
+**4. Replace CLAUDE.md with the enhanced template:**
+After configuring any of the above, replace your project's `CLAUDE.md` with the enhanced template from [Section 6](#6-claudemd) below and fill in the project-specific sections.
+
+For detailed explanations of each tool and how it integrates with the Builder's Guide, see the individual sections below.
+
+---
+
 ## 1. Superpowers (Agentic Skills Framework)
 
 ### What It Is
@@ -361,7 +394,7 @@ CLAUDE.md is a file that Claude Code automatically reads at the start of every s
 
 For the Solo Orchestrator workflow, CLAUDE.md is where the Project Bible's key constraints live in a form the agent consumes automatically. It evolves across phases as the project takes shape.
 
-**Relationship to init-generated CLAUDE.md:** The init script generates a minimal starter CLAUDE.md with your project name, description, and basic agent instructions. The template below is the full version with Superpowers integration, Context7 usage instructions, Qdrant memory triggers, and phase-evolving sections. **When you configure any optional enhancement (Superpowers, Context7, or Qdrant), replace the init-generated CLAUDE.md with this template** and fill in the project-specific sections.
+**Relationship to init-generated CLAUDE.md:** The init script generates a minimal starter CLAUDE.md that works for Phases 0-1 without optional enhancements. The template below is the full version with Superpowers integration, Context7 usage instructions, Qdrant memory triggers, and phase-evolving sections. **Replace the init-generated CLAUDE.md with this template when you configure your first optional enhancement** (typically before Phase 2). Copy the template, fill in the project-specific sections (project name, phase, track), and delete the placeholder comments.
 
 ### How It Applies to the Builder's Guide
 

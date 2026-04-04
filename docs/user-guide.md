@@ -31,6 +31,8 @@ For what the framework *is*, how it works at a conceptual level, and what it is 
 | [**Framework Evaluation Prompts**](../evaluation-prompts/Framework/) | Adversarial reviews of the framework itself from 6 professional perspectives | After framework updates or retooling |
 | [**Project Evaluation Prompts**](../evaluation-prompts/Projects/) | Adversarial reviews of any project built with the framework from 6 professional perspectives | Phase 3 validation, before production deployment |
 
+**What you actually need open:** This guide, the [Project Intake](../templates/project-intake.md), and your [Platform Module](platform-modules/). Everything else is reference material — the table above tells you when each document becomes relevant.
+
 ---
 
 ## 1. Before You Start
@@ -231,7 +233,7 @@ The init script also generates **two pipelines**: a CI pipeline (`ci.yml`) selec
 
 | File | Created By | You Must | Notes |
 |---|---|---|---|
-| `CLAUDE.md` | init.sh (starter version) | Update at each phase transition and end of each session | Replace with the enhanced template from the [CLI Setup Addendum](cli-setup-addendum.md#6-claudemd) when you configure optional enhancements |
+| `CLAUDE.md` | init.sh (starter version) | Update at each phase transition and end of each session | The starter version works until you configure optional enhancements. When you add Superpowers, Context7, or Qdrant, replace with the [enhanced template](cli-setup-addendum.md#6-claudemd). |
 | `PROJECT_INTAKE.md` | init.sh (blank template) | Fill out completely before Phase 0 | The primary input to the entire process |
 | `APPROVAL_LOG.md` | init.sh (empty with headers) | Add entries at each phase gate | Append-only — never edit previous entries |
 | `.github/workflows/ci.yml` | init.sh (language-specific) | Nothing — works on first push | Modify only if adding a secondary language |
@@ -267,14 +269,16 @@ Both are one-time per machine.
 
 ### Optional Enhancements
 
-After init, you can configure additional tooling. These are not required, but they improve the development workflow. See the [CLI Setup Addendum](cli-setup-addendum.md) for setup instructions.
+After init, you can configure additional tooling. These are not required for your first project, but each addresses a specific pain point. **Configure them when you feel the pain, not during initial setup** — except Context7, which is useful from Phase 1.
 
-| Tool | What It Does | When It Helps |
-|---|---|---|
-| **Superpowers** | Agentic skills plugin for Claude Code — subagent-driven development, strict TDD, systematic debugging, git worktrees | Phase 2 workflow accelerator |
-| **Context7 MCP** | Provides Claude with up-to-date library documentation during architecture selection and construction | Phases 1-2 |
-| **Qdrant MCP** | Persistent semantic memory across Claude Code sessions — stores project decisions and patterns | Multi-session projects |
-| **Claude Dev Framework** | Git hook-based guardrails for coding standards, security scanning, documentation | Auto-installed by init.sh |
+| Tool | What It Does | When to Configure | Setup Effort |
+|---|---|---|---|
+| **Context7 MCP** | Gives the AI up-to-date library documentation instead of relying on training data | **Before Phase 1** — helps the AI make accurate architecture and implementation decisions | One command, no prerequisites |
+| **Superpowers** | Agentic skills plugin — strict TDD, subagent-driven development, systematic debugging, git worktrees | **Before Phase 2** — accelerates the Build Loop significantly | One command, no prerequisites |
+| **Qdrant MCP** | Persistent semantic memory across sessions — the AI remembers project decisions and patterns | **When sessions exceed 3-4** — solves the "where did we leave off?" problem | Requires Docker |
+| **Claude Dev Framework** | Git hook-based guardrails for coding standards, security scanning, documentation | Auto-installed by init.sh | Already done |
+
+See the [CLI Setup Addendum](cli-setup-addendum.md) for detailed instructions, or use the [Quick Setup](cli-setup-addendum.md#quick-setup--all-recommended-enhancements) to configure all three at once.
 
 ---
 

@@ -450,7 +450,8 @@ create_project() {
   cp "$SCRIPT_DIR/scripts/validate.sh" scripts/
   cp "$SCRIPT_DIR/scripts/check-phase-gate.sh" scripts/
   cp "$SCRIPT_DIR/scripts/check-updates.sh" scripts/
-  chmod +x scripts/validate.sh scripts/check-phase-gate.sh scripts/check-updates.sh
+  cp "$SCRIPT_DIR/scripts/resume.sh" scripts/
+  chmod +x scripts/validate.sh scripts/check-phase-gate.sh scripts/check-updates.sh scripts/resume.sh
 
   # Copy the correct platform module
   case "$PLATFORM" in
@@ -1387,6 +1388,7 @@ print_next_steps() {
   echo "     cd $PROJECT_DIR"
   echo "     bash scripts/validate.sh              — check framework compliance"
   echo "     bash scripts/check-updates.sh         — check for upstream framework updates"
+  echo "     bash scripts/resume.sh                — generate a session resume prompt"
   echo ""
   echo "  DOCUMENTATION:"
   echo "     docs/framework/user-guide.md          — Start here: step-by-step walkthrough"
@@ -1441,6 +1443,7 @@ dry_run_summary() {
   echo "  docs/test-results/                    — Empty (populated in Phase 3)"
   echo "  scripts/validate.sh                   — Validation script"
   echo "  scripts/check-phase-gate.sh           — Phase gate checker"
+  echo "  scripts/resume.sh                     — Session resume prompt generator"
   echo ""
 
   echo -e "${BOLD}Post-init steps (you do these manually):${NC}"
