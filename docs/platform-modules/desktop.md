@@ -134,9 +134,9 @@ Depends on your ecosystem:
 |---|---|---|---|
 | **Node.js** (Electron, Tauri frontend) | `license-checker` | `npm install -g license-checker` | `license-checker --failOn "GPL-2.0;GPL-3.0;AGPL-3.0"` |
 | **Rust** (Tauri backend) | `cargo-license` | `cargo install cargo-license` | `cargo license --avoid-build-deps --avoid-dev-deps` (review output) |
-| **Python** (PyQt/PySide) | `pip-licenses` | `pip install pip-licenses` | `pip-licenses --fail-on "GNU General Public License v3 (GPLv3)"` |
-| **Dart** (Flutter) | `flutter pub deps` | Built-in | Manual review of dependency licenses |
-| **C#** (.NET MAUI) | `dotnet-project-licenses` | `dotnet tool install --global dotnet-project-licenses` | `dotnet-project-licenses --input [project].csproj` |
+| **Python** (PyQt/PySide) | `pip-licenses` | `pip install pip-licenses` | `pip-licenses --fail-on="GNU General Public License v2 (GPLv2);GNU General Public License v3 (GPLv3);GNU Affero General Public License v3 (AGPLv3)"` |
+| **Dart** (Flutter) | `dart_license_checker` | `dart pub global activate dart_license_checker` | `dart pub global run dart_license_checker --fail-on "GPL-2.0,GPL-3.0,AGPL-3.0"` |
+| **C#** (.NET MAUI) | `dotnet-project-licenses` | `dotnet tool install --global dotnet-project-licenses` | `dotnet-project-licenses --input . --fail-on "GPL-2.0-only;GPL-3.0-only;AGPL-3.0-only"` |
 
 Both direct and transitive dependencies must be checked.
 
@@ -288,6 +288,29 @@ In addition to the Builder's Guide Phase 3.2 security hardening:
 - [ ] **Auto-updater security (if using):** Update downloads are signed and verified. HTTPS only. Certificate pinning recommended.
 - [ ] **Local data protection:** Sensitive local data (credentials, tokens) stored using OS keychain (Keytar, macOS Keychain, Windows Credential Manager) — not plain text config files.
 
+### Rate Limiting (Client-Server Desktop Apps)
+
+For desktop applications with a backend API:
+
+- Apply rate limiting on all API endpoints (authentication, data access, file uploads).
+- Use token bucket or sliding window algorithms.
+- Return `429 Too Many Requests` with a `Retry-After` header.
+- Rate limit by user/session, not by IP (desktop apps may share corporate IPs via VPN/NAT).
+
+For standalone desktop applications with no backend: rate limiting is not applicable.
+
+### Vulnerability Disclosure
+
+Every production desktop application MUST include a vulnerability disclosure mechanism:
+
+1. Add a `SECURITY.md` file to the repository with:
+   - Supported versions (which releases receive security updates).
+   - How to report a vulnerability (email address or security advisory form — not a public issue).
+   - Expected response time (acknowledge within 48 hours, assess within 7 days).
+   - Safe harbor statement (reporters acting in good faith will not face legal action).
+2. Reference the `SECURITY.md` in the application's About screen or documentation.
+3. For organizational deployments, route reports to the enterprise security team, not the Orchestrator directly.
+
 ---
 
 ## 5. Distribution
@@ -318,6 +341,16 @@ In addition to the Builder's Guide Phase 3.2 security hardening:
 7. Publish release notes (from CHANGELOG.md)
 8. Verify download and install on each platform (manual smoke test)
 
+### Data Handling on Uninstall
+
+Define and document what happens to user data when the application is uninstalled:
+
+- **Windows (NSIS/MSI installer):** The uninstaller removes application binaries but SHOULD NOT delete user data in `%APPDATA%` unless the user explicitly opts in during uninstall.
+- **macOS (.dmg/.app):** Dragging to Trash removes the app bundle only. Document the location of preferences (`~/Library/Application Support/[AppName]`) and provide a "Remove All Data" option in the app's settings.
+- **Linux (AppImage/deb/rpm):** Package uninstall removes binaries. Document config file locations (`~/.config/[appname]`, `~/.local/share/[appname]`) in the README or man page.
+
+For applications storing sensitive data locally (credentials, personal documents), provide an in-app "Secure Delete" or "Wipe Data" feature that overwrites files before deletion.
+
 ---
 
 ## 6. Maintenance (Desktop-Specific)
@@ -336,6 +369,35 @@ In addition to the Builder's Guide maintenance cadence:
 - Evaluate minimum supported OS version — dropping old versions reduces maintenance burden
 - Review framework updates (Tauri, Electron, Flutter major versions) for migration path
 - Renew code signing certificates before expiration
+
+### Monitoring & Error Tracking
+
+Desktop applications lack server-side observability by default. Configure the following before launch:
+
+| Tool | Purpose | Free Tier |
+|------|---------|-----------|
+| **Sentry** | Crash reporting, error tracking | 5K errors/month |
+| **PostHog** | Usage analytics (opt-in) | 1M events/month |
+| **Built-in telemetry** | Framework-specific crash reporting | N/A |
+
+**Minimum viable monitoring:**
+
+1. Integrate Sentry (or equivalent) for unhandled exceptions and crash reports.
+2. Configure alert rules: new crash type → email notification; crash rate spike → SMS/Slack.
+3. For client-server apps: add health check endpoint monitoring (UptimeRobot or equivalent) on the backend.
+4. Test the monitoring integration by triggering a deliberate error in a non-production build.
+
+**Privacy:** If collecting telemetry or crash reports, disclose this in the application's About/Settings screen and provide an opt-out mechanism. Comply with the privacy requirements in the Governance Framework.
+
+### Backup & Data Recovery
+
+Desktop applications store data locally. Users expect their data to survive application updates and crashes.
+
+1. **SQLite databases:** Use WAL mode for crash resilience. Document the database file location for each OS in HANDOFF.md.
+2. **Application settings:** Store in OS-standard locations (AppData on Windows, Application Support on macOS, ~/.config on Linux). Never store in the application binary directory.
+3. **User data export:** Provide a data export mechanism (JSON or CSV) for applications storing user-created content. This is both a user feature and a disaster recovery tool.
+4. **Update safety:** Test that application updates preserve existing databases and configuration files. The auto-updater MUST NOT delete user data.
+5. **Backup testing:** Before launch, verify: (a) uninstall preserves user data in the default OS locations, (b) reinstall reconnects to existing data, (c) exported data can be re-imported.
 
 ---
 

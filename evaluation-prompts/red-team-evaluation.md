@@ -1,5 +1,7 @@
 # Solo Orchestrator Framework — Red Team Evaluation Prompt
 
+> **Note:** This prompt evaluates the framework's documentation and methodology design. It does not test the framework's runtime enforcement mechanisms, which are limited to CI pipeline checks and Git hooks provided by the Claude Dev Framework. Use this prompt with any capable LLM to produce a customized security risk assessment of the framework documents.
+
 You are a Senior Red Team Engineer and Application Security Architect with 15+ years of experience in offensive security, penetration testing, secure SDLC assessment, and AI/ML security. You have conducted security assessments for Fortune 500 companies, government agencies, and startups. You have direct experience exploiting applications built by solo developers, small teams, and AI-assisted development workflows.
 
 You are evaluating a software development methodology called the "Solo Orchestrator Framework" — a structured process where a single technologist uses AI (LLMs) as the execution layer to build production applications. Your job is to find every way this methodology produces exploitable software, creates attack surface, or gives a false sense of security.
@@ -87,7 +89,7 @@ Evaluate the specific hosting stack (Vercel + Railway + Supabase + GitHub + Sent
 
 ### 9. Static Analysis (Semgrep)
 
-- What vulnerability classes does Semgrep with `--config=auto` reliably catch in the recommended stacks (Next.js, React, Node.js, Python)?
+- What vulnerability classes does Semgrep with `p/owasp-top-ten` and `p/security-audit` rulesets reliably catch in the recommended stacks (Next.js, React, Node.js, Python)?
 - What vulnerability classes does it consistently miss?
 - Can an attacker deliberately write code patterns that evade Semgrep detection while remaining exploitable?
 - Does running Semgrep in CI/CD (fail on findings) create a false sense of "secure" that discourages manual review?

@@ -2,16 +2,17 @@
 # Mobile Release Pipeline — __PROJECT_NAME__
 # =============================================================================
 #
-# This template contains three self-contained sections, one per framework path.
+# This template contains four self-contained sections, one per framework path.
 # Your language selection determines which section to use:
 #
 #   typescript / javascript  →  Section 1: Expo / EAS Build (React Native)
 #   dart                     →  Section 2: Flutter
 #   kotlin / java            →  Section 3: Native Android (Gradle)
+#   swift                    →  Section 4: Native iOS (Xcode)
 #
 # Instructions:
 #   1. Uncomment the section that matches your framework.
-#   2. Delete the other two sections entirely.
+#   2. Delete the other sections entirely.
 #   3. Each section has its own setup steps — no shared placeholders are needed
 #      because the toolchains differ significantly between frameworks.
 #
@@ -199,3 +200,144 @@ permissions:
 #       # TODO: Submit to Play Store via Fastlane:
 #       #   fastlane supply --aab app/build/outputs/bundle/release/app-release.aab --track internal
 #       #   Requires GOOGLE_PLAY_JSON_KEY secret (service account key).
+
+# ============================================================
+# SECTION 4 — NATIVE iOS (Xcode / Swift)
+# Uncomment this section if using native iOS (Swift). Delete other sections.
+# Requires macOS runner. See the Mobile Platform Module for signing details.
+# ============================================================
+
+# jobs:
+#   build-ios:
+#     runs-on: macos-latest
+#
+#     steps:
+#       - uses: actions/checkout@v4
+#
+#       - name: Select Xcode version
+#         run: sudo xcode-select -s /Applications/Xcode_16.0.app/Contents/Developer
+#         # TODO: Update the Xcode version to match your project's requirements.
+#         #   List available versions on the runner: ls /Applications/Xcode*.app
+#
+#       - name: Install signing certificate
+#         env:
+#           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+#           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+#           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+#         run: |
+#           # Create a temporary keychain for signing
+#           CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
+#           KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+#
+#           echo -n "$APPLE_CERTIFICATE_BASE64" | base64 --decode -o $CERTIFICATE_PATH
+#           security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+#           security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+#           security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+#           security import $CERTIFICATE_PATH -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+#           security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+#           security list-keychain -d user -s $KEYCHAIN_PATH
+#         # TODO: Configure signing secrets before enabling:
+#         #   APPLE_CERTIFICATE_BASE64   — base64-encoded .p12 distribution certificate
+#         #   APPLE_CERTIFICATE_PASSWORD — the password for the .p12 file
+#         #   KEYCHAIN_PASSWORD          — any temporary password for the CI keychain
+#
+#       - name: Install provisioning profile
+#         env:
+#           PROVISIONING_PROFILE_BASE64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
+#         run: |
+#           PP_PATH=$RUNNER_TEMP/build_pp.mobileprovision
+#           echo -n "$PROVISIONING_PROFILE_BASE64" | base64 --decode -o $PP_PATH
+#           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+#           cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles/
+#         # TODO: Export your provisioning profile from Apple Developer Portal,
+#         #   base64-encode it, and store as PROVISIONING_PROFILE_BASE64 secret.
+#
+#       - name: Resolve Swift packages
+#         run: xcodebuild -resolvePackageDependencies -workspace __PROJECT_NAME__.xcworkspace -scheme __PROJECT_NAME__
+#         # TODO: If using a .xcodeproj (no workspace), replace -workspace with -project
+#         #   and update the file extension to .xcodeproj.
+#
+#       - name: Build and archive
+#         run: |
+#           xcodebuild -workspace __PROJECT_NAME__.xcworkspace \
+#             -scheme __PROJECT_NAME__ \
+#             -configuration Release \
+#             -archivePath $RUNNER_TEMP/__PROJECT_NAME__.xcarchive \
+#             -sdk iphoneos \
+#             archive \
+#             CODE_SIGN_STYLE=Manual
+#         # TODO: Verify -scheme matches your Xcode project scheme name.
+#
+#       - name: Export IPA
+#         run: |
+#           xcodebuild -exportArchive \
+#             -archivePath $RUNNER_TEMP/__PROJECT_NAME__.xcarchive \
+#             -exportPath $RUNNER_TEMP/output \
+#             -exportOptionsPlist ios/ExportOptions.plist
+#         # TODO: Create ios/ExportOptions.plist with your team ID, signing method,
+#         #   and provisioning profile name. Example:
+#         #   <?xml version="1.0" encoding="UTF-8"?>
+#         #   <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "...">
+#         #   <plist version="1.0">
+#         #   <dict>
+#         #     <key>method</key><string>app-store-connect</string>
+#         #     <key>teamID</key><string>YOUR_TEAM_ID</string>
+#         #     <key>signingStyle</key><string>manual</string>
+#         #     <key>provisioningProfiles</key>
+#         #     <dict>
+#         #       <key>com.yourcompany.yourapp</key>
+#         #       <string>Your Profile Name</string>
+#         #     </dict>
+#         #   </dict>
+#         #   </plist>
+#
+#       - name: Upload IPA artifact
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: __PROJECT_NAME__-ios
+#           path: ${{ runner.temp }}/output/*.ipa
+#
+#       - name: Create GitHub Release
+#         uses: softprops/action-gh-release@v2
+#         with:
+#           files: ${{ runner.temp }}/output/*.ipa
+#           generate_release_notes: true
+#
+#       - name: Clean up keychain
+#         if: always()
+#         run: security delete-keychain $RUNNER_TEMP/app-signing.keychain-db
+#
+#       # TODO: Submit to App Store via Fastlane or xcrun:
+#       #   Option A (Fastlane): fastlane deliver --ipa $RUNNER_TEMP/output/*.ipa
+#       #   Option B (xcrun):    xcrun altool --upload-app -f $RUNNER_TEMP/output/*.ipa -t ios \
+#       #                          --apiKey ${{ secrets.ASC_API_KEY_ID }} \
+#       #                          --apiIssuer ${{ secrets.ASC_ISSUER_ID }}
+#       #   Both require App Store Connect API key secrets.
+
+  # ──────────────────────────────────────────────────────────
+  # SBOM Generation (uncomment in your active build section)
+  # ──────────────────────────────────────────────────────────
+  # Add this step to your chosen build job before release creation:
+  #
+  #     - name: Generate SBOM
+  #       run: |
+  #         # Node.js (React Native): npx @cyclonedx/cyclonedx-npm --output-file sbom.json
+  #         # Dart (Flutter):         dart pub global activate cyclonedx --source git --git-url https://github.com/ArcticGizmo/cyclonedx-dart.git && cyclonedx -o sbom.json
+  #         # Kotlin (Native):        ./gradlew cyclonedxBom
+  #         # Swift (Native):         swift package show-dependencies --format json > sbom.json
+  #         echo "Configure language-specific SBOM generation"
+  #       continue-on-error: true
+  #
+  # ──────────────────────────────────────────────────────────
+  # DAST — Dynamic Application Security Testing
+  # ──────────────────────────────────────────────────────────
+  # Mobile apps expose APIs that should be tested dynamically.
+  # Add OWASP ZAP scanning against your backend API:
+  #
+  #     - name: DAST — OWASP ZAP baseline scan
+  #       run: |
+  #         docker run --rm zaproxy/zap-stable zap-baseline.py \
+  #           -t ${{ vars.API_BASE_URL }} \
+  #           -J zap-report.json
+  #
+  # For apps with no backend API, DAST is not applicable.

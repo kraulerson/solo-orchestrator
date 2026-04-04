@@ -27,7 +27,6 @@ jobs:
 
       - name: Generate SBOM
         run: npx @cyclonedx/cyclonedx-npm --output-file sbom.json
-        continue-on-error: true
         # If not using Node.js, replace the command above with your ecosystem's tool:
         #   Python:   pip install cyclonedx-bom && cyclonedx-py environment --output sbom.json
         #   Rust:     cargo install cargo-cyclonedx && cargo cyclonedx --format json
@@ -42,8 +41,7 @@ jobs:
         #   Netlify:  npx netlify deploy --prod --dir=dist
 
       - name: DAST scan
-        continue-on-error: true
-        # TODO: Set PREVIEW_URL in repository variables. This should point to your
+        # Set PREVIEW_URL in repository variables. This should point to your
         # deployed staging or production URL. DAST runs after deploy so the
         # application is live and reachable.
         run: >

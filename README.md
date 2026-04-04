@@ -1,6 +1,6 @@
 # Solo Orchestrator Framework
 
-A structured software development methodology where a single experienced technologist builds production-grade applications using AI as the execution layer. The human defines intent, constraints, and validation. The AI generates architecture, code, tests, and documentation within those constraints.
+A structured software development methodology where a single experienced technologist builds production-deployable applications using AI as the execution layer. The human defines intent, constraints, and validation. The AI generates architecture, code, tests, and documentation within those constraints.
 
 This is not vibe coding. It's a phase-gated, test-driven, documentation-mandatory process with security scanning, threat modeling, and incident response built in.
 
@@ -109,9 +109,11 @@ your-project/
 │   └── test-results/                   # Phase 3 test evidence (populated during build)
 ```
 
-The init script generates **two pipelines** per project. The CI pipeline (`ci.yml`) is selected by your **language** — it handles testing, linting, SAST scanning, dependency auditing, and license checking using your language's toolchain. The release pipeline (`release.yml`) is selected by your **platform** — it handles building, signing, packaging, and distributing for your target platform. Both are working GitHub Actions workflows, not skeletons.
+The init script generates **two pipelines** per project. The CI pipeline (`ci.yml`) is selected by your **language** — it handles testing, linting, SAST scanning, dependency auditing, and license checking using your language's toolchain. The release pipeline (`release.yml`) is selected by your **platform** — it handles building, signing, packaging, and distributing for your target platform. CI pipelines are working GitHub Actions workflows that run immediately on first push. Release pipelines are production-ready templates that require configuration (code signing, deployment secrets, store credentials) before first use.
 
 All framework documents are copied into the project. Each project is self-contained — no external dependencies on this repo after init.
+
+**Validation:** Both `scripts/validate.sh` and `scripts/check-phase-gate.sh` are copied into every created project. Run `bash scripts/validate.sh` from the project directory to check framework compliance — verifies all required files exist, CI is configured, security tools are accessible, phase artifacts match the project's current phase, and the approval log is up to date. The phase gate check also runs automatically in CI as a warning step. Run validation periodically to catch drift.
 
 ---
 
@@ -169,7 +171,7 @@ This separation means adding support for a new platform requires two files: a pl
 
 ## Platform Support
 
-### Production-Ready
+### Production-Deployable
 
 | Platform | Module | Status |
 |---|---|---|
@@ -183,7 +185,7 @@ This separation means adding support for a new platform requires two files: a pl
 |---|---|---|
 | **CLI** | — | No dedicated module. Core guide works standalone for simple CLI tools. |
 
-New platform modules can be added without modifying the core framework. A module is production-ready when it covers: Architecture → Tooling → Build & Packaging → Testing → Distribution → Maintenance.
+New platform modules can be added without modifying the core framework. A module is production-deployable when it covers: Architecture → Tooling → Build & Packaging → Testing → Distribution → Maintenance.
 
 ---
 
@@ -201,7 +203,7 @@ The init script generates language-appropriate CI pipelines, `.gitignore` entrie
 | **Kotlin** | `./gradlew build` / `./gradlew test` | `detekt` (plugin) | `dependencyCheckAnalyze` (plugin) | `checkLicense` (plugin) |
 | **Java** | (same as Kotlin) | | | |
 | **Go** | `go build` / `go test -race` | `golangci-lint` | `govulncheck` | `go-licenses` |
-| **Dart** | `flutter pub get` / `flutter test` | `flutter analyze` | `osv-scanner` | `pana` |
+| **Dart** | `flutter pub get` / `flutter test` | `flutter analyze` | `osv-scanner` (GitHub Action) | `dart_license_checker` |
 | **Other** | TODO skeleton | TODO | TODO | TODO |
 
 All CI templates include Semgrep SAST scanning. Languages that require external tools (Rust, Python, Dart) install them explicitly in the pipeline. JVM templates include Gradle plugin setup instructions for tools that require project configuration.
@@ -227,7 +229,7 @@ These are configured per the [CLI Setup Addendum](docs/cli-setup-addendum.md):
 | Tool | What It Does |
 |---|---|
 | **Superpowers** | Agentic skills plugin for Claude Code. Subagent-driven development, strict TDD, systematic debugging, git worktrees. Phase 2 workflow accelerator. |
-| **Claude Dev Framework** | Git hook-based guardrails for coding standards, security scanning, and documentation. Swiss cheese defense model. **Auto-installed by init.sh** into `.claude/framework/` with the appropriate profile for your platform. This is a separate project (github.com/kraulerson/claude-dev-framework) that can be used independently. The Solo Orchestrator init script installs it automatically, but it is not required. |
+| **Claude Dev Framework** | Git hook-based guardrails for coding standards, security scanning, and documentation. Uses a layered defense model where multiple hook-based checks cover different failure modes. **Auto-installed by init.sh** into `.claude/framework/` with the appropriate profile for your platform. This is a separate project (github.com/kraulerson/claude-dev-framework) that can be used independently. The Solo Orchestrator init script installs it automatically, but it is not required. |
 | **Context7 MCP** | Provides Claude with up-to-date library documentation during architecture selection and construction. |
 | **Qdrant MCP** | Persistent semantic memory across Claude Code sessions. Stores project decisions and patterns. |
 
@@ -244,29 +246,51 @@ Evaluation prompts for stress-testing the framework are in `evaluation-prompts/`
 
 ---
 
-## Vendor Dependency & Exit Path
+## Methodology vs. Tooling: What's Portable
 
-The framework is optimized for Claude Code. Here's what's portable and what requires retooling:
+The Solo Orchestrator Framework has two distinct layers. Understanding the boundary matters for evaluating vendor risk, planning migrations, and assessing long-term viability.
 
-**Portable (works with any AI agent):**
-- The methodology: phases, decision gates, quality controls
-- All document artifacts: Product Manifesto, Project Bible, ADRs, test results, HANDOFF.md
-- Security tooling: Semgrep, gitleaks, Snyk, OWASP ZAP, SBOM generation
-- CI pipeline (language-specific) and release pipeline (platform-specific) — standard GitHub Actions
-- Git hooks, testing frameworks, all generated `.gitignore` content
-- The Intake Template and Governance Framework
-- Pipeline module templates (reusable across agents)
+### The Methodology Layer (Agent-Agnostic, Durable)
 
-**Claude Code-specific (requires retooling to switch):**
-- CLAUDE.md → equivalent agent configuration file for the new agent
-- Superpowers plugin → equivalent agentic skills (subagent dispatch, TDD enforcement, worktrees)
-- Context7 / Qdrant MCP servers → equivalent context and memory tools (or manual context management)
-- CLI Setup Addendum → rewrite for new agent's configuration model
-- Init script CLAUDE.md generation → rewrite template for new agent
+These elements work with any sufficiently capable AI coding agent and do not depend on Claude Code:
+
+- **The process:** Five-phase, gate-controlled development (Discovery → Architecture → Construction → Validation → Release)
+- **Quality mandates:** Test-driven development, per-feature security audits, threat modeling, documentation requirements
+- **Governance controls:** Approval authorities, compliance screening, backup maintainer model, portfolio management, escalation paths
+- **Document artifacts:** Product Manifesto, Project Bible, ADRs, test results, HANDOFF.md, Approval Log
+- **Security tooling:** Semgrep, gitleaks, Snyk, OWASP ZAP, SBOM generation — all agent-independent
+- **CI/CD pipelines:** Language-specific CI and platform-specific release pipelines — standard GitHub Actions
+- **Templates:** Intake Template, Governance Framework, Platform Modules, pipeline modules
+
+The methodology layer represents the framework's durable value. Phases, gates, TDD discipline, and governance controls are software engineering practices that predate AI coding tools and will outlast any specific one.
+
+### The Tooling Layer (Claude Code-Specific, Replaceable)
+
+These elements are optimized for Claude Code and require retooling to use a different AI agent:
+
+- **CLAUDE.md** → equivalent agent configuration file for the new agent
+- **Superpowers plugin** → equivalent agentic skills (subagent dispatch, TDD enforcement, worktrees)
+- **Context7 / Qdrant MCP servers** → equivalent context and memory tools (or manual context management)
+- **CLI Setup Addendum** → rewrite for new agent's configuration model
+- **Init script CLAUDE.md generation** → rewrite template for new agent
+
+The tooling layer is a workflow accelerator, not a dependency. The Build Loop in Phase 2 works without Superpowers — the agent executes sequentially with the Orchestrator directing each step. Superpowers makes it faster; its absence makes it manual, not impossible.
+
+### Current Status: Proof of Concept on a Single Vendor
+
+The Claude Code-specific tooling layer is a deliberate proof-of-concept decision, not an architectural endpoint. The methodology must be validated before the abstraction layer is worth building. Building multi-vendor support before confirming the methodology works would be premature engineering — solving the portability problem before confirming there is a methodology worth porting.
+
+**The planned evolution:**
+1. **Current (v1.0):** Validate the methodology on Claude Code. Confirm the phases, gates, TDD discipline, and governance controls produce the intended outcomes.
+2. **Next:** Once validated through organizational pilots, retool the automation layer to support multiple AI coding agents. The methodology layer requires no changes — it is already agent-agnostic.
+
+The annual cross-model validation (required for organizational deployments — see SOI-003-GOV, Section IX) serves dual purposes: it validates the exit path from Claude Code *and* prepares the ground for the multi-vendor phase by ensuring Project Bibles remain vendor-neutral technical specifications rather than Claude-specific prompt documents.
+
+### Exit Path
 
 **Estimated retooling per active project:** 2-4 weeks, primarily spent on: rewriting the agent configuration, validating the new agent produces comparable output quality on the existing codebase, and adjusting prompts. The codebase, tests, documentation, and security tooling transfer without modification.
 
-**Risk mitigation:** Periodically verify that the Project Bible produces coherent output when provided to a different AI agent. If the Bible is well-written, the project is recoverable regardless of which agent built it.
+**Risk mitigation:** Periodically verify that the Project Bible produces coherent output when provided to a different AI agent. If the Bible is well-written, the project is recoverable regardless of which agent built it. The Enterprise Governance Framework recommends annual cross-model validation to keep this exit path tested (see SOI-003-GOV, Section IX).
 
 ---
 
@@ -278,6 +302,32 @@ The framework is optimized for Claude Code. Here's what's portable and what requ
 - Not for enterprise integration projects (SAP, Salesforce, ERP)
 
 It's for the projects that sit in the backlog because they don't justify a team: internal tools, departmental applications, prototypes, MVPs, and utilities.
+
+## What This Provides Beyond a Plain Setup
+
+| Capability | CLAUDE.md + Hooks + CI | Solo Orchestrator |
+|---|---|---|
+| Agent instructions | Single CLAUDE.md file | CLAUDE.md + Builder's Guide + Platform Module — comprehensive AI instruction set |
+| Project planning | Ad hoc | Structured Intake Template + phase-gated discovery (Phases 0-1) |
+| CI security scanning | Manual pipeline setup | 8 language-specific templates with Semgrep SAST, dependency audit, license checking |
+| Release pipeline | Manual pipeline setup | 4 platform-specific templates (web, desktop, mobile, CLI) |
+| Platform guidance | None | Web, Desktop, Mobile modules with architecture patterns, tooling, testing, distribution |
+| Enterprise governance | None | Full framework with approval authorities, compliance screening, portfolio governance |
+| Evaluation tooling | None | LLM-executable red team and legal analysis prompts |
+
+The methodology, intake template, platform modules, and CI pipeline templates are the primary value. The framework packages operational knowledge that would otherwise need to be discovered project-by-project.
+
+---
+
+## Known Limitations
+
+- **Enforcement is primarily CI-based.** The CI pipeline (SAST, dependency audit, license checking, tests) provides mechanical enforcement. Phase gates, TDD ordering, scope control, and documentation updates rely on the AI agent following instructions in CLAUDE.md and the Builder's Guide. This is the nature of a methodology framework — it provides comprehensive guidance, but enforcement beyond CI depends on the operator and agent following the process.
+- **Release pipelines require configuration.** CI pipelines work immediately on first push. Release pipelines are production-ready templates with TODOs for code signing, deployment secrets, and store credentials that must be configured before first release.
+- **CI/CD templates are GitHub Actions only.** The framework provides pipeline templates for GitHub Actions. GitLab CI and Azure DevOps are supported as repository hosts, but pipeline templates must be translated manually.
+- **Single language per init.** The init script generates CI for one primary language. Polyglot projects (e.g., TypeScript frontend + Python backend) require manual addition of CI steps for secondary languages.
+- **Not yet validated through an organizational pilot.** The framework has been used for personal projects. The pilot evaluation process (Executive Review, Section X) defines how to test it organizationally. Treat this as a well-structured hypothesis, not a proven methodology.
+
+---
 
 ## Current Status
 
@@ -298,6 +348,20 @@ This is the initial release of the Solo Orchestrator Framework. It has been used
 | Platform Module: Web | v1.0 | 2026-04-02 |
 | Platform Module: Desktop | v1.0 | 2026-04-02 |
 | Platform Module: Mobile | v1.0 | 2026-04-02 |
+
+---
+
+## Legal Notices
+
+This framework is a software development methodology distributed under the MIT License. It does not guarantee the quality, security, fitness for purpose, or legal compliance of software built using it. Organizations adopting this framework assume all responsibility for validating, testing, securing, and maintaining the applications they build.
+
+**AI-Generated Code:** Software built using this framework is generated in part by AI (Large Language Models). The copyright status of AI-generated code is legally unsettled under current U.S. and international law. Organizations should not assume full copyright protection for AI-generated code without consulting qualified intellectual property counsel. The framework does not scan for potential patent or copyright infringement in generated code.
+
+**Not Legal or Compliance Advice:** This framework includes references to regulatory requirements (GDPR, CCPA, EU AI Act, and others) for informational purposes. These references do not constitute legal advice and should not be treated as a compliance program. Engage qualified legal counsel in all relevant jurisdictions before deploying applications that handle personal data, operate in regulated industries, or serve users in jurisdictions with specific legal requirements.
+
+**Legal Documents:** Any Privacy Policies, Terms of Service, or other legal documents generated during the framework's build process must be reviewed by qualified legal counsel before deployment. AI-generated legal documents should not be deployed without attorney review.
+
+**External Dependencies:** The init script clones [claude-dev-framework](https://github.com/kraulerson/claude-dev-framework) (MIT License) into the project for Git hook-based guardrails. This dependency's license has been verified as MIT-compatible.
 
 ---
 

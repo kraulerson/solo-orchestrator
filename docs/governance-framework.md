@@ -15,7 +15,7 @@
 | **Audience** | CIO, VP of Engineering, IT Security, Legal, Risk & Compliance, Internal Audit |
 | **Companion Documents** | SOI-002-BUILD v1.0 — Solo Orchestrator Builder's Guide (technical execution manual) |
 | | SOI-004-INTAKE v1.0 — Project Intake Template (structured input for Phase 0 and Phase 1) |
-| | SOI-PM-* — Platform Modules (Web, Desktop, Mobile — production-ready) |
+| | SOI-PM-* — Platform Modules (Web, Desktop, Mobile — production-deployable) |
 
 ---
 
@@ -35,7 +35,7 @@ The Builder's Guide tells the Orchestrator **how to build.** This document tells
 
 ### What the Solo Orchestrator Model Is
 
-The Solo Orchestrator Framework is a structured software development methodology that enables a single experienced technologist to build production-grade applications by using AI Large Language Models as the execution layer. The technologist acts as Product Owner, Lead Architect, and QA Director. The AI proposes architecture, generates logic, and writes code within constraints defined and validated by the human operator.
+The Solo Orchestrator Framework is a structured software development methodology that enables a single experienced technologist to build production-deployable applications by using AI Large Language Models as the execution layer. The technologist acts as Product Owner, Lead Architect, and QA Director. The AI proposes architecture, generates logic, and writes code within constraints defined and validated by the human operator.
 
 The framework operates in five phases: Product Discovery, Architecture & Planning, Construction, Validation & Hardening, and Production Release & Maintenance. Each phase produces documented artifacts that gate entry into the next phase. No code is deployed without passing automated testing, security scanning, and human review.
 
@@ -104,6 +104,41 @@ Costs are per application. The AI subscription ($100-$200/month for consumer; en
 
 **Context-switching overhead:** The hour estimates assume blocked, dedicated time. An Orchestrator interleaving this work with their primary responsibilities will take 20-40% longer due to cognitive context-switching. Recommend dedicated half-day or full-day blocks rather than "fit it in between meetings."
 
+### Cost of Failure
+
+The preceding analysis models the cost of success. Organizations should also model the cost of failure — a security vulnerability, compliance violation, or production incident in an AI-generated application.
+
+**Estimated failure costs by scenario:**
+
+| Scenario | Estimated Cost Range | Notes |
+|---|---|---|
+| **Data breach (internal users, no PII)** | $10,000-$50,000 | Incident response hours, forensic analysis, remediation. No notification obligations for internal tools without PII. |
+| **Data breach (PII involved)** | $150-$200/record + fixed costs | Per IBM's annual Cost of a Data Breach Report. Notification costs, credit monitoring, legal fees. This scenario should not occur — PII is excluded from pilot scope. |
+| **Dependency supply-chain compromise** | $5,000-$25,000 | Detection, assessment, patching, incident response. Mitigated by Snyk monitoring and SBOM generation. |
+| **Compliance violation (non-regulated)** | $10,000-$100,000 | Internal audit remediation, process correction, management time. |
+| **Availability incident (internal tool)** | $1,000-$10,000 | Lost productivity × affected users × downtime hours. Low blast radius for internal tools. |
+| **Reputational/trust damage** | Unquantifiable | Internal tools carry lower reputational risk than customer-facing applications. |
+
+**Why the gates exist:** The phase-gated process limits financial exposure by catching problems early. A requirement error caught in Phase 0 costs hours to fix. An architecture flaw caught in Phase 1 costs days. A security vulnerability that reaches production costs the figures above. Each gate is a cost-containment boundary.
+
+**Portfolio-level failure exposure:** If a single AI model update introduces a systematic vulnerability across multiple applications (see Section IX: AI Model Quality Regression), the incident cost compounds across the portfolio. This is the primary argument for limiting portfolio size per Orchestrator and testing model updates on one project before rolling across all projects.
+
+**Insurance as backstop:** The mandatory insurance confirmation (Section VIII.10) is not bureaucratic overhead — it is the financial backstop for the scenarios above. Organizations should confirm that their cyber liability coverage specifically contemplates AI-generated code, not assume existing policies apply.
+
+### Portfolio Maintenance Cost at Scale
+
+The per-application maintenance estimate of 50-80 hours/year understates the portfolio-level burden because it does not account for context-switching between applications. Worked example at 5 active applications:
+
+| Metric | Calculation | Result |
+|---|---|---|
+| Annual maintenance hours | 5 apps × 65 hrs/yr (midpoint) | 325 hours/year |
+| Percentage of FTE | 325 hrs ÷ 2,000 hrs/yr | ~16% of full-time role |
+| With context-switching overhead (+30%) | 325 × 1.3 | ~423 hours/year (~21% FTE) |
+| Governance overhead (approver reviews, backup sync) | 5 apps × 12 hrs/yr | 60 hours/year |
+| **Total portfolio burden** | | **~483 hours/year (~24% FTE)** |
+
+At 8 applications (the framework maximum), the portfolio burden approaches 40% of a full-time role. Organizations should establish a portfolio cost ceiling per Orchestrator and treat maintenance time as a budgeted line item, not an unfunded mandate absorbed into the Orchestrator's existing responsibilities.
+
 ---
 
 ## IV. Process Overview
@@ -136,6 +171,15 @@ The Orchestrator cannot approve their own work at every gate. The following appr
 **Audit evidence:** Phase gate approvals must be recorded as signed-off evidence — an email approval, a ticket state change, or a document approval with date and approver identity. The existence of an artifact alone is not sufficient evidence of approval. An internal auditor or board inquiry must be able to trace who approved what, when.
 
 **Approval Log:** Each project repository must contain an `APPROVAL_LOG.md` file that records all pre-condition and phase gate approvals in a structured format. This file is generated by `init.sh` and serves as the single auditable record of governance approvals. The log captures: gate name, approver name, approver role, date, approval method (email, ticket, or document), evidence reference, and decision. The Approval Log is append-only — previous entries must not be modified or deleted. Git history provides tamper evidence.
+
+#### Approval Verification Controls
+
+To prevent self-approval or post-hoc fabrication of approval entries:
+
+1. **Commit-based evidence.** Each approval entry MUST be committed to `APPROVAL_LOG.md` by the *approver*, not the Orchestrator. The git author on the commit serves as the verification record.
+2. **Out-of-band confirmation.** For organizational deployments, the approver MUST send written confirmation (email, Slack message, or ticket comment) to a monitored channel. Reference the confirmation ID in the `Evidence` field.
+3. **No self-approval.** The Orchestrator MUST NOT author git commits that add their own name as approver. CI or code-review tooling SHOULD enforce this where feasible.
+4. **Audit review.** During quarterly portfolio reviews, the Senior Technical Authority MUST verify that git commit authors on `APPROVAL_LOG.md` entries match the listed approvers.
 
 ### In-Phase Decision Log
 
@@ -195,6 +239,8 @@ When using Claude or any cloud-hosted LLM, project code and context are transmit
 | **Enterprise agreement** (Claude Enterprise, AWS Bedrock, Google Cloud Vertex AI) | Projects with enterprise data protections, contractual terms | IT Security + Legal written approval |
 | **Zero Data Retention (ZDR) or self-hosted LLM** | Projects handling PII, financial data, trade secrets, or data subject to regulatory constraints | IT Security written approval; may require additional architecture review |
 
+**Mandatory ZDR gate:** Projects with data classified as **Internal or higher** (Internal, Confidential, PII, Financial, Regulated) **must** use the ZDR or self-hosted deployment path. This is a hard gate at Phase 1 — the Orchestrator may not proceed to Phase 2 with a non-ZDR deployment path if the project handles data above Public classification. The Senior Technical Authority must verify the deployment path matches the data classification before approving the Phase 1 → Phase 2 transition.
+
 **Policy verification cadence:** AI provider terms change. Verify the current data handling policy at the time of adoption and at each biannual review.
 
 ### Data Loss Prevention for AI Prompts
@@ -203,10 +249,12 @@ The Orchestrator must not include in AI prompts or context:
 - Production database exports or snapshots
 - Real user PII (use synthetic or anonymized data)
 - Credentials, API keys, or tokens — even in "example" format
-- Proprietary business logic that constitutes trade secrets (abstract into requirements; let the AI implement without seeing the competitive-sensitive specification)
+- Proprietary business logic that constitutes trade secrets (abstract into requirements; let the AI implement without seeing the competitive-sensitive specification). **Note:** Transmitting trade secrets to a third-party AI provider may undermine trade secret status under the legal standard requiring "reasonable steps" to maintain secrecy. For commercially sensitive projects, use ZDR or self-hosted models — abstraction alone is a partial mitigation, as the AI needs sufficient context to generate correct code.
 - Data from other subsidiaries or business units without authorization
 
-This is not theoretical — inadvertently pasting production data into an AI prompt is a common and real risk in AI-assisted development. The gitleaks pre-commit hook catches secrets in code; it does not catch sensitive data in conversational AI prompts.
+This is not theoretical — inadvertently pasting production data into an AI prompt is a common and real risk in AI-assisted development. The gitleaks pre-commit hook and CI pipeline scan catch secrets in code; they do not catch sensitive data in conversational AI prompts.
+
+**File exclusion from AI context:** Claude Code does not currently support a `.claudeignore` mechanism to exclude files from LLM context. When this capability becomes available, organizations should adopt it immediately for projects handling Internal or higher classified data. Until then, the `.gitignore` patterns and the expanded secret file exclusions provide partial mitigation. Monitor Claude Code release notes for file exclusion features at each biannual review.
 
 ### Penetration Testing
 
@@ -245,6 +293,17 @@ The Builder's Guide defines application-level severity classification and rollba
 
 **Evidence preservation chain:** Before rolling back a deployment or restoring a database during an incident, capture: application logs, database state (snapshot), deployment configuration, environment variables (redacted), and the git commit hash of the running version. This evidence may be required for forensic investigation, regulatory notification, or litigation.
 
+### CI/CD Log Access Controls and Retention
+
+CI/CD pipeline logs may contain sensitive data — including partial secret matches from gitleaks findings, dependency vulnerability details, and environment configuration. Organizations must define and enforce the following:
+
+| Concern | Requirement |
+|---|---|
+| **Log access** | Restrict CI/CD log access to the Orchestrator and authorized personnel. Disable public log visibility on GitHub Actions (Settings → Actions → General → "Fork pull request workflows"). |
+| **Log retention** | Retain CI/CD logs for at least 90 days (or the organization's standard retention period, whichever is longer). GitHub Actions retains logs for 90 days by default; verify this meets organizational policy. |
+| **Secret redaction** | Ensure CI/CD platform secret masking is active. GitHub Actions automatically masks secrets stored in Settings → Secrets; verify no secrets are passed via plaintext environment variables. |
+| **Security tool output** | gitleaks, Semgrep, and dependency audit findings may appear in logs. If the organization requires log sanitization for compliance, configure these tools to write findings to artifacts (uploaded and access-controlled separately) rather than stdout. |
+
 ### Security Headers & Configuration Baseline
 
 All Solo Orchestrator applications must implement the following security configuration before go-live. These are verified in the Phase 4 Go-Live Smoke Test (Builder's Guide Step 4.2).
@@ -259,17 +318,51 @@ All Solo Orchestrator applications must implement the following security configu
 - Rate limiting on authentication endpoints
 - Commit signing recommended for audit trail
 
+### Post-Release Vulnerability Response
+
+When a CVE or security advisory is published affecting a deployed dependency or component:
+
+| Severity | Maximum Time to Patch | Escalation if Missed |
+|----------|----------------------|---------------------|
+| **Critical (CVSS ≥ 9.0)** | 24 hours or take application offline | Immediate notification to IT Security and Application Owner |
+| **High (CVSS 7.0–8.9)** | 7 calendar days | Escalate to Senior Technical Authority |
+| **Medium (CVSS 4.0–6.9)** | Next monthly maintenance window | Document in maintenance log |
+| **Low (CVSS < 4.0)** | Next quarterly maintenance window | Document in maintenance log |
+
+**Continuous monitoring:** The Orchestrator MUST enable automated vulnerability notifications (GitHub Dependabot alerts, Snyk monitoring, or equivalent) for every production repository. Monthly manual audits are not sufficient as the sole detection mechanism.
+
+**Patch verification:** After applying a patch, re-run the full CI pipeline (including SAST and dependency audit) and verify the vulnerability is resolved before deploying.
+
+**If patching is not possible** (breaking change, no fix available): Document the risk acceptance with IT Security approval, implement compensating controls (WAF rules, input validation, feature disabling), and set a calendar reminder to revisit.
+
+### Proactive Credential Rotation
+
+Credentials MUST be rotated on a regular schedule, not only after compromise:
+
+| Credential Type | Rotation Cadence | Responsibility |
+|----------------|-----------------|----------------|
+| API keys (third-party services) | Every 6 months | Orchestrator |
+| Database passwords | Every 12 months | Orchestrator |
+| Code signing certificates | Before expiration (track expiry dates) | Orchestrator |
+| CI/CD secrets (GitHub Actions, etc.) | Every 12 months | Orchestrator |
+| OAuth client secrets | Every 12 months | Orchestrator |
+| SSH deploy keys | Every 12 months | Orchestrator |
+
+**Tracking:** Maintain a credential inventory in the Project Bible (Section: Infrastructure) listing each credential, its purpose, creation date, and next rotation date. The quarterly portfolio review MUST verify rotation compliance.
+
+**Emergency rotation:** On suspected compromise, rotate immediately per the incident response playbook — do not wait for the scheduled cadence.
+
 ---
 
 ## VIII. Legal & Compliance
 
-**This section identifies risks and mitigation approaches. It is not legal advice. Engage corporate counsel before production deployment.**
+**IMPORTANT: This section identifies legal risks and mitigation approaches. It is not legal advice, and it is not a substitute for qualified legal counsel. The regulatory landscape for AI-assisted software development is evolving rapidly. Organizations must engage counsel with expertise in intellectual property, data privacy, and AI regulation in their operating jurisdictions. The mitigations described herein represent reasonable practices as of the document date but may not be sufficient for all jurisdictions or all use cases.**
 
 ### 1. Open-Source License Compliance
 
 AI-suggested third-party packages do not come with license reviews. A single AGPL-licensed dependency in a commercial SaaS product can create an obligation to release the entire source code. This applies to both direct dependencies and transitive dependencies (a dependency's dependency).
 
-**Mitigation:** Automated license checking is integrated into the CI/CD pipeline. The build fails if copyleft-licensed dependencies (GPL, AGPL) are detected in the full dependency tree. An organizational whitelist of approved licenses (typically MIT, Apache 2.0, BSD) is defined during architecture selection.
+**Mitigation:** Automated license checking is integrated into the CI/CD pipeline. The build fails if copyleft-licensed dependencies (GPL, AGPL, LGPL, SSPL, EUPL) are detected in the full dependency tree. An organizational whitelist of approved licenses (typically MIT, Apache 2.0, BSD) is defined during architecture selection. Note: MPL-2.0 has file-level copyleft and should be reviewed on a case-by-case basis. Dual-licensed packages (e.g., MySQL Connector under GPL or commercial license) require manual review — automated checkers may not detect that a commercial alternative exists.
 
 ### 2. AI-Generated Code: Ownership & Copyright
 
@@ -347,6 +440,10 @@ Obtain written confirmation from the organization's insurance broker that:
 - Cyber liability covers incidents caused by AI-generated code
 - E&O covers services delivered through AI-generated applications
 - D&O does not create exposure for authorizing AI-assisted development
+- AI-specific exclusions have been reviewed and documented (policies may contain broad AI exclusions that void coverage)
+- Sublimits for cyber claims are sufficient for the application's risk profile
+- Retroactive date covers the pilot start date
+- Coverage extends to AI training data infringement claims (third-party copyright or patent claims arising from AI-generated code)
 
 Policies written before 2024 likely do not contemplate AI-generated code. This confirmation is a **gating artifact for Phase 0 approval** — no confirmation, no pilot.
 
@@ -365,8 +462,23 @@ Before any project begins, the Orchestrator and project sponsor must complete th
 | Does any subsidiary operate in a sanctioned jurisdiction? | Screen for OFAC implications. |
 | Is data subject to records retention requirements? | Define retention periods, deletion procedures, and e-discovery readiness. |
 | Does the deployed application include AI-powered features for end users? | Complete EU AI Act classification assessment (Section VIII.5). |
+| Does this application process any health-related data, even incidentally (e.g., patient names, appointment data, wellness information)? | This framework explicitly excludes HIPAA-regulated systems. If health data is present, conduct a HIPAA applicability assessment before proceeding. |
+| Is the organization subject to Gramm-Leach-Bliley Act (GLBA) safeguards? | Route through existing GLBA information security program. Even internal tools at financial institutions may trigger safeguard requirements. |
+| Is the organization publicly traded? | Assess SEC cybersecurity disclosure requirements (2023 rules) for material incidents involving this application. |
 
 Document and approve this screening before Phase 1 begins.
+
+**Scope creep re-evaluation:** Projects originally classified as Light Track must be re-screened against this matrix if they evolve beyond their initial scope — particularly if they begin handling PII, financial data, health data, or serving users in additional jurisdictions. A "yes" answer to any new question triggers the corresponding action, potentially including track re-classification from Light to Standard or Full. This re-evaluation is the Orchestrator's responsibility at each quarterly review.
+
+### AI Conversation Log Retention
+
+AI-assisted development generates conversation logs (prompts and outputs) that may contain sensitive information. These logs are subject to the following policy:
+
+1. **During active development (Phases 0–4):** Retain conversation logs for context continuity and audit trail.
+2. **After launch (Phase 4 steady-state):** Delete or archive conversation logs within 90 days of Phase 4 completion unless a regulatory hold is in effect.
+3. **If PII was inadvertently included in prompts:** Report as a data incident per the incident response playbook. Work with the AI provider to request deletion under their data processing terms.
+4. **AI provider data handling:** Verify and document the AI provider's data retention policy. For enterprise or ZDR deployments, confirm in writing that conversation data is not retained for model training.
+5. **Litigation hold:** If litigation is anticipated or pending, preserve all AI conversation logs per the organization's legal hold procedures. Do not delete until Legal releases the hold.
 
 ### Legal Checklist
 
@@ -375,6 +487,7 @@ Document and approve this screening before Phase 1 begins.
 | Insurance confirmation | Before pilot (Pre-Phase 0) | Written broker confirmation per Section VIII.10 |
 | AI deployment path approval | Before pilot (Pre-Phase 0) | IT Security written approval per Section VII |
 | Liability entity designation | Before pilot (Pre-Phase 0) | Define which entity bears liability per Section VIII.9 |
+| Data Processing Agreement (AI provider) | Before pilot (Pre-Phase 0) | Verify AI provider agreement includes GDPR-compliant DPA and, for cross-border transfers, appropriate transfer mechanisms (SCCs or equivalent). Required for any project handling personal data. |
 | Compliance screening | Before architecture (Phase 0) | Complete Section VIII.11 matrix with project sponsor |
 | Trademark search | Before architecture (Phase 0) | Search USPTO, app stores, domain registrars, WIPO |
 | Privacy regulation applicability | During requirements (Phase 0) | Classify all data inputs by sensitivity; identify applicable regulations by jurisdiction |
@@ -382,7 +495,7 @@ Document and approve this screening before Phase 1 begins.
 | Open-source license whitelist | During architecture (Phase 1) | Define approved licenses; add automated checking to CI/CD |
 | Third-party ToS review | During architecture (Phase 1) | Orchestrator reviews terms for every selected service |
 | AI data handling policy | During architecture (Phase 1) | Confirm provider's commercial data terms; determine if ZDR is required per data classification |
-| Privacy Policy & Terms of Service | Before launch (Phase 3) | Draft and publish; legal review for external-facing products |
+| Privacy Policy & Terms of Service | Before launch (Phase 3) | Draft and publish; **mandatory attorney review before deployment** — AI-generated legal documents must not be deployed without review by qualified legal counsel |
 | License audit passing in CI/CD | Before deployment (Phase 4) | Build fails on copyleft license detection |
 | Trademark filing | At or before launch (Phase 4) | File USPTO application or engage trademark counsel |
 
@@ -420,6 +533,16 @@ The framework is built on and tested with Claude Code (Anthropic). This is not a
 - Do not embed Claude-specific prompt engineering into the Project Bible itself — it should be a technical specification, not a prompt.
 - The Claude Dev Framework (Git hooks) is not Claude-specific — it works with any development workflow.
 - Budget for annual requalification: test the full workflow on an alternative agent to verify the exit path remains viable.
+
+**Annual cross-model validation (required for organizational deployments):**
+
+Once per year, the Orchestrator must test the Project Bible from at least one active application against an alternative AI coding agent (e.g., GitHub Copilot agent mode, Cursor, Gemini CLI, or an open-source model). The test validates that:
+
+1. The alternative agent can read the Project Bible and produce a coherent summary of the application's architecture.
+2. The alternative agent can implement a minor change (bug fix or small feature) using only the Project Bible and existing codebase.
+3. The time required is documented and compared to the estimated 2-4 week switching cost.
+
+Record the results in the quarterly portfolio review. If the alternative agent cannot produce usable output from the Project Bible, the Bible needs improvement — it may be encoding Claude-specific assumptions rather than serving as a portable technical specification. If the switching cost estimate has materially changed (up or down), update the exit plan budget accordingly.
 
 ### Platform Vendor Concentration
 
@@ -471,6 +594,14 @@ For every project — not just the pilot — conduct a handoff test:
 
 **Expect the first attempt to fail.** The Orchestrator will omit tribal knowledge they don't realize they have. The handoff test's purpose is to surface these gaps before they matter.
 
+#### Recurring Access Verification
+
+The backup maintainer's access MUST be verified quarterly, not just at initial handoff:
+
+1. **Quarterly access check.** The backup maintainer confirms they can: (a) clone the repository, (b) access the hosting platform, (c) access the monitoring dashboard, and (d) retrieve production secrets from the secrets manager.
+2. **Verification method.** The backup maintainer performs the check independently and records the result in the quarterly portfolio review. If any access has lapsed, restore it immediately.
+3. **Annual handoff re-test.** Once per year, the backup maintainer repeats the full handoff test (environment setup + issue triage using only documentation). This validates both access and documentation currency.
+
 ### Portfolio Scaling
 
 **Maximum recommended: 5-8 active applications per Orchestrator.** Maintenance hours compound — at 10 applications, maintenance alone is a half-time job, leaving no capacity for new development.
@@ -484,6 +615,21 @@ For every project — not just the pilot — conduct a handoff test:
 
 This review is not self-reported by the Orchestrator. The Senior Technical Authority reviews monitoring data, ITSM tickets, and maintenance logs independently.
 
+#### Enforcement
+
+- If the quarterly review is not completed within 30 days of the scheduled date, the Senior Technical Authority MUST escalate to the CIO.
+- If review findings are not addressed within 60 days, the affected application enters a maintenance-only freeze (no new features) until findings are resolved.
+- Review completion and finding resolution MUST be recorded in the organization's ITSM system.
+
+#### Maintenance Cadence Enforcement
+
+The maintenance cadence is mandatory, not advisory:
+
+- **Monthly security audit skipped:** If two consecutive monthly security audits are missed, the Senior Technical Authority is notified and the application enters maintenance-only freeze until audits are current.
+- **Quarterly review skipped:** Escalate to Application Owner within 7 days.
+- **Biannual full audit skipped:** Application removed from production until the audit is completed.
+- **Tracking:** Maintenance activities MUST be logged in the project's CHANGELOG.md or ITSM system with dates and findings.
+
 ### Graduation Criteria
 
 When an application outgrows the solo model, it must transition to a conventional engineering team. Triggers (any one is sufficient):
@@ -495,6 +641,18 @@ When an application outgrows the solo model, it must transition to a conventiona
 | Enterprise system integrations | >3 |
 | Business criticality | Designated business-critical by Application Owner |
 | Compliance scope change | Application comes under SOC 2, HIPAA, PCI-DSS, or similar |
+
+#### Enforcement
+
+When any graduation trigger is met:
+
+1. **30-day assessment.** The Application Owner MUST commission a transition assessment within 30 days, evaluating team requirements, budget, and timeline.
+2. **90-day resolution.** Within 90 days, one of the following MUST occur:
+   - **Transition approved:** Engineering team funded and onboarding begins.
+   - **Scope reduced:** Application functionality reduced below trigger thresholds (features removed, users offboarded).
+   - **Decommission initiated:** Application retirement plan filed.
+   - **Exception granted:** CIO provides written exception with compensating controls (additional monitoring, increased maintenance budget, contracted support).
+3. **No indefinite Solo operation.** An application MUST NOT remain in Solo Orchestrator state beyond 90 days after a graduation trigger is met without a written CIO exception.
 
 ### Graduation Transition Plan
 
@@ -525,6 +683,31 @@ Managing 5-8 applications while maintaining a primary role is sustainable on pap
 **Detection signals:** Maintenance hours consistently exceeding projections, documentation updates falling behind, security audits being deferred, the Orchestrator declining new projects or expressing concerns about capacity.
 
 **Response:** Reduce the portfolio (graduate or decommission applications), allocate dedicated time blocks, or assign a second Orchestrator to share the portfolio. Do not add more applications to an overloaded Orchestrator.
+
+### Governance Monitoring
+
+Application-level monitoring (error tracking, uptime) is necessary but not sufficient. The following governance signals MUST also be monitored:
+
+| Signal | Frequency | Owner | Escalation |
+|--------|-----------|-------|------------|
+| Maintenance cadence compliance | Monthly | Orchestrator (self-report) + ITSM verification | Senior Technical Authority |
+| Backup maintainer sync completion | Monthly | Backup Maintainer confirms | Orchestrator → Application Owner |
+| Graduation trigger thresholds | Quarterly | Senior Technical Authority | Application Owner → CIO |
+| Credential rotation compliance | Quarterly | Orchestrator reports via portfolio review | Senior Technical Authority |
+| Approval log integrity | Quarterly | Senior Technical Authority audits git history | CIO |
+| Dependency vulnerability backlog | Monthly | Automated (Dependabot/Snyk alerts) | Orchestrator → IT Security |
+
+### Insider Threat Acknowledgment
+
+The Solo Orchestrator model concentrates all technical access in one individual. This is an inherent trade-off of the methodology and MUST be explicitly accepted:
+
+1. **Risk acceptance.** The Application Owner and IT Security MUST acknowledge in the APPROVAL_LOG.md (Phase 0→1 gate) that the Orchestrator has unrestricted access to source code, production infrastructure, and secrets.
+2. **Compensating controls:**
+   - Backup maintainer has read access to all systems and receives automated alerts.
+   - All code changes are committed to version control with signed commits (recommended).
+   - Production deployments flow through CI/CD — no manual production deployments.
+   - Audit logging enabled on hosting platform and secrets manager.
+3. **Scope limitation.** Applications handling financial transactions, PII at scale, or regulated data (SOC 2, HIPAA, PCI) MUST NOT use the Solo Orchestrator model. These require separation of duties that a single-person model cannot provide.
 
 ---
 
@@ -591,6 +774,16 @@ This framework version defines governance for a single Orchestrator building ind
 
 These multi-Orchestrator governance patterns are not yet defined in detail. Organizations scaling beyond 2-3 simultaneous Orchestrators should develop these controls before expanding further.
 
+**Scaling readiness checklist:** Before approving a fourth simultaneous Orchestrator, the organization should have:
+
+- [ ] A centralized portfolio dashboard providing visibility across all Solo Orchestrator applications (not manual Git repository aggregation)
+- [ ] Automated compliance monitoring that surfaces missed security audits, lapsed credential rotations, and overdue maintenance across the portfolio
+- [ ] Defined approver capacity budgets — a Senior Technical Authority can realistically review 5-8 applications per quarter with appropriate dedicated time allocation. Beyond that threshold, additional reviewers are needed.
+- [ ] A shared architecture catalog with approved stacks, preventing independent Orchestrators from creating an unmanageable technology matrix
+- [ ] A formal risk register entry in the enterprise risk management system for the Solo Orchestrator program as a whole, not just individual applications
+
+Without these controls, adding Orchestrators increases delivery capacity while degrading governance quality — the opposite of the framework's intent.
+
 ---
 
 ## XII. Risk Assessment
@@ -600,7 +793,7 @@ These multi-Orchestrator governance patterns are not yet defined in detail. Orga
 | Risk | Severity | Mitigation |
 |---|---|---|
 | **Single point of failure** — one person maintains the system | High | Designated backup maintainer with full access and monthly sync. Handoff test validated. Documentation enables continuity but does not replace a human who can triage and rollback. |
-| **Security vulnerabilities in AI-generated code** | High | Automated SAST (Semgrep), DAST (OWASP ZAP), dependency auditing (Snyk), secret detection (gitleaks), manual review. Penetration testing for Standard+ Track. Same toolchain used by traditional development teams. |
+| **Security vulnerabilities in AI-generated code** | High | Automated SAST (Semgrep), DAST (OWASP ZAP), dependency auditing (Snyk), secret detection (gitleaks), manual review. Penetration testing required for Full Track (no exemption) and Standard Track (with IT Security exemption path). Same toolchain used by traditional development teams. |
 | **Incident response** | High | Severity classification, notification chains, containment procedures defined in Builder's Guide. Enterprise IR integration defined in this document (Section VII). Backup maintainer provides coverage during Orchestrator absence. |
 | **Data transmitted to AI provider** | High | Pre-Phase 0 IT Security approval of deployment path. Commercial terms required. ZDR or self-hosted for sensitive data. DLP guidelines for AI prompts. |
 | **Open-source license contamination** | High | Automated license checking (direct + transitive) in CI/CD pipeline. Build fails on copyleft detection. SBOM generation. |
@@ -651,11 +844,13 @@ These multi-Orchestrator governance patterns are not yet defined in detail. Orga
 
 ## XIV. Pilot Evaluation
 
-For an organization evaluating this model, a working pilot can be established in under 48 hours — after the following pre-conditions are met.
+For an organization evaluating this model, expect **4-12 weeks to resolve organizational pre-conditions** (insurance confirmation, AI deployment path approval, legal review, stakeholder alignment). Once pre-conditions are met, the operational pilot setup takes under 48 hours. The pre-condition timeline dominates — do not plan against the 48-hour figure in isolation.
 
 ### Pre-Conditions (Before Day 1)
 
 **These pre-conditions map to Section 8 of the Project Intake Template.** The Orchestrator should complete the Intake's Governance Pre-Flight section; the governance stakeholders review and approve it. All "Blocking" items in Intake Section 8.1 must be marked "Complete" before Phase 0 begins. Record each pre-condition approval in `APPROVAL_LOG.md` as it is obtained.
+
+**6 blocking pre-conditions** (referenced throughout the framework as "the 6 pre-conditions"):
 
 1. **Insurance clearance:** Written broker confirmation per Section VIII.10. If coverage is insufficient, pursue the remediation path before proceeding.
 2. **AI deployment path approved:** IT Security written approval per Section VII.
@@ -663,10 +858,14 @@ For an organization evaluating this model, a working pilot can be established in
 4. **Project sponsor assigned:** Named business executive (not the Orchestrator) who approves Phase 0 and Phase 3 gates. *(Intake Section 8.2)*
 5. **Backup maintainer designated:** Second technologist with repository and hosting access per Section X. *(Intake Section 8.1)*
 6. **ITSM registration:** Project registered in the enterprise portfolio tracker. Change ticket filed. *(Intake Section 8.1)*
+
+**5 additional pilot preparation requirements:**
+
 7. **Scope constraint:** Internal-only, non-critical, no PII, no financial data, no external users.
 8. **Exit criteria defined:** What "success" looks like (expand), what "failure" looks like (stop), and who decides. *(Intake Section 8.5)*
 9. **Time allocation:** The Orchestrator has dedicated blocked time (not "fit it in between meetings"). *(Intake Section 3.1)*
 10. **Compliance screening completed:** Intake Section 8.4 completed with the project sponsor. *(Maps to Section VIII.11 of this document)*
+11. **Governance enforcement test planned:** During the pilot, the organization will deliberately trigger at least one escalation path (e.g., a simulated missed monthly security audit or a simulated Orchestrator unavailability requiring backup maintainer activation) to verify that the governance chain functions as documented. Governance mechanisms that have never been exercised are theoretical, not proven. Schedule the test before the pilot begins so it is a planned activity, not an afterthought.
 
 ### Day 1 (4-6 hours)
 

@@ -172,7 +172,7 @@ Place this in `.claude/settings.json` (project-level, shared with team) or `.cla
 
 ### What It Is
 
-The Claude Dev Framework (github.com/kraulerson/claude-dev-framework) is a hook-based system that provides automated workflow guardrails for coding standards, security scanning, and documentation requirements through Git hooks. It operates on a Swiss cheese defense model — layered controls where no single check catches everything, but the combination covers the gaps.
+The Claude Dev Framework (github.com/kraulerson/claude-dev-framework) is a hook-based system that provides automated workflow guardrails for coding standards, security scanning, and documentation requirements through Git hooks. It uses a layered defense model within its hook system — multiple hook-based checks (pre-commit, pre-push, post-merge) cover different failure modes, so no single check needs to catch everything. The combination of checks across Git hook stages provides broader coverage than any individual hook.
 
 The framework uses:
 - **Profiles** — Configuration sets that define rules for different project types (`mobile-app.yml`, `web-api.yml`, `cli-tool.yml`), inheriting from a `_base.yml` with shared standards.
@@ -186,7 +186,8 @@ The Builder's Guide defines quality controls at each phase. The Claude Dev Frame
 | Builder's Guide Requirement | Claude Dev Framework Enforcement |
 |---|---|
 | TDD — tests before implementation (Phase 2, Step 2.2) | Pre-commit hook validates test file exists for changed source files |
-| Secret detection (Phase 2, Step 2.4) | Pre-commit hook runs gitleaks on staged files |
+| Secret detection (Phase 2, Step 2.4) | Pre-commit hook runs gitleaks on staged files; CI pipeline runs gitleaks-action as backstop |
+| SAST quick scan (Phase 2, Step 2.4) | Pre-commit hook runs Semgrep on staged files; CI pipeline runs full Semgrep scan |
 | License compliance (Phase 2, CI/CD) | Pre-push hook runs license-checker |
 | Documentation updates (Phase 2, Step 2.5) | Hook validates CHANGELOG.md updated when source files change |
 | Exact dependency pinning (Phase 2, Initialization) | Rule rejects lockfile changes with non-exact versions |

@@ -30,12 +30,25 @@ jobs:
         run: pytest
 
       - name: Security - SAST (Semgrep)
-        uses: returntocorp/semgrep-action@v1
+        uses: semgrep/semgrep-action@713efdd345f3035192eaa63f56867b88e63e4e5d # v1 (v0.58.0)
         with:
-          config: auto
+          config: >-
+            p/owasp-top-ten
+            p/security-audit
+
+      - name: Security - Secret detection (gitleaks)
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2 (v2.3.9)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Security - Dependency audit
         run: pip-audit
 
       - name: Security - License check
-        run: pip-licenses --fail-on="GNU General Public License v3 (GPLv3)"
+        run: pip-licenses --fail-on="GNU General Public License v2 (GPLv2);GNU General Public License v3 (GPLv3);GNU Affero General Public License v3 (AGPLv3);GNU Lesser General Public License v2 (LGPLv2);GNU Lesser General Public License v2.1 (LGPLv2.1);GNU Lesser General Public License v3 (LGPLv3);Server Side Public License (SSPL);European Union Public Licence 1.1 (EUPL 1.1);European Union Public Licence 1.2 (EUPL 1.2)"
+        # MPL-2.0 has file-level copyleft — review on a case-by-case basis if detected
+
+      - name: Governance - Phase gate check
+        if: hashFiles('.claude/phase-state.json') != ''
+        continue-on-error: true
+        run: bash scripts/check-phase-gate.sh 2>/dev/null || echo "Phase gate check script not found — skipping"

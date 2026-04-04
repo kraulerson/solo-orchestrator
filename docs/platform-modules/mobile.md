@@ -290,7 +290,7 @@ If you develop Android on a Linux workstation and iOS on a Mac (a common solo bu
 | Ecosystem | Tool | Install | CI Check |
 |---|---|---|---|
 | **Node.js** (React Native) | `license-checker` | `npm install -g license-checker` | `license-checker --failOn "GPL-2.0;GPL-3.0;AGPL-3.0"` |
-| **Dart** (Flutter) | `flutter pub deps` + `pana` | Built-in / `dart pub global activate pana` | Manual review of dependency licenses; `pana` scores packages |
+| **Dart** (Flutter) | `dart_license_checker` | `dart pub global activate dart_license_checker` | `dart pub global run dart_license_checker --fail-on "GPL-2.0,GPL-3.0,AGPL-3.0"` |
 | **Swift** (iOS native) | `swift-license` or manual Package.swift review | `brew install nicklama/tap/swift-license` | Review output; fewer dependencies typical in native iOS |
 | **Kotlin** (Android native) | `licensee` Gradle plugin | Add to `build.gradle.kts` | Fails build on disallowed licenses |
 
@@ -1527,6 +1527,27 @@ In addition to the Builder's Guide maintenance cadence:
 - Full review of both store listings for accuracy and optimization.
 - Review third-party SDK updates (analytics, crash reporting, push notifications). Upgrade.
 - Evaluate whether the split-machine workflow (if applicable) is still optimal or if consolidation makes sense.
+
+### Vulnerability Disclosure
+
+Every production mobile application MUST include a vulnerability disclosure mechanism:
+
+1. Add a `SECURITY.md` file to the repository with:
+   - Supported versions (which releases receive security updates).
+   - How to report a vulnerability (email address or security advisory form — not a public issue).
+   - Expected response time (acknowledge within 48 hours, assess within 7 days).
+   - Safe harbor statement (reporters acting in good faith will not face legal action).
+2. Reference the security contact in the app store listing's support URL or privacy policy.
+3. For organizational deployments, route reports to the enterprise security team, not the Orchestrator directly.
+
+### Data Handling on App Deletion
+
+When a user deletes a mobile application:
+
+- **iOS:** App sandbox (local files, databases, keychain items marked with app entitlement) is deleted automatically by the OS. Keychain items shared via app groups or marked as persistent may survive. Document any persistent keychain usage.
+- **Android:** App internal storage and cache are deleted. External storage files (Downloads, shared media) survive. Shared preferences are deleted. Keystore entries persist until explicitly removed. Document any data stored outside the app sandbox.
+- **Server-side data:** Deleting the app does NOT delete server-side user accounts or data. Provide an in-app account deletion feature (required by Apple App Store guidelines since 2022) and a support process for users who deleted the app before deleting their account.
+- **GDPR/CCPA:** If users request data deletion, the backend MUST be able to purge all user data regardless of whether the app is still installed. Document the deletion API endpoint and verification process.
 
 ---
 

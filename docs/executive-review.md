@@ -21,9 +21,9 @@
 
 ### What This Is
 
-The Solo Orchestrator Framework is a structured software development methodology that enables a single experienced technologist to build production-grade applications by using AI Large Language Models as the execution layer. The technologist acts as Product Owner, Lead Architect, and QA Director. The AI proposes architecture, generates logic, and writes code within constraints defined and validated by the human operator.
+The Solo Orchestrator Framework is a structured software development methodology that enables a single experienced technologist to build production-deployable applications by using AI Large Language Models as the execution layer. The technologist acts as Product Owner, Lead Architect, and QA Director. The AI proposes architecture, generates logic, and writes code within constraints defined and validated by the human operator.
 
-The framework currently supports **web, desktop, and mobile applications** with production-ready Platform Modules. The core methodology is platform-agnostic — additional platforms (CLI, embedded) can be added through new Platform Modules as they mature.
+The framework currently supports **web, desktop, and mobile applications** with production-deployable Platform Modules. The core methodology is platform-agnostic — additional platforms (CLI, embedded) can be added through new Platform Modules as they mature.
 
 The framework is a phase-gated process consisting of five stages: Product Discovery (defining requirements), Architecture & Planning (selecting technology), Construction (building features), Validation & Hardening (security and quality assurance), and Release & Maintenance (distribution and ongoing support). Each phase produces documented artifacts that gate entry into the next phase. No code is deployed without passing automated testing, security scanning, and human review.
 
@@ -33,7 +33,7 @@ The framework is **modular** — the core methodology is platform-agnostic, with
 
 Every large organization has a software backlog that will never be built. The projects are too small to justify a full development team, too complex for no-code platforms, and too specific for off-the-shelf SaaS. They age in Jira while business units find workarounds — spreadsheets, manual processes, or unauthorized SaaS purchases that create shadow IT risk.
 
-The Solo Orchestrator model addresses this gap. A single qualified technologist can take a concept from idea to production in weeks at a fraction of the cost of a traditional team. Production-ready Platform Modules currently support web, desktop, and mobile applications.
+The Solo Orchestrator model addresses this gap. A single qualified technologist can take a concept from idea to production in weeks at a fraction of the cost of a traditional team. Production-deployable Platform Modules currently support web, desktop, and mobile applications.
 
 ### Current Maturity
 
@@ -238,17 +238,18 @@ Documentation is a continuous output at every phase. The bus factor for a solo-m
 
 ## VII. Legal Considerations
 
-AI-assisted software development introduces legal exposure across multiple domains. **This section identifies risks and mitigation approaches. It is not legal advice. Engage corporate counsel before production deployment.**
+AI-assisted software development introduces legal exposure across multiple domains. **This section identifies risks and mitigation approaches. It is not legal advice, and it is not a substitute for qualified legal counsel. The regulatory landscape for AI-assisted software development is evolving rapidly. Engage corporate counsel before production deployment.**
 
 Detailed legal analysis is in the Enterprise Governance Framework (SOI-003-GOV, Section VIII). Key areas:
 
-1. **Open-Source License Compliance** — Automated CI/CD pipeline checking across direct and transitive dependencies. Build fails on copyleft detection.
-2. **AI-Generated Code Ownership** — Human-directed phase gates strengthen copyright claims. Code provenance documentation supports independent creation. Legal landscape is evolving.
-3. **Data Privacy Regulations** — GDPR, CCPA/CPRA, and state-level privacy laws addressed through data sensitivity classification (Phase 0), architecture controls (Phase 1), and Privacy Policy (Phase 3).
+1. **Open-Source License Compliance** — Automated CI/CD pipeline checking across direct and transitive dependencies. Build fails on copyleft detection (GPL, AGPL, LGPL, SSPL, EUPL).
+2. **AI-Generated Code Ownership** — Copyright protection for AI-generated code is legally unsettled under current U.S. and international law. Human-directed phase gates strengthen copyright claims but do not guarantee protection. Code provenance documentation supports independent creation. Organizations should consult IP counsel before relying on copyright protection for commercially critical code.
+3. **Data Privacy Regulations** — GDPR, CCPA/CPRA, and state-level privacy laws addressed through data sensitivity classification (Phase 0), architecture controls (Phase 1), and Privacy Policy (Phase 3). Privacy Policies and Terms of Service generated during the build process must be reviewed by qualified legal counsel before deployment.
 4. **Data Sovereignty** — For international subsidiaries: data storage location, processing location, cross-border transfer mechanisms assessed at Phase 1.
 5. **EU AI Act** — Separate assessment for AI features in deployed products (not just the development methodology).
-6. **Insurance** — Written broker confirmation that cyber liability, E&O, and D&O cover AI-assisted development. Gating artifact for Phase 0.
-7. **Compliance Screening** — SOX, PCI, GDPR, OFAC, records retention screening completed before Phase 1.
+6. **Insurance** — Written broker confirmation that cyber liability, E&O, and D&O cover AI-assisted development, including AI-specific exclusion review and coverage for AI training data infringement claims. Gating artifact for Phase 0.
+7. **Compliance Screening** — SOX, PCI, GDPR, GLBA, SEC cybersecurity disclosure, OFAC, PHI, and records retention screening completed before Phase 1.
+8. **AI Provider Data Processing** — Organizations must verify that their AI provider agreement includes a GDPR-compliant Data Processing Agreement (DPA) and appropriate cross-border transfer mechanisms before any project handling personal data. For commercially sensitive projects, use ZDR or self-hosted models — transmitting trade secrets to a third-party AI provider may undermine trade secret status.
 
 ### Platform-Specific Legal Considerations
 
@@ -273,9 +274,9 @@ Desktop and mobile distribution introduces additional legal requirements not pre
 | **Code transmitted to AI provider** | High | Commercial deployment path required. ZDR or self-hosted for sensitive data. DLP guidelines for AI prompts. |
 | **Open-source license contamination** | High | Automated checking (direct + transitive) in CI/CD. Build fails on copyleft. SBOM generation. |
 | **Data privacy non-compliance** | High | Data classification in Phase 0. Compliance screening. Jurisdiction-specific review. Privacy Policy before launch. |
-| **AI vendor lock-in** | Medium-High | Core methodology (phases, decision gates, intake template, governance) is agent-agnostic. Phase 2 workflow accelerators (Superpowers, MCP integrations) and the CLI Setup Addendum are Claude Code-specific. Estimated switching cost for the methodology: minimal. Estimated switching cost for the Phase 2 tooling integration: 2-4 weeks per active project. Reduce lock-in by keeping agent-specific configuration isolated in the CLI Addendum and CLAUDE.md. |
+| **AI vendor lock-in** | Medium | The Claude Code-specific tooling layer is a deliberate proof-of-concept decision — the methodology is validated on a single vendor before the abstraction layer is built. Core methodology (phases, decision gates, intake template, governance) is agent-agnostic today. Phase 2 workflow accelerators (Superpowers, MCP integrations) and the CLI Setup Addendum are Claude Code-specific and will be retooled for multi-vendor support once the methodology is validated through organizational pilots. Estimated switching cost for the methodology: minimal. Estimated switching cost for the Phase 2 tooling integration: 2-4 weeks per active project. Annual cross-model validation (Section IX of the Governance Framework) keeps the exit path tested and prepares for the multi-vendor phase. |
 | **Code quality and performance** | Medium | TDD, automated linting, platform-specific performance auditing. |
-| **Intellectual property uncertainty** | Medium | Human-directed phase gates. Code provenance documentation. Monitor legal developments. |
+| **Intellectual property uncertainty** | Medium | Copyright protection for AI-generated code is legally unsettled. Human-directed phase gates and code provenance documentation strengthen but do not guarantee claims. Organizations should consult IP counsel. The framework does not scan for patent or copyright infringement in generated code. |
 | **Portfolio scaling** | Medium | Maximum 5-8 applications per Orchestrator. Quarterly portfolio review. Graduation criteria defined. |
 | **Cross-platform inconsistency** | Medium | CI builds and tests on all target platforms. Platform-specific testing checklists per Platform Module. |
 | **Platform vendor changes** | Medium | Code signing certificate expiry, app store policy changes, SDK deprecation. Biannual platform review in maintenance cadence. |
@@ -295,7 +296,7 @@ Desktop and mobile distribution introduces additional legal requirements not pre
 | **Budget** | <$400/month infrastructure | Full engineering team budget available |
 | **Strategic value** | Tactical tool, prototype, MVP validation | Core revenue product, competitive differentiator |
 | **Maintenance** | 2-4 hours/week acceptable (stabilizing to 1-2) | Dedicated on-call team required |
-| **Platform** | Web, desktop, mobile (production-ready) | Any |
+| **Platform** | Web, desktop, mobile (production-deployable) | Any |
 
 ### Recommended Use Cases
 
@@ -310,7 +311,7 @@ Desktop and mobile distribution introduces additional legal requirements not pre
 
 ## X. Pilot Evaluation
 
-For an organization evaluating this model, a working pilot can be established in under 48 hours — after the pre-conditions defined in the Enterprise Governance Framework (SOI-003-GOV, Section XIV) are met. The Project Intake Template (SOI-004-INTAKE) collects the required data.
+For an organization evaluating this model, expect **4-12 weeks to resolve organizational pre-conditions** (insurance confirmation, AI deployment path approval, legal review, stakeholder alignment, ITSM registration). Once pre-conditions are met, the operational pilot setup takes under 48 hours. The pre-condition timeline dominates — do not plan against the 48-hour figure in isolation. The Enterprise Governance Framework (SOI-003-GOV, Section XIV) defines the pre-conditions. The Project Intake Template (SOI-004-INTAKE) collects the required data.
 
 ### Pre-Conditions Summary
 

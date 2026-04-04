@@ -253,6 +253,29 @@ In addition to the Builder's Guide maintenance cadence:
 - Framework major version evaluation
 - Hosting vendor evaluation (should we migrate?)
 
+### Vulnerability Disclosure
+
+Every production web application MUST include a vulnerability disclosure mechanism:
+
+1. Add a `SECURITY.md` file to the repository with:
+   - Supported versions (which releases receive security updates).
+   - How to report a vulnerability (email address or security advisory form — not a public issue).
+   - Expected response time (acknowledge within 48 hours, assess within 7 days).
+   - Safe harbor statement (reporters acting in good faith will not face legal action).
+2. Add a `/.well-known/security.txt` route to the web application per RFC 9116, pointing to the disclosure email.
+3. For organizational deployments, route reports to the enterprise security team, not the Orchestrator directly.
+
+### Application Sunsetting
+
+When a web application is being decommissioned:
+
+1. **Notify users.** Provide at least 30 days notice via in-app banner and email (if applicable).
+2. **Data export.** Provide a self-service data export mechanism before shutdown.
+3. **Redirect.** After shutdown, serve a static page explaining the application has been retired and linking to any successor.
+4. **DNS and SSL.** Maintain domain ownership and a valid SSL certificate on the redirect page to prevent domain hijacking.
+5. **Data deletion.** Delete production databases containing user data per the data retention policy. Document deletion in the APPROVAL_LOG.md.
+6. **ITSM closure.** Close the project registration in the enterprise ITSM system.
+
 ---
 
 ## 7. Phase-Specific Additions

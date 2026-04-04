@@ -72,10 +72,32 @@ jobs:
       - name: Generate checksums
         run: sha256sum release-*/* > checksums.sha256
 
+      - name: Generate SBOM
+        run: |
+          # Generate SBOM — configure the command for your language:
+          #   Node.js:  npx @cyclonedx/cyclonedx-npm --output-file sbom.json
+          #   Python:   pip install cyclonedx-bom && cyclonedx-py requirements -i requirements.txt -o sbom.json
+          #   Rust:     cargo install cargo-cyclonedx && cargo cyclonedx -f json > sbom.json
+          #   Go:       go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@latest && cyclonedx-gomod mod -json -output sbom.json
+          #   .NET:     dotnet tool install --global CycloneDX && dotnet CycloneDX -o sbom.json
+          echo "ERROR: No SBOM tool configured. Replace this step with a language-specific CycloneDX command."
+          echo "See comments above for examples."
+          exit 1
+
+      # DAST — Electron/Tauri apps with web UIs can be scanned locally.
+      # If your desktop app serves a local web interface, uncomment and configure:
+      #
+      # - name: DAST — OWASP ZAP baseline scan
+      #   run: |
+      #     docker run --rm zaproxy/zap-stable zap-baseline.py \
+      #       -t http://localhost:${{ vars.APP_PORT || '3000' }} \
+      #       -J zap-report.json
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             release-*/*
             checksums.sha256
+            sbom.json
           generate_release_notes: true

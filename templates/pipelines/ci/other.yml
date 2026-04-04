@@ -33,14 +33,33 @@ jobs:
       #   run: <your test command>
 
       - name: Security - SAST (Semgrep)
-        uses: returntocorp/semgrep-action@v1
+        uses: semgrep/semgrep-action@713efdd345f3035192eaa63f56867b88e63e4e5d # v1 (v0.58.0)
         with:
-          config: auto
+          config: >-
+            p/owasp-top-ten
+            p/security-audit
 
-      # TODO: Dependency audit
-      # - name: Security - Dependency audit
-      #   run: <your audit command>
+      - name: Security - Secret detection (gitleaks)
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2 (v2.3.9)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # TODO: License check
-      # - name: Security - License check
-      #   run: <your license check command>
+      - name: Security - Dependency audit
+        run: |
+          echo "WARNING: No dependency audit tool configured for this language."
+          echo "Configure a language-specific vulnerability scanner before Phase 3."
+          echo "See docs/builders-guide.md for supported tools per language."
+          exit 1
+
+      - name: Security - License check
+        if: always()
+        run: |
+          echo "WARNING: No license checker configured for this language."
+          echo "Configure a language-specific license compliance tool before Phase 3."
+          echo "See docs/builders-guide.md for supported tools per language."
+          exit 1
+
+      - name: Governance - Phase gate check
+        if: hashFiles('.claude/phase-state.json') != ''
+        continue-on-error: true
+        run: bash scripts/check-phase-gate.sh 2>/dev/null || echo "Phase gate check script not found — skipping"

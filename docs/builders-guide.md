@@ -58,7 +58,7 @@ When the Intake is provided, the Phase 0 and Phase 1 prompts shift from open-end
 
 ## What This Framework Is
 
-The Solo Orchestrator Framework is a structured software development methodology that enables a single experienced technologist to build production-grade applications by using AI Large Language Models as the execution layer. The technologist acts as Product Owner, Lead Architect, and QA Director. The AI proposes architecture, generates logic, and writes code within constraints defined and validated by the human operator.
+The Solo Orchestrator Framework is a structured software development methodology that enables a single experienced technologist to build production-deployable applications by using AI Large Language Models as the execution layer. The technologist acts as Product Owner, Lead Architect, and QA Director. The AI proposes architecture, generates logic, and writes code within constraints defined and validated by the human operator.
 
 ### What This Is Not
 
@@ -69,7 +69,7 @@ This framework does not replace engineering teams. It is not appropriate for:
 - **Large-scale distributed systems** requiring microservices, message queues, or multi-region deployments. These require dedicated DevOps capacity.
 - **Enterprise integration projects** (SAP, Salesforce, custom ERP) where the integration complexity exceeds the application logic.
 
-The framework is designed for internal tools, utilities, departmental applications, prototypes, and MVP validation — projects that sit in the backlog because they don't justify a full team. Production-ready Platform Modules exist for web, desktop, and mobile applications. Additional platform modules (CLI, embedded) can be added as they mature.
+The framework is designed for internal tools, utilities, departmental applications, prototypes, and MVP validation — projects that sit in the backlog because they don't justify a full team. Production-deployable Platform Modules exist for web, desktop, and mobile applications. Additional platform modules (CLI, embedded) can be added as they mature.
 
 ### How This Differs From "Vibe Coding"
 
@@ -81,6 +81,12 @@ The framework is designed for internal tools, utilities, departmental applicatio
 - Every phase produces documentation enabling a qualified replacement to resume maintenance.
 
 The AI writes code. The human makes every decision, validates every output, and gates every phase transition.
+
+### Enforcement Model
+
+The framework's controls operate at three tiers. The **CI pipeline** (SAST, dependency audit, license check, secret detection, build, tests) provides mechanical enforcement — it blocks merges when checks fail. **Pre-commit hooks** (secret detection, SAST quick scan, test co-location) provide early warning on commit. **LLM instructions** (CLAUDE.md, this guide, the Project Bible) provide comprehensive guidance that the agent follows between decision gates, with the human as the review layer.
+
+Only the CI pipeline is a hard enforcement boundary. The hooks catch common mistakes. Everything else depends on the agent following instructions and the Orchestrator reviewing at decision gates. See the User Guide's "What Is Enforced vs. What Is Guided" section for the complete breakdown.
 
 ---
 
@@ -428,17 +434,26 @@ requires my decision before Phase 1.
 
 **Without Intake — Self-assessment:** For each domain, answer: "Can I look at the AI's output and reliably determine if it's correct?"
 
-| Domain | Can I Validate? | If No: Automated Tool |
-|---|---|---|
-| Product/UX Logic | | Manual review / user testing |
-| Frontend/UI Code | | Automated linting |
-| Backend / API / Core Logic | | Automated testing |
-| Database / Data Storage | | Query analysis, migration testing |
-| Security (Auth, Injection, IDOR) | | SAST, dependency scanning, DAST |
-| Build & Packaging | | CI verification on all target platforms |
-| Accessibility | | Automated accessibility tooling |
-| Performance | | Profiling tools, benchmarks |
-| Platform-Specific (OS integration, native APIs) | | Platform-specific testing suites |
+| Domain | Can I Validate? | Benchmark: "Yes" means you can… | If No: Automated Tool |
+|---|---|---|---|
+| Product/UX Logic | | Identify when a user flow has a dead end or missing error state without being told | Manual review / user testing |
+| Frontend/UI Code | | Read a React/Svelte/Flutter component and spot state management bugs, accessibility gaps, or layout regressions | Automated linting |
+| Backend / API / Core Logic | | Trace a request from endpoint to database and back, identifying where validation, error handling, or authorization is missing | Automated testing |
+| Database / Data Storage | | Evaluate whether a query will perform acceptably at 10x current data volume and whether indexes are appropriate | Query analysis, migration testing |
+| Security (Auth, Injection, IDOR) | | Spot an SQL injection, an insecure direct object reference, or a missing authorization check in a code review without tooling hints | SAST, dependency scanning, DAST |
+| Build & Packaging | | Debug a failed CI pipeline, configure code signing, and resolve platform-specific build errors independently | CI verification on all target platforms |
+| Accessibility | | Identify WCAG violations (contrast, keyboard navigation, screen reader compatibility) by inspecting the UI and markup | Automated accessibility tooling |
+| Performance | | Identify N+1 queries, unnecessary re-renders, or memory leaks by reading code, without relying solely on profiling output | Profiling tools, benchmarks |
+| Platform-Specific (OS integration, native APIs) | | Debug platform-specific issues (e.g., macOS sandboxing, Android permissions, Windows registry) using platform documentation | Platform-specific testing suites |
+
+#### Enforcement
+
+The competency matrix is not advisory — it drives mandatory tooling:
+
+- For each domain marked **"No"**, the corresponding automated tool listed in the matrix MUST be installed and active in the CI pipeline before Phase 2 begins. The init.sh script installs these tools; verify they are present in `.github/workflows/ci.yml`.
+- For each domain marked **"Partially"**, the automated tool is RECOMMENDED but not gating.
+- The Phase 1→2 gate reviewer (Senior Technical Authority for organizational projects) MUST verify that CI pipeline includes the mandatory tools for all "No" domains before approving Phase 2 entry.
+- If the Orchestrator upgrades a domain from "No" to "Yes" during the project, the automated tooling remains active. Competency improvements do not remove safety nets.
 
 **Save as:** Appendix to `PRODUCT_MANIFESTO.md`
 
@@ -682,6 +697,8 @@ The Builder's Guide methodology (phases, decision gates, Build Loop, test-first)
 
 ### Project Initialization
 
+**Polyglot and monorepo projects:** The init script generates a CI pipeline for one primary language. If your project uses multiple languages (e.g., TypeScript frontend + Python backend), add CI steps for secondary languages to `.github/workflows/ci.yml` during this initialization phase. For monorepo structures (multiple packages or services in one repository), configure path-scoped CI triggers so the full pipeline does not run on every change to every package. The Build Loop applies independently to each service or package.
+
 **1. Create the repository:**
 ```bash
 mkdir [project-name] && cd [project-name]
@@ -689,10 +706,25 @@ git init
 git remote add origin https://github.com/[org]/[repo].git
 ```
 
-**2. Configure branch protection** (repository host settings):
-- Require pull request before merging to `main`
-- Require status checks to pass
-- Disable force pushes
+**2. Configure branch protection** (required before Phase 2):
+
+```bash
+# Using GitHub CLI — run from the project directory after pushing the initial commit:
+gh api repos/{owner}/{repo}/branches/main/protection \
+  --method PUT \
+  --field "required_pull_request_reviews[required_approving_review_count]=0" \
+  --field "required_pull_request_reviews[dismiss_stale_reviews]=true" \
+  --field "required_status_checks[strict]=true" \
+  --field "required_status_checks[contexts][]=test" \
+  --field "enforce_admins=true" \
+  --field "restrictions=null" \
+  --field "allow_force_pushes=false" \
+  --field "allow_deletions=false"
+```
+
+This enforces: PRs required for all changes to `main`, status checks must pass, force pushes disabled, and rules apply to admins (you). Replace `{owner}/{repo}` with your GitHub org/repo path. Adjust `contexts` to match your CI job names.
+
+If you cannot use the GitHub CLI, configure these settings manually: Settings → Branches → Add rule → Branch name pattern: `main` → check "Require a pull request before merging", "Require status checks to pass before merging", uncheck "Allow force pushes."
 
 **3. Initialize the project with the AI agent:**
 
@@ -771,7 +803,7 @@ Confirm the tests fail (feature code doesn't exist yet).
 
 1. Run SAST:
    ```bash
-   semgrep scan --config=auto src/
+   semgrep scan --config=p/owasp-top-ten --config=p/security-audit src/
    ```
 2. Review against the Phase 1.3 Threat Model & Risk/Mitigation Matrix.
 3. Check specifically for:
@@ -790,6 +822,18 @@ Confirm the tests fail (feature code doesn't exist yet).
 - For state management and race conditions: if the application has concurrent operations, write tests that simulate concurrent access. Use your platform's concurrency testing tools.
 - For data access efficiency: run query analysis (EXPLAIN or equivalent) on every database query the AI generates that touches user data. N+1 queries are the most common AI-generated performance defect.
 - For input validation: test every user-facing input with injection payloads (SQLi, XSS, command injection) appropriate to your stack. Do not assume the AI's validation is complete.
+
+#### When CI Fails on Security Checks
+
+When a CI security check blocks the build, follow this escalation:
+
+1. **Investigate the finding.** Read the error output. Determine if it is a genuine vulnerability, a false positive, or a configuration issue.
+2. **Genuine vulnerability:** Fix the code or update the dependency. Re-push. Do not bypass.
+3. **False positive:** Suppress at the line level with documentation (see Phase 3: Handling False Positives). Re-push.
+4. **Dependency vulnerability with no fix available:** Check if a patched version exists. If not, evaluate whether the vulnerable code path is reachable in your application. Document the risk and create a tracking issue. For organizational projects, get IT Security approval to proceed.
+5. **License violation:** Do not override. Find an alternative dependency with a compatible license. If no alternative exists, escalate to Legal (organizational) or evaluate the license terms carefully (personal).
+
+**Never** commit directly to main, disable CI, or use `--no-verify` to bypass security checks. If you are blocked and unsure how to proceed, ask for a security peer review.
 
 #### Step 2.5 — Update Documentation
 
@@ -820,6 +864,30 @@ Ask the agent to summarize: features built, features remaining, current data mod
 3. "We are continuing Phase 2. Here is the current state."
 
 If the AI produces consistently low-quality output across multiple attempts, end the session and start fresh. Quality variance between sessions is real.
+
+---
+
+### Mid-Phase 2 Governance Checkpoint (Organizational Deployments)
+
+**For organizational deployments only** (personal projects skip this):
+
+Phase 2 is the longest phase (2-6 weeks) and the one with the least external oversight. To close this governance gap, conduct a **biweekly status review** with the Senior Technical Authority (or designated reviewer) during Construction:
+
+**Every 2 weeks during Phase 2:**
+1. The Orchestrator presents: features completed, features remaining, any architecture deviations from the Project Bible, and current test pass rate.
+2. The reviewer confirms the project is tracking to the Bible and the decision log does not contain unresolved concerns.
+3. The review is brief (30 minutes maximum) — this is a status check, not a gate.
+4. Record the review date and outcome in the in-phase decision log.
+
+**Escalation triggers during review:**
+- Architecture deviation from the Project Bible that was not captured as an ADR
+- Test pass rate below 80%
+- Security findings from per-feature audits that remain unresolved for more than one review cycle
+- Orchestrator reports that AI output quality has degraded significantly
+
+If any trigger fires, the reviewer and Orchestrator determine whether to pause construction, revise the Bible, or escalate to the Application Owner.
+
+This checkpoint does not replace the Phase 2→3 gate — it provides early visibility into construction progress for the governance chain.
 
 ---
 
@@ -876,7 +944,7 @@ Before moving to Phase 3:
 
 1. Full SAST scan:
    ```bash
-   semgrep scan --config=auto --severity ERROR --severity WARNING .
+   semgrep scan --config=p/owasp-top-ten --config=p/security-audit --severity ERROR --severity WARNING .
    ```
 2. Dependency vulnerability scan:
    ```bash
@@ -895,6 +963,18 @@ Before moving to Phase 3:
 > **⟁ PLATFORM MODULE:** Reference your Platform Module for platform-specific security checks: code signing verification, sandboxing/permissions model, platform-specific attack vectors, DAST approach (if applicable).
 
 **Quality gate:** Zero critical or high-severity findings before proceeding.
+
+#### Handling False Positives
+
+SAST tools produce false positives. Silencing them without documentation creates unscanned attack surface. Follow this process:
+
+1. **Investigate first.** Confirm the finding is genuinely a false positive, not a vulnerability you do not understand.
+2. **Inline suppression.** Use the tool's suppression comment (e.g., `# nosemgrep: rule-id`) with a brief justification on the same line.
+3. **Document.** Record the rule ID, file, and reason in the Phase 3 security audit notes.
+4. **Organizational: approval required.** For findings rated High or Critical, suppression requires written approval from the security peer reviewer or IT Security.
+5. **Re-validate.** Suppressed findings MUST be re-evaluated during the biannual security audit. Code changes may make a previously-false positive genuine.
+
+Never disable an entire SAST rule category to silence a single false positive. Suppress at the line level only.
 
 ---
 
@@ -919,7 +999,7 @@ Core requirements regardless of platform:
 - All interactive elements have text labels
 - Never rely on color alone for meaning
 - Keyboard/alternative input navigation works for core flows
-- Screen reader compatibility for primary user journey (Full Track)
+- Screen reader compatibility for primary user journey (Full Track requires explicit testing; all tracks must meet WCAG AA, which includes programmatic screen reader support)
 
 ---
 
@@ -988,8 +1068,8 @@ These artifacts serve as the audit evidence for Phase 3 completion. They are ref
 **Distribution preparation:** See Platform Module for distribution channel requirements.
 
 **Legal:**
-- [ ] Privacy Policy (if collecting any data)
-- [ ] Terms of Service (if applicable)
+- [ ] Privacy Policy (if collecting any data) — **MANDATORY: must be reviewed by qualified legal counsel before deployment.** AI-generated privacy policies commonly contain inaccuracies, omissions, and generic language that fails to address specific processing activities. Do not deploy AI-generated legal documents without attorney review.
+- [ ] Terms of Service (if applicable) — **MANDATORY: must be reviewed by qualified legal counsel before deployment.** Same requirement as Privacy Policy above.
 - [ ] License audit passing in CI
 - [ ] Trademark search completed
 
@@ -1026,6 +1106,19 @@ Core requirements regardless of platform:
 - [ ] Production configuration applied (not dev/debug settings)
 - [ ] Secrets and debug tools excluded from production build
 
+#### Deployment Strategy
+
+For applications with active users, select a deployment strategy that limits blast radius:
+
+| Strategy | When to Use | How |
+|----------|------------|-----|
+| **Cut-over** | Light Track internal tools, zero-downtime not required | Deploy new version, replace old version |
+| **Blue/green** | Standard+ Track web applications | Maintain two production environments; switch traffic after smoke test |
+| **Rolling / canary** | Standard+ Track with >1,000 users | Route 5–10% of traffic to new version; expand if error rates are stable |
+| **Feature flags** | High-risk features on any track | Deploy code dark; enable for subset of users; monitor before full rollout |
+
+Light Track projects MAY use cut-over deployment. Standard and Full Track projects SHOULD use blue/green or rolling deployment. Document the chosen strategy in the Project Bible.
+
 ---
 
 ### Step 4.1.5: Rollback & Incident Response Playbook
@@ -1048,6 +1141,18 @@ Core requirements regardless of platform:
 **Containment:** SEV-1/SEV-2: rollback first, investigate second. Preserve logs before rollback. Suspected data breach: isolate, preserve evidence, notify IT security and legal.
 
 **Secrets rotation:** Compromised secret → rotate immediately, audit access logs, update all environments, verify application functionality.
+
+#### Mandatory Rollback Test
+
+Before the application goes live, the Orchestrator MUST test the rollback procedure:
+
+1. Deploy the release candidate to production (or a production-equivalent environment).
+2. Execute the documented rollback procedure.
+3. Verify the application reverts to the prior working state.
+4. Verify data integrity after rollback (no data loss, no corruption).
+5. Record the time elapsed and any issues encountered.
+
+If the rollback procedure fails, fix it and re-test before proceeding to production launch. A rollback procedure that has never been tested is not a rollback procedure — it is a hope.
 
 ---
 

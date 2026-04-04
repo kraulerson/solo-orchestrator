@@ -28,9 +28,16 @@ jobs:
         run: cargo clippy -- -D warnings
 
       - name: Security - SAST (Semgrep)
-        uses: returntocorp/semgrep-action@v1
+        uses: semgrep/semgrep-action@713efdd345f3035192eaa63f56867b88e63e4e5d # v1 (v0.58.0)
         with:
-          config: auto
+          config: >-
+            p/owasp-top-ten
+            p/security-audit
+
+      - name: Security - Secret detection (gitleaks)
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2 (v2.3.9)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install security tools
         run: |
@@ -41,4 +48,10 @@ jobs:
         run: cargo audit
 
       - name: Security - License check
-        run: cargo license --avoid-build-deps --avoid-dev-deps
+        run: cargo license --avoid-build-deps --avoid-dev-deps | tee /dev/stderr | (! grep -qi "GPL-2.0\|GPL-3.0\|AGPL-3.0\|LGPL-2.0\|LGPL-2.1\|LGPL-3.0\|SSPL\|EUPL")
+        # MPL-2.0 has file-level copyleft — review on a case-by-case basis if detected
+
+      - name: Governance - Phase gate check
+        if: hashFiles('.claude/phase-state.json') != ''
+        continue-on-error: true
+        run: bash scripts/check-phase-gate.sh 2>/dev/null || echo "Phase gate check script not found — skipping"

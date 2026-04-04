@@ -22,12 +22,12 @@ For what the framework *is*, how it works at a conceptual level, and what it is 
 |---|---|---|
 | **This guide** (user-guide.md) | What you do, step by step, from setup to maintenance | Start here |
 | [**README**](../README.md) | Framework overview, prerequisites, platform/language support | Before starting |
-| [**Builder's Guide**](framework/builders-guide.md) | The complete methodology — phases, prompts, remediation tables, glossary | During every phase |
-| [**Project Intake**](../PROJECT_INTAKE.md) | Your product definition — fill this out before Phase 0 | Pre-Phase 0 |
-| [**Governance Framework**](framework/governance-framework.md) | Approval authorities, compliance, risk, portfolio governance | Organizational deployments |
-| [**CLI Setup Addendum**](framework/cli-setup-addendum.md) | Claude Code configuration, Superpowers, MCP servers | After init, before Phase 0 |
+| [**Builder's Guide**](builders-guide.md) | The complete methodology — phases, prompts, remediation tables, glossary | During every phase |
+| [**Project Intake**](../templates/project-intake.md) | Your product definition — fill this out before Phase 0 | Pre-Phase 0 |
+| [**Governance Framework**](governance-framework.md) | Approval authorities, compliance, risk, portfolio governance | Organizational deployments |
+| [**CLI Setup Addendum**](cli-setup-addendum.md) | Claude Code configuration, Superpowers, MCP servers | After init, before Phase 0 |
 | [**Platform Module**](platform-modules/) | Platform-specific architecture, tooling, testing, distribution | Phases 1-4 |
-| [**Executive Review**](framework/executive-review.md) | Business case for CIO evaluation | Organizational evaluation |
+| [**Executive Review**](executive-review.md) | Business case for CIO evaluation | Organizational evaluation |
 
 ---
 
@@ -35,13 +35,57 @@ For what the framework *is*, how it works at a conceptual level, and what it is 
 
 ### What This Framework Is
 
-A structured methodology for a single experienced technologist to build production-grade applications using AI as the execution layer. You define intent, constraints, and validation. The AI generates architecture, code, tests, and documentation within those constraints. It is phase-gated, test-driven, and security-scanned at every step. See the [README](../README.md) for the full overview.
+A structured methodology for a single experienced technologist to build production-deployable applications using AI as the execution layer. You define intent, constraints, and validation. The AI generates architecture, code, tests, and documentation within those constraints. It is phase-gated, test-driven, and security-scanned at every step. See the [README](../README.md) for the full overview.
+
+### What You Should Know Before You Start
+
+**AI-generated code IP:** Software built using this framework is generated in part by AI. The copyright status of AI-generated code is legally unsettled under current U.S. and international law. The framework's human-directed phase gates strengthen copyright claims but do not guarantee protection. Do not assume full copyright protection for AI-generated code without consulting qualified IP counsel. See the [README Legal Notices](../README.md#legal-notices) for the full disclosure.
+
+**AI-generated legal documents:** Any Privacy Policies, Terms of Service, or other legal documents produced during the build process must be reviewed by qualified legal counsel before deployment.
 
 ### What This Framework Expects of You
 
 You are an experienced technologist. You can read code, evaluate architecture trade-offs, write test assertions, and run security tools. The AI writes the code. You make every decision, validate every output, and gate every phase transition.
 
 This is not a tool for learning to program. If you cannot look at AI-generated code and determine whether it is correct, the framework's quality controls will not compensate for that gap. You need practical experience with at least one modern language/framework, basic security concepts (authentication, input validation, injection attacks), and the ability to interpret test results and scan output.
+
+### What Is Enforced vs. What Is Guided
+
+The framework has three tiers of control. Understanding which tier a rule falls into tells you where the safety nets are — and where you are the safety net.
+
+**Tier 1 — Mechanically enforced (CI pipeline).** These checks run automatically on every push. They block merges when they fail. You cannot accidentally bypass them.
+
+| Control | Mechanism |
+|---|---|
+| SAST scanning (Semgrep) | CI step — fails build on findings |
+| Dependency vulnerability audit | CI step — language-specific tool |
+| License compliance check | CI step — fails on copyleft |
+| Tests must pass | CI step — fails build |
+| Build must succeed | CI step |
+| Phase gate consistency | CI step — warns (does not block) when `.claude/phase-state.json` and `APPROVAL_LOG.md` are out of sync |
+
+**Tier 2 — Partially enforced (hooks and plugins).** These provide automated checks but can be bypassed (intentionally or through misconfiguration). They catch common mistakes; they are not compliance controls.
+
+| Control | Mechanism | Limitation |
+|---|---|---|
+| Secret detection (gitleaks) | Pre-commit hook + CI pipeline scan — blocks commit and PR | Only catches patterns gitleaks knows; pre-commit bypassable with `--no-verify` but CI backstop catches it |
+| SAST quick scan (Semgrep) | Pre-commit hook — blocks commit on findings; CI runs full scan | Pre-commit scans only staged files with `p/owasp-top-ten`; bypassable with `--no-verify` but CI backstop catches it |
+| Test co-location check | Pre-commit hook — warns on commit | Heuristic; checks file presence, not test quality |
+| TDD discipline (RED-GREEN-REFACTOR) | Superpowers plugin (optional) | Strongly encourages, does not prevent non-TDD code from being committed |
+| Documentation updates per feature | Claude Dev Framework hooks (optional) | Depends on framework being installed and configured |
+
+**Tier 3 — Guided (LLM instructions and human discipline).** These are rules written in CLAUDE.md, the Builder's Guide, and the Project Bible. The AI agent follows them. You review the output at decision gates. There is no automated backstop if the agent ignores them or you skip the review.
+
+| Control | Where It's Defined |
+|---|---|
+| Phase gates cannot be skipped | Builder's Guide, CLAUDE.md |
+| Features must be in the MVP Cutline | Product Manifesto, CLAUDE.md |
+| No direct data model changes — use migrations | Builder's Guide, CLAUDE.md |
+| Context Health Checks every 3-4 features | Builder's Guide |
+| CLAUDE.md updated at end of every session | CLI Setup Addendum |
+| Approval log entries authored by the approver | Governance Framework |
+
+**What this means in practice:** The CI pipeline is your hard floor — it catches security, dependency, and build issues mechanically. The hooks are your early warning system — they catch secrets and nudge you on test coverage. Everything else depends on you following the process and reviewing the agent's output at decision gates. The framework provides comprehensive guidance at every tier, but only Tier 1 stops you from shipping a mistake.
 
 ### Time Commitment
 
@@ -111,7 +155,18 @@ Before you write a single line of code, 6 things must be resolved. None of them 
 
 If insurance coverage is insufficient, your broker can advise on supplemental AI-specific riders or umbrella policies. If your organization does not have an AI deployment path, you need IT Security to create one — that process may take weeks and is outside your control.
 
-See the [Governance Framework](framework/governance-framework.md) for the full compliance screening matrix and approval authority structure.
+See the [Governance Framework](governance-framework.md) for the full compliance screening matrix and approval authority structure.
+
+### 1.3 Contractor/Consultant and Employment Considerations
+
+**If you are using this framework for client work or within an employment relationship:**
+
+- **Employment agreements:** Verify that your employment agreement or contractor agreement permits AI-assisted development. Standard IP assignment clauses may not contemplate AI-generated code, and the copyright status of such code is legally unsettled. Confirm with your employer or client before transmitting any project data to an AI provider.
+- **NDAs and confidentiality:** Transmitting client source code, business logic, or architectural decisions to an AI provider's API may violate confidentiality provisions in your consulting agreement, MSA, or NDA. Review these agreements for compatibility with AI tool usage before project initiation.
+- **Client consent:** If working on client projects, the client should be informed that an AI coding tool will be used and that project data will be transmitted to a third-party AI provider. Obtain written consent where required by your agreement.
+- **AI-generated code IP disclosure:** Organizations should update employment agreements and contractor agreements to address AI tool usage and the ownership of AI-assisted output.
+
+These are not framework-specific issues — they apply to any AI-assisted development. The framework's AI Data Transmission Policy (Governance Framework, Section VII) provides deployment path options that address some of these concerns, but contractual obligations are between you and your employer or client.
 
 ---
 
@@ -155,7 +210,7 @@ The script prompts for 7 inputs:
 
 Each project is self-contained. No runtime dependency on the solo-orchestrator repo after init.
 
-The init script also generates **two pipelines**: a CI pipeline (`ci.yml`) selected by your language (handles testing, linting, SAST, dependency audit, license checking) and a release pipeline (`release.yml`) selected by your platform (handles building, signing, packaging, and distribution). Both are working GitHub Actions workflows, not skeletons — but the release pipeline has TODOs for secrets and code signing that you configure before your first release.
+The init script also generates **two pipelines**: a CI pipeline (`ci.yml`) selected by your language (handles testing, linting, SAST, dependency audit, license checking) and a release pipeline (`release.yml`) selected by your platform (handles building, signing, packaging, and distribution). CI pipelines are working GitHub Actions workflows that run immediately on first push. Release pipelines are production-ready templates that require configuration — code signing, deployment secrets, and store credentials must be set up before your first release.
 
 ### What to Check After Init
 
@@ -179,7 +234,7 @@ Both are one-time per machine.
 
 ### Optional Enhancements
 
-After init, you can configure additional tooling. These are not required, but they improve the development workflow. See the [CLI Setup Addendum](framework/cli-setup-addendum.md) for setup instructions.
+After init, you can configure additional tooling. These are not required, but they improve the development workflow. See the [CLI Setup Addendum](cli-setup-addendum.md) for setup instructions.
 
 | Tool | What It Does | When It Helps |
 |---|---|---|
@@ -331,7 +386,7 @@ AI coding agents have context limits. For long-running projects:
 
 ## 5. Phase-by-Phase Walkthrough
 
-This section covers what **you** do at each phase — not what the agent does. For the agent's process, prompts, and remediation procedures, see the [Builder's Guide](framework/builders-guide.md). For platform-specific instructions at each phase, see your [Platform Module](platform-modules/).
+This section covers what **you** do at each phase — not what the agent does. For the agent's process, prompts, and remediation procedures, see the [Builder's Guide](builders-guide.md). For platform-specific instructions at each phase, see your [Platform Module](platform-modules/).
 
 **How to read this section:** Each phase has a table showing your actions with separate columns for personal and organizational paths. "Same" means no difference between paths. Where the organizational path has additional requirements, they are listed explicitly.
 
@@ -408,6 +463,7 @@ Before any features are built, the agent initializes the project scaffolding. Ve
 - [ ] Test runner executes (0 tests, 0 failures)
 - [ ] Initial data model applies successfully
 - [ ] Pre-commit hook catches a test secret (verify gitleaks is working)
+- [ ] Pre-commit hook catches a test vulnerability pattern (verify Semgrep is working)
 - [ ] License checker runs clean
 - [ ] CI pipeline passes on first push
 - [ ] Backup and restore verified (test this now, not in Phase 4)
@@ -421,7 +477,7 @@ For each feature in the MVP Cutline, ordered by risk (highest-risk first):
 |---|---|
 | **1. Tests first (RED)** | Review the agent's test suite. Verify it includes: success-state tests, negative tests (invalid/empty/malicious input), and boundary tests. Then **write at least 3 test assertions yourself** — business logic tests, not "response is not null." Confirm all tests fail before implementation exists. |
 | **2. Implementation (GREEN)** | The agent implements code to pass the tests. Run the full test suite — all tests must pass. Manually verify the feature works as expected. If something is wrong, direct specific fixes. |
-| **3. Security audit** | Run `semgrep scan --config=auto src/`. Review findings against the Phase 1 threat model. Check specifically for: data isolation (can one user access another's data?), input validation at all entry points, hardcoded secrets, N+1 queries, and structured logging of significant operations. |
+| **3. Security audit** | Run `semgrep scan --config=p/owasp-top-ten --config=p/security-audit src/`. Review findings against the Phase 1 threat model. Check specifically for: data isolation (can one user access another's data?), input validation at all entry points, hardcoded secrets, N+1 queries, and structured logging of significant operations. |
 | **4. AI-specific scrutiny** | The agent's code has known blind spots. For each feature, check: auth/access control (write explicit negative tests for unauthorized access), state management (if concurrent operations exist, write concurrency tests), data access efficiency (run EXPLAIN on AI-generated database queries touching user data), and input validation (test every user-facing input with injection payloads). |
 | **5. Documentation update** | Verify the agent updates CHANGELOG.md (feature name, date, new interfaces), interface documentation (API endpoints, contracts, error codes), and the Project Bible (new interfaces, data changes, configuration, dependencies). |
 | **6. Data model changes** | If the feature requires data model changes: generate a versioned change with "apply" and "rollback" operations, verify existing tests still pass, verify rollback cleanly reverts (against realistic data, not empty state), update data model documentation in the Bible. Never modify the data model directly — all changes through the versioning tool. |
@@ -495,7 +551,7 @@ If any check fails, return to the Build Loop. Do not proceed to Phase 3.
 | Your Action | Personal | Organizational |
 |---|---|---|
 | Run E2E/integration tests on all target platforms | Fix failures — these are integration gaps | Same |
-| Run full SAST: `semgrep scan --config=auto --severity ERROR --severity WARNING .` | Fix all critical/high findings | Same |
+| Run full SAST: `semgrep scan --config=p/owasp-top-ten --config=p/security-audit --severity ERROR --severity WARNING .` | Fix all critical/high findings | Same |
 | Run dependency scan: `snyk test` | Fix vulnerable dependencies | Same |
 | Run secret scan: `gitleaks detect --source . --verbose` | Remove any detected secrets | Same |
 | Generate SBOM (CycloneDX or equivalent) | Archive in docs/test-results/ | Same |
@@ -655,6 +711,7 @@ After launch, you are the operations team. Schedule these activities.
 
 ### Quarterly (2-3 hours)
 
+- Run the framework validation script: `bash scripts/validate.sh` — checks framework file completeness, approval log currency, CLAUDE.md drift, security tooling, and phase artifact consistency
 - Review usage patterns — what are users doing? What are they requesting?
 - Performance comparison to last quarter
 - Prioritize post-MVP backlog based on real user signals
@@ -672,6 +729,16 @@ Expect 2-4 hours/week for the first 3 months post-launch. It stabilizes to 1-2 h
 
 **Scaling warning:** At 10 applications, maintenance alone is a half-time job. If you are managing a portfolio, track hours per application. If total maintenance consistently exceeds your available hours, either graduate applications to engineering teams or stop taking new projects.
 
+### Governance Health Checks
+
+In addition to application monitoring, track these governance signals:
+
+- **Monthly:** Confirm backup maintainer completed their sync. Log maintenance activities in CHANGELOG.md or ITSM.
+- **Quarterly:** Verify credential rotation compliance. Confirm backup maintainer can still access all production systems. Review graduation trigger thresholds.
+- **Biannually:** Re-run the full competency matrix. Confirm CI pipeline still includes mandatory tools for all "No" domains.
+
+If any governance check fails, address it before adding new features. See the [Governance Framework](governance-framework.md) for escalation paths.
+
 ### When to Graduate
 
 The Solo Orchestrator model has limits. If any of these triggers are met, the application needs a conventional engineering team:
@@ -684,7 +751,7 @@ The Solo Orchestrator model has limits. If any of these triggers are met, the ap
 | Business criticality | Designated business-critical by Application Owner |
 | Compliance scope change | Application comes under SOC 2, HIPAA, PCI-DSS, or similar |
 
-See the [Governance Framework](framework/governance-framework.md) for the graduation transition plan.
+See the [Governance Framework](governance-framework.md) for the graduation transition plan.
 
 ---
 
@@ -764,6 +831,21 @@ Each session, provide the current `PROJECT_BIBLE.md` as context. The Bible is th
 **"The CI pipeline failed on first push."**
 
 Review the error. Common causes: missing secrets in GitHub (API keys, tokens), language version mismatch between your machine and the CI runner, or a dependency that requires authentication. Fix the pipeline before entering the Build Loop — a broken CI pipeline means you have no automated safety net.
+
+---
+
+### CI Security Check Failures
+
+When a CI security check blocks your build:
+
+| Check | Action |
+|-------|--------|
+| **Semgrep (SAST)** | Read the finding. If genuine: fix the code. If false positive: add inline suppression (`# nosemgrep: rule-id`) with a justification comment, then re-push. |
+| **Dependency audit** | Check if a patched version exists (`npm audit fix`, `pip install --upgrade`, etc.). If no fix is available, evaluate reachability and document a risk acceptance. For organizational projects, get IT Security approval. |
+| **License violation** | Find an alternative dependency with a compatible license. Do not override copyleft blocks without Legal review. |
+| **Secret detection (gitleaks)** | Remove the secret from code. Rotate the exposed credential immediately. Use environment variables or a secrets manager instead. |
+
+**Never** disable CI, commit directly to main, or use `--no-verify` to bypass security checks. If genuinely blocked, ask a security-knowledgeable peer for review.
 
 ---
 

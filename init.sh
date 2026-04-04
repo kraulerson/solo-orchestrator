@@ -140,6 +140,17 @@ collect_project_info() {
 
   LANGUAGE=$(prompt_choice "Primary language:" "typescript" "javascript" "python" "rust" "csharp" "kotlin" "java" "go" "dart" "other")
 
+  if [ "$LANGUAGE" = "other" ]; then
+    print_warn "The 'other' language template includes placeholder CI steps that intentionally"
+    print_warn "fail the build. You will need to customize .github/workflows/ci.yml for your"
+    print_warn "language's build, test, lint, and dependency audit tooling before your first push."
+    echo ""
+  fi
+
+  # Note: For polyglot projects (e.g., TypeScript frontend + Python backend), select
+  # the primary language here. You will need to add CI steps for secondary languages
+  # manually in .github/workflows/ci.yml after project creation.
+
   # Determine project directory
   PROJECT_DIR=$(prompt_input "Project directory" "$HOME/projects/$PROJECT_NAME")
 
@@ -253,6 +264,14 @@ create_project() {
   cp "$SCRIPT_DIR/docs/cli-setup-addendum.md" docs/framework/
   cp "$SCRIPT_DIR/docs/user-guide.md" docs/framework/
 
+  # Copy utility scripts into the project (self-contained after init)
+  print_info "Copying utility scripts..."
+  mkdir -p scripts
+  cp "$SCRIPT_DIR/scripts/validate.sh" scripts/
+  cp "$SCRIPT_DIR/scripts/check-phase-gate.sh" scripts/
+  cp "$SCRIPT_DIR/scripts/check-updates.sh" scripts/
+  chmod +x scripts/validate.sh scripts/check-phase-gate.sh scripts/check-updates.sh
+
   # Copy the correct platform module
   case "$PLATFORM" in
     web)     cp "$SCRIPT_DIR/docs/platform-modules/web.md" docs/platform-modules/ ;;
@@ -264,7 +283,9 @@ create_project() {
   # Clone Claude Dev Framework
   print_info "Installing Claude Dev Framework..."
   if command -v git &>/dev/null; then
-    git clone -q https://github.com/kraulerson/claude-dev-framework.git .claude/framework 2>/dev/null
+    # Claude Dev Framework is MIT-licensed (https://github.com/kraulerson/claude-dev-framework)
+    # License verified as compatible with the Solo Orchestrator Framework (MIT).
+    git clone -q --branch v1.0 --depth 1 https://github.com/kraulerson/claude-dev-framework.git .claude/framework 2>/dev/null
     if [ -d ".claude/framework" ]; then
       # Capture the commit SHA before deleting .git for version pinning
       local framework_sha
@@ -305,12 +326,29 @@ FWEOF
       print_ok "Claude Dev Framework installed (profile: $profile)"
       print_info "Hooks will activate after first commit. See .claude/framework/README.md for details."
     else
-      print_warn "Could not clone Claude Dev Framework. Install manually: git clone https://github.com/kraulerson/claude-dev-framework.git .claude/framework"
+      print_warn "Could not clone Claude Dev Framework. The fallback pre-commit hook (gitleaks + Semgrep + test co-location) will still be installed."
+      print_warn "For deeper hook coverage, install manually: git clone https://github.com/kraulerson/claude-dev-framework.git .claude/framework"
     fi
   fi
 
   # Copy intake template
   cp "$SCRIPT_DIR/templates/project-intake.md" PROJECT_INTAKE.md
+
+  # Generate phase state tracking
+  print_info "Generating phase state..."
+  mkdir -p .claude
+  cat > .claude/phase-state.json << PHEOF
+{
+  "project": "$PROJECT_NAME",
+  "framework_version": "1.0",
+  "current_phase": 0,
+  "gates": {
+    "phase_0_to_1": null,
+    "phase_1_to_2": null,
+    "phase_3_to_4": null
+  }
+}
+PHEOF
 
   # Generate CLAUDE.md
   print_info "Generating CLAUDE.md..."
@@ -335,6 +373,15 @@ FWEOF
   # Initialize git
   print_info "Initializing Git repository..."
   git init -q
+
+  # Install fallback pre-commit hook
+  # This provides a baseline enforcement floor (secret detection + test co-location)
+  # independent of whether the Claude Dev Framework clone succeeded.
+  # If the Claude Dev Framework is installed and activates its own hooks, those
+  # will provide deeper coverage. This hook remains as the safety net.
+  print_info "Installing pre-commit hook..."
+  install_precommit_hook
+
   git add -A
   git commit -q -m "chore: initialize Solo Orchestrator project
 
@@ -345,6 +392,120 @@ Framework: Solo Orchestrator v1.0"
 
   echo ""
   print_ok "Project created at $PROJECT_DIR"
+}
+
+# ================================================================
+# Pre-Commit Hook (Fallback Enforcement)
+# ================================================================
+install_precommit_hook() {
+  mkdir -p .git/hooks
+
+  # Determine source file extensions and test patterns for this language
+  local src_ext test_pattern
+  case "$LANGUAGE" in
+    typescript|javascript) src_ext="ts|tsx|js|jsx"; test_pattern="\\.(test|spec)\\.(ts|tsx|js|jsx)$" ;;
+    python)                src_ext="py";            test_pattern="(test_.*|.*_test)\\.py$" ;;
+    rust)                  src_ext="rs";            test_pattern="" ;;  # Rust tests are inline (#[cfg(test)])
+    csharp)                src_ext="cs";            test_pattern="Tests?\\.cs$" ;;
+    kotlin)                src_ext="kt";            test_pattern="Test\\.kt$" ;;
+    java)                  src_ext="java";          test_pattern="Test\\.java$" ;;
+    go)                    src_ext="go";            test_pattern="_test\\.go$" ;;
+    dart)                  src_ext="dart";          test_pattern="_test\\.dart$" ;;
+    *)                     src_ext="";              test_pattern="" ;;
+  esac
+
+  cat > .git/hooks/pre-commit << 'HOOKEOF'
+#!/usr/bin/env bash
+# Solo Orchestrator — Fallback Pre-Commit Hook
+# Provides baseline enforcement: secret detection + SAST + test co-location check.
+# If the Claude Dev Framework is active, its hooks provide deeper coverage.
+
+set -euo pipefail
+
+FAILED=0
+
+# --- Secret Detection (gitleaks) ---
+if command -v gitleaks &>/dev/null; then
+  if ! gitleaks protect --staged --verbose --no-banner 2>/dev/null; then
+    echo ""
+    echo "[BLOCKED] gitleaks detected secrets in staged files."
+    echo "  Remove the secrets, use environment variables or a secrets manager,"
+    echo "  and rotate any credentials that were exposed."
+    FAILED=1
+  fi
+else
+  echo "[WARN] gitleaks not found — secret detection skipped."
+  echo "  Install: brew install gitleaks (macOS) or https://github.com/gitleaks/gitleaks/releases"
+fi
+
+
+# --- SAST Quick Scan (Semgrep) ---
+if command -v semgrep &>/dev/null; then
+  # Scan only staged files for fast pre-commit feedback
+  staged_files=$(git diff --cached --name-only --diff-filter=ACM)
+  if [ -n "$staged_files" ]; then
+    if ! echo "$staged_files" | xargs semgrep scan --config=p/owasp-top-ten --quiet --no-git-ignore 2>/dev/null; then
+      echo ""
+      echo "[BLOCKED] Semgrep detected security issues in staged files."
+      echo "  Review and fix the findings above before committing."
+      FAILED=1
+    fi
+  fi
+else
+  echo "[WARN] semgrep not found — pre-commit SAST skipped."
+  echo "  Install: brew install semgrep (macOS) or pip install semgrep"
+fi
+
+HOOKEOF
+
+  # Append the test co-location check only if we have a meaningful pattern
+  # (Rust uses inline tests so co-location check doesn't apply)
+  if [ -n "$test_pattern" ] && [ -n "$src_ext" ]; then
+    cat >> .git/hooks/pre-commit << TESTEOF
+
+# --- Test Co-Location Check ---
+# Warns (does not block) when source files are committed without corresponding test files.
+# This is a heuristic — it checks the same commit, not the order of creation.
+SRC_EXT_PATTERN="\\.(${src_ext})$"
+TEST_PATTERN="${test_pattern}"
+
+staged_src=\$(git diff --cached --name-only --diff-filter=ACM | grep -E "\$SRC_EXT_PATTERN" | grep -vE "\$TEST_PATTERN" | grep -vE "(config|setup|migration|seed|fixture)" || true)
+
+if [ -n "\$staged_src" ]; then
+  missing_tests=0
+  while IFS= read -r src_file; do
+    # Skip files that are themselves test files, configs, or generated
+    [ -z "\$src_file" ] && continue
+    # Check if any test file for this source is also staged
+    basename_no_ext=\$(basename "\$src_file" | sed 's/\.[^.]*\$//')
+    has_test=\$(git diff --cached --name-only | grep -E "\$basename_no_ext" | grep -E "\$TEST_PATTERN" || true)
+    if [ -z "\$has_test" ]; then
+      if [ \$missing_tests -eq 0 ]; then
+        echo ""
+        echo "[WARN] Source files staged without corresponding test files:"
+      fi
+      echo "  \$src_file"
+      missing_tests=\$((missing_tests + 1))
+    fi
+  done <<< "\$staged_src"
+  if [ \$missing_tests -gt 0 ]; then
+    echo ""
+    echo "  The Solo Orchestrator methodology requires test-first development."
+    echo "  Consider writing tests before or alongside implementation."
+    echo "  (This is a warning — commit is not blocked.)"
+  fi
+fi
+TESTEOF
+  fi
+
+  # Append exit
+  cat >> .git/hooks/pre-commit << 'EXITEOF'
+
+exit $FAILED
+EXITEOF
+
+  chmod +x .git/hooks/pre-commit
+  print_ok "Pre-commit hook installed (gitleaks secret detection + Semgrep SAST + test co-location check)"
 }
 
 # ================================================================
@@ -380,7 +541,11 @@ You are the AI coding agent for this Solo Orchestrator project. The human is the
 
 ### Governance Tracking
 - The Approval Log (\`APPROVAL_LOG.md\`) records all phase gate approvals.
-- At each phase gate transition (Phase 0→1, Phase 1→2, Phase 3→4), prompt the Orchestrator: "This phase gate requires approval. Please update APPROVAL_LOG.md with the approver name, date, method, and reference before proceeding to the next phase."
+- The phase state file (\`.claude/phase-state.json\`) tracks the current phase mechanically.
+- At each phase gate transition (Phase 0→1, Phase 1→2, Phase 3→4):
+  1. Prompt the Orchestrator: "This phase gate requires approval. Please update APPROVAL_LOG.md with the approver name, date, method, and reference before proceeding to the next phase."
+  2. After the Orchestrator confirms, update \`.claude/phase-state.json\`: set \`current_phase\` to the new phase number and set the corresponding gate date (e.g., \`"phase_0_to_1": "YYYY-MM-DD"\`).
+  3. Commit both files together.
 - Do not advance to the next phase until the Orchestrator confirms the Approval Log has been updated.
 - For organizational deployments, verify pre-Phase 0 pre-conditions are recorded before starting Phase 0.
 
@@ -664,6 +829,13 @@ npm-debug.log*
 *.key
 *.p12
 *.jks
+*.pfx
+*.keystore
+credentials.json
+service-account.json
+terraform.tfvars
+terraform.tfvars.json
+.npmrc
 GIEOF
 
   # Add platform-specific ignores
@@ -913,7 +1085,11 @@ health_check() {
     [ -f ".github/workflows/release.yml" ] && print_ok "Release pipeline" || { print_fail "Release pipeline missing"; ((warnings++)); }
   fi
   [ -d ".git" ] && print_ok "Git initialized" || { print_fail "Git not initialized"; ((warnings++)); }
+  [ -f ".claude/phase-state.json" ] && print_ok "Phase state tracking" || { print_fail "Phase state file missing (.claude/phase-state.json)"; ((warnings++)); }
+  [ -x "scripts/validate.sh" ] && print_ok "Validation script" || { print_fail "scripts/validate.sh missing"; ((warnings++)); }
+  [ -x "scripts/check-phase-gate.sh" ] && print_ok "Phase gate check script" || { print_fail "scripts/check-phase-gate.sh missing"; ((warnings++)); }
   [ -d ".claude/framework" ] && print_ok "Claude Dev Framework" || { print_warn "Claude Dev Framework not installed"; ((warnings++)); }
+  [ -x ".git/hooks/pre-commit" ] && print_ok "Pre-commit hook installed" || { print_warn "Pre-commit hook missing"; ((warnings++)); }
 
   # Check tools
   command -v claude &>/dev/null && print_ok "Claude Code accessible" || { print_warn "Claude Code not found"; ((warnings++)); }
@@ -1027,6 +1203,11 @@ print_next_steps() {
     echo "     - The release pipeline runs on version tags: git tag v1.0.0 && git push --tags"
     echo ""
   fi
+  echo "  VALIDATION (run periodically to check framework compliance):"
+  echo "     cd $PROJECT_DIR"
+  echo "     bash scripts/validate.sh              — check framework compliance"
+  echo "     bash scripts/check-updates.sh         — check for upstream framework updates"
+  echo ""
   echo "  DOCUMENTATION:"
   echo "     docs/framework/user-guide.md          — Start here: step-by-step walkthrough"
   echo "     docs/framework/builders-guide.md      — The complete methodology"
