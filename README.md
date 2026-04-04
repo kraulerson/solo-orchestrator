@@ -12,6 +12,17 @@ The methodology itself — the phases, TDD discipline, threat modeling, document
 
 ---
 
+## Start Here: The User Guide
+
+**Read the [User Guide](docs/user-guide.md) first.** It walks you through the entire process from setup to production — what you do at each step, what external approvals you need, and what to expect as output. It has two parallel paths:
+
+- **Personal projects** — lightweight, no governance overhead, start building immediately
+- **Organizational deployments** — full approval chain, external stakeholder interactions, audit trail
+
+The User Guide is your operating manual. The other documents (Builder's Guide, Governance Framework, Platform Modules) are reference material the guide points you to at the right time.
+
+---
+
 ## Quick Start
 
 ```bash
@@ -26,14 +37,17 @@ The init script will:
 2. Collect your project information (name, platform, track, language)
 3. Install security tooling (Semgrep, gitleaks, Snyk, Claude Code)
 4. Create your project directory with all framework documents and platform module
-5. Generate `CLAUDE.md`, `.gitignore`, CI pipeline, and release pipeline
+5. Generate `CLAUDE.md`, `.gitignore`, CI pipeline, release pipeline, and approval log
 6. Initialize Git and run a health check (including language runtime validation)
 7. Print your next steps
 
 **After init completes:**
 1. Authenticate: `claude` (OAuth) and `snyk auth`
 2. Fill out `PROJECT_INTAKE.md` — this is your product definition
-3. Start Claude Code and tell it to begin
+3. For organizational deployments: complete the 6 pre-conditions and record them in `APPROVAL_LOG.md`
+4. Start Claude Code and tell it to begin
+
+See the [User Guide](docs/user-guide.md) for detailed walkthrough of each step.
 
 ---
 
@@ -107,12 +121,13 @@ All framework documents are copied into the project. Each project is self-contai
 
 | Document | Purpose | Audience |
 |---|---|---|
-| **Builder's Guide** | Platform-agnostic methodology. Phases 0-4, prompts, remediation tables, glossary. | Solo Orchestrator |
-| **Project Intake Template** | Structured input. Every decision the AI needs to work autonomously. | Solo Orchestrator |
-| **Enterprise Governance Framework** | Approval authorities, compliance, risk, portfolio governance. | CIO, IT Security, Legal |
-| **Executive Review** | Business case for CIO evaluation. | CIO, VP Engineering |
+| **[User Guide](docs/user-guide.md)** | **Start here.** Step-by-step walkthrough from setup to maintenance. Personal and organizational paths. What you do, when, and why. | Solo Orchestrator |
+| **Builder's Guide** | The complete methodology. Phases 0-4, prompts, quality gates, remediation tables, glossary. Reference material — the User Guide tells you when to consult it. | Solo Orchestrator |
+| **Project Intake Template** | Structured input. Every decision the AI needs to work autonomously. You fill this out before Phase 0. | Solo Orchestrator |
+| **Platform Modules** | Platform-specific architecture, tooling, testing, distribution. Referenced from the Builder's Guide at integration points. | Solo Orchestrator |
 | **CLI Setup Addendum** | Claude Code configuration: Superpowers, Claude Dev Framework (Git hook guardrails), MCP servers (Context7, Qdrant), CLAUDE.md. | Solo Orchestrator |
-| **Platform Modules** | Platform-specific architecture, tooling, testing, distribution. | Solo Orchestrator |
+| **Enterprise Governance Framework** | Approval authorities, compliance, risk, portfolio governance. Required for organizational deployments. | CIO, IT Security, Legal |
+| **Executive Review** | Business case for CIO evaluation. Can be reviewed independently — including by AI models. | CIO, VP Engineering |
 
 ### The Process
 
@@ -133,6 +148,8 @@ Each phase produces artifacts that gate entry into the next phase. The AI execut
 3. **The agent executes Phases 0-4** — asking you only for clarifying questions
 4. **You review at decision gates** — architecture selection, test assertions, go-live
 5. **You test the MVP** — pass/fail
+
+The [User Guide](docs/user-guide.md) walks through each step in detail — what you do, what the agent does, what external approvals are needed (organizational), and what output to expect at each phase.
 
 ### Modular Architecture
 
@@ -277,6 +294,7 @@ This is the initial release of the Solo Orchestrator Framework. It has been used
 | Executive Review | v1.0 | 2026-04-02 |
 | Project Intake Template | v1.0 | 2026-04-02 |
 | CLI Setup Addendum | v1.0 | 2026-04-02 |
+| User Guide | v1.0 | 2026-04-02 |
 | Platform Module: Web | v1.0 | 2026-04-02 |
 | Platform Module: Desktop | v1.0 | 2026-04-02 |
 | Platform Module: Mobile | v1.0 | 2026-04-02 |

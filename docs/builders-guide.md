@@ -233,6 +233,8 @@ snyk auth
 
 **Objective:** Define what the product does, who it serves, and how data flows through it. No technology decisions. No code discussion. If it is not defined in Phase 0, the AI is not permitted to build it in Phase 2.
 
+**Governance checkpoint (organizational deployments):** Before beginning Phase 0, verify that all pre-Phase 0 pre-conditions are recorded in `APPROVAL_LOG.md`. See the Governance Framework Section V.
+
 **Start a new Claude conversation for Phase 0.** Keep all Phase 0 steps in the same conversation.
 
 ### Intake-First vs. Conversational Discovery
@@ -460,6 +462,12 @@ requires my decision before Phase 1.
 | **Missing Failure States** | User journey has no error/recovery path. | "What happens on invalid data at Step [X]? Define the error feedback loop and recovery." |
 | **Platform Scope Creep** | AI suggests multi-platform before validating single-platform. | "Ship on one platform first. Add others after the core product works." |
 
+### Phase 0 → Phase 1 Gate
+
+**Organizational deployments:** The Project Sponsor must approve the business justification and compliance screening before proceeding to Phase 1. Record the approval in `APPROVAL_LOG.md` (Phase 0 → Phase 1 section) with the approver's name, date, method, and evidence reference.
+
+**Personal projects:** Review the Phase 0 artifacts yourself and record the self-review in `APPROVAL_LOG.md` before proceeding.
+
 ---
 
 ## Phase 1: Architecture & Technical Planning
@@ -622,6 +630,10 @@ Synthesize all Phase 1 outputs into `PROJECT_BIBLE.md`:
     - Large projects (>100 files): Condensed Bible Index under 5,000 tokens
 
 **DECISION GATE — Review the complete Bible. This is the point of no return.**
+
+**Organizational deployments:** The Senior Technical Authority must approve the Project Bible before proceeding to Phase 2. Record the approval in `APPROVAL_LOG.md` (Phase 1 → Phase 2 section).
+
+**Personal projects:** Record your self-review in `APPROVAL_LOG.md` before proceeding.
 
 **Save as:** `PROJECT_BIBLE.md`
 
@@ -956,7 +968,7 @@ Direct the agent to create `docs/test-results/` and save:
 
 File naming convention: `[date]_[scan-type]_[pass|fail].[ext]` (e.g., `2026-04-02_semgrep_pass.json`).
 
-These artifacts serve as the audit evidence for Phase 3 completion. They are referenced in the Phase Gate Evidence Log (if the organization requires one per the Governance Framework) and included in the HANDOFF.md.
+These artifacts serve as the audit evidence for Phase 3 completion. They are referenced in `APPROVAL_LOG.md` (Phase 3 → Phase 4 section) and included in the HANDOFF.md. Update the Approval Log with the go-live approval(s) before proceeding to Phase 4 deployment.
 
 ---
 

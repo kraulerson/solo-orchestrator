@@ -251,6 +251,7 @@ create_project() {
   cp "$SCRIPT_DIR/docs/governance-framework.md" docs/framework/
   cp "$SCRIPT_DIR/docs/executive-review.md" docs/framework/
   cp "$SCRIPT_DIR/docs/cli-setup-addendum.md" docs/framework/
+  cp "$SCRIPT_DIR/docs/user-guide.md" docs/framework/
 
   # Copy the correct platform module
   case "$PLATFORM" in
@@ -315,6 +316,10 @@ FWEOF
   print_info "Generating CLAUDE.md..."
   generate_claude_md
 
+  # Generate Approval Log
+  print_info "Generating APPROVAL_LOG.md..."
+  generate_approval_log
+
   # Generate .gitignore
   print_info "Generating .gitignore..."
   generate_gitignore
@@ -361,6 +366,7 @@ This project follows the **Solo Orchestrator Framework v1.0**.
 - Builder's Guide: \`docs/framework/builders-guide.md\`
 - Platform Module: \`docs/platform-modules/\`
 - Project Intake: \`PROJECT_INTAKE.md\` (fill this out first)
+- Approval Log: \`APPROVAL_LOG.md\` (governance approval tracking — update at each phase gate)
 - Claude Dev Framework: \`.claude/framework/\` (Git hook guardrails — profile: see \`.claude/framework-config.yml\`)
 
 ## Operating Instructions
@@ -371,6 +377,12 @@ You are the AI coding agent for this Solo Orchestrator project. The human is the
 - Follow the Builder's Guide phases in sequence (Phase 0 → 1 → 2 → 3 → 4).
 - Reference the Platform Module for platform-specific architecture, tooling, testing, and distribution.
 - Every phase produces artifacts that gate entry into the next phase. Do not skip ahead.
+
+### Governance Tracking
+- The Approval Log (\`APPROVAL_LOG.md\`) records all phase gate approvals.
+- At each phase gate transition (Phase 0→1, Phase 1→2, Phase 3→4), prompt the Orchestrator: "This phase gate requires approval. Please update APPROVAL_LOG.md with the approver name, date, method, and reference before proceeding to the next phase."
+- Do not advance to the next phase until the Orchestrator confirms the Approval Log has been updated.
+- For organizational deployments, verify pre-Phase 0 pre-conditions are recorded before starting Phase 0.
 
 ### Construction Rules (Phase 2)
 - **Test-first:** Write failing tests before implementation. Verify they fail. Then implement.
@@ -401,6 +413,206 @@ You are the AI coding agent for this Solo Orchestrator project. The human is the
 - Documentation generation (follow the templates)
 - Routine security audit checks per Phase 2.4 checklist
 CLAUDEEOF
+}
+
+generate_approval_log() {
+  local today
+  today=$(date +%Y-%m-%d)
+
+  if [ "$DEPLOYMENT" = "organizational" ]; then
+    cat > APPROVAL_LOG.md << ORGEOF
+---
+project: $PROJECT_NAME
+deployment: organizational
+created: $today
+framework: Solo Orchestrator v1.0
+---
+
+# Approval Log — $PROJECT_NAME
+
+This document records all governance approvals for this project. Each entry captures who approved what, when, and what evidence supports the approval. This is the auditable governance trail required by the Solo Orchestrator Enterprise Governance Framework (SOI-003-GOV, Section V).
+
+**Instructions:** Update this log at each phase gate transition. Every approval entry must include the approver's name, role, date, method of approval, and a reference to the evidence. Do not delete or modify previous entries — append only. Git history provides tamper evidence.
+
+---
+
+## Pre-Phase 0: Organizational Pre-Conditions
+
+These pre-conditions must be completed before Phase 0 begins. See Governance Framework Section V and Project Intake Section 8.
+
+| # | Pre-Condition | Approver | Role | Date | Method | Reference | Notes |
+|---|---|---|---|---|---|---|---|
+| 1 | AI deployment path approved | | IT Security | | Email / Ticket / Document | | |
+| 2 | Insurance coverage confirmed | | Insurance Broker | | Email / Ticket / Document | | |
+| 3 | Liability entity designated | | Legal / CIO | | Email / Ticket / Document | | |
+| 4 | Project sponsor assigned | | Executive Sponsor | | Email / Ticket / Document | | |
+| 5 | Backup maintainer designated | | Technical Lead | | Email / Ticket / Document | | |
+| 6 | ITSM project registered | | ITSM / PMO | | Email / Ticket / Document | | |
+
+---
+
+## Phase Gate: Phase 0 → Phase 1
+
+**Gate requirement:** Project Sponsor approves business justification and compliance screening.
+**Evidence required:** Signed-off Phase 0 artifacts + compliance screening matrix.
+**Reference:** Governance Framework Section V; Builder's Guide Phase 0.
+
+| Field | Value |
+|---|---|
+| **Gate** | Phase 0 → Phase 1 |
+| **Approver** | |
+| **Role** | Project Sponsor |
+| **Date** | |
+| **Method** | Email / Ticket / Document |
+| **Reference** | |
+| **Artifacts reviewed** | PRODUCT_MANIFESTO.md, Compliance Screening Matrix (Intake Section 8.4) |
+| **Decision** | Approved / Approved with conditions / Rejected |
+| **Conditions (if any)** | |
+| **Notes** | |
+
+---
+
+## Phase Gate: Phase 1 → Phase 2
+
+**Gate requirement:** Senior Technical Authority approves architecture selection and security posture.
+**Evidence required:** Written approval of Project Bible.
+**Reference:** Governance Framework Section V; Builder's Guide Phase 1.
+
+| Field | Value |
+|---|---|
+| **Gate** | Phase 1 → Phase 2 |
+| **Approver** | |
+| **Role** | Senior Technical Authority |
+| **Date** | |
+| **Method** | Email / Ticket / Document |
+| **Reference** | |
+| **Artifacts reviewed** | PROJECT_BIBLE.md, Architecture Decision Records, Threat Model |
+| **Decision** | Approved / Approved with conditions / Rejected |
+| **Conditions (if any)** | |
+| **Notes** | |
+
+---
+
+## Phase Gate: Phase 3 → Phase 4
+
+**Gate requirement:** Application Owner and IT Security approve go-live readiness.
+**Evidence required:** Security scan results, penetration test report (if required), go-live checklist.
+**Reference:** Governance Framework Section V; Builder's Guide Phase 3 and Phase 4.
+
+### Application Owner Approval
+
+| Field | Value |
+|---|---|
+| **Gate** | Phase 3 → Phase 4 (Application Owner) |
+| **Approver** | |
+| **Role** | Application Owner |
+| **Date** | |
+| **Method** | Email / Ticket / Document |
+| **Reference** | |
+| **Artifacts reviewed** | Phase 3 test results (docs/test-results/), go-live checklist |
+| **Decision** | Approved / Approved with conditions / Rejected |
+| **Conditions (if any)** | |
+| **Notes** | |
+
+### IT Security Approval
+
+| Field | Value |
+|---|---|
+| **Gate** | Phase 3 → Phase 4 (IT Security) |
+| **Approver** | |
+| **Role** | IT Security |
+| **Date** | |
+| **Method** | Email / Ticket / Document |
+| **Reference** | |
+| **Artifacts reviewed** | SAST/DAST results, dependency scan, SBOM, penetration test (if applicable) |
+| **Decision** | Approved / Approved with conditions / Rejected |
+| **Conditions (if any)** | |
+| **Notes** | |
+
+---
+
+## Approval History
+
+_Append additional approvals here for post-launch changes, maintenance reviews, or re-approvals._
+
+| Date | Gate / Event | Approver | Role | Decision | Reference |
+|---|---|---|---|---|---|
+| | | | | | |
+ORGEOF
+  else
+    cat > APPROVAL_LOG.md << PERSEOF
+---
+project: $PROJECT_NAME
+deployment: personal
+created: $today
+framework: Solo Orchestrator v1.0
+---
+
+# Approval Log — $PROJECT_NAME
+
+This document records phase gate reviews for this project. For personal projects, the Orchestrator serves as their own reviewer. Update this log at each phase transition to maintain a record of what was reviewed and when.
+
+---
+
+## Pre-Phase 0: Pre-Conditions
+
+| # | Pre-Condition | Status | Date | Notes |
+|---|---|---|---|---|
+| 1 | AI deployment path | N/A — personal project | $today | |
+| 2 | Insurance coverage | N/A — personal project | $today | |
+| 3 | Liability entity | N/A — personal project | $today | |
+| 4 | Project sponsor | N/A — personal project | $today | |
+| 5 | Backup maintainer | N/A — personal project | $today | |
+| 6 | ITSM registration | N/A — personal project | $today | |
+
+---
+
+## Phase Gate: Phase 0 → Phase 1
+
+| Field | Value |
+|---|---|
+| **Gate** | Phase 0 → Phase 1 |
+| **Reviewer** | |
+| **Date** | |
+| **Artifacts reviewed** | PRODUCT_MANIFESTO.md |
+| **Decision** | Approved / Needs revision |
+| **Notes** | |
+
+---
+
+## Phase Gate: Phase 1 → Phase 2
+
+| Field | Value |
+|---|---|
+| **Gate** | Phase 1 → Phase 2 |
+| **Reviewer** | |
+| **Date** | |
+| **Artifacts reviewed** | PROJECT_BIBLE.md, Threat Model |
+| **Decision** | Approved / Needs revision |
+| **Notes** | |
+
+---
+
+## Phase Gate: Phase 3 → Phase 4
+
+| Field | Value |
+|---|---|
+| **Gate** | Phase 3 → Phase 4 |
+| **Reviewer** | |
+| **Date** | |
+| **Artifacts reviewed** | Phase 3 test results (docs/test-results/), go-live checklist |
+| **Decision** | Approved / Needs revision |
+| **Notes** | |
+
+---
+
+## Approval History
+
+| Date | Gate / Event | Decision | Notes |
+|---|---|---|---|
+| | | | |
+PERSEOF
+  fi
 }
 
 generate_gitignore() {
@@ -693,6 +905,7 @@ health_check() {
   # Check files exist
   [ -f "CLAUDE.md" ] && print_ok "CLAUDE.md" || { print_fail "CLAUDE.md missing"; ((warnings++)); }
   [ -f "PROJECT_INTAKE.md" ] && print_ok "PROJECT_INTAKE.md" || { print_fail "PROJECT_INTAKE.md missing"; ((warnings++)); }
+  [ -f "APPROVAL_LOG.md" ] && print_ok "APPROVAL_LOG.md" || { print_fail "APPROVAL_LOG.md missing"; ((warnings++)); }
   [ -f "docs/framework/builders-guide.md" ] && print_ok "Builder's Guide" || { print_fail "Builder's Guide missing"; ((warnings++)); }
   [ -f ".gitignore" ] && print_ok ".gitignore" || { print_fail ".gitignore missing"; ((warnings++)); }
   [ -f ".github/workflows/ci.yml" ] && print_ok "CI pipeline" || { print_fail "CI pipeline missing"; ((warnings++)); }
@@ -784,6 +997,7 @@ print_next_steps() {
     echo "     Complete Section 8 of the Intake before starting."
     echo "     Required: project sponsor, backup maintainer, insurance"
     echo "     confirmation, AI deployment path approval, ITSM registration."
+    echo "     Record all pre-condition approvals in APPROVAL_LOG.md."
     echo "     See docs/framework/governance-framework.md for details."
     echo ""
     echo "  4. START BUILDING:"
@@ -814,10 +1028,11 @@ print_next_steps() {
     echo ""
   fi
   echo "  DOCUMENTATION:"
-  echo "     docs/framework/builders-guide.md    — The complete methodology"
+  echo "     docs/framework/user-guide.md          — Start here: step-by-step walkthrough"
+  echo "     docs/framework/builders-guide.md      — The complete methodology"
   echo "     docs/framework/governance-framework.md — Enterprise governance"
   echo "     docs/framework/cli-setup-addendum.md   — Claude Code configuration"
-  echo "     docs/platform-modules/               — Platform-specific guidance"
+  echo "     docs/platform-modules/                — Platform-specific guidance"
   echo ""
 }
 
