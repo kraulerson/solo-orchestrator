@@ -12,17 +12,8 @@ set -euo pipefail
 #
 # If no path is provided, attempts to clone the latest version to a temp dir.
 
-# Colors (disabled if not a terminal)
-if [ -t 1 ]; then
-  RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
-  BLUE='\033[0;34m'; BOLD='\033[1m'; NC='\033[0m'
-else
-  RED=''; GREEN=''; YELLOW=''; BLUE=''; BOLD=''; NC=''
-fi
-
-print_ok()   { echo -e "${GREEN}  [OK]${NC} $1"; }
-print_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
-print_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/helpers.sh"
 
 # Verify we're in a Solo Orchestrator project
 if [ ! -f "CLAUDE.md" ]; then

@@ -11,19 +11,8 @@ set -euo pipefail
 #   scripts/verify-install.sh --auto-fix   # Verify + fix without prompting
 #   scripts/verify-install.sh --help
 
-# Colors (disabled if not a terminal)
-if [ -t 1 ]; then
-  RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
-  BLUE='\033[0;34m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
-else
-  RED=''; GREEN=''; YELLOW=''; BLUE=''; CYAN=''; BOLD=''; NC=''
-fi
-
-print_ok()   { echo -e "${GREEN}  [OK]${NC} $1"; }
-print_fail() { echo -e "${RED}[FAIL]${NC} $1"; }
-print_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
-print_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
-print_step() { echo -e "${CYAN}[STEP]${NC} $1"; }
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/helpers.sh"
 
 # --- Parse arguments ---
 MODE="interactive"  # interactive | check-only | auto-fix

@@ -11,18 +11,8 @@ set -euo pipefail
 #   scripts/test-gate.sh --record-feature NAME  # Record a completed feature
 #   scripts/test-gate.sh --help
 
-# Colors
-if [ -t 1 ]; then
-  RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
-  CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
-else
-  RED=''; GREEN=''; YELLOW=''; CYAN=''; BOLD=''; NC=''
-fi
-
-print_ok()   { echo -e "${GREEN}  [OK]${NC} $1"; }
-print_fail() { echo -e "${RED}[FAIL]${NC} $1"; }
-print_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
-print_info() { echo -e "${CYAN}[INFO]${NC} $1"; }
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/helpers.sh"
 
 BUILD_PROGRESS=".claude/build-progress.json"
 
@@ -152,24 +142,24 @@ check_phase_gate() {
     # Count open bugs by severity
     # BUGS.md format: | # | SEV-N | Status | Feature | Description | ...
     # Status values: Open, Deferred, Fixed, Won't Fix, Post-MVP, Removed
-    sev1_count=$(grep -c '|[[:space:]]*SEV-1[[:space:]]*|[[:space:]]*Open' "BUGS.md" 2>/dev/null || echo "0")
-    sev2_open=$(grep -c '|[[:space:]]*SEV-2[[:space:]]*|[[:space:]]*Open' "BUGS.md" 2>/dev/null || echo "0")
-    sev2_deferred=$(grep -c '|[[:space:]]*SEV-2[[:space:]]*|[[:space:]]*Deferred' "BUGS.md" 2>/dev/null || echo "0")
-    sev3_open=$(grep -c '|[[:space:]]*SEV-3[[:space:]]*|[[:space:]]*Open' "BUGS.md" 2>/dev/null || echo "0")
+    sev1_count=$(grep -c 'SEV-1.*Open' "BUGS.md" 2>/dev/null | tr -d '[:space:]' || echo "0")
+    sev2_open=$(grep -c 'SEV-2.*Open' "BUGS.md" 2>/dev/null | tr -d '[:space:]' || echo "0")
+    sev2_deferred=$(grep -c 'SEV-2.*Deferred' "BUGS.md" 2>/dev/null | tr -d '[:space:]' || echo "0")
+    sev3_open=$(grep -c 'SEV-3.*Open' "BUGS.md" 2>/dev/null | tr -d '[:space:]' || echo "0")
   fi
 
   # Also check GitHub Issues if gh CLI available
   if command -v gh &>/dev/null && gh auth status &>/dev/null 2>&1; then
     local gh_sev1 gh_sev2_open gh_sev2_deferred gh_sev3
-    gh_sev1=$(gh issue list --label "SEV-1" --state open --json number 2>/dev/null | jq 'length' 2>/dev/null || echo "0")
-    gh_sev2_open=$(gh issue list --label "SEV-2" --label "fix-now" --state open --json number 2>/dev/null | jq 'length' 2>/dev/null || echo "0")
-    gh_sev2_deferred=$(gh issue list --label "SEV-2" --label "deferred" --state open --json number 2>/dev/null | jq 'length' 2>/dev/null || echo "0")
-    gh_sev3=$(gh issue list --label "SEV-3" --state open --json number 2>/dev/null | jq 'length' 2>/dev/null || echo "0")
+    gh_sev1=$(gh issue list --label "SEV-1" --state open --json number 2>/dev/null | jq 'length' 2>/dev/null | tr -d '[:space:]' || echo "0")
+    gh_sev2_open=$(gh issue list --label "SEV-2" --label "fix-now" --state open --json number 2>/dev/null | jq 'length' 2>/dev/null | tr -d '[:space:]' || echo "0")
+    gh_sev2_deferred=$(gh issue list --label "SEV-2" --label "deferred" --state open --json number 2>/dev/null | jq 'length' 2>/dev/null | tr -d '[:space:]' || echo "0")
+    gh_sev3=$(gh issue list --label "SEV-3" --state open --json number 2>/dev/null | jq 'length' 2>/dev/null | tr -d '[:space:]' || echo "0")
 
-    sev1_count=$((sev1_count + gh_sev1))
-    sev2_open=$((sev2_open + gh_sev2_open))
-    sev2_deferred=$((sev2_deferred + gh_sev2_deferred))
-    sev3_open=$((sev3_open + gh_sev3))
+    sev1_count=$((${sev1_count:-0} + ${gh_sev1:-0}))
+    sev2_open=$((${sev2_open:-0} + ${gh_sev2_open:-0}))
+    sev2_deferred=$((${sev2_deferred:-0} + ${gh_sev2_deferred:-0}))
+    sev3_open=$((${sev3_open:-0} + ${gh_sev3:-0}))
     has_bugs=true
   fi
 

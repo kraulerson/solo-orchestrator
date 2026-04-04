@@ -1,2 +1,5 @@
 .worktrees/
 .DS_Store
+
+# Internal planning documents (not tracked)
+V2_PLANNING.md

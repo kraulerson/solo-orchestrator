@@ -13,13 +13,8 @@ set -euo pipefail
 #   0 — all gates consistent, or phase state file not found (pre-framework)
 #   1 — inconsistency detected (gate passed without approval log entry)
 
-# Colors (disabled if not a terminal)
-if [ -t 1 ]; then
-  RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
-  BOLD='\033[1m'; NC='\033[0m'
-else
-  RED=''; GREEN=''; YELLOW=''; BOLD=''; NC=''
-fi
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/helpers.sh"
 
 PHASE_STATE=".claude/phase-state.json"
 APPROVAL_LOG="APPROVAL_LOG.md"
@@ -111,8 +106,8 @@ fi
 
 # --- Tool Resolution Check (for phase transitions) ---
 # If transitioning to a new phase, check for deferred tools that are now needed
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-RESOLVER="$SCRIPT_DIR/scripts/resolve-tools.sh"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+RESOLVER="$PROJECT_ROOT/scripts/resolve-tools.sh"
 TOOL_PREFS=".claude/tool-preferences.json"
 
 if [ -f "$TOOL_PREFS" ] && [ -x "$RESOLVER" ] && command -v jq &>/dev/null; then
@@ -129,7 +124,7 @@ if [ -f "$TOOL_PREFS" ] && [ -x "$RESOLVER" ] && command -v jq &>/dev/null; then
       --language "$language" \
       --track "$track" \
       --phase "$current_phase" \
-      --matrix-dir "$SCRIPT_DIR/templates/tool-matrix" \
+      --matrix-dir "$PROJECT_ROOT/templates/tool-matrix" \
       --tool-prefs "$TOOL_PREFS" 2>/dev/null) || tool_output=""
 
     if [ -n "$tool_output" ]; then
@@ -150,7 +145,7 @@ if [ -f "$TOOL_PREFS" ] && [ -x "$RESOLVER" ] && command -v jq &>/dev/null; then
 fi
 
 # --- Test/Bug Gate Check (for Phase 2→3) ---
-TEST_GATE="$SCRIPT_DIR/scripts/test-gate.sh"
+TEST_GATE="$PROJECT_ROOT/scripts/test-gate.sh"
 
 if [ -x "$TEST_GATE" ] && [ "$current_phase" -ge 2 ]; then
   echo ""

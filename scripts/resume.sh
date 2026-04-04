@@ -6,12 +6,8 @@ set -euo pipefail
 #
 # Usage: bash scripts/resume.sh
 
-# Colors (disabled if not a terminal)
-if [ -t 1 ]; then
-  BOLD='\033[1m'; CYAN='\033[0;36m'; NC='\033[0m'
-else
-  BOLD=''; CYAN=''; NC=''
-fi
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/helpers.sh"
 
 echo -e "${BOLD}Generating session resume prompt...${NC}"
 echo ""

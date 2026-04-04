@@ -19,84 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VERSION="1.0.0"
 DRY_RUN=false
 
-# Colors (disabled if not a terminal)
-if [ -t 1 ]; then
-  RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
-  BLUE='\033[0;34m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
-else
-  RED=''; GREEN=''; YELLOW=''; BLUE=''; CYAN=''; BOLD=''; NC=''
-fi
-
-print_header() {
-  echo ""
-  echo -e "${BOLD}╔══════════════════════════════════════════════════════════╗${NC}"
-  echo -e "${BOLD}║         Solo Orchestrator — Project Init v${VERSION}          ║${NC}"
-  echo -e "${BOLD}╚══════════════════════════════════════════════════════════╝${NC}"
-  echo ""
-}
-
-print_step() { echo -e "${CYAN}[STEP]${NC} $1"; }
-print_ok()   { echo -e "${GREEN}  [OK]${NC} $1"; }
-print_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
-print_fail() { echo -e "${RED}[FAIL]${NC} $1"; }
-print_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
-
-prompt_input() {
-  local prompt="$1"
-  local default="${2:-}"
-  local result
-  if [ -n "$default" ]; then
-    read -rp "$(echo -e "${BOLD}$prompt${NC} [$default]: ")" result
-    echo "${result:-$default}"
-  else
-    read -rp "$(echo -e "${BOLD}$prompt${NC}: ")" result
-    echo "$result"
-  fi
-}
-
-prompt_choice() {
-  local prompt="$1"
-  shift
-  local options=("$@")
-  echo -e "${BOLD}$prompt${NC}" >&2
-  for i in "${!options[@]}"; do
-    echo "  $((i+1)). ${options[$i]}" >&2
-  done
-  local choice
-  while true; do
-    read -rp "$(echo -e "${BOLD}Select [1-${#options[@]}]${NC}: ")" choice
-    if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#options[@]}" ]; then
-      echo "${options[$((choice-1))]}"
-      return
-    fi
-    echo "  Invalid choice. Enter a number between 1 and ${#options[@]}." >&2
-  done
-}
-
-# Prompt user to install a missing tool. Returns 0 if installed, 1 if skipped.
-prompt_install() {
-  local tool_name="$1"
-  local install_cmd="$2"
-  local needs_sudo="${3:-false}"
-
-  echo ""
-  if [ "$needs_sudo" = true ]; then
-    echo -e "  ${YELLOW}This requires administrator privileges (sudo).${NC}"
-  fi
-  echo -e "  Install command: ${CYAN}$install_cmd${NC}"
-  read -rp "$(echo -e "  ${BOLD}Install $tool_name now? [Y/n]${NC}: ")" response
-  if [[ "$response" =~ ^[Nn] ]]; then
-    return 1
-  fi
-
-  if eval "$install_cmd"; then
-    print_ok "$tool_name installed"
-    return 0
-  else
-    print_warn "Installation failed. You can try manually: $install_cmd"
-    return 1
-  fi
-}
+source "$SCRIPT_DIR/scripts/lib/helpers.sh"
 
 # ================================================================
 # PHASE 1: Prerequisites Check
@@ -744,7 +667,8 @@ create_project() {
 
   # Copy utility scripts into the project (self-contained after init)
   print_info "Copying utility scripts..."
-  mkdir -p scripts
+  mkdir -p scripts/lib
+  cp "$SCRIPT_DIR/scripts/lib/helpers.sh" scripts/lib/
   cp "$SCRIPT_DIR/scripts/validate.sh" scripts/
   cp "$SCRIPT_DIR/scripts/check-phase-gate.sh" scripts/
   cp "$SCRIPT_DIR/scripts/check-updates.sh" scripts/
@@ -1082,96 +1006,13 @@ EXITEOF
 # Template Generators
 # ================================================================
 generate_claude_md() {
-  cat > CLAUDE.md << CLAUDEEOF
-# CLAUDE.md — $PROJECT_NAME
-
-## Project Identity
-- **Project:** $PROJECT_NAME
-- **Description:** $PROJECT_DESCRIPTION
-- **Platform:** $PLATFORM
-- **Track:** $TRACK
-- **Primary Language:** $LANGUAGE
-
-## Framework Reference
-This project follows the **Solo Orchestrator Framework v1.0**.
-- Builder's Guide: \`docs/framework/builders-guide.md\`
-- Platform Module: \`docs/platform-modules/\`
-- Project Intake: \`PROJECT_INTAKE.md\` (fill this out first)
-- Approval Log: \`APPROVAL_LOG.md\` (governance approval tracking — update at each phase gate)
-- Claude Dev Framework: \`.claude/framework/\` (Git hook guardrails — see \`.claude/manifest.json\` for active profile and configuration)
-
-## Operating Instructions
-You are the AI coding agent for this Solo Orchestrator project. The human is the Orchestrator — they define intent, constraints, and validation. You provide syntax, scaffolding, and pattern execution.
-
-### Phase Awareness
-- Read the Project Intake (\`PROJECT_INTAKE.md\`) for all project constraints and decisions.
-- Follow the Builder's Guide phases in sequence (Phase 0 → 1 → 2 → 3 → 4).
-- Reference the Platform Module for platform-specific architecture, tooling, testing, and distribution.
-- Every phase produces artifacts that gate entry into the next phase. Do not skip ahead.
-
-### Governance Tracking
-- The Approval Log (\`APPROVAL_LOG.md\`) records all phase gate approvals.
-- The phase state file (\`.claude/phase-state.json\`) tracks the current phase mechanically.
-- At each phase gate transition (Phase 0→1, Phase 1→2, Phase 3→4):
-  1. Prompt the Orchestrator: "This phase gate requires approval. Please update APPROVAL_LOG.md with the approver name, date, method, and reference before proceeding to the next phase."
-  2. After the Orchestrator confirms, update \`.claude/phase-state.json\`: set \`current_phase\` to the new phase number and set the corresponding gate date (e.g., \`"phase_0_to_1": "YYYY-MM-DD"\`).
-  3. Commit both files together.
-- Do not advance to the next phase until the Orchestrator confirms the Approval Log has been updated.
-- For organizational deployments, verify pre-Phase 0 pre-conditions are recorded before starting Phase 0.
-
-### Construction Rules (Phase 2)
-- **Test-first:** Write failing tests before implementation. Verify they fail. Then implement.
-- **One feature at a time:** Complete the full Build Loop (test → implement → security audit → document) per feature before starting the next.
-- **Pin dependencies:** Exact versions only. Commit the lockfile.
-- **Structured logging:** Every significant operation produces a log entry with timestamp, severity, and correlation ID.
-- **No direct data model changes:** All changes go through versioned migrations.
-- **Document as you go:** Update CHANGELOG.md, API docs, and the Project Bible after every feature.
-
-### Superpowers Integration (if installed)
-- Use Superpowers' brainstorming for **implementation-level design decisions within a feature** only.
-- Do **not** use brainstorming for **product-level decisions** — those are in the Product Manifesto.
-- Do **not** use brainstorming to reconsider **architecture decisions** — those are in the Project Bible.
-- When Superpowers' writing-plans skill generates a plan, it must align with the MVP Cutline. Reject tasks for features not in the Cutline.
-- Use git worktrees for feature isolation when available.
-
-### When to Ask the Orchestrator
-- Architecture decisions not covered by the Project Bible
-- Ambiguous requirements not resolved by the Product Manifesto
-- Security findings you cannot assess (flag severity and wait for guidance)
-- Scope decisions: anything that might expand beyond the MVP Cutline
-- Any decision that would be expensive to reverse
-
-### When NOT to Ask
-- Implementation details within the bounds of the Bible and Manifesto
-- Test structure and assertion design (follow TDD, present at decision gate)
-- Debugging and refactoring (use systematic approach, present results)
-- Documentation generation (follow the templates)
-- Routine security audit checks per Phase 2.4 checklist
-
-### Upgrade Paths
-This project can be upgraded without losing technical work:
-- **Track upgrade** (light → standard → full): \`bash scripts/upgrade-project.sh --track standard\`
-- **Deployment upgrade** (personal → organizational): \`bash scripts/upgrade-project.sh --deployment organizational\`
-- **POC → Production**: \`bash scripts/upgrade-project.sh --to-production\`
-All technical artifacts carry forward unchanged. Upgrades add governance requirements, tooling, and validation — they never remove work.
-
-### Testing & Bug Workflow
-- **Testing interval:** Every $TEST_INTERVAL features (configured in Intake Section 11.5)
-- **Bug tracker:** Configured in Intake Section 11.5
-- **Process:** After every $TEST_INTERVAL features, stop construction and run a UAT session:
-  1. Check the gate: \`scripts/test-gate.sh --check-batch\`
-  2. If blocked: dispatch parallel test agents (automated suite, exploratory, cross-platform)
-  3. Generate test template for human tester(s) and wait for results
-  4. Verify submission completeness — list incomplete scenarios, ask to continue or finish
-  5. Consolidate all results into bug tracker
-  6. Triage with Orchestrator (Fix Now / Defer / Won't Fix / Post-MVP)
-  7. Fix all "Fix Now" bugs test-first
-  8. Re-test until gate passes: \`scripts/test-gate.sh --check-batch\`
-  9. Reset counter: \`scripts/test-gate.sh --reset-counter\`
-- **After each feature:** \`scripts/test-gate.sh --record-feature "feature-name"\`
-- **Gate enforcement:** Do NOT start the next feature until test-gate.sh --check-batch returns 0.
-- **Severity rules:** SEV-1 cannot be deferred. SEV-2 can be deferred during Phase 2 but must be resolved or feature removed at Phase 2→3 gate.
-CLAUDEEOF
+  sed -e "s|__PROJECT_NAME__|$PROJECT_NAME|g" \
+      -e "s|__PROJECT_DESCRIPTION__|$PROJECT_DESCRIPTION|g" \
+      -e "s|__PLATFORM__|$PLATFORM|g" \
+      -e "s|__TRACK__|$TRACK|g" \
+      -e "s|__LANGUAGE__|$LANGUAGE|g" \
+      -e "s|__TEST_INTERVAL__|$TEST_INTERVAL|g" \
+      "$SCRIPT_DIR/templates/generated/claude-md.tmpl" > CLAUDE.md
 }
 
 generate_approval_log() {
@@ -1179,258 +1020,18 @@ generate_approval_log() {
   today=$(date +%Y-%m-%d)
 
   if [ "$DEPLOYMENT" = "organizational" ]; then
-    cat > APPROVAL_LOG.md << ORGEOF
----
-project: $PROJECT_NAME
-deployment: organizational
-created: $today
-framework: Solo Orchestrator v1.0
----
-
-# Approval Log — $PROJECT_NAME
-
-This document records all governance approvals for this project. Each entry captures who approved what, when, and what evidence supports the approval. This is the auditable governance trail required by the Solo Orchestrator Enterprise Governance Framework (SOI-003-GOV, Section V).
-
-**Instructions:** Update this log at each phase gate transition. Every approval entry must include the approver's name, role, date, method of approval, and a reference to the evidence. Do not delete or modify previous entries — append only. Git history provides tamper evidence.
-
----
-
-## Pre-Phase 0: Organizational Pre-Conditions
-
-These pre-conditions must be completed before Phase 0 begins. See Governance Framework Section V and Project Intake Section 8.
-
-| # | Pre-Condition | Approver | Role | Date | Method | Reference | Notes |
-|---|---|---|---|---|---|---|---|
-| 1 | AI deployment path approved | | IT Security | | Email / Ticket / Document | | |
-| 2 | Insurance coverage confirmed | | Insurance Broker | | Email / Ticket / Document | | |
-| 3 | Liability entity designated | | Legal / CIO | | Email / Ticket / Document | | |
-| 4 | Project sponsor assigned | | Executive Sponsor | | Email / Ticket / Document | | |
-| 5 | Backup maintainer designated | | Technical Lead | | Email / Ticket / Document | | |
-| 6 | ITSM project registered | | ITSM / PMO | | Email / Ticket / Document | | |
-
----
-
-## Phase Gate: Phase 0 → Phase 1
-
-**Gate requirement:** Project Sponsor approves business justification and compliance screening.
-**Evidence required:** Signed-off Phase 0 artifacts + compliance screening matrix.
-**Reference:** Governance Framework Section V; Builder's Guide Phase 0.
-
-| Field | Value |
-|---|---|
-| **Gate** | Phase 0 → Phase 1 |
-| **Approver** | |
-| **Role** | Project Sponsor |
-| **Date** | |
-| **Method** | Email / Ticket / Document |
-| **Reference** | |
-| **Artifacts reviewed** | PRODUCT_MANIFESTO.md, Compliance Screening Matrix (Intake Section 8.4) |
-| **Decision** | Approved / Approved with conditions / Rejected |
-| **Conditions (if any)** | |
-| **Notes** | |
-
----
-
-## Phase Gate: Phase 1 → Phase 2
-
-**Gate requirement:** Senior Technical Authority approves architecture selection and security posture.
-**Evidence required:** Written approval of Project Bible.
-**Reference:** Governance Framework Section V; Builder's Guide Phase 1.
-
-| Field | Value |
-|---|---|
-| **Gate** | Phase 1 → Phase 2 |
-| **Approver** | |
-| **Role** | Senior Technical Authority |
-| **Date** | |
-| **Method** | Email / Ticket / Document |
-| **Reference** | |
-| **Artifacts reviewed** | PROJECT_BIBLE.md, Architecture Decision Records, Threat Model |
-| **Decision** | Approved / Approved with conditions / Rejected |
-| **Conditions (if any)** | |
-| **Notes** | |
-
----
-
-## Phase Gate: Phase 3 → Phase 4
-
-**Gate requirement:** Application Owner and IT Security approve go-live readiness.
-**Evidence required:** Security scan results, penetration test report (if required), go-live checklist.
-**Reference:** Governance Framework Section V; Builder's Guide Phase 3 and Phase 4.
-
-### Application Owner Approval
-
-| Field | Value |
-|---|---|
-| **Gate** | Phase 3 → Phase 4 (Application Owner) |
-| **Approver** | |
-| **Role** | Application Owner |
-| **Date** | |
-| **Method** | Email / Ticket / Document |
-| **Reference** | |
-| **Artifacts reviewed** | Phase 3 test results (docs/test-results/), go-live checklist |
-| **Decision** | Approved / Approved with conditions / Rejected |
-| **Conditions (if any)** | |
-| **Notes** | |
-
-### IT Security Approval
-
-| Field | Value |
-|---|---|
-| **Gate** | Phase 3 → Phase 4 (IT Security) |
-| **Approver** | |
-| **Role** | IT Security |
-| **Date** | |
-| **Method** | Email / Ticket / Document |
-| **Reference** | |
-| **Artifacts reviewed** | SAST/DAST results, dependency scan, SBOM, penetration test (if applicable) |
-| **Decision** | Approved / Approved with conditions / Rejected |
-| **Conditions (if any)** | |
-| **Notes** | |
-
----
-
-## Approval History
-
-_Append additional approvals here for post-launch changes, maintenance reviews, or re-approvals._
-
-| Date | Gate / Event | Approver | Role | Decision | Reference |
-|---|---|---|---|---|---|
-| | | | | | |
-ORGEOF
+    sed -e "s|__PROJECT_NAME__|$PROJECT_NAME|g" \
+        -e "s|__TODAY__|$today|g" \
+        "$SCRIPT_DIR/templates/generated/approval-log-org.tmpl" > APPROVAL_LOG.md
   else
-    cat > APPROVAL_LOG.md << PERSEOF
----
-project: $PROJECT_NAME
-deployment: personal
-created: $today
-framework: Solo Orchestrator v1.0
----
-
-# Approval Log — $PROJECT_NAME
-
-This document records phase gate reviews for this project. For personal projects, the Orchestrator serves as their own reviewer. Update this log at each phase transition to maintain a record of what was reviewed and when.
-
----
-
-## Pre-Phase 0: Pre-Conditions
-
-| # | Pre-Condition | Status | Date | Notes |
-|---|---|---|---|---|
-| 1 | AI deployment path | N/A — personal project | $today | |
-| 2 | Insurance coverage | N/A — personal project | $today | |
-| 3 | Liability entity | N/A — personal project | $today | |
-| 4 | Project sponsor | N/A — personal project | $today | |
-| 5 | Backup maintainer | N/A — personal project | $today | |
-| 6 | ITSM registration | N/A — personal project | $today | |
-
----
-
-## Phase Gate: Phase 0 → Phase 1
-
-| Field | Value |
-|---|---|
-| **Gate** | Phase 0 → Phase 1 |
-| **Reviewer** | |
-| **Date** | |
-| **Artifacts reviewed** | PRODUCT_MANIFESTO.md |
-| **Decision** | Approved / Needs revision |
-| **Notes** | |
-
----
-
-## Phase Gate: Phase 1 → Phase 2
-
-| Field | Value |
-|---|---|
-| **Gate** | Phase 1 → Phase 2 |
-| **Reviewer** | |
-| **Date** | |
-| **Artifacts reviewed** | PROJECT_BIBLE.md, Threat Model |
-| **Decision** | Approved / Needs revision |
-| **Notes** | |
-
----
-
-## Phase Gate: Phase 3 → Phase 4
-
-| Field | Value |
-|---|---|
-| **Gate** | Phase 3 → Phase 4 |
-| **Reviewer** | |
-| **Date** | |
-| **Artifacts reviewed** | Phase 3 test results (docs/test-results/), go-live checklist |
-| **Decision** | Approved / Needs revision |
-| **Notes** | |
-
----
-
-## Approval History
-
-| Date | Gate / Event | Decision | Notes |
-|---|---|---|---|
-| | | | |
-PERSEOF
+    sed -e "s|__PROJECT_NAME__|$PROJECT_NAME|g" \
+        -e "s|__TODAY__|$today|g" \
+        "$SCRIPT_DIR/templates/generated/approval-log-personal.tmpl" > APPROVAL_LOG.md
   fi
 }
 
 generate_gitignore() {
-  cat > .gitignore << 'GIEOF'
-# Dependencies
-node_modules/
-venv/
-__pycache__/
-*.pyc
-.pip-cache/
-
-# Environment
-.env
-.env.local
-.env.production
-.env.*.local
-
-# Build output
-dist/
-build/
-out/
-.next/
-.nuxt/
-.svelte-kit/
-target/
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Test
-coverage/
-playwright-report/
-test-results/
-
-# Debug
-*.log
-npm-debug.log*
-
-# Secrets (belt and suspenders with gitleaks)
-*.pem
-*.key
-*.p12
-*.jks
-*.pfx
-*.keystore
-credentials.json
-service-account.json
-terraform.tfvars
-terraform.tfvars.json
-.npmrc
-GIEOF
+  cp "$SCRIPT_DIR/templates/generated/gitignore-base.tmpl" .gitignore
 
   # Add platform-specific ignores
   case "$PLATFORM" in
@@ -1863,7 +1464,7 @@ main() {
     esac
   done
 
-  print_header
+  print_header "$VERSION"
 
   if [ "$DRY_RUN" = true ]; then
     echo -e "${YELLOW}${BOLD}DRY RUN MODE — no changes will be made${NC}"
