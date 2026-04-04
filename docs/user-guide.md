@@ -68,7 +68,7 @@ Before starting, confirm you can do the following. If more than 2 items are unfa
 
 ### What Is Enforced vs. What Is Guided
 
-The framework has three tiers of control. Understanding which tier a rule falls into tells you where the safety nets are — and where you are the safety net.
+The framework has three tiers of control, plus an intermediate tier for CI-based warnings. Understanding which tier a rule falls into tells you where the safety nets are — and where you are the safety net.
 
 **Tier 1 — Mechanically enforced (CI pipeline).** These checks run automatically on every push. They block merges when they fail. You cannot accidentally bypass them.
 
@@ -79,7 +79,14 @@ The framework has three tiers of control. Understanding which tier a rule falls 
 | License compliance check | CI step — fails on copyleft |
 | Tests must pass | CI step — fails build |
 | Build must succeed | CI step |
-| Phase gate consistency | CI step — warns (does not block) when `.claude/phase-state.json` and `APPROVAL_LOG.md` are out of sync |
+| Phase gate consistency | CI step — **blocks build** when `.claude/phase-state.json` and `APPROVAL_LOG.md` are out of sync. Set `SOIF_PHASE_GATES=warn` to downgrade to warning. |
+
+**Tier 1.5 — CI annotations (warning, not blocking).** These checks run in CI and surface warnings as GitHub Actions annotations. They do not block merges by default. Set the corresponding `SOIF_STRICT_*` variable to `true` to upgrade to a hard block.
+
+| Control | Mechanism | Strict mode |
+|---|---|---|
+| Changelog freshness | CI step — warns when source files change without `CHANGELOG.md` update | `SOIF_STRICT_CHANGELOG=true` |
+| Session state freshness | CI step — warns when `CLAUDE.md` hasn't been updated in 5+ commits or 24+ hours | `SOIF_STRICT_SESSION=true` |
 
 **Tier 2 — Partially enforced (hooks and plugins).** These provide automated checks but can be bypassed (intentionally or through misconfiguration). They catch common mistakes; they are not compliance controls.
 
@@ -87,22 +94,27 @@ The framework has three tiers of control. Understanding which tier a rule falls 
 |---|---|---|
 | Secret detection (gitleaks) | Pre-commit hook + CI pipeline scan — blocks commit and PR | Only catches patterns gitleaks knows; pre-commit bypassable with `--no-verify` but CI backstop catches it |
 | SAST quick scan (Semgrep) | Pre-commit hook — blocks commit on findings; CI runs full scan | Pre-commit scans only staged files with `p/owasp-top-ten`; bypassable with `--no-verify` but CI backstop catches it |
-| Test co-location check | Pre-commit hook — warns on commit | Heuristic; checks file presence, not test quality |
+| TDD ordering check | Pre-commit hook — warns when implementation files are committed without any test files | Heuristic; checks file presence, not test quality or ordering. Does not apply to config, migrations, or generated files. |
+| Schema migration check | Pre-commit hook — warns when schema files are edited directly in Phase 2+ | Only active in Phase 2+; initial schema creation in Phase 0-1 is expected |
 | TDD discipline (RED-GREEN-REFACTOR) | Superpowers plugin (optional) | Strongly encourages, does not prevent non-TDD code from being committed |
-| Documentation updates per feature | Claude Dev Framework hooks (optional) | Depends on framework being installed and configured |
 
 **Tier 3 — Guided (LLM instructions and human discipline).** These are rules written in CLAUDE.md, the Builder's Guide, and the Project Bible. The AI agent follows them. You review the output at decision gates. There is no automated backstop if the agent ignores them or you skip the review.
 
 | Control | Where It's Defined |
 |---|---|
-| Phase gates cannot be skipped | Builder's Guide, CLAUDE.md |
 | Features must be in the MVP Cutline | Product Manifesto, CLAUDE.md |
-| No direct data model changes — use migrations | Builder's Guide, CLAUDE.md |
 | Context Health Checks every 3-4 features | Builder's Guide |
-| CLAUDE.md updated at end of every session | CLI Setup Addendum |
 | Approval log entries authored by the approver | Governance Framework |
 
-**What this means in practice:** The CI pipeline is your hard floor — it catches security, dependency, and build issues mechanically. The hooks are your early warning system — they catch secrets and nudge you on test coverage. Everything else depends on you following the process and reviewing the agent's output at decision gates. The framework provides comprehensive guidance at every tier, but only Tier 1 stops you from shipping a mistake.
+**What this means in practice:** The CI pipeline is your hard floor — it catches security, dependency, build issues, and phase gate violations mechanically. CI annotations warn you about documentation freshness without blocking your work. The pre-commit hooks are your early warning system — they catch secrets, nudge you on test co-location, and flag direct schema edits. Everything else depends on you following the process and reviewing the agent's output at decision gates.
+
+**Strict mode:** Organizations that want tighter enforcement can set environment variables in their CI workflow to upgrade warnings to hard blocks:
+
+| Variable | Effect |
+|---|---|
+| `SOIF_PHASE_GATES=warn` | Downgrade phase gate check from block to warning |
+| `SOIF_STRICT_CHANGELOG=true` | Changelog check blocks CI |
+| `SOIF_STRICT_SESSION=true` | Session freshness check blocks CI |
 
 ### Time Commitment
 
