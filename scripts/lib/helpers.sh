@@ -114,6 +114,29 @@ prompt_choice() {
   done
 }
 
+# Prompt to continue, restart setup, or quit.
+# Usage: prompt_continue_or_restart "message"
+# Returns: 0 = continue, calls exec to restart, or exits.
+prompt_continue_or_restart() {
+  local message="${1:-Continue?}"
+  echo ""
+  local choice
+  choice=$(prompt_choice "$message" "Continue" "Restart setup" "Quit")
+  case "$choice" in
+    "Continue") return 0 ;;
+    "Restart"*)
+      echo ""
+      print_info "Restarting setup..."
+      exec "$0" "$@"
+      ;;
+    "Quit")
+      echo ""
+      print_info "Setup cancelled."
+      exit 0
+      ;;
+  esac
+}
+
 # Prompt user to install a missing tool. Returns 0 if installed, 1 if skipped.
 # Usage: prompt_install "tool_name" "install_command" [needs_sudo]
 prompt_install() {

@@ -507,8 +507,10 @@ collect_project_info() {
 
   read -rp "$(echo -e "${BOLD}Continue? [Y/n]${NC}: ")" confirm
   if [[ "$confirm" =~ ^[Nn] ]]; then
-    echo "Aborted."
-    exit 0
+    prompt_continue_or_restart "Project info declined. What would you like to do?"
+    # If we get here, user chose "Continue" — re-collect info
+    collect_project_info
+    return
   fi
 }
 
@@ -663,41 +665,55 @@ resolve_and_install_tools() {
   # Confirm
   read -rp "$(echo -e "${BOLD}Proceed with this plan? [Y/n]${NC}: ")" response
   if [[ "$response" =~ ^[Nn] ]]; then
-    # Offer walkthrough or manual edit
     echo ""
     local config_choice
-    config_choice=$(prompt_choice "How would you like to configure tools?" \
+    config_choice=$(prompt_choice "Tool plan declined. What would you like to do?" \
       "Guided walkthrough (step through each category)" \
-      "Edit .claude/tool-preferences.json manually")
+      "Edit .claude/tool-preferences.json manually" \
+      "Restart setup" \
+      "Quit")
 
-    if [ "$config_choice" = "Guided walkthrough (step through each category)" ]; then
-      run_tool_walkthrough "$resolver_output" "$dev_os"
-      # Re-resolve after walkthrough
-      resolver_output=$("$SCRIPT_DIR/scripts/resolve-tools.sh" \
-        --dev-os "$dev_os" \
-        --platform "$PLATFORM" \
-        --language "$LANGUAGE" \
-        --track "$TRACK" \
-        --phase 2 \
-        --matrix-dir "$SCRIPT_DIR/templates/tool-matrix" \
-        --tool-prefs "$PROJECT_DIR/.claude/tool-preferences.json" 2>/dev/null) || true
-    else
-      # Write defaults and let user edit
-      write_tool_preferences "$resolver_output" "$dev_os" "$PROJECT_DIR"
-      echo ""
-      print_info "Default preferences written to: $PROJECT_DIR/.claude/tool-preferences.json"
-      print_info "Edit the file, then press Enter to continue."
-      read -rp ""
-      # Re-resolve after manual edit
-      resolver_output=$("$SCRIPT_DIR/scripts/resolve-tools.sh" \
-        --dev-os "$dev_os" \
-        --platform "$PLATFORM" \
-        --language "$LANGUAGE" \
-        --track "$TRACK" \
-        --phase 2 \
-        --matrix-dir "$SCRIPT_DIR/templates/tool-matrix" \
-        --tool-prefs "$PROJECT_DIR/.claude/tool-preferences.json" 2>/dev/null) || true
-    fi
+    case "$config_choice" in
+      "Guided walkthrough"*)
+        run_tool_walkthrough "$resolver_output" "$dev_os"
+        # Re-resolve after walkthrough
+        resolver_output=$("$SCRIPT_DIR/scripts/resolve-tools.sh" \
+          --dev-os "$dev_os" \
+          --platform "$PLATFORM" \
+          --language "$LANGUAGE" \
+          --track "$TRACK" \
+          --phase 2 \
+          --matrix-dir "$SCRIPT_DIR/templates/tool-matrix" \
+          --tool-prefs "$PROJECT_DIR/.claude/tool-preferences.json" 2>/dev/null) || true
+        ;;
+      "Edit"*)
+        # Write defaults and let user edit
+        write_tool_preferences "$resolver_output" "$dev_os" "$PROJECT_DIR"
+        echo ""
+        print_info "Default preferences written to: $PROJECT_DIR/.claude/tool-preferences.json"
+        print_info "Edit the file, then press Enter to continue."
+        read -rp ""
+        # Re-resolve after manual edit
+        resolver_output=$("$SCRIPT_DIR/scripts/resolve-tools.sh" \
+          --dev-os "$dev_os" \
+          --platform "$PLATFORM" \
+          --language "$LANGUAGE" \
+          --track "$TRACK" \
+          --phase 2 \
+          --matrix-dir "$SCRIPT_DIR/templates/tool-matrix" \
+          --tool-prefs "$PROJECT_DIR/.claude/tool-preferences.json" 2>/dev/null) || true
+        ;;
+      "Restart"*)
+        echo ""
+        print_info "Restarting setup..."
+        exec "$0"
+        ;;
+      "Quit")
+        echo ""
+        print_info "Setup cancelled."
+        exit 0
+        ;;
+    esac
 
     # Update counts after re-resolution
     auto_count=$(echo "$resolver_output" | jq '.auto_install | length')
