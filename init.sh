@@ -1102,10 +1102,11 @@ create_project() {
   cp "$SCRIPT_DIR/scripts/intake-wizard.sh" scripts/
   cp "$SCRIPT_DIR/scripts/resolve-tools.sh" scripts/
   cp "$SCRIPT_DIR/scripts/upgrade-project.sh" scripts/
+  cp "$SCRIPT_DIR/scripts/reconfigure-project.sh" scripts/
   cp "$SCRIPT_DIR/scripts/verify-install.sh" scripts/
   cp "$SCRIPT_DIR/scripts/test-gate.sh" scripts/
   cp "$SCRIPT_DIR/scripts/check-versions.sh" scripts/
-  chmod +x scripts/validate.sh scripts/check-phase-gate.sh scripts/check-updates.sh scripts/resume.sh scripts/intake-wizard.sh scripts/resolve-tools.sh scripts/upgrade-project.sh scripts/verify-install.sh scripts/test-gate.sh scripts/check-versions.sh
+  chmod +x scripts/validate.sh scripts/check-phase-gate.sh scripts/check-updates.sh scripts/resume.sh scripts/intake-wizard.sh scripts/resolve-tools.sh scripts/upgrade-project.sh scripts/reconfigure-project.sh scripts/verify-install.sh scripts/test-gate.sh scripts/check-versions.sh
 
   # Copy intake suggestion files
   mkdir -p templates/intake-suggestions
@@ -1421,6 +1422,29 @@ PERMEOF
 
   # Copy intake template
   cp "$SCRIPT_DIR/templates/project-intake.md" PROJECT_INTAKE.md
+
+  # Pre-fill Section 1 with init data so user doesn't enter it twice
+  local platform_module="None"
+  case "$PLATFORM" in
+    web) platform_module="SOI-PM-WEB" ;;
+    desktop) platform_module="SOI-PM-DESKTOP" ;;
+    mobile) platform_module="SOI-PM-MOBILE" ;;
+  esac
+  local track_display
+  track_display="$(echo "${TRACK:0:1}" | tr '[:lower:]' '[:upper:]')${TRACK:1}"
+  local deployment_display
+  deployment_display="$(echo "${DEPLOYMENT:0:1}" | tr '[:lower:]' '[:upper:]')${DEPLOYMENT:1}"
+
+  sed -i.bak \
+    -e "s~| \*\*Project name\*\* | |~| **Project name** | $PROJECT_NAME |~" \
+    -e "s~| \*\*One-sentence description\*\* | _What does this do, in plain language?_ |~| **One-sentence description** | $PROJECT_DESCRIPTION |~" \
+    -e "s~| \*\*Project track\*\* | Light / Standard / Full .*~| **Project track** | $track_display |~" \
+    -e "s~| \*\*Platform type\*\* | Web / Desktop / Mobile / CLI / Other: .*~| **Platform type** | $PLATFORM |~" \
+    -e "s~| \*\*Platform Module\*\* | SOI-PM-WEB / SOI-PM-DESKTOP / SOI-PM-MOBILE / None .*~| **Platform Module** | $platform_module |~" \
+    -e "s~| \*\*Is this a personal project or organizational deployment?\*\* | Personal / Organizational |~| **Is this a personal project or organizational deployment?** | $deployment_display |~" \
+    PROJECT_INTAKE.md
+  rm -f PROJECT_INTAKE.md.bak
+  print_ok "Intake Section 1 pre-filled with project info"
 
   # Append tooling configuration summary to PROJECT_INTAKE.md
   if [ -n "${RESOLVER_OUTPUT:-}" ]; then

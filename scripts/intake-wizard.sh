@@ -317,18 +317,26 @@ print(f\"COMPLETED_SECTIONS={shlex.quote(completed)}\")
 # ================================================================
 load_project_context() {
   local phase_file="$PROJECT_ROOT/.claude/phase-state.json"
-  if [ -f "$phase_file" ] && command -v python3 &>/dev/null; then
-    local tmpfile
-    tmpfile=$(mktemp)
-    python3 -c "
-import json, sys, shlex
-with open(sys.argv[1]) as f:
-    data = json.load(f)
-print(f\"PROJECT_NAME={shlex.quote(data.get('project', ''))}\")
-" "$phase_file" > "$tmpfile"
-    # shellcheck disable=SC1090
-    source "$tmpfile"
-    rm -f "$tmpfile"
+  local prefs_file="$PROJECT_ROOT/.claude/tool-preferences.json"
+
+  # Load from phase-state.json
+  if [ -f "$phase_file" ] && command -v jq &>/dev/null; then
+    PROJECT_NAME=$(jq -r '.project // empty' "$phase_file" 2>/dev/null)
+    TRACK=$(jq -r '.track // empty' "$phase_file" 2>/dev/null)
+    DEPLOYMENT=$(jq -r '.deployment // empty' "$phase_file" 2>/dev/null)
+    POC_MODE=$(jq -r '.poc_mode // empty' "$phase_file" 2>/dev/null)
+    [ "$POC_MODE" = "null" ] && POC_MODE=""
+  fi
+
+  # Load from tool-preferences.json
+  if [ -f "$prefs_file" ] && command -v jq &>/dev/null; then
+    PLATFORM=$(jq -r '.context.platform // empty' "$prefs_file" 2>/dev/null)
+    LANGUAGE=$(jq -r '.context.language // empty' "$prefs_file" 2>/dev/null)
+  fi
+
+  # Load description from CLAUDE.md if available (it's embedded there by init)
+  if [ -f "$PROJECT_ROOT/CLAUDE.md" ] && [ -z "$PROJECT_DESCRIPTION" ]; then
+    PROJECT_DESCRIPTION=$(grep -A1 "## Project" "$PROJECT_ROOT/CLAUDE.md" 2>/dev/null | tail -1 | sed 's/^[[:space:]]*//' || echo "")
   fi
 }
 
@@ -1419,6 +1427,26 @@ with open(sys.argv[1], 'w') as f:
 # UTILITY: Ask for project context if not available
 # ================================================================
 ask_project_context() {
+  if [ -n "$PROJECT_NAME" ] && [ -n "$PLATFORM" ] && [ -n "$TRACK" ]; then
+    echo ""
+    print_info "Project context (from init):"
+    echo "  Project:    $PROJECT_NAME"
+    echo "  Description: ${PROJECT_DESCRIPTION:-<not set>}"
+    echo "  Platform:   $PLATFORM"
+    echo "  Track:      $TRACK"
+    echo "  Language:   $LANGUAGE"
+    echo "  Deployment: $DEPLOYMENT"
+    [ -n "$POC_MODE" ] && echo "  POC Mode:   ${POC_MODE//_/ }"
+    echo ""
+    read -rp "$(echo -e "${BOLD}Is this correct? [Y/n]${NC}: ")" confirm
+    if [[ "$confirm" =~ ^[Nn] ]]; then
+      print_info "You can change fields in the intake wizard Section 1."
+      print_info "Structural changes (platform, language, track) will trigger project reconfiguration."
+    fi
+    return
+  fi
+
+  # Fallback: ask for missing fields
   if [ -z "$PROJECT_NAME" ]; then
     PROJECT_NAME=$(prompt_input "Project name" "")
   fi
