@@ -2086,35 +2086,91 @@ print_next_steps() {
   echo ""
 
   # Show dependency status and remaining optional enhancements
-  echo "  INSTALLED DEPENDENCIES:"
+  # Collect status for each dependency
+  local _installed=() _failed=() _later=()
+
+  # Claude Dev Framework
   if [ -f "$PROJECT_DIR/.claude/manifest.json" ]; then
-    echo "     ✓ Claude Dev Framework (Git hook guardrails)"
+    _installed+=("Claude Dev Framework (Git hook guardrails)")
+  elif [ -d "$HOME/.claude-dev-framework/.git" ]; then
+    _failed+=("Claude Dev Framework — hooks not configured. Run: bash ~/.claude-dev-framework/scripts/init.sh")
   else
-    echo "     ✗ Claude Dev Framework — run: bash ~/.claude-dev-framework/scripts/init.sh"
+    _failed+=("Claude Dev Framework — clone failed. Run: git clone https://github.com/kraulerson/claude-dev-framework.git ~/.claude-dev-framework && bash ~/.claude-dev-framework/scripts/init.sh")
   fi
+
+  # Superpowers plugin
   if [ -f "$HOME/.claude/settings.json" ] && command -v jq &>/dev/null; then
-    local _sp _c7
+    local _sp
     _sp=$(jq -r '.enabledPlugins["superpowers@claude-plugins-official"] // false' "$HOME/.claude/settings.json" 2>/dev/null || echo "false")
-    _c7=$( ([ -f "$HOME/.claude/settings.json" ] && jq -e '.mcpServers.context7 // .mcpServers["context7-mcp"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1) || \
-           ([ -f "$HOME/.claude.json" ] && jq -e '.mcpServers.context7 // .mcpServers["context7-mcp"] // empty' "$HOME/.claude.json" >/dev/null 2>&1) && echo "true" || echo "false")
     if [ "$_sp" = "true" ]; then
-      echo "     ✓ Superpowers plugin (agentic skills for Phase 2)"
+      _installed+=("Superpowers plugin (agentic skills for Phase 2)")
     else
-      echo "     ✗ Superpowers plugin — run: claude → /plugins → search 'superpowers' → install"
+      _failed+=("Superpowers plugin — run: claude → /plugins → search 'superpowers' → install")
     fi
-    if [ "$_c7" = "true" ]; then
-      echo "     ✓ Context7 MCP (up-to-date library documentation)"
-    else
-      echo "     ✗ Context7 MCP — run: claude mcp add context7 --scope user -- npx -y @upstash/context7-mcp@latest"
+  fi
+
+  # Context7 MCP
+  local _c7=false
+  if command -v jq &>/dev/null; then
+    if ([ -f "$HOME/.claude/settings.json" ] && jq -e '.mcpServers.context7 // .mcpServers["context7-mcp"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1) || \
+       ([ -f "$HOME/.claude.json" ] && jq -e '.mcpServers.context7 // .mcpServers["context7-mcp"] // empty' "$HOME/.claude.json" >/dev/null 2>&1); then
+      _c7=true
     fi
-    local _qd
-    _qd=$( ([ -f "$HOME/.claude/settings.json" ] && jq -e '.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1) || \
-           ([ -f "$HOME/.claude.json" ] && jq -e '.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // empty' "$HOME/.claude.json" >/dev/null 2>&1) && echo "true" || echo "false")
-    if [ "$_qd" = "true" ]; then
-      echo "     ✓ Qdrant MCP (persistent semantic memory across sessions)"
-    else
-      echo "     ✗ Qdrant MCP — see docs/framework/cli-setup-addendum.md for setup"
+  fi
+  if [ "$_c7" = true ]; then
+    _installed+=("Context7 MCP (up-to-date library documentation)")
+  else
+    _failed+=("Context7 MCP — run: claude mcp add context7 --scope user -- npx -y @upstash/context7-mcp@latest")
+  fi
+
+  # Qdrant MCP
+  local _qd_mcp=false _qd_container=false
+  if command -v jq &>/dev/null; then
+    if ([ -f "$HOME/.claude/settings.json" ] && jq -e '.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1) || \
+       ([ -f "$HOME/.claude.json" ] && jq -e '.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // empty' "$HOME/.claude.json" >/dev/null 2>&1); then
+      _qd_mcp=true
     fi
+  fi
+  if command -v docker &>/dev/null && docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^qdrant$"; then
+    _qd_container=true
+  fi
+  if [ "$_qd_mcp" = true ]; then
+    _installed+=("Qdrant MCP (persistent semantic memory — collection: $PROJECT_NAME)")
+  elif [ "$_qd_container" = true ]; then
+    _later+=("Qdrant MCP — container running, MCP will be configured on first Claude Code session")
+  else
+    _later+=("Qdrant MCP — will be offered at Phase 1 when Docker is available")
+  fi
+
+  # Per-project Qdrant collection override
+  if [ -f "$PROJECT_DIR/.claude/settings.local.json" ]; then
+    _installed+=("Qdrant project collection ($PROJECT_NAME)")
+  elif [ "$_qd_mcp" = true ]; then
+    _later+=("Qdrant project collection — will be configured on next init or manually")
+  fi
+
+  # Display sections
+  echo "  INSTALLED DEPENDENCIES:"
+  if [ ${#_installed[@]} -gt 0 ]; then
+    for item in "${_installed[@]}"; do
+      echo "     ✓ $item"
+    done
+  fi
+
+  if [ ${#_failed[@]} -gt 0 ]; then
+    echo ""
+    echo "  NEEDS ATTENTION:"
+    for item in "${_failed[@]}"; do
+      echo "     ✗ $item"
+    done
+  fi
+
+  if [ ${#_later[@]} -gt 0 ]; then
+    echo ""
+    echo "  WILL BE CONFIGURED LATER:"
+    for item in "${_later[@]}"; do
+      echo "     ○ $item"
+    done
   fi
   echo ""
   if [ -f "$PROJECT_DIR/.github/workflows/release.yml" ]; then
