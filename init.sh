@@ -171,120 +171,124 @@ check_prerequisites() {
   fi
 
   # --- Context7 MCP (recommended for up-to-date library docs) ---
-  if [ -f "$HOME/.claude/settings.json" ] && command -v jq &>/dev/null; then
-    if jq -e '.mcpServers.context7 // .mcpServers["context7-mcp"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1; then
-      print_ok "Context7 MCP server configured"
+  # Check both config locations: ~/.claude/settings.json and ~/.claude.json (user scope)
+  local _c7_found=false
+  if command -v jq &>/dev/null; then
+    if ([ -f "$HOME/.claude/settings.json" ] && jq -e '.mcpServers.context7 // .mcpServers["context7-mcp"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1) || \
+       ([ -f "$HOME/.claude.json" ] && jq -e '.mcpServers.context7 // .mcpServers["context7-mcp"] // empty' "$HOME/.claude.json" >/dev/null 2>&1); then
+      _c7_found=true
+    fi
+  fi
+  if [ "$_c7_found" = true ]; then
+    print_ok "Context7 MCP server configured"
+  elif command -v node &>/dev/null; then
+    print_info "Registering Context7 MCP server..."
+    local _c7_err _c7_timeout_cmd="timeout"
+    command -v timeout &>/dev/null || _c7_timeout_cmd="gtimeout"
+    if command -v $_c7_timeout_cmd &>/dev/null; then
+      _c7_err=$(echo "y" | $_c7_timeout_cmd 30 claude mcp add context7 --scope user -- npx -y @upstash/context7-mcp@latest 2>&1) || true
     else
-      if command -v node &>/dev/null; then
-        print_info "Registering Context7 MCP server..."
-        # Pipe 'y' to handle any interactive confirmation prompts.
-        # Use timeout to prevent hanging if npx download stalls (macOS: gtimeout or perl fallback).
-        local _c7_err _c7_timeout_cmd="timeout"
-        command -v timeout &>/dev/null || _c7_timeout_cmd="gtimeout"
-        if command -v $_c7_timeout_cmd &>/dev/null; then
-          _c7_err=$(echo "y" | $_c7_timeout_cmd 30 claude mcp add context7 --scope user -- npx -y @upstash/context7-mcp@latest 2>&1) || true
-        else
-          _c7_err=$(echo "y" | claude mcp add context7 --scope user -- npx -y @upstash/context7-mcp@latest 2>&1) || true
-        fi
-        # Verify by checking settings rather than trusting exit code
-        if jq -e '.mcpServers.context7 // .mcpServers["context7-mcp"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1; then
-          print_ok "Context7 MCP server registered"
-        else
-          print_warn "Context7 MCP registration failed: $_c7_err"
-          print_warn "Register manually: claude mcp add context7 --scope user -- npx -y @upstash/context7-mcp@latest"
-        fi
-      else
-        print_warn "Context7 MCP not found (recommended — up-to-date library documentation)"
-        echo "  Requires Node.js. Install Node.js first, then: claude mcp add context7 --scope user -- npx -y @upstash/context7-mcp@latest"
-      fi
+      _c7_err=$(echo "y" | claude mcp add context7 --scope user -- npx -y @upstash/context7-mcp@latest 2>&1) || true
+    fi
+    # Verify by checking both config locations
+    if ([ -f "$HOME/.claude/settings.json" ] && jq -e '.mcpServers.context7 // .mcpServers["context7-mcp"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1) || \
+       ([ -f "$HOME/.claude.json" ] && jq -e '.mcpServers.context7 // .mcpServers["context7-mcp"] // empty' "$HOME/.claude.json" >/dev/null 2>&1); then
+      print_ok "Context7 MCP server registered"
+    else
+      print_warn "Context7 MCP registration failed: $_c7_err"
+      print_warn "Register manually: claude mcp add context7 --scope user -- npx -y @upstash/context7-mcp@latest"
     fi
   else
-    print_info "Context7 MCP: cannot check (no Claude settings or jq missing)"
+    print_warn "Context7 MCP not found (recommended — up-to-date library documentation)"
+    echo "  Requires Node.js. Install Node.js first, then: claude mcp add context7 --scope user -- npx -y @upstash/context7-mcp@latest"
   fi
 
   # --- Qdrant MCP (recommended for persistent semantic memory) ---
-  if [ -f "$HOME/.claude/settings.json" ] && command -v jq &>/dev/null; then
-    if jq -e '.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1; then
-      print_ok "Qdrant MCP server configured"
-    else
-      print_warn "Qdrant MCP not found (recommended — persistent semantic memory across sessions)"
-      if [ "$interactive" = false ]; then
-        echo "  Install Docker + uv, then: claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory qdrant -- uvx --python 3.13 mcp-server-qdrant"
-      # Check if we can auto-setup: needs Docker + Python (uv)
-      elif command -v docker &>/dev/null; then
-        # Verify the Docker daemon is actually running (not just the binary)
-        local docker_daemon_running=false
-        for _try in 1 2 3; do
-          if docker info &>/dev/null; then
-            docker_daemon_running=true
-            break
-          fi
-          if [ "$_try" -lt 3 ]; then
-            print_info "Waiting for Docker daemon to start (attempt $_try/3)..."
-            sleep 2
-          fi
-        done
+  # Check both config locations: ~/.claude/settings.json and ~/.claude.json (user scope)
+  local _qd_found=false
+  if command -v jq &>/dev/null; then
+    if ([ -f "$HOME/.claude/settings.json" ] && jq -e '.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1) || \
+       ([ -f "$HOME/.claude.json" ] && jq -e '.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // empty' "$HOME/.claude.json" >/dev/null 2>&1); then
+      _qd_found=true
+    fi
+  fi
+  if [ "$_qd_found" = true ]; then
+    print_ok "Qdrant MCP server configured"
+  else
+    print_warn "Qdrant MCP not found (recommended — persistent semantic memory across sessions)"
+    if [ "$interactive" = false ]; then
+      echo "  Install Docker + uv, then: claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory qdrant -- uvx --python 3.13 mcp-server-qdrant"
+    elif command -v docker &>/dev/null; then
+      # Verify the Docker daemon is actually running (not just the binary)
+      local docker_daemon_running=false
+      for _try in 1 2 3; do
+        if docker info &>/dev/null; then
+          docker_daemon_running=true
+          break
+        fi
+        if [ "$_try" -lt 3 ]; then
+          print_info "Waiting for Docker daemon to start (attempt $_try/3)..."
+          sleep 2
+        fi
+      done
 
-        if [ "$docker_daemon_running" = false ]; then
-          print_warn "Docker is installed but the daemon is not running. Start Docker and re-run init, or run manually:"
-          echo "  1. Start Qdrant: docker run -d -p 6333:6333 -v qdrant_storage:/qdrant/storage --restart unless-stopped qdrant/qdrant:latest"
-          echo "  2. Register MCP: claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory qdrant -- uvx --python 3.13 mcp-server-qdrant"
-        else
-          # Check if Qdrant container is already running
-          local qdrant_running=false
-          if docker ps --format '{{.Image}}' 2>/dev/null | grep -q "qdrant"; then
-            qdrant_running=true
-            print_ok "Qdrant container already running"
-          fi
+      if [ "$docker_daemon_running" = false ]; then
+        print_warn "Docker is installed but the daemon is not running. Start Docker and re-run init, or run manually:"
+        echo "  1. Start Qdrant: docker run -d -p 6333:6333 -v qdrant_storage:/qdrant/storage --restart unless-stopped qdrant/qdrant:latest"
+        echo "  2. Register MCP: claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory qdrant -- uvx --python 3.13 mcp-server-qdrant"
+      else
+        # Check if Qdrant container is already running
+        local qdrant_running=false
+        if docker ps --format '{{.Image}}' 2>/dev/null | grep -q "qdrant"; then
+          qdrant_running=true
+          print_ok "Qdrant container already running"
+        fi
 
-          if [ "$qdrant_running" = false ]; then
-            read -rp "$(echo -e "  ${BOLD}Start a local Qdrant instance via Docker? [Y/n]${NC}: ")" qdrant_reply
-            if [[ ! "$qdrant_reply" =~ ^[Nn] ]]; then
-              print_info "Pulling and starting Qdrant..."
-              if docker run -d --name qdrant \
-                -p 6333:6333 -p 6334:6334 \
-                -v qdrant_storage:/qdrant/storage \
-                --restart unless-stopped \
-                qdrant/qdrant:latest 2>&1; then
-                print_ok "Qdrant running at http://localhost:6333"
-                qdrant_running=true
-              else
-                print_warn "Failed to start Qdrant container"
-              fi
-            fi
-          fi
-
-          # If Qdrant is running, register the MCP server
-          if [ "$qdrant_running" = true ]; then
-            if command -v uvx &>/dev/null; then
-              read -rp "$(echo -e "  ${BOLD}Register Qdrant MCP server with Claude Code? [Y/n]${NC}: ")" mcp_reply
-              if [[ ! "$mcp_reply" =~ ^[Nn] ]]; then
-                if claude mcp add -s user \
-                  -e QDRANT_URL=http://localhost:6333 \
-                  -e COLLECTION_NAME=claude-memory \
-                  qdrant -- uvx --python 3.13 mcp-server-qdrant 2>/dev/null; then
-                  print_ok "Qdrant MCP server registered (collection: claude-memory)"
-                else
-                  print_warn "Failed to register Qdrant MCP. Register manually:"
-                  echo "    claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory qdrant -- uvx --python 3.13 mcp-server-qdrant"
-                fi
-              fi
+        if [ "$qdrant_running" = false ]; then
+          read -rp "$(echo -e "  ${BOLD}Start a local Qdrant instance via Docker? [Y/n]${NC}: ")" qdrant_reply
+          if [[ ! "$qdrant_reply" =~ ^[Nn] ]]; then
+            print_info "Pulling and starting Qdrant..."
+            if docker run -d --name qdrant \
+              -p 6333:6333 -p 6334:6334 \
+              -v qdrant_storage:/qdrant/storage \
+              --restart unless-stopped \
+              qdrant/qdrant:latest 2>&1; then
+              print_ok "Qdrant running at http://localhost:6333"
+              qdrant_running=true
             else
-              print_warn "uv/uvx not found — needed to run mcp-server-qdrant"
-              echo "  Install uv: curl -LsSf https://astral.sh/uv/install.sh | sh"
-              echo "  Then: claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory qdrant -- uvx --python 3.13 mcp-server-qdrant"
+              print_warn "Failed to start Qdrant container"
             fi
           fi
         fi
-      else
-        echo "  Requires Docker (for Qdrant server) and Python/uv (for MCP client)"
-        echo "  1. Install Docker: https://docs.docker.com/get-docker/"
-        echo "  2. Start Qdrant: docker run -d -p 6333:6333 -v qdrant_storage:/qdrant/storage --restart unless-stopped qdrant/qdrant:latest"
-        echo "  3. Register MCP: claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory qdrant -- uvx --python 3.13 mcp-server-qdrant"
+
+        # If Qdrant is running, register the MCP server
+        if [ "$qdrant_running" = true ]; then
+          if command -v uvx &>/dev/null; then
+            read -rp "$(echo -e "  ${BOLD}Register Qdrant MCP server with Claude Code? [Y/n]${NC}: ")" mcp_reply
+            if [[ ! "$mcp_reply" =~ ^[Nn] ]]; then
+              if claude mcp add -s user \
+                -e QDRANT_URL=http://localhost:6333 \
+                -e COLLECTION_NAME=claude-memory \
+                qdrant -- uvx --python 3.13 mcp-server-qdrant 2>/dev/null; then
+                print_ok "Qdrant MCP server registered (collection: claude-memory)"
+              else
+                print_warn "Failed to register Qdrant MCP. Register manually:"
+                echo "    claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory qdrant -- uvx --python 3.13 mcp-server-qdrant"
+              fi
+            fi
+          else
+            print_warn "uv/uvx not found — needed to run mcp-server-qdrant"
+            echo "  Install uv: curl -LsSf https://astral.sh/uv/install.sh | sh"
+            echo "  Then: claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory qdrant -- uvx --python 3.13 mcp-server-qdrant"
+          fi
+        fi
       fi
+    else
+      echo "  Requires Docker (for Qdrant server) and Python/uv (for MCP client)"
+      echo "  1. Install Docker: https://docs.docker.com/get-docker/"
+      echo "  2. Start Qdrant: docker run -d -p 6333:6333 -v qdrant_storage:/qdrant/storage --restart unless-stopped qdrant/qdrant:latest"
+      echo "  3. Register MCP: claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory qdrant -- uvx --python 3.13 mcp-server-qdrant"
     fi
-  else
-    print_info "Qdrant MCP: cannot check (no Claude settings or jq missing)"
   fi
 
   if [ ${#missing_required[@]} -gt 0 ]; then
@@ -477,8 +481,9 @@ resolve_and_install_tools() {
   # but the resolver doesn't know — it always marks it manual because
   # auto_installable is false. If it's now registered in settings.json,
   # move it from manual_install to already_installed.
-  if [ -f "$HOME/.claude/settings.json" ] && command -v jq &>/dev/null; then
-    if jq -e '.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1; then
+  if command -v jq &>/dev/null; then
+    if ([ -f "$HOME/.claude/settings.json" ] && jq -e '.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1) || \
+       ([ -f "$HOME/.claude.json" ] && jq -e '.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // empty' "$HOME/.claude.json" >/dev/null 2>&1); then
       if echo "$resolver_output" | jq -e '.manual_install[] | select(.name == "Qdrant MCP")' >/dev/null 2>&1; then
         resolver_output=$(echo "$resolver_output" | jq '
           (.manual_install[] | select(.name == "Qdrant MCP")) as $qdrant |
@@ -1578,7 +1583,8 @@ print_next_steps() {
   if [ -f "$HOME/.claude/settings.json" ] && command -v jq &>/dev/null; then
     local _sp _c7
     _sp=$(jq -r '.enabledPlugins["superpowers@claude-plugins-official"] // false' "$HOME/.claude/settings.json" 2>/dev/null || echo "false")
-    _c7=$(jq -e '.mcpServers.context7 // .mcpServers["context7-mcp"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1 && echo "true" || echo "false")
+    _c7=$( ([ -f "$HOME/.claude/settings.json" ] && jq -e '.mcpServers.context7 // .mcpServers["context7-mcp"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1) || \
+           ([ -f "$HOME/.claude.json" ] && jq -e '.mcpServers.context7 // .mcpServers["context7-mcp"] // empty' "$HOME/.claude.json" >/dev/null 2>&1) && echo "true" || echo "false")
     if [ "$_sp" = "true" ]; then
       echo "     ✓ Superpowers plugin (agentic skills for Phase 2)"
     else
@@ -1590,7 +1596,8 @@ print_next_steps() {
       echo "     ✗ Context7 MCP — run: claude mcp add context7 --scope user -- npx -y @upstash/context7-mcp@latest"
     fi
     local _qd
-    _qd=$(jq -e '.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1 && echo "true" || echo "false")
+    _qd=$( ([ -f "$HOME/.claude/settings.json" ] && jq -e '.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1) || \
+           ([ -f "$HOME/.claude.json" ] && jq -e '.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // empty' "$HOME/.claude.json" >/dev/null 2>&1) && echo "true" || echo "false")
     if [ "$_qd" = "true" ]; then
       echo "     ✓ Qdrant MCP (persistent semantic memory across sessions)"
     else
