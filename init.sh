@@ -123,18 +123,55 @@ check_prerequisites() {
   # --- Docker (optional) ---
   if command -v docker &>/dev/null; then
     print_ok "Docker $(docker --version 2>/dev/null | awk '{print $3}' | tr -d ',')"
+    # Check if daemon is running; if Colima is installed, check that too
+    if ! docker info &>/dev/null; then
+      if command -v colima &>/dev/null; then
+        print_info "Docker daemon not running. Starting Colima..."
+        colima start 2>/dev/null && print_ok "Colima started" || print_warn "Failed to start Colima. Run: colima start"
+      elif [ "$os_type" = "Darwin" ]; then
+        print_info "Docker daemon not running. Starting Docker Desktop..."
+        open -a Docker 2>/dev/null
+        for _try in 1 2 3 4 5; do
+          docker info &>/dev/null && break
+          sleep 3
+        done
+        docker info &>/dev/null && print_ok "Docker daemon running" || print_warn "Docker Desktop is starting — it may take a moment"
+      fi
+    fi
   else
     print_warn "Docker not found (optional — needed for Qdrant semantic memory and OWASP ZAP DAST scanning)"
     if [ "$interactive" = true ]; then
       if [ "$os_type" = "Darwin" ] && command -v brew &>/dev/null; then
-        if prompt_install "Docker Desktop" "brew install --cask docker"; then
-          open -a Docker
-          print_info "Waiting for Docker Desktop to start..."
-          for _try in 1 2 3 4 5; do
-            docker info &>/dev/null && break
-            sleep 3
-          done
-        fi
+        echo ""
+        echo -e "  ${BOLD}Docker options for macOS:${NC}"
+        echo "    1. Colima — Lightweight, headless, runs as a background service. No license required."
+        echo "    2. Docker Desktop — Full GUI app. Free for personal use and small businesses."
+        echo ""
+        local docker_choice
+        docker_choice=$(prompt_choice "Install Docker via:" "Colima (recommended)" "Docker Desktop" "Skip")
+        case "$docker_choice" in
+          "Colima"*)
+            if prompt_install "Colima + Docker CLI" "brew install colima docker docker-compose"; then
+              print_info "Starting Colima..."
+              colima start --cpu 2 --memory 4 2>&1 && print_ok "Colima running"
+              # Enable auto-start on boot
+              brew services start colima 2>/dev/null && print_ok "Colima set to auto-start on boot"
+            fi
+            ;;
+          "Docker Desktop"*)
+            if prompt_install "Docker Desktop" "brew install --cask docker"; then
+              open -a Docker
+              print_info "Waiting for Docker Desktop to start..."
+              for _try in 1 2 3 4 5; do
+                docker info &>/dev/null && break
+                sleep 3
+              done
+            fi
+            ;;
+          "Skip"*)
+            print_info "Skipping Docker installation"
+            ;;
+        esac
       elif [ "$os_type" = "Linux" ]; then
         if command -v apt &>/dev/null; then
           prompt_install "Docker" "sudo apt install -y docker.io && sudo systemctl enable docker && sudo systemctl start docker && sudo usermod -aG docker $USER" true
