@@ -1744,6 +1744,12 @@ print_next_steps() {
   echo "     Run the guided wizard:  bash scripts/intake-wizard.sh"
   echo "     Or open PROJECT_INTAKE.md directly in your editor."
   echo "     The wizard offers an interactive script or AI-assisted conversation."
+  if [ "$DEPLOYMENT" = "personal" ] || [ "${POC_MODE:-}" = "private_poc" ]; then
+    echo ""
+    echo "     TIP: For personal/private POC projects, you can paste the intake form"
+    echo "     into your AI and work with it to fill out the sections. Read through"
+    echo "     the result yourself to verify accuracy before proceeding."
+  fi
   echo ""
 
   if [ "$DEPLOYMENT" = "organizational" ]; then
@@ -1777,10 +1783,21 @@ print_next_steps() {
   echo "     cd $PROJECT_DIR"
   echo "     claude"
   echo ""
-  echo "     Then tell the agent:"
-  echo "     \"Read CLAUDE.md, then read PROJECT_INTAKE.md. Follow the"
-  echo "     Builder's Guide in docs/framework/builders-guide.md. Begin"
-  echo "     Phase 0. Only ask me for clarifying questions.\""
+  echo "     Then give the agent the full project context:"
+  echo "     ┌─────────────────────────────────────────────────────────────────┐"
+  echo "     │ Read the following files in order, then confirm what you        │"
+  echo "     │ understand about this project before taking any action:         │"
+  echo "     │                                                                 │"
+  echo "     │ 1. CLAUDE.md (your instructions and constraints)                │"
+  echo "     │ 2. PROJECT_INTAKE.md (the product definition)                   │"
+  echo "     │ 3. docs/framework/builders-guide.md (the phase-gate method)     │"
+  echo "     │ 4. docs/platform-modules/ (platform-specific guidance)          │"
+  echo "     │ 5. .claude/phase-state.json (current phase)                     │"
+  echo "     │                                                                 │"
+  echo "     │ After reading, summarize: the project goal, your constraints,   │"
+  echo "     │ the current phase, and what tools/MCP servers are available to   │"
+  echo "     │ you. Then begin Phase 0. Ask me only for clarifying questions.  │"
+  echo "     └─────────────────────────────────────────────────────────────────┘"
   echo ""
 
   # Show dependency status and remaining optional enhancements
