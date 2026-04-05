@@ -42,10 +42,20 @@ The more complete the Intake, the more autonomously the agent can work. Where th
 
 ### How to Use This Document
 
+You can fill this out using the **intake wizard** (`bash scripts/intake-wizard.sh`) or by **editing this file directly**. The wizard offers an interactive walkthrough and tracks your progress. Either approach works, but be aware of the difference:
+
 1. Fill out every section. Mark fields N/A where they genuinely don't apply — don't leave blanks.
 2. For organizational deployments, complete the Governance Pre-Flight (Section 8) before starting. This section maps to the Enterprise Governance Framework pre-conditions.
 3. Once complete, provide this document to the AI agent at the start of Phase 0 with the instruction: "This is the Project Intake. Use it as the primary constraint for all phases. Do not suggest features, architectures, or tooling that contradict it."
 4. The agent will use this to generate the Product Manifesto (Phase 0) and Project Bible (Phase 1) without stopping to ask for information that should already be decided.
+
+> **If editing manually:** Section 1 fields (project name, platform, language, track) and Section 8 (governance mode) were used during init to generate your CI pipeline, release pipeline, platform module, and phase gate rules. If you change these fields here, you must also run the reconfigure script to update the generated files:
+>
+> ```bash
+> bash scripts/reconfigure-project.sh --field <field> --old <old_value> --new <new_value>
+> ```
+>
+> Supported fields: `name`, `platform`, `language`, `track`, `deployment`. The intake wizard handles this automatically — manual editing does not.
 
 ---
 
