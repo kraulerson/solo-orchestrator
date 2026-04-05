@@ -487,8 +487,12 @@ collect_project_info() {
   # Testing interval (default 2, configurable in Intake)
   TEST_INTERVAL=2
 
-  # Determine project directory
-  PROJECT_DIR=$(prompt_input "Project directory" "$HOME/projects/$PROJECT_NAME")
+  # Determine project directory — default to parent of the solo-orchestrator repo
+  local default_parent
+  default_parent="$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd)"
+  # Fall back to ~/projects if we can't resolve the parent
+  [ -z "$default_parent" ] || [ "$default_parent" = "/" ] && default_parent="$HOME/projects"
+  PROJECT_DIR=$(prompt_input "Project directory" "$default_parent/$PROJECT_NAME")
   # Strip surrounding quotes if user pasted a quoted path
   PROJECT_DIR="${PROJECT_DIR#\"}"
   PROJECT_DIR="${PROJECT_DIR%\"}"
