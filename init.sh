@@ -663,16 +663,73 @@ resolve_and_install_tools() {
     done
   fi
 
-  # Show manual install reminders
+  # Handle manual install items — offer to set up Qdrant if Docker is now available
   if [ "$manual_count" -gt 0 ]; then
-    echo ""
-    print_info "Manual setup required for:"
-    for i in $(seq 0 $((manual_count - 1))); do
-      local tool_name instructions
-      tool_name=$(echo "$resolver_output" | jq -r ".manual_install[$i].name")
-      instructions=$(echo "$resolver_output" | jq -r ".manual_install[$i].instructions")
-      echo "  • $tool_name — $instructions"
-    done
+    local qdrant_handled=false
+
+    # If Qdrant is in the manual list and Docker is running, offer auto-setup
+    if echo "$resolver_output" | jq -e '.manual_install[] | select(.name == "Qdrant MCP")' >/dev/null 2>&1; then
+      if command -v docker &>/dev/null && docker info &>/dev/null; then
+        echo ""
+        print_info "Docker is running — setting up Qdrant MCP..."
+
+        # Start Qdrant container
+        local qdrant_running=false
+        if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^qdrant$"; then
+          qdrant_running=true
+          print_ok "Qdrant container already running"
+        elif docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^qdrant$"; then
+          docker start qdrant 2>/dev/null && qdrant_running=true && print_ok "Existing Qdrant container started"
+        else
+          if docker run -d --name qdrant \
+            -p 6333:6333 -p 6334:6334 \
+            -v qdrant_storage:/qdrant/storage \
+            --restart unless-stopped \
+            qdrant/qdrant:latest >/dev/null 2>&1; then
+            qdrant_running=true
+            print_ok "Qdrant running at http://localhost:6333"
+          else
+            print_warn "Failed to start Qdrant container"
+          fi
+        fi
+
+        # Register MCP server
+        if [ "$qdrant_running" = true ]; then
+          if command -v uvx &>/dev/null || command -v pipx &>/dev/null; then
+            if echo "y" | claude mcp add -s user \
+              -e QDRANT_URL=http://localhost:6333 \
+              -e COLLECTION_NAME=claude-memory \
+              qdrant -- uvx --python 3.13 mcp-server-qdrant 2>/dev/null; then
+              print_ok "Qdrant MCP registered"
+              qdrant_handled=true
+              # Remove Qdrant from manual list
+              resolver_output=$(echo "$resolver_output" | jq '
+                .already_installed += [{ name: "Qdrant MCP", version: "configured", category: "mcp_server" }] |
+                .manual_install |= map(select(.name != "Qdrant MCP"))
+              ')
+              manual_count=$(echo "$resolver_output" | jq '.manual_install | length')
+            else
+              print_warn "Failed to register Qdrant MCP"
+            fi
+          else
+            print_warn "uv/uvx not found — needed for Qdrant MCP server"
+            echo "  Install: curl -LsSf https://astral.sh/uv/install.sh | sh"
+          fi
+        fi
+      fi
+    fi
+
+    # Show remaining manual items (if any left after Qdrant auto-setup)
+    if [ "$manual_count" -gt 0 ]; then
+      echo ""
+      print_info "Manual setup required for:"
+      for i in $(seq 0 $((manual_count - 1))); do
+        local tool_name instructions
+        tool_name=$(echo "$resolver_output" | jq -r ".manual_install[$i].name")
+        instructions=$(echo "$resolver_output" | jq -r ".manual_install[$i].instructions")
+        echo "  • $tool_name — $instructions"
+      done
+    fi
   fi
 
   # Store resolver output for later use by create_project
