@@ -170,6 +170,13 @@ check_prerequisites() {
     fi
   fi
 
+  # --- Claude Dev Framework ---
+  if [ -d "$HOME/.claude-dev-framework/.git" ] && [ -f "$HOME/.claude-dev-framework/scripts/init.sh" ]; then
+    print_ok "Claude Dev Framework installed"
+  else
+    print_info "Claude Dev Framework will be installed during project creation"
+  fi
+
   # --- Claude Code Superpowers plugin (recommended) ---
   if [ -f "$HOME/.claude/settings.json" ] && command -v jq &>/dev/null; then
     local sp_installed
