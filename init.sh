@@ -1023,6 +1023,34 @@ BPEOF
     print_ok "Tool preferences written to .claude/tool-preferences.json"
   fi
 
+  # Generate per-project Qdrant MCP override (isolates semantic memory per project)
+  # The global Qdrant MCP uses collection "claude-memory" shared across all projects.
+  # This local override uses the project name as the collection for data isolation.
+  if command -v jq &>/dev/null; then
+    local _qd_global=false
+    if ([ -f "$HOME/.claude/settings.json" ] && jq -e '.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1) || \
+       ([ -f "$HOME/.claude.json" ] && jq -e '.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // empty' "$HOME/.claude.json" >/dev/null 2>&1); then
+      _qd_global=true
+    fi
+    if [ "$_qd_global" = true ]; then
+      cat > .claude/settings.local.json << QDEOF
+{
+  "mcpServers": {
+    "qdrant": {
+      "command": "uvx",
+      "args": [
+        "mcp-server-qdrant",
+        "--qdrant-url", "http://localhost:6333",
+        "--collection-name", "$PROJECT_NAME"
+      ]
+    }
+  }
+}
+QDEOF
+      print_ok "Qdrant MCP configured with project-specific collection: $PROJECT_NAME"
+    fi
+  fi
+
   # Generate CLAUDE.md
   print_info "Generating CLAUDE.md..."
   generate_claude_md
