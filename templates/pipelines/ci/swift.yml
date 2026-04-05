@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    # Swift iOS projects require macOS runners for Apple framework access (UIKit, SwiftUI).
+    # macOS runners cost ~10x more than Linux runners ($0.08/min vs $0.008/min).
+    # This only affects private repositories — public repos have free CI minutes.
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode version
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+        # Pin to a specific Xcode version if needed: /Applications/Xcode_16.0.app/Contents/Developer
+        # Available versions depend on the runner image — see:
+        # https://github.com/actions/runner-images
+
+      - name: Resolve dependencies
+        run: swift package resolve
+
+      - name: Build
+        run: swift build
+
+      - name: Test
+        run: swift test
+
+      - name: Lint (SwiftLint)
+        uses: realm/SwiftLint@v0.57.0
+        with:
+          strict: true
+
+      - name: Security - SAST (Semgrep)
+        uses: semgrep/semgrep-action@713efdd345f3035192eaa63f56867b88e63e4e5d # v1 (v0.58.0)
+        with:
+          config: >-
+            p/owasp-top-ten
+            p/security-audit
+
+      - name: Security - Secret detection (gitleaks)
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2 (v2.3.9)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Security - Dependency audit
+        run: |
+          # Swift Package Manager has no native vulnerability scanner (no 'swift package audit').
+          # osv-scanner provides cross-ecosystem coverage via Package.resolved.
+          if command -v osv-scanner &>/dev/null; then
+            osv-scanner --lockfile=Package.resolved
+          else
+            echo "[WARN] osv-scanner not found — dependency audit skipped."
+            echo "  Install: brew install osv-scanner or use google/osv-scanner GitHub Action."
+            echo "  Alternative: run Snyk CLI locally (snyk test)."
+          fi
+
+      - name: Security - License check
+        run: |
+          # Swift ecosystem lacks a mature automated license checker.
+          # swift-license (brew install nicklama/tap/swift-license) is the closest option.
+          if command -v swift-license &>/dev/null; then
+            swift-license
+          else
+            echo "[WARN] swift-license not found — license check skipped."
+            echo "  Install: brew install nicklama/tap/swift-license"
+            echo "  Alternative: review Package.swift dependencies manually."
+          fi
+
+      - name: Governance - Phase gate check
+        if: hashFiles('.claude/phase-state.json') != ''
+        run: bash scripts/check-phase-gate.sh 2>/dev/null || echo "Phase gate check script not found — skipping"
+
+      - name: Governance - Changelog check
+        run: bash scripts/check-changelog.sh 2>/dev/null || true
+
+      - name: Governance - Session state check
+        run: bash scripts/check-session-state.sh 2>/dev/null || true

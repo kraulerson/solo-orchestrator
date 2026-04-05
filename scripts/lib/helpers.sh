@@ -24,11 +24,57 @@ print_header() {
   echo ""
 }
 
-print_step() { echo -e "${CYAN}[STEP]${NC} $1"; }
-print_ok()   { echo -e "${GREEN}  [OK]${NC} $1"; }
-print_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
-print_fail() { echo -e "${RED}[FAIL]${NC} $1"; }
-print_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
+print_step() { echo -e "${CYAN}[STEP]${NC} $1"; log_line "[STEP] $1"; }
+print_ok()   { echo -e "${GREEN}  [OK]${NC} $1"; log_line "  [OK] $1"; }
+print_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; log_line "[WARN] $1"; }
+print_fail() { echo -e "${RED}[FAIL]${NC} $1"; log_line "[FAIL] $1"; }
+print_info() { echo -e "${BLUE}[INFO]${NC} $1"; log_line "[INFO] $1"; }
+
+# ── Logging ──────────────────────────────────────────────────────
+# Call init_log() early in init.sh to enable file logging.
+# All print_* functions automatically log when LOG_FILE is set.
+LOG_FILE=""
+
+init_log() {
+  local log_dir="$1"
+  mkdir -p "$log_dir"
+  LOG_FILE="$log_dir/init-$(date +%Y%m%d-%H%M%S).log"
+  {
+    echo "═══════════════════════════════════════════════════════════"
+    echo "Solo Orchestrator Init Log"
+    echo "Started: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+    echo "OS: $(uname -s) $(uname -r) ($(uname -m))"
+    echo "Shell: $BASH_VERSION"
+    echo "User: $(whoami)@$(hostname)"
+    echo "Working directory: $(pwd)"
+    echo "═══════════════════════════════════════════════════════════"
+    echo ""
+  } > "$LOG_FILE"
+}
+
+# Strip ANSI escape codes and write to log file
+log_line() {
+  [ -n "$LOG_FILE" ] && echo "$1" | sed 's/\x1b\[[0-9;]*m//g' >> "$LOG_FILE"
+}
+
+log_section() {
+  [ -n "$LOG_FILE" ] && echo -e "\n── $1 ──────────────────────────────────" >> "$LOG_FILE"
+}
+
+finalize_log() {
+  if [ -n "$LOG_FILE" ]; then
+    {
+      echo ""
+      echo "═══════════════════════════════════════════════════════════"
+      echo "Completed: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+      echo "Duration: ${SECONDS}s"
+      echo "═══════════════════════════════════════════════════════════"
+    } >> "$LOG_FILE"
+    # Print log location (to both stdout and log)
+    echo ""
+    echo -e "${BLUE}[INFO]${NC} Init log saved to: $LOG_FILE"
+  fi
+}
 
 # --- Prompt helpers ---
 

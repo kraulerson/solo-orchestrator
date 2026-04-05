@@ -321,6 +321,8 @@ case "$LANGUAGE" in
     command -v go &>/dev/null && print_ok "Go $(go version 2>/dev/null | awk '{print $3}')" || fail "Go not found" ;;
   dart)
     command -v flutter &>/dev/null && print_ok "Flutter $(flutter --version 2>/dev/null | head -1)" || fail "Flutter not found" ;;
+  swift)
+    command -v swift &>/dev/null && print_ok "Swift $(swift --version 2>/dev/null | head -1)" || fail "Swift not found (requires Xcode on macOS)" ;;
   *)
     print_info "Language: $LANGUAGE — no runtime check available" ;;
 esac

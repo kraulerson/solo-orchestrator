@@ -1,4 +1,11 @@
 name: Release — __PROJECT_NAME__
+# ─────────────────────────────────────────────────────────────────
+# BEFORE FIRST RELEASE: Search for "TODO" in this file and configure:
+#   - Deployment target (hosting platform, credentials)
+#   - Environment variables and secrets
+# The Phase 3→4 gate will warn if TODOs remain unconfigured.
+# Light-track projects: this pipeline is optional for internal-only use.
+# ─────────────────────────────────────────────────────────────────
 
 on:
   push:

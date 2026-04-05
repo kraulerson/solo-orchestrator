@@ -82,6 +82,10 @@ sudo apt install -y git jq
 # The init script will offer to install Node.js and other prerequisites
 ```
 
+### Linux Users
+
+The init script supports **apt** (Debian, Ubuntu), **dnf** (Fedora, RHEL), and **pacman** (Arch, Manjaro, EndeavourOS) package managers. Other distributions should install the prerequisite tools manually before running init.
+
 All subsequent commands in this README and the Builder's Guide assume a Unix-like terminal (macOS Terminal, Linux shell, or WSL on Windows).
 
 ---
@@ -147,7 +151,7 @@ The init script installs these tools globally on your machine. Each installation
 | Tool | Purpose | Install Method |
 |---|---|---|
 | **Semgrep** | SAST scanning (static analysis) | brew (macOS) or pip (Linux) |
-| **gitleaks** | Secret detection in commits | brew (macOS) or binary download (Linux) |
+| **gitleaks** | Secret detection in commits | brew (macOS) or auto-downloaded binary (Linux) |
 | **Snyk CLI** | Dependency vulnerability scanning | npm global |
 | **Claude Code** | AI coding agent | brew (macOS) or npm global (Linux) |
 | **Lighthouse** | Web performance auditing (web projects only) | npm global |
@@ -297,9 +301,8 @@ The init script auto-discovers available languages from `templates/pipelines/ci/
 | **JVM** (Kotlin, Java) | `./gradlew build` / `./gradlew test` | `detekt` (plugin) | `dependencyCheckAnalyze` (plugin) | `checkLicense` (plugin) |
 | **Go** | `go build` / `go test -race` | `golangci-lint` | `govulncheck` | `go-licenses` |
 | **Dart** (Flutter) | `flutter pub get` / `flutter test` | `flutter analyze` | `osv-scanner` (GitHub Action) | `dart_license_checker` |
+| **Swift** (iOS native) | `swift build` / `swift test` | SwiftLint | `osv-scanner` (Package.resolved) | `swift-license` |
 | **Other** | TODO skeleton | TODO | TODO | TODO |
-
-**Known gap:** Swift (iOS native) is referenced in the mobile platform module but does not have a CI template yet. Select "other" for Swift projects and customize the CI pipeline manually.
 
 All CI templates include Semgrep SAST scanning. Languages that require external tools (Rust, Python, Dart) install them explicitly in the pipeline. JVM templates include Gradle plugin setup instructions for tools that require project configuration.
 
@@ -434,7 +437,7 @@ The methodology, intake template, platform modules, and CI pipeline templates ar
 - **Enforcement has two mechanical layers but gaps remain.** The CI pipeline (SAST, dependency audit, license checking, tests) blocks merges on failure. The Claude Dev Framework pre-commit hooks (gitleaks, Semgrep) catch issues at commit time locally. Together these provide mechanical enforcement for security, testing, and code quality. However, phase gates, TDD ordering, scope control, and documentation updates currently rely on the AI agent following CLAUDE.md instructions and the human reviewing at decision gates. These are Tier 3 (guided) controls with no automated backstop yet.
 - **Release pipelines require configuration.** CI pipelines work immediately on first push. Release pipelines are templates with TODOs for code signing, deployment secrets, and store credentials that must be configured before first release.
 - **Docker is local only.** OWASP ZAP and Qdrant run as local Docker containers. Remote Docker hosts and network-accessible containers are not yet supported.
-- **Swift CI gap.** Swift (iOS native) is referenced in the mobile platform module but does not have a CI pipeline template. Select "other" for Swift projects.
+- **Linux package manager support covers apt, dnf, and pacman.** Alpine (apk) and other distributions require manual tool installation. The init script auto-detects brew (macOS), apt (Debian/Ubuntu), dnf (Fedora/RHEL), and pacman (Arch/Manjaro).
 - **CI/CD templates are GitHub Actions only.** The framework provides pipeline templates for GitHub Actions. GitLab CI and Azure DevOps are supported as repository hosts, but pipeline templates must be translated manually.
 - **Single language per init.** The init script generates CI for one primary language. Polyglot projects (e.g., TypeScript frontend + Python backend) require manual addition of CI steps for secondary languages.
 - **Not yet validated through an organizational pilot.** The framework has been used for personal projects. The pilot evaluation process (Executive Review, Section X) defines how to test it organizationally. Treat this as a well-structured hypothesis, not a proven methodology.

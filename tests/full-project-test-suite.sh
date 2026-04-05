@@ -61,7 +61,7 @@ section() {
 section "TEST 1: Resolver Matrix — All Platform × Language × Track Combinations"
 
 PLATFORMS=(web mobile desktop)
-LANGUAGES=(typescript python rust go csharp dart jvm)
+LANGUAGES=(typescript python rust go csharp dart jvm swift)
 TRACKS=(light standard full)
 DEV_OS="darwin"  # Current machine
 RESOLVER="$SCRIPT_DIR/scripts/resolve-tools.sh"
@@ -340,6 +340,7 @@ declare -a TEST_RUNS=(
   "web:python:light:personal"
   "mobile:typescript:standard:personal"
   "desktop:csharp:standard:organizational"
+  "mobile:swift:standard:personal"
 )
 
 for run in "${TEST_RUNS[@]}"; do

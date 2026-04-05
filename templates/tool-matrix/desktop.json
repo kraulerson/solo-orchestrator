@@ -20,6 +20,7 @@
       "install": {
         "darwin_brew": "cargo install tauri-cli",
         "linux_apt": "cargo install tauri-cli",
+        "linux_pacman": "cargo install tauri-cli",
         "manual": "cargo install tauri-cli (requires Rust toolchain)"
       },
       "auto_installable": true,
@@ -65,6 +66,7 @@
       "install": {
         "linux_apt": "sudo apt install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev",
         "linux_dnf": "sudo dnf install -y webkit2gtk4.1-devel openssl-devel curl wget file libappindicator-gtk3-devel librsvg2-devel",
+        "linux_pacman": "sudo pacman -S --noconfirm webkit2gtk-4.1 base-devel curl wget file xdotool openssl libappindicator-gtk3 librsvg",
         "manual": "Install libwebkit2gtk-4.1-dev and build-essential via your package manager"
       },
       "auto_installable": true,
@@ -110,6 +112,7 @@
       "install": {
         "darwin_brew": "cargo install cargo-license",
         "linux_apt": "cargo install cargo-license",
+        "linux_pacman": "cargo install cargo-license",
         "manual": "cargo install cargo-license"
       },
       "auto_installable": true,
@@ -156,6 +159,7 @@
       "install": {
         "darwin_brew": "dart pub global activate dart_license_checker",
         "linux_apt": "dart pub global activate dart_license_checker",
+        "linux_pacman": "dart pub global activate dart_license_checker",
         "manual": "dart pub global activate dart_license_checker"
       },
       "auto_installable": true,
@@ -179,6 +183,7 @@
       "install": {
         "darwin_brew": "dotnet tool install --global dotnet-project-licenses",
         "linux_apt": "dotnet tool install --global dotnet-project-licenses",
+        "linux_pacman": "dotnet tool install --global dotnet-project-licenses",
         "manual": "dotnet tool install --global dotnet-project-licenses"
       },
       "auto_installable": true,

@@ -56,6 +56,8 @@ check_prerequisites() {
           prompt_install "Git" "sudo apt install -y git" true && git_installed=true
         elif command -v dnf &>/dev/null; then
           prompt_install "Git" "sudo dnf install -y git" true && git_installed=true
+        elif command -v pacman &>/dev/null; then
+          prompt_install "Git" "sudo pacman -S --noconfirm git" true && git_installed=true
         else
           echo "  Install with your distribution's package manager (e.g., sudo apt install git)"
         fi
@@ -87,6 +89,8 @@ check_prerequisites() {
           prompt_install "Node.js" "sudo apt install -y nodejs npm" true
         elif command -v dnf &>/dev/null; then
           prompt_install "Node.js" "sudo dnf install -y nodejs npm" true
+        elif command -v pacman &>/dev/null; then
+          prompt_install "Node.js" "sudo pacman -S --noconfirm nodejs npm" true
         else
           echo "  Install Node.js 18+: https://nodejs.org/"
         fi
@@ -107,6 +111,8 @@ check_prerequisites() {
           prompt_install "jq" "sudo apt install -y jq" true
         elif command -v dnf &>/dev/null; then
           prompt_install "jq" "sudo dnf install -y jq" true
+        elif command -v pacman &>/dev/null; then
+          prompt_install "jq" "sudo pacman -S --noconfirm jq" true
         else
           echo "  Install manually: https://jqlang.github.io/jq/download/"
         fi
@@ -126,6 +132,8 @@ check_prerequisites() {
         echo "  Install with: sudo apt install -y docker.io && sudo usermod -aG docker \$USER"
       elif command -v dnf &>/dev/null; then
         echo "  Install with: sudo dnf install -y docker && sudo usermod -aG docker \$USER"
+      elif command -v pacman &>/dev/null; then
+        echo "  Install with: sudo pacman -S --noconfirm docker && sudo usermod -aG docker \$USER"
       fi
     fi
   fi
@@ -142,6 +150,8 @@ check_prerequisites() {
         echo "  Install with: sudo apt install -y gnupg"
       elif command -v dnf &>/dev/null; then
         echo "  Install with: sudo dnf install -y gnupg2"
+      elif command -v pacman &>/dev/null; then
+        echo "  Install with: sudo pacman -S --noconfirm gnupg"
       fi
     fi
   fi
@@ -165,13 +175,16 @@ check_prerequisites() {
     if jq -e '.mcpServers.context7 // .mcpServers["context7-mcp"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1; then
       print_ok "Context7 MCP server configured"
     else
-      print_warn "Context7 MCP not found (recommended — up-to-date library documentation)"
-      if [ "$interactive" = true ]; then
-        if command -v node &>/dev/null; then
-          prompt_install "Context7 MCP" "claude mcp add context7 -- npx -y @upstash/context7-mcp@latest"
+      if command -v node &>/dev/null; then
+        print_info "Registering Context7 MCP server..."
+        if claude mcp add context7 -- npx -y @upstash/context7-mcp@latest 2>/dev/null; then
+          print_ok "Context7 MCP server registered"
         else
-          echo "  Requires Node.js. Install Node.js first, then: claude mcp add context7 -- npx -y @upstash/context7-mcp@latest"
+          print_warn "Context7 MCP registration failed. Register manually: claude mcp add context7 -- npx -y @upstash/context7-mcp@latest"
         fi
+      else
+        print_warn "Context7 MCP not found (recommended — up-to-date library documentation)"
+        echo "  Requires Node.js. Install Node.js first, then: claude mcp add context7 -- npx -y @upstash/context7-mcp@latest"
       fi
     fi
   else
@@ -188,49 +201,68 @@ check_prerequisites() {
         echo "  Install Docker + uv, then: claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory qdrant -- uvx --python 3.13 mcp-server-qdrant"
       # Check if we can auto-setup: needs Docker + Python (uv)
       elif command -v docker &>/dev/null; then
-        # Check if Qdrant container is already running
-        local qdrant_running=false
-        if docker ps --format '{{.Image}}' 2>/dev/null | grep -q "qdrant"; then
-          qdrant_running=true
-          print_ok "Qdrant container already running"
-        fi
-
-        if [ "$qdrant_running" = false ]; then
-          read -rp "$(echo -e "  ${BOLD}Start a local Qdrant instance via Docker? [Y/n]${NC}: ")" qdrant_reply
-          if [[ ! "$qdrant_reply" =~ ^[Nn] ]]; then
-            print_info "Pulling and starting Qdrant..."
-            if docker run -d --name qdrant \
-              -p 6333:6333 -p 6334:6334 \
-              -v qdrant_storage:/qdrant/storage \
-              --restart unless-stopped \
-              qdrant/qdrant:latest 2>&1; then
-              print_ok "Qdrant running at http://localhost:6333"
-              qdrant_running=true
-            else
-              print_warn "Failed to start Qdrant container"
-            fi
+        # Verify the Docker daemon is actually running (not just the binary)
+        local docker_daemon_running=false
+        for _try in 1 2 3; do
+          if docker info &>/dev/null; then
+            docker_daemon_running=true
+            break
           fi
-        fi
+          if [ "$_try" -lt 3 ]; then
+            print_info "Waiting for Docker daemon to start (attempt $_try/3)..."
+            sleep 2
+          fi
+        done
 
-        # If Qdrant is running, register the MCP server
-        if [ "$qdrant_running" = true ]; then
-          if command -v uvx &>/dev/null; then
-            read -rp "$(echo -e "  ${BOLD}Register Qdrant MCP server with Claude Code? [Y/n]${NC}: ")" mcp_reply
-            if [[ ! "$mcp_reply" =~ ^[Nn] ]]; then
-              if claude mcp add -s user \
-                -e QDRANT_URL=http://localhost:6333 \
-                -e COLLECTION_NAME=claude-memory \
-                qdrant -- uvx --python 3.13 mcp-server-qdrant 2>/dev/null; then
-                print_ok "Qdrant MCP server registered (collection: claude-memory)"
+        if [ "$docker_daemon_running" = false ]; then
+          print_warn "Docker is installed but the daemon is not running. Start Docker and re-run init, or run manually:"
+          echo "  1. Start Qdrant: docker run -d -p 6333:6333 -v qdrant_storage:/qdrant/storage --restart unless-stopped qdrant/qdrant:latest"
+          echo "  2. Register MCP: claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory qdrant -- uvx --python 3.13 mcp-server-qdrant"
+        else
+          # Check if Qdrant container is already running
+          local qdrant_running=false
+          if docker ps --format '{{.Image}}' 2>/dev/null | grep -q "qdrant"; then
+            qdrant_running=true
+            print_ok "Qdrant container already running"
+          fi
+
+          if [ "$qdrant_running" = false ]; then
+            read -rp "$(echo -e "  ${BOLD}Start a local Qdrant instance via Docker? [Y/n]${NC}: ")" qdrant_reply
+            if [[ ! "$qdrant_reply" =~ ^[Nn] ]]; then
+              print_info "Pulling and starting Qdrant..."
+              if docker run -d --name qdrant \
+                -p 6333:6333 -p 6334:6334 \
+                -v qdrant_storage:/qdrant/storage \
+                --restart unless-stopped \
+                qdrant/qdrant:latest 2>&1; then
+                print_ok "Qdrant running at http://localhost:6333"
+                qdrant_running=true
               else
-                print_warn "Failed to register Qdrant MCP. Register manually:"
-                echo "    claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory qdrant -- uvx --python 3.13 mcp-server-qdrant"
+                print_warn "Failed to start Qdrant container"
               fi
             fi
-          else
-            print_warn "uv/uvx not found — needed to run mcp-server-qdrant"
-            echo "  Install uv: curl -LsSf https://astral.sh/uv/install.sh | sh"
-            echo "  Then: claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory qdrant -- uvx --python 3.13 mcp-server-qdrant"
+          fi
+
+          # If Qdrant is running, register the MCP server
+          if [ "$qdrant_running" = true ]; then
+            if command -v uvx &>/dev/null; then
+              read -rp "$(echo -e "  ${BOLD}Register Qdrant MCP server with Claude Code? [Y/n]${NC}: ")" mcp_reply
+              if [[ ! "$mcp_reply" =~ ^[Nn] ]]; then
+                if claude mcp add -s user \
+                  -e QDRANT_URL=http://localhost:6333 \
+                  -e COLLECTION_NAME=claude-memory \
+                  qdrant -- uvx --python 3.13 mcp-server-qdrant 2>/dev/null; then
+                  print_ok "Qdrant MCP server registered (collection: claude-memory)"
+                else
+                  print_warn "Failed to register Qdrant MCP. Register manually:"
+                  echo "    claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory qdrant -- uvx --python 3.13 mcp-server-qdrant"
+                fi
+              fi
+            else
+              print_warn "uv/uvx not found — needed to run mcp-server-qdrant"
+              echo "  Install uv: curl -LsSf https://astral.sh/uv/install.sh | sh"
+              echo "  Then: claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory qdrant -- uvx --python 3.13 mcp-server-qdrant"
+            fi
           fi
         fi
       else
@@ -734,16 +766,45 @@ create_project() {
 
   print_info "Installing Claude Dev Framework..."
   if command -v git &>/dev/null; then
-    # Step 1: Ensure global clone exists
-    if [ ! -d "$FRAMEWORK_CLONE/.git" ]; then
-      print_info "Cloning Claude Dev Framework to $FRAMEWORK_CLONE..."
-      git clone -q --depth 1 https://github.com/kraulerson/claude-dev-framework.git "$FRAMEWORK_CLONE" 2>/dev/null || true
-    else
+    # Step 1: Check if framework is already installed with a valid manifest
+    local framework_valid=false
+    if [ -d "$FRAMEWORK_CLONE/.git" ] && [ -f "$FRAMEWORK_CLONE/scripts/init.sh" ]; then
+      framework_valid=true
       print_ok "Claude Dev Framework already installed at $FRAMEWORK_CLONE"
     fi
 
-    # Step 2: Run the framework's own init from the project directory
-    if [ -d "$FRAMEWORK_CLONE/.git" ] && [ -f "$FRAMEWORK_CLONE/scripts/init.sh" ]; then
+    # Step 2: If not installed, clone with retry
+    if [ "$framework_valid" = false ]; then
+      local clone_ok=false
+      for _clone_try in 1 2; do
+        print_info "Cloning Claude Dev Framework to $FRAMEWORK_CLONE (attempt $_clone_try/2)..."
+        if git clone -q --depth 1 https://github.com/kraulerson/claude-dev-framework.git "$FRAMEWORK_CLONE" 2>/dev/null; then
+          clone_ok=true
+          break
+        fi
+        # Clean up partial clone before retry
+        rm -rf "$FRAMEWORK_CLONE"
+        if [ "$_clone_try" -lt 2 ]; then
+          print_info "Clone failed, retrying..."
+          sleep 2
+        fi
+      done
+
+      # Verify clone produced expected files
+      if [ "$clone_ok" = true ] && [ -d "$FRAMEWORK_CLONE/.git" ] && [ -f "$FRAMEWORK_CLONE/scripts/init.sh" ]; then
+        framework_valid=true
+        print_ok "Claude Dev Framework cloned successfully"
+      else
+        rm -rf "$FRAMEWORK_CLONE"
+        print_warn "Could not clone Claude Dev Framework after 2 attempts (network issue?)."
+        print_warn "The fallback pre-commit hook will still be installed."
+        print_warn "Install manually: git clone https://github.com/kraulerson/claude-dev-framework.git ~/.claude-dev-framework"
+        print_warn "Then from your project: bash ~/.claude-dev-framework/scripts/init.sh"
+      fi
+    fi
+
+    # Step 3: Run the framework's own init from the project directory
+    if [ "$framework_valid" = true ]; then
       local branch
       branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
       local dev_os
@@ -803,15 +864,13 @@ create_project() {
       }
       rm -f "$discovery_tmp"
 
+      # Verify the framework init produced expected output
       if [ -f ".claude/manifest.json" ]; then
         print_ok "Claude Dev Framework installed and configured"
       else
-        print_warn "Claude Dev Framework install may be incomplete. Run manually: bash ~/.claude-dev-framework/scripts/init.sh"
+        print_warn "Claude Dev Framework init did not produce .claude/manifest.json"
+        print_warn "Run manually: bash ~/.claude-dev-framework/scripts/init.sh"
       fi
-    else
-      print_warn "Could not install Claude Dev Framework. The fallback pre-commit hook will still be installed."
-      print_warn "Install manually: git clone https://github.com/kraulerson/claude-dev-framework.git ~/.claude-dev-framework"
-      print_warn "Then from your project: bash ~/.claude-dev-framework/scripts/init.sh"
     fi
   fi
 
@@ -923,6 +982,7 @@ install_precommit_hook() {
     java)                  src_ext="java";          test_pattern="Test\\.java$" ;;
     go)                    src_ext="go";            test_pattern="_test\\.go$" ;;
     dart)                  src_ext="dart";          test_pattern="_test\\.dart$" ;;
+    swift)                 src_ext="swift";         test_pattern="Tests?\\.swift$" ;;
     *)                     src_ext="";              test_pattern="" ;;
   esac
 
@@ -1186,7 +1246,31 @@ build/
 # Add pubspec.lock to .gitignore only for library/plugin packages.
 DTEOF
       ;;
+    swift)
+      cat >> .gitignore << 'SWEOF'
+
+# Swift
+.build/
+.swiftpm/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
+*.ipa
+*.dSYM.zip
+*.dSYM
+Pods/
+# Note: Commit Package.resolved for application projects (reproducible builds).
+# Add Package.resolved to .gitignore only for library/framework packages.
+SWEOF
+      ;;
   esac
+
+  # Solo Orchestrator logs
+  cat >> .gitignore << 'SOEOF'
+
+# Solo Orchestrator logs
+.solo-orchestrator/
+SOEOF
 }
 
 # ================================================================
@@ -1245,6 +1329,15 @@ get_release_vars() {
       RELEASE_INSTALL_COMMAND="flutter pub get"
       RELEASE_BUILD_COMMAND="flutter build"
       ;;
+    swift)
+      # Xcode (and swift) is pre-installed on macos-latest GitHub Actions runners.
+      # No setup action needed — pin Xcode version in the workflow if required.
+      RELEASE_SETUP_ACTION="# Pre-installed: Xcode on macos-latest (no setup action needed)"
+      RELEASE_SETUP_VERSION_KEY="# N/A"
+      RELEASE_SETUP_VERSION_VALUE="# N/A"
+      RELEASE_INSTALL_COMMAND="swift package resolve"
+      RELEASE_BUILD_COMMAND="swift build -c release"
+      ;;
     *)
       RELEASE_SETUP_ACTION="# TODO: Add setup action for your language"
       RELEASE_SETUP_VERSION_KEY="version"
@@ -1268,6 +1361,7 @@ generate_ci() {
     kotlin|java)           ci_template="jvm.yml" ;;
     go)                    ci_template="go.yml" ;;
     dart)                  ci_template="dart.yml" ;;
+    swift)                 ci_template="swift.yml" ;;
     *)                     ci_template="other.yml" ;;
   esac
 
@@ -1304,7 +1398,17 @@ generate_release() {
       "$release_template" > .github/workflows/release.yml
 
   print_info "Release pipeline created at .github/workflows/release.yml (platform: $PLATFORM)"
-  print_info "Review TODOs in the release pipeline — signing, deployment, and secrets require configuration."
+  case "$TRACK" in
+    light)
+      print_info "Release pipeline is optional for light-track projects. Configure TODOs only if distributing externally."
+      ;;
+    standard)
+      print_info "Configure TODOs in the release pipeline (signing, deployment, secrets) before your first external release."
+      ;;
+    full)
+      print_info "Configure TODOs in the release pipeline (signing, deployment, secrets) before production deployment."
+      ;;
+  esac
 }
 
 # ================================================================
@@ -1385,10 +1489,24 @@ print_next_steps() {
   fi
   echo ""
   if [ -f "$PROJECT_DIR/.github/workflows/release.yml" ]; then
-    echo "  RELEASE PIPELINE (review before first release):"
+    echo ""
+    echo "  RELEASE PIPELINE:"
     echo "     .github/workflows/release.yml"
-    echo "     - Review and configure TODOs (code signing, deployment, secrets)"
-    echo "     - The release pipeline runs on version tags: git tag v1.0.0 && git push --tags"
+    case "$TRACK" in
+      light)
+        echo "     This pipeline is optional for light-track projects (POCs, prototypes, internal tools)."
+        echo "     Configure the TODOs (code signing, secrets) only if you plan to distribute externally."
+        ;;
+      standard)
+        echo "     Configure TODOs (code signing, deployment, secrets) before your first external release."
+        echo "     The framework will remind you when you reach Phase 4 (Production Hardening)."
+        ;;
+      full)
+        echo "     Configure TODOs (code signing, deployment, secrets) before production deployment."
+        echo "     Phase 3→4 gate will verify release pipeline configuration."
+        ;;
+    esac
+    echo "     Release is triggered by version tags: git tag v1.0.0 && git push --tags"
     echo ""
   fi
   echo "  VALIDATION (run periodically to check framework compliance):"
@@ -1501,6 +1619,8 @@ main() {
         echo "Options:"
         echo "  --dry-run   Preview what will be installed and created without executing"
         echo "  --help, -h  Show this help message"
+        echo ""
+        echo "  Init logs are saved to <project>/.solo-orchestrator/init-TIMESTAMP.log"
         exit 0
         ;;
       *)
@@ -1518,17 +1638,45 @@ main() {
     echo ""
   fi
 
+  # Initialize logging to temp location (moved to project dir after creation)
+  INIT_LOG_DIR=$(mktemp -d)
+  init_log "$INIT_LOG_DIR"
+  log_section "Prerequisites"
+
   check_prerequisites
   collect_project_info
+
+  log_section "Project Configuration"
+  log_line "Project: $PROJECT_NAME"
+  log_line "Platform: $PLATFORM"
+  log_line "Language: $LANGUAGE"
+  log_line "Track: $TRACK"
+  log_line "Deployment: $DEPLOYMENT"
 
   if [ "$DRY_RUN" = true ]; then
     dry_run_summary
   else
+    log_section "Tool Resolution & Installation"
     resolve_and_install_tools
+
+    log_section "Project Creation"
     create_project
+
+    # Move log to project directory
+    if [ -d "$PROJECT_DIR" ] && [ -n "$LOG_FILE" ]; then
+      mkdir -p "$PROJECT_DIR/.solo-orchestrator"
+      local final_log="$PROJECT_DIR/.solo-orchestrator/$(basename "$LOG_FILE")"
+      mv "$LOG_FILE" "$final_log"
+      LOG_FILE="$final_log"
+      log_line "Log relocated to project directory"
+      rmdir "$INIT_LOG_DIR" 2>/dev/null || true
+    fi
+
     bash "$PROJECT_DIR/scripts/verify-install.sh" --auto-fix || true
     print_next_steps
   fi
+
+  finalize_log
 }
 
 main "$@"

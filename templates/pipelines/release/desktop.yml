@@ -1,4 +1,12 @@
 name: Release — __PROJECT_NAME__
+# ─────────────────────────────────────────────────────────────────
+# BEFORE FIRST RELEASE: Search for "TODO" in this file and configure:
+#   - Code signing certificates (Windows, macOS, Linux)
+#   - Build artifact paths for your framework
+#   - SBOM generation commands
+# The Phase 3→4 gate will warn if TODOs remain unconfigured.
+# Light-track projects: this pipeline is optional for internal-only use.
+# ─────────────────────────────────────────────────────────────────
 
 on:
   push:

@@ -140,10 +140,12 @@ FILTERED_TOOLS=$(echo "$FILTERED_TOOLS" | jq \
 HAS_BREW=false
 HAS_APT=false
 HAS_DNF=false
+HAS_PACMAN=false
 HAS_NPM=false
 command -v brew &>/dev/null && HAS_BREW=true
 command -v apt &>/dev/null && HAS_APT=true
 command -v dnf &>/dev/null && HAS_DNF=true
+command -v pacman &>/dev/null && HAS_PACMAN=true
 command -v npm &>/dev/null && HAS_NPM=true
 
 # Build priority list of install keys for this environment
@@ -159,6 +161,9 @@ elif [ "$DEV_OS" = "linux" ]; then
   fi
   if [ "$HAS_DNF" = true ]; then
     INSTALL_KEYS=$(echo "$INSTALL_KEYS" | jq '. + ["linux_dnf"]')
+  fi
+  if [ "$HAS_PACMAN" = true ]; then
+    INSTALL_KEYS=$(echo "$INSTALL_KEYS" | jq '. + ["linux_pacman"]')
   fi
   INSTALL_KEYS=$(echo "$INSTALL_KEYS" | jq '. + ["linux_pip", "linux_manual"]')
 fi

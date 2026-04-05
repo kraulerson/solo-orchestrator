@@ -131,7 +131,30 @@
       "install": {
         "manual": "dart pub global activate dart_license_checker",
         "darwin_brew": "dart pub global activate dart_license_checker",
-        "linux_apt": "dart pub global activate dart_license_checker"
+        "linux_apt": "dart pub global activate dart_license_checker",
+        "linux_pacman": "dart pub global activate dart_license_checker"
+      },
+      "auto_installable": true,
+      "substitutable": true,
+      "substitution_category": "License Compliance"
+    },
+    {
+      "category": "license_compliance",
+      "name": "swift-license",
+      "description": "Swift Package Manager dependency license auditing",
+      "required": true,
+      "phase": 3,
+      "tracks": ["standard", "full"],
+      "dev_os": ["darwin"],
+      "platforms": ["mobile"],
+      "languages": ["swift"],
+      "check_command": "command -v swift-license",
+      "version_command": "swift-license --version 2>/dev/null || echo 'installed'",
+      "min_version": null,
+      "latest_check": null,
+      "install": {
+        "darwin_brew": "brew install nicklama/tap/swift-license",
+        "manual": "brew install nicklama/tap/swift-license"
       },
       "auto_installable": true,
       "substitutable": true,

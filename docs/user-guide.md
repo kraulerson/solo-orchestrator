@@ -234,7 +234,7 @@ The script prompts for 7 inputs:
 | **Platform type** | Web / Desktop / Mobile / CLI / Other | Determines which Platform Module is loaded and which release pipeline is generated. Pick the primary delivery surface. |
 | **Project track** | Light / Standard / Full | **Light:** internal tools, <10 users, skip market audit. **Standard:** external users, moderate complexity. **Full:** enterprise buyers, sensitive data, pen testing mandatory. |
 | **Personal or Organizational** | Personal / Organizational | Organizational adds governance pre-flight requirements and approval authority structures. |
-| **Primary language** | TypeScript, Python, Rust, C#, Kotlin, Java, Go, Dart, Other | Determines the CI pipeline template (testing, linting, SAST, dependency audit). |
+| **Primary language** | TypeScript, Python, Rust, C#, Kotlin, Java, Go, Dart, Swift, Other | Determines the CI pipeline template (testing, linting, SAST, dependency audit). |
 | **Project directory** | Path (default: `~/projects/your-project`) | Where the project is created. |
 
 ### What Gets Generated

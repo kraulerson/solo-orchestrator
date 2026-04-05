@@ -98,6 +98,18 @@ if [ "$current_phase" -ge 4 ]; then
   fi
 fi
 
+# Release pipeline configuration check (Phase 3→4)
+if [ "$current_phase" = "3" ]; then
+  if [ -f ".github/workflows/release.yml" ]; then
+    todo_count=$(grep -c "TODO" .github/workflows/release.yml 2>/dev/null || echo "0")
+    if [ "$todo_count" -gt 0 ]; then
+      echo -e "${YELLOW}[WARN]${NC} Release pipeline has $todo_count unconfigured TODO items in .github/workflows/release.yml"
+      echo "  Configure code signing, deployment secrets, and store credentials before production release."
+      issues=$((issues + 1))
+    fi
+  fi
+fi
+
 # Check for reverse inconsistency: approval log has dates but phase state doesn't reflect them
 if [ "$current_phase" -lt 1 ] && [ -n "$gate_0_to_1" ]; then
   echo -e "${YELLOW}[WARN]${NC} Phase 0→1 gate has date $gate_0_to_1 but current_phase is still $current_phase"

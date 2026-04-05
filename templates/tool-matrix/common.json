@@ -22,6 +22,7 @@
         "darwin_manual": "xcode-select --install",
         "linux_apt": "sudo apt install -y git",
         "linux_dnf": "sudo dnf install -y git",
+        "linux_pacman": "sudo pacman -S --noconfirm git",
         "manual": "https://git-scm.com/downloads"
       },
       "auto_installable": true,
@@ -46,6 +47,7 @@
         "darwin_brew": "brew install jq",
         "linux_apt": "sudo apt install -y jq",
         "linux_dnf": "sudo dnf install -y jq",
+        "linux_pacman": "sudo pacman -S --noconfirm jq",
         "manual": "https://jqlang.github.io/jq/download/"
       },
       "auto_installable": true,
@@ -70,6 +72,7 @@
         "darwin_brew": "brew install node",
         "linux_apt": "sudo apt install -y nodejs npm",
         "linux_dnf": "sudo dnf install -y nodejs npm",
+        "linux_pacman": "sudo pacman -S --noconfirm nodejs npm",
         "manual": "https://nodejs.org/"
       },
       "auto_installable": true,
@@ -94,6 +97,7 @@
         "darwin_brew": "brew install --cask docker",
         "linux_apt": "sudo apt install -y docker.io && sudo usermod -aG docker $USER",
         "linux_dnf": "sudo dnf install -y docker && sudo usermod -aG docker $USER",
+        "linux_pacman": "sudo pacman -S --noconfirm docker && sudo usermod -aG docker $USER",
         "manual": "https://docs.docker.com/get-docker/"
       },
       "auto_installable": true,
@@ -118,6 +122,7 @@
         "darwin_brew": "brew install gnupg",
         "linux_apt": "sudo apt install -y gnupg",
         "linux_dnf": "sudo dnf install -y gnupg2",
+        "linux_pacman": "sudo pacman -S --noconfirm gnupg",
         "manual": "https://gnupg.org/download/"
       },
       "auto_installable": true,
@@ -163,7 +168,9 @@
       "latest_check": {"method": "github_release", "package": "gitleaks/gitleaks"},
       "install": {
         "darwin_brew": "brew install gitleaks",
-        "linux_manual": "See https://github.com/gitleaks/gitleaks/releases — download the binary for your architecture",
+        "linux_apt": "GITLEAKS_VERSION=$(curl -sSf https://api.github.com/repos/gitleaks/gitleaks/releases/latest | jq -r .tag_name) && curl -sSfL \"https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION#v}_linux_x64.tar.gz\" | sudo tar -xz -C /usr/local/bin gitleaks",
+        "linux_dnf": "GITLEAKS_VERSION=$(curl -sSf https://api.github.com/repos/gitleaks/gitleaks/releases/latest | jq -r .tag_name) && curl -sSfL \"https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION#v}_linux_x64.tar.gz\" | sudo tar -xz -C /usr/local/bin gitleaks",
+        "linux_pacman": "GITLEAKS_VERSION=$(curl -sSf https://api.github.com/repos/gitleaks/gitleaks/releases/latest | jq -r .tag_name) && curl -sSfL \"https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION#v}_linux_x64.tar.gz\" | sudo tar -xz -C /usr/local/bin gitleaks",
         "manual": "https://github.com/gitleaks/gitleaks/releases"
       },
       "auto_installable": true,
@@ -232,6 +239,7 @@
       "install": {
         "darwin_brew": "claude plugins add superpowers",
         "linux_apt": "claude plugins add superpowers",
+        "linux_pacman": "claude plugins add superpowers",
         "manual": "Run: claude → /plugins → search 'superpowers' → install"
       },
       "auto_installable": true,
@@ -299,6 +307,7 @@
         "darwin_brew": "brew install python",
         "linux_apt": "sudo apt install -y python3 python3-pip python3-venv",
         "linux_dnf": "sudo dnf install -y python3 python3-pip",
+        "linux_pacman": "sudo pacman -S --noconfirm python python-pip",
         "manual": "https://python.org/"
       },
       "auto_installable": true,
@@ -322,6 +331,7 @@
       "install": {
         "darwin_brew": "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && source \"$HOME/.cargo/env\"",
         "linux_apt": "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && source \"$HOME/.cargo/env\"",
+        "linux_pacman": "sudo pacman -S --noconfirm rust",
         "manual": "https://rustup.rs/"
       },
       "auto_installable": true,
@@ -346,6 +356,7 @@
         "darwin_brew": "brew install go",
         "linux_apt": "sudo apt install -y golang",
         "linux_dnf": "sudo dnf install -y golang",
+        "linux_pacman": "sudo pacman -S --noconfirm go",
         "manual": "https://go.dev/dl/"
       },
       "auto_installable": true,
@@ -392,6 +403,7 @@
         "darwin_brew": "brew install temurin",
         "linux_apt": "sudo apt install -y default-jdk",
         "linux_dnf": "sudo dnf install -y java-latest-openjdk-devel",
+        "linux_pacman": "sudo pacman -S --noconfirm jdk-openjdk",
         "manual": "https://adoptium.net/"
       },
       "auto_installable": true,
@@ -417,6 +429,28 @@
         "manual": "https://docs.flutter.dev/get-started/install"
       },
       "auto_installable": true,
+      "substitutable": false,
+      "substitution_category": null
+    },
+    {
+      "category": "runtime",
+      "name": "Swift (Xcode)",
+      "description": "Swift compiler and standard library (via Xcode). Required for iOS native development.",
+      "required": true,
+      "phase": 1,
+      "tracks": ["light", "standard", "full"],
+      "dev_os": ["darwin"],
+      "platforms": ["all"],
+      "languages": ["swift"],
+      "check_command": "command -v swift",
+      "version_command": "swift --version 2>/dev/null | head -1 | sed 's/.*version //' | awk '{print $1}'",
+      "min_version": "5.9.0",
+      "latest_check": null,
+      "install": {
+        "darwin_manual": "Install Xcode from the App Store, then run: xcode-select --install",
+        "manual": "Swift iOS development requires macOS with Xcode. Install from https://developer.apple.com/xcode/"
+      },
+      "auto_installable": false,
       "substitutable": false,
       "substitution_category": null
     }
