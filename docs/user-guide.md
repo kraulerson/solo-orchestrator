@@ -144,7 +144,7 @@ Post-launch maintenance stabilizes to 1-2 hours/week (50-80 hours/year). The fir
 |---|---|---|
 | Git | Yes | [git-scm.com](https://git-scm.com/downloads) |
 | Language runtime | Yes | Node.js, Python, Rust, Go, Java/Kotlin, C#/.NET, or Dart/Flutter — depends on your language choice |
-| Docker | Recommended | [docker.com](https://www.docker.com/) — needed for OWASP ZAP DAST scanning |
+| Docker | Recommended | Init offers auto-install. macOS: Colima (recommended, headless) or Docker Desktop. Linux: system package. Needed for Qdrant semantic memory and OWASP ZAP DAST scanning. |
 | Claude Code | Recommended | Installed by `init.sh`, or manually: `brew install claude-code` (macOS) |
 
 **Windows users:** WSL is required. The init script, Claude Code, and all CLI tooling expect a Unix shell. Install WSL first, then install your runtime inside it.
@@ -283,7 +283,7 @@ The init script also generates **two pipelines**: a CI pipeline (`ci.yml`) selec
 The script runs a health check. Review its output:
 
 - **Green checks** mean tools are installed and working
-- **Yellow warnings** mean optional tools are missing (Docker, GPG) — install before Phase 2 if they apply to your project
+- **Yellow warnings** mean optional tools are missing (GPG) — install when needed. Docker is offered during init (Colima recommended on macOS) and Qdrant is offered at Phase 1.
 - **Red failures** mean required tools are missing — fix before proceeding
 
 The health check also validates your language runtime. If it reports a version mismatch or missing runtime, install the correct version before proceeding.
@@ -306,7 +306,7 @@ After init, you can configure additional tooling. These are not required for you
 |---|---|---|---|
 | **Context7 MCP** | Gives the AI up-to-date library documentation instead of relying on training data | **Before Phase 1** — helps the AI make accurate architecture and implementation decisions | One command, no prerequisites |
 | **Superpowers** | Agentic skills plugin — strict TDD, subagent-driven development, systematic debugging, git worktrees | **Before Phase 2** — accelerates the Build Loop significantly | One command, no prerequisites |
-| **Qdrant MCP** | Persistent semantic memory across sessions — the AI remembers project decisions and patterns | **When sessions exceed 3-4** — solves the "where did we leave off?" problem | Requires Docker |
+| **Qdrant MCP** | Persistent semantic memory across sessions — the AI remembers project decisions and patterns | **Phase 1** — offered automatically when Docker is available. Each project gets an isolated collection. | Requires Docker (Colima or Docker Desktop) |
 | **Claude Dev Framework** | Git hook-based guardrails for coding standards, security scanning, documentation | Auto-installed by init.sh | Already done |
 
 See the [CLI Setup Addendum](cli-setup-addendum.md) for detailed instructions, or use the [Quick Setup](cli-setup-addendum.md#quick-setup--all-recommended-enhancements) to configure all three at once.
