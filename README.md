@@ -65,6 +65,19 @@ See the [User Guide](docs/user-guide.md) for detailed walkthrough of each step.
 
 ---
 
+## Key Features
+
+- **Phase-gated development** — Five phases (Discovery, Architecture, Construction, Validation, Release) with explicit gate criteria. No skipping ahead.
+- **Security by default** — SAST (Semgrep), secret detection (gitleaks), dependency scanning (Snyk), license compliance, and DAST (OWASP ZAP) installed and configured automatically. CI pipeline blocks merges on findings.
+- **Test-driven development** — Tests first, implementation second. Pre-commit hooks warn when implementation ships without tests.
+- **9 languages supported** — TypeScript, Python, Rust, Go, C#, Kotlin, Java, Dart, Swift. Adding a new language requires one CI template file.
+- **3 platforms, extensible to any** — Web, desktop, and mobile ship out of the box. **Adding a new platform requires no code changes** — drop a platform module doc in `docs/platform-modules/`, a release pipeline in `templates/pipelines/release/`, and optionally a tool matrix in `templates/tool-matrix/`. The init script auto-discovers new platforms and offers them as choices. See [Extensibility](#extensibility) for details.
+- **Enterprise governance** — Approval authorities, compliance screening, insurance requirements, backup maintainer, and audit trail. Full documentation suite for CIO/CISO/Legal review.
+- **POC modes** — Sponsored and Private POC modes defer governance overhead while you validate the approach with production-quality technical work.
+- **One command setup** — `./init.sh` handles everything: tool installation, project scaffolding, CI/CD generation, security tooling, Git initialization, and health check.
+
+---
+
 ## Prerequisites
 
 | Tool | Required | Install |
