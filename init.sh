@@ -1880,6 +1880,87 @@ generate_release() {
 # PHASE 5: Print Next Steps (health_check replaced by verify-install.sh)
 # ================================================================
 print_next_steps() {
+  # Show full dependency status BEFORE the Setup Complete banner
+  # so users see what's installed/missing before the next steps scroll it away
+  local _installed=() _failed=() _later=()
+
+  # Core tools — check each directly
+  command -v git &>/dev/null && _installed+=("Git $(git --version | awk '{print $3}')") || _failed+=("Git — not found")
+  command -v jq &>/dev/null && _installed+=("jq $(jq --version 2>/dev/null)") || _failed+=("jq — not found")
+  command -v node &>/dev/null && _installed+=("Node.js $(node --version 2>/dev/null)") || _failed+=("Node.js — not found")
+  command -v docker &>/dev/null && _installed+=("Docker $(docker --version 2>/dev/null | awk '{print $3}' | tr -d ',')") || true
+
+  # Security tools
+  command -v semgrep &>/dev/null && _installed+=("Semgrep (SAST)") || _failed+=("Semgrep — run: brew install semgrep")
+  command -v gitleaks &>/dev/null && _installed+=("gitleaks (secret detection)") || _failed+=("gitleaks — run: brew install gitleaks")
+  command -v snyk &>/dev/null && _installed+=("Snyk CLI (dependency scanning)") || _failed+=("Snyk CLI — run: npm install -g snyk && snyk auth")
+  command -v lighthouse &>/dev/null && _installed+=("Lighthouse (performance auditing)") || true
+
+  # Development Guardrails
+  if [ -f "$PROJECT_DIR/.claude/manifest.json" ]; then
+    _installed+=("Development Guardrails for Claude Code (Git hook guardrails)")
+  elif [ -d "$HOME/.claude-dev-framework/.git" ]; then
+    _failed+=("Development Guardrails — hooks not configured. Run: bash ~/.claude-dev-framework/scripts/init.sh")
+  else
+    _failed+=("Development Guardrails — clone failed. Run: git clone https://github.com/kraulerson/claude-dev-framework.git ~/.claude-dev-framework && bash ~/.claude-dev-framework/scripts/init.sh")
+  fi
+
+  # Superpowers plugin
+  if [ -f "$HOME/.claude/settings.json" ] && command -v jq &>/dev/null; then
+    local _sp
+    _sp=$(jq -r '.enabledPlugins["superpowers@claude-plugins-official"] // false' "$HOME/.claude/settings.json" 2>/dev/null || echo "false")
+    if [ "$_sp" = "true" ]; then
+      _installed+=("Superpowers plugin (agentic skills for Phase 2)")
+    else
+      _failed+=("Superpowers plugin — run: claude → /plugins → search 'superpowers' → install")
+    fi
+  fi
+
+  # Context7 MCP
+  if is_context7_mcp_registered; then
+    _installed+=("Context7 MCP (up-to-date library documentation)")
+  else
+    _failed+=("Context7 MCP — run: claude mcp add context7 --scope user -- npx -y @upstash/context7-mcp@latest")
+  fi
+
+  # Qdrant MCP
+  if is_qdrant_mcp_registered; then
+    _installed+=("Qdrant MCP (persistent semantic memory — collection: $PROJECT_NAME)")
+  elif is_qdrant_container_running; then
+    _later+=("Qdrant MCP — container running, MCP will be configured on first Claude Code session")
+  else
+    _later+=("Qdrant MCP — will be offered at Phase 1 when Docker is available")
+  fi
+
+  # Per-project Qdrant collection override
+  if [ -f "$PROJECT_DIR/.claude/settings.local.json" ]; then
+    _installed+=("Qdrant project collection ($PROJECT_NAME)")
+  elif is_qdrant_mcp_registered; then
+    _later+=("Qdrant project collection — will be configured on next init or manually")
+  fi
+
+  echo ""
+  echo -e "${BOLD}── Installed Dependencies (${#_installed[@]} tools) ──${NC}"
+  for item in "${_installed[@]}"; do
+    echo -e "  ${GREEN}✓${NC} $item"
+  done
+
+  if [ ${#_failed[@]} -gt 0 ]; then
+    echo ""
+    echo -e "${BOLD}── Needs Attention ──${NC}"
+    for item in "${_failed[@]}"; do
+      echo -e "  ${RED}✗${NC} $item"
+    done
+  fi
+
+  if [ ${#_later[@]} -gt 0 ]; then
+    echo ""
+    echo -e "${BOLD}── Will Be Configured Later ──${NC}"
+    for item in "${_later[@]}"; do
+      echo -e "  ${BLUE}○${NC} $item"
+    done
+  fi
+
   echo ""
   echo -e "${BOLD}╔══════════════════════════════════════════════════════════╗${NC}"
   echo -e "${BOLD}║                    Setup Complete                       ║${NC}"
@@ -1958,88 +2039,6 @@ print_next_steps() {
   echo "     └─────────────────────────────────────────────────────────────────┘"
   echo ""
 
-  # Show full dependency status
-  local _installed=() _failed=() _later=()
-
-  # Core tools — check each directly
-  command -v git &>/dev/null && _installed+=("Git $(git --version | awk '{print $3}')") || _failed+=("Git — not found")
-  command -v jq &>/dev/null && _installed+=("jq $(jq --version 2>/dev/null)") || _failed+=("jq — not found")
-  command -v node &>/dev/null && _installed+=("Node.js $(node --version 2>/dev/null)") || _failed+=("Node.js — not found")
-  command -v docker &>/dev/null && _installed+=("Docker $(docker --version 2>/dev/null | awk '{print $3}' | tr -d ',')") || true
-
-  # Security tools
-  command -v semgrep &>/dev/null && _installed+=("Semgrep (SAST)") || _failed+=("Semgrep — run: brew install semgrep")
-  command -v gitleaks &>/dev/null && _installed+=("gitleaks (secret detection)") || _failed+=("gitleaks — run: brew install gitleaks")
-  command -v snyk &>/dev/null && _installed+=("Snyk CLI (dependency scanning)") || _failed+=("Snyk CLI — run: npm install -g snyk && snyk auth")
-  command -v lighthouse &>/dev/null && _installed+=("Lighthouse (performance auditing)") || true
-
-  # Development Guardrails
-  if [ -f "$PROJECT_DIR/.claude/manifest.json" ]; then
-    _installed+=("Development Guardrails for Claude Code (Git hook guardrails)")
-  elif [ -d "$HOME/.claude-dev-framework/.git" ]; then
-    _failed+=("Development Guardrails — hooks not configured. Run: bash ~/.claude-dev-framework/scripts/init.sh")
-  else
-    _failed+=("Development Guardrails — clone failed. Run: git clone https://github.com/kraulerson/claude-dev-framework.git ~/.claude-dev-framework && bash ~/.claude-dev-framework/scripts/init.sh")
-  fi
-
-  # Superpowers plugin
-  if [ -f "$HOME/.claude/settings.json" ] && command -v jq &>/dev/null; then
-    local _sp
-    _sp=$(jq -r '.enabledPlugins["superpowers@claude-plugins-official"] // false' "$HOME/.claude/settings.json" 2>/dev/null || echo "false")
-    if [ "$_sp" = "true" ]; then
-      _installed+=("Superpowers plugin (agentic skills for Phase 2)")
-    else
-      _failed+=("Superpowers plugin — run: claude → /plugins → search 'superpowers' → install")
-    fi
-  fi
-
-  # Context7 MCP
-  if is_context7_mcp_registered; then
-    _installed+=("Context7 MCP (up-to-date library documentation)")
-  else
-    _failed+=("Context7 MCP — run: claude mcp add context7 --scope user -- npx -y @upstash/context7-mcp@latest")
-  fi
-
-  # Qdrant MCP
-  if is_qdrant_mcp_registered; then
-    _installed+=("Qdrant MCP (persistent semantic memory — collection: $PROJECT_NAME)")
-  elif is_qdrant_container_running; then
-    _later+=("Qdrant MCP — container running, MCP will be configured on first Claude Code session")
-  else
-    _later+=("Qdrant MCP — will be offered at Phase 1 when Docker is available")
-  fi
-
-  # Per-project Qdrant collection override
-  if [ -f "$PROJECT_DIR/.claude/settings.local.json" ]; then
-    _installed+=("Qdrant project collection ($PROJECT_NAME)")
-  elif is_qdrant_mcp_registered; then
-    _later+=("Qdrant project collection — will be configured on next init or manually")
-  fi
-
-  # Display sections
-  echo "  INSTALLED DEPENDENCIES (${#_installed[@]} tools):"
-  if [ ${#_installed[@]} -gt 0 ]; then
-    for item in "${_installed[@]}"; do
-      echo "     ✓ $item"
-    done
-  fi
-
-  if [ ${#_failed[@]} -gt 0 ]; then
-    echo ""
-    echo "  NEEDS ATTENTION:"
-    for item in "${_failed[@]}"; do
-      echo "     ✗ $item"
-    done
-  fi
-
-  if [ ${#_later[@]} -gt 0 ]; then
-    echo ""
-    echo "  WILL BE CONFIGURED LATER:"
-    for item in "${_later[@]}"; do
-      echo "     ○ $item"
-    done
-  fi
-  echo ""
   if [ -f "$PROJECT_DIR/.github/workflows/release.yml" ]; then
     echo ""
     echo "  RELEASE PIPELINE:"
