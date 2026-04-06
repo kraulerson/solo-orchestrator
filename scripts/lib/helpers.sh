@@ -54,11 +54,35 @@ init_log() {
 
 # Strip ANSI escape codes and write to log file
 log_line() {
-  [ -n "$LOG_FILE" ] && echo "$1" | sed 's/\x1b\[[0-9;]*m//g' >> "$LOG_FILE"
+  if [ -n "$LOG_FILE" ]; then
+    echo "$1" | sed 's/\x1b\[[0-9;]*m//g' >> "$LOG_FILE"
+  fi
 }
 
 log_section() {
-  [ -n "$LOG_FILE" ] && echo -e "\n── $1 ──────────────────────────────────" >> "$LOG_FILE"
+  if [ -n "$LOG_FILE" ]; then
+    echo -e "\n── $1 ──────────────────────────────────" >> "$LOG_FILE"
+  fi
+}
+
+# Run a command with a timeout (portable, no coreutils needed).
+# Usage: run_with_timeout <seconds> <command...>
+# Returns 0 on success, 1 on timeout or failure.
+run_with_timeout() {
+  local _rto_secs="$1"; shift
+  "$@" &
+  local _rto_pid=$!
+  local _rto_elapsed=0
+  while kill -0 "$_rto_pid" 2>/dev/null; do
+    if [ "$_rto_elapsed" -ge "$_rto_secs" ]; then
+      kill "$_rto_pid" 2>/dev/null || true
+      wait "$_rto_pid" 2>/dev/null || true
+      return 1
+    fi
+    sleep 1
+    _rto_elapsed=$((_rto_elapsed + 1))
+  done
+  wait "$_rto_pid" 2>/dev/null
 }
 
 finalize_log() {

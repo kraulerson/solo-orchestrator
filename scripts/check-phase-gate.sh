@@ -207,11 +207,12 @@ if [ -f "$TOOL_PREFS" ] && [ -x "$RESOLVER" ] && command -v jq &>/dev/null; then
               # Register MCP if uvx available
               if command -v uvx &>/dev/null; then
                 project_name=$(jq -r '.project // "claude-memory"' .claude/phase-state.json 2>/dev/null)
-                echo "y" | claude mcp add -s user \
-                  -e QDRANT_URL=http://localhost:6333 \
-                  -e COLLECTION_NAME="$project_name" \
-                  qdrant -- uvx --python 3.13 mcp-server-qdrant 2>/dev/null && \
+                if run_with_timeout 30 bash -c "echo y | claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=$project_name qdrant -- uvx --python 3.13 mcp-server-qdrant >/dev/null 2>&1"; then
                   echo -e "  ${GREEN}[OK]${NC} Qdrant MCP registered (collection: $project_name)"
+                else
+                  echo -e "  ${YELLOW}[WARN]${NC} Qdrant MCP registration timed out or failed"
+                  echo "  Register manually: claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=$project_name qdrant -- uvx --python 3.13 mcp-server-qdrant"
+                fi
               else
                 echo -e "  ${YELLOW}[WARN]${NC} uv/uvx not found. Install: curl -LsSf https://astral.sh/uv/install.sh | sh"
                 echo "  Then: claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory qdrant -- uvx --python 3.13 mcp-server-qdrant"

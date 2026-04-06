@@ -278,22 +278,22 @@ check_git() {
 }
 
 check_framework() {
-  print_step "Checking Claude Dev Framework..."
+  print_step "Checking Development Guardrails for Claude Code..."
 
   local FRAMEWORK_CLONE="$HOME/.claude-dev-framework"
 
   if [ -d "$FRAMEWORK_CLONE/.git" ]; then
-    register_pass "Claude Dev Framework global clone exists"
+    register_pass "Development Guardrails global clone exists"
   else
-    register_fixable "Claude Dev Framework not cloned" "fix_framework_clone"
+    register_fixable "Development Guardrails not cloned" "fix_framework_clone"
   fi
 
   if [ -f ".claude/manifest.json" ]; then
-    register_pass "Claude Dev Framework manifest exists"
+    register_pass "Development Guardrails manifest exists"
   elif [ -d "$FRAMEWORK_CLONE/.git" ] && [ -f "$FRAMEWORK_CLONE/scripts/init.sh" ]; then
-    register_fixable "Claude Dev Framework manifest missing" "fix_framework_manifest"
+    register_fixable "Development Guardrails manifest missing" "fix_framework_manifest"
   else
-    register_manual "Claude Dev Framework manifest missing" "Clone framework first: git clone https://github.com/kraulerson/claude-dev-framework.git ~/.claude-dev-framework && bash ~/.claude-dev-framework/scripts/init.sh"
+    register_manual "Development Guardrails manifest missing" "Clone framework first: git clone https://github.com/kraulerson/claude-dev-framework.git ~/.claude-dev-framework && bash ~/.claude-dev-framework/scripts/init.sh"
   fi
 }
 
@@ -359,14 +359,17 @@ check_tools() {
     done
   fi
 
-  # Manual install
+  # Manual install — skip MCP servers (handled separately by check_plugins_mcp)
   local manual_count
   manual_count=$(echo "$resolver_output" | jq '.manual_install | length')
   if [ "$manual_count" -gt 0 ]; then
     for i in $(seq 0 $((manual_count - 1))); do
-      local tool_name instructions
+      local tool_name instructions tool_category
       tool_name=$(echo "$resolver_output" | jq -r ".manual_install[$i].name")
+      tool_category=$(echo "$resolver_output" | jq -r ".manual_install[$i].category // empty")
       instructions=$(echo "$resolver_output" | jq -r ".manual_install[$i].instructions")
+      # MCP servers are checked by check_plugins_mcp — don't duplicate
+      [ "$tool_category" = "mcp_server" ] && continue
       register_manual "$tool_name not installed" "$instructions"
     done
   fi
@@ -389,8 +392,9 @@ check_plugins_mcp() {
     register_fixable "Superpowers plugin not installed" "fix_superpowers"
   fi
 
-  # Context7 MCP
-  if jq -e '.mcpServers.context7 // .mcpServers["context7-mcp"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1; then
+  # Context7 MCP — check both config locations
+  if ([ -f "$HOME/.claude/settings.json" ] && jq -e '.mcpServers.context7 // .mcpServers["context7-mcp"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1) || \
+     ([ -f "$HOME/.claude.json" ] && jq -e '.mcpServers.context7 // .mcpServers["context7-mcp"] // empty' "$HOME/.claude.json" >/dev/null 2>&1); then
     register_pass "Context7 MCP configured"
   elif command -v node &>/dev/null; then
     register_fixable "Context7 MCP not configured" "fix_context7"
@@ -398,8 +402,9 @@ check_plugins_mcp() {
     register_manual "Context7 MCP not configured" "Install Node.js first, then: claude mcp add context7 -- npx -y @upstash/context7-mcp@latest"
   fi
 
-  # Qdrant MCP
-  if jq -e '.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1; then
+  # Qdrant MCP — check both config locations
+  if ([ -f "$HOME/.claude/settings.json" ] && jq -e '.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1) || \
+     ([ -f "$HOME/.claude.json" ] && jq -e '.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // empty' "$HOME/.claude.json" >/dev/null 2>&1); then
     register_pass "Qdrant MCP configured"
   else
     register_manual "Qdrant MCP not configured" "Requires Docker + uv. See docs/framework/cli-setup-addendum.md"
@@ -677,7 +682,7 @@ fix_superpowers() {
 }
 
 fix_context7() {
-  claude mcp add context7 -- npx -y @upstash/context7-mcp@latest 2>/dev/null
+  run_with_timeout 30 bash -c 'claude mcp add context7 -- npx -y @upstash/context7-mcp@latest >/dev/null 2>&1'
 }
 
 # ================================================================

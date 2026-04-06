@@ -98,11 +98,11 @@ check_prerequisites() {
     fi
   fi
 
-  # --- jq (required by Claude Dev Framework) ---
+  # --- jq (required by Development Guardrails) ---
   if command -v jq &>/dev/null; then
     print_ok "jq $(jq --version 2>/dev/null)"
   else
-    print_warn "jq not found (required by Claude Dev Framework for JSON operations)"
+    print_warn "jq not found (required by Development Guardrails for Claude Code for JSON operations)"
     if [ "$interactive" = true ]; then
       if [ "$os_type" = "Darwin" ] && command -v brew &>/dev/null; then
         prompt_install "jq" "brew install jq"
@@ -207,11 +207,11 @@ check_prerequisites() {
     fi
   fi
 
-  # --- Claude Dev Framework ---
+  # --- Development Guardrails for Claude Code ---
   if [ -d "$HOME/.claude-dev-framework/.git" ] && [ -f "$HOME/.claude-dev-framework/scripts/init.sh" ]; then
-    print_ok "Claude Dev Framework installed"
+    print_ok "Development Guardrails for Claude Code installed"
   else
-    print_info "Claude Dev Framework will be installed during project creation"
+    print_info "Development Guardrails for Claude Code will be installed during project creation"
   fi
 
   # --- Claude Code Superpowers plugin (recommended) ---
@@ -239,26 +239,9 @@ check_prerequisites() {
   fi
   if [ "$_c7_found" = true ]; then
     print_ok "Context7 MCP server configured"
-  elif command -v node &>/dev/null; then
-    print_info "Registering Context7 MCP server..."
-    local _c7_err _c7_timeout_cmd="timeout"
-    command -v timeout &>/dev/null || _c7_timeout_cmd="gtimeout"
-    if command -v $_c7_timeout_cmd &>/dev/null; then
-      _c7_err=$(echo "y" | $_c7_timeout_cmd 30 claude mcp add context7 --scope user -- npx -y @upstash/context7-mcp@latest 2>&1) || true
-    else
-      _c7_err=$(echo "y" | claude mcp add context7 --scope user -- npx -y @upstash/context7-mcp@latest 2>&1) || true
-    fi
-    # Verify by checking both config locations
-    if ([ -f "$HOME/.claude/settings.json" ] && jq -e '.mcpServers.context7 // .mcpServers["context7-mcp"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1) || \
-       ([ -f "$HOME/.claude.json" ] && jq -e '.mcpServers.context7 // .mcpServers["context7-mcp"] // empty' "$HOME/.claude.json" >/dev/null 2>&1); then
-      print_ok "Context7 MCP server registered"
-    else
-      print_warn "Context7 MCP registration failed: $_c7_err"
-      print_warn "Register manually: claude mcp add context7 --scope user -- npx -y @upstash/context7-mcp@latest"
-    fi
   else
-    print_warn "Context7 MCP not found (recommended — up-to-date library documentation)"
-    echo "  Requires Node.js. Install Node.js first, then: claude mcp add context7 --scope user -- npx -y @upstash/context7-mcp@latest"
+    print_warn "Context7 MCP not configured (recommended — up-to-date library documentation)"
+    echo "  Register: claude mcp add context7 --scope user -- npx -y @upstash/context7-mcp@latest"
   fi
 
   # --- Qdrant MCP (recommended for persistent semantic memory) ---
@@ -273,79 +256,21 @@ check_prerequisites() {
   if [ "$_qd_found" = true ]; then
     print_ok "Qdrant MCP server configured"
   else
-    print_info "Qdrant MCP not configured yet (will be offered at Phase 1 when Docker is available)"
-    if [ "$interactive" = false ]; then
-      echo "  Install Docker + uv, then: claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory qdrant -- uvx --python 3.13 mcp-server-qdrant"
-    elif command -v docker &>/dev/null; then
-      # Verify the Docker daemon is actually running (not just the binary)
-      local docker_daemon_running=false
-      for _try in 1 2 3; do
-        if docker info &>/dev/null; then
-          docker_daemon_running=true
-          break
-        fi
-        if [ "$_try" -lt 3 ]; then
-          print_info "Waiting for Docker daemon to start (attempt $_try/3)..."
-          sleep 2
-        fi
-      done
+    # Check if Qdrant container is already running (quick check, no daemon startup)
+    local _qd_container_running=false
+    if command -v docker &>/dev/null && run_with_timeout 5 docker ps --format '{{.Image}}' > /tmp/_qd_ps_out 2>/dev/null; then
+      grep -q "qdrant" /tmp/_qd_ps_out 2>/dev/null && _qd_container_running=true
+      rm -f /tmp/_qd_ps_out
+    fi
 
-      if [ "$docker_daemon_running" = false ]; then
-        print_warn "Docker is installed but the daemon is not running. Start Docker and re-run init, or run manually:"
-        echo "  1. Start Qdrant: docker run -d -p 6333:6333 -v qdrant_storage:/qdrant/storage --restart unless-stopped qdrant/qdrant:latest"
-        echo "  2. Register MCP: claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory qdrant -- uvx --python 3.13 mcp-server-qdrant"
-      else
-        # Check if Qdrant container is already running
-        local qdrant_running=false
-        if docker ps --format '{{.Image}}' 2>/dev/null | grep -q "qdrant"; then
-          qdrant_running=true
-          print_ok "Qdrant container already running"
-        fi
-
-        if [ "$qdrant_running" = false ]; then
-          read -rp "$(echo -e "  ${BOLD}Start a local Qdrant instance via Docker? [Y/n]${NC}: ")" qdrant_reply
-          if [[ ! "$qdrant_reply" =~ ^[Nn] ]]; then
-            print_info "Pulling and starting Qdrant..."
-            if docker run -d --name qdrant \
-              -p 6333:6333 -p 6334:6334 \
-              -v qdrant_storage:/qdrant/storage \
-              --restart unless-stopped \
-              qdrant/qdrant:latest 2>&1; then
-              print_ok "Qdrant running at http://localhost:6333"
-              qdrant_running=true
-            else
-              print_warn "Failed to start Qdrant container"
-            fi
-          fi
-        fi
-
-        # If Qdrant is running, register the MCP server
-        if [ "$qdrant_running" = true ]; then
-          if command -v uvx &>/dev/null; then
-            read -rp "$(echo -e "  ${BOLD}Register Qdrant MCP server with Claude Code? [Y/n]${NC}: ")" mcp_reply
-            if [[ ! "$mcp_reply" =~ ^[Nn] ]]; then
-              if claude mcp add -s user \
-                -e QDRANT_URL=http://localhost:6333 \
-                -e COLLECTION_NAME=claude-memory \
-                qdrant -- uvx --python 3.13 mcp-server-qdrant 2>/dev/null; then
-                print_ok "Qdrant MCP server registered (collection: claude-memory)"
-              else
-                print_warn "Failed to register Qdrant MCP. Register manually:"
-                echo "    claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory qdrant -- uvx --python 3.13 mcp-server-qdrant"
-              fi
-            fi
-          else
-            print_warn "uv/uvx not found — needed to run mcp-server-qdrant"
-            echo "  Install uv: curl -LsSf https://astral.sh/uv/install.sh | sh"
-            echo "  Then: claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory qdrant -- uvx --python 3.13 mcp-server-qdrant"
-          fi
-        fi
+    if [ "$_qd_container_running" = true ]; then
+      print_ok "Qdrant container already running"
+      if ! command -v uvx &>/dev/null; then
+        print_warn "uv/uvx not found — needed to run mcp-server-qdrant"
+        echo "  Install uv: curl -LsSf https://astral.sh/uv/install.sh | sh"
       fi
     else
-      echo "  Requires Docker (for Qdrant server) and Python/uv (for MCP client)"
-      echo "  1. Install Docker: https://docs.docker.com/get-docker/"
-      echo "  2. Start Qdrant: docker run -d -p 6333:6333 -v qdrant_storage:/qdrant/storage --restart unless-stopped qdrant/qdrant:latest"
-      echo "  3. Register MCP: claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory qdrant -- uvx --python 3.13 mcp-server-qdrant"
+      print_info "Qdrant MCP not configured yet (will be set up during tool resolution)"
     fi
   fi
 
@@ -594,7 +519,7 @@ resolve_and_install_tools() {
           .already_installed += [{ name: "Qdrant MCP", version: "configured", category: "mcp_server" }] |
           .manual_install |= map(select(.name != "Qdrant MCP"))
         ')
-      elif command -v docker &>/dev/null && docker info &>/dev/null; then
+      elif command -v docker &>/dev/null && run_with_timeout 5 docker ps --format '{{.Names}}' > /dev/null 2>&1; then
         if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^qdrant$"; then
           # Container running, just needs MCP registration → configure during creation
           resolver_output=$(echo "$resolver_output" | jq '
@@ -612,22 +537,22 @@ resolve_and_install_tools() {
       fi
     fi
 
-    # Claude Dev Framework: resolver marks manual but init.sh handles it.
-    if echo "$resolver_output" | jq -e '.manual_install[] | select(.name == "Claude Dev Framework")' >/dev/null 2>&1; then
+    # Development Guardrails: resolver marks manual but init.sh handles it.
+    if echo "$resolver_output" | jq -e '.manual_install[] | select(.name == "Development Guardrails for Claude Code")' >/dev/null 2>&1; then
       if [ -d "$HOME/.claude-dev-framework/.git" ] && [ -f "$HOME/.claude-dev-framework/scripts/init.sh" ]; then
         # Global clone exists — show as installed, hooks configured during creation
         resolver_output=$(echo "$resolver_output" | jq '
-          .already_installed += [{ name: "Claude Dev Framework", version: "installed", category: "dev_framework" }] |
-          .manual_install |= map(select(.name != "Claude Dev Framework"))
+          .already_installed += [{ name: "Development Guardrails for Claude Code", version: "installed", category: "dev_framework" }] |
+          .manual_install |= map(select(.name != "Development Guardrails for Claude Code"))
         ')
-        configure_items=$(echo "$configure_items" | jq '. += ["Claude Dev Framework hooks + rules"]')
+        configure_items=$(echo "$configure_items" | jq '. += ["Development Guardrails hooks + rules"]')
       else
         # Will be cloned — move to auto_install
         resolver_output=$(echo "$resolver_output" | jq '
-          .auto_install += [{ name: "Claude Dev Framework", category: "dev_framework", install_cmd: "echo auto" }] |
-          .manual_install |= map(select(.name != "Claude Dev Framework"))
+          .auto_install += [{ name: "Development Guardrails for Claude Code", category: "dev_framework", install_cmd: "echo auto" }] |
+          .manual_install |= map(select(.name != "Development Guardrails for Claude Code"))
         ')
-        configure_items=$(echo "$configure_items" | jq '. += ["Claude Dev Framework hooks + rules"]')
+        configure_items=$(echo "$configure_items" | jq '. += ["Development Guardrails hooks + rules"]')
       fi
     fi
 
@@ -695,8 +620,11 @@ resolve_and_install_tools() {
   echo -e "${BOLD}└──────────────────────────────────────────────────────────┘${NC}"
   echo ""
 
-  # Confirm
-  read -rp "$(echo -e "${BOLD}Proceed with this plan? [Y/n]${NC}: ")" response
+  # Confirm — skip prompt when there is nothing to install
+  local response="Y"
+  if [ "$auto_count" -gt 0 ] || [ "$manual_count" -gt 0 ]; then
+    read -rp "$(echo -e "${YELLOW}▶ ${BOLD}Proceed with this plan? [Y/n]${NC}: ")" response
+  fi
   if [[ "$response" =~ ^[Nn] ]]; then
     echo ""
     local config_choice
@@ -776,8 +704,8 @@ resolve_and_install_tools() {
       tool_name=$(echo "$resolver_output" | jq -r ".auto_install[$i].name")
       tool_cmd=$(echo "$resolver_output" | jq -r ".auto_install[$i].install_cmd")
 
-      # Claude Dev Framework: skip — handled in create_project()
-      if [[ "$tool_name" == Claude\ Dev\ Framework* ]]; then
+      # Development Guardrails: skip — handled in create_project()
+      if [[ "$tool_name" == Development\ Guardrails\ for\ Claude\ Code* ]]; then
         continue
       fi
 
@@ -806,13 +734,10 @@ resolve_and_install_tools() {
         # Register MCP
         if [ "$_qd_ok" = true ]; then
           if command -v uvx &>/dev/null; then
-            if echo "y" | claude mcp add -s user \
-              -e QDRANT_URL=http://localhost:6333 \
-              -e COLLECTION_NAME=claude-memory \
-              qdrant -- uvx --python 3.13 mcp-server-qdrant 2>/dev/null; then
+            if run_with_timeout 30 bash -c 'echo "y" | claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory qdrant -- uvx --python 3.13 mcp-server-qdrant >/dev/null 2>&1'; then
               print_ok "Qdrant MCP registered"
             else
-              print_warn "Failed to register Qdrant MCP. Register manually:"
+              print_warn "Failed to register Qdrant MCP (timed out or errored). Register manually:"
               echo "    claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory qdrant -- uvx --python 3.13 mcp-server-qdrant"
             fi
           else
@@ -865,10 +790,7 @@ resolve_and_install_tools() {
         # Register MCP server
         if [ "$qdrant_running" = true ]; then
           if command -v uvx &>/dev/null || command -v pipx &>/dev/null; then
-            if echo "y" | claude mcp add -s user \
-              -e QDRANT_URL=http://localhost:6333 \
-              -e COLLECTION_NAME=claude-memory \
-              qdrant -- uvx --python 3.13 mcp-server-qdrant 2>/dev/null; then
+            if run_with_timeout 30 bash -c 'echo "y" | claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory qdrant -- uvx --python 3.13 mcp-server-qdrant >/dev/null 2>&1'; then
               print_ok "Qdrant MCP registered"
               qdrant_handled=true
               # Remove Qdrant from manual list
@@ -1129,14 +1051,14 @@ create_project() {
     print_info "No platform module for '$PLATFORM'. The Builder's Guide works standalone."
   fi
 
-  # Initialize git early — Claude Dev Framework requires a git repo
+  # Initialize git early — Development Guardrails requires a git repo
   print_info "Initializing Git repository..."
   git init -q
   # Remove hook samples so framework doesn't misdetect as existing project
   rm -f .git/hooks/*.sample
 
   # Generate Claude Code permissions (auto-accept safe operations)
-  # This must be created BEFORE the Claude Dev Framework install, which merges
+  # This must be created BEFORE the Development Guardrails install, which merges
   # its hooks into settings.json while preserving existing keys (like permissions).
   print_info "Generating Claude Code permissions..."
   mkdir -p .claude
@@ -1303,27 +1225,27 @@ $lang_rules
 PERMEOF
   print_ok "Claude Code permissions configured (auto-accept safe operations)"
 
-  # Install Claude Dev Framework
+  # Install Development Guardrails for Claude Code
   # The framework uses a global clone at ~/.claude-dev-framework shared across
   # all projects. Its own init.sh handles per-project installation (hooks,
   # rules, manifest, settings.json).
   # MIT-licensed: https://github.com/kraulerson/claude-dev-framework
   local FRAMEWORK_CLONE="$HOME/.claude-dev-framework"
 
-  print_info "Installing Claude Dev Framework..."
+  print_info "Installing Development Guardrails for Claude Code..."
   if command -v git &>/dev/null; then
     # Step 1: Check if framework is already installed with a valid manifest
     local framework_valid=false
     if [ -d "$FRAMEWORK_CLONE/.git" ] && [ -f "$FRAMEWORK_CLONE/scripts/init.sh" ]; then
       framework_valid=true
-      print_ok "Claude Dev Framework already installed at $FRAMEWORK_CLONE"
+      print_ok "Development Guardrails for Claude Code already installed at $FRAMEWORK_CLONE"
     fi
 
     # Step 2: If not installed, clone with retry
     if [ "$framework_valid" = false ]; then
       local clone_ok=false
       for _clone_try in 1 2; do
-        print_info "Cloning Claude Dev Framework to $FRAMEWORK_CLONE (attempt $_clone_try/2)..."
+        print_info "Cloning Development Guardrails for Claude Code to $FRAMEWORK_CLONE (attempt $_clone_try/2)..."
         if git clone -q --depth 1 https://github.com/kraulerson/claude-dev-framework.git "$FRAMEWORK_CLONE" 2>/dev/null; then
           clone_ok=true
           break
@@ -1339,10 +1261,10 @@ PERMEOF
       # Verify clone produced expected files
       if [ "$clone_ok" = true ] && [ -d "$FRAMEWORK_CLONE/.git" ] && [ -f "$FRAMEWORK_CLONE/scripts/init.sh" ]; then
         framework_valid=true
-        print_ok "Claude Dev Framework cloned successfully"
+        print_ok "Development Guardrails for Claude Code cloned successfully"
       else
         rm -rf "$FRAMEWORK_CLONE"
-        print_warn "Could not clone Claude Dev Framework after 2 attempts (network issue?)."
+        print_warn "Could not clone Development Guardrails for Claude Code after 2 attempts (network issue?)."
         print_warn "The fallback pre-commit hook will still be installed."
         print_warn "Install manually: git clone https://github.com/kraulerson/claude-dev-framework.git ~/.claude-dev-framework"
         print_warn "Then from your project: bash ~/.claude-dev-framework/scripts/init.sh"
@@ -1401,20 +1323,21 @@ PERMEOF
       # Run the framework's init with:
       #   --prepopulate: skip interactive discovery interview (v4.0.0+)
       #   --skip-plugin-check: Superpowers/Context7 already checked above
-      # Pipe the profile name for the interactive profile detection prompt.
-      print_info "Running Claude Dev Framework init..."
-      (cd "$PROJECT_DIR" && echo "$fw_profile" | bash "$FRAMEWORK_CLONE/scripts/init.sh" \
-        --prepopulate "$discovery_tmp" --skip-plugin-check 2>&1) || {
-        print_warn "Claude Dev Framework init encountered an issue."
+      # Use /dev/tty for stdin so interactive prompts (Proceed?, profile detection)
+      # are visible and responsive. Piping stdin makes read -rp prompts invisible.
+      print_info "Running Development Guardrails init..."
+      (cd "$PROJECT_DIR" && bash "$FRAMEWORK_CLONE/scripts/init.sh" \
+        --prepopulate "$discovery_tmp" --skip-plugin-check < /dev/tty 2>&1) || {
+        print_warn "Development Guardrails init encountered an issue."
         print_warn "You can run it manually later: bash ~/.claude-dev-framework/scripts/init.sh"
       }
       rm -f "$discovery_tmp"
 
       # Verify the framework init produced expected output
       if [ -f ".claude/manifest.json" ]; then
-        print_ok "Claude Dev Framework installed and configured"
+        print_ok "Development Guardrails for Claude Code installed and configured"
       else
-        print_warn "Claude Dev Framework init did not produce .claude/manifest.json"
+        print_warn "Development Guardrails init did not produce .claude/manifest.json"
         print_warn "Run manually: bash ~/.claude-dev-framework/scripts/init.sh"
       fi
     fi
@@ -1514,10 +1437,7 @@ BPEOF
     if [ "$_qd_global" = false ] && command -v docker &>/dev/null && docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^qdrant$"; then
       if command -v uvx &>/dev/null; then
         print_info "Registering Qdrant MCP server..."
-        if echo "y" | claude mcp add -s user \
-          -e QDRANT_URL=http://localhost:6333 \
-          -e COLLECTION_NAME=claude-memory \
-          qdrant -- uvx --python 3.13 mcp-server-qdrant 2>/dev/null; then
+        if run_with_timeout 30 bash -c 'echo "y" | claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory qdrant -- uvx --python 3.13 mcp-server-qdrant >/dev/null 2>&1'; then
           print_ok "Qdrant MCP registered"
           _qd_global=true
         fi
@@ -1565,8 +1485,8 @@ QDEOF
 
   # Install fallback pre-commit hook
   # This provides a baseline enforcement floor (secret detection + test co-location)
-  # independent of whether the Claude Dev Framework clone succeeded.
-  # If the Claude Dev Framework is installed and activates its own hooks, those
+  # independent of whether the Development Guardrails clone succeeded.
+  # If the Development Guardrails are installed and activate their own hooks, those
   # will provide deeper coverage. This hook remains as the safety net.
   print_info "Installing pre-commit hook..."
   install_precommit_hook
@@ -1610,7 +1530,7 @@ install_precommit_hook() {
 #!/usr/bin/env bash
 # Solo Orchestrator — Fallback Pre-Commit Hook
 # Provides baseline enforcement: secret detection + SAST + test co-location check.
-# If the Claude Dev Framework is active, its hooks provide deeper coverage.
+# If Development Guardrails for Claude Code is active, its hooks provide deeper coverage.
 
 set -euo pipefail
 
@@ -2117,13 +2037,13 @@ print_next_steps() {
   # Collect status for each dependency
   local _installed=() _failed=() _later=()
 
-  # Claude Dev Framework
+  # Development Guardrails for Claude Code
   if [ -f "$PROJECT_DIR/.claude/manifest.json" ]; then
-    _installed+=("Claude Dev Framework (Git hook guardrails)")
+    _installed+=("Development Guardrails for Claude Code (Git hook guardrails)")
   elif [ -d "$HOME/.claude-dev-framework/.git" ]; then
-    _failed+=("Claude Dev Framework — hooks not configured. Run: bash ~/.claude-dev-framework/scripts/init.sh")
+    _failed+=("Development Guardrails — hooks not configured. Run: bash ~/.claude-dev-framework/scripts/init.sh")
   else
-    _failed+=("Claude Dev Framework — clone failed. Run: git clone https://github.com/kraulerson/claude-dev-framework.git ~/.claude-dev-framework && bash ~/.claude-dev-framework/scripts/init.sh")
+    _failed+=("Development Guardrails — clone failed. Run: git clone https://github.com/kraulerson/claude-dev-framework.git ~/.claude-dev-framework && bash ~/.claude-dev-framework/scripts/init.sh")
   fi
 
   # Superpowers plugin
@@ -2293,7 +2213,7 @@ dry_run_summary() {
   echo "  .github/workflows/ci.yml              — CI pipeline ($LANGUAGE)"
   echo "  .github/workflows/release.yml         — Release pipeline ($PLATFORM)"
   echo "  .gitignore                            — Language + platform ignores"
-  echo "  .claude/framework/                    — Claude Dev Framework hooks and rules"
+  echo "  .claude/framework/                    — Development Guardrails hooks and rules"
   echo "  .claude/manifest.json                 — Framework configuration and metadata"
   echo "  .claude/settings.json                 — Claude Code hook configuration"
   echo "  .claude/phase-state.json              — Phase tracking"

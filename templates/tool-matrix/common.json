@@ -32,7 +32,7 @@
     {
       "category": "json_processor",
       "name": "jq",
-      "description": "Command-line JSON processor (required by Claude Dev Framework)",
+      "description": "Command-line JSON processor (required by Development Guardrails for Claude Code)",
       "required": true,
       "phase": 0,
       "tracks": ["light", "standard", "full"],
@@ -115,7 +115,7 @@
       "platforms": ["all"],
       "languages": ["all"],
       "check_command": "command -v colima",
-      "version_command": "colima version 2>/dev/null | head -1 | awk '{print $2}' | tr -d 'v'",
+      "version_command": "colima version 2>/dev/null | head -1 | awk '{print $3}' | tr -d 'v'",
       "min_version": "0.6.0",
       "latest_check": {"method": "github_release", "package": "abiosoft/colima"},
       "install": {
@@ -245,7 +245,7 @@
     },
     {
       "category": "dev_framework",
-      "name": "Claude Dev Framework",
+      "name": "Development Guardrails for Claude Code",
       "description": "Git hook-based guardrails for coding standards, security scanning, and documentation",
       "required": false,
       "phase": 0,
