@@ -18,6 +18,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VERSION="1.0.0"
 DRY_RUN=false
+OS_TYPE="$(uname -s)"
 
 source "$SCRIPT_DIR/scripts/lib/helpers.sh"
 
@@ -26,8 +27,7 @@ source "$SCRIPT_DIR/scripts/lib/helpers.sh"
 # ================================================================
 check_prerequisites() {
   print_step "Checking prerequisites..."
-  local os_type
-  os_type="$(uname -s)"
+  local os_type="$OS_TYPE"
   local missing_required=()
 
   # In dry-run mode, skip all interactive install prompts — just report status
@@ -229,15 +229,7 @@ check_prerequisites() {
   fi
 
   # --- Context7 MCP (recommended for up-to-date library docs) ---
-  # Check both config locations: ~/.claude/settings.json and ~/.claude.json (user scope)
-  local _c7_found=false
-  if command -v jq &>/dev/null; then
-    if ([ -f "$HOME/.claude/settings.json" ] && jq -e '.mcpServers.context7 // .mcpServers["context7-mcp"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1) || \
-       ([ -f "$HOME/.claude.json" ] && jq -e '.mcpServers.context7 // .mcpServers["context7-mcp"] // empty' "$HOME/.claude.json" >/dev/null 2>&1); then
-      _c7_found=true
-    fi
-  fi
-  if [ "$_c7_found" = true ]; then
+  if is_context7_mcp_registered; then
     print_ok "Context7 MCP server configured"
   else
     print_warn "Context7 MCP not configured (recommended — up-to-date library documentation)"
@@ -245,33 +237,16 @@ check_prerequisites() {
   fi
 
   # --- Qdrant MCP (recommended for persistent semantic memory) ---
-  # Check both config locations: ~/.claude/settings.json and ~/.claude.json (user scope)
-  local _qd_found=false
-  if command -v jq &>/dev/null; then
-    if ([ -f "$HOME/.claude/settings.json" ] && jq -e '.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1) || \
-       ([ -f "$HOME/.claude.json" ] && jq -e '.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // empty' "$HOME/.claude.json" >/dev/null 2>&1); then
-      _qd_found=true
-    fi
-  fi
-  if [ "$_qd_found" = true ]; then
+  if is_qdrant_mcp_registered; then
     print_ok "Qdrant MCP server configured"
+  elif is_qdrant_container_running; then
+    print_ok "Qdrant container already running"
+    if ! command -v uvx &>/dev/null; then
+      print_warn "uv/uvx not found — needed to run mcp-server-qdrant"
+      echo "  Install uv: curl -LsSf https://astral.sh/uv/install.sh | sh"
+    fi
   else
-    # Check if Qdrant container is already running (quick check, no daemon startup)
-    local _qd_container_running=false
-    if command -v docker &>/dev/null && run_with_timeout 5 docker ps --format '{{.Image}}' > /tmp/_qd_ps_out 2>/dev/null; then
-      grep -q "qdrant" /tmp/_qd_ps_out 2>/dev/null && _qd_container_running=true
-      rm -f /tmp/_qd_ps_out
-    fi
-
-    if [ "$_qd_container_running" = true ]; then
-      print_ok "Qdrant container already running"
-      if ! command -v uvx &>/dev/null; then
-        print_warn "uv/uvx not found — needed to run mcp-server-qdrant"
-        echo "  Install uv: curl -LsSf https://astral.sh/uv/install.sh | sh"
-      fi
-    else
-      print_info "Qdrant MCP not configured yet (will be set up during tool resolution)"
-    fi
+    print_info "Qdrant MCP not configured yet (will be set up during tool resolution)"
   fi
 
   if [ ${#missing_required[@]} -gt 0 ]; then
@@ -477,8 +452,7 @@ collect_project_info() {
 # ================================================================
 resolve_and_install_tools() {
   print_step "Resolving tool installation plan..."
-  local os_type
-  os_type="$(uname -s)"
+  local os_type="$OS_TYPE"
   local dev_os
   case "$os_type" in
     Darwin) dev_os="darwin" ;;
@@ -506,34 +480,24 @@ resolve_and_install_tools() {
   if command -v jq &>/dev/null; then
 
     # Qdrant MCP: resolver always marks manual (auto_installable: false).
+    # Reclassify based on actual state: registered → installed, container running → configure, docker available → auto.
     if echo "$resolver_output" | jq -e '.manual_install[] | select(.name == "Qdrant MCP")' >/dev/null 2>&1; then
-      local _qd_mcp_registered=false
-      if ([ -f "$HOME/.claude/settings.json" ] && jq -e '.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1) || \
-         ([ -f "$HOME/.claude.json" ] && jq -e '.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // empty' "$HOME/.claude.json" >/dev/null 2>&1); then
-        _qd_mcp_registered=true
-      fi
-
-      if [ "$_qd_mcp_registered" = true ]; then
-        # Fully configured — move to already_installed
+      if is_qdrant_mcp_registered; then
         resolver_output=$(echo "$resolver_output" | jq '
           .already_installed += [{ name: "Qdrant MCP", version: "configured", category: "mcp_server" }] |
           .manual_install |= map(select(.name != "Qdrant MCP"))
         ')
-      elif command -v docker &>/dev/null && run_with_timeout 5 docker ps --format '{{.Names}}' > /dev/null 2>&1; then
-        if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^qdrant$"; then
-          # Container running, just needs MCP registration → configure during creation
-          resolver_output=$(echo "$resolver_output" | jq '
-            .already_installed += [{ name: "Qdrant", version: "container running", category: "mcp_server" }] |
-            .manual_install |= map(select(.name != "Qdrant MCP"))
-          ')
-          configure_items=$(echo "$configure_items" | jq '. += ["Qdrant MCP registration + project collection"]')
-        else
-          # Docker running but no container — move to auto_install
-          resolver_output=$(echo "$resolver_output" | jq '
-            .auto_install += [{ name: "Qdrant MCP", category: "mcp_server", install_cmd: "echo auto" }] |
-            .manual_install |= map(select(.name != "Qdrant MCP"))
-          ')
-        fi
+      elif is_qdrant_container_running; then
+        resolver_output=$(echo "$resolver_output" | jq '
+          .already_installed += [{ name: "Qdrant", version: "container running", category: "mcp_server" }] |
+          .manual_install |= map(select(.name != "Qdrant MCP"))
+        ')
+        configure_items=$(echo "$configure_items" | jq '. += ["Qdrant MCP registration + project collection"]')
+      elif command -v docker &>/dev/null; then
+        resolver_output=$(echo "$resolver_output" | jq '
+          .auto_install += [{ name: "Qdrant MCP", category: "mcp_server", install_cmd: "echo auto" }] |
+          .manual_install |= map(select(.name != "Qdrant MCP"))
+        ')
       fi
     fi
 
@@ -763,13 +727,13 @@ resolve_and_install_tools() {
 
     # If Qdrant is in the manual list and Docker is running, offer auto-setup
     if echo "$resolver_output" | jq -e '.manual_install[] | select(.name == "Qdrant MCP")' >/dev/null 2>&1; then
-      if command -v docker &>/dev/null && docker info &>/dev/null; then
+      if is_qdrant_container_running || (command -v docker &>/dev/null && run_with_timeout 5 docker info >/dev/null 2>&1); then
         echo ""
-        print_info "Docker is running — setting up Qdrant MCP..."
+        print_info "Docker is available — setting up Qdrant MCP..."
 
-        # Start Qdrant container
+        # Start Qdrant container if not already running
         local qdrant_running=false
-        if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^qdrant$"; then
+        if is_qdrant_container_running; then
           qdrant_running=true
           print_ok "Qdrant container already running"
         elif docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^qdrant$"; then
@@ -790,10 +754,9 @@ resolve_and_install_tools() {
         # Register MCP server
         if [ "$qdrant_running" = true ]; then
           if command -v uvx &>/dev/null || command -v pipx &>/dev/null; then
-            if run_with_timeout 30 bash -c 'echo "y" | claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory qdrant -- uvx --python 3.13 mcp-server-qdrant >/dev/null 2>&1'; then
+            if register_qdrant_mcp; then
               print_ok "Qdrant MCP registered"
               qdrant_handled=true
-              # Remove Qdrant from manual list
               resolver_output=$(echo "$resolver_output" | jq '
                 .already_installed += [{ name: "Qdrant MCP", version: "configured", category: "mcp_server" }] |
                 .manual_install |= map(select(.name != "Qdrant MCP"))
@@ -949,7 +912,7 @@ append_intake_tooling_summary() {
 TOOLHDR
 
   # Resolved for
-  echo "**Resolved for:** $(uname -s) / $PLATFORM / $LANGUAGE / $TRACK track" >> PROJECT_INTAKE.md
+  echo "**Resolved for:** $OS_TYPE / $PLATFORM / $LANGUAGE / $TRACK track" >> PROJECT_INTAKE.md
   echo "" >> PROJECT_INTAKE.md
 
   # Installed table
@@ -1275,8 +1238,7 @@ PERMEOF
     if [ "$framework_valid" = true ]; then
       local branch
       branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
-      local dev_os
-      dev_os=$(uname -s)
+      local dev_os="$OS_TYPE"
 
       # Map platform to framework's target platform format
       local target_platform="$PLATFORM"
@@ -1428,19 +1390,13 @@ BPEOF
   # Then write a project-local override using the project name as the collection.
   if command -v jq &>/dev/null; then
     local _qd_global=false
-    if ([ -f "$HOME/.claude/settings.json" ] && jq -e '.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1) || \
-       ([ -f "$HOME/.claude.json" ] && jq -e '.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // empty' "$HOME/.claude.json" >/dev/null 2>&1); then
+    if is_qdrant_mcp_registered; then
       _qd_global=true
-    fi
-
-    # If not registered but container is running, register now
-    if [ "$_qd_global" = false ] && command -v docker &>/dev/null && docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^qdrant$"; then
-      if command -v uvx &>/dev/null; then
-        print_info "Registering Qdrant MCP server..."
-        if run_with_timeout 30 bash -c 'echo "y" | claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory qdrant -- uvx --python 3.13 mcp-server-qdrant >/dev/null 2>&1'; then
-          print_ok "Qdrant MCP registered"
-          _qd_global=true
-        fi
+    elif is_qdrant_container_running && command -v uvx &>/dev/null; then
+      print_info "Registering Qdrant MCP server..."
+      if register_qdrant_mcp; then
+        print_ok "Qdrant MCP registered"
+        _qd_global=true
       fi
     fi
 
@@ -2058,33 +2014,16 @@ print_next_steps() {
   fi
 
   # Context7 MCP
-  local _c7=false
-  if command -v jq &>/dev/null; then
-    if ([ -f "$HOME/.claude/settings.json" ] && jq -e '.mcpServers.context7 // .mcpServers["context7-mcp"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1) || \
-       ([ -f "$HOME/.claude.json" ] && jq -e '.mcpServers.context7 // .mcpServers["context7-mcp"] // empty' "$HOME/.claude.json" >/dev/null 2>&1); then
-      _c7=true
-    fi
-  fi
-  if [ "$_c7" = true ]; then
+  if is_context7_mcp_registered; then
     _installed+=("Context7 MCP (up-to-date library documentation)")
   else
     _failed+=("Context7 MCP — run: claude mcp add context7 --scope user -- npx -y @upstash/context7-mcp@latest")
   fi
 
   # Qdrant MCP
-  local _qd_mcp=false _qd_container=false
-  if command -v jq &>/dev/null; then
-    if ([ -f "$HOME/.claude/settings.json" ] && jq -e '.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1) || \
-       ([ -f "$HOME/.claude.json" ] && jq -e '.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // empty' "$HOME/.claude.json" >/dev/null 2>&1); then
-      _qd_mcp=true
-    fi
-  fi
-  if command -v docker &>/dev/null && docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^qdrant$"; then
-    _qd_container=true
-  fi
-  if [ "$_qd_mcp" = true ]; then
+  if is_qdrant_mcp_registered; then
     _installed+=("Qdrant MCP (persistent semantic memory — collection: $PROJECT_NAME)")
-  elif [ "$_qd_container" = true ]; then
+  elif is_qdrant_container_running; then
     _later+=("Qdrant MCP — container running, MCP will be configured on first Claude Code session")
   else
     _later+=("Qdrant MCP — will be offered at Phase 1 when Docker is available")
@@ -2186,7 +2125,7 @@ dry_run_summary() {
 
   echo -e "${BOLD}Tool Resolution:${NC}"
   local dev_os
-  case "$(uname -s)" in Darwin) dev_os="darwin" ;; *) dev_os="linux" ;; esac
+  case "$OS_TYPE" in Darwin) dev_os="darwin" ;; *) dev_os="linux" ;; esac
   local dry_output
   dry_output=$("$SCRIPT_DIR/scripts/resolve-tools.sh" \
     --dev-os "$dev_os" \

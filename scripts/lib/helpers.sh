@@ -85,6 +85,36 @@ run_with_timeout() {
   wait "$_rto_pid" 2>/dev/null
 }
 
+# ── MCP Detection Helpers ────────────────────────────────────────
+# Check both ~/.claude/settings.json and ~/.claude.json for MCP server registration.
+
+is_context7_mcp_registered() {
+  command -v jq &>/dev/null || return 1
+  ([ -f "$HOME/.claude/settings.json" ] && jq -e '.mcpServers.context7 // .mcpServers["context7-mcp"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1) || \
+  ([ -f "$HOME/.claude.json" ] && jq -e '.mcpServers.context7 // .mcpServers["context7-mcp"] // empty' "$HOME/.claude.json" >/dev/null 2>&1)
+}
+
+is_qdrant_mcp_registered() {
+  command -v jq &>/dev/null || return 1
+  ([ -f "$HOME/.claude/settings.json" ] && jq -e '.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1) || \
+  ([ -f "$HOME/.claude.json" ] && jq -e '.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // empty' "$HOME/.claude.json" >/dev/null 2>&1)
+}
+
+# Check if a Qdrant container is running via docker ps (5s timeout, no docker info).
+is_qdrant_container_running() {
+  command -v docker &>/dev/null || return 1
+  local _ps_out
+  _ps_out=$(run_with_timeout 5 docker ps --format '{{.Names}}' 2>/dev/null) || return 1
+  echo "$_ps_out" | grep -q "^qdrant$"
+}
+
+# Register Qdrant MCP with Claude Code (30s timeout).
+# Usage: register_qdrant_mcp [collection_name]
+register_qdrant_mcp() {
+  local collection="${1:-claude-memory}"
+  run_with_timeout 30 bash -c "echo y | claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=$collection qdrant -- uvx --python 3.13 mcp-server-qdrant >/dev/null 2>&1"
+}
+
 finalize_log() {
   if [ -n "$LOG_FILE" ]; then
     {

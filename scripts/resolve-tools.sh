@@ -148,29 +148,20 @@ command -v dnf &>/dev/null && HAS_DNF=true
 command -v pacman &>/dev/null && HAS_PACMAN=true
 command -v npm &>/dev/null && HAS_NPM=true
 
-# Build priority list of install keys for this environment
-INSTALL_KEYS="[]"
+# Build priority list of install keys for this environment (single string, no jq)
+_keys=""
 if [ "$DEV_OS" = "darwin" ]; then
-  if [ "$HAS_BREW" = true ]; then
-    INSTALL_KEYS=$(echo "$INSTALL_KEYS" | jq '. + ["darwin_brew"]')
-  fi
-  INSTALL_KEYS=$(echo "$INSTALL_KEYS" | jq '. + ["darwin_manual"]')
+  [ "$HAS_BREW" = true ] && _keys="${_keys}darwin_brew,"
+  _keys="${_keys}darwin_manual,"
 elif [ "$DEV_OS" = "linux" ]; then
-  if [ "$HAS_APT" = true ]; then
-    INSTALL_KEYS=$(echo "$INSTALL_KEYS" | jq '. + ["linux_apt"]')
-  fi
-  if [ "$HAS_DNF" = true ]; then
-    INSTALL_KEYS=$(echo "$INSTALL_KEYS" | jq '. + ["linux_dnf"]')
-  fi
-  if [ "$HAS_PACMAN" = true ]; then
-    INSTALL_KEYS=$(echo "$INSTALL_KEYS" | jq '. + ["linux_pacman"]')
-  fi
-  INSTALL_KEYS=$(echo "$INSTALL_KEYS" | jq '. + ["linux_pip", "linux_manual"]')
+  [ "$HAS_APT" = true ] && _keys="${_keys}linux_apt,"
+  [ "$HAS_DNF" = true ] && _keys="${_keys}linux_dnf,"
+  [ "$HAS_PACMAN" = true ] && _keys="${_keys}linux_pacman,"
+  _keys="${_keys}linux_pip,linux_manual,"
 fi
-if [ "$HAS_NPM" = true ]; then
-  INSTALL_KEYS=$(echo "$INSTALL_KEYS" | jq '. + ["npm"]')
-fi
-INSTALL_KEYS=$(echo "$INSTALL_KEYS" | jq '. + ["manual"]')
+[ "$HAS_NPM" = true ] && _keys="${_keys}npm,"
+_keys="${_keys}manual"
+INSTALL_KEYS=$(echo "$_keys" | jq -R 'split(",")')
 
 # --- Check each tool and categorize ---
 AUTO_INSTALL="[]"
@@ -178,19 +169,10 @@ MANUAL_INSTALL="[]"
 ALREADY_INSTALLED="[]"
 DEFERRED="[]"
 
-TOOL_COUNT=$(echo "$FILTERED_TOOLS" | jq 'length')
-
-if [ "$TOOL_COUNT" -gt 0 ]; then
-for i in $(seq 0 $((TOOL_COUNT - 1))); do
-  TOOL_JSON=$(echo "$FILTERED_TOOLS" | jq ".[$i]")
-  TOOL_NAME=$(echo "$TOOL_JSON" | jq -r '.name')
-  TOOL_CATEGORY=$(echo "$TOOL_JSON" | jq -r '.substitution_category // .category')
-  TOOL_PHASE=$(echo "$TOOL_JSON" | jq -r '.phase')
-  TOOL_REQUIRED=$(echo "$TOOL_JSON" | jq -r '.required')
-  TOOL_CHECK=$(echo "$TOOL_JSON" | jq -r '.check_command')
-  TOOL_AUTO=$(echo "$TOOL_JSON" | jq -r '.auto_installable')
-  TOOL_VERSION_CMD=$(echo "$TOOL_JSON" | jq -r '.version_command // empty')
-  TOOL_DESCRIPTION=$(echo "$TOOL_JSON" | jq -r '.description')
+# --- Check each tool and categorize ---
+# Extract all fields per tool in a single jq call (tab-separated) to avoid N*8 subprocess forks.
+# Fields: name, category, phase, required, check_command, auto_installable, version_command, description, install_json
+while IFS=$'\t' read -r TOOL_NAME TOOL_CATEGORY TOOL_PHASE TOOL_REQUIRED TOOL_CHECK TOOL_AUTO TOOL_VERSION_CMD TOOL_DESCRIPTION TOOL_INSTALL_JSON; do
 
   # Phase filter: defer tools for future phases
   if [ "$TOOL_PHASE" -gt "$PHASE" ]; then
@@ -222,9 +204,8 @@ for i in $(seq 0 $((TOOL_COUNT - 1))); do
   else
     # Find the best install command for this environment
     INSTALL_CMD=""
-    INSTALL_OBJ=$(echo "$TOOL_JSON" | jq '.install')
     for key in $(echo "$INSTALL_KEYS" | jq -r '.[]'); do
-      cmd=$(echo "$INSTALL_OBJ" | jq -r --arg k "$key" '.[$k] // empty')
+      cmd=$(echo "$TOOL_INSTALL_JSON" | jq -r --arg k "$key" '.[$k] // empty')
       if [ -n "$cmd" ]; then
         INSTALL_CMD="$cmd"
         break
@@ -233,7 +214,7 @@ for i in $(seq 0 $((TOOL_COUNT - 1))); do
 
     # If no auto-installable command found, fall back to manual
     if [ -z "$INSTALL_CMD" ]; then
-      INSTALL_CMD=$(echo "$INSTALL_OBJ" | jq -r '.manual // "See documentation"')
+      INSTALL_CMD=$(echo "$TOOL_INSTALL_JSON" | jq -r '.manual // "See documentation"')
       TOOL_AUTO="false"
     fi
 
@@ -255,8 +236,17 @@ for i in $(seq 0 $((TOOL_COUNT - 1))); do
         '. + [{name: $name, category: $category, instructions: $instructions, required: $required, description: $description}]')
     fi
   fi
-done
-fi
+done < <(echo "$FILTERED_TOOLS" | jq -r '.[] | [
+  .name,
+  (.substitution_category // .category),
+  (.phase | tostring),
+  (.required | tostring),
+  .check_command,
+  (.auto_installable | tostring),
+  (.version_command // ""),
+  .description,
+  (.install | tostring)
+] | @tsv')
 
 # --- Add user freeform additions ---
 ADDITION_COUNT=$(echo "$ADDITIONS" | jq 'length')
