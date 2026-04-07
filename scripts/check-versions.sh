@@ -247,6 +247,14 @@ if [ -n "$LANGUAGE" ]; then
   )]')
 fi
 
+# Filter by track (skip tools that require a higher track)
+if [ -n "$TRACK" ]; then
+  ALL_TOOLS=$(echo "$ALL_TOOLS" | jq --arg track "$TRACK" '[.[] | select(
+    .tracks == null or
+    (.tracks | index($track)) != null
+  )]')
+fi
+
 # Only check tools that have a version_command (skip presence-only tools like Android Keystore)
 CHECKABLE_TOOLS=$(echo "$ALL_TOOLS" | jq '[.[] | select(.version_command != null and .version_command != "" and .check_command != null)]')
 
