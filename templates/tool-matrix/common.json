@@ -346,7 +346,7 @@
       "platforms": ["all"],
       "languages": ["python"],
       "check_command": "command -v python3 || command -v python",
-      "version_command": "$(brew --prefix 2>/dev/null)/bin/python3 --version 2>/dev/null | awk '{print $2}' || python3 --version 2>/dev/null | awk '{print $2}' || python --version 2>/dev/null | awk '{print $2}'",
+      "version_command": "python3 --version 2>/dev/null | awk '{print $2}' || python --version 2>/dev/null | awk '{print $2}'",
       "min_version": "3.10.0",
       "latest_check": null,
       "install": {
