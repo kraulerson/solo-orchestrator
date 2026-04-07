@@ -102,6 +102,18 @@ Use `superpowers:dispatching-parallel-agents` for dispatch. Each subagent gets a
 - Documentation generation (follow the templates)
 - Routine security audit checks per Phase 2.4 checklist
 
+### Qdrant Persistent Memory (if configured)
+If the Qdrant MCP server is available (`qdrant-store` and `qdrant-find` tools), use it to persist and retrieve project knowledge across sessions. Store entries at these specific points:
+- **Architecture decisions** — after finalizing a decision in the Project Bible, store the decision and its rationale
+- **Debugging breakthroughs** — after resolving a non-obvious bug, store the root cause and fix
+- **Phase gate transitions** — store a summary of what was accomplished and key lessons from the phase
+- **Trade-off discussions** — when the Orchestrator makes a significant trade-off decision, store the context and reasoning
+- **Integration patterns** — after establishing how components connect, store the pattern for future reference
+
+At the start of each session, use `qdrant-find` to retrieve relevant context for the current work area before diving in.
+
+Do NOT store: routine code changes, test results, obvious patterns, or anything already captured in the Project Bible or CHANGELOG.
+
 ### Upgrade Paths
 This project can be upgraded without losing technical work:
 - **Track upgrade** (light → standard → full): `bash scripts/upgrade-project.sh --track standard`

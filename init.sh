@@ -1053,7 +1053,8 @@ create_project() {
   cp "$SCRIPT_DIR/scripts/check-versions.sh" scripts/
   cp "$SCRIPT_DIR/scripts/session-version-check.sh" scripts/
   cp "$SCRIPT_DIR/scripts/session-test-gate-check.sh" scripts/
-  chmod +x scripts/validate.sh scripts/check-phase-gate.sh scripts/check-updates.sh scripts/resume.sh scripts/intake-wizard.sh scripts/resolve-tools.sh scripts/upgrade-project.sh scripts/reconfigure-project.sh scripts/verify-install.sh scripts/test-gate.sh scripts/check-versions.sh scripts/session-version-check.sh scripts/session-test-gate-check.sh
+  cp "$SCRIPT_DIR/scripts/session-end-qdrant-reminder.sh" scripts/
+  chmod +x scripts/validate.sh scripts/check-phase-gate.sh scripts/check-updates.sh scripts/resume.sh scripts/intake-wizard.sh scripts/resolve-tools.sh scripts/upgrade-project.sh scripts/reconfigure-project.sh scripts/verify-install.sh scripts/test-gate.sh scripts/check-versions.sh scripts/session-version-check.sh scripts/session-test-gate-check.sh scripts/session-end-qdrant-reminder.sh
 
   # Copy intake suggestion files
   mkdir -p templates/intake-suggestions
@@ -1356,8 +1357,20 @@ PERMEOF
             && mv .claude/settings.json.tmp .claude/settings.json
           hooks_added=true
         fi
+        # Add Qdrant reminder to Stop hook
+        if jq -e '.hooks.Stop' .claude/settings.json >/dev/null 2>&1; then
+          if ! jq -e '.hooks.Stop[0].hooks[] | select(.command | contains("session-end-qdrant-reminder.sh"))' .claude/settings.json >/dev/null 2>&1; then
+            jq '.hooks.Stop[0].hooks += [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/session-end-qdrant-reminder.sh"}]' .claude/settings.json > .claude/settings.json.tmp \
+              && mv .claude/settings.json.tmp .claude/settings.json
+            hooks_added=true
+          fi
+        else
+          jq '.hooks.Stop = [{"hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/session-end-qdrant-reminder.sh"}]}]' .claude/settings.json > .claude/settings.json.tmp \
+            && mv .claude/settings.json.tmp .claude/settings.json
+          hooks_added=true
+        fi
         if [ "$hooks_added" = true ]; then
-          print_ok "Session-start hooks installed (version check, test gate)"
+          print_ok "Session hooks installed (version check, test gate, Qdrant reminder)"
         fi
       fi
     fi
