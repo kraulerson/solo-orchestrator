@@ -190,7 +190,7 @@ Build features one at a time using test-driven development. Each feature cycle: 
 
 Assume everything is broken until proven otherwise. Integration testing of the full user journey. Security hardening through automated SAST, dependency auditing, and secret detection — plus platform-specific security checks per the Platform Module. Chaos testing, accessibility auditing, and performance profiling. Cross-platform verification for multi-platform applications.
 
-**Output artifacts:** Test suite, security audit report, performance baselines, SBOM, launch plan.
+**Output artifacts:** Test suite, security audit report, performance baselines, SBOM. (Pre-launch preparation steps are executed as part of Phase 3.6 Pre-Launch Preparation — see Builder's Guide Step 3.6.)
 
 ### Phase 4: Release & Long-Term Support
 

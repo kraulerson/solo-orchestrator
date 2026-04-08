@@ -16,6 +16,50 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/helpers.sh"
 
+# Create a point-in-time snapshot of artifacts at phase gate transitions
+create_gate_snapshot() {
+  local from_phase="$1"
+  local to_phase="$2"
+  local snapshot_dir="docs/snapshots/phase-${from_phase}-to-${to_phase}_$(date +%Y-%m-%d)"
+
+  if [ -d "$snapshot_dir" ]; then
+    echo -e "  ${YELLOW}[SKIP]${NC} Snapshot already exists: $snapshot_dir"
+    return 0
+  fi
+
+  mkdir -p "$snapshot_dir"
+
+  case "${from_phase}-${to_phase}" in
+    0-1)
+      for f in PRODUCT_MANIFESTO.md APPROVAL_LOG.md PROJECT_INTAKE.md; do
+        [ -f "$f" ] && cp "$f" "$snapshot_dir/"
+      done
+      ;;
+    1-2)
+      for f in PROJECT_BIBLE.md PRODUCT_MANIFESTO.md APPROVAL_LOG.md; do
+        [ -f "$f" ] && cp "$f" "$snapshot_dir/"
+      done
+      ;;
+    2-3)
+      for f in PROJECT_BIBLE.md FEATURES.md CHANGELOG.md BUGS.md APPROVAL_LOG.md; do
+        [ -f "$f" ] && cp "$f" "$snapshot_dir/"
+      done
+      ;;
+    3-4)
+      for f in PRODUCT_MANIFESTO.md PROJECT_BIBLE.md FEATURES.md CHANGELOG.md BUGS.md \
+               USER_GUIDE.md HANDOFF.md RELEASE_NOTES.md APPROVAL_LOG.md sbom.json; do
+        [ -f "$f" ] && cp "$f" "$snapshot_dir/"
+      done
+      [ -f "docs/INCIDENT_RESPONSE.md" ] && cp "docs/INCIDENT_RESPONSE.md" "$snapshot_dir/"
+      if [ -d "docs/test-results" ]; then
+        ls docs/test-results/ > "$snapshot_dir/test-results-listing.txt" 2>/dev/null || true
+      fi
+      ;;
+  esac
+
+  echo -e "  ${GREEN}[OK]${NC} Phase gate snapshot created: $snapshot_dir"
+}
+
 PHASE_STATE=".claude/phase-state.json"
 APPROVAL_LOG="APPROVAL_LOG.md"
 
@@ -68,6 +112,16 @@ if [ "$current_phase" -ge 1 ]; then
   fi
 fi
 
+# Artifact existence check: Phase 0→1
+if [ "$current_phase" -ge 1 ]; then
+  if [ -f "PRODUCT_MANIFESTO.md" ]; then
+    echo -e "${GREEN}  [OK]${NC} PRODUCT_MANIFESTO.md exists"
+  else
+    echo -e "${YELLOW}[WARN]${NC} Phase 0→1: PRODUCT_MANIFESTO.md not found"
+    issues=$((issues + 1))
+  fi
+fi
+
 # Check: if current_phase >= 2, gate 1→2 should have a date
 if [ "$current_phase" -ge 2 ]; then
   if [ -n "$gate_1_to_2" ]; then
@@ -79,6 +133,16 @@ if [ "$current_phase" -ge 2 ]; then
     fi
   else
     echo -e "${YELLOW}[WARN]${NC} Phase 1→2: current_phase is $current_phase but gate date not recorded in phase-state.json"
+    issues=$((issues + 1))
+  fi
+fi
+
+# Artifact existence check: Phase 1→2
+if [ "$current_phase" -ge 2 ]; then
+  if [ -f "PROJECT_BIBLE.md" ]; then
+    echo -e "${GREEN}  [OK]${NC} PROJECT_BIBLE.md exists"
+  else
+    echo -e "${YELLOW}[WARN]${NC} Phase 1→2: PROJECT_BIBLE.md not found"
     issues=$((issues + 1))
   fi
 fi
@@ -118,6 +182,32 @@ if [ "$current_phase" = "3" ]; then
       echo "  Configure code signing, deployment secrets, and store credentials before production release."
       issues=$((issues + 1))
     fi
+  fi
+fi
+
+# Artifact existence checks: Phase 3→4
+if [ "$current_phase" -ge 3 ]; then
+  for artifact in "HANDOFF.md" "docs/INCIDENT_RESPONSE.md" "sbom.json"; do
+    if [ -f "$artifact" ]; then
+      echo -e "${GREEN}  [OK]${NC} $artifact exists"
+    else
+      echo -e "${YELLOW}[WARN]${NC} Phase 3→4: $artifact not found"
+      issues=$((issues + 1))
+    fi
+  done
+
+  # Check docs/test-results/ is non-empty
+  if [ -d "docs/test-results" ]; then
+    result_count=$(find docs/test-results -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')
+    if [ "$result_count" -eq 0 ]; then
+      echo -e "${YELLOW}[WARN]${NC} Phase 3→4: docs/test-results/ is empty — archive Phase 3 scan results before proceeding"
+      issues=$((issues + 1))
+    else
+      echo -e "${GREEN}  [OK]${NC} docs/test-results/ has $result_count file(s)"
+    fi
+  else
+    echo -e "${YELLOW}[WARN]${NC} Phase 3→4: docs/test-results/ directory not found"
+    issues=$((issues + 1))
   fi
 fi
 
@@ -250,6 +340,25 @@ fi
 echo ""
 if [ $issues -eq 0 ]; then
   echo -e "${GREEN}${BOLD}Phase gates consistent.${NC}"
+
+  # Create snapshots for gates that have been passed but not yet snapshotted
+  if [ "$current_phase" -ge 1 ]; then
+    existing_01=$(ls -d docs/snapshots/phase-0-to-1_* 2>/dev/null | head -1)
+    [ -z "$existing_01" ] && create_gate_snapshot 0 1
+  fi
+  if [ "$current_phase" -ge 2 ]; then
+    existing_12=$(ls -d docs/snapshots/phase-1-to-2_* 2>/dev/null | head -1)
+    [ -z "$existing_12" ] && create_gate_snapshot 1 2
+  fi
+  if [ "$current_phase" -ge 3 ]; then
+    existing_23=$(ls -d docs/snapshots/phase-2-to-3_* 2>/dev/null | head -1)
+    [ -z "$existing_23" ] && create_gate_snapshot 2 3
+  fi
+  if [ "$current_phase" -ge 4 ]; then
+    existing_34=$(ls -d docs/snapshots/phase-3-to-4_* 2>/dev/null | head -1)
+    [ -z "$existing_34" ] && create_gate_snapshot 3 4
+  fi
+
   exit 0
 else
   if [ "${SOIF_PHASE_GATES:-}" = "warn" ]; then

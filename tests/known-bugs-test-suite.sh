@@ -61,7 +61,7 @@ create_test_project() {
   local language="${5:-typescript}"
 
   mkdir -p "$dir/.claude" "$dir/.git/hooks" "$dir/.github/workflows" \
-           "$dir/docs/framework" "$dir/docs/platform-modules" \
+           "$dir/docs/reference" "$dir/docs/platform-modules" \
            "$dir/scripts/lib" "$dir/templates/intake-suggestions" \
            "$dir/templates/tool-matrix"
 
@@ -96,10 +96,10 @@ EOF
 EOF
 
   # Framework docs
-  touch "$dir/docs/framework/builders-guide.md"
-  touch "$dir/docs/framework/user-guide.md"
-  touch "$dir/docs/framework/governance-framework.md"
-  touch "$dir/docs/framework/cli-setup-addendum.md"
+  touch "$dir/docs/reference/builders-guide.md"
+  touch "$dir/docs/reference/user-guide.md"
+  touch "$dir/docs/reference/governance-framework.md"
+  touch "$dir/docs/reference/cli-setup-addendum.md"
 
   # Platform module
   touch "$dir/docs/platform-modules/${platform}.md"

@@ -1,0 +1,274 @@
+# Project Bible
+<!-- This is the authoritative technical specification for the project. Created in Phase 1.
+     Gate condition: All 16 sections must be completed before Phase 2 begins.
+     The agent uses this document as primary context for all code generation decisions.
+     When updating any section, update the "Last Updated" date on that section. -->
+
+---
+
+## 1. Product Manifesto
+<!-- Last Updated: YYYY-MM-DD -->
+<!-- Full text from Phase 0 PRODUCT_MANIFESTO.md. Copy the entire manifesto here. This section
+     is the governing constraint for all subsequent sections. No architectural or product decision
+     in any later section may contradict the manifesto. If a conflict arises, update the manifesto
+     first and resolve it explicitly.
+     Format: Prose (paste verbatim from PRODUCT_MANIFESTO.md)
+     Source: docs/PRODUCT_MANIFESTO.md -->
+
+[Paste the complete PRODUCT_MANIFESTO.md content here]
+
+---
+
+## 2. Revenue Model & Cost Constraints
+<!-- Last Updated: YYYY-MM-DD -->
+<!-- From Manifesto Appendix A. Skip if not applicable (internal tools, Light track). Hosting cost
+     ceiling constrains architecture decisions in Section 3. If this is a paid product, document
+     pricing tiers, expected margins, and the maximum monthly infrastructure cost that keeps the
+     product viable at each tier.
+     Format: Prose or bullet list
+     Source: PRODUCT_MANIFESTO.md Appendix A -->
+
+[Revenue model, cost constraints, or "N/A — internal tool"]
+
+---
+
+## 3. Architecture Decision Record
+<!-- Last Updated: YYYY-MM-DD -->
+<!-- Selected stack, rejected alternatives with rationale. This section summarizes the Phase 1
+     architecture selection. The full ADR is at docs/ADR documentation/0001-architecture-selection.md.
+     Keep this summary in sync with the full ADR. Any significant architecture change during
+     construction must produce a new ADR and update this section.
+     Format: Structured sub-sections with prose rationale
+     Source: Step 1.2 — Architecture Selection -->
+
+**Selected Architecture:** [Name/description]
+
+**Rejected Alternatives:**
+- [Option B — why rejected]
+- [Option C — why rejected]
+
+**Key Constraints:** Budget, maintenance capacity, platform requirements
+
+**Full ADR:** `docs/ADR documentation/0001-architecture-selection.md`
+
+---
+
+## 4. Threat Model & Risk/Mitigation Matrix
+<!-- Last Updated: YYYY-MM-DD -->
+<!-- STRIDE analysis from Step 1.3. Each threat must be specific to this architecture, not generic
+     OWASP boilerplate. Threats are referenced during every Phase 2 security audit (Step 2.4) and
+     validated in Phase 3.2. Add rows as new threats are identified during construction. The
+     "Verified (Phase 3)" column is checked off during Phase 3 security validation.
+     Format: Table
+     Source: Step 1.3 — Threat Modeling -->
+
+| # | Threat | STRIDE Category | Attack Path | Mitigation | Verified (Phase 3) |
+|---|---|---|---|---|---|
+| 1 | [Specific threat] | [S/T/R/I/D/E] | [Concrete attack path] | [Specific mitigation] | [ ] |
+
+---
+
+## 5. Data Model
+<!-- Last Updated: YYYY-MM-DD -->
+<!-- Full data model specification from Step 1.4. Include entity definitions, relationships,
+     indexes, constraints, and field-level types. This section is the source of truth for schema.
+     All changes after initial creation must go through versioned migrations (see Section 6).
+     Do not modify schema by editing this section alone — create a migration first, then update.
+     Format: Entity definitions with field tables, plus relationship diagram (text or link to image)
+     Source: Step 1.4 — Data Model Design -->
+
+[Define entities, fields, types, relationships, indexes, and constraints here]
+
+---
+
+## 6. Data Migration Plan
+<!-- Last Updated: YYYY-MM-DD -->
+<!-- From Step 1.4.5. If replacing an existing system, document: source format (schema or file
+     structure), transformation logic (field mappings, type conversions, data cleaning rules),
+     validation checks (how to verify migration completeness and correctness), and rollback
+     procedure (how to revert if migration fails). If no legacy data exists, note below and skip
+     the rest of this section.
+     Format: Prose with sub-sections for each migration concern, or structured list
+     Source: Step 1.4.5 — Migration Planning -->
+
+[Document migration plan, or "No legacy data — skip."]
+
+---
+
+## 7. Auth & Identity Strategy
+<!-- Last Updated: YYYY-MM-DD -->
+<!-- Authentication and authorization approach. Covers: auth provider or mechanism (e.g., JWT,
+     session cookies, OAuth, API keys), identity model (who are the actors, what roles exist),
+     permission model (RBAC, ABAC, or other), session lifecycle, and token storage strategy.
+     If this project has no user accounts, note that below and skip the rest of this section.
+     Format: Prose with sub-sections, or "N/A — no user authentication."
+     Source: Step 1.4 — Auth Design -->
+
+[Document authentication provider, authorization model, session strategy, or "N/A — no user authentication."]
+
+---
+
+## 8. Observability & Logging Strategy
+<!-- Last Updated: YYYY-MM-DD -->
+<!-- Structured logging configuration that must be in place from Phase 2 initialization (Day 1).
+     Document: timestamp format (ISO 8601 recommended), severity levels used (DEBUG/INFO/WARN/ERROR
+     or equivalent), correlation ID generation and propagation strategy, log storage destination
+     (local file, cloud service, etc.), error tracking service (e.g., Sentry, Datadog), and alert
+     thresholds. Retroactively adding observability is expensive — this is locked in before code.
+     Format: Structured list or sub-sections
+     Source: Step 1.4 — Observability Design -->
+
+[Document log format, severity levels, correlation ID strategy, storage, and error tracking service]
+
+---
+
+## 9. UI Component Specifications
+<!-- Last Updated: YYYY-MM-DD -->
+<!-- Component inventory with props, state, and interaction patterns. For each screen or major
+     component: list the component name, its responsibilities, key props/inputs, local vs global
+     state, and user interaction flows. Document the state management approach (local state,
+     context, store library). Include accessibility considerations per component.
+     For non-UI projects (APIs, CLI tools): document the interface specification instead
+     (endpoint list, CLI command structure, input/output contracts).
+     Format: Component inventory table + per-component prose, or interface spec
+     Source: Step 1.4 — UI/Interface Design -->
+
+[Document component inventory and specifications, or interface specification for non-UI projects]
+
+---
+
+## 10. Coding Standards
+<!-- Last Updated: YYYY-MM-DD -->
+<!-- Linting rules, formatting configuration, naming conventions, and "never do this" rules.
+     These standards are enforced by automated tooling and documented here so the AI agent
+     applies them consistently in every code generation task. Also documented in CONTRIBUTING.md
+     for human reference. Include: linter and formatter config references, naming conventions
+     by construct type (files, variables, functions, classes, constants), import ordering rules,
+     comment style, and explicit "never do" prohibitions (e.g., no raw SQL, no console.log in
+     production, no secrets in code).
+     Format: Structured list with sub-sections by concern
+     Source: Team/project standards, established during Phase 1 -->
+
+[Document linting config, formatter config, naming conventions, and prohibited patterns]
+
+---
+
+## 11. Build & Distribution Strategy
+<!-- Last Updated: YYYY-MM-DD -->
+<!-- Platform-specific build pipeline, packaging format, distribution channels, and code signing
+     requirements. Document: build tool and invocation (e.g., npm run build, make, cargo build),
+     output format and location, environment-specific build variants (dev/staging/prod),
+     distribution channel (app store, package registry, direct download, CDN), code signing
+     or notarization requirements, and CI/CD pipeline that executes this.
+     Reference your Platform Module for platform-specific details.
+     Format: Prose with sub-sections per environment/channel
+     Source: Platform Module + Step 1.2 Architecture decisions -->
+
+[Document build pipeline, packaging, distribution channels, and signing requirements]
+
+---
+
+## 12. Test Strategy
+<!-- Last Updated: YYYY-MM-DD -->
+<!-- What is tested, what tools are used, what constitutes pass/fail, and entry/exit criteria for
+     Phase 3. This is the project's authoritative test plan. Add project-specific test types and
+     tools in place of the bracketed placeholders. The SAST, dependency, secret detection, and
+     license rows are mandatory for all projects. Update the Bug Severity and UAT tables to match
+     project context.
+     Format: Tables
+     Source: Step 1.4 — Test Planning -->
+
+| Test Type | Tool | What It Covers | Pass Criteria | Phase |
+|---|---|---|---|---|
+| Unit | [framework] | Individual functions/methods | All pass, >80% coverage | 2 |
+| Integration | [framework] | Component interactions | All pass | 2-3 |
+| E2E | [framework] | Full user journeys | All pass | 3 |
+| SAST | Semgrep | Static vulnerability analysis | Zero critical/high | 2-3 |
+| Dependency | Snyk | Known vulnerabilities in dependencies | Zero critical/high | 2-3 |
+| Secret Detection | gitleaks | Hardcoded secrets | Zero findings | 2-3 |
+| License | [tool] | License compliance | No copyleft in dependencies | 2-3 |
+| Accessibility | [tool] | WCAG AA compliance | Score >= target | 3 |
+| Performance | [tool] | Startup, latency, memory | Within targets | 3 |
+
+### Bug Severity Classification
+
+| Severity | Definition | Examples | Can Defer? |
+|---|---|---|---|
+| **SEV-1** | Data loss, security breach, app crash on core flow | Auth bypass, database corruption, crash on login | No — must fix immediately |
+| **SEV-2** | Feature broken but workaround exists, significant UX failure | Form submits wrong data, layout broken on one platform | Yes — must resolve or remove feature at Phase 2→3 gate |
+| **SEV-3** | Minor UX issue, cosmetic, non-core edge case | Alignment off, tooltip truncated, rare edge case | Yes |
+| **SEV-4** | Enhancement, suggestion, polish | "Would be nice if..." | Automatic Post-MVP |
+
+### UAT Plan
+
+| Field | Value |
+|---|---|
+| Testing interval | Every [N] features |
+| Human tester count | [N] |
+| Bug tracking tool | [tool or BUGS.md] |
+| UAT format | Interactive HTML (tests/uat/templates/test-session-template.html) |
+
+---
+
+## 13. Orchestrator Profile Summary
+<!-- Last Updated: YYYY-MM-DD -->
+<!-- Competency gaps and the automated tooling that compensates for each gap. The AI agent cannot
+     reliably self-validate in all domains — this table makes the gap explicit and assigns a tool
+     to cover it. Populated from Intake Section 6.2 (orchestrator self-assessment) and Manifesto
+     Appendix B. Update "Can Validate?" to Yes/No based on the specific orchestrator profile used.
+     Format: Table
+     Source: Intake Section 6.2 + Manifesto Appendix B -->
+
+| Domain | Can Validate? | If No: Automated Tool |
+|---|---|---|
+| Product/UX Logic | | Manual review / user testing |
+| Frontend/UI Code | | Automated linting |
+| Backend / API / Core Logic | | Automated testing |
+| Database / Data Storage | | Query analysis, migration testing |
+| Security | | SAST, dependency scanning, DAST |
+| Build & Packaging | | CI verification |
+| Accessibility | | Automated accessibility tooling |
+| Performance | | Profiling tools, benchmarks |
+| Platform-Specific | | Platform-specific testing suites |
+
+---
+
+## 14. Accessibility Requirements
+<!-- Last Updated: YYYY-MM-DD -->
+<!-- From Intake Section 9. WCAG level target (A, AA, or AAA), Lighthouse accessibility score
+     target, any specific requirements (keyboard navigation, screen reader support, color contrast
+     ratios, focus management). These requirements gate Phase 3 acceptance. For non-UI projects,
+     note "N/A — no UI" and describe any applicable accessibility considerations (e.g., CLI help
+     text quality, API error message clarity).
+     Format: Structured list
+     Source: Intake Section 9 — Accessibility Requirements -->
+
+[Document WCAG level target, Lighthouse score target, and specific accessibility requirements]
+
+---
+
+## 15. Platform-Specific Requirements
+<!-- Last Updated: YYYY-MM-DD -->
+<!-- From your Platform Module. Platform-specific architecture decisions, SDK requirements, target
+     OS versions, distribution requirements, and constraints that differ from generic web/server
+     development. Examples: minimum iOS/Android SDK version, macOS notarization requirements,
+     Windows code signing, browser compatibility targets, Node.js version floor, container runtime
+     requirements. Include any platform review process requirements (e.g., App Store guidelines).
+     Format: Structured list grouped by platform
+     Source: Platform Module selected during Phase 0 -->
+
+[Document platform-specific SDK requirements, target OS versions, and distribution constraints]
+
+---
+
+## 16. Context Management Plan
+<!-- Last Updated: YYYY-MM-DD -->
+<!-- How the Bible is provided to the AI agent as context across sessions. As the project grows,
+     the full Bible may exceed context window limits. This section defines the scaling strategy
+     selected for this project. Update this section when project size crosses a threshold boundary.
+     Format: Structured list
+     Source: Established during Phase 1 setup -->
+
+- **Small projects (<30 files):** Full Bible per session
+- **Medium projects (30-100 files):** Module-level summaries + master index
+- **Large projects (>100 files):** Condensed Bible Index under 5,000 tokens

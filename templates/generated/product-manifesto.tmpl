@@ -1,0 +1,220 @@
+# Product Manifesto — [Project Name]
+
+<!--
+  This document is the foundational artifact produced during Phase 0.
+  It defines what the product does, who it serves, and what is in/out of scope.
+  It is the north star for all subsequent phases.
+
+  Completion gates entry to Phase 1. All 8 numbered sections must be filled out.
+  Appendices are track-conditional — see inline notes.
+
+  Do not alter headings or remove sections. Add content within the placeholders.
+-->
+
+**Status:** Draft | Approved
+**Approved By:** [Orchestrator name]
+**Approval Date:** YYYY-MM-DD
+**Phase Gate:** Phase 0 → Phase 1
+
+---
+
+## 1. Product Intent
+
+<!-- Source: Phase 0 Step 0.4. See builders-guide.md for the full prompt and review checklist. -->
+
+[One paragraph. What does this product do and why does it exist? This is the north star statement. Be specific: name the problem, the user, and the outcome. Architecture that contradicts this statement is rejected. Features not serving this intent are not built.]
+
+---
+
+## 2. Functional Requirements
+
+<!-- Source: Phase 0 Step 0.1. See builders-guide.md for the full prompt and review checklist. -->
+
+### Must-Have (MVP)
+
+[Features that ship first. For each requirement, use the format:
+- **[Feature Name]:** If [condition], the system must [action] and output [result]. Failure state: [what happens when this fails — error message, fallback behavior, or explicit non-recovery].]
+
+### Should-Have (v1.1)
+
+[Features targeted for the release immediately after MVP. These are planned but not committed. Each item should be specific enough to scope — not "better UX" but "users can reset their password without contacting support."]
+
+### Will-Not-Have
+
+[Explicit scope boundaries for this release. At least 3 items. If something is commonly assumed to be included in a product like this, list it here to prevent scope creep. Format: "**[Feature]:** [Why it is excluded or deferred]." ]
+
+---
+
+## 3. User Journeys
+
+<!-- Source: Phase 0 Step 0.2. See builders-guide.md for the full prompt and review checklist. -->
+
+### Persona
+
+- **Who:** [Role, title, or demographic]
+- **Skill Level:** [Technical proficiency relevant to this product]
+- **Goal:** [What they are trying to accomplish in one sentence]
+- **Emotional State on Arrival:** [Frustrated? Curious? Under time pressure? This affects UI and error message tone.]
+
+### Success Path
+
+[3–5 steps. For each step:]
+
+1. **[Step Name]:** User sees [what is on screen or in their environment]. User does [action]. System responds with [specific outcome].
+2. **[Step Name]:** User sees [what is on screen or in their environment]. User does [action]. System responds with [specific outcome].
+3. **[Step Name]:** User sees [what is on screen or in their environment]. User does [action]. System responds with [specific outcome].
+
+### Failure Recovery
+
+[For each step in the Success Path, define what happens on bad input, lost connectivity, or mid-flow abandonment. Format: "**Step [N]:** [failure condition] → [system response and recovery path]."]
+
+### Exit Points
+
+[Where might a user abandon the flow? List each exit point and a recovery strategy. Example: "User leaves after Step 2 without completing → system saves partial state for 48 hours and shows a resume prompt on next visit."]
+
+---
+
+## 4. Data Contracts
+
+<!-- Source: Phase 0 Step 0.3. See builders-guide.md for the full prompt and review checklist. -->
+
+### Inputs
+
+[For each input the system accepts: **[Input name]:** Type: [data type]. Validation rules: [constraints, format, range]. Sensitivity: [Public / Internal / Confidential / Restricted].]
+
+### Transformations
+
+[Each processing step the system performs on data, expressed as a discrete operation. Format: **[Step N]:** [Input] → [Operation] → [Output]. No black boxes — if you cannot describe the transformation, it is not ready to build.]
+
+### Outputs
+
+[For each output the system produces: **[Output name]:** Format: [file type, API response shape, display format]. Latency expectation: [acceptable wait time from user perspective].]
+
+### Third-Party Data
+
+[For each external API or data source: **[Source name]:** Used for: [purpose]. Fallback if unavailable: [degraded behavior or error handling]. Caching: [TTL or none].]
+
+### State
+
+[What persists across sessions vs. what is ephemeral. Format: **[Data element]:** Persists / Ephemeral. If persists: [where stored, retention period].]
+
+---
+
+## 5. MVP Cutline
+
+<!--
+  This is a hard line. Features listed above this line ship first.
+  Everything below this line goes to the Post-MVP Backlog.
+  This cutline governs Phase 2 — features not above this line are not built.
+  Do not move items above the line without Orchestrator approval and a recorded decision.
+-->
+
+**Above the line (MVP — ships first):**
+- [Feature or requirement from Section 2 Must-Have list]
+- [Feature or requirement from Section 2 Must-Have list]
+- [Add all Must-Have items here]
+
+---
+
+**CUTLINE — nothing below this line is built in Phase 2 without Orchestrator approval**
+
+---
+
+**Below the line (Post-MVP — see Section 6):**
+- [Feature from Should-Have list or deferred Must-Have]
+- [Feature from Should-Have list or deferred Must-Have]
+
+---
+
+## 6. Post-MVP Backlog
+
+<!--
+  Items here are candidates, not commitments.
+  Prioritized by user feedback after launch, not by this document.
+  Do not assign sprints or dates to items in this section.
+-->
+
+[List items from the Should-Have list and any other deferred features. No priority ordering — that happens after launch based on real usage data. Each item: what it is, and what user signal would justify building it.]
+
+---
+
+## 7. Will-Not-Have List
+
+<!-- Source: Phase 0 Step 0.1. See builders-guide.md for the full prompt and review checklist. -->
+
+[Explicit scope boundaries that apply to the entire product, not just the MVP. At least 3 items. These are not deferred features — they are out of scope. If a future stakeholder asks why something was not built, the answer is here.
+
+Format: **[Feature or capability]:** [Reason for explicit exclusion — too complex, out of domain, covered by another tool, deliberate simplification, etc.]]
+
+---
+
+## 8. Open Questions
+
+<!-- Source: Phase 0 Steps 0.1–0.3. See builders-guide.md for the full prompt and review checklist. -->
+
+[Anything flagged during Steps 0.1–0.3 that requires the Orchestrator's decision before Phase 1 can begin. Each question must be resolved before the Phase 0 → Phase 1 gate is approved. Format:
+
+**Q[N]: [Question]**
+- Context: [Why this question arose — what ambiguity or conflict triggered it]
+- Options: [If applicable, enumerate the choices]
+- Decision needed by: Phase 0 gate
+- Status: Open / Resolved — [resolution if resolved]]
+
+---
+
+## Appendix A: Revenue Model & Unit Economics
+
+<!-- Standard+ Track only. Skip for internal tools. Source: Step 0.5. See builders-guide.md for the full prompt and review checklist. -->
+
+**Pricing Model:** [Free / Freemium / Subscription / One-time purchase / Usage-based / Enterprise license. Describe the model briefly.]
+
+**Per-User Costs:** [Estimated infrastructure, API, and support cost per active user per month. Show your math.]
+
+**Break-Even User Count:** [Number of paying users required to cover ongoing operating costs at the chosen price point.]
+
+**Hosting Cost Ceiling:**
+- At 1,000 users: $[X]/month
+- At 10,000 users: $[X]/month
+
+[If either number is unacceptable, the pricing model or architecture must change before Phase 1. Do not proceed with an architecture that produces unsustainable unit economics.]
+
+---
+
+## Appendix B: Orchestrator Competency Matrix
+
+<!-- Source: Step 0.6. See builders-guide.md for the full prompt and review checklist. -->
+
+Self-assessment of your ability to validate AI-generated output in each domain. Honest assessment here determines where human review is the control vs. where an automated tool is needed.
+
+| Domain | Can I Validate? | If No: Automated Tool |
+|---|---|---|
+| Product / UX Logic | Yes / No | — |
+| Frontend / UI | Yes / No | [Tool, e.g., Storybook, Playwright visual] |
+| Backend / API | Yes / No | [Tool, e.g., contract tests, Postman] |
+| Database | Yes / No | [Tool, e.g., migration dry-run, schema diff] |
+| Security | Yes / No | [Tool, e.g., Semgrep, gitleaks, Snyk] |
+| Build & Packaging | Yes / No | [Tool, e.g., CI pipeline, release smoke test] |
+| Accessibility | Yes / No | [Tool, e.g., axe-core, NVDA, VoiceOver] |
+| Performance | Yes / No | [Tool, e.g., Lighthouse, k6, Instruments] |
+| Platform-Specific | Yes / No | [Tool specific to web / desktop / mobile] |
+
+[For any domain where you answered No and have no automated tool: either acquire the tooling before Phase 2 or explicitly accept the risk and record it here as a known gap.]
+
+---
+
+## Appendix C: Trademark & Legal Pre-Check
+
+<!-- Standard+ Track only. Source: Step 0.7. See builders-guide.md for the full prompt and review checklist. -->
+
+**Trademark Search:**
+- USPTO search result for "[Product Name]": [Clear / Conflict — describe]
+- WIPO search result for "[Product Name]": [Clear / Conflict — describe]
+- Domain availability: [Available / Taken — note alternatives if taken]
+
+**Data Privacy Applicability:**
+- GDPR applies: Yes / No — [Reason. Applies if any EU users may use the product.]
+- CCPA applies: Yes / No — [Reason. Applies if California residents may use the product.]
+- Other regulations: [HIPAA, FERPA, COPPA, etc. — list any that apply and why.]
+
+**Distribution Channel Requirements:**
+- [App Store / Play Store / Enterprise MDM / Web / Desktop self-hosted]: [Any certification, review, or compliance requirements imposed by the distribution channel — code signing, age rating, privacy policy URL, etc.]

@@ -884,10 +884,11 @@ Direct the agent to produce:
 
 **Parallel execution:** CHANGELOG, interface documentation, and ADRs are independent text-generation tasks. Dispatch as parallel subagents from the same codebase snapshot, then merge results into the Bible update.
 
-- **CHANGELOG.md:** Feature name, date, new interfaces/endpoints/commands.
-- **Interface Documentation:** Every new API endpoint, command, or user-facing interface with contracts and error codes.
-- **Architecture/UX Decision Record:** For non-trivial decisions.
-- **Project Bible Update:** New interfaces, data model changes, new configuration, new dependencies.
+- **CHANGELOG.md:** Use [Keep a Changelog](https://keepachangelog.com/) format with 8 categories ordered by impact: Security, Data Model, Added, Changed, Fixed, Removed, Infrastructure, Documentation. See `templates/generated/changelog.tmpl` for category definitions.
+- **FEATURES.md:** Add a new section for each completed feature using the template structure: summary, key interfaces, related ADRs, test coverage, known limitations. See `templates/generated/features.tmpl`.
+- **Interface Documentation:** Every new API endpoint, command, or user-facing interface with contracts and error codes. Store in `docs/api and interfaces/`. Format is platform-dependent — see your Platform Module.
+- **Architecture/UX Decision Record:** For non-trivial decisions, create a numbered ADR in `docs/ADR documentation/` using the standard template (Status, Context, Decision, Consequences). See `templates/generated/adr.tmpl`. Number sequentially: `0001-title.md`, `0002-title.md`, etc.
+- **Project Bible Update:** New interfaces, data model changes, new configuration, new dependencies. Update the `<!-- Last Updated: YYYY-MM-DD -->` marker on every modified section. Verify cross-section consistency after every update.
 
 Verify the Bible still accurately reflects the codebase. Commit and merge.
 
@@ -1425,24 +1426,32 @@ Direct the agent to generate `HANDOFF.md`:
 
 ## Appendix A: Document Artifacts Produced Per Project
 
-| Artifact | Phase | Purpose |
-|---|---|---|
-| `PRODUCT_MANIFESTO.md` | 0 | Requirements, MVP Cutline, Revenue Model, Competency Matrix |
-| `PROJECT_BIBLE.md` | 1 | Architecture, data model, threat model, test strategy, risks, coding standards, build strategy |
-| Architecture Decision Records | 1-2 | Every major choice with alternatives and rationale |
-| `CONTRIBUTING.md` | 2 | Coding standards for AI reference |
-| `CHANGELOG.md` | 2+ | Feature log, interfaces, data model changes, configuration |
-| Interface Documentation | 2+ | Per-endpoint/command/UI contracts, error codes |
-| Feature Documentation | 2+ | Component behavior, business logic rationale, UX decisions |
-| CI/CD Configuration | 2 | Automated testing, scanning, building, packaging |
-| `docs/test-results/` | 3 | Archived scan reports, E2E results, accessibility audits, threat model validation — audit evidence |
-| `sbom.json` | 3 | Software Bill of Materials |
-| Security Audit Logs | 3 | SAST/DAST results, remediation actions |
-| Performance Baselines | 3 | Metrics for future comparison |
-| `USER_GUIDE.md` | 3 | End-user documentation: how to use the application, FAQ, support contact |
-| `docs/INCIDENT_RESPONSE.md` | 4 | Severity classification, notification chains, rollback |
-| `RELEASE_NOTES.md` | 4 | User-facing: what the app does, known limitations, change history |
-| `HANDOFF.md` | 4 | Complete transfer document |
+| Artifact | Phase | Purpose | Location | Template |
+|---|---|---|---|---|
+| `CLAUDE.md` | 0 (init) | Agent instructions, project state, tool configuration | Root | `claude-md.tmpl` |
+| `PROJECT_INTAKE.md` | 0 (init) | Structured requirements collection | Root | `project-intake.md` |
+| `APPROVAL_LOG.md` | 0 (init) | Phase gate approval audit trail (append-only) | Root | `approval-log-*.tmpl` |
+| `PRODUCT_MANIFESTO.md` | 0 | Requirements, MVP Cutline, Revenue Model, Competency Matrix | Root | `product-manifesto.tmpl` |
+| `PROJECT_BIBLE.md` | 1 | Architecture, data model, threat model, test strategy, coding standards | Root | `project-bible.tmpl` |
+| Architecture Decision Records | 1-2 | Every major choice with alternatives and rationale | `docs/ADR documentation/NNNN-title.md` | `adr.tmpl` |
+| `CONTRIBUTING.md` | 2 | Coding standards for AI reference | Root | — |
+| `FEATURES.md` | 2+ | Living feature index — what each feature does, interfaces, ADRs, test coverage | Root | `features.tmpl` |
+| `CHANGELOG.md` | 2+ | Change log (8 categories, append-only) | Root | `changelog.tmpl` |
+| `BUGS.md` | 2+ | Bug tracking with severity, status, disposition | Root | `bugs.tmpl` |
+| Interface Documentation | 2+ | Per-endpoint/command/UI contracts, error codes | `docs/api and interfaces/` | — |
+| CI/CD Configuration | 2 | Automated testing, scanning, building, packaging | `.github/workflows/` | `pipelines/ci/*.yml`, `pipelines/release/*.yml` |
+| `docs/test-results/` | 3 | Archived scan reports, E2E results, UAT sessions, threat model validation | `docs/test-results/[date]_[type]_[pass|fail].[ext]` | — |
+| `sbom.json` | 3 | Software Bill of Materials | Root (also archived in `docs/test-results/`) | — (tool-generated) |
+| Performance Baselines | 3 | Metrics for future comparison | `docs/test-results/[date]_performance-baseline.[ext]` | — |
+| `USER_GUIDE.md` | 3 | End-user documentation: how to use the application, FAQ, support contact | Root | — |
+| `SECURITY.md` | 4 | Vulnerability reporting — supported versions, reporting mechanism, response time, safe harbor (web/desktop) | Root | — |
+| `docs/INCIDENT_RESPONSE.md` | 4 | Severity classification, notification chains, rollback, containment | `docs/INCIDENT_RESPONSE.md` | `incident-response.tmpl` |
+| `RELEASE_NOTES.md` | 4 | User-facing: what the app does, known limitations, change history (append-only) | Root | `release-notes.tmpl` |
+| `HANDOFF.md` | 4 | Complete transfer document — dev setup, build process, tech debt, AI quick start | Root | `handoff.tmpl` |
+| Phase Gate Snapshots | 0-4 | Point-in-time document snapshots at each phase transition | `docs/snapshots/phase-N-to-M_YYYY-MM-DD/` | — (auto-created) |
+| Compliance Screening Matrix | 0 (org) | Regulatory applicability assessment | Embedded in Intake Section 8.4 | Part of `project-intake.md` |
+| Penetration Test Report | 3 (Standard+) | External security assessment | `docs/test-results/` | — (external) |
+| Handoff Test Results | 4 (org) | Backup maintainer validation results | `docs/test-results/` | — |
 
 ---
 

@@ -1604,7 +1604,7 @@ main() {
       ;;
     3)
       print_info "No problem. Open PROJECT_INTAKE.md in your editor when ready."
-      print_info "See docs/framework/user-guide.md Section 3 for field-by-field guidance."
+      print_info "See docs/reference/user-guide.md Section 3 for field-by-field guidance."
       ;;
     *)
       echo "Invalid choice."

@@ -22,10 +22,11 @@ FEATURE_NAME=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --check-batch)      ACTION="check-batch";      shift ;;
-    --check-phase-gate) ACTION="check-phase-gate";  shift ;;
-    --reset-counter)    ACTION="reset-counter";      shift ;;
-    --record-feature)   ACTION="record-feature"; FEATURE_NAME="$2"; shift 2 ;;
+    --check-batch)        ACTION="check-batch";        shift ;;
+    --check-phase-gate)   ACTION="check-phase-gate";   shift ;;
+    --reset-counter)      ACTION="reset-counter";       shift ;;
+    --reset-health-check) ACTION="reset-health-check"; shift ;;
+    --record-feature)     ACTION="record-feature"; FEATURE_NAME="$2"; shift 2 ;;
     --help|-h)
       echo "Usage: scripts/test-gate.sh [--check-batch] [--check-phase-gate] [--reset-counter] [--record-feature NAME]"
       echo ""
@@ -99,6 +100,10 @@ record_feature() {
     .features_since_last_test += 1 |
     .testing_required = (.features_since_last_test >= .test_interval)
   ' "$BUILD_PROGRESS" > "$tmp" && mv "$tmp" "$BUILD_PROGRESS"
+
+  # Also increment health check counter
+  health_count=$(jq '.features_since_last_health_check // 0' "$BUILD_PROGRESS")
+  jq ".features_since_last_health_check = $((health_count + 1))" "$BUILD_PROGRESS" > "$BUILD_PROGRESS.tmp" && mv "$BUILD_PROGRESS.tmp" "$BUILD_PROGRESS"
 
   local since_last interval
   since_last=$(jq -r '.features_since_last_test' "$BUILD_PROGRESS")
@@ -229,8 +234,14 @@ check_phase_gate() {
 
 # --- Dispatch ---
 case "$ACTION" in
-  check-batch)      check_batch ;;
-  check-phase-gate) check_phase_gate ;;
-  reset-counter)    reset_counter ;;
-  record-feature)   record_feature "$FEATURE_NAME" ;;
+  check-batch)        check_batch ;;
+  check-phase-gate)   check_phase_gate ;;
+  reset-counter)      reset_counter ;;
+  record-feature)     record_feature "$FEATURE_NAME" ;;
+  reset-health-check)
+    ensure_progress_file
+    jq '.features_since_last_health_check = 0' "$BUILD_PROGRESS" > "$BUILD_PROGRESS.tmp" && mv "$BUILD_PROGRESS.tmp" "$BUILD_PROGRESS"
+    echo "Context health check counter reset."
+    exit 0
+    ;;
 esac

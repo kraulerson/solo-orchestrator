@@ -53,7 +53,7 @@ The init script will:
    this project before taking any action:
    1. CLAUDE.md (your instructions and constraints)
    2. PROJECT_INTAKE.md (the product definition)
-   3. docs/framework/builders-guide.md (the phase-gate methodology)
+   3. docs/reference/builders-guide.md (the phase-gate methodology)
    4. docs/platform-modules/<your-platform>.md (platform-specific guidance)
    5. .claude/phase-state.json (current phase)
    After reading, summarize: the project goal, your constraints, the current
@@ -126,6 +126,10 @@ your-project/
 ├── CLAUDE.md                              # Agent instructions (auto-generated)
 ├── PROJECT_INTAKE.md                      # Your product definition (fill this out)
 ├── APPROVAL_LOG.md                        # Phase gate approval record
+├── FEATURES.md                            # Living feature reference
+├── BUGS.md                                # Bug tracking
+├── CHANGELOG.md                           # Change log (8 categories)
+├── RELEASE_NOTES.md                       # User-facing release history
 ├── .github/workflows/
 │   ├── ci.yml                            # CI pipeline — language-specific
 │   └── release.yml                       # Release pipeline — platform-specific
@@ -138,13 +142,16 @@ your-project/
 │   ├── framework-version.txt             # Pinned framework commit SHA
 │   └── phase-state.json                  # Current phase tracking
 ├── docs/
-│   ├── framework/
+│   ├── reference/
 │   │   ├── builders-guide.md              # The complete methodology
 │   │   ├── user-guide.md                 # Step-by-step walkthrough
 │   │   ├── governance-framework.md        # Enterprise governance
 │   │   ├── executive-review.md            # CIO business case
 │   │   ├── cli-setup-addendum.md          # Claude Code configuration
 │   │   └── security-scan-guide.md         # Common scan findings explained
+│   ├── ADR documentation/                 # Architecture Decision Records
+│   ├── api and interfaces/                # Interface/API documentation
+│   ├── snapshots/                         # Phase gate document snapshots
 │   ├── platform-modules/
 │   │   └── [web|desktop|mobile].md        # Platform-specific guidance
 │   └── test-results/                      # Phase 3 test evidence (empty until Phase 3)

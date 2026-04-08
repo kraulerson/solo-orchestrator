@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- AGENT: Replace __SESSION_TITLE__ with the session title, e.g., "UAT Session 4" -->
+<title>__SESSION_TITLE__</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #0f0f17; color: #cdd6f4; line-height: 1.5; padding: 24px; max-width: 960px; margin: 0 auto; }
+  h1 { font-size: 1.6rem; margin-bottom: 4px; }
+  .meta { color: #a6adc8; font-size: 0.9rem; margin-bottom: 24px; }
+  .progress-bar { background: #1e1e2e; border-radius: 8px; height: 8px; margin-bottom: 24px; overflow: hidden; }
+  .progress-fill { background: #a6e3a1; height: 100%; width: 0%; transition: width 0.3s; }
+  .progress-text { text-align: center; color: #a6adc8; font-size: 0.85rem; margin-bottom: 24px; }
+  h2 { font-size: 1.2rem; color: #89b4fa; margin: 32px 0 16px; padding-bottom: 8px; border-bottom: 1px solid #313244; }
+  .fixture-ref { background: #11111b; border: 1px solid #313244; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 0.85rem; color: #a6adc8; }
+  .fixture-ref strong { color: #cdd6f4; }
+  .fixture-ref code { background: #313244; padding: 2px 6px; border-radius: 3px; color: #f9e2af; }
+  .scenario { background: #1e1e2e; border-radius: 8px; margin-bottom: 12px; overflow: hidden; border-left: 4px solid #45475a; transition: border-color 0.2s; }
+  .scenario.pass { border-left-color: #a6e3a1; }
+  .scenario.fail { border-left-color: #f38ba8; }
+  .scenario-header { padding: 12px 16px; display: flex; align-items: center; gap: 12px; }
+  .scenario-num { background: #313244; color: #a6adc8; font-size: 0.8rem; font-weight: 600; padding: 2px 8px; border-radius: 4px; min-width: 28px; text-align: center; }
+  .scenario-title { flex: 1; font-weight: 500; }
+  .btn-group { display: flex; gap: 4px; }
+  .btn { padding: 6px 14px; border: 1px solid #45475a; border-radius: 4px; background: transparent; color: #cdd6f4; cursor: pointer; font-size: 0.85rem; transition: all 0.15s; }
+  .btn:hover { background: #313244; }
+  .btn.pass-btn.active { background: #a6e3a1; color: #1e1e2e; border-color: #a6e3a1; font-weight: 600; }
+  .btn.fail-btn.active { background: #f38ba8; color: #1e1e2e; border-color: #f38ba8; font-weight: 600; }
+  .btn.skip-btn.active { background: #f9e2af; color: #1e1e2e; border-color: #f9e2af; font-weight: 600; }
+  .scenario-details { padding: 0 16px 8px 16px; display: none; }
+  .scenario-details.open { display: block; }
+  .steps { background: #11111b; padding: 10px 14px; border-radius: 4px; font-size: 0.85rem; color: #a6adc8; margin-bottom: 8px; }
+  .steps strong { color: #cdd6f4; }
+  .scenario-notes { padding: 4px 16px 12px 16px; }
+  .notes-input { width: 100%; background: #11111b; border: 1px solid #45475a; color: #cdd6f4; padding: 8px 12px; border-radius: 4px; font-size: 0.85rem; font-family: inherit; resize: vertical; min-height: 36px; }
+  .notes-input:focus { outline: none; border-color: #89b4fa; }
+  .toggle-details { background: none; border: none; color: #6c7086; cursor: pointer; font-size: 0.75rem; padding: 4px 8px; }
+  .toggle-details:hover { color: #89b4fa; }
+  .bugs-section { margin-top: 40px; }
+  .bug-entry { background: #1e1e2e; border-radius: 8px; padding: 16px; margin-bottom: 12px; border-left: 4px solid #f38ba8; }
+  .bug-row { display: flex; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
+  .bug-field { flex: 1; min-width: 200px; }
+  .bug-field label { display: block; color: #a6adc8; font-size: 0.8rem; margin-bottom: 4px; }
+  .bug-field input, .bug-field select, .bug-field textarea { width: 100%; background: #11111b; border: 1px solid #45475a; color: #cdd6f4; padding: 8px 12px; border-radius: 4px; font-size: 0.85rem; font-family: inherit; }
+  .bug-field textarea { resize: vertical; min-height: 60px; }
+  .bug-field input:focus, .bug-field select:focus, .bug-field textarea:focus { outline: none; border-color: #89b4fa; }
+  .bug-field select { appearance: auto; }
+  .add-bug-btn { background: #313244; border: 1px dashed #45475a; color: #a6adc8; padding: 10px; border-radius: 8px; width: 100%; cursor: pointer; font-size: 0.85rem; margin-bottom: 12px; }
+  .add-bug-btn:hover { border-color: #f38ba8; color: #f38ba8; }
+  .remove-bug { background: none; border: none; color: #f38ba8; cursor: pointer; font-size: 0.8rem; float: right; }
+  .overall-notes { margin-top: 32px; }
+  .overall-notes textarea { width: 100%; background: #11111b; border: 1px solid #45475a; color: #cdd6f4; padding: 12px; border-radius: 8px; font-size: 0.9rem; font-family: inherit; resize: vertical; min-height: 100px; }
+  .overall-notes textarea:focus { outline: none; border-color: #89b4fa; }
+  .export-section { margin-top: 32px; text-align: center; padding: 24px; }
+  .export-btn { background: #89b4fa; color: #1e1e2e; border: none; padding: 12px 32px; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; }
+  .export-btn:hover { background: #74c7ec; }
+  .export-btn:active { transform: scale(0.98); }
+  .copy-msg { color: #a6e3a1; margin-top: 8px; font-size: 0.85rem; display: none; }
+</style>
+</head>
+<body>
+
+<!-- AGENT: Replace __SESSION_TITLE__ with the session title, e.g., "UAT Session 4" -->
+<h1>__SESSION_TITLE__</h1>
+<!-- AGENT: Replace __SESSION_DATE__ with the date in YYYY-MM-DD format -->
+<!-- AGENT: Replace __SESSION_FEATURES__ with comma-separated feature names being tested -->
+<div class="meta">Date: __SESSION_DATE__ | Features: __SESSION_FEATURES__ | Tester: <input id="tester-name" type="text" placeholder="Your name" style="background:#1e1e2e;border:1px solid #45475a;color:#cdd6f4;padding:4px 8px;border-radius:4px;font-size:0.85rem;width:140px;"></div>
+
+<div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+<div class="progress-text" id="progress-text">0 / 0 completed</div>
+
+<!--
+  AGENT: Replace __FEATURE_SECTIONS__ with one block per feature being tested.
+  Each block must follow this exact structure:
+
+  <h2>Feature N: [Feature Name]</h2>
+  <div class="fixture-ref">
+    <strong>Test files</strong> (optional — include only if test fixtures exist):<br>
+    <code>filename.ext</code> — description of the test file<br>
+  </div>
+  <div id="featureN"></div>
+
+  RULES:
+  - The fixture-ref div is OPTIONAL. Omit it if there are no test fixture files.
+  - The div id MUST be "feature" + the feature number (e.g., id="feature7").
+  - The feature number in the div id MUST match the "feature" field in __SCENARIOS_JSON__.
+  - The renderScenarios() function routes scenarios to these divs by feature number.
+-->
+__FEATURE_SECTIONS__
+
+<div class="bugs-section">
+  <h2>Bugs Found</h2>
+  <div id="bugs-list"></div>
+  <button class="add-bug-btn" onclick="addBug()">+ Add Bug</button>
+</div>
+
+<div class="overall-notes">
+  <h2>Overall Notes</h2>
+  <textarea id="overall-notes" placeholder="Free-form observations, UX concerns, suggestions, things that felt wrong even if they technically worked..."></textarea>
+</div>
+
+<div class="export-section">
+  <button class="export-btn" onclick="exportResults()">Copy Results to Clipboard</button>
+  <div class="copy-msg" id="copy-msg">Copied! Paste into terminal or save to submissions folder.</div>
+</div>
+
+<script>
+// AGENT INSTRUCTIONS: Replace __SCENARIOS_JSON__ with a JavaScript array.
+// Each element MUST be an object with ALL of the following fields.
+// Do not omit any field. Do not add fields not listed here.
+// Do not modify any code outside the __PLACEHOLDER__ tokens.
+//
+// SCHEMA:
+// [
+//   {
+//     "id": number,        // Sequential integer starting at 1, unique across all features
+//     "feature": number,   // Feature number this scenario tests (must match a __FEATURE_SECTIONS__ div id)
+//     "title": string,     // Short imperative description, e.g., "Repair fills holes on open mesh"
+//     "steps": string,     // Numbered steps separated by \\n, e.g., "1. Open file\\n2. Click Analyze"
+//     "expected": string   // What should happen if the feature works correctly
+//   }
+// ]
+//
+// EXAMPLE (do not copy verbatim — write scenarios specific to the features under test):
+// [
+//   {
+//     "id": 1,
+//     "feature": 7,
+//     "title": "Repair disabled after clean analysis",
+//     "steps": "1. Open cube.stl\\n2. Click Analyze (A)\\n3. Check Repair button",
+//     "expected": "Repair button stays disabled. Analysis shows 0 holes, 0 degenerate faces."
+//   }
+// ]
+const scenarios = __SCENARIOS_JSON__;
+
+function renderScenarios() {
+  scenarios.forEach(s => {
+    const container = document.getElementById('feature' + s.feature);
+    if (!container) return;
+    container.innerHTML += '<div class="scenario" id="scenario-' + s.id + '">' +
+      '<div class="scenario-header">' +
+        '<span class="scenario-num">' + s.id + '</span>' +
+        '<span class="scenario-title">' + s.title + '</span>' +
+        '<button class="toggle-details" onclick="toggleDetails(' + s.id + ')">details</button>' +
+        '<div class="btn-group">' +
+          '<button class="btn pass-btn" onclick="setResult(' + s.id + ',\'pass\',this)">Pass</button>' +
+          '<button class="btn fail-btn" onclick="setResult(' + s.id + ',\'fail\',this)">Fail</button>' +
+          '<button class="btn skip-btn" onclick="setResult(' + s.id + ',\'skip\',this)">Skip</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="scenario-details" id="details-' + s.id + '">' +
+        '<div class="steps"><strong>Steps:</strong><br>' + s.steps.replace(/\n/g,'<br>') + '</div>' +
+        '<div class="steps"><strong>Expected:</strong><br>' + s.expected + '</div>' +
+      '</div>' +
+      '<div class="scenario-notes">' +
+        '<textarea class="notes-input" id="notes-' + s.id + '" placeholder="Notes — observations, issues, anything worth recording"></textarea>' +
+      '</div>' +
+    '</div>';
+  });
+}
+
+const results = {};
+
+function setResult(id, result, btn) {
+  results[id] = result;
+  const sc = document.getElementById('scenario-' + id);
+  sc.className = 'scenario ' + (result === 'skip' ? '' : result);
+  sc.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  updateProgress();
+}
+
+function toggleDetails(id) {
+  document.getElementById('details-' + id).classList.toggle('open');
+}
+
+function updateProgress() {
+  const done = Object.keys(results).length;
+  const pct = (done / scenarios.length * 100).toFixed(0);
+  document.getElementById('progress-fill').style.width = pct + '%';
+  document.getElementById('progress-text').textContent = done + ' / ' + scenarios.length + ' completed';
+}
+
+var bugCount = 0;
+// AGENT: Replace __FEATURE_OPTIONS__ (inside the addBug function below) with one
+// JS string fragment per feature being tested, concatenated into the select's innerHTML.
+// Example:
+//   '<option>7 - Mesh Repair</option><option>8 - Scale/Rotate/Mirror</option>'
+// The number must match the feature numbers used in __SCENARIOS_JSON__ and __FEATURE_SECTIONS__.
+function addBug() {
+  bugCount++;
+  var n = bugCount;
+  document.getElementById('bugs-list').innerHTML +=
+    '<div class="bug-entry" id="bug-' + n + '">' +
+      '<button class="remove-bug" onclick="document.getElementById(\'bug-' + n + '\').remove()">remove</button>' +
+      '<div class="bug-row">' +
+        '<div class="bug-field"><label>Severity</label><select id="bug-sev-' + n + '">' +
+          '<option>SEV-1 (crash/data loss)</option><option>SEV-2 (broken, workaround exists)</option>' +
+          '<option selected>SEV-3 (minor UX)</option><option>SEV-4 (polish/enhancement)</option>' +
+        '</select></div>' +
+        '<div class="bug-field"><label>Feature</label><select id="bug-feat-' + n + '">' +
+          '__FEATURE_OPTIONS__' +
+        '</select></div>' +
+      '</div>' +
+      '<div class="bug-field"><label>Description</label><input id="bug-desc-' + n + '" placeholder="What went wrong?"></div>' +
+      '<div class="bug-field" style="margin-top:8px"><label>Steps to Reproduce</label><textarea id="bug-steps-' + n + '" placeholder="1. ...\n2. ...\n3. ..."></textarea></div>' +
+      '<div class="bug-field" style="margin-top:8px"><label>Expected vs Actual</label><textarea id="bug-exp-' + n + '" placeholder="Expected: ...\nActual: ..."></textarea></div>' +
+    '</div>';
+}
+
+function exportResults() {
+  var tester = document.getElementById('tester-name').value || 'Unknown';
+  var md = '# ' + document.querySelector('h1').textContent + ' Results\n\n';
+  md += '**Date:** __SESSION_DATE__\n';
+  md += '**Tester:** ' + tester + '\n';
+  md += '**Features:** __SESSION_FEATURES__\n\n';
+
+  var pass = 0, fail = 0, skip = 0;
+  for (var k in results) {
+    if (results[k] === 'pass') pass++;
+    else if (results[k] === 'fail') fail++;
+    else if (results[k] === 'skip') skip++;
+  }
+  var untested = scenarios.length - Object.keys(results).length;
+  md += '**Summary:** ' + pass + ' passed, ' + fail + ' failed, ' + skip + ' skipped, ' + untested + ' not tested\n\n---\n\n';
+
+  md += '## Scenarios\n\n';
+  md += '| # | Scenario | Result | Notes |\n';
+  md += '|---|---|---|---|\n';
+  scenarios.forEach(function(s) {
+    var r = results[s.id] || 'not tested';
+    var icon = r === 'pass' ? 'PASS' : r === 'fail' ? 'FAIL' : r === 'skip' ? 'SKIP' : '-';
+    var el = document.getElementById('notes-' + s.id);
+    var notes = el ? el.value.replace(/\|/g, '/').replace(/\n/g, ' ') : '';
+    md += '| ' + s.id + ' | ' + s.title + ' | ' + icon + ' | ' + notes + ' |\n';
+  });
+
+  var bugEntries = document.querySelectorAll('.bug-entry');
+  if (bugEntries.length > 0) {
+    md += '\n---\n\n## Bugs Found\n\n';
+    var i = 0;
+    bugEntries.forEach(function(el) {
+      i++;
+      var id = el.id.split('-')[1];
+      var sev = document.getElementById('bug-sev-' + id);
+      var feat = document.getElementById('bug-feat-' + id);
+      var desc = document.getElementById('bug-desc-' + id);
+      var steps = document.getElementById('bug-steps-' + id);
+      var exp = document.getElementById('bug-exp-' + id);
+      md += '### Bug ' + i + '\n';
+      md += '- **Severity:** ' + (sev ? sev.value : '') + '\n';
+      md += '- **Feature:** ' + (feat ? feat.value : '') + '\n';
+      md += '- **Description:** ' + (desc ? desc.value : '') + '\n';
+      md += '- **Steps:** ' + (steps ? steps.value.replace(/\n/g, '; ') : '') + '\n';
+      md += '- **Expected vs Actual:** ' + (exp ? exp.value.replace(/\n/g, '; ') : '') + '\n\n';
+    });
+  }
+
+  var overall = document.getElementById('overall-notes').value;
+  if (overall) {
+    md += '\n---\n\n## Overall Notes\n\n' + overall + '\n';
+  }
+
+  navigator.clipboard.writeText(md).then(function() {
+    var msg = document.getElementById('copy-msg');
+    msg.style.display = 'block';
+    setTimeout(function() { msg.style.display = 'none'; }, 3000);
+  });
+}
+
+renderScenarios();
+</script>
+</body>
+</html>

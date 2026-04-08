@@ -248,7 +248,7 @@ The script prompts for 7 inputs:
 | `.github/workflows/release.yml` | Release pipeline — platform-specific (build, sign, distribute) |
 | `.gitignore` | Language + platform appropriate ignores |
 | `.claude/framework/` | Development Guardrails for Claude Code (Git hook guardrails) |
-| `docs/framework/` | Builder's Guide, Governance Framework, Executive Review, CLI Setup Addendum |
+| `docs/reference/` | Builder's Guide, Governance Framework, Executive Review, CLI Setup Addendum |
 | `docs/platform-modules/` | Platform-specific guidance for your selected platform |
 | `docs/test-results/` | Empty — populated during Phase 3 |
 
@@ -268,9 +268,9 @@ The init script also generates **two pipelines**: a CI pipeline (`ci.yml`) selec
 | `.gitignore` | init.sh | Nothing | Add entries as needed |
 | `.claude/framework/` | init.sh (cloned from GitHub) | Nothing | Git hooks are auto-installed |
 | `.claude/phase-state.json` | init.sh | Nothing — updated by scripts | Tracks current phase |
-| `docs/framework/` | init.sh (copied from solo-orchestrator) | Nothing | Reference documents |
+| `docs/reference/` | init.sh (copied from solo-orchestrator) | Nothing | Reference documents |
 | `docs/platform-modules/` | init.sh (copied) | Nothing | Platform-specific guidance |
-| `docs/framework/security-scan-guide.md` | init.sh (copied) | Nothing | Plain-language guide for common scan findings |
+| `docs/reference/security-scan-guide.md` | init.sh (copied) | Nothing | Plain-language guide for common scan findings |
 | `scripts/intake-wizard.sh` | init.sh (copied) | Run to fill out the Intake | Guided script or AI-assisted conversation |
 | `scripts/resume.sh` | init.sh (copied) | Run at session start | Generates resume prompt from project state |
 | `templates/intake-suggestions/` | init.sh (copied) | Nothing | Context-aware suggestions for the wizard |
@@ -446,7 +446,7 @@ Section 12 of the Intake contains a ready-to-use initialization prompt. Copy and
 - Hard constraints are absolute; preferences can be challenged with justification
 - Blank fields must be flagged immediately
 
-You also provide the Builder's Guide (`docs/framework/builders-guide.md`) and the relevant Platform Module.
+You also provide the Builder's Guide (`docs/reference/builders-guide.md`) and the relevant Platform Module.
 
 ### The Agent's Operating Model
 

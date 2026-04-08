@@ -1222,7 +1222,7 @@ fi
 
 if [ "$TRACK_CHANGES" = true ]; then
   print_info "Track upgraded to $TARGET_TRACK. Review new requirements:"
-  echo "  - Check docs/framework/builders-guide.md for $TARGET_TRACK track requirements"
+  echo "  - Check docs/reference/builders-guide.md for $TARGET_TRACK track requirements"
   echo "  - Run scripts/resolve-tools.sh to verify all tools are installed"
   echo ""
 fi

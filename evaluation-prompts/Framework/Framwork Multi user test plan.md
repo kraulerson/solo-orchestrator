@@ -232,7 +232,7 @@ For each phase:
 - [ ] `.github/workflows/ci.yml` exists and matches the language template
 - [ ] `.github/workflows/release.yml` exists and matches the platform template
 - [ ] `.gitignore` contains language + platform specific entries
-- [ ] `docs/framework/` contains all 6 framework documents
+- [ ] `docs/reference/` contains all 6 framework documents
 - [ ] `docs/platform-modules/` contains the correct platform module (or is empty for "other")
 - [ ] `scripts/` contains all 11 utility scripts, all executable
 - [ ] `templates/intake-suggestions/` contains JSON files

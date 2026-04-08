@@ -29,7 +29,7 @@ The CLAUDE.md template instructs the agent to write tests first, then implement.
 The framework partially addresses this with the "Agent Personas" table in CLAUDE.md (e.g., "QA Test Engineer: Tests catch bugs, not confirm code works"). This is advisory guidance (Tier 3). There is no mechanical enforcement that the AI actually adopted a skeptical testing posture. A determined AI will produce plausible tests that an Orchestrator, who is not a security specialist, will approve.
 
 **Attack Path 2 -- Predictable Patterns for Fingerprinting:**
-All projects built with this framework share structural fingerprints: identical CI pipeline templates (Semgrep action pinned to `713efdd345f3035192eaa63f56867b88e63e4e5d`, gitleaks pinned to `ff98106e4c7b2bc287b24eaf42907196329070c7`), identical `.gitignore` base templates, `CLAUDE.md` with a known structure, `.claude/phase-state.json`, `APPROVAL_LOG.md`, `docs/framework/` directory. An attacker can trivially fingerprint a Solo Orchestrator project by checking for any of these. This enables targeted attacks: once one SOI project is compromised, the attacker has a template for all of them.
+All projects built with this framework share structural fingerprints: identical CI pipeline templates (Semgrep action pinned to `713efdd345f3035192eaa63f56867b88e63e4e5d`, gitleaks pinned to `ff98106e4c7b2bc287b24eaf42907196329070c7`), identical `.gitignore` base templates, `CLAUDE.md` with a known structure, `.claude/phase-state.json`, `APPROVAL_LOG.md`, `docs/reference/` directory. An attacker can trivially fingerprint a Solo Orchestrator project by checking for any of these. This enables targeted attacks: once one SOI project is compromised, the attacker has a template for all of them.
 
 **Attack Path 3 -- Poisoned Dependencies via AI Suggestion:**
 The AI may suggest packages based on training data that includes typosquatted or abandoned package names. The framework mitigates this with dependency auditing (Snyk/npm audit/pip-audit in CI) and license checking. However, there is a window between `npm install <suggested-package>` in a development session and the next CI run where a malicious post-install script could execute. The pre-commit hook does not check newly installed dependencies -- it checks secrets and SAST on staged source files.
@@ -172,7 +172,7 @@ The Context7 MCP (`npx -y @upstash/context7-mcp@latest`) fetches library documen
 **Reconnaissance:**
 1. Check for `/.well-known/` or response headers that reveal the hosting platform (Vercel adds `x-vercel-id`, Railway adds `x-railway-*`).
 2. View page source -- look for `_next/` paths (Next.js), `__NEXT_DATA__` script tags, or framework-specific markers.
-3. Check for `CLAUDE.md`, `.claude/phase-state.json`, or `docs/framework/` in the Git repository (if public). These immediately identify a Solo Orchestrator project.
+3. Check for `CLAUDE.md`, `.claude/phase-state.json`, or `docs/reference/` in the Git repository (if public). These immediately identify a Solo Orchestrator project.
 4. Check GitHub for the repository -- Solo Orchestrator projects have a distinctive file structure. The CI pipeline YAML is templated and recognizable.
 5. Look at the commit history -- Solo Orchestrator projects have a characteristic initial commit message: `"chore: initialize Solo Orchestrator project"` with metadata lines for Project, Platform, Track, and Framework.
 

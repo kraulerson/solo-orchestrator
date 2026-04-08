@@ -915,12 +915,17 @@ The framework generates the following documentation artifacts across the project
 
 | Artifact | Phase | Purpose | Audit Value |
 |---|---|---|---|
+| `CLAUDE.md` | 0 | AI agent operating instructions and project context | Process consistency evidence |
+| `PROJECT_INTAKE.md` | 0 | Product definition, constraints, and requirements | Requirements baseline |
 | `PRODUCT_MANIFESTO.md` | 0 | What the product does, for whom, and why | Business justification evidence |
 | Compliance Screening Matrix | 0 | Regulatory applicability assessment | Compliance due diligence |
 | `APPROVAL_LOG.md` | 0-4 | Structured record of all pre-condition and phase gate approvals | Governance trail — append-only, machine-parseable |
+| Phase Gate Snapshots | 0-4 | Point-in-time snapshots of key documents at each phase gate | Immutable audit record per phase |
 | In-Phase Decision Log | 2 | Record of significant decisions during construction | Decision audit trail |
 | `PROJECT_BIBLE.md` | 1 | Complete technical specification including test strategy | Architecture decision evidence |
 | Architecture Decision Records | 1-2 | Every major technology/design choice | Technical justification |
+| `FEATURES.md` | 2+ | Living feature reference — what the product does and doesn't do | Feature scope evidence |
+| `BUGS.md` | 2+ | Bug tracking — open, in-progress, and resolved issues | Defect management evidence |
 | `docs/test-results/` | 3 | Archived scan reports, E2E results, accessibility audits, threat model validation | Test execution evidence — audit-grade |
 | Security Audit Logs | 3 | SAST/DAST results, remediation actions | Security due diligence |
 | `sbom.json` | 3 | Software Bill of Materials | Supply chain transparency |
