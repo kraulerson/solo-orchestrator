@@ -819,6 +819,9 @@ Direct the agent to write test cases based on the User Journey and Data Contract
 
 Confirm the tests fail (feature code doesn't exist yet).
 
+**Process checkpoint:** `scripts/process-checklist.sh --complete-step build_loop:tests_written`
+After verifying tests fail: `scripts/process-checklist.sh --complete-step build_loop:tests_verified_failing`
+
 **Agent persona — QA Test Engineer:** When writing tests, the agent adopts the mindset of a senior QA engineer who has never seen the code. Start fresh with no context about the implementation. This is a business application — quality is more important than positivity. Be critical, extremely thorough, and meticulous. Write tests to catch bugs, not to confirm the code works. You have seen 1,000 bugs in your career — you know where they hide: off-by-one errors, null handling, race conditions, auth bypass, state corruption on retry, Unicode edge cases, empty collections, maximum-length inputs. Test the boundaries, not the center. Write at least one test that you expect the developer to push back on as "too paranoid."
 
 #### Step 2.3 — Implement the Feature
@@ -827,6 +830,8 @@ Confirm the tests fail (feature code doesn't exist yet).
 2. Run the test suite. All tests must pass.
 3. Manual validation: verify the feature works as expected.
 4. Direct specific fixes for any discrepancies.
+
+**Process checkpoint:** `scripts/process-checklist.sh --complete-step build_loop:implemented`
 
 > **⟁ PLATFORM MODULE:** Reference your Platform Module for platform-specific manual validation steps (e.g., testing on each target OS, verifying native integration, checking platform-specific behavior).
 
@@ -855,6 +860,8 @@ Consolidate findings from all agents before remediation. Without Superpowers, ru
    - [ ] Logging: Significant operations producing structured log entries?
    - [ ] Platform-specific security: See Platform Module
 4. Fix findings. Verify tests still pass.
+
+**Process checkpoint:** `scripts/process-checklist.sh --complete-step build_loop:security_audit`
 
 **AI-specific caution areas:** AI-generated code is disproportionately likely to have subtle issues in: complex state management (race conditions), data access efficiency, authentication edge cases, and content security configuration. Apply extra scrutiny in these areas.
 
@@ -892,6 +899,9 @@ Direct the agent to produce:
 
 Verify the Bible still accurately reflects the codebase. Commit and merge.
 
+**Process checkpoint:** `scripts/process-checklist.sh --complete-step build_loop:documentation_updated`
+After recording the feature with `test-gate.sh --record-feature`: `scripts/process-checklist.sh --complete-step build_loop:feature_recorded`
+
 #### Step 2.6 — Data Model Changes (if needed)
 
 1. Generate a versioned change with "apply" and "rollback" operations.
@@ -902,6 +912,8 @@ Verify the Bible still accurately reflects the codebase. Commit and merge.
 **NEVER modify the data model directly.** All changes go through the versioning tool.
 
 #### Step 2.7 — UAT Testing Session
+
+**Process checkpoint:** Start the UAT session: `scripts/process-checklist.sh --start-uat N`
 
 **Before starting the next feature, check the test gate:**
 ```bash
@@ -965,6 +977,9 @@ After the session completes:
 ```bash
 scripts/test-gate.sh --reset-counter
 ```
+
+Mark each UAT step as you complete it: `scripts/process-checklist.sh --complete-step uat_session:STEP_ID`
+Steps in order: `agents_dispatched`, `template_generated`, `orchestrator_notified`, `results_received`, `completeness_verified`, `bugs_consolidated`, `triage_complete`, `remediation_complete`, `gate_passed`.
 
 ---
 
@@ -1050,6 +1065,8 @@ scripts/test-gate.sh --check-phase-gate
 
 **Objective:** Assume everything is broken. Prove otherwise.
 
+**Process checkpoint:** Start Phase 3 validation: `scripts/process-checklist.sh --start-phase3`
+
 ---
 
 **Phase 3 Parallel Execution:** Steps 3.1 through 3.5 are independent validation tasks with no cross-dependencies. For maximum efficiency, dispatch all as parallel subagents:
@@ -1072,6 +1089,8 @@ Consolidate all findings into a single remediation list. Fix critical findings f
 1. Install the testing framework per your Platform Module.
 2. Direct the agent to write an E2E/integration test suite automating the entire User Journey.
 3. Run it. Fix failures — these are integration gaps.
+
+**Process checkpoint:** `scripts/process-checklist.sh --complete-step phase3_validation:integration_testing`
 
 ---
 
@@ -1115,6 +1134,8 @@ SAST tools produce false positives. Silencing them without documentation creates
 
 Never disable an entire SAST rule category to silence a single false positive. Suppress at the line level only.
 
+**Process checkpoint:** `scripts/process-checklist.sh --complete-step phase3_validation:security_hardening`
+
 ---
 
 ### Step 3.3: Chaos & Edge-Case Testing
@@ -1127,6 +1148,8 @@ Direct the agent to implement:
 - **Global error boundaries:** Catch unhandled errors, display user-friendly recovery
 
 Run the full test suite. Nothing should break.
+
+**Process checkpoint:** `scripts/process-checklist.sh --complete-step phase3_validation:chaos_testing`
 
 ---
 
@@ -1146,6 +1169,8 @@ Core requirements regardless of platform:
 - **Color-blind user:** "Red and green look the same to me. Does any UI element use color alone to communicate state? Are errors, warnings, and success indicated with text/icons in addition to color?"
 Identify every interaction that fails these tests. Report as "A screen reader user cannot [specific failure]" — not "Missing aria-label."
 
+**Process checkpoint:** `scripts/process-checklist.sh --complete-step phase3_validation:accessibility_audit`
+
 ---
 
 ### Step 3.5: Performance Audit
@@ -1160,6 +1185,8 @@ Core requirements:
 
 **Agent persona — Power-Constrained Device User:** For performance testing, the agent adopts the mindset of a user on underpowered hardware. Start fresh with no knowledge of the tech stack. This is a business application — quality is more important than positivity. Be critical, extremely thorough, and meticulous. "I'm on a 3-year-old phone with 2GB RAM, or a Chromebook with a slow CPU, or on a flaky 2G connection. Does the app load? Does it stutter when I scroll? Does it drain my battery in an hour? Can I use it at all on slow networks?" Test: startup time on minimum hardware, first interaction latency, memory usage over 10 minutes of active use, behavior on throttled network (2G/3G), offline fallback behavior.
 
+**Process checkpoint:** `scripts/process-checklist.sh --complete-step phase3_validation:performance_audit`
+
 ---
 
 ### Step 3.5.5: Contract Testing (Standard+ Track)
@@ -1168,6 +1195,8 @@ For applications with interfaces consumed by other systems (APIs, IPC, file form
 - Document expected contracts
 - Write tests verifying actual behavior matches documented contracts
 - Schema validation tests for data formats
+
+**Process checkpoint:** `scripts/process-checklist.sh --complete-step phase3_validation:contract_testing`
 
 ---
 
@@ -1196,6 +1225,8 @@ Direct the agent to create `docs/test-results/` and save:
 File naming convention: `[date]_[scan-type]_[pass|fail].[ext]` (e.g., `2026-04-02_semgrep_pass.json`).
 
 These artifacts serve as the audit evidence for Phase 3 completion. They are referenced in `APPROVAL_LOG.md` (Phase 3 → Phase 4 section) and included in the HANDOFF.md. Update the Approval Log with the go-live approval(s) before proceeding to Phase 4 deployment.
+
+**Process checkpoint:** `scripts/process-checklist.sh --complete-step phase3_validation:results_archived`
 
 ---
 
@@ -1246,6 +1277,8 @@ These artifacts serve as the audit evidence for Phase 3 completion. They are ref
 
 **Objective:** Build, package, distribute, monitor, maintain.
 
+**Process checkpoint:** Start Phase 4 release: `scripts/process-checklist.sh --start-phase4`
+
 ---
 
 ### Step 4.1: Production Build & Distribution
@@ -1272,6 +1305,8 @@ For applications with active users, select a deployment strategy that limits bla
 | **Feature flags** | High-risk features on any track | Deploy code dark; enable for subset of users; monitor before full rollout |
 
 Light Track projects MAY use cut-over deployment. Standard and Full Track projects SHOULD use blue/green or rolling deployment. Document the chosen strategy in the Project Bible.
+
+**Process checkpoint:** `scripts/process-checklist.sh --complete-step phase4_release:production_build`
 
 ---
 
@@ -1308,6 +1343,8 @@ Before the application goes live, the Orchestrator MUST test the rollback proced
 
 If the rollback procedure fails, fix it and re-test before proceeding to production launch. A rollback procedure that has never been tested is not a rollback procedure — it is a hope.
 
+**Process checkpoint:** `scripts/process-checklist.sh --complete-step phase4_release:rollback_tested`
+
 ---
 
 ### Step 4.2: Go-Live Verification
@@ -1334,6 +1371,8 @@ Walk through the production application manually on each target platform:
 
 For subsequent releases, append to RELEASE_NOTES.md with user-facing descriptions of what changed, what was fixed, and what's known-broken.
 
+**Process checkpoint:** `scripts/process-checklist.sh --complete-step phase4_release:go_live_verified`
+
 ---
 
 ### Step 4.3: Monitoring Setup
@@ -1344,6 +1383,8 @@ Core requirements:
 - Error/crash reporting configured and verified
 - Alerting rules: notify on unhandled errors and critical failures
 - Uptime/health monitoring (if applicable to the platform)
+
+**Process checkpoint:** `scripts/process-checklist.sh --complete-step phase4_release:monitoring_configured`
 
 ---
 
@@ -1389,6 +1430,8 @@ Direct the agent to generate `HANDOFF.md`:
 9. AI Quick Start prompt for a new AI agent
 
 **Reality check:** Have someone attempt development setup and issue triage using only this document. Fix every gap they find. Repeat.
+
+**Process checkpoint:** `scripts/process-checklist.sh --complete-step phase4_release:handoff_written`
 
 **Agent persona — New Maintainer:** When writing handoff documentation, the agent adopts the mindset of a developer who is taking over this project on Monday with zero context. This is a business application — quality is more important than positivity. Be critical, extremely thorough, and meticulous. "I have 2 hours to get a dev environment running and fix a production bug. Every command must work verbatim. Every file path must be correct. Every dependency must be listed with version and install command." Test your own docs: could someone follow these instructions from a blank machine to a running dev environment to a fixed bug, using nothing but this document?
 
