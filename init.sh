@@ -1460,6 +1460,7 @@ PHEOF
 {
   "features_completed": [],
   "features_since_last_test": 0,
+  "features_since_last_health_check": 0,
   "test_interval": $TEST_INTERVAL,
   "last_test_session": null,
   "testing_required": false,
