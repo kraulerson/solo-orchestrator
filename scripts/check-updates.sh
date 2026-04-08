@@ -91,11 +91,11 @@ check_file() {
   fi
 }
 
-check_file "docs/framework/builders-guide.md"       "$UPSTREAM/docs/builders-guide.md"       "Builder's Guide"
-check_file "docs/framework/governance-framework.md"  "$UPSTREAM/docs/governance-framework.md"  "Governance Framework"
-check_file "docs/framework/executive-review.md"      "$UPSTREAM/docs/executive-review.md"      "Executive Review"
-check_file "docs/framework/cli-setup-addendum.md"    "$UPSTREAM/docs/cli-setup-addendum.md"    "CLI Setup Addendum"
-check_file "docs/framework/user-guide.md"            "$UPSTREAM/docs/user-guide.md"            "User Guide"
+check_file "docs/reference/builders-guide.md"       "$UPSTREAM/docs/builders-guide.md"       "Builder's Guide"
+check_file "docs/reference/governance-framework.md"  "$UPSTREAM/docs/governance-framework.md"  "Governance Framework"
+check_file "docs/reference/executive-review.md"      "$UPSTREAM/docs/executive-review.md"      "Executive Review"
+check_file "docs/reference/cli-setup-addendum.md"    "$UPSTREAM/docs/cli-setup-addendum.md"    "CLI Setup Addendum"
+check_file "docs/reference/user-guide.md"            "$UPSTREAM/docs/user-guide.md"            "User Guide"
 
 # Check platform modules (only the ones present in the project)
 echo ""
@@ -156,10 +156,10 @@ else
   echo -e "${YELLOW}${BOLD}  $changes document(s) differ from upstream.${NC}"
   echo ""
   echo "  To review changes:"
-  echo "    diff docs/framework/[file] $UPSTREAM/docs/[file]"
+  echo "    diff docs/reference/[file] $UPSTREAM/docs/[file]"
   echo ""
   echo "  To update a document:"
-  echo "    cp $UPSTREAM/docs/[file] docs/framework/[file]"
+  echo "    cp $UPSTREAM/docs/[file] docs/reference/[file]"
   echo ""
   echo "  Review changes carefully before overwriting — your project may have"
   echo "  intentional customizations that should be preserved."

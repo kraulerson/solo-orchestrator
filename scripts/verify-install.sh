@@ -155,7 +155,7 @@ check_project_structure() {
     "security-scan-guide.md"
   )
   for doc in "${framework_docs[@]}"; do
-    if [ -f "docs/framework/$doc" ]; then
+    if [ -f "docs/reference/$doc" ]; then
       register_pass "$doc exists"
     elif has_source && [ -f "$SOURCE_DIR/docs/$doc" ]; then
       register_fixable "$doc missing" "fix_framework_doc_${doc%.md}"
@@ -407,7 +407,7 @@ check_plugins_mcp() {
      ([ -f "$HOME/.claude.json" ] && jq -e '.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // empty' "$HOME/.claude.json" >/dev/null 2>&1); then
     register_pass "Qdrant MCP configured"
   else
-    register_manual "Qdrant MCP not configured" "Requires Docker + uv. See docs/framework/cli-setup-addendum.md"
+    register_manual "Qdrant MCP not configured" "Requires Docker + uv. See docs/reference/cli-setup-addendum.md"
   fi
 }
 
@@ -428,7 +428,7 @@ fix_claude_md() {
 
 ## Framework Reference
 This project follows the **Solo Orchestrator Framework v1.0**.
-- Builder's Guide: \`docs/framework/builders-guide.md\`
+- Builder's Guide: \`docs/reference/builders-guide.md\`
 - Platform Module: \`docs/platform-modules/\`
 - Project Intake: \`PROJECT_INTAKE.md\`
 - Approval Log: \`APPROVAL_LOG.md\`
@@ -532,8 +532,8 @@ fix_orchestrator_source() {
 fix_framework_doc() {
   local doc_name="$1"
   if has_source && [ -f "$SOURCE_DIR/docs/$doc_name" ]; then
-    mkdir -p docs/framework
-    cp "$SOURCE_DIR/docs/$doc_name" "docs/framework/$doc_name"
+    mkdir -p docs/reference
+    cp "$SOURCE_DIR/docs/$doc_name" "docs/reference/$doc_name"
   else
     return 1
   fi

@@ -352,11 +352,11 @@ for run in "${TEST_RUNS[@]}"; do
   echo -e "\n${CYAN}--- Simulating: $label ---${NC}"
 
   # Create project structure as init.sh would
-  mkdir -p "$project_dir"/{docs/framework,docs/platform-modules,docs/test-results,.claude,.github/workflows,scripts/lib,templates/intake-suggestions,templates/tool-matrix,evaluation-prompts/Projects}
+  mkdir -p "$project_dir"/{docs/reference,docs/platform-modules,docs/test-results,.claude,.github/workflows,scripts/lib,templates/intake-suggestions,templates/tool-matrix,evaluation-prompts/Projects}
 
   # Copy files as init.sh would
-  cp "$SCRIPT_DIR/docs/builders-guide.md" "$project_dir/docs/framework/" 2>/dev/null || true
-  cp "$SCRIPT_DIR/docs/governance-framework.md" "$project_dir/docs/framework/" 2>/dev/null || true
+  cp "$SCRIPT_DIR/docs/builders-guide.md" "$project_dir/docs/reference/" 2>/dev/null || true
+  cp "$SCRIPT_DIR/docs/governance-framework.md" "$project_dir/docs/reference/" 2>/dev/null || true
   cp "$SCRIPT_DIR/templates/project-intake.md" "$project_dir/PROJECT_INTAKE.md"
   cp "$SCRIPT_DIR/scripts/lib/helpers.sh" "$project_dir/scripts/lib/"
   cp "$SCRIPT_DIR/scripts/resolve-tools.sh" "$project_dir/scripts/"
