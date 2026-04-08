@@ -16,6 +16,50 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/helpers.sh"
 
+# Create a point-in-time snapshot of artifacts at phase gate transitions
+create_gate_snapshot() {
+  local from_phase="$1"
+  local to_phase="$2"
+  local snapshot_dir="docs/snapshots/phase-${from_phase}-to-${to_phase}_$(date +%Y-%m-%d)"
+
+  if [ -d "$snapshot_dir" ]; then
+    echo -e "  ${YELLOW}[SKIP]${NC} Snapshot already exists: $snapshot_dir"
+    return 0
+  fi
+
+  mkdir -p "$snapshot_dir"
+
+  case "${from_phase}-${to_phase}" in
+    0-1)
+      for f in PRODUCT_MANIFESTO.md APPROVAL_LOG.md PROJECT_INTAKE.md; do
+        [ -f "$f" ] && cp "$f" "$snapshot_dir/"
+      done
+      ;;
+    1-2)
+      for f in PROJECT_BIBLE.md PRODUCT_MANIFESTO.md APPROVAL_LOG.md; do
+        [ -f "$f" ] && cp "$f" "$snapshot_dir/"
+      done
+      ;;
+    2-3)
+      for f in PROJECT_BIBLE.md FEATURES.md CHANGELOG.md BUGS.md APPROVAL_LOG.md; do
+        [ -f "$f" ] && cp "$f" "$snapshot_dir/"
+      done
+      ;;
+    3-4)
+      for f in PRODUCT_MANIFESTO.md PROJECT_BIBLE.md FEATURES.md CHANGELOG.md BUGS.md \
+               USER_GUIDE.md HANDOFF.md RELEASE_NOTES.md APPROVAL_LOG.md sbom.json; do
+        [ -f "$f" ] && cp "$f" "$snapshot_dir/"
+      done
+      [ -f "docs/INCIDENT_RESPONSE.md" ] && cp "docs/INCIDENT_RESPONSE.md" "$snapshot_dir/"
+      if [ -d "docs/test-results" ]; then
+        ls docs/test-results/ > "$snapshot_dir/test-results-listing.txt" 2>/dev/null || true
+      fi
+      ;;
+  esac
+
+  echo -e "  ${GREEN}[OK]${NC} Phase gate snapshot created: $snapshot_dir"
+}
+
 PHASE_STATE=".claude/phase-state.json"
 APPROVAL_LOG="APPROVAL_LOG.md"
 
@@ -296,6 +340,25 @@ fi
 echo ""
 if [ $issues -eq 0 ]; then
   echo -e "${GREEN}${BOLD}Phase gates consistent.${NC}"
+
+  # Create snapshots for gates that have been passed but not yet snapshotted
+  if [ "$current_phase" -ge 1 ]; then
+    existing_01=$(ls -d docs/snapshots/phase-0-to-1_* 2>/dev/null | head -1)
+    [ -z "$existing_01" ] && create_gate_snapshot 0 1
+  fi
+  if [ "$current_phase" -ge 2 ]; then
+    existing_12=$(ls -d docs/snapshots/phase-1-to-2_* 2>/dev/null | head -1)
+    [ -z "$existing_12" ] && create_gate_snapshot 1 2
+  fi
+  if [ "$current_phase" -ge 3 ]; then
+    existing_23=$(ls -d docs/snapshots/phase-2-to-3_* 2>/dev/null | head -1)
+    [ -z "$existing_23" ] && create_gate_snapshot 2 3
+  fi
+  if [ "$current_phase" -ge 4 ]; then
+    existing_34=$(ls -d docs/snapshots/phase-3-to-4_* 2>/dev/null | head -1)
+    [ -z "$existing_34" ] && create_gate_snapshot 3 4
+  fi
+
   exit 0
 else
   if [ "${SOIF_PHASE_GATES:-}" = "warn" ]; then
