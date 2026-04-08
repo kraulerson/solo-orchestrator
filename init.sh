@@ -1054,7 +1054,10 @@ create_project() {
   cp "$SCRIPT_DIR/scripts/session-version-check.sh" scripts/
   cp "$SCRIPT_DIR/scripts/session-test-gate-check.sh" scripts/
   cp "$SCRIPT_DIR/scripts/session-end-qdrant-reminder.sh" scripts/
-  chmod +x scripts/validate.sh scripts/check-phase-gate.sh scripts/check-updates.sh scripts/resume.sh scripts/intake-wizard.sh scripts/resolve-tools.sh scripts/upgrade-project.sh scripts/reconfigure-project.sh scripts/verify-install.sh scripts/test-gate.sh scripts/check-versions.sh scripts/session-version-check.sh scripts/session-test-gate-check.sh scripts/session-end-qdrant-reminder.sh
+  cp "$SCRIPT_DIR/scripts/process-checklist.sh" scripts/
+  cp "$SCRIPT_DIR/scripts/pre-commit-gate.sh" scripts/
+  cp "$SCRIPT_DIR/scripts/track-tool-usage.sh" scripts/
+  chmod +x scripts/validate.sh scripts/check-phase-gate.sh scripts/check-updates.sh scripts/resume.sh scripts/intake-wizard.sh scripts/resolve-tools.sh scripts/upgrade-project.sh scripts/reconfigure-project.sh scripts/verify-install.sh scripts/test-gate.sh scripts/check-versions.sh scripts/session-version-check.sh scripts/session-test-gate-check.sh scripts/session-end-qdrant-reminder.sh scripts/process-checklist.sh scripts/pre-commit-gate.sh scripts/track-tool-usage.sh
 
   # Copy intake suggestion files
   mkdir -p templates/intake-suggestions
@@ -1389,8 +1392,35 @@ PERMEOF
             && mv .claude/settings.json.tmp .claude/settings.json
           hooks_added=true
         fi
+
+        # Add pre-commit gate to PreToolUse hook
+        if jq -e '.hooks.PreToolUse' .claude/settings.json >/dev/null 2>&1; then
+          if ! jq -e '.hooks.PreToolUse[0].hooks[] | select(.command | contains("pre-commit-gate.sh"))' .claude/settings.json >/dev/null 2>&1; then
+            jq '.hooks.PreToolUse[0].hooks += [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/pre-commit-gate.sh"}]' .claude/settings.json > .claude/settings.json.tmp \
+              && mv .claude/settings.json.tmp .claude/settings.json
+            hooks_added=true
+          fi
+        else
+          jq '.hooks.PreToolUse = [{"matcher": "Bash", "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/pre-commit-gate.sh"}]}]' .claude/settings.json > .claude/settings.json.tmp \
+            && mv .claude/settings.json.tmp .claude/settings.json
+          hooks_added=true
+        fi
+
+        # Add tool usage tracking to PostToolUse hook
+        if jq -e '.hooks.PostToolUse' .claude/settings.json >/dev/null 2>&1; then
+          if ! jq -e '.hooks.PostToolUse[0].hooks[] | select(.command | contains("track-tool-usage.sh"))' .claude/settings.json >/dev/null 2>&1; then
+            jq '.hooks.PostToolUse[0].hooks += [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/track-tool-usage.sh"}]' .claude/settings.json > .claude/settings.json.tmp \
+              && mv .claude/settings.json.tmp .claude/settings.json
+            hooks_added=true
+          fi
+        else
+          jq '.hooks.PostToolUse = [{"hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/track-tool-usage.sh"}]}]' .claude/settings.json > .claude/settings.json.tmp \
+            && mv .claude/settings.json.tmp .claude/settings.json
+          hooks_added=true
+        fi
+
         if [ "$hooks_added" = true ]; then
-          print_ok "Session hooks installed (version check, test gate, Qdrant reminder)"
+          print_ok "Session hooks installed (version check, test gate, Qdrant reminder, commit gate, tool tracking)"
         fi
       fi
     fi
@@ -1470,6 +1500,47 @@ PHEOF
 }
 BPEOF
   print_ok "Build progress tracking initialized (test interval: every $TEST_INTERVAL features)"
+
+  # Generate process state file for enforcement
+  cat > .claude/process-state.json << 'PSEOF'
+{
+  "build_loop": {
+    "feature": null,
+    "step": 0,
+    "steps_completed": [],
+    "started_at": null
+  },
+  "uat_session": {
+    "session_id": null,
+    "step": 0,
+    "steps_completed": [],
+    "started_at": null
+  },
+  "phase3_validation": {
+    "steps_completed": [],
+    "started_at": null
+  },
+  "phase4_release": {
+    "steps_completed": [],
+    "started_at": null
+  },
+  "phase2_init": {
+    "steps_completed": [],
+    "verified": false
+  }
+}
+PSEOF
+
+  # Generate tool usage tracking file
+  cat > .claude/tool-usage.json << 'TUEOF'
+{
+  "session_id": null,
+  "calls": [],
+  "commits_since_last_context7": 0,
+  "qdrant_find_called": false,
+  "qdrant_store_called": false
+}
+TUEOF
 
   # Write tool-preferences.json (from resolver output stored earlier)
   if [ -n "${RESOLVER_OUTPUT:-}" ]; then
