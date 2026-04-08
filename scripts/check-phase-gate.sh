@@ -68,6 +68,16 @@ if [ "$current_phase" -ge 1 ]; then
   fi
 fi
 
+# Artifact existence check: Phase 0→1
+if [ "$current_phase" -ge 1 ]; then
+  if [ -f "PRODUCT_MANIFESTO.md" ]; then
+    echo -e "${GREEN}  [OK]${NC} PRODUCT_MANIFESTO.md exists"
+  else
+    echo -e "${YELLOW}[WARN]${NC} Phase 0→1: PRODUCT_MANIFESTO.md not found"
+    issues=$((issues + 1))
+  fi
+fi
+
 # Check: if current_phase >= 2, gate 1→2 should have a date
 if [ "$current_phase" -ge 2 ]; then
   if [ -n "$gate_1_to_2" ]; then
@@ -79,6 +89,16 @@ if [ "$current_phase" -ge 2 ]; then
     fi
   else
     echo -e "${YELLOW}[WARN]${NC} Phase 1→2: current_phase is $current_phase but gate date not recorded in phase-state.json"
+    issues=$((issues + 1))
+  fi
+fi
+
+# Artifact existence check: Phase 1→2
+if [ "$current_phase" -ge 2 ]; then
+  if [ -f "PROJECT_BIBLE.md" ]; then
+    echo -e "${GREEN}  [OK]${NC} PROJECT_BIBLE.md exists"
+  else
+    echo -e "${YELLOW}[WARN]${NC} Phase 1→2: PROJECT_BIBLE.md not found"
     issues=$((issues + 1))
   fi
 fi
@@ -118,6 +138,32 @@ if [ "$current_phase" = "3" ]; then
       echo "  Configure code signing, deployment secrets, and store credentials before production release."
       issues=$((issues + 1))
     fi
+  fi
+fi
+
+# Artifact existence checks: Phase 3→4
+if [ "$current_phase" -ge 3 ]; then
+  for artifact in "HANDOFF.md" "docs/INCIDENT_RESPONSE.md" "sbom.json"; do
+    if [ -f "$artifact" ]; then
+      echo -e "${GREEN}  [OK]${NC} $artifact exists"
+    else
+      echo -e "${YELLOW}[WARN]${NC} Phase 3→4: $artifact not found"
+      issues=$((issues + 1))
+    fi
+  done
+
+  # Check docs/test-results/ is non-empty
+  if [ -d "docs/test-results" ]; then
+    result_count=$(find docs/test-results -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')
+    if [ "$result_count" -eq 0 ]; then
+      echo -e "${YELLOW}[WARN]${NC} Phase 3→4: docs/test-results/ is empty — archive Phase 3 scan results before proceeding"
+      issues=$((issues + 1))
+    else
+      echo -e "${GREEN}  [OK]${NC} docs/test-results/ has $result_count file(s)"
+    fi
+  else
+    echo -e "${YELLOW}[WARN]${NC} Phase 3→4: docs/test-results/ directory not found"
+    issues=$((issues + 1))
   fi
 fi
 
