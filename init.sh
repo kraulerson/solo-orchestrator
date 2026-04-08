@@ -1020,14 +1020,14 @@ create_project() {
 
   # Copy framework documents
   print_info "Copying framework documents..."
-  mkdir -p docs/framework docs/platform-modules docs/test-results
+  mkdir -p docs/reference docs/platform-modules docs/test-results "docs/ADR documentation" "docs/api and interfaces" docs/snapshots
 
-  cp "$SCRIPT_DIR/docs/builders-guide.md" docs/framework/
-  cp "$SCRIPT_DIR/docs/governance-framework.md" docs/framework/
-  cp "$SCRIPT_DIR/docs/executive-review.md" docs/framework/
-  cp "$SCRIPT_DIR/docs/cli-setup-addendum.md" docs/framework/
-  cp "$SCRIPT_DIR/docs/user-guide.md" docs/framework/
-  cp "$SCRIPT_DIR/docs/security-scan-guide.md" docs/framework/
+  cp "$SCRIPT_DIR/docs/builders-guide.md" docs/reference/
+  cp "$SCRIPT_DIR/docs/governance-framework.md" docs/reference/
+  cp "$SCRIPT_DIR/docs/executive-review.md" docs/reference/
+  cp "$SCRIPT_DIR/docs/cli-setup-addendum.md" docs/reference/
+  cp "$SCRIPT_DIR/docs/user-guide.md" docs/reference/
+  cp "$SCRIPT_DIR/docs/security-scan-guide.md" docs/reference/
 
   # Copy evaluation prompts (project-level reviews for Phase 3 validation)
   print_info "Copying evaluation prompts..."
@@ -1067,6 +1067,7 @@ create_project() {
   # Copy UAT template and create session directory structure
   mkdir -p tests/uat/templates tests/uat/sessions
   cp "$SCRIPT_DIR/templates/uat-test-template.md" tests/uat/templates/test-session-template.md
+  cp "$SCRIPT_DIR/templates/uat-test-session.html" tests/uat/templates/test-session-template.html
 
   # Copy the correct platform module (auto-discovered)
   local platform_module="$SCRIPT_DIR/docs/platform-modules/${PLATFORM}.md"
@@ -1076,6 +1077,25 @@ create_project() {
   else
     print_info "No platform module for '$PLATFORM'. The Builder's Guide works standalone."
   fi
+
+  # Copy documentation artifact templates
+  print_info "Copying documentation templates..."
+  mkdir -p templates/generated
+  cp "$SCRIPT_DIR/templates/generated/project-bible.tmpl" templates/generated/
+  cp "$SCRIPT_DIR/templates/generated/product-manifesto.tmpl" templates/generated/
+  cp "$SCRIPT_DIR/templates/generated/adr.tmpl" templates/generated/
+  cp "$SCRIPT_DIR/templates/generated/features.tmpl" templates/generated/
+  cp "$SCRIPT_DIR/templates/generated/handoff.tmpl" templates/generated/
+  cp "$SCRIPT_DIR/templates/generated/incident-response.tmpl" templates/generated/
+  cp "$SCRIPT_DIR/templates/generated/changelog.tmpl" templates/generated/
+  cp "$SCRIPT_DIR/templates/generated/bugs.tmpl" templates/generated/
+  cp "$SCRIPT_DIR/templates/generated/release-notes.tmpl" templates/generated/
+
+  # Copy starter files from templates (empty until agent populates)
+  cp "$SCRIPT_DIR/templates/generated/features.tmpl" FEATURES.md
+  cp "$SCRIPT_DIR/templates/generated/changelog.tmpl" CHANGELOG.md
+  cp "$SCRIPT_DIR/templates/generated/bugs.tmpl" BUGS.md
+  cp "$SCRIPT_DIR/templates/generated/release-notes.tmpl" RELEASE_NOTES.md
 
   # Initialize git early — Development Guardrails requires a git repo
   print_info "Initializing Git repository..."
@@ -2078,7 +2098,7 @@ print_next_steps() {
       echo "     Required: project sponsor, backup maintainer, insurance"
       echo "     confirmation, AI deployment path approval, ITSM registration."
       echo "     Record all pre-condition approvals in APPROVAL_LOG.md."
-      echo "     See docs/framework/governance-framework.md for details."
+      echo "     See docs/reference/governance-framework.md for details."
       echo ""
       echo "  4. START BUILDING:"
     fi
@@ -2096,7 +2116,7 @@ print_next_steps() {
   echo "     │                                                                 │"
   echo "     │ 1. CLAUDE.md (your instructions and constraints)                │"
   echo "     │ 2. PROJECT_INTAKE.md (the product definition)                   │"
-  echo "     │ 3. docs/framework/builders-guide.md (the phase-gate method)     │"
+  echo "     │ 3. docs/reference/builders-guide.md (the phase-gate method)     │"
   echo "     │ 4. docs/platform-modules/ (platform-specific guidance)          │"
   echo "     │ 5. .claude/phase-state.json (current phase)                     │"
   echo "     │                                                                 │"
@@ -2134,10 +2154,10 @@ print_next_steps() {
   echo "     bash scripts/resume.sh                — generate a session resume prompt"
   echo ""
   echo "  DOCUMENTATION:"
-  echo "     docs/framework/user-guide.md          — Start here: step-by-step walkthrough"
-  echo "     docs/framework/builders-guide.md      — The complete methodology"
-  echo "     docs/framework/governance-framework.md — Enterprise governance"
-  echo "     docs/framework/cli-setup-addendum.md   — Claude Code configuration"
+  echo "     docs/reference/user-guide.md          — Start here: step-by-step walkthrough"
+  echo "     docs/reference/builders-guide.md      — The complete methodology"
+  echo "     docs/reference/governance-framework.md — Enterprise governance"
+  echo "     docs/reference/cli-setup-addendum.md   — Claude Code configuration"
   echo "     docs/platform-modules/                — Platform-specific guidance"
   echo ""
   if [ "$TRACK" = "light" ] || [ "$DEPLOYMENT" = "personal" ] || [ -n "$POC_MODE" ]; then
@@ -2202,10 +2222,10 @@ dry_run_summary() {
   echo "  .claude/manifest.json                 — Framework configuration and metadata"
   echo "  .claude/settings.json                 — Claude Code hook configuration"
   echo "  .claude/phase-state.json              — Phase tracking"
-  echo "  docs/framework/builders-guide.md      — Builder's Guide"
-  echo "  docs/framework/governance-framework.md"
-  echo "  docs/framework/executive-review.md"
-  echo "  docs/framework/cli-setup-addendum.md"
+  echo "  docs/reference/builders-guide.md      — Builder's Guide"
+  echo "  docs/reference/governance-framework.md"
+  echo "  docs/reference/executive-review.md"
+  echo "  docs/reference/cli-setup-addendum.md"
   echo "  docs/platform-modules/                — Platform-specific guidance"
   echo "  docs/test-results/                    — Empty (populated in Phase 3)"
   echo "  scripts/validate.sh                   — Validation script"
