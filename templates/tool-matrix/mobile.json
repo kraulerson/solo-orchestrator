@@ -161,6 +161,29 @@
       "substitution_category": "License Compliance"
     },
     {
+      "category": "mobile_build_tools",
+      "name": "fastlane",
+      "description": "Build automation and app store deployment for iOS and Android (build, sign, screenshot, submit)",
+      "required": false,
+      "phase": 3,
+      "tracks": ["standard", "full"],
+      "dev_os": ["darwin", "linux"],
+      "platforms": ["mobile"],
+      "languages": ["swift", "kotlin", "dart", "typescript", "javascript"],
+      "check_command": "command -v fastlane",
+      "version_command": "fastlane --version 2>/dev/null | head -1",
+      "min_version": "2.200.0",
+      "latest_check": {"method": "brew", "package": "fastlane"},
+      "install": {
+        "darwin_brew": "brew install fastlane",
+        "manual": "gem install fastlane"
+      },
+      "auto_installable": true,
+      "substitutable": true,
+      "substitution_category": "Build Automation",
+      "notes": "Industry-standard CI tool for native, bare React Native, and Flutter projects. Not needed if using EAS Build (Expo managed workflow). Handles build, signing, screenshot generation, and store submission for both iOS and Android."
+    },
+    {
       "category": "code_signing",
       "name": "Apple Developer Program",
       "description": "Required for iOS app distribution and code signing ($99/year)",

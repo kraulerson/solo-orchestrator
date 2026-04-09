@@ -126,6 +126,49 @@ Before beginning, classify your project into one of three tracks:
 
 Both POC modes carry constraints: no production deployment, no real user data, no external users. When ready to go to production, run `scripts/intake-wizard.sh --upgrade-to-production` to resolve deferred pre-conditions. All technical artifacts carry forward unchanged.
 
+**Terminology — "Standard+" Track:** Throughout this guide, **"Standard+"** is shorthand for **"Standard and Full tracks"** — i.e., any track above Light. When a step is labeled "Standard+ Track," it means the step is required for both Standard and Full tracks and skipped (or abbreviated) for Light track. This shorthand avoids repeating "Standard and Full" in every heading.
+
+### Track Requirements Matrix
+
+The following table is the single authoritative reference for what each track requires. When in doubt, this table overrides any individual step's inline guidance.
+
+**Enforcement note:** The process enforcement scripts (`process-checklist.sh`, `check-phase-gate.sh`, `pre-commit-gate.sh`) enforce the same step sequences for all tracks. Track differentiation applies to the **depth, rigor, and scope** of each step — not whether the step appears in the checklist. Light track "abbreviates" Phase 3 by performing lighter-weight validation at each step (e.g., integration tests + manual smoke test instead of formal UAT), not by removing steps from the checklist.
+
+| Requirement | Light | Standard | Full |
+|---|---|---|---|
+| **Phase 0** | | | |
+| Step 0.1–0.4 (Core Discovery) | Required | Required | Required |
+| Step 0.5 (Revenue Model) — Manifesto Appendix A | SKIP (mark "N/A — internal tool") | Required | Required |
+| Step 0.6 (Competency Matrix) — Manifesto Appendix B | Required | Required | Required |
+| Step 0.7 (Trademark & Legal) — Manifesto Appendix C | SKIP (mark "N/A — internal tool") | Required | Required |
+| **Phase 1** | | | |
+| Step 1.1 (Market Audit / Business Strategy) | SKIP | Required | Required |
+| Step 1.1.5 (Market Signal Validation) | SKIP | Required (lightweight signals) | Required (interviews / LOIs) |
+| Steps 1.2–1.5 (Architecture, Threat Model, Bible) | Required | Required | Required |
+| **Phase 2** | | | |
+| TDD, Security Auditing, Documentation | Required | Required | Required |
+| Build Loop (all steps) | Required | Required | Required |
+| **Phase 3** | | | |
+| Steps 3.1–3.5 (Integration, Security, Chaos, A11y, Perf) | Required (abbreviated depth) | Required (full depth) | Required (full depth) |
+| Formal UAT sessions | Not required (manual smoke test sufficient) | Required | Required |
+| Step 3.5.5 (Contract Testing) | Not required | Required (if APIs exist) | Required |
+| Step 3.5.7 (Load/Stress Testing) | Not required | Not required | Required (if applicable) |
+| Penetration Testing | Not required | Required (IT Security exemption allowed) | Required (no exemption) |
+| DAST (web apps) | Baseline scan | Baseline scan | Active scan |
+| Step 3.6 (Pre-Launch Preparation) | Not required | Required | Required |
+| Evaluation Prompts (Security, Red Team) | Optional | Recommended | Required |
+| **Phase 4** | | | |
+| Step 4.1 (Production Build) | Required | Required | Required |
+| Deployment Strategy | Cut-over acceptable | Blue/green or rolling | Blue/green or rolling |
+| Step 4.1.5 (Rollback & Incident Response) | Simplified (basic rollback) | Required | Required (formal on-call alerting) |
+| Step 4.2 (Go-Live Checklist) | Required | Required | Required |
+| Monitoring | Optional (<10 users) | Required | Required |
+| Release Notes (public) | Internal only | Required (published) | Required (published) |
+| **PRODUCT_MANIFESTO.md Appendices** | | | |
+| Appendix A — Revenue Model | SKIP (mark "SKIPPED — internal tool") | Required | Required |
+| Appendix B — Competency Matrix | Required | Required | Required |
+| Appendix C — Trademark Pre-Check | SKIP (mark "SKIPPED — internal tool") | Required | Required |
+
 ---
 
 ## Human Investment & Timeline
@@ -445,13 +488,15 @@ requires my decision before Phase 1.
 
 ---
 
-### Step 0.5: Revenue Model & Unit Economics (Standard+ Track — skip for internal tools)
+### Step 0.5: Revenue Model & Unit Economics (Standard+ Track)
+
+**Track guidance:** Standard and Full tracks must complete this step. Light track projects (internal tools, personal utilities) skip this step — record "SKIPPED — internal tool, no revenue model required" in Manifesto Appendix A.
 
 **With Intake:** Section 7 is complete. Review for consistency with expanded feature set.
 
 **Without Intake:** Define pricing model, per-user costs, break-even, hosting cost ceiling.
 
-**Save as:** Appendix to `PRODUCT_MANIFESTO.md`
+**Save as:** Appendix A to `PRODUCT_MANIFESTO.md`
 
 ---
 
@@ -482,16 +527,18 @@ The competency matrix is not advisory — it drives mandatory tooling:
 - The Phase 1→2 gate reviewer (Senior Technical Authority for organizational projects) MUST verify that CI pipeline includes the mandatory tools for all "No" domains before approving Phase 2 entry.
 - If the Orchestrator upgrades a domain from "No" to "Yes" during the project, the automated tooling remains active. Competency improvements do not remove safety nets.
 
-**Save as:** Appendix to `PRODUCT_MANIFESTO.md`
+**Save as:** Appendix B to `PRODUCT_MANIFESTO.md` (required for all tracks)
 
 ---
 
 ### Step 0.7: Trademark & Legal Pre-Check (Standard+ Track)
 
+**Track guidance:** Standard and Full tracks must complete this step. Light track projects skip this step — record "SKIPPED — internal tool, no trademark check required" in Manifesto Appendix C.
+
 1. Trademark search: USPTO, WIPO, app stores, domain registrars.
 2. Data privacy applicability: Identify applicable regulations if PII is involved.
 3. Distribution channel requirements: App store guidelines, platform-specific legal requirements.
-4. Document findings in the Product Manifesto.
+4. Document findings in Appendix C to `PRODUCT_MANIFESTO.md`.
 
 ---
 
@@ -509,6 +556,32 @@ The competency matrix is not advisory — it drives mandatory tooling:
 **Organizational deployments:** The Project Sponsor must approve the business justification and compliance screening before proceeding to Phase 1. Record the approval in `APPROVAL_LOG.md` (Phase 0 → Phase 1 section) with the approver's name, date, method, and evidence reference.
 
 **Personal projects:** Review the Phase 0 artifacts yourself and record the self-review in `APPROVAL_LOG.md` before proceeding.
+
+#### Phase 0 Artifact Map
+
+| Step | Output | PRODUCT_MANIFESTO.md Section |
+|---|---|---|
+| Step 0.1 — Functional Feature Set | `docs/phase-0/frd.md` | Section 2 (Features & Requirements) |
+| Step 0.2 — User Personas & Interaction Flow | `docs/phase-0/user-journey.md` | Section 3 (User Journeys) |
+| Step 0.3 — Data Input/Output & State Logic | `docs/phase-0/data-contract.md` | Section 4 (Data Contract) |
+| Step 0.4 — Product Manifesto & MVP Cutline | `PRODUCT_MANIFESTO.md` | Section 1 (Product Intent), Section 5 (MVP Cutline) |
+| Step 0.5 — Revenue Model & Unit Economics | Appendix A to `PRODUCT_MANIFESTO.md` (Standard+; Light: mark SKIPPED) | Section 7 (Revenue Model) |
+| Step 0.6 — Orchestrator Competency Matrix | Appendix B to `PRODUCT_MANIFESTO.md` (all tracks) | Section 6 (Competency Matrix) |
+| Step 0.7 — Trademark & Legal Pre-Check | Appendix C to `PRODUCT_MANIFESTO.md` (Standard+; Light: mark SKIPPED) | Section 8 (Legal & Compliance) |
+
+#### Gate Enforcement — What `check-phase-gate.sh` Validates
+
+The following items are enforced by `scripts/check-phase-gate.sh` when `current_phase >= 1` in `.claude/phase-state.json`. If any check fails, the gate blocks (exit 1) unless `SOIF_PHASE_GATES=warn` is set.
+
+- [ ] **`APPROVAL_LOG.md` exists.** The gate script fails immediately if `phase-state.json` exists but `APPROVAL_LOG.md` does not. Create `APPROVAL_LOG.md` before (or at the same time as) `phase-state.json` — the `init.sh` script does this automatically.
+- [ ] **`phase_0_to_1` date key recorded in `.claude/phase-state.json`.** The gate script checks for this key when `current_phase >= 1`. If the key is missing, the gate issues a warning and increments the failure count.
+- [ ] **`APPROVAL_LOG.md` has a dated Phase 0 → Phase 1 entry.** The script searches for a line matching `Phase 0.*Phase 1` and then scans the next 15 lines (`grep -A 15`) for a date in `YYYY-MM-DD` format. The date must appear within 15 lines of the gate header — entries with excessive whitespace or content between the header and the date will fail this check.
+- [ ] **`PRODUCT_MANIFESTO.md` exists.**
+- [ ] **`PRODUCT_MANIFESTO.md` has substantive content.** The script checks that all 8 numbered sections (`## 1.` through `## 8.`) are present and contain text beyond template placeholders. Missing sections produce a FAIL; placeholder-only sections produce a WARN.
+- [ ] **No unresolved Open Questions in `PRODUCT_MANIFESTO.md`.** Any line matching `Status: Open` (case-insensitive) produces a FAIL.
+- [ ] **Phase 0 intermediate outputs saved** (advisory). If `docs/phase-0/` exists, the script checks for `frd.md`, `user-journey.md`, and `data-contract.md`. Partial saves produce a WARN, not a block.
+
+**Limitation — Manifesto content depth:** The gate script verifies that `PRODUCT_MANIFESTO.md` exists and has the 8 required section headings with non-empty content. It does not validate that section content matches the track requirements (e.g., Full track requiring revenue model detail, Standard track requiring competency matrix entries). Track-specific content completeness is the reviewer's responsibility.
 
 ---
 
@@ -716,6 +789,16 @@ Synthesize all Phase 1 outputs into `PROJECT_BIBLE.md`:
 **Organizational deployments:** The Senior Technical Authority must approve the Project Bible before proceeding to Phase 2. Record the approval in `APPROVAL_LOG.md` (Phase 1 → Phase 2 section).
 
 **Personal projects:** Record your self-review in `APPROVAL_LOG.md` before proceeding. **Known risk:** Self-review at this gate means the person least likely to catch their own architectural blind spots is the sole reviewer. For Standard+ track personal projects, consider seeking an external architecture review — a peer, mentor, or a separate Claude session using the adversarial evaluation prompt (`evaluation-prompts/Projects/bases/01-senior-engineer.md`). If this project is later upgraded to organizational deployment via `upgrade-project.sh`, the Senior Technical Authority will be required to retroactively review and approve the Project Bible.
+
+#### Gate Enforcement — What `check-phase-gate.sh` Validates (Phase 1→2)
+
+When `current_phase >= 2` in `.claude/phase-state.json`:
+
+- [ ] **`phase_1_to_2` date key recorded in `.claude/phase-state.json`.** Missing key produces a WARN.
+- [ ] **`APPROVAL_LOG.md` has a dated Phase 1 → Phase 2 entry.** Same 15-line proximity rule as Phase 0→1: the date must appear within 15 lines of the `Phase 1.*Phase 2` header.
+- [ ] **`PROJECT_BIBLE.md` exists.**
+- [ ] **`PROJECT_BIBLE.md` has at least 14 numbered sections** (template specifies 16; minimum 14 to pass).
+- [ ] **No placeholder dates in `PROJECT_BIBLE.md`.** Any remaining `YYYY-MM-DD` strings produce a WARN.
 
 **Save as:** `PROJECT_BIBLE.md`
 
@@ -1084,6 +1167,16 @@ scripts/test-gate.sh --check-phase-gate
 - SEV-3 open → **WARNING** (Orchestrator attests disposition)
 - SEV-4 → No impact
 
+#### Gate Enforcement — What `check-phase-gate.sh` Validates (Phase 2→3)
+
+When `current_phase >= 3` in `.claude/phase-state.json`:
+
+- [ ] **`phase_2_to_3` date key recorded in `.claude/phase-state.json`.** Missing key produces a WARN.
+- [ ] **`APPROVAL_LOG.md` has a dated Phase 2 → Phase 3 entry.** Same 15-line proximity rule: the date must appear within 15 lines of the `Phase 2.*Phase 3` header.
+- [ ] **`FEATURES.md` exists.**
+- [ ] **`CHANGELOG.md` exists.**
+- [ ] **Bug gate passes** (`scripts/test-gate.sh --check-phase-gate`).
+
 ---
 
 ### Phase 2 Remediation
@@ -1108,6 +1201,8 @@ scripts/test-gate.sh --check-phase-gate
 **Objective:** Assume everything is broken. Prove otherwise.
 
 **Process checkpoint:** Start Phase 3 validation: `scripts/process-checklist.sh --start-phase3`
+
+**Track-agnostic enforcement:** The process checklist enforces identical step sequences for all tracks (Light, Standard, Full). There is no mechanism to skip checklist steps based on track selection. Track differentiation in Phase 3 applies to the **depth and rigor** of each step, not the step count. For example, Light track completes the integration testing step with integration tests and a manual smoke test (no formal UAT), while Standard and Full tracks require formal UAT sessions. The checklist step is the same; the effort behind it varies. See the Track Requirements Matrix in Process Right-Sizing for the full breakdown.
 
 ---
 
@@ -1313,6 +1408,53 @@ These artifacts serve as the audit evidence for Phase 3 completion. They are ref
 
 ---
 
+### Phase 3 → Phase 4 Gate
+
+#### Gate Enforcement — What `check-phase-gate.sh` Validates (Phase 3→4)
+
+When `current_phase >= 4` in `.claude/phase-state.json`:
+
+- [ ] **`phase_3_to_4` date key recorded in `.claude/phase-state.json`.** Missing key produces a WARN.
+- [ ] **`APPROVAL_LOG.md` has a dated Phase 3 → Phase 4 entry.** Same 15-line proximity rule: the date must appear within 15 lines of the `Phase 3.*Phase 4` header.
+- [ ] **Organizational deployments: both Application Owner and IT Security approval entries present** in `APPROVAL_LOG.md`.
+
+When `current_phase >= 3` (pre-gate checks that run before the transition is recorded):
+
+- [ ] **`HANDOFF.md` exists.**
+- [ ] **`docs/INCIDENT_RESPONSE.md` exists.**
+- [ ] **`sbom.json` exists.**
+- [ ] **`docs/test-results/` directory exists and is non-empty.** An empty directory produces a FAIL.
+- [ ] **`SECURITY.md` exists.** Missing produces a WARN.
+- [ ] **POC mode check.** If `poc_mode` is set in `phase-state.json`, Phase 4 (production release) is blocked. POC projects complete at Phase 3.
+- [ ] **Release pipeline check.** If `.github/workflows/release.yml` exists, any remaining `TODO` items produce a WARN.
+- [ ] **Penetration test results** (Standard+ track). The script looks for files matching `*pen-test*`, `*pentest*`, or `*penetration*` in `docs/test-results/`. Standard track allows IT Security exemption recorded in `APPROVAL_LOG.md`; Full track has no exemption path.
+- [ ] **Review manifest** (`docs/eval-results/review-manifest.json`) exists.
+- [ ] **Bug gate passes** (`scripts/test-gate.sh --check-phase-gate`).
+
+#### Gate-Checked vs. Snapshot-Only Artifacts
+
+The gate script checks existence of specific artifacts (listed above). When the gate passes, it also creates a point-in-time snapshot in `docs/snapshots/phase-3-to-4_YYYY-MM-DD/`. The snapshot includes additional artifacts that are **not** gate-checked:
+
+| Artifact | Gate-Checked? | Snapshot-Included? |
+|---|---|---|
+| `HANDOFF.md` | Yes (existence) | Yes |
+| `docs/INCIDENT_RESPONSE.md` | Yes (existence) | Yes |
+| `sbom.json` | Yes (existence) | Yes |
+| `docs/test-results/` | Yes (non-empty) | Listing only |
+| `SECURITY.md` | Yes (WARN if missing) | No |
+| `APPROVAL_LOG.md` | Yes (dated entry) | Yes |
+| `PRODUCT_MANIFESTO.md` | No (checked at Phase 0→1 only) | Yes |
+| `PROJECT_BIBLE.md` | No (checked at Phase 1→2 only) | Yes |
+| `FEATURES.md` | No (checked at Phase 2→3 only) | Yes |
+| `CHANGELOG.md` | No (checked at Phase 2→3 only) | Yes |
+| `BUGS.md` | No | Yes |
+| `USER_GUIDE.md` | No | Yes |
+| `RELEASE_NOTES.md` | No | Yes |
+
+Artifacts marked "No" in the Gate-Checked column are included in the snapshot for audit purposes but their absence does not block the Phase 3→4 transition. Ensure these artifacts are complete before proceeding — the snapshot preserves whatever state they are in at gate time.
+
+---
+
 ### Phase 3 Remediation
 
 | Issue | Detection | Response | Blocks Phase 4? |
@@ -1339,6 +1481,8 @@ These artifacts serve as the audit evidence for Phase 3 completion. They are ref
 **Objective:** Build, package, distribute, monitor, maintain.
 
 **Process checkpoint:** Start Phase 4 release: `scripts/process-checklist.sh --start-phase4`
+
+**Track-agnostic enforcement:** As with Phase 3, the process checklist enforces identical step sequences for all tracks. Light track "simplifies" Phase 4 by reducing the scope within each step (e.g., cut-over deployment instead of blue/green, monitoring optional for <10 users), not by removing steps from the checklist. See the Track Requirements Matrix in Process Right-Sizing for per-step track requirements.
 
 ---
 
@@ -1593,6 +1737,8 @@ Direct the agent to generate `HANDOFF.md`:
 **Loom Method:** Building software in small, tested, independently verifiable modules.
 
 **Platform Module:** A companion document providing platform-specific architecture, tooling, testing, and deployment guidance. Referenced from this core guide at defined integration points.
+
+**Standard+ Track:** Shorthand for "Standard and Full tracks" — any track above Light. Used in step headings to indicate the step is required for Standard and Full tracks, and skipped or abbreviated for Light track. Defined in Process Right-Sizing.
 
 ### Security Terms
 

@@ -5,8 +5,8 @@
 | Field | Value |
 |---|---|
 | **Document ID** | SOI-007-GUIDE |
-| **Version** | 1.1 |
-| **Date** | 2026-04-02 |
+| **Version** | 1.2 |
+| **Date** | 2026-04-08 |
 | **Classification** | User Guide |
 | **Companion Documents** | SOI-002-BUILD v1.0 (Builder's Guide), SOI-003-GOV v1.0 (Governance Framework), SOI-004-INTAKE v1.0 (Project Intake Template) |
 
@@ -136,6 +136,24 @@ The agent calls `scripts/process-checklist.sh --complete-step PROCESS:STEP` to a
 
 **Check current state:** Run `scripts/process-checklist.sh --status` to see where each process stands — which steps are completed and which remain.
 
+#### Process Enforcement Details
+
+The following behaviors are by design but not obvious from the high-level description above. Understanding them prevents confusion when the enforcement system behaves in a way you do not expect.
+
+**Phase 2 initialization and `--verify-init`:** When the agent completes Phase 2 initialization steps individually via `--complete-step phase2_init:STEP`, the system auto-sets `phase2_init.verified = true` once all 7 steps are marked complete. You do not need to run `--verify-init` separately in that case. The `--verify-init` command exists as an alternative path: it auto-detects completed steps by inspecting your environment (git remote, CI pipeline, scaffold, hooks) and marks them in bulk. Either path results in the same verified state. If you see a commit blocked with "Phase 2 initialization not verified," run `--verify-init` to let the script detect what is already in place.
+
+**`--start-feature` and `--complete-step` are phase-agnostic.** The script does not prevent an agent at Phase 2 from running `--complete-step phase3_validation:integration_testing` or `--start-phase3`. Enforcement happens at commit time, not at step-completion time. When the agent calls `--check-commit-ready`, the script checks the current phase (from `.claude/phase-state.json`) and only enforces the steps relevant to that phase. Steps completed for a future phase are recorded but have no effect until the project transitions to that phase. This is by design — it allows preparatory work without blocking commits.
+
+**Build loop step 6 (`feature_recorded`) is not required for commits.** The build loop has 6 steps: `tests_written`, `tests_verified_failing`, `implemented`, `security_audit`, `documentation_updated`, and `feature_recorded`. At commit time, only the first 5 are required. Step 6 (`feature_recorded`) is a post-commit bookkeeping step — it records the feature in the build progress tracker via `test-gate.sh --record-feature`. If you start a new feature without recording the previous one, the script warns you but does not block. This is because the commit itself is the source artifact; the recording is metadata for context health checks.
+
+**Docs-only commits bypass build loop checks.** When all staged files have documentation extensions (`.md`, `.json`, `.yml`, `.yaml`, `.toml`, `.tmpl`), the commit is allowed without completing any build loop steps. This is by design — documentation fixes, configuration updates, and template changes should not require a full RED-GREEN-REFACTOR cycle. The check also skips enforcement for files outside source directories (`src/`, `lib/`, `app/`, `pkg/`, `internal/`, `cmd/`). If a commit mixes source and documentation files, the full build loop enforcement applies.
+
+**Competency Matrix: self-assessment vs. enforcement timing.** The Competency Matrix you fill out in the Intake (Section 6) is a self-assessment that influences agent behavior from Phase 0 onward — honest "No" answers cause the agent to choose conservative, well-documented options. However, mechanical security enforcement (CI-level SAST, dependency audits, mandatory peer review triggers) only activates from Phase 2 when the CI pipeline and pre-commit hooks are installed. In Phases 0 and 1, the matrix is a planning input, not an enforcement mechanism. Organizations requiring security peer review for "No" or "Partially" on Security: that review is triggered at Phase 2 exit (see the organizational-only actions in the Phase 2 Completion Checkpoint).
+
+**`pre-commit-gate.sh` is a Claude Code hook, not a git hook.** Despite its name, `pre-commit-gate.sh` is registered as a PreToolUse hook in the Claude Code configuration (`.claude/settings.json`). It intercepts `git commit` and `gh pr create` commands that the AI agent issues through the Bash tool. It reads JSON from stdin in the Claude Code hook format (`{"command": "git commit -m '...'"}`) and returns a JSON permission decision. It does not run as a traditional git pre-commit hook (those are separate — gitleaks and Semgrep use the git hook mechanism). If you are troubleshooting why the agent's commits are blocked, check `.claude/settings.json` for the PreToolUse hook registration, not `.git/hooks/pre-commit`.
+
+**PRODUCT_MANIFESTO.md sections map to Phase 0 steps.** The manifesto template (`templates/generated/product-manifesto.tmpl`) contains HTML comments like `<!-- Source: Phase 0 Step 0.1 -->` that indicate which Phase 0 step produced each section. When reviewing the manifesto, these comments help you trace a section back to the prompt that generated it and the corresponding review checklist in the Builder's Guide.
+
 ### Time Commitment
 
 From the Builder's Guide:
@@ -219,7 +237,22 @@ If you want to validate the framework before completing all governance approvals
 
 **Both POC types follow the full phase-gate process** (Phases 0-3) identically to a production build — same TDD, same security scanning, same threat modeling. Phase 4 stops at "ready to deploy" but does not deploy to production.
 
-**Upgrading to production:** When ready, run `scripts/intake-wizard.sh --upgrade-to-production` to walk through the deferred pre-conditions and remove POC constraints.
+**Upgrading to production:** When ready, run `scripts/upgrade-project.sh --to-production` to walk through the deferred pre-conditions and remove POC constraints. The legacy alias `scripts/intake-wizard.sh --upgrade-to-production` also works (it delegates to `upgrade-project.sh` internally), but `upgrade-project.sh --to-production` is the canonical command.
+
+#### POC Mode Lifecycle
+
+POC mode is enforced at two levels:
+
+| Enforcement Point | Mechanism | What It Blocks |
+|---|---|---|
+| **Phase gate** (`check-phase-gate.sh`) | Checks `poc_mode` in `.claude/phase-state.json` at the Phase 3 to Phase 4 transition | Blocks the phase gate with an error directing you to `upgrade-project.sh --to-production` |
+| **Process checklist** (`process-checklist.sh --start-phase4`) | Checks `poc_mode` before initializing the Phase 4 step sequence | Blocks the `--start-phase4` command entirely — returns an error before any Phase 4 steps are created |
+
+Both enforcement points must be cleared before Phase 4 work can begin. Running `upgrade-project.sh --to-production` removes the `poc_mode` field from `.claude/phase-state.json`, which unblocks both checks.
+
+**The `sponsored_poc` "no real user data" constraint is governance-only.** No tooling inspects your data sources or enforces this constraint mechanically. It is your responsibility to ensure that POC environments do not contain production user data. Violations are a governance issue, not a tooling failure.
+
+**POC mode does not affect Phases 0-3.** The full TDD cycle, security scanning, threat modeling, and all process enforcement steps run identically in POC and production modes. The only difference is the Phase 4 gate block. This means all code produced during a POC carries forward without rework when you upgrade to production.
 
 ### 1.3 Contractor/Consultant and Employment Considerations
 
@@ -1404,5 +1437,6 @@ Pick the primary platform and use its module. Cross-platform concerns (e.g., a w
 
 | Version | Date | Changes |
 |---|---|---|
+| 1.2 | 2026-04-08 | Added Process Enforcement Details subsection (7 items) and POC Mode Lifecycle subsection (4 items) to close UAT documentation gaps. |
 | 1.1 | 2026-04-02 | Added evaluation prompts documentation (framework and project review prompts). |
 | 1.0 | 2026-04-02 | Initial release. |

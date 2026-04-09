@@ -299,11 +299,27 @@ WEB-SPECIFIC REQUIREMENTS:
 - [ ] CORS configuration
 - [ ] Structured logging with correlation IDs
 
+**Python lockfile note:** The `process-checklist.sh --verify-init` script checks for lockfiles to ensure reproducible builds. For Python projects, only `Pipfile.lock` (Pipenv) and `poetry.lock` (Poetry) are detected as valid lockfiles. A plain `requirements.txt` is NOT recognized as a lockfile because it does not guarantee pinned transitive dependencies. If using pip directly, adopt one of these approaches:
+
+- **Recommended:** Use Poetry (`poetry init`, `poetry lock`) or Pipenv (`pipenv install`) to get a proper lockfile.
+- **Alternative:** Use `pip-compile` from `pip-tools` to generate a fully-pinned `requirements.txt` from `requirements.in`, then rename or symlink to a recognized lockfile format.
+
+Node.js projects use `package-lock.json` (npm) or `yarn.lock` (Yarn), both of which are auto-detected.
+
 ### Phase 3 — Security (Append to Core Steps)
 
 - [ ] CSP implemented and tested (Step 3.2.5 from previous guide versions)
 - [ ] DAST scan completed (ZAP baseline minimum, active for Full Track)
 - [ ] SBOM generated: `npx @cyclonedx/cyclonedx-npm --output-file sbom.json`
+
+**Platform-specific SAST tools:** Semgrep (referenced in the Builder's Guide) is the primary SAST tool and covers JavaScript, TypeScript, and Python well. For additional coverage, consider ecosystem-specific analyzers:
+
+| Ecosystem | SAST Tool | Notes |
+|---|---|---|
+| **TypeScript / JavaScript** | ESLint with `eslint-plugin-security` | Detects unsafe regex, `eval()` usage, non-literal `require()`, and other Node.js security anti-patterns. Add alongside Semgrep for defense in depth. |
+| **Python** | Bandit (`pip install bandit`) | Python-specific security linter. Detects hardcoded passwords, use of `eval()`/`exec()`, insecure deserialization, weak cryptography. Run in CI: `bandit -r src/ -ll` (report medium+ severity). |
+
+These complement Semgrep and should run in CI alongside it.
 
 ---
 

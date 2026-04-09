@@ -83,6 +83,7 @@ Users of desktop applications do not automatically get the latest version. Plan 
 | Strategy | Implementation | Trade-offs |
 |---|---|---|
 | **Framework-native updater** | Tauri: built-in updater. Electron: `electron-updater`. | Simplest. Checks for updates on launch, downloads in background. |
+| **.NET MAUI updates** | MSIX via Microsoft Store (auto-update managed by Store), WinGet package (update via `winget upgrade`), or manual download from release page. MAUI does not include a built-in updater — choose an external mechanism. | Store distribution handles updates automatically but requires Store onboarding. WinGet and manual download require users to act. |
 | **Manual download** | User downloads new version from website/release page | No infrastructure needed. Users must actively update. Acceptable for MVP. |
 | **Package manager** | Homebrew (macOS), winget/Chocolatey (Windows), apt/snap/flatpak (Linux) | Leverages existing update infrastructure. More setup for the builder. |
 | **No auto-update** | Versioned releases only | Simplest. Acceptable for Light Track and early MVPs. |
@@ -288,6 +289,16 @@ In addition to the Builder's Guide Phase 3.2 security hardening:
 - [ ] **Auto-updater security (if using):** Update downloads are signed and verified. HTTPS only. Certificate pinning recommended.
 - [ ] **Local data protection:** Sensitive local data (credentials, tokens) stored using OS keychain (Keytar, macOS Keychain, Windows Credential Manager) — not plain text config files.
 
+**Platform-specific SAST tools:** Semgrep (referenced in the Builder's Guide) covers JavaScript/TypeScript and Python. For other desktop ecosystems, add platform-specific static analysis:
+
+| Ecosystem | SAST Tool | Notes |
+|---|---|---|
+| **.NET / C# (MAUI, WPF)** | Roslyn analyzers (built-in), Security Code Scan | Security Code Scan is a Roslyn analyzer NuGet package that detects SQL injection, XSS, CSRF, and other OWASP Top 10 issues in C# code. Enable via `dotnet add package SecurityCodeScan.VS2019`. |
+| **Java / Kotlin (desktop)** | SpotBugs, Find Security Bugs | Find Security Bugs is a SpotBugs plugin focused on security. Add to Gradle: `spotbugs { toolVersion = '4.x' }` with `spotbugsPlugins 'com.h3xstream.findsecbugs:findsecbugs-plugin:1.x'`. |
+| **Rust (Tauri backend)** | `cargo audit`, `cargo clippy` | `cargo audit` checks dependencies for known vulnerabilities. `cargo clippy` catches common mistakes including some security-relevant patterns. Both should run in CI. |
+
+These complement Semgrep — they catch language-specific issues that a polyglot SAST tool may miss.
+
 ### Rate Limiting (Client-Server Desktop Apps)
 
 For desktop applications with a backend API:
@@ -437,6 +448,16 @@ After the Builder's Guide Project Initialization steps:
 - [ ] Native dialog integration working (file open/save dialogs at minimum)
 - [ ] Application icon configured for all platforms
 - [ ] Window management working (resize, minimize, maximize, close)
+
+**Dependency lockfile note (Java/Gradle projects):** The `process-checklist.sh --verify-init` script checks for lockfiles to ensure reproducible builds. Java/Gradle projects use `gradle.lockfile` (generated via `./gradlew dependencies --write-locks`) or `gradle/verification-metadata.xml` (generated via `./gradlew --write-verification-metadata sha256`). Enable dependency locking in `build.gradle.kts`:
+
+```kotlin
+dependencyLocking {
+    lockAllConfigurations()
+}
+```
+
+Without a lockfile, the init verification check will flag the project. Node.js projects (Electron, Tauri frontend) use `package-lock.json` or `yarn.lock`, which are auto-generated.
 
 ### Phase 3 — Go-Live Verification (Append to Core Checklist)
 
