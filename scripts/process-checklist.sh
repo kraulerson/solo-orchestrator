@@ -245,13 +245,19 @@ complete_step() {
 
   case "${process}:${step_id}" in
     build_loop:security_audit)
-      # P2-006: Security audit must produce a findings artifact
+      # P2-006: Security audit must produce a feature-specific findings artifact
       local feature_name
       feature_name=$(jq -r '.build_loop.feature // "unknown"' "$PROCESS_STATE" 2>/dev/null)
-      if [ ! -d "docs/security-audits" ] || [ -z "$(ls docs/security-audits/ 2>/dev/null)" ]; then
-        print_warn "No security audit findings in docs/security-audits/."
+      local feature_slug
+      feature_slug=$(echo "$feature_name" | tr '[:upper:] ' '[:lower:]-' | tr -cd 'a-z0-9-')
+      if [ -d "docs/security-audits" ] && ls docs/security-audits/*"${feature_slug}"* 2>/dev/null | head -1 >/dev/null 2>&1; then
+        : # Feature-specific audit file found
+      elif [ -d "docs/security-audits" ] && ls docs/security-audits/*"${feature_name}"* 2>/dev/null | head -1 >/dev/null 2>&1; then
+        : # Feature-specific audit file found (original name)
+      else
+        print_warn "No security audit findings for feature '$feature_name' in docs/security-audits/."
         echo "  Create a findings file using templates/generated/security-audit-findings.tmpl" >&2
-        echo "  Save as: docs/security-audits/${feature_name}-security-audit.md" >&2
+        echo "  Save as: docs/security-audits/${feature_slug}-security-audit.md" >&2
         artifact_check_failed=true
       fi
       ;;
@@ -315,22 +321,28 @@ complete_step() {
       fi
       ;;
     phase3_validation:legal_review)
-      # P3-002: Attorney review must have evidence
-      local has_legal_evidence=false
+      # P3-002: Attorney review — if legal documents exist, attorney review is REQUIRED
+      local has_legal_docs=false
+      local has_attorney_entry=false
+      # Check for legal documents that require attorney review
+      if [ -f "PRIVACY_POLICY.md" ] || [ -f "TERMS_OF_SERVICE.md" ] || [ -f "privacy-policy.md" ] || [ -f "terms-of-service.md" ]; then
+        has_legal_docs=true
+      fi
       # Check for attorney review entry in APPROVAL_LOG.md
       if [ -f "APPROVAL_LOG.md" ] && grep -qi "attorney\|legal review" APPROVAL_LOG.md 2>/dev/null; then
-        has_legal_evidence=true
+        has_attorney_entry=true
       fi
-      # Check for Privacy Policy or Terms of Service
-      if [ -f "PRIVACY_POLICY.md" ] || [ -f "TERMS_OF_SERVICE.md" ] || [ -f "privacy-policy.md" ]; then
-        has_legal_evidence=true
-      fi
-      # If the project has no data collection, legal review may be N/A
-      if [ "$has_legal_evidence" = false ]; then
-        print_warn "No evidence of legal review found (APPROVAL_LOG.md attorney entry or legal documents)."
-        echo "  If attorney review is required: record in APPROVAL_LOG.md (Attorney / Legal Review section)." >&2
-        echo "  If not applicable (no data collection): use SOIF_FORCE_STEP=true with documented rationale." >&2
+      # Logic: if legal docs exist, attorney entry is required (AND, not OR)
+      if [ "$has_legal_docs" = true ] && [ "$has_attorney_entry" = false ]; then
+        print_warn "Legal documents found but no attorney review recorded in APPROVAL_LOG.md."
+        echo "  Privacy Policy and/or Terms of Service MUST be reviewed by qualified legal counsel." >&2
+        echo "  Record the review in APPROVAL_LOG.md (Attorney / Legal Review section)." >&2
         artifact_check_failed=true
+      elif [ "$has_legal_docs" = false ] && [ "$has_attorney_entry" = false ]; then
+        # No legal docs and no attorney entry — likely N/A (no data collection)
+        print_info "No legal documents found — attorney review may not be required."
+        echo "  If this project collects user data, create a Privacy Policy and get attorney review." >&2
+        echo "  If not applicable: proceed (use SOIF_FORCE_STEP=true if this check blocks incorrectly)." >&2
       fi
       ;;
     phase3_validation:integration_testing)

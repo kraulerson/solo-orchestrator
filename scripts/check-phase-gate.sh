@@ -175,7 +175,9 @@ validate_approval_fields() {
       local git_user
       git_user=$(git config user.name 2>/dev/null || echo "")
       if [ -n "$git_user" ] && echo "$approver_name" | grep -qi "$git_user"; then
-        echo -e "${YELLOW}[WARN]${NC} $gate_label: Approver name '$approver_name' matches git user — self-approval detected for organizational deployment"
+        echo -e "${RED}[FAIL]${NC} $gate_label: Approver name '$approver_name' matches git user — self-approval detected for organizational deployment"
+        echo "  Governance requires a different individual to approve phase gates for organizational projects."
+        echo "  Have the approver commit the APPROVAL_LOG.md entry themselves, or use --force with documented justification."
         issues=$((issues + 1))
       fi
     fi
@@ -411,10 +413,16 @@ if [ "$current_phase" -ge 3 ]; then
   if [ "$track" = "standard" ] || [ "$track" = "full" ]; then
     if ls docs/test-results/*pen-test* docs/test-results/*pentest* docs/test-results/*penetration* 2>/dev/null | head -1 >/dev/null 2>&1; then
       echo -e "${GREEN}  [OK]${NC} Penetration test results found in docs/test-results/"
-    elif grep -qi "penetration.*exempted\|pen.*test.*exempted" APPROVAL_LOG.md 2>/dev/null; then
-      echo -e "${GREEN}  [OK]${NC} Penetration test exempted (recorded in APPROVAL_LOG.md)"
+    elif [ "$track" = "standard" ] && grep -qi "penetration.*exempted\|pen.*test.*exempted" APPROVAL_LOG.md 2>/dev/null; then
+      # Standard track allows IT Security exemption
+      echo -e "${GREEN}  [OK]${NC} Penetration test exempted by IT Security (recorded in APPROVAL_LOG.md)"
+    elif [ "$track" = "full" ]; then
+      # Full track: no exemption path — pen test is mandatory
+      echo -e "${RED}[FAIL]${NC} Phase 3→4: Full Track requires penetration test — no exemption path available"
+      echo "  Provide pen test results in docs/test-results/ before proceeding."
+      issues=$((issues + 1))
     else
-      echo -e "${YELLOW}[WARN]${NC} Phase 3→4: No penetration test results or exemption found ($track track requires pen test)"
+      echo -e "${YELLOW}[WARN]${NC} Phase 3→4: No penetration test results or IT Security exemption found ($track track)"
       issues=$((issues + 1))
     fi
   fi

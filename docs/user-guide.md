@@ -118,12 +118,13 @@ The framework has three tiers of control, plus an intermediate tier for CI-based
 
 ### Process Enforcement (Tier 2)
 
-The framework mechanically enforces sequential process compliance through a state machine and commit gating system. Four processes are gated:
+The framework mechanically enforces sequential process compliance through a state machine and commit gating system. Five processes are gated:
 
-1. **Build Loop** (Phase 2) — tests → verify failing → implement → security audit → documentation → record feature. Each step must be completed in order. Source commits are blocked until all steps pass.
-2. **UAT Session** (Phase 2) — 9-step testing flow from dispatching test agents through gate passage. Bug fix commits are blocked until the full session checklist is complete.
-3. **Phase 3 Validation** — all 6 validation types (integration, security, chaos, accessibility, performance, contract) must be completed and results archived.
-4. **Phase 4 Release** — rollback must be tested before go-live verification. All 5 release steps required.
+1. **Phase 1 Architecture** — architecture selected → threat model complete → data model defined → UI scaffolding done → bible synthesized. Prevents skipping the threat model or other critical planning steps.
+2. **Build Loop** (Phase 2) — tests → verify failing → implement → security audit → documentation → record feature. Each step must be completed in order. Source commits are blocked until all steps pass.
+3. **UAT Session** (Phase 2) — 9-step testing flow from dispatching test agents through gate passage. Bug fix commits are blocked until the full session checklist is complete.
+4. **Phase 3 Validation** — 9 steps: integration testing, security hardening, chaos testing, accessibility audit, performance audit, contract testing, results archived, pre-launch preparation, legal review. Artifact existence checks verify scan results are archived before steps can be marked complete.
+5. **Phase 4 Release** — 6 steps: production build, rollback tested, go-live verified, monitoring configured, handoff written, handoff tested. Artifact checks require rollback test evidence, HANDOFF.md, monitoring documentation, and handoff test results.
 
 The agent calls `scripts/process-checklist.sh --complete-step PROCESS:STEP` to advance through each process. A PreToolUse hook on `git commit` and `gh pr create` blocks when required steps are incomplete.
 
