@@ -219,7 +219,78 @@ complete_step() {
     fi
   done
 
-  # All prior steps present — add step_id to steps_completed
+  # --- Artifact existence checks for high-value steps (P2-006, P3-008, P4-015) ---
+  # These prevent marking a step complete without producing the expected output.
+  # Use --force flag to bypass (logged to audit trail).
+  local artifact_check_failed=false
+
+  case "${process}:${step_id}" in
+    build_loop:security_audit)
+      # P2-006: Security audit must produce a findings artifact
+      local feature_name
+      feature_name=$(jq -r '.build_loop.feature // "unknown"' "$PROCESS_STATE" 2>/dev/null)
+      if [ ! -d "docs/security-audits" ] || [ -z "$(ls docs/security-audits/ 2>/dev/null)" ]; then
+        print_warn "No security audit findings in docs/security-audits/."
+        echo "  Create a findings file using templates/generated/security-audit-findings.tmpl" >&2
+        echo "  Save as: docs/security-audits/${feature_name}-security-audit.md" >&2
+        artifact_check_failed=true
+      fi
+      ;;
+    phase3_validation:security_hardening)
+      # P3-008: Security hardening must produce scan results
+      if [ ! -d "docs/test-results" ] || ! ls docs/test-results/*semgrep* docs/test-results/*sast* 2>/dev/null | head -1 >/dev/null 2>&1; then
+        print_warn "No SAST scan results found in docs/test-results/."
+        echo "  Run Semgrep and save results: docs/test-results/YYYY-MM-DD_semgrep_pass.json" >&2
+        artifact_check_failed=true
+      fi
+      ;;
+    phase3_validation:results_archived)
+      # P3-008: Results archive must be non-empty
+      if [ ! -d "docs/test-results" ] || [ -z "$(ls docs/test-results/ 2>/dev/null)" ]; then
+        print_warn "docs/test-results/ is empty — archive Phase 3 scan results first."
+        artifact_check_failed=true
+      fi
+      ;;
+    phase4_release:rollback_tested)
+      # P4-001: Rollback test must produce evidence
+      if ! ls docs/test-results/*rollback* 2>/dev/null | head -1 >/dev/null 2>&1; then
+        print_warn "No rollback test results found in docs/test-results/."
+        echo "  Record rollback test results: docs/test-results/YYYY-MM-DD_rollback-test.md" >&2
+        artifact_check_failed=true
+      fi
+      ;;
+    phase4_release:handoff_written)
+      # P4-015: HANDOFF.md must exist
+      if [ ! -f "HANDOFF.md" ]; then
+        print_warn "HANDOFF.md not found — create it before marking this step complete."
+        artifact_check_failed=true
+      fi
+      ;;
+    phase4_release:go_live_verified)
+      # P4-015: Go-live should be recorded
+      if [ ! -f "RELEASE_NOTES.md" ]; then
+        print_warn "RELEASE_NOTES.md not found — create release notes before marking go-live verified."
+        artifact_check_failed=true
+      fi
+      ;;
+  esac
+
+  if [ "$artifact_check_failed" = true ]; then
+    if [ "${SOIF_FORCE_STEP:-}" = "true" ]; then
+      # Force override — log to audit trail
+      local now_force
+      now_force=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+      mkdir -p .claude
+      echo "[FORCE] Step ${process}:${step_id} completed without artifact at $now_force by $(whoami)" >> ".claude/process-audit.log"
+      print_warn "Step forced without artifact — logged to .claude/process-audit.log"
+    else
+      print_fail "Artifact check failed. Produce the required artifact first."
+      echo "  To force-override (logged): SOIF_FORCE_STEP=true scripts/process-checklist.sh --complete-step ${process}:${step_id}" >&2
+      exit 1
+    fi
+  fi
+
+  # All prior steps present + artifact checks passed — add step_id to steps_completed
   local new_step_num=$((target_index + 1))
   jq --arg step "$step_id" --argjson num "$new_step_num" "
     .${process}.steps_completed += [\$step] |

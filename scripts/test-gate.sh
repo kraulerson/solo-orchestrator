@@ -218,6 +218,67 @@ check_phase_gate() {
     print_ok "No open SEV-3 bugs"
   fi
 
+  # --- Feature completeness check (P2-022) ---
+  echo ""
+  echo -e "${BOLD}Feature Completeness Check${NC}"
+  echo ""
+
+  # Check FEATURES.md exists and count features
+  if [ -f "FEATURES.md" ]; then
+    # Count feature entries (lines starting with ## or ### that look like feature headings)
+    local feature_count
+    feature_count=$(grep -cE '^#{2,3} ' FEATURES.md 2>/dev/null || echo "0")
+    # Exclude template headings and non-feature sections
+    feature_count=$(grep -cE '^#{2,3} [^#]' FEATURES.md 2>/dev/null | head -1 || echo "0")
+
+    # Check build-progress.json for recorded features
+    local recorded_features=0
+    if [ -f ".claude/build-progress.json" ] && command -v jq &>/dev/null; then
+      recorded_features=$(jq '.features_completed | length' .claude/build-progress.json 2>/dev/null || echo "0")
+    fi
+
+    if [ "$recorded_features" -gt 0 ]; then
+      print_ok "Build progress: $recorded_features feature(s) recorded"
+    elif [ "$feature_count" -gt 0 ]; then
+      print_ok "FEATURES.md: $feature_count section(s) found"
+    else
+      print_warn "FEATURES.md exists but appears empty — verify features are documented"
+      warnings=true
+    fi
+
+    # Compare against MVP cutline if we can
+    if [ -f "PRODUCT_MANIFESTO.md" ]; then
+      local cutline_items
+      cutline_items=$(sed -n '/Must-Have/,/Should-Have\|Will-Not-Have\|---/p' PRODUCT_MANIFESTO.md 2>/dev/null | grep -cE '^\s*-\s*\*\*' || echo "0")
+      if [ "$cutline_items" -gt 0 ] && [ "$recorded_features" -gt 0 ]; then
+        if [ "$recorded_features" -lt "$cutline_items" ]; then
+          print_warn "Feature count ($recorded_features) < MVP Cutline items ($cutline_items) — verify all MVP features are built"
+          warnings=true
+        elif [ "$recorded_features" -gt "$cutline_items" ]; then
+          print_warn "Feature count ($recorded_features) > MVP Cutline items ($cutline_items) — verify scope additions were approved"
+          warnings=true
+        else
+          print_ok "Feature count matches MVP Cutline ($recorded_features features)"
+        fi
+      fi
+    fi
+  else
+    print_warn "FEATURES.md not found — cannot verify feature completeness"
+    warnings=true
+  fi
+
+  # Check that all UAT sessions are completed (features_since_last_test should be 0)
+  if [ -f ".claude/build-progress.json" ] && command -v jq &>/dev/null; then
+    local untested
+    untested=$(jq '.features_since_last_test // 0' .claude/build-progress.json 2>/dev/null || echo "0")
+    if [ "$untested" -gt 0 ]; then
+      print_warn "$untested feature(s) since last UAT session — complete testing before Phase 3"
+      warnings=true
+    else
+      print_ok "All feature batches have been tested"
+    fi
+  fi
+
   echo ""
 
   if [ "$blocked" = true ]; then
@@ -227,7 +288,7 @@ check_phase_gate() {
     print_warn "Phase 2→3 has warnings. User attestation required."
     exit 2
   else
-    print_ok "Phase 2→3 bug gate clear."
+    print_ok "Phase 2→3 gate clear."
     exit 0
   fi
 }
