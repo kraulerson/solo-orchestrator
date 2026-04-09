@@ -60,12 +60,45 @@ jobs:
           echo "See docs/builders-guide.md for supported tools per language."
           exit 1
 
+      # ─── Governance (language-agnostic — do not remove) ──────────────
+      # These governance steps apply to ALL languages and should remain
+      # even when customizing the language-specific steps above.
+
+      - name: Governance - Approval log integrity
+        if: hashFiles('APPROVAL_LOG.md') != ''
+        run: |
+          if git diff origin/main...HEAD -- APPROVAL_LOG.md 2>/dev/null | grep -qE '^\-[^-]'; then
+            echo "::error::APPROVAL_LOG.md has deleted or modified lines. This file is append-only."
+            exit 1
+          fi
+
+      - name: Governance - Approval author verification
+        if: hashFiles('APPROVAL_LOG.md') != ''
+        run: |
+          if git diff --name-only origin/main...HEAD 2>/dev/null | grep -q 'APPROVAL_LOG.md'; then
+            COMMIT_AUTHOR=$(git log --format='%an' origin/main...HEAD -- APPROVAL_LOG.md 2>/dev/null | head -1)
+            ADDED_LINES=$(git diff origin/main...HEAD -- APPROVAL_LOG.md 2>/dev/null | grep '^+' | grep -i 'Approver' | head -1 || true)
+            if [ -n "$ADDED_LINES" ] && [ -n "$COMMIT_AUTHOR" ]; then
+              APPROVER_NAME=$(echo "$ADDED_LINES" | sed 's/.*|\s*//' | sed 's/\s*|.*//' | tr -d '+*' | xargs)
+              if [ -n "$APPROVER_NAME" ] && [ "$APPROVER_NAME" != "$COMMIT_AUTHOR" ]; then
+                echo "::warning::Commit author ($COMMIT_AUTHOR) differs from listed approver ($APPROVER_NAME). Verify this is intentional."
+              fi
+            fi
+          fi
+
       - name: Governance - Phase gate check
         if: hashFiles('.claude/phase-state.json') != ''
-        run: bash scripts/check-phase-gate.sh 2>/dev/null || echo "Phase gate check script not found — skipping"
+        run: |
+          if [ ! -f scripts/check-phase-gate.sh ]; then
+            echo "::error::Phase gate check script missing. Framework integrity compromised."
+            exit 1
+          fi
+          bash scripts/check-phase-gate.sh
 
       - name: Governance - Changelog check
         run: bash scripts/check-changelog.sh 2>/dev/null || true
+        # Tier 1.5: warning only. Set SOIF_STRICT_CHANGELOG=true to block.
 
       - name: Governance - Session state check
         run: bash scripts/check-session-state.sh 2>/dev/null || true
+        # Tier 1.5: warning only. Set SOIF_STRICT_SESSION=true to block.

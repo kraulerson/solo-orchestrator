@@ -23,12 +23,44 @@ if [ -z "$COMMAND" ]; then
   exit 0
 fi
 
-# Only gate git commit and gh pr create
+# Block agent-initiated process resets
+if echo "$COMMAND" | grep -qE 'process-checklist\.sh.*--reset'; then
+  cat << HOOKEOF
+{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "Process reset requires Orchestrator authorization. Ask the Orchestrator to run this command directly in their terminal."}}
+HOOKEOF
+  exit 0
+fi
+
+# Block --no-verify flag on git commit (bypasses security hooks)
+if echo "$COMMAND" | grep -qE '\bgit\b.*\bcommit\b.*--no-verify'; then
+  cat << HOOKEOF
+{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "The --no-verify flag bypasses security hooks (gitleaks, Semgrep). Remove --no-verify and commit normally."}}
+HOOKEOF
+  exit 0
+fi
+
+# Warn on git commit --amend (rewrites commit history, bypasses build loop for amended content)
+if echo "$COMMAND" | grep -qE '\bgit\b.*\bcommit\b.*--amend'; then
+  cat << HOOKEOF
+{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow", "permissionDecisionReason": "WARNING: git commit --amend rewrites the previous commit. Ensure the amended content has been through the full Build Loop. If this amend adds new source code, consider a new commit instead."}}
+HOOKEOF
+  exit 0
+fi
+
+# Block git push --force (overwrites branch history)
+if echo "$COMMAND" | grep -qE '\bgit\b.*\bpush\b.*(-f|--force)'; then
+  cat << HOOKEOF
+{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "Force push overwrites branch history and can destroy audit evidence. Use normal push. If you need to rewrite history, ask the Orchestrator."}}
+HOOKEOF
+  exit 0
+fi
+
+# Only gate git commit and gh pr create for process checklist enforcement
 IS_COMMIT=false
 IS_PR=false
-if echo "$COMMAND" | grep -qE '^\s*git\s+commit'; then
+if echo "$COMMAND" | grep -qE '\bgit\b.*\bcommit\b'; then
   IS_COMMIT=true
-elif echo "$COMMAND" | grep -qE '^\s*gh\s+pr\s+create'; then
+elif echo "$COMMAND" | grep -qE '\bgh\b.*\bpr\b.*\bcreate\b'; then
   IS_PR=true
 fi
 

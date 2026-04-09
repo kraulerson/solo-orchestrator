@@ -88,6 +88,7 @@ get_gate_date() {
 
 gate_0_to_1=$(get_gate_date "phase_0_to_1")
 gate_1_to_2=$(get_gate_date "phase_1_to_2")
+gate_2_to_3=$(get_gate_date "phase_2_to_3")
 gate_3_to_4=$(get_gate_date "phase_3_to_4")
 
 issues=0
@@ -147,6 +148,37 @@ if [ "$current_phase" -ge 2 ]; then
   fi
 fi
 
+# Check: if current_phase >= 3, gate 2→3 should have a date
+if [ "$current_phase" -ge 3 ]; then
+  if [ -n "$gate_2_to_3" ]; then
+    if grep -q "Phase 2.*Phase 3" "$APPROVAL_LOG" && grep -A 15 "Phase 2.*Phase 3" "$APPROVAL_LOG" | grep -qE "[0-9]{4}-[0-9]{2}-[0-9]{2}"; then
+      echo -e "${GREEN}  [OK]${NC} Phase 2→3: gate dated $gate_2_to_3, approval log has entry"
+    else
+      echo -e "${YELLOW}[WARN]${NC} Phase 2→3: gate dated $gate_2_to_3, but APPROVAL_LOG.md has no dated entry"
+      issues=$((issues + 1))
+    fi
+  else
+    echo -e "${YELLOW}[WARN]${NC} Phase 2→3: current_phase is $current_phase but gate date not recorded in phase-state.json"
+    issues=$((issues + 1))
+  fi
+fi
+
+# Artifact existence check: Phase 2→3
+if [ "$current_phase" -ge 3 ]; then
+  if [ -f "FEATURES.md" ]; then
+    echo -e "${GREEN}  [OK]${NC} FEATURES.md exists"
+  else
+    echo -e "${YELLOW}[WARN]${NC} Phase 2→3: FEATURES.md not found"
+    issues=$((issues + 1))
+  fi
+  if [ -f "CHANGELOG.md" ]; then
+    echo -e "${GREEN}  [OK]${NC} CHANGELOG.md exists"
+  else
+    echo -e "${YELLOW}[WARN]${NC} Phase 2→3: CHANGELOG.md not found"
+    issues=$((issues + 1))
+  fi
+fi
+
 # Check: if current_phase >= 4, gate 3→4 should have a date
 if [ "$current_phase" -ge 4 ]; then
   if [ -n "$gate_3_to_4" ]; then
@@ -164,7 +196,12 @@ fi
 
 # POC mode check (Phase 3→4) — block production release if in POC mode
 if [ "$current_phase" = "3" ]; then
-  poc_mode=$(jq -r '.poc_mode // empty' .claude/phase-state.json 2>/dev/null)
+  poc_mode=""
+  if command -v jq &>/dev/null; then
+    poc_mode=$(jq -r '.poc_mode // empty' .claude/phase-state.json 2>/dev/null || echo "")
+  else
+    poc_mode=$(grep -o '"poc_mode"[[:space:]]*:[[:space:]]*"[^"]*"' .claude/phase-state.json 2>/dev/null | sed 's/.*: *"//' | sed 's/"//' || echo "")
+  fi
   if [ -n "$poc_mode" ] && [ "$poc_mode" != "null" ]; then
     echo "::error::Phase 4 (production release) is BLOCKED — project is in ${poc_mode//_/ } mode."
     echo "  POC projects complete at Phase 3 (ready to deploy)."

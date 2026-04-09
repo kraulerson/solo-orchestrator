@@ -205,6 +205,62 @@ fi
 print_info "Project phase: $phase (source: $phase_source)"
 
 # ================================================================
+# 5a. Process Enforcement State
+# ================================================================
+print_section "Process Enforcement State"
+
+if [ -f ".claude/process-state.json" ]; then
+  if command -v jq &>/dev/null && jq '.' .claude/process-state.json >/dev/null 2>&1; then
+    print_ok "process-state.json (valid JSON)"
+  elif command -v jq &>/dev/null; then
+    fail "process-state.json exists but contains invalid JSON"
+  else
+    print_ok "process-state.json (exists — install jq for structural validation)"
+  fi
+else
+  if [ $phase -ge 2 ]; then
+    fail "process-state.json missing — process enforcement is inactive. Run: scripts/process-checklist.sh --verify-init"
+  else
+    print_info "No process-state.json (created at Phase 2 initialization)"
+  fi
+fi
+
+if [ -f ".claude/build-progress.json" ]; then
+  if command -v jq &>/dev/null && jq '.' .claude/build-progress.json >/dev/null 2>&1; then
+    print_ok "build-progress.json (valid JSON)"
+  elif command -v jq &>/dev/null; then
+    warn "build-progress.json contains invalid JSON — test interval tracking degraded"
+  else
+    print_ok "build-progress.json (exists)"
+  fi
+else
+  if [ $phase -ge 2 ]; then
+    warn "build-progress.json missing — test interval tracking unavailable"
+  fi
+fi
+
+if [ -f ".claude/tool-usage.json" ]; then
+  if command -v jq &>/dev/null && jq '.' .claude/tool-usage.json >/dev/null 2>&1; then
+    print_ok "tool-usage.json (valid JSON)"
+  elif command -v jq &>/dev/null; then
+    warn "tool-usage.json contains invalid JSON — tool usage tracking degraded"
+  else
+    print_ok "tool-usage.json (exists)"
+  fi
+else
+  print_info "No tool-usage.json (created on first session start)"
+fi
+
+if [ -f ".claude/process-audit.log" ]; then
+  reset_count=$(grep -c "\[RESET\]" .claude/process-audit.log 2>/dev/null || echo "0")
+  if [ "$reset_count" -gt 0 ]; then
+    warn "process-audit.log contains $reset_count reset event(s) — review for compliance"
+  else
+    print_ok "process-audit.log (no resets recorded)"
+  fi
+fi
+
+# ================================================================
 # 6. Approval Log Completeness
 # ================================================================
 print_section "Approval Log"

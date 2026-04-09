@@ -611,6 +611,21 @@ reset_process() {
   local now
   now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
+  # Authorization: require interactive terminal (blocks agent calls)
+  if [ ! -t 0 ]; then
+    print_fail "Reset requires interactive authorization."
+    echo "The Orchestrator must run this command directly in a terminal:" >&2
+    echo "  scripts/process-checklist.sh --reset $process" >&2
+    exit 1
+  fi
+
+  # Interactive confirmation
+  read -rp "Reset process '$process'? This clears all progress. [y/N]: " confirm
+  if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+    print_info "Reset cancelled."
+    exit 0
+  fi
+
   case "$process" in
     build_loop)
       jq '
@@ -644,7 +659,11 @@ reset_process() {
       ;;
   esac
 
-  echo "[RESET] Process $process reset at $now" >&2
+  # Persistent audit trail
+  local audit_entry="[RESET] Process $process reset at $now by $(whoami)"
+  mkdir -p .claude
+  echo "$audit_entry" >> ".claude/process-audit.log"
+  echo "$audit_entry" >&2
   print_ok "Process '$process' reset to initial state"
 }
 
@@ -652,6 +671,21 @@ reset_all() {
   ensure_state_file
   local now
   now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+  # Authorization: require interactive terminal (blocks agent calls)
+  if [ ! -t 0 ]; then
+    print_fail "Reset requires interactive authorization."
+    echo "The Orchestrator must run this command directly in a terminal:" >&2
+    echo "  scripts/process-checklist.sh --reset-all" >&2
+    exit 1
+  fi
+
+  # Interactive confirmation
+  read -rp "Reset ALL processes? This clears all progress across all phases. [y/N]: " confirm
+  if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+    print_info "Reset cancelled."
+    exit 0
+  fi
 
   cat > "$PROCESS_STATE" << 'EOF'
 {
@@ -663,7 +697,11 @@ reset_all() {
 }
 EOF
 
-  echo "[RESET] All processes reset at $now" >&2
+  # Persistent audit trail
+  local audit_entry="[RESET] All processes reset at $now by $(whoami)"
+  mkdir -p .claude
+  echo "$audit_entry" >> ".claude/process-audit.log"
+  echo "$audit_entry" >&2
   print_ok "All processes reset to initial state"
 }
 

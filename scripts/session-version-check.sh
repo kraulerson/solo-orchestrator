@@ -20,8 +20,11 @@ if [ -z "$UPDATE_CMDS" ]; then
   UPDATE_CMDS=$(echo "$VERSION_OUTPUT" | sed -n '/^Manual update commands/,$ p' || true)
 fi
 
+# Extract BELOW MINIMUM lines (critical — tool version too old for enforcement)
+BELOW_MIN_LINES=$(echo "$VERSION_OUTPUT" | grep "BELOW MINIMUM" || true)
+
 # Only output when something needs attention
-if [ -n "$BELOW_MIN_LINES" ] 2>/dev/null || [ "$VERSION_EXIT" -ne 0 ]; then
+if [ -n "$BELOW_MIN_LINES" ] || [ "$VERSION_EXIT" -ne 0 ]; then
   cat << EOF
 URGENT — VERSION CHECK FAILED. Report this to the Orchestrator IMMEDIATELY as your FIRST response before any other work.
 

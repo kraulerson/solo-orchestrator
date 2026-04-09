@@ -49,12 +49,61 @@ jobs:
         run: pip-licenses --fail-on="GNU General Public License v2 (GPLv2);GNU General Public License v3 (GPLv3);GNU Affero General Public License v3 (AGPLv3);GNU Lesser General Public License v2 (LGPLv2);GNU Lesser General Public License v2.1 (LGPLv2.1);GNU Lesser General Public License v3 (LGPLv3);Server Side Public License (SSPL);European Union Public Licence 1.1 (EUPL 1.1);European Union Public Licence 1.2 (EUPL 1.2)"
         # MPL-2.0 has file-level copyleft — review on a case-by-case basis if detected
 
+      - name: Security - Lockfile integrity
+        run: |
+          if [ -f "requirements.txt" ] && grep -q -- '--hash' requirements.txt; then
+            pip install --require-hashes -r requirements.txt --dry-run 2>/dev/null || echo "::warning::Hash verification failed — review requirements.txt hashes"
+          elif [ -f "Pipfile.lock" ]; then
+            pipenv verify 2>/dev/null || echo "::warning::Pipfile.lock integrity check unavailable (pipenv not installed)"
+          elif [ -f "poetry.lock" ]; then
+            poetry check --lock 2>/dev/null || echo "::warning::poetry.lock integrity check unavailable (poetry not installed)"
+          else
+            echo "::warning::No hash-pinned lockfile found. Consider pip-compile --generate-hashes for supply chain integrity."
+          fi
+
+      - name: Governance - Approval log integrity
+        if: hashFiles('APPROVAL_LOG.md') != ''
+        run: |
+          # Verify no prior APPROVAL_LOG.md entries were modified or deleted (append-only enforcement)
+          if git diff origin/main...HEAD -- APPROVAL_LOG.md 2>/dev/null | grep -qE '^\-[^-]'; then
+            echo "::error::APPROVAL_LOG.md has deleted or modified lines. This file is append-only."
+            echo "Prior entries must not be changed. If a correction is needed, add a new entry with a correction note."
+            exit 1
+          fi
+
+      - name: Governance - Approval author verification
+        if: hashFiles('APPROVAL_LOG.md') != ''
+        run: |
+          # When APPROVAL_LOG.md is modified, check commit author against listed approver
+          if git diff --name-only origin/main...HEAD 2>/dev/null | grep -q 'APPROVAL_LOG.md'; then
+            COMMIT_AUTHOR=$(git log --format='%an' origin/main...HEAD -- APPROVAL_LOG.md 2>/dev/null | head -1)
+            ADDED_LINES=$(git diff origin/main...HEAD -- APPROVAL_LOG.md 2>/dev/null | grep '^+' | grep -i 'Approver' | head -1 || true)
+            if [ -n "$ADDED_LINES" ] && [ -n "$COMMIT_AUTHOR" ]; then
+              APPROVER_NAME=$(echo "$ADDED_LINES" | sed 's/.*|\s*//' | sed 's/\s*|.*//' | tr -d '+*' | xargs)
+              if [ -n "$APPROVER_NAME" ] && [ "$APPROVER_NAME" != "$COMMIT_AUTHOR" ]; then
+                echo "::warning::Commit author ($COMMIT_AUTHOR) differs from listed approver ($APPROVER_NAME). Verify this is intentional."
+                # Organizations wanting hard enforcement: change ::warning:: to ::error:: and uncomment: exit 1
+              fi
+            fi
+          fi
+
       - name: Governance - Phase gate check
         if: hashFiles('.claude/phase-state.json') != ''
-        run: bash scripts/check-phase-gate.sh 2>/dev/null || echo "Phase gate check script not found — skipping"
+        run: |
+          if [ ! -f scripts/check-phase-gate.sh ]; then
+            echo "::error::Phase gate check script missing. Framework integrity compromised."
+            exit 1
+          fi
+          bash scripts/check-phase-gate.sh
 
       - name: Governance - Changelog check
         run: bash scripts/check-changelog.sh 2>/dev/null || true
+        # Tier 1.5: warning only. Set SOIF_STRICT_CHANGELOG=true to block.
+        # env:
+        #   SOIF_STRICT_CHANGELOG: "true"
 
       - name: Governance - Session state check
         run: bash scripts/check-session-state.sh 2>/dev/null || true
+        # Tier 1.5: warning only. Set SOIF_STRICT_SESSION=true to block.
+        # env:
+        #   SOIF_STRICT_SESSION: "true"
