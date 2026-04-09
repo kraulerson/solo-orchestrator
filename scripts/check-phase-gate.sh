@@ -246,12 +246,24 @@ if [ "$current_phase" -ge 2 ]; then
   validate_approval_fields "Phase 1.*Phase 2" "Phase 1→2"
 fi
 
-# Artifact existence check: Phase 1→2
+# Artifact existence + completeness check: Phase 1→2 (P1-008, P1-011)
 if [ "$current_phase" -ge 2 ]; then
   if [ -f "PROJECT_BIBLE.md" ]; then
     echo -e "${GREEN}  [OK]${NC} PROJECT_BIBLE.md exists"
+    # Check for placeholder dates (YYYY-MM-DD) indicating unfilled sections
+    placeholder_dates=$(grep -c "YYYY-MM-DD" PROJECT_BIBLE.md 2>/dev/null || echo "0")
+    if [ "$placeholder_dates" -gt 0 ]; then
+      echo -e "${YELLOW}[WARN]${NC} PROJECT_BIBLE.md has $placeholder_dates placeholder date(s) — update Last Updated markers"
+      issues=$((issues + 1))
+    fi
+    # Check key sections exist (numbered 1-16 per template)
+    bible_sections=$(grep -cE "^## [0-9]+\." PROJECT_BIBLE.md 2>/dev/null || echo "0")
+    if [ "$bible_sections" -lt 10 ]; then
+      echo -e "${YELLOW}[WARN]${NC} PROJECT_BIBLE.md has only $bible_sections numbered sections (template specifies 16)"
+      issues=$((issues + 1))
+    fi
   else
-    echo -e "${YELLOW}[WARN]${NC} Phase 1→2: PROJECT_BIBLE.md not found"
+    echo -e "${RED}[FAIL]${NC} Phase 1→2: PROJECT_BIBLE.md not found"
     issues=$((issues + 1))
   fi
 fi

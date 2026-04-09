@@ -62,9 +62,14 @@
      Format: Table
      Source: Step 1.3 — Threat Modeling -->
 
-| # | Threat | STRIDE Category | Attack Path | Mitigation | Verified (Phase 3) |
+| ID | Threat | STRIDE Category | Attack Path | Mitigation | Validation Reference |
 |---|---|---|---|---|---|
-| 1 | [Specific threat] | [S/T/R/I/D/E] | [Concrete attack path] | [Specific mitigation] | [ ] |
+| TM-001 | [Specific threat] | [S/T/R/I/D/E] | [Concrete attack path] | [Specific mitigation] | [Phase 3: docs/test-results/threat-validation.md#TM-001] |
+
+<!-- Use stable IDs (TM-001, TM-002...) so Phase 3 validation results can reference back.
+     The Validation Reference column links to the Phase 3 test result that verified this mitigation.
+     During Phase 2 security audits, reference these IDs when checking mitigations.
+     "Untested" = not yet validated. Must be filled before Phase 3→4 gate. -->
 
 ---
 

@@ -1,0 +1,50 @@
+# Threat Model Validation Report
+
+<!--
+  Phase 3 Step 3.2 output. Maps every threat from the Project Bible (Section 4)
+  to its validation result. Each threat must be verified: mitigation implemented,
+  tested with realistic attack payloads, and confirmed to fail safely.
+
+  Save as: docs/test-results/YYYY-MM-DD_threat-model-validation.md
+
+  Every row in the Project Bible's threat table (TM-001, TM-002...) must have
+  a corresponding row here. The Phase 3→4 gate checks that this file exists.
+-->
+
+**Date:** YYYY-MM-DD
+**Validator:** [Agent persona — Security Architect / Auditor]
+**Commit:** [git commit hash at time of validation]
+**Project Bible Reference:** PROJECT_BIBLE.md Section 4
+
+---
+
+## Validation Results
+
+| Threat ID | Threat Description | Mitigation Location | Test Method | Test Result | Risk Acceptance |
+|-----------|-------------------|--------------------:|-------------|-------------|----------------|
+| TM-001 | [From Bible] | [file:line where mitigation lives] | [How tested — payload, scenario, tool] | Pass / Fail / Partial | [If not fully mitigated: rationale + approver] |
+
+---
+
+## Unmitigated Threats
+
+<!-- List any threats where mitigation is incomplete or risk was accepted.
+     Each must have documented rationale and approver (Orchestrator or IT Security).
+     For organizational deployments: IT Security must approve risk acceptance for High/Critical. -->
+
+| Threat ID | Risk Level | Rationale | Approved By | Date |
+|-----------|-----------|-----------|-------------|------|
+
+---
+
+## Summary
+
+| Result | Count |
+|--------|-------|
+| Pass | N |
+| Fail (remediated) | N |
+| Risk Accepted | N |
+| **Total Threats Validated** | **N** |
+
+**All Phase 1 threats accounted for:** Yes / No
+**Unmitigated threats blocking Phase 4:** [List or "None"]
