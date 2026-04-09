@@ -127,6 +127,34 @@ start_feature() {
   local now
   now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
+  # Check Context Health Check counter (P2-018: elevate to Tier 2)
+  local progress_file=".claude/build-progress.json"
+  if [ -f "$progress_file" ] && command -v jq &>/dev/null; then
+    local health_count
+    health_count=$(jq '.features_since_last_health_check // 0' "$progress_file" 2>/dev/null || echo "0")
+    if [ "$health_count" -ge 4 ] 2>/dev/null; then
+      print_fail "Context Health Check overdue — $health_count features since last check."
+      echo "  Before starting a new feature, verify PROJECT_BIBLE.md still reflects the codebase." >&2
+      echo "  After checking: scripts/test-gate.sh --reset-health-check" >&2
+      echo "  Then re-run: scripts/process-checklist.sh --start-feature \"$name\"" >&2
+      exit 1
+    elif [ "$health_count" -ge 3 ] 2>/dev/null; then
+      print_warn "Context Health Check recommended — $health_count features since last check."
+      echo "  Consider verifying PROJECT_BIBLE.md accuracy before starting the next feature."
+    fi
+  fi
+
+  # Check if previous feature's feature_recorded step was completed (P2-007)
+  local prev_feature
+  prev_feature=$(jq -r '.build_loop.feature // empty' "$PROCESS_STATE" 2>/dev/null)
+  if [ -n "$prev_feature" ]; then
+    if ! step_is_completed "build_loop" "feature_recorded"; then
+      print_warn "Previous feature '$prev_feature' was not recorded with test-gate.sh --record-feature."
+      echo "  Run: scripts/test-gate.sh --record-feature \"$prev_feature\""
+      echo "  Then: scripts/process-checklist.sh --complete-step build_loop:feature_recorded"
+    fi
+  fi
+
   jq --arg name "$name" --arg now "$now" '
     .build_loop = {
       "feature": $name,
@@ -333,23 +361,38 @@ verify_init() {
     print_ok "data_model_applied — previously marked complete"
   fi
 
-  # initialization_verified: cannot auto-verify independently (depends on all others)
+  # initialization_verified: auto-complete when all 6 prior steps are done
   echo ""
 
-  # Check if all 7 steps are now complete
+  # Check if all prerequisite steps (1-6) are complete
   local completed_count
   completed_count=$(jq '.phase2_init.steps_completed | length' "$PROCESS_STATE")
   local total=${#PHASE2_INIT_STEPS[@]}
+  local prereq_total=$((total - 1))  # Exclude initialization_verified itself
 
-  if [ "$completed_count" -ge "$total" ]; then
+  # Count prerequisites (all steps except initialization_verified)
+  local prereq_done=0
+  for step in "${PHASE2_INIT_STEPS[@]}"; do
+    if [ "$step" != "initialization_verified" ] && step_is_completed "phase2_init" "$step"; then
+      prereq_done=$((prereq_done + 1))
+    fi
+  done
+
+  if [ "$prereq_done" -ge "$prereq_total" ]; then
+    # All prerequisites met — auto-complete initialization_verified
+    if ! step_is_completed "phase2_init" "initialization_verified"; then
+      add_step "phase2_init" "initialization_verified"
+      auto_marked=$((auto_marked + 1))
+      print_ok "initialization_verified — all prerequisite steps passed"
+    fi
     jq '.phase2_init.verified = true' "$PROCESS_STATE" > "$PROCESS_STATE.tmp" && mv "$PROCESS_STATE.tmp" "$PROCESS_STATE"
-    print_ok "Phase 2 initialization fully verified ($completed_count/$total steps complete)"
+    print_ok "Phase 2 initialization fully verified ($total/$total steps complete)"
   else
-    print_warn "Phase 2 initialization incomplete ($completed_count/$total steps)"
+    print_warn "Phase 2 initialization incomplete ($prereq_done/$prereq_total prerequisite steps)"
     echo ""
     echo -e "${BOLD}Remaining steps:${NC}"
     for step in "${PHASE2_INIT_STEPS[@]}"; do
-      if ! step_is_completed "phase2_init" "$step"; then
+      if [ "$step" != "initialization_verified" ] && ! step_is_completed "phase2_init" "$step"; then
         echo "  - $step"
       fi
     done

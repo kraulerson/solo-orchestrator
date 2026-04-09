@@ -1,0 +1,48 @@
+# Security Audit Findings — Feature: [Feature Name]
+
+<!--
+  Phase 2 Step 2.4 output. Created per feature during the Build Loop.
+  Records all findings from the security audit: SAST, threat model review,
+  data isolation, input validation, logging verification.
+
+  Save as: docs/security-audits/[feature-name]-security-audit.md
+
+  This file must exist and have no "Open" findings before the security_audit
+  process step can be marked complete.
+-->
+
+**Feature:** [Feature Name]
+**Date:** YYYY-MM-DD
+**Auditor Persona:** Senior Security Engineer
+
+---
+
+## Automated Scan Results
+
+| Tool | Config | Result | Findings |
+|------|--------|--------|----------|
+| Semgrep | p/owasp-top-ten, p/security-audit | Pass / Fail | [N findings — detail below] |
+
+## Manual Review Findings
+
+| # | Category | Finding | Severity | File:Line | Resolution | Status |
+|---|----------|---------|----------|-----------|------------|--------|
+| 1 | [Data Isolation / Input Validation / Hardcoded Secrets / N+1 Queries / Logging / Threat Model] | [Description] | Critical / High / Medium / Low | [file:line] | [How fixed or why accepted] | Open / Fixed / Accepted |
+
+## Threat Model Cross-Reference
+
+<!-- For each Phase 1 threat (TM-NNN) relevant to this feature, verify the mitigation -->
+
+| Threat ID | Relevant to This Feature? | Mitigation Verified? | Notes |
+|-----------|--------------------------|---------------------|-------|
+| TM-001 | Yes / No | Yes / N/A | [Brief note] |
+
+## Summary
+
+| Status | Count |
+|--------|-------|
+| Fixed | N |
+| Accepted (with rationale) | N |
+| Open | N |
+
+**All findings resolved:** Yes / No

@@ -193,6 +193,7 @@ Before moving to Phase 3, verify:
   **The rollback_tested step must be completed before go_live_verified can be marked.**
 
 ### UAT Test Sessions
-- Generate UAT test sessions as interactive HTML files using the template at `tests/uat/templates/test-session-template.html`.
+- Generate UAT test sessions as interactive HTML files using the template at `templates/uat/templates/test-session-template.html` (preferred) or the Markdown template at `tests/uat/templates/test-session-template.md` (fallback for environments where HTML is impractical).
+- Working location: `tests/uat/sessions/<date>-session-N/` with subdirectories: `templates/`, `agent-results/`, `submissions/`.
 - Naming: `test-session-N-v1.html`. Increment version on re-test (v2, v3). Never overwrite previous versions.
 - After completion and review, archive to `docs/test-results/[date]_uat-session-N-vX.html`.

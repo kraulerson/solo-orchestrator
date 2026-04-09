@@ -1020,7 +1020,7 @@ create_project() {
 
   # Copy framework documents
   print_info "Copying framework documents..."
-  mkdir -p docs/reference docs/platform-modules docs/test-results "docs/ADR documentation" "docs/api and interfaces" docs/snapshots docs/phase-0
+  mkdir -p docs/reference docs/platform-modules docs/test-results "docs/ADR documentation" "docs/api and interfaces" docs/snapshots docs/phase-0 docs/security-audits
 
   cp "$SCRIPT_DIR/docs/builders-guide.md" docs/reference/
   cp "$SCRIPT_DIR/docs/governance-framework.md" docs/reference/
