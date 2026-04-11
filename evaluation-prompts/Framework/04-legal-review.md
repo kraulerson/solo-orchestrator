@@ -31,16 +31,22 @@ VENDOR COUPLING:
   active project to migrate to a different AI agent.
 
 SCOPE:
-- The framework explicitly excludes: SOC 2, HIPAA, PCI-DSS, FedRAMP, 99.99%+ SLA
-  systems, microservices, and enterprise integration projects.
-- The target is: internal tools, departmental applications, prototypes, MVPs, and
-  utilities that sit in the backlog because they don't justify a full team.
+- The following are outside the framework's current scope but architecturally
+  addressable — they are content gaps, not structural limitations. The governance
+  framework already provides role-based approval gate separation, audit evidence,
+  and anti-self-approval controls.
+- The current target is: internal tools, departmental applications, prototypes, MVPs,
+  and utilities.
 - Evaluate legal risk relative to this stated scope. Note additional exposures for
-  broader scope, but weight your assessment toward the intended use cases.
+  broader scope, but weight your assessment toward the intended use cases. Where the
+  governance structure already addresses a legal concern (e.g., approval gate
+  separation, audit trail), credit it.
 
 CURRENT STATUS:
-- This is v1.0, used by the author for personal projects, not yet validated through
-  organizational pilots. The framework says this explicitly.
+- The framework has been used by the author to build two complete MVP applications
+  (K-PDF and MeshScope), both downloadable and functional on Windows, macOS, and
+  Linux. An example project repo contains the complete artifact trail. The framework
+  has not been validated through a formal organizational pilot. Evaluate accordingly.
 </framework_context>
 
 ---

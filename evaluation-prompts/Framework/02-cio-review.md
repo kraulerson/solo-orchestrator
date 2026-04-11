@@ -72,22 +72,35 @@ ENFORCEMENT MODEL:
 - Only Tier 1 is a hard enforcement boundary. The framework says this explicitly and
   repeatedly. Evaluate whether this transparency is adequate for the operating model,
   not whether Tier 3 controls would survive a hostile actor.
+- For organizational deployments, branch protection with required reviewers is
+  recommended and will be required when compliance modules are available. This
+  provides per-change code review that strengthens the governance audit trail beyond
+  phase-gate-level review.
 
 SCOPE:
-- The framework explicitly excludes: SOC 2, HIPAA, PCI-DSS, FedRAMP, 99.99%+ SLA
-  systems, microservices, multi-region distributed systems, and enterprise
-  integration projects (SAP, Salesforce, ERP).
-- The target is: internal tools, departmental applications, prototypes, MVPs, and
-  utilities that sit in the backlog because they don't justify a full team.
-- Evaluate the framework against this stated scope. Note limitations relative to
-  broader scope, but do not penalize the framework for not solving problems it
-  explicitly excludes.
+- The following are outside the framework's current scope but are addressable through
+  modular extensibility — they are content gaps, not architectural limitations:
+  - Compliance-regulated systems (SOC 2, HIPAA, PCI-DSS, FedRAMP) — the governance
+    framework already provides role-based approval gate separation (independent
+    approvers at every organizational phase gate), append-only audit evidence, and
+    anti-self-approval controls. What's missing is compliance-specific content modules
+    and per-change code review enforcement (planned).
+  - High-availability systems (99.99%+ SLA) — the framework can build HA-architectured
+    software and produces Phase 4 handoff documentation. SLA guarantees are an
+    infrastructure operations responsibility separate from the development methodology.
+  - Large-scale distributed systems and enterprise integrations — addressable through
+    new platform modules not yet written.
+- The current target is: internal tools, departmental applications, prototypes, MVPs,
+  and utilities that sit in the backlog because they don't justify a full team.
+- Evaluate the framework against this stated scope. Note what would be needed to
+  extend to broader scope, but do not penalize the framework for content modules that
+  haven't been written yet when the architecture supports adding them.
 
 CURRENT STATUS:
-- This is v1.0. The framework has been used by the author for personal projects but
-  has not been validated through a formal organizational pilot. The framework says
-  this explicitly and recommends treating it as "a well-structured hypothesis, not a
-  proven methodology." Evaluate accordingly.
+- The framework has been used by the author to build two complete MVP applications
+  (K-PDF and MeshScope), both downloadable and functional on Windows, macOS, and
+  Linux. An example project repo contains the complete artifact trail. The framework
+  has not been validated through a formal organizational pilot. Evaluate accordingly.
 </framework_context>
 
 <task>

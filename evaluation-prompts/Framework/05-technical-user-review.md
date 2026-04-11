@@ -54,11 +54,24 @@ ENFORCEMENT MODEL:
 - Three tiers: CI pipeline (hard stop), pre-commit hooks (early warning), and
   CLAUDE.md instructions (guided behavior). The framework is transparent about which
   tier each control occupies.
+- For organizational deployments, branch protection with required reviewers is
+  recommended and will be required when compliance modules are available. This
+  provides per-change code review that strengthens the governance audit trail beyond
+  phase-gate-level review.
 
 SCOPE:
-- The target is: internal tools, departmental applications, prototypes, MVPs, and
-  utilities. The framework explicitly excludes regulated environments, HA systems,
-  microservices, and enterprise integrations.
+- The current target is: internal tools, departmental applications, prototypes, MVPs,
+  and utilities. Compliance-regulated systems, HA systems, distributed systems, and
+  enterprise integrations are outside the current scope but addressable through
+  additional modules — the governance structure already provides role-based approval
+  gate separation and audit evidence. These are content gaps, not architectural
+  limitations.
+
+CURRENT STATUS:
+- The framework has been used by the author to build two complete MVP applications
+  (K-PDF and MeshScope), both downloadable and functional on Windows, macOS, and
+  Linux. An example project repo contains the complete artifact trail. The framework
+  has not been validated through a formal organizational pilot. Evaluate accordingly.
 </framework_context>
 
 <task>
