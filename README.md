@@ -25,6 +25,8 @@ The methodology itself — the phases, TDD discipline, threat modeling, document
 
 The User Guide is your operating manual. The other documents (Builder's Guide, Governance Framework, Platform Modules, Security Scan Guide, Evaluation Prompts) are reference material the guide points you to at the right time. The [Intake Wizard](docs/user-guide.md#using-the-intake-wizard) guides you through filling out your project definition.
 
+**Want to see what it produces?** The [Example Project](https://github.com/kraulerson/solo-orchestrator-example-project) contains the complete artifact trail from building [MeshScope](https://github.com/kraulerson/meshscope) — a cross-platform 3D mesh viewer. Browse the artifacts from each phase to see what the framework produces before you commit to using it.
+
 ---
 
 ## Quick Start

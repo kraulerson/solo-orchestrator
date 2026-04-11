@@ -29,6 +29,7 @@ For what the framework *is*, how it works at a conceptual level, and what it is 
 | [**Security Scan Guide**](security-scan-guide.md) | Reference | Plain-language guide to common scan findings | When you get scan results |
 | [**Governance Framework**](governance-framework.md) | Org only | Approval authorities, compliance, risk, portfolio governance | Organizational deployments |
 | [**Executive Review**](executive-review.md) | Org only | Business case for CIO evaluation | Organizational evaluation |
+| [**Example Project**](https://github.com/kraulerson/solo-orchestrator-example-project) | Browse | Complete artifact trail from building MeshScope — see what each phase produces | Before starting, or anytime |
 | [**Extending Platforms**](extending-platforms.md) | Contributor | How to add a new platform type to the framework | When adding platforms |
 | [**Framework Evaluation Prompts**](../evaluation-prompts/Framework/) | Evaluation | Adversarial reviews of the framework itself from 6 professional perspectives | After framework updates or retooling |
 | [**Project Evaluation Prompts**](../evaluation-prompts/Projects/) | Evaluation | Adversarial reviews of any project built with the framework from 6 professional perspectives | Phase 3 validation, before production deployment |
