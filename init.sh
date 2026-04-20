@@ -1740,7 +1740,7 @@ if command -v semgrep &>/dev/null; then
   # Scan only staged files for fast pre-commit feedback
   staged_files=$(git diff --cached --name-only --diff-filter=ACM)
   if [ -n "$staged_files" ]; then
-    if ! echo "$staged_files" | xargs semgrep scan --config=p/owasp-top-ten --quiet --no-git-ignore 2>/dev/null; then
+    if ! git diff --cached --name-only --diff-filter=ACM -z | xargs -0 semgrep scan --config=p/owasp-top-ten --quiet --no-git-ignore 2>/dev/null; then
       echo ""
       echo "[BLOCKED] Semgrep detected security issues in staged files."
       echo "  Review and fix the findings above before committing."

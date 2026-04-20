@@ -71,6 +71,14 @@ HOOKEOF
   exit 0
 fi
 
+# Block gh repo create --push (bypasses branch-safety by pushing to a new remote without gate checks)
+if echo "$COMMAND" | grep -qE '\bgh\b.*\brepo\b.*\bcreate\b.*--push'; then
+  cat << HOOKEOF
+{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "gh repo create --push bypasses branch safety checks by pushing directly to a new remote. Create the repo without --push, then use git push after process checks pass."}}
+HOOKEOF
+  exit 0
+fi
+
 # Only gate git commit and gh pr create for process checklist enforcement
 IS_COMMIT=false
 IS_PR=false

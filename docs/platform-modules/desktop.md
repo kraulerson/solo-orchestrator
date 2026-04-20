@@ -127,6 +127,44 @@ flutter doctor  # Verify desktop support for your platforms
 flutter config --enable-[windows|macos|linux]-desktop
 ```
 
+**Qt / PySide6 / PyQt6 (Python desktop):**
+
+Python desktop projects have a version compatibility chain that must be established during Phase 1 architecture and locked before Phase 2 construction begins. Each library constrains the others:
+
+```
+Python version (floor)
+  → PySide6 or PyQt6 (requires Python 3.9+; PySide6 6.7+ requires 3.9+)
+    → VTK (if used: VTK 9.3+ requires Python 3.9+, wheels available for 3.9-3.12)
+      → NumPy, SciPy, etc. (each has its own Python floor)
+```
+
+**Setup:**
+```bash
+# 1. Pin the Python version with pyenv
+pyenv install 3.12.7   # or whichever version satisfies all library constraints
+pyenv local 3.12.7     # creates .python-version in project root
+
+# 2. Create a virtual environment (venv, not conda — simpler CI story)
+python -m venv .venv
+source .venv/bin/activate   # or .venv\Scripts\activate on Windows
+
+# 3. Pin dependencies with exact versions
+pip install PySide6==6.7.3 vtk==9.3.1
+pip freeze > requirements.txt
+```
+
+**Document the chain in the Project Bible (Section 10: Coding Standards):** Record the Python floor version, why that version was chosen (which library is the binding constraint), and which libraries are incompatible with newer Python versions. When Python releases a new minor version, the chain must be re-validated — do not blindly upgrade.
+
+**CI note:** Use `actions/setup-python` with the exact version from `.python-version`. Do not use `3.x` or `>=3.9` — floating version specs cause CI failures when a new Python release breaks a library's native extensions.
+
+**.NET MAUI:**
+```bash
+# Install .NET SDK 8.0+ (LTS)
+# https://dotnet.microsoft.com/download
+dotnet workload install maui
+dotnet new maui -n MyApp
+```
+
 ### 2.2 License Compliance Tooling
 
 Depends on your ecosystem:
@@ -205,6 +243,18 @@ Unsigned applications trigger security warnings on Windows (SmartScreen) and mac
 | **Tauri** | 5-15 MB | Already small. `cargo build --release` with LTO. Strip debug symbols. |
 | **Electron** | 100-200 MB | Use `electron-builder` with ASAR packaging. Exclude unnecessary files. Consider `electron-packager` with `--prune`. |
 | **Flutter** | 20-40 MB | `flutter build [platform] --release`. Tree-shaking is automatic. |
+| **Qt/PySide6** | 80-150 MB | Use `--standalone` mode in your chosen packager. Exclude unused Qt modules (`QtWebEngine` alone is ~80 MB). |
+| **.NET MAUI** | 30-60 MB | Publish as single-file with trimming: `dotnet publish -c Release --self-contained -p:PublishSingleFile=true -p:PublishTrimmed=true`. |
+
+**Packaging warning — Python desktop apps with scientific/visualization libraries (VTK, NumPy, SciPy, etc.):**
+
+Python packagers (Nuitka, PyInstaller, cx_Freeze) must discover all transitive imports at build time. Libraries with complex lazy-loading — VTK in particular — cause three recurring problems:
+
+1. **Missing modules at runtime.** VTK uses `vtkmodules` with hundreds of lazy-loaded sub-modules that the packager's static analysis misses. You will get `ModuleNotFoundError` on the user's machine even though the app works in your dev environment. Fix: explicit include flags (`--include-package=vtkmodules` for Nuitka, `--hidden-import` for PyInstaller) or a comprehensive hook file.
+2. **Extreme bundle sizes.** VTK's shared libraries can push the bundle to 500 MB+. There is no tree-shaking for native `.so`/`.dll` files — you ship all of VTK even if you use one renderer. Budget for this in your packaging format choice (`.AppImage` and `.dmg` tolerate large bundles better than `.msi`).
+3. **Platform-specific build failures.** Nuitka compiles Python to C, then to native code. VTK's C++ extensions interact poorly with this pipeline on some platforms. PyInstaller's binary-bundling approach is more reliable for VTK but produces larger bundles. Test the packaged binary on a clean machine (no Python installed) early in Phase 2 — do not defer packaging validation to Phase 3.
+
+**Recommendation for PySide6+VTK projects:** Use PyInstaller with a `.spec` file that explicitly lists VTK hidden imports. Run `pyinstaller --collect-all vtkmodules` as a starting point, then prune. Validate the packaged binary on a clean VM before each Phase 2 feature is considered complete.
 
 ---
 
