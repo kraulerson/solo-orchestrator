@@ -1383,6 +1383,27 @@ SOPATCH
           print_ok "Patched CDF Context7 detection (plugin-installed + ~/.claude.json)"
         fi
 
+        # Patch the project-local CDF stop-checklist.sh to fix invalid Stop hook JSON.
+        # CDF's stock advisory output uses hookSpecificOutput with hookEventName "Stop",
+        # but Claude Code's schema only defines PreToolUse/PostToolUse/UserPromptSubmit
+        # for hookSpecificOutput. The invalid JSON triggers a validation error on every
+        # session stop. Fix: replace the jq JSON output with stderr echo (advisory only,
+        # the blocking path on line 74 already uses the correct top-level schema).
+        if [ -f ".claude/framework/hooks/stop-checklist.sh" ] && \
+           grep -q '"hookEventName": "Stop"' .claude/framework/hooks/stop-checklist.sh 2>/dev/null && \
+           ! grep -q "SOLO_ORCHESTRATOR_STOP_HOOK_PATCH" .claude/framework/hooks/stop-checklist.sh 2>/dev/null; then
+          awk '
+            /jq -n --arg m "\$MSG"/ { skip=1; print "      # SOLO_ORCHESTRATOR_STOP_HOOK_PATCH — advisory via stderr, not invalid JSON"; print "      echo \"$MSG\" >&2"; next }
+            skip && /^[ \t]*\}'"'"'/ { skip=0; next }
+            skip { next }
+            { print }
+          ' .claude/framework/hooks/stop-checklist.sh > .claude/framework/hooks/stop-checklist.sh.tmp \
+            && mv .claude/framework/hooks/stop-checklist.sh.tmp .claude/framework/hooks/stop-checklist.sh \
+            && chmod +x .claude/framework/hooks/stop-checklist.sh \
+            && print_ok "Patched CDF stop-checklist.sh (advisory via stderr, not invalid hookSpecificOutput)" \
+            || print_warn "Could not patch stop-checklist.sh — Stop hook advisory will show validation errors (cosmetic only)"
+        fi
+
         # Remove the CDF migration backup. CDF backs up .claude/ before merging its
         # hooks — but Solo Orchestrator seeded .claude/ moments earlier in this same
         # init, so the backup contains no user work, and CDF only merges the hooks

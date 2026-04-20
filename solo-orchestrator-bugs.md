@@ -411,6 +411,48 @@ The `-z` flag on `git diff` outputs null-delimited filenames, and `-0` on `xargs
 
 ---
 
+## BUG-007: CDF Stop hook outputs invalid JSON (hookEventName "Stop" not in schema)
+
+**Found:** 2026-04-20
+**Found while:** Every session stop in `lancache_orchestrator` — "Hook JSON output validation failed" error on every response
+**Severity:** Low (cosmetic — validation error message displayed but does not block work)
+
+### Prompt to fix
+
+```
+Working in the solo-orchestrator repo.
+
+The CDF stop-checklist.sh hook outputs JSON with hookEventName "Stop" for
+its advisory messages (session commit count, plan closure reminder). But
+Claude Code's hook schema only defines three hookEventName values:
+PreToolUse, PostToolUse, and UserPromptSubmit. "Stop" is not valid.
+
+This produces a validation error on every session stop:
+  Stop hook error: Hook JSON output validation failed — (root): Invalid input
+
+The blocking path (decision: block) uses valid top-level schema and works
+correctly. Only the advisory path (hookSpecificOutput with Stop) is broken.
+
+Fix: In Solo's init.sh, add a post-install patch (same pattern as the
+Context7 detection patch) that replaces the jq JSON output in the advisory
+section with a simple stderr echo. The advisory text is informational —
+it doesn't need structured JSON.
+```
+
+### Resolution — 2026-04-20 (same session)
+
+**Status:** Fixed.
+
+**Root cause:** `~/.claude-dev-framework/hooks/stop-checklist.sh:101-106` outputs `{"hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": ...}}` for session-end advisories. Claude Code validates hook JSON output against a schema that only defines `PreToolUse`, `PostToolUse`, and `UserPromptSubmit` as valid `hookEventName` values. `Stop` hooks can output top-level fields (`decision`, `reason`, `stopReason`) but not `hookSpecificOutput`. The blocking path (line 74, `{"decision": "block", "reason": ...}`) correctly uses top-level fields and works fine.
+
+**Fix:** Added an awk-based post-install patch in `init.sh` (same pattern as the Context7 detection patch). After CDF copies its hooks to `.claude/framework/hooks/`, the patch replaces the `jq -n` JSON output block with `echo "$MSG" >&2`. The advisory text goes to stderr (visible to the user) instead of invalid JSON on stdout (which triggers validation). A `SOLO_ORCHESTRATOR_STOP_HOOK_PATCH` marker prevents double-patching.
+
+**Existing downstream projects** have the broken hook in `.claude/framework/hooks/stop-checklist.sh`. To remediate: replace the `jq -n --arg m "$MSG" '{ ... }'` block (around line 101) with `echo "$MSG" >&2`, or re-run init.sh.
+
+**Files touched:** `init.sh`, `solo-orchestrator-bugs.md`.
+
+---
+
 ## Template for new entries
 
 When adding a new bug, copy this block and fill it in:
