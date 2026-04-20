@@ -1086,6 +1086,9 @@ create_project() {
   mkdir -p templates/generated
   cp "$SCRIPT_DIR/templates/generated/project-bible.tmpl" templates/generated/
   cp "$SCRIPT_DIR/templates/generated/product-manifesto.tmpl" templates/generated/
+  cp "$SCRIPT_DIR/templates/generated/frd.tmpl" templates/generated/
+  cp "$SCRIPT_DIR/templates/generated/user-journey.tmpl" templates/generated/
+  cp "$SCRIPT_DIR/templates/generated/data-contract.tmpl" templates/generated/
   cp "$SCRIPT_DIR/templates/generated/adr.tmpl" templates/generated/
   cp "$SCRIPT_DIR/templates/generated/features.tmpl" templates/generated/
   cp "$SCRIPT_DIR/templates/generated/handoff.tmpl" templates/generated/
@@ -1354,6 +1357,41 @@ PERMEOF
       # Verify the framework init produced expected output
       if [ -f ".claude/manifest.json" ]; then
         print_ok "Development Guardrails for Claude Code installed and configured"
+
+        # Patch the project-local CDF Context7 detection to recognize plugin-installed
+        # Context7 (surfaces as mcp__plugin_context7_context7__*). CDF's stock check
+        # only looks at ~/.claude/settings.json .mcpServers.context7, which misses the
+        # plugin path and ~/.claude.json and produces a false "not installed" warning
+        # on every SessionStart. Appending a later function definition shadows the
+        # original in bash sourcing; the marker prevents double-patching on re-init.
+        if [ -f ".claude/framework/hooks/_helpers.sh" ] && \
+           ! grep -q "SOLO_ORCHESTRATOR_CONTEXT7_PATCH" .claude/framework/hooks/_helpers.sh 2>/dev/null; then
+          cat >> .claude/framework/hooks/_helpers.sh <<'SOPATCH'
+
+# SOLO_ORCHESTRATOR_CONTEXT7_PATCH — recognize plugin-installed Context7
+# and the alternate ~/.claude.json config location.
+check_context7() {
+  check_jq || return 1
+  local user_settings="$HOME/.claude/settings.json"
+  local user_json="$HOME/.claude.json"
+  [ -f "$user_settings" ] && jq -e '.mcpServers.context7 // .mcpServers["context7-mcp"] // empty' "$user_settings" >/dev/null 2>&1 && return 0
+  [ -f "$user_json" ]     && jq -e '.mcpServers.context7 // .mcpServers["context7-mcp"] // empty' "$user_json"     >/dev/null 2>&1 && return 0
+  [ -f "$user_settings" ] && jq -e '.enabledPlugins | to_entries[] | select(.key | test("^context7"; "i")) | select(.value == true)' "$user_settings" >/dev/null 2>&1 && return 0
+  return 1
+}
+SOPATCH
+          print_ok "Patched CDF Context7 detection (plugin-installed + ~/.claude.json)"
+        fi
+
+        # Remove the CDF migration backup. CDF backs up .claude/ before merging its
+        # hooks — but Solo Orchestrator seeded .claude/ moments earlier in this same
+        # init, so the backup contains no user work, and CDF only merges the hooks
+        # key (nothing is overwritten). Leaving .claude-backup/ around looks like
+        # load-bearing residue to new users.
+        if [ -d ".claude-backup" ]; then
+          rm -rf .claude-backup
+          print_info "Removed CDF migration backup (not needed in Solo Orchestrator flow)"
+        fi
       else
         print_warn "Development Guardrails init did not produce .claude/manifest.json"
         print_warn "Run manually: bash ~/.claude-dev-framework/scripts/init.sh"

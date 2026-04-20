@@ -300,7 +300,7 @@
       "dev_os": ["darwin", "linux"],
       "platforms": ["all"],
       "languages": ["all"],
-      "check_command": "command -v jq &>/dev/null && (( [ -f \"$HOME/.claude/settings.json\" ] && jq -e '.mcpServers.context7 // .mcpServers[\"context7-mcp\"] // empty' \"$HOME/.claude/settings.json\" >/dev/null 2>&1 ) || ( [ -f \"$HOME/.claude.json\" ] && jq -e '.mcpServers.context7 // .mcpServers[\"context7-mcp\"] // empty' \"$HOME/.claude.json\" >/dev/null 2>&1 ))",
+      "check_command": "command -v jq &>/dev/null && (( [ -f \"$HOME/.claude/settings.json\" ] && jq -e '.mcpServers.context7 // .mcpServers[\"context7-mcp\"] // empty' \"$HOME/.claude/settings.json\" >/dev/null 2>&1 ) || ( [ -f \"$HOME/.claude.json\" ] && jq -e '.mcpServers.context7 // .mcpServers[\"context7-mcp\"] // empty' \"$HOME/.claude.json\" >/dev/null 2>&1 ) || ( [ -f \"$HOME/.claude/settings.json\" ] && jq -e '.enabledPlugins | to_entries[] | select(.key | test(\"^context7\"; \"i\")) | select(.value == true)' \"$HOME/.claude/settings.json\" >/dev/null 2>&1 ))",
       "version_command": "echo 'configured'",
       "min_version": null,
       "latest_check": null,

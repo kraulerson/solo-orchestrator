@@ -90,8 +90,11 @@ run_with_timeout() {
 
 is_context7_mcp_registered() {
   command -v jq &>/dev/null || return 1
+  # Direct MCP registration in either user config file
   ([ -f "$HOME/.claude/settings.json" ] && jq -e '.mcpServers.context7 // .mcpServers["context7-mcp"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1) || \
-  ([ -f "$HOME/.claude.json" ] && jq -e '.mcpServers.context7 // .mcpServers["context7-mcp"] // empty' "$HOME/.claude.json" >/dev/null 2>&1)
+  ([ -f "$HOME/.claude.json" ] && jq -e '.mcpServers.context7 // .mcpServers["context7-mcp"] // empty' "$HOME/.claude.json" >/dev/null 2>&1) || \
+  # Plugin-installed Context7 (surfaces as mcp__plugin_context7_context7__*; registered under .enabledPlugins, not .mcpServers)
+  ([ -f "$HOME/.claude/settings.json" ] && jq -e '.enabledPlugins | to_entries[] | select(.key | test("^context7"; "i")) | select(.value == true)' "$HOME/.claude/settings.json" >/dev/null 2>&1)
 }
 
 is_qdrant_mcp_registered() {

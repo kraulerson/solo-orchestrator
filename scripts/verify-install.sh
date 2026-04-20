@@ -446,9 +446,8 @@ check_plugins_mcp() {
     register_fixable "Superpowers plugin not installed" "fix_superpowers"
   fi
 
-  # Context7 MCP — check both config locations
-  if ([ -f "$HOME/.claude/settings.json" ] && jq -e '.mcpServers.context7 // .mcpServers["context7-mcp"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1) || \
-     ([ -f "$HOME/.claude.json" ] && jq -e '.mcpServers.context7 // .mcpServers["context7-mcp"] // empty' "$HOME/.claude.json" >/dev/null 2>&1); then
+  # Context7 MCP — direct MCP registration or plugin-installed (see lib/helpers.sh)
+  if is_context7_mcp_registered; then
     register_pass "Context7 MCP configured"
   elif command -v node &>/dev/null; then
     register_fixable "Context7 MCP not configured" "fix_context7"
