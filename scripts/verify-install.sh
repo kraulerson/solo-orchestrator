@@ -679,7 +679,7 @@ fix_precommit_hook() {
 set -euo pipefail
 FAILED=0
 if command -v gitleaks &>/dev/null; then
-  if ! gitleaks protect --staged --verbose --no-banner 2>/dev/null; then
+  if ! gitleaks git --staged 2>/dev/null; then
     echo "[BLOCKED] gitleaks detected secrets in staged files."
     FAILED=1
   fi

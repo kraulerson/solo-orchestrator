@@ -902,7 +902,7 @@ Provide the Project Bible and direct the agent to:
 Use a hook manager (husky, pre-commit framework, or equivalent for your ecosystem):
 ```bash
 # Example: gitleaks pre-commit
-echo 'gitleaks protect --staged --verbose' > .husky/pre-commit
+echo 'gitleaks git --staged' > .husky/pre-commit
 ```
 
 **6. Configure CI/CD pipeline:**

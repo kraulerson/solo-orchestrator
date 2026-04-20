@@ -1743,7 +1743,7 @@ FAILED=0
 
 # --- Secret Detection (gitleaks) ---
 if command -v gitleaks &>/dev/null; then
-  if ! gitleaks protect --staged --verbose --no-banner 2>/dev/null; then
+  if ! gitleaks git --staged 2>/dev/null; then
     echo ""
     echo "[BLOCKED] gitleaks detected secrets in staged files."
     echo "  Remove the secrets, use environment variables or a secrets manager,"
