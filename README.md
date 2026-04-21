@@ -239,7 +239,7 @@ The init script installs these tools globally on your machine. Each installation
 
 | Component | Purpose | Install Method |
 |---|---|---|
-| **Development Guardrails for Claude Code** | Git hook-based guardrails: session-start checks, pre-commit hooks, profile-driven rules. Version pinned in `.claude/manifest.json`. | `init.sh` clones [`kraulerson/claude-dev-framework`](https://github.com/kraulerson/claude-dev-framework) to `~/.claude-dev-framework` (reused across projects), then runs its init to install per-project hooks into `.claude/framework/`. `init.sh` also patches the CDF Context7 detection to recognize plugin-installed Context7 (see `solo-orchestrator-bugs.md` BUG-001). |
+| **Development Guardrails for Claude Code** | Git hook-based guardrails: session-start checks, pre-commit hooks, profile-driven rules. Version pinned in `.claude/manifest.json`. | `init.sh` clones [`kraulerson/claude-dev-framework`](https://github.com/kraulerson/claude-dev-framework) to `~/.claude-dev-framework` (reused across projects), then runs its init to install per-project hooks into `.claude/framework/`. |
 
 **Optional enhancements (user-configured after init):**
 
