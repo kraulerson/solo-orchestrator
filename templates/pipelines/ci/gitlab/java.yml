@@ -1,0 +1,29 @@
+# solo-orchestrator: platforms=mobile,desktop,mcp-server
+# GitLab CI pipeline for Java projects (Maven/Gradle).
+stages: [test, security, governance]
+image: maven:3-eclipse-temurin-21
+cache:
+  key: "${CI_COMMIT_REF_SLUG}-m2"
+  paths: [.m2/]
+variables:
+  MAVEN_OPTS: "-Dmaven.repo.local=.m2/"
+test:
+  stage: test
+  script: [mvn -B test --no-transfer-progress]
+sast:
+  stage: security
+  image: returntocorp/semgrep
+  script: [semgrep --config=p/security-audit --error]
+secrets:
+  stage: security
+  image: zricethezav/gitleaks:latest
+  script: [gitleaks detect --source . --verbose --redact]
+dependencies:
+  stage: security
+  script: [mvn -B dependency:analyze org.owasp:dependency-check-maven:check --no-transfer-progress]
+governance:
+  stage: governance
+  image: bash:5
+  script:
+    - apk add --no-cache jq git
+    - bash scripts/check-phase-gate.sh

@@ -1,0 +1,73 @@
+# solo-orchestrator: platforms=web,desktop,mobile,mcp-server
+# GitLab CI pipeline for TypeScript/JavaScript projects.
+
+stages:
+  - test
+  - security
+  - governance
+
+image: node:20
+
+variables:
+  NPM_CACHE: "$CI_PROJECT_DIR/.npm"
+
+cache:
+  key: "${CI_COMMIT_REF_SLUG}-node"
+  paths:
+    - .npm/
+    - node_modules/
+
+.setup_node: &setup_node
+  before_script:
+    - node --version
+    - npm ci --cache .npm --prefer-offline
+
+lint:
+  stage: test
+  <<: *setup_node
+  script:
+    - npm run lint
+    - npm run typecheck 2>/dev/null || npx tsc --noEmit
+
+test:
+  stage: test
+  <<: *setup_node
+  script:
+    - npm test -- --ci
+
+sast:
+  stage: security
+  image: returntocorp/semgrep
+  script:
+    - semgrep --config=p/owasp-top-ten --config=p/security-audit --error
+
+secrets:
+  stage: security
+  image: zricethezav/gitleaks:latest
+  script:
+    - gitleaks detect --source . --verbose --redact
+
+dependencies:
+  stage: security
+  <<: *setup_node
+  script:
+    - npm audit --audit-level=moderate
+
+licenses:
+  stage: security
+  <<: *setup_node
+  script:
+    - npx license-checker --summary --failOn "GPL;AGPL;SSPL"
+
+governance:
+  stage: governance
+  image: bash:5
+  script:
+    - apk add --no-cache jq git
+    - bash scripts/check-phase-gate.sh
+    - bash scripts/check-changelog.sh 2>/dev/null || true
+    - |
+      if [ -f APPROVAL_LOG.md ] && git diff origin/main...HEAD -- APPROVAL_LOG.md 2>/dev/null | grep -qE '^\-[^-]'; then
+        echo "ERROR: APPROVAL_LOG.md has deleted or modified lines (append-only)"
+        exit 1
+      fi

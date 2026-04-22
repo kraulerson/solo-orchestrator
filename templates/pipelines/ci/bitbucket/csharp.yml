@@ -1,0 +1,19 @@
+# solo-orchestrator: platforms=desktop,web,mcp-server
+image: mcr.microsoft.com/dotnet/sdk:8.0
+pipelines:
+  default:
+    - step:
+        name: Test
+        script:
+          - dotnet restore
+          - dotnet build --no-restore
+          - dotnet test --no-build
+          - dotnet list package --vulnerable --include-transitive 2>&1 | tee /tmp/v.out; ! grep -qi "vulnerable" /tmp/v.out
+    - step:
+        name: Secrets
+        image: zricethezav/gitleaks:latest
+        script: [gitleaks detect --source . --verbose --redact]
+    - step:
+        name: Governance
+        image: bash:5
+        script: [apk add --no-cache jq git, bash scripts/check-phase-gate.sh]

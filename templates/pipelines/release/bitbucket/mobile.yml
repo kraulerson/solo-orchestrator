@@ -1,0 +1,14 @@
+# Bitbucket Pipelines release for mobile (tag-triggered).
+pipelines:
+  tags:
+    'v*':
+      - step:
+          name: Build Android
+          image: reactnativecommunity/react-native-android:latest
+          script: [__INSTALL_COMMAND__, __BUILD_COMMAND__]
+          artifacts: [android/app/build/outputs/**]
+      - step:
+          name: Deploy
+          deployment: production
+          trigger: manual
+          script: [echo "Play Store / App Store deployment (fastlane recommended)"]

@@ -1,0 +1,19 @@
+# solo-orchestrator: platforms=web,desktop,mobile,mcp-server
+# Placeholder 'other' language CI — intentional failure until builder configures.
+image: bash:5
+pipelines:
+  default:
+    - step:
+        name: Test (UNCONFIGURED)
+        script:
+          - echo "ERROR: Replace with your test command"
+          - exit 1
+    - step:
+        name: Secrets
+        image: zricethezav/gitleaks:latest
+        script: [gitleaks detect --source . --verbose --redact]
+    - step:
+        name: Governance
+        script:
+          - apk add --no-cache jq git
+          - bash scripts/check-phase-gate.sh

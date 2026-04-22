@@ -1,0 +1,19 @@
+# solo-orchestrator: platforms=web,desktop,mobile,mcp-server
+# GitLab CI pipeline for 'other' language track — placeholder with intentional failures.
+# Builder must replace these scripts with language-appropriate equivalents before use.
+stages: [test, security, governance]
+image: bash:5
+test:
+  stage: test
+  script:
+    - echo "ERROR: Replace this with your test command (e.g., 'pytest', 'cargo test', etc.)"
+    - exit 1  # intentional — CI should not pass until builder configures this
+secrets:
+  stage: security
+  image: zricethezav/gitleaks:latest
+  script: [gitleaks detect --source . --verbose --redact]
+governance:
+  stage: governance
+  script:
+    - apk add --no-cache jq git
+    - bash scripts/check-phase-gate.sh

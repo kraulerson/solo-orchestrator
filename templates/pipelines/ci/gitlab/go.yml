@@ -1,0 +1,40 @@
+# solo-orchestrator: platforms=web,desktop,mcp-server
+# GitLab CI pipeline for Go projects.
+stages: [test, security, governance]
+image: golang:1.21
+cache:
+  key: "${CI_COMMIT_REF_SLUG}-go"
+  paths: [/go/pkg/mod/]
+lint:
+  stage: test
+  script:
+    - gofmt -l . | tee /tmp/fmt.out; [ ! -s /tmp/fmt.out ]
+    - go vet ./...
+test:
+  stage: test
+  script: [go test ./...]
+sast:
+  stage: security
+  image: returntocorp/semgrep
+  script: [semgrep --config=p/security-audit --error]
+secrets:
+  stage: security
+  image: zricethezav/gitleaks:latest
+  script: [gitleaks detect --source . --verbose --redact]
+dependencies:
+  stage: security
+  script:
+    - go install golang.org/x/vuln/cmd/govulncheck@latest
+    - govulncheck ./...
+licenses:
+  stage: security
+  script:
+    - go install github.com/google/go-licenses@latest
+    - go-licenses check ./... 2>&1 | grep -iE "GPL|AGPL|SSPL" && exit 1 || true
+governance:
+  stage: governance
+  image: bash:5
+  script:
+    - apk add --no-cache jq git
+    - bash scripts/check-phase-gate.sh
+    - bash scripts/check-changelog.sh 2>/dev/null || true

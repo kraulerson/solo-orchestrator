@@ -1,0 +1,24 @@
+# solo-orchestrator: platforms=web,desktop,mcp-server
+image: golang:1.21
+pipelines:
+  default:
+    - step:
+        name: Test
+        script:
+          - gofmt -l . | tee /tmp/fmt.out; [ ! -s /tmp/fmt.out ]
+          - go vet ./...
+          - go test ./...
+    - parallel:
+        - step:
+            name: Secrets
+            image: zricethezav/gitleaks:latest
+            script: [gitleaks detect --source . --verbose --redact]
+        - step:
+            name: Dependencies
+            script:
+              - go install golang.org/x/vuln/cmd/govulncheck@latest
+              - govulncheck ./...
+    - step:
+        name: Governance
+        image: bash:5
+        script: [apk add --no-cache jq git, bash scripts/check-phase-gate.sh]

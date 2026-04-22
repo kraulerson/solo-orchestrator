@@ -1,0 +1,14 @@
+# Bitbucket Pipelines release for desktop (tag-triggered).
+# macOS/Windows require runners with appropriate self-hosted labels.
+pipelines:
+  tags:
+    'v*':
+      - step:
+          name: Build (Linux)
+          image: __SETUP_ACTION__
+          script: [__INSTALL_COMMAND__, __BUILD_COMMAND__]
+          artifacts: [dist/**, target/release/**]
+      - step:
+          name: Sign + Deploy
+          trigger: manual
+          script: [echo "Configure signing (codesign/signtool) and distribution"]

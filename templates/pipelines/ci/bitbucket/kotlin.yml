@@ -1,0 +1,15 @@
+# solo-orchestrator: platforms=mobile,desktop
+image: gradle:8-jdk21
+pipelines:
+  default:
+    - step:
+        name: Test
+        script: [gradle test --no-daemon]
+    - step:
+        name: Secrets
+        image: zricethezav/gitleaks:latest
+        script: [gitleaks detect --source . --verbose --redact]
+    - step:
+        name: Governance
+        image: bash:5
+        script: [apk add --no-cache jq git, bash scripts/check-phase-gate.sh]

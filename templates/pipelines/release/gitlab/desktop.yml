@@ -1,0 +1,23 @@
+# GitLab CI release pipeline for desktop platform (tag-triggered).
+# Multi-OS builds require self-hosted runners for macOS/Windows; Linux on shared.
+rules:
+  - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+stages: [build, sign, deploy]
+build_linux:
+  stage: build
+  image: __SETUP_ACTION__
+  script: [__INSTALL_COMMAND__, __BUILD_COMMAND__]
+  artifacts:
+    paths: [dist/, build/, target/release/]
+# build_macos: requires self-hosted macOS runner (tag: macos-14)
+# build_windows: requires self-hosted Windows runner (tag: windows-2022)
+sign:
+  stage: sign
+  image: alpine:latest
+  script: [echo "Configure signing per OS (codesign/notarization for macOS, signtool for Windows)"]
+  when: manual
+deploy:
+  stage: deploy
+  image: alpine:latest
+  script: [echo "Publish to distribution channels (Homebrew Cask, winget, snap, etc.)"]
+  when: manual

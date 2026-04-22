@@ -1,0 +1,24 @@
+# solo-orchestrator: platforms=desktop,mcp-server
+image: rust:1.75
+definitions:
+  caches:
+    cargo: /usr/local/cargo/registry
+pipelines:
+  default:
+    - step:
+        name: Test
+        caches: [cargo]
+        script: [cargo fmt --check, cargo clippy -- -D warnings, cargo test]
+    - parallel:
+        - step:
+            name: Secrets
+            image: zricethezav/gitleaks:latest
+            script: [gitleaks detect --source . --verbose --redact]
+        - step:
+            name: Dependencies
+            caches: [cargo]
+            script: [cargo install --locked cargo-audit, cargo audit]
+    - step:
+        name: Governance
+        image: bash:5
+        script: [apk add --no-cache jq git, bash scripts/check-phase-gate.sh]

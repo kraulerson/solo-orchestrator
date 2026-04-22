@@ -1,0 +1,17 @@
+# GitLab CI release pipeline for mobile platform (tag-triggered).
+# Requires macOS runners for iOS and Android SDK setup for Android.
+rules:
+  - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+stages: [build, sign, deploy]
+build_android:
+  stage: build
+  image: reactnativecommunity/react-native-android:latest
+  script: [__INSTALL_COMMAND__, __BUILD_COMMAND__]
+  artifacts:
+    paths: [android/app/build/outputs/]
+# build_ios: requires self-hosted macOS runner
+deploy:
+  stage: deploy
+  image: alpine:latest
+  script: [echo "Configure Play Store / App Store deployment (fastlane recommended)"]
+  when: manual

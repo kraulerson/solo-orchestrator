@@ -1,0 +1,14 @@
+# Bitbucket Pipelines release for web platform (tag-triggered).
+image: node:20
+pipelines:
+  tags:
+    'v*':
+      - step:
+          name: Build Release
+          script: [npm ci, npm run build]
+          artifacts: [dist/**, build/**]
+      - step:
+          name: Deploy
+          deployment: production
+          trigger: manual
+          script: [echo "Configure deploy per hosting target"]

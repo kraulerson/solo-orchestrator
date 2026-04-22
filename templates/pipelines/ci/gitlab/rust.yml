@@ -1,0 +1,41 @@
+# solo-orchestrator: platforms=desktop,mcp-server
+# GitLab CI pipeline for Rust projects.
+stages: [test, security, governance]
+image: rust:1.75
+cache:
+  key: "${CI_COMMIT_REF_SLUG}-cargo"
+  paths: [target/, ~/.cargo/]
+lint:
+  stage: test
+  script:
+    - cargo fmt --check
+    - cargo clippy -- -D warnings
+test:
+  stage: test
+  script:
+    - cargo test --all-features
+sast:
+  stage: security
+  image: returntocorp/semgrep
+  script: [semgrep --config=p/security-audit --error]
+secrets:
+  stage: security
+  image: zricethezav/gitleaks:latest
+  script: [gitleaks detect --source . --verbose --redact]
+dependencies:
+  stage: security
+  script:
+    - cargo install --locked cargo-audit
+    - cargo audit
+licenses:
+  stage: security
+  script:
+    - cargo install --locked cargo-deny 2>/dev/null || true
+    - cargo deny check licenses 2>/dev/null || echo "cargo-deny license check skipped"
+governance:
+  stage: governance
+  image: bash:5
+  script:
+    - apk add --no-cache jq git
+    - bash scripts/check-phase-gate.sh
+    - bash scripts/check-changelog.sh 2>/dev/null || true

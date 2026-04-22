@@ -1,0 +1,21 @@
+# solo-orchestrator: platforms=mobile,desktop
+# GitLab CI pipeline for Swift projects.
+# NOTE: GitLab shared runners lack macOS — for iOS/macOS-specific builds, use
+# self-hosted runners on macOS. This template assumes swift-on-linux.
+stages: [test, security, governance]
+image: swift:5.9
+test:
+  stage: test
+  script:
+    - swift build
+    - swift test
+secrets:
+  stage: security
+  image: zricethezav/gitleaks:latest
+  script: [gitleaks detect --source . --verbose --redact]
+governance:
+  stage: governance
+  image: bash:5
+  script:
+    - apk add --no-cache jq git
+    - bash scripts/check-phase-gate.sh

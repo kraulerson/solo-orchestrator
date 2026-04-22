@@ -1,0 +1,45 @@
+# solo-orchestrator: platforms=web,desktop,mcp-server
+# Bitbucket Pipelines for Python projects.
+image: python:3.11
+
+definitions:
+  caches:
+    pip: ~/.cache/pip
+
+pipelines:
+  default:
+    - parallel:
+        - step:
+            name: Lint + Test
+            caches: [pip]
+            script:
+              - pip install -r requirements.txt 2>/dev/null || true
+              - pip install ruff pytest
+              - ruff check .
+              - pytest
+        - step:
+            name: SAST
+            image: returntocorp/semgrep
+            script: [semgrep --config=p/owasp-top-ten --config=p/security-audit --error]
+        - step:
+            name: Secrets
+            image: zricethezav/gitleaks:latest
+            script: [gitleaks detect --source . --verbose --redact]
+        - step:
+            name: Dependencies
+            caches: [pip]
+            script:
+              - pip install pip-audit
+              - pip-audit
+        - step:
+            name: Licenses
+            caches: [pip]
+            script:
+              - pip install pip-licenses
+              - pip-licenses --fail-on="GPL;AGPL;SSPL"
+    - step:
+        name: Governance
+        image: bash:5
+        script:
+          - apk add --no-cache jq git
+          - bash scripts/check-phase-gate.sh

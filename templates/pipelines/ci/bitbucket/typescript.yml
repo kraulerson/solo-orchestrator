@@ -1,0 +1,33 @@
+# solo-orchestrator: platforms=web,desktop,mobile,mcp-server
+image: node:20
+
+definitions:
+  caches:
+    node: node_modules
+
+pipelines:
+  default:
+    - parallel:
+        - step:
+            name: Lint + Test
+            caches: [node]
+            script:
+              - npm ci
+              - npm run lint
+              - npm test -- --ci
+        - step:
+            name: SAST
+            image: returntocorp/semgrep
+            script: [semgrep --config=p/security-audit --error]
+        - step:
+            name: Secrets
+            image: zricethezav/gitleaks:latest
+            script: [gitleaks detect --source . --verbose --redact]
+        - step:
+            name: Dependencies
+            caches: [node]
+            script: [npm ci, npm audit --audit-level=moderate]
+    - step:
+        name: Governance
+        image: bash:5
+        script: [apk add --no-cache jq git, bash scripts/check-phase-gate.sh]

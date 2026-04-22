@@ -1,0 +1,30 @@
+# solo-orchestrator: platforms=mobile,desktop,web
+# GitLab CI pipeline for Dart/Flutter projects.
+stages: [test, security, governance]
+image: dart:stable
+cache:
+  key: "${CI_COMMIT_REF_SLUG}-pub"
+  paths: [.pub-cache/]
+.setup:
+  before_script:
+    - dart pub get
+test:
+  stage: test
+  extends: .setup
+  script:
+    - dart analyze
+    - dart test
+secrets:
+  stage: security
+  image: zricethezav/gitleaks:latest
+  script: [gitleaks detect --source . --verbose --redact]
+dependencies:
+  stage: security
+  extends: .setup
+  script: [dart pub outdated --no-dev-dependencies --show-all 2>&1 | tee /tmp/outdated.out]
+governance:
+  stage: governance
+  image: bash:5
+  script:
+    - apk add --no-cache jq git
+    - bash scripts/check-phase-gate.sh

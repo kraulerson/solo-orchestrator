@@ -1,0 +1,15 @@
+# GitLab CI release pipeline for MCP server platform (tag-triggered).
+rules:
+  - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+stages: [build, publish]
+build:
+  stage: build
+  image: __SETUP_ACTION__
+  script: [__INSTALL_COMMAND__, __BUILD_COMMAND__]
+  artifacts:
+    paths: [dist/, build/]
+publish:
+  stage: publish
+  image: alpine:latest
+  script: [echo "Publish to npm/PyPI/crates.io per language (configure NPM_TOKEN or equivalent)"]
+  when: manual

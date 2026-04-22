@@ -1,0 +1,17 @@
+# solo-orchestrator: platforms=mobile,desktop
+# Bitbucket Pipelines supports macOS runners via self-hosted. For iOS/macOS builds
+# use a macOS runner. This template assumes swift-on-linux.
+image: swift:5.9
+pipelines:
+  default:
+    - step:
+        name: Test
+        script: [swift build, swift test]
+    - step:
+        name: Secrets
+        image: zricethezav/gitleaks:latest
+        script: [gitleaks detect --source . --verbose --redact]
+    - step:
+        name: Governance
+        image: bash:5
+        script: [apk add --no-cache jq git, bash scripts/check-phase-gate.sh]

@@ -1,0 +1,17 @@
+# solo-orchestrator: platforms=mobile,desktop,mcp-server
+image: maven:3-eclipse-temurin-21
+pipelines:
+  default:
+    - step:
+        name: Test + Dependencies
+        script:
+          - mvn -B test --no-transfer-progress
+          - mvn -B dependency:analyze --no-transfer-progress
+    - step:
+        name: Secrets
+        image: zricethezav/gitleaks:latest
+        script: [gitleaks detect --source . --verbose --redact]
+    - step:
+        name: Governance
+        image: bash:5
+        script: [apk add --no-cache jq git, bash scripts/check-phase-gate.sh]

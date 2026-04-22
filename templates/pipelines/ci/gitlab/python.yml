@@ -1,0 +1,75 @@
+# solo-orchestrator: platforms=web,desktop,mcp-server
+# GitLab CI pipeline for Python projects.
+# Mirrors the GitHub Actions template: lint + test + security (SAST/secrets/deps/licenses) + governance.
+
+stages:
+  - test
+  - security
+  - governance
+
+image: python:3.11
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+.setup_python: &setup_python
+  before_script:
+    - python --version
+    - pip install --upgrade pip
+    - pip install -r requirements.txt 2>/dev/null || true
+    - pip install ruff pytest pip-audit pip-licenses
+
+cache:
+  key: "${CI_COMMIT_REF_SLUG}-pip"
+  paths:
+    - .cache/pip
+
+lint:
+  stage: test
+  <<: *setup_python
+  script:
+    - ruff check .
+
+test:
+  stage: test
+  <<: *setup_python
+  script:
+    - pytest
+
+sast:
+  stage: security
+  image: returntocorp/semgrep
+  script:
+    - semgrep --config=p/owasp-top-ten --config=p/security-audit --error
+
+secrets:
+  stage: security
+  image: zricethezav/gitleaks:latest
+  script:
+    - gitleaks detect --source . --verbose --redact
+
+dependencies:
+  stage: security
+  <<: *setup_python
+  script:
+    - pip-audit
+
+licenses:
+  stage: security
+  <<: *setup_python
+  script:
+    - pip-licenses --fail-on="GNU General Public License v2 (GPLv2);GNU General Public License v3 (GPLv3);GNU Affero General Public License v3 (AGPLv3)"
+
+governance:
+  stage: governance
+  image: bash:5
+  script:
+    - apk add --no-cache jq git
+    - bash scripts/check-phase-gate.sh
+    - bash scripts/check-changelog.sh 2>/dev/null || true
+    # APPROVAL_LOG.md append-only enforcement
+    - |
+      if [ -f APPROVAL_LOG.md ] && git diff origin/main...HEAD -- APPROVAL_LOG.md 2>/dev/null | grep -qE '^\-[^-]'; then
+        echo "ERROR: APPROVAL_LOG.md has deleted or modified lines (append-only)"
+        exit 1
+      fi

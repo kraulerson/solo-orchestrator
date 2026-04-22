@@ -1,0 +1,19 @@
+# GitLab CI release pipeline for web platform (tag-triggered).
+rules:
+  - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+stages: [build, deploy]
+build_release:
+  stage: build
+  image: node:20
+  script:
+    - npm ci
+    - npm run build
+  artifacts:
+    paths: [dist/, build/]
+    expire_in: 1 month
+deploy:
+  stage: deploy
+  image: alpine:latest
+  script: [echo "Configure deploy per hosting target (Vercel, Netlify, Cloudflare Pages, S3, etc.)"]
+  environment: production
+  when: manual

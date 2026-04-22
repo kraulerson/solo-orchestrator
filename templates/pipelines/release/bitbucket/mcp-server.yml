@@ -1,0 +1,13 @@
+# Bitbucket Pipelines release for MCP server (tag-triggered).
+pipelines:
+  tags:
+    'v*':
+      - step:
+          name: Build
+          image: __SETUP_ACTION__
+          script: [__INSTALL_COMMAND__, __BUILD_COMMAND__]
+          artifacts: [dist/**, build/**]
+      - step:
+          name: Publish
+          trigger: manual
+          script: [echo "Publish to npm/PyPI/crates.io — configure registry token"]

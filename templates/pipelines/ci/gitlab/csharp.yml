@@ -1,0 +1,30 @@
+# solo-orchestrator: platforms=desktop,web,mcp-server
+# GitLab CI pipeline for C# / .NET projects.
+stages: [test, security, governance]
+image: mcr.microsoft.com/dotnet/sdk:8.0
+cache:
+  key: "${CI_COMMIT_REF_SLUG}-nuget"
+  paths: [~/.nuget/packages/]
+test:
+  stage: test
+  script:
+    - dotnet restore
+    - dotnet build --no-restore
+    - dotnet test --no-build
+sast:
+  stage: security
+  image: returntocorp/semgrep
+  script: [semgrep --config=p/security-audit --error]
+secrets:
+  stage: security
+  image: zricethezav/gitleaks:latest
+  script: [gitleaks detect --source . --verbose --redact]
+dependencies:
+  stage: security
+  script: [dotnet list package --vulnerable --include-transitive 2>&1 | tee /tmp/vuln.out; ! grep -qi "has the following vulnerable" /tmp/vuln.out]
+governance:
+  stage: governance
+  image: bash:5
+  script:
+    - apk add --no-cache jq git
+    - bash scripts/check-phase-gate.sh
