@@ -47,6 +47,22 @@ HOOKEOF
   exit 0
 fi
 
+# --- Early guard (spec 2026-04-21 host-aware repo gate) ---
+# Block git commit if no remote is configured. Solo Orchestrator requires a
+# created-and-protected remote from init onward; commits without a remote
+# indicate either a pre-fix project or drift that needs remediation.
+if echo "$COMMAND" | grep -qE '\bgit\b.*\bcommit\b' && ! echo "$COMMAND" | grep -qE 'git.*remote'; then
+  # Only check if we're in a git repo with no remote
+  if git rev-parse --git-dir >/dev/null 2>&1; then
+    if ! git remote get-url origin >/dev/null 2>&1; then
+      cat << HOOKEOF
+{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "pre-commit gate: no git remote configured. Solo Orchestrator requires a created-and-protected remote from project init onward. Run: scripts/check-gate.sh --backfill-host (if manifest missing host), then scripts/check-gate.sh --repair (to recreate remote and protection). See docs/builders-guide.md § Repository Setup."}}
+HOOKEOF
+      exit 0
+    fi
+  fi
+fi
+
 # Block --no-verify flag on git commit (bypasses security hooks)
 if echo "$COMMAND" | grep -qE '\bgit\b.*\bcommit\b.*--no-verify'; then
   cat << HOOKEOF

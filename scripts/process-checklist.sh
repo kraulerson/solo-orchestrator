@@ -521,22 +521,41 @@ verify_init() {
     print_fail "remote_repo_created — no git remote origin found"
   fi
 
-  # branch_protection_configured + ci_pipeline_configured: .github/workflows/ci.yml exists
-  if [ -f ".github/workflows/ci.yml" ]; then
-    if ! step_is_completed "phase2_init" "branch_protection_configured"; then
-      jq '.phase2_init.steps_completed += ["branch_protection_configured"]' "$PROCESS_STATE" > "$PROCESS_STATE.tmp" && mv "$PROCESS_STATE.tmp" "$PROCESS_STATE"
-      auto_marked=$((auto_marked + 1))
+  # branch_protection_configured: REAL API verification via host dispatcher
+  # (spec 2026-04-21 — replaces the previous "CI yaml exists" proxy check).
+  local host_dispatcher="$SCRIPT_DIR/lib/host.sh"
+  if [ -f "$host_dispatcher" ] && [ -f ".claude/manifest.json" ]; then
+    # shellcheck disable=SC1090
+    source "$host_dispatcher"
+    local mode
+    mode=$(jq -r '.mode // "personal"' .claude/manifest.json 2>/dev/null || echo "personal")
+    if host_load_driver 2>/dev/null && host_verify_protection "main" "$mode" 2>/dev/null; then
+      if ! step_is_completed "phase2_init" "branch_protection_configured"; then
+        jq '.phase2_init.steps_completed += ["branch_protection_configured"]' "$PROCESS_STATE" > "$PROCESS_STATE.tmp" && mv "$PROCESS_STATE.tmp" "$PROCESS_STATE"
+        auto_marked=$((auto_marked + 1))
+      fi
+      print_ok "branch_protection_configured — host protection verified via API"
+    else
+      print_fail "branch_protection_configured — protection verification failed (run scripts/check-gate.sh --preflight)"
     fi
-    print_ok "branch_protection_configured — CI workflow exists"
+  else
+    print_fail "branch_protection_configured — host dispatcher or manifest missing"
+  fi
 
+  # ci_pipeline_configured: host-aware CI file location
+  local ci_file=""
+  if [ -f ".github/workflows/ci.yml" ];      then ci_file=".github/workflows/ci.yml"
+  elif [ -f ".gitlab-ci.yml" ];              then ci_file=".gitlab-ci.yml"
+  elif [ -f "bitbucket-pipelines.yml" ];     then ci_file="bitbucket-pipelines.yml"
+  fi
+  if [ -n "$ci_file" ]; then
     if ! step_is_completed "phase2_init" "ci_pipeline_configured"; then
       jq '.phase2_init.steps_completed += ["ci_pipeline_configured"]' "$PROCESS_STATE" > "$PROCESS_STATE.tmp" && mv "$PROCESS_STATE.tmp" "$PROCESS_STATE"
       auto_marked=$((auto_marked + 1))
     fi
-    print_ok "ci_pipeline_configured — CI workflow exists"
+    print_ok "ci_pipeline_configured — CI config exists at $ci_file"
   else
-    print_fail "branch_protection_configured — .github/workflows/ci.yml not found"
-    print_fail "ci_pipeline_configured — .github/workflows/ci.yml not found"
+    print_fail "ci_pipeline_configured — no CI config found (.github/workflows/ci.yml | .gitlab-ci.yml | bitbucket-pipelines.yml)"
   fi
 
   # project_scaffolded: any common lockfile exists

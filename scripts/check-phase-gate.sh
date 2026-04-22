@@ -273,6 +273,34 @@ if [ "$current_phase" -ge 2 ]; then
   fi
 fi
 
+# --- Phase 1→2 BACKSTOP: repo protection verification (spec 2026-04-21) ---
+# Runs whenever current_phase is at or past 2 — catches drift where protection
+# was loosened after init, or projects that predate the host-aware gate.
+if [ "$current_phase" -ge 2 ]; then
+  SCRIPT_DIR_CPG="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  host_dispatcher="$SCRIPT_DIR_CPG/lib/host.sh"
+  if [ -f "$host_dispatcher" ] && [ -f ".claude/manifest.json" ]; then
+    # shellcheck disable=SC1090
+    source "$host_dispatcher"
+    mode=$(jq -r '.mode // "personal"' .claude/manifest.json 2>/dev/null || echo "personal")
+    if host_load_driver 2>/dev/null; then
+      if host_verify_protection "main" "$mode" 2>/dev/null; then
+        echo -e "${GREEN}  [OK]${NC} Phase 1→2 backstop: repo protection verified for $mode mode"
+      else
+        echo -e "${RED}[FAIL]${NC} Phase 1→2 backstop: protection verification failed"
+        echo "        Remediate: scripts/check-gate.sh --repair"
+        echo "        Preflight: scripts/check-gate.sh --preflight"
+        issues=$((issues + 1))
+      fi
+    else
+      echo -e "${YELLOW}[WARN]${NC} Phase 1→2 backstop: could not load host driver (manifest host field may be missing; run scripts/check-gate.sh --backfill-host)"
+      issues=$((issues + 1))
+    fi
+  else
+    echo -e "${YELLOW}[WARN]${NC} Phase 1→2 backstop: host dispatcher or manifest.json missing — skipping (project predates host-aware gate)"
+  fi
+fi
+
 # Approval field validation: Phase 1→2 (P0-004)
 if [ "$current_phase" -ge 2 ]; then
   validate_approval_fields "Phase 1.*Phase 2" "Phase 1→2"
