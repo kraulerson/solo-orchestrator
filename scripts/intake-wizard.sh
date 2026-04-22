@@ -369,6 +369,56 @@ run_section_1() {
   repo_url=$(prompt_input "Repository URL (if already created, or Enter to skip)" "")
   save_answer "repo_url" "${repo_url:-TBD}"
 
+  # --- Git host selection (spec 2026-04-21 host-aware repo gate) ---
+  local git_host
+  git_host=$(prompt_choice "Git host for this project:" \
+    "github" \
+    "gitlab" \
+    "bitbucket" \
+    "other")
+  save_answer "git_host" "$git_host"
+
+  # Probe CLI availability for first-class hosts (github/gitlab/bitbucket)
+  if [ "$git_host" != "other" ]; then
+    local dispatcher="$SCRIPT_DIR/lib/host.sh"
+    local driver="$SCRIPT_DIR/host-drivers/$git_host.sh"
+    if [ -f "$dispatcher" ] && [ -f "$driver" ]; then
+      # shellcheck disable=SC1090
+      source "$dispatcher"
+      source "$driver"
+      if ! host_require_cli 2>/tmp/host-cli-probe.$$; then
+        cat /tmp/host-cli-probe.$$ >&2
+        rm -f /tmp/host-cli-probe.$$
+        local action
+        action=$(prompt_choice "Host CLI unavailable — what now?" \
+          "retry" \
+          "switch" \
+          "continue")
+        case "$action" in
+          retry)
+            if ! host_require_cli; then
+              echo "Still unavailable. Install the CLI and rerun the wizard." >&2
+              exit 1
+            fi
+            ;;
+          switch)
+            git_host=$(prompt_choice "Choose a different host:" "github" "gitlab" "bitbucket" "other")
+            save_answer "git_host" "$git_host"
+            ;;
+          continue)
+            echo "Continuing intake — CLI will be verified again at init.sh." >&2
+            ;;
+        esac
+      fi
+      rm -f /tmp/host-cli-probe.$$
+    fi
+  fi
+
+  # --- Repository visibility ---
+  local repo_visibility
+  repo_visibility=$(prompt_choice "Repository visibility:" "private" "public")
+  save_answer "repo_visibility" "$repo_visibility"
+
   save_section 1
   echo ""
 }

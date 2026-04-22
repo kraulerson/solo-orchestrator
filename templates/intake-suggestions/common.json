@@ -138,6 +138,44 @@
           "when": "Personal tools with easily recreated data"
         }
       ]
+    },
+    "git_host": {
+      "default": [
+        {
+          "name": "github",
+          "rank": 1,
+          "context": "Most common, best tooling (gh CLI), widely supported integrations"
+        },
+        {
+          "name": "gitlab",
+          "rank": 2,
+          "context": "Popular for self-hosted; glab CLI supported"
+        },
+        {
+          "name": "bitbucket",
+          "rank": 3,
+          "context": "Bitbucket Cloud via curl + App Password"
+        },
+        {
+          "name": "other",
+          "rank": 4,
+          "context": "Self-hosted Gitea, Codeberg, etc. — URL-paste + manual branch-protection attestation"
+        }
+      ]
+    },
+    "repo_visibility": {
+      "default": [
+        {
+          "name": "private",
+          "rank": 1,
+          "context": "Recommended for all projects. Org mode forces private."
+        },
+        {
+          "name": "public",
+          "rank": 2,
+          "context": "Open-source projects only"
+        }
+      ]
     }
   }
 }

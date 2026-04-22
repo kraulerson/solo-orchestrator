@@ -74,6 +74,8 @@ You can fill this out using the **intake wizard** (`bash scripts/intake-wizard.s
 | **Target platforms** | _e.g., "Windows 10+, macOS 12+, Ubuntu 22.04+" or "Web (all modern browsers)" or "iOS 16+, Android 13+"_ |
 | **Is this a personal project or organizational deployment?** | Personal / Organizational |
 | **Repository URL** (if already created) | |
+| **Git host** | _github / gitlab / bitbucket / other_ |
+| **Repository visibility** | _private / public_ (org mode forces private) |
 
 ---
 
