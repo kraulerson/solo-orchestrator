@@ -68,6 +68,35 @@
 <!-- AGENT: Replace __SESSION_FEATURES__ with comma-separated feature names being tested -->
 <div class="meta">Date: __SESSION_DATE__ | Features: __SESSION_FEATURES__ | Tester: <input id="tester-name" type="text" placeholder="Your name" style="background:#1e1e2e;border:1px solid #45475a;color:#cdd6f4;padding:4px 8px;border-radius:4px;font-size:0.85rem;width:140px;"></div>
 
+<!--
+  AGENT: Replace __TESTER_PRE_FLIGHT__ with a pre-flight block describing the
+  test environment and one-time setup the tester must do before any scenario.
+  Rendered as a <div class="fixture-ref"> at the top of the page, above the
+  progress bar. Every UAT session MUST include this block — tests that don't
+  state where the tester stands cannot be reliably executed.
+
+  REQUIRED contents (fill every line — do not omit any):
+    - System under test: <environment description>. <compatibility note>.
+    - Project root / app location: <absolute path OR URL OR device identifier>
+    - Runtime / tooling: <language + version OR browser + version OR device OS>
+    - Required tools: <list in <code>>. Optional: <list with scenario refs>.
+    - One-time setup (≤3 lines): <cd / navigate / launch / flash / connect>
+    - Starting-state assumptions every scenario will restate.
+    - How to run a scenario (1–2 sentences).
+
+  Use <br> for line breaks, <code> for paths and commands, <strong> for
+  labels, <em> for optional-dependency notes. Wrap everything in a single
+  <div class="fixture-ref">.
+
+  See tests/uat/examples/pre-flight-reference.html for a platform-specific
+  worked example (populated by init.sh based on your project's platform).
+  If your project's platform is 'other', the reference file is NOT provided
+  — ask the Orchestrator the co-build questions in
+  docs/uat-authoring-guide.md § "Co-build protocol for 'other' platform"
+  before generating this block.
+-->
+__TESTER_PRE_FLIGHT__
+
 <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
 <div class="progress-text" id="progress-text">0 / 0 completed</div>
 
@@ -123,14 +152,62 @@ __FEATURE_SECTIONS__
 //   }
 // ]
 //
+// QUALITY CHECKLIST — every scenario MUST meet these before emission.
+// A scenario that fails any item is NOT READY for the tester; rewrite it.
+//
+// [ ] `steps` opens with a starting-state restatement. Use the same phrase
+//     project-wide, e.g., "You are in the project root with <runtime> active
+//     (see 'Before you start')." Without this, chained scenarios drift.
+// [ ] `steps` numbers every command. No "run the command from scenario N",
+//     no "see above", no "as before". Each scenario is self-contained.
+// [ ] `steps` commands are fully copy-pasteable. No placeholders, no
+//     "<project-path>", no shell pseudo-code, no `...` ellipses in the
+//     actual command lines.
+// [ ] `steps` prefers deterministic commands over ones whose output format
+//     varies across tool versions.
+// [ ] `expected` has a CONCRETE pass/fail anchor. At least ONE of:
+//       - an exact text string the tester can grep for;
+//       - an exit code the tester can read (the scenario should emit it:
+//         `echo "exit=$?"`);
+//       - a line count (`| wc -l`);
+//       - a deterministic single-value assertion.
+//     Prose like "works", "succeeds", "passes", "no errors" is NOT a
+//     concrete anchor. If you cannot write a concrete anchor, the
+//     scenario is not ready.
+// [ ] `expected` is ≥60 characters. Shorter is almost certainly
+//     underspecified.
+// [ ] If the scenario MUTATES repo/filesystem/env state, include numbered
+//     cleanup steps at the end AND a verification step (e.g.,
+//       git diff --exit-code <file> && echo RESTORED
+//     ). Informal parentheticals like "(restore)" are not acceptable.
+// [ ] If the scenario has an EXTERNAL dependency (Docker, a running
+//     service, network endpoint), include a probe step whose output tells
+//     the tester to proceed or Skip. Example:
+//       docker info >/dev/null 2>&1 && echo DOCKER_OK || echo SKIP_DOCKER_UNAVAILABLE
+//
+// ANTI-PATTERNS — do not emit scenarios matching these. The linter at
+// scripts/lint-uat-scenarios.sh will refuse any scenario whose:
+//   - `steps` does not open with a state-restatement keyword
+//     ("You are", "cd ", "Setup:", "Before starting", "Preconditions:");
+//   - `expected` contains only "works" / "succeeds" / "passes" /
+//     "no errors" / "builds successfully" / "completes" as its pass/fail
+//     description;
+//   - `steps` contains "command from scenario", "see above", "as before",
+//     "like scenario", "as in scenario";
+//   - `expected` is <60 characters;
+//   - `id` duplicates another scenario's id.
+//
+// BEFORE SAVING: run scripts/lint-uat-scenarios.sh on the populated file.
+// Must exit 0 before the UAT template is handed to a tester.
+//
 // EXAMPLE (do not copy verbatim — write scenarios specific to the features under test):
 // [
 //   {
 //     "id": 1,
 //     "feature": 7,
-//     "title": "Repair disabled after clean analysis",
-//     "steps": "1. Open cube.stl\\n2. Click Analyze (A)\\n3. Check Repair button",
-//     "expected": "Repair button stays disabled. Analysis shows 0 holes, 0 degenerate faces."
+//     "title": "Repair disabled after clean analysis on a simple cube",
+//     "steps": "You are in the app with the Mesh Repair panel open.\\n\\n1. Open examples/cube.stl via File > Open.\\n2. Click Analyze (keyboard: A).\\n3. Read the Repair button's disabled attribute via devtools OR confirm it appears greyed out.",
+//     "expected": "Analyze completes within 2 seconds and reports:\\n  Holes: 0\\n  Degenerate faces: 0\\nThe Repair button has the disabled attribute and is visually greyed out.\\n\\nPASS if both counts are 0 AND Repair is disabled. FAIL if either count is non-zero or Repair is enabled."
 //   }
 // ]
 const scenarios = __SCENARIOS_JSON__;
