@@ -1351,6 +1351,51 @@ if [ -f .claude/manifest.json ] && ! jq -e '.host' .claude/manifest.json >/dev/n
   echo ""
 fi
 
+# --- UAT template migration (spec 2026-04-23-uat-template-quality-design.md) ---
+# Re-copy updated UAT source templates and per-platform reference pair.
+# Idempotent — safe to re-run.
+if [ -d tests/uat/templates ] || [ -d tests/uat ]; then
+  print_step "Migrating UAT templates and references"
+  mkdir -p tests/uat/templates tests/uat/examples
+
+  # Source templates
+  if [ -f "$SCRIPT_DIR/../templates/uat/test-session-template.html" ]; then
+    cp "$SCRIPT_DIR/../templates/uat/test-session-template.html" \
+       tests/uat/templates/test-session-template.html
+    cp "$SCRIPT_DIR/../templates/uat/test-session-template.md" \
+       tests/uat/templates/test-session-template.md
+    print_ok "UAT source templates refreshed"
+  fi
+
+  # Per-platform reference pair (read PLATFORM from intake-progress.json)
+  uat_platform=""
+  if [ -f .claude/intake-progress.json ]; then
+    uat_platform=$(jq -r '.answers.platform // empty' .claude/intake-progress.json 2>/dev/null || true)
+  fi
+
+  if [ -n "$uat_platform" ] && [ "$uat_platform" != "other" ] && \
+     [ -f "$SCRIPT_DIR/../templates/uat/references/${uat_platform}-pre-flight.html" ]; then
+    cp "$SCRIPT_DIR/../templates/uat/references/${uat_platform}-pre-flight.html" \
+       tests/uat/examples/pre-flight-reference.html
+    cp "$SCRIPT_DIR/../templates/uat/references/${uat_platform}-scenario.json" \
+       tests/uat/examples/scenario-reference.json
+    print_ok "UAT reference pair copied for platform '$uat_platform'"
+  elif [ "$uat_platform" = "other" ]; then
+    print_info "Platform is 'other' — UAT reference is co-build protocol."
+    print_info "See docs/uat-authoring-guide.md § 5 next time you start a UAT session."
+  else
+    print_warn "UAT platform unknown (intake-progress.json missing or lacks 'platform' field). Skipping reference copy; see docs/uat-authoring-guide.md."
+  fi
+
+  echo ""
+  print_info "UAT quality guardrails now active. Next UAT session should:"
+  print_info "  1. Read templates/uat/test-session-template.html's embedded checklist"
+  print_info "  2. Use tests/uat/examples/ as shape references (first-class platforms)"
+  print_info "  3. Run scripts/lint-uat-scenarios.sh <populated-file> before saving"
+  print_info "See docs/uat-authoring-guide.md for details."
+  echo ""
+fi
+
 # Run full project validation to surface new track requirements
 if [ -x "scripts/validate.sh" ]; then
   echo ""
