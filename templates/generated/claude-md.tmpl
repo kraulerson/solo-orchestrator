@@ -68,6 +68,7 @@ At the start of every new session, before any other work:
 ### Construction Rules (Phase 2)
 - **Test-first:** Write failing tests before implementation. Verify they fail. Then implement.
 - **One feature at a time:** Complete the full Build Loop (test → implement → security audit → document) per feature before starting the next.
+- **MVP Cutline work is always Build Loop work.** If a Phase 2 initialization step (repo setup, scaffolding, data model, pre-commit, CI/CD, or verification) produces code that implements an item above the MVP Cutline in `PRODUCT_MANIFESTO.md` §5, that code requires the full Build Loop — tests first, implement, security audit, documentation, `--record-feature` — regardless of which init step it first appeared in. See `docs/reference/builders-guide.md` § "MVP Cutline Work Requires the Build Loop" for examples and recovery guidance.
 - **Pin dependencies:** Exact versions only. Commit the lockfile.
 - **Structured logging:** Every significant operation produces a log entry with timestamp, severity, and correlation ID.
 - **No direct data model changes:** All changes go through versioned migrations.
