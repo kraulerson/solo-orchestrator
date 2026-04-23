@@ -32,14 +32,16 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
       --reset-counter)      ACTION="reset-counter";       shift ;;
       --reset-health-check) ACTION="reset-health-check"; shift ;;
       --record-feature)     ACTION="record-feature"; FEATURE_NAME="$2"; shift 2 ;;
+      --unrecord-feature)   ACTION="unrecord-feature"; FEATURE_NAME="$2"; shift 2 ;;
       --help|-h)
-        echo "Usage: scripts/test-gate.sh [--check-batch] [--check-phase-gate] [--reset-counter] [--record-feature NAME]"
+        echo "Usage: scripts/test-gate.sh [--check-batch] [--check-phase-gate] [--reset-counter] [--record-feature NAME] [--unrecord-feature NAME]"
         echo ""
         echo "Commands:"
-        echo "  --check-batch       Check if testing session is due (exit 0=continue, 1=testing required)"
-        echo "  --check-phase-gate  Check if Phase 2→3 transition is clear (exit 0=clear, 1=blocked, 2=warnings)"
-        echo "  --reset-counter     Reset feature counter after testing session completes"
-        echo "  --record-feature N  Record a completed feature and increment counter"
+        echo "  --check-batch         Check if testing session is due (exit 0=continue, 1=testing required)"
+        echo "  --check-phase-gate    Check if Phase 2→3 transition is clear (exit 0=clear, 1=blocked, 2=warnings)"
+        echo "  --reset-counter       Reset feature counter after testing session completes"
+        echo "  --record-feature N    Record a completed feature and increment counter"
+        echo "  --unrecord-feature N  Un-record a feature recorded in error (interactive; inverse of --record-feature)"
         exit 0
         ;;
       *)
@@ -435,6 +437,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     check-phase-gate)   check_phase_gate ;;
     reset-counter)      reset_counter ;;
     record-feature)     record_feature "$FEATURE_NAME" ;;
+    unrecord-feature)   unrecord_feature "$FEATURE_NAME" ;;
     reset-health-check)
       ensure_progress_file
       jq '.features_since_last_health_check = 0' "$BUILD_PROGRESS" > "$BUILD_PROGRESS.tmp" && mv "$BUILD_PROGRESS.tmp" "$BUILD_PROGRESS"
