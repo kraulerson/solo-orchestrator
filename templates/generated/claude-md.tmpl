@@ -170,6 +170,11 @@ At specific phases, adopt specialized personas for higher-quality output. Each p
 - **After each feature:** `scripts/test-gate.sh --record-feature "feature-name"`
 - **Gate enforcement:** Do NOT start the next feature until test-gate.sh --check-batch returns 0.
 - **Severity rules:** SEV-1 cannot be deferred. SEV-2 can be deferred during Phase 2 but must be resolved or feature removed at Phase 2→3 gate.
+- **Recovering from mistakes:**
+  - Un-record a wrongly-recorded feature: `scripts/test-gate.sh --unrecord-feature "name"` (interactive; fully inverses the `--record-feature` counters)
+  - Abort a started UAT session: `scripts/process-checklist.sh --reset uat_session` (interactive)
+  - Abort a started Build Loop: `scripts/process-checklist.sh --reset build_loop` (interactive)
+  - All three require terminal access and Y/N confirmation; each writes an audit entry to `.claude/process-audit.log`. These are **local-state fixes only** — if the state was committed, amend or revert the commit separately.
 
 ### Phase 2 Completion Checkpoint
 Before moving to Phase 3, verify:
