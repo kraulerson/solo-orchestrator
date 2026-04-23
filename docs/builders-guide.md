@@ -964,6 +964,26 @@ Direct the agent to generate the CI configuration:
 
 ---
 
+### MVP Cutline Work Requires the Build Loop
+
+During the Phase 2 initialization steps above, some scaffolding work produces commits that don't just prepare the project — they implement items from the MVP Cutline. When that happens, the work is **Build Loop work, not init work**, and it must go through the full Build Loop (§2.2–2.6 below), not just the init checklist.
+
+**The rule:** Any item above the MVP Cutline in `PRODUCT_MANIFESTO.md` §5 requires the full Build Loop — write tests first, verify they fail, implement, run the security audit, update documentation, record the feature — regardless of which Phase 2 sub-step it first appears in.
+
+**Why this matters.** Init steps and Build Loop work can look the same on the surface. "Set up the data model" might mean copying a schema fixture (init work) or implementing the data-contract guarantees that satisfy an MVP Cutline item (Build Loop work). An agent or orchestrator who treats Cutline work as init work ships it without tests, without audit, without documentation — exactly the drift the Build Loop exists to prevent. This was observed on the lancache project (2026-04-22): two Cutline items were committed as `feat(init): ...` without going through the Build Loop; the drift was caught only after the fact by running `--record-feature` retroactively.
+
+**Examples of init steps that can disguise Cutline work:**
+
+- **Step 4 (Configure data model)** — if your Cutline includes "all migrations verified via CHECKSUMS manifest before apply," the migration runner isn't scaffolding; it's the feature. Write the tests first.
+- **Step 3 (Agent-initialized project)** — if your Cutline includes "structured logging with correlation-ID propagation," the logging setup isn't boilerplate; it's the feature. Write the tests first.
+- **Step 6 (CI/CD)** — if your Cutline includes a specific contract test that runs on every PR, adding that test to CI is the feature's final Build Loop step, not init housekeeping.
+
+**How to spot it:** when scaffolding step N produces code that you could circle on the Cutline list in `PRODUCT_MANIFESTO.md`, stop. Switch into Build Loop mode for that code (§2.2 Write Tests First and onward), complete the cycle, and record the feature with `scripts/test-gate.sh --record-feature "<name>"` before continuing with the remaining init steps.
+
+**If you've already shipped Cutline work without the Build Loop:** retroactively run the Build Loop steps for that feature — write the tests you didn't write, run the security audit you skipped, update `FEATURES.md`, record the feature. It's awkward but recoverable. Don't leave the drift uncorrected; future phase gates will surface the gap at Phase 2→3.
+
+---
+
 ### The Build Loop
 
 **For each feature in the MVP Cutline, execute this cycle. Start with the highest-risk or most foundational feature (often authentication or core data handling).**
