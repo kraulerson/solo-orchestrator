@@ -155,6 +155,102 @@ _unrecord_feature_apply() {
   ' "$BUILD_PROGRESS" > "$tmp" && mv "$tmp" "$BUILD_PROGRESS"
 }
 
+# unrecord_feature <name>
+# Interactive wrapper around _unrecord_feature_apply: tty guard,
+# state-change preview, Y/N confirmation, audit-log append.
+# Blocks agent callers (requires an interactive terminal).
+unrecord_feature() {
+  local name="${1:-}"
+
+  if [ -z "$name" ]; then
+    print_fail "Usage: --unrecord-feature NAME (feature name required)"
+    exit 1
+  fi
+
+  if [ ! -t 0 ]; then
+    print_fail "Unrecord requires interactive authorization."
+    echo "The Orchestrator must run this command directly in a terminal:" >&2
+    echo "  scripts/test-gate.sh --unrecord-feature \"$name\"" >&2
+    exit 1
+  fi
+
+  if [ ! -f "$BUILD_PROGRESS" ]; then
+    print_fail "Nothing to unrecord: $BUILD_PROGRESS does not exist."
+    echo "No features have been recorded in this project yet." >&2
+    exit 1
+  fi
+
+  # Presence check + diagnostic output (repeats _apply's check to provide
+  # the current-features list before prompting)
+  if ! jq --arg name "$name" -e '.features_completed | index($name) != null' "$BUILD_PROGRESS" >/dev/null; then
+    print_fail "Feature '$name' not found in features_completed."
+    echo "Currently recorded features:" >&2
+    local features
+    features=$(jq -r '.features_completed[]' "$BUILD_PROGRESS" 2>/dev/null || true)
+    if [ -z "$features" ]; then
+      echo "  (none)" >&2
+    else
+      echo "$features" | sed 's/^/  - /' >&2
+    fi
+    exit 1
+  fi
+
+  # Compute preview values
+  local cur_array cur_fslt cur_fslhc cur_testing interval new_fslt new_fslhc new_testing new_array
+  cur_array=$(jq -c '.features_completed' "$BUILD_PROGRESS")
+  cur_fslt=$(jq -r '.features_since_last_test' "$BUILD_PROGRESS")
+  cur_fslhc=$(jq -r '.features_since_last_health_check // 0' "$BUILD_PROGRESS")
+  cur_testing=$(jq -r '.testing_required' "$BUILD_PROGRESS")
+  interval=$(jq -r '.test_interval' "$BUILD_PROGRESS")
+
+  new_fslt=$(( cur_fslt - 1 < 0 ? 0 : cur_fslt - 1 ))
+  new_fslhc=$(( cur_fslhc - 1 < 0 ? 0 : cur_fslhc - 1 ))
+  if [ "$new_fslt" -ge "$interval" ]; then
+    new_testing="true"
+  else
+    new_testing="false"
+  fi
+  new_array=$(jq --arg name "$name" -c '
+    (.features_completed | (. | index($name)) as $i
+     | .[0:$i] + .[$i+1:])' "$BUILD_PROGRESS")
+
+  # Show preview
+  echo "Unrecord feature '$name'?"
+  echo ""
+  echo "Current state:"
+  echo "  features_completed: $cur_array"
+  echo "  features_since_last_test: $cur_fslt / $interval (testing_required: $cur_testing)"
+  echo "  features_since_last_health_check: $cur_fslhc"
+  echo ""
+  echo "After unrecord:"
+  echo "  features_completed: $new_array"
+  echo "  features_since_last_test: $new_fslt / $interval (testing_required: $new_testing)"
+  echo "  features_since_last_health_check: $new_fslhc"
+  echo ""
+
+  local confirm
+  read -rp "Proceed? [y/N]: " confirm
+  if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+    print_info "Unrecord cancelled."
+    exit 0
+  fi
+
+  # Apply
+  if ! _unrecord_feature_apply "$name"; then
+    print_fail "Unrecord failed — state unchanged"
+    exit 1
+  fi
+
+  # Audit log
+  local now
+  now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  local audit_entry="[UNRECORD] feature '$name' unrecorded at $now by $(whoami)"
+  mkdir -p .claude
+  echo "$audit_entry" >> ".claude/process-audit.log"
+
+  print_ok "Feature '$name' unrecorded"
+}
+
 reset_counter() {
   ensure_progress_file
 
