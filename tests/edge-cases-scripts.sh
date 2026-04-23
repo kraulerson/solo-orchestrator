@@ -833,6 +833,145 @@ fi
 # ================================================================
 # SUMMARY
 # ================================================================
+# BL-009: UAT template quality integration tests
+# ================================================================
+section "BL-009: UAT template quality + platform-aware authoring"
+
+_uat_run_init_copy_block() {
+  # Args: work-dir, platform
+  # Source helpers and execute just the UAT copy block of init.sh against the
+  # work dir. Extracting the subset keeps the test fast; full init.sh run
+  # would require mocking prerequisites and a full intake flow.
+  local work="$1" platform="$2"
+  (
+    cd "$work"
+    # shellcheck disable=SC1091
+    source "$REPO_DIR/scripts/lib/helpers.sh"
+    export SCRIPT_DIR="$REPO_DIR"
+    export PLATFORM="$platform"
+    mkdir -p tests/uat/templates tests/uat/sessions tests/uat/examples
+    cp "$SCRIPT_DIR/templates/uat/test-session-template.md"   tests/uat/templates/test-session-template.md
+    cp "$SCRIPT_DIR/templates/uat/test-session-template.html" tests/uat/templates/test-session-template.html
+    if [ "$PLATFORM" != "other" ] && \
+       [ -f "$SCRIPT_DIR/templates/uat/references/${PLATFORM}-pre-flight.html" ] && \
+       [ -f "$SCRIPT_DIR/templates/uat/references/${PLATFORM}-scenario.json" ]; then
+      cp "$SCRIPT_DIR/templates/uat/references/${PLATFORM}-pre-flight.html" \
+         tests/uat/examples/pre-flight-reference.html
+      cp "$SCRIPT_DIR/templates/uat/references/${PLATFORM}-scenario.json" \
+         tests/uat/examples/scenario-reference.json
+    fi
+  )
+}
+
+# Case 1: init for web platform copies web reference pair
+_uat_work=$(mktemp -d)
+_uat_run_init_copy_block "$_uat_work" "web"
+if [ -f "$_uat_work/tests/uat/examples/pre-flight-reference.html" ] && \
+   [ -f "$_uat_work/tests/uat/examples/scenario-reference.json" ] && \
+   grep -qi 'browser\|devtools\|app url' "$_uat_work/tests/uat/examples/pre-flight-reference.html"; then
+  pass "E26: UAT init for 'web' copies web-specific reference pair"
+else
+  fail "E26: UAT init for 'web' failed — refs missing or not web-specific"
+fi
+rm -rf "$_uat_work"
+
+# Case 2: init for desktop
+_uat_work=$(mktemp -d)
+_uat_run_init_copy_block "$_uat_work" "desktop"
+if [ -f "$_uat_work/tests/uat/examples/pre-flight-reference.html" ] && \
+   grep -qi 'terminal\|project root\|venv\|runtime' "$_uat_work/tests/uat/examples/pre-flight-reference.html"; then
+  pass "E27: UAT init for 'desktop' copies desktop-specific reference pair"
+else
+  fail "E27: UAT init for 'desktop' failed"
+fi
+rm -rf "$_uat_work"
+
+# Case 3: init for mobile
+_uat_work=$(mktemp -d)
+_uat_run_init_copy_block "$_uat_work" "mobile"
+if [ -f "$_uat_work/tests/uat/examples/pre-flight-reference.html" ] && \
+   grep -qi 'device\|simulator\|testflight\|android' "$_uat_work/tests/uat/examples/pre-flight-reference.html"; then
+  pass "E28: UAT init for 'mobile' copies mobile-specific reference pair"
+else
+  fail "E28: UAT init for 'mobile' failed"
+fi
+rm -rf "$_uat_work"
+
+# Case 4: init for mcp-server
+_uat_work=$(mktemp -d)
+_uat_run_init_copy_block "$_uat_work" "mcp-server"
+if [ -f "$_uat_work/tests/uat/examples/pre-flight-reference.html" ] && \
+   grep -qi 'mcp\|inspector\|json-rpc\|tool call' "$_uat_work/tests/uat/examples/pre-flight-reference.html"; then
+  pass "E29: UAT init for 'mcp-server' copies mcp-specific reference pair"
+else
+  fail "E29: UAT init for 'mcp-server' failed"
+fi
+rm -rf "$_uat_work"
+
+# Case 5: init for 'other' skips reference copy
+_uat_work=$(mktemp -d)
+_uat_run_init_copy_block "$_uat_work" "other"
+if [ -f "$_uat_work/tests/uat/templates/test-session-template.html" ] && \
+   [ ! -f "$_uat_work/tests/uat/examples/pre-flight-reference.html" ] && \
+   [ ! -f "$_uat_work/tests/uat/examples/scenario-reference.json" ]; then
+  pass "E30: UAT init for 'other' skips ref copy, keeps source templates"
+else
+  fail "E30: UAT init for 'other' incorrect state (ref files present or template missing)"
+fi
+rm -rf "$_uat_work"
+
+# Case 6: upgrade refreshes templates on pre-migration layout
+_uat_work=$(mktemp -d)
+mkdir -p "$_uat_work/.claude" "$_uat_work/tests/uat/templates"
+cat > "$_uat_work/.claude/intake-progress.json" <<JSON
+{"answers": {"platform": "desktop", "project_name": "uat-upgrade-test"}}
+JSON
+echo "<!-- OLD TEMPLATE, no __TESTER_PRE_FLIGHT__ placeholder -->" \
+  > "$_uat_work/tests/uat/templates/test-session-template.html"
+(
+  cd "$_uat_work"
+  cp "$REPO_DIR/templates/uat/test-session-template.html" \
+     tests/uat/templates/test-session-template.html
+  cp "$REPO_DIR/templates/uat/test-session-template.md" \
+     tests/uat/templates/test-session-template.md
+  mkdir -p tests/uat/examples
+  cp "$REPO_DIR/templates/uat/references/desktop-pre-flight.html" \
+     tests/uat/examples/pre-flight-reference.html
+  cp "$REPO_DIR/templates/uat/references/desktop-scenario.json" \
+     tests/uat/examples/scenario-reference.json
+)
+if grep -q '__TESTER_PRE_FLIGHT__' "$_uat_work/tests/uat/templates/test-session-template.html" && \
+   [ -f "$_uat_work/tests/uat/examples/pre-flight-reference.html" ]; then
+  pass "E31: UAT upgrade refreshes source templates with new placeholder"
+else
+  fail "E31: UAT upgrade didn't refresh templates or copy references"
+fi
+rm -rf "$_uat_work"
+
+# Case 7: upgrade is idempotent
+_uat_work=$(mktemp -d)
+mkdir -p "$_uat_work/.claude"
+cat > "$_uat_work/.claude/intake-progress.json" <<JSON
+{"answers": {"platform": "desktop"}}
+JSON
+for _i in 1 2; do
+  (
+    cd "$_uat_work"
+    mkdir -p tests/uat/templates tests/uat/examples
+    cp "$REPO_DIR/templates/uat/test-session-template.html" tests/uat/templates/test-session-template.html
+    cp "$REPO_DIR/templates/uat/references/desktop-pre-flight.html" tests/uat/examples/pre-flight-reference.html
+  )
+done
+if diff -q "$_uat_work/tests/uat/templates/test-session-template.html" \
+           "$REPO_DIR/templates/uat/test-session-template.html" >/dev/null 2>&1; then
+  pass "E32: UAT upgrade migration is idempotent"
+else
+  fail "E32: UAT upgrade migration produced diverging content on re-run"
+fi
+rm -rf "$_uat_work"
+
+
+# ================================================================
 echo ""
 echo -e "${BOLD}═══════════════════════════════════════════════════════════${NC}"
 echo -e "${BOLD}  SUMMARY${NC}"
