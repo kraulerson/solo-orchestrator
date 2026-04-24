@@ -35,6 +35,7 @@ PHASE2_INIT_STEPS=(remote_repo_created branch_protection_configured project_scaf
 # --- Argument parsing ---
 ACTION=""
 ARG_VALUE=""
+COMMIT_MSG=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -47,6 +48,7 @@ while [ $# -gt 0 ]; do
     --verify-init)      ACTION="verify-init";       shift ;;
     --status)           ACTION="status";            shift ;;
     --check-commit-ready) ACTION="check-commit-ready"; shift ;;
+    --check-commit-message) ACTION="check-commit-message"; COMMIT_MSG="$2"; shift 2 ;;
     --reset)            ACTION="reset";             ARG_VALUE="$2"; shift 2 ;;
     --reset-all)        ACTION="reset-all";         shift ;;
     --help|-h)
@@ -61,6 +63,7 @@ while [ $# -gt 0 ]; do
       echo "  --verify-init               Auto-verify Phase 2 initialization steps"
       echo "  --status                    Print human-readable status of all processes"
       echo "  --check-commit-ready        Check if commit is allowed (used by PreToolUse hook)"
+      echo "  --check-commit-message MSG  Check commit-message prefix (feat:) against Build Loop state (BL-006)"
       echo "  --reset PROCESS             Reset a single process to initial state"
       echo "  --reset-all                 Reset all processes to initial state"
       echo "  --help                      Show this help"
@@ -1008,6 +1011,48 @@ EOF
   print_ok "All processes reset to initial state"
 }
 
+# --- BL-006: commit-message-triggered Build Loop enforcement ---
+# Inspects the subject line of a commit message. If it starts with a
+# Conventional Commits feature prefix (feat, feat(x), feat!, feat(x)!),
+# require the Build Loop state to be sufficient for a commit. Otherwise,
+# exit 0 silently. Phase gate: Phase < 2 skips enforcement.
+check_commit_message() {
+  local msg="$1"
+
+  ensure_state_file
+
+  # Empty message: nothing to check.
+  if [ -z "$msg" ]; then
+    exit 0
+  fi
+
+  # Take only the first line (subject).
+  local subject
+  subject=$(printf '%s\n' "$msg" | head -n 1)
+
+  # Read current phase.
+  local current_phase=0
+  if [ -f "$PHASE_STATE" ]; then
+    current_phase=$(jq -r '.current_phase // 0' "$PHASE_STATE" 2>/dev/null || echo "0")
+  fi
+
+  # Phase gate: enforcement starts at Phase 2.
+  if [ "$current_phase" -lt 2 ]; then
+    exit 0
+  fi
+
+  # Feat-prefix regex, anchored, case-sensitive per Conventional Commits.
+  # Matches: feat:, feat(x):, feat!:, feat(x)!: — each followed by whitespace.
+  if ! [[ "$subject" =~ ^feat(\([^\)]*\))?!?:[[:space:]] ]]; then
+    exit 0
+  fi
+
+  # Feat-prefixed: require Build Loop state sufficient for a commit.
+  require_build_loop_state_for_commit || exit 1
+
+  exit 0
+}
+
 # --- Dispatch ---
 case "$ACTION" in
   start-feature)      start_feature "$ARG_VALUE" ;;
@@ -1019,6 +1064,7 @@ case "$ACTION" in
   verify-init)        verify_init ;;
   status)             show_status ;;
   check-commit-ready) check_commit_ready ;;
+  check-commit-message) check_commit_message "$COMMIT_MSG" ;;
   reset)              reset_process "$ARG_VALUE" ;;
   reset-all)          reset_all ;;
 esac
