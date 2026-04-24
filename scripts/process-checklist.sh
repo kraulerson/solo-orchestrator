@@ -122,6 +122,49 @@ step_is_completed() {
   jq -e --arg step "$step" ".${process}.steps_completed | index(\$step) != null" "$PROCESS_STATE" >/dev/null 2>&1
 }
 
+# --- Helper: require Build Loop state sufficient for a commit ---
+# Used by both the file-heuristic path (--check-commit-ready) and the
+# commit-message-triggered path (--check-commit-message). Prints the spec's
+# Case A / Case B remediation to stderr on failure. Returns 0 if state OK,
+# 1 otherwise. Reads $PROCESS_STATE and the BUILD_LOOP_STEPS array.
+require_build_loop_state_for_commit() {
+  local feature
+  feature=$(jq -r '.build_loop.feature // "null"' "$PROCESS_STATE")
+  if [ "$feature" = "null" ]; then
+    print_fail "pre-commit gate: 'feat(...)' commit blocked — no Build Loop active."
+    echo "MVP Cutline work and all features require a Build Loop per" >&2
+    echo "docs/builders-guide.md \"MVP Cutline Work Requires the Build Loop\"." >&2
+    echo "" >&2
+    echo "To proceed:" >&2
+    echo "  1. scripts/process-checklist.sh --start-feature \"NAME\"" >&2
+    echo "  2. Write failing tests, implement, verify, update docs" >&2
+    echo "  3. Complete each step: scripts/process-checklist.sh --complete-step build_loop:STEP" >&2
+    echo "  4. Re-run your commit" >&2
+    echo "" >&2
+    echo "If this commit is NOT a feature (tooling, CI, scaffolding, docs)," >&2
+    echo "change the conventional-commit type: feat: -> chore:/build:/ci:/docs:." >&2
+    return 1
+  fi
+
+  # Check first 5 build_loop steps: tests_written, tests_verified_failing,
+  # implemented, security_audit, documentation_updated (feature_recorded is
+  # step 6 and not required at commit time).
+  local required_build_steps=("${BUILD_LOOP_STEPS[@]:0:5}")
+  for step in "${required_build_steps[@]}"; do
+    if ! step_is_completed "build_loop" "$step"; then
+      print_fail "pre-commit gate: 'feat($feature)' commit blocked — Build Loop incomplete."
+      echo "Missing step: $step" >&2
+      echo "" >&2
+      echo "Run: scripts/process-checklist.sh --complete-step build_loop:$step" >&2
+      echo "Then: scripts/process-checklist.sh --status  (to verify)" >&2
+      echo "Then re-run your commit." >&2
+      return 1
+    fi
+  done
+
+  return 0
+}
+
 # --- Actions ---
 
 start_phase1() {
@@ -807,24 +850,7 @@ check_commit_ready() {
 
   # Phase 2 source commit checks
   if [ "$current_phase" -eq 2 ]; then
-    # Must have a feature started
-    local feature
-    feature=$(jq -r '.build_loop.feature // "null"' "$PROCESS_STATE")
-    if [ "$feature" = "null" ]; then
-      print_fail "No feature started."
-      echo "Run: scripts/process-checklist.sh --start-feature 'name'" >&2
-      exit 1
-    fi
-
-    # Check build_loop steps through documentation_updated (first 5)
-    local required_build_steps=("${BUILD_LOOP_STEPS[@]:0:5}")
-    for step in "${required_build_steps[@]}"; do
-      if ! step_is_completed "build_loop" "$step"; then
-        print_fail "Build loop step '$step' not completed for feature '$feature'."
-        echo "Run: scripts/process-checklist.sh --complete-step build_loop:$step" >&2
-        exit 1
-      fi
-    done
+    require_build_loop_state_for_commit || exit 1
 
     # If UAT session is in progress, all 9 steps must be complete
     local uat_started
