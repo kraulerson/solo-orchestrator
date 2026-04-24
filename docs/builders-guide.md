@@ -982,6 +982,8 @@ During the Phase 2 initialization steps above, some scaffolding work produces co
 
 **If you've already shipped Cutline work without the Build Loop:** retroactively run the Build Loop steps for that feature — write the tests you didn't write, run the security audit you skipped, update `FEATURES.md`, record the feature. It's awkward but recoverable. Don't leave the drift uncorrected; future phase gates will surface the gap at Phase 2→3.
 
+**Mechanical enforcement.** This rule is enforced by the pre-commit gate: any `git commit` with a message subject starting with `feat`, `feat(scope)`, `feat!`, or `feat(scope)!` is blocked unless a Build Loop is active and its first five steps (`tests_written`, `tests_verified_failing`, `implemented`, `security_audit`, `documentation_updated`) are complete. Non-feature scaffolding — tooling, CI, build configs — should use the correct Conventional Commits type (`chore:`, `build:`, `ci:`, `docs:`), which the gate does not enforce against. See `docs/superpowers/specs/2026-04-23-build-loop-precommit-enforcement-design.md` for the full design.
+
 ---
 
 ### The Build Loop

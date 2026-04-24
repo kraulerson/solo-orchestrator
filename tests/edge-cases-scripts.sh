@@ -972,6 +972,122 @@ rm -rf "$_uat_work"
 
 
 # ================================================================
+section "BL-006: pre-commit Build Loop enforcement (commit-message-triggered) — E33-E39"
+
+# Helper: seed a project dir with given phase and build_loop state
+bl006_seed() {
+  local dir="$1" phase="$2" feature="$3"
+  mkdir -p "$dir/.claude" "$dir/.git"
+  cat > "$dir/.claude/phase-state.json" <<JSON
+{"current_phase": $phase, "project": "e33-e39"}
+JSON
+  local feature_json="null"
+  [ "$feature" != "null" ] && feature_json="\"$feature\""
+  cat > "$dir/.claude/process-state.json" <<JSON
+{
+  "phase2_init": {"verified": true},
+  "build_loop": {"feature": $feature_json, "step": 0, "steps_completed": [], "started_at": null},
+  "uat_session": {"started_at": null, "steps_completed": []}
+}
+JSON
+  # Satisfy the hook's early-guard: remote must exist.
+  ( cd "$dir" && git init -q && git remote add origin https://example.com/fake.git 2>/dev/null || true )
+}
+
+# Helper: invoke the PreToolUse hook with a JSON command from stdin.
+# Returns "EXIT|OUTPUT" where OUTPUT may contain a deny/allow JSON.
+bl006_invoke_hook() {
+  local cmd="$1" project_dir="$2"
+  local input
+  input=$(jq -n --arg c "$cmd" '{command: $c}')
+  local out rc=0
+  out=$( cd "$project_dir" && echo "$input" | bash "$REPO_DIR/scripts/pre-commit-gate.sh" 2>&1 ) || rc=$?
+  echo "$rc|$out"
+}
+
+# E33: inline feat -m, no feature started -> deny
+_bl006_e33_dir="$TEST_DIR/bl006-e33"
+bl006_seed "$_bl006_e33_dir" 2 null
+_bl006_e33_r=$(bl006_invoke_hook 'git commit -m "feat(x): thing"' "$_bl006_e33_dir")
+if [[ "${_bl006_e33_r#*|}" =~ permissionDecision.*deny ]] && [[ "${_bl006_e33_r#*|}" == *"start-feature"* ]]; then
+  pass "E33: inline feat -m blocks with --start-feature guidance"
+else
+  fail "E33: expected deny JSON with --start-feature, got: $_bl006_e33_r"
+fi
+
+# E34: heredoc feat, no feature started -> deny
+_bl006_e34_dir="$TEST_DIR/bl006-e34"
+bl006_seed "$_bl006_e34_dir" 2 null
+_bl006_e34_cmd=$(cat <<'CMDEOF'
+git commit -m "$(cat <<'EOF'
+feat(x): thing from heredoc
+
+body line.
+EOF
+)"
+CMDEOF
+)
+_bl006_e34_r=$(bl006_invoke_hook "$_bl006_e34_cmd" "$_bl006_e34_dir")
+if [[ "${_bl006_e34_r#*|}" =~ permissionDecision.*deny ]]; then
+  pass "E34: heredoc -m blocks (heredoc parser works)"
+else
+  fail "E34: expected deny JSON, got: $_bl006_e34_r"
+fi
+
+# E35: -F file, no feature started -> deny
+_bl006_e35_dir="$TEST_DIR/bl006-e35"
+bl006_seed "$_bl006_e35_dir" 2 null
+echo "feat(x): from file" > "$_bl006_e35_dir/msg.txt"
+_bl006_e35_r=$(bl006_invoke_hook "git commit -F $_bl006_e35_dir/msg.txt" "$_bl006_e35_dir")
+if [[ "${_bl006_e35_r#*|}" =~ permissionDecision.*deny ]]; then
+  pass "E35: -F file blocks"
+else
+  fail "E35: expected deny JSON, got: $_bl006_e35_r"
+fi
+
+# E36: --amend with feat, no feature started -> amend path wins (allow + warn)
+_bl006_e36_dir="$TEST_DIR/bl006-e36"
+bl006_seed "$_bl006_e36_dir" 2 null
+_bl006_e36_r=$(bl006_invoke_hook 'git commit -m "feat(x): thing" --amend' "$_bl006_e36_dir")
+if [[ "${_bl006_e36_r#*|}" =~ permissionDecision.*allow ]] && [[ "${_bl006_e36_r#*|}" == *"WARNING"* ]]; then
+  pass "E36: --amend bypasses new gate (existing amend warn wins)"
+else
+  fail "E36: expected amend warn (allow), got: $_bl006_e36_r"
+fi
+
+# E37: merge in progress (MERGE_HEAD exists) -> no deny from BL-006 path
+_bl006_e37_dir="$TEST_DIR/bl006-e37"
+bl006_seed "$_bl006_e37_dir" 2 null
+touch "$_bl006_e37_dir/.git/MERGE_HEAD"
+_bl006_e37_r=$(bl006_invoke_hook 'git commit -m "feat(x): from merge"' "$_bl006_e37_dir")
+if ! [[ "${_bl006_e37_r#*|}" =~ permissionDecision.*deny ]]; then
+  pass "E37: MERGE_HEAD present — BL-006 path skips"
+else
+  fail "E37: expected no deny, got: $_bl006_e37_r"
+fi
+
+# E38: git commit with no -m (editor case) -> no deny from BL-006 path
+_bl006_e38_dir="$TEST_DIR/bl006-e38"
+bl006_seed "$_bl006_e38_dir" 2 null
+_bl006_e38_r=$(bl006_invoke_hook 'git commit' "$_bl006_e38_dir")
+if ! [[ "${_bl006_e38_r#*|}" =~ permissionDecision.*deny ]]; then
+  pass "E38: bare git commit (editor case) — BL-006 path falls through"
+else
+  fail "E38: expected no deny, got: $_bl006_e38_r"
+fi
+
+# E39: feat -m at Phase 0 -> no deny (phase gate)
+_bl006_e39_dir="$TEST_DIR/bl006-e39"
+bl006_seed "$_bl006_e39_dir" 0 null
+_bl006_e39_r=$(bl006_invoke_hook 'git commit -m "feat(x): foo"' "$_bl006_e39_dir")
+if ! [[ "${_bl006_e39_r#*|}" =~ permissionDecision.*deny ]]; then
+  pass "E39: Phase 0 — BL-006 path skipped by phase gate"
+else
+  fail "E39: expected no deny at Phase 0, got: $_bl006_e39_r"
+fi
+
+
+# ================================================================
 echo ""
 echo -e "${BOLD}═══════════════════════════════════════════════════════════${NC}"
 echo -e "${BOLD}  SUMMARY${NC}"

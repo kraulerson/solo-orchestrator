@@ -8,6 +8,12 @@ set -euo pipefail
 # Handles all upgrade paths: track upgrades, deployment upgrades,
 # POC-to-production, and personal-to-sponsored-POC transitions.
 #
+# Changelog:
+# - BL-006 (2026-04-24): pre-commit gate now blocks feat: commits without
+#   an active Build Loop. No migration code needed — the updated
+#   scripts/process-checklist.sh and scripts/pre-commit-gate.sh are copied
+#   by this script's existing behavior, so running an upgrade picks it up.
+#
 # Usage:
 #   scripts/upgrade-project.sh --track standard          # Track upgrade only
 #   scripts/upgrade-project.sh --deployment organizational  # Deployment upgrade only

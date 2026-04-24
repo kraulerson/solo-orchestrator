@@ -35,6 +35,7 @@ PHASE2_INIT_STEPS=(remote_repo_created branch_protection_configured project_scaf
 # --- Argument parsing ---
 ACTION=""
 ARG_VALUE=""
+COMMIT_MSG=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -47,6 +48,7 @@ while [ $# -gt 0 ]; do
     --verify-init)      ACTION="verify-init";       shift ;;
     --status)           ACTION="status";            shift ;;
     --check-commit-ready) ACTION="check-commit-ready"; shift ;;
+    --check-commit-message) ACTION="check-commit-message"; COMMIT_MSG="$2"; shift 2 ;;
     --reset)            ACTION="reset";             ARG_VALUE="$2"; shift 2 ;;
     --reset-all)        ACTION="reset-all";         shift ;;
     --help|-h)
@@ -61,6 +63,7 @@ while [ $# -gt 0 ]; do
       echo "  --verify-init               Auto-verify Phase 2 initialization steps"
       echo "  --status                    Print human-readable status of all processes"
       echo "  --check-commit-ready        Check if commit is allowed (used by PreToolUse hook)"
+      echo "  --check-commit-message MSG  Check commit-message prefix (feat:) against Build Loop state (BL-006)"
       echo "  --reset PROCESS             Reset a single process to initial state"
       echo "  --reset-all                 Reset all processes to initial state"
       echo "  --help                      Show this help"
@@ -120,6 +123,49 @@ step_is_completed() {
   local process="$1"
   local step="$2"
   jq -e --arg step "$step" ".${process}.steps_completed | index(\$step) != null" "$PROCESS_STATE" >/dev/null 2>&1
+}
+
+# --- Helper: require Build Loop state sufficient for a commit ---
+# Used by both the file-heuristic path (--check-commit-ready) and the
+# commit-message-triggered path (--check-commit-message). Prints the spec's
+# Case A / Case B remediation to stderr on failure. Returns 0 if state OK,
+# 1 otherwise. Reads $PROCESS_STATE and the BUILD_LOOP_STEPS array.
+require_build_loop_state_for_commit() {
+  local feature
+  feature=$(jq -r '.build_loop.feature // "null"' "$PROCESS_STATE")
+  if [ "$feature" = "null" ]; then
+    print_fail "pre-commit gate: 'feat(...)' commit blocked — no Build Loop active."
+    echo "MVP Cutline work and all features require a Build Loop per" >&2
+    echo "docs/builders-guide.md \"MVP Cutline Work Requires the Build Loop\"." >&2
+    echo "" >&2
+    echo "To proceed:" >&2
+    echo "  1. scripts/process-checklist.sh --start-feature \"NAME\"" >&2
+    echo "  2. Write failing tests, implement, verify, update docs" >&2
+    echo "  3. Complete each step: scripts/process-checklist.sh --complete-step build_loop:STEP" >&2
+    echo "  4. Re-run your commit" >&2
+    echo "" >&2
+    echo "If this commit is NOT a feature (tooling, CI, scaffolding, docs)," >&2
+    echo "change the conventional-commit type: feat: -> chore:/build:/ci:/docs:." >&2
+    return 1
+  fi
+
+  # Check first 5 build_loop steps: tests_written, tests_verified_failing,
+  # implemented, security_audit, documentation_updated (feature_recorded is
+  # step 6 and not required at commit time).
+  local required_build_steps=("${BUILD_LOOP_STEPS[@]:0:5}")
+  for step in "${required_build_steps[@]}"; do
+    if ! step_is_completed "build_loop" "$step"; then
+      print_fail "pre-commit gate: 'feat($feature)' commit blocked — Build Loop incomplete."
+      echo "Missing step: $step" >&2
+      echo "" >&2
+      echo "Run: scripts/process-checklist.sh --complete-step build_loop:$step" >&2
+      echo "Then: scripts/process-checklist.sh --status  (to verify)" >&2
+      echo "Then re-run your commit." >&2
+      return 1
+    fi
+  done
+
+  return 0
 }
 
 # --- Actions ---
@@ -807,24 +853,7 @@ check_commit_ready() {
 
   # Phase 2 source commit checks
   if [ "$current_phase" -eq 2 ]; then
-    # Must have a feature started
-    local feature
-    feature=$(jq -r '.build_loop.feature // "null"' "$PROCESS_STATE")
-    if [ "$feature" = "null" ]; then
-      print_fail "No feature started."
-      echo "Run: scripts/process-checklist.sh --start-feature 'name'" >&2
-      exit 1
-    fi
-
-    # Check build_loop steps through documentation_updated (first 5)
-    local required_build_steps=("${BUILD_LOOP_STEPS[@]:0:5}")
-    for step in "${required_build_steps[@]}"; do
-      if ! step_is_completed "build_loop" "$step"; then
-        print_fail "Build loop step '$step' not completed for feature '$feature'."
-        echo "Run: scripts/process-checklist.sh --complete-step build_loop:$step" >&2
-        exit 1
-      fi
-    done
+    require_build_loop_state_for_commit || exit 1
 
     # If UAT session is in progress, all 9 steps must be complete
     local uat_started
@@ -982,6 +1011,48 @@ EOF
   print_ok "All processes reset to initial state"
 }
 
+# --- BL-006: commit-message-triggered Build Loop enforcement ---
+# Inspects the subject line of a commit message. If it starts with a
+# Conventional Commits feature prefix (feat, feat(x), feat!, feat(x)!),
+# require the Build Loop state to be sufficient for a commit. Otherwise,
+# exit 0 silently. Phase gate: Phase < 2 skips enforcement.
+check_commit_message() {
+  local msg="$1"
+
+  ensure_state_file
+
+  # Empty message: nothing to check.
+  if [ -z "$msg" ]; then
+    exit 0
+  fi
+
+  # Take only the first line (subject).
+  local subject
+  subject=$(printf '%s\n' "$msg" | head -n 1)
+
+  # Read current phase.
+  local current_phase=0
+  if [ -f "$PHASE_STATE" ]; then
+    current_phase=$(jq -r '.current_phase // 0' "$PHASE_STATE" 2>/dev/null || echo "0")
+  fi
+
+  # Phase gate: enforcement starts at Phase 2.
+  if [ "$current_phase" -lt 2 ]; then
+    exit 0
+  fi
+
+  # Feat-prefix regex, anchored, case-sensitive per Conventional Commits.
+  # Matches: feat:, feat(x):, feat!:, feat(x)!: — each followed by whitespace.
+  if ! [[ "$subject" =~ ^feat(\([^\)]*\))?!?:[[:space:]] ]]; then
+    exit 0
+  fi
+
+  # Feat-prefixed: require Build Loop state sufficient for a commit.
+  require_build_loop_state_for_commit || exit 1
+
+  exit 0
+}
+
 # --- Dispatch ---
 case "$ACTION" in
   start-feature)      start_feature "$ARG_VALUE" ;;
@@ -993,6 +1064,7 @@ case "$ACTION" in
   verify-init)        verify_init ;;
   status)             show_status ;;
   check-commit-ready) check_commit_ready ;;
+  check-commit-message) check_commit_message "$COMMIT_MSG" ;;
   reset)              reset_process "$ARG_VALUE" ;;
   reset-all)          reset_all ;;
 esac
