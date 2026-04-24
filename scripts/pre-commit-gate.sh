@@ -79,6 +79,83 @@ HOOKEOF
   exit 0
 fi
 
+# --- BL-006: commit-message-triggered Build Loop enforcement ---
+# Scope: only fires on `git commit` authoring events (not merges, reverts,
+# cherry-picks, squash-merges, or editor-case commits). Extracts the message
+# from -m "..." / heredoc / -F file and delegates the policy decision to
+# process-checklist.sh --check-commit-message.
+
+bl006_check() {
+  # Only apply to `git commit` subcommands.
+  echo "$COMMAND" | grep -qE '\bgit\b.*\bcommit\b' || return 0
+
+  # Derivative-commit filters: pass through.
+  # --amend is already handled above (warns, exits). Belt-and-braces.
+  echo "$COMMAND" | grep -qE '\-\-amend\b' && return 0
+  # Merge in progress.
+  [ -f .git/MERGE_HEAD ] && return 0
+  # Other derivative commands that might embed feat: in their message.
+  echo "$COMMAND" | grep -qE '\bgit\b.*\b(merge|revert|cherry-pick)\b' && return 0
+  echo "$COMMAND" | grep -qE '\bgh\b.*\bpr\b.*\bmerge\b.*\-\-squash' && return 0
+
+  # Extract the message subject.
+  local msg=""
+
+  # 1. Heredoc: look for -m "$(cat <<EOF or -m "$(cat <<'EOF'
+  if echo "$COMMAND" | grep -qE "<<'?EOF'?"; then
+    # awk: after the <<EOF or <<'EOF' marker, the first non-empty content line
+    # before a standalone EOF is the subject.
+    msg=$(printf '%s\n' "$COMMAND" | awk '
+      /<<'"'"'?EOF'"'"'?/ { flag=1; next }
+      /^EOF$/ { flag=0 }
+      flag && !printed && NF>0 { print; printed=1; exit }
+    ')
+  fi
+
+  # 2. Inline -m "..." (double or single quotes). Only if heredoc didn't match.
+  if [ -z "$msg" ]; then
+    # Try double-quoted first, then single-quoted. Capture up to the closing
+    # quote. This is best-effort; exotic escaping falls through.
+    msg=$(printf '%s' "$COMMAND" | sed -nE 's/.*-m "([^"]*)".*/\1/p' | head -n 1)
+    if [ -z "$msg" ]; then
+      msg=$(printf '%s' "$COMMAND" | sed -nE "s/.*-m '([^']*)'.*/\\1/p" | head -n 1)
+    fi
+    # Split on real newlines; take first line.
+    msg=$(printf '%s\n' "$msg" | head -n 1)
+  fi
+
+  # 3. -F <file>. Only if no -m at all was seen.
+  if [ -z "$msg" ] && echo "$COMMAND" | grep -qE '\-F[[:space:]]+[^ ]+'; then
+    local f
+    f=$(echo "$COMMAND" | sed -nE 's/.*-F[[:space:]]+([^ ]+).*/\1/p' | head -n 1)
+    if [ -n "$f" ] && [ -r "$f" ]; then
+      msg=$(head -n 1 "$f")
+    fi
+  fi
+
+  # Empty: fall through (editor case or parse miss).
+  [ -z "$msg" ] && return 0
+
+  # Delegate to the subcommand. Capture both streams (print_fail uses stdout;
+  # echo-to-stderr is used for remediation lines).
+  local policy_err policy_exit=0
+  policy_err=$("$SCRIPT_DIR/process-checklist.sh" --check-commit-message "$msg" 2>&1) || policy_exit=$?
+
+  if [ "$policy_exit" -ne 0 ]; then
+    local reason
+    reason=$(echo "$policy_err" | tr '\n' ' ' | sed 's/"/\\"/g')
+    cat << HOOKEOF
+{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "$reason"}}
+HOOKEOF
+    exit 0
+  fi
+
+  return 0
+}
+
+bl006_check
+# --- end BL-006 block ---
+
 # Block git push --force (overwrites branch history)
 if echo "$COMMAND" | grep -qE '\bgit\b.*\bpush\b.*(-f|--force)'; then
   cat << HOOKEOF
