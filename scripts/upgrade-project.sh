@@ -152,6 +152,34 @@ if ! command -v python3 &>/dev/null; then
   exit 1
 fi
 
+# --- BL-015 pending-approval sentinel respect (UAT 2026-04-25 fix C5) ---
+# If the agent has offered structured options to the user via
+# scripts/pending-approval.sh, refuse to advance an irreversible upgrade.
+# Surfaced by 5/5 upgrade UAT agents (49, 62, 79, 82, 84): upgrade-project.sh
+# was happily writing files and committing while a sentinel existed.
+PENDING_APPROVAL_FILE="$PROJECT_ROOT/.claude/pending-approval.json"
+if [ -f "$PENDING_APPROVAL_FILE" ]; then
+  print_fail "upgrade blocked — pending user decision."
+  if jq -e . "$PENDING_APPROVAL_FILE" >/dev/null 2>&1; then
+    pa_question=$(jq -r '.question // "(missing)"' "$PENDING_APPROVAL_FILE")
+    pa_offered=$(jq -r '.offered_at // "(unknown)"' "$PENDING_APPROVAL_FILE")
+    echo "" >&2
+    echo "  Pending question: \"$pa_question\" (offered $pa_offered)" >&2
+    echo "  Options:" >&2
+    jq -r '.options[]? // empty | "    " + .' "$PENDING_APPROVAL_FILE" >&2
+  else
+    echo "" >&2
+    echo "  Sentinel file $PENDING_APPROVAL_FILE exists but is malformed." >&2
+    echo "  Treated as in-flight per CDF 4.2.3 contract." >&2
+  fi
+  echo "" >&2
+  echo "  Wait for the user to pick, then:" >&2
+  echo "    scripts/pending-approval.sh --resolve" >&2
+  echo "  Or, if the question is being aborted:" >&2
+  echo "    scripts/pending-approval.sh --clear" >&2
+  exit 1
+fi
+
 # --- File paths ---
 PHASE_STATE="$PROJECT_ROOT/.claude/phase-state.json"
 TOOL_PREFS="$PROJECT_ROOT/.claude/tool-preferences.json"
