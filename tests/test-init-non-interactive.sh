@@ -143,6 +143,81 @@ n22_allow_existing_dir() {
   pass "N22: existing dir + --allow-existing-dir → exit 0"
 }
 
+n14_config_provides_everything() {
+  local cfg
+  cfg=$(mktemp)
+  cat > "$cfg" <<'JSON'
+{"project":"p","platform":"web","deployment":"personal","language":"typescript"}
+JSON
+  local out; out=$(run_validate --config "$cfg")
+  rm -f "$cfg"
+  [ "${out%%|*}" = "0" ] || { fail_ "N14" "expected exit 0, got: $out"; return; }
+  pass "N14: --config provides everything → exit 0"
+}
+
+n15_flag_overrides_config() {
+  local cfg
+  cfg=$(mktemp)
+  cat > "$cfg" <<'JSON'
+{"project":"p","platform":"web","deployment":"personal","language":"typescript","track":"light"}
+JSON
+  local out; out=$(run_validate --config "$cfg" --track full)
+  rm -f "$cfg"
+  [ "${out%%|*}" = "0" ] || { fail_ "N15" "expected exit 0, got: $out"; return; }
+  pass "N15: flag overrides --config value → exit 0"
+}
+
+n16_config_not_found() {
+  local out; out=$(run_validate --config /nonexistent/path/init.json --project p --platform web --deployment personal --language ts)
+  [ "${out%%|*}" = "1" ] || { fail_ "N16" "expected exit 1, got: $out"; return; }
+  [[ "${out##*|}" == *"not found"* ]] || { fail_ "N16" "stderr should mention 'not found': ${out##*|}"; return; }
+  pass "N16: --config file not found → exit 1"
+}
+
+n17_config_malformed_json() {
+  local cfg
+  cfg=$(mktemp)
+  echo '{"project": "p"' > "$cfg"
+  local out; out=$(run_validate --config "$cfg" --project p --platform web --deployment personal --language ts)
+  rm -f "$cfg"
+  [ "${out%%|*}" = "1" ] || { fail_ "N17" "expected exit 1, got: $out"; return; }
+  [[ "${out##*|}" == *"not valid JSON"* ]] || { fail_ "N17" "stderr should mention 'not valid JSON': ${out##*|}"; return; }
+  pass "N17: --config malformed JSON → exit 1"
+}
+
+n18_config_unknown_field() {
+  local cfg
+  cfg=$(mktemp)
+  cat > "$cfg" <<'JSON'
+{"project":"p","platform":"web","deployment":"personal","language":"typescript","frobnicate":"bar"}
+JSON
+  local out; out=$(run_validate --config "$cfg")
+  rm -f "$cfg"
+  [ "${out%%|*}" = "0" ] || { fail_ "N18" "expected exit 0 (warn-not-fail), got: $out"; return; }
+  # print_warn writes to stdout; check the full combined output.
+  [[ "$out" == *"frobnicate"* ]] || { fail_ "N18" "expected 'frobnicate' warning anywhere in output: $out"; return; }
+  pass "N18: --config unknown field → warn + ignore + continue"
+}
+
+n19_config_without_non_interactive() {
+  local cfg cwd_for_run
+  cfg=$(mktemp)
+  cwd_for_run=$(mktemp -d)
+  cat > "$cfg" <<'JSON'
+{"project":"p","platform":"web","deployment":"personal","language":"typescript"}
+JSON
+  # Without --non-interactive, --config should warn and fall through. With stdin
+  # closed, the prompt_choice EOF guard from PR #18 will return 1 and init.sh
+  # exits — no need for an external timeout. Run from a tempdir so framework
+  # guard doesn't fire.
+  local out rc=0
+  out=$(cd "$cwd_for_run" && "$INIT_SH" --dry-run --config "$cfg" </dev/null 2>&1) || rc=$?
+  rm -f "$cfg"; rm -rf "$cwd_for_run"
+  [[ "$out" == *"requires --non-interactive"* ]] \
+    || { fail_ "N19" "expected 'requires --non-interactive' warning, got: $out"; return; }
+  pass "N19: --config without --non-interactive → warn + fall through"
+}
+
 n23_dir_exists_no_allow_flag() {
   local existing cwd_for_run
   existing=$(mktemp -d)
@@ -172,6 +247,12 @@ n10_org_with_public_visibility
 n11_invalid_platform
 n12_invalid_project_name
 n13_invalid_language_for_platform
+n14_config_provides_everything
+n15_flag_overrides_config
+n16_config_not_found
+n17_config_malformed_json
+n18_config_unknown_field
+n19_config_without_non_interactive
 n22_allow_existing_dir
 n23_dir_exists_no_allow_flag
 

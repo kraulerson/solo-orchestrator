@@ -2673,6 +2673,71 @@ collect_inputs_non_interactive() {
     return 1
   }
 
+  # ----- Config file load (BEFORE Pass 1 so flags can override) -----
+  if [ -n "$CONFIG_FILE" ]; then
+    if [ ! -f "$CONFIG_FILE" ]; then
+      fail "config file not found: $CONFIG_FILE" \
+           "the path supplied to --config does not exist or is not readable." \
+           "fix the path and re-run." \
+           "--config='$CONFIG_FILE'"
+      return 1
+    fi
+    if ! jq -e . "$CONFIG_FILE" >/dev/null 2>&1; then
+      local jq_err
+      jq_err=$(jq . "$CONFIG_FILE" 2>&1 >/dev/null || true)
+      fail "config file is not valid JSON: $CONFIG_FILE" \
+           "jq parse error: $jq_err" \
+           "fix the JSON syntax and re-run. Use 'jq . FILE' to lint." \
+           "--config='$CONFIG_FILE'"
+      return 1
+    fi
+    if [ "$(jq -r 'type' "$CONFIG_FILE")" != "object" ]; then
+      fail "config file must be a JSON object" \
+           "found: $(jq -r 'type' "$CONFIG_FILE")" \
+           "wrap the contents in {} and re-run." \
+           "--config='$CONFIG_FILE'"
+      return 1
+    fi
+
+    # Warn on unknown fields (forward-compat per spec § 5.4).
+    local known_fields="project description platform track deployment gov_mode language project_dir git_host visibility remote_url branch_protection_attested allow_existing_dir"
+    local field
+    for field in $(jq -r 'keys[]' "$CONFIG_FILE"); do
+      if ! echo " $known_fields " | grep -q " $field "; then
+        print_warn "unknown config field: $field (ignored)"
+      fi
+    done
+
+    # Merge: each ARG_* defaults to the config value if not already set via flag.
+    # Flag wins on conflict per spec § 5.5.
+    local cfg_get
+    cfg_get() {
+      local key="$1"
+      jq -r --arg k "$key" '.[$k] // empty' "$CONFIG_FILE" 2>/dev/null
+    }
+    [ -z "$ARG_PROJECT" ]                  && ARG_PROJECT=$(cfg_get project)
+    [ -z "$ARG_DESCRIPTION" ]              && ARG_DESCRIPTION=$(cfg_get description)
+    [ -z "$ARG_PLATFORM" ]                 && ARG_PLATFORM=$(cfg_get platform)
+    [ -z "$ARG_TRACK" ]                    && ARG_TRACK=$(cfg_get track)
+    [ -z "$ARG_DEPLOYMENT" ]               && ARG_DEPLOYMENT=$(cfg_get deployment)
+    [ -z "$ARG_GOV_MODE" ]                 && ARG_GOV_MODE=$(cfg_get gov_mode)
+    [ -z "$ARG_LANGUAGE" ]                 && ARG_LANGUAGE=$(cfg_get language)
+    [ -z "$ARG_PROJECT_DIR" ]              && ARG_PROJECT_DIR=$(cfg_get project_dir)
+    [ -z "$ARG_GIT_HOST" ]                 && ARG_GIT_HOST=$(cfg_get git_host)
+    [ -z "$ARG_VISIBILITY" ]               && ARG_VISIBILITY=$(cfg_get visibility)
+    [ -z "$ARG_REMOTE_URL" ]               && ARG_REMOTE_URL=$(cfg_get remote_url)
+    if [ "$ARG_BRANCH_PROTECTION_ATTESTED" != true ]; then
+      local cfg_attest
+      cfg_attest=$(cfg_get branch_protection_attested)
+      [ "$cfg_attest" = "true" ] && ARG_BRANCH_PROTECTION_ATTESTED=true
+    fi
+    if [ "$ARG_ALLOW_EXISTING_DIR" != true ]; then
+      local cfg_allow
+      cfg_allow=$(cfg_get allow_existing_dir)
+      [ "$cfg_allow" = "true" ] && ARG_ALLOW_EXISTING_DIR=true
+    fi
+  fi
+
   # ----- Pass 1: schema validation (per-input typing) -----
 
   # project
