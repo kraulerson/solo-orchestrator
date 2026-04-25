@@ -2,7 +2,7 @@
 
 **Framework:** Solo Orchestrator Framework
 **Framework path:** `/Users/karl/Documents/Claude Projects/solo-orchestrator`
-**Framework HEAD when sweep started:** `687daa7` (run `git -C "$FRAMEWORK" rev-parse HEAD` to confirm)
+**Framework HEAD when sweep started:** Run `git -C "$FRAMEWORK" rev-parse HEAD` and record in your report's `framework_head` field — do not hardcode any SHA from this runbook.
 **Sweep:** 84 agents covering 4 scenarios × 4 platforms × 3 tracks (48 base end-to-end) + 3 upgrade transitions × 4 platforms × 3 tracks (36 upgrade)
 
 ---
@@ -90,14 +90,10 @@ Run the sections that apply to your `kind`:
 
 ```bash
 cd "$WORKDIR"
-bash "$FRAMEWORK/scripts/init.sh" \
-  --non-interactive \
-  --project "uat-agent-{AGENT_ID}" \
-  --platform "{PLATFORM}" \
-  --track "{TRACK}" \
-  --scenario "{SCENARIO}" \
-  --upgrade-from "{UPGRADE_FROM_OR_NONE}"
+bash "$FRAMEWORK/init.sh"   # NOTE: at repo root, NOT in scripts/
 ```
+
+The hypothetical flags above (`--non-interactive`, `--project`, etc.) **do not exist** today — they're documented in this runbook to clarify what an ideal scriptable init.sh would look like. Drive the existing interactive init.sh via heredoc per the "Init driver" subsection below.
 
 **Init driver — important:** `init.sh` is fully interactive (verified: only `--dry-run` and `--help` flags exist). It uses `prompt_input` and `prompt_choice` (in `scripts/lib/helpers.sh`) which read via `read -rp` from stdin. The sequence of prompts depends on the chosen platform, track, and deployment.
 
@@ -250,7 +246,7 @@ esac
 | name | assertion |
 |---|---|
 | no_uncommitted_secrets | grep workdir for `password|api[_-]?key|secret|token` in committed files; expect 0 hits |
-| log_files_consistent | `.claude/process-audit.log` exists and reflects actions taken |
+| log_files_consistent | `.claude/process-audit.log` exists ONLY if FORCE/reset events occurred (it's append-only on bypass events). Mark this assertion N/A if no such events occurred during your test run. |
 | no_orphaned_tempfiles | `find $WORKDIR/.claude -name '*.tmp'` returns nothing |
 
 ---
