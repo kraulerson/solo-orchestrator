@@ -2660,9 +2660,134 @@ NIHELPEOF
 }
 
 collect_inputs_non_interactive() {
-  # STUB — implemented in Tasks 2–7
-  echo "[FAIL] init.sh non-interactive: not yet implemented" >&2
-  return 1
+  # ----- Helpers (local to this function) -----
+  local fail
+  fail() {
+    local summary="$1" reason="$2" action="$3" context="${4:-}"
+    echo "[FAIL] init.sh non-interactive: $summary" >&2
+    echo "  Reason: $reason" >&2
+    echo "  Action: $action" >&2
+    if [ -n "$context" ]; then
+      echo "  Context: $context" >&2
+    fi
+    return 1
+  }
+
+  # ----- Pass 1: schema validation (per-input typing) -----
+
+  # project
+  if [ -n "$ARG_PROJECT" ] && ! [[ "$ARG_PROJECT" =~ ^[a-z][a-z0-9-]*$ ]]; then
+    fail "invalid --project name '$ARG_PROJECT'" \
+         "project name must start with a lowercase letter and contain only lowercase letters, digits, and hyphens." \
+         "fix the name and re-run." \
+         "--project='$ARG_PROJECT'"
+    return 1
+  fi
+
+  # platform
+  if [ -n "$ARG_PLATFORM" ]; then
+    case "$ARG_PLATFORM" in
+      desktop|mobile|web|mcp_server) ;;
+      *)
+        fail "invalid --platform '$ARG_PLATFORM'" \
+             "platform must be one of: desktop, mobile, web, mcp_server." \
+             "re-run with a supported --platform value." \
+             "--platform='$ARG_PLATFORM'"
+        return 1 ;;
+    esac
+  fi
+
+  # track
+  if [ -n "$ARG_TRACK" ]; then
+    case "$ARG_TRACK" in
+      light|standard|full) ;;
+      *)
+        fail "invalid --track '$ARG_TRACK'" \
+             "track must be one of: light, standard, full." \
+             "re-run with a supported --track value." \
+             "--track='$ARG_TRACK'"
+        return 1 ;;
+    esac
+  fi
+
+  # deployment
+  if [ -n "$ARG_DEPLOYMENT" ]; then
+    case "$ARG_DEPLOYMENT" in
+      personal|organizational) ;;
+      *)
+        fail "invalid --deployment '$ARG_DEPLOYMENT'" \
+             "deployment must be one of: personal, organizational." \
+             "re-run with a supported --deployment value." \
+             "--deployment='$ARG_DEPLOYMENT'"
+        return 1 ;;
+    esac
+  fi
+
+  # gov_mode (presence-only check; required-or-not is Pass 2)
+  if [ -n "$ARG_GOV_MODE" ]; then
+    case "$ARG_GOV_MODE" in
+      production|sponsored_poc|private_poc) ;;
+      *)
+        fail "invalid --gov-mode '$ARG_GOV_MODE'" \
+             "gov-mode must be one of: production, sponsored_poc, private_poc." \
+             "re-run with a supported --gov-mode value." \
+             "--gov-mode='$ARG_GOV_MODE'"
+        return 1 ;;
+    esac
+  fi
+
+  # git_host (presence-only check)
+  if [ -n "$ARG_GIT_HOST" ]; then
+    case "$ARG_GIT_HOST" in
+      github|gitlab|bitbucket|other) ;;
+      *)
+        fail "invalid --git-host '$ARG_GIT_HOST'" \
+             "git-host must be one of: github, gitlab, bitbucket, other." \
+             "re-run with a supported --git-host value." \
+             "--git-host='$ARG_GIT_HOST'"
+        return 1 ;;
+    esac
+  fi
+
+  # visibility (presence-only check)
+  if [ -n "$ARG_VISIBILITY" ]; then
+    case "$ARG_VISIBILITY" in
+      private|public) ;;
+      *)
+        fail "invalid --visibility '$ARG_VISIBILITY'" \
+             "visibility must be one of: private, public." \
+             "re-run with a supported --visibility value." \
+             "--visibility='$ARG_VISIBILITY'"
+        return 1 ;;
+    esac
+  fi
+
+  # remote_url (presence-only check; required-or-not is Pass 2)
+  if [ -n "$ARG_REMOTE_URL" ]; then
+    if ! [[ "$ARG_REMOTE_URL" =~ ^(https://|git@) ]]; then
+      fail "invalid --remote-url '$ARG_REMOTE_URL'" \
+           "remote-url must start with 'https://' or 'git@'." \
+           "re-run with a valid HTTPS or SSH URL." \
+           "--remote-url='$ARG_REMOTE_URL'"
+      return 1
+    fi
+  fi
+
+  # ----- Pass 2 + Pass 3 + defaults + JSON output go in subsequent tasks -----
+  # For now: emit a minimal JSON if --validate-only so N1 can pass.
+  if [ "$VALIDATE_ONLY" = true ]; then
+    cat <<JSONEOF
+{
+  "_validated": true,
+  "_resolved_at": "$(date -u +%FT%TZ)",
+  "project": "$ARG_PROJECT",
+  "platform": "$ARG_PLATFORM",
+  "deployment": "$ARG_DEPLOYMENT",
+  "language": "$ARG_LANGUAGE"
+}
+JSONEOF
+  fi
+  return 0
 }
 
 # ================================================================
