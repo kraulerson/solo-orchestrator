@@ -1088,6 +1088,122 @@ fi
 
 
 # ================================================================
+section "BL-015: pending-approval sentinel reader — E40-E47"
+
+# Helper: seed a project dir with a .claude/ and (optionally) a sentinel.
+pa_seed() {
+  local dir="$1" sentinel_json="$2"
+  mkdir -p "$dir/.claude" "$dir/.git"
+  cat > "$dir/.claude/phase-state.json" <<JSON
+{"current_phase": 2, "project": "e40-e47"}
+JSON
+  cat > "$dir/.claude/process-state.json" <<JSON
+{
+  "phase2_init": {"verified": true},
+  "build_loop": {"feature": null, "step": 0, "steps_completed": [], "started_at": null},
+  "uat_session": {"started_at": null, "steps_completed": []}
+}
+JSON
+  if [ -n "$sentinel_json" ]; then
+    printf '%s' "$sentinel_json" > "$dir/.claude/pending-approval.json"
+  fi
+  ( cd "$dir" && git init -q && git remote add origin https://example.com/fake.git 2>/dev/null || true )
+}
+
+pa_invoke_hook() {
+  local cmd="$1" project_dir="$2"
+  local input
+  input=$(jq -n --arg c "$cmd" '{command: $c}')
+  local out rc=0
+  out=$( cd "$project_dir" && echo "$input" | bash "$REPO_DIR/scripts/pre-commit-gate.sh" 2>&1 ) || rc=$?
+  echo "$rc|$out"
+}
+
+PA_VALID='{"question":"commit structure","options":["A1: single","A2: two","A3: three"],"recommendation":"A1","offered_at":"2026-04-25T12:00:00Z"}'
+PA_MALFORMED='{"question":"incomplete"'
+
+# E40: feat commit with valid sentinel -> deny with rich reason
+_pa_e40_dir="$TEST_DIR/pa-e40"
+pa_seed "$_pa_e40_dir" "$PA_VALID"
+_pa_e40_r=$(pa_invoke_hook 'git commit -m "feat(x): foo"' "$_pa_e40_dir")
+if [[ "${_pa_e40_r#*|}" =~ permissionDecision.*deny ]] && [[ "${_pa_e40_r#*|}" == *"pending user decision"* ]] && [[ "${_pa_e40_r#*|}" == *"commit structure"* ]] && [[ "${_pa_e40_r#*|}" == *"A1: single"* ]]; then
+  pass "E40: feat commit with valid sentinel — denies with rich reason (question + options)"
+else
+  fail "E40: expected rich deny reason, got: $_pa_e40_r"
+fi
+
+# E41: chore commit with valid sentinel -> deny (Q2 A: blocks ALL commits, not just feat)
+_pa_e41_dir="$TEST_DIR/pa-e41"
+pa_seed "$_pa_e41_dir" "$PA_VALID"
+_pa_e41_r=$(pa_invoke_hook 'git commit -m "chore: bump"' "$_pa_e41_dir")
+if [[ "${_pa_e41_r#*|}" =~ permissionDecision.*deny ]] && [[ "${_pa_e41_r#*|}" == *"pending user decision"* ]]; then
+  pass "E41: chore commit with valid sentinel — denies (sentinel blocks ALL commits)"
+else
+  fail "E41: expected pending-approval deny on chore: commit, got: $_pa_e41_r"
+fi
+
+# E42: commit with malformed sentinel -> deny with malformed-reason
+_pa_e42_dir="$TEST_DIR/pa-e42"
+pa_seed "$_pa_e42_dir" "$PA_MALFORMED"
+_pa_e42_r=$(pa_invoke_hook 'git commit -m "feat(x): foo"' "$_pa_e42_dir")
+if [[ "${_pa_e42_r#*|}" =~ permissionDecision.*deny ]] && [[ "${_pa_e42_r#*|}" == *"alformed"* ]] && [[ "${_pa_e42_r#*|}" == *"rm "* ]]; then
+  pass "E42: malformed sentinel — denies with malformed-reason + rm hint"
+else
+  fail "E42: expected malformed-reason deny, got: $_pa_e42_r"
+fi
+
+# E43: gh pr create with valid sentinel -> deny with "PR creation blocked"
+_pa_e43_dir="$TEST_DIR/pa-e43"
+pa_seed "$_pa_e43_dir" "$PA_VALID"
+_pa_e43_r=$(pa_invoke_hook 'gh pr create --title "x" --body "y"' "$_pa_e43_dir")
+if [[ "${_pa_e43_r#*|}" =~ permissionDecision.*deny ]] && [[ "${_pa_e43_r#*|}" == *"PR creation blocked"* ]]; then
+  pass "E43: gh pr create with valid sentinel — denies with PR-specific label"
+else
+  fail "E43: expected PR-specific deny, got: $_pa_e43_r"
+fi
+
+# E44: feat commit WITHOUT sentinel -> falls through to bl006_check (denies, but not for pending-approval)
+_pa_e44_dir="$TEST_DIR/pa-e44"
+pa_seed "$_pa_e44_dir" ""
+_pa_e44_r=$(pa_invoke_hook 'git commit -m "feat(x): foo"' "$_pa_e44_dir")
+if [[ "${_pa_e44_r#*|}" =~ permissionDecision.*deny ]] && [[ "${_pa_e44_r#*|}" != *"pending user decision"* ]]; then
+  pass "E44: no sentinel — falls through to bl006_check (denies, but not for pending-approval)"
+else
+  fail "E44: expected non-pending deny on no-sentinel commit, got: $_pa_e44_r"
+fi
+
+# E45: --no-verify commit with valid sentinel -> security message wins (NOT pending-approval)
+_pa_e45_dir="$TEST_DIR/pa-e45"
+pa_seed "$_pa_e45_dir" "$PA_VALID"
+_pa_e45_r=$(pa_invoke_hook 'git commit --no-verify -m "feat(x): foo"' "$_pa_e45_dir")
+if [[ "${_pa_e45_r#*|}" =~ permissionDecision.*deny ]] && [[ "${_pa_e45_r#*|}" == *"--no-verify"* ]] && [[ "${_pa_e45_r#*|}" != *"pending user decision"* ]]; then
+  pass "E45: --no-verify with valid sentinel — security message wins (ordering preserved)"
+else
+  fail "E45: expected --no-verify deny, NOT pending-approval, got: $_pa_e45_r"
+fi
+
+# E46: --amend commit with valid sentinel -> pending-approval wins (NOT --amend warn)
+_pa_e46_dir="$TEST_DIR/pa-e46"
+pa_seed "$_pa_e46_dir" "$PA_VALID"
+_pa_e46_r=$(pa_invoke_hook 'git commit --amend -m "feat(x): foo"' "$_pa_e46_dir")
+if [[ "${_pa_e46_r#*|}" =~ permissionDecision.*deny ]] && [[ "${_pa_e46_r#*|}" == *"pending user decision"* ]]; then
+  pass "E46: --amend with valid sentinel — pending-approval blocks (upgrades warn to deny)"
+else
+  fail "E46: expected pending-approval deny on --amend, got: $_pa_e46_r"
+fi
+
+# E47: git push --force with valid sentinel -> --force security message (pa_check doesn't fire on push)
+_pa_e47_dir="$TEST_DIR/pa-e47"
+pa_seed "$_pa_e47_dir" "$PA_VALID"
+_pa_e47_r=$(pa_invoke_hook 'git push --force' "$_pa_e47_dir")
+if [[ "${_pa_e47_r#*|}" =~ permissionDecision.*deny ]] && [[ "${_pa_e47_r#*|}" == *"Force push"* ]] && [[ "${_pa_e47_r#*|}" != *"pending user decision"* ]]; then
+  pass "E47: git push --force with valid sentinel — --force message wins (pa_check skips push)"
+else
+  fail "E47: expected --force deny, NOT pending-approval, got: $_pa_e47_r"
+fi
+
+
+# ================================================================
 echo ""
 echo -e "${BOLD}═══════════════════════════════════════════════════════════${NC}"
 echo -e "${BOLD}  SUMMARY${NC}"

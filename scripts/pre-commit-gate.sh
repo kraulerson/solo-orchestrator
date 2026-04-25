@@ -71,6 +71,78 @@ HOOKEOF
   exit 0
 fi
 
+# --- BL-015: pending-approval sentinel reader ---
+# Blocks git commit and gh pr create when .claude/pending-approval.json exists.
+# Runs after security gates (SOIF_*, no-remote, --no-verify) but before
+# workflow gates (--amend, bl006_check, --check-commit-ready) so pending
+# approval preempts workflow concerns without hiding security violations.
+# See docs/builders-guide.md "Structured Decision Points" for the contract.
+
+build_pa_rich_reason() {
+  local sentinel="$1" action_label="$2"
+  local question options recommendation offered_at
+  question=$(jq -er '.question' "$sentinel") || return 1
+  options=$(jq -er '.options | map("  " + .) | join("\n")' "$sentinel") || return 1
+  recommendation=$(jq -er '.recommendation' "$sentinel") || return 1
+  offered_at=$(jq -er '.offered_at' "$sentinel") || return 1
+  cat <<EOF
+pre-commit gate: $action_label blocked — pending user decision.
+
+Pending question: "$question"
+Options:
+$options
+Recommendation: $recommendation
+Offered at: $offered_at
+
+Wait for the user to pick one, then:
+  scripts/pending-approval.sh --resolve
+EOF
+}
+
+build_pa_malformed_reason() {
+  local sentinel="$1" action_label="$2"
+  cat <<EOF
+pre-commit gate: $action_label blocked — pending user decision.
+
+The sentinel file $sentinel exists but is malformed.
+Treated as "in flight" per the CDF 4.2.3 contract.
+
+If this is a stale file from a crashed session, remove it manually:
+  rm $sentinel
+EOF
+}
+
+pa_check() {
+  # Only applies to git commit or gh pr create. Other commands fall through.
+  local is_commit=false is_pr=false
+  echo "$COMMAND" | grep -qE '\bgit\b.*\bcommit\b' && is_commit=true
+  echo "$COMMAND" | grep -qE '\bgh\b.*\bpr\b.*\bcreate\b' && is_pr=true
+  [ "$is_commit" = false ] && [ "$is_pr" = false ] && return 0
+
+  local sentinel=".claude/pending-approval.json"
+  [ -f "$sentinel" ] || return 0
+
+  local action_label="commit"
+  [ "$is_pr" = true ] && action_label="PR creation"
+
+  local reason
+  if reason=$(build_pa_rich_reason "$sentinel" "$action_label" 2>/dev/null); then
+    :
+  else
+    reason=$(build_pa_malformed_reason "$sentinel" "$action_label")
+  fi
+
+  local escaped
+  escaped=$(echo "$reason" | tr '\n' ' ' | sed 's/"/\\"/g')
+  cat << HOOKEOF
+{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "$escaped"}}
+HOOKEOF
+  exit 0
+}
+
+pa_check
+# --- end BL-015 block ---
+
 # Warn on git commit --amend (rewrites commit history, bypasses build loop for amended content)
 if echo "$COMMAND" | grep -qE '\bgit\b.*\bcommit\b.*--amend'; then
   cat << HOOKEOF
