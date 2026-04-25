@@ -76,3 +76,37 @@ Total re-test: 12 agents (low rate-limit risk if dispatched in batches of 3).
 ## Tracking
 
 Each Tier 1 fix becomes a backlog entry (BL-016 through BL-027) and follows the standard brainstorm → spec → plan → impl → PR workflow. Where multiple bugs share a root cause and a single PR fixes them all (e.g., the upgrade-project.sh family in Batch 2), they're bundled into one design.
+
+---
+
+## Addendum (post-PR-#17): Framework-self-contamination findings
+
+Discovered during post-merge cleanup after PR #17 landed. A UAT agent at 10:53 today contaminated the framework directory itself (cwd was framework root, not their tempdir). Cleanup removed: `APPROVAL_LOG.md`, `.claude/phase-state.json`, `.claude/framework/`, `.claude/project/`, `.claude-backup/2026-04-25T105332/`, `gates/`, `hooks/`, `rules/`. None were tracked in git, so PR #17 was unaffected.
+
+The contamination revealed three additional defect classes worth fixing:
+
+| ID | Severity | Bug |
+|---|---|---|
+| **U-M** | Medium | `scripts/verify-install.sh` auto-creates stub artifacts (`APPROVAL_LOG.md`, `.claude/phase-state.json` with `project: "unknown"`) when run outside a real project. A check shouldn't *create* state when state is missing — it should report what's missing. |
+| **U-N** | High | No framework-self guard. `verify-install.sh`, `init.sh`, `process-checklist.sh`, `upgrade-project.sh` all happily operate when `cwd` is the framework repo itself. A simple sentinel check ("am I in a project, or am I in the framework?") would prevent every contamination incident. |
+| **U-O** | Medium | "DO NOT MODIFY framework" guidance to agents is unenforceable from inside the framework — if an agent's `cd "$WORKDIR"` is wrong or a script uses absolute framework paths, modifications happen anyway. The guard from U-N would close this. |
+
+**Suggested fix design (U-N + U-O combined):**
+
+Add to `scripts/lib/helpers.sh`:
+```bash
+# Refuse to operate as a project if cwd is the framework repo itself.
+guard_not_in_framework() {
+  if [ -f "$PWD/init.sh" ] && grep -q "Solo Orchestrator" "$PWD/init.sh" 2>/dev/null; then
+    print_fail "Refusing to run inside the Solo Orchestrator framework repo."
+    print_info "  Move to your project directory and re-run."
+    print_info "  If this IS your project, the framework is mis-installed —"
+    print_info "  framework should live at a separate path, not your project root."
+    exit 1
+  fi
+}
+```
+
+Then call `guard_not_in_framework` at the top of: `init.sh::main`, `verify-install.sh`, `process-checklist.sh`, `upgrade-project.sh`, `intake-wizard.sh`, `pending-approval.sh`. The detection signature (init.sh exists + contains "Solo Orchestrator" header) is uniquely the framework's, not any project's.
+
+These three findings are deferred to Batch 3 of the fix loop (small bash addition; high prevention value).
