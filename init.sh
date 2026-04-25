@@ -1738,11 +1738,18 @@ Framework: Solo Orchestrator v1.0"
 # ================================================================
 create_and_protect_remote() {
   local host visibility
-  if [ -f .claude/intake-progress.json ]; then
+  # BL-016: prefer non-interactive top-level variables when set.
+  if [ -n "${GIT_HOST:-}" ]; then
+    host="$GIT_HOST"
+  elif [ -f .claude/intake-progress.json ]; then
     host=$(jq -r '.answers.git_host // empty' .claude/intake-progress.json 2>/dev/null || echo "")
+  fi
+  if [ -n "${VISIBILITY:-}" ]; then
+    visibility="$VISIBILITY"
+  elif [ -f .claude/intake-progress.json ]; then
     visibility=$(jq -r '.answers.repo_visibility // empty' .claude/intake-progress.json 2>/dev/null || echo "")
   fi
-  # Fallback: prompt inline if not captured in intake
+  # Fallback: prompt inline if neither source supplied a value (interactive mode only).
   [ -z "$host" ]       && host=$(prompt_choice "Git host:" "github" "gitlab" "bitbucket" "other")
   [ -z "$visibility" ] && visibility=$(prompt_choice "Repository visibility:" "private" "public")
 
@@ -1759,8 +1766,13 @@ create_and_protect_remote() {
 
   local remote_url=""
   if [ "$host" = "other" ]; then
-    # URL-paste path — no CLI, no API verification
-    read -rp "Paste the HTTPS clone URL of the remote repo you've created: " remote_url
+    # URL-paste path — no CLI, no API verification.
+    # BL-016: prefer the non-interactive top-level REMOTE_URL when set.
+    if [ -n "${REMOTE_URL:-}" ]; then
+      remote_url="$REMOTE_URL"
+    else
+      read -rp "Paste the HTTPS clone URL of the remote repo you've created: " remote_url
+    fi
     [ -z "$remote_url" ] && { print_fail "Remote URL required for 'other' host"; return 1; }
     git remote add origin "$remote_url"
     if ! git push -u origin main 2>/dev/null && ! git push -u origin master 2>/dev/null; then
@@ -1773,7 +1785,13 @@ create_and_protect_remote() {
     echo "  - Admins not exempt from rules"
     [ "$mode" = "org" ] && echo "  - PR reviews required (at least 1 approver)"
     local attest
-    read -rp "Has branch protection been configured per the above? [type 'yes' to attest]: " attest
+    # BL-016: prefer non-interactive BRANCH_PROTECTION_ATTESTED when set.
+    if [ "${BRANCH_PROTECTION_ATTESTED:-false}" = true ]; then
+      attest="yes"
+      print_info "Branch protection attested via --branch-protection-attested flag."
+    else
+      read -rp "Has branch protection been configured per the above? [type 'yes' to attest]: " attest
+    fi
     [ "$attest" != "yes" ] && { print_fail "Attestation required — cannot proceed to Phase 0"; return 1; }
     # Record attestation in process-state.json
     mkdir -p .claude
