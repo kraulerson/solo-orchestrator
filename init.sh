@@ -20,6 +20,32 @@ VERSION="1.0.0"
 DRY_RUN=false
 OS_TYPE="$(uname -s)"
 
+# BL-016: non-interactive mode state
+NON_INTERACTIVE=false
+VALIDATE_ONLY=false
+CONFIG_FILE=""
+# Per-input flags (empty = not supplied; collect_inputs_non_interactive() applies defaults or errors)
+ARG_PROJECT=""
+ARG_DESCRIPTION=""
+ARG_PLATFORM=""
+ARG_TRACK=""
+ARG_DEPLOYMENT=""
+ARG_GOV_MODE=""
+ARG_LANGUAGE=""
+ARG_PROJECT_DIR=""
+ARG_GIT_HOST=""
+ARG_VISIBILITY=""
+ARG_REMOTE_URL=""
+ARG_BRANCH_PROTECTION_ATTESTED=false
+ARG_ALLOW_EXISTING_DIR=false
+# Resolved variables produced by either input path (consumed by downstream functions)
+GOV_MODE=""
+GIT_HOST=""
+VISIBILITY=""
+REMOTE_URL=""
+BRANCH_PROTECTION_ATTESTED=false
+ALLOW_EXISTING_DIR=false
+
 source "$SCRIPT_DIR/scripts/lib/helpers.sh"
 
 # ================================================================
@@ -2549,33 +2575,193 @@ dry_run_summary() {
 }
 
 # ================================================================
+# Non-Interactive Mode (BL-016)
+# ================================================================
+
+print_help_non_interactive() {
+  cat <<'NIHELPEOF'
+init.sh --non-interactive — full reference
+
+Required flags (always):
+  --project NAME           Project name. Lowercase letters, digits, hyphens; must start with letter.
+  --platform PLATFORM      One of: desktop, mobile, web, mcp_server
+  --deployment KIND        One of: personal, organizational
+  --language NAME          Primary language. Must be valid for the chosen platform.
+
+Required flags (conditional):
+  --gov-mode MODE          One of: production, sponsored_poc, private_poc.
+                           REQUIRED when --deployment=organizational.
+                           NOT VALID when --deployment=personal.
+  --remote-url URL         HTTPS or SSH URL of an existing remote repo.
+                           REQUIRED when --git-host=other.
+  --branch-protection-attested
+                           Boolean flag (presence = true). Confirms branch
+                           protection is configured on the remote.
+                           REQUIRED when --git-host=other.
+
+Optional flags (with defaults):
+  --description TEXT       One-sentence project description. Default: "".
+  --track TRACK            One of: light, standard, full. Default: standard.
+  --project-dir PATH       Project directory path. Default: $HOME/Code/$PROJECT.
+  --git-host HOST          One of: github, gitlab, bitbucket, other. Default: github.
+  --visibility VIS         One of: private, public. Default: private.
+                           NOTE: organizational deployments force private.
+  --allow-existing-dir     Boolean flag. Allow init into an existing directory
+                           (otherwise: exit 1 if --project-dir already exists).
+
+Mode flags:
+  --non-interactive        Required to enable this mode. Without it, all input
+                           flags are silently ignored (interactive flow runs).
+  --config FILE            Read JSON config from FILE. Schema below.
+                           Only honored with --non-interactive (otherwise warn + ignore).
+  --validate-only          Validate inputs + print resolved config to stdout; exit 0.
+                           No file writes.
+
+Precedence: command-line flag > --config FILE > default > error-if-required.
+
+JSON config schema (snake_case keys; all fields optional, missing → use flag/default/error):
+
+{
+  "project": "my-app",
+  "description": "A web app for tracking widgets",
+  "platform": "web",
+  "track": "standard",
+  "deployment": "personal",
+  "gov_mode": null,
+  "language": "typescript",
+  "project_dir": "/Users/karl/Code/my-app",
+  "git_host": "github",
+  "visibility": "private",
+  "remote_url": null,
+  "branch_protection_attested": false,
+  "allow_existing_dir": false
+}
+
+Examples:
+  ./init.sh --non-interactive \
+      --project my-app --platform web --deployment personal --language typescript
+
+  ./init.sh --non-interactive --config init.json --project my-app
+
+  ./init.sh --non-interactive --config init.json --project my-app --track full
+
+  ./init.sh --non-interactive --config init.json --validate-only | jq
+
+Errors take the uniform shape:
+
+  [FAIL] init.sh non-interactive: <one-line summary>
+    Reason: <specific cause>
+    Action: <how to fix>
+    Context: <relevant flags + values>
+
+See docs/builders-guide.md "Scripted / Non-Interactive Project Initialization"
+for narrative + use cases.
+NIHELPEOF
+}
+
+collect_inputs_non_interactive() {
+  # STUB — implemented in Tasks 2–7
+  echo "[FAIL] init.sh non-interactive: not yet implemented" >&2
+  return 1
+}
+
+# ================================================================
 # MAIN
 # ================================================================
 main() {
-  # Parse flags
-  for arg in "$@"; do
-    case "$arg" in
+  # Parse flags. Accept both "--flag value" and "--flag=value" shapes for inputs.
+  while [ $# -gt 0 ]; do
+    case "$1" in
       --dry-run)
-        DRY_RUN=true
-        ;;
+        DRY_RUN=true; shift ;;
+      --non-interactive)
+        NON_INTERACTIVE=true; shift ;;
+      --validate-only)
+        VALIDATE_ONLY=true; shift ;;
+      --config)
+        CONFIG_FILE="$2"; shift 2 ;;
+      --config=*)
+        CONFIG_FILE="${1#*=}"; shift ;;
+      --project)
+        ARG_PROJECT="$2"; shift 2 ;;
+      --project=*)
+        ARG_PROJECT="${1#*=}"; shift ;;
+      --description)
+        ARG_DESCRIPTION="$2"; shift 2 ;;
+      --description=*)
+        ARG_DESCRIPTION="${1#*=}"; shift ;;
+      --platform)
+        ARG_PLATFORM="$2"; shift 2 ;;
+      --platform=*)
+        ARG_PLATFORM="${1#*=}"; shift ;;
+      --track)
+        ARG_TRACK="$2"; shift 2 ;;
+      --track=*)
+        ARG_TRACK="${1#*=}"; shift ;;
+      --deployment)
+        ARG_DEPLOYMENT="$2"; shift 2 ;;
+      --deployment=*)
+        ARG_DEPLOYMENT="${1#*=}"; shift ;;
+      --gov-mode)
+        ARG_GOV_MODE="$2"; shift 2 ;;
+      --gov-mode=*)
+        ARG_GOV_MODE="${1#*=}"; shift ;;
+      --language)
+        ARG_LANGUAGE="$2"; shift 2 ;;
+      --language=*)
+        ARG_LANGUAGE="${1#*=}"; shift ;;
+      --project-dir)
+        ARG_PROJECT_DIR="$2"; shift 2 ;;
+      --project-dir=*)
+        ARG_PROJECT_DIR="${1#*=}"; shift ;;
+      --git-host)
+        ARG_GIT_HOST="$2"; shift 2 ;;
+      --git-host=*)
+        ARG_GIT_HOST="${1#*=}"; shift ;;
+      --visibility)
+        ARG_VISIBILITY="$2"; shift 2 ;;
+      --visibility=*)
+        ARG_VISIBILITY="${1#*=}"; shift ;;
+      --remote-url)
+        ARG_REMOTE_URL="$2"; shift 2 ;;
+      --remote-url=*)
+        ARG_REMOTE_URL="${1#*=}"; shift ;;
+      --branch-protection-attested)
+        ARG_BRANCH_PROTECTION_ATTESTED=true; shift ;;
+      --allow-existing-dir)
+        ARG_ALLOW_EXISTING_DIR=true; shift ;;
+      --help-non-interactive)
+        print_help_non_interactive
+        exit 0 ;;
       --help|-h)
-        echo "Usage: ./init.sh [--dry-run] [--help]"
-        echo ""
-        echo "Creates a new Solo Orchestrator project with all framework documents,"
-        echo "templates, and tooling configuration."
-        echo ""
-        echo "Options:"
-        echo "  --dry-run   Preview what will be installed and created without executing"
-        echo "  --help, -h  Show this help message"
-        echo ""
-        echo "  Init logs are saved to <project>/.solo-orchestrator/init-TIMESTAMP.log"
-        exit 0
-        ;;
+        cat <<'HELPEOF'
+Usage: ./init.sh [--dry-run] [--help]                                 (interactive)
+       ./init.sh --non-interactive [--config FILE] [INPUT FLAGS...]   (scriptable)
+
+Options:
+  --dry-run                Preview what will be installed and created without executing
+  --help, -h               Show this help message
+  --non-interactive        Enable non-interactive mode (CI / UAT / AI agents)
+  --config FILE            Read JSON config (only honored with --non-interactive)
+  --validate-only          Validate inputs and print resolved config; no scaffolding
+  --help-non-interactive   Show full schema + JSON example + per-flag descriptions
+
+Non-interactive mode (for CI, UAT, AI agents):
+  Required (always):       --project --platform --deployment --language
+  Required (conditional):  --gov-mode (when --deployment=organizational);
+                           --remote-url (when --git-host=other);
+                           --branch-protection-attested (when --git-host=other)
+  Defaults:                --track standard, --git-host github,
+                           --visibility private, --description "",
+                           --project-dir "$HOME/Code/$PROJECT"
+
+Init logs are saved to <project>/.solo-orchestrator/init-TIMESTAMP.log
+HELPEOF
+        exit 0 ;;
       *)
-        echo "Unknown option: $arg"
-        echo "Usage: ./init.sh [--dry-run] [--help]"
-        exit 1
-        ;;
+        echo "Unknown option: $1" >&2
+        echo "Run --help for usage." >&2
+        exit 1 ;;
     esac
   done
 
@@ -2599,8 +2785,27 @@ main() {
   init_log "$INIT_LOG_DIR"
   log_section "Prerequisites"
 
-  check_prerequisites
-  collect_project_info
+  # BL-016: dispatch to non-interactive collection or fall through to interactive.
+  if [ "$NON_INTERACTIVE" = true ]; then
+    if ! collect_inputs_non_interactive; then
+      exit 1
+    fi
+    if [ "$VALIDATE_ONLY" = true ]; then
+      exit 0
+    fi
+    # Derive POC_MODE from GOV_MODE for downstream consumers (existing code uses POC_MODE).
+    POC_MODE="$GOV_MODE"
+    # Pass 3 of collect_inputs_non_interactive already verified required tools.
+  else
+    if [ -n "$CONFIG_FILE" ]; then
+      print_warn "--config requires --non-interactive; ignoring config file"
+    fi
+    if [ -n "$ARG_PROJECT$ARG_PLATFORM$ARG_DEPLOYMENT$ARG_LANGUAGE" ]; then
+      print_warn "Input flags require --non-interactive; ignoring (interactive flow will prompt)"
+    fi
+    check_prerequisites
+    collect_project_info
+  fi
 
   log_section "Project Configuration"
   log_line "Project: $PROJECT_NAME"
