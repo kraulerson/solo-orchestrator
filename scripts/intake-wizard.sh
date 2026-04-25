@@ -12,6 +12,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/helpers.sh"
 
+# UAT 2026-04-25 fix (U-N): refuse to operate inside the framework repo.
+# (Note: U-G — PROJECT_ROOT being hardcoded to framework even when invoked
+# from a project — is a separate bug deferred to Batch 3.)
+guard_not_in_framework || exit 1
+
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROGRESS_FILE="$PROJECT_ROOT/.claude/intake-progress.json"
 INTAKE_FILE="$PROJECT_ROOT/PROJECT_INTAKE.md"

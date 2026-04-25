@@ -14,6 +14,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/helpers.sh"
 
+# UAT 2026-04-25 fix (U-N): refuse to operate inside the framework repo.
+# verify-install.sh's auto-create-stub-artifacts behavior was the root cause
+# of the framework-self-contamination incident.
+guard_not_in_framework || exit 1
+
 # --- Parse arguments ---
 MODE="interactive"  # interactive | check-only | auto-fix
 while [ $# -gt 0 ]; do

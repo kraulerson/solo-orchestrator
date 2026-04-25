@@ -150,6 +150,42 @@ prompt_input() {
   fi
 }
 
+# Refuse to operate as a project if cwd is the Solo Orchestrator framework
+# repo itself. Every project-targeted script (init.sh, verify-install.sh,
+# process-checklist.sh, upgrade-project.sh, intake-wizard.sh,
+# pending-approval.sh) must call this BEFORE any file writes.
+#
+# UAT 2026-04-25 fix (U-N + U-O): a UAT agent's cwd was the framework dir
+# (instead of their tempdir), so verify-install.sh + indirectly CDF init
+# scattered .claude/, .claude-backup/, gates/, hooks/, rules/, and
+# APPROVAL_LOG.md into the framework root. None tracked, but contaminates
+# the workspace and can sneak into commits.
+#
+# Detection signature: the framework has a top-level init.sh whose header
+# contains "Solo Orchestrator — Project Initialization Script" — a string
+# that's specific to this framework and won't appear in arbitrary projects'
+# init.sh files. Also check for templates/generated/ to triple-confirm.
+guard_not_in_framework() {
+  local cwd
+  cwd="$(pwd)"
+  if [ -f "$cwd/init.sh" ] \
+     && grep -q "Solo Orchestrator — Project Initialization Script" "$cwd/init.sh" 2>/dev/null \
+     && [ -d "$cwd/templates/generated" ]; then
+    print_fail "Refusing to operate inside the Solo Orchestrator framework repo."
+    echo "  Detected framework signature at: $cwd" >&2
+    echo "" >&2
+    echo "  This script targets a project, not the framework itself." >&2
+    echo "  Move to your project directory and re-run:" >&2
+    echo "    cd /path/to/your-project" >&2
+    echo "" >&2
+    echo "  If this directory IS your project (i.e., you cloned solo-orchestrator" >&2
+    echo "  AS a project), the framework is mis-installed — clone solo-orchestrator" >&2
+    echo "  separately and run init.sh from inside an empty project directory." >&2
+    return 1
+  fi
+  return 0
+}
+
 # Prompt for a numbered choice from a list of options.
 # Usage: result=$(prompt_choice "Pick one:" "option1" "option2" "option3")
 #

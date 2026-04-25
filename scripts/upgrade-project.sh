@@ -152,6 +152,9 @@ if ! command -v python3 &>/dev/null; then
   exit 1
 fi
 
+# UAT 2026-04-25 fix (U-N): refuse to operate inside the framework repo.
+guard_not_in_framework || exit 1
+
 # --- BL-015 pending-approval sentinel respect (UAT 2026-04-25 fix C5) ---
 # If the agent has offered structured options to the user via
 # scripts/pending-approval.sh, refuse to advance an irreversible upgrade.

@@ -2567,6 +2567,14 @@ main() {
 
   print_header "$VERSION"
 
+  # UAT 2026-04-25 fix (U-N): refuse to scaffold a project inside the
+  # framework repo itself. (--dry-run is allowed for inspection.)
+  if [ "$DRY_RUN" != true ]; then
+    if ! guard_not_in_framework; then
+      exit 1
+    fi
+  fi
+
   if [ "$DRY_RUN" = true ]; then
     echo -e "${YELLOW}${BOLD}DRY RUN MODE — no changes will be made${NC}"
     echo ""
