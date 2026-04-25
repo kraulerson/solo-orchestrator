@@ -999,7 +999,7 @@ JSON
 bl006_invoke_hook() {
   local cmd="$1" project_dir="$2"
   local input
-  input=$(jq -n --arg c "$cmd" '{command: $c}')
+  input=$(jq -n --arg c "$cmd" '{tool_name: "Bash", tool_input: {command: $c}}')
   local out rc=0
   out=$( cd "$project_dir" && echo "$input" | bash "$REPO_DIR/scripts/pre-commit-gate.sh" 2>&1 ) || rc=$?
   echo "$rc|$out"
@@ -1113,7 +1113,7 @@ JSON
 pa_invoke_hook() {
   local cmd="$1" project_dir="$2"
   local input
-  input=$(jq -n --arg c "$cmd" '{command: $c}')
+  input=$(jq -n --arg c "$cmd" '{tool_name: "Bash", tool_input: {command: $c}}')
   local out rc=0
   out=$( cd "$project_dir" && echo "$input" | bash "$REPO_DIR/scripts/pre-commit-gate.sh" 2>&1 ) || rc=$?
   echo "$rc|$out"

@@ -15,9 +15,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Read the tool input from stdin
 INPUT=$(cat)
 
-# Extract the bash command from the JSON input
-# Claude Code passes: {"command": "git commit -m '...'", ...}
-COMMAND=$(echo "$INPUT" | jq -r '.command // empty' 2>/dev/null)
+# Extract the bash command from the JSON input.
+# Claude Code passes (verified against /anthropics/claude-code docs 2026-04-25):
+#   {"session_id": "...", "tool_name": "Bash", "tool_input": {"command": "..."}, ...}
+# Fall back to the legacy ".command" path so older test fixtures and any
+# manual JSON invocations continue to work.
+COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // .command // empty' 2>/dev/null)
 
 if [ -z "$COMMAND" ]; then
   exit 0
