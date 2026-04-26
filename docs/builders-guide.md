@@ -986,6 +986,36 @@ During the Phase 2 initialization steps above, some scaffolding work produces co
 
 ---
 
+### Scripted / Non-Interactive Project Initialization
+
+For CI pipelines, automated UAT, or AI-orchestrator-driven project creation, `init.sh` supports a `--non-interactive` mode with explicit per-input flags and JSON config-file support.
+
+**Minimal invocation:**
+```bash
+./init.sh --non-interactive \
+  --project my-app \
+  --platform web \
+  --deployment personal \
+  --language typescript
+```
+
+**With config file:**
+```bash
+echo '{"platform":"web","track":"standard","deployment":"personal","language":"typescript"}' > init.json
+./init.sh --non-interactive --config init.json --project my-app
+```
+
+**Validate without scaffolding:**
+```bash
+./init.sh --non-interactive --config init.json --project my-app --validate-only | jq
+```
+
+See `init.sh --help-non-interactive` for the full schema, defaults table, and per-flag reference.
+
+**When NOT to use:** human-driven first-time setup is better served by the interactive flow, which adapts prompts to the chosen platform/deployment context. Non-interactive mode is for repeatable, scripted workflows where the orchestrator already knows the answers.
+
+---
+
 ### Structured Decision Points: The Pending-Approval Sentinel
 
 During the Build Loop you occasionally face blocking decisions that need orchestrator input: commit structure (single vs. split), merge strategy, scope cuts. When those decisions are offered as structured options (A/B/C), write `.claude/pending-approval.json` via `scripts/pending-approval.sh --offer …` to signal that the agent is deliberately holding. Delete it via `--resolve` once the orchestrator picks.

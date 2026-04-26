@@ -1204,6 +1204,122 @@ fi
 
 
 # ================================================================
+section "BL-016: init.sh non-interactive mode — E48-E55"
+
+INIT_SH="$REPO_DIR/init.sh"
+
+# E48: Full happy-path web/personal/standard/typescript run via --validate-only.
+_e48_dir="$TEST_DIR/e48"
+mkdir -p "$_e48_dir"
+_e48_out=$(cd "$_e48_dir" && "$INIT_SH" --non-interactive --validate-only \
+  --project uat-e48 --platform web --deployment personal --language typescript \
+  --project-dir "$_e48_dir/proj" 2>&1)
+_e48_rc=$?
+if [ "$_e48_rc" = "0" ] && echo "$_e48_out" | grep -q '"_validated": true'; then
+  pass "E48: full non-interactive happy path → exit 0 with resolved JSON"
+else
+  fail "E48: expected exit 0 with _validated:true, got rc=$_e48_rc out=$_e48_out"
+fi
+
+# E49: --validate-only does not create the project dir.
+_e49_dir="$TEST_DIR/e49"
+mkdir -p "$_e49_dir"
+(cd "$_e49_dir" && "$INIT_SH" --non-interactive --validate-only \
+  --project uat-e49 --platform web --deployment personal --language typescript \
+  --project-dir "$_e49_dir/proj" >/dev/null 2>&1) || true
+if [ ! -d "$_e49_dir/proj" ]; then
+  pass "E49: --validate-only does not create project dir"
+else
+  fail "E49: --validate-only created project dir (should not have)"
+fi
+
+# E50: Mobile + organizational + private_poc + kotlin → forces visibility=private.
+_e50_dir="$TEST_DIR/e50"
+mkdir -p "$_e50_dir"
+_e50_out=$(cd "$_e50_dir" && "$INIT_SH" --non-interactive --validate-only \
+  --project uat-e50 --platform mobile --deployment organizational --gov-mode private_poc --language kotlin \
+  --project-dir "$_e50_dir/proj" 2>&1)
+_e50_rc=$?
+if [ "$_e50_rc" = "0" ] && echo "$_e50_out" | grep -q '"gov_mode": "private_poc"' && echo "$_e50_out" | grep -q '"visibility": "private"'; then
+  pass "E50: organizational + private_poc forces visibility=private"
+else
+  fail "E50: expected gov_mode=private_poc and visibility=private, got: $_e50_out"
+fi
+
+# E51: git-host=other + remote-url + attested → validate succeeds.
+_e51_dir="$TEST_DIR/e51"
+mkdir -p "$_e51_dir"
+_e51_out=$(cd "$_e51_dir" && "$INIT_SH" --non-interactive --validate-only \
+  --project uat-e51 --platform web --deployment organizational --gov-mode production --language typescript \
+  --git-host other --remote-url https://example.com/fake.git --branch-protection-attested \
+  --project-dir "$_e51_dir/proj" 2>&1)
+_e51_rc=$?
+if [ "$_e51_rc" = "0" ] && echo "$_e51_out" | grep -q '"git_host": "other"'; then
+  pass "E51: --git-host=other + --remote-url + --branch-protection-attested → validates"
+else
+  fail "E51: expected exit 0 with git_host=other, got: $_e51_out"
+fi
+
+# E52: --config provides everything.
+_e52_dir="$TEST_DIR/e52"
+mkdir -p "$_e52_dir"
+cat > "$_e52_dir/cfg.json" <<'JSON'
+{"project":"uat-e52","platform":"web","deployment":"personal","language":"typescript","track":"standard"}
+JSON
+_e52_out=$(cd "$_e52_dir" && "$INIT_SH" --non-interactive --validate-only --config "$_e52_dir/cfg.json" \
+  --project-dir "$_e52_dir/proj" 2>&1)
+_e52_rc=$?
+if [ "$_e52_rc" = "0" ] && echo "$_e52_out" | grep -q '"project": "uat-e52"'; then
+  pass "E52: --config provides all required → validates"
+else
+  fail "E52: expected exit 0 from config, got: $_e52_out"
+fi
+
+# E53: --config + flag override (flag wins).
+_e53_dir="$TEST_DIR/e53"
+mkdir -p "$_e53_dir"
+cat > "$_e53_dir/cfg.json" <<'JSON'
+{"project":"uat-e53","platform":"web","deployment":"personal","language":"typescript","track":"light"}
+JSON
+_e53_out=$(cd "$_e53_dir" && "$INIT_SH" --non-interactive --validate-only --config "$_e53_dir/cfg.json" \
+  --track full --project-dir "$_e53_dir/proj" 2>&1)
+_e53_rc=$?
+if [ "$_e53_rc" = "0" ] && echo "$_e53_out" | grep -q '"track": "full"'; then
+  pass "E53: --config (track=light) + --track full → flag wins"
+else
+  fail "E53: expected resolved track=full, got: $_e53_out"
+fi
+
+# E54: --non-interactive with no required flags.
+_e54_dir="$TEST_DIR/e54"
+mkdir -p "$_e54_dir"
+_e54_out=$(cd "$_e54_dir" && "$INIT_SH" --non-interactive --validate-only 2>&1) || true
+_e54_rc=$?
+if echo "$_e54_out" | grep -q "FAIL"; then
+  pass "E54: --non-interactive with no required flags → exit 1 with FAIL message"
+else
+  fail "E54: expected FAIL message, got rc=$_e54_rc out=$_e54_out"
+fi
+
+# E55: existing-dir test — first run fails (no flag), second succeeds.
+_e55_dir="$TEST_DIR/e55"
+mkdir -p "$_e55_dir/already-here"
+_e55_first_rc=0
+(cd "$_e55_dir" && "$INIT_SH" --non-interactive --validate-only \
+  --project uat-e55 --platform web --deployment personal --language typescript \
+  --project-dir "$_e55_dir/already-here" >/dev/null 2>&1) || _e55_first_rc=$?
+_e55_second_rc=0
+(cd "$_e55_dir" && "$INIT_SH" --non-interactive --validate-only \
+  --project uat-e55 --platform web --deployment personal --language typescript \
+  --project-dir "$_e55_dir/already-here" --allow-existing-dir >/dev/null 2>&1) || _e55_second_rc=$?
+if [ "$_e55_first_rc" = "1" ] && [ "$_e55_second_rc" = "0" ]; then
+  pass "E55: existing dir without --allow-existing-dir fails; with the flag succeeds"
+else
+  fail "E55: expected first run to fail and second to succeed; got first=$_e55_first_rc second=$_e55_second_rc"
+fi
+
+
+# ================================================================
 echo ""
 echo -e "${BOLD}═══════════════════════════════════════════════════════════${NC}"
 echo -e "${BOLD}  SUMMARY${NC}"

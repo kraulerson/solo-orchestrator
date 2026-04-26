@@ -20,6 +20,32 @@ VERSION="1.0.0"
 DRY_RUN=false
 OS_TYPE="$(uname -s)"
 
+# BL-016: non-interactive mode state
+NON_INTERACTIVE=false
+VALIDATE_ONLY=false
+CONFIG_FILE=""
+# Per-input flags (empty = not supplied; collect_inputs_non_interactive() applies defaults or errors)
+ARG_PROJECT=""
+ARG_DESCRIPTION=""
+ARG_PLATFORM=""
+ARG_TRACK=""
+ARG_DEPLOYMENT=""
+ARG_GOV_MODE=""
+ARG_LANGUAGE=""
+ARG_PROJECT_DIR=""
+ARG_GIT_HOST=""
+ARG_VISIBILITY=""
+ARG_REMOTE_URL=""
+ARG_BRANCH_PROTECTION_ATTESTED=false
+ARG_ALLOW_EXISTING_DIR=false
+# Resolved variables produced by either input path (consumed by downstream functions)
+GOV_MODE=""
+GIT_HOST=""
+VISIBILITY=""
+REMOTE_URL=""
+BRANCH_PROTECTION_ATTESTED=false
+ALLOW_EXISTING_DIR=false
+
 source "$SCRIPT_DIR/scripts/lib/helpers.sh"
 
 # ================================================================
@@ -1712,11 +1738,18 @@ Framework: Solo Orchestrator v1.0"
 # ================================================================
 create_and_protect_remote() {
   local host visibility
-  if [ -f .claude/intake-progress.json ]; then
+  # BL-016: prefer non-interactive top-level variables when set.
+  if [ -n "${GIT_HOST:-}" ]; then
+    host="$GIT_HOST"
+  elif [ -f .claude/intake-progress.json ]; then
     host=$(jq -r '.answers.git_host // empty' .claude/intake-progress.json 2>/dev/null || echo "")
+  fi
+  if [ -n "${VISIBILITY:-}" ]; then
+    visibility="$VISIBILITY"
+  elif [ -f .claude/intake-progress.json ]; then
     visibility=$(jq -r '.answers.repo_visibility // empty' .claude/intake-progress.json 2>/dev/null || echo "")
   fi
-  # Fallback: prompt inline if not captured in intake
+  # Fallback: prompt inline if neither source supplied a value (interactive mode only).
   [ -z "$host" ]       && host=$(prompt_choice "Git host:" "github" "gitlab" "bitbucket" "other")
   [ -z "$visibility" ] && visibility=$(prompt_choice "Repository visibility:" "private" "public")
 
@@ -1733,8 +1766,13 @@ create_and_protect_remote() {
 
   local remote_url=""
   if [ "$host" = "other" ]; then
-    # URL-paste path — no CLI, no API verification
-    read -rp "Paste the HTTPS clone URL of the remote repo you've created: " remote_url
+    # URL-paste path — no CLI, no API verification.
+    # BL-016: prefer the non-interactive top-level REMOTE_URL when set.
+    if [ -n "${REMOTE_URL:-}" ]; then
+      remote_url="$REMOTE_URL"
+    else
+      read -rp "Paste the HTTPS clone URL of the remote repo you've created: " remote_url
+    fi
     [ -z "$remote_url" ] && { print_fail "Remote URL required for 'other' host"; return 1; }
     git remote add origin "$remote_url"
     if ! git push -u origin main 2>/dev/null && ! git push -u origin master 2>/dev/null; then
@@ -1747,7 +1785,13 @@ create_and_protect_remote() {
     echo "  - Admins not exempt from rules"
     [ "$mode" = "org" ] && echo "  - PR reviews required (at least 1 approver)"
     local attest
-    read -rp "Has branch protection been configured per the above? [type 'yes' to attest]: " attest
+    # BL-016: prefer non-interactive BRANCH_PROTECTION_ATTESTED when set.
+    if [ "${BRANCH_PROTECTION_ATTESTED:-false}" = true ]; then
+      attest="yes"
+      print_info "Branch protection attested via --branch-protection-attested flag."
+    else
+      read -rp "Has branch protection been configured per the above? [type 'yes' to attest]: " attest
+    fi
     [ "$attest" != "yes" ] && { print_fail "Attestation required — cannot proceed to Phase 0"; return 1; }
     # Record attestation in process-state.json
     mkdir -p .claude
@@ -2549,33 +2593,589 @@ dry_run_summary() {
 }
 
 # ================================================================
+# Non-Interactive Mode (BL-016)
+# ================================================================
+
+print_help_non_interactive() {
+  cat <<'NIHELPEOF'
+init.sh --non-interactive — full reference
+
+Required flags (always):
+  --project NAME           Project name. Lowercase letters, digits, hyphens; must start with letter.
+  --platform PLATFORM      One of: desktop, mobile, web, mcp_server
+  --deployment KIND        One of: personal, organizational
+  --language NAME          Primary language. Must be valid for the chosen platform.
+
+Required flags (conditional):
+  --gov-mode MODE          One of: production, sponsored_poc, private_poc.
+                           REQUIRED when --deployment=organizational.
+                           NOT VALID when --deployment=personal.
+  --remote-url URL         HTTPS or SSH URL of an existing remote repo.
+                           REQUIRED when --git-host=other.
+  --branch-protection-attested
+                           Boolean flag (presence = true). Confirms branch
+                           protection is configured on the remote.
+                           REQUIRED when --git-host=other.
+
+Optional flags (with defaults):
+  --description TEXT       One-sentence project description. Default: "".
+  --track TRACK            One of: light, standard, full. Default: standard.
+  --project-dir PATH       Project directory path. Default: $HOME/Code/$PROJECT.
+  --git-host HOST          One of: github, gitlab, bitbucket, other. Default: github.
+  --visibility VIS         One of: private, public. Default: private.
+                           NOTE: organizational deployments force private.
+  --allow-existing-dir     Boolean flag. Allow init into an existing directory
+                           (otherwise: exit 1 if --project-dir already exists).
+
+Mode flags:
+  --non-interactive        Required to enable this mode. Without it, all input
+                           flags are silently ignored (interactive flow runs).
+  --config FILE            Read JSON config from FILE. Schema below.
+                           Only honored with --non-interactive (otherwise warn + ignore).
+  --validate-only          Validate inputs + print resolved config to stdout; exit 0.
+                           No file writes.
+
+Precedence: command-line flag > --config FILE > default > error-if-required.
+
+JSON config schema (snake_case keys; all fields optional, missing → use flag/default/error):
+
+{
+  "project": "my-app",
+  "description": "A web app for tracking widgets",
+  "platform": "web",
+  "track": "standard",
+  "deployment": "personal",
+  "gov_mode": null,
+  "language": "typescript",
+  "project_dir": "/Users/karl/Code/my-app",
+  "git_host": "github",
+  "visibility": "private",
+  "remote_url": null,
+  "branch_protection_attested": false,
+  "allow_existing_dir": false
+}
+
+Examples:
+  ./init.sh --non-interactive \
+      --project my-app --platform web --deployment personal --language typescript
+
+  ./init.sh --non-interactive --config init.json --project my-app
+
+  ./init.sh --non-interactive --config init.json --project my-app --track full
+
+  ./init.sh --non-interactive --config init.json --validate-only | jq
+
+Errors take the uniform shape:
+
+  [FAIL] init.sh non-interactive: <one-line summary>
+    Reason: <specific cause>
+    Action: <how to fix>
+    Context: <relevant flags + values>
+
+See docs/builders-guide.md "Scripted / Non-Interactive Project Initialization"
+for narrative + use cases.
+NIHELPEOF
+}
+
+collect_inputs_non_interactive() {
+  # ----- Helpers (local to this function) -----
+  local fail
+  fail() {
+    local summary="$1" reason="$2" action="$3" context="${4:-}"
+    echo "[FAIL] init.sh non-interactive: $summary" >&2
+    echo "  Reason: $reason" >&2
+    echo "  Action: $action" >&2
+    if [ -n "$context" ]; then
+      echo "  Context: $context" >&2
+    fi
+    return 1
+  }
+
+  # ----- Config file load (BEFORE Pass 1 so flags can override) -----
+  if [ -n "$CONFIG_FILE" ]; then
+    if [ ! -f "$CONFIG_FILE" ]; then
+      fail "config file not found: $CONFIG_FILE" \
+           "the path supplied to --config does not exist or is not readable." \
+           "fix the path and re-run." \
+           "--config='$CONFIG_FILE'"
+      return 1
+    fi
+    if ! jq -e . "$CONFIG_FILE" >/dev/null 2>&1; then
+      local jq_err
+      jq_err=$(jq . "$CONFIG_FILE" 2>&1 >/dev/null || true)
+      fail "config file is not valid JSON: $CONFIG_FILE" \
+           "jq parse error: $jq_err" \
+           "fix the JSON syntax and re-run. Use 'jq . FILE' to lint." \
+           "--config='$CONFIG_FILE'"
+      return 1
+    fi
+    if [ "$(jq -r 'type' "$CONFIG_FILE")" != "object" ]; then
+      fail "config file must be a JSON object" \
+           "found: $(jq -r 'type' "$CONFIG_FILE")" \
+           "wrap the contents in {} and re-run." \
+           "--config='$CONFIG_FILE'"
+      return 1
+    fi
+
+    # Warn on unknown fields (forward-compat per spec § 5.4).
+    local known_fields="project description platform track deployment gov_mode language project_dir git_host visibility remote_url branch_protection_attested allow_existing_dir"
+    local field
+    for field in $(jq -r 'keys[]' "$CONFIG_FILE"); do
+      if ! echo " $known_fields " | grep -q " $field "; then
+        print_warn "unknown config field: $field (ignored)"
+      fi
+    done
+
+    # Merge: each ARG_* defaults to the config value if not already set via flag.
+    # Flag wins on conflict per spec § 5.5.
+    local cfg_get
+    cfg_get() {
+      local key="$1"
+      jq -r --arg k "$key" '.[$k] // empty' "$CONFIG_FILE" 2>/dev/null
+    }
+    [ -z "$ARG_PROJECT" ]                  && ARG_PROJECT=$(cfg_get project)
+    [ -z "$ARG_DESCRIPTION" ]              && ARG_DESCRIPTION=$(cfg_get description)
+    [ -z "$ARG_PLATFORM" ]                 && ARG_PLATFORM=$(cfg_get platform)
+    [ -z "$ARG_TRACK" ]                    && ARG_TRACK=$(cfg_get track)
+    [ -z "$ARG_DEPLOYMENT" ]               && ARG_DEPLOYMENT=$(cfg_get deployment)
+    [ -z "$ARG_GOV_MODE" ]                 && ARG_GOV_MODE=$(cfg_get gov_mode)
+    [ -z "$ARG_LANGUAGE" ]                 && ARG_LANGUAGE=$(cfg_get language)
+    [ -z "$ARG_PROJECT_DIR" ]              && ARG_PROJECT_DIR=$(cfg_get project_dir)
+    [ -z "$ARG_GIT_HOST" ]                 && ARG_GIT_HOST=$(cfg_get git_host)
+    [ -z "$ARG_VISIBILITY" ]               && ARG_VISIBILITY=$(cfg_get visibility)
+    [ -z "$ARG_REMOTE_URL" ]               && ARG_REMOTE_URL=$(cfg_get remote_url)
+    if [ "$ARG_BRANCH_PROTECTION_ATTESTED" != true ]; then
+      local cfg_attest
+      cfg_attest=$(cfg_get branch_protection_attested)
+      [ "$cfg_attest" = "true" ] && ARG_BRANCH_PROTECTION_ATTESTED=true
+    fi
+    if [ "$ARG_ALLOW_EXISTING_DIR" != true ]; then
+      local cfg_allow
+      cfg_allow=$(cfg_get allow_existing_dir)
+      [ "$cfg_allow" = "true" ] && ARG_ALLOW_EXISTING_DIR=true
+    fi
+  fi
+
+  # ----- Pass 1: schema validation (per-input typing) -----
+
+  # project
+  if [ -n "$ARG_PROJECT" ] && ! [[ "$ARG_PROJECT" =~ ^[a-z][a-z0-9-]*$ ]]; then
+    fail "invalid --project name '$ARG_PROJECT'" \
+         "project name must start with a lowercase letter and contain only lowercase letters, digits, and hyphens." \
+         "fix the name and re-run." \
+         "--project='$ARG_PROJECT'"
+    return 1
+  fi
+
+  # platform
+  if [ -n "$ARG_PLATFORM" ]; then
+    case "$ARG_PLATFORM" in
+      desktop|mobile|web|mcp_server) ;;
+      *)
+        fail "invalid --platform '$ARG_PLATFORM'" \
+             "platform must be one of: desktop, mobile, web, mcp_server." \
+             "re-run with a supported --platform value." \
+             "--platform='$ARG_PLATFORM'"
+        return 1 ;;
+    esac
+  fi
+
+  # track
+  if [ -n "$ARG_TRACK" ]; then
+    case "$ARG_TRACK" in
+      light|standard|full) ;;
+      *)
+        fail "invalid --track '$ARG_TRACK'" \
+             "track must be one of: light, standard, full." \
+             "re-run with a supported --track value." \
+             "--track='$ARG_TRACK'"
+        return 1 ;;
+    esac
+  fi
+
+  # deployment
+  if [ -n "$ARG_DEPLOYMENT" ]; then
+    case "$ARG_DEPLOYMENT" in
+      personal|organizational) ;;
+      *)
+        fail "invalid --deployment '$ARG_DEPLOYMENT'" \
+             "deployment must be one of: personal, organizational." \
+             "re-run with a supported --deployment value." \
+             "--deployment='$ARG_DEPLOYMENT'"
+        return 1 ;;
+    esac
+  fi
+
+  # gov_mode (presence-only check; required-or-not is Pass 2)
+  if [ -n "$ARG_GOV_MODE" ]; then
+    case "$ARG_GOV_MODE" in
+      production|sponsored_poc|private_poc) ;;
+      *)
+        fail "invalid --gov-mode '$ARG_GOV_MODE'" \
+             "gov-mode must be one of: production, sponsored_poc, private_poc." \
+             "re-run with a supported --gov-mode value." \
+             "--gov-mode='$ARG_GOV_MODE'"
+        return 1 ;;
+    esac
+  fi
+
+  # git_host (presence-only check)
+  if [ -n "$ARG_GIT_HOST" ]; then
+    case "$ARG_GIT_HOST" in
+      github|gitlab|bitbucket|other) ;;
+      *)
+        fail "invalid --git-host '$ARG_GIT_HOST'" \
+             "git-host must be one of: github, gitlab, bitbucket, other." \
+             "re-run with a supported --git-host value." \
+             "--git-host='$ARG_GIT_HOST'"
+        return 1 ;;
+    esac
+  fi
+
+  # visibility (presence-only check)
+  if [ -n "$ARG_VISIBILITY" ]; then
+    case "$ARG_VISIBILITY" in
+      private|public) ;;
+      *)
+        fail "invalid --visibility '$ARG_VISIBILITY'" \
+             "visibility must be one of: private, public." \
+             "re-run with a supported --visibility value." \
+             "--visibility='$ARG_VISIBILITY'"
+        return 1 ;;
+    esac
+  fi
+
+  # remote_url (presence-only check; required-or-not is Pass 2)
+  if [ -n "$ARG_REMOTE_URL" ]; then
+    if ! [[ "$ARG_REMOTE_URL" =~ ^(https://|git@) ]]; then
+      fail "invalid --remote-url '$ARG_REMOTE_URL'" \
+           "remote-url must start with 'https://' or 'git@'." \
+           "re-run with a valid HTTPS or SSH URL." \
+           "--remote-url='$ARG_REMOTE_URL'"
+      return 1
+    fi
+  fi
+
+  # ----- Pass 2: context-required validation -----
+
+  # Always-required: project, platform, deployment, language
+  if [ -z "$ARG_PROJECT" ]; then
+    fail "--project is required" \
+         "every non-interactive invocation must specify a project name." \
+         "re-run with --project NAME." \
+         "(--project unset)"
+    return 1
+  fi
+  if [ -z "$ARG_PLATFORM" ]; then
+    fail "--platform is required" \
+         "every non-interactive invocation must specify a platform." \
+         "re-run with --platform {desktop|mobile|web|mcp_server}." \
+         "(--platform unset)"
+    return 1
+  fi
+  if [ -z "$ARG_DEPLOYMENT" ]; then
+    fail "--deployment is required" \
+         "every non-interactive invocation must specify a deployment kind." \
+         "re-run with --deployment {personal|organizational}." \
+         "(--deployment unset)"
+    return 1
+  fi
+  if [ -z "$ARG_LANGUAGE" ]; then
+    fail "--language is required" \
+         "every non-interactive invocation must specify a primary language." \
+         "re-run with --language NAME (use --help-non-interactive to see supported languages per platform)." \
+         "(--language unset)"
+    return 1
+  fi
+
+  # gov-mode required iff deployment=organizational
+  if [ "$ARG_DEPLOYMENT" = "organizational" ] && [ -z "$ARG_GOV_MODE" ]; then
+    fail "--gov-mode is required when --deployment=organizational" \
+         "organizational projects must specify a governance mode." \
+         "re-run with one of: --gov-mode production, --gov-mode sponsored_poc, --gov-mode private_poc." \
+         "--deployment=organizational, --gov-mode=(unset)"
+    return 1
+  fi
+  if [ "$ARG_DEPLOYMENT" = "personal" ] && [ -n "$ARG_GOV_MODE" ]; then
+    fail "--gov-mode is not valid for --deployment=personal" \
+         "personal projects do not have a governance mode." \
+         "remove --gov-mode and re-run." \
+         "--deployment=personal, --gov-mode='$ARG_GOV_MODE'"
+    return 1
+  fi
+
+  # remote-url required when git-host=other
+  if [ "$ARG_GIT_HOST" = "other" ] && [ -z "$ARG_REMOTE_URL" ]; then
+    fail "--remote-url is required when --git-host=other" \
+         "the 'other' host has no API to create a repo; you must paste the URL of an existing remote." \
+         "re-run with --remote-url URL." \
+         "--git-host=other, --remote-url=(unset)"
+    return 1
+  fi
+
+  # branch-protection-attested required when git-host=other
+  if [ "$ARG_GIT_HOST" = "other" ] && [ "$ARG_BRANCH_PROTECTION_ATTESTED" != true ]; then
+    fail "--branch-protection-attested is required when --git-host=other" \
+         "the 'other' host cannot be API-verified; you must attest branch protection is configured." \
+         "verify branch protection on the remote, then re-run with --branch-protection-attested." \
+         "--git-host=other, --branch-protection-attested=false"
+    return 1
+  fi
+
+  # visibility=public not allowed for organizational
+  if [ "$ARG_DEPLOYMENT" = "organizational" ] && [ "$ARG_VISIBILITY" = "public" ]; then
+    fail "--visibility=public is not allowed for --deployment=organizational" \
+         "organizational projects must be private (force-private rule from init.sh:1713)." \
+         "remove --visibility=public (or change to --visibility=private) and re-run." \
+         "--deployment=organizational, --visibility=public"
+    return 1
+  fi
+
+  # track=full + deployment=personal: warn, continue (matches interactive confirm-then-proceed)
+  if [ "$ARG_TRACK" = "full" ] && [ "$ARG_DEPLOYMENT" = "personal" ]; then
+    print_warn "Full track on a personal project is unusual; the interactive flow normally asks to confirm."
+    print_warn "Proceeding because non-interactive mode treats explicit flags as confirmation."
+  fi
+
+  # language validity for platform — look up the platform's allowed languages list
+  local lang_list_file=""
+  if [ -f "$SCRIPT_DIR/templates/intake-suggestions/${ARG_PLATFORM}.json" ]; then
+    lang_list_file="$SCRIPT_DIR/templates/intake-suggestions/${ARG_PLATFORM}.json"
+  elif [ -f "$SCRIPT_DIR/templates/intake-suggestions/common.json" ]; then
+    lang_list_file="$SCRIPT_DIR/templates/intake-suggestions/common.json"
+  fi
+  if [ -n "$lang_list_file" ] && command -v jq &>/dev/null; then
+    # Look for "languages" arrays at known schema paths.
+    # Fall back to skipping this check if the schema doesn't expose a list.
+    local supported
+    supported=$(jq -r '.. | objects | select(has("languages")) | .languages[]?' "$lang_list_file" 2>/dev/null | sort -u || true)
+    if [ -n "$supported" ]; then
+      if ! echo "$supported" | grep -qx "$ARG_LANGUAGE"; then
+        local supported_csv
+        supported_csv=$(echo "$supported" | tr '\n' ',' | sed 's/,$//; s/,/, /g')
+        fail "language '$ARG_LANGUAGE' is not supported for platform '$ARG_PLATFORM'" \
+             "the platform's intake suggestions list a different language set." \
+             "re-run with one of: $supported_csv (or pick a different platform)." \
+             "--platform='$ARG_PLATFORM', --language='$ARG_LANGUAGE'"
+        return 1
+      fi
+    fi
+  fi
+
+  # ----- Pass 3: resource validation -----
+
+  # Required tools
+  for tool in git jq node python3; do
+    if ! command -v "$tool" &>/dev/null; then
+      local install_cmd=""
+      case "$OS_TYPE" in
+        Darwin) install_cmd="brew install $tool" ;;
+        Linux)  install_cmd="apt install -y $tool   # or your distro's package manager" ;;
+      esac
+      fail "missing required tool: $tool" \
+           "non-interactive mode does not auto-install dependencies." \
+           "install: $install_cmd, then re-run." \
+           "--non-interactive (tool=$tool)"
+      return 1
+    fi
+  done
+
+  # git host CLI presence (skipped for 'other')
+  local effective_git_host="${ARG_GIT_HOST:-github}"
+  case "$effective_git_host" in
+    github)
+      if ! command -v gh &>/dev/null; then
+        fail "missing required tool for --git-host=github: gh" \
+             "the GitHub CLI is needed to create + protect the remote repo." \
+             "install: brew install gh (macOS) or apt install gh (Linux), then re-run." \
+             "--git-host=github"
+        return 1
+      fi ;;
+    gitlab)
+      if ! command -v glab &>/dev/null; then
+        fail "missing required tool for --git-host=gitlab: glab" \
+             "the GitLab CLI is needed to create + protect the remote repo." \
+             "install: brew install glab (macOS), then re-run." \
+             "--git-host=gitlab"
+        return 1
+      fi ;;
+    bitbucket)
+      # bitbucket uses curl + tokens; no CLI requirement
+      : ;;
+    other)
+      : ;;
+  esac
+
+  # project_dir existence check
+  local effective_project_dir="${ARG_PROJECT_DIR:-$HOME/Code/$ARG_PROJECT}"
+  if [ -e "$effective_project_dir" ] && [ "$ARG_ALLOW_EXISTING_DIR" != true ]; then
+    fail "project directory already exists: $effective_project_dir" \
+         "non-interactive mode refuses to write into an existing directory by default." \
+         "pass --allow-existing-dir to use it anyway, or pick a different --project-dir." \
+         "--project-dir='$effective_project_dir'"
+    return 1
+  fi
+
+  # ----- Apply defaults for inputs not set by flag or config -----
+  : "${ARG_TRACK:=standard}"
+  : "${ARG_GIT_HOST:=github}"
+  : "${ARG_VISIBILITY:=private}"
+  : "${ARG_PROJECT_DIR:=$HOME/Code/$ARG_PROJECT}"
+  # Force private for organizational deployments (matches existing init.sh:1713 logic).
+  if [ "$ARG_DEPLOYMENT" = "organizational" ]; then
+    ARG_VISIBILITY="private"
+  fi
+
+  # Assign resolved values to the variables the rest of init.sh consumes.
+  PROJECT_NAME="$ARG_PROJECT"
+  PROJECT_DESCRIPTION="$ARG_DESCRIPTION"
+  PLATFORM="$ARG_PLATFORM"
+  TRACK="$ARG_TRACK"
+  DEPLOYMENT="$ARG_DEPLOYMENT"
+  GOV_MODE="$ARG_GOV_MODE"
+  LANGUAGE="$ARG_LANGUAGE"
+  PROJECT_DIR="$ARG_PROJECT_DIR"
+  GIT_HOST="$ARG_GIT_HOST"
+  VISIBILITY="$ARG_VISIBILITY"
+  REMOTE_URL="$ARG_REMOTE_URL"
+  BRANCH_PROTECTION_ATTESTED="$ARG_BRANCH_PROTECTION_ATTESTED"
+  ALLOW_EXISTING_DIR="$ARG_ALLOW_EXISTING_DIR"
+
+  if [ "$VALIDATE_ONLY" = true ]; then
+    # Build the resolved JSON via jq for proper escaping.
+    jq -n \
+      --arg ts "$(date -u +%FT%TZ)" \
+      --arg project "$PROJECT_NAME" \
+      --arg description "$PROJECT_DESCRIPTION" \
+      --arg platform "$PLATFORM" \
+      --arg track "$TRACK" \
+      --arg deployment "$DEPLOYMENT" \
+      --arg gov_mode "$GOV_MODE" \
+      --arg language "$LANGUAGE" \
+      --arg project_dir "$PROJECT_DIR" \
+      --arg git_host "$GIT_HOST" \
+      --arg visibility "$VISIBILITY" \
+      --arg remote_url "$REMOTE_URL" \
+      --argjson attested "$([ "$BRANCH_PROTECTION_ATTESTED" = true ] && echo true || echo false)" \
+      --argjson allow_dir "$([ "$ALLOW_EXISTING_DIR" = true ] && echo true || echo false)" \
+      '{
+        _validated: true,
+        _resolved_at: $ts,
+        project: $project,
+        description: $description,
+        platform: $platform,
+        track: $track,
+        deployment: $deployment,
+        gov_mode: (if $gov_mode == "" then null else $gov_mode end),
+        language: $language,
+        project_dir: $project_dir,
+        git_host: $git_host,
+        visibility: $visibility,
+        remote_url: (if $remote_url == "" then null else $remote_url end),
+        branch_protection_attested: $attested,
+        allow_existing_dir: $allow_dir
+      }'
+  fi
+  return 0
+}
+
+# ================================================================
 # MAIN
 # ================================================================
 main() {
-  # Parse flags
-  for arg in "$@"; do
-    case "$arg" in
+  # Parse flags. Accept both "--flag value" and "--flag=value" shapes for inputs.
+  while [ $# -gt 0 ]; do
+    case "$1" in
       --dry-run)
-        DRY_RUN=true
-        ;;
+        DRY_RUN=true; shift ;;
+      --non-interactive)
+        NON_INTERACTIVE=true; shift ;;
+      --validate-only)
+        VALIDATE_ONLY=true; shift ;;
+      --config)
+        CONFIG_FILE="$2"; shift 2 ;;
+      --config=*)
+        CONFIG_FILE="${1#*=}"; shift ;;
+      --project)
+        ARG_PROJECT="$2"; shift 2 ;;
+      --project=*)
+        ARG_PROJECT="${1#*=}"; shift ;;
+      --description)
+        ARG_DESCRIPTION="$2"; shift 2 ;;
+      --description=*)
+        ARG_DESCRIPTION="${1#*=}"; shift ;;
+      --platform)
+        ARG_PLATFORM="$2"; shift 2 ;;
+      --platform=*)
+        ARG_PLATFORM="${1#*=}"; shift ;;
+      --track)
+        ARG_TRACK="$2"; shift 2 ;;
+      --track=*)
+        ARG_TRACK="${1#*=}"; shift ;;
+      --deployment)
+        ARG_DEPLOYMENT="$2"; shift 2 ;;
+      --deployment=*)
+        ARG_DEPLOYMENT="${1#*=}"; shift ;;
+      --gov-mode)
+        ARG_GOV_MODE="$2"; shift 2 ;;
+      --gov-mode=*)
+        ARG_GOV_MODE="${1#*=}"; shift ;;
+      --language)
+        ARG_LANGUAGE="$2"; shift 2 ;;
+      --language=*)
+        ARG_LANGUAGE="${1#*=}"; shift ;;
+      --project-dir)
+        ARG_PROJECT_DIR="$2"; shift 2 ;;
+      --project-dir=*)
+        ARG_PROJECT_DIR="${1#*=}"; shift ;;
+      --git-host)
+        ARG_GIT_HOST="$2"; shift 2 ;;
+      --git-host=*)
+        ARG_GIT_HOST="${1#*=}"; shift ;;
+      --visibility)
+        ARG_VISIBILITY="$2"; shift 2 ;;
+      --visibility=*)
+        ARG_VISIBILITY="${1#*=}"; shift ;;
+      --remote-url)
+        ARG_REMOTE_URL="$2"; shift 2 ;;
+      --remote-url=*)
+        ARG_REMOTE_URL="${1#*=}"; shift ;;
+      --branch-protection-attested)
+        ARG_BRANCH_PROTECTION_ATTESTED=true; shift ;;
+      --allow-existing-dir)
+        ARG_ALLOW_EXISTING_DIR=true; shift ;;
+      --help-non-interactive)
+        print_help_non_interactive
+        exit 0 ;;
       --help|-h)
-        echo "Usage: ./init.sh [--dry-run] [--help]"
-        echo ""
-        echo "Creates a new Solo Orchestrator project with all framework documents,"
-        echo "templates, and tooling configuration."
-        echo ""
-        echo "Options:"
-        echo "  --dry-run   Preview what will be installed and created without executing"
-        echo "  --help, -h  Show this help message"
-        echo ""
-        echo "  Init logs are saved to <project>/.solo-orchestrator/init-TIMESTAMP.log"
-        exit 0
-        ;;
+        cat <<'HELPEOF'
+Usage: ./init.sh [--dry-run] [--help]                                 (interactive)
+       ./init.sh --non-interactive [--config FILE] [INPUT FLAGS...]   (scriptable)
+
+Options:
+  --dry-run                Preview what will be installed and created without executing
+  --help, -h               Show this help message
+  --non-interactive        Enable non-interactive mode (CI / UAT / AI agents)
+  --config FILE            Read JSON config (only honored with --non-interactive)
+  --validate-only          Validate inputs and print resolved config; no scaffolding
+  --help-non-interactive   Show full schema + JSON example + per-flag descriptions
+
+Non-interactive mode (for CI, UAT, AI agents):
+  Required (always):       --project --platform --deployment --language
+  Required (conditional):  --gov-mode (when --deployment=organizational);
+                           --remote-url (when --git-host=other);
+                           --branch-protection-attested (when --git-host=other)
+  Defaults:                --track standard, --git-host github,
+                           --visibility private, --description "",
+                           --project-dir "$HOME/Code/$PROJECT"
+
+Init logs are saved to <project>/.solo-orchestrator/init-TIMESTAMP.log
+HELPEOF
+        exit 0 ;;
       *)
-        echo "Unknown option: $arg"
-        echo "Usage: ./init.sh [--dry-run] [--help]"
-        exit 1
-        ;;
+        echo "Unknown option: $1" >&2
+        echo "Run --help for usage." >&2
+        exit 1 ;;
     esac
   done
 
@@ -2599,8 +3199,27 @@ main() {
   init_log "$INIT_LOG_DIR"
   log_section "Prerequisites"
 
-  check_prerequisites
-  collect_project_info
+  # BL-016: dispatch to non-interactive collection or fall through to interactive.
+  if [ "$NON_INTERACTIVE" = true ]; then
+    if ! collect_inputs_non_interactive; then
+      exit 1
+    fi
+    if [ "$VALIDATE_ONLY" = true ]; then
+      exit 0
+    fi
+    # Derive POC_MODE from GOV_MODE for downstream consumers (existing code uses POC_MODE).
+    POC_MODE="$GOV_MODE"
+    # Pass 3 of collect_inputs_non_interactive already verified required tools.
+  else
+    if [ -n "$CONFIG_FILE" ]; then
+      print_warn "--config requires --non-interactive; ignoring config file"
+    fi
+    if [ -n "$ARG_PROJECT$ARG_PLATFORM$ARG_DEPLOYMENT$ARG_LANGUAGE" ]; then
+      print_warn "Input flags require --non-interactive; ignoring (interactive flow will prompt)"
+    fi
+    check_prerequisites
+    collect_project_info
+  fi
 
   log_section "Project Configuration"
   log_line "Project: $PROJECT_NAME"

@@ -17,6 +17,10 @@ set -euo pipefail
 #   when .claude/pending-approval.json exists. New helper script
 #   scripts/pending-approval.sh. CLAUDE.md template gets new bullet under
 #   Construction Rules. Upgrade picks up the new scripts and template.
+# - BL-016 (2026-04-25): init.sh now supports --non-interactive mode for
+#   scriptable project setup (CI, UAT, AI agents). No upgrade-project.sh
+#   change needed — scripts/init.sh is copied into projects but agents
+#   typically invoke the framework's init.sh directly.
 #
 # Usage:
 #   scripts/upgrade-project.sh --track standard          # Track upgrade only
