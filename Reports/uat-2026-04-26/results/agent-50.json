@@ -1,0 +1,124 @@
+{
+  "agent_id": 50,
+  "config": {
+    "kind": "upgrade",
+    "scenario": "private_poc",
+    "platform": "desktop",
+    "track": "standard",
+    "upgrade_from": "personal"
+  },
+  "framework_head": "d66e8f276079aa352ba90ac54386e1b1896d7494",
+  "started_at": "2026-04-26T03:03:01Z",
+  "completed_at": "2026-04-26T03:06:19Z",
+  "phases": [
+    {
+      "phase": 0,
+      "tests": [
+        {"name": "init_sh_non_interactive_exits_zero", "pass": true, "details": "init.sh --non-interactive completed; verify-install reported 54/54 OK and Setup Complete banner printed."},
+        {"name": "claude_md_created", "pass": true, "details": "CLAUDE.md (18778 bytes) present in project root."},
+        {"name": "project_intake_created", "pass": true, "details": "PROJECT_INTAKE.md present (29193 bytes)."},
+        {"name": "approval_log_created", "pass": true, "details": "APPROVAL_LOG.md present (2082 bytes)."},
+        {"name": "gitignore_created", "pass": true, "details": ".gitignore present (993 bytes)."},
+        {"name": "phase_state_json_phase_zero", "pass": true, "details": "jq '.current_phase' returned 0 immediately after init (advanced manually to 2 only later for Section F baseline)."},
+        {"name": "phase_state_project_set", "pass": true, "details": ".project = 'uat-agent-50'."},
+        {"name": "ci_workflow_created", "pass": true, "details": ".github/workflows/ci.yml present."},
+        {"name": "release_workflow_created", "pass": true, "details": ".github/workflows/release.yml present."},
+        {"name": "framework_clone_present", "pass": true, "details": ".claude/framework/ has gates/, hooks/, rules/."},
+        {"name": "context7_detection", "pass": true, "details": "verify-install.sh reported 'Context7 MCP installed' and 'Context7 MCP configured'."},
+        {"name": "platform_module_present", "pass": true, "details": "docs/platform-modules/desktop.md present (31626 bytes)."},
+        {"name": "no_residual_backup_dir", "pass": true, "details": ".claude-backup absent (init logged removing CDF migration backup)."},
+        {"name": "pre_commit_gate_registered", "pass": true, "details": ".claude/settings.json PreToolUse hooks include pre-commit-gate.sh."},
+        {"name": "stop_checklist_registered", "pass": true, "details": ".claude/settings.json Stop hook references stop-checklist.sh via .claude/framework/hooks."},
+        {"name": "pending_approval_helper_copied", "pass": true, "details": "scripts/pending-approval.sh present (executable, 8798 bytes) — PR #17 U-H fix verified."},
+        {"name": "lint_uat_scenarios_helper_copied", "pass": true, "details": "scripts/lint-uat-scenarios.sh present (executable, 4595 bytes) — PR #17 U-H fix verified."},
+        {"name": "framework_self_guard_active", "pass": true, "details": "Running init.sh from FRAMEWORK dir exited RC=1 with '[FAIL] Refusing to operate inside the Solo Orchestrator framework repo.' message — PR #18 fix verified."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 2,
+      "tests": [
+        {"name": "baseline_built_to_phase2", "pass": true, "details": "Manually advanced current_phase from 0 to 2 (no auto-advance script — see U-D regression below). Started feature 'uat-feat-1', completed all 6 build_loop steps (tests_written, tests_verified_failing, implemented, security_audit [stub audit md], documentation_updated, feature_recorded), and committed feat: uat-1. test-gate.sh --record-feature uat-feat-1 added it to build-progress.features_completed."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "U-D confirmation: no script advances current_phase after gate passes",
+          "reproduction": "After init, no documented script writes .claude/phase-state.json .current_phase = 1 (or 2). Had to jq-patch the field manually to make Section F baseline reachable.",
+          "expected": "A scripted, documented mechanism (e.g. process-checklist.sh --advance-phase or check-phase-gate.sh promotes after success) bumps current_phase when its gate passes.",
+          "actual": "check-phase-gate.sh prints 'Phase gates consistent.' but never modifies current_phase; process-checklist.sh has --start-phase3 / --start-phase4 but no Phase 0->1 or Phase 1->2 driver."
+        }
+      ],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 3,
+      "tests": [
+        {"name": "upgrade_command_exits_zero", "pass": false, "details": "bash scripts/intake-wizard.sh --upgrade-deployment organizational exited RC=1. The upgrade itself completed (commit 'chore(upgrade): deployment personal -> organizational' was created and verify-install passed 54/54), but the trailing 'Refreshing framework helper scripts (BL-009, BL-015)' step ran 'cp scripts/pending-approval.sh scripts/pending-approval.sh' (same file) which `cp` rejects, propagating non-zero through `set -e`."},
+        {"name": "phase_state_preserved", "pass": true, "details": ".current_phase still 2 after upgrade; .project still 'uat-agent-50'."},
+        {"name": "process_state_preserved", "pass": true, "details": ".claude/build-progress.json.features_completed still ['uat-feat-1']; .claude/process-state.json.build_loop unchanged (reset state from completion of feature_recorded step)."},
+        {"name": "new_required_artifacts_listed", "pass": true, "details": "Upgrade output printed 'Next steps for organizational deployment: 1. Pre-Phase 0 organizational pre-conditions in APPROVAL_LOG.md, 2. Section 8 of PROJECT_INTAKE.md (governance pre-flight), 3. Assign approval authorities for each phase gate.'"},
+        {"name": "pending_approval_sentinel_respected", "pass": true, "details": "Wrote .claude/pending-approval.json before upgrade, ran intake-wizard --upgrade-deployment organizational; exited RC=1 with '[FAIL] upgrade blocked — pending user decision.' PR #17 U-F fix verified."},
+        {"name": "upgrade_changelog_present_in_script", "pass": true, "details": "scripts/upgrade-project.sh header references both 'BL-006 (2026-04-24)' and 'BL-015 (2026-04-25)' changelog entries (lines 1465-1469 also reference BL-009/BL-015 helper refresh)."},
+        {"name": "no_template_placeholders_in_output", "pass": true, "details": "grep -E '__PROJECT_NAME__|__PLATFORM__|__LANGUAGE__|__TRACK__' on /tmp/uat50_upgrade2.log returned 0 matches."},
+        {"name": "deployment_field_actually_written_to_phase_state_json", "pass": false, "details": "After upgrade, .claude/phase-state.json.deployment is still 'personal' even though upgrade output read 'Deployment: personal -> organizational' and committed phase-state.json (the 'last_upgrade':'2026-04-25' field WAS added). U-J still open."},
+        {"name": "intake_wizard_runs_from_framework_path", "pass": false, "details": "Running 'bash $FRAMEWORK/scripts/intake-wizard.sh --upgrade-deployment organizational' from inside the project directory aborts with 'Error: PROJECT_INTAKE.md not found. Run this script from a Solo Orchestrator project directory.' Workaround was to invoke the project-local copy 'bash scripts/intake-wizard.sh ...'. PROJECT_ROOT is computed as $SCRIPT_DIR/.. (line 20 of intake-wizard.sh) — when SCRIPT_DIR resolves to the framework's scripts/, PROJECT_ROOT becomes the framework dir. U-G still open."},
+        {"name": "upgrade_to_private_poc_path_exists", "pass": false, "details": "Runbook config maps private_poc -> DEPLOY=organizational + GOV=--gov-mode private_poc; but intake-wizard --upgrade-deployment only accepts personal|organizational, and there is no --upgrade-to-private-poc / --gov-mode arg on intake-wizard or upgrade-project. Running 'intake-wizard.sh --upgrade-deployment private_poc' aborts with '[FAIL] Invalid target deployment: private_poc (must be: personal, organizational)'. So the documented private_poc upgrade target from a personal baseline has no working CLI path; only the organizational deployment bump is reachable, and it does not set poc_mode."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "High",
+          "summary": "upgrade-project.sh helper-refresh cp same-file abort when run from project scripts dir",
+          "reproduction": "From a project that has scripts/upgrade-project.sh (i.e. the only path the runbook documents), run 'bash scripts/intake-wizard.sh --upgrade-deployment organizational'. Upgrade body runs fine; at end of script (lines 1469-1480 of upgrade-project.sh), 'cp \"$SCRIPT_DIR/$helper\" \"scripts/$helper\"' is the same file because SCRIPT_DIR resolves to the project's scripts/ when invoked from there.",
+          "expected": "Helper refresh skips when src/dst are identical, OR uses cp -p with same-file tolerance, OR (better) only runs when upgrade-project.sh was invoked from the framework copy.",
+          "actual": "cp prints 'cp: scripts/pending-approval.sh and .../scripts/pending-approval.sh are identical (not copied).' and exits non-zero under set -e, masking the otherwise-successful upgrade with RC=1."
+        },
+        {
+          "severity": "High",
+          "summary": "private_poc has no upgrade path from personal baseline",
+          "reproduction": "intake-wizard.sh --upgrade-deployment private_poc rejected ('Invalid target deployment'); --upgrade-deployment organizational succeeds but leaves poc_mode=null and gov_mode unset. The runbook itself codes private_poc -> --upgrade-deployment {TARGET_DEPLOYMENT} which has no working value for the private_poc transition.",
+          "expected": "A documented CLI flag (e.g. intake-wizard.sh --upgrade-to-private-poc, mirroring --to-sponsored-poc) that bumps deployment AND sets poc_mode='private_poc' AND configures the gov-mode toggles for an organizational POC.",
+          "actual": "No such flag exists; the closest analog (--to-sponsored-poc) is hard-coded for sponsored_poc and assumes the project is already organizational/light. There is no personal -> private_poc transition wired up."
+        },
+        {
+          "severity": "Medium",
+          "summary": "U-G confirmation: intake-wizard.sh PROJECT_ROOT hardcoded to framework when run from FRAMEWORK path",
+          "reproduction": "From a project directory with PROJECT_INTAKE.md present, run 'bash $FRAMEWORK/scripts/intake-wizard.sh --upgrade-deployment organizational'. Aborts with 'Error: PROJECT_INTAKE.md not found.' because PROJECT_ROOT is set to $SCRIPT_DIR/.. (line 20), which is the framework dir, not $PWD.",
+          "expected": "intake-wizard.sh either honors $PWD when it contains PROJECT_INTAKE.md, or refuses with a clearer message instructing the user to run from the project's scripts/ copy.",
+          "actual": "Same behavior described in U-G in the prior sweep — bug remains. The script even has an inline comment at line 16 acknowledging the issue."
+        },
+        {
+          "severity": "Medium",
+          "summary": "U-J confirmation: deployment field not rewritten in phase-state.json on upgrade",
+          "reproduction": "Run 'bash scripts/intake-wizard.sh --upgrade-deployment organizational' on a personal-baseline project. After upgrade, jq '.deployment' .claude/phase-state.json returns 'personal' (unchanged), even though the upgrade output explicitly said 'Deployment: personal -> organizational' and the file was committed (last_upgrade key was added).",
+          "expected": "phase-state.json.deployment should be set to 'organizational' (the new value) on a deployment upgrade.",
+          "actual": "Field remains 'personal'. Same as U-J in prior sweep."
+        }
+      ],
+      "documentation_gaps": [
+        {
+          "gap": "RUNBOOK Section F (lines 287-294) tells upgrade agents to run 'intake-wizard.sh --upgrade-deployment {TARGET_DEPLOYMENT}' for private_poc/sponsored_poc, but --upgrade-deployment only accepts personal|organizational. The 'TARGET_DEPLOYMENT' substitution is ambiguous: for private_poc it would have to be 'organizational' (deployment-only) plus an unsupplied --gov-mode private_poc. Runbook should instead document a --upgrade-to-private-poc flag (which doesn't exist yet) or list the multi-step recipe (organizational then manual gov-mode toggle).",
+          "where": "Reports/uat-2026-04-26/RUNBOOK.md:287-294 (Section F upgrade dispatch)"
+        },
+        {
+          "gap": "RUNBOOK Section F directs running upgrade via 'bash $FRAMEWORK/scripts/intake-wizard.sh --upgrade-deployment ...' but that path triggers U-G (script aborts with PROJECT_INTAKE.md not found because PROJECT_ROOT becomes the framework dir). The working invocation is 'bash scripts/intake-wizard.sh ...' from inside the project. Runbook should either pin to the project-local copy or call out the U-G workaround.",
+          "where": "Reports/uat-2026-04-26/RUNBOOK.md:289 (Section F upgrade command)"
+        }
+      ]
+    },
+    {
+      "phase": 4,
+      "tests": [
+        {"name": "no_uncommitted_secrets", "pass": true, "details": "git grep -lE '(password|api[_-]?key|secret|token)' returned only docs/templates/ci/scripts that legitimately discuss tokens/secrets (e.g., gitleaks docs, governance-framework.md, ci.yml gh action token vars). No literal secret values committed."},
+        {"name": "log_files_consistent", "pass": true, "details": "N/A — no FORCE/reset events occurred during this run, so .claude/process-audit.log is correctly absent."},
+        {"name": "no_orphaned_tempfiles", "pass": true, "details": "find $WORKDIR/.claude -name '*.tmp' returned no files."},
+        {"name": "no_framework_contamination", "pass": true, "details": "git -C $FRAMEWORK rev-parse HEAD = d66e8f276079aa352ba90ac54386e1b1896d7494 (matches setup capture); git status --short shows only the pre-existing untracked '.claude/' and 'Reports/uat-2026-04-26/' that were already present at sweep start (the agent only writes Reports/uat-2026-04-26/results/agent-50.json into an untracked Reports tree)."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    }
+  ],
+  "overall_pass": false,
+  "summary": "Init Section A all green (PR #17/18/19 fixes verified). Upgrade flow exercised the only reachable path (--upgrade-deployment organizational); BL-015 sentinel correctly blocked, deployment commit landed, but upgrade exits RC=1 due to a same-file cp in the helper-refresh step (new High) and there is no working CLI path for personal->private_poc (new High). Confirmed open prior-sweep bugs U-D, U-G, U-J at Medium."
+}

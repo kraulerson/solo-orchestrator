@@ -60,18 +60,18 @@ Common pre-flight content for mobile:
 
 Reference file: `templates/uat/references/mobile-pre-flight.html`.
 
-### 3.4 mcp-server
+### 3.4 mcp_server
 
 An MCP-server pre-flight must establish: MCP client the scenarios assume (MCP Inspector is reproducible and recommended; Claude Desktop and Claude Code are valid alternatives), server command with any required env vars, transport (stdio vs HTTP), auth configuration, and a one-time setup block (export env vars, start Inspector pointing at the server, confirm tools/resources list loads).
 
-Common pre-flight content for mcp-server:
+Common pre-flight content for mcp_server:
 - **System under test:** MCP server + Inspector (or alternate client).
 - **Server command:** exact invocation from the project's mcp.json.
 - **Transport:** stdio default; HTTP noted separately where used.
 - **Auth:** env var exports (e.g., `MCP_API_KEY`).
 - **One-time setup:** export env → start Inspector against server → confirm connection.
 
-Reference file: `templates/uat/references/mcp-server-pre-flight.html`.
+Reference file: `templates/uat/references/mcp_server-pre-flight.html`.
 
 ## 4. Per-platform scenario patterns
 
@@ -108,7 +108,7 @@ Example anchor styles:
 
 Reference file: `templates/uat/references/mobile-scenario.json`.
 
-### 4.4 mcp-server
+### 4.4 mcp_server
 
 Typical scenario shapes: JSON-RPC tool invocation with response-shape assertions (exact types and values for named fields); pagination/cursor behavior; error-response shape (tool call with invalid args); resource read with content assertion; state-mutation tools paired with inverse calls for cleanup.
 
@@ -117,7 +117,7 @@ Example anchor styles:
 - "`response.result.total` is the integer 25."
 - "Response does not contain an `error` field at the top level."
 
-Reference file: `templates/uat/references/mcp-server-scenario.json`.
+Reference file: `templates/uat/references/mcp_server-scenario.json`.
 
 ## 5. Co-build protocol for 'other' platform
 

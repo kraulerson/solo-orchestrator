@@ -1,0 +1,142 @@
+{
+  "agent_id": 58,
+  "config": {
+    "kind": "upgrade",
+    "scenario": "private_poc",
+    "platform": "mcp_server",
+    "track": "light",
+    "upgrade_from": "personal"
+  },
+  "framework_head": "d66e8f276079aa352ba90ac54386e1b1896d7494",
+  "started_at": "2026-04-26T03:15:50Z",
+  "completed_at": "2026-04-26T03:35:00Z",
+  "phases": [
+    {
+      "phase": 0,
+      "tests": [
+        {"name": "init_sh_non_interactive_exits_zero", "pass": true, "details": "init.sh --non-interactive completed end-to-end including verify-install + print_next_steps; one MANUAL warning about platform module (separate bug)."},
+        {"name": "claude_md_created", "pass": true, "details": "CLAUDE.md exists in project root"},
+        {"name": "project_intake_created", "pass": true, "details": "PROJECT_INTAKE.md exists"},
+        {"name": "approval_log_created", "pass": true, "details": "APPROVAL_LOG.md exists"},
+        {"name": "gitignore_created", "pass": true, "details": ".gitignore exists"},
+        {"name": "phase_state_json_phase_zero", "pass": true, "details": ".current_phase=0 in fresh project"},
+        {"name": "phase_state_project_set", "pass": true, "details": ".project=uat-agent-58"},
+        {"name": "ci_workflow_created", "pass": true, "details": ".github/workflows/ci.yml exists"},
+        {"name": "release_workflow_created", "pass": false, "details": ".github/workflows/release.yml NOT created by init.sh; only ci.yml present in .github/workflows/"},
+        {"name": "framework_clone_present", "pass": true, "details": ".claude/framework directory present (CDF clone)"},
+        {"name": "context7_detection", "pass": true, "details": "verify-install reports Context7 MCP configured (and Qdrant/Superpowers); 51 OK / 1 manual"},
+        {"name": "platform_module_present", "pass": false, "details": "docs/platform-modules/ is empty in project. Framework has docs/platform-modules/mcp-server.md (HYPHEN), but init.sh line 1124 looks for ${PLATFORM}.md i.e. mcp_server.md (UNDERSCORE). Mismatch causes mcp_server platform to never have its module copied."},
+        {"name": "no_residual_backup_dir", "pass": true, "details": "No .claude-backup directory present"},
+        {"name": "pre_commit_gate_registered", "pass": true, "details": "PreToolUse Bash matcher includes scripts/pre-commit-gate.sh and CDF pre-commit-checks.sh"},
+        {"name": "stop_checklist_registered", "pass": true, "details": "Stop hook registers CDF stop-checklist.sh and session-end-qdrant-reminder.sh"},
+        {"name": "pending_approval_helper_copied", "pass": true, "details": "scripts/pending-approval.sh present (PR #17 U-H fix holds)"},
+        {"name": "lint_uat_scenarios_helper_copied", "pass": true, "details": "scripts/lint-uat-scenarios.sh present (PR #17 U-H fix holds)"},
+        {"name": "framework_self_guard_active", "pass": true, "details": "Running init.sh --non-interactive from $FRAMEWORK with web/typescript/personal exits 1 with [FAIL] Refusing to operate inside the Solo Orchestrator framework repo. PR #18 holds."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "High",
+          "summary": "init.sh does not generate .github/workflows/release.yml for personal/mcp_server/light",
+          "reproduction": "bash $FRAMEWORK/init.sh --non-interactive --project P --platform mcp_server --track light --deployment personal --language python --project-dir $WORKDIR/P --git-host other --remote-url https://example.com/fake.git --branch-protection-attested --visibility private --allow-existing-dir; ls $WORKDIR/P/.github/workflows/",
+          "expected": "Both ci.yml and release.yml present (per Section A test cases ci_workflow_created and release_workflow_created)",
+          "actual": "Only ci.yml present; release.yml is missing; release pipeline asserted by Section E (Phase 4) is therefore absent at init time."
+        },
+        {
+          "severity": "High",
+          "summary": "platform-module filename mismatch: init.sh expects mcp_server.md, framework ships mcp-server.md",
+          "reproduction": "ls /Users/karl/Documents/Claude Projects/solo-orchestrator/docs/platform-modules/  -> mcp-server.md (hyphen). init.sh line 1124 references ${PLATFORM}.md where PLATFORM=mcp_server -> mcp_server.md (underscore). cp silently no-ops; verify-install warns 'Platform module (mcp_server.md) missing'.",
+          "expected": "init.sh copies the mcp_server platform module into docs/platform-modules/ in the generated project; verify-install reports OK.",
+          "actual": "docs/platform-modules/ in project is empty; verify-install permanently warns MANUAL: Platform module (mcp_server.md) missing. Naming convention inside the framework (mcp-server.md) does not match the canonical platform key (mcp_server)."
+        }
+      ],
+      "documentation_gaps": [
+        {"gap": "init.sh --help-non-interactive does not document that mcp_server platform requires the framework to also fix its docs/platform-modules/ filename — users following the docs will silently miss the platform module.", "where": "init.sh ~line 1124 + docs/platform-modules/ naming"}
+      ]
+    },
+    {
+      "phase": 1,
+      "tests": [
+        {"name": "start_phase1_exits_zero", "pass": true, "details": "process-checklist.sh --start-phase1 OK"},
+        {"name": "phase1_steps_array_present", "pass": true, "details": ".phase1_architecture.steps_completed is array"},
+        {"name": "each_phase1_step_completes", "pass": true, "details": "All 5 PHASE1_STEPS (architecture_selected, threat_model_complete, data_model_defined, ui_scaffolding_done, bible_synthesized) completed sequentially"},
+        {"name": "phase1_to_phase2_gate_passes", "pass": true, "details": "scripts/check-phase-gate.sh reports 'Phase gates consistent.' RC=0"},
+        {"name": "phase_state_advances_to_2", "pass": false, "details": "After all phase1 steps complete and check-phase-gate passes, .current_phase remains 0. No script auto-advances. Confirms U-D still open. Manually set current_phase=2 to proceed with upgrade test."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "U-D confirmation: no script advances current_phase after phase 1 gate passes",
+          "reproduction": "After completing all 5 phase1_architecture steps and running scripts/check-phase-gate.sh (returns 'Phase gates consistent.', RC=0), inspect .claude/phase-state.json — .current_phase is still 0.",
+          "expected": "Some script (check-phase-gate.sh, process-checklist.sh, or a dedicated advance-phase script) should set .current_phase to 2 once gate is consistent and approval is logged.",
+          "actual": "Phase remains at 0; users must hand-edit phase-state.json to proceed. (Known-open prior-sweep bug U-D.)"
+        }
+      ],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 2,
+      "tests": [
+        {"name": "start_feature_records_state", "pass": true, "details": ".build_loop.feature='uat-feat-1' after --start-feature"},
+        {"name": "each_step_completes_in_order", "pass": true, "details": "All 6 BUILD_LOOP_STEPS completed sequentially with stub artifacts"},
+        {"name": "recorded_feature_appears_in_progress", "pass": true, "details": ".features_completed contains 'uat-feat-1' in build-progress.json after test-gate.sh --record-feature"}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": "F-upgrade",
+      "tests": [
+        {"name": "upgrade_command_exits_zero", "pass": true, "details": "intake-wizard.sh --upgrade-deployment organizational completed and printed 'Upgrade Complete'. NOTE: runbook syntax says --upgrade-deployment private_poc, but intake-wizard.sh only accepts personal|organizational; tried that first and it exited with 'Invalid target deployment: private_poc (must be: personal, organizational)'. See documentation_gap."},
+        {"name": "phase_state_preserved", "pass": true, "details": ".current_phase still 2 and .project still uat-agent-58 after upgrade"},
+        {"name": "process_state_preserved", "pass": true, "details": ".phase1_architecture.steps_completed unchanged; .build_loop history reset (build_loop is per-feature so reset is expected after feature_recorded)"},
+        {"name": "build_progress_features_preserved", "pass": true, "details": ".features_completed still contains 'uat-feat-1' post-upgrade"},
+        {"name": "new_required_artifacts_listed", "pass": true, "details": "Upgrade output lists: 1) Pre-Phase 0 organizational pre-conditions in APPROVAL_LOG.md; 2) PROJECT_INTAKE.md Section 8 (governance pre-flight); 3) assign approval authorities for each phase gate"},
+        {"name": "pending_approval_sentinel_respected", "pass": true, "details": "With .claude/pending-approval.json present, intake-wizard.sh --upgrade-deployment organizational refused with [FAIL] upgrade blocked — pending user decision; phase-state and process-state unchanged. After scripts/pending-approval.sh --resolve, retry succeeded. PR #17 U-F fix holds. (Caveat: blocked exit code is 0, not non-zero — see bug below.)"},
+        {"name": "upgrade_changelog_present_in_script", "pass": true, "details": "scripts/upgrade-project.sh header mentions BL-006 (2026-04-24) and BL-015 (2026-04-25) changelog entries"},
+        {"name": "no_template_placeholders_in_output", "pass": true, "details": "grep -E '__PROJECT_NAME__|__PLATFORM__|__LANGUAGE__|__TRACK__' upgrade.log returned 0 matches"},
+        {"name": "deployment_field_written_to_phase_state", "pass": false, "details": "After successful upgrade, .claude/phase-state.json .deployment is still 'personal'. PROJECT_INTAKE.md was correctly updated to 'Organizational' and CLAUDE.md was updated, and the commit message says 'deployment personal -> organizational', but the canonical deployment field in phase-state.json was never written. Confirms U-J still open."},
+        {"name": "intake_wizard_accepts_runbook_target_value", "pass": false, "details": "Runbook Section F instructs `intake-wizard.sh --upgrade-deployment {TARGET_DEPLOYMENT}` where TARGET_DEPLOYMENT for private_poc target is 'private_poc' per the runbook's own scenario→deployment mapping. intake-wizard rejects 'private_poc' with 'Invalid target deployment: private_poc (must be: personal, organizational)'. Either the runbook syntax is wrong or the wizard is missing a poc_mode-aware path."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "U-J confirmation: upgrade does not write deployment field to phase-state.json",
+          "reproduction": "1) init personal/mcp_server/light. 2) bash scripts/intake-wizard.sh --upgrade-deployment organizational. 3) jq -r '.deployment' .claude/phase-state.json -> still 'personal'. The upgrade commit (b7a7e8b) only changes .current_phase and adds .last_upgrade; the deployment field is untouched even though the commit message and stdout claim 'personal -> organizational'.",
+          "expected": ".claude/phase-state.json .deployment becomes 'organizational' (and .poc_mode set to private_poc when applicable) after the upgrade commits.",
+          "actual": "phase-state.json .deployment stays 'personal'; downstream gates and the wizard read this canonical field, so the upgrade is effectively cosmetic. (Known-open prior-sweep bug U-J.)"
+        },
+        {
+          "severity": "High",
+          "summary": "intake-wizard --upgrade-deployment has no path to set poc_mode (private_poc / sponsored_poc)",
+          "reproduction": "bash scripts/intake-wizard.sh --upgrade-deployment private_poc -> exits with 'Invalid target deployment: private_poc (must be: personal, organizational)'. Even with --upgrade-deployment organizational, .poc_mode in phase-state.json remains null after the upgrade. There is no --upgrade-deployment value or other intake-wizard flag that produces a private_poc state, despite the runbook (and presumably user docs) treating 'upgrade to private_poc' as a first-class operation.",
+          "expected": "Either intake-wizard.sh accepts --upgrade-deployment private_poc / sponsored_poc and sets phase-state.json .deployment=organizational + .poc_mode=private_poc/sponsored_poc, or there is a separate documented flag (--gov-mode, --to-private-poc) that does this. Runbook Section F implies the former.",
+          "actual": "No supported syntax produces a fresh private_poc state from a personal baseline. organizational is the only accepted value and it leaves poc_mode null."
+        },
+        {
+          "severity": "Low",
+          "summary": "Sentinel-blocked upgrade exits 0 instead of non-zero",
+          "reproduction": "Write valid .claude/pending-approval.json. Run bash scripts/intake-wizard.sh --upgrade-deployment organizational. Output: [FAIL] upgrade blocked — pending user decision; echo $? -> 0.",
+          "expected": "When upgrade refuses to proceed because of a sentinel, the script should exit non-zero so CI/automation can detect the block.",
+          "actual": "Exit code 0 despite [FAIL] message; only the human-readable text indicates blocking."
+        }
+      ],
+      "documentation_gaps": [
+        {"gap": "Runbook says `intake-wizard.sh --upgrade-deployment {TARGET_DEPLOYMENT}` for private_poc/sponsored_poc, but the script only accepts personal|organizational and has no POC-mode value. Either the runbook syntax or the script's value set is wrong.", "where": "RUNBOOK.md Section F (lines 286-294) vs scripts/intake-wizard.sh:1584-1594"},
+        {"gap": "Help text for `intake-wizard.sh --upgrade-deployment` describes target as personal|organizational, but does not mention how to upgrade INTO a poc_mode (private_poc, sponsored_poc). User has no documented path.", "where": "scripts/intake-wizard.sh --help (line 1538)"}
+      ]
+    },
+    {
+      "phase": "G-postflight",
+      "tests": [
+        {"name": "no_uncommitted_secrets", "pass": true, "details": "grep -lE 'password|api[_-]?key|secret|token' on committed files matches only docstring/template content (security-scan-guide, ci.yml's GITHUB_TOKEN env, framework hooks); no '<key>: <quoted-value>' literal secrets present."},
+        {"name": "log_files_consistent", "pass": true, "details": ".claude/process-audit.log absent — N/A since no FORCE/reset events occurred during this run."},
+        {"name": "no_orphaned_tempfiles", "pass": true, "details": "find $WORKDIR/uat-agent-58/.claude -name '*.tmp' returns no results"},
+        {"name": "no_framework_contamination", "pass": true, "details": "git -C $FRAMEWORK rev-parse HEAD = d66e8f276079aa352ba90ac54386e1b1896d7494 (matches captured setup HEAD). git status --short shows only pre-existing untracked .claude/ and Reports/uat-2026-04-26/ which predate this run."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    }
+  ],
+  "overall_pass": false,
+  "summary": "init.sh missed release.yml and platform-module file (mcp_server.md vs mcp-server.md naming mismatch); upgrade flow has no path to private_poc target (intake-wizard rejects the value) and U-J confirmed (deployment field never written to phase-state.json on upgrade); pending-approval sentinel correctly blocks but exits 0; framework not contaminated; PR #17/#18/#19 fixes for U-F, U-H, U-N/U-O, U-A all hold."
+}

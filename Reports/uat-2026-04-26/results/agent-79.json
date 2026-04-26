@@ -1,0 +1,76 @@
+{
+  "agent_id": 79,
+  "config": {
+    "kind": "upgrade",
+    "scenario": "production",
+    "platform": "web",
+    "track": "light",
+    "upgrade_from": "sponsored_poc"
+  },
+  "framework_head": "d66e8f276079aa352ba90ac54386e1b1896d7494",
+  "started_at": "2026-04-26T03:50:36Z",
+  "completed_at": "2026-04-26T03:53:18Z",
+  "phases": [
+    {
+      "phase": 0,
+      "tests": [
+        {"name": "init_sh_non_interactive_exits_zero", "pass": true, "details": "init.sh --non-interactive completed successfully (rc=0); verify-install reported all 51 checks passing"},
+        {"name": "claude_md_created", "pass": true, "details": "CLAUDE.md present"},
+        {"name": "project_intake_created", "pass": true, "details": "PROJECT_INTAKE.md present"},
+        {"name": "approval_log_created", "pass": true, "details": "APPROVAL_LOG.md present"},
+        {"name": "gitignore_created", "pass": true, "details": ".gitignore present"},
+        {"name": "phase_state_json_phase_zero", "pass": true, "details": ".current_phase=0"},
+        {"name": "phase_state_project_set", "pass": true, "details": ".project='uat-agent-79'"},
+        {"name": "ci_workflow_created", "pass": true, "details": ".github/workflows/ci.yml present"},
+        {"name": "release_workflow_created", "pass": true, "details": ".github/workflows/release.yml present"},
+        {"name": "framework_clone_present", "pass": true, "details": ".claude/framework directory present"},
+        {"name": "context7_detection", "pass": true, "details": "verify-install reports 'Context7 MCP installed' and 'Context7 MCP configured'"},
+        {"name": "platform_module_present", "pass": true, "details": "docs/platform-modules/web.md present"},
+        {"name": "no_residual_backup_dir", "pass": true, "details": ".claude-backup directory absent (init log shows 'Removed CDF migration backup')"},
+        {"name": "pre_commit_gate_registered", "pass": true, "details": ".claude/settings.json has PreToolUse hook for pre-commit-gate.sh"},
+        {"name": "stop_checklist_registered", "pass": true, "details": ".claude/settings.json contains stop-checklist.sh registration (CDF Stop hook)"},
+        {"name": "pending_approval_helper_copied", "pass": true, "details": "scripts/pending-approval.sh present (PR #17 U-H fix verified)"},
+        {"name": "lint_uat_scenarios_helper_copied", "pass": true, "details": "scripts/lint-uat-scenarios.sh present (PR #17 U-H fix verified)"},
+        {"name": "framework_self_guard_active", "pass": true, "details": "Running init.sh from $FRAMEWORK exits 1 with 'Refusing to operate inside the Solo Orchestrator framework repo' message (PR #18 U-N/U-O fix verified)"}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 2,
+      "tests": [
+        {"name": "baseline_phase1_completed", "pass": true, "details": "All 5 phase1_architecture steps completed successfully (architecture_selected, threat_model_complete, data_model_defined, ui_scaffolding_done, bible_synthesized)"},
+        {"name": "baseline_feature_completed", "pass": true, "details": "Feature 'uat-feat-1' completed full Build Loop (tests_written, tests_verified_failing, implemented, security_audit, documentation_updated, feature_recorded) and recorded via test-gate.sh --record-feature; appears in build-progress.json features_completed array"}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 4,
+      "tests": [
+        {"name": "upgrade_command_exits_zero", "pass": true, "details": "upgrade-project.sh --to-production exited rc=0; output shows 'POC Mode: sponsored poc -> Production', track upgrade light->standard, all updates committed (commit 0ff6653). U-E (poc_mode lookup from phase-state.json) confirmed fixed."},
+        {"name": "phase_state_preserved", "pass": true, "details": ".current_phase=0 and .project='uat-agent-79' unchanged across upgrade"},
+        {"name": "process_state_preserved", "pass": true, "details": ".build_loop reset state preserved; build-progress.json features_completed still ['uat-feat-1'] post-upgrade"},
+        {"name": "new_required_artifacts_listed", "pass": true, "details": "Upgrade output lists CLAUDE.md/PROJECT_INTAKE.md updates required and notes 'No additional tools required for the standard track'; provides 'Review CLAUDE.md for any remaining POC references' and 'Review PROJECT_INTAKE.md Section 8 governance fields' guidance"},
+        {"name": "pending_approval_sentinel_respected", "pass": true, "details": "Wrote .claude/pending-approval.json with valid schema; upgrade-project.sh --to-production exited rc=1 with '[FAIL] upgrade blocked — pending user decision' message and showed pending question/options. PR #17 U-F fix confirmed."},
+        {"name": "upgrade_changelog_present_in_script", "pass": true, "details": "scripts/upgrade-project.sh header (lines 17-18) references both BL-015 (pending-approval sentinel) and BL-006 (pre-commit gate)"},
+        {"name": "no_template_placeholders_in_output", "pass": true, "details": "grep of upgrade output for __PROJECT_NAME__ / __PLATFORM__ / __LANGUAGE__ / __TRACK__ found no matches"}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 5,
+      "tests": [
+        {"name": "no_uncommitted_secrets", "pass": true, "details": "git log -p search for password/api[_-]?key/secret/token returned only documentation placeholders (e.g., 'your-app-password' in BitBucket setup docs and 'sk-abc123...' in security-scan-guide examples) — no actual credentials"},
+        {"name": "log_files_consistent", "pass": true, "details": ".claude/process-audit.log absent (expected — no FORCE/reset events occurred during this run)"},
+        {"name": "no_orphaned_tempfiles", "pass": true, "details": "find $PROJECT_DIR/.claude -name '*.tmp' returned nothing"},
+        {"name": "no_framework_contamination", "pass": true, "details": "git -C $FRAMEWORK rev-parse HEAD unchanged (d66e8f276079aa352ba90ac54386e1b1896d7494). Untracked items (.claude/, Reports/uat-2026-04-26/) are pre-existing per setup snapshot, not introduced by this agent."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    }
+  ],
+  "overall_pass": true,
+  "summary": "Upgrade flow sponsored_poc/web/light -> production completed cleanly: init --non-interactive, Phase 1 + Phase 2 (1 feature recorded), pending-approval sentinel respected (U-F fix verified), upgrade-project.sh --to-production exited 0 with poc_mode read correctly (U-E fix verified), no placeholders, all state preserved, no framework contamination."
+}

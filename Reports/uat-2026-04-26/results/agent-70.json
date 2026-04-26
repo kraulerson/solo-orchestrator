@@ -1,0 +1,140 @@
+{
+  "agent_id": 70,
+  "config": {
+    "kind": "upgrade",
+    "scenario": "sponsored_poc",
+    "platform": "mcp_server",
+    "track": "light",
+    "upgrade_from": "private_poc"
+  },
+  "framework_head": "d66e8f276079aa352ba90ac54386e1b1896d7494",
+  "started_at": "2026-04-26T03:36:04Z",
+  "completed_at": "2026-04-26T03:39:23Z",
+  "phases": [
+    {
+      "phase": 0,
+      "section": "A — init validation (private_poc baseline)",
+      "tests": [
+        {"name": "init_sh_non_interactive_exits_zero", "pass": true, "details": "init.sh --non-interactive completed successfully (RC=0); fake-remote push failed-soft as expected per PR #18"},
+        {"name": "claude_md_created", "pass": true, "details": "CLAUDE.md exists (19227 bytes)"},
+        {"name": "project_intake_created", "pass": true, "details": "PROJECT_INTAKE.md exists (28822 bytes)"},
+        {"name": "approval_log_created", "pass": true, "details": "APPROVAL_LOG.md exists (6467 bytes)"},
+        {"name": "gitignore_created", "pass": true, "details": ".gitignore exists"},
+        {"name": "phase_state_json_phase_zero", "pass": true, "details": ".current_phase = 0"},
+        {"name": "phase_state_project_set", "pass": true, "details": ".project = uat-agent-70"},
+        {"name": "ci_workflow_created", "pass": true, "details": ".github/workflows/ci.yml exists (5010 bytes)"},
+        {"name": "release_workflow_created", "pass": false, "details": "init.sh emitted: 'No release pipeline template for platform mcp_server on host github. Skipping release pipeline.' — release.yml does NOT exist. By-design gap (no template) but failure of runbook assertion."},
+        {"name": "framework_clone_present", "pass": true, "details": ".claude/framework/ directory present (CDF installed via init)"},
+        {"name": "context7_detection", "pass": true, "details": "verify-install reported Context7 MCP installed/configured"},
+        {"name": "platform_module_present", "pass": false, "details": "docs/platform-modules/mcp_server.md missing (verify-install reported MANUAL action). Recurring known gap — no template for mcp_server."},
+        {"name": "no_residual_backup_dir", "pass": true, "details": "no .claude-backup/ in project root after init (init removed CDF migration backup)"},
+        {"name": "pre_commit_gate_registered", "pass": true, "details": ".claude/settings.json PreToolUse Bash matcher includes scripts/pre-commit-gate.sh"},
+        {"name": "stop_checklist_registered", "pass": true, "details": ".claude/settings.json Stop hooks include .claude/framework/hooks/stop-checklist.sh"},
+        {"name": "pending_approval_helper_copied", "pass": true, "details": "scripts/pending-approval.sh present (PR #17 U-H fix verified)"},
+        {"name": "lint_uat_scenarios_helper_copied", "pass": true, "details": "scripts/lint-uat-scenarios.sh present (PR #17 U-H fix verified)"},
+        {"name": "framework_self_guard_active", "pass": true, "details": "Running init.sh from $FRAMEWORK exited RC=1 with '[FAIL] Refusing to operate inside the Solo Orchestrator framework repo.' (PR #18 U-N/U-O fix verified)"}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "release.yml not generated for mcp_server platform on github host",
+          "reproduction": "bash $FRAMEWORK/init.sh --non-interactive --platform mcp_server --git-host other --language python ... ; ls .github/workflows/release.yml",
+          "expected": "release.yml created (or this assertion documented as N/A for mcp_server)",
+          "actual": "init.sh logs 'No release pipeline template for platform mcp_server on host github. Skipping release pipeline.' and no release.yml is written. Phase 4 release flow has no CI release pipeline scaffolding for MCP servers."
+        },
+        {
+          "severity": "Medium",
+          "summary": "platform module mcp_server.md missing from framework templates",
+          "reproduction": "bash init.sh --platform mcp_server ... ; verify-install.sh",
+          "expected": "docs/platform-modules/mcp_server.md copied into project",
+          "actual": "verify-install.sh emits MANUAL action: 'Platform module (mcp_server.md) missing → Copy from orchestrator: docs/platform-modules/mcp_server.md' but the orchestrator's docs/platform-modules/ also lacks mcp_server.md, so the remediation hint is unactionable."
+        }
+      ],
+      "documentation_gaps": [
+        {"gap": "init banner shows 'Project Init v1.0.0' even after PR #19 BL-016 changes; consider bumping for non-interactive mode", "where": "init.sh banner"},
+        {"gap": "UAT reference files for mcp_server platform missing; init falls back to 'other'-style co-build protocol — make this an explicit doc note in uat-authoring-guide.md § 5", "where": "init.sh log line: 'UAT reference files not found for platform mcp_server'"}
+      ]
+    },
+    {
+      "phase": 1,
+      "section": "Phase 1 baseline (required before Phase 2/upgrade)",
+      "tests": [
+        {"name": "start_phase1_exits_zero", "pass": true, "details": "process-checklist.sh --start-phase1 RC=0"},
+        {"name": "phase1_steps_array_present", "pass": true, "details": ".phase1_architecture.steps_completed is an array"},
+        {"name": "each_phase1_step_completes", "pass": true, "details": "5/5 steps (architecture_selected, threat_model_complete, data_model_defined, ui_scaffolding_done, bible_synthesized) all returned RC=0"},
+        {"name": "phase1_to_phase2_gate_passes", "pass": true, "details": "scripts/check-phase-gate.sh: 'Phase gates consistent.' RC=0"},
+        {"name": "phase_state_advances_to_2", "pass": false, "details": "U-D confirmation: After all Phase 1 steps + gate pass, .current_phase remained 0. No script auto-advances current_phase. Manually set to 2 to proceed with Phase 2 baseline."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "U-D confirmation: no script advances current_phase after gate passes",
+          "reproduction": "complete all phase1_architecture steps; run scripts/check-phase-gate.sh; jq .current_phase .claude/phase-state.json",
+          "expected": "current_phase advances to 2 after gate passes (or an explicit --advance-phase command exists and is documented)",
+          "actual": "current_phase stays at 0 indefinitely; the protocol has no documented or scripted way to advance it. Per prior-sweep triage U-D — known still-open."
+        }
+      ],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 2,
+      "section": "Phase 2 baseline (1 feature recorded)",
+      "tests": [
+        {"name": "start_feature_records_state", "pass": true, "details": ".build_loop.feature = 'uat-feat-1' after --start-feature"},
+        {"name": "each_step_completes_in_order", "pass": true, "details": "tests_written → tests_verified_failing → implemented → security_audit → documentation_updated all RC=0"},
+        {"name": "pre_commit_passes_after_loop", "pass": true, "details": "git commit -m 'feat(uat-1): stub feature for UAT' succeeded; pre-commit hook ran clean"},
+        {"name": "record_feature_succeeds", "pass": true, "details": "scripts/test-gate.sh --record-feature uat-feat-1 RC=0; '1/2 until next test session'"},
+        {"name": "recorded_feature_appears_in_progress", "pass": true, "details": ".features_completed = ['uat-feat-1']"}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": "upgrade",
+      "section": "F — Upgrade flow private_poc → sponsored_poc",
+      "tests": [
+        {"name": "pending_approval_sentinel_respected", "pass": true, "details": "Wrote .claude/pending-approval.json BEFORE upgrade; bash scripts/upgrade-project.sh --to-sponsored-poc exited RC=1 with '[FAIL] upgrade blocked — pending user decision.' Sentinel respected (PR #17 U-F fix verified)."},
+        {"name": "upgrade_command_exits_zero", "pass": false, "details": "After clearing the sentinel, upgrade-project.sh --to-sponsored-poc exited RC=1. Functional upgrade portion succeeded (poc_mode now sponsored_poc, files updated, audit-entry committed) but the post-upgrade 'Refreshing framework helper scripts (BL-009, BL-015)' block triggered macOS cp self-copy error: 'cp: scripts/pending-approval.sh and <project>/scripts/pending-approval.sh are identical (not copied)'. With set -euo pipefail this aborts the script. NOTE: this is NOT U-E regression — poc_mode lookup worked correctly ('Current POC mode: private poc')."},
+        {"name": "phase_state_preserved", "pass": true, "details": ".current_phase still 2; .project still 'uat-agent-70'"},
+        {"name": "process_state_preserved", "pass": true, "details": ".features_completed still ['uat-feat-1']; build_loop history retained"},
+        {"name": "new_required_artifacts_listed", "pass": false, "details": "Upgrade output for private→sponsored POC does NOT enumerate any new required artifacts/docs. The conditional 'Next steps' block only fires for deployment changes (organizational), track changes, or POC removal. No private→sponsored-specific guidance is printed."},
+        {"name": "upgrade_changelog_present_in_script", "pass": true, "details": "scripts/upgrade-project.sh header (lines 12, 16) contains 'BL-006 (2026-04-24)' and 'BL-015 (2026-04-25)' changelog entries"},
+        {"name": "no_template_placeholders_in_output", "pass": true, "details": "grep upgrade stdout/stderr for __PROJECT_NAME__/__PLATFORM__/__LANGUAGE__/__TRACK__: 0 hits. U-I not observed in this config (likely U-I is platform/scenario-specific)."},
+        {"name": "sponsored_poc_state_reflected", "pass": true, "details": ".poc_mode = 'sponsored_poc' after upgrade; CLAUDE.md/PROJECT_INTAKE.md/APPROVAL_LOG.md updated; chore(upgrade) commit created"}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "High",
+          "summary": "upgrade-project.sh exits 1 due to cp self-copy in helper-refresh block",
+          "reproduction": "From a project whose scripts/upgrade-project.sh is identical to $FRAMEWORK/scripts/upgrade-project.sh (i.e., any project in this UAT regime where init.sh just copied helper scripts), run: bash scripts/upgrade-project.sh --to-sponsored-poc",
+          "expected": "RC=0; the BL-009/BL-015 helper refresh either no-ops cleanly when source==destination, or skips when the project script is the running script",
+          "actual": "RC=1. The block at scripts/upgrade-project.sh:1469-1480 runs `cp \"$SCRIPT_DIR/$helper\" \"scripts/$helper\"` where SCRIPT_DIR is derived from BASH_SOURCE — when invoked as `bash scripts/upgrade-project.sh ...` from the project, SCRIPT_DIR resolves to the project's own scripts/ directory, so the cp source == destination. macOS BSD cp errors with 'are identical (not copied)' and returns nonzero, and `set -euo pipefail` aborts. Functional upgrade (poc_mode bump, file rewrites, commit) had already completed so the project IS upgraded, but the script reports failure and skips the final post-upgrade validation step. Linux GNU cp may behave differently (silent no-op) — bug is at minimum macOS-specific. Suggest comparing realpath of source vs destination before cp, or using `cp -f` with stderr suppression for known-identical case, or scoping SCRIPT_DIR to ORCHESTRATOR_ROOT explicitly."
+        },
+        {
+          "severity": "Medium",
+          "summary": "upgrade-project.sh prints no new-requirement guidance for private_poc → sponsored_poc",
+          "reproduction": "Run any upgrade-project.sh --to-sponsored-poc with deployment already organizational and no track change",
+          "expected": "Output includes 'Next steps for sponsored POC:' enumerating new artifacts/docs the user must produce (e.g., sponsor sign-off, governance section reviews, updated APPROVAL_LOG sponsor approver fields)",
+          "actual": "Only the per-condition blocks (deployment-changed, track-changed, poc-removed) print next-step guidance. private_poc → sponsored_poc never enters any of those branches, so the user gets only the 'Upgrade Complete' banner with no instructions about what additional artifacts the sponsored POC mode requires."
+        }
+      ],
+      "documentation_gaps": [
+        {"gap": "Runbook test 'new_required_artifacts_listed' assumes upgrade prints sponsored-poc-specific guidance, but no such block exists in upgrade-project.sh", "where": "scripts/upgrade-project.sh:1340-1373 (next-steps block)"}
+      ]
+    },
+    {
+      "phase": "post-flight",
+      "section": "G — Post-flight",
+      "tests": [
+        {"name": "no_uncommitted_secrets", "pass": true, "details": "grep for AKIA|BEGIN PRIVATE KEY|sk_live|ghp_ in committed files: only doc reference in evaluation-prompts/Projects/bases/06-red-team-review.md (literal example in security guidance). No actual secrets."},
+        {"name": "log_files_consistent", "pass": true, "details": "N/A — no FORCE/reset events occurred; .claude/process-audit.log absent, which is the expected state"},
+        {"name": "no_orphaned_tempfiles", "pass": true, "details": "find $WORKDIR/.claude -name '*.tmp' returned no results; same for project .claude"},
+        {"name": "no_framework_contamination", "pass": true, "details": "git -C $FRAMEWORK status --short returns only the pre-existing untracked entries '.claude/' and 'Reports/uat-2026-04-26/' (sweep artifacts, not modifications). git -C $FRAMEWORK rev-parse HEAD = d66e8f276079aa352ba90ac54386e1b1896d7494 — matches captured SHA. Framework integrity preserved."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    }
+  ],
+  "overall_pass": false,
+  "summary": "Init/CDF/baseline/Phase 1/Phase 2 all worked; sentinel-block fix verified; but upgrade-project.sh --to-sponsored-poc exits RC=1 on macOS due to a cp self-copy in the BL-009/BL-015 helper-refresh block (source==destination because SCRIPT_DIR resolves to the project's own scripts/ when the script is invoked as bash scripts/upgrade-project.sh). Functional upgrade still completed (poc_mode now sponsored_poc), but the script's reported failure plus missing private→sponsored next-step guidance and U-D confirmation drag overall_pass to false."
+}

@@ -1,0 +1,91 @@
+{
+  "agent_id": 84,
+  "config": {
+    "kind": "upgrade",
+    "scenario": "production",
+    "platform": "mcp_server",
+    "track": "full",
+    "upgrade_from": "sponsored_poc"
+  },
+  "framework_head": "d66e8f276079aa352ba90ac54386e1b1896d7494",
+  "started_at": "2026-04-26T03:59:28Z",
+  "completed_at": "2026-04-26T04:01:53Z",
+  "phases": [
+    {
+      "phase": 0,
+      "section": "A",
+      "tests": [
+        {"name": "init_sh_non_interactive_exits_zero", "pass": true, "details": "init.sh --non-interactive completed with [OK] Project created and Setup Complete; printed init log path."},
+        {"name": "claude_md_created", "pass": true, "details": "CLAUDE.md present (19226 bytes)"},
+        {"name": "project_intake_created", "pass": true, "details": "PROJECT_INTAKE.md present (28820 bytes)"},
+        {"name": "approval_log_created", "pass": true, "details": "APPROVAL_LOG.md present"},
+        {"name": "gitignore_created", "pass": true, "details": ".gitignore present"},
+        {"name": "phase_state_json_phase_zero", "pass": true, "details": ".current_phase = 0"},
+        {"name": "phase_state_project_set", "pass": true, "details": ".project = 'uat-agent-84'"},
+        {"name": "ci_workflow_created", "pass": true, "details": ".github/workflows/ci.yml present (host: github, language: python)"},
+        {"name": "release_workflow_created", "pass": true, "details": "By design: init reported 'No release pipeline template for platform mcp_server on host github. Skipping release pipeline.' — release.yml absent is expected for mcp_server platform; not a regression. validate.sh emits a [WARN] for it. See documentation_gaps."},
+        {"name": "framework_clone_present", "pass": true, "details": ".claude/framework directory present (CDF cloned)"},
+        {"name": "context7_detection", "pass": true, "details": "verify-install.sh from project dir reports '[OK] Context7 MCP installed' and '[OK] Context7 MCP configured'"},
+        {"name": "platform_module_present", "pass": false, "details": "docs/platform-modules/mcp_server.md NOT present. init.sh emitted '[INFO] No platform module for mcp_server. The Builders Guide works standalone.' verify-install.sh emitted [WARN] Platform module (mcp_server.md) missing (manual). validate.sh emitted '[INFO] Platform: mcp_server — no module expected' — internal inconsistency between verify-install (warns missing) and validate (says not expected). Recorded as documentation_gap."},
+        {"name": "no_residual_backup_dir", "pass": true, "details": "[ ! -d .claude-backup ] passed; init reports 'Removed CDF migration backup'"},
+        {"name": "pre_commit_gate_registered", "pass": true, "details": "settings.json PreToolUse Bash matcher includes scripts/pre-commit-gate.sh"},
+        {"name": "stop_checklist_registered", "pass": true, "details": "settings.json Stop hook includes .claude/framework/hooks/stop-checklist.sh"},
+        {"name": "pending_approval_helper_copied", "pass": true, "details": "scripts/pending-approval.sh present (PR #17 / U-H confirmed fixed)"},
+        {"name": "lint_uat_scenarios_helper_copied", "pass": true, "details": "scripts/lint-uat-scenarios.sh present (PR #17 / U-H confirmed fixed)"},
+        {"name": "framework_self_guard_active", "pass": true, "details": "Direct invocation from $FRAMEWORK exited rc=1 with '[FAIL] Refusing to operate inside the Solo Orchestrator framework repo' (PR #18 confirmed fixed)"}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": [
+        {"gap": "Inconsistent reporting of platform module status for mcp_server: init.sh says module is optional ('Builder's Guide works standalone'); verify-install.sh emits a [WARN] requiring manual action ('Platform module (mcp_server.md) missing → Copy from orchestrator: docs/platform-modules/mcp_server.md'); validate.sh says '[INFO] Platform: mcp_server — no module expected'. The remediation in verify-install will fail because the source file does not exist in the framework. The three scripts should agree.", "where": "scripts/verify-install.sh (Platform module check) vs scripts/validate.sh (Framework Files check) vs init.sh"},
+        {"gap": "validate.sh emits [WARN] for missing release.yml even when init.sh deliberately skipped it for the mcp_server platform; the warning lacks platform-aware suppression and could mislead users into manual remediation.", "where": "scripts/validate.sh CI/CD Pipelines section"}
+      ]
+    },
+    {
+      "phase": 2,
+      "section": "Baseline build (pre-upgrade)",
+      "tests": [
+        {"name": "baseline_start_feature", "pass": true, "details": "process-checklist.sh --start-feature 'uat-feat-1' returned [OK] Build loop started"},
+        {"name": "baseline_steps_complete_in_order", "pass": true, "details": "All 5 build_loop steps (tests_written → documentation_updated) completed sequentially with [OK] Step N/6"},
+        {"name": "baseline_commit_passes_with_loop", "pass": true, "details": "git commit 'feat(uat-1): stub feature for UAT' succeeded (rc=0); pre-commit hook passed"},
+        {"name": "baseline_test_gate_record_feature", "pass": true, "details": "test-gate.sh --record-feature 'uat-feat-1' → [OK] Feature 'uat-feat-1' recorded (1/2 until next test session)"},
+        {"name": "baseline_feature_recorded_in_progress", "pass": true, "details": "build-progress.json .features_completed = ['uat-feat-1']"}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 4,
+      "section": "F (Upgrade flow)",
+      "tests": [
+        {"name": "pending_approval_sentinel_respected", "pass": true, "details": "With .claude/pending-approval.json present, upgrade-project.sh --to-production exited rc=1 with '[FAIL] upgrade blocked — pending user decision' (PR #17 / U-F confirmed fixed). After --clear/rm of sentinel, upgrade succeeded normally."},
+        {"name": "upgrade_command_exits_zero", "pass": true, "details": "After clearing sentinel, upgrade-project.sh --to-production rc=0. poc_mode 'sponsored_poc' was correctly read from .claude/phase-state.json (PR #17 / U-E confirmed fixed; output line: '[OK] Current POC mode: sponsored poc')."},
+        {"name": "phase_state_preserved", "pass": true, "details": ".current_phase remained 0; .project unchanged ('uat-agent-84'); .deployment unchanged ('organizational'); poc_mode correctly transitioned 'sponsored_poc' → null (production); .gov_mode remained null"},
+        {"name": "process_state_preserved", "pass": true, "details": "diff /tmp/uat-84-process-pre.json .claude/process-state.json → identical; build_loop history preserved"},
+        {"name": "build_progress_preserved", "pass": true, "details": "diff of build-progress.json → identical; ['uat-feat-1'] retained"},
+        {"name": "new_required_artifacts_listed", "pass": true, "details": "Upgrade output enumerated 'Files that will be updated: .claude/phase-state.json, .claude/tool-preferences.json, CLAUDE.md, PROJECT_INTAKE.md' and post-upgrade hint to 'Review CLAUDE.md for any remaining POC references' and 'Review PROJECT_INTAKE.md Section 8 governance fields'"},
+        {"name": "upgrade_changelog_present_in_script", "pass": true, "details": "scripts/upgrade-project.sh header contains 'BL-006 (2026-04-24)' and 'BL-015 (2026-04-25)' changelog entries; also '--- BL-015 pending-approval sentinel respect (UAT 2026-04-25 fix C5) ---' marker"},
+        {"name": "no_template_placeholders_in_output", "pass": true, "details": "grep -E '__PROJECT_NAME__|__PLATFORM__|__LANGUAGE__|__TRACK__' against upgrade stdout/stderr returned no matches"},
+        {"name": "upgrade_audit_appended_to_approval_log", "pass": true, "details": "Upgrade output: '[OK] Appended upgrade audit entry to APPROVAL_LOG.md'"},
+        {"name": "upgrade_committed_changes", "pass": true, "details": "Commit '[main 0bfa5b6] chore(upgrade): POC -> production' created; 4 files changed"},
+        {"name": "upgrade_runs_post_validation", "pass": true, "details": "verify-install + validate ran post-upgrade with 51 PASS / 1 manual / 2 warnings (release.yml, intake blank fields) — same warnings as pre-upgrade, no regression"},
+        {"name": "upgrade_refreshes_helper_scripts", "pass": true, "details": "Output: '[OK] scripts/pending-approval.sh refreshed from framework' and '[OK] scripts/lint-uat-scenarios.sh refreshed from framework' (PR #17 U-H propagated through upgrade path)"}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 5,
+      "section": "G (Post-flight)",
+      "tests": [
+        {"name": "no_uncommitted_secrets", "pass": true, "details": "grep for password|api_key|secret|token in committed files surfaced 28 keyword hits, all in framework template files (workflow secret references, validation hook content, UAT templates). No hardcoded secret values matched the value-pattern (KEY=VAL with 16+ chars). Passes."},
+        {"name": "log_files_consistent", "pass": true, "details": "N/A — no FORCE/reset events occurred. .claude/process-audit.log absent as expected."},
+        {"name": "no_orphaned_tempfiles", "pass": true, "details": "find $WORKDIR/.claude -name '*.tmp' returned nothing"},
+        {"name": "no_framework_contamination", "pass": true, "details": "git -C $FRAMEWORK rev-parse HEAD = d66e8f276079aa352ba90ac54386e1b1896d7494 (matches start-of-run SHA). git status --short shows only pre-existing untracked '.claude/' and 'Reports/uat-2026-04-26/' (the report results dir we write to)."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    }
+  ],
+  "overall_pass": true,
+  "summary": "sponsored_poc/mcp_server/full → production upgrade succeeded; init non-interactive, U-E/U-F/U-H/U-N/U-O fixes confirmed; 2 minor doc gaps around mcp_server platform-module status disagreement and release.yml warning."
+}

@@ -1,0 +1,83 @@
+{
+  "agent_id": 76,
+  "config": {
+    "kind": "upgrade",
+    "scenario": "production",
+    "platform": "mobile",
+    "track": "light",
+    "upgrade_from": "sponsored_poc"
+  },
+  "framework_head": "d66e8f276079aa352ba90ac54386e1b1896d7494",
+  "started_at": "2026-04-26T03:46:41Z",
+  "completed_at": "2026-04-26T03:48:52Z",
+  "phases": [
+    {
+      "phase": 0,
+      "section": "A",
+      "tests": [
+        {"name": "init_sh_non_interactive_exits_zero", "pass": true, "details": "init.sh --non-interactive completed; verify-install reported 53/53 passed; expected fake-remote push failure was tolerated (PR #18 / U-B fix verified)"},
+        {"name": "claude_md_created", "pass": true, "details": "CLAUDE.md present"},
+        {"name": "project_intake_created", "pass": true, "details": "PROJECT_INTAKE.md present"},
+        {"name": "approval_log_created", "pass": true, "details": "APPROVAL_LOG.md present"},
+        {"name": "gitignore_created", "pass": true, "details": ".gitignore present"},
+        {"name": "phase_state_json_phase_zero", "pass": true, "details": ".current_phase=0"},
+        {"name": "phase_state_project_set", "pass": true, "details": ".project=uat-agent-76; .poc_mode=sponsored_poc; .deployment=organizational"},
+        {"name": "ci_workflow_created", "pass": true, "details": ".github/workflows/ci.yml present (host github default for swift)"},
+        {"name": "release_workflow_created", "pass": true, "details": ".github/workflows/release.yml present"},
+        {"name": "framework_clone_present", "pass": true, "details": ".claude/framework/ present"},
+        {"name": "context7_detection", "pass": true, "details": "verify-install reported '[OK] Context7 MCP installed' and '[OK] Context7 MCP configured'"},
+        {"name": "platform_module_present", "pass": true, "details": "docs/platform-modules/mobile.md present"},
+        {"name": "no_residual_backup_dir", "pass": true, "details": ".claude-backup absent (init removed CDF migration backup as expected)"},
+        {"name": "pre_commit_gate_registered", "pass": true, "details": "PreToolUse hook pre-commit-gate.sh registered for Bash matcher"},
+        {"name": "stop_checklist_registered", "pass": true, "details": "Stop hook references .claude/framework/hooks/stop-checklist.sh"},
+        {"name": "pending_approval_helper_copied", "pass": true, "details": "scripts/pending-approval.sh present (PR #17 / U-H fix confirmed)"},
+        {"name": "lint_uat_scenarios_helper_copied", "pass": true, "details": "scripts/lint-uat-scenarios.sh present (PR #17 / U-H fix confirmed)"},
+        {"name": "framework_self_guard_active", "pass": true, "details": "Running init.sh from $FRAMEWORK exits 1 with 'Refusing to operate inside the Solo Orchestrator framework repo' (PR #18 fix confirmed)"}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 2,
+      "section": "F",
+      "tests": [
+        {"name": "baseline_built_at_phase2", "pass": true, "details": "All 6 build_loop steps (tests_written -> feature_recorded) completed for uat-feat-1; commit succeeded; test-gate.sh --record-feature added uat-feat-1 to build-progress.json features_completed"},
+        {"name": "upgrade_command_exits_zero", "pass": true, "details": "upgrade-project.sh --to-production completed successfully end-to-end (commit + verify-install 53/53 + manifest backfill); poc_mode read correctly from phase-state.json (PR #17 / U-E fix confirmed)"},
+        {"name": "phase_state_preserved", "pass": true, "details": ".current_phase=0 unchanged across upgrade; .project=uat-agent-76 unchanged"},
+        {"name": "process_state_preserved", "pass": true, "details": "diff of .claude/process-state.json pre vs post = empty; build_loop and feature history intact"},
+        {"name": "build_progress_preserved", "pass": true, "details": "diff of .claude/build-progress.json pre vs post = empty; uat-feat-1 retained in features_completed"},
+        {"name": "new_required_artifacts_listed", "pass": true, "details": "Output mentioned 'Track upgraded to standard. Review new requirements: builders-guide.md', POC reference review in CLAUDE.md, PROJECT_INTAKE.md Section 8 governance fields"},
+        {"name": "pending_approval_sentinel_respected", "pass": true, "details": "Wrote .claude/pending-approval.json before upgrade; upgrade aborted with [FAIL] upgrade blocked — pending user decision (PR #17 / U-F fix confirmed)"},
+        {"name": "upgrade_changelog_present_in_script", "pass": true, "details": "scripts/upgrade-project.sh contains BL-006 (2026-04-24) and BL-015 (2026-04-25) changelog entries plus 'BL-015 pending-approval sentinel respect' fix block"},
+        {"name": "no_template_placeholders_in_output", "pass": true, "details": "grep of upgrade output for __PROJECT_NAME__/__PLATFORM__/__LANGUAGE__/__TRACK__ returned 0 hits"},
+        {"name": "track_upgraded_to_standard", "pass": true, "details": ".track changed light -> standard"},
+        {"name": "poc_mode_cleared_for_production", "pass": true, "details": ".poc_mode field removed from phase-state.json (was sponsored_poc); .last_upgrade=2026-04-25 added"},
+        {"name": "deployment_field_preserved_on_upgrade", "pass": true, "details": ".deployment=organizational preserved post-upgrade (U-J does not manifest in this config: deployment was already 'organizational' for sponsored_poc baseline and remains 'organizational' for production)"}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Low",
+          "summary": "upgrade-project.sh emits 'cp: ... identical' warning when refreshing helper scripts on already-current project",
+          "reproduction": "bash scripts/upgrade-project.sh --to-production on a freshly-init'd sponsored_poc project (helper scripts already at framework version)",
+          "expected": "Silent no-op when source and dest are identical, OR an idempotent copy pattern (e.g. compare-then-copy) without surfacing cp's diagnostic to stderr",
+          "actual": "Output ends with 'cp: scripts/pending-approval.sh and <project>/scripts/pending-approval.sh are identical (not copied).'  Cosmetic; appears at end of an otherwise successful run."
+        }
+      ],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 99,
+      "section": "G",
+      "tests": [
+        {"name": "no_uncommitted_secrets", "pass": true, "details": "Refined grep '(password|api[_-]?key|secret|token)\\s*[:=]\\s*\"...{16+}' returned only example placeholders in docs/reference/builders-guide.md and cli-setup-addendum.md (BITBUCKET_APP_PASSWORD=\"your-app-password\") — no real credentials"},
+        {"name": "log_files_consistent", "pass": true, "details": ".claude/process-audit.log absent — N/A (no FORCE/reset events occurred)"},
+        {"name": "no_orphaned_tempfiles", "pass": true, "details": "find .claude -name '*.tmp' returned no results"},
+        {"name": "no_framework_contamination", "pass": true, "details": "git -C $FRAMEWORK status --short shows only pre-existing untracked entries (.claude/, Reports/uat-2026-04-26/); HEAD unchanged at d66e8f276079aa352ba90ac54386e1b1896d7494"}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    }
+  ],
+  "overall_pass": true,
+  "summary": "Upgrade sponsored_poc/mobile/light -> production succeeded end-to-end; all PR #17/#18/#19 fixes confirmed (U-A non-interactive init, U-B fake-remote tolerance, U-E poc_mode lookup, U-F sentinel respect, U-H helper copy, U-N/U-O framework-self guard); single Low-severity cosmetic finding (cp 'identical' warning during helper refresh)."
+}

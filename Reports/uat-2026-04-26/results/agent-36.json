@@ -1,0 +1,132 @@
+{
+  "agent_id": 36,
+  "config": {
+    "kind": "base",
+    "scenario": "sponsored_poc",
+    "platform": "mcp_server",
+    "track": "full",
+    "upgrade_from": null
+  },
+  "framework_head": "d66e8f276079aa352ba90ac54386e1b1896d7494",
+  "started_at": "2026-04-26T02:22:00Z",
+  "completed_at": "2026-04-26T02:27:00Z",
+  "phases": [
+    {
+      "phase": 0,
+      "tests": [
+        {"name": "init_sh_non_interactive_exits_zero", "pass": true, "details": "init.sh --non-interactive exited 0 with sponsored_poc + mcp_server + python + full + git_host=other"},
+        {"name": "claude_md_created", "pass": true, "details": "CLAUDE.md present"},
+        {"name": "project_intake_created", "pass": true, "details": "PROJECT_INTAKE.md present"},
+        {"name": "approval_log_created", "pass": true, "details": "APPROVAL_LOG.md present"},
+        {"name": "gitignore_created", "pass": true, "details": ".gitignore present"},
+        {"name": "phase_state_json_phase_zero", "pass": true, "details": ".current_phase = 0"},
+        {"name": "phase_state_project_set", "pass": true, "details": ".project = uat-agent-36"},
+        {"name": "ci_workflow_created", "pass": true, "details": ".github/workflows/ci.yml exists"},
+        {"name": "release_workflow_created", "pass": false, "details": ".github/workflows/release.yml MISSING. init log says: 'No release pipeline template for platform mcp_server on host github. Skipping release pipeline.' Framework has templates/pipelines/release/github/mcp-server.yml (hyphen) but PLATFORM is mcp_server (underscore) — naming-convention mismatch causes skip."},
+        {"name": "framework_clone_present", "pass": true, "details": ".claude/framework directory present"},
+        {"name": "context7_detection", "pass": true, "details": "verify-install.sh from PROJECT_DIR reported '[OK] Context7 MCP installed' and '[OK] Context7 MCP configured'"},
+        {"name": "platform_module_present", "pass": false, "details": "docs/platform-modules/ is EMPTY. Init log: '[INFO] No platform module for mcp_server.' Framework has docs/platform-modules/mcp-server.md (hyphen) but lookup is by ${PLATFORM}.md = mcp_server.md (underscore). verify-install also flags this as MANUAL action."},
+        {"name": "no_residual_backup_dir", "pass": true, "details": ".claude-backup absent"},
+        {"name": "pre_commit_gate_registered", "pass": true, "details": "scripts/pre-commit-gate.sh present in .claude/settings.json PreToolUse hooks"},
+        {"name": "stop_checklist_registered", "pass": true, "details": "stop-checklist.sh present in .claude/settings.json Stop hooks"},
+        {"name": "pending_approval_helper_copied", "pass": true, "details": "scripts/pending-approval.sh copied (PR #17 / U-H fix confirmed)"},
+        {"name": "lint_uat_scenarios_helper_copied", "pass": true, "details": "scripts/lint-uat-scenarios.sh copied (PR #17 / U-H fix confirmed)"},
+        {"name": "framework_self_guard_active", "pass": true, "details": "Running init.sh from $FRAMEWORK exited rc=1 with 'Refusing to operate inside the Solo Orchestrator framework repo' message (PR #18 fix confirmed)"}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "High",
+          "summary": "init.sh skips release pipeline + platform module for mcp_server platform (hyphen/underscore mismatch)",
+          "reproduction": "bash $FRAMEWORK/init.sh --non-interactive --project test --platform mcp_server --deployment personal --language python --project-dir /tmp/x --allow-existing-dir",
+          "expected": "release.yml workflow and docs/platform-modules/mcp_server.md (or mcp-server.md) copied into the project for the supported mcp_server platform",
+          "actual": "init log: 'No release pipeline template for platform mcp_server on host github. Skipping release pipeline.' and 'No platform module for mcp_server.' Framework has templates/pipelines/release/github/mcp-server.yml and docs/platform-modules/mcp-server.md (with hyphens). The init.sh lookups are ${PLATFORM}.md and ${PLATFORM}.yml which resolve to mcp_server.md / mcp_server.yml (underscore) and silently miss. Affects every mcp_server-platform project — likely affects all four scenarios."
+        }
+      ],
+      "documentation_gaps": [
+        {"gap": "PLATFORM identifier convention is inconsistent: CLI/state uses 'mcp_server' (underscore) but template files use 'mcp-server' (hyphen). Either rename templates to mcp_server.{md,yml} OR translate underscore→hyphen at lookup time, and document the convention.", "where": "init.sh:1124 (platform_module lookup), init.sh release-pipeline lookup; templates/pipelines/release/github/mcp-server.yml; docs/platform-modules/mcp-server.md"}
+      ]
+    },
+    {
+      "phase": 1,
+      "tests": [
+        {"name": "start_phase1_exits_zero", "pass": true, "details": "process-checklist.sh --start-phase1 exit 0"},
+        {"name": "phase1_steps_array_present", "pass": true, "details": ".phase1_architecture.steps_completed is array"},
+        {"name": "each_phase1_step_completes", "pass": true, "details": "Five steps (architecture_selected, threat_model_complete, data_model_defined, ui_scaffolding_done, bible_synthesized) each completed sequentially with rc=0"},
+        {"name": "phase1_to_phase2_gate_passes", "pass": true, "details": "check-phase-gate.sh reports 'Phase gates consistent.' (note: this script is a consistency checker; it does not advance phase)"},
+        {"name": "phase_state_advances_to_2", "pass": false, "details": "U-D confirmation: .current_phase remained 0 after all phase1 steps + check-phase-gate.sh. No script advances current_phase post-gate. Same as 2026-04-25 U-D."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "U-D confirmation: no script advances current_phase after phase1 gate",
+          "reproduction": "Complete all phase1_architecture steps; run check-phase-gate.sh; observe .claude/phase-state.json .current_phase still 0",
+          "expected": "After phase 1->2 gate passes and approval is logged, .current_phase advances to 2 (or there's a documented script that does this)",
+          "actual": ".current_phase stuck at 0; check-phase-gate.sh only verifies consistency, doesn't drive transitions. Known-open prior-sweep bug (U-D)."
+        }
+      ],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 2,
+      "tests": [
+        {"name": "start_feature_records_state", "pass": true, "details": ".build_loop.feature == uat-feat-1 after --start-feature"},
+        {"name": "each_step_completes_in_order", "pass": true, "details": "All 5 build_loop steps for uat-feat-1 completed in order; security_audit accepted matching docs/security-audits/uat-feat-1-security-audit.md"},
+        {"name": "pre_commit_passes_after_loop", "pass": true, "details": "git commit for uat-feat-1 succeeded after all 5 steps + record-feature"},
+        {"name": "bl006_blocks_feat_without_loop", "pass": false, "details": "U-C confirmation: direct shell `git commit --allow-empty -m 'feat(bl006-trigger): no loop'` succeeded with rc=0 — no commit-msg hook installed; PreToolUse gate is bypassed by direct shell. Known-open prior-sweep bug (U-C)."},
+        {"name": "bl006_grace_window_resets_after_record", "pass": true, "details": "After --record-feature uat-feat-1, started uat-feat-2, completed full loop, committed successfully — grace window worked. PR #17 fix confirmed."},
+        {"name": "bl015_sentinel_blocks_commit", "pass": true, "details": "Wrote .claude/pending-approval.json with valid schema; piped {tool_input:{command:git commit -m foo}} into pre-commit-gate.sh → permissionDecision: deny with the question text in reason. (Direct shell git commit bypasses PreToolUse — same U-C class issue, not a sentinel regression.)"},
+        {"name": "bl015_sentinel_resolves", "pass": true, "details": "scripts/pending-approval.sh --resolve removed sentinel; pre-commit-gate.sh then returns silent allow (rc=0, no JSON)"},
+        {"name": "recorded_feature_appears_in_progress", "pass": true, "details": ".features_completed contains [uat-feat-1, uat-feat-2]"}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "U-C confirmation: BL-006 is not enforced by a git commit-msg hook; direct shell git commit bypasses PreToolUse gate",
+          "reproduction": "git -c commit.gpgsign=false commit --allow-empty -m 'feat(bl006-trigger): no loop' (no Build Loop active)",
+          "expected": "Commit blocked by a git commit-msg hook complementing PreToolUse",
+          "actual": "Commit succeeded — known-open prior-sweep U-C; no commit-msg hook installed."
+        }
+      ],
+      "documentation_gaps": [
+        {"gap": "BL-010 / U-C: BL-006 enforcement is only via PreToolUse, not git commit-msg hook — direct shell commits bypass.", "where": "BL-006 / pre-commit-gate.sh"}
+      ]
+    },
+    {
+      "phase": 3,
+      "tests": [
+        {"name": "start_phase3_exits_zero", "pass": true, "details": "process-checklist.sh --start-phase3 exit 0 (with the expected 2-features-since-last-UAT warning)"},
+        {"name": "start_uat_creates_session", "pass": true, "details": ".uat_session.started_at non-null after --start-uat 1"},
+        {"name": "uat_template_lints_clean", "pass": true, "details": "Stub populated scenarios HTML linted clean: 'All 1 scenarios clean.'"},
+        {"name": "each_uat_step_completes", "pass": true, "details": "All 9 UAT_STEPS completed sequentially"},
+        {"name": "phase3_to_phase4_gate", "pass": true, "details": "All 9 phase3_validation steps completed (after stubbing accessibility/performance/integration result files in docs/test-results/)"}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 4,
+      "tests": [
+        {"name": "start_phase4_exits_zero", "pass": true, "details": "N/A — sponsored_poc mode correctly blocks Phase 4 with message 'Phase 4 (production release) is blocked — project is in sponsored poc mode.' This is by-design behavior, not a bug. Test counted as pass since the gate exits cleanly with rc=0 and clear remediation hint."},
+        {"name": "each_phase4_step_completes", "pass": true, "details": "N/A — sponsored_poc blocks phase 4 entry by design"},
+        {"name": "handoff_md_required", "pass": true, "details": "N/A — sponsored_poc blocks phase 4 entry by design"},
+        {"name": "release_notes_required", "pass": true, "details": "N/A — sponsored_poc blocks phase 4 entry by design"},
+        {"name": "phase4_completion_state", "pass": true, "details": "N/A — sponsored_poc projects complete at Phase 3 per spec"}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 99,
+      "tests": [
+        {"name": "no_uncommitted_secrets", "pass": true, "details": "No real secret-looking patterns (key:value with 16+ char secret value). Word matches in evaluation-prompts/, templates/, framework hooks are all in documentation/template content, not actual secrets."},
+        {"name": "log_files_consistent", "pass": true, "details": "N/A — .claude/process-audit.log absent because no FORCE/reset events occurred during this run."},
+        {"name": "no_orphaned_tempfiles", "pass": true, "details": "find .claude -name '*.tmp' returned nothing"},
+        {"name": "no_framework_contamination", "pass": true, "details": "git -C $FRAMEWORK status --short shows only pre-existing untracked .claude/ and Reports/uat-2026-04-26/ dirs (not from this run); HEAD unchanged at d66e8f276079aa352ba90ac54386e1b1896d7494"}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    }
+  ],
+  "overall_pass": false,
+  "summary": "Init succeeds and most framework gates work; one High bug found: init.sh silently skips both release pipeline and platform module for mcp_server platform due to hyphen/underscore filename mismatch (mcp-server.{md,yml} vs ${PLATFORM} = mcp_server). Confirmed U-C and U-D as still-open prior-sweep bugs at Medium severity. PR #17 fixes (U-H pending-approval+lint-uat copy, BL-006 grace reset), PR #18 framework-self-guard, and PR #19 --non-interactive all confirmed working."
+}

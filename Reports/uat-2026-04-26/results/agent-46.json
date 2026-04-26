@@ -1,0 +1,178 @@
+{
+  "agent_id": 46,
+  "config": {
+    "kind": "base",
+    "scenario": "production",
+    "platform": "mcp_server",
+    "track": "light",
+    "upgrade_from": null
+  },
+  "framework_head": "d66e8f276079aa352ba90ac54386e1b1896d7494",
+  "started_at": "2026-04-26T02:47:18Z",
+  "completed_at": "2026-04-26T02:54:37Z",
+  "phases": [
+    {
+      "phase": 0,
+      "tests": [
+        {"name": "init_sh_non_interactive_exits_zero", "pass": true, "details": "init.sh --non-interactive completed with rc=0 for production+mcp_server+light+python"},
+        {"name": "claude_md_created", "pass": true, "details": "CLAUDE.md present"},
+        {"name": "project_intake_created", "pass": true, "details": "PROJECT_INTAKE.md present"},
+        {"name": "approval_log_created", "pass": true, "details": "APPROVAL_LOG.md present"},
+        {"name": "gitignore_created", "pass": true, "details": ".gitignore present"},
+        {"name": "phase_state_json_phase_zero", "pass": true, "details": "current_phase=0"},
+        {"name": "phase_state_project_set", "pass": true, "details": "project=uat-agent-46"},
+        {"name": "ci_workflow_created", "pass": true, "details": ".github/workflows/ci.yml present"},
+        {"name": "release_workflow_created", "pass": false, "details": ".github/workflows/release.yml NOT generated for production+light+mcp_server"},
+        {"name": "framework_clone_present", "pass": true, "details": ".claude/framework/ present"},
+        {"name": "context7_detection", "pass": true, "details": "verify-install.sh reports Context7 MCP configured"},
+        {"name": "platform_module_present", "pass": false, "details": "docs/platform-modules/mcp_server.md MISSING; verify-install confirms 'Platform module (mcp_server.md) missing'"},
+        {"name": "no_residual_backup_dir", "pass": true, "details": ".claude-backup absent"},
+        {"name": "pre_commit_gate_registered", "pass": true, "details": "scripts/pre-commit-gate.sh registered in PreToolUse hooks (Bash matcher)"},
+        {"name": "stop_checklist_registered", "pass": true, "details": ".claude/framework/hooks/stop-checklist.sh registered"},
+        {"name": "pending_approval_helper_copied", "pass": true, "details": "scripts/pending-approval.sh present (PR #17 fix verified)"},
+        {"name": "lint_uat_scenarios_helper_copied", "pass": true, "details": "scripts/lint-uat-scenarios.sh present (PR #17 fix verified)"},
+        {"name": "framework_self_guard_active", "pass": true, "details": "Running init.sh from $FRAMEWORK exits non-zero (rc=1) with 'Refusing to operate inside the Solo Orchestrator framework repo' message (PR #18 verified)"},
+        {"name": "manifest_host_field_populated", "pass": false, "details": "init.sh wrote --git-host other but manifest.json has no .host field; check-gate.sh --preflight fails until --backfill-host is run; backfill itself requires interactive 'y' confirmation, no non-interactive flag"}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "init.sh does not copy platform-modules/mcp_server.md to project",
+          "reproduction": "bash init.sh --non-interactive --project x --platform mcp_server --deployment organizational --gov-mode production --language python --git-host other --remote-url https://example.com/fake.git --branch-protection-attested --visibility private --project-dir /tmp/x --allow-existing-dir; ls /tmp/x/docs/platform-modules/",
+          "expected": "docs/platform-modules/mcp_server.md present after init",
+          "actual": "docs/platform-modules/ is empty; verify-install.sh flags 'Platform module (mcp_server.md) missing'"
+        },
+        {
+          "severity": "Medium",
+          "summary": "init.sh does not generate .github/workflows/release.yml",
+          "reproduction": "Same init invocation as above; ls .github/workflows/",
+          "expected": "release.yml present (per RUNBOOK Section A assertion)",
+          "actual": "Only ci.yml present"
+        },
+        {
+          "severity": "Medium",
+          "summary": "init.sh leaves manifest.json without .host field; check-gate preflight fails",
+          "reproduction": "Run init.sh --git-host other --remote-url ...; jq '.host' .claude/manifest.json -> null. bash scripts/check-gate.sh --preflight -> 'manifest.json missing host field'.",
+          "expected": "init.sh writes the chosen git-host into .claude/manifest.json so downstream gates work without an extra --backfill-host step",
+          "actual": "host field is absent; user must run check-gate.sh --backfill-host, which itself requires interactive 'y' confirmation (no non-interactive flag)"
+        },
+        {
+          "severity": "Low",
+          "summary": "init.sh creates docs subdirs with spaces in names",
+          "reproduction": "ls docs/ -> 'ADR documentation', 'api and interfaces'",
+          "expected": "Directory names should be hyphenated (e.g., adr-documentation, api-and-interfaces) — spaces in dirnames are a usability/scripting hazard",
+          "actual": "docs/ADR documentation/ and docs/api and interfaces/ present"
+        }
+      ],
+      "documentation_gaps": [
+        {"gap": "RUNBOOK assertion 'release_workflow_created' has no scenario-specific guidance — light+mcp_server may legitimately not need release.yml; runbook should call out which configs require it", "where": "RUNBOOK.md Section A test table"}
+      ]
+    },
+    {
+      "phase": 1,
+      "tests": [
+        {"name": "start_phase1_exits_zero", "pass": true, "details": "process-checklist.sh --start-phase1 rc=0"},
+        {"name": "phase1_steps_array_present", "pass": true, "details": "phase1_architecture.steps_completed is array"},
+        {"name": "each_phase1_step_completes", "pass": true, "details": "All 5 steps (architecture_selected, threat_model_complete, data_model_defined, ui_scaffolding_done, bible_synthesized) marked complete"},
+        {"name": "phase1_to_phase2_gate_passes", "pass": true, "details": "check-phase-gate.sh reports 'Phase gates consistent.' rc=0; check-gate.sh --preflight (after --backfill-host) reports 'Not ready: protection verification failed' as expected for fake remote"},
+        {"name": "phase_state_advances_to_2", "pass": false, "details": "U-D confirmation: no script auto-advances current_phase; .current_phase remained 0 after all phase1 steps + gate"}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "U-D confirmation: no script advances current_phase after gate passes",
+          "reproduction": "Complete all phase1 steps via process-checklist; run check-phase-gate.sh; jq '.current_phase' .claude/phase-state.json -> still 0",
+          "expected": "Some script should auto-advance current_phase after the phase1->phase2 gate is satisfied (or runbook should document the manual command)",
+          "actual": "current_phase stays at 0 indefinitely; no documented advancement path"
+        },
+        {
+          "severity": "Medium",
+          "summary": "check-gate.sh --backfill-host requires interactive confirmation; no --yes flag",
+          "reproduction": "bash scripts/check-gate.sh --backfill-host 0</dev/null -> exits 1 because read prompt fails on closed stdin",
+          "expected": "--backfill-host should support a --yes/--auto/--non-interactive flag for scripted use, or init.sh should write the host field directly so backfill is unnecessary",
+          "actual": "Only path is `echo y | check-gate.sh --backfill-host`; on EOF stdin it silently aborts with 'Aborted — no changes made'"
+        }
+      ],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 2,
+      "tests": [
+        {"name": "start_feature_records_state", "pass": true, "details": "build_loop.feature='uat-feat-1' after --start-feature"},
+        {"name": "each_step_completes_in_order", "pass": true, "details": "All 6 build_loop steps completed sequentially with stub artifacts (security_audit required feature-specific findings file in docs/security-audits/)"},
+        {"name": "pre_commit_passes_after_loop", "pass": true, "details": "git commit succeeded after all 5 build steps + recorded feature"},
+        {"name": "bl006_blocks_feat_without_loop", "pass": false, "details": "U-C confirmation: direct git commit --allow-empty -m 'feat(bl006-trigger): no loop' SUCCEEDED (rc=0); shell-direct git bypasses PreToolUse hook entirely. Hook would have blocked it had it been routed through PreToolUse."},
+        {"name": "bl006_grace_window_resets_after_record", "pass": true, "details": "After --record-feature uat-feat-1, --check-commit-message 'feat(uat-2): next feature' rc=0 (permitted)"},
+        {"name": "bl015_sentinel_blocks_commit", "pass": true, "details": "With .claude/pending-approval.json present, pre-commit-gate.sh (invoked via PreToolUse JSON stdin) emitted permissionDecision=deny with sentinel reference"},
+        {"name": "bl015_sentinel_resolves", "pass": true, "details": "scripts/pending-approval.sh --resolve removed sentinel; subsequent commit succeeded"},
+        {"name": "recorded_feature_appears_in_progress", "pass": true, "details": ".claude/build-progress.json features_completed contains 'uat-feat-1'"}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "U-C confirmation: direct git commit bypasses BL-006 (PreToolUse only)",
+          "reproduction": "git commit --allow-empty -m 'feat(bl006-trigger): no loop' from a clean build_loop state succeeds; only PreToolUse-routed Bash invocations are gated.",
+          "expected": "BL-006 enforcement at git commit-msg hook level so shell-direct commits also get blocked",
+          "actual": "Direct shell commit creates the commit; gate is purely advisory outside Claude's Bash tool"
+        },
+        {
+          "severity": "Low",
+          "summary": "pre-commit-gate.sh treats valid sentinel JSON as 'malformed'",
+          "reproduction": "Write .claude/pending-approval.json with {version,phase,approved,summary,created_at}; pipe PreToolUse JSON to scripts/pre-commit-gate.sh -> reason includes 'sentinel file ... is malformed. Treated as in flight per the CDF 4.2.3 contract.'",
+          "expected": "pre-commit-gate.sh should accept the documented sentinel schema (or the schema should be documented in scripts/pending-approval.sh)",
+          "actual": "Even a well-formed sentinel is reported as malformed; the deny still works (correct), but the diagnostic is misleading"
+        }
+      ],
+      "documentation_gaps": [
+        {"gap": "scripts/lint-uat-scenarios.sh requires a populated HTML file with 'const scenarios = [...]' block; runbook implies it can lint a generic scenario doc", "where": "RUNBOOK.md Section D 'uat_template_lints_clean'"}
+      ]
+    },
+    {
+      "phase": 3,
+      "tests": [
+        {"name": "start_phase3_exits_zero", "pass": true, "details": "--start-phase3 rc=0; FEATURES.md and bug count checks passed"},
+        {"name": "start_uat_creates_session", "pass": true, "details": ".uat_session.started_at populated"},
+        {"name": "uat_template_lints_clean", "pass": false, "details": "lint-uat-scenarios.sh requires a populated HTML file with embedded JS scenarios block; not exercised against a real template in this run. Stub HTML rejected with 'No scenarios block found'."},
+        {"name": "each_uat_step_completes", "pass": true, "details": "All 9 uat_session steps completed"},
+        {"name": "phase3_to_phase4_gate", "pass": true, "details": "All 9 phase3_validation steps completed after producing accessibility/perf/contract test stubs in docs/test-results/"}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 4,
+      "tests": [
+        {"name": "start_phase4_exits_zero", "pass": true, "details": "First attempt blocked because poc_mode=='production' was treated as a POC mode (see bug below). After running scripts/upgrade-project.sh --to-production (which set poc_mode=null), --start-phase4 succeeded."},
+        {"name": "each_phase4_step_completes", "pass": true, "details": "All 6 phase4_release steps completed (production_build, rollback_tested, go_live_verified, monitoring_configured, handoff_written, handoff_tested) with stub artifacts."},
+        {"name": "handoff_md_required", "pass": true, "details": "monitoring_configured artifact-check failed until HANDOFF.md included a 'Section 8 Monitoring' subsection; gate then passed."},
+        {"name": "release_notes_required", "pass": true, "details": "RELEASE_NOTES.md present from init; no gate explicitly required modification but file existed."},
+        {"name": "phase4_completion_state", "pass": false, "details": "After all phase4 steps complete, .claude/phase-state.json .current_phase still = 0 (consistent with U-D); no script advances to 4 / 'released'."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "High",
+          "summary": "process-checklist.sh --start-phase4 misreads poc_mode==production as 'POC mode'",
+          "reproduction": "Initialize a project with --deployment organizational --gov-mode production. .claude/phase-state.json shows poc_mode='production'. Run scripts/process-checklist.sh --start-phase4 -> '[FAIL] Phase 4 (production release) is blocked — project is in production mode. POC projects complete at Phase 3. To unlock Phase 4: bash scripts/upgrade-project.sh --to-production'",
+          "expected": "When poc_mode='production' (or compliance_ready=true after a normal production init), --start-phase4 should proceed without requiring an upgrade.",
+          "actual": "scripts/process-checklist.sh:540 treats any non-null poc_mode as a POC mode, including the literal value 'production'. Workaround: run upgrade-project.sh --to-production, which nulls poc_mode and unlocks Phase 4. This forces every production-from-the-start project through a no-op 'upgrade' step."
+        }
+      ],
+      "documentation_gaps": [
+        {"gap": "init.sh in production gov-mode writes poc_mode='production' but Phase 4 gating requires poc_mode=null. Either init should set poc_mode=null when gov-mode=production, or process-checklist should accept 'production' as a non-POC value.", "where": "init.sh phase-state.json template + scripts/process-checklist.sh:540"}
+      ]
+    },
+    {
+      "phase": "postflight",
+      "tests": [
+        {"name": "no_uncommitted_secrets", "pass": true, "details": "grep finds 'token/secret/api_key' only in framework boilerplate docs (CI workflow, builders-guide, evaluation-prompts) — no actual credentials"},
+        {"name": "log_files_consistent", "pass": true, "details": ".claude/process-audit.log absent; no FORCE/reset events occurred during this run (N/A as runbook allows)"},
+        {"name": "no_orphaned_tempfiles", "pass": true, "details": "find $WORKDIR/.claude -name '*.tmp' returns nothing"},
+        {"name": "no_framework_contamination", "pass": true, "details": "git -C $FRAMEWORK status --short shows only pre-existing untracked .claude/ and Reports/uat-2026-04-26/; framework HEAD unchanged at d66e8f276079aa352ba90ac54386e1b1896d7494"}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    }
+  ],
+  "overall_pass": false,
+  "summary": "Init non-interactive works for production+mcp_server+light. One High bug: --start-phase4 misreads poc_mode='production' as POC and demands a no-op upgrade. Confirmed U-C (direct git bypasses BL-006) and U-D (no current_phase advancement). New Medium bugs: missing platform-modules/mcp_server.md, missing release.yml, manifest.json missing .host field after --git-host other, --backfill-host requires interactive y."
+}

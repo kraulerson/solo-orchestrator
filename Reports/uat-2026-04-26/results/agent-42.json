@@ -1,0 +1,137 @@
+{
+  "agent_id": 42,
+  "config": {
+    "kind": "base",
+    "scenario": "production",
+    "platform": "mobile",
+    "track": "full",
+    "upgrade_from": null
+  },
+  "framework_head": "d66e8f276079aa352ba90ac54386e1b1896d7494",
+  "started_at": "2026-04-26T02:38:34Z",
+  "completed_at": "2026-04-26T02:45:30Z",
+  "phases": [
+    {
+      "phase": 0,
+      "tests": [
+        {"name": "init_sh_non_interactive_exits_zero", "pass": true, "details": "init.sh --non-interactive completed; verify-install reported 53 passed/0 manual; PR #18 fake-remote tolerance kept init going past expected push failure."},
+        {"name": "claude_md_created", "pass": true, "details": "CLAUDE.md present at project root."},
+        {"name": "project_intake_created", "pass": true, "details": "PROJECT_INTAKE.md present; Section 1 pre-filled with name/track/platform/deployment."},
+        {"name": "approval_log_created", "pass": true, "details": "APPROVAL_LOG.md present."},
+        {"name": "gitignore_created", "pass": true, "details": ".gitignore present."},
+        {"name": "phase_state_json_phase_zero", "pass": true, "details": "jq .current_phase = 0."},
+        {"name": "phase_state_project_set", "pass": true, "details": ".project = 'uat-agent-42'."},
+        {"name": "ci_workflow_created", "pass": true, "details": ".github/workflows/ci.yml created (host=github implicit when --git-host other; CI file still emitted)."},
+        {"name": "release_workflow_created", "pass": true, "details": ".github/workflows/release.yml created."},
+        {"name": "framework_clone_present", "pass": true, "details": ".claude/framework directory present (CDF installed)."},
+        {"name": "context7_detection", "pass": true, "details": "verify-install run from PROJECT_DIR reports 'Context7 MCP installed' and 'Context7 MCP configured'."},
+        {"name": "platform_module_present", "pass": true, "details": "docs/platform-modules/mobile.md present."},
+        {"name": "no_residual_backup_dir", "pass": true, "details": ".claude-backup absent post-init; init log shows '[INFO] Removed CDF migration backup'."},
+        {"name": "pre_commit_gate_registered", "pass": true, "details": ".claude/settings.json PreToolUse Bash matcher includes scripts/pre-commit-gate.sh."},
+        {"name": "stop_checklist_registered", "pass": true, "details": ".claude/settings.json Stop hook references .claude/framework/hooks/stop-checklist.sh."},
+        {"name": "pending_approval_helper_copied", "pass": true, "details": "scripts/pending-approval.sh present (PR #17 U-H fix verified)."},
+        {"name": "lint_uat_scenarios_helper_copied", "pass": true, "details": "scripts/lint-uat-scenarios.sh present (PR #17 U-H fix verified)."},
+        {"name": "framework_self_guard_active", "pass": true, "details": "Running init.sh --non-interactive from $FRAMEWORK exits 1 with '[FAIL] Refusing to operate inside the Solo Orchestrator framework repo' (PR #18 verified)."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 1,
+      "tests": [
+        {"name": "start_phase1_exits_zero", "pass": true, "details": "process-checklist.sh --start-phase1 exited 0."},
+        {"name": "phase1_steps_array_present", "pass": true, "details": ".phase1_architecture.steps_completed is an array in .claude/process-state.json."},
+        {"name": "each_phase1_step_completes", "pass": true, "details": "All 5 PHASE1_STEPS (architecture_selected, threat_model_complete, data_model_defined, ui_scaffolding_done, bible_synthesized) completed sequentially with rc=0."},
+        {"name": "phase1_to_phase2_gate_passes", "pass": true, "details": "check-phase-gate.sh after step completion: 'Phase gates consistent.' rc=0."},
+        {"name": "phase_state_advances_to_2", "pass": false, "details": "After all phase1 steps complete and gate consistent, .current_phase remained 0. Manually patched to 2 to continue. U-D regression confirmed."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "U-D confirmation: no script advances current_phase after phase1 gate passes",
+          "reproduction": "bash $FRAMEWORK/scripts/process-checklist.sh --start-phase1; for s in architecture_selected threat_model_complete data_model_defined ui_scaffolding_done bible_synthesized; do bash $FRAMEWORK/scripts/process-checklist.sh --complete-step phase1_architecture:$s; done; bash $FRAMEWORK/scripts/check-phase-gate.sh; jq .current_phase .claude/phase-state.json",
+          "expected": ".current_phase advances from 0 to 2 (or 1) after phase1 steps complete and gate is consistent.",
+          "actual": ".current_phase remains 0; no script in scripts/ writes to current_phase. Test had to manually patch phase-state.json to continue."
+        }
+      ],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 2,
+      "tests": [
+        {"name": "start_feature_records_state", "pass": true, "details": "After --start-feature uat-feat-1, jq .build_loop.feature returned 'uat-feat-1'."},
+        {"name": "each_step_completes_in_order", "pass": true, "details": "All 5 build_loop steps (tests_written, tests_verified_failing, implemented, security_audit, documentation_updated) completed sequentially. Stub security audit at docs/security-audits/uat-feat-1-security-audit.md (Open=false, scan stubbed for UAT)."},
+        {"name": "pre_commit_passes_after_loop", "pass": true, "details": "git commit -m 'feat(uat-1): stub feature for UAT' succeeded (rc=0); pre-commit hook ran TDD warnings only."},
+        {"name": "bl006_blocks_feat_without_loop", "pass": false, "details": "U-C confirmation: direct shell `git commit --allow-empty -m 'feat(bl006-trigger): no loop'` succeeded with rc=0 (no PreToolUse hook in shell context). Same prior-sweep open bug."},
+        {"name": "bl006_grace_window_resets_after_record", "pass": true, "details": "PR #17 fix verified: after --record-feature uat-feat-1 + --complete-step build_loop:feature_recorded auto-resets build_loop.feature to null. Started new feature uat-feat-grace, completed 5 steps, then check-commit-message 'feat(uat-grace):...' returned rc=0."},
+        {"name": "bl015_sentinel_blocks_commit", "pass": true, "details": "Wrote .claude/pending-approval.json with valid schema (question/options/recommendation/offered_at). Piped Bash tool input JSON {tool_name:Bash, tool_input.command: 'git commit -m feat...'} into scripts/pre-commit-gate.sh; output included permissionDecision=deny with rich pending-approval reason citing question + options + recommendation."},
+        {"name": "bl015_sentinel_resolves", "pass": true, "details": "scripts/pending-approval.sh --resolve removed sentinel; subsequent pre-commit-gate run did not produce BL-015 deny. (Subsequent chore: command was denied by phase2_init verify-init gate, which is expected, not BL-015.)"},
+        {"name": "recorded_feature_appears_in_progress", "pass": true, "details": "jq .features_completed .claude/build-progress.json returned ['uat-feat-1']."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "U-C confirmation: direct shell git commit bypasses BL-006 PreToolUse",
+          "reproduction": "cd $PROJECT_DIR; git commit --allow-empty -m 'feat(bl006-trigger): no loop'",
+          "expected": "BL-006 should block any feat: commit when no Build Loop is active.",
+          "actual": "Commit succeeded (rc=0) because PreToolUse pre-commit-gate runs only inside Claude Code sessions, not on plain shell git invocations. Same prior-sweep open bug; framework-side mitigation (e.g., a Husky/git commit-msg hook) is still missing."
+        }
+      ],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 3,
+      "tests": [
+        {"name": "start_phase3_exits_zero", "pass": true, "details": "process-checklist.sh --start-phase3 rc=0 (warned about needing UAT first; warning not failure)."},
+        {"name": "start_uat_creates_session", "pass": true, "details": ".uat_session.started_at = '2026-04-26T02:42:08Z' after --start-uat 1."},
+        {"name": "uat_template_lints_clean", "pass": true, "details": "Stubbed docs/uat/uat-scenarios.html with const scenarios=[{id,title,expected (>=60 chars),steps starting with 'Setup:'}]; bash scripts/lint-uat-scenarios.sh returned 'All 1 scenarios clean.' rc=0."},
+        {"name": "each_uat_step_completes", "pass": true, "details": "All 9 UAT_STEPS completed sequentially with rc=0."},
+        {"name": "phase3_to_phase4_gate", "pass": false, "details": "check-phase-gate.sh exits 1 due to '[FAIL] Phase 3→4: Full Track requires penetration test'. Other checks were warnings. This is expected for full track without pen test artifact, but the runbook expects 'gate passes'. Captured rather than worked around — this is normal full-track behavior, recorded as documentation_gap below."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": [
+        {"gap": "Runbook Section D test 'phase3_to_phase4_gate | gate passes' does not specify that full-track production projects need a pen test artifact in docs/test-results/ before the gate can pass. Without it the gate emits a hard FAIL on full track.", "where": "Reports/uat-2026-04-26/RUNBOOK.md Section D (Phase 3 Validation) test table"}
+      ]
+    },
+    {
+      "phase": 4,
+      "tests": [
+        {"name": "start_phase4_exits_zero", "pass": false, "details": "process-checklist.sh --start-phase4 exited 1 with '[FAIL] Phase 4 (production release) is blocked — project is in production mode. POC projects complete at Phase 3.' Manually patched phase-state.json poc_mode to null to continue. NEW critical regression introduced by PR #19 (BL-016 non-interactive mode): non-interactive path copies GOV_MODE='production' literally into POC_MODE while the interactive path sets POC_MODE='' for production. start_phase4 then treats any non-null poc_mode (including 'production') as a POC-blocked project."},
+        {"name": "each_phase4_step_completes", "pass": true, "details": "After workaround, all 6 PHASE4_STEPS completed (production_build, rollback_tested, go_live_verified, monitoring_configured, handoff_written, handoff_tested) with rc=0. Stub HANDOFF.md mentioned crashlytics/sentry/uptimerobot to satisfy monitoring_configured artifact check; stub docs/test-results/*rollback*.md and *handoff*.md created."},
+        {"name": "handoff_md_required", "pass": true, "details": "phase4_release:handoff_written artifact check correctly required HANDOFF.md (failed when missing, succeeded once stubbed)."},
+        {"name": "release_notes_required", "pass": true, "details": "phase4_release:go_live_verified artifact check correctly required RELEASE_NOTES.md (init.sh ships a default RELEASE_NOTES.md so it was already present)."},
+        {"name": "phase4_completion_state", "pass": true, "details": ".claude/phase-state.json .current_phase = 4 after all phase4 steps completed."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Critical",
+          "summary": "PR #19 regression: --non-interactive --gov-mode production sets poc_mode='production', blocks Phase 4",
+          "reproduction": "bash $FRAMEWORK/init.sh --non-interactive --project x --description y --platform mobile --track full --deployment organizational --gov-mode production --language swift --project-dir /tmp/x --git-host other --remote-url https://example.com/fake.git --branch-protection-attested --visibility private --allow-existing-dir; cd /tmp/x; jq .current_phase=4 .claude/phase-state.json > t && mv t .claude/phase-state.json; bash $FRAMEWORK/scripts/process-checklist.sh --start-phase4",
+          "expected": "Production projects (deployment=organizational, gov_mode=production) should have poc_mode=null in phase-state.json (matching interactive flow line 381 'Production*) POC_MODE=\"\";') and start-phase4 should succeed.",
+          "actual": "init.sh:3217 unconditionally does POC_MODE=\"$GOV_MODE\" so phase-state.json gets poc_mode='production'. process-checklist.sh:540 then sees a non-null poc_mode and blocks Phase 4 with '[FAIL] Phase 4 (production release) is blocked — project is in production mode. POC projects complete at Phase 3.' This makes Phase 4 unreachable for any project initialised non-interactively as production, which is the canonical UAT path. Fix in two places: (a) init.sh:3217 should set POC_MODE='' when GOV_MODE='production' (mirror interactive line 381); (b) defensively, process-checklist.sh:540 should only block when poc_mode matches private_poc|sponsored_poc, not all non-null values."
+        },
+        {
+          "severity": "Low",
+          "summary": "start_phase4 error wording 'project is in production mode' contradicts 'POC projects complete at Phase 3'",
+          "reproduction": "(see above — same bug)",
+          "expected": "If poc_mode is 'production', the message should not call it a POC.",
+          "actual": "Message reads '[FAIL] Phase 4 (production release) is blocked — project is in production mode. POC projects complete at Phase 3.' — contradictory and confusing. Will be fixed implicitly by the Critical fix above."
+        }
+      ],
+      "documentation_gaps": []
+    },
+    {
+      "phase": "post_flight",
+      "tests": [
+        {"name": "no_uncommitted_secrets", "pass": true, "details": "Pattern search for assignment-style secrets ((password|api[_-]?key|secret|token)\\s*[=:]\\s*[\"'].{8,}[\"']) across git ls-files returned 0 hits. Term-only matches were in .gitignore, CI workflow templates, PROJECT_INTAKE.md headers — none with embedded secret values."},
+        {"name": "log_files_consistent", "pass": true, "details": "N/A — no FORCE/reset events occurred during this run, .claude/process-audit.log absent (consistent with append-on-bypass-only spec)."},
+        {"name": "no_orphaned_tempfiles", "pass": true, "details": "find $WORKDIR/.claude -name '*.tmp' returned nothing; find $PROJECT_DIR/.claude -name '*.tmp' returned nothing."},
+        {"name": "no_framework_contamination", "pass": true, "details": "git -C $FRAMEWORK status --short shows only pre-existing untracked entries (.claude/, Reports/uat-2026-04-26/); rev-parse HEAD = d66e8f276079aa352ba90ac54386e1b1896d7494, unchanged from setup capture. Framework-self guard (PR #18) verified earlier."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    }
+  ],
+  "overall_pass": false,
+  "summary": "Init non-interactive + PR #17/#18 fixes verified, but PR #19 introduced a Critical regression: --gov-mode production sets phase-state poc_mode='production' which blocks Phase 4 entry; U-C and U-D prior-sweep bugs also re-confirmed."
+}

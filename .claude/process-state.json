@@ -1,0 +1,26 @@
+{
+  "build_loop": {
+    "feature": null,
+    "step": 0,
+    "steps_completed": [],
+    "started_at": null
+  },
+  "uat_session": {
+    "session_id": null,
+    "step": 0,
+    "steps_completed": [],
+    "started_at": null
+  },
+  "phase3_validation": {
+    "steps_completed": [],
+    "started_at": null
+  },
+  "phase4_release": {
+    "steps_completed": [],
+    "started_at": null
+  },
+  "phase2_init": {
+    "steps_completed": [],
+    "verified": false
+  }
+}

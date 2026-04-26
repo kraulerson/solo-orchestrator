@@ -1263,7 +1263,7 @@ The project review system is modular. Each review combines a **base template** (
 | `modules/api-service.md` | REST APIs, GraphQL, gRPC, microservices, serverless |
 | `modules/cli-tool.md` | Command-line tools, build tools, automation utilities |
 | `modules/framework.md` | Dev frameworks, LLM orchestrators, build systems, compliance tools |
-| `modules/mcp-server.md` | MCP servers, AI assistant integrations, tool/resource providers |
+| `modules/mcp_server.md` | MCP servers, AI assistant integrations, tool/resource providers |
 
 **Scripts:**
 

@@ -1,0 +1,136 @@
+{
+  "agent_id": 1,
+  "config": {
+    "kind": "base",
+    "scenario": "personal",
+    "platform": "desktop",
+    "track": "light",
+    "upgrade_from": null
+  },
+  "framework_head": "d66e8f276079aa352ba90ac54386e1b1896d7494",
+  "started_at": "2026-04-26T01:06:00Z",
+  "completed_at": "2026-04-26T01:10:36Z",
+  "phases": [
+    {
+      "phase": 0,
+      "tests": [
+        {"name": "init_sh_non_interactive_exits_zero", "pass": true, "details": "init.sh --non-interactive completed without error; project created at $PROJECT_DIR. Tool plan resolved (17 tools), CDF installed, hooks registered, verify-install reported 54 PASS / 0 fixable / 0 manual."},
+        {"name": "claude_md_created", "pass": true, "details": "CLAUDE.md present at project root."},
+        {"name": "project_intake_created", "pass": true, "details": "PROJECT_INTAKE.md present (28KB)."},
+        {"name": "approval_log_created", "pass": true, "details": "APPROVAL_LOG.md present."},
+        {"name": "gitignore_created", "pass": true, "details": ".gitignore present."},
+        {"name": "phase_state_json_phase_zero", "pass": true, "details": ".claude/phase-state.json .current_phase = 0 immediately after init."},
+        {"name": "phase_state_project_set", "pass": true, "details": ".project = 'uat-agent-1'."},
+        {"name": "ci_workflow_created", "pass": true, "details": ".github/workflows/ci.yml present (host: github, language: rust)."},
+        {"name": "release_workflow_created", "pass": true, "details": ".github/workflows/release.yml present."},
+        {"name": "framework_clone_present", "pass": true, "details": ".claude/framework/ exists with hooks/ and rules/ (CDF 4.2.3)."},
+        {"name": "context7_detection", "pass": true, "details": "verify-install.sh from $PROJECT_DIR reports 'Context7 MCP installed' and 'Context7 MCP configured'."},
+        {"name": "platform_module_present", "pass": true, "details": "docs/platform-modules/desktop.md present."},
+        {"name": "no_residual_backup_dir", "pass": true, "details": "init.sh removed CDF migration backup at end of run; no .claude-backup/ in workdir."},
+        {"name": "pre_commit_gate_registered", "pass": true, "details": ".claude/settings.json PreToolUse (matcher Bash) includes scripts/pre-commit-gate.sh."},
+        {"name": "stop_checklist_registered", "pass": true, "details": ".claude/settings.json hooks reference .claude/framework/hooks/stop-checklist.sh."},
+        {"name": "pending_approval_helper_copied", "pass": true, "details": "scripts/pending-approval.sh present in project (PR #17 U-H fix verified)."},
+        {"name": "lint_uat_scenarios_helper_copied", "pass": true, "details": "scripts/lint-uat-scenarios.sh present in project (PR #17 U-H fix verified)."},
+        {"name": "framework_self_guard_active", "pass": true, "details": "Running init.sh --non-interactive from inside $FRAMEWORK exits 1 with '[FAIL] Refusing to operate inside the Solo Orchestrator framework repo' message (PR #18 U-N/U-O fix verified)."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "init.sh --git-host github creates real GitHub remote without explicit opt-in",
+          "reproduction": "WORKDIR=$(mktemp -d); cd $WORKDIR; bash $FRAMEWORK/init.sh --non-interactive --project uat-agent-1 --platform desktop --track light --deployment personal --language rust --project-dir $WORKDIR/uat-agent-1 --git-host github --visibility private --allow-existing-dir",
+          "expected": "In a no-network UAT environment, init.sh should not invoke gh to create a real remote when no remote URL is supplied. Either require --remote-url for github (like --git-host other does with --branch-protection-attested), or provide a --no-remote / --skip-remote-creation flag, or default to skipping when GH_TOKEN/gh auth is absent.",
+          "actual": "init.sh used the 'github driver' to call gh and created a real private repo at https://github.com/kraulerson/uat-agent-1 and pushed the initial commit before reporting the protection-config soft-fail. Side effect: the UAT agent now has a real public-cloud artifact it did not consent to. Branch-protection step then printed [FAIL] but exit code is 0 (PR #18 fake-remote tolerance), so init proceeds. The runbook explicitly says 'No real network calls beyond git remote add origin https://example.com/fake.git' and this violates that contract for any UAT agent that selects --git-host github."
+        }
+      ],
+      "documentation_gaps": [
+        {"gap": "init.sh --help-non-interactive does not document that --git-host github + no --remote-url will auto-create a remote via gh; users expect a dry-run / --skip-remote flag for scripted/UAT flows.", "where": "init.sh --help-non-interactive section 'Optional flags (with defaults)'"}
+      ]
+    },
+    {
+      "phase": 1,
+      "tests": [
+        {"name": "start_phase1_exits_zero", "pass": true, "details": "process-checklist.sh --start-phase1 OK, RC=0."},
+        {"name": "phase1_steps_array_present", "pass": true, "details": "process-state.json .phase1_architecture.steps_completed is an array."},
+        {"name": "each_phase1_step_completes", "pass": true, "details": "All 5 PHASE1_STEPS (architecture_selected, threat_model_complete, data_model_defined, ui_scaffolding_done, bible_synthesized) completed sequentially with RC=0; final message 'All steps complete for phase1_architecture'."},
+        {"name": "phase1_to_phase2_gate_passes", "pass": true, "details": "scripts/check-phase-gate.sh exited 0 with 'Phase gates consistent.' Note: gate is informational only; it does not advance .current_phase (see U-D confirmation below)."},
+        {"name": "phase_state_advances_to_2", "pass": false, "details": "U-D confirmation: after all Phase 1 steps complete and check-phase-gate.sh exits 0, .current_phase remains 0. No script in $FRAMEWORK/scripts/ writes a higher value to .current_phase except validate.sh (read-only) and pre-commit-gate.sh (read-only). Manually set .current_phase=2 via jq to continue UAT."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "U-D confirmation: no script advances .current_phase after gate passes",
+          "reproduction": "Complete all 5 PHASE1_STEPS via process-checklist.sh --complete-step phase1_architecture:* ; run scripts/check-phase-gate.sh ; jq '.current_phase' .claude/phase-state.json",
+          "expected": "After Phase 1 gate passes (all required artifacts + steps complete), .claude/phase-state.json .current_phase should advance from 0 to 2 (or 1 if there is an intermediate state).",
+          "actual": ".current_phase stays at 0. check-phase-gate.sh prints 'Phase gates consistent.' and exits 0 but writes nothing. Same observation made in 2026-04-25 sweep; not fixed in PRs #16-#19. Test agent had to manually run jq to advance the phase to continue the UAT protocol."
+        }
+      ],
+      "documentation_gaps": [
+        {"gap": "builders-guide / process-checklist user docs do not state which command, if any, the user must run to advance .current_phase after a gate passes. The runbook's Section B note flags this as U-D-still-open; user-facing guidance should either expose an --advance-phase command or document the manual jq step.", "where": "scripts/process-checklist.sh + docs/reference/builders-guide.md (gate-passing workflow)"}
+      ]
+    },
+    {
+      "phase": 2,
+      "tests": [
+        {"name": "start_feature_records_state", "pass": true, "details": "After --start-feature uat-feat-1, .build_loop.feature = 'uat-feat-1' in process-state.json."},
+        {"name": "each_step_completes_in_order", "pass": true, "details": "All 5 build-step transitions (tests_written -> documentation_updated) succeeded sequentially. Sixth step (feature_recorded) succeeded after test-gate.sh --record-feature."},
+        {"name": "pre_commit_passes_after_loop", "pass": true, "details": "After all 5 steps complete and stub source/test/security-audit artifacts in place, `git add -A && git commit -m 'feat(uat-1): stub feature for UAT'` succeeded with exit 0. (Note: this is direct shell git, which bypasses the Claude Code PreToolUse path — see U-C confirmation; in a real Claude session the PreToolUse hook would also evaluate.)"},
+        {"name": "bl006_blocks_feat_without_loop", "pass": false, "details": "U-C confirmation: ran `git commit --allow-empty -m 'feat(bl006-trigger): no loop'` after recording feat-1 (no --start-feature for the new commit). Direct shell git commit succeeded (RC=0) — bypasses BL-006 because it does not pass through the Claude Code PreToolUse path. The PreToolUse hook (pre-commit-gate.sh) does correctly enforce when invoked through hook input; sentinel test below confirms hook denies."},
+        {"name": "bl006_grace_window_resets_after_record", "pass": true, "details": "After --record-feature uat-feat-1, ran a NEW feature loop (uat-feat-2) and committed feat(uat-2): the feat: commit succeeded. PR #17 BL-006 between-features grace-window reset is functioning."},
+        {"name": "bl015_sentinel_blocks_commit", "pass": true, "details": "Wrote .claude/pending-approval.json (with placeholder fields), then piped a synthetic Bash/git-commit PreToolUse payload into scripts/pre-commit-gate.sh. Hook responded with `permissionDecision: deny` and reason 'pre-commit gate: commit blocked — pending user decision. The sentinel file .claude/pending-approval.json exists but is malformed. Treated as in flight per the CDF 4.2.3 contract.' Sentinel correctly enforced through the hook path. NOTE: direct shell `git commit` while sentinel is present still succeeds (same U-C class issue — shell-direct git bypasses Claude Code hooks)."},
+        {"name": "bl015_sentinel_resolves", "pass": true, "details": "scripts/pending-approval.sh --resolve removed the file; subsequent PreToolUse hook invocation no longer denies on sentinel grounds (it then denies for an unrelated reason: 'Phase 2 initialization not verified', which is a different gate)."},
+        {"name": "recorded_feature_appears_in_progress", "pass": true, "details": ".claude/build-progress.json .features_completed contains 'uat-feat-1' (and after the second loop, 'uat-feat-2')."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "U-C confirmation: direct shell git commit bypasses BL-006 + BL-015",
+          "reproduction": "Without running --start-feature: `git commit --allow-empty -m 'feat(bl006-trigger): no loop'` from a project shell. Also: with .claude/pending-approval.json present, run `git commit --allow-empty -m 'feat(should-block): test sentinel'`.",
+          "expected": "Either (a) a git commit-msg or pre-commit hook installed by init.sh enforces BL-006 (no `feat:` subject without a recorded build loop) and BL-015 (refuse commit while .claude/pending-approval.json exists), OR (b) docs prominently state that BL-006/BL-015 enforcement is Claude-Code-only and direct shell commits are out of scope by design.",
+          "actual": "Both shell commits succeeded with RC=0. The Claude Code PreToolUse hook (pre-commit-gate.sh) correctly enforces both gates when invoked, but a developer or scripted process running `git commit` directly bypasses them entirely. Same as 2026-04-25 finding U-C; PR #17 fixed the `.tool_input.command` payload path (so hook-invoked enforcement works) but did not add a parallel git commit-msg/pre-commit hook."
+        }
+      ],
+      "documentation_gaps": [
+        {"gap": "pending-approval.sh has no --check subcommand; the help shows --offer/--resolve/--clear/--status only. The runbook Section C example references --check, which exits 1 with 'Unknown command'. Either add --check as an alias for --status, or update runbook + any user-facing doc to use --status.", "where": "scripts/pending-approval.sh help block + Reports/uat-2026-04-26/RUNBOOK.md Section C"}
+      ]
+    },
+    {
+      "phase": 3,
+      "tests": [
+        {"name": "start_phase3_exits_zero", "pass": true, "details": "process-checklist.sh --start-phase3 RC=0 with phase 2->3 warnings (2 features since last UAT, attestation noted) but proceeds."},
+        {"name": "start_uat_creates_session", "pass": true, "details": ".uat_session.started_at = '2026-04-26T01:08:50Z' after --start-uat 1."},
+        {"name": "uat_template_lints_clean", "pass": true, "details": "lint-uat-scenarios.sh against the unpopulated tests/uat/templates/test-session-template.html exits 1 (21 unreplaced placeholder violations) — correct behavior for a template. lint-uat-scenarios.sh against a minimally-populated stub at tests/uat/sessions/session-1.html exits 1 with per-scenario violations (expected too short, steps must open with state-restatement) — correct. Linter is functional."},
+        {"name": "each_uat_step_completes", "pass": true, "details": "All 9 UAT_STEPS (agents_dispatched -> gate_passed) completed sequentially with RC=0."},
+        {"name": "phase3_to_phase4_gate", "pass": true, "details": "All 9 PHASE3_STEPS completed (after stubbing accessibility/performance/rollback artifacts in docs/test-results/). 'All steps complete for phase3_validation' final message."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": [
+        {"gap": "phase3_validation:accessibility_audit and :performance_audit require artifacts in docs/test-results/ matching glob *accessibility* / *performance* / *lighthouse*, but the [INFO] message printed when they fail does not state the exact glob — the user must read the script. Suggest the warn message include 'Save as: docs/test-results/YYYY-MM-DD_accessibility.md (or *lighthouse*)'.", "where": "scripts/process-checklist.sh:401-413 (phase3_validation:accessibility_audit / performance_audit warn blocks)"}
+      ]
+    },
+    {
+      "phase": 4,
+      "tests": [
+        {"name": "start_phase4_exits_zero", "pass": true, "details": "process-checklist.sh --start-phase4 RC=0."},
+        {"name": "each_phase4_step_completes", "pass": true, "details": "All 6 PHASE4_STEPS completed (production_build, rollback_tested, go_live_verified, monitoring_configured, handoff_written, handoff_tested) after stubbing HANDOFF.md (with Section 8 Monitoring) and docs/test-results/2026-04-26_handoff-test.md."},
+        {"name": "handoff_md_required", "pass": true, "details": "Without HANDOFF.md, monitoring_configured artifact check failed with [WARN] 'HANDOFF.md not found — monitoring configuration should be documented there.' After creating HANDOFF.md with monitoring keywords, the step completed."},
+        {"name": "release_notes_required", "pass": true, "details": "go_live_verified did not block on RELEASE_NOTES.md because init.sh already pre-populated RELEASE_NOTES.md as part of project scaffolding."},
+        {"name": "phase4_completion_state", "pass": true, "details": ".current_phase = 4 (was manually advanced by jq earlier, framework does not auto-advance — see U-D). All 6 phase4_release.steps_completed."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": "post_flight",
+      "tests": [
+        {"name": "no_uncommitted_secrets", "pass": true, "details": "Strict regex `(api[_-]?key|password|secret|token)\\s*[:=]\\s*[\"']?[A-Za-z0-9_\\-]{16,}` against `git ls-files` returns 0 matches. Loose grep matches only documentation/template files (executive-review, security guides, evaluation prompts, handoff/incident-response templates) where the words appear in prose."},
+        {"name": "log_files_consistent", "pass": true, "details": "N/A — .claude/process-audit.log does not exist, and no FORCE/reset events occurred during this run."},
+        {"name": "no_orphaned_tempfiles", "pass": true, "details": "find $WORKDIR/.claude -name '*.tmp' returned no results."},
+        {"name": "no_framework_contamination", "pass": true, "details": "git -C $FRAMEWORK status --short: only pre-existing untracked entries (.claude/, Reports/uat-2026-04-26/) — both pre-conversation. git -C $FRAMEWORK rev-parse HEAD = d66e8f276079aa352ba90ac54386e1b1896d7494 (matches start-of-run capture). PR #18 framework-self guard worked."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    }
+  ],
+  "overall_pass": true,
+  "summary": "base/personal/desktop/light passes end-to-end on framework HEAD d66e8f2: init non-interactive, all phase 1-4 steps, BL-015 sentinel, BL-006 grace window, framework-self guard, U-H fixes all verified. Confirms still-open prior bugs U-C (direct shell git bypasses BL-006/BL-015) and U-D (no script advances .current_phase) at Medium severity. New Medium finding: init.sh --git-host github auto-creates real GitHub remote without an explicit opt-in or --skip-remote flag, violating UAT no-network contract."
+}

@@ -1,0 +1,92 @@
+{
+  "agent_id": 80,
+  "config": {
+    "kind": "upgrade",
+    "scenario": "production",
+    "platform": "web",
+    "track": "standard",
+    "upgrade_from": "sponsored_poc"
+  },
+  "framework_head": "d66e8f276079aa352ba90ac54386e1b1896d7494",
+  "started_at": "2026-04-26T03:51:13Z",
+  "completed_at": "2026-04-26T03:54:51Z",
+  "phases": [
+    {
+      "phase": 0,
+      "tests": [
+        {"name": "init_sh_non_interactive_exits_zero", "pass": true, "details": "init.sh --non-interactive completed; project tree present, verify-install reported 52 passed checks"},
+        {"name": "claude_md_created", "pass": true, "details": "CLAUDE.md present in project root"},
+        {"name": "project_intake_created", "pass": true, "details": "PROJECT_INTAKE.md present"},
+        {"name": "approval_log_created", "pass": true, "details": "APPROVAL_LOG.md present"},
+        {"name": "gitignore_created", "pass": true, "details": ".gitignore present"},
+        {"name": "phase_state_json_phase_zero", "pass": true, "details": ".current_phase=0 from .claude/phase-state.json"},
+        {"name": "phase_state_project_set", "pass": true, "details": ".project=uat-agent-80"},
+        {"name": "ci_workflow_created", "pass": true, "details": ".github/workflows/ci.yml exists"},
+        {"name": "release_workflow_created", "pass": true, "details": ".github/workflows/release.yml exists"},
+        {"name": "framework_clone_present", "pass": true, "details": ".claude/framework directory exists"},
+        {"name": "context7_detection", "pass": true, "details": "verify-install.sh reports Context7 MCP installed and configured"},
+        {"name": "platform_module_present", "pass": true, "details": "docs/platform-modules/web.md exists"},
+        {"name": "no_residual_backup_dir", "pass": true, "details": ".claude-backup absent (init log shows it was removed automatically)"},
+        {"name": "pre_commit_gate_registered", "pass": true, "details": "pre-commit-gate.sh referenced in .claude/settings.json hooks"},
+        {"name": "stop_checklist_registered", "pass": true, "details": ".claude/settings.json contains stop-checklist.sh reference"},
+        {"name": "pending_approval_helper_copied", "pass": true, "details": "scripts/pending-approval.sh present (PR #17 / U-H confirmed fixed)"},
+        {"name": "lint_uat_scenarios_helper_copied", "pass": true, "details": "scripts/lint-uat-scenarios.sh present (PR #17 / U-H confirmed fixed)"},
+        {"name": "framework_self_guard_active", "pass": true, "details": "Running init.sh from $FRAMEWORK exits 1 with 'Refusing to operate inside the Solo Orchestrator framework repo' (PR #18 confirmed fixed)"}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 2,
+      "tests": [
+        {"name": "baseline_phase2_built", "pass": true, "details": "Manually advanced phase-state.current_phase to 2 (no auto-advance script — known U-D); then ran process-checklist start-feature, all 6 build_loop steps, test-gate.sh --record-feature; feature 'uat-feat-1' present in .claude/build-progress.json features_completed"}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "U-D confirmation: no script auto-advances .current_phase after phase gate",
+          "reproduction": "After init at sponsored_poc/web/standard, no documented script writes phase-state.current_phase from 0 to 1/2. Required manual jq edit to proceed to Phase 2 baseline.",
+          "expected": "A scripted path (e.g., process-checklist or check-phase-gate) advances .current_phase after each gate's checklist completes",
+          "actual": ".current_phase remained at 0 after init; had to set it manually with jq to enable build_loop usage"
+        }
+      ],
+      "documentation_gaps": []
+    },
+    {
+      "phase": "upgrade",
+      "tests": [
+        {"name": "upgrade_command_exits_zero", "pass": false, "details": "upgrade-project.sh --to-production exits with code 1. The user-visible 'Upgrade Complete' banner prints, all phase-state changes commit successfully, but the script's tail block 'Refreshing framework helper scripts (BL-009, BL-015)' runs cp src dst where SCRIPT_DIR resolves to the project's own scripts/ directory (because the project copy of upgrade-project.sh was invoked). cp 'are identical (not copied)' returns non-zero and set -euo pipefail aborts the script after Upgrade Complete. Reproduces 100% on a fresh project."},
+        {"name": "phase_state_preserved", "pass": true, "details": ".current_phase remained 2 across upgrade; .project remained uat-agent-80"},
+        {"name": "process_state_preserved", "pass": true, "details": ".features_completed in build-progress.json still contains uat-feat-1; build_loop reset to clean state (post-feature_recorded) which is expected"},
+        {"name": "new_required_artifacts_listed", "pass": true, "details": "Upgrade output includes governance review pointers, CLAUDE.md POC-watermark cleanup notes, PROJECT_INTAKE.md governance section pointer"},
+        {"name": "pending_approval_sentinel_respected", "pass": true, "details": "Pre-staged .claude/pending-approval.json caused upgrade-project.sh --to-production to exit 1 with '[FAIL] upgrade blocked — pending user decision' and pointer to scripts/pending-approval.sh --resolve/--clear (PR #17 / U-F fix confirmed working)"},
+        {"name": "upgrade_changelog_present_in_script", "pass": true, "details": "scripts/upgrade-project.sh header contains both BL-006 (2026-04-24) and BL-015 (2026-04-25) changelog entries"},
+        {"name": "no_template_placeholders_in_output", "pass": true, "details": "grep of upgrade output for __PROJECT_NAME__/__PLATFORM__/__LANGUAGE__/__TRACK__ returns 0 hits"},
+        {"name": "poc_mode_lookup_succeeded", "pass": true, "details": "Upgrade detected sponsored_poc → production transition (PR #17 / U-E fix confirmed); no 'project is not in POC mode' false negative on first run"}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Critical",
+          "summary": "upgrade-project.sh --to-production exits 1 due to self-cp at end of script",
+          "reproduction": "1) init.sh non-interactive sponsored_poc/web/standard. 2) jq set current_phase=2. 3) yes | bash scripts/upgrade-project.sh --to-production; echo \"EXIT=$?\". Observed EXIT=1 on a clean repro tempdir.",
+          "expected": "Upgrade exits 0 after printing 'Upgrade Complete' (state changes are persisted; should signal success)",
+          "actual": "After 'Upgrade Complete' banner, the 'Refreshing framework helper scripts (BL-009, BL-015)' step at scripts/upgrade-project.sh:1469-1480 runs `cp \"$SCRIPT_DIR/$helper\" \"scripts/$helper\"`. When the project's copy of upgrade-project.sh is invoked (the canonical pattern), $SCRIPT_DIR resolves to the project's own scripts/ directory, so cp source and dest are the same file. macOS cp emits 'are identical (not copied)' and returns non-zero; set -euo pipefail aborts. The state mutations (phase-state poc_mode removal, last_upgrade stamp, chore(upgrade) commit) DO succeed because they happen earlier, so the user sees a successful state change but a failed script return code. Fix candidates: guard the cp with `[ \"$SCRIPT_DIR/$helper\" -ef \"scripts/$helper\" ] || cp ...` OR use cp from $ORCHESTRATOR_ROOT/scripts/$helper instead of $SCRIPT_DIR/$helper, OR `cp -f` with explicit success when src=dst. Same exit-1 reproduces at the upstream framework level too (any upgrade run from the project)."
+        }
+      ],
+      "documentation_gaps": []
+    },
+    {
+      "phase": "post_flight",
+      "tests": [
+        {"name": "no_uncommitted_secrets", "pass": true, "details": "grep for password|api_key|secret|token in committed project files returned only template/doc references (release.yml comments about Vercel/secrets, evaluation-prompts security audit checklist mentioning secrets-management concepts). No real credentials present."},
+        {"name": "log_files_consistent", "pass": true, "details": ".claude/process-audit.log absent — no FORCE/reset events occurred (N/A per runbook)"},
+        {"name": "no_orphaned_tempfiles", "pass": true, "details": "find $WORKDIR/.claude -name '*.tmp' returns nothing"},
+        {"name": "no_framework_contamination", "pass": true, "details": "git -C $FRAMEWORK rev-parse HEAD matches starting SHA d66e8f276079aa352ba90ac54386e1b1896d7494; status shows only pre-existing untracked .claude/ and Reports/uat-2026-04-26/ entries (sweep artifacts, not from this agent)"}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    }
+  ],
+  "overall_pass": false,
+  "summary": "Init non-interactive and Section A all pass; upgrade reaches 'Upgrade Complete' and persists state (phase preserved, features preserved, BL-015 sentinel respected, no placeholders, U-E poc_mode lookup works) but the trailing helper-refresh self-cp causes upgrade-project.sh --to-production to exit 1 — Critical regression in PR #17 cleanup logic."
+}

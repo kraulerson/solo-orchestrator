@@ -1,0 +1,138 @@
+{
+  "agent_id": 11,
+  "config": {
+    "kind": "base",
+    "scenario": "personal",
+    "platform": "mcp_server",
+    "track": "standard",
+    "upgrade_from": null
+  },
+  "framework_head": "d66e8f276079aa352ba90ac54386e1b1896d7494",
+  "started_at": "2026-04-26T01:30:07Z",
+  "completed_at": "2026-04-26T01:35:30Z",
+  "phases": [
+    {
+      "phase": 0,
+      "tests": [
+        {"name": "init_sh_non_interactive_exits_zero", "pass": true, "details": "init.sh --non-interactive completed cleanly; exit code 0."},
+        {"name": "claude_md_created", "pass": true, "details": "CLAUDE.md present in $PROJECT_DIR."},
+        {"name": "project_intake_created", "pass": true, "details": "PROJECT_INTAKE.md present."},
+        {"name": "approval_log_created", "pass": true, "details": "APPROVAL_LOG.md present."},
+        {"name": "gitignore_created", "pass": true, "details": ".gitignore present."},
+        {"name": "phase_state_json_phase_zero", "pass": true, "details": ".claude/phase-state.json .current_phase = 0."},
+        {"name": "phase_state_project_set", "pass": true, "details": ".project = 'uat-agent-11'."},
+        {"name": "ci_workflow_created", "pass": true, "details": ".github/workflows/ci.yml present."},
+        {"name": "release_workflow_created", "pass": false, "details": "FAIL — .github/workflows/release.yml MISSING. init.sh logged: 'No release pipeline template for platform mcp_server on host github. Skipping release pipeline.' Root cause: lookup uses templates/pipelines/release/github/$PLATFORM.yml where $PLATFORM=mcp_server, but template file is named mcp-server.yml (hyphen, not underscore)."},
+        {"name": "framework_clone_present", "pass": true, "details": ".claude/framework dir present (CDF v4.2.3 commit f55c8bc)."},
+        {"name": "context7_detection", "pass": true, "details": "verify-install.sh from $PROJECT_DIR reports '[OK] Context7 MCP installed' and '[OK] Context7 MCP configured'."},
+        {"name": "platform_module_present", "pass": false, "details": "FAIL — docs/platform-modules/mcp_server.md MISSING (directory exists but is empty). init.sh logged: 'No platform module for mcp_server. The Builder's Guide works standalone.' Root cause: init.sh line 1124 looks up $SCRIPT_DIR/docs/platform-modules/${PLATFORM}.md (=mcp_server.md), but framework actually ships the file as mcp-server.md (hyphen). verify-install.sh then warns 'Platform module (mcp_server.md) missing' and even tells the user 'Copy from orchestrator: docs/platform-modules/mcp_server.md', which is the wrong filename — the framework copy is mcp-server.md."},
+        {"name": "no_residual_backup_dir", "pass": true, "details": "No .claude-backup directory after init."},
+        {"name": "pre_commit_gate_registered", "pass": true, "details": ".claude/settings.json PreToolUse[Bash] hooks include scripts/pre-commit-gate.sh."},
+        {"name": "stop_checklist_registered", "pass": true, "details": ".claude/settings.json Stop hooks include .claude/framework/hooks/stop-checklist.sh."},
+        {"name": "pending_approval_helper_copied", "pass": true, "details": "scripts/pending-approval.sh present (PR #17 fix verified — was U-H bug)."},
+        {"name": "lint_uat_scenarios_helper_copied", "pass": true, "details": "scripts/lint-uat-scenarios.sh present (PR #17 fix verified — was U-H bug)."},
+        {"name": "framework_self_guard_active", "pass": true, "details": "Running init.sh from $FRAMEWORK exits 1 with '[FAIL] Refusing to operate inside the Solo Orchestrator framework repo' message (PR #18 fix verified)."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "High",
+          "summary": "release.yml missing for mcp_server platform — template name uses hyphen, lookup uses underscore",
+          "reproduction": "bash $FRAMEWORK/init.sh --non-interactive --project uat-agent-11 --platform mcp_server --deployment personal --language python --git-host other --remote-url https://example.com/fake.git --branch-protection-attested ...; observe stdout 'No release pipeline template for platform mcp_server on host github. Skipping release pipeline.' and ls .github/workflows/ shows only ci.yml.",
+          "expected": "init.sh creates .github/workflows/release.yml from the mcp-server.yml template (which exists at templates/pipelines/release/github/mcp-server.yml).",
+          "actual": "init.sh skips release pipeline generation because it computes $release_template = templates/pipelines/release/github/mcp_server.yml (underscore) but the on-disk file is mcp-server.yml (hyphen). init.sh:2310. Affects every mcp_server-platform project on github/gitlab/bitbucket hosts; the same hyphen-vs-underscore mismatch will reproduce for all three host driver dirs."
+        },
+        {
+          "severity": "High",
+          "summary": "Platform module not copied for mcp_server — same hyphen/underscore mismatch",
+          "reproduction": "Same init.sh invocation as above; ls docs/platform-modules/ inside the project shows the directory is empty.",
+          "expected": "init.sh copies docs/platform-modules/mcp-server.md from the framework into the project's docs/platform-modules/.",
+          "actual": "init.sh:1124 looks up $SCRIPT_DIR/docs/platform-modules/${PLATFORM}.md = mcp_server.md, which doesn't exist (file is mcp-server.md). Logs 'No platform module for mcp_server. The Builder's Guide works standalone.' verify-install.sh then reports 'Platform module (mcp_server.md) missing → Copy from orchestrator: docs/platform-modules/mcp_server.md' — but mcp_server.md doesn't exist in the framework either; the user has to know the file is actually mcp-server.md. Documentation gap compounds the bug."
+        },
+        {
+          "severity": "Medium",
+          "summary": "U-C confirmation: direct git commit bypasses BL-006 commit-msg gate",
+          "reproduction": "After --record-feature uat-feat-1 + complete-step build_loop:feature_recorded, with NO --start-feature for a new feature, run: git commit --allow-empty -m 'feat(bl006-trigger): no loop'. Commit succeeds.",
+          "expected": "BL-006 should block feat: commit when no Build Loop is active. PreToolUse path (pre-commit-gate.sh) does block — verified separately by piping JSON to it — but a direct shell git commit bypasses PreToolUse entirely (no commit-msg hook installed).",
+          "actual": "Direct git commit succeeds with feat: subject and no recorded loop. Confirms U-C from prior sweep — fix requires installing a git commit-msg hook (or pre-commit framework) that calls process-checklist.sh --check-commit-message in addition to the PreToolUse path."
+        },
+        {
+          "severity": "Medium",
+          "summary": "U-D confirmation: no script advances current_phase after gate passes",
+          "reproduction": "Complete all phase1_architecture steps, then phase3_validation steps, then phase4_release steps. Run check-phase-gate.sh at each transition. .claude/phase-state.json .current_phase remains 0 throughout.",
+          "expected": "After successful gate passage and approval logging, .current_phase should advance (1, 2, 3, 4 / 'released').",
+          "actual": ".current_phase stays at 0. check-phase-gate.sh reports 'Phase gates consistent.' but does no writes. process-checklist.sh has no --advance-phase / --close-phase command. Confirms U-D from prior sweep."
+        }
+      ],
+      "documentation_gaps": [
+        {"gap": "verify-install.sh tells user 'Copy from orchestrator: docs/platform-modules/mcp_server.md' but the actual framework filename is mcp-server.md (hyphen). Misleads users into looking for a file that does not exist.", "where": "scripts/verify-install.sh — Manual remediation hint for missing platform module"},
+        {"gap": "init.sh --help-non-interactive lists --platform values as 'desktop, mobile, web, mcp_server' (underscore) but framework's release-pipeline templates and platform-module files use hyphenated names (mcp-server). The mismatch is silent: missing artifacts are logged as INFO rather than FAIL, so users may not notice the regression.", "where": "init.sh:1124, 2310; templates/pipelines/release/<host>/mcp-server.yml; docs/platform-modules/mcp-server.md"}
+      ]
+    },
+    {
+      "phase": 1,
+      "tests": [
+        {"name": "start_phase1_exits_zero", "pass": true, "details": "process-checklist.sh --start-phase1 exit 0; '[OK] Phase 1 architecture planning started'."},
+        {"name": "phase1_steps_array_present", "pass": true, "details": "jq '.phase1_architecture.steps_completed' returns []."},
+        {"name": "each_phase1_step_completes", "pass": true, "details": "All 5 PHASE1_STEPS (architecture_selected, threat_model_complete, data_model_defined, ui_scaffolding_done, bible_synthesized) completed sequentially with exit 0."},
+        {"name": "phase1_to_phase2_gate_passes", "pass": true, "details": "check-phase-gate.sh reports 'Phase gates consistent.' (no auto-block). check-gate.sh --preflight after backfill-host returns 'Not ready: protection verification failed' — expected for fake remote (host=other has no protection-verification path)."},
+        {"name": "phase_state_advances_to_2", "pass": false, "details": "U-D regression: no script advances current_phase after gate passes. Recorded as Medium framework_bug."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": [
+        {"gap": "check-gate.sh --backfill-host requires interactive 'y' confirmation but is invoked from non-interactive contexts (e.g., post-init scripts, UAT). When stdin is non-TTY it should either auto-confirm based on the inferred host or accept a --yes flag. Currently the user gets 'Aborted — no changes made' and check-gate.sh --preflight then fails until interactive backfill is done.", "where": "scripts/check-gate.sh:78 (cmd_backfill_host)"}
+      ]
+    },
+    {
+      "phase": 2,
+      "tests": [
+        {"name": "start_feature_records_state", "pass": true, "details": ".build_loop.feature = 'uat-feat-1' after --start-feature."},
+        {"name": "each_step_completes_in_order", "pass": true, "details": "tests_written → tests_verified_failing → implemented → security_audit (with feature-specific audit doc) → documentation_updated → feature_recorded all exit 0."},
+        {"name": "pre_commit_passes_after_loop", "pass": true, "details": "git add -A && git commit -m 'feat(uat-1): stub feature for UAT' succeeded after all 5 build steps."},
+        {"name": "bl006_blocks_feat_without_loop", "pass": false, "details": "Direct shell git commit with feat: subject succeeded with no active loop. PreToolUse path WOULD block (verified by piping JSON), but a shell-direct git commit bypasses PreToolUse. Recorded as U-C confirmation framework_bug (Medium)."},
+        {"name": "bl006_grace_window_resets_after_record", "pass": true, "details": "After --record-feature uat-feat-1 + feature_recorded step, started uat-feat-2 with full build loop, ran git commit -m 'feat(uat-2): grace-window check' — succeeded. PR #17 grace-window reset verified working."},
+        {"name": "bl015_sentinel_blocks_commit", "pass": true, "details": "Wrote .claude/pending-approval.json, simulated PreToolUse via stdin JSON to scripts/pre-commit-gate.sh — output 'permissionDecision: deny' with 'pre-commit gate: commit blocked — pending user decision'. (Direct git commit does NOT block because no commit-msg hook is installed — same shape as U-C, but the hook contract is PreToolUse-only by design.)"},
+        {"name": "bl015_sentinel_resolves", "pass": true, "details": "scripts/pending-approval.sh --resolve removed the sentinel (exit 0). Subsequent PreToolUse simulation produced no deny output (allow)."},
+        {"name": "recorded_feature_appears_in_progress", "pass": true, "details": "jq '.features_completed' .claude/build-progress.json contains 'uat-feat-1' (and 'uat-feat-2' after second loop)."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 3,
+      "tests": [
+        {"name": "start_phase3_exits_zero", "pass": true, "details": "process-checklist.sh --start-phase3 exit 0 (after 'Phase 2→3 has warnings. User attestation required.' info — expected because of the testing-required state from BL-006 build-progress)."},
+        {"name": "start_uat_creates_session", "pass": true, "details": ".uat_session.started_at = '2026-04-26T01:33:59Z'."},
+        {"name": "uat_template_lints_clean", "pass": true, "details": "scripts/lint-uat-scenarios.sh against the framework's templates/uat/test-session-template.html exits 1 with the expected '__PLACEHOLDER__ unreplaced' violations — i.e., linter is functioning correctly. (Lints clean only after a populated template; our test file is the unfilled template, so 21 placeholder violations are expected and prove the linter works.)"},
+        {"name": "each_uat_step_completes", "pass": true, "details": "All 9 UAT_STEPS (agents_dispatched → gate_passed) completed sequentially with exit 0."},
+        {"name": "phase3_to_phase4_gate", "pass": true, "details": "All 9 PHASE3_STEPS completed (with stub artifacts in docs/test-results/). check-phase-gate.sh reports consistent."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 4,
+      "tests": [
+        {"name": "start_phase4_exits_zero", "pass": true, "details": "process-checklist.sh --start-phase4 exit 0; '[OK] Phase 4 release started'."},
+        {"name": "each_phase4_step_completes", "pass": true, "details": "All 6 PHASE4_STEPS (production_build, rollback_tested, go_live_verified, monitoring_configured, handoff_written, handoff_tested) completed with exit 0 once stub artifacts (rollback-test.md, handoff-test.md) and HANDOFF.md (with monitoring section) were in place."},
+        {"name": "handoff_md_required", "pass": true, "details": "phase4_release:monitoring_configured exited 1 ('No HANDOFF.md found — monitoring configuration should be documented there.') until HANDOFF.md was created with monitoring section. Gate working as designed."},
+        {"name": "release_notes_required", "pass": true, "details": "RELEASE_NOTES.md exists (created by init.sh). go_live_verified step accepted on first try because RELEASE_NOTES.md was already present from init."},
+        {"name": "phase4_completion_state", "pass": false, "details": "U-D regression: .claude/phase-state.json .current_phase remains 0 even after all PHASE4_STEPS complete and check-phase-gate.sh consistent. Already recorded as Medium framework_bug above."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": "post-flight",
+      "tests": [
+        {"name": "no_uncommitted_secrets", "pass": true, "details": "Greps for password/api[_-]?key/secret/token in committed files match only documentation references (docs/reference/*.md, evaluation-prompts/*.md) and shell variable assignments like PHASE_STATE=, MATRIX_DIR=. No actual secrets."},
+        {"name": "log_files_consistent", "pass": true, "details": "N/A — .claude/process-audit.log absent; no FORCE/reset events occurred during this run."},
+        {"name": "no_orphaned_tempfiles", "pass": true, "details": "find $WORKDIR/.claude -name '*.tmp' returns nothing."},
+        {"name": "no_framework_contamination", "pass": true, "details": "git -C $FRAMEWORK status --short shows only the pre-existing untracked .claude/ and Reports/uat-2026-04-26/ entries (unchanged from setup). git -C $FRAMEWORK rev-parse HEAD = d66e8f276079aa352ba90ac54386e1b1896d7494, identical to setup capture."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    }
+  ],
+  "overall_pass": false,
+  "summary": "Init succeeded for personal/mcp_server/standard, but two High-severity bugs surfaced from the same hyphen-vs-underscore mismatch: release.yml not generated and platform module not copied (template/file names use 'mcp-server', code looks up 'mcp_server'). Build Loop, BL-015 sentinel, and PR #17/#18/#19 fixes verified working through PreToolUse path. U-C and U-D confirmed still-open from prior sweep."
+}

@@ -1,0 +1,77 @@
+{
+  "agent_id": 67,
+  "config": {
+    "kind": "upgrade",
+    "scenario": "sponsored_poc",
+    "platform": "web",
+    "track": "light",
+    "upgrade_from": "private_poc"
+  },
+  "framework_head": "d66e8f276079aa352ba90ac54386e1b1896d7494",
+  "started_at": "2026-04-26T03:31:30Z",
+  "completed_at": "2026-04-26T03:33:53Z",
+  "phases": [
+    {
+      "phase": 0,
+      "tests": [
+        {"name": "init_sh_non_interactive_exits_zero", "pass": true, "details": "init.sh --non-interactive completed; verify-install passed 51/51 checks; init log saved at .solo-orchestrator/init-20260425-213136.log. Push to fake remote soft-failed as expected (PR #18 fake-remote tolerance)."},
+        {"name": "claude_md_created", "pass": true, "details": "CLAUDE.md present at project root."},
+        {"name": "project_intake_created", "pass": true, "details": "PROJECT_INTAKE.md present at project root with intake suggestions."},
+        {"name": "approval_log_created", "pass": true, "details": "APPROVAL_LOG.md present at project root."},
+        {"name": "gitignore_created", "pass": true, "details": ".gitignore present at project root."},
+        {"name": "phase_state_json_phase_zero", "pass": true, "details": ".claude/phase-state.json .current_phase = 0"},
+        {"name": "phase_state_project_set", "pass": true, "details": ".project = uat-agent-67"},
+        {"name": "ci_workflow_created", "pass": true, "details": ".github/workflows/ci.yml present (host: github driver, language: typescript)."},
+        {"name": "release_workflow_created", "pass": true, "details": ".github/workflows/release.yml present (light-track optional TODOs noted)."},
+        {"name": "framework_clone_present", "pass": true, "details": ".claude/framework directory present (CDF v4.2.3 / f55c8bc)."},
+        {"name": "context7_detection", "pass": true, "details": "verify-install reports: Context7 MCP installed, Context7 MCP configured."},
+        {"name": "platform_module_present", "pass": true, "details": "docs/platform-modules/web.md present."},
+        {"name": "no_residual_backup_dir", "pass": true, "details": ".claude-backup absent post-init (init logs explicitly: 'Removed CDF migration backup')."},
+        {"name": "pre_commit_gate_registered", "pass": true, "details": ".claude/settings.json PreToolUse hook references pre-commit-gate.sh (matcher: Bash)."},
+        {"name": "stop_checklist_registered", "pass": true, "details": ".claude/settings.json Stop hook references session-end-qdrant-reminder.sh (the stop-hook entry is registered; project does not generate a stop-checklist.sh per current init template)."},
+        {"name": "pending_approval_helper_copied", "pass": true, "details": "scripts/pending-approval.sh present (PR #17 / U-H fix confirmed)."},
+        {"name": "lint_uat_scenarios_helper_copied", "pass": true, "details": "scripts/lint-uat-scenarios.sh present (PR #17 / U-H fix confirmed)."},
+        {"name": "framework_self_guard_active", "pass": true, "details": "Running 'bash $FRAMEWORK/init.sh --non-interactive ...' from $FRAMEWORK exits non-zero (RC=1) with '[FAIL] Refusing to operate inside the Solo Orchestrator framework repo.' (PR #18 confirmed)."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 2,
+      "tests": [
+        {"name": "baseline_feature_recorded", "pass": true, "details": "Built baseline as private_poc/web/light, completed all 6 build_loop steps for uat-feat-1 with stub artifacts (stub test, src, security audit doc, docs); commit landed as 'feat(uat-1): stub feature for UAT'; test-gate.sh --record-feature recorded uat-feat-1 (1/2 until next test session); features_completed array contains uat-feat-1."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": "upgrade",
+      "tests": [
+        {"name": "upgrade_command_exits_zero", "pass": true, "details": "upgrade-project.sh --to-sponsored-poc exited 0; updated phase-state.json, tool-preferences.json, CLAUDE.md, PROJECT_INTAKE.md, appended APPROVAL_LOG audit entry, committed 'chore(upgrade): -> sponsored POC', ran post-upgrade verify-install (51 passed), backfilled manifest host=other, refreshed pending-approval.sh and lint-uat-scenarios.sh helpers. U-E confirmed fixed: poc_mode read correctly from phase-state.json (output: 'Current POC mode: private poc')."},
+        {"name": "phase_state_preserved", "pass": true, "details": ".current_phase = 0 unchanged across upgrade; .project = uat-agent-67 unchanged. .last_upgrade = 2026-04-25 added; .poc_mode flipped private_poc -> sponsored_poc as intended."},
+        {"name": "process_state_preserved", "pass": true, "details": "build-progress.json features_completed = [\"uat-feat-1\"] preserved; process-state.json build_loop in idle/reset state (post feature_recorded reset, as expected)."},
+        {"name": "new_required_artifacts_listed", "pass": true, "details": "Upgrade output enumerated files updated and post-upgrade tasks (preflight check, UAT template guidance, lint-uat reminder). Note: output is procedural rather than a checklist of new sponsored_poc artifacts; partial coverage. Recorded as a documentation_gap rather than a bug."},
+        {"name": "pending_approval_sentinel_respected", "pass": true, "details": "Wrote .claude/pending-approval.json with valid schema before invoking upgrade; upgrade-project.sh --to-sponsored-poc exited RC=1 with '[FAIL] upgrade blocked — pending user decision.' message and remediation hints. State unchanged (poc_mode still private_poc). After scripts/pending-approval.sh --clear, upgrade proceeded. PR #17 / U-F confirmed fixed."},
+        {"name": "upgrade_changelog_present_in_script", "pass": true, "details": "scripts/upgrade-project.sh header includes BL-006 (2026-04-24) and BL-015 (2026-04-25) changelog entries (also BL-016 noted)."},
+        {"name": "no_template_placeholders_in_output", "pass": true, "details": "grep of upgrade output for __PROJECT_NAME__|__PLATFORM__|__LANGUAGE__|__TRACK__ returned 0 hits."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": [
+        {"gap": "Upgrade output for --to-sponsored-poc does not enumerate new artifacts/checks specific to sponsored_poc (e.g., legal sponsor docs, executive review touchpoints). The output lists files modified by the upgrade itself but not the new governance deliverables the user must now produce.", "where": "scripts/upgrade-project.sh post-upgrade summary section"}
+      ]
+    },
+    {
+      "phase": "post_flight",
+      "tests": [
+        {"name": "no_uncommitted_secrets", "pass": true, "details": "grep across committed files for password|api[_-]?key|secret|token returned only template/wordlist references: .claude/framework/hooks/known-stdlib.txt (CDF wordlist), .github/workflows/ci.yml (uses ${{ secrets.GITHUB_TOKEN }} placeholder + 'gitleaks' name), .github/workflows/release.yml (commented-out ${{ secrets.VERCEL_TOKEN }} example), .gitignore (exclusion patterns). No actual secret values present."},
+        {"name": "log_files_consistent", "pass": true, "details": "N/A — no FORCE/reset events occurred; .claude/process-audit.log absent as expected (it is append-only on bypass events)."},
+        {"name": "no_orphaned_tempfiles", "pass": true, "details": "find $WORKDIR/.claude -name '*.tmp' returned 0 files."},
+        {"name": "no_framework_contamination", "pass": true, "details": "git -C $FRAMEWORK rev-parse HEAD = d66e8f276079aa352ba90ac54386e1b1896d7494 (unchanged from sweep start). git status --short shows only pre-existing untracked '.claude/' and 'Reports/uat-2026-04-26/' entries (also present in initial gitStatus snapshot). No tracked-file modifications."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    }
+  ],
+  "overall_pass": true,
+  "summary": "Agent 67 (upgrade private_poc -> sponsored_poc, web/light): all Section A, F, and G assertions pass. PR #17 (U-E, U-F, U-H), PR #18 (framework-self guard, fake-remote tolerance), and PR #19 (BL-016 --non-interactive) confirmed working. One Low-severity documentation gap noted on upgrade output coverage of new sponsored_poc artifacts."
+}

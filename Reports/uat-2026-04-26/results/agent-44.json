@@ -1,0 +1,140 @@
+{
+  "agent_id": 44,
+  "config": {
+    "kind": "base",
+    "scenario": "production",
+    "platform": "web",
+    "track": "standard",
+    "upgrade_from": null
+  },
+  "framework_head": "d66e8f276079aa352ba90ac54386e1b1896d7494",
+  "started_at": "2026-04-26T02:43:00Z",
+  "completed_at": "2026-04-26T02:52:00Z",
+  "phases": [
+    {
+      "phase": 0,
+      "tests": [
+        {"name": "init_sh_non_interactive_exits_zero", "pass": true, "details": "init.sh --non-interactive completed with RC=0 for production/web/standard/typescript. Push to fake remote was tolerated per PR #18."},
+        {"name": "claude_md_created", "pass": true, "details": "CLAUDE.md present"},
+        {"name": "project_intake_created", "pass": true, "details": "PROJECT_INTAKE.md present"},
+        {"name": "approval_log_created", "pass": true, "details": "APPROVAL_LOG.md present"},
+        {"name": "gitignore_created", "pass": true, "details": ".gitignore present"},
+        {"name": "phase_state_json_phase_zero", "pass": true, "details": "current_phase=0 immediately after init"},
+        {"name": "phase_state_project_set", "pass": true, "details": ".project=uat-agent-44"},
+        {"name": "ci_workflow_created", "pass": true, "details": ".github/workflows/ci.yml present"},
+        {"name": "release_workflow_created", "pass": true, "details": ".github/workflows/release.yml present"},
+        {"name": "framework_clone_present", "pass": true, "details": ".claude/framework directory present"},
+        {"name": "context7_detection", "pass": true, "details": "verify-install.sh from PROJECT_DIR reports [OK] Context7 MCP installed and configured (RC=0)"},
+        {"name": "platform_module_present", "pass": true, "details": "docs/platform-modules/web.md present"},
+        {"name": "no_residual_backup_dir", "pass": true, "details": ".claude-backup not present"},
+        {"name": "pre_commit_gate_registered", "pass": true, "details": "pre-commit-gate.sh referenced in .claude/settings.json PreToolUse hooks"},
+        {"name": "stop_checklist_registered", "pass": true, "details": "stop-checklist.sh referenced in .claude/settings.json"},
+        {"name": "pending_approval_helper_copied", "pass": true, "details": "scripts/pending-approval.sh present (PR #17 fix confirmed)"},
+        {"name": "lint_uat_scenarios_helper_copied", "pass": true, "details": "scripts/lint-uat-scenarios.sh present (PR #17 fix confirmed)"},
+        {"name": "framework_self_guard_active", "pass": true, "details": "Running init.sh --non-interactive from $FRAMEWORK exited RC=1 with [FAIL] Refusing to operate inside the Solo Orchestrator framework repo (PR #18 fix confirmed)"}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 1,
+      "tests": [
+        {"name": "start_phase1_exits_zero", "pass": true, "details": "process-checklist.sh --start-phase1 RC=0"},
+        {"name": "phase1_steps_array_present", "pass": true, "details": ".phase1_architecture.steps_completed is an array (initially empty)"},
+        {"name": "each_phase1_step_completes", "pass": true, "details": "All 5 PHASE1_STEPS (architecture_selected, threat_model_complete, data_model_defined, ui_scaffolding_done, bible_synthesized) completed RC=0 sequentially"},
+        {"name": "phase1_to_phase2_gate_passes", "pass": true, "details": "check-phase-gate.sh RC=0 with consistent state at phase 0"},
+        {"name": "phase_state_advances_to_2", "pass": false, "details": "U-D regression: no script automatically advances .current_phase after gate passes. Manually set current_phase=2 to proceed with subsequent sections."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "U-D confirmation: no script auto-advances current_phase after gate passes",
+          "reproduction": "After completing all PHASE1_STEPS via --complete-step, run scripts/check-phase-gate.sh; observe phase-state.json .current_phase remains at 0.",
+          "expected": "A scripted path (or part of check-phase-gate.sh upon successful gate) should advance .current_phase to the next integer and record the gate date.",
+          "actual": ".current_phase remained 0 after all phase1 steps and check-phase-gate.sh passed; no documented script transitions the state."
+        }
+      ],
+      "documentation_gaps": [
+        {"gap": "No documented procedure to advance .current_phase between phases — gate scripts only consistency-check, never transition state.", "where": "scripts/check-phase-gate.sh and process-checklist.sh"}
+      ]
+    },
+    {
+      "phase": 2,
+      "tests": [
+        {"name": "start_feature_records_state", "pass": true, "details": ".build_loop.feature == 'uat-feat-1' after --start-feature"},
+        {"name": "each_step_completes_in_order", "pass": true, "details": "All 5 build_loop steps (tests_written -> documentation_updated) completed RC=0 in order; security_audit artifact gate satisfied via stub findings file."},
+        {"name": "pre_commit_passes_after_loop", "pass": true, "details": "git commit -m 'feat(uat-1): ...' succeeded after all 5 steps + record-feature."},
+        {"name": "bl006_blocks_feat_without_loop", "pass": false, "details": "U-C confirmation: direct shell `git commit --allow-empty -m 'feat(bl006-trigger): no loop'` succeeded with RC=0 — no commit-msg hook, no client-side gate. The PreToolUse path (pre-commit-gate.sh) gates the agent, but direct shell git bypasses BL-006."},
+        {"name": "bl006_grace_window_resets_after_record", "pass": true, "details": "After test-gate.sh --record-feature uat-feat-1 + completing build_loop:feature_recorded, a second feat: commit (uat-feat-2) with proper Build Loop completed successfully."},
+        {"name": "bl015_sentinel_blocks_commit", "pass": true, "details": "With .claude/pending-approval.json present, simulated PreToolUse payload {\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit -m feat(uat-3)\"}} piped to scripts/pre-commit-gate.sh produced JSON permissionDecision=deny with reason citing the BL-015 sentinel."},
+        {"name": "bl015_sentinel_resolves", "pass": true, "details": "scripts/pending-approval.sh --resolve removed the sentinel; subsequent commit invocation no longer mentions sentinel (was blocked by a separate Phase 2 init verification gate, which is expected behavior)."},
+        {"name": "recorded_feature_appears_in_progress", "pass": true, "details": "After --record-feature uat-feat-1, .features_completed contained 'uat-feat-1' in build-progress.json (verified immediately after record)."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "U-C confirmation: BL-006 not enforced via git commit-msg hook",
+          "reproduction": "From PROJECT_DIR with no active --start-feature: `git commit --allow-empty -m 'feat(bypass): no loop'`",
+          "expected": "Commit blocked client-side (commit-msg hook or similar) when no Build Loop is recorded for the feat:.",
+          "actual": "Commit succeeded RC=0; HEAD advanced. PreToolUse gate only fires when commits go through the agent's Bash tool, not direct shell."
+        }
+      ],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 3,
+      "tests": [
+        {"name": "start_phase3_exits_zero", "pass": true, "details": "process-checklist.sh --start-phase3 RC=0 (with WARN about features_since_last_test that was non-fatal)."},
+        {"name": "start_uat_creates_session", "pass": true, "details": ".uat_session.started_at present after --start-uat 1"},
+        {"name": "uat_template_lints_clean", "pass": false, "details": "scripts/lint-uat-scenarios.sh requires a populated HTML file with embedded `const scenarios = [...]` array that parses as JSON. With minimal stub HTML the linter returns RC=2 (structural failure: 'No scenarios block found'). With a JS object literal the linter rejects (jq parse failure on JS comments/identifiers, not strict JSON). The linter exists and runs, but creating a stub that lints clean is non-trivial — N/A for stub-driven UAT runs."},
+        {"name": "each_uat_step_completes", "pass": true, "details": "All 9 UAT_STEPS (agents_dispatched -> gate_passed) completed RC=0 sequentially with stub artifacts in docs/test-results/."},
+        {"name": "phase3_to_phase4_gate", "pass": false, "details": "check-phase-gate.sh RC=1 with multiple WARN/FAIL: gate dates not stored in canonical .gates.phase_X_to_Y schema (they were stored as flat top-level keys gate_X_to_Y_date). PROJECT_BIBLE.md missing (FAIL). HANDOFF.md / SECURITY.md / sbom.json / penetration test missing (WARN). Most are stub-environment expected; the gate-date schema mismatch is a probable bug — see framework_bugs."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "Phase-state gate-date schema duality: flat keys vs .gates.phase_X_to_Y",
+          "reproduction": "Init creates phase-state.json with `.gates.phase_0_to_1: null` etc. plus no flat keys. Setting `.gates.phase_X_to_Y = '2026-04-26'` is what check-phase-gate.sh reads. But other parts of the codebase appear to write flat top-level `.gate_X_to_Y_date` keys.",
+          "expected": "One canonical schema for gate dates that writers and readers agree on.",
+          "actual": "check-phase-gate.sh consistently warns 'current_phase is N but gate date not recorded' even when flat keys are populated, because it reads the nested .gates path. UAT agents (and likely the framework's own state-advance logic, if any existed) need to populate both."
+        }
+      ],
+      "documentation_gaps": [
+        {"gap": "lint-uat-scenarios.sh expects a very specific populated-template format (JS file with `const scenarios = [...]` parseable as JSON). No example or template path documented in --help output.", "where": "scripts/lint-uat-scenarios.sh:1-20 usage block"}
+      ]
+    },
+    {
+      "phase": 4,
+      "tests": [
+        {"name": "start_phase4_exits_zero", "pass": true, "details": "First call RC=1 because poc_mode='production' triggered the POC block. After running scripts/upgrade-project.sh --to-production (which cleared poc_mode to null), --start-phase4 RC=0. This is expected per the production-bound POC -> production workflow."},
+        {"name": "each_phase4_step_completes", "pass": true, "details": "All 6 PHASE4_STEPS (production_build, rollback_tested, go_live_verified, monitoring_configured, handoff_written, handoff_tested) completed RC=0 with stub artifacts. Artifact gates fired correctly: rollback needed *rollback* file in docs/test-results, monitoring needed HANDOFF.md with monitoring keywords, handoff_tested needed *handoff* file."},
+        {"name": "handoff_md_required", "pass": true, "details": "monitoring_configured failed RC=1 with 'HANDOFF.md not found' before HANDOFF.md was created; passed after stubbing HANDOFF.md with 'monitoring' keyword."},
+        {"name": "release_notes_required", "pass": true, "details": "RELEASE_NOTES.md is auto-created by init.sh with a stub; go_live_verified passed because the file already existed since init."},
+        {"name": "phase4_completion_state", "pass": true, "details": ".current_phase=4 and all 6 phase4_release.steps_completed populated."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "production gov_mode requires --to-production upgrade before phase 4",
+          "reproduction": "Init with --gov-mode production -> phase-state.json has poc_mode='production' -> --start-phase4 fails with 'POC projects complete at Phase 3'.",
+          "expected": "If user explicitly chose --gov-mode production at init, phase 4 should be unlocked from the start (production mode is the eventual target). Requiring upgrade-project.sh --to-production for an already-production project is confusing.",
+          "actual": "User must run scripts/upgrade-project.sh --to-production to clear poc_mode before phase 4 can be started, even though they originally chose production mode."
+        }
+      ],
+      "documentation_gaps": []
+    },
+    {
+      "phase": "post_flight",
+      "tests": [
+        {"name": "no_uncommitted_secrets", "pass": true, "details": "Grep for password|api_key|secret|token across committed files matches only template/doc references (CI workflow placeholders, .gitignore secret patterns, docs about secrets). Tightened regex for actual values (>=16 char alphanumeric assignments, excluding TODO/placeholder/example) returned 0 hits."},
+        {"name": "log_files_consistent", "pass": true, "details": "N/A — no FORCE/reset events occurred during this run, so .claude/process-audit.log absence is correct (file is append-only on bypass events)."},
+        {"name": "no_orphaned_tempfiles", "pass": true, "details": "find $WORKDIR/.claude -name '*.tmp' returned no results"},
+        {"name": "no_framework_contamination", "pass": true, "details": "git -C $FRAMEWORK status --short shows only the same '?? .claude/' and '?? Reports/uat-2026-04-26/' untracked dirs that existed at setup. git -C $FRAMEWORK rev-parse HEAD returns d66e8f276079aa352ba90ac54386e1b1896d7494 (matches setup snapshot)."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    }
+  ],
+  "overall_pass": true,
+  "summary": "Base/production/web/standard happy path completed end-to-end. PR #17/#18/#19 fixes confirmed: --non-interactive works, framework-self guard active, helpers copied, fake-remote tolerated. Confirmed prior-sweep open bugs U-C (BL-006 client-side bypass) and U-D (no auto phase advance) at Medium severity. Two new Medium findings: gate-date schema duality (flat vs nested .gates) and the production-gov-mode -> upgrade-required-for-phase4 UX wrinkle."
+}

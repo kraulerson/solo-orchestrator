@@ -1,0 +1,145 @@
+{
+  "agent_id": 2,
+  "config": {
+    "kind": "base",
+    "scenario": "personal",
+    "platform": "desktop",
+    "track": "standard",
+    "upgrade_from": null
+  },
+  "framework_head": "43ade857675fe54621b431cf09d060b6cb1ff955",
+  "started_at": "2026-04-26T00:28:49Z",
+  "completed_at": "2026-04-26T00:32:40Z",
+  "phases": [
+    {
+      "phase": 0,
+      "tests": [
+        {"name": "init_sh_non_interactive_exits_zero", "pass": false, "details": "init.sh exited 1 with: 'init.sh: line 1577: TEST_INTERVAL: unbound variable'. The script crashed under set -u because TEST_INTERVAL is only set in the interactive language_prompt() path (line 494) and never set on the --non-interactive code path. Crash occurred AFTER the framework clone completed and orchestrator-source.json was written, but BEFORE build-progress.json (heredoc on line 1577), process-state.json, CLAUDE.md, APPROVAL_LOG.md, .gitignore, and .github/workflows/* were generated."},
+        {"name": "claude_md_created", "pass": false, "details": "CLAUDE.md missing — init crashed before this step."},
+        {"name": "project_intake_created", "pass": true, "details": "PROJECT_INTAKE.md present (29 KB)."},
+        {"name": "approval_log_created", "pass": false, "details": "APPROVAL_LOG.md missing — init crashed before this step. Manually stubbed to allow downstream tests to proceed."},
+        {"name": "gitignore_created", "pass": false, "details": ".gitignore missing — init crashed before this step. Manually stubbed."},
+        {"name": "phase_state_json_phase_zero", "pass": true, "details": "jq -r '.current_phase' .claude/phase-state.json returned 0."},
+        {"name": "phase_state_project_set", "pass": true, "details": ".project = 'uat-agent-2'."},
+        {"name": "ci_workflow_created", "pass": false, "details": ".github/workflows/ci.yml missing — init crashed before this step. Manually stubbed."},
+        {"name": "release_workflow_created", "pass": false, "details": ".github/workflows/release.yml missing — init crashed before this step. Manually stubbed."},
+        {"name": "framework_clone_present", "pass": true, "details": ".claude/framework/ exists with hooks/ and rules/ populated."},
+        {"name": "context7_detection", "pass": true, "details": "verify-install.sh from project dir reports 'Context7 MCP configured' OK."},
+        {"name": "platform_module_present", "pass": true, "details": "docs/platform-modules/desktop.md present."},
+        {"name": "no_residual_backup_dir", "pass": true, "details": "[INFO] Removed CDF migration backup (not needed in Solo Orchestrator flow); no .claude-backup/ remains."},
+        {"name": "pre_commit_gate_registered", "pass": true, "details": "PreToolUse hooks include scripts/pre-commit-gate.sh."},
+        {"name": "stop_checklist_registered", "pass": true, "details": "Stop hooks include .claude/framework/hooks/stop-checklist.sh."},
+        {"name": "pending_approval_helper_copied", "pass": true, "details": "scripts/pending-approval.sh present (PR #17 fix verified)."},
+        {"name": "lint_uat_scenarios_helper_copied", "pass": true, "details": "scripts/lint-uat-scenarios.sh present (PR #17 fix verified)."},
+        {"name": "framework_self_guard_active", "pass": true, "details": "Running init.sh from $FRAMEWORK exited 1 with stderr containing 'Refusing to operate inside the Solo Orchestrator framework repo' (PR #18 fix verified)."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Critical",
+          "summary": "init.sh --non-interactive crashes on unbound TEST_INTERVAL",
+          "reproduction": "bash $FRAMEWORK/init.sh --non-interactive --project uat-agent-2 --description 'UAT' --platform desktop --track standard --deployment personal --language rust --project-dir /tmp/uat-agent-2 --git-host github --visibility private --allow-existing-dir",
+          "expected": "init.sh exits 0 and creates CLAUDE.md, APPROVAL_LOG.md, .gitignore, .github/workflows/ci.yml, .github/workflows/release.yml, .claude/build-progress.json (populated), .claude/process-state.json (populated)",
+          "actual": "init.sh exits 1 with 'init.sh: line 1577: TEST_INTERVAL: unbound variable'. TEST_INTERVAL=2 is only set inside the interactive language_prompt() flow (line 494). The non-interactive driver bypasses that prompt and never assigns TEST_INTERVAL, so under set -u the heredoc that emits .claude/build-progress.json on line 1577 aborts. Files emitted before the crash (manifest, settings, framework clone, phase-state.json, orchestrator-source.json, scripts/*) are present; everything after (build-progress JSON contents, process-state.json, CLAUDE.md, APPROVAL_LOG.md, .gitignore, workflows, IDE config rendering on line 2012) is missing or zero-bytes. This is a regression of PR #19 (BL-016): --non-interactive is the documented primary path and it never completes a happy-path personal-desktop-standard-rust run."
+        }
+      ],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 1,
+      "tests": [
+        {"name": "start_phase1_exits_zero", "pass": true, "details": "scripts/process-checklist.sh --start-phase1 exited 0; auto-created process-state.json (init had not generated it)."},
+        {"name": "phase1_steps_array_present", "pass": true, "details": ".phase1_architecture.steps_completed is a JSON array."},
+        {"name": "each_phase1_step_completes", "pass": true, "details": "All 5 PHASE1_STEPS completed (architecture_selected, threat_model_complete, data_model_defined, ui_scaffolding_done, bible_synthesized) — no artifact checks for these step IDs."},
+        {"name": "phase1_to_phase2_gate_passes", "pass": true, "details": "scripts/check-phase-gate.sh prints 'Phase gates consistent.' RC=0 after APPROVAL_LOG.md was stubbed."},
+        {"name": "phase_state_advances_to_2", "pass": false, "details": "After gate passed, .current_phase remained 0. No script auto-advances the phase. Confirmation of still-open U-D from prior sweep."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "U-D confirmation: no script advances current_phase after gate",
+          "reproduction": "Complete all phase1_architecture steps, ensure APPROVAL_LOG.md exists, run scripts/check-phase-gate.sh; observe .claude/phase-state.json .current_phase still equals 0.",
+          "expected": "After all PHASE1_STEPS complete and gate passes with approval logged, .current_phase increments to 1 (and similarly 2->3, 3->4 in later phases).",
+          "actual": "current_phase stays at 0 across the entire run. check-phase-gate.sh only verifies consistency, never advances. No documented mechanism (cli flag or hook) to perform the advance."
+        }
+      ],
+      "documentation_gaps": [
+        {"gap": "RUNBOOK does not specify whether check-phase-gate.sh or another script is supposed to auto-advance .current_phase. The phase_state_advances_to_2 assertion calls out U-D, but the underlying mechanism remains unspecified.", "where": "RUNBOOK.md Section B note on U-D"}
+      ]
+    },
+    {
+      "phase": 2,
+      "tests": [
+        {"name": "start_feature_records_state", "pass": true, "details": "process-state.json .build_loop.feature = 'uat-feat-1' after --start-feature."},
+        {"name": "each_step_completes_in_order", "pass": true, "details": "All 5 build_loop step IDs (tests_written through documentation_updated) completed sequentially with stub artifacts (src/lib.rs, tests/test_lib.rs, docs/security-audits/uat-feat-1-security-audit.md)."},
+        {"name": "pre_commit_passes_after_loop", "pass": true, "details": "Direct shell `git commit -m 'feat(uat-1): stub feature for UAT'` exited 0 after all 5 steps completed."},
+        {"name": "bl006_blocks_feat_without_loop", "pass": false, "details": "Direct shell `git commit --allow-empty -m 'feat(bl006-trigger): no loop'` succeeded (exit 0). U-C confirmation — direct shell git commit bypasses the PreToolUse pre-commit-gate.sh because there is no actual git commit-msg hook installed in .git/hooks. RUNBOOK explicitly notes this is U-C and still open."},
+        {"name": "bl006_grace_window_resets_after_record", "pass": true, "details": "After --record-feature, attempting another feat: commit was not blocked by the in-process gate state. Cannot test PreToolUse path directly without a live Claude Code session, but pre-commit-gate.sh invoked with synthetic payload after sentinel resolution returns 0."},
+        {"name": "bl015_sentinel_blocks_commit", "pass": true, "details": "With .claude/pending-approval.json present, piping {\"tool_input\":{\"command\":\"git commit -m \\\"feat: stuff\\\"\"}} to scripts/pre-commit-gate.sh emitted permissionDecision='deny' and message about sentinel file. PR #17 hook payload path fix (.tool_input.command) verified active."},
+        {"name": "bl015_sentinel_resolves", "pass": true, "details": "scripts/pending-approval.sh --resolve removed the sentinel; subsequent pre-commit-gate.sh invocation returned 0."},
+        {"name": "recorded_feature_appears_in_progress", "pass": false, "details": "jq read of .features_completed in .claude/build-progress.json returned empty/null. The file is 0 bytes because init.sh crashed before populating it; test-gate.sh --record-feature attempted to update an empty file with jq, which silently fails. As a downstream effect of the Critical init.sh bug above."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "U-C confirmation: shell git commit bypasses BL-006",
+          "reproduction": "Without --start-feature, run `git commit --allow-empty -m 'feat(x): no loop'` in a project dir.",
+          "expected": "feat: subjects without an active build_loop should be rejected by a commit-msg hook.",
+          "actual": "Commit succeeds. There is no .git/hooks/commit-msg installed; PreToolUse gating only runs through the Claude Code agent, not real shell. RUNBOOK confirms still-open U-C."
+        },
+        {
+          "severity": "High",
+          "summary": "test-gate.sh --record-feature fails on null integer comparison",
+          "reproduction": "On a project where .claude/build-progress.json is empty/0-bytes, run `scripts/test-gate.sh --record-feature uat-feat-1`.",
+          "expected": "Record feature without errors and update build-progress.json with the new feature in features_completed.",
+          "actual": "Prints '[OK] Feature uat-feat-1 recorded (/ until next test session)' (note empty interpolation) and emits 'test-gate.sh: line 122: [: : integer expression expected'. The empty build-progress.json yields empty strings for since_last and interval, so the integer compare fails. U-K confirmation. Compounded by the Critical init bug — file should never be empty if init succeeded."
+        }
+      ],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 3,
+      "tests": [
+        {"name": "start_phase3_exits_zero", "pass": true, "details": "process-checklist.sh --start-phase3 exit 0; emits two 'integer expression expected' warnings on test-gate.sh lines 377 and 411 (same U-K root cause)."},
+        {"name": "start_uat_creates_session", "pass": true, "details": "process-state.json .uat_session.started_at non-null after --start-uat 1."},
+        {"name": "uat_template_lints_clean", "pass": false, "details": "scripts/lint-uat-scenarios.sh tests/uat/examples/pre-flight-reference.html exits 2 with 'No scenarios block found — is the file populated?'. The shipped reference HTML is intentionally a template skeleton, but lint exits non-zero on it. Either the template should pass lint or RUNBOOK should not call this assertion."},
+        {"name": "each_uat_step_completes", "pass": true, "details": "All 9 UAT_STEPS completed in order; no artifact checks for these step IDs."},
+        {"name": "phase3_to_phase4_gate", "pass": true, "details": "After all PHASE3_STEPS completed (with stubbed docs/test-results/* artifacts for security_hardening, accessibility_audit, performance_audit, results_archived), check-phase-gate.sh exits 0. .current_phase still 0 (U-D)."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "lint-uat-scenarios.sh exits non-zero on shipped reference HTML",
+          "reproduction": "bash scripts/lint-uat-scenarios.sh tests/uat/examples/pre-flight-reference.html",
+          "expected": "Either lint exits 0 on the shipped example HTML, or RUNBOOK clarifies that lint is meant only for populated session HTML files (not the reference template).",
+          "actual": "Exits 2. Reference HTML in tests/uat/examples/ contains no scenarios block."
+        }
+      ],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 4,
+      "tests": [
+        {"name": "start_phase4_exits_zero", "pass": true, "details": "process-checklist.sh --start-phase4 exit 0."},
+        {"name": "each_phase4_step_completes", "pass": true, "details": "All 6 PHASE4_STEPS completed with stubs (HANDOFF.md including 'Sentry / monitoring' content; RELEASE_NOTES.md present from init partial; rollback-test and handoff-test files in docs/test-results/)."},
+        {"name": "handoff_md_required", "pass": true, "details": "phase4_release:handoff_written gate detects missing HANDOFF.md (verified by inspecting code path); after creating HANDOFF.md the step completed."},
+        {"name": "release_notes_required", "pass": true, "details": "phase4_release:go_live_verified gate checks RELEASE_NOTES.md; file existed (init created stub before crash), step completed."},
+        {"name": "phase4_completion_state", "pass": false, "details": ".claude/phase-state.json .current_phase = 0, not 4 or 'released'. U-D confirmation: no advancement on completion."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": "post_flight",
+      "tests": [
+        {"name": "no_uncommitted_secrets", "pass": true, "details": "grep for password|api[_-]?key|secret|token in committed files matches several documentation files (governance-framework.md, builders-guide.md, etc.) but none contain secret-like value patterns ([:=] followed by 16+ alphanumerics). No real secrets present."},
+        {"name": "log_files_consistent", "pass": true, "details": "N/A — no FORCE/reset events occurred; .claude/process-audit.log absent (correct per runbook)."},
+        {"name": "no_orphaned_tempfiles", "pass": true, "details": "find $WORKDIR/.claude -name '*.tmp' returned nothing."},
+        {"name": "no_framework_contamination", "pass": true, "details": "git -C $FRAMEWORK rev-parse HEAD = 43ade857675fe54621b431cf09d060b6cb1ff955 (unchanged from setup). git status shows only pre-existing untracked entries (.claude/, Reports/uat-2026-04-26/) consistent with starting state."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    }
+  ],
+  "overall_pass": false,
+  "summary": "Critical regression in PR #19: init.sh --non-interactive crashes mid-run on unbound TEST_INTERVAL, leaving the project missing CLAUDE.md, APPROVAL_LOG.md, .gitignore, .github/workflows/*, populated build-progress.json, and process-state.json. Confirms U-C, U-D, U-K still open. PR #17 hook payload fix and PR #18 self-guard verified working."
+}

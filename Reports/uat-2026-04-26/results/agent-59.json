@@ -1,0 +1,125 @@
+{
+  "agent_id": 59,
+  "config": {
+    "kind": "upgrade",
+    "scenario": "private_poc",
+    "platform": "mcp_server",
+    "track": "standard",
+    "upgrade_from": "personal"
+  },
+  "framework_head": "d66e8f276079aa352ba90ac54386e1b1896d7494",
+  "started_at": "2026-04-26T03:20:20Z",
+  "completed_at": "2026-04-26T03:24:04Z",
+  "phases": [
+    {
+      "phase": 0,
+      "section": "A — init validation",
+      "tests": [
+        {"name": "init_sh_non_interactive_exits_zero", "pass": true, "details": "init.sh --non-interactive personal/mcp_server/standard exit code 0"},
+        {"name": "claude_md_created", "pass": true, "details": "CLAUDE.md present in PROJECT_DIR"},
+        {"name": "project_intake_created", "pass": true, "details": "PROJECT_INTAKE.md present"},
+        {"name": "approval_log_created", "pass": true, "details": "APPROVAL_LOG.md present"},
+        {"name": "gitignore_created", "pass": true, "details": ".gitignore present"},
+        {"name": "phase_state_json_phase_zero", "pass": true, "details": "jq .current_phase = 0"},
+        {"name": "phase_state_project_set", "pass": true, "details": ".project = uat-agent-59"},
+        {"name": "ci_workflow_created", "pass": true, "details": ".github/workflows/ci.yml present"},
+        {"name": "release_workflow_created", "pass": false, "details": ".github/workflows/release.yml MISSING after init.sh --non-interactive personal/mcp_server/standard"},
+        {"name": "framework_clone_present", "pass": true, "details": ".claude/framework directory present"},
+        {"name": "context7_detection", "pass": true, "details": "verify-install.sh reports Context7 MCP configured"},
+        {"name": "platform_module_present", "pass": false, "details": "docs/platform-modules/ directory present but EMPTY; framework has docs/platform-modules/mcp-server.md (hyphen) but verify-install.sh expects mcp_server.md (underscore) and init.sh did not copy any module file"},
+        {"name": "no_residual_backup_dir", "pass": true, "details": "no .claude-backup directory"},
+        {"name": "pre_commit_gate_registered", "pass": true, "details": "pre-commit-gate.sh found in PreToolUse hooks"},
+        {"name": "stop_checklist_registered", "pass": true, "details": "stop-checklist.sh found in settings.json"},
+        {"name": "pending_approval_helper_copied", "pass": true, "details": "scripts/pending-approval.sh present (PR #17 U-H fix verified)"},
+        {"name": "lint_uat_scenarios_helper_copied", "pass": true, "details": "scripts/lint-uat-scenarios.sh present (PR #17 U-H fix verified)"},
+        {"name": "framework_self_guard_active", "pass": true, "details": "Running init.sh from $FRAMEWORK exits 1 with 'Refusing to operate inside the Solo Orchestrator framework repo' message — PR #18 fix verified"}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "release.yml workflow not created by init.sh for personal/mcp_server/standard",
+          "reproduction": "bash $FRAMEWORK/init.sh --non-interactive --project uat-agent-59 --platform mcp_server --track standard --deployment personal --language python --git-host other --remote-url https://example.com/fake.git --branch-protection-attested --visibility private --allow-existing-dir; ls .github/workflows/",
+          "expected": ".github/workflows/release.yml created alongside ci.yml (per Section A test case release_workflow_created)",
+          "actual": "Only ci.yml created; release.yml missing. upgrade-project.sh post-upgrade verification emits '[WARN] Release pipeline missing (.github/workflows/release.yml)'."
+        },
+        {
+          "severity": "Medium",
+          "summary": "Platform module file not copied into project on init",
+          "reproduction": "bash $FRAMEWORK/init.sh --non-interactive --platform mcp_server ...; ls docs/platform-modules/",
+          "expected": "docs/platform-modules/mcp_server.md (or mcp-server.md) copied into project from framework",
+          "actual": "docs/platform-modules/ directory created but empty. Framework source has docs/platform-modules/mcp-server.md (hyphenated) but verify-install.sh and init.sh expect mcp_server.md (underscored) — naming mismatch + missing copy step. verify-install.sh emits manual action: 'Platform module (mcp_server.md) missing → Copy from orchestrator: docs/platform-modules/mcp_server.md' — but the source file is named mcp-server.md."
+        }
+      ],
+      "documentation_gaps": [
+        {"gap": "Platform module filename inconsistency: framework ships docs/platform-modules/mcp-server.md (hyphen) but verify-install.sh advises copying mcp_server.md (underscore). Either rename source file or fix verify-install.sh hint.", "where": "docs/platform-modules/mcp-server.md vs scripts/verify-install.sh manual-action message"}
+      ]
+    },
+    {
+      "phase": 2,
+      "section": "Baseline build (build_loop feature)",
+      "tests": [
+        {"name": "start_feature_records_state", "pass": true, "details": "process-checklist --start-feature uat-feat-1 OK; .build_loop.feature='uat-feat-1'"},
+        {"name": "each_step_completes_in_order", "pass": true, "details": "tests_written, tests_verified_failing, implemented, security_audit, documentation_updated, feature_recorded all OK in sequence"},
+        {"name": "feature_committed", "pass": true, "details": "git commit feat(uat-1) succeeded after all 5 build_loop steps"},
+        {"name": "test_gate_record_feature", "pass": true, "details": "test-gate.sh --record-feature uat-feat-1 OK; build-progress.json features_completed includes 'uat-feat-1'"},
+        {"name": "build_loop_resets_after_feature_recorded", "pass": true, "details": "After --complete-step build_loop:feature_recorded, .build_loop.feature reset to null (BL-006 grace window working)"}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 4,
+      "section": "F — Upgrade flow",
+      "tests": [
+        {"name": "upgrade_command_exits_zero", "pass": false, "details": "Per runbook command 'intake-wizard.sh --upgrade-deployment private_poc' from PROJECT_DIR: exits 1 with 'Error: PROJECT_INTAKE.md not found.' This is U-G regression confirmation — PROJECT_ROOT in intake-wizard.sh is hardcoded to $SCRIPT_DIR/.. (the framework parent), not the cwd. As a fallback I tried 'upgrade-project.sh --deployment private_poc' which exits 1 with '[FAIL] Invalid target deployment: private_poc (must be: personal, organizational)'. Only 'upgrade-project.sh --deployment organizational' works — but that does not equal upgrading to private_poc."},
+        {"name": "phase_state_preserved", "pass": true, "details": "After upgrade-project.sh --deployment organizational: .current_phase still 0; .project still 'uat-agent-59'"},
+        {"name": "process_state_preserved", "pass": true, "details": "build-progress.json features_completed still ['uat-feat-1']; process-state.json build_loop history preserved (current loop reset normally after feature_recorded)"},
+        {"name": "new_required_artifacts_listed", "pass": true, "details": "Upgrade output lists: 'Next steps for organizational deployment: 1. Fill in Pre-Phase 0 organizational pre-conditions in APPROVAL_LOG.md; 2. Complete Section 8 of PROJECT_INTAKE.md (governance pre-flight); 3. Assign approval authorities for each phase gate'"},
+        {"name": "pending_approval_sentinel_respected", "pass": true, "details": "Wrote .claude/pending-approval.json then ran upgrade-project.sh --deployment organizational. Exit 1 with '[FAIL] upgrade blocked — pending user decision.' PR #17 U-F fix verified."},
+        {"name": "upgrade_changelog_present_in_script", "pass": true, "details": "scripts/upgrade-project.sh header (lines 12, 16) mentions both 'BL-006 (2026-04-24)' and 'BL-015 (2026-04-25)' changelog entries"},
+        {"name": "no_template_placeholders_in_output", "pass": true, "details": "grep -E '__PROJECT_NAME__|__PLATFORM__|__LANGUAGE__|__TRACK__' on full upgrade log returned no matches"},
+        {"name": "deployment_field_written_on_upgrade", "pass": false, "details": "U-J confirmation: After 'upgrade-project.sh --deployment organizational' completes successfully and announces 'Deployment: personal -> organizational', .claude/phase-state.json .deployment field still reads 'personal' and .poc_mode is null. Banner says success, file state unchanged."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "U-G confirmation: intake-wizard.sh PROJECT_ROOT hardcoded to framework, blocks runbook upgrade path",
+          "reproduction": "cd $PROJECT_DIR; bash $FRAMEWORK/scripts/intake-wizard.sh --upgrade-deployment private_poc",
+          "expected": "Wizard resolves PROJECT_ROOT from cwd or $CLAUDE_PROJECT_DIR and proceeds with upgrade",
+          "actual": "Exits 1 with 'Error: PROJECT_INTAKE.md not found. Run this script from a Solo Orchestrator project directory.' Code at intake-wizard.sh:20 sets PROJECT_ROOT=\"$(cd \"$SCRIPT_DIR/..\" && pwd)\" so it always points to the framework parent — even when invoked from inside a real project. Comment at line 16-17 explicitly acknowledges this is U-G deferred to Batch 3."
+        },
+        {
+          "severity": "High",
+          "summary": "intake-wizard --upgrade-deployment rejects POC scenario values; cannot reach private_poc target",
+          "reproduction": "bash $FRAMEWORK/scripts/intake-wizard.sh --upgrade-deployment private_poc (separately) bash $FRAMEWORK/scripts/upgrade-project.sh --deployment private_poc",
+          "expected": "Per runbook Section F, the upgrade flow for personal->private_poc is 'intake-wizard.sh --upgrade-deployment private_poc'. This should set deployment=organizational and gov_mode/poc_mode=private_poc.",
+          "actual": "intake-wizard.sh --upgrade-deployment only accepts personal|organizational (per its error msg at line 1586). It exec's upgrade-project.sh --deployment which itself only accepts personal|organizational ('[FAIL] Invalid target deployment: private_poc'). There is NO scripted path from personal/non-POC to private_poc. The only POC transitions supported are private_poc->sponsored_poc (--to-sponsored-poc) and POC->production (--to-production). Personal->private_poc requires a manual two-step (deployment=organizational, then somehow set poc_mode), and even step 1 has bug U-J below."
+        },
+        {
+          "severity": "Medium",
+          "summary": "U-J confirmation: deployment field not written to phase-state.json on upgrade-project.sh --deployment organizational",
+          "reproduction": "cd $PROJECT_DIR (deployment=personal); bash $FRAMEWORK/scripts/upgrade-project.sh --deployment organizational; jq '.deployment' .claude/phase-state.json",
+          "expected": "phase-state.json .deployment = 'organizational' after a successful 'personal -> organizational' upgrade banner",
+          "actual": "phase-state.json .deployment still reads 'personal' (and .poc_mode still null) even though script logs '[OK] Updated phase-state.json' and final banner says 'Deployment: personal -> organizational'. Only the timestamp field .last_upgrade is added. tool-preferences.json .track also reads null after the same upgrade reports 'Updated track to standard in tool-preferences.json'."
+        }
+      ],
+      "documentation_gaps": [
+        {"gap": "Runbook Section F says case '{UPGRADE_TO}' in private_poc|sponsored_poc) bash intake-wizard.sh --upgrade-deployment {TARGET_DEPLOYMENT}; but intake-wizard.sh --upgrade-deployment only accepts personal|organizational. Either runbook should clarify the upgrade path personal->private_poc is unsupported, or the script needs new flags.", "where": "RUNBOOK.md Section F lines 286-294 vs scripts/intake-wizard.sh line 1538 / 1586"}
+      ]
+    },
+    {
+      "phase": 5,
+      "section": "G — Post-flight",
+      "tests": [
+        {"name": "no_uncommitted_secrets", "pass": true, "details": "grep on committed files returned only documentation examples (e.g., 'BITBUCKET_APP_PASSWORD=\"your-app-password\"' in cli-setup-addendum.md) — no real secrets"},
+        {"name": "log_files_consistent", "pass": true, "details": "N/A — no FORCE/reset events occurred during run; .claude/process-audit.log absent (correct)"},
+        {"name": "no_orphaned_tempfiles", "pass": true, "details": "find $WORKDIR/.claude -name '*.tmp' returned nothing"},
+        {"name": "no_framework_contamination", "pass": true, "details": "git -C $FRAMEWORK rev-parse HEAD = d66e8f2 (matches setup snapshot). git status --short shows only pre-existing untracked entries (.claude/ and Reports/uat-2026-04-26/) which were untracked before this agent ran. Framework-self guard active."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    }
+  ],
+  "overall_pass": false,
+  "summary": "Baseline init OK and PR #17/#18/#19 fixes verified, but Section F upgrade fails: U-G blocks runbook's intake-wizard path (PROJECT_INTAKE.md not found from project dir), and even bypassing to upgrade-project.sh exposes the High bug that no scripted path exists from personal to private_poc plus U-J (deployment field not actually written). Section G clean, Phase 0 had two Medium issues (release.yml not created, platform module not copied + filename inconsistency mcp-server.md vs mcp_server.md)."
+}

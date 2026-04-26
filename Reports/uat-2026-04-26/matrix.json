@@ -1,0 +1,674 @@
+[
+  {
+    "agent_id": 1,
+    "kind": "base",
+    "scenario": "personal",
+    "platform": "desktop",
+    "track": "light",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 2,
+    "kind": "base",
+    "scenario": "personal",
+    "platform": "desktop",
+    "track": "standard",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 3,
+    "kind": "base",
+    "scenario": "personal",
+    "platform": "desktop",
+    "track": "full",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 4,
+    "kind": "base",
+    "scenario": "personal",
+    "platform": "mobile",
+    "track": "light",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 5,
+    "kind": "base",
+    "scenario": "personal",
+    "platform": "mobile",
+    "track": "standard",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 6,
+    "kind": "base",
+    "scenario": "personal",
+    "platform": "mobile",
+    "track": "full",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 7,
+    "kind": "base",
+    "scenario": "personal",
+    "platform": "web",
+    "track": "light",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 8,
+    "kind": "base",
+    "scenario": "personal",
+    "platform": "web",
+    "track": "standard",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 9,
+    "kind": "base",
+    "scenario": "personal",
+    "platform": "web",
+    "track": "full",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 10,
+    "kind": "base",
+    "scenario": "personal",
+    "platform": "mcp_server",
+    "track": "light",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 11,
+    "kind": "base",
+    "scenario": "personal",
+    "platform": "mcp_server",
+    "track": "standard",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 12,
+    "kind": "base",
+    "scenario": "personal",
+    "platform": "mcp_server",
+    "track": "full",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 13,
+    "kind": "base",
+    "scenario": "private_poc",
+    "platform": "desktop",
+    "track": "light",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 14,
+    "kind": "base",
+    "scenario": "private_poc",
+    "platform": "desktop",
+    "track": "standard",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 15,
+    "kind": "base",
+    "scenario": "private_poc",
+    "platform": "desktop",
+    "track": "full",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 16,
+    "kind": "base",
+    "scenario": "private_poc",
+    "platform": "mobile",
+    "track": "light",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 17,
+    "kind": "base",
+    "scenario": "private_poc",
+    "platform": "mobile",
+    "track": "standard",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 18,
+    "kind": "base",
+    "scenario": "private_poc",
+    "platform": "mobile",
+    "track": "full",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 19,
+    "kind": "base",
+    "scenario": "private_poc",
+    "platform": "web",
+    "track": "light",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 20,
+    "kind": "base",
+    "scenario": "private_poc",
+    "platform": "web",
+    "track": "standard",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 21,
+    "kind": "base",
+    "scenario": "private_poc",
+    "platform": "web",
+    "track": "full",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 22,
+    "kind": "base",
+    "scenario": "private_poc",
+    "platform": "mcp_server",
+    "track": "light",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 23,
+    "kind": "base",
+    "scenario": "private_poc",
+    "platform": "mcp_server",
+    "track": "standard",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 24,
+    "kind": "base",
+    "scenario": "private_poc",
+    "platform": "mcp_server",
+    "track": "full",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 25,
+    "kind": "base",
+    "scenario": "sponsored_poc",
+    "platform": "desktop",
+    "track": "light",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 26,
+    "kind": "base",
+    "scenario": "sponsored_poc",
+    "platform": "desktop",
+    "track": "standard",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 27,
+    "kind": "base",
+    "scenario": "sponsored_poc",
+    "platform": "desktop",
+    "track": "full",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 28,
+    "kind": "base",
+    "scenario": "sponsored_poc",
+    "platform": "mobile",
+    "track": "light",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 29,
+    "kind": "base",
+    "scenario": "sponsored_poc",
+    "platform": "mobile",
+    "track": "standard",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 30,
+    "kind": "base",
+    "scenario": "sponsored_poc",
+    "platform": "mobile",
+    "track": "full",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 31,
+    "kind": "base",
+    "scenario": "sponsored_poc",
+    "platform": "web",
+    "track": "light",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 32,
+    "kind": "base",
+    "scenario": "sponsored_poc",
+    "platform": "web",
+    "track": "standard",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 33,
+    "kind": "base",
+    "scenario": "sponsored_poc",
+    "platform": "web",
+    "track": "full",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 34,
+    "kind": "base",
+    "scenario": "sponsored_poc",
+    "platform": "mcp_server",
+    "track": "light",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 35,
+    "kind": "base",
+    "scenario": "sponsored_poc",
+    "platform": "mcp_server",
+    "track": "standard",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 36,
+    "kind": "base",
+    "scenario": "sponsored_poc",
+    "platform": "mcp_server",
+    "track": "full",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 37,
+    "kind": "base",
+    "scenario": "production",
+    "platform": "desktop",
+    "track": "light",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 38,
+    "kind": "base",
+    "scenario": "production",
+    "platform": "desktop",
+    "track": "standard",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 39,
+    "kind": "base",
+    "scenario": "production",
+    "platform": "desktop",
+    "track": "full",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 40,
+    "kind": "base",
+    "scenario": "production",
+    "platform": "mobile",
+    "track": "light",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 41,
+    "kind": "base",
+    "scenario": "production",
+    "platform": "mobile",
+    "track": "standard",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 42,
+    "kind": "base",
+    "scenario": "production",
+    "platform": "mobile",
+    "track": "full",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 43,
+    "kind": "base",
+    "scenario": "production",
+    "platform": "web",
+    "track": "light",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 44,
+    "kind": "base",
+    "scenario": "production",
+    "platform": "web",
+    "track": "standard",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 45,
+    "kind": "base",
+    "scenario": "production",
+    "platform": "web",
+    "track": "full",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 46,
+    "kind": "base",
+    "scenario": "production",
+    "platform": "mcp_server",
+    "track": "light",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 47,
+    "kind": "base",
+    "scenario": "production",
+    "platform": "mcp_server",
+    "track": "standard",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 48,
+    "kind": "base",
+    "scenario": "production",
+    "platform": "mcp_server",
+    "track": "full",
+    "upgrade_from": null
+  },
+  {
+    "agent_id": 49,
+    "kind": "upgrade",
+    "scenario": "private_poc",
+    "platform": "desktop",
+    "track": "light",
+    "upgrade_from": "personal"
+  },
+  {
+    "agent_id": 50,
+    "kind": "upgrade",
+    "scenario": "private_poc",
+    "platform": "desktop",
+    "track": "standard",
+    "upgrade_from": "personal"
+  },
+  {
+    "agent_id": 51,
+    "kind": "upgrade",
+    "scenario": "private_poc",
+    "platform": "desktop",
+    "track": "full",
+    "upgrade_from": "personal"
+  },
+  {
+    "agent_id": 52,
+    "kind": "upgrade",
+    "scenario": "private_poc",
+    "platform": "mobile",
+    "track": "light",
+    "upgrade_from": "personal"
+  },
+  {
+    "agent_id": 53,
+    "kind": "upgrade",
+    "scenario": "private_poc",
+    "platform": "mobile",
+    "track": "standard",
+    "upgrade_from": "personal"
+  },
+  {
+    "agent_id": 54,
+    "kind": "upgrade",
+    "scenario": "private_poc",
+    "platform": "mobile",
+    "track": "full",
+    "upgrade_from": "personal"
+  },
+  {
+    "agent_id": 55,
+    "kind": "upgrade",
+    "scenario": "private_poc",
+    "platform": "web",
+    "track": "light",
+    "upgrade_from": "personal"
+  },
+  {
+    "agent_id": 56,
+    "kind": "upgrade",
+    "scenario": "private_poc",
+    "platform": "web",
+    "track": "standard",
+    "upgrade_from": "personal"
+  },
+  {
+    "agent_id": 57,
+    "kind": "upgrade",
+    "scenario": "private_poc",
+    "platform": "web",
+    "track": "full",
+    "upgrade_from": "personal"
+  },
+  {
+    "agent_id": 58,
+    "kind": "upgrade",
+    "scenario": "private_poc",
+    "platform": "mcp_server",
+    "track": "light",
+    "upgrade_from": "personal"
+  },
+  {
+    "agent_id": 59,
+    "kind": "upgrade",
+    "scenario": "private_poc",
+    "platform": "mcp_server",
+    "track": "standard",
+    "upgrade_from": "personal"
+  },
+  {
+    "agent_id": 60,
+    "kind": "upgrade",
+    "scenario": "private_poc",
+    "platform": "mcp_server",
+    "track": "full",
+    "upgrade_from": "personal"
+  },
+  {
+    "agent_id": 61,
+    "kind": "upgrade",
+    "scenario": "sponsored_poc",
+    "platform": "desktop",
+    "track": "light",
+    "upgrade_from": "private_poc"
+  },
+  {
+    "agent_id": 62,
+    "kind": "upgrade",
+    "scenario": "sponsored_poc",
+    "platform": "desktop",
+    "track": "standard",
+    "upgrade_from": "private_poc"
+  },
+  {
+    "agent_id": 63,
+    "kind": "upgrade",
+    "scenario": "sponsored_poc",
+    "platform": "desktop",
+    "track": "full",
+    "upgrade_from": "private_poc"
+  },
+  {
+    "agent_id": 64,
+    "kind": "upgrade",
+    "scenario": "sponsored_poc",
+    "platform": "mobile",
+    "track": "light",
+    "upgrade_from": "private_poc"
+  },
+  {
+    "agent_id": 65,
+    "kind": "upgrade",
+    "scenario": "sponsored_poc",
+    "platform": "mobile",
+    "track": "standard",
+    "upgrade_from": "private_poc"
+  },
+  {
+    "agent_id": 66,
+    "kind": "upgrade",
+    "scenario": "sponsored_poc",
+    "platform": "mobile",
+    "track": "full",
+    "upgrade_from": "private_poc"
+  },
+  {
+    "agent_id": 67,
+    "kind": "upgrade",
+    "scenario": "sponsored_poc",
+    "platform": "web",
+    "track": "light",
+    "upgrade_from": "private_poc"
+  },
+  {
+    "agent_id": 68,
+    "kind": "upgrade",
+    "scenario": "sponsored_poc",
+    "platform": "web",
+    "track": "standard",
+    "upgrade_from": "private_poc"
+  },
+  {
+    "agent_id": 69,
+    "kind": "upgrade",
+    "scenario": "sponsored_poc",
+    "platform": "web",
+    "track": "full",
+    "upgrade_from": "private_poc"
+  },
+  {
+    "agent_id": 70,
+    "kind": "upgrade",
+    "scenario": "sponsored_poc",
+    "platform": "mcp_server",
+    "track": "light",
+    "upgrade_from": "private_poc"
+  },
+  {
+    "agent_id": 71,
+    "kind": "upgrade",
+    "scenario": "sponsored_poc",
+    "platform": "mcp_server",
+    "track": "standard",
+    "upgrade_from": "private_poc"
+  },
+  {
+    "agent_id": 72,
+    "kind": "upgrade",
+    "scenario": "sponsored_poc",
+    "platform": "mcp_server",
+    "track": "full",
+    "upgrade_from": "private_poc"
+  },
+  {
+    "agent_id": 73,
+    "kind": "upgrade",
+    "scenario": "production",
+    "platform": "desktop",
+    "track": "light",
+    "upgrade_from": "sponsored_poc"
+  },
+  {
+    "agent_id": 74,
+    "kind": "upgrade",
+    "scenario": "production",
+    "platform": "desktop",
+    "track": "standard",
+    "upgrade_from": "sponsored_poc"
+  },
+  {
+    "agent_id": 75,
+    "kind": "upgrade",
+    "scenario": "production",
+    "platform": "desktop",
+    "track": "full",
+    "upgrade_from": "sponsored_poc"
+  },
+  {
+    "agent_id": 76,
+    "kind": "upgrade",
+    "scenario": "production",
+    "platform": "mobile",
+    "track": "light",
+    "upgrade_from": "sponsored_poc"
+  },
+  {
+    "agent_id": 77,
+    "kind": "upgrade",
+    "scenario": "production",
+    "platform": "mobile",
+    "track": "standard",
+    "upgrade_from": "sponsored_poc"
+  },
+  {
+    "agent_id": 78,
+    "kind": "upgrade",
+    "scenario": "production",
+    "platform": "mobile",
+    "track": "full",
+    "upgrade_from": "sponsored_poc"
+  },
+  {
+    "agent_id": 79,
+    "kind": "upgrade",
+    "scenario": "production",
+    "platform": "web",
+    "track": "light",
+    "upgrade_from": "sponsored_poc"
+  },
+  {
+    "agent_id": 80,
+    "kind": "upgrade",
+    "scenario": "production",
+    "platform": "web",
+    "track": "standard",
+    "upgrade_from": "sponsored_poc"
+  },
+  {
+    "agent_id": 81,
+    "kind": "upgrade",
+    "scenario": "production",
+    "platform": "web",
+    "track": "full",
+    "upgrade_from": "sponsored_poc"
+  },
+  {
+    "agent_id": 82,
+    "kind": "upgrade",
+    "scenario": "production",
+    "platform": "mcp_server",
+    "track": "light",
+    "upgrade_from": "sponsored_poc"
+  },
+  {
+    "agent_id": 83,
+    "kind": "upgrade",
+    "scenario": "production",
+    "platform": "mcp_server",
+    "track": "standard",
+    "upgrade_from": "sponsored_poc"
+  },
+  {
+    "agent_id": 84,
+    "kind": "upgrade",
+    "scenario": "production",
+    "platform": "mcp_server",
+    "track": "full",
+    "upgrade_from": "sponsored_poc"
+  }
+]

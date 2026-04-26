@@ -1,0 +1,141 @@
+{
+  "agent_id": 22,
+  "config": {
+    "kind": "base",
+    "scenario": "private_poc",
+    "platform": "mcp_server",
+    "track": "light",
+    "upgrade_from": null
+  },
+  "framework_head": "d66e8f276079aa352ba90ac54386e1b1896d7494",
+  "started_at": "2026-04-26T01:52:06Z",
+  "completed_at": "2026-04-26T01:58:00Z",
+  "phases": [
+    {
+      "phase": 0,
+      "tests": [
+        {"name": "init_sh_non_interactive_exits_zero", "pass": true, "details": "init.sh --non-interactive returned 0 with --git-host other + fake remote"},
+        {"name": "claude_md_created", "pass": true, "details": "CLAUDE.md present"},
+        {"name": "project_intake_created", "pass": true, "details": "PROJECT_INTAKE.md present"},
+        {"name": "approval_log_created", "pass": true, "details": "APPROVAL_LOG.md present"},
+        {"name": "gitignore_created", "pass": true, "details": ".gitignore present"},
+        {"name": "phase_state_json_phase_zero", "pass": true, "details": ".current_phase == 0"},
+        {"name": "phase_state_project_set", "pass": true, "details": ".project == uat-agent-22"},
+        {"name": "ci_workflow_created", "pass": true, "details": ".github/workflows/ci.yml present"},
+        {"name": "release_workflow_created", "pass": false, "details": "release.yml not laid down. init.sh:2308 short-circuits when git_host=other (no template selected). Documented runbook expectation does not match implementation for --git-host other."},
+        {"name": "framework_clone_present", "pass": true, "details": ".claude/framework directory present"},
+        {"name": "context7_detection", "pass": true, "details": "verify-install.sh reports Context7 MCP installed and configured"},
+        {"name": "platform_module_present", "pass": false, "details": "expected docs/platform-modules/mcp_server.md but framework ships docs/platform-modules/mcp-server.md (hyphen vs underscore). init.sh:1124 looks for ${PLATFORM}.md but PLATFORM=mcp_server while file uses hyphen. verify-install.sh also flags this manual issue."},
+        {"name": "no_residual_backup_dir", "pass": true, "details": "no .claude-backup"},
+        {"name": "pre_commit_gate_registered", "pass": true, "details": "pre-commit-gate.sh in PreToolUse"},
+        {"name": "stop_checklist_registered", "pass": true, "details": "stop-checklist.sh wired"},
+        {"name": "pending_approval_helper_copied", "pass": true, "details": "scripts/pending-approval.sh present (PR #17 fix holds)"},
+        {"name": "lint_uat_scenarios_helper_copied", "pass": true, "details": "scripts/lint-uat-scenarios.sh present (PR #17 fix holds)"},
+        {"name": "framework_self_guard_active", "pass": true, "details": "Running init.sh from $FRAMEWORK exits 1 with 'Refusing to operate inside the Solo Orchestrator framework repo.' (PR #18 fix holds)"}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "Platform module filename mismatch: mcp_server vs mcp-server",
+          "reproduction": "bash init.sh --non-interactive --platform mcp_server ... ; ls docs/platform-modules/",
+          "expected": "docs/platform-modules/mcp_server.md copied into project",
+          "actual": "init.sh:1124 builds path docs/platform-modules/mcp_server.md, but framework source ships mcp-server.md (hyphen). No platform module is copied. verify-install.sh also reports the file as missing under the underscore name."
+        }
+      ],
+      "documentation_gaps": [
+        {"gap": "Runbook expectation 'release_workflow_created' contradicts init.sh behavior for --git-host other (init.sh:2308 deliberately skips release template). Either the runbook should mark this assertion N/A for git_host=other, or init.sh should lay down a host-agnostic placeholder.", "where": "RUNBOOK.md Section A test cases / init.sh:2308"},
+        {"gap": "process-checklist.sh --start-phase1 is implemented but not listed in --help output (only --start-phase3 and --start-phase4 are listed)", "where": "scripts/process-checklist.sh:55-71"}
+      ]
+    },
+    {
+      "phase": 1,
+      "tests": [
+        {"name": "start_phase1_exits_zero", "pass": true, "details": "phase1_architecture initialized in process-state.json"},
+        {"name": "phase1_steps_array_present", "pass": true, "details": ".phase1_architecture.steps_completed is an array"},
+        {"name": "each_phase1_step_completes", "pass": true, "details": "all 5 steps (architecture_selected, threat_model_complete, data_model_defined, ui_scaffolding_done, bible_synthesized) completed RC=0"},
+        {"name": "phase1_to_phase2_gate_passes", "pass": true, "details": "check-phase-gate.sh exits 0 with 'Phase gates consistent.'"},
+        {"name": "phase_state_advances_to_2", "pass": false, "details": "U-D confirmation: no script in scripts/ advances .current_phase. Had to manually jq-edit phase-state.json to proceed. check-phase-gate.sh only consistency-checks, never writes."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "U-D confirmation: no script advances current_phase after gate passes",
+          "reproduction": "Complete all phase1_architecture steps; bash check-phase-gate.sh reports consistent; jq .current_phase still returns 0. No --advance flag exists on any script.",
+          "expected": "Some script (likely check-phase-gate.sh --advance or process-checklist.sh --advance-phase) should write the new phase number into phase-state.json after the gate passes and approval is logged.",
+          "actual": "User/agent must edit .claude/phase-state.json directly. This is the same U-D bug from the 2026-04-25 sweep, still open."
+        }
+      ],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 2,
+      "tests": [
+        {"name": "start_feature_records_state", "pass": true, "details": ".build_loop.feature == uat-feat-1 after --start-feature"},
+        {"name": "each_step_completes_in_order", "pass": true, "details": "5 build_loop steps + feature_recorded all RC=0"},
+        {"name": "pre_commit_passes_after_loop", "pass": true, "details": "git commit succeeded after all 5 steps complete"},
+        {"name": "bl006_blocks_feat_without_loop", "pass": false, "details": "U-C confirmation: direct shell `git commit --allow-empty -m 'feat(bl006-trigger): no loop'` succeeded with no Build Loop active. Calling process-checklist.sh --check-commit-message manually correctly emits the FAIL message, but PreToolUse-only enforcement leaves shell git open."},
+        {"name": "bl006_grace_window_resets_after_record", "pass": true, "details": "After feature_recorded, build_loop is reset to null. Starting a new --start-feature and walking the 5 steps puts the gate in pass state for a fresh feat: commit (PR #17 between-features grace fix holds)."},
+        {"name": "bl015_sentinel_blocks_commit", "pass": true, "details": "With valid pending-approval.json present, feeding the PreToolUse hook input to pre-commit-gate.sh returns deny with rich reason (question/options/recommendation). Direct shell git commit bypasses the hook (same U-C surface), but the hook itself is correctly wired."},
+        {"name": "bl015_sentinel_resolves", "pass": true, "details": "scripts/pending-approval.sh --resolve removes the sentinel; subsequent hook invocation no longer denies on sentinel grounds."},
+        {"name": "recorded_feature_appears_in_progress", "pass": true, "details": "build-progress.json .features_completed == [uat-feat-1, uat-feat-2]"}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "U-C confirmation: BL-006 git commit-msg hook missing for shell commits",
+          "reproduction": "git commit --allow-empty -m 'feat(x): no loop' (no Build Loop active, no PreToolUse hook in path)",
+          "expected": "commit blocked at git layer (e.g., commit-msg hook) so shell-direct commits cannot bypass the BL-006 gate",
+          "actual": "Commit succeeds. Enforcement only happens via Claude Code's PreToolUse hook. Same as U-C from 2026-04-25 sweep, still open."
+        }
+      ],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 3,
+      "tests": [
+        {"name": "start_phase3_exits_zero", "pass": true, "details": "process-checklist.sh --start-phase3 RC=0 (with attestation warning expected for phase2-skip)"},
+        {"name": "start_uat_creates_session", "pass": true, "details": ".uat_session.started_at populated"},
+        {"name": "uat_template_lints_clean", "pass": false, "details": "Even after substituting all documented placeholders (__SESSION_TITLE__, __SESSION_DATE__, __SESSION_FEATURES__, __TESTER_PRE_FLIGHT__, __FEATURE_SECTIONS__, __SCENARIOS_JSON__, __FEATURE_OPTIONS__), one violation remains because line 142 contains a comment '// Do not modify any code outside the __PLACEHOLDER__ tokens.' and the linter flags any string matching __WORD__ regardless of comment context. Linter exits 1 on any unreplaced __X__ token so users can never get a clean exit on the as-shipped template by replacing only the documented placeholders."},
+        {"name": "each_uat_step_completes", "pass": true, "details": "All 9 UAT_STEPS completed RC=0"},
+        {"name": "phase3_to_phase4_gate", "pass": true, "details": "All 9 PHASE3_STEPS completed once SAST/chaos/a11y/perf/contract result stubs were laid down in docs/test-results/ per the artifact-check rules in process-checklist.sh:310-413"}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "lint-uat-scenarios.sh false-positive on instructional comment line 142",
+          "reproduction": "cp tests/uat/templates/test-session-template.html /tmp/x.html; sed -i '' 's/__SESSION_TITLE__/X/g' (and all other documented placeholders); bash scripts/lint-uat-scenarios.sh /tmp/x.html",
+          "expected": "Linter exits 0 once all documented placeholders are replaced",
+          "actual": "Linter exits 1 because line 142 'Do not modify any code outside the __PLACEHOLDER__ tokens.' contains the literal token __PLACEHOLDER__ in an instructional comment. Either the linter should ignore tokens inside HTML/JS comments, or the template should rephrase that instruction without the literal token."
+        }
+      ],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 4,
+      "tests": [
+        {"name": "start_phase4_exits_zero", "pass": true, "details": "private_poc correctly blocks Phase 4: 'Phase 4 (production release) is blocked — project is in private poc mode.' This is expected/by-design behavior, not a failure. Phase 4 walk is N/A for private_poc."},
+        {"name": "each_phase4_step_completes", "pass": true, "details": "N/A for private_poc — Phase 4 is unreachable without --to-production upgrade. Recorded as N/A per scenario."},
+        {"name": "handoff_md_required", "pass": true, "details": "N/A for private_poc"},
+        {"name": "release_notes_required", "pass": true, "details": "N/A for private_poc"},
+        {"name": "phase4_completion_state", "pass": true, "details": "N/A for private_poc"}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": [
+        {"gap": "Runbook Section E does not call out that private_poc/sponsored_poc agents will hit the by-design Phase 4 block; it reads as if all base agents complete Phase 4.", "where": "RUNBOOK.md Section E"}
+      ]
+    },
+    {
+      "phase": "post-flight",
+      "tests": [
+        {"name": "no_uncommitted_secrets", "pass": true, "details": "grep matches in committed files are all word-references in framework templates / docs (e.g., 'GITHUB_TOKEN' env var names, 'API key configuration' guidance) — no actual high-entropy secret values found"},
+        {"name": "log_files_consistent", "pass": true, "details": "N/A — no FORCE/reset events occurred; .claude/process-audit.log absent (correct)"},
+        {"name": "no_orphaned_tempfiles", "pass": true, "details": "find $WORKDIR/.claude -name '*.tmp' returns nothing"},
+        {"name": "no_framework_contamination", "pass": true, "details": "git -C $FRAMEWORK status --short shows only ?? .claude/ and ?? Reports/uat-2026-04-26/ (untracked, user-controlled). HEAD unchanged: d66e8f276079aa352ba90ac54386e1b1896d7494."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    }
+  ],
+  "overall_pass": true,
+  "summary": "Base/private_poc/mcp_server/light: init.sh --non-interactive succeeded; phases 0-3 walkable; PR #17/#18/#19 fixes hold (pending-approval helper copied, framework-self guard active, BL-006 grace window resets, BL-015 sentinel via hook works). Three Medium-severity findings: platform-module filename mismatch (mcp_server vs mcp-server), lint-uat-scenarios false positive on instructional comment, U-C and U-D confirmations from prior sweep. Phase 4 correctly blocked for private_poc."
+}

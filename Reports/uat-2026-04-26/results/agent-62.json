@@ -1,0 +1,77 @@
+{
+  "agent_id": 62,
+  "config": {
+    "kind": "upgrade",
+    "scenario": "sponsored_poc",
+    "platform": "desktop",
+    "track": "standard",
+    "upgrade_from": "private_poc"
+  },
+  "framework_head": "d66e8f276079aa352ba90ac54386e1b1896d7494",
+  "started_at": "2026-04-26T03:25:33Z",
+  "completed_at": "2026-04-26T03:27:27Z",
+  "phases": [
+    {
+      "phase": 0,
+      "tests": [
+        {"name": "init_sh_non_interactive_exits_zero", "pass": true, "details": "init.sh --non-interactive completed; project created at $WORKDIR/uat-agent-62 with verify-install reporting 54 passed / 0 fixable / 0 manual."},
+        {"name": "claude_md_created", "pass": true, "details": "CLAUDE.md present"},
+        {"name": "project_intake_created", "pass": true, "details": "PROJECT_INTAKE.md present"},
+        {"name": "approval_log_created", "pass": true, "details": "APPROVAL_LOG.md present"},
+        {"name": "gitignore_created", "pass": true, "details": ".gitignore present"},
+        {"name": "phase_state_json_phase_zero", "pass": true, "details": "current_phase=0"},
+        {"name": "phase_state_project_set", "pass": true, "details": ".project=uat-agent-62; deployment=organizational; poc_mode=private_poc"},
+        {"name": "ci_workflow_created", "pass": true, "details": ".github/workflows/ci.yml present (host: github driver, language: rust)"},
+        {"name": "release_workflow_created", "pass": true, "details": ".github/workflows/release.yml present"},
+        {"name": "framework_clone_present", "pass": true, "details": ".claude/framework directory present"},
+        {"name": "context7_detection", "pass": true, "details": "verify-install reports Context7 MCP installed and configured"},
+        {"name": "platform_module_present", "pass": true, "details": "docs/platform-modules/desktop.md present"},
+        {"name": "no_residual_backup_dir", "pass": true, "details": "init log shows backup created then 'Removed CDF migration backup (not needed in Solo Orchestrator flow)'; .claude-backup absent at end"},
+        {"name": "pre_commit_gate_registered", "pass": true, "details": ".claude/settings.json PreToolUse Bash hook chain includes scripts/pre-commit-gate.sh"},
+        {"name": "stop_checklist_registered", "pass": true, "details": ".claude/settings.json contains stop-checklist.sh reference"},
+        {"name": "pending_approval_helper_copied", "pass": true, "details": "scripts/pending-approval.sh present (PR #17 U-H fix verified)"},
+        {"name": "lint_uat_scenarios_helper_copied", "pass": true, "details": "scripts/lint-uat-scenarios.sh present (PR #17 U-H fix verified)"},
+        {"name": "framework_self_guard_active", "pass": true, "details": "Running init.sh --non-interactive from inside $FRAMEWORK exits with RC=1 and stderr 'Refusing to operate inside the Solo Orchestrator framework repo' (PR #18 verified)"}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 2,
+      "tests": [
+        {"name": "baseline_phase2_feature_recorded", "pass": true, "details": "Drove --start-feature uat-feat-1; completed all 6 build_loop steps with stub test/source/security-audit; git commit feat(uat-feat-1) succeeded; test-gate.sh --record-feature added uat-feat-1 to features_completed array."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 99,
+      "tests": [
+        {"name": "upgrade_command_exits_zero", "pass": true, "details": "upgrade-project.sh --to-sponsored-poc returned RC=0; output shows 'Upgrade Complete' banner; U-E (poc_mode lookup) verified working — script reported 'Current POC mode: private poc' read from phase-state.json"},
+        {"name": "phase_state_preserved", "pass": true, "details": "current_phase=0 unchanged; project=uat-agent-62 unchanged across upgrade"},
+        {"name": "process_state_preserved", "pass": true, "details": "build-progress.json features_completed still contains uat-feat-1 after upgrade"},
+        {"name": "new_required_artifacts_listed", "pass": true, "details": "Upgrade plan listed files updated: phase-state.json, tool-preferences.json, CLAUDE.md, PROJECT_INTAKE.md; post-upgrade output prompted next steps for UAT and check-gate.sh preflight"},
+        {"name": "pending_approval_sentinel_respected", "pass": true, "details": "With .claude/pending-approval.json present, upgrade-project.sh --to-sponsored-poc exited RC=1 with [FAIL] 'upgrade blocked — pending user decision' message and resolve/clear remediation; PR #17 U-F fix verified"},
+        {"name": "upgrade_changelog_present_in_script", "pass": true, "details": "scripts/upgrade-project.sh header (lines 11-22) contains BL-006, BL-015, BL-016 changelog entries"},
+        {"name": "no_template_placeholders_in_output", "pass": true, "details": "Grep of upgrade stdout/stderr and CLAUDE.md/PROJECT_INTAKE.md/APPROVAL_LOG.md after upgrade returned 0 hits for __PROJECT_NAME__/__PLATFORM__/__LANGUAGE__/__TRACK__"},
+        {"name": "post_upgrade_verify_install_clean", "pass": true, "details": "Post-upgrade verify-install reports 54 passed / 0 fixable / 0 manual; backfill-host inferred 'other' from git remote; UAT templates and pending-approval/lint-uat-scenarios helpers refreshed"},
+        {"name": "poc_mode_now_sponsored", "pass": true, "details": ".claude/phase-state.json poc_mode=sponsored_poc; last_upgrade=2026-04-25 stamped"}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 100,
+      "tests": [
+        {"name": "no_uncommitted_secrets", "pass": true, "details": "grep for password|api[_-]?key|secret|token in committed files matched only framework scan helpers (check-phase-gate.sh, check-versions.sh, validate.sh, verify-install.sh, .claude/framework/hooks/known-stdlib.txt) — these contain the regex literals themselves, not actual secrets"},
+        {"name": "log_files_consistent", "pass": true, "details": "N/A — no FORCE/reset bypass events occurred; .claude/process-audit.log absent which is correct per runbook"},
+        {"name": "no_orphaned_tempfiles", "pass": true, "details": "find .claude -name '*.tmp' returned no results"},
+        {"name": "no_framework_contamination", "pass": true, "details": "git -C $FRAMEWORK rev-parse HEAD = d66e8f276079aa352ba90ac54386e1b1896d7494 (unchanged from start); only untracked entries in framework status are pre-existing .claude/ and Reports/uat-2026-04-26/ directories"}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    }
+  ],
+  "overall_pass": true,
+  "summary": "Full upgrade flow private_poc -> sponsored_poc on desktop/standard passed: --non-interactive init clean, BL-016 / U-A regression-free; Phase 2 baseline (1 feature) recorded; upgrade-project.sh --to-sponsored-poc applied cleanly with U-E (poc_mode read), U-F (sentinel respect), U-H (helper copy), and U-N/U-O (framework-self guard) all verified intact; post-flight clean."
+}

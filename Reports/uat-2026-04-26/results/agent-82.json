@@ -1,0 +1,93 @@
+{
+  "agent_id": 82,
+  "config": {
+    "kind": "upgrade",
+    "scenario": "production",
+    "platform": "mcp_server",
+    "track": "light",
+    "upgrade_from": "sponsored_poc"
+  },
+  "framework_head": "d66e8f276079aa352ba90ac54386e1b1896d7494",
+  "started_at": "2026-04-26T03:54:49Z",
+  "completed_at": "2026-04-26T03:58:03Z",
+  "phases": [
+    {
+      "phase": 0,
+      "tests": [
+        {"name": "init_sh_non_interactive_exits_zero", "pass": true, "details": "init.sh --non-interactive completed with sponsored_poc/mcp_server/light; final block printed Setup Complete and Next Steps; init log saved."},
+        {"name": "claude_md_created", "pass": true, "details": "CLAUDE.md present (19227 bytes)."},
+        {"name": "project_intake_created", "pass": true, "details": "PROJECT_INTAKE.md present (28822 bytes)."},
+        {"name": "approval_log_created", "pass": true, "details": "APPROVAL_LOG.md present (6467 bytes)."},
+        {"name": "gitignore_created", "pass": true, "details": ".gitignore present."},
+        {"name": "phase_state_json_phase_zero", "pass": true, "details": "jq -r .current_phase => 0."},
+        {"name": "phase_state_project_set", "pass": true, "details": ".project = uat-agent-82."},
+        {"name": "ci_workflow_created", "pass": true, "details": ".github/workflows/ci.yml present (5010 bytes)."},
+        {"name": "release_workflow_created", "pass": false, "details": "release.yml absent. Per init.sh code path with --git-host other, generate_release returns early with 'Host other — no release template laid down. Supply your own.' Documented as N/A for git-host=other; recorded as documentation_gap not as bug."},
+        {"name": "framework_clone_present", "pass": true, "details": ".claude/framework directory present."},
+        {"name": "context7_detection", "pass": true, "details": "verify-install run from PROJECT_DIR reports Context7 MCP installed and configured."},
+        {"name": "platform_module_present", "pass": false, "details": "docs/platform-modules/ exists but is empty. Framework source has docs/platform-modules/mcp-server.md (hyphen) but verify-install + init copy logic look for docs/platform-modules/mcp_server.md (underscore). Naming mismatch: platform value is 'mcp_server' but file is 'mcp-server.md'. Treated as bug below."},
+        {"name": "no_residual_backup_dir", "pass": true, "details": "No .claude-backup directory."},
+        {"name": "pre_commit_gate_registered", "pass": true, "details": ".claude/settings.json PreToolUse hooks include pre-commit-gate.sh."},
+        {"name": "stop_checklist_registered", "pass": true, "details": ".claude/settings.json Stop hook references .claude/framework/hooks/stop-checklist.sh."},
+        {"name": "pending_approval_helper_copied", "pass": true, "details": "scripts/pending-approval.sh present (PR #17 U-H fix verified)."},
+        {"name": "lint_uat_scenarios_helper_copied", "pass": true, "details": "scripts/lint-uat-scenarios.sh present (PR #17 U-H fix verified)."},
+        {"name": "framework_self_guard_active", "pass": true, "details": "Running init.sh from inside $FRAMEWORK exits RC=1 with '[FAIL] Refusing to operate inside the Solo Orchestrator framework repo.' (PR #18 U-N/U-O confirmed)."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "Platform module filename mismatch: mcp_server vs mcp-server",
+          "reproduction": "bash $FRAMEWORK/init.sh --non-interactive --platform mcp_server ... ; ls docs/platform-modules/ in generated project (empty); ls $FRAMEWORK/docs/platform-modules/ shows mcp-server.md (hyphen).",
+          "expected": "init copies the platform module into the project; verify-install does NOT warn 'Platform module (mcp_server.md) missing'.",
+          "actual": "Generated project's docs/platform-modules/ is empty. verify-install reports MANUAL: 'Platform module (mcp_server.md) missing -> Copy from orchestrator: docs/platform-modules/mcp_server.md'. The actual framework file is docs/platform-modules/mcp-server.md. The platform identifier (mcp_server with underscore) used in init flags and phase-state.json does not match the on-disk filename (mcp-server.md with hyphen). Either init.sh's copy step uses the wrong identifier, or the file should be renamed."
+        }
+      ],
+      "documentation_gaps": [
+        {"gap": "release.yml not created when --git-host other is selected; init prints '[INFO] Host other — no release template laid down' but Section A test 'release_workflow_created' assumes it should always be created. Either docs the host=other behavior in Section A test rubric, or extend init.sh to generate a generic release.yml stub for host=other.", "where": "init.sh:2304 (case 'other' -> early return) and RUNBOOK.md Section A 'release_workflow_created'"}
+      ]
+    },
+    {
+      "phase": 6,
+      "tests": [
+        {"name": "upgrade_command_exits_zero", "pass": true, "details": "upgrade-project.sh --to-production from sponsored_poc baseline exits RC=0; output ends with '[OK] Upgrade complete.' U-E (poc_mode lookup from phase-state.json) confirmed working — script printed 'Current POC mode: sponsored poc'."},
+        {"name": "phase_state_preserved", "pass": true, "details": ".current_phase preserved (0 -> 0); .project preserved (uat-agent-82). Diff shows only intentional changes: track light->standard, poc_mode field removed, last_upgrade added."},
+        {"name": "process_state_preserved", "pass": true, "details": "diff /tmp/uat-82-pre-process.json .claude/process-state.json -> empty. .build_loop history and feature records intact. build-progress.json unchanged: features_completed = ['uat-feat-1']."},
+        {"name": "new_required_artifacts_listed", "pass": true, "details": "Upgrade output names: 'Review CLAUDE.md for any remaining POC references' and 'Review PROJECT_INTAKE.md Section 8 governance fields'; also names new track requirements ('Check docs/reference/builders-guide.md for standard track requirements'). Light guidance but present."},
+        {"name": "pending_approval_sentinel_respected", "pass": true, "details": "Restored pre-upgrade phase-state, wrote .claude/pending-approval.json with valid schema, ran upgrade-project.sh --to-production: exits RC=1 with '[FAIL] upgrade blocked — pending user decision.' and remediation hints. PR #17 U-F confirmed."},
+        {"name": "upgrade_changelog_present_in_script", "pass": true, "details": "scripts/upgrade-project.sh header changelog mentions BL-006 (2026-04-24), BL-015 (2026-04-25), BL-016 (2026-04-25)."},
+        {"name": "no_template_placeholders_in_output", "pass": true, "details": "grep -E '__PROJECT_NAME__|__PLATFORM__|__LANGUAGE__|__TRACK__' /tmp/uat-82-upg-clean.log returned nothing. U-I not observed in this config (still open per runbook, but did not surface)."},
+        {"name": "deployment_field_write_on_upgrade", "pass": false, "details": "U-J confirmation: after --to-production, .deployment in phase-state.json remains 'organizational' rather than being updated to 'production'. Also, .poc_mode is removed entirely (set to null then dropped) instead of being set to 'production'. Subsequent re-runs of upgrade-project.sh --to-production now fail with '[FAIL] Project is not in POC mode.' (RC=0 though). Confirmation of prior-sweep U-J — still open."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "U-J confirmation: deployment/poc_mode fields not properly written on --to-production",
+          "reproduction": "Build sponsored_poc baseline, complete Phase 1, record one feature, run scripts/upgrade-project.sh --to-production, then jq '.deployment, .poc_mode' .claude/phase-state.json.",
+          "expected": "After --to-production, phase-state.json should record the production deployment/mode (e.g., poc_mode='production' or removed-and-deployment-becomes-'production'). Re-running upgrade should be idempotent or report 'already production'.",
+          "actual": ".deployment unchanged ('organizational'). .poc_mode initially set to null after first upgrade, then field dropped entirely after second invocation. On re-run, script prints '[FAIL] Project is not in POC mode. Use --track and/or --deployment for non-POC upgrades.' but exits RC=0 — exit code does not match FAIL semantics. Confirms U-J is still open."
+        },
+        {
+          "severity": "Low",
+          "summary": "upgrade-project.sh prints [FAIL] but exits RC=0",
+          "reproduction": "Run upgrade-project.sh --to-production twice on the same project (first succeeds, second hits the 'not in POC mode' branch).",
+          "expected": "When a [FAIL] line is printed, the script should exit non-zero so callers/CI can detect the failure.",
+          "actual": "Second invocation prints '[FAIL] Project is not in POC mode. Use --track and/or --deployment for non-POC upgrades.' but exits 0. Inconsistent with set -euo pipefail and Critical-severity guidance for happy-path scripts."
+        }
+      ],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 7,
+      "tests": [
+        {"name": "no_uncommitted_secrets", "pass": true, "details": "git ls-files | xargs grep matches were all framework boilerplate (e.g., 'GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}' in ci.yml, the words 'secret/token/key' inside reference docs). No literal credential values. Safe."},
+        {"name": "log_files_consistent", "pass": true, "details": "N/A — no FORCE or reset events occurred during this run. .claude/process-audit.log absent as expected."},
+        {"name": "no_orphaned_tempfiles", "pass": true, "details": "find $WORKDIR/.claude -name '*.tmp' returned nothing."},
+        {"name": "no_framework_contamination", "pass": true, "details": "git -C $FRAMEWORK status --short shows only pre-existing untracked .claude/ and Reports/uat-2026-04-26/ (the results dir we write to). git -C $FRAMEWORK rev-parse HEAD = d66e8f276079aa352ba90ac54386e1b1896d7494 (matches captured SHA)."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    }
+  ],
+  "overall_pass": true,
+  "summary": "Section A init mostly clean (1 Medium bug — platform-module filename mismatch); Section F upgrade flow works (RC=0, sentinel respected, U-E/U-F/PR #17 fixes verified) but confirms U-J still open and surfaces a Low bug where upgrade-project.sh prints [FAIL] yet exits 0; Section G post-flight clean."
+}

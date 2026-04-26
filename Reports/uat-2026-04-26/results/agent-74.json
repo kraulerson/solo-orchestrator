@@ -1,0 +1,80 @@
+{
+  "agent_id": 74,
+  "config": {
+    "kind": "upgrade",
+    "scenario": "production",
+    "platform": "desktop",
+    "track": "standard",
+    "upgrade_from": "sponsored_poc"
+  },
+  "framework_head": "d66e8f276079aa352ba90ac54386e1b1896d7494",
+  "started_at": "2026-04-26T03:30:00Z",
+  "completed_at": "2026-04-26T03:45:00Z",
+  "phases": [
+    {
+      "phase": 0,
+      "tests": [
+        {"name": "init_sh_non_interactive_exits_zero", "pass": true, "details": "init.sh --non-interactive completed cleanly past expected fake-remote push failure (PR #18 tolerance); verify-install reported 54 passed / 0 manual-action."},
+        {"name": "claude_md_created", "pass": true, "details": "CLAUDE.md exists at project root."},
+        {"name": "project_intake_created", "pass": true, "details": "PROJECT_INTAKE.md exists."},
+        {"name": "approval_log_created", "pass": true, "details": "APPROVAL_LOG.md exists."},
+        {"name": "gitignore_created", "pass": true, "details": ".gitignore exists."},
+        {"name": "phase_state_json_phase_zero", "pass": true, "details": ".claude/phase-state.json .current_phase = 0 after init."},
+        {"name": "phase_state_project_set", "pass": true, "details": ".project = 'uat-agent-74'."},
+        {"name": "ci_workflow_created", "pass": true, "details": ".github/workflows/ci.yml exists."},
+        {"name": "release_workflow_created", "pass": true, "details": ".github/workflows/release.yml exists."},
+        {"name": "framework_clone_present", "pass": true, "details": ".claude/framework directory present (CDF clone)."},
+        {"name": "context7_detection", "pass": true, "details": "verify-install.sh reports '[OK] Context7 MCP installed' and '[OK] Context7 MCP configured'."},
+        {"name": "platform_module_present", "pass": true, "details": "docs/platform-modules/desktop.md exists."},
+        {"name": "no_residual_backup_dir", "pass": true, "details": ".claude-backup absent (init removed CDF migration backup)."},
+        {"name": "pre_commit_gate_registered", "pass": true, "details": "pre-commit-gate.sh registered in PreToolUse hooks (matcher Bash)."},
+        {"name": "stop_checklist_registered", "pass": true, "details": "settings.json hooks reference stop-checklist.sh."},
+        {"name": "pending_approval_helper_copied", "pass": true, "details": "scripts/pending-approval.sh present (PR #17 / U-H stays fixed)."},
+        {"name": "lint_uat_scenarios_helper_copied", "pass": true, "details": "scripts/lint-uat-scenarios.sh present (PR #17 / U-H stays fixed)."},
+        {"name": "framework_self_guard_active", "pass": true, "details": "Running init.sh from $FRAMEWORK exits 1 with '[FAIL] Refusing to operate inside the Solo Orchestrator framework repo' (PR #18)."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 2,
+      "tests": [
+        {"name": "baseline_build_loop_completes", "pass": true, "details": "Baseline sponsored_poc project: started feature uat-feat-1, completed all 6 build_loop steps, committed feat: with no PreToolUse blockage, recorded via test-gate.sh."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 4,
+      "tests": [
+        {"name": "pending_approval_sentinel_respected", "pass": true, "details": "Wrote .claude/pending-approval.json before upgrade; upgrade-project.sh --to-production exited 1 with '[FAIL] upgrade blocked — pending user decision' (PR #17 U-F stays fixed)."},
+        {"name": "upgrade_command_exits_zero", "pass": true, "details": "After clearing sentinel, upgrade-project.sh --to-production completed with '[OK] Upgrade complete.' Confirms PR #17 U-E fix (poc_mode read from phase-state.json) — sponsored_poc was correctly detected."},
+        {"name": "phase_state_preserved", "pass": true, "details": "current_phase=2 and project='uat-agent-74' unchanged across upgrade."},
+        {"name": "process_state_preserved", "pass": true, "details": ".claude/process-state.json byte-identical pre/post upgrade; build_loop history retained."},
+        {"name": "build_progress_preserved", "pass": true, "details": ".claude/build-progress.json byte-identical pre/post upgrade; uat-feat-1 still in features_completed."},
+        {"name": "new_required_artifacts_listed", "pass": true, "details": "Upgrade output flagged PRODUCT_MANIFESTO.md and PROJECT_BIBLE.md as missing-but-expected, plus 4 release-pipeline TODOs."},
+        {"name": "upgrade_changelog_present_in_script", "pass": true, "details": "scripts/upgrade-project.sh header includes BL-006 (2026-04-24), BL-015 (2026-04-25), BL-016 (2026-04-25) changelog entries."},
+        {"name": "no_template_placeholders_in_output", "pass": true, "details": "grep of upgrade log for __PROJECT_NAME__ / __PLATFORM__ / __LANGUAGE__ / __TRACK__ returned 0 hits — U-I did not surface in this scenario."},
+        {"name": "poc_mode_cleared_post_upgrade", "pass": true, "details": "phase-state.json no longer contains poc_mode field; last_upgrade='2026-04-25' added; sponsored_poc constraints removed."},
+        {"name": "deployment_field_unchanged_after_upgrade", "pass": false, "details": "U-J confirmation: phase-state.json .deployment remains 'organizational' rather than transitioning to 'production' after --to-production. poc_mode is correctly removed but deployment scenario value never updates. Severity Medium per runbook (known-open prior-sweep bug)."}
+      ],
+      "framework_bugs": [
+        {"severity": "Medium", "summary": "U-J confirmation: deployment field not updated to 'production' after --to-production", "reproduction": "init project sponsored_poc/organizational; run upgrade-project.sh --to-production; jq -r '.deployment' .claude/phase-state.json", "expected": ".deployment becomes 'production' (or some marker reflecting the new scenario) so downstream gates know production rules apply", "actual": ".deployment still 'organizational' post-upgrade. Only poc_mode is removed and last_upgrade added."}
+      ],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 99,
+      "tests": [
+        {"name": "no_uncommitted_secrets", "pass": true, "details": "git ls-files | xargs grep with strict assignment regex (key=\"value\") returns 0 hits in committed files. Loose word matches are documentation references only."},
+        {"name": "log_files_consistent", "pass": true, "details": ".claude/process-audit.log absent (no FORCE/reset events) — N/A per runbook."},
+        {"name": "no_orphaned_tempfiles", "pass": true, "details": "find .claude -name '*.tmp' returned nothing."},
+        {"name": "no_framework_contamination", "pass": true, "details": "framework HEAD d66e8f276079aa352ba90ac54386e1b1896d7494 unchanged; git status -short shows only pre-existing untracked .claude/ and Reports/uat-2026-04-26/ (no tracked file modifications)."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    }
+  ],
+  "overall_pass": true,
+  "summary": "Upgrade flow sponsored_poc/desktop/standard -> production passes: PR #17 U-E (poc_mode lookup) and U-F (sentinel respect) and PR #18 framework-self guard all confirmed regression-free; U-J (deployment field stays 'organizational' after --to-production) re-confirmed as still-open."
+}

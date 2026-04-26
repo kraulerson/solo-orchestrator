@@ -897,14 +897,14 @@ else
 fi
 rm -rf "$_uat_work"
 
-# Case 4: init for mcp-server
+# Case 4: init for mcp_server
 _uat_work=$(mktemp -d)
-_uat_run_init_copy_block "$_uat_work" "mcp-server"
+_uat_run_init_copy_block "$_uat_work" "mcp_server"
 if [ -f "$_uat_work/tests/uat/examples/pre-flight-reference.html" ] && \
    grep -qi 'mcp\|inspector\|json-rpc\|tool call' "$_uat_work/tests/uat/examples/pre-flight-reference.html"; then
-  pass "E29: UAT init for 'mcp-server' copies mcp-specific reference pair"
+  pass "E29: UAT init for 'mcp_server' copies mcp-specific reference pair"
 else
-  fail "E29: UAT init for 'mcp-server' failed"
+  fail "E29: UAT init for 'mcp_server' failed"
 fi
 rm -rf "$_uat_work"
 
@@ -1204,7 +1204,7 @@ fi
 
 
 # ================================================================
-section "BL-016: init.sh non-interactive mode — E48-E58"
+section "BL-016: init.sh non-interactive mode — E48-E59"
 
 INIT_SH="$REPO_DIR/init.sh"
 
@@ -1403,6 +1403,40 @@ if [ "$_e58_upgrade_rc" = "0" ]; then
   pass "E58: project-local upgrade-project.sh --to-sponsored-poc exits 0 (T1-B regression guard)"
 else
   fail "E58: expected rc=0 from project-local upgrade-project.sh, got rc=$_e58_upgrade_rc (init_rc=$_e58_init_rc)"
+fi
+
+# E59: --non-interactive --platform mcp_server produces the platform module,
+# release pipeline, and UAT reference pair under the unified naming.
+# Regression guard for T1-C from 2026-04-26 UAT triage. The non-interactive
+# driver was setting PLATFORM=mcp_server (underscore) while framework files
+# shipped with mcp-server (hyphen) — every lookup silently no-op'd, leaving
+# the project missing docs/platform-modules/mcp_server.md, the mcp_server
+# release.yml, and the UAT reference pair. Resolved by renaming all six
+# framework files to the underscore form to match the --platform CLI contract.
+_e59_dir="$TEST_DIR/e59"
+mkdir -p "$_e59_dir"
+_e59_proj="$_e59_dir/uat-e59"
+_e59_init_rc=0
+(cd "$_e59_dir" && "$INIT_SH" --non-interactive \
+  --project uat-e59 --platform mcp_server --deployment personal \
+  --language python --project-dir "$_e59_proj" \
+  --git-host other --remote-url https://example.com/fake.git \
+  --branch-protection-attested >/dev/null 2>&1) || _e59_init_rc=$?
+_e59_module_present=false
+_e59_release_present=false
+_e59_uat_ref_present=false
+if [ "$_e59_init_rc" = "0" ]; then
+  [ -f "$_e59_proj/docs/platform-modules/mcp_server.md" ] && _e59_module_present=true
+  [ -f "$_e59_proj/.github/workflows/release.yml" ] && _e59_release_present=true
+  [ -f "$_e59_proj/tests/uat/examples/pre-flight-reference.html" ] && _e59_uat_ref_present=true
+fi
+if [ "$_e59_init_rc" = "0" ] && \
+   [ "$_e59_module_present" = "true" ] && \
+   [ "$_e59_release_present" = "true" ] && \
+   [ "$_e59_uat_ref_present" = "true" ]; then
+  pass "E59: --non-interactive --platform mcp_server produces all platform-specific files (T1-C regression guard)"
+else
+  fail "E59: expected rc=0 + platform module + release.yml + UAT ref; got rc=$_e59_init_rc module=$_e59_module_present release=$_e59_release_present uat_ref=$_e59_uat_ref_present"
 fi
 
 

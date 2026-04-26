@@ -167,7 +167,7 @@ your-project/
 │   ├── security-audits/                   # Per-feature security audit findings
 │   ├── snapshots/                         # Phase gate document snapshots
 │   ├── platform-modules/
-│   │   └── [web|desktop|mobile|mcp-server].md  # Platform-specific guidance
+│   │   └── [web|desktop|mobile|mcp_server].md  # Platform-specific guidance
 │   └── test-results/                      # Phase 3 test evidence (empty until Phase 3)
 ├── evaluation-prompts/
 │   └── Projects/
@@ -211,7 +211,7 @@ your-project/
 │       ├── web.json                       # Web platform (auth, hosting, DB, frameworks)
 │       ├── desktop.json                   # Desktop platform
 │       ├── mobile.json                    # Mobile platform
-│       └── mcp-server.json                # MCP server platform (transport, persistence, SDK)
+│       └── mcp_server.json                # MCP server platform (transport, persistence, SDK)
 ├── tests/
 │   └── uat/                               # UAT session working dir + templates (populated Phase 2+)
 │       ├── templates/                     # Session template (HTML + Markdown)
@@ -365,7 +365,7 @@ This separation means adding support for a new platform requires five components
 | **Web** (SPA, full-stack, API) | `web.md` | v1.0 — Complete |
 | **Desktop** (Windows, macOS, Linux) | `desktop.md` | v1.0 — Complete |
 | **Mobile** (iOS, Android) | `mobile.md` | v1.0 — Complete |
-| **MCP Server** (Model Context Protocol) | `mcp-server.md` | v1.0 — Complete |
+| **MCP Server** (Model Context Protocol) | `mcp_server.md` | v1.0 — Complete |
 
 Projects on unsupported platforms can select "other" during init. The Builder's Guide works standalone — you just won't have platform-specific architecture and distribution guidance.
 

@@ -1,0 +1,154 @@
+{
+  "agent_id": 48,
+  "config": {
+    "kind": "base",
+    "scenario": "production",
+    "platform": "mcp_server",
+    "track": "full",
+    "upgrade_from": null
+  },
+  "framework_head": "d66e8f276079aa352ba90ac54386e1b1896d7494",
+  "started_at": "2026-04-26T02:54:45Z",
+  "completed_at": "2026-04-26T03:02:29Z",
+  "phases": [
+    {
+      "phase": 0,
+      "tests": [
+        {"name": "init_sh_non_interactive_exits_zero", "pass": true, "details": "init.sh --non-interactive completed with exit 0 for production / mcp_server / full / python."},
+        {"name": "claude_md_created", "pass": true, "details": "CLAUDE.md present in project root."},
+        {"name": "project_intake_created", "pass": true, "details": "PROJECT_INTAKE.md present."},
+        {"name": "approval_log_created", "pass": true, "details": "APPROVAL_LOG.md present."},
+        {"name": "gitignore_created", "pass": true, "details": ".gitignore present."},
+        {"name": "phase_state_json_phase_zero", "pass": true, "details": ".claude/phase-state.json .current_phase = 0."},
+        {"name": "phase_state_project_set", "pass": true, "details": ".project = 'uat-agent-48'."},
+        {"name": "ci_workflow_created", "pass": true, "details": ".github/workflows/ci.yml present."},
+        {"name": "release_workflow_created", "pass": false, "details": "release.yml not created. Cause: --git-host other short-circuits generate_release() in init.sh:2308. This is by-design for git_host=other but the runbook assertion does not account for it; logged as documentation_gap, not a bug."},
+        {"name": "framework_clone_present", "pass": true, "details": ".claude/framework directory present."},
+        {"name": "context7_detection", "pass": true, "details": "verify-install.sh reports 'Context7 MCP installed' and 'Context7 MCP configured'."},
+        {"name": "platform_module_present", "pass": false, "details": "docs/platform-modules/mcp_server.md not created. init.sh expects ${PLATFORM}.md (mcp_server.md) but framework ships docs/platform-modules/mcp-server.md (hyphen). Also affects templates/uat/references/${PLATFORM}-pre-flight.html and templates/pipelines/release/<host>/${PLATFORM}.yml. See bug below."},
+        {"name": "no_residual_backup_dir", "pass": true, "details": "No .claude-backup directory."},
+        {"name": "pre_commit_gate_registered", "pass": true, "details": ".claude/settings.json includes pre-commit-gate.sh in PreToolUse hooks."},
+        {"name": "stop_checklist_registered", "pass": true, "details": ".claude/settings.json includes stop-checklist.sh."},
+        {"name": "pending_approval_helper_copied", "pass": true, "details": "scripts/pending-approval.sh present (PR #17 fix verified)."},
+        {"name": "lint_uat_scenarios_helper_copied", "pass": true, "details": "scripts/lint-uat-scenarios.sh present (PR #17 fix verified)."},
+        {"name": "framework_self_guard_active", "pass": true, "details": "Running init.sh --non-interactive from $FRAMEWORK exits non-zero with 'Refusing to operate inside the Solo Orchestrator framework repo.' (PR #18 fix verified)."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "High",
+          "summary": "init.sh platform-name mismatch: 'mcp_server' (underscore) vs framework files 'mcp-server' (hyphen)",
+          "reproduction": "bash $FRAMEWORK/init.sh --non-interactive --project x --platform mcp_server --deployment personal --language python --project-dir $WORKDIR/x --allow-existing-dir; observe init log warns 'UAT reference files not found for platform \"mcp_server\"' and 'No platform module for \"mcp_server\"'. Files in framework are docs/platform-modules/mcp-server.md, templates/uat/references/mcp-server-pre-flight.html, templates/uat/references/mcp-server-scenario.json, templates/pipelines/release/<host>/mcp-server.yml.",
+          "expected": "Platform module, UAT references, and (with non-other host) release pipeline templates copied for mcp_server platform; verify-install.sh does not flag missing platform module.",
+          "actual": "init.sh's $PLATFORM value is 'mcp_server', so $SCRIPT_DIR/docs/platform-modules/${PLATFORM}.md and $SCRIPT_DIR/templates/uat/references/${PLATFORM}-pre-flight.html etc. all miss. Three artifacts silently skipped. verify-install.sh subsequently reports 'Platform module (mcp_server.md) missing'. Affects every mcp_server platform initialization. Either rename framework files to mcp_server.* or add a normalization layer in init.sh (init.sh:1108-1126, init.sh:2310)."
+        },
+        {
+          "severity": "Medium",
+          "summary": "Generate_release() correctly skips for --git-host other (test assertion miscalibrated)",
+          "reproduction": "init.sh --git-host other --remote-url ... → no .github/workflows/release.yml is created. init.sh:2308 short-circuits: '[ \"$host\" = \"other\" ] && return 0'.",
+          "expected": "Either init creates release.yml for host=other, or runbook assertion 'release_workflow_created' should be marked N/A when host=other.",
+          "actual": "release.yml absent by design. Reported as documentation_gap rather than bug — runbook should clarify."
+        }
+      ],
+      "documentation_gaps": [
+        {"gap": "Runbook Section A test 'release_workflow_created' does not account for --git-host other path which legitimately skips release pipeline generation. Either runbook should note this exemption or add a test mode flag to init.sh.", "where": "RUNBOOK.md Section A test table"},
+        {"gap": "init.sh prints 'Release pipeline created at .github/workflows/release.yml' line is omitted for host=other, but Next Steps still show 'Configure release pipeline' implicitly. Mild incoherence.", "where": "init.sh:2308-2330 + Next Steps"}
+      ]
+    },
+    {
+      "phase": 1,
+      "tests": [
+        {"name": "start_phase1_exits_zero", "pass": true, "details": "process-checklist.sh --start-phase1 returns 0."},
+        {"name": "phase1_steps_array_present", "pass": true, "details": ".phase1_architecture.steps_completed is an array."},
+        {"name": "each_phase1_step_completes", "pass": true, "details": "All 5 PHASE1_STEPS (architecture_selected, threat_model_complete, data_model_defined, ui_scaffolding_done, bible_synthesized) complete sequentially with exit 0."},
+        {"name": "phase1_to_phase2_gate_passes", "pass": true, "details": "check-phase-gate.sh runs cleanly at current_phase=0; full gate consistency requires manual current_phase advancement."},
+        {"name": "phase_state_advances_to_2", "pass": false, "details": "U-D confirmation: no script auto-advances .current_phase from 0 to 1/2 after gate passes. Manual jq edit required."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "U-D confirmation: no script advances current_phase after Phase 1 gate passes",
+          "reproduction": "Complete all phase1_architecture steps, run scripts/check-phase-gate.sh (RC=0), then jq '.current_phase' .claude/phase-state.json still returns 0.",
+          "expected": "Some script (likely process-checklist.sh or check-phase-gate.sh) advances .current_phase after the gate passes and an approval is recorded.",
+          "actual": "current_phase stays at 0; the framework requires manual JSON editing. Same symptom as 2026-04-25 sweep U-D bug. Still open."
+        }
+      ],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 2,
+      "tests": [
+        {"name": "start_feature_records_state", "pass": true, "details": ".build_loop.feature = 'uat-feat-1' after --start-feature."},
+        {"name": "each_step_completes_in_order", "pass": true, "details": "All 5 build_loop steps (tests_written, tests_verified_failing, implemented, security_audit, documentation_updated) succeed sequentially with feature-named security audit artifact."},
+        {"name": "pre_commit_passes_after_loop", "pass": true, "details": "git commit -m 'feat(uat-1): ...' returns 0 after all build_loop steps; warning emitted about test files staged with impl but commit not blocked."},
+        {"name": "bl006_blocks_feat_without_loop", "pass": false, "details": "U-C confirmation: direct shell `git commit --allow-empty -m 'feat(bl006-trigger): no loop'` succeeds (RC=0). PreToolUse hook is not invoked for direct shell commits — same architectural gap as the prior sweep."},
+        {"name": "bl006_grace_window_resets_after_record", "pass": true, "details": "After --record-feature uat-feat-1, started uat-feat-2 with full build loop, commit succeeded (PR #17 grace window fix verified)."},
+        {"name": "bl015_sentinel_blocks_commit", "pass": true, "details": "Manually invoked pre-commit-gate.sh with valid PreToolUse JSON returns deny decision when .claude/pending-approval.json exists. (Direct shell commit still bypasses, same architectural gap as U-C.)"},
+        {"name": "bl015_sentinel_resolves", "pass": true, "details": "scripts/pending-approval.sh --resolve removes .claude/pending-approval.json; subsequent gate invocation no longer blocks on sentinel (blocks for separate phase2_init reason in this run)."},
+        {"name": "recorded_feature_appears_in_progress", "pass": true, "details": ".features_completed in .claude/build-progress.json contains 'uat-feat-1' and 'uat-feat-2'."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "U-C confirmation: BL-006 git commit-msg hook still missing — direct shell commit bypasses build-loop check",
+          "reproduction": "From a fresh project with .build_loop.feature=null and .features_since_last_test < grace, run `git commit --allow-empty -m 'feat(x): no loop'` directly in shell. Commit succeeds.",
+          "expected": "BL-006 should block feat: commits with no recorded build loop, regardless of whether the commit is initiated via PreToolUse hook (agent path) or direct git CLI (human path). A git commit-msg hook would close this gap.",
+          "actual": "Only the PreToolUse hook fires; no commit-msg hook is installed by init.sh. Direct git commits proceed. Same as 2026-04-25 sweep U-C bug. Still open."
+        }
+      ],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 3,
+      "tests": [
+        {"name": "start_phase3_exits_zero", "pass": true, "details": "process-checklist.sh --start-phase3 returns 0 (with warnings about features-since-last-UAT)."},
+        {"name": "start_uat_creates_session", "pass": true, "details": ".uat_session.session_id=1, .started_at non-null."},
+        {"name": "uat_template_lints_clean", "pass": false, "details": "lint-uat-scenarios.sh against unpopulated tests/uat/templates/test-session-template.html returns 21 placeholder violations. Expected — there is no populated example for mcp_server platform because of the platform-name mismatch bug above. tests/uat/examples/ is empty."},
+        {"name": "each_uat_step_completes", "pass": true, "details": "All 9 UAT_STEPS (agents_dispatched … gate_passed) complete sequentially with exit 0."},
+        {"name": "phase3_to_phase4_gate", "pass": false, "details": "check-phase-gate.sh blocks Phase 3→4 with FAIL even after pen-test artifact is provided. Root cause: pipefail interaction with ls multi-glob (see bug below)."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "High",
+          "summary": "check-phase-gate.sh pen-test detection fails under pipefail when only one of three glob patterns matches",
+          "reproduction": "cd PROJECT_DIR; touch docs/test-results/2026-04-26_pen-test.json; bash $FRAMEWORK/scripts/check-phase-gate.sh — output: '[FAIL] Phase 3→4: Full Track requires penetration test'. The check at scripts/check-phase-gate.sh:449 is `if ls docs/test-results/*pen-test* docs/test-results/*pentest* docs/test-results/*penetration* 2>/dev/null | head -1 >/dev/null 2>&1` — script header has `set -euo pipefail`. When unmatched globs fall through (bash default), `ls` is invoked with literal glob args and exits non-zero, which under pipefail propagates up so the if-condition becomes false even though one match is in the output stream.",
+          "expected": "If at least one pen-test artifact exists, the gate reports OK.",
+          "actual": "Gate FAILS even with valid pen-test artifact, blocking full-track production projects from advancing through Phase 3 → 4. Workaround: include all three substrings in one filename. Fix options: use `find docs/test-results -maxdepth 1 \\( -name '*pen-test*' -o -name '*pentest*' -o -name '*penetration*' \\) | head -1 | grep -q .` or wrap the ls call in `( set +o pipefail; ls ... )`."
+        }
+      ],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 4,
+      "tests": [
+        {"name": "start_phase4_exits_zero", "pass": false, "details": "BUG: process-checklist.sh --start-phase4 fails with 'Phase 4 (production release) is blocked — project is in production mode' because init.sh writes poc_mode='production' for --gov-mode production, and start_phase4 blocks any non-null poc_mode. See bug below. Workaround: jq '.poc_mode = null' .claude/phase-state.json then re-run."},
+        {"name": "each_phase4_step_completes", "pass": true, "details": "After workaround, all 6 PHASE4_STEPS (production_build, rollback_tested, go_live_verified, monitoring_configured, handoff_written, handoff_tested) complete sequentially with exit 0 with stub artifacts (HANDOFF.md, RELEASE_NOTES.md, *_handoff*, *_rollback*)."},
+        {"name": "handoff_md_required", "pass": true, "details": "handoff_written step's artifact check fails when HANDOFF.md absent; passes once HANDOFF.md is stubbed."},
+        {"name": "release_notes_required", "pass": true, "details": "go_live_verified step's artifact check fails when RELEASE_NOTES.md absent; passes once stubbed."},
+        {"name": "phase4_completion_state", "pass": true, "details": ".claude/phase-state.json .current_phase = 4 (advanced manually due to U-D)."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Critical",
+          "summary": "start_phase4 blocks production scenario: init.sh writes poc_mode='production' but start_phase4 blocks any non-null poc_mode",
+          "reproduction": "bash $FRAMEWORK/init.sh --non-interactive --deployment organizational --gov-mode production ... → .claude/phase-state.json .poc_mode='production'. Later: bash $FRAMEWORK/scripts/process-checklist.sh --start-phase4 → exit 1 with '[FAIL] Phase 4 (production release) is blocked — project is in production mode.'",
+          "expected": "Phase 4 should be permitted when gov_mode=production (it's the unlocked state). Only private_poc and sponsored_poc should block Phase 4.",
+          "actual": "process-checklist.sh:540 checks `if [ -n \"$poc_mode\" ] && [ \"$poc_mode\" != \"null\" ]` — this rejects any non-null value. Either init.sh should write null for production gov-mode (matching the original poc_mode semantic of 'is this a POC'), or start_phase4 should explicitly compare against 'private_poc' and 'sponsored_poc' only. Without a fix, every production-mode project is blocked from Phase 4 entry. Likely a regression introduced when --gov-mode was added to init.sh as a non-interactive flag (PR #19) without harmonizing the downstream consumer in process-checklist.sh."
+        }
+      ],
+      "documentation_gaps": []
+    },
+    {
+      "phase": "post-flight",
+      "tests": [
+        {"name": "no_uncommitted_secrets", "pass": true, "details": "grep for password/api_key/secret/token in tracked files matched only documentation references (no `password = \"...\"` etc.)."},
+        {"name": "log_files_consistent", "pass": true, "details": "N/A — .claude/process-audit.log absent (no FORCE/reset events occurred)."},
+        {"name": "no_orphaned_tempfiles", "pass": true, "details": "find $WORKDIR/.claude -name '*.tmp' returned nothing."},
+        {"name": "no_framework_contamination", "pass": true, "details": "git -C $FRAMEWORK status --short shows only the pre-existing .claude/ and Reports/uat-2026-04-26/ entries that were present at setup; HEAD unchanged at d66e8f276079aa352ba90ac54386e1b1896d7494."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    }
+  ],
+  "overall_pass": false,
+  "summary": "Found 1 Critical bug (start_phase4 blocks production-mode projects due to poc_mode='production' value mismatch with process-checklist.sh:540), 2 High bugs (mcp_server platform name mismatch causes silent skip of platform module + UAT references; check-phase-gate.sh pen-test detection fails under pipefail with multi-glob ls), 2 Medium bugs (U-C and U-D confirmations from prior sweep), and 2 documentation gaps. Most PR #17/#18/#19 fixes verified working: pending_approval/lint_uat_scenarios helpers copied, framework-self guard active, BL-006 grace window resets, --non-interactive completes without abort on fake-remote push."
+}

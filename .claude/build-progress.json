@@ -1,0 +1,15 @@
+{
+  "features_completed": [
+    "bl-006-precommit-buildloop-enforcement",
+    "bl-015-pending-approval-sentinel-reader",
+    "bl-016-init-non-interactive"
+  ],
+  "features_since_last_test": 3,
+  "test_interval": 2,
+  "last_test_session": null,
+  "testing_required": true,
+  "tester_count": 1,
+  "bug_tracker": "github_issues",
+  "sessions_completed": 0,
+  "features_since_last_health_check": 3
+}

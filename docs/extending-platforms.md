@@ -32,7 +32,7 @@ Adding a new platform creates up to five components:
 | 4 | **Intake Suggestions** | `templates/intake-suggestions/{platform}.json` | Recommended | Context-aware suggestions for the intake wizard |
 | 5 | **CI Template Updates** | `templates/pipelines/ci/*.yml` (line 1 marker) | Yes | Register which languages are available for this platform |
 
-**Naming convention:** Use lowercase kebab-case for the platform name (e.g., `mcp-server`, `azure-microservices`, `embedded-firmware`). This name becomes the directory/filename slug used everywhere and appears as a selectable option in `init.sh`.
+**Naming convention:** Use lowercase identifier matching the form accepted by `init.sh --platform <name>`. Snake_case (`mcp_server`) is canonical for multi-word platforms; new platforms should follow the same convention. This name becomes the directory/filename slug used everywhere and appears as a selectable option in `init.sh`.
 
 ---
 
@@ -130,7 +130,7 @@ Application sunsetting process.}
 - Use the `⟁ PLATFORM MODULE:` callout style from the Builder's Guide as your mental model — this document answers those callouts for your platform
 - Include concrete tool names, install commands, and configuration examples
 - Provide comparison tables with "Solo Orchestrator recommendation" rows
-- Reference existing platform modules (`web.md`, `desktop.md`, `mobile.md`, `mcp-server.md`) as examples
+- Reference existing platform modules (`web.md`, `desktop.md`, `mobile.md`, `mcp_server.md`) as examples
 
 ### Step 2: Evaluation Module
 
@@ -336,7 +336,7 @@ Each CI template has a platform marker on line 1 that controls which languages a
 
 **Which templates to update:** Only add your platform to languages that have meaningful SDK/tooling support for your platform type. Do not add every language — users selecting an unsupported language get the "other" template with intentionally-failing placeholder steps.
 
-**Example:** For `mcp-server`, TypeScript, Python, Go, and Rust have MCP SDK support. Java, C#, Kotlin, Dart, and Swift do not, so those templates were left unchanged.
+**Example:** For `mcp_server`, TypeScript, Python, Go, and Rust have MCP SDK support. Java, C#, Kotlin, Dart, and Swift do not, so those templates were left unchanged.
 
 **Always update `other.yml`** — the "other" template is the catch-all and should list every platform.
 
@@ -432,7 +432,7 @@ Study these as examples when building your own:
 | `web` | `docs/platform-modules/web.md` | `modules/web-app.md` | `release/web.yml` | `web.json` | TS, PY, RS, GO, C#, JV, KT, Other |
 | `desktop` | `docs/platform-modules/desktop.md` | `modules/desktop-app.md` | `release/desktop.yml` | `desktop.json` | TS, RS, C#, GO, JV, KT, SW, Other |
 | `mobile` | `docs/platform-modules/mobile.md` | `modules/mobile-app.md` | `release/mobile.yml` | `mobile.json` | TS, KT, DT, SW, Other |
-| `mcp-server` | `docs/platform-modules/mcp-server.md` | `modules/mcp-server.md` | `release/mcp-server.yml` | `mcp-server.json` | TS, PY, RS, GO, Other |
+| `mcp_server` | `docs/platform-modules/mcp_server.md` | `modules/mcp-server.md` | `release/mcp_server.yml` | `mcp_server.json` | TS, PY, RS, GO, Other |
 
 **Note:** The evaluation module filename does not need to match the platform name exactly. For example, `web` uses `web-app.md` and `desktop` uses `desktop-app.md`. The evaluation module name is what you pass to `compose.sh` and `run-reviews.sh` — it is independent of the platform name used by `init.sh`.
 

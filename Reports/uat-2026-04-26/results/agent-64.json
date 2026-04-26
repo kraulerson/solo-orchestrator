@@ -1,0 +1,87 @@
+{
+  "agent_id": 64,
+  "config": {
+    "kind": "upgrade",
+    "scenario": "sponsored_poc",
+    "platform": "mobile",
+    "track": "light",
+    "upgrade_from": "private_poc"
+  },
+  "framework_head": "d66e8f276079aa352ba90ac54386e1b1896d7494",
+  "started_at": "2026-04-26T03:26:26Z",
+  "completed_at": "2026-04-26T03:29:44Z",
+  "phases": [
+    {
+      "phase": 0,
+      "tests": [
+        {"name": "init_sh_non_interactive_exits_zero", "pass": true, "details": "init.sh --non-interactive completed successfully for private_poc/mobile/light baseline; verify-install reported all 53 checks pass"},
+        {"name": "claude_md_created", "pass": true, "details": "CLAUDE.md exists in PROJECT_DIR"},
+        {"name": "project_intake_created", "pass": true, "details": "PROJECT_INTAKE.md exists"},
+        {"name": "approval_log_created", "pass": true, "details": "APPROVAL_LOG.md exists"},
+        {"name": "gitignore_created", "pass": true, "details": ".gitignore exists"},
+        {"name": "phase_state_json_phase_zero", "pass": true, "details": "jq .current_phase = 0"},
+        {"name": "phase_state_project_set", "pass": true, "details": ".project = uat-agent-64"},
+        {"name": "ci_workflow_created", "pass": true, "details": ".github/workflows/ci.yml exists"},
+        {"name": "release_workflow_created", "pass": true, "details": ".github/workflows/release.yml exists"},
+        {"name": "framework_clone_present", "pass": true, "details": ".claude/framework directory present"},
+        {"name": "context7_detection", "pass": true, "details": "verify-install reports Context7 MCP installed AND configured"},
+        {"name": "platform_module_present", "pass": true, "details": "docs/platform-modules/mobile.md exists"},
+        {"name": "no_residual_backup_dir", "pass": true, "details": ".claude-backup absent (no BUG-002 regression)"},
+        {"name": "pre_commit_gate_registered", "pass": true, "details": ".claude/settings.json PreToolUse hook contains pre-commit-gate.sh"},
+        {"name": "stop_checklist_registered", "pass": true, "details": ".claude/settings.json Stop hook contains stop-checklist (session-end-qdrant-reminder.sh)"},
+        {"name": "pending_approval_helper_copied", "pass": true, "details": "scripts/pending-approval.sh present (PR #17 U-H fix verified)"},
+        {"name": "lint_uat_scenarios_helper_copied", "pass": true, "details": "scripts/lint-uat-scenarios.sh present (PR #17 U-H fix verified)"},
+        {"name": "framework_self_guard_active", "pass": true, "details": "Running init.sh from $FRAMEWORK exits 1 with 'Refusing to operate inside the Solo Orchestrator framework repo' message (PR #18 U-N/U-O fix verified)"}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 2,
+      "tests": [
+        {"name": "baseline_build_loop_recorded_feature", "pass": true, "details": "Completed full build_loop for uat-feat-1: tests_written, tests_verified_failing, implemented, security_audit (stub), documentation_updated, feature_recorded; commit succeeded; build-progress.json features_completed = ['uat-feat-1']"}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": "upgrade",
+      "tests": [
+        {"name": "upgrade_command_exits_zero", "pass": false, "details": "When invoked as documented (`bash scripts/upgrade-project.sh --to-sponsored-poc` from project root), exit code is 1 due to a `cp ... files are identical (not copied)` error in the post-upgrade 'Refreshing framework helper scripts (BL-009, BL-015)' step. Workaround: invoking from `$FRAMEWORK/scripts/upgrade-project.sh` succeeds with RC=0 because SCRIPT_DIR resolves to a different path than the project's scripts/. The upgrade itself completes (state mutations, commit, validate) before this terminal failure. See bug entry."},
+        {"name": "phase_state_preserved", "pass": true, "details": "current_phase=0 and project=uat-agent-64 unchanged across upgrade; only poc_mode flipped private_poc -> sponsored_poc and last_upgrade timestamp added"},
+        {"name": "process_state_preserved", "pass": true, "details": ".build_loop unchanged across upgrade (exact match via jq diff)"},
+        {"name": "build_progress_features_preserved", "pass": true, "details": "build-progress.json features_completed still contains uat-feat-1 after upgrade"},
+        {"name": "new_required_artifacts_listed", "pass": true, "details": "Upgrade output names files updated (.claude/phase-state.json, tool-preferences.json, CLAUDE.md, PROJECT_INTAKE.md) and surfaces a [WARN] about UAT platform inference plus BL-009/BL-015 helper-refresh next steps. No explicit 'new required artifacts for sponsored POC' enumeration beyond that — minor doc gap."},
+        {"name": "pending_approval_sentinel_respected", "pass": true, "details": "With .claude/pending-approval.json in place, upgrade aborted with [FAIL] upgrade blocked — pending user decision (RC=1). After scripts/pending-approval.sh --clear, upgrade proceeded. PR #17 U-F fix verified."},
+        {"name": "upgrade_changelog_present_in_script", "pass": true, "details": "scripts/upgrade-project.sh header (lines ~21-24) cites BL-006 (2026-04-24) and BL-015 (2026-04-25) changelog entries"},
+        {"name": "no_template_placeholders_in_output", "pass": true, "details": "grep -E '__PROJECT_NAME__|__PLATFORM__|__LANGUAGE__|__TRACK__' against upgrade stdout returned no hits — U-I not regressed in this run"}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "High",
+          "summary": "upgrade-project.sh exits RC=1 when invoked from project's scripts/ dir (cp self-copy in helper-refresh step)",
+          "reproduction": "1) Build a private_poc project via init.sh --non-interactive. 2) From $PROJECT_DIR run `bash scripts/upgrade-project.sh --to-sponsored-poc`. 3) Observe last log line: `cp: scripts/pending-approval.sh and <PROJECT_DIR>/scripts/pending-approval.sh are identical (not copied).` and final RC=1.",
+          "expected": "Upgrade exits 0 on the documented invocation (`scripts/upgrade-project.sh --to-sponsored-poc`, per the script's own --help and the project's docs).",
+          "actual": "Upgrade exits 1. Root cause: scripts/upgrade-project.sh sets SCRIPT_DIR=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\". When the user runs the project's own copy of the script, SCRIPT_DIR resolves to <PROJECT>/scripts and the `cp \"$SCRIPT_DIR/pending-approval.sh\" \"scripts/pending-approval.sh\"` in the BL-009/BL-015 refresh block is a same-file copy, which fails on macOS BSD cp with 'files are identical'. The upgrade's mutations (phase-state.json, CLAUDE.md, commit) all complete before this point, so the project ends up logically upgraded but the script returns failure — any wrapper relying on RC will think the upgrade failed. Suggested fix: skip the cp when realpath src equals realpath dest, or always source helpers from a stable framework path (e.g., resolve via .claude/framework or orchestrator-source.json) rather than $SCRIPT_DIR. RC=0 reproduces only when the upgrade is invoked as `bash $FRAMEWORK/scripts/upgrade-project.sh ...`."
+        }
+      ],
+      "documentation_gaps": [
+        {"gap": "scripts/upgrade-project.sh --help recommends `scripts/upgrade-project.sh --to-sponsored-poc` (project-relative invocation), but that exact form trips the cp-self-copy bug above. The runbook's recommended `bash $FRAMEWORK/scripts/upgrade-project.sh ...` form does not — but no doc surfaces this gotcha to end users.", "where": "scripts/upgrade-project.sh --help / docs that document the upgrade command"},
+        {"gap": "Upgrade post-step emits `[WARN] UAT platform unknown (intake-progress.json missing or lacks 'platform' field). Skipping reference copy` even on a freshly init.sh-created project where intake-progress.json is not produced by --non-interactive init. Either (a) --non-interactive should write intake-progress.json with platform, or (b) the warning should be silent / informational when intake-progress.json is absent on a non-interactive flow.", "where": "scripts/upgrade-project.sh UAT migration block / scripts/init.sh non-interactive intake-progress write"}
+      ]
+    },
+    {
+      "phase": "post_flight",
+      "tests": [
+        {"name": "no_uncommitted_secrets", "pass": true, "details": "grep -E 'password|api[_-]?key|secret|token' over committed files found only contextual references in framework templates (CI workflow `secrets.` syntax, release workflow KEYCHAIN_PASSWORD comment block, .gitignore patterns, .claude/framework/hooks/known-stdlib.txt 'py:secrets' library reference, governance-framework.md prose). No real credentials."},
+        {"name": "log_files_consistent", "pass": true, "details": "N/A — .claude/process-audit.log is absent because no FORCE/reset/bypass events occurred during this test run"},
+        {"name": "no_orphaned_tempfiles", "pass": true, "details": "find .claude -name '*.tmp' returned no results"},
+        {"name": "no_framework_contamination", "pass": true, "details": "git -C $FRAMEWORK rev-parse HEAD = d66e8f276079aa352ba90ac54386e1b1896d7494 (matches setup-time SHA). git status --short shows only pre-existing untracked .claude/ and Reports/uat-2026-04-26/ entries from before this agent ran — no framework files modified."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    }
+  ],
+  "overall_pass": false,
+  "summary": "Init/baseline/sentinel/state-preservation all PASS; one High bug surfaced — upgrade-project.sh exits RC=1 on the documented `scripts/upgrade-project.sh` invocation due to a same-file `cp` in the BL-009/BL-015 helper-refresh step (RC=0 reproduces only via `bash $FRAMEWORK/scripts/upgrade-project.sh`)."
+}

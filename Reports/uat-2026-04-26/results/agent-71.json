@@ -1,0 +1,98 @@
+{
+  "agent_id": 71,
+  "config": {
+    "kind": "upgrade",
+    "scenario": "sponsored_poc",
+    "platform": "mcp_server",
+    "track": "standard",
+    "upgrade_from": "private_poc"
+  },
+  "framework_head": "d66e8f276079aa352ba90ac54386e1b1896d7494",
+  "started_at": "2026-04-26T03:37:24Z",
+  "completed_at": "2026-04-26T03:40:24Z",
+  "phases": [
+    {
+      "phase": 0,
+      "tests": [
+        {"name": "init_sh_non_interactive_exits_zero", "pass": true, "details": "init.sh --non-interactive exited 0 for private_poc/mcp_server/standard with --git-host other and fake remote URL"},
+        {"name": "claude_md_created", "pass": true, "details": "CLAUDE.md present in project dir"},
+        {"name": "project_intake_created", "pass": true, "details": "PROJECT_INTAKE.md present"},
+        {"name": "approval_log_created", "pass": true, "details": "APPROVAL_LOG.md present"},
+        {"name": "gitignore_created", "pass": true, "details": ".gitignore present"},
+        {"name": "phase_state_json_phase_zero", "pass": true, "details": ".claude/phase-state.json .current_phase = 0"},
+        {"name": "phase_state_project_set", "pass": true, "details": ".project = 'uat-agent-71'"},
+        {"name": "ci_workflow_created", "pass": true, "details": ".github/workflows/ci.yml present (5010 bytes)"},
+        {"name": "release_workflow_created", "pass": true, "details": "N/A by design: --git-host other intentionally lays down no release template (init.sh:2308 'Host other — no release template laid down. Supply your own.'). Documented behavior, not a regression."},
+        {"name": "framework_clone_present", "pass": true, "details": ".claude/framework directory present"},
+        {"name": "context7_detection", "pass": true, "details": "verify-install.sh reports '[OK] Context7 MCP installed' and '[OK] Context7 MCP configured' when run from project dir"},
+        {"name": "platform_module_present", "pass": false, "details": "docs/platform-modules/mcp_server.md MISSING. Framework has docs/platform-modules/mcp-server.md (hyphen) but init.sh:1124 looks up ${PLATFORM}.md with PLATFORM='mcp_server' (underscore). Filename mismatch — module is never copied for mcp_server platform. verify-install.sh also flags this as a manual-action item."},
+        {"name": "no_residual_backup_dir", "pass": true, "details": ".claude-backup absent (BUG-002 not regressed)"},
+        {"name": "pre_commit_gate_registered", "pass": true, "details": "settings.json PreToolUse hook list contains scripts/pre-commit-gate.sh under matcher Bash"},
+        {"name": "stop_checklist_registered", "pass": true, "details": "settings.json Stop hook contains framework/hooks/stop-checklist.sh"},
+        {"name": "pending_approval_helper_copied", "pass": true, "details": "scripts/pending-approval.sh present (PR #17 U-H fix verified)"},
+        {"name": "lint_uat_scenarios_helper_copied", "pass": true, "details": "scripts/lint-uat-scenarios.sh present (PR #17 U-H fix verified)"},
+        {"name": "framework_self_guard_active", "pass": true, "details": "Running init.sh from $FRAMEWORK exited rc=1 with 'Refusing to operate inside the Solo Orchestrator framework repo' message (PR #18 verified)"}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "mcp_server platform module never copied — filename hyphen/underscore mismatch",
+          "reproduction": "bash $FRAMEWORK/init.sh --non-interactive --project x --platform mcp_server --deployment personal --language python --project-dir /tmp/x --allow-existing-dir; ls /tmp/x/docs/platform-modules/  # empty",
+          "expected": "docs/platform-modules/mcp_server.md (or mcp-server.md) copied into the generated project",
+          "actual": "docs/platform-modules/ is empty. init.sh line 1124 looks up '$SCRIPT_DIR/docs/platform-modules/${PLATFORM}.md' with PLATFORM='mcp_server', but the framework ships 'mcp-server.md' (hyphen). The 'No platform module' branch silently skips. verify-install.sh also reports it as Manual: 'Platform module (mcp_server.md) missing'."
+        }
+      ],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 1,
+      "tests": [
+        {"name": "start_phase1_exits_zero", "pass": true, "details": "process-checklist.sh --start-phase1 rc=0"},
+        {"name": "phase1_steps_array_present", "pass": true, "details": ".phase1_architecture.steps_completed is an array"},
+        {"name": "each_phase1_step_completes", "pass": true, "details": "All 5 PHASE1_STEPS (architecture_selected, threat_model_complete, data_model_defined, ui_scaffolding_done, bible_synthesized) completed sequentially with rc=0"}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 2,
+      "tests": [
+        {"name": "start_feature_records_state", "pass": true, "details": "build_loop.feature = 'uat-feat-1' after --start-feature"},
+        {"name": "each_step_completes_in_order", "pass": true, "details": "tests_written, tests_verified_failing, implemented, security_audit (with stub findings doc), documentation_updated all rc=0"},
+        {"name": "pre_commit_passes_after_loop", "pass": true, "details": "git commit -m 'feat(uat-1): stub feature for UAT' succeeded with rc=0; commit b621f08 created"},
+        {"name": "feature_recorded_step_completes", "pass": true, "details": "test-gate.sh --record-feature uat-feat-1 rc=0; --complete-step build_loop:feature_recorded rc=0; build_loop reset; uat-feat-1 in build-progress.json features_completed"}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 5,
+      "tests": [
+        {"name": "upgrade_command_exits_zero", "pass": true, "details": "scripts/upgrade-project.sh --to-sponsored-poc exited rc=0. U-E (poc_mode lookup from phase-state.json) NOT regressed — script read 'private_poc' correctly from phase-state.json."},
+        {"name": "phase_state_preserved", "pass": true, "details": ".project = 'uat-agent-71' unchanged; .current_phase = 0 unchanged; track/deployment unchanged; new field .last_upgrade = '2026-04-25' added; .poc_mode flipped private_poc -> sponsored_poc as expected."},
+        {"name": "process_state_preserved", "pass": true, "details": ".phase1_architecture.steps_completed unchanged (5 steps); .build_loop intact (reset to null after feature_recorded as expected); .build-progress.features_completed still contains 'uat-feat-1'"},
+        {"name": "new_required_artifacts_listed", "pass": false, "details": "Upgrade output prints 'Files that will be updated' (mechanical changes) and runs verify-install, but does NOT enumerate sponsored_poc-specific NEW required artifacts (e.g. sponsor agreement, exec review board, attorney engagement) that distinguish sponsored_poc from private_poc. Logged as a documentation gap, not a bug."},
+        {"name": "pending_approval_sentinel_respected", "pass": true, "details": "Wrote .claude/pending-approval.json via pending-approval.sh --offer; upgrade-project.sh --to-sponsored-poc exited rc=1 with '[FAIL] upgrade blocked — pending user decision' message. PR #17 U-F fix CONFIRMED."},
+        {"name": "upgrade_changelog_present_in_script", "pass": true, "details": "scripts/upgrade-project.sh header (lines 11-23) lists BL-006 (2026-04-24) and BL-015 (2026-04-25) and BL-016 (2026-04-25) changelog entries"},
+        {"name": "no_template_placeholders_in_output", "pass": true, "details": "grep -E '__PROJECT_NAME__|__PLATFORM__|__LANGUAGE__|__TRACK__' on full upgrade stdout returned no matches; U-I not observed in this config"}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": [
+        {"gap": "upgrade-project.sh --to-sponsored-poc does not enumerate the NEW artifacts/commitments required by the sponsored_poc tier (e.g. sponsor sign-off, attorney engagement, exec review). The output lists only 'Files that will be updated' (mechanical changes). Useful for builder onboarding into the new tier.", "where": "scripts/upgrade-project.sh — Upgrade plan / Upgrade Complete sections"}
+      ]
+    },
+    {
+      "phase": 6,
+      "tests": [
+        {"name": "no_uncommitted_secrets", "pass": true, "details": "Stricter regex scan for credential-shaped strings (api_key/password/secret/token = quoted base64-ish 12+ chars) across committed project files (excluding .claude/framework/ vendor) returned no matches"},
+        {"name": "log_files_consistent", "pass": true, "details": "N/A — .claude/process-audit.log absent; no FORCE/reset events occurred during run, which is the expected append-only condition"},
+        {"name": "no_orphaned_tempfiles", "pass": true, "details": "find $WORKDIR/uat-agent-71/.claude -name '*.tmp' returned no results"},
+        {"name": "no_framework_contamination", "pass": true, "details": "git -C $FRAMEWORK rev-parse HEAD = d66e8f276079aa352ba90ac54386e1b1896d7494 (matches captured SHA at setup). Working tree shows only pre-existing untracked .claude/ and Reports/uat-2026-04-26/ directories — no framework files modified by this agent."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    }
+  ],
+  "overall_pass": true,
+  "summary": "Upgrade flow private_poc -> sponsored_poc on mcp_server/standard succeeded; all PR #17/#18/#19 fixes (U-A, U-E, U-F, U-H, U-N, U-O) verified intact. One Medium framework bug found: mcp_server platform module never copied due to filename hyphen vs underscore mismatch."
+}

@@ -1,0 +1,97 @@
+{
+  "agent_id": 83,
+  "config": {
+    "kind": "upgrade",
+    "scenario": "production",
+    "platform": "mcp_server",
+    "track": "standard",
+    "upgrade_from": "sponsored_poc"
+  },
+  "framework_head": "d66e8f276079aa352ba90ac54386e1b1896d7494",
+  "started_at": "2026-04-26T03:56:22Z",
+  "completed_at": "2026-04-26T03:59:27Z",
+  "phases": [
+    {
+      "phase": 0,
+      "tests": [
+        {"name": "init_sh_non_interactive_exits_zero", "pass": true, "details": "init.sh --non-interactive completed; project files placed; expected fake-remote push failure soft-failed per PR #18 tolerance and verify-install + print_next_steps still ran."},
+        {"name": "claude_md_created", "pass": true, "details": "CLAUDE.md present"},
+        {"name": "project_intake_created", "pass": true, "details": "PROJECT_INTAKE.md present"},
+        {"name": "approval_log_created", "pass": true, "details": "APPROVAL_LOG.md present"},
+        {"name": "gitignore_created", "pass": true, "details": ".gitignore present"},
+        {"name": "phase_state_json_phase_zero", "pass": true, "details": ".current_phase == 0"},
+        {"name": "phase_state_project_set", "pass": true, "details": ".project == 'uat-agent-83'"},
+        {"name": "ci_workflow_created", "pass": true, "details": ".github/workflows/ci.yml present (host: github, language: python)"},
+        {"name": "release_workflow_created", "pass": false, "details": "init explicitly emitted '[INFO] No release pipeline template for platform mcp_server on host github. Skipping release pipeline.' Recorded as documentation_gap (mcp_server has no release template)."},
+        {"name": "framework_clone_present", "pass": true, "details": ".claude/framework exists (CDF v4.2.3 installed)"},
+        {"name": "context7_detection", "pass": true, "details": "verify-install reports 'Context7 MCP installed' and 'Context7 MCP configured'"},
+        {"name": "platform_module_present", "pass": false, "details": "docs/platform-modules/mcp_server.md missing — verify-install reports as expected manual action; mcp_server has no platform module shipped. Recorded as documentation_gap."},
+        {"name": "no_residual_backup_dir", "pass": true, "details": ".claude-backup absent (init removed CDF migration backup)"},
+        {"name": "pre_commit_gate_registered", "pass": true, "details": "settings.json PreToolUse contains pre-commit-gate.sh"},
+        {"name": "stop_checklist_registered", "pass": true, "details": "settings.json Stop hook contains stop-checklist.sh / session-end-qdrant-reminder.sh"},
+        {"name": "pending_approval_helper_copied", "pass": true, "details": "scripts/pending-approval.sh present (PR #17 U-H fix holds)"},
+        {"name": "lint_uat_scenarios_helper_copied", "pass": true, "details": "scripts/lint-uat-scenarios.sh present (PR #17 U-H fix holds)"},
+        {"name": "framework_self_guard_active", "pass": true, "details": "Running init.sh --non-interactive from $FRAMEWORK exited 1 with '[FAIL] Refusing to operate inside the Solo Orchestrator framework repo.' (PR #18 fix holds)"}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": [
+        {"gap": "No release pipeline template ships for platform mcp_server on host github (init logs '[INFO] No release pipeline template for platform mcp_server on host github. Skipping release pipeline.'). Either add a template or document that mcp_server projects must hand-author release.yml.", "where": "init.sh release-pipeline generator; templates/ci/ has no mcp_server release template"},
+        {"gap": "No platform module ships for mcp_server (docs/platform-modules/mcp_server.md missing). verify-install flags this as a manual action item on every run for mcp_server projects.", "where": "docs/platform-modules/ — mcp_server.md missing"}
+      ]
+    },
+    {
+      "phase": 1,
+      "tests": [
+        {"name": "start_phase1_exits_zero", "pass": true, "details": "process-checklist.sh --start-phase1 OK; phase1_architecture initialized in process-state.json"},
+        {"name": "phase1_steps_array_present", "pass": true, "details": ".phase1_architecture.steps_completed is array"},
+        {"name": "each_phase1_step_completes", "pass": true, "details": "All 5 steps (architecture_selected, threat_model_complete, data_model_defined, ui_scaffolding_done, bible_synthesized) completed sequentially without artifact gating"},
+        {"name": "phase_state_advances_to_2", "pass": false, "details": "U-D confirmation: no script auto-advances current_phase after Phase 1 completes. check-phase-gate.sh prints 'Phase gates consistent.' but leaves current_phase at 0. Manual jq write was required to set current_phase=2 to begin Build Loop. Severity Medium (known-open prior-sweep bug)."}
+      ],
+      "framework_bugs": [
+        {"severity": "Medium", "summary": "U-D confirmation: no script advances current_phase after Phase 1 completes", "reproduction": "After completing all 5 PHASE1_STEPS via process-checklist.sh --complete-step, run scripts/check-phase-gate.sh; observe current_phase still 0.", "expected": "Some documented script advances .current_phase to 2 once Phase 1 steps + gate pass.", "actual": "check-phase-gate.sh only reports consistency — does not write. Operator must hand-edit phase-state.json. Same as U-D from 2026-04-25 sweep."}
+      ],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 2,
+      "tests": [
+        {"name": "start_feature_records_state", "pass": true, "details": ".build_loop.feature == 'uat-feat-1' after --start-feature"},
+        {"name": "each_step_completes_in_order", "pass": true, "details": "tests_written, tests_verified_failing, implemented, security_audit, documentation_updated all completed sequentially"},
+        {"name": "pre_commit_passes_after_loop", "pass": true, "details": "git commit -m 'feat(uat-1): stub feature for UAT' succeeded after all 5 build_loop steps"},
+        {"name": "recorded_feature_appears_in_progress", "pass": true, "details": ".features_completed contains 'uat-feat-1' after test-gate.sh --record-feature"}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": "upgrade",
+      "tests": [
+        {"name": "pending_approval_sentinel_respected", "pass": true, "details": "Wrote .claude/pending-approval.json before upgrade. upgrade-project.sh --to-production exited 1 with '[FAIL] upgrade blocked — pending user decision.' (PR #17 U-F fix holds)."},
+        {"name": "upgrade_command_exits_zero", "pass": false, "details": "After clearing the sentinel, upgrade-project.sh --to-production exited 1. The upgrade core (writing phase-state.json, tool-preferences.json, CLAUDE.md, PROJECT_INTAKE.md, APPROVAL_LOG.md and committing 'chore(upgrade): POC -> production') completed and printed 'Upgrade Complete'. The script then continued through post-upgrade verify-install + UAT migration steps, then aborted at '[STEP] Refreshing framework helper scripts (BL-009, BL-015)' due to BSD cp on macOS returning non-zero when source==destination ('cp: scripts/pending-approval.sh and .../scripts/pending-approval.sh are identical (not copied).') and set -euo pipefail aborting. See Critical bug entry."},
+        {"name": "phase_state_preserved", "pass": true, "details": ".current_phase still 2 after upgrade (correct; upgrade is poc_mode change not phase advancement). .project unchanged."},
+        {"name": "process_state_preserved", "pass": true, "details": "build_loop history preserved (steps_completed reset by --record-feature is expected); .features_completed still ['uat-feat-1']."},
+        {"name": "new_required_artifacts_listed", "pass": true, "details": "Upgrade output: 'POC constraints removed. This project is now production-ready. Review CLAUDE.md for any remaining POC references; Review PROJECT_INTAKE.md Section 8 governance fields.'"},
+        {"name": "upgrade_changelog_present_in_script", "pass": true, "details": "scripts/upgrade-project.sh header (lines 7-22) explicitly lists BL-006, BL-015, BL-016 changelog entries."},
+        {"name": "no_template_placeholders_in_output", "pass": true, "details": "grep -E '__PROJECT_NAME__|__PLATFORM__|__LANGUAGE__|__TRACK__' /tmp/uat-83-upgrade.log returned zero hits. U-I not triggered for this scenario."},
+        {"name": "poc_mode_cleared_post_upgrade", "pass": true, "details": ".claude/phase-state.json post-upgrade has poc_mode removed (was 'sponsored_poc'); .deployment still 'organizational'; .last_upgrade='2026-04-25'."}
+      ],
+      "framework_bugs": [
+        {"severity": "Critical", "summary": "upgrade-project.sh aborts on BSD-cp self-copy when refreshing helper scripts", "reproduction": "From a project created by init.sh (which already places scripts/pending-approval.sh and scripts/lint-uat-scenarios.sh), run scripts/upgrade-project.sh --to-production. The post-upgrade '[STEP] Refreshing framework helper scripts (BL-009, BL-015)' block at scripts/upgrade-project.sh:1469-1480 runs `cp \"$SCRIPT_DIR/$helper\" \"scripts/$helper\"` for pending-approval.sh and lint-uat-scenarios.sh. Because the script is invoked AS scripts/upgrade-project.sh in the project, $SCRIPT_DIR resolves to the project's scripts/ directory — making source == destination. macOS BSD cp errors with 'cp: ... and ... are identical (not copied).' and returns non-zero. set -euo pipefail at line 2 then aborts the whole script.", "expected": "Helper-script refresh should be a no-op (or skipped with a print_info) when source and destination are the same path. Upgrade-project.sh should exit 0 and print 'Upgrade complete.' (line 1494).", "actual": "upgrade-project.sh exits 1; '[OK] Upgrade complete.' (line 1494) never prints. Core upgrade steps (phase-state.json/tool-preferences.json/CLAUDE.md/PROJECT_INTAKE.md updates and the 'chore(upgrade): POC -> production' git commit) complete BEFORE the abort, so state is left in a half-finalized condition: the upgrade is logically applied but post-upgrade validation does not run, and any caller depending on the script's exit code will treat a successful upgrade as a failure. Suggested fix: replace the `cp` with `cmp -s SRC DST || cp SRC DST` (or `if [ \"$SCRIPT_DIR/$helper\" != \"$PWD/scripts/$helper\" ]; then cp ...; fi`) at scripts/upgrade-project.sh:1473."}
+      ],
+      "documentation_gaps": []
+    },
+    {
+      "phase": "post-flight",
+      "tests": [
+        {"name": "no_uncommitted_secrets", "pass": true, "details": "git grep for password|api_key|secret|token in committed files only matched docs/reference/builders-guide.md and cli-setup-addendum.md, both with placeholder 'your-app-password' literal in BITBUCKET_APP_PASSWORD env-var documentation. No real secrets."},
+        {"name": "log_files_consistent", "pass": true, "details": ".claude/process-audit.log absent; no FORCE/reset events occurred during this run. N/A per runbook guidance."},
+        {"name": "no_orphaned_tempfiles", "pass": true, "details": "find .claude -name '*.tmp' returned no results"},
+        {"name": "no_framework_contamination", "pass": true, "details": "git -C $FRAMEWORK rev-parse HEAD == d66e8f276079aa352ba90ac54386e1b1896d7494 (matches starting SHA). git status --short shows only pre-existing untracked .claude/ and Reports/uat-2026-04-26/ entries unrelated to this agent's work. Framework was not modified."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    }
+  ],
+  "overall_pass": false,
+  "summary": "Init non-interactive succeeded for sponsored_poc/mcp_server/standard; baseline build through Phase 2 (1 feature) succeeded; upgrade --to-production applied state changes correctly but the script aborts (rc=1) on a BSD-cp self-copy in the post-upgrade helper-refresh block — Critical regression. U-D (no auto phase advance) confirmed Medium. Doc gaps: mcp_server lacks both release-pipeline template and platform module."
+}

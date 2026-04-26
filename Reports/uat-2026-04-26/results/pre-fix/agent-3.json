@@ -1,0 +1,145 @@
+{
+  "agent_id": 3,
+  "config": {
+    "kind": "base",
+    "scenario": "personal",
+    "platform": "desktop",
+    "track": "full",
+    "upgrade_from": null
+  },
+  "framework_head": "43ade857675fe54621b431cf09d060b6cb1ff955",
+  "started_at": "2026-04-26T00:28:53Z",
+  "completed_at": "2026-04-26T00:34:48Z",
+  "phases": [
+    {
+      "phase": 0,
+      "tests": [
+        {"name": "init_sh_non_interactive_exits_zero", "pass": false, "details": "init.sh --non-interactive aborted with exit code 1. Last line of stderr: 'init.sh: line 1577: TEST_INTERVAL: unbound variable'. The script ran far enough to clone the framework, install CDF, write phase-state.json and orchestrator-source.json, then crashed on the build-progress.json heredoc because TEST_INTERVAL is only assigned in discover_project_context() (line 494) which the non-interactive path bypasses. set -u then aborts the script before CLAUDE.md, APPROVAL_LOG.md, .gitignore, ci.yml, release.yml, build-progress.json, process-state.json, tool-preferences.json, settings.local.json, and the pre-commit hook are written."},
+        {"name": "claude_md_created", "pass": false, "details": "CLAUDE.md missing after init. Cause: init.sh aborted at TEST_INTERVAL unbound variable before generate_claude_md was called."},
+        {"name": "project_intake_created", "pass": true, "details": "PROJECT_INTAKE.md present (29160 bytes); Section 1 was pre-filled before the abort point."},
+        {"name": "approval_log_created", "pass": false, "details": "APPROVAL_LOG.md missing after init. verify-install.sh auto-fixed it but init itself did not produce it. Same cause as CLAUDE.md."},
+        {"name": "gitignore_created", "pass": false, "details": ".gitignore missing after init. verify-install.sh auto-fixed it. Same cause."},
+        {"name": "phase_state_json_phase_zero", "pass": true, "details": ".claude/phase-state.json .current_phase == 0"},
+        {"name": "phase_state_project_set", "pass": true, "details": ".claude/phase-state.json .project == 'uat-agent-3'"},
+        {"name": "ci_workflow_created", "pass": false, "details": ".github/workflows/ci.yml missing — no .github directory at all. Cause: generate_ci runs after the TEST_INTERVAL crash point. verify-install.sh flags this as MANUAL fix."},
+        {"name": "release_workflow_created", "pass": false, "details": ".github/workflows/release.yml missing — same cause."},
+        {"name": "framework_clone_present", "pass": true, "details": ".claude/framework/ exists with hooks/ rules/ and manifest.json (CDF 4.2.3 installed before the abort)."},
+        {"name": "context7_detection", "pass": true, "details": "verify-install.sh from $PROJECT_DIR reports 29 passed checks; Context7 MCP detected at the resolver step (Context7 MCP configured)."},
+        {"name": "platform_module_present", "pass": true, "details": "docs/platform-modules/desktop.md present."},
+        {"name": "no_residual_backup_dir", "pass": true, "details": ".claude-backup not present (BUG-002 not regressed)."},
+        {"name": "pre_commit_gate_registered", "pass": true, "details": ".claude/settings.json hooks.PreToolUse contains scripts/pre-commit-gate.sh."},
+        {"name": "stop_checklist_registered", "pass": true, "details": ".claude/settings.json hooks.Stop contains stop-checklist.sh."},
+        {"name": "pending_approval_helper_copied", "pass": true, "details": "scripts/pending-approval.sh present (PR #17 / U-H fix holds)."},
+        {"name": "lint_uat_scenarios_helper_copied", "pass": true, "details": "scripts/lint-uat-scenarios.sh present (PR #17 / U-H fix holds)."},
+        {"name": "framework_self_guard_active", "pass": true, "details": "Running init.sh --non-interactive from $FRAMEWORK exits with code 1 and prints '[FAIL] Refusing to operate inside the Solo Orchestrator framework repo.' (PR #18 fix holds)."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Critical",
+          "summary": "init.sh --non-interactive crashes on unbound TEST_INTERVAL before generating core files",
+          "reproduction": "WORKDIR=$(mktemp -d); cd $WORKDIR; bash $FRAMEWORK/init.sh --non-interactive --project p --description 'x' --platform desktop --track full --deployment personal --language rust --project-dir $WORKDIR/p --git-host github --visibility private --allow-existing-dir; echo $?",
+          "expected": "Exit code 0, with CLAUDE.md, APPROVAL_LOG.md, .gitignore, .github/workflows/ci.yml, .github/workflows/release.yml, .claude/build-progress.json (populated), .claude/process-state.json, .claude/tool-preferences.json, .git/hooks/pre-commit all present.",
+          "actual": "Exit code 1. stderr: 'init.sh: line 1577: TEST_INTERVAL: unbound variable'. Root cause: TEST_INTERVAL=2 is assigned only in discover_project_context() at line 494, which is the interactive prompt function. The non-interactive code path (added in PR #19 / BL-016) does not initialize TEST_INTERVAL, and `set -u` at the top of init.sh aborts the script when the heredoc at line 1582 references $TEST_INTERVAL. Effect: build-progress.json, process-state.json, tool-preferences.json, qdrant settings.local.json, CLAUDE.md, APPROVAL_LOG.md, .gitignore, ci.yml, release.yml, and the fallback pre-commit hook all fail to generate. This breaks every base-config UAT run that uses --non-interactive (i.e., the official driver per the runbook). Suggested fix: initialize TEST_INTERVAL=2 at the top of run_non_interactive (alongside the other defaults), or move the TEST_INTERVAL=2 assignment out of discover_project_context() and into a shared init block."
+        }
+      ],
+      "documentation_gaps": [
+        {
+          "gap": "init.sh --help-non-interactive does not list TEST_INTERVAL or testing_interval as a configurable input, so users have no way to set it via flag/config; combined with the bug above, --non-interactive currently has no path to a working build-progress.json.",
+          "where": "init.sh --help-non-interactive output / docs/builders-guide.md 'Scripted / Non-Interactive Project Initialization'"
+        }
+      ]
+    },
+    {
+      "phase": 1,
+      "tests": [
+        {"name": "start_phase1_exits_zero", "pass": true, "details": "scripts/process-checklist.sh --start-phase1 exited 0 and created .claude/process-state.json with phase1_architecture.started_at populated. Note: init had not produced process-state.json (see Phase 0 bug); start-phase1 created it on the fly, which is why this still works."},
+        {"name": "phase1_steps_array_present", "pass": true, "details": ".phase1_architecture.steps_completed is an array."},
+        {"name": "each_phase1_step_completes", "pass": true, "details": "All 5 steps (architecture_selected, threat_model_complete, data_model_defined, ui_scaffolding_done, bible_synthesized) completed via --complete-step. No artifact gates fire on phase1 steps in process-checklist.sh."},
+        {"name": "phase1_to_phase2_gate_passes", "pass": true, "details": "scripts/check-phase-gate.sh reports 'Phase gates consistent.' RC=0."},
+        {"name": "phase_state_advances_to_2", "pass": false, "details": "U-D regression: no script advances .current_phase after gate passes. .current_phase still 0 after all phase1 steps and gate pass. This was an open bug from the 2026-04-25 sweep; still not fixed."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "U-D confirmation: no script advances current_phase after gate passes",
+          "reproduction": "After --start-phase1 and completing all 5 phase1_architecture steps, run scripts/check-phase-gate.sh; gate reports consistent, but .claude/phase-state.json .current_phase remains 0.",
+          "expected": "current_phase to advance to 1 (or some advance-phase script exists and is documented).",
+          "actual": "current_phase stays 0; no advance-phase script in scripts/. Same as U-D from 2026-04-25 sweep."
+        }
+      ],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 2,
+      "tests": [
+        {"name": "start_feature_records_state", "pass": true, "details": "scripts/process-checklist.sh --start-feature uat-feat-1 set .build_loop.feature = 'uat-feat-1'."},
+        {"name": "each_step_completes_in_order", "pass": true, "details": "All 5 build_loop steps (tests_written, tests_verified_failing, implemented, security_audit, documentation_updated) completed sequentially. Stub artifacts: src/uat_feat_1.rs, tests/uat_feat_1_test.rs, docs/security-audits/uat-feat-1-security-audit.md (Open=false, scan stubbed for UAT)."},
+        {"name": "pre_commit_passes_after_loop", "pass": true, "details": "git commit -m 'feat(uat-1): stub feature for UAT' succeeded after all 5 steps were marked complete."},
+        {"name": "bl006_blocks_feat_without_loop", "pass": false, "details": "U-C confirmation: direct shell `git commit --allow-empty -m 'feat(bl006-trigger): no loop'` succeeded with RC=0. .git/hooks/commit-msg is missing entirely; the only hook installed is .git/hooks/pre-commit. PreToolUse hooks only fire under Claude Code, so direct git invocation bypasses BL-006 in shell. This is the U-C bug from the prior sweep, still open."},
+        {"name": "bl006_grace_window_resets_after_record", "pass": true, "details": "After --record-feature uat-feat-1 and --complete-step build_loop:feature_recorded, .build_loop reset to feature=null with empty steps_completed (auto-reset confirmed in process-state.json). Grace-window logic from PR #17 appears intact."},
+        {"name": "bl015_sentinel_blocks_commit", "pass": true, "details": "After scripts/pending-approval.sh --offer 'Should we proceed?' --options 'yes:Yes proceed' 'no:No abort' --recommendation yes, piping a JSON PreToolUse payload into pre-commit-gate.sh produced permissionDecision=deny with the pending-approval message. PR #16 BL-015 sentinel reader works."},
+        {"name": "bl015_sentinel_resolves", "pass": true, "details": "scripts/pending-approval.sh --resolve removed .claude/pending-approval.json; subsequent pre-commit-gate.sh invocations with the same payload returned no deny."},
+        {"name": "recorded_feature_appears_in_progress", "pass": false, "details": "FAIL — but for a different reason than expected. .claude/build-progress.json is 0 bytes (empty file) because init.sh aborted before the heredoc that writes its initial JSON. test-gate.sh --record-feature uat-feat-1 reported success but did not create the file, so .features_completed cannot be queried. jq prints null. Root cause: same Phase 0 Critical bug (TEST_INTERVAL unbound)."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "U-C confirmation: direct shell git commit bypasses BL-006 (no commit-msg hook)",
+          "reproduction": "cd $PROJECT_DIR; git commit --allow-empty -m 'feat(bl006-trigger): no loop'",
+          "expected": "Commit blocked because no Build Loop is active for the feat: subject.",
+          "actual": "Commit succeeded RC=0. .git/hooks/commit-msg does not exist; only .git/hooks/pre-commit is installed. BL-006 enforcement is gated on PreToolUse, which means direct shell git use bypasses it entirely. Same as U-C from prior sweep."
+        },
+        {
+          "severity": "Medium",
+          "summary": "U-K confirmation: test-gate.sh integer comparison on null/empty value",
+          "reproduction": "After --record-feature uat-feat-1 against a project where init aborted (build-progress.json is 0 bytes), scripts/test-gate.sh --record-feature emits 'test-gate.sh: line 122: [: : integer expression expected' to stderr. Also affects the success message which prints 'Feature uat-feat-1 recorded (/ until next test session)' with empty numerator/denominator.",
+          "expected": "Either populate the missing fields with sane defaults when build-progress.json is empty, OR refuse to operate and tell the user to repair via verify-install.sh.",
+          "actual": "Continues with `[: : integer expression expected` warning. Same as U-K from prior sweep."
+        }
+      ],
+      "documentation_gaps": [
+        {
+          "gap": "BL-010 / U-C — direct shell git commit bypasses BL-006. Either install a commit-msg hook in install_precommit_hook OR document that BL-006 only fires when the agent issues commits via Claude Code's Bash tool.",
+          "where": ".git/hooks/ generated by init.sh / docs/builders-guide.md BL-006 section"
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "tests": [
+        {"name": "start_phase3_exits_zero", "pass": true, "details": "scripts/process-checklist.sh --start-phase3 RC=0; reported 'All feature batches have been tested' and 'Phase 2->3 gate clear'."},
+        {"name": "start_uat_creates_session", "pass": true, "details": ".claude/process-state.json .uat_session.started_at = '2026-04-26T00:33:56Z' after --start-uat 1."},
+        {"name": "uat_template_lints_clean", "pass": true, "details": "scripts/lint-uat-scenarios.sh tests/uat/examples/pre-flight-reference.html exits 0; emits a 'No scenarios block found' notice on the unpopulated reference template (expected for an empty reference). Helper is functional."},
+        {"name": "each_uat_step_completes", "pass": true, "details": "All 9 UAT_STEPS (agents_dispatched, template_generated, orchestrator_notified, results_received, completeness_verified, bugs_consolidated, triage_complete, remediation_complete, gate_passed) completed in order."},
+        {"name": "phase3_to_phase4_gate", "pass": true, "details": "Phase 3 -> 4 transition implicit; --start-phase4 ran without complaint after uat_session completion. .current_phase still 0 due to U-D, but no gate script blocked the transition."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 4,
+      "tests": [
+        {"name": "start_phase4_exits_zero", "pass": true, "details": "scripts/process-checklist.sh --start-phase4 RC=0."},
+        {"name": "each_phase4_step_completes", "pass": true, "details": "All 6 PHASE4_STEPS (production_build, rollback_tested, go_live_verified, monitoring_configured, handoff_written, handoff_tested) completed with stub artifacts: docs/test-results/2026-04-26_rollback-test.md, docs/test-results/2026-04-26_handoff-test.md, HANDOFF.md (with Section 8 monitoring stub), RELEASE_NOTES.md (template from init)."},
+        {"name": "handoff_md_required", "pass": true, "details": "phase4_release:handoff_written artifact gate fired correctly: required HANDOFF.md and accepted the stub once written."},
+        {"name": "release_notes_required", "pass": true, "details": "phase4_release:go_live_verified artifact gate detected RELEASE_NOTES.md from the init template; passed."},
+        {"name": "phase4_completion_state", "pass": false, "details": "U-D regression: .claude/phase-state.json .current_phase still 0 after all 6 phase4_release steps complete. No script transitions to current_phase=4 or 'released'. Same root cause as Phase 1 finding above."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": "post_flight",
+      "tests": [
+        {"name": "no_uncommitted_secrets", "pass": true, "details": "Grep found matches only in templates/policy text under .claude/framework/hooks/known-stdlib.txt, evaluation-prompts/Projects/, and scripts/check-phase-gate.sh / check-versions.sh / validate.sh — all are policy/lint code, not actual credentials. No real secrets committed."},
+        {"name": "log_files_consistent", "pass": true, "details": "N/A — no FORCE/reset events occurred during this run; .claude/process-audit.log absent (correct)."},
+        {"name": "no_orphaned_tempfiles", "pass": true, "details": "find $PROJECT_DIR/.claude -name '*.tmp' returned nothing."},
+        {"name": "no_framework_contamination", "pass": true, "details": "git -C $FRAMEWORK rev-parse HEAD == 43ade857675fe54621b431cf09d060b6cb1ff955 (unchanged from setup). git status shows only the pre-existing untracked '.claude/' and 'Reports/uat-2026-04-26/' that were present before this agent started (the latter is the runbook + results sibling-agents are writing into; not framework code)."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    }
+  ],
+  "overall_pass": false,
+  "summary": "Critical regression: init.sh --non-interactive crashes on unbound TEST_INTERVAL (line 1577) immediately before generating CLAUDE.md, APPROVAL_LOG.md, .gitignore, ci.yml, release.yml, build-progress.json, process-state.json, and the pre-commit hook — making PR #19's BL-016 driver unusable on the personal/desktop/full path. Confirmed still-open prior-sweep bugs U-C (BL-006 direct-shell bypass) and U-D (no current_phase advancement script) and U-K (test-gate.sh null integer cmp). PR #16 BL-015 sentinel, PR #17 U-H/grace-window fixes, and PR #18 framework-self-guard all hold."
+}

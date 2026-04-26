@@ -1,0 +1,120 @@
+{
+  "agent_id": 72,
+  "config": {
+    "kind": "upgrade",
+    "scenario": "sponsored_poc",
+    "platform": "mcp_server",
+    "track": "full",
+    "upgrade_from": "private_poc"
+  },
+  "framework_head": "d66e8f276079aa352ba90ac54386e1b1896d7494",
+  "started_at": "2026-04-26T03:40:02Z",
+  "completed_at": "2026-04-26T03:44:13Z",
+  "phases": [
+    {
+      "phase": 0,
+      "tests": [
+        {"name": "init_sh_non_interactive_exits_zero", "pass": true, "details": "init.sh --non-interactive returned 0 with private_poc/mcp_server/full/python/git_host=other"},
+        {"name": "claude_md_created", "pass": true, "details": "CLAUDE.md present at project root"},
+        {"name": "project_intake_created", "pass": true, "details": "PROJECT_INTAKE.md present"},
+        {"name": "approval_log_created", "pass": true, "details": "APPROVAL_LOG.md present"},
+        {"name": "gitignore_created", "pass": true, "details": ".gitignore present"},
+        {"name": "phase_state_json_phase_zero", "pass": true, "details": "jq .current_phase = 0"},
+        {"name": "phase_state_project_set", "pass": true, "details": ".project = uat-agent-72"},
+        {"name": "ci_workflow_created", "pass": true, "details": ".github/workflows/ci.yml present"},
+        {"name": "release_workflow_created", "pass": true, "details": "Skipped by design for git_host=other (init.sh prints 'Host other - no release template laid down. Supply your own.')"},
+        {"name": "framework_clone_present", "pass": true, "details": ".claude/framework/ present"},
+        {"name": "context7_detection", "pass": true, "details": "verify-install.sh reports [OK] Context7 MCP installed and configured"},
+        {"name": "platform_module_present", "pass": false, "details": "BUG: docs/platform-modules/mcp_server.md missing. init.sh expects ${PLATFORM}.md (mcp_server.md) but framework ships docs/platform-modules/mcp-server.md (with hyphen). Result: empty docs/platform-modules/ directory plus a verify-install.sh WARN."},
+        {"name": "no_residual_backup_dir", "pass": true, "details": "no .claude-backup dir"},
+        {"name": "pre_commit_gate_registered", "pass": true, "details": "pre-commit-gate.sh found in .claude/settings.json PreToolUse hooks"},
+        {"name": "stop_checklist_registered", "pass": true, "details": "stop-checklist.sh found in .claude/settings.json"},
+        {"name": "pending_approval_helper_copied", "pass": true, "details": "scripts/pending-approval.sh present (PR #17 U-H fix verified)"},
+        {"name": "lint_uat_scenarios_helper_copied", "pass": true, "details": "scripts/lint-uat-scenarios.sh present (PR #17 U-H fix verified)"},
+        {"name": "framework_self_guard_active", "pass": true, "details": "Running init.sh from $FRAMEWORK exits non-zero with 'Refusing to operate inside the Solo Orchestrator framework repo.' message (PR #18 verified). RC=1."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "init.sh platform module copy filename mismatch (mcp_server vs mcp-server)",
+          "reproduction": "bash init.sh --non-interactive --project x --platform mcp_server --deployment organizational --gov-mode private_poc --language python --project-dir /tmp/x --git-host other --remote-url https://example.com/fake.git --branch-protection-attested --visibility private --allow-existing-dir; ls /tmp/x/docs/platform-modules/",
+          "expected": "docs/platform-modules/ contains the mcp_server platform module so verify-install.sh does not emit a manual-action warning.",
+          "actual": "docs/platform-modules/ is empty. init.sh:1124 looks for $SCRIPT_DIR/docs/platform-modules/${PLATFORM}.md (i.e. mcp_server.md) but the framework actually ships docs/platform-modules/mcp-server.md (hyphenated). All other platforms (desktop/mobile/web) match because their identifier and filename use the same form. verify-install.sh later warns: 'Platform module (mcp_server.md) missing'."
+        }
+      ],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 1,
+      "tests": [
+        {"name": "start_phase1_exits_zero", "pass": true, "details": "process-checklist.sh --start-phase1 RC=0"},
+        {"name": "phase1_steps_array_present", "pass": true, "details": ".phase1_architecture.steps_completed is [] then populated"},
+        {"name": "each_phase1_step_completes", "pass": true, "details": "All 5 PHASE1_STEPS (architecture_selected, threat_model_complete, data_model_defined, ui_scaffolding_done, bible_synthesized) completed RC=0"},
+        {"name": "phase_state_advances_to_2", "pass": false, "details": "U-D confirmation: no script auto-advances .current_phase after Phase 1 steps complete; check-phase-gate.sh just reports 'Phase Gate Consistency Check / Current phase: 0 / Phase gates consistent.' I had to jq-edit .current_phase=2 manually to proceed with Section F."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "U-D confirmation: no script advances current_phase after gate passes",
+          "reproduction": "After completing all PHASE1_STEPS via --complete-step phase1_architecture:*, run scripts/check-phase-gate.sh and inspect .claude/phase-state.json .current_phase",
+          "expected": "Some script advances .current_phase from 0/1 to 2 once Phase 1 gate passes",
+          "actual": ".current_phase remained 0 after all 5 steps + gate check. Manual jq edit required to test downstream upgrade. Confirms U-D from 2026-04-25 sweep is still open."
+        }
+      ],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 2,
+      "tests": [
+        {"name": "start_feature_records_state", "pass": true, "details": ".build_loop.feature = uat-feat-1 after --start-feature"},
+        {"name": "each_step_completes_in_order", "pass": true, "details": "tests_written, tests_verified_failing, implemented, security_audit (with stub findings), documentation_updated all RC=0"},
+        {"name": "git_commit_succeeds", "pass": true, "details": "feat(uat-1): commit succeeded RC=0 (commit hash e0255a5)"},
+        {"name": "test_gate_record_feature", "pass": true, "details": "scripts/test-gate.sh --record-feature uat-feat-1 RC=0; '1/2 until next test session'"},
+        {"name": "feature_recorded_step_completes", "pass": true, "details": "build_loop:feature_recorded RC=0; build_loop reset confirmed (PR #17 BL-006 grace-window auto-reset)"},
+        {"name": "recorded_feature_appears_in_progress", "pass": true, "details": ".claude/build-progress.json contains [\"uat-feat-1\"]"}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": "upgrade",
+      "tests": [
+        {"name": "pending_approval_sentinel_respected", "pass": true, "details": "PR #17 U-F verified. Wrote .claude/pending-approval.json then ran upgrade-project.sh --to-sponsored-poc; exited RC=1 with [FAIL] upgrade blocked - pending user decision message."},
+        {"name": "upgrade_command_exits_zero", "pass": false, "details": "After clearing sentinel, upgrade-project.sh --to-sponsored-poc state mutations completed successfully (poc_mode advanced from private_poc to sponsored_poc, last_upgrade=2026-04-25 added, CLAUDE.md/PROJECT_INTAKE.md/APPROVAL_LOG.md updated, commit chore(upgrade): -> sponsored POC created), but the script exited RC=1 because the trailing 'Refreshing framework helper scripts (BL-009, BL-015)' block tried to cp scripts/pending-approval.sh onto itself. NOT a U-E regression: the poc_mode lookup from phase-state.json worked correctly. Distinct new bug, see framework_bugs[]."},
+        {"name": "phase_state_preserved", "pass": true, "details": ".current_phase remained 2; .project remained uat-agent-72; only .poc_mode and .last_upgrade changed (expected)"},
+        {"name": "process_state_preserved", "pass": true, "details": "diff /tmp/uat72_pre_process_state.json against post-upgrade returned 0 (build_loop history fully preserved)"},
+        {"name": "new_required_artifacts_listed", "pass": true, "details": "Upgrade output included verify-install report listing manual actions (Platform module missing) and BL-009/BL-015 helper refresh + UAT guardrail next-steps."},
+        {"name": "upgrade_changelog_present_in_script", "pass": true, "details": "Both project-local scripts/upgrade-project.sh and framework scripts/upgrade-project.sh headers reference 'BL-006 (2026-04-24)' and 'BL-015 (2026-04-25)' changelog entries."},
+        {"name": "no_template_placeholders_in_output", "pass": true, "details": "grep -E '__PROJECT_NAME__|__PLATFORM__|__LANGUAGE__|__TRACK__' on upgrade log returned 0 hits. (Note: this verifies the upgrade-project pathway does not exhibit U-I in this flow; U-I is still about init/upgrade template substitution and remains open separately.)"}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "High",
+          "summary": "upgrade-project.sh self-copy of pending-approval.sh causes RC=1 exit",
+          "reproduction": "From a project that was created via init.sh (which already copies scripts/pending-approval.sh into the project), run: bash scripts/upgrade-project.sh --to-sponsored-poc",
+          "expected": "Upgrade exits 0 after applying state changes and refreshing helper scripts. Self-copy should be a no-op (cp src and dst are the same path when run from project's own scripts/).",
+          "actual": "Last operation prints 'cp: scripts/pending-approval.sh and /<project>/scripts/pending-approval.sh are identical (not copied).' and the script exits RC=1. SCRIPT_DIR (line 33) resolves to the PROJECT's scripts/ directory because the user invokes the project-local copy of upgrade-project.sh; the BL-009/BL-015 helper-refresh block (lines 1471-1478) then attempts cp \"$SCRIPT_DIR/$helper\" \"scripts/$helper\" which is cp src dst with src==dst. macOS cp returns non-zero with 'are identical' error, propagating to script exit. All upstream state mutations did succeed; this is a tail-end bug. Workaround: ignore the non-zero exit and check phase-state.json directly. Fix: skip cp when src and dst resolve to the same canonical path, or sourcing helpers from $FRAMEWORK rather than from the project's own scripts/."
+        }
+      ],
+      "documentation_gaps": [
+        {
+          "gap": "scripts/check-gate.sh referenced by upgrade-project.sh post-upgrade messages but not present in init.sh-generated projects",
+          "where": "upgrade-project.sh emits '[INFO] bash scripts/check-gate.sh --preflight' and '[INFO] bash scripts/check-gate.sh --repair' after manifest backfill; the framework provides scripts/check-gate.sh but init.sh does not copy it into the project's scripts/ directory. Following the printed instructions yields 'No such file or directory'."
+        }
+      ]
+    },
+    {
+      "phase": "post-flight",
+      "tests": [
+        {"name": "no_uncommitted_secrets", "pass": true, "details": "Tightened scan (grep for AKIA/ghp_/sk- patterns and value-bearing secret assignments) returned only documentation-example placeholders (BITBUCKET_APP_PASSWORD=\"your-app-password\" in docs/reference/builders-guide.md and cli-setup-addendum.md). No real credentials committed."},
+        {"name": "log_files_consistent", "pass": true, "details": "N/A: no FORCE/reset events; .claude/process-audit.log correctly absent."},
+        {"name": "no_orphaned_tempfiles", "pass": true, "details": "find $WORKDIR/.claude -name '*.tmp' returned nothing"},
+        {"name": "no_framework_contamination", "pass": true, "details": "git -C $FRAMEWORK rev-parse HEAD == d66e8f276079aa352ba90ac54386e1b1896d7494 (matches start-of-run SHA). git status --short reported only pre-existing untracked dirs (.claude/, Reports/uat-2026-04-26/) which were present before this agent ran. No tracked-file modifications introduced by this run."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    }
+  ],
+  "overall_pass": false,
+  "summary": "private_poc->sponsored_poc upgrade on mcp_server/full mostly works (state correctly mutated, sentinel respected, history preserved), but upgrade-project.sh exits RC=1 due to a self-copy of scripts/pending-approval.sh in the BL-009/BL-015 helper-refresh block (High); also confirmed mcp_server platform-module filename mismatch (Medium) and U-D phase-advance gap (Medium)."
+}

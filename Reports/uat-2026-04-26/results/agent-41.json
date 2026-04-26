@@ -1,0 +1,125 @@
+{
+  "agent_id": 41,
+  "config": {
+    "kind": "base",
+    "scenario": "production",
+    "platform": "mobile",
+    "track": "standard",
+    "upgrade_from": null
+  },
+  "framework_head": "d66e8f276079aa352ba90ac54386e1b1896d7494",
+  "started_at": "2026-04-26T02:35:24Z",
+  "completed_at": "2026-04-26T02:41:49Z",
+  "phases": [
+    {
+      "phase": 0,
+      "tests": [
+        {"name": "init_sh_non_interactive_exits_zero", "pass": true, "details": "init.sh --non-interactive completed with rc=0 for production/mobile/standard config (deployment=organizational, gov-mode=production, language=swift, git-host=other with fake URL)."},
+        {"name": "claude_md_created", "pass": true, "details": "CLAUDE.md present at project root."},
+        {"name": "project_intake_created", "pass": true, "details": "PROJECT_INTAKE.md present."},
+        {"name": "approval_log_created", "pass": true, "details": "APPROVAL_LOG.md present."},
+        {"name": "gitignore_created", "pass": true, "details": ".gitignore present."},
+        {"name": "phase_state_json_phase_zero", "pass": true, "details": "jq '.current_phase' returned 0."},
+        {"name": "phase_state_project_set", "pass": true, "details": "phase-state.json .project = uat-agent-41."},
+        {"name": "ci_workflow_created", "pass": true, "details": ".github/workflows/ci.yml present."},
+        {"name": "release_workflow_created", "pass": true, "details": ".github/workflows/release.yml present."},
+        {"name": "framework_clone_present", "pass": true, "details": ".claude/framework directory present."},
+        {"name": "context7_detection", "pass": true, "details": "scripts/verify-install.sh from project dir reported 53 PASS / 0 fail; Context7 MCP detected and configured."},
+        {"name": "platform_module_present", "pass": true, "details": "docs/platform-modules/mobile.md present."},
+        {"name": "no_residual_backup_dir", "pass": true, "details": ".claude-backup absent."},
+        {"name": "pre_commit_gate_registered", "pass": true, "details": ".claude/settings.json contains pre-commit-gate.sh in PreToolUse."},
+        {"name": "stop_checklist_registered", "pass": true, "details": ".claude/settings.json contains stop-checklist.sh."},
+        {"name": "pending_approval_helper_copied", "pass": true, "details": "scripts/pending-approval.sh present (PR #17 U-H fix verified)."},
+        {"name": "lint_uat_scenarios_helper_copied", "pass": true, "details": "scripts/lint-uat-scenarios.sh present (PR #17 U-H fix verified)."},
+        {"name": "framework_self_guard_active", "pass": true, "details": "Running init.sh --non-interactive with cwd=$FRAMEWORK exits non-zero (rc=1) and prints 'Refusing to operate inside the Solo Orchestrator framework repo.' (PR #18 U-N/U-O fix verified)."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 1,
+      "tests": [
+        {"name": "start_phase1_exits_zero", "pass": true, "details": "process-checklist.sh --start-phase1 returned 0; phase1_architecture key created in process-state.json."},
+        {"name": "phase1_steps_array_present", "pass": true, "details": ".phase1_architecture.steps_completed is an array."},
+        {"name": "each_phase1_step_completes", "pass": true, "details": "All 5 PHASE1_STEPS (architecture_selected, threat_model_complete, data_model_defined, ui_scaffolding_done, bible_synthesized) completed in order."},
+        {"name": "phase1_to_phase2_gate_passes", "pass": true, "details": "scripts/check-phase-gate.sh exited 0 with 'Phase gates consistent.' message."},
+        {"name": "phase_state_advances_to_2", "pass": false, "details": "U-D regression: check-phase-gate.sh is a consistency check, not an advancement step. .current_phase remained at 0 after gate passed; no script auto-advances current_phase. Manually mutated phase-state.json to continue Sections D/E."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "U-D confirmation: no script auto-advances current_phase after gate passes",
+          "reproduction": "Complete all PHASE1_STEPS, run scripts/check-phase-gate.sh, then jq '.current_phase' .claude/phase-state.json — value remains 0.",
+          "expected": "After Phase 1->2 gate passes and approval is logged, .current_phase should advance to 2 (or there should be a documented script that performs the advance).",
+          "actual": "check-phase-gate.sh is read-only; no other script updates current_phase except manual edits. Confirms still-open U-D bug from prior sweep."
+        }
+      ],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 2,
+      "tests": [
+        {"name": "start_feature_records_state", "pass": true, "details": "--start-feature uat-feat-1 set .build_loop.feature = 'uat-feat-1'."},
+        {"name": "each_step_completes_in_order", "pass": true, "details": "All 6 BUILD_LOOP_STEPS completed sequentially with stub artifacts (test files, src files, security audit findings stub)."},
+        {"name": "pre_commit_passes_after_loop", "pass": true, "details": "git commit -m 'feat(uat-1): stub feature for UAT' succeeded after all 5 implementation steps complete (warning about test-first development was non-blocking)."},
+        {"name": "bl006_blocks_feat_without_loop", "pass": false, "details": "U-C confirmation: direct shell `git commit --allow-empty -m 'feat(bl006-trigger): no loop'` succeeded with rc=0 even though .build_loop.feature was null at the time. The PreToolUse hook is not invoked by direct shell git commits — only via Claude Code. This matches the documented U-C still-open bug. Recorded as documentation_gap referencing BL-010 / U-C per runbook."},
+        {"name": "bl006_grace_window_resets_after_record", "pass": true, "details": "After --record-feature uat-feat-1, started uat-feat-3-grace, completed all 6 build loop steps, committed feat(uat-3): grace-window — succeeded. Confirms PR #17 grace-window auto-reset works."},
+        {"name": "bl015_sentinel_blocks_commit", "pass": true, "details": "Created sentinel via scripts/pending-approval.sh --offer; piped PreToolUse JSON payload to scripts/pre-commit-gate.sh — output JSON has permissionDecision=deny with the pending question recited."},
+        {"name": "bl015_sentinel_resolves", "pass": true, "details": "scripts/pending-approval.sh --resolve removed sentinel; subsequent pre-commit-gate.sh PreToolUse payload returned without deny."},
+        {"name": "recorded_feature_appears_in_progress", "pass": true, "details": "build-progress.json features_completed contains 'uat-feat-1' (and 'uat-feat-3-grace' after grace-window test)."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": [
+        {"gap": "BL-006 / U-C confirmation: PreToolUse hook does not protect against direct shell `git commit` (bypasses gate). This matches the still-open prior-sweep U-C item (BL-006 git commit-msg hook). Suggested mitigation in builders-guide should be cross-referenced.", "where": "scripts/pre-commit-gate.sh (PreToolUse-only enforcement) + docs/reference/builders-guide.md BL-006/BL-010 sections"}
+      ]
+    },
+    {
+      "phase": 3,
+      "tests": [
+        {"name": "start_phase3_exits_zero", "pass": true, "details": "process-checklist.sh --start-phase3 returned 0 (with [WARN] about 1 feature since last UAT — non-blocking)."},
+        {"name": "start_uat_creates_session", "pass": true, "details": ".uat_session.started_at populated, session_id=1."},
+        {"name": "uat_template_lints_clean", "pass": true, "details": "After populating tests/uat/templates/test-session-template.html with all required placeholders (steps starting with 'Setup:' to satisfy state-restatement check, expected longer than 60 chars), scripts/lint-uat-scenarios.sh exited 0 ('All 1 scenarios clean.')."},
+        {"name": "each_uat_step_completes", "pass": true, "details": "All 9 UAT_STEPS (agents_dispatched through gate_passed) completed."},
+        {"name": "phase3_to_phase4_gate", "pass": true, "details": "All 9 PHASE3_STEPS completed with stub artifacts in docs/test-results/. check-phase-gate.sh ran (warned about review-manifest, non-blocking)."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": [
+        {"gap": "scripts/lint-uat-scenarios.sh flags the literal string '__PLACEHOLDER__' inside the template's own AGENT-instruction comment ('Do not modify any code outside the __PLACEHOLDER__ tokens.'). When the template is populated, this self-referential token survives and causes a false-positive file-level violation. The placeholder regex `__[A-Z][A-Z_]*__` should ignore tokens that match the literal word 'PLACEHOLDER' or the AGENT-comment block.", "where": "scripts/lint-uat-scenarios.sh:21 (PLACEHOLDER_LINES grep) + tests/uat/templates/test-session-template.html:142"},
+        {"gap": "scripts/lint-uat-scenarios.sh has no --help flag — running it with --help shows 'No such file or directory'. Minor UX gap.", "where": "scripts/lint-uat-scenarios.sh:1-15"}
+      ]
+    },
+    {
+      "phase": 4,
+      "tests": [
+        {"name": "start_phase4_exits_zero", "pass": false, "details": "BLOCKED for production scenario: scripts/process-checklist.sh --start-phase4 fails with rc=1 and message 'Phase 4 (production release) is blocked — project is in production mode. POC projects complete at Phase 3. To unlock Phase 4: bash scripts/upgrade-project.sh --to-production'. The check at process-checklist.sh:540-545 treats ANY non-empty poc_mode as 'POC', but poc_mode='production' is the production scenario itself. To proceed with Section E, manually set .poc_mode = null in phase-state.json."},
+        {"name": "each_phase4_step_completes", "pass": true, "details": "After workaround (poc_mode=null), all 6 PHASE4_STEPS completed: production_build, rollback_tested, go_live_verified, monitoring_configured, handoff_written, handoff_tested."},
+        {"name": "handoff_md_required", "pass": true, "details": "handoff_written step blocks while HANDOFF.md absent ('HANDOFF.md not found — create it before marking this step complete.'); passes after stub HANDOFF.md created."},
+        {"name": "release_notes_required", "pass": true, "details": "go_live_verified step blocks while RELEASE_NOTES.md absent ('RELEASE_NOTES.md not found — create release notes before marking go-live verified.'); passes after stub RELEASE_NOTES.md created."},
+        {"name": "phase4_completion_state", "pass": true, "details": "After workaround and completing all phase4_release steps, .current_phase remained at 4 (manually set earlier; U-D applies)."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Critical",
+          "summary": "start-phase4 incorrectly rejects gov-mode=production projects as POC",
+          "reproduction": "init.sh --non-interactive --deployment organizational --gov-mode production (writes phase-state.json with poc_mode='production'); set .current_phase=3, complete Phase 3 steps, then `bash scripts/process-checklist.sh --start-phase4`.",
+          "expected": "For production-mode projects (poc_mode='production' or null), Phase 4 should start. Only POC modes (poc_mode in {'private_poc', 'sponsored_poc'}) should be blocked with the 'upgrade-project.sh --to-production' hint.",
+          "actual": "scripts/process-checklist.sh:540-545 treats any non-empty poc_mode as POC. Production projects exit 1 with: 'Phase 4 (production release) is blocked — project is in production mode. POC projects complete at Phase 3. To unlock Phase 4: bash scripts/upgrade-project.sh --to-production' — the message itself contradicts the project's existing production status. Workaround: jq '.poc_mode = null' to bypass. Fix: change condition to `[ \"$poc_mode\" = 'private_poc' ] || [ \"$poc_mode\" = 'sponsored_poc' ]`."
+        }
+      ],
+      "documentation_gaps": []
+    },
+    {
+      "phase": "G_postflight",
+      "tests": [
+        {"name": "no_uncommitted_secrets", "pass": true, "details": "git ls-files | xargs grep -liE 'password|api[_-]?key|secret|token' returned only template/doc files (CI workflow, gitignore, builders-guide, governance-framework, etc.) which legitimately mention these keywords as documentation. No actual credentials present."},
+        {"name": "log_files_consistent", "pass": true, "details": ".claude/process-audit.log absent — N/A (no FORCE/reset events occurred during this run)."},
+        {"name": "no_orphaned_tempfiles", "pass": true, "details": "find .claude -name '*.tmp' returned no results."},
+        {"name": "no_framework_contamination", "pass": true, "details": "git -C $FRAMEWORK status --short shows only pre-existing untracked .claude/ and Reports/uat-2026-04-26/ dirs — both expected. Framework HEAD unchanged: d66e8f276079aa352ba90ac54386e1b1896d7494."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    }
+  ],
+  "overall_pass": false,
+  "summary": "Production/mobile/standard base config: 1 Critical bug (start-phase4 misclassifies production projects as POC due to non-empty poc_mode check at process-checklist.sh:540), 1 Medium U-D confirmation (no script advances current_phase), 1 documentation_gap U-C confirmation (direct shell git commit bypasses BL-006), and 2 minor lint-uat-scenarios doc gaps (self-referential __PLACEHOLDER__ false-positive, no --help). All PR #17/#18/#19 fixes verified intact: --non-interactive worked, helpers copied, framework-self-guard fires, BL-015 sentinel respected via PreToolUse, BL-006 grace-window auto-reset works."
+}

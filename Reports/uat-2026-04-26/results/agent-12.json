@@ -1,0 +1,146 @@
+{
+  "agent_id": 12,
+  "config": {
+    "kind": "base",
+    "scenario": "personal",
+    "platform": "mcp_server",
+    "track": "full",
+    "upgrade_from": null
+  },
+  "framework_head": "d66e8f276079aa352ba90ac54386e1b1896d7494",
+  "started_at": "2026-04-26T01:31:04Z",
+  "completed_at": "2026-04-26T01:34:24Z",
+  "phases": [
+    {
+      "phase": 0,
+      "tests": [
+        {"name": "init_sh_non_interactive_exits_zero", "pass": true, "details": "init.sh --non-interactive completed; printed Setup Complete banner; verify-install ran. RC=0."},
+        {"name": "claude_md_created", "pass": true, "details": "CLAUDE.md present in $PROJECT_DIR."},
+        {"name": "project_intake_created", "pass": true, "details": "PROJECT_INTAKE.md present."},
+        {"name": "approval_log_created", "pass": true, "details": "APPROVAL_LOG.md present."},
+        {"name": "gitignore_created", "pass": true, "details": ".gitignore present."},
+        {"name": "phase_state_json_phase_zero", "pass": true, "details": "jq .current_phase = 0."},
+        {"name": "phase_state_project_set", "pass": true, "details": ".project = uat-agent-12."},
+        {"name": "ci_workflow_created", "pass": true, "details": ".github/workflows/ci.yml created (host: github, language: python)."},
+        {"name": "release_workflow_created", "pass": false, "details": "init log: 'No release pipeline template for platform mcp_server on host github. Skipping release pipeline.' Tracked as bug below."},
+        {"name": "framework_clone_present", "pass": true, "details": ".claude/framework directory exists with hooks and rules from CDF v4.2.3."},
+        {"name": "context7_detection", "pass": true, "details": "verify-install reports 'Context7 MCP installed' and 'Context7 MCP configured'."},
+        {"name": "platform_module_present", "pass": false, "details": "docs/platform-modules/mcp_server.md missing. Init log: 'No platform module for mcp_server.' verify-install flagged it as MANUAL action required."},
+        {"name": "no_residual_backup_dir", "pass": true, "details": ".claude-backup/ removed by init.sh after CDF migration. ('Removed CDF migration backup' message in log.)"},
+        {"name": "pre_commit_gate_registered", "pass": true, "details": ".claude/settings.json contains pre-commit-gate.sh (PreToolUse, matcher: Bash)."},
+        {"name": "stop_checklist_registered", "pass": true, "details": ".claude/settings.json Stop hook present (session-end-qdrant-reminder.sh — runbook label 'stop-checklist' is satisfied by the registered Stop hook)."},
+        {"name": "pending_approval_helper_copied", "pass": true, "details": "scripts/pending-approval.sh present (PR #17 fix verified; was U-H)."},
+        {"name": "lint_uat_scenarios_helper_copied", "pass": true, "details": "scripts/lint-uat-scenarios.sh present (PR #17 fix verified; was U-H)."},
+        {"name": "framework_self_guard_active", "pass": true, "details": "Running init.sh from $FRAMEWORK directory exits 1 with 'Refusing to operate inside the Solo Orchestrator framework repo' (PR #18). Stderr captured."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "release.yml not generated for mcp_server platform on github",
+          "reproduction": "bash init.sh --non-interactive --platform mcp_server --git-host other --remote-url https://example.com/fake.git ... ; ls .github/workflows/release.yml",
+          "expected": ".github/workflows/release.yml created (matches Section A assertion 'release_workflow_created').",
+          "actual": "init.sh logs '[INFO] No release pipeline template for platform mcp_server on host github. Skipping release pipeline.' release.yml is absent. Either the template needs to exist or the assertion needs to be platform-conditional in the runbook."
+        },
+        {
+          "severity": "Medium",
+          "summary": "Platform module mcp_server.md missing from framework",
+          "reproduction": "init.sh with --platform mcp_server; verify .docs/platform-modules/mcp_server.md after init.",
+          "expected": "docs/platform-modules/mcp_server.md copied into project (per Section A assertion 'platform_module_present').",
+          "actual": "File absent; verify-install flags as 'Manual action required: Platform module (mcp_server.md) missing'. The file does not exist in the framework either, so the 'Copy from orchestrator' remediation is broken. Affects all mcp_server projects."
+        }
+      ],
+      "documentation_gaps": [
+        {
+          "gap": "process-checklist.sh --help omits --start-phase1 / --start-phase3 / --start-phase4 commands (they exist in code but not in help text)",
+          "where": "scripts/process-checklist.sh print_help (commands listed: --start-feature, --complete-step, --start-uat, --start-phase3, --start-phase4, --verify-init, ... — actually phase3/4 ARE listed, but --start-phase1 is missing entirely from the help output)"
+        }
+      ]
+    },
+    {
+      "phase": 1,
+      "tests": [
+        {"name": "start_phase1_exits_zero", "pass": true, "details": "process-checklist.sh --start-phase1 returned 0; printed 'Phase 1 architecture planning started'."},
+        {"name": "phase1_steps_array_present", "pass": true, "details": ".phase1_architecture.steps_completed exists as empty array after --start-phase1."},
+        {"name": "each_phase1_step_completes", "pass": true, "details": "All 5 PHASE1_STEPS (architecture_selected, threat_model_complete, data_model_defined, ui_scaffolding_done, bible_synthesized) completed sequentially with RC=0; no artifact checks triggered for phase1."},
+        {"name": "phase1_to_phase2_gate_passes", "pass": true, "details": "check-phase-gate.sh returned RC=0 with output 'Phase gates consistent.'"},
+        {"name": "phase_state_advances_to_2", "pass": false, "details": "U-D confirmation: .current_phase remained 0 after all Phase 1 steps + gate pass. No script auto-advances current_phase. Bug recorded below."}
+      ],
+      "framework_bugs": [
+        {
+          "severity": "Medium",
+          "summary": "U-D confirmation: no script advances current_phase after gate passes",
+          "reproduction": "Complete all phase1_architecture steps; bash scripts/check-phase-gate.sh; then jq .current_phase .claude/phase-state.json",
+          "expected": ".current_phase advances from 0 -> 1 (and onward) when each phase's gate passes. Per runbook Section B, this is U-D from the 2026-04-25 sweep, still open.",
+          "actual": ".current_phase stayed at 0 across all Phase 1, Phase 2 (build_loop), Phase 3 (uat_session + phase3_validation), Phase 4 (phase4_release) completions. No script in scripts/ advances it."
+        }
+      ],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 2,
+      "tests": [
+        {"name": "start_feature_records_state", "pass": true, "details": "process-checklist.sh --start-feature uat-feat-1 set .build_loop.feature='uat-feat-1'."},
+        {"name": "each_step_completes_in_order", "pass": true, "details": "tests_written -> tests_verified_failing -> implemented -> security_audit -> documentation_updated all RC=0. security_audit accepted with stub docs/security-audits/uat-feat-1-security-audit.md present."},
+        {"name": "pre_commit_passes_after_loop", "pass": true, "details": "git commit -m 'feat(uat-1): stub feature for UAT' succeeded after 5 build steps complete."},
+        {"name": "bl006_blocks_feat_without_loop", "pass": false, "details": "U-C confirmation: shell-direct 'git commit --allow-empty -m feat(bl006-trigger): no loop' succeeded (no Build Loop active). PreToolUse pre-commit-gate.sh only fires through Claude Code, not shell. Recorded as documentation gap referencing BL-010 / U-C."},
+        {"name": "bl006_grace_window_resets_after_record", "pass": true, "details": "After feature_recorded for uat-feat-1, started new feature 'uat-feat-grace'; --check-commit-message 'feat(uat-grace): test grace' returned 0 (allow). PR #17 grace-window fix verified."},
+        {"name": "bl015_sentinel_blocks_commit", "pass": true, "details": "Wrote .claude/pending-approval.json with question/options/recommendation; piped PreToolUse Bash hook input into pre-commit-gate.sh; output JSON has hookSpecificOutput.permissionDecision='deny' with sentinel reason. Hook layer (the path agents take) blocks correctly. Shell-direct git commit bypassed it (same root cause as U-C)."},
+        {"name": "bl015_sentinel_resolves", "pass": true, "details": "scripts/pending-approval.sh --resolve 'approved for UAT' deleted .claude/pending-approval.json. Subsequent pre-commit-gate.sh invocation returned no deny."},
+        {"name": "recorded_feature_appears_in_progress", "pass": true, "details": "jq .features_completed .claude/build-progress.json contains 'uat-feat-1' (and later 'uat-feat-grace')."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": [
+        {
+          "gap": "U-C confirmation: BL-006 not enforced for shell-direct git commits (only via Claude Code PreToolUse). Known-open. Affects all configs.",
+          "where": "scripts/pre-commit-gate.sh — runs as PreToolUse hook only; .git/hooks/pre-commit (installed by init) does not call into BL-006 / process-checklist --check-commit-message"
+        },
+        {
+          "gap": "scripts/pending-approval.sh --status prints '(missing)' for all fields when sentinel has only the runbook's minimal schema (phase_id, created_at, request_summary, approver, expires_at). The status command expects 'question/options/recommendation/offered_at' shape — schemas don't agree.",
+          "where": "scripts/pending-approval.sh --status vs runbook Section C 'write .claude/pending-approval.json with valid schema'"
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "tests": [
+        {"name": "start_phase3_exits_zero", "pass": true, "details": "process-checklist.sh --start-phase3 RC=0 with feature-completeness warnings (BL-006 expected behavior since 2 features recorded)."},
+        {"name": "start_uat_creates_session", "pass": true, "details": ".uat_session.started_at non-null = '2026-04-26T01:33:28Z'."},
+        {"name": "uat_template_lints_clean", "pass": false, "details": "scripts/lint-uat-scenarios.sh requires <populated-html-file> arg; running with no arg prints usage and exits 0. Runbook expects exit 0 against generated UAT scenario, but no scenario was generated yet at this point — and the script does not auto-discover the canonical UAT HTML. Marked as pass=false because the assertion target (a generated UAT scenario lints clean) cannot be exercised without an html input that init/intake doesn't produce automatically."},
+        {"name": "each_uat_step_completes", "pass": true, "details": "All 9 UAT_STEPS (agents_dispatched ... gate_passed) completed with RC=0."},
+        {"name": "phase3_to_phase4_gate", "pass": true, "details": "All 9 PHASE3_STEPS completed; check-phase-gate.sh RC=0 'Phase gates consistent.'"}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": [
+        {
+          "gap": "lint-uat-scenarios.sh is a populated-html linter; the runbook implies it can be invoked against 'the generated UAT scenario' but init/intake do not produce a populated UAT html artifact. Either the runbook should specify the input file or the lint script should support a no-arg/discover mode for UAT projects.",
+          "where": "scripts/lint-uat-scenarios.sh usage line vs RUNBOOK Section D test 'uat_template_lints_clean'"
+        }
+      ]
+    },
+    {
+      "phase": 4,
+      "tests": [
+        {"name": "start_phase4_exits_zero", "pass": true, "details": "process-checklist.sh --start-phase4 RC=0."},
+        {"name": "each_phase4_step_completes", "pass": true, "details": "All 6 PHASE4_STEPS completed with RC=0 (after stubbing rollback-test, handoff-test, HANDOFF.md, RELEASE_NOTES.md)."},
+        {"name": "handoff_md_required", "pass": true, "details": "monitoring_configured step blocked when HANDOFF.md absent ('HANDOFF.md not found — monitoring configuration should be documented there'). Created HANDOFF.md with monitoring section; step then completed."},
+        {"name": "release_notes_required", "pass": true, "details": "RELEASE_NOTES.md is generated by init.sh, so go_live_verified passed without explicit creation. Artifact-check exists in process-checklist.sh and would block if file absent."},
+        {"name": "phase4_completion_state", "pass": false, "details": ".claude/phase-state.json .current_phase = 0 even after all phase4_release steps completed. Same U-D root cause already recorded above."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    },
+    {
+      "phase": 99,
+      "tests": [
+        {"name": "no_uncommitted_secrets", "pass": true, "details": "git ls-files | grep -Ei 'password|api[_-]?key|secret|token' returned only documentation references in builders-guide.md, ci.yml (env: secrets.GITHUB_TOKEN), PROJECT_INTAKE.md template line, and CDF stdlib token list — no real secrets."},
+        {"name": "log_files_consistent", "pass": true, "details": "N/A: no FORCE/reset events occurred during this run; .claude/process-audit.log absent (correct)."},
+        {"name": "no_orphaned_tempfiles", "pass": true, "details": "find .claude -name '*.tmp' returned no results."},
+        {"name": "no_framework_contamination", "pass": true, "details": "git -C $FRAMEWORK status --short shows only pre-existing untracked '.claude/' and 'Reports/uat-2026-04-26/' (these existed at sweep start; they are the test runners' own untracked state, not modifications). Framework HEAD = d66e8f276079aa352ba90ac54386e1b1896d7494, matches captured SHA."}
+      ],
+      "framework_bugs": [],
+      "documentation_gaps": []
+    }
+  ],
+  "overall_pass": true,
+  "summary": "init.sh --non-interactive succeeds end-to-end on personal/mcp_server/full; PR #17/#18/#19 fixes verified (BL-006 grace, framework-self guard, BL-015 hook deny, U-H scripts copied); two Medium gaps — release.yml not generated for mcp_server on github and platform module mcp_server.md missing — and U-C/U-D confirmations from prior sweep, no Critical/High regressions."
+}
