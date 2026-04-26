@@ -3214,7 +3214,13 @@ HELPEOF
       exit 0
     fi
     # Derive POC_MODE from GOV_MODE for downstream consumers (existing code uses POC_MODE).
-    POC_MODE="$GOV_MODE"
+    # The interactive flow at init.sh:381 maps "Production" -> POC_MODE="" because Production
+    # is the absence of POC, not a POC mode itself. Mirror that here — process-checklist.sh
+    # start_phase4 treats any non-null poc_mode as a POC and blocks Phase 4.
+    case "$GOV_MODE" in
+      production) POC_MODE="" ;;
+      *)          POC_MODE="$GOV_MODE" ;;
+    esac
     # Pass 3 of collect_inputs_non_interactive already verified required tools.
   else
     if [ -n "$CONFIG_FILE" ]; then

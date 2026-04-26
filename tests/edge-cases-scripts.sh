@@ -1204,7 +1204,7 @@ fi
 
 
 # ================================================================
-section "BL-016: init.sh non-interactive mode — E48-E56"
+section "BL-016: init.sh non-interactive mode — E48-E57"
 
 INIT_SH="$REPO_DIR/init.sh"
 
@@ -1349,6 +1349,31 @@ if [ "$_e56_rc" = "0" ] && \
   pass "E56: --non-interactive end-to-end writes all project files (TEST_INTERVAL regression guard)"
 else
   fail "E56: end-to-end run incomplete (rc=$_e56_rc, test_interval='$_e56_test_interval'). Missing one or more of: CLAUDE.md, APPROVAL_LOG.md, .gitignore, .github/workflows/ci.yml, .claude/build-progress.json, .claude/process-state.json"
+fi
+
+# E57: --non-interactive --gov-mode production must clear poc_mode in phase-state.json.
+# Regression guard for the production poc_mode bug (T1-A from 2026-04-26 UAT triage).
+# init.sh's interactive flow correctly maps Production -> POC_MODE="" (init.sh:381),
+# but the non-interactive driver was setting POC_MODE="production" verbatim, which
+# then caused process-checklist.sh start_phase4 to block every production project
+# (it rejects any non-null poc_mode as a POC).
+_e57_dir="$TEST_DIR/e57"
+mkdir -p "$_e57_dir"
+_e57_proj="$_e57_dir/uat-e57"
+_e57_rc=0
+(cd "$_e57_dir" && "$INIT_SH" --non-interactive \
+  --project uat-e57 --platform web --deployment organizational --gov-mode production \
+  --language typescript --project-dir "$_e57_proj" \
+  --git-host other --remote-url https://example.com/fake.git \
+  --branch-protection-attested >/dev/null 2>&1) || _e57_rc=$?
+_e57_poc=""
+if [ -f "$_e57_proj/.claude/phase-state.json" ]; then
+  _e57_poc=$(jq -r '.poc_mode' "$_e57_proj/.claude/phase-state.json" 2>/dev/null || echo "missing")
+fi
+if [ "$_e57_rc" = "0" ] && [ "$_e57_poc" = "null" ]; then
+  pass "E57: --non-interactive --gov-mode production clears poc_mode (T1-A regression guard)"
+else
+  fail "E57: expected rc=0 and phase-state.json .poc_mode=null, got rc=$_e57_rc poc_mode='$_e57_poc'"
 fi
 
 
