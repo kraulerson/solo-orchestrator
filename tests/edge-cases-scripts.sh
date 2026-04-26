@@ -1204,7 +1204,7 @@ fi
 
 
 # ================================================================
-section "BL-016: init.sh non-interactive mode — E48-E55"
+section "BL-016: init.sh non-interactive mode — E48-E56"
 
 INIT_SH="$REPO_DIR/init.sh"
 
@@ -1316,6 +1316,39 @@ if [ "$_e55_first_rc" = "1" ] && [ "$_e55_second_rc" = "0" ]; then
   pass "E55: existing dir without --allow-existing-dir fails; with the flag succeeds"
 else
   fail "E55: expected first run to fail and second to succeed; got first=$_e55_first_rc second=$_e55_second_rc"
+fi
+
+# E56: real (non-validate-only) end-to-end run completes the file-write path.
+# Regression guard for the TEST_INTERVAL unbound-variable bug surfaced by the
+# 2026-04-26 UAT sweep. Drives init.sh through .claude/build-progress.json
+# generation (line 1577 heredoc) and template substitution (line 2012), both
+# of which read $TEST_INTERVAL. Uses --git-host other so no real CLI/API call
+# is made; the push to a fake URL fails by design and PR #18's tolerance
+# allows init to continue past it.
+_e56_dir="$TEST_DIR/e56"
+mkdir -p "$_e56_dir"
+_e56_proj="$_e56_dir/uat-e56"
+_e56_rc=0
+(cd "$_e56_dir" && "$INIT_SH" --non-interactive \
+  --project uat-e56 --platform web --deployment personal --language typescript \
+  --project-dir "$_e56_proj" \
+  --git-host other --remote-url https://example.com/fake.git \
+  --branch-protection-attested >/dev/null 2>&1) || _e56_rc=$?
+_e56_test_interval=""
+if [ -f "$_e56_proj/.claude/build-progress.json" ]; then
+  _e56_test_interval=$(jq -r '.test_interval // empty' "$_e56_proj/.claude/build-progress.json" 2>/dev/null || echo "")
+fi
+if [ "$_e56_rc" = "0" ] && \
+   [ -f "$_e56_proj/CLAUDE.md" ] && \
+   [ -f "$_e56_proj/APPROVAL_LOG.md" ] && \
+   [ -f "$_e56_proj/.gitignore" ] && \
+   [ -f "$_e56_proj/.github/workflows/ci.yml" ] && \
+   [ -f "$_e56_proj/.claude/build-progress.json" ] && \
+   [ -f "$_e56_proj/.claude/process-state.json" ] && \
+   [ "$_e56_test_interval" = "2" ]; then
+  pass "E56: --non-interactive end-to-end writes all project files (TEST_INTERVAL regression guard)"
+else
+  fail "E56: end-to-end run incomplete (rc=$_e56_rc, test_interval='$_e56_test_interval'). Missing one or more of: CLAUDE.md, APPROVAL_LOG.md, .gitignore, .github/workflows/ci.yml, .claude/build-progress.json, .claude/process-state.json"
 fi
 
 

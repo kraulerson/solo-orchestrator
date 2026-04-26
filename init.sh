@@ -3041,6 +3041,12 @@ collect_inputs_non_interactive() {
   BRANCH_PROTECTION_ATTESTED="$ARG_BRANCH_PROTECTION_ATTESTED"
   ALLOW_EXISTING_DIR="$ARG_ALLOW_EXISTING_DIR"
 
+  # The interactive language_prompt() sets TEST_INTERVAL=2 mid-flow; the
+  # non-interactive driver bypasses that prompt, so set the same default
+  # here. Consumed at line ~1582 (build-progress.json heredoc) and ~2012
+  # (template substitution) under set -u.
+  TEST_INTERVAL=2
+
   if [ "$VALIDATE_ONLY" = true ]; then
     # Build the resolved JSON via jq for proper escaping.
     jq -n \
