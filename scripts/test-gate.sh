@@ -81,9 +81,11 @@ EOF
 check_batch() {
   ensure_progress_file
 
+  # U-K: default missing/null fields so partial state files don't trip
+  # `[: null: integer expression expected` in the comparison below.
   local since_last interval
-  since_last=$(jq -r '.features_since_last_test' "$BUILD_PROGRESS")
-  interval=$(jq -r '.test_interval' "$BUILD_PROGRESS")
+  since_last=$(jq -r '.features_since_last_test // 0' "$BUILD_PROGRESS")
+  interval=$(jq -r '.test_interval // 2' "$BUILD_PROGRESS")
 
   if [ "$since_last" -ge "$interval" ]; then
     print_fail "Testing session required ($since_last features since last test, interval is $interval)"
@@ -113,9 +115,11 @@ record_feature() {
   health_count=$(jq '.features_since_last_health_check // 0' "$BUILD_PROGRESS")
   jq ".features_since_last_health_check = $((health_count + 1))" "$BUILD_PROGRESS" > "$BUILD_PROGRESS.tmp" && mv "$BUILD_PROGRESS.tmp" "$BUILD_PROGRESS"
 
+  # U-K: default missing/null fields so partial state files don't trip
+  # `[: null: integer expression expected` in the comparison below.
   local since_last interval
-  since_last=$(jq -r '.features_since_last_test' "$BUILD_PROGRESS")
-  interval=$(jq -r '.test_interval' "$BUILD_PROGRESS")
+  since_last=$(jq -r '.features_since_last_test // 0' "$BUILD_PROGRESS")
+  interval=$(jq -r '.test_interval // 2' "$BUILD_PROGRESS")
 
   print_ok "Feature '$name' recorded ($since_last/$interval until next test session)"
 
@@ -199,11 +203,13 @@ unrecord_feature() {
 
   # Compute preview values
   local cur_array cur_fslt cur_fslhc cur_testing interval new_fslt new_fslhc new_testing new_array
-  cur_array=$(jq -c '.features_completed' "$BUILD_PROGRESS")
-  cur_fslt=$(jq -r '.features_since_last_test' "$BUILD_PROGRESS")
+  # U-K: default missing/null fields so partial state files don't trip
+  # arithmetic and integer-comparison errors below.
+  cur_array=$(jq -c '.features_completed // []' "$BUILD_PROGRESS")
+  cur_fslt=$(jq -r '.features_since_last_test // 0' "$BUILD_PROGRESS")
   cur_fslhc=$(jq -r '.features_since_last_health_check // 0' "$BUILD_PROGRESS")
-  cur_testing=$(jq -r '.testing_required' "$BUILD_PROGRESS")
-  interval=$(jq -r '.test_interval' "$BUILD_PROGRESS")
+  cur_testing=$(jq -r '.testing_required // false' "$BUILD_PROGRESS")
+  interval=$(jq -r '.test_interval // 2' "$BUILD_PROGRESS")
 
   new_fslt=$(( cur_fslt - 1 < 0 ? 0 : cur_fslt - 1 ))
   new_fslhc=$(( cur_fslhc - 1 < 0 ? 0 : cur_fslhc - 1 ))
