@@ -375,3 +375,95 @@ Sibling-script follow-up logged when BL-016 shipped. `scripts/verify-install.sh`
 **Trigger:** opportunistic — pair with the next visit to verify-install.sh code.
 
 **Related:** BL-016 spec §12; UAT 2026-04-25 U-M (verify-install.sh auto-creates stub artifacts when run outside a real project).
+
+---
+
+## BL-020: pre-commit-gate.sh `\bgit\b.*\bcommit\b` regex over-broad
+
+**Logged:** 2026-04-26
+**Category:** Debt
+**Severity:** Medium
+**Status:** Open
+
+`scripts/pre-commit-gate.sh:253` classifies a Bash command as "git commit" via `grep -qE '\bgit\b.*\bcommit\b'`. The regex matches any command line that contains both substrings, not just `git commit` invocations. Concrete false-positives:
+- `cat scripts/pre-commit-gate.sh | grep "git commit"` — Claude tries to read the gate's own source while debugging, gets blocked because the command text itself contains both `git` and `commit`.
+- `rg "git commit" docs/` — docs grep blocked.
+- Multi-command lines like `git status; echo commit` — incidentally tripped.
+
+Effect: when an agent tries to inspect or grep the gate scripts (legitimate read-only debugging), the very gate they're inspecting denies the read. Adds friction during framework debugging sessions.
+
+**Scope:** tighten the classifier. Options:
+1. Anchor the regex to actual git invocations: `^(git|.*[;&|]\s*git)\b.*\bcommit\b` and reject any command containing pipes or strings matching the literal `"git commit"` substring as text.
+2. Parse the command's first token (post `bash -c` unwrap, post `cd && ...` chain) and only check classification if it's literally `git`.
+3. Whitelist read-only invocations (`grep`, `cat`, `rg`, etc.) before applying the classifier.
+
+**Trigger:** opportunistic — fix when next touching `pre-commit-gate.sh`.
+
+**Related:** Surfaced from lancache UAT-2 session 2026-04-26 (operator reported handoff churn). Same hook also has the BL-021 over-blocking behavior.
+
+---
+
+## BL-021: config-guard.sh allowlist excludes read-only `git` subcommands
+
+**Logged:** 2026-04-26
+**Category:** Debt
+**Severity:** Medium
+**Status:** Open
+
+`~/.claude-dev-framework/hooks/config-guard.sh:41` allows read-only Bash inspection of `.claude/*` files via a hardcoded allowlist: `cat|head|tail|less|more|wc|file|stat|ls|grep|rg|awk|bat`. `git` is absent. Concrete false-positives blocked despite being purely read-only:
+- `git diff .claude/manifest.json`
+- `git log --oneline .claude/manifest.json`
+- `git show HEAD:.claude/manifest.json`
+- `git blame .claude/manifest.json`
+- `git status .claude/`
+
+Effect: a debugging Claude session can't inspect the history or current diff of framework state files, so investigations of "why did manifest end up like this" require operator handoff. Same handoff-churn pattern as BL-020.
+
+Note: write-side `git` commands (`git add`, `git checkout --`, `git restore`, `git rm`, `git mv` against `.claude/*` paths) MUST stay blocked — those mutate framework state. Allowlist must distinguish read-only subcommands from mutating ones.
+
+**Scope:** extend the allowlist to recognize specific read-only `git` subcommands. Suggested patterns:
+```bash
+if echo "$COMMAND" | grep -qE '^\s*git\s+(diff|log|show|blame|status|ls-files|cat-file|rev-parse|reflog|describe|name-rev|grep)\b'; then
+  exit 0
+fi
+```
+(Place before the existing `cat|head|...` allowlist.) Keep existing block on `git add`, `git checkout`, `git restore`, `git rm`, `git mv`, `git commit`, `git stash`, etc.
+
+**Trigger:** ship together with BL-020 (same hook-author surface) OR opportunistic during next CDF maintenance pass.
+
+**Related:** Lives in CDF (`~/.claude-dev-framework/hooks/config-guard.sh`) — fix upstream per the cross-repo preference (memory `feedback_cross_repo_fixes.md`); a Solo-side shim is not appropriate here. BL-020 is the symmetric Solo-side issue.
+
+---
+
+## BL-022: UAT step semantics ambiguous — `remediation_complete` and `gate_passed` framing
+
+**Logged:** 2026-04-26
+**Category:** Debt (docs/guidance)
+**Severity:** Medium
+**Status:** Open
+
+UAT_STEPS as defined in `scripts/process-checklist.sh:30` are: `agents_dispatched template_generated orchestrator_notified results_received completeness_verified bugs_consolidated triage_complete remediation_complete gate_passed`. The last two have ambiguous framing in the framework's docs:
+
+- `remediation_complete` — Does this mean (a) "all fix code has been written and tests are green locally" or (b) "all fixes are merged to main"? The `process-checklist.sh:900` gate blocks source commits while `uat_completed < 9`, which implies (a) — fixes must be marked complete BEFORE the commit that ships them. But agents reading the step name as "shipped to remote" hit a logical contradiction (can't mark complete until commit, can't commit until marked complete).
+
+- `gate_passed` — Does this mean (a) "test-gate counter has been reset and tests pass locally" or (b) "test-gate is green post-merge"? Same ambiguity.
+
+Effect: a recent lancache UAT-2 agent session (2026-04-26) spent 19+ minutes in handoff-theater churn because the agent read interpretation (b), concluded marking before committing was "borderline" and "tripping framework intent", and bounced commits back to the operator instead of completing the documented sequence.
+
+The framework's intended workflow is:
+1. Write fixes locally; tests green.
+2. Run `scripts/test-gate.sh --reset-counter`.
+3. Mark `remediation_complete` (truthful: local fixes done).
+4. Mark `gate_passed` (truthful: counter reset, tests green).
+5. Commit; gate now allows source commits.
+6. Push, open PR.
+
+**Scope:** clarify in `docs/builders-guide.md` (or wherever UAT_STEPS are documented) that:
+- `remediation_complete` means "local remediation work done; ready to commit." NOT "shipped."
+- `gate_passed` means "local gate-check passing; ready to commit." NOT "post-merge CI green."
+- The commit-blocker at `process-checklist.sh:900` is intentional: it forces operators to acknowledge the local remediation state before committing during UAT, NOT to gate the commit on post-merge state.
+- Optionally: rename to `remediation_done_locally` / `gate_passed_locally` for sharper semantics.
+
+**Trigger:** before the next UAT cycle in any project (lancache, solo-orchestrator self-test, downstream project).
+
+**Related:** Surfaced from lancache UAT-2 session 2026-04-26. Pairs with BL-020 + BL-021 (all three contributed to the same handoff-churn incident). The `pre-commit-gate.sh` flow at line 250-275 implements the actual gate behavior.

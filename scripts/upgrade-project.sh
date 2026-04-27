@@ -432,8 +432,12 @@ if [ "$CURRENT_DEPLOYMENT" = "organizational" ] && [ "$TARGET_DEPLOYMENT" = "per
   exit 1
 fi
 
-# Cannot go from production to POC
-if [ -z "$CURRENT_POC_MODE" ] && [ "$TO_SPONSORED_POC" = true ]; then
+# Cannot go from production to POC. Both branches must include the
+# deployment guard — without it, personal projects (poc_mode is always null
+# when deployment=personal) are wrongly classified as production. The
+# --to-private-poc branch was fixed in PR #24 (T1-D); R3-A applies the same
+# deployment check to --to-sponsored-poc.
+if [ -z "$CURRENT_POC_MODE" ] && [ "$TO_SPONSORED_POC" = true ] && [ "$CURRENT_DEPLOYMENT" = "organizational" ]; then
   print_fail "Cannot downgrade a production project to POC mode."
   exit 1
 fi
