@@ -467,3 +467,112 @@ The framework's intended workflow is:
 **Trigger:** before the next UAT cycle in any project (lancache, solo-orchestrator self-test, downstream project).
 
 **Related:** Surfaced from lancache UAT-2 session 2026-04-26. Pairs with BL-020 + BL-021 (all three contributed to the same handoff-churn incident). The `pre-commit-gate.sh` flow at line 250-275 implements the actual gate behavior.
+
+---
+
+## BL-023: Rev3 runbook `$GOV` unquoted expansion is fragile
+
+**Logged:** 2026-04-27
+**Category:** Debt (cosmetic)
+**Severity:** Low
+**Status:** Open
+
+The rev3 sweep runbook at `Reports/uat-2026-04-26-rev3/RUNBOOK.md` Section A constructs the init.sh invocation with `$GOV` unquoted between flags:
+
+```bash
+bash "$FRAMEWORK/init.sh" --non-interactive ... $GOV --language ...
+```
+
+When `GOV="--gov-mode production"`, word-splitting produces two args (`--gov-mode`, `production`) — works in bash but is shell-fragility on the glide path. Under stricter shells or when the value contains spaces in the option text, this breaks.
+
+Surfaced by rev3 sweep agent 7 as a documentation gap. All 12 rev3 agents successfully ran the existing form, so this is cosmetic, not blocking.
+
+**Scope:** rewrite Section A's invocation to use an array or split `$GOV` into `$GOV_FLAG $GOV_VALUE`:
+
+```bash
+GOV_FLAG=""
+GOV_VALUE=""
+case "{SCENARIO}" in
+  private_poc)   GOV_FLAG="--gov-mode"; GOV_VALUE="private_poc" ;;
+  sponsored_poc) GOV_FLAG="--gov-mode"; GOV_VALUE="sponsored_poc" ;;
+  production)    GOV_FLAG="--gov-mode"; GOV_VALUE="production" ;;
+esac
+bash "$FRAMEWORK/init.sh" --non-interactive ... ${GOV_FLAG:+$GOV_FLAG "$GOV_VALUE"} --language ...
+```
+
+Apply to any future runbook templates as well; the existing rev1/rev2 runbooks have the same shape and could be updated opportunistically.
+
+**Trigger:** before the next sweep runbook is written.
+
+**Related:** `Reports/uat-2026-04-26-rev3/TRIAGE.md` Gap 1.
+
+---
+
+## BL-024: `init.sh --branch-protection-attested` not recorded when push fails on `--git-host other`
+
+**Logged:** 2026-04-27
+**Category:** Debt (real bug)
+**Severity:** Medium
+**Status:** Open
+
+`init.sh::create_and_protect_remote` for the `--git-host other` path has the wrong order of operations relative to `--branch-protection-attested`. The flow at `init.sh:1768-1836`:
+
+1. Resolve `remote_url` (from `--remote-url` or interactive prompt).
+2. `git remote add origin "$remote_url"`.
+3. `git push -u origin main || git push -u origin master`. **If push fails → `return 1`.**
+4. Print "Since 'other' host is not API-verifiable, attest branch protection:".
+5. Honor `BRANCH_PROTECTION_ATTESTED` (or prompt) → record attestation in `.claude/process-state.json::phase2_init.attestations.branch_protection`.
+
+When the operator passes `--remote-url https://example.invalid/fake.git --branch-protection-attested` (the standard rev1/rev2/rev3 sweep pattern), the push at step 3 fails and the function returns 1 BEFORE the attestation block at step 4-5 runs. Init still completes overall (the U-B fix at `init.sh:1717-1730` wraps the call in `if ! ...`), but `phase2_init.attestations.branch_protection` is never written.
+
+Reproduced 2026-04-27:
+
+```
+tmp=$(mktemp -d) && bash init.sh --non-interactive --project trace --platform web \
+  --deployment personal --language typescript --git-host other \
+  --remote-url https://example.com/fake.git --branch-protection-attested \
+  --visibility private --project-dir "$tmp/proj" --allow-existing-dir
+jq '.phase2_init.attestations // "MISSING"' "$tmp/proj/.claude/process-state.json"
+# → "MISSING"
+```
+
+Real-world impact: with a real remote URL the push usually succeeds and the attestation IS recorded — so this hasn't been seen by users yet. But anyone running init in a context where the push fails (corporate firewall, momentary connectivity, fake URL for CI smoke-test) gets:
+- init log says "Remote setup did not complete cleanly" and points at `check-gate.sh --repair`
+- `process-state.json` lacks the attestation
+- subsequent `check-gate.sh --preflight` (post-PR-#36) won't honor the attestation it never recorded
+- `verify-init` will then report `branch_protection_configured` as failed
+
+**Scope:** reorder the "other" branch in `create_and_protect_remote` so attestation runs BEFORE push (or alongside it as a checkpoint), since attestation is a forward-looking commitment by the operator and is independent of whether the push succeeds. Specifically:
+
+1. Move the attestation prompt + record block to run AFTER `git remote add` but BEFORE `git push`. The attestation describes what the operator commits to — push success isn't a precondition.
+2. Optionally: don't `return 1` on push failure when `BRANCH_PROTECTION_ATTESTED=true` — the operator has explicitly attested they'll set up the remote later, so log `print_warn` and continue.
+
+TDD: a focused test in `tests/test-init-no-remote-creation.sh` (or sibling) that runs the repro flow and asserts `phase2_init.attestations.branch_protection.attested_by == "orchestrator"` after init.
+
+**Trigger:** if a user reports init.sh "lost" their attestation, OR before any sweep that depends on the attestation being present in process-state.json. Lower priority than the user-facing tier-3 backlog items because the rev1/rev2/rev3 runbooks all worked around it (manual `jq` writes in agent test setup) — but it's a real correctness gap.
+
+**Related:** `Reports/uat-2026-04-26-rev3/TRIAGE.md` Gap 2 (agent 2). Pairs conceptually with PR #36 (BL-002) which added a parallel attestation flow for github free-tier 403 — that one DOES record correctly because it runs after host_configure_protection completes (success or specific 403), not after a push.
+
+---
+
+## BL-025: Phase 2 init-verified state setup helper for tests
+
+**Logged:** 2026-04-27
+**Category:** Proposal (test infrastructure)
+**Severity:** Low
+**Status:** Open
+
+Several T2 + R3 test cases needed to drive a project to "Phase 2 init verified" state to exercise the gates that depend on it (the dep-manifest classifier in `process-checklist.sh::check_commit_ready`, the build_loop gate, the UAT step semantics, the `--start-phase3` advance). The current happy path takes a real init + Phase 1 walk + 6 phase2_init `--complete-step` calls + manual `data_model_applied` mark + `initialization_verified` auto-complete. Both rev3 agents 2 and 6 had to do manual `jq` patching to reach the right state.
+
+**Scope:** a `tests/test-helpers/init-phase2-verified.sh` helper that takes:
+- a target tempdir path
+- platform / track / deployment / gov_mode args (same shape as init.sh)
+- shortcut flags for state-only setup (skip CLAUDE.md generation, skip framework clone, etc.)
+
+…and produces a directory with `.claude/manifest.json`, `.claude/phase-state.json` (current_phase=2), `.claude/process-state.json` with `phase2_init.verified=true`, and the minimum filesystem artifacts (`.git/`, `package-lock.json` or equivalent, `.git/hooks/pre-commit`) so `verify-init` would mark it complete.
+
+This isn't a public-facing helper — it's purely for the test suite. Could live alongside `tests/` or in a sibling `tests/helpers/` directory.
+
+**Trigger:** when adding the next test that needs phase 2 verified state (e.g., a test for any post-T2 fix that depends on the gate context).
+
+**Related:** `Reports/uat-2026-04-26-rev3/TRIAGE.md` Gap 3. Adjacent to BL-003 (end-to-end init.sh tests against mocked host CLIs) — same "make init.sh testable in a fresh tempdir" theme.
