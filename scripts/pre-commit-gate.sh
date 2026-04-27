@@ -26,6 +26,20 @@ if [ -z "$COMMAND" ]; then
   exit 0
 fi
 
+# BL-020: classify a Bash command as an actual `git commit` invocation.
+# The previous pattern `\bgit\b.*\bcommit\b` over-matched any command line
+# containing both substrings as words — false-positives on read-only git
+# operations against files whose paths include the word `commit`
+# (e.g., `git diff scripts/pre-commit-gate.sh`, `git log -- scripts/check-commit-message.sh`).
+# Tightened classifier:
+#   - `commit` must come immediately after `git` (separated only by whitespace),
+#     ruling out `git diff <commit-named-path>` etc.
+#   - `git` must NOT be preceded by a quote, ruling out search strings like
+#     `rg "git commit" docs/`. Start-of-line is allowed.
+_is_git_commit() {
+  echo "$1" | grep -qE '(^|[^"'\''])git[[:space:]]+commit\b'
+}
+
 # Block agent-initiated SOIF_FORCE_STEP bypass (match assignment, not diagnostic reads)
 if echo "$COMMAND" | grep -qE 'SOIF_FORCE_STEP='; then
   cat << HOOKEOF
@@ -54,7 +68,7 @@ fi
 # Block git commit if no remote is configured. Solo Orchestrator requires a
 # created-and-protected remote from init onward; commits without a remote
 # indicate either a pre-fix project or drift that needs remediation.
-if echo "$COMMAND" | grep -qE '\bgit\b.*\bcommit\b' && ! echo "$COMMAND" | grep -qE 'git.*remote'; then
+if _is_git_commit "$COMMAND" && ! echo "$COMMAND" | grep -qE 'git.*remote'; then
   # Only check if we're in a git repo with no remote
   if git rev-parse --git-dir >/dev/null 2>&1; then
     if ! git remote get-url origin >/dev/null 2>&1; then
@@ -67,7 +81,7 @@ HOOKEOF
 fi
 
 # Block --no-verify flag on git commit (bypasses security hooks)
-if echo "$COMMAND" | grep -qE '\bgit\b.*\bcommit\b.*--no-verify'; then
+if _is_git_commit "$COMMAND" && echo "$COMMAND" | grep -qE -- '--no-verify'; then
   cat << HOOKEOF
 {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "The --no-verify flag bypasses security hooks (gitleaks, Semgrep). Remove --no-verify and commit normally."}}
 HOOKEOF
@@ -118,7 +132,7 @@ EOF
 pa_check() {
   # Only applies to git commit or gh pr create. Other commands fall through.
   local is_commit=false is_pr=false
-  echo "$COMMAND" | grep -qE '\bgit\b.*\bcommit\b' && is_commit=true
+  _is_git_commit "$COMMAND" && is_commit=true
   echo "$COMMAND" | grep -qE '\bgh\b.*\bpr\b.*\bcreate\b' && is_pr=true
   [ "$is_commit" = false ] && [ "$is_pr" = false ] && return 0
 
@@ -147,7 +161,7 @@ pa_check
 # --- end BL-015 block ---
 
 # Warn on git commit --amend (rewrites commit history, bypasses build loop for amended content)
-if echo "$COMMAND" | grep -qE '\bgit\b.*\bcommit\b.*--amend'; then
+if _is_git_commit "$COMMAND" && echo "$COMMAND" | grep -qE -- '--amend'; then
   cat << HOOKEOF
 {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow", "permissionDecisionReason": "WARNING: git commit --amend rewrites the previous commit. Ensure the amended content has been through the full Build Loop. If this amend adds new source code, consider a new commit instead."}}
 HOOKEOF
@@ -162,7 +176,7 @@ fi
 
 bl006_check() {
   # Only apply to `git commit` subcommands.
-  echo "$COMMAND" | grep -qE '\bgit\b.*\bcommit\b' || return 0
+  _is_git_commit "$COMMAND" || return 0
 
   # Derivative-commit filters: pass through.
   # --amend is already handled above (warns, exits). Belt-and-braces.
@@ -250,7 +264,7 @@ fi
 # Only gate git commit and gh pr create for process checklist enforcement
 IS_COMMIT=false
 IS_PR=false
-if echo "$COMMAND" | grep -qE '\bgit\b.*\bcommit\b'; then
+if _is_git_commit "$COMMAND"; then
   IS_COMMIT=true
 elif echo "$COMMAND" | grep -qE '\bgh\b.*\bpr\b.*\bcreate\b'; then
   IS_PR=true

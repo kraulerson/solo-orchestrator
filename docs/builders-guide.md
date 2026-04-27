@@ -1230,6 +1230,13 @@ scripts/test-gate.sh --reset-counter
 Mark each UAT step as you complete it: `scripts/process-checklist.sh --complete-step uat_session:STEP_ID`
 Steps in order: `agents_dispatched`, `template_generated`, `orchestrator_notified`, `results_received`, `completeness_verified`, `bugs_consolidated`, `triage_complete`, `remediation_complete`, `gate_passed`.
 
+**Step semantics — read carefully (BL-022).** The last two steps describe **local** state, not "shipped to remote." Mark them when the local conditions are true, then commit. The pre-commit gate at `scripts/process-checklist.sh::check_commit_ready` blocks source commits while `uat_completed < 9` precisely because it expects you to acknowledge the local state via these marks before committing the remediation.
+
+- `remediation_complete` — "all remediation work is written and tested locally." Mark it once you have all fixes implemented, regression tests written, and the full local test suite green. **Do NOT wait for the commit/PR to mark this** — that creates the chicken-and-egg confusion where you can't commit because the step isn't marked, and you (think you) can't mark the step because nothing is committed.
+- `gate_passed` — "test-gate has been re-cleared locally." Mark it after running `scripts/test-gate.sh --reset-counter` and confirming `--check-batch` reports clean. This is local state, not post-merge CI state.
+
+Intended workflow: write fixes → tests green → `--reset-counter` → mark `remediation_complete` → mark `gate_passed` → commit (gate now allows) → push → open PR. CI verification happens after the PR is up; that's when you confirm post-merge state, but `gate_passed` was already truthful at the local-state level when you marked it.
+
 ---
 
 ### Context Health Check (Every 3-4 Features)
