@@ -797,6 +797,24 @@ show_status() {
   echo ""
 }
 
+# Match common dependency-manifest files by basename (T2-A). These are
+# package-manager artifacts; a pure dep-bump commit should not trigger the
+# Build Loop gate. Match by basename rather than extension because most have
+# no extension or use a non-source extension (.lock, .txt, .sum, .mod).
+_is_dep_manifest() {
+  local base
+  base=$(basename "$1")
+  case "$base" in
+    Pipfile|Pipfile.lock|Gemfile|Gemfile.lock) return 0 ;;
+    Cargo.lock|go.mod|go.sum) return 0 ;;
+    poetry.lock|yarn.lock|pnpm-lock.yaml) return 0 ;;
+    npm-shrinkwrap.json|package-lock.json|pubspec.lock) return 0 ;;
+    Package.resolved|gradle.lockfile|packages.lock.json) return 0 ;;
+    requirements.txt|requirements-*.txt|requirements_*.txt) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 check_commit_ready() {
   ensure_state_file
 
@@ -847,16 +865,23 @@ check_commit_ready() {
     fi
   done <<< "$staged_files"
 
-  # If not a source commit, check if it's purely docs
+  # If not a source commit, check if it's purely docs or dependency manifests.
+  # Dep manifests (Pipfile.lock, Gemfile.lock, go.sum, etc.) are produced by
+  # package managers; a single dep bump should not require a Build Loop entry
+  # (T2-A, surfaced from lancache 2026-04-26).
   if [ "$is_source" = false ]; then
-    local all_docs=true
+    local all_exempt=true
     while IFS= read -r file; do
-      if ! echo "$file" | grep -qE '\.(md|json|yml|yaml|toml|tmpl)$'; then
-        all_docs=false
-        break
+      if echo "$file" | grep -qE '\.(md|json|yml|yaml|toml|tmpl)$'; then
+        continue
       fi
+      if _is_dep_manifest "$file"; then
+        continue
+      fi
+      all_exempt=false
+      break
     done <<< "$staged_files"
-    if [ "$all_docs" = true ]; then
+    if [ "$all_exempt" = true ]; then
       exit 0
     fi
   fi
