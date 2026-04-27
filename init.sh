@@ -38,6 +38,7 @@ ARG_VISIBILITY=""
 ARG_REMOTE_URL=""
 ARG_BRANCH_PROTECTION_ATTESTED=false
 ARG_ALLOW_EXISTING_DIR=false
+ARG_NO_REMOTE_CREATION=false
 # Resolved variables produced by either input path (consumed by downstream functions)
 GOV_MODE=""
 GIT_HOST=""
@@ -45,6 +46,7 @@ VISIBILITY=""
 REMOTE_URL=""
 BRANCH_PROTECTION_ATTESTED=false
 ALLOW_EXISTING_DIR=false
+NO_REMOTE_CREATION=false
 
 source "$SCRIPT_DIR/scripts/lib/helpers.sh"
 
@@ -1762,6 +1764,36 @@ create_and_protect_remote() {
     visibility="private"
   fi
 
+  # T2-C: write manifest.host (and mode) early so check-gate.sh --preflight
+  # has a usable host field even if a downstream API call fails (missing CLI,
+  # 403, push failure, fake URL). Late-stage merges below add remote_url and
+  # update host/mode in place.
+  mkdir -p .claude
+  if [ -f .claude/manifest.json ]; then
+    jq --arg h "$host" --arg m "$mode" '.host = $h | .mode = $m' \
+       .claude/manifest.json > .claude/manifest.json.tmp \
+       && mv .claude/manifest.json.tmp .claude/manifest.json
+  else
+    cat > .claude/manifest.json <<MANIFESTEOF
+{"host": "$host", "mode": "$mode"}
+MANIFESTEOF
+  fi
+
+  # T2-B: --no-remote-creation skips the host API entirely so UAT/CI runs do
+  # not contaminate the user's GitHub/GitLab/Bitbucket account. Manifest already
+  # has host + mode from the T2-C block above; record empty remote_url and
+  # tell the user how to attach a remote later.
+  if [ "${NO_REMOTE_CREATION:-false}" = true ]; then
+    print_step "Skipping remote creation (--no-remote-creation)"
+    print_info "No remote will be created on $host."
+    print_info "Project files are scaffolded; .claude/manifest.json records host='$host', mode='$mode'."
+    print_info "When ready, attach a remote and apply protection with:"
+    print_info "  scripts/check-gate.sh --repair"
+    jq --arg u "" '.remote_url = $u' .claude/manifest.json > .claude/manifest.json.tmp \
+       && mv .claude/manifest.json.tmp .claude/manifest.json
+    return 0
+  fi
+
   print_step "Creating git repository on $host"
 
   local remote_url=""
@@ -2626,6 +2658,13 @@ Optional flags (with defaults):
                            NOTE: organizational deployments force private.
   --allow-existing-dir     Boolean flag. Allow init into an existing directory
                            (otherwise: exit 1 if --project-dir already exists).
+  --no-remote-creation     Boolean flag. Skip the host_create_repo / push /
+                           branch-protection API calls. Project files are
+                           scaffolded and .claude/manifest.json is written
+                           with the host field. The remote can be added
+                           later with `scripts/check-gate.sh --repair`.
+                           Useful for UAT/CI runs that must NOT contaminate
+                           a real GitHub/GitLab/Bitbucket account.
 
 Mode flags:
   --non-interactive        Required to enable this mode. Without it, all input
@@ -2652,7 +2691,8 @@ JSON config schema (snake_case keys; all fields optional, missing → use flag/d
   "visibility": "private",
   "remote_url": null,
   "branch_protection_attested": false,
-  "allow_existing_dir": false
+  "allow_existing_dir": false,
+  "no_remote_creation": false
 }
 
 Examples:
@@ -2718,7 +2758,7 @@ collect_inputs_non_interactive() {
     fi
 
     # Warn on unknown fields (forward-compat per spec § 5.4).
-    local known_fields="project description platform track deployment gov_mode language project_dir git_host visibility remote_url branch_protection_attested allow_existing_dir"
+    local known_fields="project description platform track deployment gov_mode language project_dir git_host visibility remote_url branch_protection_attested allow_existing_dir no_remote_creation"
     local field
     for field in $(jq -r 'keys[]' "$CONFIG_FILE"); do
       if ! echo " $known_fields " | grep -q " $field "; then
@@ -2753,6 +2793,11 @@ collect_inputs_non_interactive() {
       local cfg_allow
       cfg_allow=$(cfg_get allow_existing_dir)
       [ "$cfg_allow" = "true" ] && ARG_ALLOW_EXISTING_DIR=true
+    fi
+    if [ "$ARG_NO_REMOTE_CREATION" != true ]; then
+      local cfg_no_remote
+      cfg_no_remote=$(cfg_get no_remote_creation)
+      [ "$cfg_no_remote" = "true" ] && ARG_NO_REMOTE_CREATION=true
     fi
   fi
 
@@ -3040,6 +3085,7 @@ collect_inputs_non_interactive() {
   REMOTE_URL="$ARG_REMOTE_URL"
   BRANCH_PROTECTION_ATTESTED="$ARG_BRANCH_PROTECTION_ATTESTED"
   ALLOW_EXISTING_DIR="$ARG_ALLOW_EXISTING_DIR"
+  NO_REMOTE_CREATION="$ARG_NO_REMOTE_CREATION"
 
   # The interactive language_prompt() sets TEST_INTERVAL=2 mid-flow; the
   # non-interactive driver bypasses that prompt, so set the same default
@@ -3064,6 +3110,7 @@ collect_inputs_non_interactive() {
       --arg remote_url "$REMOTE_URL" \
       --argjson attested "$([ "$BRANCH_PROTECTION_ATTESTED" = true ] && echo true || echo false)" \
       --argjson allow_dir "$([ "$ALLOW_EXISTING_DIR" = true ] && echo true || echo false)" \
+      --argjson no_remote "$([ "$NO_REMOTE_CREATION" = true ] && echo true || echo false)" \
       '{
         _validated: true,
         _resolved_at: $ts,
@@ -3079,7 +3126,8 @@ collect_inputs_non_interactive() {
         visibility: $visibility,
         remote_url: (if $remote_url == "" then null else $remote_url end),
         branch_protection_attested: $attested,
-        allow_existing_dir: $allow_dir
+        allow_existing_dir: $allow_dir,
+        no_remote_creation: $no_remote
       }'
   fi
   return 0
@@ -3150,6 +3198,8 @@ main() {
         ARG_BRANCH_PROTECTION_ATTESTED=true; shift ;;
       --allow-existing-dir)
         ARG_ALLOW_EXISTING_DIR=true; shift ;;
+      --no-remote-creation)
+        ARG_NO_REMOTE_CREATION=true; shift ;;
       --help-non-interactive)
         print_help_non_interactive
         exit 0 ;;
