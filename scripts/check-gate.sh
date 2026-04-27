@@ -23,13 +23,18 @@ source "$SCRIPT_DIR/lib/helpers.sh" 2>/dev/null || {
 
 usage() {
   cat <<'EOM'
-Usage: check-gate.sh <subcommand>
+Usage: check-gate.sh <subcommand> [--yes]
 
 Subcommands:
   --preflight       Dry-run: check current protection status without modifying anything.
                     Exits 0 if ready to cross Phase 1→2, non-zero if blocked.
   --repair          Re-run repo setup from last successful step (idempotent).
   --backfill-host   Infer host from git remote URL and write to manifest.
+
+Flags:
+  --yes, -y         Skip confirmation prompts (for non-interactive use,
+                    e.g. CI or scripted setup). Currently honored by
+                    --backfill-host.
 EOM
 }
 
@@ -75,7 +80,12 @@ cmd_backfill_host() {
   esac
   print_info "Inferred host '$inferred' from origin URL: $url"
   local yn
-  read -rp "Confirm this is correct? [y/N]: " yn
+  if [ "${ASSUME_YES:-0}" = "1" ]; then
+    yn="y"
+    print_info "Auto-confirmed via --yes."
+  else
+    read -rp "Confirm this is correct? [y/N]: " yn
+  fi
   case "$yn" in
     [yY]*)
       jq --arg h "$inferred" '.host = $h' .claude/manifest.json > .claude/manifest.json.tmp \
@@ -132,6 +142,16 @@ cmd_repair() {
   fi
   print_ok "Repair complete"
 }
+
+ASSUME_YES=0
+ARGS=()
+for arg in "$@"; do
+  case "$arg" in
+    --yes|-y) ASSUME_YES=1 ;;
+    *)        ARGS+=("$arg") ;;
+  esac
+done
+set -- ${ARGS[@]+"${ARGS[@]}"}
 
 case "${1:-}" in
   --preflight)     shift || true; cmd_preflight "$@" ;;
