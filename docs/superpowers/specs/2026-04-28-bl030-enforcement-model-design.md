@@ -142,7 +142,7 @@ Single artifact. Append-only. JSONL or JSON-array; choice deferred to BL-029 imp
 {
   "timestamp": "ISO-8601",
   "session_id": "string-or-null",
-  "type": "claude_bypass_proposal | terminal_commit_blocked | terminal_commit_passed | out_of_band_commit | enforcement_level_set | detector_error",
+  "type": "claude_bypass_proposal | terminal_commit_blocked | terminal_commit_passed | out_of_band_commit | enforcement_level_set | detector_error | escalation",
   "actor": "claude | user_terminal | user_terminal_inferred | framework",
   "enforcement_level_at_event": "no | light | strict",
   "details": { /* type-specific payload */ },
@@ -160,6 +160,7 @@ Single artifact. Append-only. JSONL or JSON-array; choice deferred to BL-029 imp
 | `detect-out-of-band-commits.sh` (light) | `user_terminal_inferred` | `out_of_band_commit` | SessionStart, commits found between checkpoint and HEAD that aren't in `claude-commits.jsonl` and aren't derivative | Only when `enforcement_level=light` |
 | `init.sh` / `reconfigure-project.sh` | `framework` | `enforcement_level_set` | One row per init or reconfigure | Yes |
 | Detector self-error reporter | `framework` | `detector_error` | Detector failed to read state, parse, or write | Yes — never silent |
+| `escalate-to-user` CLI (BL-029) | `framework` | `escalation` | Claude calls the CLI to surface a structured pending-approval as an alternative to bypass-proposing | Yes — independent of `enforcement_level` |
 
 The `actor` and `type` discriminators give a successor-pickup operator (`jq` over the file) the project's complete governance history at a glance.
 
