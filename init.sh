@@ -1088,6 +1088,13 @@ create_project() {
   cp "$SCRIPT_DIR/scripts/process-checklist.sh" scripts/
   cp "$SCRIPT_DIR/scripts/pre-commit-gate.sh" scripts/
   cp "$SCRIPT_DIR/scripts/track-tool-usage.sh" scripts/
+  # BL-029: bypass-detector + escalate-to-user CLI + libs.
+  mkdir -p scripts/hooks scripts/lib
+  cp "$SCRIPT_DIR/scripts/hooks/bypass-detector.sh" scripts/hooks/
+  cp "$SCRIPT_DIR/scripts/escalate-to-user.sh"       scripts/
+  cp "$SCRIPT_DIR/scripts/lib/bypass-audit.sh"       scripts/lib/
+  cp "$SCRIPT_DIR/scripts/lib/bypass-patterns.sh"    scripts/lib/
+  chmod +x scripts/hooks/bypass-detector.sh scripts/escalate-to-user.sh
   cp "$SCRIPT_DIR/scripts/pending-approval.sh" scripts/      # BL-015
   cp "$SCRIPT_DIR/scripts/lint-uat-scenarios.sh" scripts/    # BL-009
   chmod +x scripts/validate.sh scripts/check-phase-gate.sh scripts/check-updates.sh scripts/resume.sh scripts/intake-wizard.sh scripts/resolve-tools.sh scripts/upgrade-project.sh scripts/reconfigure-project.sh scripts/verify-install.sh scripts/test-gate.sh scripts/check-versions.sh scripts/session-version-check.sh scripts/session-test-gate-check.sh scripts/session-end-qdrant-reminder.sh scripts/process-checklist.sh scripts/pre-commit-gate.sh scripts/track-tool-usage.sh scripts/pending-approval.sh scripts/lint-uat-scenarios.sh
@@ -1508,8 +1515,24 @@ PERMEOF
           hooks_added=true
         fi
 
+        # BL-029: bypass-detector PostToolUse + Stop. Always-on, regardless
+        # of enforcement_level — Claude-side audit channel is non-configurable.
+        if ! jq -e '.hooks.PostToolUse[0].hooks[] | select(.command | contains("bypass-detector.sh"))' .claude/settings.json >/dev/null 2>&1; then
+          jq '.hooks.PostToolUse[0].hooks += [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/hooks/bypass-detector.sh"}]' .claude/settings.json > .claude/settings.json.tmp \
+            && mv .claude/settings.json.tmp .claude/settings.json
+          hooks_added=true
+        fi
+        if ! jq -e '.hooks.Stop[0].hooks[]? | select(.command | contains("bypass-detector.sh"))' .claude/settings.json >/dev/null 2>&1; then
+          jq 'if (.hooks.Stop // []) | length == 0
+              then .hooks.Stop = [{"hooks":[{"type":"command","command":"bash \"$CLAUDE_PROJECT_DIR\"/scripts/hooks/bypass-detector.sh"}]}]
+              else .hooks.Stop[0].hooks += [{"type":"command","command":"bash \"$CLAUDE_PROJECT_DIR\"/scripts/hooks/bypass-detector.sh"}]
+              end' .claude/settings.json > .claude/settings.json.tmp \
+            && mv .claude/settings.json.tmp .claude/settings.json
+          hooks_added=true
+        fi
+
         if [ "$hooks_added" = true ]; then
-          print_ok "Session hooks installed (version check, test gate, MCP gate, Qdrant reminder, commit gate, tool tracking)"
+          print_ok "Session hooks installed (version check, test gate, MCP gate, Qdrant reminder, commit gate, tool tracking, bypass detector)"
         fi
       fi
     fi
