@@ -90,4 +90,25 @@ ROW=$(jq -nc \
 
 bypass_audit_append "$PROJECT_ROOT" "$ROW" || true
 
+# BL-029: write pending-approval sentinel iff one isn't already pending.
+# Forces non-trivial confirmation phrase to accept (defends against generic
+# 'OK' / 'yes' / 'proceed' acceptance, per agent-5 spec).
+SENTINEL="$PROJECT_ROOT/.claude/pending-approval.json"
+if [ ! -f "$SENTINEL" ]; then
+  CONFIRM_PHRASE="I have read the proposal at .claude/bypass-audit.json and accept the bypass"
+  jq -nc \
+    --arg q "Bypass proposal detected (pattern: $PATTERN). Review .claude/bypass-audit.json. To accept, type the confirmation phrase verbatim. To decline, just say 'decline' or describe what you want instead." \
+    --arg phrase "$CONFIRM_PHRASE" \
+    --arg ts "$TS" \
+    '{
+      question: ($q + "\n\nConfirmation phrase: " + $phrase),
+      options: [
+        ("A1: " + $phrase),
+        "A2: decline"
+      ],
+      recommendation: "A2",
+      offered_at: $ts
+    }' > "$SENTINEL"
+fi
+
 exit 0
