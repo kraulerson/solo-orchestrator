@@ -135,6 +135,54 @@ EOF
 fi
 teardown
 
+# T10 (S1 fix): multi-pattern proposal writes ONE ROW PER MATCHED PATTERN.
+# Calibration replay 2026-04-29 found scan_bypass_patterns short-circuited on
+# first match, silently dropping refuse_to_recommend severity rows when an
+# earlier-table normal-severity pattern matched first. Detector now writes
+# one row per matched pattern.
+echo "T10: multi-pattern proposal writes one row per match"
+setup
+if [ ! -f "$HOOK" ]; then fail_ "T10" "hook missing"; else
+  CLAUDE_PROJECT_DIR="$TMP" cat <<'EOF' | CLAUDE_PROJECT_DIR="$TMP" bash "$HOOK" >/dev/null 2>&1
+{"hook_event_name":"PostToolUse","tool_input":{"command":"x"},"tool_result":{"output":"option 1: use --no-verify; option 2: set SOIF_FORCE_STEP=build_loop:tests_written; option 3: I'll mark step build_loop:tests_verified_failing complete"}}
+EOF
+  rows=$(jq '[.[] | select(.type=="claude_bypass_proposal")] | length' "$TMP/.claude/bypass-audit.json")
+  patterns=$(jq -r '[.[].details.pattern] | sort | unique | join(",")' "$TMP/.claude/bypass-audit.json")
+  if [ "$rows" -ge "3" ] && echo "$patterns" | grep -q "fake_loop" && echo "$patterns" | grep -q "no_verify" && echo "$patterns" | grep -q "soif_force_step"; then
+    pass "T10"
+  else
+    fail_ "T10" "rows=$rows patterns=$patterns"
+  fi
+fi
+teardown
+
+# T11: refuse_to_recommend severity is preserved even when no_verify matched first.
+echo "T11: refuse_to_recommend not masked by earlier normal-severity match"
+setup
+if [ ! -f "$HOOK" ]; then fail_ "T11" "hook missing"; else
+  CLAUDE_PROJECT_DIR="$TMP" cat <<'EOF' | CLAUDE_PROJECT_DIR="$TMP" bash "$HOOK" >/dev/null 2>&1
+{"hook_event_name":"PostToolUse","tool_input":{"command":"x"},"tool_result":{"output":"--no-verify works, or I'll just mark step build_loop:tests_verified_failing complete"}}
+EOF
+  refuse_rows=$(jq '[.[] | select(.details.severity=="refuse_to_recommend")] | length' "$TMP/.claude/bypass-audit.json")
+  if [ "$refuse_rows" -ge "1" ]; then pass "T11"; else fail_ "T11" "no refuse_to_recommend row written"; fi
+fi
+teardown
+
+# T12: sentinel is still written exactly once on multi-pattern match (idempotent).
+echo "T12: sentinel written once on multi-pattern proposal"
+setup
+if [ ! -f "$HOOK" ]; then fail_ "T12" "hook missing"; else
+  CLAUDE_PROJECT_DIR="$TMP" cat <<'EOF' | CLAUDE_PROJECT_DIR="$TMP" bash "$HOOK" >/dev/null 2>&1
+{"hook_event_name":"PostToolUse","tool_input":{"command":"x"},"tool_result":{"output":"--no-verify or SOIF_FORCE_STEP=foo or git push --force-with-lease"}}
+EOF
+  if [ -f "$TMP/.claude/pending-approval.json" ] && jq -e '.question' "$TMP/.claude/pending-approval.json" >/dev/null 2>&1; then
+    pass "T12"
+  else
+    fail_ "T12" "sentinel missing or malformed"
+  fi
+fi
+teardown
+
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]
