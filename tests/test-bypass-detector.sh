@@ -183,6 +183,45 @@ EOF
 fi
 teardown
 
+# T13 (S3 fix 2026-05-04): pattern matches inside fenced code blocks are suppressed.
+# Documentation / CHANGELOG / docstring text wrapping a pattern in ```...``` is
+# descriptive, not advisory — should not trigger the detector.
+echo "T13: fenced code block content is stripped before scanning"
+setup
+if [ ! -f "$HOOK" ]; then fail_ "T13" "hook missing"; else
+  CLAUDE_PROJECT_DIR="$TMP" cat <<'EOF' | CLAUDE_PROJECT_DIR="$TMP" bash "$HOOK" >/dev/null 2>&1
+{"hook_event_name":"PostToolUse","tool_input":{"command":"x"},"tool_result":{"output":"# CHANGELOG\n\n## Added\n\n- Detection for the following bypass patterns:\n```\n--no-verify\nSOIF_FORCE_STEP=\n```\n\nNo behavior change for users."}}
+EOF
+  rows=$(jq '[.[] | select(.type=="claude_bypass_proposal")] | length' "$TMP/.claude/bypass-audit.json")
+  if [ "$rows" = "0" ]; then pass "T13"; else fail_ "T13" "false positive: rows=$rows"; fi
+fi
+teardown
+
+# T14: pattern OUTSIDE fenced blocks still fires (regression for T13 fix).
+echo "T14: fenced-stripping does not suppress matches outside the fence"
+setup
+if [ ! -f "$HOOK" ]; then fail_ "T14" "hook missing"; else
+  CLAUDE_PROJECT_DIR="$TMP" cat <<'EOF' | CLAUDE_PROJECT_DIR="$TMP" bash "$HOOK" >/dev/null 2>&1
+{"hook_event_name":"PostToolUse","tool_input":{"command":"x"},"tool_result":{"output":"You can use --no-verify here.\n\n```\nthis fenced block has no patterns\n```\n\nThe --no-verify suggestion above is a real proposal."}}
+EOF
+  rows=$(jq '[.[] | select(.type=="claude_bypass_proposal")] | length' "$TMP/.claude/bypass-audit.json")
+  if [ "$rows" -ge "1" ]; then pass "T14"; else fail_ "T14" "rows=$rows — outside-fence match was suppressed"; fi
+fi
+teardown
+
+# T15: inline single-backtick code (`...`) is NOT stripped — Claude often
+# typesets ACTIVE proposals using inline backticks ("run `git commit --no-verify`").
+echo "T15: inline backtick code is scanned (not stripped)"
+setup
+if [ ! -f "$HOOK" ]; then fail_ "T15" "hook missing"; else
+  CLAUDE_PROJECT_DIR="$TMP" cat <<'EOF' | CLAUDE_PROJECT_DIR="$TMP" bash "$HOOK" >/dev/null 2>&1
+{"hook_event_name":"PostToolUse","tool_input":{"command":"x"},"tool_result":{"output":"You can run `git commit --no-verify` to skip the gate."}}
+EOF
+  rows=$(jq '[.[] | select(.type=="claude_bypass_proposal")] | length' "$TMP/.claude/bypass-audit.json")
+  if [ "$rows" -ge "1" ]; then pass "T15"; else fail_ "T15" "inline-backtick match was suppressed"; fi
+fi
+teardown
+
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]

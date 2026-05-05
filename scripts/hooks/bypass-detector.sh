@@ -55,6 +55,21 @@ esac
 
 [ -z "$TEXT" ] && exit 0
 
+# BL-029.1 fix S3 (2026-05-04): strip fenced code blocks before scanning.
+# Documentation / CHANGELOG / docstring text wrapping a bypass pattern in
+# ```...``` is descriptive, not advisory — earlier behavior false-positived
+# on changelog entries that named the patterns. Inline backtick code
+# (`--no-verify`) is preserved because Claude typesets active proposals
+# with inline backticks too. This handles the common doc-FP class without
+# suppressing legitimate proposals.
+TEXT=$(printf '%s\n' "$TEXT" | awk '
+  BEGIN { in_fence = 0 }
+  /^[[:space:]]*```/ { in_fence = !in_fence; next }
+  !in_fence { print }
+')
+
+[ -z "$TEXT" ] && exit 0
+
 # BL-029 + 2026-04-29 calibration fix S1: scan for ALL matched patterns
 # and emit one audit row per match. Without this, an earlier-table
 # normal-severity pattern silently masked refuse_to_recommend severity
