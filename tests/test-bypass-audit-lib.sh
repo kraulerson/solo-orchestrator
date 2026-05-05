@@ -96,6 +96,67 @@ setup_lib_or_skip "T6" && {
 }
 teardown
 
+# ---- S4 fix (2026-05-04): audit-row closer ----
+
+# T7: bypass_audit_close_pending with decision=accept updates PENDING rows.
+echo "T7: close_pending accept updates user_response/final_outcome"
+setup
+setup_lib_or_skip "T7" && {
+  bypass_audit_init "$TMP"
+  bypass_audit_append "$TMP" '{"type":"claude_bypass_proposal","actor":"claude","timestamp":"x","enforcement_level_at_event":"strict","details":{"pattern":"no_verify"},"user_response":"PENDING","final_outcome":"recorded_only"}'
+  bypass_audit_append "$TMP" '{"type":"claude_bypass_proposal","actor":"claude","timestamp":"y","enforcement_level_at_event":"strict","details":{"pattern":"fake_loop"},"user_response":"PENDING","final_outcome":"recorded_only"}'
+  bypass_audit_close_pending "$TMP" "accept"
+  pending=$(bypass_audit_count_pending "$TMP")
+  accepted=$(jq '[.[] | select(.user_response=="accepted")] | length' "$TMP/.claude/bypass-audit.json")
+  bypassed=$(jq '[.[] | select(.final_outcome=="bypassed")] | length' "$TMP/.claude/bypass-audit.json")
+  if [ "$pending" = "0" ] && [ "$accepted" = "2" ] && [ "$bypassed" = "2" ]; then
+    pass "T7"
+  else
+    fail_ "T7" "pending=$pending accepted=$accepted bypassed=$bypassed"
+  fi
+}
+teardown
+
+# T8: bypass_audit_close_pending with decision=decline updates rows.
+echo "T8: close_pending decline updates user_response/final_outcome"
+setup
+setup_lib_or_skip "T8" && {
+  bypass_audit_init "$TMP"
+  bypass_audit_append "$TMP" '{"type":"claude_bypass_proposal","actor":"claude","timestamp":"x","enforcement_level_at_event":"strict","details":{},"user_response":"PENDING","final_outcome":"recorded_only"}'
+  bypass_audit_close_pending "$TMP" "decline"
+  declined=$(jq '[.[] | select(.user_response=="declined")] | length' "$TMP/.claude/bypass-audit.json")
+  abandoned=$(jq '[.[] | select(.final_outcome=="abandoned")] | length' "$TMP/.claude/bypass-audit.json")
+  if [ "$declined" = "1" ] && [ "$abandoned" = "1" ]; then pass "T8"; else fail_ "T8" "declined=$declined abandoned=$abandoned"; fi
+}
+teardown
+
+# T9: close_pending preserves already-resolved rows (won't clobber accepted=>declined).
+echo "T9: close_pending only updates PENDING rows"
+setup
+setup_lib_or_skip "T9" && {
+  bypass_audit_init "$TMP"
+  bypass_audit_append "$TMP" '{"type":"claude_bypass_proposal","actor":"claude","timestamp":"x","enforcement_level_at_event":"strict","details":{},"user_response":"accepted","final_outcome":"committed"}'
+  bypass_audit_append "$TMP" '{"type":"claude_bypass_proposal","actor":"claude","timestamp":"y","enforcement_level_at_event":"strict","details":{},"user_response":"PENDING","final_outcome":"recorded_only"}'
+  bypass_audit_close_pending "$TMP" "decline"
+  accepted=$(jq '[.[] | select(.user_response=="accepted")] | length' "$TMP/.claude/bypass-audit.json")
+  declined=$(jq '[.[] | select(.user_response=="declined")] | length' "$TMP/.claude/bypass-audit.json")
+  if [ "$accepted" = "1" ] && [ "$declined" = "1" ]; then pass "T9"; else fail_ "T9" "accepted=$accepted declined=$declined"; fi
+}
+teardown
+
+# T10: close_pending rejects unknown decision values.
+echo "T10: close_pending rejects unknown decision"
+setup
+setup_lib_or_skip "T10" && {
+  bypass_audit_init "$TMP"
+  if bypass_audit_close_pending "$TMP" "maybe" 2>/dev/null; then
+    fail_ "T10" "expected non-zero return"
+  else
+    pass "T10"
+  fi
+}
+teardown
+
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]

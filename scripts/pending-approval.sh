@@ -153,7 +153,15 @@ cmd_offer() {
 # --- Subcommand: --resolve ---
 
 cmd_resolve() {
-  local project_root
+  local project_root decision=""
+  # Parse optional --decision <accept|decline>.
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --decision) decision="${2:-}"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+
   project_root=$(find_project_root) || {
     print_fail "Not in a Solo project — no .claude/ directory found in \$PWD or any parent."
     return 1
@@ -164,7 +172,26 @@ cmd_resolve() {
     rm -f "$sentinel"
     print_ok "Pending approval resolved."
   else
-    print_ok "No pending approval."
+    print_info "No pending approval."
+  fi
+
+  # BL-029.1 S4 (2026-05-04): if a decision was provided, close any
+  # PENDING claude_bypass_proposal rows in the audit log to match.
+  # Without this, audit rows stay PENDING forever and the W7 successor-
+  # handoff use case (audit log as historical governance record) is
+  # half-built.
+  if [ -n "$decision" ]; then
+    local lib="$SCRIPT_DIR/lib/bypass-audit.sh"
+    if [ -f "$lib" ]; then
+      # shellcheck disable=SC1090
+      source "$lib"
+      if bypass_audit_close_pending "$project_root" "$decision" 2>&1; then
+        print_ok "Audit log closed: pending bypass rows marked $decision."
+      else
+        print_fail "Audit log close failed (decision='$decision')."
+        return 1
+      fi
+    fi
   fi
 }
 
@@ -282,7 +309,10 @@ Commands:
   --offer "QUESTION" --options "A1: ..." "A2: ..." ... --recommendation "A1"
                                   Write a pending-approval sentinel.
                                   Refuses if one already exists.
-  --resolve                       Delete the sentinel (user picked an option).
+  --resolve [--decision X]        Delete the sentinel (user picked an option).
+                                  Optional: --decision accept|decline closes
+                                  any PENDING claude_bypass_proposal rows in
+                                  .claude/bypass-audit.json to match (BL-029.1).
   --clear                         Delete the sentinel (agent abort, semantic alias).
   --status                        Print the current pending question, if any.
   --validate [PATH]               Lint a sentinel file. Default: .claude/pending-approval.json.
@@ -300,7 +330,7 @@ HELP
 
 case "${1:-}" in
   --offer)    shift; cmd_offer "$@" ;;
-  --resolve)  shift; cmd_resolve ;;
+  --resolve)  shift; cmd_resolve "$@" ;;
   --clear)    shift; cmd_clear ;;
   --status)   shift; cmd_status ;;
   --validate) shift; cmd_validate "${1:-}" ;;

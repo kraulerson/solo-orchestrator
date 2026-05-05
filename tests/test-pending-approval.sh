@@ -240,6 +240,80 @@ p15_validate_malformed
 p16_help
 p17_atomic_write_code_shape
 
+# ---- BL-029.1 S4 (2026-05-04): --resolve --decision closes audit rows ----
+
+p18_resolve_decision_accept_closes_audit_rows() {
+  echo "[TEST] --resolve --decision accept updates PENDING bypass rows to accepted/bypassed"
+  setup_project
+  # Seed an audit log with a PENDING row + a sentinel.
+  echo '[{"timestamp":"x","session_id":null,"type":"claude_bypass_proposal","actor":"claude","enforcement_level_at_event":"strict","details":{"pattern":"no_verify"},"user_response":"PENDING","final_outcome":"recorded_only"}]' > "$TMPDIR_T/.claude/bypass-audit.json"
+  echo '{"question":"q","options":["A1: x","A2: y"],"recommendation":"A2","offered_at":"x"}' > "$TMPDIR_T/.claude/pending-approval.json"
+
+  run_in_project --resolve --decision accept >/dev/null
+
+  user_resp=$(jq -r '.[0].user_response' "$TMPDIR_T/.claude/bypass-audit.json")
+  final_out=$(jq -r '.[0].final_outcome' "$TMPDIR_T/.claude/bypass-audit.json")
+  if [ "$user_resp" = "accepted" ] && [ "$final_out" = "bypassed" ]; then
+    pass "p18 accept closes row"
+  else
+    fail_ "p18 accept closes row" "user_response=$user_resp final_outcome=$final_out"
+  fi
+  teardown_project
+}
+p18_resolve_decision_accept_closes_audit_rows
+
+p19_resolve_decision_decline_closes_audit_rows() {
+  echo "[TEST] --resolve --decision decline updates PENDING bypass rows to declined/abandoned"
+  setup_project
+  echo '[{"timestamp":"x","session_id":null,"type":"claude_bypass_proposal","actor":"claude","enforcement_level_at_event":"strict","details":{"pattern":"fake_loop"},"user_response":"PENDING","final_outcome":"recorded_only"}]' > "$TMPDIR_T/.claude/bypass-audit.json"
+  echo '{"question":"q","options":["A1: x","A2: y"],"recommendation":"A2","offered_at":"x"}' > "$TMPDIR_T/.claude/pending-approval.json"
+
+  run_in_project --resolve --decision decline >/dev/null
+
+  user_resp=$(jq -r '.[0].user_response' "$TMPDIR_T/.claude/bypass-audit.json")
+  final_out=$(jq -r '.[0].final_outcome' "$TMPDIR_T/.claude/bypass-audit.json")
+  if [ "$user_resp" = "declined" ] && [ "$final_out" = "abandoned" ]; then
+    pass "p19 decline closes row"
+  else
+    fail_ "p19 decline closes row" "user_response=$user_resp final_outcome=$final_out"
+  fi
+  teardown_project
+}
+p19_resolve_decision_decline_closes_audit_rows
+
+p20_resolve_without_decision_leaves_audit_alone() {
+  echo "[TEST] --resolve (no --decision) deletes sentinel but does NOT modify audit rows"
+  setup_project
+  echo '[{"timestamp":"x","session_id":null,"type":"claude_bypass_proposal","actor":"claude","enforcement_level_at_event":"strict","details":{},"user_response":"PENDING","final_outcome":"recorded_only"}]' > "$TMPDIR_T/.claude/bypass-audit.json"
+  echo '{"question":"q","options":["A1: x","A2: y"],"recommendation":"A2","offered_at":"x"}' > "$TMPDIR_T/.claude/pending-approval.json"
+
+  run_in_project --resolve >/dev/null
+
+  user_resp=$(jq -r '.[0].user_response' "$TMPDIR_T/.claude/bypass-audit.json")
+  if [ "$user_resp" = "PENDING" ] && [ ! -f "$TMPDIR_T/.claude/pending-approval.json" ]; then
+    pass "p20 backward compat (no --decision)"
+  else
+    fail_ "p20 backward compat" "user_response=$user_resp sentinel_still_present=$([ -f "$TMPDIR_T/.claude/pending-approval.json" ] && echo yes || echo no)"
+  fi
+  teardown_project
+}
+p20_resolve_without_decision_leaves_audit_alone
+
+p21_resolve_decision_unknown_fails() {
+  echo "[TEST] --resolve --decision <unknown> fails"
+  setup_project
+  echo '[]' > "$TMPDIR_T/.claude/bypass-audit.json"
+  echo '{"question":"q","options":["A1: x","A2: y"],"recommendation":"A2","offered_at":"x"}' > "$TMPDIR_T/.claude/pending-approval.json"
+
+  out=$(run_in_project --resolve --decision maybe 2>&1 || true)
+  case "$out" in
+    *FAIL*|*"unknown decision"*) pass "p21 unknown decision fails" ;;
+    *) fail_ "p21 unknown decision fails" "got '$out'" ;;
+  esac
+  teardown_project
+}
+p21_resolve_decision_unknown_fails
+
 echo ""
 echo "== Total: $((PASSED + FAILED)) | Passed: $PASSED | Failed: $FAILED =="
 [ "$FAILED" -eq 0 ] && exit 0 || exit 1
