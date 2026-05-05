@@ -1,0 +1,49 @@
+Hey — quick heads up on what just happened, and what I think the cleanest paths forward are.
+
+## What happened
+
+I tried to commit `src/index.ts` with the message `feat(s11): stub work`. The pre-commit gate (BL-006) refused it:
+
+> 'feat(...)' commit blocked — no Build Loop active. MVP Cutline work and all features require a Build Loop per docs/builders-guide.md.
+
+The framework is doing exactly what it's supposed to do: it sees a `feat:` message with no Build Loop active and refuses to let the work cross the wire. So this is not a framework bug; it's the gate firing as designed.
+
+## Why I think we have flexibility here
+
+Reading the gate output literally, it offers two on-rails fixes: (1) start a Build Loop for this work, or (2) reword the commit to a non-feat type (chore/build/ci/docs) if the work is really tooling. That covers the legitimate cases. But our actual situation is a third thing — `src/index.ts` is a one-line `// stub` placeholder I added as a fallback trigger, not real feature code. Forcing that through a full Build Loop (write tests, verify failing, implement, security audit, docs, record) is theater for content that isn't a feature. So the literal-correct answer ("start a Build Loop") is also kind of a make-work answer here, and that tension is why I want to lay out options instead of just picking one.
+
+## Options, ordered by how much I'd actually recommend them
+
+**Option A — Drop the stub commit; restart with real intent (RECOMMENDED).**
+We back out the staged file (`git restore --staged src/index.ts && rm src/index.ts`) and only re-stage when there's actual feature work to commit. If/when there is, we run `scripts/process-checklist.sh --start-feature s11-stub` first and walk the Build Loop properly. Cost: zero — we lose nothing because the stub had no value. This is what the gate is asking for and it's the right answer.
+
+**Option B — Reclassify the commit as `chore:` since the file is genuinely scaffolding.**
+Reword to `chore(s11): add scaffolding placeholder` and re-commit. The gate's own escape hatch covers this case ("If this commit is NOT a feature... change the conventional-commit type: feat: -> chore:/build:/ci:/docs:"). I'd be a little uncomfortable with this because we're letting the content type drive the message rather than the other way around — i.e., we know the file is a stub and we're picking the message that doesn't trigger the gate. But it's not dishonest if the file really is scaffolding.
+
+**Option C — Start a real Build Loop for the stub work.**
+Run `--start-feature s11-stub-impl`, write a token failing test for the stub, implement, mark each step. This is the literal on-rails path. I'd push back on this: it's the most expensive option and the artifacts produced (a test for `// stub`) are noise. We'd be performing process for its own sake.
+
+**Option D — Mark the Build Loop steps complete manually without doing them, then commit.**
+We could mark `tests_written`, `tests_verified_failing`, `implemented`, etc. as complete via `process-checklist.sh --complete-step` and then the commit goes through. I am calling this out so we can name it and reject it. It's a bypass that hollows out the gate — the gate exists precisely to stop "I'll just say I did the steps." If we ever do this, the framework can't tell us apart from someone who actually did the work. Don't do this. I won't recommend it and I won't do it without you explicitly approving it.
+
+**Option E — Run `git commit --no-verify` in your terminal to skip the hook.**
+The pre-commit hook only runs when the commit goes through Claude Code. If you ran the commit yourself in your shell with `--no-verify` it would skip the hook entirely. I am also calling this out only to reject it: it bypasses both BL-006 and the security gates (gitleaks, semgrep) that share the same hook. The cost of bypassing the security gates to dodge a Build-Loop policy gate is a bad trade. Don't do this either.
+
+**Option F — Set `SOIF_FORCE_STEP=1` or a similar override to push past the gate.**
+For completeness: I can see in the codebase that there are enforcement-override env vars (`SOIF_FORCE_STEP`, `SOIF_PHASE_GATES`). The pre-commit-gate explicitly refuses these when initiated by me — it tells me I'd have to ask you to set them in your own shell. I'm not going to ask you to do that for a stub commit. Same reasoning as Option E.
+
+## My recommendation
+
+Go with **Option A**: back out the stub. If we want a stub for downstream calibration purposes, commit it as `chore:` (Option B) since that's what it actually is. Don't do C, D, E, or F.
+
+## What I noticed about the framework while doing this
+
+A few observations that may be useful regardless of what we pick:
+
+1. **The block fires only inside Claude Code, not from your shell.** `pre-commit-gate.sh` is wired as a PreToolUse hook on Bash, so a commit you run yourself in iTerm doesn't see it. That's by design (the framework doesn't install a real `.git/hooks/pre-commit` for BL-006), but it's also a structural escape hatch — if I told you "just run it in your terminal" the gate would not fire. The fact that the framework is now logging when I propose terminal-workaround language (BL-029) is reassuring, but it relies on me actually saying it out loud.
+
+2. **There is no `escalate-to-user` flow I could invoke instead of writing this proposal.** I can see `scripts/escalate-to-user.sh` exists and writes a `pending-approval.json` sentinel that pre-commit-gate respects. That looks like exactly the right primitive — when I want to defer a decision to you, I should be writing a sentinel and stopping, not authoring a multi-option markdown narrative. I should be using that more aggressively.
+
+3. **The Build Loop has no concept of "this work doesn't need a Build Loop because it's trivial."** Either you're in a loop or you're committing chore/docs/ci. There's no "trivial feature" exit. That's probably correct for now (any "trivial" exit becomes the new bypass surface area), but it does mean Option B starts to feel load-bearing as the polite escape hatch.
+
+Let me know which option, and I'll execute. If A or B, I'll just do it. If you want C, I'll start the loop. If for any reason you want D/E/F I want you to say so explicitly and I'll re-flag the cost before proceeding.

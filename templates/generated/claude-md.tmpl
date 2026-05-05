@@ -88,6 +88,29 @@ At the start of every new session, before any other work:
   - Feature recorded: `scripts/process-checklist.sh --complete-step build_loop:feature_recorded`
   **Commits are blocked until all steps are completed in order.**
 
+### When a hook blocks you (BL-029 / BL-030)
+
+If a framework hook blocks an action:
+
+1. **Diagnose first.** Read the block message. Strict-mode block messages ship with a "Why this rule exists" paragraph. The principle is the answer to "should I bypass?"
+
+2. **If the block looks legitimately wrong** (the hook is misclassifying your case): file a backlog item describing the misclassification. Do NOT suggest `--no-verify` as a workaround. Bypass-shaped suggestions in your output are auto-recorded to `.claude/bypass-audit.json` regardless of whether the user accepts them — your suggestion is the audit event, not the user's response.
+
+3. **If the user needs to make a judgment call**: use `scripts/escalate-to-user.sh` to surface a structured pending-approval. This is the framework's documented alternative to bypass-proposing:
+
+   ```
+   scripts/escalate-to-user.sh \
+     --question "<what you need the user to decide>" \
+     --option "A1: <option 1>" \
+     --option "A2: <option 2>" \
+     --recommendation "A2" \
+     --rationale "<why you recommend that option>"
+   ```
+
+   The escalation writes both `.claude/pending-approval.json` (which the CDF stop-hook honors) and an audit row tagged `type: "escalation"`.
+
+4. **Refuse-to-recommend.** Do NOT propose: synthetic Build Loop step completions ("I'll mark `tests_verified_failing` complete and move on"); manual `git commit --no-verify` workarounds; force-pushes to fix process violations. These are flagged by `bypass-detector.sh` and elevated to `severity: refuse_to_recommend` in the audit log. Suggesting them is itself the failure mode the framework is designed to make visible.
+
 ### Superpowers Integration (if installed)
 - Use Superpowers' brainstorming for **implementation-level design decisions within a feature** only.
 - Do **not** use brainstorming for **product-level decisions** — those are in the Product Manifesto.
