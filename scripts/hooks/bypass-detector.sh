@@ -112,15 +112,21 @@ done <<< "$PATTERNS"
 # Forces non-trivial confirmation phrase to accept (defends against generic
 # 'OK' / 'yes' / 'proceed' acceptance, per agent-5 spec). One sentinel
 # covers all matched patterns from this proposal.
+#
+# S5 fix (2026-05-04): the confirmation phrase is NO LONGER embedded in the
+# question text. Earlier behavior let Claude/user reading the sentinel
+# copy-paste the phrase out of compliance — defeating the defense. The
+# phrase remains in options[0] (structurally required for matching), and
+# the question instructs the user to read options[0] verbatim.
 SENTINEL="$PROJECT_ROOT/.claude/pending-approval.json"
 if [ ! -f "$SENTINEL" ]; then
   CONFIRM_PHRASE="I have read the proposal at .claude/bypass-audit.json and accept the bypass"
   jq -nc \
-    --arg q "Bypass proposal detected (pattern: $FIRST_PATTERN). Review .claude/bypass-audit.json. To accept, type the confirmation phrase verbatim. To decline, just say 'decline' or describe what you want instead." \
+    --arg q "Bypass proposal detected (pattern: $FIRST_PATTERN). Review .claude/bypass-audit.json before deciding. To accept, type option A1 verbatim. To decline, say 'decline' or describe what you want instead." \
     --arg phrase "$CONFIRM_PHRASE" \
     --arg ts "$TS" \
     '{
-      question: ($q + "\n\nConfirmation phrase: " + $phrase),
+      question: $q,
       options: [
         ("A1: " + $phrase),
         "A2: decline"

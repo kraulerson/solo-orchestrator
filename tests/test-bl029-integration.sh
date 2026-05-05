@@ -36,12 +36,14 @@ EOF
 rows=$(jq '[.[] | select(.type=="claude_bypass_proposal")] | length' "$PROJ/.claude/bypass-audit.json")
 if [ "$rows" = "1" ]; then pass "T2: claude_bypass_proposal row"; else fail_ "T2" "rows=$rows"; fi
 
-# T3: pending-approval sentinel was written by the detector.
+# T3 (S5 fix 2026-05-04): pending-approval sentinel written; confirmation phrase
+# lives in options[0] only, NOT in question (defeats novice-priming risk).
 if [ -f "$PROJ/.claude/pending-approval.json" ] && \
-   jq -e '.question | contains("I have read the proposal")' "$PROJ/.claude/pending-approval.json" >/dev/null 2>&1; then
-  pass "T3: sentinel + confirmation phrase"
+   jq -e '.options[0] | contains("I have read the proposal")' "$PROJ/.claude/pending-approval.json" >/dev/null 2>&1 && \
+   ! jq -e '.question | contains("I have read the proposal")' "$PROJ/.claude/pending-approval.json" >/dev/null 2>&1; then
+  pass "T3: phrase in options[0] only, not in question"
 else
-  fail_ "T3" "sentinel missing or malformed"
+  fail_ "T3" "sentinel missing, malformed, or phrase leaked into question"
 fi
 
 # T4: escalate-to-user CLI works end-to-end (init a fresh git repo for it).
