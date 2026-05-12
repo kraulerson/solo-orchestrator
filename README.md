@@ -354,6 +354,10 @@ This separation means adding support for a new platform requires five components
 
 **Extensibility example:** To add "Azure Microservices" as a platform, write `docs/platform-modules/azure-microservices.md` (architecture guidance), `evaluation-prompts/Projects/modules/azure-microservices.md` (six-reviewer evaluation criteria), `templates/pipelines/release/azure-microservices.yml` (with `__PLACEHOLDER__` tokens for language injection), and optionally `templates/intake-suggestions/azure-microservices.json` (context-aware suggestions). Then update the `platforms=` marker on line 1 of each relevant CI template in `templates/pipelines/ci/` to include the new platform name. The init script auto-discovers available platforms from the `docs/platform-modules/` and `templates/pipelines/release/` directories and auto-discovers available languages from `templates/pipelines/ci/`. No code changes to the init script are needed — new platforms and languages appear as options automatically. See the [Extending Platforms Guide](docs/extending-platforms.md) for the full process.
 
+Work example:
+
+https://github.com/kraulerson/solo-orchestrator-example-project
+
 ---
 
 ## Platform Support
