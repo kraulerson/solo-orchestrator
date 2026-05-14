@@ -33,8 +33,13 @@ EOF
 fi
 teardown
 
-# T2: sentinel question contains the required confirmation phrase.
-echo "T2: sentinel embeds confirmation phrase"
+# T2 (S5 fix 2026-05-04): sentinel question does NOT embed the confirmation
+# phrase verbatim. Earlier behavior leaked the phrase into the question text,
+# which let Claude/user reading the sentinel copy-paste the phrase out of
+# compliance — defeating the "non-trivial confirmation" defense. The phrase
+# still lives in options[0] (structurally required for matching) but the
+# question text uses a generic pointer.
+echo "T2: sentinel question does NOT embed the confirmation phrase"
 setup
 if [ ! -f "$HOOK" ]; then fail_ "T2" "hook missing"; else
   CLAUDE_PROJECT_DIR="$TMP" cat <<EOF | CLAUDE_PROJECT_DIR="$TMP" bash "$HOOK" >/dev/null 2>&1
@@ -42,9 +47,25 @@ if [ ! -f "$HOOK" ]; then fail_ "T2" "hook missing"; else
 EOF
   q=$(jq -r '.question' "$TMP/.claude/pending-approval.json")
   if echo "$q" | grep -q "I have read the proposal at .claude/bypass-audit.json and accept the bypass"; then
-    pass "T2"
+    fail_ "T2" "phrase still in question — priming risk: $q"
   else
-    fail_ "T2" "phrase missing from question: $q"
+    pass "T2"
+  fi
+fi
+teardown
+
+# T2b (S5 fix): confirmation phrase IS preserved in options[0].
+echo "T2b: confirmation phrase is in options[0]"
+setup
+if [ ! -f "$HOOK" ]; then fail_ "T2b" "hook missing"; else
+  CLAUDE_PROJECT_DIR="$TMP" cat <<EOF | CLAUDE_PROJECT_DIR="$TMP" bash "$HOOK" >/dev/null 2>&1
+{"hook_event_name":"PostToolUse","tool_input":{"command":"x"},"tool_result":{"output":"--no-verify path"}}
+EOF
+  opt0=$(jq -r '.options[0]' "$TMP/.claude/pending-approval.json")
+  if echo "$opt0" | grep -q "I have read the proposal at .claude/bypass-audit.json and accept the bypass"; then
+    pass "T2b"
+  else
+    fail_ "T2b" "phrase missing from options[0]: $opt0"
   fi
 fi
 teardown

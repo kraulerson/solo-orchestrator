@@ -121,3 +121,26 @@ Estimated time for the subset: 30-60 minutes (regex edits + new tests + verify).
 Full regression: **22/22 PASS** including new T10/T11/T12 detector tests and T10–T18 pattern tests.
 
 Recalibration recommended after the next major UAT sweep. Specific phrasings that fired the relaxations are documented in this TRIAGE — future calibrations should at minimum re-fire them as regression coverage.
+
+## Resolution — BL-029.1 follow-ups (2026-05-04)
+
+The three deferred items shipped on `feature/bl-029-1-followups`.
+
+**S5 fixed** in commit `879d4f5` (`fix(bl-029.1): S5 — remove confirmation phrase from sentinel question text`).
+- `scripts/hooks/bypass-detector.sh` no longer embeds the confirmation phrase in the sentinel's `question` field. Phrase remains in `options[0]` (structurally required for matching). Question now reads "type option A1 verbatim" — directs the user to read options without leaking the phrase into the question itself.
+- `tests/test-bypass-sentinel.sh` T2 assertion flipped (phrase MUST NOT be in question); new T2b locks in that the phrase IS still in options[0]. Integration T3 updated similarly.
+- Residual priming risk: if Claude reads BOTH question and options aloud to the user, the phrase still surfaces. Full mitigation would require not embedding the phrase in JSON at all — out of scope, future work.
+
+**S3 fixed** in commit `e21eac0` (`fix(bl-029.1): S3 — suppress matches inside fenced code blocks`).
+- Detector pre-processes input through `awk` that strips lines between ```` ``` ```` fences before scanning. CHANGELOGs / docstrings / comments wrapping a pattern in a fenced block are descriptive, not advisory — no longer trigger audit rows.
+- Inline single-backtick code (`` `--no-verify` ``) is preserved because Claude typesets active proposals with inline backticks too.
+- Tests T13 (fenced suppressed), T14 (outside-fence still fires), T15 (inline backtick still fires).
+
+**S4 fixed** in commit `7dbed62` (`feat(bl-029.1): S4 — audit-row closer via pending-approval.sh --resolve --decision`).
+- New `bypass_audit_close_pending(<root>, <decision>)` library function in `scripts/lib/bypass-audit.sh`. `decision ∈ {accept, decline}`. Holds the same mkdir lock the append path uses. Idempotent — leaves already-resolved rows alone.
+- `scripts/pending-approval.sh --resolve` gains an optional `--decision` flag. When provided, calls `bypass_audit_close_pending` after deleting the sentinel. Backward compatible.
+- Decision mapping: `accept` → `user_response=accepted, final_outcome=bypassed`; `decline` → `user_response=declined, final_outcome=abandoned`.
+- Tests: 4 new in `test-bypass-audit-lib.sh` (T7-T10) + 4 in `test-pending-approval.sh` (p18-p21).
+- Implicit-abandon detection (sentinel disappears without `--decision`) **deferred** — needs a SessionStart safety-net hook and a wider conversation about inferring decline-by-default. The explicit-decision path covers the load-bearing case.
+
+Full regression after BL-029.1: **22/22 PASS**.
