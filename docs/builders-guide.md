@@ -838,6 +838,16 @@ If the Superpowers plugin is installed (see CLI Setup Addendum, Section 1), it s
 
 **Without Superpowers:** The Build Loop below works as written — the agent executes sequentially with the Orchestrator directing each step. Superpowers is recommended but not required.
 
+### Vendored Skills (`.claude/skills/`)
+
+Every project initialized by `init.sh` receives a `.claude/skills/` directory containing project-scoped Claude Code skills the framework ships out of the box. Skills installed here activate at the project level alongside any user-level skills the Orchestrator has installed (Superpowers, mattpocock/skills, etc.).
+
+| Skill | Purpose | Source |
+|---|---|---|
+| `session-handoff` | Compact the current conversation into a session-boundary handoff document at `docs/handoffs/YYYY-MM-DD-<topic>.md`. Use before a hard context break, machine reboot, or operator change. Distinct from Solo's Phase 4 production `HANDOFF.md`. | Adapted from [mattpocock/skills](https://github.com/mattpocock/skills) (MIT) — see `.claude/skills/session-handoff/NOTICE`. |
+
+Each vendored skill ships with a `NOTICE` file preserving the upstream author's copyright and documenting the adaptations made for Solo Orchestrator. Upstream updates are not automatic; vendored skills are versioned with the framework.
+
 ### Using a Different AI Coding Agent
 
 The Builder's Guide methodology (phases, decision gates, Build Loop, test-first) works with any AI coding agent that can read files, write code, and run commands. Superpowers and the CLI Setup Addendum are optimized for Claude Code but are not required. If using a different agent:

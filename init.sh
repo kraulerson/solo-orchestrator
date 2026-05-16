@@ -1154,6 +1154,20 @@ create_project() {
   cp "$SCRIPT_DIR/templates/generated/bugs.tmpl" templates/generated/
   cp "$SCRIPT_DIR/templates/generated/release-notes.tmpl" templates/generated/
 
+  # Install vendored skills (project-level, .claude/skills/<name>/).
+  # Skills are markdown SKILL.md files with NOTICE-attribution preserved.
+  # Adding a new skill: drop it under templates/generated/skills/<name>/
+  # and append a line to the loop below.
+  mkdir -p .claude/skills
+  for skill in session-handoff; do
+    if [ -d "$SCRIPT_DIR/templates/generated/skills/$skill" ]; then
+      mkdir -p ".claude/skills/$skill"
+      cp "$SCRIPT_DIR/templates/generated/skills/$skill/SKILL.md" ".claude/skills/$skill/"
+      [ -f "$SCRIPT_DIR/templates/generated/skills/$skill/NOTICE" ] \
+        && cp "$SCRIPT_DIR/templates/generated/skills/$skill/NOTICE" ".claude/skills/$skill/"
+    fi
+  done
+
   # Copy starter files from templates (empty until agent populates)
   cp "$SCRIPT_DIR/templates/generated/features.tmpl" FEATURES.md
   cp "$SCRIPT_DIR/templates/generated/changelog.tmpl" CHANGELOG.md
