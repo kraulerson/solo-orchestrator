@@ -88,6 +88,80 @@ else
   fail_ "T7" "resume prompt section missing"
 fi
 
+# ---- sweep-triage (PR #2 — Solo-original, no NOTICE) ----
+
+# T8: sweep-triage SKILL.md exists.
+echo "T8: framework ships templates/generated/skills/sweep-triage/SKILL.md"
+if [ -f "$REPO_ROOT/templates/generated/skills/sweep-triage/SKILL.md" ]; then
+  pass "T8"
+else
+  fail_ "T8" "vendored SKILL.md missing"
+fi
+
+# T9: sweep-triage has NO NOTICE file. Skill is Solo-original — nothing was
+# adapted from upstream, so claiming MIT inheritance would overclaim
+# dependency. A NOTICE here would be a bug.
+echo "T9: sweep-triage has NO NOTICE (Solo-original, no upstream adaptation)"
+if [ ! -f "$REPO_ROOT/templates/generated/skills/sweep-triage/NOTICE" ]; then
+  pass "T9"
+else
+  fail_ "T9" "NOTICE present — overclaims upstream dependency for a Solo-original skill"
+fi
+
+# T10: init.sh installs sweep-triage into a freshly-init'd project.
+echo "T10: init.sh installs .claude/skills/sweep-triage/"
+TMP=$(mktemp -d); PROJ="$TMP/p"
+run_init "$PROJ"
+if [ -f "$PROJ/.claude/skills/sweep-triage/SKILL.md" ]; then
+  pass "T10"
+else
+  fail_ "T10" "skill not installed"
+fi
+rm -rf "$TMP"
+
+# T11: sweep-triage frontmatter name + argument-hint present.
+echo "T11: sweep-triage frontmatter"
+if head -10 "$REPO_ROOT/templates/generated/skills/sweep-triage/SKILL.md" | grep -q "^name: sweep-triage$" \
+   && head -10 "$REPO_ROOT/templates/generated/skills/sweep-triage/SKILL.md" | grep -q "^argument-hint:"; then
+  pass "T11"
+else
+  fail_ "T11" "frontmatter missing or wrong"
+fi
+
+# T12: SKILL.md disambiguates from issue-tracker triage workflow.
+echo "T12: sweep-triage clarifies vs per-issue triage workflow"
+if grep -q "per-issue triage\|issue tracker" "$REPO_ROOT/templates/generated/skills/sweep-triage/SKILL.md"; then
+  pass "T12"
+else
+  fail_ "T12" "disambiguation from per-issue triage missing"
+fi
+
+# T13: SKILL.md cites the canonical BL-029 calibration TRIAGE as the example
+# (so readers see a real artifact, not just a template).
+echo "T13: sweep-triage cites canonical example artifact"
+if grep -q "uat-2026-04-29-bl029-validation/TRIAGE.md\|BL-029 calibration" "$REPO_ROOT/templates/generated/skills/sweep-triage/SKILL.md"; then
+  pass "T13"
+else
+  fail_ "T13" "canonical example missing"
+fi
+
+# T14: SKILL.md defines the S1-S5 severity ladder.
+echo "T14: sweep-triage defines severity ladder S1-S5"
+body="$REPO_ROOT/templates/generated/skills/sweep-triage/SKILL.md"
+if grep -q "S1" "$body" && grep -q "S2" "$body" && grep -q "S3" "$body" && grep -q "S5" "$body"; then
+  pass "T14"
+else
+  fail_ "T14" "severity ladder incomplete"
+fi
+
+# T15: SKILL.md links to mattpocock's triage as related work.
+echo "T15: sweep-triage 'Related work' references mattpocock/skills triage"
+if grep -q "mattpocock/skills.*triage\|mattpocock.*triage" "$REPO_ROOT/templates/generated/skills/sweep-triage/SKILL.md"; then
+  pass "T15"
+else
+  fail_ "T15" "related-work reference missing"
+fi
+
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]
