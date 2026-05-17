@@ -845,8 +845,9 @@ Every project initialized by `init.sh` receives a `.claude/skills/` directory co
 | Skill | Purpose | Source |
 |---|---|---|
 | `session-handoff` | Compact the current conversation into a session-boundary handoff document at `docs/handoffs/YYYY-MM-DD-<topic>.md`. Use before a hard context break, machine reboot, or operator change. Distinct from Solo's Phase 4 production `HANDOFF.md`. | Adapted from [mattpocock/skills](https://github.com/mattpocock/skills) (MIT) — see `.claude/skills/session-handoff/NOTICE`. |
+| `sweep-triage` | Consolidate findings from a sweep (UAT calibration, multi-agent validation, manual audit) into a `Reports/<sweep-id>/TRIAGE.md` with S1-S5 severity ranking and a single ship decision. Codifies the format the framework would otherwise hand-roll. Distinct from per-issue triage in an issue tracker. | Solo-original. See `Related work` in the SKILL.md for the spiritually-related upstream pattern. |
 
-Each vendored skill ships with a `NOTICE` file preserving the upstream author's copyright and documenting the adaptations made for Solo Orchestrator. Upstream updates are not automatic; vendored skills are versioned with the framework.
+Each vendored skill with adapted content ships a `NOTICE` file preserving the upstream author's copyright and documenting the adaptations made for Solo Orchestrator. Solo-original skills carry no NOTICE — claiming MIT inheritance for original work would overclaim dependency. Upstream updates are not automatic; vendored skills are versioned with the framework.
 
 ### Using a Different AI Coding Agent
 

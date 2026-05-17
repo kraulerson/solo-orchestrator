@@ -1159,7 +1159,7 @@ create_project() {
   # Adding a new skill: drop it under templates/generated/skills/<name>/
   # and append a line to the loop below.
   mkdir -p .claude/skills
-  for skill in session-handoff; do
+  for skill in session-handoff sweep-triage; do
     if [ -d "$SCRIPT_DIR/templates/generated/skills/$skill" ]; then
       mkdir -p ".claude/skills/$skill"
       cp "$SCRIPT_DIR/templates/generated/skills/$skill/SKILL.md" ".claude/skills/$skill/"
