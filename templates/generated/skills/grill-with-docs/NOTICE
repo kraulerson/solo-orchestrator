@@ -1,0 +1,78 @@
+This skill is adapted from the `grill-with-docs` skill in the
+mattpocock/skills repository (https://github.com/mattpocock/skills),
+licensed under the MIT License.
+
+Original copyright:
+
+  MIT License
+
+  Copyright (c) Matt Pocock
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+  THE SOFTWARE.
+
+Adaptations made for Solo Orchestrator:
+
+- **Persistence target retargeted.** Upstream uses `CONTEXT.md` as the
+  glossary file (single-context) or `CONTEXT-MAP.md` + per-context
+  `CONTEXT.md` (multi-context). Solo does not ship a separate glossary
+  file — `PROJECT_BIBLE.md` carries the domain vocabulary as part of
+  its architecture section. The skill body retargets all "update
+  CONTEXT.md" guidance to "update PROJECT_BIBLE.md" and explains why.
+- **ADR location.** Upstream uses `docs/adr/`. Solo uses
+  `docs/ADR documentation/` (existing convention, with the space).
+  The skill body cites Solo's `templates/generated/adr.tmpl` as the
+  canonical ADR template.
+- **CLAUDE.md split.** Upstream's CONTEXT.md was glossary-only.
+  Solo splits responsibilities: PROJECT_BIBLE.md for architectural
+  truth; CLAUDE.md for session-readable conventions. The adapted
+  skill documents the distinction.
+- **Cross-reference with tests.** Upstream cross-references code only.
+  Solo's TDD discipline means tests are an additional source of truth;
+  the adapted skill adds tests to the cross-reference list.
+- **Multi-context simplification.** Upstream supports CONTEXT-MAP.md
+  for multi-bounded-context repos. At Solo's typical MVP/POC scale,
+  multi-context is over-engineering; the adapted skill is single-context.
+  If a project grows past that boundary, the right move is an ADR
+  rather than retro-fitting the skill.
+- **Composition with Solo's structured decision points.** New section
+  instructs the skill to escalate user-judgment forks via
+  `scripts/escalate-to-user.sh` (BL-029 / pending-approval.json) rather
+  than assume-and-continue.
+- **Composition with Solo's backlog.** New section instructs the
+  skill to file BL items for deferred questions rather than lose them.
+- **Composition with sibling skills.** Cross-references `zoom-out`,
+  `sweep-triage`, and Superpowers' brainstorming.
+- **Self-check.** New 5-point self-check section at session end,
+  consistent with Solo's other adapted skills.
+
+Preserved from upstream verbatim:
+
+- The interview discipline (one question at a time, recommend an answer,
+  wait for feedback, prefer code exploration over asking).
+- The "challenge against the glossary" / "sharpen fuzzy language" /
+  "probe with concrete scenarios" / "cross-reference with code"
+  during-session moves.
+- The **3-of-3 ADR criteria**: hard to reverse + surprising without
+  context + result of a real trade-off. These criteria are the heart
+  of the skill and are preserved unchanged.
+- The "create files lazily" principle (only when there is something
+  to write).
+- The principle that the truth file (whether CONTEXT.md or
+  PROJECT_BIBLE.md) is NOT a spec, scratch pad, or implementation
+  log — it is the domain record.

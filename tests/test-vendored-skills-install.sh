@@ -219,6 +219,94 @@ else
   fail_ "T21" "use-case integration with Solo's workflow missing"
 fi
 
+# ---- grill-with-docs (PR #4 — adapted from mattpocock, MIT) ----
+
+# T22: grill-with-docs SKILL.md exists.
+echo "T22: framework ships templates/generated/skills/grill-with-docs/SKILL.md"
+if [ -f "$REPO_ROOT/templates/generated/skills/grill-with-docs/SKILL.md" ]; then
+  pass "T22"
+else
+  fail_ "T22" "vendored SKILL.md missing"
+fi
+
+# T23: grill-with-docs has a NOTICE (adapted from upstream).
+echo "T23: grill-with-docs NOTICE exists + cites upstream + MIT"
+notice="$REPO_ROOT/templates/generated/skills/grill-with-docs/NOTICE"
+if [ -f "$notice" ] && grep -q "mattpocock/skills" "$notice" && grep -q "MIT License" "$notice"; then
+  pass "T23"
+else
+  fail_ "T23" "NOTICE missing or incomplete"
+fi
+
+# T24: init.sh installs grill-with-docs into a freshly-init'd project.
+echo "T24: init.sh installs .claude/skills/grill-with-docs/"
+TMP=$(mktemp -d); PROJ="$TMP/p"
+run_init "$PROJ"
+if [ -f "$PROJ/.claude/skills/grill-with-docs/SKILL.md" ] && [ -f "$PROJ/.claude/skills/grill-with-docs/NOTICE" ]; then
+  pass "T24"
+else
+  fail_ "T24" "skill not installed (SKILL.md=$([ -f "$PROJ/.claude/skills/grill-with-docs/SKILL.md" ] && echo yes || echo no) NOTICE=$([ -f "$PROJ/.claude/skills/grill-with-docs/NOTICE" ] && echo yes || echo no))"
+fi
+rm -rf "$TMP"
+
+# T25: grill-with-docs frontmatter name.
+echo "T25: grill-with-docs frontmatter has name=grill-with-docs"
+if head -5 "$REPO_ROOT/templates/generated/skills/grill-with-docs/SKILL.md" | grep -q "^name: grill-with-docs$"; then
+  pass "T25"
+else
+  fail_ "T25" "frontmatter name wrong"
+fi
+
+# T26: SKILL.md retargets persistence to PROJECT_BIBLE.md (the load-bearing
+# adaptation — upstream uses CONTEXT.md, Solo uses PROJECT_BIBLE.md).
+echo "T26: grill-with-docs retargets to PROJECT_BIBLE.md"
+body="$REPO_ROOT/templates/generated/skills/grill-with-docs/SKILL.md"
+if grep -q "PROJECT_BIBLE.md" "$body" \
+   && grep -q "Update PROJECT_BIBLE.md inline\|update PROJECT_BIBLE\.md right there" "$body"; then
+  pass "T26"
+else
+  fail_ "T26" "PROJECT_BIBLE.md not the persistence target"
+fi
+
+# T27: SKILL.md cites Solo's ADR location (docs/ADR documentation/, with
+# the space — Solo's convention, distinct from upstream's docs/adr/).
+echo "T27: grill-with-docs cites Solo's ADR location"
+if grep -q "docs/ADR documentation" "$REPO_ROOT/templates/generated/skills/grill-with-docs/SKILL.md"; then
+  pass "T27"
+else
+  fail_ "T27" "Solo's ADR location not cited"
+fi
+
+# T28: SKILL.md preserves the 3-of-3 ADR criteria from upstream. These
+# are the heart of the skill — must not be lost in adaptation.
+echo "T28: grill-with-docs preserves 3-of-3 ADR criteria"
+if grep -q "Hard to reverse" "$body" \
+   && grep -q "Surprising without context" "$body" \
+   && grep -qE "[Rr]eal trade-off" "$body"; then
+  pass "T28"
+else
+  fail_ "T28" "3-of-3 criteria not preserved"
+fi
+
+# T29: SKILL.md composes with Solo's structured-decision machinery
+# (escalate-to-user.sh / pending-approval.json) — the load-bearing
+# integration that turns "I'll assume" into "I'll escalate."
+echo "T29: grill-with-docs escalates user-judgment forks via escalate-to-user.sh"
+if grep -q "escalate-to-user.sh" "$body" && grep -q "pending-approval.json" "$body"; then
+  pass "T29"
+else
+  fail_ "T29" "structured-decision composition missing"
+fi
+
+# T30: SKILL.md cross-references tests, not just code (Solo's TDD addition
+# to upstream's code-only cross-reference move).
+echo "T30: grill-with-docs cross-references tests"
+if grep -qE "(cross-reference|tests).*tests|tests.*(source of truth|cross-reference)" "$body"; then
+  pass "T30"
+else
+  fail_ "T30" "test cross-reference missing"
+fi
+
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]
