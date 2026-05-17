@@ -162,6 +162,63 @@ else
   fail_ "T15" "related-work reference missing"
 fi
 
+# ---- zoom-out (PR #3 — adapted from mattpocock, MIT) ----
+
+# T16: zoom-out SKILL.md exists.
+echo "T16: framework ships templates/generated/skills/zoom-out/SKILL.md"
+if [ -f "$REPO_ROOT/templates/generated/skills/zoom-out/SKILL.md" ]; then
+  pass "T16"
+else
+  fail_ "T16" "vendored SKILL.md missing"
+fi
+
+# T17: zoom-out has a NOTICE (adapted from upstream).
+echo "T17: zoom-out NOTICE exists + cites upstream + MIT"
+notice="$REPO_ROOT/templates/generated/skills/zoom-out/NOTICE"
+if [ -f "$notice" ] && grep -q "mattpocock/skills" "$notice" && grep -q "MIT License" "$notice"; then
+  pass "T17"
+else
+  fail_ "T17" "NOTICE missing or incomplete"
+fi
+
+# T18: init.sh installs zoom-out into a freshly-init'd project.
+echo "T18: init.sh installs .claude/skills/zoom-out/"
+TMP=$(mktemp -d); PROJ="$TMP/p"
+run_init "$PROJ"
+if [ -f "$PROJ/.claude/skills/zoom-out/SKILL.md" ] && [ -f "$PROJ/.claude/skills/zoom-out/NOTICE" ]; then
+  pass "T18"
+else
+  fail_ "T18" "skill not installed (SKILL.md=$([ -f "$PROJ/.claude/skills/zoom-out/SKILL.md" ] && echo yes || echo no) NOTICE=$([ -f "$PROJ/.claude/skills/zoom-out/NOTICE" ] && echo yes || echo no))"
+fi
+rm -rf "$TMP"
+
+# T19: zoom-out frontmatter preserves upstream's `disable-model-invocation: true`
+# flag — the skill must NOT auto-fire; it's explicitly user-invoked.
+echo "T19: zoom-out preserves disable-model-invocation flag"
+if head -10 "$REPO_ROOT/templates/generated/skills/zoom-out/SKILL.md" | grep -q "^disable-model-invocation: true$"; then
+  pass "T19"
+else
+  fail_ "T19" "frontmatter flag missing — skill would auto-fire instead of being user-invoked"
+fi
+
+# T20: zoom-out cites Solo's canonical artifacts (load-bearing adaptation —
+# upstream uses 'domain glossary' abstractly; Solo grounds it).
+echo "T20: zoom-out cites Solo's canonical artifacts"
+if grep -q "PROJECT_BIBLE.md\|phase-state.json\|ADR" "$REPO_ROOT/templates/generated/skills/zoom-out/SKILL.md"; then
+  pass "T20"
+else
+  fail_ "T20" "Solo artifacts not referenced — map would be generic"
+fi
+
+# T21: zoom-out cites the Context Health Check / phase-transition use cases
+# (so the skill ties into a real Solo decision point, not in isolation).
+echo "T21: zoom-out cites Context Health Check / phase-gate use cases"
+if grep -qE "Context Health Check|between features|phase transition" "$REPO_ROOT/templates/generated/skills/zoom-out/SKILL.md"; then
+  pass "T21"
+else
+  fail_ "T21" "use-case integration with Solo's workflow missing"
+fi
+
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]
