@@ -220,6 +220,34 @@ Define the escalation chain before Phase 0 begins: Orchestrator → Senior Techn
 
 The existence of documented governance artifacts (approvals, security scans, compliance screening) demonstrates due diligence. The absence of these artifacts creates unmitigated liability.
 
+### POC Modes
+
+The Solo Orchestrator framework supports three governance modes, set at project creation and tracked in `.claude/phase-state.json::poc_mode`. They modulate which of the 6 blocking pre-conditions (Section XIV) must be cleared before Phase 0 versus deferred until the project upgrades to Production Build.
+
+| Mode | Deployment | Phase 0 entry requires | Deferred until upgrade | Phase 4 |
+|---|---|---|---|---|
+| **Production Build** | personal or organizational | All 6 pre-conditions (AI deployment path, sponsor, insurance, liability, ITSM, exit criteria, backup maintainer) | None | Allowed |
+| **Sponsored POC** | organizational only | AI deployment path approved, sponsor assigned, time-boxed exit criteria documented (3 of 6) | Insurance clearance, liability entity, ITSM integration, backup maintainer (5 of 6 minus the 3 required = the remainder) | **Blocked** until `scripts/upgrade-project.sh --to-production` clears the deferred items |
+| **Private POC** | personal only | None — all governance is deferred for exploratory work | All 6 pre-conditions deferred | **Blocked** until upgrade to Sponsored POC (rare) or Production |
+
+**Constraints common to all POC modes:**
+
+- No production deployment, no real user data, no external users. Phase 4 (production release) is hard-blocked.
+- All technical work (Phases 0 through 3) runs identically to Production Build and carries forward unchanged on upgrade.
+- The framework does not distinguish "POC code quality" from "Production code quality." The distinction is purely governance.
+
+**Tier semantics (baseline §2.5):**
+
+- Private POC is **always** a personal deployment. The `organizational/private_poc` shape is not a valid tier; `init.sh` rejects it in non-interactive mode and `upgrade-project.sh --to-private-poc` always sets `TARGET_DEPLOYMENT=personal`.
+- Sponsored POC is **always** an organizational deployment. The `personal/sponsored_poc` shape is rejected by `init.sh`.
+- Production Build is the only mode valid for both deployments.
+
+**Upgrade path:**
+
+- `scripts/upgrade-project.sh --to-sponsored-poc` (Private POC → Sponsored POC, rare — usually only when an exploratory build wins org buy-in).
+- `scripts/upgrade-project.sh --to-production` (any POC → Production). Re-runs Section 8 of the intake wizard to capture the deferred pre-conditions, then sets `poc_mode = null` in both `phase-state.json` and `intake-progress.json`.
+- All upgrades preserve the project's deployment tier (personal stays personal; organizational stays organizational). The pre-fix behavior of `--to-private-poc` forcing organizational, and `run_upgrade_to_production` forcing organizational, are both fixed (audit 2026-06).
+
 ---
 
 ## VI. ITSM & Change Management Integration

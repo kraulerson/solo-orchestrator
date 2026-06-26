@@ -1542,9 +1542,12 @@ run_upgrade_to_production() {
   print_info "Upgrading to Production Build. You'll resolve deferred pre-conditions."
   echo ""
 
-  # Re-run Section 8 in production mode
+  # Re-run Section 8 in production mode. Preserve current DEPLOYMENT —
+  # personal/Private POC upgrades to personal/Production; organizational/
+  # Sponsored POC upgrades to organizational/Production. Prior behavior
+  # forced DEPLOYMENT=organizational, which silently converted personal
+  # POC projects to organizational on the upgrade.
   POC_MODE=""
-  DEPLOYMENT="organizational"
   run_section_8
 
   # Update progress file
@@ -1686,10 +1689,18 @@ main() {
       exit 0
       ;;
     --upgrade-to-production)
+      # Audit specs-plans-init-intake-noninteractive-8 (Option C):
+      # delegate the canonical state mutation to upgrade-project.sh, then
+      # sync intake-progress.json's poc_mode mirror so the wizard's own
+      # state file stays consistent with phase-state.json.
       if [ -x "scripts/upgrade-project.sh" ]; then
-        exec bash scripts/upgrade-project.sh --to-production
+        bash scripts/upgrade-project.sh --to-production || exit $?
+        if command -v jq &>/dev/null && [ -f "$PROGRESS_FILE" ]; then
+          tmp=$(mktemp)
+          jq '.poc_mode = null' "$PROGRESS_FILE" > "$tmp" && mv "$tmp" "$PROGRESS_FILE"
+        fi
       else
-        run_upgrade_to_production  # fallback to built-in
+        run_upgrade_to_production  # fallback when canonical script missing
       fi
       exit 0
       ;;
