@@ -26,7 +26,7 @@ _bb_curl_no_body() {
 }
 
 host_require_cli() {
-  if [ -z "${BITBUCKET_USER:-}" ] || [ -z "${BITBUCKET_APP_PASSWORD:-}" ]; then
+  if [ -z "${BITBUCKET_USER:-}" ] || [ -z "${BITBUCKET_APP_PASSWORD:-}" ] || [ -z "${BITBUCKET_WORKSPACE:-}" ]; then
     printf '%s\n' \
       'bitbucket driver: credentials not configured.' \
       '' \
@@ -37,6 +37,11 @@ host_require_cli() {
       'Then export:' \
       '  export BITBUCKET_USER="your-bitbucket-username"' \
       '  export BITBUCKET_APP_PASSWORD="your-app-password"' \
+      '  export BITBUCKET_WORKSPACE="your-workspace-slug"' \
+      '' \
+      'BITBUCKET_WORKSPACE is the slug in your bitbucket.org/<workspace>/ URL.' \
+      'For personal accounts it often (but not always) equals BITBUCKET_USER;' \
+      'for org accounts it is the team slug, which differs from any single user.' \
       '' \
       'Consider adding those to your shell rc file (with mode 600 permissions).' >&2
     return 1
@@ -57,7 +62,11 @@ host_create_repo() {
     public)  is_private="false" ;;
     *) echo "visibility must be private|public, got '$visibility'" >&2; return 1 ;;
   esac
-  local workspace="${BITBUCKET_WORKSPACE:-$BITBUCKET_USER}"
+  # Audit code-host-bitbucket-1: BITBUCKET_WORKSPACE is sourced from a
+  # single intentional place (env, validated by host_require_cli). The
+  # earlier `:-$BITBUCKET_USER` fallback silently picked the wrong
+  # workspace for org accounts where user != team slug.
+  local workspace="$BITBUCKET_WORKSPACE"
 
   local payload="{\"scm\":\"git\",\"is_private\":$is_private}"
   local resp

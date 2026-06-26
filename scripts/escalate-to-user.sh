@@ -49,17 +49,24 @@ done
 PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo "$PWD")"
 [ -d "$PROJECT_ROOT/.claude" ] || { echo "[FAIL] .claude/ not found at $PROJECT_ROOT" >&2; exit 1; }
 
-# Build options JSON array.
+# Audit findings code-escalate-pending-1 & -2: delegate sentinel write to
+# pending-approval.sh --offer so the leading-id schema check AND the
+# already-pending refusal happen in one place. Previously escalate wrote
+# the sentinel directly via jq, skipping both checks — letting Claude
+# clobber a live decision and ship --recommendation values that didn't
+# match any option's leading id.
+if ! ( cd "$PROJECT_ROOT" && bash "$SCRIPT_DIR/pending-approval.sh" --offer \
+         --question "$QUESTION" \
+         --recommendation "$RECOMMENDATION" \
+         --options "${OPTIONS[@]}" ); then
+  echo "[FAIL] escalate-to-user: pending-approval.sh --offer refused; aborting before audit-row write" >&2
+  exit 1
+fi
+
+# Build options JSON array (still needed for the audit row).
 OPT_JSON=$(printf '%s\n' "${OPTIONS[@]}" | jq -R . | jq -s .)
 
 TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-jq -n \
-  --arg q "$QUESTION" \
-  --argjson opts "$OPT_JSON" \
-  --arg rec "$RECOMMENDATION" \
-  --arg ts "$TS" \
-  '{question: $q, options: $opts, recommendation: $rec, offered_at: $ts}' \
-  > "$PROJECT_ROOT/.claude/pending-approval.json"
 
 # Audit row — type='escalation' per Fix #2.
 LEVEL=$(jq -r '.enforcement_level // "strict"' "$PROJECT_ROOT/.claude/manifest.json" 2>/dev/null || echo "strict")
