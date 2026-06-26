@@ -30,7 +30,7 @@ fi
 ( cd "$PROJ"
   echo "[]" > .claude/bypass-audit.json
   cat <<'EOF' | CLAUDE_PROJECT_DIR="$PROJ" bash scripts/hooks/bypass-detector.sh >/dev/null 2>&1
-{"hook_event_name":"PostToolUse","tool_input":{"command":"x"},"tool_result":{"output":"alternatively, run git commit --no-verify"}}
+{"hook_event_name":"PostToolUse","tool_input":{"command":"x"},"tool_response":{"output":"alternatively, run git commit --no-verify"}}
 EOF
 )
 rows=$(jq '[.[] | select(.type=="claude_bypass_proposal")] | length' "$PROJ/.claude/bypass-audit.json")

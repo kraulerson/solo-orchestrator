@@ -302,7 +302,7 @@ pass() { echo "  [PASS] $1"; PASSED=$((PASSED + 1)); }
 fail_() { echo "  [FAIL] $1 — $2"; FAILED=$((FAILED + 1)); }
 
 # The PostToolUse hook contract for Claude Code: stdin is a JSON object
-# with at least { "tool_input": {...}, "tool_result": {...} }. We expect
+# with at least { "tool_input": {...}, "tool_response": {...} }. We expect
 # the hook to inspect tool_input.command and only act on git-commit calls
 # that succeeded.
 
@@ -327,7 +327,7 @@ if [ ! -f "$HOOK" ]; then
 else
   cd "$TMP"
   cat <<EOF | bash "$HOOK" >/dev/null 2>&1
-{"tool_input":{"command":"git commit -m 'feat: x'"},"tool_result":{"exitCode":0}}
+{"tool_input":{"command":"git commit -m 'feat: x'"},"tool_response":{"exit_code":0}}
 EOF
   if [ -f "$TMP/.claude/claude-commits.jsonl" ] && \
      jq -e --arg sha "$SHA" '.sha == $sha' < "$TMP/.claude/claude-commits.jsonl" >/dev/null 2>&1; then
@@ -346,7 +346,7 @@ if [ ! -f "$HOOK" ]; then
 else
   cd "$TMP"
   cat <<EOF | bash "$HOOK" >/dev/null 2>&1
-{"tool_input":{"command":"ls -la"},"tool_result":{"exitCode":0}}
+{"tool_input":{"command":"ls -la"},"tool_response":{"exit_code":0}}
 EOF
   if [ ! -f "$TMP/.claude/claude-commits.jsonl" ]; then
     pass "T2"
@@ -364,7 +364,7 @@ if [ ! -f "$HOOK" ]; then
 else
   cd "$TMP"
   cat <<EOF | bash "$HOOK" >/dev/null 2>&1
-{"tool_input":{"command":"git commit -m 'feat: x'"},"tool_result":{"exitCode":1}}
+{"tool_input":{"command":"git commit -m 'feat: x'"},"tool_response":{"exit_code":1}}
 EOF
   if [ ! -f "$TMP/.claude/claude-commits.jsonl" ]; then
     pass "T3"
@@ -382,11 +382,11 @@ if [ ! -f "$HOOK" ]; then
 else
   cd "$TMP"
   cat <<EOF | bash "$HOOK" >/dev/null 2>&1
-{"tool_input":{"command":"git commit -m 'first'"},"tool_result":{"exitCode":0}}
+{"tool_input":{"command":"git commit -m 'first'"},"tool_response":{"exit_code":0}}
 EOF
   echo "second" > g.txt && git add g.txt && git commit -qm "second" 2>/dev/null
   cat <<EOF | bash "$HOOK" >/dev/null 2>&1
-{"tool_input":{"command":"git commit -m 'second'"},"tool_result":{"exitCode":0}}
+{"tool_input":{"command":"git commit -m 'second'"},"tool_response":{"exit_code":0}}
 EOF
   count=$(wc -l < "$TMP/.claude/claude-commits.jsonl" | tr -d ' ')
   if [ "$count" = "2" ]; then pass "T4"; else fail_ "T4" "expected 2 rows, got $count"; fi
@@ -403,7 +403,7 @@ if [ ! -f "$HOOK" ]; then
 else
   cd "$TMP"
   cat <<EOF | bash "$HOOK" >/dev/null 2>&1
-{"tool_input":{"command":"git commit -m 'x'"},"tool_result":{"exitCode":0}}
+{"tool_input":{"command":"git commit -m 'x'"},"tool_response":{"exit_code":0}}
 EOF
   if [ ! -f "$TMP/.claude/claude-commits.jsonl" ]; then
     pass "T5"
@@ -439,12 +439,12 @@ Create `scripts/hooks/record-claude-commit.sh`:
 # Claude-issued commits from user-terminal commits.
 #
 # Stdin: JSON envelope from Claude Code's PostToolUse hook contract:
-#   { "tool_input": {"command": "..."}, "tool_result": {"exitCode": N} }
+#   { "tool_input": {"command": "..."}, "tool_response": {"exit_code": N} }
 #
 # No-op conditions:
 #   - .claude/ doesn't exist (project not initialized)
 #   - tool_input.command isn't a `git commit` invocation
-#   - tool_result.exitCode != 0
+#   - tool_response.exit_code != 0
 #   - jq isn't installed (silent — never block Claude on missing infrastructure)
 #   - HEAD ref isn't readable (e.g., empty repo before first commit)
 
@@ -461,7 +461,7 @@ INPUT=$(cat)
 [ -z "$INPUT" ] && exit 0
 
 CMD=$(echo "$INPUT" | jq -r '.tool_input.command // ""' 2>/dev/null)
-EXIT=$(echo "$INPUT" | jq -r '.tool_result.exitCode // 1' 2>/dev/null)
+EXIT=$(echo "$INPUT" | jq -r '.tool_response.exit_code // 1' 2>/dev/null)
 
 # Filter: must be a `git commit` (not `git commit-tree`, etc.) and must have succeeded.
 # Match: 'git commit' or 'git commit ' followed by anything, but not 'git commit-tree'.

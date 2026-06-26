@@ -2,9 +2,12 @@
 # scripts/hooks/bypass-detector.sh — BL-029 bypass-shape detector.
 #
 # Wires into Claude Code's PostToolUse and Stop hooks. Reads the JSON
-# envelope from stdin, extracts the relevant text (tool_result.output for
-# PostToolUse; transcript for Stop), scans against bypass-patterns.sh,
-# and writes a claude_bypass_proposal row to bypass-audit.json on match.
+# envelope from stdin (per https://code.claude.com/docs/en/hooks),
+# extracts the relevant text (tool_response.{stdout,stderr,output,content}
+# for PostToolUse; last_assistant_message for Stop), scans against
+# bypass-patterns.sh, and writes a claude_bypass_proposal row to
+# bypass-audit.json on match. Stop passes with .stop_hook_active == true
+# are skipped to avoid re-entrant double-scanning.
 #
 # No-op conditions:
 #   - .claude/ doesn't exist
@@ -38,14 +41,36 @@ INPUT=$(cat)
 
 EVENT=$(echo "$INPUT" | jq -r '.hook_event_name // ""' 2>/dev/null)
 
+# Re-entrancy guard: when a Stop hook itself triggers further model
+# activity (e.g. blocking with a follow-up), Claude Code re-invokes the
+# Stop hook with .stop_hook_active == true. Skip those passes so we
+# don't double-scan the same assistant turn and emit duplicate audit
+# rows / pending-approval sentinels.
+STOP_HOOK_ACTIVE=$(echo "$INPUT" | jq -r '.stop_hook_active // false' 2>/dev/null)
+[ "$STOP_HOOK_ACTIVE" = "true" ] && exit 0
+
 # Extract scannable text by event type.
 TEXT=""
 case "$EVENT" in
   PostToolUse)
-    TEXT=$(echo "$INPUT" | jq -r '.tool_result.output // .tool_result.stderr // ""' 2>/dev/null)
+    # Claude Code envelope: .tool_response. For Bash, .stdout/.stderr/.exit_code/.interrupted;
+    # for Read/Edit/Write, .output or .content (or a string). Cover all
+    # known shapes; missing field returns "" and the next guard exits.
+    TEXT=$(echo "$INPUT" | jq -r '.tool_response.stdout // .tool_response.stderr // .tool_response.output // .tool_response.content // ""' 2>/dev/null)
     ;;
   Stop)
-    TEXT=$(echo "$INPUT" | jq -r '.transcript // .stop_reason // ""' 2>/dev/null)
+    # Claude Code Stop envelope: .last_assistant_message (Claude's final
+    # turn) and .transcript_path (path to session JSONL, optional). We
+    # scan the inline message — the file is only consulted as a fallback.
+    TEXT=$(echo "$INPUT" | jq -r '.last_assistant_message // ""' 2>/dev/null)
+    if [ -z "$TEXT" ]; then
+      TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // ""' 2>/dev/null)
+      if [ -n "$TRANSCRIPT_PATH" ] && [ -r "$TRANSCRIPT_PATH" ]; then
+        TEXT=$(tail -n 50 "$TRANSCRIPT_PATH" 2>/dev/null \
+          | jq -r 'select(.role=="assistant" or .type=="assistant") | (.content // .message.content // "")' 2>/dev/null \
+          | tail -n 5)
+      fi
+    fi
     ;;
   *)
     # Unknown event — skip (defense against schema changes).

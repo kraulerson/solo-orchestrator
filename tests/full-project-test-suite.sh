@@ -56,6 +56,16 @@ section() {
 }
 
 # ================================================================
+# TEST 0: FIXTURE ENVELOPE LINT — fail fast on legacy schema in tests/
+# ================================================================
+section "Fixture envelope lint"
+if bash "$SCRIPT_DIR/scripts/lint-fixture-envelopes.sh" "$SCRIPT_DIR/tests" >/dev/null 2>&1; then
+  pass "All fixture envelopes use canonical Claude Code schema"
+else
+  fail "Legacy hook envelope schema found in tests/ (see scripts/lint-fixture-envelopes.sh)"
+fi
+
+# ================================================================
 # TEST 1: RESOLVER MATRIX — ALL COMBINATIONS
 # ================================================================
 section "TEST 1: Resolver Matrix — All Platform × Language × Track Combinations"
