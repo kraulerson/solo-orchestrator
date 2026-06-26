@@ -232,6 +232,12 @@ check_project_structure() {
 check_scripts() {
   print_step "Checking scripts..."
 
+  # Audit code-verify-reconfigure-10 (2026-06): full canonical set
+  # init.sh chmods (init.sh:1100). Pre-fix, verify-install.sh only
+  # checked 8-10 scripts, leaving 14+ silently missing-or-broken in
+  # initialized projects. The list below mirrors init.sh's chmod list
+  # exactly. Hook scripts and host-driver scripts use a separate path
+  # check below since they live in subdirectories.
   local scripts=(
     "scripts/validate.sh"
     "scripts/check-phase-gate.sh"
@@ -241,8 +247,21 @@ check_scripts() {
     "scripts/intake-wizard.sh"
     "scripts/resolve-tools.sh"
     "scripts/upgrade-project.sh"
+    "scripts/reconfigure-project.sh"
     "scripts/verify-install.sh"
+    "scripts/test-gate.sh"
+    "scripts/check-versions.sh"
+    "scripts/session-version-check.sh"
+    "scripts/session-test-gate-check.sh"
+    "scripts/session-end-qdrant-reminder.sh"
     "scripts/session-mcp-gate.sh"
+    "scripts/process-checklist.sh"
+    "scripts/pre-commit-gate.sh"
+    "scripts/track-tool-usage.sh"
+    "scripts/pending-approval.sh"
+    "scripts/lint-uat-scenarios.sh"
+    "scripts/escalate-to-user.sh"
+    "scripts/hooks/bypass-detector.sh"
   )
 
   for script in "${scripts[@]}"; do
@@ -550,12 +569,47 @@ EOF
 }
 
 fix_phase_state() {
+  # Audit code-verify-reconfigure-8 (2026-06): full canonical schema
+  # matching init.sh:1601-1616. Pre-fix wrote only {project,
+  # framework_version, current_phase, gates}, silently dropping track,
+  # deployment, poc_mode, and compliance_ready. Subsequent reads of
+  # those fields by check-phase-gate, process-checklist, and the host
+  # drivers fell through to defaults, masking misconfigured projects.
+  #
+  # Discover the four missing axes:
+  #   - TRACK / DEPLOYMENT from load_context (CLAUDE.md / phase-state.json)
+  #   - poc_mode from .claude/intake-progress.json (.answers.poc_mode)
+  # If any required axis is missing, refuse and emit a register_manual
+  # remediation pointing the operator at the canonical fix (re-run
+  # init.sh or restore from backup), rather than writing a half-filled
+  # file that masks the missing context.
+  local track deployment poc_value
+  track="${TRACK:-}"
+  deployment="${DEPLOYMENT:-}"
+  if [ -z "$track" ] || [ -z "$deployment" ]; then
+    print_warn "fix_phase_state: TRACK/DEPLOYMENT not loaded from context — refusing to write half-filled phase-state.json"
+    register_manual "phase-state.json cannot be auto-fixed without project context" \
+      "Re-run scripts/intake-wizard.sh or restore .claude/phase-state.json from backup"
+    return 1
+  fi
+  poc_value="null"
+  if [ -f ".claude/intake-progress.json" ]; then
+    local pm
+    pm=$(jq -r '.answers.poc_mode // empty' .claude/intake-progress.json 2>/dev/null || echo "")
+    case "$pm" in
+      private_poc|sponsored_poc) poc_value="\"$pm\"" ;;
+    esac
+  fi
   mkdir -p .claude
   cat > .claude/phase-state.json << EOF
 {
   "project": "${PROJECT_NAME:-unknown}",
   "framework_version": "1.0",
   "current_phase": 0,
+  "track": "$track",
+  "deployment": "$deployment",
+  "poc_mode": $poc_value,
+  "compliance_ready": false,
   "gates": {
     "phase_0_to_1": null,
     "phase_1_to_2": null,
@@ -662,6 +716,10 @@ fix_tool_matrix() {
 fix_script() {
   local script_name="$1"
   if has_source && [ -f "$SOURCE_DIR/scripts/$script_name" ]; then
+    # Ensure the destination subdirectory exists (e.g., scripts/hooks/).
+    local dest_dir
+    dest_dir="scripts/$(dirname "$script_name")"
+    [ "$dest_dir" != "scripts/." ] && mkdir -p "$dest_dir"
     cp "$SOURCE_DIR/scripts/$script_name" "scripts/$script_name"
     chmod +x "scripts/$script_name"
   else
@@ -670,10 +728,15 @@ fix_script() {
 }
 
 # Generate fix functions for each script
-for _s in validate check-phase-gate check-gate check-updates resume intake-wizard resolve-tools upgrade-project verify-install session-mcp-gate; do
+for _s in validate check-phase-gate check-gate check-updates resume intake-wizard resolve-tools upgrade-project reconfigure-project verify-install test-gate check-versions session-version-check session-test-gate-check session-end-qdrant-reminder session-mcp-gate process-checklist pre-commit-gate track-tool-usage pending-approval lint-uat-scenarios escalate-to-user; do
   eval "fix_script_chmod_${_s}() { chmod +x 'scripts/${_s}.sh'; }"
   eval "fix_script_copy_${_s}() { fix_script '${_s}.sh'; }"
 done
+# Hooks live in a subdirectory; chmod + copy paths reflect that. The
+# basename of scripts/hooks/bypass-detector.sh is `bypass-detector`, so
+# the helper names must match (with hyphens, via eval).
+eval "fix_script_chmod_bypass-detector() { chmod +x 'scripts/hooks/bypass-detector.sh'; }"
+eval "fix_script_copy_bypass-detector()  { fix_script 'hooks/bypass-detector.sh'; }"
 
 fix_git_init() {
   git init -q

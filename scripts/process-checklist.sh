@@ -64,6 +64,7 @@ while [ $# -gt 0 ]; do
     --start-phase1)     ACTION="start-phase1";      shift ;;
     --start-phase3)     ACTION="start-phase3";      shift ;;
     --start-phase4)     ACTION="start-phase4";      shift ;;
+    --finalize-phase)   ACTION="finalize-phase";   ARG_VALUE="$2"; shift 2 ;;
     --verify-init)      ACTION="verify-init";       shift ;;
     --status)           ACTION="status";            shift ;;
     --check-commit-ready) ACTION="check-commit-ready"; shift ;;
@@ -930,40 +931,60 @@ check_commit_ready() {
     fi
   fi
 
-  # Phase 3 source commit checks
-  if [ "$current_phase" -eq 3 ]; then
-    local p3_completed
-    p3_completed=$(jq '.phase3_validation.steps_completed | length' "$PROCESS_STATE")
-    local p3_total=${#PHASE3_STEPS[@]}
-    if [ "$p3_completed" -lt "$p3_total" ]; then
-      for step in "${PHASE3_STEPS[@]}"; do
-        if ! step_is_completed "phase3_validation" "$step"; then
-          print_fail "Phase 3 validation step '$step' not completed."
-          echo "Run: scripts/process-checklist.sh --complete-step phase3_validation:$step" >&2
-          exit 1
-        fi
-      done
-    fi
-  fi
-
-  # Phase 4 source commit checks
-  if [ "$current_phase" -eq 4 ]; then
-    local p4_completed
-    p4_completed=$(jq '.phase4_release.steps_completed | length' "$PROCESS_STATE")
-    local p4_total=${#PHASE4_STEPS[@]}
-    if [ "$p4_completed" -lt "$p4_total" ]; then
-      for step in "${PHASE4_STEPS[@]}"; do
-        if ! step_is_completed "phase4_release" "$step"; then
-          print_fail "Phase 4 release step '$step' not completed."
-          echo "Run: scripts/process-checklist.sh --complete-step phase4_release:$step" >&2
-          exit 1
-        fi
-      done
-    fi
-  fi
+  # Audit code-process-checklist-1 + -2 + specs-plans-process-enforcement-1
+  # (2026-06): the prior Phase 3 and Phase 4 per-commit blocks required
+  # every step complete on EVERY source commit during those phases,
+  # blocking the iterative fix-commit pattern entirely. Phase enforcement
+  # now lives in two places per baseline §3.4:
+  #   - scripts/check-phase-gate.sh enforces phase transitions
+  #     (3→4, and 4→released).
+  #   - --finalize-phase {3|4} below is a one-shot strict check operators
+  #     run before tagging the release; CI may invoke it on tag push.
+  # Source commits inside Phase 3 and Phase 4 are now allowed without
+  # all-steps-complete; per-step artifact gates inside --complete-step
+  # still apply.
 
   # All checks passed
   exit 0
+}
+
+# Audit code-process-checklist-2 (Option B): strict closeout check moved
+# out of the per-commit path. Operators / CI invoke this explicitly
+# before tagging a release.
+finalize_phase() {
+  local target_phase="$1"
+  ensure_state_file
+  local current_phase=0
+  [ -f "$PHASE_STATE" ] && current_phase=$(jq -r '.current_phase // 0' "$PHASE_STATE" 2>/dev/null || echo "0")
+  if [ "$current_phase" != "$target_phase" ]; then
+    print_fail "--finalize-phase $target_phase requested but current phase is $current_phase."
+    exit 1
+  fi
+  local steps_arr_name process_key step_arr
+  case "$target_phase" in
+    # gitleaks:allow — these are process-state JSON keys, not credentials
+    3) steps_arr_name="PHASE3_STEPS"; process_key="phase3_validation" ;; # gitleaks:allow
+    4) steps_arr_name="PHASE4_STEPS"; process_key="phase4_release" ;;    # gitleaks:allow
+    *)
+      print_fail "--finalize-phase requires 3 or 4 (got '$target_phase')."
+      exit 1
+      ;;
+  esac
+  # shellcheck disable=SC2207
+  step_arr=( $(eval "echo \${$steps_arr_name[@]}") )
+  local missing=0
+  for step in "${step_arr[@]}"; do
+    if ! step_is_completed "$process_key" "$step"; then
+      print_fail "Phase $target_phase step '$step' not completed."
+      echo "Run: scripts/process-checklist.sh --complete-step $process_key:$step" >&2
+      missing=$((missing + 1))
+    fi
+  done
+  if [ "$missing" -gt 0 ]; then
+    print_fail "$missing step(s) missing. Phase $target_phase cannot be finalized."
+    exit 1
+  fi
+  print_ok "Phase $target_phase: all $(echo "${#step_arr[@]}") steps complete. Safe to tag/release."
 }
 
 reset_process() {
@@ -1116,6 +1137,7 @@ case "$ACTION" in
   start-phase1)       start_phase1 ;;
   start-phase3)       start_phase3 ;;
   start-phase4)       start_phase4 ;;
+  finalize-phase)     finalize_phase "$ARG_VALUE" ;;
   verify-init)        verify_init ;;
   status)             show_status ;;
   check-commit-ready) check_commit_ready ;;

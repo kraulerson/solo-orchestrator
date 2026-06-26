@@ -1,4 +1,4 @@
-# solo-orchestrator: platforms=web,desktop,mcp-server
+# solo-orchestrator: platforms=web,desktop,mcp_server
 # GitLab CI pipeline for Go projects.
 stages: [test, security, governance]
 image: golang:1.21

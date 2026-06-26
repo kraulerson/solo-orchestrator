@@ -1,4 +1,4 @@
-# solo-orchestrator: platforms=web,desktop,mobile,mcp-server
+# solo-orchestrator: platforms=web,desktop,mobile,mcp_server
 # GitLab CI pipeline for 'other' language track — placeholder with intentional failures.
 # Builder must replace these scripts with language-appropriate equivalents before use.
 stages: [test, security, governance]

@@ -1,4 +1,4 @@
-# solo-orchestrator: platforms=mobile,desktop,mcp-server
+# solo-orchestrator: platforms=mobile,desktop,mcp_server
 # GitLab CI pipeline for Java projects (Maven/Gradle).
 stages: [test, security, governance]
 image: maven:3-eclipse-temurin-21

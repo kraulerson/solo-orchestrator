@@ -392,16 +392,48 @@ for run in "${TEST_RUNS[@]}"; do
   # Init git
   (cd "$project_dir" && git init -q)
 
-  # Create phase-state.json (as init.sh would)
+  # Create phase-state.json mirroring init.sh's actual schema
+  # (init.sh:1601-1616). Audit tests-full-known-bugs-1: the prior
+  # heredoc was schema-drifted (missing framework_version, track,
+  # deployment, poc_mode, compliance_ready; gates fields flat instead
+  # of nested) — letting schema regressions in init.sh ship undetected.
+  case "$t_deployment" in
+    organizational) poc_json='"sponsored_poc"' ;;
+    *)              poc_json='null' ;;
+  esac
   cat > "$project_dir/.claude/phase-state.json" << PHASEOF
 {
-  "current_phase": 0,
   "project": "$project_name",
-  "phase_0_to_1": "",
-  "phase_1_to_2": "",
-  "phase_3_to_4": ""
+  "framework_version": "1.0",
+  "current_phase": 0,
+  "track": "$t_track",
+  "deployment": "$t_deployment",
+  "poc_mode": $poc_json,
+  "compliance_ready": false,
+  "gates": {
+    "phase_0_to_1": null,
+    "phase_1_to_2": null,
+    "phase_3_to_4": null
+  }
 }
 PHASEOF
+
+  # Assert the schema matches init.sh's canonical shape so a regression
+  # in either side is caught.
+  for key in project framework_version current_phase track deployment poc_mode compliance_ready gates; do
+    if jq -e "has(\"$key\")" "$project_dir/.claude/phase-state.json" >/dev/null 2>&1; then
+      pass "phase-state.json has '$key' ($label)"
+    else
+      fail "phase-state.json missing '$key' ($label)"
+    fi
+  done
+  for gate in phase_0_to_1 phase_1_to_2 phase_3_to_4; do
+    if jq -e ".gates | has(\"$gate\")" "$project_dir/.claude/phase-state.json" >/dev/null 2>&1; then
+      pass "phase-state.json gates.$gate present ($label)"
+    else
+      fail "phase-state.json gates.$gate missing ($label)"
+    fi
+  done
 
   # Create APPROVAL_LOG.md (as init.sh would)
   cat > "$project_dir/APPROVAL_LOG.md" << 'LOGEOF'

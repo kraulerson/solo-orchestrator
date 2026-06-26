@@ -1,4 +1,4 @@
-# solo-orchestrator: platforms=web,desktop,mobile,mcp-server
+# solo-orchestrator: platforms=web,desktop,mobile,mcp_server
 # GitLab CI pipeline for TypeScript/JavaScript projects.
 
 stages:

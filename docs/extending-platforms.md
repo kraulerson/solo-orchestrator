@@ -28,9 +28,9 @@ Adding a new platform creates up to five components:
 |---|---|---|---|---|
 | 1 | **Platform Module** | `docs/platform-modules/{platform}.md` | Yes | Architecture, tooling, testing, deployment guidance |
 | 2 | **Evaluation Module** | `evaluation-prompts/Projects/modules/{platform}.md` | Yes | Domain-specific evaluation criteria for six reviewer personas |
-| 3 | **Release Pipeline** | `templates/pipelines/release/{platform}.yml` | Yes | GitHub Actions release workflow template |
+| 3 | **Release Pipeline** | `templates/pipelines/release/{host}/{platform}.yml` for host ∈ {github, gitlab, bitbucket} | Yes | Per-host release workflow template |
 | 4 | **Intake Suggestions** | `templates/intake-suggestions/{platform}.json` | Recommended | Context-aware suggestions for the intake wizard |
-| 5 | **CI Template Updates** | `templates/pipelines/ci/*.yml` (line 1 marker) | Yes | Register which languages are available for this platform |
+| 5 | **CI Template Updates** | `templates/pipelines/ci/{host}/*.yml` (line 1 marker) | Yes | Register which languages are available for this platform. `github/` is canonical for language filtering (init.sh:415-417); mirror marker changes to `gitlab/` and `bitbucket/`. |
 
 **Naming convention:** Use lowercase identifier matching the form accepted by `init.sh --platform <name>`. Snake_case (`mcp_server`) is canonical for multi-word platforms; new platforms should follow the same convention. This name becomes the directory/filename slug used everywhere and appears as a selectable option in `init.sh`.
 
@@ -45,9 +45,9 @@ The init script discovers platforms and languages from the filesystem at runtime
 2. Scans `templates/pipelines/release/*.yml` — adds any platforms not already found
 3. Appends "other" as a fallback
 
-**Language filtering** (init.sh lines 384-414):
-1. Scans `templates/pipelines/ci/*.yml`
-2. Reads line 1 of each file for the marker: `# solo-orchestrator: platforms=web,desktop,mobile`
+**Language filtering** (init.sh lines 415-417):
+1. Scans `templates/pipelines/ci/github/*.yml` (the canonical host tree for language discovery; per spec 2026-04-21, gitlab/ and bitbucket/ ship the same language set)
+2. Reads line 1 of each file for the marker: `# solo-orchestrator: platforms=web,desktop,mobile,mcp_server`
 3. Only offers a language if the selected platform appears in that language's `platforms=` list
 4. Appends "other" as a fallback
 
@@ -328,9 +328,9 @@ Context-aware suggestions that appear in the intake wizard when a user selects t
 
 ### Step 5: CI Template Platform Markers
 
-**Files:** `templates/pipelines/ci/*.yml` (line 1 of each file)
+**Files:** `templates/pipelines/ci/{host}/*.yml` (line 1 of each file, all three host trees: `github/`, `gitlab/`, `bitbucket/`)
 
-Each CI template has a platform marker on line 1 that controls which languages are offered for which platform. You must add your platform name to the relevant CI templates.
+Each CI template has a platform marker on line 1 that controls which languages are offered for which platform. You must add your platform name to the relevant CI templates in all three host directories so the language set stays consistent across hosts (per spec 2026-04-21). `github/` is the canonical tree init.sh reads for language discovery.
 
 **Format:** `# solo-orchestrator: platforms=web,desktop,mobile,{your-platform}`
 

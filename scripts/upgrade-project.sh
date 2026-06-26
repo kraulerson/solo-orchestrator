@@ -457,13 +457,15 @@ if [ "$TO_PRODUCTION" = true ]; then
     fi
   fi
 
-  # Production always means organizational
+  # Audit cluster 2 follow-up (2026-06): Production is a tier-neutral
+  # mode per baseline §2.5 — valid for either deployment. Pre-fix this
+  # forced personal/Private POC + --to-production into organizational,
+  # silently converting the tier. Now Production preserves whatever
+  # deployment the project already has; the operator can pass
+  # --deployment organizational explicitly if they want to upgrade
+  # deployment AND POC mode in one shot.
   if [ -z "$TARGET_DEPLOYMENT" ]; then
-    if [ "$CURRENT_DEPLOYMENT" = "personal" ]; then
-      TARGET_DEPLOYMENT="organizational"
-    else
-      TARGET_DEPLOYMENT="$CURRENT_DEPLOYMENT"
-    fi
+    TARGET_DEPLOYMENT="$CURRENT_DEPLOYMENT"
   fi
 fi
 
@@ -484,10 +486,22 @@ if [ "$TO_SPONSORED_POC" = true ]; then
   fi
 fi
 
-# --to-private-poc: personal -> organizational/private_poc
+# --to-private-poc: -> personal/private_poc
+# Audit code-upgrade-project-1 + tier-crosscheck-3 (2026-06): Private POC
+# is always a personal deployment per baseline §2.5. Prior behavior set
+# TARGET_DEPLOYMENT=organizational, producing the impossible
+# organizational/private_poc shape. The three existing guards already
+# block any path where CURRENT_DEPLOYMENT=organizational, so by the time
+# we reach the assignment we know the project is personal.
 if [ "$TO_PRIVATE_POC" = true ]; then
-  if [ "$CURRENT_DEPLOYMENT" = "organizational" ] && [ "$CURRENT_POC_MODE" = "private_poc" ]; then
+  if [ "$CURRENT_DEPLOYMENT" = "personal" ] && [ "$CURRENT_POC_MODE" = "private_poc" ]; then
     print_warn "Project is already a Private POC. Nothing to do."
+    exit 0
+  fi
+  if [ "$CURRENT_DEPLOYMENT" = "organizational" ] && [ "$CURRENT_POC_MODE" = "private_poc" ]; then
+    # Legacy projects produced by the pre-fix --to-private-poc may exist
+    # in this impossible shape; treat as already-POC and warn.
+    print_warn "Project records an organizational/private_poc shape (pre-fix legacy). Treating as already a Private POC. Nothing to do."
     exit 0
   fi
   if [ "$CURRENT_DEPLOYMENT" = "organizational" ] && [ "$CURRENT_POC_MODE" = "sponsored_poc" ]; then
@@ -498,7 +512,7 @@ if [ "$TO_PRIVATE_POC" = true ]; then
     print_fail "Project is already organizational/production. Cannot downgrade to Private POC."
     exit 1
   fi
-  TARGET_DEPLOYMENT="organizational"
+  TARGET_DEPLOYMENT="personal"
   # Track stays the same for POC transition
   if [ -z "$TARGET_TRACK" ]; then
     TARGET_TRACK="$CURRENT_TRACK"

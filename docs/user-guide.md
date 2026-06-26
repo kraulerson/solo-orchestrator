@@ -1066,9 +1066,11 @@ At every phase gate. The agent will prompt you. The gates are:
 
 | Gate | What Is Approved | Personal | Organizational |
 |---|---|---|---|
-| Phase 0 completion | Product Manifesto | Self-review | Project Sponsor |
-| Phase 1 completion | Project Bible | Self-review | Senior Technical Authority |
-| Phase 3 completion | Go-live readiness | Self-review | Application Owner + IT Security |
+| Phase 0 → 1 | Product Manifesto (problem, scope, success criteria) | Self-review | Project Sponsor |
+| Phase 1 → 2 | Project Bible (architecture, build plan, risk register) | Self-review | Senior Technical Authority |
+| Phase 2 → 3 | Build Loop complete; FRD, test coverage, code review done | Self-review | Senior Technical Authority |
+| Phase 3 → 4 | Go-live readiness (security scans, pen test, runbook, rollback) | Self-review | Application Owner + IT Security |
+| Phase 4 release | Production cutover (deployment, monitoring, handoff) | Self-review | Application Owner + IT Security |
 
 ### What Counts as Evidence
 

@@ -1,4 +1,4 @@
-# solo-orchestrator: platforms=desktop,web,mcp-server
+# solo-orchestrator: platforms=desktop,web,mcp_server
 image: mcr.microsoft.com/dotnet/sdk:8.0
 pipelines:
   default:

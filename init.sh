@@ -50,6 +50,40 @@ NO_REMOTE_CREATION=false
 
 source "$SCRIPT_DIR/scripts/lib/helpers.sh"
 
+# Audit specs-plans-init-intake-noninteractive-2 (2026-06): the dynamic
+# platform discovery used by the interactive flow at collect_inputs() and
+# the case-statement used by the non-interactive validator had drifted
+# apart. The interactive flow scanned docs/platform-modules + release
+# pipelines and appended 'other'; the non-interactive flow hardcoded
+# {desktop|mobile|web|mcp_server} and rejected 'other'. The helper below
+# is the single source of truth — used by both flows and exported for
+# any caller that wants to enumerate or validate platforms.
+get_available_platforms() {
+  local seen=""
+  for f in "$SCRIPT_DIR/docs/platform-modules/"*.md; do
+    [ -f "$f" ] || continue
+    local pname
+    pname=$(basename "$f" .md)
+    if [[ ! " $seen " == *" $pname "* ]]; then
+      seen="$seen $pname"
+    fi
+  done
+  for f in "$SCRIPT_DIR/templates/pipelines/release/github/"*.yml; do
+    [ -f "$f" ] || continue
+    local pname
+    pname=$(basename "$f" .yml)
+    if [[ ! " $seen " == *" $pname "* ]]; then
+      seen="$seen $pname"
+    fi
+  done
+  # 'other' is always available as a fallback for platforms not in the
+  # canonical set (matches the interactive flow).
+  if [[ ! " $seen " == *" other "* ]]; then
+    seen="$seen other"
+  fi
+  echo "$seen"
+}
+
 # ================================================================
 # PHASE 1: Prerequisites Check
 # ================================================================
@@ -360,54 +394,69 @@ collect_project_info() {
     fi
   fi
 
-  # For organizational deployments, ask about governance mode (POC vs production)
+  # Audit code-init-sh-4 + tier-crosscheck-2 (2026-06): move the POC
+  # prompt out from under the organizational guard. Per baseline §2.5,
+  # Private POC is always personal and Sponsored POC is always
+  # organizational, so each deployment offers a different two-option
+  # dialog; both still produce a POC_MODE value (or "") for downstream
+  # consumers.
   POC_MODE=""
+  echo ""
+  echo -e "  ${BOLD}Governance Mode:${NC}"
+  echo "    Production Build — All governance approvals required before starting."
   if [ "$DEPLOYMENT" = "organizational" ]; then
-    echo ""
-    echo -e "  ${BOLD}Governance Mode:${NC}"
-    echo "    Production Build — All governance approvals required before starting."
     echo "    Sponsored POC    — Organization-approved pilot. Technical approvals now,"
     echo "                       non-technical (insurance, ITSM, etc.) deferred."
+  else
     echo "    Private POC      — Personal exploration. All governance deferred."
-    echo ""
-    echo -e "  ${BOLD}POC constraints:${NC} No production deployment, no real user data, no external"
-    echo "  users. All technical work is production-grade and carries forward unchanged."
-    echo "  Phases 0-3 run identically. Phase 4 (production release) is blocked until upgrade."
-    echo ""
-    local gov_mode
+  fi
+  echo ""
+  echo -e "  ${BOLD}POC constraints:${NC} No production deployment, no real user data, no external"
+  echo "  users. All technical work is production-grade and carries forward unchanged."
+  echo "  Phases 0-3 run identically. Phase 4 (production release) is blocked until upgrade."
+  echo ""
+  local gov_mode
+  if [ "$DEPLOYMENT" = "organizational" ]; then
     gov_mode=$(prompt_choice "Governance mode:" \
-      "Private POC" \
       "Sponsored POC" \
       "Production Build")
     case "$gov_mode" in
       "Production"*) POC_MODE="" ;;
       "Sponsored"*)  POC_MODE="sponsored_poc" ;;
+    esac
+  else
+    gov_mode=$(prompt_choice "Governance mode:" \
+      "Private POC" \
+      "Production Build")
+    case "$gov_mode" in
+      "Production"*) POC_MODE="" ;;
       "Private"*)    POC_MODE="private_poc" ;;
     esac
+  fi
 
-    # Validate track against governance mode
-    # Sponsored POC and Production Build require Standard or Full track
-    if [ "$TRACK" = "light" ] && [ "$POC_MODE" != "private_poc" ]; then
-      echo ""
-      if [ -z "$POC_MODE" ]; then
-        print_warn "Production builds require Standard or Full track."
-        print_warn "Light track skips market validation, user testing, and security hardening."
-      else
-        print_warn "Sponsored POC requires Standard or Full track."
-        print_warn "A sponsor expects due diligence — Light track skips too many safeguards."
-      fi
-      echo ""
-      TRACK=$(prompt_choice "Select a track:" "standard" "full")
-      TRACK="${TRACK#"${TRACK%%[![:space:]]*}"}"
-      print_ok "Track upgraded to $TRACK"
+  # Validate track against governance mode
+  # Private POC tolerates light track (it's exploratory by design).
+  # Sponsored POC and Production Build require Standard or Full track.
+  if [ "$TRACK" = "light" ] && [ "$POC_MODE" != "private_poc" ]; then
+    echo ""
+    if [ -z "$POC_MODE" ]; then
+      print_warn "Production builds require Standard or Full track."
+      print_warn "Light track skips market validation, user testing, and security hardening."
+    else
+      print_warn "Sponsored POC requires Standard or Full track."
+      print_warn "A sponsor expects due diligence — Light track skips too many safeguards."
     fi
+    echo ""
+    TRACK=$(prompt_choice "Select a track:" "standard" "full")
+    TRACK="${TRACK#"${TRACK%%[![:space:]]*}"}"
+    print_ok "Track upgraded to $TRACK"
+  fi
 
-    if [ -n "$POC_MODE" ]; then
-      echo ""
-      print_warn "POC MODE: ${POC_MODE//_/ }"
-      print_warn "Phase 4 (production release) is blocked until you upgrade."
-      print_warn "Upgrade later: bash scripts/upgrade-project.sh --to-production"
-    fi
+  if [ -n "$POC_MODE" ]; then
+    echo ""
+    print_warn "POC MODE: ${POC_MODE//_/ }"
+    print_warn "Phase 4 (production release) is blocked until you upgrade."
+    print_warn "Upgrade later: bash scripts/upgrade-project.sh --to-production"
   fi
 
   # Auto-discover available languages from CI pipeline templates.
@@ -1570,6 +1619,7 @@ PERMEOF
     web) platform_module="SOI-PM-WEB" ;;
     desktop) platform_module="SOI-PM-DESKTOP" ;;
     mobile) platform_module="SOI-PM-MOBILE" ;;
+    mcp_server) platform_module="SOI-PM-MCP" ;;
   esac
   local track_display
   track_display="$(echo "${TRACK:0:1}" | tr '[:lower:]' '[:upper:]')${TRACK:1}"
@@ -2759,7 +2809,10 @@ init.sh --non-interactive — full reference
 
 Required flags (always):
   --project NAME           Project name. Lowercase letters, digits, hyphens; must start with letter.
-  --platform PLATFORM      One of: desktop, mobile, web, mcp_server
+  --platform PLATFORM      Any platform module under docs/platform-modules/,
+                           any release pipeline under templates/pipelines/release/github/,
+                           or 'other' as a fallback. Today: desktop, mobile, web, mcp_server, other.
+                           (Dynamic; ship a new platform-modules/<name>.md to extend.)
   --deployment KIND        One of: personal, organizational
   --language NAME          Primary language. Must be valid for the chosen platform.
 
@@ -2939,15 +2992,18 @@ collect_inputs_non_interactive() {
 
   # platform
   if [ -n "$ARG_PLATFORM" ]; then
-    case "$ARG_PLATFORM" in
-      desktop|mobile|web|mcp_server) ;;
-      *)
-        fail "invalid --platform '$ARG_PLATFORM'" \
-             "platform must be one of: desktop, mobile, web, mcp_server." \
-             "re-run with a supported --platform value." \
-             "--platform='$ARG_PLATFORM'"
-        return 1 ;;
-    esac
+    # Audit specs-plans-init-intake-noninteractive-2: validate against
+    # the same dynamic set the interactive flow uses, rather than a
+    # hardcoded list that drifts whenever a platform module ships.
+    local available
+    available=$(get_available_platforms)
+    if [[ ! " $available " == *" $ARG_PLATFORM "* ]]; then
+      fail "invalid --platform '$ARG_PLATFORM'" \
+           "platform must be one of:$available." \
+           "add a docs/platform-modules/<name>.md to extend, or pick a supported value." \
+           "--platform='$ARG_PLATFORM'"
+      return 1
+    fi
   fi
 
   # track
@@ -3039,7 +3095,7 @@ collect_inputs_non_interactive() {
   if [ -z "$ARG_PLATFORM" ]; then
     fail "--platform is required" \
          "every non-interactive invocation must specify a platform." \
-         "re-run with --platform {desktop|mobile|web|mcp_server}." \
+         "re-run with --platform <one of:$(get_available_platforms)>." \
          "(--platform unset)"
     return 1
   fi
@@ -3058,19 +3114,32 @@ collect_inputs_non_interactive() {
     return 1
   fi
 
-  # gov-mode required iff deployment=organizational
+  # gov-mode rules (baseline §2.5):
+  #   - Private POC is always personal (organizational + private_poc rejected).
+  #   - Sponsored POC is always organizational (personal + sponsored_poc rejected).
+  #   - Production is valid for both deployments.
+  # Audit code-init-sh-4 + tier-crosscheck-2: previously --gov-mode was
+  # required for organizational and rejected for personal, making Private
+  # POC unreachable for personal deployments.
   if [ "$ARG_DEPLOYMENT" = "organizational" ] && [ -z "$ARG_GOV_MODE" ]; then
     fail "--gov-mode is required when --deployment=organizational" \
          "organizational projects must specify a governance mode." \
-         "re-run with one of: --gov-mode production, --gov-mode sponsored_poc, --gov-mode private_poc." \
+         "re-run with --gov-mode production or --gov-mode sponsored_poc." \
          "--deployment=organizational, --gov-mode=(unset)"
     return 1
   fi
-  if [ "$ARG_DEPLOYMENT" = "personal" ] && [ -n "$ARG_GOV_MODE" ]; then
-    fail "--gov-mode is not valid for --deployment=personal" \
-         "personal projects do not have a governance mode." \
-         "remove --gov-mode and re-run." \
-         "--deployment=personal, --gov-mode='$ARG_GOV_MODE'"
+  if [ "$ARG_DEPLOYMENT" = "organizational" ] && [ "$ARG_GOV_MODE" = "private_poc" ]; then
+    fail "--gov-mode=private_poc is not valid for --deployment=organizational" \
+         "Private POC is always a personal deployment (baseline §2.5)." \
+         "use --deployment=personal --gov-mode=private_poc, or --deployment=organizational --gov-mode=sponsored_poc." \
+         "--deployment=organizational, --gov-mode=private_poc"
+    return 1
+  fi
+  if [ "$ARG_DEPLOYMENT" = "personal" ] && [ "$ARG_GOV_MODE" = "sponsored_poc" ]; then
+    fail "--gov-mode=sponsored_poc is not valid for --deployment=personal" \
+         "Sponsored POC is always an organizational deployment (baseline §2.5)." \
+         "use --deployment=organizational --gov-mode=sponsored_poc, or --deployment=personal --gov-mode=private_poc." \
+         "--deployment=personal, --gov-mode=sponsored_poc"
     return 1
   fi
 

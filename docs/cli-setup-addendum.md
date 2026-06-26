@@ -59,9 +59,10 @@ docker run -d --name qdrant -p 6333:6333 -p 6334:6334 \
   -v qdrant_storage:/qdrant/storage qdrant/qdrant
 
 # Add the MCP server
-claude mcp add qdrant --scope user -- npx -y @qdrant/mcp-server-qdrant \
-  --qdrant-url http://localhost:6333 \
-  --collection-name solo-orchestrator
+claude mcp add -s user \
+  -e QDRANT_URL=http://localhost:6333 \
+  -e COLLECTION_NAME=claude-memory \
+  qdrant -- uvx --python 3.13 mcp-server-qdrant
 ```
 
 **4. Replace CLAUDE.md with the enhanced template:**
@@ -230,29 +231,22 @@ The framework catches violations the agent might introduce — particularly duri
 
 ### Setup
 
-**1. Clone the framework template into your project:**
+**`init.sh` installs CDF automatically.** Running `bash init.sh` from a new project directory clones CDF to `~/.claude-dev-framework` (a global, shared install — not per-project) and then runs CDF's own initializer from your project root. Per-project profile selection happens inside that CDF init flow.
+
+**Manual fallback** (only needed if you skipped Solo's `init.sh` and want CDF in isolation):
+
 ```bash
-# From your project root
-mkdir -p .claude/framework
-git clone https://github.com/kraulerson/claude-dev-framework.git /tmp/cdf
-cp -r /tmp/cdf/templates/* .claude/framework/
-rm -rf /tmp/cdf
+# Clone CDF globally (matches the layout init.sh expects)
+git clone https://github.com/kraulerson/claude-dev-framework.git ~/.claude-dev-framework
+
+# Run CDF init from your project root
+cd /path/to/your/project
+bash ~/.claude-dev-framework/scripts/init.sh
 ```
 
-**2. Select and configure the appropriate profile:**
-```bash
-# Copy the base profile and the project-type profile
-cp .claude/framework/profiles/_base.yml .claude/framework/active-profile.yml
-# Append the project-type specific rules:
-# For web applications: cat .claude/framework/profiles/web-api.yml >> .claude/framework/active-profile.yml
-# For mobile apps: cat .claude/framework/profiles/mobile-app.yml >> .claude/framework/active-profile.yml
-# For CLI tools: cat .claude/framework/profiles/cli-tool.yml >> .claude/framework/active-profile.yml
-```
+CDF's init prompts for the project profile (web-api, mobile-app, cli-tool, etc.) and wires the appropriate hooks into your project's `.claude/settings.json` and `.git/hooks/`. It does NOT clone its templates into `.claude/framework/` — that earlier per-project clone pattern is obsolete.
 
-**3. Install the Git hooks:**
-Follow the framework's installation instructions in its README. The hooks integrate with the husky (Node.js) or pre-commit (Python) hook managers that the Builder's Guide already requires in Phase 2 Project Initialization.
-
-**4. Verify:**
+**Verify the integration:**
 ```bash
 # Stage a test file and commit — the hooks should fire
 git add .
@@ -329,9 +323,10 @@ docker run -d \
 
 **2. Add the Qdrant MCP server to Claude Code (user-scoped):**
 ```bash
-claude mcp add qdrant --scope user -- uvx mcp-server-qdrant \
-  --qdrant-url http://localhost:6333 \
-  --collection-name solo-orchestrator
+claude mcp add -s user \
+  -e QDRANT_URL=http://localhost:6333 \
+  -e COLLECTION_NAME=claude-memory \
+  qdrant -- uvx --python 3.13 mcp-server-qdrant
 ```
 
 If `uvx` is not installed:
@@ -579,7 +574,7 @@ Run this once per development machine:
 - [ ] Auto Mode configured (or granular permissions in settings.json if Auto Mode unavailable)
 - [ ] Context7 MCP added (`claude mcp add context7 --scope user -- npx -y @upstash/context7-mcp`)
 - [ ] Qdrant running in Docker (`docker run -d --name qdrant -p 6333:6333 -v qdrant_data:/qdrant/storage qdrant/qdrant:latest`)
-- [ ] Qdrant MCP added (`claude mcp add qdrant --scope user -- uvx mcp-server-qdrant --qdrant-url http://localhost:6333 --collection-name solo-orchestrator`)
+- [ ] Qdrant MCP added (`claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory qdrant -- uvx --python 3.13 mcp-server-qdrant`)
 - [ ] Development Guardrails for Claude Code cloned and available for project setup
 - [ ] Verify all MCP servers connected (`claude /mcp`)
 - [ ] Verify Superpowers active (start a session, ask to plan a feature — brainstorming skill should trigger)

@@ -1,4 +1,4 @@
-# solo-orchestrator: platforms=desktop,web,mcp-server
+# solo-orchestrator: platforms=desktop,web,mcp_server
 # GitLab CI pipeline for C# / .NET projects.
 stages: [test, security, governance]
 image: mcr.microsoft.com/dotnet/sdk:8.0

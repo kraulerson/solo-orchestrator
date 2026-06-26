@@ -223,10 +223,10 @@ Before moving to Phase 3, verify:
 - **Phase 4:** Generate docs/INCIDENT_RESPONSE.md (use template: `templates/generated/incident-response.tmpl`), RELEASE_NOTES.md (use template), HANDOFF.md (use template). Test the rollback procedure before production launch. Complete go-live verification checklist.
 - **Phase 3 enforcement:** Run `scripts/process-checklist.sh --start-phase3` at the beginning of Phase 3.
   Mark each validation step: `scripts/process-checklist.sh --complete-step phase3_validation:STEP_ID`
-  Steps: integration_testing, security_hardening, chaos_testing, accessibility_audit, performance_audit, contract_testing, results_archived.
+  Steps: integration_testing, security_hardening, chaos_testing, accessibility_audit, performance_audit, contract_testing, results_archived, pre_launch_preparation, legal_review.
 - **Phase 4 enforcement:** Run `scripts/process-checklist.sh --start-phase4` at the beginning of Phase 4.
   Mark each release step: `scripts/process-checklist.sh --complete-step phase4_release:STEP_ID`
-  Steps: production_build, rollback_tested, go_live_verified, monitoring_configured, handoff_written.
+  Steps: production_build, rollback_tested, go_live_verified, monitoring_configured, handoff_written, handoff_tested.
   **The rollback_tested step must be completed before go_live_verified can be marked.**
 
 ### UAT Test Sessions
