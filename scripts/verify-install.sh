@@ -262,7 +262,32 @@ check_scripts() {
     "scripts/lint-uat-scenarios.sh"
     "scripts/escalate-to-user.sh"
     "scripts/hooks/bypass-detector.sh"
+    # BL-030 (post-PR #48): detector, installer, recorder hook, and
+    # the fixture-envelope lint that gates the BL-029 hook schema.
+    "scripts/detect-out-of-band-commits.sh"
+    "scripts/install-filesystem-gates.sh"
+    "scripts/hooks/record-claude-commit.sh"
+    "scripts/lint-fixture-envelopes.sh"
   )
+
+  # BL-030 (post-PR #48): sourced libraries — these are not executable
+  # but their presence is load-bearing for enforcement_level reads,
+  # block-message principle lookup, and the reconfigure transition path.
+  local libs=(
+    "scripts/lib/enforcement-level.sh"
+    "scripts/lib/gate-principles.sh"
+  )
+  local lib_name
+  for lib in "${libs[@]}"; do
+    lib_name=$(basename "$lib" .sh)
+    if [ -f "$lib" ]; then
+      register_pass "$lib_name lib present"
+    elif has_source && [ -f "$SOURCE_DIR/$lib" ]; then
+      register_fixable "$lib_name lib missing" "fix_lib_copy_${lib_name}"
+    else
+      register_manual "$lib_name lib missing" "Copy from orchestrator $lib"
+    fi
+  done
 
   for script in "${scripts[@]}"; do
     local name
@@ -354,6 +379,37 @@ check_hooks() {
   else
     register_manual "Stop hook: session-end-qdrant-reminder.sh not registered" \
       "Add session-end-qdrant-reminder.sh to .hooks.Stop in .claude/settings.json"
+  fi
+
+  # BL-029 hooks (PostToolUse + Stop): bypass-detector.sh. Both
+  # registrations are required for the dual-event detection contract.
+  if jq -e '.hooks.PostToolUse[]? | .hooks[]? | select(.command | contains("bypass-detector.sh"))' .claude/settings.json >/dev/null 2>&1; then
+    register_pass "PostToolUse hook: bypass-detector.sh"
+  else
+    register_manual "PostToolUse hook: bypass-detector.sh not registered" \
+      "Add hooks/bypass-detector.sh to .hooks.PostToolUse in .claude/settings.json"
+  fi
+  if jq -e '.hooks.Stop[]? | .hooks[]? | select(.command | contains("bypass-detector.sh"))' .claude/settings.json >/dev/null 2>&1; then
+    register_pass "Stop hook: bypass-detector.sh"
+  else
+    register_manual "Stop hook: bypass-detector.sh not registered" \
+      "Add hooks/bypass-detector.sh to .hooks.Stop in .claude/settings.json"
+  fi
+
+  # BL-030 (post-PR #48): PostToolUse record-claude-commit ledger +
+  # SessionStart out-of-band detector. Both must be registered for the
+  # detection chain that powers the 'no/light/strict' enforcement levels.
+  if jq -e '.hooks.PostToolUse[]? | .hooks[]? | select(.command | contains("record-claude-commit.sh"))' .claude/settings.json >/dev/null 2>&1; then
+    register_pass "PostToolUse hook: record-claude-commit.sh"
+  else
+    register_manual "PostToolUse hook: record-claude-commit.sh not registered" \
+      "Add hooks/record-claude-commit.sh to .hooks.PostToolUse in .claude/settings.json"
+  fi
+  if jq -e '.hooks.SessionStart[]? | .hooks[]? | select(.command | contains("detect-out-of-band-commits.sh"))' .claude/settings.json >/dev/null 2>&1; then
+    register_pass "SessionStart hook: detect-out-of-band-commits.sh"
+  else
+    register_manual "SessionStart hook: detect-out-of-band-commits.sh not registered" \
+      "Add detect-out-of-band-commits.sh to .hooks.SessionStart in .claude/settings.json"
   fi
 }
 
@@ -728,10 +784,16 @@ fix_script() {
 }
 
 # Generate fix functions for each script
-for _s in validate check-phase-gate check-gate check-updates resume intake-wizard resolve-tools upgrade-project reconfigure-project verify-install test-gate check-versions session-version-check session-test-gate-check session-end-qdrant-reminder session-mcp-gate process-checklist pre-commit-gate track-tool-usage pending-approval lint-uat-scenarios escalate-to-user; do
+for _s in validate check-phase-gate check-gate check-updates resume intake-wizard resolve-tools upgrade-project reconfigure-project verify-install test-gate check-versions session-version-check session-test-gate-check session-end-qdrant-reminder session-mcp-gate process-checklist pre-commit-gate track-tool-usage pending-approval lint-uat-scenarios escalate-to-user detect-out-of-band-commits install-filesystem-gates lint-fixture-envelopes; do
   eval "fix_script_chmod_${_s}() { chmod +x 'scripts/${_s}.sh'; }"
   eval "fix_script_copy_${_s}() { fix_script '${_s}.sh'; }"
 done
+# BL-030: hooks live in a subdirectory; chmod + copy paths reflect that.
+eval "fix_script_chmod_record-claude-commit() { chmod +x 'scripts/hooks/record-claude-commit.sh'; }"
+eval "fix_script_copy_record-claude-commit()  { fix_script 'hooks/record-claude-commit.sh'; }"
+# BL-030: sourced libs — no chmod, copy only.
+fix_lib_copy_enforcement-level() { if has_source && [ -f "$SOURCE_DIR/scripts/lib/enforcement-level.sh" ]; then mkdir -p scripts/lib && cp "$SOURCE_DIR/scripts/lib/enforcement-level.sh" scripts/lib/; else return 1; fi; }
+fix_lib_copy_gate-principles()   { if has_source && [ -f "$SOURCE_DIR/scripts/lib/gate-principles.sh" ];   then mkdir -p scripts/lib && cp "$SOURCE_DIR/scripts/lib/gate-principles.sh"   scripts/lib/; else return 1; fi; }
 # Hooks live in a subdirectory; chmod + copy paths reflect that. The
 # basename of scripts/hooks/bypass-detector.sh is `bypass-detector`, so
 # the helper names must match (with hyphens, via eval).
