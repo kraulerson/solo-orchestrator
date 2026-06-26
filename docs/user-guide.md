@@ -77,6 +77,31 @@ Before starting, confirm you can do the following. If more than 2 items are unfa
 
 The framework has three tiers of control, plus an intermediate tier for CI-based warnings. Understanding which tier a rule falls into tells you where the safety nets are — and where you are the safety net.
 
+**Before the tier breakdown — your project's enforcement level matters.** Solo Orchestrator projects ship with one of three enforcement levels (`strict` / `light` / `no`), set at `init.sh` time and changeable later via `scripts/reconfigure-project.sh --enforcement-level`. The level controls **how aggressively the framework treats user-terminal git commits**:
+
+| Level | User-terminal commits | `--no-verify` behavior | Default for |
+|---|---|---|---|
+| `strict` | Blocked in `.git/hooks/pre-commit` (framework-gate.sh) when they violate the Build Loop / Phase classifier | Bypass-able at commit time, but **the next SessionStart hook records the commit to `.claude/bypass-audit.json`** — you can route around the block, you cannot route around the audit trail | All projects (default) |
+| `light` | Allowed at commit time | Allowed at commit time; commit is still recorded by the SessionStart out-of-band detector | Personal exploration projects that explicitly opt in |
+| `no` | Allowed at commit time | Allowed at commit time; **not** recorded | Personal projects that opt in AND accept losing the W7 successor-handoff narrative |
+
+**Tier semantics (baseline §2.5):** `strict` is forced for organizational projects in Sponsored POC or Production mode. Personal projects and organizational/Private POC projects are "choosable" — they can pick any of the three levels.
+
+**Files:**
+- The project's level lives in `.claude/manifest.json::.enforcement_level`.
+- The strict-mode block hook is `.git/hooks/framework-gate.sh` (installed/uninstalled by `scripts/install-filesystem-gates.sh` on level transitions).
+- The audit log is `.claude/bypass-audit.json`. Every user-terminal commit captured by the detector appears as a row with `type: "out_of_band_commit"`; every framework-gate block appears as `type: "terminal_commit_blocked"`; every successful pass through the gate is `type: "terminal_commit_passed"`.
+
+**Operator commands:**
+- `bash init.sh --non-interactive ... --enforcement-level <no|light|strict> [--confirm-pitfalls]` — set at project creation (`--confirm-pitfalls` is required to go below strict).
+- `bash scripts/reconfigure-project.sh --enforcement-level <no|light|strict> [--confirm-pitfalls]` — transition an existing project (refused for tiers that force strict, refused for downgrade without `--confirm-pitfalls`).
+- `bash scripts/upgrade-project.sh --backfill-only` — migrate a pre-BL-030 project's manifest in place (defaults to strict).
+
+Throughout the rest of this section, the tier breakdown describes the **shape of enforcement at each tier**. Your enforcement level controls **which of those tiers actually fire on user-terminal commits**:
+- `strict` (default): every tier listed below applies to both Claude-issued commits AND your terminal commits.
+- `light`: every tier applies to Claude. Your terminal commits skip Tier 2 hooks but are still captured by Tier 1 CI and recorded post-hoc by the audit detector.
+- `no`: every tier applies to Claude. Your terminal commits are entirely unchecked by the framework.
+
 **Tier 1 — Mechanically enforced (CI pipeline).** These checks run automatically on every push. They block merges when they fail. You cannot accidentally bypass them.
 
 | Control | Mechanism |
@@ -99,8 +124,8 @@ The framework has three tiers of control, plus an intermediate tier for CI-based
 
 | Control | Mechanism | Limitation |
 |---|---|---|
-| Secret detection (gitleaks) | Pre-commit hook + CI pipeline scan — blocks commit and PR | Only catches patterns gitleaks knows; pre-commit bypassable with `--no-verify` but CI backstop catches it |
-| SAST quick scan (Semgrep) | Pre-commit hook — blocks commit on findings; CI runs full scan | Pre-commit scans only staged files with `p/owasp-top-ten`; bypassable with `--no-verify` but CI backstop catches it |
+| Secret detection (gitleaks) | Pre-commit hook + CI pipeline scan — blocks commit and PR | Only catches patterns gitleaks knows. `--no-verify` skips the hook but the CI scan is a hard backstop. In `strict` enforcement mode, the SessionStart out-of-band detector also records any commit that landed via `--no-verify` to `.claude/bypass-audit.json`. |
+| SAST quick scan (Semgrep) | Pre-commit hook — blocks commit on findings; CI runs full scan | Pre-commit scans only staged files with `p/owasp-top-ten`. `--no-verify` skips the hook; the CI scan is a hard backstop and (in `strict` mode) the audit detector records the bypass. |
 | TDD ordering check | Pre-commit hook — warns when implementation files are committed without any test files | Heuristic; checks file presence, not test quality or ordering. Does not apply to config, migrations, or generated files. |
 | Schema migration check | Pre-commit hook — warns when schema files are edited directly in Phase 2+ | Only active in Phase 2+; initial schema creation in Phase 0-1 is expected |
 | TDD discipline (RED-GREEN-REFACTOR) | Superpowers plugin (optional) | Strongly encourages, does not prevent non-TDD code from being committed |
@@ -113,7 +138,7 @@ The framework has three tiers of control, plus an intermediate tier for CI-based
 | Context Health Checks every 3-4 features | Builder's Guide |
 | Approval log entries authored by the approver | Governance Framework |
 
-**What this means in practice:** The CI pipeline is your hard floor — it catches security, dependency, build issues, and phase gate violations mechanically. CI annotations warn you about documentation freshness without blocking your work. The pre-commit hooks are your early warning system — they catch secrets, nudge you on test co-location, and flag direct schema edits. Everything else depends on you following the process and reviewing the agent's output at decision gates.
+**What this means in practice:** The CI pipeline is your hard floor — it catches security, dependency, build issues, and phase gate violations mechanically. CI annotations warn you about documentation freshness without blocking your work. The pre-commit hooks are your early warning system — they catch secrets, nudge you on test co-location, and flag direct schema edits. In the **default `strict` enforcement level**, a second hard floor exists locally: `.git/hooks/framework-gate.sh` blocks user-terminal commits that violate the Build Loop / Phase classifier, and the SessionStart detector records any commit that landed via `--no-verify` to `.claude/bypass-audit.json`. You can route around the block; you cannot route around the audit. Everything else depends on you following the process and reviewing the agent's output at decision gates.
 
 **Strict mode:** Organizations that want tighter enforcement can set environment variables in their CI workflow to upgrade warnings to hard blocks:
 
@@ -1403,6 +1428,18 @@ Each session, provide the current `PROJECT_BIBLE.md` as context. The Bible is th
 
 ---
 
+**"What's the difference between `strict`, `light`, and `no` enforcement?"**
+
+`strict` (the default) installs `.git/hooks/framework-gate.sh` which blocks user-terminal git commits that violate the Build Loop / Phase classifier. `--no-verify` skips that block but the SessionStart out-of-band detector still records the commit to `.claude/bypass-audit.json`, so the audit trail is preserved. `light` removes the local block but keeps the SessionStart audit — user-terminal commits land freely and are recorded. `no` disables both — only the Claude-side audit (BL-029) keeps running. Pick `strict` unless you have a specific operational reason not to; the audit-vs-block tradeoff at the level boundary is what governance frameworks generally call defense in depth. See `init.sh --enforcement-level` and `scripts/reconfigure-project.sh --enforcement-level`.
+
+---
+
+**"Can I downgrade enforcement on an organizational/Production project?"**
+
+No. Baseline §2.5 forces `strict` for organizational projects in Sponsored POC or Production mode. `reconfigure-project.sh --enforcement-level` will refuse the transition (the lib's `validate_transition` checks deployment + poc_mode before any state change). To get to `light` or `no` on an organizational project, you would first need to be in Private POC (the personal-only POC tier) — which the framework does not let you transition to from organizational. The intentional dead-end: organizational projects don't get to opt out of governance.
+
+---
+
 **"The CI pipeline failed on first push."**
 
 Review the error. Common causes: missing secrets in GitHub (API keys, tokens), language version mismatch between your machine and the CI runner, or a dependency that requires authentication. Fix the pipeline before entering the Build Loop — a broken CI pipeline means you have no automated safety net.
@@ -1420,7 +1457,7 @@ When a CI security check blocks your build:
 | **License violation** | Find an alternative dependency with a compatible license. Do not override copyleft blocks without Legal review. |
 | **Secret detection (gitleaks)** | Remove the secret from code. Rotate the exposed credential immediately. Use environment variables or a secrets manager instead. |
 
-**Never** disable CI, commit directly to main, or use `--no-verify` to bypass security checks. If genuinely blocked, ask a security-knowledgeable peer for review.
+**Never** disable CI, commit directly to main, or use `--no-verify` to bypass security checks. If genuinely blocked, ask a security-knowledgeable peer for review. (On `strict` projects, every `--no-verify` commit is recorded to `.claude/bypass-audit.json` by the SessionStart detector — the bypass is allowed at commit time but lands in the W7 successor-handoff audit. A reviewer reading the project's history will see it.)
 
 ---
 
