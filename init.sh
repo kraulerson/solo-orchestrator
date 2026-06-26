@@ -39,6 +39,10 @@ ARG_REMOTE_URL=""
 ARG_BRANCH_PROTECTION_ATTESTED=false
 ARG_ALLOW_EXISTING_DIR=false
 ARG_NO_REMOTE_CREATION=false
+# BL-030: enforcement-level flags (non-interactive). Default empty so
+# resolution defers to the choosability check after deployment+poc_mode.
+ARG_ENFORCEMENT_LEVEL=""
+ARG_CONFIRM_PITFALLS=false
 # Resolved variables produced by either input path (consumed by downstream functions)
 GOV_MODE=""
 GIT_HOST=""
@@ -47,6 +51,8 @@ REMOTE_URL=""
 BRANCH_PROTECTION_ATTESTED=false
 ALLOW_EXISTING_DIR=false
 NO_REMOTE_CREATION=false
+ENFORCEMENT_LEVEL=""
+CONFIRM_PITFALLS=0
 
 source "$SCRIPT_DIR/scripts/lib/helpers.sh"
 
@@ -3398,6 +3404,12 @@ main() {
         ARG_ALLOW_EXISTING_DIR=true; shift ;;
       --no-remote-creation)
         ARG_NO_REMOTE_CREATION=true; shift ;;
+      --enforcement-level)
+        ARG_ENFORCEMENT_LEVEL="${2:-}"; shift 2 ;;
+      --enforcement-level=*)
+        ARG_ENFORCEMENT_LEVEL="${1#*=}"; shift ;;
+      --confirm-pitfalls)
+        ARG_CONFIRM_PITFALLS=true; shift ;;
       --help-non-interactive)
         print_help_non_interactive
         exit 0 ;;
@@ -3469,6 +3481,35 @@ HELPEOF
       production) POC_MODE="" ;;
       *)          POC_MODE="$GOV_MODE" ;;
     esac
+
+    # BL-030: resolve enforcement_level. Choosable iff deployment=personal
+    # OR (organizational AND poc_mode=private_poc). Otherwise forced strict.
+    ENFORCEMENT_LEVEL="$ARG_ENFORCEMENT_LEVEL"
+    [ "$ARG_CONFIRM_PITFALLS" = true ] && CONFIRM_PITFALLS=1
+    _bl030_choosable=0
+    if [ "$DEPLOYMENT" = "personal" ]; then _bl030_choosable=1; fi
+    if [ "$DEPLOYMENT" = "organizational" ] && [ "$POC_MODE" = "private_poc" ]; then _bl030_choosable=1; fi
+    if [ "$_bl030_choosable" = "0" ]; then
+      if [ -n "$ENFORCEMENT_LEVEL" ] && [ "$ENFORCEMENT_LEVEL" != "strict" ]; then
+        print_warn "BL-030: --enforcement-level '$ENFORCEMENT_LEVEL' ignored — deployment/poc_mode forces strict."
+      fi
+      ENFORCEMENT_LEVEL="strict"
+    else
+      [ -z "$ENFORCEMENT_LEVEL" ] && ENFORCEMENT_LEVEL="strict"
+      case "$ENFORCEMENT_LEVEL" in
+        strict) ;;
+        light|no)
+          if [ "$CONFIRM_PITFALLS" != "1" ]; then
+            print_fail "BL-030: non-interactive downgrade to '$ENFORCEMENT_LEVEL' requires --confirm-pitfalls."
+            exit 1
+          fi
+          ;;
+        *)
+          print_fail "BL-030: unknown --enforcement-level '$ENFORCEMENT_LEVEL' (expected: no | light | strict)."
+          exit 1
+          ;;
+      esac
+    fi
     # Pass 3 of collect_inputs_non_interactive already verified required tools.
   else
     if [ -n "$CONFIG_FILE" ]; then
@@ -3498,6 +3539,11 @@ HELPEOF
     log_section "Project Creation"
     create_project
 
+    # BL-030: persist enforcement_level + deployment + poc_mode to manifest,
+    # initialize detection baseline, audit-row the level set, and (if strict)
+    # install the filesystem gate.
+    bl030_finalize_init
+
     # Move log to project directory
     if [ -d "$PROJECT_DIR" ] && [ -n "$LOG_FILE" ]; then
       mkdir -p "$PROJECT_DIR/.solo-orchestrator"
@@ -3513,6 +3559,66 @@ HELPEOF
   fi
 
   finalize_log
+}
+
+# BL-030: finalize init — merge enforcement_level + deployment + poc_mode
+# into manifest, initialize the out-of-band detection baseline, append an
+# enforcement_level_set audit row, install the filesystem gate when strict.
+bl030_finalize_init() {
+  [ -d "$PROJECT_DIR" ] || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+
+  # Merge BL-030 fields into manifest.json. Existing init code writes host +
+  # mode (and possibly remote_url); this layers on the canonical schema the
+  # enforcement-level library expects.
+  local manifest="$PROJECT_DIR/.claude/manifest.json"
+  local poc_arg
+  if [ -n "$POC_MODE" ]; then
+    poc_arg="$POC_MODE"
+  else
+    poc_arg=""
+  fi
+  if [ -f "$manifest" ]; then
+    local tmp
+    tmp=$(mktemp)
+    if [ -n "$poc_arg" ]; then
+      jq --arg dep "$DEPLOYMENT" --arg pm "$poc_arg" --arg lvl "$ENFORCEMENT_LEVEL" \
+        '. + {deployment: $dep, poc_mode: $pm, enforcement_level: $lvl}' "$manifest" > "$tmp" \
+        && mv "$tmp" "$manifest"
+    else
+      jq --arg dep "$DEPLOYMENT" --arg lvl "$ENFORCEMENT_LEVEL" \
+        '. + {deployment: $dep, poc_mode: null, enforcement_level: $lvl}' "$manifest" > "$tmp" \
+        && mv "$tmp" "$manifest"
+    fi
+  fi
+
+  # Initialize detection baseline.
+  if [ -d "$PROJECT_DIR/.git" ]; then
+    ( cd "$PROJECT_DIR" && git rev-parse HEAD 2>/dev/null > "$PROJECT_DIR/.claude/last-checked-commit.txt" ) || true
+  fi
+  # Ensure bypass-audit.json exists (BL-029 also handles this; defensive).
+  [ -f "$PROJECT_DIR/.claude/bypass-audit.json" ] || echo "[]" > "$PROJECT_DIR/.claude/bypass-audit.json"
+
+  # Append enforcement_level_set audit row.
+  local _ts _row _tmp
+  _ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  _row=$(jq -nc \
+    --arg ts "$_ts" \
+    --arg lvl "$ENFORCEMENT_LEVEL" \
+    --arg confirmed "$CONFIRM_PITFALLS" \
+    '{timestamp:$ts, session_id:null, type:"enforcement_level_set", actor:"framework",
+      enforcement_level_at_event:$lvl,
+      details:{level:$lvl, confirmed_pitfalls:($confirmed=="1"), source:"init"},
+      user_response:"n/a", final_outcome:"recorded_only"}')
+  _tmp=$(mktemp)
+  jq --argjson r "$_row" '. + [$r]' "$PROJECT_DIR/.claude/bypass-audit.json" > "$_tmp" \
+    && mv "$_tmp" "$PROJECT_DIR/.claude/bypass-audit.json"
+
+  # Install filesystem gate when strict.
+  if [ "$ENFORCEMENT_LEVEL" = "strict" ]; then
+    bash "$SCRIPT_DIR/scripts/install-filesystem-gates.sh" --install "$PROJECT_DIR" >/dev/null 2>&1 || \
+      print_warn "BL-030: filesystem-gate install failed — strict enforcement degraded."
+  fi
 }
 
 main "$@"
