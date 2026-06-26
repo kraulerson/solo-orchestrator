@@ -92,7 +92,13 @@ host_configure_protection() {
       merge_access_level=30
       ;;
     org)
-      push_access_level=40
+      # Audit code-host-gitlab-1 (2026-06): org mode previously allowed
+      # Maintainers (level 40) to push directly to protected branches,
+      # bypassing MR review entirely. Per baseline §org-mode-protection,
+      # org mode REQUIRES PR-only access; nobody pushes directly.
+      # GitLab access level 0 = "No one"; merges still allowed for
+      # Maintainers via the MR approval flow.
+      push_access_level=0
       merge_access_level=40
       ;;
     *)
@@ -136,6 +142,15 @@ host_verify_protection() {
   [ "$val" = "0" ] || [ "$val" = "null" ] && failures="${failures}no push restriction on $branch\n"
 
   if [ "$mode" = "org" ]; then
+    # Audit code-host-gitlab-1 (2026-06): org mode requires PR-only
+    # access — assert push_access_level == 0 ("No one") rather than
+    # accepting any non-empty array. Pre-fix, a project with
+    # push_access_level=40 (Maintainers) passed verification.
+    val=$(echo "$resp" | jq -r '[.push_access_levels[]?.access_level // 50] | min // 50')
+    if [ "$val" != "0" ]; then
+      failures="${failures}push_access_level=$val on $branch (org mode requires 0 = No one)\n"
+    fi
+
     local aresp
     aresp=$(glab api "projects/$project/approvals" 2>/dev/null || echo '{}')
     val=$(echo "$aresp" | jq -r '.approvals_before_merge // 0')

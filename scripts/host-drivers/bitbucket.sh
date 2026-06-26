@@ -124,12 +124,17 @@ host_configure_protection() {
     }
   done
 
-  # Org mode: require approvals on PRs + block direct push
+  # Org mode: require approvals on PRs + block direct push + require
+  # passing CI status checks before merge (audit code-host-bitbucket-2,
+  # 2026-06: parity with github + gitlab org-mode policy that already
+  # required green CI before merge).
   if [ "$mode" = "org" ]; then
     local payload_push='{"kind":"push","pattern":"'"$branch"'","users":[],"groups":[]}'
     local payload_approve='{"kind":"require_approvals_to_merge","pattern":"'"$branch"'","value":1,"users":[],"groups":[]}'
+    local payload_builds='{"kind":"require_passing_builds_to_merge","pattern":"'"$branch"'","value":1,"users":[],"groups":[]}'
     echo "$payload_push"    | _bb_curl POST "$_bb_api_base/repositories/$workspace_repo/branch-restrictions" >/dev/null || return 2
     echo "$payload_approve" | _bb_curl POST "$_bb_api_base/repositories/$workspace_repo/branch-restrictions" >/dev/null || return 2
+    echo "$payload_builds"  | _bb_curl POST "$_bb_api_base/repositories/$workspace_repo/branch-restrictions" >/dev/null || return 2
   fi
   return 0
 }
@@ -144,11 +149,12 @@ host_verify_protection() {
     echo "bitbucket driver: could not fetch restrictions for $workspace_repo#$branch" >&2; return 2
   }
 
-  local has_force has_delete has_push has_approvals
+  local has_force has_delete has_push has_approvals has_builds
   has_force=$(echo "$resp" | jq -r '[.values[] | select(.kind=="force")] | length')
   has_delete=$(echo "$resp" | jq -r '[.values[] | select(.kind=="delete")] | length')
   has_push=$(echo "$resp" | jq -r '[.values[] | select(.kind=="push")] | length')
   has_approvals=$(echo "$resp" | jq -r '[.values[] | select(.kind=="require_approvals_to_merge" and .value>=1)] | length')
+  has_builds=$(echo "$resp" | jq -r '[.values[] | select(.kind=="require_passing_builds_to_merge" and .value>=1)] | length')
 
   local failures=""
   [ "$has_force" -eq 0 ]  && failures="${failures}force-push not restricted on $branch\n"
@@ -157,6 +163,7 @@ host_verify_protection() {
   if [ "$mode" = "org" ]; then
     [ "$has_push" -eq 0 ]      && failures="${failures}push not restricted (org mode requires PR-only)\n"
     [ "$has_approvals" -eq 0 ] && failures="${failures}approvals not required on PRs (org mode requires at least 1)\n"
+    [ "$has_builds" -eq 0 ]    && failures="${failures}passing CI builds not required for merge (org mode requires at least 1)\n"
   fi
 
   if [ -n "$failures" ]; then
