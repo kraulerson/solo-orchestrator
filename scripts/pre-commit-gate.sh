@@ -31,17 +31,21 @@ if [ "$TERMINAL_MODE" -eq 1 ]; then
   # Reuse process-checklist.sh's classifier.
   if [ -x "scripts/process-checklist.sh" ]; then
     if ! bash scripts/process-checklist.sh --check-commit-message "$COMMIT_MSG" 2>&1 >&2; then
+      # shellcheck disable=SC1091
+      if [ -f "$PROJECT_ROOT/scripts/lib/gate-principles.sh" ]; then
+        source "$PROJECT_ROOT/scripts/lib/gate-principles.sh"
+      fi
       echo "" >&2
       echo "[FRAMEWORK GATE — strict mode]" >&2
       echo "" >&2
       echo "Block reason: commit message classifier rejected the message under current Phase / Build Loop state." >&2
       echo "" >&2
       echo "Why this rule exists:" >&2
-      echo "  Phase 2 'feat:' commits must be preceded by an open Build Loop with the first 5" >&2
-      echo "  steps complete (tests written, tests verified failing, implemented, security audit," >&2
-      echo "  documentation updated). The classifier prevents 'feat:' commits that haven't earned" >&2
-      echo "  the right to claim a feature was added — the framework's value is only as strong as" >&2
-      echo "  the discipline of its commit boundary." >&2
+      if command -v principle_for >/dev/null 2>&1; then
+        principle_for "commit-classifier" >&2
+      else
+        echo "  See docs/user-guide.md commit-classifier section." >&2
+      fi
       echo "" >&2
       echo "To proceed:" >&2
       echo "  Open a Build Loop:  scripts/process-checklist.sh --start-feature \"<name>\"" >&2
