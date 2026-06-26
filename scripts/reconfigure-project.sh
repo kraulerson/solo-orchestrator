@@ -15,6 +15,30 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$SCRIPT_DIR/lib/helpers.sh"
 
+# Audit code-verify-reconfigure-2: self-contamination guard. Without
+# this, running reconfigure-project.sh from inside the solo-orchestrator
+# framework repo itself rewrites the framework's own pipelines and
+# config files. Matches the U-N precedent in init.sh:3334-3340.
+guard_not_in_framework || exit 1
+
+# Audit code-verify-reconfigure-1: project context (platform, language)
+# is canonically stored in .claude/tool-preferences.json::.context.*,
+# NOT in phase-state.json. Pre-fix reads of `.platform` / `.language`
+# from phase-state.json silently returned empty, skipping release-
+# pipeline retemplate and gating logic. This helper queries the
+# canonical source with a phase-state.json fallback for forward-
+# compatibility.
+get_project_context() {
+  local key="$1" value=""
+  if [ -f ".claude/tool-preferences.json" ]; then
+    value=$(jq -r ".context.$key // empty" .claude/tool-preferences.json 2>/dev/null || echo "")
+  fi
+  if [ -z "$value" ] && [ -f ".claude/phase-state.json" ]; then
+    value=$(jq -r ".$key // empty" .claude/phase-state.json 2>/dev/null || echo "")
+  fi
+  printf '%s' "$value"
+}
+
 # Parse arguments (before source-dir check so --help works without a project)
 FIELD=""
 OLD_VALUE=""
@@ -169,7 +193,7 @@ reconfigure() {
       # Regenerate release pipeline if one exists (language affects build vars)
       if [ -f ".github/workflows/release.yml" ]; then
         local current_platform
-        current_platform=$(jq -r '.platform // empty' .claude/phase-state.json 2>/dev/null)
+        current_platform=$(get_project_context platform)
         if [ -n "$current_platform" ]; then
           local release_src="$ORCHESTRATOR_SOURCE/templates/pipelines/release/${current_platform}.yml"
           if [ -f "$release_src" ]; then
@@ -218,7 +242,7 @@ reconfigure() {
         local project_name
         project_name=$(jq -r '.project // "project"' .claude/phase-state.json 2>/dev/null)
         local current_language
-        current_language=$(jq -r '.language // empty' .claude/phase-state.json 2>/dev/null)
+        current_language=$(get_project_context language)
         if [ -n "$current_language" ]; then
           get_release_vars "$current_language"
         else
