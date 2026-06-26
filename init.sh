@@ -50,6 +50,40 @@ NO_REMOTE_CREATION=false
 
 source "$SCRIPT_DIR/scripts/lib/helpers.sh"
 
+# Audit specs-plans-init-intake-noninteractive-2 (2026-06): the dynamic
+# platform discovery used by the interactive flow at collect_inputs() and
+# the case-statement used by the non-interactive validator had drifted
+# apart. The interactive flow scanned docs/platform-modules + release
+# pipelines and appended 'other'; the non-interactive flow hardcoded
+# {desktop|mobile|web|mcp_server} and rejected 'other'. The helper below
+# is the single source of truth — used by both flows and exported for
+# any caller that wants to enumerate or validate platforms.
+get_available_platforms() {
+  local seen=""
+  for f in "$SCRIPT_DIR/docs/platform-modules/"*.md; do
+    [ -f "$f" ] || continue
+    local pname
+    pname=$(basename "$f" .md)
+    if [[ ! " $seen " == *" $pname "* ]]; then
+      seen="$seen $pname"
+    fi
+  done
+  for f in "$SCRIPT_DIR/templates/pipelines/release/github/"*.yml; do
+    [ -f "$f" ] || continue
+    local pname
+    pname=$(basename "$f" .yml)
+    if [[ ! " $seen " == *" $pname "* ]]; then
+      seen="$seen $pname"
+    fi
+  done
+  # 'other' is always available as a fallback for platforms not in the
+  # canonical set (matches the interactive flow).
+  if [[ ! " $seen " == *" other "* ]]; then
+    seen="$seen other"
+  fi
+  echo "$seen"
+}
+
 # ================================================================
 # PHASE 1: Prerequisites Check
 # ================================================================
@@ -2774,7 +2808,10 @@ init.sh --non-interactive — full reference
 
 Required flags (always):
   --project NAME           Project name. Lowercase letters, digits, hyphens; must start with letter.
-  --platform PLATFORM      One of: desktop, mobile, web, mcp_server
+  --platform PLATFORM      Any platform module under docs/platform-modules/,
+                           any release pipeline under templates/pipelines/release/github/,
+                           or 'other' as a fallback. Today: desktop, mobile, web, mcp_server, other.
+                           (Dynamic; ship a new platform-modules/<name>.md to extend.)
   --deployment KIND        One of: personal, organizational
   --language NAME          Primary language. Must be valid for the chosen platform.
 
@@ -2954,15 +2991,18 @@ collect_inputs_non_interactive() {
 
   # platform
   if [ -n "$ARG_PLATFORM" ]; then
-    case "$ARG_PLATFORM" in
-      desktop|mobile|web|mcp_server) ;;
-      *)
-        fail "invalid --platform '$ARG_PLATFORM'" \
-             "platform must be one of: desktop, mobile, web, mcp_server." \
-             "re-run with a supported --platform value." \
-             "--platform='$ARG_PLATFORM'"
-        return 1 ;;
-    esac
+    # Audit specs-plans-init-intake-noninteractive-2: validate against
+    # the same dynamic set the interactive flow uses, rather than a
+    # hardcoded list that drifts whenever a platform module ships.
+    local available
+    available=$(get_available_platforms)
+    if [[ ! " $available " == *" $ARG_PLATFORM "* ]]; then
+      fail "invalid --platform '$ARG_PLATFORM'" \
+           "platform must be one of:$available." \
+           "add a docs/platform-modules/<name>.md to extend, or pick a supported value." \
+           "--platform='$ARG_PLATFORM'"
+      return 1
+    fi
   fi
 
   # track
@@ -3054,7 +3094,7 @@ collect_inputs_non_interactive() {
   if [ -z "$ARG_PLATFORM" ]; then
     fail "--platform is required" \
          "every non-interactive invocation must specify a platform." \
-         "re-run with --platform {desktop|mobile|web|mcp_server}." \
+         "re-run with --platform <one of:$(get_available_platforms)>." \
          "(--platform unset)"
     return 1
   fi

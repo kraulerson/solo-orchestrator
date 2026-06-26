@@ -1337,6 +1337,59 @@ run_section_11() {
 }
 
 # ================================================================
+# SECTION 11.5: Testing & Bug Tracking (Audit code-intake-wizard-2)
+# Pre-fix, the wizard jumped from Section 11 to 12 entirely, leaving
+# the five testing/bug-tracking template fields blank. Tier-aware
+# defaults: Standard/Full set testing_interval=2 features and the
+# SEV SLAs (24h critical / 7d high / best-effort low). Light skips
+# UAT prompts and defaults human_tester_count=1.
+# ================================================================
+run_section_11_5() {
+  print_step "Section 11.5: Testing & Bug Tracking"
+  echo ""
+
+  local track
+  track=$(jq -r '.track // .answers.track // "standard"' "$PROGRESS_FILE" 2>/dev/null || echo "standard")
+
+  local interval sev_critical sev_high sev_low tester_count uat_role bug_tool
+  case "$track" in
+    light)
+      interval=$(prompt_input "Test session interval (every N features)" "5")
+      tester_count=$(prompt_input "Number of human testers" "1")
+      # Light track skips formal SEV SLAs + UAT role prompts.
+      sev_critical="best-effort"
+      sev_high="best-effort"
+      sev_low="best-effort"
+      uat_role="self"
+      ;;
+    *)
+      # Standard / Full
+      interval=$(prompt_input "Test session interval (every N features)" "2")
+      tester_count=$(prompt_input "Number of human testers" "1")
+      sev_critical=$(prompt_input "SEV-Critical fix SLA" "24 hours")
+      sev_high=$(prompt_input "SEV-High fix SLA" "7 days")
+      sev_low=$(prompt_input "SEV-Low fix SLA" "best-effort")
+      uat_role=$(prompt_input "UAT responsibility (self / sponsor / pilot user)" "self")
+      ;;
+  esac
+  bug_tool=$(prompt_input "Bug tracking tool" "GitHub Issues")
+
+  save_answer "testing_interval"   "$interval"
+  save_answer "human_tester_count" "$tester_count"
+  save_answer "sev_critical_sla"   "$sev_critical"
+  save_answer "sev_high_sla"       "$sev_high"
+  save_answer "sev_low_sla"        "$sev_low"
+  save_answer "uat_role"           "$uat_role"
+  save_answer "bug_tracking_tool"  "$bug_tool"
+
+  # Persist as integer 115 so save_section's int() cast and the
+  # completed_sections.sort() stay homogeneous. 115 sits between 11 and 12
+  # which preserves "what's next" arithmetic in resume logic.
+  save_section 115
+  echo ""
+}
+
+# ================================================================
 # SECTION 12: Agent Initialization Prompt (auto-generated)
 # ================================================================
 run_section_12() {
@@ -1386,7 +1439,11 @@ run_script_mode() {
   print_info "Type '?' at prompts marked with [? for suggestions] to see options."
   echo ""
 
-  local sections=(1 2 3 4 5 6 7 8 9 10 11 12)
+  # Section IDs: 1..11, 115 (Testing & Bug Tracking), 12.
+  # The 115 ID encodes "between 11 and 12" while keeping the value an
+  # integer for save_section / is_section_complete; the runner maps it
+  # back to function name run_section_11_5 below.
+  local sections=(1 2 3 4 5 6 7 8 9 10 11 115 12)
   for section in "${sections[@]}"; do
     if [ "$section" -lt "$start_section" ]; then
       continue
@@ -1397,7 +1454,11 @@ run_script_mode() {
       continue
     fi
 
-    "run_section_$section"
+    # Map 115 → run_section_11_5; all other ids match function names verbatim.
+    case "$section" in
+      115) "run_section_11_5" ;;
+      *)   "run_section_$section" ;;
+    esac
     check_pause_requested
   done
 
