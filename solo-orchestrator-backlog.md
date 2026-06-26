@@ -578,3 +578,50 @@ This isn't a public-facing helper — it's purely for the test suite. Could live
 **Trigger:** when adding the next test that needs phase 2 verified state (e.g., a test for any post-T2 fix that depends on the gate context).
 
 **Related:** `Reports/uat-2026-04-26-rev3/TRIAGE.md` Gap 3. Adjacent to BL-003 (end-to-end init.sh tests against mocked host CLIs) — same "make init.sh testable in a fresh tempdir" theme.
+
+---
+
+## BL-029: Bypass audit-log infrastructure
+
+**Logged:** 2026-04-27 (calibration agent 5)
+**Category:** Bug + Feature (correctness)
+**Severity:** Critical
+**Status:** Closed — shipped 2026-04-28 (PRs #40, #41); envelope-schema correction shipped 2026-06-26 (PR #46).
+
+PostToolUse + Stop bypass-shaped-language detector writes structured rows to `.claude/bypass-audit.json`, plus a confirmation-phrase sentinel and the `escalate-to-user.sh` documented alternative. Always-on regardless of enforcement_level.
+
+**Plan:** `docs/superpowers/plans/2026-04-28-bl029-bypass-audit-plan.md`
+**Spec:** Agent-5 calibration deliverable at `Reports/uat-2026-04-27-calibration/results/agent-5.json`
+**Audit follow-up:** PR #46 corrected hook envelope schema (`tool_result` → `tool_response`, `transcript` → `last_assistant_message`) and updated plan docs to match canonical Claude Code schema.
+
+---
+
+## BL-030: User-terminal enforcement model
+
+**Logged:** 2026-04-28 (calibration brainstorm)
+**Category:** Feature (process enforcement)
+**Severity:** High
+**Status:** Closed — shipped 2026-06-26 (PR upcoming).
+
+Three-tier enforcement level (`no` / `light` / `strict`) configurable at init or via `reconfigure-project.sh --enforcement-level`. Tier semantics:
+
+- **strict** (default + forced for sponsored_poc / production tiers): installs `.git/hooks/framework-gate.sh`, which sources `scripts/lib/enforcement-level.sh` + delegates to `process-checklist.sh --check-commit-ready` and `pre-commit-gate.sh --terminal-mode`. Block messages carry the W5/P1 teaching pattern (block reason + principle + procedure) sourced from `scripts/lib/gate-principles.sh`. `--no-verify` bypasses the gate but is captured by the SessionStart detector.
+- **light**: same SessionStart detector; no filesystem gate; user-terminal commits land freely but are recorded in `.claude/bypass-audit.json`.
+- **no**: detector self-no-ops; only Claude-side audit (BL-029) remains.
+
+**Components shipped (PR upcoming):**
+  - `scripts/lib/enforcement-level.sh` (read_enforcement_level, assert_choosable, validate_transition)
+  - `scripts/lib/gate-principles.sh` (principle_for "<gate>")
+  - `scripts/hooks/record-claude-commit.sh` (PostToolUse Claude-commit ledger)
+  - `scripts/detect-out-of-band-commits.sh` (SessionStart out-of-band detector)
+  - `scripts/install-filesystem-gates.sh` (idempotent installer/uninstaller for `.git/hooks/framework-gate.sh`)
+  - `scripts/pre-commit-gate.sh --terminal-mode` flag for framework-gate composition
+  - `init.sh` `--enforcement-level` + `--confirm-pitfalls` non-interactive flags + finalization (manifest merge, detection baseline, audit row, filesystem-gate install if strict)
+  - `scripts/reconfigure-project.sh --enforcement-level` + `--reset-detection-baseline` transition flags
+  - SessionStart + PostToolUse hook entries in the project template's `.claude/settings.json`
+  - Test coverage: enforcement-level lib 10/10, record-claude-commit 5/5, out-of-band-detector 8/8, filesystem-gate-install 7/7, pre-commit-gate terminal-mode 3/3, gate-principles 3/3, init UX 8/8, reconfigure 7/7, bypass-audit schema 3/3, calibration replay 4/4 — 58/58 across the new BL-030 suites.
+
+**Plan:** `docs/superpowers/plans/2026-04-28-bl030-enforcement-model-plan.md` (Task 1–12, executed as a single PR).
+**Spec:** `docs/superpowers/specs/2026-04-28-bl030-enforcement-model-design.md`
+
+**Audit follow-up:** the v2 audit finding `specs-plans-bl029-bl030-3` ("spec exists; ZERO implementation") is now closed.
