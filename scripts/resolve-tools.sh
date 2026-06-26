@@ -39,15 +39,17 @@ run_cmd_with_timeout() {
   local _secs="$1" _cmd="$2"
   bash -c "$_cmd" &
   local _pid=$!
-  local _elapsed=0
+  # Use wall-clock deadline (not a sleep-1 counter) so SIGCHLD from
+  # other killed children — which interrupts `sleep` short — doesn't
+  # inflate the iteration count and kill commands prematurely.
+  local _deadline=$(( $(date +%s) + _secs ))
   while kill -0 "$_pid" 2>/dev/null; do
-    if [ "$_elapsed" -ge "$_secs" ]; then
+    if [ "$(date +%s)" -ge "$_deadline" ]; then
       kill -9 "$_pid" 2>/dev/null || true
       wait "$_pid" 2>/dev/null || true
       return 124
     fi
     sleep 1
-    _elapsed=$((_elapsed + 1))
   done
   wait "$_pid" 2>/dev/null
 }

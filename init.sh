@@ -2394,10 +2394,14 @@ generate_ci() {
     *)                     ci_template="other.yml" ;;
   esac
 
-  # Host-aware template selection (spec 2026-04-21). Read host from intake
-  # progress if available; default to github. Copy to host-appropriate path.
+  # Host-aware template selection (spec 2026-04-21). Prefer the in-process
+  # GIT_HOST var (set from --git-host in non-interactive mode), then fall
+  # back to intake-progress.json (set by intake-wizard.sh in interactive
+  # mode), then default to github.
   local host="github"
-  if [ -f .claude/intake-progress.json ]; then
+  if [ -n "${GIT_HOST:-}" ]; then
+    host="$GIT_HOST"
+  elif [ -f .claude/intake-progress.json ]; then
     host=$(jq -r '.answers.git_host // "github"' .claude/intake-progress.json 2>/dev/null || echo "github")
   fi
 
@@ -2425,9 +2429,13 @@ generate_ci() {
 }
 
 generate_release() {
-  # Host-aware release template selection (spec 2026-04-21).
+  # Host-aware release template selection (spec 2026-04-21). Prefer the
+  # in-process GIT_HOST var (set from --git-host) over intake-progress.json
+  # so non-interactive mode honors the flag.
   local host="github"
-  if [ -f .claude/intake-progress.json ]; then
+  if [ -n "${GIT_HOST:-}" ]; then
+    host="$GIT_HOST"
+  elif [ -f .claude/intake-progress.json ]; then
     host=$(jq -r '.answers.git_host // "github"' .claude/intake-progress.json 2>/dev/null || echo "github")
   fi
 
@@ -2439,7 +2447,30 @@ generate_release() {
     return 0
   fi
 
-  mkdir -p .github/workflows
+  # Host-specific output path: GitHub workflows live under .github/workflows,
+  # GitLab pipelines under .gitlab-ci/, Bitbucket under bitbucket-pipelines/
+  # (deploy phase is appended to bitbucket-pipelines.yml via include).
+  local target_dir target_file
+  case "$host" in
+    github)
+      target_dir=".github/workflows"
+      target_file="$target_dir/release.yml"
+      ;;
+    gitlab)
+      target_dir=".gitlab-ci"
+      target_file="$target_dir/release.yml"
+      ;;
+    bitbucket)
+      target_dir="bitbucket-pipelines"
+      target_file="$target_dir/release.yml"
+      ;;
+    *)
+      print_warn "Unknown host '$host'; defaulting release output to .github/workflows/release.yml"
+      target_dir=".github/workflows"
+      target_file="$target_dir/release.yml"
+      ;;
+  esac
+  mkdir -p "$target_dir"
 
   # Get language-specific build variables
   get_release_vars
@@ -2451,9 +2482,9 @@ generate_release() {
       -e "s|__INSTALL_COMMAND__|$RELEASE_INSTALL_COMMAND|g" \
       -e "s|__BUILD_COMMAND__|$RELEASE_BUILD_COMMAND|g" \
       -e "s|__PROJECT_NAME__|$PROJECT_NAME|g" \
-      "$release_template" > .github/workflows/release.yml
+      "$release_template" > "$target_file"
 
-  print_info "Release pipeline created at .github/workflows/release.yml (platform: $PLATFORM)"
+  print_info "Release pipeline created at $target_file (host: $host, platform: $PLATFORM)"
   case "$TRACK" in
     light)
       print_info "Release pipeline is optional for light-track projects. Configure TODOs only if distributing externally."
@@ -3119,31 +3150,35 @@ collect_inputs_non_interactive() {
     fi
   done
 
-  # git host CLI presence (skipped for 'other')
-  local effective_git_host="${ARG_GIT_HOST:-github}"
-  case "$effective_git_host" in
-    github)
-      if ! command -v gh &>/dev/null; then
-        fail "missing required tool for --git-host=github: gh" \
-             "the GitHub CLI is needed to create + protect the remote repo." \
-             "install: brew install gh (macOS) or apt install gh (Linux), then re-run." \
-             "--git-host=github"
-        return 1
-      fi ;;
-    gitlab)
-      if ! command -v glab &>/dev/null; then
-        fail "missing required tool for --git-host=gitlab: glab" \
-             "the GitLab CLI is needed to create + protect the remote repo." \
-             "install: brew install glab (macOS), then re-run." \
-             "--git-host=gitlab"
-        return 1
-      fi ;;
-    bitbucket)
-      # bitbucket uses curl + tokens; no CLI requirement
-      : ;;
-    other)
-      : ;;
-  esac
+  # git host CLI presence (skipped for 'other', and skipped entirely when
+  # --no-remote-creation: we will not call the host API in that mode, so
+  # the CLI is not actually needed).
+  if [ "$ARG_NO_REMOTE_CREATION" != true ]; then
+    local effective_git_host="${ARG_GIT_HOST:-github}"
+    case "$effective_git_host" in
+      github)
+        if ! command -v gh &>/dev/null; then
+          fail "missing required tool for --git-host=github: gh" \
+               "the GitHub CLI is needed to create + protect the remote repo." \
+               "install: brew install gh (macOS) or apt install gh (Linux), then re-run." \
+               "--git-host=github"
+          return 1
+        fi ;;
+      gitlab)
+        if ! command -v glab &>/dev/null; then
+          fail "missing required tool for --git-host=gitlab: glab" \
+               "the GitLab CLI is needed to create + protect the remote repo." \
+               "install: brew install glab (macOS), then re-run." \
+               "--git-host=gitlab"
+          return 1
+        fi ;;
+      bitbucket)
+        # bitbucket uses curl + tokens; no CLI requirement
+        : ;;
+      other)
+        : ;;
+    esac
+  fi
 
   # project_dir existence check
   local effective_project_dir="${ARG_PROJECT_DIR:-$HOME/Code/$ARG_PROJECT}"
