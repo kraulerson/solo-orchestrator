@@ -457,13 +457,15 @@ if [ "$TO_PRODUCTION" = true ]; then
     fi
   fi
 
-  # Production always means organizational
+  # Audit cluster 2 follow-up (2026-06): Production is a tier-neutral
+  # mode per baseline §2.5 — valid for either deployment. Pre-fix this
+  # forced personal/Private POC + --to-production into organizational,
+  # silently converting the tier. Now Production preserves whatever
+  # deployment the project already has; the operator can pass
+  # --deployment organizational explicitly if they want to upgrade
+  # deployment AND POC mode in one shot.
   if [ -z "$TARGET_DEPLOYMENT" ]; then
-    if [ "$CURRENT_DEPLOYMENT" = "personal" ]; then
-      TARGET_DEPLOYMENT="organizational"
-    else
-      TARGET_DEPLOYMENT="$CURRENT_DEPLOYMENT"
-    fi
+    TARGET_DEPLOYMENT="$CURRENT_DEPLOYMENT"
   fi
 fi
 
