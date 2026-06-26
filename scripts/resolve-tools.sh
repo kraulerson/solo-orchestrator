@@ -5,6 +5,15 @@ set -euo pipefail
 # Reads tool-matrix JSON files, filters by project context, checks
 # installed state, and outputs a categorized JSON plan to stdout.
 #
+# 2026-06-26: Tool check_commands / version_commands are evaluated
+# against the local environment to discover installed state. Some of
+# them connect to daemons (`colima version`, `docker version`, etc.)
+# and can hang indefinitely when the daemon is unreachable, taking
+# init.sh + verify-install.sh --auto-fix down with them (since the
+# resolver runs inside a $() subshell). Each eval is now bounded by a
+# portable wall-clock timeout; a timed-out check is treated as "tool
+# not found" and a timed-out version_command yields an empty version.
+#
 # Usage:
 #   scripts/resolve-tools.sh \
 #     --dev-os darwin \
@@ -17,6 +26,31 @@ set -euo pipefail
 #
 # Output: JSON with four buckets: auto_install, manual_install,
 #         already_installed, deferred
+
+# Portable wall-clock timeout for evaluated shell commands. Runs the
+# given command string via `bash -c` and kills it if it exceeds
+# RESOLVE_TOOLS_EVAL_TIMEOUT seconds. Exit code 124 signals timeout;
+# other non-zero codes propagate the command's own failure. Callers
+# already handle non-zero ("tool not installed") so the timeout case
+# is indistinguishable from a clean "missing tool" — which is what
+# we want for an unreachable daemon.
+RESOLVE_TOOLS_EVAL_TIMEOUT="${RESOLVE_TOOLS_EVAL_TIMEOUT:-10}"
+run_cmd_with_timeout() {
+  local _secs="$1" _cmd="$2"
+  bash -c "$_cmd" &
+  local _pid=$!
+  local _elapsed=0
+  while kill -0 "$_pid" 2>/dev/null; do
+    if [ "$_elapsed" -ge "$_secs" ]; then
+      kill -9 "$_pid" 2>/dev/null || true
+      wait "$_pid" 2>/dev/null || true
+      return 124
+    fi
+    sleep 1
+    _elapsed=$((_elapsed + 1))
+  done
+  wait "$_pid" 2>/dev/null
+}
 
 # --- Parse arguments ---
 DEV_OS=""
@@ -194,10 +228,10 @@ while IFS=$'\t' read -r TOOL_NAME TOOL_CATEGORY TOOL_PHASE TOOL_REQUIRED TOOL_CH
   INSTALLED=false
   VERSION=""
   set +u
-  if eval "$TOOL_CHECK" &>/dev/null 2>&1; then
+  if run_cmd_with_timeout "$RESOLVE_TOOLS_EVAL_TIMEOUT" "$TOOL_CHECK" &>/dev/null; then
     INSTALLED=true
     if [ -n "$TOOL_VERSION_CMD" ]; then
-      VERSION=$(eval "$TOOL_VERSION_CMD" 2>/dev/null || echo "")
+      VERSION=$(run_cmd_with_timeout "$RESOLVE_TOOLS_EVAL_TIMEOUT" "$TOOL_VERSION_CMD" 2>/dev/null || echo "")
     fi
   fi
   set -u
@@ -266,7 +300,7 @@ for i in $(seq 0 $((ADDITION_COUNT - 1))); do
   ADD_DESC=$(echo "$ADD_JSON" | jq -r '.description // ""')
 
   set +u
-  if [ -n "$ADD_CHECK" ] && eval "$ADD_CHECK" &>/dev/null 2>&1; then
+  if [ -n "$ADD_CHECK" ] && run_cmd_with_timeout "$RESOLVE_TOOLS_EVAL_TIMEOUT" "$ADD_CHECK" &>/dev/null; then
     set -u
     ALREADY_INSTALLED=$(echo "$ALREADY_INSTALLED" | jq \
       --arg name "$ADD_NAME" \
