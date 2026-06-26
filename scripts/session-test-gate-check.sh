@@ -7,6 +7,32 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# ── Parse SessionStart envelope ──────────────────────────────────
+# Claude Code passes a SessionStart envelope on stdin with a `source`
+# field whose value is one of:
+#   "startup" — first session of the project (or a new conversation)
+#   "resume"  — `claude --resume`, picking up a prior session
+#   "compact" — `/compact` invocation mid-session
+#   "clear"   — `/clear` invocation mid-session
+#
+# Pre-fix, this hook destructively overwrote .claude/tool-usage.json on
+# every invocation, zeroing the calls array and the
+# commits_since_last_context7 counter — re-arming the MCP gate and
+# erasing in-flight Context7 / Qdrant history mid-Build-Loop on every
+# /compact. Now we only do the destructive init on startup (or when the
+# envelope is missing — legacy compatibility for non-Claude-Code
+# invocations); the other three sources merge into the existing file.
+SESSION_SOURCE="startup"
+if [ ! -t 0 ]; then
+  ENVELOPE=$(cat 2>/dev/null || echo "")
+  if [ -n "$ENVELOPE" ] && command -v jq >/dev/null 2>&1; then
+    parsed=$(echo "$ENVELOPE" | jq -r '.source // ""' 2>/dev/null || echo "")
+    case "$parsed" in
+      startup|resume|compact|clear) SESSION_SOURCE="$parsed" ;;
+    esac
+  fi
+fi
+
 # ── MCP Server Discovery ─────────────────────────────────────────
 # Detect which MCP servers are configured and set up enforcement requirements.
 # Known servers (set up by init.sh): context7, qdrant
@@ -49,15 +75,36 @@ if command -v jq &>/dev/null; then
   done <<< "$ALL_MCP_SERVERS"
 fi
 
-# ── Initialize Tool Usage Tracking ────────────────────────────────
+# ── Initialize / merge Tool Usage Tracking ───────────────────────
 TOOL_USAGE=".claude/tool-usage.json"
 if command -v jq &>/dev/null; then
   SESSION_ID=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   mkdir -p .claude
 
-  # Build additional_required array from unknown servers (empty for now —
-  # the agent will ask the user about these, and the user can add them)
-  cat > "$TOOL_USAGE" << TUEOF
+  if [ "$SESSION_SOURCE" != "startup" ] && [ -f "$TOOL_USAGE" ]; then
+    # Merge path: preserve in-flight ledger state (calls, counters,
+    # flags, operator-added additional_required), refresh session_id
+    # so the boundary is visible to a successor, and re-derive the
+    # MCP requirements in case the user added or removed servers
+    # between sessions.
+    tmp=$(mktemp "${TOOL_USAGE}.XXXXXX")
+    if jq \
+        --arg sid "$SESSION_ID" \
+        --argjson qreq "$QDRANT_CONFIGURED" \
+        --argjson creq "$CONTEXT7_CONFIGURED" \
+        '. as $orig |
+         $orig
+         | .session_id = $sid
+         | .mcp_requirements.qdrant_required = $qreq
+         | .mcp_requirements.context7_required = $creq
+         | .mcp_requirements.additional_required = ($orig.mcp_requirements.additional_required // [])' \
+        "$TOOL_USAGE" > "$tmp" 2>/dev/null; then
+      mv "$tmp" "$TOOL_USAGE"
+    else
+      # If jq fails (malformed prior file, etc.), fall through to a
+      # fresh write so the gate is not left wedged.
+      rm -f "$tmp"
+      cat > "$TOOL_USAGE" << TUEOF
 {
   "session_id": "$SESSION_ID",
   "calls": [],
@@ -73,6 +120,26 @@ if command -v jq &>/dev/null; then
   }
 }
 TUEOF
+    fi
+  else
+    # startup (or missing envelope, or file absent) — fresh init.
+    cat > "$TOOL_USAGE" << TUEOF
+{
+  "session_id": "$SESSION_ID",
+  "calls": [],
+  "commits_since_last_context7": 0,
+  "qdrant_find_called": false,
+  "qdrant_store_called": false,
+  "context7_called": false,
+  "mcp_gate_satisfied": false,
+  "mcp_requirements": {
+    "qdrant_required": $QDRANT_CONFIGURED,
+    "context7_required": $CONTEXT7_CONFIGURED,
+    "additional_required": []
+  }
+}
+TUEOF
+  fi
 fi
 
 # ── Report Unknown MCP Servers ────────────────────────────────────
