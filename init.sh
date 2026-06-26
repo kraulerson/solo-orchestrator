@@ -1154,6 +1154,18 @@ create_project() {
   chmod +x scripts/hooks/bypass-detector.sh scripts/escalate-to-user.sh
   cp "$SCRIPT_DIR/scripts/pending-approval.sh" scripts/      # BL-015
   cp "$SCRIPT_DIR/scripts/lint-uat-scenarios.sh" scripts/    # BL-009
+  # BL-030: enforcement-level lib, gate-principles lib, filesystem-gate
+  # installer, PostToolUse Claude-commit recorder, SessionStart out-of-
+  # band detector. Required by reconfigure --enforcement-level and by
+  # the strict-mode framework-gate.sh.
+  cp "$SCRIPT_DIR/scripts/lib/enforcement-level.sh" scripts/lib/
+  cp "$SCRIPT_DIR/scripts/lib/gate-principles.sh"   scripts/lib/
+  cp "$SCRIPT_DIR/scripts/install-filesystem-gates.sh" scripts/
+  cp "$SCRIPT_DIR/scripts/detect-out-of-band-commits.sh" scripts/
+  cp "$SCRIPT_DIR/scripts/hooks/record-claude-commit.sh" scripts/hooks/
+  chmod +x scripts/install-filesystem-gates.sh \
+           scripts/detect-out-of-band-commits.sh \
+           scripts/hooks/record-claude-commit.sh
   # Host dispatcher + per-host drivers so check-gate.sh --backfill-host/
   # --repair/--preflight and init's own host-aware code paths resolve
   # inside the initialized project (audit: code-init-sh-2).
@@ -1604,6 +1616,27 @@ PERMEOF
           jq 'if (.hooks.Stop // []) | length == 0
               then .hooks.Stop = [{"hooks":[{"type":"command","command":"bash \"$CLAUDE_PROJECT_DIR\"/scripts/hooks/bypass-detector.sh"}]}]
               else .hooks.Stop[0].hooks += [{"type":"command","command":"bash \"$CLAUDE_PROJECT_DIR\"/scripts/hooks/bypass-detector.sh"}]
+              end' .claude/settings.json > .claude/settings.json.tmp \
+            && mv .claude/settings.json.tmp .claude/settings.json
+          hooks_added=true
+        fi
+
+        # BL-030: PostToolUse hook for the Claude-commit recorder
+        # (always-on). Records SHA of every successful Claude-issued
+        # git commit into .claude/claude-commits.jsonl.
+        if ! jq -e '.hooks.PostToolUse[0].hooks[] | select(.command | contains("record-claude-commit.sh"))' .claude/settings.json >/dev/null 2>&1; then
+          jq '.hooks.PostToolUse[0].hooks += [{"type":"command","command":"bash \"$CLAUDE_PROJECT_DIR\"/scripts/hooks/record-claude-commit.sh"}]' .claude/settings.json > .claude/settings.json.tmp \
+            && mv .claude/settings.json.tmp .claude/settings.json
+          hooks_added=true
+        fi
+
+        # BL-030: SessionStart hook for the out-of-band detector. Self-
+        # no-ops when enforcement_level=no; runs on light + strict to
+        # surface user-terminal commits in .claude/bypass-audit.json.
+        if ! jq -e '.hooks.SessionStart[0].hooks[]? | select(.command | contains("detect-out-of-band-commits.sh"))' .claude/settings.json >/dev/null 2>&1; then
+          jq 'if (.hooks.SessionStart // []) | length == 0
+              then .hooks.SessionStart = [{"hooks":[{"type":"command","command":"bash \"$CLAUDE_PROJECT_DIR\"/scripts/detect-out-of-band-commits.sh"}]}]
+              else .hooks.SessionStart[0].hooks += [{"type":"command","command":"bash \"$CLAUDE_PROJECT_DIR\"/scripts/detect-out-of-band-commits.sh"}]
               end' .claude/settings.json > .claude/settings.json.tmp \
             && mv .claude/settings.json.tmp .claude/settings.json
           hooks_added=true
