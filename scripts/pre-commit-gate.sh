@@ -12,6 +12,54 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# BL-030: --terminal-mode invocation from .git/hooks/framework-gate.sh.
+# Reads commit message from .git/COMMIT_EDITMSG instead of stdin JSON;
+# reads staged files from `git diff --cached` instead of tool-input;
+# emits human-readable diagnostics to stderr instead of JSON to stdout.
+TERMINAL_MODE=0
+for arg in "$@"; do
+  case "$arg" in
+    --terminal-mode) TERMINAL_MODE=1 ;;
+  esac
+done
+
+if [ "$TERMINAL_MODE" -eq 1 ]; then
+  PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "[FAIL] not a git repo" >&2; exit 1; }
+  cd "$PROJECT_ROOT"
+  COMMIT_MSG=$(cat .git/COMMIT_EDITMSG 2>/dev/null || echo "")
+
+  # Reuse process-checklist.sh's classifier.
+  if [ -x "scripts/process-checklist.sh" ]; then
+    if ! bash scripts/process-checklist.sh --check-commit-message "$COMMIT_MSG" 2>&1 >&2; then
+      echo "" >&2
+      echo "[FRAMEWORK GATE — strict mode]" >&2
+      echo "" >&2
+      echo "Block reason: commit message classifier rejected the message under current Phase / Build Loop state." >&2
+      echo "" >&2
+      echo "Why this rule exists:" >&2
+      echo "  Phase 2 'feat:' commits must be preceded by an open Build Loop with the first 5" >&2
+      echo "  steps complete (tests written, tests verified failing, implemented, security audit," >&2
+      echo "  documentation updated). The classifier prevents 'feat:' commits that haven't earned" >&2
+      echo "  the right to claim a feature was added — the framework's value is only as strong as" >&2
+      echo "  the discipline of its commit boundary." >&2
+      echo "" >&2
+      echo "To proceed:" >&2
+      echo "  Open a Build Loop:  scripts/process-checklist.sh --start-feature \"<name>\"" >&2
+      echo "  Complete steps:     scripts/process-checklist.sh --complete-step build_loop:tests_written" >&2
+      echo "  ...then commit again." >&2
+      echo "" >&2
+      echo "To bypass anyway (recorded in .claude/bypass-audit.json):" >&2
+      echo "  git commit --no-verify ..." >&2
+      echo "" >&2
+      echo "To downgrade enforcement permanently:" >&2
+      echo "  scripts/reconfigure-project.sh --enforcement-level light" >&2
+      exit 1
+    fi
+  fi
+
+  exit 0
+fi
+
 # Read the tool input from stdin
 INPUT=$(cat)
 
