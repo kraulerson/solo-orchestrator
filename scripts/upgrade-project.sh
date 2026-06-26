@@ -67,6 +67,11 @@ SHOW_HELP=false
 # BL-018: explicit non-interactive marker (overrides [-t 0] auto-detection) + validate-only.
 NON_INTERACTIVE=false
 VALIDATE_ONLY=false
+# Post-PR #48: --backfill-only runs only the host backfill + BL-030
+# manifest backfill (deployment, poc_mode, enforcement_level) and
+# exits. Lets operators of pre-BL-030 projects upgrade their manifest
+# without choosing a track / deployment / POC transition.
+BACKFILL_ONLY=false
 
 # BL-018: BL-016-style structured error helper (summary + reason + action + context).
 _upgrade_fail() {
@@ -121,6 +126,8 @@ while [ $# -gt 0 ]; do
       esac
       shift 2
       ;;
+    --backfill-only)
+      BACKFILL_ONLY=true; shift; continue ;;
     --to-production)
       TO_PRODUCTION=true
       shift
@@ -197,6 +204,113 @@ if [ "$VALIDATE_ONLY" = true ]; then
       non_interactive:  $non_interactive,
       validate_only:    true
     }'
+  exit 0
+fi
+
+# --- Idempotent manifest backfills (run before target-flag check) ---
+# These migrate pre-existing projects to the current schema without
+# requiring the operator to also pick a track / deployment / POC
+# transition. Idempotent — both block on `! jq -e '.<field>'` so a
+# second run is a no-op.
+( cd "$PROJECT_ROOT"
+  # --- Host-aware migration (spec 2026-04-21) ---
+  # Projects created before the host-aware gate need the flat CI template
+  # layout migrated into per-host subfolders and the manifest backfilled
+  # with a host field. Idempotent on already-migrated projects.
+  if [ -d templates/pipelines/ci ] && [ ! -d templates/pipelines/ci/github ] && ls templates/pipelines/ci/*.yml >/dev/null 2>&1; then
+    print_step "Migrating flat CI template layout → per-host subfolders"
+    mkdir -p templates/pipelines/ci/github templates/pipelines/release/github
+    for f in templates/pipelines/ci/*.yml; do
+      [ -f "$f" ] && (git mv "$f" "templates/pipelines/ci/github/$(basename "$f")" 2>/dev/null || mv "$f" "templates/pipelines/ci/github/$(basename "$f")")
+    done
+    for f in templates/pipelines/release/*.yml; do
+      [ -f "$f" ] && (git mv "$f" "templates/pipelines/release/github/$(basename "$f")" 2>/dev/null || mv "$f" "templates/pipelines/release/github/$(basename "$f")")
+    done
+    print_ok "CI/release templates moved to github/ subfolders"
+  fi
+
+  if [ -f .claude/manifest.json ] && ! jq -e '.host' .claude/manifest.json >/dev/null 2>&1; then
+    print_step "Backfilling manifest.json 'host' field"
+    print_info "Manifest predates the host-aware gate — inferring host from git remote"
+    host_url=$(git remote get-url origin 2>/dev/null || echo "")
+    case "$host_url" in
+      *github.com*)    inferred_host="github" ;;
+      *gitlab*)        inferred_host="gitlab" ;;
+      *bitbucket.org*) inferred_host="bitbucket" ;;
+      *)               inferred_host="other" ;;
+    esac
+    jq --arg h "$inferred_host" '.host = $h' .claude/manifest.json > .claude/manifest.json.tmp \
+      && mv .claude/manifest.json.tmp .claude/manifest.json
+    print_ok "host set to '$inferred_host' (verify via scripts/check-gate.sh --backfill-host if wrong)"
+  fi
+
+  # --- BL-030 manifest backfill (post-PR #48 safety contract) ---
+  # Pre-BL-030 projects have no .enforcement_level / .deployment /
+  # .poc_mode in manifest.json. After PR #48, assert_choosable's jq
+  # default (.deployment // "personal") silently treated those projects
+  # as choosable, letting reconfigure-project.sh --enforcement-level no
+  # bypass baseline §2.5 tier-forcing for organizational/sponsored_poc /
+  # organizational/production projects. This block backfills the three
+  # fields from phase-state.json (canonical post-S2-cluster-4 source),
+  # forces enforcement_level=strict (no auto-relaxation on the upgrade
+  # path), installs the filesystem gate, initializes the detection
+  # baseline, and writes an enforcement_level_set audit row sourced
+  # 'upgrade-backfill' so the lifecycle is traceable.
+  if [ -f .claude/manifest.json ] && ! jq -e '.enforcement_level' .claude/manifest.json >/dev/null 2>&1; then
+    print_step "Backfilling manifest.json BL-030 fields (deployment, poc_mode, enforcement_level)"
+    mig_deployment=""
+    mig_poc=""
+    if [ -f .claude/phase-state.json ]; then
+      mig_deployment=$(jq -r '.deployment // ""' .claude/phase-state.json 2>/dev/null || echo "")
+      mig_poc=$(jq -r '.poc_mode // ""' .claude/phase-state.json 2>/dev/null || echo "")
+      [ "$mig_deployment" = "null" ] && mig_deployment=""
+      [ "$mig_poc" = "null" ] && mig_poc=""
+    fi
+    if [ -z "$mig_deployment" ]; then
+      print_warn "phase-state.json lacks .deployment — assuming 'personal' for backfill."
+      print_warn "If this project is organizational, run after the upgrade completes:"
+      print_warn "  scripts/reconfigure-project.sh --field deployment --old personal --new organizational"
+      mig_deployment="personal"
+    fi
+    if [ -n "$mig_poc" ]; then
+      jq --arg dep "$mig_deployment" --arg pm "$mig_poc" \
+        '. + {deployment: $dep, poc_mode: $pm, enforcement_level: "strict"}' \
+        .claude/manifest.json > .claude/manifest.json.tmp \
+        && mv .claude/manifest.json.tmp .claude/manifest.json
+    else
+      jq --arg dep "$mig_deployment" \
+        '. + {deployment: $dep, poc_mode: null, enforcement_level: "strict"}' \
+        .claude/manifest.json > .claude/manifest.json.tmp \
+        && mv .claude/manifest.json.tmp .claude/manifest.json
+    fi
+    if [ ! -f .claude/last-checked-commit.txt ]; then
+      git rev-parse HEAD 2>/dev/null > .claude/last-checked-commit.txt || true
+    fi
+    if [ -x "scripts/install-filesystem-gates.sh" ]; then
+      bash scripts/install-filesystem-gates.sh --install "$(pwd)" >/dev/null 2>&1 || true
+    fi
+    [ -f .claude/bypass-audit.json ] || echo "[]" > .claude/bypass-audit.json
+    bf_ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    bf_row=$(jq -nc \
+      --arg ts "$bf_ts" \
+      --arg dep "$mig_deployment" \
+      --arg pm "$mig_poc" \
+      '{timestamp:$ts, session_id:null, type:"enforcement_level_set", actor:"framework",
+        enforcement_level_at_event:"strict",
+        details:{level:"strict", deployment:$dep, poc_mode:$pm, source:"upgrade-backfill"},
+        user_response:"n/a", final_outcome:"recorded_only"}')
+    bf_tmp=$(mktemp)
+    jq --argjson r "$bf_row" '. + [$r]' .claude/bypass-audit.json > "$bf_tmp" \
+      && mv "$bf_tmp" .claude/bypass-audit.json
+    print_ok "BL-030 fields backfilled: deployment=$mig_deployment poc_mode=${mig_poc:-null} enforcement_level=strict"
+    print_info "To choose a less strict level (personal/choosable projects only):"
+    print_info "  scripts/reconfigure-project.sh --enforcement-level <light|no> --confirm-pitfalls"
+  fi
+)
+
+# --backfill-only short-circuits here — no track / deployment / POC
+# transition follows.
+if [ "$BACKFILL_ONLY" = true ]; then
   exit 0
 fi
 
@@ -1578,40 +1692,6 @@ fi
 # Projects created before the host-aware gate need the flat CI template layout
 # migrated into per-host subfolders and the manifest backfilled with a host field.
 # This runs idempotently — safe on already-migrated projects.
-
-if [ -d templates/pipelines/ci ] && [ ! -d templates/pipelines/ci/github ] && ls templates/pipelines/ci/*.yml >/dev/null 2>&1; then
-  print_step "Migrating flat CI template layout → per-host subfolders"
-  mkdir -p templates/pipelines/ci/github templates/pipelines/release/github
-  for f in templates/pipelines/ci/*.yml; do
-    [ -f "$f" ] && (git mv "$f" "templates/pipelines/ci/github/$(basename "$f")" 2>/dev/null || mv "$f" "templates/pipelines/ci/github/$(basename "$f")")
-  done
-  for f in templates/pipelines/release/*.yml; do
-    [ -f "$f" ] && (git mv "$f" "templates/pipelines/release/github/$(basename "$f")" 2>/dev/null || mv "$f" "templates/pipelines/release/github/$(basename "$f")")
-  done
-  print_ok "CI/release templates moved to github/ subfolders"
-fi
-
-if [ -f .claude/manifest.json ] && ! jq -e '.host' .claude/manifest.json >/dev/null 2>&1; then
-  print_step "Backfilling manifest.json 'host' field"
-  print_info "Manifest predates the host-aware gate — inferring host from git remote"
-  host_url=$(git remote get-url origin 2>/dev/null || echo "")
-  case "$host_url" in
-    *github.com*)    inferred_host="github" ;;
-    *gitlab*)        inferred_host="gitlab" ;;
-    *bitbucket.org*) inferred_host="bitbucket" ;;
-    *)               inferred_host="other" ;;
-  esac
-  jq --arg h "$inferred_host" '.host = $h' .claude/manifest.json > .claude/manifest.json.tmp \
-    && mv .claude/manifest.json.tmp .claude/manifest.json
-  print_ok "host set to '$inferred_host' (verify via scripts/check-gate.sh --backfill-host if wrong)"
-
-  echo ""
-  print_info "Before your next Phase 1→2 transition, run:"
-  print_info "  bash scripts/check-gate.sh --preflight"
-  print_info "If preflight fails, run:"
-  print_info "  bash scripts/check-gate.sh --repair"
-  echo ""
-fi
 
 # --- UAT template migration (spec 2026-04-23-uat-template-quality-design.md) ---
 # Re-copy updated UAT source templates and per-platform reference pair.
