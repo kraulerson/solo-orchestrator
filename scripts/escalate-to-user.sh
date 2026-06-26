@@ -87,6 +87,18 @@ ROW=$(jq -nc \
     user_response: "PENDING",
     final_outcome: "escalated"
   }')
-bypass_audit_append "$PROJECT_ROOT" "$ROW" || true
+# D1 fix (post-PR-A): propagate audit-log write failures instead of
+# swallowing them with `|| true` and then lying with '(and audit log)'.
+# The sentinel write succeeded (pending-approval.sh --offer above), so
+# the operator-facing decision surface is intact, but the governance
+# ledger missed the row. Exit non-zero with a clear stderr message so
+# the caller can decide whether to retry or roll back the sentinel.
+if ! bypass_audit_append "$PROJECT_ROOT" "$ROW"; then
+  echo "[FAIL] escalate-to-user: pending-approval.json was written but the bypass-audit row failed to land." >&2
+  echo "  Governance log is now out of sync with the sentinel — investigate before resolving." >&2
+  echo "  Sentinel:  $PROJECT_ROOT/.claude/pending-approval.json" >&2
+  echo "  Audit log: $PROJECT_ROOT/.claude/bypass-audit.json" >&2
+  exit 1
+fi
 
 echo "[OK] escalation written to .claude/pending-approval.json (and audit log)"

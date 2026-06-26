@@ -64,8 +64,14 @@ bypass_audit_append() {
     sleep 0.1
   done
 
+  # D3 fix (post-PR-A): create the temp file ADJACENT to the audit
+  # file so the subsequent `mv` is a same-filesystem rename — atomic
+  # on POSIX. With $TMPDIR mktemp (/var/folders on macOS), the audit
+  # file lives on a different filesystem from /tmp/* or $HOME-based
+  # project dirs, turning `mv` into copy+unlink. A SIGKILL during the
+  # write window can then truncate the append-only ledger.
   local tmp rc
-  tmp=$(mktemp)
+  tmp=$(mktemp "${file}.XXXXXX")
   if jq --argjson r "$row" '. + [$r]' "$file" > "$tmp" 2>/dev/null; then
     mv "$tmp" "$file"
     rc=0
@@ -128,10 +134,20 @@ bypass_audit_close_pending() {
     sleep 0.1
   done
 
+  # D2 fix (post-PR-A): scope the close to claude_bypass_proposal rows
+  # only. Pre-fix, this flipped EVERY PENDING row regardless of type,
+  # including escalation rows whose final_outcome is 'escalated' (not
+  # 'bypassed' or 'abandoned'). That collapsed two distinct lifecycle
+  # paths into one and broke the W7 successor-handoff use case the
+  # close was added to support — a successor reading the log could not
+  # tell an accepted bypass from a closed-by-the-side-effects escalation.
+  #
+  # D3 fix (post-PR-A): same adjacent-mktemp atomicity fix as
+  # bypass_audit_append above.
   local tmp rc
-  tmp=$(mktemp)
+  tmp=$(mktemp "${file}.XXXXXX")
   if jq --arg ur "$user_resp" --arg fo "$final_out" \
-       '[.[] | if .user_response == "PENDING" then .user_response = $ur | .final_outcome = $fo else . end]' \
+       '[.[] | if .type == "claude_bypass_proposal" and .user_response == "PENDING" then .user_response = $ur | .final_outcome = $fo else . end]' \
        "$file" > "$tmp" 2>/dev/null; then
     mv "$tmp" "$file"
     rc=0
