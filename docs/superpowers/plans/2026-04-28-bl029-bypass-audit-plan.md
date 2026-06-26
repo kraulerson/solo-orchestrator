@@ -418,8 +418,8 @@ EOF
 teardown() { rm -rf "$TMP"; }
 
 # Hook contract: stdin = JSON envelope from Claude Code.
-# PostToolUse: { "tool_input": ..., "tool_result": {"output": "..."} }
-# Stop:        { "transcript": "..." }   (representative; verify at integration time)
+# PostToolUse: { "tool_input": ..., "tool_response": {"output": "..."} }
+# Stop:        { "stop_hook_active": bool, "last_assistant_message": "...", "transcript_path": "/path/to/jsonl" }
 
 # T1: PostToolUse output containing --no-verify writes a row.
 echo "T1: PostToolUse with --no-verify writes claude_bypass_proposal"
@@ -427,7 +427,7 @@ setup
 if [ ! -f "$HOOK" ]; then fail_ "T1" "hook missing (RED)"; else
   cd "$TMP"
   cat <<EOF | bash "$HOOK" >/dev/null 2>&1
-{"hook_event_name":"PostToolUse","tool_input":{"command":"echo x"},"tool_result":{"output":"alternatively, run git commit --no-verify"}}
+{"hook_event_name":"PostToolUse","tool_input":{"command":"echo x"},"tool_response":{"output":"alternatively, run git commit --no-verify"}}
 EOF
   rows=$(jq '[.[] | select(.type=="claude_bypass_proposal")] | length' "$TMP/.claude/bypass-audit.json")
   if [ "$rows" = "1" ]; then pass "T1"; else fail_ "T1" "rows=$rows"; fi
@@ -440,7 +440,7 @@ setup
 if [ ! -f "$HOOK" ]; then fail_ "T2" "hook missing"; else
   cd "$TMP"
   cat <<EOF | bash "$HOOK" >/dev/null 2>&1
-{"hook_event_name":"PostToolUse","tool_input":{"command":"ls"},"tool_result":{"output":"file1\nfile2"}}
+{"hook_event_name":"PostToolUse","tool_input":{"command":"ls"},"tool_response":{"output":"file1\nfile2"}}
 EOF
   rows=$(jq '[.[] | select(.type=="claude_bypass_proposal")] | length' "$TMP/.claude/bypass-audit.json")
   if [ "$rows" = "0" ]; then pass "T2"; else fail_ "T2" "false positive: $rows"; fi
@@ -453,7 +453,7 @@ setup
 if [ ! -f "$HOOK" ]; then fail_ "T3" "hook missing"; else
   cd "$TMP"
   cat <<EOF | bash "$HOOK" >/dev/null 2>&1
-{"hook_event_name":"Stop","transcript":"Maybe set SOIF_FORCE_STEP=build_loop:tests_written"}
+{"hook_event_name":"Stop","last_assistant_message":"Maybe set SOIF_FORCE_STEP=build_loop:tests_written","transcript_path":"/tmp/no-such-transcript.jsonl"}
 EOF
   rows=$(jq '[.[] | select(.type=="claude_bypass_proposal")] | length' "$TMP/.claude/bypass-audit.json")
   if [ "$rows" = "1" ]; then pass "T3"; else fail_ "T3" "rows=$rows"; fi
@@ -466,7 +466,7 @@ setup
 if [ ! -f "$HOOK" ]; then fail_ "T4" "hook missing"; else
   cd "$TMP"
   cat <<EOF | bash "$HOOK" >/dev/null 2>&1
-{"hook_event_name":"PostToolUse","tool_input":{"command":"x"},"tool_result":{"output":"use --no-verify to skip"}}
+{"hook_event_name":"PostToolUse","tool_input":{"command":"x"},"tool_response":{"output":"use --no-verify to skip"}}
 EOF
   pattern=$(jq -r '.[0].details.pattern' "$TMP/.claude/bypass-audit.json")
   excerpt=$(jq -r '.[0].details.excerpt' "$TMP/.claude/bypass-audit.json")
@@ -480,7 +480,7 @@ setup
 if [ ! -f "$HOOK" ]; then fail_ "T5" "hook missing"; else
   cd "$TMP"
   cat <<EOF | bash "$HOOK" >/dev/null 2>&1
-{"hook_event_name":"PostToolUse","tool_input":{"command":"x"},"tool_result":{"output":"use --no-verify"}}
+{"hook_event_name":"PostToolUse","tool_input":{"command":"x"},"tool_response":{"output":"use --no-verify"}}
 EOF
   resp=$(jq -r '.[0].user_response' "$TMP/.claude/bypass-audit.json")
   if [ "$resp" = "PENDING" ]; then pass "T5"; else fail_ "T5" "got '$resp'"; fi
@@ -493,7 +493,7 @@ setup
 if [ ! -f "$HOOK" ]; then fail_ "T6" "hook missing"; else
   cd "$TMP"
   err=$( (cat <<EOF | bash "$HOOK") 2>&1 >/dev/null
-{"hook_event_name":"PostToolUse","tool_input":{"command":"ls"},"tool_result":{"output":"file"}}
+{"hook_event_name":"PostToolUse","tool_input":{"command":"ls"},"tool_response":{"output":"file"}}
 EOF
 )
   if [ -z "$err" ]; then pass "T6"; else fail_ "T6" "stderr leaked: $err"; fi
@@ -505,7 +505,7 @@ echo "T7: identical envelope → 1 row, not 2 (deduped by content hash within a 
 setup
 if [ ! -f "$HOOK" ]; then fail_ "T7" "hook missing"; else
   cd "$TMP"
-  ENV='{"hook_event_name":"PostToolUse","tool_input":{"command":"x"},"tool_result":{"output":"use --no-verify here"}}'
+  ENV='{"hook_event_name":"PostToolUse","tool_input":{"command":"x"},"tool_response":{"output":"use --no-verify here"}}'
   echo "$ENV" | bash "$HOOK" >/dev/null 2>&1
   echo "$ENV" | bash "$HOOK" >/dev/null 2>&1
   rows=$(jq '[.[] | select(.type=="claude_bypass_proposal")] | length' "$TMP/.claude/bypass-audit.json")
@@ -537,9 +537,12 @@ Create `scripts/hooks/bypass-detector.sh`:
 # scripts/hooks/bypass-detector.sh — BL-029 bypass-shape detector.
 #
 # Wires into Claude Code's PostToolUse and Stop hooks. Reads the JSON
-# envelope from stdin, extracts the relevant text (tool_result.output for
-# PostToolUse; transcript for Stop), scans against bypass-patterns.sh,
-# and writes a claude_bypass_proposal row to bypass-audit.json on match.
+# envelope from stdin (per https://code.claude.com/docs/en/hooks),
+# extracts the relevant text (tool_response.{stdout,stderr,output,content}
+# for PostToolUse; last_assistant_message for Stop), scans against
+# bypass-patterns.sh, and writes a claude_bypass_proposal row to
+# bypass-audit.json on match. Stop passes with .stop_hook_active == true
+# are skipped to avoid re-entrant double-scanning.
 #
 # No-op conditions:
 #   - .claude/ doesn't exist
@@ -573,10 +576,10 @@ EVENT=$(echo "$INPUT" | jq -r '.hook_event_name // ""' 2>/dev/null)
 TEXT=""
 case "$EVENT" in
   PostToolUse)
-    TEXT=$(echo "$INPUT" | jq -r '.tool_result.output // .tool_result.stderr // ""' 2>/dev/null)
+    TEXT=$(echo "$INPUT" | jq -r '.tool_response.stdout // .tool_response.stderr // .tool_response.output // .tool_response.content // ""' 2>/dev/null)
     ;;
   Stop)
-    TEXT=$(echo "$INPUT" | jq -r '.transcript // .stop_reason // ""' 2>/dev/null)
+    TEXT=$(echo "$INPUT" | jq -r '.last_assistant_message // ""' 2>/dev/null)
     ;;
   *)
     # Unknown event — skip (defense against schema changes).
@@ -693,7 +696,7 @@ setup
 if [ ! -f "$HOOK" ]; then fail_ "T1" "hook missing"; else
   cd "$TMP"
   cat <<EOF | bash "$HOOK" >/dev/null 2>&1
-{"hook_event_name":"PostToolUse","tool_input":{"command":"x"},"tool_result":{"output":"use --no-verify to skip"}}
+{"hook_event_name":"PostToolUse","tool_input":{"command":"x"},"tool_response":{"output":"use --no-verify to skip"}}
 EOF
   if [ -f "$TMP/.claude/pending-approval.json" ]; then pass "T1"; else fail_ "T1" "sentinel not written"; fi
 fi
@@ -705,7 +708,7 @@ setup
 if [ ! -f "$HOOK" ]; then fail_ "T2" "hook missing"; else
   cd "$TMP"
   cat <<EOF | bash "$HOOK" >/dev/null 2>&1
-{"hook_event_name":"PostToolUse","tool_input":{"command":"x"},"tool_result":{"output":"--no-verify path"}}
+{"hook_event_name":"PostToolUse","tool_input":{"command":"x"},"tool_response":{"output":"--no-verify path"}}
 EOF
   q=$(jq -r '.question' "$TMP/.claude/pending-approval.json")
   if echo "$q" | grep -q "I have read the proposal at .claude/bypass-audit.json and accept the bypass"; then
@@ -722,7 +725,7 @@ setup
 if [ ! -f "$HOOK" ]; then fail_ "T3" "hook missing"; else
   cd "$TMP"
   cat <<EOF | bash "$HOOK" >/dev/null 2>&1
-{"hook_event_name":"PostToolUse","tool_input":{"command":"x"},"tool_result":{"output":"normal output"}}
+{"hook_event_name":"PostToolUse","tool_input":{"command":"x"},"tool_response":{"output":"normal output"}}
 EOF
   if [ ! -f "$TMP/.claude/pending-approval.json" ]; then pass "T3"; else fail_ "T3" "sentinel false-write"; fi
 fi
@@ -737,7 +740,7 @@ if [ ! -f "$HOOK" ]; then fail_ "T4" "hook missing"; else
 EOF
   cd "$TMP"
   cat <<EOF | bash "$HOOK" >/dev/null 2>&1
-{"hook_event_name":"PostToolUse","tool_input":{"command":"x"},"tool_result":{"output":"--no-verify"}}
+{"hook_event_name":"PostToolUse","tool_input":{"command":"x"},"tool_response":{"output":"--no-verify"}}
 EOF
   q=$(jq -r '.question' "$TMP/.claude/pending-approval.json")
   if [ "$q" = "existing q" ]; then pass "T4"; else fail_ "T4" "clobbered"; fi
@@ -1020,7 +1023,7 @@ setup
 if [ ! -f "$HOOK" ]; then fail_ "T8" "hook missing"; else
   cd "$TMP"
   cat <<EOF | bash "$HOOK" >/dev/null 2>&1
-{"hook_event_name":"Stop","transcript":"I'll mark step build_loop:tests_verified_failing complete and skip ahead"}
+{"hook_event_name":"Stop","last_assistant_message":"I'll mark step build_loop:tests_verified_failing complete and skip ahead","transcript_path":"/tmp/no-such-transcript.jsonl"}
 EOF
   pattern=$(jq -r '.[0].details.pattern' "$TMP/.claude/bypass-audit.json")
   severity=$(jq -r '.[0].details.severity // "normal"' "$TMP/.claude/bypass-audit.json")
@@ -1246,7 +1249,7 @@ fi
 # T2: simulate a Claude PostToolUse with bypass-shaped output → audit row + sentinel.
 ( cd "$PROJ"
   cat <<'EOF' | bash scripts/hooks/bypass-detector.sh >/dev/null 2>&1
-{"hook_event_name":"PostToolUse","tool_input":{"command":"x"},"tool_result":{"output":"alternatively, run git commit --no-verify"}}
+{"hook_event_name":"PostToolUse","tool_input":{"command":"x"},"tool_response":{"output":"alternatively, run git commit --no-verify"}}
 EOF
 )
 rows=$(jq '[.[] | select(.type=="claude_bypass_proposal")] | length' "$PROJ/.claude/bypass-audit.json")

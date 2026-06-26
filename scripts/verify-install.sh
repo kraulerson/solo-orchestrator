@@ -235,12 +235,14 @@ check_scripts() {
   local scripts=(
     "scripts/validate.sh"
     "scripts/check-phase-gate.sh"
+    "scripts/check-gate.sh"
     "scripts/check-updates.sh"
     "scripts/resume.sh"
     "scripts/intake-wizard.sh"
     "scripts/resolve-tools.sh"
     "scripts/upgrade-project.sh"
     "scripts/verify-install.sh"
+    "scripts/session-mcp-gate.sh"
   )
 
   for script in "${scripts[@]}"; do
@@ -668,7 +670,7 @@ fix_script() {
 }
 
 # Generate fix functions for each script
-for _s in validate check-phase-gate check-updates resume intake-wizard resolve-tools upgrade-project verify-install; do
+for _s in validate check-phase-gate check-gate check-updates resume intake-wizard resolve-tools upgrade-project verify-install session-mcp-gate; do
   eval "fix_script_chmod_${_s}() { chmod +x 'scripts/${_s}.sh'; }"
   eval "fix_script_copy_${_s}() { fix_script '${_s}.sh'; }"
 done
