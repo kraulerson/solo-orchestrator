@@ -1,4 +1,4 @@
-# solo-orchestrator: platforms=web,desktop,mobile,mcp-server
+# solo-orchestrator: platforms=web,desktop,mobile,mcp_server
 name: CI
 
 on:

@@ -622,7 +622,8 @@ After a successful phase gate check, `check-phase-gate.sh` creates the snapshot 
 | **`docs/governance-framework.md`** | Section XV artifact list aligned with updated Appendix A. |
 | **`docs/executive-review.md`** | Remove "Launch Plan" phantom artifact reference. |
 | **`templates/generated/claude-md.tmpl`** | Add 13 missing artifact references. CHANGELOG 8-category specification. UAT HTML format reference. FEATURES.md Step 2.5 instruction. Template references for Bible, ADR, Handoff, IR, Changelog, Bugs, Release Notes. |
-| **`init.sh`** | Create new directories (ADR documentation, api and interfaces, snapshots). Rename docs/framework/ to docs/reference/. Copy new templates (10 files). Update all internal path references (docs/framework/ → docs/reference/). Update CLAUDE.md generation section. |
+| **`init.sh`** | Create new directories (ADR documentation, api and interfaces, snapshots). Rename docs/framework/ to docs/reference/ (new-project only — see Existing-Project Migration below). Copy new templates (10 files). Update all internal path references (docs/framework/ → docs/reference/). Update CLAUDE.md generation section. |
+| **`scripts/upgrade-project.sh` + `scripts/check-updates.sh`** | Existing-Project Migration task: detect `docs/framework/` and migrate to `docs/reference/`. Use `git mv docs/framework docs/reference` inside a git repo (preserves history); fall back to `mv` outside one. If `docs/reference/` already exists, rsync the contents in and keep the union. Idempotent on re-run. Without this, existing projects upgrading to the new layout end up with split or orphaned framework docs. |
 | **`README.md`** | Update "What Gets Created" directory structure. Update directory references. |
 | **`scripts/upgrade-project.sh`** | Update all `docs/framework/` path references to `docs/reference/`. |
 | **`scripts/resume.sh`** | Update any `docs/framework/` path references to `docs/reference/`. |

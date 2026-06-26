@@ -1,4 +1,4 @@
-# solo-orchestrator: platforms=web,desktop,mobile,mcp-server
+# solo-orchestrator: platforms=web,desktop,mobile,mcp_server
 # Placeholder 'other' language CI — intentional failure until builder configures.
 image: bash:5
 pipelines:

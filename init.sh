@@ -1619,6 +1619,7 @@ PERMEOF
     web) platform_module="SOI-PM-WEB" ;;
     desktop) platform_module="SOI-PM-DESKTOP" ;;
     mobile) platform_module="SOI-PM-MOBILE" ;;
+    mcp_server) platform_module="SOI-PM-MCP" ;;
   esac
   local track_display
   track_display="$(echo "${TRACK:0:1}" | tr '[:lower:]' '[:upper:]')${TRACK:1}"

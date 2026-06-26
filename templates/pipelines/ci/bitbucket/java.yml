@@ -1,4 +1,4 @@
-# solo-orchestrator: platforms=mobile,desktop,mcp-server
+# solo-orchestrator: platforms=mobile,desktop,mcp_server
 image: maven:3-eclipse-temurin-21
 pipelines:
   default:

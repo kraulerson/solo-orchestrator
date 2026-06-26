@@ -1,4 +1,4 @@
-# solo-orchestrator: platforms=desktop,mcp-server
+# solo-orchestrator: platforms=desktop,mcp_server
 image: rust:1.75
 definitions:
   caches:
