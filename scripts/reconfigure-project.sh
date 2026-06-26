@@ -43,13 +43,23 @@ get_project_context() {
 FIELD=""
 OLD_VALUE=""
 NEW_VALUE=""
+RECONF_LEVEL=""
+RECONF_CONFIRM=0
+RECONF_RESET_BASELINE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --field) FIELD="$2"; shift 2 ;;
     --old) OLD_VALUE="$2"; shift 2 ;;
     --new) NEW_VALUE="$2"; shift 2 ;;
+    # BL-030 Task 8: enforcement-level transition flags.
+    --enforcement-level) RECONF_LEVEL="$2"; shift 2 ;;
+    --enforcement-level=*) RECONF_LEVEL="${1#*=}"; shift ;;
+    --confirm-pitfalls) RECONF_CONFIRM=1; shift ;;
+    --reset-detection-baseline) RECONF_RESET_BASELINE=1; shift ;;
     --help|-h)
       echo "Usage: scripts/reconfigure-project.sh --field <field> --old <old> --new <new>"
+      echo "       scripts/reconfigure-project.sh --enforcement-level <no|light|strict> [--confirm-pitfalls]"
+      echo "       scripts/reconfigure-project.sh --reset-detection-baseline"
       echo ""
       echo "Supported fields:"
       echo "  language   — Regenerates CI pipeline, .gitignore language entries, permissions"
@@ -63,8 +73,71 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# BL-030 Task 8: --enforcement-level <no|light|strict> transition.
+if [ -n "$RECONF_LEVEL" ]; then
+  # shellcheck disable=SC1091
+  source "$SCRIPT_DIR/lib/enforcement-level.sh"
+  if ! validate_transition "$PROJECT_ROOT" "$RECONF_LEVEL"; then
+    exit 1
+  fi
+  current=$(read_enforcement_level "$PROJECT_ROOT")
+  case "$RECONF_LEVEL" in
+    light|no)
+      if [ "$RECONF_CONFIRM" != "1" ]; then
+        print_fail "Downgrade to '$RECONF_LEVEL' requires --confirm-pitfalls."
+        echo "  See docs/superpowers/specs/2026-04-28-bl030-enforcement-model-design.md § 10." >&2
+        exit 1
+      fi
+      ;;
+  esac
+  tmp=$(mktemp)
+  jq --arg lvl "$RECONF_LEVEL" '.enforcement_level = $lvl' "$PROJECT_ROOT/.claude/manifest.json" > "$tmp" \
+    && mv "$tmp" "$PROJECT_ROOT/.claude/manifest.json"
+  [ -f "$PROJECT_ROOT/.claude/bypass-audit.json" ] || echo "[]" > "$PROJECT_ROOT/.claude/bypass-audit.json"
+  ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  row=$(jq -nc \
+    --arg ts "$ts" --arg lvl "$RECONF_LEVEL" --arg from "$current" \
+    '{timestamp:$ts, session_id:null, type:"enforcement_level_set", actor:"framework",
+      enforcement_level_at_event:$lvl,
+      details:{level:$lvl, from:$from, source:"reconfigure"},
+      user_response:"n/a", final_outcome:"recorded_only"}')
+  tmp=$(mktemp)
+  jq --argjson r "$row" '. + [$r]' "$PROJECT_ROOT/.claude/bypass-audit.json" > "$tmp" \
+    && mv "$tmp" "$PROJECT_ROOT/.claude/bypass-audit.json"
+  # Install or uninstall the filesystem gate to match the new level.
+  # PROJECT_ROOT is the canonical install target.
+  INSTALLER="$SCRIPT_DIR/install-filesystem-gates.sh"
+  if [ "$RECONF_LEVEL" = "strict" ]; then
+    bash "$INSTALLER" --install "$PROJECT_ROOT" >/dev/null 2>&1 || true
+  else
+    bash "$INSTALLER" --uninstall "$PROJECT_ROOT" >/dev/null 2>&1 || true
+  fi
+  if [ ! -f "$PROJECT_ROOT/.claude/last-checked-commit.txt" ]; then
+    ( cd "$PROJECT_ROOT" && git rev-parse HEAD 2>/dev/null > .claude/last-checked-commit.txt ) || true
+  fi
+  print_ok "Enforcement level: $current → $RECONF_LEVEL"
+  exit 0
+fi
+
+# BL-030 Task 8: --reset-detection-baseline.
+if [ "$RECONF_RESET_BASELINE" = "1" ]; then
+  ( cd "$PROJECT_ROOT" && git rev-parse HEAD 2>/dev/null > .claude/last-checked-commit.txt )
+  [ -f "$PROJECT_ROOT/.claude/bypass-audit.json" ] || echo "[]" > "$PROJECT_ROOT/.claude/bypass-audit.json"
+  ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  row=$(jq -nc --arg ts "$ts" \
+    '{timestamp:$ts, session_id:null, type:"enforcement_level_set", actor:"framework",
+      enforcement_level_at_event:"unknown",
+      details:{action:"detector_baseline_reset", source:"reconfigure"},
+      user_response:"n/a", final_outcome:"recorded_only"}')
+  tmp=$(mktemp)
+  jq --argjson r "$row" '. + [$r]' "$PROJECT_ROOT/.claude/bypass-audit.json" > "$tmp" \
+    && mv "$tmp" "$PROJECT_ROOT/.claude/bypass-audit.json"
+  print_ok "Detection baseline reset to current HEAD."
+  exit 0
+fi
+
 if [ -z "$FIELD" ] || [ -z "$NEW_VALUE" ]; then
-  print_fail "Required: --field and --new"
+  print_fail "Required: --field and --new (or use --enforcement-level / --reset-detection-baseline)"
   exit 1
 fi
 
