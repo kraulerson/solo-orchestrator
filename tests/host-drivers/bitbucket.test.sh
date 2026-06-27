@@ -12,17 +12,22 @@ source "$REPO_ROOT/scripts/host-drivers/bitbucket.sh"
 assert_eq "bitbucket" "$(host_name)" "host_name"
 echo "bitbucket.test.sh: host_name PASSED"
 
-# host_require_cli — no creds
-unset BITBUCKET_USER BITBUCKET_APP_PASSWORD
+# host_require_cli — no creds. Defensively unset all three vars so an
+# inherited test env doesn't satisfy the check accidentally.
+unset BITBUCKET_USER BITBUCKET_APP_PASSWORD BITBUCKET_WORKSPACE
 set +e; output=$(host_require_cli 2>&1); code=$?; set -e
 assert_exit_code 1 "$code" "no creds fails"
 assert_contains "$output" "BITBUCKET_USER" "mentions env var"
 
-# with creds
-export BITBUCKET_USER="testuser" BITBUCKET_APP_PASSWORD="testpass"
+# with creds — driver requires all three vars (audit code-host-bitbucket-1
+# added BITBUCKET_WORKSPACE alongside USER + APP_PASSWORD). Pre-fix the
+# test exported only USER + APP_PASSWORD, so host_require_cli fell into
+# its "missing var" branch and emitted the App-Password help text +
+# returned 1 — ASSERT FAIL "with creds passes".
+export BITBUCKET_USER="testuser" BITBUCKET_APP_PASSWORD="testpass" BITBUCKET_WORKSPACE="testws"
 set +e; host_require_cli; code=$?; set -e
 assert_exit_code 0 "$code" "with creds passes"
-unset BITBUCKET_USER BITBUCKET_APP_PASSWORD
+unset BITBUCKET_USER BITBUCKET_APP_PASSWORD BITBUCKET_WORKSPACE
 echo "bitbucket.test.sh: host_require_cli PASSED"
 
 # host_register_remote
