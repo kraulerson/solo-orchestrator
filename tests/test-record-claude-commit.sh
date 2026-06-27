@@ -123,6 +123,90 @@ EOF
 fi
 rm -rf "$TMP"
 
+# T6-T9: BL-020 sibling — audit finding `specs-plans-bl029-bl030-5`.
+# Pre-fix the classifier used a naive substring match (`*"git commit"*`),
+# which false-positives on innocuous commands whose argv contains the
+# literal `git commit` (echo strings, grep search patterns, etc.). Each
+# false-positive polluted the ledger with HEAD-at-the-time as a spurious
+# Claude-issued entry. Mirrors the BL-020 fix that landed in PR #53 for
+# `scripts/pre-commit-gate.sh`.
+
+# T6: quote-preceded false-positive must NOT record. The literal `git commit`
+# appears immediately after a `"` in a grep search pattern (the regex
+# `[^"']` rejects quote-preceded matches; start-of-line is the only other
+# anchor and doesn't apply here).
+echo "T6: PostToolUse hook ignores 'git commit' inside a quoted grep pattern (piped)"
+setup
+cd "$TMP"
+cat <<'EOF' | bash "$HOOK" >/dev/null 2>&1
+{"tool_input":{"command":"cat scripts/pre-commit-gate.sh | grep \"git commit\""},"tool_response":{"exit_code":0}}
+EOF
+if [ ! -f "$TMP/.claude/claude-commits.jsonl" ]; then
+  pass "T6"
+else
+  fail_ "T6" "ledger created for 'grep \"git commit\"' (quote-preceded false-positive)"
+fi
+teardown
+
+# T7: grep search-string false-positive must NOT record.
+echo "T7: PostToolUse hook ignores 'git commit' inside a grep/rg search pattern"
+setup
+cd "$TMP"
+cat <<'EOF' | bash "$HOOK" >/dev/null 2>&1
+{"tool_input":{"command":"rg \"git commit\" docs/"},"tool_response":{"exit_code":0}}
+EOF
+if [ ! -f "$TMP/.claude/claude-commits.jsonl" ]; then
+  pass "T7"
+else
+  fail_ "T7" "ledger created for 'rg \"git commit\" docs/' (search-string false-positive)"
+fi
+teardown
+
+# T8: cross-cmd-chain happy path — preceded by `&&`, not at line start.
+echo "T8: PostToolUse hook DOES record a chained 'cd foo && git commit ...'"
+setup
+cd "$TMP"
+cat <<EOF | bash "$HOOK" >/dev/null 2>&1
+{"tool_input":{"command":"cd $TMP && git commit --allow-empty -m 'chained'"},"tool_response":{"exit_code":0}}
+EOF
+if [ -f "$TMP/.claude/claude-commits.jsonl" ] && \
+   jq -e --arg sha "$SHA" '.sha == $sha' < "$TMP/.claude/claude-commits.jsonl" >/dev/null 2>&1; then
+  pass "T8"
+else
+  fail_ "T8" "chained 'cd && git commit' should have been recorded"
+fi
+teardown
+
+# T9: --amend handling — option C: record amended commits as a fresh entry.
+# Rationale: keeping the original entry as an orphan SHA is fine (the ledger
+# is append-only). Recording the new HEAD ensures the out-of-band detector
+# sees the amended SHA in the ledger and classifies it as Claude-issued
+# rather than user-terminal. No special-casing needed in the hook — the
+# normal flow handles --amend correctly.
+echo "T9: PostToolUse hook records 'git commit --amend' as a fresh ledger entry (option C)"
+setup
+cd "$TMP"
+# Pre-seed: record the initial commit.
+cat <<EOF | bash "$HOOK" >/dev/null 2>&1
+{"tool_input":{"command":"git commit -m 'first'"},"tool_response":{"exit_code":0}}
+EOF
+ORIG_SHA="$SHA"
+# Now amend: HEAD SHA changes.
+( cd "$TMP" && git commit --amend --no-edit -q 2>/dev/null )
+AMENDED_SHA=$(cd "$TMP" && git rev-parse HEAD)
+cat <<EOF | bash "$HOOK" >/dev/null 2>&1
+{"tool_input":{"command":"git commit --amend --no-edit"},"tool_response":{"exit_code":0}}
+EOF
+if [ -f "$TMP/.claude/claude-commits.jsonl" ] && \
+   [ "$(wc -l < "$TMP/.claude/claude-commits.jsonl" | tr -d ' ')" = "2" ] && \
+   grep -q "$AMENDED_SHA" "$TMP/.claude/claude-commits.jsonl" && \
+   grep -q "$ORIG_SHA" "$TMP/.claude/claude-commits.jsonl"; then
+  pass "T9"
+else
+  fail_ "T9" "expected 2 entries (original + amended SHAs); got: $(cat "$TMP/.claude/claude-commits.jsonl" 2>/dev/null)"
+fi
+teardown
+
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]
