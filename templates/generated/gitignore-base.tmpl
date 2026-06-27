@@ -57,3 +57,11 @@ terraform.tfvars.json
 # (init.sh removes this after a successful install; ignored as a safety net
 # in case a future flow leaves it behind)
 .claude-backup/
+
+# BL-030 operational state — the detection baseline file. Not project
+# content. Updated by scripts/detect-out-of-band-commits.sh on every
+# SessionStart and by scripts/reconfigure-project.sh / init.sh after
+# state mutations. Tracking it (a) dirtied the working tree on every
+# detector run, and (b) made init.sh impossible to finish with a clean
+# tree, because the file can never point to its own commit hash.
+.claude/last-checked-commit.txt

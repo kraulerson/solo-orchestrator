@@ -1154,6 +1154,7 @@ create_project() {
   chmod +x scripts/hooks/bypass-detector.sh scripts/escalate-to-user.sh
   cp "$SCRIPT_DIR/scripts/pending-approval.sh" scripts/      # BL-015
   cp "$SCRIPT_DIR/scripts/lint-uat-scenarios.sh" scripts/    # BL-009
+  cp "$SCRIPT_DIR/scripts/lint-fixture-envelopes.sh" scripts/  # BL-030
   # BL-030: enforcement-level lib, gate-principles lib, filesystem-gate
   # installer, PostToolUse Claude-commit recorder, SessionStart out-of-
   # band detector. Required by reconfigure --enforcement-level and by
@@ -1835,6 +1836,20 @@ QDEOF
   print_info "Installing pre-commit hook..."
   install_precommit_hook
 
+  # --- Atomic initial-state preparation (code-init-sh-6) ---
+  # Pre-fix, BL-030 state files (manifest enforcement_level/deployment/poc_mode,
+  # bypass-audit.json init row, filesystem gate) and the host-manifest seed
+  # (host/mode/remote_url) were written AFTER the initial git commit. The chore-
+  # init commit captured none of them, leaving a half-initialized state on every
+  # init (especially severe on create_and_protect_remote failure, since BL-030
+  # writes happened unconditionally on top of the failed-remote state).
+  #
+  # Lay everything down BEFORE the initial commit so a single atomic commit
+  # captures the entire framework-managed state. Post-remote writes (remote_url
+  # update, attestation, phase2_init steps) are captured by finalize_init_commit
+  # below as a second commit when present.
+  prepare_initial_state_for_commit
+
   git add -A
   # Skip hooks for the initial commit — template files trigger false positives
   # in Semgrep/gitleaks. Hooks will enforce on all subsequent commits.
@@ -1844,6 +1859,11 @@ Project: $PROJECT_NAME
 Platform: $PLATFORM
 Track: $TRACK
 Framework: Solo Orchestrator v1.0"
+
+  # Refresh the BL-030 detection baseline to the chore-init commit. The file
+  # is gitignored (templates/generated/gitignore-base.tmpl), so updating it
+  # post-commit does NOT dirty the working tree.
+  ( git rev-parse HEAD 2>/dev/null > .claude/last-checked-commit.txt ) || true
 
   # --- Host-aware repo creation (spec 2026-04-21 host-aware repo gate) ---
   # Reads git_host + repo_visibility from intake-progress.json (set by
@@ -1866,6 +1886,12 @@ Framework: Solo Orchestrator v1.0"
     echo ""
   fi
 
+  # If create_and_protect_remote wrote new state (manifest.remote_url update,
+  # attestation, phase2_init.steps_completed), commit it as a second "finalize"
+  # commit so the working tree stays clean. No-op when nothing changed (e.g.
+  # --no-remote-creation, which set remote_url during prepare_initial_state).
+  finalize_init_commit
+
   echo ""
   print_ok "Project created at $PROJECT_DIR"
 }
@@ -1874,45 +1900,13 @@ Framework: Solo Orchestrator v1.0"
 # Host-Aware Repo Creation (spec 2026-04-21)
 # ================================================================
 create_and_protect_remote() {
-  local host visibility
-  # BL-016: prefer non-interactive top-level variables when set.
-  if [ -n "${GIT_HOST:-}" ]; then
-    host="$GIT_HOST"
-  elif [ -f .claude/intake-progress.json ]; then
-    host=$(jq -r '.answers.git_host // empty' .claude/intake-progress.json 2>/dev/null || echo "")
-  fi
-  if [ -n "${VISIBILITY:-}" ]; then
-    visibility="$VISIBILITY"
-  elif [ -f .claude/intake-progress.json ]; then
-    visibility=$(jq -r '.answers.repo_visibility // empty' .claude/intake-progress.json 2>/dev/null || echo "")
-  fi
-  # Fallback: prompt inline if neither source supplied a value (interactive mode only).
-  [ -z "$host" ]       && host=$(prompt_choice "Git host:" "github" "gitlab" "bitbucket" "other")
-  [ -z "$visibility" ] && visibility=$(prompt_choice "Repository visibility:" "private" "public")
-
-  # Map DEPLOYMENT "organizational" → "org" for consistency with spec
-  local mode="$DEPLOYMENT"
-  [ "$mode" = "organizational" ] && mode="org"
-  # Org forces private
-  if [ "$mode" = "org" ] && [ "$visibility" != "private" ]; then
-    print_warn "Org mode forces private visibility (overriding '$visibility')"
-    visibility="private"
-  fi
-
-  # T2-C: write manifest.host (and mode) early so check-gate.sh --preflight
-  # has a usable host field even if a downstream API call fails (missing CLI,
-  # 403, push failure, fake URL). Late-stage merges below add remote_url and
-  # update host/mode in place.
-  mkdir -p .claude
-  if [ -f .claude/manifest.json ]; then
-    jq --arg h "$host" --arg m "$mode" '.host = $h | .mode = $m' \
-       .claude/manifest.json > .claude/manifest.json.tmp \
-       && mv .claude/manifest.json.tmp .claude/manifest.json
-  else
-    cat > .claude/manifest.json <<MANIFESTEOF
-{"host": "$host", "mode": "$mode"}
-MANIFESTEOF
-  fi
+  # Host/visibility/mode are pre-resolved by prepare_initial_state_for_commit
+  # and exported as _RESOLVED_HOST / _RESOLVED_VISIBILITY / _RESOLVED_MODE so
+  # the manifest can be written BEFORE the chore-init commit. We use those
+  # values here (the manifest.host/manifest.mode are already in HEAD).
+  local host="$_RESOLVED_HOST"
+  local visibility="$_RESOLVED_VISIBILITY"
+  local mode="$_RESOLVED_MODE"
 
   # T2-B: --no-remote-creation skips the host API entirely so UAT/CI runs do
   # not contaminate the user's GitHub/GitLab/Bitbucket account. Manifest already
@@ -3594,45 +3588,90 @@ HELPEOF
   finalize_log
 }
 
-# BL-030: finalize init — merge enforcement_level + deployment + poc_mode
-# into manifest, initialize the out-of-band detection baseline, append an
-# enforcement_level_set audit row, install the filesystem gate when strict.
-bl030_finalize_init() {
+# Resolve host/visibility/mode from --git-host / --visibility flags, intake
+# answers, or interactive prompts. Sets globals consumed by both
+# prepare_initial_state_for_commit and create_and_protect_remote so the
+# resolution happens exactly once per init.
+_resolve_host_visibility_mode() {
+  # BL-016: prefer non-interactive top-level variables when set.
+  if [ -n "${GIT_HOST:-}" ]; then
+    _RESOLVED_HOST="$GIT_HOST"
+  elif [ -f .claude/intake-progress.json ]; then
+    _RESOLVED_HOST=$(jq -r '.answers.git_host // empty' .claude/intake-progress.json 2>/dev/null || echo "")
+  fi
+  if [ -n "${VISIBILITY:-}" ]; then
+    _RESOLVED_VISIBILITY="$VISIBILITY"
+  elif [ -f .claude/intake-progress.json ]; then
+    _RESOLVED_VISIBILITY=$(jq -r '.answers.repo_visibility // empty' .claude/intake-progress.json 2>/dev/null || echo "")
+  fi
+  # Fallback: prompt inline if neither source supplied a value (interactive mode only).
+  [ -z "${_RESOLVED_HOST:-}" ]       && _RESOLVED_HOST=$(prompt_choice "Git host:" "github" "gitlab" "bitbucket" "other")
+  [ -z "${_RESOLVED_VISIBILITY:-}" ] && _RESOLVED_VISIBILITY=$(prompt_choice "Repository visibility:" "private" "public")
+
+  # Map DEPLOYMENT "organizational" → "org" for consistency with spec
+  _RESOLVED_MODE="$DEPLOYMENT"
+  [ "$_RESOLVED_MODE" = "organizational" ] && _RESOLVED_MODE="org"
+  # Org forces private
+  if [ "$_RESOLVED_MODE" = "org" ] && [ "$_RESOLVED_VISIBILITY" != "private" ]; then
+    print_warn "Org mode forces private visibility (overriding '$_RESOLVED_VISIBILITY')"
+    _RESOLVED_VISIBILITY="private"
+  fi
+}
+
+# Lay down ALL durable state BEFORE the chore-init commit so it is captured
+# atomically. Combines what used to be (a) create_and_protect_remote's early
+# manifest seed (host/mode), (b) bl030_finalize_init's manifest BL-030 fields
+# + bypass-audit init row + filesystem gate install. The chore-init commit
+# now includes manifest with all fields, bypass-audit.json with the init
+# row, and the filesystem-gate hooks when strict.
+prepare_initial_state_for_commit() {
   [ -d "$PROJECT_DIR" ] || return 0
   command -v jq >/dev/null 2>&1 || return 0
 
-  # Merge BL-030 fields into manifest.json. Existing init code writes host +
-  # mode (and possibly remote_url); this layers on the canonical schema the
-  # enforcement-level library expects.
-  local manifest="$PROJECT_DIR/.claude/manifest.json"
-  local poc_arg
+  _resolve_host_visibility_mode
+
+  mkdir -p .claude
+
+  # Seed manifest with all framework-managed fields. remote_url stays "" until
+  # create_and_protect_remote actually creates the repo; if it doesn't, the
+  # empty value is the documented "no remote" sentinel.
+  local poc_val
   if [ -n "$POC_MODE" ]; then
-    poc_arg="$POC_MODE"
+    poc_val="$POC_MODE"
   else
-    poc_arg=""
+    poc_val=""
   fi
+  local manifest=".claude/manifest.json"
   if [ -f "$manifest" ]; then
     local tmp
     tmp=$(mktemp)
-    if [ -n "$poc_arg" ]; then
-      jq --arg dep "$DEPLOYMENT" --arg pm "$poc_arg" --arg lvl "$ENFORCEMENT_LEVEL" \
-        '. + {deployment: $dep, poc_mode: $pm, enforcement_level: $lvl}' "$manifest" > "$tmp" \
-        && mv "$tmp" "$manifest"
+    if [ -n "$poc_val" ]; then
+      jq --arg h "$_RESOLVED_HOST" --arg m "$_RESOLVED_MODE" \
+         --arg dep "$DEPLOYMENT" --arg pm "$poc_val" --arg lvl "$ENFORCEMENT_LEVEL" \
+         '. + {host:$h, mode:$m, remote_url:"", deployment:$dep, poc_mode:$pm, enforcement_level:$lvl}' \
+         "$manifest" > "$tmp" && mv "$tmp" "$manifest"
     else
-      jq --arg dep "$DEPLOYMENT" --arg lvl "$ENFORCEMENT_LEVEL" \
-        '. + {deployment: $dep, poc_mode: null, enforcement_level: $lvl}' "$manifest" > "$tmp" \
-        && mv "$tmp" "$manifest"
+      jq --arg h "$_RESOLVED_HOST" --arg m "$_RESOLVED_MODE" \
+         --arg dep "$DEPLOYMENT" --arg lvl "$ENFORCEMENT_LEVEL" \
+         '. + {host:$h, mode:$m, remote_url:"", deployment:$dep, poc_mode:null, enforcement_level:$lvl}' \
+         "$manifest" > "$tmp" && mv "$tmp" "$manifest"
+    fi
+  else
+    if [ -n "$poc_val" ]; then
+      jq -n --arg h "$_RESOLVED_HOST" --arg m "$_RESOLVED_MODE" \
+            --arg dep "$DEPLOYMENT" --arg pm "$poc_val" --arg lvl "$ENFORCEMENT_LEVEL" \
+            '{host:$h, mode:$m, remote_url:"", deployment:$dep, poc_mode:$pm, enforcement_level:$lvl}' \
+        > "$manifest"
+    else
+      jq -n --arg h "$_RESOLVED_HOST" --arg m "$_RESOLVED_MODE" \
+            --arg dep "$DEPLOYMENT" --arg lvl "$ENFORCEMENT_LEVEL" \
+            '{host:$h, mode:$m, remote_url:"", deployment:$dep, poc_mode:null, enforcement_level:$lvl}' \
+        > "$manifest"
     fi
   fi
 
-  # Initialize detection baseline.
-  if [ -d "$PROJECT_DIR/.git" ]; then
-    ( cd "$PROJECT_DIR" && git rev-parse HEAD 2>/dev/null > "$PROJECT_DIR/.claude/last-checked-commit.txt" ) || true
-  fi
-  # Ensure bypass-audit.json exists (BL-029 also handles this; defensive).
-  [ -f "$PROJECT_DIR/.claude/bypass-audit.json" ] || echo "[]" > "$PROJECT_DIR/.claude/bypass-audit.json"
-
-  # Append enforcement_level_set audit row.
+  # Seed bypass-audit.json with the init enforcement_level_set row.
+  [ -f .claude/bypass-audit.json ] || echo "[]" > .claude/bypass-audit.json
   local _ts _row _tmp
   _ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   _row=$(jq -nc \
@@ -3644,14 +3683,44 @@ bl030_finalize_init() {
       details:{level:$lvl, confirmed_pitfalls:($confirmed=="1"), source:"init"},
       user_response:"n/a", final_outcome:"recorded_only"}')
   _tmp=$(mktemp)
-  jq --argjson r "$_row" '. + [$r]' "$PROJECT_DIR/.claude/bypass-audit.json" > "$_tmp" \
-    && mv "$_tmp" "$PROJECT_DIR/.claude/bypass-audit.json"
+  jq --argjson r "$_row" '. + [$r]' .claude/bypass-audit.json > "$_tmp" \
+    && mv "$_tmp" .claude/bypass-audit.json
 
-  # Install filesystem gate when strict.
+  # Install filesystem gate when strict (puts the hook in .git/hooks/ before
+  # the chore-init commit so the marker block is consistent with the rest of
+  # the BL-030 surface).
   if [ "$ENFORCEMENT_LEVEL" = "strict" ]; then
     bash "$SCRIPT_DIR/scripts/install-filesystem-gates.sh" --install "$PROJECT_DIR" >/dev/null 2>&1 || \
       print_warn "BL-030: filesystem-gate install failed — strict enforcement degraded."
   fi
+}
+
+# Capture any post-remote state writes (manifest.remote_url update, branch-
+# protection attestation, phase2_init.steps_completed) in a chore-finalize
+# commit so the working tree stays clean after init.sh exits. No-op when
+# nothing changed (e.g. --no-remote-creation, which sets remote_url to the
+# same "" already in HEAD).
+finalize_init_commit() {
+  [ -d "$PROJECT_DIR/.git" ] || return 0
+  if [ -z "$(git status --porcelain 2>/dev/null)" ]; then
+    return 0
+  fi
+  git add -A
+  git commit -q --no-verify -m "chore: record host setup outcome (init finalize)" 2>/dev/null || true
+  # Refresh detection baseline to the finalize commit so subsequent commits
+  # are correctly detected as new work, not as init-time activity.
+  ( git rev-parse HEAD 2>/dev/null > .claude/last-checked-commit.txt ) || true
+}
+
+# Legacy entry point. Pre-fix this function did all the BL-030 state writes
+# (manifest fields, bypass-audit init row, filesystem gate install) AFTER
+# the chore-init commit, leaving them uncommitted. The writes have moved
+# into prepare_initial_state_for_commit so they land in the initial commit.
+# The function is retained as a no-op so any external caller continues to
+# work; the baseline refresh now happens in create_project after each
+# commit point (chore-init + chore-finalize) so this is correctly redundant.
+bl030_finalize_init() {
+  return 0
 }
 
 main "$@"
