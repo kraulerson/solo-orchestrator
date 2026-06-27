@@ -163,5 +163,172 @@ rm -rf "$T"
 
 # ════════════════════════════════════════════════════════════════════
 echo ""
+echo "=== T4: flat → per-host CI/release template layout + manifest .host backfill (BL-004) ==="
+# ════════════════════════════════════════════════════════════════════
+#
+# scripts/upgrade-project.sh:216-245 (host-aware migration block, run
+# inside --backfill-only) handles two coupled one-shot migrations:
+#   1. templates/pipelines/{ci,release}/*.yml → .../github/*.yml
+#   2. manifest.json: backfill `.host` inferred from `git remote get-url origin`
+# Both are idempotent (guards: ! -d ci/github, ! jq -e '.host'). Pre-fix
+# this PR there was no regression test — any refactor of the inference
+# cascade or the idempotency guard would silently corrupt downstream
+# projects on upgrade.
+
+# Scaffold a "pre-host-aware" project: flat ci+release template layout,
+# manifest.json without .host, optional git remote, .claude/phase-state.json.
+make_flat_layout() {
+  local dir="$1" remote_url="${2:-}"
+  mkdir -p "$dir/templates/pipelines/ci" "$dir/templates/pipelines/release" "$dir/.claude"
+  # Distinctive content so T4g content-preservation assertions work.
+  printf 'name: ci-python\non:\n  push:\n' > "$dir/templates/pipelines/ci/python.yml"
+  printf 'name: ci-go\non:\n  push:\n' > "$dir/templates/pipelines/ci/go.yml"
+  printf 'name: release-web\non:\n  push:\n    tags: ["v*"]\n' > "$dir/templates/pipelines/release/web.yml"
+  echo '{"version":"1.0"}' > "$dir/.claude/manifest.json"
+  cat > "$dir/.claude/phase-state.json" <<'JSON'
+{"project":"test","framework_version":"1.0","current_phase":0,"track":"light","deployment":"personal","poc_mode":null,"compliance_ready":false,"gates":{"phase_0_to_1":null,"phase_1_to_2":null,"phase_3_to_4":null}}
+JSON
+  ( cd "$dir" \
+      && git init -q \
+      && git config user.email t@t.l && git config user.name t \
+      && { [ -z "$remote_url" ] || git remote add origin "$remote_url"; } \
+      && git add -A && git commit -q -m "init" ) >/dev/null 2>&1
+}
+
+# ── T4a: happy path with github remote ──────────────────────────────
+T=$(mktemp -d); P="$T/p"
+make_flat_layout "$P" "git@github.com:acme/widget.git"
+( cd "$P" && bash "$UPGRADE" --backfill-only --non-interactive ) > "$T/log" 2>&1
+rc=$?
+flat_remaining=$( find "$P/templates/pipelines/ci" -maxdepth 1 -name '*.yml' -type f 2>/dev/null | wc -l | tr -d ' ' )
+nested_python=$( [ -f "$P/templates/pipelines/ci/github/python.yml" ] && echo y || echo n )
+nested_go=$(     [ -f "$P/templates/pipelines/ci/github/go.yml"     ] && echo y || echo n )
+nested_web=$(    [ -f "$P/templates/pipelines/release/github/web.yml" ] && echo y || echo n )
+host_inferred=$( jq -r '.host // ""' "$P/.claude/manifest.json" 2>/dev/null )
+if [ "$rc" = "0" ] && [ "$flat_remaining" = "0" ] \
+   && [ "$nested_python" = "y" ] && [ "$nested_go" = "y" ] && [ "$nested_web" = "y" ] \
+   && [ "$host_inferred" = "github" ]; then
+  pass "T4a: github remote → flat layout migrated + .host='github'"
+else
+  fail_ "T4a" "rc=$rc flat_remaining=$flat_remaining nested(python=$nested_python go=$nested_go web=$nested_web) host=$host_inferred"
+fi
+rm -rf "$T"
+
+# ── T4b: host inference fan-out across the 4 case branches ──────────
+for case in 'git@github.com:a/b.git|github' \
+            'https://gitlab.com/a/b.git|gitlab' \
+            'https://gitlab.example.com/a/b.git|gitlab' \
+            'https://bitbucket.org/a/b.git|bitbucket' \
+            'https://codeberg.org/a/b.git|other'; do
+  url="${case%|*}"; expected="${case##*|}"
+  T=$(mktemp -d); P="$T/p"
+  make_flat_layout "$P" "$url"
+  ( cd "$P" && bash "$UPGRADE" --backfill-only --non-interactive ) > "$T/log" 2>&1
+  actual=$( jq -r '.host // ""' "$P/.claude/manifest.json" 2>/dev/null )
+  if [ "$actual" = "$expected" ]; then
+    pass "T4b: remote=$url → .host='$actual'"
+  else
+    fail_ "T4b" "remote=$url expected=$expected actual='$actual' log:\n$(tail -5 "$T/log")"
+  fi
+  rm -rf "$T"
+done
+
+# ── T4c: idempotency — second run is a no-op ────────────────────────
+T=$(mktemp -d); P="$T/p"
+make_flat_layout "$P" "git@github.com:a/b.git"
+( cd "$P" && bash "$UPGRADE" --backfill-only --non-interactive ) > "$T/log1" 2>&1
+manifest_snapshot=$( cat "$P/.claude/manifest.json" )
+ci_listing_1=$( find "$P/templates/pipelines/ci" -type f | sort )
+( cd "$P" && bash "$UPGRADE" --backfill-only --non-interactive ) > "$T/log2" 2>&1
+rc2=$?
+manifest_after=$( cat "$P/.claude/manifest.json" )
+ci_listing_2=$( find "$P/templates/pipelines/ci" -type f | sort )
+log2_no_migrate=no
+grep -q "Migrating flat CI template layout" "$T/log2" 2>/dev/null || log2_no_migrate=yes
+log2_no_backfill=no
+grep -q "Backfilling manifest.json" "$T/log2" 2>/dev/null || log2_no_backfill=yes
+if [ "$rc2" = "0" ] && [ "$manifest_snapshot" = "$manifest_after" ] \
+   && [ "$ci_listing_1" = "$ci_listing_2" ] \
+   && [ "$log2_no_migrate" = "yes" ] && [ "$log2_no_backfill" = "yes" ]; then
+  pass "T4c: second run is a no-op (no diff, no 'Migrating...' / 'Backfilling...' log)"
+else
+  fail_ "T4c" "rc=$rc2 manifest_diff=$([ "$manifest_snapshot" = "$manifest_after" ] && echo none || echo yes) listing_diff=$([ "$ci_listing_1" = "$ci_listing_2" ] && echo none || echo yes) migrate_skipped=$log2_no_migrate backfill_skipped=$log2_no_backfill"
+fi
+rm -rf "$T"
+
+# ── T4d: pre-existing per-host layout → SKIP file migration ────────
+# The guard `[ ! -d templates/pipelines/ci/github ]` skips the file
+# migration when a partial per-host layout already exists. This
+# documents the partial-migration policy: do not touch a directory
+# that's been partially organized. (Manifest .host backfill is
+# orthogonal and still runs.)
+T=$(mktemp -d); P="$T/p"
+make_flat_layout "$P" "git@github.com:a/b.git"
+mkdir -p "$P/templates/pipelines/ci/github"   # pre-existing partial layout
+( cd "$P" && git add -A && git commit -q -m "partial" ) >/dev/null 2>&1
+( cd "$P" && bash "$UPGRADE" --backfill-only --non-interactive ) > "$T/log" 2>&1
+rc=$?
+# Flat python.yml should STILL be at the flat path (not moved)
+flat_python_present=$( [ -f "$P/templates/pipelines/ci/python.yml" ] && echo y || echo n )
+host_inferred=$( jq -r '.host // ""' "$P/.claude/manifest.json" 2>/dev/null )
+if [ "$rc" = "0" ] && [ "$flat_python_present" = "y" ] && [ "$host_inferred" = "github" ]; then
+  pass "T4d: pre-existing ci/github skips file migration; .host backfill still runs"
+else
+  fail_ "T4d" "rc=$rc flat_python_present=$flat_python_present host=$host_inferred"
+fi
+rm -rf "$T"
+
+# ── T4e: no git remote → .host inferred as 'other' ──────────────────
+T=$(mktemp -d); P="$T/p"
+make_flat_layout "$P" ""   # no remote
+( cd "$P" && bash "$UPGRADE" --backfill-only --non-interactive ) > "$T/log" 2>&1
+rc=$?
+host_inferred=$( jq -r '.host // ""' "$P/.claude/manifest.json" 2>/dev/null )
+if [ "$rc" = "0" ] && [ "$host_inferred" = "other" ]; then
+  pass "T4e: no remote → .host='other' (case default branch)"
+else
+  fail_ "T4e" "rc=$rc host='$host_inferred' (expected 'other')"
+fi
+rm -rf "$T"
+
+# ── T4f: manifest already has .host → preserved verbatim ───────────
+# Idempotency on the manifest backfill side: the `! jq -e '.host'`
+# guard must short-circuit if .host is set, even if its value disagrees
+# with the inferred host from the remote.
+T=$(mktemp -d); P="$T/p"
+make_flat_layout "$P" "git@github.com:a/b.git"   # remote says github
+# Pre-set manifest .host to gitlab — should NOT be clobbered.
+tmp=$(mktemp)
+jq '.host = "gitlab"' "$P/.claude/manifest.json" > "$tmp" && mv "$tmp" "$P/.claude/manifest.json"
+( cd "$P" && git add -A && git commit -q -m "preset host" ) >/dev/null 2>&1
+( cd "$P" && bash "$UPGRADE" --backfill-only --non-interactive ) > "$T/log" 2>&1
+rc=$?
+host_after=$( jq -r '.host // ""' "$P/.claude/manifest.json" 2>/dev/null )
+if [ "$rc" = "0" ] && [ "$host_after" = "gitlab" ]; then
+  pass "T4f: pre-set .host='gitlab' preserved even when remote suggests 'github'"
+else
+  fail_ "T4f" "rc=$rc host='$host_after' (expected 'gitlab', remote was github)"
+fi
+rm -rf "$T"
+
+# ── T4g: content preservation across the file moves ────────────────
+# Sanity guard: the migration uses `git mv` (or `mv` fallback); both
+# must preserve file content byte-for-byte.
+T=$(mktemp -d); P="$T/p"
+make_flat_layout "$P" "git@github.com:a/b.git"
+sha_python_pre=$( shasum -a 256 "$P/templates/pipelines/ci/python.yml" | awk '{print $1}' )
+sha_web_pre=$(    shasum -a 256 "$P/templates/pipelines/release/web.yml" | awk '{print $1}' )
+( cd "$P" && bash "$UPGRADE" --backfill-only --non-interactive ) > "$T/log" 2>&1
+sha_python_post=$( shasum -a 256 "$P/templates/pipelines/ci/github/python.yml" 2>/dev/null | awk '{print $1}' )
+sha_web_post=$(    shasum -a 256 "$P/templates/pipelines/release/github/web.yml" 2>/dev/null | awk '{print $1}' )
+if [ "$sha_python_pre" = "$sha_python_post" ] && [ "$sha_web_pre" = "$sha_web_post" ]; then
+  pass "T4g: file content preserved through migration (sha256 unchanged)"
+else
+  fail_ "T4g" "python sha pre=$sha_python_pre post=$sha_python_post; web sha pre=$sha_web_pre post=$sha_web_post"
+fi
+rm -rf "$T"
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]
