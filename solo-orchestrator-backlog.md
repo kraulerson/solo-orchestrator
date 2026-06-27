@@ -628,3 +628,48 @@ Three-tier enforcement level (`no` / `light` / `strict`) configurable at init or
 **Spec:** `docs/superpowers/specs/2026-04-28-bl030-enforcement-model-design.md`
 
 **Audit follow-up:** the v2 audit finding `specs-plans-bl029-bl030-3` ("spec exists; ZERO implementation") is now closed.
+
+---
+
+## BL-031: init.sh:2009 hardcodes GitHub-branded messaging for any driver returning exit 3
+
+**Logged:** 2026-06-27
+**Category:** Bug (UX, cross-driver)
+**Severity:** Medium
+
+`scripts/host-drivers/gitlab.sh:120` returns exit 3 from `host_configure_protection` when the org-mode approvals PUT fails. `init.sh:2009` treats `_hcp_rc=3` as the GitHub-free-tier attestation fallback and surfaces a print_warn with the literal string `"Branch protection unavailable on this repo (free-tier limit)"` plus a print_info chain mentioning `"Upgrade to GitHub Pro"`. A GitLab user with partial token scopes lands in the wrong remediation flow with wrong-host messaging.
+
+The exit code 3 was originally a github-specific signal ("free-tier 403 detected — fall back to attestation"). When the gitlab driver was added, exit 3 was reused for a different semantic (gitlab approvals PUT failed) without the init.sh dispatch being updated to disambiguate.
+
+**Scope:**
+1. Either: make exit 3 host-agnostic — rename the message to "Branch protection unavailable on this repo (extended-flow available)" and drop the GitHub-Pro-specific remediation. Drivers stay free to return 3 for their own "expected partial failure" semantics.
+2. Or: require the host driver to emit the host-specific remediation text on stderr and have init.sh echo whatever the driver said.
+3. Update `tests/host-drivers/e2e-init-gitlab.test.sh::T6` to assert the corrected behavior.
+
+**Detection regression test exists:** `tests/host-drivers/e2e-init-gitlab.test.sh:T6` (added with BL-003a PR) currently asserts the BUGGY GitHub-branded message as a regression guard. The test comment flags it for update once this is fixed.
+
+**Trigger:** opportunistic — fix when next touching init.sh's host dispatch or the host-driver exit-code contract.
+
+**Related:** BL-003a (introduced the T6 detection test).
+
+---
+
+## BL-003a: init.sh GitLab end-to-end test (mocked CLI)
+
+**Logged:** 2026-04-22 (originally as BL-003 sub-task; split for cycle 5 scope)
+**Status:** Closed — shipped 2026-06-27 (PR forthcoming, this commit).
+
+Adds `tests/host-drivers/e2e-init-gitlab.test.sh`: full init.sh e2e with mocked `glab` CLI + `GIT_CONFIG_GLOBAL` `pushInsteadOf` redirect to a local bare repo. Mirrors PR #59's github harness. Six scenarios: T1 personal success, T2 org success, T3 push fail, T4 repo-already-exists, T5 protection POST 403, T6 (documentary) gitlab-exit-3 cross-wiring at `init.sh:2009` — see BL-031.
+
+---
+
+## BL-003b: init.sh Bitbucket end-to-end test (curl-stub variant)
+
+**Logged:** 2026-04-22 (originally as BL-003 sub-task; split for cycle 5 scope)
+**Category:** Test
+**Severity:** Medium
+**Status:** Open
+
+Adds `tests/host-drivers/e2e-init-bitbucket.test.sh`: full init.sh e2e with mocked `curl` (bitbucket driver uses curl with `-u USER:PASS`, no CLI binary). PATH-prepended `curl` stub case-matches on `-X METHOD` + URL substrings (repo create POST, branch-restrictions GET/POST/DELETE). Configure-vs-verify GET ambiguity (same URL hit twice) resolved with a `$TMP`-side counter file. Six scenarios parallel to BL-003a.
+
+**Watch-out:** `scripts/host-drivers/bitbucket.sh::_bb_curl` pipes `2>&1` and the caller does `if ! resp=$(... | _bb_curl ...)`, so the stub MUST write stderr only on intentional failure modes — otherwise jq parses the error message as JSON and crashes the success path.
