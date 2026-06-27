@@ -85,6 +85,7 @@ fi
 # Parse phase state using lightweight JSON extraction (no jq dependency)
 # This handles the simple flat structure of phase-state.json
 current_phase=$(grep -o '"current_phase"[[:space:]]*:[[:space:]]*"*[0-9][0-9]*"*' "$PHASE_STATE" | grep -o '[0-9][0-9]*' || echo "0")
+case "$current_phase" in ''|*[!0-9]*) current_phase=0 ;; esac
 
 get_gate_date() {
   local gate_key="$1"
@@ -150,6 +151,7 @@ validate_manifesto_content() {
   if grep -qi "Status:[[:space:]]*Open" "$file" 2>/dev/null; then
     local open_count
     open_count=$(grep -ci "Status:[[:space:]]*Open" "$file" 2>/dev/null || echo "0")
+    case "$open_count" in ''|*[!0-9]*) open_count=0 ;; esac
     echo -e "${RED}[FAIL]${NC} PRODUCT_MANIFESTO.md: $open_count unresolved Open Question(s) — resolve before Phase 1"
     issues=$((issues + 1))
   fi
@@ -201,6 +203,7 @@ if [ "$deployment" = "organizational" ] && [ "$current_phase" -ge 0 ]; then
     # Full organizational — all 6 pre-conditions required
     if grep -q "Pre-Phase 0" "$APPROVAL_LOG" 2>/dev/null; then
       local_precond_count=$(grep -A 30 "Pre-Phase 0" "$APPROVAL_LOG" 2>/dev/null | grep -cE "[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])" || echo "0")
+      case "$local_precond_count" in ''|*[!0-9]*) local_precond_count=0 ;; esac
       if [ "$local_precond_count" -lt 6 ]; then
         echo -e "${YELLOW}[WARN]${NC} Pre-Phase 0: Organizational deployment — only $local_precond_count pre-condition date(s) recorded (6 required)"
         issues=$((issues + 1))
@@ -312,12 +315,14 @@ if [ "$current_phase" -ge 2 ]; then
     echo -e "${GREEN}  [OK]${NC} PROJECT_BIBLE.md exists"
     # Check for placeholder dates (YYYY-MM-DD) indicating unfilled sections
     placeholder_dates=$(grep -c "YYYY-MM-DD" PROJECT_BIBLE.md 2>/dev/null || echo "0")
+    case "$placeholder_dates" in ''|*[!0-9]*) placeholder_dates=0 ;; esac
     if [ "$placeholder_dates" -gt 0 ]; then
       echo -e "${YELLOW}[WARN]${NC} PROJECT_BIBLE.md has $placeholder_dates placeholder date(s) — update Last Updated markers"
       issues=$((issues + 1))
     fi
     # Check key sections exist (numbered 1-16 per template)
     bible_sections=$(grep -cE "^## [0-9]+\." PROJECT_BIBLE.md 2>/dev/null || echo "0")
+    case "$bible_sections" in ''|*[!0-9]*) bible_sections=0 ;; esac
     if [ "$bible_sections" -lt 14 ]; then
       echo -e "${YELLOW}[WARN]${NC} PROJECT_BIBLE.md has only $bible_sections numbered sections (template specifies 16, minimum 14)"
       issues=$((issues + 1))
@@ -472,6 +477,7 @@ if [ "$current_phase" -ge 3 ]; then
   # P3-007: Cross-reference process-state.json for Phase 3 completion
   if [ -f ".claude/process-state.json" ] && command -v jq &>/dev/null; then
     p3_steps_done=$(jq '.phase3_validation.steps_completed | length' .claude/process-state.json 2>/dev/null || echo "0")
+    case "$p3_steps_done" in ''|*[!0-9]*) p3_steps_done=0 ;; esac
     if [ "$p3_steps_done" -ge 9 ]; then
       echo -e "${GREEN}  [OK]${NC} Phase 3 process checklist: $p3_steps_done steps completed"
     elif [ "$p3_steps_done" -gt 0 ]; then
@@ -487,6 +493,7 @@ if [ "$current_phase" -ge 3 ]; then
   if [ -f "$MANIFEST" ]; then
     if command -v jq &>/dev/null; then
       review_count=$(jq '.reviews | length' "$MANIFEST" 2>/dev/null || echo "0")
+      case "$review_count" in ''|*[!0-9]*) review_count=0 ;; esac
       review_commit=$(jq -r '.commit // "unknown"' "$MANIFEST" 2>/dev/null)
       echo -e "${GREEN}  [OK]${NC} Review manifest: $review_count review(s) recorded (commit: ${review_commit:0:8})"
     else
