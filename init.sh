@@ -1996,9 +1996,13 @@ create_and_protect_remote() {
     host_push_initial main 2>/dev/null || host_push_initial master || { print_fail "Push failed — $remote_url exists but empty"; return 1; }
 
     print_info "Configuring branch protection ($mode mode)..."
-    # BL-002: capture exit code 3 for github free-tier 403 (host_configure_protection
-    # detects the "Upgrade to GitHub Pro" pattern). Fall through to the attestation
-    # flow shared with the --git-host other path so init can complete cleanly.
+    # BL-002 / BL-031: exit code 3 is the host-agnostic "expected partial
+    # failure — attestation fallback is appropriate" signal. The github driver
+    # returns 3 on free-tier 403; the gitlab driver returns 3 when org-mode
+    # approvals PUT fails; future drivers may use 3 for similar semantics.
+    # The driver itself emits host-specific remediation on stderr BEFORE this
+    # block runs — we echo a host-agnostic summary and route to the shared
+    # attestation flow rather than hardcoding GitHub-Pro wording (BL-031).
     local _hcp_rc=0
     host_configure_protection main "$mode" || _hcp_rc=$?
     if [ "$_hcp_rc" -ne 0 ] && [ "$_hcp_rc" -ne 3 ]; then
@@ -2007,18 +2011,22 @@ create_and_protect_remote() {
     fi
 
     if [ "$_hcp_rc" -eq 3 ]; then
-      print_warn "Branch protection unavailable on this repo (free-tier limit)."
-      print_info "Falling back to attestation flow — see remediation message above."
+      print_warn "Branch protection unavailable via standard API on this $host repo."
+      print_info "Falling back to attestation flow — see $host driver remediation message above."
       local attest
       if [ "${BRANCH_PROTECTION_ATTESTED:-false}" = true ]; then
         attest="yes"
         print_info "Branch protection attested via --branch-protection-attested flag."
       else
-        read -rp "Attest that protection will be enforced manually until you upgrade? [type 'yes' to attest]: " attest
+        read -rp "Attest that protection will be enforced manually? [type 'yes' to attest]: " attest
       fi
-      [ "$attest" != "yes" ] && { print_fail "Attestation required — cannot proceed (or upgrade to GitHub Pro)"; return 1; }
+      [ "$attest" != "yes" ] && { print_fail "Attestation required — cannot proceed (see $host driver remediation above)"; return 1; }
       # Record attestation with the github_free_tier reason so check-gate.sh
-      # --preflight skips the API verify.
+      # --preflight skips the API verify. The reason string is retained for
+      # backward compat with check-gate.sh and tests/test-check-gate.sh::T5;
+      # broadening the reason taxonomy is out of scope for BL-031 (UX-only
+      # fix). Downstream code reads the reason as a "skip API verify" sentinel
+      # regardless of host, so the wording is harmless for non-github paths.
       mkdir -p .claude
       if [ ! -f .claude/process-state.json ]; then
         echo '{"phase2_init":{"steps_completed":[],"attestations":{}}}' > .claude/process-state.json
@@ -2027,7 +2035,7 @@ create_and_protect_remote() {
          '.phase2_init.attestations.branch_protection = {attested_by: "orchestrator", at: $at, reason: "github_free_tier"}' \
          .claude/process-state.json > .claude/process-state.json.tmp \
          && mv .claude/process-state.json.tmp .claude/process-state.json
-      print_ok "Free-tier attestation recorded — check-gate.sh --preflight will honor it."
+      print_ok "Partial-protection attestation recorded — check-gate.sh --preflight will honor it."
     elif [ "$_hcp_rc" -ne 0 ]; then
       print_fail "Protection config failed — run 'scripts/check-gate.sh --repair' after troubleshooting"
       return 1

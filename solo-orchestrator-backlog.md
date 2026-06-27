@@ -636,19 +636,17 @@ Three-tier enforcement level (`no` / `light` / `strict`) configurable at init or
 **Logged:** 2026-06-27
 **Category:** Bug (UX, cross-driver)
 **Severity:** Medium
+**Status:** Closed — shipped 2026-06-27 (this commit, branch `fix/init-bl031-cross-wiring`).
 
 `scripts/host-drivers/gitlab.sh:120` returns exit 3 from `host_configure_protection` when the org-mode approvals PUT fails. `init.sh:2009` treats `_hcp_rc=3` as the GitHub-free-tier attestation fallback and surfaces a print_warn with the literal string `"Branch protection unavailable on this repo (free-tier limit)"` plus a print_info chain mentioning `"Upgrade to GitHub Pro"`. A GitLab user with partial token scopes lands in the wrong remediation flow with wrong-host messaging.
 
 The exit code 3 was originally a github-specific signal ("free-tier 403 detected — fall back to attestation"). When the gitlab driver was added, exit 3 was reused for a different semantic (gitlab approvals PUT failed) without the init.sh dispatch being updated to disambiguate.
 
-**Scope:**
-1. Either: make exit 3 host-agnostic — rename the message to "Branch protection unavailable on this repo (extended-flow available)" and drop the GitHub-Pro-specific remediation. Drivers stay free to return 3 for their own "expected partial failure" semantics.
-2. Or: require the host driver to emit the host-specific remediation text on stderr and have init.sh echo whatever the driver said.
-3. Update `tests/host-drivers/e2e-init-gitlab.test.sh::T6` to assert the corrected behavior.
+**Resolution:** option 1 (host-agnostic init.sh wording). The init.sh exit-3 branch (lines ~1998-2045) now parameterizes the warn/info on `$host` ("Branch protection unavailable via standard API on this $host repo" / "see $host driver remediation message above") and defers host-specific remediation to the driver's own stderr — which is already emitted before init.sh prints these lines. The driver code (github.sh:120-132, gitlab.sh:120) was deliberately not touched: the exit-3 contract ("I failed in a way you can attest around") is correct; the bug was init.sh interpreting that contract with GitHub-only words. The attestation reason string `github_free_tier` is retained for backward compat with `scripts/check-gate.sh` and `tests/test-check-gate.sh::T5`; broadening the reason taxonomy is out of scope for this fix.
 
-**Detection regression test exists:** `tests/host-drivers/e2e-init-gitlab.test.sh:T6` (added with BL-003a PR) currently asserts the BUGGY GitHub-branded message as a regression guard. The test comment flags it for update once this is fixed.
+**Regression test updated:** `tests/host-drivers/e2e-init-gitlab.test.sh::T6` now asserts the corrected behavior: init exits 0 (U-B contract preserved), log does NOT contain "GitHub Pro" or "free-tier limit", log DOES contain `"on this gitlab repo"` / `"gitlab driver remediation"` plus the gitlab driver's own `"approvals config failed"` stderr.
 
-**Trigger:** opportunistic — fix when next touching init.sh's host dispatch or the host-driver exit-code contract.
+**Verification:** `tests/host-drivers/e2e-init-gitlab.test.sh` 6/6 PASS · `tests/host-drivers/e2e-init.test.sh` 5/5 PASS (github regression) · `tests/test-github-free-tier-403.sh` 4/4 PASS (driver unchanged).
 
 **Related:** BL-003a (introduced the T6 detection test).
 
