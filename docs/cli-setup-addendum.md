@@ -213,6 +213,17 @@ The framework uses:
 - **Hooks** — Git-triggered actions (pre-commit, pre-push, post-merge) that run automated checks before code reaches the repository.
 - **Rules** — Specific enforcement policies (e.g., "no direct schema modifications without migration files," "no dependencies without license check," "no commit without test coverage").
 
+### How CDF and Solo Orchestrator Layer
+
+CDF and Solo Orchestrator are deliberately split across two layers; both are installed by `init.sh`, but they enforce different things and a Solo project's working set of guardrails is the sum of both:
+
+| Layer | What it owns | Where it runs | Where the rules live |
+| - | - | - | - |
+| **CDF** | Coding-standards enforcement: secret detection (gitleaks), SAST quick scan (Semgrep), license check, lockfile pinning, test-co-location heuristic, schema-migration check. | `.git/hooks/` (pre-commit, pre-push, post-merge) and `.claude/settings.json` (PreToolUse hooks the agent triggers). Profile-driven (`mobile-app.yml`, `web-api.yml`, `cli-tool.yml`). | `~/.claude-dev-framework/` (global, shared install). |
+| **Solo Orchestrator** | Process enforcement: Build Loop step ordering, Phase 2/3/4 checklists, phase-gate consistency. Plus the enforcement-level layer added in BL-030: a project-wide `enforcement_level` (`strict` / `light` / `no`) that gates **user-terminal** commits via `.git/hooks/framework-gate.sh` and writes every framework-bypass event to `.claude/bypass-audit.json`. | `scripts/pre-commit-gate.sh` (PreToolUse on Claude-issued `git commit` / `gh pr create`), `scripts/framework-gate.sh` (the strict-mode user-terminal gate), `scripts/detect-out-of-band-commits.sh` (SessionStart — catches `--no-verify` post-hoc), `scripts/hooks/bypass-detector.sh` (PostToolUse + Stop). | In-project (`scripts/`, `.claude/`). |
+
+CDF answers "does this code meet the project's standards?" Solo answers "did this commit follow the process, and if it bypassed enforcement, is that recorded?" The two compose: a Solo-strict project on the `web-api` CDF profile gets gitleaks + Semgrep + license-check from CDF plus the Build Loop / Phase gate + bypass-audit from Solo, both at commit time. See `docs/user-guide.md` ("What Is Enforced vs. What Is Guided") for the canonical operator-facing level matrix and `docs/builders-guide.md` ("Enforcement Model") for how Claude-issued vs user-terminal commits are gated.
+
 ### How It Applies to the Builder's Guide
 
 The Builder's Guide defines quality controls at each phase. The Development Guardrails for Claude Code automates checks for them:
@@ -232,6 +243,8 @@ The framework catches violations the agent might introduce — particularly duri
 ### Setup
 
 **`init.sh` installs CDF automatically.** Running `bash init.sh` from a new project directory clones CDF to `~/.claude-dev-framework` (a global, shared install — not per-project) and then runs CDF's own initializer from your project root. Per-project profile selection happens inside that CDF init flow.
+
+**Solo enforcement level is selected at the same time.** `init.sh` accepts `--enforcement-level <no|light|strict>` (default `strict`; `--confirm-pitfalls` is required to go below strict). The chosen level determines whether `.git/hooks/framework-gate.sh` is installed: strict installs it (every user-terminal commit goes through the Build Loop / Phase classifier and lands a `terminal_commit_blocked` or `terminal_commit_passed` row in `.claude/bypass-audit.json`); light and no skip the install. The SessionStart out-of-band detector runs on strict AND light (any `--no-verify` commit is captured post-hoc); on `no`, it is a no-op. To change the level on an existing project, use `scripts/reconfigure-project.sh --enforcement-level <new-level> [--confirm-pitfalls]`. For pre-BL-030 projects, `scripts/upgrade-project.sh --backfill-only` migrates the manifest in place (defaults to strict, forced strict for organizational Sponsored POC / Production).
 
 **Manual fallback** (only needed if you skipped Solo's `init.sh` and want CDF in isolation):
 
@@ -499,7 +512,10 @@ bypass hooks. If a hook blocks a commit:
 1. Read the hook's error message
 2. Fix the violation
 3. Re-attempt the commit
-Never use --no-verify to skip hooks.
+Never use --no-verify to skip hooks. On strict-mode projects
+the SessionStart out-of-band detector records every --no-verify
+commit to .claude/bypass-audit.json regardless of the hook
+being bypassed — the block is bypassable, the audit is not.
 
 ## Architecture Constraints
 [PHASE 1+ — Add after architecture selection]
@@ -524,7 +540,10 @@ Never use --no-verify to skip hooks.
 - Do not add features not in the MVP Cutline
 - Do not modify the database schema directly — use migration tool
 - Do not add dependencies without justification
-- Do not use `--no-verify` to bypass Git hooks
+- Do not use `--no-verify` to bypass Git hooks. On strict-mode projects
+  the SessionStart out-of-band detector records every such commit to
+  `.claude/bypass-audit.json` — the audit lands even when the hook is
+  skipped. See `docs/audit-log-lifecycle.md`.
 - Do not delete tests to make them pass
 - Do not include production data, real PII, or credentials in
   prompts, comments, or test fixtures

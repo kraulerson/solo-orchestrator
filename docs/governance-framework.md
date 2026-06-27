@@ -714,8 +714,9 @@ The entire value proposition of the Solo Orchestrator model is enabling faster a
 2. **Mandatory SSO integration** — applications authenticate through the enterprise identity provider, making them visible to identity governance.
 3. **Centralized logging** — application logs feed into the enterprise SIEM or logging platform, making operational issues visible to IT operations.
 4. **Quarterly portfolio review** — applications are evaluated against standards, not left to accumulate unmonitored.
+5. **Framework-level commit-time enforcement and audit ledger** — every Solo Orchestrator project ships with an `enforcement_level` (`strict` by default; forced to `strict` for organizational Sponsored POC and Production deployments). In strict mode, `.git/hooks/framework-gate.sh` blocks user-terminal commits that violate the Build Loop / Phase classifier, and the SessionStart out-of-band detector writes every bypassed or unaudited commit to `.claude/bypass-audit.json`. The audit is the durable record a successor or auditor needs to reconstruct the operator's enforcement decisions — the framework's guarantee is "you can route around the block, you cannot route around the audit." See `docs/user-guide.md` ("What Is Enforced vs. What Is Guided") for the level matrix and operator commands, and `docs/audit-log-lifecycle.md` for the audit-row taxonomy and the cold-pickup successor jq recipes.
 
-If any of these controls are not in place, the Solo Orchestrator model is creating shadow IT, regardless of the quality of the code or documentation.
+Shadow-IT mitigation in the Solo Orchestrator model requires both the governance controls above (1–4) AND the framework-level enforcement (5). The governance controls make the project visible to the organization; the framework-level controls keep the in-repo evidence honest. Without both, a project that reports compliance on the dashboard may still have bypassed enforcement that no one can reconstruct after the fact.
 
 ### Orchestrator Burnout
 
@@ -748,6 +749,7 @@ The Solo Orchestrator model concentrates all technical access in one individual.
    - All code changes are committed to version control with signed commits (recommended).
    - Production deployments flow through CI/CD — no manual production deployments.
    - Audit logging enabled on hosting platform and secrets manager.
+   - **In-repo bypass-audit ledger** (`.claude/bypass-audit.json`) — an append-only record of every framework-bypass event the Orchestrator triggered or witnessed: Claude-issued `--no-verify` proposals, user-terminal commits blocked by `framework-gate.sh`, user-terminal commits that landed via `--no-verify` (recorded by the SessionStart out-of-band detector), enforcement-level transitions, and escalations. The ledger lives in the repo and survives `git clone`, so a successor or auditor can reconstruct the Orchestrator's full enforcement history. See `docs/audit-log-lifecycle.md` for the row taxonomy and reader recipes.
 3. **Scope limitation.** Applications handling financial transactions, PII at scale, or regulated data (SOC 2, HIPAA, PCI) require compliance-specific modules that have not yet been developed. The governance framework already provides the structural requirements — role-based approval gate separation through independent phase gate approvers, append-only audit evidence, and anti-self-approval controls. The gap is compliance-specific content mapping and per-change code review enforcement. Do not deploy Solo Orchestrator applications in regulated environments until the applicable compliance module has been built, validated, and the per-change code review requirement is enforced via branch protection.
 
 ---
