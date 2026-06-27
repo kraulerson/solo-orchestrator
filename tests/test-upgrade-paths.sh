@@ -330,5 +330,125 @@ rm -rf "$T"
 
 # ════════════════════════════════════════════════════════════════════
 echo ""
+echo "=== T5: S3 sweep — vendored-skills sync + POC_TO_PRIVATE + Manifesto refresh ==="
+# ════════════════════════════════════════════════════════════════════
+#
+# Three audit-cleanup items shipped together in one PR (S3 sweep):
+#   T5a — code-upgrade-project-3: vendored-skills sync. upgrade-project.sh
+#         previously refreshed only helper scripts; vendored skills shipped
+#         after a project's init never made it into upgraded projects.
+#   T5b — code-upgrade-project-7: --to-private-poc was missing from the
+#         APPROVAL_LOG audit-row condition AND from the COMMIT_PARTS block,
+#         silently dropping audit coverage and producing a misleading
+#         generic commit subject.
+#   T5c — code-upgrade-project-6: PRODUCT_MANIFESTO.md Appendix A/C
+#         "SKIPPED — internal tool, …" markers (light-track Phase-0 exemption)
+#         were never rewritten on track-up to standard/full; appendices
+#         silently stayed marked SKIPPED even though required.
+
+# ── T5a: vendored-skills sync via --backfill-only ──────────────────
+# Old project predates the skill-install block — .claude/skills/ doesn't
+# even exist. After upgrade-project.sh runs, all four vendored skills
+# should land in .claude/skills/<name>/SKILL.md, with NOTICE alongside
+# when the framework ships one. The framework currently vendors:
+# grill-with-docs, session-handoff, sweep-triage, zoom-out.
+T=$(mktemp -d); P="$T/p"
+make_phase_state "$P" "light" "personal" 'null'
+# Ensure the project has NO .claude/skills/ directory (pre-skill projects).
+rm -rf "$P/.claude/skills"
+( cd "$P" && bash "$UPGRADE" --backfill-only --non-interactive ) > "$T/log" 2>&1
+rc=$?
+missing_skills=""
+for s in grill-with-docs session-handoff sweep-triage zoom-out; do
+  if [ ! -f "$P/.claude/skills/$s/SKILL.md" ]; then
+    missing_skills="$missing_skills $s"
+  fi
+done
+# NOTICE check: at least one skill ships a NOTICE in the framework
+# (vendored from mattpocock/skills, MIT). Confirm the copier preserved
+# at least one NOTICE so attribution doesn't silently disappear.
+notice_count=$( find "$P/.claude/skills" -maxdepth 2 -name NOTICE -type f 2>/dev/null | wc -l | tr -d ' ' )
+if [ "$rc" = "0" ] && [ -z "$missing_skills" ] && [ "$notice_count" -ge 1 ]; then
+  pass "T5a: vendored-skills sync — all 4 skills installed with NOTICE attribution preserved"
+else
+  fail_ "T5a" "rc=$rc missing_skills='$missing_skills' notice_count=$notice_count. Log tail: $(tail -10 "$T/log" 2>/dev/null | tr '\n' '|')"
+fi
+rm -rf "$T"
+
+# ── T5b: --to-private-poc commit subject + APPROVAL_LOG audit row ──
+# Setup: personal project with no POC mode. APPROVAL_LOG.md is pre-seeded
+# with an Approval History section so the audit-row branch is reachable
+# (otherwise the audit-write block exits via `[ -f "$APPROVAL_LOG" ]`).
+T=$(mktemp -d); P="$T/p"
+make_phase_state "$P" "light" "personal" 'null'
+cat > "$P/APPROVAL_LOG.md" <<'EOF'
+---
+project: test
+deployment: personal
+---
+
+# Approval Log — test
+
+## Approval History
+
+| Date | Gate / Event | Approver | Role | Decision | Reference |
+|---|---|---|---|---|---|
+EOF
+( cd "$P" && git add APPROVAL_LOG.md && git commit -q -m "seed approval log" ) >/dev/null 2>&1
+( cd "$P" && bash "$UPGRADE" --to-private-poc --non-interactive ) > "$T/log" 2>&1
+rc=$?
+# (a) commit subject contains the new "private POC" branch text
+commit_subject=$( cd "$P" && git log -1 --pretty=%s 2>/dev/null )
+subject_ok=no
+case "$commit_subject" in
+  *"private POC"*) subject_ok=yes ;;
+esac
+# (b) APPROVAL_LOG.md gained a row mentioning Private POC under the
+# Approval History section.
+audit_row_count=$( grep -ci "Private POC" "$P/APPROVAL_LOG.md" 2>/dev/null )
+if [ "$rc" = "0" ] && [ "$subject_ok" = "yes" ] && [ "$audit_row_count" -ge 1 ]; then
+  pass "T5b: --to-private-poc commit subject + APPROVAL_LOG audit row both populated"
+else
+  fail_ "T5b" "rc=$rc commit_subject='$commit_subject' subject_ok=$subject_ok audit_row_count=$audit_row_count. Log tail: $(tail -10 "$T/log" 2>/dev/null | tr '\n' '|')"
+fi
+rm -rf "$T"
+
+# ── T5c: PRODUCT_MANIFESTO.md Appendix A/C refresh on track upgrade ─
+# Light-track project carries SKIPPED markers in Appendix A (Revenue
+# Model) and Appendix C (Trademark & Legal). After --track standard
+# they should be rewritten to PENDING with today's date, and committed
+# alongside the other upgrade artifacts.
+T=$(mktemp -d); P="$T/p"
+make_phase_state "$P" "light" "personal" 'null'
+cat > "$P/PRODUCT_MANIFESTO.md" <<'EOF'
+# Product Manifesto — test
+
+## 1. Product Intent
+Test product.
+
+## Appendix A: Revenue Model & Unit Economics
+
+**Pricing Model:** SKIPPED — internal tool, no revenue model required
+
+## Appendix C: Trademark & Legal Pre-Check
+
+**Trademark Search:** SKIPPED — internal tool, no trademark check required
+EOF
+( cd "$P" && git add PRODUCT_MANIFESTO.md && git commit -q -m "seed manifesto" ) >/dev/null 2>&1
+( cd "$P" && bash "$UPGRADE" --track standard --non-interactive ) > "$T/log" 2>&1
+rc=$?
+skipped_remaining=$( grep -c "SKIPPED" "$P/PRODUCT_MANIFESTO.md" 2>/dev/null )
+pending_added=$(    grep -c "PENDING — required by track upgrade" "$P/PRODUCT_MANIFESTO.md" 2>/dev/null )
+# Verify the rewrite landed in a commit (FILES_TO_STAGE includes Manifesto)
+manifesto_in_log=$( cd "$P" && git log --name-only --pretty=format: 2>/dev/null | grep -c "^PRODUCT_MANIFESTO.md$" )
+if [ "$rc" = "0" ] && [ "$skipped_remaining" = "0" ] && [ "$pending_added" -ge 2 ] && [ "$manifesto_in_log" -ge 1 ]; then
+  pass "T5c: PRODUCT_MANIFESTO.md SKIPPED markers rewritten → PENDING on track-up and committed"
+else
+  fail_ "T5c" "rc=$rc skipped_remaining=$skipped_remaining pending_added=$pending_added manifesto_in_log=$manifesto_in_log. Log tail: $(tail -10 "$T/log" 2>/dev/null | tr '\n' '|')"
+fi
+rm -rf "$T"
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]

@@ -306,6 +306,37 @@ fi
     print_info "To choose a less strict level (personal/choosable projects only):"
     print_info "  scripts/reconfigure-project.sh --enforcement-level <light|no> --confirm-pitfalls"
   fi
+
+  # --- Vendored-skills sync (audit code-upgrade-project-3, S3 sweep) ---
+  # init.sh's skill-install block (init.sh ~line 1239) enumerates each
+  # vendored skill explicitly. Skills shipped after a project was created
+  # (grill-with-docs, session-handoff, sweep-triage, zoom-out) never reach
+  # those projects on re-init. Iterating templates/generated/skills/*/ keeps
+  # the upgrade automatically in sync as new skills are added — no edits
+  # to upgrade-project.sh needed when a new skill lands. Lives inside the
+  # backfill block so --backfill-only picks it up (parallel to BL-030 and
+  # host-aware backfills). Idempotent: cp overwrites identically; the -ef
+  # self-copy guard handles the in-framework-repo invocation.
+  SKILLS_SRC_DIR="$ORCHESTRATOR_ROOT/templates/generated/skills"
+  if [ -d "$SKILLS_SRC_DIR" ]; then
+    mkdir -p .claude/skills
+    for skill_src in "$SKILLS_SRC_DIR"/*/; do
+      [ -d "$skill_src" ] || continue
+      skill_name=$(basename "$skill_src")
+      skill_dest=".claude/skills/$skill_name"
+      # Self-copy guard mirroring the helper-script block at the end of
+      # this script: when invoked from inside the framework repo, source
+      # and destination resolve to the same path and cp would error
+      # under set -euo pipefail.
+      if [ -d "$skill_dest" ] && [ "$skill_src" -ef "$skill_dest/" ]; then
+        continue
+      fi
+      mkdir -p "$skill_dest"
+      [ -f "$skill_src/SKILL.md" ] && cp "$skill_src/SKILL.md" "$skill_dest/"
+      [ -f "$skill_src/NOTICE" ]   && cp "$skill_src/NOTICE"   "$skill_dest/"
+    done
+    print_ok "Vendored skills synced into .claude/skills/ (code-upgrade-project-3)"
+  fi
 )
 
 # --backfill-only short-circuits here — no track / deployment / POC
@@ -1458,20 +1489,21 @@ fi
 # ================================================================
 # 6b. Append upgrade audit entry when no deployment change but POC/track changed
 # ================================================================
-if [ "$DEPLOYMENT_CHANGES" = false ] && { [ "$POC_REMOVED" = true ] || [ "$POC_TO_SPONSORED" = true ] || [ "$TRACK_CHANGES" = true ]; }; then
+if [ "$DEPLOYMENT_CHANGES" = false ] && { [ "$POC_REMOVED" = true ] || [ "$POC_TO_SPONSORED" = true ] || [ "$POC_TO_PRIVATE" = true ] || [ "$TRACK_CHANGES" = true ]; }; then
   if [ -f "$APPROVAL_LOG" ]; then
     print_step "Appending upgrade audit entry to APPROVAL_LOG.md"
 
-    python3 << 'PYEOF' - "$APPROVAL_LOG" "$POC_REMOVED" "$POC_TO_SPONSORED" "$TRACK_CHANGES" "$CURRENT_TRACK" "$TARGET_TRACK"
+    python3 << 'PYEOF' - "$APPROVAL_LOG" "$POC_REMOVED" "$POC_TO_SPONSORED" "$POC_TO_PRIVATE" "$TRACK_CHANGES" "$CURRENT_TRACK" "$TARGET_TRACK"
 import sys
 from datetime import date
 
 log_path = sys.argv[1]
 poc_removed = sys.argv[2] == "true"
 poc_to_sponsored = sys.argv[3] == "true"
-track_changes = sys.argv[4] == "true"
-old_track = sys.argv[5]
-new_track = sys.argv[6]
+poc_to_private = sys.argv[4] == "true"
+track_changes = sys.argv[5] == "true"
+old_track = sys.argv[6]
+new_track = sys.argv[7]
 today = str(date.today())
 
 with open(log_path) as f:
@@ -1482,6 +1514,11 @@ if poc_removed:
     changes.append("POC mode removed (production-ready)")
 if poc_to_sponsored:
     changes.append("upgraded from Private POC to Sponsored POC")
+if poc_to_private:
+    # Audit code-upgrade-project-7 (S3 sweep): the --to-private-poc path
+    # was silently dropped from the audit-entry block, so the markdown
+    # audit trail lost coverage of that transition.
+    changes.append("transitioned to Private POC")
 if track_changes:
     changes.append(f"track upgraded from {old_track} to {new_track}")
 
@@ -1501,6 +1538,56 @@ PYEOF
 
     print_ok "Appended upgrade audit entry to APPROVAL_LOG.md"
   fi
+fi
+
+# ================================================================
+# 6c. Refresh PRODUCT_MANIFESTO.md appendices on track upgrade
+# ================================================================
+# Audit code-upgrade-project-6 (S3 sweep): when a project upgrades from
+# light track to standard/full, Appendix A (Revenue Model & Unit
+# Economics) and Appendix C (Trademark & Legal Pre-Check) may carry
+# "SKIPPED — internal tool, …" markers populated during Phase 0 under
+# the light-track exemption (see docs/builders-guide.md §0.5 / §0.7).
+# Those appendices are required for Standard+, so the upgrade must
+# flag them as PENDING rather than leave the misleading SKIPPED text
+# in place. Rewrite is idempotent: matches the literal "SKIPPED —"
+# Phase-0 marker only, leaves anything else alone, and the second run
+# finds nothing to rewrite.
+PRODUCT_MANIFESTO="$PROJECT_ROOT/PRODUCT_MANIFESTO.md"
+if [ "$TRACK_CHANGES" = true ] && [ "$TARGET_RANK" -gt "$CURRENT_RANK" ] && [ -f "$PRODUCT_MANIFESTO" ]; then
+  print_step "Refreshing PRODUCT_MANIFESTO.md Appendix A/C markers for track upgrade"
+
+  python3 << 'PYEOF' - "$PRODUCT_MANIFESTO" "$CURRENT_TRACK" "$TARGET_TRACK"
+import re, sys
+from datetime import date
+
+manifesto_path = sys.argv[1]
+old_track = sys.argv[2]
+new_track = sys.argv[3]
+today = str(date.today())
+
+with open(manifesto_path) as f:
+    content = f.read()
+
+# Match the Phase-0 light-track SKIPPED marker exactly. The Builder's
+# Guide documents two canonical forms ("SKIPPED — internal tool, no
+# revenue model required" / "SKIPPED — internal tool, no trademark
+# check required"), but operators sometimes append free-form rationale.
+# Anchor on "SKIPPED —" (em dash, U+2014) plus optional ASCII "--"
+# fallback so we catch both typographic conventions.
+pattern = re.compile(r'SKIPPED\s*(?:—|--)\s*[^\n]*')
+replacement = f"PENDING — required by track upgrade {old_track} → {new_track} on {today}"
+
+new_content, n = pattern.subn(replacement, content)
+if n > 0:
+    with open(manifesto_path, 'w') as f:
+        f.write(new_content)
+    print(f"  Rewrote {n} SKIPPED marker(s) → PENDING (track upgrade)")
+else:
+    print("  No SKIPPED markers found — nothing to rewrite.")
+PYEOF
+
+  print_ok "PRODUCT_MANIFESTO.md appendix markers refreshed (if any)"
 fi
 
 # ================================================================
@@ -1601,6 +1688,12 @@ fi
 if [ "$POC_TO_SPONSORED" = true ]; then
   COMMIT_PARTS+=("-> sponsored POC")
 fi
+# Audit code-upgrade-project-7 (S3 sweep): missing POC_TO_PRIVATE branch
+# produced a misleading generic "chore(upgrade):" commit subject when
+# --to-private-poc was the only change.
+if [ "$POC_TO_PRIVATE" = true ]; then
+  COMMIT_PARTS+=("-> private POC")
+fi
 
 COMMIT_SUMMARY=$(IFS=', '; echo "${COMMIT_PARTS[*]}")
 COMMIT_MSG="chore(upgrade): ${COMMIT_SUMMARY}
@@ -1618,6 +1711,11 @@ FILES_TO_STAGE=()
 [ -f "CLAUDE.md" ] && FILES_TO_STAGE+=("CLAUDE.md")
 [ -f "PROJECT_INTAKE.md" ] && FILES_TO_STAGE+=("PROJECT_INTAKE.md")
 [ -f "APPROVAL_LOG.md" ] && FILES_TO_STAGE+=("APPROVAL_LOG.md")
+# Audit code-upgrade-project-6 (S3 sweep): PRODUCT_MANIFESTO.md is
+# rewritten by the Appendix A/C refresh block above when a track
+# upgrade lifts a light-track project to standard/full. Stage it so
+# the rewrite is committed alongside the other upgrade artifacts.
+[ -f "PRODUCT_MANIFESTO.md" ] && FILES_TO_STAGE+=("PRODUCT_MANIFESTO.md")
 
 if [ ${#FILES_TO_STAGE[@]} -gt 0 ]; then
   # Check if there are actual changes to commit
@@ -1764,6 +1862,7 @@ if [ -d scripts ]; then
 else
   print_warn "scripts/ directory not found in project root — skipping helper refresh"
 fi
+
 
 # Run full project validation to surface new track requirements
 if [ -x "scripts/validate.sh" ]; then
