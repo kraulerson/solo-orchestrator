@@ -90,7 +90,7 @@ The framework has three tiers of control, plus an intermediate tier for CI-based
 **Files:**
 - The project's level lives in `.claude/manifest.json::.enforcement_level`.
 - The strict-mode block hook is `.git/hooks/framework-gate.sh` (installed/uninstalled by `scripts/install-filesystem-gates.sh` on level transitions).
-- The audit log is `.claude/bypass-audit.json`. Every user-terminal commit captured by the detector appears as a row with `type: "out_of_band_commit"`; every framework-gate block appears as `type: "terminal_commit_blocked"`; every successful pass through the gate is `type: "terminal_commit_passed"`.
+- The audit log is `.claude/bypass-audit.json`. Every user-terminal commit captured by the detector appears as a row with `type: "out_of_band_commit"`; every framework-gate block appears as `type: "terminal_commit_blocked"`; every successful pass through the gate is `type: "terminal_commit_passed"`. For the full row schema, per-type lifecycle, and cold-pickup successor jq recipes, see `docs/audit-log-lifecycle.md`.
 
 **Operator commands:**
 - `bash init.sh --non-interactive ... --enforcement-level <no|light|strict> [--confirm-pitfalls]` — set at project creation (`--confirm-pitfalls` is required to go below strict).
