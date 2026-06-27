@@ -92,15 +92,130 @@ if [ "$after" = "$((initial + 1))" ]; then pass "T6"; else fail_ "T6" "rows: $in
 teardown
 
 # T7: --reset-detection-baseline writes current HEAD.
+# Post-fix (atomic finalize): the reset path commits the audit-row write, so
+# baseline tracks the new chore-finalize HEAD, not the pre-call HEAD.
 echo "T7: --reset-detection-baseline updates last-checked-commit.txt"
 setup_personal
 ( cd "$PROJ" && echo z > z && git add z && git commit -qm z )
-expected=$(cd "$PROJ" && git rev-parse HEAD)
 if ( cd "$PROJ" && bash "$RECONFIG" --reset-detection-baseline >/dev/null 2>&1 ); then
+  expected=$(cd "$PROJ" && git rev-parse HEAD)
   actual=$(cat "$PROJ/.claude/last-checked-commit.txt")
   if [ "$actual" = "$expected" ]; then pass "T7"; else fail_ "T7" "$expected vs $actual"; fi
 else
   fail_ "T7" "reconfigure failed"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== Atomic finalize + rollback (sibling to PR #54) ==="
+# ════════════════════════════════════════════════════════════════════
+
+# T8: after a successful --enforcement-level transition, the working
+# tree is clean (parity with the PR #54 init.sh invariant).
+# Pre-fix the reconfigure left manifest.json + bypass-audit.json
+# modifications uncommitted.
+echo "T8: --enforcement-level → working tree clean"
+setup_personal
+if ( cd "$PROJ" && bash "$RECONFIG" --enforcement-level light --confirm-pitfalls >/dev/null 2>&1 ); then
+  dirty=$( cd "$PROJ" && git status --porcelain 2>/dev/null )
+  if [ -z "$dirty" ]; then
+    pass "T8: working tree clean post-reconfigure"
+  else
+    fail_ "T8" "dirty:\n$dirty"
+  fi
+else
+  fail_ "T8" "reconfigure failed"
+fi
+teardown
+
+# T9: the commit emitted by the reconfigure has a chore subject naming
+# the transition. Lets a reader (or W7 successor) reconstruct what the
+# operator did from `git log --oneline`.
+echo "T9: --enforcement-level emits 'chore: enforcement-level ... reconfigure' commit"
+setup_personal
+if ( cd "$PROJ" && bash "$RECONFIG" --enforcement-level light --confirm-pitfalls >/dev/null 2>&1 ); then
+  subject=$( cd "$PROJ" && git log -1 --format='%s' )
+  if echo "$subject" | grep -qE '^chore: enforcement-level (strict|light|no) -> (strict|light|no) \(reconfigure\)$'; then
+    pass "T9: commit subject: '$subject'"
+  else
+    fail_ "T9" "unexpected commit subject: '$subject'"
+  fi
+else
+  fail_ "T9" "reconfigure failed"
+fi
+teardown
+
+# T10: install-filesystem-gates.sh FAILURE on light→strict.
+# Pre-fix: the installer was invoked with `|| true`, so the failure was
+# swallowed, the manifest had already been written claiming strict, the
+# audit row claimed strict, but no SOIF marker was installed in
+# .git/hooks/pre-commit — silent-bypass security defect.
+# Post-fix: failure propagates, manifest + audit are rolled back, exit
+# non-zero. The pre-call manifest level + audit row count are preserved.
+echo "T10: light→strict installer FAILURE rolls back manifest + audit"
+TMP=$(mktemp -d); PROJ="$TMP/p"
+bash "$INIT" --non-interactive --project x --project-dir "$PROJ" --no-remote-creation \
+  --platform web --language javascript --track light --deployment personal \
+  --enforcement-level light --confirm-pitfalls >/dev/null 2>&1
+RECONFIG="$PROJ/scripts/reconfigure-project.sh"
+# Replace the project-local installer with a stub that exits 1.
+printf '#!/usr/bin/env bash\nexit 1\n' > "$PROJ/scripts/install-filesystem-gates.sh"
+chmod +x "$PROJ/scripts/install-filesystem-gates.sh"
+before_level=$(jq -r '.enforcement_level' "$PROJ/.claude/manifest.json")
+before_rows=$(jq '[.[] | select(.type=="enforcement_level_set")] | length' "$PROJ/.claude/bypass-audit.json")
+( cd "$PROJ" && bash "$RECONFIG" --enforcement-level strict >/dev/null 2>&1 )
+rc=$?
+after_level=$(jq -r '.enforcement_level' "$PROJ/.claude/manifest.json")
+after_rows=$(jq '[.[] | select(.type=="enforcement_level_set")] | length' "$PROJ/.claude/bypass-audit.json")
+marker_present=no
+if grep -q "SOIF framework gate" "$PROJ/.git/hooks/pre-commit" 2>/dev/null; then marker_present=yes; fi
+if [ "$rc" -ne 0 ] && [ "$after_level" = "$before_level" ] && [ "$after_rows" = "$before_rows" ] && [ "$marker_present" = "no" ]; then
+  pass "T10: rollback complete (rc=$rc level=$after_level rows=$after_rows marker=$marker_present)"
+else
+  fail_ "T10" "rc=$rc level=${before_level}->${after_level} rows=${before_rows}->${after_rows} marker=$marker_present"
+fi
+teardown
+
+# T11: install-filesystem-gates.sh FAILURE on strict→light.
+# Mirror of T10. Pre-fix: manifest got rewritten to "light" while the
+# SOIF marker stayed in place — surprise blocks on commits the user
+# thought they had freed. Post-fix: rollback, manifest stays strict,
+# marker stays present, audit row count unchanged.
+echo "T11: strict→light installer FAILURE rolls back"
+setup_personal
+printf '#!/usr/bin/env bash\nexit 1\n' > "$PROJ/scripts/install-filesystem-gates.sh"
+chmod +x "$PROJ/scripts/install-filesystem-gates.sh"
+before_level=$(jq -r '.enforcement_level' "$PROJ/.claude/manifest.json")
+before_rows=$(jq '[.[] | select(.type=="enforcement_level_set")] | length' "$PROJ/.claude/bypass-audit.json")
+( cd "$PROJ" && bash "$RECONFIG" --enforcement-level light --confirm-pitfalls >/dev/null 2>&1 )
+rc=$?
+after_level=$(jq -r '.enforcement_level' "$PROJ/.claude/manifest.json")
+after_rows=$(jq '[.[] | select(.type=="enforcement_level_set")] | length' "$PROJ/.claude/bypass-audit.json")
+marker_present=no
+if grep -q "SOIF framework gate" "$PROJ/.git/hooks/pre-commit" 2>/dev/null; then marker_present=yes; fi
+if [ "$rc" -ne 0 ] && [ "$after_level" = "strict" ] && [ "$after_rows" = "$before_rows" ] && [ "$marker_present" = "yes" ]; then
+  pass "T11: rollback complete (rc=$rc level=$after_level rows=$after_rows marker=$marker_present)"
+else
+  fail_ "T11" "rc=$rc level=${before_level}->${after_level} rows=${before_rows}->${after_rows} marker=$marker_present"
+fi
+teardown
+
+# T12: --reset-detection-baseline also leaves the tree clean (parity
+# with --enforcement-level). The audit-row write that the reset path
+# performs now lands in a commit, not as drift.
+echo "T12: --reset-detection-baseline → working tree clean"
+setup_personal
+( cd "$PROJ" && echo zz > zz && git add zz && git commit -qm zz )
+if ( cd "$PROJ" && bash "$RECONFIG" --reset-detection-baseline >/dev/null 2>&1 ); then
+  dirty=$( cd "$PROJ" && git status --porcelain 2>/dev/null )
+  if [ -z "$dirty" ]; then
+    pass "T12: working tree clean post-baseline-reset"
+  else
+    fail_ "T12" "dirty:\n$dirty"
+  fi
+else
+  fail_ "T12" "reconfigure failed"
 fi
 teardown
 

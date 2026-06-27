@@ -73,6 +73,25 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# Sibling of PR #54 (init.sh atomic finalize). Commit any post-mutation
+# state into a chore-finalize commit so the working tree stays clean
+# after reconfigure exits. No-op when nothing changed (defensive). The
+# detection baseline is refreshed to the new HEAD so the BL-030 detector
+# does not flag the reconfigure commit as out-of-band on the next
+# SessionStart.
+finalize_reconfigure_commit() {
+  local subject="$1"
+  [ -d "$PROJECT_ROOT/.git" ] || return 0
+  if [ -z "$( cd "$PROJECT_ROOT" && git status --porcelain 2>/dev/null )" ]; then
+    return 0
+  fi
+  ( cd "$PROJECT_ROOT" \
+      && git add -A \
+      && git commit -q --no-verify -m "$subject" 2>/dev/null \
+      && git rev-parse HEAD 2>/dev/null > .claude/last-checked-commit.txt \
+  ) || return 1
+}
+
 # BL-030 Task 8: --enforcement-level <no|light|strict> transition.
 if [ -n "$RECONF_LEVEL" ]; then
   # shellcheck disable=SC1091
@@ -90,10 +109,46 @@ if [ -n "$RECONF_LEVEL" ]; then
       fi
       ;;
   esac
+
+  # Sibling of PR #54 (init.sh atomic finalize). Pre-fix this block
+  # wrote manifest.json + bypass-audit.json + ran install-filesystem-
+  # gates.sh with `|| true` swallowing the installer exit code. On
+  # installer failure (read-only .git/hooks/, malformed sibling hook,
+  # missing /bin/bash on a stripped container) the manifest claimed
+  # the new level while no SOIF marker had been installed — a silent-
+  # bypass security defect where the audit log lied about strict
+  # enforcement being active. The reverse (strict->light with a
+  # failed uninstall) left the manifest saying light while the gate
+  # kept blocking. Both cases now snapshot the pre-state, run the
+  # installer with failure propagation, and roll back on failure.
+  MANIFEST_FILE="$PROJECT_ROOT/.claude/manifest.json"
+  AUDIT_FILE="$PROJECT_ROOT/.claude/bypass-audit.json"
+  manifest_backup=$(mktemp)
+  cp "$MANIFEST_FILE" "$manifest_backup"
+  audit_backup=$(mktemp)
+  if [ -f "$AUDIT_FILE" ]; then
+    cp "$AUDIT_FILE" "$audit_backup"
+  else
+    echo "[]" > "$audit_backup"
+  fi
+
+  rollback_reconfigure() {
+    local reason="$1"
+    cp "$manifest_backup" "$MANIFEST_FILE"
+    cp "$audit_backup" "$AUDIT_FILE"
+    rm -f "$manifest_backup" "$audit_backup"
+    print_fail "Enforcement-level transition failed: $reason"
+    echo "  Manifest and audit log rolled back to pre-transition state." >&2
+    echo "  Manifest: $MANIFEST_FILE (still: $current)" >&2
+    echo "  Audit:    $AUDIT_FILE (no new row appended)" >&2
+    exit 1
+  }
+
   tmp=$(mktemp)
-  jq --arg lvl "$RECONF_LEVEL" '.enforcement_level = $lvl' "$PROJECT_ROOT/.claude/manifest.json" > "$tmp" \
-    && mv "$tmp" "$PROJECT_ROOT/.claude/manifest.json"
-  [ -f "$PROJECT_ROOT/.claude/bypass-audit.json" ] || echo "[]" > "$PROJECT_ROOT/.claude/bypass-audit.json"
+  jq --arg lvl "$RECONF_LEVEL" '.enforcement_level = $lvl' "$MANIFEST_FILE" > "$tmp" \
+    && mv "$tmp" "$MANIFEST_FILE" \
+    || rollback_reconfigure "manifest write failed"
+  [ -f "$AUDIT_FILE" ] || echo "[]" > "$AUDIT_FILE"
   ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   row=$(jq -nc \
     --arg ts "$ts" --arg lvl "$RECONF_LEVEL" --arg from "$current" \
@@ -102,20 +157,35 @@ if [ -n "$RECONF_LEVEL" ]; then
       details:{level:$lvl, from:$from, source:"reconfigure"},
       user_response:"n/a", final_outcome:"recorded_only"}')
   tmp=$(mktemp)
-  jq --argjson r "$row" '. + [$r]' "$PROJECT_ROOT/.claude/bypass-audit.json" > "$tmp" \
-    && mv "$tmp" "$PROJECT_ROOT/.claude/bypass-audit.json"
+  jq --argjson r "$row" '. + [$r]' "$AUDIT_FILE" > "$tmp" \
+    && mv "$tmp" "$AUDIT_FILE" \
+    || rollback_reconfigure "audit-row append failed"
+
   # Install or uninstall the filesystem gate to match the new level.
-  # PROJECT_ROOT is the canonical install target.
-  INSTALLER="$SCRIPT_DIR/install-filesystem-gates.sh"
-  if [ "$RECONF_LEVEL" = "strict" ]; then
-    bash "$INSTALLER" --install "$PROJECT_ROOT" >/dev/null 2>&1 || true
+  # PROJECT_ROOT is the canonical install target. Prefer the project-
+  # local copy so the lookup honors any rollback / migration the
+  # project has applied; fall back to the framework copy when absent.
+  if [ -x "$PROJECT_ROOT/scripts/install-filesystem-gates.sh" ]; then
+    INSTALLER="$PROJECT_ROOT/scripts/install-filesystem-gates.sh"
   else
-    bash "$INSTALLER" --uninstall "$PROJECT_ROOT" >/dev/null 2>&1 || true
+    INSTALLER="$SCRIPT_DIR/install-filesystem-gates.sh"
   fi
+  if [ "$RECONF_LEVEL" = "strict" ]; then
+    if ! bash "$INSTALLER" --install "$PROJECT_ROOT" >/dev/null 2>&1; then
+      rollback_reconfigure "filesystem-gate install failed (installer: $INSTALLER)"
+    fi
+  else
+    if ! bash "$INSTALLER" --uninstall "$PROJECT_ROOT" >/dev/null 2>&1; then
+      rollback_reconfigure "filesystem-gate uninstall failed (installer: $INSTALLER)"
+    fi
+  fi
+
+  rm -f "$manifest_backup" "$audit_backup"
   if [ ! -f "$PROJECT_ROOT/.claude/last-checked-commit.txt" ]; then
     ( cd "$PROJECT_ROOT" && git rev-parse HEAD 2>/dev/null > .claude/last-checked-commit.txt ) || true
   fi
-  print_ok "Enforcement level: $current → $RECONF_LEVEL"
+  finalize_reconfigure_commit "chore: enforcement-level ${current} -> ${RECONF_LEVEL} (reconfigure)" || true
+  print_ok "Enforcement level: $current -> $RECONF_LEVEL"
   exit 0
 fi
 
@@ -132,6 +202,7 @@ if [ "$RECONF_RESET_BASELINE" = "1" ]; then
   tmp=$(mktemp)
   jq --argjson r "$row" '. + [$r]' "$PROJECT_ROOT/.claude/bypass-audit.json" > "$tmp" \
     && mv "$tmp" "$PROJECT_ROOT/.claude/bypass-audit.json"
+  finalize_reconfigure_commit "chore: reset detection baseline (reconfigure)" || true
   print_ok "Detection baseline reset to current HEAD."
   exit 0
 fi
