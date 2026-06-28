@@ -279,6 +279,87 @@ teardown
 
 # ════════════════════════════════════════════════════════════════════
 echo ""
+echo "=== T10: --pre-commit-mode with VALID BL via --message → exit 0 ==="
+# ════════════════════════════════════════════════════════════════════
+# Slot-5 / cycle-8 contract: pre-commit-gate.sh invokes the lint at
+# commit time, supplying the prospective commit message. No git log
+# walk happens; the lint scans the message tokens against the backlog
+# header set.
+setup
+write_backlog '## BL-031: real entry
+**Status:** Resolved (2026-01-01, PR #1)
+Body.
+'
+out=$( cd "$PROJ" && bash scripts/lint-backlog-references.sh --pre-commit-mode \
+        --message "feat(init): host-agnostic flow (BL-031)" 2>&1 ); rc=$?
+if [ $rc -eq 0 ]; then
+  pass "T10: --pre-commit-mode --message with valid BL passes"
+else
+  fail_ "T10" "expected exit 0; rc=$rc; output:\n$out"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T11: --pre-commit-mode with UNKNOWN BL-999 via --message → exit 1 ==="
+# ════════════════════════════════════════════════════════════════════
+setup
+write_backlog '## BL-031: real entry
+**Status:** Resolved (2026-01-01, PR #1)
+Body.
+'
+out=$( cd "$PROJ" && bash scripts/lint-backlog-references.sh --pre-commit-mode \
+        --message "fix: typo (BL-999)" 2>&1 ); rc=$?
+if [ $rc -eq 1 ] && echo "$out" | grep -q "unknown BL reference 'BL-999' in prospective commit message"; then
+  pass "T11: --pre-commit-mode --message with unknown BL is rejected"
+else
+  fail_ "T11" "expected exit 1 + prospective-message diagnostic; rc=$rc; output:\n$out"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T12: --pre-commit-mode reads message from stdin → exit 0 ==="
+# ════════════════════════════════════════════════════════════════════
+# Mirrors the --terminal-mode invocation path: pre-commit-gate.sh pipes
+# .git/COMMIT_EDITMSG into the lint over stdin.
+setup
+write_backlog '## BL-042: real entry
+**Status:** Resolved (2026-01-01, PR #1)
+Body.
+'
+out=$( cd "$PROJ" && printf 'fix: thing (BL-042)\n' \
+        | bash scripts/lint-backlog-references.sh --pre-commit-mode 2>&1 ); rc=$?
+if [ $rc -eq 0 ]; then
+  pass "T12: --pre-commit-mode reads stdin and accepts valid BL"
+else
+  fail_ "T12" "expected exit 0; rc=$rc; output:\n$out"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T13: --pre-commit-mode still flags uncited Closed entries in backlog → exit 1 ==="
+# ════════════════════════════════════════════════════════════════════
+# Step 3 (backlog block scan) MUST keep running in pre-commit mode —
+# it's structural on the file, independent of git history. Otherwise
+# the operator-side enforcement would have a blind spot vs CI.
+setup
+write_backlog '## BL-005: missing citation
+**Status:** Closed
+Body without any PR cite or commit SHA.
+'
+out=$( cd "$PROJ" && bash scripts/lint-backlog-references.sh --pre-commit-mode \
+        --message "chore: unrelated change" 2>&1 ); rc=$?
+if [ $rc -eq 1 ] && echo "$out" | grep -q "BL-005 marked Closed/Resolved but no PR#"; then
+  pass "T13: --pre-commit-mode still runs Step 3 backlog block scan"
+else
+  fail_ "T13" "expected exit 1 + uncited-closure diagnostic; rc=$rc; output:\n$out"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
 echo "=== T9: MERGE GATE — run linter against current repo HEAD vs origin/main → exit 0 ==="
 # ════════════════════════════════════════════════════════════════════
 # Wave-2 acceptance criterion (mirrors PR #72 T9): proves the lint
