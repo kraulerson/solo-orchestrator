@@ -16,6 +16,45 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/helpers.sh"
 
+# ── Non-interactive prompt guard ─────────────────────────────────
+# code-check-gates-7 (audit v2, S3): the script's header (lines 8-9)
+# advertises CI execution, and baseline §5 invariant #6 ("Phase gate
+# consistency is a CI hard block by default") confirms unattended use.
+# In a non-TTY context, `read -rp` reads EOF → empty string →
+# `[[ ! "" =~ ^[Nn] ]]` is TRUE → side-effectful install commands
+# would `eval` in CI without operator consent. Route every prompt
+# through this helper so the guard lives in one place.
+#
+# Returns 0 (yes) or 1 (no). In non-interactive contexts (no TTY,
+# CI=true, SOIF_NONINTERACTIVE=true) returns the supplied default
+# without prompting, and prints a [WARN] explaining the skip so
+# operators see the missing-tool list in CI logs.
+prompt_yes_no() {
+  local message="$1"
+  local default_answer="${2:-N}"   # "Y" or "N"
+
+  if [ ! -t 0 ] || [ -n "${CI:-}" ] || [ -n "${SOIF_NONINTERACTIVE:-}" ]; then
+    echo -e "${YELLOW}[WARN]${NC} Non-interactive context: skipping prompt (\"$message\") — defaulting to '$default_answer'. Re-run interactively or install the listed tools manually."
+    case "$default_answer" in
+      [Yy]*) return 0 ;;
+      *)     return 1 ;;
+    esac
+  fi
+
+  local reply
+  read -rp "$(echo -e "${BOLD}${message}${NC}: ")" reply
+  if [ -z "$reply" ]; then
+    case "$default_answer" in
+      [Yy]*) return 0 ;;
+      *)     return 1 ;;
+    esac
+  fi
+  case "$reply" in
+    [Nn]*) return 1 ;;
+    *)     return 0 ;;
+  esac
+}
+
 # Create a point-in-time snapshot of artifacts at phase gate transitions
 create_gate_snapshot() {
   local from_phase="$1"
@@ -174,19 +213,47 @@ validate_approval_fields() {
     issues=$((issues + 1))
   fi
 
-  # For organizational deployments: warn if git author matches listed approver (P0-005)
-  # The approval log uses a two-column table: | **Field** | Value |
-  # Extract the approver name from the value column of the Approver row using awk.
+  # For organizational deployments: detect self-approval (P0-005).
+  # code-check-gates-5 (audit v2, S3): the previous implementation
+  # used substring case-insensitive `grep -qi "$git_user"` on the
+  # approver column, producing false [FAIL]s for any approver whose
+  # name CONTAINED the operator's git user — e.g. operator "Karl"
+  # incorrectly flagged approver "Karla" / "Karlyn" / "karl-cobb".
+  # It also compared against the ambient `git config user.name`
+  # rather than the actual commit author of the APPROVAL_LOG.md
+  # change, which is what baseline §5 invariant #9 requires
+  # ("The git author on the commit adding the approval entry must be
+  # the approver, not the Orchestrator").
+  #
+  # Fix:
+  #   1. Compare names token-exact (case-insensitive). Normalize by
+  #      lowercasing and trimming surrounding whitespace; require
+  #      full-string equality, not substring containment.
+  #   2. The authoritative comparison source is the commit author of
+  #      the most recent APPROVAL_LOG.md change. The ambient git
+  #      user becomes a softer WARN signal when it matches the
+  #      approver but the commit author does NOT — useful for
+  #      catching operators who rewrote author metadata.
   if [ "$deployment" = "organizational" ]; then
     local approver_name
     approver_name=$(echo "$section" | awk -F'|' '/[Aa]pprover/ && !/Role/ { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $3); gsub(/\*/, "", $3); print $3; exit }' 2>/dev/null || echo "")
     if [ -n "$approver_name" ] && [ "$approver_name" != "[Name]" ] && [ "$approver_name" != "" ]; then
-      local git_user
+      local approver_norm git_user git_user_norm commit_author commit_author_norm
+      approver_norm=$(printf '%s' "$approver_name" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
       git_user=$(git config user.name 2>/dev/null || echo "")
-      if [ -n "$git_user" ] && echo "$approver_name" | grep -qi "$git_user"; then
-        echo -e "${RED}[FAIL]${NC} $gate_label: Approver name '$approver_name' matches git user — self-approval detected for organizational deployment"
+      git_user_norm=$(printf '%s' "$git_user" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+      # Commit author of the most recent change touching APPROVAL_LOG.md.
+      commit_author=$(git log -n 1 --format='%an' -- "$APPROVAL_LOG" 2>/dev/null || echo "")
+      commit_author_norm=$(printf '%s' "$commit_author" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+      if [ -n "$commit_author_norm" ] && [ "$commit_author_norm" = "$approver_norm" ]; then
+        echo -e "${RED}[FAIL]${NC} $gate_label: Approver '$approver_name' matches APPROVAL_LOG.md commit author '$commit_author' — self-approval detected for organizational deployment"
         echo "  Governance requires a different individual to approve phase gates for organizational projects."
         echo "  Have the approver commit the APPROVAL_LOG.md entry themselves, or use --force with documented justification."
+        issues=$((issues + 1))
+      elif [ -n "$git_user_norm" ] && [ "$git_user_norm" = "$approver_norm" ] \
+           && [ -n "$commit_author_norm" ] && [ "$commit_author_norm" != "$approver_norm" ]; then
+        echo -e "${YELLOW}[WARN]${NC} $gate_label: ambient git user '$git_user' matches approver '$approver_name' but APPROVAL_LOG.md commit author is '$commit_author' — verify the commit author wasn't rewritten"
         issues=$((issues + 1))
       fi
     fi
@@ -668,8 +735,12 @@ if [ -f "$TOOL_PREFS" ] && [ -x "$RESOLVER" ] && command -v jq &>/dev/null; then
           echo -e "${CYAN}The following can be auto-installed:${NC}"
           echo "$auto_installable" | jq -r '.[] | "  • \(.name)"'
           echo ""
-          read -rp "$(echo -e "${BOLD}Install now? [Y/n]${NC}: ")" install_reply
-          if [[ ! "$install_reply" =~ ^[Nn] ]]; then
+          # code-check-gates-7: route through prompt_yes_no — defaults
+          # to NO in CI / non-TTY so `eval` of install commands never
+          # fires unattended. The [WARN] inside prompt_yes_no lists
+          # the prompt text, and the missing-tools list above gives
+          # operators the manual install path.
+          if prompt_yes_no "Install now? [Y/n]" Y; then
             echo "$auto_installable" | jq -r '.[] | .install_command // empty' | while IFS= read -r cmd; do
               [ -z "$cmd" ] && continue
               echo -e "  ${CYAN}Running:${NC} $cmd"
@@ -692,8 +763,10 @@ if [ -f "$TOOL_PREFS" ] && [ -x "$RESOLVER" ] && command -v jq &>/dev/null; then
           if command -v docker &>/dev/null && docker info &>/dev/null; then
             echo ""
             echo -e "${CYAN}Qdrant MCP can be set up now (Docker is running):${NC}"
-            read -rp "$(echo -e "${BOLD}Start Qdrant container and register MCP? [Y/n]${NC}: ")" qd_reply
-            if [[ ! "$qd_reply" =~ ^[Nn] ]]; then
+            # code-check-gates-7: same non-interactive guard as the
+            # main install prompt above. Qdrant setup spawns docker
+            # containers + MCP registration — must not run in CI.
+            if prompt_yes_no "Start Qdrant container and register MCP? [Y/n]" Y; then
               # Check if container already exists
               if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^qdrant$"; then
                 docker start qdrant 2>/dev/null && echo -e "  ${GREEN}[OK]${NC} Existing Qdrant container started"
