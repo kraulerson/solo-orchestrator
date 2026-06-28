@@ -291,18 +291,26 @@ check_phase_gate() {
     # BUGS.md format: | # | SEV-N | Status | Feature | Description | ...
     # Status values: Open, Deferred, Fixed, Won't Fix, Post-MVP, Removed
     sev1_count=$(grep -c 'SEV-1.*Open' "BUGS.md" 2>/dev/null | tr -d '[:space:]' || echo "0")
+    case "$sev1_count" in ''|*[!0-9]*) sev1_count=0 ;; esac
     sev2_open=$(grep -c 'SEV-2.*Open' "BUGS.md" 2>/dev/null | tr -d '[:space:]' || echo "0")
+    case "$sev2_open" in ''|*[!0-9]*) sev2_open=0 ;; esac
     sev2_deferred=$(grep -c 'SEV-2.*Deferred' "BUGS.md" 2>/dev/null | tr -d '[:space:]' || echo "0")
+    case "$sev2_deferred" in ''|*[!0-9]*) sev2_deferred=0 ;; esac
     sev3_open=$(grep -c 'SEV-3.*Open' "BUGS.md" 2>/dev/null | tr -d '[:space:]' || echo "0")
+    case "$sev3_open" in ''|*[!0-9]*) sev3_open=0 ;; esac
   fi
 
   # Also check GitHub Issues if gh CLI available
   if command -v gh &>/dev/null && gh auth status &>/dev/null 2>&1; then
     local gh_sev1 gh_sev2_open gh_sev2_deferred gh_sev3
     gh_sev1=$(gh issue list --label "SEV-1" --state open --json number 2>/dev/null | jq 'length' 2>/dev/null | tr -d '[:space:]' || echo "0")
+    case "$gh_sev1" in ''|*[!0-9]*) gh_sev1=0 ;; esac
     gh_sev2_open=$(gh issue list --label "SEV-2" --label "fix-now" --state open --json number 2>/dev/null | jq 'length' 2>/dev/null | tr -d '[:space:]' || echo "0")
+    case "$gh_sev2_open" in ''|*[!0-9]*) gh_sev2_open=0 ;; esac
     gh_sev2_deferred=$(gh issue list --label "SEV-2" --label "deferred" --state open --json number 2>/dev/null | jq 'length' 2>/dev/null | tr -d '[:space:]' || echo "0")
+    case "$gh_sev2_deferred" in ''|*[!0-9]*) gh_sev2_deferred=0 ;; esac
     gh_sev3=$(gh issue list --label "SEV-3" --state open --json number 2>/dev/null | jq 'length' 2>/dev/null | tr -d '[:space:]' || echo "0")
+    case "$gh_sev3" in ''|*[!0-9]*) gh_sev3=0 ;; esac
 
     sev1_count=$((${sev1_count:-0} + ${gh_sev1:-0}))
     sev2_open=$((${sev2_open:-0} + ${gh_sev2_open:-0}))
@@ -371,13 +379,16 @@ check_phase_gate() {
     # Count feature entries (lines starting with ## or ### that look like feature headings)
     local feature_count
     feature_count=$(grep -cE '^#{2,3} ' FEATURES.md 2>/dev/null || echo "0")
+    case "$feature_count" in ''|*[!0-9]*) feature_count=0 ;; esac
     # Exclude template headings and non-feature sections
     feature_count=$(grep -cE '^#{2,3} [^#]' FEATURES.md 2>/dev/null | head -1 || echo "0")
+    case "$feature_count" in ''|*[!0-9]*) feature_count=0 ;; esac
 
     # Check build-progress.json for recorded features
     local recorded_features=0
     if [ -f ".claude/build-progress.json" ] && command -v jq &>/dev/null; then
       recorded_features=$(jq '.features_completed | length' .claude/build-progress.json 2>/dev/null || echo "0")
+      case "$recorded_features" in ''|*[!0-9]*) recorded_features=0 ;; esac
     fi
 
     if [ "$recorded_features" -gt 0 ]; then
@@ -393,6 +404,7 @@ check_phase_gate() {
     if [ -f "PRODUCT_MANIFESTO.md" ]; then
       local cutline_items
       cutline_items=$(sed -n '/Must-Have/,/Should-Have\|Will-Not-Have\|---/p' PRODUCT_MANIFESTO.md 2>/dev/null | grep -cE '^\s*-\s*\*\*' || echo "0")
+      case "$cutline_items" in ''|*[!0-9]*) cutline_items=0 ;; esac
       if [ "$cutline_items" -gt 0 ] && [ "$recorded_features" -gt 0 ]; then
         if [ "$recorded_features" -lt "$cutline_items" ]; then
           print_warn "Feature count ($recorded_features) < MVP Cutline items ($cutline_items) — verify all MVP features are built"
@@ -414,6 +426,7 @@ check_phase_gate() {
   if [ -f ".claude/build-progress.json" ] && command -v jq &>/dev/null; then
     local untested
     untested=$(jq '.features_since_last_test // 0' .claude/build-progress.json 2>/dev/null || echo "0")
+    case "$untested" in ''|*[!0-9]*) untested=0 ;; esac
     if [ "$untested" -gt 0 ]; then
       print_warn "$untested feature(s) since last UAT session — complete testing before Phase 3"
       warnings=true
