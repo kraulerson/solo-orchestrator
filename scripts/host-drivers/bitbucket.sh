@@ -2,19 +2,22 @@
 # scripts/host-drivers/bitbucket.sh — Bitbucket driver.
 # Uses curl + Bitbucket Cloud REST API 2.0.
 #
-# Credentials (one of, in precedence order; audit code-host-bitbucket-4):
-#   1. BITBUCKET_API_TOKEN — Bitbucket Cloud API token (sent as
-#      `Authorization: Bearer …`). PREFERRED. Atlassian is sunsetting
-#      App Passwords for Bitbucket Cloud in 2026; API tokens are the
-#      forward-compatible replacement.
-#   2. BITBUCKET_APP_PASSWORD — legacy App Password (sent as HTTP Basic
-#      `-u user:pw`). Still works today; will break on Atlassian's
-#      enforcement date. Requires BITBUCKET_USER alongside.
+# Credentials (one of, in precedence order; audit code-host-bitbucket-4
+# + PR #90 verifier BLOCK fix):
+#   1. BITBUCKET_API_TOKEN + BITBUCKET_API_TOKEN_EMAIL — Bitbucket Cloud
+#      API token. PREFERRED. Atlassian is sunsetting App Passwords for
+#      Bitbucket Cloud in 2026; API tokens are the forward-compatible
+#      replacement. Per Atlassian's official docs
+#      (https://support.atlassian.com/bitbucket-cloud/docs/using-api-tokens/),
+#      API tokens are sent as HTTP Basic auth with the Atlassian account
+#      EMAIL as the username and the token as the password — Bearer is
+#      reserved for OAuth 2.0 access tokens and will 401 here.
+#   2. BITBUCKET_APP_PASSWORD + BITBUCKET_USER — legacy App Password
+#      (sent as HTTP Basic `-u user:pw`). Still works today; will break
+#      on Atlassian's enforcement date.
 #
-# Required for both:
+# Required for all paths:
 #   • BITBUCKET_WORKSPACE — workspace slug
-#   • BITBUCKET_USER — only required for App Password (Basic auth needs
-#     a username); ignored when BITBUCKET_API_TOKEN is set.
 #
 # Optional:
 #   • BITBUCKET_PROJECT_KEY — workspace project key for repo create.
@@ -27,26 +30,38 @@ host_name() { echo "bitbucket"; }
 _bb_api_base="https://api.bitbucket.org/2.0"
 
 # Emit the curl auth flag tokens for the current credential state.
-# Prints space-separated tokens that the caller injects into a curl
-# invocation, e.g. an Authorization Bearer header (API token) or
-# `-u $USER:$APP_PASSWORD` (legacy Basic auth — App Password path).
-# Precedence: API token (Bearer) > App Password (Basic).
-# Note: tokens are emitted one-per-line so the caller can read them
-# into an array and pass them through to curl without eval and without
-# losing whitespace inside the header value.
+# Prints tokens one per line so the caller can read them into an array
+# and pass them through to curl without eval and without losing
+# whitespace inside the value. Two shapes, both HTTP Basic:
+#   • API token (preferred):     -u $BITBUCKET_API_TOKEN_EMAIL:$BITBUCKET_API_TOKEN
+#   • Legacy App Password:       -u $BITBUCKET_USER:$BITBUCKET_APP_PASSWORD
+# Precedence: API token > App Password.
+# Per Atlassian docs (PR #90 verifier fix), API tokens MUST be sent as
+# HTTP Basic with the Atlassian account EMAIL as the username — Bearer
+# is reserved for OAuth 2.0 access tokens and will 401 here.
 _bb_auth_args() {
-  if [ -n "${BITBUCKET_API_TOKEN:-}" ]; then
-    printf -- '-H\nAuthorization: Bearer %s\n' "$BITBUCKET_API_TOKEN"
-  elif [ -n "${BITBUCKET_APP_PASSWORD:-}" ]; then
-    printf -- '-u\n%s:%s\n' "${BITBUCKET_USER:-}" "$BITBUCKET_APP_PASSWORD"
+  if [ -n "${BITBUCKET_API_TOKEN:-}" ] && [ -n "${BITBUCKET_API_TOKEN_EMAIL:-}" ]; then
+    printf -- '-u\n%s:%s\n' "$BITBUCKET_API_TOKEN_EMAIL" "$BITBUCKET_API_TOKEN"
+  elif [ -n "${BITBUCKET_APP_PASSWORD:-}" ] && [ -n "${BITBUCKET_USER:-}" ]; then
+    printf -- '-u\n%s:%s\n' "$BITBUCKET_USER" "$BITBUCKET_APP_PASSWORD"
   fi
 }
+
+# Belt-and-braces: if host_require_cli was somehow bypassed (e.g. a
+# caller that sources the driver directly), refuse to emit an
+# unauthenticated request. PR #90 verifier NIT. Inlined at each call
+# site rather than passed as a nameref so we stay compatible with the
+# bash 3.2 that ships on macOS.
 
 _bb_curl() {
   # $1: method, $2: url, stdin: body (optional)
   local method="$1" url="$2"
   local -a auth=()
   while IFS= read -r tok; do auth+=("$tok"); done < <(_bb_auth_args)
+  if [ "${#auth[@]}" -eq 0 ]; then
+    echo "bitbucket driver: no credentials in environment — set BITBUCKET_API_TOKEN + BITBUCKET_API_TOKEN_EMAIL (preferred) or BITBUCKET_USER + BITBUCKET_APP_PASSWORD (legacy)" >&2
+    return 1
+  fi
   curl -sSf "${auth[@]}" \
     -X "$method" \
     -H "Content-Type: application/json" \
@@ -58,6 +73,10 @@ _bb_curl_no_body() {
   local method="$1" url="$2"
   local -a auth=()
   while IFS= read -r tok; do auth+=("$tok"); done < <(_bb_auth_args)
+  if [ "${#auth[@]}" -eq 0 ]; then
+    echo "bitbucket driver: no credentials in environment — set BITBUCKET_API_TOKEN + BITBUCKET_API_TOKEN_EMAIL (preferred) or BITBUCKET_USER + BITBUCKET_APP_PASSWORD (legacy)" >&2
+    return 1
+  fi
   curl -sSf "${auth[@]}" \
     -X "$method" \
     -H "Accept: application/json" \
@@ -65,11 +84,17 @@ _bb_curl_no_body() {
 }
 
 host_require_cli() {
-  # Need workspace + at least one credential (API token OR App Password).
-  # App Password additionally requires BITBUCKET_USER for Basic auth.
+  # Need workspace + at least one credential PAIR. Both Atlassian auth
+  # paths are HTTP Basic with two halves:
+  #   • API token:    BITBUCKET_API_TOKEN_EMAIL (username) + BITBUCKET_API_TOKEN (password)
+  #   • App Password: BITBUCKET_USER (username) + BITBUCKET_APP_PASSWORD (password)
+  # A single half is not enough — emitting `-u :token` or `-u user:`
+  # would 401 with no useful diagnostic at the call site.
   local has_token has_app
   has_token=0; has_app=0
-  [ -n "${BITBUCKET_API_TOKEN:-}" ] && has_token=1
+  if [ -n "${BITBUCKET_API_TOKEN:-}" ] && [ -n "${BITBUCKET_API_TOKEN_EMAIL:-}" ]; then
+    has_token=1
+  fi
   if [ -n "${BITBUCKET_APP_PASSWORD:-}" ] && [ -n "${BITBUCKET_USER:-}" ]; then
     has_app=1
   fi
@@ -77,11 +102,14 @@ host_require_cli() {
     printf '%s\n' \
       'bitbucket driver: credentials not configured.' \
       '' \
-      'Atlassian is deprecating Bitbucket Cloud App Passwords (2026); prefer an API token.' \
+      'Atlassian is deprecating Bitbucket Cloud App Passwords (sunset 2026); prefer an API token.' \
       'Create an API token at: https://id.atlassian.com/manage-profile/security/api-tokens' \
       '' \
-      'Then export ONE of:' \
-      '  export BITBUCKET_API_TOKEN="your-api-token"     # PREFERRED (Bearer auth)' \
+      'Then export ONE of these pairs:' \
+      '  # PREFERRED — API token (HTTP Basic; email is the Atlassian account email):' \
+      '  export BITBUCKET_API_TOKEN_EMAIL="you@example.com"' \
+      '  export BITBUCKET_API_TOKEN="your-api-token"' \
+      '' \
       '  # …or the legacy App Password pair (sunset 2026):' \
       '  export BITBUCKET_USER="your-bitbucket-username"' \
       '  export BITBUCKET_APP_PASSWORD="your-app-password"' \
@@ -227,6 +255,12 @@ host_configure_protection() {
   for kind in force delete; do
     local payload="{\"kind\":\"$kind\",\"pattern\":\"$branch\",\"users\":[],\"groups\":[]}"
     echo "$payload" | _bb_curl POST "$_bb_api_base/repositories/$workspace_repo/branch-restrictions" >/dev/null || {
+      # PR #90 verifier MAJOR fix: flush the buffered delete-diagnostic
+      # on POST failure too — operator running without SOIF_DEBUG must
+      # still see which leftover restriction blocked creation. Before:
+      # only the SOIF_DEBUG branch flushed; this path lost the timing
+      # context permanently.
+      [ -n "$delete_diag" ] && printf '%s' "$delete_diag" >&2
       echo "bitbucket driver: failed to set $kind restriction" >&2; return 2
     }
   done

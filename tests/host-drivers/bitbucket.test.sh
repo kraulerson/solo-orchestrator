@@ -204,16 +204,53 @@ mock_cli_teardown "$MOCK_DIR"; export PATH="$OLD_PATH"
 unset BITBUCKET_USER BITBUCKET_APP_PASSWORD BITBUCKET_WORKSPACE SOIF_DEBUG
 echo "bitbucket.test.sh: host_configure_protection (SOIF_DEBUG surfaces DELETE failure) PASSED"
 
+# T2b — Without SOIF_DEBUG: DELETE fails AND downstream POST fails. The
+# buffered delete-diagnostic MUST flush to stderr alongside the POST
+# failure so the operator sees the cleanup-failure root cause. PR #90
+# verifier MAJOR: the in-line comment promised "OR a downstream POST
+# later fails" path but only the SOIF_DEBUG branch was implemented.
+export BITBUCKET_USER="testuser" BITBUCKET_APP_PASSWORD="testpass" BITBUCKET_WORKSPACE="ws"
+unset SOIF_DEBUG
+MOCK_DIR=$(mock_cli_setup); export PATH="$MOCK_DIR:$OLD_PATH"
+WORK=$(mktemp -d); cd "$WORK"
+git init -q; git remote add origin "https://bitbucket.org/ws/repo.git"
+# Listing returns one existing restriction id=77 (to be deleted).
+mock_cli_respond curl "branch-restrictions?pattern=main" 0 \
+  '{"values":[{"id":77,"kind":"force","pattern":"main"}]}'
+# DELETE fails — leftover restriction id=77 will block creation.
+mock_cli_respond curl "-X DELETE" 22 'HTTP 500: server error deleting restriction 77'
+# POST fails — driver returns 2 with the "failed to set <kind>" message,
+# and the buffered delete-diagnostic MUST be flushed too.
+mock_cli_respond curl "-X POST" 22 'HTTP 409: cannot create — leftover restriction blocks it'
+set +e; output=$(host_configure_protection "main" "personal" 2>&1); code=$?; set -e
+assert_exit_code 2 "$code" "POST failure returns 2"
+assert_contains "$output" "failed to set force restriction" "POST error surfaces"
+assert_contains "$output" "restriction 77" "delete diagnostic flushed on POST failure (no SOIF_DEBUG)"
+cd - >/dev/null; rm -rf "$WORK"
+mock_cli_teardown "$MOCK_DIR"; export PATH="$OLD_PATH"
+unset BITBUCKET_USER BITBUCKET_APP_PASSWORD BITBUCKET_WORKSPACE
+echo "bitbucket.test.sh: host_configure_protection (POST failure flushes delete diag without SOIF_DEBUG) PASSED"
+
 # ════════════════════════════════════════════════════════════════════
-# code-host-bitbucket-4 — API token (Bearer) auth path. Atlassian is
+# code-host-bitbucket-4 — API token (HTTP Basic) auth path. Atlassian is
 # deprecating Bitbucket Cloud App Passwords; the driver must support
-# BITBUCKET_API_TOKEN as a Bearer credential, with precedence over the
-# legacy App Password. host_require_cli must accept any one credential.
-# Use a custom curl stub that records its argv to a file so we can
-# assert the auth flag without relying on response shape.
+# BITBUCKET_API_TOKEN as the password half of HTTP Basic, with the
+# Atlassian account email (BITBUCKET_API_TOKEN_EMAIL) as the username
+# half — per Atlassian's official docs
+# (https://support.atlassian.com/bitbucket-cloud/docs/using-api-tokens/):
+# Bearer is reserved for OAuth 2.0 access tokens. Precedence: API token
+# (Basic with email) > App Password (Basic with bitbucket username).
+# host_require_cli must accept any one credential pair. Use a custom
+# curl stub that records its argv to a file so we can assert the auth
+# flag without relying on response shape.
+#
+# PR #90 verifier BLOCK: prior T3 asserted the bug (Bearer header) and
+# locked it in. This test is re-authored to assert the correct
+# `-u email:token` shape; on the buggy code it would fail RED with
+# "did not contain -u user@example.com:api-token-abc".
 # ════════════════════════════════════════════════════════════════════
 
-# T3 — API token only: curl uses Authorization: Bearer, not -u.
+# T3 — API token only: curl uses HTTP Basic `-u email:token`, NOT Bearer.
 WORK=$(mktemp -d); cd "$WORK"
 STUB_DIR=$(mktemp -d "${TMPDIR:-/tmp}/bb-auth-stub-XXXXXX")
 ARG_LOG="$STUB_DIR/curl.args"
@@ -231,21 +268,21 @@ sed -i.bak "s|ARG_LOG_PATH|$ARG_LOG|" "$STUB_DIR/curl"; rm -f "$STUB_DIR/curl.ba
 chmod +x "$STUB_DIR/curl"
 export PATH="$STUB_DIR:$OLD_PATH"
 git init -q; git remote add origin "https://bitbucket.org/ws/repo.git"
-unset BITBUCKET_APP_PASSWORD
-export BITBUCKET_USER="testuser" BITBUCKET_API_TOKEN="api-token-abc" BITBUCKET_WORKSPACE="ws"
+unset BITBUCKET_APP_PASSWORD BITBUCKET_USER
+export BITBUCKET_API_TOKEN_EMAIL="user@example.com" BITBUCKET_API_TOKEN="api-token-abc" BITBUCKET_WORKSPACE="ws"
 # Invoke a function that issues at least one curl call.
 set +e; host_configure_protection "main" "personal" >/dev/null 2>&1; set -e
-# Inspect: Bearer header present, -u flag absent.
+# Inspect: -u email:token present, Bearer header ABSENT.
 recorded=$(cat "$ARG_LOG")
-assert_contains "$recorded" "Authorization: Bearer api-token-abc" "API token uses Bearer header"
-if [[ "$recorded" == *"-u testuser:"* ]]; then
-  echo "ASSERT FAIL: -u user:pw form leaked when only BITBUCKET_API_TOKEN was set" >&2
+assert_contains "$recorded" "-u user@example.com:api-token-abc" "API token uses HTTP Basic with email as user"
+if [[ "$recorded" == *"Authorization: Bearer"* ]]; then
+  echo "ASSERT FAIL: Bearer header leaked — Atlassian API tokens require HTTP Basic, not Bearer" >&2
   exit 1
 fi
 cd - >/dev/null; rm -rf "$WORK" "$STUB_DIR"
 export PATH="$OLD_PATH"
-unset BITBUCKET_USER BITBUCKET_API_TOKEN BITBUCKET_WORKSPACE
-echo "bitbucket.test.sh: API token uses Bearer (no -u) PASSED"
+unset BITBUCKET_API_TOKEN_EMAIL BITBUCKET_API_TOKEN BITBUCKET_WORKSPACE
+echo "bitbucket.test.sh: API token uses HTTP Basic with email (no Bearer) PASSED"
 
 # T4 — App password only: legacy -u user:pw form still works.
 WORK=$(mktemp -d); cd "$WORK"
@@ -276,16 +313,27 @@ export PATH="$OLD_PATH"
 unset BITBUCKET_USER BITBUCKET_APP_PASSWORD BITBUCKET_WORKSPACE
 echo "bitbucket.test.sh: App password uses -u (legacy) PASSED"
 
-# T5 — host_require_cli accepts API token alone (no app password).
-unset BITBUCKET_APP_PASSWORD
-export BITBUCKET_USER="testuser" BITBUCKET_API_TOKEN="api-token-abc" BITBUCKET_WORKSPACE="ws"
+# T5 — host_require_cli accepts API token + email pair (no app password).
+unset BITBUCKET_APP_PASSWORD BITBUCKET_USER
+export BITBUCKET_API_TOKEN_EMAIL="user@example.com" BITBUCKET_API_TOKEN="api-token-abc" BITBUCKET_WORKSPACE="ws"
 set +e; host_require_cli; code=$?; set -e
-assert_exit_code 0 "$code" "host_require_cli passes with API token only"
-unset BITBUCKET_USER BITBUCKET_API_TOKEN BITBUCKET_WORKSPACE
-echo "bitbucket.test.sh: host_require_cli (API token only) PASSED"
+assert_exit_code 0 "$code" "host_require_cli passes with API token + email pair"
+unset BITBUCKET_API_TOKEN_EMAIL BITBUCKET_API_TOKEN BITBUCKET_WORKSPACE
+echo "bitbucket.test.sh: host_require_cli (API token + email) PASSED"
+
+# T5b — host_require_cli FAILS when BITBUCKET_API_TOKEN is set but
+# BITBUCKET_API_TOKEN_EMAIL is missing — Atlassian's HTTP Basic auth
+# needs both halves; emitting `-u :token` would 401 silently.
+unset BITBUCKET_APP_PASSWORD BITBUCKET_USER BITBUCKET_API_TOKEN_EMAIL
+export BITBUCKET_API_TOKEN="api-token-abc" BITBUCKET_WORKSPACE="ws"
+set +e; output=$(host_require_cli 2>&1); code=$?; set -e
+assert_exit_code 1 "$code" "host_require_cli fails when token email missing"
+assert_contains "$output" "BITBUCKET_API_TOKEN_EMAIL" "guidance names the missing email var"
+unset BITBUCKET_API_TOKEN BITBUCKET_WORKSPACE
+echo "bitbucket.test.sh: host_require_cli (token without email fails) PASSED"
 
 # T6 — host_require_cli fails when no credential is set.
-unset BITBUCKET_USER BITBUCKET_APP_PASSWORD BITBUCKET_API_TOKEN
+unset BITBUCKET_USER BITBUCKET_APP_PASSWORD BITBUCKET_API_TOKEN BITBUCKET_API_TOKEN_EMAIL
 export BITBUCKET_WORKSPACE="ws"
 set +e; output=$(host_require_cli 2>&1); code=$?; set -e
 assert_exit_code 1 "$code" "host_require_cli fails with no credential"
