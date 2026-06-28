@@ -333,24 +333,28 @@ scenario_teardown
 
 # ════════════════════════════════════════════════════════════════════
 echo ""
-echo "=== T6: gitlab-exit-3 cross-wiring documentation (latent bug) ==="
+echo "=== T6: gitlab-exit-3 host-agnostic attestation flow (BL-031 fix) ==="
 # ════════════════════════════════════════════════════════════════════
 
-# T6 DOCUMENTS a latent cross-wiring bug surfaced by the cycle 5 survey.
-# Gitlab's host_configure_protection returns exit 3 when the org-mode
-# approvals PUT fails (lines 116-120 in scripts/host-drivers/gitlab.sh).
-# init.sh line 2009 treats _hcp_rc=3 as the github-free-tier attestation
-# fallback — a gitlab user lands in a flow whose stderr says
-# "Branch protection unavailable on this repo (free-tier limit)" and
-# "Upgrade to GitHub Pro" — wrong host name and wrong remediation.
+# T6 verifies the BL-031 fix at init.sh:1998-2045: the exit-3 attestation
+# fallback is now host-agnostic. Before BL-031, a gitlab org-mode approvals
+# PUT failure (gitlab.sh:120 returns exit 3) was met with GitHub-branded
+# messaging — "Branch protection unavailable on this repo (free-tier limit)"
+# and "Upgrade to GitHub Pro" — because init.sh:2010-2019 hardcoded those
+# strings against any exit-3 driver return.
 #
-# This test asserts the CURRENT (buggy) observable behavior:
+# Post-fix, init.sh parameterizes the warn/info on $host and defers
+# host-specific remediation to the driver's own stderr (already emitted by
+# gitlab.sh:120 above the init.sh dispatch). The github driver remains
+# unchanged — github e2e T5 + tests/test-github-free-tier-403.sh still pass
+# because the driver's own "GitHub Pro" stderr is what those tests assert.
+#
+# This test now asserts the CORRECTED behavior:
 #   - init.sh exit 0 (U-B contract: warn + continue)
-#   - the GitHub-branded misleading message appears in the log
-#
-# When the cross-wiring is fixed (separate PR — see backlog), this test
-# must be updated to assert the corrected gitlab-aware messaging.
-echo "T6: org approvals PUT fails — DOCUMENTS gitlab-exit-3 cross-wiring at init.sh:2009"
+#   - the log does NOT contain "GitHub Pro" or "free-tier limit"
+#   - the log mentions "gitlab" in the warn/info (host-aware)
+#   - the gitlab driver's own stderr ("approvals config failed") surfaces
+echo "T6: org approvals PUT fails — host-agnostic attestation flow (BL-031 fixed)"
 scenario_setup "https://gitlab.com/e2e-test/approvals-fail.git"
 export MOCK_GL_PROTECT_JSON="$PROTECT_JSON_ORG"
 export MOCK_GL_APPROVALS_JSON="$APPROVALS_JSON_ORG"
@@ -361,13 +365,22 @@ export MOCK_GL_APPROVALS_PUT_ERR='ERROR: 403 — approvals PUT requires premium 
 # DOES on this code path, not block on attestation UX.
 run_init_e2e approvals-fail organizational --gov-mode production --branch-protection-attested
 rc=$?
-# Bug evidence: gitlab user sees GitHub-branded messaging.
+# Fix evidence: no GitHub-branded leak.
 github_branding_seen=no
 grep -qE 'GitHub Pro|free-tier limit' "$TMP/init.log" && github_branding_seen=yes
-if [ "$rc" = "0" ] && [ "$github_branding_seen" = "yes" ]; then
-  pass "T6: gitlab exit-3 → GitHub-branded message (DOCUMENTED CROSS-WIRING BUG — see backlog)"
+# Fix evidence: init.sh's own warn/info names the actual host.
+gitlab_branding_seen=no
+grep -qE 'on this gitlab repo|gitlab driver remediation' "$TMP/init.log" && gitlab_branding_seen=yes
+# Fix evidence: gitlab driver's own stderr surfaces (host-specific context).
+driver_stderr_seen=no
+grep -q 'approvals config failed' "$TMP/init.log" && driver_stderr_seen=yes
+if [ "$rc" = "0" ] \
+   && [ "$github_branding_seen" = "no" ] \
+   && [ "$gitlab_branding_seen" = "yes" ] \
+   && [ "$driver_stderr_seen" = "yes" ]; then
+  pass "T6: gitlab exit-3 → host-agnostic attestation flow with gitlab-aware messaging (BL-031 fixed)"
 else
-  fail_ "T6" "rc=$rc github_branding_seen=$github_branding_seen — cross-wiring not observed as expected; check init.sh:2009 + gitlab.sh:116-120 still match the surveyed shape. log:$(tail -10 "$TMP/init.log")"
+  fail_ "T6" "rc=$rc github_branding_seen=$github_branding_seen gitlab_branding_seen=$gitlab_branding_seen driver_stderr_seen=$driver_stderr_seen log:$(tail -10 "$TMP/init.log")"
 fi
 scenario_teardown
 
