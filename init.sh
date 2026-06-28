@@ -1230,6 +1230,14 @@ create_project() {
   cp "$SCRIPT_DIR/templates/generated/changelog.tmpl" templates/generated/
   cp "$SCRIPT_DIR/templates/generated/bugs.tmpl" templates/generated/
   cp "$SCRIPT_DIR/templates/generated/release-notes.tmpl" templates/generated/
+  # Verifier nit-2 follow-up (PR #92 review): copy the canonical
+  # claude-md.tmpl into the project so verify-install.sh's self-
+  # bootstrap fallback in fix_claude_md (scripts/verify-install.sh:645
+  # — `elif [ -f "templates/generated/claude-md.tmpl" ]`) has something
+  # to read when $SOURCE_DIR is no longer reachable (developer rotated
+  # the orchestrator clone, CI restored only the project tree, etc.).
+  # Without this copy that fallback was dead code in practice.
+  cp "$SCRIPT_DIR/templates/generated/claude-md.tmpl" templates/generated/
 
   # Install vendored skills (project-level, .claude/skills/<name>/).
   # Skills are markdown SKILL.md files with NOTICE-attribution preserved.

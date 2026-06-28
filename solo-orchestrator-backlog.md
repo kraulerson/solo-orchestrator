@@ -714,3 +714,27 @@ Operator-visible symptom: `scripts/check-gate.sh --preflight` PASSED (it correct
 **Verification:** new suite 3/3 · `tests/test-check-gate.sh` 5/5 · `tests/test-check-phase-gate-counter-sanitizer.sh` 7/7 · `tests/test-init-other-host-attestation.sh` 2/2 · `tests/test-github-free-tier-403.sh` 4/4. Registered in `tests/full-project-test-suite.sh` (new TEST 0c section after the counter-antipattern lint, to keep the gate-validation backstops co-located).
 
 **Related:** BL-002 (PR #36) introduced the attestation flow; BL-031 (PR #65) generalized cross-host attestation messaging; PR #71 (preflight branch) shipped the canonical pattern this fix mirrors. The case-sanitizer pattern from PR #53 was considered but not needed here — the jq output is used in a string equality test, not arithmetic, so no sanitizer is required.
+
+---
+
+## BL-033: Migrate multi-stage install_cmds in templates/tool-matrix/*.json to structured shapes
+
+**Logged:** 2026-06-28 (PR #92 verifier follow-up)
+**Category:** Debt / Security hardening
+**Severity:** Medium
+**Status:** Open
+
+Following the structured-dispatch hardening in `scripts/verify-install.sh::fix_tool_install` (PR #92 verifier blocker-1 close), the legacy `bash -c` fallback now REFUSES any install_cmd whose payload contains shell-chaining metacharacters (`;`, `|`, `` ` ``, `$(`, `<`, `>`, newline). Several existing tool-matrix entries use multi-stage shell pipelines that trip this gate:
+
+- `gitleaks.install.linux_apt` (+ `linux_dnf` + `linux_pacman`) — `GITLEAKS_VERSION=$(curl ...) && curl ... | sudo tar -xz -C /usr/local/bin gitleaks`
+- `k6.install.linux_apt` — `sudo gpg ... && echo 'deb ...' | sudo tee /etc/apt/sources.list.d/k6.list && sudo apt update && sudo apt install k6`
+- `rust.install.darwin_brew` (+ `linux_apt`) — `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && source "$HOME/.cargo/env"`
+- `context7.install.npm` — `echo y | claude mcp add context7 --scope user -- npx -y @upstash/context7-mcp@latest` (bare `|` trips the gate)
+
+Note: `docker.install.linux_apt` uses `sudo apt install ... && sudo usermod ...` — the `&&` is stripped before the metachar check, so this currently passes Layer 2 unchanged (but a future tightening should still consider migrating it for clarity).
+
+**Scope:** Each entry needs either (a) a small wrapper script in `scripts/install-helpers/<tool>.sh` that the install_cmd invokes by absolute path (turning the multi-stage shell into a single argv invocation), or (b) the install delegated to a sanctioned package source (e.g. k6's official apt repo via cloud-init style provisioning). The wrapper-script approach preserves the structured-dispatch contract: the install_cmd becomes `bash scripts/install-helpers/gitleaks.sh` which Layer 1 doesn't currently match but Layer 2's metachar gate passes.
+
+**Workaround until migrated:** operators on these tools currently see the DEPRECATED warning and a REFUSED install. Manual install per the matrix's `manual` instructions still works.
+
+**Related:** PR #92 verifier review (blocker-1 close). VERIFY_INSTALL_NO_LEGACY_DISPATCH=1 env var exists for operators who want to enforce structured-only mode immediately.

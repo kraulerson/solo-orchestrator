@@ -27,8 +27,13 @@
 #                                code execution with operator privileges, and
 #                                the 2>/dev/null mask hides the evidence.
 #                                Fix: structured dispatch over a small allowlist
-#                                of package-manager argv shapes; refuse anything
-#                                else; never silence stderr.
+#                                of package-manager argv shapes (no `bash -c`
+#                                on the structured path); deprecated string
+#                                path retained for back-compat with an added
+#                                metachar gate that REFUSES `; | ` ` $( < > \n`
+#                                in the payload; never silence stderr.
+#                                T11b covers the chained-injection bypass
+#                                that motivated this rewrite.
 #
 # Test harness conventions match tests/test-verify-install-bl030-coverage.sh.
 # Each test scenario is isolated in its own setup/teardown so failures in one
@@ -140,26 +145,41 @@ else
 fi
 teardown
 
-echo "T5: fix_claude_md exits non-zero (no half-write) when source template unavailable"
+echo "T5: fix_claude_md refuses to write CLAUDE.md (no half-write) when source template unavailable"
 setup_clean_project personal
-rm -f "$PROJ/CLAUDE.md"
 # Strip the orchestrator-source reference AND remove $HOME fallback paths by
-# pointing source_dir at a non-existent directory.
+# pointing source_dir at a non-existent directory, AND remove the in-project
+# template copy so the self-bootstrap fallback also misses. The post-fix
+# code path under test: fix_claude_md returns 1, leaves CLAUDE.md absent,
+# and the failure surfaces as a register_fixable row (not a silently-empty
+# success). Pre-fix code path on main: fix_claude_md ALWAYS writes a stub
+# (the bash heredoc) regardless of template availability, so CLAUDE.md
+# would exist after auto-fix. THIS is the distinguishing oracle the
+# verifier asked for (replace the vacuous `__TOKEN__` check, which both
+# pre- and post-fix code paths trivially satisfy).
+rm -f "$PROJ/CLAUDE.md"
+rm -f "$PROJ/templates/generated/claude-md.tmpl"
 echo '{"source_dir": "/nonexistent/orchestrator/source"}' > "$PROJ/.claude/orchestrator-source.json"
-# Also relocate $HOME for this invocation so the fallback paths don't resolve.
+# Also relocate $HOME for this invocation so the $HOME/.solo-orchestrator
+# and $HOME/solo-orchestrator fallbacks don't resolve to the developer's
+# real orchestrator clone.
 FAKE_HOME=$(mktemp -d)
-( cd "$PROJ" && HOME="$FAKE_HOME" bash "$VERIFY" --auto-fix 2>&1 ) > /tmp/t5.out 2>&1 || true
-# Expectation: the auto-fix could not run because no template is available.
-# The regenerated stub (if any) MUST NOT contain the unsubstituted tokens,
-# and the CLAUDE.md state should be either still-absent OR a clearly-marked
-# manual-action stub. The strongest signal that the safe path was taken is
-# that there are no __PROJECT_NAME__ etc. placeholder tokens leaked into the
-# regenerated file.
+out=$( cd "$PROJ" && HOME="$FAKE_HOME" bash "$VERIFY" --auto-fix 2>&1 || true )
 rm -rf "$FAKE_HOME"
-if [ -f "$PROJ/CLAUDE.md" ] && grep -q '__[A-Z_]*__' "$PROJ/CLAUDE.md"; then
-  fail_ "T5" "unsubstituted template tokens leaked into CLAUDE.md when source unavailable"
+t5_failed=""
+if [ -f "$PROJ/CLAUDE.md" ]; then
+  t5_failed="CLAUDE.md was written despite no canonical template available (this distinguishes the safe-refusal fix from main's heredoc stub which ALWAYS writes)"
+fi
+# A CLAUDE.md remediation row must surface in verify output so the
+# operator knows what to fix. The pre-fix code on main writes the
+# stub and registers a PASS, never emitting a CLAUDE.md fail line.
+if ! echo "$out" | grep -qE "CLAUDE\.md.*(auto-fixable|missing|manual|REFUSED)"; then
+  t5_failed="${t5_failed:+$t5_failed; }no CLAUDE.md remediation row registered in verify output"
+fi
+if [ -n "$t5_failed" ]; then
+  fail_ "T5" "$t5_failed"
 else
-  pass "T5: no token leak when source template unavailable"
+  pass "T5: safe-refusal — CLAUDE.md absent and remediation row registered"
 fi
 teardown
 
@@ -235,33 +255,54 @@ teardown
 # ============================================================
 
 # Helper: extract just the fix_tool_install function (and its allowlist
-# + head helper) from scripts/verify-install.sh into a temp file, source
-# it alongside the print_* helpers, then invoke fix_tool_install with
-# the supplied RESOLVER_OUTPUT payload. This avoids the
-# guard_not_in_framework / set -euo pipefail / autorun-main complexity
+# + head helper + structured-dispatch helpers) from scripts/verify-install.sh
+# into a temp file, source it alongside the print_* helpers, then invoke
+# fix_tool_install with the supplied RESOLVER_OUTPUT payload. This avoids
+# the guard_not_in_framework / set -euo pipefail / autorun-main complexity
 # of sourcing the whole verify script.
+#
+# Verifier major-2 follow-up (PR #92 review): the prior extractor keyed
+# on `^_TOOL_INSTALL_ALLOWED_HEADS=\(` — a symbol that does NOT exist on
+# `origin/main`. Against main, extraction yielded an empty file and the
+# function was undefined, so T11 PASSED vacuously without exercising
+# main's vulnerable `eval` at all. The new extractor uses a TWO-PASS
+# strategy:
+#
+#   Pass 1 — try the post-fix anchor (`_TOOL_INSTALL_ALLOWED_HEADS=(`).
+#   Pass 2 — if pass 1 produced nothing, fall back to extracting the
+#            BARE `fix_tool_install() { ... }` body. This is what main's
+#            verify-install.sh has — a function that calls `eval
+#            "$install_cmd"` directly. Sourcing that body and invoking
+#            it with a RESOLVER_OUTPUT containing `touch $MARKER` causes
+#            the marker file to be created on main, RED-stating T11.
 _invoke_fix_tool_install() {
   local payload="$1"
   local extract
   extract=$(mktemp)
-  # Pull (a) the _TOOL_INSTALL_ALLOWED_HEADS array, (b) the
-  # _tool_install_head_allowed helper, and (c) the fix_tool_install
-  # function body itself. These three blocks live adjacent to each other
-  # in verify-install.sh; the awk pulls everything between the
-  # `_TOOL_INSTALL_ALLOWED_HEADS=(` opener and the closing `}` of
-  # fix_tool_install.
+  # Pass 1: post-fix anchor (allowlist + head helper + structured
+  # dispatch helpers + fix_tool_install body).
   awk '
     /^_TOOL_INSTALL_ALLOWED_HEADS=\(/ {flag=1}
     flag {print}
-    flag && /^fix_tool_install\(\)/ {f=1}
-    f && /^}$/ {print "# end-of-block"; flag=0; f=0; exit}
+    flag && /^fix_tool_install\(\) \{/ {f=1}
+    f && /^\}$/ {print "# end-of-block"; flag=0; f=0; exit}
   ' "$PROJ/scripts/verify-install.sh" > "$extract"
+
+  # Pass 2 fallback: bare `fix_tool_install() {` body (matches main).
+  if [ ! -s "$extract" ] || ! grep -q '^fix_tool_install()' "$extract"; then
+    awk '
+      /^fix_tool_install\(\) \{/ {flag=1}
+      flag {print}
+      flag && /^\}$/ {print "# end-of-block"; flag=0; exit}
+    ' "$PROJ/scripts/verify-install.sh" > "$extract"
+  fi
 
   ( env _TEST_PAYLOAD="$payload" _EXTRACT="$extract" bash -c '
       set +e
       # Minimal print helpers (real script sources scripts/lib/helpers.sh).
       print_fail() { echo "[FAIL] $*"; }
       print_info() { echo "[INFO] $*"; }
+      print_warn() { echo "[WARN] $*"; }
       source "$_EXTRACT"
       RESOLVER_OUTPUT="$_TEST_PAYLOAD"
       fix_tool_install 0
@@ -282,6 +323,30 @@ if [ -e "$MARKER" ]; then
   fail_ "T11" "fix_tool_install executed an attacker-controlled install_cmd (marker file was created)"
 else
   pass "T11: fix_tool_install did NOT execute attacker-controlled install_cmd"
+fi
+rm -f "$MARKER"
+teardown
+
+# Verifier blocker-1 follow-up (PR #92 review): the verifier proved
+# that PR #92's first cut could be bypassed by leading with an
+# allowlisted head and chaining via `;`. The fix adds a structured
+# dispatch path (Layer 1) and a metachar-rejecting legacy path
+# (Layer 2) that REFUSES `;`, `|`, backtick, `$(`, `<`, `>`, newline.
+# T11b targets the exact bypass repro from the review.
+echo "T11b: fix_tool_install refuses chained-injection payload (brew --version; touch \$MARKER)"
+setup_clean_project personal
+MARKER="$TMP/PWNED_CHAIN_MARKER"
+rm -f "$MARKER"
+PAYLOAD=$(jq -n --arg cmd "brew --version; touch $MARKER" '
+  {auto_install:[{name:"jq", category:"x", install_cmd:$cmd, required:false, description:"x"}],
+   already_installed:[], manual_install:[], deferred:[]}')
+out=$(_invoke_fix_tool_install "$PAYLOAD" 2>&1 || true)
+if [ -e "$MARKER" ]; then
+  fail_ "T11b" "chained-injection payload was executed (marker file was created) — metachar gate is missing or ineffective"
+elif ! echo "$out" | grep -qiE "refus|disallow|reject|metachar"; then
+  fail_ "T11b" "chained-injection payload neither executed nor refused with a visible reason (output: $out)"
+else
+  pass "T11b: chained-injection payload REFUSED with visible reason"
 fi
 rm -f "$MARKER"
 teardown
