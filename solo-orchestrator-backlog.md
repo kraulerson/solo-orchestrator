@@ -94,7 +94,7 @@ Plan Task 10.3 was deferred during inline execution. `scripts/upgrade-project.sh
 **Logged:** 2026-04-22
 **Category:** Debt
 **Severity:** Low
-**Status:** Resolved (2026-06-28, PR test/bl005-host-driver-parity-final)
+**Status:** Resolved (2026-06-28, PR #81)
 
 Driver-level test coverage varies: GitHub has 8 scenarios (full contract, both modes, drift cases); GitLab has 6 (most of contract, both modes); Bitbucket has 4 (name, require_cli, register_remote, parse_origin only — HTTP logic untested). Bitbucket's `host_configure_protection` and `host_verify_protection` HTTP calls are validated by code review only.
 
