@@ -94,13 +94,15 @@ Plan Task 10.3 was deferred during inline execution. `scripts/upgrade-project.sh
 **Logged:** 2026-04-22
 **Category:** Debt
 **Severity:** Low
-**Status:** Open
+**Status:** Resolved (2026-06-28, PR #81)
 
 Driver-level test coverage varies: GitHub has 8 scenarios (full contract, both modes, drift cases); GitLab has 6 (most of contract, both modes); Bitbucket has 4 (name, require_cli, register_remote, parse_origin only — HTTP logic untested). Bitbucket's `host_configure_protection` and `host_verify_protection` HTTP calls are validated by code review only.
 
 **Scope:** extend `tests/host-drivers/bitbucket.test.sh` with mock-curl fixtures for: configure_protection (personal + org payloads), verify_protection (all restriction types present → pass; missing restrictions → fail with specific messages), drift detection.
 
 **Trigger:** Before the first solo-orchestrator user tries Bitbucket, OR whenever touching `bitbucket.sh`.
+
+**Resolution (cycle 8, 2026-06-28):** Closed via test additions across three files plus one doc + backlog tweak. (1) `tests/host-drivers/bitbucket.test.sh` adds 6 unit-test scenarios — `host_configure_protection` (personal, org) and `host_verify_protection` (personal pass, personal fail, org pass, org fail) — exercising the previously-untested curl payloads under `_bb_curl` / `_bb_curl_no_body`. (2) `tests/host-drivers/gitlab.test.sh` adds 6 parity scenarios surfaced against `github.test.sh`: `host_require_cli` unauthed, `host_create_repo` public + dupe, `host_register_remote` replace existing, `host_configure_protection` org, `host_verify_protection` org pass. (3) `tests/host-drivers/mock-cli.sh` extended with stdin-drain guard (`[ -t 0 ] || cat >/dev/null`) so bitbucket's `--data-binary @-` POSTs don't race against stub exit on the success path; stderr discipline preserved (stub writes stderr only on unmatched-fixture exit 127). (4) `docs/cli-setup-addendum.md` § Bitbucket: `BITBUCKET_WORKSPACE` is now documented as required (not org-only) per audit code-host-bitbucket-1. Full host-drivers run-all + 3 e2e suites remain green.
 
 ---
 
