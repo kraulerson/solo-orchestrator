@@ -54,8 +54,18 @@ jobs:
           fetch-depth: 0  # required for `git log BASE..HEAD` resolution
 
       - name: Lint backlog references
-        run: bash scripts/lint-backlog-references.sh --base origin/${{ github.base_ref || 'main' }}
+        # `github.base_ref` is user-controlled context data. To avoid
+        # the shell-injection class flagged by Semgrep rule
+        # yaml.github-actions.security.run-shell-injection (see
+        # https://sg.run/pkzk), route it through an `env:` var and
+        # reference the quoted env var inside the script rather than
+        # interpolating `${{ ... }}` directly into a `run:` shell line.
+        env:
+          BASE_REF: ${{ github.base_ref || 'main' }}
+        run: bash scripts/lint-backlog-references.sh --base "origin/${BASE_REF}"
 
       - name: Show PASS/FAIL inventory (on failure or on demand)
         if: always()
-        run: bash scripts/lint-backlog-references.sh --base origin/${{ github.base_ref || 'main' }} --list || true
+        env:
+          BASE_REF: ${{ github.base_ref || 'main' }}
+        run: bash scripts/lint-backlog-references.sh --base "origin/${BASE_REF}" --list || true
