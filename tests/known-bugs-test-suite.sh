@@ -488,6 +488,7 @@ create_test_project "$BUG6_DIR"
 (
   cd "$BUG6_DIR"
   todo_count=$(grep -c "# TODO\|echo.*TODO" .github/workflows/release.yml 2>/dev/null || echo "0")
+  case "$todo_count" in ''|*[!0-9]*) todo_count=0 ;; esac
   echo "todo_count=$todo_count"
 ) > "$TEST_DIR/bug6a-output.txt" 2>&1
 result=$?
@@ -557,7 +558,7 @@ EOF
   cd "$BUG7_DIR"
 
   # Replicate the exact code from validate.sh line 367-369
-  has_no=$(grep -i "| *No *|" PROJECT_INTAKE.md | grep -ciE "Security|Accessibility|Performance|Database" || echo "0")
+  has_no=$(grep -i "| *No *|" PROJECT_INTAKE.md | grep -ciE "Security|Accessibility|Performance|Database" || echo "0") # lint-counter-antipattern: allow deliberate verbatim replication of validate.sh line 367-369 to exercise the upstream behavior under test
   if [ "$has_no" -eq 0 ]; then
     echo "has_no=0"
   else
@@ -592,7 +593,7 @@ EOF
   set -euo pipefail
   cd "$BUG7_DIR"
 
-  has_no=$(grep -i "| *No *|" PROJECT_INTAKE.md | grep -ciE "Security|Accessibility|Performance|Database" || echo "0")
+  has_no=$(grep -i "| *No *|" PROJECT_INTAKE.md | grep -ciE "Security|Accessibility|Performance|Database" || echo "0") # lint-counter-antipattern: allow deliberate verbatim replication of validate.sh line 367-369 to exercise the upstream behavior under test
   if [ "$has_no" -eq 0 ]; then
     echo "has_no=0 (correctly zero)"
   else
