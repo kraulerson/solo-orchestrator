@@ -1465,27 +1465,36 @@ billingClient.launchBillingFlow(activity, billingFlowParams)
 
 **React Native / Expo (using `react-native-iap`):**
 
-> **Note:** Expo's first-party `expo-in-app-purchases` package was deprecated and removed from the Expo SDK (the `docs.expo.dev/versions/latest/sdk/in-app-purchases/` page returns 404). The community-maintained `react-native-iap` is now the supported path for React Native and managed Expo workflows. `RevenueCat` is the recommended alternative when you want hosted entitlement / receipt-validation infrastructure rather than rolling your own.
+> **Note:** Expo's first-party `expo-in-app-purchases` package was deprecated and removed from the Expo SDK (the `docs.expo.dev/versions/latest/sdk/in-app-purchases/` page returns 404). The community-maintained `react-native-iap` is now the supported path for React Native and managed Expo workflows. `RevenueCat` is the recommended alternative when you want hosted entitlement / receipt-validation infrastructure rather than rolling your own. For projects on a managed Expo workflow that prefer an Expo-native module (OpenIAP-compliant, StoreKit 2 + Google Play Billing 8.x), `expo-iap` (github.com/hyochan/expo-iap) is the same author's Expo-first alternative and exposes the same unified `fetchProducts` / `requestPurchase` API shown below.
 >
 > **Managed Expo requirement:** `react-native-iap` ships native modules, so it cannot be used with a plain `npm install` under the managed Expo workflow alone. Add `react-native-iap` to the `plugins` array in `app.json` (or `app.config.{js,ts}`) and rebuild via **EAS Build** (`eas build --profile development`). Bare React Native projects need only the standard `pod install` step on iOS.
+>
+> **API version:** The example below targets `react-native-iap` v14 (current). v14 renamed `getProducts` → `fetchProducts` and replaced the single-`sku` `requestPurchase` shape with a unified `{ request: { apple, google }, type }` object. If you are on v13, see the upstream `migration-v13-to-v14.md` guide.
 
 ```typescript
 import {
   initConnection,
-  getProducts,
+  fetchProducts,
   requestPurchase,
   purchaseUpdatedListener,
+  purchaseErrorListener,
   finishTransaction,
+  ErrorCode,
+  isUserCancelledError,
   type Product,
   type Purchase,
+  type PurchaseError,
 } from 'react-native-iap';
+
+const PRODUCT_SKU = 'com.yourcompany.yourapp.premium_monthly';
 
 // Connect to store on app launch:
 await initConnection();
 
-// Fetch product metadata:
-const products: Product[] = await getProducts({
-  skus: ['com.yourcompany.yourapp.premium_monthly'],
+// Fetch product metadata (v14 unified API — supply both skus AND type):
+const products: Product[] = await fetchProducts({
+  skus: [PRODUCT_SKU],
+  type: 'in-app', // use 'subs' for auto-renewing subscriptions
 });
 
 // Subscribe to purchase events BEFORE calling requestPurchase
@@ -1500,10 +1509,39 @@ const purchaseSubscription = purchaseUpdatedListener(async (purchase: Purchase) 
   }
 });
 
-// Launch purchase flow (one-time product shown; use requestSubscription for subs):
-await requestPurchase({ sku: 'com.yourcompany.yourapp.premium_monthly' });
+// ALWAYS pair the success listener with an error listener — otherwise
+// UserCancelled, NetworkError, ItemUnavailable, etc. fall on the floor
+// and the UI never updates after a failed/cancelled purchase.
+const errorSubscription = purchaseErrorListener((error: PurchaseError) => {
+  if (isUserCancelledError(error)) {
+    return; // user dismissed the sheet — no toast, no error log
+  }
+  switch (error.code) {
+    case ErrorCode.NetworkError:
+      // show retry UI
+      break;
+    case ErrorCode.ItemUnavailable:
+      // product not configured in App Store Connect / Play Console
+      break;
+    default:
+      // log + surface a generic failure toast
+      console.error('IAP error', error.code, error.message);
+  }
+});
 
-// Remember to call purchaseSubscription.remove() on unmount.
+// Launch purchase flow. v14 requires a per-platform request object;
+// 'in-app' is one-time, use type: 'subs' (and the subscriptionOffers
+// field on google) for auto-renewing subscriptions.
+await requestPurchase({
+  request: {
+    apple:  { sku: PRODUCT_SKU },
+    google: { skus: [PRODUCT_SKU] },
+  },
+  type: 'in-app',
+});
+
+// Remember to call purchaseSubscription.remove() AND errorSubscription.remove()
+// on unmount so the listeners do not leak across React reloads.
 ```
 
 **Critical implementation requirements:**

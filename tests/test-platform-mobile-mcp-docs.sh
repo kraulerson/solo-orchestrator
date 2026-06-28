@@ -73,11 +73,16 @@ $fw_block"
 fi
 
 # The mcp_server module doc must explain the CDF profile choice so
-# operators are not surprised. Look for the canonical phrase pattern.
-if grep -qiE 'web-api[^A-Za-z0-9]+profile|CDF.*web-api|web-api.*profile' "$MCP_MD"; then
-  pass "T1b: mcp_server.md documents web-api profile mapping"
+# operators are not surprised. Anchor on the canonical CDF invocation
+# (`--profile web-api`) — this is the single load-bearing string that
+# proves the doc is asserting the mapping rather than negating it.
+# (The previous loose regex matched any sentence mentioning both
+# "web-api" and "profile", which a "we do NOT use the web-api profile"
+# line would also satisfy.)
+if grep -qE -- '--profile[[:space:]]+web-api' "$MCP_MD"; then
+  pass "T1b: mcp_server.md documents web-api profile mapping (anchored on '--profile web-api')"
 else
-  fail_ "T1b" "mcp_server.md does not mention the web-api CDF profile fall-through"
+  fail_ "T1b" "mcp_server.md does not contain the canonical '--profile web-api' invocation that the CDF init uses for mcp_server"
 fi
 
 # ----------------------------------------------------------------
@@ -93,10 +98,10 @@ tp_block=$(awk '
   capture && /esac/ { capture=0 }
 ' "$INIT_SH")
 
-if printf '%s\n' "$tp_block" | grep -qE '^\s*mcp_server\)\s*target_platform='; then
-  pass "T2: init.sh target_platform case has explicit mcp_server) arm"
+if printf '%s\n' "$tp_block" | grep -qE '^\s*mcp_server\)\s*target_platform="MCP server'; then
+  pass "T2: init.sh target_platform case has explicit mcp_server) arm with descriptor (not raw token)"
 else
-  fail_ "T2" "target_platform case missing explicit mcp_server) arm. Block was:
+  fail_ "T2" "target_platform case missing explicit mcp_server) arm with 'MCP server' descriptor (raw token \$PLATFORM would not satisfy this). Block was:
 $tp_block"
 fi
 
