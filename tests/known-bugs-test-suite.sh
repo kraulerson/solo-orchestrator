@@ -406,12 +406,26 @@ rm -rf "$BUG4_DIR/.claude/framework"
 ) > "$TEST_DIR/bug4-output.txt" 2>&1
 result=$?
 
-if grep -q "warning(s)" "$TEST_DIR/bug4-output.txt" 2>/dev/null; then
-  pass "BUG-4: validate.sh handles warning increments without crashing"
-elif [ $result -ne 0 ] && ! grep -q "error(s)" "$TEST_DIR/bug4-output.txt"; then
-  fail "BUG-4: validate.sh crashed on warning increment (exit $result)"
+# tests-full-known-bugs-3 (audit v2, S3): tighten the BUG-4 assertion.
+# Previously the test had three branches and the final `else` branch
+# PASSED whenever output contained "error(s)" regardless of exit code,
+# silently swallowing crashes mid-run. Worse, validate.sh's normal
+# error summary ("$errors error(s), $warnings warning(s).") contains
+# the literal "warning(s)" substring, so the first grep branch also
+# matched on full error paths.
+#
+# Hardened assertion requires:
+#   1. validate.sh exit code is 0 (BUG-4 scenario removes only the
+#      pre-commit hook and .claude/framework — both produce warnings,
+#      not errors, so exit 0 is expected).
+#   2. Output contains the warnings-only summary line literal
+#      "warning(s), 0 errors." (validate.sh:446) — guarantees the
+#      `((warnings++))` counter completed without crashing.
+# No fallback "pass anyway" branch.
+if [ $result -eq 0 ] && grep -q "warning(s), 0 errors\." "$TEST_DIR/bug4-output.txt" 2>/dev/null; then
+  pass "BUG-4: validate.sh handles warning increments without crashing (exit 0, warnings summary printed)"
 else
-  pass "BUG-4: validate.sh completed (exit $result)"
+  fail "BUG-4: validate.sh did not complete cleanly (exit $result, expected 0 with 'warning(s), 0 errors.' summary)"
 fi
 
 # ================================================================

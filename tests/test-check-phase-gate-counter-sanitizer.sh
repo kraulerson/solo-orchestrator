@@ -52,6 +52,12 @@ echo "=== Primary site: Pre-Phase 0 organizational pre-conditions ==="
 # T1: APPROVAL_LOG has the "Pre-Phase 0" section header but zero ISO
 # dates in it. Pre-fix this hit the OK branch (false success). Post-fix
 # the WARN branch fires.
+#
+# After tier-crosscheck-7 (cycle 8 S3 fix), the named-row check
+# triggers FIRST and emits a more specific WARN listing the missing
+# named pre-conditions, before the count-only branch runs. T1 still
+# fails the gate — what we care about is that no false [OK] is
+# emitted and a WARN is raised about Pre-Phase 0.
 echo "T1: Pre-Phase 0 header present, 0 dates → WARN (not [OK])"
 setup
 cat > "$PROJ/.claude/phase-state.json" <<'JSON'
@@ -67,16 +73,20 @@ MD
 out=$(run_gate)
 if echo "$out" | grep -q "OK.*Pre-Phase 0 pre-conditions recorded"; then
   fail_ "T1" "still emits false [OK]; out:\n$(echo "$out" | grep Pre-Phase)"
-elif echo "$out" | grep -qE "WARN.*Pre-Phase 0.*only 0 pre-condition"; then
+elif echo "$out" | grep -qE "WARN.*Pre-Phase 0.*(only 0 pre-condition|named pre-condition\(s\) without)"; then
   pass "T1: WARN fires when 0 dates recorded"
 else
   fail_ "T1" "neither expected line present; out:\n$(echo "$out" | grep -i pre-phase)"
 fi
 teardown
 
-# T2: APPROVAL_LOG has the section + 6 valid ISO dates. Post-fix the OK
-# branch must still fire (regression guard for the happy path).
-echo "T2: Pre-Phase 0 header + 6 dates → [OK]"
+# T2: APPROVAL_LOG has the section + 6 valid ISO dates against each of
+# the 6 NAMED pre-conditions. Post-fix the OK branch must still fire
+# (regression guard for the happy path).
+#
+# After tier-crosscheck-7 (cycle 8 S3 fix), the rows must mention the
+# 6 named pre-conditions; six unrelated dated rows no longer suffice.
+echo "T2: Pre-Phase 0 header + 6 dated named rows → [OK]"
 setup
 cat > "$PROJ/.claude/phase-state.json" <<'JSON'
 {"current_phase":0,"deployment":"organizational"}
@@ -86,16 +96,16 @@ cat > "$PROJ/APPROVAL_LOG.md" <<'MD'
 
 ## Pre-Phase 0
 
-- ITSM registration recorded 2026-01-15
-- SSO enrollment recorded 2026-01-16
-- Centralized logging recorded 2026-01-17
-- Portfolio review recorded 2026-01-18
-- Budget approval recorded 2026-01-19
-- Security review recorded 2026-01-20
+- AI deployment path approved 2026-01-15
+- Insurance coverage confirmed 2026-01-16
+- Liability entity designated 2026-01-17
+- Project sponsor assigned 2026-01-18
+- Backup maintainer designated 2026-01-19
+- ITSM project registered 2026-01-20
 MD
 out=$(run_gate)
 if echo "$out" | grep -qE "OK.*Pre-Phase 0 pre-conditions recorded \(6 entries\)"; then
-  pass "T2: [OK] fires when 6 valid dates present"
+  pass "T2: [OK] fires when 6 valid dated named rows present"
 else
   fail_ "T2" "expected '[OK] ... (6 entries)'; out:\n$(echo "$out" | grep -i pre-phase)"
 fi
