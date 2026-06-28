@@ -34,8 +34,11 @@ PHASE_STATE=".claude/phase-state.json"
 
 if [ -f "$TOOL_USAGE" ] && command -v jq &>/dev/null; then
   CTX7_COUNT=$(jq '[.calls[] | select(.tool | contains("context7"))] | length' "$TOOL_USAGE" 2>/dev/null || echo "0")
+  case "$CTX7_COUNT" in ''|*[!0-9]*) CTX7_COUNT=0 ;; esac
   QDRANT_FIND_COUNT=$(jq '[.calls[] | select(.tool | contains("qdrant")) | select(.tool | contains("find"))] | length' "$TOOL_USAGE" 2>/dev/null || echo "0")
+  case "$QDRANT_FIND_COUNT" in ''|*[!0-9]*) QDRANT_FIND_COUNT=0 ;; esac
   QDRANT_STORE_COUNT=$(jq '[.calls[] | select(.tool | contains("qdrant")) | select(.tool | contains("store"))] | length' "$TOOL_USAGE" 2>/dev/null || echo "0")
+  case "$QDRANT_STORE_COUNT" in ''|*[!0-9]*) QDRANT_STORE_COUNT=0 ;; esac
 
   echo ""
   echo "TOOL USAGE THIS SESSION: Context7: $CTX7_COUNT calls | Qdrant-find: $QDRANT_FIND_COUNT calls | Qdrant-store: $QDRANT_STORE_COUNT calls"

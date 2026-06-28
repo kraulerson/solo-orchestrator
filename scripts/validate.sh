@@ -256,6 +256,7 @@ fi
 
 if [ -f ".claude/process-audit.log" ]; then
   reset_count=$(grep -c "\[RESET\]" .claude/process-audit.log 2>/dev/null || echo "0")
+  case "$reset_count" in ''|*[!0-9]*) reset_count=0 ;; esac
   if [ "$reset_count" -gt 0 ]; then
     warn "process-audit.log contains $reset_count reset event(s) — review for compliance"
   else
