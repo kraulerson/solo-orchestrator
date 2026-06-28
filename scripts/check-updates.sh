@@ -87,8 +87,8 @@ check_file() {
     print_warn "$label: differs from upstream"
     # Show a brief summary of changes
     local added removed
-    added=$(diff "$project_path" "$upstream_path" | grep -c '^>' || true)
-    removed=$(diff "$project_path" "$upstream_path" | grep -c '^<' || true)
+    added=$(diff "$project_path" "$upstream_path" | grep -c '^>' || true) # lint-counter-antipattern: allow value is string-interpolated into a human-readable summary line only, never used in arithmetic or test comparisons; a multi-line "0\n0" value would still render correctly in the echo
+    removed=$(diff "$project_path" "$upstream_path" | grep -c '^<' || true) # lint-counter-antipattern: allow value is string-interpolated into a human-readable summary line only, never used in arithmetic or test comparisons; a multi-line "0\n0" value would still render correctly in the echo
     echo -e "         (+$added lines in upstream, -$removed lines removed from upstream)"
     changes=$((changes + 1))
   fi

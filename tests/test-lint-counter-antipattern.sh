@@ -151,13 +151,14 @@ teardown
 
 # ════════════════════════════════════════════════════════════════════
 echo ""
-echo "=== T6: '|| true' variant → exit 0 (out-of-scope, deliberate) ==="
+echo "=== T6: '|| true' variant → exit 1 (now in scope, cycle-8 extension) ==="
 # ════════════════════════════════════════════════════════════════════
-# DELIBERATE EXCLUSION: this linter targets only `|| echo \"0\"` (the
-# class with the documented "0\\n0" concat failure mode). The `|| true`
-# variant has a different failure mode (silent empty-string capture)
-# and is scoped to a separate follow-up PR. Keeping these out of scope
-# keeps the merge-gate signal focused on the defect class wave 1 fixed.
+# Cycle 8 follow-up to PR #72: this linter now covers the `|| true` and
+# `|| :` IN-subshell fallback variants in addition to `|| echo "0"`.
+# All three leave the capture in a non-numeric or empty state on the
+# inner command's non-zero exit and break downstream arithmetic
+# identically. The fix pattern is the same canonical case-statement
+# sanitizer on the immediately-following line.
 setup
 cat > "$PROJ/scripts/or-true.sh" <<'SH'
 #!/usr/bin/env bash
@@ -165,10 +166,68 @@ silent_count=$(grep -c "X" file.txt 2>/dev/null || true)
 echo "$silent_count"
 SH
 out=$(run_lint); rc=$?
-if [ $rc -eq 0 ]; then
-  pass "T6: '|| true' variant is out of scope (passes)"
+if [ $rc -eq 1 ] \
+   && echo "$out" | grep -q "scripts/or-true.sh:2" \
+   && echo "$out" | grep -q "silent_count"; then
+  pass "T6: '|| true' in-subshell fallback is now flagged with file:line + var"
 else
-  fail_ "T6" "expected exit 0 for out-of-scope variant; rc=$rc; output:\n$out"
+  fail_ "T6" "expected exit 1 + file:line:var for '|| true'; rc=$rc; output:\n$out"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T6b: '|| true' variant + sanitizer on next line → exit 0 ==="
+# ════════════════════════════════════════════════════════════════════
+# Confirms the SAME canonical case-statement sanitizer that fixes the
+# `|| echo "0"` form also satisfies the lint for the `|| true` and
+# `|| :` forms. This is the documented fix pattern at every cycle-8
+# remediation site (scripts/validate.sh, scripts/resume.sh, etc.).
+setup
+cat > "$PROJ/scripts/or-true-fixed.sh" <<'SH'
+#!/usr/bin/env bash
+silent_count=$(grep -c "X" file.txt 2>/dev/null || true)
+case "$silent_count" in ''|*[!0-9]*) silent_count=0 ;; esac
+colon_count=$(grep -c "Y" file.txt 2>/dev/null || :)
+case "$colon_count" in ''|*[!0-9]*) colon_count=0 ;; esac
+echo "$silent_count $colon_count"
+SH
+out=$(run_lint); rc=$?
+if [ $rc -eq 0 ]; then
+  pass "T6b: sanitized '|| true' and '|| :' captures pass"
+else
+  fail_ "T6b" "expected exit 0 for sanitized variants; rc=$rc; output:\n$out"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T6c: outer-OR idiom 'var=\$(cmd) || var=0' → exit 0 (regression guard) ==="
+# ════════════════════════════════════════════════════════════════════
+# REGRESSION GUARD for the structurally-distinct outer-OR idiom used
+# at scripts/check-phase-gate.sh:427. Here the `||` lives AFTER the
+# subshell's closing `)`, NOT inside it. Bash semantics: when grep -c
+# exits 1 on zero matches, the assignment statement inherits that
+# non-zero exit, which fires the outer `||`, which cleanly assigns
+# `var=0` exactly once. There is no "0\n0" concat, no silent empty
+# capture, no broken arithmetic — this is the CORRECT idiom and the
+# lint must NEVER flag it. The cycle-8 regex extension preserved the
+# `\) $` anchor on the in-subshell match precisely to keep this site
+# out of scope; T6c locks that property in.
+setup
+cat > "$PROJ/scripts/outer-or.sh" <<'SH'
+#!/usr/bin/env bash
+# This is the exact shape at scripts/check-phase-gate.sh:427.
+todo_count=$(grep -c "TODO" .github/workflows/release.yml 2>/dev/null) || todo_count=0
+if [ "$todo_count" -gt 0 ]; then
+  echo "warn: $todo_count TODOs remain"
+fi
+SH
+out=$(run_lint); rc=$?
+if [ $rc -eq 0 ]; then
+  pass "T6c: outer-OR idiom is correctly NOT flagged"
+else
+  fail_ "T6c" "REGRESSION: outer-OR idiom was flagged (must stay out of scope); rc=$rc; output:\n$out"
 fi
 teardown
 

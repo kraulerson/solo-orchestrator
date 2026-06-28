@@ -67,9 +67,9 @@ VERSION_STATUS="(run scripts/check-versions.sh for details)"
 if [ -x "scripts/check-versions.sh" ]; then
   version_output=$(bash scripts/check-versions.sh 2>&1 </dev/null) || true
   below_min=$(echo "$version_output" | grep -c "BELOW MINIMUM" || true)
-  below_min=${below_min:-0}
+  case "$below_min" in ''|*[!0-9]*) below_min=0 ;; esac
   updates=$(echo "$version_output" | grep -c "available" || true)
-  updates=${updates:-0}
+  case "$updates" in ''|*[!0-9]*) updates=0 ;; esac
   if [ "$below_min" -gt 0 ]; then
     VERSION_STATUS="⚠ $below_min tool(s) below minimum version — run scripts/check-versions.sh"
   elif [ "$updates" -gt 0 ]; then

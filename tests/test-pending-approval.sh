@@ -209,9 +209,12 @@ p17_atomic_write_code_shape() {
   # rather than literals, so accept both shapes.
   local has_mktemp has_mv has_direct_write
   has_mktemp=$(grep -cE 'mktemp.*pending-approval\.[A-Z0-9]+\.tmp' "$SCRIPT" || true)
+  case "$has_mktemp" in ''|*[!0-9]*) has_mktemp=0 ;; esac
   has_mv=$(grep -cE '^[[:space:]]*mv[[:space:]]+["$]' "$SCRIPT" || true)
+  case "$has_mv" in ''|*[!0-9]*) has_mv=0 ;; esac
   # Direct write: any non-comment line that does `> $sentinel` or `> ".../.claude/pending-approval.json"`.
   has_direct_write=$(grep -cE '^[[:space:]]*[^#]*>[[:space:]]+("?\$?\{?[A-Za-z_]*\}?/?\.claude/pending-approval\.json"?|"\$sentinel")' "$SCRIPT" || true)
+  case "$has_direct_write" in ''|*[!0-9]*) has_direct_write=0 ;; esac
 
   if [ "$has_mktemp" -ge 1 ] && [ "$has_mv" -ge 1 ] && [ "$has_direct_write" = "0" ]; then
     pass "P17: helper uses atomic write (mktemp + mv); no direct '> sentinel' patterns"

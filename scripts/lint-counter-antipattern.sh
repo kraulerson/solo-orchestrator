@@ -20,23 +20,35 @@
 # This linter is the wave-2 backstop after PRs #67-#71 remediated every
 # known site: it makes the antipattern un-introducible in CI going
 # forward without an explicit allowlist comment justifying the choice.
+# PR #72 (cycle 6) established the baseline regex for `|| echo "0"`.
+# This cycle-8 follow-up extends coverage to the `|| true` and `|| :`
+# variants and remediates the 17 in-tree sites that matched.
 #
 # DELIBERATE SCOPE
-#   • Targets ONLY `|| echo "0"` (or `|| echo 0`) endings on capture
-#     lines that count via `grep -c`, `jq ... length`, or `wc`. These
-#     are the patterns documented in PRs #67-#71 as defect-prone:
-#     non-numeric subshell exit on zero match + numeric fallback that
-#     concatenates rather than replaces.
-#   • DOES NOT target `|| true` or `|| var=0` variants — those have
-#     different failure modes (silent empty-string capture, or
-#     idempotent fallback) and are subject of a separate follow-up
-#     PR. Broadening here would mix unrelated defect classes and
-#     dilute the merge-gate signal.
+#   • Targets `|| echo "0"` (or `|| echo 0`), `|| true`, and `|| :`
+#     endings on capture lines that count via `grep -c`, `jq ... length`,
+#     or `wc`. All three endings collapse the subshell to a non-numeric
+#     or multi-line value when the inner command exits non-zero:
+#       - `|| echo "0"` → "0\n0" concat under zero-match grep -c
+#       - `|| true`     → silent empty-string capture
+#       - `|| :`        → silent empty-string capture (`:` is no-op)
+#     All three break downstream arithmetic identically; PR #72 (cycle 6)
+#     covered the `echo "0"` form, and this cycle-8 follow-up extends
+#     coverage to the `|| true` / `|| :` variants and remediates the
+#     17 in-tree sites that matched.
+#   • DOES NOT target the `var=$(cmd) || var=0` *outer-OR* idiom where
+#     the `||` lives AFTER the subshell's closing `)`. That construction
+#     is structurally distinct: the assignment-exit fires the outer `||`
+#     when grep exits 1, cleanly assigning `var=0` exactly once. It is
+#     the CORRECT idiom and must NOT be flagged. The regex below anchors
+#     `|| <fallback> )` so only IN-subshell fallbacks match. See T6c in
+#     tests/test-lint-counter-antipattern.sh for the regression guard.
 #   • DOES NOT cover multi-line `var=$( cmd \\` captures where the
-#     `|| echo "0"` lives on a continuation line. PR #70 fixed the
-#     known multi-line site in init.sh; future multi-line captures
-#     are out of scope for this regex (a future PR can extend with
-#     a multi-line walker if needed).
+#     fallback lives on a continuation line. PR #70 fixed the known
+#     multi-line site in init.sh; future multi-line captures are out
+#     of scope for this regex (a future PR can extend with a multi-line
+#     walker if needed). Verifier confirmed no in-tree multi-line hits
+#     for this cycle.
 #
 # ALLOWLIST
 #   Append `# lint-counter-antipattern: allow <reason>` to the
@@ -78,10 +90,16 @@ TARGET_GLOBS=(
 )
 
 # Per-line antipattern: extended regex for `grep -E`.
-# Matches:   <leading-ws> IDENT=$( ... grep -c|jq...length|wc ... || echo "0" )
-# Tolerates: -c with extra flags like -cE, -ci, -ciE; quoted/unquoted 0;
-#            trailing whitespace and a `)` after the echo.
-ANTIPATTERN_RE='^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=\$\(.*(grep[[:space:]]+-[a-zA-Z]*c[a-zA-Z]*|jq[[:space:]].*length|[[:space:]]wc[[:space:]]).*\|\|[[:space:]]*echo[[:space:]]+"?0"?[[:space:]]*\)'
+# Matches:   <leading-ws> IDENT=$( ... grep -c|jq...length|wc ... || <fallback> )
+# Where <fallback> ∈ { echo "0", echo 0, true, : }, all of which leave
+# the capture in a non-numeric or empty state on the inner command's
+# non-zero exit. Tolerates: -c with extra flags like -cE, -ci, -ciE;
+# quoted/unquoted 0; trailing whitespace and a `)` after the fallback.
+#
+# The terminating `\)` is load-bearing — it ensures we only match
+# IN-subshell `||` fallbacks. The outer-OR idiom `var=$(...) || var=0`
+# has its `||` AFTER the `)` and is the CORRECT pattern (see T6c).
+ANTIPATTERN_RE='^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=\$\(.*(grep[[:space:]]+-[a-zA-Z]*c[a-zA-Z]*|jq[[:space:]].*length|[[:space:]]wc[[:space:]]).*\|\|[[:space:]]*(echo[[:space:]]+"?0"?|true|:)[[:space:]]*\)'
 
 # Strip a trailing `# lint-counter-antipattern: allow <reason>` and
 # return: VAR_NAME<TAB>ALLOW_REASON_OR_EMPTY<TAB>HAS_MARKER (0|1)
