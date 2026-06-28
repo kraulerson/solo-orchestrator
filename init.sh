@@ -2184,6 +2184,13 @@ CURRENT_PHASE=0
 if [ -f "$PHASE_STATE" ]; then
   CURRENT_PHASE=$(grep -o '"current_phase"[[:space:]]*:[[:space:]]*"*[0-9][0-9]*"*' \
     "$PHASE_STATE" | grep -o '[0-9][0-9]*' || echo "0")
+  # Sanitize: multi-match (e.g. duplicate current_phase keys in a
+  # hand-edited file) yields a multi-line value like "2\n3" — the
+  # subsequent `[ "$CURRENT_PHASE" -ge 2 ]` then errors with
+  # "integer expression expected" and silently flips the gate.
+  # Collapse any non-numeric / multi-token result to 0 (safe default).
+  # Same pattern as scripts/check-phase-gate.sh (PR #53).
+  case "$CURRENT_PHASE" in ''|*[!0-9]*) CURRENT_PHASE=0 ;; esac
 fi
 
 if [ "$CURRENT_PHASE" -ge 2 ]; then
