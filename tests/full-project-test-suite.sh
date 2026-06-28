@@ -86,7 +86,20 @@ else
 fi
 
 # ================================================================
-# TEST 0c: BACKLOG-REFERENCES LINT — cycle-7 Slot-5 process backstop
+# TEST 0c: PHASE 1→2 BACKSTOP ATTESTATION (code-check-gates-1)
+# ================================================================
+# Regression suite for the BL-002 follow-up fix: scripts/check-phase-gate.sh's
+# Phase 1→2 backstop must honor a recorded `github_free_tier`
+# branch-protection attestation (mirroring scripts/check-gate.sh::cmd_preflight).
+section "Phase 1→2 backstop honors github_free_tier attestation"
+if bash "$SCRIPT_DIR/tests/test-check-phase-gate-backstop-attestation.sh" >/dev/null 2>&1; then
+  pass "scripts/check-phase-gate.sh backstop attestation tests (3/3)"
+else
+  fail "scripts/check-phase-gate.sh backstop attestation tests FAILED (run tests/test-check-phase-gate-backstop-attestation.sh for details)"
+fi
+
+# ================================================================
+# TEST 0d: BACKLOG-REFERENCES LINT — cycle-7 Slot-5 process backstop
 # ================================================================
 # Sibling of the counter-antipattern lint above; catches drift between
 # BL-NNN backlog entries and the PRs that close them. See

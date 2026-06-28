@@ -47,16 +47,18 @@ If you want to configure all optional enhancements at once, run these commands f
 claude mcp add context7 --scope user -- npx -y @upstash/context7-mcp
 ```
 
-**2. Superpowers plugin (one command, no prerequisites):**
-```bash
-claude plugins add superpowers
+**2. Superpowers plugin (one command, no prerequisites — this is a slash command run inside Claude Code, not a shell command):**
+```
+/plugin install superpowers@claude-plugins-official
 ```
 
 **3. Qdrant MCP (requires Docker):**
 ```bash
 # Start Qdrant (runs in background)
 docker run -d --name qdrant -p 6333:6333 -p 6334:6334 \
-  -v qdrant_storage:/qdrant/storage qdrant/qdrant
+  -v qdrant_storage:/qdrant/storage \
+  --restart unless-stopped \
+  qdrant/qdrant:latest
 
 # Add the MCP server
 claude mcp add -s user \
@@ -209,7 +211,7 @@ Place this in `.claude/settings.json` (project-level, shared with team) or `.cla
 The Development Guardrails for Claude Code (github.com/kraulerson/claude-dev-framework) is a hook-based system that provides automated workflow guardrails for coding standards, security scanning, and documentation requirements through Git hooks. It uses a layered defense model within its hook system — multiple hook-based checks (pre-commit, pre-push, post-merge) cover different failure modes, so no single check needs to catch everything. The combination of checks across Git hook stages provides broader coverage than any individual hook.
 
 The framework uses:
-- **Profiles** — Configuration sets that define rules for different project types (`mobile-app.yml`, `web-api.yml`, `cli-tool.yml`), inheriting from a `_base.yml` with shared standards.
+- **Profiles** — Configuration sets that define rules for different project types (`_base.yml`, `desktop-app.yml`, `mobile-app.yml`, `web-api.yml`, `web-app.yml`), inheriting from `_base.yml` with shared standards.
 - **Hooks** — Git-triggered actions (pre-commit, pre-push, post-merge) that run automated checks before code reaches the repository.
 - **Rules** — Specific enforcement policies (e.g., "no direct schema modifications without migration files," "no dependencies without license check," "no commit without test coverage").
 
@@ -219,7 +221,7 @@ CDF and Solo Orchestrator are deliberately split across two layers; both are ins
 
 | Layer | What it owns | Where it runs | Where the rules live |
 | - | - | - | - |
-| **CDF** | Coding-standards enforcement: secret detection (gitleaks), SAST quick scan (Semgrep), license check, lockfile pinning, test-co-location heuristic, schema-migration check. | `.git/hooks/` (pre-commit, pre-push, post-merge) and `.claude/settings.json` (PreToolUse hooks the agent triggers). Profile-driven (`mobile-app.yml`, `web-api.yml`, `cli-tool.yml`). | `~/.claude-dev-framework/` (global, shared install). |
+| **CDF** | Coding-standards enforcement: secret detection (gitleaks), SAST quick scan (Semgrep), license check, lockfile pinning, test-co-location heuristic, schema-migration check. | `.git/hooks/` (pre-commit, pre-push, post-merge) and `.claude/settings.json` (PreToolUse hooks the agent triggers). Profile-driven (`desktop-app.yml`, `mobile-app.yml`, `web-api.yml`, `web-app.yml`). | `~/.claude-dev-framework/` (global, shared install). |
 | **Solo Orchestrator** | Process enforcement: Build Loop step ordering, Phase 2/3/4 checklists, phase-gate consistency. Plus the enforcement-level layer added in BL-030: a project-wide `enforcement_level` (`strict` / `light` / `no`) that gates **user-terminal** commits via `.git/hooks/framework-gate.sh` and writes every framework-bypass event to `.claude/bypass-audit.json`. | `scripts/pre-commit-gate.sh` (PreToolUse on Claude-issued `git commit` / `gh pr create`), `scripts/framework-gate.sh` (the strict-mode user-terminal gate), `scripts/detect-out-of-band-commits.sh` (SessionStart — catches `--no-verify` post-hoc), `scripts/hooks/bypass-detector.sh` (PostToolUse + Stop). | In-project (`scripts/`, `.claude/`). |
 
 CDF answers "does this code meet the project's standards?" Solo answers "did this commit follow the process, and if it bypassed enforcement, is that recorded?" The two compose: a Solo-strict project on the `web-api` CDF profile gets gitleaks + Semgrep + license-check from CDF plus the Build Loop / Phase gate + bypass-audit from Solo, both at commit time. See `docs/user-guide.md` ("What Is Enforced vs. What Is Guided") for the canonical operator-facing level matrix and `docs/builders-guide.md` ("Enforcement Model") for how Claude-issued vs user-terminal commits are gated.
@@ -257,7 +259,7 @@ cd /path/to/your/project
 bash ~/.claude-dev-framework/scripts/init.sh
 ```
 
-CDF's init prompts for the project profile (web-api, mobile-app, cli-tool, etc.) and wires the appropriate hooks into your project's `.claude/settings.json` and `.git/hooks/`. It does NOT clone its templates into `.claude/framework/` — that earlier per-project clone pattern is obsolete.
+CDF's init prompts for the project profile (web-api, web-app, mobile-app, desktop-app) and wires the appropriate hooks into your project's `.claude/settings.json` and `.git/hooks/`. It does NOT clone its templates into `.claude/framework/` — that earlier per-project clone pattern is obsolete.
 
 **Verify the integration:**
 ```bash
@@ -266,7 +268,7 @@ git add .
 git commit -m "test: verify framework hooks"
 ```
 
-**Note:** If the project type doesn't match an existing profile (e.g., a full-stack web application with significant frontend), the framework may need a `web-app.yml` profile. See the framework's documentation for profile creation guidance.
+**Note:** If the project type doesn't match an existing profile, the framework may need a new profile only for genuinely outside types (libraries, CLI tools — CDF retired its earlier `cli-tool.yml` profile). See the framework's documentation for profile creation guidance.
 
 ---
 
@@ -329,8 +331,9 @@ This solves a specific Solo Orchestrator problem: the Builder's Guide acknowledg
 ```bash
 docker run -d \
   --name qdrant \
-  -p 6333:6333 \
-  -v qdrant_data:/qdrant/storage \
+  -p 6333:6333 -p 6334:6334 \
+  -v qdrant_storage:/qdrant/storage \
+  --restart unless-stopped \
   qdrant/qdrant:latest
 ```
 
@@ -592,7 +595,7 @@ Run this once per development machine:
 - [ ] Superpowers plugin installed (`/plugin install superpowers@claude-plugins-official`)
 - [ ] Auto Mode configured (or granular permissions in settings.json if Auto Mode unavailable)
 - [ ] Context7 MCP added (`claude mcp add context7 --scope user -- npx -y @upstash/context7-mcp`)
-- [ ] Qdrant running in Docker (`docker run -d --name qdrant -p 6333:6333 -v qdrant_data:/qdrant/storage qdrant/qdrant:latest`)
+- [ ] Qdrant running in Docker (`docker run -d --name qdrant -p 6333:6333 -p 6334:6334 -v qdrant_storage:/qdrant/storage --restart unless-stopped qdrant/qdrant:latest`)
 - [ ] Qdrant MCP added (`claude mcp add -s user -e QDRANT_URL=http://localhost:6333 -e COLLECTION_NAME=claude-memory qdrant -- uvx --python 3.13 mcp-server-qdrant`)
 - [ ] Development Guardrails for Claude Code cloned and available for project setup
 - [ ] Verify all MCP servers connected (`claude /mcp`)
