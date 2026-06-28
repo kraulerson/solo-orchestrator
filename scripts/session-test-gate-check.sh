@@ -196,6 +196,7 @@ fi
 
 # Read state
 FEATURES_COMPLETED=$(jq -r '.features_completed | length' "$BUILD_PROGRESS" 2>/dev/null || echo "0")
+case "$FEATURES_COMPLETED" in ''|*[!0-9]*) FEATURES_COMPLETED=0 ;; esac
 SINCE_LAST=$(jq -r '.features_since_last_test' "$BUILD_PROGRESS" 2>/dev/null || echo "0")
 INTERVAL=$(jq -r '.test_interval' "$BUILD_PROGRESS" 2>/dev/null || echo "2")
 TESTING_REQUIRED=$(jq -r '.testing_required' "$BUILD_PROGRESS" 2>/dev/null || echo "false")
