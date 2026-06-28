@@ -629,6 +629,8 @@ Three-tier enforcement level (`no` / `light` / `strict`) configurable at init or
 
 **Audit follow-up:** the v2 audit finding `specs-plans-bl029-bl030-3` ("spec exists; ZERO implementation") is now closed.
 
+**Audit follow-up:** the v2 audit finding `specs-plans-bl029-bl030-5` ("naive substring match in `scripts/hooks/record-claude-commit.sh` + missing --amend handling") is now closed. The BL-029 ledger recorder now uses the anchored regex `(^|[^"'\''])git[[:space:]]+commit\b` (verbatim sibling of the BL-020 fix in PR #53 on `scripts/pre-commit-gate.sh:81-93`), rejecting quote-preceded false-positives like `grep "git commit"`. `git commit --amend` is treated as a fresh ledger entry (option C from the audit response) — the amended SHA is recorded so the out-of-band detector classifies it as Claude-issued, and the original entry persists harmlessly as an orphan SHA in the append-only ledger. Regression coverage: `tests/test-record-claude-commit.sh` T6-T9 (9/9 total).
+
 ---
 
 ## BL-031: init.sh:2009 hardcodes GitHub-branded messaging for any driver returning exit 3
