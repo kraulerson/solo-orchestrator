@@ -90,9 +90,18 @@ load_context() {
     PROJECT_NAME=$(jq -r '.project // empty' ".claude/phase-state.json" 2>/dev/null || echo "")
   fi
 
-  # Deployment from intake-progress or CLAUDE.md
+  # Deployment from intake-progress, phase-state, or CLAUDE.md (in that
+  # order of trust). Bonus catch alongside code-verify-reconfigure-9:
+  # the prior load order skipped phase-state.json (which init.sh writes
+  # with the canonical .deployment field) and only fell through to
+  # CLAUDE.md grep. When CLAUDE.md was deleted (the exact case
+  # fix_claude_md is invoked to repair), DEPLOYMENT was left empty and
+  # fix_claude_md skipped the organizational Branch Protection appendix.
   if [ -f ".claude/intake-progress.json" ] && command -v jq &>/dev/null; then
     DEPLOYMENT=$(jq -r '.deployment // empty' ".claude/intake-progress.json" 2>/dev/null || echo "")
+  fi
+  if [ -z "$DEPLOYMENT" ] && [ -f ".claude/phase-state.json" ] && command -v jq &>/dev/null; then
+    DEPLOYMENT=$(jq -r '.deployment // empty' ".claude/phase-state.json" 2>/dev/null || echo "")
   fi
   if [ -z "$DEPLOYMENT" ] && [ -f "CLAUDE.md" ]; then
     if grep -q "organizational" "CLAUDE.md" 2>/dev/null; then
@@ -341,13 +350,63 @@ check_hooks() {
     return
   fi
 
-  # PreToolUse hook: pre-commit-gate.sh
+  # Audit code-verify-reconfigure-11 (2026-06): previously each hook
+  # check verified ONLY the settings.json reference via `jq -e`. A
+  # project with intact JSON references but a deleted or chmod-stripped
+  # on-disk script would receive a green PASS — the hook then fails at
+  # first PreToolUse invocation with "no such file" / "permission
+  # denied". Baseline §5 invariant 11 establishes pre-commit-gate.sh as
+  # a Claude Code PreToolUse hook; on-disk presence is the load-bearing
+  # detail. The fix below requires BOTH the JSON registration AND the
+  # on-disk script to be present + executable before a PASS is emitted.
+  #
+  # _check_hook_pair: validates one (event-jq-match, on-disk-path) pair
+  # and emits the appropriate register_pass / register_manual row.
+  # Arguments:
+  #   $1 = human label (e.g. "PreToolUse hook: pre-commit-gate.sh")
+  #   $2 = jq -e expression matching the hook entry in settings.json
+  #   $3 = on-disk script path (relative to project root)
+  #   $4 = manual remediation instruction string
+  _check_hook_pair() {
+    local label="$1"
+    local jq_match="$2"
+    local script_path="$3"
+    local remediation="$4"
+
+    if ! jq -e "$jq_match" .claude/settings.json >/dev/null 2>&1; then
+      register_manual "$label not registered" "$remediation"
+      return
+    fi
+
+    # Registration present — now validate the on-disk script. Reuse the
+    # check_scripts row when one is already emitted for $script_path
+    # (e.g. pre-commit-gate.sh is in the canonical scripts array), but
+    # we still want a hook-row signal so operators can correlate the
+    # JSON ref with the runtime requirement.
+    if [ ! -e "$script_path" ]; then
+      register_manual "$label registered but on-disk script missing ($script_path)" \
+        "Restore $script_path from the orchestrator source, then re-run verify-install"
+      return
+    fi
+    if [ ! -x "$script_path" ]; then
+      register_manual "$label registered but on-disk script not executable ($script_path)" \
+        "Run: chmod +x $script_path"
+      return
+    fi
+
+    register_pass "$label"
+  }
+
+  # PreToolUse hook: pre-commit-gate.sh — also verify matcher is Bash.
   if jq -e '.hooks.PreToolUse[]? | .hooks[]? | select(.command | contains("pre-commit-gate.sh"))' .claude/settings.json >/dev/null 2>&1; then
-    # Verify matcher is Bash
     local matcher
     matcher=$(jq -r '[.hooks.PreToolUse[]? | select(.hooks[]? | .command | contains("pre-commit-gate.sh")) | .matcher // "none"] | first' .claude/settings.json 2>/dev/null || echo "unknown")
     if [ "$matcher" = "Bash" ]; then
-      register_pass "PreToolUse hook: pre-commit-gate.sh (matcher: Bash)"
+      _check_hook_pair \
+        "PreToolUse hook: pre-commit-gate.sh (matcher: Bash)" \
+        '.hooks.PreToolUse[]? | .hooks[]? | select(.command | contains("pre-commit-gate.sh"))' \
+        "scripts/pre-commit-gate.sh" \
+        "Add pre-commit-gate.sh to .hooks.PreToolUse in .claude/settings.json (see init.sh for format)"
     else
       register_manual "PreToolUse hook matcher is '$matcher' (expected 'Bash')" \
         "Edit .claude/settings.json: set PreToolUse matcher to 'Bash' for the pre-commit-gate.sh entry"
@@ -358,59 +417,68 @@ check_hooks() {
   fi
 
   # PostToolUse hook: track-tool-usage.sh
-  if jq -e '.hooks.PostToolUse[]? | .hooks[]? | select(.command | contains("track-tool-usage.sh"))' .claude/settings.json >/dev/null 2>&1; then
-    register_pass "PostToolUse hook: track-tool-usage.sh"
-  else
-    register_manual "PostToolUse hook: track-tool-usage.sh not registered" \
-      "Add track-tool-usage.sh to .hooks.PostToolUse in .claude/settings.json"
-  fi
+  _check_hook_pair \
+    "PostToolUse hook: track-tool-usage.sh" \
+    '.hooks.PostToolUse[]? | .hooks[]? | select(.command | contains("track-tool-usage.sh"))' \
+    "scripts/track-tool-usage.sh" \
+    "Add track-tool-usage.sh to .hooks.PostToolUse in .claude/settings.json"
 
-  # SessionStart hooks
+  # SessionStart hooks — version check + test gate are paired by design;
+  # the row PASSes only when both are registered AND both on-disk
+  # scripts are present + executable.
   if jq -e '.hooks.SessionStart[]? | .hooks[]? | select(.command | contains("session-version-check.sh") or contains("session-test-gate-check.sh"))' .claude/settings.json >/dev/null 2>&1; then
-    register_pass "SessionStart hooks: version check + test gate"
+    local sess_missing=""
+    for sess_script in scripts/session-version-check.sh scripts/session-test-gate-check.sh; do
+      if [ ! -e "$sess_script" ]; then
+        sess_missing="${sess_missing}${sess_script} (missing) "
+      elif [ ! -x "$sess_script" ]; then
+        sess_missing="${sess_missing}${sess_script} (not executable) "
+      fi
+    done
+    if [ -z "$sess_missing" ]; then
+      register_pass "SessionStart hooks: version check + test gate"
+    else
+      register_manual "SessionStart hooks registered but on-disk scripts incomplete: ${sess_missing}" \
+        "Restore the listed scripts from the orchestrator source (and chmod +x), then re-run verify-install"
+    fi
   else
     register_manual "SessionStart hooks incomplete" \
       "Add session-version-check.sh and session-test-gate-check.sh to .hooks.SessionStart in .claude/settings.json"
   fi
 
   # Stop hook: session-end-qdrant-reminder.sh
-  if jq -e '.hooks.Stop[]? | .hooks[]? | select(.command | contains("session-end-qdrant-reminder.sh"))' .claude/settings.json >/dev/null 2>&1; then
-    register_pass "Stop hook: session-end-qdrant-reminder.sh"
-  else
-    register_manual "Stop hook: session-end-qdrant-reminder.sh not registered" \
-      "Add session-end-qdrant-reminder.sh to .hooks.Stop in .claude/settings.json"
-  fi
+  _check_hook_pair \
+    "Stop hook: session-end-qdrant-reminder.sh" \
+    '.hooks.Stop[]? | .hooks[]? | select(.command | contains("session-end-qdrant-reminder.sh"))' \
+    "scripts/session-end-qdrant-reminder.sh" \
+    "Add session-end-qdrant-reminder.sh to .hooks.Stop in .claude/settings.json"
 
   # BL-029 hooks (PostToolUse + Stop): bypass-detector.sh. Both
   # registrations are required for the dual-event detection contract.
-  if jq -e '.hooks.PostToolUse[]? | .hooks[]? | select(.command | contains("bypass-detector.sh"))' .claude/settings.json >/dev/null 2>&1; then
-    register_pass "PostToolUse hook: bypass-detector.sh"
-  else
-    register_manual "PostToolUse hook: bypass-detector.sh not registered" \
-      "Add hooks/bypass-detector.sh to .hooks.PostToolUse in .claude/settings.json"
-  fi
-  if jq -e '.hooks.Stop[]? | .hooks[]? | select(.command | contains("bypass-detector.sh"))' .claude/settings.json >/dev/null 2>&1; then
-    register_pass "Stop hook: bypass-detector.sh"
-  else
-    register_manual "Stop hook: bypass-detector.sh not registered" \
-      "Add hooks/bypass-detector.sh to .hooks.Stop in .claude/settings.json"
-  fi
+  _check_hook_pair \
+    "PostToolUse hook: bypass-detector.sh" \
+    '.hooks.PostToolUse[]? | .hooks[]? | select(.command | contains("bypass-detector.sh"))' \
+    "scripts/hooks/bypass-detector.sh" \
+    "Add hooks/bypass-detector.sh to .hooks.PostToolUse in .claude/settings.json"
+  _check_hook_pair \
+    "Stop hook: bypass-detector.sh" \
+    '.hooks.Stop[]? | .hooks[]? | select(.command | contains("bypass-detector.sh"))' \
+    "scripts/hooks/bypass-detector.sh" \
+    "Add hooks/bypass-detector.sh to .hooks.Stop in .claude/settings.json"
 
   # BL-030 (post-PR #48): PostToolUse record-claude-commit ledger +
   # SessionStart out-of-band detector. Both must be registered for the
   # detection chain that powers the 'no/light/strict' enforcement levels.
-  if jq -e '.hooks.PostToolUse[]? | .hooks[]? | select(.command | contains("record-claude-commit.sh"))' .claude/settings.json >/dev/null 2>&1; then
-    register_pass "PostToolUse hook: record-claude-commit.sh"
-  else
-    register_manual "PostToolUse hook: record-claude-commit.sh not registered" \
-      "Add hooks/record-claude-commit.sh to .hooks.PostToolUse in .claude/settings.json"
-  fi
-  if jq -e '.hooks.SessionStart[]? | .hooks[]? | select(.command | contains("detect-out-of-band-commits.sh"))' .claude/settings.json >/dev/null 2>&1; then
-    register_pass "SessionStart hook: detect-out-of-band-commits.sh"
-  else
-    register_manual "SessionStart hook: detect-out-of-band-commits.sh not registered" \
-      "Add detect-out-of-band-commits.sh to .hooks.SessionStart in .claude/settings.json"
-  fi
+  _check_hook_pair \
+    "PostToolUse hook: record-claude-commit.sh" \
+    '.hooks.PostToolUse[]? | .hooks[]? | select(.command | contains("record-claude-commit.sh"))' \
+    "scripts/hooks/record-claude-commit.sh" \
+    "Add hooks/record-claude-commit.sh to .hooks.PostToolUse in .claude/settings.json"
+  _check_hook_pair \
+    "SessionStart hook: detect-out-of-band-commits.sh" \
+    '.hooks.SessionStart[]? | .hooks[]? | select(.command | contains("detect-out-of-band-commits.sh"))' \
+    "scripts/detect-out-of-band-commits.sh" \
+    "Add detect-out-of-band-commits.sh to .hooks.SessionStart in .claude/settings.json"
 }
 
 check_framework() {
@@ -551,26 +619,71 @@ check_plugins_mcp() {
 # ================================================================
 
 fix_claude_md() {
+  # Audit code-verify-reconfigure-9 (2026-06): the prior 18-line stub
+  # silently dropped the pending-approval-sentinel bullet, deployment
+  # context, POC awareness, TDD/Build-Loop reminders, CDF reader hooks,
+  # Bible reference, and (for organizational deployments) the Branch
+  # Protection block. Agents reading the stub had no signal to honor
+  # the sentinel, the Build-Loop step ordering, or governance gates —
+  # silent behavioral degradation, masked as a successful auto-fix.
+  #
+  # Fix mirrors init.sh:generate_claude_md (init.sh:2230-2247): apply
+  # the same sed substitution recipe to the canonical template at
+  # templates/generated/claude-md.tmpl, then append the organizational
+  # Branch Protection block when DEPLOYMENT=organizational.
+  #
+  # Refuse (return 1) when context is missing OR the canonical template
+  # cannot be located — better to leave a register_fixable failure
+  # visible than to write a placebo stub that masks the missing context.
+  # The write is staged through a temp file + mv (atomic on same FS) so
+  # we never half-write CLAUDE.md.
   if ! has_context; then return 1; fi
-  cat > CLAUDE.md << CLAUDEEOF
-# CLAUDE.md — ${PROJECT_NAME:-unknown}
 
-## Project Identity
-- **Project:** ${PROJECT_NAME:-unknown}
-- **Platform:** ${PLATFORM}
-- **Track:** ${TRACK}
-- **Primary Language:** ${LANGUAGE}
+  local tmpl=""
+  if has_source && [ -f "$SOURCE_DIR/templates/generated/claude-md.tmpl" ]; then
+    tmpl="$SOURCE_DIR/templates/generated/claude-md.tmpl"
+  elif [ -f "templates/generated/claude-md.tmpl" ]; then
+    # Self-bootstrap: project might have its own copy of the template
+    # (verify-install can run before $SOURCE_DIR is fully restored).
+    tmpl="templates/generated/claude-md.tmpl"
+  fi
+  if [ -z "$tmpl" ]; then
+    return 1
+  fi
 
-## Framework Reference
-This project follows the **Solo Orchestrator Framework v1.0**.
-- Builder's Guide: \`docs/reference/builders-guide.md\`
-- Platform Module: \`docs/platform-modules/\`
-- Project Intake: \`PROJECT_INTAKE.md\`
-- Approval Log: \`APPROVAL_LOG.md\`
+  # Resolve substitution values with safe defaults. PROJECT_NAME and
+  # PROJECT_DESCRIPTION may be empty; init.sh defaults
+  # TEST_INTERVAL to 5 if Section 11.5 is unset.
+  local proj_name="${PROJECT_NAME:-unknown}"
+  local proj_desc="${PROJECT_DESCRIPTION:-}"
+  local test_interval="${TEST_INTERVAL:-5}"
 
-## Note
-This CLAUDE.md was regenerated by verify-install.sh. Review and customize as needed.
-CLAUDEEOF
+  local staged
+  staged=$(mktemp "${TMPDIR:-/tmp}/claude-md-stage.XXXXXX") || return 1
+  # shellcheck disable=SC2064 — capture $staged at trap-set time so we
+  # always clean up the partial file even on early failure.
+  trap "rm -f '$staged'" RETURN
+
+  if ! sed -e "s|__PROJECT_NAME__|$proj_name|g" \
+           -e "s|__PROJECT_DESCRIPTION__|$proj_desc|g" \
+           -e "s|__PLATFORM__|$PLATFORM|g" \
+           -e "s|__TRACK__|$TRACK|g" \
+           -e "s|__LANGUAGE__|$LANGUAGE|g" \
+           -e "s|__TEST_INTERVAL__|$test_interval|g" \
+           "$tmpl" > "$staged"; then
+    return 1
+  fi
+
+  if [ "$DEPLOYMENT" = "organizational" ]; then
+    cat >> "$staged" << 'COMPEOF'
+
+### Branch Protection (Organizational Deployments)
+Branch protection with required reviewers is recommended for organizational deployments and will be required when compliance modules are available. Until then, the Orchestrator creates and merges their own PRs with phase gate review at milestones. When branch protection is enabled, PRs require an independent reviewer before merge — this provides per-change code review that strengthens the governance audit trail.
+COMPEOF
+  fi
+
+  # Atomic install. mv on same filesystem is rename(2), no half-write.
+  mv "$staged" CLAUDE.md
 }
 
 fix_intake_md() {
@@ -848,16 +961,103 @@ fix_framework_manifest() {
 # Tool install fixes — dynamic, based on resolver output
 RESOLVER_OUTPUT=""
 
+# Audit code-verify-reconfigure-14 (2026-06): the prior implementation
+# ran `eval "$install_cmd" 2>/dev/null` on a string sourced from
+# templates/tool-matrix/*.json via scripts/resolve-tools.sh. Anyone with
+# write access to the tool-matrix files (supply-chain, malicious fork,
+# MITM of clone) could inject arbitrary shell, executed silently with
+# the operator's privileges — and `2>/dev/null` masked the evidence.
+# Baseline §5 invariant 10 ("defense in depth") was the relevant frame.
+#
+# Mitigations applied here:
+#   (1) Allowlist the FIRST argv token against the known package
+#       managers + invocation shapes already shipped in tool-matrix
+#       (brew, sudo, npm, npx, pip, pip3, pipx, cargo, gem, dart,
+#       dotnet, go, claude, curl, gpg, keytool, docker, source).
+#       Anything else is REFUSED — the offending command is echoed to
+#       stderr (no silent failure) and fix_tool_install returns 1.
+#       This does not eliminate the eval-on-JSON-string risk in the
+#       case where an attacker re-uses the allowlisted leading token,
+#       but it constrains the attack surface from "arbitrary RCE" to
+#       "RCE that mimics one of N known install shapes" and gives
+#       the operator a visible audit trail of every command run.
+#   (2) Drop `2>/dev/null` so install-time failures (including
+#       installation of an attacker payload) surface visibly.
+#   (3) Echo the resolved command to stderr BEFORE execution. Even
+#       under --auto-fix mode, the operator can scrollback and review
+#       what ran on their workstation.
+_TOOL_INSTALL_ALLOWED_HEADS=(
+  "brew" "sudo" "npm" "npx" "pip" "pip3" "pipx" "cargo" "gem"
+  "dart" "dotnet" "go" "claude" "curl" "gpg" "keytool"
+  "docker" "source" "echo"
+)
+
+_tool_install_head_allowed() {
+  local head="$1"
+  local allowed
+  for allowed in "${_TOOL_INSTALL_ALLOWED_HEADS[@]}"; do
+    if [ "$head" = "$allowed" ]; then return 0; fi
+  done
+  return 1
+}
+
 fix_tool_install() {
   local index="$1"
   if [ -z "$RESOLVER_OUTPUT" ]; then return 1; fi
   local install_cmd
   install_cmd=$(echo "$RESOLVER_OUTPUT" | jq -r ".auto_install[$index].install_cmd")
-  if [ -n "$install_cmd" ] && [ "$install_cmd" != "null" ]; then
-    eval "$install_cmd" 2>/dev/null
-  else
+  if [ -z "$install_cmd" ] || [ "$install_cmd" = "null" ]; then
     return 1
   fi
+
+  # Extract the first argv token (handles leading whitespace + tabs).
+  # We deliberately parse with `awk` over the raw string so an attacker
+  # cannot smuggle the head past validation with newlines or NULs.
+  local head
+  head=$(printf '%s' "$install_cmd" | awk '{print $1; exit}')
+
+  # Some legitimate install commands begin with a variable assignment
+  # whose right-hand side is a command substitution, e.g.:
+  #   GITLEAKS_VERSION=$(curl -sSf https://api.github.com/...) && curl ...
+  # The first whitespace-delimited token in that case is
+  # `GITLEAKS_VERSION=$(curl`. We strip the `VAR=$(` prefix when
+  # present so the allowlist check applies to the inner command
+  # (`curl`). This is a narrow concession to the existing tool-matrix
+  # shape; further hardening of the install_cmd schema is tracked
+  # separately. A plain `VAR=value` (no command substitution) head is
+  # also allowed — it is shell-syntactically inert until the next
+  # command is reached.
+  case "$head" in
+    [A-Z_][A-Z0-9_]*=\$\(*)
+      head="${head#*\$\(}"
+      ;;
+    [A-Z_][A-Z0-9_]*=*)
+      # Plain VAR=value with no command substitution. Accept and skip
+      # the allowlist check for this token (the next token will be
+      # part of the bash -c argv, which the validator does not inspect
+      # — this is the same trust boundary as the legacy eval).
+      print_info "fix_tool_install: executing $install_cmd" >&2
+      bash -c -- "$install_cmd"
+      return $?
+      ;;
+  esac
+
+  if [ -z "$head" ] || ! _tool_install_head_allowed "$head"; then
+    print_fail "fix_tool_install: refusing to execute install_cmd with disallowed leading token '$head'" >&2
+    echo "  command: $install_cmd" >&2
+    return 1
+  fi
+
+  # Echo the resolved command before execution so the operator has a
+  # visible audit trail even under --auto-fix.
+  print_info "fix_tool_install: executing $install_cmd" >&2
+
+  # No `2>/dev/null` — install-time failures must surface. We still go
+  # through `bash -c` rather than direct eval to keep the parsing
+  # contract identical to the prior implementation for legitimate
+  # multi-stage commands (e.g. `brew install foo && brew services
+  # start bar`), but we have already validated the leading token.
+  bash -c -- "$install_cmd"
 }
 
 for _i in $(seq 0 19); do
@@ -939,7 +1139,16 @@ run_remediation() {
     local desc="${entry%%||*}"
     local fix_func="${entry##*||}"
     print_info "Fixing: $desc"
-    if $fix_func 2>/dev/null; then
+    # Audit code-verify-reconfigure-14 (bonus catch, 2026-06): the
+    # prior `if $fix_func 2>/dev/null` silenced ALL stderr from fix
+    # dispatch — including the audit-trail emitted by fix_tool_install
+    # before/after each install, and the refusal reason when an
+    # install_cmd fails the head allowlist. Pass stderr through so
+    # operators can scroll back and review what ran on their
+    # workstation. Fix functions that legitimately need to suppress
+    # noisy stderr should do so locally (e.g. with a targeted
+    # `2>/dev/null` on a single command), not by the dispatcher.
+    if $fix_func; then
       print_ok "Fixed: $desc"
       fixed=$((fixed + 1))
     else
