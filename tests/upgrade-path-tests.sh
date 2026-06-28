@@ -452,6 +452,7 @@ fi
 # 4d: Verify organizational deployment requires more governance sections
 # Count governance-related sections in init.sh organizational vs personal templates
 org_gate_count=$(grep -c "Phase Gate\|Approver\|Role.*|.*IT Security\|Evidence required" "$INIT_FILE" 2>/dev/null || echo "0")
+case "$org_gate_count" in ''|*[!0-9]*) org_gate_count=0 ;; esac
 if [ "$org_gate_count" -gt 5 ]; then
   pass "Organizational template has extensive governance ($org_gate_count gate-related markers)"
 else

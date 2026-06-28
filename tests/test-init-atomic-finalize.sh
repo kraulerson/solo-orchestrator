@@ -111,6 +111,7 @@ TMP=$(mktemp -d); PROJ="$TMP/p"
 if run_init_no_remote "$PROJ"; then
   audit_at_init=$( cd "$PROJ" && git show HEAD:.claude/bypass-audit.json 2>/dev/null )
   rows=$( echo "$audit_at_init" | jq '[.[] | select(.type=="enforcement_level_set")] | length' 2>/dev/null || echo "0" )
+  case "$rows" in ''|*[!0-9]*) rows=0 ;; esac
   if [ "$rows" -ge "1" ]; then
     pass "T3: bypass-audit.json has the init enforcement_level_set row in initial commit"
   else

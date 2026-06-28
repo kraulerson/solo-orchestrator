@@ -271,6 +271,7 @@ t4_ack_preconditions_bypass() {
   fi
   local ack_rows
   ack_rows=$(jq -r '[.[] | select(.details.action == "to_production_preconditions_acked")] | length' "$audit" 2>/dev/null || echo 0)
+  case "$ack_rows" in ''|*[!0-9]*) ack_rows=0 ;; esac
   if [ "$ack_rows" -lt 1 ]; then
     fail_ "T4" "bypass-audit.json has no to_production_preconditions_acked row; audit:\n$(cat "$audit")"
     teardown_project; return

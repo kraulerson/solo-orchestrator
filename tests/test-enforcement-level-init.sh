@@ -113,6 +113,7 @@ echo "T8: init writes enforcement_level_set audit row"
 TMP=$(mktemp -d); PROJ="$TMP/p"
 if run_init "$PROJ" --track light --deployment personal; then
   rows=$(jq '[.[] | select(.type=="enforcement_level_set")] | length' "$PROJ/.claude/bypass-audit.json" 2>/dev/null || echo 0)
+  case "$rows" in ''|*[!0-9]*) rows=0 ;; esac
   if [ "$rows" -ge "1" ]; then pass "T8"; else fail_ "T8" "rows=$rows"; fi
 else
   fail_ "T8" "init failed"

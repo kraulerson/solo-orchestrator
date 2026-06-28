@@ -66,6 +66,26 @@ else
 fi
 
 # ================================================================
+# TEST 0b: COUNTER-ANTIPATTERN LINT — wave-2 backstop after PRs #67-#71
+# ================================================================
+section "Counter-capture antipattern lint"
+if bash "$SCRIPT_DIR/scripts/lint-counter-antipattern.sh" >/dev/null 2>&1; then
+  pass "No unsanitized 'cmd | grep -c X || echo \"0\"' captures in tracked scripts"
+else
+  fail "Counter-capture antipattern found (see scripts/lint-counter-antipattern.sh --list)"
+fi
+
+# Run the linter's own behavior-test suite so a regression in the lint
+# itself (false negative on the antipattern, false positive on the
+# sanitizer match, broken allowlist) is caught here too.
+section "Counter-antipattern lint — behavior test suite"
+if bash "$SCRIPT_DIR/tests/test-lint-counter-antipattern.sh" >/dev/null 2>&1; then
+  pass "scripts/lint-counter-antipattern.sh behavior tests (10/10)"
+else
+  fail "scripts/lint-counter-antipattern.sh behavior tests FAILED (run tests/test-lint-counter-antipattern.sh for details)"
+fi
+
+# ================================================================
 # TEST 1: RESOLVER MATRIX — ALL COMBINATIONS
 # ================================================================
 section "TEST 1: Resolver Matrix — All Platform × Language × Track Combinations"
