@@ -1,0 +1,40 @@
+# .github/workflows/lint.yml — CI lint guards.
+#
+# Wave 2 follow-up to PRs #67-#71 (counter-sanitizer remediation
+# bundle). After wave 1 fixed every known unsanitized
+# `var=$(cmd | grep -c X || echo "0")` capture site, this workflow
+# is the merge-time backstop that prevents the antipattern from being
+# reintroduced. See scripts/lint-counter-antipattern.sh for the
+# defect-class write-up and the canonical fix pattern.
+#
+# This is the repository's FIRST GitHub Actions workflow — the
+# `.github/workflows/` directory did not exist before this PR.
+# Subsequent CI jobs (shellcheck, security review, full test suite
+# under CI, etc.) can be added as additional workflows or as
+# additional jobs in this file.
+
+name: lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # Job name is the required-check label in branch protection. Keep it
+  # stable: changing the name forces every protected branch to be
+  # reconfigured. The lint script's behavior may evolve, but the job
+  # name should not.
+  counter-antipattern-lint:
+    name: counter-antipattern-lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Lint counter-capture antipattern
+        run: bash scripts/lint-counter-antipattern.sh
+
+      - name: Show PASS/FAIL inventory (on failure or on demand)
+        if: always()
+        run: bash scripts/lint-counter-antipattern.sh --list || true
