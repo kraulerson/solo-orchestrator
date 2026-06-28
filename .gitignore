@@ -4,3 +4,8 @@
 # Internal planning documents (not tracked)
 V2_PLANNING.md
 test-logs/
+
+# Per-run pre-mutation snapshots from scripts/upgrade-project.sh
+# (code-upgrade-project-5 atomic finalize). Retained for forensics
+# under keep-3 retention; not project source.
+.claude/upgrade-snapshots/
