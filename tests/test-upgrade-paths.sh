@@ -482,5 +482,91 @@ rm -rf "$T"
 
 # ════════════════════════════════════════════════════════════════════
 echo ""
+echo "=== T6: CLAUDE.md POC-mode strip preserves surrounding prose (code-upgrade-project-4) ==="
+# ════════════════════════════════════════════════════════════════════
+#
+# Audit code-upgrade-project-4 regression: the python heredoc that
+# strips POC watermarks from CLAUDE.md when --to-production runs uses a
+# skip_block state that terminates ONLY on a blank line. A mid-paragraph
+# mention of "POC mode" or "POC constraints" inside a numbered list or
+# right before a markdown heading therefore swallows the trailing list
+# items / the heading and its body. Operator-customized CLAUDE.md files
+# can lose data silently. Default templated CLAUDE.md has no POC prose
+# so blast radius is operator-edits only — still a real correctness bug.
+#
+# Fix: broaden skip_block termination to also close on a markdown
+# heading line (starts with #) or a list-item line (-, *, +, or
+# numbered N.). T6a covers the list-item case; T6b covers the heading.
+
+# ── T6a: numbered list — items after a mid-list POC mention survive ──
+T=$(mktemp -d); P="$T/p"
+make_phase_state "$P" "standard" "organizational" '"sponsored_poc"'
+seed_approval_log_org_filled "$P"
+cat > "$P/CLAUDE.md" <<'EOF'
+# Project Identity
+
+**Track:** Standard
+**Deployment:** Organizational
+
+## Operating Checklist
+
+1. Review the project intake before each phase gate.
+2. POC mode is documented in section 4 below for context.
+3. CANARY-LIST-ITEM-THREE must be preserved.
+4. CANARY-LIST-ITEM-FOUR must be preserved.
+
+## Next Section
+
+CANARY-NEXT-SECTION-BODY must be preserved.
+EOF
+( cd "$P" && git add APPROVAL_LOG.md CLAUDE.md && git commit -q -m "seed approval log + claude.md" ) >/dev/null 2>&1
+( cd "$P" && bash "$UPGRADE" --to-production --non-interactive --ack-preconditions=1,2,3,4,5,6 ) > "$T/log" 2>&1
+rc=$?
+have_three=$(grep -c "CANARY-LIST-ITEM-THREE" "$P/CLAUDE.md" 2>/dev/null); have_three=${have_three:-0}
+have_four=$(grep -c "CANARY-LIST-ITEM-FOUR"  "$P/CLAUDE.md" 2>/dev/null); have_four=${have_four:-0}
+have_next=$(grep -c "CANARY-NEXT-SECTION-BODY" "$P/CLAUDE.md" 2>/dev/null); have_next=${have_next:-0}
+if [ "$rc" = "0" ] && [ "$have_three" -ge 1 ] && [ "$have_four" -ge 1 ] && [ "$have_next" -ge 1 ]; then
+  pass "T6a: numbered-list items after mid-list POC mention preserved through --to-production strip"
+else
+  fail_ "T6a" "rc=$rc have_three=$have_three have_four=$have_four have_next=$have_next. Log tail: $(tail -10 "$T/log" 2>/dev/null | tr '\n' '|')"
+fi
+rm -rf "$T"
+
+# ── T6b: heading after a "POC constraints" line is preserved ────────
+T=$(mktemp -d); P="$T/p"
+make_phase_state "$P" "standard" "organizational" '"sponsored_poc"'
+seed_approval_log_org_filled "$P"
+cat > "$P/CLAUDE.md" <<'EOF'
+# Project Identity
+
+**Track:** Standard
+**Deployment:** Organizational
+
+POC constraints apply during pilot.
+## Configuration
+
+CANARY-CONFIG-BODY must be preserved.
+
+## Deployment Notes
+
+CANARY-DEPLOY-BODY must be preserved.
+EOF
+( cd "$P" && git add APPROVAL_LOG.md CLAUDE.md && git commit -q -m "seed approval log + claude.md" ) >/dev/null 2>&1
+( cd "$P" && bash "$UPGRADE" --to-production --non-interactive --ack-preconditions=1,2,3,4,5,6 ) > "$T/log" 2>&1
+rc=$?
+have_config_head=$(grep -c "^## Configuration"  "$P/CLAUDE.md" 2>/dev/null); have_config_head=${have_config_head:-0}
+have_config_body=$(grep -c "CANARY-CONFIG-BODY" "$P/CLAUDE.md" 2>/dev/null); have_config_body=${have_config_body:-0}
+have_deploy_head=$(grep -c "^## Deployment Notes" "$P/CLAUDE.md" 2>/dev/null); have_deploy_head=${have_deploy_head:-0}
+have_deploy_body=$(grep -c "CANARY-DEPLOY-BODY" "$P/CLAUDE.md" 2>/dev/null); have_deploy_body=${have_deploy_body:-0}
+if [ "$rc" = "0" ] && [ "$have_config_head" -ge 1 ] && [ "$have_config_body" -ge 1 ] \
+   && [ "$have_deploy_head" -ge 1 ] && [ "$have_deploy_body" -ge 1 ]; then
+  pass "T6b: heading + body after 'POC constraints' line preserved through --to-production strip"
+else
+  fail_ "T6b" "rc=$rc config_head=$have_config_head config_body=$have_config_body deploy_head=$have_deploy_head deploy_body=$have_deploy_body. Log tail: $(tail -10 "$T/log" 2>/dev/null | tr '\n' '|')"
+fi
+rm -rf "$T"
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]
