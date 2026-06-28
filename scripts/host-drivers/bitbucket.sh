@@ -1,16 +1,53 @@
 #!/usr/bin/env bash
 # scripts/host-drivers/bitbucket.sh — Bitbucket driver.
 # Uses curl + Bitbucket Cloud REST API 2.0.
-# Credentials via env: BITBUCKET_USER + BITBUCKET_APP_PASSWORD (App Password with
-# repository:admin, project:admin, and pullrequest:write scopes).
+#
+# Credentials (one of, in precedence order; audit code-host-bitbucket-4):
+#   1. BITBUCKET_API_TOKEN — Bitbucket Cloud API token (sent as
+#      `Authorization: Bearer …`). PREFERRED. Atlassian is sunsetting
+#      App Passwords for Bitbucket Cloud in 2026; API tokens are the
+#      forward-compatible replacement.
+#   2. BITBUCKET_APP_PASSWORD — legacy App Password (sent as HTTP Basic
+#      `-u user:pw`). Still works today; will break on Atlassian's
+#      enforcement date. Requires BITBUCKET_USER alongside.
+#
+# Required for both:
+#   • BITBUCKET_WORKSPACE — workspace slug
+#   • BITBUCKET_USER — only required for App Password (Basic auth needs
+#     a username); ignored when BITBUCKET_API_TOKEN is set.
+#
+# Optional:
+#   • BITBUCKET_PROJECT_KEY — workspace project key for repo create.
+#     Required for workspaces without a default project (audit
+#     code-host-bitbucket-5). When unset, behavior matches pre-2026
+#     drivers (Bitbucket uses the workspace's default project, if any).
 
 host_name() { echo "bitbucket"; }
 
 _bb_api_base="https://api.bitbucket.org/2.0"
+
+# Emit the curl auth flag tokens for the current credential state.
+# Prints space-separated tokens that the caller injects into a curl
+# invocation, e.g. an Authorization Bearer header (API token) or
+# `-u $USER:$APP_PASSWORD` (legacy Basic auth — App Password path).
+# Precedence: API token (Bearer) > App Password (Basic).
+# Note: tokens are emitted one-per-line so the caller can read them
+# into an array and pass them through to curl without eval and without
+# losing whitespace inside the header value.
+_bb_auth_args() {
+  if [ -n "${BITBUCKET_API_TOKEN:-}" ]; then
+    printf -- '-H\nAuthorization: Bearer %s\n' "$BITBUCKET_API_TOKEN"
+  elif [ -n "${BITBUCKET_APP_PASSWORD:-}" ]; then
+    printf -- '-u\n%s:%s\n' "${BITBUCKET_USER:-}" "$BITBUCKET_APP_PASSWORD"
+  fi
+}
+
 _bb_curl() {
   # $1: method, $2: url, stdin: body (optional)
   local method="$1" url="$2"
-  curl -sSf -u "${BITBUCKET_USER}:${BITBUCKET_APP_PASSWORD}" \
+  local -a auth=()
+  while IFS= read -r tok; do auth+=("$tok"); done < <(_bb_auth_args)
+  curl -sSf "${auth[@]}" \
     -X "$method" \
     -H "Content-Type: application/json" \
     -H "Accept: application/json" \
@@ -19,29 +56,46 @@ _bb_curl() {
 }
 _bb_curl_no_body() {
   local method="$1" url="$2"
-  curl -sSf -u "${BITBUCKET_USER}:${BITBUCKET_APP_PASSWORD}" \
+  local -a auth=()
+  while IFS= read -r tok; do auth+=("$tok"); done < <(_bb_auth_args)
+  curl -sSf "${auth[@]}" \
     -X "$method" \
     -H "Accept: application/json" \
     "$url" 2>&1
 }
 
 host_require_cli() {
-  if [ -z "${BITBUCKET_USER:-}" ] || [ -z "${BITBUCKET_APP_PASSWORD:-}" ] || [ -z "${BITBUCKET_WORKSPACE:-}" ]; then
+  # Need workspace + at least one credential (API token OR App Password).
+  # App Password additionally requires BITBUCKET_USER for Basic auth.
+  local has_token has_app
+  has_token=0; has_app=0
+  [ -n "${BITBUCKET_API_TOKEN:-}" ] && has_token=1
+  if [ -n "${BITBUCKET_APP_PASSWORD:-}" ] && [ -n "${BITBUCKET_USER:-}" ]; then
+    has_app=1
+  fi
+  if [ -z "${BITBUCKET_WORKSPACE:-}" ] || { [ "$has_token" -eq 0 ] && [ "$has_app" -eq 0 ]; }; then
     printf '%s\n' \
       'bitbucket driver: credentials not configured.' \
       '' \
-      'Bitbucket Cloud requires an App Password (not your account password).' \
-      'Create one at: https://bitbucket.org/account/settings/app-passwords/' \
-      'Grant these scopes: repository:admin, project:admin, pullrequest:write' \
+      'Atlassian is deprecating Bitbucket Cloud App Passwords (2026); prefer an API token.' \
+      'Create an API token at: https://id.atlassian.com/manage-profile/security/api-tokens' \
       '' \
-      'Then export:' \
+      'Then export ONE of:' \
+      '  export BITBUCKET_API_TOKEN="your-api-token"     # PREFERRED (Bearer auth)' \
+      '  # …or the legacy App Password pair (sunset 2026):' \
       '  export BITBUCKET_USER="your-bitbucket-username"' \
       '  export BITBUCKET_APP_PASSWORD="your-app-password"' \
+      '' \
+      'Always export:' \
       '  export BITBUCKET_WORKSPACE="your-workspace-slug"' \
       '' \
       'BITBUCKET_WORKSPACE is the slug in your bitbucket.org/<workspace>/ URL.' \
       'For personal accounts it often (but not always) equals BITBUCKET_USER;' \
       'for org accounts it is the team slug, which differs from any single user.' \
+      '' \
+      'Optional — for workspaces without a default project (Bitbucket Cloud will' \
+      'otherwise reject POST /repositories/<ws>/<repo> with HTTP 400):' \
+      '  export BITBUCKET_PROJECT_KEY="PROJ"' \
       '' \
       'Consider adding those to your shell rc file (with mode 600 permissions).' >&2
     return 1
@@ -68,7 +122,23 @@ host_create_repo() {
   # workspace for org accounts where user != team slug.
   local workspace="$BITBUCKET_WORKSPACE"
 
-  local payload="{\"scm\":\"git\",\"is_private\":$is_private}"
+  # Audit code-host-bitbucket-5: include the project key when
+  # BITBUCKET_PROJECT_KEY is set. Bitbucket Cloud workspaces without
+  # a default project will 400 the create call without this field;
+  # workspaces with a default keep working when the env is unset
+  # (preserved backwards-compatibility). Use jq -nc to build the JSON
+  # so any unusual characters in the project key cannot break shell
+  # quoting.
+  local payload
+  if [ -n "${BITBUCKET_PROJECT_KEY:-}" ]; then
+    if ! payload=$(jq -nc --arg priv "$is_private" --arg key "$BITBUCKET_PROJECT_KEY" \
+        '{scm:"git", is_private:($priv=="true"), project:{key:$key}}'); then
+      echo "bitbucket driver: failed to encode repo-create payload (jq)" >&2
+      return 1
+    fi
+  else
+    payload="{\"scm\":\"git\",\"is_private\":$is_private}"
+  fi
   local resp
   if ! resp=$(echo "$payload" | _bb_curl POST "$_bb_api_base/repositories/$workspace/$name"); then
     echo "bitbucket driver: repo create failed" >&2
@@ -109,11 +179,48 @@ host_configure_protection() {
   workspace_repo=$(_bb_parse_origin) || return 1
 
   # Delete existing restrictions on this branch (idempotency).
+  #
+  # Audit code-host-bitbucket-3: validate the GET response shape before
+  # blindly proceeding to POSTs. Pre-fix the GET was captured with
+  # `2>/dev/null || echo '{}'` — a 4xx/5xx body or any non-JSON response
+  # silently degraded to "no existing restrictions", and the subsequent
+  # POST would fail with a misleading "failed to set <kind> restriction"
+  # message that hid the real (listing-failure) root cause.
+  #
+  # Two-step approach:
+  #   (a) Validate the GET parses as JSON with a `.values` array. If not,
+  #       emit a clear stderr diagnostic naming the failure and a body
+  #       snippet, then return 2 BEFORE attempting any POST.
+  #   (b) For each DELETE, capture stderr+stdout. If the DELETE fails,
+  #       buffer the diagnostic; when SOIF_DEBUG is set OR a downstream
+  #       POST later fails, emit the buffered diagnostic so the operator
+  #       sees which leftover restriction blocked creation.
   local existing
-  existing=$(_bb_curl_no_body GET "$_bb_api_base/repositories/$workspace_repo/branch-restrictions?pattern=$branch" 2>/dev/null || echo '{}')
-  echo "$existing" | jq -r '.values[].id // empty' 2>/dev/null | while read -r id; do
-    [ -n "$id" ] && _bb_curl_no_body DELETE "$_bb_api_base/repositories/$workspace_repo/branch-restrictions/$id" >/dev/null 2>&1
-  done
+  existing=$(_bb_curl_no_body GET "$_bb_api_base/repositories/$workspace_repo/branch-restrictions?pattern=$branch")
+  local listing_rc=$?
+  if [ "$listing_rc" -ne 0 ] || ! echo "$existing" | jq -e '.values | type == "array"' >/dev/null 2>&1; then
+    local snippet
+    snippet=$(printf '%s' "$existing" | head -c 200)
+    printf 'bitbucket driver: could not list existing restrictions for %s on %s (rc=%s): %s\n' \
+      "$branch" "$workspace_repo" "$listing_rc" "$snippet" >&2
+    return 2
+  fi
+  local delete_diag=""
+  local ids
+  ids=$(echo "$existing" | jq -r '.values[].id // empty' 2>/dev/null)
+  if [ -n "$ids" ]; then
+    while IFS= read -r id; do
+      [ -z "$id" ] && continue
+      local del_out
+      if ! del_out=$(_bb_curl_no_body DELETE "$_bb_api_base/repositories/$workspace_repo/branch-restrictions/$id" 2>&1); then
+        delete_diag="${delete_diag}bitbucket driver: failed to delete leftover restriction $id on $branch: $(printf '%s' "$del_out" | head -c 200)
+"
+      fi
+    done <<< "$ids"
+  fi
+  if [ -n "$delete_diag" ] && [ -n "${SOIF_DEBUG:-}" ]; then
+    printf '%s' "$delete_diag" >&2
+  fi
 
   # Create restrictions: force-push off, delete off (both modes)
   local kind
