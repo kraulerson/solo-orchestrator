@@ -1516,7 +1516,7 @@ PROMPTEOF
    - Section 7 (Revenue Model): skip if track is Light or deployment is Personal with internal users
    - Section 8 (Governance): skip if deployment is Personal
 7. For Section 8 (Governance, organizational only): ask which mode — Production Build, Sponsored POC, or Private POC. Explain each:
-   - **Production Build:** All 8 pre-conditions required. Full governance.
+   - **Production Build:** All 6 pre-conditions required. Full governance.
    - **Sponsored POC:** Organization knows. AI deployment path + sponsor + time allocation required. Insurance, liability, ITSM, exit criteria, backup maintainer deferred. Constraints: no production deployment, no real user data, no external users. All technical work is production-grade.
    - **Private POC:** Personal exploration. All pre-conditions deferred. Same constraints as Sponsored POC.
 8. Write completed sections into PROJECT_INTAKE.md progressively as you go.

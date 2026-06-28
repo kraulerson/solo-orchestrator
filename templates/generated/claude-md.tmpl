@@ -57,7 +57,7 @@ At the start of every new session, before any other work:
 - The Approval Log (`APPROVAL_LOG.md`) records all phase gate approvals.
 - The phase state file (`.claude/phase-state.json`) tracks the current phase mechanically.
 - **Phase gates are CI-enforced.** If `phase-state.json` and `APPROVAL_LOG.md` are out of sync, CI will block the merge. Keep them consistent.
-- At each phase gate transition (Phase 0→1, Phase 1→2, Phase 3→4):
+- At each phase gate transition (Phase 0→1, Phase 1→2, Phase 2→3, Phase 3→4):
   1. Prompt the Orchestrator: "This phase gate requires approval. Please update APPROVAL_LOG.md with the approver name, date, method, and reference before proceeding to the next phase."
   2. After the Orchestrator confirms, update `.claude/phase-state.json`: set `current_phase` to the new phase number and set the corresponding gate date (e.g., `"phase_0_to_1": "YYYY-MM-DD"`).
   3. Commit both files together.

@@ -263,7 +263,7 @@ If you want to validate the framework before completing all governance approvals
 | Mode | What's Required | What's Deferred |
 |---|---|---|
 | **Sponsored POC** | AI deployment path, project sponsor, time allocation | Insurance, liability entity, ITSM, exit criteria, backup maintainer |
-| **Private POC** | Nothing — personal exploration on your own time | All 8 pre-conditions |
+| **Private POC** | Nothing — personal exploration on your own time | All 6 pre-conditions |
 
 **POC constraints:** No production deployment, no real user data, no external users. All technical work (code, tests, scans, documentation) is production-grade and carries forward unchanged.
 
