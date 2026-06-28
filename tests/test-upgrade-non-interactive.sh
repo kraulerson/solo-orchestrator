@@ -147,6 +147,11 @@ t6_no_target_flag_is_error() {
 
 t7_real_upgrade_still_works() {
   # Regression: ensure the existing non-validate path still runs end-to-end.
+  # Per audit code-upgrade-project-1 + tier-crosscheck-3 (2026-06) the
+  # --to-private-poc path resolves to the personal deployment tier — Private
+  # POC is always personal per baseline §2.5. (Pre-audit behavior coerced it
+  # to organizational; the audit fix corrected that. T7 used to assert the
+  # old, incorrect shape — updated here.)
   setup_personal_project
   local out rc=0
   out=$(cd "$TMPDIR_T" && "$SCRIPT" --to-private-poc </dev/null 2>&1) || rc=$?
@@ -155,11 +160,11 @@ t7_real_upgrade_still_works() {
     teardown_project; return
   fi
   local deploy poc; deploy=$(jq -r '.deployment' "$TMPDIR_T/.claude/phase-state.json"); poc=$(jq -r '.poc_mode' "$TMPDIR_T/.claude/phase-state.json")
-  if [ "$deploy" != "organizational" ] || [ "$poc" != "private_poc" ]; then
-    fail_ "T7" "regression: post-upgrade state wrong (deploy=$deploy poc=$poc)"
+  if [ "$deploy" != "personal" ] || [ "$poc" != "private_poc" ]; then
+    fail_ "T7" "regression: post-upgrade state wrong (deploy=$deploy poc=$poc; expected personal/private_poc per audit-1)"
     teardown_project; return
   fi
-  pass "T7: real --to-private-poc upgrade still works (regression check)"
+  pass "T7: real --to-private-poc upgrade still works (regression check; personal/private_poc per audit-1)"
   teardown_project
 }
 
