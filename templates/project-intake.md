@@ -380,8 +380,8 @@ _Skip this section for personal projects. For organizational deployments, every 
 | **Project sponsor assigned** | Not Started / In Progress / Complete | _Name:_ | Yes |
 | **Backup maintainer designated** | Not Started / In Progress / Complete | _Name:_ | Yes |
 | **ITSM ticket filed / portfolio registered** | Not Started / In Progress / Complete | _Ticket #:_ | Yes |
-| **Exit criteria defined** | Not Started / In Progress / Complete | | Yes |
-| **Orchestrator time allocation approved** | Not Started / In Progress / Complete | _Hours/week, blocked or interleaved_ | Yes |
+| **Exit criteria defined** | Not Started / In Progress / Complete | _See Section 8.5 below_ | Required (not blocking — pilot prep, see Governance Framework §XIV) |
+| **Orchestrator time allocation approved** | Not Started / In Progress / Complete | _Hours/week, blocked or interleaved_ | Required (not blocking — pilot prep, see Governance Framework §XIV) |
 
 ### 8.2 Approval Authorities
 

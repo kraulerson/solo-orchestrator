@@ -669,6 +669,7 @@ fix_phase_state() {
   "gates": {
     "phase_0_to_1": null,
     "phase_1_to_2": null,
+    "phase_2_to_3": null,
     "phase_3_to_4": null
   }
 }

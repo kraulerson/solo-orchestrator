@@ -331,6 +331,8 @@ For an organization evaluating this model, expect **4-12 weeks to resolve organi
 7. Scope constraint: internal-only, non-critical, no PII
 8. Exit criteria defined
 9. Orchestrator time allocation approved
+10. Compliance screening completed (Intake §8.4)
+11. Governance enforcement test planned
 
 ### Pilot Timeline
 
