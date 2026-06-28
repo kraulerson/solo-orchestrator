@@ -27,11 +27,29 @@ mock_cli_respond() {
   mkdir -p "$dir/.fixtures"
 
   # Each stub writes its arg-line, consults fixtures, and exits.
+  # Stdin discipline: drain any piped payload before exiting. The bitbucket
+  # driver pipes JSON to `curl --data-binary @-`; the gitlab driver pipes
+  # JSON to `glab api ... --input -`. Without draining, the producer can
+  # race against stub exit (SIGPIPE) or leave bytes in the pipe buffer.
+  # `cat >/dev/null` is a no-op when nothing is piped (read returns EOF
+  # immediately), so this is safe for all callers.
+  #
+  # Stderr discipline: stubs MUST NOT write to stderr on the success path —
+  # the bitbucket driver merges stderr into stdout via `curl ... 2>&1`, so
+  # any stray diagnostic gets folded into the response body and crashes jq
+  # downstream. Stderr is only emitted from the unmatched-fixture branch
+  # (intentional failure mode, exit 127).
   cat > "$stub" <<'STUB_EOF'
 #!/usr/bin/env bash
 fixture_dir="$(dirname "$0")/.fixtures"
 cli="$(basename "$0")"
 args="$*"
+# Drain stdin if data is piped in (POST/PUT bodies). Stdin from a terminal
+# would block read; check first via `[ -t 0 ]`. When a pipe/file is on stdin
+# (`[ -t 0 ]` false), read+discard everything.
+if [ ! -t 0 ]; then
+  cat >/dev/null 2>&1 || true
+fi
 # Find first matching fixture file: <cli>.<hash-of-pattern>
 for f in "$fixture_dir/$cli".*; do
   [ -f "$f" ] || continue

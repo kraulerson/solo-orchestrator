@@ -666,13 +666,15 @@ No first-party CLI. Uses `curl` plus a Bitbucket App Password.
 
 1. Generate an App Password at <https://bitbucket.org/account/settings/app-passwords/>
    - Required scopes: `repository:admin`, `project:admin`, `pullrequest:write`
-2. Export credentials:
+2. Export credentials (all three are required — audit code-host-bitbucket-1):
    ```bash
    export BITBUCKET_USER="your-bitbucket-username"
    export BITBUCKET_APP_PASSWORD="your-app-password"
-   # For org workspaces, also:
-   export BITBUCKET_WORKSPACE="org-name"
+   export BITBUCKET_WORKSPACE="your-workspace-slug"
    ```
+   `BITBUCKET_WORKSPACE` is the slug in your `bitbucket.org/<workspace>/` URL.
+   For personal accounts it often (but not always) equals `BITBUCKET_USER`;
+   for org accounts it is the team slug, which differs from any single user.
 3. Add to your shell rc (`.bashrc` / `.zshrc`) for persistence. Ensure mode 600 if any secrets live in it.
 
 ### Other hosts (Gitea, Codeberg, self-hosted)
