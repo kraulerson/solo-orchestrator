@@ -61,6 +61,47 @@ if [ "$TERMINAL_MODE" -eq 1 ]; then
     fi
   fi
 
+  # --- Cycle-8 slot-5: operator-side lint promotion (terminal-mode) ---
+  # Counter-antipattern + backlog-references lints fire on user-terminal
+  # commits too. SKIP_LINT=1 escape mirrors the PreToolUse path.
+  if [ "${SKIP_LINT:-0}" = "1" ]; then
+    echo "[pre-commit-gate] SKIP_LINT=1 set — bypassing counter-antipattern + backlog-references lints" >&2
+  else
+    # Counter-antipattern: prefer project-local copy (framework installs
+    # the script alongside pre-commit-gate.sh in scripts/), fall back to
+    # the framework's own copy when running from the framework repo.
+    CA_LINT=""
+    for cand in "$PROJECT_ROOT/scripts/lint-counter-antipattern.sh" \
+                "$SCRIPT_DIR/lint-counter-antipattern.sh"; do
+      [ -f "$cand" ] && { CA_LINT="$cand"; break; }
+    done
+    if [ -n "$CA_LINT" ]; then
+      if ! ca_out=$(bash "$CA_LINT" 2>&1); then
+        echo "[FRAMEWORK GATE — strict mode] counter-antipattern lint failed:" >&2
+        echo "$ca_out" >&2
+        echo "" >&2
+        echo "To bypass anyway:  SKIP_LINT=1 git commit ..." >&2
+        exit 1
+      fi
+    fi
+
+    BR_LINT=""
+    for cand in "$PROJECT_ROOT/scripts/lint-backlog-references.sh" \
+                "$SCRIPT_DIR/lint-backlog-references.sh"; do
+      [ -f "$cand" ] && { BR_LINT="$cand"; break; }
+    done
+    if [ -n "$BR_LINT" ] && [ -n "$COMMIT_MSG" ]; then
+      if ! br_out=$(printf '%s' "$COMMIT_MSG" | bash "$BR_LINT" --pre-commit-mode 2>&1); then
+        echo "[FRAMEWORK GATE — strict mode] backlog-references lint failed:" >&2
+        echo "$br_out" >&2
+        echo "" >&2
+        echo "To bypass anyway:  SKIP_LINT=1 git commit ..." >&2
+        exit 1
+      fi
+    fi
+  fi
+  # --- end cycle-8 slot-5 terminal-mode block ---
+
   exit 0
 fi
 
@@ -296,6 +337,126 @@ HOOKEOF
 
 bl006_check
 # --- end BL-006 block ---
+
+# --- Cycle-8 slot-5: operator-side lint promotion ---
+# Promotes the two CI lints (PR #72 counter-antipattern, PR #76
+# backlog-references) from CI-only to ALSO running at commit time, so
+# regressions are caught locally before reaching CI. Two integration
+# points share the same enforcement:
+#   • PreToolUse path (this function): re-extracts the prospective
+#     commit message from the Bash command (same heuristics as
+#     bl006_check) and pipes it to lint-backlog-references.sh
+#     --pre-commit-mode. Counter-antipattern lint runs unconditionally
+#     because it's a full-tree scan, not message-scoped.
+#   • --terminal-mode branch (above): same two lints, reading the
+#     message from .git/COMMIT_EDITMSG.
+# SKIP_LINT=1 escape hatch: a misconfigured pre-commit-gate.sh or a
+# transient lint regression must not strand the operator. The escape
+# is logged via stderr so emergency use is visible. Pair with the
+# bypass-audit ledger via the SessionStart detector — the bypass is
+# still recorded as a recoverable signal.
+
+# Extract a one-line subject from the prospective commit message (same
+# heuristics as bl006_check). Returns the body too if heredoc was used.
+extract_commit_message() {
+  local msg=""
+  # 1. Heredoc — return the full body between the EOF markers so the
+  # backlog-references lint can scan tokens anywhere in the message.
+  if echo "$COMMAND" | grep -qE "<<'?EOF'?"; then
+    msg=$(printf '%s\n' "$COMMAND" | awk '
+      /<<'"'"'?EOF'"'"'?/ { flag=1; next }
+      /^EOF$/ { flag=0 }
+      flag { print }
+    ')
+  fi
+  # 2. Inline -m "..."
+  if [ -z "$msg" ]; then
+    msg=$(printf '%s' "$COMMAND" | sed -nE 's/.*-m "([^"]*)".*/\1/p' | head -n 1)
+    if [ -z "$msg" ]; then
+      msg=$(printf '%s' "$COMMAND" | sed -nE "s/.*-m '([^']*)'.*/\\1/p" | head -n 1)
+    fi
+  fi
+  # 3. -F <file>
+  if [ -z "$msg" ] && echo "$COMMAND" | grep -qE '\-F[[:space:]]+[^ ]+'; then
+    local f
+    f=$(echo "$COMMAND" | sed -nE 's/.*-F[[:space:]]+([^ ]+).*/\1/p' | head -n 1)
+    if [ -n "$f" ] && [ -r "$f" ]; then
+      msg=$(cat "$f")
+    fi
+  fi
+  printf '%s' "$msg"
+}
+
+emit_lint_block() {
+  local reason
+  reason=$(echo "$1" | tr '\n' ' ' | sed 's/"/\\"/g')
+  cat << HOOKEOF
+{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "$reason"}}
+HOOKEOF
+  exit 0
+}
+
+lints_check() {
+  _is_git_commit "$COMMAND" || return 0
+
+  # Derivative-commit filters: same as bl006_check.
+  echo "$COMMAND" | grep -qE '\-\-amend\b' && return 0
+  [ -f .git/MERGE_HEAD ] && return 0
+  echo "$COMMAND" | grep -qE '\bgit\b.*\b(merge|revert|cherry-pick)\b' && return 0
+  echo "$COMMAND" | grep -qE '\bgh\b.*\bpr\b.*\bmerge\b.*\-\-squash' && return 0
+
+  # Escape hatch.
+  if [ "${SKIP_LINT:-0}" = "1" ]; then
+    echo "[pre-commit-gate] SKIP_LINT=1 set — bypassing counter-antipattern + backlog-references lints" >&2
+    return 0
+  fi
+
+  # Prefer the project-local copy of each lint (upgrade-project.sh
+  # installs both lints into the project's scripts/ dir alongside
+  # pre-commit-gate.sh). Fall back to the framework copy so the gate
+  # still self-checks when run from the framework repo's own working
+  # tree. Project root = `git rev-parse --show-toplevel` from the
+  # current cwd, since Claude Code invokes the hook from the project.
+  local proj_root ca_lint="" br_lint=""
+  proj_root=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+  for cand in "$proj_root/scripts/lint-counter-antipattern.sh" \
+              "$SCRIPT_DIR/lint-counter-antipattern.sh"; do
+    [ -n "$cand" ] && [ -f "$cand" ] && { ca_lint="$cand"; break; }
+  done
+  for cand in "$proj_root/scripts/lint-backlog-references.sh" \
+              "$SCRIPT_DIR/lint-backlog-references.sh"; do
+    [ -n "$cand" ] && [ -f "$cand" ] && { br_lint="$cand"; break; }
+  done
+
+  # Counter-antipattern: full repo-relative scan, fast.
+  if [ -n "$ca_lint" ]; then
+    local ca_out ca_exit=0
+    ca_out=$(bash "$ca_lint" 2>&1) || ca_exit=$?
+    if [ "$ca_exit" -ne 0 ]; then
+      emit_lint_block "pre-commit gate: scripts/lint-counter-antipattern.sh failed. ${ca_out} Fix the antipattern or append '# lint-counter-antipattern: allow <reason>' to the capture line. Run 'SKIP_LINT=1 git commit ...' to bypass in an emergency (logged to .claude/bypass-audit.json)."
+    fi
+  fi
+
+  # Backlog-references: needs the prospective commit message.
+  if [ -n "$br_lint" ]; then
+    local msg
+    msg=$(extract_commit_message)
+    # Empty message → editor case; skip the lint (the editor will
+    # produce a message that the post-commit history will catch).
+    if [ -n "$msg" ]; then
+      local br_out br_exit=0
+      br_out=$(printf '%s' "$msg" | bash "$br_lint" --pre-commit-mode 2>&1) || br_exit=$?
+      if [ "$br_exit" -ne 0 ]; then
+        emit_lint_block "pre-commit gate: scripts/lint-backlog-references.sh failed. ${br_out} Add the missing BL entry, fix the typo, or add the citation/allowlist marker. Run 'SKIP_LINT=1 git commit ...' to bypass in an emergency (logged to .claude/bypass-audit.json)."
+      fi
+    fi
+  fi
+
+  return 0
+}
+
+lints_check
+# --- end cycle-8 slot-5 block ---
 
 # Block git push --force (overwrites branch history)
 if echo "$COMMAND" | grep -qE '\bgit\b.*\bpush\b.*(-f|--force)'; then

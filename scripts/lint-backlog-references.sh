@@ -72,6 +72,21 @@
 #   bash scripts/lint-backlog-references.sh                      # quiet pass/fail
 #   bash scripts/lint-backlog-references.sh --base origin/main   # explicit base
 #   bash scripts/lint-backlog-references.sh --list               # PASS/FAIL table
+#   bash scripts/lint-backlog-references.sh --pre-commit-mode \  # pre-commit
+#     --message "feat: do thing (BL-031)"                        # gate use
+#   echo "feat: x (BL-031)" \                                    # OR pipe the
+#     | bash scripts/lint-backlog-references.sh --pre-commit-mode #   message
+#
+# PRE-COMMIT MODE
+#   Skips Step 2 (the BASE..HEAD commit-message walk) — there is no
+#   commit yet at pre-commit time, so `git log` would be a no-op or,
+#   worse, walk historical commits the operator can't fix from this
+#   commit. Instead, the prospective commit message is supplied via
+#   `--message <text>` or stdin and scanned for `BL-NNN` tokens.
+#   Step 3 (backlog-block scan for Closed/Resolved without citation)
+#   runs unchanged — it's structural on the backlog file, independent
+#   of git history. This is the contract scripts/pre-commit-gate.sh
+#   relies on when invoking the lint at commit time.
 
 set -uo pipefail
 
@@ -80,6 +95,8 @@ BACKLOG="$REPO_ROOT/solo-orchestrator-backlog.md"
 
 LIST_MODE=0
 BASE_REF="origin/main"
+PRE_COMMIT_MODE=0
+PRE_COMMIT_MSG=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -89,18 +106,42 @@ while [ $# -gt 0 ]; do
       ;;
     --base)
       if [ -z "${2:-}" ]; then
-        echo "Usage: $0 [--list] [--base <ref>]" >&2
+        echo "Usage: $0 [--list] [--base <ref>] [--pre-commit-mode [--message <text>]]" >&2
         exit 2
       fi
       BASE_REF="$2"
       shift 2
       ;;
+    --pre-commit-mode)
+      PRE_COMMIT_MODE=1
+      shift
+      ;;
+    --message)
+      if [ -z "${2:-}" ]; then
+        echo "Usage: $0 [--list] [--base <ref>] [--pre-commit-mode [--message <text>]]" >&2
+        exit 2
+      fi
+      PRE_COMMIT_MSG="$2"
+      shift 2
+      ;;
     *)
-      echo "Usage: $0 [--list] [--base <ref>]" >&2
+      echo "Usage: $0 [--list] [--base <ref>] [--pre-commit-mode [--message <text>]]" >&2
       exit 2
       ;;
   esac
 done
+
+# In pre-commit mode, if --message was not supplied, read the prospective
+# commit message from stdin. The pre-commit-gate.sh PreToolUse path uses
+# --message (it has parsed the message out of the Bash arg); the
+# --terminal-mode path pipes .git/COMMIT_EDITMSG over stdin.
+if [ "$PRE_COMMIT_MODE" -eq 1 ] && [ -z "$PRE_COMMIT_MSG" ]; then
+  if [ -t 0 ]; then
+    echo "lint-backlog-references: --pre-commit-mode requires --message <text> OR a message on stdin" >&2
+    exit 2
+  fi
+  PRE_COMMIT_MSG=$(cat)
+fi
 
 if [ ! -f "$BACKLOG" ]; then
   echo "FATAL: backlog file not found at $BACKLOG" >&2
@@ -136,53 +177,90 @@ normalize_id() {
 VIOLATIONS=0
 LIST_ROWS=""
 
-# ── Step 2: Scan commit messages BASE..HEAD for BL references ──────
-# Use a per-commit walk so we can name the offending SHA in diagnostics.
-COMMIT_SHAS=()
-while IFS= read -r sha; do
-  [ -n "$sha" ] && COMMIT_SHAS+=("$sha")
-done < <(git log "${BASE_REF}..HEAD" --pretty='%H' 2>/dev/null || true)
+# ── Step 2: Scan commit messages for BL references ─────────────────
+# Two modes:
+#   • Default: walk git log BASE..HEAD (CI / post-commit use).
+#   • --pre-commit-mode: scan the single prospective message that
+#     pre-commit-gate.sh supplied via --message or stdin. No git log
+#     happens because the commit doesn't yet exist; the branch-scoped
+#     ignore footer is honored within that single message body.
+if [ "$PRE_COMMIT_MODE" -eq 1 ]; then
+  # Single-message scan. The ignore footer is parsed from THIS message
+  # so an operator can self-exempt placeholder tokens in the same
+  # commit (no out-of-band amend needed).
+  BRANCH_IGNORE=" $(printf '%s' "$PRE_COMMIT_MSG" \
+    | grep -oiE 'lint-backlog-references-ignore:[[:space:]]*[A-Za-z0-9_,[:space:]-]+' \
+    | sed -E 's/^[Ll]int-[Bb]acklog-[Rr]eferences-[Ii]gnore:[[:space:]]*//' \
+    | tr ',' ' ' | tr '[:lower:]' '[:upper:]' | tr -s '[:space:]' ' ') "
 
-# Branch-scoped token allowlist: aggregate every
-# `lint-backlog-references-ignore: <CSV>` footer across ALL commits
-# in BASE..HEAD, normalize to upper-case, store as a space-padded
-# string for cheap substring lookup. Scope is branch-wide so a
-# later commit can retroactively exempt prose in an earlier commit
-# without rewriting history.
-RANGE_MSG=$(git log "${BASE_REF}..HEAD" --pretty='%s%n%b' 2>/dev/null || true)
-BRANCH_IGNORE=" $(printf '%s' "$RANGE_MSG" \
-  | grep -oiE 'lint-backlog-references-ignore:[[:space:]]*[A-Za-z0-9_,[:space:]-]+' \
-  | sed -E 's/^[Ll]int-[Bb]acklog-[Rr]eferences-[Ii]gnore:[[:space:]]*//' \
-  | tr ',' ' ' | tr '[:lower:]' '[:upper:]' | tr -s '[:space:]' ' ') "
-
-for sha in "${COMMIT_SHAS[@]:-}"; do
-  [ -z "$sha" ] && continue
-  # Extract subject + body, scan for BL-NNN tokens (case-insensitive).
-  msg=$(git log -1 --pretty='%s%n%b' "$sha" 2>/dev/null || true)
-  # Use grep -oE; tokens may repeat — dedupe per commit.
-  tokens=$(printf '%s' "$msg" | grep -oiE 'BL-[0-9]+[a-z]?' | sort -u || true)
-  if [ -z "$tokens" ]; then
-    continue
+  tokens=$(printf '%s' "$PRE_COMMIT_MSG" | grep -oiE 'BL-[0-9]+[a-z]?' | sort -u || true)
+  if [ -n "$tokens" ]; then
+    while IFS= read -r raw_tok; do
+      [ -z "$raw_tok" ] && continue
+      tok=$(normalize_id "$raw_tok")
+      case "$BRANCH_IGNORE" in
+        *" $tok "*)
+          LIST_ROWS="${LIST_ROWS}PASS\tpre-commit\t${tok}\tin-message-ignore\n"
+          continue
+          ;;
+      esac
+      if is_valid_id "$tok"; then
+        LIST_ROWS="${LIST_ROWS}PASS\tpre-commit\t${tok}\treferences existing backlog entry\n"
+      else
+        echo "lint-backlog-references: unknown BL reference '${tok}' in prospective commit message" >&2
+        VIOLATIONS=$((VIOLATIONS + 1))
+        LIST_ROWS="${LIST_ROWS}FAIL\tpre-commit\t${tok}\tunknown BL reference\n"
+      fi
+    done <<< "$tokens"
   fi
-  while IFS= read -r raw_tok; do
-    [ -z "$raw_tok" ] && continue
-    tok=$(normalize_id "$raw_tok")
-    # Skip allowlisted tokens (branch-scoped).
-    case "$BRANCH_IGNORE" in
-      *" $tok "*)
-        LIST_ROWS="${LIST_ROWS}PASS\tcommit ${sha:0:7}\t${tok}\tbranch-scoped-ignore\n"
-        continue
-        ;;
-    esac
-    if is_valid_id "$tok"; then
-      LIST_ROWS="${LIST_ROWS}PASS\tcommit ${sha:0:7}\t${tok}\treferences existing backlog entry\n"
-    else
-      echo "lint-backlog-references: unknown BL reference '${tok}' in commit ${sha:0:7}" >&2
-      VIOLATIONS=$((VIOLATIONS + 1))
-      LIST_ROWS="${LIST_ROWS}FAIL\tcommit ${sha:0:7}\t${tok}\tunknown BL reference\n"
+else
+  # Use a per-commit walk so we can name the offending SHA in diagnostics.
+  COMMIT_SHAS=()
+  while IFS= read -r sha; do
+    [ -n "$sha" ] && COMMIT_SHAS+=("$sha")
+  done < <(git log "${BASE_REF}..HEAD" --pretty='%H' 2>/dev/null || true)
+
+  # Branch-scoped token allowlist: aggregate every
+  # `lint-backlog-references-ignore: <CSV>` footer across ALL commits
+  # in BASE..HEAD, normalize to upper-case, store as a space-padded
+  # string for cheap substring lookup. Scope is branch-wide so a
+  # later commit can retroactively exempt prose in an earlier commit
+  # without rewriting history.
+  RANGE_MSG=$(git log "${BASE_REF}..HEAD" --pretty='%s%n%b' 2>/dev/null || true)
+  BRANCH_IGNORE=" $(printf '%s' "$RANGE_MSG" \
+    | grep -oiE 'lint-backlog-references-ignore:[[:space:]]*[A-Za-z0-9_,[:space:]-]+' \
+    | sed -E 's/^[Ll]int-[Bb]acklog-[Rr]eferences-[Ii]gnore:[[:space:]]*//' \
+    | tr ',' ' ' | tr '[:lower:]' '[:upper:]' | tr -s '[:space:]' ' ') "
+
+  for sha in "${COMMIT_SHAS[@]:-}"; do
+    [ -z "$sha" ] && continue
+    # Extract subject + body, scan for BL-NNN tokens (case-insensitive).
+    msg=$(git log -1 --pretty='%s%n%b' "$sha" 2>/dev/null || true)
+    # Use grep -oE; tokens may repeat — dedupe per commit.
+    tokens=$(printf '%s' "$msg" | grep -oiE 'BL-[0-9]+[a-z]?' | sort -u || true)
+    if [ -z "$tokens" ]; then
+      continue
     fi
-  done <<< "$tokens"
-done
+    while IFS= read -r raw_tok; do
+      [ -z "$raw_tok" ] && continue
+      tok=$(normalize_id "$raw_tok")
+      # Skip allowlisted tokens (branch-scoped).
+      case "$BRANCH_IGNORE" in
+        *" $tok "*)
+          LIST_ROWS="${LIST_ROWS}PASS\tcommit ${sha:0:7}\t${tok}\tbranch-scoped-ignore\n"
+          continue
+          ;;
+      esac
+      if is_valid_id "$tok"; then
+        LIST_ROWS="${LIST_ROWS}PASS\tcommit ${sha:0:7}\t${tok}\treferences existing backlog entry\n"
+      else
+        echo "lint-backlog-references: unknown BL reference '${tok}' in commit ${sha:0:7}" >&2
+        VIOLATIONS=$((VIOLATIONS + 1))
+        LIST_ROWS="${LIST_ROWS}FAIL\tcommit ${sha:0:7}\t${tok}\tunknown BL reference\n"
+      fi
+    done <<< "$tokens"
+  done
+fi
 
 # ── Step 3: Scan backlog blocks for Closed/Resolved without citation ──
 #
