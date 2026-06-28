@@ -224,6 +224,7 @@ cat > "$PROJ/BUGS.md" <<'MD'
 MD
 out=$(run_gate)
 ok_count=$(echo "$out" | grep -c 'No open SEV-1\|No open SEV-2 fix-now\|No deferred SEV-2\|No open SEV-3' || true)
+case "$ok_count" in ''|*[!0-9]*) ok_count=0 ;; esac
 if echo "$out" | grep -q "integer expression expected"; then
   fail_ "T4" "integer leak on zero-bug scenario; out:\n$(echo "$out" | grep -i integer)"
 elif [ "$ok_count" -ge 4 ]; then

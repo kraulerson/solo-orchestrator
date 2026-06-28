@@ -626,9 +626,9 @@ names_light=$(get_all_tool_names "$output_light_all")
 names_standard=$(get_all_tool_names "$output_standard_all")
 names_full=$(get_all_tool_names "$output_full_all")
 
-count_light=$(echo "$names_light" | grep -c . || true)
-count_standard=$(echo "$names_standard" | grep -c . || true)
-count_full=$(echo "$names_full" | grep -c . || true)
+count_light=$(echo "$names_light" | grep -c . || true) # lint-counter-antipattern: allow value is echoed for human inspection in the upgrade-path diagnostic output only, never used in arithmetic or test gating
+count_standard=$(echo "$names_standard" | grep -c . || true) # lint-counter-antipattern: allow value is echoed for human inspection in the upgrade-path diagnostic output only, never used in arithmetic or test gating
+count_full=$(echo "$names_full" | grep -c . || true) # lint-counter-antipattern: allow value is echoed for human inspection in the upgrade-path diagnostic output only, never used in arithmetic or test gating
 
 echo "  web/typescript tool counts: light=$count_light, standard=$count_standard, full=$count_full"
 echo ""

@@ -91,7 +91,7 @@ VIOLATIONS=0
 VIOLATION_LINES=""
 
 # --- File-level check 2: duplicate scenario ids ---
-DUP_IDS=$(echo "$SCENARIOS_JSON" | jq -r '[.[] | .id] | group_by(.) | map(select(length > 1) | .[0]) | .[]' 2>/dev/null || true)
+DUP_IDS=$(echo "$SCENARIOS_JSON" | jq -r '[.[] | .id] | group_by(.) | map(select(length > 1) | .[0]) | .[]' 2>/dev/null || true) # lint-counter-antipattern: allow jq emits a newline-delimited string of duplicate ids (or empty), tested via `[ -n "$DUP_IDS" ]` and then iterated line-by-line; value is never used in arithmetic comparison, so a multi-line capture is the intended shape
 if [ -n "$DUP_IDS" ]; then
   while IFS= read -r id; do
     [ -z "$id" ] && continue

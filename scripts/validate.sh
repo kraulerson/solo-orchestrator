@@ -95,7 +95,7 @@ print_section "CI/CD Pipelines"
 if [ -f ".github/workflows/release.yml" ]; then
   # Check if release pipeline still has uncommented TODO placeholders
   todo_count=$(grep -cE "# TODO|echo.*TODO" .github/workflows/release.yml 2>/dev/null || true)
-  todo_count=${todo_count:-0}
+  case "$todo_count" in ''|*[!0-9]*) todo_count=0 ;; esac
   if [ "$todo_count" -gt 0 ]; then
     print_ok "Release pipeline (${todo_count} TODOs remaining — configure before first release)"
   else
@@ -343,12 +343,10 @@ print_section "Intake Completeness"
 if [ -f "PROJECT_INTAKE.md" ]; then
   # Count blank table cells (likely unfilled fields)
   blank_cells=$(grep -cE '\| *\|$|\| *$' PROJECT_INTAKE.md 2>/dev/null || true)
-  blank_cells=$(echo "$blank_cells" | tr -d '[:space:]')
-  blank_cells=${blank_cells:-0}
+  case "$blank_cells" in ''|*[!0-9]*) blank_cells=0 ;; esac
   # Count N/A entries (explicitly marked as not applicable — this is fine)
   na_cells=$(grep -ciE '\| *N/?A' PROJECT_INTAKE.md 2>/dev/null || true)
-  na_cells=$(echo "$na_cells" | tr -d '[:space:]')
-  na_cells=${na_cells:-0}
+  case "$na_cells" in ''|*[!0-9]*) na_cells=0 ;; esac
 
   if [ "$blank_cells" -gt 20 ]; then
     warn "PROJECT_INTAKE.md has ~${blank_cells} blank fields — fill these out before starting Phase 0"
@@ -428,7 +426,7 @@ if [ -f "PROJECT_INTAKE.md" ] && [ -f ".github/workflows/ci.yml" ] && [ $phase -
   if [ $matrix_issues -eq 0 ]; then
     # Check if any rows were actually filled in
     has_no=$(grep -i "| *No *|" PROJECT_INTAKE.md | grep -ciE "Security|Accessibility|Performance|Database" || true)
-    has_no=${has_no:-0}
+    case "$has_no" in ''|*[!0-9]*) has_no=0 ;; esac
     if [ "$has_no" -eq 0 ]; then
       print_info "No domains marked 'No' in Competency Matrix (or matrix not yet filled out)"
     fi
