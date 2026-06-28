@@ -1333,7 +1333,7 @@ All scripts live in `scripts/` and can be run with `bash scripts/<name>.sh`. Scr
 | `check-updates.sh` | Framework update availability check | `bash scripts/check-updates.sh` | Any |
 | `intake-wizard.sh` | Interactive project intake questionnaire | `bash scripts/intake-wizard.sh` | Pre-0 |
 | `upgrade-project.sh` | Track/deployment upgrade (Light→Standard, personal→org) | `bash scripts/upgrade-project.sh --help` | Any |
-| `reconfigure-project.sh` | Regenerate CLAUDE.md, Approval Log, .gitignore, CI | `bash scripts/reconfigure-project.sh --help` | Any |
+| `reconfigure-project.sh` | Regenerate CLAUDE.md, APPROVAL_LOG header, intake-progress, CI/release pipelines on name/platform/language change (track/deployment use upgrade-project.sh) | `bash scripts/reconfigure-project.sh --help` | Any |
 | `resolve-tools.sh` | Tool matrix resolution by platform/language/track/phase | `bash scripts/resolve-tools.sh --help` | Any |
 | `resume.sh` | Generate session resume context for copy/paste | `bash scripts/resume.sh` | Any |
 
