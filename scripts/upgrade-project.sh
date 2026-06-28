@@ -955,6 +955,120 @@ else
 fi
 
 # ================================================================
+# Atomic mutation block: snapshot → mutate → commit OR rollback
+# ================================================================
+# Audit code-upgrade-project-5: the 6 python3 heredocs below and the
+# final `git commit` form a non-atomic mutation that touches 7 files.
+# Pre-fix, ANY mid-run interruption (SIGINT, python3 KeyError, git
+# commit failure) could leave the project half-mutated. The next run
+# would re-read the partially-written phase-state.json and compute
+# DEPLOYMENT_CHANGES=false, silently skipping the CLAUDE.md governance
+# section and APPROVAL_LOG.md restructure — operator stuck with stale
+# CLAUDE.md and forced to hand-edit phase-state.json to recover.
+#
+# Audit baseline §5.22 mandates "non-destructive of technical work."
+#
+# Fix mirrors the proven sibling pattern in scripts/reconfigure-
+# project.sh:82-183 (PR #57, 8 weeks in production, no regressions):
+#   1. Snapshot every potentially-mutated file into
+#      .claude/upgrade-snapshots/<UTC-timestamp>/ before any write.
+#   2. Install `trap _upgrade_rollback INT TERM ERR` so SIGINT, kill,
+#      `set -e` ERR, or an explicit rollback call all restore state.
+#   3. Clear the trap only after `git commit` succeeds.
+#   4. Keep-3 retention on snapshot dirs — preserves forensic history
+#      without unbounded growth.
+SNAPSHOT_ROOT="$PROJECT_ROOT/.claude/upgrade-snapshots"
+_upgrade_snapshot_dir=""
+# Files this script may mutate. Order matches the heredoc sequence
+# below; only files present at snapshot time are saved (and only those
+# are restored on rollback — no spurious empty files).
+_UPGRADE_MUTATED_FILES=(
+  "$TOOL_PREFS"
+  "$PHASE_STATE"
+  "$INTAKE_PROGRESS"
+  "$CLAUDE_MD"
+  "$INTAKE_MD"
+  "$APPROVAL_LOG"
+  "$PROJECT_ROOT/PRODUCT_MANIFESTO.md"
+)
+
+_upgrade_snapshot_pre_mutation() {
+  mkdir -p "$SNAPSHOT_ROOT"
+  local ts
+  ts=$(date -u +"%Y-%m-%dT%H-%M-%SZ")
+  # Append a millisecond / pid suffix so two upgrades inside the same
+  # wall-clock second still get distinct dirs (race-safe under test
+  # harness churn and Karl's keep-3 retention assertion).
+  _upgrade_snapshot_dir="$SNAPSHOT_ROOT/$ts-$$"
+  local n=0
+  while [ -e "$_upgrade_snapshot_dir" ]; do
+    n=$((n + 1))
+    _upgrade_snapshot_dir="$SNAPSHOT_ROOT/$ts-$$-$n"
+  done
+  mkdir -p "$_upgrade_snapshot_dir"
+  local f
+  for f in "${_UPGRADE_MUTATED_FILES[@]}"; do
+    if [ -f "$f" ]; then
+      # Preserve path under PROJECT_ROOT so restore is unambiguous.
+      local rel="${f#$PROJECT_ROOT/}"
+      mkdir -p "$_upgrade_snapshot_dir/$(dirname "$rel")"
+      cp "$f" "$_upgrade_snapshot_dir/$rel"
+    fi
+  done
+  print_info "Pre-mutation snapshot: $_upgrade_snapshot_dir"
+}
+
+_upgrade_rollback() {
+  # Sourced from the trap (INT/TERM/ERR) and from explicit commit-fail
+  # paths. Safe to call multiple times — second call is a no-op if the
+  # snapshot dir has been cleaned up.
+  trap - INT TERM ERR
+  if [ -z "$_upgrade_snapshot_dir" ] || [ ! -d "$_upgrade_snapshot_dir" ]; then
+    return 0
+  fi
+  echo "" >&2
+  print_warn "Upgrade interrupted — rolling back to pre-mutation snapshot."
+  local f rel
+  for f in "${_UPGRADE_MUTATED_FILES[@]}"; do
+    rel="${f#$PROJECT_ROOT/}"
+    if [ -f "$_upgrade_snapshot_dir/$rel" ]; then
+      cp "$_upgrade_snapshot_dir/$rel" "$f"
+    fi
+  done
+  print_info "Snapshot retained for forensics: $_upgrade_snapshot_dir"
+  print_info "Inspect with: ls -la $_upgrade_snapshot_dir"
+  exit 1
+}
+
+_upgrade_prune_snapshots() {
+  # Keep-3 retention. Run after successful commit so forensic history
+  # of recent failures isn't accidentally pruned mid-failure path.
+  [ -d "$SNAPSHOT_ROOT" ] || return 0
+  # macOS find doesn't ship `-printf`; use stat for mtime sort. Bash 3.2
+  # compatible — no associative arrays.
+  local dirs
+  dirs=$(find "$SNAPSHOT_ROOT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null \
+    | while IFS= read -r d; do
+        # POSIX-portable stat: try GNU form, fall back to BSD.
+        m=$(stat -c '%Y' "$d" 2>/dev/null || stat -f '%m' "$d" 2>/dev/null || echo 0)
+        printf '%s\t%s\n' "$m" "$d"
+      done \
+    | sort -n)
+  local count
+  count=$(printf '%s\n' "$dirs" | grep -c .)
+  if [ "$count" -le 3 ]; then
+    return 0
+  fi
+  local to_drop=$((count - 3))
+  printf '%s\n' "$dirs" | head -n "$to_drop" | cut -f2- | while IFS= read -r d; do
+    [ -n "$d" ] && rm -rf "$d"
+  done
+}
+
+_upgrade_snapshot_pre_mutation
+trap _upgrade_rollback INT TERM ERR
+
+# ================================================================
 # 1. Update .claude/tool-preferences.json
 # ================================================================
 if [ -f "$TOOL_PREFS" ]; then
@@ -1879,21 +1993,41 @@ if [ ${#FILES_TO_STAGE[@]} -gt 0 ]; then
   if git diff --quiet "${FILES_TO_STAGE[@]}" 2>/dev/null && \
      git diff --cached --quiet "${FILES_TO_STAGE[@]}" 2>/dev/null; then
     print_info "No file changes detected — skipping commit."
+    # Nothing to commit means the mutation block was a true no-op: clear
+    # the trap so the post-commit steps below don't trip the rollback.
+    trap - INT TERM ERR
+    _upgrade_prune_snapshots
   else
     git add "${FILES_TO_STAGE[@]}" 2>/dev/null || true
     if git diff --cached --quiet 2>/dev/null; then
       print_info "No staged changes — skipping commit."
+      trap - INT TERM ERR
+      _upgrade_prune_snapshots
     else
+      # Audit code-upgrade-project-5: pre-fix, a failing `git commit`
+      # was demoted to a [WARN] and the script exited 0 with 6 mutated
+      # files staged in the working tree and no audit trail. Rollback
+      # makes the failure first-class: working tree is restored and
+      # snapshot retained for forensics.
       if git commit -m "$COMMIT_MSG" 2>/dev/null; then
         print_ok "Changes committed"
+        # Commit succeeded — disarm the trap before the post-commit
+        # blocks (UAT template migration, helper refresh, validate.sh)
+        # so their non-zero exit codes don't trip an unwanted rollback
+        # of the freshly-committed work.
+        trap - INT TERM ERR
+        _upgrade_prune_snapshots
       else
-        print_warn "Git commit failed — changes are staged but not committed."
-        print_info "You can commit manually: git commit -m 'chore(upgrade): ${COMMIT_SUMMARY}'"
+        print_fail "Git commit failed — rolling back mutation block."
+        print_info "Manual recovery: git commit -m 'chore(upgrade): ${COMMIT_SUMMARY}'"
+        _upgrade_rollback
       fi
     fi
   fi
 else
   print_info "No files to stage."
+  trap - INT TERM ERR
+  _upgrade_prune_snapshots
 fi
 
 # ================================================================
