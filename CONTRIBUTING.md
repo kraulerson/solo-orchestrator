@@ -76,6 +76,52 @@ By making a contribution to this project, I certify that:
 4. Ensure all commits include DCO sign-off (`git commit -s`)
 5. Open a pull request against `main`
 
+## Commit conventions
+
+This project follows [Conventional Commits](https://www.conventionalcommits.org/) for commit subject lines. Use one of the following prefixes:
+
+- `feat` — a new feature or capability
+- `fix` — a bug fix
+- `docs` — documentation-only changes
+- `test` — adding or correcting tests
+- `refactor` — code change that neither fixes a bug nor adds a feature
+- `chore` — tooling, build configuration, or repository maintenance
+
+An optional scope in parentheses narrows the subject (e.g., `fix(init): handle missing CDF clone`). The subject should be imperative and under ~72 characters; longer rationale belongs in the commit body.
+
+### Docs-only bypass
+
+Commits whose staged files all match documentation extensions (`.md`, `.json`, `.yml`, `.yaml`, `.toml`, `.tmpl`) skip the Build Loop gate. The classifier lives in `scripts/process-checklist.sh` (function `check_commit_ready`, regex `\.(md|json|yml|yaml|toml|tmpl)$`); a matching commit does not need to be tied to an open Build Loop step. Mixed commits (any staged source file alongside docs) fall back to full Build Loop enforcement — split them if you want the docs portion to land without the gate.
+
+Dependency manifests (`Pipfile.lock`, `Gemfile.lock`, `go.sum`, etc.) are also exempt via the `_is_dep_manifest` helper in the same script.
+
+## Local development setup
+
+The framework lives in two repositories — both must be cloned for the test suite and `init.sh` to function end-to-end.
+
+1. Clone the framework:
+   ```bash
+   git clone https://github.com/kraulerson/solo-orchestrator.git
+   ```
+2. Clone the Claude Dev Framework to the path `init.sh` expects:
+   ```bash
+   git clone https://github.com/kraulerson/claude-dev-framework.git ~/.claude-dev-framework
+   ```
+   The `~/.claude-dev-framework` location is required; see `docs/cli-setup-addendum.md` §3 ("Development Guardrails for Claude Code") for the rationale.
+3. Run the test suites directly to validate a working checkout (faster than running `init.sh` against a scratch project):
+   ```bash
+   bash tests/full-project-test-suite.sh
+   bash tests/host-drivers/run-all.sh
+   ```
+   Alternatively, run `bash init.sh` from a throwaway directory to exercise the full installer flow.
+4. Install the pre-commit gate locally (`init.sh` does this for user projects; contributors working on the framework itself must install it manually):
+   ```bash
+   cp scripts/pre-commit-gate.sh .git/hooks/pre-commit
+   chmod +x .git/hooks/pre-commit
+   ```
+
+For deeper setup — MCP servers, profiles, CLAUDE.md authoring, host CLI installation — see `docs/cli-setup-addendum.md` and `docs/user-guide.md`.
+
 ## What Not to Contribute
 
 - Changes to the core methodology (Builder's Guide phases, governance structure) without prior discussion in an issue
