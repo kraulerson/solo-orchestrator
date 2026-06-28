@@ -302,7 +302,7 @@ For `strict`, no banner. The absence of friction is the signal.
 
 ### 7.5 Non-interactive
 
-`init.sh --enforcement-level <level>` for non-interactive callers. If level is `light` or `no` AND mode is choosable, the flag confirms automatically (suppresses pitfall blocks); pair with `--confirm-pitfalls` for explicit-acknowledgment semantics required by automated callers (test suite, BL-025 helpers). If level is `strict` or mode is non-choosable, the flag has no effect beyond setting the value.
+`init.sh --enforcement-level <level>` for non-interactive callers. If level is `light` or `no` AND mode is choosable, both `--enforcement-level=<no|light>` and `--confirm-pitfalls` are required for non-interactive downgrade — there is no "flag confirms automatically" shortcut. Without `--confirm-pitfalls`, the caller refuses with `print_fail` and exits 1 (see `init.sh:3529-3530` and `scripts/reconfigure-project.sh:106`). The same dual-flag requirement applies to `scripts/reconfigure-project.sh --enforcement-level <no|light>`. If level is `strict` or mode is non-choosable, `--confirm-pitfalls` is not required and the level flag has no effect beyond setting the value.
 
 ## 8. Strict-mode integration with `.git/hooks/pre-commit`
 
