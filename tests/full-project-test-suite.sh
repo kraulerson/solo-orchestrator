@@ -86,6 +86,19 @@ else
 fi
 
 # ================================================================
+# TEST 0c: PHASE 1→2 BACKSTOP ATTESTATION (code-check-gates-1)
+# ================================================================
+# Regression suite for the BL-002 follow-up fix: scripts/check-phase-gate.sh's
+# Phase 1→2 backstop must honor a recorded `github_free_tier`
+# branch-protection attestation (mirroring scripts/check-gate.sh::cmd_preflight).
+section "Phase 1→2 backstop honors github_free_tier attestation"
+if bash "$SCRIPT_DIR/tests/test-check-phase-gate-backstop-attestation.sh" >/dev/null 2>&1; then
+  pass "scripts/check-phase-gate.sh backstop attestation tests (3/3)"
+else
+  fail "scripts/check-phase-gate.sh backstop attestation tests FAILED (run tests/test-check-phase-gate-backstop-attestation.sh for details)"
+fi
+
+# ================================================================
 # TEST 1: RESOLVER MATRIX — ALL COMBINATIONS
 # ================================================================
 section "TEST 1: Resolver Matrix — All Platform × Language × Track Combinations"
