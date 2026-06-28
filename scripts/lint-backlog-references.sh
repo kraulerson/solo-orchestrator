@@ -41,6 +41,17 @@
 #     case before lookup so `bl-031` in a commit subject resolves
 #     correctly. The valid-ID set is built ONCE from the backlog
 #     using the literal entry-header regex `^## BL-[0-9]+[a-z]?:`.
+#   • Branch-scoped token allowlist: if ANY commit in the BASE..HEAD
+#     range contains a `lint-backlog-references-ignore: <CSV>` footer
+#     (case-insensitive, comma-separated, anywhere in the message),
+#     those tokens are skipped from the unknown-ref check ACROSS THE
+#     ENTIRE BASE..HEAD range. Scope is branch-wide (not per-commit)
+#     so a clean-up commit can retroactively exempt placeholder tokens
+#     mentioned in an earlier commit on the same branch (otherwise an
+#     amend-or-rewrite would be required to fix prose). Use this when
+#     a commit LEGITIMATELY mentions a placeholder ID — test fixtures,
+#     sample diagnostics in a CHANGELOG entry, or this very script's
+#     own header — without intending to reference a real backlog item.
 #   • Citations are required ONLY for entries whose status block
 #     contains "Closed" or "Resolved" (case-sensitive — these are the
 #     two terms Karl uses; "open"/"in-progress"/"wontfix"/"promoted-
@@ -97,9 +108,12 @@ if [ ! -f "$BACKLOG" ]; then
 fi
 
 # ── Step 1: Build set of valid BL-IDs from backlog headers ─────────
+# Both the valid-set and lookup tokens are upper-cased so the lint is
+# case-insensitive end-to-end (`BL-003a` in a header matches `bl-003a`
+# or `BL-003A` in a commit subject — the suffix is preserved).
 VALID_IDS=()
 while IFS= read -r id; do
-  VALID_IDS+=("$id")
+  VALID_IDS+=("$(printf '%s' "$id" | tr '[:lower:]' '[:upper:]')")
 done < <(grep -oE '^## BL-[0-9]+[a-z]?:' "$BACKLOG" | sed -E 's/^## (BL-[0-9]+[a-z]?):/\1/')
 
 is_valid_id() {
@@ -129,6 +143,18 @@ while IFS= read -r sha; do
   [ -n "$sha" ] && COMMIT_SHAS+=("$sha")
 done < <(git log "${BASE_REF}..HEAD" --pretty='%H' 2>/dev/null || true)
 
+# Branch-scoped token allowlist: aggregate every
+# `lint-backlog-references-ignore: <CSV>` footer across ALL commits
+# in BASE..HEAD, normalize to upper-case, store as a space-padded
+# string for cheap substring lookup. Scope is branch-wide so a
+# later commit can retroactively exempt prose in an earlier commit
+# without rewriting history.
+RANGE_MSG=$(git log "${BASE_REF}..HEAD" --pretty='%s%n%b' 2>/dev/null || true)
+BRANCH_IGNORE=" $(printf '%s' "$RANGE_MSG" \
+  | grep -oiE 'lint-backlog-references-ignore:[[:space:]]*[A-Za-z0-9_,[:space:]-]+' \
+  | sed -E 's/^[Ll]int-[Bb]acklog-[Rr]eferences-[Ii]gnore:[[:space:]]*//' \
+  | tr ',' ' ' | tr '[:lower:]' '[:upper:]' | tr -s '[:space:]' ' ') "
+
 for sha in "${COMMIT_SHAS[@]:-}"; do
   [ -z "$sha" ] && continue
   # Extract subject + body, scan for BL-NNN tokens (case-insensitive).
@@ -141,6 +167,13 @@ for sha in "${COMMIT_SHAS[@]:-}"; do
   while IFS= read -r raw_tok; do
     [ -z "$raw_tok" ] && continue
     tok=$(normalize_id "$raw_tok")
+    # Skip allowlisted tokens (branch-scoped).
+    case "$BRANCH_IGNORE" in
+      *" $tok "*)
+        LIST_ROWS="${LIST_ROWS}PASS\tcommit ${sha:0:7}\t${tok}\tbranch-scoped-ignore\n"
+        continue
+        ;;
+    esac
     if is_valid_id "$tok"; then
       LIST_ROWS="${LIST_ROWS}PASS\tcommit ${sha:0:7}\t${tok}\treferences existing backlog entry\n"
     else

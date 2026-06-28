@@ -234,6 +234,30 @@ else
 fi
 teardown
 
+# Bonus: branch-scoped commit-message allowlist. A later commit's
+# `lint-backlog-references-ignore:` footer retroactively exempts an
+# earlier commit's prose mention of a placeholder token. Scope is
+# branch-wide (mirrors how this PR itself uses the footer to suppress
+# its own BL-099 fixture mention).
+echo ""
+echo "=== T8b: branch-scoped ignore footer suppresses prose mention → exit 0 ==="
+setup
+write_backlog '## BL-007: real entry
+
+**Status:** Resolved (2026-01-01, PR #1)
+
+Body.
+'
+commit_msg "docs: describe sample diagnostic (mentions BL-099 in prose)"
+commit_msg "$(printf 'chore: clean up\n\nlint-backlog-references-ignore: BL-099')"
+out=$(run_lint); rc=$?
+if [ $rc -eq 0 ]; then
+  pass "T8b: branch-scoped ignore footer exempts BL-099 across BASE..HEAD"
+else
+  fail_ "T8b" "expected exit 0; rc=$rc; output:\n$out"
+fi
+teardown
+
 # Bonus: also verify that empty allowlist reason FAILS (mirrors PR #72
 # allowlist semantics — reason is REQUIRED to keep reviewers honest).
 echo ""
