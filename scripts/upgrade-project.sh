@@ -1102,14 +1102,30 @@ if poc_removed:
     filtered = []
     skip_block = False
     for line in lines:
-        # Skip POC-specific warning blocks
-        if re.search(r'POC (MODE|mode|Mode|constraints|Constraints)', line, re.IGNORECASE):
+        # Skip POC-specific warning blocks. Audit code-upgrade-project-4
+        # (2026-06): the regex must NOT match identifiers like
+        # POC_MODE_FOO (word boundary required), AND skip_block must
+        # terminate not only on blank lines but also on a markdown
+        # heading or list-item line — otherwise a mid-paragraph "POC
+        # mode" / "POC constraints" mention inside a numbered list or
+        # right before a heading silently swallows the trailing items /
+        # the heading + body. Operator-customized CLAUDE.md only;
+        # default templates have no POC prose, so this is a real bug
+        # with a narrow but data-loss blast radius.
+        if re.search(r'POC (mode|constraints)\b', line, re.IGNORECASE):
             skip_block = True
             continue
-        if skip_block and line.strip() == '':
+        if skip_block and (
+            line.strip() == ''
+            or line.lstrip().startswith('#')
+            or re.match(r'^\s*[-*+]\s|^\s*\d+\.\s', line)
+        ):
             skip_block = False
-            continue
-        if skip_block:
+            # fall through — preserve the terminator line (heading or
+            # list item); only blank lines are dropped (continue below).
+            if line.strip() == '':
+                continue
+        elif skip_block:
             continue
         # Remove individual POC watermark lines
         if re.search(r'no production deployment.*no real user data.*no external users', line, re.IGNORECASE):
