@@ -86,6 +86,27 @@ else
 fi
 
 # ================================================================
+# TEST 0c: BACKLOG-REFERENCES LINT — cycle-7 Slot-5 process backstop
+# ================================================================
+# Sibling of the counter-antipattern lint above; catches drift between
+# BL-NNN backlog entries and the PRs that close them. See
+# scripts/lint-backlog-references.sh header for the defect classes
+# and allowlist mechanism.
+section "Backlog-references lint"
+if bash "$SCRIPT_DIR/scripts/lint-backlog-references.sh" --base origin/main >/dev/null 2>&1; then
+  pass "Backlog references and Closed-status citations are consistent"
+else
+  fail "Backlog-references lint found drift (see scripts/lint-backlog-references.sh --base origin/main --list)"
+fi
+
+section "Backlog-references lint — behavior test suite"
+if bash "$SCRIPT_DIR/tests/test-lint-backlog-references.sh" >/dev/null 2>&1; then
+  pass "scripts/lint-backlog-references.sh behavior tests (10/10)"
+else
+  fail "scripts/lint-backlog-references.sh behavior tests FAILED (run tests/test-lint-backlog-references.sh for details)"
+fi
+
+# ================================================================
 # TEST 1: RESOLVER MATRIX — ALL COMBINATIONS
 # ================================================================
 section "TEST 1: Resolver Matrix — All Platform × Language × Track Combinations"

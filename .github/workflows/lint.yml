@@ -38,3 +38,24 @@ jobs:
       - name: Show PASS/FAIL inventory (on failure or on demand)
         if: always()
         run: bash scripts/lint-counter-antipattern.sh --list || true
+
+  # Cycle-7 Slot-5 sibling backstop: process discipline for backlog
+  # citations. See scripts/lint-backlog-references.sh header for the
+  # defect classes (unknown-ref + uncited-closure) and the allowlist
+  # mechanism. Same job-name-is-required-check convention as the
+  # counter-antipattern job above — keep the name stable.
+  backlog-references-lint:
+    name: backlog-references-lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # required for `git log BASE..HEAD` resolution
+
+      - name: Lint backlog references
+        run: bash scripts/lint-backlog-references.sh --base origin/${{ github.base_ref || 'main' }}
+
+      - name: Show PASS/FAIL inventory (on failure or on demand)
+        if: always()
+        run: bash scripts/lint-backlog-references.sh --base origin/${{ github.base_ref || 'main' }} --list || true
