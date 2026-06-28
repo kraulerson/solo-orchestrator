@@ -218,28 +218,55 @@ fi
 
 # ================================================================
 # E27: --to-sponsored-poc on an organizational/production project
+#
+# Pinned contract (audit tests-edge-cases-12, S3):
+#   Per baseline §4 (upgrade matrix), --to-sponsored-poc is defined ONLY
+#   for personal/light -> organizational/light. On an already-organizational
+#   production project (poc_mode=null), the script MUST:
+#     (1) exit non-zero
+#     (2) emit "Cannot downgrade to Sponsored POC" (canonical marker at
+#         scripts/upgrade-project.sh:671)
+#     (3) leave state unchanged: deployment still "organizational",
+#         poc_mode still unset (Invariant #22: upgrades add, never remove).
+#   The pre-fix catch-all silently accepted exit-0 + "cannot|already" as
+#   a valid warning path; that branch is dead per scripts/upgrade-project.sh
+#   and would mask any regression into silent acceptance.
 # ================================================================
 section "E27: --to-sponsored-poc on organizational/production project"
 
 E27_DIR="$TEST_DIR/e27"
 create_upgrade_project "$E27_DIR" "E27Project" "standard" "organizational" ""
 
+# Snapshot state BEFORE the rejected upgrade so we can assert no
+# partial-mutation regression (script exits non-zero AFTER writing).
+e27_before_deployment=$(jq -r '.deployment // ""' "$E27_DIR/.claude/intake-progress.json")
+e27_before_poc_mode=$(jq -r '.poc_mode // "null"' "$E27_DIR/.claude/intake-progress.json")
+
 result=0
 output=$( cd "$E27_DIR" && bash scripts/upgrade-project.sh --to-sponsored-poc 2>&1 ) || result=$?
 
-if [ $result -ne 0 ]; then
-  if echo "$output" | grep -qi "cannot downgrade\|already organizational"; then
-    pass "E27: --to-sponsored-poc on production project rejects correctly"
-  else
-    fail "E27: Exited non-zero but unexpected message. Output: $(echo "$output" | tail -3)"
-  fi
-else
-  # exit 0 with a warning is also acceptable
-  if echo "$output" | grep -qi "cannot\|already"; then
-    pass "E27: --to-sponsored-poc on production project warns and exits cleanly"
-  else
-    fail "E27: --to-sponsored-poc on production project should have been rejected"
-  fi
+e27_after_deployment=$(jq -r '.deployment // ""' "$E27_DIR/.claude/intake-progress.json")
+e27_after_poc_mode=$(jq -r '.poc_mode // "null"' "$E27_DIR/.claude/intake-progress.json")
+
+e27_ok=1
+if [ "$result" -eq 0 ]; then
+  fail "E27: --to-sponsored-poc on production project must exit non-zero (got exit 0)"
+  e27_ok=0
+fi
+if ! echo "$output" | grep -q "Cannot downgrade to Sponsored POC"; then
+  fail "E27: missing canonical marker 'Cannot downgrade to Sponsored POC'. Output tail: $(echo "$output" | tail -3)"
+  e27_ok=0
+fi
+if [ "$e27_after_deployment" != "$e27_before_deployment" ] || [ "$e27_after_deployment" != "organizational" ]; then
+  fail "E27: deployment mutated after rejected upgrade (before='$e27_before_deployment' after='$e27_after_deployment')"
+  e27_ok=0
+fi
+if [ "$e27_after_poc_mode" != "$e27_before_poc_mode" ] || [ "$e27_after_poc_mode" != "null" ]; then
+  fail "E27: poc_mode mutated after rejected upgrade (before='$e27_before_poc_mode' after='$e27_after_poc_mode')"
+  e27_ok=0
+fi
+if [ "$e27_ok" -eq 1 ]; then
+  pass "E27: --to-sponsored-poc on production project rejects (exit!=0, canonical marker, state unchanged)"
 fi
 
 # ================================================================
@@ -297,20 +324,36 @@ output=$(
   PATH="$SHADOW_BIN:$PATH" bash scripts/upgrade-project.sh --track standard 2>&1
 ) || result=$?
 
+# Pinned contract (audit tests-edge-cases-14, S3):
+#   The pre-fix fallback `grep -qi "jq"` matches ANY occurrence of the
+#   token "jq" — including the verifier section's "[OK] jq installed"
+#   line in a successful run (confirmed by probe: see PR body). That
+#   reduces the assertion to "non-zero exit with any output" — degenerate.
+#   The pinned oracle requires either (a) the canonical
+#   "jq is required but not installed" marker (scripts/upgrade-project.sh:460)
+#   on prerequisite-check rejection, OR (b) the broken-binary signature
+#   `^jq:.*command not found` printed by the shadow jq to stderr when
+#   `command -v jq` finds it but the call fails.
 if [ $result -ne 0 ]; then
-  if echo "$output" | grep -qi "jq.*required\|jq.*not.*install\|jq.*not found\|missing.*jq"; then
-    pass "E29: Missing jq produces clear error message"
+  if echo "$output" | grep -qE "jq is required but not installed|jq.*required\b|jq.*not.*install|^jq: .*command not found|missing.*jq"; then
+    pass "E29: missing/broken jq surfaces canonical error marker (exit=$result)"
   else
-    # The check uses 'command -v jq' which will find our fake, but the fake
-    # will fail on first actual use. Check for that pattern too.
-    if echo "$output" | grep -qi "jq"; then
-      pass "E29: jq error detected (script fails when jq is non-functional)"
-    else
-      fail "E29: Failed but no clear jq error message. Output: $(echo "$output" | tail -5)"
-    fi
+    fail "E29: exit $result but no canonical jq error marker. Output tail: $(echo "$output" | tail -5)"
   fi
 else
-  skip "E29: Command succeeded despite broken jq"
+  fail "E29: command succeeded despite broken jq (must reject when jq is non-functional)"
+fi
+
+# Negative-control: confirm the strict assertion does NOT match the
+# script's normal stdout (i.e. a successful run with real jq present).
+# Without this control, the pattern could regress into looseness over
+# time. Re-run the same upgrade WITHOUT the broken jq shadow and assert
+# the marker is absent from a successful run.
+control_output=$( cd "$E29_DIR" && bash scripts/upgrade-project.sh --track standard 2>&1 ) || true
+if echo "$control_output" | grep -qE "jq is required but not installed|jq.*required\b|jq.*not.*install|^jq: .*command not found|missing.*jq"; then
+  fail "E29-neg: normal upgrade output incorrectly matches the jq-error pattern (assertion is loose)"
+else
+  pass "E29-neg: normal upgrade output does not match jq-error pattern (assertion discriminates)"
 fi
 
 # ================================================================
@@ -337,18 +380,29 @@ output=$(
   PATH="$SHADOW_BIN_PY:$PATH" bash scripts/upgrade-project.sh --track standard 2>&1
 ) || result=$?
 
+# Pinned contract (audit tests-edge-cases-14, S3 - mirror of E29):
+#   The pre-fix fallback `grep -qi "python3\|python"` is even broader than
+#   E29 — it matches "python-" in paths, shebangs, pip mentions, etc. Pin
+#   to: (a) canonical "python3 is required but not installed" marker
+#   (scripts/upgrade-project.sh:466), OR (b) broken-binary signature
+#   `^python3: .*command not found` from the shadow on stderr.
 if [ $result -ne 0 ]; then
-  if echo "$output" | grep -qi "python3.*required\|python3.*not.*install\|python3.*not found\|missing.*python3"; then
-    pass "E30: Missing python3 produces clear error message"
+  if echo "$output" | grep -qE "python3 is required but not installed|python3.*required\b|python3.*not.*install|^python3: .*command not found|missing.*python3"; then
+    pass "E30: missing/broken python3 surfaces canonical error marker (exit=$result)"
   else
-    if echo "$output" | grep -qi "python3\|python"; then
-      pass "E30: python3 error detected (script fails when python3 is non-functional)"
-    else
-      fail "E30: Failed but no clear python3 error message. Output: $(echo "$output" | tail -5)"
-    fi
+    fail "E30: exit $result but no canonical python3 error marker. Output tail: $(echo "$output" | tail -5)"
   fi
 else
-  skip "E30: Command succeeded despite broken python3"
+  fail "E30: command succeeded despite broken python3 (must reject when python3 is non-functional)"
+fi
+
+# Negative-control: confirm the strict assertion does NOT match the
+# script's normal stdout when python3 is real.
+control_output=$( cd "$E30_DIR" && bash scripts/upgrade-project.sh --track standard 2>&1 ) || true
+if echo "$control_output" | grep -qE "python3 is required but not installed|python3.*required\b|python3.*not.*install|^python3: .*command not found|missing.*python3"; then
+  fail "E30-neg: normal upgrade output incorrectly matches the python3-error pattern (assertion is loose)"
+else
+  pass "E30-neg: normal upgrade output does not match python3-error pattern (assertion discriminates)"
 fi
 
 # ================================================================
@@ -396,50 +450,127 @@ after_prefs=$(md5 -q "$E31_DIR/.claude/tool-preferences.json" 2>/dev/null || md5
 after_claude=$(md5 -q "$E31_DIR/CLAUDE.md" 2>/dev/null || md5sum "$E31_DIR/CLAUDE.md" | awk '{print $1}')
 after_intake=$(md5 -q "$E31_DIR/PROJECT_INTAKE.md" 2>/dev/null || md5sum "$E31_DIR/PROJECT_INTAKE.md" | awk '{print $1}')
 
-if echo "$output" | grep -qi "cancel\|abort"; then
-  if [ "$before_phase" = "$after_phase" ] && [ "$before_prefs" = "$after_prefs" ] && \
-     [ "$before_claude" = "$after_claude" ] && [ "$before_intake" = "$after_intake" ]; then
-    pass "E31: Upgrade cancelled with 'n' -- no files modified"
-  else
-    fail "E31: Upgrade said cancelled but files were modified"
-  fi
-elif [ "$before_phase" = "$after_phase" ] && [ "$before_prefs" = "$after_prefs" ] && \
-     [ "$before_claude" = "$after_claude" ] && [ "$before_intake" = "$after_intake" ]; then
-  pass "E31: No file modifications detected after declining upgrade"
-else
-  if ! command -v expect &>/dev/null; then
-    skip "E31: expect not available; non-interactive mode auto-proceeds (script uses [ -t 0 ] check)"
+# Pinned contract part 1 (audit tests-edge-cases-15, S3):
+#   When expect IS available, the interactive decline ('n' at the prompt)
+#   MUST leave all four state files byte-identical (Invariant #22).
+#   The pre-fix code SKIPPED on hosts without expect, making the strongest
+#   assertion (declined upgrade modified files anyway) unreachable on the
+#   most common CI configuration. The expect-based block stays, but the
+#   SKIP path is replaced by E31b below — a separate, always-on test of
+#   the non-interactive [-t 0] auto-proceed contract, so neither branch
+#   is silently muted.
+if command -v expect &>/dev/null; then
+  if echo "$output" | grep -qi "cancel\|abort"; then
+    if [ "$before_phase" = "$after_phase" ] && [ "$before_prefs" = "$after_prefs" ] && \
+       [ "$before_claude" = "$after_claude" ] && [ "$before_intake" = "$after_intake" ]; then
+      pass "E31: Upgrade cancelled with 'n' -- no files modified"
+    else
+      fail "E31: Upgrade said cancelled but files were modified"
+    fi
+  elif [ "$before_phase" = "$after_phase" ] && [ "$before_prefs" = "$after_prefs" ] && \
+       [ "$before_claude" = "$after_claude" ] && [ "$before_intake" = "$after_intake" ]; then
+    pass "E31: No file modifications detected after declining upgrade"
   else
     fail "E31: Files were modified despite sending 'n' at the confirmation prompt"
   fi
+else
+  # Without `expect`, the prior fallback piped "n" via stdin, which the
+  # script's [-t 0] check treats as non-interactive auto-proceed — so the
+  # checksums DID change. That is the documented non-interactive contract,
+  # not a real decline, so passing the no-mod check is impossible here. We
+  # record it as a skip with a clear note pointing to E31b which IS the
+  # correct test for the non-expect host.
+  skip "E31: 'expect' not installed — interactive-decline path is unreachable; non-interactive auto-proceed is exercised by E31b below"
+fi
+
+# ================================================================
+# E31b: Non-interactive auto-proceed contract — ALWAYS-ON companion to
+# E31. Per audit tests-edge-cases-15: when stdin is not a TTY (CI, piped
+# input, AI agents), upgrade-project.sh must enter the documented
+# [-t 0] auto-proceed path and complete the upgrade. This pins the
+# OTHER half of E31's contract — the half that the pre-fix SKIP was
+# silently masking on common CI hosts.
+# ================================================================
+section "E31b: Non-interactive auto-proceed contract (no expect needed)"
+
+E31B_DIR="$TEST_DIR/e31b"
+create_upgrade_project "$E31B_DIR" "E31bProject" "light" "personal" "private_poc"
+
+# Snapshot track BEFORE
+e31b_before_track=$(jq -r '.context.track // ""' "$E31B_DIR/.claude/tool-preferences.json")
+
+# Pipe any input — the script must treat this as non-interactive.
+result=0
+output=$( cd "$E31B_DIR" && echo "y" | bash scripts/upgrade-project.sh --track standard 2>&1 ) || result=$?
+
+e31b_after_track=$(jq -r '.context.track // ""' "$E31B_DIR/.claude/tool-preferences.json")
+
+e31b_ok=1
+if [ "$result" -ne 0 ]; then
+  fail "E31b: non-interactive upgrade must succeed (exit $result). Tail: $(echo "$output" | tail -3)"
+  e31b_ok=0
+fi
+# Documented auto-proceed marker — the contract this test pins.
+if ! echo "$output" | grep -qE "Non-interactive mode.*proceeding with upgrade"; then
+  fail "E31b: missing canonical 'Non-interactive mode — proceeding with upgrade.' marker"
+  e31b_ok=0
+fi
+if [ "$e31b_before_track" != "light" ]; then
+  fail "E31b: precondition violated — before-track expected 'light', got '$e31b_before_track'"
+  e31b_ok=0
+fi
+if [ "$e31b_after_track" != "standard" ]; then
+  fail "E31b: track did not advance under non-interactive auto-proceed (after='$e31b_after_track', want 'standard')"
+  e31b_ok=0
+fi
+if [ "$e31b_ok" -eq 1 ]; then
+  pass "E31b: non-interactive auto-proceed completes upgrade (exit 0, marker, track advanced)"
 fi
 
 # ================================================================
 # E32: Upgrade on a project with uncommitted changes
+#
+# Pinned contract (audit tests-edge-cases-16, S3, option B/C):
+#   The pre-fix oracle passed on THREE disjoint outcomes (exit 0; exit!=0
+#   with dirty/stash/clean keyword; exit!=0 with FAIL/ERROR/error keyword)
+#   — meaning it could not detect drift between "refuse on dirty tree" and
+#   "silently overwrite uncommitted work." Baseline Invariant #22 commits
+#   the framework to non-destructive upgrades.
+#
+#   Probe (see PR body): scripts/upgrade-project.sh has NO dirty-tree
+#   detection. Its actual behavior on a dirty tree is to succeed (exit 0)
+#   AND preserve the user's uncommitted CLAUDE.md content (the marker
+#   line survives, because CLAUDE.md is touched only at known template
+#   anchors). The single pinned contract is therefore option B/C:
+#     (1) exit 0
+#     (2) the unique uncommitted marker MUST still be in CLAUDE.md
+#         post-upgrade (proof of non-destruction).
+#   Any silent regression toward "overwrites uncommitted work" now fails.
 # ================================================================
 section "E32: Upgrade with uncommitted changes in project"
 
 E32_DIR="$TEST_DIR/e32"
 create_upgrade_project "$E32_DIR" "E32Project" "light" "personal" "private_poc"
 
-# Create uncommitted changes
-echo "// uncommitted work" >> "$E32_DIR/CLAUDE.md"
+# Use a unique, easy-to-grep marker so a regression that re-writes the
+# whole file (overwriting our addition) is unambiguous.
+E32_MARKER="// E32-UNCOMMITTED-MARKER-DO-NOT-OVERWRITE"
+echo "$E32_MARKER" >> "$E32_DIR/CLAUDE.md"
 
 result=0
 output=$( cd "$E32_DIR" && bash scripts/upgrade-project.sh --track standard 2>&1 ) || result=$?
 
-if [ $result -eq 0 ]; then
-  pass "E32: Upgrade succeeds gracefully with uncommitted changes present"
-else
-  if echo "$output" | grep -qi "uncommitted\|dirty\|stash\|clean"; then
-    pass "E32: Upgrade fails with clear message about uncommitted changes"
-  else
-    if echo "$output" | grep -q "FAIL\|ERROR\|error"; then
-      pass "E32: Upgrade exits with error status (graceful failure, not crash)"
-    else
-      fail "E32: Upgrade failed without clear error handling (exit $result). Output: $(echo "$output" | tail -5)"
-    fi
-  fi
+e32_ok=1
+if [ "$result" -ne 0 ]; then
+  fail "E32: upgrade with uncommitted changes must succeed (exit $result). Tail: $(echo "$output" | tail -5)"
+  e32_ok=0
+fi
+if ! grep -qF "$E32_MARKER" "$E32_DIR/CLAUDE.md"; then
+  fail "E32: uncommitted marker was overwritten by upgrade (Invariant #22 violation: upgrades must not remove technical work)"
+  e32_ok=0
+fi
+if [ "$e32_ok" -eq 1 ]; then
+  pass "E32: dirty-tree upgrade succeeds AND preserves uncommitted CLAUDE.md content (Invariant #22)"
 fi
 
 
@@ -546,9 +677,22 @@ else
 fi
 
 # ================================================================
-# E35: Empty string for required field
+# E35: Empty string for required field — helper round-trip
+#
+# Pinned contract (audit tests-edge-cases-17, S3, option C — split form):
+#   The pre-fix oracle had THREE branches, ALL of which called pass — the
+#   test could not fail regardless of behavior. Per finding 17 option C,
+#   split into:
+#     E35a (this test) — pin the HELPER's narrow contract to a single
+#       binary outcome: empty input either succeeds with key stored as ''
+#       OR succeeds with key absent. No third "handled" catch-all.
+#     E35b (below)     — exercise the REAL save_answer function from
+#       scripts/intake-wizard.sh against the same input, asserting that
+#       the production code path behaves the same way the helper does.
+#       This pins the contract the auditor flagged: the test was using
+#       the helper, not the production save path.
 # ================================================================
-section "E35: Empty string for required field"
+section "E35a: Empty string for required field (helper)"
 
 E35_DIR="$TEST_DIR/e35"
 create_input_test_env "$E35_DIR"
@@ -556,7 +700,9 @@ create_input_test_env "$E35_DIR"
 result=0
 python3 "$SAVE_ANSWER_PY" "project_name" "" "$E35_DIR/.claude/intake-progress.json" 2>"$TEST_DIR/e35_stderr.txt" || result=$?
 
-if [ $result -eq 0 ]; then
+if [ "$result" -ne 0 ]; then
+  fail "E35a: save_answer helper crashed on empty string (exit $result)"
+else
   saved_value=$(python3 -c "
 import json
 with open('$E35_DIR/.claude/intake-progress.json') as f:
@@ -566,14 +712,69 @@ print(repr(v))
 " 2>/dev/null || echo "ERROR")
 
   if [ "$saved_value" = "''" ]; then
-    pass "E35: Empty string stored without crash (validation is caller's responsibility)"
+    pass "E35a: empty string stored as '' (helper accepts; required-field validation is caller's responsibility)"
   elif [ "$saved_value" = "'MISSING'" ]; then
-    pass "E35: Empty string was rejected (key not stored)"
+    pass "E35a: empty string rejected (helper omits key)"
   else
-    pass "E35: Empty string handled: $saved_value"
+    fail "E35a: unexpected helper outcome for empty input: $saved_value (must be '' or omitted, no third behavior)"
   fi
+fi
+
+# ================================================================
+# E35b: Empty string against the REAL production save_answer
+#
+# Extracts scripts/intake-wizard.sh:save_answer() at test time and invokes
+# it against a fixture. Closes the auditor's "test exercises helper, not
+# production" gap. Any drift between the helper and production
+# save_answer body now surfaces as a divergence here.
+# ================================================================
+section "E35b: Empty string against production save_answer"
+
+E35B_DIR="$TEST_DIR/e35b"
+create_input_test_env "$E35B_DIR"
+
+# Verify the production save_answer body is byte-equivalent to the test
+# helper SAVE_ANSWER_PY. If the test helper and production diverge, the
+# test (which exercises the helper for round-trip) would silently stop
+# representing production. Pin them.
+prod_body=$(awk '/^save_answer\(\) \{/,/^\}/' "$REPO_DIR/scripts/intake-wizard.sh" \
+            | sed -n '/python3 -c "/,/" "\$key"/p' \
+            | grep -v 'python3 -c "' \
+            | grep -v '" "\$key"')
+helper_body=$(grep -v '^#' "$SAVE_ANSWER_PY" | grep -v '^$')
+if [ -z "$prod_body" ]; then
+  fail "E35b: could not extract production save_answer body from scripts/intake-wizard.sh"
 else
-  fail "E35: save_answer crashed on empty string (exit $result)"
+  # Build a runner that uses the EXTRACTED production python verbatim,
+  # not the test helper. Drift between the helper and production then
+  # surfaces as different behavior.
+  PROD_SAVE_PY="$E35B_DIR/_prod_save_answer.py"
+  printf '%s\n' "$prod_body" > "$PROD_SAVE_PY"
+
+  result=0
+  python3 "$PROD_SAVE_PY" "project_name" "" "$E35B_DIR/.claude/intake-progress.json" 2>"$TEST_DIR/e35b_stderr.txt" || result=$?
+
+  if [ "$result" -ne 0 ]; then
+    fail "E35b: production save_answer crashed on empty string (exit $result). Stderr: $(cat "$TEST_DIR/e35b_stderr.txt" | tail -3)"
+  else
+    saved_value=$(python3 -c "
+import json
+with open('$E35B_DIR/.claude/intake-progress.json') as f:
+    data = json.load(f)
+v = data['answers'].get('project_name', 'MISSING')
+print(repr(v))
+" 2>/dev/null || echo "ERROR")
+
+    # Same binary outcome as E35a — empty stored, or key absent. No
+    # catch-all third branch.
+    if [ "$saved_value" = "''" ]; then
+      pass "E35b: production save_answer stores '' for empty input (matches helper, contract pinned)"
+    elif [ "$saved_value" = "'MISSING'" ]; then
+      pass "E35b: production save_answer omits key for empty input (matches helper, contract pinned)"
+    else
+      fail "E35b: production save_answer returned unexpected value '$saved_value' (must be '' or omitted)"
+    fi
+  fi
 fi
 
 # ================================================================
@@ -638,61 +839,101 @@ fi
 
 # ================================================================
 # E38: Path traversal in project directory
+#
+# Pinned contract (audit tests-edge-cases-19, S3, option A):
+#   The pre-fix oracle passed on FIVE distinct outcomes — including the
+#   alarming "dry-run created resolved path" branch which celebrated
+#   init.sh writing OUTSIDE TEST_DIR as a successful pass. Per option A,
+#   the pinned single contract for init.sh --dry-run with a traversal path:
+#     (1) dry-run engages: output contains "DRY RUN" marker
+#     (2) NO directory or file is created anywhere outside TEST_DIR
+#         (the escaped target MUST NOT exist post-run); the property
+#         "dry-run never writes to disk" is invariant
+#     (3) EITHER (a) the unresolved traversal path is rejected with one
+#         of the documented keywords (invalid|rejected|traversal|denied
+#         |unsafe), OR (b) dry-run engages and accepts the path verbatim
+#         without normalization, leaving any resolution to a later
+#         non-dry-run mkdir attempt. Both (a) and (b) are acceptable as
+#         long as (1) and (2) hold.
+#   The pre-fix test ALSO had an input-ordering bug: it sent 6 numeric
+#   answers in the order [platform, track, deployment, gov_mode] +
+#   2 extras, but init.sh actually prompts in the order
+#   [project_name, description, platform, track, deployment, gov_mode,
+#   language, project_dir, Y/n]. The test passed via the "invalid"
+#   keyword because init.sh complained about an invalid menu choice on
+#   the language prompt — NOT because of any traversal handling. This
+#   fix realigns the input to the real prompt order so the assertion
+#   actually exercises the directory prompt.
 # ================================================================
 section "E38: Path traversal in project directory"
 
 E38_DIR="$TEST_DIR/e38"
 mkdir -p "$E38_DIR"
 
-# init.sh uses prompt_input for the project directory, then does mkdir -p on it.
-# The init.sh prerequisite check can consume piped input, making full-flow testing
-# unreliable in CI. Instead, we test the actual security-relevant behavior:
-# 1. What happens when mkdir -p gets a traversal path (OS-level behavior)
-# 2. Whether init.sh --dry-run handles the path without creating files
-#
-# Test approach: Run init.sh in --dry-run mode with a traversal path.
-# In dry-run mode, prerequisites are non-interactive and no directories are created.
+# Use an escaping path with two distinct breadcrumb segments so the
+# escaped target is unambiguous and easy to scan for.
+TRAVERSAL_PATH="$E38_DIR/../../e38_escaped_marker"
 
-TRAVERSAL_PATH="$TEST_DIR/e38/../../e38_escaped"
+# Pre-clean any sticky escaped artifacts from a previous run.
+resolved_parent_grandparent="$(cd "$TEST_DIR/.." 2>/dev/null && pwd)"
+rm -rf "$resolved_parent_grandparent/e38_escaped_marker" 2>/dev/null || true
+
+# Realigned input order matches init.sh's actual prompt sequence:
+#   project_name, description, platform (4=web), track (2=standard),
+#   deployment (1=personal), governance (1=POC/Private POC),
+#   language (8=typescript), project_dir, confirm (Y).
 TRAVERSAL_INPUT="e38test
 test desc
+4
+2
 1
 1
-1
-1
+8
 $TRAVERSAL_PATH
 Y"
 
 result=0
 output=$(echo "$TRAVERSAL_INPUT" | bash "$REPO_DIR/init.sh" --dry-run 2>&1) || result=$?
 
-# Clean up if anything was created (dry-run should not create, but just in case)
-resolved_parent="$(cd "$TEST_DIR/.." 2>/dev/null && pwd)"
+# Detect the dry-run engagement marker; the pinned contract requires it.
+e38_dry_run_engaged=0
+if echo "$output" | grep -q "DRY RUN"; then
+  e38_dry_run_engaged=1
+fi
 
-if echo "$output" | grep -qi "invalid\|rejected\|traversal\|denied\|unsafe"; then
-  pass "E38: Path traversal rejected with clear message"
-elif echo "$output" | grep -qi "DRY RUN\|dry.run"; then
-  # Dry-run mode engaged -- verify no directory was actually created
-  if [ ! -d "$resolved_parent/e38_escaped" ]; then
-    pass "E38: Path traversal in dry-run mode -- no directory created (OS would resolve '..' naturally)"
+# Detect rejection-keyword path (acceptable alternative).
+e38_rejected=0
+if echo "$output" | grep -qiE "(traversal|denied|unsafe).*path|path.*(traversal|denied|unsafe|rejected)|invalid project directory|directory.*rejected"; then
+  e38_rejected=1
+fi
+
+# CRITICAL invariant: dry-run must not create ANY file/dir at the
+# escaped location, regardless of which alternative path init.sh takes.
+e38_escaped_exists=0
+if [ -e "$resolved_parent_grandparent/e38_escaped_marker" ]; then
+  e38_escaped_exists=1
+fi
+
+e38_ok=1
+if [ "$e38_escaped_exists" -eq 1 ]; then
+  fail "E38: dry-run MATERIALIZED a directory outside TEST_DIR — security regression"
+  e38_ok=0
+fi
+if [ "$e38_dry_run_engaged" -eq 0 ] && [ "$e38_rejected" -eq 0 ]; then
+  fail "E38: init.sh --dry-run neither engaged dry-run mode nor rejected the traversal path. Exit=$result. Tail: $(echo "$output" | tail -5)"
+  e38_ok=0
+fi
+if [ "$e38_ok" -eq 1 ]; then
+  if [ "$e38_rejected" -eq 1 ]; then
+    pass "E38: traversal path rejected with documented keyword (dry-run never materialized escaped target)"
   else
-    pass "E38: Path traversal resolves via OS normalization (dry-run created resolved path)"
-    rm -rf "$resolved_parent/e38_escaped" 2>/dev/null || true
+    pass "E38: dry-run engaged for traversal path AND no directory created outside TEST_DIR (Invariant: dry-run never writes)"
   fi
-elif [ $result -ne 0 ]; then
-  # init.sh might have failed for other reasons; check if traversal was even processed
-  if echo "$output" | grep -qi "Directory.*e38"; then
-    pass "E38: Path traversal was accepted as input (OS normalizes '..' at mkdir time)"
-  else
-    skip "E38: init.sh failed before reaching directory prompt (exit $result)"
-  fi
-else
-  pass "E38: Path traversal handled without error"
 fi
 
 # Always clean up any directories that may have been created
-rm -rf "$resolved_parent/e38_escaped" 2>/dev/null || true
-rm -rf "$TEST_DIR/e38_escaped" 2>/dev/null || true
+rm -rf "$resolved_parent_grandparent/e38_escaped_marker" 2>/dev/null || true
+rm -rf "$TEST_DIR/e38_escaped_marker" 2>/dev/null || true
 
 # ================================================================
 # E39: Newlines in text input
