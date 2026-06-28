@@ -67,7 +67,17 @@ COMPLETED_SECTIONS=""
 # ================================================================
 # UTILITY: Prompt for text input with optional default
 # ================================================================
+# Audit code-intake-wizard-5: every prompt helper short-circuits at
+# entry if the pause sentinel is already set, so once the user types
+# "pause" no further read calls fire in the same section. Combined
+# with the sentinel-check in save_answer, this prevents the empty-
+# string overwrites that the audit cited (one save_answer per
+# remaining prompt corrupting another previously-saved key).
 prompt_input() {
+  if [ -f "${_PAUSE_FILE:-/dev/null/sentinel-cannot-exist}" ]; then
+    echo ""
+    return
+  fi
   local prompt="$1"
   local default="${2:-}"
   local result
@@ -89,6 +99,10 @@ prompt_input() {
 # UTILITY: Prompt for numbered choice
 # ================================================================
 prompt_choice() {
+  if [ -f "${_PAUSE_FILE:-/dev/null/sentinel-cannot-exist}" ]; then
+    echo ""
+    return
+  fi
   local prompt="$1"
   shift
   local options=("$@")
@@ -116,6 +130,10 @@ prompt_choice() {
 # UTILITY: Prompt with ? for suggestions
 # ================================================================
 prompt_with_suggestions() {
+  if [ -f "${_PAUSE_FILE:-/dev/null/sentinel-cannot-exist}" ]; then
+    echo ""
+    return
+  fi
   local prompt="$1"
   local suggestion_key="$2"
   local default="${3:-}"
@@ -382,7 +400,17 @@ render_intake_file() {
 # ================================================================
 # PROGRESS: Save an answer to the progress file
 # ================================================================
+# Audit code-intake-wizard-5: bail out early when the pause sentinel
+# exists. Before this guard, callers like `problem=$(prompt_input ...)`
+# followed by `save_answer "problem_statement" "$problem"` would write
+# the empty string returned by the paused prompt, corrupting whatever
+# the user had previously saved. The guard combined with the early-
+# exit checks in prompt_input/prompt_choice/prompt_with_suggestions
+# makes pause immediate at the granularity of the next prompt.
 save_answer() {
+  if [ -f "${_PAUSE_FILE:-/dev/null/sentinel-cannot-exist}" ]; then
+    return
+  fi
   local key="$1"
   local value="$2"
   if command -v python3 &>/dev/null; then
@@ -896,6 +924,14 @@ run_section_6() {
   print_info "Every honest 'No' adds automated coverage. Every dishonest 'Yes' creates a gap."
   echo ""
 
+  # Audit code-intake-wizard-6: capture the template's third column
+  # ("Automated Tooling Required?") so Phase 3 enforcement and Phase 2
+  # exit peer-review (baseline §3.3 / §3.4 — Security row drives the
+  # organizational peer-review gate) have a recorded source of truth.
+  # For Partially/No answers we present a framework-default tooling
+  # bundle per domain; the operator presses Enter to accept the default
+  # or overrides with free text. Yes answers store "N/A" so the
+  # rendered table is column-complete.
   local domains=("Product/UX Logic" "Frontend Code" "Backend/API Design" "Database Design" "Security" "DevOps/Infrastructure" "Accessibility" "Performance" "Mobile")
   for domain in "${domains[@]}"; do
     local assessment
@@ -908,6 +944,31 @@ run_section_6() {
     local key
     key=$(echo "$domain" | tr '/ ' '_' | tr '[:upper:]' '[:lower:]')
     save_answer "competency_$key" "$assessment"
+
+    # Tooling capture (third column). Skip silently after a pause.
+    if [ -f "${_PAUSE_FILE:-/dev/null/sentinel-cannot-exist}" ]; then
+      continue
+    fi
+    local tooling
+    if [ "$assessment" = "Yes" ]; then
+      tooling="N/A"
+    else
+      local default_tooling
+      case "$key" in
+        product_ux_logic)      default_tooling="UX heuristic review + usability test script" ;;
+        frontend_code)         default_tooling="ESLint + Prettier + axe-core + Playwright" ;;
+        backend_api_design)    default_tooling="OpenAPI contract tests + Postman/Newman + schemathesis" ;;
+        database_design)       default_tooling="SQL linter (sqlfluff) + schema-migration tests + EXPLAIN review" ;;
+        security)              default_tooling="gitleaks + Semgrep + Snyk (SCA + container)" ;;
+        devops_infrastructure) default_tooling="tflint + checkov + IaC plan review + GitHub Actions linter" ;;
+        accessibility)         default_tooling="axe-core + Lighthouse a11y audit + screen-reader smoke test" ;;
+        performance)           default_tooling="Lighthouse perf + k6 (load) + Web Vitals dashboard" ;;
+        mobile)                default_tooling="Detox/XCUITest + device farm (BrowserStack/Sauce) + crash reporting" ;;
+        *)                     default_tooling="Recommended automated tooling (TBD — define before Phase 3)" ;;
+      esac
+      tooling=$(prompt_input "  Automated tooling for $domain" "$default_tooling")
+    fi
+    save_answer "competency_${key}_tooling" "$tooling"
   done
 
   # 6.3 Development Environment
@@ -1390,10 +1451,34 @@ run_section_11_5() {
 }
 
 # ================================================================
-# SECTION 12: Agent Initialization Prompt (auto-generated)
+# SECTION 12: Tooling Configuration (auto-populated)
 # ================================================================
+# Audit code-intake-wizard-3: align wizard numbering with the template
+# (templates/project-intake.md §12 = Tooling Configuration, §13 =
+# Agent Initialization Prompt). The wizard previously skipped §12 and
+# called the agent-prompt section "12", which corrupted the section
+# semantics for anyone who paused at "Section 12" and later opened
+# PROJECT_INTAKE.md expecting their work in template §12.
+#
+# This wizard step is informational only — actual content is written
+# by init.sh based on the tool installation matrix (see template
+# §12's auto-populated marker and .claude/tool-preferences.json).
 run_section_12() {
-  print_step "Section 12: Agent Initialization Prompt"
+  print_step "Section 12: Tooling Configuration"
+  print_info "Auto-populated by init.sh from .claude/tool-preferences.json"
+  print_info "and the tool installation matrix — skipping interactive prompts."
+  save_section 12
+  echo ""
+}
+
+# ================================================================
+# SECTION 13: Agent Initialization Prompt (auto-generated)
+# ================================================================
+# Audit code-intake-wizard-3: this used to be `run_section_12` and
+# was labelled "Section 12: Agent Initialization Prompt", which
+# misaligned with templates/project-intake.md (§13 in the template).
+run_section_13() {
+  print_step "Section 13: Agent Initialization Prompt"
   print_info "Auto-generating from your answers..."
 
   # Read accessibility answers for the prompt
@@ -1419,8 +1504,8 @@ PYEOF
 )
   fi
 
-  print_ok "Section 12 auto-generated."
-  save_section 12
+  print_ok "Section 13 auto-generated."
+  save_section 13
   echo ""
 }
 
@@ -1439,11 +1524,17 @@ run_script_mode() {
   print_info "Type '?' at prompts marked with [? for suggestions] to see options."
   echo ""
 
-  # Section IDs: 1..11, 115 (Testing & Bug Tracking), 12.
+  # Section IDs: 1..11, 115 (Testing & Bug Tracking), 12, 13.
   # The 115 ID encodes "between 11 and 12" while keeping the value an
   # integer for save_section / is_section_complete; the runner maps it
   # back to function name run_section_11_5 below.
-  local sections=(1 2 3 4 5 6 7 8 9 10 11 115 12)
+  #
+  # Audit code-intake-wizard-3: §12 (Tooling Configuration, auto-
+  # populated) and §13 (Agent Initialization Prompt, auto-generated)
+  # are now distinct wizard steps that mirror the template's
+  # numbering, instead of the old single "Section 12" that ran §13's
+  # content.
+  local sections=(1 2 3 4 5 6 7 8 9 10 11 115 12 13)
   for section in "${sections[@]}"; do
     if [ "$section" -lt "$start_section" ]; then
       continue
@@ -1507,7 +1598,7 @@ PROMPTEOF
 
 ## Instructions
 
-1. Walk through PROJECT_INTAKE.md section by section (Sections 1-12).
+1. Walk through PROJECT_INTAKE.md section by section (Sections 1-13).
 2. Section 1 is mostly pre-filled from context above — confirm and fill remaining fields (target platforms, codename, repo URL).
 3. For each field, explain its purpose briefly, then ask the question.
 4. When the user says "I'm not sure" or asks for help, offer 2-3 options ranked by fit for their project type ($PLATFORM, $LANGUAGE, $TRACK), with a one-sentence explanation of why each fits.
@@ -1516,12 +1607,13 @@ PROMPTEOF
    - Section 7 (Revenue Model): skip if track is Light or deployment is Personal with internal users
    - Section 8 (Governance): skip if deployment is Personal
 7. For Section 8 (Governance, organizational only): ask which mode — Production Build, Sponsored POC, or Private POC. Explain each:
-   - **Production Build:** All 6 pre-conditions required. Full governance.
+   - **Production Build:** All 8 pre-conditions required. Full governance.
    - **Sponsored POC:** Organization knows. AI deployment path + sponsor + time allocation required. Insurance, liability, ITSM, exit criteria, backup maintainer deferred. Constraints: no production deployment, no real user data, no external users. All technical work is production-grade.
    - **Private POC:** Personal exploration. All pre-conditions deferred. Same constraints as Sponsored POC.
 8. Write completed sections into PROJECT_INTAKE.md progressively as you go.
-9. Section 12 (Agent Initialization Prompt): auto-generate from the answers. Do not ask the user to write this.
-10. At the end, summarize what was filled in and flag any fields left blank.
+9. Section 12 (Tooling Configuration) is auto-populated by `init.sh` from `.claude/tool-preferences.json` — do not prompt the user; confirm the section is recorded and move on.
+10. Section 13 (Agent Initialization Prompt): auto-generate from the answers. Do not ask the user to write this.
+11. At the end, summarize what was filled in and flag any fields left blank.
 
 ## Suggestion Data
 
