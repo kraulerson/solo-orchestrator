@@ -245,7 +245,7 @@ The Solo Orchestrator framework supports three governance modes, set at project 
 **Upgrade path:**
 
 - `scripts/upgrade-project.sh --to-sponsored-poc` (Private POC → Sponsored POC, rare — usually only when an exploratory build wins org buy-in).
-- `scripts/upgrade-project.sh --to-production` (any POC → Production). Re-runs Section 8 of the intake wizard to capture the deferred pre-conditions, then sets `poc_mode = null` in both `phase-state.json` and `intake-progress.json`.
+- `scripts/upgrade-project.sh --to-production` (any POC → Production). For organizational POCs, verifies the deferred Pre-Phase-0 pre-conditions in `APPROVAL_LOG.md` are dated (rows 1-6 in the Pre-Phase 0 table); operators in `--non-interactive` mode can acknowledge missing rows via `--ack-preconditions=<N1,N2,...>` (writes a `user_terminal` row to `.claude/bypass-audit.json`). Personal POCs are exempt because the personal approval-log template pre-fills all 6 rows at init time. On success the script sets `poc_mode = null` in both `phase-state.json` and `intake-progress.json`.
 - All upgrades preserve the project's deployment tier (personal stays personal; organizational stays organizational). The pre-fix behavior of `--to-private-poc` forcing organizational, and `run_upgrade_to_production` forcing organizational, are both fixed (audit 2026-06).
 
 ---

@@ -26,6 +26,11 @@ set -euo pipefail
 #   scripts/upgrade-project.sh --track standard          # Track upgrade only
 #   scripts/upgrade-project.sh --deployment organizational  # Deployment upgrade only
 #   scripts/upgrade-project.sh --to-production            # Full upgrade to production
+#                                                          # (organizational POCs must have
+#                                                          #  APPROVAL_LOG.md Pre-Phase-0 dates
+#                                                          #  filled, or pass
+#                                                          #  --ack-preconditions=<N1,N2,...>
+#                                                          #  with --non-interactive)
 #   scripts/upgrade-project.sh --to-sponsored-poc         # Personal → Sponsored POC
 #   scripts/upgrade-project.sh --to-private-poc           # Personal → Private POC
 #   scripts/upgrade-project.sh --help
@@ -67,6 +72,11 @@ SHOW_HELP=false
 # BL-018: explicit non-interactive marker (overrides [-t 0] auto-detection) + validate-only.
 NON_INTERACTIVE=false
 VALIDATE_ONLY=false
+# code-upgrade-project-8: comma-separated row numbers (1-6) acknowledging
+# deferred Pre-Phase-0 pre-conditions when APPROVAL_LOG.md dates are
+# absent. Honored only with --to-production --non-interactive. Empty
+# string means "no rows acked."
+ACK_PRECONDITIONS=""
 # Post-PR #48: --backfill-only runs only the host backfill + BL-030
 # manifest backfill (deployment, poc_mode, enforcement_level) and
 # exits. Lets operators of pre-BL-030 projects upgrade their manifest
@@ -147,6 +157,32 @@ while [ $# -gt 0 ]; do
     --validate-only)
       VALIDATE_ONLY=true
       shift
+      ;;
+    --ack-preconditions=*)
+      # code-upgrade-project-8: CI escape hatch parallel to
+      # --confirm-pitfalls. Comma-separated row numbers 1-6 (e.g.
+      # --ack-preconditions=2,3,5,6). Each acknowledged row counts as a
+      # satisfied Pre-Phase-0 pre-condition during the --to-production
+      # gate. Honored only when --non-interactive is also passed.
+      ACK_PRECONDITIONS="${1#--ack-preconditions=}"
+      # Validate: only digits and commas; each token must be 1-6.
+      _ack_clean="$(echo "$ACK_PRECONDITIONS" | tr -d ' ')"
+      if [ -z "$_ack_clean" ] || ! echo "$_ack_clean" | grep -qE '^[1-6](,[1-6])*$'; then
+        _upgrade_fail "invalid --ack-preconditions value '$ACK_PRECONDITIONS'" \
+                      "value must be a comma-separated list of row numbers 1-6 (e.g. 2,3,5,6)." \
+                      "re-run with --ack-preconditions=<N1,N2,...> using row numbers from APPROVAL_LOG.md Pre-Phase 0." \
+                      "--ack-preconditions='$ACK_PRECONDITIONS'"
+        exit 1
+      fi
+      ACK_PRECONDITIONS="$_ack_clean"
+      shift
+      ;;
+    --ack-preconditions)
+      _upgrade_fail "--ack-preconditions requires a value via =LIST" \
+                    "the --ack-preconditions flag requires --ack-preconditions=<N1,N2,...> form." \
+                    "re-run with --ack-preconditions=1,2,3,4,5,6 (or your subset)." \
+                    "--ack-preconditions=(unset)"
+      exit 1
       ;;
     --help|-h)
       SHOW_HELP=true
@@ -380,9 +416,20 @@ if [ "$SHOW_HELP" = true ]; then
   echo "  --validate-only         Parse + validate flags, print resolved JSON to stdout, exit 0."
   echo "                          No filesystem reads of project state; no mutation."
   echo ""
+  echo -e "${BOLD}--to-production pre-condition gate (code-upgrade-project-8):${NC}"
+  echo "  --to-production refuses to clear poc_mode for organizational projects"
+  echo "  unless APPROVAL_LOG.md Pre-Phase 0 rows 1-6 are all dated. Operators can"
+  echo "  acknowledge missing rows out-of-band via:"
+  echo "  --ack-preconditions=<N1,N2,...>"
+  echo "                          Comma-separated row numbers (1-6) to mark as"
+  echo "                          satisfied. Honored only with --non-interactive."
+  echo "                          Writes a user_terminal row to .claude/bypass-audit.json."
+  echo "                          Example: --non-interactive --ack-preconditions=2,3,5,6"
+  echo ""
   echo -e "${BOLD}Flags can be combined:${NC}"
   echo "  scripts/upgrade-project.sh --track standard --deployment organizational"
   echo "  scripts/upgrade-project.sh --validate-only --to-production"
+  echo "  scripts/upgrade-project.sh --to-production --non-interactive --ack-preconditions=2,3,5,6"
   echo ""
   echo -e "${BOLD}Upgrade paths:${NC}"
   echo "  Track:       light -> standard, light -> full, standard -> full"
@@ -732,7 +779,101 @@ if [ "$TARGET_DEPLOYMENT" != "$CURRENT_DEPLOYMENT" ]; then
   DEPLOYMENT_CHANGES=true
 fi
 
+# code-upgrade-project-8: Pre-Phase-0 pre-condition gate for --to-production.
+# Per docs/governance-framework.md:230, Sponsored POC defers 3 of the 6
+# governance pre-conditions (insurance, liability, ITSM, backup
+# maintainer), Private POC defers all 6, and Production requires every
+# row cleared. Before this gate the script silently flipped POC_REMOVED
+# regardless of whether APPROVAL_LOG.md reflected the deferred work
+# being closed out — a fictional governance check the doc promised but
+# the code never enforced. Skipped for personal deployments because
+# templates/generated/approval-log-personal.tmpl pre-fills all 6 rows
+# with __TODAY__ at init time (auto-satisfied).
 if [ "$TO_PRODUCTION" = true ] && [ -n "$CURRENT_POC_MODE" ]; then
+  if [ "$CURRENT_DEPLOYMENT" = "organizational" ]; then
+    # Canonical Pre-Phase-0 row labels — matches
+    # templates/generated/approval-log-org.tmpl:22-27.
+    _gov_labels=(
+      "AI deployment path approved"
+      "Insurance coverage confirmed"
+      "Liability entity designated"
+      "Project sponsor assigned"
+      "Backup maintainer designated"
+      "ITSM project registered"
+    )
+    # Parse acked-rows into a lookup string ",1,2,3,".
+    _ack_lookup=""
+    if [ -n "$ACK_PRECONDITIONS" ]; then
+      _ack_lookup=",$ACK_PRECONDITIONS,"
+    fi
+    # Walk rows 1-6, mark each as dated / acked / missing.
+    _missing_rows=""
+    _missing_labels=""
+    for _n in 1 2 3 4 5 6; do
+      _dated=false
+      if [ -f "$APPROVAL_LOG" ]; then
+        # Extract the row matching `| N |` from the Pre-Phase 0 section
+        # and check the Date column (5th pipe-separated field for org
+        # template: # | Pre-Condition | Approver | Role | Date | ...).
+        # Sanitized per PR #53 (code-check-gates-4) — a missing match
+        # was previously yielding "0\n0" through `|| echo 0`.
+        _date_field=$(awk -v rownum="$_n" '
+          /^## Pre-Phase 0/ { in_section = 1; next }
+          in_section && /^## / { in_section = 0 }
+          in_section && $0 ~ "^\\| *" rownum " *\\|" {
+            # Split on |, trim, return the Date column (field 6 of awk
+            # split because leading empty field before first |).
+            n = split($0, parts, "|")
+            if (n >= 6) {
+              gsub(/^[ \t]+|[ \t]+$/, "", parts[6])
+              print parts[6]
+              exit
+            }
+          }
+        ' "$APPROVAL_LOG" 2>/dev/null || true)
+        if echo "$_date_field" | grep -qE '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$'; then
+          _dated=true
+        fi
+      fi
+      # Ack overrides only if not already dated.
+      _acked=false
+      if [ "$_dated" = false ] && [ -n "$_ack_lookup" ] && echo "$_ack_lookup" | grep -q ",$_n,"; then
+        _acked=true
+      fi
+      if [ "$_dated" = false ] && [ "$_acked" = false ]; then
+        _missing_rows="${_missing_rows}${_missing_rows:+,}$_n"
+        _idx=$((_n - 1))
+        _missing_labels="${_missing_labels}${_missing_labels:+; }$_n=${_gov_labels[$_idx]}"
+      fi
+    done
+
+    if [ -n "$_missing_rows" ]; then
+      _upgrade_fail "--to-production blocked — Pre-Phase-0 pre-conditions not cleared" \
+                    "APPROVAL_LOG.md rows [$_missing_rows] lack a dated approval (and were not acknowledged via --ack-preconditions). Per docs/governance-framework.md:230 Production requires all 6 pre-conditions; Sponsored POC deferred 3 and Private POC deferred all 6 — they must be cleared before the upgrade." \
+                    "fill in the Date column for the missing rows in APPROVAL_LOG.md (see Pre-Phase 0 section), OR re-run with --non-interactive --ack-preconditions=<N1,N2,...> after recording the equivalent approvals out-of-band." \
+                    "missing_rows=[$_missing_rows]; missing_labels=[$_missing_labels]; approval_log=$APPROVAL_LOG"
+      exit 1
+    fi
+
+    # Audit the ack-bypass when it was actually used.
+    if [ -n "$ACK_PRECONDITIONS" ]; then
+      mkdir -p "$PROJECT_ROOT/.claude"
+      [ -f "$PROJECT_ROOT/.claude/bypass-audit.json" ] || echo "[]" > "$PROJECT_ROOT/.claude/bypass-audit.json"
+      _ack_ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+      _ack_rows_json=$(echo "$ACK_PRECONDITIONS" | jq -Rc 'split(",") | map(tonumber)')
+      _ack_row=$(jq -nc \
+        --arg ts "$_ack_ts" \
+        --argjson rows "$_ack_rows_json" \
+        --arg poc "$CURRENT_POC_MODE" \
+        '{timestamp:$ts, session_id:null, type:"enforcement_level_set", actor:"user_terminal",
+          enforcement_level_at_event:"strict",
+          details:{action:"to_production_preconditions_acked", rows:$rows, from_poc_mode:$poc, source:"upgrade-project.sh"},
+          user_response:"accepted", final_outcome:"bypassed"}')
+      _ack_tmp=$(mktemp)
+      jq --argjson r "$_ack_row" '. + [$r]' "$PROJECT_ROOT/.claude/bypass-audit.json" > "$_ack_tmp" \
+        && mv "$_ack_tmp" "$PROJECT_ROOT/.claude/bypass-audit.json"
+    fi
+  fi
   POC_REMOVED=true
 fi
 

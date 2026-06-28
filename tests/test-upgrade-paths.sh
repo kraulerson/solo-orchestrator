@@ -37,6 +37,36 @@ JSON
       && git add -A && git commit -q -m "init" ) >/dev/null 2>&1
 }
 
+# code-upgrade-project-8: seed APPROVAL_LOG.md with all 6 Pre-Phase-0
+# rows dated, so --to-production passes the deferred-pre-condition gate.
+seed_approval_log_org_filled() {
+  local dir="$1"
+  cat > "$dir/APPROVAL_LOG.md" <<'EOF'
+---
+project: test
+deployment: organizational
+created: 2026-06-27
+---
+
+## Pre-Phase 0: Organizational Pre-Conditions
+
+| # | Pre-Condition | Approver | Role | Date | Method | Reference | Notes |
+|---|---|---|---|---|---|---|---|
+| 1 | AI deployment path approved | Sec Lead | IT Security | 2026-06-27 | Email | TKT-1 | |
+| 2 | Insurance coverage confirmed | Broker | Insurance | 2026-06-27 | Email | TKT-2 | |
+| 3 | Liability entity designated | Legal | Legal | 2026-06-27 | Email | TKT-3 | |
+| 4 | Project sponsor assigned | Sponsor | Exec | 2026-06-27 | Email | TKT-4 | |
+| 5 | Backup maintainer designated | Backup | Tech Lead | 2026-06-27 | Email | TKT-5 | |
+| 6 | ITSM project registered | PMO | ITSM | 2026-06-27 | Email | TKT-6 | |
+
+## Approval History
+
+| Date | Gate / Event | Decision | Notes |
+|---|---|---|---|
+| | | | |
+EOF
+}
+
 # ════════════════════════════════════════════════════════════════════
 echo ""
 echo "=== T1: Sponsored POC → Production (--to-production from org) ==="
@@ -44,6 +74,8 @@ echo "=== T1: Sponsored POC → Production (--to-production from org) ==="
 
 T=$(mktemp -d); P="$T/p"
 make_phase_state "$P" "standard" "organizational" '"sponsored_poc"'
+seed_approval_log_org_filled "$P"
+( cd "$P" && git add APPROVAL_LOG.md && git commit -q -m "seed approval log" ) >/dev/null 2>&1
 ( cd "$P" && bash "$UPGRADE" --to-production --non-interactive ) > "$T/log" 2>&1
 rc=$?
 pm=$(jq -r '.poc_mode // empty' "$P/.claude/phase-state.json" 2>/dev/null)

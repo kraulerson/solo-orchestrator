@@ -675,3 +675,16 @@ Adds `tests/host-drivers/e2e-init-bitbucket.test.sh`: full init.sh e2e with mock
   1. `scripts/host-drivers/bitbucket.sh::_bb_curl` pipes `2>&1` and the caller does `if ! resp=$(... | _bb_curl ...)`, so the stub MUST write stderr only on intentional failure modes — otherwise jq parses the error message as JSON and crashes the success path. Stub gates all stderr emission behind `if [ "$rc" -ne 0 ]` arms.
   2. POST/DELETE-with-body callsites pipe a JSON payload (`echo "$payload" | _bb_curl POST URL`); stub drains stdin (`cat >/dev/null`) on every POST arm including the failure path.
   3. `host_configure_protection` and `host_verify_protection` both GET `/branch-restrictions?pattern=main`. Counter file in `$TMP` disambiguates: first GET serves `MOCK_BB_PROTECT_GET_JSON_CONFIGURE` (default `{"values":[]}` — no prior restrictions), subsequent GETs serve `MOCK_BB_PROTECT_GET_JSON_VERIFY` (per-mode JSON satisfying `host_verify_protection`'s kind-count checks).
+
+---
+
+## code-upgrade-project-8: upgrade-project.sh --to-production deferred pre-condition guard
+
+**Logged:** 2026-06-27 (cycle 6 verifier)
+**Category:** Bug / governance
+**Severity:** Major
+**Status:** Closed — shipped 2026-06-27 (PR forthcoming, this commit).
+
+`scripts/upgrade-project.sh --to-production` unconditionally flipped `POC_REMOVED=true` whenever the project had a `poc_mode` (lines 735-737), with no check that the deferred Pre-Phase-0 pre-conditions had actually been cleared. `docs/governance-framework.md:248` simultaneously promised the script "re-runs Section 8 of the intake wizard to capture the deferred pre-conditions" — a fictional control. Per `docs/governance-framework.md:230` Sponsored POC defers 3 of 6 Pre-Phase-0 items (insurance, liability, ITSM, backup maintainer; AI deployment path, sponsor, time-boxed exit criteria are upfront) and Private POC defers all 6; Production requires all 6 cleared.
+
+**Resolution:** Inserted a gate in `scripts/upgrade-project.sh` that runs when `TO_PRODUCTION=true && CURRENT_POC_MODE != "" && CURRENT_DEPLOYMENT == organizational`. The gate parses the Pre-Phase 0 table in `APPROVAL_LOG.md`, walks rows 1-6, and counts a row satisfied when the Date column contains an ISO date `YYYY-MM-DD`. Parser uses awk-scoped section-walk (not the brittle `grep -A 30 ... | grep -c` pattern that PR #53 sanitized). Personal deployments skip the gate because `templates/generated/approval-log-personal.tmpl` pre-fills all 6 rows with `__TODAY__` at init. Operators driving `--non-interactive` can acknowledge missing rows via `--ack-preconditions=<N1,N2,...>` (validated to `^[1-6](,[1-6])*$`); each ack writes an `actor: "user_terminal"` row to `.claude/bypass-audit.json` with `details.action = "to_production_preconditions_acked"`. Failure mode emits a structured `_upgrade_fail` listing the missing row numbers AND their canonical Pre-Condition labels. `docs/governance-framework.md:248` downgraded to describe the gate-only behavior (no wizard re-run claim). 6 new tests in `tests/test-upgrade-to-production-preconditions.sh`; `tests/test-upgrade-paths.sh` T1 fixture seeded with a filled APPROVAL_LOG.md to keep the happy path green.
