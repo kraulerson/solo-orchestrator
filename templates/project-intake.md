@@ -55,7 +55,9 @@ You can fill this out using the **intake wizard** (`bash scripts/intake-wizard.s
 > bash scripts/reconfigure-project.sh --field <field> --old <old_value> --new <new_value>
 > ```
 >
-> Supported fields: `name`, `platform`, `language`, `track`, `deployment`. The intake wizard handles this automatically — manual editing does not.
+> Supported fields: `name`, `platform`, `language`. The intake wizard handles this automatically — manual editing does not.
+>
+> For `track` or `deployment` changes use `scripts/upgrade-project.sh` instead (it enforces the governance pre-conditions; reconfigure-project does not).
 
 ---
 

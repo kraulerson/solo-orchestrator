@@ -304,8 +304,8 @@ fi
     fi
     if [ -z "$mig_deployment" ]; then
       print_warn "phase-state.json lacks .deployment — assuming 'personal' for backfill."
-      print_warn "If this project is organizational, run after the upgrade completes:"
-      print_warn "  scripts/reconfigure-project.sh --field deployment --old personal --new organizational"
+      print_warn "If this project is organizational, re-run upgrade-project.sh after the backfill:"
+      print_warn "  scripts/upgrade-project.sh --deployment organizational"
       mig_deployment="personal"
     fi
     if [ -n "$mig_poc" ]; then

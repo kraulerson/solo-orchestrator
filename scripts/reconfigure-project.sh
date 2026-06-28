@@ -64,9 +64,12 @@ while [ $# -gt 0 ]; do
       echo "Supported fields:"
       echo "  language   — Regenerates CI pipeline, .gitignore language entries, permissions"
       echo "  platform   — Regenerates release pipeline, copies new platform module"
-      echo "  track      — Updates phase-state.json, re-resolves tools"
-      echo "  name       — Updates phase-state.json, CLAUDE.md, Qdrant collection"
-      echo "  deployment — Updates phase-state.json, approval log"
+      echo "  name       — Updates phase-state.json, CLAUDE.md, APPROVAL_LOG.md header,"
+      echo "               intake-progress.json, Qdrant collection, PROJECT_INTAKE.md"
+      echo ""
+      echo "Track and deployment changes are NOT supported here — they require"
+      echo "the governance pre-conditions enforced by scripts/upgrade-project.sh."
+      echo "See audit baseline §4 (lines 431-434) and docs/user-guide.md."
       exit 0
       ;;
     *) echo "Unknown argument: $1" >&2; exit 1 ;;
@@ -405,25 +408,33 @@ reconfigure() {
       fi
       ;;
 
-    track)
-      # Update phase-state.json
-      if [ -f ".claude/phase-state.json" ] && command -v jq &>/dev/null; then
-        local tmp
-        tmp=$(mktemp)
-        jq --arg v "$NEW_VALUE" '.track = $v' ".claude/phase-state.json" > "$tmp" && mv "$tmp" ".claude/phase-state.json"
-        print_ok "Updated track in phase-state.json"
+    track|deployment)
+      # code-verify-reconfigure-3: track and deployment moves require the
+      # governance pre-conditions enforced by scripts/upgrade-project.sh
+      # (baseline §4 lines 431-434: reconfigure "is not a tier/POC upgrade
+      # path and does not change `deployment`, `track`, or `poc_mode`").
+      # Pre-fix this branch wrote .track / .deployment into phase-state
+      # with zero guardrails, silently bypassing:
+      #   * §2.1 six blocking pre-conditions for organizational deployment
+      #   * §3.2 retroactive STA Bible approval on personal→organizational
+      #   * repo-protection bar upgrade
+      #   * biweekly Phase-2 governance checkpoint engagement
+      #   * APPROVAL_LOG.md template swap (code-verify-reconfigure-4)
+      # Refuse and redirect; do not mutate any state.
+      print_fail "scripts/reconfigure-project.sh does not change '$FIELD'."
+      echo "  Reason: track and deployment moves require the governance" >&2
+      echo "          pre-conditions enforced by scripts/upgrade-project.sh." >&2
+      echo "          See audit baseline §4 lines 431-434." >&2
+      echo "" >&2
+      echo "  Action: re-run the change through upgrade-project.sh, e.g.:" >&2
+      if [ "$FIELD" = "track" ]; then
+        echo "          bash scripts/upgrade-project.sh --track $NEW_VALUE" >&2
+      else
+        echo "          bash scripts/upgrade-project.sh --deployment $NEW_VALUE" >&2
       fi
-
-      # Update tool-preferences.json
-      if [ -f ".claude/tool-preferences.json" ] && command -v jq &>/dev/null; then
-        local tmp
-        tmp=$(mktemp)
-        jq --arg v "$NEW_VALUE" '.context.track = $v' ".claude/tool-preferences.json" > "$tmp" && mv "$tmp" ".claude/tool-preferences.json"
-        print_ok "Updated track in tool-preferences.json"
-      fi
-
-      print_info "Track changed to $NEW_VALUE. Tool requirements may have changed."
-      print_info "Run: bash scripts/check-phase-gate.sh to verify tool coverage."
+      echo "" >&2
+      echo "  Run scripts/upgrade-project.sh --help for the full transition matrix." >&2
+      exit 1
       ;;
 
     name)
@@ -435,54 +446,145 @@ reconfigure() {
         exit 1
       fi
 
-      # Update phase-state.json
+      # Atomic snapshot/rollback envelope. Sibling of the PR #57 pattern
+      # used by the --enforcement-level path above and the upgrade-project
+      # PR #80 fix. Pre-fix this branch wrote five files with no
+      # transactional safety — SIGINT / disk-full / jq parse error
+      # mid-rename left the project in a half-renamed inconsistent state.
+      # Snapshot every file we might mutate (skip missing ones) into a
+      # tempdir, install a trap, mutate, then drop the trap on success.
+      local snap_dir
+      snap_dir=$(mktemp -d)
+      local _rename_files=(
+        ".claude/phase-state.json"
+        ".claude/tool-preferences.json"
+        ".claude/settings.local.json"
+        ".claude/intake-progress.json"
+        "CLAUDE.md"
+        "PROJECT_INTAKE.md"
+        "APPROVAL_LOG.md"
+      )
+      local f
+      for f in "${_rename_files[@]}"; do
+        if [ -f "$f" ]; then
+          mkdir -p "$snap_dir/$(dirname "$f")"
+          cp "$f" "$snap_dir/$f"
+        fi
+      done
+
+      _rename_rollback() {
+        local reason="${1:-mutation aborted}"
+        local g
+        for g in "${_rename_files[@]}"; do
+          if [ -f "$snap_dir/$g" ]; then
+            mkdir -p "$(dirname "$g")"
+            cp "$snap_dir/$g" "$g"
+          elif [ -f "$g" ]; then
+            # File didn't exist pre-mutation but does now — created during
+            # this run. Remove to restore pre-state.
+            rm -f "$g"
+          fi
+        done
+        rm -rf "$snap_dir"
+        trap - INT TERM ERR
+        print_fail "Rename failed: $reason"
+        echo "  All mutated files have been rolled back to the pre-rename state." >&2
+        exit 1
+      }
+      trap '_rename_rollback "trap fired (INT/TERM/ERR)"' INT TERM ERR
+
+      # Update phase-state.json (.project)
       if [ -f ".claude/phase-state.json" ] && command -v jq &>/dev/null; then
         local tmp
         tmp=$(mktemp)
-        jq --arg v "$new_name" '.project = $v' ".claude/phase-state.json" > "$tmp" && mv "$tmp" ".claude/phase-state.json"
+        jq --arg v "$new_name" '.project = $v' ".claude/phase-state.json" > "$tmp" \
+          && mv "$tmp" ".claude/phase-state.json" \
+          || _rename_rollback "phase-state.json write failed"
         print_ok "Updated project name in phase-state.json"
+      fi
+
+      # code-verify-reconfigure-5: update .claude/intake-progress.json
+      # (.project_name). Pre-fix the wizard's resume would re-introduce
+      # the old name after rename. intake-wizard.sh:259 confirms the key.
+      if [ -f ".claude/intake-progress.json" ] && command -v jq &>/dev/null; then
+        local tmp
+        tmp=$(mktemp)
+        jq --arg v "$new_name" '.project_name = $v' ".claude/intake-progress.json" > "$tmp" \
+          && mv "$tmp" ".claude/intake-progress.json" \
+          || _rename_rollback "intake-progress.json write failed"
+        print_ok "Updated project_name in intake-progress.json"
       fi
 
       # Update Qdrant collection in settings.local.json
       if [ -f ".claude/settings.local.json" ] && command -v jq &>/dev/null; then
         local tmp
         tmp=$(mktemp)
-        jq --arg v "$new_name" '.mcpServers.qdrant.args[-1] = $v' ".claude/settings.local.json" > "$tmp" && mv "$tmp" ".claude/settings.local.json"
+        jq --arg v "$new_name" '.mcpServers.qdrant.args[-1] = $v' ".claude/settings.local.json" > "$tmp" \
+          && mv "$tmp" ".claude/settings.local.json" \
+          || _rename_rollback "settings.local.json write failed"
         print_ok "Updated Qdrant collection to $new_name"
       fi
 
       # Update CLAUDE.md project name
       if [ -f "CLAUDE.md" ]; then
-        sed -i.bak "s|$old_name|$new_name|g" CLAUDE.md
+        sed -i.bak "s|$old_name|$new_name|g" CLAUDE.md \
+          || _rename_rollback "CLAUDE.md sed failed"
         rm -f CLAUDE.md.bak
         print_ok "Updated project name in CLAUDE.md"
       fi
 
       # Update PROJECT_INTAKE.md
       if [ -f "PROJECT_INTAKE.md" ]; then
-        sed -i.bak "s|$old_name|$new_name|g" PROJECT_INTAKE.md
+        sed -i.bak "s|$old_name|$new_name|g" PROJECT_INTAKE.md \
+          || _rename_rollback "PROJECT_INTAKE.md sed failed"
         rm -f PROJECT_INTAKE.md.bak
         print_ok "Updated project name in PROJECT_INTAKE.md"
       fi
-      ;;
 
-    deployment)
-      # Update phase-state.json
-      if [ -f ".claude/phase-state.json" ] && command -v jq &>/dev/null; then
+      # code-verify-reconfigure-5: update APPROVAL_LOG.md YAML front-
+      # matter (`project:` line) and the exact H1 (`# Approval Log — X`).
+      # Anchored substitutions only — DO NOT global-replace the old name
+      # in body content (an attentive operator may have referenced the
+      # old name in dated entry notes; rewriting those would mutate
+      # historical entries and violate invariant 8 append-only). Both
+      # personal and org templates carry these two placeholder sites
+      # (templates/generated/approval-log-{personal,org}.tmpl lines 2,8).
+      if [ -f "APPROVAL_LOG.md" ]; then
         local tmp
         tmp=$(mktemp)
-        jq --arg v "$NEW_VALUE" '.deployment = $v' ".claude/phase-state.json" > "$tmp" && mv "$tmp" ".claude/phase-state.json"
-        print_ok "Updated deployment in phase-state.json"
+        # awk-based: only rewrite the YAML front-matter (between the
+        # first two `---` lines, lines 1..N) and the exact H1. The
+        # front-matter is the only safe place to mutate `project: foo`
+        # because freeform text in entry notes can legitimately contain
+        # `project: foo` as documentation.
+        awk -v old="$old_name" -v new="$new_name" '
+          BEGIN { in_yaml = 0; yaml_done = 0; line = 0 }
+          {
+            line++
+            if (line == 1 && $0 == "---") { in_yaml = 1; print; next }
+            if (in_yaml && $0 == "---")   { in_yaml = 0; yaml_done = 1; print; next }
+            if (in_yaml) {
+              # Match `project:` followed by whitespace then the old name.
+              if ($0 ~ "^project:[[:space:]]+" old "[[:space:]]*$") {
+                print "project: " new; next
+              }
+            }
+            # H1 substitution — exact-match guard so we never touch a
+            # body H1 or H2 that happens to mention the old name.
+            if ($0 == "# Approval Log — " old) {
+              print "# Approval Log — " new; next
+            }
+            print
+          }
+        ' "APPROVAL_LOG.md" > "$tmp" \
+          && mv "$tmp" "APPROVAL_LOG.md" \
+          || _rename_rollback "APPROVAL_LOG.md header rewrite failed"
+        print_ok "Updated APPROVAL_LOG.md header (YAML + H1); historical entries preserved"
       fi
 
-      if [ "$NEW_VALUE" = "organizational" ] && [ "$OLD_VALUE" = "personal" ]; then
-        print_warn "Switching to organizational deployment. You may need to:"
-        echo "  1. Complete governance pre-conditions (Section 8 of Intake)"
-        echo "  2. Regenerate APPROVAL_LOG.md with organizational template"
-        echo "  3. Review CLAUDE.md for organizational governance sections"
-      elif [ "$NEW_VALUE" = "personal" ] && [ "$OLD_VALUE" = "organizational" ]; then
-        print_info "Switched to personal deployment. Governance requirements relaxed."
-      fi
+      # Success — drop the trap and clean up the snapshot dir.
+      trap - INT TERM ERR
+      rm -rf "$snap_dir"
       ;;
 
     *)
