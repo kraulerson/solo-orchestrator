@@ -26,19 +26,24 @@ source "$SCRIPT_DIR/lib/helpers.sh"
 # through this helper so the guard lives in one place.
 #
 # Returns 0 (yes) or 1 (no). In non-interactive contexts (no TTY,
-# CI=true, SOIF_NONINTERACTIVE=true) returns the supplied default
-# without prompting, and prints a [WARN] explaining the skip so
-# operators see the missing-tool list in CI logs.
+# CI=true, SOIF_NONINTERACTIVE=true) ALWAYS returns N (1) — the
+# caller-supplied default is intentionally IGNORED as defense-in-depth,
+# so a future caller that passes "Y" (as both call sites in this file
+# originally did) cannot accidentally re-introduce the unattended-
+# install bug surfaced by the cycle-7 adversarial verifier on PR #87.
+# Prints a [WARN] explaining the skip so operators see the missing-
+# tool list in CI logs.
 prompt_yes_no() {
   local message="$1"
-  local default_answer="${2:-N}"   # "Y" or "N"
+  local default_answer="${2:-N}"   # "Y" or "N" — honored ONLY when interactive
 
   if [ ! -t 0 ] || [ -n "${CI:-}" ] || [ -n "${SOIF_NONINTERACTIVE:-}" ]; then
-    echo -e "${YELLOW}[WARN]${NC} Non-interactive context: skipping prompt (\"$message\") — defaulting to '$default_answer'. Re-run interactively or install the listed tools manually."
-    case "$default_answer" in
-      [Yy]*) return 0 ;;
-      *)     return 1 ;;
-    esac
+    # Hard-N regardless of caller-supplied default. See
+    # `tests/test-check-phase-gate-noninteractive.sh::T2` for the
+    # regression guard that fixtures the install branch and asserts
+    # `eval install_command` does NOT fire when this returns 1 in CI.
+    echo -e "${YELLOW}[WARN]${NC} Non-interactive context: skipping prompt (\"$message\") — defaulting to 'N' (caller default '$default_answer' ignored in non-interactive context). Re-run interactively or install the listed tools manually."
+    return 1
   fi
 
   local reply
@@ -254,6 +259,17 @@ validate_approval_fields() {
       elif [ -n "$git_user_norm" ] && [ "$git_user_norm" = "$approver_norm" ] \
            && [ -n "$commit_author_norm" ] && [ "$commit_author_norm" != "$approver_norm" ]; then
         echo -e "${YELLOW}[WARN]${NC} $gate_label: ambient git user '$git_user' matches approver '$approver_name' but APPROVAL_LOG.md commit author is '$commit_author' — verify the commit author wasn't rewritten"
+        issues=$((issues + 1))
+      elif [ -z "$commit_author_norm" ] && [ -n "$approver_norm" ]; then
+        # code-check-gates-7-followup (cycle-7 PR-#87 verifier): if
+        # APPROVAL_LOG.md has not yet been committed (or the approver
+        # row was added in the working tree only), `git log -- $APPROVAL_LOG`
+        # returns empty and the self-approval invariant (baseline §5
+        # invariant #9) cannot be verified. Surface this gap as a WARN
+        # so it doesn't silently pass. See backlog entry
+        # `code-check-gates-7-followup` for the per-gate-section blame
+        # fix that would let us verify uncommitted/amended approvals.
+        echo -e "${YELLOW}[WARN]${NC} $gate_label: cannot verify commit author for approver '$approver_name' — APPROVAL_LOG.md not yet committed (or git log returned no author). Commit the approval entry to enable self-approval verification."
         issues=$((issues + 1))
       fi
     fi
@@ -735,12 +751,13 @@ if [ -f "$TOOL_PREFS" ] && [ -x "$RESOLVER" ] && command -v jq &>/dev/null; then
           echo -e "${CYAN}The following can be auto-installed:${NC}"
           echo "$auto_installable" | jq -r '.[] | "  • \(.name)"'
           echo ""
-          # code-check-gates-7: route through prompt_yes_no — defaults
-          # to NO in CI / non-TTY so `eval` of install commands never
-          # fires unattended. The [WARN] inside prompt_yes_no lists
-          # the prompt text, and the missing-tools list above gives
-          # operators the manual install path.
-          if prompt_yes_no "Install now? [Y/n]" Y; then
+          # code-check-gates-7: route through prompt_yes_no — hard-N
+          # in CI / non-TTY (the helper ignores the caller-supplied
+          # default in non-interactive contexts) so `eval` of install
+          # commands never fires unattended. We still pass "N" here
+          # as documentation of intent — caller-side belt + helper-
+          # side suspenders (cycle-7 PR-#87 verifier finding).
+          if prompt_yes_no "Install now? [Y/n]" N; then
             echo "$auto_installable" | jq -r '.[] | .install_command // empty' | while IFS= read -r cmd; do
               [ -z "$cmd" ] && continue
               echo -e "  ${CYAN}Running:${NC} $cmd"
@@ -766,7 +783,9 @@ if [ -f "$TOOL_PREFS" ] && [ -x "$RESOLVER" ] && command -v jq &>/dev/null; then
             # code-check-gates-7: same non-interactive guard as the
             # main install prompt above. Qdrant setup spawns docker
             # containers + MCP registration — must not run in CI.
-            if prompt_yes_no "Start Qdrant container and register MCP? [Y/n]" Y; then
+            # Pass "N" as caller default for symmetry; helper hard-N's
+            # in non-interactive contexts regardless.
+            if prompt_yes_no "Start Qdrant container and register MCP? [Y/n]" N; then
               # Check if container already exists
               if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^qdrant$"; then
                 docker start qdrant 2>/dev/null && echo -e "  ${GREEN}[OK]${NC} Existing Qdrant container started"

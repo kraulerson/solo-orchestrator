@@ -73,49 +73,100 @@ else
 fi
 
 # ---------------------------------------------------------------------
-# T2: invoke the script with CI=true and stdin closed, against a
-# fixture that would otherwise hit the install prompt branch. The
-# script must exit in bounded time (no hang) and must NOT run any
-# `eval`-style auto-install.
+# Portable bounded-time runner. The cycle-7 PR-#87 verifier flagged
+# the previous T2 for invoking `timeout 20` directly — macOS does not
+# ship coreutils' `timeout(1)` by default, so the command vanished into
+# rc=127 / elapsed=0s and the test PASSED vacuously on every Darwin
+# runner. This helper backgrounds the command and kills it after
+# $1 seconds; rc=124 signals the timeout fired (matches GNU `timeout`).
+run_bounded() {
+  local secs="$1"; shift
+  local outfile="$1"; shift
+  local pid deadline rc
+  ( "$@" ) >"$outfile" 2>&1 </dev/null &
+  pid=$!
+  deadline=$(( $(date +%s) + secs ))
+  while kill -0 "$pid" 2>/dev/null; do
+    if [ "$(date +%s)" -ge "$deadline" ]; then
+      kill -9 "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+      return 124
+    fi
+    sleep 1
+  done
+  wait "$pid"; rc=$?
+  return "$rc"
+}
+
 # ---------------------------------------------------------------------
-echo "T2: CI=true + stdin closed — no hang, no eval"
+# T2: drive the exact `prompt_yes_no … && eval install_command`
+# interaction surfaced by the cycle-7 PR-#87 verifier. Sourcing the
+# helper from check-phase-gate.sh (rather than reconstructing it) means
+# this test breaks the moment a future edit re-introduces the
+# "supplied default honored in CI" bug. Asserts (a) bounded runtime,
+# (b) MARKER_FILE does NOT exist (so `eval "$cmd"` did not fire), and
+# (c) a [WARN] line was printed.
+# ---------------------------------------------------------------------
+echo "T2: CI=true reaches install branch — eval is NOT invoked"
 TMP=$(mktemp -d)
-PROJ="$TMP/p"
-mkdir -p "$PROJ/.claude"
-( cd "$PROJ" && git init -q && git config user.email "t@e" && git config user.name "T" )
+MARKER="$TMP/install-fired"
+OUTFILE="$TMP/out.log"
+HELPER="$TMP/prompt_yes_no.sh"
+HARNESS="$TMP/harness.sh"
 
-cat > "$PROJ/.claude/phase-state.json" <<'JSON'
-{"current_phase":1,"deployment":"personal","gates":{"phase_0_to_1":"2026-02-01"}}
-JSON
-# Provide an empty tool-prefs so resolver path is exercised but
-# (since tool-matrix dir is unlikely to match) returns nothing — the
-# prompt branch shouldn't fire. We separately verify the helper-shape
-# in T1, and below verify the script doesn't hang.
-echo "{}" > "$PROJ/.claude/tool-preferences.json"
-
-# Run with a short timeout — if non-interactive guard works, exit
-# fast; otherwise the test will time out (and we report FAIL).
-start=$(date +%s)
-out=$(
-  cd "$PROJ" \
-    && CI=true \
-       SOIF_PHASE_GATES=warn \
-       timeout 20 bash "$SCRIPT" </dev/null 2>&1
-)
-rc=$?
-end=$(date +%s)
-elapsed=$((end - start))
-
-# rc=124 means timeout fired (hang). Anything else (including the
-# warn-mode exit codes 0 or 1) is OK.
-if [ "$rc" = "124" ]; then
-  fail_ "T2" "script hung past 20s under CI=true + stdin closed"
-elif [ "$elapsed" -gt 18 ]; then
-  fail_ "T2" "script ran too long ($elapsed s) — likely hit a prompt"
+# Pre-extract the prompt_yes_no helper from the live script into a
+# standalone file (process-substitution + heredoc-quoting interact
+# poorly with `set -u` on macOS bash 3.2, so we use a plain file).
+# Slicing the live script (rather than re-implementing the helper)
+# means this test FAILS the moment a future edit re-introduces the
+# "supplied default honored in CI" bug — true regression coverage.
+awk '/^prompt_yes_no\(\) \{/,/^\}/' "$SCRIPT" > "$HELPER"
+if ! grep -q 'prompt_yes_no()' "$HELPER"; then
+  fail_ "T2" "could not extract prompt_yes_no helper from $SCRIPT (awk slice empty)"
+  rm -rf "$TMP"
 else
-  pass "T2: completed in ${elapsed}s without hanging (rc=$rc)"
+  # Exercise the exact call shape used at scripts/check-phase-gate.sh:743
+  # / :769 — `prompt_yes_no "..." Y` followed by `eval "$cmd"`. The fix
+  # returns 1 in CI regardless of the supplied default; a regression
+  # returns 0 and fires `$cmd`, creating $MARKER.
+  cat > "$HARNESS" <<HARNESS
+#!/usr/bin/env bash
+set -uo pipefail
+YELLOW=""; BOLD=""; NC=""
+source "$HELPER"
+cmd="touch '$MARKER'"
+if prompt_yes_no "Install now? [Y/n]" Y; then
+  eval "\$cmd"
 fi
-rm -rf "$TMP"
+exit 0
+HARNESS
+  chmod +x "$HARNESS"
+
+  # Run under CI=true + stdin closed with a portable bounded-time guard.
+  start=$(date +%s)
+  CI=true run_bounded 20 "$OUTFILE" bash "$HARNESS"
+  rc=$?
+  end=$(date +%s)
+  elapsed=$((end - start))
+
+  t2_failed=false
+  if [ "$rc" = "124" ]; then
+    fail_ "T2" "harness hung past 20s under CI=true + stdin closed"
+    t2_failed=true
+  fi
+  if [ -e "$MARKER" ]; then
+    fail_ "T2" "install command fired despite CI=true — prompt_yes_no honored the supplied 'Y' default (regression of PR-#87 verifier blocker #1)"
+    t2_failed=true
+  fi
+  if ! grep -qE 'WARN.*[Nn]on-interactive|WARN.*skip' "$OUTFILE" 2>/dev/null; then
+    fail_ "T2" "harness produced no [WARN] line — prompt_yes_no did not announce the skip"
+    t2_failed=true
+  fi
+  if [ "$t2_failed" = "false" ]; then
+    pass "T2: install branch reached, eval suppressed, WARN emitted (${elapsed}s, rc=$rc)"
+  fi
+  rm -rf "$TMP"
+fi
 
 # ---------------------------------------------------------------------
 # T3: the install-now block, when reached non-interactively, must
