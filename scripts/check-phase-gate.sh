@@ -283,21 +283,38 @@ if [ "$current_phase" -ge 2 ]; then
   SCRIPT_DIR_CPG="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   host_dispatcher="$SCRIPT_DIR_CPG/lib/host.sh"
   if [ -f "$host_dispatcher" ] && [ -f ".claude/manifest.json" ]; then
-    # shellcheck disable=SC1090
-    source "$host_dispatcher"
-    mode=$(jq -r '.mode // "personal"' .claude/manifest.json 2>/dev/null || echo "personal")
-    if host_load_driver 2>/dev/null; then
-      if host_verify_protection "main" "$mode" 2>/dev/null; then
-        echo -e "${GREEN}  [OK]${NC} Phase 1→2 backstop: repo protection verified for $mode mode"
+    # BL-002 follow-up (code-check-gates-1): honor a recorded
+    # `github_free_tier` branch-protection attestation from
+    # .claude/process-state.json BEFORE invoking host_verify_protection.
+    # On tier-limited GitHub free repos the protection API returns 403
+    # and the attestation IS the gate — see canonical implementation at
+    # scripts/check-gate.sh::cmd_preflight (lines ~52-64). Without this
+    # check, legitimately attested projects saw a false-fail backstop
+    # while `--preflight` PASSED at the same moment.
+    backstop_attest_reason=""
+    if [ -f .claude/process-state.json ]; then
+      backstop_attest_reason=$(jq -r '.phase2_init.attestations.branch_protection.reason // ""' \
+                                 .claude/process-state.json 2>/dev/null || echo "")
+    fi
+    if [ "$backstop_attest_reason" = "github_free_tier" ]; then
+      echo -e "${GREEN}  [OK]${NC} Phase 1→2 backstop: branch protection attested (reason: github_free_tier — upgrade to GitHub Pro to enable API enforcement)"
+    else
+      # shellcheck disable=SC1090
+      source "$host_dispatcher"
+      mode=$(jq -r '.mode // "personal"' .claude/manifest.json 2>/dev/null || echo "personal")
+      if host_load_driver 2>/dev/null; then
+        if host_verify_protection "main" "$mode" 2>/dev/null; then
+          echo -e "${GREEN}  [OK]${NC} Phase 1→2 backstop: repo protection verified for $mode mode"
+        else
+          echo -e "${RED}[FAIL]${NC} Phase 1→2 backstop: protection verification failed"
+          echo "        Remediate: scripts/check-gate.sh --repair"
+          echo "        Preflight: scripts/check-gate.sh --preflight"
+          issues=$((issues + 1))
+        fi
       else
-        echo -e "${RED}[FAIL]${NC} Phase 1→2 backstop: protection verification failed"
-        echo "        Remediate: scripts/check-gate.sh --repair"
-        echo "        Preflight: scripts/check-gate.sh --preflight"
+        echo -e "${YELLOW}[WARN]${NC} Phase 1→2 backstop: could not load host driver (manifest host field may be missing; run scripts/check-gate.sh --backfill-host)"
         issues=$((issues + 1))
       fi
-    else
-      echo -e "${YELLOW}[WARN]${NC} Phase 1→2 backstop: could not load host driver (manifest host field may be missing; run scripts/check-gate.sh --backfill-host)"
-      issues=$((issues + 1))
     fi
   else
     echo -e "${YELLOW}[WARN]${NC} Phase 1→2 backstop: host dispatcher or manifest.json missing — skipping (project predates host-aware gate)"
