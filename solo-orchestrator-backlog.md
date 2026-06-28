@@ -638,7 +638,7 @@ Three-tier enforcement level (`no` / `light` / `strict`) configurable at init or
 **Logged:** 2026-06-27
 **Category:** Bug (UX, cross-driver)
 **Severity:** Medium
-**Status:** Closed — shipped 2026-06-27 (this commit, branch `fix/init-bl031-cross-wiring`).
+**Status:** Closed — shipped 2026-06-27 (PR #65, commit `b2e080b`).
 
 `scripts/host-drivers/gitlab.sh:120` returns exit 3 from `host_configure_protection` when the org-mode approvals PUT fails. `init.sh:2009` treats `_hcp_rc=3` as the GitHub-free-tier attestation fallback and surfaces a print_warn with the literal string `"Branch protection unavailable on this repo (free-tier limit)"` plus a print_info chain mentioning `"Upgrade to GitHub Pro"`. A GitLab user with partial token scopes lands in the wrong remediation flow with wrong-host messaging.
 
@@ -657,7 +657,7 @@ The exit code 3 was originally a github-specific signal ("free-tier 403 detected
 ## BL-003a: init.sh GitLab end-to-end test (mocked CLI)
 
 **Logged:** 2026-04-22 (originally as BL-003 sub-task; split for cycle 5 scope)
-**Status:** Closed — shipped 2026-06-27 (PR forthcoming, this commit).
+**Status:** Closed — shipped 2026-06-27 (PR #61, commit `fc9db0e`).
 
 Adds `tests/host-drivers/e2e-init-gitlab.test.sh`: full init.sh e2e with mocked `glab` CLI + `GIT_CONFIG_GLOBAL` `pushInsteadOf` redirect to a local bare repo. Mirrors PR #59's github harness. Six scenarios: T1 personal success, T2 org success, T3 push fail, T4 repo-already-exists, T5 protection POST 403, T6 (documentary) gitlab-exit-3 cross-wiring at `init.sh:2009` — see BL-031.
 
@@ -666,7 +666,7 @@ Adds `tests/host-drivers/e2e-init-gitlab.test.sh`: full init.sh e2e with mocked 
 ## BL-003b: init.sh Bitbucket end-to-end test (curl-stub variant)
 
 **Logged:** 2026-04-22 (originally as BL-003 sub-task; split for cycle 5 scope)
-**Status:** Closed — shipped 2026-06-27 (PR forthcoming, this commit).
+**Status:** Closed — shipped 2026-06-27 (PR #62, commit `c8585fa`).
 
 Adds `tests/host-drivers/e2e-init-bitbucket.test.sh`: full init.sh e2e with mocked `curl` (bitbucket driver uses curl with `-u USER:PASS`, no CLI binary). PATH-prepended `curl` stub case-matches on `-X METHOD` + URL substrings (repo create POST, branch-restrictions GET/POST/DELETE). Configure-vs-verify GET ambiguity (same URL hit twice) resolved with a `$TMP`-side counter file. Five scenarios parallel to BL-003a (T1 personal success, T2 org success, T3 push fail, T4 slug-already-exists, T5 protection POST 403); no bitbucket analogue of BL-003a T6 because bitbucket has no exit-3 cross-wired branch — the BL-031 cross-wiring is gitlab-specific.
 
