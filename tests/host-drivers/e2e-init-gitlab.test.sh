@@ -93,6 +93,24 @@ case "$*" in
     fi
     exit 0
     ;;
+  *"api -X PUT projects/"*)
+    # PUT projects/:id (org-mode pipeline-success gate + discussion-
+    # resolution settings — added by audit code-host-gitlab-2).
+    rc="${MOCK_GL_PROJECT_PUT_EXIT:-0}"
+    cat >/dev/null
+    if [ "$rc" -ne 0 ]; then
+      printf '%s\n' "${MOCK_GL_PROJECT_PUT_ERR:-mock glab: project-settings PUT failed}" >&2
+      exit "$rc"
+    fi
+    exit 0
+    ;;
+  *"api -X GET projects/"*)
+    # Explicit GET projects/:id — settings payload for verify (code-host-
+    # gitlab-2). The driver uses `-X GET` here to keep the call shape
+    # distinct from the other GETs for fixture matching.
+    printf '%s\n' "${MOCK_GL_PROJECT_JSON:-{\"only_allow_merge_if_pipeline_succeeds\":true}}"
+    exit 0
+    ;;
   *"api "*protected_branches*)
     # GET protected_branches/<branch>
     printf '%s\n' "${MOCK_GL_PROTECT_JSON:-{}}"
@@ -153,6 +171,7 @@ scenario_teardown() {
   unset MOCK_GL_PROTECT_POST_EXIT MOCK_GL_PROTECT_POST_ERR
   unset MOCK_GL_APPROVALS_PUT_EXIT MOCK_GL_APPROVALS_PUT_ERR
   unset MOCK_GL_PROTECT_JSON MOCK_GL_APPROVALS_JSON MOCK_GL_DELETE_EXIT
+  unset MOCK_GL_PROJECT_PUT_EXIT MOCK_GL_PROJECT_PUT_ERR MOCK_GL_PROJECT_JSON
   unset GIT_CONFIG_GLOBAL GLAB_TOKEN
   case "$PATH" in
     "$MOCK_DIR:"*) PATH="${PATH#"$MOCK_DIR:"}"; export PATH ;;
@@ -359,7 +378,10 @@ scenario_setup "https://gitlab.com/e2e-test/approvals-fail.git"
 export MOCK_GL_PROTECT_JSON="$PROTECT_JSON_ORG"
 export MOCK_GL_APPROVALS_JSON="$APPROVALS_JSON_ORG"
 export MOCK_GL_APPROVALS_PUT_EXIT=1
-export MOCK_GL_APPROVALS_PUT_ERR='ERROR: 403 — approvals PUT requires premium tier'
+# Use a generic 5xx error here so the BL-032 Premium-tier detection
+# (code-host-gitlab-8) does NOT fire — T6 covers the generic exit-3
+# branch; T7 below covers the BL-032 exit-4 branch.
+export MOCK_GL_APPROVALS_PUT_ERR='ERROR: HTTP 500 — internal server error from approvals endpoint'
 # --branch-protection-attested provided so the non-interactive
 # attestation prompt doesn't reject; we want to assert what init.sh
 # DOES on this code path, not block on attestation UX.
@@ -381,6 +403,47 @@ if [ "$rc" = "0" ] \
   pass "T6: gitlab exit-3 → host-agnostic attestation flow with gitlab-aware messaging (BL-031 fixed)"
 else
   fail_ "T6" "rc=$rc github_branding_seen=$github_branding_seen gitlab_branding_seen=$gitlab_branding_seen driver_stderr_seen=$driver_stderr_seen log:$(tail -10 "$TMP/init.log")"
+fi
+scenario_teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T7: gitlab-exit-4 Premium-only approvals (BL-032 / code-host-gitlab-8) ==="
+# ════════════════════════════════════════════════════════════════════
+#
+# T7 is the BL-032 sibling to T6. When the approvals PUT fails on
+# gitlab.com Free with a Premium-feature-not-available error, the driver
+# now pattern-matches and returns exit 4 with a structured BL-032
+# remediation block (gitlab.sh code-host-gitlab-8 branch). init.sh
+# (BL-031 dispatcher) treats exit 4 identically to exit 3 — routes to
+# the attestation flow with host-aware messaging.
+#
+# Assertions mirror T6 with the BL-032-specific wording substituted for
+# the driver's stderr check.
+echo "T7: org approvals PUT fails with Premium-tier message — BL-032 exit-4 path"
+scenario_setup "https://gitlab.com/e2e-test/premium-only.git"
+export MOCK_GL_PROTECT_JSON="$PROTECT_JSON_ORG"
+export MOCK_GL_APPROVALS_JSON="$APPROVALS_JSON_ORG"
+export MOCK_GL_APPROVALS_PUT_EXIT=1
+export MOCK_GL_APPROVALS_PUT_ERR='HTTP 403: This feature is not available on your plan. Upgrade to Premium to enable required approvals.'
+run_init_e2e premium-only organizational --gov-mode production --branch-protection-attested
+rc=$?
+# No GitHub-branded leak (BL-031 contract — the dispatcher is host-agnostic).
+github_branding_seen=no
+grep -qE 'GitHub Pro|free-tier limit' "$TMP/init.log" && github_branding_seen=yes
+# init.sh's own warn/info names the actual host.
+gitlab_branding_seen=no
+grep -qE 'on this gitlab repo|gitlab driver remediation' "$TMP/init.log" && gitlab_branding_seen=yes
+# BL-032 driver stderr surfaces (Premium-aware remediation).
+bl032_seen=no
+grep -qE 'Premium|BL-032|required-approvals API is unavailable' "$TMP/init.log" && bl032_seen=yes
+if [ "$rc" = "0" ] \
+   && [ "$github_branding_seen" = "no" ] \
+   && [ "$gitlab_branding_seen" = "yes" ] \
+   && [ "$bl032_seen" = "yes" ]; then
+  pass "T7: gitlab exit-4 (BL-032 Premium-only) → attestation flow + Premium-aware remediation"
+else
+  fail_ "T7" "rc=$rc github_branding_seen=$github_branding_seen gitlab_branding_seen=$gitlab_branding_seen bl032_seen=$bl032_seen log:$(tail -10 "$TMP/init.log")"
 fi
 scenario_teardown
 

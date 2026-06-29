@@ -2016,21 +2016,22 @@ create_and_protect_remote() {
     host_push_initial main 2>/dev/null || host_push_initial master || { print_fail "Push failed — $remote_url exists but empty"; return 1; }
 
     print_info "Configuring branch protection ($mode mode)..."
-    # BL-002 / BL-031: exit code 3 is the host-agnostic "expected partial
-    # failure — attestation fallback is appropriate" signal. The github driver
-    # returns 3 on free-tier 403; the gitlab driver returns 3 when org-mode
-    # approvals PUT fails; future drivers may use 3 for similar semantics.
-    # The driver itself emits host-specific remediation on stderr BEFORE this
-    # block runs — we echo a host-agnostic summary and route to the shared
-    # attestation flow rather than hardcoding GitHub-Pro wording (BL-031).
+    # BL-002 / BL-031 / BL-032: exit codes 3 and 4 are both host-agnostic
+    # "expected partial failure — attestation fallback is appropriate"
+    # signals. The github driver returns 3 on free-tier 403; the gitlab
+    # driver returns 3 on a generic approvals PUT failure and 4 on the
+    # specific Premium-only failure (BL-032 / code-host-gitlab-8). Both
+    # route to the same attestation flow — the driver itself emits host-
+    # specific remediation on stderr BEFORE this block runs, so we echo a
+    # host-agnostic summary and defer detail to the driver (BL-031).
     local _hcp_rc=0
     host_configure_protection main "$mode" || _hcp_rc=$?
-    if [ "$_hcp_rc" -ne 0 ] && [ "$_hcp_rc" -ne 3 ]; then
+    if [ "$_hcp_rc" -ne 0 ] && [ "$_hcp_rc" -ne 3 ] && [ "$_hcp_rc" -ne 4 ]; then
       _hcp_rc=0
       host_configure_protection master "$mode" || _hcp_rc=$?
     fi
 
-    if [ "$_hcp_rc" -eq 3 ]; then
+    if [ "$_hcp_rc" -eq 3 ] || [ "$_hcp_rc" -eq 4 ]; then
       print_warn "Branch protection unavailable via standard API on this $host repo."
       print_info "Falling back to attestation flow — see $host driver remediation message above."
       local attest

@@ -717,6 +717,30 @@ Operator-visible symptom: `scripts/check-gate.sh --preflight` PASSED (it correct
 
 ---
 
+## BL-032: Handle gitlab.com Free org-mode required-approvals 403 gracefully
+
+**Logged:** 2026-06-28
+**Category:** Debt
+**Severity:** Medium
+**Status:** Open
+
+GitLab analog of BL-002. On gitlab.com Free, `PUT projects/:id/approvals` with `approvals_before_merge>=1` is a Premium-tier feature — Free returns HTTP 403 *"This feature is not available on your plan."* (exact wording has varied across GitLab releases — "premium", "ultimate", "not available on your plan", "feature is not available", "requires .* plan"). Organizational deployments on gitlab.com Free cannot clear the Phase 1→2 protection bar because the required-approvals invariant is structurally unavailable.
+
+The driver remediation (this PR, `fix/host-gitlab-ci-status-stderr-approvals`) addresses the operator-recovery side: it pattern-matches the Premium-only response, returns a dedicated exit code (4), and prints a structured remediation listing upgrade / self-hosted / attestation-escape-hatch options. What's still open is the third option — the attestation flow itself.
+
+**Scope:** In `scripts/host-drivers/gitlab.sh` and `scripts/init.sh`:
+1. Add a `--approvals-attested` flag (and `SOLO_APPROVALS_ATTESTED=1` env var) honored by `host_configure_protection`. When set in org mode, skip the approvals PUT and record an attestation in `.claude/process-state.json::phase2_init.attestations.branch_protection.reason = "gitlab_free_tier_approvals"`.
+2. Extend `scripts/check-phase-gate.sh` Phase 1→2 backstop to honor the new attestation reason (mirroring the existing `github_free_tier` branch added in PR #62 — see code-check-gates-1 entry above).
+3. Update `docs/builders-guide.md` § Repository Setup to document the GitLab Free tier limitation alongside the existing GitHub free-tier note (line ~933).
+
+The CI pipeline-success gate (code-host-gitlab-2 / `only_allow_merge_if_pipeline_succeeds`) is NOT Premium-gated on gitlab.com Free, so this BL is scoped strictly to the approvals API.
+
+**Trigger:** Before the first organizational deployment on gitlab.com Free attempts `init.sh` in `org` mode.
+
+**Related:** code-host-gitlab-8 audit finding (the gap that triggered this entry); BL-002 (the GitHub analog this mirrors); code-check-gates-1 (the canonical attestation-honoring backstop pattern this should reuse).
+
+---
+
 ## BL-033: Migrate multi-stage install_cmds in templates/tool-matrix/*.json to structured shapes
 
 **Logged:** 2026-06-28 (PR #92 verifier follow-up)

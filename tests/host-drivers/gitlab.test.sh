@@ -90,15 +90,19 @@ cd - >/dev/null; rm -rf "$WORK"
 mock_cli_teardown "$MOCK_DIR"; export PATH="$OLD_PATH"
 echo "gitlab.test.sh: host_configure_protection (personal) PASSED"
 
-# host_configure_protection org — POST protected_branches + PUT approvals
-# (gitlab.sh:111-121). Parity with github.test.sh (BL-005). Org mode sets
-# push_access_level=0 (No one) and approvals_before_merge=1.
+# host_configure_protection org — POST protected_branches + PUT approvals +
+# PUT projects/:id pipeline-success gate (gitlab.sh:111-160). Parity with
+# github.test.sh (BL-005). Org mode sets push_access_level=0 (No one),
+# approvals_before_merge=1, and only_allow_merge_if_pipeline_succeeds=true
+# (the latter added by audit code-host-gitlab-2 — CI parity with github.sh's
+# required_status_checks).
 MOCK_DIR=$(mock_cli_setup); export PATH="$MOCK_DIR:$OLD_PATH"
 WORK=$(mktemp -d); cd "$WORK"
 git init -q; git remote add origin "https://gitlab.com/org/repo.git"
 mock_cli_respond glab "api -X DELETE projects/org%2Frepo/protected_branches/main" 0 ""
 mock_cli_respond glab "api -X POST projects/org%2Frepo/protected_branches" 0 '{"id":1,"name":"main"}'
 mock_cli_respond glab "api -X PUT projects/org%2Frepo/approvals" 0 '{"approvals_before_merge":1}'
+mock_cli_respond glab "api -X PUT projects/org%2Frepo" 0 '{"only_allow_merge_if_pipeline_succeeds":true}'
 set +e; host_configure_protection "main" "org"; code=$?; set -e
 assert_exit_code 0 "$code" "org configure succeeds"
 cd - >/dev/null; rm -rf "$WORK"
@@ -119,9 +123,11 @@ set +e; output=$(host_verify_protection "main" "personal" 2>&1); code=$?; set -e
 assert_exit_code 1 "$code" "force-push allowed fails"
 assert_contains "$output" "force-push" "mentions rule"
 
-# org mode requires approvals — fail case
+# org mode requires approvals — fail case. Also fixture the project-settings
+# GET so the new code-host-gitlab-2 CI-gate check has a deterministic response.
 mock_cli_respond glab "api projects/u%2Fp/protected_branches/main" 0 '{"name":"main","allow_force_push":false,"push_access_levels":[{"access_level":40}]}'
 mock_cli_respond glab "api projects/u%2Fp/approvals" 0 '{"approvals_before_merge":0}'
+mock_cli_respond glab "api -X GET projects/u%2Fp" 0 '{"only_allow_merge_if_pipeline_succeeds":true}'
 set +e; output=$(host_verify_protection "main" "org" 2>&1); code=$?; set -e
 assert_exit_code 1 "$code" "org no approvals fails"
 assert_contains "$output" "approval" "mentions approvals"
@@ -139,6 +145,9 @@ git init -q; git remote add origin "https://gitlab.com/org/repo.git"
 mock_cli_respond glab "api projects/org%2Frepo/protected_branches/main" 0 \
   '{"name":"main","allow_force_push":false,"push_access_levels":[{"access_level":0}]}'
 mock_cli_respond glab "api projects/org%2Frepo/approvals" 0 '{"approvals_before_merge":1}'
+# code-host-gitlab-2: pipeline-success gate must be enabled for org-mode
+# verify to pass.
+mock_cli_respond glab "api -X GET projects/org%2Frepo" 0 '{"only_allow_merge_if_pipeline_succeeds":true}'
 set +e; host_verify_protection "main" "org"; code=$?; set -e
 assert_exit_code 0 "$code" "org verify pass"
 cd - >/dev/null; rm -rf "$WORK"
