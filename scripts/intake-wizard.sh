@@ -12,45 +12,65 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/helpers.sh"
 
-# UAT 2026-04-25 fix (U-N): refuse to operate inside the framework repo.
-guard_not_in_framework || exit 1
+# audit tests-full-known-bugs-2 (closure): allow this file to be sourced
+# by tests without triggering the wizard's project-root discovery,
+# CWD anchor, and main() loop. The guard `return 0 2>/dev/null` succeeds
+# only when the script is being sourced — in normal `bash intake-wizard.sh`
+# invocations it errors out, the negation flips, and the original setup
+# block runs unchanged. This unblocks tests/known-bugs-test-suite.sh from
+# replicating save_answer / init_progress / save_section / _request_pause
+# inline; the tests can now source the file and exercise the real
+# functions, closing the regression-coverage gap the audit cited.
+_intake_wizard_sourced=0
+(return 0 2>/dev/null) && _intake_wizard_sourced=1
 
-# UAT 2026-04-26 fix (U-G / T1-D): walk up from CWD looking for .claude/.
-# The previous implementation hardcoded PROJECT_ROOT="$SCRIPT_DIR/.." which
-# resolved to the framework dir when invoked via bash $FRAMEWORK/scripts/
-# intake-wizard.sh, breaking --upgrade-deployment / --to-sponsored-poc /
-# --to-private-poc / --resume. Same shape as scripts/upgrade-project.sh's
-# find_project_root().
-find_project_root_for_intake() {
-  local dir="$PWD"
-  while [ "$dir" != "/" ]; do
-    if [ -f "$dir/.claude/phase-state.json" ]; then
-      echo "$dir"
-      return 0
-    fi
-    dir="$(dirname "$dir")"
-  done
-  return 1
-}
-if PROJECT_ROOT="$(find_project_root_for_intake)"; then
-  :
-else
-  print_fail "Could not find project root (no .claude/phase-state.json in CWD or parents)."
-  print_info "Run intake-wizard.sh from your project directory."
-  exit 1
+if [ "$_intake_wizard_sourced" -ne 1 ]; then
+  # UAT 2026-04-25 fix (U-N): refuse to operate inside the framework repo.
+  guard_not_in_framework || exit 1
+
+  # UAT 2026-04-26 fix (U-G / T1-D): walk up from CWD looking for .claude/.
+  # The previous implementation hardcoded PROJECT_ROOT="$SCRIPT_DIR/.." which
+  # resolved to the framework dir when invoked via bash $FRAMEWORK/scripts/
+  # intake-wizard.sh, breaking --upgrade-deployment / --to-sponsored-poc /
+  # --to-private-poc / --resume. Same shape as scripts/upgrade-project.sh's
+  # find_project_root().
+  find_project_root_for_intake() {
+    local dir="$PWD"
+    while [ "$dir" != "/" ]; do
+      if [ -f "$dir/.claude/phase-state.json" ]; then
+        echo "$dir"
+        return 0
+      fi
+      dir="$(dirname "$dir")"
+    done
+    return 1
+  }
+  if PROJECT_ROOT="$(find_project_root_for_intake)"; then
+    :
+  else
+    print_fail "Could not find project root (no .claude/phase-state.json in CWD or parents)."
+    print_info "Run intake-wizard.sh from your project directory."
+    exit 1
+  fi
+
+  # All passthrough exec's below use relative `scripts/...` paths, and several
+  # wizard sections write into the project's working files. Anchor CWD to the
+  # resolved project root so those paths are unambiguous regardless of where
+  # the wizard was invoked from.
+  cd "$PROJECT_ROOT"
 fi
 
-# All passthrough exec's below use relative `scripts/...` paths, and several
-# wizard sections write into the project's working files. Anchor CWD to the
-# resolved project root so those paths are unambiguous regardless of where
-# the wizard was invoked from.
-cd "$PROJECT_ROOT"
-
-# Templates ship with the framework, not the project.
+# Templates ship with the framework, not the project. Defining this
+# outside the sourced/standalone branch keeps the constant available
+# to functions that tests may reach for (e.g. render_intake_file).
 FRAMEWORK_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-PROGRESS_FILE="$PROJECT_ROOT/.claude/intake-progress.json"
-INTAKE_FILE="$PROJECT_ROOT/PROJECT_INTAKE.md"
+# When sourced for unit tests PROJECT_ROOT isn't resolved (no walk to a
+# .claude/phase-state.json from the test's CWD). Default to empty so the
+# top-level assignment doesn't trip `set -u` in the test harness; tests
+# override PROGRESS_FILE/INTAKE_FILE before calling save_answer etc.
+PROGRESS_FILE="${PROJECT_ROOT:-}/.claude/intake-progress.json"
+INTAKE_FILE="${PROJECT_ROOT:-}/PROJECT_INTAKE.md"
 SUGGESTIONS_DIR="$FRAMEWORK_ROOT/templates/intake-suggestions"
 
 # Project context (loaded from progress file or phase-state.json)
@@ -1981,4 +2001,6 @@ main() {
   esac
 }
 
-main "$@"
+if [ "${_intake_wizard_sourced:-0}" -ne 1 ]; then
+  main "$@"
+fi

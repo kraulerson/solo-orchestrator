@@ -1607,6 +1607,25 @@ These pre-conditions must be completed before Phase 0 begins. See Governance Fra
 
 ---
 
+## Retroactive Phase 1 → Phase 2 STA Approval
+
+**Required because:** This project was upgraded from personal to organizational on {today}. Per docs/builders-guide.md § Phase 1 (line 807) and Governance Framework Section V, the Senior Technical Authority must retroactively review and approve the existing Project Bible before further phase gate work proceeds. scripts/check-phase-gate.sh emits a non-blocking WARN until the Approver + Date below are filled in.
+
+| Field | Value |
+|---|---|
+| **Gate** | Retroactive Phase 1 → Phase 2 (STA) |
+| **Approver** | |
+| **Role** | Senior Technical Authority |
+| **Date** | |
+| **Method** | Email / Ticket / Document |
+| **Reference** | docs/builders-guide.md § Phase 1 (line 807) |
+| **Artifacts reviewed** | PROJECT_BIBLE.md (as-of upgrade), Architecture Decision Records, Threat Model |
+| **Decision** | Approved / Approved with conditions / Rejected |
+| **Conditions (if any)** | |
+| **Notes** | |
+
+---
+
 ## Approval History
 
 _Append additional approvals here for post-launch changes, maintenance reviews, or re-approvals._

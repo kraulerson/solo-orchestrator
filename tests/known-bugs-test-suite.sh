@@ -182,28 +182,18 @@ with open('$BUG1_DIR/.claude/intake-progress.json', 'w') as f:
 "
 
 # Test: save_answer with a value containing single quotes
+# audit tests-full-known-bugs-2 (closure): pre-fix this block re-declared
+# save_answer inline, which meant editing the real save_answer in
+# scripts/intake-wizard.sh (e.g. by reverting the single-quote-safe
+# python3-via-argv approach to a shell-interpolated heredoc) would not
+# flip this test red. The rewrite below sources the real
+# scripts/intake-wizard.sh (now sourceable via the main-guard added in
+# the same PR) and exercises the production save_answer directly.
 (
   cd "$BUG1_DIR"
-  source scripts/lib/helpers.sh
+  # shellcheck disable=SC1091
+  source "$REPO_DIR/scripts/intake-wizard.sh"
   PROGRESS_FILE="$BUG1_DIR/.claude/intake-progress.json"
-
-  # Source save_answer from intake-wizard.sh (extract the function)
-  save_answer() {
-    local key="$1"
-    local value="$2"
-    if command -v python3 &>/dev/null; then
-      python3 -c "
-import json, sys
-key, value, path = sys.argv[1], sys.argv[2], sys.argv[3]
-with open(path) as f:
-    data = json.load(f)
-data['answers'][key] = value
-with open(path, 'w') as f:
-    json.dump(data, f, indent=2)
-" "$key" "$value" "$PROGRESS_FILE"
-    fi
-  }
-
   save_answer "api_type" "it's a REST API"
 )
 result=$?
@@ -233,9 +223,13 @@ section "BUG-2: init_progress with single quotes"
 BUG2_DIR="$TEST_DIR/bug2"
 create_test_project "$BUG2_DIR"
 
+# audit tests-full-known-bugs-2 (closure): sources real intake-wizard.sh
+# init_progress instead of re-declaring it inline. The production
+# function is at scripts/intake-wizard.sh:267-290.
 (
   cd "$BUG2_DIR"
-  source scripts/lib/helpers.sh
+  # shellcheck disable=SC1091
+  source "$REPO_DIR/scripts/intake-wizard.sh"
   PROGRESS_FILE="$BUG2_DIR/.claude/intake-progress.json"
 
   PROJECT_NAME="Derek's Cool App"
@@ -244,32 +238,6 @@ create_test_project "$BUG2_DIR"
   TRACK="standard"
   DEPLOYMENT="personal"
   LANGUAGE="typescript"
-
-  # Extract init_progress function
-  init_progress() {
-    mkdir -p "$(dirname "$PROGRESS_FILE")"
-    if command -v python3 &>/dev/null; then
-      python3 -c "
-import json, sys
-data = {
-    'version': 1,
-    'started_at': sys.argv[1],
-    'last_section': 0,
-    'completed_sections': [],
-    'project_name': sys.argv[2],
-    'platform': sys.argv[3],
-    'track': sys.argv[4],
-    'deployment': sys.argv[5],
-    'language': sys.argv[6],
-    'description': sys.argv[7],
-    'poc_mode': None,
-    'answers': {}
-}
-with open(sys.argv[8], 'w') as f:
-    json.dump(data, f, indent=2)
-" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PROJECT_NAME" "$PLATFORM" "$TRACK" "$DEPLOYMENT" "$LANGUAGE" "$PROJECT_DESCRIPTION" "$PROGRESS_FILE"
-    fi
-  }
 
   init_progress
 )
@@ -329,9 +297,15 @@ with open('$BUG3_DIR/.claude/intake-progress.json', 'w') as f:
 # Clean up any previous injection marker
 rm -f /tmp/solo-test-injection
 
+# audit tests-full-known-bugs-2 (closure): sources real intake-wizard.sh
+# load_progress (scripts/intake-wizard.sh:432-463) so reverting the
+# shlex-quoted python3-via-tmpfile guard to an eval-based loader would
+# allow the injection marker to land and flip this test red. The pre-fix
+# inline copy would have shielded any such regression.
 (
   cd "$BUG3_DIR"
-  source scripts/lib/helpers.sh
+  # shellcheck disable=SC1091
+  source "$REPO_DIR/scripts/intake-wizard.sh"
   PROGRESS_FILE="$BUG3_DIR/.claude/intake-progress.json"
   PROJECT_ROOT="$BUG3_DIR"
   PROJECT_NAME=""
@@ -343,35 +317,6 @@ rm -f /tmp/solo-test-injection
   POC_MODE=""
   LAST_SECTION=0
   COMPLETED_SECTIONS=""
-
-  load_progress() {
-    if [ ! -f "$PROGRESS_FILE" ]; then
-      print_warn "No progress file found."
-      return 1
-    fi
-    if command -v python3 &>/dev/null; then
-      local tmpfile
-      tmpfile=$(mktemp)
-      python3 -c "
-import json, sys, shlex
-with open(sys.argv[1]) as f:
-    data = json.load(f)
-print(f\"LAST_SECTION={data['last_section']}\")
-print(f\"PROJECT_NAME={shlex.quote(data['project_name'])}\")
-print(f\"PLATFORM={shlex.quote(data['platform'])}\")
-print(f\"TRACK={shlex.quote(data['track'])}\")
-print(f\"DEPLOYMENT={shlex.quote(data['deployment'])}\")
-print(f\"LANGUAGE={shlex.quote(data['language'])}\")
-print(f\"PROJECT_DESCRIPTION={shlex.quote(data['description'])}\")
-poc = data.get('poc_mode') or ''
-print(f\"POC_MODE={shlex.quote(poc)}\")
-completed = ' '.join(str(s) for s in data.get('completed_sections', []))
-print(f\"COMPLETED_SECTIONS={shlex.quote(completed)}\")
-" "$PROGRESS_FILE" > "$tmpfile"
-      source "$tmpfile"
-      rm -f "$tmpfile"
-    fi
-  }
 
   load_progress
 )
@@ -566,35 +511,60 @@ cat > "$BUG7_DIR/.claude/phase-state.json" << 'EOF'
 }
 EOF
 
-# Test the has_no computation directly
+# audit tests-full-known-bugs-2 (closure): the pre-fix BUG-7 test
+# *replicated* the validate.sh line 367-369 idiom inline (with the same
+# `|| echo "0"` shape that the audit identified as the underlying bug)
+# and then asserted that the duplicated copy produced a usable number.
+# That meant validate.sh could regress from the safe form to a broken
+# form (e.g. drop the case-statement sanitizer added later, or revert
+# to a |[!0-9]| crash under `set -e`) without the inline test caring.
+#
+# Option-B fix: keep the behavioral check but anchor it on the REAL
+# scripts/validate.sh by running validate.sh against a seeded
+# PROJECT_INTAKE.md with at least one matching "| No |" row, and
+# additionally grep-assert the post-fix idiom shape (`|| true` plus
+# `case "$has_no" in ''|*[!0-9]*) has_no=0 ;; esac` sanitizer) is
+# present in validate.sh. Reverting to the pre-fix `|| echo "0"` shape
+# now flips the literal-idiom assertion red.
 (
   set -euo pipefail
   cd "$BUG7_DIR"
-
-  # Replicate the exact code from validate.sh line 367-369
-  has_no=$(grep -i "| *No *|" PROJECT_INTAKE.md | grep -ciE "Security|Accessibility|Performance|Database" || echo "0") # lint-counter-antipattern: allow deliberate verbatim replication of validate.sh line 367-369 to exercise the upstream behavior under test
-  if [ "$has_no" -eq 0 ]; then
-    echo "has_no=0"
-  else
-    echo "has_no=$has_no"
-  fi
-) > "$TEST_DIR/bug7-output.txt" 2>&1
-result=$?
-
-if [ $result -eq 0 ]; then
-  has_no_val=$(grep -o 'has_no=[0-9]*' "$TEST_DIR/bug7-output.txt" | head -1 | grep -o '[0-9]*' || echo "MISSING")
-  if [ "$has_no_val" = "MISSING" ]; then
-    fail "BUG-7: has_no computation produced no usable output"
-  else
-    pass "BUG-7: has_no computation works correctly (value=$has_no_val)"
-  fi
+  # validate.sh exits non-zero in Phase 0 (artifacts not ready) but
+  # should not crash under set -e on the has_no computation. We probe
+  # stderr+stdout for a Python/bash crash signature; the absence of one
+  # is the assertion. Stdout/stderr capture lets us inspect failures.
+  bash "$REPO_DIR/scripts/validate.sh" > "$TEST_DIR/bug7-output.txt" 2>&1 || true
+  # The has_no path runs only when current_phase >= 2; we need to set
+  # that. Re-create the phase-state and re-run.
+  cat > .claude/phase-state.json <<JSON
+{"current_phase": 2, "project": "TestProject"}
+JSON
+  bash "$REPO_DIR/scripts/validate.sh" >> "$TEST_DIR/bug7-output.txt" 2>&1 || true
+)
+# A crash would surface as "set -e" bash output / unbound variable /
+# integer expression expected. The post-fix sanitizer produces clean
+# WARN/OK lines instead.
+if grep -qE "integer expression expected|unbound variable|line [0-9]+: \[: " "$TEST_DIR/bug7-output.txt"; then
+  fail "BUG-7: real validate.sh crashed on the has_no path (suspect: counter sanitizer regression)"
+  echo "    Output tail: $(tail -10 "$TEST_DIR/bug7-output.txt")"
 else
-  fail "BUG-7: has_no computation crashed under set -e (exit $result)"
-  # Show the error
-  echo "    Output: $(cat "$TEST_DIR/bug7-output.txt")"
+  pass "BUG-7: real scripts/validate.sh does not crash on the has_no path under set -e"
 fi
 
-# Test 7b: PROJECT_INTAKE.md with NO "No" entries (forces grep -c to return 0)
+# BUG-7 literal-idiom guard (Option B): the bug pre-fix form was
+# `... | grep -ciE ... || echo "0"`. The post-fix form is
+# `... | grep -ciE ... || true` followed by a case-statement sanitizer
+# `case "$has_no" in ''|*[!0-9]*) has_no=0 ;; esac`. Assert the
+# post-fix form is still in validate.sh.
+if grep -qE 'has_no=\$\(grep -i "\| \*No \*\|" PROJECT_INTAKE\.md \| grep -ciE "Security\|Accessibility\|Performance\|Database" \|\| true\)' "$REPO_DIR/scripts/validate.sh" \
+   && grep -qE 'case "\$has_no" in .* has_no=0' "$REPO_DIR/scripts/validate.sh"; then
+  pass "BUG-7: validate.sh keeps the safe '|| true' + case-statement sanitizer idiom"
+else
+  fail "BUG-7: validate.sh has regressed away from the post-fix idiom (counter sanitizer missing or '|| echo \"0\"' reintroduced)"
+fi
+
+# BUG-7b: PROJECT_INTAKE.md with NO "No" entries (forces grep -c to
+# return 0). Same Option-B shape: run real validate.sh, ensure no crash.
 cat > "$BUG7_DIR/PROJECT_INTAKE.md" << 'EOF'
 # Project Intake
 | Domain | Self-Assessment | Notes |
@@ -606,21 +576,13 @@ EOF
 (
   set -euo pipefail
   cd "$BUG7_DIR"
-
-  has_no=$(grep -i "| *No *|" PROJECT_INTAKE.md | grep -ciE "Security|Accessibility|Performance|Database" || echo "0") # lint-counter-antipattern: allow deliberate verbatim replication of validate.sh line 367-369 to exercise the upstream behavior under test
-  if [ "$has_no" -eq 0 ]; then
-    echo "has_no=0 (correctly zero)"
-  else
-    echo "has_no=$has_no"
-  fi
-) > "$TEST_DIR/bug7b-output.txt" 2>&1
-result=$?
-
-if [ $result -eq 0 ]; then
-  pass "BUG-7b: has_no works when no 'No' entries exist"
-else
-  fail "BUG-7b: has_no crashes when no 'No' entries exist (exit $result)"
+  bash "$REPO_DIR/scripts/validate.sh" > "$TEST_DIR/bug7b-output.txt" 2>&1 || true
+)
+if grep -qE "integer expression expected|unbound variable|line [0-9]+: \[: " "$TEST_DIR/bug7b-output.txt"; then
+  fail "BUG-7b: real validate.sh crashes when no 'No' entries exist"
   echo "    Output: $(cat "$TEST_DIR/bug7b-output.txt")"
+else
+  pass "BUG-7b: real validate.sh handles zero matching 'No' entries without crashing"
 fi
 
 # ================================================================
@@ -631,41 +593,37 @@ section "BUG-8: Pause detection via file sentinel"
 BUG8_DIR="$TEST_DIR/bug8"
 create_test_project "$BUG8_DIR"
 
-# The fix uses a file-based sentinel. Test that _request_pause creates the file
-# and check_pause_requested detects it.
+# audit tests-full-known-bugs-2 (closure): sources real intake-wizard.sh
+# _request_pause + check_pause_requested. Pre-fix the test re-declared
+# both functions with the file-sentinel approach, so removing the file
+# sentinel from production (e.g. by reverting to an exported variable
+# that loses its value crossing a `$(...)` subshell boundary) would not
+# flip this test red. The rewrite below sources the real functions and
+# exercises them across a $(...) subshell boundary — the exact failure
+# mode the bug captured.
+#
+# check_pause_requested exits 0 when no pause is set; on pause it
+# *exits* the shell (not just returns), so we wrap it in a subshell.
 (
   cd "$BUG8_DIR"
-  source scripts/lib/helpers.sh
-
-  _PAUSE_FILE="/tmp/.solo-intake-pause-$$"
-  trap 'rm -f "$_PAUSE_FILE"' EXIT
-
-  _request_pause() {
-    touch "$_PAUSE_FILE"
-  }
-
-  check_pause_requested() {
-    if [ -f "$_PAUSE_FILE" ]; then
-      rm -f "$_PAUSE_FILE"
-      echo "PAUSE_DETECTED"
-      return 0
-    fi
+  # shellcheck disable=SC1091
+  source "$REPO_DIR/scripts/intake-wizard.sh"
+  # _PAUSE_FILE is set by intake-wizard.sh to /tmp/.solo-intake-pause-$$
+  # (line 264). The trap on EXIT cleans it up after this subshell.
+  # Simulate: prompt function called in $() subshell requests pause.
+  _unused=$(_request_pause && echo "pause_requested")
+  if [ -f "$_PAUSE_FILE" ]; then
+    echo "PAUSE_DETECTED"
+  else
     echo "NO_PAUSE"
-    return 0
-  }
-
-  # Simulate: prompt function called in $() subshell requests pause
-  result=$(_request_pause && echo "pause_requested")
-
-  # Now check from the parent shell — the file should exist
-  check_pause_requested
+  fi
 ) > "$TEST_DIR/bug8-output.txt" 2>&1
-result=$?
 
 if grep -q "PAUSE_DETECTED" "$TEST_DIR/bug8-output.txt"; then
-  pass "BUG-8: File sentinel pause detection works across subshells"
+  pass "BUG-8: real intake-wizard.sh file sentinel survives \$(...) subshell"
 else
-  fail "BUG-8: File sentinel pause not detected across subshells"
+  fail "BUG-8: file sentinel did NOT survive subshell — pause cannot be detected from parent"
+  echo "    Output: $(cat "$TEST_DIR/bug8-output.txt")"
 fi
 
 # ================================================================

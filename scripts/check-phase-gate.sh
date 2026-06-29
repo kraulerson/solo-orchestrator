@@ -516,6 +516,44 @@ if [ "$current_phase" -ge 2 ]; then
   fi
 fi
 
+# audit tier-crosscheck-5 closure: Personal → Organizational upgrade
+# retroactive STA approval. baseline §4 row 5 / builders-guide.md line
+# 807 require that any project upgraded from personal to organizational
+# have its existing Project Bible retroactively reviewed and approved
+# by a Senior Technical Authority. Pre-fix nothing enforced this — the
+# upgrade-project.sh APPROVAL_LOG.md restructure didn't even surface
+# a row for the retroactive sign-off, so check-phase-gate.sh had
+# nothing to validate.
+#
+# Behavior: when the APPROVAL_LOG.md frontmatter carries
+# `upgraded_from: personal` AND current_phase >= 2, parse the
+# `Retroactive Phase 1 → Phase 2 STA Approval` section. If the
+# Approver or Date is blank, emit a non-blocking WARN (does NOT
+# increment $issues — this is a recurring nudge, not a gate-block,
+# per the audit recommendation). When the section is missing entirely
+# we WARN too (for projects upgraded before this row was added).
+if [ "$current_phase" -ge 2 ] && [ -f "$APPROVAL_LOG" ] && \
+   grep -q '^upgraded_from: personal' "$APPROVAL_LOG" 2>/dev/null; then
+  # Slice out the Retroactive section header and the next ~15 lines.
+  retro_section=$(grep -A 15 "Retroactive Phase 1.*Phase 2.*STA" "$APPROVAL_LOG" 2>/dev/null || echo "")
+  if [ -z "$retro_section" ]; then
+    echo -e "${YELLOW}[WARN]${NC} Phase 1→2 retroactive: project upgraded from personal but APPROVAL_LOG.md has no 'Retroactive Phase 1 → Phase 2 STA Approval' section."
+    echo "        Required by docs/builders-guide.md § Phase 1 (line 807). Re-run scripts/upgrade-project.sh"
+    echo "        to regenerate the section, or add it manually with Approver + Date."
+  else
+    # Extract Approver and Date values from the Field/Value table.
+    retro_approver=$(echo "$retro_section" | grep -E '\*\*Approver\*\*' | head -1 | sed -E 's/.*\*\*Approver\*\*[[:space:]]*\|[[:space:]]*//; s/[[:space:]]*\|.*$//')
+    retro_date=$(echo "$retro_section" | grep -E '\*\*Date\*\*' | head -1 | sed -E 's/.*\*\*Date\*\*[[:space:]]*\|[[:space:]]*//; s/[[:space:]]*\|.*$//')
+    if [ -z "$retro_approver" ] || [ -z "$retro_date" ]; then
+      echo -e "${YELLOW}[WARN]${NC} Phase 1→2 retroactive: project upgraded from personal but Retroactive STA Approval row is incomplete (Approver='$retro_approver' Date='$retro_date')."
+      echo "        Required by docs/builders-guide.md § Phase 1 (line 807). Have the Senior Technical"
+      echo "        Authority retroactively review the Project Bible and fill in the Approver + Date."
+    else
+      echo -e "${GREEN}  [OK]${NC} Phase 1→2 retroactive: STA approval recorded ($retro_approver, $retro_date)"
+    fi
+  fi
+fi
+
 # Check: if current_phase >= 3, gate 2→3 should have a date
 if [ "$current_phase" -ge 3 ]; then
   if [ -n "$gate_2_to_3" ]; then
