@@ -150,12 +150,64 @@ t5_no_downgrade_when_already_advanced() {
   teardown_project
 }
 
+# --- tests-precommit-process-8: POC mode blocks --start-phase4 ---
+# Phase 4 (production release) must be blocked when poc_mode is set.
+# The block must:
+#   1. Exit non-zero (rc != 0).
+#   2. Leave current_phase at 3 (no auto-advance via _set_current_phase_min).
+#   3. Print the upgrade-project.sh --to-production remediation hint to stderr.
+# Two cases: t6 = private_poc, t7 = sponsored_poc. Pins the block at
+# scripts/process-checklist.sh:start_phase4().
+_t_start_phase4_poc_blocked() {
+  local label="$1" mode="$2"
+  setup_phase_zero_project
+  # Seed: current_phase=3, poc_mode=<mode>.
+  jq --arg m "$mode" '.current_phase = 3 | .poc_mode = $m' \
+    "$TMPDIR_T/.claude/phase-state.json" > "$TMPDIR_T/.claude/phase-state.json.tmp" \
+    && mv "$TMPDIR_T/.claude/phase-state.json.tmp" "$TMPDIR_T/.claude/phase-state.json"
+
+  local out rc=0
+  out=$(cd "$TMPDIR_T" && "$SCRIPT" --start-phase4 2>&1) || rc=$?
+
+  # 1. Non-zero exit.
+  if [ "$rc" -eq 0 ]; then
+    fail_ "$label" "expected non-zero exit for poc_mode=$mode; got rc=0 out:\n$out"
+    teardown_project; return
+  fi
+
+  # 2. current_phase unchanged (still 3).
+  local got; got=$(current_phase_in "$TMPDIR_T")
+  if [ "$got" != "3" ]; then
+    fail_ "$label" "current_phase advanced from 3 → $got despite POC block (poc_mode=$mode)"
+    teardown_project; return
+  fi
+
+  # 3. Remediation hint present.
+  if ! printf '%s' "$out" | grep -q 'upgrade-project.sh --to-production'; then
+    fail_ "$label" "expected 'upgrade-project.sh --to-production' remediation hint in stderr; got:\n$out"
+    teardown_project; return
+  fi
+
+  pass "$label: --start-phase4 blocked under poc_mode=$mode (rc=$rc, phase stayed at 3, remediation shown)"
+  teardown_project
+}
+
+t6_start_phase4_private_poc_blocked() {
+  _t_start_phase4_poc_blocked "T6" "private_poc"
+}
+
+t7_start_phase4_sponsored_poc_blocked() {
+  _t_start_phase4_poc_blocked "T7" "sponsored_poc"
+}
+
 echo "== tests/test-process-checklist-auto-advance.sh =="
 t1_start_phase1_advances_to_1
 t2_verify_init_advances_to_2
 t3_start_phase3_advances_to_3
 t4_start_phase4_advances_to_4
 t5_no_downgrade_when_already_advanced
+t6_start_phase4_private_poc_blocked
+t7_start_phase4_sponsored_poc_blocked
 
 echo ""
 echo "== Total: $((PASSED + FAILED)) | Passed: $PASSED | Failed: $FAILED =="
