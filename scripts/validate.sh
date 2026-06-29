@@ -294,6 +294,22 @@ if [ -f "APPROVAL_LOG.md" ]; then
     fi
   fi
 
+  # code-test-gate-track-resume-validate-1: the Approval Log section had
+  # Phase 0→1, 1→2, and 3→4 gate checks but was silently missing the
+  # symmetric 2→3 check. A project past Phase 3 without a dated
+  # `Phase 2 → Phase 3` entry slipped past validation. Mirrors the 1→2
+  # block structure for consistency.
+  if [ $phase -ge 3 ]; then
+    if grep -q "Phase 2 → Phase 3" APPROVAL_LOG.md; then
+      gate_23_date=$(grep -A 10 "Phase 2 → Phase 3" APPROVAL_LOG.md | grep -i "date" | head -1 || true)
+      if echo "$gate_23_date" | grep -qE "[0-9]{4}-[0-9]{2}-[0-9]{2}"; then
+        print_ok "Phase 2→3 gate: dated entry found"
+      else
+        warn "Phase 2→3 gate: no date recorded — project appears to be past Phase 2"
+      fi
+    fi
+  fi
+
   if [ $phase -ge 4 ]; then
     if grep -q "Phase 3 → Phase 4" APPROVAL_LOG.md; then
       gate_34_date=$(grep -A 10 "Phase 3 → Phase 4" APPROVAL_LOG.md | grep -i "date" | head -1 || true)

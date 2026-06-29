@@ -603,10 +603,52 @@ if [ "$IS_COMMIT" = false ] && [ "$IS_PR" = false ]; then
   exit 0
 fi
 
+# code-process-checklist-5: extract the prospective commit subject (if
+# this is a git commit) and pass it to --check-commit-ready. The
+# subject lets the checklist short-circuit the Phase 2 source-commit
+# Build Loop block for non-feat Conventional Commit subjects (chore,
+# fix, refactor, docs, test, perf, style, build, ci, revert). Feat
+# commits — with or without scope, with or without `!` — still trip
+# the gate. PR-creation flow (IS_PR=true) has no commit subject; we
+# pass an empty string, which preserves the pre-fix file-heuristic
+# behaviour.
+COMMIT_SUBJECT=""
+if [ "$IS_COMMIT" = true ]; then
+  # Reuse the same extraction helper used for the BL-006 commit-message
+  # path (defined below). Inline a minimal subject-only extraction
+  # rather than reordering the file: read first line only.
+  RAW_MSG=""
+  if echo "$COMMAND" | grep -qE "<<'?EOF'?"; then
+    RAW_MSG=$(printf '%s\n' "$COMMAND" | awk '
+      /<<'"'"'?EOF'"'"'?/ { flag=1; next }
+      /^EOF$/ { flag=0 }
+      flag && !printed && NF>0 { print; printed=1; exit }
+    ')
+  fi
+  if [ -z "$RAW_MSG" ]; then
+    RAW_MSG=$(printf '%s' "$COMMAND" | sed -nE 's/.*-m "([^"]*)".*/\1/p' | head -n 1)
+    if [ -z "$RAW_MSG" ]; then
+      RAW_MSG=$(printf '%s' "$COMMAND" | sed -nE "s/.*-m '([^']*)'.*/\\1/p" | head -n 1)
+    fi
+    RAW_MSG=$(printf '%s\n' "$RAW_MSG" | head -n 1)
+  fi
+  if [ -z "$RAW_MSG" ] && echo "$COMMAND" | grep -qE '\-F[[:space:]]+[^ ]+'; then
+    F=$(echo "$COMMAND" | sed -nE 's/.*-F[[:space:]]+([^ ]+).*/\1/p' | head -n 1)
+    if [ -n "$F" ] && [ -r "$F" ]; then
+      RAW_MSG=$(head -n 1 "$F")
+    fi
+  fi
+  COMMIT_SUBJECT="$RAW_MSG"
+fi
+
 # Run process checklist check
 CHECKLIST_OUTPUT=""
 CHECKLIST_EXIT=0
-CHECKLIST_OUTPUT=$("$SCRIPT_DIR/process-checklist.sh" --check-commit-ready 2>&1) || CHECKLIST_EXIT=$?
+if [ -n "$COMMIT_SUBJECT" ]; then
+  CHECKLIST_OUTPUT=$("$SCRIPT_DIR/process-checklist.sh" --check-commit-ready --subject "$COMMIT_SUBJECT" 2>&1) || CHECKLIST_EXIT=$?
+else
+  CHECKLIST_OUTPUT=$("$SCRIPT_DIR/process-checklist.sh" --check-commit-ready 2>&1) || CHECKLIST_EXIT=$?
+fi
 
 if [ "$CHECKLIST_EXIT" -ne 0 ]; then
   # Block the commit
