@@ -537,7 +537,17 @@ for entry in "${TRACK_UPGRADES[@]}"; do
   fi
 done
 
-# Test track downgrades (should be blocked)
+# Test track downgrades — resolver superset property check.
+#
+# tests-upgrade-paths-6: this block asserts the RESOLVER's behavior
+# (lower track tools are a subset of higher track tools so a downgrade
+# would lose tools). It does NOT assert scripts/upgrade-project.sh
+# actually refuses the downgrade — that direct refusal assertion lives
+# in the "Direct upgrade-project.sh downgrade-refusal" block below.
+# Keeping both gives us defense in depth: the resolver property test
+# catches matrix-data regressions, the script test catches upgrade-
+# script logic regressions (e.g., the track_rank check on
+# scripts/upgrade-project.sh:739-744 silently going away).
 declare -a TRACK_DOWNGRADES=(
   "full:standard:BLOCKED"
   "standard:light:BLOCKED"
@@ -566,12 +576,85 @@ for entry in "${TRACK_DOWNGRADES[@]}"; do
     done <<< "$from_names"
 
     if [ -n "$lost_tools" ]; then
-      pass "Track downgrade $from_track -> $to_track: correctly $expected (would lose: ${lost_tools%, })"
+      pass "Resolver superset: track downgrade $from_track -> $to_track would lose tools (${lost_tools%, })"
     else
       # Even if no tool loss, the downgrade should still be blocked conceptually
-      warn "Track downgrade $from_track -> $to_track: no tool loss detected but should still be blocked"
+      warn "Resolver superset: track downgrade $from_track -> $to_track: no tool loss detected but should still be blocked"
     fi
   fi
+done
+
+# ── Direct upgrade-project.sh downgrade-refusal ─────────────────────
+#
+# tests-upgrade-paths-6: the resolver-superset loop above only proves
+# the matrix data SHOULD make the downgrade lose tools. It does not
+# exercise scripts/upgrade-project.sh's track_rank refusal at
+# scripts/upgrade-project.sh:739-744 ("Cannot downgrade track from
+# $CURRENT_TRACK to $TARGET_TRACK"). A regression that loosens that
+# branch (e.g., flipping `<` to `<=`, removing the early `exit 1`)
+# would silently allow `--track light` on a `full` project. We stage
+# a tiny fixture for each downgrade pair and assert (1) non-zero exit
+# and (2) the canonical "Cannot downgrade track" message in stderr.
+echo ""
+echo -e "${CYAN}--- Direct upgrade-project.sh downgrade-refusal ---${NC}"
+
+UPGRADE_SCRIPT="$SCRIPT_DIR/scripts/upgrade-project.sh"
+
+# Pairs to exercise: (current_track, target_track). The current track
+# is written into both phase-state.json and tool-preferences.json so
+# the script picks it up via its preferred source (tool-preferences
+# first, phase-state fallback — see scripts/upgrade-project.sh:528-570).
+declare -a DIRECT_DOWNGRADES=(
+  "full:standard"
+  "standard:light"
+  "full:light"
+)
+
+for pair in "${DIRECT_DOWNGRADES[@]}"; do
+  IFS=':' read -r current_track target_track <<< "$pair"
+  fixture=$(mktemp -d)
+  (
+    cd "$fixture"
+    git init -q
+    git config user.email t@t.local
+    git config user.name "Test User"
+    git remote add origin https://example.com/fake.git
+    mkdir -p .claude
+    # Personal/light-style manifest; the script does not require
+    # organizational for a pure --track downgrade refusal — it short-
+    # circuits at the track_rank check before any deployment logic.
+    cat > .claude/manifest.json <<JSON
+{"frameworkVersion":"test","mode":"personal","host":"github","deployment":"personal","poc_mode":null,"enforcement_level":"strict"}
+JSON
+    cat > .claude/phase-state.json <<JSON
+{"track":"$current_track","deployment":"personal","poc_mode":null,"current_phase":1,"phases":{}}
+JSON
+    cat > .claude/tool-preferences.json <<JSON
+{"context":{"track":"$current_track","platform":"web","os":"darwin"},"preferences":{}}
+JSON
+    cat > .claude/intake-progress.json <<JSON
+{"track":"$current_track","deployment":"personal"}
+JSON
+    git add -A && git commit -q -m "init"
+  ) >/dev/null 2>&1
+
+  pre_head=$(cd "$fixture" && git rev-parse HEAD)
+  out=""
+  rc=0
+  out=$(cd "$fixture" && bash "$UPGRADE_SCRIPT" --track "$target_track" --non-interactive </dev/null 2>&1) || rc=$?
+  post_head=$(cd "$fixture" && git rev-parse HEAD)
+
+  if [ "$rc" = "0" ]; then
+    fail "Direct refusal: --track $target_track on $current_track project did NOT exit non-zero (rc=$rc)"
+  elif ! echo "$out" | grep -qF "Cannot downgrade track"; then
+    fail "Direct refusal: $current_track -> $target_track refused but stderr lacks 'Cannot downgrade track' (out tail: $(echo "$out" | tail -3 | tr '\n' ' '))"
+  elif [ "$pre_head" != "$post_head" ]; then
+    fail "Direct refusal: $current_track -> $target_track refused but git HEAD advanced ($pre_head -> $post_head)"
+  else
+    pass "Direct refusal: scripts/upgrade-project.sh --track $target_track refuses ${current_track} project (rc!=0, message + git HEAD intact)"
+  fi
+
+  rm -rf "$fixture"
 done
 
 # Test deployment type transitions
