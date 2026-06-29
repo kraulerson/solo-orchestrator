@@ -162,6 +162,27 @@ cmd_resolve() {
     esac
   done
 
+  # code-escalate-pending-4 (audit v2, S3): validate --decision
+  # BEFORE deleting the sentinel. Pre-fix, cmd_resolve removed the
+  # sentinel first and only afterward called bypass_audit_close_pending,
+  # which rejected unknown decisions with exit 1. A typo such as
+  # `--decision accpet` therefore produced the documented [OK]+[FAIL]
+  # split: sentinel deleted (consumers unblocked) but PENDING audit
+  # rows stranded — the W7 successor-handoff governance record was
+  # silently half-built until the operator noticed and re-ran with
+  # the correct decision string.
+  if [ -n "$decision" ]; then
+    case "$decision" in
+      accept|decline) ;;
+      *)
+        print_fail "--resolve: unknown decision '$decision' (expected: accept | decline). Sentinel left in place."
+        echo "  Re-run: scripts/pending-approval.sh --resolve --decision accept" >&2
+        echo "      or: scripts/pending-approval.sh --resolve --decision decline" >&2
+        return 1
+        ;;
+    esac
+  fi
+
   project_root=$(find_project_root) || {
     print_fail "Not in a Solo project — no .claude/ directory found in \$PWD or any parent."
     return 1
@@ -189,6 +210,7 @@ cmd_resolve() {
         print_ok "Audit log closed: pending bypass rows marked $decision."
       else
         print_fail "Audit log close failed (decision='$decision')."
+        echo "  Re-run 'pending-approval --resolve --decision $decision' to retry the audit close." >&2
         return 1
       fi
     fi
