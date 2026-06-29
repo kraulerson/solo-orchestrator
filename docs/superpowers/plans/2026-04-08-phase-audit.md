@@ -87,6 +87,35 @@ Read ALL of these files thoroughly:
 - /Users/karl/Documents/Claude Projects/solo-orchestrator/scripts/check-phase-gate.sh
 - /Users/karl/Documents/Claude Projects/solo-orchestrator/evaluation-prompts/Projects/bases/ (all files in this directory)
 
+## Tier-Tuple Pre-Audit Gating (Mandatory)
+
+BEFORE grading any finding, compute the project's tier tuple
+(deployment, poc_mode, track, enforcement_level) and cross-reference
+the graceful-degradation baseline:
+
+1. Read `.claude/phase-state.json` for `.deployment`, `.poc_mode`,
+   `.track`. Read `.claude/manifest.json` for `.enforcement_level`.
+   If a field is missing, fall back to `manifest.json` for
+   deployment/poc_mode and treat enforcement_level as `strict`.
+2. Cross-reference `.audit-baseline-v2.md` §6 (Intentional Graceful
+   Degradation) and §7 (Cross-Tier Behavior Matrix). A behavior that
+   LOOKS like a gap may be an intentional carve-out for the project's
+   tier tuple (e.g. branch protection skipped on `deployment=personal`,
+   Phase 3 SAST skipped on `track=light`). If the baseline file is
+   missing, note this in §1 Scope and proceed treating all tiers as
+   strict.
+3. Every finding row in §2 MUST include a **tier_context** field
+   stating which tier combinations the finding applies to. Example
+   values: `applies to all tiers` | `organizational + strict only` |
+   `personal — graceful degradation, NOT a gap`. A finding without
+   `tier_context` is malformed and will be rejected during
+   consolidation. Use the new severity flag `tier_misalignment` for
+   findings where the bug is divergence from expected tier-tuple
+   behavior rather than absence of behavior.
+
+Record the computed tier tuple in §1 Scope & Methodology of your
+report.
+
 ## Evaluation Rubric
 For EVERY prescribed action in Phase 0, evaluate against these 12 criteria:
 1. Instructions — Is there a clear, unambiguous instruction? Can someone new follow it?
@@ -133,8 +162,9 @@ Produce your report in EXACTLY this Markdown structure:
 For each finding use this EXACT format:
 
 ### Finding P0-NNN: [Title]
-- **Severity:** Critical | Major | Minor | Observation
+- **Severity:** Critical | Major | Minor | Observation | tier_misalignment
 - **Category:** Missing Template | Missing Enforcement | Missing Documentation | Missing Storage | Missing Validation | Workflow Gap | Audit Trail Gap | Bypass Risk
+- **tier_context:** [REQUIRED — see Tier-Tuple Pre-Audit Gating; e.g. "applies to all tiers" | "organizational + strict only" | "personal — graceful degradation, NOT a gap"]
 - **Evidence:** [file:line or "not found"]
 - **Enterprise Expectation:** [What a production software company would require]
 - **Current State:** [What the framework actually does]
@@ -148,6 +178,7 @@ Severity definitions:
 - Major: Process works but produces inconsistent/unverifiable results
 - Minor: Gap exists but workaround is obvious or impact is low
 - Observation: Not a gap but an improvement opportunity
+- tier_misalignment: Framework behavior diverges from the expected behavior for this project's tier tuple (e.g. branch protection fires on personal deployment, or strict mode auto-relaxes)
 
 ## 3. Remediation Plan
 
@@ -206,6 +237,35 @@ Read ALL of these files thoroughly:
 - /Users/karl/Documents/Claude Projects/solo-orchestrator/docs/platform-modules/desktop.md
 - /Users/karl/Documents/Claude Projects/solo-orchestrator/docs/platform-modules/mobile.md
 - /Users/karl/Documents/Claude Projects/solo-orchestrator/evaluation-prompts/Projects/bases/ (all files)
+
+## Tier-Tuple Pre-Audit Gating (Mandatory)
+
+BEFORE grading any finding, compute the project's tier tuple
+(deployment, poc_mode, track, enforcement_level) and cross-reference
+the graceful-degradation baseline:
+
+1. Read `.claude/phase-state.json` for `.deployment`, `.poc_mode`,
+   `.track`. Read `.claude/manifest.json` for `.enforcement_level`.
+   If a field is missing, fall back to `manifest.json` for
+   deployment/poc_mode and treat enforcement_level as `strict`.
+2. Cross-reference `.audit-baseline-v2.md` §6 (Intentional Graceful
+   Degradation) and §7 (Cross-Tier Behavior Matrix). A behavior that
+   LOOKS like a gap may be an intentional carve-out for the project's
+   tier tuple (e.g. branch protection skipped on `deployment=personal`,
+   Phase 3 SAST skipped on `track=light`). If the baseline file is
+   missing, note this in §1 Scope and proceed treating all tiers as
+   strict.
+3. Every finding row in §2 MUST include a **tier_context** field
+   stating which tier combinations the finding applies to. Example
+   values: `applies to all tiers` | `organizational + strict only` |
+   `personal — graceful degradation, NOT a gap`. A finding without
+   `tier_context` is malformed and will be rejected during
+   consolidation. Use the new severity flag `tier_misalignment` for
+   findings where the bug is divergence from expected tier-tuple
+   behavior rather than absence of behavior.
+
+Record the computed tier tuple in §1 Scope & Methodology of your
+report.
 
 ## Evaluation Rubric
 For EVERY prescribed action in Phase 1, evaluate against these 12 criteria:
@@ -275,6 +335,35 @@ Read ALL of these files thoroughly:
 - /Users/karl/Documents/Claude Projects/solo-orchestrator/templates/uat-test-template.md
 - /Users/karl/Documents/Claude Projects/solo-orchestrator/init.sh — read the Phase 2 initialization and hook registration sections
 
+## Tier-Tuple Pre-Audit Gating (Mandatory)
+
+BEFORE grading any finding, compute the project's tier tuple
+(deployment, poc_mode, track, enforcement_level) and cross-reference
+the graceful-degradation baseline:
+
+1. Read `.claude/phase-state.json` for `.deployment`, `.poc_mode`,
+   `.track`. Read `.claude/manifest.json` for `.enforcement_level`.
+   If a field is missing, fall back to `manifest.json` for
+   deployment/poc_mode and treat enforcement_level as `strict`.
+2. Cross-reference `.audit-baseline-v2.md` §6 (Intentional Graceful
+   Degradation) and §7 (Cross-Tier Behavior Matrix). A behavior that
+   LOOKS like a gap may be an intentional carve-out for the project's
+   tier tuple (e.g. branch protection skipped on `deployment=personal`,
+   Phase 3 SAST skipped on `track=light`). If the baseline file is
+   missing, note this in §1 Scope and proceed treating all tiers as
+   strict.
+3. Every finding row in §2 MUST include a **tier_context** field
+   stating which tier combinations the finding applies to. Example
+   values: `applies to all tiers` | `organizational + strict only` |
+   `personal — graceful degradation, NOT a gap`. A finding without
+   `tier_context` is malformed and will be rejected during
+   consolidation. Use the new severity flag `tier_misalignment` for
+   findings where the bug is divergence from expected tier-tuple
+   behavior rather than absence of behavior.
+
+Record the computed tier tuple in §1 Scope & Methodology of your
+report.
+
 ## Evaluation Rubric
 For EVERY prescribed action in Phase 2, evaluate against these 12 criteria:
 1. Instructions — Is there a clear, unambiguous instruction? Can someone new follow it?
@@ -341,6 +430,35 @@ Read ALL of these files thoroughly:
 - /Users/karl/Documents/Claude Projects/solo-orchestrator/docs/platform-modules/desktop.md — read Phase 3 sections
 - /Users/karl/Documents/Claude Projects/solo-orchestrator/docs/platform-modules/mobile.md — read Phase 3 sections
 
+## Tier-Tuple Pre-Audit Gating (Mandatory)
+
+BEFORE grading any finding, compute the project's tier tuple
+(deployment, poc_mode, track, enforcement_level) and cross-reference
+the graceful-degradation baseline:
+
+1. Read `.claude/phase-state.json` for `.deployment`, `.poc_mode`,
+   `.track`. Read `.claude/manifest.json` for `.enforcement_level`.
+   If a field is missing, fall back to `manifest.json` for
+   deployment/poc_mode and treat enforcement_level as `strict`.
+2. Cross-reference `.audit-baseline-v2.md` §6 (Intentional Graceful
+   Degradation) and §7 (Cross-Tier Behavior Matrix). A behavior that
+   LOOKS like a gap may be an intentional carve-out for the project's
+   tier tuple (e.g. branch protection skipped on `deployment=personal`,
+   Phase 3 SAST skipped on `track=light`). If the baseline file is
+   missing, note this in §1 Scope and proceed treating all tiers as
+   strict.
+3. Every finding row in §2 MUST include a **tier_context** field
+   stating which tier combinations the finding applies to. Example
+   values: `applies to all tiers` | `organizational + strict only` |
+   `personal — graceful degradation, NOT a gap`. A finding without
+   `tier_context` is malformed and will be rejected during
+   consolidation. Use the new severity flag `tier_misalignment` for
+   findings where the bug is divergence from expected tier-tuple
+   behavior rather than absence of behavior.
+
+Record the computed tier tuple in §1 Scope & Methodology of your
+report.
+
 ## Evaluation Rubric
 For EVERY prescribed action in Phase 3, evaluate against these 12 criteria:
 1. Instructions — Is there a clear, unambiguous instruction? Can someone new follow it?
@@ -402,6 +520,35 @@ Read ALL of these files thoroughly:
 - /Users/karl/Documents/Claude Projects/solo-orchestrator/docs/platform-modules/web.md — read release/distribution sections
 - /Users/karl/Documents/Claude Projects/solo-orchestrator/docs/platform-modules/desktop.md — read release/distribution sections
 - /Users/karl/Documents/Claude Projects/solo-orchestrator/docs/platform-modules/mobile.md — read release/distribution sections
+
+## Tier-Tuple Pre-Audit Gating (Mandatory)
+
+BEFORE grading any finding, compute the project's tier tuple
+(deployment, poc_mode, track, enforcement_level) and cross-reference
+the graceful-degradation baseline:
+
+1. Read `.claude/phase-state.json` for `.deployment`, `.poc_mode`,
+   `.track`. Read `.claude/manifest.json` for `.enforcement_level`.
+   If a field is missing, fall back to `manifest.json` for
+   deployment/poc_mode and treat enforcement_level as `strict`.
+2. Cross-reference `.audit-baseline-v2.md` §6 (Intentional Graceful
+   Degradation) and §7 (Cross-Tier Behavior Matrix). A behavior that
+   LOOKS like a gap may be an intentional carve-out for the project's
+   tier tuple (e.g. branch protection skipped on `deployment=personal`,
+   Phase 3 SAST skipped on `track=light`). If the baseline file is
+   missing, note this in §1 Scope and proceed treating all tiers as
+   strict.
+3. Every finding row in §2 MUST include a **tier_context** field
+   stating which tier combinations the finding applies to. Example
+   values: `applies to all tiers` | `organizational + strict only` |
+   `personal — graceful degradation, NOT a gap`. A finding without
+   `tier_context` is malformed and will be rejected during
+   consolidation. Use the new severity flag `tier_misalignment` for
+   findings where the bug is divergence from expected tier-tuple
+   behavior rather than absence of behavior.
+
+Record the computed tier tuple in §1 Scope & Methodology of your
+report.
 
 ## Evaluation Rubric
 For EVERY prescribed action in Phase 4, evaluate against these 12 criteria:
@@ -466,6 +613,35 @@ Read ALL of these files thoroughly:
 - /Users/karl/Documents/Claude Projects/solo-orchestrator/templates/pipelines/ci/typescript.yml
 - /Users/karl/Documents/Claude Projects/solo-orchestrator/evaluation-prompts/Framework/ (all files)
 - /Users/karl/Documents/Claude Projects/solo-orchestrator/evaluation-prompts/Projects/ (README.md, compose.sh, run-reviews.sh, bases/)
+
+## Tier-Tuple Pre-Audit Gating (Mandatory)
+
+BEFORE grading any finding, compute the project's tier tuple
+(deployment, poc_mode, track, enforcement_level) and cross-reference
+the graceful-degradation baseline:
+
+1. Read `.claude/phase-state.json` for `.deployment`, `.poc_mode`,
+   `.track`. Read `.claude/manifest.json` for `.enforcement_level`.
+   If a field is missing, fall back to `manifest.json` for
+   deployment/poc_mode and treat enforcement_level as `strict`.
+2. Cross-reference `.audit-baseline-v2.md` §6 (Intentional Graceful
+   Degradation) and §7 (Cross-Tier Behavior Matrix). A behavior that
+   LOOKS like a gap may be an intentional carve-out for the project's
+   tier tuple (e.g. branch protection skipped on `deployment=personal`,
+   Phase 3 SAST skipped on `track=light`). If the baseline file is
+   missing, note this in §1 Scope and proceed treating all tiers as
+   strict.
+3. Every finding row in §2 MUST include a **tier_context** field
+   stating which tier combinations the finding applies to. Example
+   values: `applies to all tiers` | `organizational + strict only` |
+   `personal — graceful degradation, NOT a gap`. A finding without
+   `tier_context` is malformed and will be rejected during
+   consolidation. Use the new severity flag `tier_misalignment` for
+   findings where the bug is divergence from expected tier-tuple
+   behavior rather than absence of behavior.
+
+Record the computed tier tuple in §1 Scope & Methodology of your
+report.
 
 ## Evaluation Rubric
 For EVERY script, hook, CI check, governance mechanism, and infrastructure component, evaluate against these 12 criteria:

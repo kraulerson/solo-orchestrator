@@ -235,7 +235,7 @@ For all other commands, it exits immediately with no output (allow).
 
 1. Same as git commit checks
 2. Additionally: verify no UAT session is in progress with incomplete steps
-3. Additionally: verify process-state build_loop is at step 0 or fully complete (no partial features)
+3. Additionally: verify process-state `build_loop` is at step 0 OR steps 1–5 (tests_written, tests_verified_failing, implemented, security_audit, documentation_updated) are complete. Per baseline invariant #14, the build/test/commit cycle is steps 1–5 only — step 6 (`feature_recorded`) is post-PR bookkeeping recorded via `scripts/test-gate.sh --record-feature` after merge. Requiring `feature_recorded` pre-PR would be a process inversion (you cannot record the merged PR before the PR exists). This matches `scripts/process-checklist.sh:require_build_loop_state_for_commit`, which also requires only the first 5 steps.
 
 **Auto-detection of commit type:**
 
