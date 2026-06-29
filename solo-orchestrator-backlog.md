@@ -738,3 +738,25 @@ The CI pipeline-success gate (code-host-gitlab-2 / `only_allow_merge_if_pipeline
 **Trigger:** Before the first organizational deployment on gitlab.com Free attempts `init.sh` in `org` mode.
 
 **Related:** code-host-gitlab-8 audit finding (the gap that triggered this entry); BL-002 (the GitHub analog this mirrors); code-check-gates-1 (the canonical attestation-honoring backstop pattern this should reuse).
+
+---
+
+## code-check-gates-7-followup: per-gate-section blame for APPROVAL_LOG.md commit-author lookup
+
+**Logged:** 2026-06-28 (PR #87 cycle-7 verifier major #4)
+**Category:** Bug / governance (precision of self-approval check)
+**Severity:** Major
+**Status:** Open
+
+`scripts/check-phase-gate.sh:246` resolves the commit author of an approval via `git log -n 1 --format=%an -- APPROVAL_LOG.md`, which returns whoever most recently touched the file — not who added the specific gate's Approver row. The cycle-7 PR-#87 adversarial verifier (major #4) flagged the resulting attack surface: if Alice committed her own approval row (true self-approval — should FAIL) and Bob later committed a typo fix to a different gate's row, the check passes for Alice because the latest commit author is Bob.
+
+PR #87's fix-commit added a minimum-viable WARN at the elif branch (`commit_author_norm` empty + `approver_norm` non-empty) so the silent-pass case at least surfaces, but does NOT close the amended/secondary-edit gap.
+
+**Proposed fix:** walk the active gate section in APPROVAL_LOG.md to find the line containing the Approver row, then use `git blame --line-porcelain -L<N>,<N> APPROVAL_LOG.md` (or `git log -L<N>,<N>:APPROVAL_LOG.md --format=%an --no-patch | head -1`) to extract the author of that specific line's most recent change. Compare THAT against the approver name. The section walker already exists in `validate_approval_fields` — the new logic only needs the line-number resolver (awk `$0 ~ /Approver/ && !/Role/ { print NR; exit }` inside the section).
+
+**Test coverage to add:**
+- T-blame-1: Alice approves gate A in commit C1; Bob later fixes a typo in gate B in commit C2. `check-phase-gate.sh` MUST still FAIL on Alice's self-approval at gate A.
+- T-blame-2: Alice's row is added in the working tree only (uncommitted). Behavior should match the PR-#87 WARN ("cannot verify").
+- T-blame-3: Bob commits Alice's approval row on her behalf (legitimate organizational approval). MUST NOT FAIL (commit author differs from approver).
+
+**Why deferred (not in PR #87 fix-commit):** the WARN is sufficient to remove the silent-pass surface; the blame-walker is ~30 lines of new code with three new tests, exceeding the scope of a verifier-feedback fix-commit. Schedule for cycle 8.

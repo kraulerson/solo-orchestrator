@@ -90,6 +90,8 @@ If the server needs to perform periodic work (monitoring, data refresh):
 
 ### 2.1 Pre-Build Setup (MCP-Specific)
 
+**CDF profile mapping:** When `solo-orchestrator init --platform mcp_server` runs, it invokes the Development Guardrails for Claude Code (CDF) framework's init with `--profile web-api`. CDF ships four profiles (`web-app`, `web-api`, `desktop-app`, `mobile-app`); there is no dedicated `mcp-server` profile upstream. MCP servers are JSON-RPC services over stdio or Streamable HTTP, which makes the `web-api` profile the closest fit for CDF's hook tuning (request/response logging, error envelopes, structured tool catalogues). The Solo discovery JSON still records `targetPlatform: "MCP server (JSON-RPC)"` so the project's actual nature is visible to operators. If a dedicated CDF `mcp-server` profile ships in the future, this mapping will be updated in `init.sh` and the project's `.claude/manifest.json` regenerated on the next `solo-orchestrator upgrade-project` run.
+
 In addition to the Builder's Guide Pre-Build Setup:
 
 **MCP SDK (stable monolithic — recommended for new projects):**
