@@ -660,22 +660,43 @@ glab auth login
 glab auth login --hostname gitlab.your-company.com
 ```
 
-### Bitbucket (curl + App Password)
+### Bitbucket (curl + API Token)
 
-No first-party CLI. Uses `curl` plus a Bitbucket App Password.
+No first-party CLI. Uses `curl` plus an Atlassian API Token.
+
+> **Why API Token, not App Password?** Atlassian is sunsetting Bitbucket
+> Cloud App Passwords in 2026 (see
+> <https://support.atlassian.com/bitbucket-cloud/docs/using-api-tokens/>).
+> API tokens are the forward-compatible replacement. Both are sent as
+> HTTP Basic authentication — for API tokens, the username is your
+> Atlassian account **email** (NOT your Bitbucket username), and the
+> password is the token itself. Bearer auth does NOT work; it is
+> reserved for OAuth 2.0 access tokens (PR #90 verifier fix).
+
+1. Create an API token at <https://id.atlassian.com/manage-profile/security/api-tokens>
+   - Scope it to Bitbucket; pick an expiry up to 1 year.
+2. Export credentials (all three are required — audit code-host-bitbucket-1):
+   ```bash
+   export BITBUCKET_API_TOKEN_EMAIL="you@example.com"    # Atlassian account email
+   export BITBUCKET_API_TOKEN="your-api-token"
+   export BITBUCKET_WORKSPACE="your-workspace-slug"
+   ```
+   `BITBUCKET_WORKSPACE` is the slug in your `bitbucket.org/<workspace>/` URL;
+   for org accounts it is the team slug, which differs from any single user.
+3. Add to your shell rc (`.bashrc` / `.zshrc`) for persistence. Ensure mode 600 if any secrets live in it.
+
+**Legacy — App Password (sunset 2026):** still works today, will break
+on Atlassian's enforcement date. Prefer the API token path above.
 
 1. Generate an App Password at <https://bitbucket.org/account/settings/app-passwords/>
    - Required scopes: `repository:admin`, `project:admin`, `pullrequest:write`
-2. Export credentials (all three are required — audit code-host-bitbucket-1):
+2. Export the three legacy vars:
    ```bash
    export BITBUCKET_USER="your-bitbucket-username"
    export BITBUCKET_APP_PASSWORD="your-app-password"
    export BITBUCKET_WORKSPACE="your-workspace-slug"
    ```
-   `BITBUCKET_WORKSPACE` is the slug in your `bitbucket.org/<workspace>/` URL.
-   For personal accounts it often (but not always) equals `BITBUCKET_USER`;
-   for org accounts it is the team slug, which differs from any single user.
-3. Add to your shell rc (`.bashrc` / `.zshrc`) for persistence. Ensure mode 600 if any secrets live in it.
+   On personal accounts `BITBUCKET_USER` often (but not always) equals the workspace slug.
 
 ### Other hosts (Gitea, Codeberg, self-hosted)
 

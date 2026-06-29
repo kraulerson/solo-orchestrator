@@ -894,12 +894,20 @@ glab repo create <name> --private
 # init.sh handles: git setup + glab api POST projects/<path>/protected_branches
 ```
 
-**Bitbucket Cloud (first-class)** — requires an App Password (not account password) at https://bitbucket.org/account/settings/app-passwords/ with scopes `repository:admin`, `project:admin`, `pullrequest:write`, exported as env vars:
+**Bitbucket Cloud (first-class)** — requires an Atlassian API Token (App Passwords are sunset 2026; per https://support.atlassian.com/bitbucket-cloud/docs/using-api-tokens/, API tokens use HTTP Basic with the Atlassian account **email** as the username):
+```bash
+# PREFERRED — API token (create at https://id.atlassian.com/manage-profile/security/api-tokens)
+export BITBUCKET_API_TOKEN_EMAIL="you@example.com"    # Atlassian account email
+export BITBUCKET_API_TOKEN="your-api-token"
+export BITBUCKET_WORKSPACE="your-workspace-slug"
+# init.sh handles: repo create + branch-restrictions via curl
+```
+
+Legacy App Password path (sunset 2026 — still works today, will break on enforcement; scopes `repository:admin`, `project:admin`, `pullrequest:write` at https://bitbucket.org/account/settings/app-passwords/):
 ```bash
 export BITBUCKET_USER="your-bitbucket-username"
 export BITBUCKET_APP_PASSWORD="your-app-password"
-# (Org workspace? also: export BITBUCKET_WORKSPACE="org-name")
-# init.sh handles: repo create + branch-restrictions via curl
+export BITBUCKET_WORKSPACE="your-workspace-slug"
 ```
 
 **Other hosts (Gitea, Codeberg, self-hosted)**:
