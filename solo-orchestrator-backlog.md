@@ -42,7 +42,7 @@ Existing downstream projects at older CDF `FRAMEWORK_VERSION` need a sync mechan
 **Logged:** 2026-04-22
 **Category:** Debt
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed (2026-04-27, PR #36, commit 50c0430)
 
 Surfaced during live-API verification of the host-aware repo gate. On free-tier GitHub personal accounts, branch protection is unavailable on private repos (API returns HTTP 403 *"Upgrade to GitHub Pro or make this repository public to enable this feature."*). The current GitHub driver fails hard: `host_configure_protection` returns non-zero, the init.sh flow aborts, and the user gets a cryptic "failed to configure protection" message without the tier context.
 
@@ -64,7 +64,7 @@ Similar check for GitLab and Bitbucket tier restrictions if their equivalent exi
 **Logged:** 2026-04-22
 **Category:** Audit
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed (2026-06-27, PR #59, commit f684aa7) — umbrella closed; sub-entries BL-003a (PR #61) and BL-003b (PR #62) cover gitlab/bitbucket follow-up coverage
 
 Plan Task 10.1 was deferred during inline execution. Current test coverage: driver-level unit tests (mocked CLIs) and three regression cases (lancache-pattern, missing host field, protection drift). Missing: a "happy path" test that runs `init.sh`'s new `create_and_protect_remote` end-to-end against mocked `gh`/`glab`/`curl` and verifies all post-conditions (manifest host field set, CI template at correct host-specific path, `process-state.json` `phase2_init.steps_completed` populated).
 
@@ -79,7 +79,7 @@ Plan Task 10.1 was deferred during inline execution. Current test coverage: driv
 **Logged:** 2026-04-22
 **Category:** Audit
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed (2026-06-27, PR #58, commit a3ea907)
 
 Plan Task 10.3 was deferred during inline execution. `scripts/upgrade-project.sh` now handles two migrations (flat CI templates → per-host subfolders; manifest `host` field backfill) but neither migration has a regression test.
 
@@ -351,7 +351,7 @@ Sibling-script follow-up logged when BL-016 shipped. `scripts/intake-wizard.sh` 
 **Logged:** 2026-04-25
 **Category:** Debt
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed (2026-04-27, PR #33, commit e30759f)
 
 Sibling-script follow-up logged when BL-016 shipped. `scripts/upgrade-project.sh` already has `--track`, `--deployment`, `--to-production`, `--to-sponsored-poc` flags but no overarching `--non-interactive` semantic. Defaults are mostly already non-prompting; the gap is explicit input validation (uniform error format) + `--validate-only` smoke-test mode.
 
@@ -591,7 +591,7 @@ This isn't a public-facing helper — it's purely for the test suite. Could live
 **Logged:** 2026-04-27 (calibration agent 5)
 **Category:** Bug + Feature (correctness)
 **Severity:** Critical
-**Status:** Closed — shipped 2026-04-28 (PRs #40, #41); envelope-schema correction shipped 2026-06-26 (PR #46).
+**Status:** Closed (2026-06-26, PR #46, commit 5d1996b; bypass-audit infrastructure shipped earlier via PR #40 (2026-05-04) and PR #41 (2026-05-14))
 
 PostToolUse + Stop bypass-shaped-language detector writes structured rows to `.claude/bypass-audit.json`, plus a confirmation-phrase sentinel and the `escalate-to-user.sh` documented alternative. Always-on regardless of enforcement_level.
 
@@ -606,7 +606,7 @@ PostToolUse + Stop bypass-shaped-language detector writes structured rows to `.c
 **Logged:** 2026-04-28 (calibration brainstorm)
 **Category:** Feature (process enforcement)
 **Severity:** High
-**Status:** Closed — shipped 2026-06-26 (PR upcoming).
+**Status:** Closed (2026-06-26, PR #48, commit 328c9c7; follow-ups PR #49, PR #51, PR #54)
 
 Three-tier enforcement level (`no` / `light` / `strict`) configurable at init or via `reconfigure-project.sh --enforcement-level`. Tier semantics:
 
@@ -1065,3 +1065,230 @@ The framework-repo guard at `scripts/init.sh:3494` runs before the write-permiss
 **Dependencies:** Lands E8b only after BL-034 (registers `edge-cases-pre-init.sh` in an aggregator).
 
 **Related:** `Reports/2026-06-28-test-integrity-audit.md` §2 (LB-3), §7 Slot 5.
+
+---
+
+## BL-044: TEST 4 in full-project-test-suite.sh silently fails 8 assertions due to stale template-layout paths
+
+**Logged:** 2026-06-29
+**Category:** Bug
+**Severity:** High
+**Status:** Open
+
+The PR #104 fixer's full-suite run reported 321/329 passing with 8 failures, all concentrated in `tests/full-project-test-suite.sh` TEST 4 ("Simulated Project Structure Verification"). The failures are pre-existing on `main` — not introduced by any of the Wave 1–4 PRs — and share a single root cause: the test's `cp` source paths still reference the **flat** layout that predated the host-subdir migration. Specifically, lines 506–507 do:
+
+```bash
+[ -f "$SCRIPT_DIR/templates/pipelines/ci/$ci_tpl" ] && cp "$SCRIPT_DIR/templates/pipelines/ci/$ci_tpl" "$project_dir/.github/workflows/ci.yml"
+[ -f "$SCRIPT_DIR/templates/pipelines/release/${t_platform}.yml" ] && cp "$SCRIPT_DIR/templates/pipelines/release/${t_platform}.yml" "$project_dir/.github/workflows/release.yml"
+```
+
+But the actual layout is now `templates/pipelines/ci/github/typescript.yml` (and `gitlab/`, `bitbucket/`) and `templates/pipelines/release/github/web.yml` etc. The flat-path `[ -f ]` guards silently no-op, then verification at line 597–598 emits `File missing ($label): .github/workflows/ci.yml` for every one of the 7 test combos that expects a CI template (7 × 1 = 7 failures), plus the `release.yml` presence check at line 602–604 fires when `templates/pipelines/release/${t_platform}.yml` *would* match under the current layout.
+
+This is a high-severity finding because the failure is **silent at the test-suite gate**: TEST 4 is the only thing in the project that exercises the combinatorial init.sh templating contract end-to-end, and it has been broken for at least the entire Wave 1–4 cycle without any wave catching it. A regression in the actual CI/release templates would not be detected.
+
+**Scope:**
+- Update TEST 4's `cp` source paths to use the host-subdir layout (default to `github/` since the test fixture uses GitHub semantics — `.github/workflows/` destination).
+- Either parameterize the host (so the test can exercise gitlab/ and bitbucket/ too) or document the GitHub-only scope inline.
+- Verify all 8 previously-silent assertions now fail-or-pass correctly: run `bash tests/full-project-test-suite.sh` and confirm TEST 4 reports 0 failures (or surfaces real regressions if any exist in the host-specific templates).
+- Add a fixture sanity check at the top of TEST 4 that fails fast if any of the expected source templates are missing, so future template moves don't silently break the suite again.
+
+**Trigger:** Next test-infrastructure pass. Bundle naturally with BL-053 (TEST 4 fixture sharing) and BL-038 (lint-tests-registered) since all three touch the same test surface.
+
+**Related:** PR #104 full-suite run output (321/329); `tests/full-project-test-suite.sh:455-720`; `templates/pipelines/ci/github/`, `templates/pipelines/release/github/` (actual layout); BL-053 (TEST 4 fixture-sharing refactor); BL-038 (runner-registration check).
+
+---
+
+## BL-045: Parallelize TEST 1 resolver matrix in full-project-test-suite.sh (Step 4 ROI #1)
+
+**Logged:** 2026-06-29
+**Category:** Performance
+**Severity:** High
+**Status:** Open
+
+TEST 1 of `tests/full-project-test-suite.sh` walks an 81-cell matrix (3 platforms × 9 languages × 3 tracks) and forks a fresh `bash scripts/resolve-tools.sh` invocation per cell. Each cell re-reads `templates/tool-matrix/*.json` from disk and version-probes every tool. The walk is fully serial. Step 4 recon timed the full suite at >600 s (timed out at the 10-minute bash limit), with TEST 1 alone responsible for ~240 s — the single largest time-sink in the entire project.
+
+This matters because the >600 s suite runtime is the primary reason the CI workflow does **not** run the full-project-test-suite at all today (`.github/workflows/lint.yml` runs only lint scripts). Bringing TEST 1 under control unblocks wiring the suite into CI, which in turn closes the structural gap that BL-034/BL-035/BL-038 are also tackling from the other side.
+
+**Scope:** Refactor TEST 1's 81-cell walk to either (a) `xargs -P 8` per-cell invocations into temp output files + aggregate at the end, or (b) collapse into a single resolver invocation that batches the matrix and emits per-cell JSON in one pass. Option (a) is simpler and lower-risk; option (b) is faster but requires `scripts/resolve-tools.sh` API change. Expected reduction: ~240 s → ~30–60 s (4-8× speedup). Document the parallelism level in CONTRIBUTING.md so contributors know how to debug a single failing cell.
+
+**Trigger:** Before wiring full-project-test-suite.sh into `.github/workflows/lint.yml` or `scripts/pre-commit-gate.sh`. Bundle with BL-053 (TEST 4 fixture sharing) since both reduce wall-clock on the same suite.
+
+**Related:** `Reports/2026-06-28-step4-dead-code-perf-eval.md` §5.3, §7 item 1; `tests/full-project-test-suite.sh` TEST 1 block; BL-034, BL-035, BL-038.
+
+---
+
+## BL-046: Split `lib/helpers.sh` into focused libraries (Step 4 ROI #2)
+
+**Logged:** 2026-06-29
+**Category:** Performance
+**Severity:** Medium
+**Status:** Open
+
+`lib/helpers.sh` is sourced by ~15 short-lived script callers. Each source incurs a 30–40 ms parse+exec cost (Step 4 recon profiling) regardless of which helpers the caller actually uses. Compounded across the CLI surface this is visible latency on the per-script TUI flow.
+
+**Scope:** Split `lib/helpers.sh` into focused libraries (e.g. `lib/helpers-string.sh`, `lib/helpers-fs.sh`, `lib/helpers-git.sh`, `lib/helpers-host.sh`) so callers source only the surface they need. Audit each call site and update its `source` line to the narrowest helper-library required. Retain a thin `lib/helpers.sh` shim that sources all of them so any third-party caller continues to work.
+
+**Trigger:** When CLI latency becomes user-visible OR when adding the next big helper that would push `lib/helpers.sh` parse time over a perceptible threshold.
+
+**Related:** `Reports/2026-06-28-step4-dead-code-perf-eval.md` §5, §7 item 2; `lib/helpers.sh`; all `source lib/helpers.sh` call sites under `scripts/`.
+
+---
+
+## BL-047: Audit and retire the disabled `cli` arm of `verify-install.sh` (Step 4 ROI #3)
+
+**Logged:** 2026-06-29
+**Category:** Debt
+**Severity:** Low
+**Status:** Open
+
+`scripts/verify-install.sh` carries a `cli` arm that has been disabled / unreachable (per Step 4 recon). The dead branch confuses readers and is a maintenance trap if a future change accidentally re-enables it without re-validating its assertions.
+
+**Scope:** Confirm the `cli` arm is genuinely unreachable from all entry points (CI workflow, pre-commit gate, manual operator usage). If unreachable, delete the dead branch and its associated tests. If reachable from a path Step 4 missed, document the path and gate the arm behind an explicit flag.
+
+**Trigger:** Next pass on `verify-install.sh` for any reason; bundle with BL-050.
+
+**Related:** `Reports/2026-06-28-step4-dead-code-perf-eval.md` §7 item 3; `scripts/verify-install.sh`.
+
+---
+
+## BL-048: Repair dead user-guide anchors (Step 4 ROI #4)
+
+**Logged:** 2026-06-29
+**Category:** Debt
+**Severity:** Low
+**Status:** Open
+
+Step 4 recon enumerated dead anchors in `docs/builders-guide.md` and adjacent user-guide markdown — section headings have been renamed without updating in-doc cross-references. The link-check lint does not catch in-document anchors (only external URLs).
+
+**Scope:** Run an anchor-validator over `docs/` (a small awk/grep script: collect every `## Heading` → derived anchor and every `[link](#anchor)` reference; flag the orphans). Repair each broken anchor. Add the validator script to the lint suite.
+
+**Trigger:** Next docs pass; cheap.
+
+**Related:** `Reports/2026-06-28-step4-dead-code-perf-eval.md` §7 item 4; `docs/builders-guide.md`.
+
+---
+
+## BL-049: Delete orphan plan docs under `docs/superpowers/plans/` (Step 4 ROI #5)
+
+**Logged:** 2026-06-29
+**Category:** Debt
+**Severity:** Low
+**Status:** Open
+
+Multiple plan documents under `docs/superpowers/plans/` correspond to work that has since shipped (or been superseded). Step 4 recon flagged these as orphans — keeping them around dilutes the active-plan signal for any agent searching that directory.
+
+**Scope:** Enumerate each plan doc, cross-check against `git log` and shipped PRs, and either (a) delete the orphan, (b) move to `docs/superpowers/plans/archive/` with a one-line note pointing at the shipping PR, or (c) keep if still actionable. Document the convention in `docs/superpowers/README.md`.
+
+**Trigger:** Next docs-cleanup pass.
+
+**Related:** `Reports/2026-06-28-step4-dead-code-perf-eval.md` §7 item 5; `docs/superpowers/plans/`.
+
+---
+
+## BL-050: Wire `verify-install.sh --eval-factory` into the lint gate (Step 4 ROI #6)
+
+**Logged:** 2026-06-29
+**Category:** Debt
+**Severity:** Medium
+**Status:** Open
+
+`scripts/verify-install.sh --eval-factory` exists as an internal evaluation harness but is not invoked by any CI gate or pre-commit check. Step 4 recon notes this means the factory's regression surface is exercised only by operators who know to run it manually.
+
+**Scope:** Add `bash scripts/verify-install.sh --eval-factory` to `.github/workflows/lint.yml` (or to the test-aggregator harness once BL-034 lands). Verify the eval-factory is quick enough to run on every PR (~seconds, not minutes); if not, gate it behind a path filter or a slow-job label. Bundle with BL-047 if both land together.
+
+**Trigger:** After BL-034 (orphan-test registration) so the gate has a stable aggregator to plug into.
+
+**Related:** `Reports/2026-06-28-step4-dead-code-perf-eval.md` §7 item 6; `scripts/verify-install.sh`; `.github/workflows/lint.yml`.
+
+---
+
+## BL-051: Memoize `get_available_platforms` in `resolve-tools.sh` (Step 4 ROI #7)
+
+**Logged:** 2026-06-29
+**Category:** Performance
+**Severity:** Low
+**Status:** Open
+
+`scripts/resolve-tools.sh::get_available_platforms` re-scans `templates/tool-matrix/*.json` on every call. Within a single resolver invocation the function is called O(N) times where N is the platform count. Step 4 recon recommends a single-pass memoization via a process-local associative array.
+
+**Scope:** Wrap `get_available_platforms` in a memoization cache (bash associative array keyed by '' since there's no arg). First call populates; subsequent calls hit the cache. Add a test that confirms the function is called once even when invoked 10× in a row (via a counter helper).
+
+**Trigger:** When tackling BL-045 (TEST 1 parallelization) — the per-cell `resolve-tools.sh` fork amplifies any in-function cost. Bundle.
+
+**Related:** `Reports/2026-06-28-step4-dead-code-perf-eval.md` §7 item 7; `scripts/resolve-tools.sh`; BL-045.
+
+---
+
+## BL-052: Retire un-invoked test aggregators (Step 4 ROI #8)
+
+**Logged:** 2026-06-29
+**Category:** Debt
+**Severity:** Low
+**Status:** Open — POLICY DECISION PENDING (see Related)
+
+Step 4 recon identified test aggregators under `tests/` that are not invoked from any CI gate, pre-commit hook, or other aggregator. They appear to be dead — sourcing them costs nothing but they confuse the test-discovery surface.
+
+**Scope:** Enumerate every aggregator (`tests/*.sh` that sources other tests), cross-check invocation surface (`.github/workflows/`, `scripts/pre-commit-gate.sh`, `tests/*aggregator*`, etc.), and delete the un-invoked ones.
+
+**POLICY OVERLAP — Karl decision required:** BL-035 (Wire orphan tests into aggregators — pre-Wave 1-4 backlog) recommends the opposite action on adjacent files: register orphans into existing aggregators rather than deleting empty aggregators. Possible reconciliations:
+- **Policy A (BL-035 wins):** Consolidate orphans into a small set of aggregators; BL-052 narrows to retire only the *truly* empty ones.
+- **Policy B (BL-052 wins):** Delete the un-invoked aggregators; BL-035 narrows to only those orphan tests worth keeping post-cleanup.
+
+Neither item should ship before the policy is set.
+
+**Trigger:** After Karl picks a policy.
+
+**Related:** `Reports/2026-06-28-step4-dead-code-perf-eval.md` §7 item 8; BL-035 (cross-ref / overlap); `tests/`.
+
+---
+
+## BL-053: Share TEST 4 fixture across combos in full-project-test-suite.sh (Step 4 ROI #9)
+
+**Logged:** 2026-06-29
+**Category:** Performance
+**Severity:** Medium
+**Status:** Open
+
+TEST 4 in `tests/full-project-test-suite.sh` builds a fresh project fixture per combo (scaffold the directory, copy templates, write manifest). Per Step 4 recon the fixture-setup overhead dominates the per-combo wall-clock; a shared base fixture with combo-specific overlays would cut TEST 4 wall-clock substantially.
+
+**Scope:** Refactor TEST 4 to build one base project fixture (the common scaffolding), then layer combo-specific files on top (CI template, manifest deltas). Each combo runs against an isolated working copy of the base via `cp -r` (cheap) or a per-combo overlay directory. Verify all existing assertions still execute against the same effective state.
+
+**Trigger:** Bundle with BL-044 (TEST 4 path-fix) and BL-045 (TEST 1 parallelization) — single perf PR that touches `full-project-test-suite.sh`.
+
+**Related:** `Reports/2026-06-28-step4-dead-code-perf-eval.md` §7 item 9; BL-044, BL-045; `tests/full-project-test-suite.sh` TEST 4.
+
+---
+
+## BL-054: Tiny dead-code cleanup pass — `_phase2_state_file`, `tool_install_json` (Step 4 ROI #10)
+
+**Logged:** 2026-06-29
+**Category:** Debt
+**Severity:** Low
+**Status:** Open
+
+Step 4 recon identified several small dead-code surfaces, notably the `_phase2_state_file` helper and the `tool_install_json` variable, that are referenced nowhere in current call sites (verified by grep). They're vestigial from earlier refactors.
+
+**Scope:** Grep-confirm each candidate is truly unreferenced (also check templates and docs, not just `scripts/`). Delete in a single small PR. Run the full lint + test gate; nothing should regress.
+
+**Trigger:** Any time; cheap. Could ship as a 'simplify' PR.
+
+**Related:** `Reports/2026-06-28-step4-dead-code-perf-eval.md` §7 item 10; `scripts/`.
+
+---
+
+## BL-055: Per-line APPROVAL_LOG.md blame walker for check-phase-gate.sh self-approval evasion
+
+**Logged:** 2026-06-29
+**Category:** Bug
+**Severity:** Medium
+**Status:** Open
+
+Placeholder entry for the tier-crosscheck-6 follow-up. `scripts/check-phase-gate.sh:246` uses `git log -n 1 --format=%an -- APPROVAL_LOG.md` which returns whoever most-recently touched the file rather than the actual author of the Approver row being checked. This is a self-approval evasion surface: if Bob makes a typo-fix commit to `APPROVAL_LOG.md`, his name shadows Alice's as the latest toucher, which would unblock Alice's self-approval against an Approver row Alice herself added.
+
+PR #87 shipped a minimum-viable WARN that surfaces the risk but does not hard-block. The hard-block upgrade — a per-line blame walker that resolves the author of *the specific Approver row*, not the file as a whole — is in flight as workflow `wf_c62d9fbe-369`.
+
+**Scope:** Implement `_resolve_approver_row_author` in `scripts/check-phase-gate.sh` that, given an Approver row's line content, runs `git blame -L <line>,<line> APPROVAL_LOG.md` to find the commit that introduced *that exact row*, then resolves `%an` of that commit. Replace the current `git log -n 1 --format=%an -- APPROVAL_LOG.md` at line 246 with the per-line resolver. Wire into the existing self-approval refusal logic. Add regression tests covering the Bob-typo-fix-shadows-Alice scenario plus the standard happy path.
+
+**Trigger:** This entry exists as a placeholder in case `wf_c62d9fbe-369` does not close before the next backlog snapshot. If `wf_c62d9fbe-369` ships first, this entry flips to Closed with the PR# citation.
+
+**Related:** `scripts/check-phase-gate.sh:246`; PR #87 (minimum-viable WARN); workflow `wf_c62d9fbe-369` (hard-block in flight); audit code-check-gates-7.
