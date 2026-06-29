@@ -183,7 +183,7 @@ At specific phases, adopt specialized personas for higher-quality output. Each p
   1a. Start the UAT checklist: `scripts/process-checklist.sh --start-uat N` (where N is the session number)
   2. If blocked: dispatch parallel test agents (automated suite, exploratory, cross-platform)
   3. Generate test template for human tester(s) and wait for results
-  3a. **Quality gate:** run `scripts/lint-uat-scenarios.sh <populated-file>` on the generated template. Must exit 0 before dispatch. If exit 1: read violations, revise scenarios, re-run. If exit 2: investigate file/JSON integrity. See `docs/uat-authoring-guide.md § 6` for details.
+  3a. **Quality gate:** run `scripts/lint-uat-scenarios.sh <populated-file>` on the generated template. Must exit 0 before dispatch. If exit 1: read violations, revise scenarios, re-run. If exit 2: investigate file/JSON integrity. See `docs/reference/uat-authoring-guide.md § 6` for details.
   4. Verify submission completeness — list incomplete scenarios, ask to continue or finish
   5. Consolidate all results into bug tracker
   6. Triage with Orchestrator (Fix Now / Defer / Won't Fix / Post-MVP)
@@ -204,7 +204,7 @@ At specific phases, adopt specialized personas for higher-quality output. Each p
   - Abort a started Build Loop: `scripts/process-checklist.sh --reset build_loop` (interactive)
   - All three require terminal access and Y/N confirmation; each writes an audit entry to `.claude/process-audit.log`. These are **local-state fixes only** — if the state was committed, amend or revert the commit separately.
 - **UAT authoring:**
-  - Full per-platform guidance + co-build protocol for 'other' platforms: `docs/uat-authoring-guide.md`
+  - Full per-platform guidance + co-build protocol for 'other' platforms: `docs/reference/uat-authoring-guide.md`
   - Quality linter: `scripts/lint-uat-scenarios.sh <populated-file>`
   - Platform-specific reference examples: `tests/uat/examples/` (populated by init.sh based on your project's platform)
 

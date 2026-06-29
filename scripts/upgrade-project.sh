@@ -2121,17 +2121,17 @@ if [ -d tests/uat/templates ] || [ -d tests/uat ]; then
     print_ok "UAT reference pair copied for platform '$uat_platform'"
   elif [ "$uat_platform" = "other" ]; then
     print_info "Platform is 'other' — UAT reference is co-build protocol."
-    print_info "See docs/uat-authoring-guide.md § 5 next time you start a UAT session."
+    print_info "See docs/reference/uat-authoring-guide.md § 5 next time you start a UAT session."
   else
-    print_warn "UAT platform unknown (intake-progress.json missing or lacks 'platform' field). Skipping reference copy; see docs/uat-authoring-guide.md."
+    print_warn "UAT platform unknown (intake-progress.json missing or lacks 'platform' field). Skipping reference copy; see docs/reference/uat-authoring-guide.md."
   fi
 
   echo ""
   print_info "UAT quality guardrails now active. Next UAT session should:"
-  print_info "  1. Read templates/uat/test-session-template.html's embedded checklist"
+  print_info "  1. Read tests/uat/templates/test-session-template.html's embedded checklist"
   print_info "  2. Use tests/uat/examples/ as shape references (first-class platforms)"
   print_info "  3. Run scripts/lint-uat-scenarios.sh <populated-file> before saving"
-  print_info "See docs/uat-authoring-guide.md for details."
+  print_info "See docs/reference/uat-authoring-guide.md for details."
   echo ""
 fi
 

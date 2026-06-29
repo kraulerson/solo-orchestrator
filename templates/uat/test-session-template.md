@@ -26,7 +26,7 @@ _Every UAT test must begin with a clear statement of the test environment and on
 - **Required tools:** _list._ Optional: _list, with scenario numbers that require each_
 - **One-time setup:** _the commands or steps you ran once before starting_
 
-For richer per-platform guidance — including quality checklist, anti-patterns, reference examples, and the co-build protocol for 'other' platforms — see `templates/uat/test-session-template.html` and `docs/uat-authoring-guide.md`.
+For richer per-platform guidance — including quality checklist, anti-patterns, reference examples, and the co-build protocol for 'other' platforms — see `tests/uat/templates/test-session-template.html` and `docs/reference/uat-authoring-guide.md` (both copied into the project at init time).
 
 ---
 

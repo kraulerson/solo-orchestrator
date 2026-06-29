@@ -198,6 +198,22 @@ For personal projects, gate denial is a self-assessment finding. Record the find
 
 During Phase 2 (Construction, 2-4 weeks), the Orchestrator will make decisions that don't trigger formal escalation but are significant enough to record. Maintain a running decision log capturing: date, decision, rationale, alternatives considered. This log is reviewed at the Phase 3 gate by the Senior Technical Authority.
 
+### Mid-Phase 2 Governance Checkpoint (Organizational)
+
+For organizational deployments, the Orchestrator holds a biweekly (every two weeks) status review with the Senior Technical Authority for the duration of Phase 2. The checkpoint is mandatory for organizational projects; personal deployments may use it at their discretion.
+
+**Scope (30 minutes maximum):**
+
+- Features delivered vs. PROJECT_BIBLE.md scope — call out any drift early.
+- Architectural deviations from the Phase 1 design — note rationale and intent to merge back, refactor, or escalate.
+- Test pass rate trend (unit, integration, E2E) — flag regressions.
+- Unresolved security findings (Semgrep, dependency scanners) — confirm triage and owner.
+- Risk register delta (new risks, changed severity, mitigations in flight).
+
+**Outcomes are recorded as rows in the In-Phase Decision Log** (date, topic, decision, rationale, follow-up). The Senior Technical Authority does not approve or block at this cadence — the checkpoint is course-correction-oriented, not gate-style.
+
+**This checkpoint does not replace the Phase 3 gate.** The Phase 3 gate remains the formal go/no-go decision point for production readiness. The Mid-Phase 2 checkpoint exists so the Phase 3 gate is not the first time the Senior Technical Authority sees the project's state.
+
 ### Escalation Path
 
 The Orchestrator must escalate when:
