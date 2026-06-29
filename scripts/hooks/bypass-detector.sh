@@ -104,7 +104,15 @@ PATTERNS=$(scan_bypass_patterns_all "$TEXT" || true)
 
 # Build the rows.
 TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-SESSION_ID="${CLAUDE_SESSION_ID:-unknown}"
+# Audit fix code-hooks-bypass-detector-3 (2026-06-28): the Claude Code
+# hook envelope carries .session_id as a documented top-level field;
+# CLAUDE_SESSION_ID is NOT exported by Claude Code, so the previous
+# env-only read landed every row with session_id="unknown" and broke
+# the W7 successor-handoff correlation. Read the envelope first; fall
+# back to $CLAUDE_SESSION_ID (belt-and-suspenders for unexpected
+# envelope shapes), then to "unknown".
+SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)
+[ -z "$SESSION_ID" ] && SESSION_ID="${CLAUDE_SESSION_ID:-unknown}"
 LEVEL=$(jq -r '.enforcement_level // "strict"' "$PROJECT_ROOT/.claude/manifest.json" 2>/dev/null)
 FIRST_PATTERN=""
 
