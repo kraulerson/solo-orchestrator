@@ -22,7 +22,7 @@ The framework is designed for extensibility. Adding a platform requires creating
 
 ## What You Are Creating
 
-Adding a new platform creates up to five components:
+Adding a new platform creates up to six components:
 
 | # | Component | Location | Required? | Purpose |
 |---|---|---|---|---|
@@ -31,6 +31,7 @@ Adding a new platform creates up to five components:
 | 3 | **Release Pipeline** | `templates/pipelines/release/{host}/{platform}.yml` for host ∈ {github, gitlab, bitbucket} | Yes | Per-host release workflow template |
 | 4 | **Intake Suggestions** | `templates/intake-suggestions/{platform}.json` | Recommended | Context-aware suggestions for the intake wizard |
 | 5 | **CI Template Updates** | `templates/pipelines/ci/{host}/*.yml` (line 1 marker) | Yes | Register which languages are available for this platform. `github/` is canonical for language filtering (init.sh:415-417); mirror marker changes to `gitlab/` and `bitbucket/`. |
+| 6 | **UAT References** | `templates/uat/references/{platform}-pre-flight.html` + `templates/uat/references/{platform}-scenario.json` | Recommended (Required for non-`other`) | Per-platform UAT canned reference (pre-flight HTML + scenario JSON). `init.sh` copies them to `tests/uat/examples/` in generated projects so UAT session agents have a worked example. Missing files trigger a `print_warn` fall-back to the `other`-platform co-build protocol. |
 
 **Naming convention:** Use lowercase identifier matching the form accepted by `init.sh --platform <name>`. Snake_case (`mcp_server`) is canonical for multi-word platforms; new platforms should follow the same convention. This name becomes the directory/filename slug used everywhere and appears as a selectable option in `init.sh`.
 
@@ -40,9 +41,9 @@ Adding a new platform creates up to five components:
 
 The init script discovers platforms and languages from the filesystem at runtime. No hardcoded lists.
 
-**Platform discovery** (init.sh lines 275-297):
+**Platform discovery** (init.sh lines 346-368):
 1. Scans `docs/platform-modules/*.md` — each filename (minus `.md`) becomes a platform option
-2. Scans `templates/pipelines/release/*.yml` — adds any platforms not already found
+2. Scans `templates/pipelines/release/github/*.yml` — adds any platforms not already found. The `github/` subtree is canonical for discovery (per spec 2026-04-21, all hosts ship the same platform set, so `init.sh` only reads `github/`)
 3. Appends "other" as a fallback
 
 **Language filtering** (init.sh lines 415-417):
@@ -197,9 +198,19 @@ done
 
 ### Step 3: Release Pipeline
 
-**File:** `templates/pipelines/release/{platform}.yml`
+**File:** `templates/pipelines/release/{host}/{platform}.yml` — one per host ∈ {`github`, `bitbucket`, `gitlab`}.
 
-A GitHub Actions workflow template for releasing projects on this platform. The init script copies this file into the generated project as `.github/workflows/release.yml`.
+A release workflow template for releasing projects on this platform. The init script copies the correct file into the generated project based on the selected `--git-host` (see `generate_release` in init.sh:2584):
+
+| Host | Source path | Output path in generated project |
+|---|---|---|
+| `github` | `templates/pipelines/release/github/{platform}.yml` | `.github/workflows/release.yml` |
+| `bitbucket` | `templates/pipelines/release/bitbucket/{platform}.yml` | `bitbucket-pipelines/release.yml` |
+| `gitlab` | `templates/pipelines/release/gitlab/{platform}.yml` | `.gitlab-ci/release.yml` |
+
+The `github/` subtree is **canonical for platform discovery** — `init.sh` only reads `github/*.yml` when building the platform menu (see init.sh:346-368). Contributors adding a new platform **must** create the release pipeline in all three host directories. At minimum, mirror the github template into `bitbucket/` and `gitlab/`; otherwise users on those hosts hit the `print_info "No release pipeline template for platform … on host …"` branch in `generate_release` (init.sh:2598-2601) and ship with no release pipeline at all.
+
+The GitHub Actions example below is the canonical shape. The bitbucket/gitlab variants follow the host's native pipeline syntax — see existing `templates/pipelines/release/bitbucket/web.yml` and `templates/pipelines/release/gitlab/web.yml` for reference shapes.
 
 **Required structure:**
 
@@ -340,6 +351,40 @@ Each CI template has a platform marker on line 1 that controls which languages a
 
 **Always update `other.yml`** — the "other" template is the catch-all and should list every platform.
 
+### Step 6: UAT Reference Files
+
+**Files:**
+- `templates/uat/references/{platform}-pre-flight.html`
+- `templates/uat/references/{platform}-scenario.json`
+
+These are the platform-specific UAT canned reference pair (per spec 2026-04-23-uat-template-quality-design.md § Flow A). They give the UAT session agent a concrete shape to emulate when generating pre-flight blocks and scenarios for the new platform — without them, UAT quality regresses to the generic `other` co-build protocol.
+
+**What each file contains:**
+
+| File | Contents | Authoring guide reference |
+|---|---|---|
+| `{platform}-pre-flight.html` | Worked example of the pre-flight HTML block: system-under-test description, tooling, accounts, optional dependencies, one-time setup. Should mirror the structure of the existing `web-pre-flight.html` / `desktop-pre-flight.html` / `mobile-pre-flight.html` / `mcp_server-pre-flight.html`. | `docs/uat-authoring-guide.md` §3.1–3.4 |
+| `{platform}-scenario.json` | Worked example of a single scenario (or short scenarios array) showing the platform's typical anchor styles (exact-string match, exit-code, response-shape, on-screen text, etc.). | `docs/uat-authoring-guide.md` §4.1–4.4 |
+
+**How `init.sh` uses them** (init.sh:1187-1207):
+
+```text
+mkdir -p tests/uat/templates tests/uat/sessions tests/uat/examples
+cp .../test-session-template.{md,html} tests/uat/templates/
+if [ "$PLATFORM" != "other" ] && [ -f templates/uat/references/${PLATFORM}-pre-flight.html ] && [ -f templates/uat/references/${PLATFORM}-scenario.json ]; then
+  cp templates/uat/references/${PLATFORM}-pre-flight.html tests/uat/examples/pre-flight-reference.html
+  cp templates/uat/references/${PLATFORM}-scenario.json   tests/uat/examples/scenario-reference.json
+elif [ "$PLATFORM" = "other" ]; then
+  print_info "... no UAT canned reference copied ... co-build Q&A protocol per docs/reference/uat-authoring-guide.md § 5"
+else
+  print_warn "UAT reference files not found for platform '$PLATFORM'. Falling back to 'other'-style co-build protocol; see docs/reference/uat-authoring-guide.md § 5."
+fi
+```
+
+When **both files are present**, they are copied into the generated project at `tests/uat/examples/pre-flight-reference.html` and `tests/uat/examples/scenario-reference.json`. When **either file is missing** for a non-`other` platform, `init.sh` emits the `print_warn` fallback above and the project ships without canned references — the session agent must then run the `other`-style co-build protocol with the Orchestrator.
+
+**Authoring guidance:** Read `docs/uat-authoring-guide.md` §3 (per-platform pre-flight patterns) and §4 (per-platform scenario patterns) before writing the new reference pair. Add a new subsection to each of those §§ describing the platform's pre-flight requirements and scenario shapes — per `docs/uat-authoring-guide.md` §7 (Extending for a new platform), this is one of the three things that must happen for UAT parity when adding a new first-class platform.
+
 ---
 
 ## Validation Checklist
@@ -350,10 +395,14 @@ After creating all components, verify your platform works end-to-end:
 
 - [ ] `docs/platform-modules/{platform}.md` exists
 - [ ] `evaluation-prompts/Projects/modules/{platform}.md` exists
-- [ ] `templates/pipelines/release/{platform}.yml` exists
+- [ ] `templates/pipelines/release/github/{platform}.yml` exists (canonical for discovery)
+- [ ] `templates/pipelines/release/bitbucket/{platform}.yml` exists
+- [ ] `templates/pipelines/release/gitlab/{platform}.yml` exists
 - [ ] `templates/intake-suggestions/{platform}.json` exists (recommended)
-- [ ] Relevant `templates/pipelines/ci/*.yml` files updated with platform marker
-- [ ] `templates/pipelines/ci/other.yml` includes your platform in its marker
+- [ ] Relevant `templates/pipelines/ci/{host}/*.yml` files updated with platform marker (all three host trees: github/gitlab/bitbucket)
+- [ ] `templates/pipelines/ci/{host}/other.yml` includes your platform in its marker
+- [ ] `templates/uat/references/{platform}-pre-flight.html` exists (recommended; required for non-`other`)
+- [ ] `templates/uat/references/{platform}-scenario.json` exists (recommended; required for non-`other`)
 
 ### Platform Module Completeness
 

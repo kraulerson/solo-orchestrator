@@ -32,7 +32,7 @@ Common pre-flight content for web:
 - **Optional tools:** devtools for scenarios that use Network/Console.
 - **One-time setup:** open URL → sign in → confirm no console errors.
 
-Reference file: `templates/uat/references/web-pre-flight.html`.
+Reference file (framework source): `templates/uat/references/web-pre-flight.html`; in a generated project: `tests/uat/examples/pre-flight-reference.html` (copied by init.sh:1187-1207 when the project's platform is `web`).
 
 ### 3.2 desktop
 
@@ -45,7 +45,7 @@ Common pre-flight content for desktop:
 - **Required tools:** `git`, `jq`, `python`/`node`/`cargo`/`go` per stack.
 - **One-time setup:** three lines max — `cd`, activate, version check.
 
-Reference file: `templates/uat/references/desktop-pre-flight.html`.
+Reference file (framework source): `templates/uat/references/desktop-pre-flight.html`; in a generated project: `tests/uat/examples/pre-flight-reference.html` (copied by init.sh:1187-1207 when the project's platform is `desktop`).
 
 ### 3.3 mobile
 
@@ -58,7 +58,7 @@ Common pre-flight content for mobile:
 - **Optional tools:** screen recording for scenarios that benefit from tap-sequence capture.
 - **One-time setup:** install, launch, onboard, sign in, confirm home.
 
-Reference file: `templates/uat/references/mobile-pre-flight.html`.
+Reference file (framework source): `templates/uat/references/mobile-pre-flight.html`; in a generated project: `tests/uat/examples/pre-flight-reference.html` (copied by init.sh:1187-1207 when the project's platform is `mobile`).
 
 ### 3.4 mcp_server
 
@@ -71,7 +71,7 @@ Common pre-flight content for mcp_server:
 - **Auth:** env var exports (e.g., `MCP_API_KEY`).
 - **One-time setup:** export env → start Inspector against server → confirm connection.
 
-Reference file: `templates/uat/references/mcp_server-pre-flight.html`.
+Reference file (framework source): `templates/uat/references/mcp_server-pre-flight.html`; in a generated project: `tests/uat/examples/pre-flight-reference.html` (copied by init.sh:1187-1207 when the project's platform is `mcp_server`).
 
 ## 4. Per-platform scenario patterns
 
@@ -84,7 +84,7 @@ Example anchor styles:
 - "The /items list shows the new record at the top with category 'general'."
 - "After deletion, GET /api/items/<id> would return 404."
 
-Reference file: `templates/uat/references/web-scenario.json`.
+Reference file (framework source): `templates/uat/references/web-scenario.json`; in a generated project: `tests/uat/examples/scenario-reference.json` (copied by init.sh:1187-1207 when the project's platform is `web`).
 
 ### 4.2 desktop
 
@@ -95,7 +95,7 @@ Example anchor styles:
 - "`git diff --exit-code` returns 0 and prints 'RESTORED'."
 - "Output contains `total=42` on a single line."
 
-Reference file: `templates/uat/references/desktop-scenario.json`.
+Reference file (framework source): `templates/uat/references/desktop-scenario.json`; in a generated project: `tests/uat/examples/scenario-reference.json` (copied by init.sh:1187-1207 when the project's platform is `desktop`).
 
 ### 4.3 mobile
 
@@ -106,7 +106,7 @@ Example anchor styles:
 - "Sync indicator appears for ≥1 second, then disappears; post appears in the list."
 - "No crash dialog. App does not return to the home screen."
 
-Reference file: `templates/uat/references/mobile-scenario.json`.
+Reference file (framework source): `templates/uat/references/mobile-scenario.json`; in a generated project: `tests/uat/examples/scenario-reference.json` (copied by init.sh:1187-1207 when the project's platform is `mobile`).
 
 ### 4.4 mcp_server
 
@@ -117,7 +117,7 @@ Example anchor styles:
 - "`response.result.total` is the integer 25."
 - "Response does not contain an `error` field at the top level."
 
-Reference file: `templates/uat/references/mcp_server-scenario.json`.
+Reference file (framework source): `templates/uat/references/mcp_server-scenario.json`; in a generated project: `tests/uat/examples/scenario-reference.json` (copied by init.sh:1187-1207 when the project's platform is `mcp_server`).
 
 ## 5. Co-build protocol for 'other' platform
 

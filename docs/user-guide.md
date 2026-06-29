@@ -1029,6 +1029,7 @@ If any check fails, return to the Build Loop. Do not proceed to Phase 3.
 
 | Your Action | Personal | Organizational |
 |---|---|---|
+| If `poc_mode` is set, run `scripts/upgrade-project.sh --to-production` first (see §1.2). Phase 4 is hard-blocked otherwise at both `check-phase-gate.sh` and `process-checklist.sh --start-phase4`. | Required | Required |
 | Verify production build on all target platforms | Same | Same |
 | Configure secrets in CI/CD (API keys, signing certs, deployment credentials) | Same | Same |
 | Review incident response playbook (INCIDENT_RESPONSE.md) | Self-review | Same — share with backup maintainer |

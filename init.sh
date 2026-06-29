@@ -1114,6 +1114,13 @@ create_project() {
   cp "$SCRIPT_DIR/docs/cli-setup-addendum.md" docs/reference/
   cp "$SCRIPT_DIR/docs/user-guide.md" docs/reference/
   cp "$SCRIPT_DIR/docs/security-scan-guide.md" docs/reference/
+  # Audit uat-authoring-guide-2 (2026-06): the UAT authoring guide is
+  # referenced by init.sh's UAT-references fallback print_* strings AND
+  # by templates/uat/test-session-template.html line ~95. Without copying
+  # it into the generated project, those references resolve to nothing
+  # once the operator leaves the framework repo. Mirrors the pattern for
+  # the six sibling docs above.
+  cp "$SCRIPT_DIR/docs/uat-authoring-guide.md" docs/reference/
 
   # Copy evaluation prompts (project-level reviews for Phase 3 validation)
   print_info "Copying evaluation prompts..."
@@ -1201,9 +1208,9 @@ create_project() {
   elif [ "$PLATFORM" = "other" ]; then
     print_info "Platform is 'other' — no UAT canned reference copied."
     print_info "When starting a UAT session, the agent will run the co-build Q&A"
-    print_info "protocol with you per docs/uat-authoring-guide.md § 5."
+    print_info "protocol with you per docs/reference/uat-authoring-guide.md § 5."
   else
-    print_warn "UAT reference files not found for platform '$PLATFORM'. Falling back to 'other'-style co-build protocol; see docs/uat-authoring-guide.md § 5."
+    print_warn "UAT reference files not found for platform '$PLATFORM'. Falling back to 'other'-style co-build protocol; see docs/reference/uat-authoring-guide.md § 5."
   fi
 
   # Copy the correct platform module (auto-discovered)
