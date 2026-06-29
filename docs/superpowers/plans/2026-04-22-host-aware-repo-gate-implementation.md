@@ -1865,9 +1865,39 @@ jq --arg h "$HOST" --arg m "$MODE" --arg u "$REMOTE_URL" \
    '.host = $h | .mode = $m | .remote_url = $u' \
    .claude/manifest.json > .claude/manifest.json.tmp && mv .claude/manifest.json.tmp .claude/manifest.json
 
-# Mark phase2_init steps complete
-jq '.phase2_init.steps_completed += ["remote_repo_created","branch_protection_configured"] | .phase2_init.steps_completed |= unique' \
+# Mark phase2_init steps complete — written incrementally above (one jq append per
+# successful host_ call), with this trailing unique-sort to deduplicate any
+# step a --repair pass may have re-appended. The four named steps in order are:
+#   remote_repo_created          — after host_create_repo + host_register_remote
+#   pushed_initial               — after host_push_initial
+#   branch_protection_configured — after host_configure_protection (or attestation)
+#   branch_protection_verified   — after host_verify_protection passes
+# Incremental writes are mandatory so scripts/check-gate.sh --repair (Task 6.4)
+# can resume from the first missing step instead of re-running everything from
+# scratch. The single batched write that used to live here was the spec drift
+# closed by audit finding specs-plans-host-aware-2.
+jq '.phase2_init.steps_completed |= unique' \
    .claude/process-state.json > .claude/process-state.json.tmp && mv .claude/process-state.json.tmp .claude/process-state.json
+```
+
+**Incremental writes (mandatory).** Each successful host_ call must append its named step before the next call runs, so a mid-flight failure leaves accurate partial state:
+
+```bash
+# After host_create_repo + host_register_remote succeed:
+jq '.phase2_init.steps_completed += ["remote_repo_created"] | .phase2_init.steps_completed |= unique' \
+  .claude/process-state.json > .claude/process-state.json.tmp && mv .claude/process-state.json.tmp .claude/process-state.json
+
+# After host_push_initial succeeds:
+jq '.phase2_init.steps_completed += ["pushed_initial"] | .phase2_init.steps_completed |= unique' \
+  .claude/process-state.json > .claude/process-state.json.tmp && mv .claude/process-state.json.tmp .claude/process-state.json
+
+# After host_configure_protection succeeds (or attestation is recorded):
+jq '.phase2_init.steps_completed += ["branch_protection_configured"] | .phase2_init.steps_completed |= unique' \
+  .claude/process-state.json > .claude/process-state.json.tmp && mv .claude/process-state.json.tmp .claude/process-state.json
+
+# After host_verify_protection succeeds:
+jq '.phase2_init.steps_completed += ["branch_protection_verified"] | .phase2_init.steps_completed |= unique' \
+  .claude/process-state.json > .claude/process-state.json.tmp && mv .claude/process-state.json.tmp .claude/process-state.json
 ```
 
 - [ ] **Step 3: Test init end-to-end**
@@ -2150,30 +2180,75 @@ cmd_backfill_host() {
 
 ### Task 6.4: check-gate.sh --repair
 
+**Spec contract (per audit finding specs-plans-host-aware-11).** `cmd_repair` MUST consult `.claude/process-state.json :: phase2_init.steps_completed` to decide which steps to skip. The four named steps written by `init.sh` (`remote_repo_created`, `pushed_initial`, `branch_protection_configured`, `branch_protection_verified`) drive resume logic: each step that appears in the array is skipped; the first missing step is the resume point. The git-remote probe (`git remote get-url origin`) remains as a **defensive fallback** for legacy projects that predate incremental writes and therefore have empty `steps_completed` — it must NOT be the primary decision input. The verify step always re-runs even when recorded, since branch protection can drift between repair invocations.
+
 - [ ] **Step 1: Implement**
 
 ```bash
 cmd_repair() {
   print_step "Repair: re-applying repo setup from last successful step"
-  host_load_driver || exit 1
-  local mode
-  mode=$(jq -r '.mode' .claude/manifest.json)
 
-  # Step order: create (skip if exists) → register (no-op) → push (no-op) → configure → verify
-  if ! git remote get-url origin >/dev/null 2>&1; then
+  # Read phase2_init.steps_completed to drive resume logic.
+  local steps_json="[]" has_state=0
+  if [ -f .claude/process-state.json ]; then
+    steps_json=$(jq -c '.phase2_init.steps_completed // []' .claude/process-state.json 2>/dev/null || echo "[]")
+    has_state=1
+  fi
+  _step_done() {
+    local s="$1"
+    echo "$steps_json" | jq -e --arg s "$s" 'index($s) != null' >/dev/null 2>&1
+  }
+
+  # Short-circuit: tier-limited attestation (spec category 6 / BL-002) is the gate.
+  local attest_reason=""
+  if [ "$has_state" -eq 1 ]; then
+    attest_reason=$(jq -r '.phase2_init.attestations.branch_protection.reason // ""' \
+                       .claude/process-state.json 2>/dev/null || echo "")
+  fi
+  if [ "$attest_reason" = "github_free_tier" ]; then
+    print_ok "Repair: nothing to do — branch protection attested"
+    return 0
+  fi
+
+  # Short-circuit: all four steps already complete → no-op.
+  if _step_done "remote_repo_created" && _step_done "pushed_initial" \
+     && _step_done "branch_protection_configured" && _step_done "branch_protection_verified"; then
+    print_ok "Repair: nothing to do — all phase2_init steps already complete"
+    return 0
+  fi
+
+  host_load_driver || exit 1
+  local mode; mode=$(jq -r '.mode' .claude/manifest.json)
+
+  # Step 1: create (skip if recorded OR — legacy fallback — git remote already set).
+  if _step_done "remote_repo_created" || git remote get-url origin >/dev/null 2>&1; then
+    print_info "Skipping create — remote already configured"
+  else
     local name visibility
     name=$(jq -r '.project_name // empty' .claude/intake-progress.json)
     visibility=$(jq -r '.repo_visibility // "private"' .claude/intake-progress.json)
     [ -z "$name" ] && { print_fail "No project_name in intake-progress.json — cannot create"; exit 1; }
     print_info "Creating $visibility repo '$name'..."
-    local url
-    url=$(host_create_repo "$name" "$visibility") || exit 1
+    local url; url=$(host_create_repo "$name" "$visibility") || exit 1
     host_register_remote "$url"
+  fi
+
+  # Step 2: push (skip if recorded).
+  if _step_done "pushed_initial"; then
+    print_info "Skipping push — already recorded"
+  else
     host_push_initial main
   fi
 
-  print_info "Re-applying protection for $mode mode..."
-  host_configure_protection main "$mode" || { print_fail "Protection config failed"; exit 1; }
+  # Step 3: configure (skip if recorded).
+  if _step_done "branch_protection_configured"; then
+    print_info "Skipping configure — protection already recorded"
+  else
+    print_info "Re-applying protection for $mode mode..."
+    host_configure_protection main "$mode" || { print_fail "Protection config failed"; exit 1; }
+  fi
+
+  # Step 4: verify (ALWAYS re-run so we see live state; protection can drift).
   host_verify_protection main "$mode" || { print_fail "Verification still failing — check host UI"; exit 1; }
   print_ok "Repair complete"
 }
@@ -2247,6 +2322,23 @@ For each language, translate the existing `github/<lang>.yml` into GitLab CI syn
 | `matrix:` | `parallel: matrix:` |
 | `env:` at step or job | `variables:` |
 | `uses:` | N/A — use images or manual script |
+
+**Translation delta table — GitLab CI (per audit finding specs-plans-host-aware-8).** Python and TypeScript are the structural exemplars (full content in Steps 1 + 3). For every other language below, copy the Python skeleton (`stages: [lint, test, security, build, governance]`) and substitute the values in this table. Each row gives the agent everything needed to translate one file without re-deriving the pattern.
+
+| language | image | cache key + paths | install cmd | lint / test / build cmds | artifact path |
+|---|---|---|---|---|---|
+| python | `python:3.11` | `${CI_COMMIT_REF_SLUG}-pip` → `.cache/pip`, `.venv/` | `pip install -e ".[dev]"` (fallback `pip install -r requirements-dev.txt`) | `ruff check . && ruff format --check . && mypy .` / `pytest --cov=. --cov-report=xml` / `python -m build` | `dist/` |
+| typescript | `node:20` | `${CI_COMMIT_REF_SLUG}-node` → `node_modules/`, `.npm/` | `npm ci` | `npm run lint && npm run typecheck` / `npm test -- --coverage` / `npm run build` | `dist/` |
+| rust | `rust:1.75` | `${CI_COMMIT_REF_SLUG}-cargo` → `target/`, `~/.cargo/` | (none — `cargo` self-bootstraps) | `cargo fmt --check && cargo clippy -- -D warnings` / `cargo test --all-features` / `cargo build --release` | `target/release/` |
+| go | `golang:1.21` | `${CI_COMMIT_REF_SLUG}-go` → `~/go/pkg/mod/` | `go mod download` | `gofmt -l . && go vet ./...` / `go test -race -coverprofile=coverage.out ./...` / `go build ./...` | `bin/` |
+| java | `eclipse-temurin:21-jdk` | `${CI_COMMIT_REF_SLUG}-maven` → `~/.m2/repository/` | `./mvnw -B dependency:resolve` | `./mvnw -B verify -DskipTests=false` (single command runs lint+test+build) | `target/*.jar` |
+| kotlin | `gradle:8.5-jdk21` | `${CI_COMMIT_REF_SLUG}-gradle` → `~/.gradle/caches/`, `.gradle/` | `gradle dependencies --no-daemon` | `gradle ktlintCheck` / `gradle test --no-daemon` / `gradle build --no-daemon` | `build/libs/` |
+| csharp | `mcr.microsoft.com/dotnet/sdk:8.0` | `${CI_COMMIT_REF_SLUG}-nuget` → `~/.nuget/packages/` | `dotnet restore` | `dotnet format --verify-no-changes` / `dotnet test --collect:"XPlat Code Coverage"` / `dotnet build -c Release --no-restore` | `**/bin/Release/` |
+| swift | `swift:5.9` | `${CI_COMMIT_REF_SLUG}-swift` → `.build/` | `swift package resolve` | `swift-format lint --recursive Sources/ Tests/` / `swift test --enable-code-coverage` / `swift build -c release` | `.build/release/` |
+| dart | `dart:3.2` | `${CI_COMMIT_REF_SLUG}-pub` → `.dart_tool/`, `~/.pub-cache/` | `dart pub get` | `dart format --output=none --set-exit-if-changed .` + `dart analyze --fatal-infos` / `dart test --coverage=coverage` / `dart compile exe bin/main.dart` | `build/` |
+| other | `alpine:3.19` | none (project-specific) | `# project supplies its own bootstrap` | `# project supplies its own lint/test/build` | `# project supplies its own artifact path` |
+
+All rows must also include the shared security stages from the Python exemplar: `sast` (semgrep), `secrets` (gitleaks), `dependencies` (language-appropriate audit tool: `pip-audit` / `npm audit` / `cargo audit` / `govulncheck` / OWASP dep-check / etc.), `licenses`, and the `governance` stage running `bash scripts/check-phase-gate.sh && bash scripts/check-changelog.sh`.
 
 - [ ] **Step 1: Python template (exemplar — full content)**
 
@@ -2479,6 +2571,17 @@ Create `templates/pipelines/release/gitlab/{web,desktop,mobile,mcp-server}.yml`.
 
 Translation pattern: existing GitHub release workflows (`release: on: push tags: 'v*'`) become GitLab CI rules (`rules: - if: $CI_COMMIT_TAG =~ /^v/`).
 
+**Translation delta table — GitLab release (per audit finding specs-plans-host-aware-8).** Web is the structural exemplar (Step 1, full content). For every other platform, copy the web skeleton (two stages: `build`, `deploy`; `rules: - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/`; manual gate on deploy) and substitute the values in this table.
+
+| platform | image | build cmd | artifact path | deploy notes |
+|---|---|---|---|---|
+| web | `node:20` | `npm ci && npm run build` | `dist/` | `when: manual`; configure per host (Vercel / Netlify / Cloudflare Pages) |
+| desktop | `electronuserland/builder:wine` | `npm ci && npm run build && npm run dist` | `dist/*.{exe,dmg,AppImage,zip}` | `when: manual`; upload to GitLab Releases via `release-cli`; sign per platform |
+| mobile | `cirrusci/flutter:stable` (or RN equivalent) | `flutter build apk --release && flutter build ipa --release` | `build/app/outputs/`, `build/ios/ipa/` | `when: manual`; upload to Play Console / App Store Connect via `fastlane supply` / `fastlane deliver` |
+| mcp-server | `node:20` (or `python:3.11`) | `npm ci && npm run build` (or `python -m build`) | `dist/`, `*.tgz` | `when: manual`; publish to npm (`npm publish`) or PyPI (`twine upload dist/*`); tag matching MCP registry conventions |
+
+All platforms share: `rules: - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/` on the workflow; `artifacts: expire_in: 1 month` on build; `environment: production` + `when: manual` on deploy.
+
 - [ ] **Step 1: Web release exemplar**
 
 Create `templates/pipelines/release/gitlab/web.yml`:
@@ -2531,6 +2634,23 @@ Bitbucket Pipelines uses yet another syntax: top-level `pipelines:` with `defaul
 | `runs-on: ubuntu-latest` | `image:` |
 | `actions/cache@v4` / `cache: paths:` | `caches:` (named) |
 | `matrix:` | Manual duplication; Bitbucket has no first-class matrix |
+
+**Translation delta table — Bitbucket Pipelines (per audit finding specs-plans-host-aware-8).** Python and TypeScript are the structural exemplars (full content in Steps 1 + 2). For every other language below, copy the Python skeleton (top-level `image:`, `definitions: caches:`, then `pipelines: default:` with `parallel:` lint/test blocks then sequential SAST/secrets/deps/licenses/build/governance steps) and substitute the values in this table.
+
+| language | image | named cache + path | install cmd | lint cmd | test cmd | build cmd | artifact glob |
+|---|---|---|---|---|---|---|---|
+| python | `python:3.11` | `pip: ~/.cache/pip` | `pip install -e ".[dev]"` | `ruff check . && ruff format --check . && mypy .` | `pytest --cov=. --cov-report=term` | `pip install build && python -m build` | `dist/**` |
+| typescript | `node:20` | `node: node_modules` | `npm ci` | `npm run lint && npm run typecheck` | `npm test -- --coverage` | `npm run build` | `dist/**` |
+| rust | `rust:1.75` | `cargo: ~/.cargo` (also `target/`) | (cargo self-bootstraps) | `cargo fmt --check && cargo clippy -- -D warnings` | `cargo test --all-features` | `cargo build --release` | `target/release/**` |
+| go | `golang:1.21` | `go: ~/go/pkg/mod` | `go mod download` | `gofmt -l . && go vet ./...` | `go test -race -coverprofile=coverage.out ./...` | `go build ./...` | `bin/**` |
+| java | `eclipse-temurin:21-jdk` | `maven: ~/.m2/repository` | `./mvnw -B dependency:resolve` | `./mvnw -B checkstyle:check spotbugs:check` | `./mvnw -B test` | `./mvnw -B package -DskipTests` | `target/*.jar` |
+| kotlin | `gradle:8.5-jdk21` | `gradle: ~/.gradle/caches` | `gradle dependencies --no-daemon` | `gradle ktlintCheck --no-daemon` | `gradle test --no-daemon` | `gradle build --no-daemon -x test` | `build/libs/**` |
+| csharp | `mcr.microsoft.com/dotnet/sdk:8.0` | `nuget: ~/.nuget/packages` | `dotnet restore` | `dotnet format --verify-no-changes` | `dotnet test --collect:"XPlat Code Coverage"` | `dotnet build -c Release --no-restore` | `**/bin/Release/**` |
+| swift | `swift:5.9` | `swift: .build` | `swift package resolve` | `swift-format lint --recursive Sources/ Tests/` | `swift test --enable-code-coverage` | `swift build -c release` | `.build/release/**` |
+| dart | `dart:3.2` | `dart: ~/.pub-cache` (also `.dart_tool/`) | `dart pub get` | `dart format --output=none --set-exit-if-changed . && dart analyze --fatal-infos` | `dart test --coverage=coverage` | `dart compile exe bin/main.dart` | `build/**` |
+| other | `alpine:3.19` | none | `# project supplies its own bootstrap` | `# project supplies its own lint` | `# project supplies its own test` | `# project supplies its own build` | `# project supplies its own artifact glob` |
+
+All rows must also include the shared security `parallel:` block from the Python exemplar: `SAST` (`semgrep`), `Secrets` (`gitleaks` image `zricethezav/gitleaks:latest`), `Dependencies` (language-appropriate audit), `Licenses`; and a final `Governance` step (`image: bash:5`, runs `bash scripts/check-phase-gate.sh && bash scripts/check-changelog.sh`).
 
 - [ ] **Step 1: Python exemplar**
 
@@ -2610,6 +2730,17 @@ Apply the pattern. Images per language same as GitLab. Commit per file.
 ### Task 7.5: Bitbucket release templates — 4 platforms
 
 Bitbucket uses `pipelines: tags: 'v*':` for tag-triggered pipelines.
+
+**Translation delta table — Bitbucket release (per audit finding specs-plans-host-aware-8).** Web is the structural exemplar (Step 1, full content). For every other platform, copy the web skeleton (top-level `image:`, `pipelines: tags: 'v*':` with one `step:` for Build Release + one `step:` for Deploy gated by `trigger: manual`, `deployment: production`) and substitute the values in this table.
+
+| platform | image | build cmd | artifact glob | deploy notes |
+|---|---|---|---|---|
+| web | `node:20` | `npm ci && npm run build` | `dist/**` | `trigger: manual`, `deployment: production`; configure per host (Vercel / Netlify / Cloudflare Pages) |
+| desktop | `electronuserland/builder:wine` | `npm ci && npm run build && npm run dist` | `dist/*.{exe,dmg,AppImage,zip}` | `trigger: manual`; sign per platform; upload to Bitbucket Downloads via API (`POST /2.0/repositories/.../downloads`) or GitHub Releases mirror |
+| mobile | `cirrusci/flutter:stable` (or RN equivalent) | `flutter build apk --release && flutter build ipa --release` | `build/app/outputs/**`, `build/ios/ipa/**` | `trigger: manual`; upload to Play Console / App Store Connect via `fastlane supply` / `fastlane deliver` |
+| mcp-server | `node:20` (or `python:3.11`) | `npm ci && npm run build` (or `python -m build`) | `dist/**`, `*.tgz` | `trigger: manual`; publish to npm (`npm publish`) or PyPI (`twine upload dist/*`); tag matching MCP registry conventions |
+
+All platforms share: `pipelines: tags: 'v*':` trigger; the build step uses `artifacts:` to forward outputs to the deploy step; the deploy step uses `deployment: production` + `trigger: manual` so it stays human-gated per solo-orchestrator philosophy.
 
 - [ ] **Step 1: Web release**
 

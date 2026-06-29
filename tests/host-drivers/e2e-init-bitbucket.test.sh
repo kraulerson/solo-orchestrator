@@ -266,11 +266,11 @@ commit_count=$( cd "$PROJ" && git rev-list --count HEAD 2>/dev/null )
 if [ "$rc" = "0" ] \
    && [ "$host" = "bitbucket" ] && [ "$mode" = "personal" ] \
    && [ "$url" = "$REPO_URL" ] \
-   && [ "$steps" = "branch_protection_configured,remote_repo_created" ] \
+   && [ "$steps" = "branch_protection_configured,branch_protection_verified,pushed_initial,remote_repo_created" ] \
    && [ "$origin" = "$REPO_URL" ] \
    && [ -z "$dirty" ] \
    && [ "$commit_count" = "2" ]; then
-  pass "T1: full success — manifest, steps, origin, clean tree, 2 commits"
+  pass "T1: full success — manifest, all 4 steps, origin, clean tree, 2 commits"
 else
   fail_ "T1" "rc=$rc host=$host mode=$mode url=$url steps=$steps origin=$origin dirty='$dirty' commits=$commit_count log:$(tail -8 "$TMP/init.log")"
 fi
@@ -290,9 +290,9 @@ url=$(  jq -r '.remote_url // ""' "$PROJ/.claude/manifest.json" 2>/dev/null )
 steps=$( jq -r '.phase2_init.steps_completed | sort | join(",")' "$PROJ/.claude/process-state.json" 2>/dev/null )
 dirty=$( cd "$PROJ" && git status --porcelain 2>/dev/null )
 if [ "$rc" = "0" ] && [ "$mode" = "org" ] && [ "$url" = "$REPO_URL" ] \
-   && [ "$steps" = "branch_protection_configured,remote_repo_created" ] \
+   && [ "$steps" = "branch_protection_configured,branch_protection_verified,pushed_initial,remote_repo_created" ] \
    && [ -z "$dirty" ]; then
-  pass "T2: org full success — mode=org, manifest+steps+clean tree"
+  pass "T2: org full success — mode=org, manifest+all 4 steps+clean tree"
 else
   fail_ "T2" "rc=$rc mode=$mode url=$url steps=$steps dirty='$dirty' log:$(tail -8 "$TMP/init.log")"
 fi
@@ -330,8 +330,8 @@ host=$( jq -r '.host // ""'      "$PROJ/.claude/manifest.json" 2>/dev/null )
 steps=$( jq -r '.phase2_init.steps_completed | length' "$PROJ/.claude/process-state.json" 2>/dev/null )
 if [ "$rc" = "0" ] && [ "$warn_seen" = "yes" ] \
    && [ "$host" = "bitbucket" ] && [ "$url" = "" ] \
-   && [ "$steps" = "0" ]; then
-  pass "T3: push failure → init.sh warns + continues; manifest.host set, remote_url empty"
+   && [ "$steps" = "1" ]; then
+  pass "T3: push failure → init.sh warns + continues; manifest.host set, remote_url empty, partial steps=1 (remote_repo_created)"
 else
   fail_ "T3" "rc=$rc warn_seen=$warn_seen host=$host url=$url steps=$steps log:$(tail -8 "$TMP/init.log")"
 fi
@@ -394,8 +394,8 @@ steps=$( jq -r '.phase2_init.steps_completed | length' "$PROJ/.claude/process-st
 if [ "$rc" = "0" ] && [ "$warn_seen" = "yes" ] \
    && [ "$origin_set" = "yes" ] \
    && [ "$host" = "bitbucket" ] && [ "$url" = "" ] \
-   && [ "$steps" = "0" ]; then
-  pass "T5: protection 403 → warn + continue; origin registered, no phase2 steps"
+   && [ "$steps" = "2" ]; then
+  pass "T5: protection 403 → warn + continue; origin registered, partial steps=2 (remote_repo_created + pushed_initial)"
 else
   fail_ "T5" "rc=$rc warn_seen=$warn_seen origin_set=$origin_set host=$host url=$url steps=$steps log:$(tail -8 "$TMP/init.log")"
 fi
