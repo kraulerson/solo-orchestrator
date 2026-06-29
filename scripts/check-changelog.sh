@@ -40,10 +40,23 @@ if [ -z "$changed" ]; then
   exit 0
 fi
 
-# Source file extensions (excluding tests, configs, lockfiles, docs)
+# Source file extensions (excluding tests, configs, lockfiles, docs).
+#
+# code-checks-utility-2: the prior test-file filter `(test|spec|_test|Test)\.`
+# was unanchored: `latest.ts`, `contest.py`, `protest.go`, `attestable.rb`
+# all matched it on the substring `test.`, silently exempting them from
+# the changelog-freshness warning. Fixed by anchoring each test-naming
+# convention so only true test files are excluded:
+#   *.test.ts        → JS/TS test convention      (.test\.)
+#   *.spec.ts        → JS/TS spec convention      (.spec\.)
+#   *_test.go        → Go test convention         (_test\.)
+#   *_spec.rb        → Ruby RSpec convention      (_spec\.)
+#   FooTest.java     → Java/Kotlin/C# convention  (Test\.[a-z]+$)
+#   FooSpec.kt       → Kotlin spec convention     (Spec\.[a-z]+$)
+# Also anchored: __tests__/ and __spec__/ directory conventions.
 source_changed=$(echo "$changed" \
   | grep -E '\.(ts|tsx|js|jsx|py|rs|go|cs|kt|java|dart|swift|rb)$' \
-  | grep -vE '(test|spec|_test|Test)\.' \
+  | grep -vE '(\.test\.|\.spec\.|_test\.|_spec\.|Test\.[a-z]+$|Spec\.[a-z]+$|/__tests__/|/__spec__/)' \
   | grep -vE '(\.config\.|\.setup\.|\.d\.ts$)' \
   | grep -vE '(jest|vitest|playwright|cypress)\.' \
   || true)

@@ -55,6 +55,7 @@ _set_current_phase_min() {
 ACTION=""
 ARG_VALUE=""
 COMMIT_MSG=""
+COMMIT_SUBJECT=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -71,6 +72,8 @@ while [ $# -gt 0 ]; do
     --check-commit-message) ACTION="check-commit-message"; COMMIT_MSG="$2"; shift 2 ;;
     --reset)            ACTION="reset";             ARG_VALUE="$2"; shift 2 ;;
     --reset-all)        ACTION="reset-all";         shift ;;
+    --invariant-check)  ACTION="invariant-check";   shift ;;
+    --subject)          COMMIT_SUBJECT="$2";        shift 2 ;;
     --help|-h)
       echo "Usage: scripts/process-checklist.sh [COMMAND]"
       echo ""
@@ -83,9 +86,12 @@ while [ $# -gt 0 ]; do
       echo "  --verify-init               Auto-verify Phase 2 initialization steps"
       echo "  --status                    Print human-readable status of all processes"
       echo "  --check-commit-ready        Check if commit is allowed (used by PreToolUse hook)"
+      echo "  --check-commit-ready --subject SUBJ  Short-circuit Phase 2 source block when subject"
+      echo "                                       does NOT match feat-prefix (chore/fix/refactor/etc)"
       echo "  --check-commit-message MSG  Check commit-message prefix (feat:) against Build Loop state (BL-006)"
       echo "  --reset PROCESS             Reset a single process to initial state"
       echo "  --reset-all                 Reset all processes to initial state"
+      echo "  --invariant-check           Self-test: every get_steps_for_process key has a reset arm + template entry"
       echo "  --help                      Show this help"
       echo ""
       echo "Processes: build_loop, uat_session, phase3_validation, phase4_release, phase2_init"
@@ -112,6 +118,7 @@ ensure_state_file() {
 {
   "build_loop": {"feature": null, "step": 0, "steps_completed": [], "started_at": null},
   "uat_session": {"session_id": null, "step": 0, "steps_completed": [], "started_at": null},
+  "phase1_architecture": {"steps_completed": [], "started_at": null},
   "phase3_validation": {"steps_completed": [], "started_at": null},
   "phase4_release": {"steps_completed": [], "started_at": null},
   "phase2_init": {"steps_completed": [], "verified": false}
@@ -132,7 +139,7 @@ get_steps_for_process() {
     phase2_init)        echo "${PHASE2_INIT_STEPS[@]}" ;;
     *)
       print_fail "Unknown process: $process"
-      echo "Valid processes: build_loop, uat_session, phase3_validation, phase4_release, phase2_init" >&2
+      echo "Valid processes: build_loop, uat_session, phase1_architecture, phase3_validation, phase4_release, phase2_init" >&2
       exit 1
       ;;
   esac
@@ -863,6 +870,29 @@ check_commit_ready() {
     fi
   fi
 
+  # code-process-checklist-5: subject-aware short-circuit decision. When
+  # the caller passes a commit subject (--subject) AND it is NOT a
+  # feat-prefixed Conventional Commit, the Phase 2 *Build-Loop-required*
+  # block (require_build_loop_state_for_commit) is bypassed below. This
+  # unblocks chore/fix/refactor/docs/test/perf/style/build/ci/revert
+  # source commits during Phase 2, matching the BL-006 commit-message
+  # classifier semantics. Feat commits — with or without scope, with or
+  # without `!` breaking marker — continue to require a complete Build
+  # Loop. The flag is optional: callers that omit --subject fall back to
+  # the original file-heuristic enforcement.
+  #
+  # NOTE: the UAT-in-progress block below (lines ~947-957) and the
+  # Phase 2 init-verified block above are NOT bypassed by --subject —
+  # those are separate process gates that fire regardless of commit
+  # type. Only the Build-Loop-state requirement is subject-conditional.
+  local subject_is_feat=true
+  if [ -n "$COMMIT_SUBJECT" ]; then
+    # Same feat regex as check_commit_message at line ~1126.
+    if ! [[ "$COMMIT_SUBJECT" =~ ^feat(\([^\)]*\))?!?:[[:space:]] ]]; then
+      subject_is_feat=false
+    fi
+  fi
+
   # Read staged files
   local staged_files
   staged_files=$(git diff --cached --name-only 2>/dev/null || true)
@@ -911,9 +941,17 @@ check_commit_ready() {
 
   # Phase 2 source commit checks
   if [ "$current_phase" -eq 2 ]; then
-    require_build_loop_state_for_commit || exit 1
+    # Build-Loop-state gate: bypassed when the caller indicates this is
+    # a non-feat commit via --subject. See code-process-checklist-5
+    # comment above for rationale.
+    if [ "$subject_is_feat" = true ]; then
+      require_build_loop_state_for_commit || exit 1
+    fi
 
-    # If UAT session is in progress, all 9 steps must be complete
+    # If UAT session is in progress, all 9 steps must be complete. This
+    # block is NOT bypassed by a non-feat subject: a chore/fix/refactor
+    # commit mid-UAT-session would muddy the test-results-vs-source
+    # correlation that gate exists to protect. Keep enforcing.
     local uat_started
     uat_started=$(jq -r '.uat_session.started_at // "null"' "$PROCESS_STATE")
     if [ "$uat_started" != "null" ]; then
@@ -1022,6 +1060,11 @@ reset_process() {
         .uat_session = {"session_id": null, "step": 0, "steps_completed": [], "started_at": null}
       ' "$PROCESS_STATE" > "$PROCESS_STATE.tmp" && mv "$PROCESS_STATE.tmp" "$PROCESS_STATE"
       ;;
+    phase1_architecture)
+      jq '
+        .phase1_architecture = {"steps_completed": [], "started_at": null}
+      ' "$PROCESS_STATE" > "$PROCESS_STATE.tmp" && mv "$PROCESS_STATE.tmp" "$PROCESS_STATE"
+      ;;
     phase3_validation)
       jq '
         .phase3_validation = {"steps_completed": [], "started_at": null}
@@ -1039,7 +1082,7 @@ reset_process() {
       ;;
     *)
       print_fail "Unknown process: $process"
-      echo "Valid processes: build_loop, uat_session, phase3_validation, phase4_release, phase2_init" >&2
+      echo "Valid processes: build_loop, uat_session, phase1_architecture, phase3_validation, phase4_release, phase2_init" >&2
       exit 1
       ;;
   esac
@@ -1077,6 +1120,7 @@ reset_all() {
 {
   "build_loop": {"feature": null, "step": 0, "steps_completed": [], "started_at": null},
   "uat_session": {"session_id": null, "step": 0, "steps_completed": [], "started_at": null},
+  "phase1_architecture": {"steps_completed": [], "started_at": null},
   "phase3_validation": {"steps_completed": [], "started_at": null},
   "phase4_release": {"steps_completed": [], "started_at": null},
   "phase2_init": {"steps_completed": [], "verified": false}
@@ -1133,6 +1177,73 @@ check_commit_message() {
   exit 0
 }
 
+# --- code-process-checklist-3: invariant self-test ---
+# For each process key accepted by get_steps_for_process, assert that:
+#   1. reset_process has a case arm for it (so --reset <name> works).
+#   2. ensure_state_file's initial template seeds the key (so a fresh
+#      project starts with every process tracked).
+#   3. reset_all's heredoc template seeds the key (so --reset-all
+#      doesn't silently drop the process).
+#
+# This catches the class of bug where someone adds a new phase to
+# PHASE*_STEPS + a case in get_steps_for_process but forgets to wire
+# the matching reset/template entries — exactly the gap that produced
+# code-process-checklist-3 (Phase 1 architecture progress couldn't be
+# reset). Source-of-truth is get_steps_for_process; everything else
+# must follow.
+invariant_check() {
+  local script_path="${BASH_SOURCE[0]}"
+  local gaps=()
+
+  # Extract every case arm name from get_steps_for_process. Pattern is
+  # leading-whitespace + name + ")" + " echo ..." — we strip the ")".
+  # We deliberately limit to the function body via awk's range pattern.
+  local processes
+  processes=$(awk '/^get_steps_for_process\(\) \{/,/^\}/' "$script_path" \
+    | grep -oE '^[[:space:]]+[a-z][a-z0-9_]+\)' \
+    | tr -d ' )' \
+    | grep -v '^$' || true)
+
+  if [ -z "$processes" ]; then
+    print_fail "invariant-check: could not extract process list from get_steps_for_process"
+    exit 1
+  fi
+
+  # Extract bodies for the three sinks once.
+  local reset_body ensure_body resetall_body
+  reset_body=$(awk '/^reset_process\(\) \{/,/^\}/' "$script_path")
+  ensure_body=$(awk '/^ensure_state_file\(\) \{/,/^\}/' "$script_path")
+  resetall_body=$(awk '/^reset_all\(\) \{/,/^\}/' "$script_path")
+
+  while IFS= read -r p; do
+    [ -z "$p" ] && continue
+    # 1. reset_process case arm
+    if ! echo "$reset_body" | grep -qE "^[[:space:]]+${p}\)"; then
+      gaps+=("$p: missing reset_process case arm")
+    fi
+    # 2. ensure_state_file template entry
+    if ! echo "$ensure_body" | grep -q "\"${p}\""; then
+      gaps+=("$p: missing ensure_state_file template entry")
+    fi
+    # 3. reset_all template entry
+    if ! echo "$resetall_body" | grep -q "\"${p}\""; then
+      gaps+=("$p: missing reset_all template entry")
+    fi
+  done <<< "$processes"
+
+  if [ "${#gaps[@]}" -gt 0 ]; then
+    print_fail "invariant-check: $(echo "$processes" | wc -l | tr -d ' ') processes inspected, ${#gaps[@]} gap(s) found:"
+    for g in "${gaps[@]}"; do
+      echo "  - $g" >&2
+    done
+    exit 1
+  fi
+
+  local pcount
+  pcount=$(echo "$processes" | wc -l | tr -d ' ')
+  print_ok "invariant-check: all processes wired ($pcount inspected: $(echo "$processes" | tr '\n' ' '))"
+}
+
 # --- Dispatch ---
 case "$ACTION" in
   start-feature)      start_feature "$ARG_VALUE" ;;
@@ -1148,4 +1259,5 @@ case "$ACTION" in
   check-commit-message) check_commit_message "$COMMIT_MSG" ;;
   reset)              reset_process "$ARG_VALUE" ;;
   reset-all)          reset_all ;;
+  invariant-check)    invariant_check ;;
 esac

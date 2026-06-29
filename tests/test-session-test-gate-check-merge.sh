@@ -173,6 +173,52 @@ else
 fi
 teardown
 
+# ════════════════════════════════════════════════════════════════════
+# Wave-4 closure for code-session-hooks-1: defensive regression coverage
+# beyond the original merge-on-resume fix.
+# ════════════════════════════════════════════════════════════════════
+
+# T8: a MALFORMED prior tool-usage.json on a merge path must not wedge
+# the gate. The jq merge will fail; the script must fall through to a
+# fresh write so the next operation isn't blocked by an unparseable
+# file. Pre-fix (before PR #5b1a081) this whole path didn't exist; this
+# test pins the safety net so a refactor doesn't regress it.
+echo "T8: merge path with malformed prior file falls through to fresh init"
+setup
+# Clobber with invalid JSON.
+echo "this is not json {" > "$PROJ/.claude/tool-usage.json"
+run_hook_with_source "resume"
+if jq '.' "$PROJ/.claude/tool-usage.json" >/dev/null 2>&1; then
+  calls_len=$(jq '.calls | length' "$PROJ/.claude/tool-usage.json")
+  if [ "$calls_len" = "0" ]; then
+    pass "T8: malformed file → fresh init (calls=0, valid JSON)"
+  else
+    fail_ "T8" "fell through but calls=$calls_len (expected 0)"
+  fi
+else
+  fail_ "T8" "tool-usage.json still malformed after merge attempt"
+fi
+teardown
+
+# T9: an UNKNOWN source value (not startup/resume/compact/clear) must
+# default to startup (fresh init) rather than silently entering the
+# merge branch with stale data. This protects against a Claude Code
+# protocol change adding a new source value the script doesn't yet
+# understand. The `case "$parsed" in startup|resume|compact|clear)`
+# block only assigns SESSION_SOURCE when the value is known; otherwise
+# it stays at the default "startup".
+echo "T9: unknown source value defaults to startup (fresh init)"
+setup
+run_hook_with_source "lobotomy"   # not a real source
+calls_len=$(jq '.calls | length' "$PROJ/.claude/tool-usage.json")
+commits_counter=$(jq '.commits_since_last_context7' "$PROJ/.claude/tool-usage.json")
+if [ "$calls_len" = "0" ] && [ "$commits_counter" = "0" ]; then
+  pass "T9: unknown source → startup fresh init"
+else
+  fail_ "T9" "unknown source entered merge branch (calls=$calls_len counter=$commits_counter)"
+fi
+teardown
+
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]
