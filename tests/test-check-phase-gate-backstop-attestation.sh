@@ -128,10 +128,18 @@ echo ""
 # T1 (positive — primary): attestation present → backstop must skip
 # host_verify_protection (the stub would fail it), exit 0, and the
 # output must mention the attestation.
+#
+# tier-crosscheck-6 cross-cutting update: process-state.json fixture
+# now also carries phase1_artifacts (data_classification + zdr_attested)
+# so the NEW Phase 1→2 ZDR backstop doesn't fail and mask this test's
+# signal. The classification value is "public" because this fixture
+# isn't testing the ZDR gate — we want it green so we can isolate the
+# branch-protection-attestation behavior under test.
 echo "T1: attestation present → backstop honors it, exits 0"
 setup_phase2_project
 cat > "$PROJ/.claude/process-state.json" <<'JSON'
-{"phase2_init":{"steps_completed":[],"attestations":{"branch_protection":{"attested_by":"orchestrator","at":"2026-04-27T00:00:00Z","reason":"github_free_tier"}}}}
+{"phase2_init":{"steps_completed":[],"attestations":{"branch_protection":{"attested_by":"orchestrator","at":"2026-04-27T00:00:00Z","reason":"github_free_tier"}}},
+ "phase1_artifacts":{"data_classification":"public","zdr_attested":false}}
 JSON
 out=$(run_gate)
 rc=$?

@@ -298,6 +298,19 @@ When using Claude or any cloud-hosted LLM, project code and context are transmit
 
 **Mandatory ZDR gate:** Projects with data classified as **Internal or higher** (Internal, Confidential, PII, Financial, Regulated) **must** use the ZDR or self-hosted deployment path. This is a hard gate at Phase 1 — the Orchestrator may not proceed to Phase 2 with a non-ZDR deployment path if the project handles data above Public classification. The Senior Technical Authority must verify the deployment path matches the data classification before approving the Phase 1 → Phase 2 transition.
 
+**Invariant #16 — Enforced (tier-crosscheck-6, closes the final S3 audit finding):** The Mandatory ZDR gate above is enforced as a Phase 1→2 invariant by `scripts/check-phase-gate.sh`. The gate refuses Phase 1→2 (exit 1, `[FAIL]`) unless `.claude/process-state.json::phase1_artifacts` records BOTH:
+
+1. `data_classification` — one of the 7-tier canonical taxonomy values (lowercase): `public`, `internal`, `confidential`, `pii`, `financial`, `health`, `regulated`. This mirrors `templates/project-intake.md` § 5.1 ("Sensitivity classifications: Public, Internal, Confidential, PII, Financial, Health/Medical, Regulated") and `docs/user-guide.md` Section 5.
+2. **Attestation evidence**, in one of two shapes:
+   * `zdr_attested: true` — boolean, indicates ZDR or self-hosted LLM is in place. Sufficient on its own.
+   * `zdr_attestation_reason: "<non-empty text>"` — free-text written exception (e.g. "customer SOW requires retention, risk accepted by CISO Email TKT-42"). Satisfies the gate when ZDR is not attested but the deviation is documented per organizational risk-acceptance policy.
+
+**Exemption:** `data_classification = public` projects are exempt from the attestation requirement — the classification itself is evidence that no sensitive data flows to the LLM provider. The gate emits `[OK]` and skips the attestation check for these projects.
+
+**Where the fields are captured:** Greenfield projects capture both values via `scripts/intake-wizard.sh` § 5.5 (interactive) or via the non-interactive flags `--data-classification VALUE --zdr-attested --zdr-attestation-reason "<text>"`. Retroactive correction uses `scripts/reconfigure-project.sh --field data_classification --new <value>` / `--field zdr_attested --new true|false [--reason "<text>"]`. Personal→Organizational deployment upgrade refuses up-front when `data_classification` is missing — operators must run reconfigure first.
+
+**Audit trail:** Every classification/attestation mutation appends a row to `APPROVAL_LOG.md` (Approval History section) with date, tool, actor, and the new value, preserving the append-only invariant (#8).
+
 **Policy verification cadence:** AI provider terms change. Verify the current data handling policy at the time of adoption and at each biannual review.
 
 ### Data Loss Prevention for AI Prompts

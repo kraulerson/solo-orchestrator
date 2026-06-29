@@ -40,6 +40,12 @@ JSON
     cat > .claude/intake-progress.json <<'JSON'
 {"track":"light","deployment":"personal"}
 JSON
+    # tier-crosscheck-6: seed phase1_artifacts so the personal→
+    # organizational refusal (in --to-sponsored-poc which flips
+    # deployment) doesn't fire.
+    cat > .claude/process-state.json <<'JSON'
+{"phase1_artifacts":{"data_classification":"internal","zdr_attested":true}}
+JSON
   )
 }
 

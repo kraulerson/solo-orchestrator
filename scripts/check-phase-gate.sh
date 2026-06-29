@@ -487,6 +487,102 @@ if [ "$current_phase" -ge 2 ]; then
   fi
 fi
 
+# --- Phase 1→2 BACKSTOP: data_classification + ZDR attestation (tier-crosscheck-6) ---
+# docs/governance-framework.md §VII line 299 declared a "Mandatory ZDR
+# gate" — projects classified Internal or higher MUST use the ZDR or
+# self-hosted deployment path. The gate was documented but never
+# enforced: no field captured the classification, no field recorded the
+# ZDR attestation, and this script had no backstop reading any such
+# field. tier-crosscheck-6 (the final S3 audit finding) closes the loop
+# by making this an invariant equivalent to the github_free_tier
+# branch-protection backstop above (PR #75).
+#
+# Behavior: when current_phase >= 2, the gate REFUSES (exit 1, FAIL line)
+# unless .claude/process-state.json::phase1_artifacts carries:
+#   * data_classification: one of {public, internal, confidential, pii,
+#     financial, health, regulated} — the 7-tier taxonomy adopted from
+#     templates/project-intake.md:209 + docs/user-guide.md:466.
+#   * AND one of: zdr_attested == true | "true",
+#     OR  zdr_attestation_reason is a non-empty string (written exception
+#     such as a customer-mandated retention clause or a self-hosted LLM).
+#
+# Remediation message points operators at intake-wizard.sh (greenfield)
+# and reconfigure-project.sh --field data_classification (retrofit).
+if [ "$current_phase" -ge 2 ]; then
+  zdr_state_file=".claude/process-state.json"
+  zdr_taxonomy="public internal confidential pii financial health regulated"
+  zdr_classification=""
+  zdr_attested_raw=""
+  zdr_reason=""
+
+  if [ -f "$zdr_state_file" ] && command -v jq >/dev/null 2>&1; then
+    zdr_classification=$(jq -r '.phase1_artifacts.data_classification // ""' "$zdr_state_file" 2>/dev/null || echo "")
+    zdr_attested_raw=$(jq -r '.phase1_artifacts.zdr_attested // ""' "$zdr_state_file" 2>/dev/null || echo "")
+    zdr_reason=$(jq -r '.phase1_artifacts.zdr_attestation_reason // ""' "$zdr_state_file" 2>/dev/null || echo "")
+    # jq returns the string "null" when a key is present but null; normalize.
+    [ "$zdr_classification" = "null" ] && zdr_classification=""
+    [ "$zdr_attested_raw" = "null" ]  && zdr_attested_raw=""
+    [ "$zdr_reason" = "null" ]        && zdr_reason=""
+  fi
+
+  # Normalize classification to lowercase canonical form so the taxonomy
+  # match isn't fooled by stored "Public" vs "public" — both intake and
+  # reconfigure write the canonical lowercase value, but defense-in-
+  # depth covers operators who hand-edit process-state.json.
+  zdr_classification_canon=$(printf '%s' "$zdr_classification" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+  zdr_taxonomy_ok=0
+  if [ -n "$zdr_classification_canon" ]; then
+    for _allowed in $zdr_taxonomy; do
+      if [ "$zdr_classification_canon" = "$_allowed" ]; then
+        zdr_taxonomy_ok=1
+        break
+      fi
+    done
+  fi
+
+  zdr_attest_ok=0
+  case "$zdr_attested_raw" in
+    true|True|TRUE) zdr_attest_ok=1 ;;
+  esac
+  if [ "$zdr_attest_ok" -eq 0 ] && [ -n "$zdr_reason" ]; then
+    zdr_attest_ok=1
+  fi
+
+  if [ -z "$zdr_classification_canon" ]; then
+    echo -e "${RED}[FAIL]${NC} Phase 1→2 ZDR gate: phase1_artifacts.data_classification not set in $zdr_state_file"
+    echo "        Required taxonomy (one of): $zdr_taxonomy"
+    echo "        Remediate: scripts/intake-wizard.sh (greenfield) — OR for retrofit:"
+    echo "                   bash scripts/reconfigure-project.sh --field data_classification --new <value>"
+    echo "        Reference: docs/governance-framework.md § VII (Mandatory ZDR gate, line 299) + invariant #16."
+    issues=$((issues + 1))
+  elif [ "$zdr_taxonomy_ok" -eq 0 ]; then
+    echo -e "${RED}[FAIL]${NC} Phase 1→2 ZDR gate: invalid data_classification '$zdr_classification' (not in taxonomy)"
+    echo "        Allowed (one of): $zdr_taxonomy"
+    echo "        Remediate: bash scripts/reconfigure-project.sh --field data_classification --new <value>"
+    issues=$((issues + 1))
+  elif [ "$zdr_classification_canon" = "public" ]; then
+    # docs/governance-framework.md § VII line 297-299: ZDR is mandatory
+    # for Internal or higher. Public-only projects are exempt from the
+    # attestation requirement — the classification itself is the
+    # evidence that no sensitive data flows to the LLM provider.
+    echo -e "${GREEN}  [OK]${NC} Phase 1→2 ZDR gate: data_classification='public' (ZDR attestation not required for Public-only data)"
+  elif [ "$zdr_attest_ok" -eq 0 ]; then
+    echo -e "${RED}[FAIL]${NC} Phase 1→2 ZDR gate: data_classification='$zdr_classification_canon' but no ZDR attestation evidence"
+    echo "        Required: phase1_artifacts.zdr_attested=true OR a non-empty phase1_artifacts.zdr_attestation_reason."
+    echo "        Remediate: bash scripts/reconfigure-project.sh --field zdr_attested --new true"
+    echo "                   (or --field zdr_attestation_reason --new \"<written exception, e.g. customer retention SOW>\")"
+    echo "        Reference: docs/governance-framework.md § VII (line 297-299) — ZDR mandatory for Internal or higher."
+    issues=$((issues + 1))
+  else
+    if [ -n "$zdr_reason" ] && [ "$zdr_attested_raw" != "true" ] && [ "$zdr_attested_raw" != "True" ] && [ "$zdr_attested_raw" != "TRUE" ]; then
+      echo -e "${GREEN}  [OK]${NC} Phase 1→2 ZDR gate: data_classification='$zdr_classification_canon' (attestation reason: $zdr_reason)"
+    else
+      echo -e "${GREEN}  [OK]${NC} Phase 1→2 ZDR gate: data_classification='$zdr_classification_canon', zdr_attested=true"
+    fi
+  fi
+fi
+
 # Approval field validation: Phase 1→2 (P0-004)
 if [ "$current_phase" -ge 2 ]; then
   validate_approval_fields "Phase 1.*Phase 2" "Phase 1→2"

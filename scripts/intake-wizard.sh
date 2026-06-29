@@ -931,8 +931,89 @@ run_section_5() {
   backup=$(prompt_with_suggestions "Backup requirements" "backup_strategy" "Daily automated backups")
   save_answer "backup" "$backup"
 
+  # 5.5 Phase 1 Data Classification & ZDR Attestation (tier-crosscheck-6)
+  #
+  # docs/governance-framework.md § VII line 299 declares a Mandatory ZDR
+  # gate at Phase 1: projects classified Internal or higher MUST use the
+  # ZDR or self-hosted deployment path. The gate was documented but
+  # never enforced; this section captures the two values that
+  # scripts/check-phase-gate.sh now reads as a Phase 1→2 invariant
+  # (the same way it treats github_free_tier branch-protection
+  # attestation, PR #75). 7-tier taxonomy mirrors
+  # templates/project-intake.md:209.
+  if [ ! -f "${_PAUSE_FILE:-/dev/null/sentinel-cannot-exist}" ]; then
+    echo ""
+    print_info "5.5 Data Classification & ZDR Attestation (Phase 1 invariant — tier-crosscheck-6)"
+    echo ""
+    local data_classification
+    data_classification=$(prompt_choice "Highest classification of any data this system handles:" \
+      "public" "internal" "confidential" "pii" "financial" "health" "regulated")
+    save_answer "data_classification" "$data_classification"
+
+    local zdr_attested="false" zdr_attestation_reason=""
+    if [ "$data_classification" = "public" ]; then
+      print_info "  Public data: ZDR not required (governance-framework.md § VII line 297-299)."
+      zdr_attested="false"
+    else
+      if prompt_yes_no "Is ZDR (Zero Data Retention) or self-hosted LLM in place for this project? [Y/n]" "Y"; then
+        zdr_attested="true"
+      else
+        zdr_attested="false"
+        zdr_attestation_reason=$(prompt_input "Documented exception (required when ZDR not attested) — e.g. 'customer SOW requires retention'" "")
+        if [ -z "$zdr_attestation_reason" ]; then
+          print_warn "ZDR not attested AND no documented exception — Phase 1→2 gate will FAIL until this is set."
+          print_warn "Run: bash scripts/reconfigure-project.sh --field zdr_attestation_reason --new \"<text>\""
+        fi
+      fi
+    fi
+    save_answer "zdr_attested" "$zdr_attested"
+    save_answer "zdr_attestation_reason" "$zdr_attestation_reason"
+
+    # Mirror the captured values into .claude/process-state.json so
+    # scripts/check-phase-gate.sh can read them as a Phase 1→2 invariant.
+    # This is the canonical location for Phase 1 artifacts; the
+    # answers/ copy in intake-progress.json is for resume/audit only.
+    persist_phase1_artifacts "$data_classification" "$zdr_attested" "$zdr_attestation_reason"
+  fi
+
   save_section 5
   echo ""
+}
+
+# ================================================================
+# PHASE 1 ARTIFACTS: persist data_classification + ZDR attestation
+# into .claude/process-state.json::phase1_artifacts.
+# ================================================================
+# tier-crosscheck-6: the gate at scripts/check-phase-gate.sh reads from
+# this canonical location. The function is idempotent — re-running with
+# the same values is a no-op write; running with different values
+# overwrites in-place. process-state.json is initialized at init.sh
+# time (.phase2_init etc.); we add phase1_artifacts when absent.
+persist_phase1_artifacts() {
+  local classification="$1"
+  local attested="$2"
+  local reason="$3"
+  local pstate="${PROJECT_ROOT:-.}/.claude/process-state.json"
+  if [ ! -f "$pstate" ]; then
+    print_warn "  $pstate not found — skipping phase1_artifacts persistence."
+    print_info "  Run scripts/init.sh in this project to create it, then re-run intake."
+    return 0
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    print_warn "  jq not available — skipping phase1_artifacts persistence (data captured in intake-progress.json)."
+    return 0
+  fi
+  local jq_bool="false"
+  case "$attested" in
+    true|True|TRUE) jq_bool="true" ;;
+  esac
+  local tmp
+  tmp=$(mktemp)
+  jq --arg c "$classification" --argjson a "$jq_bool" --arg r "$reason" \
+     '.phase1_artifacts = ((.phase1_artifacts // {}) +
+        {data_classification: $c, zdr_attested: $a, zdr_attestation_reason: $r})' \
+     "$pstate" > "$tmp" && mv "$tmp" "$pstate"
+  print_ok "  Phase 1 artifacts persisted to process-state.json (classification=$classification, zdr_attested=$attested)"
 }
 
 # ================================================================
@@ -1881,11 +1962,89 @@ main() {
       echo "  --upgrade-deployment T  Upgrade deployment (personal|organizational)"
       echo "  --to-private-poc        Upgrade Personal -> Private POC"
       echo "  --to-sponsored-poc      Upgrade Personal/Private POC -> Sponsored POC"
-      echo "  --to-sponsored-poc      Convert to sponsored POC"
+      echo ""
+      echo "Phase 1 ZDR/classification non-interactive flags (tier-crosscheck-6):"
+      echo "  --data-classification VALUE        Set data_classification (one of:"
+      echo "                                     public, internal, confidential, pii,"
+      echo "                                     financial, health, regulated)"
+      echo "  --zdr-attested                     Mark zdr_attested=true"
+      echo "  --zdr-attestation-reason \"<text>\"  Record a documented exception"
+      echo ""
       echo "  --help                  Show this help"
       exit 0
       ;;
+    --data-classification|--zdr-attested|--zdr-attestation-reason|--data-classification=*|--zdr-attestation-reason=*)
+      # tier-crosscheck-6 non-interactive write path. Parsed below
+      # (after PROJECT_ROOT is resolved) so the helper can read/write
+      # .claude/process-state.json + .claude/intake-progress.json.
+      ;;
   esac
+
+  # Collect tier-crosscheck-6 CLI flags. We re-scan "$@" so flags can
+  # appear anywhere on the line (and so --resume / --upgrade-* paths
+  # above keep working unchanged).
+  TC6_CLASSIFICATION=""
+  TC6_ATTESTED=""
+  TC6_REASON=""
+  TC6_PROVIDED=0
+  _tc6_args=("$@")
+  _i=0
+  while [ "$_i" -lt "${#_tc6_args[@]}" ]; do
+    case "${_tc6_args[$_i]}" in
+      --data-classification)
+        TC6_CLASSIFICATION="${_tc6_args[$((_i + 1))]:-}"; TC6_PROVIDED=1
+        _i=$((_i + 2)); continue ;;
+      --data-classification=*)
+        TC6_CLASSIFICATION="${_tc6_args[$_i]#--data-classification=}"; TC6_PROVIDED=1
+        _i=$((_i + 1)); continue ;;
+      --zdr-attested)
+        TC6_ATTESTED="true"; TC6_PROVIDED=1
+        _i=$((_i + 1)); continue ;;
+      --zdr-attestation-reason)
+        TC6_REASON="${_tc6_args[$((_i + 1))]:-}"; TC6_PROVIDED=1
+        _i=$((_i + 2)); continue ;;
+      --zdr-attestation-reason=*)
+        TC6_REASON="${_tc6_args[$_i]#--zdr-attestation-reason=}"; TC6_PROVIDED=1
+        _i=$((_i + 1)); continue ;;
+    esac
+    _i=$((_i + 1))
+  done
+  if [ "$TC6_PROVIDED" = "1" ]; then
+    # Validate classification value (if provided).
+    if [ -n "$TC6_CLASSIFICATION" ]; then
+      TC6_CLASSIFICATION_CANON=$(printf '%s' "$TC6_CLASSIFICATION" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+      case "$TC6_CLASSIFICATION_CANON" in
+        public|internal|confidential|pii|financial|health|regulated)
+          TC6_CLASSIFICATION="$TC6_CLASSIFICATION_CANON" ;;
+        *)
+          echo "Error: --data-classification '$TC6_CLASSIFICATION' is not in the 7-tier taxonomy."
+          echo "       Allowed: public, internal, confidential, pii, financial, health, regulated"
+          exit 1 ;;
+      esac
+    fi
+    # When the operator supplies any tier-crosscheck-6 flag, treat it
+    # as a one-shot write to process-state.json and exit cleanly. The
+    # wizard's interactive flow is intentionally NOT entered.
+    if command -v jq >/dev/null 2>&1 && [ -f .claude/process-state.json ]; then
+      _tc6_attested_json="false"
+      [ "$TC6_ATTESTED" = "true" ] && _tc6_attested_json="true"
+      _tc6_tmp=$(mktemp)
+      jq --arg c "$TC6_CLASSIFICATION" --argjson a "$_tc6_attested_json" --arg r "$TC6_REASON" \
+         '.phase1_artifacts = ((.phase1_artifacts // {}) +
+            (if $c != "" then {data_classification: $c} else {} end) +
+            (if $a == true then {zdr_attested: true} else {} end) +
+            (if $r != "" then {zdr_attestation_reason: $r} else {} end))' \
+         .claude/process-state.json > "$_tc6_tmp" && mv "$_tc6_tmp" .claude/process-state.json
+      echo "Phase 1 artifacts updated in .claude/process-state.json:"
+      echo "  data_classification    = '${TC6_CLASSIFICATION:-(unchanged)}'"
+      echo "  zdr_attested           = '${TC6_ATTESTED:-(unchanged)}'"
+      echo "  zdr_attestation_reason = '${TC6_REASON:-(unchanged)}'"
+      exit 0
+    else
+      echo "Error: jq + .claude/process-state.json required for --data-classification / --zdr-* flags."
+      exit 1
+    fi
+  fi
 
   # Check we're in a project directory
   if [ ! -f "$INTAKE_FILE" ]; then

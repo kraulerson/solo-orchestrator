@@ -815,6 +815,17 @@ When `current_phase >= 2` in `.claude/phase-state.json`:
 - [ ] **`PROJECT_BIBLE.md` exists.**
 - [ ] **`PROJECT_BIBLE.md` has at least 14 numbered sections** (template specifies 16; minimum 14 to pass).
 - [ ] **No placeholder dates in `PROJECT_BIBLE.md`.** Any remaining `YYYY-MM-DD` strings produce a WARN.
+- [ ] **ZDR / data_classification gate (tier-crosscheck-6).** `.claude/process-state.json::phase1_artifacts.data_classification` must be one of `public`, `internal`, `confidential`, `pii`, `financial`, `health`, `regulated`. For any classification above `public`, EITHER `zdr_attested = true` OR a non-empty `zdr_attestation_reason` must be present. Missing or invalid → FAIL (blocking). See docs/governance-framework.md § VII "Mandatory ZDR gate" (invariant #16).
+
+#### Step 1.7: Data Classification & ZDR Attestation (Phase 1→2 invariant — tier-crosscheck-6)
+
+`scripts/intake-wizard.sh` § 5.5 captures `data_classification` + `zdr_attested` and writes them to `.claude/process-state.json::phase1_artifacts`. The Phase 1→2 backstop in `scripts/check-phase-gate.sh` enforces them. When ZDR (Zero Data Retention) is in place, set `zdr_attested = true`. When ZDR is not in place but the deviation has been formally risk-accepted (e.g. a customer SOW that requires retention, or a self-hosted Ollama instance that already controls retention), record the written exception in `zdr_attestation_reason` — the gate honors either evidence shape.
+
+**When ZDR is needed:** Personal/light tier projects handling `public` data only are exempt. Any project handling `internal` or higher data (per docs/governance-framework.md § VII line 297-299) must have ZDR or self-hosted LLM — this includes most organizational projects and any personal project handling PII, financial, health, or regulated data. Setting `zdr_attested = false` without a documented `zdr_attestation_reason` will fail the Phase 1→2 gate.
+
+**Retrofitting an existing project:** Run `bash scripts/reconfigure-project.sh --field data_classification --new <value>` (and optionally `--field zdr_attested --new true|false [--reason "<text>"]`). The reconfigure script appends an audit row to `APPROVAL_LOG.md` and rolls back atomically on failure (PR #57 / PR #93 pattern).
+
+**Personal→Organizational upgrade:** `scripts/upgrade-project.sh --deployment organizational` refuses up-front when `phase1_artifacts.data_classification` is unset — set it first via reconfigure, then re-run the upgrade.
 
 **Save as:** `PROJECT_BIBLE.md`
 

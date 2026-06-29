@@ -779,6 +779,42 @@ if [ "$TARGET_DEPLOYMENT" != "$CURRENT_DEPLOYMENT" ]; then
   DEPLOYMENT_CHANGES=true
 fi
 
+# tier-crosscheck-6 (final S3 audit finding): personal→organizational
+# deployment changes Phase 1→2 from a self-attested invariant into one
+# under STA governance, including the Mandatory ZDR gate
+# (docs/governance-framework.md § VII line 299). If the project's
+# .claude/process-state.json::phase1_artifacts has no data_classification,
+# this upgrade leaves an unenforceable promise behind: check-phase-gate.sh
+# will FAIL Phase 1→2 backstop until the operator runs reconfigure-
+# project.sh. Refuse the upgrade upfront with a clear pointer.
+#
+# Behavior contract:
+#   * Non-interactive (CI=true / SOIF_NONINTERACTIVE=1 / no TTY) →
+#     hard refuse with the remediation command.
+#   * Interactive → also refuse for now; the wizard-driven prompt path
+#     lives in scripts/intake-wizard.sh. Interactive operators are
+#     redirected there. (A later release may add an in-place prompt
+#     here once the lib/helpers.sh prompt_choice helper is wired
+#     through this script's flag-parsing layer — out of scope for the
+#     hard-block PR.)
+if [ "$DEPLOYMENT_CHANGES" = true ] && \
+   [ "$CURRENT_DEPLOYMENT" = "personal" ] && \
+   [ "$TARGET_DEPLOYMENT" = "organizational" ]; then
+  _zdr_pstate="$PROJECT_ROOT/.claude/process-state.json"
+  _zdr_classification=""
+  if [ -f "$_zdr_pstate" ] && command -v jq >/dev/null 2>&1; then
+    _zdr_classification=$(jq -r '.phase1_artifacts.data_classification // ""' "$_zdr_pstate" 2>/dev/null || echo "")
+    [ "$_zdr_classification" = "null" ] && _zdr_classification=""
+  fi
+  if [ -z "$_zdr_classification" ]; then
+    _upgrade_fail "--deployment organizational blocked — data_classification not set (tier-crosscheck-6)" \
+                  "Personal→Organizational upgrade activates the Phase 1→2 ZDR gate (docs/governance-framework.md § VII line 299). The project's $_zdr_pstate has no phase1_artifacts.data_classification, so check-phase-gate.sh would FAIL Phase 1→2 backstop immediately after this upgrade." \
+                  "set data_classification BEFORE upgrading, e.g.: bash scripts/reconfigure-project.sh --field data_classification --new <public|internal|confidential|pii|financial|health|regulated>. Then set the ZDR attestation: bash scripts/reconfigure-project.sh --field zdr_attested --new true. Then re-run this upgrade." \
+                  "deployment_change=personal->organizational; classification=(unset); pstate=$_zdr_pstate"
+    exit 1
+  fi
+fi
+
 # code-upgrade-project-8: Pre-Phase-0 pre-condition gate for --to-production.
 # Per docs/governance-framework.md:230, Sponsored POC defers 3 of the 6
 # governance pre-conditions (insurance, liability, ITSM, backup

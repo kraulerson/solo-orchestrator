@@ -131,6 +131,31 @@ else
 fi
 
 # ================================================================
+# TEST 0c2c: PHASE 1→2 ZDR / DATA_CLASSIFICATION HARD GATE (tier-crosscheck-6)
+# ================================================================
+# Regression suite for the FINAL S3 audit finding (tier-crosscheck-6):
+# docs/governance-framework.md § VII line 299 declared a Mandatory ZDR
+# gate ("Internal or higher must use ZDR or self-hosted"). Pre-fix the
+# gate was documented but never enforced — no field captured the
+# classification, no field recorded the ZDR attestation, and
+# scripts/check-phase-gate.sh had no Phase 1→2 backstop reading any
+# such field. This PR closes the loop end-to-end:
+#   * intake-wizard.sh prompts for + persists the two fields.
+#   * scripts/check-phase-gate.sh adds a Phase 1→2 ZDR backstop that
+#     FAILs when the data is missing or invalid.
+#   * scripts/reconfigure-project.sh --field data_classification /
+#     --field zdr_attested / --field zdr_attestation_reason let
+#     operators correct post-intake (atomic snapshot + APPROVAL_LOG audit row).
+#   * scripts/upgrade-project.sh personal→organizational refuses up-
+#     front when the classification is missing, redirecting to reconfigure.
+section "Phase 1→2 ZDR / data_classification hard gate (tier-crosscheck-6)"
+if bash "$SCRIPT_DIR/tests/test-tier-crosscheck-6-zdr-gate.sh" >/dev/null 2>&1; then
+  pass "tier-crosscheck-6 ZDR/data_classification hard gate tests (7/7)"
+else
+  fail "tier-crosscheck-6 ZDR/data_classification hard gate tests FAILED (run tests/test-tier-crosscheck-6-zdr-gate.sh for details)"
+fi
+
+# ================================================================
 # TEST 0c3: ORGANIZATIONAL END-TO-END INIT (tests-init-host-attestation-4)
 # ================================================================
 # Regression suite for the audit tests-init-host-attestation-4 closure:

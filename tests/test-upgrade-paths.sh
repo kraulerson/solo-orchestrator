@@ -33,6 +33,15 @@ make_phase_state() {
   "gates": {"phase_0_to_1": null, "phase_1_to_2": null, "phase_3_to_4": null}
 }
 JSON
+  # tier-crosscheck-6 cross-cutting update: process-state.json carries
+  # phase1_artifacts so personal→organizational upgrades don't hit the
+  # new ZDR/data_classification refusal. Seeded with 'internal' +
+  # zdr_attested=true so the upgrade-project.sh gate is happy. Tests
+  # that specifically need to exercise the refusal create their own
+  # fixture without phase1_artifacts (see test-tier-crosscheck-6-zdr-gate.sh T7).
+  cat > "$dir/.claude/process-state.json" <<'JSON'
+{"phase1_artifacts":{"data_classification":"internal","zdr_attested":true,"zdr_attestation_reason":""}}
+JSON
   ( cd "$dir" && git init -q && git config user.email t@t.l && git config user.name t \
       && git add -A && git commit -q -m "init" ) >/dev/null 2>&1
 }
