@@ -1459,10 +1459,11 @@ PERMEOF
       # Map platform to framework's target platform format
       local target_platform="$PLATFORM"
       case "$PLATFORM" in
-        web) target_platform="web" ;;
-        desktop) target_platform="$dev_os desktop" ;;
-        mobile) target_platform="iOS/Android" ;;
-        *) target_platform="$PLATFORM" ;;
+        web)        target_platform="web" ;;
+        desktop)    target_platform="$dev_os desktop" ;;
+        mobile)     target_platform="iOS/Android" ;;
+        mcp_server) target_platform="MCP server (JSON-RPC)" ;;
+        *)          target_platform="$PLATFORM" ;;
       esac
 
       # Write pre-populated discovery JSON to temp file (avoids creating
@@ -1489,13 +1490,24 @@ PERMEOF
           }' > "$discovery_tmp"
       fi
 
-      # Map Solo Orchestrator platform to framework profile name
+      # Map Solo Orchestrator platform to framework profile name.
+      # CDF ships four profiles: web-app, web-api, desktop-app, mobile-app.
+      # MCP servers are JSON-RPC services over stdio/HTTP — the closest
+      # CDF profile is web-api, so we map mcp_server -> web-api
+      # explicitly (no silent wildcard fall-through). The wildcard arm
+      # remains as a defensive default for any future PLATFORM token
+      # that arrives without a matching CDF profile. See
+      # docs/platform-modules/mcp_server.md §2.1 for the rationale.
       local fw_profile
       case "$PLATFORM" in
-        web)     fw_profile="web-app" ;;
-        desktop) fw_profile="desktop-app" ;;
-        mobile)  fw_profile="mobile-app" ;;
-        *)       fw_profile="web-api" ;;
+        web)        fw_profile="web-app" ;;
+        desktop)    fw_profile="desktop-app" ;;
+        mobile)     fw_profile="mobile-app" ;;
+        mcp_server) fw_profile="web-api" ;;
+        *)
+          fw_profile="web-api"
+          print_warn "Unknown PLATFORM='$PLATFORM' — defaulting CDF profile to web-api. Add an explicit arm to init.sh to silence this warning."
+          ;;
       esac
 
       # Run the framework's init with:

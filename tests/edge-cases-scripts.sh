@@ -615,42 +615,96 @@ with open('$E21_DIR/.claude/intake-progress.json', 'w') as f:
     json.dump(data, f, indent=2)
 "
 
-  # The --resume flag calls run_script_mode which enters interactive prompts
-  # that hang on /dev/null input. Instead of running the full wizard, we
-  # verify the resume logic by testing load_progress directly: source the
-  # wizard functions and confirm LAST_SECTION and COMPLETED_SECTIONS are
-  # set correctly from the progress file.
+  # Audit closure (tests-edge-cases-9 / S3): the previous E21 was a
+  # tautology — it wrote last_section=2 into progress JSON and then
+  # asserted (in pure Python) that 2+1==3, never invoking the real
+  # intake-wizard.sh load_progress bash function. We now execute the
+  # actual function: extract load_progress from scripts/intake-wizard.sh
+  # via awk, define a print_warn stub for its single dependency, source
+  # it with PROGRESS_FILE pointed at our test JSON, and assert against
+  # the real shell variables (LAST_SECTION, COMPLETED_SECTIONS) the
+  # function sets. The --resume handler at intake-wizard.sh:1742-1750
+  # uses those same variables to compute next_section, so this directly
+  # exercises the code path the test name advertises.
   result=0
   output=$(
     cd "$E21_DIR"
-    # Directly test the resume logic using python3 to read the progress file
-    python3 -c "
-import json
-with open('$E21_DIR/.claude/intake-progress.json') as f:
-    data = json.load(f)
-last = data['last_section']
-completed = data['completed_sections']
-next_section = last + 1
-print(f'LAST_SECTION={last}')
-print(f'COMPLETED={completed}')
-print(f'NEXT_SECTION={next_section}')
-assert last == 2, f'Expected last_section=2, got {last}'
-assert completed == [1, 2], f'Expected [1,2], got {completed}'
-assert next_section == 3, f'Expected next=3, got {next_section}'
-print('RESUME_OK')
-" 2>&1
-  ) || result=$?
+    # Extract the load_progress function from the real wizard source.
+    extract_file=$(mktemp)
+    awk '/^load_progress\(\) \{/,/^\}/' "$REPO_DIR/scripts/intake-wizard.sh" > "$extract_file"
+    # Minimal print_warn stub (load_progress's only dependency).
+    print_warn() { echo "WARN: $1"; }
+    PROGRESS_FILE="$E21_DIR/.claude/intake-progress.json"
+    # shellcheck disable=SC1090
+    source "$extract_file"
+    rm -f "$extract_file"
+    # Drive the real function and emit its observable state.
+    if load_progress; then
+      next_section=$((LAST_SECTION + 1))
+      echo "LP_LAST_SECTION=$LAST_SECTION"
+      echo "LP_COMPLETED=[$COMPLETED_SECTIONS]"
+      echo "LP_NEXT_SECTION=$next_section"
+      echo "LP_PROJECT_NAME=$PROJECT_NAME"
+      [ "$LAST_SECTION" = "2" ] && [ "$next_section" = "3" ] \
+        && [[ "$COMPLETED_SECTIONS" == *1* ]] && [[ "$COMPLETED_SECTIONS" == *2* ]] \
+        && [ "$PROJECT_NAME" = "TestProject" ] \
+        && echo "RESUME_OK"
+    else
+      echo "LP_FAILED rc=$?"
+    fi
+  ) 2>&1 || result=$?
 
-  if echo "$output" | grep -q "RESUME_OK"; then
-    pass "E21: Resume logic correctly computes next_section=3 from last_section=2"
+  if echo "$output" | grep -q "^RESUME_OK$" \
+     && echo "$output" | grep -q "^LP_LAST_SECTION=2$" \
+     && echo "$output" | grep -q "^LP_NEXT_SECTION=3$"; then
+    pass "E21: load_progress (real bash function) sets LAST_SECTION=2 and next_section=3"
   else
-    fail "E21: Resume logic should compute section 3, got: $output"
+    fail "E21: load_progress should set LAST_SECTION=2/next=3, got: $output"
   fi
 
-  if echo "$output" | grep -q "NEXT_SECTION=3"; then
-    pass "E21: Progress file correctly reports sections 1,2 completed, next=3"
+  if echo "$output" | grep -qE "LP_COMPLETED=\[.*1.*2.*\]"; then
+    pass "E21: load_progress populates COMPLETED_SECTIONS with 1 and 2 from JSON"
   else
-    fail "E21: Progress file should report next section 3"
+    fail "E21: COMPLETED_SECTIONS should contain 1 and 2, got: $output"
+  fi
+
+  # Negative variant: malformed JSON should make load_progress fail
+  # (python3 inside the function raises) — proving the real bash
+  # function is what's running, not a python re-implementation.
+  E21B_DIR="$TEST_DIR/e21-bad-json"
+  create_test_project "$E21B_DIR"
+  echo '{NOT VALID JSON' > "$E21B_DIR/.claude/intake-progress.json"
+
+  result=0
+  output=$(
+    set +e  # we WANT to observe load_progress's failure exit code
+    extract_file=$(mktemp)
+    awk '/^load_progress\(\) \{/,/^\}/' "$REPO_DIR/scripts/intake-wizard.sh" > "$extract_file"
+    print_warn() { echo "WARN: $1"; }
+    PROGRESS_FILE="$E21B_DIR/.claude/intake-progress.json"
+    LAST_SECTION=0
+    COMPLETED_SECTIONS=""
+    # shellcheck disable=SC1090
+    source "$extract_file"
+    rm -f "$extract_file"
+    load_progress 2>&1
+    rc=$?
+    echo "LP_RC=$rc"
+    echo "LP_LAST_SECTION=$LAST_SECTION"
+  ) || result=$?
+
+  # On malformed JSON the python helper inside load_progress raises
+  # (json.JSONDecodeError) — visible in the captured stderr — and
+  # writes nothing to the tmpfile that gets sourced, so LAST_SECTION
+  # stays at its pre-call default (0). The function's trailing
+  # `rm -f` returns 0, so we can't rely on rc alone; we assert the
+  # real, observable side-effects (default state + python traceback)
+  # that prove the actual bash function ran, not a python re-impl.
+  if echo "$output" | grep -q "^LP_LAST_SECTION=0$" \
+     && echo "$output" | grep -qE "JSONDecodeError|Traceback"; then
+    pass "E21: malformed progress JSON exercises real load_progress (LAST_SECTION stays 0, python raises)"
+  else
+    fail "E21: malformed JSON should leave LAST_SECTION=0 with python traceback, got: $output"
   fi
 else
   skip "E21: python3 not available"
@@ -658,9 +712,21 @@ fi
 
 
 # ================================================================
-# E22: check-versions.sh with no network (offline mode)
+# E22: check-versions.sh under stubbed-offline network
 # ================================================================
-section "E22: check-versions.sh offline (no network)"
+# Audit closure (tests-edge-cases-10 / S3): the previous E22 advertised
+# "offline (no network)" but its setup comment admitted it could not
+# disable network and instead relied on a 7-way grep alternation
+# (version check|[OK]|installed|up to date|not installed|WARN|Summary)
+# that matched essentially any plausible output — a regression that
+# broke offline detection or per-tool reporting would still trip a
+# token and PASS. We now actually stub network at the PATH layer
+# (curl → exit 1) and tighten the success assertion to a conjunction:
+# the script must (a) print the canonical header, (b) emit the
+# "Network unavailable — latest version check skipped" marker from
+# check-versions.sh:294, AND (c) print the Summary footer with the
+# pass count. Any of those three breaking now fails the test.
+section "E22: check-versions.sh under stubbed-offline network"
 
 if command -v jq &>/dev/null; then
   E22_DIR="$TEST_DIR/e22-offline"
@@ -681,24 +747,52 @@ if command -v jq &>/dev/null; then
 }
 EOF
 
-  # The script checks network by pinging registry.npmjs.org.
-  # We simulate offline by pointing to a non-existent DNS.
-  # The script itself handles network unavailability gracefully.
-  # We test by running it with a very short timeout to an unreachable host.
-  # Since we can't truly disable network, we verify the script handles the
-  # "network unavailable" path by checking it doesn't crash.
+  # Stub network: prepend a temp bin to PATH with a curl that exits 1
+  # so check-versions.sh's network probe at line 291
+  # `(curl -s --max-time 3 "https://registry.npmjs.org" >/dev/null 2>&1)`
+  # observes a real failure and takes the offline branch.
+  E22_STUB_BIN="$TEST_DIR/e22-stub-bin"
+  mkdir -p "$E22_STUB_BIN"
+  cat > "$E22_STUB_BIN/curl" << 'EOF'
+#!/usr/bin/env bash
+# stub: simulate DNS/connect failure for E22 offline scenario
+exit 1
+EOF
+  chmod +x "$E22_STUB_BIN/curl"
 
   result=0
-  output=$( cd "$E22_DIR" && bash "$E22_DIR/scripts/check-versions.sh" 2>&1 </dev/null ) || result=$?
+  output=$(
+    cd "$E22_DIR"
+    PATH="$E22_STUB_BIN:$PATH" bash "$E22_DIR/scripts/check-versions.sh" 2>&1 </dev/null
+  ) || result=$?
 
-  # The script should report installed versions regardless of network
-  if echo "$output" | grep -qiE "version check|\[OK\]|installed|up to date|not installed|WARN|Summary"; then
-    pass "E22: check-versions.sh reports tool status"
+  # Real assertion 1: canonical header must be present (regression
+  # guard for the script's own banner / structural output).
+  if echo "$output" | grep -qE "Solo Orchestrator.*Version Check"; then
+    pass "E22: check-versions.sh prints canonical 'Version Check' header"
   else
-    fail "E22: check-versions.sh should report installed tool versions, got: $(echo "$output" | head -5)"
+    fail "E22: expected 'Version Check' header, got: $(echo "$output" | head -5)"
   fi
 
-  # The script should not crash with an unbound variable or syntax error
+  # Real assertion 2: with curl stubbed to fail, the script must take
+  # its offline branch and emit the explicit marker. This pins down
+  # the network-unavailability code path the section name claims.
+  if echo "$output" | grep -qE "Network unavailable.*latest version check skipped"; then
+    pass "E22: stubbed-offline run emits the 'Network unavailable' marker"
+  else
+    fail "E22: offline branch should emit 'Network unavailable', got: $(echo "$output" | head -10)"
+  fi
+
+  # Real assertion 3: the Summary footer must be present with the
+  # 'up to date' phrase from check-versions.sh:435. A regression that
+  # broke the loop or dropped the summary line would no longer pass.
+  if echo "$output" | grep -qE "── Summary ──" && echo "$output" | grep -qE "up to date"; then
+    pass "E22: check-versions.sh prints Summary footer with 'up to date' count"
+  else
+    fail "E22: expected Summary footer + 'up to date' count, got: $(echo "$output" | tail -10)"
+  fi
+
+  # Sanity guard retained: should not crash with bash errors.
   if echo "$output" | grep -qE "unbound variable|syntax error"; then
     fail "E22: check-versions.sh crashed with bash error"
   else
@@ -736,11 +830,17 @@ if command -v jq &>/dev/null; then
     fail "E23: resolve-tools.sh should fail with invalid JSON in tool-matrix"
   fi
 
-  if echo "$output" | grep -qiE "error|parse|invalid|fail"; then
-    pass "E23: Output indicates JSON parsing error"
+  # Audit closure (tests-edge-cases-11 / S3): the previous E23 had
+  # identical pass() calls in both branches of the error-string check,
+  # so a regression that silenced jq's error output would still PASS.
+  # The else-branch comment also misled — stderr IS captured into
+  # $output via `2>&1` on the bash invocation above, so any real jq
+  # error must surface here. We now require a jq-specific error
+  # signature and fail() when absent.
+  if echo "$output" | grep -qE "jq:|parse error|Invalid|invalid"; then
+    pass "E23: Output indicates jq parse error (signature present in captured stderr+stdout)"
   else
-    # jq typically outputs error messages to stderr which we captured
-    pass "E23: resolve-tools.sh failed (jq errors may be on stderr)"
+    fail "E23: expected jq-style error signature in output, got: $(echo "$output" | head -5)"
   fi
 else
   skip "E23: jq not available"

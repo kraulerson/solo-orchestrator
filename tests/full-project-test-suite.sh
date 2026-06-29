@@ -120,6 +120,23 @@ else
 fi
 
 # ================================================================
+# TEST 0e: PLATFORM-MOBILE-MCP DOCS LINT
+# ================================================================
+# Asserts: init.sh has explicit mcp_server arms (no silent wildcard
+# fall-through to web-api); docs/platform-modules/mobile.md §5.4
+# does not recommend the deprecated expo-in-app-purchases package;
+# docs/platform-modules/mobile.md §2.1 Option B is demoted with the
+# 'advanced/not supported by Solo gates' warning and phase-state.json
+# reconciliation guidance. Closes S3 platform-modules-mobile-mcp-2,
+# -4, and -7.
+section "Platform mobile/MCP docs-drift tests"
+if bash "$SCRIPT_DIR/tests/test-platform-mobile-mcp-docs.sh" >/dev/null 2>&1; then
+  pass "tests/test-platform-mobile-mcp-docs.sh (8/8)"
+else
+  fail "tests/test-platform-mobile-mcp-docs.sh FAILED — re-run for details"
+fi
+
+# ================================================================
 # TEST 1: RESOLVER MATRIX — ALL COMBINATIONS
 # ================================================================
 section "TEST 1: Resolver Matrix — All Platform × Language × Track Combinations"
