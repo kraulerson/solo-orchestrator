@@ -44,12 +44,21 @@ _bypass_audit_preserve_mode() {
 # bypass_audit_init <project_root>
 # Creates .claude/bypass-audit.json as an empty array if it does not already
 # exist. Idempotent — preserves existing rows.
+#
+# Verifier follow-up (2026-06-28): chmod 600 after creation. The plain
+# `echo "[]" > "$file"` redirect inherits the caller's umask (commonly
+# 0022 → file mode 0644), which leaves the governance ledger world-
+# readable on a default-umask multi-user box. Forcing 0600 here gives
+# _bypass_audit_preserve_mode a sane baseline to copy from on the first
+# append, so an umask-derived leak doesn't perpetuate through later
+# rename cycles.
 bypass_audit_init() {
   local project_root="${1:-.}"
   local file="$project_root/.claude/bypass-audit.json"
   [ -f "$file" ] && return 0
   mkdir -p "$project_root/.claude"
   echo "[]" > "$file"
+  chmod 600 "$file" 2>/dev/null || true
 }
 
 # bypass_audit_append <project_root> <row_json>
@@ -102,21 +111,35 @@ bypass_audit_append() {
   #     either platform.
   # (b) Trap on EXIT/INT/TERM so a signal between mktemp and either
   #     branch doesn't leave an orphan ${file}.XXXXXX littering the
-  #     governance dir. The trap clears itself after successful
-  #     rename so the lock_dir cleanup runs unimpeded.
-  local tmp rc
-  tmp=$(mktemp "${file}.XXXXXX")
-  trap 'rm -f "$tmp"; rmdir "$lock_dir" 2>/dev/null' EXIT INT TERM
-  if jq --argjson r "$row" '. + [$r]' "$file" > "$tmp" 2>/dev/null; then
-    _bypass_audit_preserve_mode "$file" "$tmp"
-    mv "$tmp" "$file"
-    rc=0
-  else
-    rm -f "$tmp"
-    echo "[FAIL] bypass_audit_append: jq failed" >&2
-    rc=1
-  fi
-  trap - EXIT INT TERM
+  #     governance dir.
+  #
+  # Verifier follow-up (2026-06-28): wrap the rename window in a
+  # SUBSHELL. bash `trap` is shell-global, not function-local — the
+  # prior `trap '...' EXIT INT TERM` / `trap - EXIT INT TERM` pair at
+  # function scope silently destroyed any pre-existing EXIT trap the
+  # caller had installed. Containing the trap in a subshell means it
+  # only governs that subshell's exit; the caller's trap survives
+  # untouched. tmp/rc must be captured from the subshell's exit code
+  # since locals don't propagate up.
+  local rc=0
+  (
+    tmp=$(mktemp "${file}.XXXXXX") || exit 1
+    trap 'rm -f "$tmp"; rmdir "$lock_dir" 2>/dev/null' EXIT INT TERM
+    if jq --argjson r "$row" '. + [$r]' "$file" > "$tmp" 2>/dev/null; then
+      _bypass_audit_preserve_mode "$file" "$tmp"
+      mv "$tmp" "$file" || exit 1
+      # Successful rename: clear the trap so the EXIT path doesn't try
+      # to rm a now-renamed (i.e. nonexistent) tmp path. Also let the
+      # outer caller manage the lock_dir cleanup uniformly.
+      trap - EXIT INT TERM
+      exit 0
+    else
+      rm -f "$tmp"
+      echo "[FAIL] bypass_audit_append: jq failed" >&2
+      trap - EXIT INT TERM
+      exit 1
+    fi
+  ) || rc=1
 
   rmdir "$lock_dir" 2>/dev/null
   return "$rc"
@@ -185,21 +208,28 @@ bypass_audit_close_pending() {
   # Audit fix code-lib-2 (2026-06-28): mirror append's chmod-preserve
   # + EXIT/INT/TERM trap so close_pending doesn't silently downgrade
   # operator-set perms or leave orphan tmp files on signal.
-  local tmp rc
-  tmp=$(mktemp "${file}.XXXXXX")
-  trap 'rm -f "$tmp"; rmdir "$lock_dir" 2>/dev/null' EXIT INT TERM
-  if jq --arg ur "$user_resp" --arg fo "$final_out" \
-       '[.[] | if .type == "claude_bypass_proposal" and .user_response == "PENDING" then .user_response = $ur | .final_outcome = $fo else . end]' \
-       "$file" > "$tmp" 2>/dev/null; then
-    _bypass_audit_preserve_mode "$file" "$tmp"
-    mv "$tmp" "$file"
-    rc=0
-  else
-    rm -f "$tmp"
-    echo "[FAIL] bypass_audit_close_pending: jq failed" >&2
-    rc=1
-  fi
-  trap - EXIT INT TERM
+  #
+  # Verifier follow-up (2026-06-28): subshell-isolate the trap (see
+  # bypass_audit_append for rationale). Function-scope traps clobber
+  # the caller's EXIT handler shell-wide; the subshell contains it.
+  local rc=0
+  (
+    tmp=$(mktemp "${file}.XXXXXX") || exit 1
+    trap 'rm -f "$tmp"; rmdir "$lock_dir" 2>/dev/null' EXIT INT TERM
+    if jq --arg ur "$user_resp" --arg fo "$final_out" \
+         '[.[] | if .type == "claude_bypass_proposal" and .user_response == "PENDING" then .user_response = $ur | .final_outcome = $fo else . end]' \
+         "$file" > "$tmp" 2>/dev/null; then
+      _bypass_audit_preserve_mode "$file" "$tmp"
+      mv "$tmp" "$file" || exit 1
+      trap - EXIT INT TERM
+      exit 0
+    else
+      rm -f "$tmp"
+      echo "[FAIL] bypass_audit_close_pending: jq failed" >&2
+      trap - EXIT INT TERM
+      exit 1
+    fi
+  ) || rc=1
 
   rmdir "$lock_dir" 2>/dev/null
   return "$rc"

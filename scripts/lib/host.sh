@@ -76,7 +76,7 @@ _host_define_other_fallbacks() {
     attested=$(jq -r '.phase2_init.attestations.branch_protection.at // empty' "$ps" 2>/dev/null || true)
     [ -z "$attested" ] && return 1
     # Check attestation age (90 days)
-    local now then days
+    local now then_ts days
     now=$(date +%s)
     # Try GNU date first, then BSD (macOS) date. Audit fix code-lib-1
     # (2026-06-28): pre-fix, dual-parser failure silently fell through
@@ -84,15 +84,20 @@ _host_define_other_fallbacks() {
     # 90-day staleness check entirely. Now we fail-closed and name the
     # offending value on stderr so the operator can re-record the
     # attestation rather than silently waving the W3 backstop.
-    if then=$(date -d "$attested" +%s 2>/dev/null); then
+    #
+    # Verifier follow-up (2026-06-28): variable renamed from `then`
+    # to `then_ts`. bash permits `then` as a variable (it's a keyword
+    # only in syntactic position) but several shell linters flag it;
+    # the `_ts` suffix also makes the unit explicit (epoch seconds).
+    if then_ts=$(date -d "$attested" +%s 2>/dev/null); then
       :
-    elif then=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$attested" +%s 2>/dev/null); then
+    elif then_ts=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$attested" +%s 2>/dev/null); then
       :
     else
       echo "host.sh: unparseable branch_protection attestation timestamp: '$attested'" >&2
       return 1
     fi
-    days=$(( (now - then) / 86400 ))
+    days=$(( (now - then_ts) / 86400 ))
     [ "$days" -gt 90 ] && return 1
     return 0
   }
