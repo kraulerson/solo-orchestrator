@@ -20,6 +20,27 @@
 
 # shellcheck shell=bash
 
+# _bypass_audit_preserve_mode <reference_file> <target_file>
+# Copies <reference_file>'s octal mode onto <target_file>. Tries GNU
+# `chmod --reference` first (single syscall path); falls back to
+# `stat`-then-`chmod` covering BSD (macOS) and GNU stat invocations;
+# finally falls back to `chmod 600` (the mktemp default, safe for a
+# governance artifact). Used to preserve operator-set perms across the
+# adjacent-mktemp rename in append / close_pending.
+_bypass_audit_preserve_mode() {
+  local ref="$1" tgt="$2" mode
+  if chmod --reference="$ref" "$tgt" 2>/dev/null; then
+    return 0
+  fi
+  if mode=$(stat -f "%Lp" "$ref" 2>/dev/null) && [ -n "$mode" ]; then
+    chmod "$mode" "$tgt" 2>/dev/null && return 0
+  fi
+  if mode=$(stat -c "%a" "$ref" 2>/dev/null) && [ -n "$mode" ]; then
+    chmod "$mode" "$tgt" 2>/dev/null && return 0
+  fi
+  chmod 600 "$tgt" 2>/dev/null || true
+}
+
 # bypass_audit_init <project_root>
 # Creates .claude/bypass-audit.json as an empty array if it does not already
 # exist. Idempotent — preserves existing rows.
@@ -70,9 +91,24 @@ bypass_audit_append() {
   # file lives on a different filesystem from /tmp/* or $HOME-based
   # project dirs, turning `mv` into copy+unlink. A SIGKILL during the
   # write window can then truncate the append-only ledger.
+  #
+  # Audit fix code-lib-2 (2026-06-28): two residual hardenings.
+  # (a) Preserve target file permissions across the rename. mktemp
+  #     defaults to 0600; if the operator chmod'd the ledger to e.g.
+  #     0640 for a shared-team setup, the post-rename file would
+  #     silently revert. _bypass_audit_preserve_mode tries GNU
+  #     `chmod --reference`, then BSD/GNU `stat`-then-`chmod`, then
+  #     a `chmod 600` fallback — keeps the operator's intent on
+  #     either platform.
+  # (b) Trap on EXIT/INT/TERM so a signal between mktemp and either
+  #     branch doesn't leave an orphan ${file}.XXXXXX littering the
+  #     governance dir. The trap clears itself after successful
+  #     rename so the lock_dir cleanup runs unimpeded.
   local tmp rc
   tmp=$(mktemp "${file}.XXXXXX")
+  trap 'rm -f "$tmp"; rmdir "$lock_dir" 2>/dev/null' EXIT INT TERM
   if jq --argjson r "$row" '. + [$r]' "$file" > "$tmp" 2>/dev/null; then
+    _bypass_audit_preserve_mode "$file" "$tmp"
     mv "$tmp" "$file"
     rc=0
   else
@@ -80,6 +116,7 @@ bypass_audit_append() {
     echo "[FAIL] bypass_audit_append: jq failed" >&2
     rc=1
   fi
+  trap - EXIT INT TERM
 
   rmdir "$lock_dir" 2>/dev/null
   return "$rc"
@@ -144,11 +181,17 @@ bypass_audit_close_pending() {
   #
   # D3 fix (post-PR-A): same adjacent-mktemp atomicity fix as
   # bypass_audit_append above.
+  #
+  # Audit fix code-lib-2 (2026-06-28): mirror append's chmod-preserve
+  # + EXIT/INT/TERM trap so close_pending doesn't silently downgrade
+  # operator-set perms or leave orphan tmp files on signal.
   local tmp rc
   tmp=$(mktemp "${file}.XXXXXX")
+  trap 'rm -f "$tmp"; rmdir "$lock_dir" 2>/dev/null' EXIT INT TERM
   if jq --arg ur "$user_resp" --arg fo "$final_out" \
        '[.[] | if .type == "claude_bypass_proposal" and .user_response == "PENDING" then .user_response = $ur | .final_outcome = $fo else . end]' \
        "$file" > "$tmp" 2>/dev/null; then
+    _bypass_audit_preserve_mode "$file" "$tmp"
     mv "$tmp" "$file"
     rc=0
   else
@@ -156,6 +199,7 @@ bypass_audit_close_pending() {
     echo "[FAIL] bypass_audit_close_pending: jq failed" >&2
     rc=1
   fi
+  trap - EXIT INT TERM
 
   rmdir "$lock_dir" 2>/dev/null
   return "$rc"
