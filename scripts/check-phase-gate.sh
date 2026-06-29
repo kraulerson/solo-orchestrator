@@ -47,7 +47,7 @@ prompt_yes_no() {
   fi
 
   local reply
-  read -rp "$(echo -e "${BOLD}${message}${NC}: ")" reply
+  read -rp "$(echo -e "${BOLD}${message}${NC}: ")" reply # lint-raw-read-prompt: allow internal prompt_yes_no wrapper with TTY/CI hard-N guard above (lines 40-47) — equivalent to lib/helpers.sh::prompt_yes_no, retained here to avoid a cross-script dependency cycle
   if [ -z "$reply" ]; then
     case "$default_answer" in
       [Yy]*) return 0 ;;

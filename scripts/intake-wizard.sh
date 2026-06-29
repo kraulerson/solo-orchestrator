@@ -82,10 +82,10 @@ prompt_input() {
   local default="${2:-}"
   local result
   if [ -n "$default" ]; then
-    read -rp "$(echo -e "  ${BOLD}$prompt${NC} [$default]: ")" result
+    read -rp "$(echo -e "  ${BOLD}$prompt${NC} [$default]: ")" result # lint-raw-read-prompt: allow intake-wizard.sh defines its own prompt_input with pause-file semantics (overrides lib/helpers.sh::prompt_input); this IS the wizard's centralized prompt helper
     result="${result:-$default}"
   else
-    read -rp "$(echo -e "  ${BOLD}$prompt${NC}: ")" result
+    read -rp "$(echo -e "  ${BOLD}$prompt${NC}: ")" result # lint-raw-read-prompt: allow intake-wizard.sh defines its own prompt_input with pause-file semantics (overrides lib/helpers.sh::prompt_input); this IS the wizard's centralized prompt helper
   fi
   if [ "$result" = "pause" ] || [ "$result" = "PAUSE" ] || [ "$result" = "Pause" ]; then
     _request_pause
@@ -112,7 +112,7 @@ prompt_choice() {
   done
   local choice
   while true; do
-    read -rp "$(echo -e "  ${BOLD}Select [1-${#options[@]}]${NC}: ")" choice
+    read -rp "$(echo -e "  ${BOLD}Select [1-${#options[@]}]${NC}: ")" choice # lint-raw-read-prompt: allow intake-wizard.sh defines its own prompt_choice with pause-file semantics; this IS the wizard's centralized numbered-choice helper
     if [ "$choice" = "pause" ] || [ "$choice" = "PAUSE" ] || [ "$choice" = "Pause" ]; then
       _request_pause
       echo ""
@@ -141,9 +141,9 @@ prompt_with_suggestions() {
 
   while true; do
     if [ -n "$default" ]; then
-      read -rp "$(echo -e "  ${BOLD}$prompt${NC} [? for suggestions, default: $default]: ")" result
+      read -rp "$(echo -e "  ${BOLD}$prompt${NC} [? for suggestions, default: $default]: ")" result # lint-raw-read-prompt: allow intake-wizard.sh prompt_with_suggestions — wizard-specific helper with `?`-trigger semantics that don't fit lib/helpers.sh shape
     else
-      read -rp "$(echo -e "  ${BOLD}$prompt${NC} [? for suggestions]: ")" result
+      read -rp "$(echo -e "  ${BOLD}$prompt${NC} [? for suggestions]: ")" result # lint-raw-read-prompt: allow intake-wizard.sh prompt_with_suggestions — wizard-specific helper with `?`-trigger semantics that don't fit lib/helpers.sh shape
     fi
 
     if [ "$result" = "pause" ] || [ "$result" = "PAUSE" ] || [ "$result" = "Pause" ]; then
@@ -1655,7 +1655,7 @@ PROMPTEOF
   echo "       When ready: claude \"Read INTAKE_GUIDED_PROMPT.md and begin\""
   echo ""
   local launch_choice
-  read -rp "$(echo -e "  ${BOLD}Select [1-2]${NC}: ")" launch_choice
+  read -rp "$(echo -e "  ${BOLD}Select [1-2]${NC}: ")" launch_choice # lint-raw-read-prompt: allow intake-wizard.sh interactive-only launch-mode choice (1 = launch Claude, 2 = generate prompt file); wizard is interactive-only by design
 
   if [ "$launch_choice" = "1" ]; then
     if command -v claude &>/dev/null; then
@@ -1771,7 +1771,7 @@ ask_project_context() {
     echo "  Deployment: $DEPLOYMENT"
     [ -n "$POC_MODE" ] && echo "  POC Mode:   ${POC_MODE//_/ }"
     echo ""
-    read -rp "$(echo -e "${BOLD}Is this correct? [Y/n]${NC}: ")" confirm
+    read -rp "$(echo -e "${BOLD}Is this correct? [Y/n]${NC}: ")" confirm # lint-raw-read-prompt: allow intake-wizard.sh interactive-only summary confirmation; wizard is interactive-only by design
     if [[ "$confirm" =~ ^[Nn] ]]; then
       print_info "You can change fields in the intake wizard Section 1."
       print_info "Structural changes (platform, language, track) will trigger project reconfiguration."
@@ -1920,7 +1920,7 @@ main() {
   echo ""
 
   local mode
-  read -rp "$(echo -e "${BOLD}Select [1-3]${NC}: ")" mode
+  read -rp "$(echo -e "${BOLD}Select [1-3]${NC}: ")" mode # lint-raw-read-prompt: allow intake-wizard.sh interactive-only mode selection (1=wizard, 2=AI prompt, 3=manual); wizard is interactive-only by design
 
   case "$mode" in
     1)

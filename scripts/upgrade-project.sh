@@ -941,10 +941,16 @@ fi
 echo ""
 
 # --- Interactive confirmation ---
+# Wave-3 raw-read sweep: prompt_yes_no honors !-t 0 / CI /
+# SOIF_NONINTERACTIVE. The interactive default here is Y (the upgrade
+# wizard pre-printed the change plan and the operator typing Enter
+# means "yes proceed"), but in non-interactive contexts prompt_yes_no
+# hard-returns N — so the else-branch's "Non-interactive mode —
+# proceeding with upgrade." auto-Y is preserved explicitly here for
+# CI/scripted callers who already accepted the change plan upstream
+# (e.g. spec-driven upgrades, replay UAT).
 if [ -t 0 ]; then
-  read -rp "$(echo -e "  ${BOLD}Proceed with this upgrade? [Y/n]${NC}: ")" confirm
-  confirm="${confirm:-Y}"
-  if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+  if ! prompt_yes_no "$(echo -e "  ${BOLD}Proceed with this upgrade? [Y/n]${NC}")" "Y"; then
     print_info "Upgrade cancelled."
     exit 0
   fi
@@ -1904,9 +1910,11 @@ if [ "$TRACK_CHANGES" = true ] && [ -f "$RESOLVER" ] && [ -d "$MATRIX_DIR" ] && 
       echo ""
 
       if [ "$AUTO_COUNT" -gt 0 ] && [ -t 0 ]; then
-        read -rp "$(echo -e "  ${BOLD}Auto-install $AUTO_COUNT tool(s) now? [Y/n]${NC}: ")" install_confirm
-        install_confirm="${install_confirm:-Y}"
-        if [[ "$install_confirm" =~ ^[Yy]$ ]]; then
+        # Wave-3 raw-read sweep: prompt_yes_no centralizes the
+        # !-t 0 / CI default-N policy. The outer `-t 0` guard
+        # already gates this branch — prompt_yes_no's defense-in-
+        # depth N return here is harmless (we don't enter the block).
+        if prompt_yes_no "$(echo -e "  ${BOLD}Auto-install $AUTO_COUNT tool(s) now? [Y/n]${NC}")" "Y"; then
           echo "$RESOLVER_OUTPUT" | jq -r '.auto_install[] | .install_cmd' | while IFS= read -r cmd; do
             if [ -n "$cmd" ]; then
               print_info "Installing: $cmd"

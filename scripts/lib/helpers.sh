@@ -137,10 +137,23 @@ finalize_log() {
 
 # Prompt for text input with optional default value.
 # Usage: result=$(prompt_input "Your name" "default_value")
+#
+# Non-interactive behavior (no TTY on stdin, CI=true, or
+# SOIF_NONINTERACTIVE=true): emits a [WARN] to stderr and returns the
+# default (or empty string if no default). This is the contract that
+# scripts/lint-raw-read-prompt.sh enforces: never call `read -rp`
+# outside this file, because doing so hangs unattended invocations.
 prompt_input() {
   local prompt="$1"
   local default="${2:-}"
   local result
+
+  if [ ! -t 0 ] || [ -n "${CI:-}" ] || [ -n "${SOIF_NONINTERACTIVE:-}" ]; then
+    echo -e "${YELLOW}[WARN]${NC} Non-interactive context: prompt_input(\"$prompt\") returning default '$default' without blocking. Re-run interactively to override." >&2
+    printf '%s' "$default"
+    return 0
+  fi
+
   if [ -n "$default" ]; then
     read -rp "$(echo -e "${BOLD}$prompt${NC} [$default]: ")" result
     echo "${result:-$default}"
@@ -148,6 +161,41 @@ prompt_input() {
     read -rp "$(echo -e "${BOLD}$prompt${NC}: ")" result
     echo "$result"
   fi
+}
+
+# Prompt for yes/no confirmation, returning 0 (yes) or 1 (no).
+# Usage: if prompt_yes_no "Proceed?" "Y"; then ... fi
+#
+# `default_answer` is "Y" or "N" — used ONLY when interactive AND the
+# operator hits Enter without typing a response. In non-interactive
+# contexts (no TTY, CI=true, SOIF_NONINTERACTIVE=true) this function
+# ALWAYS returns N (1) regardless of `default_answer`. This is
+# defense-in-depth: a caller that defaults to Y in interactive use
+# (e.g. "[Y/n]" confirm prompts) must NEVER auto-Y a side-effectful
+# action in CI just because the operator was absent. Mirrors the
+# hard-N policy in scripts/check-phase-gate.sh::prompt_yes_no, which
+# was introduced after the cycle-7 PR #87 unattended-install incident.
+prompt_yes_no() {
+  local message="$1"
+  local default_answer="${2:-N}"
+
+  if [ ! -t 0 ] || [ -n "${CI:-}" ] || [ -n "${SOIF_NONINTERACTIVE:-}" ]; then
+    echo -e "${YELLOW}[WARN]${NC} Non-interactive context: skipping prompt (\"$message\") — defaulting to 'N' (caller default '$default_answer' ignored in non-interactive context)." >&2
+    return 1
+  fi
+
+  local reply
+  read -rp "$(echo -e "${BOLD}${message}${NC}: ")" reply
+  if [ -z "$reply" ]; then
+    case "$default_answer" in
+      [Yy]*) return 0 ;;
+      *)     return 1 ;;
+    esac
+  fi
+  case "$reply" in
+    [Nn]*) return 1 ;;
+    *)     return 0 ;;
+  esac
 }
 
 # Refuse to operate as a project if cwd is the Solo Orchestrator framework

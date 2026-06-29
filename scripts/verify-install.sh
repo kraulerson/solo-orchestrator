@@ -775,7 +775,11 @@ fix_phase_state() {
   poc_value="null"
   if [ -f ".claude/intake-progress.json" ]; then
     local pm
-    pm=$(jq -r '.answers.poc_mode // empty' .claude/intake-progress.json 2>/dev/null || echo "")
+    # Wave-3 fix-functions-stderr sweep: surface jq diagnostics. A
+    # malformed intake-progress.json should fail loud (the operator
+    # then re-runs intake or repairs the file), not silently default
+    # to poc_mode=null and write a half-correct phase-state.json.
+    pm=$(jq -r '.answers.poc_mode // empty' .claude/intake-progress.json || echo "")
     case "$pm" in
       private_poc|sponsored_poc) poc_value="\"$pm\"" ;;
     esac
@@ -878,7 +882,23 @@ fix_release_pipeline() {
 fix_intake_suggestions() {
   if has_source; then
     mkdir -p templates/intake-suggestions
-    cp "$SOURCE_DIR/templates/intake-suggestions/"*.json templates/intake-suggestions/ 2>/dev/null
+    # Wave-3 fix-functions-stderr sweep: surface cp diagnostics. A
+    # missing source dir, permission error, or path glob mismatch
+    # should fail loud so the operator can act (the prior silent
+    # 2>/dev/null masked all three). Pre-test the glob via bash
+    # nullglob so we don't invoke `cp` with zero source files
+    # (which would emit a real "no such file" stderr under valid
+    # empty-set conditions).
+    local src_dir="$SOURCE_DIR/templates/intake-suggestions"
+    local -a src_files=()
+    if [ -d "$src_dir" ]; then
+      shopt -s nullglob
+      src_files=("$src_dir"/*.json)
+      shopt -u nullglob
+    fi
+    if [ "${#src_files[@]}" -gt 0 ]; then
+      cp "${src_files[@]}" templates/intake-suggestions/
+    fi
   else
     return 1
   fi
@@ -1330,8 +1350,14 @@ run_remediation() {
 
   if [ "$MODE" = "interactive" ]; then
     echo ""
-    read -rp "$(echo -e "${BOLD}Auto-fix $fixable_count issues? [Y/n]${NC}: ")" response
-    if [[ "$response" =~ ^[Nn] ]]; then
+    # Wave-3 raw-read sweep: prompt_yes_no centralizes the !-t 0 / CI
+    # default-N policy. MODE=interactive is only entered when stdin is
+    # a TTY (see MODE selection earlier in this script), so the
+    # interactive default-Y branch is preserved; in degenerate cases
+    # where MODE=interactive but stdin is non-TTY, prompt_yes_no
+    # hard-returns N (defense-in-depth) and the caller falls back to
+    # --auto-fix-or-manual messaging.
+    if ! prompt_yes_no "$(echo -e "${BOLD}Auto-fix $fixable_count issues? [Y/n]${NC}")" "Y"; then
       print_info "Skipping auto-fix. Run with --auto-fix later or fix manually."
       return 1
     fi

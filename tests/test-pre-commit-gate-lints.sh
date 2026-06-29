@@ -25,6 +25,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 GATE="$REPO_ROOT/scripts/pre-commit-gate.sh"
 CA_LINT_SRC="$REPO_ROOT/scripts/lint-counter-antipattern.sh"
 BR_LINT_SRC="$REPO_ROOT/scripts/lint-backlog-references.sh"
+FF_LINT_SRC="$REPO_ROOT/scripts/lint-fix-functions-stderr.sh"
+RR_LINT_SRC="$REPO_ROOT/scripts/lint-raw-read-prompt.sh"
 
 PASSED=0
 FAILED=0
@@ -53,8 +55,12 @@ setup() {
 
   cp "$CA_LINT_SRC" "$PROJ/scripts/lint-counter-antipattern.sh"
   cp "$BR_LINT_SRC" "$PROJ/scripts/lint-backlog-references.sh"
+  cp "$FF_LINT_SRC" "$PROJ/scripts/lint-fix-functions-stderr.sh"
+  cp "$RR_LINT_SRC" "$PROJ/scripts/lint-raw-read-prompt.sh"
   chmod +x "$PROJ/scripts/lint-counter-antipattern.sh"
   chmod +x "$PROJ/scripts/lint-backlog-references.sh"
+  chmod +x "$PROJ/scripts/lint-fix-functions-stderr.sh"
+  chmod +x "$PROJ/scripts/lint-raw-read-prompt.sh"
 
   cp "$REPO_ROOT/scripts/process-checklist.sh" "$PROJ/scripts/"
   cp "$REPO_ROOT/scripts/lib/helpers.sh" "$PROJ/scripts/lib/"
@@ -247,6 +253,122 @@ if [[ "$body" == *'"permissionDecision": "deny"'* ]] && \
   pass "T7: docs-only commit with unknown BL is blocked (lint is structural)"
 else
   fail_ "T7" "expected deny on docs-only commit with unknown BL; got: $out"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T8: PreToolUse — fix-functions-stderr lint blocks unfixed silencer ==="
+# ════════════════════════════════════════════════════════════════════
+# Drop a script with a fix_*() body that silences stderr — the
+# project-local lint copy at scripts/lint-fix-functions-stderr.sh
+# should fire from the gate. Built with single-quoted heredoc so the
+# fixture text does NOT trip the lint scanning THIS test file
+# (tests/*.sh are part of TARGET_GLOBS in some lints).
+setup
+cat > "$PROJ/scripts/has-bad-fix.sh" <<'SH'
+#!/usr/bin/env bash
+fix_silent_thing() {
+  git clone -q https://x.invalid/r.git target 2>/dev/null
+}
+SH
+( cd "$PROJ" && git add scripts/has-bad-fix.sh )
+out=$(run_hook 'git commit -m "docs: trivial (BL-001)"')
+body="${out#*|}"
+if [[ "$body" == *'"permissionDecision": "deny"'* ]] && \
+   [[ "$body" == *"fix-functions-stderr"* ]]; then
+  pass "T8: fix-functions-stderr violation in scripts/ is blocked"
+else
+  fail_ "T8" "expected deny mentioning fix-functions-stderr; got: $out"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T9: PreToolUse — raw-read-prompt lint blocks raw read -rp ==="
+# ════════════════════════════════════════════════════════════════════
+setup
+cat > "$PROJ/scripts/has-bare-read.sh" <<'SH'
+#!/usr/bin/env bash
+read -rp "Proceed? [y/N]: " yn
+echo "$yn"
+SH
+( cd "$PROJ" && git add scripts/has-bare-read.sh )
+out=$(run_hook 'git commit -m "docs: trivial (BL-001)"')
+body="${out#*|}"
+if [[ "$body" == *'"permissionDecision": "deny"'* ]] && \
+   [[ "$body" == *"raw-read-prompt"* ]]; then
+  pass "T9: raw-read-prompt violation in scripts/ is blocked"
+else
+  fail_ "T9" "expected deny mentioning raw-read-prompt; got: $out"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T10: SKIP_LINT=1 bypasses ALL FOUR lints (PreToolUse path) ==="
+# ════════════════════════════════════════════════════════════════════
+# Mirror of T5 but with both new lints in the failure set. SKIP_LINT
+# must bypass all four; the acknowledgement message must NOT contain
+# the per-lint failure prefix.
+setup
+write_bad_script "$PROJ/scripts/bad.sh"
+cat > "$PROJ/scripts/has-bad-fix.sh" <<'SH'
+#!/usr/bin/env bash
+fix_silent_thing() {
+  git clone -q https://x.invalid/r.git target 2>/dev/null
+}
+SH
+cat > "$PROJ/scripts/has-bare-read.sh" <<'SH'
+#!/usr/bin/env bash
+read -rp "Proceed? [y/N]: " yn
+SH
+( cd "$PROJ" && git add scripts/bad.sh scripts/has-bad-fix.sh scripts/has-bare-read.sh )
+out=$(run_hook_skip_lint 'git commit -m "docs: bypass (BL-999)"')
+body="${out#*|}"
+if [[ "$body" == *"SKIP_LINT=1 set"* ]] && \
+   [[ "$body" != *"lint-counter-antipattern.sh failed"* ]] && \
+   [[ "$body" != *"lint-fix-functions-stderr.sh failed"* ]] && \
+   [[ "$body" != *"lint-raw-read-prompt.sh failed"* ]] && \
+   [[ "$body" != *"unknown BL reference 'BL-999'"* ]]; then
+  pass "T10: SKIP_LINT=1 bypasses all four lints"
+else
+  fail_ "T10" "SKIP_LINT did not bypass all four lints; got: $out"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T11: --terminal-mode — new lints fire on framework-installed projects ==="
+# ════════════════════════════════════════════════════════════════════
+setup
+cat > "$PROJ/scripts/has-bad-fix.sh" <<'SH'
+#!/usr/bin/env bash
+fix_silent_thing() {
+  git clone -q https://x.invalid/r.git target 2>/dev/null
+}
+SH
+( cd "$PROJ" && git add scripts/has-bad-fix.sh )
+echo "docs: trivial (BL-001)" > "$PROJ/.git/COMMIT_EDITMSG"
+out=$( cd "$PROJ" && bash "$GATE" --terminal-mode 2>&1 >/dev/null || true )
+if echo "$out" | grep -qE 'fix-functions-stderr lint failed'; then
+  pass "T11a: --terminal-mode fires fix-functions-stderr lint"
+else
+  fail_ "T11a" "--terminal-mode did not surface fix-functions-stderr lint: $out"
+fi
+rm "$PROJ/scripts/has-bad-fix.sh"
+( cd "$PROJ" && git reset HEAD -- scripts/has-bad-fix.sh >/dev/null 2>&1 || true )
+cat > "$PROJ/scripts/has-bare-read.sh" <<'SH'
+#!/usr/bin/env bash
+read -rp "Proceed? [y/N]: " yn
+SH
+( cd "$PROJ" && git add scripts/has-bare-read.sh )
+echo "docs: trivial (BL-001)" > "$PROJ/.git/COMMIT_EDITMSG"
+out=$( cd "$PROJ" && bash "$GATE" --terminal-mode 2>&1 >/dev/null || true )
+if echo "$out" | grep -qE 'raw-read-prompt lint failed'; then
+  pass "T11b: --terminal-mode fires raw-read-prompt lint"
+else
+  fail_ "T11b" "--terminal-mode did not surface raw-read-prompt lint: $out"
 fi
 teardown
 

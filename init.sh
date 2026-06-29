@@ -393,7 +393,7 @@ collect_project_info() {
     print_warn "For personal projects, Standard track provides external-user readiness without"
     print_warn "enterprise overhead (pen testing, legal review). You can upgrade later."
     local confirm_full
-    read -rp "$(echo -e "  ${BOLD}Continue with Full track? [y/N]${NC}: ")" confirm_full
+    read -rp "$(echo -e "  ${BOLD}Continue with Full track? [y/N]${NC}: ")" confirm_full # lint-raw-read-prompt: allow init.sh interactive-only wizard (NON_INTERACTIVE=true path bypasses collect_inputs_interactive entirely; see init.sh:3532)
     if [[ ! "$confirm_full" =~ ^[Yy] ]]; then
       TRACK=$(prompt_choice "Project track:" "light" "standard" "full")
       TRACK="${TRACK#"${TRACK%%[![:space:]]*}"}"
@@ -568,7 +568,7 @@ collect_project_info() {
   print_info "Directory: $PROJECT_DIR"
   echo ""
 
-  read -rp "$(echo -e "${BOLD}Continue? [Y/n]${NC}: ")" confirm
+  read -rp "$(echo -e "${BOLD}Continue? [Y/n]${NC}: ")" confirm # lint-raw-read-prompt: allow init.sh interactive-only wizard (NON_INTERACTIVE=true path bypasses collect_inputs_interactive entirely; see init.sh:3532)
   if [[ "$confirm" =~ ^[Nn] ]]; then
     echo ""
     local choice
@@ -733,7 +733,7 @@ resolve_and_install_tools() {
   # Confirm — skip prompt when there is nothing to install
   local response="Y"
   if [ "$auto_count" -gt 0 ] || [ "$manual_count" -gt 0 ]; then
-    read -rp "$(echo -e "${YELLOW}▶ ${BOLD}Proceed with this plan? [Y/n]${NC}: ")" response
+    read -rp "$(echo -e "${YELLOW}▶ ${BOLD}Proceed with this plan? [Y/n]${NC}: ")" response # lint-raw-read-prompt: allow init.sh interactive-only tool-install plan; NON_INTERACTIVE path uses AUTO_INSTALL_TOOLS env var rather than this prompt
   fi
   if [[ "$response" =~ ^[Nn] ]]; then
     echo ""
@@ -778,7 +778,7 @@ resolve_and_install_tools() {
         echo ""
         print_info "Default preferences written to: $PROJECT_DIR/.claude/tool-preferences.json"
         print_info "Edit the file, then press Enter to continue."
-        read -rp ""
+        read -rp "" # lint-raw-read-prompt: allow init.sh interactive-only "press Enter to continue" pause after manual tool-preferences edit; non-interactive path skips this whole branch (PROMPT_EDIT only used when -t 0 above)
         # Re-resolve after manual edit
         resolver_output=$("$SCRIPT_DIR/scripts/resolve-tools.sh" \
           --dev-os "$dev_os" \
@@ -1952,7 +1952,7 @@ create_and_protect_remote() {
     if [ -n "${REMOTE_URL:-}" ]; then
       remote_url="$REMOTE_URL"
     else
-      read -rp "Paste the HTTPS clone URL of the remote repo you've created: " remote_url
+      read -rp "Paste the HTTPS clone URL of the remote repo you've created: " remote_url # lint-raw-read-prompt: allow init.sh interactive-only "other host" URL paste; gated by REMOTE_URL env-var fast-path at line 1952 above for non-interactive callers (BL-016)
     fi
     [ -z "$remote_url" ] && { print_fail "Remote URL required for 'other' host"; return 1; }
     git remote add origin "$remote_url"
@@ -1974,7 +1974,7 @@ create_and_protect_remote() {
       attest="yes"
       print_info "Branch protection attested via --branch-protection-attested flag."
     else
-      read -rp "Has branch protection been configured per the above? [type 'yes' to attest]: " attest
+      read -rp "Has branch protection been configured per the above? [type 'yes' to attest]: " attest # lint-raw-read-prompt: allow init.sh interactive-only attestation; gated by BRANCH_PROTECTION_ATTESTED env-var fast-path at line 1973 above for non-interactive callers (BL-016)
     fi
     [ "$attest" != "yes" ] && { print_fail "Attestation required — cannot proceed to Phase 0"; return 1; }
     # Record attestation in process-state.json (BEFORE push — see BL-024 above).
@@ -2039,7 +2039,7 @@ create_and_protect_remote() {
         attest="yes"
         print_info "Branch protection attested via --branch-protection-attested flag."
       else
-        read -rp "Attest that protection will be enforced manually? [type 'yes' to attest]: " attest
+        read -rp "Attest that protection will be enforced manually? [type 'yes' to attest]: " attest # lint-raw-read-prompt: allow init.sh interactive-only attestation (manual-enforcement branch); gated by BRANCH_PROTECTION_ATTESTED env-var fast-path at line 2038 above for non-interactive callers (BL-016)
       fi
       [ "$attest" != "yes" ] && { print_fail "Attestation required — cannot proceed (see $host driver remediation above)"; return 1; }
       # Record attestation with the github_free_tier reason so check-gate.sh

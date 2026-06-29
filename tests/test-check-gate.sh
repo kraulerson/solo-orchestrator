@@ -49,22 +49,36 @@ t1_yes_flag_writes_host_non_interactive() {
 }
 
 t2_interactive_y_still_works() {
+  # Cycle-8 wave-3 slot-5 contract update: the previous version of this
+  # test piped `echo y` into a non-TTY stdin and expected the bare
+  # `read -rp` to honor the 'y'. After migrating to
+  # lib/helpers.sh::prompt_yes_no, non-TTY stdin contexts (CI, piped
+  # input, `</dev/null`) DELIBERATELY hard-return N — auto-Y'ing a
+  # manifest mutation in CI was the bug the migration closes. The
+  # supported non-interactive confirmation path is the `--yes` flag,
+  # exercised by T1 and T4. This test now confirms the new contract:
+  # piped 'y' WITHOUT `--yes` aborts (no manifest write).
   setup_project
   local out rc=0
   out=$(cd "$TMPDIR_T" && echo y | "$SCRIPT" --backfill-host 2>&1) || rc=$?
-  if [ "$rc" -ne 0 ]; then
-    fail_ "T2" "expected exit 0 with stdin 'y', got rc=$rc out=$out"
+  if [ "$rc" -eq 0 ]; then
+    fail_ "T2" "expected non-zero exit on piped 'y' without --yes (non-TTY hard-N policy); got rc=0 out=$out"
     teardown_project
     return
   fi
   local host
   host=$(jq -r '.host // empty' "$TMPDIR_T/.claude/manifest.json")
-  if [ "$host" != "github" ]; then
-    fail_ "T2" "expected host='github', got host='$host'"
+  if [ -n "$host" ]; then
+    fail_ "T2" "expected host unset on non-interactive abort, got host='$host'"
     teardown_project
     return
   fi
-  pass "T2: --backfill-host with stdin 'y' still writes manifest.host (regression)"
+  if ! printf '%s' "$out" | grep -qE 'Non-interactive context'; then
+    fail_ "T2" "expected WARN diagnostic explaining the non-interactive skip; got: $out"
+    teardown_project
+    return
+  fi
+  pass "T2: piped 'y' WITHOUT --yes is correctly refused (non-TTY hard-N policy; use --yes for non-interactive confirm)"
   teardown_project
 }
 

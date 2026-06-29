@@ -69,3 +69,45 @@ jobs:
         env:
           BASE_REF: ${{ github.base_ref || 'main' }}
         run: bash scripts/lint-backlog-references.sh --base "origin/${BASE_REF}" --list || true
+
+  # Cycle-8 wave-3 Slot-5 sibling: ban `2>/dev/null` and `2>&-`
+  # inside any `fix_*()` function body. See
+  # scripts/lint-fix-functions-stderr.sh header for the defect class
+  # (silenced auto-fix stderr makes failures un-actionable for
+  # operators running under --auto-fix). The PR #92 scrub of
+  # fix_framework_clone / fix_framework_manifest / fix_superpowers
+  # established the precedent; this lint is the merge-time backstop.
+  fix-functions-stderr-lint:
+    name: fix-functions-stderr-lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Lint fix_*() function stderr silencers
+        run: bash scripts/lint-fix-functions-stderr.sh
+
+      - name: Show PASS/FAIL inventory (on failure or on demand)
+        if: always()
+        run: bash scripts/lint-fix-functions-stderr.sh --list || true
+
+  # Cycle-8 wave-3 Slot-5 sibling: ban raw `read -rp` / `read -p`
+  # outside scripts/lib/helpers.sh — the canonical home for the
+  # prompt_input / prompt_yes_no helpers that handle non-interactive
+  # / CI / no-TTY contexts safely. See
+  # scripts/lint-raw-read-prompt.sh header for the defect class
+  # (bare `read -p` hangs unattended invocations or auto-defaults
+  # without operator confirmation).
+  raw-read-prompt-lint:
+    name: raw-read-prompt-lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Lint raw read -rp / read -p sites
+        run: bash scripts/lint-raw-read-prompt.sh
+
+      - name: Show PASS/FAIL inventory (on failure or on demand)
+        if: always()
+        run: bash scripts/lint-raw-read-prompt.sh --list || true
