@@ -7,12 +7,15 @@
 # pre-conditions in APPROVAL_LOG.md are dated (or an operator
 # acknowledges them via --ack-preconditions in non-interactive mode).
 #
-# Canonical pre-condition split per docs/governance-framework.md:230 —
-# Sponsored POC defers 3 of 6 governance items (insurance, liability,
-# ITSM, backup maintainer; sponsor/AI-path/exit-criteria upfront).
-# Private POC defers all 6. Production requires all 6 cleared. Personal
-# deployments auto-fill the 6 rows via templates/generated/
-# approval-log-personal.tmpl and are exempt from the gate.
+# Canonical pre-condition split per docs/governance-framework.md §V —
+# Of the 6 blocking pre-conditions in APPROVAL_LOG.md Pre-Phase 0,
+# Sponsored POC requires rows 1,4 (AI deployment path, project sponsor)
+# upfront and defers rows 2,3,5,6 (insurance, liability, backup
+# maintainer, ITSM). Exit criteria (§XIV item #8) is tracked separately
+# outside this table. Private POC defers all 6. Production requires all
+# 6 cleared. Personal deployments auto-fill the 6 rows via
+# templates/generated/approval-log-personal.tmpl and are exempt from
+# the gate.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
