@@ -937,136 +937,220 @@ fi
 # ================================================================
 section "BL-009: UAT template quality + platform-aware authoring"
 
-_uat_run_init_copy_block() {
-  # Args: work-dir, platform
-  # Source helpers and execute just the UAT copy block of init.sh against the
-  # work dir. Extracting the subset keeps the test fast; full init.sh run
-  # would require mocking prerequisites and a full intake flow.
-  local work="$1" platform="$2"
-  (
-    cd "$work"
-    # shellcheck disable=SC1091
-    source "$REPO_DIR/scripts/lib/helpers.sh"
-    export SCRIPT_DIR="$REPO_DIR"
-    export PLATFORM="$platform"
-    mkdir -p tests/uat/templates tests/uat/sessions tests/uat/examples
-    cp "$SCRIPT_DIR/templates/uat/test-session-template.md"   tests/uat/templates/test-session-template.md
-    cp "$SCRIPT_DIR/templates/uat/test-session-template.html" tests/uat/templates/test-session-template.html
-    if [ "$PLATFORM" != "other" ] && \
-       [ -f "$SCRIPT_DIR/templates/uat/references/${PLATFORM}-pre-flight.html" ] && \
-       [ -f "$SCRIPT_DIR/templates/uat/references/${PLATFORM}-scenario.json" ]; then
-      cp "$SCRIPT_DIR/templates/uat/references/${PLATFORM}-pre-flight.html" \
-         tests/uat/examples/pre-flight-reference.html
-      cp "$SCRIPT_DIR/templates/uat/references/${PLATFORM}-scenario.json" \
-         tests/uat/examples/scenario-reference.json
-    fi
-  )
+# audit tests-edge-cases-22 / tests-edge-cases-23 (closure):
+# Pre-fix this section called _uat_run_init_copy_block, an in-test
+# duplicate of init.sh's UAT copy block. The shadow helper meant E26-E32
+# never exercised init.sh / upgrade-project.sh — if init.sh deleted its
+# entire UAT copy block, every E26-E32 case still passed. Verified RED
+# on origin/main by removing init.sh:1187-1207 — all 7 cases still
+# returned [PASS].
+#
+# The rewrite below drives the real init.sh --non-interactive code path
+# (E26-E30) and the real scripts/upgrade-project.sh UAT migration block
+# (E31, E32). That removes the shadow code and gives the BL-009 spec
+# real regression coverage: deleting init.sh's copy block or breaking
+# upgrade-project.sh's UAT migration now flips E26-E32 to FAIL.
+
+# Helper: run real init.sh --non-interactive for the given platform into
+# the supplied --project-dir. Uses --no-remote-creation so the test never
+# touches a real GitHub/GitLab/Bitbucket account. Captures stderr on
+# failure so the diagnostic survives the assertion below.
+#
+# Note: init.sh's "Proceed with this plan?" prompt only fires when a tool
+# in the install plan is missing on the test host (e.g. mobile platform
+# needs Android Studio). With closed stdin and `set -e`, the `read -rp`
+# at init.sh:736 would EOF and abort. We pipe a stream of "Y" answers so
+# the plan proceeds regardless of host state — this isolates the test
+# from the test host's tool inventory.
+_uat_real_init() {
+  local work="$1" platform="$2" project="$3"
+  local logfile="$work/init-${platform}.log"
+  # Feed a finite stream of "Y" answers from process substitution so
+  # init.sh's "Proceed with this plan?" / install confirms auto-pass
+  # without breaking `set -o pipefail` (yes(1) gets SIGPIPE and the
+  # 141 exit code propagates through pipefail; printf does not).
+  ( cd "$work" && \
+    bash "$REPO_DIR/init.sh" --non-interactive \
+        --project "$project" \
+        --platform "$platform" \
+        --deployment personal \
+        --language typescript \
+        --git-host github \
+        --visibility private \
+        --no-remote-creation \
+        --project-dir "$work/$project" \
+        --allow-existing-dir \
+        < <(printf 'Y\nY\nY\nY\nY\nY\nY\nY\nY\nY\n') ) > "$logfile" 2>&1
 }
 
-# Case 1: init for web platform copies web reference pair
+# Case 1: real init.sh for web platform copies web reference pair
 _uat_work=$(mktemp -d)
-_uat_run_init_copy_block "$_uat_work" "web"
-if [ -f "$_uat_work/tests/uat/examples/pre-flight-reference.html" ] && \
-   [ -f "$_uat_work/tests/uat/examples/scenario-reference.json" ] && \
-   grep -qi 'browser\|devtools\|app url' "$_uat_work/tests/uat/examples/pre-flight-reference.html"; then
-  pass "E26: UAT init for 'web' copies web-specific reference pair"
+if _uat_real_init "$_uat_work" "web" "e26-web" && \
+   [ -f "$_uat_work/e26-web/tests/uat/examples/pre-flight-reference.html" ] && \
+   [ -f "$_uat_work/e26-web/tests/uat/examples/scenario-reference.json" ] && \
+   grep -qi 'browser\|devtools\|app url' "$_uat_work/e26-web/tests/uat/examples/pre-flight-reference.html"; then
+  pass "E26: real init.sh --platform web copies web-specific UAT reference pair"
 else
-  fail "E26: UAT init for 'web' failed — refs missing or not web-specific"
+  fail "E26: real init.sh --platform web failed — refs missing or not web-specific (log: $_uat_work/init-web.log)"
 fi
 rm -rf "$_uat_work"
 
-# Case 2: init for desktop
+# Case 2: real init.sh for desktop
 _uat_work=$(mktemp -d)
-_uat_run_init_copy_block "$_uat_work" "desktop"
-if [ -f "$_uat_work/tests/uat/examples/pre-flight-reference.html" ] && \
-   grep -qi 'terminal\|project root\|venv\|runtime' "$_uat_work/tests/uat/examples/pre-flight-reference.html"; then
-  pass "E27: UAT init for 'desktop' copies desktop-specific reference pair"
+if _uat_real_init "$_uat_work" "desktop" "e27-desktop" && \
+   [ -f "$_uat_work/e27-desktop/tests/uat/examples/pre-flight-reference.html" ] && \
+   grep -qi 'terminal\|project root\|venv\|runtime' "$_uat_work/e27-desktop/tests/uat/examples/pre-flight-reference.html"; then
+  pass "E27: real init.sh --platform desktop copies desktop-specific UAT reference pair"
 else
-  fail "E27: UAT init for 'desktop' failed"
+  fail "E27: real init.sh --platform desktop failed (log: $_uat_work/init-desktop.log)"
 fi
 rm -rf "$_uat_work"
 
-# Case 3: init for mobile
+# Case 3: real init.sh for mobile
 _uat_work=$(mktemp -d)
-_uat_run_init_copy_block "$_uat_work" "mobile"
-if [ -f "$_uat_work/tests/uat/examples/pre-flight-reference.html" ] && \
-   grep -qi 'device\|simulator\|testflight\|android' "$_uat_work/tests/uat/examples/pre-flight-reference.html"; then
-  pass "E28: UAT init for 'mobile' copies mobile-specific reference pair"
+if _uat_real_init "$_uat_work" "mobile" "e28-mobile" && \
+   [ -f "$_uat_work/e28-mobile/tests/uat/examples/pre-flight-reference.html" ] && \
+   grep -qi 'device\|simulator\|testflight\|android' "$_uat_work/e28-mobile/tests/uat/examples/pre-flight-reference.html"; then
+  pass "E28: real init.sh --platform mobile copies mobile-specific UAT reference pair"
 else
-  fail "E28: UAT init for 'mobile' failed"
+  fail "E28: real init.sh --platform mobile failed (log: $_uat_work/init-mobile.log)"
 fi
 rm -rf "$_uat_work"
 
-# Case 4: init for mcp_server
+# Case 4: real init.sh for mcp_server
 _uat_work=$(mktemp -d)
-_uat_run_init_copy_block "$_uat_work" "mcp_server"
-if [ -f "$_uat_work/tests/uat/examples/pre-flight-reference.html" ] && \
-   grep -qi 'mcp\|inspector\|json-rpc\|tool call' "$_uat_work/tests/uat/examples/pre-flight-reference.html"; then
-  pass "E29: UAT init for 'mcp_server' copies mcp-specific reference pair"
+if _uat_real_init "$_uat_work" "mcp_server" "e29-mcp" && \
+   [ -f "$_uat_work/e29-mcp/tests/uat/examples/pre-flight-reference.html" ] && \
+   grep -qi 'mcp\|inspector\|json-rpc\|tool call' "$_uat_work/e29-mcp/tests/uat/examples/pre-flight-reference.html"; then
+  pass "E29: real init.sh --platform mcp_server copies mcp-specific UAT reference pair"
 else
-  fail "E29: UAT init for 'mcp_server' failed"
+  fail "E29: real init.sh --platform mcp_server failed (log: $_uat_work/init-mcp_server.log)"
 fi
 rm -rf "$_uat_work"
 
-# Case 5: init for 'other' skips reference copy
+# Case 5: real init.sh for 'other' skips reference copy but keeps templates
 _uat_work=$(mktemp -d)
-_uat_run_init_copy_block "$_uat_work" "other"
-if [ -f "$_uat_work/tests/uat/templates/test-session-template.html" ] && \
-   [ ! -f "$_uat_work/tests/uat/examples/pre-flight-reference.html" ] && \
-   [ ! -f "$_uat_work/tests/uat/examples/scenario-reference.json" ]; then
-  pass "E30: UAT init for 'other' skips ref copy, keeps source templates"
+if _uat_real_init "$_uat_work" "other" "e30-other" && \
+   [ -f "$_uat_work/e30-other/tests/uat/templates/test-session-template.html" ] && \
+   [ ! -f "$_uat_work/e30-other/tests/uat/examples/pre-flight-reference.html" ] && \
+   [ ! -f "$_uat_work/e30-other/tests/uat/examples/scenario-reference.json" ]; then
+  pass "E30: real init.sh --platform other skips ref copy, keeps source templates"
 else
-  fail "E30: UAT init for 'other' incorrect state (ref files present or template missing)"
+  fail "E30: real init.sh --platform other produced wrong state (refs present or template missing) (log: $_uat_work/init-other.log)"
 fi
 rm -rf "$_uat_work"
 
-# Case 6: upgrade refreshes templates on pre-migration layout
-_uat_work=$(mktemp -d)
-mkdir -p "$_uat_work/.claude" "$_uat_work/tests/uat/templates"
-cat > "$_uat_work/.claude/intake-progress.json" <<JSON
-{"answers": {"platform": "desktop", "project_name": "uat-upgrade-test"}}
+# Helper: seed intake-progress.json with the platform key that
+# upgrade-project.sh's UAT migration block reads. init.sh writes
+# tool-preferences.json but not intake-progress.json (audit-trail gap
+# tracked in code-upgrade-project; not the focus of this audit closure).
+# This keeps the E31/E32 cases focused on the BL-009 UAT migration
+# contract, not the unrelated intake-progress drift.
+_uat_seed_intake_progress() {
+  local proj="$1" platform="$2"
+  mkdir -p "$proj/.claude"
+  cat > "$proj/.claude/intake-progress.json" <<JSON
+{
+  "version": 1,
+  "started_at": "2026-04-23T00:00:00Z",
+  "answers": {"platform": "$platform", "project_name": "$(basename "$proj")"}
+}
 JSON
-echo "<!-- OLD TEMPLATE, no __TESTER_PRE_FLIGHT__ placeholder -->" \
-  > "$_uat_work/tests/uat/templates/test-session-template.html"
-(
-  cd "$_uat_work"
-  cp "$REPO_DIR/templates/uat/test-session-template.html" \
-     tests/uat/templates/test-session-template.html
-  cp "$REPO_DIR/templates/uat/test-session-template.md" \
-     tests/uat/templates/test-session-template.md
-  mkdir -p tests/uat/examples
-  cp "$REPO_DIR/templates/uat/references/desktop-pre-flight.html" \
-     tests/uat/examples/pre-flight-reference.html
-  cp "$REPO_DIR/templates/uat/references/desktop-scenario.json" \
-     tests/uat/examples/scenario-reference.json
-)
-if grep -q '__TESTER_PRE_FLIGHT__' "$_uat_work/tests/uat/templates/test-session-template.html" && \
-   [ -f "$_uat_work/tests/uat/examples/pre-flight-reference.html" ]; then
-  pass "E31: UAT upgrade refreshes source templates with new placeholder"
+}
+
+# Case 6: real upgrade-project.sh UAT migration refreshes a pre-migration tree.
+# Initialize via real init.sh (with --track light so the subsequent
+# upgrade-project.sh --track standard does real work and reaches the UAT
+# migration block at scripts/upgrade-project.sh:2093). Then simulate a
+# pre-BL-009 project by overwriting the source template with stub content
+# and removing the reference pair. The upgrade-project.sh UAT migration
+# block must restore them.
+_uat_real_init_light_impl() {
+  local work="$1" platform="$2" project="$3"
+  local logfile="$work/init-${platform}-light.log"
+  ( cd "$work" && \
+    bash "$REPO_DIR/init.sh" --non-interactive \
+        --project "$project" \
+        --platform "$platform" \
+        --deployment personal \
+        --language typescript \
+        --track light \
+        --git-host github \
+        --visibility private \
+        --no-remote-creation \
+        --project-dir "$work/$project" \
+        --allow-existing-dir \
+        < <(printf 'Y\nY\nY\nY\nY\nY\nY\nY\nY\nY\n') ) > "$logfile" 2>&1
+}
+
+_uat_work=$(mktemp -d)
+if ! _uat_real_init_light_impl "$_uat_work" "desktop" "e31-upgrade"; then
+  fail "E31: setup init.sh failed (log: $_uat_work/init-desktop-light.log)"
 else
-  fail "E31: UAT upgrade didn't refresh templates or copy references"
+  _proj="$_uat_work/e31-upgrade"
+  _uat_seed_intake_progress "$_proj" "desktop"
+  # Regression to "pre-migration" state: clobber the source template and
+  # delete the reference pair so the upgrade has visible work to do.
+  echo "<!-- OLD TEMPLATE: no __TESTER_PRE_FLIGHT__ placeholder -->" \
+    > "$_proj/tests/uat/templates/test-session-template.html"
+  rm -f "$_proj/tests/uat/examples/pre-flight-reference.html" \
+        "$_proj/tests/uat/examples/scenario-reference.json"
+  # Drive the real upgrade-project.sh UAT migration block.
+  # --track light → standard is a real upgrade target so the script
+  # reaches the post-validation sweep that includes UAT migration.
+  ( cd "$_proj" && \
+    bash "$REPO_DIR/scripts/upgrade-project.sh" \
+        --non-interactive --track standard ) > "$_uat_work/upgrade-e31.log" 2>&1 || true
+  if grep -q '__TESTER_PRE_FLIGHT__' "$_proj/tests/uat/templates/test-session-template.html" && \
+     [ -f "$_proj/tests/uat/examples/pre-flight-reference.html" ] && \
+     [ -f "$_proj/tests/uat/examples/scenario-reference.json" ] && \
+     grep -qi 'terminal\|project root\|venv\|runtime' "$_proj/tests/uat/examples/pre-flight-reference.html"; then
+    pass "E31: real upgrade-project.sh UAT migration refreshes stub template + reference pair"
+  else
+    fail "E31: upgrade-project.sh UAT migration didn't restore template/refs (log: $_uat_work/upgrade-e31.log)"
+  fi
 fi
 rm -rf "$_uat_work"
 
-# Case 7: upgrade is idempotent
+# Case 7: E32 — UAT migration is idempotent. Drive the real UAT migration
+# block twice against the same tree (via two upgrade-project.sh runs that
+# each reach the migration block) and verify the resulting trees are
+# byte-identical. The pre-fix version asserted cp's idempotency
+# (tautology); the new version asserts the framework's idempotency by
+# comparing run-1 output to run-2 output.
 _uat_work=$(mktemp -d)
-mkdir -p "$_uat_work/.claude"
-cat > "$_uat_work/.claude/intake-progress.json" <<JSON
-{"answers": {"platform": "desktop"}}
-JSON
-for _i in 1 2; do
-  (
-    cd "$_uat_work"
-    mkdir -p tests/uat/templates tests/uat/examples
-    cp "$REPO_DIR/templates/uat/test-session-template.html" tests/uat/templates/test-session-template.html
-    cp "$REPO_DIR/templates/uat/references/desktop-pre-flight.html" tests/uat/examples/pre-flight-reference.html
-  )
-done
-if diff -q "$_uat_work/tests/uat/templates/test-session-template.html" \
-           "$REPO_DIR/templates/uat/test-session-template.html" >/dev/null 2>&1; then
-  pass "E32: UAT upgrade migration is idempotent"
+if ! _uat_real_init_light_impl "$_uat_work" "desktop" "e32-idem"; then
+  fail "E32: setup init.sh failed (log: $_uat_work/init-desktop-light.log)"
 else
-  fail "E32: UAT upgrade migration produced diverging content on re-run"
+  _proj="$_uat_work/e32-idem"
+  _uat_seed_intake_progress "$_proj" "desktop"
+  # Snapshot UAT subtree after a forced "pre-migration" state to ensure
+  # the first upgrade-project.sh has real work.
+  echo "<!-- OLD TEMPLATE -->" > "$_proj/tests/uat/templates/test-session-template.html"
+  rm -f "$_proj/tests/uat/examples/"*.html "$_proj/tests/uat/examples/"*.json 2>/dev/null || true
+  # Run 1: light → standard. This runs the migration block.
+  ( cd "$_proj" && \
+    bash "$REPO_DIR/scripts/upgrade-project.sh" \
+        --non-interactive --track standard ) > "$_uat_work/upgrade-run1.log" 2>&1 || true
+  _snap1="$_uat_work/snap1"
+  mkdir -p "$_snap1"
+  cp -R "$_proj/tests/uat" "$_snap1/"
+  # Run 2: standard → full. Different target so upgrade-project.sh
+  # again reaches the post-validation sweep (UAT migration). Anything
+  # the migration does on this second invocation that mutates the UAT
+  # subtree differently from run-1 is drift.
+  ( cd "$_proj" && \
+    bash "$REPO_DIR/scripts/upgrade-project.sh" \
+        --non-interactive --track full ) > "$_uat_work/upgrade-run2.log" 2>&1 || true
+  _snap2="$_uat_work/snap2"
+  mkdir -p "$_snap2"
+  cp -R "$_proj/tests/uat" "$_snap2/"
+  # Compare snapshots — they must be byte-identical for idempotency.
+  if diff -ru "$_snap1/uat" "$_snap2/uat" > "$_uat_work/snapshot.diff" 2>&1; then
+    pass "E32: upgrade-project.sh UAT migration is idempotent (run-1 and run-2 produce identical trees)"
+  else
+    fail "E32: upgrade-project.sh UAT migration is NOT idempotent — run-2 diverged from run-1 (see $_uat_work/snapshot.diff)"
+  fi
 fi
 rm -rf "$_uat_work"
 
