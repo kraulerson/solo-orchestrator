@@ -113,6 +113,24 @@ else
 fi
 
 # ================================================================
+# TEST 0c2b: PHASE 1→2 RETROACTIVE STA — UPGRADE-PROJECT STAMPING HALF
+# ================================================================
+# PR #104 verifier follow-up (Wave 4): the check-phase-gate.sh half of
+# tier-crosscheck-5 was already exercised above (test 0c2). The other
+# half — scripts/upgrade-project.sh:1610-1626, which actually stamps the
+# Retroactive Phase 1 → Phase 2 STA Approval section into the
+# regenerated APPROVAL_LOG.md during personal→organizational upgrade —
+# had no automated coverage. This sibling suite runs the real upgrade
+# end-to-end and inspects the resulting log for the section header +
+# field rows that check-phase-gate.sh depends on.
+section "upgrade-project.sh stamps retroactive STA section on personal→org upgrade"
+if bash "$SCRIPT_DIR/tests/test-upgrade-project-retroactive-section.sh" >/dev/null 2>&1; then
+  pass "scripts/upgrade-project.sh retroactive section stamping tests (2/2)"
+else
+  fail "scripts/upgrade-project.sh retroactive section stamping tests FAILED (run tests/test-upgrade-project-retroactive-section.sh for details)"
+fi
+
+# ================================================================
 # TEST 0c3: ORGANIZATIONAL END-TO-END INIT (tests-init-host-attestation-4)
 # ================================================================
 # Regression suite for the audit tests-init-host-attestation-4 closure:

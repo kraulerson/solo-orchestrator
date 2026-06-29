@@ -21,10 +21,16 @@ source "$SCRIPT_DIR/lib/helpers.sh"
 # replicating save_answer / init_progress / save_section / _request_pause
 # inline; the tests can now source the file and exercise the real
 # functions, closing the regression-coverage gap the audit cited.
-_intake_wizard_sourced=0
-(return 0 2>/dev/null) && _intake_wizard_sourced=1
+#
+# PR #104 verifier follow-up (Wave 4 minor #4): the probe was previously
+# the unscoped global `_intake_wizard_sourced`, which leaked into the
+# caller's variable namespace. Renamed to `__SOLO_INTAKE_WIZARD_SOURCED__`
+# (caps + double-underscore prefix is the project convention for
+# module-private globals).
+__SOLO_INTAKE_WIZARD_SOURCED__=0
+(return 0 2>/dev/null) && __SOLO_INTAKE_WIZARD_SOURCED__=1
 
-if [ "$_intake_wizard_sourced" -ne 1 ]; then
+if [ "$__SOLO_INTAKE_WIZARD_SOURCED__" -ne 1 ]; then
   # UAT 2026-04-25 fix (U-N): refuse to operate inside the framework repo.
   guard_not_in_framework || exit 1
 
@@ -261,6 +267,21 @@ PYEOF
 
 # Pause detection: prompt functions write a sentinel file when the user
 # types "pause". The section runner checks for this file after each prompt.
+#
+# PR #104 verifier follow-up (Wave 4 major #3): the verifier flagged
+# both `_PAUSE_FILE` allocation and the EXIT trap as module-load-time
+# side effects. The allocation is kept unconditional because:
+#   (a) it's a pure variable assignment — no /tmp file is created until
+#       _request_pause() touches it, which only the wizard's prompt loop
+#       calls; sourcing the file alone does NOT touch the filesystem.
+#   (b) the `$$` interpolation captures the sourcing process's PID, so
+#       parallel test runs cannot collide.
+#   (c) tests/known-bugs-test-suite.sh:615 (BUG-8) sources this file
+#       under `set -u` and reads $_PAUSE_FILE directly; gating the
+#       allocation would force every sourced caller to fallback-default
+#       it, undermining the source-real-functions rewrite that closed
+#       tests-full-known-bugs-2.
+# The real clobber risk is the EXIT trap (see below) — that IS gated.
 _PAUSE_FILE="/tmp/.solo-intake-pause-$$"
 
 _request_pause() {
@@ -278,8 +299,20 @@ check_pause_requested() {
   fi
 }
 
-# Clean up pause file on exit
-trap 'rm -f "$_PAUSE_FILE"' EXIT
+# Clean up pause file on exit.
+#
+# PR #104 verifier follow-up (Wave 4 major #3): the trap is gated on
+# __SOLO_INTAKE_WIZARD_SOURCED__ -ne 1. Pre-fix the trap ran at
+# module-load time even when sourced and silently clobbered any pre-
+# existing EXIT trap in the caller's shell — same defect class as the
+# original BUG-8 the main-guard pattern (lines 27, 2009) was added to
+# fix. Tests escaped today only because each `source` lives inside its
+# own `( ... )` subshell. Gating the trap eliminates the clobber surface
+# for any future caller that does not subshell-wrap. Sourced callers
+# that want pause-file cleanup must register their own trap.
+if [ "${__SOLO_INTAKE_WIZARD_SOURCED__:-0}" -ne 1 ]; then
+  trap 'rm -f "$_PAUSE_FILE"' EXIT
+fi
 
 # ================================================================
 # PROGRESS: Initialize progress file
@@ -2001,6 +2034,6 @@ main() {
   esac
 }
 
-if [ "${_intake_wizard_sourced:-0}" -ne 1 ]; then
+if [ "${__SOLO_INTAKE_WIZARD_SOURCED__:-0}" -ne 1 ]; then
   main "$@"
 fi

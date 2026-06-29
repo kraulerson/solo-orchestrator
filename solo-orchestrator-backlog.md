@@ -765,6 +765,58 @@ Note: `docker.install.linux_apt` uses `sudo apt install ... && sudo usermod ...`
 
 ---
 
+## BL-042: init.sh `prompt_install` interaction with pipefail when stdin is closed
+
+**Logged:** 2026-06-29 (PR #104 verifier follow-up — Wave 4 risk note 2)
+**Category:** Bug / non-interactive UX (test-only workaround in tree)
+**Severity:** Low (workaround in place; affects test ergonomics, not user-facing behavior)
+**Status:** Open
+
+When `init.sh --non-interactive` is invoked from a test harness with a piped/heredoc stdin (e.g. `printf 'Y\n...' | bash init.sh ...`), the `prompt_install` helper at `scripts/lib/helpers.sh:295-324` interacts poorly with `set -o pipefail` in two ways:
+
+1. `prompt_install` checks `[ ! -t 0 ]` at line 306 to detect non-interactive context and returns 1 (no install). When stdin is a `printf`-fed pipe rather than a tty, the gate fires correctly — but the *test* expects the install to proceed (or be silently skipped without error).
+2. Some upstream callers chain `printf | bash init.sh` directly. Under `pipefail`, if init.sh exits before consuming the full stdin, the upstream `printf` receives SIGPIPE and exits 141 — which propagates through the pipeline and fails the parent command. Tests work around this by using process substitution (`< <(printf 'Y\nY\n...')`) so each program reads its own fd without a true pipe.
+
+**Current workaround (test-side, in tree):**
+- `tests/test-init-organizational.sh:50,146` — `< <(printf 'Y\nY\nY\nY\nY\nY\nY\nY\nY\nY\n')` feeds finite stdin.
+- `tests/edge-cases-scripts.sh:983,1083` — same shape.
+- The PR-#104 body explicitly notes this as a worked-around bonus catch.
+
+**Proposed source fix (deferred):**
+- Audit `prompt_install` and its callers so the non-interactive path is the *only* path that runs when `CI=1`, `SOIF_NONINTERACTIVE=1`, or `--non-interactive` is passed, and the function NEVER attempts a `read -rp` on a closed-stdin stream. Today the `-t 0` test at line 306 catches the pipe-stdin case, but the broader question is whether `bash init.sh --non-interactive < /dev/null` (genuinely closed stdin, no fed input) is well-defined for callers that don't want even the `[WARN]` chatter on lines 307.
+- Add a `tests/test-init-prompt-install-closed-stdin.sh` regression to fix the boundary so future tests don't need the printf-fed workaround.
+
+**Why deferred (not in PR #104 fix-commit):** the workaround is local to tests, the user-facing behavior of `init.sh --non-interactive` (which the gate at `prompt_install:306` handles correctly) is sound, and the source audit touches multiple helpers + their callers. Capturing as a backlog item per the Wave 4 retrospective so it does not become a "silent backlog" item.
+
+**Related:** PR #104 (test-singletons-and-tier-crosscheck-5), `scripts/lib/helpers.sh:295-324`, `init.sh:117-249` (all the `prompt_install` callsites), Wave 4 retrospective risk note 2.
+
+---
+
+## BL-043: intake-wizard.sh module-load side effects justify a `main()` extraction refactor
+
+**Logged:** 2026-06-29 (PR #104 verifier follow-up — Wave 4 risk note 2)
+**Category:** Debt / sourceability hardening
+**Severity:** Low (current main-guard + trap-guard handle the surface; refactor improves hygiene)
+**Status:** Open
+
+PR #104 added two main-guard gates to `scripts/intake-wizard.sh`:
+1. Lines 27 + 2009 (PR #104 base): block the project-root discovery + `main "$@"` call when sourced.
+2. Lines 290 + 314 (PR #104 verifier follow-up): block the EXIT trap that cleans up `_PAUSE_FILE` when sourced, so it does not clobber the caller's pre-existing EXIT trap.
+
+These two gates patch the most damaging clobber surfaces, but the underlying design is still that intake-wizard.sh runs side-effects at module-load time (helpers sourced at line 13, `_PAUSE_FILE` allocated at line 273, function definitions, etc.). A cleaner shape would be:
+- All side-effect setup (CWD anchor, `_PAUSE_FILE`, trap, project-root discovery, `main "$@"`) lives inside an explicit `main()` body.
+- The module-load section contains only `set -euo pipefail`, `SCRIPT_DIR=…`, `source lib/helpers.sh`, and function definitions.
+- The main-guard at the bottom becomes a single `if [ "${BASH_SOURCE[0]}" = "${0}" ]; then main "$@"; fi`.
+
+**Proposed scope:**
+- ~50-100 LOC moved, no new behavior — but every test that currently subshell-wraps `source scripts/intake-wizard.sh` should still pass without the wrapper. Add a `tests/test-intake-wizard-sourceable-no-side-effects.sh` regression that sources the file at the top level of a test process and verifies (a) no trap registered, (b) no `_PAUSE_FILE` written, (c) the caller's CWD unchanged.
+
+**Why deferred (not in PR #104 fix-commit):** the gates already close the verifier-flagged risks for the current call shapes; the refactor is a hygiene improvement that touches the wizard's structure rather than its behavior. Schedule for a focused refactor PR so the diff is reviewable.
+
+**Related:** PR #104 verifier follow-up (Wave 4 majors #3 + #4), `scripts/intake-wizard.sh:24-27` (sourced-probe), `scripts/intake-wizard.sh:273-321` (pause-file + trap), `scripts/intake-wizard.sh:2009-2011` (main-guard).
+
+---
+
 ## code-check-gates-7-followup: per-gate-section blame for APPROVAL_LOG.md commit-author lookup
 
 **Logged:** 2026-06-28 (PR #87 cycle-7 verifier major #4)

@@ -544,11 +544,27 @@ JSON
 # A crash would surface as "set -e" bash output / unbound variable /
 # integer expression expected. The post-fix sanitizer produces clean
 # WARN/OK lines instead.
+#
+# PR #104 verifier follow-up (Wave 4 minor #5): tightened to also
+# require that the `Competency Matrix Coverage` section header was
+# actually reached. validate.sh has `set -euo pipefail` and may exit on
+# earlier checks (phase state mismatch, missing artifacts) BEFORE the
+# has_no path at scripts/validate.sh:428 runs. The previous behavioral
+# block masked early exits via `|| true`, so a regression that prevents
+# the has_no codepath from ever executing still passed silently. Now
+# the test grep-asserts the `── Competency Matrix Coverage ──` section
+# header (emitted by scripts/validate.sh:396 only when phase >= 2 AND
+# PROJECT_INTAKE.md AND .github/workflows/ci.yml all exist — i.e. the
+# gate that fronts the has_no computation). A regression that skips the
+# whole section now flips this assertion red.
 if grep -qE "integer expression expected|unbound variable|line [0-9]+: \[: " "$TEST_DIR/bug7-output.txt"; then
   fail "BUG-7: real validate.sh crashed on the has_no path (suspect: counter sanitizer regression)"
   echo "    Output tail: $(tail -10 "$TEST_DIR/bug7-output.txt")"
+elif ! grep -qE "Competency Matrix Coverage" "$TEST_DIR/bug7-output.txt"; then
+  fail "BUG-7: validate.sh exited before reaching the 'Competency Matrix Coverage' section — the has_no path at scripts/validate.sh:428 was never executed, so the behavioral assertion was vacuous (suspect: phase-2 gate at scripts/validate.sh:395 broke, or an earlier check fataled before line 396)"
+  echo "    Output tail: $(tail -10 "$TEST_DIR/bug7-output.txt")"
 else
-  pass "BUG-7: real scripts/validate.sh does not crash on the has_no path under set -e"
+  pass "BUG-7: real scripts/validate.sh reaches Competency Matrix Coverage section and does not crash on the has_no path under set -e"
 fi
 
 # BUG-7 literal-idiom guard (Option B): the bug pre-fix form was
@@ -581,8 +597,14 @@ EOF
 if grep -qE "integer expression expected|unbound variable|line [0-9]+: \[: " "$TEST_DIR/bug7b-output.txt"; then
   fail "BUG-7b: real validate.sh crashes when no 'No' entries exist"
   echo "    Output: $(cat "$TEST_DIR/bug7b-output.txt")"
+elif ! grep -qE "Competency Matrix Coverage" "$TEST_DIR/bug7b-output.txt"; then
+  # PR #104 verifier follow-up (Wave 4 minor #5): same strengthening
+  # as BUG-7 above — require the section header was reached so the
+  # has_no=0 sanitizer path was actually executed.
+  fail "BUG-7b: validate.sh exited before reaching the 'Competency Matrix Coverage' section — the has_no=0 sanitizer at scripts/validate.sh:429 was never executed (vacuous behavioral assertion)"
+  echo "    Output: $(cat "$TEST_DIR/bug7b-output.txt")"
 else
-  pass "BUG-7b: real validate.sh handles zero matching 'No' entries without crashing"
+  pass "BUG-7b: real validate.sh reaches Competency Matrix Coverage section and handles zero matching 'No' entries without crashing"
 fi
 
 # ================================================================

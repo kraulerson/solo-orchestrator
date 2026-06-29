@@ -164,38 +164,65 @@ t1_upgraded_blank_retroactive_emits_warn() {
   teardown
 }
 
-# T2: upgraded_from=personal + filled retroactive rows → no Retroactive WARN.
-t2_upgraded_filled_retroactive_no_warn() {
+# T2: upgraded_from=personal + filled retroactive rows → positive `[OK]`
+# line emitted by scripts/check-phase-gate.sh:552.
+#
+# PR-#104 verifier (Wave 4) flagged the prior assertion as vacuous: it
+# only asserted ABSENCE of a WARN, which passes trivially on origin/main
+# where the entire retroactive code block at scripts/check-phase-gate.sh:
+# 519-555 does not exist. Tightened to grep-assert the positive line
+# emitted at scripts/check-phase-gate.sh:552:
+#   `[OK] Phase 1→2 retroactive: STA approval recorded ($approver, $date)`
+# Confirmed RED on origin/main (line :552 absent) → GREEN on PR branch.
+t2_upgraded_filled_retroactive_emits_ok() {
   setup
   write_upgraded_log "true"
   local output
   output=$( cd "$PROJ" && bash "$SCRIPT" 2>&1 ) || true
-  if echo "$output" | grep -qiE "WARN.*retroactive: project upgraded from personal but.*incomplete|WARN.*retroactive: project upgraded from personal but APPROVAL_LOG\.md has no"; then
-    fail_ "T2" "expected NO Retroactive WARN when approver+date filled; got:\n$output"
+  # The `[OK]` token in check-phase-gate.sh output includes ANSI color
+  # escapes; strip them so the regex matches the human-readable line.
+  local stripped
+  stripped=$(echo "$output" | sed -E $'s/\x1b\\[[0-9;]*m//g')
+  if echo "$stripped" | grep -qE 'Phase 1.+2 retroactive: STA approval recorded \(Jane Doe, 2026-04-20\)'; then
+    pass "T2: upgraded_from=personal + Approver+Date filled → check-phase-gate.sh emits positive [OK] retroactive line (Jane Doe, 2026-04-20)"
   else
-    pass "T2: upgraded_from=personal + Approver+Date filled → no Retroactive WARN"
+    fail_ "T2" "expected positive [OK] retroactive line citing 'Jane Doe, 2026-04-20'; got:\n$output"
   fi
   teardown
 }
 
-# T3: NOT upgraded_from=personal → check must skip the retroactive WARN.
-t3_non_upgraded_no_retroactive_warn() {
+# T3: NOT upgraded_from=personal → check-phase-gate.sh must NOT emit ANY
+# retroactive output (neither WARN nor [OK] nor any other 'retroactive'
+# mention).
+#
+# PR-#104 verifier (Wave 4) flagged the prior assertion as vacuous: it
+# only asserted absence of two specific WARN strings, which passed
+# trivially on origin/main (no retroactive code at all) AND would still
+# pass if a future refactor introduced an unconditional `[OK] retroactive`
+# emission. Tightened to assert absence of ANY 'retroactive' mention
+# (case-insensitive) — this fails RED if the upgraded-from branch ever
+# starts firing on non-upgraded projects (e.g. a regression that removes
+# or weakens the `grep -q '^upgraded_from: personal'` gate at
+# scripts/check-phase-gate.sh:536). T1 (RED-on-main proven) and T2
+# (positive emission, RED-on-main proven) anchor the suite; T3 is the
+# precision guard against false positives.
+t3_non_upgraded_no_retroactive_output() {
   setup
   write_non_upgraded_org_log
   local output
   output=$( cd "$PROJ" && bash "$SCRIPT" 2>&1 ) || true
-  if echo "$output" | grep -qiE "WARN.*retroactive: project upgraded from personal but.*incomplete|WARN.*retroactive: project upgraded from personal but APPROVAL_LOG\.md has no"; then
-    fail_ "T3" "expected NO Retroactive WARN when not upgraded_from=personal; got:\n$output"
+  if echo "$output" | grep -qiE "retroactive"; then
+    fail_ "T3" "expected NO retroactive output (no WARN, no OK, no mention) when not upgraded_from=personal; got:\n$output"
   else
-    pass "T3: non-upgraded organizational project does NOT trigger Retroactive WARN"
+    pass "T3: non-upgraded organizational project produces NO retroactive output of any kind (neither WARN nor [OK] nor any mention)"
   fi
   teardown
 }
 
 echo "== tests/test-check-phase-gate-retroactive-approval.sh =="
 t1_upgraded_blank_retroactive_emits_warn
-t2_upgraded_filled_retroactive_no_warn
-t3_non_upgraded_no_retroactive_warn
+t2_upgraded_filled_retroactive_emits_ok
+t3_non_upgraded_no_retroactive_output
 
 echo ""
 echo "== Total: $((PASSED + FAILED)) | Passed: $PASSED | Failed: $FAILED =="
