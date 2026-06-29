@@ -1936,17 +1936,13 @@ create_and_protect_remote() {
   #   pushed_initial               — after host_push_initial
   #   branch_protection_configured — after host_configure_protection (or attestation)
   #   branch_protection_verified   — after host_verify_protection passes
-  _record_phase2_step() {
-    local step_name="$1"
-    mkdir -p .claude
-    if [ ! -f .claude/process-state.json ]; then
-      echo '{"phase2_init":{"steps_completed":[],"attestations":{}}}' > .claude/process-state.json
-    fi
-    jq --arg s "$step_name" \
-       '(.phase2_init.steps_completed // []) as $cur | .phase2_init.steps_completed = (($cur + [$s]) | unique)' \
-       .claude/process-state.json > .claude/process-state.json.tmp \
-       && mv .claude/process-state.json.tmp .claude/process-state.json
-  }
+  #
+  # PR #97 verifier follow-up: _record_phase2_step lives in
+  # scripts/lib/phase2-state.sh so check-gate.sh::cmd_repair writes through
+  # the same helper after a successful resume step (the original inner-
+  # function placement made it invisible to check-gate.sh).
+  # shellcheck disable=SC1090
+  source "$SCRIPT_DIR/scripts/lib/phase2-state.sh"
 
   # T2-B: --no-remote-creation skips the host API entirely so UAT/CI runs do
   # not contaminate the user's GitHub/GitLab/Bitbucket account. Manifest already
