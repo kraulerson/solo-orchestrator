@@ -334,7 +334,7 @@ Surfaced by UAT 2026-04-25 finding U-A — confirmed by 8 of 13 agents (highest-
 **Logged:** 2026-04-25
 **Category:** Debt
 **Severity:** Medium
-**Status:** Open
+**Status:** Parked — 2026-06-29 recon found no operator demand in 60+ days across 4 waves of intake-wizard work. Field-specific flags shipped piecemeal cover known automation needs: `--data-classification` + `--zdr-attested` (PR #105, tier-crosscheck-6), `--upgrade-to-production` / `--upgrade-track` / `--upgrade-deployment` / `--to-sponsored-poc` / `--to-private-poc` (tier-promotion paths), `--resume` (session continuation). Re-evaluate when a holistic non-interactive harness use case surfaces (e.g., scale scaffolding 100+ projects/day, headless CI Phase-1 setup, AI-agent-driven full Phase-1 automation).
 
 Sibling-script follow-up logged when BL-016 shipped. `scripts/intake-wizard.sh` has `--upgrade-to-production` and `--upgrade-deployment` flags but no overarching `--non-interactive` semantic for the initial intake interview (Sections 1–8 of the wizard). Lower urgency than init.sh because the wizard is typically run once per project; init.sh is the high-frequency entry point.
 
@@ -342,7 +342,9 @@ Sibling-script follow-up logged when BL-016 shipped. `scripts/intake-wizard.sh` 
 
 **Trigger:** an explicit need for scripted intake (CI pipeline that creates many similar projects, agent-driven intake automation).
 
-**Related:** BL-016 spec §12 (out-of-scope items).
+**Recon evidence (2026-06-29):** `Reports/2026-06-29-backlog-reconciliation-plan.md` § BL-017 recon. `grep -E "non.?interactive|NON_INTERACTIVE|--config" scripts/intake-wizard.sh` finds only audit-comment references, no flag implementation. Tests that exercise intake-wizard use only `--resume` or piped `</dev/null` (the latter only as edge-case fixture). PRs that touched intake-wizard since 2026-04-27 (#83, #99, #104, #105) added field-specific flags or sourceability, never a holistic `--non-interactive` mode.
+
+**Related:** BL-016 spec §12 (out-of-scope items); `Reports/2026-06-29-backlog-reconciliation-plan.md`.
 
 ---
 
