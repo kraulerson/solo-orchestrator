@@ -1297,6 +1297,32 @@ PR #87 shipped a minimum-viable WARN that surfaces the risk but does not hard-bl
 
 ---
 
+## BL-057: init.sh --non-interactive must honor AUTO_INSTALL_TOOLS env var
+
+**Logged:** 2026-06-29
+**Category:** Bug
+**Severity:** High
+**Status:** Closed (2026-06-29, PR #107, commit `a0a4e8d`)
+
+Surfaced by the Step-5 dogfood validation walker (`Reports/2026-06-29-step5-dogfood-validation.md`, DOGFOOD-001) — the only bug found across 38 scenarios. `init.sh:736` called `read -rp "Proceed with this plan? [Y/n]"` UNCONDITIONALLY whenever the resolved tool plan contained any `auto_install` or `manual_install` entries.
+
+The inline `lint-raw-read-prompt: allow` comment at the same line documented the INTENDED bypass — *"NON_INTERACTIVE path uses AUTO_INSTALL_TOOLS env var rather than this prompt"* — but no code in `init.sh` actually read `AUTO_INSTALL_TOOLS`, and the guard immediately above did not check `NON_INTERACTIVE` either. Under `set -euo pipefail` with closed stdin (the documented `--non-interactive` contract), `read` returned non-zero and the script terminated silently with `rc=1`.
+
+Currently surfaced only on `--platform mobile` (Android Studio auto_install row on Darwin hosts without Android Studio installed). Blast radius would grow with every new `auto_install` entry added to `templates/tool-matrix/*.json`.
+
+**Repro (RED on origin/main):**
+
+    init.sh --non-interactive --platform mobile --language typescript \
+            --track full --deployment personal --gov-mode private_poc \
+            --project foo --project-dir <tmp> </dev/null
+    # → prints Tool Installation Plan, then dies silently. rc=1.
+
+**Resolution (PR #107):** Replaced the unconditional `read -rp` with an env-aware branch that mirrors the documented contract — `NON_INTERACTIVE=true` → `response = ${AUTO_INSTALL_TOOLS:-Y}`. Paired with a `NON_INTERACTIVE` short-circuit inside the `[Nn]` decline branch so `AUTO_INSTALL_TOOLS=N` logs *"AUTO_INSTALL_TOOLS=N — skipping tool auto-installation..."* and proceeds, instead of dropping into the interactive `prompt_choice` sub-menu (which would EOF-fail under closed stdin). Regression test at `tests/test-init-non-interactive-mobile-auto-install.sh` covers all three contract cases (default Y, explicit N, explicit Y) and is wired into `tests/full-project-test-suite.sh` as TEST 0c4 per BL-034.
+
+**Related:** `init.sh:733-737` (`resolve_and_install_tools`); Step-5 dogfood walker; BL-034 (test-aggregator wiring invariant); `scripts/lint-raw-read-prompt.sh` (the allowlist marker that documented the bypass that did not exist).
+
+---
+
 ## BL-058: Sponsored POC `APPROVAL_LOG.md` canonical shape — doc/matrix wording clarified (no product change)
 
 **Logged:** 2026-06-29
