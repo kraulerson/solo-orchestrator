@@ -454,7 +454,7 @@ if [ ${#UPDATES[@]} -gt 0 ] && [ -t 0 ]; then
   echo "  c) Skip for now"
   echo ""
 
-  read -rp "$(echo -e "${BOLD}Choice [a/b/c]${NC}: ")" choice
+  read -rp "$(echo -e "${BOLD}Choice [a/b/c]${NC}: ")" choice # lint-raw-read-prompt: allow multi-letter (a/b/c) choice prompt — prompt_input/prompt_yes_no shape doesn't fit; gated by `-t 0` TTY check at line 444 above; non-interactive branch at line 511 below covers CI/scripted callers
 
   case "$choice" in
     a|A)
@@ -476,7 +476,13 @@ if [ ${#UPDATES[@]} -gt 0 ] && [ -t 0 ]; then
       done
       ;;
     b|B)
-      read -rp "Enter numbers (comma-separated): " selections
+      # Wave-3 raw-read sweep: prompt_input centralizes !-t 0 / CI /
+      # SOIF_NONINTERACTIVE default-return. Empty default means CI
+      # callers get an empty selections list → the `IFS=',' read -ra`
+      # below produces a single empty token, which the bounds check
+      # at "$idx -ge 0 && $idx -lt ${#UPDATE_CMDS[@]}" rejects, so
+      # CI safely skips the update rather than auto-installing.
+      selections=$(prompt_input "Enter numbers (comma-separated)" "")
       IFS=',' read -ra sel_arr <<< "$selections"
       echo ""
       for sel in "${sel_arr[@]}"; do

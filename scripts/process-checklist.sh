@@ -443,8 +443,10 @@ complete_step() {
         echo "  Run in your terminal: SOIF_FORCE_STEP=true scripts/process-checklist.sh --complete-step ${process}:${step_id}" >&2
         exit 1
       fi
-      read -rp "Force-complete '${step_id}' without artifact? This is logged. [y/N]: " force_confirm
-      if [[ ! "$force_confirm" =~ ^[Yy]$ ]]; then
+      # Wave-3 raw-read sweep: prompt_yes_no centralizes the !-t 0 / CI
+      # default-N policy. The TTY guard above already returns 1 in
+      # non-interactive contexts; this is defense-in-depth.
+      if ! prompt_yes_no "Force-complete '${step_id}' without artifact? This is logged. [y/N]" "N"; then
         print_info "Force cancelled."
         exit 0
       fi
@@ -1001,9 +1003,10 @@ reset_process() {
     exit 1
   fi
 
-  # Interactive confirmation
-  read -rp "Reset process '$process'? This clears all progress. [y/N]: " confirm
-  if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+  # Interactive confirmation. Wave-3 raw-read sweep: prompt_yes_no
+  # also returns N in non-interactive contexts (defense-in-depth on
+  # top of the TTY guard above).
+  if ! prompt_yes_no "Reset process '$process'? This clears all progress. [y/N]" "N"; then
     print_info "Reset cancelled."
     exit 0
   fi
@@ -1062,9 +1065,10 @@ reset_all() {
     exit 1
   fi
 
-  # Interactive confirmation
-  read -rp "Reset ALL processes? This clears all progress across all phases. [y/N]: " confirm
-  if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+  # Interactive confirmation. Wave-3 raw-read sweep: prompt_yes_no
+  # also returns N in non-interactive contexts (defense-in-depth on
+  # top of the TTY guard above).
+  if ! prompt_yes_no "Reset ALL processes? This clears all progress across all phases. [y/N]" "N"; then
     print_info "Reset cancelled."
     exit 0
   fi

@@ -236,9 +236,9 @@ unrecord_feature() {
   echo "  features_since_last_health_check: $new_fslhc"
   echo ""
 
-  local confirm
-  read -rp "Proceed? [y/N]: " confirm
-  if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+  # Wave-3 raw-read sweep: prompt_yes_no centralizes the !-t 0 / CI /
+  # SOIF_NONINTERACTIVE non-interactive default-N policy.
+  if ! prompt_yes_no "Proceed? [y/N]" "N"; then
     print_info "Unrecord cancelled."
     exit 0
   fi

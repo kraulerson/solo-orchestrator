@@ -62,10 +62,14 @@ if [ "$TERMINAL_MODE" -eq 1 ]; then
   fi
 
   # --- Cycle-8 slot-5: operator-side lint promotion (terminal-mode) ---
-  # Counter-antipattern + backlog-references lints fire on user-terminal
-  # commits too. SKIP_LINT=1 escape mirrors the PreToolUse path.
+  # All four CI lints fire on user-terminal commits too:
+  #   - counter-antipattern        (PR #72)
+  #   - backlog-references         (PR #76)
+  #   - fix-functions-stderr       (cycle-8 wave-3 slot-5, this PR)
+  #   - raw-read-prompt            (cycle-8 wave-3 slot-5, this PR)
+  # SKIP_LINT=1 escape mirrors the PreToolUse path.
   if [ "${SKIP_LINT:-0}" = "1" ]; then
-    echo "[pre-commit-gate] SKIP_LINT=1 set — bypassing counter-antipattern + backlog-references lints" >&2
+    echo "[pre-commit-gate] SKIP_LINT=1 set — bypassing all four pre-commit lints (counter-antipattern, backlog-references, fix-functions-stderr, raw-read-prompt)" >&2
   else
     # Counter-antipattern: prefer project-local copy (framework installs
     # the script alongside pre-commit-gate.sh in scripts/), fall back to
@@ -94,6 +98,38 @@ if [ "$TERMINAL_MODE" -eq 1 ]; then
       if ! br_out=$(printf '%s' "$COMMIT_MSG" | bash "$BR_LINT" --pre-commit-mode 2>&1); then
         echo "[FRAMEWORK GATE — strict mode] backlog-references lint failed:" >&2
         echo "$br_out" >&2
+        echo "" >&2
+        echo "To bypass anyway:  SKIP_LINT=1 git commit ..." >&2
+        exit 1
+      fi
+    fi
+
+    # fix-functions-stderr: full-tree scan, no message dependency.
+    FF_LINT=""
+    for cand in "$PROJECT_ROOT/scripts/lint-fix-functions-stderr.sh" \
+                "$SCRIPT_DIR/lint-fix-functions-stderr.sh"; do
+      [ -f "$cand" ] && { FF_LINT="$cand"; break; }
+    done
+    if [ -n "$FF_LINT" ]; then
+      if ! ff_out=$(bash "$FF_LINT" 2>&1); then
+        echo "[FRAMEWORK GATE — strict mode] fix-functions-stderr lint failed:" >&2
+        echo "$ff_out" >&2
+        echo "" >&2
+        echo "To bypass anyway:  SKIP_LINT=1 git commit ..." >&2
+        exit 1
+      fi
+    fi
+
+    # raw-read-prompt: full-tree scan, no message dependency.
+    RR_LINT=""
+    for cand in "$PROJECT_ROOT/scripts/lint-raw-read-prompt.sh" \
+                "$SCRIPT_DIR/lint-raw-read-prompt.sh"; do
+      [ -f "$cand" ] && { RR_LINT="$cand"; break; }
+    done
+    if [ -n "$RR_LINT" ]; then
+      if ! rr_out=$(bash "$RR_LINT" 2>&1); then
+        echo "[FRAMEWORK GATE — strict mode] raw-read-prompt lint failed:" >&2
+        echo "$rr_out" >&2
         echo "" >&2
         echo "To bypass anyway:  SKIP_LINT=1 git commit ..." >&2
         exit 1
@@ -463,12 +499,12 @@ lints_check() {
   fi
 
   # Prefer the project-local copy of each lint (upgrade-project.sh
-  # installs both lints into the project's scripts/ dir alongside
+  # installs the lints into the project's scripts/ dir alongside
   # pre-commit-gate.sh). Fall back to the framework copy so the gate
   # still self-checks when run from the framework repo's own working
   # tree. Project root = `git rev-parse --show-toplevel` from the
   # current cwd, since Claude Code invokes the hook from the project.
-  local proj_root ca_lint="" br_lint=""
+  local proj_root ca_lint="" br_lint="" ff_lint="" rr_lint=""
   proj_root=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
   for cand in "$proj_root/scripts/lint-counter-antipattern.sh" \
               "$SCRIPT_DIR/lint-counter-antipattern.sh"; do
@@ -477,6 +513,14 @@ lints_check() {
   for cand in "$proj_root/scripts/lint-backlog-references.sh" \
               "$SCRIPT_DIR/lint-backlog-references.sh"; do
     [ -n "$cand" ] && [ -f "$cand" ] && { br_lint="$cand"; break; }
+  done
+  for cand in "$proj_root/scripts/lint-fix-functions-stderr.sh" \
+              "$SCRIPT_DIR/lint-fix-functions-stderr.sh"; do
+    [ -n "$cand" ] && [ -f "$cand" ] && { ff_lint="$cand"; break; }
+  done
+  for cand in "$proj_root/scripts/lint-raw-read-prompt.sh" \
+              "$SCRIPT_DIR/lint-raw-read-prompt.sh"; do
+    [ -n "$cand" ] && [ -f "$cand" ] && { rr_lint="$cand"; break; }
   done
 
   # Counter-antipattern: full repo-relative scan, fast.
@@ -500,6 +544,24 @@ lints_check() {
       if [ "$br_exit" -ne 0 ]; then
         emit_lint_block "pre-commit gate: scripts/lint-backlog-references.sh failed. ${br_out} Add the missing BL entry, fix the typo, or add the citation/allowlist marker. Run 'SKIP_LINT=1 git commit ...' to bypass in an emergency (logged to .claude/bypass-audit.json)."
       fi
+    fi
+  fi
+
+  # fix-functions-stderr: full repo-relative scan, fast.
+  if [ -n "$ff_lint" ]; then
+    local ff_out ff_exit=0
+    ff_out=$(bash "$ff_lint" 2>&1) || ff_exit=$?
+    if [ "$ff_exit" -ne 0 ]; then
+      emit_lint_block "pre-commit gate: scripts/lint-fix-functions-stderr.sh failed. ${ff_out} Surface the diagnostic (drop the 2>/dev/null) or append '# lint-fix-functions-stderr: allow <reason>' to the offending line. Run 'SKIP_LINT=1 git commit ...' to bypass in an emergency (logged to .claude/bypass-audit.json)."
+    fi
+  fi
+
+  # raw-read-prompt: full repo-relative scan, fast.
+  if [ -n "$rr_lint" ]; then
+    local rr_out rr_exit=0
+    rr_out=$(bash "$rr_lint" 2>&1) || rr_exit=$?
+    if [ "$rr_exit" -ne 0 ]; then
+      emit_lint_block "pre-commit gate: scripts/lint-raw-read-prompt.sh failed. ${rr_out} Migrate to prompt_input / prompt_yes_no (scripts/lib/helpers.sh) or append '# lint-raw-read-prompt: allow <reason>'. Run 'SKIP_LINT=1 git commit ...' to bypass in an emergency (logged to .claude/bypass-audit.json)."
     fi
   fi
 

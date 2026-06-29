@@ -19,6 +19,22 @@ source "$SCRIPT_DIR/lib/helpers.sh" 2>/dev/null || {
   print_info() { echo "[INFO] $*"; }
   print_warn() { echo "[WARN] $*"; }
   log_line()   { :; }
+  # Wave-3 raw-read sweep: prompt_yes_no fallback honors the same
+  # non-interactive hard-N contract as the helpers.sh version. Reached
+  # only in pre-init migration scenarios where lib/helpers.sh is
+  # absent; behavior must match the canonical helper so the manifest
+  # mutation in --backfill-host below stays consistent.
+  prompt_yes_no() {
+    local message="$1" default_answer="${2:-N}"
+    if [ ! -t 0 ] || [ -n "${CI:-}" ] || [ -n "${SOIF_NONINTERACTIVE:-}" ]; then
+      echo "[WARN] Non-interactive context: skipping prompt (\"$message\") — defaulting to 'N' (caller default '$default_answer' ignored)." >&2
+      return 1
+    fi
+    local reply
+    read -rp "${message}: " reply # lint-raw-read-prompt: allow fallback prompt_yes_no defined inline when lib/helpers.sh is absent (pre-init migration scenario); semantically equivalent to lib/helpers.sh::prompt_yes_no
+    [ -z "$reply" ] && { case "$default_answer" in [Yy]*) return 0 ;; *) return 1 ;; esac; }
+    case "$reply" in [Nn]*) return 1 ;; *) return 0 ;; esac
+  }
 }
 
 usage() {
@@ -99,7 +115,14 @@ cmd_backfill_host() {
     yn="y"
     print_info "Auto-confirmed via --yes."
   else
-    read -rp "Confirm this is correct? [y/N]: " yn
+    # Wave-3 raw-read sweep: prompt_yes_no honors !-t 0 / CI /
+    # SOIF_NONINTERACTIVE and hard-returns N rather than auto-Y'ing
+    # a manifest mutation in CI.
+    if prompt_yes_no "Confirm this is correct? [y/N]" "N"; then
+      yn="y"
+    else
+      yn="n"
+    fi
   fi
   case "$yn" in
     [yY]*)
