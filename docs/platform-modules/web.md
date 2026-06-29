@@ -321,6 +321,25 @@ Node.js projects use `package-lock.json` (npm) or `yarn.lock` (Yarn), both of wh
 
 These complement Semgrep and should run in CI alongside it.
 
+### Phase 4 — Release & Maintenance (Append to Core Steps)
+
+The Builder's Guide Phase 4 baseline (mechanically tracked by `scripts/process-checklist.sh --start-phase4`) enumerates six steps: `production_build`, `rollback_tested`, `go_live_verified`, `monitoring_configured`, `handoff_written`, `handoff_tested`. Web platform deliverables for each:
+
+- [ ] **`production_build`** — Vercel "Production" deployment for frontend / full-stack Next.js (verify the build log shows the prod environment + prod env vars, NOT the preview/staging environment); Railway "Deploy" against the production service for backend; Supabase "Production" project for database. Tag the release commit (`git tag -s vX.Y.Z`) so the deployment is reproducible.
+- [ ] **`rollback_tested`** — Exercise the documented rollback path BEFORE go-live, not after the first incident. Procedure depends on hosting:
+  - **Vercel:** Deployments → previous successful deployment → "Promote to Production" (instant — Vercel keeps prior immutable deployments). Time the promotion and verify production traffic now hits the rolled-back build.
+  - **Railway:** Re-deploy from the prior Git tag (`git checkout vX.Y.(Z-1) && railway up`) OR use Railway's per-service "Redeploy" against a prior deployment. Verify env vars and DB connection on the rolled-back build.
+  - **Database migrations:** dry-run the down-migration on a staging copy (`npx prisma migrate resolve --rolled-back …` for Prisma without auto-down; `knex migrate:rollback` for Knex; etc.). If a migration is destructive (drops a column, drops a table), document an explicit data-restore script — automated rollback cannot recover deleted user data.
+  - Save evidence at `docs/test-results/[YYYY-MM-DD]_rollback-test.md` covering: which deploy was promoted, wall-clock duration of the rollback, production verification (URL + smoke-test result + log excerpt), and an explicit Light/Standard+/Full Track scope statement (Light = manual Vercel/Railway promote + smoke; Standard+ = automated rollback script under `scripts/rollback.sh`; Full = chaos-style scheduled rollback drill, archived as a separate test session).
+- [ ] **`go_live_verified`** — Walk the §5.2 Go-Live Checklist on the PRODUCTION URL (not preview). SSL valid; security headers present (run `curl -I https://your.app` and assert `Content-Security-Policy`, `Strict-Transport-Security`, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`); CORS not wildcarded on authenticated endpoints; cookies carry `HttpOnly; Secure; SameSite`; rate-limit on `/auth/*`; Lighthouse run against the production URL meets the §4.3 targets (Accessibility ≥ 90, Performance ≥ 90).
+- [ ] **`monitoring_configured`** — Sentry release set to the deployed tag (`@sentry/cli releases new vX.Y.Z && releases finalize vX.Y.Z`) so errors are correlated to the deploy; alert rules per §5.3 active and tested (trigger a deliberate error in a non-prod build and confirm the email/SMS fires); UptimeRobot HTTP(S) monitor on `https://your.app/health` at the 5-minute interval; PostHog or Plausible page-load event flowing from the production URL.
+- [ ] **`handoff_written`** — `docs/HANDOFF.md` populated from `templates/generated/handoff.tmpl`. Web-specific sections that MUST be filled (not left as placeholder): hosting-platform login / billing-owner, custom-domain registrar + DNS-record list with TTLs, env-var inventory grouped by deploy environment (preview vs. production), database-backup retention policy + restore procedure with last-tested date, monitoring tool URLs + on-call contact, vulnerability-disclosure inbox per §6 "Vulnerability Disclosure".
+- [ ] **`handoff_tested`** — A second operator (or the same operator after a deliberate 24-hour cooldown to defeat fresh-memory bias) executes `docs/HANDOFF.md` end-to-end on a clean machine: log into Vercel, log into Railway, log into Supabase, pull the latest tag, run a fresh deploy to a preview environment, restore one database backup to a scratch DB, simulate one alert. Any step that required tribal knowledge not in the doc gets captured as a HANDOFF.md fix in the same session.
+
+**Incident response template:** `templates/generated/incident-response.tmpl` is included in the standard init scaffold and should be customized at this phase. The web-specific addition: link the template's "Detection" section to your Sentry alert URLs and the "Mitigation" section to the rollback procedure documented under `rollback_tested`.
+
+**Release notes:** `templates/generated/release-notes.tmpl` covers the user-visible summary. For web apps, append a "Browser support" line (especially when changing minimum browser versions) and a "Database migration" line indicating whether the release requires a down-migration window.
+
 ---
 
 ## Appendix: Tool Quick Reference

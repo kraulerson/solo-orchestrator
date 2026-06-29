@@ -21,6 +21,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/helpers.sh"
 
+# security-audits-2 (S3, 2026-04-26 audit sweep): the helpers.sh docstring at
+# guard_not_in_framework names scripts/process-checklist.sh as a script that
+# MUST invoke the guard. The script writes .claude/process-state.json and
+# .claude/phase-state.json — running it from the framework root would scatter
+# state files into the framework itself. Refuse early.
+guard_not_in_framework || exit 1
+
 PROCESS_STATE=".claude/process-state.json"
 PHASE_STATE=".claude/phase-state.json"
 

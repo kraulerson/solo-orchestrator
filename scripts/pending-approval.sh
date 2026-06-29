@@ -27,7 +27,22 @@ else
   print_ok()   { echo "[OK] $1"; }
   print_fail() { echo "[FAIL] $1" >&2; }
   print_info() { echo "[INFO] $1"; }
+  # When helpers.sh is unavailable (vendored stub install), no-op the framework
+  # guard: there's nothing to source. The full Solo install always ships helpers.
+  guard_not_in_framework() { return 0; }
 fi
+
+# security-audits-2 (S3, 2026-04-26 audit sweep): the helpers.sh docstring at
+# guard_not_in_framework explicitly names scripts/pending-approval.sh as a
+# script that MUST call the guard before any file writes. The pre-existing
+# script wrote .claude/pending-approval.json via cmd_offer (and cmd_resolve
+# deleted+rewrote it) without ever invoking the guard — a contract violation
+# silently missed by the bl-015 audit. Invoke the guard at dispatch time so
+# every subcommand (including read-only ones like --status / --validate)
+# refuses to operate when cwd is the framework repo. Read-only commands are
+# also gated because the find_project_root walk would otherwise return the
+# framework root, painting an inconsistent picture for the caller.
+guard_not_in_framework || exit 1
 
 # --- Helpers ---
 

@@ -402,6 +402,44 @@ Every production desktop application MUST include a vulnerability disclosure mec
 7. Publish release notes (from CHANGELOG.md)
 8. Verify download and install on each platform (manual smoke test)
 
+### 5.3 Rollback Procedure and Rollback Test
+
+Unlike a web app, you cannot "promote previous deployment" with one click — desktop releases are pulled from multiple immutable distribution surfaces. Plan the rollback as a deliberate procedure and exercise it BEFORE the first release goes out (the Phase 4 `rollback_tested` step is mandatory and fails if no evidence file exists).
+
+#### Channel-specific withdraw / yank steps
+
+| Channel | Withdraw step | Notes |
+|---|---|---|
+| **GitHub Releases** | Edit the bad release → "Set as pre-release" or delete (and re-tag if needed). Delete the corresponding Git tag (`git push --delete origin vBAD; git tag -d vBAD`). | Cached download URLs may persist; rely on the updater feed (below) to actually pull users back. |
+| **Homebrew (Cask or tap)** | Open a PR against `homebrew-cask` (or your custom tap) reverting the formula to the previous version. | Users on `brew upgrade` automation pick up the revert on their next run; explicit `brew install <cask>@<oldver>` for impacted users. |
+| **winget** | Open a PR against `microsoft/winget-pkgs` removing or reverting the offending manifest version. | `winget upgrade` will then offer the prior version. Users on the bad version must `winget install --version <oldver>`. |
+| **Snap Store** | `snapcraft release <name> <oldrev> stable` to roll the `stable` channel pointer to the prior revision; optionally `snapcraft close stable` to halt new installs while you decide. | The Snap daemon refreshes installed snaps automatically; rollback propagates within hours. |
+| **Flathub** | Submit a revert PR to `flathub/<appid>` reverting the manifest; Flathub rebuilds and republishes. | Slower than Snap (CI rebuild time); use `flatpak update` to pull. |
+| **Microsoft Store / Mac App Store** | Submit the prior version's package as a "rollback" submission. Store review delays apply (1-3 days). | For severe issues, also contact store support to expedite or temporarily delist. |
+| **Direct download** | Update the download page to link the prior installer; remove the bad installer from the CDN. | Add a banner on the download page describing the rollback so support inbox isn't flooded. |
+
+#### Auto-updater feed rollback (Tauri / Electron)
+
+The auto-updater feed is the highest-leverage rollback surface — change one JSON/YAML file and every running installation downgrades on its next check.
+
+- **Tauri (`updater.json`):** Point `version` back to the prior tag, regenerate the per-platform `signature` and `url` fields against the prior signed artifacts. The Tauri updater (since 1.x) accepts downgrades when the served version is lower than the installed one IF the user-shipped config sets `"endpoints"` to an updater URL you control AND the downgrade is signed by your release key.
+- **electron-updater (`latest.yml`, `latest-mac.yml`, `latest-linux.yml`):** Replace the per-platform YAML files with copies from the prior release's artifacts (the published `latest*.yml` files are part of the release assets). Set `allowDowngrade: true` in `package.json`'s `build` block (or the equivalent `electron-builder` config) — the default forbids downgrades silently. After deploy, run `electron-updater`'s `checkForUpdates()` on a test install to confirm the rolled-back version is served.
+- **Sparkle (legacy macOS Electron via custom feed):** revert the `appcast.xml` `<enclosure>` URL + version + signature triple to the prior release; the daemon refreshes within the update-check interval.
+
+If you ship without an auto-updater (Light Track / MVP via direct download), the only rollback surface is the manual channels above + a clear advisory on the website's download page.
+
+#### Rollback test by track tier
+
+The `rollback_tested` step exercises what the rollback path actually does — file the evidence at `docs/test-results/[YYYY-MM-DD]_rollback-test.md` and reference it from the Phase 4 checklist closeout.
+
+- **Light Track (manual download, no auto-updater):** Install the current shipped version on a clean OS image (or VM snapshot). Use the application briefly to populate local data. Uninstall via the platform's standard mechanism (Add/Remove Programs on Windows, drag to Trash on macOS, `apt remove` / `snap remove` on Linux). Install the prior version. Verify (a) user data created with the current version is still readable, (b) settings persist, (c) the prior version doesn't refuse to load files with a future schema (or, if it does, the error message tells the user how to recover). Test on at least one OS per platform you ship to.
+- **Standard+ Track (auto-updater configured):** All Light Track steps PLUS: publish a "rollback" updater feed pointing at the prior version on a staging/canary URL, run two installs of the current version (one on each of two OS platforms — Windows + macOS minimum), point both at the canary feed, trigger an update check, and verify both installs downgrade to the prior version without manual intervention. Time the downgrade and record it in the evidence file. Confirm `electron-updater` / Tauri updater logs show the downgrade was signature-verified.
+- **Full Track (chaos / scheduled rollback drill):** All Standard+ steps PLUS a quarterly scheduled drill that exercises the production updater feed against a canary cohort (1-5% of installations). Drill must include: a deliberate rollback issued against the canary, a verification that production fleet is unaffected, and a roll-forward back to the latest version once the canary cohort confirms recovery. Archive each drill in `docs/test-results/`.
+
+#### Data-loss safety during rollback
+
+The auto-updater MUST NOT delete user data during downgrade. Validate this in the rollback test by creating recognizable test data with the current version BEFORE downgrading, then asserting the data is intact (and ideally readable) after the rollback. If a release changed a local-DB schema in a non-backward-compatible way, the rollback test surfaces that as a [BLOCKER] — schema changes need a one-way feature flag or a deliberate "data migration on next launch" path that survives a downgrade.
+
 ### Data Handling on Uninstall
 
 Define and document what happens to user data when the application is uninstalled:
@@ -430,6 +468,7 @@ In addition to the Builder's Guide maintenance cadence:
 - Evaluate minimum supported OS version — dropping old versions reduces maintenance burden
 - Review framework updates (Tauri, Electron, Flutter major versions) for migration path
 - Renew code signing certificates before expiration
+- Re-run the §5.3 rollback test against the current shipped version (drift detection — channel APIs, updater feed formats, and OS uninstaller behavior change over time)
 
 ### Monitoring & Error Tracking
 
