@@ -181,6 +181,25 @@ else
 fi
 
 # ================================================================
+# TEST 0c4: BL-057 — --non-interactive must honor AUTO_INSTALL_TOOLS env
+# ================================================================
+# Regression suite for BL-057: scripts/init.sh's resolve_and_install_tools
+# called `read -rp` unconditionally when the resolved plan had
+# auto_install/manual_install entries, terminating silently with rc=1
+# under --non-interactive (closed stdin + set -euo pipefail). Surfaced as
+# Step-5 dogfood DOGFOOD-001 on --platform mobile (Android Studio
+# auto_install). Test asserts the post-fix contract:
+#   • default AUTO_INSTALL_TOOLS → Y  → init succeeds (rc=0)
+#   • AUTO_INSTALL_TOOLS=N            → init succeeds (rc=0), no install loop
+#   • AUTO_INSTALL_TOOLS=Y (explicit) → round-trips to default
+section "init.sh --non-interactive honors AUTO_INSTALL_TOOLS (BL-057)"
+if bash "$SCRIPT_DIR/tests/test-init-non-interactive-mobile-auto-install.sh" >/dev/null 2>&1; then
+  pass "init.sh --non-interactive AUTO_INSTALL_TOOLS tests (3/3)"
+else
+  fail "init.sh --non-interactive AUTO_INSTALL_TOOLS tests FAILED (run tests/test-init-non-interactive-mobile-auto-install.sh for details)"
+fi
+
+# ================================================================
 # TEST 0d: BACKLOG-REFERENCES LINT — cycle-7 Slot-5 process backstop
 # ================================================================
 # Sibling of the counter-antipattern lint above; catches drift between

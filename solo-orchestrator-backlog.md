@@ -1297,6 +1297,80 @@ PR #87 shipped a minimum-viable WARN that surfaces the risk but does not hard-bl
 
 ---
 
+## BL-057: init.sh --non-interactive must honor AUTO_INSTALL_TOOLS env var
+
+**Logged:** 2026-06-29
+**Category:** Bug
+**Severity:** High
+**Status:** Closed (2026-06-29, PR #107, commit `a0a4e8d`)
+
+Surfaced by the Step-5 dogfood validation walker (`Reports/2026-06-29-step5-dogfood-validation.md`, DOGFOOD-001) — the only bug found across 38 scenarios. `init.sh:736` called `read -rp "Proceed with this plan? [Y/n]"` UNCONDITIONALLY whenever the resolved tool plan contained any `auto_install` or `manual_install` entries.
+
+The inline `lint-raw-read-prompt: allow` comment at the same line documented the INTENDED bypass — *"NON_INTERACTIVE path uses AUTO_INSTALL_TOOLS env var rather than this prompt"* — but no code in `init.sh` actually read `AUTO_INSTALL_TOOLS`, and the guard immediately above did not check `NON_INTERACTIVE` either. Under `set -euo pipefail` with closed stdin (the documented `--non-interactive` contract), `read` returned non-zero and the script terminated silently with `rc=1`.
+
+Currently surfaced only on `--platform mobile` (Android Studio auto_install row on Darwin hosts without Android Studio installed). Blast radius would grow with every new `auto_install` entry added to `templates/tool-matrix/*.json`.
+
+**Repro (RED on origin/main):**
+
+    init.sh --non-interactive --platform mobile --language typescript \
+            --track full --deployment personal --gov-mode private_poc \
+            --project foo --project-dir <tmp> </dev/null
+    # → prints Tool Installation Plan, then dies silently. rc=1.
+
+**Resolution (PR #107):** Replaced the unconditional `read -rp` with an env-aware branch that mirrors the documented contract — `NON_INTERACTIVE=true` → `response = ${AUTO_INSTALL_TOOLS:-Y}`. Paired with a `NON_INTERACTIVE` short-circuit inside the `[Nn]` decline branch so `AUTO_INSTALL_TOOLS=N` logs *"AUTO_INSTALL_TOOLS=N — skipping tool auto-installation..."* and proceeds, instead of dropping into the interactive `prompt_choice` sub-menu (which would EOF-fail under closed stdin). Regression test at `tests/test-init-non-interactive-mobile-auto-install.sh` covers all three contract cases (default Y, explicit N, explicit Y) and is wired into `tests/full-project-test-suite.sh` as TEST 0c4 per BL-034.
+
+**Related:** `init.sh:733-737` (`resolve_and_install_tools`); Step-5 dogfood walker; BL-034 (test-aggregator wiring invariant); `scripts/lint-raw-read-prompt.sh` (the allowlist marker that documented the bypass that did not exist).
+
+---
+
+## BL-058: Sponsored POC `APPROVAL_LOG.md` canonical shape — doc/matrix wording clarified (no product change)
+
+**Logged:** 2026-06-29
+**Category:** Documentation
+**Severity:** Low
+**Status:** Won't Fix — documentation aligned with product behavior. Doc tightening shipped in the same PR.
+
+**What:** The adversarial dogfood re-walker (2026-06-29) flagged `migration-private-poc-personal-to-sponsored-poc-org` as `partial`. The matrix's `expected_terminal_state` said: "APPROVAL_LOG restructured with the 3 Sponsored-required rows visible." After `bash scripts/upgrade-project.sh --to-sponsored-poc --non-interactive` the resulting `APPROVAL_LOG.md` contains all 6 Pre-Phase-0 rows. The re-walker read "3 rows visible" as a restructure-to-3 contract; that reading is incorrect — the product behavior is the canonical contract.
+
+**Why (canonical contract — file:line citations):**
+- `templates/generated/approval-log-org.tmpl:20-27` — the organizational APPROVAL_LOG template has all 6 Pre-Phase-0 rows in the table. The template is shape-only; the 6 rows are always present regardless of POC mode.
+- `scripts/upgrade-project.sh:1551-1562` — the personal→organizational APPROVAL_LOG restructure emits all 6 rows in the new org-format table. There is no POC-mode-conditional row filter, and the contract does not call for one.
+- `tests/test-upgrade-to-production-preconditions.sh:90-134` (`_write_approval_log_org`) — the canonical sponsored-POC fixture seeds all 6 rows. The deferred-vs-upfront distinction is *which rows have dates*, not which rows are present.
+- `docs/governance-framework.md` §V — Sponsored POC requires rows 1 (AI deployment path) and 4 (project sponsor) dated upfront; defers rows 2 (insurance), 3 (liability), 5 (backup), 6 (ITSM) until `--to-production` clears them via dated approval or `--ack-preconditions=2,3,5,6`. Exit criteria is §XIV item #8, tracked outside `APPROVAL_LOG.md`.
+- `docs/governance-framework.md` §V (pre-clarify wording, original): said "3 of 6" upfront + "5 of 6 minus the 3 required = the remainder". The "3 of 6" count counted exit-criteria as one of the 6, which §XIV does not; "5 of 6 minus 3" was nonsense arithmetic. This PR rewrites §V row 246 to spell out "2 of 6 blocking from §XIV upfront (rows 1,4); 4 of 6 deferred (rows 2,3,5,6); exit criteria is §XIV #8 tracked outside the table; all 6 rows remain visible."
+
+**Scope:**
+- `docs/governance-framework.md` §V row 246 — re-worded as above to remove "5 of 6 minus 3" gibberish and explicitly state "all 6 rows remain visible in `APPROVAL_LOG.md`."
+- `scripts/upgrade-project.sh:888` — error message tightened from "Sponsored POC deferred 3" to "Sponsored POC requires rows 1,4 upfront and defers rows 2,3,5,6" so operators hitting the `--to-production` gate read the correct row numbers.
+- `tests/test-upgrade-to-production-preconditions.sh:10-15` — comment rewritten to match the corrected canonical split.
+- Scratchpad `dogfood-matrix.json` — the `migration-private-poc-personal-to-sponsored-poc-org` and `migration-sponsored-poc-to-production-org-ack-bypass` entries had the same "3 Sponsored-required" wording. Updated to "rows 1,4 dated (the 2 Sponsored-required) and rows 2,3,5,6 still TBD" so future dogfood passes don't re-misread the contract.
+
+**No product code change** — `scripts/upgrade-project.sh` already implements the canonical contract correctly.
+
+**Trigger:** Doc-only PR; ships immediately. No follow-up work required unless a separate investigation determines that the dogfood walker's failure to verify the actual canonical contract (rows 1,4 dated, 2,3,5,6 blank) is itself a walker-coverage gap worth filing — that would be a separate ticket about adversarial-walk assertion depth, not this one.
+
+**Related:** Adversarial re-walk verdict 2026-06-29 (`partial`); `docs/governance-framework.md:246` (pre-clarify); `scripts/upgrade-project.sh:1503-1672` (restructure logic, unchanged); `templates/generated/approval-log-org.tmpl`; `tests/test-upgrade-to-production-preconditions.sh`; closed audit `code-upgrade-project-8` (which introduced the original "3 of 6" wording and the deferred-pre-condition gate).
+
+**Reproduction (confirms the canonical 6-row shape is correct):**
+```
+# Outside the framework repo:
+bash $REPO/init.sh --non-interactive --project foo --deployment personal \
+  --gov-mode private_poc --platform mcp_server --language typescript \
+  --track standard --project-dir "$PWD/foo" --git-host other \
+  --remote-url https://example.com/foo.git --branch-protection-attested \
+  --no-remote-creation
+# Set data_classification + zdr_attested in .claude/process-state.json
+jq '. + {"phase1_artifacts":{"data_classification":"internal","zdr_attested":true}}' \
+  foo/.claude/process-state.json > /tmp/p.json && mv /tmp/p.json foo/.claude/process-state.json
+( cd foo && bash $REPO/scripts/upgrade-project.sh --to-sponsored-poc --non-interactive )
+# Expect: APPROVAL_LOG.md contains 6 Pre-Phase-0 rows in org format.
+# Sponsored-required rows (1=AI deployment, 4=sponsor) are left BLANK in the
+# template — the operator fills them by hand or via subsequent approvals.
+grep -c '^| [0-9] |' foo/APPROVAL_LOG.md   # → 6
+```
+
+---
+
 ## BL-059: validate.sh reads APPROVAL_LOG.md instead of phase-state.json::gates for gate-date checks
 
 **Logged:** 2026-06-29

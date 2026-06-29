@@ -885,7 +885,7 @@ if [ "$TO_PRODUCTION" = true ] && [ -n "$CURRENT_POC_MODE" ]; then
 
     if [ -n "$_missing_rows" ]; then
       _upgrade_fail "--to-production blocked — Pre-Phase-0 pre-conditions not cleared" \
-                    "APPROVAL_LOG.md rows [$_missing_rows] lack a dated approval (and were not acknowledged via --ack-preconditions). Per docs/governance-framework.md:230 Production requires all 6 pre-conditions; Sponsored POC deferred 3 and Private POC deferred all 6 — they must be cleared before the upgrade." \
+                    "APPROVAL_LOG.md rows [$_missing_rows] lack a dated approval (and were not acknowledged via --ack-preconditions). Per docs/governance-framework.md §V Production requires all 6 pre-conditions cleared; Sponsored POC requires rows 1,4 (AI deployment path, sponsor) upfront and defers rows 2,3,5,6 (insurance, liability, backup, ITSM); Private POC defers all 6. Deferred rows must be cleared before --to-production." \
                     "fill in the Date column for the missing rows in APPROVAL_LOG.md (see Pre-Phase 0 section), OR re-run with --non-interactive --ack-preconditions=<N1,N2,...> after recording the equivalent approvals out-of-band." \
                     "missing_rows=[$_missing_rows]; missing_labels=[$_missing_labels]; approval_log=$APPROVAL_LOG"
       exit 1
