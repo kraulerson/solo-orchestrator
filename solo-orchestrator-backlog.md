@@ -1368,3 +1368,155 @@ jq '. + {"phase1_artifacts":{"data_classification":"internal","zdr_attested":tru
 # template — the operator fills them by hand or via subsequent approvals.
 grep -c '^| [0-9] |' foo/APPROVAL_LOG.md   # → 6
 ```
+
+---
+
+## BL-059: validate.sh reads APPROVAL_LOG.md instead of phase-state.json::gates for gate-date checks
+
+**Logged:** 2026-06-29
+**Category:** Bug
+**Severity:** Medium
+**Status:** Open
+
+The adversarial certainty re-walk (re-walker-4, scenario `migration-track-standard-to-full`) surfaced that `scripts/validate.sh:281` emits `Phase 0->1 gate: no date recorded` even when `phase-state.json::gates.phase_0_to_1` is populated. Root cause: the checker greps `APPROVAL_LOG.md` only, while the live state file (`phase-state.json::gates`) is the actual source of truth for gate-passage timestamps. Cross-source inconsistency between the live state file and the validator.
+
+**Why it matters:** Operators reading `validate.sh` output get a false negative for gate-date recording — the gate may have passed and been recorded in `phase-state.json`, but `validate.sh` claims no date is on file. Operators may then try to "re-record" a gate that is already recorded, or treat the project as out-of-compliance when it is in fact compliant. The drift also confuses any downstream automation that trusts `validate.sh`'s output.
+
+**Scope:**
+- Pick the canonical source. Two valid resolutions per the report:
+  - (a) Update `scripts/validate.sh:281` to read gate dates from `phase-state.json::gates.<gate>` first, falling back to `APPROVAL_LOG.md` only if the JSON path is absent (back-compat).
+  - (b) Document that `APPROVAL_LOG.md` is canonical and update any writer that updates `phase-state.json::gates` without mirroring to the log.
+- Add a regression test that initializes a project, advances Phase 0→1 (which populates `phase-state.json::gates.phase_0_to_1`), then asserts `validate.sh` does NOT emit `no date recorded` for that gate.
+- Audit any other validator checks that conflate the two sources.
+
+**Trigger:** Next pass on `scripts/validate.sh` for any reason; or when an operator next reports a phantom "no date recorded" warning for a gate they know is recorded. Bundle with BL-060 (sibling argv-parser drift in `check-phase-gate.sh`).
+
+**Reproduction:** Per the report — `bash scripts/upgrade-project.sh --to-full --non-interactive` after a Phase-0→1-recorded project, then `bash scripts/validate.sh` and observe the false-negative line at `validate.sh:281`.
+
+**Related:** `Reports/2026-06-29-adversarial-certainty-pass.md` § Tailoring signals catalog (S-2); `scripts/validate.sh:281`; `phase-state.json::gates`; `APPROVAL_LOG.md`; sibling entries BL-060, BL-061 (same report).
+
+---
+
+## BL-060: check-phase-gate.sh does not parse `--gate` argv flag
+
+**Logged:** 2026-06-29
+**Category:** Bug
+**Severity:** Medium
+**Status:** Open
+
+The adversarial certainty re-walk (re-walker-4, scenario `edge-tier-crosscheck-6-no-classification-blocks-phase1to2`) surfaced that the scenario passes `--gate phase_1_to_2` to `scripts/check-phase-gate.sh`, but the script has no argv parser for that flag — the gate fires only because `current_phase=2` in `phase-state.json` triggers the backstop. Doc-vs-code drift: the documented CLI surface and the implemented CLI surface disagree.
+
+The re-walker also noted (helpfully) that the output included a separate earlier `[FAIL] Phase 1->2 backstop: protection verification failed` line, and that both fails are emitted in sequence (not short-circuited) — so the data-classification FAIL is not hiding behind the unrelated branch-protection failure. The assertion still fires correctly via the backstop, so the scenario verdict stands; the defect is in the CLI surface itself.
+
+**Why it matters:** Operators (and scripts) that invoke `check-phase-gate.sh --gate <name>` expecting the flag to scope the check are silently relying on the backstop's coincidental triggering. A future refactor that changes the backstop's trigger condition (e.g., by inferring the gate from `current_phase` differently) would silently break callers that pass `--gate`. Scenarios documenting the flag perpetuate the drift.
+
+**Scope:** Two resolution paths:
+- (a) Implement an argv parser for `--gate <name>` in `scripts/check-phase-gate.sh` that scopes the check to the named gate (and validates the name is one of the known gates). Update the help text and any in-repo docs that mention the flag.
+- (b) If the flag is not desired, remove `--gate` from the affected scenario(s) (e.g. `edge-tier-crosscheck-6-no-classification-blocks-phase1to2`) and any doc that mentions it, so the scenario explicitly exercises the backstop path.
+- Either way, add a regression test that asserts the chosen behavior (flag honored, OR flag rejected with a clear diagnostic).
+
+**Trigger:** Next pass on `check-phase-gate.sh`'s CLI surface; bundle with BL-055 (per-line APPROVAL_LOG.md blame walker), which already touches the same script.
+
+**Reproduction:** `bash scripts/check-phase-gate.sh --gate phase_1_to_2` with no `--gate phase_1_to_2`-specific arg-parsing path active — observe that the check still fires by virtue of `current_phase=2` in `phase-state.json` rather than via the flag.
+
+**Related:** `Reports/2026-06-29-adversarial-certainty-pass.md` § Tailoring signals catalog (S-3); `scripts/check-phase-gate.sh`; scenario `edge-tier-crosscheck-6-no-classification-blocks-phase1to2`; sibling entries BL-055, BL-059, BL-061 (same report / adjacent script).
+
+---
+
+## BL-061: manifest.json::deployment is a stale snapshot after upgrade-project.sh runs
+
+**Logged:** 2026-06-29
+**Category:** Bug
+**Severity:** Medium
+**Status:** Open
+
+The adversarial certainty re-walk (re-walker-3, scenario `migration-personal-prod-to-org-prod-needs-data-class`) surfaced that `scripts/upgrade-project.sh` does not refresh `manifest.json::deployment` after the upgrade completes. The field diverges from `phase-state.json` (which is the live source of truth) — for example, after a `personal → organizational` upgrade, `phase-state.json::deployment = organizational` but `manifest.json::deployment` still reads `personal`.
+
+**Why it matters:** Operators (and any tooling that reads `manifest.json` rather than `phase-state.json`) get a stale view of project state post-upgrade. The two-source split also encourages bugs where a future check naively reads `manifest.json::deployment` and makes the wrong decision (e.g., gating an org-only path that the project has already upgraded into). Today the walker noted and did not downgrade, but the divergence is real.
+
+**Scope:** Two resolution paths (the report explicitly offers both):
+- (a) **Refresh `manifest.json` in `upgrade-project.sh`** — extend the upgrade routine to update `manifest.json::deployment` (and any other fields that should track `phase-state.json`) atomically alongside the `phase-state.json` write. Pick one canonical write helper to avoid drift between upgrade paths.
+- (b) **Formally mark `manifest.json` a stale snapshot** — add a comment / docs note that `manifest.json` captures *initial* project shape (at `init.sh` time) and is NOT refreshed by `upgrade-project.sh`. Audit every reader of `manifest.json::deployment` and migrate to `phase-state.json::deployment`.
+- Whichever path is chosen, add a regression test that initializes a personal project, upgrades to organizational, and asserts the chosen contract (refreshed OR documented-stale).
+
+**Trigger:** Bundle with the next `upgrade-project.sh` change. Higher urgency if any new code is about to read `manifest.json::deployment` (would compound the drift).
+
+**Reproduction:** Initialize a personal project, then `bash scripts/upgrade-project.sh --to-organizational --non-interactive`, then `jq -r '.deployment' manifest.json` and `jq -r '.deployment' phase-state.json` — observe the mismatch.
+
+**Related:** `Reports/2026-06-29-adversarial-certainty-pass.md` § Tailoring signals catalog (S-4); `scripts/upgrade-project.sh`; `manifest.json`; `phase-state.json`; sibling entries BL-059, BL-060 (same report).
+
+---
+
+## BL-062: Step-5 walker grading rubric — when matrix text and observed artifact disagree, default to `partial`
+
+**Logged:** 2026-06-29
+**Category:** Documentation
+**Severity:** Minor
+**Status:** Open
+
+The adversarial certainty re-walk (re-walker-3, scenario `migration-private-poc-personal-to-sponsored-poc-org`) surfaced the only re-walker disagreement across 38 scenarios: the original walker graded `pass` by accepting "documented template behavior" framing, while the adversary downgraded to `partial` because the matrix `expected_terminal_state` literally said "3 rows visible" but the surfaced artifact contains all 6 rows. Both readings were available; the walker chose the lenient one.
+
+This is a walker-process (rubric) signal, not a product defect. The underlying contract question (template vs. matrix wording) is already under BL-058 investigation and addressed by PR #108.
+
+**Why it matters:** If the same divergence shape appears in a future sweep and walkers continue to default to the lenient reading, real contract-violations could be silently graded `pass` and hide regressions. The certainty rate was 97.4% only because the adversarial pass caught this one — the original walker pass would have hidden it.
+
+**Scope:**
+- Update the Step-5 dogfood-walker rubric / spec to make the default explicit: **when matrix `expected_terminal_state` text and observed artifact disagree, the grade is `partial` (NOT `pass`), pending a doc-vs-product resolution.** The walker should flag the disagreement, not paper over it with the lenient reading.
+- Add a rubric example using this exact scenario (Sponsored POC 3-row-vs-6-row case) showing the correct `partial` grading and the resolution paths (product fix / doc fix / re-grade after disposition).
+- No code change; doc-only.
+
+**Trigger:** Before the next Step-5 dogfood sweep (so the new rubric is in force when re-walks are commissioned).
+
+**Reproduction:** N/A (process signal, not a runtime defect). The triggering scenario is documented in `Reports/2026-06-29-adversarial-certainty-pass.md` §4.
+
+**Related:** `Reports/2026-06-29-adversarial-certainty-pass.md` § Tailoring signals catalog (S-5), §4 (the disagreement); BL-058 (the underlying contract resolution); sibling entries BL-063 (same rubric surface).
+
+---
+
+## BL-063: Enforcement-point scenario contracts assert message-present, not message-only
+
+**Logged:** 2026-06-29
+**Category:** Coverage
+**Severity:** Minor
+**Status:** Open
+
+The adversarial certainty re-walk (re-walker-5, scenarios `edge-phase-3-to-4-poc-blocked-check-phase-gate` and `edge-phase-3-to-4-poc-blocked-process-checklist`) surfaced that both enforcement-point scenarios pass against a contract that only asserts the documented POC-block message is present — they do not assert it is the only block. In one case, the gate output contains 15 inconsistencies; the POC block line is one of them. The scenarios pass as long as the POC-block string appears somewhere in the output, regardless of what else fails.
+
+**Why it matters:** A future regression that introduces an unrelated `[FAIL]` at the same enforcement point would not be caught by these scenarios — the POC-block line is still present, so the assertion still fires. The contract is too loose to detect "the POC block fires for the right reason, alone." This is silent-defect-hiding waiting to happen.
+
+**Scope:**
+- Tighten the enforcement-point contracts so they assert either "no other unexpected FAILs" OR "the POC block is the *first* `[FAIL]` line." Pick the stricter of the two that does not over-couple to incidental noise.
+- Audit any other scenario in the Step-5 matrix that uses "message present" semantics for an enforcement-point assertion; promote them to the tighter contract.
+- Add a negative-control test fixture (deliberately seed an unrelated `[FAIL]` at the enforcement point) and confirm the tightened contract catches it.
+
+**Trigger:** Before the next Step-5 dogfood sweep or when a new enforcement point is added. Bundle with BL-062 (same rubric surface).
+
+**Reproduction:** Compare `edge-phase-3-to-4-poc-blocked-check-phase-gate`'s assertion against the full output of `check-phase-gate.sh` for a Phase-3→4 POC-blocked transition — observe that the POC-block line is one of many failure lines in the gate output.
+
+**Related:** `Reports/2026-06-29-adversarial-certainty-pass.md` § Tailoring signals catalog (S-6); `scripts/check-phase-gate.sh`; `scripts/process-checklist.sh`; scenarios `edge-phase-3-to-4-poc-blocked-check-phase-gate` and `edge-phase-3-to-4-poc-blocked-process-checklist`; sibling entry BL-062 (same report, sibling rubric tightening).
+
+---
+
+## BL-064: init.sh exits 0 with `Setup Complete` banner after emitting `[FAIL]` for branch protection (silent-success defect)
+
+**Logged:** 2026-06-29
+**Category:** Bug
+**Severity:** Major
+**Status:** Open
+
+The adversarial certainty re-walk (re-walker-2, scenario `fresh-org-sponsored-poc-standard-web-ts`) surfaced that `init.sh` exits `0` with the `Setup Complete` banner even after emitting a `[FAIL]` line for branch protection. Operators who only check the exit code (or scan for the banner) miss the gap entirely — the script claims success while having printed a failure diagnostic. This is the same silent-success defect shape that PR #105 fixed in `intake-wizard.sh:2028` (and the same defect class addressed by recent retroactive lint additions for `[FAIL]`-followed-by-`exit 0` patterns).
+
+**Why it matters:** Silent-success defects are the single highest-priority bug class in this project's history: they corrupt operator trust in the exit-code contract, they bypass any wrapper script that gates downstream actions on `init.sh` succeeding, and they let a half-configured project look fully configured. In this specific case, an operator who runs `init.sh` non-interactively (e.g., in a setup script) gets `rc=0` and a "Setup Complete" banner while branch protection is in a `[FAIL]` state — exactly the scenario branch protection exists to prevent.
+
+**Scope:**
+- Audit `init.sh` for every `print_fail` / `[FAIL]` emit site and ensure each one either (a) sets an error-tracking variable that causes the final exit to be non-zero, or (b) explicitly justifies why a `[FAIL]` is acceptable to continue past (with a code comment citing the justification).
+- The branch-protection `[FAIL]` path specifically: confirm whether the failure is fatal (most-common operator expectation) or non-fatal-but-loud (with a structured summary at exit). Decide and implement; do not leave both interpretations live.
+- At minimum, emit a structured summary at exit-time that re-lists every `[FAIL]` printed during the run, so an operator scanning only the tail of the log still sees the gaps.
+- Add a regression test that runs `init.sh` against a fixture that triggers the branch-protection `[FAIL]` path and asserts the new contract (either non-zero exit, or a Setup-Incomplete banner with the failures re-listed).
+- Extend `scripts/lint-counter-antipattern.sh` (or a sibling lint) to flag any new `print_fail` site in `init.sh` that does not feed into the exit-status tracking — same shape as the PR #105 lint addition.
+
+**Trigger:** Treat as the next Major bug in queue. Silent-success defects have repeatedly produced operator pain in past audits (PR #105 cycle); this one is the same shape and deserves the same urgency.
+
+**Reproduction:** Per the report — run the `fresh-org-sponsored-poc-standard-web-ts` scenario from the Step-5 dogfood matrix, observe `[FAIL]` line for branch protection in the output, observe `rc=0` and `Setup Complete` banner in the same run.
+
+**Related:** `Reports/2026-06-29-adversarial-certainty-pass.md` § Tailoring signals catalog (S-7); `init.sh` (branch-protection section); PR #105 (sibling silent-success fix in `intake-wizard.sh:2028`); sibling entries BL-059..BL-063 (same report).
