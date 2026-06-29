@@ -205,6 +205,71 @@ Real-world usage on the meshscope project exposed specific gaps (UAT step skippi
 
 ---
 
+## 2.0 Tier-Tuple Gating (Pre-Audit, Mandatory)
+
+**Amendment landed for finding specs-plans-phase-audit-docs-remediation-1.**
+
+Every auditor MUST complete this step BEFORE grading any finding. The
+prior version of this spec was tier-blind: auditors graded findings
+without knowledge of the project's (deployment, poc_mode, track,
+enforcement_level) tuple, so intentional graceful-degradation
+behaviors (e.g. branch protection skipped on `personal` deployments,
+sentinel auto-skipped under `track=light`) surfaced as severity
+inflations or false-positive "Missing Enforcement" findings.
+
+### Step 2.0.1 — Compute the tier tuple
+
+Read the project's classification from canonical state files:
+
+```
+deployment        ← .claude/phase-state.json:.deployment   (personal | organizational)
+poc_mode          ← .claude/phase-state.json:.poc_mode     (null | private_poc | sponsored_poc | production)
+track             ← .claude/phase-state.json:.track        (light | standard | full)
+enforcement_level ← .claude/manifest.json:.enforcement_level (advisory | recommended | strict)
+```
+
+If any field is missing or null, fall back to `manifest.json` for
+deployment/poc_mode (post-BL-030 backfill canonical) and record the
+fallback in the report's §1 Scope & Methodology block.
+
+### Step 2.0.2 — Cross-reference the graceful-degradation matrix
+
+Before grading a finding, consult `.audit-baseline-v2.md` §6
+(Intentional Graceful Degradation) and §7 (Cross-Tier Behavior Matrix).
+A behavior that LOOKS like a gap may be an intentional carve-out for
+the project's tier tuple. Examples:
+
+- Branch protection enforcement is intentionally absent on `deployment=personal`.
+- Phase 3 SAST scans are intentionally skipped on `track=light`.
+- BL-006 commit-message Build-Loop enforcement runs in `recommended`
+  mode (warn-not-block) when `enforcement_level=advisory`.
+
+If `.audit-baseline-v2.md` is missing from the repo (pre-baseline
+projects), treat all tiers as `strict` and note the missing reference
+in §1.
+
+### Step 2.0.3 — Carry `tier_context` on every finding
+
+Every finding row in §2 MUST include a `tier_context` field stating
+which tier combinations the finding applies to. Example values:
+
+- `tier_context: applies to all tiers` (genuine universal gap)
+- `tier_context: organizational + strict only` (gap only when both enforcement and deployment are high)
+- `tier_context: personal — graceful degradation, NOT a gap` (use this to record an investigated-but-rejected finding)
+
+A finding without `tier_context` is a malformed finding and MUST be
+rejected by the consolidating summary in §4.3 below.
+
+### Step 2.0.4 — `tier_misalignment` severity flag
+
+Add a new severity flag for findings where the bug is that the
+framework's behavior diverges from the expected tier-tuple behavior
+(rather than missing entirely). Example: "branch protection enforcement
+fires on `deployment=personal` (should be skipped per baseline §6)" is
+a `tier_misalignment` finding even if no other criterion is violated.
+
+---
+
 ## 2. Standardized Report Template
 
 Every auditor produces a report with this structure:
@@ -217,6 +282,7 @@ Every auditor produces a report with this structure:
 **Date:** 2026-04-08
 **Framework Version:** Solo Orchestrator v1.0 (post-PR #6, #7)
 **Files Evaluated:** [list of every file read]
+**Tier Tuple:** deployment=[...] poc_mode=[...] track=[...] enforcement_level=[...]
 
 ---
 
@@ -225,14 +291,19 @@ Every auditor produces a report with this structure:
 [What was evaluated, what enterprise standard was the benchmark,
 what questions drove the evaluation]
 
+[Record the tier tuple computed in §2.0.1 here, including any fallback
+sources used and whether `.audit-baseline-v2.md` was available.]
+
 ## 2. Findings
 
 ### Finding [PHASE]-[NNN]: [Title]
 
-- **Severity:** Critical | Major | Minor | Observation
+- **Severity:** Critical | Major | Minor | Observation | tier_misalignment
 - **Category:** Missing Template | Missing Enforcement | Missing Documentation |
                Missing Storage | Missing Validation | Workflow Gap |
                Audit Trail Gap | Bypass Risk
+- **tier_context:** [REQUIRED — see §2.0.3; e.g. "applies to all tiers" |
+               "organizational + strict only" | "personal — graceful degradation, NOT a gap"]
 - **Evidence:** [file:line or "not found"]
 - **Enterprise Expectation:** [What a production software company would require]
 - **Current State:** [What the framework actually does]

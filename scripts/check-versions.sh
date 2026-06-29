@@ -274,6 +274,16 @@ echo ""
 BELOW_MIN=()
 UPDATES=()
 UPDATE_CMDS=()
+# UPDATE_NAMES tracks the verbatim tool name (with whitespace preserved)
+# in parallel with UPDATES[]/UPDATE_CMDS[]. The pre-fix code reconstructed
+# the name by parsing the display-string entry from UPDATES via
+# `${var%% *}` (single-space split), which truncated multi-word tool
+# names (e.g. "Claude Code" → "Claude") in the interactive selection
+# loops AND printed the entire display string verbatim in the
+# non-interactive branch. The parallel array decouples display
+# formatting from the canonical name and is the recommendation
+# recorded against finding specs-plans-tool-matrix-versions-1.
+UPDATE_NAMES=()
 PASS_COUNT=0
 CURRENT_CATEGORY=""
 
@@ -363,10 +373,12 @@ for i in $(seq 0 $((TOOL_COUNT - 1))); do
       BELOW_MIN+=("$NAME")
       UPDATES+=("$NAME $INSTALLED → latest (BELOW MINIMUM)")
       UPDATE_CMDS+=("${UPDATE_CHECK_CMD:-}")
+      UPDATE_NAMES+=("$NAME")
     elif [ "$UPDATE_CHECK_STATUS" = "behind" ]; then
       print_warn "$NAME: ${INSTALLED:-configured} — $UPDATE_CHECK_MSG"
       UPDATES+=("$NAME — $UPDATE_CHECK_MSG")
       UPDATE_CMDS+=("${UPDATE_CHECK_CMD:-}")
+      UPDATE_NAMES+=("$NAME")
     elif [ "$UPDATE_CHECK_STATUS" = "self_updating" ]; then
       print_ok "$NAME: ${INSTALLED:-configured} — $UPDATE_CHECK_MSG"
       PASS_COUNT=$((PASS_COUNT + 1))
@@ -409,6 +421,7 @@ for i in $(seq 0 $((TOOL_COUNT - 1))); do
       fi
       UPDATES+=("$NAME $INSTALLED → ${LATEST:-latest} (BELOW MINIMUM)")
       UPDATE_CMDS+=("$local_update_cmd")
+      UPDATE_NAMES+=("$NAME")
     elif [ -n "$LATEST" ] && ! version_gte "$INSTALLED" "$LATEST"; then
       print_ok "$NAME: $INSTALLED$MIN_DISPLAY$LATEST_DISPLAY"
       # Find update command
@@ -421,6 +434,7 @@ for i in $(seq 0 $((TOOL_COUNT - 1))); do
       fi
       UPDATES+=("$NAME $INSTALLED → $LATEST")
       UPDATE_CMDS+=("$local_update_cmd")
+      UPDATE_NAMES+=("$NAME")
       PASS_COUNT=$((PASS_COUNT + 1))
     else
       print_ok "$NAME: ${INSTALLED:-configured}$MIN_DISPLAY$LATEST_DISPLAY"
@@ -461,17 +475,20 @@ if [ ${#UPDATES[@]} -gt 0 ] && [ -t 0 ]; then
       echo ""
       for idx in "${!UPDATE_CMDS[@]}"; do
         cmd="${UPDATE_CMDS[$idx]}"
-        uname="${UPDATES[$idx]%%  *}"
-        uname="${uname%% *}"
+        # specs-plans-tool-matrix-versions-1: pull the verbatim name
+        # from UPDATE_NAMES[] (parallel array). Pre-fix code parsed
+        # UPDATES[] with `${var%% *}` (one-space split), which
+        # truncated multi-word tool names AND shadowed uname(1).
+        tool_name="${UPDATE_NAMES[$idx]}"
         if [ -n "$cmd" ] && [ "$cmd" != "null" ]; then
-          print_info "Updating $uname..."
+          print_info "Updating $tool_name..."
           if eval "$cmd" 2>/dev/null; then
-            print_ok "$uname updated"
+            print_ok "$tool_name updated"
           else
-            print_fail "Could not update $uname. Run manually: $cmd"
+            print_fail "Could not update $tool_name. Run manually: $cmd"
           fi
         else
-          print_warn "$uname: no auto-update command available"
+          print_warn "$tool_name: no auto-update command available"
         fi
       done
       ;;
@@ -490,14 +507,15 @@ if [ ${#UPDATES[@]} -gt 0 ] && [ -t 0 ]; then
         idx=$((sel - 1))
         if [ "$idx" -ge 0 ] && [ "$idx" -lt ${#UPDATE_CMDS[@]} ]; then
           cmd="${UPDATE_CMDS[$idx]}"
-          uname="${UPDATES[$idx]%%  *}"
-          uname="${uname%% *}"
+          # specs-plans-tool-matrix-versions-1 — see comment in the a/A
+          # branch above; UPDATE_NAMES[] preserves whitespace verbatim.
+          tool_name="${UPDATE_NAMES[$idx]}"
           if [ -n "$cmd" ] && [ "$cmd" != "null" ]; then
-            print_info "Updating $uname..."
+            print_info "Updating $tool_name..."
             if eval "$cmd" 2>/dev/null; then
-              print_ok "$uname updated"
+              print_ok "$tool_name updated"
             else
-              print_fail "Could not update $uname. Run manually: $cmd"
+              print_fail "Could not update $tool_name. Run manually: $cmd"
             fi
           fi
         fi
@@ -508,18 +526,24 @@ if [ ${#UPDATES[@]} -gt 0 ] && [ -t 0 ]; then
         echo ""
         echo "Manual update commands:"
         for idx in "${!UPDATES[@]}"; do
-          echo "  ${UPDATES[$idx]%%  *}: ${UPDATE_CMDS[$idx]}"
+          # specs-plans-tool-matrix-versions-1 — UPDATE_NAMES[] is the
+          # canonical tool name (whitespace preserved). Pre-fix used
+          # `${UPDATES[$idx]%%  *}` (two-space split) which left the
+          # whole display string ("Claude Code 0.0.1 → latest (BELOW
+          # MINIMUM)") in front of the colon.
+          echo "  ${UPDATE_NAMES[$idx]}: ${UPDATE_CMDS[$idx]}"
         done
       fi
       ;;
   esac
 elif [ ${#UPDATES[@]} -gt 0 ]; then
-  # Non-interactive: just print commands
+  # Non-interactive: just print commands. Same rationale as the c/C
+  # branch above — UPDATE_NAMES[] preserves whitespace; the prior
+  # `${UPDATES[$idx]%%  *}` parse-out-of-display-string was lossy.
   echo ""
   echo "Update commands (run manually):"
   for idx in "${!UPDATES[@]}"; do
-    uname="${UPDATES[$idx]%%  *}"
-    echo "  $uname: ${UPDATE_CMDS[$idx]}"
+    echo "  ${UPDATE_NAMES[$idx]}: ${UPDATE_CMDS[$idx]}"
   done
 fi
 

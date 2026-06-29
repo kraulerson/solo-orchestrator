@@ -633,13 +633,21 @@ HOOKEOF
       fi
     fi
 
-    # Check build_loop is at step 0 or fully complete
+    # Check build_loop is at step 0 or steps 1–5 complete. Per baseline
+    # invariant #14, the build/test/commit cycle is steps 1–5
+    # (tests_written, tests_verified_failing, implemented, security_audit,
+    # documentation_updated). Step 6 (feature_recorded) is bookkeeping
+    # that runs AFTER the PR/merge via `test-gate.sh --record-feature`;
+    # requiring it pre-PR is a process inversion that contradicts
+    # invariant #14. Match the commit-side rule in
+    # scripts/process-checklist.sh:require_build_loop_state_for_commit
+    # (which already requires only the first 5 steps).
     BUILD_FEATURE=$(jq -r '.build_loop.feature // empty' "$PROCESS_STATE" 2>/dev/null)
     if [ -n "$BUILD_FEATURE" ]; then
       BUILD_STEPS_DONE=$(jq -r '.build_loop.steps_completed | length' "$PROCESS_STATE" 2>/dev/null)
-      if [ "$BUILD_STEPS_DONE" -gt 0 ] && [ "$BUILD_STEPS_DONE" -lt 6 ]; then
+      if [ "$BUILD_STEPS_DONE" -gt 0 ] && [ "$BUILD_STEPS_DONE" -lt 5 ]; then
         cat << HOOKEOF
-{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "Feature '$BUILD_FEATURE' has incomplete Build Loop ($BUILD_STEPS_DONE/6 steps). Complete the feature or reset before creating a PR."}}
+{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "Feature '$BUILD_FEATURE' has incomplete Build Loop ($BUILD_STEPS_DONE/5 steps). Complete steps 1–5 (tests_written … documentation_updated) before creating a PR. Step 6 (feature_recorded) is post-PR bookkeeping — record it via scripts/test-gate.sh --record-feature after merge."}}
 HOOKEOF
         exit 0
       fi

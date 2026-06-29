@@ -189,22 +189,58 @@ check_project_structure() {
     fi
   fi
 
-  # CI pipeline
-  if [ -f ".github/workflows/ci.yml" ]; then
-    register_pass "CI pipeline exists"
+  # CI pipeline — host-aware. The CI destination depends on the SCM
+  # host: github → .github/workflows/ci.yml, bitbucket →
+  # bitbucket-pipelines.yml at repo root, gitlab → .gitlab-ci.yml at
+  # repo root. Mirrors the same detection logic encoded in
+  # _detect_pipeline_host (used by the fix_*_pipeline functions later
+  # in this file); kept inline here because the existence check runs
+  # during context gathering and we want to surface the right
+  # destination in the fail message.
+  local _ci_host=""
+  if [ -f .claude/manifest.json ] && command -v jq &>/dev/null; then
+    _ci_host=$(jq -r '.host // empty' .claude/manifest.json 2>/dev/null)
+  fi
+  if [ -z "$_ci_host" ] || [ "$_ci_host" = "null" ]; then
+    case "$(git remote get-url origin 2>/dev/null)" in
+      *github.com*)    _ci_host="github" ;;
+      *gitlab*)        _ci_host="gitlab" ;;
+      *bitbucket.org*) _ci_host="bitbucket" ;;
+      *)               _ci_host="other" ;;
+    esac
+  fi
+  local _ci_dest=""
+  case "$_ci_host" in
+    github)    _ci_dest=".github/workflows/ci.yml" ;;
+    bitbucket) _ci_dest="bitbucket-pipelines.yml" ;;
+    gitlab)    _ci_dest=".gitlab-ci.yml" ;;
+  esac
+  if [ -n "$_ci_dest" ] && [ -f "$_ci_dest" ]; then
+    register_pass "CI pipeline exists ($_ci_dest)"
+  elif [ -z "$_ci_dest" ]; then
+    register_manual "CI pipeline missing" "Unsupported SCM host '$_ci_host' — no canonical CI destination; configure manually"
   elif has_source && has_context; then
-    register_fixable "CI pipeline missing" "fix_ci_pipeline"
+    register_fixable "CI pipeline missing ($_ci_dest)" "fix_ci_pipeline"
   else
-    register_manual "CI pipeline missing" "Copy from orchestrator templates/pipelines/ci/"
+    register_manual "CI pipeline missing ($_ci_dest)" "Copy from orchestrator templates/pipelines/ci/$_ci_host/"
   fi
 
-  # Release pipeline
-  if [ -n "$PLATFORM" ] && has_source && [ -f "$SOURCE_DIR/templates/pipelines/release/${PLATFORM}.yml" ]; then
-    if [ -f ".github/workflows/release.yml" ]; then
-      register_pass "Release pipeline exists"
-    else
-      register_fixable "Release pipeline missing" "fix_release_pipeline"
-    fi
+  # Release pipeline — same host routing. bitbucket/gitlab carry
+  # release steps in their unified pipeline file (no separate
+  # release.yml); register a manual entry so the warning surfaces.
+  if [ -n "$PLATFORM" ] && has_source && [ -f "$SOURCE_DIR/templates/pipelines/release/$_ci_host/${PLATFORM}.yml" ]; then
+    case "$_ci_host" in
+      github)
+        if [ -f ".github/workflows/release.yml" ]; then
+          register_pass "Release pipeline exists"
+        else
+          register_fixable "Release pipeline missing" "fix_release_pipeline"
+        fi
+        ;;
+      bitbucket|gitlab)
+        register_manual "Release pipeline (host=$_ci_host)" "Integrate release steps from templates/pipelines/release/$_ci_host/${PLATFORM}.yml into the unified pipeline file"
+        ;;
+    esac
   fi
 
   # Intake suggestions
@@ -862,6 +898,37 @@ fix_platform_module() {
   fi
 }
 
+# Detect the project's CI host from .claude/manifest.json (.host),
+# falling back to `git remote get-url origin` parsing (same case-switch
+# used by scripts/upgrade-project.sh:253-281 for the BL-008 host-aware
+# backfill). Returns one of: github | bitbucket | gitlab | other.
+#
+# specs-plans-uat-bugs-verify-install-uat-quality-3 — the pre-fix
+# fix_ci_pipeline / fix_release_pipeline functions hardcoded both
+# (a) the source layout (pre-BL-008 flat `templates/pipelines/ci/<lang>.yml`)
+# and (b) the destination (`.github/workflows/{ci,release}.yml`), so they
+# could never run successfully on bitbucket- or gitlab-hosted projects
+# AND silently failed even on github after the BL-008 per-host subfolder
+# migration. The detector below routes both source AND destination by
+# host, restoring the auto-fix path for all three SCM hosts.
+_detect_pipeline_host() {
+  local h=""
+  if [ -f .claude/manifest.json ] && command -v jq &>/dev/null; then
+    h=$(jq -r '.host // empty' .claude/manifest.json 2>/dev/null)
+  fi
+  if [ -z "$h" ] || [ "$h" = "null" ]; then
+    local url
+    url=$(git remote get-url origin 2>/dev/null || echo "")
+    case "$url" in
+      *github.com*)    h="github" ;;
+      *gitlab*)        h="gitlab" ;;
+      *bitbucket.org*) h="bitbucket" ;;
+      *)               h="other" ;;
+    esac
+  fi
+  printf '%s' "$h"
+}
+
 fix_ci_pipeline() {
   if ! has_source || ! has_context; then return 1; fi
   local ci_template
@@ -871,22 +938,59 @@ fix_ci_pipeline() {
     java) ci_template="java.yml" ;;
     *) ci_template="${LANGUAGE}.yml" ;;
   esac
-  if [ -f "$SOURCE_DIR/templates/pipelines/ci/$ci_template" ]; then
-    mkdir -p .github/workflows
-    cp "$SOURCE_DIR/templates/pipelines/ci/$ci_template" .github/workflows/ci.yml
-  else
+  local host
+  host=$(_detect_pipeline_host)
+  local src="$SOURCE_DIR/templates/pipelines/ci/$host/$ci_template"
+  if [ ! -f "$src" ]; then
+    print_warn "fix_ci_pipeline: no CI template for host=$host language=$LANGUAGE at $src"
     return 1
   fi
+  case "$host" in
+    github)
+      mkdir -p .github/workflows
+      cp "$src" .github/workflows/ci.yml
+      ;;
+    bitbucket)
+      cp "$src" bitbucket-pipelines.yml
+      ;;
+    gitlab)
+      cp "$src" .gitlab-ci.yml
+      ;;
+    *)
+      print_warn "fix_ci_pipeline: unsupported host '$host' — no canonical CI destination"
+      return 1
+      ;;
+  esac
 }
 
 fix_release_pipeline() {
   if ! has_source || [ -z "$PLATFORM" ]; then return 1; fi
-  if [ -f "$SOURCE_DIR/templates/pipelines/release/${PLATFORM}.yml" ]; then
-    mkdir -p .github/workflows
-    cp "$SOURCE_DIR/templates/pipelines/release/${PLATFORM}.yml" .github/workflows/release.yml
-  else
+  local host
+  host=$(_detect_pipeline_host)
+  local src="$SOURCE_DIR/templates/pipelines/release/$host/${PLATFORM}.yml"
+  if [ ! -f "$src" ]; then
+    print_warn "fix_release_pipeline: no release template for host=$host platform=$PLATFORM at $src"
     return 1
   fi
+  case "$host" in
+    github)
+      mkdir -p .github/workflows
+      cp "$src" .github/workflows/release.yml
+      ;;
+    bitbucket|gitlab)
+      # bitbucket and gitlab carry release steps inside the single
+      # bitbucket-pipelines.yml / .gitlab-ci.yml respectively — there
+      # is no separate release file at repo root. Surface a
+      # non-blocking warning rather than silently writing to
+      # .github/workflows/release.yml (the pre-fix bug).
+      print_warn "fix_release_pipeline: host '$host' carries release steps in the unified pipeline file; manual integration required (template at $src)"
+      return 1
+      ;;
+    *)
+      print_warn "fix_release_pipeline: unsupported host '$host' — no canonical release destination"
+      return 1
+      ;;
+  esac
 }
 
 fix_intake_suggestions() {
