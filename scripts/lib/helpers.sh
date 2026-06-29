@@ -198,10 +198,23 @@ prompt_yes_no() {
   esac
 }
 
-# Refuse to operate as a project if cwd is the Solo Orchestrator framework
-# repo itself. Every project-targeted script (init.sh, verify-install.sh,
-# process-checklist.sh, upgrade-project.sh, intake-wizard.sh,
-# pending-approval.sh) must call this BEFORE any file writes.
+# Refuse to operate as a project if cwd OR an explicit target directory is
+# the Solo Orchestrator framework repo itself. Every project-targeted script
+# (init.sh, verify-install.sh, process-checklist.sh, upgrade-project.sh,
+# intake-wizard.sh, pending-approval.sh, reconfigure-project.sh) must call
+# this BEFORE any file writes.
+#
+# Usage:
+#   guard_not_in_framework               # checks $(pwd) only (legacy / default)
+#   guard_not_in_framework "$target_dir" # checks $(pwd) AND "$target_dir"
+#
+# The optional target-dir argument was added for security-audits-1
+# (S3, 2026-04-26 audit sweep): init.sh accepts --project-dir=PATH and
+# proceeds to write into PATH even if PATH is the framework repo. The
+# cwd-only check missed that vector because the cwd could be a benign
+# tempdir while --project-dir pointed at the framework. Callers that
+# accept any "write into this dir" arg (init.sh, upgrade-project.sh, ...)
+# MUST pass it as $1 so this guard can lint both surfaces.
 #
 # UAT 2026-04-25 fix (U-N + U-O): a UAT agent's cwd was the framework dir
 # (instead of their tempdir), so verify-install.sh + indirectly CDF init
@@ -214,13 +227,25 @@ prompt_yes_no() {
 # that's specific to this framework and won't appear in arbitrary projects'
 # init.sh files. Also check for templates/generated/ to triple-confirm.
 guard_not_in_framework() {
+  local target="${1:-}"
   local cwd
   cwd="$(pwd)"
-  if [ -f "$cwd/init.sh" ] \
-     && grep -q "Solo Orchestrator — Project Initialization Script" "$cwd/init.sh" 2>/dev/null \
-     && [ -d "$cwd/templates/generated" ]; then
+
+  # Helper: returns 0 if $1 looks like the framework repo root.
+  _gnif_dir_is_framework() {
+    local d="$1"
+    [ -n "$d" ] || return 1
+    [ -f "$d/init.sh" ] || return 1
+    grep -q "Solo Orchestrator — Project Initialization Script" "$d/init.sh" 2>/dev/null || return 1
+    [ -d "$d/templates/generated" ] || return 1
+    return 0
+  }
+
+  _gnif_emit_refusal() {
+    local where="$1"     # human label: "cwd" or "--project-dir"
+    local detected="$2"  # the resolved path
     print_fail "Refusing to operate inside the Solo Orchestrator framework repo."
-    echo "  Detected framework signature at: $cwd" >&2
+    echo "  Detected framework signature ($where): $detected" >&2
     echo "" >&2
     echo "  This script targets a project, not the framework itself." >&2
     echo "  Move to your project directory and re-run:" >&2
@@ -229,8 +254,20 @@ guard_not_in_framework() {
     echo "  If this directory IS your project (i.e., you cloned solo-orchestrator" >&2
     echo "  AS a project), the framework is mis-installed — clone solo-orchestrator" >&2
     echo "  separately and run init.sh from inside an empty project directory." >&2
+  }
+
+  # 1. cwd check (preserves legacy behavior — callers that don't pass a target).
+  if _gnif_dir_is_framework "$cwd"; then
+    _gnif_emit_refusal "cwd" "$cwd"
     return 1
   fi
+
+  # 2. target-dir check (security-audits-1). Only runs when caller supplies $1.
+  if [ -n "$target" ] && _gnif_dir_is_framework "$target"; then
+    _gnif_emit_refusal "--project-dir / target" "$target"
+    return 1
+  fi
+
   return 0
 }
 

@@ -3546,10 +3546,28 @@ HELPEOF
 
   # UAT 2026-04-25 fix (U-N): refuse to scaffold a project inside the
   # framework repo itself. (--dry-run is allowed for inspection.)
+  #
+  # security-audits-1 (S3, 2026-04-26 audit sweep): also pass the resolved
+  # --project-dir target so the guard catches a malicious or honest-mistake
+  # caller that supplies --project-dir=$FRAMEWORK_REPO from a benign cwd.
+  # The legacy bl-016 audit row #10 claimed this was already covered; the
+  # cwd-only guard did NOT actually cover it. The target-aware overload
+  # closes the gap.
   if [ "$DRY_RUN" != true ]; then
-    if ! guard_not_in_framework; then
+    # Resolve the effective target dir: explicit --project-dir wins; non-interactive
+    # default is $HOME/Code/$ARG_PROJECT; interactive flow resolves later via prompt
+    # (in that path the cwd check is the only signal until prompts run, which is
+    # the same scope as before).
+    _gnif_target=""
+    if [ -n "${ARG_PROJECT_DIR:-}" ]; then
+      _gnif_target="$ARG_PROJECT_DIR"
+    elif [ "$NON_INTERACTIVE" = true ] && [ -n "${ARG_PROJECT:-}" ]; then
+      _gnif_target="$HOME/Code/$ARG_PROJECT"
+    fi
+    if ! guard_not_in_framework "$_gnif_target"; then
       exit 1
     fi
+    unset _gnif_target
   fi
 
   if [ "$DRY_RUN" = true ]; then

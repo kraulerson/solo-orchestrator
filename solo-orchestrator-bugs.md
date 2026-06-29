@@ -96,7 +96,9 @@ only want to eliminate the false negative.
 
 **Status:** Superseded. CDF upstream landed three-path `check_context7()` detection in `~/.claude-dev-framework/hooks/_helpers.sh` (FRAMEWORK_VERSION 4.2.2). Upstream version includes two improvements over the Solo shim: anchored regex `^context7(@|$)` (case-insensitive, prevents hypothetical `context7plus@foo` false-matches) and `.enabledPlugins // {}` guard (cleanly handles settings.json without a plugins section). Upstream also added `tests/test-check-context7.sh` (10 tests, isolated via per-test redirected `$HOME`).
 
-The Solo post-install `SOLO_ORCHESTRATOR_CONTEXT7_PATCH` shim in `init.sh` has been removed. New projects pick up the upstream fix naturally via CDF clone at init time. Existing downstream projects sync via `scripts/upgrade-project.sh` or manual copy of `~/.claude-dev-framework/hooks/_helpers.sh` into `.claude/framework/hooks/`.
+The Solo post-install `SOLO_ORCHESTRATOR_CONTEXT7_PATCH` shim in `init.sh` has been removed. New projects pick up the upstream fix naturally via CDF clone at init time. Existing downstream projects must **manually copy** `~/.claude-dev-framework/hooks/_helpers.sh` into `.claude/framework/hooks/` (or re-run CDF init themselves — see CDF docs).
+
+> **2026-04-26 correction (backlog-bugs-6):** the original text of this section read "Existing downstream projects sync via `scripts/upgrade-project.sh` or manual copy …" — that was inaccurate. `scripts/upgrade-project.sh` does NOT sync CDF: it only refreshes Solo's own helper scripts (currently `scripts/pending-approval.sh` and `scripts/lint-uat-scenarios.sh` per the BL-009/BL-015 refresh block at `upgrade-project.sh:2138-2163`) and the vendored skill set. No CDF clone is invoked, no CDF files are copied. The same correction applies to BUG-007's 2026-04-21 Update below. If the project bible wants automated CDF re-sync at upgrade time, that's a follow-up (would belong under a Solo `BL-031` item — currently unscoped) — until then, the only mechanism is manual copy from `~/.claude-dev-framework/`.
 
 Solo's own `scripts/lib/helpers.sh:is_context7_mcp_registered()` is separate from CDF's `check_context7()` and remains in place (Solo uses it for `verify-install.sh` and tool-matrix checks; distinct concern from CDF's SessionStart hook).
 
@@ -469,7 +471,9 @@ it doesn't need structured JSON.
 
 ### 2026-04-21 Update — Superseded by CDF upstream
 
-**Status:** Superseded. CDF upstream commit `a640ba8` ("fix: Stop hook advisory uses invalid hookSpecificOutput schema") landed the equivalent fix directly in `~/.claude-dev-framework/hooks/stop-checklist.sh`. The downstream post-install patch in Solo's `init.sh` has been removed — against current upstream the patch was dead code (its target pattern `"hookEventName": "Stop"` no longer exists upstream, so the `grep` guard skipped the patch entirely). Existing downstream projects sync the fix via `scripts/upgrade-project.sh` or by manually copying `~/.claude-dev-framework/hooks/stop-checklist.sh` into `.claude/framework/hooks/`.
+**Status:** Superseded. CDF upstream commit `a640ba8` ("fix: Stop hook advisory uses invalid hookSpecificOutput schema") landed the equivalent fix directly in `~/.claude-dev-framework/hooks/stop-checklist.sh`. The downstream post-install patch in Solo's `init.sh` has been removed — against current upstream the patch was dead code (its target pattern `"hookEventName": "Stop"` no longer exists upstream, so the `grep` guard skipped the patch entirely). Existing downstream projects must **manually copy** `~/.claude-dev-framework/hooks/stop-checklist.sh` into `.claude/framework/hooks/` to pick up the fix.
+
+> **2026-04-26 correction (backlog-bugs-6, applied here for the same reason as BUG-001's 2026-04-22 Update):** the original wording said "Existing downstream projects sync the fix via `scripts/upgrade-project.sh` or by manually copying …" — `upgrade-project.sh` does not sync CDF; see the correction note in BUG-001 above for the full explanation.
 
 **Files touched (this update):** `init.sh` (removed lines 1386-1405).
 
