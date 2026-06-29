@@ -150,21 +150,28 @@ _is_git_commit() {
 #     (catches `-f`, `--force`, `--force-with-lease`) provided it is
 #     preceded by whitespace.
 _is_git_push_force() {
-  # Step 1: `git push` must appear at command-start (or after a shell
-  # separator), NOT preceded by a quote. This rules out quoted search
-  # strings like `rg "git push --force" docs/` AND `git diff` on files
-  # whose paths embed the phrase (the latter starts with `git diff`,
-  # not `git push`, so the anchor naturally rejects it).
-  echo "$1" | grep -qE '(^|[^"'\''])git[[:space:]]+push([[:space:]]|$)' || return 1
-  # Step 2: a `-f` or `--force` flag must appear somewhere in the
-  # command line. Combined with step 1 (push as the git subcommand)
-  # this restricts the match to real force-push invocations. We do not
-  # require the flag to be unquoted here — step 1 already excludes the
-  # principal false-positive (quoted `git push ...` search strings)
-  # because the leading `rg "` puts a quote before `git`. We accept
-  # `-f` (whole word) and `--force` (prefix, so `--force-with-lease`
-  # is also blocked, matching the original BL-020-predecessor behavior).
-  echo "$1" | grep -qE '(^|[[:space:]])(-f([[:space:]]|$)|--force)'
+  # Combined single-pattern classifier (cycle-9 follow-up to verifier
+  # finding #2). The previous two-step split — anchor `git push` in
+  # step 1, then independently scan the WHOLE command line for `-f` /
+  # `--force` in step 2 — created a false-positive surface when a
+  # non-force `git push` was chained with a downstream command whose
+  # argument contained `--force`:
+  #     git push origin main && echo "use --force carefully"
+  # Step 2's whole-line scan picked up the quoted `--force` from the
+  # downstream `echo`, denying the safe push. The combined pattern
+  # below requires the `-f`/`--force` token to appear AFTER `git push`
+  # and BEFORE any shell separator (`;`, `&&`, `||`, `|`) that ends the
+  # push command, eliminating the cross-command bleed:
+  #   (^|[^"']) git push [^;&|]* <whitespace> (-f<break> | --force...)
+  # The leading anti-quote anchor still rules out the principal false-
+  # positives (quoted `rg "git push --force" docs/` and `git diff` on
+  # files whose paths embed the phrase — the latter starts with
+  # `git diff`, not `git push`, so the anchor rejects it naturally).
+  # We still accept `--force` as a prefix so `--force-with-lease[=...]`
+  # is blocked, matching the original BL-020-predecessor behavior.
+  # T11a/T11b pin the quoted-string + path-name surface; T9/T10 pin the
+  # positive path including chained `cd ... && git push -f` invocations.
+  echo "$1" | grep -qE '(^|[^"'\''])git[[:space:]]+push[^;&|]*[[:space:]](-f([[:space:]]|$)|--force)'
 }
 
 # tests-precommit-process-3: classify a Bash command as an actual

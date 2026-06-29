@@ -23,7 +23,16 @@ fail_() { echo "  [FAIL] $1 — $2"; FAILED=$((FAILED + 1)); }
 # Set up a tempdir project where current_phase=2 with UAT in progress
 # (uat_completed < uat_total). In this state the gate WILL block any
 # command classified as `git commit` once a source file is staged.
+#
+# Cycle-9 follow-up (verifier finding #3): every test in this file uses
+# the IDENTICAL fixture. We now set up ONCE (first call is a no-op on
+# subsequent calls) and clean up via the EXIT trap. Combined with
+# SKIP_LINT=1 (the classifier tests don't exercise the lint paths —
+# those are pinned in test-pre-commit-gate-lints.sh) this drops suite
+# runtime from ~2:10 to well under 30s without sacrificing isolation
+# between assertions (no test mutates the fixture).
 setup_uat_blocking_state() {
+  [ -n "${TMPDIR_T:-}" ] && [ -d "$TMPDIR_T" ] && return 0
   TMPDIR_T=$(mktemp -d)
   (
     cd "$TMPDIR_T"
@@ -50,15 +59,25 @@ JSON
     git add src.py
   )
 }
-teardown_project() { rm -rf "$TMPDIR_T"; }
+# No-op: shared fixture is torn down once via the EXIT trap below.
+teardown_project() { :; }
+final_cleanup() { [ -n "${TMPDIR_T:-}" ] && [ -d "$TMPDIR_T" ] && rm -rf "$TMPDIR_T"; }
+trap final_cleanup EXIT
 
 # Feed a JSON tool_input.command to the hook, return its output (stdout+stderr merged) and exit code.
 # Echo: "EXIT|OUTPUT_ONE_LINE"
+#
+# SKIP_LINT=1: bypass the counter-antipattern + backlog-references lints
+# inside the hook. These scan the whole framework repo and add ~60s to
+# every `git commit` invocation. They are NOT under test here — the
+# regex classifiers (`_is_git_commit`, `_is_git_push_force`,
+# `_is_gh_pr_create`) are. Lint behavior is pinned by
+# test-pre-commit-gate-lints.sh.
 run_hook() {
   local cmd="$1"
   local input out rc=0
   input=$(jq -n --arg c "$cmd" '{tool_name:"Bash", tool_input:{command:$c}}')
-  out=$(cd "$TMPDIR_T" && printf '%s' "$input" | "$HOOK" 2>&1) || rc=$?
+  out=$(cd "$TMPDIR_T" && printf '%s' "$input" | SKIP_LINT=1 "$HOOK" 2>&1) || rc=$?
   echo "$rc|$(printf '%s' "$out" | tr '\n' ' ')"
 }
 
@@ -133,10 +152,27 @@ t6_grep_for_string_not_classified() {
 
 # --- tests-precommit-process-3: gh pr create classifier pins ---
 # T7 positive: a real `gh pr create` invocation under the UAT-blocking
-# fixture must be classified as IS_PR and blocked (deny). T8 negative:
-# read-only `gh pr list` / `gh pr view` must NOT be classified and must
-# fall through with no deny. These pin the gate's gh-pr-create classifier
-# regex against accidental regressions (same defect class as BL-020).
+# fixture must be classified as IS_PR and blocked (deny).
+#
+# Negative coverage:
+#   T8a/T8b — `gh pr list` / `gh pr view 12`. These never contained the
+#     substring `create`, so the OLD loose regex
+#     `\bgh\b.*\bpr\b.*\bcreate\b` would not have matched them either.
+#     They pin the obvious read-only siblings of the gate's classifier.
+#   T8c/T8d — quoted-string + path-name false-positives, mirroring
+#     T11a/T11b's force-push coverage. These ACTUALLY EXERCISE the BL-020
+#     defect class: the old loose regex matched the substring `gh pr
+#     create` anywhere on the line (including inside an `rg "..."` query
+#     string or a `git diff <path-named-...>` argument). Verified RED on
+#     origin/main (75adb7a): both commands deny via the bogus IS_PR
+#     classification reaching `check-commit-ready` with a staged source
+#     file under the UAT-blocking fixture. GREEN on this branch via the
+#     tightened `_is_gh_pr_create` (scripts/pre-commit-gate.sh:176).
+#
+# T8c/T8d also pin the bonus-catch site at scripts/pre-commit-gate.sh:273
+# (`pa_check`'s reuse of `_is_gh_pr_create`) — without these negatives,
+# pa_check's tightening is un-pinned for the defect class because the
+# old loose regex never matched the original T8a/T8b siblings.
 t7_real_gh_pr_create_classified() {
   setup_uat_blocking_state
   local out; out=$(run_hook 'gh pr create --title "feat: x" --body "..."')
@@ -164,6 +200,37 @@ t8_gh_pr_read_only_not_classified() {
     teardown_project; return
   fi
   pass "T8: 'gh pr list' / 'gh pr view 12' NOT classified as PR-create (read-only)"
+  teardown_project
+}
+
+# T8c/T8d: BL-020-shaped negatives that actually exercise the defect
+# class. The old loose regex `\bgh\b.*\bpr\b.*\bcreate\b` matched the
+# substring `gh pr create` anywhere on the line — inside an rg search
+# string or as part of a path-name argument to `git diff`. Both verified
+# RED against origin/main (75adb7a) with the same fixture this suite
+# uses; the bogus IS_PR classification reaches `check-commit-ready`,
+# which then denies because a source file is staged and no Build Loop is
+# active. Tightened `_is_gh_pr_create` makes both fall through. Mirrors
+# T11a/T11b's coverage of the same defect class for `git push --force`.
+t8c_quoted_gh_pr_create_search_string_not_classified() {
+  setup_uat_blocking_state
+  local out; out=$(run_hook 'rg "gh pr create" docs/')
+  if [[ "${out#*|}" == *'"permissionDecision": "deny"'* ]]; then
+    fail_ "T8c" "false-positive: 'rg \"gh pr create\" docs/' classified as PR-create; got: $out"
+    teardown_project; return
+  fi
+  pass "T8c: 'rg \"gh pr create\" docs/' NOT classified as PR-create (quoted search string)"
+  teardown_project
+}
+
+t8d_git_diff_on_gh_pr_create_named_file_not_classified() {
+  setup_uat_blocking_state
+  local out; out=$(run_hook 'git diff docs/gh-pr-create-howto.md')
+  if [[ "${out#*|}" == *'"permissionDecision": "deny"'* ]]; then
+    fail_ "T8d" "false-positive: 'git diff <gh-pr-create-named-path>' classified as PR-create; got: $out"
+    teardown_project; return
+  fi
+  pass "T8d: 'git diff docs/gh-pr-create-howto.md' NOT classified as PR-create (path name)"
   teardown_project
 }
 
@@ -225,6 +292,8 @@ t5_git_blame_on_commit_named_file_not_classified
 t6_grep_for_string_not_classified
 t7_real_gh_pr_create_classified
 t8_gh_pr_read_only_not_classified
+t8c_quoted_gh_pr_create_search_string_not_classified
+t8d_git_diff_on_gh_pr_create_named_file_not_classified
 t9_real_git_push_force_classified
 t10_chained_git_push_force_classified
 t11_docs_grep_for_push_force_not_classified
