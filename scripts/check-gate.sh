@@ -140,6 +140,83 @@ cmd_backfill_host() {
 cmd_repair() {
   _require_manifest || return 1
   print_step "Repair: re-applying repo setup from last successful step"
+
+  # Audit finding specs-plans-host-aware-11: honor the spec contract by
+  # consulting phase2_init.steps_completed before running any host_ call.
+  # init.sh writes the four named steps (remote_repo_created, pushed_initial,
+  # branch_protection_configured, branch_protection_verified) incrementally
+  # via _record_phase2_step, so a mid-flight failure leaves accurate state
+  # and --repair can resume from the first missing step.
+  #
+  # PR #97 verifier follow-up: after each successful resume step, --repair
+  # writes the matching step back to steps_completed via _record_phase2_step
+  # (shared with init.sh via scripts/lib/phase2-state.sh). Without write-back
+  # the state file became a lying source of truth — subsequent --repair calls
+  # would re-hit the host API for already-completed work and any consumer
+  # reading steps_completed would see stale data.
+  #
+  # The git-remote probe below remains as a defensive fallback for legacy
+  # projects (those init'd before incremental writes landed) — when
+  # steps_completed is empty/missing we infer "remote_repo_created" from
+  # `git remote get-url origin` succeeding.
+  # shellcheck disable=SC1090
+  source "$SCRIPT_DIR/lib/phase2-state.sh"
+
+  local steps_json="[]"
+  local has_state=0
+  if [ -f .claude/process-state.json ]; then
+    steps_json=$(jq -c '.phase2_init.steps_completed // []' .claude/process-state.json 2>/dev/null || echo "[]")
+    has_state=1
+  fi
+  _step_done() {
+    local s="$1"
+    echo "$steps_json" | jq -e --arg s "$s" 'index($s) != null' >/dev/null 2>&1
+  }
+  # _refresh_steps_json — pull the latest steps_completed off disk so the
+  # in-memory cache stays in sync after a _record_phase2_step write. Cheap
+  # (one jq + one read) and called only after each successful resume step.
+  _refresh_steps_json() {
+    if [ -f .claude/process-state.json ]; then
+      steps_json=$(jq -c '.phase2_init.steps_completed // []' .claude/process-state.json 2>/dev/null || echo "[]")
+    fi
+  }
+
+  # Honor a recorded tier-limited attestation (spec category 6 / BL-002).
+  # If the operator attested branch protection at init time, --repair has
+  # nothing further to do — the attestation IS the gate. This mirrors
+  # cmd_preflight's branch and keeps the two subcommands consistent.
+  #
+  # PR #97 verifier defensive fix: also require remote_repo_created AND
+  # pushed_initial to be recorded before short-circuiting on attestation.
+  # Today init.sh's write ordering guarantees both are set before the
+  # attestation is recorded, but coupling cmd_repair's correctness to
+  # init.sh's internal ordering is fragile — a future change that records
+  # attestation earlier (e.g., for prompt UX) would silently break --repair
+  # for broken-but-attested projects. The two extra checks make the
+  # short-circuit self-justifying instead of order-dependent.
+  local attest_reason=""
+  if [ "$has_state" -eq 1 ]; then
+    attest_reason=$(jq -r '.phase2_init.attestations.branch_protection.reason // ""' \
+                       .claude/process-state.json 2>/dev/null || echo "")
+  fi
+  if [ "$attest_reason" = "github_free_tier" ] \
+     && _step_done "remote_repo_created" \
+     && _step_done "pushed_initial"; then
+    print_ok "Repair: nothing to do — branch protection attested (reason: github_free_tier)"
+    return 0
+  fi
+
+  # No all-four-steps short-circuit (PR #97 verifier Issue #3 — option A).
+  # Pre-fix the early return at the top of cmd_repair conflicted with the
+  # "always re-run verify so the gate sees fresh state" comment further
+  # down: in the common case (full success) verify was never re-run because
+  # the short-circuit fired first, so drift detection on repair was
+  # silently dead. Drift detection is also cmd_preflight's job, but having
+  # --repair always probe live state matches the documented intent and
+  # costs one extra API call per repair invocation. The per-step skips
+  # below keep the create/push/configure work idempotent (no redundant API
+  # writes) — only the verify GET is repeated when all four are done.
+
   # shellcheck disable=SC1090
   source "$SCRIPT_DIR/lib/host.sh"
   host_load_driver || {
@@ -149,8 +226,17 @@ cmd_repair() {
   local mode
   mode=$(jq -r '.mode // "personal"' .claude/manifest.json)
 
-  # Step order: create (skip if exists) → register → push → configure → verify
-  if ! git remote get-url origin >/dev/null 2>&1; then
+  # Step 1: remote_repo_created. Skip if steps_completed says done, OR (legacy
+  # fallback) if `git remote get-url origin` succeeds on a project that
+  # predates incremental writes (has_state=0). In the legacy-fallback case
+  # we record the step on first --repair so the state file stops lying.
+  if _step_done "remote_repo_created"; then
+    print_info "Skipping create — already recorded"
+  elif git remote get-url origin >/dev/null 2>&1; then
+    print_info "Skipping create — remote already configured (legacy project, recording step)"
+    _record_phase2_step "remote_repo_created"
+    _refresh_steps_json
+  else
     local name visibility
     if [ -f .claude/intake-progress.json ]; then
       name=$(jq -r '.answers.project_name // empty' .claude/intake-progress.json)
@@ -158,26 +244,54 @@ cmd_repair() {
     fi
     name="${name:-$(basename "$(pwd)")}"
     visibility="${visibility:-private}"
-    print_info "No origin configured — creating $visibility repo '$name' on $(host_name)..."
+    print_info "Creating $visibility repo '$name' on $(host_name)..."
     local url
     url=$(host_create_repo "$name" "$visibility") || { print_fail "Repo creation failed"; return 1; }
     host_register_remote "$url"
+    _record_phase2_step "remote_repo_created"
+    _refresh_steps_json
+    print_ok "Remote created at $url"
+  fi
+
+  # Step 2: pushed_initial. Skip if recorded, else attempt push (idempotent
+  # at the git layer — a no-op if remote is already in sync).
+  if _step_done "pushed_initial"; then
+    print_info "Skipping push — already recorded"
+  else
     host_push_initial main 2>/dev/null || host_push_initial master || {
       print_fail "Push failed — see driver error above"
       return 1
     }
-    print_ok "Remote created and pushed at $url"
+    _record_phase2_step "pushed_initial"
+    _refresh_steps_json
+    print_ok "Initial push complete"
   fi
 
-  print_info "Re-applying protection for $mode mode..."
-  host_configure_protection main "$mode" 2>/dev/null || host_configure_protection master "$mode" \
-    || { print_fail "Protection config failed"; return 1; }
-  # Short retry for API lag
+  # Step 3: branch_protection_configured. Skip if recorded.
+  if _step_done "branch_protection_configured"; then
+    print_info "Skipping configure — protection already recorded"
+  else
+    print_info "Re-applying protection for $mode mode..."
+    host_configure_protection main "$mode" 2>/dev/null || host_configure_protection master "$mode" \
+      || { print_fail "Protection config failed"; return 1; }
+    _record_phase2_step "branch_protection_configured"
+    _refresh_steps_json
+  fi
+
+  # Step 4: branch_protection_verified. Always re-run verify on repair so the
+  # gate sees fresh state, even if steps_completed says verified — protection
+  # may have drifted since the original write. With the all-4 short-circuit
+  # removed above, this verify also runs on the "everything already done"
+  # path, which is the documented behavior the PR #97 bonus-catch claimed.
   if ! host_verify_protection main "$mode" 2>/dev/null && ! host_verify_protection master "$mode"; then
     sleep 5
     host_verify_protection main "$mode" 2>/dev/null || host_verify_protection master "$mode" \
       || { print_fail "Verification still failing — check host UI"; return 1; }
   fi
+  # Record verification last — only after the GET above confirmed live
+  # state matches the configured rules. Idempotent via the `unique` filter
+  # in _record_phase2_step (no duplicates accumulate on re-runs).
+  _record_phase2_step "branch_protection_verified"
   print_ok "Repair complete"
 }
 

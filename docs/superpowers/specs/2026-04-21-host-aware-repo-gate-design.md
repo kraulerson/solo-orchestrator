@@ -184,7 +184,7 @@ New standalone script exposing three subcommands, all of which source the dispat
 
 ## Error Handling
 
-Five categories, each with consistent contract: stderr message, non-zero exit, three things printed (what failed, why it matters, exact retry command).
+Six categories, each with consistent contract: stderr message, non-zero exit, three things printed (what failed, why it matters, exact retry command).
 
 ### 1. CLI missing or unauthenticated
 
@@ -216,6 +216,17 @@ Offer `scripts/check-gate.sh --repair` to re-run `host_configure_protection`.
 ### 5. Host API transient failures
 
 Retry once automatically after 10s (reuses `scripts/lib/helpers.sh:run_with_timeout`). On second failure: exit with command to retry + host status page hint. Never falls back to manual attestation — outages resolve, and silent fallback normalizes the outage.
+
+### 6. Tier-limited host capability gaps (BL-002)
+
+Distinct from category 5 (transient outages). Category 6 covers **persistent host-account-tier limitations** where the host's API refuses to enforce branch protection at all — most commonly a free-tier GitHub personal account on a private repo, where `host_configure_protection` returns HTTP 403 with `Upgrade to GitHub Pro or make this repository public to enable this feature`. The driver detects this signature in stderr and returns exit code 3; `init.sh` and `scripts/check-gate.sh --repair` interpret 3 as "tier-limited" and offer a one-time **manual attestation** path:
+
+1. Operator passes `--branch-protection-attested` to `init.sh` (or types `yes` at the interactive prompt).
+2. The attestation is recorded in `.claude/process-state.json` at `phase2_init.attestations.branch_protection` with `reason: "github_free_tier"` (the reason string is the cross-host sentinel — same value is reused for analogous gitlab-free / bitbucket-free conditions).
+3. `scripts/check-gate.sh --preflight` and `scripts/check-phase-gate.sh` (Phase 1→2 backstop) read the attestation reason and short-circuit `host_verify_protection` with an "OK: attested" status — the attestation **is** the gate. No silent passes: the attestation is logged and surfaced on every gate crossing so the operator is reminded that API enforcement remains off.
+4. Operator MUST upgrade (e.g., GitHub Pro at \$4/mo, GitLab Premium, Bitbucket Standard) to restore API-verified protection; the attestation is not a permanent escape hatch but a documented bridge.
+
+Cleanly separated from category 5: outages are transient and resolve themselves (Cat 5 never falls back to attestation because the API will come back); tier-limitations are persistent account-state and require a deliberate operator decision (Cat 6 explicitly permits attestation because no amount of retry will make a free-tier account return a non-403). Implementation lives in `scripts/host-drivers/github.sh::host_configure_protection` (detection + exit-3 emission for the `Upgrade to GitHub Pro` / `make this repository public` substrings), `init.sh::create_and_protect_remote` (the attestation flow that fires on driver exit codes 3/4), and `scripts/check-gate.sh::cmd_preflight` + `::cmd_repair` (both honor the attestation reason and short-circuit `host_verify_protection`). Function-name anchors are used here in lieu of line numbers because the surrounding code shifts on every refactor (PR #97's helper insertions moved the attestation block by ~40 lines without changing semantics); the function names are stable contracts. Documented in builders-guide §BL-002.
 
 ## Testing
 

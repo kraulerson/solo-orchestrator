@@ -1928,6 +1928,22 @@ create_and_protect_remote() {
   local visibility="$_RESOLVED_VISIBILITY"
   local mode="$_RESOLVED_MODE"
 
+  # Audit finding specs-plans-host-aware-2: write phase2_init.steps_completed
+  # INCREMENTALLY after each successful host_ call so a mid-flight failure
+  # leaves accurate partial state for scripts/check-gate.sh --repair to
+  # consult (see check-gate.sh::cmd_repair). The four named steps in order:
+  #   remote_repo_created          — after host_create_repo + register
+  #   pushed_initial               — after host_push_initial
+  #   branch_protection_configured — after host_configure_protection (or attestation)
+  #   branch_protection_verified   — after host_verify_protection passes
+  #
+  # PR #97 verifier follow-up: _record_phase2_step lives in
+  # scripts/lib/phase2-state.sh so check-gate.sh::cmd_repair writes through
+  # the same helper after a successful resume step (the original inner-
+  # function placement made it invisible to check-gate.sh).
+  # shellcheck disable=SC1090
+  source "$SCRIPT_DIR/scripts/lib/phase2-state.sh"
+
   # T2-B: --no-remote-creation skips the host API entirely so UAT/CI runs do
   # not contaminate the user's GitHub/GitLab/Bitbucket account. Manifest already
   # has host + mode from the T2-C block above; record empty remote_url and
@@ -1956,6 +1972,7 @@ create_and_protect_remote() {
     fi
     [ -z "$remote_url" ] && { print_fail "Remote URL required for 'other' host"; return 1; }
     git remote add origin "$remote_url"
+    _record_phase2_step "remote_repo_created"
 
     # BL-024: record attestation BEFORE the push attempt. Attestation is a
     # forward-looking commitment ("I will configure protection on this remote")
@@ -1986,6 +2003,9 @@ create_and_protect_remote() {
        '.phase2_init.attestations.branch_protection = {attested_by: "orchestrator", at: $at}' \
        .claude/process-state.json > .claude/process-state.json.tmp \
        && mv .claude/process-state.json.tmp .claude/process-state.json
+    # Attestation IS the verification step for 'other' host (manual contract).
+    _record_phase2_step "branch_protection_configured"
+    _record_phase2_step "branch_protection_verified"
 
     # Push happens AFTER attestation so a push failure cannot drop the
     # attestation. The outer init.sh wraps create_and_protect_remote in
@@ -1997,6 +2017,7 @@ create_and_protect_remote() {
       print_fail "Push failed — verify URL and credentials"
       return 1
     fi
+    _record_phase2_step "pushed_initial"
   else
     # First-class host: dispatcher + driver
     # shellcheck disable=SC1090
@@ -2010,10 +2031,12 @@ create_and_protect_remote() {
     print_ok "Remote created at $remote_url"
 
     host_register_remote "$remote_url"
+    _record_phase2_step "remote_repo_created"
 
     print_info "Pushing initial commit..."
     # Try main first, fall back to master
     host_push_initial main 2>/dev/null || host_push_initial master || { print_fail "Push failed — $remote_url exists but empty"; return 1; }
+    _record_phase2_step "pushed_initial"
 
     print_info "Configuring branch protection ($mode mode)..."
     # BL-002 / BL-031 / BL-032: exit codes 3 and 4 are both host-agnostic
@@ -2057,10 +2080,15 @@ create_and_protect_remote() {
          .claude/process-state.json > .claude/process-state.json.tmp \
          && mv .claude/process-state.json.tmp .claude/process-state.json
       print_ok "Partial-protection attestation recorded — check-gate.sh --preflight will honor it."
+      # Tier-limited attestation IS the configured + verified state for this host
+      # (per spec category 6 / BL-002). Record both steps so --repair short-circuits.
+      _record_phase2_step "branch_protection_configured"
+      _record_phase2_step "branch_protection_verified"
     elif [ "$_hcp_rc" -ne 0 ]; then
       print_fail "Protection config failed — run 'scripts/check-gate.sh --repair' after troubleshooting"
       return 1
     else
+      _record_phase2_step "branch_protection_configured"
       print_info "Verifying protection..."
       if ! host_verify_protection main "$mode" 2>/dev/null && ! host_verify_protection master "$mode"; then
         # Retry once for API lag
@@ -2071,6 +2099,7 @@ create_and_protect_remote() {
         fi
       fi
       print_ok "Protection verified for $mode mode"
+      _record_phase2_step "branch_protection_verified"
     fi
   fi
 
@@ -2087,11 +2116,16 @@ create_and_protect_remote() {
 MANIFESTEOF
   fi
 
-  # Mark phase2_init steps complete
+  # Trailing dedup pass. The named steps (remote_repo_created, pushed_initial,
+  # branch_protection_configured, branch_protection_verified) are now written
+  # incrementally above via _record_phase2_step after each successful host_
+  # call. The single batched write that used to live here was the spec drift
+  # closed by audit finding specs-plans-host-aware-2 — it left no
+  # intermediate state for scripts/check-gate.sh --repair to resume from.
   if [ ! -f .claude/process-state.json ]; then
     echo '{"phase2_init":{"steps_completed":[]}}' > .claude/process-state.json
   fi
-  jq '.phase2_init.steps_completed += ["remote_repo_created","branch_protection_configured"] | .phase2_init.steps_completed |= unique' \
+  jq '.phase2_init.steps_completed = ((.phase2_init.steps_completed // []) | unique)' \
      .claude/process-state.json > .claude/process-state.json.tmp \
      && mv .claude/process-state.json.tmp .claude/process-state.json
 }
