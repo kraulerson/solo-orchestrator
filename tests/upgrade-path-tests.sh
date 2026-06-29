@@ -610,11 +610,15 @@ declare -a DIRECT_DOWNGRADES=(
   "full:light"
 )
 
-for pair in "${DIRECT_DOWNGRADES[@]}"; do
-  IFS=':' read -r current_track target_track <<< "$pair"
-  fixture=$(mktemp -d)
+# Loop vars are prefixed `_dr_` to avoid silent inheritance from any
+# earlier TEST 1-5 block that uses unscoped `pre_head`, `out`, `rc`, or
+# `fixture` — defensive isolation since this file runs in
+# `set -euo pipefail` shared with the rest of upgrade-path-tests.sh.
+for _dr_pair in "${DIRECT_DOWNGRADES[@]}"; do
+  IFS=':' read -r _dr_current_track _dr_target_track <<< "$_dr_pair"
+  _dr_fixture=$(mktemp -d)
   (
-    cd "$fixture"
+    cd "$_dr_fixture"
     git init -q
     git config user.email t@t.local
     git config user.name "Test User"
@@ -627,34 +631,34 @@ for pair in "${DIRECT_DOWNGRADES[@]}"; do
 {"frameworkVersion":"test","mode":"personal","host":"github","deployment":"personal","poc_mode":null,"enforcement_level":"strict"}
 JSON
     cat > .claude/phase-state.json <<JSON
-{"track":"$current_track","deployment":"personal","poc_mode":null,"current_phase":1,"phases":{}}
+{"track":"$_dr_current_track","deployment":"personal","poc_mode":null,"current_phase":1,"phases":{}}
 JSON
     cat > .claude/tool-preferences.json <<JSON
-{"context":{"track":"$current_track","platform":"web","os":"darwin"},"preferences":{}}
+{"context":{"track":"$_dr_current_track","platform":"web","os":"darwin"},"preferences":{}}
 JSON
     cat > .claude/intake-progress.json <<JSON
-{"track":"$current_track","deployment":"personal"}
+{"track":"$_dr_current_track","deployment":"personal"}
 JSON
     git add -A && git commit -q -m "init"
   ) >/dev/null 2>&1
 
-  pre_head=$(cd "$fixture" && git rev-parse HEAD)
-  out=""
-  rc=0
-  out=$(cd "$fixture" && bash "$UPGRADE_SCRIPT" --track "$target_track" --non-interactive </dev/null 2>&1) || rc=$?
-  post_head=$(cd "$fixture" && git rev-parse HEAD)
+  _dr_pre_head=$(cd "$_dr_fixture" && git rev-parse HEAD)
+  _dr_out=""
+  _dr_rc=0
+  _dr_out=$(cd "$_dr_fixture" && bash "$UPGRADE_SCRIPT" --track "$_dr_target_track" --non-interactive </dev/null 2>&1) || _dr_rc=$?
+  _dr_post_head=$(cd "$_dr_fixture" && git rev-parse HEAD)
 
-  if [ "$rc" = "0" ]; then
-    fail "Direct refusal: --track $target_track on $current_track project did NOT exit non-zero (rc=$rc)"
-  elif ! echo "$out" | grep -qF "Cannot downgrade track"; then
-    fail "Direct refusal: $current_track -> $target_track refused but stderr lacks 'Cannot downgrade track' (out tail: $(echo "$out" | tail -3 | tr '\n' ' '))"
-  elif [ "$pre_head" != "$post_head" ]; then
-    fail "Direct refusal: $current_track -> $target_track refused but git HEAD advanced ($pre_head -> $post_head)"
+  if [ "$_dr_rc" = "0" ]; then
+    fail "Direct refusal: --track $_dr_target_track on $_dr_current_track project did NOT exit non-zero (rc=$_dr_rc)"
+  elif ! echo "$_dr_out" | grep -qF "Cannot downgrade track"; then
+    fail "Direct refusal: $_dr_current_track -> $_dr_target_track refused but stderr lacks 'Cannot downgrade track' (out tail: $(echo "$_dr_out" | tail -3 | tr '\n' ' '))"
+  elif [ "$_dr_pre_head" != "$_dr_post_head" ]; then
+    fail "Direct refusal: $_dr_current_track -> $_dr_target_track refused but git HEAD advanced ($_dr_pre_head -> $_dr_post_head)"
   else
-    pass "Direct refusal: scripts/upgrade-project.sh --track $target_track refuses ${current_track} project (rc!=0, message + git HEAD intact)"
+    pass "Direct refusal: scripts/upgrade-project.sh --track $_dr_target_track refuses ${_dr_current_track} project (rc!=0, message + git HEAD intact)"
   fi
 
-  rm -rf "$fixture"
+  rm -rf "$_dr_fixture"
 done
 
 # Test deployment type transitions

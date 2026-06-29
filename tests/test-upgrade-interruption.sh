@@ -12,22 +12,22 @@
 # asserts that the snapshot+rollback invariant holds:
 #
 #   * exit code is non-zero (the upgrade observably failed)
-#   * the six staged operator files were either restored to their
-#     pre-mutation contents (rollback fired) OR never mutated at all
-#     (failure caught before the heredoc block); in either case
-#     phase-state.json, tool-preferences.json, intake-progress.json,
-#     CLAUDE.md, PROJECT_INTAKE.md, and APPROVAL_LOG.md must match the
-#     pre-run snapshot byte-for-byte
+#   * the six staged operator files were restored to their pre-mutation
+#     contents (rollback fired): phase-state.json, tool-preferences.json,
+#     intake-progress.json, CLAUDE.md, PROJECT_INTAKE.md, and
+#     APPROVAL_LOG.md must match the pre-run snapshot byte-for-byte
 #   * git HEAD did NOT advance — no `chore(upgrade): ...` commit was
 #     appended
 #   * a pre-mutation snapshot dir exists under
-#     .claude/upgrade-snapshots/ for forensics
+#     .claude/upgrade-snapshots/ with >=1 child snapshot, proving the
+#     run reached the snapshot phase before failing and the rollback
+#     path (not an early-bail) was the path exercised
 #
 # This codifies current behavior without changing production code so
 # any future regression that silently advances state under a partial
 # write fault trips this test instead of corrupting an operator's
 # project.
-set -o pipefail
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -130,8 +130,12 @@ teardown_project() {
 # ── Tests ──────────────────────────────────────────────────────────
 
 # T1: unwritable APPROVAL_LOG.md → upgrade fails AND the six staged
-# files match their pre-run contents (snapshot+rollback fired, OR the
-# write fault was caught before the heredoc block ever ran).
+# files match their pre-run contents (snapshot+rollback fired) AND the
+# pre-mutation snapshot dir was created with at least one child. The
+# snapshot-dir assertion (4) nails this test to the rollback path so
+# a future refactor that moves the APPROVAL_LOG.md write before the
+# snapshot phase cannot silently degrade T1 from "rollback works" to
+# "early-bail works".
 t1_unwritable_approval_log_preserves_state() {
   setup_org_sponsored_dated
 
@@ -166,9 +170,9 @@ t1_unwritable_approval_log_preserves_state() {
   fi
 
   # (2) Each of the six staged files must match the pre-run snapshot.
-  # Either rollback restored them, or the failure tripped before the
-  # mutation block — both are acceptable; what's NOT acceptable is a
-  # half-written file that desynchronizes the operator's project.
+  # Rollback must have restored any mutated files; a half-written file
+  # that desynchronizes the operator's project is the regression we
+  # guard against. Assertion (4) below pins this to the rollback path.
   local mismatched=""
   for rel in .claude/phase-state.json .claude/tool-preferences.json .claude/intake-progress.json CLAUDE.md PROJECT_INTAKE.md APPROVAL_LOG.md; do
     if ! cmp -s "$snap/$rel" "$TMPDIR_T/$rel"; then
@@ -187,7 +191,24 @@ t1_unwritable_approval_log_preserves_state() {
     teardown_project; return
   fi
 
-  pass "T1: read-only APPROVAL_LOG.md → exit!=0, all six staged files unchanged, git HEAD intact"
+  # (4) Snapshot dir was created AND has exactly one child snapshot.
+  # This nails T1 to the rollback path — without it, a future refactor
+  # that moves the APPROVAL_LOG.md write before the snapshot phase would
+  # silently degrade T1 from "rollback works" to "early-bail works" and
+  # we'd lose coverage of the rollback path with no red signal.
+  if [ ! -d "$TMPDIR_T/.claude/upgrade-snapshots" ]; then
+    fail_ "T1" "snapshot dir not created — run failed before snapshot phase, so rollback path was not exercised"
+    teardown_project; return
+  fi
+  local snap_children
+  snap_children=$(find "$TMPDIR_T/.claude/upgrade-snapshots" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | grep -c . || true)
+  case "$snap_children" in ''|*[!0-9]*) snap_children=0 ;; esac
+  if [ "$snap_children" -lt 1 ]; then
+    fail_ "T1" "snapshot dir exists but has no children — rollback path was not exercised"
+    teardown_project; return
+  fi
+
+  pass "T1: read-only APPROVAL_LOG.md → exit!=0, all six staged files unchanged, git HEAD intact, rollback path exercised"
   teardown_project
 }
 
@@ -218,13 +239,17 @@ t2_snapshot_dir_retained_on_failure() {
   # silent pruning under failure).
   if [ -d "$TMPDIR_T/.claude/upgrade-snapshots" ]; then
     local count
-    count=$(find "$TMPDIR_T/.claude/upgrade-snapshots" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | grep -c .)
+    # `grep -c .` exits 1 on zero matches — `|| true` keeps `set -e` from
+    # killing the test before the assertion runs.
+    count=$(find "$TMPDIR_T/.claude/upgrade-snapshots" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | grep -c . || true)
     case "$count" in ''|*[!0-9]*) count=0 ;; esac
     # If the dir was created, we expect at least one snapshot child
     # (pre-mutation snapshot is what the rollback restores from).
     # The keep-3 retention prune only runs after success per
-    # _upgrade_prune_snapshots's header note.
-    if [ "$count" -lt 0 ]; then
+    # _upgrade_prune_snapshots's header note, so a failure run that
+    # produced the dir but pruned all children is a regression — the
+    # operator loses forensic state at exactly the moment they need it.
+    if [ "$count" -lt 1 ]; then
       fail_ "T2" "upgrade-snapshots dir exists but is empty (forensic history pruned under failure)"
       teardown_project; return
     fi
