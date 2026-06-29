@@ -1,5 +1,6 @@
 {
   "platform": "web",
+  "languages": ["csharp", "go", "java", "kotlin", "other", "python", "rust", "typescript"],
   "suggestions": {
     "authentication": {
       "typescript": [

@@ -374,6 +374,94 @@ EOF
 fi
 
 # ----------------------------------------------------------------
+# T-CLI-DRIFT (specs-plans-init-intake-noninteractive-3):
+# the intake-wizard plan + spec must not reference a never-shipped
+# `cli.json` / `cli` platform; the actually-shipped suggestion file
+# is `mcp_server.json` (matches the 2026-04-25 non-interactive spec).
+# ----------------------------------------------------------------
+echo ""
+echo "T-CLI-DRIFT: plan/spec/wizard reference mcp_server (not cli)"
+
+PLAN_MD="$REPO_ROOT/docs/superpowers/plans/2026-04-02-intake-wizard.md"
+SPEC_MD="$REPO_ROOT/docs/superpowers/specs/2026-04-02-intake-wizard-design.md"
+
+drift=0
+# 1. The shipped suggestion-file set must NOT include cli.json.
+if [ -f "$REPO_ROOT/templates/intake-suggestions/cli.json" ]; then
+  fail_ "T-CLI-DRIFT-1" "templates/intake-suggestions/cli.json exists (should not — newer spec uses mcp_server.json)"
+  drift=1
+fi
+# 2. The shipped suggestion-file set MUST include mcp_server.json.
+if [ ! -f "$REPO_ROOT/templates/intake-suggestions/mcp_server.json" ]; then
+  fail_ "T-CLI-DRIFT-2" "templates/intake-suggestions/mcp_server.json missing"
+  drift=1
+fi
+# 3. Plan must not reference cli.json or the bare `cli` platform value
+#    in a directive context. The plan IS allowed to mention `cli.json` in a
+#    block-quoted "drift note" (lines starting with `> `) that explains the
+#    rename — those lines are documentation, not directives.
+plan_hits=$(grep -nE 'cli\.json|"cli"' "$PLAN_MD" | grep -vE '^[0-9]+:>' | grep -vE 'supersedes the earlier `cli\.json`' || true)
+if [ -n "$plan_hits" ]; then
+  fail_ "T-CLI-DRIFT-3" "plan still references cli.json or 'cli' platform outside drift-note context: $(echo "$plan_hits" | head -3)"
+  drift=1
+fi
+# 4. Spec must not reference cli.json or the bare `cli` platform value.
+if grep -nE 'cli\.json|"cli"' "$SPEC_MD" >/dev/null 2>&1; then
+  fail_ "T-CLI-DRIFT-4" "spec still references cli.json or 'cli' platform: $(grep -nE 'cli\.json|"cli"' "$SPEC_MD" | head -3)"
+  drift=1
+fi
+# 5. Wizard prompt + case branch must use mcp_server (not cli).
+if grep -nE 'prompt_choice "Platform:".*"cli"' "$WIZARD" >/dev/null 2>&1; then
+  fail_ "T-CLI-DRIFT-5" "wizard prompt_choice still lists 'cli' as a platform"
+  drift=1
+fi
+# Require the wizard to handle the `mcp_server` platform branch explicitly.
+if ! grep -nE '^[[:space:]]+mcp_server\)' "$WIZARD" >/dev/null 2>&1; then
+  fail_ "T-CLI-DRIFT-6" "wizard case statement missing a 'mcp_server)' branch"
+  drift=1
+fi
+if [ "$drift" -eq 0 ]; then
+  pass "T-CLI-DRIFT: plan, spec, wizard, and templates all aligned on mcp_server"
+fi
+
+# ----------------------------------------------------------------
+# T-SUGGEST-LANGUAGES (specs-plans-init-intake-noninteractive-5):
+# each platform suggestion JSON must expose a top-level `languages`
+# array enumerating allowed languages — used by init.sh Pass-2 and
+# any other consumer that needs the per-platform language set.
+# ----------------------------------------------------------------
+echo ""
+echo "T-SUGGEST-LANGUAGES: each platform suggestion JSON has a top-level languages[]"
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "  [SKIP] T-SUGGEST-LANGUAGES — jq unavailable"
+else
+  langs_drift=0
+  for plat in web desktop mobile mcp_server; do
+    f="$REPO_ROOT/templates/intake-suggestions/${plat}.json"
+    if [ ! -f "$f" ]; then
+      fail_ "T-SUGGEST-LANGUAGES-${plat}" "missing $f"
+      langs_drift=1
+      continue
+    fi
+    arr_type=$(jq -r '.languages | type' "$f" 2>/dev/null || echo "null")
+    if [ "$arr_type" != "array" ]; then
+      fail_ "T-SUGGEST-LANGUAGES-${plat}" "$plat.json missing top-level 'languages' array (got type=$arr_type)"
+      langs_drift=1
+      continue
+    fi
+    arr_len=$(jq -r '.languages | length' "$f")
+    if [ "$arr_len" -lt 1 ]; then
+      fail_ "T-SUGGEST-LANGUAGES-${plat}" "$plat.json languages[] is empty"
+      langs_drift=1
+    fi
+  done
+  if [ "$langs_drift" -eq 0 ]; then
+    pass "T-SUGGEST-LANGUAGES: web, desktop, mobile, mcp_server all expose top-level languages[]"
+  fi
+fi
+
+# ----------------------------------------------------------------
 # Summary
 # ----------------------------------------------------------------
 echo ""

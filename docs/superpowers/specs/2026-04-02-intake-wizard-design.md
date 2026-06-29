@@ -210,7 +210,7 @@ templates/intake-suggestions/
   web.json
   desktop.json
   mobile.json
-  cli.json
+  mcp_server.json
   common.json
 ```
 
@@ -263,7 +263,7 @@ Covers platform-independent fields:
 | `templates/intake-suggestions/web.json` | Web platform suggestions |
 | `templates/intake-suggestions/desktop.json` | Desktop platform suggestions |
 | `templates/intake-suggestions/mobile.json` | Mobile platform suggestions |
-| `templates/intake-suggestions/cli.json` | CLI platform suggestions |
+| `templates/intake-suggestions/mcp_server.json` | MCP-server platform suggestions (transport, persistence, mcp_sdk, scheduling) |
 | `templates/intake-suggestions/common.json` | Platform-independent suggestions |
 | `templates/intake-guided-prompt.md` | Template for Claude-guided prompt (populated at runtime) |
 

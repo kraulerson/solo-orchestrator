@@ -116,16 +116,56 @@ n10_org_with_public_visibility() {
 }
 
 n13_invalid_language_for_platform() {
-  # If the platform's intake-suggestions JSON doesn't expose a language list, this
-  # test is a soft-no-op (passes by default because check is skipped) — that's
-  # acceptable: it documents intent without false-failing on schema variance.
+  # Audit code-init-sh-5 + specs-plans-init-intake-noninteractive-5: the
+  # Pass-2 language-for-platform check MUST be strict (no soft-no-op). It
+  # walks templates/pipelines/ci/github/*.yml and accepts only languages
+  # whose template marker lists the requested platform.
+  # mcp_server platform allows: python, typescript, other (per CI markers).
+  # swift on mcp_server is invalid and must exit 1.
   local out; out=$(run_validate --project p --platform mcp_server --deployment personal --language swift)
-  if [ "${out%%|*}" = "0" ]; then
-    pass "N13: invalid --language for platform — check skipped (intake-suggestions schema does not expose language list)"
+  [ "${out%%|*}" = "1" ] || { fail_ "N13" "expected exit 1 for swift on mcp_server, got: $out"; return; }
+  [[ "${out##*|}" == *"language"* ]] || { fail_ "N13" "stderr should mention language: ${out##*|}"; return; }
+  [[ "${out##*|}" == *"mcp_server"* ]] || { fail_ "N13" "stderr should mention platform mcp_server: ${out##*|}"; return; }
+  pass "N13: invalid --language for platform → exit 1 (hard fail, not soft no-op)"
+}
+
+n27_invalid_language_lists_supported() {
+  # Audit code-init-sh-5: the failure message must enumerate the platform's
+  # actually-supported languages so the user can re-run with a valid value.
+  # dart's CI template marker is `platforms=mobile`, so dart on web must fail.
+  local out; out=$(run_validate --project p --platform web --deployment personal --language dart)
+  [ "${out%%|*}" = "1" ] || { fail_ "N27" "expected exit 1 for dart on web, got: $out"; return; }
+  # web platform supports typescript, python, java, csharp, go, rust, kotlin per CI markers
+  [[ "${out##*|}" == *"typescript"* ]] || { fail_ "N27" "stderr should list typescript as supported for web: ${out##*|}"; return; }
+  [[ "${out##*|}" == *"python"* ]] || { fail_ "N27" "stderr should list python as supported for web: ${out##*|}"; return; }
+  pass "N27: invalid --language lists actually-supported languages from CI templates"
+}
+
+n28_swift_on_linux_blocked() {
+  # Audit code-init-sh-5: mirror the interactive Linux/Swift OS-compatibility
+  # block (init.sh:506-537). Swift requires macOS (Xcode toolchain).
+  # We can't change OS_TYPE easily, so only assert on Linux hosts.
+  if [ "$(uname -s)" != "Linux" ]; then
+    pass "N28: Swift-on-Linux OS-incompatibility block — skipped (test host is $(uname -s), check is Linux-only)"
     return
   fi
-  [[ "${out##*|}" == *"language"* ]] || { fail_ "N13" "stderr should mention language validity: ${out##*|}"; return; }
-  pass "N13: invalid --language for platform → exit 1"
+  local out; out=$(run_validate --project p --platform mobile --deployment personal --language swift)
+  [ "${out%%|*}" = "1" ] || { fail_ "N28" "expected exit 1 for swift on Linux, got: $out"; return; }
+  [[ "${out##*|}" == *"macOS"* || "${out##*|}" == *"Xcode"* ]] \
+    || { fail_ "N28" "stderr should mention macOS/Xcode requirement: ${out##*|}"; return; }
+  pass "N28: --language=swift on Linux → exit 1 (OS-incompatibility block)"
+}
+
+n29_mcp_server_platform_alias() {
+  # Audit specs-plans-init-intake-noninteractive-3: the suggestion-file set
+  # ships mcp_server.json (not cli.json). Confirm mcp_server is a first-class
+  # platform value in non-interactive mode and that typescript/python (the
+  # languages with CI templates marking mcp_server) both validate.
+  local out; out=$(run_validate --project p --platform mcp_server --deployment personal --language typescript)
+  [ "${out%%|*}" = "0" ] || { fail_ "N29a" "expected exit 0 for typescript on mcp_server, got: $out"; return; }
+  out=$(run_validate --project p --platform mcp_server --deployment personal --language python)
+  [ "${out%%|*}" = "0" ] || { fail_ "N29b" "expected exit 0 for python on mcp_server, got: $out"; return; }
+  pass "N29: mcp_server platform accepts typescript and python (matches shipped suggestion file)"
 }
 
 n20_validate_only_success() {
@@ -299,6 +339,9 @@ n23_dir_exists_no_allow_flag
 n24_default_track
 n25_default_git_host_visibility
 n26_default_project_dir
+n27_invalid_language_lists_supported
+n28_swift_on_linux_blocked
+n29_mcp_server_platform_alias
 
 echo ""
 echo "== Total: $((PASSED + FAILED)) | Passed: $PASSED | Failed: $FAILED =="

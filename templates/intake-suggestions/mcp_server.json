@@ -1,5 +1,6 @@
 {
   "platform": "mcp-server",
+  "languages": ["go", "other", "python", "rust", "typescript"],
   "suggestions": {
     "transport": {
       "default": [

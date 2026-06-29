@@ -21,7 +21,7 @@
 | `templates/intake-suggestions/web.json` | Create | Web platform suggestions (auth, hosting, DB, frameworks) | Task 2 |
 | `templates/intake-suggestions/desktop.json` | Create | Desktop platform suggestions | Task 2 |
 | `templates/intake-suggestions/mobile.json` | Create | Mobile platform suggestions | Task 2 |
-| `templates/intake-suggestions/cli.json` | Create | CLI platform suggestions | Task 2 |
+| `templates/intake-suggestions/mcp_server.json` | Create | MCP-server platform suggestions (transport, persistence, mcp_sdk) | Task 2 |
 | `templates/intake-guided-prompt.md` | Create | Template for Claude-guided conversation prompt | Task 8 |
 | `init.sh` | Modify | Offer wizard after project creation, copy new files | Task 9 |
 | `docs/user-guide.md` | Modify | Document wizard, POC modes, upgrade path | Task 10 |
@@ -390,7 +390,7 @@ Create all 5 suggestion JSON files with platform-specific and common recommendat
 - Create: `templates/intake-suggestions/web.json`
 - Create: `templates/intake-suggestions/desktop.json`
 - Create: `templates/intake-suggestions/mobile.json`
-- Create: `templates/intake-suggestions/cli.json`
+- Create: `templates/intake-suggestions/mcp_server.json`
 
 - [ ] **Step 1: Create common.json**
 
@@ -940,95 +940,17 @@ Create all 5 suggestion JSON files with platform-specific and common recommendat
 }
 ```
 
-- [ ] **Step 5: Create cli.json**
+- [x] **Step 5: Create mcp_server.json** (supersedes the earlier `cli.json` draft)
 
-```json
-{
-  "platform": "cli",
-  "suggestions": {
-    "authentication": {
-      "default": [
-        {
-          "name": "Config file with API key",
-          "rank": 1,
-          "context": "Store API key in ~/.config/your-tool/config.json. Simple, standard CLI pattern.",
-          "when": "CLI tools that connect to an API"
-        },
-        {
-          "name": "OAuth2 device flow",
-          "rank": 2,
-          "context": "User visits a URL and enters a code. Good for CLIs that need user identity without a browser redirect.",
-          "when": "Enterprise CLIs, tools that need user identity"
-        },
-        {
-          "name": "No auth needed",
-          "rank": 3,
-          "context": "Local-only tool that processes files or data without connecting to a service.",
-          "when": "Local utilities, file processors"
-        }
-      ]
-    },
-    "distribution": {
-      "typescript": [
-        {
-          "name": "npm (global install)",
-          "rank": 1,
-          "context": "npm install -g your-tool. Standard for Node.js CLI tools. Easy to publish and update.",
-          "when": "Node.js CLI tools"
-        }
-      ],
-      "rust": [
-        {
-          "name": "cargo install + GitHub Releases",
-          "rank": 1,
-          "context": "Publish to crates.io for cargo install. Also provide pre-built binaries on GitHub Releases.",
-          "when": "Rust CLI tools"
-        }
-      ],
-      "go": [
-        {
-          "name": "go install + GitHub Releases",
-          "rank": 1,
-          "context": "go install for Go users. Pre-built binaries on GitHub Releases for everyone else.",
-          "when": "Go CLI tools"
-        }
-      ],
-      "python": [
-        {
-          "name": "pip install (PyPI)",
-          "rank": 1,
-          "context": "Standard Python distribution. pip install your-tool. Easy to publish with twine.",
-          "when": "Python CLI tools"
-        }
-      ],
-      "default": [
-        {
-          "name": "Language package manager + GitHub Releases",
-          "rank": 1,
-          "context": "Publish to your language's package registry and provide pre-built binaries for users without the runtime.",
-          "when": "Most CLI tools"
-        }
-      ]
-    },
-    "ui_framework": {
-      "default": [
-        {
-          "name": "No UI (pure CLI with flags/arguments)",
-          "rank": 1,
-          "context": "Standard Unix-style CLI. Parseable output, scriptable, pipeable.",
-          "when": "Automation tools, developer tools"
-        },
-        {
-          "name": "Interactive TUI (terminal UI)",
-          "rank": 2,
-          "context": "Rich terminal interface with menus, tables, progress bars. Libraries: Ink (TS), Ratatui (Rust), Rich (Python).",
-          "when": "User-facing tools where visual feedback helps"
-        }
-      ]
-    }
-  }
-}
-```
+> **Drift note (audit specs-plans-init-intake-noninteractive-3):** the original
+> draft of this step targeted a `cli` platform / `cli.json` suggestion file.
+> That file was never shipped — when the 2026-04-25 non-interactive spec
+> landed, the platform set converged on `mcp_server` and the actually-shipped
+> suggestion file is `templates/intake-suggestions/mcp_server.json`. The
+> wizard prompt + Section-6.4 case branch were updated accordingly to read
+> from `mcp_server.json` (transport / mcp_sdk / persistence). See the file
+> in-tree for the canonical content; the original cli-themed JSON is no
+> longer relevant.
 
 - [ ] **Step 6: Verify all JSON files parse correctly**
 
@@ -1616,14 +1538,18 @@ run_section_6() {
       mobile_offline=$(prompt_with_suggestions "Offline strategy" "offline_strategy" "Offline tolerant")
       save_answer "mobile_offline" "$mobile_offline"
       ;;
-    cli)
-      local cli_distribution
-      cli_distribution=$(prompt_with_suggestions "Distribution method" "distribution" "")
-      save_answer "cli_distribution" "$cli_distribution"
+    mcp_server)
+      local mcp_server_transport
+      mcp_server_transport=$(prompt_with_suggestions "Transport" "transport" "")
+      save_answer "mcp_server_transport" "$mcp_server_transport"
 
-      local cli_ui
-      cli_ui=$(prompt_with_suggestions "Interface style" "ui_framework" "")
-      save_answer "cli_ui" "$cli_ui"
+      local mcp_server_sdk
+      mcp_server_sdk=$(prompt_with_suggestions "MCP SDK" "mcp_sdk" "")
+      save_answer "mcp_server_sdk" "$mcp_server_sdk"
+
+      local mcp_server_persistence
+      mcp_server_persistence=$(prompt_with_suggestions "Persistence" "persistence" "")
+      save_answer "mcp_server_persistence" "$mcp_server_persistence"
       ;;
   esac
 
@@ -2355,7 +2281,7 @@ print(f\"PROJECT_NAME='{data.get('project', 'unknown')}'\")
       if [ -z "${PROJECT_NAME:-}" ]; then
         PROJECT_NAME=$(prompt_input "Project name" "")
         PROJECT_DESCRIPTION=$(prompt_input "One-sentence description" "")
-        PLATFORM=$(prompt_choice "Platform:" "web" "desktop" "mobile" "cli" "other")
+        PLATFORM=$(prompt_choice "Platform:" "web" "desktop" "mobile" "mcp_server" "other")
         TRACK=$(prompt_choice "Track:" "light" "standard" "full")
         DEPLOYMENT=$(prompt_choice "Deployment:" "personal" "organizational")
         LANGUAGE=$(prompt_choice "Language:" "typescript" "javascript" "python" "rust" "csharp" "kotlin" "java" "go" "dart" "other")
@@ -2379,7 +2305,7 @@ print(f\"PROJECT_NAME='{data.get('project', 'unknown')}'\")
       if [ -z "${PROJECT_NAME:-}" ]; then
         PROJECT_NAME=$(prompt_input "Project name" "")
         PROJECT_DESCRIPTION=$(prompt_input "One-sentence description" "")
-        PLATFORM=$(prompt_choice "Platform:" "web" "desktop" "mobile" "cli" "other")
+        PLATFORM=$(prompt_choice "Platform:" "web" "desktop" "mobile" "mcp_server" "other")
         TRACK=$(prompt_choice "Track:" "light" "standard" "full")
         DEPLOYMENT=$(prompt_choice "Deployment:" "personal" "organizational")
         LANGUAGE=$(prompt_choice "Language:" "typescript" "javascript" "python" "rust" "csharp" "kotlin" "java" "go" "dart" "other")
