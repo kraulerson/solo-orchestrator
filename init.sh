@@ -3279,30 +3279,77 @@ collect_inputs_non_interactive() {
     print_warn "Proceeding because non-interactive mode treats explicit flags as confirmation."
   fi
 
-  # language validity for platform — look up the platform's allowed languages list
-  local lang_list_file=""
-  if [ -f "$SCRIPT_DIR/templates/intake-suggestions/${ARG_PLATFORM}.json" ]; then
-    lang_list_file="$SCRIPT_DIR/templates/intake-suggestions/${ARG_PLATFORM}.json"
-  elif [ -f "$SCRIPT_DIR/templates/intake-suggestions/common.json" ]; then
-    lang_list_file="$SCRIPT_DIR/templates/intake-suggestions/common.json"
-  fi
-  if [ -n "$lang_list_file" ] && command -v jq &>/dev/null; then
-    # Look for "languages" arrays at known schema paths.
-    # Fall back to skipping this check if the schema doesn't expose a list.
-    local supported
-    supported=$(jq -r '.. | objects | select(has("languages")) | .languages[]?' "$lang_list_file" 2>/dev/null | sort -u || true)
-    if [ -n "$supported" ]; then
-      if ! echo "$supported" | grep -qx "$ARG_LANGUAGE"; then
-        local supported_csv
-        supported_csv=$(echo "$supported" | tr '\n' ',' | sed 's/,$//; s/,/, /g')
-        fail "language '$ARG_LANGUAGE' is not supported for platform '$ARG_PLATFORM'" \
-             "the platform's intake suggestions list a different language set." \
-             "re-run with one of: $supported_csv (or pick a different platform)." \
-             "--platform='$ARG_PLATFORM', --language='$ARG_LANGUAGE'"
-        return 1
+  # language validity for platform — walk CI pipeline templates and accept only
+  # languages whose template marker lists the requested platform. This mirrors
+  # the interactive flow's `# solo-orchestrator: platforms=` filter (init.sh
+  # collect_inputs around line 468-499) so non-interactive and interactive
+  # share the single source of truth.
+  #
+  # Audit code-init-sh-5 + specs-plans-init-intake-noninteractive-5: the
+  # previous probe asked the intake-suggestions JSON for a top-level
+  # `languages` array; none of the shipped files exposed one, so the check
+  # was a silent no-op and any --language value passed through.
+  local _supported_for_platform=""
+  local _ci_dir="$SCRIPT_DIR/templates/pipelines/ci/github"
+  if [ -d "$_ci_dir" ]; then
+    local _ci_yml _lname _marker _platforms_csv
+    for _ci_yml in "$_ci_dir"/*.yml; do
+      [ -f "$_ci_yml" ] || continue
+      _lname=$(basename "$_ci_yml" .yml)
+      # `other` is the catch-all fallback (matches interactive flow): always
+      # accept it regardless of platform marker.
+      if [ "$_lname" = "other" ]; then
+        _supported_for_platform="$_supported_for_platform $_lname"
+        continue
       fi
-    fi
+      _marker=$(head -1 "$_ci_yml")
+      _platforms_csv=""
+      case "$_marker" in
+        *"# solo-orchestrator: platforms="*)
+          _platforms_csv="${_marker#*platforms=}"
+          ;;
+      esac
+      if [ -z "$_platforms_csv" ]; then
+        # No marker — be permissive (matches interactive backwards-compat).
+        _supported_for_platform="$_supported_for_platform $_lname"
+      else
+        case ",$_platforms_csv," in
+          *",$ARG_PLATFORM,"*)
+            _supported_for_platform="$_supported_for_platform $_lname"
+            ;;
+        esac
+      fi
+    done
   fi
+  if [ -n "$_supported_for_platform" ]; then
+    case " $_supported_for_platform " in
+      *" $ARG_LANGUAGE "*) : ;;
+      *)
+        local _supported_csv
+        _supported_csv=$(echo "$_supported_for_platform" | tr ' ' '\n' \
+                         | awk 'NF' | sort -u | paste -sd, - | sed 's/,/, /g')
+        fail "language '$ARG_LANGUAGE' is not supported for platform '$ARG_PLATFORM'" \
+             "no CI pipeline template (templates/pipelines/ci/github/<lang>.yml) lists $ARG_PLATFORM in its platforms marker for that language." \
+             "re-run with one of: $_supported_csv (or pick a different --platform)." \
+             "--platform='$ARG_PLATFORM', --language='$ARG_LANGUAGE'"
+        return 1 ;;
+    esac
+  fi
+
+  # OS-language compatibility (mirrors interactive Linux/Swift block at
+  # init.sh:506-537). Swift requires macOS (Xcode + Apple build toolchain).
+  case "$OS_TYPE" in
+    Linux)
+      case "$ARG_LANGUAGE" in
+        swift)
+          fail "language '$ARG_LANGUAGE' is not supported on $OS_TYPE for platform '$ARG_PLATFORM'" \
+               "Swift/iOS development requires macOS — Xcode and Apple's build toolchain are not available on Linux." \
+               "re-run on a macOS host, or pick a different --language." \
+               "--language='$ARG_LANGUAGE' on $OS_TYPE"
+          return 1 ;;
+      esac
+      ;;
+  esac
 
   # ----- Pass 3: resource validation -----
 

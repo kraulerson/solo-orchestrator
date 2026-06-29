@@ -1046,14 +1046,22 @@ run_section_6() {
       mobile_offline=$(prompt_with_suggestions "Offline strategy" "offline_strategy" "Offline tolerant")
       save_answer "mobile_offline" "$mobile_offline"
       ;;
-    cli)
-      local cli_distribution
-      cli_distribution=$(prompt_with_suggestions "Distribution method" "distribution" "")
-      save_answer "cli_distribution" "$cli_distribution"
+    mcp_server)
+      # Audit specs-plans-init-intake-noninteractive-3: aligns wizard with the
+      # 2026-04-25 non-interactive spec + the shipped mcp_server.json
+      # suggestion file (the older `cli` branch referenced a never-created
+      # cli.json and silently fell through).
+      local mcp_server_transport
+      mcp_server_transport=$(prompt_with_suggestions "Transport" "transport" "")
+      save_answer "mcp_server_transport" "$mcp_server_transport"
 
-      local cli_ui
-      cli_ui=$(prompt_with_suggestions "Interface style" "ui_framework" "")
-      save_answer "cli_ui" "$cli_ui"
+      local mcp_server_sdk
+      mcp_server_sdk=$(prompt_with_suggestions "MCP SDK" "mcp_sdk" "")
+      save_answer "mcp_server_sdk" "$mcp_server_sdk"
+
+      local mcp_server_persistence
+      mcp_server_persistence=$(prompt_with_suggestions "Persistence" "persistence" "")
+      save_answer "mcp_server_persistence" "$mcp_server_persistence"
       ;;
   esac
 
@@ -1787,7 +1795,11 @@ ask_project_context() {
     PROJECT_DESCRIPTION=$(prompt_input "One-sentence description" "")
   fi
   if [ -z "$PLATFORM" ]; then
-    PLATFORM=$(prompt_choice "Platform:" "web" "desktop" "mobile" "cli" "other")
+    # Audit specs-plans-init-intake-noninteractive-3: the shipped suggestion
+    # files cover web/desktop/mobile/mcp_server (not `cli`). Keep the prompt
+    # aligned with the actually-shipped set so prompt_with_suggestions can
+    # resolve the correct platform suggestions file.
+    PLATFORM=$(prompt_choice "Platform:" "web" "desktop" "mobile" "mcp_server" "other")
   fi
   if [ -z "$TRACK" ]; then
     TRACK=$(prompt_choice "Track:" "light" "standard" "full")

@@ -1,5 +1,6 @@
 {
   "platform": "mobile",
+  "languages": ["dart", "kotlin", "other", "swift", "typescript"],
   "suggestions": {
     "authentication": {
       "dart": [

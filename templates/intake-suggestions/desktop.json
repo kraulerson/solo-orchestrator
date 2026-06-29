@@ -1,5 +1,6 @@
 {
   "platform": "desktop",
+  "languages": ["csharp", "go", "java", "kotlin", "other", "python", "rust", "swift", "typescript"],
   "suggestions": {
     "authentication": {
       "typescript": [
