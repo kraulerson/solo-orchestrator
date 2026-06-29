@@ -133,6 +133,50 @@ _is_git_commit() {
   echo "$1" | grep -qE '(^|[^"'\''])git[[:space:]]+commit\b'
 }
 
+# tests-precommit-process-2: classify a Bash command as an actual
+# `git push --force` (or `-f`) invocation. The previous pattern
+# `\bgit\b.*\bpush\b.*(-f|--force)` over-matched any command line
+# containing all three substrings — false-positives on quoted search
+# strings (`rg "git push --force" docs/`) and read-only git operations
+# against files whose paths embed the phrase
+# (`git diff docs/git-push-force-recovery.md`). Tightened classifier
+# mirrors the BL-020 shape:
+#   - `push` must come immediately after `git` (separated only by
+#     whitespace), ruling out `git diff <push-named-path>`.
+#   - `git` must NOT be preceded by a quote, ruling out search strings.
+#     Start-of-line and shell separators (`;`/`&&`/`|`) are allowed.
+#   - `-f` / `--force` must appear AFTER `git push` and must not itself
+#     be inside a quoted string. We accept any token starting with `-f`
+#     (catches `-f`, `--force`, `--force-with-lease`) provided it is
+#     preceded by whitespace.
+_is_git_push_force() {
+  # Step 1: `git push` must appear at command-start (or after a shell
+  # separator), NOT preceded by a quote. This rules out quoted search
+  # strings like `rg "git push --force" docs/` AND `git diff` on files
+  # whose paths embed the phrase (the latter starts with `git diff`,
+  # not `git push`, so the anchor naturally rejects it).
+  echo "$1" | grep -qE '(^|[^"'\''])git[[:space:]]+push([[:space:]]|$)' || return 1
+  # Step 2: a `-f` or `--force` flag must appear somewhere in the
+  # command line. Combined with step 1 (push as the git subcommand)
+  # this restricts the match to real force-push invocations. We do not
+  # require the flag to be unquoted here — step 1 already excludes the
+  # principal false-positive (quoted `git push ...` search strings)
+  # because the leading `rg "` puts a quote before `git`. We accept
+  # `-f` (whole word) and `--force` (prefix, so `--force-with-lease`
+  # is also blocked, matching the original BL-020-predecessor behavior).
+  echo "$1" | grep -qE '(^|[[:space:]])(-f([[:space:]]|$)|--force)'
+}
+
+# tests-precommit-process-3: classify a Bash command as an actual
+# `gh pr create` invocation. The previous pattern
+# `\bgh\b.*\bpr\b.*\bcreate\b` over-matched any command line containing
+# all three substrings — same defect class as BL-020. Tightened to
+# require `pr` immediately after `gh` and `create` immediately after
+# `pr`, and to reject leading-quote contexts.
+_is_gh_pr_create() {
+  echo "$1" | grep -qE '(^|[^"'\''])gh[[:space:]]+pr[[:space:]]+create\b'
+}
+
 # Block agent-initiated SOIF_FORCE_STEP bypass (match assignment, not diagnostic reads)
 if echo "$COMMAND" | grep -qE 'SOIF_FORCE_STEP='; then
   cat << HOOKEOF
@@ -226,7 +270,7 @@ pa_check() {
   # Only applies to git commit or gh pr create. Other commands fall through.
   local is_commit=false is_pr=false
   _is_git_commit "$COMMAND" && is_commit=true
-  echo "$COMMAND" | grep -qE '\bgh\b.*\bpr\b.*\bcreate\b' && is_pr=true
+  _is_gh_pr_create "$COMMAND" && is_pr=true
   [ "$is_commit" = false ] && [ "$is_pr" = false ] && return 0
 
   local sentinel=".claude/pending-approval.json"
@@ -458,8 +502,11 @@ lints_check() {
 lints_check
 # --- end cycle-8 slot-5 block ---
 
-# Block git push --force (overwrites branch history)
-if echo "$COMMAND" | grep -qE '\bgit\b.*\bpush\b.*(-f|--force)'; then
+# Block git push --force (overwrites branch history).
+# Uses _is_git_push_force (defined above) — tightened classifier that
+# ignores quoted search strings and read-only git operations against
+# files whose paths embed the phrase. See tests-precommit-process-2.
+if _is_git_push_force "$COMMAND"; then
   cat << HOOKEOF
 {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "Force push overwrites branch history and can destroy audit evidence. Use normal push. If you need to rewrite history, ask the Orchestrator."}}
 HOOKEOF
@@ -479,7 +526,7 @@ IS_COMMIT=false
 IS_PR=false
 if _is_git_commit "$COMMAND"; then
   IS_COMMIT=true
-elif echo "$COMMAND" | grep -qE '\bgh\b.*\bpr\b.*\bcreate\b'; then
+elif _is_gh_pr_create "$COMMAND"; then
   IS_PR=true
 fi
 

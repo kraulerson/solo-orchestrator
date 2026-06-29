@@ -131,6 +131,91 @@ t6_grep_for_string_not_classified() {
   teardown_project
 }
 
+# --- tests-precommit-process-3: gh pr create classifier pins ---
+# T7 positive: a real `gh pr create` invocation under the UAT-blocking
+# fixture must be classified as IS_PR and blocked (deny). T8 negative:
+# read-only `gh pr list` / `gh pr view` must NOT be classified and must
+# fall through with no deny. These pin the gate's gh-pr-create classifier
+# regex against accidental regressions (same defect class as BL-020).
+t7_real_gh_pr_create_classified() {
+  setup_uat_blocking_state
+  local out; out=$(run_hook 'gh pr create --title "feat: x" --body "..."')
+  if [[ "${out#*|}" != *'"permissionDecision": "deny"'* ]]; then
+    fail_ "T7" "expected deny for real 'gh pr create' under incomplete UAT; got: $out"
+    teardown_project; return
+  fi
+  pass "T7: 'gh pr create --title ... --body ...' classified as PR (blocked under UAT)"
+  teardown_project
+}
+
+t8_gh_pr_read_only_not_classified() {
+  setup_uat_blocking_state
+  local out
+  # gh pr list — read-only, must fall through.
+  out=$(run_hook 'gh pr list')
+  if [[ "${out#*|}" == *'"permissionDecision": "deny"'* ]]; then
+    fail_ "T8a" "false-positive: 'gh pr list' classified as PR-create; got: $out"
+    teardown_project; return
+  fi
+  # gh pr view 12 — read-only, must fall through.
+  out=$(run_hook 'gh pr view 12')
+  if [[ "${out#*|}" == *'"permissionDecision": "deny"'* ]]; then
+    fail_ "T8b" "false-positive: 'gh pr view 12' classified as PR-create; got: $out"
+    teardown_project; return
+  fi
+  pass "T8: 'gh pr list' / 'gh pr view 12' NOT classified as PR-create (read-only)"
+  teardown_project
+}
+
+# --- tests-precommit-process-2: git push --force classifier pins ---
+# T9 positive: real `git push --force origin main` must be classified
+# and denied. T10 chained: `cd /x && git push -f origin feat` must
+# still be denied. T11 negative: docs grep / git diff against a doc
+# file whose path or contents contain the words "git push --force"
+# must NOT be classified. Mirrors the BL-020 pattern (start-anchored,
+# not preceded by a quote) so the regex catches real invocations and
+# ignores quoted/argument contexts.
+t9_real_git_push_force_classified() {
+  setup_uat_blocking_state
+  local out; out=$(run_hook 'git push --force origin main')
+  if [[ "${out#*|}" != *'"permissionDecision": "deny"'* ]]; then
+    fail_ "T9" "expected deny for real 'git push --force'; got: $out"
+    teardown_project; return
+  fi
+  pass "T9: 'git push --force origin main' classified as force-push (blocked)"
+  teardown_project
+}
+
+t10_chained_git_push_force_classified() {
+  setup_uat_blocking_state
+  local out; out=$(run_hook 'cd /tmp && git push -f origin feat')
+  if [[ "${out#*|}" != *'"permissionDecision": "deny"'* ]]; then
+    fail_ "T10" "expected deny for chained 'cd && git push -f'; got: $out"
+    teardown_project; return
+  fi
+  pass "T10: 'cd /tmp && git push -f origin feat' classified (chained invocation)"
+  teardown_project
+}
+
+t11_docs_grep_for_push_force_not_classified() {
+  setup_uat_blocking_state
+  local out
+  # Quoted search string mentioning the dangerous command — must fall through.
+  out=$(run_hook 'rg "git push --force" docs/')
+  if [[ "${out#*|}" == *'"permissionDecision": "deny"'* ]]; then
+    fail_ "T11a" "false-positive: 'rg \"git push --force\" docs/' classified as force-push; got: $out"
+    teardown_project; return
+  fi
+  # Read-only git diff against a doc file whose path mentions push/force.
+  out=$(run_hook 'git diff docs/git-push-force-recovery.md')
+  if [[ "${out#*|}" == *'"permissionDecision": "deny"'* ]]; then
+    fail_ "T11b" "false-positive: 'git diff <push-force-named-path>' classified as force-push; got: $out"
+    teardown_project; return
+  fi
+  pass "T11: docs grep + git diff on force-named files NOT classified as force-push"
+  teardown_project
+}
+
 echo "== tests/test-pre-commit-gate-classifier.sh =="
 t1_real_git_commit_classified
 t2_chained_git_commit_classified
@@ -138,6 +223,11 @@ t3_git_diff_on_commit_named_file_not_classified
 t4_git_log_on_commit_named_file_not_classified
 t5_git_blame_on_commit_named_file_not_classified
 t6_grep_for_string_not_classified
+t7_real_gh_pr_create_classified
+t8_gh_pr_read_only_not_classified
+t9_real_git_push_force_classified
+t10_chained_git_push_force_classified
+t11_docs_grep_for_push_force_not_classified
 
 echo ""
 echo "== Total: $((PASSED + FAILED)) | Passed: $PASSED | Failed: $FAILED =="
