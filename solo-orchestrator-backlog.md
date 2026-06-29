@@ -836,3 +836,232 @@ PR #87's fix-commit added a minimum-viable WARN at the elif branch (`commit_auth
 - T-blame-3: Bob commits Alice's approval row on her behalf (legitimate organizational approval). MUST NOT FAIL (commit author differs from approver).
 
 **Why deferred (not in PR #87 fix-commit):** the WARN is sufficient to remove the silent-pass surface; the blame-walker is ~30 lines of new code with three new tests, exceeding the scope of a verifier-feedback fix-commit. Schedule for cycle 8.
+
+---
+
+## BL-034: Wire orphan tests into aggregators (Wave 1-4 cohort)
+
+**Logged:** 2026-06-28 (test integrity audit)
+**Category:** Test infrastructure / regression coverage
+**Severity:** High
+**Status:** Open
+
+Of the 17 test files added in Wave 1-4 (PRs #83-#97 plus follow-up fixers 2d5f917, 33e351e), only **1** (`tests/test-platform-mobile-mcp-docs.sh` via PR #86) is invoked by any aggregator. The remaining 16 test files execute only via direct `bash tests/test-foo.sh` — no aggregator, no CI, no pre-commit-gate runs them. Regressions in intake-wizard, reconfigure, bypass-audit, check-phase-gate, host drivers (gitlab approvals, host_verify_protection date-parse), pending-approval resolve-decision, verify-install fix-functions, upgrade-interruption + sentinel-block, lint scripts, and the host-aware quartet plan are all silent.
+
+**Files needing registration** (full list in `Reports/2026-06-28-test-integrity-audit.md` §4):
+
+- `tests/edge-cases-pre-init.sh` (extended PR #88)
+- `tests/edge-cases-scripts.sh` (extended PR #89)
+- `tests/edge-cases-upgrade-input.sh` (extended PR #85)
+- `tests/test-intake-wizard-fixes.sh` (PR #83)
+- `tests/test-reconfigure-field-handlers.sh` (PR #84)
+- `tests/test-bypass-audit-tmp-hardening.sh` (PR #93)
+- `tests/test-bypass-audit-trap-isolation.sh` (verifier fix 2d5f917)
+- `tests/test-bypass-detector-session-id.sh` (PR #93)
+- `tests/test-check-phase-gate-noninteractive.sh` (PR #87)
+- `tests/test-check-phase-gate-self-approval.sh` (PR #87)
+- `tests/test-gitlab-ci-status-stderr-approvals.sh` (PR #91)
+- `tests/test-host-verify-protection-date-parse.sh` (PR #93)
+- `tests/test-pending-approval-resolve-decision.sh` (PR #87)
+- `tests/test-verify-install-fix-functions.sh` (PR #92)
+- `tests/test-upgrade-interruption.sh` (PR #95)
+- `tests/test-upgrade-sentinel-block.sh` (PR #95)
+- `tests/test-lint-fix-functions-stderr.sh` (PR #96)
+- `tests/test-lint-raw-read-prompt.sh` (PR #96)
+- `tests/test-specs-plans-host-aware-quartet.sh` (PR #97)
+- `tests/test-prompt-install-noninteractive.sh` (verifier fix 33e351e)
+
+**Action:** Add explicit `bash "$SCRIPT_DIR/tests/test-*.sh"` invocations to `tests/full-project-test-suite.sh` under new TEST sections. For tests currently RED on main (E50, prompt_install harness — see BL-039), invoke them but mark expected-fail until the underlying bugs land.
+
+**Bundle with:** BL-036 (critical-tautology fixes need to run when added). BL-038 (test-registration lint gate prevents recurrence).
+
+**Related:** `Reports/2026-06-28-test-integrity-audit.md` §4 (runner registration gap), §7 Slot 1.
+
+---
+
+## BL-035: Wire orphan tests into aggregators (pre-Wave 1-4 backlog)
+
+**Logged:** 2026-06-28 (test integrity audit)
+**Category:** Test infrastructure / regression coverage
+**Severity:** Medium
+**Status:** Open
+
+Approximately 50 `tests/test-*.sh` files predate Wave 1-4 and are not invoked by any aggregator. Coverage for BL-029 (governance log integrity), BL-030 (calibration replay + bypass-audit), counter-sanitizers, init non-interactive (BL-016 — 26 unit tests per the 2026-04-25 plan), pre-commit-gate classifier (BL-020/021), and the bypass-audit family is all silent.
+
+Notable orphans (non-exhaustive — full list in `Reports/2026-06-28-test-integrity-audit.md` Step 4 enumeration):
+- `test-bl029-integration.sh`, `test-bl030-calibration-replay.sh`, `test-bypass-audit-{integrity,lib,schema}.sh`
+- `test-check-phase-gate-counter-sanitizer.sh`, `test-check-phase-gate.sh`
+- `test-init-non-interactive.sh`, `test-init-atomic-finalize.sh`, `test-init-schema-phase-gate.sh`
+- `test-pre-commit-gate-classifier.sh`, `test-pre-commit-gate-lints.sh`, `test-pre-commit-gate-terminal-mode.sh`
+- `test-upgrade-paths.sh` (NOT the aggregator `tests/upgrade-path-tests.sh` — easily confused)
+- `test-upgrade-bl030-backfill.sh`, `test-upgrade-project-atomic.sh`, `test-upgrade-to-production-{preconditions,warn}.sh`
+- `test-validate-counter-sanitizer.sh`, `test-test-gate-counter-sanitizer.sh`, `test-test-gate-null-handling.sh`
+- `test-bypass-detector.sh`, `test-bypass-patterns.sh`, `test-bypass-sentinel.sh`
+- `test-pending-approval.sh`, `test-escalate-to-user.sh`, `test-out-of-band-detector.sh`
+- `test-enforcement-level-{init,lib,reconfigure}.sh`
+- `test-vendored-skills-install.sh`, `test-record-claude-commit.sh`, `test-unrecord-feature.sh`
+- `test-filesystem-gate-install.sh`, `test-gate-principles.sh`, `test-github-free-tier-403.sh`
+- `test-poc-modes.sh`, `test-phase-finalize.sh`, `test-process-checklist-{auto-advance,classifier}.sh`
+
+**Action:** Audit each orphan. For each, decide: (a) add to an aggregator, (b) merge logic into an existing aggregator's inline assertions, or (c) delete if redundant. Submit as one PR with a disposition table.
+
+**Schedule:** After BL-034 lands (so the Wave 1-4 cohort is the proven pattern to mirror).
+
+**Confusable filename warning:** `tests/test-upgrade-paths.sh` (orphan test file) vs `tests/upgrade-path-tests.sh` (top-level aggregator). Anyone scanning for upgrade coverage may see two hits and assume the test is registered.
+
+**Related:** `Reports/2026-06-28-test-integrity-audit.md` §4, §7 Slot 4.
+
+---
+
+## BL-036: Fix critical vacuous assertions in edge-cases suite
+
+**Logged:** 2026-06-28 (test integrity audit)
+**Category:** Bug / test integrity
+**Severity:** Critical
+**Status:** Open
+
+Three tests in the edge-cases suite are tautological by construction. The corresponding product behaviors have **zero regression coverage** on `main` — a regression could be merged today with no signal.
+
+**E31 (`tests/edge-cases-scripts.sh:1043`) — UAT upgrade refreshes templates:**
+The test never invokes `upgrade-project.sh`. The subshell at 1031-1042 inlines `cp "$REPO_DIR/templates/uat/..." tests/uat/...` then asserts the placeholder exists in the file just copied. Assertion is effectively `grep $X $X_COPY`. Identical shape to the audit's `tests-edge-cases-9` finding that was supposedly fixed in E21 — this is a structural regression.
+**Fix:** Rewrite to actually invoke `bash scripts/upgrade-project.sh --to-X` (or whichever subcommand handles UAT template refresh). Assert the placeholder is present in the project-side template AFTER the upgrade ran.
+
+**E32 (`tests/edge-cases-scripts.sh:1065`) — UAT upgrade migration is idempotent:**
+The loop at 1057-1064 runs the same `cp` twice. The diff at 1065-1066 compares destination to source — guaranteed identical by construction. `upgrade-project.sh`'s idempotency logic is never invoked.
+**Fix:** Invoke `upgrade-project.sh` twice. Snapshot project-side state after run 1, run 2, assert the second invocation is diff-clean against the snapshot.
+
+**E39 (`tests/edge-cases-upgrade-input.sh:970`) — newlines preserved:**
+Both branches of the inner if/else call pass(). A regression that silently strips the newline AND "line1" still PASSes the else branch with 'handled (stored as: ...)'.
+**Fix:** Collapse to a single positive assertion: `grep -q $'^line1\nline2$'` against the saved file (exact two-line round-trip).
+
+**Verification protocol:** For each rewrite, perform a deliberate mutation test — break the product code, confirm the test FAILS, restore the product code, confirm the test PASSes. Capture in PR description.
+
+**Bundle with:** BL-034 (rewritten tests need to be registered in an aggregator to fire).
+
+**Related:** `Reports/2026-06-28-test-integrity-audit.md` §2 (LB-4/5/6), §3.1, §7 Slot 2.
+
+---
+
+## BL-037: Fix major vacuous assertions across test suite
+
+**Logged:** 2026-06-28 (test integrity audit)
+**Category:** Bug / test integrity
+**Severity:** High
+**Status:** Open
+
+15 major-severity findings across edge-cases, verify-install, prompt-install, snapshot-retention, intake-wizard, and self-approval tests use either catch-all `else pass: handled` branches or negative-only oracles (`! grep -q deny`, no positive assertion). Each will silently pass on a crash or on garbage output.
+
+**Tighten each assertion to require a POSITIVE signal:**
+
+- **E33** (SQL injection, `edge-cases-upgrade-input.sh:641`): pin the exact sanitized form (or documented cap length). Reject the catch-all 'sanitized' branch.
+- **E34** (10K-char description, `:671`): pin exact stored length (`saved_len == 10000` or `saved_len == ${DESCRIPTION_CAP}`). A regression to 1 char must FAIL.
+- **E36** (Unicode, `:804`): pin exact stored bytes (UTF-8 roundtrip exact match).
+- **E37** (emoji, `:834`): same shape as E36.
+- **E40** (NUL byte, `:1010`): pin either `saved_value == "test\0value"` or the documented sanitization (e.g. NUL stripped → `saved_value == "testvalue"`).
+- **E12a/b** (resume.sh + missing/empty CLAUDE.md, `edge-cases-scripts.sh:216, :231`): require `[ $? -eq 0 ]` (clean exit) AND a specific positive output substring. Remove magic-keyword negative oracle.
+- **E25a/b/c** (validate/check-phase-gate/resume on phase=99, `:906, :920, :926`): same fix — require rc==expected AND positive output.
+- **E27/E28/E29** (UAT init reference pair, `:983` and following): assert BOTH halves of the reference pair (`pre-flight-reference.html` AND `scenario-reference.json`).
+- **test-verify-install-fix-functions.sh T6-T10** (`:197, :208, :219, :231, :242`): require the positive fail/manual line (mirror T5's tightened oracle at `:175-178`).
+- **test-prompt-install-noninteractive.sh T1/T2/T3** (`:137`): add `type prompt_install >/dev/null || fail` before each test; assert rc==1 specifically (not just rc!=0). Currently a missing function passes with rc=127.
+- **test-upgrade-interruption.sh T2** (`:240`): remove the `if [ -d "$TMPDIR_T/.claude/upgrade-snapshots" ]; then ... fi` wrap. Make the dir's presence a hard requirement (otherwise the snapshot infrastructure can be silently broken — see LB-7).
+- **test-intake-wizard-fixes.sh T1** (`:81`): replace the tautological shell-parameter-expansion check (`${wiz_line%%:*} != $tpl_num` — unreachable because awk already filtered on `$1 == n`) with an actual title comparison using `wiz_title` against `tpl_title`.
+- **test-check-phase-gate-self-approval.sh T3** (`:141`): remove the `else pass` branch on absence-of-message. Require the WARN substring as a positive condition. Currently both elif (WARN matched) and else (no message) pass — a regression dropping the WARN passes silently.
+
+**Verification protocol:** Same mutation-test discipline as BL-036 — break the underlying product code, confirm the tightened test FAILS, restore, confirm GREEN.
+
+**Bundle with:** BL-034 (tightened tests need to be registered to matter). Consider splitting into 4 sub-PRs by area if line count exceeds ~300.
+
+**Related:** `Reports/2026-06-28-test-integrity-audit.md` §3.1, §3.2, §3.3, §3.4, §7 Slot 3.
+
+---
+
+## BL-038: Mandate runner-registration check for new test files
+
+**Logged:** 2026-06-28 (test integrity audit)
+**Category:** Test infrastructure / preventive control
+**Severity:** Medium
+**Status:** Open
+
+The pattern of 'PR adds a test file, PR merges, test never runs' is now a systemic risk, not a one-off mistake. 16 of 17 Wave 1-4 test files landed without aggregator registration. Without an automated gate, the next wave will reproduce the same issue.
+
+**Action:** Add a lint script `scripts/lint-tests-registered.sh` that:
+1. Enumerates `tests/*.sh` (excluding aggregators and helpers via an allowlist).
+2. Greps each top-level aggregator (`full-project-test-suite.sh`, `edge-case-test-suite.sh`, `known-bugs-test-suite.sh`, `upgrade-path-tests.sh`, `host-drivers/run-all.sh`) for invocation of each basename.
+3. FAILs the gate if any test file is not invoked by any aggregator.
+4. Provides override mechanism: `# LINT_TEST_REGISTRATION_EXEMPT: <reason>` magic comment in the test header (e.g. for slow / network-dependent / manual-only tests).
+
+Wire into `.github/workflows/lint.yml` and `scripts/pre-commit-gate.sh` alongside the existing lint scripts (counter-antipattern, backlog-references, fix-functions-stderr, raw-read-prompt).
+
+Add self-test `tests/test-lint-tests-registered.sh` covering: (a) all-registered fixture passes, (b) one-orphan fixture fails, (c) exempted-orphan fixture passes, (d) malformed exempt comment is rejected.
+
+**Bundle with:** BL-034 (the gate cannot be enabled until existing orphans are dispositioned). Land BL-034 + BL-035 first, then turn the gate on.
+
+**Related:** `Reports/2026-06-28-test-integrity-audit.md` §4, §7 Slot 6.
+
+---
+
+## BL-039: Resolve LB-1 — fix the underlying bug behind E50 (BL-016 non-interactive init)
+
+**Logged:** 2026-06-28 (test integrity audit)
+**Category:** Bug / live product defect
+**Severity:** High
+**Status:** Open
+
+E50 in `tests/edge-cases-scripts.sh` (BL-016 init.sh non-interactive suite) is acknowledged as failing on `main` per the PR #89 implementer note. The assistant who added the test did not fix the underlying bug nor remove the assertion. The product code path (`init.sh --non-interactive`) does not satisfy the contract E50 pins.
+
+Because E50 is in an orphan test file (`edge-cases-scripts.sh` is not invoked by any aggregator — see BL-034), the failure is invisible to CI. The only way it surfaces today is if a developer manually runs the edge-cases file.
+
+**Action:**
+1. Debug E50 in isolation: `bash tests/edge-cases-scripts.sh 2>&1 | grep -A20 'E50'`.
+2. Determine whether the contract E50 pins is correct.
+   - If correct: fix `scripts/init.sh` non-interactive code path to satisfy the contract.
+   - If the contract is wrong (e.g. the spec changed): update the test AND document the contract change in `docs/builders-guide.md`.
+3. Do not delete the test silently — if it's removed, capture the decision in this BL closure.
+4. Verify E50 GREEN before closing.
+
+**Dependencies:** BL-034 must register `edge-cases-scripts.sh` in an aggregator so the GREEN state is enforced going forward. Land BL-034 first (with E50 marked expected-fail), then this BL flips it to expected-pass.
+
+**Related:** `Reports/2026-06-28-test-integrity-audit.md` §2 (LB-1), §7 Slot 5. PR #89 implementer note.
+
+---
+
+## BL-040: Resolve LB-2 — `init.sh:2781` dry_run_summary omits the description
+
+**Logged:** 2026-06-28 (test integrity audit)
+**Category:** Bug / live product defect (low-impact UX)
+**Severity:** Medium
+**Status:** Open
+
+E2 in `tests/edge-cases-pre-init.sh` is left as SKIP because `scripts/init.sh:2781` (`dry_run_summary`) does not echo the project description that the user supplied. The literal-text-preservation guarantee that E2 wants to verify is absent in the product code — there is nothing on stdout to grep against.
+
+**Action:**
+1. Read `scripts/init.sh:2781` (`dry_run_summary` function).
+2. Add the description field to the function's emitted output (likely a line like `echo "Description: ${project_description}"` near the other summary fields).
+3. Verify by running `bash scripts/init.sh --dry-run --project-name foo --description "My test description"` — confirm the description appears.
+4. Remove the SKIP in `tests/edge-cases-pre-init.sh` E2; restore the assertion.
+5. Confirm E2 PASSes.
+
+**Dependencies:** BL-034 (register `edge-cases-pre-init.sh` in an aggregator) and BL-041 (LB-3 framework-repo guard layering — required to actually run E2 from inside the framework repo).
+
+**Related:** `Reports/2026-06-28-test-integrity-audit.md` §2 (LB-2), §7 Slot 5.
+
+---
+
+## BL-041: Resolve LB-3 — `init.sh:3494` framework-repo guard layering
+
+**Logged:** 2026-06-28 (test integrity audit)
+**Category:** Bug / live product defect (test-harness blocker)
+**Severity:** Medium
+**Status:** Open
+
+The framework-repo guard at `scripts/init.sh:3494` runs before the write-permission preflight. When the test harness invokes init.sh from inside the framework checkout (which is how `tests/edge-cases-pre-init.sh` is structured), the guard refuses any non-dry-run invocation before the preflight can fire. E8b is SKIPed as a consequence — there is no way to exercise the write-permission failure path under the current layering.
+
+**Action (preferred — option (a)):** Reorder the checks in `init.sh` so the write-permission preflight runs first (operator-facing check fires before developer-facing guard). The preflight should not depend on any state mutated by the guard.
+
+**Action (fallback — option (b)):** If reordering is structurally infeasible, rewrite the test harness to copy the relevant files into a tmpdir and run init.sh from there (non-framework-repo layout). This is less preferred because (i) it duplicates fixture setup work in every affected test, (ii) it weakens the test's representativeness vs. the operator scenario.
+
+**Verification:** After the fix, remove the SKIP on E8b and confirm the assertion fires correctly (a deliberately read-only destination should cause init.sh to FAIL on the write-permission preflight, not on the framework-repo guard).
+
+**Dependencies:** Lands E8b only after BL-034 (registers `edge-cases-pre-init.sh` in an aggregator).
+
+**Related:** `Reports/2026-06-28-test-integrity-audit.md` §2 (LB-3), §7 Slot 5.
