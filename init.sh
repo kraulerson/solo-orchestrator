@@ -730,12 +730,33 @@ resolve_and_install_tools() {
   echo -e "${BOLD}└──────────────────────────────────────────────────────────┘${NC}"
   echo ""
 
-  # Confirm — skip prompt when there is nothing to install
+  # Confirm — skip prompt when there is nothing to install.
+  # BL-057: honor NON_INTERACTIVE + AUTO_INSTALL_TOOLS so the --non-interactive
+  # contract is upheld (closed stdin + `set -euo pipefail` + bare `read -rp`
+  # previously terminated the script silently with rc=1 the moment the resolved
+  # plan included an auto_install or manual_install entry — surfaced as a
+  # Step-5 dogfood DOGFOOD-001 on --platform mobile via Android Studio's
+  # auto_install row).
   local response="Y"
   if [ "$auto_count" -gt 0 ] || [ "$manual_count" -gt 0 ]; then
-    read -rp "$(echo -e "${YELLOW}▶ ${BOLD}Proceed with this plan? [Y/n]${NC}: ")" response # lint-raw-read-prompt: allow init.sh interactive-only tool-install plan; NON_INTERACTIVE path uses AUTO_INSTALL_TOOLS env var rather than this prompt
+    if [ "$NON_INTERACTIVE" = true ]; then
+      response="${AUTO_INSTALL_TOOLS:-Y}"
+    else
+      read -rp "$(echo -e "${YELLOW}▶ ${BOLD}Proceed with this plan? [Y/n]${NC}: ")" response # lint-raw-read-prompt: allow init.sh interactive-only tool-install plan; NON_INTERACTIVE branch above honors AUTO_INSTALL_TOOLS env var
+    fi
   fi
   if [[ "$response" =~ ^[Nn] ]]; then
+    # BL-057: under NON_INTERACTIVE, the user has already expressed an
+    # explicit decline via AUTO_INSTALL_TOOLS=N. Dropping into the
+    # interactive prompt_choice sub-menu (which assumes a TTY) would hang
+    # or surface a confusing EOF diagnostic. Skip the auto-install plan
+    # and let init.sh proceed with whatever is already present — anything
+    # truly required will be re-flagged at the phase-gate check.
+    if [ "$NON_INTERACTIVE" = true ]; then
+      print_info "AUTO_INSTALL_TOOLS=N — skipping tool auto-installation. Missing tools will be re-flagged at the next phase gate."
+      auto_count=0
+      return 0
+    fi
     echo ""
     local config_choice
     config_choice=$(prompt_choice "What would you like to do?" \
