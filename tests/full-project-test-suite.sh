@@ -150,9 +150,20 @@ fi
 #     front when the classification is missing, redirecting to reconfigure.
 section "Phase 1→2 ZDR / data_classification hard gate (tier-crosscheck-6)"
 if bash "$SCRIPT_DIR/tests/test-tier-crosscheck-6-zdr-gate.sh" >/dev/null 2>&1; then
-  pass "tier-crosscheck-6 ZDR/data_classification hard gate tests (7/7)"
+  pass "tier-crosscheck-6 ZDR/data_classification hard gate tests (8/8)"
 else
   fail "tier-crosscheck-6 ZDR/data_classification hard gate tests FAILED (run tests/test-tier-crosscheck-6-zdr-gate.sh for details)"
+fi
+
+# tier-crosscheck-6 follow-up: atomicity + jq-failure regression suite
+# (adversarial verifier follow-up on PR #105). Three tests covering the
+# defects the original suite did not catch: SIGTERM mid-mutation in
+# reconfigure-project.sh, silent-success on jq failure in
+# intake-wizard.sh's --data-classification path and persist_phase1_artifacts().
+if bash "$SCRIPT_DIR/tests/test-tier-crosscheck-6-followup-atomicity-and-jq.sh" >/dev/null 2>&1; then
+  pass "tier-crosscheck-6 follow-up (atomicity + jq surfacing) tests (3/3)"
+else
+  fail "tier-crosscheck-6 follow-up tests FAILED (run tests/test-tier-crosscheck-6-followup-atomicity-and-jq.sh for details)"
 fi
 
 # ================================================================

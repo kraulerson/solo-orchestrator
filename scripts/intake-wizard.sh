@@ -1009,10 +1009,28 @@ persist_phase1_artifacts() {
   esac
   local tmp
   tmp=$(mktemp)
-  jq --arg c "$classification" --argjson a "$jq_bool" --arg r "$reason" \
-     '.phase1_artifacts = ((.phase1_artifacts // {}) +
-        {data_classification: $c, zdr_attested: $a, zdr_attestation_reason: $r})' \
-     "$pstate" > "$tmp" && mv "$tmp" "$pstate"
+  # PR #105 verifier follow-up: the prior implementation ran
+  # `jq ... > tmp && mv tmp pstate` followed by an unconditional
+  # `print_ok` — a malformed process-state.json produced "Phase 1
+  # artifacts persisted" on stdout and rc=0 even though jq's parse
+  # error went to stderr and the file was unchanged. Capture both
+  # exit codes and refuse to print success unless the chain actually
+  # succeeded.
+  if ! jq --arg c "$classification" --argjson a "$jq_bool" --arg r "$reason" \
+       '.phase1_artifacts = ((.phase1_artifacts // {}) +
+          {data_classification: $c, zdr_attested: $a, zdr_attestation_reason: $r})' \
+       "$pstate" > "$tmp"; then
+    rm -f "$tmp"
+    print_fail "  Phase 1 artifacts persistence failed: jq could not parse $pstate" >&2
+    echo "  Remediation: inspect $pstate for malformed JSON (truncation, stray characters)." >&2
+    echo "  If the file is unrecoverable, restore from a .bak or re-run scripts/init.sh." >&2
+    return 1
+  fi
+  if ! mv "$tmp" "$pstate"; then
+    rm -f "$tmp"
+    print_fail "  Phase 1 artifacts persistence failed: mv into $pstate failed (cross-filesystem? read-only?)" >&2
+    return 1
+  fi
   print_ok "  Phase 1 artifacts persisted to process-state.json (classification=$classification, zdr_attested=$attested)"
 }
 
@@ -2029,19 +2047,36 @@ main() {
       _tc6_attested_json="false"
       [ "$TC6_ATTESTED" = "true" ] && _tc6_attested_json="true"
       _tc6_tmp=$(mktemp)
-      jq --arg c "$TC6_CLASSIFICATION" --argjson a "$_tc6_attested_json" --arg r "$TC6_REASON" \
-         '.phase1_artifacts = ((.phase1_artifacts // {}) +
-            (if $c != "" then {data_classification: $c} else {} end) +
-            (if $a == true then {zdr_attested: true} else {} end) +
-            (if $r != "" then {zdr_attestation_reason: $r} else {} end))' \
-         .claude/process-state.json > "$_tc6_tmp" && mv "$_tc6_tmp" .claude/process-state.json
+      # PR #105 verifier follow-up: the prior implementation chained
+      # `jq ... > tmp && mv tmp pstate` and then unconditionally printed
+      # "Phase 1 artifacts updated" + exit 0. A malformed
+      # process-state.json produced jq's parse error on stderr, the
+      # success message on stdout, and rc=0 — operator told the write
+      # succeeded when nothing had been written. Surface failure now.
+      if ! jq --arg c "$TC6_CLASSIFICATION" --argjson a "$_tc6_attested_json" --arg r "$TC6_REASON" \
+           '.phase1_artifacts = ((.phase1_artifacts // {}) +
+              (if $c != "" then {data_classification: $c} else {} end) +
+              (if $a == true then {zdr_attested: true} else {} end) +
+              (if $r != "" then {zdr_attestation_reason: $r} else {} end))' \
+           .claude/process-state.json > "$_tc6_tmp"; then
+        rm -f "$_tc6_tmp"
+        echo "[FAIL] intake-wizard.sh: could not update .claude/process-state.json — jq parse failure." >&2
+        echo "  Remediation: inspect .claude/process-state.json for malformed JSON (truncation, stray characters)." >&2
+        echo "  If the file is unrecoverable, restore from a .bak or re-run scripts/init.sh." >&2
+        exit 1
+      fi
+      if ! mv "$_tc6_tmp" .claude/process-state.json; then
+        rm -f "$_tc6_tmp"
+        echo "[FAIL] intake-wizard.sh: mv into .claude/process-state.json failed (cross-filesystem? read-only?)." >&2
+        exit 1
+      fi
       echo "Phase 1 artifacts updated in .claude/process-state.json:"
       echo "  data_classification    = '${TC6_CLASSIFICATION:-(unchanged)}'"
       echo "  zdr_attested           = '${TC6_ATTESTED:-(unchanged)}'"
       echo "  zdr_attestation_reason = '${TC6_REASON:-(unchanged)}'"
       exit 0
     else
-      echo "Error: jq + .claude/process-state.json required for --data-classification / --zdr-* flags."
+      echo "Error: jq + .claude/process-state.json required for --data-classification / --zdr-* flags." >&2
       exit 1
     fi
   fi

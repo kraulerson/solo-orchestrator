@@ -669,11 +669,18 @@ reconfigure() {
           ;;
       esac
 
-      # Snapshot the two files we mutate. PR #93's lesson: traps are
-      # shell-global, so wrap the mutation in a subshell whose trap
-      # only fires on failures inside it. We use the subshell exit
-      # status as the rollback trigger; on rc != 0, restore from the
-      # snapshot dir captured in the outer scope.
+      # Snapshot the two files we mutate (process-state.json +
+      # APPROVAL_LOG.md) into a tempdir BEFORE installing any trap so
+      # the rollback path can rely on a complete pre-state.
+      #
+      # PR #105 verifier follow-up: the prior implementation here
+      # claimed to install an INT/TERM/ERR trap and subshell-wrap the
+      # mutation block but did neither — a signal arriving between the
+      # process-state.json rewrite and the APPROVAL_LOG.md append left
+      # process-state.json mutated, the audit row missing, and a
+      # snapshot tempdir leaked. This block now actually installs the
+      # trap + subshell envelope (PR #57's `finalize_and_commit` shape;
+      # PR #93's subshell-isolation lesson).
       classification_snap_dir=$(mktemp -d)
       mkdir -p "$classification_snap_dir/.claude"
       cp "$PSTATE" "$classification_snap_dir/.claude/process-state.json"
@@ -681,92 +688,149 @@ reconfigure() {
 
       _classification_rollback() {
         local reason="${1:-mutation aborted}"
-        cp "$classification_snap_dir/.claude/process-state.json" "$PSTATE"
-        [ -f "$classification_snap_dir/APPROVAL_LOG.md" ] && cp "$classification_snap_dir/APPROVAL_LOG.md" "$APPROVAL_LOG"
-        rm -rf "$classification_snap_dir"
-        print_fail "data_classification/ZDR mutation failed: $reason"
+        if [ -f "$classification_snap_dir/.claude/process-state.json" ]; then
+          cp "$classification_snap_dir/.claude/process-state.json" "$PSTATE"
+        fi
+        if [ -f "$classification_snap_dir/APPROVAL_LOG.md" ]; then
+          cp "$classification_snap_dir/APPROVAL_LOG.md" "$APPROVAL_LOG"
+        fi
+        print_fail "data_classification/ZDR mutation failed: $reason" >&2
         echo "  $PSTATE and APPROVAL_LOG.md rolled back to pre-mutation state." >&2
-        exit 1
       }
 
-      # Mutate process-state.json. jq's |=  + // {} idiom builds
-      # phase1_artifacts when it's absent.
-      pstate_tmp=$(mktemp)
-      case "$FIELD" in
-        data_classification)
-          jq --arg v "$NEW_VALUE" \
-             '.phase1_artifacts = ((.phase1_artifacts // {}) + {data_classification: $v})' \
-             "$PSTATE" > "$pstate_tmp" \
-            && mv "$pstate_tmp" "$PSTATE" \
-            || _classification_rollback "jq write failed for data_classification"
-          ;;
-        zdr_attested)
-          # Build a JSON bool from the canonical string.
-          if [ "$NEW_VALUE" = "true" ]; then jq_bool="true"; else jq_bool="false"; fi
-          if [ -n "$RECONF_REASON" ]; then
-            jq --argjson b "$jq_bool" --arg r "$RECONF_REASON" \
-               '.phase1_artifacts = ((.phase1_artifacts // {}) + {zdr_attested: $b, zdr_attestation_reason: $r})' \
-               "$PSTATE" > "$pstate_tmp" \
-              && mv "$pstate_tmp" "$PSTATE" \
-              || _classification_rollback "jq write failed for zdr_attested+reason"
-          else
-            jq --argjson b "$jq_bool" \
-               '.phase1_artifacts = ((.phase1_artifacts // {}) + {zdr_attested: $b})' \
-               "$PSTATE" > "$pstate_tmp" \
-              && mv "$pstate_tmp" "$PSTATE" \
-              || _classification_rollback "jq write failed for zdr_attested"
-          fi
-          ;;
-        zdr_attestation_reason)
-          jq --arg r "$NEW_VALUE" \
-             '.phase1_artifacts = ((.phase1_artifacts // {}) + {zdr_attestation_reason: $r})' \
-             "$PSTATE" > "$pstate_tmp" \
-            && mv "$pstate_tmp" "$PSTATE" \
-            || _classification_rollback "jq write failed for zdr_attestation_reason"
-          ;;
-      esac
-      print_ok "Updated $PSTATE::phase1_artifacts.$FIELD"
+      # Wrap the entire mutation block in a subshell. PR #93's lesson:
+      # `trap` is shell-global — if we installed INT/TERM/ERR in the
+      # outer shell we would clobber any trap a caller (or a sourced
+      # helper) had registered. The subshell isolates our trap so it
+      # only fires for signals/ERR arising inside our mutation window.
+      # The subshell's exit status is the rollback trigger for the
+      # outer shell.
+      (
+        # Inside the subshell: install the trap. On INT/TERM/ERR we
+        # call _classification_rollback (which restores the snapshot)
+        # and then exit non-zero so the outer shell propagates failure.
+        _trap_fire() {
+          local sig="$1"
+          _classification_rollback "trap fired ($sig)"
+          # 130 = 128 + SIGINT(2); 143 = 128 + SIGTERM(15). We use 130
+          # uniformly here so the outer shell can treat any trap exit
+          # as "operator interrupted".
+          exit 130
+        }
+        trap '_trap_fire INT'  INT
+        trap '_trap_fire TERM' TERM
+        trap '_trap_fire ERR'  ERR
 
-      # Append audit row to APPROVAL_LOG.md so the governance trail
-      # records the change. Required by tier-crosscheck-6 (compliance
-      # decisions must be auditable in the same log as phase-gate
-      # approvals). Append-only; existing entries are not modified.
-      if [ -f "$APPROVAL_LOG" ]; then
-        today_audit="$(date -u +%Y-%m-%d)"
+        # Mutate process-state.json. jq's // {} idiom builds
+        # phase1_artifacts when it's absent.
+        pstate_tmp=$(mktemp)
         case "$FIELD" in
           data_classification)
-            audit_line="| $today_audit | data_classification set | reconfigure-project.sh | Orchestrator | Applied | new value: $NEW_VALUE (tier-crosscheck-6) |"
+            if ! jq --arg v "$NEW_VALUE" \
+                 '.phase1_artifacts = ((.phase1_artifacts // {}) + {data_classification: $v})' \
+                 "$PSTATE" > "$pstate_tmp"; then
+              _classification_rollback "jq write failed for data_classification"
+              exit 1
+            fi
+            if ! mv "$pstate_tmp" "$PSTATE"; then
+              _classification_rollback "mv into $PSTATE failed (data_classification)"
+              exit 1
+            fi
             ;;
           zdr_attested)
-            audit_line="| $today_audit | zdr_attested set | reconfigure-project.sh | Orchestrator | Applied | new value: $NEW_VALUE${RECONF_REASON:+ (reason: $RECONF_REASON)} (tier-crosscheck-6) |"
+            if [ "$NEW_VALUE" = "true" ]; then jq_bool="true"; else jq_bool="false"; fi
+            if [ -n "$RECONF_REASON" ]; then
+              if ! jq --argjson b "$jq_bool" --arg r "$RECONF_REASON" \
+                   '.phase1_artifacts = ((.phase1_artifacts // {}) + {zdr_attested: $b, zdr_attestation_reason: $r})' \
+                   "$PSTATE" > "$pstate_tmp"; then
+                _classification_rollback "jq write failed for zdr_attested+reason"
+                exit 1
+              fi
+            else
+              if ! jq --argjson b "$jq_bool" \
+                   '.phase1_artifacts = ((.phase1_artifacts // {}) + {zdr_attested: $b})' \
+                   "$PSTATE" > "$pstate_tmp"; then
+                _classification_rollback "jq write failed for zdr_attested"
+                exit 1
+              fi
+            fi
+            if ! mv "$pstate_tmp" "$PSTATE"; then
+              _classification_rollback "mv into $PSTATE failed (zdr_attested)"
+              exit 1
+            fi
             ;;
           zdr_attestation_reason)
-            audit_line="| $today_audit | zdr_attestation_reason set | reconfigure-project.sh | Orchestrator | Applied | reason recorded: $NEW_VALUE (tier-crosscheck-6) |"
+            if ! jq --arg r "$NEW_VALUE" \
+                 '.phase1_artifacts = ((.phase1_artifacts // {}) + {zdr_attestation_reason: $r})' \
+                 "$PSTATE" > "$pstate_tmp"; then
+              _classification_rollback "jq write failed for zdr_attestation_reason"
+              exit 1
+            fi
+            if ! mv "$pstate_tmp" "$PSTATE"; then
+              _classification_rollback "mv into $PSTATE failed (zdr_attestation_reason)"
+              exit 1
+            fi
             ;;
         esac
-        # Insert into the Approval History section if it exists,
-        # otherwise append a new section.
-        if grep -q "^## Approval History" "$APPROVAL_LOG"; then
-          # Append to end of file (append-only — never mutate prior rows).
-          printf '%s\n' "$audit_line" >> "$APPROVAL_LOG" \
-            || _classification_rollback "APPROVAL_LOG.md append failed"
-        else
-          {
-            echo ""
-            echo "---"
-            echo ""
-            echo "## Approval History"
-            echo ""
-            echo "| Date | Gate / Event | Tool | Actor | Status | Details |"
-            echo "|---|---|---|---|---|---|"
-            echo "$audit_line"
-          } >> "$APPROVAL_LOG" \
-            || _classification_rollback "APPROVAL_LOG.md section append failed"
+        print_ok "Updated $PSTATE::phase1_artifacts.$FIELD"
+
+        # Append audit row to APPROVAL_LOG.md so the governance trail
+        # records the change. Required by tier-crosscheck-6 (compliance
+        # decisions must be auditable in the same log as phase-gate
+        # approvals). Append-only; existing entries are not modified.
+        if [ -f "$APPROVAL_LOG" ]; then
+          today_audit="$(date -u +%Y-%m-%d)"
+          case "$FIELD" in
+            data_classification)
+              audit_line="| $today_audit | data_classification set | reconfigure-project.sh | Orchestrator | Applied | new value: $NEW_VALUE (tier-crosscheck-6) |"
+              ;;
+            zdr_attested)
+              audit_line="| $today_audit | zdr_attested set | reconfigure-project.sh | Orchestrator | Applied | new value: $NEW_VALUE${RECONF_REASON:+ (reason: $RECONF_REASON)} (tier-crosscheck-6) |"
+              ;;
+            zdr_attestation_reason)
+              audit_line="| $today_audit | zdr_attestation_reason set | reconfigure-project.sh | Orchestrator | Applied | reason recorded: $NEW_VALUE (tier-crosscheck-6) |"
+              ;;
+          esac
+          # Insert into the Approval History section if it exists,
+          # otherwise append a new section.
+          if grep -q "^## Approval History" "$APPROVAL_LOG"; then
+            if ! printf '%s\n' "$audit_line" >> "$APPROVAL_LOG"; then
+              _classification_rollback "APPROVAL_LOG.md append failed"
+              exit 1
+            fi
+          else
+            if ! {
+              echo ""
+              echo "---"
+              echo ""
+              echo "## Approval History"
+              echo ""
+              echo "| Date | Gate / Event | Tool | Actor | Status | Details |"
+              echo "|---|---|---|---|---|---|"
+              echo "$audit_line"
+            } >> "$APPROVAL_LOG"; then
+              _classification_rollback "APPROVAL_LOG.md section append failed"
+              exit 1
+            fi
+          fi
+          print_ok "Appended audit row to APPROVAL_LOG.md"
         fi
-        print_ok "Appended audit row to APPROVAL_LOG.md"
+
+        # Subshell success — drop the traps and exit 0 so the outer
+        # shell discards the snapshot.
+        trap - INT TERM ERR
+        exit 0
+      )
+      classification_rc=$?
+      if [ "$classification_rc" -ne 0 ]; then
+        # The subshell already restored the snapshot via its trap +
+        # rollback path. Clean up the snapshot dir in the outer scope
+        # and propagate the failure.
+        rm -rf "$classification_snap_dir"
+        exit "$classification_rc"
       fi
 
-      # Success — drop the snapshot.
+      # Success — drop the snapshot dir.
       rm -rf "$classification_snap_dir"
       ;;
 
