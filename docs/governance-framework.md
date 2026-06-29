@@ -243,7 +243,7 @@ The Solo Orchestrator framework supports three governance modes, set at project 
 | Mode | Deployment | Phase 0 entry requires | Deferred until upgrade | Phase 4 |
 |---|---|---|---|---|
 | **Production Build** | personal or organizational | All 6 pre-conditions (AI deployment path, sponsor, insurance, liability, ITSM, exit criteria, backup maintainer) | None | Allowed |
-| **Sponsored POC** | organizational only | AI deployment path approved, sponsor assigned, time-boxed exit criteria documented (3 of 6) | Insurance clearance, liability entity, ITSM integration, backup maintainer (5 of 6 minus the 3 required = the remainder) | **Blocked** until `scripts/upgrade-project.sh --to-production` clears the deferred items |
+| **Sponsored POC** | organizational only | AI deployment path approved + project sponsor assigned (2 of the 6 blocking pre-conditions in §XIV). Time-boxed exit criteria (§XIV item #8, tracked outside `APPROVAL_LOG.md`) must also be documented upfront. | Insurance clearance, liability entity, ITSM integration, backup maintainer (the remaining 4 of 6 blocking pre-conditions). `APPROVAL_LOG.md` retains all 6 rows; deferred rows are left blank until `--to-production`. | **Blocked** until `scripts/upgrade-project.sh --to-production` clears the deferred items |
 | **Private POC** | personal only | None — all governance is deferred for exploratory work | All 6 pre-conditions deferred | **Blocked** until upgrade to Sponsored POC (rare) or Production |
 
 **Constraints common to all POC modes:**
