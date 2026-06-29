@@ -43,6 +43,10 @@ get_project_context() {
 FIELD=""
 OLD_VALUE=""
 NEW_VALUE=""
+# tier-crosscheck-6: optional companion to `--field zdr_attested --new false`
+# (or as a standalone `--field zdr_attestation_reason --new "<text>"`).
+# Stored as phase1_artifacts.zdr_attestation_reason in process-state.json.
+RECONF_REASON=""
 RECONF_LEVEL=""
 RECONF_CONFIRM=0
 RECONF_RESET_BASELINE=0
@@ -51,6 +55,8 @@ while [ $# -gt 0 ]; do
     --field) FIELD="$2"; shift 2 ;;
     --old) OLD_VALUE="$2"; shift 2 ;;
     --new) NEW_VALUE="$2"; shift 2 ;;
+    --reason) RECONF_REASON="$2"; shift 2 ;;
+    --reason=*) RECONF_REASON="${1#*=}"; shift ;;
     # BL-030 Task 8: enforcement-level transition flags.
     --enforcement-level) RECONF_LEVEL="$2"; shift 2 ;;
     --enforcement-level=*) RECONF_LEVEL="${1#*=}"; shift ;;
@@ -66,6 +72,16 @@ while [ $# -gt 0 ]; do
       echo "  platform   — Regenerates release pipeline, copies new platform module"
       echo "  name       — Updates phase-state.json, CLAUDE.md, APPROVAL_LOG.md header,"
       echo "               intake-progress.json, Qdrant collection, PROJECT_INTAKE.md"
+      echo "  data_classification  — Sets the Phase 1 ZDR/classification gate value"
+      echo "                         (one of: public, internal, confidential, pii,"
+      echo "                          financial, health, regulated). Updates"
+      echo "                          .claude/process-state.json::phase1_artifacts.data_classification"
+      echo "                          + appends an APPROVAL_LOG.md audit row."
+      echo "  zdr_attested         — Sets phase1_artifacts.zdr_attested (--new true|false)."
+      echo "                          When false, also accept --reason \"<text>\" to record"
+      echo "                          phase1_artifacts.zdr_attestation_reason."
+      echo "  zdr_attestation_reason  — Free-text written exception. Sets the reason"
+      echo "                            field directly without flipping zdr_attested."
       echo ""
       echo "Track and deployment changes are NOT supported here — they require"
       echo "the governance pre-conditions enforced by scripts/upgrade-project.sh."
@@ -587,9 +603,241 @@ reconfigure() {
       rm -rf "$snap_dir"
       ;;
 
+    data_classification|zdr_attested|zdr_attestation_reason)
+      # tier-crosscheck-6 (final S3 audit finding): operators must be
+      # able to set the Phase 1 ZDR/classification fields post-intake.
+      # Pre-fix nothing existed — the canonical state lived only in
+      # intake-progress.json::answers and never made it into
+      # process-state.json, so check-phase-gate.sh had nothing to read.
+      # This block writes to .claude/process-state.json::phase1_artifacts
+      # (the field scripts/check-phase-gate.sh consults at Phase 1→2)
+      # and appends an audit row to APPROVAL_LOG.md.
+      #
+      # Atomic envelope: snapshot the two files we mutate (process-
+      # state.json + APPROVAL_LOG.md), install an INT/TERM/ERR trap, do
+      # the work, drop the trap on success. Sibling of the `name`
+      # branch's PR #57 pattern.
+      PSTATE=".claude/process-state.json"
+      APPROVAL_LOG="APPROVAL_LOG.md"
+      if [ ! -f "$PSTATE" ]; then
+        print_fail "$PSTATE not found — initialize the project before setting Phase 1 artifacts."
+        echo "  Run scripts/init.sh first, or scripts/intake-wizard.sh in an initialized project." >&2
+        exit 1
+      fi
+      if ! command -v jq >/dev/null 2>&1; then
+        print_fail "jq is required to mutate $PSTATE — install jq and re-run."
+        exit 1
+      fi
+
+      # Field-specific value validation BEFORE snapshotting (so a bad
+      # input doesn't waste a backup/rollback cycle).
+      case "$FIELD" in
+        data_classification)
+          # Normalize to lowercase canonical form. Accept "Public",
+          # "PUBLIC", "public" → store "public".
+          NEW_VALUE_CANON=$(printf '%s' "$NEW_VALUE" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          # 7-tier taxonomy from templates/project-intake.md:209 +
+          # docs/user-guide.md:466.
+          case "$NEW_VALUE_CANON" in
+            public|internal|confidential|pii|financial|health|regulated) ;;
+            *)
+              print_fail "Invalid data_classification '$NEW_VALUE'"
+              echo "  Allowed (one of): public, internal, confidential, pii, financial, health, regulated" >&2
+              echo "  Reference: templates/project-intake.md:209 / docs/governance-framework.md § VII line 299" >&2
+              exit 1 ;;
+          esac
+          NEW_VALUE="$NEW_VALUE_CANON"
+          ;;
+        zdr_attested)
+          case "$NEW_VALUE" in
+            true|True|TRUE|false|False|FALSE) ;;
+            *)
+              print_fail "Invalid zdr_attested '$NEW_VALUE' (must be true|false)"
+              exit 1 ;;
+          esac
+          # Normalize to canonical lowercase boolean string.
+          case "$NEW_VALUE" in
+            true|True|TRUE) NEW_VALUE="true" ;;
+            *)              NEW_VALUE="false" ;;
+          esac
+          ;;
+        zdr_attestation_reason)
+          if [ -z "$NEW_VALUE" ]; then
+            print_fail "zdr_attestation_reason must be a non-empty string."
+            exit 1
+          fi
+          ;;
+      esac
+
+      # Snapshot the two files we mutate (process-state.json +
+      # APPROVAL_LOG.md) into a tempdir BEFORE installing any trap so
+      # the rollback path can rely on a complete pre-state.
+      #
+      # PR #105 verifier follow-up: the prior implementation here
+      # claimed to install an INT/TERM/ERR trap and subshell-wrap the
+      # mutation block but did neither — a signal arriving between the
+      # process-state.json rewrite and the APPROVAL_LOG.md append left
+      # process-state.json mutated, the audit row missing, and a
+      # snapshot tempdir leaked. This block now actually installs the
+      # trap + subshell envelope (PR #57's `finalize_and_commit` shape;
+      # PR #93's subshell-isolation lesson).
+      classification_snap_dir=$(mktemp -d)
+      mkdir -p "$classification_snap_dir/.claude"
+      cp "$PSTATE" "$classification_snap_dir/.claude/process-state.json"
+      [ -f "$APPROVAL_LOG" ] && cp "$APPROVAL_LOG" "$classification_snap_dir/APPROVAL_LOG.md"
+
+      _classification_rollback() {
+        local reason="${1:-mutation aborted}"
+        if [ -f "$classification_snap_dir/.claude/process-state.json" ]; then
+          cp "$classification_snap_dir/.claude/process-state.json" "$PSTATE"
+        fi
+        if [ -f "$classification_snap_dir/APPROVAL_LOG.md" ]; then
+          cp "$classification_snap_dir/APPROVAL_LOG.md" "$APPROVAL_LOG"
+        fi
+        print_fail "data_classification/ZDR mutation failed: $reason" >&2
+        echo "  $PSTATE and APPROVAL_LOG.md rolled back to pre-mutation state." >&2
+      }
+
+      # Wrap the entire mutation block in a subshell. PR #93's lesson:
+      # `trap` is shell-global — if we installed INT/TERM/ERR in the
+      # outer shell we would clobber any trap a caller (or a sourced
+      # helper) had registered. The subshell isolates our trap so it
+      # only fires for signals/ERR arising inside our mutation window.
+      # The subshell's exit status is the rollback trigger for the
+      # outer shell.
+      (
+        # Inside the subshell: install the trap. On INT/TERM/ERR we
+        # call _classification_rollback (which restores the snapshot)
+        # and then exit non-zero so the outer shell propagates failure.
+        _trap_fire() {
+          local sig="$1"
+          _classification_rollback "trap fired ($sig)"
+          # 130 = 128 + SIGINT(2); 143 = 128 + SIGTERM(15). We use 130
+          # uniformly here so the outer shell can treat any trap exit
+          # as "operator interrupted".
+          exit 130
+        }
+        trap '_trap_fire INT'  INT
+        trap '_trap_fire TERM' TERM
+        trap '_trap_fire ERR'  ERR
+
+        # Mutate process-state.json. jq's // {} idiom builds
+        # phase1_artifacts when it's absent.
+        pstate_tmp=$(mktemp)
+        case "$FIELD" in
+          data_classification)
+            if ! jq --arg v "$NEW_VALUE" \
+                 '.phase1_artifacts = ((.phase1_artifacts // {}) + {data_classification: $v})' \
+                 "$PSTATE" > "$pstate_tmp"; then
+              _classification_rollback "jq write failed for data_classification"
+              exit 1
+            fi
+            if ! mv "$pstate_tmp" "$PSTATE"; then
+              _classification_rollback "mv into $PSTATE failed (data_classification)"
+              exit 1
+            fi
+            ;;
+          zdr_attested)
+            if [ "$NEW_VALUE" = "true" ]; then jq_bool="true"; else jq_bool="false"; fi
+            if [ -n "$RECONF_REASON" ]; then
+              if ! jq --argjson b "$jq_bool" --arg r "$RECONF_REASON" \
+                   '.phase1_artifacts = ((.phase1_artifacts // {}) + {zdr_attested: $b, zdr_attestation_reason: $r})' \
+                   "$PSTATE" > "$pstate_tmp"; then
+                _classification_rollback "jq write failed for zdr_attested+reason"
+                exit 1
+              fi
+            else
+              if ! jq --argjson b "$jq_bool" \
+                   '.phase1_artifacts = ((.phase1_artifacts // {}) + {zdr_attested: $b})' \
+                   "$PSTATE" > "$pstate_tmp"; then
+                _classification_rollback "jq write failed for zdr_attested"
+                exit 1
+              fi
+            fi
+            if ! mv "$pstate_tmp" "$PSTATE"; then
+              _classification_rollback "mv into $PSTATE failed (zdr_attested)"
+              exit 1
+            fi
+            ;;
+          zdr_attestation_reason)
+            if ! jq --arg r "$NEW_VALUE" \
+                 '.phase1_artifacts = ((.phase1_artifacts // {}) + {zdr_attestation_reason: $r})' \
+                 "$PSTATE" > "$pstate_tmp"; then
+              _classification_rollback "jq write failed for zdr_attestation_reason"
+              exit 1
+            fi
+            if ! mv "$pstate_tmp" "$PSTATE"; then
+              _classification_rollback "mv into $PSTATE failed (zdr_attestation_reason)"
+              exit 1
+            fi
+            ;;
+        esac
+        print_ok "Updated $PSTATE::phase1_artifacts.$FIELD"
+
+        # Append audit row to APPROVAL_LOG.md so the governance trail
+        # records the change. Required by tier-crosscheck-6 (compliance
+        # decisions must be auditable in the same log as phase-gate
+        # approvals). Append-only; existing entries are not modified.
+        if [ -f "$APPROVAL_LOG" ]; then
+          today_audit="$(date -u +%Y-%m-%d)"
+          case "$FIELD" in
+            data_classification)
+              audit_line="| $today_audit | data_classification set | reconfigure-project.sh | Orchestrator | Applied | new value: $NEW_VALUE (tier-crosscheck-6) |"
+              ;;
+            zdr_attested)
+              audit_line="| $today_audit | zdr_attested set | reconfigure-project.sh | Orchestrator | Applied | new value: $NEW_VALUE${RECONF_REASON:+ (reason: $RECONF_REASON)} (tier-crosscheck-6) |"
+              ;;
+            zdr_attestation_reason)
+              audit_line="| $today_audit | zdr_attestation_reason set | reconfigure-project.sh | Orchestrator | Applied | reason recorded: $NEW_VALUE (tier-crosscheck-6) |"
+              ;;
+          esac
+          # Insert into the Approval History section if it exists,
+          # otherwise append a new section.
+          if grep -q "^## Approval History" "$APPROVAL_LOG"; then
+            if ! printf '%s\n' "$audit_line" >> "$APPROVAL_LOG"; then
+              _classification_rollback "APPROVAL_LOG.md append failed"
+              exit 1
+            fi
+          else
+            if ! {
+              echo ""
+              echo "---"
+              echo ""
+              echo "## Approval History"
+              echo ""
+              echo "| Date | Gate / Event | Tool | Actor | Status | Details |"
+              echo "|---|---|---|---|---|---|"
+              echo "$audit_line"
+            } >> "$APPROVAL_LOG"; then
+              _classification_rollback "APPROVAL_LOG.md section append failed"
+              exit 1
+            fi
+          fi
+          print_ok "Appended audit row to APPROVAL_LOG.md"
+        fi
+
+        # Subshell success — drop the traps and exit 0 so the outer
+        # shell discards the snapshot.
+        trap - INT TERM ERR
+        exit 0
+      )
+      classification_rc=$?
+      if [ "$classification_rc" -ne 0 ]; then
+        # The subshell already restored the snapshot via its trap +
+        # rollback path. Clean up the snapshot dir in the outer scope
+        # and propagate the failure.
+        rm -rf "$classification_snap_dir"
+        exit "$classification_rc"
+      fi
+
+      # Success — drop the snapshot dir.
+      rm -rf "$classification_snap_dir"
+      ;;
+
     *)
       print_fail "Unknown field: $FIELD"
-      echo "Supported: language, platform, track, name, deployment"
+      echo "Supported: language, platform, track, name, deployment,"
+      echo "           data_classification, zdr_attested, zdr_attestation_reason"
       exit 1
       ;;
   esac

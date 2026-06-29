@@ -57,6 +57,12 @@ seed_personal_phase_state() {
   "gates": {"phase_0_to_1": "2026-04-01", "phase_1_to_2": "2026-04-15", "phase_3_to_4": null}
 }
 JSON
+  # tier-crosscheck-6: seed phase1_artifacts so the upgrade-project
+  # personal→organizational refusal doesn't fire (we're testing the
+  # retroactive STA section stamping, not the new ZDR gate).
+  cat > "$dir/.claude/process-state.json" <<'JSON'
+{"phase1_artifacts":{"data_classification":"internal","zdr_attested":true}}
+JSON
 }
 
 # Seed a personal APPROVAL_LOG.md (deployment: personal frontmatter) so
