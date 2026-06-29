@@ -271,10 +271,15 @@ xcode-select --install
 If you develop Android on a Linux workstation and iOS on a Mac (a common solo builder configuration):
 
 1. **Repository strategy:** Use a single repository. Do NOT maintain separate repos per platform.
-2. **Branch strategy — two options:**
-   - **Option A (simple):** Single `main` branch. Both machines push to `main`. Requires discipline to avoid stepping on each other's changes. Works if you alternate between machines rather than working simultaneously.
-   - **Option B (branch isolation):** Separate branches per platform (`android`, `ios`). Each machine pushes to its branch. Merge into `main` when both platforms are stable. Adds merge overhead but prevents conflicts during active development.
-3. **Git configuration per machine:** Configure push refspecs to prevent accidental pushes to the wrong branch:
+2. **Branch strategy — Option A is the supported model:**
+   - **Option A (supported — single `main`):** Both machines push to `main`. Requires discipline to avoid stepping on each other's changes; in practice you alternate between machines rather than working simultaneously. This is the only branch strategy the Solo Orchestrator gates (pre-commit gate, `test-gate.sh --check-phase-gate`, the 9-step UAT session, and `.claude/phase-state.json`) are designed to work with — Builder's Guide baseline §3.3 assumes a single canonical sequence on `main`.
+   - **Option B (advanced — branch isolation, NOT supported by Solo gates):** Separate per-platform branches (`android`, `ios`) with each machine pushing to its own branch and merging into `main` when both platforms are stable. This option is documented for completeness but is **not validated against the Solo gate machinery** and creates the following known integration gaps the operator must reconcile manually:
+     - **`.claude/phase-state.json` is authoritative on `main` only.** Edits on `android`/`ios` branches will conflict on every merge. Either avoid mutating phase-state on side branches, or rebase the side branch onto `main` before each `test-gate.sh` run.
+     - **9-step UAT sessions must run only on `main`** (after both platforms merge). UAT artifacts written on a side branch will not be visible to the bug gate.
+     - **`BUGS.md` and the SEV-1/SEV-2 bug gate read from `main`.** Bugs filed on a side branch must be merged to `main` before `test-gate.sh --check-phase-gate` will see them. The Phase 2 → 3 gate may pass on a side branch while still being blocked on `main`.
+     - **Pre-commit gate on side branches** enforces Build Loop steps 1-5 but defers UAT-session attestation to `main`. Do not treat a green pre-commit on `android`/`ios` as evidence the Phase gate would pass.
+     - Operators choosing Option B accept responsibility for all of the above; the Solo Orchestrator team does not test against this configuration.
+3. **Git configuration per machine (Option B only):** If you accept the trade-offs above, configure push refspecs to prevent accidental pushes to the wrong branch:
    ```bash
    # On Linux (Android machine):
    git config remote.origin.push refs/heads/android:refs/heads/android
@@ -1458,30 +1463,85 @@ val billingFlowParams = BillingFlowParams.newBuilder()
 billingClient.launchBillingFlow(activity, billingFlowParams)
 ```
 
-**React Native / Expo (using `expo-in-app-purchases` or `react-native-iap`):**
+**React Native / Expo (using `react-native-iap`):**
+
+> **Note:** Expo's first-party `expo-in-app-purchases` package was deprecated and removed from the Expo SDK (the `docs.expo.dev/versions/latest/sdk/in-app-purchases/` page returns 404). The community-maintained `react-native-iap` is now the supported path for React Native and managed Expo workflows. `RevenueCat` is the recommended alternative when you want hosted entitlement / receipt-validation infrastructure rather than rolling your own. For projects on a managed Expo workflow that prefer an Expo-native module (OpenIAP-compliant, StoreKit 2 + Google Play Billing 8.x), `expo-iap` (github.com/hyochan/expo-iap) is the same author's Expo-first alternative and exposes the same unified `fetchProducts` / `requestPurchase` API shown below.
+>
+> **Managed Expo requirement:** `react-native-iap` ships native modules, so it cannot be used with a plain `npm install` under the managed Expo workflow alone. Add `react-native-iap` to the `plugins` array in `app.json` (or `app.config.{js,ts}`) and rebuild via **EAS Build** (`eas build --profile development`). Bare React Native projects need only the standard `pod install` step on iOS.
+>
+> **API version:** The example below targets `react-native-iap` v14 (current). v14 renamed `getProducts` → `fetchProducts` and replaced the single-`sku` `requestPurchase` shape with a unified `{ request: { apple, google }, type }` object. If you are on v13, see the upstream `migration-v13-to-v14.md` guide.
+
 ```typescript
-import * as InAppPurchases from 'expo-in-app-purchases';
+import {
+  initConnection,
+  fetchProducts,
+  requestPurchase,
+  purchaseUpdatedListener,
+  purchaseErrorListener,
+  finishTransaction,
+  ErrorCode,
+  isUserCancelledError,
+  type Product,
+  type Purchase,
+  type PurchaseError,
+} from 'react-native-iap';
 
-// Connect to store:
-await InAppPurchases.connectAsync();
+const PRODUCT_SKU = 'com.yourcompany.yourapp.premium_monthly';
 
-// Get products:
-const { results } = await InAppPurchases.getProductsAsync([
-  'com.yourcompany.yourapp.premium_monthly',
-]);
+// Connect to store on app launch:
+await initConnection();
 
-// Purchase:
-await InAppPurchases.purchaseItemAsync('com.yourcompany.yourapp.premium_monthly');
+// Fetch product metadata (v14 unified API — supply both skus AND type):
+const products: Product[] = await fetchProducts({
+  skus: [PRODUCT_SKU],
+  type: 'in-app', // use 'subs' for auto-renewing subscriptions
+});
 
-// Listen for purchase results:
-InAppPurchases.setPurchaseListener(({ responseCode, results }) => {
-  if (responseCode === InAppPurchases.IAPResponseCode.OK) {
-    // Verify receipt server-side, then grant access
-    results?.forEach(purchase => {
-      InAppPurchases.finishTransactionAsync(purchase, true);
-    });
+// Subscribe to purchase events BEFORE calling requestPurchase
+// so renewals and restorations also trigger the handler.
+const purchaseSubscription = purchaseUpdatedListener(async (purchase: Purchase) => {
+  // 1. Verify the receipt server-side with Apple/Google before granting access.
+  // 2. Only finish the transaction after the server confirms validity —
+  //    otherwise the store will retry delivery on the next launch.
+  const verified = await verifyReceiptOnYourBackend(purchase);
+  if (verified) {
+    await finishTransaction({ purchase, isConsumable: false });
   }
 });
+
+// ALWAYS pair the success listener with an error listener — otherwise
+// UserCancelled, NetworkError, ItemUnavailable, etc. fall on the floor
+// and the UI never updates after a failed/cancelled purchase.
+const errorSubscription = purchaseErrorListener((error: PurchaseError) => {
+  if (isUserCancelledError(error)) {
+    return; // user dismissed the sheet — no toast, no error log
+  }
+  switch (error.code) {
+    case ErrorCode.NetworkError:
+      // show retry UI
+      break;
+    case ErrorCode.ItemUnavailable:
+      // product not configured in App Store Connect / Play Console
+      break;
+    default:
+      // log + surface a generic failure toast
+      console.error('IAP error', error.code, error.message);
+  }
+});
+
+// Launch purchase flow. v14 requires a per-platform request object;
+// 'in-app' is one-time, use type: 'subs' (and the subscriptionOffers
+// field on google) for auto-renewing subscriptions.
+await requestPurchase({
+  request: {
+    apple:  { sku: PRODUCT_SKU },
+    google: { skus: [PRODUCT_SKU] },
+  },
+  type: 'in-app',
+});
+
+// Remember to call purchaseSubscription.remove() AND errorSubscription.remove()
+// on unmount so the listeners do not leak across React reloads.
 ```
 
 **Critical implementation requirements:**
