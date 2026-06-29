@@ -775,11 +775,21 @@ fix_phase_state() {
   poc_value="null"
   if [ -f ".claude/intake-progress.json" ]; then
     local pm
-    # Wave-3 fix-functions-stderr sweep: surface jq diagnostics. A
-    # malformed intake-progress.json should fail loud (the operator
+    # Wave-3 fix-functions-stderr sweep + PR-#96 verifier follow-up:
+    # surface jq diagnostics AND actually fail loud on malformed JSON.
+    # A malformed intake-progress.json should fail loud (the operator
     # then re-runs intake or repairs the file), not silently default
     # to poc_mode=null and write a half-correct phase-state.json.
-    pm=$(jq -r '.answers.poc_mode // empty' .claude/intake-progress.json || echo "")
+    # The previous `|| echo ""` masked jq's exit code (command-
+    # substitution rc isn't propagated under `set -e`); the explicit
+    # if/else here lets jq's stderr through AND refuses to write the
+    # half-filled file, matching the contract the comment describes.
+    if ! pm=$(jq -r '.answers.poc_mode // empty' .claude/intake-progress.json 2>&1); then
+      print_warn "fix_phase_state: jq failed on .claude/intake-progress.json — refusing to write half-filled phase-state.json"
+      register_manual "phase-state.json cannot be auto-fixed: .claude/intake-progress.json is malformed (jq: $pm)" \
+        "Inspect/repair .claude/intake-progress.json, or re-run scripts/intake-wizard.sh"
+      return 1
+    fi
     case "$pm" in
       private_poc|sponsored_poc) poc_value="\"$pm\"" ;;
     esac

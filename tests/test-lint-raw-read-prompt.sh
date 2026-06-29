@@ -230,6 +230,63 @@ else
 fi
 teardown
 
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T11: compact 'read -p\"prompt\"' (no space) → exit 1 ==="
+# ════════════════════════════════════════════════════════════════════
+# PR-#96 verifier regex-blind-spot coverage. Bash accepts `read -p"x"`
+# with no space between `-p` and its value; the previous regex missed
+# this shape because it required `[[:space:]]` after the flag bundle.
+setup
+cat > "$PROJ/scripts/compact.sh" <<'SH'
+#!/usr/bin/env bash
+read -p"name: " name
+SH
+out=$(run_lint); rc=$?
+if [ $rc -eq 1 ] && echo "$out" | grep -q "scripts/compact.sh:2"; then
+  pass "T11: compact 'read -p\"...\"' (no space) is flagged"
+else
+  fail_ "T11" "expected exit 1; rc=$rc; output:\n$out"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T12: 'read -s -p ...' (separate flag bundles) → exit 1 ==="
+# ════════════════════════════════════════════════════════════════════
+# PR-#96 verifier regex-blind-spot coverage. Multi-bundle invocations
+# where `-p` appears separately from `-s` / `-r` were previously
+# missed (the regex required a SINGLE bundle containing `p`).
+setup
+cat > "$PROJ/scripts/multi.sh" <<'SH'
+#!/usr/bin/env bash
+read -s -p "secret: " secret
+SH
+out=$(run_lint); rc=$?
+if [ $rc -eq 1 ] && echo "$out" | grep -q "scripts/multi.sh:2"; then
+  pass "T12: multi-bundle 'read -s -p ...' is flagged"
+else
+  fail_ "T12" "expected exit 1; rc=$rc; output:\n$out"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T13: 'read -r -p ...' (separate -r and -p bundles) → exit 1 ==="
+# ════════════════════════════════════════════════════════════════════
+setup
+cat > "$PROJ/scripts/split.sh" <<'SH'
+#!/usr/bin/env bash
+read -r -p "name: " name
+SH
+out=$(run_lint); rc=$?
+if [ $rc -eq 1 ] && echo "$out" | grep -q "scripts/split.sh:2"; then
+  pass "T13: separate '-r' and '-p' bundles are flagged"
+else
+  fail_ "T13" "expected exit 1; rc=$rc; output:\n$out"
+fi
+teardown
+
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]

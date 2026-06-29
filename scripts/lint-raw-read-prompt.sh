@@ -78,15 +78,31 @@ TARGET_GLOBS=(
   "$REPO_ROOT/init.sh"
 )
 
-# Match `read` invocations that include the `-p` flag. Recognize
-# `-p`, `-rp`, `-pr`, `-rsp`, and any other flag bundle containing
-# `p`. We anchor on the `read` command word with a leading word
-# boundary so the substring `bread` etc. doesn't match.
+# Match `read` invocations that include the `-p` flag. Recognize:
+#   • Single-bundle short flags containing `p`: `-p`, `-rp`, `-pr`,
+#     `-rsp`, `-sp`, etc.
+#   • Compact `-p"prompt"` (no space between `-p` and its quoted/raw
+#     value — bash accepts both shapes).
+#   • Multi-flag invocations where `-p` appears in a SEPARATE bundle
+#     from `-r` / `-s`: `read -s -p "..." v`, `read -r -p ...`.
+# We anchor on the `read` command word with a leading word boundary
+# (start-of-line / whitespace / `;` / `!` / `(`) so the substring
+# `bread` etc. doesn't match. We do NOT match `read --long-form`
+# style: bash `read` has no `--silent` / `--prompt` long form
+# (verified against bash 5.2 builtin help), so the verifier's
+# `read --silent -p ...` concern is moot — `bash` would error
+# "read: --: invalid option" before ever reading stdin.
 #
-# The regex below matches `read` followed by whitespace and a `-`
-# option bundle that contains `p`. We intentionally allow either
-# order of `r` and `p` (`-rp`, `-pr`) and any other letters bundled.
-READ_PROMPT_RE='(^|[[:space:]]|;|!|\()read[[:space:]]+-[A-Za-z]*p[A-Za-z]*([[:space:]]|$)'
+# Supported flag-bundle shapes (in order of detection):
+#   1. `read -[A-Za-z]*p[A-Za-z]*` (any bundle containing `p`,
+#      optional whitespace OR a quote/letter for compact `-p"..."`)
+#   2. `read [-s|-r|-rs|-sr]+ -[A-Za-z]*p[A-Za-z]*` (multi-bundle:
+#      another short-flag bundle, whitespace, then a `-p`-bundle)
+#
+# Test fixtures for the wider patterns live in
+# tests/test-lint-raw-read-prompt.sh (N1..N3 added in the PR-#96
+# follow-up).
+READ_PROMPT_RE='(^|[[:space:]]|;|!|\()read[[:space:]]+(-[A-Za-z]*[[:space:]]+)*-[A-Za-z]*p[A-Za-z]*([[:space:]"'"'"']|$)'
 
 VIOLATIONS=0
 LIST_ROWS=""

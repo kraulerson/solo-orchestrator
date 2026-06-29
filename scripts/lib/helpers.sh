@@ -279,6 +279,19 @@ prompt_choice() {
 
 # Prompt user to install a missing tool. Returns 0 if installed, 1 if skipped.
 # Usage: prompt_install "tool_name" "install_command" [needs_sudo]
+#
+# Non-interactive behavior (no TTY on stdin, CI=true, or
+# SOIF_NONINTERACTIVE=true): emits a [WARN] to stderr naming the
+# missing tool + install command, and returns 1 (decline install)
+# WITHOUT touching `eval`. Same defense-in-depth contract as
+# prompt_yes_no — a caller in CI / piped invocation must NEVER
+# auto-install a side-effectful command (e.g. `sudo apt install`,
+# `sudo usermod -aG docker $USER`) just because the operator was
+# absent. The PR-#96 adversarial verifier flagged this as the one
+# remaining hole in the lint sweep: scripts/lib/helpers.sh is exempt
+# from scripts/lint-raw-read-prompt.sh (correctly — the prompt
+# helpers themselves must call `read -rp`), so runtime tests are the
+# only safety net. See tests/test-prompt-install-noninteractive.sh.
 prompt_install() {
   local tool_name="$1"
   local install_cmd="$2"
@@ -289,6 +302,13 @@ prompt_install() {
     echo -e "  ${YELLOW}This requires administrator privileges (sudo).${NC}"
   fi
   echo -e "  Install command: ${CYAN}$install_cmd${NC}"
+
+  if [ ! -t 0 ] || [ -n "${CI:-}" ] || [ -n "${SOIF_NONINTERACTIVE:-}" ]; then
+    echo -e "${YELLOW}[WARN]${NC} Non-interactive context: skipping install of '$tool_name' — defaulting to 'N' (no install). Re-run interactively, or run the install manually: $install_cmd" >&2
+    return 1
+  fi
+
+  local response
   read -rp "$(echo -e "  ${BOLD}Install $tool_name now? [Y/n]${NC}: ")" response
   if [[ "$response" =~ ^[Nn] ]]; then
     return 1

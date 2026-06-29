@@ -1899,6 +1899,23 @@ main() {
       ;;
   esac
 
+  # PR-#96 verifier follow-up: the 8 `read -rp` allowlist entries in
+  # this file (lines 85/88/115/144/146/1658/1774/1923) cite
+  # "interactive-only by design" as the reason. That documented intent,
+  # but until now nothing in the wizard ACTUALLY refused to run without
+  # a TTY — so a CI / piped-stdin invocation would block on the first
+  # prompt or auto-empty-input through every section, corrupting
+  # intake-progress.json. Enforce the contract right before the
+  # interactive mode-selection prompt below, AFTER the flag-driven
+  # passthroughs (--resume / --upgrade-* / --to-*-poc / --help) so
+  # those scripted CI use-cases keep working. Operators driving the
+  # wizard via canned input must opt in via SOIF_NONINTERACTIVE=1.
+  if [ ! -t 0 ] && [ -z "${SOIF_NONINTERACTIVE:-}" ]; then
+    print_fail "intake-wizard requires a TTY on stdin (or set SOIF_NONINTERACTIVE=1 to drive it from a harness)."
+    echo "  Detected non-TTY stdin (CI=${CI:-unset}). The wizard's read prompts would block or auto-empty-input through every section, corrupting .claude/intake-progress.json." >&2
+    exit 1
+  fi
+
   # Mode selection
   echo ""
   echo -e "${BOLD}How would you like to fill out the Project Intake?${NC}"
