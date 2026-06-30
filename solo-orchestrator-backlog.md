@@ -1529,7 +1529,7 @@ The adversarial certainty re-walk (re-walker-2, scenario `fresh-org-sponsored-po
 
 **Logged:** 2026-06-30
 **Category:** Bug
-**Severity:** Major
+**Severity:** Trivial
 **Status:** Open
 
 When PR #111 wired `tests/edge-cases-scripts.sh` into `full-project-test-suite.sh` (TEST 0r), the aggregator-registration commit (`cc1e532`) documented the file as `known-RED (BL-039 + BL-009 follow-up)` and gated it behind a new `SKIP_KNOWN_FAILING` env var so the suite stays green for local iteration loops while the underlying defects are tracked separately. The cited BLs cover E50 (BL-039) and the UAT-template guardrails (BL-009 follow-up), but the RED state in `tests/edge-cases-scripts.sh` also covers **E30** — the `init.sh --platform other` case at `tests/edge-cases-scripts.sh:1031-1041` — which has no backlog entry today. E30 asserts that `init.sh --platform other` skips the UAT reference-pair copy while leaving `tests/uat/templates/test-session-template.html` in place (the documented escape hatch for unsupported platforms); the failure mode (whether the template is missing, the reference files are present anyway, the script exits non-zero, or something else) is not characterized in the PR #111 commit message or in any current report.
@@ -1553,13 +1553,67 @@ When PR #111 wired `tests/edge-cases-scripts.sh` into `full-project-test-suite.s
 
 **Related:** PR #111 commit `cc1e532` (registered the file as `known-RED`); `tests/edge-cases-scripts.sh:1031-1041` (E30 assertion block); `tests/edge-cases-scripts.sh:949-1041` (UAT-platform E26-E30 block surrounding E30); BL-039 (sibling known-RED E50 in the same file); BL-009 (UAT-template guardrails / platform-aware authoring); BL-034 (test-aggregator wiring invariant); `scripts/init.sh` UAT reference-pair copy section; `docs/builders-guide.md` platform escape-hatch documentation.
 
+### Characterization (2026-06-30)
+
+**Confirmed failure mode:** `init.sh` exits with rc=1 *before* the project scaffold or the UAT copy block ever runs. The stderr signature is:
+
+```
+[FAIL] init.sh non-interactive: language 'typescript' is not supported for platform 'other'
+  Reason: no CI pipeline template (templates/pipelines/ci/github/<lang>.yml) lists other in its platforms marker for that language.
+  Action: re-run with one of: other
+  Context: --platform='other', --language='typescript'
+```
+
+E30's three positive/negative file assertions (`tests/edge-cases-scripts.sh:1120-1122`: template present, two reference files absent) all fail because the project tree was never created — not because the `--platform other` UAT branch produced the wrong state.
+
+**Root cause:** The `_uat_real_init` helper at `tests/edge-cases-scripts.sh:1040-1058` hardcodes `--language typescript` for every platform it is called with. The non-interactive Pass-2 validator at `init.sh:3447` (mirror of the interactive filter at `init.sh:524-529`) walks `templates/pipelines/ci/github/*.yml` and reads each file's `# solo-orchestrator: platforms=` marker; the only template that lists `other` is the catch-all `templates/pipelines/ci/github/other.yml` (gated via the special-case branch at `init.sh:3417`). Because `typescript.yml`'s marker does not include `other`, the combination is rejected and init.sh aborts before reaching the `PLATFORM = other` UAT branch at `init.sh:1261`.
+
+The production `other` branch is itself correct — re-running the same invocation with `--language other` produces rc=0, creates `tests/uat/templates/test-session-template.html`, and does NOT create the reference pair, exactly matching the E30 assertion contract.
+
+**Blast radius:** test-harness-only. Zero operator-facing impact: every wizard path and every legitimate non-interactive contract path for `--platform other` produces the correct state. The defect is confined to one helper invocation inside one assertion block.
+
+**Recommended severity:** **S4 (Trivial / test-harness-only).** Downgrade from the as-filed Major (S2). The PR #111 commit message inferred the failure was a production contract violation on the documented `--platform other` escape hatch; the characterization refutes that. The E30 helper, rewritten in PR #110 / commit `66da15c`, simply missed that the typescript pipeline-template marker excludes `other`. Per the task's own classification rubric ("test-harness-only -> S4"), the severity must drop.
+
+**Reproduction commands:**
+
+```bash
+# Reproduce the RED state E30 exhibits today:
+tmp=$(mktemp -d) && cd "$tmp" && mkdir -p e30-other && ( cd "$tmp" && \
+  bash "/Users/karl/Documents/Claude Projects/solo-orchestrator/init.sh" \
+    --non-interactive --project e30-other --platform other --deployment personal \
+    --language typescript --git-host github --visibility private --no-remote-creation \
+    --project-dir "$tmp/e30-other" --allow-existing-dir \
+    < <(printf 'Y\nY\nY\nY\nY\nY\nY\nY\nY\nY\n') ) ; echo rc=$?
+# Expected: rc=1, stderr 'language typescript is not supported for platform other'
+
+# Control proving production is correct with the legitimate language:
+tmp=$(mktemp -d) && cd "$tmp" && mkdir -p e30-other && ( cd "$tmp" && \
+  bash "/Users/karl/Documents/Claude Projects/solo-orchestrator/init.sh" \
+    --non-interactive --project e30-other --platform other --deployment personal \
+    --language other --git-host github --visibility private --no-remote-creation \
+    --project-dir "$tmp/e30-other" --allow-existing-dir \
+    < <(printf 'Y\nY\nY\nY\nY\nY\nY\nY\nY\nY\n') ) ; echo rc=$? ; \
+  ls "$tmp/e30-other/tests/uat/templates/test-session-template.html" ; \
+  ls "$tmp/e30-other/tests/uat/examples/"
+# Expected: rc=0, template present, examples dir empty (matches E30's three assertions)
+```
+
+**Fix complexity:** **Trivial.** Two equally valid options:
+
+1. One-line change at `tests/edge-cases-scripts.sh:1052` — when the platform is `other`, pass `--language other` instead of the hardcoded `--language typescript`. Smallest possible patch.
+2. Generalize `_uat_real_init` to accept a per-platform language argument (default typescript, override to `other` for the `other` case). Slightly larger but keeps the helper reusable for future per-platform E-tests.
+
+No production code change is needed in `init.sh`, the UAT-copy section, or the pipeline templates. After the fix, narrow the `SKIP_KNOWN_FAILING` gate in `tests/full-project-test-suite.sh` TEST 0r to drop BL-065 from the known-RED set (BL-039 / BL-009 follow-up may remain depending on their state).
+
+**Severity line update:** Yes — change the entry's `**Severity:** Major` to `**Severity:** Trivial` and adjust the `Why it matters` / `Trigger` sections to reflect that this is a test-harness fix, not a production contract violation. The `--platform other` escape hatch is NOT broken in production.
+
 ---
 
 ## BL-066: 3 of 9 host-drivers e2e tests RED on main (`e2e-init`, `e2e-init-gitlab`, `e2e-init-bitbucket`) — failure modes uncharacterized
 
 **Logged:** 2026-06-30
 **Category:** Bug
-**Severity:** Major
+**Severity:** Trivial
 **Status:** Open
 
 When PR #111 wired `tests/host-drivers/run-all.sh` into `full-project-test-suite.sh` (TEST 0s), the aggregator-registration commit (`cc1e532`) documented the file as `known-RED (e2e-init-* trio)` and gated it behind `SKIP_KNOWN_FAILING` so the suite stays green for local iteration loops. The "trio" comprises `tests/host-drivers/e2e-init.test.sh` (github), `tests/host-drivers/e2e-init-gitlab.test.sh`, and `tests/host-drivers/e2e-init-bitbucket.test.sh` — the three end-to-end init.sh tests that exercise the full host-driver path against a mocked host CLI / `curl` stub (per BL-003, BL-003a, BL-003b, all closed). The other six children of `run-all.sh` (`github.test.sh`, `gitlab.test.sh`, `bitbucket.test.sh`, `regressions.test.sh`, `mock-cli.selftest.sh`, `dispatcher.test.sh`) are all GREEN; only the e2e trio is RED, and the specific failure modes are not characterized in the PR #111 commit message or in any current report. Whether all three e2e tests share a single root cause (e.g. a regression in `init.sh`'s host-driver invocation path), or each fails for a distinct host-specific reason, is unknown today.
@@ -1587,3 +1641,63 @@ When PR #111 wired `tests/host-drivers/run-all.sh` into `full-project-test-suite
 **Dependencies:** None blocking. BL-034 is already landed (PR #111 `cc1e532`) so `tests/host-drivers/run-all.sh` is in an aggregator; this BL just flips the e2e trio from RED to GREEN. If split into BL-066a/b/c, the three sub-BLs are independent and can land in any order or in parallel.
 
 **Related:** PR #111 commit `cc1e532` (registered `run-all.sh` as `known-RED (e2e-init-* trio)`); `tests/host-drivers/e2e-init.test.sh`, `tests/host-drivers/e2e-init-gitlab.test.sh`, `tests/host-drivers/e2e-init-bitbucket.test.sh` (the three RED files); `tests/host-drivers/run-all.sh` (the umbrella runner); `tests/host-drivers/mock-cli.sh` (shared mock harness — candidate shared root cause); BL-003 (e2e umbrella, closed PR #59 `f684aa7`), BL-003a (gitlab e2e, closed PR #61), BL-003b (bitbucket e2e, closed PR #62); BL-034 (test-aggregator wiring invariant); `scripts/init.sh` host-driver dispatch section.
+
+### Characterization (2026-06-30)
+
+**Confirmed failure mode:** All three e2e tests exit rc=1 with an identical root-cause stderr signature emitted by `init.sh:3447` (the non-interactive Pass-2 platform×language validator):
+
+```
+[FAIL] init.sh non-interactive: language 'javascript' is not supported for platform 'web'
+  Reason: no CI pipeline template (templates/pipelines/ci/github/<lang>.yml) lists web in its platforms marker for that language.
+  Action: re-run with one of: csharp, go, java, kotlin, other, python, rust, typescript (or pick a different --platform).
+  Context: --platform='web', --language='javascript'
+```
+
+Results:
+- `tests/host-drivers/e2e-init.test.sh`: 0/5 pass (T1 personal, T2 org, T3 push-fail, T4 repo-exists, T5 protection-403)
+- `tests/host-drivers/e2e-init-gitlab.test.sh`: 0/7 pass (T1-T5 plus T6 BL-031 host-agnostic exit-3 + T7 BL-032 Premium-tier regression guards)
+- `tests/host-drivers/e2e-init-bitbucket.test.sh`: 0/5 pass (T1-T5)
+
+init.sh bails before any host-driver dispatch runs, so the mocked-CLI never gets invoked and the test runner emits secondary `cd: $PROJ: No such file or directory` errors when it tries to enter the never-created project directory.
+
+**Root cause:** Single shared root cause across all three files — stale CLI argument `--language javascript` baked into the `run_init_e2e` helper of each test:
+
+- `tests/host-drivers/e2e-init.test.sh:179`
+- `tests/host-drivers/e2e-init-gitlab.test.sh:201`
+- `tests/host-drivers/e2e-init-bitbucket.test.sh:238`
+
+init.sh added the strict Pass-2 validation in commit `73da7c9` (2026-06-28, "fix(init,intake): non-interactive Pass-2/Pass-3 language×platform validation alignment"). The validator walks `templates/pipelines/ci/github/*.yml` and reads each file's `# solo-orchestrator: platforms=` marker. No `javascript.yml` ships in the templates directory (only `typescript.yml` covers JS-family with `platforms=web,desktop,mobile,mcp_server`). The three e2e tests were written earlier (commits `f684aa7` / `fc9db0e` / `c8585fa`, BL-003 / BL-003a / BL-003b) and still pass `--language javascript`, so every scenario aborts before any host-driver code runs.
+
+The host drivers, dispatcher, mocked-CLI harness (`tests/host-drivers/mock-cli.sh`), `curl`-stub case-match logic, and post-init verification assertions are all unchanged and remain proven green by their own unit suites (`github.test.sh`, `gitlab.test.sh`, `bitbucket.test.sh`), which bypass `init.sh` and call the driver entrypoints directly.
+
+**Blast radius:** test-harness-only. Production code (`init.sh` validation logic, host drivers, dispatcher, mock-CLI harness) is correct. The BL's hypothesized scenarios — (a) shared init.sh refactor that desynced fixtures, (b) shared mock-CLI harness regression, (c) three independent host-specific bugs — all dissolve: it is (a) in the *trivial* sense that init.sh's validation tightened, but the fix is in the stale test args, not in init.sh or the drivers.
+
+**Recommended severity:** **S4 (Trivial / test-harness-only)** — aggregate across all three. Downgrade from the as-filed Major (S2). Per the playbook rule "if all 3 are test-harness-only -> S4 aggregate". The BL-003 / BL-003a / BL-003b regression-protection promise is *restorable* with a one-line edit per file; the protection itself was never substantively broken — only silenced by stale test args. Note: while RED, T6 (BL-031) and T7 (BL-032) regression guards in `e2e-init-gitlab.test.sh` are silently bypassed because the failure aborts before reaching them — restoring the e2e suite also restores those guards.
+
+**Reproduction commands:**
+
+```bash
+cd /Users/karl/Documents/Claude\ Projects/solo-orchestrator && \
+  bash tests/host-drivers/e2e-init.test.sh           > /tmp/e2e-init.out      2>&1; echo rc=$?
+cd /Users/karl/Documents/Claude\ Projects/solo-orchestrator && \
+  bash tests/host-drivers/e2e-init-gitlab.test.sh    > /tmp/e2e-gitlab.out    2>&1; echo rc=$?
+cd /Users/karl/Documents/Claude\ Projects/solo-orchestrator && \
+  bash tests/host-drivers/e2e-init-bitbucket.test.sh > /tmp/e2e-bitbucket.out 2>&1; echo rc=$?
+
+# Confirm no javascript.yml ships and typescript.yml covers web:
+ls /Users/karl/Documents/Claude\ Projects/solo-orchestrator/templates/pipelines/ci/github/
+head -1 /Users/karl/Documents/Claude\ Projects/solo-orchestrator/templates/pipelines/ci/github/typescript.yml
+# Expected first line: # solo-orchestrator: platforms=web,desktop,mobile,mcp_server
+```
+
+**Fix complexity:** **Trivial.** One-line change per file in each `run_init_e2e` helper:
+
+- `tests/host-drivers/e2e-init.test.sh:179`         — `--language javascript` -> `--language typescript`
+- `tests/host-drivers/e2e-init-gitlab.test.sh:201`  — `--language javascript` -> `--language typescript`
+- `tests/host-drivers/e2e-init-bitbucket.test.sh:238` — `--language javascript` -> `--language typescript`
+
+No changes to host drivers, dispatcher, `tests/host-drivers/mock-cli.sh`, the `curl` stub, or any production code. After the swap, downstream assertions (manifest `host=`, `mode=`, `steps=`, `origin=`, `commit_count=2`, and the BL-031/BL-032 regression guards) should pass because the mock-CLI fixtures (`PROTECT_JSON_PERSONAL`, `PROTECT_JSON_ORG`, `MOCK_GH_*` env hooks) are unchanged from when the suite was last GREEN.
+
+Once GREEN, remove the `known-RED (e2e-init-* trio)` annotation from `tests/full-project-test-suite.sh` TEST 0s so the test runs in the default suite. DO NOT split into BL-066a/b/c — single shared root cause, single PR.
+
+**Severity line update:** Yes — change the entry's `**Severity:** Major` to `**Severity:** Trivial`. Update `Why it matters` to clarify that the BL-003 promise is silenced (not substantively broken), update `Scope` to remove the "split into BL-066a/b/c" branch (root cause confirmed shared), and update `Trigger` to note this can land alongside BL-065 in a single test-harness-only PR rather than being treated as a Major bug blocking subsequent host-driver work.
