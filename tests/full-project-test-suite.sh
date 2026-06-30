@@ -181,6 +181,39 @@ else
 fi
 
 # ================================================================
+# TEST 0c3b: BL-064 — init.sh non-zero exit + Setup INCOMPLETE banner after [FAIL]
+# ================================================================
+# Regression suite for BL-064: init.sh used to exit 0 with the
+# "Setup Complete" banner even after emitting a [FAIL] line for
+# create_and_protect_remote (push, branch protection, host CLI). The
+# silent-success defect bypassed any wrapper script that gated on the
+# init exit code. Fix: INIT_FAILURES array + record_init_failure helper
+# + print_init_failures_summary in init.sh; non-zero exit propagates.
+# See solo-orchestrator-backlog.md BL-064 + adversarial-certainty-pass
+# report § S-7 for full context.
+section "init.sh non-zero exit + Setup INCOMPLETE after [FAIL] (BL-064)"
+if bash "$SCRIPT_DIR/tests/test-init-fail-status-propagation.sh" >/dev/null 2>&1; then
+  pass "init.sh BL-064 silent-success-after-FAIL tests (5/5)"
+else
+  fail "init.sh BL-064 silent-success-after-FAIL tests FAILED (run tests/test-init-fail-status-propagation.sh for details)"
+fi
+
+# ================================================================
+# TEST 0c3c: BL-064 — structural backstop lint for new print_fail sites
+# ================================================================
+# Sibling of lint-counter-antipattern.sh: enforces that every print_fail
+# invocation in init.sh either terminates (exit/return inline or within
+# 2 lines), routes through record_init_failure, or carries an explicit
+# `# lint-fail-emit-exit-status: allow <reason>` annotation. Prevents
+# regression of the BL-064 silent-success-after-FAIL defect class.
+section "Fail-emit exit-status propagation lint (BL-064 structural backstop)"
+if bash "$SCRIPT_DIR/scripts/lint-fail-emit-exit-status.sh" >/dev/null 2>&1; then
+  pass "Every print_fail in init.sh propagates to exit status (or is annotated)"
+else
+  fail "Fail-emit lint found a print_fail without exit-status propagation (see scripts/lint-fail-emit-exit-status.sh --list)"
+fi
+
+# ================================================================
 # TEST 0c4: BL-057 — --non-interactive must honor AUTO_INSTALL_TOOLS env
 # ================================================================
 # Regression suite for BL-057: scripts/init.sh's resolve_and_install_tools

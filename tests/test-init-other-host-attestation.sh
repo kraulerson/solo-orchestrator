@@ -1,16 +1,29 @@
 #!/usr/bin/env bash
-# tests/test-init-other-host-attestation.sh — BL-024 regression test.
+# tests/test-init-other-host-attestation.sh — BL-024 + BL-064 regression test.
 #
-# init.sh::create_and_protect_remote on the --git-host other path used to
-# perform `git push` BEFORE the --branch-protection-attested attestation
-# block. When the push failed (fake URL, corporate firewall, connectivity
-# blip), `return 1` aborted the function and the attestation was silently
-# dropped — even though the operator had explicitly passed
-# --branch-protection-attested.
-#
-# The fix reorders the attestation block to run BEFORE push, since
+# BL-024 (fixed earlier): init.sh::create_and_protect_remote on the
+# --git-host other path used to perform `git push` BEFORE the
+# --branch-protection-attested attestation block. When the push failed
+# (fake URL, corporate firewall, connectivity blip), `return 1` aborted
+# the function and the attestation was silently dropped — even though
+# the operator had explicitly passed --branch-protection-attested.
+# The BL-024 fix reorders the attestation block to run BEFORE push, since
 # attestation is a forward-looking commitment by the operator and is
 # independent of push success.
+#
+# BL-064 (Major, 2026-06-30): init.sh used to exit 0 with the
+# "Setup Complete" banner even after emitting a [FAIL] line for push
+# (or branch protection, or any other create_and_protect_remote step
+# that returns non-zero). Operators who only check the exit code missed
+# the gap — same silent-success defect class as PR #105's intake-wizard.sh
+# fix. The BL-064 fix tracks create_and_protect_remote's failure in
+# INIT_FAILURES and exits the script with rc=2 + a "Setup INCOMPLETE"
+# banner that re-lists the failure.
+#
+# T1 below covers BOTH contracts on the same fixture:
+#   • BL-064: rc must be non-zero (was rc=0 before BL-064 fix).
+#   • BL-064: "Setup INCOMPLETE" banner replaces "Setup Complete".
+#   • BL-024: attestation must STILL be recorded despite the push fail.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -40,9 +53,13 @@ t1_attestation_recorded_when_push_fails_to_fake_url() {
         --visibility private \
         --allow-existing-dir > "$tmpdir/out" 2>&1 ) || rc=$?
 
-  # init.sh continues past push failure (BL-016/U-B fix), so it should exit 0.
-  if [ "$rc" -ne 0 ]; then
-    fail_ "T1" "expected init exit 0; rc=$rc tail:\n$(tail -10 "$tmpdir/out")"
+  # BL-064: init.sh now exits non-zero (rc=2) when create_and_protect_remote
+  # emits [FAIL]. Pre-BL-064, rc was 0 with the unconditional "Setup Complete"
+  # banner — the silent-success defect closed by BL-064. The script still
+  # writes attestation + project files (BL-024 invariant, asserted below);
+  # only the exit code and banner change.
+  if [ "$rc" -eq 0 ]; then
+    fail_ "T1" "BL-064 silent-success regression: expected non-zero rc on push failure; got rc=0; tail:\n$(tail -15 "$tmpdir/out")"
     rm -rf "$tmpdir"; return
   fi
 
@@ -52,18 +69,25 @@ t1_attestation_recorded_when_push_fails_to_fake_url() {
     rm -rf "$tmpdir"; return
   fi
 
-  # The attestation MUST be recorded despite the push failure.
+  # BL-064: the "Setup INCOMPLETE" banner must replace "Setup Complete" on
+  # the failure path so an operator scanning only the tail sees the gap.
+  if ! grep -q "Setup INCOMPLETE" "$tmpdir/out"; then
+    fail_ "T1" "BL-064: expected 'Setup INCOMPLETE' banner; tail:\n$(tail -15 "$tmpdir/out")"
+    rm -rf "$tmpdir"; return
+  fi
+
+  # BL-024 invariant: the attestation MUST be recorded despite the push failure.
   if [ ! -f "$proj/.claude/process-state.json" ]; then
-    fail_ "T1" "process-state.json missing"
+    fail_ "T1" "BL-024 regression: process-state.json missing"
     rm -rf "$tmpdir"; return
   fi
   local attested_by
   attested_by=$(jq -r '.phase2_init.attestations.branch_protection.attested_by // "MISSING"' "$proj/.claude/process-state.json")
   if [ "$attested_by" != "orchestrator" ]; then
-    fail_ "T1" "expected attested_by=orchestrator; got '$attested_by'"
+    fail_ "T1" "BL-024 regression: expected attested_by=orchestrator; got '$attested_by'"
     rm -rf "$tmpdir"; return
   fi
-  pass "T1: --branch-protection-attested recorded despite push-to-fake-URL failure"
+  pass "T1: --branch-protection-attested recorded (BL-024) + rc=2 + Setup INCOMPLETE banner (BL-064)"
   rm -rf "$tmpdir"
 }
 
