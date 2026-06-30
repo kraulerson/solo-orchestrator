@@ -233,6 +233,26 @@ else
 fi
 
 # ================================================================
+# TEST 0c5: BL-041 — write-permission preflight runs BEFORE framework-repo guard
+# ================================================================
+# Regression suite for BL-041 (LB-3): the framework-repo guard
+# (guard_not_in_framework) historically ran BEFORE any write-permission
+# probe, so a real operator who pointed --project-dir at an unwritable
+# location saw the irrelevant developer-facing framework-repo refusal
+# instead of a permission error, and tests/edge-cases-pre-init.sh E8b
+# could not be exercised at all from inside the framework checkout.
+# Fix: preflight_target_writable in scripts/lib/helpers.sh, wired into
+# init.sh BEFORE guard_not_in_framework. Tests pin the layering both
+# ways (preflight wins when target is unwritable; guard wins when
+# preflight passes; neither false-positives outside the framework).
+section "init.sh write-perm preflight before framework-repo guard (BL-041)"
+if bash "$SCRIPT_DIR/tests/test-init-write-perm-preflight.sh" >/dev/null 2>&1; then
+  pass "init.sh BL-041 layering tests (3/3)"
+else
+  fail "init.sh BL-041 layering tests FAILED (run tests/test-init-write-perm-preflight.sh for details)"
+fi
+
+# ================================================================
 # TEST 0d: BACKLOG-REFERENCES LINT — cycle-7 Slot-5 process backstop
 # ================================================================
 # Sibling of the counter-antipattern lint above; catches drift between

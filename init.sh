@@ -3707,30 +3707,58 @@ HELPEOF
 
   print_header "$VERSION"
 
-  # UAT 2026-04-25 fix (U-N): refuse to scaffold a project inside the
-  # framework repo itself. (--dry-run is allowed for inspection.)
+  # BL-041 (2026-06-30): the write-permission preflight and the
+  # framework-repo guard share a target-dir resolution step. Compute
+  # _early_target once and feed it to BOTH checks, in the order:
+  #   1. preflight_target_writable  — operator-facing
+  #   2. guard_not_in_framework     — developer-facing
   #
-  # security-audits-1 (S3, 2026-04-26 audit sweep): also pass the resolved
-  # --project-dir target so the guard catches a malicious or honest-mistake
-  # caller that supplies --project-dir=$FRAMEWORK_REPO from a benign cwd.
-  # The legacy bl-016 audit row #10 claimed this was already covered; the
-  # cwd-only guard did NOT actually cover it. The target-aware overload
-  # closes the gap.
+  # Rationale: a real operator who points --project-dir at an unwritable
+  # location should get the relevant permission error, not the framework-
+  # repo refusal. The framework-repo refusal still fires (defense-in-
+  # depth) when the preflight passes, and is the actual right answer for
+  # the developer scenario it was designed for.
+  #
+  # The previous ordering also blocked tests/edge-cases-pre-init.sh E8b:
+  # the harness runs init.sh from inside the framework checkout (cwd is
+  # the framework repo), so the cwd check in guard_not_in_framework fired
+  # before any write-permission probe had a chance. Reordering the two
+  # closes that test gap without weakening either guard.
+  #
+  # --dry-run skips BOTH because it never actually writes anything (the
+  # preview is allowed for inspection from any context, including from
+  # inside the framework repo itself).
   if [ "$DRY_RUN" != true ]; then
     # Resolve the effective target dir: explicit --project-dir wins; non-interactive
     # default is $HOME/Code/$ARG_PROJECT; interactive flow resolves later via prompt
     # (in that path the cwd check is the only signal until prompts run, which is
     # the same scope as before).
-    _gnif_target=""
+    _early_target=""
     if [ -n "${ARG_PROJECT_DIR:-}" ]; then
-      _gnif_target="$ARG_PROJECT_DIR"
+      _early_target="$ARG_PROJECT_DIR"
     elif [ "$NON_INTERACTIVE" = true ] && [ -n "${ARG_PROJECT:-}" ]; then
-      _gnif_target="$HOME/Code/$ARG_PROJECT"
+      _early_target="$HOME/Code/$ARG_PROJECT"
     fi
-    if ! guard_not_in_framework "$_gnif_target"; then
+
+    # 1. Operator-facing: write-permission preflight (BL-041 / audit
+    # recommendation C). Must run BEFORE the framework-repo guard so the
+    # permission failure mode is reachable from any cwd. preflight_target_writable
+    # is a no-op when _early_target is empty (interactive flow resolves
+    # target later; the existing downstream existence check at
+    # collect_inputs_non_interactive::project_dir + create_project's
+    # mkdir surface the same failure mode in that path).
+    if ! preflight_target_writable "$_early_target"; then
       exit 1
     fi
-    unset _gnif_target
+
+    # 2. Developer-facing: framework-repo guard. security-audits-1
+    # (S3, 2026-04-26 audit sweep) added the optional target argument so
+    # this catches a malicious or honest-mistake caller that supplies
+    # --project-dir=$FRAMEWORK_REPO from a benign cwd.
+    if ! guard_not_in_framework "$_early_target"; then
+      exit 1
+    fi
+    unset _early_target
   fi
 
   if [ "$DRY_RUN" = true ]; then
