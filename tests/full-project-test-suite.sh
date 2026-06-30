@@ -321,6 +321,18 @@ if bash "$SCRIPT_DIR/tests/test-check-phase-gate-self-approval.sh" >/dev/null 2>
 else
   fail "tests/test-check-phase-gate-self-approval.sh FAILED (run for details)"
 fi
+# code-check-gates-7-followup (cycle-7 PR-#87 verifier major #4):
+# scripts/check-phase-gate.sh now uses per-line `git blame` (not
+# file-level `git log -1`) to resolve the commit author of the active
+# gate's Approver row. Closes the false-negative attack where Alice
+# self-approves gate A in C1 and Bob later commits a typo fix to gate
+# B in C2 → file-level lookup returned Bob → Alice's self-approval
+# silently passed. The blame-walker tests pin the fix.
+if bash "$SCRIPT_DIR/tests/test-check-phase-gate-blame-walker.sh" >/dev/null 2>&1; then
+  pass "tests/test-check-phase-gate-blame-walker.sh"
+else
+  fail "tests/test-check-phase-gate-blame-walker.sh FAILED (run for details)"
+fi
 
 # ----------------------------------------------------------------
 # TEST 0i: PENDING-APPROVAL RESOLVE-DECISION
