@@ -525,6 +525,38 @@ declare -a TEST_RUNS=(
   "mobile:swift:standard:personal"
 )
 
+# === FIXTURE SANITY CHECK (BL-044) ===
+# Per-host template layout (`templates/pipelines/{ci,release}/<host>/...`)
+# was introduced by the host-subdir migration. TEST 4 simulates a GitHub
+# host (writes to `.github/workflows/`), so it must source from
+# `templates/pipelines/{ci,release}/github/`. If a future move relocates
+# those templates again, the silent `[ -f ... ]` cp guards downstream
+# would no-op without surfacing the breakage (the original BL-044 bug) —
+# fail fast here so a future regression does not silently re-break TEST 4.
+#
+# Scope: GitHub-only — TEST_RUNS does not parameterize host. Adding
+# gitlab/bitbucket coverage is BL-053 follow-up.
+test4_missing_fixtures=""
+for run in "${TEST_RUNS[@]}"; do
+  IFS=':' read -r t_platform_pf t_language_pf _t_track _t_deployment <<< "$run"
+  case "$t_language_pf" in
+    typescript|javascript) ci_tpl_pf="typescript.yml" ;;
+    kotlin) ci_tpl_pf="kotlin.yml" ;;
+    java) ci_tpl_pf="java.yml" ;;
+    *) ci_tpl_pf="${t_language_pf}.yml" ;;
+  esac
+  [ -f "$SCRIPT_DIR/templates/pipelines/ci/github/$ci_tpl_pf" ] || \
+    test4_missing_fixtures+="    - templates/pipelines/ci/github/$ci_tpl_pf"$'\n'
+  [ -f "$SCRIPT_DIR/templates/pipelines/release/github/${t_platform_pf}.yml" ] || \
+    test4_missing_fixtures+="    - templates/pipelines/release/github/${t_platform_pf}.yml"$'\n'
+done
+if [ -n "$test4_missing_fixtures" ]; then
+  fail "TEST 4 fixture missing — required GitHub-host templates not found (cannot exercise the templating contract):"
+  printf '%s' "$test4_missing_fixtures"
+else
+  pass "TEST 4 fixture sanity check (GitHub-host CI + release templates present for all 7 combos)"
+fi
+
 for run in "${TEST_RUNS[@]}"; do
   IFS=':' read -r t_platform t_language t_track t_deployment <<< "$run"
   label="$t_platform/$t_language/$t_track/$t_deployment"
@@ -558,8 +590,15 @@ for run in "${TEST_RUNS[@]}"; do
     java) ci_tpl="java.yml" ;;
     *) ci_tpl="${t_language}.yml" ;;
   esac
-  [ -f "$SCRIPT_DIR/templates/pipelines/ci/$ci_tpl" ] && cp "$SCRIPT_DIR/templates/pipelines/ci/$ci_tpl" "$project_dir/.github/workflows/ci.yml"
-  [ -f "$SCRIPT_DIR/templates/pipelines/release/${t_platform}.yml" ] && cp "$SCRIPT_DIR/templates/pipelines/release/${t_platform}.yml" "$project_dir/.github/workflows/release.yml"
+  # BL-044: Host-aware template layout. TEST 4 simulates a GitHub host
+  # (writes to `.github/workflows/`), so source from the `github/` subdir.
+  # The flat `templates/pipelines/ci/*.yml` paths predate the host-subdir
+  # migration and now never exist — these guards silently no-op'd, which
+  # let the downstream `File missing (...): .github/workflows/ci.yml`
+  # assertion fail on every combo. Fixture sanity check above guards
+  # against the next migration breaking these silently.
+  [ -f "$SCRIPT_DIR/templates/pipelines/ci/github/$ci_tpl" ] && cp "$SCRIPT_DIR/templates/pipelines/ci/github/$ci_tpl" "$project_dir/.github/workflows/ci.yml"
+  [ -f "$SCRIPT_DIR/templates/pipelines/release/github/${t_platform}.yml" ] && cp "$SCRIPT_DIR/templates/pipelines/release/github/${t_platform}.yml" "$project_dir/.github/workflows/release.yml"
 
   # Init git
   (cd "$project_dir" && git init -q)
@@ -653,8 +692,8 @@ LOGEOF
     [ -f "$project_dir/$f" ] && pass "File exists ($label): $f" || fail "File missing ($label): $f"
   done
 
-  # Release pipeline
-  if [ -f "$SCRIPT_DIR/templates/pipelines/release/${t_platform}.yml" ]; then
+  # Release pipeline (BL-044: per-host github/ subdir, matching the cp source above)
+  if [ -f "$SCRIPT_DIR/templates/pipelines/release/github/${t_platform}.yml" ]; then
     [ -f "$project_dir/.github/workflows/release.yml" ] && pass "Release pipeline: $label" || fail "Release pipeline missing: $label"
   fi
 
