@@ -1502,7 +1502,7 @@ The adversarial certainty re-walk (re-walker-5, scenarios `edge-phase-3-to-4-poc
 **Logged:** 2026-06-29
 **Category:** Bug
 **Severity:** Major
-**Status:** Open
+**Status:** Closed (2026-06-30, PR #118, commit 443b50a)
 
 The adversarial certainty re-walk (re-walker-2, scenario `fresh-org-sponsored-poc-standard-web-ts`) surfaced that `init.sh` exits `0` with the `Setup Complete` banner even after emitting a `[FAIL]` line for branch protection. Operators who only check the exit code (or scan for the banner) miss the gap entirely — the script claims success while having printed a failure diagnostic. This is the same silent-success defect shape that PR #105 fixed in `intake-wizard.sh:2028` (and the same defect class addressed by recent retroactive lint additions for `[FAIL]`-followed-by-`exit 0` patterns).
 
