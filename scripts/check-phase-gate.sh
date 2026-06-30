@@ -243,12 +243,57 @@ validate_approval_fields() {
     local approver_name
     approver_name=$(echo "$section" | awk -F'|' '/[Aa]pprover/ && !/Role/ { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $3); gsub(/\*/, "", $3); print $3; exit }' 2>/dev/null || echo "")
     if [ -n "$approver_name" ] && [ "$approver_name" != "[Name]" ] && [ "$approver_name" != "" ]; then
-      local approver_norm git_user git_user_norm commit_author commit_author_norm
+      local approver_norm git_user git_user_norm commit_author commit_author_norm approver_line
       approver_norm=$(printf '%s' "$approver_name" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
       git_user=$(git config user.name 2>/dev/null || echo "")
       git_user_norm=$(printf '%s' "$git_user" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-      # Commit author of the most recent change touching APPROVAL_LOG.md.
-      commit_author=$(git log -n 1 --format='%an' -- "$APPROVAL_LOG" 2>/dev/null || echo "")
+
+      # code-check-gates-7-followup (cycle-7 PR-#87 verifier major #4):
+      # the pre-fix lookup `git log -n 1 --format=%an -- APPROVAL_LOG.md`
+      # returned whoever most recently TOUCHED the file — not who added
+      # the specific gate's Approver row. Attack: Alice commits her own
+      # approval row at gate A (real self-approval — should FAIL); Bob
+      # later commits a typo fix to gate B; `git log -1` returns Bob;
+      # Alice's self-approval silently passes.
+      #
+      # Fix: resolve the line number of the active gate section's
+      # Approver row, then `git blame -L<N>,<N>` to extract the author
+      # of THAT line's most recent change. Compare against approver.
+      #
+      # The awk walker scans for the gate header (case-insensitive
+      # regex match — same shape `grep -A 20 "$gate_name"` uses above),
+      # then within the section walks until the next ## header or `---`
+      # rule, locating the first Approver row that isn't a Role row.
+      # Print its line number and exit.
+      approver_line=$(awk -v gate="$gate_name" '
+        BEGIN { IGNORECASE = 1 }
+        $0 ~ gate && /^## / { in_section = 1; next }
+        in_section && /^## / { exit }
+        in_section && /^---[[:space:]]*$/ { exit }
+        in_section && /[Aa]pprover/ && !/Role/ { print NR; exit }
+      ' "$APPROVAL_LOG" 2>/dev/null || echo "")
+
+      if [ -n "$approver_line" ]; then
+        # `git blame --line-porcelain` prints an `author <name>` line
+        # per blame entry. When the line differs from HEAD (uncommitted
+        # working-tree modification) blame returns "Not Committed Yet".
+        # Both "empty author" and "Not Committed Yet" indicate the
+        # invariant cannot be verified — collapse to the WARN branch.
+        commit_author=$(git blame --line-porcelain \
+                          -L "${approver_line},${approver_line}" \
+                          -- "$APPROVAL_LOG" 2>/dev/null \
+                          | awk '/^author / { sub(/^author /, ""); print; exit }' \
+                          || echo "")
+        if [ "$commit_author" = "Not Committed Yet" ] || [ "$commit_author" = "External file (--contents)" ]; then
+          commit_author=""
+        fi
+      else
+        # awk found neither the gate section nor an Approver row.
+        # Fall back to the file-level lookup so a missing-section case
+        # still has SOME signal (and the WARN branch will fire if it
+        # also returns empty).
+        commit_author=$(git log -n 1 --format='%an' -- "$APPROVAL_LOG" 2>/dev/null || echo "")
+      fi
       commit_author_norm=$(printf '%s' "$commit_author" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 
       if [ -n "$commit_author_norm" ] && [ "$commit_author_norm" = "$approver_norm" ]; then
@@ -261,15 +306,15 @@ validate_approval_fields() {
         echo -e "${YELLOW}[WARN]${NC} $gate_label: ambient git user '$git_user' matches approver '$approver_name' but APPROVAL_LOG.md commit author is '$commit_author' — verify the commit author wasn't rewritten"
         issues=$((issues + 1))
       elif [ -z "$commit_author_norm" ] && [ -n "$approver_norm" ]; then
-        # code-check-gates-7-followup (cycle-7 PR-#87 verifier): if
-        # APPROVAL_LOG.md has not yet been committed (or the approver
-        # row was added in the working tree only), `git log -- $APPROVAL_LOG`
-        # returns empty and the self-approval invariant (baseline §5
-        # invariant #9) cannot be verified. Surface this gap as a WARN
-        # so it doesn't silently pass. See backlog entry
-        # `code-check-gates-7-followup` for the per-gate-section blame
-        # fix that would let us verify uncommitted/amended approvals.
-        echo -e "${YELLOW}[WARN]${NC} $gate_label: cannot verify commit author for approver '$approver_name' — APPROVAL_LOG.md not yet committed (or git log returned no author). Commit the approval entry to enable self-approval verification."
+        # code-check-gates-7-followup: cannot verify the per-line blame
+        # author either because (a) the Approver row was added in the
+        # working tree only (uncommitted) — `git blame` returns "Not
+        # Committed Yet", normalized to empty above; (b) the gate
+        # section was not found in APPROVAL_LOG.md and the file-level
+        # fallback also returned empty; or (c) git is unavailable.
+        # Surface as WARN so the silent-pass case never recurs (baseline
+        # §5 invariant #9 audit signal).
+        echo -e "${YELLOW}[WARN]${NC} $gate_label: cannot verify commit author for approver '$approver_name' — APPROVAL_LOG.md row not yet committed (or per-line blame returned no author). Commit the approval entry to enable self-approval verification."
         issues=$((issues + 1))
       fi
     fi
