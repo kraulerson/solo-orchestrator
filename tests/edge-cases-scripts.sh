@@ -204,17 +204,33 @@ rm -f "$E12_DIR/CLAUDE.md"
 result=0
 output=$( cd "$E12_DIR" && bash "$E12_DIR/scripts/resume.sh" 2>&1 </dev/null ) || result=$?
 
-# resume.sh should handle missing CLAUDE.md gracefully (not crash)
-# It may still run but show "(not found in CLAUDE.md)" for fields
-if [ "$result" -eq 0 ]; then
-  pass "E12a: resume.sh exits cleanly with missing CLAUDE.md (exit 0)"
-else
-  # Even a non-zero exit is acceptable as long as it didn't crash with a bash error
-  if echo "$output" | grep -qE "unbound variable|syntax error|command not found"; then
-    fail "E12a: resume.sh crashed with bash error when CLAUDE.md missing"
-  else
-    pass "E12a: resume.sh exited non-zero but handled missing CLAUDE.md gracefully (exit $result)"
-  fi
+# BL-037 closure: pre-fix oracle had a three-way structure where the
+# catch-all `else pass` (line 216 pre-fix) accepted any non-zero exit
+# whose stderr lacked the four magic shell-error keywords. A regression
+# where resume.sh silently truncated its prompt output mid-stream still
+# PASSed. Pin the positive contract:
+#   (1) exit 0 (resume.sh has no required-input branch — missing
+#       CLAUDE.md falls through to "(not found in CLAUDE.md)" defaults).
+#   (2) Output contains the prompt template end marker
+#       "End of resume prompt" — proves the script reached the prompt's
+#       tail and did not early-exit silently mid-output.
+#   (3) Output contains "(not found in CLAUDE.md)" — proves the
+#       fallback path actually fired (defaults rendered into prompt).
+e12a_ok=1
+if [ "$result" -ne 0 ]; then
+  fail "E12a: resume.sh must exit 0 with missing CLAUDE.md (got exit $result)"
+  e12a_ok=0
+fi
+if ! echo "$output" | grep -qF "End of resume prompt"; then
+  fail "E12a: resume.sh prompt-template tail marker absent — script bailed mid-output"
+  e12a_ok=0
+fi
+if ! echo "$output" | grep -qF "(not found in CLAUDE.md)"; then
+  fail "E12a: resume.sh missing-CLAUDE fallback string '(not found in CLAUDE.md)' not emitted"
+  e12a_ok=0
+fi
+if [ "$e12a_ok" -eq 1 ]; then
+  pass "E12a: resume.sh exit=0, prompt tail emitted, and (not found in CLAUDE.md) fallback fired"
 fi
 
 # Test with empty CLAUDE.md
@@ -225,10 +241,24 @@ create_test_project "$E12B_DIR"
 result=0
 output=$( cd "$E12B_DIR" && bash "$E12B_DIR/scripts/resume.sh" 2>&1 </dev/null ) || result=$?
 
-if echo "$output" | grep -qE "unbound variable|syntax error|command not found"; then
-  fail "E12b: resume.sh crashed with bash error on empty CLAUDE.md"
-else
-  pass "E12b: resume.sh handles empty CLAUDE.md without crashing"
+# BL-037 closure: empty CLAUDE.md exercises the same fallback as
+# missing CLAUDE.md (grep returns nothing → default placeholder).
+# Same positive contract as E12a.
+e12b_ok=1
+if [ "$result" -ne 0 ]; then
+  fail "E12b: resume.sh must exit 0 with empty CLAUDE.md (got exit $result)"
+  e12b_ok=0
+fi
+if ! echo "$output" | grep -qF "End of resume prompt"; then
+  fail "E12b: resume.sh prompt-template tail marker absent — script bailed mid-output"
+  e12b_ok=0
+fi
+if ! echo "$output" | grep -qF "(not found in CLAUDE.md)"; then
+  fail "E12b: resume.sh empty-CLAUDE fallback string '(not found in CLAUDE.md)' not emitted"
+  e12b_ok=0
+fi
+if [ "$e12b_ok" -eq 1 ]; then
+  pass "E12b: resume.sh exit=0, prompt tail emitted, and (not found in CLAUDE.md) fallback fired"
 fi
 
 
@@ -899,34 +929,79 @@ cat > "$E25_DIR/.claude/phase-state.json" << 'EOF'
 }
 EOF
 
-# Test validate.sh — should not crash
+# BL-037 closure: pre-fix oracle for E25a/b/c was a magic-keyword
+# negative oracle (`grep -qE "unbound variable|syntax error|command not
+# found"`) that PASSed on any output not matching those four strings —
+# including a silent early-bail before phase 99 was ever inspected.
+# Pin POSITIVE substrings that prove the script (a) actually read the
+# phase-state file, (b) recognized the bogus phase 99 value, and (c)
+# reached a known sub-section that depends on the phase value.
+
+# Test validate.sh — should not crash AND must echo the parsed phase 99.
 result=0
 output=$( cd "$E25_DIR" && bash "$E25_DIR/scripts/validate.sh" 2>&1 </dev/null ) || result=$?
 
+e25a_ok=1
 if echo "$output" | grep -qE "unbound variable|syntax error|command not found"; then
   fail "E25a: validate.sh crashed with bash error on phase 99"
-else
-  pass "E25a: validate.sh does not crash with current_phase=99"
+  e25a_ok=0
+fi
+# validate.sh:158 prints `[INFO] Project phase: <N> (source: phase-state.json)`
+# and earlier echoes `[OK] Phase state file found (current_phase: <N>)`.
+# Either is a positive proof that the script read the file and parsed
+# the value as 99.
+if ! echo "$output" | grep -qE "(current_phase:[[:space:]]*99|Project phase:[[:space:]]*99)"; then
+  fail "E25a: validate.sh did not echo parsed current_phase=99 (script did not reach phase-state inspection)"
+  e25a_ok=0
+fi
+if [ "$e25a_ok" -eq 1 ]; then
+  pass "E25a: validate.sh parsed and echoed current_phase=99 without bash error"
 fi
 
-# Test check-phase-gate.sh — should not crash
+# Test check-phase-gate.sh — should not crash AND must explicitly
+# reference current_phase=99 in at least one WARN about an unrecorded
+# gate (the script's behavior at phase >=1 echoes the parsed phase
+# back in `Phase N→M: current_phase is <N>` messages).
 result=0
 output=$( cd "$E25_DIR" && bash "$E25_DIR/scripts/check-phase-gate.sh" 2>&1 </dev/null ) || result=$?
 
+e25b_ok=1
 if echo "$output" | grep -qE "unbound variable|syntax error|command not found"; then
   fail "E25b: check-phase-gate.sh crashed with bash error on phase 99"
-else
-  pass "E25b: check-phase-gate.sh does not crash with current_phase=99"
+  e25b_ok=0
+fi
+# check-phase-gate.sh:158 prints `Current phase: <N>` and the
+# Phase 1→2/2→3/3→4 sub-checks each echo `current_phase is 99` when
+# the gate date is missing. Either path proves the script read 99 and
+# routed into the phase>=1 branch.
+if ! echo "$output" | grep -qE "(Current phase:[[:space:]]*99|current_phase is 99)"; then
+  fail "E25b: check-phase-gate.sh did not echo parsed phase 99 (script did not reach gate inspection)"
+  e25b_ok=0
+fi
+if [ "$e25b_ok" -eq 1 ]; then
+  pass "E25b: check-phase-gate.sh parsed phase=99 and routed into gate inspection without bash error"
 fi
 
-# Test resume.sh — should not crash
+# Test resume.sh — should exit 0 AND emit "**Phase:** 99" in the prompt
+# (proves the parsed phase reached the template substitution).
 result=0
 output=$( cd "$E25_DIR" && bash "$E25_DIR/scripts/resume.sh" 2>&1 </dev/null ) || result=$?
 
+e25c_ok=1
 if echo "$output" | grep -qE "unbound variable|syntax error|command not found"; then
   fail "E25c: resume.sh crashed with bash error on phase 99"
-else
-  pass "E25c: resume.sh does not crash with current_phase=99"
+  e25c_ok=0
+fi
+if [ "$result" -ne 0 ]; then
+  fail "E25c: resume.sh must exit 0 on phase 99 (graceful render); got exit $result"
+  e25c_ok=0
+fi
+if ! echo "$output" | grep -qE '\*\*Phase:\*\*[[:space:]]*99'; then
+  fail "E25c: resume.sh did not render '**Phase:** 99' in prompt — value did not reach template"
+  e25c_ok=0
+fi
+if [ "$e25c_ok" -eq 1 ]; then
+  pass "E25c: resume.sh exit=0 and rendered '**Phase:** 99' into the resume prompt"
 fi
 
 
@@ -995,14 +1070,23 @@ else
 fi
 rm -rf "$_uat_work"
 
+# BL-037 closure (E27/E28/E29): the audit flagged asymmetry between
+# E26 (which checks BOTH `pre-flight-reference.html` AND
+# `scenario-reference.json`) and E27/E28/E29 (which only checked
+# `pre-flight-reference.html`). A regression in init.sh's UAT copy
+# block that dropped the scenario-reference.json copy would have left
+# E27/E28/E29 silently green. Each case below now asserts both halves
+# of the reference pair as a hard requirement, mirroring E26's shape.
+
 # Case 2: real init.sh for desktop
 _uat_work=$(mktemp -d)
 if _uat_real_init "$_uat_work" "desktop" "e27-desktop" && \
    [ -f "$_uat_work/e27-desktop/tests/uat/examples/pre-flight-reference.html" ] && \
+   [ -f "$_uat_work/e27-desktop/tests/uat/examples/scenario-reference.json" ] && \
    grep -qi 'terminal\|project root\|venv\|runtime' "$_uat_work/e27-desktop/tests/uat/examples/pre-flight-reference.html"; then
-  pass "E27: real init.sh --platform desktop copies desktop-specific UAT reference pair"
+  pass "E27: real init.sh --platform desktop copies desktop-specific UAT reference pair (BOTH halves: pre-flight-reference.html + scenario-reference.json)"
 else
-  fail "E27: real init.sh --platform desktop failed (log: $_uat_work/init-desktop.log)"
+  fail "E27: real init.sh --platform desktop failed — refs missing (one or both halves of the pair) or pre-flight not desktop-specific (log: $_uat_work/init-desktop.log)"
 fi
 rm -rf "$_uat_work"
 
@@ -1010,10 +1094,11 @@ rm -rf "$_uat_work"
 _uat_work=$(mktemp -d)
 if _uat_real_init "$_uat_work" "mobile" "e28-mobile" && \
    [ -f "$_uat_work/e28-mobile/tests/uat/examples/pre-flight-reference.html" ] && \
+   [ -f "$_uat_work/e28-mobile/tests/uat/examples/scenario-reference.json" ] && \
    grep -qi 'device\|simulator\|testflight\|android' "$_uat_work/e28-mobile/tests/uat/examples/pre-flight-reference.html"; then
-  pass "E28: real init.sh --platform mobile copies mobile-specific UAT reference pair"
+  pass "E28: real init.sh --platform mobile copies mobile-specific UAT reference pair (BOTH halves: pre-flight-reference.html + scenario-reference.json)"
 else
-  fail "E28: real init.sh --platform mobile failed (log: $_uat_work/init-mobile.log)"
+  fail "E28: real init.sh --platform mobile failed — refs missing (one or both halves of the pair) or pre-flight not mobile-specific (log: $_uat_work/init-mobile.log)"
 fi
 rm -rf "$_uat_work"
 
@@ -1021,10 +1106,11 @@ rm -rf "$_uat_work"
 _uat_work=$(mktemp -d)
 if _uat_real_init "$_uat_work" "mcp_server" "e29-mcp" && \
    [ -f "$_uat_work/e29-mcp/tests/uat/examples/pre-flight-reference.html" ] && \
+   [ -f "$_uat_work/e29-mcp/tests/uat/examples/scenario-reference.json" ] && \
    grep -qi 'mcp\|inspector\|json-rpc\|tool call' "$_uat_work/e29-mcp/tests/uat/examples/pre-flight-reference.html"; then
-  pass "E29: real init.sh --platform mcp_server copies mcp-specific UAT reference pair"
+  pass "E29: real init.sh --platform mcp_server copies mcp-specific UAT reference pair (BOTH halves: pre-flight-reference.html + scenario-reference.json)"
 else
-  fail "E29: real init.sh --platform mcp_server failed (log: $_uat_work/init-mcp_server.log)"
+  fail "E29: real init.sh --platform mcp_server failed — refs missing (one or both halves of the pair) or pre-flight not mcp-specific (log: $_uat_work/init-mcp_server.log)"
 fi
 rm -rf "$_uat_work"
 

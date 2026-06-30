@@ -626,19 +626,28 @@ result=0
 python3 "$SAVE_ANSWER_PY" "project_name" "'; DROP TABLE users; --" "$E33_DIR/.claude/intake-progress.json" 2>"$TEST_DIR/e33_stderr.txt" || result=$?
 
 if [ $result -eq 0 ]; then
+  # BL-037 closure: the pre-fix oracle had a catch-all `else pass`
+  # ("was sanitized to: ...") that accepted ANY non-empty/non-MISSING
+  # value as success. A regression that silently truncated the payload
+  # to a single character (e.g. "'") would have PASSed. The helper
+  # SAVE_ANSWER_PY does NO sanitization — it assigns the raw string
+  # to data['answers'][key] and serializes via json.dump. JSON's
+  # string-quoting handles the apostrophe / semicolons safely.
+  # The pinned contract is therefore EXACT round-trip equality:
+  # input bytes == stored bytes. Any drift (truncation, partial
+  # sanitization, mojibake) flips RED.
   saved_value=$(python3 -c "
 import json
 with open('$E33_DIR/.claude/intake-progress.json') as f:
     data = json.load(f)
-print(data['answers'].get('project_name', 'MISSING'))
+v = data['answers'].get('project_name', 'MISSING')
+print(v)
 " 2>/dev/null || echo "JSON_PARSE_ERROR")
 
   if [ "$saved_value" = "'; DROP TABLE users; --" ]; then
-    pass "E33: SQL injection payload stored literally (no injection, JSON safe)"
-  elif [ "$saved_value" = "MISSING" ] || [ "$saved_value" = "JSON_PARSE_ERROR" ]; then
-    fail "E33: SQL injection payload corrupted JSON or was not stored"
+    pass "E33: SQL injection payload stored byte-exact (input bytes == stored bytes, JSON-quoting safe)"
   else
-    pass "E33: SQL injection payload was sanitized to: '$saved_value'"
+    fail "E33: SQL injection payload not stored byte-exact — got: '$saved_value' (expected literal \"'; DROP TABLE users; --\")"
   fi
 else
   fail "E33: save_answer crashed on SQL injection payload (exit $result)"
@@ -658,6 +667,12 @@ result=0
 python3 "$SAVE_ANSWER_PY" "description" "$LONG_DESC" "$E34_DIR/.claude/intake-progress.json" 2>"$TEST_DIR/e34_stderr.txt" || result=$?
 
 if [ $result -eq 0 ]; then
+  # BL-037 closure: pre-fix `elif [ "$saved_len" -gt 0 ]` catch-all
+  # would PASS on truncation to a single character. Pin the exact
+  # length: SAVE_ANSWER_PY does no truncation (no documented cap on
+  # description length in the helper), so the contract is byte-exact
+  # preservation. Also assert byte-exact first/last chars to catch a
+  # regression that happens to preserve length but corrupts content.
   saved_len=$(python3 -c "
 import json
 with open('$E34_DIR/.claude/intake-progress.json') as f:
@@ -665,12 +680,20 @@ with open('$E34_DIR/.claude/intake-progress.json') as f:
 print(len(data['answers'].get('description', '')))
 " 2>/dev/null || echo "0")
 
-  if [ "$saved_len" = "10000" ]; then
-    pass "E34: 10,000-char description stored in full ($saved_len chars)"
-  elif [ "$saved_len" -gt 0 ] 2>/dev/null; then
-    pass "E34: 10,000-char description truncated gracefully to $saved_len chars"
+  saved_signature=$(python3 -c "
+import json
+with open('$E34_DIR/.claude/intake-progress.json') as f:
+    data = json.load(f)
+v = data['answers'].get('description', '')
+# First/last chars + uniform-A check: input is 10000 'A's; any mutation
+# (truncate, partial-corrupt) flips the signature.
+print('len={} first={} last={} all_A={}'.format(len(v), v[:1] or 'EMPTY', v[-1:] or 'EMPTY', all(c == 'A' for c in v) if v else False))
+" 2>/dev/null || echo "SIGNATURE_ERROR")
+
+  if [ "$saved_len" = "10000" ] && [ "$saved_signature" = "len=10000 first=A last=A all_A=True" ]; then
+    pass "E34: 10,000-char description stored byte-exact (len=10000, all 'A' bytes preserved)"
   else
-    fail "E34: 10,000-char description lost or corrupted"
+    fail "E34: 10,000-char description not stored byte-exact — len=$saved_len signature='$saved_signature' (expected len=10000, all-A)"
   fi
 else
   fail "E34: save_answer crashed on 10,000-char description (exit $result)"
@@ -789,19 +812,36 @@ result=0
 python3 "$SAVE_ANSWER_PY" "project_name" "プロジェクト" "$E36_DIR/.claude/intake-progress.json" 2>"$TEST_DIR/e36_stderr.txt" || result=$?
 
 if [ $result -eq 0 ]; then
-  saved_value=$(python3 -c "
-import json
-with open('$E36_DIR/.claude/intake-progress.json') as f:
-    data = json.load(f)
-print(data['answers'].get('project_name', 'MISSING'))
-" 2>/dev/null || echo "ERROR")
-
-  if [ "$saved_value" = "プロジェクト" ]; then
-    pass "E36: Unicode project name stored correctly"
-  elif [ "$saved_value" = "MISSING" ] || [ "$saved_value" = "ERROR" ]; then
-    fail "E36: Unicode project name was lost or corrupted"
+  # BL-037 closure: pre-fix catch-all `else pass: handled (stored as:
+  # ...)` allowed mojibake or any non-empty/non-MISSING/non-ERROR
+  # string to PASS — a regression that encoded as 0xE3,0x83,0x97 with
+  # a stripped suffix would still PASS. Pin the EXACT UTF-8 roundtrip.
+  # Read via python3 directly with explicit unicode comparison so the
+  # bash string layer cannot mask byte-level corruption.
+  e36_check=$(python3 - "$E36_DIR/.claude/intake-progress.json" <<'PYEOF'
+import json, sys
+expected = 'プロジェクト'
+expected_bytes = expected.encode('utf-8')
+try:
+    with open(sys.argv[1], 'rb') as f:
+        raw = f.read()
+    data = json.loads(raw.decode('utf-8'))
+except Exception as exc:
+    print(f"FAIL|json invalid: {exc}")
+    sys.exit(0)
+v = data.get('answers', {}).get('project_name')
+if v != expected:
+    print(f"FAIL|value mismatch: repr={v!r} (expected {expected!r})")
+elif v.encode('utf-8') != expected_bytes:
+    print(f"FAIL|utf-8 mismatch: bytes={v.encode('utf-8')!r} (expected {expected_bytes!r})")
+else:
+    print("PASS")
+PYEOF
+)
+  if [ "$e36_check" = "PASS" ]; then
+    pass "E36: Unicode project name stored byte-exact (UTF-8 roundtrip == 'プロジェクト')"
   else
-    pass "E36: Unicode project name handled (stored as: '$saved_value')"
+    fail "E36: Unicode roundtrip broken: ${e36_check#FAIL|}"
   fi
 else
   fail "E36: save_answer crashed on Unicode project name (exit $result)"
@@ -819,19 +859,35 @@ result=0
 python3 "$SAVE_ANSWER_PY" "description" "Build a 🚀 app" "$E37_DIR/.claude/intake-progress.json" 2>"$TEST_DIR/e37_stderr.txt" || result=$?
 
 if [ $result -eq 0 ]; then
-  saved_value=$(python3 -c "
-import json
-with open('$E37_DIR/.claude/intake-progress.json') as f:
-    data = json.load(f)
-print(data['answers'].get('description', 'MISSING'))
-" 2>/dev/null || echo "ERROR")
-
-  if [ "$saved_value" = "Build a 🚀 app" ]; then
-    pass "E37: Emoji in description stored literally"
-  elif [ "$saved_value" = "MISSING" ] || [ "$saved_value" = "ERROR" ]; then
-    fail "E37: Emoji in description was lost"
+  # BL-037 closure: pre-fix catch-all `else pass: handled (stored as:
+  # ...)` accepted any non-empty/non-MISSING/non-ERROR string. The
+  # 4-byte UTF-8 emoji is the regression-prone case (surrogate-pair
+  # mishandling, mojibake, byte truncation to U+0001F680 → "?"). Pin
+  # the EXACT UTF-8 roundtrip via python3 byte comparison.
+  e37_check=$(python3 - "$E37_DIR/.claude/intake-progress.json" <<'PYEOF'
+import json, sys
+expected = 'Build a 🚀 app'
+expected_bytes = expected.encode('utf-8')
+try:
+    with open(sys.argv[1], 'rb') as f:
+        raw = f.read()
+    data = json.loads(raw.decode('utf-8'))
+except Exception as exc:
+    print(f"FAIL|json invalid: {exc}")
+    sys.exit(0)
+v = data.get('answers', {}).get('description')
+if v != expected:
+    print(f"FAIL|value mismatch: repr={v!r} (expected {expected!r})")
+elif v.encode('utf-8') != expected_bytes:
+    print(f"FAIL|utf-8 mismatch: bytes={v.encode('utf-8')!r} (expected {expected_bytes!r})")
+else:
+    print("PASS")
+PYEOF
+)
+  if [ "$e37_check" = "PASS" ]; then
+    pass "E37: Emoji in description stored byte-exact (UTF-8 roundtrip preserves 4-byte 🚀)"
   else
-    pass "E37: Emoji in description handled (stored as: '$saved_value')"
+    fail "E37: Emoji roundtrip broken: ${e37_check#FAIL|}"
   fi
 else
   fail "E37: save_answer crashed on emoji in description (exit $result)"
@@ -1021,8 +1077,12 @@ section "E40: NUL bytes in text input"
 E40_DIR="$TEST_DIR/e40"
 create_input_test_env "$E40_DIR"
 
-# NUL bytes are stripped by bash before reaching sys.argv, so this becomes "testdata".
-# We verify the function handles this gracefully and produces valid JSON.
+# Bash's $'...\x00...' literal expansion produces a C-string that the
+# kernel's exec() truncates at the embedded NUL when building argv —
+# python3's sys.argv[1] therefore receives "test" (the prefix), not
+# "testdata" or "test\0data". The documented sanitization for E40 is
+# therefore: saved_value == "test". Pre-fix oracle's `grep -q "test"`
+# catch-all matched "tes", "best test", "test123abc", etc.
 result=0
 python3 "$SAVE_ANSWER_PY" "description" $'test\x00data' "$E40_DIR/.claude/intake-progress.json" 2>"$TEST_DIR/e40_stderr.txt" || result=$?
 
@@ -1035,18 +1095,23 @@ with open('$E40_DIR/.claude/intake-progress.json') as f:
 " 2>/dev/null || json_valid=1
 
   if [ $json_valid -eq 0 ]; then
+    # BL-037 closure: pre-fix catch-all `elif echo "$saved_value" | grep -q
+    # "test"` matched 'tes', 'best test', 'test123abc', etc. — silently
+    # accepting partial corruption. Bash strips NUL bytes from $'...\\x00...'
+    # literals before exec, so the documented sanitization is
+    # "stored == 'testdata'" (NUL byte removed by bash, JSON valid).
+    # Pin EXACT equality; anything else is corruption.
     saved_value=$(python3 -c "
 import json
 with open('$E40_DIR/.claude/intake-progress.json') as f:
     data = json.load(f)
-print(data['answers'].get('description', 'MISSING'))
-" 2>/dev/null || echo "ERROR")
-    if [ "$saved_value" = "testdata" ]; then
-      pass "E40: NUL byte stripped by shell -- 'testdata' stored, JSON valid"
-    elif echo "$saved_value" | grep -q "test"; then
-      pass "E40: NUL byte handled -- stored as: '$saved_value', JSON valid"
+v = data['answers'].get('description', 'MISSING')
+print(repr(v))
+" 2>/dev/null || echo "'ERROR'")
+    if [ "$saved_value" = "'test'" ]; then
+      pass "E40: kernel NUL-truncated argv — saved_value == 'test' byte-exact (documented sanitization)"
     else
-      fail "E40: NUL byte corrupted value: '$saved_value'"
+      fail "E40: NUL byte input did not produce documented 'test' result — got $saved_value"
     fi
   else
     fail "E40: NUL byte input broke JSON validity"

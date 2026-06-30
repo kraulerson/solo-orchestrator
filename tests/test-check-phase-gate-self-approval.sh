@@ -130,15 +130,31 @@ write_phase_state_org
 write_log_with_approver "Karl Raulerson"
 commit_log_as "Jane Approver" "jane@example.com"
 out=$(run_gate_with_git_user "Karl Raulerson")
+# BL-037 closure: pre-fix oracle had a both-branches-pass shape — the
+# elif matched WARN output; the else (line 138-141) ALSO passed on
+# absence-of-message ("Acceptable: no message at all"). A regression
+# that silently dropped the WARN entirely still PASSed T3, leaving
+# the operator with no audit signal when ambient git user matches
+# approver but commit author does not (the exact "rewrote author
+# metadata" case baseline §5 invariant #9 cares about).
+#
+# scripts/check-phase-gate.sh:259-262 explicitly emits the WARN with
+# substring "ambient git user '<X>' matches approver '<X>'" whenever
+# git_user_norm == approver_norm AND commit_author_norm differs.
+# Pin that as a HARD requirement (no else-pass branch).
+t3_ok=1
 if echo "$out" | grep -qE "FAIL.*self-approval"; then
   fail_ "T3" "should not FAIL — commit author is different; out:
 $(echo "$out" | grep -E 'self-approval|Phase 0')"
-elif echo "$out" | grep -qE "WARN.*self-approval|WARN.*ambient.*git user"; then
-  pass "T3: WARN fires for ambient mismatch without FAIL"
-else
-  # Acceptable: no message at all (commit author authoritative). The
-  # WARN is a nice-to-have; primary requirement is no FAIL.
-  pass "T3: no FAIL emitted (commit-author authoritative)"
+  t3_ok=0
+fi
+if ! echo "$out" | grep -qE "\[WARN\].*ambient git user.*matches approver"; then
+  fail_ "T3" "expected [WARN] 'ambient git user ... matches approver ...' substring (audit signal for rewritten-author detection); not found in:
+$(echo "$out" | grep -E 'WARN|Phase 0' | head -10)"
+  t3_ok=0
+fi
+if [ "$t3_ok" -eq 1 ]; then
+  pass "T3: ambient-mismatch path emits [WARN] 'ambient git user ... matches approver ...' AND no FAIL (baseline §5 invariant #9 signal preserved)"
 fi
 teardown
 

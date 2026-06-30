@@ -216,6 +216,20 @@ t1_unwritable_approval_log_preserves_state() {
 # "always snapshot before mutation" invariant from PR #54/#57/#80 —
 # even when the run fails, the snapshot dir is retained so an operator
 # can audit what state existed at the moment of failure.
+#
+# BL-037 closure: the pre-fix T2 wrapped the snapshot-children
+# assertion in `if [ -d "$TMPDIR_T/.claude/upgrade-snapshots" ]; then
+# ... fi`. If `upgrade-project.sh`'s snapshot creation was completely
+# broken and never created the dir, the conditional was skipped and
+# `pass T2` fired unconditionally. The "always snapshot before
+# mutation" invariant is precisely what T2 is supposed to guard —
+# guarding it conditionally guards nothing. Per audit BL-037:
+# "remove the `if [ -d ... ]` wrap on the snapshot dir assertion;
+# make the dir's presence a hard requirement." This rewrite makes
+# (a) directory presence and (b) at least one child snapshot HARD
+# requirements identical to T1's assertion 4 — so a regression that
+# disables the snapshot-pre-mutation block flips both T1 and T2 RED
+# (no single-assertion silent-pass quadrant remains).
 t2_snapshot_dir_retained_on_failure() {
   setup_org_sponsored_dated
   chmod 0444 "$TMPDIR_T/APPROVAL_LOG.md"
@@ -229,33 +243,41 @@ t2_snapshot_dir_retained_on_failure() {
     teardown_project; return
   fi
 
-  # The snapshot dir may or may not exist depending on whether the run
-  # reached the snapshot phase before failing. If the rollback path
-  # fired (snapshot existed), the dir must be retained per
-  # _upgrade_rollback's "Snapshot retained for forensics" contract.
-  # If the failure tripped before the snapshot dir was created, the
-  # dir tree is allowed to be absent — but if the root exists with
-  # any subdirectory, at least one snapshot must be retained (no
-  # silent pruning under failure).
-  if [ -d "$TMPDIR_T/.claude/upgrade-snapshots" ]; then
-    local count
-    # `grep -c .` exits 1 on zero matches — `|| true` keeps `set -e` from
-    # killing the test before the assertion runs.
-    count=$(find "$TMPDIR_T/.claude/upgrade-snapshots" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | grep -c . || true)
-    case "$count" in ''|*[!0-9]*) count=0 ;; esac
-    # If the dir was created, we expect at least one snapshot child
-    # (pre-mutation snapshot is what the rollback restores from).
-    # The keep-3 retention prune only runs after success per
-    # _upgrade_prune_snapshots's header note, so a failure run that
-    # produced the dir but pruned all children is a regression — the
-    # operator loses forensic state at exactly the moment they need it.
-    if [ "$count" -lt 1 ]; then
-      fail_ "T2" "upgrade-snapshots dir exists but is empty (forensic history pruned under failure)"
-      teardown_project; return
-    fi
+  # Hard requirement (1): the snapshot directory MUST exist. The
+  # fault-injection (read-only APPROVAL_LOG.md) is triggered in the
+  # mutation block at scripts/upgrade-project.sh:2062+, which runs
+  # AFTER _upgrade_snapshot_pre_mutation (line 1110) and AFTER `trap
+  # _upgrade_rollback` (line 1111). Either path leaves the snapshot
+  # root present:
+  #   * Rollback fires → _upgrade_rollback prints "Snapshot retained
+  #     for forensics" and the dir lives on (no rm).
+  #   * Even pre-rollback-fire failures hit the trap, which only
+  #     restores files in-place from the snapshot — it does not
+  #     remove the snapshot dir.
+  # If the dir is absent, the snapshot-pre-mutation block has been
+  # disabled or the fault tripped before the snapshot phase — both
+  # regressions invalidate every downstream rollback invariant.
+  if [ ! -d "$TMPDIR_T/.claude/upgrade-snapshots" ]; then
+    fail_ "T2" "snapshot dir absent after fault-injection — the always-snapshot-before-mutation invariant is broken (or the failure tripped before snapshot phase; either way, rollback path is uncovered)"
+    teardown_project; return
   fi
 
-  pass "T2: snapshot infrastructure preserves forensic state under failure"
+  # Hard requirement (2): the snapshot dir must hold at least one
+  # child snapshot. _upgrade_prune_snapshots only runs after success
+  # per its header note, so a failure run that produced the root but
+  # pruned all children is a regression — the operator loses
+  # forensic state at exactly the moment they need it.
+  local count
+  # `grep -c .` exits 1 on zero matches — `|| true` keeps `set -e` from
+  # killing the test before the assertion runs.
+  count=$(find "$TMPDIR_T/.claude/upgrade-snapshots" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | grep -c . || true)
+  case "$count" in ''|*[!0-9]*) count=0 ;; esac
+  if [ "$count" -lt 1 ]; then
+    fail_ "T2" "upgrade-snapshots dir exists but is empty (forensic history pruned under failure, or pre-mutation snapshot was never captured)"
+    teardown_project; return
+  fi
+
+  pass "T2: snapshot infrastructure preserves forensic state under failure (dir present AND $count child snapshot(s) retained — both hard-required)"
   teardown_project
 }
 
