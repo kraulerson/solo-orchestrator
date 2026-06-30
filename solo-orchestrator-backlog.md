@@ -1520,3 +1520,68 @@ The adversarial certainty re-walk (re-walker-2, scenario `fresh-org-sponsored-po
 **Reproduction:** Per the report — run the `fresh-org-sponsored-poc-standard-web-ts` scenario from the Step-5 dogfood matrix, observe `[FAIL]` line for branch protection in the output, observe `rc=0` and `Setup Complete` banner in the same run.
 
 **Related:** `Reports/2026-06-29-adversarial-certainty-pass.md` § Tailoring signals catalog (S-7); `init.sh` (branch-protection section); PR #105 (sibling silent-success fix in `intake-wizard.sh:2028`); sibling entries BL-059..BL-063 (same report).
+
+---
+
+## BL-065: E30 (`init.sh --platform other`) RED on main in `tests/edge-cases-scripts.sh` — failure mode uncharacterized
+
+**Logged:** 2026-06-30
+**Category:** Bug
+**Severity:** Major
+**Status:** Open
+
+When PR #111 wired `tests/edge-cases-scripts.sh` into `full-project-test-suite.sh` (TEST 0r), the aggregator-registration commit (`cc1e532`) documented the file as `known-RED (BL-039 + BL-009 follow-up)` and gated it behind a new `SKIP_KNOWN_FAILING` env var so the suite stays green for local iteration loops while the underlying defects are tracked separately. The cited BLs cover E50 (BL-039) and the UAT-template guardrails (BL-009 follow-up), but the RED state in `tests/edge-cases-scripts.sh` also covers **E30** — the `init.sh --platform other` case at `tests/edge-cases-scripts.sh:1031-1041` — which has no backlog entry today. E30 asserts that `init.sh --platform other` skips the UAT reference-pair copy while leaving `tests/uat/templates/test-session-template.html` in place (the documented escape hatch for unsupported platforms); the failure mode (whether the template is missing, the reference files are present anyway, the script exits non-zero, or something else) is not characterized in the PR #111 commit message or in any current report.
+
+**Why it matters:** `--platform other` is the documented escape hatch for any platform the matrix does not enumerate (per `docs/builders-guide.md` platform section). If it is broken, operators trying to onboard a non-listed platform (e.g. embedded, firmware, browser-extension) get a silently wrong scaffold — either no UAT skeleton at all, or one with platform-mismatched reference content. The defect is currently invisible because the only test that pins the contract is gated by `SKIP_KNOWN_FAILING` by default in the iteration loop, and the suite-level CI gate is still pending (BL-038/BL-045 dependency chain). Until BL-065 is fixed, `--platform other` is functionally unsupported and any operator who selects it is on the wrong side of the contract that E30 was written to enforce.
+
+**Scope:**
+- Run E30 in isolation: `bash tests/edge-cases-scripts.sh 2>&1 | grep -B2 -A20 'E30'`. Capture the log path emitted on FAIL (`$_uat_work/init-other.log`) and read it to see which of the three E30 assertions tripped (template present, refs absent×2).
+- Characterize the failure mode in three buckets and pick the matching fix:
+  - Bucket A (template missing): `init.sh` `--platform other` is not copying the source template at all. Trace through `scripts/init.sh` UAT-copy section; either the platform key is unrecognized and the function early-returns, or the template lookup uses a non-existent fixture path. Fix the path/lookup.
+  - Bucket B (reference files present anyway): `init.sh` is treating `other` as if it were a known platform and copying a reference pair anyway. Add an explicit branch for `other` (or harden the platform allow-list) that skips the reference copy.
+  - Bucket C (script exits non-zero before reaching UAT step): some upstream check rejects `other` as an invalid platform value. Either widen the platform allow-list or change the gate to a WARN.
+- Write a regression test inside `tests/edge-cases-scripts.sh` that pins the bucket-A/B/C boundary so a future "fix" to a different bucket cannot silently re-break the original behavior.
+- Verify E30 GREEN before closing; once GREEN, the `known-RED` annotation for `tests/edge-cases-scripts.sh` in `tests/full-project-test-suite.sh` TEST 0r needs to be updated to reflect that only BL-039 (E50) + BL-009 (follow-up) remain — or removed entirely if those have also landed.
+
+**Trigger:** Treat as the next Major bug in queue after BL-064. Same urgency as BL-039 (sibling known-RED in the same file) — both are gated by `SKIP_KNOWN_FAILING` and both represent silent contract violations of operator-facing init.sh behavior. Land BL-065 + BL-039 together if scope permits since they share the same edge-cases aggregator and the same investigation pattern (run-in-isolation → read log → patch init.sh → flip the test from RED to GREEN).
+
+**Reproduction:** From a clean tree, `bash tests/edge-cases-scripts.sh 2>&1 | grep -A2 'E30'` — observe the `[FAIL] E30: real init.sh --platform other produced wrong state (refs present or template missing) (log: /tmp/...)` line and inspect the cited log for the exact failure shape.
+
+**Dependencies:** None blocking. BL-034 is already landed (PR #111 `cc1e532`) so `tests/edge-cases-scripts.sh` is in an aggregator; this BL just flips E30 from RED to GREEN.
+
+**Related:** PR #111 commit `cc1e532` (registered the file as `known-RED`); `tests/edge-cases-scripts.sh:1031-1041` (E30 assertion block); `tests/edge-cases-scripts.sh:949-1041` (UAT-platform E26-E30 block surrounding E30); BL-039 (sibling known-RED E50 in the same file); BL-009 (UAT-template guardrails / platform-aware authoring); BL-034 (test-aggregator wiring invariant); `scripts/init.sh` UAT reference-pair copy section; `docs/builders-guide.md` platform escape-hatch documentation.
+
+---
+
+## BL-066: 3 of 9 host-drivers e2e tests RED on main (`e2e-init`, `e2e-init-gitlab`, `e2e-init-bitbucket`) — failure modes uncharacterized
+
+**Logged:** 2026-06-30
+**Category:** Bug
+**Severity:** Major
+**Status:** Open
+
+When PR #111 wired `tests/host-drivers/run-all.sh` into `full-project-test-suite.sh` (TEST 0s), the aggregator-registration commit (`cc1e532`) documented the file as `known-RED (e2e-init-* trio)` and gated it behind `SKIP_KNOWN_FAILING` so the suite stays green for local iteration loops. The "trio" comprises `tests/host-drivers/e2e-init.test.sh` (github), `tests/host-drivers/e2e-init-gitlab.test.sh`, and `tests/host-drivers/e2e-init-bitbucket.test.sh` — the three end-to-end init.sh tests that exercise the full host-driver path against a mocked host CLI / `curl` stub (per BL-003, BL-003a, BL-003b, all closed). The other six children of `run-all.sh` (`github.test.sh`, `gitlab.test.sh`, `bitbucket.test.sh`, `regressions.test.sh`, `mock-cli.selftest.sh`, `dispatcher.test.sh`) are all GREEN; only the e2e trio is RED, and the specific failure modes are not characterized in the PR #111 commit message or in any current report. Whether all three e2e tests share a single root cause (e.g. a regression in `init.sh`'s host-driver invocation path), or each fails for a distinct host-specific reason, is unknown today.
+
+**Why it matters:** BL-003 / BL-003a / BL-003b were closed (PRs #59, #61, #62) on the explicit promise that the host-driver e2e surface is regression-protected end-to-end. RED state on the trio means that promise is currently false: any silent regression in the init.sh host-driver invocation path, the mocked-CLI contract, the `curl`-stub case-match logic, or the post-init verification assertions would not be caught by CI. Because all three failed simultaneously, the most likely shapes are (a) a shared init.sh refactor that desynced the e2e fixtures, (b) a shared change in the mock-CLI harness that the e2e suite consumes (`tests/host-drivers/mock-cli.sh`), or (c) three independent host-specific regressions that all happen to be live at the same time. The first two are higher-priority because a single fix could close all three; the third would require splitting BL-066 into BL-066a/b/c per host.
+
+**Scope:**
+- Run each of the three RED e2e tests in isolation to capture the failure shape:
+  - `bash tests/host-drivers/e2e-init.test.sh 2>&1 | tee /tmp/e2e-github.log`
+  - `bash tests/host-drivers/e2e-init-gitlab.test.sh 2>&1 | tee /tmp/e2e-gitlab.log`
+  - `bash tests/host-drivers/e2e-init-bitbucket.test.sh 2>&1 | tee /tmp/e2e-bitbucket.log`
+- Compare the three logs for common signal (same failing assertion name, same stderr fragment, same exit code on the same line of init.sh) — if found, root-cause once and fix all three in one PR.
+- If the three failures are independent (different assertions, different hosts, different code paths), split this BL into BL-066a (github), BL-066b (gitlab), BL-066c (bitbucket) and file each per the per-host scope below.
+- Per-host scope template:
+  - Trace from the failing assertion back through the mocked-CLI invocation transcript (the tests write `$TMP/<cli>-calls.log` and check it after init.sh exits). Determine whether the failure is in (i) the mock didn't get called as expected (init.sh didn't reach the call site), (ii) the mock got called with the wrong args (init.sh's host-driver dispatch is wrong), or (iii) the post-init verification assertion is wrong (artifact-state expectation changed).
+  - Apply the fix in init.sh / the driver / the test (in that order of preference — test changes are last resort and require an inline comment explaining the contract drift).
+  - Flip the test from RED to GREEN, confirm `bash tests/host-drivers/run-all.sh` reports 9/9 PASS.
+- Once GREEN, update the PR #111 `known-RED (e2e-init-* trio)` annotation in `tests/full-project-test-suite.sh` TEST 0s (remove the gate so the test runs in the default suite).
+- Add a regression note in the per-host driver doc (`scripts/host-drivers/<host>/`) capturing what changed and why the e2e test now pins it.
+
+**Trigger:** Treat as the next Major bug in queue after BL-065. Three simultaneously-RED e2e tests is the strongest possible signal that the host-driver surface has drifted from its tested contract — same severity tier as BL-064 (silent-success in init.sh) because both are operator-facing contract violations on the primary onboarding code path. Land BL-066 before any further host-driver work (PR #110-era backlog items, BL-031-family follow-ups) so subsequent PRs are not built on top of an unverified e2e surface.
+
+**Reproduction:** `bash tests/host-drivers/run-all.sh 2>&1 | tail -30` — observe the `[FAIL]` lines for the three e2e children, then `bash tests/host-drivers/e2e-init.test.sh` (and the gitlab/bitbucket siblings) individually to capture each failure mode.
+
+**Dependencies:** None blocking. BL-034 is already landed (PR #111 `cc1e532`) so `tests/host-drivers/run-all.sh` is in an aggregator; this BL just flips the e2e trio from RED to GREEN. If split into BL-066a/b/c, the three sub-BLs are independent and can land in any order or in parallel.
+
+**Related:** PR #111 commit `cc1e532` (registered `run-all.sh` as `known-RED (e2e-init-* trio)`); `tests/host-drivers/e2e-init.test.sh`, `tests/host-drivers/e2e-init-gitlab.test.sh`, `tests/host-drivers/e2e-init-bitbucket.test.sh` (the three RED files); `tests/host-drivers/run-all.sh` (the umbrella runner); `tests/host-drivers/mock-cli.sh` (shared mock harness — candidate shared root cause); BL-003 (e2e umbrella, closed PR #59 `f684aa7`), BL-003a (gitlab e2e, closed PR #61), BL-003b (bitbucket e2e, closed PR #62); BL-034 (test-aggregator wiring invariant); `scripts/init.sh` host-driver dispatch section.
