@@ -1056,7 +1056,7 @@ E2 in `tests/edge-cases-pre-init.sh` is left as SKIP because `scripts/init.sh:27
 **Logged:** 2026-06-28 (test integrity audit)
 **Category:** Bug / live product defect (test-harness blocker)
 **Severity:** Medium
-**Status:** Closed (2026-06-30, commit `64e8c85`)
+**Status:** Closed (2026-06-30, PR #123, commit `64e8c85`)
 
 The framework-repo guard at `scripts/init.sh:3494` runs before the write-permission preflight. When the test harness invokes init.sh from inside the framework checkout (which is how `tests/edge-cases-pre-init.sh` is structured), the guard refuses any non-dry-run invocation before the preflight can fire. E8b is SKIPed as a consequence — there is no way to exercise the write-permission failure path under the current layering.
 
