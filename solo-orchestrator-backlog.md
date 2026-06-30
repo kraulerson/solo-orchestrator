@@ -1105,7 +1105,7 @@ This is a high-severity finding because the failure is **silent at the test-suit
 **Logged:** 2026-06-29
 **Category:** Performance
 **Severity:** High
-**Status:** Open
+**Status:** Closed (2026-06-30, commit `38dbf17`; PR # pending)
 
 TEST 1 of `tests/full-project-test-suite.sh` walks an 81-cell matrix (3 platforms × 9 languages × 3 tracks) and forks a fresh `bash scripts/resolve-tools.sh` invocation per cell. Each cell re-reads `templates/tool-matrix/*.json` from disk and version-probes every tool. The walk is fully serial. Step 4 recon timed the full suite at >600 s (timed out at the 10-minute bash limit), with TEST 1 alone responsible for ~240 s — the single largest time-sink in the entire project.
 
