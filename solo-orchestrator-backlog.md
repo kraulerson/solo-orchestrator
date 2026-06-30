@@ -1075,7 +1075,7 @@ The framework-repo guard at `scripts/init.sh:3494` runs before the write-permiss
 **Logged:** 2026-06-29
 **Category:** Bug
 **Severity:** High
-**Status:** Open
+**Status:** Closed (2026-06-30, PR #113, commit ca2d5e7)
 
 The PR #104 fixer's full-suite run reported 321/329 passing with 8 failures, all concentrated in `tests/full-project-test-suite.sh` TEST 4 ("Simulated Project Structure Verification"). The failures are pre-existing on `main` — not introduced by any of the Wave 1–4 PRs — and share a single root cause: the test's `cp` source paths still reference the **flat** layout that predated the host-subdir migration. Specifically, lines 506–507 do:
 
