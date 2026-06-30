@@ -846,7 +846,7 @@ PR #87's fix-commit added a minimum-viable WARN at the elif branch (`commit_auth
 **Logged:** 2026-06-28 (test integrity audit)
 **Category:** Test infrastructure / regression coverage
 **Severity:** High
-**Status:** Open
+**Status:** Closed (2026-06-29, PR #111, commit `cc1e532`)
 
 Of the 17 test files added in Wave 1-4 (PRs #83-#97 plus follow-up fixers 2d5f917, 33e351e), only **1** (`tests/test-platform-mobile-mcp-docs.sh` via PR #86) is invoked by any aggregator. The remaining 16 test files execute only via direct `bash tests/test-foo.sh` — no aggregator, no CI, no pre-commit-gate runs them. Regressions in intake-wizard, reconfigure, bypass-audit, check-phase-gate, host drivers (gitlab approvals, host_verify_protection date-parse), pending-approval resolve-decision, verify-install fix-functions, upgrade-interruption + sentinel-block, lint scripts, and the host-aware quartet plan are all silent.
 
