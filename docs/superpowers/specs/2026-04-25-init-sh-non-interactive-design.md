@@ -374,7 +374,7 @@ Existing variables that the interactive flow sets but non-interactive doesn't ne
 |---|---|
 | E48 | Full non-interactive run: web + personal + standard + typescript → project skeleton at `$TEST_DIR/e48` |
 | E49 | E48 with `--validate-only` added → exit 0, JSON to stdout, project NOT created |
-| E50 | Mobile + organizational + private_poc + kotlin → poc_mode in phase-state.json |
+| E50 | Mobile + organizational + sponsored_poc + kotlin → exit 0, JSON has gov_mode=sponsored_poc + visibility=private (org→private force). Companion E50b: same shape with `--gov-mode=private_poc` → exit 1 per baseline §2.5 (`organizational/private_poc` is not a valid tier — see `docs/governance-framework.md:257`; original 2026-04-25 spec row used private_poc but that combination is rejected, so the test was reconciled to the actual contract in PR closing BL-039). |
 | E51 | Web + organizational + production + git-host=other + fake remote-url + attested → exit 0 with soft-fail remediation (per UAT C-fix B) |
 | E52 | `--config $TEST_DIR/cfg.json --project-dir $TEST_DIR/e52` (config has all required) → project created |
 | E53 | `--config $TEST_DIR/cfg.json --track full` (config has track=light, flag overrides) → phase-state shows track=full |

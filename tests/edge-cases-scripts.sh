@@ -1519,17 +1519,45 @@ else
   fail "E49: --validate-only created project dir (should not have)"
 fi
 
-# E50: Mobile + organizational + private_poc + kotlin → forces visibility=private.
+# E50: Mobile + organizational + sponsored_poc + kotlin → forces visibility=private.
+# (Originally written against organizational+private_poc, which is rejected
+#  per docs/governance-framework.md §2.5 line 257 + BL-016 spec §6.2 line 217.
+#  Rewritten 2026-06-30 to use sponsored_poc — the gov_mode that IS valid for
+#  organizational deployments — so the assertion still exercises the
+#  organizational→visibility=private force on the mobile+kotlin combo it pins.
+#  Closes BL-039; companion E50b below pins the rejection contract directly.)
 _e50_dir="$TEST_DIR/e50"
 mkdir -p "$_e50_dir"
 _e50_out=$(cd "$_e50_dir" && "$INIT_SH" --non-interactive --validate-only \
-  --project uat-e50 --platform mobile --deployment organizational --gov-mode private_poc --language kotlin \
+  --project uat-e50 --platform mobile --deployment organizational --gov-mode sponsored_poc --language kotlin \
   --project-dir "$_e50_dir/proj" 2>&1)
 _e50_rc=$?
-if [ "$_e50_rc" = "0" ] && echo "$_e50_out" | grep -q '"gov_mode": "private_poc"' && echo "$_e50_out" | grep -q '"visibility": "private"'; then
-  pass "E50: organizational + private_poc forces visibility=private"
+if [ "$_e50_rc" = "0" ] && echo "$_e50_out" | grep -q '"gov_mode": "sponsored_poc"' && echo "$_e50_out" | grep -q '"visibility": "private"'; then
+  pass "E50: mobile + organizational + sponsored_poc forces visibility=private"
 else
-  fail "E50: expected gov_mode=private_poc and visibility=private, got: $_e50_out"
+  fail "E50: expected exit 0 with gov_mode=sponsored_poc and visibility=private, got rc=$_e50_rc out=$_e50_out"
+fi
+
+# E50b: Mobile + organizational + private_poc → rejected (baseline §2.5 tier rule).
+# Pins the contract from docs/governance-framework.md:257 ("The
+# organizational/private_poc shape is not a valid tier; init.sh rejects it in
+# non-interactive mode") so a future regression that re-permits this combo
+# surfaces here instead of silently scaffolding an invalid tier.
+_e50b_dir="$TEST_DIR/e50b"
+mkdir -p "$_e50b_dir"
+# Wrap in `if/else` so `set -e` does not abort the suite — the rejection IS
+# the contract we're pinning, so init.sh's non-zero exit is the GREEN path.
+if _e50b_out=$(cd "$_e50b_dir" && "$INIT_SH" --non-interactive --validate-only \
+  --project uat-e50b --platform mobile --deployment organizational --gov-mode private_poc --language kotlin \
+  --project-dir "$_e50b_dir/proj" 2>&1); then
+  _e50b_rc=0
+else
+  _e50b_rc=$?
+fi
+if [ "$_e50b_rc" != "0" ] && echo "$_e50b_out" | grep -q 'gov-mode=private_poc is not valid for --deployment=organizational'; then
+  pass "E50b: organizational + private_poc rejected with baseline §2.5 message"
+else
+  fail "E50b: expected non-zero exit with baseline §2.5 rejection, got rc=$_e50b_rc out=$_e50b_out"
 fi
 
 # E51: git-host=other + remote-url + attested → validate succeeds.

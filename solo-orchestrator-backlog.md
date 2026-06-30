@@ -1007,7 +1007,7 @@ Add self-test `tests/test-lint-tests-registered.sh` covering: (a) all-registered
 **Logged:** 2026-06-28 (test integrity audit)
 **Category:** Bug / live product defect
 **Severity:** High
-**Status:** Open
+**Status:** Closed (2026-06-30, PR #117, commit 2888fa2)
 
 E50 in `tests/edge-cases-scripts.sh` (BL-016 init.sh non-interactive suite) is acknowledged as failing on `main` per the PR #89 implementer note. The assistant who added the test did not fix the underlying bug nor remove the assertion. The product code path (`init.sh --non-interactive`) does not satisfy the contract E50 pins.
 
@@ -1022,6 +1022,8 @@ Because E50 is in an orphan test file (`edge-cases-scripts.sh` is not invoked by
 4. Verify E50 GREEN before closing.
 
 **Dependencies:** BL-034 must register `edge-cases-scripts.sh` in an aggregator so the GREEN state is enforced going forward. Land BL-034 first (with E50 marked expected-fail), then this BL flips it to expected-pass.
+
+**Resolution:** Investigated 2026-06-30 against `init.sh:3262-3268` and `docs/governance-framework.md:257`. The contract E50 was pinning (organizational + private_poc → success with visibility=private) is **wrong** — baseline §2.5 explicitly rejects the `organizational/private_poc` tier shape, and `init.sh` correctly returns exit 1 with the audit code-init-sh-4 / tier-crosscheck-2 rejection message. The 2026-04-25 BL-016 spec table 6.6 row E50 was authored before the tier-crosscheck-2 audit landed and was never reconciled. Rewrote E50 to use `sponsored_poc` (the gov_mode that IS valid for organizational deployments) preserving the org→visibility=private force assertion on mobile+kotlin, and added E50b as a positive rejection test for the actual contract so a future regression that re-permits the invalid combination surfaces loudly. Updated `docs/superpowers/specs/2026-04-25-init-sh-non-interactive-design.md` §8.2 to reflect the actual contract. Narrowed the `SKIP_KNOWN_FAILING` gate in `tests/full-project-test-suite.sh` TEST 0r to track only BL-065 (E30 `--platform other`) — the BL-039 component is lifted. `init.sh` source unchanged; mutation experiment verified E50b would catch a regression (replaced rejection block with `:`, init.sh accepted the invalid combo → E50b would flip RED).
 
 **Related:** `Reports/2026-06-28-test-integrity-audit.md` §2 (LB-1), §7 Slot 5. PR #89 implementer note.
 
