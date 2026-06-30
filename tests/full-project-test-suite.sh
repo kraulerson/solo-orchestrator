@@ -317,6 +317,29 @@ else
   fail "scripts/lint-raw-read-prompt.sh behavior tests FAILED (run tests/test-lint-raw-read-prompt.sh for details)"
 fi
 
+# BL-038: tests/test-lint-tests-registered.sh — behavior suite for the
+# runner-registration backstop. Validates the lint's positive,
+# negative, EXEMPT-marker, mutation, and reverse-mutation paths so a
+# regression in the lint itself (false negative on a new orphan,
+# false positive on a comment-mention) is surfaced at the aggregator.
+if bash "$SCRIPT_DIR/tests/test-lint-tests-registered.sh" >/dev/null 2>&1; then
+  pass "scripts/lint-tests-registered.sh behavior tests"
+else
+  fail "scripts/lint-tests-registered.sh behavior tests FAILED (run tests/test-lint-tests-registered.sh for details)"
+fi
+
+# BL-038: repo-wide lint invocation. Refuses to merge a new
+# tests/test-*.sh file unless an aggregator invokes it or the file
+# carries an EXEMPT marker. See scripts/lint-tests-registered.sh
+# header for the registration contract + KNOWN_ORPHANS_PENDING_BL035
+# bridge.
+section "Tests-registered lint (BL-038 structural backstop)"
+if bash "$SCRIPT_DIR/scripts/lint-tests-registered.sh" >/dev/null 2>&1; then
+  pass "Every tests/test-*.sh is invoked by an aggregator (or EXEMPT)"
+else
+  fail "Tests-registered lint found unregistered test file(s) (see scripts/lint-tests-registered.sh --list)"
+fi
+
 # ----------------------------------------------------------------
 # TEST 0g: INTAKE WIZARD + RECONFIGURE FIELD HANDLERS
 # ----------------------------------------------------------------
