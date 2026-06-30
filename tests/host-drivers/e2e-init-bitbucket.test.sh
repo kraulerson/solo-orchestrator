@@ -235,7 +235,7 @@ run_init_e2e() {
       --project "$pname" \
       --project-dir "$PROJ" \
       --platform web \
-      --language javascript \
+      --language typescript \
       --track light \
       --deployment "$deployment" \
       --git-host bitbucket \
@@ -303,8 +303,9 @@ echo ""
 echo "=== Failure paths (T3 push, T4 repo-exists, T5 protection 403) ==="
 # ════════════════════════════════════════════════════════════════════
 
-# T3: push fails (insteadOf points to a non-existent bare repo). init.sh's
-# U-B contract: warn + continue, NOT abort (same as github/gitlab T3).
+# T3: push fails (insteadOf points to a non-existent bare repo). post-BL-064
+# (PR #118, commit 443b50a): warn + emit [FAIL] summary → rc=2 (was
+# rc=0+warn pre-BL-064). Same as github/gitlab T3.
 echo "T3: curl repo create succeeds but git push fails (no bare repo)"
 TMP=$(mktemp -d)
 PROJ="$TMP/proj"
@@ -328,10 +329,10 @@ grep -q "Remote setup did not complete cleanly" "$TMP/init.log" && warn_seen=yes
 url=$( jq -r '.remote_url // ""' "$PROJ/.claude/manifest.json" 2>/dev/null )
 host=$( jq -r '.host // ""'      "$PROJ/.claude/manifest.json" 2>/dev/null )
 steps=$( jq -r '.phase2_init.steps_completed | length' "$PROJ/.claude/process-state.json" 2>/dev/null )
-if [ "$rc" = "0" ] && [ "$warn_seen" = "yes" ] \
+if [ "$rc" = "2" ] && [ "$warn_seen" = "yes" ] \
    && [ "$host" = "bitbucket" ] && [ "$url" = "" ] \
    && [ "$steps" = "1" ]; then
-  pass "T3: push failure → init.sh warns + continues; manifest.host set, remote_url empty, partial steps=1 (remote_repo_created)"
+  pass "T3: push failure → init.sh warns + exits rc=2 (post-BL-064); manifest.host set, remote_url empty, partial steps=1 (remote_repo_created)"
 else
   fail_ "T3" "rc=$rc warn_seen=$warn_seen host=$host url=$url steps=$steps log:$(tail -8 "$TMP/init.log")"
 fi
@@ -358,10 +359,10 @@ host=$( jq -r '.host // ""' "$PROJ/.claude/manifest.json" 2>/dev/null )
 url=$(  jq -r '.remote_url // ""' "$PROJ/.claude/manifest.json" 2>/dev/null )
 origin_set=no
 ( cd "$PROJ" && git remote get-url origin >/dev/null 2>&1 ) && origin_set=yes
-if [ "$rc" = "0" ] && [ "$warn_seen" = "yes" ] \
+if [ "$rc" = "2" ] && [ "$warn_seen" = "yes" ] \
    && [ "$host" = "bitbucket" ] && [ "$url" = "" ] \
    && [ "$origin_set" = "no" ]; then
-  pass "T4: slug-already-exists → warn + continue; no origin, manifest.host=bitbucket"
+  pass "T4: slug-already-exists → warn + rc=2 (post-BL-064); no origin, manifest.host=bitbucket"
 else
   fail_ "T4" "rc=$rc warn_seen=$warn_seen host=$host url=$url origin_set=$origin_set log:$(tail -8 "$TMP/init.log")"
 fi
@@ -369,13 +370,14 @@ scenario_teardown
 
 # T5: first branch-restrictions POST fails with HTTP 403 — likely cause
 # is an App Password missing repository:admin scope. host_configure_
-# protection returns 2 → create_and_protect_remote returns 1 → init.sh
-# U-B contract: warn + continue. Origin IS registered (push succeeded
-# before protection). Unlike github there is no "free-tier" branch for
-# bitbucket (the free Bitbucket Cloud plan permits branch-restrictions
-# API access), so the failure is unconditional → init.sh:2031 prints
-# "Protection config failed", not the free-tier attestation path.
-# manifest.remote_url stays "" (late write at init.sh:2054 unreached).
+# protection returns 2 → create_and_protect_remote returns 1 → post-BL-064
+# (PR #118, commit 443b50a): init.sh warns + emits [FAIL] summary → rc=2
+# (was rc=0+warn pre-BL-064). Origin IS registered (push succeeded before
+# protection). Unlike github there is no "free-tier" branch for bitbucket
+# (the free Bitbucket Cloud plan permits branch-restrictions API access),
+# so the failure is unconditional → init.sh:2031 prints "Protection config
+# failed", not the free-tier attestation path. manifest.remote_url stays
+# "" (late write at init.sh:2054 unreached).
 echo "T5: branch-restrictions POST fails with HTTP 403 (no free-tier branch on bitbucket)"
 scenario_setup "https://bitbucket.org/test-ws/protect-fail.git"
 export MOCK_BB_PROTECT_POST_EXIT=22  # curl --fail HTTP-error
@@ -391,11 +393,11 @@ origin_set=no
 url=$(  jq -r '.remote_url // ""' "$PROJ/.claude/manifest.json" 2>/dev/null )
 host=$( jq -r '.host // ""' "$PROJ/.claude/manifest.json" 2>/dev/null )
 steps=$( jq -r '.phase2_init.steps_completed | length' "$PROJ/.claude/process-state.json" 2>/dev/null )
-if [ "$rc" = "0" ] && [ "$warn_seen" = "yes" ] \
+if [ "$rc" = "2" ] && [ "$warn_seen" = "yes" ] \
    && [ "$origin_set" = "yes" ] \
    && [ "$host" = "bitbucket" ] && [ "$url" = "" ] \
    && [ "$steps" = "2" ]; then
-  pass "T5: protection 403 → warn + continue; origin registered, partial steps=2 (remote_repo_created + pushed_initial)"
+  pass "T5: protection 403 → warn + rc=2 (post-BL-064); origin registered, partial steps=2 (remote_repo_created + pushed_initial)"
 else
   fail_ "T5" "rc=$rc warn_seen=$warn_seen origin_set=$origin_set host=$host url=$url steps=$steps log:$(tail -8 "$TMP/init.log")"
 fi
