@@ -1530,7 +1530,7 @@ The adversarial certainty re-walk (re-walker-2, scenario `fresh-org-sponsored-po
 **Logged:** 2026-06-30
 **Category:** Bug
 **Severity:** Trivial
-**Status:** Open
+**Status:** Closed (2026-06-30, PR #121, commit fb843a9)
 
 When PR #111 wired `tests/edge-cases-scripts.sh` into `full-project-test-suite.sh` (TEST 0r), the aggregator-registration commit (`cc1e532`) documented the file as `known-RED (BL-039 + BL-009 follow-up)` and gated it behind a new `SKIP_KNOWN_FAILING` env var so the suite stays green for local iteration loops while the underlying defects are tracked separately. The cited BLs cover E50 (BL-039) and the UAT-template guardrails (BL-009 follow-up), but the RED state in `tests/edge-cases-scripts.sh` also covers **E30** — the `init.sh --platform other` case at `tests/edge-cases-scripts.sh:1031-1041` — which has no backlog entry today. E30 asserts that `init.sh --platform other` skips the UAT reference-pair copy while leaving `tests/uat/templates/test-session-template.html` in place (the documented escape hatch for unsupported platforms); the failure mode (whether the template is missing, the reference files are present anyway, the script exits non-zero, or something else) is not characterized in the PR #111 commit message or in any current report.
 
@@ -1614,7 +1614,7 @@ No production code change is needed in `init.sh`, the UAT-copy section, or the p
 **Logged:** 2026-06-30
 **Category:** Bug
 **Severity:** Trivial
-**Status:** Open
+**Status:** Closed (2026-06-30, PR #121, commit fb843a9)
 
 When PR #111 wired `tests/host-drivers/run-all.sh` into `full-project-test-suite.sh` (TEST 0s), the aggregator-registration commit (`cc1e532`) documented the file as `known-RED (e2e-init-* trio)` and gated it behind `SKIP_KNOWN_FAILING` so the suite stays green for local iteration loops. The "trio" comprises `tests/host-drivers/e2e-init.test.sh` (github), `tests/host-drivers/e2e-init-gitlab.test.sh`, and `tests/host-drivers/e2e-init-bitbucket.test.sh` — the three end-to-end init.sh tests that exercise the full host-driver path against a mocked host CLI / `curl` stub (per BL-003, BL-003a, BL-003b, all closed). The other six children of `run-all.sh` (`github.test.sh`, `gitlab.test.sh`, `bitbucket.test.sh`, `regressions.test.sh`, `mock-cli.selftest.sh`, `dispatcher.test.sh`) are all GREEN; only the e2e trio is RED, and the specific failure modes are not characterized in the PR #111 commit message or in any current report. Whether all three e2e tests share a single root cause (e.g. a regression in `init.sh`'s host-driver invocation path), or each fails for a distinct host-specific reason, is unknown today.
 

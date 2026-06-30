@@ -176,7 +176,7 @@ run_init_e2e() {
       --project "$pname" \
       --project-dir "$PROJ" \
       --platform web \
-      --language javascript \
+      --language typescript \
       --track light \
       --deployment "$deployment" \
       --git-host github \
@@ -246,11 +246,15 @@ echo "=== Failure paths (T3 push, T4 repo-exists, T5 protection 403) ==="
 # ════════════════════════════════════════════════════════════════════
 
 # T3: push fails (insteadOf points to a non-existent bare repo).
-# init.sh's U-B contract (line 1858 wrapper) says push failure does NOT
-# abort init — print warn, surface remediation, keep going. Working tree
-# stays clean post-fix (finalize_init_commit is a no-op when nothing
-# changed; only host_register_remote's .git/config edit happened, and
-# .git/config is untracked).
+# post-BL-064 (PR #118, commit 443b50a): push failure warns + emits the
+# [FAIL] summary at end of init → rc=2 (was rc=0+warn-and-continue
+# pre-BL-064). Project files are still in place and host_register_remote's
+# .git/config edit still happened (warn-and-continue semantics preserved);
+# only the exit status flipped from 0 to 2 so wrapper scripts can observe
+# the partial-success state. Working tree stays clean post-fix
+# (finalize_init_commit is a no-op when nothing changed; only
+# host_register_remote's .git/config edit happened, and .git/config is
+# untracked).
 #
 # Post-finding specs-plans-host-aware-2: phase2_init.steps_completed is
 # written incrementally. host_register_remote succeeds before the push
@@ -273,7 +277,9 @@ export MOCK_GH_REPO_URL="$REPO_URL"
 export MOCK_GH_PROTECT_JSON="$PROTECT_JSON_PERSONAL"
 run_init_e2e push-fail personal
 rc=$?
-# init.sh's U-B contract: push failure is warn-and-continue, NOT abort.
+# post-BL-064: push failure warns + emits [FAIL] summary → rc=2 (PR #118,
+# commit 443b50a). The warn line is still emitted (warn-and-continue
+# semantics intact); only the exit code flipped from 0 to 2.
 warn_seen=no
 grep -q "Remote setup did not complete cleanly" "$TMP/init.log" && warn_seen=yes
 # host_register_remote ran before push, so origin is set, but the late
@@ -283,10 +289,10 @@ grep -q "Remote setup did not complete cleanly" "$TMP/init.log" && warn_seen=yes
 url=$( jq -r '.remote_url // ""' "$PROJ/.claude/manifest.json" 2>/dev/null )
 host=$( jq -r '.host // ""'      "$PROJ/.claude/manifest.json" 2>/dev/null )
 steps=$( jq -r '.phase2_init.steps_completed | length' "$PROJ/.claude/process-state.json" 2>/dev/null )
-if [ "$rc" = "0" ] && [ "$warn_seen" = "yes" ] \
+if [ "$rc" = "2" ] && [ "$warn_seen" = "yes" ] \
    && [ "$host" = "github" ] && [ "$url" = "" ] \
    && [ "$steps" = "1" ]; then
-  pass "T3: push failure → init.sh warns + continues; manifest.host set, remote_url empty, partial steps=1 (remote_repo_created)"
+  pass "T3: push failure → init.sh warns + exits rc=2 (post-BL-064); manifest.host set, remote_url empty, partial steps=1 (remote_repo_created)"
 else
   fail_ "T3" "rc=$rc warn_seen=$warn_seen host=$host url=$url steps=$steps log:$(tail -8 "$TMP/init.log")"
 fi
@@ -296,7 +302,8 @@ rm -rf "$TMP"
 
 # T4: gh repo create fails (repo already exists). host_create_repo
 # returns 1 → create_and_protect_remote prints "Repo creation failed"
-# → returns 1. init.sh U-B contract: warn + continue. Nothing was
+# → returns 1. post-BL-064 (PR #118, commit 443b50a): init.sh warns +
+# emits [FAIL] summary → rc=2 (was rc=0+warn pre-BL-064). Nothing was
 # committed to remote, no origin was registered.
 echo "T4: gh repo create fails (repo-already-exists scenario)"
 scenario_setup "https://github.com/e2e-test/exists.git"
@@ -310,10 +317,10 @@ host=$( jq -r '.host // ""' "$PROJ/.claude/manifest.json" 2>/dev/null )
 url=$(  jq -r '.remote_url // ""' "$PROJ/.claude/manifest.json" 2>/dev/null )
 origin_set=no
 ( cd "$PROJ" && git remote get-url origin >/dev/null 2>&1 ) && origin_set=yes
-if [ "$rc" = "0" ] && [ "$warn_seen" = "yes" ] \
+if [ "$rc" = "2" ] && [ "$warn_seen" = "yes" ] \
    && [ "$host" = "github" ] && [ "$url" = "" ] \
    && [ "$origin_set" = "no" ]; then
-  pass "T4: repo-already-exists → warn + continue; no origin, manifest.host=github"
+  pass "T4: repo-already-exists → warn + rc=2 (post-BL-064); no origin, manifest.host=github"
 else
   fail_ "T4" "rc=$rc warn_seen=$warn_seen host=$host url=$url origin_set=$origin_set log:$(tail -8 "$TMP/init.log")"
 fi
@@ -323,8 +330,9 @@ scenario_teardown
 # free-tier branch is gated by the substring 'Upgrade to GitHub Pro'
 # in stderr (BL-002); without that substring, host_configure_protection
 # returns 2 → create_and_protect_remote prints "Protection config
-# failed" → returns 1. init.sh U-B contract: warn + continue. By the
-# time this fires, gh repo create succeeded + push succeeded, so the
+# failed" → returns 1. post-BL-064 (PR #118, commit 443b50a): init.sh
+# warns + emits [FAIL] summary → rc=2 (was rc=0+warn pre-BL-064). By
+# the time this fires, gh repo create succeeded + push succeeded, so the
 # origin remote IS registered, but the late manifest write at
 # init.sh:2054 still didn't run — remote_url stays "".
 #
@@ -347,11 +355,11 @@ origin_set=no
 url=$(  jq -r '.remote_url // ""' "$PROJ/.claude/manifest.json" 2>/dev/null )
 host=$( jq -r '.host // ""' "$PROJ/.claude/manifest.json" 2>/dev/null )
 steps=$( jq -r '.phase2_init.steps_completed | length' "$PROJ/.claude/process-state.json" 2>/dev/null )
-if [ "$rc" = "0" ] && [ "$warn_seen" = "yes" ] \
+if [ "$rc" = "2" ] && [ "$warn_seen" = "yes" ] \
    && [ "$origin_set" = "yes" ] \
    && [ "$host" = "github" ] && [ "$url" = "" ] \
    && [ "$steps" = "2" ]; then
-  pass "T5: protection 403 → warn + continue; origin registered, partial steps=2 (remote_repo_created + pushed_initial)"
+  pass "T5: protection 403 → warn + rc=2 (post-BL-064); origin registered, partial steps=2 (remote_repo_created + pushed_initial)"
 else
   fail_ "T5" "rc=$rc warn_seen=$warn_seen origin_set=$origin_set host=$host url=$url steps=$steps log:$(tail -8 "$TMP/init.log")"
 fi

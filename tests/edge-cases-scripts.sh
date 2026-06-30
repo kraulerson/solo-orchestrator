@@ -1040,6 +1040,16 @@ section "BL-009: UAT template quality + platform-aware authoring"
 _uat_real_init() {
   local work="$1" platform="$2" project="$3"
   local logfile="$work/init-${platform}.log"
+  # init.sh's Pass-2 platform×language validator (init.sh:3447) walks
+  # templates/pipelines/ci/github/*.yml and reads each file's
+  # `# solo-orchestrator: platforms=` marker. Only `other.yml` lists
+  # `other` in its marker, so `--platform other` must pair with
+  # `--language other`; `typescript.yml` (web/desktop/mobile/mcp_server)
+  # is correct for every other platform we exercise here. Without this
+  # gate, E30 trips Pass-2 with rc=1 before the UAT branch ever runs
+  # (BL-065 characterization, 2026-06-30).
+  local language=typescript
+  [ "$platform" = other ] && language=other
   # Feed a finite stream of "Y" answers from process substitution so
   # init.sh's "Proceed with this plan?" / install confirms auto-pass
   # without breaking `set -o pipefail` (yes(1) gets SIGPIPE and the
@@ -1049,7 +1059,7 @@ _uat_real_init() {
         --project "$project" \
         --platform "$platform" \
         --deployment personal \
-        --language typescript \
+        --language "$language" \
         --git-host github \
         --visibility private \
         --no-remote-creation \
