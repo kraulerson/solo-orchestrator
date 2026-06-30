@@ -238,6 +238,348 @@ else
 fi
 
 # ================================================================
+# TEST 0f-0s: BL-034 WAVE 1-4 ORPHAN-TEST REGISTRATION
+# ================================================================
+# Wires every Wave-1-4 cohort test file (and recent post-audit
+# additions through PR #107) into this aggregator. Before this PR,
+# 73 tests/test-*.sh files plus the edge-cases-*.sh aggregators
+# executed only when a human manually invoked them — silent
+# regressions across intake-wizard, reconfigure, bypass-audit,
+# check-phase-gate, host drivers, pending-approval,
+# verify-install, upgrade-project, lint scripts, and the
+# host-aware quartet plan were unsignaled. See BL-034.
+#
+# Discipline (per BL-034 brief):
+#   • No `|| true` wraps. Known-RED tests are gated on the
+#     SKIP_KNOWN_FAILING env var, not silenced.
+#   • Each registered test invoked exactly once, captures rc,
+#     and contributes to PASS/FAIL counts via pass()/fail().
+#   • Fast tests (lints, unit-style) run first; slow tests
+#     (init.sh e2e, upgrade walks, edge-cases aggregators)
+#     run later in this block.
+#
+# Operator escape (local iteration only):
+#   SKIP_KNOWN_FAILING=1 bash tests/full-project-test-suite.sh
+# Skips the known-RED tests cited inline below. Default = run all.
+SKIP_KNOWN_FAILING="${SKIP_KNOWN_FAILING:-0}"
+
+# ----------------------------------------------------------------
+# TEST 0f: LINT BEHAVIOR SUITES — fix-functions-stderr + raw-read-prompt
+# ----------------------------------------------------------------
+# Sibling behavior suites for the wave-3 anti-pattern lints (PR #96).
+# scripts/lint-fix-functions-stderr.sh and scripts/lint-raw-read-prompt.sh
+# both have repo-wide invocations in CI; this block validates the
+# linters' OWN regression coverage (false-negative / false-positive /
+# allowlist / heredoc / comment handling) so a broken lint script
+# can't silently start passing bad code.
+section "Lint behavior suites (fix-functions-stderr, raw-read-prompt)"
+if bash "$SCRIPT_DIR/tests/test-lint-fix-functions-stderr.sh" >/dev/null 2>&1; then
+  pass "scripts/lint-fix-functions-stderr.sh behavior tests (10/10)"
+else
+  fail "scripts/lint-fix-functions-stderr.sh behavior tests FAILED (run tests/test-lint-fix-functions-stderr.sh for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-lint-raw-read-prompt.sh" >/dev/null 2>&1; then
+  pass "scripts/lint-raw-read-prompt.sh behavior tests"
+else
+  fail "scripts/lint-raw-read-prompt.sh behavior tests FAILED (run tests/test-lint-raw-read-prompt.sh for details)"
+fi
+
+# ----------------------------------------------------------------
+# TEST 0g: INTAKE WIZARD + RECONFIGURE FIELD HANDLERS
+# ----------------------------------------------------------------
+# PR #83: tests/test-intake-wizard-fixes.sh — sweep of wizard-row
+# rendering, title round-trip, and resolver-prefill correctness.
+# PR #84: tests/test-reconfigure-field-handlers.sh — atomic
+# snapshot pattern for reconfigure-project.sh --field handlers.
+section "Intake wizard + reconfigure field handlers (PRs #83, #84)"
+if bash "$SCRIPT_DIR/tests/test-intake-wizard-fixes.sh" >/dev/null 2>&1; then
+  pass "tests/test-intake-wizard-fixes.sh"
+else
+  fail "tests/test-intake-wizard-fixes.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-reconfigure-field-handlers.sh" >/dev/null 2>&1; then
+  pass "tests/test-reconfigure-field-handlers.sh"
+else
+  fail "tests/test-reconfigure-field-handlers.sh FAILED (run for details)"
+fi
+
+# ----------------------------------------------------------------
+# TEST 0h: CHECK-PHASE-GATE VARIANTS (noninteractive, self-approval)
+# ----------------------------------------------------------------
+# PR #87: scripts/check-phase-gate.sh must operate in --non-interactive
+# mode and must surface a WARN when an STA self-approves their own
+# Phase 1→2 gate. Both tests exercise gate-policy enforcement
+# orthogonal to the backstop/retroactive paths covered in 0c/0c2.
+section "Check-phase-gate noninteractive + self-approval (PR #87)"
+if bash "$SCRIPT_DIR/tests/test-check-phase-gate-noninteractive.sh" >/dev/null 2>&1; then
+  pass "tests/test-check-phase-gate-noninteractive.sh"
+else
+  fail "tests/test-check-phase-gate-noninteractive.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-check-phase-gate-self-approval.sh" >/dev/null 2>&1; then
+  pass "tests/test-check-phase-gate-self-approval.sh"
+else
+  fail "tests/test-check-phase-gate-self-approval.sh FAILED (run for details)"
+fi
+
+# ----------------------------------------------------------------
+# TEST 0i: PENDING-APPROVAL RESOLVE-DECISION
+# ----------------------------------------------------------------
+# PR #87 sibling: scripts/pending-approval.sh --resolve-decision flow.
+# Exercises the question/options/recommendation round-trip the
+# pre-commit-gate's pa_check() depends on.
+section "Pending-approval resolve-decision (PR #87)"
+if bash "$SCRIPT_DIR/tests/test-pending-approval-resolve-decision.sh" >/dev/null 2>&1; then
+  pass "tests/test-pending-approval-resolve-decision.sh"
+else
+  fail "tests/test-pending-approval-resolve-decision.sh FAILED (run for details)"
+fi
+
+# ----------------------------------------------------------------
+# TEST 0j: BYPASS-AUDIT FAMILY
+# ----------------------------------------------------------------
+# PR #93 + verifier-fix 2d5f917: the bypass-audit subsystem's
+# hardening tests — tmp-directory permission hardening, trap-isolation
+# (verifier-fix cohort), and session-id derivation for the bypass
+# detector. Pre-fix, hijacking $TMPDIR or trap-leaking from a
+# concurrent bypass-audit run was undetected.
+section "Bypass-audit hardening cohort (PR #93 + 2d5f917)"
+if bash "$SCRIPT_DIR/tests/test-bypass-audit-tmp-hardening.sh" >/dev/null 2>&1; then
+  pass "tests/test-bypass-audit-tmp-hardening.sh"
+else
+  fail "tests/test-bypass-audit-tmp-hardening.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-bypass-audit-trap-isolation.sh" >/dev/null 2>&1; then
+  pass "tests/test-bypass-audit-trap-isolation.sh"
+else
+  fail "tests/test-bypass-audit-trap-isolation.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-bypass-detector-session-id.sh" >/dev/null 2>&1; then
+  pass "tests/test-bypass-detector-session-id.sh"
+else
+  fail "tests/test-bypass-detector-session-id.sh FAILED (run for details)"
+fi
+
+# ----------------------------------------------------------------
+# TEST 0k: HOST-DRIVER REGRESSIONS (date-parse + gitlab approvals)
+# ----------------------------------------------------------------
+# PR #93: scripts/lib/hosts/host_verify_protection date-parse bug
+# (date offset mis-coercion silently letting drift through).
+# PR #91: gitlab-ci-status stderr surfacing for approval/protection
+# rule mismatches.
+section "Host-driver regressions (PRs #91, #93)"
+if bash "$SCRIPT_DIR/tests/test-host-verify-protection-date-parse.sh" >/dev/null 2>&1; then
+  pass "tests/test-host-verify-protection-date-parse.sh"
+else
+  fail "tests/test-host-verify-protection-date-parse.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-gitlab-ci-status-stderr-approvals.sh" >/dev/null 2>&1; then
+  pass "tests/test-gitlab-ci-status-stderr-approvals.sh"
+else
+  fail "tests/test-gitlab-ci-status-stderr-approvals.sh FAILED (run for details)"
+fi
+
+# ----------------------------------------------------------------
+# TEST 0l: VERIFY-INSTALL + PROMPT-INSTALL FIX-FUNCTIONS
+# ----------------------------------------------------------------
+# PR #92: scripts/verify-install.sh fix_tool_install command-injection
+# refusal + audit-trail echo. tests/test-verify-install-fix-functions.sh
+# T11b/T12/T13/T14 are known-RED on main pending BL-037
+# tightening + the underlying fix_tool_install missing-function bug.
+# tests/test-prompt-install-noninteractive.sh (verifier-fix 33e351e)
+# is GREEN.
+section "Verify-install + prompt-install fix-functions (PRs #92, 33e351e)"
+if [ "$SKIP_KNOWN_FAILING" = "1" ]; then
+  warn "SKIP_KNOWN_FAILING=1 — skipping tests/test-verify-install-fix-functions.sh (known-RED, BL-037)"
+else
+  # Status: known-RED on main pending BL-037 (T6-T10 tightening) +
+  # underlying fix_tool_install missing-function bug. Aggregator will
+  # exit non-zero until BL-037 lands. Do NOT `|| true` this — that's
+  # the vacuous-pass class BL-034 exists to surface. Karl opts in
+  # via SKIP_KNOWN_FAILING=1 for local iteration.
+  if bash "$SCRIPT_DIR/tests/test-verify-install-fix-functions.sh" >/dev/null 2>&1; then
+    pass "tests/test-verify-install-fix-functions.sh"
+  else
+    fail "tests/test-verify-install-fix-functions.sh FAILED — known-RED on main, tracked by BL-037 (fix_tool_install missing + T6-T10 tightening). SKIP_KNOWN_FAILING=1 to bypass during local iteration."
+  fi
+fi
+if bash "$SCRIPT_DIR/tests/test-prompt-install-noninteractive.sh" >/dev/null 2>&1; then
+  pass "tests/test-prompt-install-noninteractive.sh"
+else
+  fail "tests/test-prompt-install-noninteractive.sh FAILED (run for details)"
+fi
+
+# ----------------------------------------------------------------
+# TEST 0m: UPGRADE-PROJECT (interruption, sentinel-block, atomic)
+# ----------------------------------------------------------------
+# PR #80: scripts/upgrade-project.sh snapshot+atomic-finalize.
+# PR #95: upgrade interruption-recovery + bypass-sentinel-during-upgrade
+# blocking. The atomic suite mirrors the PR #54/#57 snapshot precedent.
+section "Upgrade-project atomicity, interruption, sentinel-block (PRs #80, #95)"
+if bash "$SCRIPT_DIR/tests/test-upgrade-project-atomic.sh" >/dev/null 2>&1; then
+  pass "tests/test-upgrade-project-atomic.sh"
+else
+  fail "tests/test-upgrade-project-atomic.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-upgrade-interruption.sh" >/dev/null 2>&1; then
+  pass "tests/test-upgrade-interruption.sh"
+else
+  fail "tests/test-upgrade-interruption.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-upgrade-sentinel-block.sh" >/dev/null 2>&1; then
+  pass "tests/test-upgrade-sentinel-block.sh"
+else
+  fail "tests/test-upgrade-sentinel-block.sh FAILED (run for details)"
+fi
+
+# ----------------------------------------------------------------
+# TEST 0n: PROCESS-CHECKLIST (commit-ready-subject + reset-phase1)
+# ----------------------------------------------------------------
+# PR #101: scripts/process-checklist.sh --check-commit-ready-subject
+# (commit-message subject-line gate) and the --invariant-check for
+# the phase1_architecture reset arm. The reset-phase1 test currently
+# fails inside the framework-repo guard (LB-3 / BL-041) — it does
+# not cd outside the framework checkout before invoking
+# process-checklist.sh, so the script refuses with rc=1 even on
+# the healthy fixture.
+section "Process-checklist commit-ready-subject + reset-phase1 (PR #101)"
+if bash "$SCRIPT_DIR/tests/test-process-checklist-check-commit-ready-subject.sh" >/dev/null 2>&1; then
+  pass "tests/test-process-checklist-check-commit-ready-subject.sh"
+else
+  fail "tests/test-process-checklist-check-commit-ready-subject.sh FAILED (run for details)"
+fi
+if [ "$SKIP_KNOWN_FAILING" = "1" ]; then
+  warn "SKIP_KNOWN_FAILING=1 — skipping tests/test-process-checklist-reset-phase1.sh (known-RED, BL-041)"
+else
+  # Status: known-RED on main pending BL-041 (framework-repo guard
+  # layering) — T4/T5 invoke process-checklist.sh from inside the
+  # framework checkout, hitting the guard. Aggregator will exit
+  # non-zero until BL-041 lands or the test cd-s to a fixture
+  # project dir first. SKIP_KNOWN_FAILING=1 to bypass locally.
+  if bash "$SCRIPT_DIR/tests/test-process-checklist-reset-phase1.sh" >/dev/null 2>&1; then
+    pass "tests/test-process-checklist-reset-phase1.sh"
+  else
+    fail "tests/test-process-checklist-reset-phase1.sh FAILED — known-RED on main, tracked by BL-041 (framework-repo guard). SKIP_KNOWN_FAILING=1 to bypass during local iteration."
+  fi
+fi
+
+# ----------------------------------------------------------------
+# TEST 0o: PRE-COMMIT-GATE LINTS + CLASSIFIER
+# ----------------------------------------------------------------
+# Wave 3: scripts/pre-commit-gate.sh's lint-runner + commit-classifier
+# behavior tests. Both are unit-style and fast.
+section "Pre-commit-gate lints + classifier (Wave 3)"
+if bash "$SCRIPT_DIR/tests/test-pre-commit-gate-lints.sh" >/dev/null 2>&1; then
+  pass "tests/test-pre-commit-gate-lints.sh"
+else
+  fail "tests/test-pre-commit-gate-lints.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-pre-commit-gate-classifier.sh" >/dev/null 2>&1; then
+  pass "tests/test-pre-commit-gate-classifier.sh"
+else
+  fail "tests/test-pre-commit-gate-classifier.sh FAILED (run for details)"
+fi
+
+# ----------------------------------------------------------------
+# TEST 0p: VALIDATE PHASE 2→3 GATE
+# ----------------------------------------------------------------
+# PR #101: scripts/validate.sh's Phase 2→3 gate path — assert the
+# gate refuses to advance when the required artifacts are missing.
+section "validate.sh Phase 2→3 gate (PR #101)"
+if bash "$SCRIPT_DIR/tests/test-validate-phase-2-3-gate.sh" >/dev/null 2>&1; then
+  pass "tests/test-validate-phase-2-3-gate.sh"
+else
+  fail "tests/test-validate-phase-2-3-gate.sh FAILED (run for details)"
+fi
+
+# ----------------------------------------------------------------
+# TEST 0q: SPECS+PLANS HOST-AWARE QUARTET
+# ----------------------------------------------------------------
+# PR #97: docs/superpowers/specs+plans host-aware quartet rendering
+# (the spec/plan/test/code-review quartet must reflect the current
+# host_name without hard-coding github/gitlab/bitbucket).
+section "Specs+plans host-aware quartet (PR #97)"
+if bash "$SCRIPT_DIR/tests/test-specs-plans-host-aware-quartet.sh" >/dev/null 2>&1; then
+  pass "tests/test-specs-plans-host-aware-quartet.sh"
+else
+  fail "tests/test-specs-plans-host-aware-quartet.sh FAILED (run for details)"
+fi
+
+# ----------------------------------------------------------------
+# TEST 0r: EDGE-CASES AGGREGATORS (pre-init, scripts, upgrade-input)
+# ----------------------------------------------------------------
+# PR #85/#88/#89: the three edge-cases aggregator files that house
+# E1-E62 integration coverage.
+#
+# Status snapshot on main (2026-06-29):
+#   • edge-cases-pre-init.sh    — RED (E1×2, E4: apostrophe handling
+#     in init.sh name sanitization + dry-run name preservation;
+#     tracked by BL-040 / LB-2 init.sh:2781 dry_run_summary).
+#   • edge-cases-scripts.sh     — RED (E30: --platform other refs/
+#     template handling; E50: init.sh --non-interactive contract
+#     mismatch; tracked by BL-009 follow-up + BL-039 / LB-1).
+#   • edge-cases-upgrade-input.sh — GREEN.
+#
+# All three are gated together because they share BL-034 status.
+# Known-RED siblings are gated on SKIP_KNOWN_FAILING so a local
+# iteration loop can mask them; default = surface the failure.
+section "Edge-cases aggregators (pre-init, scripts, upgrade-input)"
+if [ "$SKIP_KNOWN_FAILING" = "1" ]; then
+  warn "SKIP_KNOWN_FAILING=1 — skipping tests/edge-cases-pre-init.sh (known-RED, BL-040)"
+else
+  # Status: known-RED on main pending BL-040 (init.sh:2781 dry_run
+  # summary). Do NOT `|| true` — apostrophe-handling regressions in
+  # init.sh must surface. SKIP_KNOWN_FAILING=1 to bypass locally.
+  if bash "$SCRIPT_DIR/tests/edge-cases-pre-init.sh" >/dev/null 2>&1; then
+    pass "tests/edge-cases-pre-init.sh"
+  else
+    fail "tests/edge-cases-pre-init.sh FAILED — known-RED on main, tracked by BL-040 (E1, E4 apostrophe/dry-run name preservation). SKIP_KNOWN_FAILING=1 to bypass during local iteration."
+  fi
+fi
+if [ "$SKIP_KNOWN_FAILING" = "1" ]; then
+  warn "SKIP_KNOWN_FAILING=1 — skipping tests/edge-cases-scripts.sh (known-RED, BL-039 + BL-009 follow-up)"
+else
+  # Status: known-RED on main pending BL-039 (E50 init.sh --non-
+  # interactive contract) + BL-009 follow-up (E30 --platform other).
+  # Do NOT `|| true`. SKIP_KNOWN_FAILING=1 to bypass locally.
+  if bash "$SCRIPT_DIR/tests/edge-cases-scripts.sh" >/dev/null 2>&1; then
+    pass "tests/edge-cases-scripts.sh"
+  else
+    fail "tests/edge-cases-scripts.sh FAILED — known-RED on main, tracked by BL-039 (E50) + BL-009 follow-up (E30 --platform other). SKIP_KNOWN_FAILING=1 to bypass during local iteration."
+  fi
+fi
+if bash "$SCRIPT_DIR/tests/edge-cases-upgrade-input.sh" >/dev/null 2>&1; then
+  pass "tests/edge-cases-upgrade-input.sh"
+else
+  fail "tests/edge-cases-upgrade-input.sh FAILED (run for details)"
+fi
+
+# ----------------------------------------------------------------
+# TEST 0s: HOST-DRIVER AGGREGATOR
+# ----------------------------------------------------------------
+# tests/host-drivers/run-all.sh wraps the per-host unit tests
+# (github/gitlab/bitbucket) + the e2e-init.*.test.sh trio.
+# The e2e-init.*.test.sh trio is currently RED on main (3 of 9
+# children fail: e2e-init-bitbucket, e2e-init-gitlab, e2e-init).
+# Gated on SKIP_KNOWN_FAILING for local iteration; default = run
+# and surface the failure so the e2e-init regressions can't ship
+# silent.
+section "Host-driver aggregator (tests/host-drivers/run-all.sh)"
+if [ "$SKIP_KNOWN_FAILING" = "1" ]; then
+  warn "SKIP_KNOWN_FAILING=1 — skipping tests/host-drivers/run-all.sh (e2e-init-* trio known-RED)"
+else
+  # Status: 6 of 9 children GREEN; 3 e2e-init.*.test.sh children
+  # RED on main (existing defect, not introduced by BL-034). Do
+  # NOT `|| true` — the per-host unit tests inside the aggregator
+  # MUST be allowed to fail loudly when they regress.
+  if bash "$SCRIPT_DIR/tests/host-drivers/run-all.sh" >/dev/null 2>&1; then
+    pass "tests/host-drivers/run-all.sh (9/9 children)"
+  else
+    fail "tests/host-drivers/run-all.sh FAILED — known-RED: e2e-init / e2e-init-gitlab / e2e-init-bitbucket. Unit-test children (github/gitlab/regressions/mock-cli) should still PASS. SKIP_KNOWN_FAILING=1 to bypass."
+  fi
+fi
+
+# ================================================================
 # TEST 1: RESOLVER MATRIX — ALL COMBINATIONS
 # ================================================================
 section "TEST 1: Resolver Matrix — All Platform × Language × Track Combinations"
