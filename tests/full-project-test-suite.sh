@@ -516,8 +516,11 @@ fi
 #     in init.sh name sanitization + dry-run name preservation;
 #     tracked by BL-040 / LB-2 init.sh:2781 dry_run_summary).
 #   • edge-cases-scripts.sh     — RED (E30: --platform other refs/
-#     template handling; E50: init.sh --non-interactive contract
-#     mismatch; tracked by BL-009 follow-up + BL-039 / LB-1).
+#     template handling; tracked by BL-065 / BL-009 follow-up).
+#     (E50 / BL-039 was repaired in the PR that closed BL-039: the
+#     test was reconciled to the actual baseline §2.5 tier contract
+#     — organizational+private_poc is rejected, not accepted — and
+#     E50 + new E50b now pass on main.)
 #   • edge-cases-upgrade-input.sh — GREEN.
 #
 # All three are gated together because they share BL-034 status.
@@ -537,15 +540,17 @@ else
   fi
 fi
 if [ "$SKIP_KNOWN_FAILING" = "1" ]; then
-  warn "SKIP_KNOWN_FAILING=1 — skipping tests/edge-cases-scripts.sh (known-RED, BL-039 + BL-009 follow-up)"
+  warn "SKIP_KNOWN_FAILING=1 — skipping tests/edge-cases-scripts.sh (known-RED, BL-065 / BL-009 follow-up: E30 --platform other)"
 else
-  # Status: known-RED on main pending BL-039 (E50 init.sh --non-
-  # interactive contract) + BL-009 follow-up (E30 --platform other).
+  # Status: known-RED on main pending BL-065 (E30 --platform other
+  # refs/template handling — BL-009 follow-up). BL-039 (E50) was
+  # closed in the PR that landed this gate-narrowing — E50 + new
+  # E50b now reflect the actual baseline §2.5 tier contract.
   # Do NOT `|| true`. SKIP_KNOWN_FAILING=1 to bypass locally.
   if bash "$SCRIPT_DIR/tests/edge-cases-scripts.sh" >/dev/null 2>&1; then
     pass "tests/edge-cases-scripts.sh"
   else
-    fail "tests/edge-cases-scripts.sh FAILED — known-RED on main, tracked by BL-039 (E50) + BL-009 follow-up (E30 --platform other). SKIP_KNOWN_FAILING=1 to bypass during local iteration."
+    fail "tests/edge-cases-scripts.sh FAILED — known-RED on main, tracked by BL-065 (E30 --platform other / BL-009 follow-up). SKIP_KNOWN_FAILING=1 to bypass during local iteration."
   fi
 fi
 if bash "$SCRIPT_DIR/tests/edge-cases-upgrade-input.sh" >/dev/null 2>&1; then
