@@ -30,6 +30,14 @@
 #   T-blame-3: Bob commits Alice's approval row on her behalf
 #              (legitimate organizational approval — Alice is the
 #              approver, Bob is the committer). MUST NOT FAIL.
+#   T-blame-4: Malformed APPROVAL_LOG.md (gate header is `### ` h3
+#              instead of canonical `## ` h2). The PR #116 awk walker
+#              fails to match, and the pre-followup code silently fell
+#              back to file-level `git log -1 -- APPROVAL_LOG.md` — re-
+#              introducing the very evasion the per-line walker closes.
+#              The follow-up MUST WARN ("gate section not found") and
+#              MUST NOT silently fall back. Confirms the silent-pass
+#              class is closed for non-canonical files.
 
 set -uo pipefail
 
@@ -130,7 +138,18 @@ run_gate() {
 echo "T-blame-1: Alice self-approves gate 0→1, Bob later edits gate 1→2 → MUST still FAIL Alice"
 setup
 write_phase_state_org_phase2
-# C1: Alice commits her own approval row.
+# C0 (Bootstrap): scaffolds the APPROVAL_LOG.md with `[Name]` placeholders
+# for BOTH gates. Authored by a third identity ("Bootstrap"). This
+# tailoring tightening (PR #116 verifier minor #1) ensures every line
+# in the file is initially blamed to Bootstrap — NOT to Alice — so a
+# wrong fix like `git blame -L 1,1` would return Bootstrap, fail to
+# match approver "Alice Approver", and the test correctly FAILs RED.
+# Without this commit, Alice's C1 would author the entire file and
+# `-L 1,1` would coincidentally produce the expected FAIL.
+write_two_gate_log "[Name]"
+git_add_and_commit_as "Bootstrap" "bootstrap@example.com" "scaffold approval log"
+# C1: Alice rewrites HER OWN approver row only (gate 0→1). The single
+# changed line is blamed to Alice; every other line stays Bootstrap.
 write_two_gate_log "Alice Approver"
 git_add_and_commit_as "Alice Approver" "alice@example.com" "alice self-approves gate 0->1"
 # C2: Bob fixes a typo in gate 1→2 only (changes "Carol Approver" → "Carol M. Approver").
@@ -188,6 +207,59 @@ if echo "$out" | grep -qE "FAIL.*self-approval"; then
 $(echo "$out" | grep -E 'FAIL|self-approval' | head -10)"
 else
   pass "T-blame-3: distinct committer + approver → no self-approval FAIL"
+fi
+teardown
+
+# ---------------------------------------------------------------------
+# T-blame-4: Malformed APPROVAL_LOG.md uses `### ` h3 instead of the
+# canonical `## ` h2 for the gate header. PR #116's awk walker only
+# matches `^## `, so it returns no line number, and the silent-fallback
+# branch ran `git log -1 -- APPROVAL_LOG.md` — which returned Bob (the
+# latest committer, unrelated to Alice's self-approval row). Alice's
+# true self-approval silently passed.
+#
+# Follow-up requirement: WARN + return — never silently fall back.
+# Operator MUST see "cannot verify" (or equivalent) so the malformed
+# file becomes an audit signal instead of an exploit surface.
+# ---------------------------------------------------------------------
+echo "T-blame-4: malformed APPROVAL_LOG.md (h3 header) → MUST WARN, not silently pass"
+setup
+write_phase_state_org_phase1
+# Inline the malformed file — gate name appears in prose AND under an
+# `### ` h3 header (not `## ` h2). grep -A 20 still finds it (so the
+# approver_name extraction sees "Alice Approver"), but the awk walker
+# requires `^## ` and returns no line number.
+cat > "$PROJ/APPROVAL_LOG.md" <<'MD'
+# APPROVAL_LOG
+
+This log records approvals for Phase 0 → Phase 1 transitions.
+
+### Phase 0 → Phase 1
+| Field | Value |
+|---|---|
+| **Gate** | Phase 0 → Phase 1 |
+| **Approver** | Alice Approver |
+| **Date** | 2026-02-01 |
+MD
+# C1: Alice commits her own approval row (true self-approval).
+git_add_and_commit_as "Alice Approver" "alice@example.com" "alice self-approves (malformed log)"
+# C2: Bob commits an unrelated prose-line typo fix. With pre-followup
+# code, `git log -1` returns Bob → no name match → silent pass.
+sed -i.bak 's/records approvals/records the approvals/' "$PROJ/APPROVAL_LOG.md" \
+  && rm -f "$PROJ/APPROVAL_LOG.md.bak"
+git_add_and_commit_as "Bob Editor" "bob@example.com" "prose typo fix"
+out=$(run_gate)
+# Operator-visible audit signal: either a self-approval FAIL (caught
+# Alice via some other path) OR a WARN that explicitly cites the
+# malformed/non-canonical gate section. The forbidden outcome is a
+# silent pass — no FAIL and no WARN about commit-author/gate-section.
+if echo "$out" | grep -qE "\[WARN\].*Phase 0.*1.*(cannot verify|gate section not found|no '## '|malformed)"; then
+  pass "T-blame-4: malformed APPROVAL_LOG.md surfaces WARN — silent-fallback closed"
+elif echo "$out" | grep -qE "FAIL.*Phase 0.*1.*self-approval"; then
+  pass "T-blame-4: malformed APPROVAL_LOG.md still caught self-approval via FAIL"
+else
+  fail_ "T-blame-4" "silent-pass: expected [WARN] (cannot verify | gate section not found) or FAIL self-approval; output:
+$(echo "$out" | grep -E 'WARN|FAIL|Phase 0' | head -10)"
 fi
 teardown
 

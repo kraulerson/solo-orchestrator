@@ -260,39 +260,80 @@ validate_approval_fields() {
       # Approver row, then `git blame -L<N>,<N>` to extract the author
       # of THAT line's most recent change. Compare against approver.
       #
-      # The awk walker scans for the gate header (case-insensitive
-      # regex match — same shape `grep -A 20 "$gate_name"` uses above),
-      # then within the section walks until the next ## header or `---`
-      # rule, locating the first Approver row that isn't a Role row.
-      # Print its line number and exit.
+      # The awk walker scans for the gate header, then within the
+      # section walks until the next ## header or `---` rule, locating
+      # the first Approver row that isn't a Role row. It emits one of:
+      #
+      #   <integer>   the approver row's 1-based line number
+      #   NO_APPROVER gate header found but no Approver row inside
+      #   NO_SECTION  no `## ` header matching the gate at all
+      #
+      # PR #116 follow-up (post-merge verifier MINOR #2): the previous
+      # implementation silently fell back to the pre-fix file-level
+      # `git log -1` lookup when the walker found no line — reinstating
+      # the exact self-approval evasion this PR was meant to close, for
+      # any malformed/non-canonical APPROVAL_LOG.md. The fallback is
+      # removed: missing section OR missing approver row → operator-
+      # visible WARN + early return, never a silent file-level lookup.
+      #
+      # Headers and gate_name are both capitalized (canonical template
+      # uses "## Phase Gate: Phase 0 → Phase 1"), so case-sensitive
+      # matching is sufficient and matches the prior `grep -A 20` shape
+      # (also case-sensitive). `IGNORECASE = 1` is a gawk extension
+      # silently ignored on BSD/macOS awk — removed as dead code.
       approver_line=$(awk -v gate="$gate_name" '
-        BEGIN { IGNORECASE = 1 }
-        $0 ~ gate && /^## / { in_section = 1; next }
+        BEGIN { found_section = 0; found_approver = 0; approver_nr = 0 }
+        $0 ~ gate && /^## / { in_section = 1; found_section = 1; next }
         in_section && /^## / { exit }
         in_section && /^---[[:space:]]*$/ { exit }
-        in_section && /[Aa]pprover/ && !/Role/ { print NR; exit }
+        in_section && /[Aa]pprover/ && !/Role/ {
+          if (!found_approver) { approver_nr = NR; found_approver = 1 }
+          exit
+        }
+        END {
+          if (found_approver) print approver_nr
+          else if (found_section) print "NO_APPROVER"
+          else print "NO_SECTION"
+        }
       ' "$APPROVAL_LOG" 2>/dev/null || echo "")
 
-      if [ -n "$approver_line" ]; then
-        # `git blame --line-porcelain` prints an `author <name>` line
-        # per blame entry. When the line differs from HEAD (uncommitted
-        # working-tree modification) blame returns "Not Committed Yet".
-        # Both "empty author" and "Not Committed Yet" indicate the
-        # invariant cannot be verified — collapse to the WARN branch.
-        commit_author=$(git blame --line-porcelain \
-                          -L "${approver_line},${approver_line}" \
-                          -- "$APPROVAL_LOG" 2>/dev/null \
-                          | awk '/^author / { sub(/^author /, ""); print; exit }' \
-                          || echo "")
-        if [ "$commit_author" = "Not Committed Yet" ] || [ "$commit_author" = "External file (--contents)" ]; then
-          commit_author=""
-        fi
-      else
-        # awk found neither the gate section nor an Approver row.
-        # Fall back to the file-level lookup so a missing-section case
-        # still has SOME signal (and the WARN branch will fire if it
-        # also returns empty).
-        commit_author=$(git log -n 1 --format='%an' -- "$APPROVAL_LOG" 2>/dev/null || echo "")
+      case "$approver_line" in
+        NO_SECTION)
+          # Canonical `## ` header not present — silent fallback to
+          # `git log -1` would reintroduce the self-approval evasion.
+          # Surface as WARN so the malformed file becomes audit signal.
+          echo -e "${YELLOW}[WARN]${NC} $gate_label: APPROVAL_LOG.md has no '## ' header matching gate — cannot verify self-approval (malformed file?). Refusing silent file-level fallback; restore canonical '## Phase Gate: …' header."
+          issues=$((issues + 1))
+          return 0
+          ;;
+        NO_APPROVER)
+          # Gate section found but contains no Approver row — same
+          # silent-pass risk if we fell back to file-level lookup.
+          echo -e "${YELLOW}[WARN]${NC} $gate_label: APPROVAL_LOG.md gate section found but no Approver row — cannot verify self-approval. Add an 'Approver' row to the gate section."
+          issues=$((issues + 1))
+          return 0
+          ;;
+        ''|*[!0-9]*)
+          # awk script failed entirely (unexpected — defensive).
+          echo -e "${YELLOW}[WARN]${NC} $gate_label: APPROVAL_LOG.md gate-section walker produced no result — cannot verify self-approval."
+          issues=$((issues + 1))
+          return 0
+          ;;
+      esac
+
+      # approver_line is a numeric line number — run per-line blame.
+      # `git blame --line-porcelain` prints an `author <name>` line per
+      # entry. When the line differs from HEAD (uncommitted working-
+      # tree modification) blame returns "Not Committed Yet". Both
+      # empty-author and "Not Committed Yet" mean the invariant cannot
+      # be verified — collapse to the WARN branch below.
+      commit_author=$(git blame --line-porcelain \
+                        -L "${approver_line},${approver_line}" \
+                        -- "$APPROVAL_LOG" 2>/dev/null \
+                        | awk '/^author / { sub(/^author /, ""); print; exit }' \
+                        || echo "")
+      if [ "$commit_author" = "Not Committed Yet" ] || [ "$commit_author" = "External file (--contents)" ]; then
+        commit_author=""
       fi
       commit_author_norm=$(printf '%s' "$commit_author" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 
@@ -307,13 +348,13 @@ validate_approval_fields() {
         issues=$((issues + 1))
       elif [ -z "$commit_author_norm" ] && [ -n "$approver_norm" ]; then
         # code-check-gates-7-followup: cannot verify the per-line blame
-        # author either because (a) the Approver row was added in the
-        # working tree only (uncommitted) — `git blame` returns "Not
-        # Committed Yet", normalized to empty above; (b) the gate
-        # section was not found in APPROVAL_LOG.md and the file-level
-        # fallback also returned empty; or (c) git is unavailable.
-        # Surface as WARN so the silent-pass case never recurs (baseline
-        # §5 invariant #9 audit signal).
+        # author because (a) the Approver row was added in the working
+        # tree only (uncommitted) — `git blame` returns "Not Committed
+        # Yet", normalized to empty above; or (b) git is unavailable.
+        # The missing-section / no-approver-row cases never reach this
+        # branch — the case-statement above returns early with a louder
+        # WARN. Surface as WARN so the silent-pass case never recurs
+        # (baseline §5 invariant #9 audit signal).
         echo -e "${YELLOW}[WARN]${NC} $gate_label: cannot verify commit author for approver '$approver_name' — APPROVAL_LOG.md row not yet committed (or per-line blame returned no author). Commit the approval entry to enable self-approval verification."
         issues=$((issues + 1))
       fi
