@@ -76,11 +76,43 @@ while IFS= read -r tpl_line; do
     continue
   fi
   wiz_title=$(echo "$wiz_line" | sed -E 's/^[0-9]+:[[:space:]]*//')
-  # Loose title comparison: template title is canonical, wizard may shorten.
-  # Hard requirement: numbers must match.
+  # BL-037 closure: the pre-fix oracle compared `${wiz_line%%:*}` (i.e.
+  # the number prefix) to `$tpl_num` — but `wiz_line` was selected by
+  # awk's `$1 == n` filter, so by construction the number prefix is
+  # `$tpl_num`. The comparison was a tautology and the `wiz_title`
+  # variable computed on the line above was never consumed. A wizard
+  # entry like `print_step "Section 4: Compliance Audit"` against
+  # template `## 4. Features & Requirements` (number preserved, title
+  # corrupted) silently passed.
+  #
+  # New assertion: pin BOTH halves of the pair.
+  #   (a) Number prefix matches (preserves the pre-fix sanity check
+  #       — even though it was structurally redundant, future refactors
+  #       might change the awk filter).
+  #   (b) Title alignment: template title is canonical, wizard may
+  #       shorten the trailing qualifier (e.g. tpl "Distribution &
+  #       Operations Preferences" vs wiz "Distribution & Operations").
+  #       Accept iff (case-insensitive) the wizard title is a non-empty
+  #       prefix of the template title OR vice-versa. Any unrelated
+  #       drift (different leading words, swapped section bodies) fails.
   if [ "${wiz_line%%:*}" != "$tpl_num" ]; then
     fail_ "T1" "wizard section number drift at template §$tpl_num: wizard shows '$wiz_line'"
     drift_found=1
+  fi
+  if [ -z "$wiz_title" ]; then
+    fail_ "T1" "wizard §$tpl_num has empty title (template title: '$tpl_title')"
+    drift_found=1
+  else
+    wiz_title_lc=$(printf '%s' "$wiz_title" | tr '[:upper:]' '[:lower:]')
+    tpl_title_lc=$(printf '%s' "$tpl_title" | tr '[:upper:]' '[:lower:]')
+    # Case-insensitive bidirectional prefix match handles the wizard's
+    # documented shortening (e.g. drop trailing "Preferences"). Pure
+    # substring would over-match; require prefix.
+    if [ "${tpl_title_lc#"$wiz_title_lc"}" = "$tpl_title_lc" ] && \
+       [ "${wiz_title_lc#"$tpl_title_lc"}" = "$wiz_title_lc" ]; then
+      fail_ "T1" "wizard §$tpl_num title drift: wizard='$wiz_title' template='$tpl_title' (neither is a case-insensitive prefix of the other)"
+      drift_found=1
+    fi
   fi
 done <<<"$template_pairs"
 

@@ -65,12 +65,12 @@ setup_clean_project() {
   # rather than build an array.)
   if [ "$deployment" = "organizational" ]; then
     bash "$INIT" --non-interactive --project x --project-dir "$PROJ" --no-remote-creation \
-      --platform web --language javascript --track light --deployment "$deployment" \
+      --platform web --language typescript --track light --deployment "$deployment" \
       --gov-mode sponsored_poc \
       >/dev/null 2>&1
   else
     bash "$INIT" --non-interactive --project x --project-dir "$PROJ" --no-remote-creation \
-      --platform web --language javascript --track light --deployment "$deployment" \
+      --platform web --language typescript --track light --deployment "$deployment" \
       >/dev/null 2>&1
   fi
   VERIFY="$PROJ/scripts/verify-install.sh"
@@ -114,7 +114,7 @@ else
   grep -q "^- \*\*Project:\*\* x"               "$PROJ/CLAUDE.md" || missing="$missing project"
   grep -q "^- \*\*Platform:\*\* web"            "$PROJ/CLAUDE.md" || missing="$missing platform"
   grep -q "^- \*\*Track:\*\* light"             "$PROJ/CLAUDE.md" || missing="$missing track"
-  grep -q "^- \*\*Primary Language:\*\* javascript" "$PROJ/CLAUDE.md" || missing="$missing language"
+  grep -q "^- \*\*Primary Language:\*\* typescript" "$PROJ/CLAUDE.md" || missing="$missing language"
   if [ -n "$missing" ]; then
     fail_ "T2" "missing substituted identity fields:$missing"
   else
@@ -188,16 +188,44 @@ teardown
 # and executable bit of the hook scripts referenced in settings.json.
 # ============================================================
 
+# BL-037 closure (T6-T10): the pre-fix oracles were negative-only
+# (`! grep -qE "[OK] <hook>"`). If verify-install.sh crashed before
+# the hook-check section, or changed the [OK] label format, the
+# absence-of-OK still satisfied the negation — T6-T10 silently PASSed.
+# Mirror T5's tightened oracle: require a POSITIVE remediation row for
+# the affected hook (via register_manual, which print_warn-emits the
+# string `[WARN] <hook> ... (manual)`).
+#
+# verify-install.sh's _check_hooks_hook_pair (scripts/verify-install.sh:393)
+# emits register_manual with one of:
+#   "<label> registered but on-disk script missing (<path>)"
+#   "<label> registered but on-disk script not executable (<path>)"
+# All three patterns are valid remediation rows; we accept any of them.
+
+# Convenience pattern: positive hook-remediation row for a given basename
+# script. Mirrors T5's auto-fixable|missing|manual|REFUSED phrasing.
+_hook_remediation_re='(missing|not executable|REFUSED|auto-fixable|registered but on-disk script)'
+
 echo "T6: missing on-disk pre-commit-gate.sh is reported despite intact settings.json"
 setup_clean_project personal
 # Settings reference is intact; the on-disk file is gone.
 rm -f "$PROJ/scripts/pre-commit-gate.sh"
 out=$(run_verify_check)
-# The hook check must NOT print a green OK line for pre-commit-gate.sh.
+t6_failed=""
+# Negative: must not report green OK for the missing-script hook.
 if echo "$out" | grep -qE "\[OK\] PreToolUse hook: pre-commit-gate\.sh"; then
-  fail_ "T6" "verify reported green OK for hook despite missing on-disk script"
+  t6_failed="verify reported green OK for hook despite missing on-disk script"
+fi
+# Positive: must emit a [WARN] remediation row that names pre-commit-gate.sh
+# and the (manual) suffix register_manual adds. This is the assertion
+# that flips RED if verify-install crashes before hook-check runs.
+if ! echo "$out" | grep -qE "\[WARN\].*pre-commit-gate\.sh.*${_hook_remediation_re}.*\(manual\)"; then
+  t6_failed="${t6_failed:+$t6_failed; }no positive [WARN] (manual) remediation row for pre-commit-gate.sh"
+fi
+if [ -n "$t6_failed" ]; then
+  fail_ "T6" "$t6_failed"
 else
-  pass "T6: hook with missing on-disk script no longer reported as PASS"
+  pass "T6: missing pre-commit-gate.sh produces [WARN] (manual) remediation row AND no green OK"
 fi
 teardown
 
@@ -205,10 +233,17 @@ echo "T7: non-executable pre-commit-gate.sh on disk is reported"
 setup_clean_project personal
 chmod -x "$PROJ/scripts/pre-commit-gate.sh"
 out=$(run_verify_check)
+t7_failed=""
 if echo "$out" | grep -qE "\[OK\] PreToolUse hook: pre-commit-gate\.sh"; then
-  fail_ "T7" "verify reported green OK for hook despite non-executable on-disk script"
+  t7_failed="verify reported green OK for hook despite non-executable on-disk script"
+fi
+if ! echo "$out" | grep -qE "\[WARN\].*pre-commit-gate\.sh.*${_hook_remediation_re}.*\(manual\)"; then
+  t7_failed="${t7_failed:+$t7_failed; }no positive [WARN] (manual) remediation row for non-executable pre-commit-gate.sh"
+fi
+if [ -n "$t7_failed" ]; then
+  fail_ "T7" "$t7_failed"
 else
-  pass "T7: hook with non-executable on-disk script no longer reported as PASS"
+  pass "T7: non-executable pre-commit-gate.sh produces [WARN] (manual) remediation row AND no green OK"
 fi
 teardown
 
@@ -216,10 +251,17 @@ echo "T8: missing on-disk track-tool-usage.sh is reported"
 setup_clean_project personal
 rm -f "$PROJ/scripts/track-tool-usage.sh"
 out=$(run_verify_check)
+t8_failed=""
 if echo "$out" | grep -qE "\[OK\] PostToolUse hook: track-tool-usage\.sh"; then
-  fail_ "T8" "verify reported green OK for hook despite missing track-tool-usage.sh"
+  t8_failed="verify reported green OK for hook despite missing track-tool-usage.sh"
+fi
+if ! echo "$out" | grep -qE "\[WARN\].*track-tool-usage\.sh.*${_hook_remediation_re}.*\(manual\)"; then
+  t8_failed="${t8_failed:+$t8_failed; }no positive [WARN] (manual) remediation row for track-tool-usage.sh"
+fi
+if [ -n "$t8_failed" ]; then
+  fail_ "T8" "$t8_failed"
 else
-  pass "T8: PostToolUse track-tool-usage with missing on-disk script no longer PASS"
+  pass "T8: missing track-tool-usage.sh produces [WARN] (manual) remediation row AND no green OK"
 fi
 teardown
 
@@ -228,10 +270,19 @@ setup_clean_project personal
 rm -f "$PROJ/scripts/session-version-check.sh"
 out=$(run_verify_check)
 # The SessionStart row covers two scripts together — both must be on disk.
+# Per scripts/verify-install.sh:488, the WARN message format is
+# "SessionStart hooks registered but on-disk scripts incomplete: <list>".
+t9_failed=""
 if echo "$out" | grep -qE "\[OK\] SessionStart hooks: version check \+ test gate"; then
-  fail_ "T9" "verify reported green OK for SessionStart hooks despite missing session-version-check.sh"
+  t9_failed="verify reported green OK for SessionStart hooks despite missing session-version-check.sh"
+fi
+if ! echo "$out" | grep -qE "\[WARN\].*SessionStart.*session-version-check\.sh.*(missing|not executable|incomplete).*\(manual\)"; then
+  t9_failed="${t9_failed:+$t9_failed; }no positive [WARN] (manual) remediation row naming session-version-check.sh"
+fi
+if [ -n "$t9_failed" ]; then
+  fail_ "T9" "$t9_failed"
 else
-  pass "T9: SessionStart hooks no longer PASS when on-disk script is missing"
+  pass "T9: missing session-version-check.sh produces [WARN] (manual) SessionStart row AND no green OK"
 fi
 teardown
 
@@ -239,10 +290,17 @@ echo "T10: missing on-disk session-end-qdrant-reminder.sh is reported"
 setup_clean_project personal
 rm -f "$PROJ/scripts/session-end-qdrant-reminder.sh"
 out=$(run_verify_check)
+t10_failed=""
 if echo "$out" | grep -qE "\[OK\] Stop hook: session-end-qdrant-reminder\.sh"; then
-  fail_ "T10" "verify reported green OK for Stop hook despite missing on-disk script"
+  t10_failed="verify reported green OK for Stop hook despite missing on-disk script"
+fi
+if ! echo "$out" | grep -qE "\[WARN\].*session-end-qdrant-reminder\.sh.*${_hook_remediation_re}.*\(manual\)"; then
+  t10_failed="${t10_failed:+$t10_failed; }no positive [WARN] (manual) remediation row for session-end-qdrant-reminder.sh"
+fi
+if [ -n "$t10_failed" ]; then
+  fail_ "T10" "$t10_failed"
 else
-  pass "T10: Stop hook session-end-qdrant-reminder no longer PASS when on-disk script is missing"
+  pass "T10: missing session-end-qdrant-reminder.sh produces [WARN] (manual) Stop-hook row AND no green OK"
 fi
 teardown
 

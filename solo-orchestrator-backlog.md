@@ -949,7 +949,7 @@ Both branches of the inner if/else call pass(). A regression that silently strip
 **Logged:** 2026-06-28 (test integrity audit)
 **Category:** Bug / test integrity
 **Severity:** High
-**Status:** Open
+**Status:** Closed (2026-06-30, PR #115, commit `359c714`)
 
 15 major-severity findings across edge-cases, verify-install, prompt-install, snapshot-retention, intake-wizard, and self-approval tests use either catch-all `else pass: handled` branches or negative-only oracles (`! grep -q deny`, no positive assertion). Each will silently pass on a crash or on garbage output.
 

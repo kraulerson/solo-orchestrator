@@ -66,6 +66,21 @@ set -uo pipefail
 YELLOW=""; BOLD=""; NC=""; CYAN=""; GREEN=""; RED=""; BLUE=""
 # Source the real helpers.
 source "$HELPERS"
+# BL-037 closure: before sourcing helpers.sh, the prompt_install
+# invocation below would resolve to "command not found" (bash rc=127)
+# if helpers.sh (a) silently failed to source or (b) ever drops the
+# prompt_install function definition. The pre-fix oracle asserted
+# rc != 0 only, which silently accepted 127 as the "decline" code —
+# meaning a regression that removed prompt_install entirely PASSed
+# T1/T2/T3 vacuously. Guard with a hard precondition: prompt_install
+# MUST be defined as a function in the sourced helpers.sh.
+# Note: this comment intentionally avoids backticks because the heredoc
+# is unquoted (<<HARNESS) and bash would treat \`...\` as command
+# substitution during expansion, executing the wrapped tokens.
+if ! type prompt_install 2>/dev/null | grep -qE '^prompt_install is a function'; then
+  echo "HARNESS_PRECONDITION_FAIL: prompt_install is not a function after sourcing helpers.sh — exit 99 (this rules out the bash 127 case the pre-fix oracle accepted as success)"
+  exit 99
+fi
 # Replace eval with a function stub that records the install attempt.
 # Bash resolves user-defined functions before builtins, so this stub
 # takes precedence inside prompt_install's body. We CANNOT use
@@ -129,12 +144,24 @@ run_t() {
     fail_ "$name" "install command fired (marker exists) — eval was reached despite non-interactive context"
     failed=true
   fi
-  if [ "$rc" = "0" ]; then
-    fail_ "$name" "prompt_install returned 0 — must return nonzero (decline install) in non-interactive context"
+  # BL-037 closure: tighten `rc != 0` (which silently accepted bash's
+  # 127 "command not found" — the exact failure mode of a regression
+  # that removed prompt_install entirely) to `rc == 1` — the documented
+  # decline-install return code. Combined with the harness's
+  # type-check (which would have exit-99'd before reaching this assert
+  # if prompt_install was undefined), this gives us a precise refusal
+  # contract: function exists, was invoked, and returned the
+  # documented decline rc.
+  if [ "$rc" = "99" ]; then
+    fail_ "$name" "harness precondition failed (prompt_install not defined in helpers.sh) — see HARNESS_PRECONDITION_FAIL line in $OUT"
+    failed=true
+  fi
+  if [ "$rc" != "1" ]; then
+    fail_ "$name" "prompt_install rc=$rc; required rc==1 (documented decline-install return code). rc=0 means install ran; rc=127 means function missing; any other rc means an unrelated failure path."
     failed=true
   fi
   if [ "$failed" = "false" ]; then
-    pass "$name: prompt_install short-circuited (rc=$rc, no marker, no hang)"
+    pass "$name: prompt_install short-circuited cleanly (function defined, rc=1 decline, no marker, no hang)"
   fi
   rm -rf "$TMP"
 }
