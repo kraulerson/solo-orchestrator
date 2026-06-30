@@ -920,7 +920,7 @@ Notable orphans (non-exhaustive — full list in `Reports/2026-06-28-test-integr
 **Logged:** 2026-06-28 (test integrity audit)
 **Category:** Bug / test integrity
 **Severity:** Critical
-**Status:** Open
+**Status:** Closed (2026-06-29, PR #110, commit `66da15c`)
 
 Three tests in the edge-cases suite are tautological by construction. The corresponding product behaviors have **zero regression coverage** on `main` — a regression could be merged today with no signal.
 

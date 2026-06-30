@@ -1089,9 +1089,15 @@ if ! _uat_real_init_light_impl "$_uat_work" "desktop" "e31-upgrade"; then
 else
   _proj="$_uat_work/e31-upgrade"
   _uat_seed_intake_progress "$_proj" "desktop"
-  # Regression to "pre-migration" state: clobber the source template and
+  # Regression to "pre-migration" state: clobber the source template
+  # with a stub that DOES NOT contain the production placeholder, then
   # delete the reference pair so the upgrade has visible work to do.
-  echo "<!-- OLD TEMPLATE: no __TESTER_PRE_FLIGHT__ placeholder -->" \
+  # BL-036 fix: the prior stub embedded '__TESTER_PRE_FLIGHT__' in its
+  # comment text, which trivially satisfied the post-condition grep
+  # even when upgrade-project.sh's UAT migration block was disabled
+  # (mutation-test escape). The new stub uses a string that cannot
+  # collide with the production marker.
+  echo "OLD STUB TEMPLATE - pre-migration sentinel" \
     > "$_proj/tests/uat/templates/test-session-template.html"
   rm -f "$_proj/tests/uat/examples/pre-flight-reference.html" \
         "$_proj/tests/uat/examples/scenario-reference.json"
@@ -1101,13 +1107,23 @@ else
   ( cd "$_proj" && \
     bash "$REPO_DIR/scripts/upgrade-project.sh" \
         --non-interactive --track standard ) > "$_uat_work/upgrade-e31.log" 2>&1 || true
-  if grep -q '__TESTER_PRE_FLIGHT__' "$_proj/tests/uat/templates/test-session-template.html" && \
+  # Positive assertion: production template is multi-hundred lines and
+  # contains the __TESTER_PRE_FLIGHT__ placeholder at least twice
+  # (canonical shape from templates/uat/test-session-template.html).
+  # BL-036: pin the count, not just presence, so a stub that mentions
+  # the placeholder string once still flips RED.
+  e31_tpl="$_proj/tests/uat/templates/test-session-template.html"
+  e31_count=0
+  if [ -f "$e31_tpl" ]; then
+    e31_count=$(grep -c '__TESTER_PRE_FLIGHT__' "$e31_tpl" 2>/dev/null) || e31_count=0
+  fi
+  if [ "$e31_count" -ge 2 ] && \
      [ -f "$_proj/tests/uat/examples/pre-flight-reference.html" ] && \
      [ -f "$_proj/tests/uat/examples/scenario-reference.json" ] && \
      grep -qi 'terminal\|project root\|venv\|runtime' "$_proj/tests/uat/examples/pre-flight-reference.html"; then
-    pass "E31: real upgrade-project.sh UAT migration refreshes stub template + reference pair"
+    pass "E31: real upgrade-project.sh UAT migration refreshes stub template + reference pair (placeholder count=$e31_count, expected >=2)"
   else
-    fail "E31: upgrade-project.sh UAT migration didn't restore template/refs (log: $_uat_work/upgrade-e31.log)"
+    fail "E31: upgrade-project.sh UAT migration didn't restore template/refs (placeholder count=$e31_count; log: $_uat_work/upgrade-e31.log)"
   fi
 fi
 rm -rf "$_uat_work"
