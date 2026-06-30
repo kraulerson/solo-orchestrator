@@ -938,42 +938,79 @@ rm -rf "$TEST_DIR/e38_escaped_marker" 2>/dev/null || true
 # ================================================================
 # E39: Newlines in text input
 # ================================================================
+# BL-036 (S1 Critical) closure: the pre-fix version (a) bypassed
+# production save_answer via the SAVE_ANSWER_PY shadow helper, and
+# (b) had both branches of the inner if/else call pass(), so a
+# regression that silently dropped the newline still PASSed.
+#
+# This rewrite sources the production scripts/intake-wizard.sh
+# (made sourceable via the __SOLO_INTAKE_WIZARD_SOURCED__ main-guard at
+# scripts/intake-wizard.sh:30-313) and invokes the real save_answer()
+# at scripts/intake-wizard.sh:463-480. It pins the canonical contract:
+#
+#   In:   $'line1\nline2'       (length 11; embedded LF)
+#   Out:  data['answers']['description'] == 'line1\nline2'
+#         (exact equality — length 11; the LF survives the JSON
+#         round-trip as a real newline, not a stripped char and not
+#         a literal backslash-n).
+#
+# Mutation discipline (BL-036): break save_answer (e.g.
+# `value = value.replace('\n', ' ')` mid-write) and this assertion
+# must flip RED. Restore and it returns GREEN.
 section "E39: Newlines in text input"
 
 E39_DIR="$TEST_DIR/e39"
 create_input_test_env "$E39_DIR"
 
-# Use a Python script to call save_answer with actual newline in value,
-# since bash $'...' passing through sys.argv is the real code path.
-result=0
-python3 "$SAVE_ANSWER_PY" "description" $'line1\nline2' "$E39_DIR/.claude/intake-progress.json" 2>"$TEST_DIR/e39_stderr.txt" || result=$?
+# Subshell-isolated: source the real intake-wizard.sh, set
+# PROGRESS_FILE, and call the production save_answer with an embedded
+# LF. Run/exit code captured via $?.
+(
+  cd "$E39_DIR"
+  # shellcheck disable=SC1091
+  source "$REPO_DIR/scripts/intake-wizard.sh"
+  PROGRESS_FILE="$E39_DIR/.claude/intake-progress.json"
+  save_answer "description" $'line1\nline2'
+) 2>"$TEST_DIR/e39_stderr.txt"
+result=$?
 
-if [ $result -eq 0 ]; then
-  json_valid=0
-  python3 -c "
-import json
-with open('$E39_DIR/.claude/intake-progress.json') as f:
-    json.load(f)
-" 2>/dev/null || json_valid=1
-
-  if [ $json_valid -eq 0 ]; then
-    saved_value=$(python3 -c "
-import json
-with open('$E39_DIR/.claude/intake-progress.json') as f:
-    data = json.load(f)
-v = data['answers'].get('description', 'MISSING')
-print(repr(v))
-" 2>/dev/null || echo "ERROR")
-    if echo "$saved_value" | grep -q "line1"; then
-      pass "E39: Newlines in input preserved in valid JSON: $saved_value"
-    else
-      pass "E39: Newlines in input handled (stored as: $saved_value)"
-    fi
-  else
-    fail "E39: Newlines in input broke JSON validity"
-  fi
+if [ $result -ne 0 ]; then
+  fail "E39: real save_answer crashed on newlines in input (exit $result; stderr: $(cat "$TEST_DIR/e39_stderr.txt"))"
 else
-  fail "E39: save_answer crashed on newlines in input (exit $result)"
+  # Single positive assertion: exact equality on the round-tripped
+  # value. Python compares the parsed in-memory string, so this
+  # catches all three regression classes simultaneously:
+  #   - newline stripped     -> got 'line1line2'      (len 10)
+  #   - newline -> space     -> got 'line1 line2'     (len 11, no LF)
+  #   - newline -> literal \n -> got 'line1\\nline2'  (len 12)
+  # Use --argjson + the canonical Python literal so test failure
+  # output is unambiguous.
+  e39_check=$(python3 - "$E39_DIR/.claude/intake-progress.json" <<'PYEOF'
+import json, sys
+path = sys.argv[1]
+expected = 'line1\nline2'
+try:
+    with open(path) as f:
+        data = json.load(f)
+except Exception as exc:
+    print(f"FAIL|json invalid: {exc}")
+    sys.exit(0)
+v = data.get('answers', {}).get('description')
+if v == expected:
+    # length must be 11 and the 6th char must be a real LF
+    if len(v) == 11 and v[5] == '\n':
+        print("PASS")
+    else:
+        print(f"FAIL|shape mismatch: repr={v!r} len={len(v)}")
+else:
+    print(f"FAIL|value mismatch: repr={v!r} (expected {expected!r})")
+PYEOF
+)
+  if [ "$e39_check" = "PASS" ]; then
+    pass "E39: real save_answer round-trips embedded LF byte-exact (canonical shape: 'line1\\nline2', len=11)"
+  else
+    fail "E39: real save_answer broke newline-preservation contract: ${e39_check#FAIL|}"
+  fi
 fi
 
 # ================================================================
