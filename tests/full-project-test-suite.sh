@@ -249,42 +249,133 @@ DEV_OS="darwin"  # Current machine
 RESOLVER="$SCRIPT_DIR/scripts/resolve-tools.sh"
 MATRIX_DIR="$SCRIPT_DIR/templates/tool-matrix"
 
+# BL-045 (2026-06-29): parallelize the 81-cell matrix walk via xargs -P.
+# Each cell forks `bash scripts/resolve-tools.sh` (cold-start + matrix
+# re-read); serial walk previously took ~240 s on a warm Mac. With N=8
+# workers, wall-clock drops to ~30-60 s while preserving per-cell pass/fail
+# semantics. Race-free aggregation: each cell writes "STATUS<TAB>MESSAGE"
+# to a per-cell file; the main shell replays them in deterministic order
+# via pass()/fail() so PASS/FAIL counters and RESULTS string mutations
+# remain single-writer. Set TEST_1_PARALLEL=0 to force the original
+# serial code path (kept for correctness diff during the BL-045 ship).
+TEST_1_PARALLEL="${TEST_1_PARALLEL:-8}"
+
+# Per-cell worker. Writes "STATUS\tMESSAGE\n" to $1/<platform>__<language>__<track>.status.
+# Always exits 0 so xargs does not abort the batch on resolver failures (those
+# are recorded as FAIL via the status file and replayed by the main shell).
+_test1_run_cell() {
+  local tmpdir="$1" resolver="$2" matrix_dir="$3" dev_os="$4"
+  local platform="$5" language="$6" track="$7"
+  local outfile="$tmpdir/${platform}__${language}__${track}.status"
+  local output null_count auto manual installed deferred
+
+  if ! output=$(bash "$resolver" \
+      --dev-os "$dev_os" \
+      --platform "$platform" \
+      --language "$language" \
+      --track "$track" \
+      --phase 2 \
+      --matrix-dir "$matrix_dir" 2>/dev/null); then
+    printf 'FAIL\tResolver failed: %s/%s/%s\n' "$platform" "$language" "$track" > "$outfile"
+    return 0
+  fi
+
+  if printf '%s' "$output" | jq -e '.auto_install and .manual_install and .already_installed and .deferred' >/dev/null 2>&1; then
+    null_count=$(printf '%s' "$output" | jq '[(.auto_install + .manual_install + .already_installed + .deferred)[] | select(.name == "null" or .name == null)] | length')
+    if [ "${null_count:-0}" -gt 0 ]; then
+      printf 'FAIL\tResolver has %s null-named entries: %s/%s/%s\n' "$null_count" "$platform" "$language" "$track" > "$outfile"
+    else
+      auto=$(printf '%s' "$output" | jq '.auto_install | length')
+      manual=$(printf '%s' "$output" | jq '.manual_install | length')
+      installed=$(printf '%s' "$output" | jq '.already_installed | length')
+      deferred=$(printf '%s' "$output" | jq '.deferred | length')
+      printf 'PASS\tResolver OK: %s/%s/%s (auto:%s manual:%s installed:%s deferred:%s)\n' \
+        "$platform" "$language" "$track" "$auto" "$manual" "$installed" "$deferred" > "$outfile"
+    fi
+  else
+    printf 'FAIL\tResolver output missing buckets: %s/%s/%s\n' "$platform" "$language" "$track" > "$outfile"
+  fi
+  return 0
+}
+export -f _test1_run_cell
+
+_test1_tmpdir=$(mktemp -d)
+_test1_total=$(( ${#PLATFORMS[@]} * ${#LANGUAGES[@]} * ${#TRACKS[@]} ))
+
 echo ""
-echo "Testing $(( ${#PLATFORMS[@]} * ${#LANGUAGES[@]} * ${#TRACKS[@]} )) combinations..."
+if [ "$TEST_1_PARALLEL" = "0" ]; then
+  echo "Testing $_test1_total combinations (serial: TEST_1_PARALLEL=0)..."
+else
+  echo "Testing $_test1_total combinations (parallel: TEST_1_PARALLEL=$TEST_1_PARALLEL)..."
+fi
 echo ""
 
+_test1_start=$(date +%s)
+
+# Build the cell list (one "platform language track" per line for xargs -L 1).
+_test1_cells=""
 for platform in "${PLATFORMS[@]}"; do
   for language in "${LANGUAGES[@]}"; do
     for track in "${TRACKS[@]}"; do
-      label="$platform/$language/$track"
-
-      # Run resolver
-      output=$(bash "$RESOLVER" \
-        --dev-os "$DEV_OS" \
-        --platform "$platform" \
-        --language "$language" \
-        --track "$track" \
-        --phase 2 \
-        --matrix-dir "$MATRIX_DIR" 2>/dev/null) || {
-        fail "Resolver failed: $label"
-        continue
-      }
-
-      # Verify output is valid JSON with all 4 buckets
-      if echo "$output" | jq -e '.auto_install and .manual_install and .already_installed and .deferred' >/dev/null 2>&1; then
-        # Check no null-named entries
-        null_count=$(echo "$output" | jq '[(.auto_install + .manual_install + .already_installed + .deferred)[] | select(.name == "null" or .name == null)] | length')
-        if [ "$null_count" -gt 0 ]; then
-          fail "Resolver has $null_count null-named entries: $label"
-        else
-          pass "Resolver OK: $label (auto:$(echo "$output" | jq '.auto_install | length') manual:$(echo "$output" | jq '.manual_install | length') installed:$(echo "$output" | jq '.already_installed | length') deferred:$(echo "$output" | jq '.deferred | length'))"
-        fi
-      else
-        fail "Resolver output missing buckets: $label"
-      fi
+      _test1_cells+="$platform $language $track"$'\n'
     done
   done
 done
+
+if [ "$TEST_1_PARALLEL" = "0" ]; then
+  # Original serial code path (kept for correctness diff against the parallel walk).
+  while IFS=' ' read -r _p _l _t; do
+    [ -z "$_p" ] && continue
+    _test1_run_cell "$_test1_tmpdir" "$RESOLVER" "$MATRIX_DIR" "$DEV_OS" "$_p" "$_l" "$_t"
+  done <<< "$_test1_cells"
+else
+  # Parallel walk. xargs -L 1 reads one "platform language track" line per
+  # invocation, splits on whitespace, and appends those 3 fields after the
+  # 4 trailing args, so the child bash sees:
+  #   $0=_  $1=tmpdir  $2=resolver  $3=matrix_dir  $4=dev_os  $5=platform  $6=language  $7=track
+  # which matches _test1_run_cell's positional signature.
+  #
+  # We tolerate xargs exit 123 (any sub-bash returned 1-125) so a flaky cell
+  # cannot abort the batch under `set -e` — per-cell failures are already
+  # recorded in the .status files and replayed below.
+  printf '%s' "$_test1_cells" | xargs -P "$TEST_1_PARALLEL" -L 1 bash -c \
+    '_test1_run_cell "$@"' _ "$_test1_tmpdir" "$RESOLVER" "$MATRIX_DIR" "$DEV_OS" \
+    || _test1_xargs_rc=$?
+  if [ "${_test1_xargs_rc:-0}" -ne 0 ] && [ "${_test1_xargs_rc:-0}" -ne 123 ]; then
+    fail "TEST 1: xargs aborted with rc=$_test1_xargs_rc (workers may have been killed)"
+  fi
+fi
+
+# Replay results in deterministic order so log diff stays stable between
+# serial and parallel runs.
+_test1_seen=0
+for platform in "${PLATFORMS[@]}"; do
+  for language in "${LANGUAGES[@]}"; do
+    for track in "${TRACKS[@]}"; do
+      _test1_outfile="$_test1_tmpdir/${platform}__${language}__${track}.status"
+      if [ ! -s "$_test1_outfile" ]; then
+        fail "Resolver cell produced no output: $platform/$language/$track"
+        continue
+      fi
+      _test1_status=$(cut -f1 < "$_test1_outfile")
+      _test1_message=$(cut -f2- < "$_test1_outfile")
+      case "$_test1_status" in
+        PASS) pass "$_test1_message" ;;
+        FAIL) fail "$_test1_message" ;;
+        *)    fail "Resolver cell unknown status ($_test1_status): $platform/$language/$track" ;;
+      esac
+      _test1_seen=$(( _test1_seen + 1 ))
+    done
+  done
+done
+
+_test1_end=$(date +%s)
+echo ""
+echo "  TEST 1 wall-clock: $(( _test1_end - _test1_start ))s ($_test1_seen/$_test1_total cells)"
+
+rm -rf "$_test1_tmpdir"
+unset _test1_tmpdir _test1_cells _test1_start _test1_end _test1_seen _test1_total _test1_outfile _test1_status _test1_message _test1_xargs_rc
+unset -f _test1_run_cell
 
 # ================================================================
 # TEST 2: RESOLVER FILTERING CORRECTNESS
