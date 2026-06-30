@@ -56,6 +56,38 @@ CONFIRM_PITFALLS=0
 
 source "$SCRIPT_DIR/scripts/lib/helpers.sh"
 
+# ────────────────────────────────────────────────────────────────────
+# BL-064: init-failure tracking (silent-success defect class)
+# ────────────────────────────────────────────────────────────────────
+# Adversarial certainty re-walk (re-walker-2, scenario
+# `fresh-org-sponsored-poc-standard-web-ts`) surfaced that init.sh used
+# to exit 0 with the "Setup Complete" banner even after emitting a
+# [FAIL] line for branch protection (or push, or any other
+# create_and_protect_remote step that returns non-zero). Operators who
+# only check the exit code (or scan for the banner) miss the gap —
+# same defect class as PR #105's intake-wizard.sh:2028 silent success.
+#
+# Contract (closes BL-064):
+#   • create_and_protect_remote's failure paths (every print_fail
+#     inside that function feeds `return 1`, which the outer caller
+#     records via `record_init_failure`).
+#   • print_init_failures_summary prints a "Setup INCOMPLETE" banner
+#     with a re-listing of every tracked failure when INIT_FAILURES is
+#     non-empty.
+#   • main() ends with: if [ ${#INIT_FAILURES[@]} -gt 0 ]; then
+#     print_init_failures_summary; return 2; fi.  The non-zero return
+#     propagates as init.sh's exit status.
+#
+# Structural backstop: scripts/lint-fail-emit-exit-status.sh enforces
+# that every print_fail in init.sh either terminates (exit/return 1
+# inline or within 2 lines) or carries a `# lint-fail-emit-exit-status:
+# allow <reason>` annotation justifying continuation. See its header
+# for the regex + allowlist contract.
+INIT_FAILURES=()
+record_init_failure() {
+  INIT_FAILURES+=("$1")
+}
+
 # Audit specs-plans-init-intake-noninteractive-2 (2026-06): the dynamic
 # platform discovery used by the interactive flow at collect_inputs() and
 # the case-statement used by the non-interactive validator had drifted
@@ -109,7 +141,7 @@ check_prerequisites() {
   if command -v git &>/dev/null; then
     print_ok "Git $(git --version | awk '{print $3}')"
   else
-    print_fail "Git not found"
+    print_fail "Git not found"  # lint-fail-emit-exit-status: allow check_prerequisites accumulator pattern — missing tools are collected into missing_required[] and a single `exit 1` at the function tail (see line near print_fail "Missing required prerequisites" below) fires only when at least one required tool is absent; interactive install path may install the tool before that check, in which case the [FAIL] line is a status diagnostic only.
     local git_installed=false
     if [ "$interactive" = true ]; then
       if [ "$os_type" = "Darwin" ]; then
@@ -516,7 +548,7 @@ collect_project_info() {
     esac
     if [ -n "$os_block_reason" ]; then
       echo ""
-      print_fail "Incompatible OS/language combination: $LANGUAGE on $OS_TYPE"
+      print_fail "Incompatible OS/language combination: $LANGUAGE on $OS_TYPE"  # lint-fail-emit-exit-status: allow interactive prompt_choice recovery — the while-true loop below re-prompts for a compatible language and re-validates; init proceeds normally once the operator picks a valid combination, so the [FAIL] line is a status diagnostic that does NOT survive past the recovery loop.
       print_warn "$os_block_reason"
       echo ""
       print_info "Valid languages for $PLATFORM on $OS_TYPE:"
@@ -1932,6 +1964,16 @@ Framework: Solo Orchestrator v1.0"
     print_info "  scripts/check-gate.sh --repair           # to re-create remote and protection"
     print_info "  scripts/check-gate.sh --preflight        # to verify the remote is correctly set up"
     echo ""
+    # BL-064: record the host-setup failure so main()'s exit-time check
+    # prints "Setup INCOMPLETE" instead of "Setup Complete" and returns
+    # non-zero. Without this, the print_fail lines emitted inside
+    # create_and_protect_remote would be silently absorbed by `if !` and
+    # the operator would see rc=0 + a success banner. The summary cites
+    # the phase rather than each individual [FAIL] message — the lines
+    # themselves are already on stdout above; the summary's job is to
+    # surface that at least one phase failed so an operator scanning only
+    # the tail of the log still sees the gap.
+    record_init_failure "Host repo setup (create_and_protect_remote) — see [FAIL] lines above; remediate with scripts/check-gate.sh --repair"
   fi
 
   # If create_and_protect_remote wrote new state (manifest.remote_url update,
@@ -2861,6 +2903,52 @@ print_next_steps() {
 }
 
 # ================================================================
+# BL-064: Setup-INCOMPLETE summary (silent-success defect class)
+# ================================================================
+# Printed in place of "Setup Complete" when INIT_FAILURES is non-empty.
+# Re-lists every tracked failure so an operator scanning only the tail of
+# the log still sees the gap, regardless of whether they checked the exit
+# code. main() calls this and returns 2 when failures occurred.
+#
+# Failure categorisation:
+#   • Currently tracked: host repo setup (create_and_protect_remote
+#     return-1 paths — push fail, attestation missing, host CLI missing,
+#     protection config fail, verification fail).
+#   • NOT tracked (terminal-exit paths): missing prerequisites (line
+#     112-area + 322), incompatible OS/language (519, interactive
+#     recovery), --enforcement-level validation (3693, 3698). All of
+#     these already terminate via `exit 1` before reaching main()'s
+#     completion path, so no Setup-Complete banner can appear.
+#
+# See scripts/lint-fail-emit-exit-status.sh for the structural backstop
+# that prevents new print_fail sites from regressing this contract.
+print_init_failures_summary() {
+  local n="${#INIT_FAILURES[@]}"
+  echo ""
+  echo -e "${BOLD}${RED}╔══════════════════════════════════════════════════════════╗${NC}"
+  echo -e "${BOLD}${RED}║                   Setup INCOMPLETE                       ║${NC}"
+  echo -e "${BOLD}${RED}╚══════════════════════════════════════════════════════════╝${NC}"
+  echo ""
+  echo -e "${BOLD}${RED}${n} failure(s) occurred during init:${NC}"
+  local i=1
+  local msg
+  for msg in "${INIT_FAILURES[@]}"; do
+    echo -e "  ${RED}${i}.${NC} ${msg}"
+    i=$((i + 1))
+  done
+  echo ""
+  echo -e "${BOLD}Project files are in place; some setup steps did NOT complete.${NC}"
+  echo ""
+  echo "Typical remediation (consult the [FAIL] lines above for specifics):"
+  echo "  scripts/check-gate.sh --backfill-host    # if .claude/manifest.json lacks 'host'"
+  echo "  scripts/check-gate.sh --repair           # re-create remote + branch protection"
+  echo "  scripts/check-gate.sh --preflight        # verify the remote is set up correctly"
+  echo ""
+  echo "Exit status: 2 (init produced [FAIL] line(s) — wrapper scripts must observe)"
+  echo ""
+}
+
+# ================================================================
 dry_run_summary() {
   echo ""
   print_step "DRY RUN SUMMARY"
@@ -3745,6 +3833,17 @@ HELPEOF
     fi
 
     bash "$PROJECT_DIR/scripts/verify-install.sh" --auto-fix || true
+    # BL-064: if any tracked failure occurred during the run, replace the
+    # "Setup Complete" banner with "Setup INCOMPLETE" and surface a
+    # non-zero exit so wrapper scripts that gate downstream actions on
+    # init.sh succeeding observe the gap. record_init_failure callers
+    # (currently the create_and_protect_remote outer wrap) populate the
+    # INIT_FAILURES array; see init.sh header block for the contract.
+    if [ "${#INIT_FAILURES[@]}" -gt 0 ]; then
+      print_init_failures_summary
+      finalize_log
+      return 2
+    fi
     print_next_steps
   fi
 
