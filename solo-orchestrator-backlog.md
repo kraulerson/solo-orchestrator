@@ -824,7 +824,7 @@ These two gates patch the most damaging clobber surfaces, but the underlying des
 **Logged:** 2026-06-28 (PR #87 cycle-7 verifier major #4)
 **Category:** Bug / governance (precision of self-approval check)
 **Severity:** Major
-**Status:** Closed (2026-06-30, PR #<PR>, commit `06fb186`)
+**Status:** Closed (2026-06-30, PR #116, commit `06fb186`)
 
 `scripts/check-phase-gate.sh:246` resolves the commit author of an approval via `git log -n 1 --format=%an -- APPROVAL_LOG.md`, which returns whoever most recently touched the file — not who added the specific gate's Approver row. The cycle-7 PR-#87 adversarial verifier (major #4) flagged the resulting attack surface: if Alice committed her own approval row (true self-approval — should FAIL) and Bob later committed a typo fix to a different gate's row, the check passes for Alice because the latest commit author is Bob.
 
