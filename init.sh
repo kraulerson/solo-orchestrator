@@ -2956,6 +2956,18 @@ dry_run_summary() {
 
   echo -e "${BOLD}Project:${NC}"
   echo "  Name:      $PROJECT_NAME"
+  # BL-040 (2026-06-30): echo the operator-supplied description so the
+  # dry-run preview reflects every input that will be persisted to
+  # PROJECT_INTAKE.md / manifest. Omit the line entirely when the value
+  # is empty (keeps the summary clean for the "no description provided"
+  # default). Newlines and tabs are collapsed to spaces so a multi-line
+  # value reachable through --description $'foo\nbar' doesn't break the
+  # one-line-per-field column layout below.
+  if [ -n "${PROJECT_DESCRIPTION:-}" ]; then
+    local _summary_desc
+    _summary_desc=$(printf '%s' "$PROJECT_DESCRIPTION" | tr '\n\t' '  ')
+    echo "  Description: $_summary_desc"
+  fi
   echo "  Platform:  $PLATFORM"
   echo "  Track:     $TRACK"
   echo "  Language:  $LANGUAGE"
