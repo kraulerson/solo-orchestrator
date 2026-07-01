@@ -724,7 +724,7 @@ Operator-visible symptom: `scripts/check-gate.sh --preflight` PASSED (it correct
 **Logged:** 2026-06-28
 **Category:** Debt
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed (2026-07-01, PR TBD, commit d85a084) — proactive `--approvals-attested` / `SOLO_APPROVALS_ATTESTED=1` shortcircuit shipped alongside the existing exit-4 reactive path; `gitlab_free_tier_approvals` attestation reason honored by `scripts/check-gate.sh` (--preflight, --repair) + `scripts/check-phase-gate.sh` Phase 1→2 backstop; `docs/builders-guide.md` § Repository Setup documents both escape hatches. Test coverage: `tests/test-bl032-gitlab-free-approvals-attestation.sh` (7 cases including mutation proof), wired into `tests/full-project-test-suite.sh` per BL-034.
 
 GitLab analog of BL-002. On gitlab.com Free, `PUT projects/:id/approvals` with `approvals_before_merge>=1` is a Premium-tier feature — Free returns HTTP 403 *"This feature is not available on your plan."* (exact wording has varied across GitLab releases — "premium", "ultimate", "not available on your plan", "feature is not available", "requires .* plan"). Organizational deployments on gitlab.com Free cannot clear the Phase 1→2 protection bar because the required-approvals invariant is structurally unavailable.
 
