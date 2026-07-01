@@ -1397,7 +1397,7 @@ grep -c '^| [0-9] |' foo/APPROVAL_LOG.md   # → 6
 **Logged:** 2026-06-29
 **Category:** Bug
 **Severity:** Medium
-**Status:** Open
+**Status:** Open (fix in flight on branch `fix/bl059-validate-sh-phase-state-gates`; will be flipped to the terminal status with PR# + commit SHA in a follow-up docs commit after merge per defer-to-second-commit pattern)
 
 The adversarial certainty re-walk (re-walker-4, scenario `migration-track-standard-to-full`) surfaced that `scripts/validate.sh:281` emits `Phase 0->1 gate: no date recorded` even when `phase-state.json::gates.phase_0_to_1` is populated. Root cause: the checker greps `APPROVAL_LOG.md` only, while the live state file (`phase-state.json::gates`) is the actual source of truth for gate-passage timestamps. Cross-source inconsistency between the live state file and the validator.
 
