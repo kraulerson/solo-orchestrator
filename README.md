@@ -4,6 +4,12 @@ A structured software development methodology where a single technically literat
 
 This is not vibe coding. It's a phase-gated, test-driven, documentation-mandatory process with security scanning, threat modeling, and incident response built in.
 
+> ### 📊 New here? See the whole journey in one page
+>
+> **[View the visual workflow diagram](https://kraulerson.github.io/solo-orchestrator/workflow.html)** — a Visio-style walkthrough of the entire process from `./init.sh` to release, written for non-engineers. Each step shows what *you* do on the left and what the *framework* does on the right.
+>
+> Mirror link (works even without GitHub Pages): [raw.githack.com/kraulerson/solo-orchestrator/main/workflow.html](https://raw.githack.com/kraulerson/solo-orchestrator/main/workflow.html)
+
 ### AI Agent: Claude Code
 
 **This framework is built on and tested with [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (Anthropic).** The init script, CLAUDE.md configuration, Superpowers plugin, MCP server integrations, and CLI Setup Addendum are all Claude Code-specific.

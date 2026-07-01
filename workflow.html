@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Solo Orchestrator Journey — Start to Finish</title>
+<style>
+  :root {
+    --bg: #f7f8fb;
+    --ink: #1e2330;
+    --ink-soft: #4a5468;
+    --line: #b8c1d1;
+    --left-fill: #eef4fb;
+    --left-border: #4a7fb8;
+    --right-fill: #f0f6ee;
+    --right-border: #5a9451;
+    --setup: #6b7a99;
+    --setup-fill: #eef1f7;
+    --phase0: #6a5acd;
+    --phase0-fill: #efedfa;
+    --phase1: #2a7ab8;
+    --phase1-fill: #e8f2fa;
+    --phase2: #c47a1f;
+    --phase2-fill: #fcf3e5;
+    --phase3: #b8412e;
+    --phase3-fill: #fbebe8;
+    --phase4: #2e8b57;
+    --phase4-fill: #e8f4ec;
+    --gate: #8b2f8b;
+    --gate-fill: #f7e9f7;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+    margin: 0;
+    padding: 40px 20px 80px;
+    line-height: 1.55;
+  }
+
+  header.page-header {
+    max-width: 1100px;
+    margin: 0 auto 30px;
+    text-align: center;
+  }
+  header.page-header h1 {
+    font-size: 32px;
+    margin: 0 0 10px;
+    letter-spacing: -0.5px;
+  }
+  header.page-header p.subtitle {
+    font-size: 17px;
+    color: var(--ink-soft);
+    margin: 0 auto 25px;
+    max-width: 780px;
+  }
+  header.page-header .legend {
+    display: inline-flex;
+    gap: 24px;
+    flex-wrap: wrap;
+    justify-content: center;
+    background: white;
+    padding: 12px 20px;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    font-size: 13px;
+  }
+  header.page-header .legend .swatch {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    margin-right: 6px;
+    vertical-align: middle;
+    border: 1px solid rgba(0,0,0,0.1);
+  }
+
+  main.flow {
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  .row {
+    display: grid;
+    grid-template-columns: 1fr 60px minmax(280px, 380px) 60px 1fr;
+    align-items: stretch;
+    gap: 0;
+    margin-bottom: 8px;
+  }
+
+  .side {
+    background: white;
+    border-radius: 10px;
+    padding: 18px 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    border-top: 3px solid;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .side.left {
+    border-top-color: var(--left-border);
+    background: var(--left-fill);
+  }
+  .side.right {
+    border-top-color: var(--right-border);
+    background: var(--right-fill);
+  }
+  .side h3 {
+    margin: 0 0 8px;
+    font-size: 13px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    font-weight: 700;
+  }
+  .side.left h3 { color: var(--left-border); }
+  .side.right h3 { color: var(--right-border); }
+  .side ul {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 14px;
+    color: var(--ink);
+  }
+  .side ul li { margin-bottom: 5px; }
+  .side ul li:last-child { margin-bottom: 0; }
+  .side code {
+    background: rgba(0,0,0,0.06);
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 12.5px;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  .connector-side {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .connector-side .line {
+    width: 100%;
+    height: 2px;
+    background: var(--line);
+    position: relative;
+  }
+  .connector-side.to-center .line::after {
+    content: "";
+    position: absolute;
+    right: -1px;
+    top: -5px;
+    border: 6px solid transparent;
+    border-left-color: var(--line);
+    border-right: 0;
+  }
+  .connector-side.from-center .line::before {
+    content: "";
+    position: absolute;
+    left: -1px;
+    top: -5px;
+    border: 6px solid transparent;
+    border-right-color: var(--line);
+    border-left: 0;
+  }
+
+  .step {
+    background: white;
+    border-radius: 12px;
+    padding: 22px 20px;
+    text-align: center;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+    border: 2px solid;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .step .num {
+    position: absolute;
+    top: -14px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: white;
+    color: inherit;
+    border: 2px solid;
+    border-color: inherit;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 15px;
+  }
+  .step h2 {
+    margin: 8px 0 6px;
+    font-size: 19px;
+    letter-spacing: -0.2px;
+  }
+  .step .tagline {
+    font-size: 13.5px;
+    color: var(--ink-soft);
+    margin: 0 0 10px;
+  }
+  .step .cmd {
+    display: inline-block;
+    background: rgba(0,0,0,0.05);
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    margin-top: 4px;
+  }
+  .step .outputs {
+    font-size: 12px;
+    color: var(--ink-soft);
+    margin-top: 10px;
+    font-style: italic;
+  }
+
+  .step.setup   { border-color: var(--setup);  background: var(--setup-fill); }
+  .step.setup .num { color: var(--setup); }
+  .step.phase0  { border-color: var(--phase0); background: var(--phase0-fill); }
+  .step.phase0 .num { color: var(--phase0); }
+  .step.phase1  { border-color: var(--phase1); background: var(--phase1-fill); }
+  .step.phase1 .num { color: var(--phase1); }
+  .step.phase2  { border-color: var(--phase2); background: var(--phase2-fill); }
+  .step.phase2 .num { color: var(--phase2); }
+  .step.phase3  { border-color: var(--phase3); background: var(--phase3-fill); }
+  .step.phase3 .num { color: var(--phase3); }
+  .step.phase4  { border-color: var(--phase4); background: var(--phase4-fill); }
+  .step.phase4 .num { color: var(--phase4); }
+  .step.gate    { border-color: var(--gate);   background: var(--gate-fill); border-style: dashed; }
+  .step.gate .num { color: var(--gate); }
+  .step.gate h2 { font-size: 16px; }
+
+  .vconnect {
+    display: grid;
+    grid-template-columns: 1fr 60px minmax(280px, 380px) 60px 1fr;
+    height: 40px;
+  }
+  .vconnect .arrow-col {
+    grid-column: 3 / 4;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+  .vconnect .arrow-col .stem {
+    width: 3px;
+    height: 100%;
+    background: var(--line);
+    position: relative;
+  }
+  .vconnect .arrow-col .stem::after {
+    content: "";
+    position: absolute;
+    left: -6.5px;
+    bottom: -1px;
+    border: 8px solid transparent;
+    border-top-color: var(--line);
+    border-bottom: 0;
+  }
+
+  section.buildloop-detail {
+    max-width: 1200px;
+    margin: 30px auto;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    border-top: 4px solid var(--phase2);
+    padding: 24px 28px 28px;
+  }
+  section.buildloop-detail h2 {
+    margin: 0 0 6px;
+    color: var(--phase2);
+    font-size: 22px;
+  }
+  section.buildloop-detail .intro {
+    font-size: 15px;
+    color: var(--ink-soft);
+    margin: 0 0 18px;
+  }
+  .loop-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+  }
+  .loop-step {
+    background: var(--phase2-fill);
+    border: 1px solid rgba(196, 122, 31, 0.35);
+    border-radius: 8px;
+    padding: 12px 14px;
+    position: relative;
+  }
+  .loop-step .idx {
+    font-weight: 700;
+    color: var(--phase2);
+    font-size: 12px;
+    letter-spacing: 0.5px;
+  }
+  .loop-step h4 {
+    margin: 2px 0 5px;
+    font-size: 15px;
+  }
+  .loop-step p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--ink-soft);
+    line-height: 1.45;
+  }
+  .loop-note {
+    margin-top: 18px;
+    padding: 14px 16px;
+    background: #fef7e8;
+    border-left: 4px solid var(--phase2);
+    border-radius: 4px;
+    font-size: 14px;
+  }
+
+  section.cross-cutting {
+    max-width: 1200px;
+    margin: 30px auto 0;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    padding: 24px 28px 28px;
+    border-top: 4px solid var(--gate);
+  }
+  section.cross-cutting h2 {
+    margin: 0 0 12px;
+    color: var(--gate);
+    font-size: 22px;
+  }
+  section.cross-cutting > p {
+    font-size: 14.5px;
+    color: var(--ink-soft);
+    margin: 0 0 16px;
+  }
+  .cross-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px;
+  }
+  .cross-card {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 14px 16px;
+  }
+  .cross-card h4 { margin: 0 0 6px; font-size: 15px; }
+  .cross-card p { margin: 0; font-size: 13px; color: var(--ink-soft); line-height: 1.45; }
+
+  section.glossary {
+    max-width: 1200px;
+    margin: 30px auto 0;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    padding: 24px 28px 28px;
+  }
+  section.glossary h2 {
+    margin: 0 0 12px;
+    font-size: 22px;
+    border-bottom: 2px solid #eee;
+    padding-bottom: 8px;
+  }
+  .gloss-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 10px 30px;
+  }
+  .gloss-item { font-size: 14px; }
+  .gloss-item dt {
+    font-weight: 700;
+    color: var(--ink);
+    margin-bottom: 2px;
+  }
+  .gloss-item dd {
+    margin: 0 0 12px;
+    color: var(--ink-soft);
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  footer.page-footer {
+    max-width: 1200px;
+    margin: 40px auto 0;
+    text-align: center;
+    color: var(--ink-soft);
+    font-size: 13px;
+  }
+
+  @media (max-width: 900px) {
+    .row {
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+    .connector-side { display: none; }
+    .vconnect { grid-template-columns: 1fr; height: 24px; }
+    .vconnect .arrow-col { grid-column: 1 / 2; }
+    .step { order: 0; }
+    .side.left { order: 1; }
+    .side.right { order: 2; }
+  }
+
+  @media print {
+    body { background: white; padding: 10px; }
+    .side, .step, section { box-shadow: none !important; }
+    .row { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<header class="page-header">
+  <h1>The Solo Orchestrator Journey</h1>
+  <p class="subtitle">
+    How a single person builds a real, production-ready application with an AI coding agent —
+    from empty folder to shipped release, one step at a time. Each step below shows what
+    <strong>you do</strong> on the left and what the <strong>framework and AI do</strong> on the right.
+  </p>
+  <div class="legend">
+    <span><span class="swatch" style="background:var(--setup-fill);border-color:var(--setup)"></span>Setup</span>
+    <span><span class="swatch" style="background:var(--phase0-fill);border-color:var(--phase0)"></span>Phase 0 · Discovery</span>
+    <span><span class="swatch" style="background:var(--phase1-fill);border-color:var(--phase1)"></span>Phase 1 · Architecture</span>
+    <span><span class="swatch" style="background:var(--phase2-fill);border-color:var(--phase2)"></span>Phase 2 · Construction</span>
+    <span><span class="swatch" style="background:var(--phase3-fill);border-color:var(--phase3)"></span>Phase 3 · Validation</span>
+    <span><span class="swatch" style="background:var(--phase4-fill);border-color:var(--phase4)"></span>Phase 4 · Release</span>
+    <span><span class="swatch" style="background:var(--gate-fill);border-color:var(--gate);border-style:dashed"></span>Phase Gate</span>
+  </div>
+</header>
+
+<main class="flow">
+
+  <!-- ============================ STEP 1: SETUP ============================ -->
+  <div class="row">
+    <div class="side left">
+      <h3>What you do</h3>
+      <ul>
+        <li>Clone the repository and run <code>./init.sh</code>.</li>
+        <li>Answer prompts (approve each tool install).</li>
+        <li>Optional: run <code>./init.sh --dry-run</code> first to preview.</li>
+      </ul>
+    </div>
+    <div class="connector-side to-center"><div class="line"></div></div>
+    <div class="step setup">
+      <div class="num">1</div>
+      <h2>One-Command Setup</h2>
+      <p class="tagline">Installs everything the framework needs on your machine.</p>
+      <span class="cmd">./init.sh</span>
+      <div class="outputs">Produces: a project folder with all templates, pipelines, and a fresh git repo.</div>
+    </div>
+    <div class="connector-side from-center"><div class="line"></div></div>
+    <div class="side right">
+      <h3>What the framework does</h3>
+      <ul>
+        <li>Checks prerequisites (Git, Node.js, jq, Docker) and offers to install any missing.</li>
+        <li>Installs security tools: Semgrep, gitleaks, Snyk, Lighthouse, OWASP ZAP.</li>
+        <li>Clones the "Claude Dev Framework" guardrails (git hooks + session rules).</li>
+        <li>Generates your project folder, CI + release pipelines, CLAUDE.md, and phase-state.json.</li>
+        <li>Initializes git and runs a health check.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="vconnect"><div class="arrow-col"><div class="stem"></div></div></div>
+
+  <!-- ============================ STEP 2: INTAKE ============================ -->
+  <div class="row">
+    <div class="side left">
+      <h3>What you do</h3>
+      <ul>
+        <li>Run the intake wizard and answer plain-language questions.</li>
+        <li>Describe: project name, what it does, who uses it, platform (web/desktop/mobile/etc), language, deployment (personal or organizational), track (POC or production), success criteria.</li>
+        <li>Review the generated <code>PROJECT_INTAKE.md</code> before moving on.</li>
+      </ul>
+    </div>
+    <div class="connector-side to-center"><div class="line"></div></div>
+    <div class="step setup">
+      <div class="num">2</div>
+      <h2>Project Intake</h2>
+      <p class="tagline">Tell the framework exactly what you're building and why.</p>
+      <span class="cmd">bash scripts/intake-wizard.sh</span>
+      <div class="outputs">Produces: PROJECT_INTAKE.md — the AI's product brief.</div>
+    </div>
+    <div class="connector-side from-center"><div class="line"></div></div>
+    <div class="side right">
+      <h3>What the framework does</h3>
+      <ul>
+        <li>Walks you through a structured Q&amp;A tailored to your chosen platform.</li>
+        <li>Offers context-aware suggestions (e.g. auth options for web, notarization for macOS desktop).</li>
+        <li>Auto-fills the resolved tool matrix so the AI knows exactly which tools apply.</li>
+        <li>Writes a complete intake document — no free-form guessing required later.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="vconnect"><div class="arrow-col"><div class="stem"></div></div></div>
+
+  <!-- ============================ STEP 3: LOAD CONTEXT ============================ -->
+  <div class="row">
+    <div class="side left">
+      <h3>What you do</h3>
+      <ul>
+        <li>Start Claude Code (or your AI agent of choice).</li>
+        <li>Paste the context-loading prompt from the README.</li>
+        <li>Read the AI's summary. Correct any misunderstanding <em>before</em> it starts work.</li>
+      </ul>
+    </div>
+    <div class="connector-side to-center"><div class="line"></div></div>
+    <div class="step setup">
+      <div class="num">3</div>
+      <h2>Give the AI Its Context</h2>
+      <p class="tagline">The agent reads its instructions before it does anything.</p>
+      <span class="cmd">claude</span>
+      <div class="outputs">Produces: an AI that understands your project, its phase, and its constraints.</div>
+    </div>
+    <div class="connector-side from-center"><div class="line"></div></div>
+    <div class="side right">
+      <h3>What the framework does</h3>
+      <ul>
+        <li>The AI reads five files in order: <code>CLAUDE.md</code> (its rules), <code>PROJECT_INTAKE.md</code> (what to build), the Builder's Guide (how to build), the Platform Module (platform know-how), and <code>phase-state.json</code> (current stage).</li>
+        <li>Summarizes the goal, constraints, current phase, and available tools.</li>
+        <li>Asks you clarifying questions — it does not start coding blind.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="vconnect"><div class="arrow-col"><div class="stem"></div></div></div>
+
+  <!-- ============================ STEP 4: PHASE 0 ============================ -->
+  <div class="row">
+    <div class="side left">
+      <h3>What you do</h3>
+      <ul>
+        <li>Answer the AI's discovery questions about goals and users.</li>
+        <li>Review the draft <em>Product Manifesto</em>.</li>
+        <li>Approve it in <code>APPROVAL_LOG.md</code> (or request revisions).</li>
+      </ul>
+    </div>
+    <div class="connector-side to-center"><div class="line"></div></div>
+    <div class="step phase0">
+      <div class="num">4</div>
+      <h2>Phase 0 · Product Discovery</h2>
+      <p class="tagline">Turn the idea into a written product agreement.</p>
+      <div class="outputs">Produces: Product Manifesto (goals, users, MVP scope, non-goals).</div>
+    </div>
+    <div class="connector-side from-center"><div class="line"></div></div>
+    <div class="side right">
+      <h3>What the framework does</h3>
+      <ul>
+        <li>AI interviews you to sharpen the intake into a Manifesto: who this is for, what "done" looks like, what's explicitly out of scope.</li>
+        <li>Drafts an initial threat model preview (what could go wrong later).</li>
+        <li>Generates supporting artifacts: user journey, data contract.</li>
+        <li>Cannot proceed to Phase 1 until the phase gate is approved.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="vconnect"><div class="arrow-col"><div class="stem"></div></div></div>
+
+  <!-- ============================ GATE 0->1 ============================ -->
+  <div class="row">
+    <div class="side left">
+      <h3>Your approval unlocks the next phase</h3>
+      <ul>
+        <li>You write "Approved" plus your name and date into <code>APPROVAL_LOG.md</code> for the Phase 0 → 1 gate.</li>
+        <li>If organizational track: your sponsor also signs.</li>
+      </ul>
+    </div>
+    <div class="connector-side to-center"><div class="line"></div></div>
+    <div class="step gate">
+      <div class="num">✓</div>
+      <h2>Phase Gate 0 → 1</h2>
+      <p class="tagline">The framework refuses to advance without your written sign-off.</p>
+      <span class="cmd">scripts/check-phase-gate.sh</span>
+    </div>
+    <div class="connector-side from-center"><div class="line"></div></div>
+    <div class="side right">
+      <h3>What the framework checks</h3>
+      <ul>
+        <li>Reads <code>APPROVAL_LOG.md</code> line-by-line and verifies the right person signed on the right line (not just the file's most recent editor).</li>
+        <li>Confirms Manifesto is present and complete.</li>
+        <li>Updates <code>phase-state.json::gates.phase_0_to_1</code> with today's date.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="vconnect"><div class="arrow-col"><div class="stem"></div></div></div>
+
+  <!-- ============================ STEP 5: PHASE 1 ============================ -->
+  <div class="row">
+    <div class="side left">
+      <h3>What you do</h3>
+      <ul>
+        <li>Review architecture options with tradeoffs (usually 2–3 candidates).</li>
+        <li>Pick the architecture. Read the test plan.</li>
+        <li>Approve at the Phase 1 → 2 gate.</li>
+      </ul>
+    </div>
+    <div class="connector-side to-center"><div class="line"></div></div>
+    <div class="step phase1">
+      <div class="num">5</div>
+      <h2>Phase 1 · Architecture &amp; Planning</h2>
+      <p class="tagline">Design the system on paper before writing any code.</p>
+      <div class="outputs">Produces: Project Bible (architecture, ADRs, data contract, threat model, test plan).</div>
+    </div>
+    <div class="connector-side from-center"><div class="line"></div></div>
+    <div class="side right">
+      <h3>What the framework does</h3>
+      <ul>
+        <li>AI drafts architecture candidates with pros/cons (not one plan — real options).</li>
+        <li>Writes Architecture Decision Records (ADRs) explaining <em>why</em> each big choice was made.</li>
+        <li>Builds a full threat model (STRIDE-style: what could an attacker do?).</li>
+        <li>Produces a test plan mapped to intake acceptance criteria.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="vconnect"><div class="arrow-col"><div class="stem"></div></div></div>
+
+  <!-- ============================ STEP 6: PHASE 2 ============================ -->
+  <div class="row">
+    <div class="side left">
+      <h3>What you do</h3>
+      <ul>
+        <li>Answer clarifying questions when the AI asks.</li>
+        <li>Review test assertions and code diffs for each feature.</li>
+        <li>Every ~2 features: run a UAT session and triage any bugs found.</li>
+        <li>Mark bugs Fix Now / Defer / Won't Fix / Post-MVP.</li>
+      </ul>
+    </div>
+    <div class="connector-side to-center"><div class="line"></div></div>
+    <div class="step phase2">
+      <div class="num">6</div>
+      <h2>Phase 2 · Construction (Build Loop)</h2>
+      <p class="tagline">Build features one at a time, TDD-first, with security review baked in. Full sub-loop shown below.</p>
+      <div class="outputs">Produces: working codebase + passing tests + docs + audit trail.</div>
+    </div>
+    <div class="connector-side from-center"><div class="line"></div></div>
+    <div class="side right">
+      <h3>What the framework does</h3>
+      <ul>
+        <li>Runs the <strong>Feature Build Loop</strong> for every feature (detailed diagram below).</li>
+        <li>Enforces test-first via pre-commit hooks — you can't commit implementation without tests.</li>
+        <li>Runs SAST + secret detection on every commit.</li>
+        <li>Triggers UAT sessions on the configured interval (blocks progress if skipped).</li>
+        <li>Blocks Phase 2 → 3 if any SEV-1 or SEV-2 bug is still open.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="vconnect"><div class="arrow-col"><div class="stem"></div></div></div>
+
+  <!-- ============================ STEP 7: PHASE 3 ============================ -->
+  <div class="row">
+    <div class="side left">
+      <h3>What you do</h3>
+      <ul>
+        <li>Read each of the six adversarial review reports.</li>
+        <li>Decide on any residual security or compliance findings.</li>
+        <li>Approve the Phase 3 → 4 gate — or send fixes back into the loop.</li>
+      </ul>
+    </div>
+    <div class="connector-side to-center"><div class="line"></div></div>
+    <div class="step phase3">
+      <div class="num">7</div>
+      <h2>Phase 3 · Validation &amp; Security</h2>
+      <p class="tagline">Adversarial review across six perspectives. Zero critical findings required.</p>
+      <div class="outputs">Produces: scan results, test evidence, threat-model verification, six reviewer reports.</div>
+    </div>
+    <div class="connector-side from-center"><div class="line"></div></div>
+    <div class="side right">
+      <h3>What the framework does</h3>
+      <ul>
+        <li>Full <strong>SAST scan</strong> (Semgrep) across every file.</li>
+        <li><strong>Dependency scan</strong> (Snyk) for known vulnerabilities.</li>
+        <li><strong>License compliance</strong> check.</li>
+        <li>Web projects: <strong>DAST scan</strong> (OWASP ZAP against a running instance).</li>
+        <li>Runs the <strong>six evaluation prompts</strong>: senior engineer, CIO, security auditor, legal, technical user, and red team — each critiques from its own perspective.</li>
+        <li>Verifies every threat-model mitigation is actually implemented and tested.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="vconnect"><div class="arrow-col"><div class="stem"></div></div></div>
+
+  <!-- ============================ STEP 8: PHASE 4 ============================ -->
+  <div class="row">
+    <div class="side left">
+      <h3>What you do</h3>
+      <ul>
+        <li>Full path: kick off the release (signing keys, store credentials, deploy).</li>
+        <li>POC path: confirm the deployable artifact; upgrade later if you want to go live.</li>
+        <li>Update <code>RELEASE_NOTES.md</code> and hand off to users.</li>
+      </ul>
+    </div>
+    <div class="connector-side to-center"><div class="line"></div></div>
+    <div class="step phase4">
+      <div class="num">8</div>
+      <h2>Phase 4 · Release &amp; Maintenance</h2>
+      <p class="tagline">Ship the MVP (or confirm ready-to-deploy for POCs). Then maintain.</p>
+      <div class="outputs">Produces: signed release, CHANGELOG.md, RELEASE_NOTES.md, monitoring hooks.</div>
+    </div>
+    <div class="connector-side from-center"><div class="line"></div></div>
+    <div class="side right">
+      <h3>What the framework does</h3>
+      <ul>
+        <li>Runs the release pipeline for your platform (build, sign, package, distribute).</li>
+        <li>Updates CHANGELOG + RELEASE_NOTES with what shipped.</li>
+        <li>Turns on the maintenance cadence: weekly / monthly / quarterly reminder checks for dependency updates, framework updates, session hygiene.</li>
+        <li>Records the release in the audit trail — nothing about how it shipped is inferred later.</li>
+      </ul>
+    </div>
+  </div>
+
+</main>
+
+<!-- ============================================================ -->
+<!--                 THE FEATURE BUILD LOOP DETAIL                -->
+<!-- ============================================================ -->
+
+<section class="buildloop-detail">
+  <h2>Zoom in: The Feature Build Loop (inside Phase 2)</h2>
+  <p class="intro">
+    This is the sub-loop that runs for <em>every single feature</em>. It's the heartbeat of Phase 2 —
+    a disciplined cycle that guarantees each feature ships with current library knowledge,
+    a passing test, a security review, and a red-team review before it's marked complete.
+    If any review flags an issue, the loop restarts at the fix step; nothing is approved on the first try if it isn't ready.
+  </p>
+
+  <div class="loop-grid">
+    <div class="loop-step">
+      <div class="idx">STEP 1</div>
+      <h4>Context7 Docs Review</h4>
+      <p>AI queries Context7 for <em>current</em> documentation on any libraries in play. Prevents "I remember the API from training data" errors on stale libraries.</p>
+    </div>
+    <div class="loop-step">
+      <div class="idx">STEP 2</div>
+      <h4>Write the Test First</h4>
+      <p>AI writes the test that describes what "working" means for this feature. Runs it — confirms it FAILS (Red). This proves the test actually tests something.</p>
+    </div>
+    <div class="loop-step">
+      <div class="idx">STEP 3</div>
+      <h4>Write the Code</h4>
+      <p>AI writes the minimum implementation needed to make the test pass (Green). No over-building.</p>
+    </div>
+    <div class="loop-step">
+      <div class="idx">STEP 4</div>
+      <h4>Refactor</h4>
+      <p>Clean up the implementation now that it works: better naming, remove duplication, tighten boundaries. Tests stay green throughout.</p>
+    </div>
+    <div class="loop-step">
+      <div class="idx">STEP 5</div>
+      <h4>Pre-commit Gate</h4>
+      <p>Automatic hooks run: secret detection (gitleaks), SAST quick scan (Semgrep), lint. A commit is blocked if any fire.</p>
+    </div>
+    <div class="loop-step">
+      <div class="idx">STEP 6</div>
+      <h4>Security Review Prompt</h4>
+      <p>The framework runs an AI security review focused on this specific change: injection, authz, secrets, data exposure. Findings go to the security audit log.</p>
+    </div>
+    <div class="loop-step">
+      <div class="idx">STEP 7</div>
+      <h4>Red Team Review Prompt</h4>
+      <p>A separate adversarial prompt tries to break the feature: edge cases, hostile inputs, race conditions, misuse scenarios. Findings are logged.</p>
+    </div>
+    <div class="loop-step">
+      <div class="idx">STEP 8</div>
+      <h4>Iterate If Needed</h4>
+      <p>If any of steps 5–7 raised issues: back to Step 3 to fix, then re-run steps 4–7. Loop continues until reviews are clean.</p>
+    </div>
+    <div class="loop-step">
+      <div class="idx">STEP 9</div>
+      <h4>Approve &amp; Mark Complete</h4>
+      <p>Feature is added to <code>FEATURES.md</code>, build progress is recorded in <code>build-progress.json</code>, and you're told the feature is done.</p>
+    </div>
+  </div>
+
+  <div class="loop-note">
+    <strong>Every ~2 features (configurable):</strong> the loop pauses for a <strong>UAT session</strong>.
+    Parallel AI agents (automated testing, exploratory, cross-platform) test the app alongside you.
+    Bugs get triaged into SEV-1 (must fix before release) through SEV-4 (nice to have) and assigned
+    a disposition (Fix Now / Defer / Won't Fix / Post-MVP). Fix-Now bugs re-enter the Build Loop.
+    The framework will refuse to move to Phase 3 while any SEV-1 or SEV-2 bug is still open.
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!--                    CROSS-CUTTING CONCERNS                    -->
+<!-- ============================================================ -->
+
+<section class="cross-cutting">
+  <h2>Always Running in the Background</h2>
+  <p>
+    These aren't steps — they're guardrails that run automatically no matter which phase you're in.
+    You never have to remember to invoke them; the framework does it for you and refuses to proceed if something is off.
+  </p>
+  <div class="cross-grid">
+    <div class="cross-card">
+      <h4>Phase Gate Enforcement</h4>
+      <p>Every phase-to-phase transition requires a written approval in <code>APPROVAL_LOG.md</code> plus green tests plus completed gate criteria. Enforced by <code>check-phase-gate.sh</code>. Cannot be skipped.</p>
+    </div>
+    <div class="cross-card">
+      <h4>Session Hooks</h4>
+      <p>Every time you start the AI: version check runs, test-gate is verified, and the MCP-usage gate is initialized. If your Claude Dev Framework is out of date or the test-gate is red, you're told before any work begins.</p>
+    </div>
+    <div class="cross-card">
+      <h4>Live Docs (Context7)</h4>
+      <p>Whenever the AI touches a library, it fetches current documentation on demand. Its knowledge doesn't drift with each new library release.</p>
+    </div>
+    <div class="cross-card">
+      <h4>Persistent Memory (Qdrant)</h4>
+      <p>Decisions, review findings, and context notes are stored in a local semantic memory the AI can search across sessions — so the AI remembers <em>why</em> something was done, not just what.</p>
+    </div>
+    <div class="cross-card">
+      <h4>Audit Trail</h4>
+      <p>Every phase gate, every UAT session, every bug disposition, every release — all recorded in files that live inside your git repo. Nothing important lives only in someone's head or a chat log.</p>
+    </div>
+    <div class="cross-card">
+      <h4>Organizational Governance (opt-in)</h4>
+      <p>If you selected "organizational" deployment: sponsor approvals, IT Security review, legal sign-off, ITSM ticket linkage, and executive review artifacts are all folded into the same gates. POC modes let you defer the paperwork while validating the technical work first.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!--                         GLOSSARY                             -->
+<!-- ============================================================ -->
+
+<section class="glossary">
+  <h2>Plain-English Glossary</h2>
+  <dl class="gloss-grid">
+    <div class="gloss-item">
+      <dt>TDD (Test-Driven Development)</dt>
+      <dd>Write the test first (it fails), then write just enough code to make it pass, then clean up. Guarantees the code does what the test says it does.</dd>
+    </div>
+    <div class="gloss-item">
+      <dt>SAST</dt>
+      <dd>Static Application Security Testing — automated tools that read your code (without running it) and look for known unsafe patterns.</dd>
+    </div>
+    <div class="gloss-item">
+      <dt>DAST</dt>
+      <dd>Dynamic Application Security Testing — attacks a running copy of your app to find real vulnerabilities from the outside.</dd>
+    </div>
+    <div class="gloss-item">
+      <dt>UAT (User Acceptance Testing)</dt>
+      <dd>Sessions where a human — plus AI agents in this framework — actually use the app and try to break it or confirm it does what users need.</dd>
+    </div>
+    <div class="gloss-item">
+      <dt>Phase Gate</dt>
+      <dd>A checkpoint between phases. The framework refuses to advance until specific artifacts exist, specific tests pass, and you've written an approval in the log.</dd>
+    </div>
+    <div class="gloss-item">
+      <dt>MVP</dt>
+      <dd>Minimum Viable Product — the smallest useful version worth releasing. The framework's target for a first release.</dd>
+    </div>
+    <div class="gloss-item">
+      <dt>POC (Proof of Concept)</dt>
+      <dd>A path that produces the same technical quality as a full release but stops before production deployment. Useful when you want to validate the framework itself, or defer governance paperwork.</dd>
+    </div>
+    <div class="gloss-item">
+      <dt>Product Manifesto</dt>
+      <dd>The one-page product agreement produced at the end of Phase 0. What we're building, for whom, and what's out of scope.</dd>
+    </div>
+    <div class="gloss-item">
+      <dt>Project Bible</dt>
+      <dd>The architecture + planning document produced at the end of Phase 1. Decisions, diagrams, threat model, and test plan.</dd>
+    </div>
+    <div class="gloss-item">
+      <dt>ADR (Architecture Decision Record)</dt>
+      <dd>A short note explaining why a specific architectural choice was made (and what alternatives were rejected). Written when the decision is made, not months later.</dd>
+    </div>
+    <div class="gloss-item">
+      <dt>Threat Model</dt>
+      <dd>A structured list of "what could an attacker do?" scenarios, plus what mitigation exists for each. Verified in Phase 3.</dd>
+    </div>
+    <div class="gloss-item">
+      <dt>Red Team Review</dt>
+      <dd>An adversarial review that assumes the worst and tries to find failure modes: edge cases, hostile inputs, misuse. Runs on every feature and again in Phase 3.</dd>
+    </div>
+    <div class="gloss-item">
+      <dt>Context7</dt>
+      <dd>An MCP tool that fetches current library documentation on demand. Prevents the AI from using outdated API knowledge.</dd>
+    </div>
+    <div class="gloss-item">
+      <dt>MCP (Model Context Protocol)</dt>
+      <dd>A standard way for AI agents to talk to external tools and services (documentation lookups, memory stores, code search, etc).</dd>
+    </div>
+    <div class="gloss-item">
+      <dt>Claude Dev Framework</dt>
+      <dd>The git-hook-based guardrail layer that gets installed alongside your project. It's what makes the framework refuse to accept commits that break the rules.</dd>
+    </div>
+    <div class="gloss-item">
+      <dt>SEV-1 / SEV-2 / SEV-3 / SEV-4</dt>
+      <dd>Bug severity levels. SEV-1 = blocks basic use; SEV-2 = major broken feature; SEV-3 = noticeable but livable; SEV-4 = polish. Phase 2 can't finish while any SEV-1 or SEV-2 is open.</dd>
+    </div>
+  </dl>
+</section>
+
+<footer class="page-footer">
+  <p>
+    Solo Orchestrator Framework —
+    <a href="README.md">README</a> ·
+    <a href="docs/user-guide.md">User Guide</a> ·
+    <a href="docs/builders-guide.md">Builder's Guide</a> ·
+    <a href="docs/governance-framework.md">Governance</a>
+  </p>
+</footer>
+
+</body>
+</html>
