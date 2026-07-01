@@ -724,7 +724,7 @@ Operator-visible symptom: `scripts/check-gate.sh --preflight` PASSED (it correct
 **Logged:** 2026-06-28
 **Category:** Debt
 **Severity:** Medium
-**Status:** Closed (2026-07-01, PR TBD, commit d85a084) — proactive `--approvals-attested` / `SOLO_APPROVALS_ATTESTED=1` shortcircuit shipped alongside the existing exit-4 reactive path; `gitlab_free_tier_approvals` attestation reason honored by `scripts/check-gate.sh` (--preflight, --repair) + `scripts/check-phase-gate.sh` Phase 1→2 backstop; `docs/builders-guide.md` § Repository Setup documents both escape hatches. Test coverage: `tests/test-bl032-gitlab-free-approvals-attestation.sh` (7 cases including mutation proof), wired into `tests/full-project-test-suite.sh` per BL-034.
+**Status:** Closed (2026-07-01, PR #134, commit `bfc7ff2`; tightening commit `1edf187` addresses verifier minor_concerns findings 5a + 5b) — proactive `--approvals-attested` / `SOLO_APPROVALS_ATTESTED=1` shortcircuit shipped alongside the existing exit-4 reactive path; `gitlab_free_tier_approvals` attestation reason honored by `scripts/check-gate.sh` (--preflight, --repair) + `scripts/check-phase-gate.sh` Phase 1→2 backstop; `docs/builders-guide.md` § Repository Setup documents both escape hatches. Test coverage: `tests/test-bl032-gitlab-free-approvals-attestation.sh` (8 cases including T4b for --repair + mutation proof), plus new gitlab_free_tier_approvals case in `tests/test-check-phase-gate-backstop-attestation.sh` mirroring the github_free_tier pattern. All wired into `tests/full-project-test-suite.sh` per BL-034.
 
 GitLab analog of BL-002. On gitlab.com Free, `PUT projects/:id/approvals` with `approvals_before_merge>=1` is a Premium-tier feature — Free returns HTTP 403 *"This feature is not available on your plan."* (exact wording has varied across GitLab releases — "premium", "ultimate", "not available on your plan", "feature is not available", "requires .* plan"). Organizational deployments on gitlab.com Free cannot clear the Phase 1→2 protection bar because the required-approvals invariant is structurally unavailable.
 
@@ -748,7 +748,7 @@ The CI pipeline-success gate (code-host-gitlab-2 / `only_allow_merge_if_pipeline
 **Logged:** 2026-06-28 (PR #92 verifier follow-up)
 **Category:** Debt / Security hardening
 **Severity:** Medium
-**Status:** Closed (2026-07-01, refactor/bl033-tool-matrix-multistage-install-cmds branch, commit pending)
+**Status:** Closed (2026-07-01, PR #136, commit `61fb989`) — schema-forward shipment. Consumer-side migration to array shape (gitleaks / rust / k6 wrapper scripts + the three current singular-`install_cmd` readers) tracked as [[bl069-install-cmds-consumer-migration]].
 
 **Resolution:** `scripts/resolve-tools.sh` now accepts both shapes at
 `install.<key>`: a legacy string (`"brew install jq"`) or a structured
@@ -1753,7 +1753,7 @@ Once GREEN, remove the `known-RED (e2e-init-* trio)` annotation from `tests/full
 **Logged:** 2026-06-30
 **Category:** Performance / Bug
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed (2026-07-01, PR #133, commit `338ef7f`) — hash-map aggregator scan; verifier-confirmed 6.1× wall-clock speedup (0.986s → 0.162s median, 5-run macOS baseline), byte-identical output preserved (106 rows), mutation-proven via 2 independent mutations. `bash 3.2` compat: `case`-on-delimited-string instead of `declare -A`.
 
 **What:** `scripts/lint-tests-registered.sh` (added by PR #122 / BL-038 as the test-aggregator-registration invariant lint) **timed out at 2 minutes** in a local run during the PR #125 rebase (2026-06-30). The other 4 lints wired into `scripts/pre-commit-gate.sh` (and the CI lint suite) each complete in <5 seconds. The observed wall-clock delta is ~24× the next-slowest lint before the timeout even fires, and the actual runtime is unknown (the 2min bound was a `timeout` cutoff, not the natural end of the walker).
 
@@ -1808,3 +1808,32 @@ time bash scripts/lint-tests-registered.sh
 **Mutation-proof captured in commit body** (three separate mutations, each restored before the next).
 
 **Related:** PR #125 verifier finding (BL-046 adversarial review); BL-036 (same class — vacuous-by-construction assertions in edge-cases suite); `Reports/2026-06-29-adversarial-certainty-pass.md` (the sweep that catches this defect class).
+
+---
+
+## BL-069: Migrate `install_cmds` array consumers off legacy singular `install_cmd`
+
+**Logged:** 2026-07-01 (PR #136 verifier follow-up)
+**Category:** Debt
+**Severity:** Medium
+**Status:** Open
+
+**What:** PR #136 (BL-033) shipped the resolver-side schema: `scripts/resolve-tools.sh` now emits BOTH `install_cmd` (singular, joined with ` && `) AND `install_cmds` (structured array of stages). Verifier confirmed the array is EMITTED but not yet READ by any consumer. Three call sites still read the singular field:
+
+- `scripts/verify-install.sh:1324` (install-command dispatch)
+- `scripts/upgrade-project.sh:2033` (tool upgrade path)
+- `scripts/lib/helpers-core.sh:361` (shared helper reader)
+
+**Why it matters:** The whole point of the array shape is to give consumers per-stage failure diagnosis + rollback per stage (a stage-1 failure should not cascade into stage-2 rollback attempts). Today, because consumers read the joined singular form, a mid-string failure surfaces as a single opaque error and the retry/repair logic can't distinguish "stage-1 install failed" from "stage-2 activation failed". This is the exact security-hardening motivation BL-033 was filed under (PR #92 verifier follow-up).
+
+**Wrapper-script surface** (the tools most obviously blocked on this): `gitleaks`, `rust`, `k6` — currently each has bespoke wrapper-script install logic that would collapse into structured `install_cmds` if the readers honored the array.
+
+**Scope:**
+1. Migrate each of the 3 singular-`install_cmd` readers to iterate `install_cmds` when present, falling back to legacy singular only when the array is absent. Back-compat: any tool-matrix entry still expressed as a legacy string continues to work unchanged.
+2. Migrate `gitleaks`, `rust`, `k6` wrapper scripts in `templates/tool-matrix/*.json` (and wherever the wrapper logic currently lives) to the structured `install_cmds` shape.
+3. Add regression tests exercising per-stage failure paths: stage-1 fails → stage-2 must NOT run; stage-2 fails → stage-1 side effects must remain observable so repair paths can pick up mid-migration.
+4. Mutation-prove the readers actually iterate — a mutation that keeps only `install_cmds[0]` must flip a test RED.
+
+**Trigger:** Any pass that touches `verify-install.sh`, `upgrade-project.sh`, or one of the 3 wrapper-script tools. Also worth batching with BL-035 (~50 pre-Wave-1-4 orphan test wirings) since the new tests need aggregator registration per [[bl034-orphan-tests-wave-1-4]].
+
+**Related:** PR #136 (the schema-forward shipment this follows up on); PR #92 (BL-033's original verifier catch); [[bl033-tool-matrix-multistage-install-cmds]] (the schema half); [[bl034-orphan-tests-wave-1-4]] (test-aggregator registration invariant that new regression tests must satisfy).
