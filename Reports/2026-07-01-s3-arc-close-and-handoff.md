@@ -123,15 +123,42 @@ The multi-wave S3 remediation arc that ran from 2026-06-28 through 2026-07-01 is
 
 ---
 
-## Post-merge action items for Karl
+## Post-merge action items — status at session close
 
-1. **Enable GitHub Pages** (~30 seconds): Settings → Pages → Source: `main` / `(root)` → Save. URL will be `https://kraulerson.github.io/solo-orchestrator/workflow.html`. Both README links (Pages primary + raw.githack.com mirror) will then work.
-2. **Local branch cleanup** (Terminal isn't blocked, so run yourself):
+1. ✅ **GitHub Pages** — enabled and tested working. `https://kraulerson.github.io/solo-orchestrator/workflow.html` is live.
+2. ✅ **PR #137 merged** — workflow.html has governance/signoff/audit-trail additions; `Reports/2026-07-01-workflow-html-validation.md` flags report is on main.
+3. ⏳ **Local branch cleanup — partial**. Karl will delete these 3 in Terminal (bash tool blocked destructive git ops in this session):
    ```
+   cd "/Users/karl/Documents/Claude Projects/solo-orchestrator"
    git branch -D docs/v2-concepts-mcp-server-and-auto-discovery feat/process-enforcement fix/qdrant-usage-guidance
-   git push origin --delete fix/qdrant-usage-guidance  # if it still exists remote
+   git push origin --delete fix/qdrant-usage-guidance
    ```
-3. **Dogfood test repos** — 26 test repos still exist at `kraulerson/dog-*` + `kraulerson/foo`. Delete via GH web UI or `gh repo delete kraulerson/<name>` for each.
+4. ⏳ **Dogfood test repos** — Karl is handling `kraulerson/dog-*` + `kraulerson/foo` himself.
+
+## Broader stale-branch cleanup (not in original scope — flagged for a future decision)
+
+Current `git branch --list` shows dozens of stale local branches beyond the 3 named:
+
+- **Merged-PR fix/perf/refactor branches** (~25 items — `fix/bl034-*`, `fix/bl036-*`, `fix/bl037-*`, `fix/bl039-*` etc; all closed via merged PRs earlier this arc)
+- **`worktree-*` branches** (~25 items — auto-created by ultracode workflows; can be pruned via `git worktree prune` + `git branch -D worktree-*`)
+- **`pr-*-review` branches** (~6 items — `pr-111-review`, `pr-114-check`, `pr-117-review`, `pr-125-review`, `pr113-review`, `pr133`)
+- **Remote-side** has ~110 `origin/*` branches; a `git fetch --prune` will drop the ones no longer on GitHub.
+
+None of these will cause harm sitting there. Suggested single-command cleanup (for a future terminal session, not now):
+
+```bash
+# Prune all worktrees that no longer have a working directory
+git worktree prune
+
+# Drop remote-tracking branches that no longer exist upstream
+git fetch --prune
+
+# Optional: bulk-delete local branches that are fully merged into main
+git branch --merged main | grep -vE '^\s*(main|\*)' | xargs -r git branch -d
+
+# Aggressive: delete every fix/*/perf/*/refactor/* whose commits are already on main
+git branch | grep -E '^\s*(fix|perf|refactor)/bl0[3-6][0-9]' | xargs git branch -D
+```
 
 ---
 
@@ -156,17 +183,26 @@ Read these in order, then summarize what you see:
 5. Any active branches: `git branch --list`
 
 Confirm you understand:
-- The multi-wave S3 arc is closed. Main is at commit af0e93a. No open PRs.
+- The multi-wave S3 arc is closed. Main is at HEAD (should be commit
+  2e1491e or later — check `git log -1`). No open PRs; PR #137
+  (workflow.html validation) and PR #135 (workflow.html initial) are
+  both merged. GitHub Pages is live at
+  https://kraulerson.github.io/solo-orchestrator/workflow.html.
 - The Open Medium items are BL-001 (CDF sync audit / investigation),
   BL-035 (~50 orphan test wirings / mechanical), and BL-069 (install_cmds
-  consumer migration / natural PR #136 follow-up)
-- The Low/Minor bucket has ~15 entries awaiting a prune decision
-- GitHub Pages may or may not be enabled yet for workflow.html — check
-  https://kraulerson.github.io/solo-orchestrator/workflow.html and report
+  consumer migration / natural PR #136 follow-up).
+- Four NEW Major items were filed 2026-07-01 after the workflow.html
+  validation flagged doc-vs-enforcement gaps — BL-070 (Phase 3 scans
+  not invoked), BL-071 (gate date auto-write missing), BL-072 (TDD
+  warn-only not blocking), BL-073 (review-manifest WARN not FAIL). All
+  four have "SOLUTION PROPOSED, awaiting discussion" Status and an
+  automation-first solution in their entries. DO NOT dispatch fixes for
+  these without discussing the proposed solutions with me first.
+- The Low/Minor bucket has ~15 entries awaiting a prune decision.
 - Auto-memory (~/.claude/projects/...memory/MEMORY.md) has patterns from
   the prior arc: push back on decisions, ultracode discipline, workflows
   for parallel impl+verify, adversarial-verify class defects, cross-repo
-  fix preference, CDF integration layout
+  fix preference, CDF integration layout.
 
 Do NOT dispatch any work yet. After the summary, wait for my next prompt.
 ```
@@ -184,16 +220,26 @@ Deliverable — a single response covering:
    profile (safe/moderate/architectural), any dependencies on other items,
    and whether it needs recon before implementation.
 
-2. **The Low/Minor bucket** — group the ~15 entries into three buckets:
+2. **The 4 Major items filed 2026-07-01** — for each of BL-070, BL-071,
+   BL-072, BL-073, review the proposed automation-first solution and
+   report: (a) does the solution actually address the design principle
+   ("evals should be automatic, gate checks real not implied")?
+   (b) any risks or dependencies I should think about before approving
+   dispatch? (c) which order would you do them in? DO NOT propose
+   dispatch — just review the proposed solutions and flag concerns.
+
+3. **The Low/Minor bucket** — group the ~15 entries into three buckets:
    - "Worth shipping" — small enough to batch into a single sweep wave
    - "Defer explicitly" — file a defer rationale, keep Open, revisit next quarter
    - "Won't Fix candidate" — no operator demand, no defect class risk
    For each, cite the BL number and a one-line rationale for the bucket.
 
-3. **Recommended tempo** — given (a) the audit-remediation arc's momentum
+4. **Recommended tempo** — given (a) the audit-remediation arc's momentum
    is intact but every wave since Wave A has surfaced verifier-caught
-   coverage gaps requiring tightener commits, and (b) BL-035 alone is
-   ~50 files worth of mechanical wiring, recommend ONE of:
+   coverage gaps requiring tightener commits, (b) BL-035 alone is
+   ~50 files worth of mechanical wiring, and (c) BL-070..BL-073 are
+   design-principle-critical automation gaps that likely warrant
+   priority over the Medium items, recommend ONE of:
    - Another impl+verify wave (which slots?)
    - A batch-close doc-only sweep (which BLs, in one commit?)
    - A recon-first cycle (BL-001 first, everything else after)
@@ -222,5 +268,10 @@ Do NOT dispatch a workflow yet. Give me the review; I'll decide.
 
 ---
 
-**Session closed at**: 2026-07-01 (with all Wave D PRs merged, all housekeeping flips landed).
-**Handoff commit**: this report will be added in a follow-up docs commit.
+**Session closed at**: 2026-07-01. State at close:
+- All Wave B/C/D PRs merged, all housekeeping status flips landed.
+- workflow.html shipped (PR #135) + validation pass shipped (PR #137).
+- GitHub Pages live at `https://kraulerson.github.io/solo-orchestrator/workflow.html`.
+- BL-070..BL-073 filed as Major items with automation-first proposed solutions; awaiting Karl's discussion.
+- Handoff report updated in commit AFTER this line lands.
+- Three named local branches queued for Karl's Terminal cleanup (bash tool blocked destructive git ops).
