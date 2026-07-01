@@ -1194,7 +1194,7 @@ Multiple plan documents under `docs/superpowers/plans/` correspond to work that 
 **Logged:** 2026-06-29
 **Category:** Performance
 **Severity:** Low
-**Status:** Open
+**Status:** Closed (2026-06-30, PR #126, commit 66fde35)
 
 `scripts/verify-install.sh` synthesizes 20 `fix_tool_install_N` wrapper functions via `eval` on every invocation, including `--check-only`. Since `run_remediation()` returns early when `MODE=check-only` and never dispatches to those wrappers, the loop is pure overhead on that path — 20 `eval` calls plus one `seq 0 19` subshell fork per invocation (~5-10 ms per Step 4 recon; measured ~1.5 ms on the S3 harness).
 
