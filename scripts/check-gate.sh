@@ -71,6 +71,12 @@ cmd_preflight() {
   # branch-protection attestation from process-state.json. When the project
   # was init'd against a tier-limited host, host_verify_protection has
   # nothing to verify — the attestation IS the gate.
+  #
+  # BL-032: `gitlab_free_tier_approvals` is the GitLab analog — set when
+  # the operator pre-attests via --approvals-attested for gitlab.com Free
+  # org-mode projects (approvals PUT is Premium-only). Honored here the
+  # same way `github_free_tier` is: the attestation IS the gate, no API
+  # verify possible.
   local attest_reason=""
   if [ -f .claude/process-state.json ]; then
     attest_reason=$(jq -r '.phase2_init.attestations.branch_protection.reason // ""' \
@@ -78,6 +84,10 @@ cmd_preflight() {
   fi
   if [ "$attest_reason" = "github_free_tier" ]; then
     print_ok "Ready: branch protection attested (reason: github_free_tier — upgrade to GitHub Pro to enable API enforcement)"
+    return 0
+  fi
+  if [ "$attest_reason" = "gitlab_free_tier_approvals" ]; then
+    print_ok "Ready: branch protection attested (reason: gitlab_free_tier_approvals — set required-approvals manually via GitLab Settings > Merge requests, or upgrade to Premium for API enforcement)"
     return 0
   fi
 
@@ -205,6 +215,14 @@ cmd_repair() {
      && _step_done "remote_repo_created" \
      && _step_done "pushed_initial"; then
     print_ok "Repair: nothing to do — branch protection attested (reason: github_free_tier)"
+    return 0
+  fi
+  # BL-032: same short-circuit for the GitLab Free tier approvals
+  # attestation reason.
+  if [ "$attest_reason" = "gitlab_free_tier_approvals" ] \
+     && _step_done "remote_repo_created" \
+     && _step_done "pushed_initial"; then
+    print_ok "Repair: nothing to do — branch protection attested (reason: gitlab_free_tier_approvals)"
     return 0
   fi
 

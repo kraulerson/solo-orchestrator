@@ -675,6 +675,12 @@ if [ "$current_phase" -ge 2 ]; then
     fi
     if [ "$backstop_attest_reason" = "github_free_tier" ]; then
       echo -e "${GREEN}  [OK]${NC} Phase 1→2 backstop: branch protection attested (reason: github_free_tier — upgrade to GitHub Pro to enable API enforcement)"
+    elif [ "$backstop_attest_reason" = "gitlab_free_tier_approvals" ]; then
+      # BL-032 close: honor the GitLab Free-tier approvals attestation
+      # (proactive --approvals-attested / SOLO_APPROVALS_ATTESTED=1 flow).
+      # On gitlab.com Free the projects/:id/approvals PUT is Premium-only,
+      # so the attestation IS the gate — there is nothing to verify.
+      echo -e "${GREEN}  [OK]${NC} Phase 1→2 backstop: branch protection attested (reason: gitlab_free_tier_approvals — set required-approvals manually via GitLab Settings > Merge requests, or upgrade to Premium)"
     else
       # shellcheck disable=SC1090
       source "$host_dispatcher"

@@ -161,12 +161,44 @@ host_configure_protection() {
   # Org mode: also require approvals on MRs (separate API), the CI
   # pipeline-success gate, and discussion-resolution before merge.
   if [ "$mode" = "org" ]; then
+    # ── BL-032-SHORTCIRCUIT-BEGIN (proactive attestation escape hatch) ──
+    # SOLO_APPROVALS_ATTESTED=1 is the operator-side pre-attestation
+    # channel wired up by init.sh's `--approvals-attested` flag. On
+    # gitlab.com Free tier the `projects/:id/approvals` PUT is
+    # Premium-only and always returns 403 — the reactive exit-4 branch
+    # below catches this, but non-interactive runs (CI, dogfood
+    # harnesses, scripted org setup) need a way to declare up front
+    # "I know approvals will be enforced by convention, don't try the
+    # API call." When set, skip the PUT entirely and emit a WARN with
+    # the operator-actionable hint pointing at Settings > Merge
+    # requests. init.sh records the corresponding attestation with
+    # reason `gitlab_free_tier_approvals` in process-state.json;
+    # scripts/check-gate.sh + scripts/check-phase-gate.sh honor that
+    # reason as a valid gate-pass alongside `github_free_tier`.
+    #
+    # STRUCTURE: this block ONLY sets `_bl032_skip_approvals=1` so that
+    # the block is well-formed under marker-based mutation
+    # (tests/test-bl032-gitlab-free-approvals-attestation.sh::T7 strips
+    # everything between BL-032-SHORTCIRCUIT-BEGIN and -END and the
+    # remainder must still parse). The approvals-PUT block below then
+    # honors the flag.
+    local _bl032_skip_approvals=0
+    if [ "${SOLO_APPROVALS_ATTESTED:-0}" = "1" ]; then
+      printf '%s\n' \
+        '[WARN] gitlab driver: skipping required-approvals API PUT — SOLO_APPROVALS_ATTESTED=1.' \
+        '       Set required-approvals manually via Settings > Merge requests >' \
+        '       Merge request approvals if this is not the gitlab.com Free tier.' \
+        '       (BL-032 escape hatch — see docs/builders-guide.md § Repository Setup.)' >&2
+      _bl032_skip_approvals=1
+    fi
+    # ── BL-032-SHORTCIRCUIT-END ──
+
     # code-host-gitlab-8: capture stderr from the approvals PUT so we can
     # detect the gitlab.com Free Premium-only failure mode (BL-032). On
     # Premium-only detection, return a dedicated exit code (4) with a
     # remediation message; on generic failure, surface the upstream
     # message and return 3.
-    if ! glab_err=$(glab api -X PUT "projects/$project/approvals" \
+    if [ "${_bl032_skip_approvals:-0}" != "1" ] && ! glab_err=$(glab api -X PUT "projects/$project/approvals" \
                       --input - <<<'{"approvals_before_merge":1,"reset_approvals_on_push":true}' 2>&1 >/dev/null); then
       # Premium-only signals from gitlab.com Free responses. The exact
       # wording has shifted across GitLab releases (the API has used
@@ -187,9 +219,8 @@ host_configure_protection() {
           "       MR approvals via the API." \
           "    2. Self-host GitLab CE/EE with an appropriate license — same API surface" \
           "       without the gitlab.com tier gate." \
-          "    3. Attest manually — accept that approvals are enforced by convention," \
-          "       not the API. Re-run with --approvals-attested to record this once" \
-          "       the BL-032 escape hatch lands (see backlog entry for status)." >&2
+          "    3. Attest manually via --approvals-attested (BL-032 escape hatch)" \
+          "       to record this — see docs/builders-guide.md § Repository Setup." >&2
         return 4
       fi
       echo "gitlab driver: protected branch set but approvals config failed" >&2
@@ -241,11 +272,22 @@ host_verify_protection() {
       failures="${failures}push_access_level=$val on $branch (org mode requires 0 = No one)\n"
     fi
 
-    local aresp
-    aresp=$(glab api "projects/$project/approvals" 2>/dev/null || echo '{}')
-    val=$(echo "$aresp" | jq -r '.approvals_before_merge // 0')
-    if [ "$val" = "0" ] || [ "$val" = "null" ]; then
-      failures="${failures}approvals_before_merge is 0 (org mode requires at least 1)\n"
+    # BL-032: when SOLO_APPROVALS_ATTESTED=1 the operator has pre-attested
+    # that approvals are enforced by convention on gitlab.com Free (the
+    # `projects/:id/approvals` PUT is Premium-only, so the API check
+    # below would always report `approvals_before_merge=0` and false-fail
+    # this verify pass). host_configure_protection took the same
+    # shortcircuit; parity here so verify doesn't undo the attestation
+    # discipline. The attestation itself is written by init.sh with
+    # reason=gitlab_free_tier_approvals and honored by check-gate.sh +
+    # check-phase-gate.sh as the load-bearing gate.
+    if [ "${SOLO_APPROVALS_ATTESTED:-0}" != "1" ]; then
+      local aresp
+      aresp=$(glab api "projects/$project/approvals" 2>/dev/null || echo '{}')
+      val=$(echo "$aresp" | jq -r '.approvals_before_merge // 0')
+      if [ "$val" = "0" ] || [ "$val" = "null" ]; then
+        failures="${failures}approvals_before_merge is 0 (org mode requires at least 1)\n"
+      fi
     fi
 
     # code-host-gitlab-2: parity with github.sh:174-175. Org mode requires

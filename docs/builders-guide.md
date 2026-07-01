@@ -958,6 +958,13 @@ Workarounds:
 
 For organizational deployments: GitHub Team or Enterprise includes branch protection on private repos by default, so this limitation does not apply to org projects.
 
+**GitLab Free-tier limitation — organizational deployments.** On gitlab.com Free, the `projects/:id/approvals` API is Premium-only. When `init.sh` runs with `--git-host=gitlab --deployment=organizational`, the driver's default flow tries to `PUT /projects/:id/approvals` with `approvals_before_merge=1`, which returns HTTP 403: *"This feature is not available on your plan."* (exact wording has varied across GitLab releases — the driver matches a broad union of Premium-only signals). Two escape hatches:
+
+- **Reactive (interactive):** The driver returns exit 4 with a structured remediation message. `init.sh` prompts you to attest that approvals will be enforced by convention. On `yes`, an attestation is recorded and check-gate.sh honors it.
+- **Proactive (non-interactive):** Pass `--approvals-attested` to `init.sh` (or export `SOLO_APPROVALS_ATTESTED=1`). The driver skips the approvals PUT entirely and emits a `[WARN]` pointing you at **Settings > Merge requests > Merge request approvals** to set the value manually. init.sh records the attestation with reason `gitlab_free_tier_approvals`, and `scripts/check-gate.sh --preflight` + the `scripts/check-phase-gate.sh` Phase 1→2 backstop honor it as the load-bearing gate — same pattern as `github_free_tier` for the GitHub analog. Upgrade the namespace to GitLab Premium (or self-host GitLab CE/EE with an appropriate license) to enable API-level enforcement.
+
+Tracked as BL-032 in `solo-orchestrator-backlog.md`.
+
 **3. Initialize the project with the AI agent:**
 
 Provide the Project Bible and direct the agent to:
