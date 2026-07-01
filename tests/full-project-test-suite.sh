@@ -485,6 +485,14 @@ if bash "$SCRIPT_DIR/tests/test-gitlab-ci-status-stderr-approvals.sh" >/dev/null
 else
   fail "tests/test-gitlab-ci-status-stderr-approvals.sh FAILED (run for details)"
 fi
+# BL-032 close: proactive gitlab.com Free approvals attestation
+# (--approvals-attested / SOLO_APPROVALS_ATTESTED=1) — mirrors BL-002's
+# github_free_tier attestation for the GitLab analog.
+if bash "$SCRIPT_DIR/tests/test-bl032-gitlab-free-approvals-attestation.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl032-gitlab-free-approvals-attestation.sh"
+else
+  fail "tests/test-bl032-gitlab-free-approvals-attestation.sh FAILED (run for details)"
+fi
 
 # ----------------------------------------------------------------
 # TEST 0l: VERIFY-INSTALL + PROMPT-INSTALL FIX-FUNCTIONS

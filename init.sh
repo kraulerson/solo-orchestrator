@@ -37,6 +37,14 @@ ARG_GIT_HOST=""
 ARG_VISIBILITY=""
 ARG_REMOTE_URL=""
 ARG_BRANCH_PROTECTION_ATTESTED=false
+# BL-032: proactive attestation for gitlab.com Free org-mode approvals
+# API (Premium-only). When set, init.sh exports SOLO_APPROVALS_ATTESTED=1
+# to host_configure_protection, which skips the approvals PUT and emits
+# a WARN with the operator-actionable manual-setup hint. Post-success
+# init.sh records the corresponding attestation in process-state.json
+# with reason `gitlab_free_tier_approvals` (honored by check-gate.sh +
+# check-phase-gate.sh, mirroring the `github_free_tier` reactive path).
+ARG_APPROVALS_ATTESTED=false
 ARG_ALLOW_EXISTING_DIR=false
 ARG_NO_REMOTE_CREATION=false
 # BL-030: enforcement-level flags (non-interactive). Default empty so
@@ -49,6 +57,7 @@ GIT_HOST=""
 VISIBILITY=""
 REMOTE_URL=""
 BRANCH_PROTECTION_ATTESTED=false
+APPROVALS_ATTESTED=false
 ALLOW_EXISTING_DIR=false
 NO_REMOTE_CREATION=false
 ENFORCEMENT_LEVEL=""
@@ -2126,6 +2135,16 @@ create_and_protect_remote() {
     # route to the same attestation flow — the driver itself emits host-
     # specific remediation on stderr BEFORE this block runs, so we echo a
     # host-agnostic summary and defer detail to the driver (BL-031).
+    #
+    # BL-032 proactive attestation: when --approvals-attested is set (or
+    # the SOLO_APPROVALS_ATTESTED=1 env var is exported by an outer
+    # harness), the gitlab driver skips the approvals PUT entirely and
+    # emits a WARN pointing operators at Settings > Merge requests.
+    # host_configure_protection returns 0, so we take the success branch
+    # below and record the `gitlab_free_tier_approvals` reason separately.
+    if [ "${APPROVALS_ATTESTED:-false}" = true ]; then
+      export SOLO_APPROVALS_ATTESTED=1
+    fi
     local _hcp_rc=0
     host_configure_protection main "$mode" || _hcp_rc=$?
     if [ "$_hcp_rc" -ne 0 ] && [ "$_hcp_rc" -ne 3 ] && [ "$_hcp_rc" -ne 4 ]; then
@@ -2168,6 +2187,27 @@ create_and_protect_remote() {
       return 1
     else
       _record_phase2_step "branch_protection_configured"
+      # BL-032 proactive path: when the operator pre-attested with
+      # --approvals-attested AND we're on gitlab in org mode, the driver
+      # took the SOLO_APPROVALS_ATTESTED shortcircuit (skipped the
+      # approvals PUT + emitted a WARN). Record the
+      # `gitlab_free_tier_approvals` attestation so check-gate.sh +
+      # check-phase-gate.sh honor it as the gate-pass. The
+      # host_verify_protection call below would still succeed on gitlab
+      # for the protected_branches half of the config, but the
+      # attestation IS the load-bearing gate on the approvals half —
+      # match the reactive-path discipline.
+      if [ "${APPROVALS_ATTESTED:-false}" = true ] && [ "$host" = "gitlab" ] && [ "$mode" = "org" ]; then
+        mkdir -p .claude
+        if [ ! -f .claude/process-state.json ]; then
+          echo '{"phase2_init":{"steps_completed":[],"attestations":{}}}' > .claude/process-state.json
+        fi
+        jq --arg at "$(date -u +%FT%TZ)" \
+           '.phase2_init.attestations.branch_protection = {attested_by: "orchestrator", at: $at, reason: "gitlab_free_tier_approvals"}' \
+           .claude/process-state.json > .claude/process-state.json.tmp \
+           && mv .claude/process-state.json.tmp .claude/process-state.json
+        print_ok "GitLab Free tier approvals attestation recorded (reason: gitlab_free_tier_approvals) — check-gate.sh --preflight will honor it."
+      fi
       print_info "Verifying protection..."
       if ! host_verify_protection main "$mode" 2>/dev/null && ! host_verify_protection master "$mode"; then
         # Retry once for API lag
@@ -3066,6 +3106,14 @@ Required flags (conditional):
                            Boolean flag (presence = true). Confirms branch
                            protection is configured on the remote.
                            REQUIRED when --git-host=other.
+  --approvals-attested     Boolean flag (presence = true). Skips the
+                           gitlab.com Free-tier `projects/:id/approvals` PUT
+                           (Premium-only) and records a
+                           `gitlab_free_tier_approvals` attestation. Only
+                           meaningful for --git-host=gitlab + --deployment
+                           =organizational; ignored otherwise. Equivalent to
+                           SOLO_APPROVALS_ATTESTED=1 in the environment.
+                           See BL-032 in solo-orchestrator-backlog.md.
 
 Optional flags (with defaults):
   --description TEXT       One-sentence project description. Default: "".
@@ -3109,6 +3157,7 @@ JSON config schema (snake_case keys; all fields optional, missing → use flag/d
   "visibility": "private",
   "remote_url": null,
   "branch_protection_attested": false,
+  "approvals_attested": false,
   "allow_existing_dir": false,
   "no_remote_creation": false
 }
@@ -3176,7 +3225,7 @@ collect_inputs_non_interactive() {
     fi
 
     # Warn on unknown fields (forward-compat per spec § 5.4).
-    local known_fields="project description platform track deployment gov_mode language project_dir git_host visibility remote_url branch_protection_attested allow_existing_dir no_remote_creation"
+    local known_fields="project description platform track deployment gov_mode language project_dir git_host visibility remote_url branch_protection_attested approvals_attested allow_existing_dir no_remote_creation"
     local field
     for field in $(jq -r 'keys[]' "$CONFIG_FILE"); do
       if ! echo " $known_fields " | grep -q " $field "; then
@@ -3206,6 +3255,13 @@ collect_inputs_non_interactive() {
       local cfg_attest
       cfg_attest=$(cfg_get branch_protection_attested)
       [ "$cfg_attest" = "true" ] && ARG_BRANCH_PROTECTION_ATTESTED=true
+    fi
+    # BL-032: honor approvals_attested from config file (parity with
+    # branch_protection_attested above; flag wins on conflict).
+    if [ "$ARG_APPROVALS_ATTESTED" != true ]; then
+      local cfg_appr_attest
+      cfg_appr_attest=$(cfg_get approvals_attested)
+      [ "$cfg_appr_attest" = "true" ] && ARG_APPROVALS_ATTESTED=true
     fi
     if [ "$ARG_ALLOW_EXISTING_DIR" != true ]; then
       local cfg_allow
@@ -3569,6 +3625,7 @@ collect_inputs_non_interactive() {
   VISIBILITY="$ARG_VISIBILITY"
   REMOTE_URL="$ARG_REMOTE_URL"
   BRANCH_PROTECTION_ATTESTED="$ARG_BRANCH_PROTECTION_ATTESTED"
+  APPROVALS_ATTESTED="$ARG_APPROVALS_ATTESTED"
   ALLOW_EXISTING_DIR="$ARG_ALLOW_EXISTING_DIR"
   NO_REMOTE_CREATION="$ARG_NO_REMOTE_CREATION"
 
@@ -3594,6 +3651,7 @@ collect_inputs_non_interactive() {
       --arg visibility "$VISIBILITY" \
       --arg remote_url "$REMOTE_URL" \
       --argjson attested "$([ "$BRANCH_PROTECTION_ATTESTED" = true ] && echo true || echo false)" \
+      --argjson approvals_attested "$([ "$APPROVALS_ATTESTED" = true ] && echo true || echo false)" \
       --argjson allow_dir "$([ "$ALLOW_EXISTING_DIR" = true ] && echo true || echo false)" \
       --argjson no_remote "$([ "$NO_REMOTE_CREATION" = true ] && echo true || echo false)" \
       '{
@@ -3611,6 +3669,7 @@ collect_inputs_non_interactive() {
         visibility: $visibility,
         remote_url: (if $remote_url == "" then null else $remote_url end),
         branch_protection_attested: $attested,
+        approvals_attested: $approvals_attested,
         allow_existing_dir: $allow_dir,
         no_remote_creation: $no_remote
       }'
@@ -3681,6 +3740,9 @@ main() {
         ARG_REMOTE_URL="${1#*=}"; shift ;;
       --branch-protection-attested)
         ARG_BRANCH_PROTECTION_ATTESTED=true; shift ;;
+      --approvals-attested)
+        # BL-032: proactive gitlab.com Free approvals attestation.
+        ARG_APPROVALS_ATTESTED=true; shift ;;
       --allow-existing-dir)
         ARG_ALLOW_EXISTING_DIR=true; shift ;;
       --no-remote-creation)
