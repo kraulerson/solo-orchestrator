@@ -505,6 +505,10 @@ CLAUDE_MD="$PROJECT_ROOT/CLAUDE.md"
 INTAKE_MD="$PROJECT_ROOT/PROJECT_INTAKE.md"
 APPROVAL_LOG="$PROJECT_ROOT/APPROVAL_LOG.md"
 INTAKE_PROGRESS="$PROJECT_ROOT/.claude/intake-progress.json"
+# BL-061: manifest.json carries a stale snapshot of deployment/poc_mode/track
+# after upgrade-project.sh runs. Refresh it in the atomic mutation block so
+# every reader of manifest.json sees the same tier as phase-state.json.
+MANIFEST_JSON="$PROJECT_ROOT/.claude/manifest.json"
 
 # --- Read current state ---
 print_step "Reading current project state"
@@ -1032,6 +1036,7 @@ _UPGRADE_MUTATED_FILES=(
   "$INTAKE_MD"
   "$APPROVAL_LOG"
   "$PROJECT_ROOT/PRODUCT_MANIFESTO.md"
+  "$MANIFEST_JSON"
 )
 
 _upgrade_snapshot_pre_mutation() {
@@ -1184,6 +1189,61 @@ with open(phase_state_path, 'w') as f:
 PYEOF
 
 print_ok "Updated phase-state.json"
+
+# ================================================================
+# 2b. Update .claude/manifest.json (BL-061)
+# ================================================================
+# BL-061 (adversarial cert pass S-4, 2026-06-29): pre-fix upgrade-project.sh
+# refreshed phase-state.json but left manifest.json's snapshot of
+# deployment / poc_mode pointing at the pre-upgrade tier. That two-source
+# split encouraged bugs where a downstream reader consulted manifest.json
+# and gated the wrong tier (e.g., check-phase-gate.sh's Phase 1→2 backstop
+# reads manifest.json::mode; scripts/escalate-to-user.sh reads
+# manifest.json::enforcement_level whose meaning depends on deployment).
+# Refresh manifest.json inside the same atomic block so both files always
+# tell the same story after a commit.
+#
+# Scope: deployment + poc_mode. These are the two tier-tracked fields the
+# BL-030 backfill wrote (see upgrade-project.sh:310-320). Track, host, mode,
+# remote_url, enforcement_level, frameworkCommit, and frameworkVersion are
+# NOT touched here — their owners are init.sh, reconfigure-project.sh, and
+# the CDF installer, and refreshing them from upgrade-project.sh would
+# either be a no-op (host/remote_url) or wrong (enforcement_level, which
+# reconfigure-project.sh owns).
+#
+# Atomicity: MANIFEST_JSON was added to _UPGRADE_MUTATED_FILES so the
+# pre-mutation snapshot captures it and the ERR/INT/TERM trap rolls it
+# back alongside phase-state.json on any interruption.
+if [ -f "$MANIFEST_JSON" ]; then
+  print_step "Refreshing .claude/manifest.json (deployment, poc_mode) — BL-061"
+
+  # Encode the resolved POC mode as JSON: `null` when we're removing it,
+  # otherwise the string literal ("private_poc" / "sponsored_poc"). This
+  # mirrors the phase-state.json write above and matches init.sh:1780-1794.
+  if [ "$POC_REMOVED" = true ]; then
+    _mf_poc_arg="null"
+  elif [ "$POC_TO_SPONSORED" = true ]; then
+    _mf_poc_arg='"sponsored_poc"'
+  elif [ "$POC_TO_PRIVATE" = true ]; then
+    _mf_poc_arg='"private_poc"'
+  elif [ -n "$CURRENT_POC_MODE" ]; then
+    _mf_poc_arg="\"$CURRENT_POC_MODE\""
+  else
+    _mf_poc_arg="null"
+  fi
+
+  _mf_tmp="$(mktemp)"
+  # jq --argjson keeps the null-vs-string distinction; --arg would stringify
+  # null to "null" which would poison downstream readers.
+  jq --arg dep "$TARGET_DEPLOYMENT" \
+     --argjson pm "$_mf_poc_arg" \
+     '. + {deployment: $dep, poc_mode: $pm}' \
+     "$MANIFEST_JSON" > "$_mf_tmp" \
+    && mv "$_mf_tmp" "$MANIFEST_JSON"
+  rm -f "$_mf_tmp"
+
+  print_ok "Updated manifest.json (deployment=$TARGET_DEPLOYMENT poc_mode=$_mf_poc_arg)"
+fi
 
 # ================================================================
 # 3. Update .claude/intake-progress.json (if exists)
@@ -2042,6 +2102,9 @@ FILES_TO_STAGE=()
 [ -f ".claude/phase-state.json" ] && FILES_TO_STAGE+=(".claude/phase-state.json")
 [ -f ".claude/tool-preferences.json" ] && FILES_TO_STAGE+=(".claude/tool-preferences.json")
 [ -f ".claude/intake-progress.json" ] && FILES_TO_STAGE+=(".claude/intake-progress.json")
+# BL-061: manifest.json is refreshed in section 2b alongside phase-state.json,
+# so stage it here so the upgrade commit captures the refreshed tier snapshot.
+[ -f ".claude/manifest.json" ] && FILES_TO_STAGE+=(".claude/manifest.json")
 [ -f "CLAUDE.md" ] && FILES_TO_STAGE+=("CLAUDE.md")
 [ -f "PROJECT_INTAKE.md" ] && FILES_TO_STAGE+=("PROJECT_INTAKE.md")
 [ -f "APPROVAL_LOG.md" ] && FILES_TO_STAGE+=("APPROVAL_LOG.md")
