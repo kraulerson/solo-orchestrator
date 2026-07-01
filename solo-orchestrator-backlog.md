@@ -1034,7 +1034,7 @@ Because E50 is in an orphan test file (`edge-cases-scripts.sh` is not invoked by
 **Logged:** 2026-06-28 (test integrity audit)
 **Category:** Bug / live product defect (low-impact UX)
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed (2026-07-01, PR #124, commit `2f67fb1`)
 
 E2 in `tests/edge-cases-pre-init.sh` is left as SKIP because `scripts/init.sh:2781` (`dry_run_summary`) does not echo the project description that the user supplied. The literal-text-preservation guarantee that E2 wants to verify is absent in the product code — there is nothing on stdout to grep against.
 
@@ -1397,7 +1397,7 @@ grep -c '^| [0-9] |' foo/APPROVAL_LOG.md   # → 6
 **Logged:** 2026-06-29
 **Category:** Bug
 **Severity:** Medium
-**Status:** Open (fix in flight on branch `fix/bl059-validate-sh-phase-state-gates`; will be flipped to the terminal status with PR# + commit SHA in a follow-up docs commit after merge per defer-to-second-commit pattern)
+**Status:** Closed (2026-07-01, PR #130, commit `257712b`; verifier findings 1-3 addressed in follow-up commit `8e5c837` — T6 for phase_2_to_3 wiring, T7 for malformed JSON date, tightened T5 anchor)
 
 The adversarial certainty re-walk (re-walker-4, scenario `migration-track-standard-to-full`) surfaced that `scripts/validate.sh:281` emits `Phase 0->1 gate: no date recorded` even when `phase-state.json::gates.phase_0_to_1` is populated. Root cause: the checker greps `APPROVAL_LOG.md` only, while the live state file (`phase-state.json::gates`) is the actual source of truth for gate-passage timestamps. Cross-source inconsistency between the live state file and the validator.
 
@@ -1423,7 +1423,7 @@ The adversarial certainty re-walk (re-walker-4, scenario `migration-track-standa
 **Logged:** 2026-06-29
 **Category:** Bug
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed (2026-07-01, PR #132, commit `66ba70c`)
 
 The adversarial certainty re-walk (re-walker-4, scenario `edge-tier-crosscheck-6-no-classification-blocks-phase1to2`) surfaced that the scenario passes `--gate phase_1_to_2` to `scripts/check-phase-gate.sh`, but the script has no argv parser for that flag — the gate fires only because `current_phase=2` in `phase-state.json` triggers the backstop. Doc-vs-code drift: the documented CLI surface and the implemented CLI surface disagree.
 
@@ -1449,7 +1449,7 @@ The re-walker also noted (helpfully) that the output included a separate earlier
 **Logged:** 2026-06-29
 **Category:** Bug
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed (2026-07-01, PR #131, commit `754b436`)
 
 The adversarial certainty re-walk (re-walker-3, scenario `migration-personal-prod-to-org-prod-needs-data-class`) surfaced that `scripts/upgrade-project.sh` does not refresh `manifest.json::deployment` after the upgrade completes. The field diverges from `phase-state.json` (which is the live source of truth) — for example, after a `personal → organizational` upgrade, `phase-state.json::deployment = organizational` but `manifest.json::deployment` still reads `personal`.
 
@@ -1766,7 +1766,7 @@ time bash scripts/lint-tests-registered.sh
 **Logged:** 2026-06-30 (PR #125 verifier finding)
 **Category:** Bug / test integrity
 **Severity:** Medium
-**Status:** Closed (2026-06-30, PR #<pending>, this-PR-closes-it)
+**Status:** Closed (2026-07-01, PR #129, commit `ef911d3`)
 
 **What:** The final two subtests of `tests/test-bl046-helpers-split.sh` — T5 (`:205-231`) and T5b (`:233-252`, executed twice: once for `helpers-full.sh`, once for `helpers.sh`) — are tautological. Both claim to prove the `_SOIF_HELPERS_*_LOADED` idempotency guards in `scripts/lib/helpers-{core,full}.sh` + `scripts/lib/helpers.sh` fire on second source. Neither actually does. Mutation experiment: delete the `if [ -n "${_SOIF_HELPERS_CORE_LOADED:-}" ]; then return 0; fi` guard from `helpers-core.sh` and re-run the suite — **all 8 tests still PASS**. Same result for the guards in `helpers-full.sh` and `helpers.sh`. The three guards have zero regression coverage on main.
 
