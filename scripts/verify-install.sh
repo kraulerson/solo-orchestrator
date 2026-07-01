@@ -1398,9 +1398,25 @@ fix_tool_install() {
   bash -c -- "$install_cmd"
 }
 
-for _i in $(seq 0 19); do
-  eval "fix_tool_install_${_i}() { fix_tool_install ${_i}; }"
-done
+# BL-050 (Step 4 ROI #6): synthesize the 20 fix_tool_install_N wrappers only
+# when the caller could actually invoke them. `--check-only` short-circuits
+# in run_remediation() before any FIXABLE fix_func is dispatched, so the
+# eval-loop + subshell are pure overhead on that path. Gating here also
+# removes the `seq 0 19` subshell fork on check-only invocations. The
+# wrappers are needed for MODE=interactive (default) and MODE=auto-fix,
+# both of which reach the run_remediation dispatch loop.
+#
+# The FIXABLE registration at check_tools() (line ~606) still records the
+# wrapper NAME as a label string — that path is safe because show_report()
+# only extracts the description before `||` and never invokes the function,
+# and run_remediation() returns early at MODE=check-only before touching
+# the array. Sourcing tests that need the wrappers can force-populate by
+# invoking the script without `--check-only`.
+if [ "$MODE" != "check-only" ]; then
+  for _i in $(seq 0 19); do
+    eval "fix_tool_install_${_i}() { fix_tool_install ${_i}; }"
+  done
+fi
 
 fix_superpowers() {
   # Drop `2>/dev/null` per the same rationale as the other auto-fix

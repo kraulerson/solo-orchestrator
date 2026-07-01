@@ -496,6 +496,16 @@ if bash "$SCRIPT_DIR/tests/test-prompt-install-noninteractive.sh" >/dev/null 2>&
 else
   fail "tests/test-prompt-install-noninteractive.sh FAILED (run for details)"
 fi
+# BL-050 (Step 4 ROI #6): the fix_tool_install_N eval-factory in
+# scripts/verify-install.sh:~1401 was previously synthesized on every
+# invocation including --check-only, wasting ~1.5-10 ms per call.
+# Gate check tests both success (skipped on check-only, run on
+# auto-fix) and failure (mutation revert restores overhead) paths.
+if bash "$SCRIPT_DIR/tests/test-verify-install-eval-factory-gate.sh" >/dev/null 2>&1; then
+  pass "tests/test-verify-install-eval-factory-gate.sh"
+else
+  fail "tests/test-verify-install-eval-factory-gate.sh FAILED (run for details)"
+fi
 
 # ----------------------------------------------------------------
 # TEST 0m: UPGRADE-PROJECT (interruption, sentinel-block, atomic)
