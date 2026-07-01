@@ -17,6 +17,107 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # BL-046: uses run_with_timeout + prompt_yes_no only — source core subset.
 source "$SCRIPT_DIR/lib/helpers-core.sh"
 
+# ── Argv parser (BL-060) ─────────────────────────────────────────
+# Adversarial cert re-walker-4 surfaced that scenarios invoke this
+# script with `--gate phase_1_to_2` expecting the flag to scope the
+# check to the named gate, but pre-fix the script had no argv parser
+# at all — every arg was silently ignored, and the gate fired only
+# because `current_phase=2` in phase-state.json coincidentally
+# triggered the backstop. A future refactor of the backstop trigger
+# would silently break `--gate` consumers.
+#
+# Contract:
+#   --gate <name>   Force the named gate's checks to run regardless
+#                   of current_phase, AND cap checks at that gate so
+#                   HIGHER-phase gate blocks do not fire (strict scope).
+#                   Valid names: phase_0_to_1, phase_1_to_2,
+#                   phase_2_to_3, phase_3_to_4. Also accepts --gate=<v>.
+#   --help, -h      Print usage and exit 0.
+#
+# Semantics for --gate:
+#   Each gate crossing implies all prior gates have been crossed. So
+#   `--gate phase_1_to_2` verifies Phase 0→1 evidence AND Phase 1→2
+#   evidence, but skips Phase 2→3 and Phase 3→4 checks. Implementation:
+#   override `current_phase` to the gate's TARGET phase.
+#
+# Exit codes:
+#   2 — invalid argv (unknown gate, unknown flag, --gate given twice,
+#       missing value). Diagnostics go to stderr.
+show_check_phase_gate_help() {
+  cat <<'HELP'
+Usage: check-phase-gate.sh [--gate <name>] [--help]
+
+Reads .claude/phase-state.json and verifies APPROVAL_LOG.md has dated
+entries for all completed phase gates.
+
+Options:
+  --gate <name>   Scope the check to the named gate. Forces the gate's
+                  checks to run regardless of current_phase in
+                  phase-state.json; caps at that gate (skips higher
+                  gates). Valid names:
+                    phase_0_to_1, phase_1_to_2,
+                    phase_2_to_3, phase_3_to_4
+                  Also accepts --gate=<name>.
+  --help, -h      Show this message.
+
+Exit codes:
+  0 — all gates consistent (or phase-state.json not found w/o --gate)
+  1 — inconsistency detected (SOIF_PHASE_GATES=warn downgrades to 0),
+      OR --gate was specified but no phase-state.json fixture exists
+  2 — invalid argv (unknown gate, unknown flag, --gate given twice,
+      missing value)
+HELP
+}
+
+GATE_SCOPE=""
+
+_cpg_parse_gate_value() {
+  local val="$1"
+  if [ -n "$GATE_SCOPE" ]; then
+    echo -e "${RED}[FAIL]${NC} --gate specified more than once (already set to '$GATE_SCOPE', received '$val')" >&2
+    exit 2
+  fi
+  if [ -z "$val" ]; then
+    echo -e "${RED}[FAIL]${NC} --gate requires a value (one of: phase_0_to_1, phase_1_to_2, phase_2_to_3, phase_3_to_4)" >&2
+    exit 2
+  fi
+  case "$val" in
+    phase_0_to_1|phase_1_to_2|phase_2_to_3|phase_3_to_4)
+      GATE_SCOPE="$val"
+      ;;
+    *)
+      echo -e "${RED}[FAIL]${NC} Unknown gate: '$val'. Valid gates: phase_0_to_1, phase_1_to_2, phase_2_to_3, phase_3_to_4" >&2
+      exit 2
+      ;;
+  esac
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --gate)
+      if [ $# -lt 2 ]; then
+        echo -e "${RED}[FAIL]${NC} --gate requires a value (one of: phase_0_to_1, phase_1_to_2, phase_2_to_3, phase_3_to_4)" >&2
+        exit 2
+      fi
+      _cpg_parse_gate_value "$2"
+      shift 2
+      ;;
+    --gate=*)
+      _cpg_parse_gate_value "${1#--gate=}"
+      shift
+      ;;
+    --help|-h)
+      show_check_phase_gate_help
+      exit 0
+      ;;
+    *)
+      echo -e "${RED}[FAIL]${NC} Unknown argument: '$1'" >&2
+      echo "Run 'bash scripts/check-phase-gate.sh --help' for usage." >&2
+      exit 2
+      ;;
+  esac
+done
+
 # ── Non-interactive prompt guard ─────────────────────────────────
 # code-check-gates-7 (audit v2, S3): the script's header (lines 8-9)
 # advertises CI execution, and baseline §5 invariant #6 ("Phase gate
@@ -117,7 +218,16 @@ APPROVAL_LOG="APPROVAL_LOG.md"
 
 # If no phase state file, this is either a pre-framework project or
 # the file was never created. Exit cleanly — don't block CI.
+#
+# BL-060 edge case: if --gate was explicitly specified but the fixture
+# is missing, the operator asked for a scoped check we cannot perform.
+# Emit a clear error and exit 1 (not 0) — silently succeeding would
+# mask the missing fixture and defeat the point of the scope flag.
 if [ ! -f "$PHASE_STATE" ]; then
+  if [ -n "$GATE_SCOPE" ]; then
+    echo -e "${RED}[FAIL]${NC} --gate $GATE_SCOPE specified but $PHASE_STATE not found — cannot verify gate without a phase-state.json fixture." >&2
+    exit 1
+  fi
   echo "No $PHASE_STATE found — skipping phase gate check."
   exit 0
 fi
@@ -131,6 +241,20 @@ fi
 # This handles the simple flat structure of phase-state.json
 current_phase=$(grep -o '"current_phase"[[:space:]]*:[[:space:]]*"*[0-9][0-9]*"*' "$PHASE_STATE" | grep -o '[0-9][0-9]*' || echo "0")
 case "$current_phase" in ''|*[!0-9]*) current_phase=0 ;; esac
+
+# BL-060: --gate override. Force current_phase to the gate's TARGET
+# phase so the gate's checks fire (elevate), and cap subsequent
+# threshold comparisons at that phase so HIGHER-gate checks skip
+# (strict scope). Each gate crossing implies prior gates were also
+# crossed, so this preserves prior-gate coverage under scoping.
+if [ -n "$GATE_SCOPE" ]; then
+  case "$GATE_SCOPE" in
+    phase_0_to_1) current_phase=1 ;;
+    phase_1_to_2) current_phase=2 ;;
+    phase_2_to_3) current_phase=3 ;;
+    phase_3_to_4) current_phase=4 ;;
+  esac
+fi
 
 get_gate_date() {
   local gate_key="$1"

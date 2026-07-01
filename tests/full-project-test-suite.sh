@@ -410,6 +410,25 @@ else
   fail "tests/test-check-phase-gate-blame-walker.sh FAILED (run for details)"
 fi
 
+# BL-060 (adversarial cert re-walker-4): scripts/check-phase-gate.sh
+# must parse `--gate <name>` and scope the check to the named gate.
+# Pre-fix the script had NO argv parsing — scenarios invoking
+# `--gate phase_1_to_2` succeeded coincidentally via `current_phase=2`
+# in phase-state.json triggering the backstop, not because the flag
+# was honored. This suite pins the argv contract:
+#   - --gate <name> forces the gate's checks to fire regardless of
+#     current_phase, and caps at that gate (higher gates skip).
+#   - Unknown gate / unknown flag / --gate given twice → exit 2 with
+#     a clear stderr diagnostic.
+#   - --gate with no phase-state.json fixture → exit 1 + error (never
+#     silently exits 0 the way the pre-fix no-argv path did).
+#   - --help / -h → exit 0 + usage text mentioning `--gate`.
+if bash "$SCRIPT_DIR/tests/test-check-phase-gate-argv-parser.sh" >/dev/null 2>&1; then
+  pass "tests/test-check-phase-gate-argv-parser.sh"
+else
+  fail "tests/test-check-phase-gate-argv-parser.sh FAILED (run for details)"
+fi
+
 # ----------------------------------------------------------------
 # TEST 0i: PENDING-APPROVAL RESOLVE-DECISION
 # ----------------------------------------------------------------
