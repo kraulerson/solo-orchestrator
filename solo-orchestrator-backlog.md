@@ -1126,7 +1126,7 @@ This matters because the >600 s suite runtime is the primary reason the CI workf
 **Logged:** 2026-06-29
 **Category:** Performance
 **Severity:** Medium
-**Status:** Closed (2026-06-30, PR #<pending>, commit `16f5c9b`)
+**Status:** Closed (2026-06-30, PR #125, commit `16f5c9b`)
 
 `lib/helpers.sh` is sourced by ~15 short-lived script callers. Each source incurs a 30–40 ms parse+exec cost (Step 4 recon profiling) regardless of which helpers the caller actually uses. Compounded across the CLI surface this is visible latency on the per-script TUI flow.
 
@@ -1149,7 +1149,7 @@ Each file has an idempotent-source sentinel guard (`_SOIF_HELPERS_*_LOADED`) so 
 
 The absolute savings are smaller than the Step 4 report's 30–40 ms projection — that scout likely measured on slower hardware or included non-source-cost latency. The parse-cost *ratio* holds (~25% reduction), so on slower CI/Intel hardware where per-source is ~10× higher, the delta should scale proportionally.
 
-**Related:** `Reports/2026-06-28-step4-dead-code-perf-eval.md` §5, §7 item 2; `tests/test-bl046-helpers-split.sh` (T1-T5b contracts); PR #<pending>.
+**Related:** `Reports/2026-06-28-step4-dead-code-perf-eval.md` §5, §7 item 2; `tests/test-bl046-helpers-split.sh` (T1-T5b contracts); PR #125.
 
 ---
 
