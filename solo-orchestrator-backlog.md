@@ -1189,20 +1189,24 @@ Multiple plan documents under `docs/superpowers/plans/` correspond to work that 
 
 ---
 
-## BL-050: Wire `verify-install.sh --eval-factory` into the lint gate (Step 4 ROI #6)
+## BL-050: Gate `verify-install.sh` eval factory behind non-`--check-only` mode (Step 4 ROI #6)
 
 **Logged:** 2026-06-29
-**Category:** Debt
-**Severity:** Medium
+**Category:** Performance
+**Severity:** Low
 **Status:** Open
 
-`scripts/verify-install.sh --eval-factory` exists as an internal evaluation harness but is not invoked by any CI gate or pre-commit check. Step 4 recon notes this means the factory's regression surface is exercised only by operators who know to run it manually.
+`scripts/verify-install.sh` synthesizes 20 `fix_tool_install_N` wrapper functions via `eval` on every invocation, including `--check-only`. Since `run_remediation()` returns early when `MODE=check-only` and never dispatches to those wrappers, the loop is pure overhead on that path — 20 `eval` calls plus one `seq 0 19` subshell fork per invocation (~5-10 ms per Step 4 recon; measured ~1.5 ms on the S3 harness).
 
-**Scope:** Add `bash scripts/verify-install.sh --eval-factory` to `.github/workflows/lint.yml` (or to the test-aggregator harness once BL-034 lands). Verify the eval-factory is quick enough to run on every PR (~seconds, not minutes); if not, gate it behind a path filter or a slow-job label. Bundle with BL-047 if both land together.
+**Scope:** Gate the `for _i in $(seq 0 19); do eval …; done` block at `scripts/verify-install.sh:~1401` behind `if [ "$MODE" != "check-only" ]; then … fi`. Verify:
+- The check-only report (`show_report`) still renders (it only reads FIXABLE description strings, not fix-function bodies).
+- Non-check-only modes (`--auto-fix`, interactive) still synthesize the wrappers so `run_remediation`'s dispatch loop can invoke them.
 
-**Trigger:** After BL-034 (orphan-test registration) so the gate has a stable aggregator to plug into.
+Add tests exercising both the success path (skipped on `--check-only`), the failure path (over-application would break `--auto-fix`), and a mutation experiment that reverts the gate to `true` and confirms the check-only test fails RED.
 
-**Related:** `Reports/2026-06-28-step4-dead-code-perf-eval.md` §7 item 6; `scripts/verify-install.sh`; `.github/workflows/lint.yml`.
+**Trigger:** Bundleable with any perf pass touching verify-install.sh (Wave B, Step 4 perf trio alongside BL-046 + BL-053).
+
+**Related:** `Reports/2026-06-28-step4-dead-code-perf-eval.md` §7 item 6; `scripts/verify-install.sh`.
 
 ---
 
