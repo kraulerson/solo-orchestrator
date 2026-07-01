@@ -1720,3 +1720,41 @@ No changes to host drivers, dispatcher, `tests/host-drivers/mock-cli.sh`, the `c
 Once GREEN, remove the `known-RED (e2e-init-* trio)` annotation from `tests/full-project-test-suite.sh` TEST 0s so the test runs in the default suite. DO NOT split into BL-066a/b/c — single shared root cause, single PR.
 
 **Severity line update:** Yes — change the entry's `**Severity:** Major` to `**Severity:** Trivial`. Update `Why it matters` to clarify that the BL-003 promise is silenced (not substantively broken), update `Scope` to remove the "split into BL-066a/b/c" branch (root cause confirmed shared), and update `Trigger` to note this can land alongside BL-065 in a single test-harness-only PR rather than being treated as a Major bug blocking subsequent host-driver work.
+
+---
+
+## BL-067: `scripts/lint-tests-registered.sh` runtime blows past 2min — pre-commit gate + CI wall-clock impact
+
+**Logged:** 2026-06-30
+**Category:** Performance / Bug
+**Severity:** Medium
+**Status:** Open
+
+**What:** `scripts/lint-tests-registered.sh` (added by PR #122 / BL-038 as the test-aggregator-registration invariant lint) **timed out at 2 minutes** in a local run during the PR #125 rebase (2026-06-30). The other 4 lints wired into `scripts/pre-commit-gate.sh` (and the CI lint suite) each complete in <5 seconds. The observed wall-clock delta is ~24× the next-slowest lint before the timeout even fires, and the actual runtime is unknown (the 2min bound was a `timeout` cutoff, not the natural end of the walker).
+
+**Why it matters:**
+- **Pre-commit gate becomes painful.** `scripts/pre-commit-gate.sh` invokes all lints per commit. A >2min lint means every commit-through-the-gate takes >2min before the operator even sees the pass/fail. That is squarely in the "operator disables the gate to keep working" zone, which nullifies the BL-038 invariant that this lint exists to protect.
+- **CI wall-clock per PR grows meaningfully.** Every PR pays this cost at least once. If a PR touches test-registration state and re-runs the gate a few times during iteration, the cost compounds.
+- **Runtime scales with test-file count.** Each additional test file added by future Waves (BL-034 wired a whole cohort in a single commit, and more are expected) makes the walker slower. The naive-O(n×m) hypothesis below implies the problem gets strictly worse over time — a slow lint today is a broken lint tomorrow.
+
+**Root cause hypothesis:** The lint appears to walk every `tests/**/*.sh` file and grep every aggregator for that file's basename. Naive O(n×m) where n = test files and m = aggregators. Possibly also uses `grep -F` (or `grep`) per file, possibly recursively over the aggregator set (which would push toward O(n×m×lines-per-aggregator)). Needs profiling to confirm — the hypothesis is inference from the lint's stated invariant (every test file must be registered in ≥1 aggregator) and the observed runtime shape, not from reading the current implementation with a stopwatch attached.
+
+**Scope:**
+- Profile the lint (`time bash scripts/lint-tests-registered.sh`, then `bash -x` or `set -x` sampling to locate the hot loop).
+- Identify the nested grep / walk structure; confirm or refute the O(n×m) hypothesis.
+- Optimize the hot path. Preferred shape: single aggregator scan that builds a hash / associative-array of registered basenames, then O(1) lookup per test file (turns O(n×m) into O(n+m)). Alternatives: pre-compute the union of aggregator contents once via `cat aggregators | sort -u`, then a single `grep -Ff` against the test-file basename list.
+- Preserve the current invariant coverage and exit-code contract exactly (no false-negative regressions — the lint must still catch missing registrations).
+- Target: **<5s** on the current repo shape (matching the other 4 lints' order of magnitude). Stretch: <1s.
+- Add a runtime-guard test (unit or self-test) that asserts the lint completes within a wall-clock budget on the standard fixture set, so future regressions of this class are caught by CI rather than by rebase-day surprise.
+
+**Trigger:** Any future PR that touches `scripts/lint-tests-registered.sh` — pair the runtime fix with the touching change so we don't compound the debt. OR: the next Wave that adds more test files (each addition strictly compounds the runtime under the current shape). If neither trigger fires within the next 2 Waves, promote to "pull forward" — the pre-commit gate friction is a real operator-facing cost that erodes gate discipline the longer it sits.
+
+**Reproduction:**
+
+```bash
+cd solo-orchestrator
+time bash scripts/lint-tests-registered.sh
+# Expected: <5s. Observed 2026-06-30 during PR #125 rebase: >2min (timed out).
+```
+
+**Related:** PR #122 / BL-038 (introduced the lint — the invariant is correct, only the implementation shape is slow); `scripts/pre-commit-gate.sh` (the caller that pays the cost per commit); `tests/full-project-test-suite.sh` and the other aggregators the lint walks; BL-034 (test-aggregator wiring invariant — this lint is the enforcement arm of that invariant, so keeping it fast is what keeps the invariant credible).
