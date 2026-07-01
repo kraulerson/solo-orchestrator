@@ -529,6 +529,16 @@ if bash "$SCRIPT_DIR/tests/test-upgrade-sentinel-block.sh" >/dev/null 2>&1; then
 else
   fail "tests/test-upgrade-sentinel-block.sh FAILED (run for details)"
 fi
+# BL-061: manifest.json::deployment stayed stale after upgrade-project.sh
+# runs, encouraging two-source drift where a downstream reader could gate
+# the wrong tier. Regression suite covers happy-path parity, atomic
+# rollback, idempotence, and a mutation-proof that neutralizing the
+# section 2b jq write reproduces the original bug shape.
+if bash "$SCRIPT_DIR/tests/test-upgrade-manifest-refresh.sh" >/dev/null 2>&1; then
+  pass "tests/test-upgrade-manifest-refresh.sh"
+else
+  fail "tests/test-upgrade-manifest-refresh.sh FAILED (run for details)"
+fi
 
 # ----------------------------------------------------------------
 # TEST 0n: PROCESS-CHECKLIST (commit-ready-subject + reset-phase1)
