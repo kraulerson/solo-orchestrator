@@ -720,6 +720,26 @@ else
 fi
 
 # ----------------------------------------------------------------
+# TEST 0r-bl033: TOOL-MATRIX install_cmds STRUCTURED SHAPE (BL-033)
+# ----------------------------------------------------------------
+# tests/test-bl033-install-cmds-shape.sh proves the resolver reader
+# accepts both the legacy `install.<key>: "single cmd"` string shape
+# AND the new `install.<key>: ["cmd1", "cmd2"]` structured array
+# shape, emits both `install_cmd` (joined for legacy consumers) and
+# `install_cmds` (array for new consumers), refuses malformed shapes
+# (empty arrays, non-string elements, object-with-both-keys) with a
+# clear diagnostic, and iterating stages fails-fast on stage-1
+# non-zero exit. Also asserts the shipped docker + colima entries
+# actually use the array shape post-migration.
+# Registered here per BL-038 discipline.
+section "BL-033 tool-matrix install_cmds structured shape"
+if bash "$SCRIPT_DIR/tests/test-bl033-install-cmds-shape.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl033-install-cmds-shape.sh (T-back-compat, T-array-happy, T-array-fail-fast, T-mixed-invalid, T-empty-array, T-non-string-elements, T-migrated-entries, T-migrated-semantics)"
+else
+  fail "tests/test-bl033-install-cmds-shape.sh FAILED (run for details)"
+fi
+
+# ----------------------------------------------------------------
 # TEST 0s: HOST-DRIVER AGGREGATOR
 # ----------------------------------------------------------------
 # tests/host-drivers/run-all.sh wraps the per-host unit tests
