@@ -195,13 +195,25 @@ fi
 # ── T5: idempotent source ───────────────────────────────────────
 # Sourcing the same file twice in one shell must be a no-op. Idempotency
 # guards use _SOIF_HELPERS_*_LOADED sentinels; if those regress, the
-# second source will still succeed (bash allows redefining functions),
-# but a lot of setup work (color-var reassignment, dirname resolution)
-# will re-run. Assert via $SECONDS delta that the second source is
-# strictly cheaper — but the primary check is "no error". A regression
-# that removes the idempotency guard would still pass "no error", but
-# would defeat the point of the guard. So also assert the sentinel var
-# stays set after the second source (proving the guard fired).
+# second source will still execute the body's assignments AFTER the
+# guard.
+#
+# BL-068 rewrite discipline (2026-06-30, closes BL-068):
+# The prior T5 shape (clear BOLD → assert BOLD stays empty) was
+# VACUOUS: bash -c runs in a non-TTY subshell, so helpers-core.sh's
+# `[ -t 1 ]` branch takes the ELSE and reassigns BOLD="" on every
+# source. The assertion passed for the WRONG reason — deleting the
+# guard entirely did not fail the test (verified by mutation).
+#
+# The rewrite plants an OBSERVABLE marker in a variable the file
+# assigns UNCONDITIONALLY after the guard. helpers-core.sh sets
+# `LOG_FILE=""` at line 57 (well after the line-18 guard). The
+# rewrite plants a sentinel path in LOG_FILE between the two
+# sources: if the guard fires, the second source returns BEFORE
+# the LOG_FILE reset and our sentinel survives. If the guard is
+# removed, the second source runs the LOG_FILE reset and wipes
+# our sentinel to empty. Mutation-verified: removing the guard on
+# helpers-core.sh causes this assertion to FAIL RED.
 t5_out=$(bash -c '
 source "'"$HELPERS_CORE"'"
 # First source set the sentinel.
@@ -210,13 +222,14 @@ if [ -z "$first_sentinel" ]; then
   echo "sentinel not set after first source"
   exit 1
 fi
-# Deliberately clear a color var so we can detect if the second source
-# ran the color-setup block. A working idempotency guard short-circuits
-# BEFORE the color block, leaving BOLD empty.
-BOLD=""
+# Plant a sentinel in LOG_FILE — a variable helpers-core.sh
+# assigns to "" UNCONDITIONALLY after its guard (line 57).
+# A working guard short-circuits BEFORE that reset, preserving
+# the sentinel. A missing guard wipes it.
+LOG_FILE="/tmp/bl068-t5-guard-marker-$$"
 source "'"$HELPERS_CORE"'"
-if [ -n "$BOLD" ]; then
-  echo "second source re-ran color setup (idempotency guard failed)"
+if [ "$LOG_FILE" != "/tmp/bl068-t5-guard-marker-$$" ]; then
+  echo "second source re-ran LOG_FILE reset (guard failed): LOG_FILE=$LOG_FILE"
   exit 1
 fi
 # print_ok must still be callable after two sources.
@@ -225,27 +238,50 @@ exit $?
 ' 2>&1)
 t5_rc=$?
 if [ $t5_rc -eq 0 ]; then
-  pass "T5 idempotent-source: helpers-core.sh sourced twice is a no-op (guard held)"
+  pass "T5 idempotent-source: helpers-core.sh guard holds (LOG_FILE marker preserved)"
 else
   fail_ "T5 idempotent-source" "rc=$t5_rc; output=$t5_out"
 fi
 
-# Repeat T5 for helpers-full.sh and the shim — each has its own guard.
-for lib_pair in "helpers-full.sh:$HELPERS_FULL:_SOIF_HELPERS_FULL_LOADED" \
-                "helpers.sh:$HELPERS_SHIM:_SOIF_HELPERS_SHIM_LOADED"; do
-  IFS=":" read -r libname libpath sentinel <<<"$lib_pair"
+# T5b: same discipline, for helpers-full.sh and helpers.sh (shim).
+#
+# BL-068 rewrite: the prior T5b compared `first="${sentinel:-}"` to
+# `still="${sentinel:-}"` after re-sourcing. But the sentinel is
+# assigned to the literal `1` unconditionally, so first==still even
+# with the guard REMOVED (both times it's just "1"). Verified vacuous
+# by mutation (all 8 tests passed with the core guard deleted).
+#
+# The rewrite plants a marker in a variable the file assigns AFTER
+# its guard:
+#   - helpers-full.sh:   _SOIF_HELPERS_FULL_DIR (line 28)
+#   - helpers.sh (shim): _SOIF_HELPERS_SHIM_DIR (line 36)
+# Both are recomputed from BASH_SOURCE on every un-guarded source.
+# A working guard leaves the planted marker untouched; a missing
+# guard replaces it with the real dirname. Mutation-verified: each
+# guard removal flips its T5b assertion RED.
+for lib_pair in "helpers-full.sh:$HELPERS_FULL:_SOIF_HELPERS_FULL_LOADED:_SOIF_HELPERS_FULL_DIR" \
+                "helpers.sh:$HELPERS_SHIM:_SOIF_HELPERS_SHIM_LOADED:_SOIF_HELPERS_SHIM_DIR"; do
+  IFS=":" read -r libname libpath sentinel dirvar <<<"$lib_pair"
   out=$(bash -c "
     source '$libpath'
     first=\"\${$sentinel:-}\"
     if [ -z \"\$first\" ]; then echo 'sentinel not set'; exit 1; fi
+    # Plant a marker in the dirvar — a variable the file assigns
+    # from BASH_SOURCE unconditionally AFTER its guard. A working
+    # guard leaves this marker untouched; a missing guard replaces
+    # it with the real dirname of the sourced file.
+    MARKER=\"/tmp/bl068-t5b-guard-marker-\$\$\"
+    $dirvar=\"\$MARKER\"
     source '$libpath'
-    still=\"\${$sentinel:-}\"
-    if [ \"\$first\" != \"\$still\" ]; then echo 'sentinel changed'; exit 1; fi
+    if [ \"\${$dirvar}\" != \"\$MARKER\" ]; then
+      echo \"guard did not fire: $dirvar changed from \$MARKER to \${$dirvar}\"
+      exit 1
+    fi
     exit 0
   " 2>&1)
   rc=$?
   if [ $rc -eq 0 ]; then
-    pass "T5b idempotent-source: $libname sentinel $sentinel held across two sources"
+    pass "T5b idempotent-source: $libname guard held ($dirvar marker preserved)"
   else
     fail_ "T5b idempotent-source ($libname)" "rc=$rc; $out"
   fi
