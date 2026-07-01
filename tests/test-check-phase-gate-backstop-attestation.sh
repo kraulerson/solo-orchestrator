@@ -182,6 +182,45 @@ else
   fail_ "T3" "tests/test-check-gate.sh suite failed — possible cross-script regression"
 fi
 
+# T4 (positive — BL-032 backstop analog): mirrors T1 for the new
+# `gitlab_free_tier_approvals` attestation reason introduced by PR #134.
+# The Phase 1→2 backstop in scripts/check-phase-gate.sh acquired an
+# `elif` branch at ~line 678-683 that emits an OK line and short-circuits
+# host_verify_protection when the reason equals gitlab_free_tier_approvals
+# (gitlab.com Free-tier org-mode projects — approvals PUT is Premium-only,
+# so the attestation IS the gate). This test proves that branch fires:
+#   1. Preseed process-state.json with reason = gitlab_free_tier_approvals.
+#   2. Run check-phase-gate.sh under the same PATH-stubbed setup as T1
+#      (gh stub returns 403 on protection GET — proves the elif skipped
+#      host driver dispatch, because otherwise the stub 403 would surface
+#      as a backstop FAIL).
+#   3. Assert rc=0 AND the specific gitlab_free_tier_approvals OK line is
+#      emitted (not merely "attested" — the branch-specific message must
+#      appear so we know it was THIS elif, not the github_free_tier if
+#      or a fallthrough).
+#
+# Mutation-proven: replacing the elif body at check-phase-gate.sh:678-683
+# with `false  # deliberately break` makes this test fail RED (rc != 0
+# because `set -euo pipefail` propagates the `false`).
+echo "T4: gitlab_free_tier_approvals attestation → backstop honors it, exits 0"
+setup_phase2_project
+cat > "$PROJ/.claude/process-state.json" <<'JSON'
+{"phase2_init":{"steps_completed":[],"attestations":{"branch_protection":{"attested_by":"orchestrator","at":"2026-06-30T12:00:00Z","reason":"gitlab_free_tier_approvals"}}},
+ "phase1_artifacts":{"data_classification":"public","zdr_attested":false}}
+JSON
+out=$(run_gate)
+rc=$?
+if [ "$rc" -ne 0 ]; then
+  fail_ "T4" "expected exit 0 with gitlab_free_tier_approvals attestation, got rc=$rc out:\n$out"
+elif echo "$out" | grep -q "Phase 1→2 backstop: protection verification failed"; then
+  fail_ "T4" "backstop FAIL emitted despite gitlab_free_tier_approvals attestation; out:\n$(echo "$out" | grep -i backstop)"
+elif ! echo "$out" | grep -qE "backstop.*gitlab_free_tier_approvals"; then
+  fail_ "T4" "expected backstop OK line mentioning gitlab_free_tier_approvals; out:\n$(echo "$out" | grep -i backstop)"
+else
+  pass "T4: backstop honors gitlab_free_tier_approvals attestation (skips API verify)"
+fi
+teardown_project
+
 echo ""
 echo "== Total: $((PASSED + FAILED)) | Passed: $PASSED | Failed: $FAILED =="
 [ "$FAILED" -eq 0 ] && exit 0 || exit 1

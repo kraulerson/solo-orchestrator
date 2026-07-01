@@ -299,6 +299,80 @@ STATE_EOF
   pass "T6: check-gate.sh --preflight honors gitlab_free_tier_approvals reason"
 }
 
+# ─── T4b: check-gate.sh --repair honors gitlab_free_tier_approvals ─────────
+
+t4b_check_gate_repair_honors_new_reason() {
+  # PR #134 verifier follow-up: the cmd_repair branch in
+  # scripts/check-gate.sh lines ~222-227 short-circuits with an OK line
+  # when the recorded attestation reason is `gitlab_free_tier_approvals`
+  # AND both `remote_repo_created` + `pushed_initial` steps are marked
+  # completed. Parallel to T6 (which covers --preflight for the same
+  # reason), this test covers --repair for the same reason so both
+  # entrypoints are exercised.
+  #
+  # Fixture requires:
+  #   * .claude/manifest.json (host=gitlab, mode=org — matches BL-032 scope)
+  #   * .claude/process-state.json with:
+  #       phase2_init.steps_completed = ["remote_repo_created", "pushed_initial"]
+  #       phase2_init.attestations.branch_protection.reason = "gitlab_free_tier_approvals"
+  #
+  # Assertions: rc=0 AND stdout contains a Repair OK line that names
+  # gitlab_free_tier_approvals — proves it was the new elif branch that
+  # fired, not the github_free_tier branch or the full-repair fallthrough.
+  #
+  # Mutation-proven: stripping the cmd_repair branch at
+  # scripts/check-gate.sh:222-227 makes this test fail RED (either rc!=0
+  # from the fallthrough hitting missing host driver stubs, or the
+  # gitlab_free_tier_approvals OK line is absent).
+  local sandbox
+  sandbox=$(mktemp -d)
+  (
+    cd "$sandbox"
+    git init -q >/dev/null 2>&1
+    git remote add origin https://gitlab.com/org/repo.git
+    mkdir -p .claude
+    cat > .claude/manifest.json <<MANIFEST_EOF
+{"host": "gitlab", "mode": "org", "remote_url": "https://gitlab.com/org/repo.git"}
+MANIFEST_EOF
+    cat > .claude/process-state.json <<STATE_EOF
+{
+  "phase2_init": {
+    "steps_completed": ["remote_repo_created", "pushed_initial"],
+    "attestations": {
+      "branch_protection": {
+        "attested_by": "orchestrator",
+        "at": "2026-06-30T12:00:00Z",
+        "reason": "gitlab_free_tier_approvals"
+      }
+    }
+  }
+}
+STATE_EOF
+    out=$(bash "$CHECK_GATE" --repair 2>&1)
+    rc=$?
+    if [ "$rc" != "0" ]; then
+      printf '%s' "$out" > "$sandbox/repair_out.log"
+      return 1
+    fi
+    if ! printf '%s' "$out" | grep -q "gitlab_free_tier_approvals"; then
+      printf '%s' "$out" > "$sandbox/repair_out.log"
+      return 2
+    fi
+    if ! printf '%s' "$out" | grep -qE "Repair.*(nothing to do|attested)"; then
+      printf '%s' "$out" > "$sandbox/repair_out.log"
+      return 3
+    fi
+    return 0
+  )
+  local rc=$?
+  if [ "$rc" != "0" ]; then
+    fail_ "T4b" "check-gate.sh --repair did not honor gitlab_free_tier_approvals reason (rc=$rc); see $sandbox/repair_out.log"
+    return
+  fi
+  rm -rf "$sandbox"
+  pass "T4b: check-gate.sh --repair honors gitlab_free_tier_approvals reason"
+}
+
 # ─── T7: Mutation proof — remove intercept, T1 must fail ───────────────────
 
 t7_mutation_proof_intercept_is_load_bearing() {
@@ -380,6 +454,7 @@ t3_warn_message_has_actionable_hint
 t4_shortcircuit_preserves_other_failures
 t5_check_phase_gate_honors_new_reason
 t6_check_gate_preflight_honors_new_reason
+t4b_check_gate_repair_honors_new_reason
 t7_mutation_proof_intercept_is_load_bearing
 
 echo ""
