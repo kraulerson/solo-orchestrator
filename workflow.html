@@ -457,10 +457,10 @@
       <h3>What the framework does</h3>
       <ul>
         <li>Checks prerequisites (Git, Node.js, jq, Docker) and offers to install any missing.</li>
-        <li>Installs security tools: Semgrep, gitleaks, Snyk, Lighthouse, OWASP ZAP.</li>
-        <li>Clones the "Claude Dev Framework" guardrails (git hooks + session rules).</li>
-        <li>Generates your project folder, CI + release pipelines, CLAUDE.md, and phase-state.json.</li>
-        <li>Initializes git and runs a health check.</li>
+        <li>Resolves the tool matrix for your platform and offers to install the applicable security tools (Semgrep, gitleaks, Snyk for all projects; Lighthouse + OWASP ZAP for web).</li>
+        <li>Clones the <em>Development Guardrails for Claude Code</em> (git hooks + session rules).</li>
+        <li>Generates your project folder, CI + release pipelines, CLAUDE.md, and three state files: <code>phase-state.json</code>, <code>.claude/process-state.json</code> (build-loop/UAT/Phase 3 ledger), and <code>.claude/manifest.json</code> (host, deployment, poc_mode, enforcement level).</li>
+        <li>Initializes git, seeds <code>.claude/bypass-audit.json</code>, and runs a health check.</li>
       </ul>
     </div>
   </div>
@@ -472,7 +472,14 @@
       <h3>What you do</h3>
       <ul>
         <li>Run the intake wizard and answer plain-language questions.</li>
-        <li>Describe: project name, what it does, who uses it, platform (web/desktop/mobile/etc), language, deployment (personal or organizational), track (POC or production), success criteria.</li>
+        <li>Describe project name, what it does, who uses it, platform (web/desktop/mobile/etc), language, success criteria, and the four independent settings the framework tracks:
+          <ul>
+            <li><strong>Deployment</strong>: personal or organizational.</li>
+            <li><strong>Track</strong>: Light / Standard / Full (depth of Phase 3 rigor).</li>
+            <li><strong>POC mode</strong>: production, Sponsored POC, or Private POC (Sponsored is org-only; Phase 4 is blocked in POC mode until <code>scripts/upgrade-project.sh --to-production</code>).</li>
+            <li><strong>Enforcement level</strong>: strict / light / no (strict is default and forced for organizational Sponsored POC + Production).</li>
+          </ul>
+        </li>
         <li>Review the generated <code>PROJECT_INTAKE.md</code> before moving on.</li>
       </ul>
     </div>
@@ -482,7 +489,7 @@
       <h2>Project Intake</h2>
       <p class="tagline">Tell the framework exactly what you're building and why.</p>
       <span class="cmd">bash scripts/intake-wizard.sh</span>
-      <div class="outputs">Produces: PROJECT_INTAKE.md — the AI's product brief.</div>
+      <div class="outputs">Produces: PROJECT_INTAKE.md — the AI's product brief. Also seeds <code>data_classification</code> + ZDR attestation for the Phase 1 → 2 gate.</div>
     </div>
     <div class="connector-side from-center"><div class="line"></div></div>
     <div class="side right">
@@ -491,6 +498,7 @@
         <li>Walks you through a structured Q&amp;A tailored to your chosen platform.</li>
         <li>Offers context-aware suggestions (e.g. auth options for web, notarization for macOS desktop).</li>
         <li>Auto-fills the resolved tool matrix so the AI knows exactly which tools apply.</li>
+        <li>Captures data classification (public / internal / confidential / pii / financial / health / regulated) and ZDR attestation — enforced later at the Phase 1 → 2 gate.</li>
         <li>Writes a complete intake document — no free-form guessing required later.</li>
       </ul>
     </div>
@@ -527,6 +535,45 @@
   </div>
   <div class="vconnect"><div class="arrow-col"><div class="stem"></div></div></div>
 
+  <!-- ================== PRE-PHASE 0 (Organizational-only) =================== -->
+  <div class="row">
+    <div class="side left">
+      <h3>What you do (organizational only)</h3>
+      <ul>
+        <li>Record six blocking pre-conditions as dated rows in <code>APPROVAL_LOG.md</code> before Phase 0 can advance.</li>
+        <li>Personal projects and Private POCs skip this row entirely; Sponsored POCs need rows 1 &amp; 4 up front and may defer the rest.</li>
+      </ul>
+    </div>
+    <div class="connector-side to-center"><div class="line"></div></div>
+    <div class="step gate">
+      <div class="num">0</div>
+      <h2>Pre-Phase 0 · Organizational Pre-Conditions</h2>
+      <p class="tagline">Six governance rows before Day 1 for organizational deployments.
+        See <em>docs/governance-framework.md §V &amp; §IX.4</em>.</p>
+      <span class="cmd">check-phase-gate.sh (Pre-Phase 0)</span>
+    </div>
+    <div class="connector-side from-center"><div class="line"></div></div>
+    <div class="side right">
+      <h3>What the framework checks</h3>
+      <ul>
+        <li><strong>Six named rows</strong> each with an ISO-dated approval (per <code>templates/generated/approval-log-org.tmpl</code> lines 16–28):
+          <ol>
+            <li>AI deployment path — IT Security approval.</li>
+            <li>Insurance clearance / broker confirmation.</li>
+            <li>Liability entity designation.</li>
+            <li>Named Project Sponsor.</li>
+            <li>Backup maintainer designation.</li>
+            <li>ITSM registration.</li>
+          </ol>
+        </li>
+        <li>Sponsored POC: rows 1 &amp; 4 required, rows 2/3/5/6 deferred (verified later by <code>scripts/upgrade-project.sh --to-production</code>).</li>
+        <li>Private POC: all six deferred.</li>
+        <li>Governance mode is forced <strong>strict</strong> for organizational Sponsored POC + Production.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="vconnect"><div class="arrow-col"><div class="stem"></div></div></div>
+
   <!-- ============================ STEP 4: PHASE 0 ============================ -->
   <div class="row">
     <div class="side left">
@@ -548,10 +595,10 @@
     <div class="side right">
       <h3>What the framework does</h3>
       <ul>
-        <li>AI interviews you to sharpen the intake into a Manifesto: who this is for, what "done" looks like, what's explicitly out of scope.</li>
-        <li>Drafts an initial threat model preview (what could go wrong later).</li>
+        <li>AI walks the seven Phase 0 sub-steps: 0.1 FRD, 0.2 User Journey (Skeptical PM persona), 0.3 Data Contract, 0.4 Product Manifesto &amp; MVP Cutline, 0.5 Revenue Model (Std+), 0.6 Competency Matrix (drives mandatory CI tooling for any "No" domain), 0.7 Trademark &amp; Legal (Std+).</li>
         <li>Generates supporting artifacts: user journey, data contract.</li>
-        <li>Cannot proceed to Phase 1 until the phase gate is approved.</li>
+        <li>Organizational deployments: sponsor reviews the Compliance Screening Matrix (SOX / PCI / GDPR / HIPAA / GLBA / SEC / records-retention / EU-AI-Act) — see <em>governance-framework.md §VIII.11</em>.</li>
+        <li>Cannot proceed to Phase 1 until the phase gate is approved. (STRIDE threat model is Phase 1.3, not here.)</li>
       </ul>
     </div>
   </div>
@@ -562,24 +609,26 @@
     <div class="side left">
       <h3>Your approval unlocks the next phase</h3>
       <ul>
-        <li>You write "Approved" plus your name and date into <code>APPROVAL_LOG.md</code> for the Phase 0 → 1 gate.</li>
-        <li>If organizational track: your sponsor also signs.</li>
+        <li>Personal deployments: self-review recorded in <code>APPROVAL_LOG.md</code> with name and date.</li>
+        <li>Organizational deployments: <strong>Project Sponsor</strong> is the sole named approver for business justification + compliance screening. The Sponsor (not you) must author the git commit that adds their signature.</li>
       </ul>
     </div>
     <div class="connector-side to-center"><div class="line"></div></div>
     <div class="step gate">
       <div class="num">✓</div>
       <h2>Phase Gate 0 → 1</h2>
-      <p class="tagline">The framework refuses to advance without your written sign-off.</p>
+      <p class="tagline">Framework refuses to advance without written sign-off. On success, a snapshot is copied to
+        <code>docs/snapshots/phase-0-to-1_YYYY-MM-DD/</code>.</p>
       <span class="cmd">scripts/check-phase-gate.sh</span>
     </div>
     <div class="connector-side from-center"><div class="line"></div></div>
     <div class="side right">
       <h3>What the framework checks</h3>
       <ul>
-        <li>Reads <code>APPROVAL_LOG.md</code> line-by-line and verifies the right person signed on the right line (not just the file's most recent editor).</li>
-        <li>Confirms Manifesto is present and complete.</li>
-        <li>Updates <code>phase-state.json::gates.phase_0_to_1</code> with today's date.</li>
+        <li>Reads <code>APPROVAL_LOG.md</code> and (organizational) runs <code>git blame --line-porcelain</code> on the Approver row itself — the git-commit author of that specific line must not equal the approver's name (anti-self-approval FAIL). Personal deployments skip this check.</li>
+        <li>Confirms <code>PRODUCT_MANIFESTO.md</code> has all 8 numbered sections filled with content (no placeholders), and NO <code>Status: Open</code> lines remain — either causes a FAIL.</li>
+        <li>Compares the dated Phase 0 → 1 entry against <code>phase-state.json::gates.phase_0_to_1</code>. (Note: the gate script <em>reads</em> both dates; the JSON value itself is populated by <code>scripts/upgrade-project.sh</code> or edited by the approver during the sign-off commit — the gate does not auto-write it.)</li>
+        <li>On PASS, <code>check-phase-gate.sh</code> creates a point-in-time snapshot at <code>docs/snapshots/phase-0-to-1_YYYY-MM-DD/</code>.</li>
       </ul>
     </div>
   </div>
@@ -606,10 +655,41 @@
     <div class="side right">
       <h3>What the framework does</h3>
       <ul>
-        <li>AI drafts architecture candidates with pros/cons (not one plan — real options).</li>
-        <li>Writes Architecture Decision Records (ADRs) explaining <em>why</em> each big choice was made.</li>
-        <li>Builds a full threat model (STRIDE-style: what could an attacker do?).</li>
+        <li>AI walks the Phase 1 sub-steps: 1.1 Business Strategy Gateway (Std+ Go/No-Go), 1.1.5 Market Signal Validation, 1.2 Architecture &amp; Stack Selection (3 candidates, 10 first-class decisions, Competency Matrix as required input), 1.3 STRIDE Threat Model (Penetration Tester persona), 1.4 Data Model, 1.4.5 Data Migration Plan (only if replacing an existing system), 1.5 UI/UX Scaffolding (four-state Empty/Loading/Error/Success), 1.6 Project Bible (16 sections), 1.7 Data Classification &amp; ZDR Attestation.</li>
+        <li>Writes Architecture Decision Records (ADRs) explaining <em>why</em> each big choice was made, and rejected alternatives.</li>
+        <li>Configures branch protection against the real git-host API (GitHub/GitLab/Bitbucket) via <code>scripts/lib/host.sh</code> — free-tier limitations use an attestation escape hatch (<code>github_free_tier</code>, <code>gitlab_free_tier_approvals</code>).</li>
         <li>Produces a test plan mapped to intake acceptance criteria.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="vconnect"><div class="arrow-col"><div class="stem"></div></div></div>
+
+  <!-- ============================ GATE 1->2 ============================ -->
+  <div class="row">
+    <div class="side left">
+      <h3>Your approval unlocks Phase 2</h3>
+      <ul>
+        <li>Personal: self-review recorded in <code>APPROVAL_LOG.md</code>.</li>
+        <li>Organizational: <strong>Senior Technical Authority</strong> approves architecture, security posture, and data classification.</li>
+      </ul>
+    </div>
+    <div class="connector-side to-center"><div class="line"></div></div>
+    <div class="step gate">
+      <div class="num">✓</div>
+      <h2>Phase Gate 1 → 2</h2>
+      <p class="tagline">Includes the mandatory Zero Data Retention gate (Invariant #16).
+        Snapshot: <code>docs/snapshots/phase-1-to-2_YYYY-MM-DD/</code>.</p>
+      <span class="cmd">scripts/check-phase-gate.sh</span>
+    </div>
+    <div class="connector-side from-center"><div class="line"></div></div>
+    <div class="side right">
+      <h3>What the framework checks</h3>
+      <ul>
+        <li>Dated "Phase 1 → Phase 2" entry in <code>APPROVAL_LOG.md</code>; organizational adds a per-line git-blame check on the STA row.</li>
+        <li><code>PROJECT_BIBLE.md</code> exists with ≥14 numbered sections and no YYYY-MM-DD placeholder dates remaining.</li>
+        <li><strong>Mandatory ZDR gate (Invariant #16)</strong>: <code>phase1_artifacts.data_classification</code> must be one of <em>public / internal / confidential / pii / financial / health / regulated</em>. Anything above <em>public</em> requires <code>zdr_attested=true</code> OR a written <code>zdr_attestation_reason</code>. FAIL otherwise.</li>
+        <li><strong>Branch protection backstop</strong>: real API call verifies force-push disabled + (org) 1+ PR approver + CI status checks. Free-tier attestation limits are accepted only if recorded in <code>process-state.json</code>.</li>
+        <li>Personal → organizational upgrades: recurring WARN until the <em>Retroactive Phase 1 → 2 STA Approval</em> row is filled.</li>
       </ul>
     </div>
   </div>
@@ -638,10 +718,42 @@
       <h3>What the framework does</h3>
       <ul>
         <li>Runs the <strong>Feature Build Loop</strong> for every feature (detailed diagram below).</li>
-        <li>Enforces test-first via pre-commit hooks — you can't commit implementation without tests.</li>
-        <li>Runs SAST + secret detection on every commit.</li>
-        <li>Triggers UAT sessions on the configured interval (blocks progress if skipped).</li>
-        <li>Blocks Phase 2 → 3 if any SEV-1 or SEV-2 bug is still open.</li>
+        <li>Enforces the Build Loop checklist on <code>feat:</code> commits: <code>process-checklist.sh</code> requires the first five steps (tests_written → documentation_updated) done before allowing the commit. Non-<code>feat:</code> prefixes (<code>chore:</code>, <code>fix:</code>, <code>refactor:</code>, etc.) bypass this check — this is a scope-limited, not universal, gate. The TDD file-ordering check is <em>warning-only</em> (per <em>README §Enforcement</em>).</li>
+        <li>Runs gitleaks + Semgrep (staged-files) on every commit; blocks <code>--no-verify</code> and captures any that get through in <code>.claude/bypass-audit.json</code>.</li>
+        <li>Blocks <code>gh pr create</code> when UAT is in progress with &lt; 9 steps completed, or Build Loop steps 1–4 done but not step 5.</li>
+        <li>Test-gate reminds you when <code>features_since_last_test</code> reaches the interval; you invoke <code>scripts/test-gate.sh --check-batch</code> to trigger the UAT.</li>
+        <li>Blocks Phase 2 → 3 on any open SEV-1 OR any SEV-2 (open OR <em>deferred</em> — deferred SEV-2 must be resolved or the feature removed; no third option).</li>
+        <li>Organizational: biweekly <strong>Mid-Phase 2 Governance Checkpoint</strong> with the Senior Technical Authority (30-min status review, escalation on ADR-less architecture deviation, test pass &lt; 80%, unresolved security findings, AI quality degradation).</li>
+      </ul>
+    </div>
+  </div>
+  <div class="vconnect"><div class="arrow-col"><div class="stem"></div></div></div>
+
+  <!-- ============================ GATE 2->3 ============================ -->
+  <div class="row">
+    <div class="side left">
+      <h3>Your approval unlocks Phase 3</h3>
+      <ul>
+        <li>Personal: self-review in <code>APPROVAL_LOG.md</code>.</li>
+        <li>Organizational: <strong>Senior Technical Authority</strong> signs.</li>
+        <li>Reconcile <code>FEATURES.md</code> vs the Manifesto MVP Cutline — any additions require documented orchestrator approval.</li>
+      </ul>
+    </div>
+    <div class="connector-side to-center"><div class="line"></div></div>
+    <div class="step gate">
+      <div class="num">✓</div>
+      <h2>Phase Gate 2 → 3</h2>
+      <p class="tagline">Bug gate blocks; MVP-Cutline reconciliation required.
+        Snapshot: <code>docs/snapshots/phase-2-to-3_YYYY-MM-DD/</code>.</p>
+      <span class="cmd">check-phase-gate.sh → test-gate.sh --check-phase-gate</span>
+    </div>
+    <div class="connector-side from-center"><div class="line"></div></div>
+    <div class="side right">
+      <h3>What the framework checks</h3>
+      <ul>
+        <li>Dated "Phase 2 → Phase 3" entry in <code>APPROVAL_LOG.md</code>.</li>
+        <li><code>FEATURES.md</code> and <code>CHANGELOG.md</code> exist and are non-empty.</li>
+        <li>Bug gate via <code>test-gate.sh --check-phase-gate</code>: SEV-1 open &gt; 0 → BLOCKED; SEV-2 open &gt; 0 → BLOCKED; SEV-2 Deferred &gt; 0 → BLOCKED (must resolve or remove feature); SEV-3 open → WARN.</li>
       </ul>
     </div>
   </div>
@@ -652,28 +764,79 @@
     <div class="side left">
       <h3>What you do</h3>
       <ul>
-        <li>Read each of the six adversarial review reports.</li>
-        <li>Decide on any residual security or compliance findings.</li>
-        <li>Approve the Phase 3 → 4 gate — or send fixes back into the loop.</li>
+        <li>Walk the mechanically-enforced 9-step Phase 3 checklist (<code>process-checklist.sh --start-phase3</code>): integration testing, security hardening, chaos testing, accessibility audit, performance audit, contract testing, results archived, pre-launch preparation, legal review.</li>
+        <li>Run <code>evaluation-prompts/Projects/run-reviews.sh &lt;module&gt;</code> to produce the six adversarial reviewer reports (Standard: recommended; <strong>Full: Security + Red Team REQUIRED</strong>). Address all Critical / High findings.</li>
+        <li>Personal: self-review recorded. <strong>Organizational: gather written sign-offs from both Application Owner AND IT Security</strong> — see the Gate 3 → 4 row below.</li>
+        <li>Security-domain "No" or "Partially" on the Competency Matrix → <strong>mandatory Security Peer Review</strong> before go-live, regardless of track (<em>governance-framework.md §V.C</em>).</li>
       </ul>
     </div>
     <div class="connector-side to-center"><div class="line"></div></div>
     <div class="step phase3">
       <div class="num">7</div>
       <h2>Phase 3 · Validation &amp; Security</h2>
-      <p class="tagline">Adversarial review across six perspectives. Zero critical findings required.</p>
-      <div class="outputs">Produces: scan results, test evidence, threat-model verification, six reviewer reports.</div>
+      <p class="tagline">Nine substeps + adversarial reviews + track-specific pen test + attorney legal review.
+        Exit rule: <strong>zero Critical or High-severity findings</strong>.</p>
+      <div class="outputs">Produces: <code>docs/test-results/</code> archive, sbom.json, HANDOFF.md, INCIDENT_RESPONSE.md, SECURITY.md, review manifest, penetration test report (Std+).</div>
     </div>
     <div class="connector-side from-center"><div class="line"></div></div>
     <div class="side right">
       <h3>What the framework does</h3>
       <ul>
-        <li>Full <strong>SAST scan</strong> (Semgrep) across every file.</li>
-        <li><strong>Dependency scan</strong> (Snyk) for known vulnerabilities.</li>
-        <li><strong>License compliance</strong> check.</li>
-        <li>Web projects: <strong>DAST scan</strong> (OWASP ZAP against a running instance).</li>
-        <li>Runs the <strong>six evaluation prompts</strong>: senior engineer, CIO, security auditor, legal, technical user, and red team — each critiques from its own perspective.</li>
-        <li>Verifies every threat-model mitigation is actually implemented and tested.</li>
+        <li><strong>3.1 Integration Testing</strong> — Platform Module E2E suite over the full User Journey.</li>
+        <li><strong>3.2 Security Hardening</strong> — you run Semgrep (<code>--config=p/owasp-top-ten --config=p/security-audit</code>) + Snyk + gitleaks + license check + SBOM (CycloneDX/syft) + threat-model validation. Web: OWASP ZAP baseline (all tracks) / active (Full). Framework archives artifacts to <code>docs/test-results/[date]_[scan-type]_[pass|fail].[ext]</code>.</li>
+        <li><strong>3.3 Chaos &amp; Edge-Case Testing</strong> — input abuse defenses, error recovery, concurrency, global error boundaries.</li>
+        <li><strong>3.4 UX &amp; Accessibility Audit</strong> — WCAG AA baseline; Lighthouse ≥ 90 for web; Full Track requires explicit screen-reader testing.</li>
+        <li><strong>3.5 Performance Audit</strong> — latency vs data contract, memory stability, minimum-supported-hardware validation.</li>
+        <li><strong>3.5.5 Contract Testing</strong> (Std+ for APIs/IPC/file formats); <strong>3.5.7 Load/Stress Testing</strong> (Full).</li>
+        <li><strong>3.5.9 Test Results Archive</strong> — <code>docs/test-results/</code> is referenced from the Phase 3 → 4 APPROVAL_LOG entry and folded into HANDOFF.md.</li>
+        <li><strong>3.6 Pre-Launch Preparation</strong> (Std+) — Final UAT with formal acceptance sign-off (Sponsored POC / Production); <strong>MANDATORY attorney review of Privacy Policy AND Terms of Service</strong> recorded in APPROVAL_LOG (<em>builders-guide.md §Phase 3.6</em>); license audit passing; trademark search.</li>
+        <li>Six evaluation prompts are <em>operator-invoked</em> via <code>run-reviews.sh</code>; <code>check-phase-gate.sh</code> only WARNs (not FAILs) when <code>docs/eval-results/review-manifest.json</code> is missing. Personas: Senior Engineer (01), CIO (02), <strong>SVP IT Security</strong> (03), <strong>Corporate Legal</strong> (04), Technical User (05), Red Team (06).</li>
+      </ul>
+    </div>
+  </div>
+  <div class="vconnect"><div class="arrow-col"><div class="stem"></div></div></div>
+
+  <!-- ============================ GATE 3->4 ============================ -->
+  <div class="row">
+    <div class="side left">
+      <h3>The heaviest gate — governance sign-offs required</h3>
+      <ul>
+        <li><strong>Personal</strong>: self-review recorded in <code>APPROVAL_LOG.md</code> (single approver).</li>
+        <li><strong>Organizational — dual approval</strong>: BOTH <em>Application Owner Approval</em> AND <em>IT Security Approval</em> subsections in <code>APPROVAL_LOG.md</code> must have populated Date rows.
+          <ul>
+            <li>Application Owner: accepts operational risk + go-live readiness.</li>
+            <li>IT Security: reviews scan results, penetration test, threat-model validation, risk acceptance.</li>
+            <li>Each subsection is verified independently by <code>validate_approval_section_dated</code> — header presence alone does not satisfy the gate.</li>
+            <li>Approvers must author their own commit (anti-self-approval via per-line git blame; org projects FAIL on self-approval).</li>
+          </ul>
+        </li>
+        <li>Attorney/Legal review recorded for Privacy Policy + ToS if applicable (external users).</li>
+        <li>ITSM deployment change ticket referenced in the Phase 4 Completion row.</li>
+        <li>Sponsored POC / Production Full UAT: formal acceptance sign-off by product sponsor or designated tester.</li>
+        <li>See <em>governance-framework.md §V Approval Authority</em> row for <em>Phase 3 → 4</em>.</li>
+      </ul>
+    </div>
+    <div class="connector-side to-center"><div class="line"></div></div>
+    <div class="step gate">
+      <div class="num">✓</div>
+      <h2>Phase Gate 3 → 4</h2>
+      <p class="tagline">Two written signatures (org), pen test on Std+, artifact roster, hard-block for POC.
+        Snapshot: <code>docs/snapshots/phase-3-to-4_YYYY-MM-DD/</code> — the point-in-time audit record.</p>
+      <span class="cmd">scripts/check-phase-gate.sh</span>
+    </div>
+    <div class="connector-side from-center"><div class="line"></div></div>
+    <div class="side right">
+      <h3>What the framework checks (check-phase-gate.sh:901–1056)</h3>
+      <ul>
+        <li>Dated "Phase 3 → Phase 4" entry within 15 lines of the header.</li>
+        <li>Organizational: BOTH Application Owner AND IT Security Date rows populated — either missing → FAIL.</li>
+        <li>Required artifacts: <code>HANDOFF.md</code>, <code>docs/INCIDENT_RESPONSE.md</code>, <code>sbom.json</code>, non-empty <code>docs/test-results/</code> (empty → FAIL), <code>SECURITY.md</code> (missing → WARN), <code>docs/eval-results/review-manifest.json</code>.</li>
+        <li><strong>Penetration test</strong>: Standard track requires <code>*pen-test*|*pentest*|*penetration*</code> files in <code>docs/test-results/</code> or an <em>IT Security exemption</em> recorded in <code>APPROVAL_LOG.md</code>. <strong>Full track has NO exemption path</strong>.</li>
+        <li><strong>POC hard-block</strong>: if <code>poc_mode</code> is set in <code>phase-state.json</code>, Phase 4 is BLOCKED with <code>::error::</code>. Points at <code>scripts/upgrade-project.sh --to-production</code>, which verifies each of the six deferred Pre-Phase 0 rows (or requires <code>--ack-preconditions=&lt;N1,N2,…&gt;</code>, recorded in <code>.claude/bypass-audit.json</code>).</li>
+        <li>Release pipeline TODO check: <code>.github/workflows/release.yml</code> unconfigured TODOs → WARN.</li>
+        <li>Bug gate (via <code>test-gate.sh --check-phase-gate</code>) must pass.</li>
+        <li>On PASS: point-in-time snapshot copied to <code>docs/snapshots/phase-3-to-4_YYYY-MM-DD/</code> containing gate-checked artifacts plus PRODUCT_MANIFESTO / PROJECT_BIBLE / FEATURES / CHANGELOG / BUGS / USER_GUIDE / RELEASE_NOTES / APPROVAL_LOG / HANDOFF / INCIDENT_RESPONSE / sbom (see <em>builders-guide.md §Phase 3 → 4 Snapshot Mechanism</em>).</li>
+        <li>Every enforcement decision (proposal, block, pass, out-of-band commit, escalation) is appended to <code>.claude/bypass-audit.json</code> — the durable audit ledger.</li>
       </ul>
     </div>
   </div>
@@ -684,26 +847,31 @@
     <div class="side left">
       <h3>What you do</h3>
       <ul>
-        <li>Full path: kick off the release (signing keys, store credentials, deploy).</li>
-        <li>POC path: confirm the deployable artifact; upgrade later if you want to go live.</li>
+        <li><strong>POC → Production upgrade first</strong>: Phase 4 is <em>hard-blocked</em> for <code>poc_mode</code> projects at BOTH <code>check-phase-gate.sh</code> AND <code>process-checklist.sh --start-phase4</code>. Run <code>scripts/upgrade-project.sh --to-production</code> BEFORE Phase 4 can start.</li>
+        <li>Walk the 6-step Phase 4 checklist: production build, rollback tested, go-live verified, monitoring configured, handoff written, handoff tested.</li>
+        <li>Kick off the release (signing keys, store credentials, deploy) using your chosen strategy: cut-over (Light), blue/green (Std+ web), rolling/canary (Std+ >1000 users), feature flags (any track, high-risk).</li>
         <li>Update <code>RELEASE_NOTES.md</code> and hand off to users.</li>
+        <li><strong>Organizational</strong>: file the ITSM deployment change ticket (ID recorded in the APPROVAL_LOG Phase 4 Completion row); the <strong>backup maintainer validates <code>HANDOFF.md</code></strong> — must be able to build, test, deploy, and run scans from the doc alone.</li>
       </ul>
     </div>
     <div class="connector-side to-center"><div class="line"></div></div>
     <div class="step phase4">
       <div class="num">8</div>
       <h2>Phase 4 · Release &amp; Maintenance</h2>
-      <p class="tagline">Ship the MVP (or confirm ready-to-deploy for POCs). Then maintain.</p>
-      <div class="outputs">Produces: signed release, CHANGELOG.md, RELEASE_NOTES.md, monitoring hooks.</div>
+      <p class="tagline">Ship the MVP with a tested rollback and verified monitoring. Then maintain on a four-cadence schedule.</p>
+      <div class="outputs">Produces: signed release, CHANGELOG.md, RELEASE_NOTES.md, <code>HANDOFF.md</code>, <code>docs/INCIDENT_RESPONSE.md</code> (SEV-1..SEV-4 severity matrix + notification chains), monitoring configuration, Phase 4 Completion row in APPROVAL_LOG.md.</div>
     </div>
     <div class="connector-side from-center"><div class="line"></div></div>
     <div class="side right">
       <h3>What the framework does</h3>
       <ul>
-        <li>Runs the release pipeline for your platform (build, sign, package, distribute).</li>
+        <li>Runs the release pipeline (<code>.github/workflows/release.yml</code>) for your platform: build, sign, package, distribute.</li>
+        <li><strong>MANDATORY rollback test</strong> BEFORE go-live (Step 4.1.5): deploy candidate → execute documented rollback → verify data integrity + revert. <em>"A rollback procedure that has never been tested is not a rollback procedure — it is a hope."</em></li>
+        <li><strong>MANDATORY monitoring verification</strong> (Step 4.3): trigger a test error, confirm the alert was received. <em>"Configured is not verified."</em></li>
+        <li><strong>PLATFORM MODULE MANDATORY go-live checklist</strong> (Step 4.2): SSL/security headers (web), code signing/auto-updater (desktop), app-store metadata &amp; certificates (mobile). Failure may result in deployment rejection.</li>
         <li>Updates CHANGELOG + RELEASE_NOTES with what shipped.</li>
-        <li>Turns on the maintenance cadence: weekly / monthly / quarterly reminder checks for dependency updates, framework updates, session hygiene.</li>
-        <li>Records the release in the audit trail — nothing about how it shipped is inferred later.</li>
+        <li>Turns on the maintenance cadence — actual cadences are <strong>monthly (CHANGELOG + SBOM, 35d), quarterly (dependency audit, 95d), biannually (full Phase 3 security+perf re-run + AI provider terms re-verification, 185d)</strong>. Verified on demand by <code>scripts/check-maintenance.sh</code>.</li>
+        <li>Records the release + all post-launch changes in the APPROVAL_LOG "Approval History" table; the point-in-time <code>docs/snapshots/phase-3-to-4_YYYY-MM-DD/</code> stays immutable.</li>
       </ul>
     </div>
   </div>
@@ -747,36 +915,47 @@
     <div class="loop-step">
       <div class="idx">STEP 5</div>
       <h4>Pre-commit Gate</h4>
-      <p>Automatic hooks run: secret detection (gitleaks), SAST quick scan (Semgrep), lint. A commit is blocked if any fire.</p>
+      <p>Automatic hooks run: gitleaks (blocks on hit), Semgrep on staged files (blocks on hit), framework-hygiene lints, TDD file-ordering check (warning-only, per README §Enforcement).</p>
     </div>
     <div class="loop-step">
       <div class="idx">STEP 6</div>
-      <h4>Security Review Prompt</h4>
-      <p>The framework runs an AI security review focused on this specific change: injection, authz, secrets, data exposure. Findings go to the security audit log.</p>
+      <h4>Security Audit</h4>
+      <p>Senior Security Engineer persona reviews the change: injection, authz, secrets, data isolation, N+1, structured logging. Findings marked in <code>process-state.json.build_loop.steps_completed[security_audit]</code>.</p>
     </div>
     <div class="loop-step">
       <div class="idx">STEP 7</div>
-      <h4>Red Team Review Prompt</h4>
-      <p>A separate adversarial prompt tries to break the feature: edge cases, hostile inputs, race conditions, misuse scenarios. Findings are logged.</p>
+      <h4>Documentation Updated</h4>
+      <p>Parallel doc updates: CHANGELOG.md, FEATURES.md, interface docs, ADR (if applicable), Bible update. Enforced as a mandatory Build Loop step.</p>
     </div>
     <div class="loop-step">
       <div class="idx">STEP 8</div>
       <h4>Iterate If Needed</h4>
-      <p>If any of steps 5–7 raised issues: back to Step 3 to fix, then re-run steps 4–7. Loop continues until reviews are clean.</p>
+      <p>If steps 5–7 raised issues: back to Step 3 to fix, then re-run 4–7. Loop continues until reviews are clean. (Refactor, Red Team, and Iterate are AI conventions — not framework-enforced Build Loop steps.)</p>
     </div>
     <div class="loop-step">
       <div class="idx">STEP 9</div>
-      <h4>Approve &amp; Mark Complete</h4>
-      <p>Feature is added to <code>FEATURES.md</code>, build progress is recorded in <code>build-progress.json</code>, and you're told the feature is done.</p>
+      <h4>Feature Recorded</h4>
+      <p>Feature is added to <code>FEATURES.md</code>; build progress is recorded in <code>build-progress.json</code>; <code>test-gate.sh --record-feature</code> bumps the UAT counter. Marked complete in <code>process-state.json</code>.</p>
     </div>
   </div>
 
   <div class="loop-note">
-    <strong>Every ~2 features (configurable):</strong> the loop pauses for a <strong>UAT session</strong>.
-    Parallel AI agents (automated testing, exploratory, cross-platform) test the app alongside you.
+    <strong>Enforced vs documented:</strong> <code>process-checklist.sh</code> mechanically enforces
+    <em>six</em> Build Loop steps: <code>tests_written → tests_verified_failing → implemented →
+    security_audit → documentation_updated → feature_recorded</code>. The Context7 lookup, Refactor,
+    Red Team Review, and Iterate steps above are AI conventions the Builder's Guide describes but
+    that are not gate-blocking on their own. The <code>feat:</code>-commit gate blocks a commit until the
+    first five enforced steps are complete; non-<code>feat:</code> prefixes bypass this check.
+  </div>
+
+  <div class="loop-note">
+    <strong>Every ~2 features (configurable):</strong> the loop pauses for a <strong>UAT session</strong>
+    driven by <code>scripts/test-gate.sh --check-batch</code>.
+    Parallel AI agents (automated testing, malicious user, cross-platform) test the app alongside you.
     Bugs get triaged into SEV-1 (must fix before release) through SEV-4 (nice to have) and assigned
     a disposition (Fix Now / Defer / Won't Fix / Post-MVP). Fix-Now bugs re-enter the Build Loop.
-    The framework will refuse to move to Phase 3 while any SEV-1 or SEV-2 bug is still open.
+    The framework will refuse to advance Phase 2 → 3 while any SEV-1 is open OR any SEV-2 is open
+    OR deferred (SEV-2 must be resolved or the feature removed; no third option).
   </div>
 </section>
 
@@ -793,27 +972,43 @@
   <div class="cross-grid">
     <div class="cross-card">
       <h4>Phase Gate Enforcement</h4>
-      <p>Every phase-to-phase transition requires a written approval in <code>APPROVAL_LOG.md</code> plus green tests plus completed gate criteria. Enforced by <code>check-phase-gate.sh</code>. Cannot be skipped.</p>
+      <p>Every phase-to-phase transition requires a written approval in <code>APPROVAL_LOG.md</code> plus green tests plus completed gate criteria. Enforced by <code>check-phase-gate.sh</code>. On PASS, an immutable point-in-time snapshot is written to <code>docs/snapshots/phase-N-to-M_YYYY-MM-DD/</code>.</p>
+    </div>
+    <div class="cross-card">
+      <h4>Enforcement Level (strict / light / no)</h4>
+      <p>Recorded in <code>.claude/manifest.json::enforcement_level</code>. <em>Strict</em> is the default and is <strong>forced</strong> for organizational Sponsored POC + Production; it installs <code>.git/hooks/framework-gate.sh</code> which blocks user-terminal commits that violate the classifier. Light and No relax coverage. Every transition is recorded as an <code>enforcement_level_set</code> row in the audit ledger.</p>
+    </div>
+    <div class="cross-card">
+      <h4>Bypass Audit Ledger</h4>
+      <p><code>.claude/bypass-audit.json</code> is the append-only, git-tracked audit trail. Records seven row types: <em>claude_bypass_proposal</em>, <em>terminal_commit_blocked/passed</em>, <em>out_of_band_commit</em>, <em>enforcement_level_set</em>, <em>escalation</em>, <em>detector_error</em>. SessionStart runs <code>detect-out-of-band-commits.sh</code> against the last-checked-commit baseline. Guarantee: "you can route around the block, you cannot route around the audit." See <em>docs/audit-log-lifecycle.md</em>.</p>
+    </div>
+    <div class="cross-card">
+      <h4>Pending-Approval Sentinel</h4>
+      <p><code>.claude/pending-approval.json</code> signals a structured A/B/C decision to the operator. While present, the pre-commit gate blocks <code>git commit</code> and <code>gh pr create</code> — the agent cannot rationalize a unilateral commit while you are still deliberating.</p>
     </div>
     <div class="cross-card">
       <h4>Session Hooks</h4>
-      <p>Every time you start the AI: version check runs, test-gate is verified, and the MCP-usage gate is initialized. If your Claude Dev Framework is out of date or the test-gate is red, you're told before any work begins.</p>
+      <p>Every time you start the AI, hooks run: version check, test-gate, out-of-band commit detector, MCP-usage gate. If the Development Guardrails are out of date or the test-gate is red, you're told before any work begins. Qdrant / Context7 requirements only fire when you have those MCP servers configured — the gate expects one call per session, not per library.</p>
     </div>
     <div class="cross-card">
       <h4>Live Docs (Context7)</h4>
-      <p>Whenever the AI touches a library, it fetches current documentation on demand. Its knowledge doesn't drift with each new library release.</p>
+      <p>When Context7 is configured as an MCP server, the framework requires at least one lookup per session before allowing commits (session-mcp-gate). The Build Loop's first step invokes Context7 to prevent "API remembered from training data" errors on library-touching features.</p>
     </div>
     <div class="cross-card">
       <h4>Persistent Memory (Qdrant)</h4>
-      <p>Decisions, review findings, and context notes are stored in a local semantic memory the AI can search across sessions — so the AI remembers <em>why</em> something was done, not just what.</p>
+      <p>When Qdrant is configured as an MCP server, the framework requires at least one <code>qdrant-store</code>/<code>qdrant-find</code> call per session. Decisions, review findings, and context notes are stored in a local semantic memory the AI can search across sessions — so the AI remembers <em>why</em> something was done, not just what.</p>
     </div>
     <div class="cross-card">
       <h4>Audit Trail</h4>
-      <p>Every phase gate, every UAT session, every bug disposition, every release — all recorded in files that live inside your git repo. Nothing important lives only in someone's head or a chat log.</p>
+      <p>Every phase gate, every UAT session, every bug disposition, every release — all recorded in <code>APPROVAL_LOG.md</code>, <code>docs/snapshots/</code>, <code>docs/test-results/</code>, <code>sbom.json</code>, and <code>.claude/bypass-audit.json</code>. Six canonical jq recipes in <em>docs/audit-log-lifecycle.md</em> support cold-pickup successor handoff (W7 use case).</p>
     </div>
     <div class="cross-card">
       <h4>Organizational Governance (opt-in)</h4>
-      <p>If you selected "organizational" deployment: sponsor approvals, IT Security review, legal sign-off, ITSM ticket linkage, and executive review artifacts are all folded into the same gates. POC modes let you defer the paperwork while validating the technical work first.</p>
+      <p>If you selected "organizational" deployment: Project Sponsor (Phase 0 → 1), Senior Technical Authority (Phase 1 → 2 &amp; 2 → 3), Application Owner + IT Security (Phase 3 → 4), Attorney (Phase 3.6 for Privacy Policy + ToS), ITSM ticket linkage (Phase 4 Completion row). Each sign-off is verified with per-line git blame; anti-self-approval is a FAIL. The Pre-Phase 0 organizational roster (six named rows) must be dated before Day 1. POC modes let you defer parts of that roster; <code>upgrade-project.sh --to-production</code> is the only way to unlock Phase 4 from a POC.</p>
+    </div>
+    <div class="cross-card">
+      <h4>Gate Denial Path</h4>
+      <p>When an approver denies a gate: written findings required, rework limited to cited deficiencies, maximum <strong>2 rework cycles</strong> before escalation to the Project Sponsor. Every denial and re-submission is recorded in <code>APPROVAL_LOG.md</code>. See <em>governance-framework.md §V Gate Denial</em>.</p>
     </div>
   </div>
 </section>
@@ -843,15 +1038,43 @@
     </div>
     <div class="gloss-item">
       <dt>Phase Gate</dt>
-      <dd>A checkpoint between phases. The framework refuses to advance until specific artifacts exist, specific tests pass, and you've written an approval in the log.</dd>
+      <dd>A checkpoint between phases. The framework refuses to advance until specific artifacts exist, specific tests pass, and (for organizational Phase 3 → 4) BOTH Application Owner and IT Security have written signed approvals in the log.</dd>
     </div>
     <div class="gloss-item">
       <dt>MVP</dt>
       <dd>Minimum Viable Product — the smallest useful version worth releasing. The framework's target for a first release.</dd>
     </div>
     <div class="gloss-item">
-      <dt>POC (Proof of Concept)</dt>
-      <dd>A path that produces the same technical quality as a full release but stops before production deployment. Useful when you want to validate the framework itself, or defer governance paperwork.</dd>
+      <dt>Sponsored POC</dt>
+      <dd>Organizational-only POC mode: the organization knows and has approved. Requires AI-deployment-path approval + named sponsor up front; defers insurance, liability, ITSM, exit criteria, and backup maintainer. Phase 4 hard-blocked until <code>upgrade-project.sh --to-production</code>.</dd>
+    </div>
+    <div class="gloss-item">
+      <dt>Private POC</dt>
+      <dd>Personal-only POC mode: all six Pre-Phase 0 pre-conditions deferred. Same technical rigor as Production Build; NO real user data, NO external users, NO production deployment until upgraded.</dd>
+    </div>
+    <div class="gloss-item">
+      <dt>Track (Light / Standard / Full)</dt>
+      <dd>Depth of Phase 3 rigor. Light skips Business Strategy Gateway, Market Signal Validation, Revenue Model, contract testing, load/stress testing, and Std+ pre-launch preparation. Standard adds them; Full also requires screen-reader accessibility testing and has no penetration-test exemption.</dd>
+    </div>
+    <div class="gloss-item">
+      <dt>Enforcement Level (strict / light / no)</dt>
+      <dd>Field in <code>.claude/manifest.json</code>. Strict installs a filesystem-gate hook that blocks user-terminal commits violating the classifier; light logs but allows; no does not enforce. Forced strict for organizational Sponsored POC + Production.</dd>
+    </div>
+    <div class="gloss-item">
+      <dt>ZDR (Zero Data Retention)</dt>
+      <dd>Mandatory Phase 1 → 2 gate (Invariant #16). Projects with data classification of internal or higher must attest ZDR (or record a written exception). Enforced by <code>check-phase-gate.sh</code> as a FAIL. Public projects are exempt.</dd>
+    </div>
+    <div class="gloss-item">
+      <dt>APPROVAL_LOG.md</dt>
+      <dd>Append-only audit trail of every phase-gate approval. Tamper-evident via git history; anti-self-approval enforced via per-line <code>git blame</code>. Includes an Approval History table for post-launch changes.</dd>
+    </div>
+    <div class="gloss-item">
+      <dt>Phase Gate Snapshot</dt>
+      <dd>Point-in-time immutable copy of key documents at each phase transition. Auto-created by <code>check-phase-gate.sh</code> at <code>docs/snapshots/phase-N-to-M_YYYY-MM-DD/</code>. Preserves whatever state Manifesto, Bible, FEATURES, CHANGELOG, BUGS, USER_GUIDE, RELEASE_NOTES, APPROVAL_LOG, HANDOFF, INCIDENT_RESPONSE, and sbom are in at gate time.</dd>
+    </div>
+    <div class="gloss-item">
+      <dt>Bypass Audit Ledger</dt>
+      <dd><code>.claude/bypass-audit.json</code> — append-only, git-tracked, atomic-write JSON ledger recording every enforcement decision, bypass attempt, and out-of-band commit. The framework's guarantee: "you can route around the block, you cannot route around the audit."</dd>
     </div>
     <div class="gloss-item">
       <dt>Product Manifesto</dt>
@@ -882,8 +1105,12 @@
       <dd>A standard way for AI agents to talk to external tools and services (documentation lookups, memory stores, code search, etc).</dd>
     </div>
     <div class="gloss-item">
-      <dt>Claude Dev Framework</dt>
-      <dd>The git-hook-based guardrail layer that gets installed alongside your project. It's what makes the framework refuse to accept commits that break the rules.</dd>
+      <dt>Development Guardrails for Claude Code</dt>
+      <dd>The git-hook-based guardrail layer (sometimes called CDF / Claude Dev Framework) that gets installed alongside your project. Clones from <code>kraulerson/claude-dev-framework</code>. Provides pre-commit hooks, SessionStart hooks, and the framework-gate that (in strict mode) refuses to accept commits which break the rules.</dd>
+    </div>
+    <div class="gloss-item">
+      <dt>Anti-Self-Approval Check</dt>
+      <dd>For organizational deployments only, <code>check-phase-gate.sh</code> runs <code>git blame --line-porcelain</code> on the specific <em>Approver</em> row and FAILs if the committer of that line matches the approver's name. Personal deployments skip this check.</dd>
     </div>
     <div class="gloss-item">
       <dt>SEV-1 / SEV-2 / SEV-3 / SEV-4</dt>
