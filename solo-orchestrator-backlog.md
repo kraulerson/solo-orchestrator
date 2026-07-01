@@ -982,7 +982,7 @@ Both branches of the inner if/else call pass(). A regression that silently strip
 **Logged:** 2026-06-28 (test integrity audit)
 **Category:** Test infrastructure / preventive control
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed (2026-06-30, PR #122, commit 125d6fc)
 
 The pattern of 'PR adds a test file, PR merges, test never runs' is now a systemic risk, not a one-off mistake. 16 of 17 Wave 1-4 test files landed without aggregator registration. Without an automated gate, the next wave will reproduce the same issue.
 

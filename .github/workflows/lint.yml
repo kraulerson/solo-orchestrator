@@ -111,3 +111,23 @@ jobs:
       - name: Show PASS/FAIL inventory (on failure or on demand)
         if: always()
         run: bash scripts/lint-raw-read-prompt.sh --list || true
+
+  # BL-038 (cycle-9): structural backstop for the BL-034 orphan-test
+  # defect class — refuses to merge a new tests/test-*.sh file unless
+  # an aggregator invokes it (or the file carries an EXEMPT marker
+  # with a non-empty reason). See scripts/lint-tests-registered.sh
+  # header for the contract + KNOWN_ORPHANS_PENDING_BL035 bridge,
+  # and tests/test-lint-tests-registered.sh for the behavior suite.
+  tests-registered-lint:
+    name: tests-registered-lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Lint tests-registered (BL-038 structural backstop)
+        run: bash scripts/lint-tests-registered.sh
+
+      - name: Show PASS/FAIL inventory (on failure or on demand)
+        if: always()
+        run: bash scripts/lint-tests-registered.sh --list || true

@@ -135,6 +135,24 @@ if [ "$TERMINAL_MODE" -eq 1 ]; then
         exit 1
       fi
     fi
+
+    # tests-registered (BL-038): every tests/test-*.sh must be invoked
+    # by an aggregator (or carry an EXEMPT marker). Full-tree scan, no
+    # message dependency. See scripts/lint-tests-registered.sh header.
+    TR_LINT=""
+    for cand in "$PROJECT_ROOT/scripts/lint-tests-registered.sh" \
+                "$SCRIPT_DIR/lint-tests-registered.sh"; do
+      [ -f "$cand" ] && { TR_LINT="$cand"; break; }
+    done
+    if [ -n "$TR_LINT" ]; then
+      if ! tr_out=$(bash "$TR_LINT" 2>&1); then
+        echo "[FRAMEWORK GATE — strict mode] tests-registered lint failed:" >&2
+        echo "$tr_out" >&2
+        echo "" >&2
+        echo "To bypass anyway:  SKIP_LINT=1 git commit ..." >&2
+        exit 1
+      fi
+    fi
   fi
   # --- end cycle-8 slot-5 terminal-mode block ---
 
@@ -494,7 +512,7 @@ lints_check() {
 
   # Escape hatch.
   if [ "${SKIP_LINT:-0}" = "1" ]; then
-    echo "[pre-commit-gate] SKIP_LINT=1 set — bypassing counter-antipattern + backlog-references lints" >&2
+    echo "[pre-commit-gate] SKIP_LINT=1 set — bypassing counter-antipattern + backlog-references + fix-functions-stderr + raw-read-prompt + tests-registered lints" >&2
     return 0
   fi
 
@@ -504,7 +522,7 @@ lints_check() {
   # still self-checks when run from the framework repo's own working
   # tree. Project root = `git rev-parse --show-toplevel` from the
   # current cwd, since Claude Code invokes the hook from the project.
-  local proj_root ca_lint="" br_lint="" ff_lint="" rr_lint=""
+  local proj_root ca_lint="" br_lint="" ff_lint="" rr_lint="" tr_lint=""
   proj_root=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
   for cand in "$proj_root/scripts/lint-counter-antipattern.sh" \
               "$SCRIPT_DIR/lint-counter-antipattern.sh"; do
@@ -521,6 +539,10 @@ lints_check() {
   for cand in "$proj_root/scripts/lint-raw-read-prompt.sh" \
               "$SCRIPT_DIR/lint-raw-read-prompt.sh"; do
     [ -n "$cand" ] && [ -f "$cand" ] && { rr_lint="$cand"; break; }
+  done
+  for cand in "$proj_root/scripts/lint-tests-registered.sh" \
+              "$SCRIPT_DIR/lint-tests-registered.sh"; do
+    [ -n "$cand" ] && [ -f "$cand" ] && { tr_lint="$cand"; break; }
   done
 
   # Counter-antipattern: full repo-relative scan, fast.
@@ -562,6 +584,16 @@ lints_check() {
     rr_out=$(bash "$rr_lint" 2>&1) || rr_exit=$?
     if [ "$rr_exit" -ne 0 ]; then
       emit_lint_block "pre-commit gate: scripts/lint-raw-read-prompt.sh failed. ${rr_out} Migrate to prompt_input / prompt_yes_no (scripts/lib/helpers.sh) or append '# lint-raw-read-prompt: allow <reason>'. Run 'SKIP_LINT=1 git commit ...' to bypass in an emergency (logged to .claude/bypass-audit.json)."
+    fi
+  fi
+
+  # tests-registered (BL-038): structural backstop for orphan tests.
+  # Full repo-relative scan, fast.
+  if [ -n "$tr_lint" ]; then
+    local tr_out tr_exit=0
+    tr_out=$(bash "$tr_lint" 2>&1) || tr_exit=$?
+    if [ "$tr_exit" -ne 0 ]; then
+      emit_lint_block "pre-commit gate: scripts/lint-tests-registered.sh failed. ${tr_out} Register the test in tests/full-project-test-suite.sh (or another aggregator) following the BL-034 cohort pattern, or add '# LINT_TEST_REGISTRATION_EXEMPT: <reason>' to the file header. Run 'SKIP_LINT=1 git commit ...' to bypass in an emergency (logged to .claude/bypass-audit.json)."
     fi
   fi
 
