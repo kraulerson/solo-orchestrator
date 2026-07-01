@@ -1126,7 +1126,7 @@ This matters because the >600 s suite runtime is the primary reason the CI workf
 **Logged:** 2026-06-29
 **Category:** Performance
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed (2026-06-30, PR #125, commit `16f5c9b`)
 
 `lib/helpers.sh` is sourced by ~15 short-lived script callers. Each source incurs a 30–40 ms parse+exec cost (Step 4 recon profiling) regardless of which helpers the caller actually uses. Compounded across the CLI surface this is visible latency on the per-script TUI flow.
 
@@ -1134,7 +1134,22 @@ This matters because the >600 s suite runtime is the primary reason the CI workf
 
 **Trigger:** When CLI latency becomes user-visible OR when adding the next big helper that would push `lib/helpers.sh` parse time over a perceptible threshold.
 
-**Related:** `Reports/2026-06-28-step4-dead-code-perf-eval.md` §5, §7 item 2; `lib/helpers.sh`; all `source lib/helpers.sh` call sites under `scripts/`.
+**Resolution (2026-06-30):** Landed as a two-file split (not the four-file per-domain split proposed in the original scope) because caller-usage analysis showed a clean bimodal cut, not a domain-based one. Every short-lived caller (check-*, validate, test-gate, resume, pending-approval, process-checklist) uses a common minimum set: print_*, prompt_*, log_line, run_with_timeout, guard_not_in_framework. Only long-running callers (init.sh, upgrade-project.sh, intake-wizard.sh, reconfigure-project.sh, verify-install.sh) additionally need init_log/finalize_log + MCP-detection helpers. So:
+
+  - `scripts/lib/helpers-core.sh` — 316 lines, the minimum set.
+  - `scripts/lib/helpers-full.sh` — 101 lines, transitively sources core, adds init_log/finalize_log/MCP helpers.
+  - `scripts/lib/helpers.sh` — thin backwards-compat shim; sources full (which sources core).
+
+Each file has an idempotent-source sentinel guard (`_SOIF_HELPERS_*_LOADED`) so a shell that ends up sourcing multiple entry points (e.g. shim → full → core via composition) still parses each file exactly once.
+
+**Measured savings** (500-iteration amortized loop, Darwin bash 3.2, M-series Mac):
+  - helpers.sh via shim: 1.101 ms per source
+  - helpers-core.sh direct: 0.823 ms per source
+  - **Per-source reduction: 0.278 ms (25%)**
+
+The absolute savings are smaller than the Step 4 report's 30–40 ms projection — that scout likely measured on slower hardware or included non-source-cost latency. The parse-cost *ratio* holds (~25% reduction), so on slower CI/Intel hardware where per-source is ~10× higher, the delta should scale proportionally.
+
+**Related:** `Reports/2026-06-28-step4-dead-code-perf-eval.md` §5, §7 item 2; `tests/test-bl046-helpers-split.sh` (T1-T5b contracts); PR #125.
 
 ---
 

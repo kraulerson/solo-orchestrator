@@ -13,7 +13,8 @@ set -euo pipefail
 # If no path is provided, attempts to clone the latest version to a temp dir.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/lib/helpers.sh"
+# BL-046: uses print_info/ok/warn only — source core subset.
+source "$SCRIPT_DIR/lib/helpers-core.sh"
 
 # Verify we're in a Solo Orchestrator project
 if [ ! -f "CLAUDE.md" ]; then

@@ -12,7 +12,8 @@ set -euo pipefail
 #   scripts/test-gate.sh --help
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/lib/helpers.sh"
+# BL-046: uses print_fail/info/ok/warn + prompt_yes_no only — core subset.
+source "$SCRIPT_DIR/lib/helpers-core.sh"
 
 BUILD_PROGRESS=".claude/build-progress.json"
 

@@ -14,7 +14,8 @@ set -euo pipefail
 #   1 — inconsistency detected (blocked). Set SOIF_PHASE_GATES=warn to downgrade.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/lib/helpers.sh"
+# BL-046: uses run_with_timeout + prompt_yes_no only — source core subset.
+source "$SCRIPT_DIR/lib/helpers-core.sh"
 
 # ── Non-interactive prompt guard ─────────────────────────────────
 # code-check-gates-7 (audit v2, S3): the script's header (lines 8-9)

@@ -7,7 +7,8 @@ set -euo pipefail
 # Usage: bash scripts/resume.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/lib/helpers.sh"
+# BL-046: uses only color vars (BOLD/CYAN/NC) — source core subset.
+source "$SCRIPT_DIR/lib/helpers-core.sh"
 
 echo -e "${BOLD}Generating session resume prompt...${NC}"
 echo ""

@@ -648,6 +648,24 @@ else
 fi
 
 # ----------------------------------------------------------------
+# TEST 0r-bl046: HELPERS.SH CORE/FULL SPLIT CONTRACT (BL-046)
+# ----------------------------------------------------------------
+# tests/test-bl046-helpers-split.sh proves the five contracts of the
+# BL-046 split: core-only callers get the minimum surface, full
+# callers get both surfaces via delegation, the boundary is enforced
+# (T3: init_log absent from core), the shim retains full backwards
+# compatibility, and each file is idempotent-source-guarded.
+# Registered here per BL-038 discipline: every test-*.sh needs an
+# aggregator wire so a silent regression can't slip past
+# `full-project-test-suite.sh`.
+section "BL-046 helpers.sh core/full split contract"
+if bash "$SCRIPT_DIR/tests/test-bl046-helpers-split.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl046-helpers-split.sh (T1..T5b)"
+else
+  fail "tests/test-bl046-helpers-split.sh FAILED (run for details)"
+fi
+
+# ----------------------------------------------------------------
 # TEST 0s: HOST-DRIVER AGGREGATOR
 # ----------------------------------------------------------------
 # tests/host-drivers/run-all.sh wraps the per-host unit tests

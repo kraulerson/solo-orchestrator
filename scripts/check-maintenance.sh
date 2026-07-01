@@ -13,7 +13,8 @@ set -euo pipefail
 #   2 — could not determine (missing data)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/lib/helpers.sh"
+# BL-046: uses print_info / print_ok / print_warn only — source core subset.
+source "$SCRIPT_DIR/lib/helpers-core.sh"
 
 echo -e "${BOLD}Maintenance Cadence Check${NC}"
 echo ""

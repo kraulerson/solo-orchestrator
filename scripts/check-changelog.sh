@@ -16,8 +16,11 @@ set -euo pipefail
 #   1 — source changed without changelog (only when SOIF_STRICT_CHANGELOG=true)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -f "$SCRIPT_DIR/lib/helpers.sh" ]; then
-  source "$SCRIPT_DIR/lib/helpers.sh"
+# BL-046: sources helpers-core.sh (subset) instead of helpers.sh (full)
+# — uses print_ok / print_warn only. Skips the ~110 lines of init_log +
+# MCP-detection helpers in helpers-full.sh to shave parse cost.
+if [ -f "$SCRIPT_DIR/lib/helpers-core.sh" ]; then
+  source "$SCRIPT_DIR/lib/helpers-core.sh"
 else
   # Minimal fallback if helpers not available
   print_warn() { echo "[WARN] $1"; }

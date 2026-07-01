@@ -59,7 +59,18 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")" && pwd)/.."
 REPO_ROOT="$(cd "$REPO_ROOT" && pwd)"
 SELF_PATH="$REPO_ROOT/scripts/lint-raw-read-prompt.sh"
-HELPERS_PATH="$REPO_ROOT/scripts/lib/helpers.sh"
+# BL-046: helpers.sh was split into three files (shim, core, full).
+# All three must be exempt from the raw-read check. In practice only
+# helpers-core.sh actually contains raw `read -rp` calls today (the
+# prompt_* helpers live there), but the shim and full-set are kept
+# exempt for future safety: they're the canonical prompt-helper
+# surface, and exempting the whole family avoids a future refactor
+# accidentally tripping the lint if a raw read moves back into them.
+HELPERS_PATHS=(
+  "$REPO_ROOT/scripts/lib/helpers.sh"
+  "$REPO_ROOT/scripts/lib/helpers-core.sh"
+  "$REPO_ROOT/scripts/lib/helpers-full.sh"
+)
 TEST_FIXTURE_PATTERN="test-lint-raw-read-prompt"
 
 LIST_MODE=0
@@ -110,7 +121,9 @@ LIST_ROWS=""
 should_skip_file() {
   local f="$1"
   [ "$f" = "$SELF_PATH" ] && return 0
-  [ "$f" = "$HELPERS_PATH" ] && return 0
+  for _hp in "${HELPERS_PATHS[@]}"; do
+    [ "$f" = "$_hp" ] && return 0
+  done
   case "$(basename "$f")" in
     "${TEST_FIXTURE_PATTERN}.sh") return 0 ;;
   esac

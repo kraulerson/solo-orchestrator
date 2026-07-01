@@ -21,14 +21,16 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if [ -f "$SCRIPT_DIR/lib/helpers.sh" ]; then
-  source "$SCRIPT_DIR/lib/helpers.sh"
+# BL-046: uses print_ok/fail/info + guard_not_in_framework only — core subset.
+if [ -f "$SCRIPT_DIR/lib/helpers-core.sh" ]; then
+  source "$SCRIPT_DIR/lib/helpers-core.sh"
 else
   print_ok()   { echo "[OK] $1"; }
   print_fail() { echo "[FAIL] $1" >&2; }
   print_info() { echo "[INFO] $1"; }
-  # When helpers.sh is unavailable (vendored stub install), no-op the framework
-  # guard: there's nothing to source. The full Solo install always ships helpers.
+  # When helpers-core.sh is unavailable (vendored stub install), no-op the
+  # framework guard: there's nothing to source. The full Solo install always
+  # ships helpers.
   guard_not_in_framework() { return 0; }
 fi
 

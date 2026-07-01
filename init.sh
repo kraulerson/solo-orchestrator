@@ -1185,7 +1185,16 @@ create_project() {
   # Copy utility scripts into the project (self-contained after init)
   print_info "Copying utility scripts..."
   mkdir -p scripts/lib
-  cp "$SCRIPT_DIR/scripts/lib/helpers.sh" scripts/lib/
+  # BL-046: helpers.sh split into a backwards-compat shim + core + full.
+  # All three files must be copied — the shim (helpers.sh) sources
+  # helpers-full.sh, which sources helpers-core.sh. Short-lived
+  # scripts (check-*, validate, test-gate, resume) source helpers-core.sh
+  # directly; long-running callers (init.sh, upgrade-project.sh,
+  # intake-wizard.sh, reconfigure-project.sh, verify-install.sh) source
+  # helpers.sh (which transitively loads full + core).
+  cp "$SCRIPT_DIR/scripts/lib/helpers.sh"       scripts/lib/
+  cp "$SCRIPT_DIR/scripts/lib/helpers-core.sh"  scripts/lib/
+  cp "$SCRIPT_DIR/scripts/lib/helpers-full.sh"  scripts/lib/
   cp "$SCRIPT_DIR/scripts/validate.sh" scripts/
   cp "$SCRIPT_DIR/scripts/check-phase-gate.sh" scripts/
   cp "$SCRIPT_DIR/scripts/check-gate.sh" scripts/
