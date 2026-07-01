@@ -748,7 +748,26 @@ The CI pipeline-success gate (code-host-gitlab-2 / `only_allow_merge_if_pipeline
 **Logged:** 2026-06-28 (PR #92 verifier follow-up)
 **Category:** Debt / Security hardening
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed (2026-07-01, refactor/bl033-tool-matrix-multistage-install-cmds branch, commit pending)
+
+**Resolution:** `scripts/resolve-tools.sh` now accepts both shapes at
+`install.<key>`: a legacy string (`"brew install jq"`) or a structured
+array of stages (`["brew install colima", "brew services start colima"]`).
+The resolver output emits BOTH `install_cmd` (joined with ` && ` for
+back-compat) AND `install_cmds` (JSON array of stages) so new consumers
+can iterate stages structurally. Malformed shapes surface loudly:
+empty arrays, non-string array elements, and objects with both
+`install_cmd`+`install_cmds` sibling keys are all refused with a clear
+per-tool diagnostic. The stateless multi-stage entries — Docker
+(linux_apt/dnf/pacman) and Colima (darwin_brew) — are migrated to the
+array shape. The remaining state-carrying entries (gitleaks, rust
+rustup, k6 apt-repo dance) still fail the Layer 2 metachar gate and
+should be migrated to wrapper scripts under `scripts/install-helpers/`
+in a follow-up; the array-shape schema is now available as their
+target. Test coverage: `tests/test-bl033-install-cmds-shape.sh`
+(8 tests including T-back-compat, T-array-happy, T-array-fail-fast,
+T-mixed-invalid, T-empty-array, T-non-string-elements,
+T-migrated-entries, T-migrated-semantics + mutation proof).
 
 Following the structured-dispatch hardening in `scripts/verify-install.sh::fix_tool_install` (PR #92 verifier blocker-1 close), the legacy `bash -c` fallback now REFUSES any install_cmd whose payload contains shell-chaining metacharacters (`;`, `|`, `` ` ``, `$(`, `<`, `>`, newline). Several existing tool-matrix entries use multi-stage shell pipelines that trip this gate:
 

@@ -245,12 +245,68 @@ while IFS=$'\t' read -r TOOL_NAME TOOL_CATEGORY TOOL_PHASE TOOL_REQUIRED TOOL_CH
       --arg version "$VERSION" \
       '. + [{name: $name, category: $category, version: $version}]')
   else
-    # Find the best install command for this environment
+    # Find the best install command for this environment.
+    #
+    # BL-033: each `install.<key>` value can be one of two structured
+    # shapes:
+    #   1. Legacy — a single string (`"brew install jq"`).
+    #   2. Multi-stage — an array of strings (`["cmd1", "cmd2"]`), where
+    #      each element is executed as an independent stage (fail-fast on
+    #      the first non-zero exit). The array shape gives per-stage
+    #      failure diagnosis and makes rollback tractable.
+    #
+    # The resolver output emits BOTH `install_cmd` (joined with ` && `
+    # for back-compat with legacy consumers that read the singular field)
+    # AND `install_cmds` (JSON array of stages) so new consumers can
+    # iterate stages structurally.
     INSTALL_CMD=""
+    INSTALL_CMDS_JSON=""
     for key in $(echo "$INSTALL_KEYS" | jq -r '.[]'); do
-      cmd=$(echo "$TOOL_INSTALL_JSON" | jq -r --arg k "$key" '.[$k] // empty')
-      if [ -n "$cmd" ]; then
-        INSTALL_CMD="$cmd"
+      # Single jq call: normalize the per-key value into
+      # {install_cmd, install_cmds} regardless of shape. Emits `_error`
+      # for malformed shapes (T-mixed-invalid, unsupported types) so the
+      # reader fails fast rather than silently mis-interpreting the
+      # matrix.
+      extraction=$(echo "$TOOL_INSTALL_JSON" | jq -c --arg k "$key" '
+        if has($k) then
+          (.[$k]) as $v |
+          if ($v | type) == "string" then
+            if ($v | length) == 0 then null
+            else {install_cmd: $v, install_cmds: [$v]} end
+          elif ($v | type) == "array" then
+            if ($v | length) == 0 then
+              {_error: "install.\($k) is an empty array — supply at least one stage"}
+            elif ([$v[] | type] | unique) != ["string"] then
+              {_error: "install.\($k) array must contain only strings"}
+            else
+              {install_cmd: ($v | join(" && ")), install_cmds: $v}
+            end
+          elif ($v | type) == "object" then
+            if ($v | has("install_cmd")) and ($v | has("install_cmds")) then
+              {_error: "install.\($k) object contains BOTH install_cmd and install_cmds — mutually exclusive; pick one shape"}
+            else
+              {_error: "install.\($k) object shape not supported — use a string or array of strings"}
+            end
+          elif ($v | type) == "null" then null
+          else
+            {_error: "install.\($k) has unsupported type \($v | type) — use string or array of strings"}
+          end
+        else null end
+      ')
+
+      if [ -z "$extraction" ] || [ "$extraction" = "null" ]; then
+        continue
+      fi
+
+      err=$(echo "$extraction" | jq -r '._error // empty')
+      if [ -n "$err" ]; then
+        echo "ERROR: tool '$TOOL_NAME': $err" >&2
+        exit 1
+      fi
+
+      INSTALL_CMD=$(echo "$extraction" | jq -r '.install_cmd')
+      INSTALL_CMDS_JSON=$(echo "$extraction" | jq -c '.install_cmds')
+      if [ -n "$INSTALL_CMD" ]; then
         break
       fi
     done
@@ -258,6 +314,7 @@ while IFS=$'\t' read -r TOOL_NAME TOOL_CATEGORY TOOL_PHASE TOOL_REQUIRED TOOL_CH
     # If no auto-installable command found, fall back to manual
     if [ -z "$INSTALL_CMD" ]; then
       INSTALL_CMD=$(echo "$TOOL_INSTALL_JSON" | jq -r '.manual // "See documentation"')
+      INSTALL_CMDS_JSON=$(jq -n --arg s "$INSTALL_CMD" '[$s]')
       TOOL_AUTO="false"
     fi
 
@@ -266,9 +323,10 @@ while IFS=$'\t' read -r TOOL_NAME TOOL_CATEGORY TOOL_PHASE TOOL_REQUIRED TOOL_CH
         --arg name "$TOOL_NAME" \
         --arg category "$TOOL_CATEGORY" \
         --arg install_cmd "$INSTALL_CMD" \
+        --argjson install_cmds "$INSTALL_CMDS_JSON" \
         --argjson required "$([ "$TOOL_REQUIRED" = "true" ] && echo true || echo false)" \
         --arg description "$TOOL_DESCRIPTION" \
-        '. + [{name: $name, category: $category, install_cmd: $install_cmd, required: $required, description: $description}]')
+        '. + [{name: $name, category: $category, install_cmd: $install_cmd, install_cmds: $install_cmds, required: $required, description: $description}]')
     else
       MANUAL_INSTALL=$(echo "$MANUAL_INSTALL" | jq \
         --arg name "$TOOL_NAME" \

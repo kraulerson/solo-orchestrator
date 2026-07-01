@@ -95,9 +95,18 @@
       "latest_check": null,
       "install": {
         "darwin_brew": "brew install --cask docker",
-        "linux_apt": "sudo apt install -y docker.io && sudo usermod -aG docker $USER",
-        "linux_dnf": "sudo dnf install -y docker && sudo usermod -aG docker $USER",
-        "linux_pacman": "sudo pacman -S --noconfirm docker && sudo usermod -aG docker $USER",
+        "linux_apt": [
+          "sudo apt install -y docker.io",
+          "sudo usermod -aG docker $USER"
+        ],
+        "linux_dnf": [
+          "sudo dnf install -y docker",
+          "sudo usermod -aG docker $USER"
+        ],
+        "linux_pacman": [
+          "sudo pacman -S --noconfirm docker",
+          "sudo usermod -aG docker $USER"
+        ],
         "manual": "https://docs.docker.com/get-docker/"
       },
       "auto_installable": true,
@@ -119,7 +128,10 @@
       "min_version": "0.6.0",
       "latest_check": {"method": "github_release", "package": "abiosoft/colima"},
       "install": {
-        "darwin_brew": "brew install colima && brew services start colima"
+        "darwin_brew": [
+          "brew install colima",
+          "brew services start colima"
+        ]
       },
       "auto_installable": true,
       "substitutable": false,
