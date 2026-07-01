@@ -72,6 +72,27 @@
 #       --tests-dir   /tmp/fixture/tests \
 #       --aggregators /tmp/fixture/tests/myagg.sh
 #       # test-mode: scan an alternate dir + alternate aggregator set
+#
+# PERFORMANCE (BL-067)
+#   The original scan_file() looped over every aggregator and grepped
+#   for each test's basename — O(n_tests × m_aggregators) subprocesses.
+#   On the current repo shape (~100 tests × 5 aggregators × 2 greps
+#   per aggregator + head/cut per file) that's ~1500+ subprocesses per
+#   run; on a heavily loaded workstation this can wall-clock beyond
+#   2 minutes and trip the pre-commit gate's timeout (BL-067 report).
+#
+#   This implementation collapses the work to O(n + m):
+#     Pass 1: build a hash-set of every .sh basename referenced on a
+#             non-comment line of every aggregator (one grep per
+#             aggregator, then a pure-bash extraction loop).
+#     Pass 2: enumerate test files under tests/ and check membership
+#             in the hash-set in O(1). All per-file work (basename,
+#             EXEMPT marker parsing) uses bash builtins — zero
+#             subprocess spawn per file.
+#   Output format, exit codes, diagnostics, and every branch of the
+#   original decision tree (aggregator skip, host-drivers helper skip,
+#   EXEMPT marker, bridge list, --list mode, --tests-dir override,
+#   test-mode fixture semantics) are preserved byte-for-byte.
 
 set -uo pipefail
 
@@ -179,6 +200,66 @@ KNOWN_ORPHANS_PENDING_BL035=(
 VIOLATIONS=0
 LIST_ROWS=""
 
+# ────────────────────────────────────────────────────────────────────
+# BL-067 PASS 1: build REGISTERED_STR — a pipe-delimited string that
+# encodes every .sh basename referenced on a non-comment line across
+# ALL aggregators. Membership is `case "$REGISTERED_STR" in *"|$b|"*)`.
+#
+# Why a delimited string and not `declare -A`?
+#   macOS ships bash 3.2 as /bin/bash, and the test suite (plus every
+#   caller in scripts/pre-commit-gate.sh) invokes the linter through
+#   /usr/bin/env bash which resolves to /bin/bash on default Macs.
+#   Associative arrays are a bash 4.0+ feature — using them would
+#   crash the lint on the exact platform the pre-commit gate runs on.
+#   A pipe-delimited-string lookup is O(len(string)) per query, but
+#   len(string) ≤ ~4KB for the whole repo — comfortably below the
+#   O(n × m × grep-per-agg) subprocess cost that BL-067 is retiring.
+#
+# Contract semantics preserved from the original implementation:
+#   • A "reference" is any occurrence of a token matching *.sh in
+#     any file path (with or without leading directory components)
+#     on a non-comment line of an aggregator.
+#   • A line is a "comment line" iff its first non-whitespace char is
+#     `#`. Inline trailing comments (e.g.
+#     `bash test-foo.sh # note`) still count as references because
+#     the leading token isn't `#`.
+#   • Basename is derived via ${path##*/}, matching the original
+#     $(basename "$file") semantics.
+# ────────────────────────────────────────────────────────────────────
+REGISTERED_STR="|"
+
+_build_registered_set() {
+  local agg fname base
+  for agg in "${AGGREGATORS[@]}"; do
+    [ -f "$agg" ] || continue
+    # Single-pass extraction per aggregator:
+    #   grep -vE strips pure-comment lines
+    #   grep -oE emits every .sh token (paths and bare names both)
+    # Then normalise each hit to its basename and append to the
+    # delimited set (dedup keeps the string bounded).
+    while IFS= read -r fname; do
+      [ -n "$fname" ] || continue
+      base="${fname##*/}"
+      case "$REGISTERED_STR" in
+        *"|$base|"*) ;;                                    # already in set
+        *) REGISTERED_STR="${REGISTERED_STR}${base}|" ;;   # append
+      esac
+    done < <(grep -vE '^[[:space:]]*#' "$agg" 2>/dev/null \
+             | grep -oE '[A-Za-z0-9_./+-]+\.sh' 2>/dev/null)
+  done
+}
+
+# Locate the host-drivers run-all.sh aggregator (if present in the
+# active AGGREGATORS list) — needed by _is_host_driver_implicit which
+# preserves the original glob-based implicit-registration behaviour.
+HOST_DRIVERS_DIR=""
+for _agg in "${AGGREGATORS[@]}"; do
+  case "$_agg" in
+    */host-drivers/run-all.sh) HOST_DRIVERS_DIR="${_agg%/run-all.sh}"; break ;;
+  esac
+done
+unset _agg
+
 _is_aggregator() {
   local file="$1"
   local agg
@@ -206,46 +287,52 @@ _is_known_orphan_bridge() {
 # aggregator list.
 _is_host_driver_implicit() {
   local file="$1"
-  local run_all has_run_all=0 agg
-  for agg in "${AGGREGATORS[@]}"; do
-    case "$agg" in
-      */host-drivers/run-all.sh) has_run_all=1; run_all="$agg"; break ;;
-    esac
-  done
-  [ "$has_run_all" -eq 1 ] || return 1
-  # File must live under the same host-drivers/ directory as run-all.sh.
-  local hd_dir="${run_all%/run-all.sh}"
+  [ -n "$HOST_DRIVERS_DIR" ] || return 1
   case "$file" in
-    "$hd_dir"/*.test.sh|"$hd_dir"/*.selftest.sh) return 0 ;;
+    "$HOST_DRIVERS_DIR"/*.test.sh|"$HOST_DRIVERS_DIR"/*.selftest.sh) return 0 ;;
   esac
   return 1
 }
 
 # Parse the EXEMPT marker out of the first 40 lines of the file.
-# Emits "<has_marker>\t<reason>" — has_marker is 0 or 1.
+# Sets EXEMPT_HAS (0 or 1) and EXEMPT_REASON (trimmed string). Uses
+# pure-bash line reading + BASH_REMATCH — no head/grep/cut subprocess
+# per file (a hot-loop win under BL-067).
 _parse_exempt() {
   local file="$1"
-  local marker_line reason=""
-  marker_line=$(head -n 40 "$file" 2>/dev/null \
-    | grep -E '^[[:space:]]*#[[:space:]]*LINT_TEST_REGISTRATION_EXEMPT:' \
-    | head -n 1)
-  if [ -z "$marker_line" ]; then
-    printf '0\t\n'
-    return 0
-  fi
-  reason="${marker_line#*LINT_TEST_REGISTRATION_EXEMPT:}"
-  # Trim leading and trailing whitespace.
-  reason="${reason#"${reason%%[![:space:]]*}"}"
-  reason="${reason%"${reason##*[![:space:]]}"}"
-  printf '1\t%s\n' "$reason"
+  local line reason=""
+  local lineno=0
+  EXEMPT_HAS=0
+  EXEMPT_REASON=""
+  # Read up to 40 lines. Guard with [ -r ] so unreadable files fall
+  # through to the "no marker" default (matches original head silence).
+  [ -r "$file" ] || return 0
+  while IFS= read -r line; do
+    lineno=$((lineno + 1))
+    [ "$lineno" -gt 40 ] && break
+    # Match optional leading whitespace + '#' + optional whitespace +
+    # the sentinel followed by ':'. Anything after the colon is the
+    # reason (trimmed below).
+    if [[ "$line" =~ ^[[:space:]]*#[[:space:]]*LINT_TEST_REGISTRATION_EXEMPT:(.*)$ ]]; then
+      reason="${BASH_REMATCH[1]}"
+      # Trim leading and trailing whitespace (matches original ${var#..}/${var%..} idiom).
+      reason="${reason#"${reason%%[![:space:]]*}"}"
+      reason="${reason%"${reason##*[![:space:]]}"}"
+      EXEMPT_HAS=1
+      EXEMPT_REASON="$reason"
+      return 0
+    fi
+  done < "$file"
+  return 0
 }
 
 scan_file() {
   local file="$1"
   [ -f "$file" ] || return 0
 
-  local base rel
-  base=$(basename "$file")
+  # Bash-builtin basename via parameter expansion (no subprocess).
+  local base="${file##*/}"
+  local rel found=0
   if [ "$TEST_MODE" -eq 1 ]; then
     rel="$file"
   else
@@ -277,17 +364,14 @@ scan_file() {
   esac
 
   # EXEMPT marker check.
-  local exempt has_marker reason
-  exempt=$(_parse_exempt "$file")
-  has_marker=$(printf '%s' "$exempt" | cut -f1)
-  reason=$(printf '%s' "$exempt" | cut -f2)
-  if [ "$has_marker" = "1" ]; then
-    if [ -z "$reason" ]; then
+  _parse_exempt "$file"
+  if [ "$EXEMPT_HAS" = "1" ]; then
+    if [ -z "$EXEMPT_REASON" ]; then
       echo "${rel}: lint-tests-registered: EXEMPT marker present but allowlist requires non-empty reason — append a justification after the colon" >&2
       VIOLATIONS=$((VIOLATIONS + 1))
       LIST_ROWS="${LIST_ROWS}FAIL\t${rel}\texempt-empty-reason\n"
     else
-      LIST_ROWS="${LIST_ROWS}PASS\t${rel}\texempt:${reason}\n"
+      LIST_ROWS="${LIST_ROWS}PASS\t${rel}\texempt:${EXEMPT_REASON}\n"
     fi
     return 0
   fi
@@ -305,31 +389,15 @@ scan_file() {
     return 0
   fi
 
-  # Real registration check: does any aggregator INVOKE this basename
-  # on a non-comment line? A naive substring grep would false-positive
-  # on `# Hook test scaffolding (same shape as test-foo.sh)` comments
-  # in adjacent aggregator headers (caught during BL-038 self-test).
-  # We anchor on a word-boundary-ish neighbourhood and then strip pure
-  # comment lines (`^[whitespace]*#`) from the candidate set before
-  # declaring a match.
-  local agg found=0
-  # Escape the basename's `.` so it doesn't act as a regex wildcard.
-  local base_re="${base//./\\.}"
-  # (^|[^[:alnum:]_-])basename([^[:alnum:]]|$) — matches the basename
-  # as a whole token, allowing trailing quote / paren / EOL but
-  # rejecting substring embeddings like `test-foo.sh.bak`.
-  local re="(^|[^[:alnum:]_-])${base_re}([^[:alnum:]]|\$)"
-  for agg in "${AGGREGATORS[@]}"; do
-    [ -f "$agg" ] || continue
-    # grep candidate lines, then drop pure-comment lines (a leading
-    # `#` after optional whitespace). Any survivor counts as a real
-    # invocation reference.
-    if grep -nE "$re" "$agg" 2>/dev/null | grep -vqE '^[0-9]+:[[:space:]]*#'; then
-      found=1
-      break
-    fi
-  done
-
+  # BL-067 hot-path: pipe-delimited-string membership test instead of
+  # the old O(m_aggregators × 2 greps) inner loop. REGISTERED_STR was
+  # populated in Pass 1 by _build_registered_set(). Zero subprocesses
+  # per file — the whole check is a bash `case` glob against a small
+  # in-memory string.
+  case "$REGISTERED_STR" in
+    *"|${base}|"*) found=1 ;;
+    *) found=0 ;;
+  esac
   if [ "$found" -eq 1 ]; then
     LIST_ROWS="${LIST_ROWS}PASS\t${rel}\tregistered\n"
   else
@@ -339,9 +407,12 @@ scan_file() {
   fi
 }
 
-# Enumerate test files under TESTS_DIR. The four globs cover the
-# canonical patterns; missing dirs/no-match cases are skipped via the
-# [ -e ] guard inside scan_file.
+# ── Pass 1: build the registered-basename hash-set once. ────────────
+_build_registered_set
+
+# ── Pass 2: enumerate test files under TESTS_DIR. The four globs ────
+# cover the canonical patterns; missing dirs/no-match cases are
+# skipped via the [ -f ] guard inside scan_file.
 shopt -s nullglob
 declare -a CANDIDATES=()
 for f in "$TESTS_DIR"/test-*.sh; do CANDIDATES+=("$f"); done

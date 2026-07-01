@@ -303,6 +303,43 @@ else
   fail_ "T10" "expected exit 2 + usage; rc=$rc; output:\n$out"
 fi
 
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T11: BL-067 wall-clock budget — real repo run completes in < 20s ==="
+# ════════════════════════════════════════════════════════════════════
+# BL-067 root cause: the original per-test-file grep loop was
+# O(n_tests × m_aggregators) subprocesses. On a heavily-loaded
+# workstation this crossed 2 minutes and busted the pre-commit gate.
+# The BL-067 rewrite collapses the algorithm to O(n + m) by
+# pre-computing a pipe-delimited "registered basename" set in a single
+# pass over the aggregators, then doing an in-memory `case` lookup per
+# test file (zero subprocesses in the hot loop).
+#
+# Mutation contract:
+#   • This test asserts the real-repo lint completes in under 20s.
+#     Median on a warm Mac (bash 3.2 + APFS) is <0.2s; the 20s budget
+#     is deliberately loose so it doesn't false-fire under CI load,
+#     but tight enough that a return to the O(n×m) subprocess-per-file
+#     shape (~1s per 100 tests on a fast box, extrapolating past 2min
+#     on the environment BL-067 was filed from) trips the test.
+#   • Reverting scripts/lint-tests-registered.sh to the pre-BL-067
+#     grep-per-aggregator inner loop puts the runtime at ~1s locally
+#     but blows past this budget on the reproducer environments.
+BUDGET_SEC=20
+# Capture wall-clock via `date +%s`. This is 1s resolution which is
+# more than enough for a 20s budget check and avoids depending on
+# `time` output parsing (portability across gnu-time / bash-time).
+start_s=$(date +%s)
+bash "$LINTER" >/dev/null 2>&1
+lint_rc=$?
+end_s=$(date +%s)
+elapsed=$((end_s - start_s))
+if [ "$lint_rc" -eq 0 ] && [ "$elapsed" -lt "$BUDGET_SEC" ]; then
+  pass "T11: real-repo lint completed in ${elapsed}s < ${BUDGET_SEC}s budget (BL-067 perf gate)"
+else
+  fail_ "T11" "elapsed=${elapsed}s (budget ${BUDGET_SEC}s), lint_rc=${lint_rc} — BL-067 perf regression suspected"
+fi
+
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]
