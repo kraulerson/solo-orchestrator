@@ -1111,6 +1111,57 @@ else
   pass "TEST 4 fixture sanity check (GitHub-host CI + release templates present for all 7 combos)"
 fi
 
+# === BUILD SHARED FIXTURE SCAFFOLD ONCE (BL-053) ===
+# Pre-refactor, each of the 7 combos independently paid the full
+# mkdir + cp*13 + chmod + git init cost — ~90% identical across combos.
+# Only these files actually diverge per combo:
+#   - .claude/phase-state.json      (project name, track, deployment, poc_mode)
+#   - .claude/tool-preferences.json (resolver output for that combo)
+#   - .github/workflows/ci.yml      (language-specific)
+#   - .github/workflows/release.yml (platform-specific)
+#   - docs/platform-modules/<t_platform>.md (platform-specific)
+#   - PROJECT_INTAKE.md             (appends per-combo tooling section)
+# Build the identical scaffold once, then `cp -R fixture/. project/` per
+# combo and mutate only the divergent files. Source: BL-053 in
+# Reports/2026-06-28-step4-dead-code-perf-eval.md §7 ROI #9 — fixture
+# reuse targets the 30-40s waste from N repeated setup cycles.
+#
+# Cleanup: fixture template lives inside $TEST_DIR (already rm -rf'd
+# at end of suite), and is also removed at the end of the TEST 4 loop
+# so $TEST_DIR only contains the 7 simulated project dirs when TEST 5+
+# reach into it.
+TEST4_FIXTURE="$TEST_DIR/_test4_fixture_template"
+mkdir -p "$TEST4_FIXTURE"/{docs/reference,docs/platform-modules,docs/test-results,.claude,.github/workflows,scripts/lib,templates/intake-suggestions,templates/tool-matrix,evaluation-prompts/Projects}
+
+cp "$SCRIPT_DIR/docs/builders-guide.md" "$TEST4_FIXTURE/docs/reference/" 2>/dev/null || true
+cp "$SCRIPT_DIR/docs/governance-framework.md" "$TEST4_FIXTURE/docs/reference/" 2>/dev/null || true
+cp "$SCRIPT_DIR/templates/project-intake.md" "$TEST4_FIXTURE/PROJECT_INTAKE.md"
+cp "$SCRIPT_DIR/scripts/lib/helpers.sh" "$TEST4_FIXTURE/scripts/lib/"
+cp "$SCRIPT_DIR/scripts/resolve-tools.sh" "$TEST4_FIXTURE/scripts/"
+cp "$SCRIPT_DIR/scripts/check-phase-gate.sh" "$TEST4_FIXTURE/scripts/"
+cp "$SCRIPT_DIR/scripts/validate.sh" "$TEST4_FIXTURE/scripts/"
+cp "$SCRIPT_DIR/scripts/resume.sh" "$TEST4_FIXTURE/scripts/"
+cp "$SCRIPT_DIR/scripts/intake-wizard.sh" "$TEST4_FIXTURE/scripts/"
+chmod +x "$TEST4_FIXTURE/scripts/"*.sh
+cp "$SCRIPT_DIR/templates/tool-matrix/"*.json "$TEST4_FIXTURE/templates/tool-matrix/"
+cp "$SCRIPT_DIR/templates/intake-suggestions/"*.json "$TEST4_FIXTURE/templates/intake-suggestions/" 2>/dev/null || true
+
+# APPROVAL_LOG.md is byte-identical across combos (no interpolation),
+# so it lives in the fixture template.
+cat > "$TEST4_FIXTURE/APPROVAL_LOG.md" << 'LOGEOF'
+# Approval Log
+
+## Phase 0 → Phase 1
+**Date:**
+**Reviewer:**
+LOGEOF
+
+# Git init once — nothing under TEST 4 asserts git state directly, but
+# we retain the invariant that each simulated project appears
+# git-initialized (as init.sh would leave it) so downstream tests (e.g.
+# TEST 5's check-phase-gate) see a repo, not a bare cwd.
+(cd "$TEST4_FIXTURE" && git init -q)
+
 for run in "${TEST_RUNS[@]}"; do
   IFS=':' read -r t_platform t_language t_track t_deployment <<< "$run"
   label="$t_platform/$t_language/$t_track/$t_deployment"
@@ -1119,22 +1170,19 @@ for run in "${TEST_RUNS[@]}"; do
 
   echo -e "\n${CYAN}--- Simulating: $label ---${NC}"
 
-  # Create project structure as init.sh would
-  mkdir -p "$project_dir"/{docs/reference,docs/platform-modules,docs/test-results,.claude,.github/workflows,scripts/lib,templates/intake-suggestions,templates/tool-matrix,evaluation-prompts/Projects}
+  # Copy the shared scaffold (docs, scripts, tool-matrix, intake
+  # suggestions, APPROVAL_LOG.md, .git), then mutate the per-combo
+  # diff below. `cp -R fixture/. project/` copies contents (including
+  # hidden entries like .git and .claude) into project_dir; on macOS
+  # (BSD cp) and GNU cp this preserves mode bits, so the +x we set on
+  # the fixture's scripts propagates without a per-combo chmod.
+  mkdir -p "$project_dir"
+  cp -R "$TEST4_FIXTURE"/. "$project_dir"/
 
-  # Copy files as init.sh would
-  cp "$SCRIPT_DIR/docs/builders-guide.md" "$project_dir/docs/reference/" 2>/dev/null || true
-  cp "$SCRIPT_DIR/docs/governance-framework.md" "$project_dir/docs/reference/" 2>/dev/null || true
-  cp "$SCRIPT_DIR/templates/project-intake.md" "$project_dir/PROJECT_INTAKE.md"
-  cp "$SCRIPT_DIR/scripts/lib/helpers.sh" "$project_dir/scripts/lib/"
-  cp "$SCRIPT_DIR/scripts/resolve-tools.sh" "$project_dir/scripts/"
-  cp "$SCRIPT_DIR/scripts/check-phase-gate.sh" "$project_dir/scripts/"
-  cp "$SCRIPT_DIR/scripts/validate.sh" "$project_dir/scripts/"
-  cp "$SCRIPT_DIR/scripts/resume.sh" "$project_dir/scripts/"
-  cp "$SCRIPT_DIR/scripts/intake-wizard.sh" "$project_dir/scripts/"
-  chmod +x "$project_dir/scripts/"*.sh
-  cp "$SCRIPT_DIR/templates/tool-matrix/"*.json "$project_dir/templates/tool-matrix/"
-  cp "$SCRIPT_DIR/templates/intake-suggestions/"*.json "$project_dir/templates/intake-suggestions/" 2>/dev/null || true
+  # === PER-COMBO DIFF STARTS HERE ===
+  # Platform module (only the combo's platform is asserted; the
+  # fixture is intentionally left empty so a skipped copy trips the
+  # downstream `Platform module missing` fail).
   [ -f "$SCRIPT_DIR/docs/platform-modules/${t_platform}.md" ] && cp "$SCRIPT_DIR/docs/platform-modules/${t_platform}.md" "$project_dir/docs/platform-modules/"
 
   # Determine CI template
@@ -1154,8 +1202,9 @@ for run in "${TEST_RUNS[@]}"; do
   [ -f "$SCRIPT_DIR/templates/pipelines/ci/github/$ci_tpl" ] && cp "$SCRIPT_DIR/templates/pipelines/ci/github/$ci_tpl" "$project_dir/.github/workflows/ci.yml"
   [ -f "$SCRIPT_DIR/templates/pipelines/release/github/${t_platform}.yml" ] && cp "$SCRIPT_DIR/templates/pipelines/release/github/${t_platform}.yml" "$project_dir/.github/workflows/release.yml"
 
-  # Init git
-  (cd "$project_dir" && git init -q)
+  # NOTE: `git init` and `APPROVAL_LOG.md` were per-combo before the
+  # BL-053 fixture-sharing refactor. Both now live in $TEST4_FIXTURE
+  # and arrive via the `cp -R` above — do not re-add them here.
 
   # Create phase-state.json mirroring init.sh's actual schema
   # (init.sh:1601-1616). Audit tests-full-known-bugs-1: the prior
@@ -1200,14 +1249,9 @@ PHASEOF
     fi
   done
 
-  # Create APPROVAL_LOG.md (as init.sh would)
-  cat > "$project_dir/APPROVAL_LOG.md" << 'LOGEOF'
-# Approval Log
-
-## Phase 0 → Phase 1
-**Date:**
-**Reviewer:**
-LOGEOF
+  # APPROVAL_LOG.md now lives in $TEST4_FIXTURE (BL-053) and arrives
+  # via `cp -R`. Do not re-write it here — a per-combo re-emit would
+  # mask fixture-sharing regressions and negate the reuse win.
 
   # Run resolver and write tool-preferences.json
   dev_os="darwin"
@@ -1297,6 +1341,11 @@ LOGEOF
     fail "Project-local resolver failed: $label"
   fi
 done
+
+# BL-053: fixture template served all 7 combos; retire it before TEST 5
+# reaches into $TEST_DIR so the scaffold artifact doesn't masquerade as
+# a simulated project.
+rm -rf "$TEST4_FIXTURE"
 
 # ================================================================
 # TEST 5: PHASE GATE TOOL CHECKS
