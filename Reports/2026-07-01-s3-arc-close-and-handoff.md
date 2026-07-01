@@ -92,6 +92,15 @@ The multi-wave S3 remediation arc that ran from 2026-06-28 through 2026-07-01 is
 2. **BL-035** — Wire ~50 pre-Wave-1-4 orphan tests into aggregators. Mechanical but large surface. Same pattern as BL-034 which shipped clean. Probably its own wave with a chunking strategy (5-10 files per sub-agent).
 3. **BL-069** — Migrate install_cmds array consumers off legacy singular. Just filed 2026-07-01 as PR #136 follow-up. 3 readers + 3 wrapper scripts (gitleaks/rust/k6). Natural continuation of BL-033.
 
+### Major — filed 2026-07-01 after workflow.html validation (PR #137) with automation-first solutions proposed; awaiting Karl's discussion
+
+**Design principle Karl reiterated at filing:** *users shouldn't have to ask the orchestrator to run evals — those should be automatic — and gate checks should be real, not implied.*
+
+4. **BL-070** — **Phase 3 validation scans not actually invoked.** Docs claim Phase 3 auto-runs Snyk / OWASP ZAP / full-tree Semgrep / license-compliance / threat-model verification. `grep of scripts/` finds zero invocations. Proposed solution: `scripts/run-phase3-validation.sh` driver invoked by `check-phase-gate.sh` that actually runs each tool, archives outputs to `docs/test-results/phase3/`, and gates the transition on aggregate summary + zero criticals.
+5. **BL-071** — **`phase-state.json::gates.<gate>` auto-write not implemented.** Docs say the gate script writes today's date on PASS. Reality: only READS. Proposed: atomic write per PR #97 pattern + fix `init.sh:1789-1804` to seed all 4 gate keys (currently misses `phase_2_to_3`).
+6. **BL-072** — **TDD ordering is warning-only, not blocking.** `init.sh:2337-2347` hook + `pre-commit-gate.sh` BL-006 only enforce on `feat:` prefix. Proposed: hard-block on `feat:`/`fix:`/`refactor:` when source outside `tests/` is touched without a matching test in the diff, with an attestation escape hatch.
+7. **BL-073** — **Phase 3 → 4 review-manifest gate is WARN-only.** `check-phase-gate.sh:1039-1056` doesn't verify all six reviewers ran. Proposed: track-aware escalation — `track=full` FAILs if Security or Red Team missing (per builders-guide.md L1656), `track=light` (POC) stays WARN.
+
 ### Minor
 - **BL-062** — Step-5 walker grading rubric (documentation)
 - **BL-063** — Enforcement-point scenario contracts assert message-present, not message-only (documentation)

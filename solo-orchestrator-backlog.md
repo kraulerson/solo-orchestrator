@@ -1837,3 +1837,131 @@ time bash scripts/lint-tests-registered.sh
 **Trigger:** Any pass that touches `verify-install.sh`, `upgrade-project.sh`, or one of the 3 wrapper-script tools. Also worth batching with BL-035 (~50 pre-Wave-1-4 orphan test wirings) since the new tests need aggregator registration per [[bl034-orphan-tests-wave-1-4]].
 
 **Related:** PR #136 (the schema-forward shipment this follows up on); PR #92 (BL-033's original verifier catch); [[bl033-tool-matrix-multistage-install-cmds]] (the schema half); [[bl034-orphan-tests-wave-1-4]] (test-aggregator registration invariant that new regression tests must satisfy).
+
+---
+
+## BL-070: Phase 3 validation scans — automate Snyk / OWASP ZAP / full-tree Semgrep / license-compliance / threat-model verification
+
+**Logged:** 2026-07-01 (PR #137 workflow.html validation, flagged discrepancy #2 — major)
+**Category:** Bug / doc-vs-enforcement gap; framework-promise integrity
+**Severity:** Major
+**Status:** Open — SOLUTION PROPOSED, awaiting discussion
+
+**What:** `docs/builders-guide.md` § Phase 3, `docs/user-guide.md` § Phase 3, and the workflow.html diagram (pre-PR-#137) imply Phase 3 automatically runs Snyk (deps), license compliance, OWASP ZAP DAST, full-tree Semgrep SAST, and threat-model mitigation verification. `grep of scripts/` finds **zero invocations** of any of these tools anywhere in the framework. `check-phase-gate.sh` only searches for artifact filenames in `docs/test-results/` — it neither runs the scans nor verifies their content. Operators today either run the scans manually and remember to save outputs, or skip them entirely with no framework signal. `pre-commit-gate.sh` runs Semgrep on staged files only — that is not the same as the "full-tree scan" Phase 3 documents.
+
+**Why it matters:** This is a core framework promise: "the framework validates everything in Phase 3." If a user relies on that promise and skips the scans (which nothing prevents), a compromised MVP ships with no signal. It directly contradicts Karl's design principle that *users shouldn't have to ask the orchestrator to run evals — those should be automatic — and that gate checks should be real, not implied*.
+
+**Proposed solution (automation-first — priority path):**
+
+Create `scripts/run-phase3-validation.sh` invoked automatically by `check-phase-gate.sh` when the operator (or agent) attempts a Phase 3 → 4 transition. Responsibilities:
+
+1. **Snyk dependency scan** — invoke `snyk test --json` if authenticated; skip with `[SKIP]` (counted as gate FAIL unless attested) if not; archive JSON to `docs/test-results/phase3/snyk-<timestamp>.json`.
+2. **License compliance** — invoke language-appropriate license checker (license-checker for TS, pip-licenses for Python, cargo license for Rust, dotnet-project-licenses for C#, etc — same matrix as the language CI templates); archive to `docs/test-results/phase3/licenses-<timestamp>.json`.
+3. **Full-tree Semgrep** — invoke `semgrep --config auto --json .`; distinct from pre-commit-gate.sh's staged-files-only scan; archive to `docs/test-results/phase3/semgrep-<timestamp>.json`.
+4. **OWASP ZAP DAST** (web + api platforms only) — invoke `zap-baseline.py` via Docker against a running instance; archive to `docs/test-results/phase3/zap-<timestamp>.json`. If Phase 3 has no live URL, start one locally via docker-compose-generated stub.
+5. **Threat-model verification** — parse `docs/threat-model.md` for mitigation IDs; grep the test suite for each mitigation's test-id anchor; report any mitigations without corresponding tests.
+6. **Aggregate report** — emit `docs/test-results/phase3/summary-<timestamp>.md` with per-check pass/fail + links to artifacts.
+7. **Gate integration** — `check-phase-gate.sh` refuses Phase 3 → 4 unless the aggregate summary exists AND reports zero critical findings.
+
+Fallback for POC projects without full tooling: `[SKIP]` counted as gate FAIL unless `--phase3-scans-skipped-attested` is set with a documented reason in `phase-state.json::phase3.attestations` (mirroring the BL-032 `SOLO_APPROVALS_ATTESTED` escape hatch pattern).
+
+**Alternative (docs-only path — deferred unless automation infeasible):** Update Builder's Guide + User Guide to say scans are "operator-run, framework-archived" instead of auto-run. Workflow.html took this path provisionally in PR #137. This does NOT satisfy the design principle; it lowers the framework promise instead of meeting it.
+
+**Related:** PR #137 (workflow.html corrections + validation report); `Reports/2026-07-01-workflow-html-validation.md` flag #2; `docs/builders-guide.md` § Phase 3; `docs/user-guide.md` § Phase 3; `scripts/check-phase-gate.sh:940-954` (the current WARN-only Phase 3 → 4 check); [[bl071-phase-gate-date-auto-write]] (sibling automation gap in the same script); [[bl072-tdd-hard-enforce]] (sibling gate-should-be-real gap); [[bl073-review-manifest-fail-track-full]] (sibling gate escalation).
+
+---
+
+## BL-071: Phase-gate date auto-write — `check-phase-gate.sh` writes `phase-state.json::gates.<gate>` on PASS
+
+**Logged:** 2026-07-01 (PR #137 workflow.html validation, flagged discrepancy #3 — major)
+**Category:** Bug / doc-vs-enforcement gap; state-file integrity
+**Severity:** Major
+**Status:** Open — SOLUTION PROPOSED, awaiting discussion
+
+**What:** The Builder's Guide + workflow.html (pre-PR-#137) state that on a successful phase-gate check, the framework writes today's date to `phase-state.json::gates.phase_<from>_to_<to>` — establishing an authoritative record of when the gate passed. Reality: `check-phase-gate.sh` and `validate.sh` only READ that field. `init.sh` seeds it as `null`. No `jq` assignment expression exists anywhere in `scripts/` that writes to `gates.<gate>`. The gates fields on main are populated only by the operator (or agent) manually editing `phase-state.json`, which the framework does not automate and does not enforce a format for.
+
+Additional (related, minor) gap: `init.sh:1789-1804` seeds only 3 of 4 gate keys (`phase_0_to_1`, `phase_1_to_2`, `phase_3_to_4` — misses `phase_2_to_3`). `verify-install.sh:844-847` seeds all four in its fixup path, so an operator who runs verify-install will get the missing key, but a fresh init skips it. Rolling this into BL-071 rather than filing separately since both concern gate-key state-file integrity.
+
+**Why it matters:** Same design-principle contradiction as BL-070 — a documented gate mechanic that isn't real. Operators reading the docs (or an AI reading the docs to know what state to expect) can be misled into believing that a populated gate-date field guarantees the gate was checked. Today, the gate-date field is decorative — anyone can write anything, at any time, with any format.
+
+**Proposed solution (automation-first — priority path):**
+
+1. Extend `scripts/check-phase-gate.sh` to write today's date to `phase-state.json::gates.<gate>` on every gate PASS, using the atomic-finalize pattern from `scripts/lib/phase2-state.sh` (mkdir-based lock + tmp-write + rename, per PR #97 lineage).
+2. Write format: `YYYY-MM-DD` (ISO 8601 date only, matching the regex `check-phase-gate.sh` and `validate.sh` already require at read time).
+3. Include the actor: prefer `git config user.name`/`user.email` if available, otherwise `whoami@hostname`. Store as a sibling field `gates.<gate>_by` (schema-forward; readers can ignore if not present).
+4. If `gates.<gate>` is already populated with a valid date and the check passes again, log an `[INFO]` line but do NOT overwrite (preserves the first-pass timestamp; re-passes are idempotent).
+5. On gate FAIL, do NOT clear an existing populated date — a previous PASS's record is real history, and a subsequent FAIL is a regression signal, not a reset.
+6. Fix `init.sh:1789-1804` to seed all 4 gate keys (add the missing `phase_2_to_3`).
+
+**Regression tests (BL-036 + BL-068 discipline):**
+- T-happy: gate PASS on virgin project → `gates.<gate>` populated with today's date; mutation-proof: remove the write → fails RED.
+- T-idempotent: two consecutive PASSes → date unchanged after second.
+- T-fail-preserves: FAIL after prior PASS → date unchanged, gate still fails.
+- T-init-seeds-four: fresh init → all 4 gate keys present as null.
+
+**Related:** PR #137 flag #3; `scripts/check-phase-gate.sh`; `scripts/init.sh:1789-1804`; `scripts/verify-install.sh:844-847` (the fixup pattern to mirror); [[bl070-phase-3-validation-scans]]; [[bl036-critical-vacuous-e31-e32-e39]] (mutation-proof discipline).
+
+---
+
+## BL-072: TDD ordering hard-enforcement — pre-commit gate must block, not warn, when implementation ships without tests
+
+**Logged:** 2026-07-01 (PR #137 workflow.html validation, flagged discrepancy #4 — major)
+**Category:** Bug / doc-vs-enforcement gap; core framework promise
+**Severity:** Major
+**Status:** Open — SOLUTION PROPOSED, awaiting discussion
+
+**What:** The Builder's Guide + README (top-of-file feature list) + workflow.html (pre-PR-#137) all describe test-first as a framework-enforced discipline. Reality: `init.sh:2337-2347` pre-commit hook is warning-only — the operator sees the warning and can commit anyway. `scripts/pre-commit-gate.sh` BL-006 enforcement fires only on `feat:` prefix; `chore/fix/refactor/docs/test/perf/style/build/ci/revert` all bypass. `README.md:531` already admits TDD ordering is "Tier-3 guided" with no automated backstop — but the Builder's Guide + user-facing workflow.html haven't been updated to match.
+
+**Why it matters:** This is arguably the single most important framework promise. "TDD is enforced" is what distinguishes solo-orchestrator from vibe-coding. If a user reads "test-driven, pre-commit hooks warn when implementation ships without tests" and infers the framework blocks the commit, they trust a gate that isn't there. This directly contradicts Karl's principle that *gate checks should be real, not implied*.
+
+**Proposed solution (automation-first — priority path):**
+
+1. **Hard-block on all implementation-touching commits, not just `feat:`.** Extend `scripts/pre-commit-gate.sh` to enforce TDD for `feat:`, `fix:`, and `refactor:` prefixes (anything that touches source outside `tests/`). `docs:`/`test:`/`chore:`/`style:` remain exempt.
+2. **Detection:** parse the staged diff. If any file outside `tests/`, `docs/`, `scripts/lint-*.sh`, `.github/`, etc. is modified/added AND no matching test file (per language convention) is modified/added in the same commit OR in the current branch's diff-from-main, refuse the commit with a `[FAIL]` and non-zero exit.
+3. **Escape hatch:** `--tdd-attested` flag (env var `SOLO_TDD_ATTESTED=1`) that records the reason in `.claude/process-state.json::tdd_attestations[]` for audit. Blocks are attested, not silenced.
+4. **Fix `init.sh:2337-2347`:** promote the warning to a fail. Or better: have init.sh install `pre-commit-gate.sh` as the sole pre-commit hook (removing the ad-hoc inline warning) so the enforcement lives in one place.
+5. **Docs sync:** update `README.md:531` to remove the Tier-3 admission (once the block is in place) and update `docs/builders-guide.md` § TDD to cite the enforcement.
+
+**Regression tests:**
+- T-hard-block-feat: `git commit -m "feat: X"` touching a source file with no test in the diff → refused with `[FAIL]`, rc=1.
+- T-hard-block-fix: same for `fix:` prefix.
+- T-hard-block-refactor: same for `refactor:` prefix.
+- T-exempt-docs: `docs:` prefix touching only `docs/*` → allowed.
+- T-attested-escape: `SOLO_TDD_ATTESTED=1` + reason → allowed, but recorded in `tdd_attestations`.
+- Mutation: revert the enforcement to warning-only → T-hard-block-feat/fix/refactor all pass (should fail).
+
+**Related:** PR #137 flag #4; `scripts/pre-commit-gate.sh` (BL-006 enforcement); `scripts/init.sh:2337-2347` (the warning-only hook); `README.md:531` (the honest Tier-3 admission that should stop being needed).
+
+---
+
+## BL-073: Phase 3 → 4 review-manifest gate — escalate to FAIL for `track=full` (currently WARN only)
+
+**Logged:** 2026-07-01 (PR #137 workflow.html validation, flagged discrepancy #6 — major)
+**Category:** Bug / doc-vs-enforcement gap; gate escalation
+**Severity:** Major
+**Status:** Open — SOLUTION PROPOSED, awaiting discussion
+
+**What:** `docs/builders-guide.md` L1614 frames the six-reviewer manifest as a Phase 3 → 4 gate check. `docs/builders-guide.md` L1656 requires Security + Red Team specifically for `track=full`. Reality: `scripts/check-phase-gate.sh:1039-1056` emits `[WARN]` only when the review manifest is incomplete. It does NOT verify all six reviewers ran (only that a manifest file exists), and it does not fail the gate.
+
+**Why it matters:** Same "gate check should be real, not implied" contradiction. A Full-track project that skips Security + Red Team reviews can pass Phase 3 → 4 today with only a warning banner. That's exactly the class of failure the six-reviewer mechanism exists to prevent.
+
+**Proposed solution (automation-first — priority path):**
+
+1. **Track-aware gate escalation** in `scripts/check-phase-gate.sh:1039-1056`:
+   - `track=full` (Full path / Organizational Production): FAIL if any of the 6 reviewer entries is missing from the manifest, with the mandatory subset being Security + Red Team (per builders-guide.md L1656) — those two produce FAIL. The other four produce WARN but still count toward gate blocking if track requires them.
+   - `track=standard` (Sponsored POC): FAIL only if Security + Red Team missing; WARN for others.
+   - `track=light` (Private POC): WARN only (current behavior preserved for POC).
+2. **Manifest format contract:** codify the expected schema — array of objects like `[{"reviewer": "security", "status": "complete|skipped|failed", "artifact": "path/to/report.md", "signed_by": "name <email>", "date": "YYYY-MM-DD"}, ...]`. Add a `scripts/lint-review-manifest.sh` linter runnable in CI.
+3. **Escape hatch:** `SOLO_REVIEWERS_ATTESTED=1` + documented reason recorded in `.claude/process-state.json::phase3.attestations.reviewers` (mirroring the BL-032 attestation pattern).
+4. **Docs sync:** update Builder's Guide L1656 to explicitly state the track-specific enforcement behavior.
+
+**Regression tests:**
+- T-full-missing-security-fails: track=full, security reviewer absent → gate FAIL, rc=1.
+- T-full-missing-redteam-fails: track=full, red team absent → gate FAIL, rc=1.
+- T-full-missing-cio-warns: track=full, CIO absent (not in mandatory subset) → gate WARN + issues++ → still FAIL (exit 1) but message clearer.
+- T-standard-missing-security-fails: track=standard, security absent → gate FAIL.
+- T-light-missing-security-warns: track=light, security absent → gate WARN only (POC preserved).
+- T-attested-escape: `SOLO_REVIEWERS_ATTESTED=1` + reason → allowed, recorded.
+- Mutation: revert to `[WARN]` only → T-full-missing-* all pass (should fail).
+
+**Related:** PR #137 flag #6; `docs/builders-guide.md` L1614 (gate framing), L1656 (Security + Red Team mandatory for Full); `scripts/check-phase-gate.sh:1039-1056` (the current WARN-only check); [[bl070-phase-3-validation-scans]] (sibling automation gap); [[bl072-tdd-hard-enforce]] (sibling gate-should-be-real gap).
