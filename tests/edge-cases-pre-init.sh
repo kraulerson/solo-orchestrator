@@ -198,32 +198,116 @@ else
   pass "E2: backtick command substitution was NOT executed"
 fi
 
-# Audit finding tests-edge-cases-2: the original block had both branches
-# call pass(), so the assertion added 1 to the count regardless of whether
-# the literal "$(whoami)" appeared in the dry-run output. The audit's
-# recommended option A (require the literal to be echoed back) does not
-# match init.sh's actual dry-run contract — dry_run_summary (init.sh:2781)
-# prints project name, platform, track, language and directory but NOT
-# the description (the description is stored in state/manifest only).
-# So a positive-assertion for $(whoami) in dry-run output would fail not
-# because of an injection regression but because dry-run was never
-# designed to echo description back.
-#
-# Adopt audit recommendation B instead: delete the vacuous literal-text
-# block entirely. Injection-resistance is already covered by the uid=
-# check above (init.sh:154) and the DRY RUN completion check below
-# (init.sh:169). Replace the vacuous PASS with a SKIP that explicitly
-# names why this case isn't asserted, so a future change adding the
-# description to dry-run output surfaces a follow-up to wire a real
-# positive grep here.
-# (Closes audit finding tests-edge-cases-2.)
-skip "E2: dry-run does not echo description back — no surface to assert literal \$(whoami) preservation (see init.sh:2781)"
+# BL-040 (2026-06-30) restored assertion: dry_run_summary now echoes
+# the operator-supplied description, so the literal "$(whoami)" and
+# "`id`" from the malicious input must appear verbatim in the dry-run
+# preview. The original E2 stdin-piped harness CANNOT verify this
+# because scripts/lib/helpers.sh:prompt_input() returns the default
+# (empty string) whenever stdin is not a TTY — the piped malicious
+# description never reaches PROJECT_DESCRIPTION, so a regression that
+# silently dropped the description would still "PASS" the stdin path.
+# Use the non-interactive --description flag instead; the value lands
+# in PROJECT_DESCRIPTION via ARG_DESCRIPTION (init.sh:3540), bypassing
+# the TTY-gated prompt. Fails RED on origin/main (no Description line
+# in summary), GREEN after the dry_run_summary fix. Grep with -F so
+# the $( and ` metacharacters are matched literally, not as regex.
+E2_NI_DIR="$TEST_DIR/e2-ni-project"
+e2_ni_output=$(bash "$REPO_DIR/init.sh" \
+  --dry-run \
+  --non-interactive \
+  --project "e2-injection-ni" \
+  --description "$E2_MALICIOUS_DESC" \
+  --platform web \
+  --deployment personal \
+  --language python \
+  --project-dir "$E2_NI_DIR" 2>&1) || true
 
-# If dry-run completed without crashing, that's a good sign
+if echo "$e2_ni_output" | grep -qF '$(whoami)' \
+   && echo "$e2_ni_output" | grep -qF '`id`'; then
+  pass "E2: non-interactive dry-run echoes malicious description as literal text"
+else
+  fail "E2: non-interactive dry-run did not echo literal '\$(whoami) \`id\`' (BL-040 regression)"
+fi
+
+# Belt-and-suspenders: even on the non-interactive path, neither
+# command substitution should fire — no uid= or root: leaking into
+# the summary output.
+if echo "$e2_ni_output" | grep -qE 'uid=|root:'; then
+  fail "E2: command substitution leaked into non-interactive dry-run output"
+else
+  pass "E2: non-interactive dry-run treats description as literal (no command substitution)"
+fi
+
+# If interactive dry-run completed without crashing, that's a good sign
 if echo "$e2_output" | grep -qi "DRY RUN"; then
   pass "E2: init.sh completed dry-run with malicious description"
 else
   fail "E2: init.sh did not complete dry-run with malicious description"
+fi
+
+# ----------------------------------------------------------------
+# E2b: Empty description renders cleanly in dry-run summary
+# Expected: dry_run_summary omits the "Description:" line when the
+# value is empty (operator-friendly: no blank label).
+# ----------------------------------------------------------------
+E2B_DIR="$TEST_DIR/e2b-project"
+e2b_input=$(build_dryrun_input "e2b-empty-desc" "" 4 2 1 6 "$E2B_DIR" "Y")
+e2b_output=$(printf '%s\n' "$e2b_input" | bash "$REPO_DIR/init.sh" --dry-run 2>&1) || true
+
+# Must still complete dry-run when description is empty
+if echo "$e2b_output" | grep -qi "DRY RUN SUMMARY"; then
+  pass "E2b: dry-run completes with empty description"
+else
+  fail "E2b: dry-run did NOT complete with empty description"
+fi
+
+# Description label must be omitted entirely (no dangling "Description: " line)
+if echo "$e2b_output" | grep -q "^  Description:"; then
+  fail "E2b: empty description should be omitted from summary (found dangling label)"
+else
+  pass "E2b: dry-run summary omits Description label when value is empty"
+fi
+
+# ----------------------------------------------------------------
+# E2c: Multi-line description normalizes to a single summary line
+# Expected: dry_run_summary collapses embedded newlines/tabs into
+# spaces so the summary stays one-line-per-field. Multi-line input
+# is reachable through the non-interactive --description flag
+# (interactive prompt_input is a single read -rp).
+# ----------------------------------------------------------------
+E2C_DIR="$TEST_DIR/e2c-project"
+# shellcheck disable=SC2034
+E2C_DESC=$'line-one-marker\nline-two-marker'
+
+e2c_output=$(bash "$REPO_DIR/init.sh" \
+  --dry-run \
+  --non-interactive \
+  --project "e2c-multiline" \
+  --description "$E2C_DESC" \
+  --platform web \
+  --deployment personal \
+  --language python \
+  --project-dir "$E2C_DIR" 2>&1) || true
+
+# Both halves of the multi-line value must appear in the dry-run
+# output (proves the whole description survived the echo).
+if echo "$e2c_output" | grep -qF "line-one-marker" \
+   && echo "$e2c_output" | grep -qF "line-two-marker"; then
+  pass "E2c: dry-run echoes both halves of multi-line description"
+else
+  fail "E2c: dry-run dropped part of multi-line description"
+fi
+
+# Both markers must land on the SAME line after newline normalization
+# (the description should not bleed across multiple summary lines and
+# break the column layout). awk is shell-safe across BSD and GNU.
+if echo "$e2c_output" | awk '
+  /line-one-marker/ && /line-two-marker/ { found=1; exit }
+  END { exit !found }
+'; then
+  pass "E2c: multi-line description rendered on a single summary line"
+else
+  fail "E2c: multi-line description not collapsed onto a single summary line"
 fi
 
 # ================================================================
@@ -467,15 +551,15 @@ fi
 # behavior of init.sh was never exercised.
 #
 # Honest reframe: dry-run cannot exercise mkdir, so it cannot prove the
-# read-only-handling contract. Rewrite this section to only assert what
-# dry-run can honestly verify — preview completes and is non-destructive —
-# and emit a SKIP for the real-write read-only case (it would require
-# either a write-permission pre-flight in init.sh per audit recommendation
-# C, or running the heavy real-run install path from outside the framework
-# repo since init.sh refuses to scaffold inside its own repo). The skip
-# surfaces the gap explicitly rather than hiding it inside a catch-all
-# PASS cascade. See solo-orchestrator-backlog.md for the follow-up to add
-# a write-permission pre-flight.
+# read-only-handling contract. Split into:
+#   - E8a: --dry-run honestly verifies preview completes and is non-
+#     destructive even when target parent is unwritable.
+#   - E8b: --non-interactive real-run probe of the BL-041 write-permission
+#     preflight. Was SKIPped pre-BL-041 because init.sh's framework-repo
+#     guard fired first and masked the permission failure path. After
+#     PR for BL-041 the preflight runs BEFORE the framework-repo guard,
+#     so this case is now exercisable from the test harness even when
+#     cwd is the framework repo.
 # ================================================================
 section "E8: Read-Only Directory"
 
@@ -506,13 +590,34 @@ else
   fail "E8a: dry-run created $E8_DIR/project — non-destructive invariant violated"
 fi
 
-# E8b: real-run read-only assertion is intentionally not exercised here.
-# init.sh's framework-repo guard (init.sh:3494) blocks all non-dry-run
-# invocations from within the framework repo, including --validate-only,
-# so we cannot run a real-write probe from the test harness location.
-# A future pre-flight write-permission check in init.sh (audit
-# recommendation C) would let this case be tested via --dry-run + probe.
-skip "E8b: real-run read-only assertion needs init.sh write-permission pre-flight (audit option C) — see solo-orchestrator-backlog.md"
+# E8b: real-run read-only assertion — verifies the BL-041 write-perm
+# preflight. POSIX 0444 does not deny root; skip when running as root
+# so we don't false-pass.
+if [ "$(id -u)" = "0" ]; then
+  skip "E8b: skipped under root (POSIX 0444 doesn't deny root; preflight cannot be exercised)"
+else
+  echo ""
+  echo "  E8b: Testing init.sh --non-interactive with read-only --project-dir parent"
+  e8b_exit=0
+  e8b_output=$( bash "$REPO_DIR/init.sh" --non-interactive \
+                  --project e8b-readonly \
+                  --platform web \
+                  --deployment personal \
+                  --language typescript \
+                  --git-host github \
+                  --visibility private \
+                  --project-dir "$E8_DIR/project" \
+                  --no-remote-creation 2>&1 ) || e8b_exit=$?
+  if [ "$e8b_exit" -eq 0 ]; then
+    fail "E8b: expected non-zero exit (write-perm preflight); got rc=0"
+  elif ! echo "$e8b_output" | grep -qE "write permission denied|Cannot create project directory"; then
+    fail "E8b: did not emit write-permission marker (rc=$e8b_exit). Tail: $(echo "$e8b_output" | tail -5)"
+  elif echo "$e8b_output" | grep -q "Refusing to operate inside the Solo Orchestrator framework repo"; then
+    fail "E8b: framework-repo guard fired first (BL-041 layering regressed). Tail: $(echo "$e8b_output" | tail -5)"
+  else
+    pass "E8b: write-perm preflight fires before framework-repo guard (BL-041 layering active)"
+  fi
+fi
 
 # Restore permissions for cleanup
 chmod 755 "$E8_DIR"

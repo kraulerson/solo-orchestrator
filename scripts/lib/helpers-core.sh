@@ -226,6 +226,78 @@ guard_not_in_framework() {
   return 0
 }
 
+# Verify the calling process can create files at $1.
+#
+# Why this exists (BL-041 closer, 2026-06-30):
+#   init.sh historically only learned that the target directory was
+#   unwritable AFTER hundreds of lines of setup — by which point it had
+#   already side-effected logs, mkdir'd partial scaffolds, and bailed in
+#   the middle of an inconsistent install. Worse, the framework-repo
+#   guard (guard_not_in_framework above) used to fire BEFORE any write-
+#   permission check, so test harnesses running from inside the
+#   framework checkout could not exercise the read-only failure path
+#   at all (tests/edge-cases-pre-init.sh E8b was SKIPped).
+#
+#   This preflight is the operator-facing write-permission probe. It
+#   MUST run before guard_not_in_framework so that:
+#     • a real operator who points --project-dir at an unwritable
+#       location gets a clear permission error (not the developer-
+#       facing framework-repo refusal that is irrelevant to them);
+#     • test harnesses running from any cwd can deliberately exercise
+#       the read-only assertion without first being short-circuited
+#       by the framework-repo guard.
+#
+# Contract:
+#   • returns 0 if the target can be created/written; 1 otherwise.
+#   • empty $1 returns 0 (caller has no resolvable target yet — interactive
+#     flows resolve via prompts after this preflight; the project_dir-
+#     existence check downstream handles that path).
+#   • when target does not exist, the deepest existing ancestor is probed.
+#   • emits a self-contained operator-facing error on failure (no caller
+#     post-message needed).
+preflight_target_writable() {
+  local target="${1:-}"
+  [ -n "$target" ] || return 0
+
+  # Normalize to absolute (no realpath dependency — POSIX only).
+  case "$target" in
+    /*) ;;
+    *)  target="$(pwd)/$target" ;;
+  esac
+
+  # Walk up to deepest existing ancestor. We need a path that exists
+  # before we can answer "is it writable?".
+  local probe="$target"
+  while [ ! -e "$probe" ]; do
+    local parent
+    parent="$(dirname "$probe")"
+    if [ "$parent" = "$probe" ]; then
+      # Walked all the way to the filesystem root and nothing exists.
+      # This is a different failure mode (path is in a non-existent
+      # filesystem) — defer to the downstream existence check.
+      return 0
+    fi
+    probe="$parent"
+  done
+
+  if [ ! -w "$probe" ]; then
+    print_fail "Cannot create project directory: write permission denied."
+    echo "  Target:           $target" >&2
+    echo "  Unwritable path:  $probe" >&2
+    echo "" >&2
+    echo "  init.sh needs to write under the resolved target path, but" >&2
+    echo "  the existing ancestor '$probe' is not writable by the" >&2
+    echo "  current user ($(whoami))." >&2
+    echo "" >&2
+    echo "  Fix one of:" >&2
+    echo "    - chmod the parent to grant write access (e.g. chmod u+w '$probe')" >&2
+    echo "    - pick a different --project-dir under a writable parent" >&2
+    echo "    - re-run as a user that owns the parent directory" >&2
+    return 1
+  fi
+  return 0
+}
+
 # Prompt for a numbered choice from a list of options.
 # Usage: result=$(prompt_choice "Pick one:" "option1" "option2" "option3")
 #

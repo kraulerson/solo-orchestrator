@@ -233,6 +233,26 @@ else
 fi
 
 # ================================================================
+# TEST 0c5: BL-041 — write-permission preflight runs BEFORE framework-repo guard
+# ================================================================
+# Regression suite for BL-041 (LB-3): the framework-repo guard
+# (guard_not_in_framework) historically ran BEFORE any write-permission
+# probe, so a real operator who pointed --project-dir at an unwritable
+# location saw the irrelevant developer-facing framework-repo refusal
+# instead of a permission error, and tests/edge-cases-pre-init.sh E8b
+# could not be exercised at all from inside the framework checkout.
+# Fix: preflight_target_writable in scripts/lib/helpers.sh, wired into
+# init.sh BEFORE guard_not_in_framework. Tests pin the layering both
+# ways (preflight wins when target is unwritable; guard wins when
+# preflight passes; neither false-positives outside the framework).
+section "init.sh write-perm preflight before framework-repo guard (BL-041)"
+if bash "$SCRIPT_DIR/tests/test-init-write-perm-preflight.sh" >/dev/null 2>&1; then
+  pass "init.sh BL-041 layering tests (3/3)"
+else
+  fail "init.sh BL-041 layering tests FAILED (run tests/test-init-write-perm-preflight.sh for details)"
+fi
+
+# ================================================================
 # TEST 0d: BACKLOG-REFERENCES LINT — cycle-7 Slot-5 process backstop
 # ================================================================
 # Sibling of the counter-antipattern lint above; catches drift between
@@ -315,6 +335,29 @@ if bash "$SCRIPT_DIR/tests/test-lint-raw-read-prompt.sh" >/dev/null 2>&1; then
   pass "scripts/lint-raw-read-prompt.sh behavior tests"
 else
   fail "scripts/lint-raw-read-prompt.sh behavior tests FAILED (run tests/test-lint-raw-read-prompt.sh for details)"
+fi
+
+# BL-038: tests/test-lint-tests-registered.sh — behavior suite for the
+# runner-registration backstop. Validates the lint's positive,
+# negative, EXEMPT-marker, mutation, and reverse-mutation paths so a
+# regression in the lint itself (false negative on a new orphan,
+# false positive on a comment-mention) is surfaced at the aggregator.
+if bash "$SCRIPT_DIR/tests/test-lint-tests-registered.sh" >/dev/null 2>&1; then
+  pass "scripts/lint-tests-registered.sh behavior tests"
+else
+  fail "scripts/lint-tests-registered.sh behavior tests FAILED (run tests/test-lint-tests-registered.sh for details)"
+fi
+
+# BL-038: repo-wide lint invocation. Refuses to merge a new
+# tests/test-*.sh file unless an aggregator invokes it or the file
+# carries an EXEMPT marker. See scripts/lint-tests-registered.sh
+# header for the registration contract + KNOWN_ORPHANS_PENDING_BL035
+# bridge.
+section "Tests-registered lint (BL-038 structural backstop)"
+if bash "$SCRIPT_DIR/scripts/lint-tests-registered.sh" >/dev/null 2>&1; then
+  pass "Every tests/test-*.sh is invoked by an aggregator (or EXEMPT)"
+else
+  fail "Tests-registered lint found unregistered test file(s) (see scripts/lint-tests-registered.sh --list)"
 fi
 
 # ----------------------------------------------------------------
