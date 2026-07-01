@@ -467,15 +467,15 @@ fi
 # behavior of init.sh was never exercised.
 #
 # Honest reframe: dry-run cannot exercise mkdir, so it cannot prove the
-# read-only-handling contract. Rewrite this section to only assert what
-# dry-run can honestly verify — preview completes and is non-destructive —
-# and emit a SKIP for the real-write read-only case (it would require
-# either a write-permission pre-flight in init.sh per audit recommendation
-# C, or running the heavy real-run install path from outside the framework
-# repo since init.sh refuses to scaffold inside its own repo). The skip
-# surfaces the gap explicitly rather than hiding it inside a catch-all
-# PASS cascade. See solo-orchestrator-backlog.md for the follow-up to add
-# a write-permission pre-flight.
+# read-only-handling contract. Split into:
+#   - E8a: --dry-run honestly verifies preview completes and is non-
+#     destructive even when target parent is unwritable.
+#   - E8b: --non-interactive real-run probe of the BL-041 write-permission
+#     preflight. Was SKIPped pre-BL-041 because init.sh's framework-repo
+#     guard fired first and masked the permission failure path. After
+#     PR for BL-041 the preflight runs BEFORE the framework-repo guard,
+#     so this case is now exercisable from the test harness even when
+#     cwd is the framework repo.
 # ================================================================
 section "E8: Read-Only Directory"
 
@@ -506,13 +506,34 @@ else
   fail "E8a: dry-run created $E8_DIR/project — non-destructive invariant violated"
 fi
 
-# E8b: real-run read-only assertion is intentionally not exercised here.
-# init.sh's framework-repo guard (init.sh:3494) blocks all non-dry-run
-# invocations from within the framework repo, including --validate-only,
-# so we cannot run a real-write probe from the test harness location.
-# A future pre-flight write-permission check in init.sh (audit
-# recommendation C) would let this case be tested via --dry-run + probe.
-skip "E8b: real-run read-only assertion needs init.sh write-permission pre-flight (audit option C) — see solo-orchestrator-backlog.md"
+# E8b: real-run read-only assertion — verifies the BL-041 write-perm
+# preflight. POSIX 0444 does not deny root; skip when running as root
+# so we don't false-pass.
+if [ "$(id -u)" = "0" ]; then
+  skip "E8b: skipped under root (POSIX 0444 doesn't deny root; preflight cannot be exercised)"
+else
+  echo ""
+  echo "  E8b: Testing init.sh --non-interactive with read-only --project-dir parent"
+  e8b_exit=0
+  e8b_output=$( bash "$REPO_DIR/init.sh" --non-interactive \
+                  --project e8b-readonly \
+                  --platform web \
+                  --deployment personal \
+                  --language typescript \
+                  --git-host github \
+                  --visibility private \
+                  --project-dir "$E8_DIR/project" \
+                  --no-remote-creation 2>&1 ) || e8b_exit=$?
+  if [ "$e8b_exit" -eq 0 ]; then
+    fail "E8b: expected non-zero exit (write-perm preflight); got rc=0"
+  elif ! echo "$e8b_output" | grep -qE "write permission denied|Cannot create project directory"; then
+    fail "E8b: did not emit write-permission marker (rc=$e8b_exit). Tail: $(echo "$e8b_output" | tail -5)"
+  elif echo "$e8b_output" | grep -q "Refusing to operate inside the Solo Orchestrator framework repo"; then
+    fail "E8b: framework-repo guard fired first (BL-041 layering regressed). Tail: $(echo "$e8b_output" | tail -5)"
+  else
+    pass "E8b: write-perm preflight fires before framework-repo guard (BL-041 layering active)"
+  fi
+fi
 
 # Restore permissions for cleanup
 chmod 755 "$E8_DIR"
