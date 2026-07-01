@@ -11,7 +11,8 @@ set -euo pipefail
 #    or: bash /path/to/solo-orchestrator/scripts/validate.sh (from any project)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/lib/helpers.sh"
+# BL-046: uses print_fail/info/ok/warn only — source core subset.
+source "$SCRIPT_DIR/lib/helpers-core.sh"
 
 print_section() { echo ""; echo -e "${BOLD}── $1 ──${NC}"; }
 

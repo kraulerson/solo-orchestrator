@@ -18,8 +18,9 @@ if [ -n "$BREW_PREFIX" ] && [ -d "$BREW_PREFIX/bin" ]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -f "$SCRIPT_DIR/lib/helpers.sh" ]; then
-  source "$SCRIPT_DIR/lib/helpers.sh"
+# BL-046: uses print_fail/info/ok/warn + prompt_input/yes_no only — core subset.
+if [ -f "$SCRIPT_DIR/lib/helpers-core.sh" ]; then
+  source "$SCRIPT_DIR/lib/helpers-core.sh"
 else
   if [ -t 1 ]; then
     RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'

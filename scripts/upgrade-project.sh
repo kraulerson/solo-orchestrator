@@ -2196,6 +2196,32 @@ fi
 # pending-approval.sh), existing projects can't pick them up by re-running
 # init. This block syncs the post-BL-009/BL-015 helper set into the project's
 # scripts/ directory. Idempotent: cp overwrites existing files identically.
+#
+# BL-046 (helpers.sh core/full split, 2026-06-30): existing projects have
+# only scripts/lib/helpers.sh (the pre-split monolith). The refreshed
+# short-lived scripts (check-versions.sh, check-updates.sh, etc.) source
+# scripts/lib/helpers-core.sh directly. Without the two new sibling files
+# they'd fall through to the inline fallback (which is functional but
+# suboptimal) or, in a couple of scripts that hard-source without a
+# fallback (check-maintenance.sh, check-phase-gate.sh, check-updates.sh,
+# validate.sh, test-gate.sh, resume.sh, process-checklist.sh), they'd
+# error out with "file not found." Ship the two new files before the
+# script refresh below, so the refreshed callers find them on next run.
+if [ -d scripts/lib ]; then
+  for lib_file in helpers-core.sh helpers-full.sh; do
+    src="$SCRIPT_DIR/lib/$lib_file"
+    dst="scripts/lib/$lib_file"
+    if [ -f "$src" ]; then
+      if [ "$src" -ef "$dst" ]; then
+        : # no-op (same file)
+      else
+        cp "$src" "$dst"
+        print_ok "scripts/lib/$lib_file installed (BL-046 helpers.sh split)"
+      fi
+    fi
+  done
+fi
+
 print_step "Refreshing framework helper scripts (BL-009, BL-015)"
 if [ -d scripts ]; then
   for helper in pending-approval.sh lint-uat-scenarios.sh; do

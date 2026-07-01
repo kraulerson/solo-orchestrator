@@ -19,7 +19,9 @@ set -euo pipefail
 #   scripts/process-checklist.sh --help
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/lib/helpers.sh"
+# BL-046: uses print_ok/warn/fail/info + prompt_yes_no + guard_not_in_framework
+# only — source core subset.
+source "$SCRIPT_DIR/lib/helpers-core.sh"
 
 # security-audits-2 (S3, 2026-04-26 audit sweep): the helpers.sh docstring at
 # guard_not_in_framework names scripts/process-checklist.sh as a script that

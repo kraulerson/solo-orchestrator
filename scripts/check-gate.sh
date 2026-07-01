@@ -10,8 +10,10 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# BL-046: uses print_step/ok/fail/info/warn + log_line + prompt_yes_no
+# only — source core subset. Fallback still triggers when lib is missing.
 # shellcheck disable=SC1090
-source "$SCRIPT_DIR/lib/helpers.sh" 2>/dev/null || {
+source "$SCRIPT_DIR/lib/helpers-core.sh" 2>/dev/null || {
   # Minimal fallback if helpers not available (e.g., pre-init migration scenario)
   print_step() { echo "[STEP] $*"; }
   print_ok()   { echo "  [OK] $*"; }
@@ -20,9 +22,9 @@ source "$SCRIPT_DIR/lib/helpers.sh" 2>/dev/null || {
   print_warn() { echo "[WARN] $*"; }
   log_line()   { :; }
   # Wave-3 raw-read sweep: prompt_yes_no fallback honors the same
-  # non-interactive hard-N contract as the helpers.sh version. Reached
-  # only in pre-init migration scenarios where lib/helpers.sh is
-  # absent; behavior must match the canonical helper so the manifest
+  # non-interactive hard-N contract as the helpers-core.sh version.
+  # Reached only in pre-init migration scenarios where lib/helpers-core.sh
+  # is absent; behavior must match the canonical helper so the manifest
   # mutation in --backfill-host below stays consistent.
   prompt_yes_no() {
     local message="$1" default_answer="${2:-N}"
@@ -31,7 +33,7 @@ source "$SCRIPT_DIR/lib/helpers.sh" 2>/dev/null || {
       return 1
     fi
     local reply
-    read -rp "${message}: " reply # lint-raw-read-prompt: allow fallback prompt_yes_no defined inline when lib/helpers.sh is absent (pre-init migration scenario); semantically equivalent to lib/helpers.sh::prompt_yes_no
+    read -rp "${message}: " reply # lint-raw-read-prompt: allow fallback prompt_yes_no defined inline when lib/helpers-core.sh is absent (pre-init migration scenario); semantically equivalent to lib/helpers-core.sh::prompt_yes_no
     [ -z "$reply" ] && { case "$default_answer" in [Yy]*) return 0 ;; *) return 1 ;; esac; }
     case "$reply" in [Nn]*) return 1 ;; *) return 0 ;; esac
   }

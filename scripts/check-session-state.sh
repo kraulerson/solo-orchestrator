@@ -18,8 +18,9 @@ set -euo pipefail
 #   1 — CLAUDE.md is stale (only when SOIF_STRICT_SESSION=true)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -f "$SCRIPT_DIR/lib/helpers.sh" ]; then
-  source "$SCRIPT_DIR/lib/helpers.sh"
+# BL-046: uses print_ok / print_warn only — source core subset.
+if [ -f "$SCRIPT_DIR/lib/helpers-core.sh" ]; then
+  source "$SCRIPT_DIR/lib/helpers-core.sh"
 else
   print_warn() { echo "[WARN] $1"; }
   print_ok()   { echo "  [OK] $1"; }
