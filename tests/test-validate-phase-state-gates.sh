@@ -23,6 +23,14 @@
 # T5 (mutation guard): The JSON-first read helper must be present in
 #                      validate.sh so that reverting the JSON path
 #                      would flip T1 red.
+# T6 (wired-ness):     phase_2_to_3 branch executes (fixture current_phase=3,
+#                      JSON gate populated) and quotes the JSON date +
+#                      "from phase-state.json" source annotation. Proves the
+#                      check_gate call for phase_2_to_3 is not dead code.
+# T7 (regex guard):    a malformed JSON date is REJECTED — validate.sh must
+#                      fall back to APPROVAL_LOG.md rather than blindly
+#                      trusting a value like "March 1, 2026". Mutation-proof
+#                      against a weakened date regex.
 
 set -uo pipefail
 
@@ -190,15 +198,100 @@ teardown_project
 # --------------------------------------------------------------------
 # T5 (mutation guard): the JSON-first helper must exist in validate.sh
 # so that reverting it (deleting the JSON read call) would flip T1
-# red. A grep-anchor is faster than a full mutation replay; if the
-# canonical helper name changes, update this anchor.
+# red. Anchored on the function DEFINITION at beginning-of-line, not
+# on any mention of the name — a prior looser regex matched comment
+# lines describing the helper, so deleting the body while leaving the
+# comments alone would still pass. If the canonical helper name
+# changes, update this anchor.
 # --------------------------------------------------------------------
-echo "T5: mutation guard — JSON gate-date read is present in validate.sh"
-if grep -qE 'get_gate_date_from_(phase_)?state|phase-state\.json.*gates|gates\.phase_0_to_1' "$VALIDATE"; then
-  pass "T5: JSON gate-date read anchor present in validate.sh"
+echo "T5: mutation guard — JSON gate-date read function is defined in validate.sh"
+if grep -qE '^get_gate_date_from_phase_state\(\)' "$VALIDATE"; then
+  pass "T5: get_gate_date_from_phase_state() function definition present in validate.sh"
 else
-  fail_ "T5" "no JSON gate-date read anchor found in validate.sh — a revert would leave T1 as the only guard, which relies on absence of a WARN line (weaker than a positive anchor)"
+  fail_ "T5" "no get_gate_date_from_phase_state() function definition found in validate.sh — a revert (deleting the helper) would leave T1 as the only guard, which relies on absence of a WARN line (weaker than a positive anchor)"
 fi
+
+# --------------------------------------------------------------------
+# T6 (wired-ness for phase_2_to_3): T1-T5 all use current_phase=1, so
+# check_gate's early-return guard `[ "$phase" -ge "$phase_min" ] || return 0`
+# means the phase_1_to_2 / phase_2_to_3 / phase_3_to_4 branches are
+# never exercised. Renaming the phase_2_to_3 key in the check_gate call
+# would still leave T1-T5 green. T6 builds a fixture with
+# current_phase=3 and populates gates.phase_2_to_3 so the branch
+# actually runs; the assertion targets the OK line for the 2→3 gate
+# quoting the JSON date + "from phase-state.json" source annotation.
+# --------------------------------------------------------------------
+echo "T6: current_phase=3 + JSON gate populated → OK line for Phase 2→3 with JSON date + source annotation"
+setup_project
+cat > "$PROJ/.claude/phase-state.json" <<'JSON'
+{"current_phase":3,"gates":{"phase_0_to_1":"2026-01-15","phase_1_to_2":"2026-02-01","phase_2_to_3":"2026-03-01","phase_3_to_4":null}}
+JSON
+cat > "$PROJ/APPROVAL_LOG.md" <<'MD'
+# Approval Log
+(gates recorded in phase-state.json)
+MD
+out=$(cd "$PROJ" && bash "$VALIDATE" 2>&1) || true
+# The assertion has to fire specifically on the 2→3 line — with
+# current_phase=3, all three of 0→1, 1→2, and 2→3 will emit OK
+# lines. We anchor on the label AND the JSON date AND the source
+# annotation so a mutation renaming the phase_2_to_3 key would drop
+# just this line to a WARN and be caught.
+if echo "$out" | grep -qE "Phase 2.*3 gate: dated entry found \(2026-03-01 from phase-state\.json\)"; then
+  pass "T6: phase_2_to_3 check_gate call is wired (OK line quotes JSON date + source)"
+elif echo "$out" | grep -qE "Phase 2.*3 gate.*no date"; then
+  fail_ "T6" "phase_2_to_3 gate WARN'd even though JSON gate was populated — check_gate call likely mis-wired or key mismatched; out:
+$out"
+else
+  fail_ "T6" "no OK line for Phase 2→3 gate with expected JSON date + source annotation; out:
+$out"
+fi
+teardown_project
+
+# --------------------------------------------------------------------
+# T7 (regex guard for malformed JSON dates): validate.sh's
+# get_gate_date_from_phase_state helper regex-validates the value
+# before returning it, so a garbage value like "March 1, 2026" in
+# gates.phase_0_to_1 should be rejected and the fallback (APPROVAL_LOG)
+# should carry the gate. If the regex were weakened (e.g. to `.`), the
+# malformed string would leak through and be printed as the gate date.
+#
+# Shape T7a (chosen): APPROVAL_LOG.md has a valid dated entry, so the
+# fallback path fires and the OK line contains the "APPROVAL_LOG.md"
+# source annotation. Under a mutation that weakens the regex, the
+# helper would instead return "March 1, 2026" and the OK line would
+# say "(March 1, 2026 from phase-state.json)" — no APPROVAL_LOG.md
+# substring — so the assertion below would flip red.
+# --------------------------------------------------------------------
+echo "T7: malformed JSON date rejected → falls back to APPROVAL_LOG (annotation quoted)"
+setup_project
+cat > "$PROJ/.claude/phase-state.json" <<'JSON'
+{"current_phase":1,"gates":{"phase_0_to_1":"March 1, 2026","phase_1_to_2":null,"phase_2_to_3":null,"phase_3_to_4":null}}
+JSON
+cat > "$PROJ/APPROVAL_LOG.md" <<'MD'
+# Approval Log
+## Phase 0 → Phase 1
+- Date: 2026-01-15
+- Approver: alice
+MD
+out=$(cd "$PROJ" && bash "$VALIDATE" 2>&1) || true
+# The OK message under fallback is "$label gate: dated entry found
+# (APPROVAL_LOG.md)". If the regex mutation lets the malformed value
+# through, the OK line becomes "(March 1, 2026 from phase-state.json)"
+# — which contains neither "APPROVAL_LOG.md" nor a well-formed date.
+# We assert on the fallback annotation directly.
+if echo "$out" | grep -qE "Phase 0.*1 gate: dated entry found \(APPROVAL_LOG\.md\)"; then
+  pass "T7: malformed JSON date skipped; APPROVAL_LOG fallback used (source annotation present)"
+elif echo "$out" | grep -qE "Phase 0.*1 gate: dated entry found \(March 1, 2026"; then
+  fail_ "T7" "malformed JSON date 'March 1, 2026' was accepted as a valid gate date — regex guard is not effective; out:
+$out"
+elif echo "$out" | grep -qE "Phase 0.*1 gate.*no date"; then
+  fail_ "T7" "expected APPROVAL_LOG fallback to carry the gate after malformed JSON was rejected, but WARN fired; out:
+$out"
+else
+  fail_ "T7" "no OK line with (APPROVAL_LOG.md) source annotation for Phase 0→1 gate under malformed-JSON scenario; out:
+$out"
+fi
+teardown_project
 
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
