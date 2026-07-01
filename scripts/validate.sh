@@ -270,57 +270,76 @@ fi
 # ================================================================
 print_section "Approval Log"
 
+# BL-059: `.claude/phase-state.json::gates.<gate>` is the live source of
+# truth for gate-passage timestamps — the approval log is a
+# human-readable mirror. Prior versions only greped APPROVAL_LOG.md,
+# emitting a false-negative WARN when the JSON gate was populated but
+# the log had not been mirrored. Fix: read JSON first, fall back to
+# APPROVAL_LOG.md only if the JSON path is absent or malformed
+# (back-compat), and only warn when NEITHER source has a valid date.
+#
+# get_gate_date_from_phase_state <gate_key>
+# - Prints the YYYY-MM-DD gate date from phase-state.json::gates.<key>.
+# - Prints "" if phase-state.json is missing, the key is absent, the
+#   value is null, or the value is not a valid YYYY-MM-DD date.
+# - Uses the same grep+sed extraction shape as check-phase-gate.sh so
+#   the two validators agree on what counts as a recorded gate.
+get_gate_date_from_phase_state() {
+  local gate_key="$1"
+  local state_file=".claude/phase-state.json"
+  [ -f "$state_file" ] || { echo ""; return; }
+  local value
+  value=$(grep -o "\"$gate_key\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" "$state_file" 2>/dev/null \
+            | sed 's/.*: *"//' | sed 's/"//' || echo "")
+  if [ -n "$value" ] && ! echo "$value" | grep -qE '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$'; then
+    echo ""
+    return
+  fi
+  echo "$value"
+}
+
+# check_gate <phase-min> <json-key> <approval-log-header> <label>
+# Precedence: phase-state.json::gates.<json-key> WINS. Falls back to
+# APPROVAL_LOG.md scan for back-compat with older projects that
+# predated the JSON gates block. Warns iff neither source has a valid
+# date AND the project is at or past <phase-min>.
+check_gate() {
+  local phase_min="$1"
+  local json_key="$2"
+  local header="$3"
+  local label="$4"
+
+  [ "$phase" -ge "$phase_min" ] || return 0
+
+  local json_date
+  json_date=$(get_gate_date_from_phase_state "$json_key")
+  if [ -n "$json_date" ]; then
+    print_ok "$label gate: dated entry found ($json_date from phase-state.json)"
+    return 0
+  fi
+
+  if [ -f "APPROVAL_LOG.md" ] && grep -q "$header" APPROVAL_LOG.md; then
+    local log_date
+    log_date=$(grep -A 10 "$header" APPROVAL_LOG.md | grep -i "date" | head -1 || true)
+    if echo "$log_date" | grep -qE "[0-9]{4}-[0-9]{2}-[0-9]{2}"; then
+      print_ok "$label gate: dated entry found (APPROVAL_LOG.md)"
+      return 0
+    fi
+  fi
+
+  warn "$label gate: no date recorded — project appears to be past Phase $((phase_min - 1))"
+}
+
 if [ -f "APPROVAL_LOG.md" ]; then
-  # Check if phase gates have been filled in based on detected phase
-  if [ $phase -ge 1 ]; then
-    if grep -q "Phase 0 → Phase 1" APPROVAL_LOG.md; then
-      # Check if the gate has actual content (not just template)
-      gate_01_date=$(grep -A 10 "Phase 0 → Phase 1" APPROVAL_LOG.md | grep -i "date" | head -1 || true)
-      if echo "$gate_01_date" | grep -qE "[0-9]{4}-[0-9]{2}-[0-9]{2}"; then
-        print_ok "Phase 0→1 gate: dated entry found"
-      else
-        warn "Phase 0→1 gate: no date recorded — project appears to be past Phase 0"
-      fi
-    fi
-  fi
-
-  if [ $phase -ge 2 ]; then
-    if grep -q "Phase 1 → Phase 2" APPROVAL_LOG.md; then
-      gate_12_date=$(grep -A 10 "Phase 1 → Phase 2" APPROVAL_LOG.md | grep -i "date" | head -1 || true)
-      if echo "$gate_12_date" | grep -qE "[0-9]{4}-[0-9]{2}-[0-9]{2}"; then
-        print_ok "Phase 1→2 gate: dated entry found"
-      else
-        warn "Phase 1→2 gate: no date recorded — project appears to be past Phase 1"
-      fi
-    fi
-  fi
-
+  check_gate 1 "phase_0_to_1" "Phase 0 → Phase 1" "Phase 0→1"
+  check_gate 2 "phase_1_to_2" "Phase 1 → Phase 2" "Phase 1→2"
   # code-test-gate-track-resume-validate-1: the Approval Log section had
   # Phase 0→1, 1→2, and 3→4 gate checks but was silently missing the
   # symmetric 2→3 check. A project past Phase 3 without a dated
   # `Phase 2 → Phase 3` entry slipped past validation. Mirrors the 1→2
   # block structure for consistency.
-  if [ $phase -ge 3 ]; then
-    if grep -q "Phase 2 → Phase 3" APPROVAL_LOG.md; then
-      gate_23_date=$(grep -A 10 "Phase 2 → Phase 3" APPROVAL_LOG.md | grep -i "date" | head -1 || true)
-      if echo "$gate_23_date" | grep -qE "[0-9]{4}-[0-9]{2}-[0-9]{2}"; then
-        print_ok "Phase 2→3 gate: dated entry found"
-      else
-        warn "Phase 2→3 gate: no date recorded — project appears to be past Phase 2"
-      fi
-    fi
-  fi
-
-  if [ $phase -ge 4 ]; then
-    if grep -q "Phase 3 → Phase 4" APPROVAL_LOG.md; then
-      gate_34_date=$(grep -A 10 "Phase 3 → Phase 4" APPROVAL_LOG.md | grep -i "date" | head -1 || true)
-      if echo "$gate_34_date" | grep -qE "[0-9]{4}-[0-9]{2}-[0-9]{2}"; then
-        print_ok "Phase 3→4 gate: dated entry found"
-      else
-        warn "Phase 3→4 gate: no date recorded — project appears to be past Phase 3"
-      fi
-    fi
-  fi
+  check_gate 3 "phase_2_to_3" "Phase 2 → Phase 3" "Phase 2→3"
+  check_gate 4 "phase_3_to_4" "Phase 3 → Phase 4" "Phase 3→4"
 else
   fail "APPROVAL_LOG.md missing"
 fi

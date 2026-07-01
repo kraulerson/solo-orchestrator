@@ -591,6 +591,21 @@ else
 fi
 
 # ----------------------------------------------------------------
+# TEST 0p2: VALIDATE READS PHASE-STATE.JSON::GATES (BL-059)
+# ----------------------------------------------------------------
+# BL-059: scripts/validate.sh's Approval Log section previously
+# greped APPROVAL_LOG.md only, emitting a false-negative "no date
+# recorded" WARN when phase-state.json::gates.<gate> was populated
+# but the log had not been mirrored. Fix reads JSON first, falls
+# back to APPROVAL_LOG.md for back-compat.
+section "validate.sh reads phase-state.json::gates (BL-059)"
+if bash "$SCRIPT_DIR/tests/test-validate-phase-state-gates.sh" >/dev/null 2>&1; then
+  pass "tests/test-validate-phase-state-gates.sh"
+else
+  fail "tests/test-validate-phase-state-gates.sh FAILED (run for details)"
+fi
+
+# ----------------------------------------------------------------
 # TEST 0q: SPECS+PLANS HOST-AWARE QUARTET
 # ----------------------------------------------------------------
 # PR #97: docs/superpowers/specs+plans host-aware quartet rendering
