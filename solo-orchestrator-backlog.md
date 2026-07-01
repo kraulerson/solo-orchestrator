@@ -1758,3 +1758,28 @@ time bash scripts/lint-tests-registered.sh
 ```
 
 **Related:** PR #122 / BL-038 (introduced the lint — the invariant is correct, only the implementation shape is slow); `scripts/pre-commit-gate.sh` (the caller that pays the cost per commit); `tests/full-project-test-suite.sh` and the other aggregators the lint walks; BL-034 (test-aggregator wiring invariant — this lint is the enforcement arm of that invariant, so keeping it fast is what keeps the invariant credible).
+
+---
+
+## BL-068: T5 + T5b in `tests/test-bl046-helpers-split.sh` are vacuous — idempotency guards have zero regression coverage
+
+**Logged:** 2026-06-30 (PR #125 verifier finding)
+**Category:** Bug / test integrity
+**Severity:** Medium
+**Status:** Closed (2026-06-30, PR #<pending>, this-PR-closes-it)
+
+**What:** The final two subtests of `tests/test-bl046-helpers-split.sh` — T5 (`:205-231`) and T5b (`:233-252`, executed twice: once for `helpers-full.sh`, once for `helpers.sh`) — are tautological. Both claim to prove the `_SOIF_HELPERS_*_LOADED` idempotency guards in `scripts/lib/helpers-{core,full}.sh` + `scripts/lib/helpers.sh` fire on second source. Neither actually does. Mutation experiment: delete the `if [ -n "${_SOIF_HELPERS_CORE_LOADED:-}" ]; then return 0; fi` guard from `helpers-core.sh` and re-run the suite — **all 8 tests still PASS**. Same result for the guards in `helpers-full.sh` and `helpers.sh`. The three guards have zero regression coverage on main.
+
+**Why they're vacuous:**
+- **T5** clears `BOLD=""` between two sources of `helpers-core.sh`, then asserts `BOLD` is empty after the second source ("proof" the guard short-circuited before the color block). But `bash -c "..."` runs in a non-TTY subshell, so `helpers-core.sh`'s `[ -t 1 ]` check takes the ELSE branch and re-assigns `BOLD=''` unconditionally on every source. The assertion passes for the wrong reason. Removing the guard changes nothing.
+- **T5b** captures `first="${sentinel:-}"` after the first source and `still="${sentinel:-}"` after the second, then asserts `first == still`. Each sentinel is assigned to the literal `1` unconditionally at the top of every helper file, so `first=1, still=1` regardless of whether the guard fired. The assertion holds for any file that assigns `X=1` at all, guard-protected or not.
+
+**Impact:** The guards are the entire perf story of BL-046 (avoiding re-parse of the color block, dirname resolution, and function redefinition on nested composition). Without a regression guard, a future refactor that "cleans up" the `_SOIF_HELPERS_*_LOADED` sentinels lands silently, and every short-lived caller pays double parse cost per source. Given how many `check-*.sh` / `validate.sh` callers source helpers-core.sh, that's a real (if small-per-call) tax that compounds under repeated invocation.
+
+**Fix (this PR):** Rewrite T5 and T5b to plant an OBSERVABLE marker in a variable each file assigns AFTER its guard, then assert the marker survives the second source. Concretely:
+- **T5** plants `LOG_FILE="/tmp/bl068-t5-guard-marker-$$"` between sources. `helpers-core.sh` sets `LOG_FILE=""` at line 57 (after the guard at line 18). Guard fires → return before line 57 → marker preserved. Guard removed → marker wiped to empty. Mutation-verified: removing the core guard flips T5 RED.
+- **T5b** plants `MARKER="/tmp/bl068-t5b-guard-marker-$$"` in `$dirvar` (`_SOIF_HELPERS_FULL_DIR` for full, `_SOIF_HELPERS_SHIM_DIR` for shim). Each file recomputes the dirvar from `BASH_SOURCE` after its guard. Guard fires → dirvar untouched. Guard removed → dirvar replaced with real dirname. Mutation-verified: removing each of the two remaining guards independently flips its T5b assertion RED.
+
+**Mutation-proof captured in commit body** (three separate mutations, each restored before the next).
+
+**Related:** PR #125 verifier finding (BL-046 adversarial review); BL-036 (same class — vacuous-by-construction assertions in edge-cases suite); `Reports/2026-06-29-adversarial-certainty-pass.md` (the sweep that catches this defect class).
