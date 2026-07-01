@@ -1301,6 +1301,12 @@ Step 4 recon identified several small dead-code surfaces, notably the `_phase2_s
 
 ## BL-055: Per-line APPROVAL_LOG.md blame walker for check-phase-gate.sh self-approval evasion
 
+**Status:** Closed (2026-07-01, shipped via PR #116 commit `06fb186` — per-line blame walker at `scripts/check-phase-gate.sh:409-485`; PR #119 commit `601417f` removed the silent-fallback regression that the walker's verifier flagged). Regression cohort: `tests/test-check-phase-gate-blame-walker.sh` T-blame-1 (Bob-shadows-Alice — BL-055's exact threat model), T-blame-2 (uncommitted approver row), T-blame-3 (legitimate author of Alice's row), T-blame-4 (malformed h3 header — PR #119 hardening). All 4 wired into `tests/full-project-test-suite.sh` TEST 0h per BL-034.
+
+---
+
+**Original entry (pre-close, kept for audit trail):**
+
 **Logged:** 2026-06-29
 **Category:** Bug
 **Severity:** Medium
