@@ -1170,6 +1170,113 @@ if [ "$current_phase" -ge 4 ]; then
   fi
 fi
 
+# ═══════════════════════════════════════════════════════════════════════
+# BL-070: Phase 3 validation scans (Snyk / license / full-tree Semgrep /
+# OWASP ZAP DAST / threat-model) + attest-on-skip gate.
+#
+# The Builder's/User guides imply Phase 3 auto-runs these five scans; a grep
+# of scripts/ found ZERO invocations. This distinct, self-contained step
+# (Karl-approved Option C) refuses Phase 3→4 unless the aggregate summary
+# from scripts/run-phase3-validation.sh exists AND every scanner is PASS or
+# an attested-skip-with-signoff (zero un-attested SKIPs, zero FAILs).
+#
+# Positioned deliberately APART from the review-manifest reviewer check
+# (BL-073, further below) to keep the two Phase-3→4 gate edits from
+# colliding on rebase.
+#
+# `# BL-070-GATE-CHECK` marks the load-bearing enforcement (mutation target,
+# per tests/test-phase3-validation-gate.sh::T-mutation). Auto-run marked
+# `# BL-070-GATE-AUTORUN`. Attestation predicate marked
+# `# BL-070-ATTEST-PREDICATE`.
+
+# _cpg_phase3_attested <scanner>
+# 0 iff phase-state.json::phase3.attestations.<scanner> carries a non-empty
+# reason AND a non-empty sign-off. jq-absent → not-attested (conservative).
+_cpg_phase3_attested() {
+  local name="$1" reason signoff
+  command -v jq >/dev/null 2>&1 || return 1   # BL-070-ATTEST-PREDICATE
+  reason=$(jq -r --arg n "$name" '.phase3.attestations[$n].reason // ""' "$PHASE_STATE" 2>/dev/null || echo "")
+  signoff=$(jq -r --arg n "$name" '.phase3.attestations[$n].signoff // ""' "$PHASE_STATE" 2>/dev/null || echo "")
+  # Trim leading/trailing whitespace (bash-3.2 param-expansion) BEFORE the
+  # non-empty check so a whitespace-only reason/signoff is un-attested → gate
+  # FAIL (verifier follow-up — `[ -n " " ]` is true, which would pass " ").
+  reason="${reason#"${reason%%[![:space:]]*}"}"; reason="${reason%"${reason##*[![:space:]]}"}"
+  signoff="${signoff#"${signoff%%[![:space:]]*}"}"; signoff="${signoff%"${signoff##*[![:space:]]}"}"
+  [ -n "$reason" ] && [ "$reason" != "null" ] && [ -n "$signoff" ] && [ "$signoff" != "null" ]
+}
+
+if [ "$current_phase" -ge 4 ]; then
+  P3_RESULTS_DIR="docs/test-results/phase3"
+  P3_DRIVER="$SCRIPT_DIR/run-phase3-validation.sh"
+
+  # AUTO-RUN (Karl: "evals should be automatic"). If no summary exists yet,
+  # generate a baseline offline summary so the attestation gate always has
+  # teeth (offline => hermetic/fast: NO network/Docker/semgrep run from the
+  # gate). Operators run `scripts/run-phase3-validation.sh` (no --offline)
+  # for REAL scans; a later increment can auto-run real scans in interactive
+  # sessions. Set SOLO_PHASE3_GATE_NOAUTORUN=1 to disable auto-generation
+  # (e.g. CI that pre-runs the driver, or a pure read-only inspection).
+  p3_summary=""
+  if compgen -G "$P3_RESULTS_DIR/summary-*.md" >/dev/null 2>&1; then
+    p3_summary=$(ls -1 "$P3_RESULTS_DIR"/summary-*.md 2>/dev/null | sort | tail -1)
+  fi
+  if [ -z "$p3_summary" ] && [ -z "${SOLO_PHASE3_GATE_NOAUTORUN:-}" ] && [ -x "$P3_DRIVER" ]; then
+    bash "$P3_DRIVER" --offline >/dev/null 2>&1 || true   # BL-070-GATE-AUTORUN
+    if compgen -G "$P3_RESULTS_DIR/summary-*.md" >/dev/null 2>&1; then
+      p3_summary=$(ls -1 "$P3_RESULTS_DIR"/summary-*.md 2>/dev/null | sort | tail -1)
+    fi
+  fi
+
+  p3_block=0
+  p3_msg=""
+  p3_ok_detail=""
+  if [ -z "$p3_summary" ]; then
+    p3_block=1
+    p3_msg="no Phase 3 validation summary (docs/test-results/phase3/summary-*.md) — run: bash scripts/run-phase3-validation.sh"
+  else
+    p3_fail=0
+    p3_unattested=0
+    p3_detail=""
+    for p3_scanner in semgrep-full-tree license snyk zap-dast threat-model; do
+      p3_status=$(awk -v s="$p3_scanner" '$1=="RESULT" && $2==s {v=$3} END{print v}' "$p3_summary" 2>/dev/null || true)
+      [ -n "$p3_status" ] || p3_status="MISSING"
+      case "$p3_status" in
+        PASS) ;;
+        SKIP)
+          if _cpg_phase3_attested "$p3_scanner"; then
+            :   # attested-skip-with-signoff → acceptable
+          else
+            p3_unattested=$((p3_unattested + 1))
+            p3_detail="${p3_detail}${p3_detail:+, }${p3_scanner}(un-attested SKIP)"
+          fi
+          ;;
+        *)
+          # FAIL, MISSING, or any garbled/unknown status counts toward the
+          # block — a real scanner (e.g. semgrep) reporting findings, or a
+          # summary missing/corrupting a scanner's RESULT line, must NOT
+          # slip through as clean.
+          p3_fail=$((p3_fail + 1))   # BL-070-FAIL-ARM: FAIL/MISSING status is gate-blocking (mutation target)
+          p3_detail="${p3_detail}${p3_detail:+, }${p3_scanner}(${p3_status})"
+          ;;
+      esac
+    done
+    if [ "$p3_fail" -gt 0 ] || [ "$p3_unattested" -gt 0 ]; then
+      p3_block=1
+      p3_msg="validation scans not clean: ${p3_fail} FAIL, ${p3_unattested} un-attested SKIP [${p3_detail}] — attest: bash scripts/run-phase3-validation.sh --attest <scanner> --reason \"...\", or install the tool and re-run"
+    else
+      p3_ok_detail="all PASS or attested-skip; summary: $(basename "$p3_summary")"
+    fi
+  fi
+
+  if [ "$p3_block" -eq 1 ]; then
+    echo -e "${RED}[FAIL]${NC} Phase 3→4: $p3_msg"   # BL-070-GATE-CHECK
+    issues=$((issues + 1))                            # BL-070-GATE-CHECK
+    : # phase-3 validation enforcement block — kept non-empty so a mutation excising the two marked lines above stays syntactically valid
+  else
+    echo -e "${GREEN}  [OK]${NC} Phase 3→4: validation scans clean (${p3_ok_detail})"
+  fi
+fi
+
 # POC mode check (Phase 3→4) — block production release if in POC mode
 if [ "$current_phase" -ge 3 ]; then
   poc_mode=""
