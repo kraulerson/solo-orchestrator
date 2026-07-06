@@ -354,6 +354,80 @@ K6_JOIN="sudo gpg -k && sudo gpg --no-default-keyring --keyring /usr/share/keyri
 _assert_array_joins "T-wrap-k6-linux_apt" "$WEB_JSON" \
   '.tools[] | select(.name=="k6") | .install.linux_apt' 5 "$K6_JOIN"
 
+# ============================================================
+# GROUP F — upgrade-project.sh reader (DIRECT coverage). The interactive
+# track-upgrade auto-install loop is gated behind prompt_yes_no +
+# `[ -t 0 ]`, so it is unreachable from this non-interactive suite (the
+# verifier proved a `"${_stages[@]}"`->`"${_stages[0]}"` stage-drop went
+# undetected). It was factored into upgrade_auto_install_from_resolver()
+# specifically so the stage iteration can be exercised here. This is the
+# MUTATION ANCHOR for reader #3.
+# ============================================================
+echo ""
+echo "GROUP F: upgrade-project.sh auto-install stage loop (direct)"
+
+UPGRADE_SH="$REPO_ROOT/scripts/upgrade-project.sh"
+
+# Extract just upgrade_auto_install_from_resolver() and run it in a
+# subshell that also sources helpers-core (for run_install_stages +
+# print_*). Drives the REAL function with a fake resolver payload whose
+# tool has a multi-stage install_cmds; each stage touches a file so the
+# stages that actually ran are observable on disk afterward.
+_run_upgrade_installer() {
+  local payload="$1" count="$2"
+  local fn; fn=$(mktemp)
+  awk '
+    /^upgrade_auto_install_from_resolver\(\) \{/ {flag=1}
+    flag {print}
+    flag && /^\}$/ {exit}
+  ' "$UPGRADE_SH" > "$fn"
+  env _PAYLOAD="$payload" _COUNT="$count" _FN="$fn" _HC="$HELPERS_CORE" bash -c '
+    set +e
+    # shellcheck source=/dev/null
+    source "$_HC"
+    # shellcheck source=/dev/null
+    source "$_FN"
+    upgrade_auto_install_from_resolver "$_PAYLOAD" "$_COUNT"
+  ' >/dev/null 2>&1
+  rm -f "$fn"
+}
+
+echo "T-upg-multi-both: 2-stage tool runs BOTH stages [MUTATION ANCHOR]"
+T=$(mktemp -d)
+PAYLOAD=$(jq -n --arg s1 "touch $T/u1" --arg s2 "touch $T/u2" \
+  '{auto_install:[{name:"multi",category:"x",install_cmd:($s1+" && "+$s2),install_cmds:[$s1,$s2],required:false,description:"x"}],already_installed:[],manual_install:[],deferred:[]}')
+_run_upgrade_installer "$PAYLOAD" 1
+if [ -e "$T/u1" ] && [ -e "$T/u2" ]; then
+  pass "T-upg-multi-both: upgrade loop ran stage1 AND stage2"
+else
+  fail_ "T-upg-multi-both" "u1=$([ -e "$T/u1" ] && echo y || echo n) u2=$([ -e "$T/u2" ] && echo y || echo n) — a '\${_stages[0]}' mutation fails HERE"
+fi
+rm -rf "$T"
+
+echo "T-upg-failfast: stage-1 fails -> stage-2 MUST NOT run"
+T=$(mktemp -d)
+PAYLOAD=$(jq -n --arg s2 "touch $T/u2_no" \
+  '{auto_install:[{name:"ff",category:"x",install_cmd:("false && "+$s2),install_cmds:["false",$s2],required:false,description:"x"}],already_installed:[],manual_install:[],deferred:[]}')
+_run_upgrade_installer "$PAYLOAD" 1
+if [ ! -e "$T/u2_no" ]; then
+  pass "T-upg-failfast: stage-1 failure halted the upgrade loop"
+else
+  fail_ "T-upg-failfast" "stage-2 ran despite stage-1 failure"
+fi
+rm -rf "$T"
+
+echo "T-upg-legacy-fallback: tool with ONLY install_cmd still installs (back-compat)"
+T=$(mktemp -d)
+PAYLOAD=$(jq -n --arg s1 "touch $T/leg" \
+  '{auto_install:[{name:"leg",category:"x",install_cmd:$s1,required:false,description:"x"}],already_installed:[],manual_install:[],deferred:[]}')
+_run_upgrade_installer "$PAYLOAD" 1
+if [ -e "$T/leg" ]; then
+  pass "T-upg-legacy-fallback: legacy singular install_cmd ran"
+else
+  fail_ "T-upg-legacy-fallback" "legacy install_cmd did not run"
+fi
+rm -rf "$T"
+
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]
