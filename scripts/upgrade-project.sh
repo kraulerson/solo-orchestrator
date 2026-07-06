@@ -122,6 +122,49 @@ _refresh_cdf_assets_solo() {
   fi
 }
 
+# --- BL-015 pending-approval sentinel respect (UAT 2026-04-25 fix C5) ---
+# If the agent has offered structured options to the user via
+# scripts/pending-approval.sh, refuse to advance an irreversible mutation.
+# Surfaced by 5/5 upgrade UAT agents (49, 62, 79, 82, 84): upgrade-project.sh
+# was happily writing files and committing while a sentinel existed. Detection
+# matches CDF 4.2.3's "existence alone suffices" semantics: a well-formed
+# sentinel reflects its question/options back; a malformed one is treated as
+# in-flight.
+#
+# Called from TWO sites so the two paths stay in sync (single source of truth
+# for detection — the two must NEVER drift):
+#   • the --backfill-only path, BEFORE its idempotent manifest/host/skills
+#     backfills and its CDF asset refresh (see the guard just before the
+#     backfill block); and
+#   • the full-upgrade path, after guard_not_in_framework and before the
+#     atomic section-2b mutation.
+# Both call sites are at top level (not inside a subshell), so the `exit 1`
+# below aborts the whole script — a sentinel-blocked run mutates nothing.
+_bl015_sentinel_guard() {
+  local PENDING_APPROVAL_FILE="$PROJECT_ROOT/.claude/pending-approval.json"
+  [ -f "$PENDING_APPROVAL_FILE" ] || return 0
+  print_fail "upgrade blocked — pending user decision."
+  if jq -e . "$PENDING_APPROVAL_FILE" >/dev/null 2>&1; then
+    local pa_question pa_offered
+    pa_question=$(jq -r '.question // "(missing)"' "$PENDING_APPROVAL_FILE")
+    pa_offered=$(jq -r '.offered_at // "(unknown)"' "$PENDING_APPROVAL_FILE")
+    echo "" >&2
+    echo "  Pending question: \"$pa_question\" (offered $pa_offered)" >&2
+    echo "  Options:" >&2
+    jq -r '.options[]? // empty | "    " + .' "$PENDING_APPROVAL_FILE" >&2
+  else
+    echo "" >&2
+    echo "  Sentinel file $PENDING_APPROVAL_FILE exists but is malformed." >&2
+    echo "  Treated as in-flight per CDF 4.2.3 contract." >&2
+  fi
+  echo "" >&2
+  echo "  Wait for the user to pick, then:" >&2
+  echo "    scripts/pending-approval.sh --resolve" >&2
+  echo "  Or, if the question is being aborted:" >&2
+  echo "    scripts/pending-approval.sh --clear" >&2
+  exit 1
+}
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --track)
@@ -269,6 +312,21 @@ if [ "$VALIDATE_ONLY" = true ]; then
       validate_only:    true
     }'
   exit 0
+fi
+
+# --- BL-015 (backfill parity): honor the pending-approval sentinel BEFORE any
+# --backfill-only mutation ---
+# The idempotent backfill block below — and the --backfill-only CDF asset
+# refresh that follows its short-circuit — mutate .claude/framework/, the
+# manifest, host config, and .claude/skills/. The full-upgrade path already
+# blocks on the pending-approval sentinel further down (after
+# guard_not_in_framework), but --backfill-only short-circuits before reaching
+# that guard, so it was writing those mutations even while a sentinel existed.
+# Run the SAME guard here — the single _bl015_sentinel_guard the full path
+# calls, so detection never drifts — gated on BACKFILL_ONLY so the
+# full-upgrade path's own guard and its ordering are unchanged.
+if [ "$BACKFILL_ONLY" = true ]; then
+  _bl015_sentinel_guard
 fi
 
 # --- Idempotent manifest backfills (run before target-flag check) ---
@@ -504,32 +562,12 @@ fi
 guard_not_in_framework || exit 1
 
 # --- BL-015 pending-approval sentinel respect (UAT 2026-04-25 fix C5) ---
-# If the agent has offered structured options to the user via
-# scripts/pending-approval.sh, refuse to advance an irreversible upgrade.
-# Surfaced by 5/5 upgrade UAT agents (49, 62, 79, 82, 84): upgrade-project.sh
-# was happily writing files and committing while a sentinel existed.
-PENDING_APPROVAL_FILE="$PROJECT_ROOT/.claude/pending-approval.json"
-if [ -f "$PENDING_APPROVAL_FILE" ]; then
-  print_fail "upgrade blocked — pending user decision."
-  if jq -e . "$PENDING_APPROVAL_FILE" >/dev/null 2>&1; then
-    pa_question=$(jq -r '.question // "(missing)"' "$PENDING_APPROVAL_FILE")
-    pa_offered=$(jq -r '.offered_at // "(unknown)"' "$PENDING_APPROVAL_FILE")
-    echo "" >&2
-    echo "  Pending question: \"$pa_question\" (offered $pa_offered)" >&2
-    echo "  Options:" >&2
-    jq -r '.options[]? // empty | "    " + .' "$PENDING_APPROVAL_FILE" >&2
-  else
-    echo "" >&2
-    echo "  Sentinel file $PENDING_APPROVAL_FILE exists but is malformed." >&2
-    echo "  Treated as in-flight per CDF 4.2.3 contract." >&2
-  fi
-  echo "" >&2
-  echo "  Wait for the user to pick, then:" >&2
-  echo "    scripts/pending-approval.sh --resolve" >&2
-  echo "  Or, if the question is being aborted:" >&2
-  echo "    scripts/pending-approval.sh --clear" >&2
-  exit 1
-fi
+# Full-upgrade call site. Detection + deny message live in
+# _bl015_sentinel_guard (defined near the top), which the --backfill-only path
+# also calls so the two paths can never drift. Placed here — after
+# guard_not_in_framework and before the atomic section-2b mutation — so a
+# blocked or rolled-back upgrade never touches project state.
+_bl015_sentinel_guard
 
 # --- File paths ---
 PHASE_STATE="$PROJECT_ROOT/.claude/phase-state.json"
