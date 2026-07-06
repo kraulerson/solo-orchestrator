@@ -49,6 +49,10 @@ done
 PASSED=()
 FIXABLE=()
 MANUAL=()
+# BL-084: benign, non-blocking warnings. Surfaced to the operator and
+# shown in the report, but — unlike MANUAL — these do NOT count toward the
+# issue total that drives a non-zero verify-install exit.
+WARNINGS=()
 
 register_pass() {
   PASSED+=("$1")
@@ -67,6 +71,21 @@ register_manual() {
   local instructions="$2"
   MANUAL+=("${description}||${instructions}")
   print_warn "$description (manual)"
+}
+
+# BL-084: benign, non-blocking warning. Reserved for EXPECTED-benign
+# states — currently the 'other'/unsupported git-host's absence of a
+# canonical CI/release destination (the deliberate bring-your-own-CI path
+# documented in docs/user-guide.md + docs/builders-guide.md). Unlike
+# register_manual, register_warn does NOT append to MANUAL, so it never
+# drives verify-install to a non-zero exit. Genuine incompleteness (a
+# supported host missing a CI file, a real error) must still use
+# register_manual / register_fixable so it keeps failing (BL-064 preserved).
+register_warn() {
+  local description="$1"
+  local instructions="$2"
+  WARNINGS+=("${description}||${instructions}")
+  print_warn "$description (non-blocking)"
 }
 
 # --- Load project context ---
@@ -218,7 +237,15 @@ check_project_structure() {
   if [ -n "$_ci_dest" ] && [ -f "$_ci_dest" ]; then
     register_pass "CI pipeline exists ($_ci_dest)"
   elif [ -z "$_ci_dest" ]; then
-    register_manual "CI pipeline missing" "Unsupported SCM host '$_ci_host' — no canonical CI destination; configure manually"
+    # BL-084: '$_ci_host' is 'other'/unsupported → no canonical CI
+    # destination. This is the deliberate bring-your-own-CI path (see
+    # docs/user-guide.md + docs/builders-guide.md), not incompleteness.
+    # Surface a benign WARN so the operator wires up their own pipeline,
+    # but do NOT count it as a blocking MANUAL item (which would drive
+    # verify-install to exit 1). Genuine incompleteness on a SUPPORTED
+    # host still routes to register_fixable/register_manual below and
+    # keeps the non-zero exit (BL-064 preserved).
+    register_warn "CI pipeline: configure manually" "Host '$_ci_host' has no canonical CI destination — supply your own pipeline (bring-your-own CI)"
   elif has_source && has_context; then
     register_fixable "CI pipeline missing ($_ci_dest)" "fix_ci_pipeline"
   else
@@ -228,7 +255,12 @@ check_project_structure() {
   # Release pipeline — same host routing. bitbucket/gitlab carry
   # release steps in their unified pipeline file (no separate
   # release.yml); register a manual entry so the warning surfaces.
-  if [ -n "$PLATFORM" ] && has_source && [ -f "$SOURCE_DIR/templates/pipelines/release/$_ci_host/${PLATFORM}.yml" ]; then
+  if [ -z "$_ci_dest" ]; then
+    # BL-084: mirror the CI-destination handling — 'other'/unsupported
+    # hosts have no canonical release destination either. Benign WARN
+    # (bring-your-own CD), NOT a blocking MANUAL.
+    register_warn "Release pipeline: configure manually" "Host '$_ci_host' has no canonical release destination — supply your own (bring-your-own CI/CD)"
+  elif [ -n "$PLATFORM" ] && has_source && [ -f "$SOURCE_DIR/templates/pipelines/release/$_ci_host/${PLATFORM}.yml" ]; then
     case "$_ci_host" in
       github)
         if [ -f ".github/workflows/release.yml" ]; then
@@ -1480,6 +1512,7 @@ show_report() {
   local fixable_count=${#FIXABLE[@]}
   local manual_count=${#MANUAL[@]}
   local pass_count=${#PASSED[@]}
+  local warn_count=${#WARNINGS[@]}
 
   echo ""
   echo -e "${BOLD}┌──────────────────────────────────────────────┐${NC}"
@@ -1488,6 +1521,7 @@ show_report() {
   echo -e "${BOLD}│${NC}  ${GREEN}✓ Passed: $pass_count${NC}"
   echo -e "${BOLD}│${NC}  ${CYAN}⚡ Auto-fixable: $fixable_count${NC}"
   echo -e "${BOLD}│${NC}  ${YELLOW}⚠ Manual action required: $manual_count${NC}"
+  echo -e "${BOLD}│${NC}  ${YELLOW}ℹ Configure manually (non-blocking): $warn_count${NC}"
 
   if [ "$fixable_count" -gt 0 ]; then
     echo -e "${BOLD}├──────────────────────────────────────────────┤${NC}"
@@ -1502,6 +1536,19 @@ show_report() {
     echo -e "${BOLD}├──────────────────────────────────────────────┤${NC}"
     echo -e "${BOLD}│${NC}  ${YELLOW}MANUAL:${NC}"
     for entry in "${MANUAL[@]}"; do
+      local desc="${entry%%||*}"
+      local instr="${entry##*||}"
+      echo -e "${BOLD}│${NC}    • $desc"
+      echo -e "${BOLD}│${NC}      → $instr"
+    done
+  fi
+
+  # BL-084: non-blocking warnings (e.g. 'other'-host bring-your-own CI/CD).
+  # Shown for operator awareness; they do NOT drive a non-zero exit.
+  if [ "$warn_count" -gt 0 ]; then
+    echo -e "${BOLD}├──────────────────────────────────────────────┤${NC}"
+    echo -e "${BOLD}│${NC}  ${YELLOW}CONFIGURE MANUALLY (non-blocking):${NC}"
+    for entry in "${WARNINGS[@]}"; do
       local desc="${entry%%||*}"
       local instr="${entry##*||}"
       echo -e "${BOLD}│${NC}    • $desc"
@@ -1605,11 +1652,18 @@ main() {
   # Phase 2: REPORT
   show_report
 
+  # BL-084: WARNINGS are intentionally EXCLUDED from total_issues — they are
+  # benign, non-blocking "configure manually" notices (e.g. the 'other'-host
+  # bring-your-own CI/release path) and must not drive a non-zero exit.
   local total_issues=$(( ${#FIXABLE[@]} + ${#MANUAL[@]} ))
 
   if [ "$total_issues" -eq 0 ]; then
     echo ""
-    print_ok "All checks passed. Installation is healthy."
+    if [ ${#WARNINGS[@]} -gt 0 ]; then
+      print_ok "All checks passed (${#WARNINGS[@]} non-blocking item(s) to configure manually — see report)."
+    else
+      print_ok "All checks passed. Installation is healthy."
+    fi
     exit 0
   fi
 

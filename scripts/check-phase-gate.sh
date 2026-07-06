@@ -935,6 +935,78 @@ if [ "$current_phase" -ge 2 ]; then
   fi
 fi
 
+# --- Phase 1→2 BACKSTOP: remote PUSH verification (BL-084) ---
+# The protection backstop above proves branch PROTECTION; it does NOT prove
+# the code was actually uploaded. This backstop verifies the remote really
+# has the branch — the check that makes the verify-install "bring-your-own
+# CI" warning TRUE rather than a mask for un-pushed code.
+#
+# SCOPE: this runs ONLY for host=="other" (the bring-your-own-host path).
+# First-class hosts (github/gitlab/bitbucket) HARD-FAIL init on a push
+# failure (create_and_protect_remote returns 1 → record_init_failure), so a
+# first-class project that reached Phase 2 provably pushed at init; the
+# protection backstop above (API verify) already re-confirms reachability.
+# The 'other' path is the ONLY one where init can legitimately COMPLETE
+# without a verified push — via the light-tier acknowledged escapes below —
+# so it is exactly where a raw push-existence check adds real value.
+#
+# HERMETIC/testable: verification is a plain `git ls-remote --heads origin`
+# — it works against a LOCAL bare repo (tests point origin there) and NEVER
+# invokes gh/glab (BL-076: no real remote creation). Tier-aware:
+#   • track=standard|full: a VERIFIED remote is MANDATORY — FAIL
+#     (non-bypassable) if the remote does not have the code. No ack bypasses
+#     the push itself.
+#   • track=light: require the verified remote UNLESS local_only_acknowledged
+#     is on record (then PASS — the operator opted out, on record). If
+#     push_deferred_acknowledged is set but the push is still not verified,
+#     FAIL — the deferral does NOT let them advance ("the gate WILL block you
+#     until pushed").
+# The `# BL-084-PUSH-VERIFY` marker is the mutation-proof target: removing the
+# verification makes the "deferred-but-not-pushed → FAIL" test go RED.
+if [ "$current_phase" -ge 2 ]; then
+  bl084_host=""
+  if [ -f .claude/manifest.json ] && command -v jq >/dev/null 2>&1; then
+    bl084_host=$(jq -r '.host // ""' .claude/manifest.json 2>/dev/null || echo "")
+  fi
+  if [ "$bl084_host" = "other" ]; then
+    bl084_local_only_ack=false
+    bl084_push_deferred_ack=false
+    if [ -f .claude/process-state.json ] && command -v jq >/dev/null 2>&1; then
+      [ "$(jq -r '.phase2_init.remote.local_only_acknowledged.risk_accepted // false' .claude/process-state.json 2>/dev/null)" = "true" ] && bl084_local_only_ack=true
+      [ "$(jq -r '.phase2_init.remote.push_deferred_acknowledged.risk_accepted // false' .claude/process-state.json 2>/dev/null)" = "true" ] && bl084_push_deferred_ack=true
+    fi
+
+    bl084_remote_verified=false  # BL-084-PUSH-VERIFY
+    if git rev-parse --is-inside-work-tree >/dev/null 2>&1 && git remote get-url origin >/dev/null 2>&1; then
+      for _bl084_br in main master; do
+        if git ls-remote --heads origin "$_bl084_br" 2>/dev/null | grep -q .; then
+          bl084_remote_verified=true
+          break
+        fi
+      done
+    fi
+
+    if [ "$bl084_remote_verified" = true ]; then
+      echo -e "${GREEN}  [OK]${NC} Phase 1→2 push gate: remote has the branch — the code is pushed (BL-084)."
+    elif [ "$track" = "light" ] && [ "$bl084_local_only_ack" = true ]; then
+      echo -e "${GREEN}  [OK]${NC} Phase 1→2 push gate: local-only acknowledged — operator opted out of a remote, on record (BL-084)."
+    elif [ "$track" = "standard" ] || [ "$track" = "full" ]; then
+      echo -e "${RED}[FAIL]${NC} Phase 1→2 push gate: track=$track requires a VERIFIED remote (the code must be pushed) — MANDATORY, non-bypassable (BL-084)."
+      echo "        Push the initial commit, then re-check: scripts/check-gate.sh --preflight"
+      issues=$((issues + 1))
+    elif [ "$bl084_push_deferred_ack" = true ]; then
+      echo -e "${RED}[FAIL]${NC} Phase 1→2 push gate: push was DEFERRED (--defer-remote-push) but the remote still does NOT have the branch (BL-084)."
+      echo "        The deferral does not let you advance — push before Phase 1→2:"
+      echo "          git push -u origin main   # then: scripts/check-gate.sh --preflight"
+      issues=$((issues + 1))
+    else
+      echo -e "${RED}[FAIL]${NC} Phase 1→2 push gate: no verified remote and no local-only acknowledgment on record (BL-084)."
+      echo "        Push the initial commit, or (track=light only) re-run init with --accept-local-only-risk."
+      issues=$((issues + 1))
+    fi
+  fi
+fi
+
 # --- Phase 1→2 BACKSTOP: data_classification + ZDR attestation (tier-crosscheck-6) ---
 # docs/governance-framework.md §VII line 299 declared a "Mandatory ZDR
 # gate" — projects classified Internal or higher MUST use the ZDR or

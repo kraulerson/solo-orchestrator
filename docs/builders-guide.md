@@ -929,8 +929,26 @@ export BITBUCKET_WORKSPACE="your-workspace-slug"
    - Admins not exempt (if supported)
    - Org mode only: require at least 1 PR review
 4. At the attestation prompt in init.sh, type `yes` to confirm protection is configured.
-5. No CI template is laid down for `other`. Supply your own `.gitlab-ci.yml` / Jenkinsfile / etc.
+5. No CI or release template is laid down for `other`. Supply your own `.gitlab-ci.yml` / Jenkinsfile / etc.
 6. Attestation expires after 90 days; re-confirm when the Phase 1→2 backstop fires.
+
+**`other`-host CI/CD is a non-blocking warning (BL-084).** `other` has no canonical CI/release destination, so `verify-install.sh` reports *"CI pipeline: configure manually"* / *"Release pipeline: configure manually"* in a dedicated **"configure manually (non-blocking)"** section that does **not** count toward the manual-action total. Supplying your own CI/CD is a one-time setup item, not a failure — the check still passes. (Genuine incompleteness on a *supported* host still fails, per the BL-064 hard-fail contract.)
+
+**A failed initial push is a REAL failure — tier-aware, never silently masked (BL-084).** `other` is the bring-your-own-*host* path: init.sh runs `git remote add origin <your-url>` then `git push`. When that push does not complete (wrong/placeholder URL, repo not yet created, proxy/firewall), what happens depends on your **track**:
+
+| Track | Karl's term | Push-fail behavior on `--git-host other` |
+|-------|-------------|------------------------------------------|
+| `standard` | POC-Sponsored | **HARD FAIL, non-bypassable.** A working remote is mandatory. init records the failure, prints **"Setup INCOMPLETE"**, exits non-zero. No flag helps. |
+| `full` | MVP / Production | **HARD FAIL, non-bypassable.** Same as standard. |
+| `light` | Personal / POC-Personal | **Real failure by default**, but you may proceed with an **explicit, on-the-record acknowledgment** (never a silent pass): |
+
+For `track=light` only, a failed push can be explicitly acknowledged via one of:
+- `--accept-local-only-risk` — keep the project **local** (no remote) and accept the **data-loss** risk. Recorded in `.claude/process-state.json::phase2_init.remote.local_only_acknowledged`. init exits 0.
+- `--defer-remote-push` — push manually later. Recorded as `push_deferred_acknowledged`. init exits 0, **but the Phase 1→2 gate WILL block** until the remote actually has the branch.
+
+Interactively (no flag), init prompts and defaults to **do not proceed** (treat as a failure). First-class hosts (`github`/`gitlab`/`bitbucket`) always keep the hard-fail contract: a real repo-creation, push, or protection failure records an init failure and exits non-zero (BL-064).
+
+**Phase 1→2 gate enforces a verified remote (BL-084).** `check-phase-gate.sh` verifies the remote actually has the branch (`git ls-remote --heads origin`, `other` host only). For `track=standard|full` a verified remote is **mandatory** (non-bypassable FAIL if the code isn't pushed). For `track=light` the gate PASSES only if the remote has the branch **or** `local_only_acknowledged` is on record; a `push_deferred_acknowledged` that was never actually pushed still **FAILS** (the deferral does not let you advance).
 
 **2. Protection bar** (personal vs organizational):
 

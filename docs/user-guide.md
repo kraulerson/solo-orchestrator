@@ -341,6 +341,15 @@ Each project is self-contained. No runtime dependency on the solo-orchestrator r
 
 The init script also generates **two pipelines**: a CI pipeline (`ci.yml`) selected by your language (handles testing, linting, SAST, dependency audit, license checking) and a release pipeline (`release.yml`) selected by your platform (handles building, signing, packaging, and distribution). CI pipelines are working GitHub Actions workflows that run immediately on first push. Release pipelines are production-ready templates that require configuration — code signing, deployment secrets, and store credentials must be set up before your first release.
 
+**`--git-host other` (bring-your-own host and CI).** For the `other` git host (Gitea, Codeberg, self-hosted, or any SCM without a first-class driver), init.sh deliberately does **not** lay down `ci.yml` / `release.yml` — there is no canonical destination, so you configure your own CI/CD (a `.gitlab-ci.yml`, a Jenkinsfile, or your host's pipeline format). That is a one-time manual setup item, **not a failure**: `verify-install.sh` surfaces it as a non-blocking *"configure manually"* warning (it never counts toward the manual-action total that fails the check).
+
+Because `other` is also the bring-your-own-*host* path, init.sh runs `git push` to the URL you paste — and a **failed** push is a **real failure**, handled by your project's **track** (never silently masked):
+
+- **`standard` (POC-Sponsored) / `full` (MVP-Production):** a working remote is **mandatory**. A failed push makes init print **"Setup INCOMPLETE"** and exit non-zero — no flag bypasses it.
+- **`light` (Personal / POC-Personal):** the push failure is still a real failure by default, but you may **explicitly acknowledge** it and proceed: `--accept-local-only-risk` keeps the project local (no remote) and accepts the **data-loss risk**; `--defer-remote-push` lets you push later (`git push -u origin main`). Both are recorded in `.claude/process-state.json`, and init exits 0. Interactively, init prompts and defaults to treating the failure as a failure.
+
+Either way, the **Phase 1→2 gate enforces a verified remote**: for `standard`/`full` it is non-bypassable, and a `light` project that *deferred* its push cannot advance until the remote actually has the branch (only an acknowledged *local-only* project may advance without one). First-class hosts (`github`/`gitlab`/`bitbucket`) always keep the hard-fail contract: a real push or protection failure there makes init exit non-zero.
+
 ### What Is Auto-Generated vs. What You Configure
 
 | File | Created By | You Must | Notes |
