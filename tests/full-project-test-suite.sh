@@ -912,6 +912,137 @@ else
   fi
 fi
 
+# --- BL-035 wiring C: test-gate/process/poc/docs ---
+# Registers the pre-Wave-1-4 orphan suites in the test-gate/session,
+# process-checklist/pending/poc, and docs/specs/lint product areas that
+# were parked on scripts/lint-tests-registered.sh::KNOWN_ORPHANS_PENDING_BL035
+# (running ZERO times). Same delegate discipline as the BL-034 block above:
+# no `|| true` wraps, each test invoked exactly once, rc feeds pass()/fail().
+# See Reports/2026-07-06-bl035-orphan-triage.md (chunk C).
+
+# ----------------------------------------------------------------
+# Test-gate / counter-sanitizer / session (BL-035 C)
+# ----------------------------------------------------------------
+# test-gate.sh + validate.sh counter-sanitizer coverage (the counter-
+# antipattern defect class), test-gate null-handling, record/unrecord
+# governance-ledger helpers, and the session-driver test-gate/merge check.
+section "BL-035 C: test-gate / counter-sanitizer / session"
+if bash "$SCRIPT_DIR/tests/test-test-gate-counter-sanitizer.sh" >/dev/null 2>&1; then
+  pass "tests/test-test-gate-counter-sanitizer.sh (5/5)"
+else
+  fail "tests/test-test-gate-counter-sanitizer.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-test-gate-null-handling.sh" >/dev/null 2>&1; then
+  pass "tests/test-test-gate-null-handling.sh (5/5)"
+else
+  fail "tests/test-test-gate-null-handling.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-validate-counter-sanitizer.sh" >/dev/null 2>&1; then
+  pass "tests/test-validate-counter-sanitizer.sh (5/5)"
+else
+  fail "tests/test-validate-counter-sanitizer.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-record-claude-commit.sh" >/dev/null 2>&1; then
+  pass "tests/test-record-claude-commit.sh (9/9)"
+else
+  fail "tests/test-record-claude-commit.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-unrecord-feature.sh" >/dev/null 2>&1; then
+  pass "tests/test-unrecord-feature.sh (7/7)"
+else
+  fail "tests/test-unrecord-feature.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-session-test-gate-check-merge.sh" >/dev/null 2>&1; then
+  pass "tests/test-session-test-gate-check-merge.sh (9/9)"
+else
+  fail "tests/test-session-test-gate-check-merge.sh FAILED (run for details)"
+fi
+
+# ----------------------------------------------------------------
+# Process-checklist / pending-approval / poc-modes (BL-035 C)
+# ----------------------------------------------------------------
+# pending-approval resolve/escalate flow, process-checklist auto-advance +
+# commit classifier, phase-finalize, the platform-security-bugs-closer
+# docstring probe (T4b path fixed in Chunk-0), and poc-modes tier semantics
+# (T5: --to-private-poc from personal stays personal — aligned with E60,
+# see BL-079).
+section "BL-035 C: process-checklist / pending / poc-modes"
+if bash "$SCRIPT_DIR/tests/test-pending-approval.sh" >/dev/null 2>&1; then
+  pass "tests/test-pending-approval.sh (21/21)"
+else
+  fail "tests/test-pending-approval.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-process-checklist-auto-advance.sh" >/dev/null 2>&1; then
+  pass "tests/test-process-checklist-auto-advance.sh (7/7)"
+else
+  fail "tests/test-process-checklist-auto-advance.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-process-checklist-classifier.sh" >/dev/null 2>&1; then
+  pass "tests/test-process-checklist-classifier.sh (12/12)"
+else
+  fail "tests/test-process-checklist-classifier.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-phase-finalize.sh" >/dev/null 2>&1; then
+  pass "tests/test-phase-finalize.sh (6/6)"
+else
+  fail "tests/test-phase-finalize.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-platform-security-bugs-closer.sh" >/dev/null 2>&1; then
+  pass "tests/test-platform-security-bugs-closer.sh (7/7)"
+else
+  fail "tests/test-platform-security-bugs-closer.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-poc-modes.sh" >/dev/null 2>&1; then
+  pass "tests/test-poc-modes.sh (5/5)"
+else
+  fail "tests/test-poc-modes.sh FAILED (run for details)"
+fi
+
+# ----------------------------------------------------------------
+# Pre-commit-gate --terminal-mode (BL-035 C / BL-075)
+# ----------------------------------------------------------------
+# BL-075 caution resolved: the pre-existing T2 / T6a-b / T11a-b reds were NOT
+# a --terminal-mode/classifier product bug but the BL-074 helpers-scaffold gap
+# (setup copied only helpers.sh; process-checklist.sh sources helpers-core.sh
+# directly, so --check-commit-message died and short-circuited the whole
+# terminal-mode flow at the classifier step). Both scaffolds now copy the full
+# helpers-core/helpers-full sibling chain the product ships; both suites GREEN
+# and mutation-provably exercise the real terminal-mode lint path.
+#
+# Only test-pre-commit-gate-terminal-mode.sh is registered here (it was on the
+# KNOWN_ORPHANS_PENDING_BL035 bridge). Its sibling test-pre-commit-gate-lints.sh
+# was already registered at TEST 0o (Wave-3) — the same BL-074 scaffold fix
+# turns it from RED (T6a/b/T11a/b) to GREEN there.
+section "BL-035 C: pre-commit-gate terminal-mode (BL-075)"
+if bash "$SCRIPT_DIR/tests/test-pre-commit-gate-terminal-mode.sh" >/dev/null 2>&1; then
+  pass "tests/test-pre-commit-gate-terminal-mode.sh (3/3)"
+else
+  fail "tests/test-pre-commit-gate-terminal-mode.sh FAILED (run for details)"
+fi
+
+# ----------------------------------------------------------------
+# Docs / specs / lint suites (BL-035 C)
+# ----------------------------------------------------------------
+# Docs-cluster six-pack (doc-consistency guards), specs+plans remaining
+# quartet, and the UAT-scenarios lint behavior suite.
+section "BL-035 C: docs / specs / lint suites"
+if bash "$SCRIPT_DIR/tests/test-docs-cluster-six-pack.sh" >/dev/null 2>&1; then
+  pass "tests/test-docs-cluster-six-pack.sh (28/28)"
+else
+  fail "tests/test-docs-cluster-six-pack.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-specs-plans-remaining-quartet.sh" >/dev/null 2>&1; then
+  pass "tests/test-specs-plans-remaining-quartet.sh (10/10)"
+else
+  fail "tests/test-specs-plans-remaining-quartet.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-lint-uat-scenarios.sh" >/dev/null 2>&1; then
+  pass "tests/test-lint-uat-scenarios.sh (12/12)"
+else
+  fail "tests/test-lint-uat-scenarios.sh FAILED (run for details)"
+fi
+# --- end BL-035 wiring C ---
+
 # ================================================================
 # --- BL-035 wiring A: governance/gate/enforcement ---
 # ================================================================

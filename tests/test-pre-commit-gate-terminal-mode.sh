@@ -33,7 +33,14 @@ EOF
   # --terminal-mode can delegate to its classifier.
   mkdir -p "$TMP/scripts/lib"
   cp "$REPO_ROOT/scripts/process-checklist.sh" "$TMP/scripts/"
-  cp "$REPO_ROOT/scripts/lib/helpers.sh" "$TMP/scripts/lib/"
+  # BL-074: process-checklist.sh sources lib/helpers-core.sh directly, and
+  # helpers.sh is a shim that sources helpers-full.sh -> helpers-core.sh. A
+  # scaffold that copies only helpers.sh makes --check-commit-message die at
+  # source-time, so --terminal-mode blocks at the classifier step (T2) instead
+  # of reaching the intended behavior. Copy the full sibling chain init.sh ships.
+  cp "$REPO_ROOT/scripts/lib/helpers.sh" \
+     "$REPO_ROOT/scripts/lib/helpers-core.sh" \
+     "$REPO_ROOT/scripts/lib/helpers-full.sh" "$TMP/scripts/lib/"
   chmod +x "$TMP/scripts/process-checklist.sh"
 }
 teardown() { rm -rf "$TMP"; }

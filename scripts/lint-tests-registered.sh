@@ -145,22 +145,6 @@ fi
 #       marker inside the test file's header.
 # When BL-035 closes this array must be empty.
 KNOWN_ORPHANS_PENDING_BL035=(
-  test-docs-cluster-six-pack.sh
-  test-lint-uat-scenarios.sh
-  test-pending-approval.sh
-  test-phase-finalize.sh
-  test-platform-security-bugs-closer.sh
-  test-poc-modes.sh
-  test-pre-commit-gate-terminal-mode.sh
-  test-process-checklist-auto-advance.sh
-  test-process-checklist-classifier.sh
-  test-record-claude-commit.sh
-  test-session-test-gate-check-merge.sh
-  test-specs-plans-remaining-quartet.sh
-  test-test-gate-counter-sanitizer.sh
-  test-test-gate-null-handling.sh
-  test-unrecord-feature.sh
-  test-validate-counter-sanitizer.sh
 )
 
 VIOLATIONS=0
@@ -239,6 +223,10 @@ _is_known_orphan_bridge() {
   # Only honour the bridge list when scanning the canonical repo dir.
   # Fixture-mode scans (--tests-dir override) must see clean lint semantics.
   [ "$TEST_MODE" -eq 1 ] && return 1
+  # BL-035 closed: the bridge is now empty. Guard the [@] expansion —
+  # under `set -u`, bash 3.2 treats "${empty_array[@]}" as an unbound
+  # variable. The length form ${#..[@]} is safe on an empty array.
+  [ "${#KNOWN_ORPHANS_PENDING_BL035[@]}" -eq 0 ] && return 1
   local needle="$1"
   local orphan
   for orphan in "${KNOWN_ORPHANS_PENDING_BL035[@]}"; do
