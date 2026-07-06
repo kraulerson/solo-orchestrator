@@ -106,6 +106,21 @@ record_init_failure() {
 # is the single source of truth — used by both flows and exported for
 # any caller that wants to enumerate or validate platforms.
 get_available_platforms() {
+  # BL-051: process-local memoization. This helper globs
+  # docs/platform-modules/*.md + templates/pipelines/release/github/*.yml
+  # on every call; a single non-interactive validate invocation calls it
+  # more than once (--platform validation at collect_inputs_non_interactive
+  # + the required-arg error message). The platform set is fixed for the
+  # lifetime of the process (on-disk layout doesn't change mid-run), so the
+  # first call caches the result in a guard var + a plain string and later
+  # calls return it verbatim — preserving exact output and ordering.
+  # bash-3.2-safe: NO associative arrays (macOS ships bash 3.2 as /bin/bash),
+  # mirroring the guard-var + delimited-string pattern in
+  # scripts/lint-tests-registered.sh.
+  if [ "${_GET_AVAILABLE_PLATFORMS_CACHED:-0}" = "1" ]; then
+    echo "$_GET_AVAILABLE_PLATFORMS_CACHE"
+    return 0
+  fi
   local seen=""
   for f in "$SCRIPT_DIR/docs/platform-modules/"*.md; do
     [ -f "$f" ] || continue
@@ -128,6 +143,8 @@ get_available_platforms() {
   if [[ ! " $seen " == *" other "* ]]; then
     seen="$seen other"
   fi
+  _GET_AVAILABLE_PLATFORMS_CACHE="$seen"
+  _GET_AVAILABLE_PLATFORMS_CACHED=1
   echo "$seen"
 }
 
