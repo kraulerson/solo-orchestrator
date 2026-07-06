@@ -308,6 +308,25 @@ _cpg_gate_actor() {
   fi
 }
 
+# _cpg_gate_has_evidence <approval-log-header-regex>
+# Returns 0 iff APPROVAL_LOG.md contains the gate's section header AND a
+# dated (YYYY-MM-DD) line within the first 15 lines of that section — i.e.
+# genuine recorded evidence that the gate was crossed. This is the SOLE
+# predicate that gates the auto-write below: a project with no dated
+# approval entry must NEVER get a date synthesized into phase-state.json.
+# Extracted from the four per-gate call sites (previously duplicated
+# inline) so the evidence gate is a single audit/mutation surface — the
+# BL-071 verifier follow-up added negative coverage that pins exactly this
+# predicate (forcing it always-true must flip a test RED). The grep pair
+# is byte-for-byte the original inline logic. This line is load-bearing:
+#   # BL-071-EVIDENCE-GATE
+_cpg_gate_has_evidence() {
+  local header="$1"
+  grep -q "$header" "$APPROVAL_LOG" \
+    && grep -A 15 "$header" "$APPROVAL_LOG" \
+       | grep -qE "[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])"
+}
+
 # _cpg_record_gate_date <gate_key> <label> <current_date>
 # Records today's date into phase-state.json::gates.<gate_key> (and
 # gates.<gate_key>_by) when <current_date> is empty. If <current_date>
@@ -339,6 +358,16 @@ _cpg_record_gate_date() {
     return 2
   fi
 
+  # WARN-MODE NOTE (deliberate): callers reach this record path whenever the
+  # gate's APPROVAL_LOG.md evidence is present and the JSON date is empty —
+  # INCLUDING under SOIF_PHASE_GATES=warn. That is intentional: an
+  # evidence-backed gate date is a fact, so recording it (which reformats
+  # phase-state.json via jq) keeps the feature working for warn-mode
+  # projects. `warn` only downgrades the final BLOCKING exit; it is not a
+  # read-only/preview mode and must not suppress this write. Operators who
+  # want a pure read-only inspection should not run the gate at a phase past
+  # a crossed-but-unrecorded gate — there is no state to synthesize once the
+  # date is present (idempotent thereafter).
   local today actor file lock_dir attempts rc
   today=$(date +%Y-%m-%d)
   actor=$(_cpg_gate_actor)
@@ -346,11 +375,18 @@ _cpg_record_gate_date() {
   lock_dir="$file.lockdir"
 
   # Portable advisory lock via atomic mkdir (bypass-audit.sh lineage).
+  # Fail-safe stale-lock behavior: a SIGKILL between this mkdir and the
+  # subshell's EXIT trap can orphan "$lock_dir". The next run then spins
+  # this loop for ~10s (100 × 0.1s) and returns 2 — degrading to the
+  # historical "gate date not recorded" WARN (issues++), never a crash and
+  # never a corrupted state file. Recovery is `rmdir "$lock_dir"` (or it is
+  # swept with the project's temp state). This is an accepted trade for a
+  # dependency-free, macOS-bash-3.2-portable lock.
   attempts=0
   while ! mkdir "$lock_dir" 2>/dev/null; do
     attempts=$((attempts + 1))
     if [ "$attempts" -ge 100 ]; then
-      echo -e "${YELLOW}[WARN]${NC} $label: gate-date write lock timeout (>10s) — record the date in $PHASE_STATE manually." >&2
+      echo -e "${YELLOW}[WARN]${NC} $label: gate-date write lock timeout (>10s; possible stale $lock_dir from a killed run — remove it and retry) — record the date in $PHASE_STATE manually." >&2
       return 2
     fi
     sleep 0.1
@@ -718,7 +754,7 @@ fi
 # existing date). The date-set-but-no-evidence and no-date-no-evidence
 # branches preserve the historical WARN behavior.
 if [ "$current_phase" -ge 1 ]; then
-  if grep -q "Phase 0.*Phase 1" "$APPROVAL_LOG" && grep -A 15 "Phase 0.*Phase 1" "$APPROVAL_LOG" | grep -qE "[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])"; then
+  if _cpg_gate_has_evidence "Phase 0.*Phase 1"; then
     cpg_rc=0
     _cpg_record_gate_date "phase_0_to_1" "Phase 0→1" "$gate_0_to_1" || cpg_rc=$?
     [ "$cpg_rc" -eq 2 ] && issues=$((issues + 1))
@@ -762,7 +798,7 @@ fi
 # Check: if current_phase >= 2, gate 1→2 should have a date (BL-071: see
 # the Phase 0→1 block for the evidence-first auto-write rationale).
 if [ "$current_phase" -ge 2 ]; then
-  if grep -q "Phase 1.*Phase 2" "$APPROVAL_LOG" && grep -A 15 "Phase 1.*Phase 2" "$APPROVAL_LOG" | grep -qE "[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])"; then
+  if _cpg_gate_has_evidence "Phase 1.*Phase 2"; then
     cpg_rc=0
     _cpg_record_gate_date "phase_1_to_2" "Phase 1→2" "$gate_1_to_2" || cpg_rc=$?
     [ "$cpg_rc" -eq 2 ] && issues=$((issues + 1))
@@ -992,7 +1028,7 @@ fi
 # Check: if current_phase >= 3, gate 2→3 should have a date (BL-071: see
 # the Phase 0→1 block for the evidence-first auto-write rationale).
 if [ "$current_phase" -ge 3 ]; then
-  if grep -q "Phase 2.*Phase 3" "$APPROVAL_LOG" && grep -A 15 "Phase 2.*Phase 3" "$APPROVAL_LOG" | grep -qE "[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])"; then
+  if _cpg_gate_has_evidence "Phase 2.*Phase 3"; then
     cpg_rc=0
     _cpg_record_gate_date "phase_2_to_3" "Phase 2→3" "$gate_2_to_3" || cpg_rc=$?
     [ "$cpg_rc" -eq 2 ] && issues=$((issues + 1))
@@ -1024,7 +1060,7 @@ fi
 # Check: if current_phase >= 4, gate 3→4 should have a date (BL-071: see
 # the Phase 0→1 block for the evidence-first auto-write rationale).
 if [ "$current_phase" -ge 4 ]; then
-  if grep -q "Phase 3.*Phase 4" "$APPROVAL_LOG" && grep -A 15 "Phase 3.*Phase 4" "$APPROVAL_LOG" | grep -qE "[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])"; then
+  if _cpg_gate_has_evidence "Phase 3.*Phase 4"; then
     cpg_rc=0
     _cpg_record_gate_date "phase_3_to_4" "Phase 3→4" "$gate_3_to_4" || cpg_rc=$?
     [ "$cpg_rc" -eq 2 ] && issues=$((issues + 1))

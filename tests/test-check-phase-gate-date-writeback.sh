@@ -213,6 +213,93 @@ else
 fi
 teardown
 
+# APPROVAL_LOG.md with the gate's section HEADER present but NO dated line
+# (Date pending). Header-presence alone is NOT evidence — the auto-write
+# must key off a real recorded date, not a template stub.
+write_approval_log_no_evidence() {
+  cat > "$PROJ/APPROVAL_LOG.md" <<'MD'
+# Approval Log
+
+## Phase Gate: Phase 0 → Phase 1
+| Field | Value |
+|---|---|
+| **Approver** | Alice |
+| **Date** | (pending) |
+MD
+}
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T-no-evidence: no dated approval entry → NO write, gate blocks ==="
+# ════════════════════════════════════════════════════════════════════
+# The scope-gap the BL-071 verifier surfaced: nothing pinned that the
+# write is EVIDENCE-GATED. current_phase>=1, empty gates.phase_0_to_1, and
+# an APPROVAL_LOG.md with the header but no dated entry → the gate must NOT
+# synthesize a date, and must WARN (issues++ → exit 1 in blocking mode).
+setup
+write_state '{"phase_0_to_1":null,"phase_1_to_2":null,"phase_2_to_3":null,"phase_3_to_4":null}'
+write_approval_log_no_evidence
+# deliberately NO PRODUCT_MANIFESTO.md either — the gate has nothing to pass
+rc=0
+out=$(run_gate) || rc=$?
+d=$(gate_date)
+if [ "$d" = "null" ] || [ -z "$d" ]; then
+  pass "T-no-evidence: gates.phase_0_to_1 stays null (no date synthesized without evidence)"
+else
+  fail_ "T-no-evidence" "a date '$d' was synthesized despite NO dated approval evidence; out:
+$out"
+fi
+if [ "$rc" -ne 0 ]; then
+  pass "T-no-evidence: gate blocks (exit $rc) and WARNs about the unrecorded gate"
+else
+  fail_ "T-no-evidence" "expected non-zero exit (unrecorded gate should WARN/block), got exit 0; out:
+$out"
+fi
+if echo "$out" | grep -qiE "Phase 0.1: .*not recorded|not recorded in phase-state"; then
+  pass "T-no-evidence: output WARNs 'gate date not recorded'"
+else
+  fail_ "T-no-evidence" "expected a 'gate date not recorded' WARN for Phase 0→1; out:
+$out"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T-evidence-gate-mutation: force evidence always-true → date IS synthesized (RED proof) ==="
+# ════════════════════════════════════════════════════════════════════
+# MUTATION-PROOF for the evidence gate. Copy the script, force
+# _cpg_gate_has_evidence to always return 0 (the verifier's exact
+# `if true` mutation), and re-run the SAME no-evidence fixture. With the
+# evidence gate defeated, the script synthesizes a date into a project that
+# has ZERO approval evidence — proving _cpg_gate_has_evidence is what makes
+# T-no-evidence pass. (Remove/defeat the gate → T-no-evidence goes RED.)
+setup
+MUT="$TMP/mut"
+mkdir -p "$MUT/scripts/lib"
+cp "$SCRIPT" "$MUT/scripts/check-phase-gate.sh"
+cp "$REPO_ROOT"/scripts/lib/*.sh "$MUT/scripts/lib/" 2>/dev/null || true
+# Inject `return 0` as the first statement of _cpg_gate_has_evidence.
+awk '{print} /_cpg_gate_has_evidence\(\) \{/{print "  return 0  # forced-always-true (evidence-gate mutation)"}' \
+  "$MUT/scripts/check-phase-gate.sh" > "$MUT/scripts/check-phase-gate.sh.tmp"
+mv "$MUT/scripts/check-phase-gate.sh.tmp" "$MUT/scripts/check-phase-gate.sh"
+chmod +x "$MUT/scripts/check-phase-gate.sh"
+if ! grep -q 'BL-071-EVIDENCE-GATE' "$SCRIPT"; then
+  fail_ "T-evidence-gate-mutation" "BL-071-EVIDENCE-GATE marker missing from the REAL script — evidence gate unmarked?"
+elif ! grep -q 'forced-always-true (evidence-gate mutation)' "$MUT/scripts/check-phase-gate.sh"; then
+  fail_ "T-evidence-gate-mutation" "mutation did not inject into _cpg_gate_has_evidence"
+else
+  write_state '{"phase_0_to_1":null,"phase_1_to_2":null,"phase_2_to_3":null,"phase_3_to_4":null}'
+  write_approval_log_no_evidence
+  ( cd "$PROJ" && bash "$MUT/scripts/check-phase-gate.sh" >/dev/null 2>&1 ) || true
+  d=$(gate_date)
+  if [ "$d" = "$TODAY" ]; then
+    pass "T-evidence-gate-mutation: defeating _cpg_gate_has_evidence synthesizes a date with no evidence (gate is load-bearing)"
+  else
+    fail_ "T-evidence-gate-mutation" "expected a synthesized date '$TODAY' under the always-true mutation, got '$d' — mutation is not proof"
+  fi
+fi
+teardown
+
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]
