@@ -896,6 +896,98 @@ else
 fi
 
 # ================================================================
+# --- BL-035 wiring B: init/upgrade ---
+# ================================================================
+# Registers the init-family and upgrade-family orphan tests that were
+# parked on scripts/lint-tests-registered.sh::KNOWN_ORPHANS_PENDING_BL035
+# (running ZERO times). Same BL-034 delegate discipline: each test invoked
+# once, rc captured, contributes to pass()/fail(); no `|| true` wraps.
+#
+# Dispositions applied in this wiring pass (see the BL-035 orphan-triage
+# report, 2026-07-06):
+#   • DELETE   test-init-other-host-attestation.sh — fully superseded by the
+#              already-registered test-init-fail-status-propagation.sh (same
+#              --git-host other push-fail fixture + BL-064/BL-024 invariants);
+#              its T2 dup'd init-non-interactive N9. File + bridge entry removed.
+#   • RELOCATE test-github-free-tier-403.sh → tests/host-drivers/
+#              github-free-tier-403.test.sh so tests/host-drivers/run-all.sh's
+#              *.test.sh glob registers it (NOT this aggregator).
+#   • MERGE    test-upgrade-personal-to-sponsored-poc.sh — unique T1
+#              (personal→sponsored_poc R3-A guard + phase-state transition)
+#              folded into tests/edge-cases-scripts.sh as E58b; T2/T3 dropped as
+#              dups of E27/E60. File + bridge entry removed.
+#   • DECOMPOSE test-upgrade-paths.sh — trimmed to its unique T4 (BL-004 flat→
+#              per-host CI migration) / T5 (vendored-skills + private-poc +
+#              manifesto) / T6 (POC-strip); the T1/T2/T3 tier-transition cases
+#              were dropped as dups of tests/upgrade-path-tests.sh.
+#   • N7 fix   test-init-non-interactive.sh N7 asserted personal+production →
+#              exit 1, but the current product correctly ACCEPTS that combo
+#              (production is valid for personal, baseline §2.5). N7 now pins
+#              the actually-rejected personal+sponsored_poc combo → exit 1.
+section "BL-035 wiring B: init family"
+if bash "$SCRIPT_DIR/tests/test-init-atomic-finalize.sh" >/dev/null 2>&1; then
+  pass "tests/test-init-atomic-finalize.sh (code-init-sh-6 atomic-finalize, 8/8)"
+else
+  fail "tests/test-init-atomic-finalize.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-init-no-remote-creation.sh" >/dev/null 2>&1; then
+  pass "tests/test-init-no-remote-creation.sh"
+else
+  fail "tests/test-init-no-remote-creation.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-init-schema-phase-gate.sh" >/dev/null 2>&1; then
+  pass "tests/test-init-schema-phase-gate.sh"
+else
+  fail "tests/test-init-schema-phase-gate.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-vendored-skills-install.sh" >/dev/null 2>&1; then
+  pass "tests/test-vendored-skills-install.sh"
+else
+  fail "tests/test-vendored-skills-install.sh FAILED (run for details)"
+fi
+# N7 fix landed in this test (personal+sponsored_poc, not personal+production).
+if bash "$SCRIPT_DIR/tests/test-init-non-interactive.sh" >/dev/null 2>&1; then
+  pass "tests/test-init-non-interactive.sh (BL-016 --non-interactive validation, 29/29)"
+else
+  fail "tests/test-init-non-interactive.sh FAILED (run for details)"
+fi
+
+section "BL-035 wiring B: upgrade family"
+if bash "$SCRIPT_DIR/tests/test-upgrade-non-interactive.sh" >/dev/null 2>&1; then
+  pass "tests/test-upgrade-non-interactive.sh"
+else
+  fail "tests/test-upgrade-non-interactive.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-upgrade-bl030-backfill.sh" >/dev/null 2>&1; then
+  pass "tests/test-upgrade-bl030-backfill.sh"
+else
+  fail "tests/test-upgrade-bl030-backfill.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-upgrade-to-production-preconditions.sh" >/dev/null 2>&1; then
+  pass "tests/test-upgrade-to-production-preconditions.sh"
+else
+  fail "tests/test-upgrade-to-production-preconditions.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-upgrade-to-production-warn.sh" >/dev/null 2>&1; then
+  pass "tests/test-upgrade-to-production-warn.sh"
+else
+  fail "tests/test-upgrade-to-production-warn.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-verify-install-bl030-coverage.sh" >/dev/null 2>&1; then
+  pass "tests/test-verify-install-bl030-coverage.sh"
+else
+  fail "tests/test-verify-install-bl030-coverage.sh FAILED (run for details)"
+fi
+# DECOMPOSED: only the unique T4 (BL-004 CI migration) / T5 (vendored-skills,
+# private-poc, manifesto) / T6 (POC-strip) cases remain; T1/T2/T3 tier-transition
+# cases were dropped as dups of tests/upgrade-path-tests.sh.
+if bash "$SCRIPT_DIR/tests/test-upgrade-paths.sh" >/dev/null 2>&1; then
+  pass "tests/test-upgrade-paths.sh (unique T4/T5/T6 after BL-035 decompose, 16/16)"
+else
+  fail "tests/test-upgrade-paths.sh FAILED (run for details)"
+fi
+
+# ================================================================
 # TEST 1: RESOLVER MATRIX — ALL COMBINATIONS
 # ================================================================
 section "TEST 1: Resolver Matrix — All Platform × Language × Track Combinations"

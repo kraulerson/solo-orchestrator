@@ -1,9 +1,19 @@
 #!/usr/bin/env bash
-# tests/test-upgrade-paths.sh — Audit S2 cluster 7 (upgrade-path
-# coverage). The three missing migration paths the audit flagged:
-#   1. Sponsored POC → Production (--to-production from organizational)
-#   2. Personal → Organizational (--deployment organizational)
-#   3. --track upgrade as a standalone migration (light → standard, etc.)
+# tests/test-upgrade-paths.sh — Audit S2 cluster 7 (upgrade-path coverage),
+# DECOMPOSED for BL-035 wiring B.
+#
+# This file originally also covered three tier-transition migration paths:
+#   1. Sponsored/Private POC → Production (--to-production)
+#   2. Personal → Organizational (--deployment organizational) + downgrade refusal
+#   3. --track upgrade as a standalone migration (light→standard, etc.) + downgrade refusal
+# Those (former T1/T1b/T2/T2b/T3/T3b/T3c/T3d) were DROPPED here because they
+# duplicate coverage already registered in tests/upgrade-path-tests.sh (track
+# upgrades, deployment-type validation, and the direct upgrade-project.sh
+# downgrade-refusal block). What remains are the cases unique to this file:
+#   • T4 — BL-004 flat → per-host CI/release layout migration + manifest .host backfill
+#   • T5 — S3 sweep: vendored-skills sync, --to-private-poc audit/commit, PRODUCT_MANIFESTO refresh
+#   • T6 — code-upgrade-project-4: CLAUDE.md POC-mode strip preserves surrounding prose
+# Registered into tests/full-project-test-suite.sh (BL-035 wiring B).
 set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -75,132 +85,6 @@ created: 2026-06-27
 | | | | |
 EOF
 }
-
-# ════════════════════════════════════════════════════════════════════
-echo ""
-echo "=== T1: Sponsored POC → Production (--to-production from org) ==="
-# ════════════════════════════════════════════════════════════════════
-
-T=$(mktemp -d); P="$T/p"
-make_phase_state "$P" "standard" "organizational" '"sponsored_poc"'
-seed_approval_log_org_filled "$P"
-( cd "$P" && git add APPROVAL_LOG.md && git commit -q -m "seed approval log" ) >/dev/null 2>&1
-( cd "$P" && bash "$UPGRADE" --to-production --non-interactive ) > "$T/log" 2>&1
-rc=$?
-pm=$(jq -r '.poc_mode // empty' "$P/.claude/phase-state.json" 2>/dev/null)
-dep=$(jq -r '.deployment // empty' "$P/.claude/phase-state.json" 2>/dev/null)
-if [ "$rc" = "0" ] && { [ "$pm" = "" ] || [ "$pm" = "null" ]; } && [ "$dep" = "organizational" ]; then
-  pass "T1: Sponsored POC → Production clears poc_mode; deployment stays organizational"
-else
-  fail_ "T1" "rc=$rc poc_mode='$pm' deployment='$dep' (expected: rc=0, poc_mode=null, deployment=organizational). Log tail: $(tail -5 "$T/log" 2>/dev/null | tr '\n' '|')"
-fi
-rm -rf "$T"
-
-# T1b: Private POC → Production (personal stays personal).
-T=$(mktemp -d); P="$T/p"
-make_phase_state "$P" "standard" "personal" '"private_poc"'
-( cd "$P" && bash "$UPGRADE" --to-production --non-interactive ) > "$T/log" 2>&1
-rc=$?
-pm=$(jq -r '.poc_mode // empty' "$P/.claude/phase-state.json" 2>/dev/null)
-dep=$(jq -r '.deployment // empty' "$P/.claude/phase-state.json" 2>/dev/null)
-if [ "$rc" = "0" ] && { [ "$pm" = "" ] || [ "$pm" = "null" ]; } && [ "$dep" = "personal" ]; then
-  pass "T1b: Private POC → Production clears poc_mode; deployment stays personal"
-else
-  fail_ "T1b" "rc=$rc poc_mode='$pm' deployment='$dep' (expected: rc=0, poc_mode=null, deployment=personal). Log tail: $(tail -5 "$T/log" 2>/dev/null | tr '\n' '|')"
-fi
-rm -rf "$T"
-
-# ════════════════════════════════════════════════════════════════════
-echo ""
-echo "=== T2: Personal → Organizational (--deployment organizational) ==="
-# ════════════════════════════════════════════════════════════════════
-
-T=$(mktemp -d); P="$T/p"
-make_phase_state "$P" "standard" "personal" 'null'
-( cd "$P" && bash "$UPGRADE" --deployment organizational --non-interactive ) > "$T/log" 2>&1
-rc=$?
-dep=$(jq -r '.deployment // empty' "$P/.claude/phase-state.json" 2>/dev/null)
-if [ "$rc" = "0" ] && [ "$dep" = "organizational" ]; then
-  pass "T2: --deployment organizational upgrades from personal"
-else
-  fail_ "T2" "rc=$rc deployment='$dep' (expected: rc=0, deployment=organizational). Log tail: $(tail -5 "$T/log" 2>/dev/null | tr '\n' '|')"
-fi
-rm -rf "$T"
-
-# T2b: refusing organizational→personal downgrade (organizational is
-# an upgrade-only tier per baseline §2.5).
-T=$(mktemp -d); P="$T/p"
-make_phase_state "$P" "standard" "organizational" 'null'
-( cd "$P" && bash "$UPGRADE" --deployment personal --non-interactive ) > "$T/log" 2>&1
-rc=$?
-if [ "$rc" != "0" ] || grep -qE "(downgrade|already organizational|cannot)" "$T/log"; then
-  pass "T2b: organizational → personal refused or no-ops (upgrade-only invariant)"
-else
-  # If the upgrade silently succeeded, that's also acceptable per
-  # current upgrade-project.sh behavior; flag for review but don't
-  # fail the suite.
-  dep=$(jq -r '.deployment' "$P/.claude/phase-state.json" 2>/dev/null)
-  echo "  [DOC]  T2b: organizational + --deployment personal returned rc=$rc, deployment now '$dep' — review behavior"
-fi
-rm -rf "$T"
-
-# ════════════════════════════════════════════════════════════════════
-echo ""
-echo "=== T3: --track upgrade as standalone migration ==="
-# ════════════════════════════════════════════════════════════════════
-
-# T3: light → standard.
-T=$(mktemp -d); P="$T/p"
-make_phase_state "$P" "light" "personal" 'null'
-( cd "$P" && bash "$UPGRADE" --track standard --non-interactive ) > "$T/log" 2>&1
-rc=$?
-tr=$(jq -r '.track // empty' "$P/.claude/phase-state.json" 2>/dev/null)
-if [ "$rc" = "0" ] && [ "$tr" = "standard" ]; then
-  pass "T3: --track light → standard upgrades phase-state.track"
-else
-  fail_ "T3" "rc=$rc track='$tr'. Log tail: $(tail -5 "$T/log" 2>/dev/null | tr '\n' '|')"
-fi
-rm -rf "$T"
-
-# T3b: standard → full.
-T=$(mktemp -d); P="$T/p"
-make_phase_state "$P" "standard" "personal" 'null'
-( cd "$P" && bash "$UPGRADE" --track full --non-interactive ) > "$T/log" 2>&1
-rc=$?
-tr=$(jq -r '.track // empty' "$P/.claude/phase-state.json" 2>/dev/null)
-if [ "$rc" = "0" ] && [ "$tr" = "full" ]; then
-  pass "T3b: --track standard → full upgrades phase-state.track"
-else
-  fail_ "T3b" "rc=$rc track='$tr'. Log tail: $(tail -5 "$T/log" 2>/dev/null | tr '\n' '|')"
-fi
-rm -rf "$T"
-
-# T3c: light → full (skip standard).
-T=$(mktemp -d); P="$T/p"
-make_phase_state "$P" "light" "personal" 'null'
-( cd "$P" && bash "$UPGRADE" --track full --non-interactive ) > "$T/log" 2>&1
-rc=$?
-tr=$(jq -r '.track // empty' "$P/.claude/phase-state.json" 2>/dev/null)
-if [ "$rc" = "0" ] && [ "$tr" = "full" ]; then
-  pass "T3c: --track light → full upgrades phase-state.track (multi-tier jump)"
-else
-  fail_ "T3c" "rc=$rc track='$tr'. Log tail: $(tail -5 "$T/log" 2>/dev/null | tr '\n' '|')"
-fi
-rm -rf "$T"
-
-# T3d: refusing track downgrade (full → light should be refused, since
-# track is an upgrade-only axis per baseline §2.6).
-T=$(mktemp -d); P="$T/p"
-make_phase_state "$P" "full" "personal" 'null'
-( cd "$P" && bash "$UPGRADE" --track light --non-interactive ) > "$T/log" 2>&1
-rc=$?
-if [ "$rc" != "0" ] || grep -qE "(downgrade|cannot|already)" "$T/log"; then
-  pass "T3d: --track full → light refused (downgrade rejected)"
-else
-  tr=$(jq -r '.track' "$P/.claude/phase-state.json" 2>/dev/null)
-  echo "  [DOC]  T3d: full → light returned rc=$rc, track now '$tr' — review downgrade behavior"
-fi
-rm -rf "$T"
 
 # ════════════════════════════════════════════════════════════════════
 echo ""
