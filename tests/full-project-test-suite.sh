@@ -537,6 +537,24 @@ else
 fi
 
 # ----------------------------------------------------------------
+# TEST 0h2: BL-084 TIER-AWARE CUSTOM-HOST REMOTE POLICY
+# ----------------------------------------------------------------
+# init.sh --git-host other: a failed initial push is tier-aware — a
+# NON-bypassable hard failure for track=standard|full (POC-Sponsored /
+# Production), an EXPLICITLY-acknowledged local-only / deferred escape for
+# track=light (Personal / POC-Personal), never a silent success (BL-064
+# preserved). check-phase-gate.sh adds a hermetic Phase 1→2 remote push-
+# verification (host=other, `git ls-remote` against a local bare repo, no
+# gh). verify-install.sh routes the other-host CI/release absence to a
+# non-blocking warning. Two mutation proofs pin the load-bearing guarantees
+# (`# BL-084-TIER-GATE`, `# BL-084-PUSH-VERIFY`).
+if bash "$SCRIPT_DIR/tests/test-bl084-tier-aware-remote-policy.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl084-tier-aware-remote-policy.sh"
+else
+  fail "tests/test-bl084-tier-aware-remote-policy.sh FAILED (run for details)"
+fi
+
+# ----------------------------------------------------------------
 # TEST 0i: PENDING-APPROVAL RESOLVE-DECISION
 # ----------------------------------------------------------------
 # PR #87 sibling: scripts/pending-approval.sh --resolve-decision flow.

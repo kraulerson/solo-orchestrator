@@ -1656,8 +1656,7 @@ _e56_rc=0
 (cd "$_e56_dir" && "$INIT_SH" --non-interactive \
   --project uat-e56 --platform web --deployment personal --language typescript \
   --project-dir "$_e56_proj" \
-  --git-host other --remote-url https://example.com/fake.git \
-  --branch-protection-attested >/dev/null 2>&1) || _e56_rc=$?
+  --git-host github --no-remote-creation >/dev/null 2>&1) || _e56_rc=$?
 _e56_test_interval=""
 if [ -f "$_e56_proj/.claude/build-progress.json" ]; then
   _e56_test_interval=$(jq -r '.test_interval // empty' "$_e56_proj/.claude/build-progress.json" 2>/dev/null || echo "")
@@ -1688,8 +1687,7 @@ _e57_rc=0
 (cd "$_e57_dir" && "$INIT_SH" --non-interactive \
   --project uat-e57 --platform web --deployment organizational --gov-mode production \
   --language typescript --project-dir "$_e57_proj" \
-  --git-host other --remote-url https://example.com/fake.git \
-  --branch-protection-attested >/dev/null 2>&1) || _e57_rc=$?
+  --git-host github --no-remote-creation >/dev/null 2>&1) || _e57_rc=$?
 _e57_poc=""
 if [ -f "$_e57_proj/.claude/phase-state.json" ]; then
   _e57_poc=$(jq -r '.poc_mode' "$_e57_proj/.claude/phase-state.json" 2>/dev/null || echo "missing")
@@ -1787,8 +1785,7 @@ _e59_init_rc=0
 (cd "$_e59_dir" && "$INIT_SH" --non-interactive \
   --project uat-e59 --platform mcp_server --deployment personal \
   --language python --project-dir "$_e59_proj" \
-  --git-host other --remote-url https://example.com/fake.git \
-  --branch-protection-attested >/dev/null 2>&1) || _e59_init_rc=$?
+  --git-host github --no-remote-creation >/dev/null 2>&1) || _e59_init_rc=$?
 _e59_module_present=false
 _e59_release_present=false
 _e59_uat_ref_present=false
@@ -1826,8 +1823,7 @@ _e60_init_rc=0
 (cd "$_e60_dir" && "$INIT_SH" --non-interactive \
   --project uat-e60 --platform web --deployment personal \
   --language typescript --project-dir "$_e60_proj" \
-  --git-host other --remote-url https://example.com/fake.git \
-  --branch-protection-attested >/dev/null 2>&1) || _e60_init_rc=$?
+  --git-host github --no-remote-creation >/dev/null 2>&1) || _e60_init_rc=$?
 _e60_upgrade_rc=0
 if [ "$_e60_init_rc" = "0" ] && [ -d "$_e60_proj/scripts" ]; then
   (cd "$_e60_proj" && bash scripts/upgrade-project.sh --to-private-poc >/dev/null 2>&1) || _e60_upgrade_rc=$?
@@ -1860,8 +1856,7 @@ _e61_init_rc=0
 (cd "$_e61_dir" && "$INIT_SH" --non-interactive \
   --project uat-e61 --platform web --deployment personal \
   --language typescript --project-dir "$_e61_proj" \
-  --git-host other --remote-url https://example.com/fake.git \
-  --branch-protection-attested >/dev/null 2>&1) || _e61_init_rc=$?
+  --git-host github --no-remote-creation >/dev/null 2>&1) || _e61_init_rc=$?
 _e61_subdir="$_e61_proj/docs"
 mkdir -p "$_e61_subdir"
 _e61_wizard_rc=0

@@ -929,8 +929,27 @@ export BITBUCKET_WORKSPACE="your-workspace-slug"
    - Admins not exempt (if supported)
    - Org mode only: require at least 1 PR review
 4. At the attestation prompt in init.sh, type `yes` to confirm protection is configured.
-5. No CI template is laid down for `other`. Supply your own `.gitlab-ci.yml` / Jenkinsfile / etc.
+5. No CI or release template is laid down for `other`. Supply your own `.gitlab-ci.yml` / Jenkinsfile / etc.
 6. Attestation expires after 90 days; re-confirm when the Phase 1→2 backstop fires.
+
+**`other`-host CI/CD is a non-blocking warning (BL-084).** `other` has no canonical CI/release destination, so `verify-install.sh` reports *"CI pipeline: configure manually"* / *"Release pipeline: configure manually"* in a dedicated **"configure manually (non-blocking)"** section that does **not** count toward the manual-action total. Supplying your own CI/CD is a one-time setup item, not a failure — the check still passes. (Genuine incompleteness on a *supported* host still fails, per the BL-064 hard-fail contract.)
+
+**A failed initial push is a REAL failure — tier-aware, never silently masked (BL-084).** `other` is the bring-your-own-*host* path: init.sh runs `git remote add origin <your-url>` then `git push`. When that push does not complete (wrong/placeholder URL, repo not yet created, proxy/firewall), what happens depends on your project's **tier** — which is decided by `deployment` + governance mode (`poc_mode`), **not** by the `track` field. (`track=light` can be set on a Sponsored/Production project in `--non-interactive` mode; the framework deliberately does *not* trust `track` here, so a sponsored/production project can never bypass a failed push by carrying a light track.)
+
+| Tier (Karl's term) | How it's detected | Push-fail behavior on `--git-host other` |
+|--------------------|-------------------|------------------------------------------|
+| **Personal** | `deployment=personal`, non-POC | **Real failure by default**, but bypassable with an explicit, on-the-record acknowledgment (below). |
+| **POC-Personal** | `deployment=personal`, `poc_mode=private_poc` | Same as Personal — bypassable with acknowledgment. |
+| **POC-Sponsored** | `deployment=organizational`, `poc_mode=sponsored_poc` | **HARD FAIL, non-bypassable.** A working remote is mandatory. init records the failure, prints **"Setup INCOMPLETE"**, exits non-zero. **No flag helps — not even with `--track light`.** |
+| **MVP / Production** | `deployment=organizational` (production build) | **HARD FAIL, non-bypassable.** Same as POC-Sponsored. |
+
+For the **bypassable** tiers (Personal / POC-Personal) only, a failed push can be explicitly acknowledged via one of:
+- `--accept-local-only-risk` — keep the project **local** (no remote) and accept the **data-loss** risk. Recorded in `.claude/process-state.json::phase2_init.remote.local_only_acknowledged`. init exits 0.
+- `--defer-remote-push` — push manually later. Recorded as `push_deferred_acknowledged`. init exits 0, **but the Phase 1→2 gate WILL block** until the remote actually has the branch.
+
+Interactively (no flag), init prompts and defaults to **do not proceed** (treat as a failure). First-class hosts (`github`/`gitlab`/`bitbucket`) always keep the hard-fail contract: a real repo-creation, push, or protection failure records an init failure and exits non-zero (BL-064).
+
+**Phase 1→2 gate enforces a verified remote (BL-084).** `check-phase-gate.sh` verifies the remote actually has the branch (`git ls-remote --heads origin`, `other` host only), keyed on the **same tier** (deployment + poc_mode) as init — so the gate cannot be fooled by `track=light` on a sponsored/production project either. For **POC-Sponsored / MVP-Production** a verified remote is **mandatory** (non-bypassable FAIL if the code isn't pushed — a `local_only_acknowledged` does **not** let these tiers pass). For **Personal / POC-Personal** the gate PASSES only if the remote has the branch **or** `local_only_acknowledged` is on record; a `push_deferred_acknowledged` that was never actually pushed still **FAILS** (the deferral does not let you advance).
 
 **2. Protection bar** (personal vs organizational):
 
