@@ -1988,6 +1988,47 @@ fi
 RESOLVER="$ORCHESTRATOR_ROOT/scripts/resolve-tools.sh"
 MATRIX_DIR="$ORCHESTRATOR_ROOT/templates/tool-matrix"
 
+# BL-069: install every auto_install tool from the resolver output,
+# iterating each tool's structured install_cmds stages (fail-fast per
+# stage) via run_install_stages. Falls back to the legacy singular
+# install_cmd only when the array is absent (legacy-string matrix
+# entries behave unchanged). No 2>/dev/null: per-stage install failures
+# must surface so the operator can act on the exact failing stage.
+#
+# Factored out of the interactive track-upgrade path (verifier
+# follow-up) so the stage iteration is directly unit-testable — the
+# `[ -t 0 ]` + prompt_yes_no gates around the call site made this loop
+# unreachable from the non-interactive test suite.
+#   $1 = resolver JSON output   $2 = count of .auto_install entries
+upgrade_auto_install_from_resolver() {
+  local resolver_output="$1"
+  local auto_count="$2"
+  local _ui=0
+  while [ "$_ui" -lt "$auto_count" ]; do
+    local _tool_name _stages_json _st
+    _tool_name=$(echo "$resolver_output" | jq -r --argjson i "$_ui" '.auto_install[$i].name // "tool"')
+    _stages_json=$(echo "$resolver_output" | jq -c --argjson i "$_ui" '
+      .auto_install[$i] as $t
+      | (if ($t.install_cmds | type) == "array" and ($t.install_cmds | length) > 0
+         then $t.install_cmds else [$t.install_cmd] end)
+      | map(select(. != null and . != ""))
+    ')
+    local _stages=()
+    while IFS= read -r _st; do
+      [ -n "$_st" ] && _stages+=("$_st")
+    done < <(echo "$_stages_json" | jq -r '.[]')
+    if [ "${#_stages[@]}" -gt 0 ]; then
+      print_info "Installing: $_tool_name"
+      if run_install_stages "$_tool_name" "${_stages[@]}"; then
+        print_ok "Installed successfully"
+      else
+        print_warn "Install failed — you may need to install manually"
+      fi
+    fi
+    _ui=$((_ui + 1))
+  done
+}
+
 if [ "$TRACK_CHANGES" = true ] && [ -f "$RESOLVER" ] && [ -d "$MATRIX_DIR" ] && \
    [ -n "$CURRENT_PLATFORM" ] && [ -n "$CURRENT_LANGUAGE" ]; then
   print_step "Resolving tools for upgraded track"
@@ -2030,16 +2071,12 @@ if [ "$TRACK_CHANGES" = true ] && [ -f "$RESOLVER" ] && [ -d "$MATRIX_DIR" ] && 
         # already gates this branch — prompt_yes_no's defense-in-
         # depth N return here is harmless (we don't enter the block).
         if prompt_yes_no "$(echo -e "  ${BOLD}Auto-install $AUTO_COUNT tool(s) now? [Y/n]${NC}")" "Y"; then
-          echo "$RESOLVER_OUTPUT" | jq -r '.auto_install[] | .install_cmd' | while IFS= read -r cmd; do
-            if [ -n "$cmd" ]; then
-              print_info "Installing: $cmd"
-              if eval "$cmd" 2>/dev/null; then
-                print_ok "Installed successfully"
-              else
-                print_warn "Install failed — you may need to install manually"
-              fi
-            fi
-          done
+          # BL-069: delegate to the factored stage-iterating installer.
+          # Factored out (verifier follow-up) so the per-stage iteration
+          # is DIRECTLY testable — the interactive prompt_yes_no + `-t 0`
+          # gates above made this loop unreachable from the test suite,
+          # which hid a stage-drop regression.
+          upgrade_auto_install_from_resolver "$RESOLVER_OUTPUT" "$AUTO_COUNT"
         else
           print_info "Skipped auto-install. You can install tools later."
         fi

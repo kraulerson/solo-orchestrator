@@ -341,6 +341,76 @@ prompt_choice() {
   return 1
 }
 
+# ── Multi-stage install runner (BL-069) ─────────────────────────────
+# Split a ` && `-joined install string back into its ordered stages.
+# The resolver (scripts/resolve-tools.sh, BL-033) joins an install_cmds
+# array with EXACTLY ` && ` to produce the legacy singular install_cmd,
+# so splitting on that delimiter recovers the original stage list. A
+# legacy single-command string (no ` && `) yields exactly one stage —
+# identical to the pre-BL-069 single-eval path. Result is returned in
+# the global array SOIF_INSTALL_STAGES (bash-3.2 has no namerefs).
+_soif_split_on_and() {
+  local s="$1"
+  SOIF_INSTALL_STAGES=()
+  while :; do
+    case "$s" in
+      *" && "*)
+        SOIF_INSTALL_STAGES+=( "${s%%" && "*}" )
+        s="${s#*" && "}"
+        ;;
+      *)
+        SOIF_INSTALL_STAGES+=( "$s" )
+        break
+        ;;
+    esac
+  done
+}
+
+# Execute an ordered list of install stages with per-stage fail-fast and
+# per-stage diagnosis. This is the shared eval-path consumer of the
+# resolver's `install_cmds` array (BL-033/BL-069): each argument after
+# the tool name is one stage.
+#
+# Semantics (the BL-069 contract):
+#   • Stages run IN ORDER, each eval'd IN THIS FUNCTION'S SHELL SCOPE,
+#     so a variable assigned in stage N is visible to stage N+1 —
+#     behaviorally identical to `eval "stage1 && stage2 && …"`, but with
+#     a per-stage audit line and a per-stage exit-code check.
+#   • FAIL-FAST: the first stage to exit non-zero STOPS the sequence.
+#     Later stages do NOT run (matching `&&` short-circuit).
+#   • RESUMABLE: side effects of already-completed stages are left in
+#     place, so a repair re-run can pick up from the failing stage.
+#   • Returns 0 iff every stage succeeded; otherwise returns the failing
+#     stage's non-zero exit code.
+#
+# Usage: run_install_stages "<tool-name>" "<stage1>" ["<stage2>" …]
+# A single stage (the legacy-string case) runs exactly as the old
+# `eval "$install_cmd"` did — no per-stage banner, identical behavior.
+run_install_stages() {
+  local tool_name="$1"; shift
+  local total=$#
+  if [ "$total" -eq 0 ]; then
+    return 0
+  fi
+  local idx=0 stage rc
+  for stage in "$@"; do
+    idx=$((idx + 1))
+    if [ "$total" -gt 1 ]; then
+      print_info "[$tool_name] install stage $idx/$total: $stage"
+    fi
+    eval "$stage"
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+      if [ "$total" -gt 1 ]; then
+        print_warn "[$tool_name] install stage $idx/$total FAILED (exit $rc): $stage"
+        print_warn "[$tool_name] earlier stages left their effects in place — re-run to resume from stage $idx."
+      fi
+      return "$rc"
+    fi
+  done
+  return 0
+}
+
 # Prompt user to install a missing tool. Returns 0 if installed, 1 if skipped.
 # Usage: prompt_install "tool_name" "install_command" [needs_sudo]
 #
@@ -378,7 +448,14 @@ prompt_install() {
     return 1
   fi
 
-  if eval "$install_cmd"; then
+  # BL-069: honor the resolver's multi-stage install_cmds shape. The
+  # command may be a ` && `-joined sequence of stages (the legacy
+  # singular form of an install_cmds array). Split it back into stages
+  # and run each with per-stage fail-fast + diagnosis via the shared
+  # runner. A single-command string is one stage — behaviorally
+  # identical to the previous `eval "$install_cmd"`.
+  _soif_split_on_and "$install_cmd"
+  if run_install_stages "$tool_name" "${SOIF_INSTALL_STAGES[@]}"; then
     print_ok "$tool_name installed"
     return 0
   else
