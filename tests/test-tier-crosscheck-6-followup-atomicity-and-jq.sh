@@ -28,6 +28,9 @@ set -u
 [[ "${BASH_VERSION:-}" ]] || { echo "bash required"; exit 1; }
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# BL-074: copy the full helpers shim chain (helpers.sh -> helpers-full.sh
+# -> helpers-core.sh) into every fixture, not just the helpers.sh shim.
+source "$REPO_ROOT/tests/test-helpers/scaffold-libs.sh"
 
 # --------------------------------------------------------------------
 # Test scaffolding (mirrors the style of test-tier-crosscheck-6-zdr-gate.sh)
@@ -77,7 +80,7 @@ T1=$(mktemp -d); P1="$T1/p"
 # Build minimal project that reconfigure-project.sh can operate on.
 mkdir -p "$P1/.claude" "$P1/scripts/lib" "$T1/bin"
 cp "$REPO_ROOT/scripts/reconfigure-project.sh" "$P1/scripts/reconfigure-project.sh"
-cp "$REPO_ROOT/scripts/lib/helpers.sh" "$P1/scripts/lib/helpers.sh"
+scaffold_helpers_libs "$P1/scripts/lib" "$REPO_ROOT"
 [ -f "$REPO_ROOT/scripts/lib/enforcement-level.sh" ] && cp "$REPO_ROOT/scripts/lib/enforcement-level.sh" "$P1/scripts/lib/enforcement-level.sh"
 
 cat > "$P1/.claude/phase-state.json" <<'JSON'

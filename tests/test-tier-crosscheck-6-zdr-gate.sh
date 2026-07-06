@@ -49,6 +49,9 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# BL-074: copy the full helpers shim chain (helpers.sh -> helpers-full.sh
+# -> helpers-core.sh) into every fixture, not just the helpers.sh shim.
+source "$REPO_ROOT/tests/test-helpers/scaffold-libs.sh"
 CHECK_GATE="$REPO_ROOT/scripts/check-phase-gate.sh"
 RECONFIGURE="$REPO_ROOT/scripts/reconfigure-project.sh"
 UPGRADE="$REPO_ROOT/scripts/upgrade-project.sh"
@@ -290,7 +293,7 @@ T=$(mktemp -d); P="$T/p"
 # Build a minimal project that reconfigure-project.sh can operate on.
 mkdir -p "$P/.claude" "$P/scripts/lib"
 cp "$REPO_ROOT/scripts/reconfigure-project.sh" "$P/scripts/reconfigure-project.sh"
-cp "$REPO_ROOT/scripts/lib/helpers.sh" "$P/scripts/lib/helpers.sh"
+scaffold_helpers_libs "$P/scripts/lib" "$REPO_ROOT"
 [ -f "$REPO_ROOT/scripts/lib/enforcement-level.sh" ] && cp "$REPO_ROOT/scripts/lib/enforcement-level.sh" "$P/scripts/lib/enforcement-level.sh"
 
 cat > "$P/.claude/phase-state.json" <<'JSON'
@@ -351,7 +354,7 @@ T=$(mktemp -d); P="$T/p"
 # fixture pattern used by tests/test-upgrade-project-retroactive-section.sh.
 mkdir -p "$P/.claude" "$P/scripts/lib" "$P/scripts/host-drivers" "$P/scripts/hooks"
 cp "$REPO_ROOT/scripts/upgrade-project.sh" "$P/scripts/upgrade-project.sh"
-cp "$REPO_ROOT/scripts/lib/helpers.sh" "$P/scripts/lib/helpers.sh"
+scaffold_helpers_libs "$P/scripts/lib" "$REPO_ROOT"
 [ -f "$REPO_ROOT/scripts/lib/host.sh" ] && cp "$REPO_ROOT/scripts/lib/host.sh" "$P/scripts/lib/host.sh"
 [ -f "$REPO_ROOT/scripts/host-drivers/github.sh" ] && cp "$REPO_ROOT/scripts/host-drivers/github.sh" "$P/scripts/host-drivers/github.sh"
 

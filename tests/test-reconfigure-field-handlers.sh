@@ -34,6 +34,9 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# BL-074: copy the full helpers shim chain (helpers.sh -> helpers-full.sh
+# -> helpers-core.sh) into every fixture, not just the helpers.sh shim.
+source "$REPO_ROOT/tests/test-helpers/scaffold-libs.sh"
 RECONFIG="$REPO_ROOT/scripts/reconfigure-project.sh"
 
 PASSED=0
@@ -56,7 +59,7 @@ mk_fixture() {
 
   # Copy the script under test + its required helpers into the fixture.
   cp "$REPO_ROOT/scripts/reconfigure-project.sh" "$dir/scripts/reconfigure-project.sh"
-  cp "$REPO_ROOT/scripts/lib/helpers.sh" "$dir/scripts/lib/helpers.sh"
+  scaffold_helpers_libs "$dir/scripts/lib" "$REPO_ROOT"
   # enforcement-level.sh is sourced when --enforcement-level is passed;
   # copied defensively so the script doesn't bail on missing files even
   # though the field handlers we're testing never hit that code path.
