@@ -158,7 +158,6 @@ KNOWN_ORPHANS_PENDING_BL035=(
   test-check-gate.sh
   test-check-phase-gate-counter-sanitizer.sh
   test-check-phase-gate.sh
-  test-docs-cluster-six-pack.sh
   test-enforcement-level-init.sh
   test-enforcement-level-lib.sh
   test-enforcement-level-reconfigure.sh
@@ -171,28 +170,13 @@ KNOWN_ORPHANS_PENDING_BL035=(
   test-init-non-interactive.sh
   test-init-other-host-attestation.sh
   test-init-schema-phase-gate.sh
-  test-lint-uat-scenarios.sh
   test-out-of-band-detector.sh
-  test-pending-approval.sh
-  test-phase-finalize.sh
-  test-platform-security-bugs-closer.sh
-  test-poc-modes.sh
-  test-pre-commit-gate-terminal-mode.sh
-  test-process-checklist-auto-advance.sh
-  test-process-checklist-classifier.sh
-  test-record-claude-commit.sh
-  test-session-test-gate-check-merge.sh
-  test-specs-plans-remaining-quartet.sh
-  test-test-gate-counter-sanitizer.sh
-  test-test-gate-null-handling.sh
-  test-unrecord-feature.sh
   test-upgrade-bl030-backfill.sh
   test-upgrade-non-interactive.sh
   test-upgrade-paths.sh
   test-upgrade-personal-to-sponsored-poc.sh
   test-upgrade-to-production-preconditions.sh
   test-upgrade-to-production-warn.sh
-  test-validate-counter-sanitizer.sh
   test-vendored-skills-install.sh
   test-verify-install-bl030-coverage.sh
 )

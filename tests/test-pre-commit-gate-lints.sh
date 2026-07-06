@@ -63,7 +63,14 @@ setup() {
   chmod +x "$PROJ/scripts/lint-raw-read-prompt.sh"
 
   cp "$REPO_ROOT/scripts/process-checklist.sh" "$PROJ/scripts/"
-  cp "$REPO_ROOT/scripts/lib/helpers.sh" "$PROJ/scripts/lib/"
+  # BL-074: process-checklist.sh sources lib/helpers-core.sh directly, and
+  # helpers.sh is a shim that sources helpers-full.sh -> helpers-core.sh. A
+  # scaffold that copies only helpers.sh makes --check-commit-message die at
+  # source-time, which (via the terminal-mode classifier short-circuit) masks
+  # the lint checks under test. Copy the full sibling chain the product ships.
+  cp "$REPO_ROOT/scripts/lib/helpers.sh" \
+     "$REPO_ROOT/scripts/lib/helpers-core.sh" \
+     "$REPO_ROOT/scripts/lib/helpers-full.sh" "$PROJ/scripts/lib/"
   chmod +x "$PROJ/scripts/process-checklist.sh"
 
   (

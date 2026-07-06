@@ -1764,10 +1764,18 @@ else
 fi
 
 # E60: upgrade-project.sh --to-private-poc takes a personal project to
-# organizational/private_poc. T1-D regression guard for the missing
+# personal/private_poc. T1-D regression guard for the missing
 # personal -> private_poc CLI path. Before this fix, intake-wizard.sh
 # --upgrade-deployment private_poc was rejected (only personal|organizational
 # accepted) and upgrade-project.sh had no --to-private-poc flag.
+#
+# BL-079 (tier-crosscheck-3, 2026-06): Private POC is ALWAYS a personal
+# deployment per baseline §2.5 (upgrade-project.sh:756-787 sets
+# TARGET_DEPLOYMENT=personal). The prior expectation of deployment=
+# organizational asserted the pre-fix "impossible organizational/private_poc"
+# shape and was stale/RED against current product. Aligned with the correct
+# product contract (and orphan test-poc-modes.sh T5, which asserts the same
+# personal-stays-personal outcome).
 _e60_dir="$TEST_DIR/e60"
 mkdir -p "$_e60_dir"
 _e60_proj="$_e60_dir/uat-e60"
@@ -1791,10 +1799,10 @@ if [ -f "$_e60_proj/.claude/phase-state.json" ]; then
 fi
 if [ "$_e60_upgrade_rc" = "0" ] && \
    [ "$_e60_poc_mode" = "private_poc" ] && \
-   [ "$_e60_deployment" = "organizational" ]; then
-  pass "E60: upgrade-project.sh --to-private-poc takes personal -> organizational/private_poc (T1-D regression guard)"
+   [ "$_e60_deployment" = "personal" ]; then
+  pass "E60: upgrade-project.sh --to-private-poc takes personal -> personal/private_poc (T1-D regression guard)"
 else
-  fail "E60: expected rc=0 poc_mode=private_poc deployment=organizational; got rc=$_e60_upgrade_rc poc_mode='$_e60_poc_mode' deployment='$_e60_deployment'"
+  fail "E60: expected rc=0 poc_mode=private_poc deployment=personal; got rc=$_e60_upgrade_rc poc_mode='$_e60_poc_mode' deployment='$_e60_deployment'"
 fi
 
 # E61: intake-wizard.sh --to-private-poc from a project subdir, invoked via
