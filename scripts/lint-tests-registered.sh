@@ -146,12 +146,6 @@ fi
 # When BL-035 closes this array must be empty.
 KNOWN_ORPHANS_PENDING_BL035=(
   test-docs-cluster-six-pack.sh
-  test-github-free-tier-403.sh
-  test-init-atomic-finalize.sh
-  test-init-no-remote-creation.sh
-  test-init-non-interactive.sh
-  test-init-other-host-attestation.sh
-  test-init-schema-phase-gate.sh
   test-lint-uat-scenarios.sh
   test-pending-approval.sh
   test-phase-finalize.sh
@@ -166,15 +160,7 @@ KNOWN_ORPHANS_PENDING_BL035=(
   test-test-gate-counter-sanitizer.sh
   test-test-gate-null-handling.sh
   test-unrecord-feature.sh
-  test-upgrade-bl030-backfill.sh
-  test-upgrade-non-interactive.sh
-  test-upgrade-paths.sh
-  test-upgrade-personal-to-sponsored-poc.sh
-  test-upgrade-to-production-preconditions.sh
-  test-upgrade-to-production-warn.sh
   test-validate-counter-sanitizer.sh
-  test-vendored-skills-install.sh
-  test-verify-install-bl030-coverage.sh
 )
 
 VIOLATIONS=0

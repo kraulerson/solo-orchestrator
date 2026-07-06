@@ -87,11 +87,17 @@ n6_org_without_govmode() {
   pass "N6: --deployment=organizational without --gov-mode → exit 1"
 }
 
-n7_personal_with_govmode() {
-  local out; out=$(run_validate --project p --platform web --deployment personal --gov-mode production --language typescript)
+# N7 pins that a personal deployment paired with a gov-mode that is INVALID
+# for personal is rejected. The rejected combo is personal + sponsored_poc
+# (Sponsored POC is always organizational per baseline §2.5 / tier-crosscheck-2).
+# NOTE: personal + production is NOT rejected — production is valid for both
+# deployments — so N7 must not assert on that combo (the original did and was
+# stale against the current product).
+n7_personal_with_invalid_govmode() {
+  local out; out=$(run_validate --project p --platform web --deployment personal --gov-mode sponsored_poc --language typescript)
   [ "${out%%|*}" = "1" ] || { fail_ "N7" "expected exit 1, got: $out"; return; }
   [[ "${out##*|}" == *"--gov-mode"* ]] || { fail_ "N7" "stderr should mention --gov-mode: ${out##*|}"; return; }
-  pass "N7: --deployment=personal with --gov-mode → exit 1"
+  pass "N7: --deployment=personal with --gov-mode=sponsored_poc (invalid for personal) → exit 1"
 }
 
 n8_other_without_remoteurl() {
@@ -319,7 +325,7 @@ n3_missing_platform
 n4_missing_deployment
 n5_missing_language
 n6_org_without_govmode
-n7_personal_with_govmode
+n7_personal_with_invalid_govmode
 n8_other_without_remoteurl
 n9_other_without_attest
 n10_org_with_public_visibility
