@@ -2116,3 +2116,18 @@ Sibling of [[bl080-backfill-honors-sentinel]]. On the FULL `upgrade-project.sh` 
 **Scope:** decide whether the full-path BL-015 guard should move earlier (before the idempotent backfill block), so NO mutation occurs on any path while a decision is pending — OR whether the pre-guard idempotent backfill is intentionally exempt (it is non-destructive/idempotent). If moved, add a regression asserting a sentinel-blocked full upgrade leaves `.claude/skills/` + manifest byte-identical. Also tighten the `_bl015_sentinel_guard()` docstring, which currently claims "mutates nothing" for both call sites (only strictly true for `--backfill-only`).
 
 **Related:** [[bl080-backfill-honors-sentinel]] (PR #144); BL-015; `scripts/upgrade-project.sh` full-upgrade path.
+
+---
+
+## BL-082: Bind the Phase-3 validation summary to a commit/tree hash + re-run when stale
+
+**Logged:** 2026-07-06 (BL-070 verifier follow-up)
+**Category:** Debt / gate hardening
+**Severity:** Low
+**Status:** Open
+
+Sibling of [[bl070-phase-3-validation-scans]] (PR #145). The BL-070 skeleton's Phase 3→4 gate trusts an existing `docs/test-results/phase3/summary-*.md` as-is: the auto-run only fires when NO summary exists, so a stale summary (e.g. an old `semgrep-full-tree PASS`) is reused indefinitely, and a hand-forged all-PASS summary is trusted. The verifier noted forgery is outside a self-audit gate's threat model (a determined operator has easier documented escapes), but staleness is a real limitation — a summary from before the latest code changes should not satisfy the gate.
+
+**Scope:** bind the summary to the tree/commit it validated — record the `git rev-parse HEAD` (or a tree hash) in the summary and have the gate re-run (or FAIL-with-stale) when the current tree differs from the recorded one. Optionally add an authenticity marker. Ships as a later increment on top of the BL-070 skeleton, alongside promoting the stubbed scanners (license/snyk/zap/threat-model) to real.
+
+**Related:** [[bl070-phase-3-validation-scans]] (PR #145 skeleton); `scripts/run-phase3-validation.sh`; `scripts/check-phase-gate.sh` Phase 3→4 block.
