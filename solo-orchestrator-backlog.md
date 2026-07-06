@@ -1181,7 +1181,7 @@ The absolute savings are smaller than the Step 4 report's 30–40 ms projection 
 **Logged:** 2026-06-29
 **Category:** Debt
 **Severity:** Low
-**Status:** Open — Option C applied 2026-07-05; status-flip recorded in the follow-up commit that cites its SHA; kept as legacy graceful-degradation fallback + added an explanatory comment at `scripts/validate.sh:66` (documents it's reachable via user-editable `CLAUDE.md` `Platform: cli` and must not be deleted without removing `cli` support end-to-end). Not dead code; the arm is in validate.sh, not verify-install.sh as this entry's title says.
+**Status:** Closed (2026-07-05, commit `03655e8`, low/minor sweep) — Option C: kept as legacy graceful-degradation fallback + added an explanatory comment at `scripts/validate.sh:66` (documents it's reachable via user-editable `CLAUDE.md` `Platform: cli` and must not be deleted without removing `cli` support end-to-end). Not dead code; the arm is in validate.sh, not verify-install.sh as this entry's title says.
 
 `scripts/verify-install.sh` carries a `cli` arm that has been disabled / unreachable (per Step 4 recon). The dead branch confuses readers and is a maintenance trap if a future change accidentally re-enables it without re-validating its assertions.
 
