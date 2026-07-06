@@ -18,7 +18,7 @@ cd /tmp
 run_init() {
   local proj="$1"; shift
   bash "$INIT" --non-interactive --project x --project-dir "$proj" --no-remote-creation \
-    --platform web --language javascript "$@" >/dev/null 2>&1
+    --platform web --language typescript "$@" >/dev/null 2>&1
 }
 
 # T1: personal + default → enforcement_level=strict.
@@ -59,7 +59,7 @@ rm -rf "$TMP"
 echo "T4: --enforcement-level no without --confirm-pitfalls fails"
 TMP=$(mktemp -d); PROJ="$TMP/p"
 bash "$INIT" --non-interactive --project x --project-dir "$PROJ" --no-remote-creation \
-    --platform web --language javascript --track light --deployment personal \
+    --platform web --language typescript --track light --deployment personal \
     --enforcement-level no >/dev/null 2>&1
 rc=$?
 if [ "$rc" != "0" ]; then pass "T4"; else fail_ "T4" "expected non-zero exit, rc=$rc"; fi

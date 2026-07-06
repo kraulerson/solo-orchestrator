@@ -15,7 +15,7 @@ fail_() { echo "  [FAIL] $1 — $2"; FAILED=$((FAILED + 1)); }
 TMP=$(mktemp -d); PROJ="$TMP/p"
 ( cd /tmp && bash "$REPO_ROOT/init.sh" --non-interactive \
     --project x --project-dir "$PROJ" --no-remote-creation \
-    --platform web --language javascript --track light --deployment personal \
+    --platform web --language typescript --track light --deployment personal \
     >/dev/null 2>&1 )
 
 # T1: project has bypass-detector wired (PostToolUse + Stop).

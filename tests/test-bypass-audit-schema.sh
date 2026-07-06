@@ -15,7 +15,7 @@ cd /tmp
 
 TMP=$(mktemp -d); PROJ="$TMP/p"
 bash "$REPO_ROOT/init.sh" --non-interactive --project x --project-dir "$PROJ" --no-remote-creation \
-  --platform web --language javascript --track light --deployment personal \
+  --platform web --language typescript --track light --deployment personal \
   >/dev/null 2>&1
 
 # T1: init wrote a row whose schema satisfies the minimum contract

@@ -52,7 +52,7 @@ echo "=== Private POC reachability (init.sh non-interactive) ==="
 # "--gov-mode is not valid for --deployment=personal").
 T=$(mktemp -d); P="$T/p"
 run_bounded 90 bash "$INIT" --non-interactive --project x --project-dir "$P" \
-  --no-remote-creation --platform web --language javascript --track light \
+  --no-remote-creation --platform web --language typescript --track light \
   --deployment personal --gov-mode private_poc > "$T/log" 2>&1 < /dev/null
 rc=$RC
 if [ "$rc" = "0" ] && [ -f "$P/.claude/phase-state.json" ]; then
@@ -72,7 +72,7 @@ rm -rf "$T"
 # tier-semantics message.
 T=$(mktemp -d); P="$T/p"
 run_bounded 30 bash "$INIT" --non-interactive --project x --project-dir "$P" \
-  --no-remote-creation --platform web --language javascript --track standard \
+  --no-remote-creation --platform web --language typescript --track standard \
   --deployment personal --gov-mode sponsored_poc > "$T/log" 2>&1 < /dev/null
 rc=$RC
 if [ "$rc" != "0" ] && grep -qE "sponsored_poc is not valid for --deployment=personal" "$T/log"; then
@@ -85,7 +85,7 @@ rm -rf "$T"
 # T3: --deployment=organizational --gov-mode=private_poc rejected.
 T=$(mktemp -d); P="$T/p"
 run_bounded 30 bash "$INIT" --non-interactive --project x --project-dir "$P" \
-  --no-remote-creation --platform web --language javascript --track standard \
+  --no-remote-creation --platform web --language typescript --track standard \
   --deployment organizational --gov-mode private_poc > "$T/log" 2>&1 < /dev/null
 rc=$RC
 if [ "$rc" != "0" ] && grep -qE "private_poc is not valid for --deployment=organizational" "$T/log"; then
@@ -99,7 +99,7 @@ rm -rf "$T"
 # (regression check for the org+sponsored_poc happy path).
 T=$(mktemp -d); P="$T/p"
 run_bounded 90 bash "$INIT" --non-interactive --project x --project-dir "$P" \
-  --no-remote-creation --platform web --language javascript --track standard \
+  --no-remote-creation --platform web --language typescript --track standard \
   --deployment organizational --gov-mode sponsored_poc > "$T/log" 2>&1 < /dev/null
 rc=$RC
 if [ "$rc" = "0" ] && [ -f "$P/.claude/phase-state.json" ]; then

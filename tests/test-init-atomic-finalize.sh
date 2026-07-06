@@ -47,7 +47,7 @@ run_init_no_remote() {
     --project x \
     --project-dir "$proj" \
     --platform web \
-    --language javascript \
+    --language typescript \
     --deployment personal \
     --track light \
     --git-host github \

@@ -20,7 +20,7 @@ cd /tmp
 setup_clean_project() {
   TMP=$(mktemp -d); PROJ="$TMP/p"
   bash "$INIT" --non-interactive --project x --project-dir "$PROJ" --no-remote-creation \
-    --platform web --language javascript --track light --deployment personal \
+    --platform web --language typescript --track light --deployment personal \
     >/dev/null 2>&1
   VERIFY="$PROJ/scripts/verify-install.sh"
 }

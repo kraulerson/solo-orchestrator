@@ -27,7 +27,7 @@ cd /tmp
 setup_pre_bl030_personal() {
   TMP=$(mktemp -d); PROJ="$TMP/p"
   bash "$INIT" --non-interactive --project x --project-dir "$PROJ" --no-remote-creation \
-    --platform web --language javascript --track light --deployment personal \
+    --platform web --language typescript --track light --deployment personal \
     >/dev/null 2>&1
   # Strip the BL-030 fields from manifest.
   tmp=$(mktemp)
@@ -52,7 +52,7 @@ setup_pre_bl030_personal() {
 setup_pre_bl030_organizational_production() {
   TMP=$(mktemp -d); PROJ="$TMP/p"
   bash "$INIT" --non-interactive --project x --project-dir "$PROJ" --no-remote-creation \
-    --platform web --language javascript --track standard --deployment organizational --gov-mode production \
+    --platform web --language typescript --track standard --deployment organizational --gov-mode production \
     >/dev/null 2>&1
   tmp=$(mktemp)
   jq 'del(.enforcement_level, .deployment, .poc_mode)' "$PROJ/.claude/manifest.json" > "$tmp" \
