@@ -145,26 +145,7 @@ fi
 #       marker inside the test file's header.
 # When BL-035 closes this array must be empty.
 KNOWN_ORPHANS_PENDING_BL035=(
-  test-bl029-integration.sh
-  test-bl030-calibration-replay.sh
-  test-bypass-audit-integrity.sh
-  test-bypass-audit-lib.sh
-  test-bypass-audit-schema.sh
-  test-bypass-detector.sh
-  test-bypass-patterns.sh
-  test-bypass-sentinel.sh
-  test-check-changelog-filter.sh
-  test-check-commit-message.sh
-  test-check-gate.sh
-  test-check-phase-gate-counter-sanitizer.sh
-  test-check-phase-gate.sh
   test-docs-cluster-six-pack.sh
-  test-enforcement-level-init.sh
-  test-enforcement-level-lib.sh
-  test-enforcement-level-reconfigure.sh
-  test-escalate-to-user.sh
-  test-filesystem-gate-install.sh
-  test-gate-principles.sh
   test-github-free-tier-403.sh
   test-init-atomic-finalize.sh
   test-init-no-remote-creation.sh
@@ -172,7 +153,6 @@ KNOWN_ORPHANS_PENDING_BL035=(
   test-init-other-host-attestation.sh
   test-init-schema-phase-gate.sh
   test-lint-uat-scenarios.sh
-  test-out-of-band-detector.sh
   test-pending-approval.sh
   test-phase-finalize.sh
   test-platform-security-bugs-closer.sh

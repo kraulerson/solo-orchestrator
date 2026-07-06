@@ -913,6 +913,122 @@ else
 fi
 
 # ================================================================
+# --- BL-035 wiring A: governance/gate/enforcement ---
+# ================================================================
+# BL-035 chunk A (triage: Reports/2026-07-06-bl035-orphan-triage.md).
+# Registers the governance/bypass, gate/check, and enforcement-level
+# orphan tests that were parked on
+# scripts/lint-tests-registered.sh::KNOWN_ORPHANS_PENDING_BL035 (running
+# zero times) into this aggregator, mirroring the BL-034 cohort pattern.
+# Chunk-0 (already merged) fixed the stale `--language` fixture drift for
+# the init-e2e members. Each test invoked exactly once, rc captured,
+# contributing to PASS/FAIL — no `|| true` wraps.
+# MERGE note: test-bypass-audit-schema.sh was retired; its unique T1
+# (init ledger .[0] schema) is folded into test-bl029-integration.sh (T1b).
+section "BL-035 wiring A: governance/bypass, gate/check, enforcement-level"
+
+# Governance / bypass family.
+if bash "$SCRIPT_DIR/tests/test-bl029-integration.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl029-integration.sh (incl. folded bypass-audit-schema T1b)"
+else
+  fail "tests/test-bl029-integration.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-bl030-calibration-replay.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl030-calibration-replay.sh"
+else
+  fail "tests/test-bl030-calibration-replay.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-bypass-audit-integrity.sh" >/dev/null 2>&1; then
+  pass "tests/test-bypass-audit-integrity.sh"
+else
+  fail "tests/test-bypass-audit-integrity.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-bypass-audit-lib.sh" >/dev/null 2>&1; then
+  pass "tests/test-bypass-audit-lib.sh"
+else
+  fail "tests/test-bypass-audit-lib.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-bypass-detector.sh" >/dev/null 2>&1; then
+  pass "tests/test-bypass-detector.sh"
+else
+  fail "tests/test-bypass-detector.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-bypass-patterns.sh" >/dev/null 2>&1; then
+  pass "tests/test-bypass-patterns.sh"
+else
+  fail "tests/test-bypass-patterns.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-bypass-sentinel.sh" >/dev/null 2>&1; then
+  pass "tests/test-bypass-sentinel.sh"
+else
+  fail "tests/test-bypass-sentinel.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-out-of-band-detector.sh" >/dev/null 2>&1; then
+  pass "tests/test-out-of-band-detector.sh"
+else
+  fail "tests/test-out-of-band-detector.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-escalate-to-user.sh" >/dev/null 2>&1; then
+  pass "tests/test-escalate-to-user.sh"
+else
+  fail "tests/test-escalate-to-user.sh FAILED (run for details)"
+fi
+
+# Gate / check family.
+if bash "$SCRIPT_DIR/tests/test-check-gate.sh" >/dev/null 2>&1; then
+  pass "tests/test-check-gate.sh"
+else
+  fail "tests/test-check-gate.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-check-changelog-filter.sh" >/dev/null 2>&1; then
+  pass "tests/test-check-changelog-filter.sh"
+else
+  fail "tests/test-check-changelog-filter.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-check-commit-message.sh" >/dev/null 2>&1; then
+  pass "tests/test-check-commit-message.sh"
+else
+  fail "tests/test-check-commit-message.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-check-phase-gate.sh" >/dev/null 2>&1; then
+  pass "tests/test-check-phase-gate.sh"
+else
+  fail "tests/test-check-phase-gate.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-check-phase-gate-counter-sanitizer.sh" >/dev/null 2>&1; then
+  pass "tests/test-check-phase-gate-counter-sanitizer.sh"
+else
+  fail "tests/test-check-phase-gate-counter-sanitizer.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-gate-principles.sh" >/dev/null 2>&1; then
+  pass "tests/test-gate-principles.sh"
+else
+  fail "tests/test-gate-principles.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-filesystem-gate-install.sh" >/dev/null 2>&1; then
+  pass "tests/test-filesystem-gate-install.sh"
+else
+  fail "tests/test-filesystem-gate-install.sh FAILED (run for details)"
+fi
+
+# Enforcement-level family.
+if bash "$SCRIPT_DIR/tests/test-enforcement-level-lib.sh" >/dev/null 2>&1; then
+  pass "tests/test-enforcement-level-lib.sh"
+else
+  fail "tests/test-enforcement-level-lib.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-enforcement-level-init.sh" >/dev/null 2>&1; then
+  pass "tests/test-enforcement-level-init.sh"
+else
+  fail "tests/test-enforcement-level-init.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-enforcement-level-reconfigure.sh" >/dev/null 2>&1; then
+  pass "tests/test-enforcement-level-reconfigure.sh"
+else
+  fail "tests/test-enforcement-level-reconfigure.sh FAILED (run for details)"
+fi
+
+# ================================================================
 # TEST 1: RESOLVER MATRIX — ALL COMBINATIONS
 # ================================================================
 section "TEST 1: Resolver Matrix — All Platform × Language × Track Combinations"
