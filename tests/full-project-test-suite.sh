@@ -337,6 +337,23 @@ else
   fail "scripts/lint-raw-read-prompt.sh behavior tests FAILED (run tests/test-lint-raw-read-prompt.sh for details)"
 fi
 
+# BL-076: no test may execute init.sh in a shape that can create a REAL
+# remote repo against an authenticated host (the kraulerson/foo leak).
+# Run the lint against the live tree AND its own behavior suite so a
+# regression in the guard (false negative letting a live run through, or
+# false positive on a reporter string / mocked run) is caught here.
+section "No-live-remote-in-tests lint (BL-076)"
+if bash "$SCRIPT_DIR/scripts/lint-no-live-remote-in-tests.sh" >/dev/null 2>&1; then
+  pass "No test executes init.sh in a live-remote-reachable shape"
+else
+  fail "Non-hermetic init run found (see scripts/lint-no-live-remote-in-tests.sh --list)"
+fi
+if bash "$SCRIPT_DIR/tests/test-lint-no-live-remote.sh" >/dev/null 2>&1; then
+  pass "scripts/lint-no-live-remote-in-tests.sh behavior tests (14/14)"
+else
+  fail "scripts/lint-no-live-remote-in-tests.sh behavior tests FAILED (run tests/test-lint-no-live-remote.sh for details)"
+fi
+
 # BL-051: tests/test-resolve-tools-memoization.sh — proves init.sh's
 # get_available_platforms() memoizes its filesystem scan (guard-var +
 # cached string, bash-3.2-safe) so 10 invocations trigger exactly one

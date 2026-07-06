@@ -43,6 +43,15 @@ fail_() { echo "  [FAIL] $1 — $2"; FAILED=$((FAILED + 1)); }
 # mobile so the resolver auto-installs Android Studio (the row that hit the
 # bug). stdin is closed (</dev/null) to mirror the dogfood walker.
 #
+# HERMETICITY (BL-076): --no-remote-creation is MANDATORY here. This suite
+# asserts only on the tool-installation-plan flow (resolve_and_install_tools),
+# which runs BEFORE create_and_protect_remote. Without --no-remote-creation the
+# default --git-host github drives the real gh CLI and, on an authenticated
+# host, creates + pushes a REAL private repo (this is exactly how kraulerson/foo
+# was leaked on 2026-07-06). --no-remote-creation skips the host API entirely
+# (init.sh:2066) and does not touch the tool-install path, so every assertion
+# below is preserved while the test can never reach live gh.
+#
 # Echoes "EXIT|STDOUT|STDERR" with newlines flattened to spaces.
 run_init_mobile() {
   local extra_env="${1:-}"
@@ -59,6 +68,7 @@ run_init_mobile() {
       --track full \
       --deployment personal \
       --gov-mode private_poc \
+      --no-remote-creation \
       --project foo \
       --project-dir "$tmpprojdir" </dev/null 2>&1) || rc=$?
   else
@@ -69,6 +79,7 @@ run_init_mobile() {
       --track full \
       --deployment personal \
       --gov-mode private_poc \
+      --no-remote-creation \
       --project foo \
       --project-dir "$tmpprojdir" </dev/null 2>&1) || rc=$?
   fi
