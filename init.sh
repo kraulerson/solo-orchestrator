@@ -154,6 +154,33 @@ _record_remote_ack() {
      && mv .claude/process-state.json.tmp .claude/process-state.json
 }
 
+# BL-084 (verifier follow-up): custom-host push-failure escape-hatch
+# eligibility keys on the ACTUAL project TIER — NOT on `track`. `track=light`
+# can be set (non-interactively) on a POC-Sponsored or Production project
+# (the interactive force-upgrade at init.sh:561-573 does NOT run in
+# --non-interactive mode), so trusting `track` alone would let a
+# sponsored/production project bypass a failed push with NO code uploaded —
+# a silent-success hole exactly like the one BL-084 exists to prevent.
+#
+# Tier is derived from `deployment` + `poc_mode` as init.sh / intake-wizard
+# write them. Valid combos: deployment=personal → poc_mode ∈ {"", private_poc};
+# deployment=organizational → poc_mode ∈ {"", sponsored_poc} (sponsored_poc
+# NEVER pairs with personal). So:
+#   BYPASSABLE     (Personal / POC-Personal): deployment=personal
+#                  AND poc_mode≠sponsored_poc.
+#   NON-bypassable (POC-Sponsored / Production): deployment=organizational
+#                  OR  poc_mode=sponsored_poc.
+# scripts/check-phase-gate.sh's Phase 1→2 push gate computes the IDENTICAL
+# predicate from phase-state.json::{deployment,poc_mode} so the two enforcement
+# points cannot disagree (a gate can't be fooled by track=light either).
+# Returns 0 (success) iff BYPASSABLE. Mutation-proof surface: `# BL-084-TIER-KEY`.
+_bl084_tier_bypassable() {  # BL-084-TIER-KEY
+  if [ "${DEPLOYMENT:-}" = "organizational" ] || [ "${POC_MODE:-}" = "sponsored_poc" ]; then
+    return 1
+  fi
+  return 0
+}
+
 # Audit specs-plans-init-intake-noninteractive-2 (2026-06): the dynamic
 # platform discovery used by the interactive flow at collect_inputs() and
 # the case-statement used by the non-interactive validator had drifted
@@ -2188,16 +2215,20 @@ create_and_protect_remote() {
     # bring-your-own-host path. A prior draft made EVERY 'other'-host push
     # failure a silent success (return 0) — that re-opened the project's #1
     # defect class (BL-064 silent-success: init says "Setup Complete" while
-    # the code was never uploaded). Instead we thread the needle on `track`:
+    # the code was never uploaded). Instead we thread the needle on the actual
+    # project TIER (deployment + poc_mode, via _bl084_tier_bypassable — NOT
+    # `track`, which a sponsored/production project can carry as light):
     #
-    #   • track=standard|full (POC-Sponsored / Production): a working remote
-    #     is MANDATORY. A failed push is a NON-bypassable hard failure — no
-    #     local-only, no deferral, no flag helps. return 1 → the outer caller
-    #     records an init failure → init prints "Setup INCOMPLETE" + exits 2.
+    #   • NON-bypassable tier (POC-Sponsored / Production — deployment=
+    #     organizational OR poc_mode=sponsored_poc): a working remote is
+    #     MANDATORY. A failed push is a hard failure — no local-only, no
+    #     deferral, no flag helps. return 1 → the outer caller records an init
+    #     failure → init prints "Setup INCOMPLETE" + exits 2.
     #
-    #   • track=light (Personal / POC-Personal): the operator MAY proceed,
-    #     but ONLY with an EXPLICIT, on-the-record acknowledgment of the risk
-    #     (never a silent pass). Two acknowledged outcomes both exit 0:
+    #   • BYPASSABLE tier (Personal / POC-Personal — deployment=personal AND
+    #     poc_mode≠sponsored_poc): the operator MAY proceed, but ONLY with an
+    #     EXPLICIT, on-the-record acknowledgment of the risk (never a silent
+    #     pass). Two acknowledged outcomes both exit 0:
     #       - --accept-local-only-risk : keep the project LOCAL (no remote),
     #         accept the data-loss risk. Recorded as local_only_acknowledged.
     #       - --defer-remote-push      : push manually later. Recorded as
@@ -2205,69 +2236,72 @@ create_and_protect_remote() {
     #         until the remote actually has the branch (check-phase-gate.sh
     #         BL-084 push-verification backstop).
     #     Absent a flag (non-interactive) or a "yes" (interactive), a
-    #     light-tier push failure is STILL a real failure (default = no
+    #     bypassable-tier push failure is STILL a real failure (default = no
     #     silent success): print_fail + return 1.
     #
-    # The `# BL-084-TIER-GATE` marker below is the mutation-proof target: if
-    # the standard|full hard-fail branch is removed, the Sponsored/Production
-    # hard-fail regression test goes RED.
+    # Eligibility is decided by _bl084_tier_bypassable (keyed on deployment +
+    # poc_mode, NOT `track` — a sponsored/production project can carry
+    # track=light non-interactively). The `# BL-084-TIER-GATE` marker below is
+    # a mutation-proof target: removing the non-bypassable hard-fail branch
+    # flips the Sponsored/Production hard-fail tests RED; reverting
+    # _bl084_tier_bypassable to trust `track` flips the sponsored/production
+    # `--track light` bypass tests RED.
     if ! git push -u origin main 2>/dev/null && ! git push -u origin master 2>/dev/null; then
-      case "$TRACK" in
-        standard|full)  # BL-084-TIER-GATE
-          print_fail "Push failed — a working remote is MANDATORY for track=$TRACK (POC-Sponsored / Production). Local-only and deferred-push are NOT permitted at this tier."  # lint-fail-emit-exit-status: allow BL-084 standard/full hard-fail — the `return 1` below (after 2 remediation-hint lines) propagates to record_init_failure + non-zero exit
-          print_info "Create/repair the remote and re-run, or remediate with:"
-          print_info "  scripts/check-gate.sh --repair     # re-attempt push + verify protection"
+      if ! _bl084_tier_bypassable; then  # BL-084-TIER-GATE
+        # NON-bypassable tier (POC-Sponsored / Production).
+        print_fail "Push failed — a working remote is MANDATORY for POC-Sponsored / Production (organizational or sponsored_poc) projects. Local-only and deferred-push are NOT permitted for this tier."  # lint-fail-emit-exit-status: allow BL-084 sponsored/production hard-fail — the `return 1` below (after 2 remediation-hint lines) propagates to record_init_failure + non-zero exit
+        print_info "Create/repair the remote and re-run, or remediate with:"
+        print_info "  scripts/check-gate.sh --repair     # re-attempt push + verify protection"
+        return 1
+      else
+        # BYPASSABLE tier (Personal / POC-Personal).
+        if [ "${ACCEPT_LOCAL_ONLY_RISK:-false}" = true ]; then
+          print_warn "Push failed — proceeding LOCAL-ONLY at your explicit request (--accept-local-only-risk)."
+          print_warn "DATA-LOSS RISK: this project has NO remote. A lost/failed disk loses ALL work. You accepted this."
+          _record_remote_ack "local_only_acknowledged" "initial push to '$remote_url' failed; operator accepts local-only operation and the data-loss risk"
+          # Legitimate operator choice, on the record — NOT a masked failure.
+          # Deliberately do NOT record pushed_initial (no push happened).
+        elif [ "${DEFER_REMOTE_PUSH:-false}" = true ]; then
+          print_warn "Push failed — DEFERRING the push at your explicit request (--defer-remote-push)."
+          print_warn "You MUST push before advancing Phase 1→2 — the gate WILL block you until the remote has the branch."
+          print_info "  git push -u origin main            # then verify with:"
+          print_info "  scripts/check-gate.sh --preflight"
+          _record_remote_ack "push_deferred_acknowledged" "initial push to '$remote_url' failed; operator will push manually before Phase 1→2"
+          # Deferral is on the record — init may exit 0, but the Phase 1→2
+          # gate enforces the eventual push. Do NOT record pushed_initial.
+        elif [ "$NON_INTERACTIVE" != true ]; then
+          # Interactive bypassable-tier: prompt, default = do NOT proceed.
+          echo ""
+          print_warn "Push to the remote failed (URL may be wrong, repo not yet created, or a proxy blocked it)."
+          echo "  This is a REAL failure. This is a Personal / POC-Personal project, so you MAY proceed anyway — at your own risk:"
+          echo "    [l] local-only  — keep the project LOCAL forever, accept DATA-LOSS risk"
+          echo "    [d] defer       — push manually later (the Phase 1→2 gate will block until you do)"
+          echo "    [N] abort       — treat as a failure (default)"
+          local _push_choice
+          read -rp "Proceed anyway? [l/d/N]: " _push_choice # lint-raw-read-prompt: allow init.sh interactive-only bypassable-tier push-failure escape prompt; non-interactive callers use --accept-local-only-risk / --defer-remote-push (gated by NON_INTERACTIVE check above)
+          case "$_push_choice" in
+            l|L)
+              print_warn "Proceeding LOCAL-ONLY — DATA-LOSS RISK accepted."
+              _record_remote_ack "local_only_acknowledged" "initial push to '$remote_url' failed; operator accepts local-only operation and the data-loss risk (interactive)"
+              ;;
+            d|D)
+              print_warn "DEFERRING the push — the Phase 1→2 gate will block until the remote has the branch."
+              _record_remote_ack "push_deferred_acknowledged" "initial push to '$remote_url' failed; operator will push manually before Phase 1→2 (interactive)"
+              ;;
+            *)
+              print_fail "Push failed — verify URL and credentials (no acknowledged escape chosen)."
+              return 1
+              ;;
+          esac
+        else
+          # Non-interactive bypassable-tier with NO escape flag: real failure.
+          print_fail "Push failed — verify URL and credentials."  # lint-fail-emit-exit-status: allow BL-084 bypassable-tier default failure — the `return 1` below (after 3 escape-flag-hint lines) propagates to record_init_failure + non-zero exit
+          print_info "This is a real failure. To proceed anyway (Personal / POC-Personal only), re-run with ONE of:"
+          print_info "  --accept-local-only-risk   # keep the project local, accept the data-loss risk"
+          print_info "  --defer-remote-push        # push manually later (Phase 1→2 gate blocks until you do)"
           return 1
-          ;;
-        *)  # track=light (Personal / POC-Personal)
-          if [ "${ACCEPT_LOCAL_ONLY_RISK:-false}" = true ]; then
-            print_warn "Push failed — proceeding LOCAL-ONLY at your explicit request (--accept-local-only-risk)."
-            print_warn "DATA-LOSS RISK: this project has NO remote. A lost/failed disk loses ALL work. You accepted this."
-            _record_remote_ack "local_only_acknowledged" "initial push to '$remote_url' failed; operator accepts local-only operation and the data-loss risk"
-            # Legitimate operator choice, on the record — NOT a masked failure.
-            # Deliberately do NOT record pushed_initial (no push happened).
-          elif [ "${DEFER_REMOTE_PUSH:-false}" = true ]; then
-            print_warn "Push failed — DEFERRING the push at your explicit request (--defer-remote-push)."
-            print_warn "You MUST push before advancing Phase 1→2 — the gate WILL block you until the remote has the branch."
-            print_info "  git push -u origin main            # then verify with:"
-            print_info "  scripts/check-gate.sh --preflight"
-            _record_remote_ack "push_deferred_acknowledged" "initial push to '$remote_url' failed; operator will push manually before Phase 1→2"
-            # Deferral is on the record — init may exit 0, but the Phase 1→2
-            # gate enforces the eventual push. Do NOT record pushed_initial.
-          elif [ "$NON_INTERACTIVE" != true ]; then
-            # Interactive light-tier: prompt, default = do NOT proceed.
-            echo ""
-            print_warn "Push to the remote failed (URL may be wrong, repo not yet created, or a proxy blocked it)."
-            echo "  This is a REAL failure. You are on track=light, so you MAY proceed anyway — at your own risk:"
-            echo "    [l] local-only  — keep the project LOCAL forever, accept DATA-LOSS risk"
-            echo "    [d] defer       — push manually later (the Phase 1→2 gate will block until you do)"
-            echo "    [N] abort       — treat as a failure (default)"
-            local _push_choice
-            read -rp "Proceed anyway? [l/d/N]: " _push_choice # lint-raw-read-prompt: allow init.sh interactive-only light-tier push-failure escape prompt; non-interactive callers use --accept-local-only-risk / --defer-remote-push (gated by NON_INTERACTIVE check above)
-            case "$_push_choice" in
-              l|L)
-                print_warn "Proceeding LOCAL-ONLY — DATA-LOSS RISK accepted."
-                _record_remote_ack "local_only_acknowledged" "initial push to '$remote_url' failed; operator accepts local-only operation and the data-loss risk (interactive)"
-                ;;
-              d|D)
-                print_warn "DEFERRING the push — the Phase 1→2 gate will block until the remote has the branch."
-                _record_remote_ack "push_deferred_acknowledged" "initial push to '$remote_url' failed; operator will push manually before Phase 1→2 (interactive)"
-                ;;
-              *)
-                print_fail "Push failed — verify URL and credentials (no acknowledged escape chosen)."
-                return 1
-                ;;
-            esac
-          else
-            # Non-interactive light-tier with NO escape flag: real failure.
-            print_fail "Push failed — verify URL and credentials."  # lint-fail-emit-exit-status: allow BL-084 light-tier default failure — the `return 1` below (after 3 escape-flag-hint lines) propagates to record_init_failure + non-zero exit
-            print_info "This is a real failure. To proceed anyway (track=light only), re-run with ONE of:"
-            print_info "  --accept-local-only-risk   # keep the project local, accept the data-loss risk"
-            print_info "  --defer-remote-push        # push manually later (Phase 1→2 gate blocks until you do)"
-            return 1
-          fi
-          ;;
-      esac
+        fi
+      fi
     else
       _record_phase2_step "pushed_initial"
     fi

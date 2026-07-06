@@ -502,6 +502,12 @@ gate_3_to_4=$(get_gate_date "phase_3_to_4")
 # Extract deployment type and track for conditional checks
 deployment=$(grep -o '"deployment"[[:space:]]*:[[:space:]]*"[^"]*"' "$PHASE_STATE" 2>/dev/null | sed 's/.*: *"//' | sed 's/"//' || echo "personal")
 track=$(grep -o '"track"[[:space:]]*:[[:space:]]*"[^"]*"' "$PHASE_STATE" 2>/dev/null | sed 's/.*: *"//' | sed 's/"//' || echo "light")
+# BL-084 (verifier follow-up): poc_mode is the SECOND half of the tier key
+# (with deployment) that decides push-escape bypass-eligibility below. It is
+# NOT keyed on `track` — a sponsored/production project can carry track=light.
+# `"poc_mode": null` (production / personal non-POC) is unquoted so this
+# quoted-value grep yields "" (correctly ≠ sponsored_poc).
+poc_mode=$(grep -o '"poc_mode"[[:space:]]*:[[:space:]]*"[^"]*"' "$PHASE_STATE" 2>/dev/null | sed 's/.*: *"//' | sed 's/"//' || echo "")
 
 issues=0
 
@@ -952,17 +958,25 @@ fi
 #
 # HERMETIC/testable: verification is a plain `git ls-remote --heads origin`
 # — it works against a LOCAL bare repo (tests point origin there) and NEVER
-# invokes gh/glab (BL-076: no real remote creation). Tier-aware:
-#   • track=standard|full: a VERIFIED remote is MANDATORY — FAIL
-#     (non-bypassable) if the remote does not have the code. No ack bypasses
-#     the push itself.
-#   • track=light: require the verified remote UNLESS local_only_acknowledged
-#     is on record (then PASS — the operator opted out, on record). If
-#     push_deferred_acknowledged is set but the push is still not verified,
-#     FAIL — the deferral does NOT let them advance ("the gate WILL block you
-#     until pushed").
-# The `# BL-084-PUSH-VERIFY` marker is the mutation-proof target: removing the
-# verification makes the "deferred-but-not-pushed → FAIL" test go RED.
+# invokes gh/glab (BL-076: no real remote creation).
+#
+# TIER-aware, keyed on the ACTUAL project tier (deployment + poc_mode), NOT
+# `track` — a POC-Sponsored / Production project can carry track=light
+# non-interactively, so trusting `track` would let it bypass with no code
+# pushed. This keying is IDENTICAL to init.sh::_bl084_tier_bypassable so the
+# two enforcement points cannot disagree:
+#   • NON-bypassable (POC-Sponsored / Production — deployment=organizational
+#     OR poc_mode=sponsored_poc): a VERIFIED remote is MANDATORY — FAIL if the
+#     remote does not have the code. No ack bypasses the push itself.
+#   • BYPASSABLE (Personal / POC-Personal — deployment=personal AND
+#     poc_mode≠sponsored_poc): require the verified remote UNLESS
+#     local_only_acknowledged is on record (then PASS — operator opted out).
+#     A push_deferred_acknowledged with no verified push still FAILs — the
+#     deferral does NOT let them advance ("the gate WILL block you").
+# The `# BL-084-PUSH-VERIFY` marker is a mutation-proof target (removing the
+# verification flips the "deferred-but-not-pushed → FAIL" test RED); the
+# `# BL-084-TIER-KEY` marker is the other (reverting eligibility to `track`
+# flips the sponsored/production `--track light` bypass tests RED).
 if [ "$current_phase" -ge 2 ]; then
   bl084_host=""
   if [ -f .claude/manifest.json ] && command -v jq >/dev/null 2>&1; then
@@ -974,6 +988,12 @@ if [ "$current_phase" -ge 2 ]; then
     if [ -f .claude/process-state.json ] && command -v jq >/dev/null 2>&1; then
       [ "$(jq -r '.phase2_init.remote.local_only_acknowledged.risk_accepted // false' .claude/process-state.json 2>/dev/null)" = "true" ] && bl084_local_only_ack=true
       [ "$(jq -r '.phase2_init.remote.push_deferred_acknowledged.risk_accepted // false' .claude/process-state.json 2>/dev/null)" = "true" ] && bl084_push_deferred_ack=true
+    fi
+
+    # BL-084-TIER-KEY: bypass-eligibility = the ACTUAL tier, never `track`.
+    bl084_bypassable=true
+    if [ "$deployment" = "organizational" ] || [ "$poc_mode" = "sponsored_poc" ]; then
+      bl084_bypassable=false
     fi
 
     bl084_remote_verified=false  # BL-084-PUSH-VERIFY
@@ -988,10 +1008,10 @@ if [ "$current_phase" -ge 2 ]; then
 
     if [ "$bl084_remote_verified" = true ]; then
       echo -e "${GREEN}  [OK]${NC} Phase 1→2 push gate: remote has the branch — the code is pushed (BL-084)."
-    elif [ "$track" = "light" ] && [ "$bl084_local_only_ack" = true ]; then
+    elif [ "$bl084_bypassable" = true ] && [ "$bl084_local_only_ack" = true ]; then
       echo -e "${GREEN}  [OK]${NC} Phase 1→2 push gate: local-only acknowledged — operator opted out of a remote, on record (BL-084)."
-    elif [ "$track" = "standard" ] || [ "$track" = "full" ]; then
-      echo -e "${RED}[FAIL]${NC} Phase 1→2 push gate: track=$track requires a VERIFIED remote (the code must be pushed) — MANDATORY, non-bypassable (BL-084)."
+    elif [ "$bl084_bypassable" != true ]; then
+      echo -e "${RED}[FAIL]${NC} Phase 1→2 push gate: POC-Sponsored / Production (deployment=$deployment, poc_mode=${poc_mode:-none}) requires a VERIFIED remote (the code must be pushed) — MANDATORY, non-bypassable (BL-084)."
       echo "        Push the initial commit, then re-check: scripts/check-gate.sh --preflight"
       issues=$((issues + 1))
     elif [ "$bl084_push_deferred_ack" = true ]; then
@@ -1001,7 +1021,7 @@ if [ "$current_phase" -ge 2 ]; then
       issues=$((issues + 1))
     else
       echo -e "${RED}[FAIL]${NC} Phase 1→2 push gate: no verified remote and no local-only acknowledgment on record (BL-084)."
-      echo "        Push the initial commit, or (track=light only) re-run init with --accept-local-only-risk."
+      echo "        Push the initial commit, or (Personal / POC-Personal only) re-run init with --accept-local-only-risk."
       issues=$((issues + 1))
     fi
   fi
