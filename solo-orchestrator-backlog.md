@@ -25,7 +25,9 @@ When an item is promoted to a full spec, leave the entry here with status `promo
 **Logged:** 2026-04-22
 **Category:** Audit
 **Severity:** Medium
-**Status:** Open
+**Status:** Open — APPROVED 2026-07-05: Option A (recon-first). Low urgency.
+
+**Decision (2026-07-05):** Karl approved **Option A — investigate first**. Explore-first recon of `upgrade-project.sh`'s CDF-sync handling (does it pull a fresh CDF clone? replace `.claude/framework/`? bump `FRAMEWORK_VERSION`?) BEFORE any code. Fix likely lands upstream in CDF (`~/.claude-dev-framework`) per the cross-repo preference, not a Solo shim. Lowest urgency of the open set — no downstream project has reported a missed fix; run as a background recon spike.
 
 Existing downstream projects at older CDF `FRAMEWORK_VERSION` need a sync mechanism to pick up upstream fixes. `scripts/upgrade-project.sh` is presumed to handle this, but if its CDF-sync logic is stale, silently skips, or doesn't update `.claude/framework/` files, downstream projects miss landed fixes — e.g., FRAMEWORK_VERSION 4.2.2's Context7 detection and stop-checklist `--no-merges`/`CURRENT_HAS_SOURCE` improvements.
 
@@ -482,7 +484,7 @@ The framework's intended workflow is:
 **Logged:** 2026-04-27
 **Category:** Debt (cosmetic)
 **Severity:** Low
-**Status:** Closed (2026-07-05, commit 10767d6, low/minor sweep) — fixed in `Reports/uat-2026-04-26/RUNBOOK.md` (the backlog's `uat-2026-04-26-rev3/` path never existed); split into `$GOV_FLAG`/`$GOV_VALUE` invoked via `${GOV_FLAG:+$GOV_FLAG "$GOV_VALUE"}`.
+**Status:** Closed (2026-07-05, commit `10767d6`, low/minor sweep) — fixed in `Reports/uat-2026-04-26/RUNBOOK.md` (the backlog's `uat-2026-04-26-rev3/` path never existed); split into `$GOV_FLAG`/`$GOV_VALUE` invoked via `${GOV_FLAG:+$GOV_FLAG "$GOV_VALUE"}`.
 
 The rev3 sweep runbook at `Reports/uat-2026-04-26-rev3/RUNBOOK.md` Section A constructs the init.sh invocation with `$GOV` unquoted between flags:
 
@@ -905,7 +907,9 @@ Of the 17 test files added in Wave 1-4 (PRs #83-#97 plus follow-up fixers 2d5f91
 **Logged:** 2026-06-28 (test integrity audit)
 **Category:** Test infrastructure / regression coverage
 **Severity:** Medium
-**Status:** Open
+**Status:** Open — APPROVED 2026-07-05: Option B (triage-then-wire).
+
+**Decision (2026-07-05):** Karl approved **Option B — triage, don't blind-wire**. First a disposition pass over the 50 bridged orphans (`scripts/lint-tests-registered.sh::KNOWN_ORPHANS_PENDING_BL035`): per file decide register / merge / delete. Then wire the keepers into aggregators and DELETE the obsolete ones; success metric = `KNOWN_ORPHANS_PENDING_BL035` drained to empty. Decide [[bl052-retire-uninvoked-aggregators]] in the SAME pass (same surface). Expect switching some tests on to surface previously-hidden failures = follow-on fix work — likely see [[bl074-test-scaffold-helpers-siblings]] recur.
 
 Approximately 50 `tests/test-*.sh` files predate Wave 1-4 and are not invoked by any aggregator. Coverage for BL-029 (governance log integrity), BL-030 (calibration replay + bypass-audit), counter-sanitizers, init non-interactive (BL-016 — 26 unit tests per the 2026-04-25 plan), pre-commit-gate classifier (BL-020/021), and the bypass-audit family is all silent.
 
@@ -1177,7 +1181,7 @@ The absolute savings are smaller than the Step 4 report's 30–40 ms projection 
 **Logged:** 2026-06-29
 **Category:** Debt
 **Severity:** Low
-**Status:** Open — RECLASSIFIED 2026-07-05 (low/minor sweep recon). NOT dead and NOT in `verify-install.sh`: the arm is `scripts/validate.sh:66`, reachable via operator-run `validate.sh` on a legacy `Platform: cli` project (validate.sh reads Platform from the user-editable `CLAUDE.md`). Decision needed — (A) keep as legacy fallback [recommended], (B) remove `cli` support end-to-end as a deliberate feature removal, or (C) keep + add an explanatory comment. NOT a safe delete; entry title/Related still reference verify-install.sh — corrected here.
+**Status:** Open — Option C applied 2026-07-05; status-flip recorded in the follow-up commit that cites its SHA; kept as legacy graceful-degradation fallback + added an explanatory comment at `scripts/validate.sh:66` (documents it's reachable via user-editable `CLAUDE.md` `Platform: cli` and must not be deleted without removing `cli` support end-to-end). Not dead code; the arm is in validate.sh, not verify-install.sh as this entry's title says.
 
 `scripts/verify-install.sh` carries a `cli` arm that has been disabled / unreachable (per Step 4 recon). The dead branch confuses readers and is a maintenance trap if a future change accidentally re-enables it without re-validating its assertions.
 
@@ -1194,7 +1198,7 @@ The absolute savings are smaller than the Step 4 report's 30–40 ms projection 
 **Logged:** 2026-06-29
 **Category:** Debt
 **Severity:** Low
-**Status:** Closed (2026-07-05, commit 33635f5, low/minor sweep) — added `scripts/lint-doc-anchors.sh` (bash-3.2 in-doc anchor validator) + wired into `.github/workflows/lint.yml`; repaired the 1 broken anchor found (`docs/cli-setup-addendum.md`); self-test `tests/test-lint-doc-anchors.sh` (9 cases, registered).
+**Status:** Closed (2026-07-05, commit `33635f5`, low/minor sweep) — added `scripts/lint-doc-anchors.sh` (bash-3.2 in-doc anchor validator) + wired into `.github/workflows/lint.yml`; repaired the 1 broken anchor found (`docs/cli-setup-addendum.md`); self-test `tests/test-lint-doc-anchors.sh` (9 cases, registered).
 
 Step 4 recon enumerated dead anchors in `docs/builders-guide.md` and adjacent user-guide markdown — section headings have been renamed without updating in-doc cross-references. The link-check lint does not catch in-document anchors (only external URLs).
 
@@ -1211,7 +1215,7 @@ Step 4 recon enumerated dead anchors in `docs/builders-guide.md` and adjacent us
 **Logged:** 2026-06-29
 **Category:** Debt
 **Severity:** Low
-**Status:** Closed (2026-07-05, commit 6140b71, low/minor sweep) — archived 19 shipped plan docs to `docs/superpowers/plans/archive/` with per-file pointer notes + convention README; updated the 3 tests that pinned plan paths.
+**Status:** Closed (2026-07-05, commit `6140b71`, low/minor sweep) — archived 19 shipped plan docs to `docs/superpowers/plans/archive/` with per-file pointer notes + convention README; updated the 3 tests that pinned plan paths.
 
 Multiple plan documents under `docs/superpowers/plans/` correspond to work that has since shipped (or been superseded). Step 4 recon flagged these as orphans — keeping them around dilutes the active-plan signal for any agent searching that directory.
 
@@ -1249,7 +1253,7 @@ Add tests exercising both the success path (skipped on `--check-only`), the fail
 **Logged:** 2026-06-29
 **Category:** Performance
 **Severity:** Low
-**Status:** Closed (2026-07-05, commit 541aba3, low/minor sweep) — memoized with a bash-3.2 guard+cache; mutation-proven test `tests/test-resolve-tools-memoization.sh`. NOTE: the function lives in `init.sh`, NOT `resolve-tools.sh` as this entry's title claims (Step-4 misattribution).
+**Status:** Closed (2026-07-05, commit `541aba3`, low/minor sweep) — memoized with a bash-3.2 guard+cache; mutation-proven test `tests/test-resolve-tools-memoization.sh`. NOTE: the function lives in `init.sh`, NOT `resolve-tools.sh` as this entry's title claims (Step-4 misattribution).
 
 `scripts/resolve-tools.sh::get_available_platforms` re-scans `templates/tool-matrix/*.json` on every call. Within a single resolver invocation the function is called O(N) times where N is the platform count. Step 4 recon recommends a single-pass memoization via a process-local associative array.
 
@@ -1306,7 +1310,7 @@ TEST 4 in `tests/full-project-test-suite.sh` builds a fresh project fixture per 
 **Logged:** 2026-06-29
 **Category:** Debt
 **Severity:** Low
-**Status:** Closed (2026-07-05, commit 50f19e4, low/minor sweep) — removed `_phase2_state_file` (`scripts/lib/phase2-state.sh`) + dead `tool_install_json` local (`scripts/check-versions.sh`); grep-confirmed unreferenced repo-wide.
+**Status:** Closed (2026-07-05, commit `50f19e4`, low/minor sweep) — removed `_phase2_state_file` (`scripts/lib/phase2-state.sh`) + dead `tool_install_json` local (`scripts/check-versions.sh`); grep-confirmed unreferenced repo-wide.
 
 Step 4 recon identified several small dead-code surfaces, notably the `_phase2_state_file` helper and the `tool_install_json` variable, that are referenced nowhere in current call sites (verified by grep). They're vestigial from earlier refactors.
 
@@ -1498,7 +1502,7 @@ The adversarial certainty re-walk (re-walker-3, scenario `migration-personal-pro
 **Logged:** 2026-06-29
 **Category:** Documentation
 **Severity:** Minor
-**Status:** Closed (2026-07-05, commit 4d98300, low/minor sweep) — created `docs/step5-dogfood-walker-rubric.md` (first persisted rubric) with the default-to-`partial` rule + the Sponsored-POC 3-vs-6-row worked example.
+**Status:** Closed (2026-07-05, commit `4d98300`, low/minor sweep) — created `docs/step5-dogfood-walker-rubric.md` (first persisted rubric) with the default-to-`partial` rule + the Sponsored-POC 3-vs-6-row worked example.
 
 The adversarial certainty re-walk (re-walker-3, scenario `migration-private-poc-personal-to-sponsored-poc-org`) surfaced the only re-walker disagreement across 38 scenarios: the original walker graded `pass` by accepting "documented template behavior" framing, while the adversary downgraded to `partial` because the matrix `expected_terminal_state` literally said "3 rows visible" but the surfaced artifact contains all 6 rows. Both readings were available; the walker chose the lenient one.
 
@@ -1816,7 +1820,9 @@ time bash scripts/lint-tests-registered.sh
 **Logged:** 2026-07-01 (PR #136 verifier follow-up)
 **Category:** Debt
 **Severity:** Medium
-**Status:** Open
+**Status:** Open — APPROVED 2026-07-05: Option A (finish the migration).
+
+**Decision (2026-07-05):** Karl approved **Option A — finish it**. Migrate the 3 readers (`verify-install.sh:1324`, `upgrade-project.sh:2033`, `helpers-core.sh:361`) + the gitleaks/rust/k6 wrappers to iterate `install_cmds`, legacy-string fallback preserved. Per-stage-failure regression tests, mutation-proven (keep only `install_cmds[0]` -> a test flips RED), registered in an aggregator (NOT the KNOWN_ORPHANS bridge). Highest-certainty of the three Mediums.
 
 **What:** PR #136 (BL-033) shipped the resolver-side schema: `scripts/resolve-tools.sh` now emits BOTH `install_cmd` (singular, joined with ` && `) AND `install_cmds` (structured array of stages). Verifier confirmed the array is EMITTED but not yet READ by any consumer. Three call sites still read the singular field:
 
@@ -1845,7 +1851,9 @@ time bash scripts/lint-tests-registered.sh
 **Logged:** 2026-07-01 (PR #137 workflow.html validation, flagged discrepancy #2 — major)
 **Category:** Bug / doc-vs-enforcement gap; framework-promise integrity
 **Severity:** Major
-**Status:** Open — SOLUTION PROPOSED, awaiting discussion
+**Status:** Open — APPROVED 2026-07-05: Option C (skeleton-first + attest-on-skip). Ship AFTER BL-071.
+
+**Decision (2026-07-05):** Karl approved **Option C** — build the `run-phase3-validation.sh` driver + gate integration FIRST, every scanner SKIP-able, add real scanners incrementally (do NOT build all 5 at once). **Refinement (Karl):** when a scanner is missing/unavailable, the framework must let the USER decide whether to download + run it manually; ANY skipped scanner requires the user to attest a reason AND sign off, recorded in `phase-state.json::phase3.attestations` (BL-032 pattern). Gate blocks Phase 3->4 unless every scanner is PASS or attested-skip-with-signoff. Sequence: AFTER [[bl071-phase-gate-date-auto-write]] (reuses its atomic-write pattern in check-phase-gate.sh).
 
 **What:** `docs/builders-guide.md` § Phase 3, `docs/user-guide.md` § Phase 3, and the workflow.html diagram (pre-PR-#137) imply Phase 3 automatically runs Snyk (deps), license compliance, OWASP ZAP DAST, full-tree Semgrep SAST, and threat-model mitigation verification. `grep of scripts/` finds **zero invocations** of any of these tools anywhere in the framework. `check-phase-gate.sh` only searches for artifact filenames in `docs/test-results/` — it neither runs the scans nor verifies their content. Operators today either run the scans manually and remember to save outputs, or skip them entirely with no framework signal. `pre-commit-gate.sh` runs Semgrep on staged files only — that is not the same as the "full-tree scan" Phase 3 documents.
 
@@ -1876,7 +1884,9 @@ Fallback for POC projects without full tooling: `[SKIP]` counted as gate FAIL un
 **Logged:** 2026-07-01 (PR #137 workflow.html validation, flagged discrepancy #3 — major)
 **Category:** Bug / doc-vs-enforcement gap; state-file integrity
 **Severity:** Major
-**Status:** Open — SOLUTION PROPOSED, awaiting discussion
+**Status:** Open — APPROVED 2026-07-05: Option A (date auto-write). SHIP FIRST of the four Majors.
+
+**Decision (2026-07-05):** Karl approved **Option A**. Implement the atomic gate-date write on PASS per the filed proposal (idempotent; don't-clear-on-FAIL; seed the missing 4th gate key `phase_2_to_3` in init.sh). **Sequence: FIRST Major to ship** — it establishes the atomic-write-into-`check-phase-gate.sh` pattern that BL-073 and BL-070 reuse. Guard: verify it does NOT mutate state on any read-only / preview / dry-run invocation of the gate.
 
 **What:** The Builder's Guide + workflow.html (pre-PR-#137) state that on a successful phase-gate check, the framework writes today's date to `phase-state.json::gates.phase_<from>_to_<to>` — establishing an authoritative record of when the gate passed. Reality: `check-phase-gate.sh` and `validate.sh` only READ that field. `init.sh` seeds it as `null`. No `jq` assignment expression exists anywhere in `scripts/` that writes to `gates.<gate>`. The gates fields on main are populated only by the operator (or agent) manually editing `phase-state.json`, which the framework does not automate and does not enforce a format for.
 
@@ -1908,7 +1918,17 @@ Additional (related, minor) gap: `init.sh:1789-1804` seeds only 3 of 4 gate keys
 **Logged:** 2026-07-01 (PR #137 workflow.html validation, flagged discrepancy #4 — major)
 **Category:** Bug / doc-vs-enforcement gap; core framework promise
 **Severity:** Major
-**Status:** Open — SOLUTION PROPOSED, awaiting discussion
+**Status:** Open — APPROVED 2026-07-05: Option A (hard block) + track-tiered bypass matrix. Separate track from the check-phase-gate trio (lives in pre-commit-gate.sh + init.sh).
+
+**Decision (2026-07-05):** Karl approved **Option A (hard block)** with a **track-tiered bypass matrix**:
+- **Personal** (deployment=personal, non-POC) -> may bypass (warn/soft).
+- **POC-Personal** (`private_poc` / track=light) -> may bypass, but the bypass is LOGGED (audit trail); enforcement flips to HARD BLOCK if the project is later upgraded to Sponsored POC.
+- **POC-Sponsored** (`sponsored_poc` / track=standard) -> HARD BLOCK.
+- **Full MVP / Production** (`production` / track=full) -> HARD BLOCK.
+
+Implementer MUST confirm the exact deployment/gov-mode/track enum names against `init.sh` + `intake-wizard.sh` before coding. The upgrade path (`upgrade-project.sh` tier promotion) must flip enforcement to hard-block on promotion to Sponsored, and the POC-Personal bypass log is the audit trail for that transition.
+
+**Open flag from review (Claude — push-back retained):** even WITH tiering, the hard block on Sponsored/Full still rests on the fuzzy "does this code have a matching test?" detection (the same brittleness BL-014 was punted for). Dogfood the detection in WARN mode on solo-orchestrator (a Full-shaped repo) and measure the false-block rate BEFORE the hard block goes live — this arc's own history has many `refactor:` commits that a naive detector would wrongly block.
 
 **What:** The Builder's Guide + README (top-of-file feature list) + workflow.html (pre-PR-#137) all describe test-first as a framework-enforced discipline. Reality: `init.sh:2337-2347` pre-commit hook is warning-only — the operator sees the warning and can commit anyway. `scripts/pre-commit-gate.sh` BL-006 enforcement fires only on `feat:` prefix; `chore/fix/refactor/docs/test/perf/style/build/ci/revert` all bypass. `README.md:531` already admits TDD ordering is "Tier-3 guided" with no automated backstop — but the Builder's Guide + user-facing workflow.html haven't been updated to match.
 
@@ -1939,7 +1959,15 @@ Additional (related, minor) gap: `init.sh:1789-1804` seeds only 3 of 4 gate keys
 **Logged:** 2026-07-01 (PR #137 workflow.html validation, flagged discrepancy #6 — major)
 **Category:** Bug / doc-vs-enforcement gap; gate escalation
 **Severity:** Major
-**Status:** Open — SOLUTION PROPOSED, awaiting discussion
+**Status:** Open — APPROVED 2026-07-05: Option A (track-aware FAIL) + same tier pattern as BL-072 + grandfather clause. Ship AFTER BL-071.
+
+**Decision (2026-07-05):** Karl approved **Option A** with the **same track-tiered pattern as [[bl072-tdd-hard-enforce]]** and a **grandfather clause**:
+- **Full** (track=full): FAIL if Security or Red Team missing (WARN for the other four but still gate-blocking).
+- **POC-Sponsored** (track=standard): FAIL if Security or Red Team missing.
+- **POC-Personal** (track=light): WARN only, bypass LOGGED; escalation flips to FAIL on upgrade to Sponsored (mirrors BL-072).
+- **Personal**: WARN only.
+
+**Grandfather clause:** existing projects with no review-manifest are NOT retroactively blocked — enforcement applies to projects created/advanced after this ships; define the cutover precisely (e.g. keyed on manifest schema-version or a `phase-state.json` flag). Ship AFTER [[bl071-phase-gate-date-auto-write]], with/after the check-phase-gate.sh trio.
 
 **What:** `docs/builders-guide.md` L1614 frames the six-reviewer manifest as a Phase 3 → 4 gate check. `docs/builders-guide.md` L1656 requires Security + Red Team specifically for `track=full`. Reality: `scripts/check-phase-gate.sh:1039-1056` emits `[WARN]` only when the review manifest is incomplete. It does NOT verify all six reviewers ran (only that a manifest file exists), and it does not fail the gate.
 
@@ -1965,3 +1993,27 @@ Additional (related, minor) gap: `init.sh:1789-1804` seeds only 3 of 4 gate keys
 - Mutation: revert to `[WARN]` only → T-full-missing-* all pass (should fail).
 
 **Related:** PR #137 flag #6; `docs/builders-guide.md` L1614 (gate framing), L1656 (Security + Red Team mandatory for Full); `scripts/check-phase-gate.sh:1039-1056` (the current WARN-only check); [[bl070-phase-3-validation-scans]] (sibling automation gap); [[bl072-tdd-hard-enforce]] (sibling gate-should-be-real gap).
+
+---
+
+## BL-074: Test scaffolds copy only `helpers.sh`, not the mandatory `helpers-core.sh` / `helpers-full.sh` siblings (post-BL-046 regression)
+
+**Logged:** 2026-07-05 (surfaced by the low/minor sweep's full-suite verification run)
+**Category:** Bug / test integrity (pre-existing on main; NOT product-facing)
+**Severity:** Medium
+**Status:** Open
+
+**What:** The BL-046 helpers split (PR #125) made `scripts/lib/helpers.sh` a shim that sources `helpers-full.sh`, which sources `helpers-core.sh`. The real product path (`init.sh:1221-1223`) correctly copies all three into every generated project — so **shipping projects are unaffected**. But ~10 test files scaffold a fake project by copying ONLY `helpers.sh` (e.g. `tests/test-tier-crosscheck-6-zdr-gate.sh:293`), not the two now-mandatory siblings. Any scaffolded script that sources `helpers.sh` (e.g. `reconfigure-project.sh`) then dies at `helpers.sh:39` with `helpers-full.sh: No such file or directory`.
+
+**Currently RED on main** (confirmed identical failure on pristine `81bd7e4`, so NOT caused by the low/minor sweep that surfaced it):
+- `tests/test-tier-crosscheck-6-zdr-gate.sh` — T6, T7 (2 of 8 fail)
+- `tests/test-tier-crosscheck-6-followup-atomicity-and-jq.sh` — F1 (1 of 3 fails)
+- `tests/test-reconfigure-field-handlers.sh` — T4-T7 (same `helpers-full.sh` gap; T2 also fails on an unrelated reconfigure->upgrade-project redirect message — track separately)
+
+**Latent** (share the incomplete-copy pattern; grep shows `helpers.sh` copied with `helpers-core`=0 `helpers-full`=0 — not currently exercising the full source chain, so green today but fragile): `test-pre-commit-gate-lints.sh`, `known-bugs-test-suite.sh`, `edge-cases-upgrade-input.sh`, `full-project-test-suite.sh`, `test-specs-plans-remaining-quartet.sh`, `edge-cases-scripts.sh`, `test-pre-commit-gate-terminal-mode.sh`.
+
+**Why it matters:** Red tests have been sitting on main since PR #125 — a test-integrity regression the BL-046 split introduced and no gate caught (same defect-class concern as [[bl035-orphan-tests]]). It also masks real signal: T6/T7 can no longer validate the ZDR/data_classification gate they exist to protect.
+
+**Scope:** Give affected scaffolds the sibling libs — either add `cp helpers-core.sh helpers-full.sh` alongside every `cp helpers.sh` (mechanical), OR factor a shared `scaffold_helpers_libs()` test helper so this cannot drift again (preferred; ties into the [[bl025-phase2-verified-test-helper]] idea). Re-run the two red suites to GREEN; mutation-check they now actually exercise the gate. Audit the 8 latent files for the same gap.
+
+**Related:** PR #125 (BL-046 helpers split); `init.sh:1221-1223` (correct product copy); `scripts/lib/helpers.sh:39`; [[bl035-orphan-tests]] (test-hygiene sibling); [[bl025-phase2-verified-test-helper]] (shared test-scaffold helper idea). Surfaced by the 2026-07-05 low/minor sweep verification.
