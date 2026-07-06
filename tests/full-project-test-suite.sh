@@ -337,6 +337,19 @@ else
   fail "scripts/lint-raw-read-prompt.sh behavior tests FAILED (run tests/test-lint-raw-read-prompt.sh for details)"
 fi
 
+# BL-051: tests/test-resolve-tools-memoization.sh — proves init.sh's
+# get_available_platforms() memoizes its filesystem scan (guard-var +
+# cached string, bash-3.2-safe) so 10 invocations trigger exactly one
+# scan, not ten. The counter-spy assertion is mutation-provable: revert
+# the memoization and the scan fires 10× → T2 goes red. (Function is in
+# init.sh, not resolve-tools.sh — the BL-051/Step-4 filename is a known
+# misattribution; the test filename honors the backlog naming.)
+if bash "$SCRIPT_DIR/tests/test-resolve-tools-memoization.sh" >/dev/null 2>&1; then
+  pass "init.sh get_available_platforms() memoization (BL-051, 2/2)"
+else
+  fail "init.sh get_available_platforms() memoization tests FAILED (run tests/test-resolve-tools-memoization.sh for details)"
+fi
+
 # BL-038: tests/test-lint-tests-registered.sh — behavior suite for the
 # runner-registration backstop. Validates the lint's positive,
 # negative, EXEMPT-marker, mutation, and reverse-mutation paths so a
