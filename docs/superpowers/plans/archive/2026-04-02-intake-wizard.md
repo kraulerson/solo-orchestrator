@@ -1,5 +1,7 @@
 # Intake Wizard Implementation Plan
 
+> **Archived 2026-07-05 (BL-049):** Shipped via commit `9354c46` ("feat: intake wizard implementation", 2026-04-04). See `docs/superpowers/plans/archive/README.md` for the archive convention.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build an interactive intake wizard that guides users through filling out PROJECT_INTAKE.md via a bash script (confident users) or Claude Code conversation (users wanting help), with section-by-section save/resume, context-aware suggestions, and POC governance modes.

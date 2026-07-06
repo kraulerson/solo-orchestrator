@@ -1,5 +1,7 @@
 # Technical User Review Resolutions (Round 2) — Implementation Plan
 
+> **Archived 2026-07-05 (BL-049):** Shipped via commits `846cf7a` + `2537922` ("docs: evaluation reviews and security scan guide" / "feat: session resume script and CLI setup docs", 2026-04-04). See `docs/superpowers/plans/archive/README.md` for the archive convention.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Resolve 6 remaining actionable findings from the updated Technical Non-Developer Usability Review: security scan interpretation guide, session resume script, optional enhancement quick setup, and 3 minor documentation friction items.

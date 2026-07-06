@@ -414,7 +414,7 @@ fi
 echo ""
 echo "T-CLI-DRIFT: plan/spec/wizard reference mcp_server (not cli)"
 
-PLAN_MD="$REPO_ROOT/docs/superpowers/plans/2026-04-02-intake-wizard.md"
+PLAN_MD="$REPO_ROOT/docs/superpowers/plans/archive/2026-04-02-intake-wizard.md"
 SPEC_MD="$REPO_ROOT/docs/superpowers/specs/2026-04-02-intake-wizard-design.md"
 
 drift=0

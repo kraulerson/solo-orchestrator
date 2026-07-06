@@ -1,5 +1,7 @@
 # Tool Installation Matrix Implementation Plan
 
+> **Archived 2026-07-05 (BL-049):** Shipped via commit `580edf7` ("feat(init): auto-discover, Qdrant, jq, matrix resolver", 2026-04-04). See `docs/superpowers/plans/archive/README.md` for the archive convention.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the flat tool installation logic in init.sh with a matrix-driven system that resolves tools by dev OS, platform, language, track, and phase — with user substitution support and phase-gate-triggered deferred installation.

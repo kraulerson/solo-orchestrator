@@ -1,5 +1,7 @@
 # Session-Start Version Check — Implementation Plan
 
+> **Archived 2026-07-05 (BL-049):** Shipped via commit `7ec8f9d` ("feat: version checking system", 2026-04-04). See `docs/superpowers/plans/archive/README.md` for the archive convention.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Create a session-start version checker that verifies minimum versions, shows latest available, and offers interactive updates with user approval.

@@ -1,5 +1,7 @@
 # Technical User Review Resolutions — Implementation Plan
 
+> **Archived 2026-07-05 (BL-049):** Shipped via commit `c139754` ("fix: review resolutions — policy, security, legal, CIO", 2026-04-04). See `docs/superpowers/plans/archive/README.md` for the archive convention.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Resolve 7 actionable findings from the Technical Non-Developer Usability Review (items 2 and 7 merged into a single init.sh improvement).

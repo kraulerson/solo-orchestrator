@@ -54,7 +54,7 @@ GATE="$REPO_ROOT/scripts/pre-commit-gate.sh"
 CV="$REPO_ROOT/scripts/check-versions.sh"
 VI="$REPO_ROOT/scripts/verify-install.sh"
 SPEC="$REPO_ROOT/docs/superpowers/specs/2026-04-08-phase-audit-design.md"
-PLAN="$REPO_ROOT/docs/superpowers/plans/2026-04-08-phase-audit.md"
+PLAN="$REPO_ROOT/docs/superpowers/plans/archive/2026-04-08-phase-audit.md"
 
 PASSED=0
 FAILED=0

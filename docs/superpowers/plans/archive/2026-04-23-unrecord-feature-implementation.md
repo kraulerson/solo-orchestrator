@@ -1,5 +1,7 @@
 # Unrecord-Feature Implementation Plan
 
+> **Archived 2026-07-05 (BL-049):** Shipped via PR #12 (`feat/unrecord-feature`, merged 2026-04-23) — BL-008. See `docs/superpowers/plans/archive/README.md` for the archive convention.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Implement `scripts/test-gate.sh --unrecord-feature NAME` per spec `docs/superpowers/specs/2026-04-23-unrecord-feature-design.md`, add a "Recovering from mistakes" subsection to the CLAUDE.md template, and add a self-contained test file covering the state-transform logic.
