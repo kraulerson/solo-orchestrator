@@ -465,6 +465,31 @@ else
   fail "tests/test-check-phase-gate-argv-parser.sh FAILED (run for details)"
 fi
 
+# BL-071: scripts/check-phase-gate.sh must WRITE today's date into
+# phase-state.json::gates.<gate> (plus a sibling gates.<gate>_by actor)
+# when a gate passes on real APPROVAL_LOG.md evidence — atomically
+# (mkdir-lock + tmp + rename, PR #97 lineage), idempotently (a valid
+# first-pass date is preserved, never overwritten), and never clearing a
+# populated date on a subsequent FAIL. The write is mutation-proof: the
+# suite strips the marked `# BL-071-WRITE` finalize line from a copy and
+# asserts the date is no longer recorded (proving the line is
+# load-bearing). Sibling init.sh seed fix (all 4 gate keys) is pinned by
+# test-init-seeds-four-gate-keys.sh below.
+if bash "$SCRIPT_DIR/tests/test-check-phase-gate-date-writeback.sh" >/dev/null 2>&1; then
+  pass "tests/test-check-phase-gate-date-writeback.sh"
+else
+  fail "tests/test-check-phase-gate-date-writeback.sh FAILED (run for details)"
+fi
+# BL-071 (rolled-in minor): init.sh's phase-state.json seed must emit all
+# four gate keys — pre-fix it missed phase_2_to_3. Bootstraps a real
+# init.sh project and asserts gates.{phase_0_to_1,phase_1_to_2,
+# phase_2_to_3,phase_3_to_4} are all present as null.
+if bash "$SCRIPT_DIR/tests/test-init-seeds-four-gate-keys.sh" >/dev/null 2>&1; then
+  pass "tests/test-init-seeds-four-gate-keys.sh"
+else
+  fail "tests/test-init-seeds-four-gate-keys.sh FAILED (run for details)"
+fi
+
 # ----------------------------------------------------------------
 # TEST 0i: PENDING-APPROVAL RESOLVE-DECISION
 # ----------------------------------------------------------------
