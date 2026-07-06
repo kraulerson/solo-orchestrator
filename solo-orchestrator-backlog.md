@@ -25,7 +25,7 @@ When an item is promoted to a full spec, leave the entry here with status `promo
 **Logged:** 2026-04-22
 **Category:** Audit
 **Severity:** Medium
-**Status:** Open — APPROVED 2026-07-05: Option A (recon-first). Low urgency.
+**Status:** Closed (2026-07-06, PR #142) — CDF asset refresh wired into `upgrade-project.sh` via new thin `scripts/lib/cdf-refresh.sh` (`CDF_HOME`-overridable, delegates to upstream `refresh_cdf_assets`); `check-updates.sh` now compares against the CDF clone. Verifier `minor_concerns` (graceful-skip coverage) → closed. Follow-up (Karl: backfill honors sentinel) tracked as [[bl080-backfill-honors-sentinel]].
 
 **Decision (2026-07-05):** Karl approved **Option A — investigate first**. Explore-first recon of `upgrade-project.sh`'s CDF-sync handling (does it pull a fresh CDF clone? replace `.claude/framework/`? bump `FRAMEWORK_VERSION`?) BEFORE any code. Fix likely lands upstream in CDF (`~/.claude-dev-framework`) per the cross-repo preference, not a Solo shim. Lowest urgency of the open set — no downstream project has reported a missed fix; run as a background recon spike.
 
@@ -907,7 +907,7 @@ Of the 17 test files added in Wave 1-4 (PRs #83-#97 plus follow-up fixers 2d5f91
 **Logged:** 2026-06-28 (test integrity audit)
 **Category:** Test infrastructure / regression coverage
 **Severity:** Medium
-**Status:** Open — APPROVED 2026-07-05: Option B (triage-then-wire).
+**Status:** Open — TRIAGED 2026-07-06 (`Reports/2026-07-06-bl035-orphan-triage.md`): 44 REGISTER / 2 MERGE / 1 DELETE / 3 UNCERTAIN. Awaiting Karl's 3 fork decisions + Policy A confirm, then a 9-chunk wiring wave (Chunk-0 prereqs: [[bl078-stale-lang-fixture-drift]] sed + `test-platform-security-bugs-closer.sh` T4b path fix). Success metric = `KNOWN_ORPHANS_PENDING_BL035` drained to empty. Note [[bl077-ci-runs-no-test-suites]] — wiring is the path to a CI-runnable suite.
 
 **Decision (2026-07-05):** Karl approved **Option B — triage, don't blind-wire**. First a disposition pass over the 50 bridged orphans (`scripts/lint-tests-registered.sh::KNOWN_ORPHANS_PENDING_BL035`): per file decide register / merge / delete. Then wire the keepers into aggregators and DELETE the obsolete ones; success metric = `KNOWN_ORPHANS_PENDING_BL035` drained to empty. Decide [[bl052-retire-uninvoked-aggregators]] in the SAME pass (same surface). Expect switching some tests on to surface previously-hidden failures = follow-on fix work — likely see [[bl074-test-scaffold-helpers-siblings]] recur.
 
@@ -1270,7 +1270,7 @@ Add tests exercising both the success path (skipped on `--check-only`), the fail
 **Logged:** 2026-06-29
 **Category:** Debt
 **Severity:** Low
-**Status:** Open — POLICY DECISION PENDING; 2026-07-05 sweep confirms the overlap with BL-035 (aggregator membership) — decide the two together.
+**Status:** Open — 2026-07-06 recommendation: **Policy A** — wire the 3 un-invoked aggregators (`edge-case-test-suite.sh`, `known-bugs-test-suite.sh`, `upgrade-path-tests.sh`) into the master run (or a new `tests/run-all.sh`); delete none (each holds unique tests). Decide together with [[bl035-orphan-tests]]. Ties into [[bl077-ci-runs-no-test-suites]].
 
 Step 4 recon identified test aggregators under `tests/` that are not invoked from any CI gate, pre-commit hook, or other aggregator. They appear to be dead — sourcing them costs nothing but they confuse the test-discovery surface.
 
@@ -1820,7 +1820,7 @@ time bash scripts/lint-tests-registered.sh
 **Logged:** 2026-07-01 (PR #136 verifier follow-up)
 **Category:** Debt
 **Severity:** Medium
-**Status:** Open — APPROVED 2026-07-05: Option A (finish the migration).
+**Status:** Closed (2026-07-06, PR #140) — 3 readers + gitleaks/rust/k6 wrappers migrated to iterate `install_cmds` (legacy singular fallback preserved, byte-identical). Verifier `major_concerns` on a reader-#3 (upgrade-project.sh loop) coverage gap → closed via tightener (factored `upgrade_auto_install_from_resolver`, direct test, 24/24, stage-drop mutation-proven).
 
 **Decision (2026-07-05):** Karl approved **Option A — finish it**. Migrate the 3 readers (`verify-install.sh:1324`, `upgrade-project.sh:2033`, `helpers-core.sh:361`) + the gitleaks/rust/k6 wrappers to iterate `install_cmds`, legacy-string fallback preserved. Per-stage-failure regression tests, mutation-proven (keep only `install_cmds[0]` -> a test flips RED), registered in an aggregator (NOT the KNOWN_ORPHANS bridge). Highest-certainty of the three Mediums.
 
@@ -1884,7 +1884,7 @@ Fallback for POC projects without full tooling: `[SKIP]` counted as gate FAIL un
 **Logged:** 2026-07-01 (PR #137 workflow.html validation, flagged discrepancy #3 — major)
 **Category:** Bug / doc-vs-enforcement gap; state-file integrity
 **Severity:** Major
-**Status:** Open — APPROVED 2026-07-05: Option A (date auto-write). SHIP FIRST of the four Majors.
+**Status:** Closed (2026-07-06, PR #141) — atomic gate-date write on PASS (evidence-first, idempotent, fail-preserving; init.sh seeds the 4th gate key). Verifier `minor_concerns` (no negative evidence-gate test) → closed; extracted `_cpg_gate_has_evidence` as the single evidence surface BL-070/073 reuse. Full `(json_date,evidence)` truth table proved the gate is NOT weakened. warn-mode records state (documented).
 
 **Decision (2026-07-05):** Karl approved **Option A**. Implement the atomic gate-date write on PASS per the filed proposal (idempotent; don't-clear-on-FAIL; seed the missing 4th gate key `phase_2_to_3` in init.sh). **Sequence: FIRST Major to ship** — it establishes the atomic-write-into-`check-phase-gate.sh` pattern that BL-073 and BL-070 reuse. Guard: verify it does NOT mutate state on any read-only / preview / dry-run invocation of the gate.
 
@@ -2017,3 +2017,87 @@ Implementer MUST confirm the exact deployment/gov-mode/track enum names against 
 **Scope:** Give affected scaffolds the sibling libs — either add `cp helpers-core.sh helpers-full.sh` alongside every `cp helpers.sh` (mechanical), OR factor a shared `scaffold_helpers_libs()` test helper so this cannot drift again (preferred; ties into the [[bl025-phase2-verified-test-helper]] idea). Re-run the two red suites to GREEN; mutation-check they now actually exercise the gate. Audit the 8 latent files for the same gap.
 
 **Related:** PR #125 (BL-046 helpers split); `init.sh:1221-1223` (correct product copy); `scripts/lib/helpers.sh:39`; [[bl035-orphan-tests]] (test-hygiene sibling); [[bl025-phase2-verified-test-helper]] (shared test-scaffold helper idea). Surfaced by the 2026-07-05 low/minor sweep verification.
+
+---
+
+## BL-075: Pre-existing `--terminal-mode` lint reds (pre-commit-gate)
+
+**Logged:** 2026-07-06 (surfaced by the BL-074 fix agent)
+**Category:** Bug / test integrity (pre-existing on main)
+**Severity:** Low
+**Status:** Open
+
+Two suites carry pre-existing failures unrelated to the helpers-scaffold gap: `tests/test-pre-commit-gate-lints.sh` (T6a/T6b/T11a/T11b — "`--terminal-mode` did not surface lint") and `tests/test-pre-commit-gate-terminal-mode.sh` (T2 — "docs-only commit blocked"). These are `--terminal-mode` / commit-classification issues in `pre-commit-gate.sh`. Confirmed pre-existing (files unchanged by the BL-074 PR). Audit whether the product behavior or the test expectation drifted; fix the true side.
+
+**Related:** BL-074 (surfacing PR #139); `scripts/pre-commit-gate.sh` `--terminal-mode` path.
+
+---
+
+## BL-076: Non-hermetic init tests create real remote repos
+
+**Logged:** 2026-07-06 (surfaced by the `kraulerson/foo` incident)
+**Category:** Bug / test hermeticity (real cloud side effects)
+**Severity:** High
+**Status:** Open
+
+`tests/test-init-non-interactive-mobile-auto-install.sh` (lines ~62/72) runs real `init.sh --project foo` with NO `--no-remote-creation`, no `--git-host other`, and no mocked `gh`. Run in an authenticated-`gh` environment (e.g. an agent running `full-project-test-suite.sh`), `init.sh` creates and pushes a REAL private repo — this created `kraulerson/foo` during the 2026-07-06 Wave-1 verification (commit fingerprint `chore: initialize Solo Orchestrator project / Project: foo`; Karl deleted it). A test suite that sprays real repos also can't be wired into CI ([[bl077-ci-runs-no-test-suites]]).
+
+**Scope:** make this test (and any siblings) hermetic — pass `--no-remote-creation` or `--git-host other` + `mock-cli.sh`. Audit ALL tests that invoke `init.sh`/`create_and_protect_remote` for live-`gh` reachability; add a guard/lint so a test can never create a real remote. Sweep `kraulerson/*` for other test-shaped leaks.
+
+**Related:** `foo` incident 2026-07-06; `scripts/host-drivers/mock-cli.sh`; [[bl077-ci-runs-no-test-suites]].
+
+---
+
+## BL-077: CI runs zero test suites — only lint scripts
+
+**Logged:** 2026-07-06 (surfaced by the BL-035/052 triage)
+**Category:** Bug / doc-vs-enforcement gap; process integrity
+**Severity:** High
+**Status:** Open
+
+`.github/workflows/lint.yml` is the ONLY CI workflow and runs only the 6 lint scripts (+ tests-registered, doc-anchors). NO test aggregator runs in CI — `tests/full-project-test-suite.sh` and every suite it delegates are manual-only; `scripts/pre-commit-gate.sh` runs lints + process-checklist only. This is why red tests sit on `main` undetected (BL-074's reds, the tier-crosscheck-6 reds, the stale-lang reds all rode main unnoticed). Directly contradicts the "gate checks real, not implied" principle — the test suite is a giant implied gate that nothing enforces.
+
+**Scope:** add a CI job (and/or pre-push) that runs the master test suite. Gated on: suite hermeticity ([[bl076-nonhermetic-init-tests]] — can't run repo-creating tests in CI) and the suite being green ([[bl078-stale-lang-fixture-drift]], [[bl079-poc-modes-e60-contradiction]], [[bl075-terminal-mode-lint-reds]]) and wired ([[bl035-orphan-tests]] / [[bl052-retire-uninvoked-aggregators]]). This is the meta-item the BL-035 wiring program feeds. Consider a fast lane (unit-ish suites) vs a slow lane (e2e) so CI stays usable.
+
+**Related:** `.github/workflows/lint.yml`; `Reports/2026-07-06-bl035-orphan-triage.md`; [[bl035-orphan-tests]], [[bl076-nonhermetic-init-tests]].
+
+---
+
+## BL-078: Stale `--language javascript`/`ts` fixture drift across ~10 orphan tests
+
+**Logged:** 2026-07-06 (surfaced by the BL-035 triage)
+**Category:** Bug / test-fixture drift
+**Severity:** Medium
+**Status:** Open
+
+`init.sh` tightened language-for-platform validation (audit code-init-sh-5): the accepted set is now `csharp/go/java/kotlin/other/python/rust/typescript` — `javascript` was dropped for `--platform web`. ~10 orphan fixtures still pass `--language javascript` (or `ts`), so `init.sh` aborts and the whole suite fails downstream. Mechanical one-token `javascript`→`typescript` sed per fixture. **Prerequisite (Chunk-0) for the BL-035 wiring wave** — without it, ~10 registrations turn CI red.
+
+Affected: `test-bl029-integration`, `test-bl030-calibration-replay`, `test-bypass-audit-schema`, `test-init-atomic-finalize`, `test-init-non-interactive` (N7 uses `ts`), `test-upgrade-bl030-backfill`, `test-verify-install-bl030-coverage`, `test-poc-modes` (T1/T4), `test-enforcement-level-init`, `test-enforcement-level-reconfigure`.
+
+**Related:** [[bl035-orphan-tests]]; `init.sh` language validation.
+
+---
+
+## BL-079: Registered `edge-cases` E60 contradicts product on `--to-private-poc`
+
+**Logged:** 2026-07-06 (surfaced by the BL-035 triage)
+**Category:** Bug / vacuous-or-wrong registered test
+**Severity:** Medium
+**Status:** Open
+
+Orphan `test-poc-modes.sh` T5 and the REGISTERED `edge-cases-scripts.sh` E60 assert OPPOSITE outcomes for `upgrade-project.sh --to-private-poc` from a personal project. Current product (`upgrade-project.sh:692-711`, 2026-06 tier-crosscheck-3) makes it stay **personal** → T5 is correct and **E60 is stale/RED against current behavior**. A registered test asserting the wrong contract is worse than an orphan — fix E60 to match the product (or, if the product is wrong, fix the product), and resolve the poc-modes fork in the same pass.
+
+**Related:** [[bl035-orphan-tests]] (poc-modes UNCERTAIN fork); `tests/edge-cases-scripts.sh` E60; `scripts/upgrade-project.sh:692-711`.
+
+---
+
+## BL-080: `upgrade-project.sh --backfill-only` must honor the BL-015 sentinel
+
+**Logged:** 2026-07-06 (BL-001 verifier finding; Karl chose Option A)
+**Category:** Bug / governance-contract gap
+**Severity:** Medium
+**Status:** Open — in progress (implementer running, PR pending)
+
+The `--backfill-only` short-circuit runs BEFORE the BL-015 pending-approval sentinel guard, so backfill mutates `.claude/framework/`, the manifest, host config, and skills even when a pending-approval sentinel is present (pre-existing; BL-001/PR #142 widened it to CDF framework assets). Karl decided (2026-07-06) backfill must honor the sentinel: block + mutate nothing when a sentinel is present, mirroring the full-upgrade guard. Implementer dispatched with a no-mutation regression + mutation proof.
+
+**Related:** [[bl001-cdf-sync-audit]] (PR #142); BL-015 (pending-approval sentinel); `scripts/upgrade-project.sh` backfill path.
