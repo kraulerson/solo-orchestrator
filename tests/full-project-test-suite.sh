@@ -360,6 +360,29 @@ else
   fail "Tests-registered lint found unregistered test file(s) (see scripts/lint-tests-registered.sh --list)"
 fi
 
+# BL-048: tests/test-lint-doc-anchors.sh — behavior suite for the
+# dead-in-document-anchor backstop. Validates the lint's positive,
+# negative, fence-aware, dedup-suffix, and cross-file-out-of-scope
+# paths so a regression in the lint itself (false negative on a
+# broken anchor, false positive on fenced example content) is
+# surfaced at the aggregator.
+if bash "$SCRIPT_DIR/tests/test-lint-doc-anchors.sh" >/dev/null 2>&1; then
+  pass "scripts/lint-doc-anchors.sh behavior tests"
+else
+  fail "scripts/lint-doc-anchors.sh behavior tests FAILED (run tests/test-lint-doc-anchors.sh for details)"
+fi
+
+# BL-048: repo-wide lint invocation. Fails when a markdown file under
+# docs/ contains a `[text](#anchor)` reference whose target heading
+# doesn't exist in the same file (GitHub-derived slug, fence-aware).
+# See scripts/lint-doc-anchors.sh header for the derivation contract.
+section "Doc-anchors lint (BL-048 structural backstop)"
+if bash "$SCRIPT_DIR/scripts/lint-doc-anchors.sh" >/dev/null 2>&1; then
+  pass "Every in-document anchor reference under docs/ resolves"
+else
+  fail "Doc-anchors lint found broken anchor reference(s) (see scripts/lint-doc-anchors.sh --list)"
+fi
+
 # ----------------------------------------------------------------
 # TEST 0g: INTAKE WIZARD + RECONFIGURE FIELD HANDLERS
 # ----------------------------------------------------------------
