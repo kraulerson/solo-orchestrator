@@ -2072,6 +2072,49 @@ for f in "$MATRIX_DIR"/*.json; do
 done
 
 # ================================================================
+# --- BL-052: wire previously-un-invoked aggregators ---
+# ================================================================
+# Three test AGGREGATORS shipped with substantial, largely-unique real
+# tests but were never invoked by the master run or any CI gate, so
+# every assertion inside them ran ZERO times (BL-052 / Step 4 ROI #8).
+# Karl-approved Policy A: WIRE them into the master run, delete none.
+# Each is a self-contained script that returns rc=0 iff all its own
+# tests pass (edge-case-test-suite.sh ends `[ "$FAILED" -eq 0 ]`;
+# known-bugs-test-suite.sh and upgrade-path-tests.sh end `exit $FAIL`),
+# so the BL-034 delegate pattern applies verbatim: run once, capture rc,
+# contribute to PASS/FAIL — no `|| true` wraps, nothing silenced.
+#
+# HERMETIC: all three are hermetic by construction — edge-case's init
+# wrapper bakes in --no-remote-creation (BL-076), and upgrade-path's only
+# git usage is a fake `https://example.com/fake.git` remote with no push.
+#
+# Runtime note: upgrade-path-tests.sh drives resolve-tools.sh across many
+# track/phase combos and is slow (~18 min). That is orthogonal to
+# correctness and tracked with the master suite's own runtime under
+# BL-045 (TEST 1 matrix parallelization) / BL-077 (CI-runnability). It
+# stays wired here regardless.
+section "BL-052: previously-un-invoked aggregators (edge-case / known-bugs / upgrade-path)"
+
+if bash "$SCRIPT_DIR/tests/edge-case-test-suite.sh" >/dev/null 2>&1; then
+  pass "tests/edge-case-test-suite.sh (edge-case sweep — platform/tool-prefs/git-host/re-init/bypass-detector/intake/resolver-timeout)"
+else
+  fail "tests/edge-case-test-suite.sh FAILED (run tests/edge-case-test-suite.sh for the per-section [FAIL] lines)"
+fi
+
+if bash "$SCRIPT_DIR/tests/known-bugs-test-suite.sh" >/dev/null 2>&1; then
+  pass "tests/known-bugs-test-suite.sh (BUG-1..BUG-8 + E1-E40 regression sweep)"
+else
+  fail "tests/known-bugs-test-suite.sh FAILED (run tests/known-bugs-test-suite.sh for details)"
+fi
+
+if bash "$SCRIPT_DIR/tests/upgrade-path-tests.sh" >/dev/null 2>&1; then
+  pass "tests/upgrade-path-tests.sh (track/deployment/POC upgrade + strict-superset no-regression)"
+else
+  fail "tests/upgrade-path-tests.sh FAILED (run tests/upgrade-path-tests.sh for details)"
+fi
+# --- end BL-052 aggregator wiring ---
+
+# ================================================================
 # SUMMARY
 # ================================================================
 section "TEST SUMMARY"
