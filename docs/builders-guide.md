@@ -1611,7 +1611,12 @@ When `current_phase >= 3` (pre-gate checks that run before the transition is rec
 - [ ] **POC mode check.** If `poc_mode` is set in `phase-state.json`, Phase 4 (production release) is blocked. POC projects complete at Phase 3.
 - [ ] **Release pipeline check.** If `.github/workflows/release.yml` exists, any remaining `TODO` items produce a WARN.
 - [ ] **Penetration test results** (Standard+ track). The script looks for files matching `*pen-test*`, `*pentest*`, or `*penetration*` in `docs/test-results/`. Standard track allows IT Security exemption recorded in `APPROVAL_LOG.md`; Full track has no exemption path.
-- [ ] **Review manifest** (`docs/eval-results/review-manifest.json`) exists.
+- [ ] **Review manifest** (`docs/eval-results/review-manifest.json`) exists **and records the required reviewers** (BL-073, track-aware). The gate parses `.reviews[]` and verifies the Security and Red Team reviews are `complete`:
+  - **`track=full` / `track=standard`:** the gate **FAILs** (blocks) if the Security **or** Red Team review is missing or not `complete`. **Full track** additionally requires all six reviewers — the other four (Engineer, CIO, Legal, Technical User) produce a WARN that still counts toward gate blocking.
+  - **`track=light` / personal:** WARN only (POC preserved); the bypass is logged to the console/CI audit trail. Enforcement flips to FAIL automatically once the track is promoted to `standard`/`full`.
+  - **Grandfather clause:** the FAIL applies only to projects created or advanced under the enforcement regime — keyed on `phase-state.json::review_gate_enforced` (stamped `true` by `init.sh` at creation and re-stamped by `upgrade-project.sh` on any tier advance). A pre-existing project that lacks the flag keeps the legacy WARN-only behavior and is never retroactively blocked.
+  - **Escape hatch:** set `SOLO_REVIEWERS_ATTESTED=1` with `SOLO_REVIEWERS_ATTESTED_REASON="<reason>"` to downgrade the FAIL to an attested OK. The decision is recorded to `.claude/process-state.json::phase3.attestations.reviewers` — blocks are attested, not silenced.
+  - The manifest schema is validated by `scripts/lint-review-manifest.sh` (CI): each `.reviews[]` entry must carry `reviewer`, `status` (`complete`|`skipped`|`failed`), and `artifact`; `signed_by` and `date` (`YYYY-MM-DD`) are validated when present.
 - [ ] **Bug gate passes** (`scripts/test-gate.sh --check-phase-gate`).
 
 #### Gate-Checked vs. Snapshot-Only Artifacts
@@ -1653,7 +1658,9 @@ Artifacts marked "No" in the Gate-Checked column are included in the snapshot fo
 
 **Re-run protocol after major remediation:** If a fix changes application behavior (not just scan configuration), re-run the affected test steps. Security fix → re-run Steps 3.1 (integration) and 3.2 (security). Accessibility fix → re-run Step 3.4. Performance fix → re-run Step 3.5. If multiple step types are affected, use `scripts/process-checklist.sh --reset phase3_validation` to re-run the full Phase 3 sequence. For minor fixes that don't change behavior (suppression configuration, documentation), re-running is not required.
 
-**Evaluation prompts:** For additional validation depth, consider running the Security Review (`evaluation-prompts/Projects/bases/03-security.md`) and Red Team Review (`evaluation-prompts/Projects/bases/06-red-team-review.md`) evaluation prompts. Results should be archived to `docs/eval-results/`. Required for Full Track projects.
+**Evaluation prompts:** Run the Security Review (`evaluation-prompts/Projects/bases/03-security.md`) and Red Team Review (`evaluation-prompts/Projects/bases/06-red-team-review.md`) evaluation prompts (or the full six-reviewer suite via `evaluation-prompts/Projects/run-reviews.sh`, which writes `docs/eval-results/review-manifest.json`). Results should be archived to `docs/eval-results/`.
+
+**Track-specific enforcement (BL-073):** the Security and Red Team reviews are a **hard Phase 3 → 4 gate** for `track=standard` and `track=full` — `scripts/check-phase-gate.sh` reads the review manifest and **FAILs the gate** if either the Security or Red Team review is missing or not `complete`. Full Track additionally requires all six reviewers (the other four WARN but still block). `track=light` / personal projects are WARN-only (POC preserved) and the bypass is logged; enforcement flips to FAIL if the project is later upgraded to `standard`/`full`. Pre-existing projects (created before this enforcement shipped, keyed on `phase-state.json::review_gate_enforced`) are grandfathered — WARN-only, never retroactively blocked. To ship an enforced project with a documented reviewer gap, attest with `SOLO_REVIEWERS_ATTESTED=1 SOLO_REVIEWERS_ATTESTED_REASON="<reason>"` (recorded to `.claude/process-state.json::phase3.attestations.reviewers`). See the Phase 3 → 4 gate checklist above for the full contract.
 
 ---
 

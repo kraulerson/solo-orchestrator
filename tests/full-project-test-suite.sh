@@ -490,6 +490,20 @@ else
   fail "tests/test-init-seeds-four-gate-keys.sh FAILED (run for details)"
 fi
 
+# BL-073: scripts/check-phase-gate.sh's Phase 3→4 review-manifest check must
+# be a REAL, track-aware gate — FAIL (block) when the Security or Red Team
+# review is missing for track=standard/full, WARN-only for light/personal
+# and for grandfathered projects (no review_gate_enforced flag), and an
+# attested OK when SOLO_REVIEWERS_ATTESTED=1 + reason is set (recorded to
+# process-state.json). Mutation-proof: excising the marked `# BL-073-ESCALATE`
+# escalation reverts the gate to WARN-only, flipping the *-fails cases RED.
+# Also pins scripts/lint-review-manifest.sh's schema validation.
+if bash "$SCRIPT_DIR/tests/test-bl073-review-manifest-gate.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl073-review-manifest-gate.sh"
+else
+  fail "tests/test-bl073-review-manifest-gate.sh FAILED (run for details)"
+fi
+
 # ----------------------------------------------------------------
 # TEST 0i: PENDING-APPROVAL RESOLVE-DECISION
 # ----------------------------------------------------------------

@@ -134,6 +134,9 @@ echo ""
 COMMIT_HASH=$(cd "$PROJECT_DIR" && git rev-parse HEAD 2>/dev/null || echo "no-git")
 COMMIT_SHORT=$(cd "$PROJECT_DIR" && git rev-parse --short HEAD 2>/dev/null || echo "no-git")
 REVIEW_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+# BL-073: the review-manifest contract carries a YYYY-MM-DD `date` field
+# (validated by scripts/lint-review-manifest.sh and read by the phase gate).
+REVIEW_DATE="${REVIEW_TIMESTAMP%%T*}"
 
 for num in "${TARGETS[@]}"; do
     if [[ ! -v "REVIEWERS[$num]" ]]; then
@@ -204,7 +207,12 @@ for num in "${TARGETS[@]}"; do
     REVIEW_FILE="$PROJECT_DIR/${reviewer}-review-v1.md"
     if [ -f "$REVIEW_FILE" ]; then
         FILE_SHA=$(shasum -a 256 "$REVIEW_FILE" | cut -d' ' -f1)
-        MANIFEST_ENTRIES="${MANIFEST_ENTRIES}    {\"reviewer\": \"${description}\", \"file\": \"${reviewer}-review-v1.md\", \"sha256\": \"${FILE_SHA}\", \"commit\": \"${COMMIT_HASH}\", \"timestamp\": \"${REVIEW_TIMESTAMP}\"},"$'\n'
+        # BL-073 contract: reviewer/status/artifact/signed_by/date are the
+        # fields the phase gate + lint-review-manifest.sh read. An entry is
+        # only written when the review file exists, so status is "complete".
+        # The provenance fields (file/sha256/commit/timestamp) are retained
+        # as allowed extras for traceability.
+        MANIFEST_ENTRIES="${MANIFEST_ENTRIES}    {\"reviewer\": \"${description}\", \"status\": \"complete\", \"artifact\": \"${reviewer}-review-v1.md\", \"signed_by\": \"AI review (${description})\", \"date\": \"${REVIEW_DATE}\", \"file\": \"${reviewer}-review-v1.md\", \"sha256\": \"${FILE_SHA}\", \"commit\": \"${COMMIT_HASH}\", \"timestamp\": \"${REVIEW_TIMESTAMP}\"},"$'\n'
     fi
 done
 

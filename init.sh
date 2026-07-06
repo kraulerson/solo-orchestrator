@@ -1798,7 +1798,15 @@ PERMEOF
     append_intake_tooling_summary "$RESOLVER_OUTPUT"
   fi
 
-  # Generate phase state tracking
+  # Generate phase state tracking.
+  # BL-073: `review_gate_enforced` is the grandfather cutover for the
+  # track-aware Phase 3→4 review-manifest gate. init.sh stamps it `true`
+  # at creation, so every project CREATED after BL-073 ships is subject to
+  # the track-aware FAIL (see scripts/check-phase-gate.sh review-manifest
+  # block). Projects created BEFORE BL-073 lack the field entirely — the
+  # gate reads its absence as "grandfathered" and keeps the legacy
+  # WARN-only behavior, so a pre-existing project is never retroactively
+  # blocked. upgrade-project.sh re-stamps it on any tier advance.
   print_info "Generating phase state..."
   mkdir -p .claude
   local poc_json="null"
@@ -1812,6 +1820,7 @@ PERMEOF
   "deployment": "$DEPLOYMENT",
   "poc_mode": $poc_json,
   "compliance_ready": false,
+  "review_gate_enforced": true,
   "gates": {
     "phase_0_to_1": null,
     "phase_1_to_2": null,

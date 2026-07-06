@@ -421,6 +421,79 @@ _cpg_record_gate_date() {
   return 2
 }
 
+# ── BL-073: reviewer-attestation recorder ───────────────────────
+# Records the SOLO_REVIEWERS_ATTESTED escape-hatch decision into
+# .claude/process-state.json::phase3.attestations.reviewers (BL-032
+# lineage — a block that is attested, not silenced). Reuses the same
+# atomic-finalize pattern as _cpg_record_gate_date: a portable mkdir
+# advisory lock, a temp file written ADJACENT to process-state.json so
+# `mv` is a same-filesystem atomic rename, and an EXIT/INT/TERM trap
+# contained in a subshell.
+#
+# GUARD (read-only invocations): this writer fires ONLY from the review
+# block below when the operator has explicitly set SOLO_REVIEWERS_ATTESTED=1
+# AND a mandatory reviewer is actually missing — never on a plain read.
+# It is idempotent: if the recorded (reason,missing) already match, it
+# returns without rewriting, so a re-run does not churn the date.
+#
+# _cpg_record_reviewer_attestation <reason> <missing_csv>
+#   0 — recorded (or idempotent no-op: already recorded with same values)
+#   2 — could not write (jq unavailable, lock timeout, or jq error)
+_cpg_record_reviewer_attestation() {
+  local reason="$1" missing="$2"
+  local file=".claude/process-state.json"
+
+  if ! command -v jq >/dev/null 2>&1; then
+    return 2
+  fi
+
+  # Idempotency: skip the write when the existing record already matches.
+  if [ -f "$file" ]; then
+    local cur_reason cur_missing
+    cur_reason=$(jq -r '.phase3.attestations.reviewers.reason // ""' "$file" 2>/dev/null || echo "")
+    cur_missing=$(jq -r '.phase3.attestations.reviewers.missing // ""' "$file" 2>/dev/null || echo "")
+    if [ "$cur_reason" = "$reason" ] && [ "$cur_missing" = "$missing" ]; then
+      return 0
+    fi
+  else
+    echo '{}' > "$file" 2>/dev/null || return 2
+  fi
+
+  local today actor lock_dir attempts rc
+  today=$(date +%Y-%m-%d)
+  actor=$(_cpg_gate_actor)
+  lock_dir="$file.lockdir"
+
+  attempts=0
+  while ! mkdir "$lock_dir" 2>/dev/null; do
+    attempts=$((attempts + 1))
+    if [ "$attempts" -ge 100 ]; then
+      return 2
+    fi
+    sleep 0.1
+  done
+
+  rc=0
+  (
+    tmp=$(mktemp "${file}.XXXXXX") || exit 1
+    trap 'rm -f "$tmp"; rmdir "$lock_dir" 2>/dev/null' EXIT INT TERM
+    if jq --arg reason "$reason" --arg missing "$missing" \
+          --arg date "$today" --arg by "$actor" \
+          '.phase3 = ((.phase3 // {}) | .attestations = ((.attestations // {}) + {reviewers: {reason: $reason, missing: $missing, date: $date, by: $by}}))' \
+          "$file" > "$tmp" 2>/dev/null; then
+      mv "$tmp" "$file" || exit 1   # BL-073-ATTEST-WRITE: atomic attestation finalize
+      trap - EXIT INT TERM
+      exit 0
+    else
+      rm -f "$tmp"
+      trap - EXIT INT TERM
+      exit 1
+    fi
+  ) || rc=1
+  rmdir "$lock_dir" 2>/dev/null || true
+  return "$rc"
+}
+
 gate_0_to_1=$(get_gate_date "phase_0_to_1")
 gate_1_to_2=$(get_gate_date "phase_1_to_2")
 gate_2_to_3=$(get_gate_date "phase_2_to_3")
@@ -1196,22 +1269,174 @@ if [ "$current_phase" -ge 3 ]; then
   fi
 fi
 
-# Review manifest check (Phase 3+)
+# ── Review-manifest gate (Phase 3+) — BL-073 track-aware enforcement ──
+# Historically this block only checked that the manifest FILE existed and
+# emitted a WARN when absent — it never verified the six reviewers actually
+# ran, so a Full-track project that skipped the Security + Red Team reviews
+# passed Phase 3→4 with only a banner. BL-073 makes it a real, track-aware
+# gate:
+#   • track=full / track=standard  → FAIL if the Security OR Red Team
+#     reviewer is missing/not-complete (the mandatory subset per
+#     docs/builders-guide.md). Full track additionally requires all six —
+#     the other four missing WARN and still count toward gate blocking.
+#   • track=light / personal       → WARN only (POC preserved). The bypass
+#     is logged to the console/CI audit trail; enforcement flips to FAIL
+#     automatically once the track is promoted to standard/full.
+# GRANDFATHER: enforcement (the FAIL) applies ONLY to projects created or
+#   advanced under the enforcement regime, keyed on phase-state.json::
+#   review_gate_enforced (stamped by init.sh at creation, re-stamped by
+#   upgrade-project.sh on any tier advance). A pre-existing project that
+#   lacks the flag keeps the legacy WARN-only behavior and is NEVER
+#   retroactively blocked by the new completeness check.
+# ESCAPE HATCH: SOLO_REVIEWERS_ATTESTED=1 + a documented reason (env
+#   SOLO_REVIEWERS_ATTESTED_REASON, or a reason already recorded in
+#   process-state.json) downgrades the FAIL to an attested OK and RECORDS
+#   the decision to .claude/process-state.json::phase3.attestations.reviewers
+#   (BL-032 lineage) — blocks are attested, not silenced.
 if [ "$current_phase" -ge 3 ]; then
   MANIFEST="docs/eval-results/review-manifest.json"
-  if [ -f "$MANIFEST" ]; then
-    if command -v jq &>/dev/null; then
-      review_count=$(jq '.reviews | length' "$MANIFEST" 2>/dev/null || echo "0")
-      case "$review_count" in ''|*[!0-9]*) review_count=0 ;; esac
-      review_commit=$(jq -r '.commit // "unknown"' "$MANIFEST" 2>/dev/null)
-      echo -e "${GREEN}  [OK]${NC} Review manifest: $review_count review(s) recorded (commit: ${review_commit:0:8})"
+
+  # Grandfather cutover: the FAIL applies only when the enforcement flag is
+  # present AND the track mandates the reviews (standard or full). Read the
+  # flag via jq, falling back to a tolerant grep when jq is absent.
+  cpg_review_flag="false"
+  if command -v jq >/dev/null 2>&1; then
+    cpg_review_flag=$(jq -r 'if (.review_gate_enforced == true) then "true" else "false" end' "$PHASE_STATE" 2>/dev/null || echo "false")
+  elif grep -qE '"review_gate_enforced"[[:space:]]*:[[:space:]]*true' "$PHASE_STATE" 2>/dev/null; then
+    cpg_review_flag="true"
+  fi
+  cpg_review_enforced=0
+  if [ "$cpg_review_flag" = "true" ] && { [ "$track" = "standard" ] || [ "$track" = "full" ]; }; then
+    cpg_review_enforced=1
+  fi
+
+  # Escape hatch: resolve the attestation state (BL-032 lineage).
+  cpg_reviewers_attested=0
+  cpg_attest_reason=""
+  cpg_attest_proactive=0
+  if [ -f ".claude/process-state.json" ] && command -v jq >/dev/null 2>&1; then
+    cpg_attest_reason=$(jq -r '.phase3.attestations.reviewers.reason // ""' ".claude/process-state.json" 2>/dev/null || echo "")
+    [ "$cpg_attest_reason" = "null" ] && cpg_attest_reason=""
+  fi
+  if [ "${SOLO_REVIEWERS_ATTESTED:-}" = "1" ]; then
+    if [ -n "${SOLO_REVIEWERS_ATTESTED_REASON:-}" ]; then
+      cpg_attest_reason="$SOLO_REVIEWERS_ATTESTED_REASON"
+    fi
+    if [ -n "$cpg_attest_reason" ]; then
+      cpg_reviewers_attested=1
+      cpg_attest_proactive=1
+    fi
+  elif [ -n "$cpg_attest_reason" ]; then
+    cpg_reviewers_attested=1
+  fi
+
+  if [ ! -f "$MANIFEST" ]; then
+    # No manifest at all. Legacy behavior (WARN + issues++) is preserved for
+    # non-enforced projects; enforced-and-unattested escalates to FAIL.
+    if [ "$cpg_review_enforced" -eq 1 ] && [ "$cpg_reviewers_attested" -eq 1 ]; then
+      echo -e "${GREEN}  [OK]${NC} Phase 3→4 review gate: no manifest, but reviewers ATTESTED (reason: $cpg_attest_reason) — recorded to .claude/process-state.json (not silenced)."
+      if [ "$cpg_attest_proactive" -eq 1 ]; then
+        _cpg_record_reviewer_attestation "$cpg_attest_reason" "Security, Red Team (no manifest)" \
+          || echo -e "${YELLOW}[WARN]${NC}   (could not persist the reviewer attestation — jq unavailable or state locked)"
+      fi
+    else
+      cpg_review_sev="WARN"
+      if [ "$cpg_review_enforced" -eq 1 ]; then
+        : # BL-073 escalation guard — keeps this branch non-empty when the marked line below is excised (mutation-proof)
+        cpg_review_sev="FAIL"   # BL-073-ESCALATE
+      fi
+      if [ "$cpg_review_sev" = "FAIL" ]; then
+        echo -e "${RED}[FAIL]${NC} Phase 3→4 review gate: no review manifest found (docs/eval-results/review-manifest.json). track=$track requires the Security AND Red Team reviews before Phase 4."
+        echo "  Run reviews: evaluation-prompts/Projects/run-reviews.sh — or attest: SOLO_REVIEWERS_ATTESTED=1 SOLO_REVIEWERS_ATTESTED_REASON=\"<reason>\""
+        issues=$((issues + 1))
+      else
+        echo -e "${YELLOW}[WARN]${NC} No review manifest found (docs/eval-results/review-manifest.json)"
+        echo "  Run evaluation prompts before Phase 4: evaluation-prompts/Projects/run-reviews.sh"
+        issues=$((issues + 1))
+      fi
+    fi
+  elif ! command -v jq >/dev/null 2>&1; then
+    # Manifest present but jq unavailable — cannot verify reviewer
+    # completion. Degrade to a blocking WARN under enforcement rather than
+    # silently passing; preserve the legacy OK for non-enforced projects.
+    if [ "$cpg_review_enforced" -eq 1 ]; then
+      echo -e "${YELLOW}[WARN]${NC} Phase 3→4 review gate: review manifest present but jq is unavailable — cannot verify Security/Red Team completion for track=$track. Install jq."
+      issues=$((issues + 1))
     else
       echo -e "${GREEN}  [OK]${NC} Review manifest exists (install jq for details)"
     fi
   else
-    echo -e "${YELLOW}[WARN]${NC} No review manifest found (docs/eval-results/review-manifest.json)"
-    echo "  Run evaluation prompts before Phase 4: evaluation-prompts/Projects/run-reviews.sh"
-    issues=$((issues + 1))
+    # Manifest present + jq available — verify the reviewers actually ran.
+    review_count=$(jq '.reviews | length' "$MANIFEST" 2>/dev/null || echo "0")
+    case "$review_count" in ''|*[!0-9]*) review_count=0 ;; esac
+    review_commit=$(jq -r '.commit // "unknown"' "$MANIFEST" 2>/dev/null || echo "unknown")
+    echo -e "${GREEN}  [OK]${NC} Review manifest: $review_count review(s) recorded (commit: ${review_commit:0:8})"
+
+    # Map each COMPLETE review entry to a canonical role. Red Team is tested
+    # BEFORE Security because "Red Team / Offensive Security" also contains
+    # "security"; ordering keeps the two roles distinct. Accepts both the
+    # canonical slug ("security", "redteam") and the descriptive persona
+    # ("SVP IT Security", "Red Team / Offensive Security"). A missing status
+    # field is treated as "complete" for backward-compat with pre-BL-073
+    # manifests that recorded an entry only when the review file existed.
+    cpg_present_roles=$(jq -r '
+      [ .reviews[]?
+        | select((.status // "complete") == "complete")
+        | ((.reviewer // "") | ascii_downcase) as $r
+        | if   ($r | test("red[ ._-]?team|offensive")) then "redteam"
+          elif ($r | test("security"))                  then "security"
+          elif ($r | test("engineer"))                  then "engineer"
+          elif ($r | test("cio|chief information"))      then "cio"
+          elif ($r | test("legal|counsel"))             then "legal"
+          elif ($r | test("techuser|technical user|non.?coder")) then "techuser"
+          else empty end
+      ] | unique | join(" ")
+    ' "$MANIFEST" 2>/dev/null || echo "")
+
+    cpg_role_present() { case " $cpg_present_roles " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+
+    cpg_missing_mandatory=""
+    cpg_role_present "security" || cpg_missing_mandatory="Security"
+    cpg_role_present "redteam"  || cpg_missing_mandatory="${cpg_missing_mandatory:+$cpg_missing_mandatory, }Red Team"
+
+    if [ -n "$cpg_missing_mandatory" ]; then
+      if [ "$cpg_reviewers_attested" -eq 1 ]; then
+        echo -e "${GREEN}  [OK]${NC} Phase 3→4 review gate: mandatory reviews incomplete (missing: $cpg_missing_mandatory) but ATTESTED (reason: $cpg_attest_reason) — recorded to .claude/process-state.json (not silenced)."
+        if [ "$cpg_attest_proactive" -eq 1 ]; then
+          _cpg_record_reviewer_attestation "$cpg_attest_reason" "$cpg_missing_mandatory" \
+            || echo -e "${YELLOW}[WARN]${NC}   (could not persist the reviewer attestation — jq unavailable or state locked)"
+        fi
+      else
+        cpg_review_sev="WARN"
+        if [ "$cpg_review_enforced" -eq 1 ]; then
+          : # BL-073 escalation guard — keeps this branch non-empty when the marked line below is excised (mutation-proof)
+          cpg_review_sev="FAIL"   # BL-073-ESCALATE
+        fi
+        if [ "$cpg_review_sev" = "FAIL" ]; then
+          echo -e "${RED}[FAIL]${NC} Phase 3→4 review gate: track=$track requires the Security AND Red Team reviews before Phase 4 (missing: $cpg_missing_mandatory)."
+          echo "  Run reviews: evaluation-prompts/Projects/run-reviews.sh — or attest: SOLO_REVIEWERS_ATTESTED=1 SOLO_REVIEWERS_ATTESTED_REASON=\"<reason>\""
+          issues=$((issues + 1))
+        else
+          echo -e "${YELLOW}[WARN]${NC} Phase 3→4 review gate: Security and/or Red Team review incomplete (missing: $cpg_missing_mandatory; track=$track) — bypass logged (grandfathered / POC: not blocking)."
+        fi
+      fi
+    else
+      echo -e "${GREEN}  [OK]${NC} Phase 3→4 review gate: Security and Red Team reviews complete."
+    fi
+
+    # Full Track requires ALL SIX reviewers. The remaining four are
+    # non-mandatory (WARN, not the Security/Red Team FAIL) but, for an
+    # enforced Full-track project, still count toward gate blocking.
+    if [ "$cpg_review_enforced" -eq 1 ] && [ "$track" = "full" ]; then
+      for _cpg_role_pair in "engineer:Senior Software Engineer" "cio:CIO" "legal:Corporate Legal" "techuser:Technical User"; do
+        _cpg_rk="${_cpg_role_pair%%:*}"
+        _cpg_rn="${_cpg_role_pair##*:}"
+        if ! cpg_role_present "$_cpg_rk"; then
+          echo -e "${YELLOW}[WARN]${NC} Phase 3→4 review gate: Full Track requires all six reviewers — $_cpg_rn review missing."
+          issues=$((issues + 1))
+        fi
+      done
+    fi
   fi
 fi
 

@@ -152,3 +152,25 @@ jobs:
       - name: Show PASS/FAIL inventory (on failure or on demand)
         if: always()
         run: bash scripts/lint-doc-anchors.sh --list || true
+
+  # BL-073: schema backstop for the Phase 3→4 review manifest
+  # (docs/eval-results/review-manifest.json). check-phase-gate.sh's
+  # track-aware review gate reads .reviews[].reviewer / .status to decide
+  # whether the mandatory Security + Red Team reviews are complete — a
+  # malformed manifest silently defeats that gate. This lint pins the
+  # schema (reviewer / status / artifact required; date / signed_by
+  # validated when present). See scripts/lint-review-manifest.sh header
+  # and tests/test-bl073-review-manifest-gate.sh for the behavior suite.
+  review-manifest-lint:
+    name: review-manifest-lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Lint review-manifest schema (BL-073)
+        run: bash scripts/lint-review-manifest.sh
+
+      - name: Show roster (on failure or on demand)
+        if: always()
+        run: bash scripts/lint-review-manifest.sh --list || true

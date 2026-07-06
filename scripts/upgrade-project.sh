@@ -1245,6 +1245,11 @@ data["track"] = new_track
 # with PROJECT_INTAKE.md / CLAUDE.md (which the later heredocs do update).
 data["deployment"] = new_deployment
 data["last_upgrade"] = str(date.today())
+# BL-073: stamp the review-manifest gate enforcement flag on any tier
+# advance so a pre-existing (grandfathered) project ADVANCED after BL-073
+# ships opts into the track-aware Phase 3→4 review gate. Idempotent —
+# a project created post-BL-073 already carries the flag as true.
+data["review_gate_enforced"] = True
 
 if poc_removed:
     if "poc_mode" in data:
