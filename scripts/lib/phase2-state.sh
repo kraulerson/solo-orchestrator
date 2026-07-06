@@ -20,10 +20,6 @@ _phase2_state_repo_root() {
   git rev-parse --show-toplevel 2>/dev/null || pwd
 }
 
-_phase2_state_file() {
-  echo "$(_phase2_state_repo_root)/.claude/process-state.json"
-}
-
 # _record_phase2_step <step_name>
 # Appends step_name to phase2_init.steps_completed in process-state.json,
 # creating the file (and .claude/) if missing. Idempotent — the unique

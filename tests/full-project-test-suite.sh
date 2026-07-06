@@ -337,6 +337,19 @@ else
   fail "scripts/lint-raw-read-prompt.sh behavior tests FAILED (run tests/test-lint-raw-read-prompt.sh for details)"
 fi
 
+# BL-051: tests/test-resolve-tools-memoization.sh — proves init.sh's
+# get_available_platforms() memoizes its filesystem scan (guard-var +
+# cached string, bash-3.2-safe) so 10 invocations trigger exactly one
+# scan, not ten. The counter-spy assertion is mutation-provable: revert
+# the memoization and the scan fires 10× → T2 goes red. (Function is in
+# init.sh, not resolve-tools.sh — the BL-051/Step-4 filename is a known
+# misattribution; the test filename honors the backlog naming.)
+if bash "$SCRIPT_DIR/tests/test-resolve-tools-memoization.sh" >/dev/null 2>&1; then
+  pass "init.sh get_available_platforms() memoization (BL-051, 2/2)"
+else
+  fail "init.sh get_available_platforms() memoization tests FAILED (run tests/test-resolve-tools-memoization.sh for details)"
+fi
+
 # BL-038: tests/test-lint-tests-registered.sh — behavior suite for the
 # runner-registration backstop. Validates the lint's positive,
 # negative, EXEMPT-marker, mutation, and reverse-mutation paths so a
@@ -358,6 +371,29 @@ if bash "$SCRIPT_DIR/scripts/lint-tests-registered.sh" >/dev/null 2>&1; then
   pass "Every tests/test-*.sh is invoked by an aggregator (or EXEMPT)"
 else
   fail "Tests-registered lint found unregistered test file(s) (see scripts/lint-tests-registered.sh --list)"
+fi
+
+# BL-048: tests/test-lint-doc-anchors.sh — behavior suite for the
+# dead-in-document-anchor backstop. Validates the lint's positive,
+# negative, fence-aware, dedup-suffix, and cross-file-out-of-scope
+# paths so a regression in the lint itself (false negative on a
+# broken anchor, false positive on fenced example content) is
+# surfaced at the aggregator.
+if bash "$SCRIPT_DIR/tests/test-lint-doc-anchors.sh" >/dev/null 2>&1; then
+  pass "scripts/lint-doc-anchors.sh behavior tests"
+else
+  fail "scripts/lint-doc-anchors.sh behavior tests FAILED (run tests/test-lint-doc-anchors.sh for details)"
+fi
+
+# BL-048: repo-wide lint invocation. Fails when a markdown file under
+# docs/ contains a `[text](#anchor)` reference whose target heading
+# doesn't exist in the same file (GitHub-derived slug, fence-aware).
+# See scripts/lint-doc-anchors.sh header for the derivation contract.
+section "Doc-anchors lint (BL-048 structural backstop)"
+if bash "$SCRIPT_DIR/scripts/lint-doc-anchors.sh" >/dev/null 2>&1; then
+  pass "Every in-document anchor reference under docs/ resolves"
+else
+  fail "Doc-anchors lint found broken anchor reference(s) (see scripts/lint-doc-anchors.sh --list)"
 fi
 
 # ----------------------------------------------------------------

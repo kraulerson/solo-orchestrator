@@ -1,5 +1,7 @@
 # BL-006: Pre-commit Build Loop Enforcement — Implementation Plan
 
+> **Archived 2026-07-05 (BL-049):** Shipped via PR #15 (`feat/bl-006-precommit-buildloop-enforcement`, merged 2026-04-24). See `docs/superpowers/plans/archive/README.md` for the archive convention.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add commit-message-triggered pre-commit enforcement that blocks `feat(...)` commits without an active Build Loop.

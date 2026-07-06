@@ -1,5 +1,7 @@
 # UAT Template Quality + Platform-Aware Authoring Implementation Plan
 
+> **Archived 2026-07-05 (BL-049):** Shipped via PR #13 (`feat/uat-template-quality`, merged 2026-04-23) — BL-009. See `docs/superpowers/plans/archive/README.md` for the archive convention.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Raise the floor on UAT scenario authoring quality per spec `docs/superpowers/specs/2026-04-23-uat-template-quality-design.md`. Universal HTML-comment guardrails + per-platform reference examples (4 first-class + `other` co-build protocol) + pattern-based linter + authoring guide + idempotent upgrade migration.

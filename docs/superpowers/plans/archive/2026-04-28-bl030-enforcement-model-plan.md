@@ -1,5 +1,7 @@
 # BL-030 Enforcement Model Implementation Plan
 
+> **Archived 2026-07-05 (BL-049):** Shipped via PR #48 (`feature/bl-030-enforcement-model`, merged 2026-06-26). See `docs/superpowers/plans/archive/README.md` for the archive convention.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a project-wide `enforcement_level` field (no/light/strict) that controls how the framework treats user-terminal git actions, layered on top of the existing Claude-side PreToolUse enforcement, and feeding the unified `.claude/bypass-audit.json` ledger.
@@ -2376,7 +2378,7 @@ git commit -m "docs(backlog): close BL-030 — user-terminal enforcement model s
 
 ---
 
-**Plan complete and saved to `docs/superpowers/plans/2026-04-28-bl030-enforcement-model-plan.md`. Two execution options:**
+**Plan complete and saved to `docs/superpowers/plans/2026-04-28-bl030-enforcement-model-plan.md`** (archived 2026-07-05 to `docs/superpowers/plans/archive/2026-04-28-bl030-enforcement-model-plan.md`, BL-049). **Two execution options:**
 
 **1. Subagent-Driven (recommended)** — Dispatch a fresh subagent per task, review between tasks, fast iteration.
 

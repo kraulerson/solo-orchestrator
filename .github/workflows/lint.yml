@@ -131,3 +131,24 @@ jobs:
       - name: Show PASS/FAIL inventory (on failure or on demand)
         if: always()
         run: bash scripts/lint-tests-registered.sh --list || true
+
+  # BL-048: structural backstop for dead in-document anchors under
+  # docs/ — a `[text](#anchor)` link whose target heading no longer
+  # exists (renamed, reworded, or removed) silently 404s in the
+  # rendered page instead of failing anything locally. See
+  # scripts/lint-doc-anchors.sh header for the GitHub-slug derivation
+  # + fence-aware scanning contract, and
+  # tests/test-lint-doc-anchors.sh for the behavior suite.
+  doc-anchors-lint:
+    name: doc-anchors-lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Lint in-document anchors under docs/ (BL-048)
+        run: bash scripts/lint-doc-anchors.sh
+
+      - name: Show PASS/FAIL inventory (on failure or on demand)
+        if: always()
+        run: bash scripts/lint-doc-anchors.sh --list || true

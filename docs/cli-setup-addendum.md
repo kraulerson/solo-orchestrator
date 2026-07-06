@@ -68,7 +68,7 @@ claude mcp add -s user \
 ```
 
 **4. Replace CLAUDE.md with the enhanced template:**
-After configuring any of the above, replace your project's `CLAUDE.md` with the enhanced template from [Section 6](#6-claudemd) below and fill in the project-specific sections.
+After configuring any of the above, replace your project's `CLAUDE.md` with the enhanced template from [Section 6](#6-claudemd-project-level-agent-instructions) below and fill in the project-specific sections.
 
 For detailed explanations of each tool and how it integrates with the Builder's Guide, see the individual sections below.
 

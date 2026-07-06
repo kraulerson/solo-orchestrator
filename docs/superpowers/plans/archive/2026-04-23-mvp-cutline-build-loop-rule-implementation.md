@@ -1,5 +1,7 @@
 # MVP Cutline Build Loop Rule Implementation Plan
 
+> **Archived 2026-07-05 (BL-049):** Shipped via PR #14 (`feat/mvp-cutline-build-loop-rule`, merged 2026-04-23) — BL-007. See `docs/superpowers/plans/archive/README.md` for the archive convention.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Codify the rule "MVP Cutline items always require the full Build Loop, regardless of which Phase 2 sub-step they first appear in" in the two docs agents read — Builder's Guide (authoritative) and CLAUDE.md template (per-session). Implements BL-007 per spec `docs/superpowers/specs/2026-04-23-mvp-cutline-build-loop-rule-design.md`.

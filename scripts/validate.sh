@@ -63,6 +63,11 @@ case "$PLATFORM" in
   web)     [ -f "docs/platform-modules/web.md" ]     && print_ok "Platform Module: Web" || fail "Platform Module: Web missing" ;;
   desktop) [ -f "docs/platform-modules/desktop.md" ] && print_ok "Platform Module: Desktop" || fail "Platform Module: Desktop missing" ;;
   mobile)  [ -f "docs/platform-modules/mobile.md" ]  && print_ok "Platform Module: Mobile" || fail "Platform Module: Mobile missing" ;;
+  # Legacy 'cli' platform fallback (BL-047): 'cli' predates the cli->mcp_server rename
+  # and is still reachable when a project's CLAUDE.md carries `Platform: cli` (hand-edited
+  # or created before the migration). $PLATFORM here is read from the user-editable CLAUDE.md,
+  # not init.sh's validated enum, so this arm is intentional graceful degradation — NOT dead
+  # code. Do not delete without removing `cli` support end-to-end (option list + docs + here).
   cli)     print_info "No platform module for CLI (Builder's Guide works standalone)" ;;
   *)       print_info "Platform: $PLATFORM — no module expected" ;;
 esac

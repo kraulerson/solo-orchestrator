@@ -1,5 +1,7 @@
 # Host-Aware Repo Creation Gate — Implementation Plan
 
+> **Archived 2026-07-05 (BL-049):** Shipped via PR #11 (`feat/host-aware-repo-gate`, merged 2026-04-22). Still read as a live fixture by `tests/test-specs-plans-host-aware-quartet.sh` — do not delete. See `docs/superpowers/plans/archive/README.md` for the archive convention.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Implement the host-aware repo creation gate per spec `docs/superpowers/specs/2026-04-21-host-aware-repo-gate-design.md`. After completion, no solo-orchestrator project can reach Phase 1 without a created and protection-configured git remote, across GitHub / GitLab / Bitbucket (first-class) or `other` (URL-paste + manual attestation).

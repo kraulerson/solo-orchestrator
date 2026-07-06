@@ -117,11 +117,17 @@ Map your config to flags. Reference: `bash "$FRAMEWORK/init.sh" --help-non-inter
 cd "$WORKDIR"
 
 # Map scenario → deployment + gov_mode
+# NOTE: gov flag and value are kept as separate variables ($GOV_FLAG / $GOV_VALUE),
+# never combined into one unquoted string — combining them causes init.sh to see
+# "--gov-mode sponsored_poc" as a single argument token ("Unknown option: --gov-mode
+# sponsored_poc") once word-splitting collapses the whitespace. Expand with
+# ${GOV_FLAG:+$GOV_FLAG "$GOV_VALUE"} below so the flag is entirely omitted for
+# personal and the value stays a single quoted token for the org scenarios.
 case "{SCENARIO}" in
-  personal)        DEPLOY="personal"; GOV="" ;;
-  private_poc)     DEPLOY="organizational"; GOV="--gov-mode private_poc" ;;
-  sponsored_poc)   DEPLOY="organizational"; GOV="--gov-mode sponsored_poc" ;;
-  production)      DEPLOY="organizational"; GOV="--gov-mode production" ;;
+  personal)        DEPLOY="personal"; GOV_FLAG=""; GOV_VALUE="" ;;
+  private_poc)     DEPLOY="organizational"; GOV_FLAG="--gov-mode"; GOV_VALUE="private_poc" ;;
+  sponsored_poc)   DEPLOY="organizational"; GOV_FLAG="--gov-mode"; GOV_VALUE="sponsored_poc" ;;
+  production)      DEPLOY="organizational"; GOV_FLAG="--gov-mode"; GOV_VALUE="production" ;;
 esac
 
 # Pick a sensible language for the platform.
@@ -147,7 +153,7 @@ bash "$FRAMEWORK/init.sh" --non-interactive \
     --platform "{PLATFORM}" \
     --track "{TRACK}" \
     --deployment "$DEPLOY" \
-    $GOV \
+    ${GOV_FLAG:+$GOV_FLAG "$GOV_VALUE"} \
     --language "$LANG" \
     --project-dir "$PROJECT_DIR" \
     --git-host other \
