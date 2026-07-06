@@ -6,12 +6,15 @@
 # frozen at its install-time CDF version, silently missing upstream
 # .claude/framework/ hook/rule/gate fixes.
 #
-# Fix: upgrade-project.sh's backfill block sources scripts/lib/cdf-refresh.sh
-# (a thin Solo-side wrapper) and calls solo_refresh_cdf, which delegates to
-# the CDF clone's canonical refresh_cdf_assets. It re-copies hooks/rules/gates
-# into .claude/framework/, marks hook/gate scripts +x, and bumps the manifest
-# frameworkVersion/frameworkCommit. Lives in the backfill block so BOTH the
-# full and --backfill-only paths sync CDF.
+# Fix: scripts/lib/cdf-refresh.sh (a thin Solo-side wrapper) is sourced by
+# upgrade-project.sh's _refresh_cdf_assets_solo helper and calls
+# solo_refresh_cdf, which delegates to the CDF clone's canonical
+# refresh_cdf_assets. It re-copies hooks/rules/gates into .claude/framework/,
+# marks hook/gate scripts +x, and bumps the manifest
+# frameworkVersion/frameworkCommit. The helper is called from TWO distinct
+# call sites so both the --backfill-only path (before its short-circuit) and
+# the full-upgrade path (after the BL-015 sentinel guard + atomic section-2b
+# mutation) sync CDF.
 #
 # Test scenarios:
 #   T1 — Happy path: `upgrade-project.sh --backfill-only` against a fake CDF
@@ -26,19 +29,29 @@
 #   T3 — Pull-failure resilience: a fake clone with NO remote makes
 #        `git pull --ff-only` fail → the refresh warns and still syncs from
 #        the clone's current working tree (assets replaced, manifest bumped).
-#   T4 — Mutation proof: neutralizing solo_refresh_cdf's delegating
-#        refresh_cdf_assets call turns the sync into a no-op — the control
-#        (real wrapper) refreshes, the mutant leaves the project STALE.
-#        Proves the delegating call is load-bearing (the T1 assertions go
-#        RED without it).
+#   T4 — Mutation proof (delegating call): neutralizing solo_refresh_cdf's
+#        delegating refresh_cdf_assets call turns the sync into a no-op — the
+#        control (real wrapper) refreshes, the mutant leaves the project
+#        STALE. Proves the delegating call is load-bearing (T1 goes RED
+#        without it), across both call sites.
+#   T5 — Full-upgrade call site: a successful `--deployment` upgrade also
+#        refreshes CDF from the post-sentinel call site (tier change AND CDF
+#        refresh both land).
+#   T6 — Mutation proof (graceful-skip return): driving the WRAPPER directly
+#        with an absent CDF clone must return 0 and emit the [WARN]. Flipping
+#        the wrapper's missing-clone `return 0` to `return 1` makes that
+#        direct call return non-zero — proving the graceful-skip exit status
+#        is load-bearing (the call-site `|| print_warn` would otherwise mask
+#        a return-1 regression).
 #
 # HERMETICITY
-#   T1/T3/T4 need the canonical upstream refresh_cdf_assets implementation.
+#   T1/T3/T4/T5 need the canonical upstream refresh_cdf_assets implementation.
 #   It is located via CDF_REFRESH_SRC (default
 #   $HOME/.claude-dev-framework/scripts/cdf-refresh.sh). When that file is
 #   absent (e.g. a CI runner without the CDF clone) those scenarios SKIP
-#   with a clear notice and the suite still exits 0. T2 is fully hermetic
-#   (the wrapper short-circuits on a missing clone before it needs upstream).
+#   with a clear notice and the suite still exits 0. T2 and T6 are fully
+#   hermetic (the wrapper short-circuits on a missing clone before it needs
+#   upstream).
 set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -277,6 +290,64 @@ JSON
     fail_ "T5" "rc=$rc ps_dep='$ps_dep' mf_dep='$mf_dep' hook='$hook' fv='$fv' (expected org + FRESH-HOOK-66.6.6 + fv=66.6.6). Log: $(tail -8 "$T/log" 2>/dev/null | tr '\n' '|')"
   fi
   rm -rf "$T"
+fi
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T6: wrapper graceful-skip on missing clone returns 0 + [WARN] (direct, mutation-proof) ==="
+# ════════════════════════════════════════════════════════════════════
+#
+# Fully hermetic — the missing-clone branch short-circuits before the wrapper
+# needs upstream, so no CDF clone is required. Drives solo_refresh_cdf
+# DIRECTLY (not through upgrade-project.sh) so the return status is observed
+# without the call-site's `|| print_warn` masking it.
+#
+#   Control: real wrapper + absent CDF_HOME → return 0 AND the skip [WARN].
+#   Mutant:  flip the missing-clone `return 0` → `return 1`; the SAME direct
+#            call now returns non-zero. Proves the graceful-skip exit status
+#            is load-bearing (a return-1 regression would be invisible through
+#            the call site, but breaks any caller that inspects the status).
+T=$(mktemp -d); ABSENT="$T/no-such-cdf-clone"
+
+# -- Control: real wrapper, absent clone → rc=0 + skip [WARN] on stderr. --
+( CDF_HOME="$ABSENT"; export CDF_HOME; . "$WRAPPER"; solo_refresh_cdf "$T" "true" ) \
+  >"$T/ctl.out" 2>"$T/ctl.err"
+ctl_rc=$?
+ctl_ok=$( { [ "$ctl_rc" = "0" ] && grep -qiE "skipping CDF asset refresh" "$T/ctl.err"; } && echo y || echo n )
+
+# -- Mutant: flip the missing-clone `return 0` → `return 1`. --
+# Exact whole-line anchors (awk $0== compare — no regex escaping of $ [ ] ").
+# The anchor line is unique in the wrapper; the flipped line is the FIRST
+# `    return 0` inside that if-block.
+MUT="$T/cdf-refresh.mutant.sh"
+ANCHOR='  if [ ! -f "$upstream" ]; then'
+RET_LINE='    return 0'
+if ! grep -Fxq "$ANCHOR" "$WRAPPER" || ! grep -Fxq "$RET_LINE" "$WRAPPER"; then
+  fail_ "T6" "mutation anchors not found in $WRAPPER — did the missing-clone graceful-skip block change? (test needs updating)"
+  rm -rf "$T"
+else
+  awk -v a="$ANCHOR" -v r="$RET_LINE" '
+    $0==a { inb=1 }
+    inb && $0==r { print "    return 1  # MUTATION: graceful-skip return flipped"; inb=0; next }
+    { print }
+  ' "$WRAPPER" > "$MUT"
+  if ! grep -Fq "return 1  # MUTATION: graceful-skip return flipped" "$MUT"; then
+    fail_ "T6" "mutation did not take effect — awk did not flip the missing-clone return 0"
+    rm -rf "$T"
+  else
+    ( CDF_HOME="$ABSENT"; export CDF_HOME; . "$MUT"; solo_refresh_cdf "$T" "true" ) \
+      >/dev/null 2>"$T/mut.err"
+    mut_rc=$?
+    # Mutant must (a) return non-zero and (b) still emit the [WARN] (only the
+    # exit status was flipped, so the diagnostic is unchanged).
+    mut_detects=$( { [ "$mut_rc" != "0" ] && grep -qiE "skipping CDF asset refresh" "$T/mut.err"; } && echo y || echo n )
+    if [ "$ctl_ok" = "y" ] && [ "$mut_detects" = "y" ]; then
+      pass "T6: real wrapper returns 0 + [WARN] on missing clone; flipping return 0→1 makes the direct call return $mut_rc (graceful-skip status is load-bearing)"
+    else
+      fail_ "T6" "ctl_ok=$ctl_ok (ctl_rc=$ctl_rc); mut_detects=$mut_detects (mut_rc=$mut_rc)"
+    fi
+    rm -rf "$T"
+  fi
 fi
 
 echo ""
