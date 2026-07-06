@@ -489,6 +489,21 @@ if bash "$SCRIPT_DIR/tests/test-init-seeds-four-gate-keys.sh" >/dev/null 2>&1; t
 else
   fail "tests/test-init-seeds-four-gate-keys.sh FAILED (run for details)"
 fi
+# BL-070: scripts/run-phase3-validation.sh (Phase 3 validation-scan driver) +
+# the attest-on-skip Phase 3→4 gate in scripts/check-phase-gate.sh. The docs
+# imply Phase 3 auto-runs Snyk/license/full-tree-Semgrep/ZAP/threat-model; a
+# grep of scripts/ found ZERO invocations. This SKELETON builds the driver +
+# gate first (Karl-approved Option C): every scanner SKIP-able, any SKIP needs
+# an attestation (reason + sign-off) in phase-state.json::phase3.attestations,
+# and the gate refuses Phase 3→4 on any un-attested SKIP or FAIL. The
+# enforcement is mutation-proof: the suite strips the marked
+# `# BL-070-GATE-CHECK` lines from a copy of the gate and asserts the phase-3
+# FAIL disappears (proving the lines are load-bearing).
+if bash "$SCRIPT_DIR/tests/test-phase3-validation-gate.sh" >/dev/null 2>&1; then
+  pass "tests/test-phase3-validation-gate.sh"
+else
+  fail "tests/test-phase3-validation-gate.sh FAILED (run for details)"
+fi
 
 # ----------------------------------------------------------------
 # TEST 0i: PENDING-APPROVAL RESOLVE-DECISION
