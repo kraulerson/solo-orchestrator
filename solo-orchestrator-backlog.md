@@ -191,7 +191,7 @@ Surfaced during lancache project UAT Session 1 (2026-04-22 → 2026-04-23). The 
 **Logged:** 2026-04-23
 **Category:** Proposal
 **Severity:** Low
-**Status:** Open — Optional (evaluate when a concrete need arises)
+**Status:** Open — Optional; HELD 2026-07-05 pending BL-072 (TDD hard-enforce) design — that item may absorb editor-case/human-terminal commit enforcement.
 
 Punted from BL-006. Install a local `commit-msg` git hook via `init.sh` that invokes `scripts/process-checklist.sh --check-commit-message "$(head -n1 "$1")"`. Extends enforcement to two populations the PreToolUse hook cannot reach: (a) `git commit` with no `-m` flag (editor opens), and (b) human-Orchestrator commits from the terminal. The BL-006 design was explicitly built so this is a pure addition — no refactor needed.
 
@@ -208,7 +208,7 @@ Punted from BL-006. Install a local `commit-msg` git hook via `init.sh` that inv
 **Logged:** 2026-04-23
 **Category:** Proposal
 **Severity:** Low
-**Status:** Open — Optional (evaluate when a concrete need arises)
+**Status:** Open — Optional; HELD 2026-07-05 pending BL-072 design — TDD/commit-type enforcement may absorb Cutline-ID-aware enforcement.
 
 Punted from BL-006. Parse `PRODUCT_MANIFESTO.md §5` for F-/ID- Cutline identifiers and require commits that touch Cutline work to explicitly reference the ID (e.g., `feat(ID1): ...`), cross-checking that each Cutline ID gets exactly one Build Loop. Catches drift where Cutline work masquerades as a bugfix (`fix(ID1): ...`) or doesn't mention the ID at all.
 
@@ -225,7 +225,7 @@ Punted from BL-006. Parse `PRODUCT_MANIFESTO.md §5` for F-/ID- Cutline identifi
 **Logged:** 2026-04-23
 **Category:** Proposal
 **Severity:** Low
-**Status:** Open — Optional (evaluate when a concrete need arises)
+**Status:** Won't Fix (2026-07-05). Forward-only enforcement is the deliberate design; zero operator demand in 60+ days. Reopen only on an explicit history-audit-tooling request.
 
 Punted from BL-006. Scan git history for `feat:`-prefixed commits with no corresponding Build Loop recorded in `.claude/build-progress.json`. Report drift and optionally walk the user through `test-gate.sh --record-feature` reconciliation for each.
 
@@ -242,7 +242,7 @@ Punted from BL-006. Scan git history for `feat:`-prefixed commits with no corres
 **Logged:** 2026-04-23
 **Category:** Proposal
 **Severity:** Low
-**Status:** Open — Optional (evaluate when a concrete need arises)
+**Status:** Won't Fix (2026-07-05). Cross-host CI parity cost ≫ benefit; the pre-commit gate already catches the common authoring-time drift case.
 
 Punted from BL-006. `gh pr merge --squash` runs on the remote host, outside the PreToolUse hook's reach. Any enforcement there needs CI — a GitHub Actions workflow (and GitLab CI / Bitbucket Pipelines equivalents) that reads the squash-merge commit message and rejects the merge if it's `feat:`-prefixed and the branch never recorded a Build Loop.
 
@@ -259,7 +259,7 @@ Punted from BL-006. `gh pr merge --squash` runs on the remote host, outside the 
 **Logged:** 2026-04-23
 **Category:** Proposal
 **Severity:** Low
-**Status:** Open — Optional (evaluate when a concrete need arises)
+**Status:** Open — Optional; HELD 2026-07-05 pending BL-072 design — commit-type hygiene overlaps the TDD hard-enforce surface.
 
 Punted from BL-006. Prevent mis-typed commit types — e.g., a real feature disguised as `chore:` or `refactor:` to evade the BL-006 gate. Would require intent inference from the staged diff (lines added to `src/`, new public API surface, new test files asserting behavior) combined with the declared commit-type.
 
@@ -370,7 +370,7 @@ Sibling-script follow-up logged when BL-016 shipped. `scripts/upgrade-project.sh
 **Logged:** 2026-04-25
 **Category:** Audit
 **Severity:** Low
-**Status:** Open
+**Status:** Open — DEFERRED 2026-07-05 (revisit next quarter). Opportunistic; bundle with the next `verify-install.sh` visit. No operator demand.
 
 Sibling-script follow-up logged when BL-016 shipped. `scripts/verify-install.sh` already has `--check-only` and `--auto-fix` flags, both of which are arguably non-interactive variants. Audit task: confirm no remaining interactive prompts in those modes. The framework-self-contamination incident (UAT 2026-04-25 U-N) was triggered by `verify-install.sh` running outside a project — the U-N guard in PR #18 prevents that, but the script's "auto-create stub artifacts" remediation behavior (UAT U-M) is also worth re-examining.
 
@@ -482,7 +482,7 @@ The framework's intended workflow is:
 **Logged:** 2026-04-27
 **Category:** Debt (cosmetic)
 **Severity:** Low
-**Status:** Open
+**Status:** Closed (2026-07-05, commit 10767d6, low/minor sweep) — fixed in `Reports/uat-2026-04-26/RUNBOOK.md` (the backlog's `uat-2026-04-26-rev3/` path never existed); split into `$GOV_FLAG`/`$GOV_VALUE` invoked via `${GOV_FLAG:+$GOV_FLAG "$GOV_VALUE"}`.
 
 The rev3 sweep runbook at `Reports/uat-2026-04-26-rev3/RUNBOOK.md` Section A constructs the init.sh invocation with `$GOV` unquoted between flags:
 
@@ -569,7 +569,7 @@ TDD: a focused test in `tests/test-init-no-remote-creation.sh` (or sibling) that
 **Logged:** 2026-04-27
 **Category:** Proposal (test infrastructure)
 **Severity:** Low
-**Status:** Open
+**Status:** Open — 2026-07-05: expected to be pulled into the BL-070..073 Major wave (BL-071/073 regression tests need seeded phase-2 / gate state). Build it then.
 
 Several T2 + R3 test cases needed to drive a project to "Phase 2 init verified" state to exercise the gates that depend on it (the dep-manifest classifier in `process-checklist.sh::check_commit_ready`, the build_loop gate, the UAT step semantics, the `--start-phase3` advance). The current happy path takes a real init + Phase 1 walk + 6 phase2_init `--complete-step` calls + manual `data_model_applied` mark + `initialization_verified` auto-complete. Both rev3 agents 2 and 6 had to do manual `jq` patching to reach the right state.
 
@@ -791,7 +791,7 @@ Note: `docker.install.linux_apt` uses `sudo apt install ... && sudo usermod ...`
 **Logged:** 2026-06-29 (PR #104 verifier follow-up — Wave 4 risk note 2)
 **Category:** Bug / non-interactive UX (test-only workaround in tree)
 **Severity:** Low (workaround in place; affects test ergonomics, not user-facing behavior)
-**Status:** Open
+**Status:** Open — DEFERRED 2026-07-05 (revisit next quarter). Test-only workaround already in tree; user-facing `--non-interactive` behavior is sound.
 
 When `init.sh --non-interactive` is invoked from a test harness with a piped/heredoc stdin (e.g. `printf 'Y\n...' | bash init.sh ...`), the `prompt_install` helper at `scripts/lib/helpers.sh:295-324` interacts poorly with `set -o pipefail` in two ways:
 
@@ -818,7 +818,7 @@ When `init.sh --non-interactive` is invoked from a test harness with a piped/her
 **Logged:** 2026-06-29 (PR #104 verifier follow-up — Wave 4 risk note 2)
 **Category:** Debt / sourceability hardening
 **Severity:** Low (current main-guard + trap-guard handle the surface; refactor improves hygiene)
-**Status:** Open
+**Status:** Open — DEFERRED 2026-07-05 (revisit next quarter). Hygiene refactor; the PR #104 main-guard + trap-guard already close the real risks.
 
 PR #104 added two main-guard gates to `scripts/intake-wizard.sh`:
 1. Lines 27 + 2009 (PR #104 base): block the project-root discovery + `main "$@"` call when sourced.
@@ -1177,7 +1177,7 @@ The absolute savings are smaller than the Step 4 report's 30–40 ms projection 
 **Logged:** 2026-06-29
 **Category:** Debt
 **Severity:** Low
-**Status:** Open
+**Status:** Open — RECLASSIFIED 2026-07-05 (low/minor sweep recon). NOT dead and NOT in `verify-install.sh`: the arm is `scripts/validate.sh:66`, reachable via operator-run `validate.sh` on a legacy `Platform: cli` project (validate.sh reads Platform from the user-editable `CLAUDE.md`). Decision needed — (A) keep as legacy fallback [recommended], (B) remove `cli` support end-to-end as a deliberate feature removal, or (C) keep + add an explanatory comment. NOT a safe delete; entry title/Related still reference verify-install.sh — corrected here.
 
 `scripts/verify-install.sh` carries a `cli` arm that has been disabled / unreachable (per Step 4 recon). The dead branch confuses readers and is a maintenance trap if a future change accidentally re-enables it without re-validating its assertions.
 
@@ -1194,7 +1194,7 @@ The absolute savings are smaller than the Step 4 report's 30–40 ms projection 
 **Logged:** 2026-06-29
 **Category:** Debt
 **Severity:** Low
-**Status:** Open
+**Status:** Closed (2026-07-05, commit 33635f5, low/minor sweep) — added `scripts/lint-doc-anchors.sh` (bash-3.2 in-doc anchor validator) + wired into `.github/workflows/lint.yml`; repaired the 1 broken anchor found (`docs/cli-setup-addendum.md`); self-test `tests/test-lint-doc-anchors.sh` (9 cases, registered).
 
 Step 4 recon enumerated dead anchors in `docs/builders-guide.md` and adjacent user-guide markdown — section headings have been renamed without updating in-doc cross-references. The link-check lint does not catch in-document anchors (only external URLs).
 
@@ -1211,7 +1211,7 @@ Step 4 recon enumerated dead anchors in `docs/builders-guide.md` and adjacent us
 **Logged:** 2026-06-29
 **Category:** Debt
 **Severity:** Low
-**Status:** Open
+**Status:** Closed (2026-07-05, commit 6140b71, low/minor sweep) — archived 19 shipped plan docs to `docs/superpowers/plans/archive/` with per-file pointer notes + convention README; updated the 3 tests that pinned plan paths.
 
 Multiple plan documents under `docs/superpowers/plans/` correspond to work that has since shipped (or been superseded). Step 4 recon flagged these as orphans — keeping them around dilutes the active-plan signal for any agent searching that directory.
 
@@ -1249,7 +1249,7 @@ Add tests exercising both the success path (skipped on `--check-only`), the fail
 **Logged:** 2026-06-29
 **Category:** Performance
 **Severity:** Low
-**Status:** Open
+**Status:** Closed (2026-07-05, commit 541aba3, low/minor sweep) — memoized with a bash-3.2 guard+cache; mutation-proven test `tests/test-resolve-tools-memoization.sh`. NOTE: the function lives in `init.sh`, NOT `resolve-tools.sh` as this entry's title claims (Step-4 misattribution).
 
 `scripts/resolve-tools.sh::get_available_platforms` re-scans `templates/tool-matrix/*.json` on every call. Within a single resolver invocation the function is called O(N) times where N is the platform count. Step 4 recon recommends a single-pass memoization via a process-local associative array.
 
@@ -1266,7 +1266,7 @@ Add tests exercising both the success path (skipped on `--check-only`), the fail
 **Logged:** 2026-06-29
 **Category:** Debt
 **Severity:** Low
-**Status:** Open — POLICY DECISION PENDING (see Related)
+**Status:** Open — POLICY DECISION PENDING; 2026-07-05 sweep confirms the overlap with BL-035 (aggregator membership) — decide the two together.
 
 Step 4 recon identified test aggregators under `tests/` that are not invoked from any CI gate, pre-commit hook, or other aggregator. They appear to be dead — sourcing them costs nothing but they confuse the test-discovery surface.
 
@@ -1306,7 +1306,7 @@ TEST 4 in `tests/full-project-test-suite.sh` builds a fresh project fixture per 
 **Logged:** 2026-06-29
 **Category:** Debt
 **Severity:** Low
-**Status:** Open
+**Status:** Closed (2026-07-05, commit 50f19e4, low/minor sweep) — removed `_phase2_state_file` (`scripts/lib/phase2-state.sh`) + dead `tool_install_json` local (`scripts/check-versions.sh`); grep-confirmed unreferenced repo-wide.
 
 Step 4 recon identified several small dead-code surfaces, notably the `_phase2_state_file` helper and the `tool_install_json` variable, that are referenced nowhere in current call sites (verified by grep). They're vestigial from earlier refactors.
 
@@ -1498,7 +1498,7 @@ The adversarial certainty re-walk (re-walker-3, scenario `migration-personal-pro
 **Logged:** 2026-06-29
 **Category:** Documentation
 **Severity:** Minor
-**Status:** Open
+**Status:** Closed (2026-07-05, commit 4d98300, low/minor sweep) — created `docs/step5-dogfood-walker-rubric.md` (first persisted rubric) with the default-to-`partial` rule + the Sponsored-POC 3-vs-6-row worked example.
 
 The adversarial certainty re-walk (re-walker-3, scenario `migration-private-poc-personal-to-sponsored-poc-org`) surfaced the only re-walker disagreement across 38 scenarios: the original walker graded `pass` by accepting "documented template behavior" framing, while the adversary downgraded to `partial` because the matrix `expected_terminal_state` literally said "3 rows visible" but the surfaced artifact contains all 6 rows. Both readings were available; the walker chose the lenient one.
 
