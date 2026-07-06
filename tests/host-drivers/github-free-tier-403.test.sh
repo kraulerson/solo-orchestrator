@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
-# tests/test-github-free-tier-403.sh — BL-002 regression test.
+# tests/host-drivers/github-free-tier-403.test.sh — BL-002 regression test.
+#
+# Registered via the tests/host-drivers/run-all.sh `*.test.sh` glob
+# (BL-035 wiring B). Previously orphaned as tests/test-github-free-tier-403.sh
+# on the KNOWN_ORPHANS_PENDING_BL035 bridge; relocated here so run-all.sh
+# picks it up alongside the other host-driver unit tests.
 #
 # scripts/host-drivers/github.sh::host_configure_protection swallowed the
 # gh CLI's stderr (`>/dev/null 2>&1`) and printed a generic
@@ -14,7 +19,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# SCRIPT_DIR is tests/host-drivers/, so repo root is two levels up.
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DRIVER="$REPO_ROOT/scripts/host-drivers/github.sh"
 
 PASSED=0
@@ -125,7 +131,7 @@ t4_auth_401_returns_2() {
   teardown_project
 }
 
-echo "== tests/test-github-free-tier-403.sh =="
+echo "== tests/host-drivers/github-free-tier-403.test.sh =="
 t1_free_tier_403_returns_3_with_remediation
 t2_success_returns_0
 t3_generic_403_returns_2

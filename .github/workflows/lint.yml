@@ -174,3 +174,29 @@ jobs:
       - name: Show roster (on failure or on demand)
         if: always()
         run: bash scripts/lint-review-manifest.sh --list || true
+
+  # BL-076: hermeticity backstop for the test suite. A test that runs the
+  # real init.sh with the default (github) host and WITHOUT
+  # --no-remote-creation / --git-host other / a mocked gh creates + pushes a
+  # REAL private repo on an authenticated host (the kraulerson/foo leak,
+  # 2026-07-06) — and blocks the suite from ever running in CI ([[bl077]]).
+  # This lint refuses to merge any test whose init.sh invocation can reach
+  # live remote creation. See scripts/lint-no-live-remote-in-tests.sh header
+  # and tests/test-lint-no-live-remote.sh for the behavior suite. Same
+  # job-name-is-required-check convention as the jobs above — keep it stable.
+  no-live-remote-in-tests-lint:
+    name: no-live-remote-in-tests-lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Lint tests for live-remote-reachable init.sh runs (BL-076)
+        run: bash scripts/lint-no-live-remote-in-tests.sh
+
+      - name: Run the lint's own behavior suite
+        run: bash tests/test-lint-no-live-remote.sh
+
+      - name: Show PASS/FAIL inventory (on failure or on demand)
+        if: always()
+        run: bash scripts/lint-no-live-remote-in-tests.sh --list || true

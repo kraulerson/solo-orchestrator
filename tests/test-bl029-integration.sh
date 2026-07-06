@@ -26,6 +26,17 @@ else
   fail_ "T1" "wiring missing"
 fi
 
+# T1b (BL-035 MERGE — folded from retired tests/test-bypass-audit-schema.sh):
+# the init-written ledger's first row (.[0]) satisfies the minimum schema
+# contract (type/actor/timestamp/enforcement_level_at_event). Must run
+# BEFORE T2 resets bypass-audit.json to [] below, or the row is gone.
+if jq -e '.[0] | (.type and .actor and .timestamp and .enforcement_level_at_event)' \
+   "$PROJ/.claude/bypass-audit.json" >/dev/null 2>&1; then
+  pass "T1b: init ledger .[0] has type/actor/timestamp/enforcement_level_at_event"
+else
+  fail_ "T1b" "init ledger .[0] malformed"
+fi
+
 # T2: simulate a Claude PostToolUse with bypass-shaped output → audit row.
 ( cd "$PROJ"
   echo "[]" > .claude/bypass-audit.json

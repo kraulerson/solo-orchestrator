@@ -1729,6 +1729,49 @@ else
   fail "E58: expected rc=0 from project-local upgrade-project.sh, got rc=$_e58_upgrade_rc (init_rc=$_e58_init_rc)"
 fi
 
+# E58b: --to-sponsored-poc on a genuinely PERSONAL project succeeds AND flips
+# phase-state to deployment=organizational + poc_mode=sponsored_poc (R3-A guard).
+# Folded from the retired tests/test-upgrade-personal-to-sponsored-poc.sh (BL-035
+# wiring B MERGE). The R3-A defect: the guard at upgrade-project.sh checked only
+# `[ -z "$CURRENT_POC_MODE" ]` — personal projects always have poc_mode=null but
+# deployment=personal, so the guard mistook them for production and refused with
+# "Cannot downgrade a production project to POC mode." This uses a hand-seeded
+# fixture (not real init.sh) so it isolates the guard + phase-state transition
+# without an init scaffold. E58 (above) only asserts rc=0 from an org/private_poc
+# baseline; E58b adds the personal-baseline transition assertion that made the
+# orphan's T1 unique. (Its T2 dup'd E27's production-block coverage and T3 dup'd
+# E60's --to-private-poc path, so only T1 is folded here.)
+_e58b_dir="$TEST_DIR/e58b"
+_e58b_proj="$_e58b_dir/p"
+mkdir -p "$_e58b_proj/.claude"
+cat > "$_e58b_proj/.claude/manifest.json" <<'JSON'
+{"frameworkVersion":"test","mode":"personal","host":"other"}
+JSON
+cat > "$_e58b_proj/.claude/phase-state.json" <<'JSON'
+{"track":"light","deployment":"personal","poc_mode":null,"current_phase":1,"phases":{}}
+JSON
+cat > "$_e58b_proj/.claude/tool-preferences.json" <<'JSON'
+{"context":{"track":"light","platform":"web","os":"darwin"},"preferences":{}}
+JSON
+cat > "$_e58b_proj/.claude/intake-progress.json" <<'JSON'
+{"track":"light","deployment":"personal"}
+JSON
+# tier-crosscheck-6: seed phase1_artifacts so the personal→organizational
+# refusal (in --to-sponsored-poc, which flips deployment) doesn't fire.
+cat > "$_e58b_proj/.claude/process-state.json" <<'JSON'
+{"phase1_artifacts":{"data_classification":"internal","zdr_attested":true}}
+JSON
+( cd "$_e58b_proj" && git init -q && git remote add origin https://example.com/fake.git ) >/dev/null 2>&1
+_e58b_rc=0
+( cd "$_e58b_proj" && bash "$REPO_DIR/scripts/upgrade-project.sh" --to-sponsored-poc </dev/null >/dev/null 2>&1 ) || _e58b_rc=$?
+_e58b_deploy=$(jq -r '.deployment // empty' "$_e58b_proj/.claude/phase-state.json" 2>/dev/null || echo "")
+_e58b_poc=$(jq -r '.poc_mode // empty' "$_e58b_proj/.claude/phase-state.json" 2>/dev/null || echo "")
+if [ "$_e58b_rc" = "0" ] && [ "$_e58b_deploy" = "organizational" ] && [ "$_e58b_poc" = "sponsored_poc" ]; then
+  pass "E58b: --to-sponsored-poc on personal baseline → rc=0 + deployment=organizational + poc_mode=sponsored_poc (R3-A guard)"
+else
+  fail "E58b: expected rc=0 deployment=organizational poc_mode=sponsored_poc; got rc=$_e58b_rc deployment='$_e58b_deploy' poc_mode='$_e58b_poc'"
+fi
+
 # E59: --non-interactive --platform mcp_server produces the platform module,
 # release pipeline, and UAT reference pair under the unified naming.
 # Regression guard for T1-C from 2026-04-26 UAT triage. The non-interactive
@@ -1764,10 +1807,18 @@ else
 fi
 
 # E60: upgrade-project.sh --to-private-poc takes a personal project to
-# organizational/private_poc. T1-D regression guard for the missing
+# personal/private_poc. T1-D regression guard for the missing
 # personal -> private_poc CLI path. Before this fix, intake-wizard.sh
 # --upgrade-deployment private_poc was rejected (only personal|organizational
 # accepted) and upgrade-project.sh had no --to-private-poc flag.
+#
+# BL-079 (tier-crosscheck-3, 2026-06): Private POC is ALWAYS a personal
+# deployment per baseline §2.5 (upgrade-project.sh:756-787 sets
+# TARGET_DEPLOYMENT=personal). The prior expectation of deployment=
+# organizational asserted the pre-fix "impossible organizational/private_poc"
+# shape and was stale/RED against current product. Aligned with the correct
+# product contract (and orphan test-poc-modes.sh T5, which asserts the same
+# personal-stays-personal outcome).
 _e60_dir="$TEST_DIR/e60"
 mkdir -p "$_e60_dir"
 _e60_proj="$_e60_dir/uat-e60"
@@ -1791,10 +1842,10 @@ if [ -f "$_e60_proj/.claude/phase-state.json" ]; then
 fi
 if [ "$_e60_upgrade_rc" = "0" ] && \
    [ "$_e60_poc_mode" = "private_poc" ] && \
-   [ "$_e60_deployment" = "organizational" ]; then
-  pass "E60: upgrade-project.sh --to-private-poc takes personal -> organizational/private_poc (T1-D regression guard)"
+   [ "$_e60_deployment" = "personal" ]; then
+  pass "E60: upgrade-project.sh --to-private-poc takes personal -> personal/private_poc (T1-D regression guard)"
 else
-  fail "E60: expected rc=0 poc_mode=private_poc deployment=organizational; got rc=$_e60_upgrade_rc poc_mode='$_e60_poc_mode' deployment='$_e60_deployment'"
+  fail "E60: expected rc=0 poc_mode=private_poc deployment=personal; got rc=$_e60_upgrade_rc poc_mode='$_e60_poc_mode' deployment='$_e60_deployment'"
 fi
 
 # E61: intake-wizard.sh --to-private-poc from a project subdir, invoked via

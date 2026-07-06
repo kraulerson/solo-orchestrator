@@ -337,6 +337,23 @@ else
   fail "scripts/lint-raw-read-prompt.sh behavior tests FAILED (run tests/test-lint-raw-read-prompt.sh for details)"
 fi
 
+# BL-076: no test may execute init.sh in a shape that can create a REAL
+# remote repo against an authenticated host (the kraulerson/foo leak).
+# Run the lint against the live tree AND its own behavior suite so a
+# regression in the guard (false negative letting a live run through, or
+# false positive on a reporter string / mocked run) is caught here.
+section "No-live-remote-in-tests lint (BL-076)"
+if bash "$SCRIPT_DIR/scripts/lint-no-live-remote-in-tests.sh" >/dev/null 2>&1; then
+  pass "No test executes init.sh in a live-remote-reachable shape"
+else
+  fail "Non-hermetic init run found (see scripts/lint-no-live-remote-in-tests.sh --list)"
+fi
+if bash "$SCRIPT_DIR/tests/test-lint-no-live-remote.sh" >/dev/null 2>&1; then
+  pass "scripts/lint-no-live-remote-in-tests.sh behavior tests (14/14)"
+else
+  fail "scripts/lint-no-live-remote-in-tests.sh behavior tests FAILED (run tests/test-lint-no-live-remote.sh for details)"
+fi
+
 # BL-051: tests/test-resolve-tools-memoization.sh — proves init.sh's
 # get_available_platforms() memoizes its filesystem scan (guard-var +
 # cached string, bash-3.2-safe) so 10 invocations trigger exactly one
@@ -893,6 +910,343 @@ else
   else
     fail "tests/host-drivers/run-all.sh FAILED — known-RED: e2e-init / e2e-init-gitlab / e2e-init-bitbucket. Unit-test children (github/gitlab/regressions/mock-cli) should still PASS. SKIP_KNOWN_FAILING=1 to bypass."
   fi
+fi
+
+# --- BL-035 wiring C: test-gate/process/poc/docs ---
+# Registers the pre-Wave-1-4 orphan suites in the test-gate/session,
+# process-checklist/pending/poc, and docs/specs/lint product areas that
+# were parked on scripts/lint-tests-registered.sh::KNOWN_ORPHANS_PENDING_BL035
+# (running ZERO times). Same delegate discipline as the BL-034 block above:
+# no `|| true` wraps, each test invoked exactly once, rc feeds pass()/fail().
+# See Reports/2026-07-06-bl035-orphan-triage.md (chunk C).
+
+# ----------------------------------------------------------------
+# Test-gate / counter-sanitizer / session (BL-035 C)
+# ----------------------------------------------------------------
+# test-gate.sh + validate.sh counter-sanitizer coverage (the counter-
+# antipattern defect class), test-gate null-handling, record/unrecord
+# governance-ledger helpers, and the session-driver test-gate/merge check.
+section "BL-035 C: test-gate / counter-sanitizer / session"
+if bash "$SCRIPT_DIR/tests/test-test-gate-counter-sanitizer.sh" >/dev/null 2>&1; then
+  pass "tests/test-test-gate-counter-sanitizer.sh (5/5)"
+else
+  fail "tests/test-test-gate-counter-sanitizer.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-test-gate-null-handling.sh" >/dev/null 2>&1; then
+  pass "tests/test-test-gate-null-handling.sh (5/5)"
+else
+  fail "tests/test-test-gate-null-handling.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-validate-counter-sanitizer.sh" >/dev/null 2>&1; then
+  pass "tests/test-validate-counter-sanitizer.sh (5/5)"
+else
+  fail "tests/test-validate-counter-sanitizer.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-record-claude-commit.sh" >/dev/null 2>&1; then
+  pass "tests/test-record-claude-commit.sh (9/9)"
+else
+  fail "tests/test-record-claude-commit.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-unrecord-feature.sh" >/dev/null 2>&1; then
+  pass "tests/test-unrecord-feature.sh (7/7)"
+else
+  fail "tests/test-unrecord-feature.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-session-test-gate-check-merge.sh" >/dev/null 2>&1; then
+  pass "tests/test-session-test-gate-check-merge.sh (9/9)"
+else
+  fail "tests/test-session-test-gate-check-merge.sh FAILED (run for details)"
+fi
+
+# ----------------------------------------------------------------
+# Process-checklist / pending-approval / poc-modes (BL-035 C)
+# ----------------------------------------------------------------
+# pending-approval resolve/escalate flow, process-checklist auto-advance +
+# commit classifier, phase-finalize, the platform-security-bugs-closer
+# docstring probe (T4b path fixed in Chunk-0), and poc-modes tier semantics
+# (T5: --to-private-poc from personal stays personal — aligned with E60,
+# see BL-079).
+section "BL-035 C: process-checklist / pending / poc-modes"
+if bash "$SCRIPT_DIR/tests/test-pending-approval.sh" >/dev/null 2>&1; then
+  pass "tests/test-pending-approval.sh (21/21)"
+else
+  fail "tests/test-pending-approval.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-process-checklist-auto-advance.sh" >/dev/null 2>&1; then
+  pass "tests/test-process-checklist-auto-advance.sh (7/7)"
+else
+  fail "tests/test-process-checklist-auto-advance.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-process-checklist-classifier.sh" >/dev/null 2>&1; then
+  pass "tests/test-process-checklist-classifier.sh (12/12)"
+else
+  fail "tests/test-process-checklist-classifier.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-phase-finalize.sh" >/dev/null 2>&1; then
+  pass "tests/test-phase-finalize.sh (6/6)"
+else
+  fail "tests/test-phase-finalize.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-platform-security-bugs-closer.sh" >/dev/null 2>&1; then
+  pass "tests/test-platform-security-bugs-closer.sh (7/7)"
+else
+  fail "tests/test-platform-security-bugs-closer.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-poc-modes.sh" >/dev/null 2>&1; then
+  pass "tests/test-poc-modes.sh (5/5)"
+else
+  fail "tests/test-poc-modes.sh FAILED (run for details)"
+fi
+
+# ----------------------------------------------------------------
+# Pre-commit-gate --terminal-mode (BL-035 C / BL-075)
+# ----------------------------------------------------------------
+# BL-075 caution resolved: the pre-existing T2 / T6a-b / T11a-b reds were NOT
+# a --terminal-mode/classifier product bug but the BL-074 helpers-scaffold gap
+# (setup copied only helpers.sh; process-checklist.sh sources helpers-core.sh
+# directly, so --check-commit-message died and short-circuited the whole
+# terminal-mode flow at the classifier step). Both scaffolds now copy the full
+# helpers-core/helpers-full sibling chain the product ships; both suites GREEN
+# and mutation-provably exercise the real terminal-mode lint path.
+#
+# Only test-pre-commit-gate-terminal-mode.sh is registered here (it was on the
+# KNOWN_ORPHANS_PENDING_BL035 bridge). Its sibling test-pre-commit-gate-lints.sh
+# was already registered at TEST 0o (Wave-3) — the same BL-074 scaffold fix
+# turns it from RED (T6a/b/T11a/b) to GREEN there.
+section "BL-035 C: pre-commit-gate terminal-mode (BL-075)"
+if bash "$SCRIPT_DIR/tests/test-pre-commit-gate-terminal-mode.sh" >/dev/null 2>&1; then
+  pass "tests/test-pre-commit-gate-terminal-mode.sh (3/3)"
+else
+  fail "tests/test-pre-commit-gate-terminal-mode.sh FAILED (run for details)"
+fi
+
+# ----------------------------------------------------------------
+# Docs / specs / lint suites (BL-035 C)
+# ----------------------------------------------------------------
+# Docs-cluster six-pack (doc-consistency guards), specs+plans remaining
+# quartet, and the UAT-scenarios lint behavior suite.
+section "BL-035 C: docs / specs / lint suites"
+if bash "$SCRIPT_DIR/tests/test-docs-cluster-six-pack.sh" >/dev/null 2>&1; then
+  pass "tests/test-docs-cluster-six-pack.sh (28/28)"
+else
+  fail "tests/test-docs-cluster-six-pack.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-specs-plans-remaining-quartet.sh" >/dev/null 2>&1; then
+  pass "tests/test-specs-plans-remaining-quartet.sh (10/10)"
+else
+  fail "tests/test-specs-plans-remaining-quartet.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-lint-uat-scenarios.sh" >/dev/null 2>&1; then
+  pass "tests/test-lint-uat-scenarios.sh (12/12)"
+else
+  fail "tests/test-lint-uat-scenarios.sh FAILED (run for details)"
+fi
+# --- end BL-035 wiring C ---
+
+# ================================================================
+# --- BL-035 wiring A: governance/gate/enforcement ---
+# ================================================================
+# BL-035 chunk A (triage: Reports/2026-07-06-bl035-orphan-triage.md).
+# Registers the governance/bypass, gate/check, and enforcement-level
+# orphan tests that were parked on
+# scripts/lint-tests-registered.sh::KNOWN_ORPHANS_PENDING_BL035 (running
+# zero times) into this aggregator, mirroring the BL-034 cohort pattern.
+# Chunk-0 (already merged) fixed the stale `--language` fixture drift for
+# the init-e2e members. Each test invoked exactly once, rc captured,
+# contributing to PASS/FAIL — no `|| true` wraps.
+# MERGE note: test-bypass-audit-schema.sh was retired; its unique T1
+# (init ledger .[0] schema) is folded into test-bl029-integration.sh (T1b).
+section "BL-035 wiring A: governance/bypass, gate/check, enforcement-level"
+
+# Governance / bypass family.
+if bash "$SCRIPT_DIR/tests/test-bl029-integration.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl029-integration.sh (incl. folded bypass-audit-schema T1b)"
+else
+  fail "tests/test-bl029-integration.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-bl030-calibration-replay.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl030-calibration-replay.sh"
+else
+  fail "tests/test-bl030-calibration-replay.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-bypass-audit-integrity.sh" >/dev/null 2>&1; then
+  pass "tests/test-bypass-audit-integrity.sh"
+else
+  fail "tests/test-bypass-audit-integrity.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-bypass-audit-lib.sh" >/dev/null 2>&1; then
+  pass "tests/test-bypass-audit-lib.sh"
+else
+  fail "tests/test-bypass-audit-lib.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-bypass-detector.sh" >/dev/null 2>&1; then
+  pass "tests/test-bypass-detector.sh"
+else
+  fail "tests/test-bypass-detector.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-bypass-patterns.sh" >/dev/null 2>&1; then
+  pass "tests/test-bypass-patterns.sh"
+else
+  fail "tests/test-bypass-patterns.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-bypass-sentinel.sh" >/dev/null 2>&1; then
+  pass "tests/test-bypass-sentinel.sh"
+else
+  fail "tests/test-bypass-sentinel.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-out-of-band-detector.sh" >/dev/null 2>&1; then
+  pass "tests/test-out-of-band-detector.sh"
+else
+  fail "tests/test-out-of-band-detector.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-escalate-to-user.sh" >/dev/null 2>&1; then
+  pass "tests/test-escalate-to-user.sh"
+else
+  fail "tests/test-escalate-to-user.sh FAILED (run for details)"
+fi
+
+# Gate / check family.
+if bash "$SCRIPT_DIR/tests/test-check-gate.sh" >/dev/null 2>&1; then
+  pass "tests/test-check-gate.sh"
+else
+  fail "tests/test-check-gate.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-check-changelog-filter.sh" >/dev/null 2>&1; then
+  pass "tests/test-check-changelog-filter.sh"
+else
+  fail "tests/test-check-changelog-filter.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-check-commit-message.sh" >/dev/null 2>&1; then
+  pass "tests/test-check-commit-message.sh"
+else
+  fail "tests/test-check-commit-message.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-check-phase-gate.sh" >/dev/null 2>&1; then
+  pass "tests/test-check-phase-gate.sh"
+else
+  fail "tests/test-check-phase-gate.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-check-phase-gate-counter-sanitizer.sh" >/dev/null 2>&1; then
+  pass "tests/test-check-phase-gate-counter-sanitizer.sh"
+else
+  fail "tests/test-check-phase-gate-counter-sanitizer.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-gate-principles.sh" >/dev/null 2>&1; then
+  pass "tests/test-gate-principles.sh"
+else
+  fail "tests/test-gate-principles.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-filesystem-gate-install.sh" >/dev/null 2>&1; then
+  pass "tests/test-filesystem-gate-install.sh"
+else
+  fail "tests/test-filesystem-gate-install.sh FAILED (run for details)"
+fi
+
+# Enforcement-level family.
+if bash "$SCRIPT_DIR/tests/test-enforcement-level-lib.sh" >/dev/null 2>&1; then
+  pass "tests/test-enforcement-level-lib.sh"
+else
+  fail "tests/test-enforcement-level-lib.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-enforcement-level-init.sh" >/dev/null 2>&1; then
+  pass "tests/test-enforcement-level-init.sh"
+else
+  fail "tests/test-enforcement-level-init.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-enforcement-level-reconfigure.sh" >/dev/null 2>&1; then
+  pass "tests/test-enforcement-level-reconfigure.sh"
+else
+  fail "tests/test-enforcement-level-reconfigure.sh FAILED (run for details)"
+fi
+# --- BL-035 wiring B: init/upgrade ---
+# ================================================================
+# Registers the init-family and upgrade-family orphan tests that were
+# parked on scripts/lint-tests-registered.sh::KNOWN_ORPHANS_PENDING_BL035
+# (running ZERO times). Same BL-034 delegate discipline: each test invoked
+# once, rc captured, contributes to pass()/fail(); no `|| true` wraps.
+#
+# Dispositions applied in this wiring pass (see the BL-035 orphan-triage
+# report, 2026-07-06):
+#   • DELETE   test-init-other-host-attestation.sh — fully superseded by the
+#              already-registered test-init-fail-status-propagation.sh (same
+#              --git-host other push-fail fixture + BL-064/BL-024 invariants);
+#              its T2 dup'd init-non-interactive N9. File + bridge entry removed.
+#   • RELOCATE test-github-free-tier-403.sh → tests/host-drivers/
+#              github-free-tier-403.test.sh so tests/host-drivers/run-all.sh's
+#              *.test.sh glob registers it (NOT this aggregator).
+#   • MERGE    test-upgrade-personal-to-sponsored-poc.sh — unique T1
+#              (personal→sponsored_poc R3-A guard + phase-state transition)
+#              folded into tests/edge-cases-scripts.sh as E58b; T2/T3 dropped as
+#              dups of E27/E60. File + bridge entry removed.
+#   • DECOMPOSE test-upgrade-paths.sh — trimmed to its unique T4 (BL-004 flat→
+#              per-host CI migration) / T5 (vendored-skills + private-poc +
+#              manifesto) / T6 (POC-strip); the T1/T2/T3 tier-transition cases
+#              were dropped as dups of tests/upgrade-path-tests.sh.
+#   • N7 fix   test-init-non-interactive.sh N7 asserted personal+production →
+#              exit 1, but the current product correctly ACCEPTS that combo
+#              (production is valid for personal, baseline §2.5). N7 now pins
+#              the actually-rejected personal+sponsored_poc combo → exit 1.
+section "BL-035 wiring B: init family"
+if bash "$SCRIPT_DIR/tests/test-init-atomic-finalize.sh" >/dev/null 2>&1; then
+  pass "tests/test-init-atomic-finalize.sh (code-init-sh-6 atomic-finalize, 8/8)"
+else
+  fail "tests/test-init-atomic-finalize.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-init-no-remote-creation.sh" >/dev/null 2>&1; then
+  pass "tests/test-init-no-remote-creation.sh"
+else
+  fail "tests/test-init-no-remote-creation.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-init-schema-phase-gate.sh" >/dev/null 2>&1; then
+  pass "tests/test-init-schema-phase-gate.sh"
+else
+  fail "tests/test-init-schema-phase-gate.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-vendored-skills-install.sh" >/dev/null 2>&1; then
+  pass "tests/test-vendored-skills-install.sh"
+else
+  fail "tests/test-vendored-skills-install.sh FAILED (run for details)"
+fi
+# N7 fix landed in this test (personal+sponsored_poc, not personal+production).
+if bash "$SCRIPT_DIR/tests/test-init-non-interactive.sh" >/dev/null 2>&1; then
+  pass "tests/test-init-non-interactive.sh (BL-016 --non-interactive validation, 29/29)"
+else
+  fail "tests/test-init-non-interactive.sh FAILED (run for details)"
+fi
+
+section "BL-035 wiring B: upgrade family"
+if bash "$SCRIPT_DIR/tests/test-upgrade-non-interactive.sh" >/dev/null 2>&1; then
+  pass "tests/test-upgrade-non-interactive.sh"
+else
+  fail "tests/test-upgrade-non-interactive.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-upgrade-bl030-backfill.sh" >/dev/null 2>&1; then
+  pass "tests/test-upgrade-bl030-backfill.sh"
+else
+  fail "tests/test-upgrade-bl030-backfill.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-upgrade-to-production-preconditions.sh" >/dev/null 2>&1; then
+  pass "tests/test-upgrade-to-production-preconditions.sh"
+else
+  fail "tests/test-upgrade-to-production-preconditions.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-upgrade-to-production-warn.sh" >/dev/null 2>&1; then
+  pass "tests/test-upgrade-to-production-warn.sh"
+else
+  fail "tests/test-upgrade-to-production-warn.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-verify-install-bl030-coverage.sh" >/dev/null 2>&1; then
+  pass "tests/test-verify-install-bl030-coverage.sh"
+else
+  fail "tests/test-verify-install-bl030-coverage.sh FAILED (run for details)"
+fi
+# DECOMPOSED: only the unique T4 (BL-004 CI migration) / T5 (vendored-skills,
+# private-poc, manifesto) / T6 (POC-strip) cases remain; T1/T2/T3 tier-transition
+# cases were dropped as dups of tests/upgrade-path-tests.sh.
+if bash "$SCRIPT_DIR/tests/test-upgrade-paths.sh" >/dev/null 2>&1; then
+  pass "tests/test-upgrade-paths.sh (unique T4/T5/T6 after BL-035 decompose, 16/16)"
+else
+  fail "tests/test-upgrade-paths.sh FAILED (run for details)"
 fi
 
 # ================================================================

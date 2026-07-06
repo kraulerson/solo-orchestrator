@@ -80,11 +80,18 @@ hook_teardown() { rm -rf "$TMP"; }
 # init.sh wrapper. CD's to /tmp first (init refuses to run inside the
 # framework repo). Caller passes flags. Bounded at 90s; the suite would
 # otherwise hang if a regression reintroduces the resolve-tools bug.
+#
+# BL-076: --no-remote-creation is baked in so this wrapper is hermetic by
+# construction — no caller (present or future) can drive init.sh into a
+# real `gh repo create` against an authenticated host. Every current call
+# site already passes --no-remote-creation directly; keeping it here means
+# the invariant holds even if someone routes a new run through this helper.
 run_init() {
   local proj_dir="$1"; shift
   (
     cd /tmp
-    run_bounded 90 bash "$INIT" --non-interactive --project x --project-dir "$proj_dir" "$@"
+    run_bounded 90 bash "$INIT" --non-interactive --no-remote-creation \
+      --project x --project-dir "$proj_dir" "$@"
     return $RC
   )
 }

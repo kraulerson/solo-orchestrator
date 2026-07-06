@@ -145,56 +145,6 @@ fi
 #       marker inside the test file's header.
 # When BL-035 closes this array must be empty.
 KNOWN_ORPHANS_PENDING_BL035=(
-  test-bl029-integration.sh
-  test-bl030-calibration-replay.sh
-  test-bypass-audit-integrity.sh
-  test-bypass-audit-lib.sh
-  test-bypass-audit-schema.sh
-  test-bypass-detector.sh
-  test-bypass-patterns.sh
-  test-bypass-sentinel.sh
-  test-check-changelog-filter.sh
-  test-check-commit-message.sh
-  test-check-gate.sh
-  test-check-phase-gate-counter-sanitizer.sh
-  test-check-phase-gate.sh
-  test-docs-cluster-six-pack.sh
-  test-enforcement-level-init.sh
-  test-enforcement-level-lib.sh
-  test-enforcement-level-reconfigure.sh
-  test-escalate-to-user.sh
-  test-filesystem-gate-install.sh
-  test-gate-principles.sh
-  test-github-free-tier-403.sh
-  test-init-atomic-finalize.sh
-  test-init-no-remote-creation.sh
-  test-init-non-interactive.sh
-  test-init-other-host-attestation.sh
-  test-init-schema-phase-gate.sh
-  test-lint-uat-scenarios.sh
-  test-out-of-band-detector.sh
-  test-pending-approval.sh
-  test-phase-finalize.sh
-  test-platform-security-bugs-closer.sh
-  test-poc-modes.sh
-  test-pre-commit-gate-terminal-mode.sh
-  test-process-checklist-auto-advance.sh
-  test-process-checklist-classifier.sh
-  test-record-claude-commit.sh
-  test-session-test-gate-check-merge.sh
-  test-specs-plans-remaining-quartet.sh
-  test-test-gate-counter-sanitizer.sh
-  test-test-gate-null-handling.sh
-  test-unrecord-feature.sh
-  test-upgrade-bl030-backfill.sh
-  test-upgrade-non-interactive.sh
-  test-upgrade-paths.sh
-  test-upgrade-personal-to-sponsored-poc.sh
-  test-upgrade-to-production-preconditions.sh
-  test-upgrade-to-production-warn.sh
-  test-validate-counter-sanitizer.sh
-  test-vendored-skills-install.sh
-  test-verify-install-bl030-coverage.sh
 )
 
 VIOLATIONS=0
@@ -273,6 +223,10 @@ _is_known_orphan_bridge() {
   # Only honour the bridge list when scanning the canonical repo dir.
   # Fixture-mode scans (--tests-dir override) must see clean lint semantics.
   [ "$TEST_MODE" -eq 1 ] && return 1
+  # BL-035 closed: the bridge is now empty. Guard the [@] expansion —
+  # under `set -u`, bash 3.2 treats "${empty_array[@]}" as an unbound
+  # variable. The length form ${#..[@]} is safe on an empty array.
+  [ "${#KNOWN_ORPHANS_PENDING_BL035[@]}" -eq 0 ] && return 1
   local needle="$1"
   local orphan
   for orphan in "${KNOWN_ORPHANS_PENDING_BL035[@]}"; do
