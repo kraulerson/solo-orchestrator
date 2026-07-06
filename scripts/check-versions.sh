@@ -112,7 +112,6 @@ get_latest_version() {
 check_for_update() {
   local method="$1"
   local update_json="$2"
-  local tool_install_json="$3"
 
   UPDATE_CHECK_STATUS="unknown"
   UPDATE_CHECK_MSG=""
