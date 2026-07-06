@@ -1124,6 +1124,11 @@ _cpg_phase3_attested() {
   command -v jq >/dev/null 2>&1 || return 1   # BL-070-ATTEST-PREDICATE
   reason=$(jq -r --arg n "$name" '.phase3.attestations[$n].reason // ""' "$PHASE_STATE" 2>/dev/null || echo "")
   signoff=$(jq -r --arg n "$name" '.phase3.attestations[$n].signoff // ""' "$PHASE_STATE" 2>/dev/null || echo "")
+  # Trim leading/trailing whitespace (bash-3.2 param-expansion) BEFORE the
+  # non-empty check so a whitespace-only reason/signoff is un-attested → gate
+  # FAIL (verifier follow-up — `[ -n " " ]` is true, which would pass " ").
+  reason="${reason#"${reason%%[![:space:]]*}"}"; reason="${reason%"${reason##*[![:space:]]}"}"
+  signoff="${signoff#"${signoff%%[![:space:]]*}"}"; signoff="${signoff%"${signoff##*[![:space:]]}"}"
   [ -n "$reason" ] && [ "$reason" != "null" ] && [ -n "$signoff" ] && [ "$signoff" != "null" ]
 }
 
@@ -1173,7 +1178,11 @@ if [ "$current_phase" -ge 4 ]; then
           fi
           ;;
         *)
-          p3_fail=$((p3_fail + 1))
+          # FAIL, MISSING, or any garbled/unknown status counts toward the
+          # block — a real scanner (e.g. semgrep) reporting findings, or a
+          # summary missing/corrupting a scanner's RESULT line, must NOT
+          # slip through as clean.
+          p3_fail=$((p3_fail + 1))   # BL-070-FAIL-ARM: FAIL/MISSING status is gate-blocking (mutation target)
           p3_detail="${p3_detail}${p3_detail:+, }${p3_scanner}(${p3_status})"
           ;;
       esac

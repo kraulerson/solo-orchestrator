@@ -169,6 +169,18 @@ _p3_is_registered() {
 }
 
 # ── Identity / attestation helpers ───────────────────────────────────
+# _p3_trim <string> — strip leading + trailing whitespace (bash-3.2 safe
+# parameter-expansion idiom; same form as scripts/lint-counter-antipattern.sh
+# parse_line). Load-bearing for the attestation checks: a whitespace-only
+# reason/signoff must be treated as empty so the gate rejects it (verifier
+# follow-up — `[ -n " " ]` is true, which would let " " pass as attested).
+_p3_trim() {
+  local s="$1"
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
+  printf '%s' "$s"
+}
+
 # Best-effort "who signed off" — prefers git identity, falls back to
 # whoami@hostname (mirrors check-phase-gate.sh::_cpg_gate_actor).
 _p3_actor() {
@@ -194,8 +206,8 @@ _p3_is_attested() {
   local name="$1" reason signoff
   command -v jq >/dev/null 2>&1 || return 1
   [ -f "$STATE_FILE" ] || return 1
-  reason=$(jq -r --arg n "$name" '.phase3.attestations[$n].reason // ""' "$STATE_FILE" 2>/dev/null || echo "")
-  signoff=$(jq -r --arg n "$name" '.phase3.attestations[$n].signoff // ""' "$STATE_FILE" 2>/dev/null || echo "")
+  reason=$(_p3_trim "$(jq -r --arg n "$name" '.phase3.attestations[$n].reason // ""' "$STATE_FILE" 2>/dev/null || echo "")")
+  signoff=$(_p3_trim "$(jq -r --arg n "$name" '.phase3.attestations[$n].signoff // ""' "$STATE_FILE" 2>/dev/null || echo "")")
   [ -n "$reason" ] && [ "$reason" != "null" ] && [ -n "$signoff" ] && [ "$signoff" != "null" ]
 }
 
@@ -368,8 +380,13 @@ if [ "$MODE" = "attest" ]; then
     echo -e "${RED}[FAIL]${NC} --attest: '$ATTEST_SCANNER' is not a registered scanner. Valid: $P3_SCANNERS" >&2
     exit 2
   fi
+  # Trim BEFORE the non-empty check so a whitespace-only reason/signoff is
+  # rejected (or falls back to the actor), not silently recorded as a
+  # "valid" attestation. Verifier follow-up.
+  ATTEST_REASON="$(_p3_trim "$ATTEST_REASON")"
+  ATTEST_SIGNOFF="$(_p3_trim "$ATTEST_SIGNOFF")"
   if [ -z "$ATTEST_REASON" ]; then
-    echo -e "${RED}[FAIL]${NC} --attest requires --reason \"<why the scan was skipped>\"." >&2
+    echo -e "${RED}[FAIL]${NC} --attest requires a non-empty --reason \"<why the scan was skipped>\" (whitespace-only is rejected)." >&2
     exit 2
   fi
   [ -n "$ATTEST_SIGNOFF" ] || ATTEST_SIGNOFF="$(_p3_actor)"

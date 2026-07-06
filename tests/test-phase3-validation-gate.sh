@@ -109,10 +109,58 @@ RESULT threat-model SKIP
 MD
 }
 
+# semgrep reports a FAIL finding; the other four SKIP. Used to exercise the
+# gate's FAIL arm in isolation (attest the four skips so the ONLY blocker is
+# the FAIL status).
+write_summary_semgrep_fail() {
+  mkdir -p "$PROJ/docs/test-results/phase3"
+  cat > "$PROJ/docs/test-results/phase3/summary-2026-07-06T00-00-00Z.md" <<'MD'
+# Phase 3 Validation Summary
+RESULT semgrep-full-tree FAIL
+RESULT license SKIP
+RESULT snyk SKIP
+RESULT zap-dast SKIP
+RESULT threat-model SKIP
+MD
+}
+
+# Summary that OMITS semgrep's RESULT line (→ gate reads it as MISSING) and
+# has a garbled status for license. Both must count as blocking.
+write_summary_missing_and_garbled() {
+  mkdir -p "$PROJ/docs/test-results/phase3"
+  cat > "$PROJ/docs/test-results/phase3/summary-2026-07-06T00-00-00Z.md" <<'MD'
+# Phase 3 Validation Summary
+RESULT license BOGUS
+RESULT snyk SKIP
+RESULT zap-dast SKIP
+RESULT threat-model SKIP
+MD
+}
+
 attest_all() {
   local s
   for s in semgrep-full-tree license snyk zap-dast threat-model; do
     ( cd "$PROJ" && bash "$DRIVER" --attest "$s" --reason "test: tool not provisioned" --signoff "Tester" ) >/dev/null 2>&1
+  done
+}
+
+# Attest only the four stub scanners (leave semgrep-full-tree un-attested).
+attest_four_stubs() {
+  local s
+  for s in license snyk zap-dast threat-model; do
+    ( cd "$PROJ" && bash "$DRIVER" --attest "$s" --reason "test: tool not provisioned" --signoff "Tester" ) >/dev/null 2>&1
+  done
+}
+
+# Write whitespace-only attestations DIRECTLY (bypassing the driver's own
+# reject-on-whitespace guard) so we test the gate predicate's trim in
+# isolation. reason=" " signoff=" " for all five scanners.
+attest_all_whitespace_direct() {
+  local s tmp
+  for s in semgrep-full-tree license snyk zap-dast threat-model; do
+    tmp="$PROJ/.claude/phase-state.json.tmp"
+    jq --arg n "$s" '.phase3 = (.phase3 // {}) | .phase3.attestations = ((.phase3.attestations // {}) + {($n): {"reason":" ","signoff":" ","at":"2026-07-06T00:00:00Z"}})' \
+      "$PROJ/.claude/phase-state.json" > "$tmp" && mv "$tmp" "$PROJ/.claude/phase-state.json"
   done
 }
 
@@ -269,6 +317,128 @@ if echo "$out" | grep -qE "validation scans not clean|un-attested SKIP"; then
   fail_ "T-gate-passes-attested-skip" "gate still emitted an un-attested FAIL despite full attestation"
 else
   pass "T-gate-passes-attested-skip: no un-attested FAIL emitted"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T-gate-blocks-fail-status: a RESULT <scanner> FAIL → gate FAILs ==="
+# ════════════════════════════════════════════════════════════════════
+# The four stub SKIPs are attested, so the ONLY blocker is semgrep's FAIL
+# status — isolating the gate's FAIL arm.
+setup
+write_summary_semgrep_fail
+attest_four_stubs
+out=$(run_gate 1)
+if echo "$out" | grep -qE "validation scans not clean.*FAIL"; then
+  pass "T-gate-blocks-fail-status: gate blocks on the semgrep FAIL status"
+else
+  fail_ "T-gate-blocks-fail-status" "expected a FAIL-arm block; out:
+$(echo "$out" | grep -iE 'phase 3.4|validation' | head)"
+fi
+if echo "$out" | grep -qE "validation scans clean"; then
+  fail_ "T-gate-blocks-fail-status" "gate wrongly reported CLEAN with a FAIL status present"
+else
+  pass "T-gate-blocks-fail-status: gate did NOT report clean"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T-gate-blocks-missing-status: MISSING/garbled RESULT → gate FAILs ==="
+# ════════════════════════════════════════════════════════════════════
+# semgrep has NO RESULT line (→ MISSING) and license has a garbled status
+# (BOGUS). The three real SKIPs are attested; the ONLY blockers are the
+# MISSING + garbled statuses, which must count as gate-blocking.
+setup
+write_summary_missing_and_garbled
+( cd "$PROJ" && bash "$DRIVER" --attest snyk --reason "t" --signoff "T" ) >/dev/null 2>&1
+( cd "$PROJ" && bash "$DRIVER" --attest zap-dast --reason "t" --signoff "T" ) >/dev/null 2>&1
+( cd "$PROJ" && bash "$DRIVER" --attest threat-model --reason "t" --signoff "T" ) >/dev/null 2>&1
+out=$(run_gate 1)
+if echo "$out" | grep -qE "validation scans not clean"; then
+  pass "T-gate-blocks-missing-status: gate blocks on MISSING/garbled status"
+else
+  fail_ "T-gate-blocks-missing-status" "expected a block on MISSING/garbled status; out:
+$(echo "$out" | grep -iE 'phase 3.4|validation' | head)"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T-fail-arm-mutation: drop the FAIL check → FAIL-status no longer blocks (RED) ==="
+# ════════════════════════════════════════════════════════════════════
+# MUTATION-PROOF for the FAIL arm. Copy the gate, strip the line marked
+# `# BL-070-FAIL-ARM` (the p3_fail increment), and re-run the semgrep-FAIL
+# fixture (four stubs attested). With the FAIL count defeated, p3_fail stays 0
+# and the gate reports the phase-3 scans CLEAN — proving that increment is
+# what makes T-gate-blocks-fail-status pass (remove it → that test goes RED).
+setup
+write_summary_semgrep_fail
+attest_four_stubs
+MUT="$TMP/mutfail"
+mkdir -p "$MUT/scripts/lib"
+cp "$GATE" "$MUT/scripts/check-phase-gate.sh"
+cp "$DRIVER" "$MUT/scripts/run-phase3-validation.sh"
+cp "$REPO_ROOT"/scripts/lib/*.sh "$MUT/scripts/lib/" 2>/dev/null || true
+grep -v 'BL-070-FAIL-ARM' "$MUT/scripts/check-phase-gate.sh" > "$MUT/scripts/cpg.tmp"
+mv "$MUT/scripts/cpg.tmp" "$MUT/scripts/check-phase-gate.sh"
+chmod +x "$MUT/scripts/check-phase-gate.sh"
+if ! grep -q 'BL-070-FAIL-ARM' "$GATE"; then
+  fail_ "T-fail-arm-mutation" "BL-070-FAIL-ARM marker missing from the REAL gate — nothing to mutate"
+elif grep -q 'BL-070-FAIL-ARM' "$MUT/scripts/check-phase-gate.sh"; then
+  fail_ "T-fail-arm-mutation" "BL-070-FAIL-ARM still present after excision — mutation did not apply"
+else
+  real_out=$(run_gate 1)
+  mut_out=$( cd "$PROJ" && SOLO_PHASE3_GATE_NOAUTORUN=1 bash "$MUT/scripts/check-phase-gate.sh" 2>&1 ) || true
+  if echo "$real_out" | grep -qE "validation scans not clean.*FAIL"; then
+    pass "T-fail-arm-mutation: real gate blocks on the FAIL status"
+  else
+    fail_ "T-fail-arm-mutation" "real gate did NOT block on the FAIL status (fixture wrong?)"
+  fi
+  if echo "$mut_out" | grep -qE "validation scans not clean"; then
+    fail_ "T-fail-arm-mutation" "mutant STILL blocked — the FAIL arm is not load-bearing (mutation is not proof)"
+  else
+    pass "T-fail-arm-mutation: mutant (FAIL check stripped) reports CLEAN — FAIL status slips through (RED proof)"
+  fi
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T-driver-rejects-whitespace-reason: --reason ' ' → exit 2, nothing written ==="
+# ════════════════════════════════════════════════════════════════════
+setup
+rc=0
+( cd "$PROJ" && bash "$DRIVER" --attest snyk --reason " " --signoff " " ) >/dev/null 2>&1 || rc=$?
+recorded=$(jq -r '.phase3.attestations.snyk // "none"' "$PROJ/.claude/phase-state.json" 2>/dev/null)
+if [ "$rc" -eq 2 ] && [ "$recorded" = "none" ]; then
+  pass "T-driver-rejects-whitespace-reason: whitespace-only --reason → exit 2, nothing recorded"
+else
+  fail_ "T-driver-rejects-whitespace-reason" "expected exit 2 + no record; rc=$rc recorded='$recorded'"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T-gate-rejects-whitespace-attestation: ' '/' ' in state → un-attested → FAIL ==="
+# ════════════════════════════════════════════════════════════════════
+# Whitespace-only attestations written DIRECTLY into phase-state.json (past
+# the driver's own guard) must still be rejected by the gate predicate's trim.
+setup
+write_summary_all_skip
+attest_all_whitespace_direct
+out=$(run_gate 1)
+if echo "$out" | grep -qE "validation scans not clean|un-attested SKIP"; then
+  pass "T-gate-rejects-whitespace-attestation: gate treats ' '/' ' as un-attested → FAIL"
+else
+  fail_ "T-gate-rejects-whitespace-attestation" "gate accepted a whitespace-only attestation as valid; out:
+$(echo "$out" | grep -iE 'phase 3.4|validation' | head)"
+fi
+if echo "$out" | grep -qE "validation scans clean"; then
+  fail_ "T-gate-rejects-whitespace-attestation" "gate reported CLEAN on whitespace-only attestations"
+else
+  pass "T-gate-rejects-whitespace-attestation: gate did NOT report clean"
 fi
 teardown
 
