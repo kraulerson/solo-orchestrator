@@ -1,5 +1,7 @@
 # Documentation Artifact Remediation — Implementation Plan
 
+> **Archived 2026-07-05 (BL-049):** Shipped via PR #6 (`fix/documentation-remediation`, merged 2026-04-08). See `docs/superpowers/plans/archive/README.md` for the archive convention.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Remediate all documentation artifact gaps — add 10 templates, restructure docs/ directory, reconcile cross-references, and add phase gate enforcement.

@@ -1,5 +1,7 @@
 # Process Enforcement & Tool Usage Tracking — Implementation Plan
 
+> **Archived 2026-07-05 (BL-049):** Shipped via PR #7 (`feat/process-enforcement`, merged 2026-04-08). See `docs/superpowers/plans/archive/README.md` for the archive convention.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add mechanical enforcement for sequential process compliance (Build Loop, UAT, Phase 3, Phase 4) and MCP tool usage tracking (Context7, Qdrant) via Claude Code hooks.

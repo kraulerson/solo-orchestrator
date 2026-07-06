@@ -1,5 +1,7 @@
 # UAT, Bug Tracking & Test-Fix-Verify Loop — Implementation Plan
 
+> **Archived 2026-07-05 (BL-049):** Shipped via commit `a5fa5fa` ("feat: UAT system — test-gate, templates, phase integration", 2026-04-04). See `docs/superpowers/plans/archive/README.md` for the archive convention.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a configurable test-fix-verify loop to the Build Loop with parallel agent testing, human manual testing, bug tracking, severity-based triage, mechanical gate enforcement, and Phase 2→3 deferred bug resolution.

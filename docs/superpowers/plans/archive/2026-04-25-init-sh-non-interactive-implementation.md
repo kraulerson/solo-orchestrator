@@ -1,5 +1,7 @@
 # BL-016: init.sh Non-Interactive Mode — Implementation Plan
 
+> **Archived 2026-07-05 (BL-049):** Shipped via PR #19 (`feat/bl-016-init-non-interactive`, merged 2026-04-25). See `docs/superpowers/plans/archive/README.md` for the archive convention.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add `--non-interactive` mode to `init.sh` with per-input flags + JSON config-file support, three-pass validation, and a `--validate-only` smoke-test option, while leaving the existing interactive flow untouched.
@@ -1995,7 +1997,7 @@ UAT 2026-04-25's highest-frequency finding (8/13 agents): init.sh has no scripta
 ## References
 
 - Spec: `docs/superpowers/specs/2026-04-25-init-sh-non-interactive-design.md`
-- Plan: `docs/superpowers/plans/2026-04-25-init-sh-non-interactive-implementation.md`
+- Plan: `docs/superpowers/plans/archive/2026-04-25-init-sh-non-interactive-implementation.md` (archived 2026-07-05, BL-049)
 - UAT triage: `Reports/uat-2026-04-25/TRIAGE.md` (U-A)
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)

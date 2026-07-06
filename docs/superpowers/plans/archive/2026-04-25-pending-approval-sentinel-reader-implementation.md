@@ -1,5 +1,7 @@
 # BL-015: Pending-Approval Sentinel Reader — Implementation Plan
 
+> **Archived 2026-07-05 (BL-049):** Shipped via PR #16 (`feat/bl-015-pending-approval-sentinel-reader`, merged 2026-04-25). See `docs/superpowers/plans/archive/README.md` for the archive convention.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add Solo's read-side complement to CDF 4.2.3's pending-approval sentinel: a new `scripts/pending-approval.sh` helper agents use to write/manage `.claude/pending-approval.json`, plus a `pa_check()` block in `pre-commit-gate.sh` that denies `git commit` and `gh pr create` while the sentinel is present.
@@ -1451,7 +1453,7 @@ Solo-side complement to CDF 4.2.3's stop-hook fix (`f55c8bc`). Together, the two
 ## References
 
 - Spec: `docs/superpowers/specs/2026-04-25-pending-approval-sentinel-reader-design.md`
-- Plan: `docs/superpowers/plans/2026-04-25-pending-approval-sentinel-reader-implementation.md`
+- Plan: `docs/superpowers/plans/archive/2026-04-25-pending-approval-sentinel-reader-implementation.md` (archived 2026-07-05, BL-049)
 - Upstream dependency: CDF 4.2.3 (`f55c8bc`) — verified in this session.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)

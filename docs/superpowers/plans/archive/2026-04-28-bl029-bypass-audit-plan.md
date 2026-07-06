@@ -1,5 +1,7 @@
 # BL-029 Bypass Audit-Log Infrastructure Implementation Plan
 
+> **Archived 2026-07-05 (BL-049):** Shipped via PR #40 (`feature/bl-029-bypass-audit`, merged 2026-05-04). See `docs/superpowers/plans/archive/README.md` for the archive convention.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make Claude's bypass-suggestion behavior auditable by detecting bypass-shaped language in Claude output, writing structured rows to `.claude/bypass-audit.json`, requiring a non-trivial confirmation phrase before any bypass can be accepted, and shipping `escalate-to-user` as a documented alternative to bypass-proposing.
@@ -18,7 +20,7 @@
 
 ## Sequencing
 
-This plan ships before the BL-030 plan executes. Once shipped, the existing BL-030 plan at `docs/superpowers/plans/2026-04-28-bl030-enforcement-model-plan.md` should be edited to replace its inline jq-append calls (Tasks 3, 4, 7, 8) with calls to the `bypass_audit_append` library function this plan creates. The BL-030 plan declares BL-029 as a prerequisite for that reason.
+This plan ships before the BL-030 plan executes. Once shipped, the existing BL-030 plan at `docs/superpowers/plans/archive/2026-04-28-bl030-enforcement-model-plan.md` (archived 2026-07-05, BL-049) should be edited to replace its inline jq-append calls (Tasks 3, 4, 7, 8) with calls to the `bypass_audit_append` library function this plan creates. The BL-030 plan declares BL-029 as a prerequisite for that reason.
 
 ## Working directory
 
@@ -1324,7 +1326,7 @@ Edit `solo-orchestrator-backlog.md` BL-029 entry — change `Status: Open` to `S
 
 - [ ] **Step 10.3: Add a BL-030 plan refactor note**
 
-Edit `docs/superpowers/plans/2026-04-28-bl030-enforcement-model-plan.md`. Find each task that uses inline `jq --argjson r ... '. + [$r]' ...` (Tasks 3, 4 (`record_audit_row` function), 7, 8). Add a marker comment near each:
+Edit `docs/superpowers/plans/archive/2026-04-28-bl030-enforcement-model-plan.md` (archived 2026-07-05, BL-049). Find each task that uses inline `jq --argjson r ... '. + [$r]' ...` (Tasks 3, 4 (`record_audit_row` function), 7, 8). Add a marker comment near each:
 
 ```
 > Refactor note (post-BL-029): replace this inline jq append with `bypass_audit_append "$PROJECT_ROOT" "$ROW"` from `scripts/lib/bypass-audit.sh`. Source the lib at the top of each script. The flock protection in the library prevents races between BL-029's bypass-detector and BL-030's writers.
@@ -1361,7 +1363,7 @@ git commit -m "docs(backlog,bl-030-plan): close BL-029 + flag library refactor i
 
 ---
 
-**Plan complete and saved to `docs/superpowers/plans/2026-04-28-bl029-bypass-audit-plan.md`. Two execution options:**
+**Plan complete and saved to `docs/superpowers/plans/2026-04-28-bl029-bypass-audit-plan.md`** (archived 2026-07-05 to `docs/superpowers/plans/archive/2026-04-28-bl029-bypass-audit-plan.md`, BL-049). **Two execution options:**
 
 **1. Subagent-Driven (recommended)** — Dispatch a fresh subagent per task using `superpowers:subagent-driven-development`. Review between tasks. Best for a 10-task plan because per-task isolation prevents cross-task context pollution.
 
