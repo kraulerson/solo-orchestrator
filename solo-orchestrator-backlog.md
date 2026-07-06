@@ -2096,8 +2096,23 @@ Orphan `test-poc-modes.sh` T5 and the REGISTERED `edge-cases-scripts.sh` E60 ass
 **Logged:** 2026-07-06 (BL-001 verifier finding; Karl chose Option A)
 **Category:** Bug / governance-contract gap
 **Severity:** Medium
-**Status:** Open — in progress (implementer running, PR pending)
+**Status:** Open — PR #144 (verifier: `approve`), awaiting merge
 
-The `--backfill-only` short-circuit runs BEFORE the BL-015 pending-approval sentinel guard, so backfill mutates `.claude/framework/`, the manifest, host config, and skills even when a pending-approval sentinel is present (pre-existing; BL-001/PR #142 widened it to CDF framework assets). Karl decided (2026-07-06) backfill must honor the sentinel: block + mutate nothing when a sentinel is present, mirroring the full-upgrade guard. Implementer dispatched with a no-mutation regression + mutation proof.
+The `--backfill-only` short-circuit runs BEFORE the BL-015 pending-approval sentinel guard, so backfill mutates `.claude/framework/`, the manifest, host config, and skills even when a pending-approval sentinel is present (pre-existing; BL-001/PR #142 widened it to CDF framework assets). Karl decided (2026-07-06) backfill must honor the sentinel: block + mutate nothing when a sentinel is present, mirroring the full-upgrade guard. PR #144 extracts a shared `_bl015_sentinel_guard()` (single detection + deny-message source for both paths) and calls it before the backfill mutations. Verifier `approve`: full-path refactor proven byte-for-byte behavior-preserving, backfill blocks with the entire `.claude` tree byte-identical, mutation-proven, hermetic, 8/8 lints.
 
-**Related:** [[bl001-cdf-sync-audit]] (PR #142); BL-015 (pending-approval sentinel); `scripts/upgrade-project.sh` backfill path.
+**Related:** [[bl001-cdf-sync-audit]] (PR #142); BL-015 (pending-approval sentinel); `scripts/upgrade-project.sh` backfill path; [[bl081-full-path-mutates-before-sentinel]] (sibling full-path gap).
+
+---
+
+## BL-081: Full-upgrade path runs idempotent backfill (skills/host/manifest) BEFORE the BL-015 sentinel guard
+
+**Logged:** 2026-07-06 (BL-080 verifier observation)
+**Category:** Bug / governance-contract gap
+**Severity:** Medium
+**Status:** Open
+
+Sibling of [[bl080-backfill-honors-sentinel]]. On the FULL `upgrade-project.sh` path (not `--backfill-only`), the idempotent backfill block (vendored-skills sync + host/BL-030 manifest backfill) runs BEFORE the BL-015 sentinel guard. So a sentinel-blocked full upgrade still mutates `.claude/skills/` and manifest fields (visible as `[OK] Vendored skills synced` printing before the deny message) before it blocks. Pre-existing (byte-identical on `main`; NOT introduced by BL-080), but it means the pending-approval sentinel does not fully freeze mutation on the full path either — the same governance concern Karl closed for backfill in BL-080.
+
+**Scope:** decide whether the full-path BL-015 guard should move earlier (before the idempotent backfill block), so NO mutation occurs on any path while a decision is pending — OR whether the pre-guard idempotent backfill is intentionally exempt (it is non-destructive/idempotent). If moved, add a regression asserting a sentinel-blocked full upgrade leaves `.claude/skills/` + manifest byte-identical. Also tighten the `_bl015_sentinel_guard()` docstring, which currently claims "mutates nothing" for both call sites (only strictly true for `--backfill-only`).
+
+**Related:** [[bl080-backfill-honors-sentinel]] (PR #144); BL-015; `scripts/upgrade-project.sh` full-upgrade path.
