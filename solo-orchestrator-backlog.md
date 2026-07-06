@@ -2139,7 +2139,7 @@ Sibling of [[bl070-phase-3-validation-scans]] (PR #145). The BL-070 skeleton's P
 **Logged:** 2026-07-06
 **Category:** Bug / correctness (false-negative init failure) + gate hardening
 **Severity:** Medium
-**Status:** Closed — shipped 2026-07-06 (PR #__PRNUM__). Tier-aware design (Karl-approved) — NOT the reference draft's blanket silent-success.
+**Status:** Closed — shipped 2026-07-06 (PR #153). Tier-aware design (Karl-approved) — NOT the reference draft's blanket silent-success.
 
 `other` is a documented, supported git host (`docs/user-guide.md`, `docs/builders-guide.md`): the deliberate bring-your-own host/CI path (Gitea, Codeberg, self-hosted). But a normal `--git-host other` init FAILED (exit 2) on two fronts: (1) `verify-install.sh` flagged the absent CI pipeline as a blocking MANUAL item, and (2) a failed initial `git push` to the operator's remote recorded an init failure. A prior draft "fixed" BOTH by making them silent successes — which **re-opened the project's #1 defect class** ([[bl064-init-silent-success]]: init prints "Setup Complete" while the code was never uploaded). This entry ships the Karl-approved design that threads the needle: a **tier-aware** policy keyed on `track` + a **real backstop gate** that makes the "configure your own CI" warning TRUE rather than a mask for un-pushed code.
 
