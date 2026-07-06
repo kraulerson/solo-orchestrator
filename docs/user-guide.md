@@ -368,7 +368,8 @@ The init script also generates **two pipelines**: a CI pipeline (`ci.yml`) selec
 
 The manifest is a JSON file maintained jointly by CDF (for framework version pin) and solo-orchestrator (for host/mode/remote). Notable fields:
 
-- `version` — framework version pin (maintained by CDF)
+- `frameworkVersion` — CDF (Development Guardrails) version pin. Written at init and re-bumped by `scripts/upgrade-project.sh` when it refreshes CDF assets (see [Refreshing CDF framework assets](#refreshing-cdf-framework-assets) below).
+- `frameworkCommit` — the CDF clone commit the pinned assets were synced from. Re-bumped alongside `frameworkVersion`.
 - `host` — git host type: `github` | `gitlab` | `bitbucket` | `other`. Written at init time; consumed by host-aware scripts to route calls through the correct driver.
 - `mode` — project mode: `personal` | `org`. Controls protection bar and some governance paths.
 - `remote_url` — HTTPS clone URL of the remote created at init.
@@ -1190,6 +1191,36 @@ After launch, you are the operations team. Schedule these activities.
 Expect 2-4 hours/week for the first 3 months post-launch. It stabilizes to 1-2 hours/week (50-80 hours/year per application). Maintenance is bursty — a security advisory can consume a full day, and then nothing happens for two weeks.
 
 **Scaling warning:** At 10 applications, maintenance alone is a half-time job. If you are managing a portfolio, track hours per application. If total maintenance consistently exceeds your available hours, either graduate applications to engineering teams or stop taking new projects.
+
+### Refreshing CDF framework assets
+
+Your project's `.claude/framework/` subtree holds the Development Guardrails (CDF) hooks, rules, and gates — the machinery behind Claude Code's pre-commit checks (config-guard, branch-safety, plan-tracking, test-strategy, and friends). CDF ships these at project creation and continues to land fixes upstream. **Existing projects do not pick up those fixes automatically** — you refresh them by running an upgrade.
+
+**One-time setup:** keep the CDF clone current so there is something to sync from:
+
+```bash
+cd ~/.claude-dev-framework && git pull --ff-only
+```
+
+(If you do not have the clone: `git clone https://github.com/kraulerson/claude-dev-framework.git ~/.claude-dev-framework`. The default location is `~/.claude-dev-framework`; override with the `CDF_HOME` environment variable if your clone lives elsewhere.)
+
+**Refresh the assets in your project:**
+
+```bash
+cd ~/projects/your-project
+bash scripts/upgrade-project.sh --backfill-only     # lightest upgrade — syncs CDF only, no track/deployment change
+```
+
+`--backfill-only` is the lightest invocation: it refreshes CDF assets (and runs the manifest backfills) without changing your track or deployment. Any full `upgrade-project.sh` run (e.g. `--track`, `--deployment`, `--to-production`) also refreshes CDF assets as part of the upgrade.
+
+What the refresh does:
+
+- Fast-forwards the CDF clone (`git pull --ff-only`), then re-copies its `hooks/`, `rules/`, and `gates/` into your project's `.claude/framework/`, marking hook and gate scripts executable.
+- Bumps `.claude/manifest.json`'s `frameworkVersion` and `frameworkCommit` to the clone's current values, so `scripts/check-updates.sh` and the session-start version check report the version now on disk.
+
+**Graceful degradation:** if the CDF clone is missing (or the upgrade runs non-interactively without a clone), the refresh prints a `[WARN]` to stderr, keeps your project's existing `.claude/framework/` assets untouched, and the upgrade completes normally — a missing clone never blocks an upgrade. If the clone's `git pull --ff-only` fails (dirty tree or local commits), the refresh warns and proceeds using the clone's current working tree; resolve the clone's state and re-run to pick up the latest upstream fixes.
+
+**Frequency:** refresh biannually alongside the framework-document check below, or immediately whenever a CDF fix you need lands upstream.
 
 ### Governance Health Checks
 

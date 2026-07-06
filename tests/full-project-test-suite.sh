@@ -627,6 +627,18 @@ if bash "$SCRIPT_DIR/tests/test-upgrade-manifest-refresh.sh" >/dev/null 2>&1; th
 else
   fail "tests/test-upgrade-manifest-refresh.sh FAILED (run for details)"
 fi
+# BL-001: upgrade-project.sh performed no CDF sync, so downstream projects
+# stayed frozen at their install-time .claude/framework/ assets. Regression
+# suite covers the happy-path refresh (--backfill-only), graceful skip on a
+# missing clone (upgrade must still exit 0), pull-failure resilience, and a
+# mutation-proof that neutralizing solo_refresh_cdf's delegating call turns
+# the sync into a no-op. Integration scenarios skip cleanly when the CDF
+# clone is absent (CI without ~/.claude-dev-framework).
+if bash "$SCRIPT_DIR/tests/test-upgrade-cdf-refresh.sh" >/dev/null 2>&1; then
+  pass "tests/test-upgrade-cdf-refresh.sh"
+else
+  fail "tests/test-upgrade-cdf-refresh.sh FAILED (run for details)"
+fi
 
 # ----------------------------------------------------------------
 # TEST 0n: PROCESS-CHECKLIST (commit-ready-subject + reset-phase1)

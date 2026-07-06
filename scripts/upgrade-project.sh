@@ -94,6 +94,34 @@ _upgrade_fail() {
   fi
 }
 
+# BL-001: refresh CDF (Development Guardrails) framework assets. Sources the
+# thin Solo-side wrapper (scripts/lib/cdf-refresh.sh), which delegates to the
+# CDF clone's canonical refresh_cdf_assets — it re-copies hooks/rules/gates
+# into .claude/framework/, marks hook/gate scripts +x, and bumps the manifest
+# frameworkVersion/frameworkCommit. Without this, a project that runs the
+# documented upgrade stays frozen at its install-time CDF version and silently
+# misses upstream fixes.
+#
+# Called from TWO sites so exactly one runs per path (see each call site):
+#   • the --backfill-only path, before its short-circuit; and
+#   • the full-upgrade asset-refresh block near the end — deliberately AFTER
+#     the BL-015 pending-approval sentinel guard and the atomic section-2b
+#     mutation, so a sentinel-blocked or rolled-back upgrade never touches
+#     .claude/framework/ or the manifest pin.
+#
+# Graceful: the wrapper warns + returns 0 when the CDF clone is absent; the
+# `|| print_warn` is belt-and-suspenders so a refresh hiccup can NEVER abort
+# the upgrade — the CDF sync is an ADDITION, not a gate.
+_refresh_cdf_assets_solo() {
+  if [ -f "$SCRIPT_DIR/lib/cdf-refresh.sh" ]; then
+    print_step "Refreshing CDF framework assets (BL-001)"
+    # shellcheck source=/dev/null
+    . "$SCRIPT_DIR/lib/cdf-refresh.sh"
+    solo_refresh_cdf "$PROJECT_ROOT" "$NON_INTERACTIVE" \
+      || print_warn "CDF asset refresh skipped (non-fatal — upgrade continues)"
+  fi
+}
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --track)
@@ -378,6 +406,11 @@ fi
 # --backfill-only short-circuits here — no track / deployment / POC
 # transition follows.
 if [ "$BACKFILL_ONLY" = true ]; then
+  # BL-001: --backfill-only refreshes CDF assets too, parallel to the manifest
+  # backfills above. Consistent with --backfill-only's existing semantics (a
+  # deliberate operator-invoked migration that does not consult the BL-015
+  # sentinel guard, which gates the track/deployment/POC transition path).
+  _refresh_cdf_assets_solo
   exit 0
 fi
 
@@ -2342,6 +2375,13 @@ if [ -d scripts ]; then
 else
   print_warn "scripts/ directory not found in project root — skipping helper refresh"
 fi
+
+# BL-001: refresh CDF framework assets on the full-upgrade path. Placed here —
+# after the BL-015 pending-approval sentinel guard and the atomic section-2b
+# mutation — so a blocked or rolled-back upgrade never touches
+# .claude/framework/ or the manifest frameworkVersion pin. (The --backfill-only
+# path refreshes earlier, before its short-circuit.)
+_refresh_cdf_assets_solo
 
 
 # Run full project validation to surface new track requirements
