@@ -65,9 +65,13 @@ E_ENG='{"reviewer":"Senior Software Engineer","status":"complete","artifact":"en
 E_CIO='{"reviewer":"CIO Strategic","status":"complete","artifact":"cio-review-v1.md","date":"2026-05-01"}'
 E_LEGAL='{"reviewer":"Corporate Legal","status":"complete","artifact":"legal-review-v1.md","date":"2026-05-01"}'
 E_TU='{"reviewer":"Technical User (Non-Coder)","status":"complete","artifact":"techuser-review-v1.md","date":"2026-05-01"}'
+# Security present in the manifest but NOT complete — must not satisfy the gate.
+E_SEC_SKIP='{"reviewer":"security","status":"skipped","artifact":"security-review-v1.md","date":"2026-05-01"}'
+E_SEC_FAIL='{"reviewer":"security","status":"failed","artifact":"security-review-v1.md","date":"2026-05-01"}'
 
 # write_manifest <path> <kind>
-#   kind: complete | miss-security | miss-redteam | miss-cio | absent
+#   kind: complete | miss-security | miss-redteam | miss-cio
+#       | skip-security | fail-security | absent
 write_manifest() {
   local path="$1" kind="$2" entries=""
   [ "$kind" = "absent" ] && return 0
@@ -76,6 +80,8 @@ write_manifest() {
     miss-security) entries="$E_RT,$E_ENG,$E_CIO,$E_LEGAL,$E_TU" ;;
     miss-redteam)  entries="$E_SEC,$E_ENG,$E_CIO,$E_LEGAL,$E_TU" ;;
     miss-cio)      entries="$E_SEC,$E_RT,$E_ENG,$E_LEGAL,$E_TU" ;;
+    skip-security) entries="$E_SEC_SKIP,$E_RT,$E_ENG,$E_CIO,$E_LEGAL,$E_TU" ;;
+    fail-security) entries="$E_SEC_FAIL,$E_RT,$E_ENG,$E_CIO,$E_LEGAL,$E_TU" ;;
   esac
   mkdir -p "$(dirname "$path")"
   cat > "$path" <<JSON
@@ -407,6 +413,121 @@ $mut_out"
     pass "T-mutation: the un-mutated script emits the FAIL on the same fixture (RED→GREEN contrast)"
   else
     fail_ "T-mutation" "the real script did NOT emit the FAIL on the mutation fixture — contrast broken; out:
+$real_out"
+  fi
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T-status-skipped-full-fails: track=full enforced, Security status=skipped → FAIL ==="
+# ════════════════════════════════════════════════════════════════════
+# A reviewer PRESENT in the manifest but not `complete` must NOT satisfy the
+# gate — the status field is the difference between "review ran" and "review
+# was skipped/failed". Security is present here but skipped, so the mandatory
+# subset is unmet → FAIL.
+build_project full yes skip-security
+rc=0; out=$(run_gate) || rc=$?
+if has_review_fail "$out" && [ "$rc" -ne 0 ]; then
+  pass "T-status-skipped-full-fails: skipped Security review does not count as complete → FAIL (rc=$rc)"
+else
+  fail_ "T-status-skipped-full-fails" "expected review-gate FAIL for a skipped Security review; rc=$rc; out:
+$out"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T-status-failed-full-fails: track=full enforced, Security status=failed → FAIL ==="
+# ════════════════════════════════════════════════════════════════════
+build_project full yes fail-security
+rc=0; out=$(run_gate) || rc=$?
+if has_review_fail "$out" && [ "$rc" -ne 0 ]; then
+  pass "T-status-failed-full-fails: failed Security review does not count as complete → FAIL (rc=$rc)"
+else
+  fail_ "T-status-failed-full-fails" "expected review-gate FAIL for a failed Security review; rc=$rc; out:
+$out"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T-status-skipped-standard-fails: track=standard enforced, Security status=skipped → FAIL ==="
+# ════════════════════════════════════════════════════════════════════
+build_project standard yes skip-security
+rc=0; out=$(run_gate) || rc=$?
+if has_review_fail "$out" && [ "$rc" -ne 0 ]; then
+  pass "T-status-skipped-standard-fails: standard track also rejects a skipped Security review → FAIL (rc=$rc)"
+else
+  fail_ "T-status-skipped-standard-fails" "expected review-gate FAIL for a skipped Security review on standard track; rc=$rc; out:
+$out"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T-whitespace-attest-rejected: SOLO_REVIEWERS_ATTESTED_REASON=\"   \" → NOT attested → FAIL ==="
+# ════════════════════════════════════════════════════════════════════
+# An attestation must carry a real justification. A whitespace-only reason is
+# trimmed to empty and rejected — the gate still blocks (integrity gap fix).
+build_project full yes miss-security
+rc=0
+out=$( cd "$PROJ" && SOLO_REVIEWERS_ATTESTED=1 SOLO_REVIEWERS_ATTESTED_REASON="   " bash "$SCRIPT" 2>&1 ) || rc=$?
+if has_review_fail "$out" && ! has_attested "$out" && [ "$rc" -ne 0 ]; then
+  pass "T-whitespace-attest-rejected: whitespace-only reason is not accepted → gate FAILs (rc=$rc)"
+else
+  fail_ "T-whitespace-attest-rejected" "expected FAIL + no attested-OK for a whitespace-only reason; rc=$rc; out:
+$out"
+fi
+# Sanity: a real (non-blank) reason on the SAME fixture DOES attest (contrast).
+rc2=0
+out2=$( cd "$PROJ" && SOLO_REVIEWERS_ATTESTED=1 SOLO_REVIEWERS_ATTESTED_REASON="genuine deferral reason" bash "$SCRIPT" 2>&1 ) || rc2=$?
+if has_attested "$out2"; then
+  pass "T-whitespace-attest-rejected: a genuine non-blank reason DOES attest (contrast — trim is not over-broad)"
+else
+  fail_ "T-whitespace-attest-rejected" "a genuine reason failed to attest — trim is over-broad; out:
+$out2"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T-status-mutation: neuter the status gate → skipped counts → FAIL disappears (RED proof) ==="
+# ════════════════════════════════════════════════════════════════════
+# Copy the script + libs, replace the status predicate
+# `select((.status // "complete") == "complete")` with `select(true)` (the
+# verifier's exact neuter), and re-run the skipped-Security fixture. With the
+# status gate defeated a skipped review counts as present, so the review-gate
+# FAIL disappears — proving the status gate is what makes T-status-skipped-*
+# blocking. Remove/defeat it → those tests go RED.
+build_project full yes skip-security
+MUT="$TMP/mut"
+mkdir -p "$MUT/scripts/lib"
+cp "$SCRIPT" "$MUT/scripts/check-phase-gate.sh"
+cp "$REPO_ROOT"/scripts/lib/*.sh "$MUT/scripts/lib/" 2>/dev/null || true
+sed 's#select((.status // "complete") == "complete")#select(true)#' \
+  "$MUT/scripts/check-phase-gate.sh" > "$MUT/scripts/check-phase-gate.sh.tmp"
+mv "$MUT/scripts/check-phase-gate.sh.tmp" "$MUT/scripts/check-phase-gate.sh"
+chmod +x "$MUT/scripts/check-phase-gate.sh"
+if ! grep -q 'select((.status // "complete") == "complete")' "$SCRIPT"; then
+  fail_ "T-status-mutation" "status-gate predicate not found in the REAL script — nothing to mutate"
+elif grep -q 'select((.status // "complete") == "complete")' "$MUT/scripts/check-phase-gate.sh"; then
+  fail_ "T-status-mutation" "status predicate still present after neuter — mutation did not apply"
+elif ! grep -q 'select(true)' "$MUT/scripts/check-phase-gate.sh"; then
+  fail_ "T-status-mutation" "select(true) not present after neuter — mutation did not apply"
+else
+  mut_out=$( cd "$PROJ" && bash "$MUT/scripts/check-phase-gate.sh" 2>&1 ) || true
+  if has_review_fail "$mut_out"; then
+    fail_ "T-status-mutation" "review-gate FAIL still emitted after neutering the status gate — mutation is not proof; out:
+$mut_out"
+  else
+    pass "T-status-mutation: neutering the status gate lets a skipped review pass → FAIL gone (status gate is load-bearing)"
+  fi
+  real_out=$(run_gate) || true
+  if has_review_fail "$real_out"; then
+    pass "T-status-mutation: the un-mutated script FAILs on the same skipped-Security fixture (RED→GREEN contrast)"
+  else
+    fail_ "T-status-mutation" "the real script did NOT FAIL on the skipped-Security fixture — contrast broken; out:
 $real_out"
   fi
 fi

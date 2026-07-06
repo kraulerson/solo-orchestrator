@@ -1318,10 +1318,15 @@ if [ "$current_phase" -ge 3 ]; then
     cpg_attest_reason=$(jq -r '.phase3.attestations.reviewers.reason // ""' ".claude/process-state.json" 2>/dev/null || echo "")
     [ "$cpg_attest_reason" = "null" ] && cpg_attest_reason=""
   fi
+  if [ "${SOLO_REVIEWERS_ATTESTED:-}" = "1" ] && [ -n "${SOLO_REVIEWERS_ATTESTED_REASON:-}" ]; then
+    cpg_attest_reason="$SOLO_REVIEWERS_ATTESTED_REASON"
+  fi
+  # Trim leading/trailing whitespace BEFORE the non-empty test so a
+  # whitespace-only reason (e.g. "   ") is REJECTED — an attestation must
+  # carry a real justification, not blank space (mirrors the BL-070
+  # attestation-reason/signoff tightener). Empty was already rejected.
+  cpg_attest_reason=$(printf '%s' "$cpg_attest_reason" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
   if [ "${SOLO_REVIEWERS_ATTESTED:-}" = "1" ]; then
-    if [ -n "${SOLO_REVIEWERS_ATTESTED_REASON:-}" ]; then
-      cpg_attest_reason="$SOLO_REVIEWERS_ATTESTED_REASON"
-    fi
     if [ -n "$cpg_attest_reason" ]; then
       cpg_reviewers_attested=1
       cpg_attest_proactive=1
