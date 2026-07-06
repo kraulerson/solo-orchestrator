@@ -268,6 +268,159 @@ get_gate_date() {
   echo "$value"
 }
 
+# ── BL-071: gate-date auto-write ─────────────────────────────────
+# The Builder's Guide + workflow.html describe the framework RECORDING
+# the date a phase gate passed into phase-state.json::gates.<gate>.
+# Historically nothing wrote that field — the gate only READ it (and
+# WARNed when it was empty), so a project that crossed a gate on real
+# APPROVAL_LOG.md evidence still showed "gate date not recorded". These
+# helpers close that loop: on a gate whose APPROVAL_LOG.md dated
+# evidence is present, we record today's date (YYYY-MM-DD) plus a
+# sibling actor field, atomically and idempotently.
+#
+# Reuses the PR #97 / scripts/lib/bypass-audit.sh atomic-finalize
+# lineage: a portable mkdir-based advisory lock (flock isn't on macOS
+# bash-3.2), a temp file written ADJACENT to phase-state.json so the
+# `mv` is a same-filesystem atomic rename, and an EXIT/INT/TERM trap
+# contained in a subshell so it never clobbers a caller trap.
+#
+# GUARD (read-only invocations): this write only fires from the real
+# per-gate consistency path below, gated on genuine APPROVAL_LOG.md
+# evidence. There is no dry-run/preview mode; --help / -h exits at the
+# argv parser above (before PHASE_STATE is even read), so no read-only
+# invocation reaches this code.
+
+# _cpg_gate_actor — best-effort "who crossed the gate" identity.
+# Prefers `git config user.name`/`user.email`, falls back to
+# whoami@hostname. Schema-forward: readers ignore gates.<gate>_by if
+# they don't know it.
+_cpg_gate_actor() {
+  local name email host
+  name=$(git config user.name 2>/dev/null || echo "")
+  email=$(git config user.email 2>/dev/null || echo "")
+  if [ -n "$name" ] && [ -n "$email" ]; then
+    printf '%s <%s>' "$name" "$email"
+  elif [ -n "$name" ]; then
+    printf '%s' "$name"
+  else
+    host=$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo "localhost")
+    printf '%s@%s' "$(whoami 2>/dev/null || echo unknown)" "$host"
+  fi
+}
+
+# _cpg_gate_has_evidence <approval-log-header-regex>
+# Returns 0 iff APPROVAL_LOG.md contains the gate's section header AND a
+# dated (YYYY-MM-DD) line within the first 15 lines of that section — i.e.
+# genuine recorded evidence that the gate was crossed. This is the SOLE
+# predicate that gates the auto-write below: a project with no dated
+# approval entry must NEVER get a date synthesized into phase-state.json.
+# Extracted from the four per-gate call sites (previously duplicated
+# inline) so the evidence gate is a single audit/mutation surface — the
+# BL-071 verifier follow-up added negative coverage that pins exactly this
+# predicate (forcing it always-true must flip a test RED). The grep pair
+# is byte-for-byte the original inline logic. This line is load-bearing:
+#   # BL-071-EVIDENCE-GATE
+_cpg_gate_has_evidence() {
+  local header="$1"
+  grep -q "$header" "$APPROVAL_LOG" \
+    && grep -A 15 "$header" "$APPROVAL_LOG" \
+       | grep -qE "[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])"
+}
+
+# _cpg_record_gate_date <gate_key> <label> <current_date>
+# Records today's date into phase-state.json::gates.<gate_key> (and
+# gates.<gate_key>_by) when <current_date> is empty. If <current_date>
+# already holds a valid date, this is a re-pass: log [INFO] and DO NOT
+# overwrite (preserve the first-pass timestamp). On gate FAIL the
+# caller never reaches this helper for an unpopulated gate, and a
+# populated gate is never cleared — so a prior PASS's record is real
+# history that a later FAIL cannot erase.
+# Returns:
+#   0 — wrote today's date (fresh record)
+#   1 — idempotent skip (valid date already present; nothing written)
+#   2 — could not write (jq unavailable, lock timeout, or jq error);
+#       caller treats this as an unresolved gate-date issue.
+_cpg_record_gate_date() {
+  local gate_key="$1" label="$2" current="$3"
+
+  # Idempotency: a valid first-pass date is preserved, never clobbered.
+  # Uses the already-regex-validated captured value (get_gate_date), so
+  # this branch needs no jq — a healthy, already-dated gate never
+  # false-fails just because jq is absent.
+  if [ -n "$current" ]; then
+    echo -e "${BLUE}[INFO]${NC} $label: gate date already recorded ($current) — preserving first-pass timestamp (idempotent)."
+    return 1
+  fi
+
+  # Fresh record requires jq to edit the JSON structurally.
+  if ! command -v jq >/dev/null 2>&1; then
+    echo -e "${YELLOW}[WARN]${NC} $label: APPROVAL_LOG.md has a dated entry but the gate date could not be auto-recorded (jq not available). Add the date to $PHASE_STATE manually."
+    return 2
+  fi
+
+  # WARN-MODE NOTE (deliberate): callers reach this record path whenever the
+  # gate's APPROVAL_LOG.md evidence is present and the JSON date is empty —
+  # INCLUDING under SOIF_PHASE_GATES=warn. That is intentional: an
+  # evidence-backed gate date is a fact, so recording it (which reformats
+  # phase-state.json via jq) keeps the feature working for warn-mode
+  # projects. `warn` only downgrades the final BLOCKING exit; it is not a
+  # read-only/preview mode and must not suppress this write. Operators who
+  # want a pure read-only inspection should not run the gate at a phase past
+  # a crossed-but-unrecorded gate — there is no state to synthesize once the
+  # date is present (idempotent thereafter).
+  local today actor file lock_dir attempts rc
+  today=$(date +%Y-%m-%d)
+  actor=$(_cpg_gate_actor)
+  file="$PHASE_STATE"
+  lock_dir="$file.lockdir"
+
+  # Portable advisory lock via atomic mkdir (bypass-audit.sh lineage).
+  # Fail-safe stale-lock behavior: a SIGKILL between this mkdir and the
+  # subshell's EXIT trap can orphan "$lock_dir". The next run then spins
+  # this loop for ~10s (100 × 0.1s) and returns 2 — degrading to the
+  # historical "gate date not recorded" WARN (issues++), never a crash and
+  # never a corrupted state file. Recovery is `rmdir "$lock_dir"` (or it is
+  # swept with the project's temp state). This is an accepted trade for a
+  # dependency-free, macOS-bash-3.2-portable lock.
+  attempts=0
+  while ! mkdir "$lock_dir" 2>/dev/null; do
+    attempts=$((attempts + 1))
+    if [ "$attempts" -ge 100 ]; then
+      echo -e "${YELLOW}[WARN]${NC} $label: gate-date write lock timeout (>10s; possible stale $lock_dir from a killed run — remove it and retry) — record the date in $PHASE_STATE manually." >&2
+      return 2
+    fi
+    sleep 0.1
+  done
+
+  rc=0
+  (
+    tmp=$(mktemp "${file}.XXXXXX") || exit 1
+    trap 'rm -f "$tmp"; rmdir "$lock_dir" 2>/dev/null' EXIT INT TERM
+    if jq --arg k "$gate_key" --arg d "$today" --arg by "$actor" \
+         '.gates = ((.gates // {}) + {($k): $d, ($k + "_by"): $by})' \
+         "$file" > "$tmp" 2>/dev/null; then
+      mv "$tmp" "$file" || exit 1   # BL-071-WRITE: atomic gate-date finalize (mutation target)
+      trap - EXIT INT TERM
+      exit 0
+    else
+      rm -f "$tmp"
+      trap - EXIT INT TERM
+      exit 1
+    fi
+  ) || rc=1
+  # `|| true`: on a mv-failure path the subshell's EXIT trap already
+  # removed the lock dir, so this rmdir would fail — never let that trip
+  # `set -e` and abort the whole gate run.
+  rmdir "$lock_dir" 2>/dev/null || true
+
+  if [ "$rc" -eq 0 ]; then
+    echo -e "${GREEN}  [OK]${NC} $label: gate date recorded ($today, by $actor) from APPROVAL_LOG.md evidence."
+    return 0
+  fi
+  echo -e "${YELLOW}[WARN]${NC} $label: gate-date auto-write failed (jq error) — record the date in $PHASE_STATE manually."
+  return 2
+}
+
 gate_0_to_1=$(get_gate_date "phase_0_to_1")
 gate_1_to_2=$(get_gate_date "phase_1_to_2")
 gate_2_to_3=$(get_gate_date "phase_2_to_3")
@@ -594,16 +747,20 @@ if [ "$deployment" = "organizational" ] && [ "$current_phase" -ge 0 ]; then
   fi
 fi
 
-# Check: if current_phase >= 1, gate 0→1 should have a date
+# Check: if current_phase >= 1, gate 0→1 should have a date.
+# BL-071: evidence-first. When APPROVAL_LOG.md carries the dated entry
+# (the real record the gate passed) we RECORD today's date into
+# phase-state.json::gates.phase_0_to_1 (idempotent; never overwrites an
+# existing date). The date-set-but-no-evidence and no-date-no-evidence
+# branches preserve the historical WARN behavior.
 if [ "$current_phase" -ge 1 ]; then
-  if [ -n "$gate_0_to_1" ]; then
-    # Verify APPROVAL_LOG.md has a corresponding entry
-    if grep -q "Phase 0.*Phase 1" "$APPROVAL_LOG" && grep -A 15 "Phase 0.*Phase 1" "$APPROVAL_LOG" | grep -qE "[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])"; then
-      echo -e "${GREEN}  [OK]${NC} Phase 0→1: gate dated $gate_0_to_1, approval log has entry"
-    else
-      echo -e "${YELLOW}[WARN]${NC} Phase 0→1: gate dated $gate_0_to_1, but APPROVAL_LOG.md has no dated entry"
-      issues=$((issues + 1))
-    fi
+  if _cpg_gate_has_evidence "Phase 0.*Phase 1"; then
+    cpg_rc=0
+    _cpg_record_gate_date "phase_0_to_1" "Phase 0→1" "$gate_0_to_1" || cpg_rc=$?
+    [ "$cpg_rc" -eq 2 ] && issues=$((issues + 1))
+  elif [ -n "$gate_0_to_1" ]; then
+    echo -e "${YELLOW}[WARN]${NC} Phase 0→1: gate dated $gate_0_to_1, but APPROVAL_LOG.md has no dated entry"
+    issues=$((issues + 1))
   else
     echo -e "${YELLOW}[WARN]${NC} Phase 0→1: current_phase is $current_phase but gate date not recorded in phase-state.json"
     issues=$((issues + 1))
@@ -638,15 +795,16 @@ if [ "$current_phase" -ge 1 ]; then
   fi
 fi
 
-# Check: if current_phase >= 2, gate 1→2 should have a date
+# Check: if current_phase >= 2, gate 1→2 should have a date (BL-071: see
+# the Phase 0→1 block for the evidence-first auto-write rationale).
 if [ "$current_phase" -ge 2 ]; then
-  if [ -n "$gate_1_to_2" ]; then
-    if grep -q "Phase 1.*Phase 2" "$APPROVAL_LOG" && grep -A 15 "Phase 1.*Phase 2" "$APPROVAL_LOG" | grep -qE "[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])"; then
-      echo -e "${GREEN}  [OK]${NC} Phase 1→2: gate dated $gate_1_to_2, approval log has entry"
-    else
-      echo -e "${YELLOW}[WARN]${NC} Phase 1→2: gate dated $gate_1_to_2, but APPROVAL_LOG.md has no dated entry"
-      issues=$((issues + 1))
-    fi
+  if _cpg_gate_has_evidence "Phase 1.*Phase 2"; then
+    cpg_rc=0
+    _cpg_record_gate_date "phase_1_to_2" "Phase 1→2" "$gate_1_to_2" || cpg_rc=$?
+    [ "$cpg_rc" -eq 2 ] && issues=$((issues + 1))
+  elif [ -n "$gate_1_to_2" ]; then
+    echo -e "${YELLOW}[WARN]${NC} Phase 1→2: gate dated $gate_1_to_2, but APPROVAL_LOG.md has no dated entry"
+    issues=$((issues + 1))
   else
     echo -e "${YELLOW}[WARN]${NC} Phase 1→2: current_phase is $current_phase but gate date not recorded in phase-state.json"
     issues=$((issues + 1))
@@ -867,15 +1025,16 @@ if [ "$current_phase" -ge 2 ] && [ -f "$APPROVAL_LOG" ] && \
   fi
 fi
 
-# Check: if current_phase >= 3, gate 2→3 should have a date
+# Check: if current_phase >= 3, gate 2→3 should have a date (BL-071: see
+# the Phase 0→1 block for the evidence-first auto-write rationale).
 if [ "$current_phase" -ge 3 ]; then
-  if [ -n "$gate_2_to_3" ]; then
-    if grep -q "Phase 2.*Phase 3" "$APPROVAL_LOG" && grep -A 15 "Phase 2.*Phase 3" "$APPROVAL_LOG" | grep -qE "[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])"; then
-      echo -e "${GREEN}  [OK]${NC} Phase 2→3: gate dated $gate_2_to_3, approval log has entry"
-    else
-      echo -e "${YELLOW}[WARN]${NC} Phase 2→3: gate dated $gate_2_to_3, but APPROVAL_LOG.md has no dated entry"
-      issues=$((issues + 1))
-    fi
+  if _cpg_gate_has_evidence "Phase 2.*Phase 3"; then
+    cpg_rc=0
+    _cpg_record_gate_date "phase_2_to_3" "Phase 2→3" "$gate_2_to_3" || cpg_rc=$?
+    [ "$cpg_rc" -eq 2 ] && issues=$((issues + 1))
+  elif [ -n "$gate_2_to_3" ]; then
+    echo -e "${YELLOW}[WARN]${NC} Phase 2→3: gate dated $gate_2_to_3, but APPROVAL_LOG.md has no dated entry"
+    issues=$((issues + 1))
   else
     echo -e "${YELLOW}[WARN]${NC} Phase 2→3: current_phase is $current_phase but gate date not recorded in phase-state.json"
     issues=$((issues + 1))
@@ -898,15 +1057,16 @@ if [ "$current_phase" -ge 3 ]; then
   fi
 fi
 
-# Check: if current_phase >= 4, gate 3→4 should have a date
+# Check: if current_phase >= 4, gate 3→4 should have a date (BL-071: see
+# the Phase 0→1 block for the evidence-first auto-write rationale).
 if [ "$current_phase" -ge 4 ]; then
-  if [ -n "$gate_3_to_4" ]; then
-    if grep -q "Phase 3.*Phase 4" "$APPROVAL_LOG" && grep -A 15 "Phase 3.*Phase 4" "$APPROVAL_LOG" | grep -qE "[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])"; then
-      echo -e "${GREEN}  [OK]${NC} Phase 3→4: gate dated $gate_3_to_4, approval log has entry"
-    else
-      echo -e "${YELLOW}[WARN]${NC} Phase 3→4: gate dated $gate_3_to_4, but APPROVAL_LOG.md has no dated entry"
-      issues=$((issues + 1))
-    fi
+  if _cpg_gate_has_evidence "Phase 3.*Phase 4"; then
+    cpg_rc=0
+    _cpg_record_gate_date "phase_3_to_4" "Phase 3→4" "$gate_3_to_4" || cpg_rc=$?
+    [ "$cpg_rc" -eq 2 ] && issues=$((issues + 1))
+  elif [ -n "$gate_3_to_4" ]; then
+    echo -e "${YELLOW}[WARN]${NC} Phase 3→4: gate dated $gate_3_to_4, but APPROVAL_LOG.md has no dated entry"
+    issues=$((issues + 1))
   else
     echo -e "${YELLOW}[WARN]${NC} Phase 3→4: current_phase is $current_phase but gate date not recorded in phase-state.json"
     issues=$((issues + 1))
