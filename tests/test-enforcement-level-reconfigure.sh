@@ -20,14 +20,14 @@ cd /tmp
 setup_personal() {
   TMP=$(mktemp -d); PROJ="$TMP/p"
   bash "$INIT" --non-interactive --project x --project-dir "$PROJ" --no-remote-creation \
-    --platform web --language javascript --track light --deployment personal \
+    --platform web --language typescript --track light --deployment personal \
     >/dev/null 2>&1
   RECONFIG="$PROJ/scripts/reconfigure-project.sh"
 }
 setup_org_production() {
   TMP=$(mktemp -d); PROJ="$TMP/p"
   bash "$INIT" --non-interactive --project x --project-dir "$PROJ" --no-remote-creation \
-    --platform web --language javascript --track standard --deployment organizational --gov-mode production \
+    --platform web --language typescript --track standard --deployment organizational --gov-mode production \
     >/dev/null 2>&1
   RECONFIG="$PROJ/scripts/reconfigure-project.sh"
 }
@@ -62,7 +62,7 @@ teardown
 echo "T4: light→strict installs filesystem gate"
 TMP=$(mktemp -d); PROJ="$TMP/p"
 bash "$INIT" --non-interactive --project x --project-dir "$PROJ" --no-remote-creation \
-  --platform web --language javascript --track light --deployment personal \
+  --platform web --language typescript --track light --deployment personal \
   --enforcement-level light --confirm-pitfalls >/dev/null 2>&1
 RECONFIG="$PROJ/scripts/reconfigure-project.sh"
 if ( cd "$PROJ" && bash "$RECONFIG" --enforcement-level strict >/dev/null 2>&1 ); then
@@ -156,7 +156,7 @@ teardown
 echo "T10: light→strict installer FAILURE rolls back manifest + audit"
 TMP=$(mktemp -d); PROJ="$TMP/p"
 bash "$INIT" --non-interactive --project x --project-dir "$PROJ" --no-remote-creation \
-  --platform web --language javascript --track light --deployment personal \
+  --platform web --language typescript --track light --deployment personal \
   --enforcement-level light --confirm-pitfalls >/dev/null 2>&1
 RECONFIG="$PROJ/scripts/reconfigure-project.sh"
 # Replace the project-local installer with a stub that exits 1.

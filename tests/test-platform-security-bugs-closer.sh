@@ -215,9 +215,12 @@ STUB
   pass "T4a: pending-approval.sh refuses --offer when cwd is the framework"
 }
 
-# --- T4b: docstring/callsite parity — every script named in helpers.sh:201-204 actually invokes the guard ---
+# --- T4b: docstring/callsite parity — every script named in the guard_not_in_framework docstring (helpers-core.sh, moved there in the BL-046 helpers split) actually invokes the guard ---
 t4b_docstring_parity() {
-  local helpers="$REPO_ROOT/scripts/lib/helpers.sh"
+  # BL-046 split: guard_not_in_framework + its docstring moved from
+  # helpers.sh into helpers-core.sh (helpers.sh is now a shim that
+  # sources both -core and -full). Probe the definition site.
+  local helpers="$REPO_ROOT/scripts/lib/helpers-core.sh"
   [ -f "$helpers" ] || { fail_ "T4b" "missing $helpers"; return; }
 
   # Extract the parenthesized list of script basenames in the docstring
@@ -232,7 +235,7 @@ t4b_docstring_parity() {
   ' "$helpers")
 
   if [ -z "$doc_block" ]; then
-    fail_ "T4b" "helpers.sh docstring block for guard_not_in_framework not found"
+    fail_ "T4b" "helpers-core.sh docstring block for guard_not_in_framework not found"
     return
   fi
 
@@ -254,15 +257,15 @@ t4b_docstring_parity() {
     elif [ -f "$REPO_ROOT/scripts/$name" ]; then
       target="$REPO_ROOT/scripts/$name"
     elif [ -f "$REPO_ROOT/scripts/lib/$name" ]; then
-      # helpers.sh DEFINES the guard; skip it (we don't expect a script to guard against itself).
+      # helpers-core.sh DEFINES the guard; skip it (we don't expect a script to guard against itself).
       continue
     fi
     if [ -z "$target" ]; then
       missing="${missing}${name}(not-found) "
       continue
     fi
-    # Skip if this IS helpers.sh (definition site).
-    [ "$(basename "$target")" = "helpers.sh" ] && continue
+    # Skip if this IS the guard definition site (helpers-core.sh).
+    [ "$(basename "$target")" = "helpers-core.sh" ] && continue
     # Count non-comment, non-docstring callsites.
     local hits
     hits=$(grep -v '^[[:space:]]*#' "$target" | grep -c 'guard_not_in_framework')
@@ -272,11 +275,11 @@ t4b_docstring_parity() {
   done
 
   if [ -n "$missing" ]; then
-    fail_ "T4b" "scripts listed in helpers.sh docstring lack guard_not_in_framework callsite: $missing"
+    fail_ "T4b" "scripts listed in helpers-core.sh docstring lack guard_not_in_framework callsite: $missing"
     return
   fi
 
-  pass "T4b: every script in helpers.sh guard docstring actually calls guard_not_in_framework"
+  pass "T4b: every script in helpers-core.sh guard docstring actually calls guard_not_in_framework"
 }
 
 # --- T5: BUG-001 2026-04-22 update wording corrected ---

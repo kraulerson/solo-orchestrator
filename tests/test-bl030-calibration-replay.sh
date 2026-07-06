@@ -25,7 +25,7 @@ run_init() {
   if [ "$level" != "strict" ]; then extra="--enforcement-level $level --confirm-pitfalls"; fi
   # shellcheck disable=SC2086
   bash "$INIT" --non-interactive --project x --project-dir "$proj" --no-remote-creation \
-    --platform web --language javascript --track light --deployment personal $extra \
+    --platform web --language typescript --track light --deployment personal $extra \
     >/dev/null 2>&1
 }
 

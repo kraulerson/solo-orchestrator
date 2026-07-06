@@ -39,35 +39,35 @@ n1_happy_path() {
 }
 
 n11_invalid_platform() {
-  local out; out=$(run_validate --project p --platform foo --deployment personal --language ts)
+  local out; out=$(run_validate --project p --platform foo --deployment personal --language typescript)
   [ "${out%%|*}" = "1" ] || { fail_ "N11" "expected exit 1, got: $out"; return; }
   [[ "${out##*|}" == *"--platform"* ]] || { fail_ "N11" "stderr should mention --platform: ${out##*|}"; return; }
   pass "N11: invalid --platform → exit 1 with platform listed"
 }
 
 n12_invalid_project_name() {
-  local out; out=$(run_validate --project "Foo!" --platform web --deployment personal --language ts)
+  local out; out=$(run_validate --project "Foo!" --platform web --deployment personal --language typescript)
   [ "${out%%|*}" = "1" ] || { fail_ "N12" "expected exit 1, got: $out"; return; }
   [[ "${out##*|}" == *"project"* ]] || { fail_ "N12" "stderr should mention project: ${out##*|}"; return; }
   pass "N12: invalid --project name → exit 1 with naming-rule message"
 }
 
 n2_missing_project() {
-  local out; out=$(run_validate --platform web --deployment personal --language ts)
+  local out; out=$(run_validate --platform web --deployment personal --language typescript)
   [ "${out%%|*}" = "1" ] || { fail_ "N2" "expected exit 1, got: $out"; return; }
   [[ "${out##*|}" == *"--project"* ]] || { fail_ "N2" "stderr should mention --project: ${out##*|}"; return; }
   pass "N2: missing --project → exit 1"
 }
 
 n3_missing_platform() {
-  local out; out=$(run_validate --project p --deployment personal --language ts)
+  local out; out=$(run_validate --project p --deployment personal --language typescript)
   [ "${out%%|*}" = "1" ] || { fail_ "N3" "expected exit 1, got: $out"; return; }
   [[ "${out##*|}" == *"--platform"* ]] || { fail_ "N3" "stderr should mention --platform: ${out##*|}"; return; }
   pass "N3: missing --platform → exit 1"
 }
 
 n4_missing_deployment() {
-  local out; out=$(run_validate --project p --platform web --language ts)
+  local out; out=$(run_validate --project p --platform web --language typescript)
   [ "${out%%|*}" = "1" ] || { fail_ "N4" "expected exit 1, got: $out"; return; }
   [[ "${out##*|}" == *"--deployment"* ]] || { fail_ "N4" "stderr should mention --deployment: ${out##*|}"; return; }
   pass "N4: missing --deployment → exit 1"
@@ -81,35 +81,35 @@ n5_missing_language() {
 }
 
 n6_org_without_govmode() {
-  local out; out=$(run_validate --project p --platform web --deployment organizational --language ts)
+  local out; out=$(run_validate --project p --platform web --deployment organizational --language typescript)
   [ "${out%%|*}" = "1" ] || { fail_ "N6" "expected exit 1, got: $out"; return; }
   [[ "${out##*|}" == *"--gov-mode"* ]] || { fail_ "N6" "stderr should mention --gov-mode: ${out##*|}"; return; }
   pass "N6: --deployment=organizational without --gov-mode → exit 1"
 }
 
 n7_personal_with_govmode() {
-  local out; out=$(run_validate --project p --platform web --deployment personal --gov-mode production --language ts)
+  local out; out=$(run_validate --project p --platform web --deployment personal --gov-mode production --language typescript)
   [ "${out%%|*}" = "1" ] || { fail_ "N7" "expected exit 1, got: $out"; return; }
   [[ "${out##*|}" == *"--gov-mode"* ]] || { fail_ "N7" "stderr should mention --gov-mode: ${out##*|}"; return; }
   pass "N7: --deployment=personal with --gov-mode → exit 1"
 }
 
 n8_other_without_remoteurl() {
-  local out; out=$(run_validate --project p --platform web --deployment personal --language ts --git-host other)
+  local out; out=$(run_validate --project p --platform web --deployment personal --language typescript --git-host other)
   [ "${out%%|*}" = "1" ] || { fail_ "N8" "expected exit 1, got: $out"; return; }
   [[ "${out##*|}" == *"--remote-url"* ]] || { fail_ "N8" "stderr should mention --remote-url: ${out##*|}"; return; }
   pass "N8: --git-host=other without --remote-url → exit 1"
 }
 
 n9_other_without_attest() {
-  local out; out=$(run_validate --project p --platform web --deployment personal --language ts --git-host other --remote-url https://example.com/x)
+  local out; out=$(run_validate --project p --platform web --deployment personal --language typescript --git-host other --remote-url https://example.com/x)
   [ "${out%%|*}" = "1" ] || { fail_ "N9" "expected exit 1, got: $out"; return; }
   [[ "${out##*|}" == *"--branch-protection-attested"* ]] || { fail_ "N9" "stderr should mention --branch-protection-attested: ${out##*|}"; return; }
   pass "N9: --git-host=other without --branch-protection-attested → exit 1"
 }
 
 n10_org_with_public_visibility() {
-  local out; out=$(run_validate --project p --platform web --deployment organizational --gov-mode production --language ts --visibility public)
+  local out; out=$(run_validate --project p --platform web --deployment organizational --gov-mode production --language typescript --visibility public)
   [ "${out%%|*}" = "1" ] || { fail_ "N10" "expected exit 1, got: $out"; return; }
   [[ "${out##*|}" == *"--visibility=public"* ]] || { fail_ "N10" "stderr should explain org-forces-private: ${out##*|}"; return; }
   pass "N10: --deployment=organizational + --visibility=public → exit 1"
@@ -180,7 +180,7 @@ n20_validate_only_success() {
 }
 
 n21_validate_only_failure() {
-  local out; out=$(run_validate --platform web --deployment personal --language ts)
+  local out; out=$(run_validate --platform web --deployment personal --language typescript)
   [ "${out%%|*}" = "1" ] || { fail_ "N21" "expected exit 1, got: $out"; return; }
   pass "N21: --validate-only failure → exit 1 with same error as real run"
 }
@@ -225,7 +225,7 @@ JSON
 }
 
 n16_config_not_found() {
-  local out; out=$(run_validate --config /nonexistent/path/init.json --project p --platform web --deployment personal --language ts)
+  local out; out=$(run_validate --config /nonexistent/path/init.json --project p --platform web --deployment personal --language typescript)
   [ "${out%%|*}" = "1" ] || { fail_ "N16" "expected exit 1, got: $out"; return; }
   [[ "${out##*|}" == *"not found"* ]] || { fail_ "N16" "stderr should mention 'not found': ${out##*|}"; return; }
   pass "N16: --config file not found → exit 1"
@@ -235,7 +235,7 @@ n17_config_malformed_json() {
   local cfg
   cfg=$(mktemp)
   echo '{"project": "p"' > "$cfg"
-  local out; out=$(run_validate --config "$cfg" --project p --platform web --deployment personal --language ts)
+  local out; out=$(run_validate --config "$cfg" --project p --platform web --deployment personal --language typescript)
   rm -f "$cfg"
   [ "${out%%|*}" = "1" ] || { fail_ "N17" "expected exit 1, got: $out"; return; }
   [[ "${out##*|}" == *"not valid JSON"* ]] || { fail_ "N17" "stderr should mention 'not valid JSON': ${out##*|}"; return; }
