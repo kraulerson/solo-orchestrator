@@ -1317,14 +1317,14 @@ _tool_install_legacy_metachar_safe() {
   return 0
 }
 
-fix_tool_install() {
-  local index="$1"
-  if [ -z "$RESOLVER_OUTPUT" ]; then return 1; fi
-  local install_cmd
-  install_cmd=$(echo "$RESOLVER_OUTPUT" | jq -r ".auto_install[$index].install_cmd")
-  if [ -z "$install_cmd" ] || [ "$install_cmd" = "null" ]; then
-    return 1
-  fi
+# Dispatch a SINGLE install stage through the two-layer pipeline.
+# Returns 0 on success, non-zero on failure/refusal. Extracted from
+# fix_tool_install (BL-069) so the per-stage loop can invoke it once per
+# element of the resolver's install_cmds array. A stage that fails the
+# structured shape AND the legacy metachar gate is REFUSED (non-zero) —
+# the loop then halts fail-fast without running later stages.
+_tool_install_dispatch_one() {
+  local install_cmd="$1"
 
   # -------- Layer 1: structured dispatch --------
   _tool_install_dispatch_structured "$install_cmd"
@@ -1396,6 +1396,49 @@ fix_tool_install() {
   # — but the metachar gate above has already rejected the dangerous
   # chaining forms.
   bash -c -- "$install_cmd"
+}
+
+fix_tool_install() {
+  local index="$1"
+  if [ -z "$RESOLVER_OUTPUT" ]; then return 1; fi
+
+  # BL-069: honor the resolver's structured `install_cmds` array so each
+  # stage is dispatched (and diagnosed) independently with fail-fast.
+  # Fall back to the legacy singular `install_cmd` ONLY when the array is
+  # absent/empty — legacy-string matrix entries behave exactly as before.
+  local stages_json
+  stages_json=$(echo "$RESOLVER_OUTPUT" | jq -c --argjson i "$index" '
+    .auto_install[$i] as $t
+    | (if ($t.install_cmds | type) == "array" and ($t.install_cmds | length) > 0
+       then $t.install_cmds else [$t.install_cmd] end)
+    | map(select(. != null and . != ""))
+  ')
+  if [ -z "$stages_json" ] || [ "$stages_json" = "null" ] || [ "$stages_json" = "[]" ]; then
+    return 1
+  fi
+
+  local total
+  total=$(echo "$stages_json" | jq 'length')
+
+  # Iterate stages: dispatch each through the two-layer pipeline. A
+  # non-zero stage HALTS the sequence (fail-fast); later stages do NOT
+  # run, and earlier stages' side effects remain for a repair re-run.
+  local idx=0 stage rc
+  while IFS= read -r stage; do
+    idx=$((idx + 1))
+    if [ "$total" -gt 1 ]; then
+      print_info "fix_tool_install: stage $idx/$total: $stage" >&2
+    fi
+    _tool_install_dispatch_one "$stage"
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+      if [ "$total" -gt 1 ]; then
+        print_warn "fix_tool_install: stage $idx/$total failed (exit $rc) — halting; earlier stages' effects remain for a repair re-run." >&2
+      fi
+      return "$rc"
+    fi
+  done < <(echo "$stages_json" | jq -r '.[]')
+  return 0
 }
 
 # BL-050 (Step 4 ROI #6): synthesize the 20 fix_tool_install_N wrappers only

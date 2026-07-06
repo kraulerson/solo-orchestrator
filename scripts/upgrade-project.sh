@@ -2030,15 +2030,34 @@ if [ "$TRACK_CHANGES" = true ] && [ -f "$RESOLVER" ] && [ -d "$MATRIX_DIR" ] && 
         # already gates this branch — prompt_yes_no's defense-in-
         # depth N return here is harmless (we don't enter the block).
         if prompt_yes_no "$(echo -e "  ${BOLD}Auto-install $AUTO_COUNT tool(s) now? [Y/n]${NC}")" "Y"; then
-          echo "$RESOLVER_OUTPUT" | jq -r '.auto_install[] | .install_cmd' | while IFS= read -r cmd; do
-            if [ -n "$cmd" ]; then
-              print_info "Installing: $cmd"
-              if eval "$cmd" 2>/dev/null; then
+          # BL-069: iterate each tool's structured install_cmds array so
+          # per-stage failures are diagnosed and fail-fast per stage. Fall
+          # back to the legacy singular install_cmd only when the array is
+          # absent (legacy-string matrix entries behave unchanged). No
+          # 2>/dev/null: per-stage install failures must surface so the
+          # operator can act on the exact failing stage.
+          _ui=0
+          while [ "$_ui" -lt "$AUTO_COUNT" ]; do
+            _tool_name=$(echo "$RESOLVER_OUTPUT" | jq -r --argjson i "$_ui" '.auto_install[$i].name // "tool"')
+            _stages_json=$(echo "$RESOLVER_OUTPUT" | jq -c --argjson i "$_ui" '
+              .auto_install[$i] as $t
+              | (if ($t.install_cmds | type) == "array" and ($t.install_cmds | length) > 0
+                 then $t.install_cmds else [$t.install_cmd] end)
+              | map(select(. != null and . != ""))
+            ')
+            _stages=()
+            while IFS= read -r _st; do
+              [ -n "$_st" ] && _stages+=("$_st")
+            done < <(echo "$_stages_json" | jq -r '.[]')
+            if [ "${#_stages[@]}" -gt 0 ]; then
+              print_info "Installing: $_tool_name"
+              if run_install_stages "$_tool_name" "${_stages[@]}"; then
                 print_ok "Installed successfully"
               else
                 print_warn "Install failed — you may need to install manually"
               fi
             fi
+            _ui=$((_ui + 1))
           done
         else
           print_info "Skipped auto-install. You can install tools later."

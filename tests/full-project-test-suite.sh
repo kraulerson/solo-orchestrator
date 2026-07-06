@@ -784,6 +784,27 @@ else
 fi
 
 # ----------------------------------------------------------------
+# TEST 0r-bl069: install_cmds ARRAY CONSUMERS (BL-069)
+# ----------------------------------------------------------------
+# BL-033 (above) shipped the resolver SCHEMA — install_cmd (legacy
+# joined) + install_cmds (structured array) — but no consumer READ the
+# array. tests/test-bl069-install-cmds-consumers.sh proves the three
+# migrated readers (helpers-core.sh run_install_stages/prompt_install,
+# verify-install.sh fix_tool_install, upgrade-project.sh install loop)
+# iterate install_cmds with per-stage fail-fast + resumability, fall
+# back to the legacy singular install_cmd when the array is absent, and
+# that gitleaks/rust/k6 are migrated to the array shape (join-preserving).
+# Mutation-proven: a reader that used only install_cmds[0] flips
+# T-runner-happy-multi / T-extract-prefers-array / T-vi-multi-both RED.
+# Registered here per BL-038 discipline.
+section "BL-069 install_cmds array consumers"
+if bash "$SCRIPT_DIR/tests/test-bl069-install-cmds-consumers.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl069-install-cmds-consumers.sh (Groups A-E: split, run_install_stages, extraction, fix_tool_install dispatch, wrapper JSON regression)"
+else
+  fail "tests/test-bl069-install-cmds-consumers.sh FAILED (run for details)"
+fi
+
+# ----------------------------------------------------------------
 # TEST 0s: HOST-DRIVER AGGREGATOR
 # ----------------------------------------------------------------
 # tests/host-drivers/run-all.sh wraps the per-host unit tests

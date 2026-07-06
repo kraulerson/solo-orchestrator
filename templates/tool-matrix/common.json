@@ -201,9 +201,18 @@
       "latest_check": {"method": "github_release", "package": "gitleaks/gitleaks"},
       "install": {
         "darwin_brew": "brew install gitleaks",
-        "linux_apt": "GITLEAKS_VERSION=$(curl -sSf https://api.github.com/repos/gitleaks/gitleaks/releases/latest | jq -r .tag_name) && curl -sSfL \"https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION#v}_linux_x64.tar.gz\" | sudo tar -xz -C /usr/local/bin gitleaks",
-        "linux_dnf": "GITLEAKS_VERSION=$(curl -sSf https://api.github.com/repos/gitleaks/gitleaks/releases/latest | jq -r .tag_name) && curl -sSfL \"https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION#v}_linux_x64.tar.gz\" | sudo tar -xz -C /usr/local/bin gitleaks",
-        "linux_pacman": "GITLEAKS_VERSION=$(curl -sSf https://api.github.com/repos/gitleaks/gitleaks/releases/latest | jq -r .tag_name) && curl -sSfL \"https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION#v}_linux_x64.tar.gz\" | sudo tar -xz -C /usr/local/bin gitleaks",
+        "linux_apt": [
+          "GITLEAKS_VERSION=$(curl -sSf https://api.github.com/repos/gitleaks/gitleaks/releases/latest | jq -r .tag_name)",
+          "curl -sSfL \"https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION#v}_linux_x64.tar.gz\" | sudo tar -xz -C /usr/local/bin gitleaks"
+        ],
+        "linux_dnf": [
+          "GITLEAKS_VERSION=$(curl -sSf https://api.github.com/repos/gitleaks/gitleaks/releases/latest | jq -r .tag_name)",
+          "curl -sSfL \"https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION#v}_linux_x64.tar.gz\" | sudo tar -xz -C /usr/local/bin gitleaks"
+        ],
+        "linux_pacman": [
+          "GITLEAKS_VERSION=$(curl -sSf https://api.github.com/repos/gitleaks/gitleaks/releases/latest | jq -r .tag_name)",
+          "curl -sSfL \"https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION#v}_linux_x64.tar.gz\" | sudo tar -xz -C /usr/local/bin gitleaks"
+        ],
         "manual": "https://github.com/gitleaks/gitleaks/releases"
       },
       "auto_installable": true,
@@ -387,8 +396,14 @@
       "min_version": "1.70.0",
       "latest_check": null,
       "install": {
-        "darwin_brew": "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && source \"$HOME/.cargo/env\"",
-        "linux_apt": "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && source \"$HOME/.cargo/env\"",
+        "darwin_brew": [
+          "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
+          "source \"$HOME/.cargo/env\""
+        ],
+        "linux_apt": [
+          "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
+          "source \"$HOME/.cargo/env\""
+        ],
         "linux_pacman": "sudo pacman -S --noconfirm rust",
         "manual": "https://rustup.rs/"
       },
