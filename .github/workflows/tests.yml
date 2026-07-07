@@ -31,6 +31,7 @@ name: tests
 
 on:
   push:
+    branches: [main]   # fast lane on main pushes; PRs covered by pull_request
   pull_request:
   schedule:
     # Nightly at 08:00 UTC.
