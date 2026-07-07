@@ -629,19 +629,10 @@ fi
 # tests/test-prompt-install-noninteractive.sh (verifier-fix 33e351e)
 # is GREEN.
 section "Verify-install + prompt-install fix-functions (PRs #92, 33e351e)"
-if [ "$SKIP_KNOWN_FAILING" = "1" ]; then
-  warn "SKIP_KNOWN_FAILING=1 — skipping tests/test-verify-install-fix-functions.sh (known-RED, BL-037)"
+if bash "$SCRIPT_DIR/tests/test-verify-install-fix-functions.sh" >/dev/null 2>&1; then
+  pass "tests/test-verify-install-fix-functions.sh"
 else
-  # Status: known-RED on main pending BL-037 (T6-T10 tightening) +
-  # underlying fix_tool_install missing-function bug. Aggregator will
-  # exit non-zero until BL-037 lands. Do NOT `|| true` this — that's
-  # the vacuous-pass class BL-034 exists to surface. Karl opts in
-  # via SKIP_KNOWN_FAILING=1 for local iteration.
-  if bash "$SCRIPT_DIR/tests/test-verify-install-fix-functions.sh" >/dev/null 2>&1; then
-    pass "tests/test-verify-install-fix-functions.sh"
-  else
-    fail "tests/test-verify-install-fix-functions.sh FAILED — known-RED on main, tracked by BL-037 (fix_tool_install missing + T6-T10 tightening). SKIP_KNOWN_FAILING=1 to bypass during local iteration."
-  fi
+  fail "tests/test-verify-install-fix-functions.sh FAILED (run for details)"
 fi
 if bash "$SCRIPT_DIR/tests/test-prompt-install-noninteractive.sh" >/dev/null 2>&1; then
   pass "tests/test-prompt-install-noninteractive.sh"
@@ -720,19 +711,10 @@ if bash "$SCRIPT_DIR/tests/test-process-checklist-check-commit-ready-subject.sh"
 else
   fail "tests/test-process-checklist-check-commit-ready-subject.sh FAILED (run for details)"
 fi
-if [ "$SKIP_KNOWN_FAILING" = "1" ]; then
-  warn "SKIP_KNOWN_FAILING=1 — skipping tests/test-process-checklist-reset-phase1.sh (known-RED, BL-041)"
+if bash "$SCRIPT_DIR/tests/test-process-checklist-reset-phase1.sh" >/dev/null 2>&1; then
+  pass "tests/test-process-checklist-reset-phase1.sh"
 else
-  # Status: known-RED on main pending BL-041 (framework-repo guard
-  # layering) — T4/T5 invoke process-checklist.sh from inside the
-  # framework checkout, hitting the guard. Aggregator will exit
-  # non-zero until BL-041 lands or the test cd-s to a fixture
-  # project dir first. SKIP_KNOWN_FAILING=1 to bypass locally.
-  if bash "$SCRIPT_DIR/tests/test-process-checklist-reset-phase1.sh" >/dev/null 2>&1; then
-    pass "tests/test-process-checklist-reset-phase1.sh"
-  else
-    fail "tests/test-process-checklist-reset-phase1.sh FAILED — known-RED on main, tracked by BL-041 (framework-repo guard). SKIP_KNOWN_FAILING=1 to bypass during local iteration."
-  fi
+  fail "tests/test-process-checklist-reset-phase1.sh FAILED (run for details)"
 fi
 
 # ----------------------------------------------------------------
@@ -814,31 +796,15 @@ fi
 # Known-RED siblings are gated on SKIP_KNOWN_FAILING so a local
 # iteration loop can mask them; default = surface the failure.
 section "Edge-cases aggregators (pre-init, scripts, upgrade-input)"
-if [ "$SKIP_KNOWN_FAILING" = "1" ]; then
-  warn "SKIP_KNOWN_FAILING=1 — skipping tests/edge-cases-pre-init.sh (known-RED, BL-040)"
+if bash "$SCRIPT_DIR/tests/edge-cases-pre-init.sh" >/dev/null 2>&1; then
+  pass "tests/edge-cases-pre-init.sh"
 else
-  # Status: known-RED on main pending BL-040 (init.sh:2781 dry_run
-  # summary). Do NOT `|| true` — apostrophe-handling regressions in
-  # init.sh must surface. SKIP_KNOWN_FAILING=1 to bypass locally.
-  if bash "$SCRIPT_DIR/tests/edge-cases-pre-init.sh" >/dev/null 2>&1; then
-    pass "tests/edge-cases-pre-init.sh"
-  else
-    fail "tests/edge-cases-pre-init.sh FAILED — known-RED on main, tracked by BL-040 (E1, E4 apostrophe/dry-run name preservation). SKIP_KNOWN_FAILING=1 to bypass during local iteration."
-  fi
+  fail "tests/edge-cases-pre-init.sh FAILED (run for details)"
 fi
-if [ "$SKIP_KNOWN_FAILING" = "1" ]; then
-  warn "SKIP_KNOWN_FAILING=1 — skipping tests/edge-cases-scripts.sh (known-RED, BL-065 / BL-009 follow-up: E30 --platform other)"
+if bash "$SCRIPT_DIR/tests/edge-cases-scripts.sh" >/dev/null 2>&1; then
+  pass "tests/edge-cases-scripts.sh"
 else
-  # Status: known-RED on main pending BL-065 (E30 --platform other
-  # refs/template handling — BL-009 follow-up). BL-039 (E50) was
-  # closed in the PR that landed this gate-narrowing — E50 + new
-  # E50b now reflect the actual baseline §2.5 tier contract.
-  # Do NOT `|| true`. SKIP_KNOWN_FAILING=1 to bypass locally.
-  if bash "$SCRIPT_DIR/tests/edge-cases-scripts.sh" >/dev/null 2>&1; then
-    pass "tests/edge-cases-scripts.sh"
-  else
-    fail "tests/edge-cases-scripts.sh FAILED — known-RED on main, tracked by BL-065 (E30 --platform other / BL-009 follow-up). SKIP_KNOWN_FAILING=1 to bypass during local iteration."
-  fi
+  fail "tests/edge-cases-scripts.sh FAILED (run for details)"
 fi
 if bash "$SCRIPT_DIR/tests/edge-cases-upgrade-input.sh" >/dev/null 2>&1; then
   pass "tests/edge-cases-upgrade-input.sh"
@@ -916,18 +882,10 @@ fi
 # and surface the failure so the e2e-init regressions can't ship
 # silent.
 section "Host-driver aggregator (tests/host-drivers/run-all.sh)"
-if [ "$SKIP_KNOWN_FAILING" = "1" ]; then
-  warn "SKIP_KNOWN_FAILING=1 — skipping tests/host-drivers/run-all.sh (e2e-init-* trio known-RED)"
+if bash "$SCRIPT_DIR/tests/host-drivers/run-all.sh" >/dev/null 2>&1; then
+  pass "tests/host-drivers/run-all.sh (all children)"
 else
-  # Status: 6 of 9 children GREEN; 3 e2e-init.*.test.sh children
-  # RED on main (existing defect, not introduced by BL-034). Do
-  # NOT `|| true` — the per-host unit tests inside the aggregator
-  # MUST be allowed to fail loudly when they regress.
-  if bash "$SCRIPT_DIR/tests/host-drivers/run-all.sh" >/dev/null 2>&1; then
-    pass "tests/host-drivers/run-all.sh (9/9 children)"
-  else
-    fail "tests/host-drivers/run-all.sh FAILED — known-RED: e2e-init / e2e-init-gitlab / e2e-init-bitbucket. Unit-test children (github/gitlab/regressions/mock-cli) should still PASS. SKIP_KNOWN_FAILING=1 to bypass."
-  fi
+  fail "tests/host-drivers/run-all.sh FAILED (run for details)"
 fi
 
 # --- BL-035 wiring C: test-gate/process/poc/docs ---
