@@ -1,0 +1,181 @@
+# .github/workflows/tests.yml — BL-077: run the test suite in CI on Linux.
+#
+# The suite has only ever run on macOS (bash 3.2). GitHub's ubuntu-latest
+# runners ship bash 5; the suite is written to the bash-3.2 subset, which
+# runs unchanged on bash 5. This workflow gives the repo its first
+# automated *test* coverage (the sibling lint.yml only runs lint scripts).
+#
+# Two lanes, because the full suite (tests/full-project-test-suite.sh)
+# scaffolds dozens of real init.sh projects and delegates to the big
+# aggregators — it takes ~1 hour and is far too slow for every push:
+#
+#   * unit (fast lane)  — push + pull_request. Runs only the quick unit
+#                         tests: the individual tests/test-*.sh files that
+#                         do NOT invoke init.sh and are NOT aggregators.
+#                         Derived from `grep -L 'init\.sh' tests/test-*.sh`
+#                         (66 files; ~5 min on macOS, expected faster on
+#                         Linux). The list is explicit and reviewable below
+#                         so a new orphan test cannot silently join CI —
+#                         add new entries deliberately.
+#
+#   * full (slow lane)  — nightly schedule + manual dispatch only. Runs the
+#                         complete tests/full-project-test-suite.sh, which
+#                         honors the SKIP_KNOWN_FAILING env (left at its
+#                         default of 0 so known-RED guards still run).
+#
+# The tests are hermetic (BL-076 lint enforces no live-remote init.sh runs),
+# so CI does NOT authenticate gh and creates no real remotes. Keep it that
+# way. Do not modify lint.yml.
+
+name: tests
+
+on:
+  push:
+  pull_request:
+  schedule:
+    # Nightly at 08:00 UTC.
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+
+jobs:
+  # ── Fast lane ──────────────────────────────────────────────────────────
+  # Quick unit tests only, on every push and PR. Target: a few minutes.
+  unit:
+    name: unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Only the fast lane on push / PR. The full suite runs on schedule /
+    # dispatch (see the `full` job's guard below).
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # tests/test-lint-backlog-references.sh runs the linter against the
+          # REAL repo with `--base origin/main` (needs the origin/main ref and
+          # reachable history). The default shallow clone (fetch-depth: 1)
+          # leaves that ref unresolvable. Mirror lint.yml's backlog job.
+          fetch-depth: 0
+
+      - name: Verify required tools are available
+        # ubuntu-latest ships both, but fail loudly and early if a future
+        # runner image ever drops one rather than mid-suite with a cryptic
+        # error.
+        run: jq --version && git --version
+
+      - name: Run fast unit tests
+        run: |
+          set -uo pipefail
+          # Explicit, reviewable list. A test belongs here iff it does not
+          # invoke init.sh (no project scaffolding) and is not an aggregator
+          # or helper. Regenerate with:
+          #   grep -L 'init\.sh' tests/test-*.sh | sort
+          tests=(
+            tests/test-bl032-gitlab-free-approvals-attestation.sh
+            tests/test-bl046-helpers-split.sh
+            tests/test-bl069-install-cmds-consumers.sh
+            tests/test-bl073-review-manifest-gate.sh
+            tests/test-bypass-audit-integrity.sh
+            tests/test-bypass-audit-lib.sh
+            tests/test-bypass-audit-tmp-hardening.sh
+            tests/test-bypass-audit-trap-isolation.sh
+            tests/test-bypass-detector-session-id.sh
+            tests/test-bypass-detector.sh
+            tests/test-bypass-patterns.sh
+            tests/test-bypass-sentinel.sh
+            tests/test-check-changelog-filter.sh
+            tests/test-check-commit-message.sh
+            tests/test-check-gate.sh
+            tests/test-check-phase-gate-argv-parser.sh
+            tests/test-check-phase-gate-backstop-attestation.sh
+            tests/test-check-phase-gate-blame-walker.sh
+            tests/test-check-phase-gate-counter-sanitizer.sh
+            tests/test-check-phase-gate-date-writeback.sh
+            tests/test-check-phase-gate-noninteractive.sh
+            tests/test-check-phase-gate-retroactive-approval.sh
+            tests/test-check-phase-gate-self-approval.sh
+            tests/test-check-phase-gate.sh
+            tests/test-enforcement-level-lib.sh
+            tests/test-escalate-to-user.sh
+            tests/test-filesystem-gate-install.sh
+            tests/test-gate-principles.sh
+            tests/test-gitlab-ci-status-stderr-approvals.sh
+            tests/test-host-verify-protection-date-parse.sh
+            tests/test-lint-backlog-references.sh
+            tests/test-lint-counter-antipattern.sh
+            tests/test-lint-doc-anchors.sh
+            tests/test-lint-fix-functions-stderr.sh
+            tests/test-lint-raw-read-prompt.sh
+            tests/test-lint-tests-registered.sh
+            tests/test-lint-uat-scenarios.sh
+            tests/test-out-of-band-detector.sh
+            tests/test-pending-approval-resolve-decision.sh
+            tests/test-pending-approval.sh
+            tests/test-phase-finalize.sh
+            tests/test-phase3-validation-gate.sh
+            tests/test-pre-commit-gate-classifier.sh
+            tests/test-pre-commit-gate-lints.sh
+            tests/test-process-checklist-auto-advance.sh
+            tests/test-process-checklist-check-commit-ready-subject.sh
+            tests/test-process-checklist-classifier.sh
+            tests/test-process-checklist-reset-phase1.sh
+            tests/test-record-claude-commit.sh
+            tests/test-session-test-gate-check-merge.sh
+            tests/test-specs-plans-remaining-quartet.sh
+            tests/test-test-gate-counter-sanitizer.sh
+            tests/test-test-gate-null-handling.sh
+            tests/test-tier-crosscheck-6-followup-atomicity-and-jq.sh
+            tests/test-unrecord-feature.sh
+            tests/test-upgrade-cdf-refresh.sh
+            tests/test-upgrade-interruption.sh
+            tests/test-upgrade-manifest-refresh.sh
+            tests/test-upgrade-non-interactive.sh
+            tests/test-upgrade-project-atomic.sh
+            tests/test-upgrade-sentinel-block.sh
+            tests/test-upgrade-to-production-preconditions.sh
+            tests/test-upgrade-to-production-warn.sh
+            tests/test-validate-counter-sanitizer.sh
+            tests/test-validate-phase-2-3-gate.sh
+            tests/test-validate-phase-state-gates.sh
+          )
+
+          failed=()
+          for t in "${tests[@]}"; do
+            echo "::group::${t}"
+            if bash "${t}"; then
+              echo "PASS ${t}"
+            else
+              rc=$?
+              echo "FAIL ${t} (rc=${rc})"
+              failed+=("${t}")
+            fi
+            echo "::endgroup::"
+          done
+
+          echo ""
+          echo "==================================================================="
+          echo "Ran ${#tests[@]} unit test file(s); ${#failed[@]} failed."
+          if [ "${#failed[@]}" -ne 0 ]; then
+            echo "Failed: ${failed[*]}"
+            exit 1
+          fi
+          echo "All unit tests passed."
+
+  # ── Slow lane ──────────────────────────────────────────────────────────
+  # The complete ~1-hour suite. Nightly + manual only, never on push/PR.
+  full:
+    name: full
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify required tools are available
+        run: jq --version && git --version
+
+      - name: Run full project test suite
+        # SKIP_KNOWN_FAILING is intentionally left unset -> defaults to 0
+        # inside the suite, so known-RED guard tests still execute in CI.
+        run: bash tests/full-project-test-suite.sh
