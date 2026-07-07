@@ -209,7 +209,7 @@ setup_cv_fixture() {
       "languages": ["all"],
       "platforms": ["all"],
       "dev_os": ["darwin", "linux"],
-      "install": { "darwin_brew": "brew install claude-fake" }
+      "install": { "darwin_brew": "brew install claude-fake", "manual": "brew install claude-fake" }
     }
   ]
 }
