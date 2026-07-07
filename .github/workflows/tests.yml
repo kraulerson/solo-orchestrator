@@ -162,21 +162,66 @@ jobs:
           fi
           echo "All unit tests passed."
 
-  # ── Slow lane ──────────────────────────────────────────────────────────
-  # The complete ~1-hour suite. Nightly + manual only, never on push/PR.
+  # ── Slow lane (sharded) ────────────────────────────────────────────────
+  # Serial, the full suite is ~1h — dominated by ~140 sequential init.sh
+  # project scaffolds concentrated in a few heavy aggregators
+  # (edge-cases-pre-init: 68, edge-cases-scripts: 41). BL-077 splits it into
+  # parallel shards so wall-clock is the slowest single shard (~20 min), not
+  # the sum. Coverage is identical to the un-sharded suite:
+  #   • core          — master suite with the heavy aggregators skipped
+  #                     (SUITE_SKIP_AGGREGATORS=1); still runs TEST 0-8, the
+  #                     inline cohorts, and the fast host-drivers aggregator.
+  #   • edge-pre-init — tests/edge-cases-pre-init.sh   (68 scaffolds)
+  #   • edge-scripts  — tests/edge-cases-scripts.sh    (41 scaffolds)
+  #   • aggregators   — the remaining lighter aggregators, run directly.
+  # Union of shards == the un-sharded suite. Nightly + manual only.
   full:
-    name: full
+    name: full (${{ matrix.shard }})
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 45
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [core, edge-pre-init, edge-scripts, aggregators]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Verify required tools are available
         run: jq --version && git --version
 
-      - name: Run full project test suite
-        # SKIP_KNOWN_FAILING is intentionally left unset -> defaults to 0
-        # inside the suite, so known-RED guard tests still execute in CI.
-        run: bash tests/full-project-test-suite.sh
+      - name: Run shard — ${{ matrix.shard }}
+        # SKIP_KNOWN_FAILING left unset -> 0, so known-RED guards still run.
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          set -uo pipefail
+          case "$SHARD" in
+            core)
+              SUITE_SKIP_AGGREGATORS=1 bash tests/full-project-test-suite.sh
+              ;;
+            edge-pre-init)
+              bash tests/edge-cases-pre-init.sh
+              ;;
+            edge-scripts)
+              bash tests/edge-cases-scripts.sh
+              ;;
+            aggregators)
+              rc=0
+              for t in tests/edge-cases-upgrade-input.sh \
+                       tests/edge-case-test-suite.sh \
+                       tests/known-bugs-test-suite.sh \
+                       tests/upgrade-path-tests.sh; do
+                echo "::group::${t}"
+                if bash "${t}"; then echo "PASS ${t}"; else echo "FAIL ${t}"; rc=1; fi
+                echo "::endgroup::"
+              done
+              exit "$rc"
+              ;;
+            *)
+              echo "unknown shard: $SHARD" >&2; exit 1
+              ;;
+          esac
