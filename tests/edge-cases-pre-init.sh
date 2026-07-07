@@ -125,49 +125,86 @@ build_dryrun_input() {
 
 # ================================================================
 # E1: Project name with apostrophe and spaces
-# Expected: sanitized to lowercase-no-spaces
+#
+# Two distinct, path-dependent contracts — both are current, intended
+# product behavior (verified 2026-07-06):
+#   • Interactive TTY: collect_project_info() sanitizes with
+#     `tr '[:upper:]' '[:lower:]' | tr ' ' '-'` (init.sh:481), so
+#     "Derek's Cool App" -> "derek's-cool-app" (apostrophe preserved)
+#     and is shown verbatim in the DRY RUN SUMMARY "Name:" line.
+#   • Non-interactive --project: the flag value is taken verbatim with
+#     NO sanitizer and is schema-validated against ^[a-z][a-z0-9-]*$
+#     (init.sh:3502). An apostrophe+space name is therefore REJECTED
+#     with a clear error — the flag path must not persist an
+#     unsanitized name to a directory/manifest.
+#
+# BL-040 HARNESS NOTE: earlier revisions PIPED the name on stdin
+# (printf ... | init.sh --dry-run) and grepped for "derek" /
+# "derek's-cool-app". That never exercised name handling at all:
+# scripts/lib/helpers-core.sh:prompt_input() returns its DEFAULT
+# (empty string) whenever stdin is not a TTY, so the piped
+# "Derek's Cool App" was discarded and PROJECT_NAME stayed empty — the
+# greps could never match regardless of product correctness. This is
+# the same TTY-gated defect E2 was migrated off of. The name only
+# reaches PROJECT_NAME through a real TTY or the non-interactive
+# --project flag; the assertions below use the latter, which is the
+# sole deterministic, hermetic, bash-only channel. (Supersedes the
+# stdin-piped assertions and audit finding tests-edge-cases-1.)
 # ================================================================
 section "E1: Project Name with Apostrophe + Spaces"
 
 E1_DIR="$TEST_DIR/e1-project"
-E1_INPUT=$(build_init_input "Derek's Cool App" "A test project" 4 2 1 6 "$E1_DIR" "Y")
-E1_EXTRA_INPUT="${E1_INPUT}
-Y"
 
 echo ""
 echo "  Input project name: Derek's Cool App"
 
-# Use --dry-run to avoid interactive prerequisite prompts consuming stdin
-e1_output=$(printf '%s\n' "$E1_INPUT" | bash "$REPO_DIR/init.sh" --dry-run 2>&1) || true
+# E1a: apostrophe+space name on the non-interactive --project path must
+# be rejected by schema validation (no sanitizer on the flag path).
+e1_reject_exit=0
+e1_reject_output=$(bash "$REPO_DIR/init.sh" \
+  --dry-run \
+  --non-interactive \
+  --project "Derek's Cool App" \
+  --description "A test project" \
+  --platform web \
+  --deployment personal \
+  --language rust \
+  --project-dir "$E1_DIR" 2>&1) || e1_reject_exit=$?
 
-# Check the output for the sanitized project name
-# init.sh does: tr '[:upper:]' '[:lower:]' | tr ' ' '-'
-# So "Derek's Cool App" -> "derek's-cool-app"
-if echo "$e1_output" | grep -qi "derek"; then
-  pass "E1: init.sh accepted name with apostrophe+spaces"
+if [ "$e1_reject_exit" -ne 0 ] \
+   && echo "$e1_reject_output" | grep -qiE "invalid --project name|must start with a lowercase letter"; then
+  pass "E1: non-interactive --project rejects apostrophe+space name with clear error"
 else
-  fail "E1: init.sh did not process name with apostrophe+spaces"
+  fail "E1: non-interactive --project did NOT reject apostrophe+space name (exit=$e1_reject_exit)"
 fi
 
-# Verify dry-run summary shows the sanitized name in its exact documented form.
-# init.sh does: tr '[:upper:]' '[:lower:]' | tr ' ' '-'
-# So "Derek's Cool App" -> "derek's-cool-app". A fixed-string, case-sensitive
-# grep is required so that a regression removing the tr-pipeline (which would
-# leave "Derek's Cool App" or "derek's cool app") would be caught — the raw
-# input "Derek" already contains the substring "derek", so a case-insensitive
-# substring grep is vacuous and inflates the PASS count without coverage.
-# (Closes audit finding tests-edge-cases-1.)
-if echo "$e1_output" | grep -qF "derek's-cool-app"; then
-  pass "E1: dry-run output contains exact sanitized name 'derek's-cool-app'"
+# E1b: dry-run name preservation — a valid (pre-sanitized) name is
+# echoed VERBATIM in the DRY RUN SUMMARY "Name:" line. Anchored,
+# fixed-name grep so a regression that drops the summary line or
+# rewrites/re-cases the name fails RED. This is the core BL-040
+# dry-run-name-preservation invariant.
+E1B_NAME="dereks-cool-app"
+e1b_output=$(bash "$REPO_DIR/init.sh" \
+  --dry-run \
+  --non-interactive \
+  --project "$E1B_NAME" \
+  --description "A test project" \
+  --platform web \
+  --deployment personal \
+  --language rust \
+  --project-dir "$E1_DIR" 2>&1) || true
+
+if echo "$e1b_output" | grep -qE "^[[:space:]]*Name:[[:space:]]+dereks-cool-app[[:space:]]*$"; then
+  pass "E1: dry-run summary preserves the project name verbatim ('$E1B_NAME')"
 else
-  fail "E1: dry-run output missing exact sanitized name 'derek's-cool-app'"
+  fail "E1: dry-run summary did not preserve the project name verbatim ('$E1B_NAME')"
 fi
 
-# Verify dry-run completed
-if echo "$e1_output" | grep -qi "DRY RUN SUMMARY"; then
-  pass "E1: dry-run completed with apostrophe+space name"
+# E1c: dry-run completed for the valid-name run.
+if echo "$e1b_output" | grep -qi "DRY RUN SUMMARY"; then
+  pass "E1: dry-run completed with valid project name"
 else
-  fail "E1: dry-run did not complete with apostrophe+space name"
+  fail "E1: dry-run did not complete with valid project name"
 fi
 
 # ================================================================
@@ -351,11 +388,16 @@ section "E4: Double Init in Same Directory"
 E4_DIR="$TEST_DIR/e4-double-init"
 
 echo ""
-echo "  Testing two sequential dry-runs targeting: $E4_DIR"
+echo "  Testing two sequential --non-interactive dry-runs targeting: $E4_DIR"
+echo "  (stdin-piped names never reach PROJECT_NAME — see E1 HARNESS NOTE —"
+echo "   so the --project flag is the deterministic channel for this check.)"
 
 # First dry-run
-e4_input=$(build_init_input "e4-double" "First run" 4 1 1 6 "$E4_DIR" "Y")
-e4_run1=$(printf '%s\n' "$e4_input" | bash "$REPO_DIR/init.sh" --dry-run 2>&1) || true
+e4_run1=$(bash "$REPO_DIR/init.sh" \
+  --dry-run --non-interactive \
+  --project "e4-double" --description "First run" \
+  --platform web --deployment personal --language rust \
+  --project-dir "$E4_DIR" 2>&1) || true
 
 if echo "$e4_run1" | grep -qi "DRY RUN SUMMARY"; then
   pass "E4: first dry-run completed successfully"
@@ -363,9 +405,12 @@ else
   fail "E4: first dry-run did not complete"
 fi
 
-# Second dry-run — same target directory
-e4_input2=$(build_init_input "e4-double" "Second run" 4 1 1 6 "$E4_DIR" "Y")
-e4_run2=$(printf '%s\n' "$e4_input2" | bash "$REPO_DIR/init.sh" --dry-run 2>&1) || true
+# Second dry-run — same target directory, same project name
+e4_run2=$(bash "$REPO_DIR/init.sh" \
+  --dry-run --non-interactive \
+  --project "e4-double" --description "Second run" \
+  --platform web --deployment personal --language rust \
+  --project-dir "$E4_DIR" 2>&1) || true
 
 if echo "$e4_run2" | grep -qi "DRY RUN SUMMARY"; then
   pass "E4: second dry-run completed (idempotent input handling)"
@@ -373,9 +418,12 @@ else
   fail "E4: second dry-run failed"
 fi
 
-# Both runs should show the same project name
-if echo "$e4_run1" | grep -q "e4-double" && echo "$e4_run2" | grep -q "e4-double"; then
-  pass "E4: both runs accepted the same project name"
+# Both runs must echo the SAME project name in the summary "Name:" line
+# (preservation across repeated runs — the BL-040 invariant). Anchored,
+# fixed-name grep so a dropped/rewritten name fails RED.
+if echo "$e4_run1" | grep -qE "^[[:space:]]*Name:[[:space:]]+e4-double[[:space:]]*$" \
+   && echo "$e4_run2" | grep -qE "^[[:space:]]*Name:[[:space:]]+e4-double[[:space:]]*$"; then
+  pass "E4: both runs preserved the same project name in the summary"
 else
   fail "E4: project name not preserved across runs"
 fi

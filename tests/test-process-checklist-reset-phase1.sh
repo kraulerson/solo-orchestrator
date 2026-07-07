@@ -86,7 +86,15 @@ teardown_project
 # arm AND is seeded in both ensure_state_file and reset_all templates.
 # Fails (rc=1) if any gap.
 echo "T4: --invariant-check passes on healthy script"
-out=$("$SCRIPT" --invariant-check 2>&1) ; rc=$?
+# process-checklist.sh calls guard_not_in_framework at load (before dispatch),
+# which refuses when cwd IS the framework repo. --invariant-check is a pure
+# self-test that reads only the script text ($BASH_SOURCE) and writes no state,
+# but the guard is unconditional — so run it from a non-framework sandbox cwd,
+# exactly as T3 does for --status. Without this the test trips the framework-
+# repo guard whenever the suite runs from inside the framework checkout.
+SANDBOX_T4=$(mktemp -d)
+out=$(cd "$SANDBOX_T4" && "$SCRIPT" --invariant-check 2>&1) ; rc=$?
+rm -rf "$SANDBOX_T4"
 if [ "$rc" -eq 0 ] && echo "$out" | grep -q "invariant-check: all processes wired"; then
   pass "T4: invariant-check passes (every process has reset arm + template entry)"
 else
@@ -133,7 +141,11 @@ assert new_body != body, "phase1_architecture arm not found / not removed"
 open(path, 'w').write(s.replace(body, new_body))
 PY
 chmod +x "$TMPSCRIPT"
-out=$("$TMPSCRIPT" --invariant-check 2>&1) ; rc=$?
+# Same framework-repo guard as T4: run the copied script from a non-framework
+# sandbox cwd so the guard passes and we exercise the invariant-check gap path.
+SANDBOX_T5=$(mktemp -d)
+out=$(cd "$SANDBOX_T5" && "$TMPSCRIPT" --invariant-check 2>&1) ; rc=$?
+rm -rf "$SANDBOX_T5"
 if [ "$rc" -ne 0 ] && echo "$out" | grep -q "phase1_architecture"; then
   pass "T5: invariant-check fails (rc=$rc) and names the missing arm"
 else
