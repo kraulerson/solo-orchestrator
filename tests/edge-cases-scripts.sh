@@ -1700,31 +1700,66 @@ fi
 
 # E58: project-local invocation of upgrade-project.sh must exit rc=0.
 # Regression guard for T1-B from 2026-04-26 UAT triage. The BL-009/BL-015
-# helper-refresh block at scripts/upgrade-project.sh:1471 did
-# `cp $SCRIPT_DIR/$helper scripts/$helper` where $SCRIPT_DIR resolved to the
-# project's own scripts/ dir when invoked as `bash scripts/upgrade-project.sh`
-# from the project root. BSD cp returns non-zero on identical source/dest,
-# and `set -euo pipefail` aborted before "Upgrade complete." State changes
-# succeeded but the wrapper signaled failure.
+# helper-refresh block (scripts/upgrade-project.sh, "Refreshing framework
+# helper scripts") did `cp $SCRIPT_DIR/$helper scripts/$helper` where
+# $SCRIPT_DIR resolved to the project's own scripts/ dir when invoked as
+# `bash scripts/upgrade-project.sh` from the project root. BSD cp returns
+# non-zero on identical source/dest, and `set -euo pipefail` aborted before
+# "Upgrade complete." The fix guards the no-op with a `-ef` same-file test;
+# this case keeps that path honest by driving a REAL init scaffold + a
+# project-local upgrade to completion.
+#
+# STALE-TEST repair (BL-039 / baseline §2.5, 2026-07): the prior init baseline
+# was `--deployment organizational --gov-mode private_poc`, which init.sh now
+# correctly REJECTS at Pass-2 validation (init.sh:3648 — "Private POC is always
+# a personal deployment"; the same rule E50b guards). init exited rc=1 so the
+# upgrade never ran and E58 failed on init_rc, not on the T1-B path it exists
+# to guard. The baseline is realigned to a valid personal project that then
+# crosses to organizational/sponsored_poc via --to-sponsored-poc — an
+# org-crossing project-local upgrade that E60 (--to-private-poc stays personal)
+# does not cover. Hermetic: --no-remote-creation (the old form passed a live
+# --remote-url with no --no-remote-creation — a latent network hazard that only
+# never fired because §2.5 rejected it earlier). The personal→organizational
+# ZDR gate (tier-crosscheck-6) is satisfied by seeding phase1_artifacts, mirror-
+# ing E58b.
 _e58_dir="$TEST_DIR/e58"
 mkdir -p "$_e58_dir"
 _e58_proj="$_e58_dir/uat-e58"
 _e58_init_rc=0
 (cd "$_e58_dir" && "$INIT_SH" --non-interactive \
-  --project uat-e58 --platform web --deployment organizational --gov-mode private_poc \
+  --project uat-e58 --platform web --deployment personal \
   --language typescript --project-dir "$_e58_proj" \
-  --git-host other --remote-url https://example.com/fake.git \
-  --branch-protection-attested >/dev/null 2>&1) || _e58_init_rc=$?
+  --git-host github --no-remote-creation >/dev/null 2>&1) || _e58_init_rc=$?
+# Seed phase1_artifacts so the personal→organizational ZDR gate
+# (tier-crosscheck-6 in upgrade-project.sh) does not block the deployment flip.
+_e58_pstate="$_e58_proj/.claude/process-state.json"
+if [ "$_e58_init_rc" = "0" ] && [ -f "$_e58_pstate" ]; then
+  _e58_tmp="$_e58_pstate.tmp"
+  if jq '.phase1_artifacts = ((.phase1_artifacts // {}) + {data_classification:"internal", zdr_attested:true})' \
+       "$_e58_pstate" > "$_e58_tmp" 2>/dev/null; then
+    mv "$_e58_tmp" "$_e58_pstate"
+  else
+    rm -f "$_e58_tmp"
+  fi
+fi
 _e58_upgrade_rc=0
 if [ "$_e58_init_rc" = "0" ] && [ -d "$_e58_proj/scripts" ]; then
   (cd "$_e58_proj" && bash scripts/upgrade-project.sh --to-sponsored-poc >/dev/null 2>&1) || _e58_upgrade_rc=$?
 else
   _e58_upgrade_rc=255
 fi
-if [ "$_e58_upgrade_rc" = "0" ]; then
-  pass "E58: project-local upgrade-project.sh --to-sponsored-poc exits 0 (T1-B regression guard)"
+_e58_deploy=""
+_e58_poc=""
+if [ -f "$_e58_proj/.claude/phase-state.json" ]; then
+  _e58_deploy=$(jq -r '.deployment // empty' "$_e58_proj/.claude/phase-state.json" 2>/dev/null || echo "")
+  _e58_poc=$(jq -r '.poc_mode // empty' "$_e58_proj/.claude/phase-state.json" 2>/dev/null || echo "")
+fi
+if [ "$_e58_upgrade_rc" = "0" ] && \
+   [ "$_e58_deploy" = "organizational" ] && \
+   [ "$_e58_poc" = "sponsored_poc" ]; then
+  pass "E58: project-local upgrade-project.sh --to-sponsored-poc (personal→org) exits 0 + flips to organizational/sponsored_poc (T1-B project-local cp guard)"
 else
-  fail "E58: expected rc=0 from project-local upgrade-project.sh, got rc=$_e58_upgrade_rc (init_rc=$_e58_init_rc)"
+  fail "E58: expected rc=0 deployment=organizational poc_mode=sponsored_poc; got rc=$_e58_upgrade_rc deployment='$_e58_deploy' poc_mode='$_e58_poc' (init_rc=$_e58_init_rc)"
 fi
 
 # E58b: --to-sponsored-poc on a genuinely PERSONAL project succeeds AND flips
