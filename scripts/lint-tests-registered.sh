@@ -57,6 +57,11 @@
 #       aggregator (or replaced with a real EXEMPT marker if it is
 #       a manual/network-only test).
 #     • When BL-035 closes, this list must be empty.
+#   BL-035/BL-052 CLOSED (2026-07-06): the bridge is drained AND SEALED.
+#   The array is now permanently empty and an invariant guard hard-FAILs
+#   the lint (exit 1) if any entry ever reappears — the escape hatch
+#   cannot be reopened. This is the durable closure of the BL-035/BL-038
+#   orphan-test defect class.
 #   Test fixtures (tests-dir override) skip the bridge — only the
 #   canonical repo tests dir consults it.
 #
@@ -143,9 +148,28 @@ fi
 #   (a) registering the test in an aggregator, OR
 #   (b) adding a real `# LINT_TEST_REGISTRATION_EXEMPT: <reason>`
 #       marker inside the test file's header.
-# When BL-035 closes this array must be empty.
+#
+# CLOSED — the bridge is drained and PERMANENTLY SEALED (BL-035 / BL-052
+# capstone). The array MUST stay empty: the invariant guard immediately
+# below hard-FAILs the lint if any entry ever reappears, so nobody can
+# reopen the "parked orphan" escape hatch. A genuinely new orphan test
+# must be registered in an aggregator (or carry a real EXEMPT marker) —
+# it can never be parked here again. See BL-035/BL-038 closure notes.
 KNOWN_ORPHANS_PENDING_BL035=(
 )
+
+# ── INVARIANT LOCK (BL-035/BL-038 durable closure) ──────────────────
+# "The bridge must be empty" is now a hard, permanent invariant, not a
+# soft goal. In repo mode (not fixture/test mode), refuse to run if the
+# array is non-empty: re-parking an orphan on the bridge is a merge-
+# blocking error. Fixture scans (--tests-dir/--aggregators) already skip
+# the bridge entirely, so this guard is scoped to TEST_MODE=0 to keep
+# self-test semantics clean.
+if [ "$TEST_MODE" -eq 0 ] && [ "${#KNOWN_ORPHANS_PENDING_BL035[@]}" -ne 0 ]; then
+  echo "lint-tests-registered: KNOWN_ORPHANS_PENDING_BL035 is non-empty (${#KNOWN_ORPHANS_PENDING_BL035[@]} entr(y|ies): ${KNOWN_ORPHANS_PENDING_BL035[*]})." >&2
+  echo "  The BL-035/BL-052 capstone drained and SEALED this bridge — it must stay empty. Register the orphan test(s) in an aggregator (or add a '# LINT_TEST_REGISTRATION_EXEMPT: <reason>' marker); do not re-park them here." >&2
+  exit 1
+fi
 
 VIOLATIONS=0
 LIST_ROWS=""

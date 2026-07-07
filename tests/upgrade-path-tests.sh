@@ -418,14 +418,20 @@ else
 fi
 
 # 4b: Verify organizational approval log has governance fields that personal lacks
-# We simulate what init.sh generates by checking the template content
+# The approval-log bodies were refactored out of init.sh heredocs into
+# templates/generated/approval-log-{org,personal}.tmpl —
+# generate_approval_log() (init.sh:2622) now renders those templates.
+# Grep the template files, not init.sh (was stale fixture drift: the
+# markers moved when the templates were extracted).
 ORG_APPROVAL_MARKERS=("IT Security" "Legal" "Executive Sponsor" "ITSM" "Backup maintainer")
 PERSONAL_SKIP_MARKER="N/A — personal project"
+ORG_APPROVAL_TMPL="$SCRIPT_DIR/templates/generated/approval-log-org.tmpl"
+PERSONAL_APPROVAL_TMPL="$SCRIPT_DIR/templates/generated/approval-log-personal.tmpl"
 
 org_markers_found=0
 for marker in "${ORG_APPROVAL_MARKERS[@]}"; do
-  if grep -q "$marker" "$INIT_FILE" 2>/dev/null; then
-    ((org_markers_found++))
+  if grep -q "$marker" "$ORG_APPROVAL_TMPL" 2>/dev/null; then
+    org_markers_found=$((org_markers_found + 1))
   fi
 done
 
@@ -435,7 +441,7 @@ else
   fail "Organizational approval log missing governance roles ($org_markers_found/5 found)"
 fi
 
-if grep -q "$PERSONAL_SKIP_MARKER" "$INIT_FILE" 2>/dev/null; then
+if grep -q "$PERSONAL_SKIP_MARKER" "$PERSONAL_APPROVAL_TMPL" 2>/dev/null; then
   pass "Personal approval log marks pre-conditions as N/A"
 else
   fail "Personal approval log missing N/A markers for pre-conditions"
@@ -450,8 +456,9 @@ else
 fi
 
 # 4d: Verify organizational deployment requires more governance sections
-# Count governance-related sections in init.sh organizational vs personal templates
-org_gate_count=$(grep -c "Phase Gate\|Approver\|Role.*|.*IT Security\|Evidence required" "$INIT_FILE" 2>/dev/null || echo "0")
+# Count governance-related markers in the extracted org approval template
+# (was init.sh before the approval-log heredocs were templated — see 4b note).
+org_gate_count=$(grep -c "Phase Gate\|Approver\|Role.*|.*IT Security\|Evidence required" "$ORG_APPROVAL_TMPL" 2>/dev/null || echo "0")
 case "$org_gate_count" in ''|*[!0-9]*) org_gate_count=0 ;; esac
 if [ "$org_gate_count" -gt 5 ]; then
   pass "Organizational template has extensive governance ($org_gate_count gate-related markers)"
@@ -681,8 +688,9 @@ else
   fail "Deployment ordering wrong: personal should be lower than organizational"
 fi
 
-# Verify structural difference: organizational has governance artifacts personal lacks
-if grep -q "Pre-Condition.*Approver.*Role.*Date.*Method" "$INIT_FILE" 2>/dev/null; then
+# Verify structural difference: organizational has governance artifacts personal lacks.
+# Table header lives in the extracted org template (see 4b note above), not init.sh.
+if grep -q "Pre-Condition.*Approver.*Role.*Date.*Method" "$ORG_APPROVAL_TMPL" 2>/dev/null; then
   pass "Organizational template has structured approval table (would be lost on downgrade)"
 else
   warn "Could not verify organizational approval table structure"

@@ -227,7 +227,7 @@ section "3. Git host variation"
 # .github/workflows/ci.yml.
 T=$(mktemp -d); P="$T/p"
 run_bounded 90 bash "$INIT" --non-interactive --project x --project-dir "$P" \
-  --no-remote-creation --platform web --language javascript --track light \
+  --no-remote-creation --platform web --language typescript --track light \
   --deployment personal --git-host gitlab > "$T/log" 2>&1 < /dev/null
 rc=$RC
 if [ -f "$P/.gitlab-ci.yml" ] && [ ! -f "$P/.github/workflows/ci.yml" ]; then
@@ -240,7 +240,7 @@ rm -rf "$T"
 # T3.2: --git-host bitbucket emits bitbucket-pipelines.yml.
 T=$(mktemp -d); P="$T/p"
 run_bounded 90 bash "$INIT" --non-interactive --project x --project-dir "$P" \
-  --no-remote-creation --platform web --language javascript --track light \
+  --no-remote-creation --platform web --language typescript --track light \
   --deployment personal --git-host bitbucket > "$T/log" 2>&1 < /dev/null
 rc=$RC
 if [ -f "$P/bitbucket-pipelines.yml" ] && [ ! -f "$P/.github/workflows/ci.yml" ]; then
@@ -257,7 +257,7 @@ rm -rf "$T"
 # output even when host is gitlab/bitbucket.
 T=$(mktemp -d); P="$T/p"
 run_bounded 90 bash "$INIT" --non-interactive --project x --project-dir "$P" \
-  --no-remote-creation --platform web --language javascript --track standard \
+  --no-remote-creation --platform web --language typescript --track standard \
   --deployment personal --git-host gitlab > "$T/log" 2>&1 < /dev/null
 rc=$RC
 # Expected behavior: release artifact in gitlab/ format (or no artifact +
@@ -273,7 +273,7 @@ rm -rf "$T"
 # .gitlab-ci.yml, no bitbucket-pipelines.yml.
 T=$(mktemp -d); P="$T/p"
 run_bounded 90 bash "$INIT" --non-interactive --project x --project-dir "$P" \
-  --no-remote-creation --platform web --language javascript --track light \
+  --no-remote-creation --platform web --language typescript --track light \
   --deployment personal --git-host other --remote-url "https://example.com/x.git" \
   --branch-protection-attested > "$T/log" 2>&1 < /dev/null
 rc=$RC
@@ -291,7 +291,7 @@ section "4. Existing-project re-init"
 # T4.1: init refuses an existing directory by default (safety guard).
 T=$(mktemp -d); P="$T/p"; mkdir -p "$P"
 run_bounded 30 bash "$INIT" --non-interactive --project x --project-dir "$P" \
-  --no-remote-creation --platform web --language javascript --track light --deployment personal \
+  --no-remote-creation --platform web --language typescript --track light --deployment personal \
   > "$T/log" 2>&1 < /dev/null
 rc=$RC
 out=$(cat "$T/log")
@@ -311,7 +311,7 @@ printf '%s\n' 'console.log("user code");' > "$P/src/app.js"
 USER_README_HASH=$(shasum "$P/README.md" | awk '{print $1}')
 USER_APP_HASH=$(shasum "$P/src/app.js" | awk '{print $1}')
 run_bounded 90 bash "$INIT" --non-interactive --project x --project-dir "$P" \
-  --no-remote-creation --platform web --language javascript --track light \
+  --no-remote-creation --platform web --language typescript --track light \
   --deployment personal --allow-existing-dir > "$T/log" 2>&1 < /dev/null
 rc=$RC
 post_readme_hash=$(shasum "$P/README.md" 2>/dev/null | awk '{print $1}')
@@ -331,11 +331,11 @@ rm -rf "$T"
 # second run with --allow-existing-dir succeeds.
 T=$(mktemp -d); P="$T/p"
 run_bounded 90 bash "$INIT" --non-interactive --project x --project-dir "$P" \
-  --no-remote-creation --platform web --language javascript --track light \
+  --no-remote-creation --platform web --language typescript --track light \
   --deployment personal > "$T/log1" 2>&1 < /dev/null
 rc1=$RC
 run_bounded 90 bash "$INIT" --non-interactive --project x --project-dir "$P" \
-  --no-remote-creation --platform web --language javascript --track light \
+  --no-remote-creation --platform web --language typescript --track light \
   --deployment personal --allow-existing-dir > "$T/log2" 2>&1 < /dev/null
 rc2=$RC
 if [ "$rc1" = "0" ] && [ "$rc2" = "0" ]; then
@@ -354,7 +354,7 @@ mkdir -p "$P"
     && git commit -q -m "initial" )
 ORIG_HEAD=$(cd "$P" && git rev-parse HEAD)
 run_bounded 90 bash "$INIT" --non-interactive --project x --project-dir "$P" \
-  --no-remote-creation --platform web --language javascript --track light \
+  --no-remote-creation --platform web --language typescript --track light \
   --deployment personal --allow-existing-dir > "$T/log" 2>&1 < /dev/null
 rc=$RC
 POST_HEAD=$(cd "$P" && git rev-parse HEAD 2>/dev/null)
