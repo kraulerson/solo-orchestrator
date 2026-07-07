@@ -145,9 +145,11 @@ scan_file() {
     file_is_mock=1
   fi
 
-  local var_alt="" v
+  local var_alt="" init_var_names="" v
   while IFS= read -r v; do
-    [ -n "$v" ] && var_alt="${var_alt:+$var_alt|}$v"
+    [ -n "$v" ] || continue
+    var_alt="${var_alt:+$var_alt|}$v"
+    init_var_names="${init_var_names:+$init_var_names }$v"
   done < <(collect_init_vars "$file")
   [ -n "$var_alt" ] || var_alt="__NO_INIT_VAR__"
 
@@ -176,6 +178,25 @@ scan_file() {
     # Pure-comment logical line? skip.
     local trimmed="${buf#"${buf%%[![:space:]]*}"}"
     case "$trimmed" in '#'*) continue ;; esac
+
+    # Pure-bash pre-filter (PERF, zero subprocess): a logical line can be an
+    # init EXECUTION only if it names init.sh literally or references one of
+    # this file's init-path vars ($INIT / $INIT_SH / ...). Both patterns in
+    # line_is_init_exec require one of those tokens, so skipping lines that
+    # contain neither is behavior-preserving — it only avoids spawning the
+    # per-line printf|grep pair for the ~99% of lines that can never match.
+    # Without this gate the full-tree scan spawns thousands of subprocesses
+    # (~100s wall — too slow for the pre-commit gate); with it, a few seconds.
+    local _maybe=0 _iv
+    case "$buf" in *init.sh*) _maybe=1 ;; esac
+    if [ "$_maybe" -eq 0 ] && [ -n "$init_var_names" ]; then
+      for _iv in $init_var_names; do
+        case "$buf" in
+          *"\$$_iv"*|*"\${$_iv}"*) _maybe=1; break ;;
+        esac
+      done
+    fi
+    [ "$_maybe" -eq 1 ] || continue
 
     # Only classify genuine init.sh EXECUTIONS.
     line_is_init_exec "$buf" "$var_alt" || continue
