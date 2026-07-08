@@ -55,7 +55,10 @@ run_with_file() {
   # Run in strict mode so the script EXITs 1 on missing changelog (rather
   # than the GH-Actions warning-only default).
   local rc=0
-  ( cd "$TMP" && SOIF_STRICT_CHANGELOG=true bash "$REPO_ROOT/scripts/check-changelog.sh" >/dev/null 2>&1 ) || rc=$?
+  # GITHUB_BASE_REF= isolates this temp repo from CI/PR env: on a pull_request
+  # event check-changelog.sh would diff against origin/$GITHUB_BASE_REF (absent
+  # in this throwaway repo → empty diff → false pass). Force the HEAD~1..HEAD path.
+  ( cd "$TMP" && GITHUB_BASE_REF= SOIF_STRICT_CHANGELOG=true bash "$REPO_ROOT/scripts/check-changelog.sh" >/dev/null 2>&1 ) || rc=$?
   rm -rf "$TMP"
   echo "$rc"
 }

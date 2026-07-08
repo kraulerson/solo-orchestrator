@@ -69,7 +69,7 @@ if [ "$TERMINAL_MODE" -eq 1 ]; then
   #   - raw-read-prompt            (cycle-8 wave-3 slot-5, this PR)
   # SKIP_LINT=1 escape mirrors the PreToolUse path.
   if [ "${SKIP_LINT:-0}" = "1" ]; then
-    echo "[pre-commit-gate] SKIP_LINT=1 set — bypassing all four pre-commit lints (counter-antipattern, backlog-references, fix-functions-stderr, raw-read-prompt)" >&2
+    echo "[pre-commit-gate] SKIP_LINT=1 set — bypassing all pre-commit lints (counter-antipattern, backlog-references, fix-functions-stderr, raw-read-prompt, tests-registered, no-live-remote-in-tests)" >&2
   else
     # Counter-antipattern: prefer project-local copy (framework installs
     # the script alongside pre-commit-gate.sh in scripts/), fall back to
@@ -148,6 +148,27 @@ if [ "$TERMINAL_MODE" -eq 1 ]; then
       if ! tr_out=$(bash "$TR_LINT" 2>&1); then
         echo "[FRAMEWORK GATE — strict mode] tests-registered lint failed:" >&2
         echo "$tr_out" >&2
+        echo "" >&2
+        echo "To bypass anyway:  SKIP_LINT=1 git commit ..." >&2
+        exit 1
+      fi
+    fi
+
+    # no-live-remote-in-tests (BL-076): every init.sh run under tests/ must be
+    # provably hermetic (--no-remote-creation / --dry-run / --validate-only /
+    # --git-host other, or a mocked host CLI) so the suite can never create a
+    # REAL repo on an authenticated host (the kraulerson/foo leak, 2026-07-06).
+    # Full-tree scan, no message dependency. See
+    # scripts/lint-no-live-remote-in-tests.sh header.
+    NR_LINT=""
+    for cand in "$PROJECT_ROOT/scripts/lint-no-live-remote-in-tests.sh" \
+                "$SCRIPT_DIR/lint-no-live-remote-in-tests.sh"; do
+      [ -f "$cand" ] && { NR_LINT="$cand"; break; }
+    done
+    if [ -n "$NR_LINT" ]; then
+      if ! nr_out=$(bash "$NR_LINT" 2>&1); then
+        echo "[FRAMEWORK GATE — strict mode] no-live-remote-in-tests lint failed:" >&2
+        echo "$nr_out" >&2
         echo "" >&2
         echo "To bypass anyway:  SKIP_LINT=1 git commit ..." >&2
         exit 1
@@ -512,7 +533,7 @@ lints_check() {
 
   # Escape hatch.
   if [ "${SKIP_LINT:-0}" = "1" ]; then
-    echo "[pre-commit-gate] SKIP_LINT=1 set — bypassing counter-antipattern + backlog-references + fix-functions-stderr + raw-read-prompt + tests-registered lints" >&2
+    echo "[pre-commit-gate] SKIP_LINT=1 set — bypassing counter-antipattern + backlog-references + fix-functions-stderr + raw-read-prompt + tests-registered + no-live-remote-in-tests lints" >&2
     return 0
   fi
 
@@ -522,7 +543,7 @@ lints_check() {
   # still self-checks when run from the framework repo's own working
   # tree. Project root = `git rev-parse --show-toplevel` from the
   # current cwd, since Claude Code invokes the hook from the project.
-  local proj_root ca_lint="" br_lint="" ff_lint="" rr_lint="" tr_lint=""
+  local proj_root ca_lint="" br_lint="" ff_lint="" rr_lint="" tr_lint="" nr_lint=""
   proj_root=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
   for cand in "$proj_root/scripts/lint-counter-antipattern.sh" \
               "$SCRIPT_DIR/lint-counter-antipattern.sh"; do
@@ -543,6 +564,10 @@ lints_check() {
   for cand in "$proj_root/scripts/lint-tests-registered.sh" \
               "$SCRIPT_DIR/lint-tests-registered.sh"; do
     [ -n "$cand" ] && [ -f "$cand" ] && { tr_lint="$cand"; break; }
+  done
+  for cand in "$proj_root/scripts/lint-no-live-remote-in-tests.sh" \
+              "$SCRIPT_DIR/lint-no-live-remote-in-tests.sh"; do
+    [ -n "$cand" ] && [ -f "$cand" ] && { nr_lint="$cand"; break; }
   done
 
   # Counter-antipattern: full repo-relative scan, fast.
@@ -594,6 +619,17 @@ lints_check() {
     tr_out=$(bash "$tr_lint" 2>&1) || tr_exit=$?
     if [ "$tr_exit" -ne 0 ]; then
       emit_lint_block "pre-commit gate: scripts/lint-tests-registered.sh failed. ${tr_out} Register the test in tests/full-project-test-suite.sh (or another aggregator) following the BL-034 cohort pattern, or add '# LINT_TEST_REGISTRATION_EXEMPT: <reason>' to the file header. Run 'SKIP_LINT=1 git commit ...' to bypass in an emergency (logged to .claude/bypass-audit.json)."
+    fi
+  fi
+
+  # no-live-remote-in-tests (BL-076): every init.sh run under tests/ must be
+  # provably hermetic so the suite can never create a REAL repo on an
+  # authenticated host. Full repo-relative scan.
+  if [ -n "$nr_lint" ]; then
+    local nr_out nr_exit=0
+    nr_out=$(bash "$nr_lint" 2>&1) || nr_exit=$?
+    if [ "$nr_exit" -ne 0 ]; then
+      emit_lint_block "pre-commit gate: scripts/lint-no-live-remote-in-tests.sh failed. ${nr_out} Make the init.sh run hermetic — add --no-remote-creation (or --git-host other + a fake --remote-url, or route gh/glab/curl through a mocked CLI). Run 'SKIP_LINT=1 git commit ...' to bypass in an emergency (logged to .claude/bypass-audit.json)."
     fi
   fi
 

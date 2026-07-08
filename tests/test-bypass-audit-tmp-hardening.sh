@@ -50,8 +50,8 @@ echo "T1: 0640 audit file keeps 0640 after append"
 setup
 chmod 640 "$PROJ/.claude/bypass-audit.json"
 ( source "$LIB" && bypass_audit_append "$PROJ" "$ROW" >/dev/null 2>&1 )
-mode=$(stat -f "%Lp" "$PROJ/.claude/bypass-audit.json" 2>/dev/null \
-     || stat -c "%a" "$PROJ/.claude/bypass-audit.json" 2>/dev/null)
+mode=$(stat -c "%a" "$PROJ/.claude/bypass-audit.json" 2>/dev/null \
+     || stat -f "%Lp" "$PROJ/.claude/bypass-audit.json" 2>/dev/null)
 if [ "$mode" = "640" ]; then
   pass "T1: post-append mode preserved (was 640, is $mode)"
 else
@@ -65,8 +65,8 @@ setup
 ( source "$LIB" && bypass_audit_append "$PROJ" "$ROW" >/dev/null 2>&1 )
 chmod 640 "$PROJ/.claude/bypass-audit.json"
 ( source "$LIB" && bypass_audit_close_pending "$PROJ" "accept" >/dev/null 2>&1 )
-mode=$(stat -f "%Lp" "$PROJ/.claude/bypass-audit.json" 2>/dev/null \
-     || stat -c "%a" "$PROJ/.claude/bypass-audit.json" 2>/dev/null)
+mode=$(stat -c "%a" "$PROJ/.claude/bypass-audit.json" 2>/dev/null \
+     || stat -f "%Lp" "$PROJ/.claude/bypass-audit.json" 2>/dev/null)
 if [ "$mode" = "640" ]; then
   pass "T2: post-close_pending mode preserved"
 else
@@ -85,8 +85,8 @@ chmod 644 "$PROJ/.claude/bypass-audit.json"  # simulate a permissive prior
 # Touch fresh, simulating no operator override:
 rm -f "$PROJ/.claude/bypass-audit.json"
 ( source "$LIB" && bypass_audit_append "$PROJ" "$ROW" >/dev/null 2>&1 )
-mode=$(stat -f "%Lp" "$PROJ/.claude/bypass-audit.json" 2>/dev/null \
-     || stat -c "%a" "$PROJ/.claude/bypass-audit.json" 2>/dev/null)
+mode=$(stat -c "%a" "$PROJ/.claude/bypass-audit.json" 2>/dev/null \
+     || stat -f "%Lp" "$PROJ/.claude/bypass-audit.json" 2>/dev/null)
 # When bypass_audit_init creates the file via `echo > file` it inherits
 # umask; the subsequent append's chmod-from-reference will then copy
 # that mode. So this test asserts the file is at most the mode the
@@ -100,11 +100,11 @@ mode=$(stat -f "%Lp" "$PROJ/.claude/bypass-audit.json" 2>/dev/null \
 teardown
 setup
 # Pre-state: file exists with init's umask-derived mode.
-pre_mode=$(stat -f "%Lp" "$PROJ/.claude/bypass-audit.json" 2>/dev/null \
-        || stat -c "%a" "$PROJ/.claude/bypass-audit.json" 2>/dev/null)
+pre_mode=$(stat -c "%a" "$PROJ/.claude/bypass-audit.json" 2>/dev/null \
+        || stat -f "%Lp" "$PROJ/.claude/bypass-audit.json" 2>/dev/null)
 ( source "$LIB" && bypass_audit_append "$PROJ" "$ROW" >/dev/null 2>&1 )
-post_mode=$(stat -f "%Lp" "$PROJ/.claude/bypass-audit.json" 2>/dev/null \
-         || stat -c "%a" "$PROJ/.claude/bypass-audit.json" 2>/dev/null)
+post_mode=$(stat -c "%a" "$PROJ/.claude/bypass-audit.json" 2>/dev/null \
+         || stat -f "%Lp" "$PROJ/.claude/bypass-audit.json" 2>/dev/null)
 if [ "$pre_mode" = "$post_mode" ]; then
   pass "T3: append preserves the pre-existing mode ($pre_mode unchanged)"
 else

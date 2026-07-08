@@ -786,7 +786,7 @@ new_in_standard=0
 while IFS= read -r tool; do
   [ -z "$tool" ] && continue
   if ! echo "$names_light" | grep -qxF "$tool"; then
-    ((new_in_standard++))
+    new_in_standard=$((new_in_standard + 1))   # not ((x++)): returns 1 when x=0, tripping set -e on bash 5
   fi
 done <<< "$names_standard"
 
@@ -801,7 +801,7 @@ new_in_full=0
 while IFS= read -r tool; do
   [ -z "$tool" ] && continue
   if ! echo "$names_standard" | grep -qxF "$tool"; then
-    ((new_in_full++))
+    new_in_full=$((new_in_full + 1))   # not ((x++)): returns 1 when x=0, tripping set -e on bash 5
   fi
 done <<< "$names_full"
 

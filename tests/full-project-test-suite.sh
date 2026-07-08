@@ -795,6 +795,12 @@ fi
 # All three are gated together because they share BL-034 status.
 # Known-RED siblings are gated on SKIP_KNOWN_FAILING so a local
 # iteration loop can mask them; default = surface the failure.
+# SUITE_SKIP_AGGREGATORS: CI shards these heavy aggregators into separate
+# parallel jobs (BL-077 full-lane sharding). When set, skip them here so the
+# "core" shard doesn't re-run them; a standalone run (env unset) runs everything.
+if [ "${SUITE_SKIP_AGGREGATORS:-0}" = "1" ]; then
+  section "Edge-cases aggregators — SKIPPED (SUITE_SKIP_AGGREGATORS=1; run as separate CI shards)"
+else
 section "Edge-cases aggregators (pre-init, scripts, upgrade-input)"
 if bash "$SCRIPT_DIR/tests/edge-cases-pre-init.sh" >/dev/null 2>&1; then
   pass "tests/edge-cases-pre-init.sh"
@@ -810,6 +816,7 @@ if bash "$SCRIPT_DIR/tests/edge-cases-upgrade-input.sh" >/dev/null 2>&1; then
   pass "tests/edge-cases-upgrade-input.sh"
 else
   fail "tests/edge-cases-upgrade-input.sh FAILED (run for details)"
+fi
 fi
 
 # ----------------------------------------------------------------
@@ -2051,6 +2058,9 @@ done
 # correctness and tracked with the master suite's own runtime under
 # BL-045 (TEST 1 matrix parallelization) / BL-077 (CI-runnability). It
 # stays wired here regardless.
+if [ "${SUITE_SKIP_AGGREGATORS:-0}" = "1" ]; then
+  section "BL-052 aggregators — SKIPPED (SUITE_SKIP_AGGREGATORS=1; run as separate CI shards)"
+else
 section "BL-052: previously-un-invoked aggregators (edge-case / known-bugs / upgrade-path)"
 
 if bash "$SCRIPT_DIR/tests/edge-case-test-suite.sh" >/dev/null 2>&1; then
@@ -2069,6 +2079,7 @@ if bash "$SCRIPT_DIR/tests/upgrade-path-tests.sh" >/dev/null 2>&1; then
   pass "tests/upgrade-path-tests.sh (track/deployment/POC upgrade + strict-superset no-regression)"
 else
   fail "tests/upgrade-path-tests.sh FAILED (run tests/upgrade-path-tests.sh for details)"
+fi
 fi
 # --- end BL-052 aggregator wiring ---
 

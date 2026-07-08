@@ -223,8 +223,8 @@ setup
 rm -f "$PROJ/.claude/bypass-audit.json"
 # Force a permissive umask so the bug (if any) is visible.
 ( umask 022; source "$LIB" && bypass_audit_init "$PROJ" )
-mode=$(stat -f "%Lp" "$PROJ/.claude/bypass-audit.json" 2>/dev/null \
-     || stat -c "%a" "$PROJ/.claude/bypass-audit.json" 2>/dev/null)
+mode=$(stat -c "%a" "$PROJ/.claude/bypass-audit.json" 2>/dev/null \
+     || stat -f "%Lp" "$PROJ/.claude/bypass-audit.json" 2>/dev/null)
 if [ "$mode" = "600" ]; then
   pass "T5: bypass_audit_init created file with mode 600 (was $mode)"
 else
