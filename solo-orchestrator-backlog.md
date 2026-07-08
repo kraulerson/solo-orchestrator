@@ -571,7 +571,7 @@ TDD: a focused test in `tests/test-init-no-remote-creation.sh` (or sibling) that
 **Logged:** 2026-04-27
 **Category:** Proposal (test infrastructure)
 **Severity:** Low
-**Status:** Open — 2026-07-05: expected to be pulled into the BL-070..073 Major wave (BL-071/073 regression tests need seeded phase-2 / gate state). Build it then.
+**Status:** Open — SCHEDULED as the first step of the remaining gate wave: **BL-025 → BL-073 → BL-070** (BL-071 already shipped in PR #141 without blocking on it; BL-072 runs on its own pre-commit-gate track). Built first when that sub-wave opens.
 
 Several T2 + R3 test cases needed to drive a project to "Phase 2 init verified" state to exercise the gates that depend on it (the dep-manifest classifier in `process-checklist.sh::check_commit_ready`, the build_loop gate, the UAT step semantics, the `--start-phase3` advance). The current happy path takes a real init + Phase 1 walk + 6 phase2_init `--complete-step` calls + manual `data_model_applied` mark + `initialization_verified` auto-complete. Both rev3 agents 2 and 6 had to do manual `jq` patching to reach the right state.
 
@@ -1851,7 +1851,7 @@ time bash scripts/lint-tests-registered.sh
 **Logged:** 2026-07-01 (PR #137 workflow.html validation, flagged discrepancy #2 — major)
 **Category:** Bug / doc-vs-enforcement gap; framework-promise integrity
 **Severity:** Major
-**Status:** Open — APPROVED 2026-07-05: Option C (skeleton-first + attest-on-skip). Ship AFTER BL-071.
+**Status:** IN PROGRESS — skeleton SHIPPED 2026-07-06 (PR #145): `scripts/run-phase3-validation.sh` driver + attest-on-skip gate (prerequisite BL-071 done, PR #141). REMAINING: promote the 5 stubbed scanners (snyk / license / full-tree semgrep / zap / threat-model) to real + bind the summary to a tree hash (BL-082).
 
 **Decision (2026-07-05):** Karl approved **Option C** — build the `run-phase3-validation.sh` driver + gate integration FIRST, every scanner SKIP-able, add real scanners incrementally (do NOT build all 5 at once). **Refinement (Karl):** when a scanner is missing/unavailable, the framework must let the USER decide whether to download + run it manually; ANY skipped scanner requires the user to attest a reason AND sign off, recorded in `phase-state.json::phase3.attestations` (BL-032 pattern). Gate blocks Phase 3->4 unless every scanner is PASS or attested-skip-with-signoff. Sequence: AFTER [[bl071-phase-gate-date-auto-write]] (reuses its atomic-write pattern in check-phase-gate.sh).
 
@@ -2001,7 +2001,7 @@ Implementer MUST confirm the exact deployment/gov-mode/track enum names against 
 **Logged:** 2026-07-05 (surfaced by the low/minor sweep's full-suite verification run)
 **Category:** Bug / test integrity (pre-existing on main; NOT product-facing)
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — verified GREEN 2026-07-07 (during the BL-077 CI work): a shared `scaffold_helpers_libs()` test helper landed (prior session); `test-tier-crosscheck-6-zdr-gate.sh` now 8/8.
 
 **What:** The BL-046 helpers split (PR #125) made `scripts/lib/helpers.sh` a shim that sources `helpers-full.sh`, which sources `helpers-core.sh`. The real product path (`init.sh:1221-1223`) correctly copies all three into every generated project — so **shipping projects are unaffected**. But ~10 test files scaffold a fake project by copying ONLY `helpers.sh` (e.g. `tests/test-tier-crosscheck-6-zdr-gate.sh:293`), not the two now-mandatory siblings. Any scaffolded script that sources `helpers.sh` (e.g. `reconfigure-project.sh`) then dies at `helpers.sh:39` with `helpers-full.sh: No such file or directory`.
 
@@ -2025,7 +2025,7 @@ Implementer MUST confirm the exact deployment/gov-mode/track enum names against 
 **Logged:** 2026-07-06 (surfaced by the BL-074 fix agent)
 **Category:** Bug / test integrity (pre-existing on main)
 **Severity:** Low
-**Status:** Open
+**Status:** Closed — verified GREEN 2026-07-07: `test-pre-commit-gate-lints.sh` (13/0) and `test-pre-commit-gate-terminal-mode.sh` (3/0) both pass; the `--terminal-mode` reds were repaired by prior work.
 
 Two suites carry pre-existing failures unrelated to the helpers-scaffold gap: `tests/test-pre-commit-gate-lints.sh` (T6a/T6b/T11a/T11b — "`--terminal-mode` did not surface lint") and `tests/test-pre-commit-gate-terminal-mode.sh` (T2 — "docs-only commit blocked"). These are `--terminal-mode` / commit-classification issues in `pre-commit-gate.sh`. Confirmed pre-existing (files unchanged by the BL-074 PR). Audit whether the product behavior or the test expectation drifted; fix the true side.
 
@@ -2038,7 +2038,7 @@ Two suites carry pre-existing failures unrelated to the helpers-scaffold gap: `t
 **Logged:** 2026-07-06 (surfaced by the `kraulerson/foo` incident)
 **Category:** Bug / test hermeticity (real cloud side effects)
 **Severity:** High
-**Status:** Open
+**Status:** Closed (2026-07-08, PR #156). Offending test made hermetic; `scripts/lint-no-live-remote-in-tests.sh` guard (blocks any test that could reach real remote creation) wired into CI + pre-commit and made gate-fast (102s→3s); self-test `tests/test-lint-no-live-remote.sh` registered. Double-mutation verified; no leaked repos remain (`foo` already deleted).
 
 `tests/test-init-non-interactive-mobile-auto-install.sh` (lines ~62/72) runs real `init.sh --project foo` with NO `--no-remote-creation`, no `--git-host other`, and no mocked `gh`. Run in an authenticated-`gh` environment (e.g. an agent running `full-project-test-suite.sh`), `init.sh` creates and pushes a REAL private repo — this created `kraulerson/foo` during the 2026-07-06 Wave-1 verification (commit fingerprint `chore: initialize Solo Orchestrator project / Project: foo`; Karl deleted it). A test suite that sprays real repos also can't be wired into CI ([[bl077-ci-runs-no-test-suites]]).
 
@@ -2053,7 +2053,7 @@ Two suites carry pre-existing failures unrelated to the helpers-scaffold gap: `t
 **Logged:** 2026-07-06 (surfaced by the BL-035/052 triage)
 **Category:** Bug / doc-vs-enforcement gap; process integrity
 **Severity:** High
-**Status:** Open
+**Status:** Closed (2026-07-08, PR #156). Fast lane (66 unit tests, every push to main + PR, ~4 min green on Linux) ships as the per-push gate; the full suite runs as manual `workflow_dispatch` only (it is a ~3h monolith). Linux/PR quirks fixed en route: hermeticity, `stat -f`, git-identity on the runner, `((x++))` set -e footgun, brew fixture, `GITHUB_BASE_REF` leak. Making the full suite CI-fast is deferred → [[bl085-full-suite-ci-fast]].
 
 `.github/workflows/lint.yml` is the ONLY CI workflow and runs only the 6 lint scripts (+ tests-registered, doc-anchors). NO test aggregator runs in CI — `tests/full-project-test-suite.sh` and every suite it delegates are manual-only; `scripts/pre-commit-gate.sh` runs lints + process-checklist only. This is why red tests sit on `main` undetected (BL-074's reds, the tier-crosscheck-6 reds, the stale-lang reds all rode main unnoticed). Directly contradicts the "gate checks real, not implied" principle — the test suite is a giant implied gate that nothing enforces.
 
@@ -2068,7 +2068,7 @@ Two suites carry pre-existing failures unrelated to the helpers-scaffold gap: `t
 **Logged:** 2026-07-06 (surfaced by the BL-035 triage)
 **Category:** Bug / test-fixture drift
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed (2026-07-06, PR #147). `--language javascript`/`ts` → `typescript` across the named fixtures; verified 2026-07-07 (no residual `--language javascript|ts` in the named files; residual uses in `edge-case-test-suite.sh` are `resolve-tools.sh` calls, correctly out of scope).
 
 `init.sh` tightened language-for-platform validation (audit code-init-sh-5): the accepted set is now `csharp/go/java/kotlin/other/python/rust/typescript` — `javascript` was dropped for `--platform web`. ~10 orphan fixtures still pass `--language javascript` (or `ts`), so `init.sh` aborts and the whole suite fails downstream. Mechanical one-token `javascript`→`typescript` sed per fixture. **Prerequisite (Chunk-0) for the BL-035 wiring wave** — without it, ~10 registrations turn CI red.
 
@@ -2083,7 +2083,7 @@ Affected: `test-bl029-integration`, `test-bl030-calibration-replay`, `test-bypas
 **Logged:** 2026-07-06 (surfaced by the BL-035 triage)
 **Category:** Bug / vacuous-or-wrong registered test
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — verified 2026-07-07: `edge-cases-scripts.sh` E60 now asserts `--to-private-poc` keeps a personal project personal/private_poc (matches product + poc-modes T1); the poc-modes fork was reconciled by prior work.
 
 Orphan `test-poc-modes.sh` T5 and the REGISTERED `edge-cases-scripts.sh` E60 assert OPPOSITE outcomes for `upgrade-project.sh --to-private-poc` from a personal project. Current product (`upgrade-project.sh:692-711`, 2026-06 tier-crosscheck-3) makes it stay **personal** → T5 is correct and **E60 is stale/RED against current behavior**. A registered test asserting the wrong contract is worse than an orphan — fix E60 to match the product (or, if the product is wrong, fix the product), and resolve the poc-modes fork in the same pass.
 
@@ -2096,7 +2096,7 @@ Orphan `test-poc-modes.sh` T5 and the REGISTERED `edge-cases-scripts.sh` E60 ass
 **Logged:** 2026-07-06 (BL-001 verifier finding; Karl chose Option A)
 **Category:** Bug / governance-contract gap
 **Severity:** Medium
-**Status:** Open — PR #144 (verifier: `approve`), awaiting merge
+**Status:** Closed (2026-07-06, PR #144) — merged. `_bl015_sentinel_guard()` runs before the `--backfill-only` mutations; a pending-approval sentinel blocks backfill with the `.claude` tree byte-identical. Sibling full-path gap tracked as BL-081.
 
 The `--backfill-only` short-circuit runs BEFORE the BL-015 pending-approval sentinel guard, so backfill mutates `.claude/framework/`, the manifest, host config, and skills even when a pending-approval sentinel is present (pre-existing; BL-001/PR #142 widened it to CDF framework assets). Karl decided (2026-07-06) backfill must honor the sentinel: block + mutate nothing when a sentinel is present, mirroring the full-upgrade guard. PR #144 extracts a shared `_bl015_sentinel_guard()` (single detection + deny-message source for both paths) and calls it before the backfill mutations. Verifier `approve`: full-path refactor proven byte-for-byte behavior-preserving, backfill blocks with the entire `.claude` tree byte-identical, mutation-proven, hermetic, 8/8 lints.
 
@@ -2165,3 +2165,20 @@ Sibling of [[bl070-phase-3-validation-scans]] (PR #145). The BL-070 skeleton's P
 **Before/after:** `init.sh --non-interactive --git-host other --remote-url <fake> --branch-protection-attested …` — before: exit **2** ("Setup INCOMPLETE") for ALL projects. After: **POC-Sponsored / MVP-Production** (deployment=organizational or poc_mode=sponsored_poc) still exits non-zero — remote mandatory, and `--track light` does NOT unlock a bypass; **Personal / POC-Personal** (deployment=personal) + `--accept-local-only-risk`/`--defer-remote-push` exits **0** with the acknowledgment on record; Personal with no flag still fails (no silent success).
 
 **Related:** [[bl064-init-silent-success]] (silent-success defect class — the trap the reference draft fell into); BL-024 (attestation-before-push on the same path); [[bl071-phase-gate-date-auto-write]] (atomic-write + track-read patterns reused); [[bl076-nonhermetic-init-tests]] (no real remote in tests); [[bl034-orphan-tests-wave-1-4]] (aggregator registration); [[bl079-poc-modes-e60-contradiction]] (E58/E60 residual cleanup); `init.sh` `create_and_protect_remote`; `scripts/verify-install.sh` `check_project_structure`; `scripts/check-phase-gate.sh` Phase 1→2 backstops.
+
+---
+
+## BL-085: Make the full test suite CI-fast (the ~3h monolith)
+
+**Logged:** 2026-07-08 (BL-077 full-lane follow-up)
+**Category:** Debt / CI performance
+**Severity:** Low
+**Status:** Open — DEFERRED (manual dispatch works today; optimize only if a scheduled comprehensive CI run is actually wanted)
+
+BL-077 (PR #156) shipped the fast lane (per-push) but the full suite runs manual-only because it is a ~3-hour serial monolith: ~200 sequential `init.sh` project scaffolds (~15s each), concentrated in a few heavy aggregators (edge-cases-pre-init 68, edge-cases-scripts 41) + TEST 4 combos + inline cohort init tests. Sharding into 4 (PR #156) isolates failures but leaves `core` as a ~3h long pole (it holds ~75% of the work — at the 2h mark it had only reached TEST 1).
+
+**To make it nightly-viable (~20-30 min):** split `core` into ~4-6 balanced shards (needs finer `SUITE_*` section selectors in `full-project-test-suite.sh`, beyond the existing `SUITE_SKIP_AGGREGATORS`), OR run the independent test files with internal parallelism, OR speed up `init.sh` itself (each scaffold ~15s — halving it halves every shard + the standalone suite). Also de-flake the timing-sensitive tests (`edge-case-test-suite.sh` resolver-timeout flaked between runs). Then re-enable a `schedule:` trigger.
+
+**Trigger:** when a scheduled comprehensive nightly is genuinely wanted. Until then `gh workflow run tests.yml` (manual dispatch) covers it on demand.
+
+**Related:** PR #156 (fast lane + 4-shard matrix + `SUITE_SKIP_AGGREGATORS`); `.github/workflows/tests.yml` (`full` job); `tests/full-project-test-suite.sh`; BL-045 (TEST 1 parallelization — done); BL-053 (TEST 4 fixture share — done).
