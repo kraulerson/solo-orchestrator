@@ -18,7 +18,7 @@
 #                         so a new orphan test cannot silently join CI —
 #                         add new entries deliberately.
 #
-#   * full (slow lane)  — nightly schedule + manual dispatch only. Runs the
+#   * full (slow lane)  — MANUAL dispatch only (workflow_dispatch); no nightly. Runs the
 #                         complete tests/full-project-test-suite.sh, which
 #                         honors the SKIP_KNOWN_FAILING env (left at its
 #                         default of 0 so known-RED guards still run).
@@ -33,10 +33,7 @@ on:
   push:
     branches: [main]   # fast lane on main pushes; PRs covered by pull_request
   pull_request:
-  schedule:
-    # Nightly at 08:00 UTC.
-    - cron: '0 8 * * *'
-  workflow_dispatch:
+  workflow_dispatch:   # the full lane is manual-only (no scheduled nightly)
 
 jobs:
   # ── Fast lane ──────────────────────────────────────────────────────────
@@ -174,12 +171,16 @@ jobs:
   #   • edge-pre-init — tests/edge-cases-pre-init.sh   (68 scaffolds)
   #   • edge-scripts  — tests/edge-cases-scripts.sh    (41 scaffolds)
   #   • aggregators   — the remaining lighter aggregators, run directly.
-  # Union of shards == the un-sharded suite. Nightly + manual only.
+  # Union of shards == the un-sharded suite. Manual dispatch only (no nightly).
   full:
     name: full (${{ matrix.shard }})
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    # Manual-only comprehensive sweep. The full suite is a ~3h monolith
+    # (200+ init.sh scaffolds); it is NOT scheduled. Sharded for parallelism +
+    # failure isolation, but `core` is still the ~3h long pole. Making it
+    # CI-fast is deferred (backlog). Give core room to finish.
+    timeout-minutes: 180
+    if: github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
@@ -190,8 +191,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Verify required tools are available
-        run: jq --version && git --version
+      - name: Verify tools + configure git identity for scaffolds
+        # init.sh / upgrade-project.sh run `git commit` while scaffolding a
+        # project; a fresh CI runner has no git identity, so the commit fails
+        # (rc=128, "empty ident name not allowed"). Configure one.
+        run: |
+          jq --version && git --version
+          git config --global user.name "solo-orchestrator-ci"
+          git config --global user.email "ci@solo-orchestrator.invalid"
 
       - name: Run shard — ${{ matrix.shard }}
         # SKIP_KNOWN_FAILING left unset -> 0, so known-RED guards still run.
