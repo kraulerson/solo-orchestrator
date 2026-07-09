@@ -571,7 +571,7 @@ TDD: a focused test in `tests/test-init-no-remote-creation.sh` (or sibling) that
 **Logged:** 2026-04-27
 **Category:** Proposal (test infrastructure)
 **Severity:** Low
-**Status:** Open — SCHEDULED as the first step of the remaining gate wave: **BL-025 → BL-073 → BL-070** (BL-071 already shipped in PR #141 without blocking on it; BL-072 runs on its own pre-commit-gate track). Built first when that sub-wave opens.
+**Status:** Open — demoted to OPPORTUNISTIC 2026-07-09 (was "build first in the gate wave"). The scheduling premise is obsolete: it assumed BL-073's regression tests needed seeded gate state, but BL-073 shipped (PR #146) using plain heredoc fixtures. Build this helper the first time a gate-wave test actually needs Phase-2-verified state (see `docs/handoffs/2026-07-09-gate-wave-execution-handoff.md` WP-D3); do not build speculatively.
 
 Several T2 + R3 test cases needed to drive a project to "Phase 2 init verified" state to exercise the gates that depend on it (the dep-manifest classifier in `process-checklist.sh::check_commit_ready`, the build_loop gate, the UAT step semantics, the `--start-phase3` advance). The current happy path takes a real init + Phase 1 walk + 6 phase2_init `--complete-step` calls + manual `data_model_applied` mark + `initialization_verified` auto-complete. Both rev3 agents 2 and 6 had to do manual `jq` patching to reach the right state.
 
