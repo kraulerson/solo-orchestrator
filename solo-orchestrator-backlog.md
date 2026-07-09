@@ -571,7 +571,7 @@ TDD: a focused test in `tests/test-init-no-remote-creation.sh` (or sibling) that
 **Logged:** 2026-04-27
 **Category:** Proposal (test infrastructure)
 **Severity:** Low
-**Status:** Open — SCHEDULED as the first step of the remaining gate wave: **BL-025 → BL-073 → BL-070** (BL-071 already shipped in PR #141 without blocking on it; BL-072 runs on its own pre-commit-gate track). Built first when that sub-wave opens.
+**Status:** Open — demoted to OPPORTUNISTIC 2026-07-09 (was "build first in the gate wave"). The scheduling premise is obsolete: it assumed BL-073's regression tests needed seeded gate state, but BL-073 shipped (PR #146) using plain heredoc fixtures. Build this helper the first time a gate-wave test actually needs Phase-2-verified state (see `docs/handoffs/2026-07-09-gate-wave-execution-handoff.md` WP-D3); do not build speculatively.
 
 Several T2 + R3 test cases needed to drive a project to "Phase 2 init verified" state to exercise the gates that depend on it (the dep-manifest classifier in `process-checklist.sh::check_commit_ready`, the build_loop gate, the UAT step semantics, the `--start-phase3` advance). The current happy path takes a real init + Phase 1 walk + 6 phase2_init `--complete-step` calls + manual `data_model_applied` mark + `initialization_verified` auto-complete. Both rev3 agents 2 and 6 had to do manual `jq` patching to reach the right state.
 
@@ -1959,7 +1959,7 @@ Implementer MUST confirm the exact deployment/gov-mode/track enum names against 
 **Logged:** 2026-07-01 (PR #137 workflow.html validation, flagged discrepancy #6 — major)
 **Category:** Bug / doc-vs-enforcement gap; gate escalation
 **Severity:** Major
-**Status:** Open — APPROVED 2026-07-05: Option A (track-aware FAIL) + same tier pattern as BL-072 + grandfather clause. Ship AFTER BL-071.
+**Status:** Closed (2026-07-06, PR #146, commit `8560652`; verifier follow-up `7a0ec96`) — track-aware review-manifest gate shipped per the approved Option A: FAIL for track=full/standard when Security or Red Team is missing/not-complete, WARN-only for light/personal, grandfather clause keyed on `phase-state.json::review_gate_enforced` (stamped by `init.sh:1907`, re-stamped by `upgrade-project.sh:1252` on tier advance), `SOLO_REVIEWERS_ATTESTED` escape hatch with attestation recorded to `process-state.json::phase3.attestations.reviewers`, plus `scripts/lint-review-manifest.sh` in CI. Regression suite `tests/test-bl073-review-manifest-gate.sh` — 29/29 incl. two mutation proofs (BL-073-ESCALATE excision + status-gate neuter). NOTE: this status flip was missed by the PR #157 backlog reconcile and corrected 2026-07-09.
 
 **Decision (2026-07-05):** Karl approved **Option A** with the **same track-tiered pattern as [[bl072-tdd-hard-enforce]]** and a **grandfather clause**:
 - **Full** (track=full): FAIL if Security or Red Team missing (WARN for the other four but still gate-blocking).
@@ -2083,7 +2083,7 @@ Affected: `test-bl029-integration`, `test-bl030-calibration-replay`, `test-bypas
 **Logged:** 2026-07-06 (surfaced by the BL-035 triage)
 **Category:** Bug / vacuous-or-wrong registered test
 **Severity:** Medium
-**Status:** Closed — verified 2026-07-07: `edge-cases-scripts.sh` E60 now asserts `--to-private-poc` keeps a personal project personal/private_poc (matches product + poc-modes T1); the poc-modes fork was reconciled by prior work.
+**Status:** Closed (2026-07-06, PR #149, commit `bc609fb`; verified green 2026-07-07 in PR #155, commit `e8df525`) — `edge-cases-scripts.sh` E60 now asserts `--to-private-poc` keeps a personal project personal/private_poc (matches product + poc-modes T1); the poc-modes fork was reconciled in the same PR. (Citation added 2026-07-09 — the uncited closure from PR #157 tripped `lint-backlog-references.sh` and turned CI red on main.)
 
 Orphan `test-poc-modes.sh` T5 and the REGISTERED `edge-cases-scripts.sh` E60 assert OPPOSITE outcomes for `upgrade-project.sh --to-private-poc` from a personal project. Current product (`upgrade-project.sh:692-711`, 2026-06 tier-crosscheck-3) makes it stay **personal** → T5 is correct and **E60 is stale/RED against current behavior**. A registered test asserting the wrong contract is worse than an orphan — fix E60 to match the product (or, if the product is wrong, fix the product), and resolve the poc-modes fork in the same pass.
 
