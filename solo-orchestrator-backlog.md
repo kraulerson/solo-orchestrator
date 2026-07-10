@@ -2124,11 +2124,13 @@ Sibling of [[bl080-backfill-honors-sentinel]]. On the FULL `upgrade-project.sh` 
 **Logged:** 2026-07-06 (BL-070 verifier follow-up)
 **Category:** Debt / gate hardening
 **Severity:** Low
-**Status:** Open
+**Status:** Closed — shipped 2026-07-09 (PR #160). The Phase-3 summary is bound to the tree it validated; the gate re-runs (or FAILs) when stale.
 
 Sibling of [[bl070-phase-3-validation-scans]] (PR #145). The BL-070 skeleton's Phase 3→4 gate trusts an existing `docs/test-results/phase3/summary-*.md` as-is: the auto-run only fires when NO summary exists, so a stale summary (e.g. an old `semgrep-full-tree PASS`) is reused indefinitely, and a hand-forged all-PASS summary is trusted. The verifier noted forgery is outside a self-audit gate's threat model (a determined operator has easier documented escapes), but staleness is a real limitation — a summary from before the latest code changes should not satisfy the gate.
 
 **Scope:** bind the summary to the tree/commit it validated — record the `git rev-parse HEAD` (or a tree hash) in the summary and have the gate re-run (or FAIL-with-stale) when the current tree differs from the recorded one. Optionally add an authenticity marker. Ships as a later increment on top of the BL-070 skeleton, alongside promoting the stubbed scanners (license/snyk/zap/threat-model) to real.
+
+**Resolution (PR #160, 2026-07-09):** the driver (`scripts/run-phase3-validation.sh`) records `- tree: <git rev-parse HEAD^{tree}>` (or `none`) and `- dirty: yes|no` in the summary header; the gate (`scripts/check-phase-gate.sh`) treats a summary as FRESH only if the recorded tree matches the current `HEAD^{tree}`, recorded `dirty:no`, AND the live scoped working tree is clean — else it prints `[STALE]`, regenerates offline, and evaluates the fresh summary in one pass (or FAILs when `SOLO_PHASE3_GATE_NOAUTORUN=1`/driver unavailable). Two Karl-approved corrections (2026-07-09) supersede the handoff's WP-A design: **(1)** the dirty check is SCOPED — `git status --porcelain -- . ':(exclude).claude' ':(exclude)<RESULTS_DIR>'` — because the gate writes `.claude/phase-state.json` on PASS (BL-071) and the driver writes attestations there, and that file is TRACKED downstream, so an unscoped check would mark every summary permanently stale after its first PASS; **(2)** the gate ALSO checks live worktree dirtiness (not just the recorded flag), since `HEAD^{tree}` misses uncommitted edits. Freshness decision marked `# BL-082-STALENESS` (mutation target). Suite `tests/test-phase3-validation-gate.sh` extended to 42 tests (git-repo fixtures + 8 new BL-082 cases incl. the two-correction pins) with an excise-and-restore mutation proof (RED 31/10 -> GREEN 42/0).
 
 **Related:** [[bl070-phase-3-validation-scans]] (PR #145 skeleton); `scripts/run-phase3-validation.sh`; `scripts/check-phase-gate.sh` Phase 3→4 block.
 

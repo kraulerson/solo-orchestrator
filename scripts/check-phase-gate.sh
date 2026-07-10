@@ -1280,6 +1280,23 @@ fi
 # per tests/test-phase3-validation-gate.sh::T-mutation). Auto-run marked
 # `# BL-070-GATE-AUTORUN`. Attestation predicate marked
 # `# BL-070-ATTEST-PREDICATE`.
+#
+# BL-082 (2026-07-09): the summary is bound to the tree it validated. A summary
+# is FRESH only if its recorded `tree:` line is present, ≠ `none`, EQUALS the
+# current `git rev-parse HEAD^{tree}`, its recorded `dirty:` is `no`, AND the
+# live SCOPED working tree is clean (HEAD^{tree} alone misses uncommitted edits
+# — a clean-tree summary must not stay trusted while source is edited). Any
+# other state → STALE: print `[STALE]`, regenerate offline via the
+# `# BL-070-GATE-AUTORUN` path, and evaluate the FRESH summary in a single pass;
+# if regeneration is impossible (SOLO_PHASE3_GATE_NOAUTORUN=1 or driver
+# missing/non-executable) STALE = gate FAIL (never silently accept a stale
+# summary). Pre-BL-082 summaries have no `tree:` line → STALE (backward compat).
+# The freshness decision line is marked `# BL-082-STALENESS` (mutation target).
+# The scoped dirty check (# BL-082-STALENESS in _cpg_scoped_dirty) EXCLUDES
+# `.claude/` and the results dir because the gate itself writes the BL-071 gate
+# date into .claude/phase-state.json on PASS (line ~374) and that file is
+# TRACKED downstream — an UNSCOPED check would mark every summary permanently
+# stale after its first PASS (self-defeating).
 
 # _cpg_phase3_attested <scanner>
 # 0 iff phase-state.json::phase3.attestations.<scanner> carries a non-empty
@@ -1297,32 +1314,120 @@ _cpg_phase3_attested() {
   [ -n "$reason" ] && [ "$reason" != "null" ] && [ -n "$signoff" ] && [ "$signoff" != "null" ]
 }
 
+# _cpg_scoped_dirty <results_dir> — echo "yes"/"no". Scoped `git status
+# --porcelain` that EXCLUDES the framework's own write surfaces so a summary is
+# not marked permanently stale by the very writes the gate makes on PASS.
+# BL-082-STALENESS: excludes `.claude/` (the gate writes the BL-071 gate date +
+# the driver writes attestations into phase-state.json, TRACKED downstream) and
+# the results dir. Absolute/parent-relative results dirs are outside the
+# porcelain scope already → exclusion skipped. Not a git repo → conservative
+# "yes". Kept textually identical to _p3_scoped_dirty in
+# scripts/run-phase3-validation.sh.
+_cpg_scoped_dirty() {
+  local rdir out
+  rdir="${1:-}"
+  rdir="${rdir#./}"
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "yes"; return 0
+  fi
+  case "$rdir" in
+    ""|/*|../*|..)
+      out=$(git status --porcelain -- . ':(exclude).claude' 2>/dev/null || true) ;;
+    *)
+      out=$(git status --porcelain -- . ':(exclude).claude' ":(exclude)$rdir" 2>/dev/null || true) ;;
+  esac
+  if [ -n "$out" ]; then echo "yes"; else echo "no"; fi
+  return 0
+}
+
+# _cpg_phase3_freshness <summary> <results_dir> — echo "fresh" or
+# "stale:<reason>". FRESH iff the summary recorded a real tree that EQUALS the
+# current HEAD^{tree} AND recorded dirty=no AND the live scoped tree is clean.
+# HEAD^{tree} alone misses uncommitted edits, so the live scoped check is
+# required (Correction 2): a clean-tree summary must not stay trusted while
+# source is edited uncommitted. Pre-BL-082 summaries (no `tree:` line) → stale.
+# Always returns 0 (the verdict is the echoed string) so the gate's `set -e`
+# is not tripped by a "stale" result.
+_cpg_phase3_freshness() {
+  local summary rdir cur_tree rec_tree rec_dirty live_dirty
+  summary="$1"; rdir="$2"
+  cur_tree=$(git rev-parse "HEAD^{tree}" 2>/dev/null || echo none)
+  rec_tree=$(grep -m1 '^- tree:' "$summary" 2>/dev/null | sed 's/^- tree:[[:space:]]*//; s/[[:space:]]*$//' || true)
+  rec_dirty=$(grep -m1 '^- dirty:' "$summary" 2>/dev/null | sed 's/^- dirty:[[:space:]]*//; s/[[:space:]]*$//' || true)
+  live_dirty=$(_cpg_scoped_dirty "$rdir")
+  if [ -n "$rec_tree" ] && [ "$rec_tree" != "none" ] && [ "$rec_tree" = "$cur_tree" ] && [ "$rec_dirty" = "no" ] && [ "$live_dirty" = "no" ]; then
+    echo "fresh"; return 0
+  fi
+  if [ -z "$rec_tree" ]; then echo "stale:no tree provenance recorded (pre-BL-082 summary)"
+  elif [ "$rec_tree" = "none" ]; then echo "stale:summary was generated outside a git repo (tree: none)"
+  elif [ "$cur_tree" = "none" ]; then echo "stale:current tree unavailable (not a git repo)"
+  elif [ "$rec_tree" != "$cur_tree" ]; then echo "stale:the tree changed since this summary was generated"
+  elif [ "$rec_dirty" != "no" ]; then echo "stale:the summary was generated on a dirty working tree"
+  else echo "stale:there are uncommitted changes since this summary was generated"
+  fi
+  return 0
+}
+
 if [ "$current_phase" -ge 4 ]; then
   P3_RESULTS_DIR="docs/test-results/phase3"
   P3_DRIVER="$SCRIPT_DIR/run-phase3-validation.sh"
 
-  # AUTO-RUN (Karl: "evals should be automatic"). If no summary exists yet,
-  # generate a baseline offline summary so the attestation gate always has
-  # teeth (offline => hermetic/fast: NO network/Docker/semgrep run from the
-  # gate). Operators run `scripts/run-phase3-validation.sh` (no --offline)
-  # for REAL scans; a later increment can auto-run real scans in interactive
-  # sessions. Set SOLO_PHASE3_GATE_NOAUTORUN=1 to disable auto-generation
-  # (e.g. CI that pre-runs the driver, or a pure read-only inspection).
+  # Discover the newest existing summary.
   p3_summary=""
   if compgen -G "$P3_RESULTS_DIR/summary-*.md" >/dev/null 2>&1; then
     p3_summary=$(ls -1 "$P3_RESULTS_DIR"/summary-*.md 2>/dev/null | sort | tail -1)
   fi
-  if [ -z "$p3_summary" ] && [ -z "${SOLO_PHASE3_GATE_NOAUTORUN:-}" ] && [ -x "$P3_DRIVER" ]; then
-    bash "$P3_DRIVER" --offline >/dev/null 2>&1 || true   # BL-070-GATE-AUTORUN
-    if compgen -G "$P3_RESULTS_DIR/summary-*.md" >/dev/null 2>&1; then
-      p3_summary=$(ls -1 "$P3_RESULTS_DIR"/summary-*.md 2>/dev/null | sort | tail -1)
+
+  # BL-082 freshness: trust an existing summary only if it was generated
+  # against the CURRENT tree with a clean (scoped) working tree. The decision
+  # line below is the mutation target — excising every `# BL-082-STALENESS`
+  # line defaults p3_fresh to "fresh" and MUST make
+  # tests/test-phase3-validation-gate.sh::T-stale-norerun-fails go RED.
+  p3_stale=0
+  p3_stale_reason=""
+  p3_fresh="fresh"
+  if [ -n "$p3_summary" ]; then
+    p3_fresh=$(_cpg_phase3_freshness "$p3_summary" "$P3_RESULTS_DIR")   # BL-082-STALENESS
+    : # keep this then-branch non-empty so excising the marked line above stays valid
+  fi
+  case "$p3_fresh" in
+    fresh) p3_stale=0 ;;
+    *)     p3_stale=1; p3_stale_reason="${p3_fresh#stale:}" ;;
+  esac
+
+  # AUTO-RUN (Karl: "evals should be automatic"). Regenerate an offline
+  # baseline summary when NONE exists OR the existing one is STALE (offline =>
+  # hermetic/fast: NO network/Docker/semgrep run from the gate). Operators run
+  # `scripts/run-phase3-validation.sh` (no --offline) for REAL scans. A STALE
+  # summary prints an explicit [STALE] line, then we regenerate and evaluate
+  # the FRESH file in a SINGLE pass (no second staleness check — it was just
+  # written against the current tree). Set SOLO_PHASE3_GATE_NOAUTORUN=1 to
+  # disable auto-generation; then STALE = gate FAIL (never silently accept a
+  # stale summary).
+  if [ "$p3_stale" -eq 1 ]; then
+    echo -e "${BLUE}[STALE]${NC} Phase 3→4: ${p3_stale_reason} — the recorded validation summary no longer matches the working tree; regenerating."
+  fi
+  if [ -z "$p3_summary" ] || [ "$p3_stale" -eq 1 ]; then
+    if [ -z "${SOLO_PHASE3_GATE_NOAUTORUN:-}" ] && [ -x "$P3_DRIVER" ]; then
+      bash "$P3_DRIVER" --offline >/dev/null 2>&1 || true   # BL-070-GATE-AUTORUN
+      p3_summary=""
+      if compgen -G "$P3_RESULTS_DIR/summary-*.md" >/dev/null 2>&1; then
+        p3_summary=$(ls -1 "$P3_RESULTS_DIR"/summary-*.md 2>/dev/null | sort | tail -1)
+      fi
+      p3_stale=0   # freshly regenerated against the current tree → evaluate directly
     fi
   fi
 
   p3_block=0
   p3_msg=""
   p3_ok_detail=""
-  if [ -z "$p3_summary" ]; then
+  if [ "$p3_stale" -eq 1 ]; then
+    # STALE and regeneration was impossible (SOLO_PHASE3_GATE_NOAUTORUN=1 or
+    # the driver is missing/non-executable) — never silently accept a stale
+    # summary. Tell the operator to re-run the driver.
+    p3_block=1
+    p3_msg="Phase 3 validation summary is STALE (${p3_stale_reason}) and auto-regeneration is off/unavailable — re-run: bash scripts/run-phase3-validation.sh"
+  elif [ -z "$p3_summary" ]; then
     p3_block=1
     p3_msg="no Phase 3 validation summary (docs/test-results/phase3/summary-*.md) — run: bash scripts/run-phase3-validation.sh"
   else
