@@ -12,6 +12,21 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# BL-072 Phase C1: shared TDD file-classification core. Sourced (not
+# re-implemented) so the live gate below and the dogfood replay
+# (tests/test-helpers/dogfood-bl072-replay.sh) classify changed paths
+# identically. Absent (e.g. an older installed project) → the detector
+# no-ops, which is safe because C1 is WARN-only. Prefer the project-local
+# copy, fall back to the framework copy.
+for _tdd_lib in "$SCRIPT_DIR/lib/tdd-classify.sh"; do
+  if [ -f "$_tdd_lib" ]; then
+    # shellcheck source=scripts/lib/tdd-classify.sh
+    . "$_tdd_lib"
+    break
+  fi
+done
+unset _tdd_lib
+
 # BL-030: --terminal-mode invocation from .git/hooks/framework-gate.sh.
 # Reads commit message from .git/COMMIT_EDITMSG instead of stdin JSON;
 # reads staged files from `git diff --cached` instead of tool-input;
@@ -386,6 +401,145 @@ if _is_git_commit "$COMMAND" && echo "$COMMAND" | grep -qE -- '--amend'; then
 HOOKEOF
   exit 0
 fi
+
+# --- BL-072 Phase C1: TDD-ordering detector (WARN mode, measurement) ---
+# Fires on feat/fix/refactor commits that add/modify implementation files
+# with NO test file in the same commit AND no test file earlier on the branch
+# (git diff main...HEAD). On trigger it prints a [WARN] would-block
+# explanation to stderr and appends a JSON row to
+# .claude/tdd-warn-ledger.jsonl. It is measurement-only: it NEVER denies and
+# NEVER changes the exit code (the hook still exits 0). Phase C2 (the hard
+# block) is deliberately NOT implemented here — it ships only after Karl
+# reviews the measured false-block rate from the dogfood replay.
+#
+# The file-classification core (_bl072_classify_paths) lives in
+# scripts/lib/tdd-classify.sh and is shared verbatim with the replay tool.
+# Known C1 limitation: classification is path-based only, so a feat/fix/
+# refactor commit that changes ONLY comments in an implementation file still
+# counts as implementation and will WARN. WARN-only makes that safe; the
+# dogfood surfaces it as a false positive.
+
+# Extract the first line (subject) of the prospective commit message from the
+# Bash command. Self-contained so the detector can run early, before the
+# BL-006 block, and fire even for commits a later gate would deny.
+_tdd_extract_subject() {
+  local s=""
+  if echo "$COMMAND" | grep -qE "<<'?EOF'?"; then
+    s=$(printf '%s\n' "$COMMAND" | awk '
+      /<<'"'"'?EOF'"'"'?/ { flag=1; next }
+      /^EOF$/ { flag=0 }
+      flag && !printed && NF>0 { print; printed=1; exit }
+    ')
+  fi
+  if [ -z "$s" ]; then
+    s=$(printf '%s' "$COMMAND" | sed -nE 's/.*-m "([^"]*)".*/\1/p' | head -n 1)
+    if [ -z "$s" ]; then
+      s=$(printf '%s' "$COMMAND" | sed -nE "s/.*-m '([^']*)'.*/\\1/p" | head -n 1)
+    fi
+    s=$(printf '%s\n' "$s" | head -n 1)
+  fi
+  if [ -z "$s" ] && echo "$COMMAND" | grep -qE '\-F[[:space:]]+[^ ]+'; then
+    local f
+    f=$(echo "$COMMAND" | sed -nE 's/.*-F[[:space:]]+([^ ]+).*/\1/p' | head -n 1)
+    if [ -n "$f" ] && [ -r "$f" ]; then
+      s=$(head -n 1 "$f")
+    fi
+  fi
+  printf '%s' "$s"
+}
+
+# Append one row to the WARN ledger. Must NEVER fail the commit under set -e,
+# hence every step is guarded with `|| return 0`.
+append_tdd_ledger() {
+  local subject="$1" files="$2"
+  command -v jq >/dev/null 2>&1 || return 0
+  local ledger=".claude/tdd-warn-ledger.jsonl"
+  [ -d .claude ] || mkdir -p .claude 2>/dev/null || return 0
+  local files_json
+  files_json=$(printf '%s\n' "$files" | grep -v '^[[:space:]]*$' | jq -R . 2>/dev/null | jq -s . 2>/dev/null) || return 0
+  [ -n "$files_json" ] || files_json='[]'
+  local row
+  row=$(jq -cn \
+    --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg subject "$subject" \
+    --argjson files "$files_json" \
+    '{date:$date, subject:$subject, files:$files, would_block:true}' 2>/dev/null) || return 0
+  printf '%s\n' "$row" >> "$ledger" 2>/dev/null || return 0
+  return 0
+}
+
+# Emit the WARN diagnostic (stderr) + ledger row. rc is untouched.
+emit_tdd_warn() {
+  local subject="$1" files="$2" type
+  type=$(printf '%s' "$subject" | sed -nE 's/^(feat|fix|refactor).*/\1/p')
+  {
+    echo "[WARN] BL-072 TDD ordering: '$type:' commit ships implementation without a matching test."
+    echo "[WARN]   Subject: $subject"
+    echo "[WARN]   Impl files (no test in this commit, none earlier on the branch):"
+    printf '%s\n' "$files" | grep -v '^[[:space:]]*$' | sed 's/^/[WARN]     - /' || true
+    echo "[WARN]   Under BL-072 Phase C2 (hard block) this commit WOULD BE BLOCKED."
+    echo "[WARN]   Write the failing test first (test-driven), or — once C2 ships —"
+    echo "[WARN]   attest the exception with SOLO_TDD_ATTESTED=1. This is a WARNING"
+    echo "[WARN]   only: the commit is NOT blocked and is being recorded for measurement."
+  } >&2
+  # rc must stay 0 no matter what — this is measurement, never a block.
+  append_tdd_ledger "$subject" "$files" || true
+  return 0
+}
+
+tdd_warn_check() {
+  _is_git_commit "$COMMAND" || return 0
+
+  # Derivative-commit filters (same set as bl006_check): pass through.
+  echo "$COMMAND" | grep -qE '\-\-amend\b' && return 0
+  [ -f .git/MERGE_HEAD ] && return 0
+  echo "$COMMAND" | grep -qE '\bgit\b.*\b(merge|revert|cherry-pick)\b' && return 0
+  echo "$COMMAND" | grep -qE '\bgh\b.*\bpr\b.*\bmerge\b.*\-\-squash' && return 0
+
+  # Only feat/fix/refactor Conventional Commit subjects are in scope.
+  local subject
+  subject=$(_tdd_extract_subject)
+  echo "$subject" | grep -qE '^(feat|fix|refactor)(\([^)]*\))?!?:' || return 0
+
+  # The shared classification core must be present; without it, no-op (safe).
+  command -v _bl072_classify_paths >/dev/null 2>&1 || return 0
+
+  # This commit's changed paths = staged files.
+  local staged counts n_impl n_test
+  staged=$(git diff --cached --name-only 2>/dev/null || true)
+  counts=$(printf '%s\n' "$staged" | _bl072_classify_paths)
+  n_impl=${counts#IMPL:}; n_impl=${n_impl%% *}
+  n_test=${counts##*TEST:}
+
+  # No implementation files → nothing to enforce.
+  [ "${n_impl:-0}" -gt 0 ] 2>/dev/null || return 0
+  # A test rides along in the same commit → TDD satisfied, silent.
+  [ "${n_test:-0}" -eq 0 ] 2>/dev/null || return 0
+
+  # Branch allowance: a test written earlier on this branch (vs main) also
+  # satisfies TDD ordering. Guard for a missing main ref: try origin/main;
+  # if neither exists, skip the allowance (classify on this commit alone).
+  local base=""
+  if git rev-parse --verify --quiet main >/dev/null 2>&1; then
+    base="main"
+  elif git rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
+    base="origin/main"
+  fi
+  if [ -n "$base" ]; then
+    local branch_paths bcounts b_test
+    branch_paths=$(git diff --name-only "$base"...HEAD 2>/dev/null || true)
+    bcounts=$(printf '%s\n' "$branch_paths" | _bl072_classify_paths)
+    b_test=${bcounts##*TEST:}
+    [ "${b_test:-0}" -gt 0 ] 2>/dev/null && return 0
+  fi
+
+  # TRIGGER — implementation shipped without tests. WARN only, rc unchanged.
+  emit_tdd_warn "$subject" "$staged"  # BL-072-TDD-DETECT
+  return 0
+}
+
+tdd_warn_check
+# --- end BL-072 Phase C1 block ---
 
 # --- BL-006: commit-message-triggered Build Loop enforcement ---
 # Scope: only fires on `git commit` authoring events (not merges, reverts,

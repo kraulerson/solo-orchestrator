@@ -1922,6 +1922,8 @@ Additional (related, minor) gap: `init.sh:1789-1804` seeds only 3 of 4 gate keys
 **Severity:** Major
 **Status:** Open — APPROVED 2026-07-05: Option A (hard block) + track-tiered bypass matrix. Separate track from the check-phase-gate trio (lives in pre-commit-gate.sh + init.sh).
 
+**Progress:** C1 shipped (PR #163, 2026-07-10) — detector + WARN + `.claude/tdd-warn-ledger.jsonl` + dogfood replay (`tests/test-helpers/dogfood-bl072-replay.sh`, report `Reports/2026-07-10-bl072-warn-dogfood.md`). Measured would-block UPPER BOUND = 110/285 (38.6%) of feat/fix/refactor commits; hand-review of the top-20 = 10 TP / 10 FP (50% outright false positives), most "TP" being init.sh/host-driver integration surfaces not unit-testable in the fast lane. **C2 (hard block) awaits Karl's false-block-rate decision** — recommendation in the report is NOT to ship a naive same-commit block. Note: the "track-tiered" wording below is superseded by BL-084 tier-keying on `deployment`+`poc_mode` (`# BL-084-TIER-KEY`), which is C2 territory.
+
 **Decision (2026-07-05):** Karl approved **Option A (hard block)** with a **track-tiered bypass matrix**:
 - **Personal** (deployment=personal, non-POC) -> may bypass (warn/soft).
 - **POC-Personal** (`private_poc` / track=light) -> may bypass, but the bypass is LOGGED (audit trail); enforcement flips to HARD BLOCK if the project is later upgraded to Sponsored POC.
