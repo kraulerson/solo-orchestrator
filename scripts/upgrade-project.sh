@@ -131,13 +131,19 @@ _refresh_cdf_assets_solo() {
 # sentinel reflects its question/options back; a malformed one is treated as
 # in-flight.
 #
-# Called from TWO sites so the two paths stay in sync (single source of truth
-# for detection — the two must NEVER drift):
-#   • the --backfill-only path, BEFORE its idempotent manifest/host/skills
-#     backfills and its CDF asset refresh (see the guard just before the
-#     backfill block); and
-#   • the full-upgrade path, after guard_not_in_framework and before the
-#     atomic section-2b mutation.
+# Called from TWO sites — one per path — so the two paths stay in sync (single
+# source of truth for detection; the two must NEVER drift). Both sites sit
+# BEFORE the shared idempotent backfill block, so on EITHER path a
+# sentinel-blocked run mutates nothing (BL-081 moved the full-path call ahead
+# of that block; before BL-081 it ran after it and the full path mutated
+# .claude/skills/ + the manifest before blocking):
+#   • the --backfill-only path (BL-080), gated on `BACKFILL_ONLY = true`,
+#     BEFORE its idempotent manifest/host/skills backfills and CDF asset
+#     refresh; and
+#   • the full-upgrade path (BL-081), gated on `BACKFILL_ONLY != true`,
+#     the one-liner immediately after — BEFORE the same idempotent backfill
+#     block and everything downstream (guard_not_in_framework, the atomic
+#     section-2b mutation, and the full-upgrade CDF refresh).
 # Both call sites are at top level (not inside a subshell), so the `exit 1`
 # below aborts the whole script — a sentinel-blocked run mutates nothing.
 _bl015_sentinel_guard() {
@@ -314,20 +320,33 @@ if [ "$VALIDATE_ONLY" = true ]; then
   exit 0
 fi
 
-# --- BL-015 (backfill parity): honor the pending-approval sentinel BEFORE any
-# --backfill-only mutation ---
+# --- BL-015 / BL-080 / BL-081: honor the pending-approval sentinel BEFORE the
+# shared idempotent backfill block ---
 # The idempotent backfill block below — and the --backfill-only CDF asset
 # refresh that follows its short-circuit — mutate .claude/framework/, the
-# manifest, host config, and .claude/skills/. The full-upgrade path already
-# blocks on the pending-approval sentinel further down (after
-# guard_not_in_framework), but --backfill-only short-circuits before reaching
-# that guard, so it was writing those mutations even while a sentinel existed.
-# Run the SAME guard here — the single _bl015_sentinel_guard the full path
-# calls, so detection never drifts — gated on BACKFILL_ONLY so the
-# full-upgrade path's own guard and its ordering are unchanged.
+# manifest, host config, and .claude/skills/ on BOTH paths (the block runs
+# before the --backfill-only short-circuit, so the full-upgrade path executes
+# it too). Both paths must therefore block on the sentinel HERE, before the
+# block runs, so a sentinel-blocked run of either path mutates nothing.
+#
+# Two call sites so each path fires the guard exactly once — the SAME
+# _bl015_sentinel_guard so detection can never drift:
+#   • --backfill-only path (BL-080, PR #144): the gated call just below.
+#   • full-upgrade path (BL-081): the gated one-liner below it. Before BL-081
+#     the full path guarded only further down (after guard_not_in_framework),
+#     AFTER this block — so a sentinel-blocked full upgrade printed
+#     "[OK] Vendored skills synced…" and wrote .claude/skills/ + manifest
+#     fields before it blocked. The guard now precedes the block on both paths.
 if [ "$BACKFILL_ONLY" = true ]; then
   _bl015_sentinel_guard
 fi
+# BL-081: the full-upgrade path (everything except --backfill-only) blocks on
+# the sentinel here too, before the block below mutates .claude/skills/ or the
+# manifest. Gated to the full path so the --backfill-only guard above stays the
+# sole guard for its path — keeping the two mutation proofs independent (see
+# tests/test-upgrade-sentinel-block.sh T6 for backfill-only, T7 for the full
+# path). Kept as a one-liner so the two guard calls stay textually distinct.
+if [ "$BACKFILL_ONLY" != true ]; then _bl015_sentinel_guard; fi
 
 # --- Idempotent manifest backfills (run before target-flag check) ---
 # These migrate pre-existing projects to the current schema without
@@ -562,12 +581,13 @@ fi
 guard_not_in_framework || exit 1
 
 # --- BL-015 pending-approval sentinel respect (UAT 2026-04-25 fix C5) ---
-# Full-upgrade call site. Detection + deny message live in
-# _bl015_sentinel_guard (defined near the top), which the --backfill-only path
-# also calls so the two paths can never drift. Placed here — after
-# guard_not_in_framework and before the atomic section-2b mutation — so a
-# blocked or rolled-back upgrade never touches project state.
-_bl015_sentinel_guard
+# The full-upgrade sentinel guard was MOVED earlier (BL-081): it now runs
+# before the shared idempotent backfill block (see the gated one-liner just
+# above that block), so a sentinel-blocked full upgrade never touches
+# .claude/skills/, the manifest, or any later project state. It intentionally
+# runs before guard_not_in_framework/prereqs — the same position the
+# --backfill-only guard already occupies — because that is the only point
+# ahead of the backfill mutation. No guard call belongs here anymore.
 
 # --- File paths ---
 PHASE_STATE="$PROJECT_ROOT/.claude/phase-state.json"
