@@ -125,6 +125,10 @@ t1_sentinel_blocks_to_private_poc() {
   local pre_tools;      pre_tools=$(cat "$TMPDIR_T/.claude/tool-preferences.json")
   local pre_intake;     pre_intake=$(cat "$TMPDIR_T/.claude/intake-progress.json")
   local pre_sentinel;   pre_sentinel=$(cat "$TMPDIR_T/.claude/pending-approval.json")
+  # BL-081: fingerprint the ENTIRE .claude/ tree so we can prove the
+  # full-upgrade path blocks BEFORE the idempotent backfill block mutates
+  # .claude/skills/ (vendored-skills sync) or the manifest.
+  local pre_claude_fp;  pre_claude_fp=$(_tree_fingerprint "$TMPDIR_T/.claude")
 
   local out rc=0
   out=$(cd "$TMPDIR_T" && "$SCRIPT" --to-private-poc --non-interactive </dev/null 2>&1) || rc=$?
@@ -172,6 +176,24 @@ t1_sentinel_blocks_to_private_poc() {
     teardown_project; return
   fi
 
+  # (3b) BL-081: the ENTIRE .claude/ tree must be byte-identical. The
+  # full-upgrade path's idempotent backfill block (vendored-skills sync +
+  # host/BL-030 manifest backfill) must NOT run before the sentinel guard —
+  # otherwise a sentinel-blocked full upgrade mutates .claude/skills/ and the
+  # manifest before it blocks (the BL-080 backfill-parity fix, extended to the
+  # full path).
+  local post_claude_fp; post_claude_fp=$(_tree_fingerprint "$TMPDIR_T/.claude")
+  if [ "$pre_claude_fp" != "$post_claude_fp" ]; then
+    fail_ "T1" ".claude/ tree mutated despite sentinel block (BL-081) — full path ran the idempotent backfill before blocking; pre:\n$pre_claude_fp\npost:\n$post_claude_fp"
+    teardown_project; return
+  fi
+  # Explicit skills coverage: the vendored-skills sync must NOT have created
+  # .claude/skills/ (it was absent in the fixture).
+  if [ -d "$TMPDIR_T/.claude/skills" ]; then
+    fail_ "T1" ".claude/skills/ was created despite sentinel block (BL-081) — vendored-skills sync fired before the guard"
+    teardown_project; return
+  fi
+
   # (4) Sentinel itself must still be present and unchanged.
   if [ ! -f "$TMPDIR_T/.claude/pending-approval.json" ]; then
     fail_ "T1" "sentinel file was removed by the upgrade — only --resolve/--clear may do that"
@@ -182,7 +204,7 @@ t1_sentinel_blocks_to_private_poc() {
     teardown_project; return
   fi
 
-  pass "T1: sentinel blocks --to-private-poc; rc!=0, recovery hints present, no mutation, sentinel preserved"
+  pass "T1: sentinel blocks --to-private-poc; rc!=0, recovery hints present, entire .claude/ tree byte-identical (skills + manifest unmutated, BL-081), sentinel preserved"
   teardown_project
 }
 
@@ -195,6 +217,9 @@ t2_malformed_sentinel_still_blocks() {
   setup_personal_with_sentinel
   # Overwrite with malformed JSON.
   echo "{ not valid json" > "$TMPDIR_T/.claude/pending-approval.json"
+  # BL-081: fingerprint the tree so a malformed-sentinel block is proven to
+  # be equally non-mutating on the full path.
+  local pre_claude_fp; pre_claude_fp=$(_tree_fingerprint "$TMPDIR_T/.claude")
 
   local out rc=0
   out=$(cd "$TMPDIR_T" && "$SCRIPT" --to-private-poc --non-interactive </dev/null 2>&1) || rc=$?
@@ -211,7 +236,17 @@ t2_malformed_sentinel_still_blocks() {
     fail_ "T2" "expected the guard to acknowledge malformed/in-flight handling; out:\n$(echo "$out" | tail -15)"
     teardown_project; return
   fi
-  pass "T2: malformed sentinel is still treated as in-flight and blocks the upgrade"
+  # BL-081: entire .claude/ tree byte-identical (no skills/manifest mutation).
+  local post_claude_fp; post_claude_fp=$(_tree_fingerprint "$TMPDIR_T/.claude")
+  if [ "$pre_claude_fp" != "$post_claude_fp" ]; then
+    fail_ "T2" ".claude/ tree mutated despite malformed-sentinel block (BL-081); pre:\n$pre_claude_fp\npost:\n$post_claude_fp"
+    teardown_project; return
+  fi
+  if [ -d "$TMPDIR_T/.claude/skills" ]; then
+    fail_ "T2" ".claude/skills/ was created despite malformed-sentinel block (BL-081)"
+    teardown_project; return
+  fi
+  pass "T2: malformed sentinel is still treated as in-flight and blocks the upgrade (entire .claude/ tree byte-identical, BL-081)"
   teardown_project
 }
 
@@ -355,13 +390,15 @@ t5_backfill_proceeds_no_sentinel() {
   rm -rf "$T"
 }
 
-# T6 — mutation proof: neutralize the --backfill-only path's call to
-# _bl015_sentinel_guard in a COPY of the script tree. The SAME
-# sentinel-present run must then MUTATE the manifest (backfill fires
-# despite the sentinel), while the real script leaves it byte-identical.
-# Exact whole-line awk target (grep -Fxq guards against drift); the
-# indented backfill call is distinct from the full-path (0-indent) call,
-# which is left intact.
+# T6 — mutation proof (--backfill-only guard): neutralize the --backfill-only
+# path's call to _bl015_sentinel_guard in a COPY of the script tree. The SAME
+# sentinel-present run must then MUTATE the manifest (backfill fires despite
+# the sentinel), while the real script leaves it byte-identical.
+# Exact whole-line awk target (grep -Fxq guards against drift); the 2-space
+# backfill-only guard call is distinct from the full-path guard (BL-081's
+# gated one-liner), which is left intact so the mutation isolates the
+# --backfill-only path — proving THAT guard is load-bearing.
+# (The full-path guard has its own mutation proof in T7.)
 t6_backfill_guard_mutation_proof() {
   local T; T=$(mktemp -d)
   local TARGET='  _bl015_sentinel_guard'
@@ -384,12 +421,14 @@ t6_backfill_guard_mutation_proof() {
   awk -v t="$TARGET" '$0==t{print "  : # MUTATION: backfill sentinel guard neutralized"; next}{print}' \
     "$SCRIPT" > "$MUT"
   chmod +x "$MUT"
-  # The indented backfill call must be gone; the full-path (0-indent) call must remain.
+  # The 2-space backfill-only guard call must be gone; the full-path guard
+  # (BL-081's gated one-liner) must remain intact so the mutation isolates the
+  # --backfill-only path only.
   if grep -Fxq "$TARGET" "$MUT"; then
-    fail_ "T6" "mutation did not take effect — indented backfill call still present in the mutant"; rm -rf "$T"; return
+    fail_ "T6" "mutation did not take effect — backfill-only guard call still present in the mutant"; rm -rf "$T"; return
   fi
-  if [ "$(grep -Fxc '_bl015_sentinel_guard' "$MUT")" != "1" ]; then
-    fail_ "T6" "mutation removed the wrong call — expected exactly 1 remaining full-path (0-indent) call"; rm -rf "$T"; return
+  if ! grep -Fq 'if [ "$BACKFILL_ONLY" != true ]; then _bl015_sentinel_guard; fi' "$MUT"; then
+    fail_ "T6" "mutation removed the wrong call — the full-path guard one-liner must remain intact"; rm -rf "$T"; return
   fi
 
   # Mutant run + SAME sentinel → manifest MUST mutate (guard neutralized).
@@ -408,6 +447,66 @@ t6_backfill_guard_mutation_proof() {
   rm -rf "$T"
 }
 
+# T7 — mutation proof (full-upgrade guard, BL-081): neutralize ONLY the
+# FULL-PATH call to _bl015_sentinel_guard (the gated one-liner) in a COPY of
+# the script tree. The SAME sentinel-present FULL upgrade must then run the
+# idempotent backfill (creating .claude/skills/) despite the sentinel, while
+# the real script blocks with the entire .claude/ tree byte-identical. Proves
+# the full-path guard is load-bearing — the mirror of T6 for the full path.
+# The mutation target is a unique whole line (grep -Fxq guards against drift);
+# the 2-space --backfill-only guard is left intact (T6 covers that one).
+t7_fullpath_guard_mutation_proof() {
+  local T; T=$(mktemp -d)
+  local TARGET='if [ "$BACKFILL_ONLY" != true ]; then _bl015_sentinel_guard; fi'
+
+  if ! grep -Fxq "$TARGET" "$SCRIPT"; then
+    fail_ "T7" "mutation target (full-path guard one-liner) not found in $SCRIPT — did the full-path guard change? (test needs updating)"; rm -rf "$T"; return
+  fi
+
+  # Control: real script + sentinel + FULL upgrade → blocks BEFORE the backfill
+  # block; .claude/ tree byte-identical and NO .claude/skills/ created.
+  local PROJ_C="$T/proj_control"
+  setup_backfill_project "$PROJ_C"; write_sentinel "$PROJ_C"
+  local pre_c_fp;  pre_c_fp=$(_tree_fingerprint "$PROJ_C/.claude")
+  ( cd "$PROJ_C" && CDF_HOME="$T/no-such-cdf-clone" "$SCRIPT" --to-private-poc --non-interactive </dev/null ) >/dev/null 2>&1
+  local post_c_fp; post_c_fp=$(_tree_fingerprint "$PROJ_C/.claude")
+  local control_clean; control_clean=$( { [ "$pre_c_fp" = "$post_c_fp" ] && [ ! -d "$PROJ_C/.claude/skills" ]; } && echo y || echo n )
+
+  # Mutant: copy scripts/ (so lib/ resolves) AND templates/generated/skills/
+  # (the vendored-skills sync source — ORCHESTRATOR_ROOT resolves to $T for the
+  # copied script, so the source must live there for the skills sync to fire),
+  # then neutralize ONLY the full-path guard one-liner (the 2-space
+  # backfill-only guard stays intact).
+  cp -R "$REPO_ROOT/scripts" "$T/scripts"
+  mkdir -p "$T/templates/generated"
+  cp -R "$REPO_ROOT/templates/generated/skills" "$T/templates/generated/skills"
+  local MUT="$T/scripts/upgrade-project.sh"
+  awk -v t="$TARGET" '$0==t{print ": # MUTATION: full-path sentinel guard neutralized"; next}{print}' \
+    "$SCRIPT" > "$MUT"
+  chmod +x "$MUT"
+  if grep -Fxq "$TARGET" "$MUT"; then
+    fail_ "T7" "mutation did not take effect — full-path guard one-liner still present in the mutant"; rm -rf "$T"; return
+  fi
+  if [ "$(grep -Fxc '  _bl015_sentinel_guard' "$MUT")" != "1" ]; then
+    fail_ "T7" "mutation removed the wrong call — the 2-space --backfill-only guard must remain (exactly 1)"; rm -rf "$T"; return
+  fi
+
+  # Mutant run + SAME sentinel + FULL upgrade → the backfill block fires despite
+  # the sentinel, creating .claude/skills/ BEFORE any block. The full upgrade
+  # may error further down; we only assert the pre-guard backfill ran (|| true).
+  local PROJ_M="$T/proj_mutant"
+  setup_backfill_project "$PROJ_M"; write_sentinel "$PROJ_M"
+  ( cd "$PROJ_M" && CDF_HOME="$T/no-such-cdf-clone" bash "$MUT" --to-private-poc --non-interactive </dev/null ) >/dev/null 2>&1 || true
+  local mutant_mutates; mutant_mutates=$( [ -d "$PROJ_M/.claude/skills" ] && echo y || echo n )
+
+  if [ "$control_clean" = "y" ] && [ "$mutant_mutates" = "y" ]; then
+    pass "T7 (BL-081 mutation proof): real script blocks the FULL upgrade with .claude/ byte-identical (no skills); neutralizing the full-path guard makes the full upgrade run the backfill (creates .claude/skills/) despite the sentinel — the full-path guard is load-bearing"
+  else
+    fail_ "T7" "control_clean=$control_clean (expect skills absent + tree identical); mutant_mutates=$mutant_mutates (expect skills created)"
+  fi
+  rm -rf "$T"
+}
+
 echo "== tests/test-upgrade-sentinel-block.sh =="
 t1_sentinel_blocks_to_private_poc
 t2_malformed_sentinel_still_blocks
@@ -415,6 +514,7 @@ t3_no_sentinel_no_guard_message
 t4_backfill_blocks_on_sentinel
 t5_backfill_proceeds_no_sentinel
 t6_backfill_guard_mutation_proof
+t7_fullpath_guard_mutation_proof
 
 echo ""
 echo "== Total: $((PASSED + FAILED)) | Passed: $PASSED | Failed: $FAILED =="
