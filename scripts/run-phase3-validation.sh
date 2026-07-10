@@ -91,10 +91,18 @@ fi
 #                               distinct from pre-commit-gate.sh's staged-
 #                               only scan. Runs when semgrep is on PATH and
 #                               we are not --offline; SKIP otherwise.
-#   license            STUB   — dependency-license compliance. The per-
-#                               language matrix (license-checker / pip-
-#                               licenses / cargo-license / dotnet-project-
-#                               licenses) is a LATER INCREMENT; always SKIP.
+#   license            REAL   — dependency-license compliance (BL-070
+#                               increment). Reads the project language from
+#                               .claude/tool-preferences.json (.context.language)
+#                               and dispatches the per-language license tool
+#                               (typescript→license-checker, python→pip-licenses,
+#                               rust→cargo license, go→go-licenses, csharp→
+#                               dotnet-project-licenses). Runs when the tool is
+#                               on PATH and we are not --offline; unsupported
+#                               language or missing tool → attestable SKIP.
+#                               Minimal contract: it INVENTORIES licenses; a
+#                               license allow/deny POLICY is a deliberate
+#                               non-goal of this increment (pending decision).
 #   snyk               STUB   — `snyk test --json` needs `snyk auth` +
 #                               network. Registered but SKIP in the skeleton
 #                               (do NOT auto-run an auth prompt).
@@ -119,6 +127,7 @@ _p3_label() {
 _p3_kind() {   # "real" or "stub" — surfaced in --list and the summary.
   case "$1" in
     semgrep-full-tree) echo "real" ;;
+    license)           echo "real" ;;
     *)                 echo "stub" ;;
   esac
 }
@@ -357,15 +366,107 @@ _p3_scan_semgrep() {
   fi
 }
 
-# STUB — license compliance. Always SKIP in the skeleton.
+# go-licenses emits CSV (package, license-URL, license-name), not JSON. Wrap
+# its output into a minimal JSON envelope so the archived report is valid JSON
+# like every other scanner's. Writes $1 and returns the tool's rc; on NO output
+# it leaves $1 unwritten so the caller's non-empty-report check reports FAIL.
+_p3_license_go_report() {
+  local out="$1" csv rc=0
+  csv=$(go-licenses report ./... 2>/dev/null) || rc=$?
+  # No usable output → signal failure by NOT writing the archive (empty archive
+  # → FAIL by the report-produced contract below).
+  if [ -z "$csv" ]; then
+    return "${rc:-1}"
+  fi
+  {
+    printf '{"tool":"go-licenses","format":"csv","lines":['
+    local first=1 line
+    while IFS= read -r line; do
+      [ -n "$line" ] || continue
+      if [ "$first" -eq 1 ]; then first=0; else printf ','; fi
+      # JSON-escape backslashes then double-quotes (bash-3.2 safe).
+      line=${line//\\/\\\\}
+      line=${line//\"/\\\"}
+      printf '"%s"' "$line"
+    done <<EOF
+$csv
+EOF
+    printf ']}\n'
+  } > "$out"
+  return 0
+}
+
+# REAL — dependency-license compliance (BL-070 increment).
 _p3_scan_license() {
-  # BL-070 SKELETON STUB: the per-language dependency-license matrix
-  # (license-checker / pip-licenses / cargo-license / dotnet-project-
-  # licenses) is a later increment. Until then this scanner always SKIPs
-  # and therefore requires an attestation — the gate never silently green-
-  # lights an unscanned dependency tree.
-  P3_STATUS="SKIP"
-  P3_NOTE="license-compliance scanner stubbed (BL-070 skeleton) — wire the per-language license matrix in a later increment"
+  local archive="$1"
+  if [ -n "$OFFLINE" ]; then
+    P3_STATUS="SKIP"; P3_NOTE="offline mode (--offline / SOLO_PHASE3_OFFLINE) — license scan not run"
+    return
+  fi
+
+  # Language source: .claude/tool-preferences.json::.context.language. This is
+  # the CANONICAL reader (mirrors scripts/check-phase-gate.sh's TOOL_PREFS
+  # block). NOT .claude/manifest.json — that file holds only host/mode/
+  # remote_url, so reading it returns empty and the scanner would silently
+  # always-SKIP (the code-verify-reconfigure-1 bug class).
+  local language=""
+  if command -v jq >/dev/null 2>&1 && [ -f ".claude/tool-preferences.json" ]; then
+    language=$(jq -r '.context.language // ""' ".claude/tool-preferences.json" 2>/dev/null || echo "")
+  fi
+  [ "$language" = "null" ] && language=""
+
+  # Select the per-language license tool. Language values are platform-
+  # dependent (web adds csharp/go/java/kotlin/other; mobile/desktop add
+  # swift/dart), so an explicit `*)` catch-all is REQUIRED: any unknown
+  # language → attestable SKIP.
+  local tool=""
+  case "$language" in
+    typescript) tool="license-checker" ;;
+    python)     tool="pip-licenses" ;;
+    rust)       tool="cargo-license" ;;
+    go)         tool="go-licenses" ;;
+    csharp)     tool="dotnet-project-licenses" ;;
+    java|kotlin|swift|dart|other|"")
+      P3_STATUS="SKIP"
+      P3_NOTE="no canonical license tool for language '${language:-unknown}' — run your ecosystem's license audit manually (e.g. Gradle license plugin / SwiftLicenseChecker), then attest"
+      return ;;
+    *)
+      P3_STATUS="SKIP"
+      P3_NOTE="no canonical license tool for language '$language' — run your ecosystem's license audit manually, then attest"
+      return ;;
+  esac
+
+  # Tool not provisioned → attestable SKIP (the operator installs it or runs
+  # the audit manually and attests; the gate never silently green-lights an
+  # unscanned dependency tree).
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    P3_STATUS="SKIP"
+    P3_NOTE="$tool not on PATH — install it to enable license compliance for '$language', or run the audit manually and attest"
+    return
+  fi
+
+  # Run the selected tool, archiving its JSON report. "report-produced"
+  # semantics: some license tools exit 1 while still emitting a valid report,
+  # so success is measured by a NON-EMPTY archive, NOT by rc==0.
+  local rc=0
+  case "$language" in
+    typescript) license-checker --json          > "$archive" 2>/dev/null || rc=$? ;;  # BL-070-LICENSE-DISPATCH
+    python)     pip-licenses --format=json       > "$archive" 2>/dev/null || rc=$? ;;
+    rust)       cargo license --json             > "$archive" 2>/dev/null || rc=$? ;;
+    csharp)     dotnet-project-licenses -j        > "$archive" 2>/dev/null || rc=$? ;;
+    go)         _p3_license_go_report "$archive"                          || rc=$? ;;
+  esac
+  P3_ARCHIVE="$archive"
+
+  # Minimal increment contract (a license allow/deny POLICY is a deliberate
+  # non-goal here — pending decision): PASS = a non-empty report exists,
+  # FAIL = the tool crashed / produced no output. This scanner INVENTORIES
+  # licenses; it does not judge them.
+  if [ -s "$archive" ]; then
+    P3_STATUS="PASS"; P3_NOTE="license inventory produced via $tool ($language) — $archive"
+  else
+    P3_STATUS="FAIL"; P3_NOTE="$tool produced no license report (rc=$rc) — treat as a scan failure, not a skip"
+  fi
 }
 
 # STUB — Snyk dependency scan. Always SKIP in the skeleton.

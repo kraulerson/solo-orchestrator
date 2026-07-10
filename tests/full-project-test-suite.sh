@@ -522,6 +522,23 @@ else
   fail "tests/test-phase3-validation-gate.sh FAILED (run for details)"
 fi
 
+# BL-070 increment (WP-B1): scripts/run-phase3-validation.sh's `license` scanner
+# promoted from stub to REAL. Reads the project language from
+# .claude/tool-preferences.json (.context.language — the canonical source, NOT
+# manifest.json), dispatches the per-language license tool
+# (typescript→license-checker / python→pip-licenses / rust→cargo license /
+# go→go-licenses / csharp→dotnet-project-licenses), archives its JSON report,
+# and reports PASS (non-empty report produced — rc-independent) / FAIL (crash,
+# no output) / attestable SKIP (--offline, tool missing, or unsupported
+# language). Hermetic: the driver runs with a curated clean bin so no host
+# license tool / semgrep leaks in. Mutation-proof: excising the marked
+# `# BL-070-LICENSE-DISPATCH` line flips T-license-real-pass RED.
+if bash "$SCRIPT_DIR/tests/test-bl070-license-scanner.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl070-license-scanner.sh"
+else
+  fail "tests/test-bl070-license-scanner.sh FAILED (run for details)"
+fi
+
 # BL-073: scripts/check-phase-gate.sh's Phase 3→4 review-manifest check must
 # be a REAL, track-aware gate — FAIL (block) when the Security or Red Team
 # review is missing for track=standard/full, WARN-only for light/personal
