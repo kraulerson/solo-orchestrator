@@ -654,6 +654,143 @@ else
 fi
 teardown
 
+# ── T-attested-record-failure: attested escape but the durable write FAILS ──
+echo ""
+echo "=== T-attested-record-failure: SOLO_TDD_ATTESTED=1 + unwritable .claude → REFUSE rc=1, no partial write ==="
+# C2 close-out gap: the attested-escape FAILURE path (pre-commit-gate.sh:254-255)
+# was untested — the WP-C2 verifier found that mutating its loud-refuse
+# `return 1` to `return 0` SURVIVED. tdd_record_attestation returns non-zero on
+# any durable-write failure; the caller MUST then be LOUD and REFUSE the commit
+# (an attested escape must be on the record, never a silent pass). We force the
+# write to fail by removing write permission on .claude, restore it on EVERY
+# exit path via a trap, and assert rc=1 + a loud [FAIL] + NO partial write
+# (process-state.json absent). Then a gate COPY with the refuse flipped to
+# `return 0` must go RED (rc=0).
+setup
+write_tier organizational sponsored_poc standard
+stage "src/foo.py" "def foo(): pass"
+set_subject "feat: add foo"
+PS="$PROJ/.claude/process-state.json"
+# Safety net + primary restore: the trap fires even if an assertion path exits.
+trap 'chmod u+rwx "$PROJ/.claude" 2>/dev/null || true' EXIT
+chmod 500 "$PROJ/.claude"
+# Root/odd-FS guard: chmod 500 does not stop writes for root. Probe writability;
+# if still writable the failure path is not exercisable here — record it and skip
+# rather than emit a spurious RED.
+if ( : > "$PROJ/.claude/.wprobe" ) 2>/dev/null; then
+  rm -f "$PROJ/.claude/.wprobe" 2>/dev/null || true
+  chmod u+rwx "$PROJ/.claude" 2>/dev/null || true
+  pass "T-attested-record-failure: SKIPPED (running as root / .claude still writable) — durable-write-fail path not exercisable in this environment"
+else
+  res=$(run_term SOLO_TDD_ATTESTED=1 SOLO_TDD_REASON="integration surface"); rc="${res%%|*}"; body="${res#*|}"
+  # (1) REFUSED with rc=1.
+  if [ "$rc" -eq 1 ]; then
+    pass "T-attested-record-failure: gate REFUSES the commit (rc=1) when the attestation cannot be durably recorded"
+  else
+    fail_ "T-attested-record-failure" "expected rc=1 (refuse); got rc=$rc body: $body"
+  fi
+  # (2) The refusal is loud AND is specifically the record-failure [FAIL].
+  if has_fail "$body" && case "$body" in *'attestation could NOT be recorded'*) true ;; *) false ;; esac; then
+    pass "T-attested-record-failure: loud [FAIL] naming the durable-record failure (not a silent pass)"
+  else
+    fail_ "T-attested-record-failure" "expected the record-failure [FAIL]; body: $body"
+  fi
+  # (3) No partial write — process-state.json must be ABSENT (the write never landed).
+  if [ ! -f "$PS" ]; then
+    pass "T-attested-record-failure: no partial write — process-state.json absent"
+  else
+    fail_ "T-attested-record-failure" "process-state.json was written despite the refusal: $(cat "$PS" 2>/dev/null)"
+  fi
+  # (4) MUTATION: flip the loud-refuse `return 1` → `return 0` in a gate COPY.
+  # With .claude still unwritable, the mutant emits the [FAIL] but ALLOWS the
+  # commit (rc=0) — the exact silent-escape defect. Real rc=1 vs mutant rc=0.
+  MUT="$TMP/mut-attest-refuse"
+  build_mut_tree "$MUT"
+  awk '
+    /attested escape must be durably logged/ { seen=1 }
+    seen==1 && /^[[:space:]]*return 1[[:space:]]*$/ { sub(/return 1/, "return 0"); seen=0 }
+    { print }
+  ' "$GATE" > "$MUT/scripts/pre-commit-gate.sh"
+  chmod +x "$MUT/scripts/pre-commit-gate.sh"
+  if diff -q "$GATE" "$MUT/scripts/pre-commit-gate.sh" >/dev/null 2>&1; then
+    fail_ "T-attested-record-failure-mut" "mutation did not apply — the refuse `return 1` was not flipped"
+  elif ! bash -n "$MUT/scripts/pre-commit-gate.sh" 2>/dev/null; then
+    fail_ "T-attested-record-failure-mut" "mutant gate not syntactically valid after the flip"
+  else
+    res=$(run_term_gate "$MUT/scripts/pre-commit-gate.sh" SOLO_TDD_ATTESTED=1 SOLO_TDD_REASON="x"); rc="${res%%|*}"; body="${res#*|}"
+    if [ "$rc" -eq 0 ]; then
+      pass "T-attested-record-failure-mut (RED): flipping the refuse to return 0 lets the un-recorded escape PASS (rc=0)"
+    else
+      fail_ "T-attested-record-failure-mut" "mutant STILL refused (rc=$rc) — the refuse is not load-bearing (mutation not proof); body: $body"
+    fi
+    res=$(run_term SOLO_TDD_ATTESTED=1 SOLO_TDD_REASON="x"); rc="${res%%|*}"; body="${res#*|}"
+    if [ "$rc" -eq 1 ]; then
+      pass "T-attested-record-failure-mut (GREEN): the real gate still refuses the same fixture (rc=1) — contrast holds"
+    else
+      fail_ "T-attested-record-failure-mut" "real gate did NOT refuse — contrast broken; rc=$rc body: $body"
+    fi
+  fi
+  chmod u+rwx "$PROJ/.claude" 2>/dev/null || true
+fi
+trap - EXIT
+teardown
+
+# ── T-lockfile-excluded: sponsored feat touching only lockfiles → silent ──
+echo ""
+echo "=== T-lockfile-excluded: sponsored feat touching only package-lock.json + *.lock → silent, rc=0, no ledger ==="
+# C2 close-out gap: the lockfile exclusion (tdd-classify.sh:85-89) was untested.
+# Lockfiles are machine-generated, not authored implementation, so a commit that
+# touches ONLY lockfiles must not trigger the gate — even on a non-bypassable
+# tier. Mutation: strip the lockfile arms from a COPY of tdd-classify.sh →
+# lockfiles reclassify as impl → the same fixture hard-blocks (RED).
+setup
+write_tier organizational sponsored_poc standard
+stage "package-lock.json" '{"lockfileVersion":3}'
+stage "Cargo.lock" "[[package]]"
+set_subject "feat: bump dependencies (lockfiles only)"
+before=$(ledger_rows)
+res=$(run_term); rc="${res%%|*}"; body="${res#*|}"
+after=$(ledger_rows)
+if [ "$rc" -eq 0 ] && ! has_fail "$body" && ! has_warn "$body" && [ "$after" -eq "$before" ]; then
+  pass "T-lockfile-excluded: lockfile-only change is not implementation (silent, rc=0, no ledger row even on a sponsored tier)"
+else
+  fail_ "T-lockfile-excluded" "expected silent rc=0 + ledger unchanged; got rc=$rc ledger $before→$after body: $body"
+fi
+teardown
+
+# ── T-lockfile-excluded-mut: strip the lockfile arms → the fixture hard-blocks ──
+echo ""
+echo "=== T-lockfile-excluded-mut: remove the lockfile arms from tdd-classify.sh → hard block (RED→GREEN) ==="
+setup
+write_tier organizational sponsored_poc standard
+stage "package-lock.json" '{"lockfileVersion":3}'
+stage "Cargo.lock" "[[package]]"
+set_subject "feat: bump dependencies (lockfiles only)"
+MUT="$TMP/mut-lock"
+build_mut_tree "$MUT"
+grep -vE '(package-lock\.json|yarn\.lock|\*\.lock)\)[[:space:]]+return 1' "$TDD_LIB" > "$MUT/scripts/lib/tdd-classify.sh"
+if ! grep -qE '\*\.lock\)[[:space:]]+return 1' "$TDD_LIB"; then
+  fail_ "T-lockfile-excluded-mut" "the lockfile arms are missing from the REAL tdd-classify.sh — nothing to mutate"
+elif grep -qE '(package-lock\.json|yarn\.lock|\*\.lock)\)[[:space:]]+return 1' "$MUT/scripts/lib/tdd-classify.sh"; then
+  fail_ "T-lockfile-excluded-mut" "lockfile arms still present after excision — mutation did not apply"
+elif ! bash -n "$MUT/scripts/lib/tdd-classify.sh" 2>/dev/null; then
+  fail_ "T-lockfile-excluded-mut" "mutant tdd-classify.sh not syntactically valid after excision"
+else
+  res=$(run_term_gate "$MUT/scripts/pre-commit-gate.sh"); rc="${res%%|*}"; body="${res#*|}"
+  if [ "$rc" -eq 1 ] && has_fail "$body"; then
+    pass "T-lockfile-excluded-mut (RED): removing the lockfile arms reclassifies lockfiles as impl → hard block (rc=1)"
+  else
+    fail_ "T-lockfile-excluded-mut" "mutant did NOT block — the lockfile arm is not load-bearing (mutation not proof); rc=$rc body: $body"
+  fi
+  res=$(run_term); rc="${res%%|*}"; body="${res#*|}"
+  if [ "$rc" -eq 0 ] && ! has_fail "$body"; then
+    pass "T-lockfile-excluded-mut (GREEN): the real (lockfile-excluding) classifier stays silent on the same fixture (rc=0)"
+  else
+    fail_ "T-lockfile-excluded-mut" "real gate did NOT stay silent — contrast broken; rc=$rc body: $body"
+  fi
+fi
+teardown
+
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]

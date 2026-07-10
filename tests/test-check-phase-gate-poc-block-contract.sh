@@ -276,13 +276,16 @@ _t_checklist_shortcircuit() {
     fail_ "$label" "later-step marker 'Phase 4 release started' present — start_phase4 did NOT short-circuit (poc_mode=$mode):\n$out"
     teardown; return
   fi
-  # and current_phase was not advanced past 3 by a leaked write.
-  local got; got=$(jq -r '.current_phase' "$PROJ/.claude/phase-state.json" 2>/dev/null || echo "?")
-  if [ "$got" != "3" ]; then
-    fail_ "$label" "current_phase advanced to '$got' despite the POC short-circuit (poc_mode=$mode)"
-    teardown; return
-  fi
-  pass "$label: --start-phase4 short-circuits (rc=1, exactly one [FAIL], no later-step output, phase stays 3; poc_mode=$mode)"
+  # (WP-E close-out) The former "current_phase still 3" sub-assertion was VACUOUS
+  # w.r.t. the short-circuit and is intentionally removed: the only writer of
+  # current_phase on this path is `_set_current_phase_min 4`
+  # (process-checklist.sh:596), which runs STRICTLY AFTER
+  # `print_ok "Phase 4 release started"` (:595). The "no later-step output"
+  # assertion above already fails on that marker, so the phase can never advance
+  # without that earlier assertion firing first — the phase check could never be
+  # the assertion that catches a regression. rc=1 + exactly-one-[FAIL] + no
+  # later-step output fully characterize the short-circuit.
+  pass "$label: --start-phase4 short-circuits (rc=1, exactly one [FAIL], no later-step output; poc_mode=$mode)"
   teardown
 }
 
