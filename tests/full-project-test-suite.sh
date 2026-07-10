@@ -554,6 +554,23 @@ else
   fail "tests/test-bl070-threat-model-scanner.sh FAILED (run for details)"
 fi
 
+# BL-070 COMPLETION (WP-B3/B4): scripts/run-phase3-validation.sh's `snyk` and
+# `zap-dast` scanners promoted from stubs to REAL — after this arm ALL FIVE
+# Phase-3 scanners are real. Both are detect-and-run-if-available: snyk SKIPs
+# under --offline / not-on-PATH / unauthenticated (SNYK_TOKEN or `snyk config
+# get api`), else runs `snyk test --json`; zap-dast SKIPs under --offline /
+# platform∉{web,api} (gate FIRST) / no docker / no SOLO_ZAP_TARGET_URL, else
+# runs zap-baseline.py via the pinned ZAP image. Both mirror the semgrep
+# findings policy (findings block → FAIL). Hermetic: mock snyk + a bespoke mock
+# docker, curated clean bin (no host snyk/docker/semgrep leaks in). Mutation-
+# proof: excising `# BL-070-SNYK-DISPATCH` / `# BL-070-ZAP-DISPATCH` flips the
+# PASS cases RED.
+if bash "$SCRIPT_DIR/tests/test-bl070-snyk-zap-scanners.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl070-snyk-zap-scanners.sh"
+else
+  fail "tests/test-bl070-snyk-zap-scanners.sh FAILED (run for details)"
+fi
+
 # BL-073: scripts/check-phase-gate.sh's Phase 3→4 review-manifest check must
 # be a REAL, track-aware gate — FAIL (block) when the Security or Red Team
 # review is missing for track=standard/full, WARN-only for light/personal

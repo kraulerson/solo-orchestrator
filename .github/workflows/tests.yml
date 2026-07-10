@@ -73,6 +73,7 @@ jobs:
             tests/test-bl046-helpers-split.sh
             tests/test-bl069-install-cmds-consumers.sh
             tests/test-bl070-license-scanner.sh
+            tests/test-bl070-snyk-zap-scanners.sh
             tests/test-bl070-threat-model-scanner.sh
             tests/test-bl072-tdd-warn-detector.sh
             tests/test-bl073-review-manifest-gate.sh
