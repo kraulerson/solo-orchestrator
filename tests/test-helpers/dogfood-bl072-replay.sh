@@ -82,8 +82,11 @@ while IFS= read -r sha; do
   [ -z "$prefix" ] && continue
   in_scope=$((in_scope + 1))
 
-  files=$(git diff-tree --no-commit-id --name-only -r "$sha" 2>/dev/null)
-  counts=$(printf '%s\n' "$files" | _bl072_classify_paths)
+  # BL-072 Phase C2: feed git NAME-STATUS (not name-only) so the tightened
+  # classifier can exclude pure deletions — the same core the live commit-msg
+  # gate uses. *.md and lockfiles are excluded inside _bl072_is_impl_file.
+  files=$(git diff-tree --no-commit-id --name-status -r "$sha" 2>/dev/null)
+  counts=$(printf '%s\n' "$files" | _bl072_classify_status)
   n_impl=${counts#IMPL:}; n_impl=${n_impl%% *}
   n_test=${counts##*TEST:}
 
@@ -101,10 +104,7 @@ while IFS= read -r sha; do
       fix)      fix_wb=$((fix_wb + 1)) ;;
       refactor) ref_wb=$((ref_wb + 1)) ;;
     esac
-    impl_list=$(printf '%s\n' "$files" | while IFS= read -r f; do
-      [ -z "$f" ] && continue
-      if _bl072_is_impl_file "$f"; then printf '%s ' "$f"; fi
-    done)
+    impl_list=$(printf '%s\n' "$files" | _bl072_impl_files | tr '\n' ' ')
     printf '%s\t%s\t%s\n' "$(git rev-parse --short "$sha")" "$subject" "$impl_list" >> "$WB_ROWS"
   fi
 done < <(git log "$BASE" --no-merges --since="$SINCE" --format=%H)
