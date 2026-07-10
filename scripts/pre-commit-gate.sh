@@ -476,13 +476,15 @@ emit_tdd_warn() {
     echo "[WARN] BL-072 TDD ordering: '$type:' commit ships implementation without a matching test."
     echo "[WARN]   Subject: $subject"
     echo "[WARN]   Impl files (no test in this commit, none earlier on the branch):"
-    printf '%s\n' "$files" | grep -v '^[[:space:]]*$' | sed 's/^/[WARN]     - /'
+    printf '%s\n' "$files" | grep -v '^[[:space:]]*$' | sed 's/^/[WARN]     - /' || true
     echo "[WARN]   Under BL-072 Phase C2 (hard block) this commit WOULD BE BLOCKED."
     echo "[WARN]   Write the failing test first (test-driven), or — once C2 ships —"
     echo "[WARN]   attest the exception with SOLO_TDD_ATTESTED=1. This is a WARNING"
     echo "[WARN]   only: the commit is NOT blocked and is being recorded for measurement."
   } >&2
+  # rc must stay 0 no matter what — this is measurement, never a block.
   append_tdd_ledger "$subject" "$files" || true
+  return 0
 }
 
 tdd_warn_check() {
