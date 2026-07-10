@@ -33,6 +33,25 @@ set -uo pipefail
 #   every scanner is PASS or attested-skip-with-signoff (zero un-attested
 #   SKIPs, zero FAILs). See the `# BL-070-GATE-CHECK` block in that script.
 #
+# SUMMARY PROVENANCE — tree binding (BL-082, 2026-07-09)
+#   The summary header records the tree it validated so a stale summary cannot
+#   satisfy the gate forever:
+#       - tree: <git rev-parse HEAD^{tree}>   (or `none` outside a git repo)
+#       - dirty: yes|no                        (scoped working-tree state)
+#   `dirty` comes from a SCOPED `git status --porcelain` that EXCLUDES the
+#   framework's OWN write surfaces — `.claude/` (this driver writes
+#   attestations, and check-phase-gate.sh writes the BL-071 gate date, into
+#   .claude/phase-state.json, which is TRACKED in downstream projects — the
+#   generated .gitignore covers `test-results/` but not `.claude/`) and the
+#   --results-dir (where this summary + scan archives land). WHY the scoping
+#   (Karl-approved correction, 2026-07-09): an UNSCOPED dirty check would read
+#   the tree as dirty the instant the gate writes phase-state.json on its first
+#   PASS, marking every summary permanently stale (self-defeating; with
+#   SOLO_PHASE3_GATE_NOAUTORUN=1 it bricks the gate). check-phase-gate.sh
+#   re-checks freshness against the CURRENT tree AND live scoped porcelain and
+#   regenerates when stale. Pre-BL-082 summaries have no `tree:` line and are
+#   treated as STALE (backward compat).
+#
 # USAGE
 #   bash scripts/run-phase3-validation.sh [--offline] [--results-dir DIR]
 #                                         [--state FILE]
@@ -166,6 +185,34 @@ done
 
 _p3_is_registered() {
   case " $P3_SCANNERS " in *" $1 "*) return 0 ;; *) return 1 ;; esac
+}
+
+# ── BL-082 summary provenance ────────────────────────────────────────
+# _p3_scoped_dirty <results_dir> — echo "yes" when the working tree has
+# changes OUTSIDE the framework's own write surfaces, else "no".
+# BL-082-STALENESS: the scoped porcelain EXCLUDES `.claude/` (this driver + the
+# gate write phase-state.json there, and it is TRACKED downstream) and the
+# results dir (this summary + scan archives), so a summary is not marked
+# permanently stale by the very writes the gate makes on PASS. An absolute or
+# parent-relative results dir is outside the porcelain scope already, so its
+# exclusion is skipped (a repo-external path never appears in porcelain). Not a
+# git repo / git error → conservative "yes". Kept textually identical to
+# _cpg_scoped_dirty in scripts/check-phase-gate.sh.
+_p3_scoped_dirty() {
+  local rdir out
+  rdir="${1:-}"
+  rdir="${rdir#./}"
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "yes"; return 0
+  fi
+  case "$rdir" in
+    ""|/*|../*|..)
+      out=$(git status --porcelain -- . ':(exclude).claude' 2>/dev/null || true) ;;
+    *)
+      out=$(git status --porcelain -- . ':(exclude).claude' ":(exclude)$rdir" 2>/dev/null || true) ;;
+  esac
+  if [ -n "$out" ]; then echo "yes"; else echo "no"; fi
+  return 0
 }
 
 # ── Identity / attestation helpers ───────────────────────────────────
@@ -415,6 +462,13 @@ TS=$(date -u +"%Y-%m-%dT%H-%M-%SZ")
 GEN=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 SUMMARY="$RESULTS_DIR/summary-${TS}.md"
 
+# BL-082: bind the summary to the tree it validated (see header). `dirty` is
+# computed BEFORE the summary/archives are written into RESULTS_DIR, and the
+# scoped check excludes RESULTS_DIR + .claude anyway, so recording it here does
+# not race with this run's own writes.
+P3_TREE=$(git rev-parse "HEAD^{tree}" 2>/dev/null || echo none)
+P3_DIRTY=$(_p3_scoped_dirty "$RESULTS_DIR")
+
 echo -e "${BOLD}Phase 3 validation scans${NC}"
 [ -n "$OFFLINE" ] && echo -e "${BLUE}[INFO]${NC} offline mode — real-execution scanners will SKIP (no network/Docker/semgrep run)."
 
@@ -471,6 +525,8 @@ fi
   echo "# Phase 3 Validation Summary"
   echo ""
   echo "- Generated: ${GEN}"
+  echo "- tree: ${P3_TREE}"
+  echo "- dirty: ${P3_DIRTY}"
   echo "- Offline: $([ -n "$OFFLINE" ] && echo yes || echo no)"
   echo "- Scanners: $(echo $P3_SCANNERS | wc -w | tr -d ' ')"
   echo "- PASS: ${n_pass}  SKIP(attested): ${n_skip_attested}  SKIP(un-attested): ${n_skip_unattested}  FAIL: ${n_fail}"

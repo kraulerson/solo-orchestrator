@@ -35,6 +35,28 @@
 #                                enforcement is load-bearing: remove it → the
 #                                blocking test goes RED).
 #
+# BL-082 staleness binding (2026-07-09) — the gate trusts a summary only if it
+# was generated against the CURRENT tree with a clean (scoped) working tree.
+# Fixtures are REAL git repos (setup() git-inits + commits); write_summary_*
+# stamp a matching `tree:` + `dirty: no` so the pre-existing cases keep testing
+# trusted-summary paths. Added:
+#   T-fresh-trusted          matching tree + clean → gate does NOT re-run the
+#                            driver (asserted via a counting mock driver).
+#   T-stale-rerun            2nd commit advances HEAD^{tree} → old summary
+#                            superseded; the gate regenerates + evaluates fresh.
+#   T-stale-norerun-fails    SOLO_PHASE3_GATE_NOAUTORUN=1 + stale → gate FAIL,
+#                            rc=1, actionable re-run message. (Flipped RED by
+#                            the BL-082-STALENESS mutation.)
+#   T-dirty-tree-stale       summary recorded `dirty: yes` → stale path.
+#   T-pre-bl082-summary-stale  summary with NO `tree:` line → stale path.
+#   T-stateflip-not-dirty    (Correction 1) modify ONLY .claude/phase-state.json
+#                            uncommitted → still FRESH, no re-run.
+#   T-live-dirty-stale       (Correction 2) uncommitted SOURCE edit → stale even
+#                            though HEAD^{tree} still matches.
+#   T-bl082-mutation         excise `# BL-082-STALENESS` → T-stale-norerun-fails
+#                            goes RED (staleness defeated → stale all-PASS
+#                            summary trusted); restore → GREEN.
+#
 # HERMETIC: scanners are never run for real — the driver is always invoked
 # with --offline, so no network / Docker / semgrep / gh. bash-3.2 safe.
 
@@ -86,55 +108,161 @@ setup() {
 |---|---|
 | **Date** | 2026-04-01 |
 MD
+  # BL-082: fixtures must be REAL git repos — the gate now binds the summary to
+  # HEAD^{tree}. Make PROJ a git repo with an initial commit so a matching
+  # `tree:` line renders a seeded summary FRESH (mirrors that
+  # .claude/phase-state.json is tracked in downstream projects). Without this
+  # every seeded summary would resolve to `tree: none` / mismatched → always
+  # stale, and these cases could no longer exercise the trusted-summary paths.
+  (
+    cd "$PROJ" || exit 1
+    unset GITHUB_BASE_REF
+    git init -q
+    git config user.name "Test"
+    git config user.email "test@example.com"
+    git config commit.gpgsign false
+    git add -A
+    git commit -q -m "init fixture" >/dev/null 2>&1
+  )
 }
 teardown() { rm -rf "$TMP"; }
 
-# Pre-create a summary whose five scanners are all SKIP (the driver's
-# machine-readable RESULT contract). Only the RESULT lines are load-bearing
-# for the gate parser.
-write_summary_all_skip() {
-  mkdir -p "$PROJ/docs/test-results/phase3"
-  cat > "$PROJ/docs/test-results/phase3/summary-2026-07-06T00-00-00Z.md" <<'MD'
-# Phase 3 Validation Summary
-- Overall: FAIL
+# Current tree of the PROJ fixture repo (empty if not a git repo).
+proj_tree() { ( cd "$PROJ" && git rev-parse "HEAD^{tree}" 2>/dev/null ); }
 
-## Machine-readable results
-```
-RESULT semgrep-full-tree SKIP
-RESULT license SKIP
-RESULT snyk SKIP
-RESULT zap-dast SKIP
-RESULT threat-model SKIP
-```
-MD
+# Add a second commit so HEAD^{tree} advances → any summary bound to the
+# earlier tree becomes STALE (tree-mismatch path).
+proj_advance_tree() {
+  ( cd "$PROJ" && echo "change-$RANDOM" > src-change.txt && git add -A && git commit -q -m "advance" >/dev/null 2>&1 )
 }
 
-# semgrep reports a FAIL finding; the other four SKIP. Used to exercise the
-# gate's FAIL arm in isolation (attest the four skips so the ONLY blocker is
-# the FAIL status).
-write_summary_semgrep_fail() {
+# _write_summary <tree> <dirty> <newline-separated RESULT lines> — write a
+# summary in the BL-082 format. Pass tree="" / omit the `- tree:` line via
+# _write_summary_legacy for the pre-BL-082 backward-compat case.
+_write_summary() {
+  local tree="$1" dirty="$2" body="$3"
   mkdir -p "$PROJ/docs/test-results/phase3"
-  cat > "$PROJ/docs/test-results/phase3/summary-2026-07-06T00-00-00Z.md" <<'MD'
-# Phase 3 Validation Summary
-RESULT semgrep-full-tree FAIL
+  {
+    echo "# Phase 3 Validation Summary"
+    echo "- tree: ${tree}"
+    echo "- dirty: ${dirty}"
+    echo "- Overall: FAIL"
+    echo ""
+    echo "## Machine-readable results"
+    echo '```'
+    printf '%s\n' "$body"
+    echo '```'
+  } > "$PROJ/docs/test-results/phase3/summary-2026-07-06T00-00-00Z.md"
+}
+
+# Pre-BL-082 summary: NO `tree:`/`dirty:` header lines at all (backward-compat
+# → the gate must treat it as STALE).
+_write_summary_legacy() {
+  local body="$1"
+  mkdir -p "$PROJ/docs/test-results/phase3"
+  {
+    echo "# Phase 3 Validation Summary"
+    echo "- Overall: FAIL"
+    echo ""
+    echo "## Machine-readable results"
+    echo '```'
+    printf '%s\n' "$body"
+    echo '```'
+  } > "$PROJ/docs/test-results/phase3/summary-2026-07-06T00-00-00Z.md"
+}
+
+ALL_SKIP_ROWS='RESULT semgrep-full-tree SKIP
 RESULT license SKIP
 RESULT snyk SKIP
 RESULT zap-dast SKIP
-RESULT threat-model SKIP
-MD
+RESULT threat-model SKIP'
+
+ALL_PASS_ROWS='RESULT semgrep-full-tree PASS
+RESULT license PASS
+RESULT snyk PASS
+RESULT zap-dast PASS
+RESULT threat-model PASS'
+
+# Build a sandbox scripts/ dir holding the REAL gate + lib but a COUNTING MOCK
+# driver, so tests can assert whether the gate re-ran the driver (fresh →
+# no call; stale → call). The mock appends a line to $DRIVER_CALLS_FILE each
+# invocation and emits a minimal FRESH summary (tree = current HEAD^{tree}).
+make_sandbox_with_mock_driver() {
+  SANDBOX="$TMP/sandbox"
+  mkdir -p "$SANDBOX/scripts/lib"
+  cp "$GATE" "$SANDBOX/scripts/check-phase-gate.sh"
+  cp "$REPO_ROOT"/scripts/lib/*.sh "$SANDBOX/scripts/lib/" 2>/dev/null || true
+  MOCK_GATE="$SANDBOX/scripts/check-phase-gate.sh"
+  DRIVER_CALLS="$TMP/driver-calls"
+  : > "$DRIVER_CALLS"
+  cat > "$SANDBOX/scripts/run-phase3-validation.sh" <<'MOCK'
+#!/usr/bin/env bash
+set -uo pipefail
+[ -n "${DRIVER_CALLS_FILE:-}" ] && echo call >> "$DRIVER_CALLS_FILE"
+rdir="docs/test-results/phase3"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --results-dir) rdir="$2"; shift 2 ;;
+    --results-dir=*) rdir="${1#--results-dir=}"; shift ;;
+    *) shift ;;
+  esac
+done
+mkdir -p "$rdir"
+tree=$(git rev-parse "HEAD^{tree}" 2>/dev/null || echo none)
+f="$rdir/summary-$(date -u +%Y-%m-%dT%H-%M-%SZ).md"
+{
+  echo "# Phase 3 Validation Summary"
+  echo "- tree: $tree"
+  echo "- dirty: no"
+  echo ""
+  echo "## Machine-readable results"
+  echo '```'
+  echo "RESULT semgrep-full-tree SKIP"
+  echo "RESULT license SKIP"
+  echo "RESULT snyk SKIP"
+  echo "RESULT zap-dast SKIP"
+  echo "RESULT threat-model SKIP"
+  echo '```'
+} > "$f"
+exit 1
+MOCK
+  chmod +x "$SANDBOX/scripts/run-phase3-validation.sh"
+}
+
+# Run the MOCK-driver gate. $1 = SOLO_PHASE3_GATE_NOAUTORUN value (default empty
+# → auto-run enabled).
+run_mock_gate() {
+  ( cd "$PROJ" && DRIVER_CALLS_FILE="$DRIVER_CALLS" SOLO_PHASE3_GATE_NOAUTORUN="${1:-}" bash "$MOCK_GATE" 2>&1 ) || true
+}
+
+# Count how many times the mock driver was invoked (line count; 0 when empty).
+driver_call_count() { wc -l < "$DRIVER_CALLS" 2>/dev/null | tr -d ' '; }
+
+# Pre-create a FRESH summary (BL-082: matching tree + dirty:no) whose five
+# scanners are all SKIP. Only the RESULT lines + the tree/dirty provenance are
+# load-bearing for the gate.
+write_summary_all_skip() {
+  _write_summary "$(proj_tree)" "no" "$ALL_SKIP_ROWS"
+}
+
+# semgrep reports a FAIL finding; the other four SKIP. FRESH. Used to exercise
+# the gate's FAIL arm in isolation (attest the four skips so the ONLY blocker
+# is the FAIL status).
+write_summary_semgrep_fail() {
+  _write_summary "$(proj_tree)" "no" 'RESULT semgrep-full-tree FAIL
+RESULT license SKIP
+RESULT snyk SKIP
+RESULT zap-dast SKIP
+RESULT threat-model SKIP'
 }
 
 # Summary that OMITS semgrep's RESULT line (→ gate reads it as MISSING) and
-# has a garbled status for license. Both must count as blocking.
+# has a garbled status for license. Both must count as blocking. FRESH.
 write_summary_missing_and_garbled() {
-  mkdir -p "$PROJ/docs/test-results/phase3"
-  cat > "$PROJ/docs/test-results/phase3/summary-2026-07-06T00-00-00Z.md" <<'MD'
-# Phase 3 Validation Summary
-RESULT license BOGUS
+  _write_summary "$(proj_tree)" "no" 'RESULT license BOGUS
 RESULT snyk SKIP
 RESULT zap-dast SKIP
-RESULT threat-model SKIP
-MD
+RESULT threat-model SKIP'
 }
 
 attest_all() {
@@ -481,6 +609,244 @@ else
     fail_ "T-mutation" "mutant STILL emitted the phase-3 FAIL — enforcement not load-bearing (mutation is not proof)"
   else
     pass "T-mutation: mutant (enforcement stripped) does NOT emit the phase-3 FAIL (RED proof)"
+  fi
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T-fresh-trusted: matching tree + clean → gate does NOT re-run driver ==="
+# ════════════════════════════════════════════════════════════════════
+# BL-082: a summary bound to the CURRENT tree with dirty:no is FRESH and must be
+# trusted as-is — the gate must NOT auto-run the driver. Proven with a counting
+# mock driver: the call count stays 0 while the gate reports the fresh
+# (all-attested-skip) summary CLEAN.
+setup
+make_sandbox_with_mock_driver
+write_summary_all_skip
+attest_all
+out=$(run_mock_gate)          # auto-run ENABLED — fresh summary must pre-empt it
+calls=$(driver_call_count)
+if [ "$calls" -eq 0 ]; then
+  pass "T-fresh-trusted: driver NOT re-run for a fresh summary (calls=0)"
+else
+  fail_ "T-fresh-trusted" "gate re-ran the driver for a FRESH summary (calls=$calls)"
+fi
+if echo "$out" | grep -qE "validation scans clean"; then
+  pass "T-fresh-trusted: gate trusts + reports the fresh summary CLEAN"
+else
+  fail_ "T-fresh-trusted" "gate did not report the fresh summary clean; out:
+$(echo "$out" | grep -iE 'phase 3.4|stale' | head)"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T-stale-rerun: 2nd commit advances tree → old summary superseded, fresh generated ==="
+# ════════════════════════════════════════════════════════════════════
+# A summary bound to commit-1's tree is superseded once HEAD^{tree} advances.
+# With auto-run enabled the gate prints [STALE], regenerates (mock driver
+# called ≥1), and evaluates the FRESH summary — proven by the newest summary
+# on disk being bound to the NEW tree, and the gate blocking on the
+# regenerated file's un-attested skips (nothing attested).
+setup
+make_sandbox_with_mock_driver
+write_summary_all_skip         # bound to commit-1
+proj_advance_tree              # HEAD^{tree} now differs from the recorded tree
+out=$(run_mock_gate)           # auto-run ENABLED
+calls=$(driver_call_count)
+if [ "$calls" -ge 1 ]; then
+  pass "T-stale-rerun: gate re-ran the driver on stale (calls=$calls)"
+else
+  fail_ "T-stale-rerun" "gate did NOT re-run the driver for a stale summary (calls=$calls)"
+fi
+if echo "$out" | grep -q "\[STALE\]"; then
+  pass "T-stale-rerun: gate printed an explicit [STALE] line"
+else
+  fail_ "T-stale-rerun" "no [STALE] line; out:
+$(echo "$out" | grep -iE 'phase 3.4|stale' | head)"
+fi
+newest=$(ls -1 "$PROJ"/docs/test-results/phase3/summary-*.md 2>/dev/null | sort | tail -1)
+newest_tree=$(grep -m1 '^- tree:' "$newest" 2>/dev/null | sed 's/^- tree:[[:space:]]*//; s/[[:space:]]*$//')
+cur_tree=$(proj_tree)
+if [ -n "$newest_tree" ] && [ "$newest_tree" = "$cur_tree" ]; then
+  pass "T-stale-rerun: a FRESH summary bound to the NEW tree was generated + is what gets evaluated"
+else
+  fail_ "T-stale-rerun" "newest summary not bound to the current tree (newest='$newest_tree' cur='$cur_tree')"
+fi
+if echo "$out" | grep -qE "validation scans not clean|un-attested SKIP"; then
+  pass "T-stale-rerun: gate evaluated the REGENERATED summary (un-attested skips block)"
+else
+  fail_ "T-stale-rerun" "gate did not evaluate the regenerated summary; out:
+$(echo "$out" | grep -iE 'phase 3.4|stale' | head)"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T-stale-norerun-fails: NOAUTORUN=1 + stale → gate FAIL, rc=1, actionable ==="
+# ════════════════════════════════════════════════════════════════════
+# With regeneration disabled, a stale summary must NOT be silently accepted:
+# gate FAILs (rc=1) with a message telling the operator to re-run the driver.
+# The summary is all-PASS so that WITHOUT the staleness check it would be
+# trusted CLEAN — isolating staleness as the sole blocker (see T-bl082-mutation).
+setup
+_write_summary "$(proj_tree)" "no" "$ALL_PASS_ROWS"
+proj_advance_tree              # → stale (tree mismatch)
+rc=0
+out=$( cd "$PROJ" && SOLO_PHASE3_GATE_NOAUTORUN=1 bash "$GATE" 2>&1 ) || rc=$?
+if [ "$rc" -eq 1 ]; then
+  pass "T-stale-norerun-fails: gate blocks (rc=1)"
+else
+  fail_ "T-stale-norerun-fails" "expected rc=1, got $rc"
+fi
+if echo "$out" | grep -q "STALE"; then
+  pass "T-stale-norerun-fails: gate emits a STALE FAIL"
+else
+  fail_ "T-stale-norerun-fails" "no STALE message; out:
+$(echo "$out" | grep -iE 'phase 3.4|stale' | head)"
+fi
+if echo "$out" | grep -q "run-phase3-validation.sh"; then
+  pass "T-stale-norerun-fails: message is actionable (re-run the driver)"
+else
+  fail_ "T-stale-norerun-fails" "message not actionable; out:
+$(echo "$out" | grep -iE 'stale' | head)"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T-dirty-tree-stale: summary recorded dirty:yes → stale path ==="
+# ════════════════════════════════════════════════════════════════════
+# Tree MATCHES the current HEAD^{tree}, but the summary recorded dirty:yes
+# (generated on a dirty tree) → must be stale.
+setup
+_write_summary "$(proj_tree)" "yes" "$ALL_PASS_ROWS"
+out=$( cd "$PROJ" && SOLO_PHASE3_GATE_NOAUTORUN=1 bash "$GATE" 2>&1 ) || true
+if echo "$out" | grep -q "STALE"; then
+  pass "T-dirty-tree-stale: dirty:yes summary is stale despite a matching tree"
+else
+  fail_ "T-dirty-tree-stale" "expected a STALE result; out:
+$(echo "$out" | grep -iE 'phase 3.4|stale' | head)"
+fi
+if echo "$out" | grep -qE "validation scans clean"; then
+  fail_ "T-dirty-tree-stale" "gate wrongly reported CLEAN for a dirty:yes summary"
+else
+  pass "T-dirty-tree-stale: gate did NOT report clean"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T-pre-bl082-summary-stale: summary with NO tree: line → stale (backward compat) ==="
+# ════════════════════════════════════════════════════════════════════
+setup
+_write_summary_legacy "$ALL_PASS_ROWS"
+out=$( cd "$PROJ" && SOLO_PHASE3_GATE_NOAUTORUN=1 bash "$GATE" 2>&1 ) || true
+if echo "$out" | grep -q "STALE"; then
+  pass "T-pre-bl082-summary-stale: a pre-BL-082 summary (no tree line) is stale"
+else
+  fail_ "T-pre-bl082-summary-stale" "expected a STALE result; out:
+$(echo "$out" | grep -iE 'phase 3.4|stale' | head)"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T-stateflip-not-dirty (Correction 1): modifying ONLY .claude/ → still FRESH ==="
+# ════════════════════════════════════════════════════════════════════
+# The gate writes phase-state.json (BL-071 gate date) on PASS and the driver
+# writes attestations there; that file is TRACKED downstream. Modifying ONLY
+# .claude/ (tracked-modified via attest + an untracked file) must NOT mark the
+# tree dirty → the summary stays FRESH → no re-run.
+setup
+make_sandbox_with_mock_driver
+write_summary_all_skip
+attest_all                                  # rewrites .claude/phase-state.json (tracked)
+echo '{}' > "$PROJ/.claude/scratch-untracked.json"   # untracked file under .claude/
+# sanity: an UNSCOPED porcelain WOULD see .claude changes
+unscoped=$( cd "$PROJ" && git status --porcelain 2>/dev/null )
+if [ -n "$unscoped" ]; then
+  pass "T-stateflip-not-dirty: unscoped tree is dirty (.claude changes present) — the interesting case"
+else
+  fail_ "T-stateflip-not-dirty" "fixture did not dirty .claude as intended"
+fi
+out=$(run_mock_gate)
+calls=$(driver_call_count)
+if [ "$calls" -eq 0 ]; then
+  pass "T-stateflip-not-dirty: .claude-only changes do NOT trigger a re-run (calls=0)"
+else
+  fail_ "T-stateflip-not-dirty" "gate re-ran despite only .claude changing (calls=$calls)"
+fi
+if echo "$out" | grep -qE "validation scans clean"; then
+  pass "T-stateflip-not-dirty: summary stays FRESH → gate reports clean"
+else
+  fail_ "T-stateflip-not-dirty" "gate did not stay fresh/clean; out:
+$(echo "$out" | grep -iE 'phase 3.4|stale' | head)"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T-live-dirty-stale (Correction 2): uncommitted SOURCE edit → stale ==="
+# ════════════════════════════════════════════════════════════════════
+# The summary's recorded tree still equals HEAD^{tree} and it recorded
+# dirty:no, but the operator edits a SOURCE file uncommitted. HEAD^{tree} does
+# not reflect that — only the live scoped porcelain does. Must be stale.
+setup
+write_summary_all_skip                       # fresh: tree matches, dirty:no
+echo "print('changed')" > "$PROJ/app.py"     # uncommitted SOURCE change (outside .claude + results)
+out=$( cd "$PROJ" && SOLO_PHASE3_GATE_NOAUTORUN=1 bash "$GATE" 2>&1 ) || true
+if echo "$out" | grep -q "STALE"; then
+  pass "T-live-dirty-stale: uncommitted source edit makes a tree-matched summary stale"
+else
+  fail_ "T-live-dirty-stale" "expected STALE on live-dirty tree; out:
+$(echo "$out" | grep -iE 'phase 3.4|stale' | head)"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T-bl082-mutation: strip # BL-082-STALENESS → T-stale-norerun-fails goes RED ==="
+# ════════════════════════════════════════════════════════════════════
+# MUTATION-PROOF for the staleness binding. Copy the gate, delete every line
+# carrying `# BL-082-STALENESS` (the freshness decision defaults to "fresh"),
+# and re-run the stale all-PASS + NOAUTORUN fixture. Real gate: STALE FAIL.
+# Mutant: staleness defeated → the stale all-PASS summary is trusted CLEAN and
+# NO [STALE] line appears — proving the marked line is load-bearing.
+setup
+_write_summary "$(proj_tree)" "no" "$ALL_PASS_ROWS"
+proj_advance_tree              # stale by tree mismatch
+MUT2="$TMP/mut82"
+mkdir -p "$MUT2/scripts/lib"
+cp "$GATE" "$MUT2/scripts/check-phase-gate.sh"
+cp "$DRIVER" "$MUT2/scripts/run-phase3-validation.sh"
+cp "$REPO_ROOT"/scripts/lib/*.sh "$MUT2/scripts/lib/" 2>/dev/null || true
+grep -v 'BL-082-STALENESS' "$MUT2/scripts/check-phase-gate.sh" > "$MUT2/scripts/check-phase-gate.sh.tmp"
+mv "$MUT2/scripts/check-phase-gate.sh.tmp" "$MUT2/scripts/check-phase-gate.sh"
+chmod +x "$MUT2/scripts/check-phase-gate.sh"
+if ! grep -q 'BL-082-STALENESS' "$GATE"; then
+  fail_ "T-bl082-mutation" "BL-082-STALENESS marker missing from the REAL gate — nothing to mutate"
+elif grep -q 'BL-082-STALENESS' "$MUT2/scripts/check-phase-gate.sh"; then
+  fail_ "T-bl082-mutation" "BL-082-STALENESS still present after excision — mutation did not apply"
+elif ! bash -n "$MUT2/scripts/check-phase-gate.sh" 2>/dev/null; then
+  fail_ "T-bl082-mutation" "mutant gate is not syntactically valid after excision"
+else
+  real_out=$( cd "$PROJ" && SOLO_PHASE3_GATE_NOAUTORUN=1 bash "$GATE" 2>&1 ) || true
+  mut_out=$( cd "$PROJ" && SOLO_PHASE3_GATE_NOAUTORUN=1 bash "$MUT2/scripts/check-phase-gate.sh" 2>&1 ) || true
+  if echo "$real_out" | grep -q "STALE"; then
+    pass "T-bl082-mutation: real gate emits the STALE FAIL"
+  else
+    fail_ "T-bl082-mutation" "real gate did NOT emit STALE (fixture wrong?); out:
+$(echo "$real_out" | grep -iE 'stale|clean' | head)"
+  fi
+  if echo "$mut_out" | grep -q "STALE"; then
+    fail_ "T-bl082-mutation" "mutant STILL flagged STALE — staleness not load-bearing (mutation not proof)"
+  elif echo "$mut_out" | grep -qE "validation scans clean"; then
+    pass "T-bl082-mutation: mutant trusts the stale all-PASS summary CLEAN (RED proof)"
+  else
+    fail_ "T-bl082-mutation" "mutant neither STALE nor CLEAN — unexpected; out:
+$(echo "$mut_out" | grep -iE 'stale|clean|not clean' | head)"
   fi
 fi
 teardown
