@@ -851,6 +851,142 @@ $(echo "$mut_out" | grep -iE 'stale|clean|not clean' | head)"
 fi
 teardown
 
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T-driver-emits-provenance (WP-A close-out gap): REAL driver stamps tree + scoped dirty ==="
+# ════════════════════════════════════════════════════════════════════
+# Every BL-082 gate case above SEEDS the summary's `- tree:` / `- dirty:` lines
+# by hand (or via the counting MOCK driver). The REAL driver's provenance
+# EMISSION (run-phase3-validation.sh:963 `echo "- tree: ${P3_TREE}"` +
+# :905 `P3_DIRTY=$(_p3_scoped_dirty …)`) was therefore never exercised
+# end-to-end — the WP-A verifier recorded TWO surviving driver mutations:
+#   (1) deleting the `- tree: ${P3_TREE}` echo,
+#   (2) forcing `_p3_scoped_dirty` to always echo 'no'.
+# This case runs the REAL scripts/run-phase3-validation.sh --offline in the
+# hermetic setup() git repo and pins BOTH provenance lines on a clean tree, a
+# live-dirty tree, and a .claude-only-dirty tree (the scoped predicate), then
+# proves each mutation now DIES (RED) in a driver COPY.
+
+# Read a `- <field>:` value out of a BL-082 summary (trimmed).
+_summary_field() { grep -m1 "^- $1:" "$2" 2>/dev/null | sed "s/^- $1:[[:space:]]*//; s/[[:space:]]*$//"; }
+_newest_in() { ls -1 "$1"/summary-*.md 2>/dev/null | sort | tail -1; }
+
+# ── (a1) clean tree → tree == HEAD^{tree}, dirty: no ──
+setup
+( cd "$PROJ" && bash "$DRIVER" --offline --results-dir prov-clean ) >/dev/null 2>&1 || true
+S=$(_newest_in "$PROJ/prov-clean")
+got_tree=$(_summary_field tree "$S"); got_dirty=$(_summary_field dirty "$S"); want_tree=$(proj_tree)
+if [ -n "$got_tree" ] && [ "$got_tree" = "$want_tree" ]; then
+  pass "T-driver-emits-provenance: '- tree:' equals git rev-parse HEAD^{tree} ($got_tree)"
+else
+  fail_ "T-driver-emits-provenance" "tree line mismatch: summary='$got_tree' want='$want_tree'"
+fi
+if [ "$got_dirty" = "no" ]; then
+  pass "T-driver-emits-provenance: '- dirty: no' recorded on a clean tree"
+else
+  fail_ "T-driver-emits-provenance" "expected '- dirty: no' on a clean tree, got '$got_dirty'"
+fi
+teardown
+
+# ── (a2) uncommitted SOURCE file → dirty: yes ──
+setup
+echo "print('changed')" > "$PROJ/app.py"      # untracked source, outside .claude + results
+( cd "$PROJ" && bash "$DRIVER" --offline --results-dir prov-dirty ) >/dev/null 2>&1 || true
+S=$(_newest_in "$PROJ/prov-dirty"); got_dirty=$(_summary_field dirty "$S")
+if [ "$got_dirty" = "yes" ]; then
+  pass "T-driver-emits-provenance: uncommitted source file → '- dirty: yes'"
+else
+  fail_ "T-driver-emits-provenance" "expected '- dirty: yes' with an uncommitted source file, got '$got_dirty'"
+fi
+teardown
+
+# ── (a3) modifying ONLY .claude/phase-state.json → still dirty: no (scoped) ──
+setup
+( cd "$PROJ" && jq '.gates.phase_3_to_4 = "2026-07-10"' .claude/phase-state.json > .claude/ps.tmp && mv .claude/ps.tmp .claude/phase-state.json )
+echo '{}' > "$PROJ/.claude/scratch-untracked.json"   # untracked file also under .claude
+# sanity: an UNSCOPED porcelain WOULD see the .claude changes (the interesting case)
+if [ -n "$( cd "$PROJ" && git status --porcelain 2>/dev/null )" ]; then
+  pass "T-driver-emits-provenance: unscoped tree is dirty (.claude changes present) — the scoped case"
+else
+  fail_ "T-driver-emits-provenance" "fixture did not dirty .claude as intended"
+fi
+( cd "$PROJ" && bash "$DRIVER" --offline --results-dir prov-scoped ) >/dev/null 2>&1 || true
+S=$(_newest_in "$PROJ/prov-scoped"); got_dirty=$(_summary_field dirty "$S")
+if [ "$got_dirty" = "no" ]; then
+  pass "T-driver-emits-provenance: .claude-only changes keep '- dirty: no' (scoped predicate)"
+else
+  fail_ "T-driver-emits-provenance" "expected '- dirty: no' for .claude-only changes, got '$got_dirty'"
+fi
+teardown
+
+# ── (a4) MUTATION 1: excise the `- tree:` echo in a driver COPY → tree case RED ──
+setup
+MUTD="$TMP/mutdriver-tree.sh"
+grep -vF 'echo "- tree: ${P3_TREE}"' "$DRIVER" > "$MUTD"
+chmod +x "$MUTD"
+if ! grep -qF 'echo "- tree: ${P3_TREE}"' "$DRIVER"; then
+  fail_ "T-driver-emits-provenance-mut1" "the `- tree:` echo is missing from the REAL driver — nothing to mutate"
+elif grep -qF 'echo "- tree: ${P3_TREE}"' "$MUTD"; then
+  fail_ "T-driver-emits-provenance-mut1" "the `- tree:` echo still present after excision — mutation did not apply"
+elif ! bash -n "$MUTD" 2>/dev/null; then
+  fail_ "T-driver-emits-provenance-mut1" "mutant driver not syntactically valid after excision"
+else
+  ( cd "$PROJ" && bash "$DRIVER" --offline --results-dir m1-real ) >/dev/null 2>&1 || true
+  ( cd "$PROJ" && bash "$MUTD"   --offline --results-dir m1-mut  ) >/dev/null 2>&1 || true
+  real_tree=$(_summary_field tree "$(_newest_in "$PROJ/m1-real")")
+  mut_tree=$(_summary_field tree "$(_newest_in "$PROJ/m1-mut")")
+  want_tree=$(proj_tree)
+  if [ "$real_tree" = "$want_tree" ] && [ -n "$real_tree" ]; then
+    pass "T-driver-emits-provenance-mut1: real driver stamps the correct tree"
+  else
+    fail_ "T-driver-emits-provenance-mut1" "real driver tree wrong (real='$real_tree' want='$want_tree')"
+  fi
+  if [ -z "$mut_tree" ]; then
+    pass "T-driver-emits-provenance-mut1 (RED): excising the tree-echo drops the '- tree:' line — assertion (a1) goes RED"
+  else
+    fail_ "T-driver-emits-provenance-mut1" "mutant STILL emitted a tree line ('$mut_tree') — tree-echo not load-bearing (mutation not proof)"
+  fi
+fi
+teardown
+
+# ── (a5) MUTATION 2: force _p3_scoped_dirty → 'no' in a driver COPY → dirty case RED ──
+setup
+echo "print('changed')" > "$PROJ/app.py"      # live-dirty tree (same as a2)
+MUTD2="$TMP/mutdriver-dirty.sh"
+awk '
+  /^_p3_scoped_dirty\(\) \{/ {
+    print "_p3_scoped_dirty() {"
+    print "  echo \"no\"; return 0   # MUTATED: always clean"
+    print "}"
+    inbody=1; next
+  }
+  inbody==1 && /^}/ { inbody=0; next }
+  inbody==1 { next }
+  { print }
+' "$DRIVER" > "$MUTD2"
+chmod +x "$MUTD2"
+if ! grep -q 'MUTATED: always clean' "$MUTD2"; then
+  fail_ "T-driver-emits-provenance-mut2" "mutation did not rewrite _p3_scoped_dirty to always-clean"
+elif ! bash -n "$MUTD2" 2>/dev/null; then
+  fail_ "T-driver-emits-provenance-mut2" "mutant driver not syntactically valid after rewrite"
+else
+  ( cd "$PROJ" && bash "$DRIVER" --offline --results-dir m2-real ) >/dev/null 2>&1 || true
+  ( cd "$PROJ" && bash "$MUTD2"  --offline --results-dir m2-mut  ) >/dev/null 2>&1 || true
+  real_dirty=$(_summary_field dirty "$(_newest_in "$PROJ/m2-real")")
+  mut_dirty=$(_summary_field dirty "$(_newest_in "$PROJ/m2-mut")")
+  if [ "$real_dirty" = "yes" ]; then
+    pass "T-driver-emits-provenance-mut2: real driver records '- dirty: yes' on the live-dirty tree"
+  else
+    fail_ "T-driver-emits-provenance-mut2" "real driver dirty wrong (got '$real_dirty', want yes)"
+  fi
+  if [ "$mut_dirty" = "no" ]; then
+    pass "T-driver-emits-provenance-mut2 (RED): forcing _p3_scoped_dirty→'no' hides the dirt — assertion (a2) goes RED"
+  else
+    fail_ "T-driver-emits-provenance-mut2" "mutant STILL recorded '- dirty: $mut_dirty' — predicate not load-bearing (mutation not proof)"
+  fi
+fi
+teardown
+
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]
