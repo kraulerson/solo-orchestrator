@@ -108,9 +108,22 @@ fi
 #                               (do NOT auto-run an auth prompt).
 #   zap-dast           STUB   — OWASP ZAP baseline needs Docker + a live
 #                               URL. Registered but SKIP in the skeleton.
-#   threat-model       STUB   — parse docs/threat-model.md mitigation IDs vs
-#                               the test suite. Registered but SKIP in the
-#                               skeleton.
+#   threat-model       REAL   — threat-model verification (BL-070 increment).
+#                               Validates every PROJECT_BIBLE.md Section-4
+#                               `TM-NNN` threat row against the newest Phase-3
+#                               threat-model VALIDATION REPORT in
+#                               docs/test-results/ (glob accepts BOTH
+#                               *_threat-model-validation.md and the legacy
+#                               *_threat-validation.md name — a verified
+#                               template naming inconsistency). PASS = every
+#                               TM-ID is validated AND the Unmitigated table is
+#                               empty-or-risk-accepted (each row has an
+#                               Approved By); FAIL names the unaccounted IDs.
+#                               No bible / no §4 table → attestable SKIP.
+#                               UNLIKE the tool-backed arms this is PURE-LOCAL
+#                               file parsing, so it deliberately RUNS under
+#                               --offline (no tool/network to gate) — the gate
+#                               autorun gets a real threat-model verdict.
 P3_SCANNERS="semgrep-full-tree license snyk zap-dast threat-model"
 
 _p3_label() {
@@ -128,6 +141,7 @@ _p3_kind() {   # "real" or "stub" — surfaced in --list and the summary.
   case "$1" in
     semgrep-full-tree) echo "real" ;;
     license)           echo "real" ;;
+    threat-model)      echo "real" ;;
     *)                 echo "stub" ;;
   esac
 }
@@ -486,12 +500,164 @@ _p3_scan_zap() {
   P3_NOTE="OWASP ZAP DAST stubbed (BL-070 skeleton) — needs Docker + a live URL; wire zap-baseline.py in a later increment"
 }
 
-# STUB — threat-model verification. Always SKIP in the skeleton.
+# ── threat-model helpers (BL-070 increment, WP-B2) ───────────────────
+# A "threat row" is a Markdown table line (carries a `|`) bearing a TM-NNN id.
+# Threats live in PROJECT_BIBLE.md Section 4; the Phase-3 VALIDATION REPORT
+# (docs/test-results/YYYY-MM-DD_threat-model-validation.md) carries a row per
+# TM-ID plus an Unmitigated table whose accepted risks each need an approver.
+
+# _p3_tm_has_table <file> — 0 iff <file> has at least one Section-4 threat row.
+_p3_tm_has_table() {
+  grep -E '\|' "$1" 2>/dev/null | grep -Eq 'TM-[0-9]{3}'
+}
+
+# _p3_tm_ids <file> — emit the whole-token TM-IDs from <file>'s table rows,
+# sorted-unique, one per line. `TM-[0-9]{3,}` captures the FULL numeric token,
+# so TM-001 and TM-0011 stay DISTINCT — the word-boundary guarantee the
+# coverage diff below relies on.
+_p3_tm_ids() {
+  grep -E '\|' "$1" 2>/dev/null | grep -oE 'TM-[0-9]{3,}' | sort -u
+}
+
+# _p3_tm_count <words...> — count whitespace-separated tokens (no `wc`, so the
+# counter-antipattern lint has nothing to match; zero args → 0).
+_p3_tm_count() { echo "$#"; }
+
+# _p3_tm_report <dir> — newest validation report under <dir>. The glob accepts
+# BOTH conventional names (`*_threat-model-validation.md` per
+# threat-model-validation.tmpl AND the legacy `*_threat-validation.md` name
+# project-bible.tmpl linked to — a verified framework naming inconsistency).
+# Name-sort → newest wins (report names lead with an ISO date), matching how
+# the gate picks its summary. Empty if none match.
+_p3_tm_report() {
+  ls -1 "$1"/*threat-model-validation*.md "$1"/*threat-validation*.md 2>/dev/null | sort | tail -1
+}
+
+# _p3_tm_missing <bible-ids> <report-ids> — emit the Bible IDs ABSENT from the
+# report's id-set, word-boundary-safe (space-padded token match → TM-0011 never
+# satisfies TM-001). This IS the coverage comparison; its call site carries the
+# load-bearing coverage-diff mutation marker.
+_p3_tm_missing() {
+  local bset="$1" rset="$2" id out=""
+  for id in $bset; do
+    case " $(echo $rset) " in
+      *" $id "*) ;;                 # present → validated
+      *) out="$out $id" ;;          # absent  → unvalidated
+    esac
+  done
+  echo $out
+}
+
+# _p3_tm_unapproved <report> — emit the TM-IDs of rows in the report's
+# "Unmitigated Threats" table whose Approved By column is empty. The approver
+# column index is read from that section's header row (NOT hard-coded), so a
+# column-layout change cannot silently defeat the check.
+_p3_tm_unapproved() {
+  awk '
+    /^##[[:space:]]/ { insec = ($0 ~ /[Uu]nmitigated/) ? 1 : 0; acol = 0; next }
+    insec && /\|/ {
+      if ($0 ~ /^[[:space:]|:*-]+$/) next                       # separator row
+      if (acol == 0 && $0 ~ /Approved/) {                       # header row
+        n = split($0, c, "|")
+        for (i = 1; i <= n; i++) if (c[i] ~ /Approved/) acol = i
+        next
+      }
+      if ($0 ~ /TM-[0-9][0-9][0-9]/) {                          # data row
+        n = split($0, c, "|")
+        id = ""
+        for (i = 1; i <= n; i++) if (match(c[i], /TM-[0-9]+/)) { id = substr(c[i], RSTART, RLENGTH); break }
+        appr = (acol > 0 && acol <= n) ? c[acol] : ""
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", appr)
+        if (appr == "") print id
+      }
+    }
+  ' "$1"
+}
+
+# _p3_tm_archive <out> <total> <validated> <missing-ids> — write the scan JSON
+# {ids_total, ids_validated, missing:[...]} like the other scanners archive.
+_p3_tm_archive() {
+  local out="$1" total="$2" validated="$3" missing="$4"
+  local arr="" id first=1
+  for id in $missing; do
+    if [ "$first" -eq 1 ]; then first=0; else arr="$arr,"; fi
+    arr="$arr\"$id\""
+  done
+  printf '{"scanner":"threat-model","ids_total":%s,"ids_validated":%s,"missing":[%s]}\n' \
+    "$total" "$validated" "$arr" > "$out"
+}
+
+# REAL — threat-model verification (BL-070 increment, WP-B2).
+#
+# Validates that every threat recorded in PROJECT_BIBLE.md Section 4 (as
+# `TM-NNN` table rows) is accounted for by the newest Phase-3 threat-model
+# VALIDATION REPORT in docs/test-results/, and that the report's Unmitigated
+# table carries an approver for every accepted risk.
+#
+# OFFLINE, DELIBERATELY UNGATED: unlike _p3_scan_semgrep / _p3_scan_license —
+# which SKIP under --offline purely to avoid a network/tool run — this scanner
+# is PURE-LOCAL FILE PARSING (no external tool, no network, no Docker). A
+# threat-model verdict is cheap and hermetic, so it RUNS under --offline; that
+# is what lets the gate autorun (which invokes the driver with --offline) get a
+# REAL threat-model result instead of an un-attested SKIP. Do NOT add an
+# OFFLINE short-circuit here.
 _p3_scan_threat_model() {
-  # BL-070 SKELETON STUB: parse docs/threat-model.md mitigation IDs and grep
-  # the test suite for each mitigation's test-id anchor. Later increment.
-  P3_STATUS="SKIP"
-  P3_NOTE="threat-model verification stubbed (BL-070 skeleton) — parse docs/threat-model.md mitigations vs tests in a later increment"
+  local archive="$1"
+  local bible="PROJECT_BIBLE.md"
+
+  # SKIP (attestable): no bible, or a bible with no Section-4 threat table.
+  if [ ! -f "$bible" ] || ! _p3_tm_has_table "$bible"; then
+    P3_STATUS="SKIP"
+    P3_NOTE="no threat model recorded (PROJECT_BIBLE.md Section 4 threat table absent) — add TM-NNN rows or attest"
+    return
+  fi
+
+  # Collect the Bible's TM-IDs (whole tokens, sorted-unique).
+  local bible_ids ids_total
+  bible_ids="$(_p3_tm_ids "$bible")"
+  ids_total="$(_p3_tm_count $bible_ids)"
+
+  # Newest validation report (accepts BOTH conventional names).
+  local report
+  report="$(_p3_tm_report "docs/test-results")"
+
+  if [ -z "$report" ]; then
+    # Report missing while TM-IDs exist → FAIL, naming every unvalidated ID.
+    _p3_tm_archive "$archive" "$ids_total" 0 "$bible_ids"
+    P3_ARCHIVE="$archive"
+    P3_STATUS="FAIL"
+    P3_NOTE="no threat-model validation report in docs/test-results/ (expected *_threat-model-validation.md) — $ids_total TM-ID(s) unvalidated: $(echo $bible_ids)"
+    return
+  fi
+
+  # Validated TM-IDs = every TM token appearing in the report's table rows.
+  local report_ids missing
+  report_ids="$(_p3_tm_ids "$report")"
+  missing="$(_p3_tm_missing "$bible_ids" "$report_ids")"   # BL-070-TM-COMPARE: Bible-vs-report coverage diff (mutation target)
+
+  # Unmitigated-threats table: every accepted-risk row needs a non-empty
+  # Approved By (emits the TM-IDs of any row lacking an approver).
+  local unapproved
+  unapproved="$(_p3_tm_unapproved "$report")"
+
+  local ids_validated
+  ids_validated=$(( ids_total - $(_p3_tm_count $missing) ))
+
+  _p3_tm_archive "$archive" "$ids_total" "$ids_validated" "$missing"
+  P3_ARCHIVE="$archive"
+
+  if [ -n "$missing" ]; then
+    P3_STATUS="FAIL"
+    P3_NOTE="TM-ID(s) not validated in $(basename "$report"): $missing — add a validation row per missing ID"
+    return
+  fi
+  if [ -n "$unapproved" ]; then
+    P3_STATUS="FAIL"
+    P3_NOTE="unmitigated threat(s) without an approver in $(basename "$report"): $(echo $unapproved) — record a risk-acceptance sign-off (Approved By)"
+    return
+  fi
+  P3_STATUS="PASS"
+  P3_NOTE="all $ids_total TM-ID(s) validated in $(basename "$report"); unmitigated table empty-or-risk-accepted"
 }
 
 # _p3_run_scanner <name> <timestamp> — dispatch to the right implementation.
