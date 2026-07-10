@@ -539,6 +539,21 @@ else
   fail "tests/test-bl070-license-scanner.sh FAILED (run for details)"
 fi
 
+# BL-070 (WP-B2): scripts/run-phase3-validation.sh's `threat-model` scanner
+# promoted from stub to REAL. Validates every PROJECT_BIBLE.md §4 `TM-NNN`
+# threat row against the newest Phase-3 threat-model VALIDATION REPORT in
+# docs/test-results/ (glob accepts BOTH *_threat-model-validation.md and the
+# legacy *_threat-validation.md name), and requires a non-empty Approved By on
+# every Unmitigated-table row. PASS = full coverage + empty-or-approved; FAIL
+# names the unaccounted IDs. Pure-local parsing → deliberately RUNS under
+# --offline. Mutation-proof: excising the marked `# BL-070-TM-COMPARE`
+# coverage-diff line flips T-tm-missing-id-fail RED.
+if bash "$SCRIPT_DIR/tests/test-bl070-threat-model-scanner.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl070-threat-model-scanner.sh"
+else
+  fail "tests/test-bl070-threat-model-scanner.sh FAILED (run for details)"
+fi
+
 # BL-073: scripts/check-phase-gate.sh's Phase 3→4 review-manifest check must
 # be a REAL, track-aware gate — FAIL (block) when the Security or Red Team
 # review is missing for track=standard/full, WARN-only for light/personal
