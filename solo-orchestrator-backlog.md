@@ -1528,7 +1528,9 @@ This is a walker-process (rubric) signal, not a product defect. The underlying c
 **Logged:** 2026-06-29
 **Category:** Coverage
 **Severity:** Minor
-**Status:** Open
+**Status:** Closed (2026-07-09, PR #161)
+
+**Resolution (2026-07-09, PR #161):** Added the registered regression suite `tests/test-check-phase-gate-poc-block-contract.sh`, which tightens both Phase-3→4 POC-block enforcement points from "the POC-block message is present" to "the POC block fires ALONE." `check-phase-gate.sh` (`::error::…BLOCKED`, :1381) asserts the sanctioned POC annotation is present AND zero other `::error::`/`[FAIL]` lines co-fire (a Phase-3 fixture where every other gate section genuinely passes; no allowlist needed). `process-checklist.sh` `start_phase4()` (`[FAIL]…blocked`, :578) asserts the short-circuit contract (rc=1, exactly one `[FAIL]`, no later-step output). Negative control corrupts an unrelated required artifact and confirms the count catches the co-firing `[FAIL]`; a mutation proof shows loosening the count back to message-present-only flips it RED. The sweep of other message-present-only enforcement-point assertions (`test-phase3-validation-gate.sh`, `test-bl073-review-manifest-gate.sh`, `test-process-checklist-auto-advance.sh:186`, `edge-cases-scripts.sh:330`) is recorded in the PR body with a recommended follow-up entry to promote the phase-4 gates after WP-A/BL-082 lands.
 
 The adversarial certainty re-walk (re-walker-5, scenarios `edge-phase-3-to-4-poc-blocked-check-phase-gate` and `edge-phase-3-to-4-poc-blocked-process-checklist`) surfaced that both enforcement-point scenarios pass against a contract that only asserts the documented POC-block message is present — they do not assert it is the only block. In one case, the gate output contains 15 inconsistencies; the POC block line is one of them. The scenarios pass as long as the POC-block string appears somewhere in the output, regardless of what else fails.
 
