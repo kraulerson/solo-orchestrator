@@ -24,6 +24,21 @@
 #   T-mutation               excise # BL-072-TDD-DETECT → T-feat-no-tests goes
 #                            RED (WARN gone); un-mutated → GREEN (WARN present)
 #
+# Phase C2 (tier-keyed HARD BLOCK on the --terminal-mode git-hook surface):
+#   T-hard-block-{feat,fix,refactor}  sponsored_poc + impl no test → rc=1 [FAIL]
+#   T-exempt-docs                     docs: prefix → allowed
+#   T-attested-escape                 SOLO_TDD_ATTESTED=1 → rc=0 + attestation
+#                                     row in process-state.json + ledger attested:true
+#   T-tier-personal-warns             personal → rc=0 [WARN] + ledger bypassed:true
+#   T-spoof-track-light               sponsored_poc + track=light → STILL rc=1 (load-bearing)
+#   T-no-phase-state-warns            no phase-state.json → rc=0 WARN (mothership safety)
+#   T-md-excluded                     feat touching only *.md → silent
+#   T-deletion-excluded               feat that only deletes a source file → silent
+#   T-tier-promotion-flips            personal WARN → promoted state → identical commit rc=1
+#   T-mutation-detector               excise # BL-072-TDD-DETECT → hard block RED; restore GREEN
+#   T-mutation-tier-key               revert tier predicate to trust track →
+#                                     T-spoof-track-light RED; restore GREEN
+#
 # Hermetic: mktemp fixture repos (git init + local identity + a fake origin
 # pointer only — no real remote is ever contacted); GITHUB_BASE_REF unset so
 # CI's own env cannot leak into fixture git ops; SKIP_LINT=1 so the unrelated
@@ -328,6 +343,313 @@ else
     pass "T-mutation (GREEN): the un-mutated gate warns on the same fixture (contrast holds)"
   else
     fail_ "T-mutation" "the real gate did NOT warn on the mutation fixture — contrast broken; out: $real_out_1"
+  fi
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════
+# BL-072 Phase C2 — tier-keyed TDD HARD BLOCK (terminal-mode enforcement)
+# ════════════════════════════════════════════════════════════════════
+# The C2 hard block lives on the git-hook / --terminal-mode surface (a non-zero
+# exit aborts the commit). The tests below drive `pre-commit-gate.sh
+# --terminal-mode --tdd-only` with hermetic fixtures that carry a
+# .claude/phase-state.json tier + a .git/COMMIT_EDITMSG subject. All C1 cases
+# above continue to exercise the PreToolUse WARN surface unchanged.
+# ════════════════════════════════════════════════════════════════════
+
+has_fail() { case "$1" in *'[FAIL] BL-072 TDD ordering'*) return 0 ;; *) return 1 ;; esac; }
+
+# Write a phase-state.json tier into the fixture. poc_mode "null" => JSON null.
+# args: deployment  poc_mode(null|private_poc|sponsored_poc)  [track=standard]
+write_tier() {
+  local dep="$1" poc="$2" track="${3:-standard}" poc_json='null'
+  mkdir -p "$PROJ/.claude"
+  [ "$poc" != "null" ] && poc_json="\"$poc\""
+  cat > "$PROJ/.claude/phase-state.json" <<EOF
+{"current_phase":2,"deployment":"$dep","poc_mode":$poc_json,"track":"$track"}
+EOF
+}
+
+# Set the prospective commit subject (terminal-mode reads .git/COMMIT_EDITMSG).
+set_subject() { printf '%s\n' "$1" > "$PROJ/.git/COMMIT_EDITMSG"; }
+
+# Run the gate in --terminal-mode --tdd-only from the fixture. Any args are
+# passed as env KEY=VAL to the invocation. Echoes "rc|<single-line out>".
+run_term() {
+  local out rc=0
+  out=$( cd "$PROJ" && unset GITHUB_BASE_REF; env "$@" bash "$GATE" --terminal-mode --tdd-only 2>&1 ) || rc=$?
+  printf '%s|%s' "$rc" "$(printf '%s' "$out" | tr '\n' ' ')"
+}
+
+# Copy the gate + its deps into a mutation tree so a mutation is the ONLY
+# difference from the real gate.
+build_mut_tree() {
+  local mut="$1"
+  mkdir -p "$mut/scripts/lib"
+  cp "$GATE" "$mut/scripts/pre-commit-gate.sh"
+  cp "$TDD_LIB" "$mut/scripts/lib/tdd-classify.sh"
+  cp "$PC" "$mut/scripts/process-checklist.sh" 2>/dev/null || true
+  cp "$REPO_ROOT"/scripts/lib/*.sh "$mut/scripts/lib/" 2>/dev/null || true
+  chmod +x "$mut/scripts/pre-commit-gate.sh"
+}
+
+# Run an arbitrary gate path in --terminal-mode --tdd-only. Echoes "rc|out".
+run_term_gate() {
+  local gate="$1"; shift
+  local out rc=0
+  out=$( cd "$PROJ" && unset GITHUB_BASE_REF; env "$@" bash "$gate" --terminal-mode --tdd-only 2>&1 ) || rc=$?
+  printf '%s|%s' "$rc" "$(printf '%s' "$out" | tr '\n' ' ')"
+}
+
+# ── T-hard-block-{feat,fix,refactor}: sponsored_poc → rc=1 + [FAIL] ──
+for _pfx in feat fix refactor; do
+  echo ""
+  echo "=== T-hard-block-$_pfx: sponsored_poc + impl no test → rc=1 + [FAIL] ==="
+  setup
+  write_tier organizational sponsored_poc standard
+  stage "src/$_pfx.py" "def x(): pass"
+  set_subject "$_pfx: ship $_pfx without test"
+  res=$(run_term); rc="${res%%|*}"; body="${res#*|}"
+  if [ "$rc" -eq 1 ] && has_fail "$body"; then
+    pass "T-hard-block-$_pfx: rc=1 + [FAIL] (non-bypassable tier hard block)"
+  else
+    fail_ "T-hard-block-$_pfx" "expected rc=1 + [FAIL]; got rc=$rc body: $body"
+  fi
+  teardown
+done
+
+# ── T-exempt-docs: docs: prefix on a sponsored fixture → allowed ──
+echo ""
+echo "=== T-exempt-docs: docs: prefix (sponsored) → allowed, rc=0, no [FAIL] ==="
+setup
+write_tier organizational sponsored_poc standard
+stage "docs/notes.md" "# notes"
+set_subject "docs: update notes"
+res=$(run_term); rc="${res%%|*}"; body="${res#*|}"
+if [ "$rc" -eq 0 ] && ! has_fail "$body"; then
+  pass "T-exempt-docs: docs: prefix is out of scope even on a non-bypassable tier"
+else
+  fail_ "T-exempt-docs" "expected rc=0 + no [FAIL]; got rc=$rc body: $body"
+fi
+teardown
+
+# ── T-attested-escape: SOLO_TDD_ATTESTED=1 → rc=0 + attestation + ledger ──
+echo ""
+echo "=== T-attested-escape: sponsored + SOLO_TDD_ATTESTED=1 → rc=0 + recorded ==="
+setup
+write_tier organizational sponsored_poc standard
+stage "src/foo.py" "def foo(): pass"
+set_subject "feat: add foo"
+res=$(run_term SOLO_TDD_ATTESTED=1 SOLO_TDD_REASON="integration surface"); rc="${res%%|*}"; body="${res#*|}"
+PS="$PROJ/.claude/process-state.json"
+LED="$PROJ/.claude/tdd-warn-ledger.jsonl"
+ok=1
+[ "$rc" -eq 0 ] || ok=0
+[ -f "$PS" ] && jq -e '.tdd_attestations | length == 1' "$PS" >/dev/null 2>&1 || ok=0
+jq -e '.tdd_attestations[0].subject == "feat: add foo"' "$PS" >/dev/null 2>&1 || ok=0
+jq -e '.tdd_attestations[0].reason == "integration surface"' "$PS" >/dev/null 2>&1 || ok=0
+jq -e '.tdd_attestations[0].files | index("src/foo.py") != null' "$PS" >/dev/null 2>&1 || ok=0
+[ -f "$LED" ] && tail -n 1 "$LED" | jq -e '.attested == true' >/dev/null 2>&1 || ok=0
+if [ "$ok" -eq 1 ]; then
+  pass "T-attested-escape: rc=0, attestation recorded to process-state.json, ledger attested:true"
+else
+  fail_ "T-attested-escape" "rc=$rc; PS=$(cat "$PS" 2>/dev/null); LED_tail=$(tail -n1 "$LED" 2>/dev/null); body: $body"
+fi
+teardown
+
+# ── T-tier-personal-warns: personal → rc=0 + [WARN] + ledger bypassed ──
+echo ""
+echo "=== T-tier-personal-warns: personal + impl no test → rc=0 + [WARN] + bypassed row ==="
+setup
+write_tier personal null light
+stage "src/foo.py" "def foo(): pass"
+set_subject "feat: add foo (personal)"
+res=$(run_term); rc="${res%%|*}"; body="${res#*|}"
+LED="$PROJ/.claude/tdd-warn-ledger.jsonl"
+ok=1
+[ "$rc" -eq 0 ] || ok=0
+has_warn "$body" || ok=0
+has_fail "$body" && ok=0
+[ -f "$LED" ] && tail -n 1 "$LED" | jq -e '.bypassed == true' >/dev/null 2>&1 || ok=0
+if [ "$ok" -eq 1 ]; then
+  pass "T-tier-personal-warns: bypassable tier warns (rc=0) and logs bypassed:true"
+else
+  fail_ "T-tier-personal-warns" "rc=$rc LED_tail=$(tail -n1 "$LED" 2>/dev/null); body: $body"
+fi
+teardown
+
+# ── T-spoof-track-light: sponsored_poc + track=light → STILL rc=1 (load-bearing) ──
+echo ""
+echo "=== T-spoof-track-light: sponsored_poc + track=light → STILL rc=1 + [FAIL] ==="
+setup
+write_tier organizational sponsored_poc light
+stage "src/foo.py" "def foo(): pass"
+set_subject "feat: sponsored project spoofing track=light"
+res=$(run_term); rc="${res%%|*}"; body="${res#*|}"
+if [ "$rc" -eq 1 ] && has_fail "$body"; then
+  pass "T-spoof-track-light: track=light does NOT unlock a bypass on a sponsored tier [load-bearing]"
+else
+  fail_ "T-spoof-track-light" "expected rc=1 + [FAIL] (tier keyed on deployment/poc_mode, not track); got rc=$rc body: $body"
+fi
+teardown
+
+# ── T-no-phase-state-warns: no phase-state.json → rc=0, WARN only (mothership) ──
+echo ""
+echo "=== T-no-phase-state-warns: no phase-state.json → rc=0, WARN only (mothership safety) ==="
+setup
+# deliberately DO NOT write a phase-state.json.
+stage "src/foo.py" "def foo(): pass"
+set_subject "feat: add foo (unscaffolded repo)"
+res=$(run_term); rc="${res%%|*}"; body="${res#*|}"
+if [ "$rc" -eq 0 ] && has_warn "$body" && ! has_fail "$body"; then
+  pass "T-no-phase-state-warns: an unscaffolded repo is BYPASSABLE (WARN, never hard-block)"
+else
+  fail_ "T-no-phase-state-warns" "expected rc=0 + [WARN] + no [FAIL]; got rc=$rc body: $body"
+fi
+teardown
+
+# ── T-md-excluded: feat touching only README.md → silent (no trigger) ──
+echo ""
+echo "=== T-md-excluded: feat + only README.md (sponsored) → silent, no trigger ==="
+setup
+write_tier organizational sponsored_poc standard
+stage "README.md" "# changed docs"
+set_subject "feat: doc-shaped feat touching only markdown"
+res=$(run_term); rc="${res%%|*}"; body="${res#*|}"
+if [ "$rc" -eq 0 ] && ! has_fail "$body" && ! has_warn "$body"; then
+  pass "T-md-excluded: markdown-only change is not implementation (silent even on a sponsored tier)"
+else
+  fail_ "T-md-excluded" "expected silent rc=0; got rc=$rc body: $body"
+fi
+teardown
+
+# ── T-deletion-excluded: feat that only DELETES a source file → silent ──
+echo ""
+echo "=== T-deletion-excluded: feat that only deletes a source file (sponsored) → silent ==="
+setup
+write_tier organizational sponsored_poc standard
+# Put a source file into HEAD, then stage its deletion.
+( cd "$PROJ"
+  mkdir -p src
+  echo "def legacy(): pass" > src/legacy.py
+  git add src/legacy.py
+  git commit -q -m "chore: seed legacy source"
+  git rm -q src/legacy.py
+)
+set_subject "feat: remove the legacy module"
+res=$(run_term); rc="${res%%|*}"; body="${res#*|}"
+if [ "$rc" -eq 0 ] && ! has_fail "$body" && ! has_warn "$body"; then
+  pass "T-deletion-excluded: a pure deletion ships no implementation (silent even on a sponsored tier)"
+else
+  fail_ "T-deletion-excluded" "expected silent rc=0; got rc=$rc body: $body"
+fi
+teardown
+
+# ── T-tier-promotion-flips: personal WARN → promote to sponsored → rc=1 ──
+echo ""
+echo "=== T-tier-promotion-flips: personal WARNs → promoted state → identical commit rc=1 ==="
+setup
+write_tier personal private_poc light
+stage "src/foo.py" "def foo(): pass"
+set_subject "feat: add foo"
+res=$(run_term); rc="${res%%|*}"; body="${res#*|}"
+before_ok=1
+[ "$rc" -eq 0 ] || before_ok=0
+has_warn "$body" || before_ok=0
+# Promote exactly the way upgrade-project.sh --to-sponsored-poc writes it:
+# deployment=organizational + poc_mode=sponsored_poc into phase-state.json.
+write_tier organizational sponsored_poc light
+res2=$(run_term); rc2="${res2%%|*}"; body2="${res2#*|}"
+after_ok=1
+[ "$rc2" -eq 1 ] || after_ok=0
+has_fail "$body2" || after_ok=0
+if [ "$before_ok" -eq 1 ] && [ "$after_ok" -eq 1 ]; then
+  pass "T-tier-promotion-flips: enforcement flips WARN→BLOCK on tier promotion (same staged commit)"
+else
+  fail_ "T-tier-promotion-flips" "before rc=$rc (want 0+WARN); after rc=$rc2 (want 1+FAIL); body2: $body2"
+fi
+teardown
+
+# ── T-mutation-detector: excise # BL-072-TDD-DETECT → T-hard-block-feat RED ──
+echo ""
+echo "=== T-mutation-detector: excise BL-072-TDD-DETECT → hard block disappears (RED→GREEN) ==="
+setup
+write_tier organizational sponsored_poc standard
+stage "src/mut.py" "def mut(): pass"
+set_subject "feat: mutation detector fixture"
+MUT="$TMP/mut-detect"
+build_mut_tree "$MUT"
+grep -v 'BL-072-TDD-DETECT' "$MUT/scripts/pre-commit-gate.sh" > "$MUT/scripts/pre-commit-gate.sh.tmp"
+mv "$MUT/scripts/pre-commit-gate.sh.tmp" "$MUT/scripts/pre-commit-gate.sh"
+chmod +x "$MUT/scripts/pre-commit-gate.sh"
+if ! grep -q 'BL-072-TDD-DETECT' "$GATE"; then
+  fail_ "T-mutation-detector" "marker missing from the REAL gate — nothing to mutate"
+elif grep -q 'BL-072-TDD-DETECT' "$MUT/scripts/pre-commit-gate.sh"; then
+  fail_ "T-mutation-detector" "marker still present after excision — mutation did not apply"
+else
+  res=$(run_term_gate "$MUT/scripts/pre-commit-gate.sh"); rc="${res%%|*}"; body="${res#*|}"
+  if [ "$rc" -eq 0 ] && ! has_fail "$body"; then
+    pass "T-mutation-detector (RED): excising BL-072-TDD-DETECT removes the hard block (rc=0)"
+  else
+    fail_ "T-mutation-detector" "mutated gate STILL blocked — marker not load-bearing; rc=$rc body: $body"
+  fi
+  res=$(run_term); rc="${res%%|*}"; body="${res#*|}"
+  if [ "$rc" -eq 1 ] && has_fail "$body"; then
+    pass "T-mutation-detector (GREEN): the un-mutated gate hard-blocks the same fixture (rc=1)"
+  else
+    fail_ "T-mutation-detector" "real gate did NOT block — contrast broken; rc=$rc body: $body"
+  fi
+fi
+teardown
+
+# ── T-mutation-tier-key: revert tier predicate to trust track → T-spoof RED ──
+echo ""
+echo "=== T-mutation-tier-key: revert tier predicate to trust track → spoof RED (RED→GREEN) ==="
+# Rewrites _bl072_tier_bypassable to return BYPASSABLE iff track=light (the
+# spoofable predicate BL-084 forbids). A sponsored project carrying track=light
+# must then wrongly pass — proving the deployment/poc_mode keying is load-bearing.
+mutate_trust_track() {
+  awk '
+    /^_bl072_tier_bypassable\(\) \{/ {
+      print "_bl072_tier_bypassable() {"
+      print "  local ps=\".claude/phase-state.json\" track=\"\""
+      print "  [ -f \"$ps\" ] && command -v jq >/dev/null 2>&1 && track=$(jq -r \".track\" \"$ps\" 2>/dev/null)"
+      print "  [ \"$track\" = \"light\" ] && return 0"
+      print "  return 1"
+      print "}"
+      inbody=1; next
+    }
+    inbody==1 && /^}/ { inbody=0; next }
+    inbody==1 { next }
+    { print }
+  ' "$1" > "$2"
+}
+setup
+write_tier organizational sponsored_poc light
+stage "src/foo.py" "def foo(): pass"
+set_subject "feat: sponsored spoofing track=light"
+MUT="$TMP/mut-tier"
+build_mut_tree "$MUT"
+mutate_trust_track "$GATE" "$MUT/scripts/pre-commit-gate.sh"
+chmod +x "$MUT/scripts/pre-commit-gate.sh"
+if ! grep -q 'BL-084-TIER-KEY' "$GATE"; then
+  fail_ "T-mutation-tier-key" "BL-084-TIER-KEY marker missing from the REAL gate"
+elif ! grep -q 'MUTATED\|track = "light"\|track" = "light"\|"light"' "$MUT/scripts/pre-commit-gate.sh"; then
+  # Sanity: the mutated predicate must reference track (the spoof).
+  fail_ "T-mutation-tier-key" "mutation did not rewrite the tier predicate to trust track"
+else
+  res=$(run_term_gate "$MUT/scripts/pre-commit-gate.sh"); rc="${res%%|*}"; body="${res#*|}"
+  if [ "$rc" -eq 0 ] && ! has_fail "$body"; then
+    pass "T-mutation-tier-key (RED): trusting track lets the sponsored+track=light spoof pass (rc=0)"
+  else
+    fail_ "T-mutation-tier-key" "mutated gate STILL blocked — tier-key not load-bearing; rc=$rc body: $body"
+  fi
+  res=$(run_term); rc="${res%%|*}"; body="${res#*|}"
+  if [ "$rc" -eq 1 ] && has_fail "$body"; then
+    pass "T-mutation-tier-key (GREEN): the real (deployment/poc_mode-keyed) gate blocks the spoof (rc=1)"
+  else
+    fail_ "T-mutation-tier-key" "real gate did NOT block the spoof — contrast broken; rc=$rc body: $body"
   fi
 fi
 teardown

@@ -2513,39 +2513,21 @@ fi
 
 HOOKEOF
 
-  # Append the TDD ordering check only if we have a meaningful pattern
-  # (Rust uses inline tests so TDD ordering check doesn't apply)
-  if [ -n "$test_pattern" ] && [ -n "$src_ext" ]; then
-    cat >> .git/hooks/pre-commit << TDDEOF
+  # BL-072 Phase C2: the old warning-only inline test-first block used to live
+  # HERE (a pre-commit hook). It is gone. TDD ordering is now a tier-keyed HARD
+  # BLOCK (sponsored-POC / production) / logged WARNING (personal / private-POC)
+  # enforced by the framework gate — but a pre-commit hook is the WRONG place
+  # for it: git writes the commit message to .git/COMMIT_EDITMSG only AFTER
+  # pre-commit runs, so a pre-commit hook cannot read the feat/fix/refactor
+  # subject the gate scopes on. The gate is therefore installed below as a
+  # COMMIT-MSG hook (install_tdd_commit_msg_hook), where the message is current.
+  cat >> .git/hooks/pre-commit << 'TDDEOF'
 
-# --- TDD Ordering Check ---
-# Warns when implementation files are staged without any test files in the same commit.
-SRC_EXT_PATTERN="\\.(${src_ext})$"
-TEST_PATTERN="${test_pattern}"
-
-staged_impl=\$(git diff --cached --name-only --diff-filter=ACM \\
-  | grep -E "\$SRC_EXT_PATTERN" \\
-  | grep -vE "\$TEST_PATTERN" \\
-  | grep -vE "(config|setup|migration|seed|fixture|generated|__mocks__|\.d\.)" \\
-  || true)
-
-staged_tests=\$(git diff --cached --name-only --diff-filter=ACM \\
-  | grep -E "\$TEST_PATTERN" \\
-  || true)
-
-if [ -n "\$staged_impl" ] && [ -z "\$staged_tests" ]; then
-  echo ""
-  echo "[WARN] Implementation files staged without any test files:"
-  echo "\$staged_impl" | head -10 | sed 's/^/  /'
-  count=\$(echo "\$staged_impl" | wc -l | tr -d ' ')
-  [ "\$count" -gt 10 ] && echo "  ... and \$((\$count - 10)) more"
-  echo ""
-  echo "  The Solo Orchestrator methodology requires test-first development."
-  echo "  Consider committing tests before or alongside implementation."
-  echo "  (This is a warning — commit is not blocked.)"
-fi
+# --- TDD Ordering Gate (BL-072) ---
+# Tier-keyed test-first enforcement runs at COMMIT-MSG time (see
+# .git/hooks/commit-msg), not here: a pre-commit hook cannot see the commit
+# message the gate scopes on (git writes it after pre-commit runs).
 TDDEOF
-  fi
 
   # Append the schema migration check (active in Phase 2+ only)
   cat >> .git/hooks/pre-commit << 'SCHEMAEOF'
@@ -2594,7 +2576,51 @@ exit $FAILED
 EXITEOF
 
   chmod +x .git/hooks/pre-commit
-  print_ok "Pre-commit hook installed (gitleaks + Semgrep + TDD ordering + schema migration checks)"
+  print_ok "Pre-commit hook installed (gitleaks + Semgrep + schema migration checks)"
+
+  # BL-072 Phase C2: install the tier-keyed TDD-ordering gate as a COMMIT-MSG
+  # hook — the only git-hook point where .git/COMMIT_EDITMSG holds the CURRENT
+  # commit message (a pre-commit hook sees a stale message) and the staged index
+  # is intact. Skipped for languages with no distinct test-file convention (Rust
+  # uses inline #[cfg(test)] tests), matching the old inline check's scope.
+  if [ -n "$test_pattern" ] && [ -n "$src_ext" ]; then
+    install_tdd_commit_msg_hook
+  fi
+}
+
+# install_tdd_commit_msg_hook — idempotently add a managed block to
+# .git/hooks/commit-msg that delegates to the framework gate's tier-keyed TDD
+# ordering enforcement (`pre-commit-gate.sh --terminal-mode --tdd-only`). A
+# non-zero exit aborts the commit. Composes with an existing commit-msg hook via
+# a marked block; graceful no-op if the gate script is absent at commit time.
+install_tdd_commit_msg_hook() {
+  local hook=".git/hooks/commit-msg"
+  local mark_open="# >>> SOIF BL-072 TDD gate (commit-msg) — managed by init.sh"
+  local mark_close="# <<< SOIF BL-072 TDD gate"
+  mkdir -p .git/hooks
+  if [ ! -f "$hook" ]; then
+    printf '%s\n' '#!/usr/bin/env bash' > "$hook"
+  fi
+  if grep -qF "$mark_open" "$hook" 2>/dev/null; then
+    chmod +x "$hook"
+    print_ok "TDD ordering gate already present in commit-msg hook (idempotent)"
+    return 0
+  fi
+  {
+    echo ""
+    echo "$mark_open"
+    echo '# Tier-keyed test-first enforcement (BL-072 Phase C2): sponsored-POC /'
+    echo '# production -> HARD BLOCK when a feat/fix/refactor commit ships'
+    echo '# implementation with no accompanying test; personal / private-POC ->'
+    echo '# logged WARNING (bypassable). Escape: SOLO_TDD_ATTESTED=1 (recorded to'
+    echo '# .claude/process-state.json::tdd_attestations[]).'
+    echo 'if [ -x scripts/pre-commit-gate.sh ]; then'
+    echo '  scripts/pre-commit-gate.sh --terminal-mode --tdd-only || exit 1'
+    echo 'fi'
+    echo "$mark_close"
+  } >> "$hook"
+  chmod +x "$hook"
+  print_ok "TDD ordering gate installed (commit-msg hook, tier-keyed hard block)"
 }
 
 # ================================================================

@@ -15,7 +15,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # BL-072 Phase C1: shared TDD file-classification core. Sourced (not
 # re-implemented) so the live gate below and the dogfood replay
 # (tests/test-helpers/dogfood-bl072-replay.sh) classify changed paths
-# identically. Absent (e.g. an older installed project) → the detector
+# identically. Absent (e.g. an older installed project) -> the detector
 # no-ops, which is safe because C1 is WARN-only. Prefer the project-local
 # copy, fall back to the framework copy.
 for _tdd_lib in "$SCRIPT_DIR/lib/tdd-classify.sh"; do
@@ -27,14 +27,255 @@ for _tdd_lib in "$SCRIPT_DIR/lib/tdd-classify.sh"; do
 done
 unset _tdd_lib
 
+# ── BL-072 Phase C2: tier-keyed TDD-ordering hard block ──────────────
+# C1 (PR #163) shipped the detector in WARN-only measurement mode. C2 makes it
+# a real gate whose severity is keyed on the project TIER:
+#   • BYPASSABLE tier (Personal / Private-POC): WARN only; the bypass is LOGGED
+#     to .claude/tdd-warn-ledger.jsonl (that log IS the audit trail).
+#   • NON-bypassable tier (Sponsored-POC / Production): HARD BLOCK, unless the
+#     operator attests the exception (SOLO_TDD_ATTESTED=1) — which is RECORDED
+#     to .claude/process-state.json::tdd_attestations[] (attested, not silenced
+#     — BL-032/071 lineage).
+# The hard block is emitted on the git COMMIT-MSG hook surface, reached via
+# `pre-commit-gate.sh --terminal-mode --tdd-only` (a non-zero exit aborts the
+# commit). commit-msg is the only git-hook point where .git/COMMIT_EDITMSG holds
+# the CURRENT commit message — a pre-commit hook sees a STALE message (git
+# writes it after pre-commit), which is why the message-scoped gate cannot live
+# there. The PreToolUse path keeps its C1 WARN detector as a pre-execution
+# measurement heads-up (it reads the subject from the Bash command, not the
+# hook file); the commit-msg hook is the enforcement point for both agent and
+# human commits. These helpers are defined up here so the --terminal-mode block
+# below (which runs and exits before the PreToolUse body) can call them.
+
+# _bl072_tier_bypassable
+# BL-084-TIER-KEY. SYNC SIBLINGS — keep these three semantically identical:
+#   init.sh::_bl084_tier_bypassable  ·  scripts/check-phase-gate.sh Phase 1->2
+#   push gate  ·  this predicate. Bypass-eligibility is the ACTUAL project tier
+#   (deployment + poc_mode from .claude/phase-state.json), NEVER `track`:
+#   BL-084 proved `track` is spoofable (--track light on a sponsored/production
+#   project). This reads the file directly (the siblings read shell/local vars
+#   they already hold); the SEMANTICS — not the read mechanism — must match.
+#
+# MOTHERSHIP SAFETY (hard requirement): a missing .claude/phase-state.json OR a
+# missing/empty deployment key => BYPASSABLE (WARN-only). solo-orchestrator
+# itself runs this hook on every commit and is NOT a framework-scaffolded
+# project; C2 must NEVER hard-block a repo that has no scaffolded tier.
+#
+# Returns 0 (BYPASSABLE) iff deployment != organizational AND
+# poc_mode != sponsored_poc. Returns 1 (NON-bypassable) otherwise.
+_bl072_tier_bypassable() {
+  local ps=".claude/phase-state.json"
+  local deployment="" poc_mode=""
+  if [ -f "$ps" ] && command -v jq >/dev/null 2>&1; then
+    deployment=$(jq -r '.deployment // ""' "$ps" 2>/dev/null || echo "")
+    poc_mode=$(jq -r '.poc_mode // ""' "$ps" 2>/dev/null || echo "")
+    [ "$deployment" = "null" ] && deployment=""
+    [ "$poc_mode" = "null" ] && poc_mode=""
+  fi
+  # Mothership safety: no scaffolded tier -> bypassable (never hard-block).
+  [ -z "$deployment" ] && return 0
+  if [ "$deployment" = "organizational" ] || [ "$poc_mode" = "sponsored_poc" ]; then  # BL-084-TIER-KEY
+    return 1
+  fi
+  return 0
+}
+
+# _tdd_triggers <subject> <staged_name_status>
+# Returns 0 iff the commit should TRIGGER the TDD gate:
+#   • subject is a feat/fix/refactor Conventional-Commit,
+#   • the staged set (git name-status) has >=1 implementation file and 0 test
+#     files (deletions / *.md / lockfiles already excluded by the classifier),
+#   • AND no test rode earlier on the branch (git diff <base>...HEAD).
+# Pure detection, mode-independent: both the PreToolUse WARN path and the
+# --terminal-mode enforcement call it (single source of truth). set -e safe.
+_tdd_triggers() {
+  local subject="$1" staged="$2"
+  echo "$subject" | grep -qE '^(feat|fix|refactor)(\([^)]*\))?!?:' || return 1
+  command -v _bl072_classify_status >/dev/null 2>&1 || return 1
+  local counts n_impl n_test
+  counts=$(printf '%s\n' "$staged" | _bl072_classify_status)
+  n_impl=${counts#IMPL:}; n_impl=${n_impl%% *}
+  n_test=${counts##*TEST:}
+  [ "${n_impl:-0}" -gt 0 ] 2>/dev/null || return 1
+  [ "${n_test:-0}" -eq 0 ] 2>/dev/null || return 1
+  local base=""
+  if git rev-parse --verify --quiet main >/dev/null 2>&1; then
+    base="main"
+  elif git rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
+    base="origin/main"
+  fi
+  if [ -n "$base" ]; then
+    local branch_status bcounts b_test
+    branch_status=$(git diff --name-status "$base"...HEAD 2>/dev/null || true)
+    bcounts=$(printf '%s\n' "$branch_status" | _bl072_classify_status)
+    b_test=${bcounts##*TEST:}
+    [ "${b_test:-0}" -gt 0 ] 2>/dev/null && return 1
+  fi
+  return 0
+}
+
+# tdd_ledger_row_ext <subject> <impl_files> <status>
+# Append one tier-aware row to .claude/tdd-warn-ledger.jsonl. status ∈
+# bypassed|attested|blocked. Keeps would_block:true for C1 continuity and adds
+# deployment/poc_mode + the disposition flags. Never fails the caller.
+tdd_ledger_row_ext() {
+  local subject="$1" files="$2" status="$3"
+  command -v jq >/dev/null 2>&1 || return 0
+  local ledger=".claude/tdd-warn-ledger.jsonl"
+  [ -d .claude ] || mkdir -p .claude 2>/dev/null || return 0
+  local files_json
+  files_json=$(printf '%s\n' "$files" | grep -v '^[[:space:]]*$' | jq -R . 2>/dev/null | jq -s . 2>/dev/null) || return 0
+  [ -n "$files_json" ] || files_json='[]'
+  local dep="" poc=""
+  if [ -f .claude/phase-state.json ]; then
+    dep=$(jq -r '.deployment // ""' .claude/phase-state.json 2>/dev/null || echo "")
+    poc=$(jq -r '.poc_mode // ""' .claude/phase-state.json 2>/dev/null || echo "")
+    [ "$dep" = "null" ] && dep=""
+    [ "$poc" = "null" ] && poc=""
+  fi
+  local bypassed=false attested=false blocked=false
+  case "$status" in
+    bypassed) bypassed=true ;;
+    attested) attested=true ;;
+    blocked)  blocked=true ;;
+  esac
+  local row
+  row=$(jq -cn \
+    --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg subject "$subject" \
+    --arg deployment "$dep" \
+    --arg poc_mode "$poc" \
+    --argjson files "$files_json" \
+    --argjson bypassed "$bypassed" \
+    --argjson attested "$attested" \
+    --argjson blocked "$blocked" \
+    '{date:$date, subject:$subject, files:$files, would_block:true, deployment:$deployment, poc_mode:$poc_mode, bypassed:$bypassed, attested:$attested, blocked:$blocked}' 2>/dev/null) || return 0
+  printf '%s\n' "$row" >> "$ledger" 2>/dev/null || return 0
+  return 0
+}
+
+# tdd_record_attestation <subject> <impl_files> <reason>
+# Atomically append {date,subject,reason,files} to
+# .claude/process-state.json::tdd_attestations[] (tmp+mv, BL-071 lineage).
+# Returns 0 on a durable write, 1 on ANY failure — the caller MUST be loud and
+# REFUSE the commit on failure (attested, never silently passed).
+tdd_record_attestation() {
+  local subject="$1" files="$2" reason="$3"
+  command -v jq >/dev/null 2>&1 || return 1
+  [ -d .claude ] || mkdir -p .claude 2>/dev/null || return 1
+  local ps=".claude/process-state.json"
+  if [ ! -f "$ps" ]; then
+    printf '%s\n' '{}' > "$ps" 2>/dev/null || return 1
+  fi
+  local files_json
+  files_json=$(printf '%s\n' "$files" | grep -v '^[[:space:]]*$' | jq -R . 2>/dev/null | jq -s . 2>/dev/null) || return 1
+  [ -n "$files_json" ] || files_json='[]'
+  local tmp="$ps.tmp.$$"
+  if jq \
+      --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      --arg subject "$subject" \
+      --arg reason "$reason" \
+      --argjson files "$files_json" \
+      '.tdd_attestations = ((.tdd_attestations // []) + [{date:$date, subject:$subject, reason:$reason, files:$files}])' \
+      "$ps" > "$tmp" 2>/dev/null && mv "$tmp" "$ps" 2>/dev/null; then
+    return 0
+  fi
+  rm -f "$tmp" 2>/dev/null || true
+  return 1
+}
+
+# tdd_emit_warn_term <subject> <impl_files>  — bypassable-tier WARN (stderr).
+tdd_emit_warn_term() {
+  local subject="$1" files="$2" type
+  type=$(printf '%s' "$subject" | sed -nE 's/^(feat|fix|refactor).*/\1/p')
+  {
+    echo "[WARN] BL-072 TDD ordering: '$type:' commit ships implementation without a matching test."
+    echo "[WARN]   Subject: $subject"
+    echo "[WARN]   Tier is BYPASSABLE (personal / private POC) — allowing, but the bypass is LOGGED"
+    echo "[WARN]   to .claude/tdd-warn-ledger.jsonl. On a sponsored-POC / production tier this commit"
+    echo "[WARN]   WOULD BE BLOCKED. Impl files with no accompanying test (none earlier on the branch):"
+    printf '%s\n' "$files" | grep -v '^[[:space:]]*$' | sed 's/^/[WARN]     - /' || true
+  } >&2
+}
+
+# tdd_emit_fail_term <subject> <impl_files>  — non-bypassable-tier BLOCK (stderr).
+tdd_emit_fail_term() {
+  local subject="$1" files="$2" type
+  type=$(printf '%s' "$subject" | sed -nE 's/^(feat|fix|refactor).*/\1/p')
+  {
+    echo "[FAIL] BL-072 TDD ordering: '$type:' commit ships implementation without a matching test."
+    echo "[FAIL]   Subject: $subject"
+    echo "[FAIL]   Tier is NON-bypassable (sponsored POC / production) — test-first ordering is ENFORCED."
+    echo "[FAIL]   Impl files with no accompanying test (none earlier on the branch):"
+    printf '%s\n' "$files" | grep -v '^[[:space:]]*$' | sed 's/^/[FAIL]     - /' || true
+    echo "[FAIL]   Write the failing test first (test-driven), then re-commit."
+    echo "[FAIL]   To attest a legitimate exception (RECORDED to tdd_attestations[], not silenced):"
+    echo "[FAIL]     SOLO_TDD_ATTESTED=1 SOLO_TDD_REASON='<why a same-commit test is impractical>' git commit ..."
+    echo "[FAIL]   The commit is BLOCKED."
+  } >&2
+}
+
+# tdd_terminal_enforce  — the tier-keyed gate, invoked from the generated
+# COMMIT-MSG hook via `--terminal-mode --tdd-only`. Reads the prospective
+# subject from COMMIT_MSG (from .git/COMMIT_EDITMSG, which is CURRENT at
+# commit-msg time) and the staged name-status from git. Returns 0 to ALLOW
+# (silent / WARN / attested), 1 to BLOCK (caller exits 1 -> git aborts commit).
+tdd_terminal_enforce() {
+  # Derivative commit: a merge in progress is not a TDD-authoring event.
+  [ -f .git/MERGE_HEAD ] && return 0
+  command -v _tdd_triggers >/dev/null 2>&1 || return 0   # classifier absent -> no-op (safe)
+
+  local subject staged_status
+  subject=$(printf '%s\n' "${COMMIT_MSG:-}" | head -n 1)
+  staged_status=$(git diff --cached --name-status 2>/dev/null || true)
+
+  local _fire=0
+  _tdd_triggers "$subject" "$staged_status" && _fire=1   # BL-072-TDD-DETECT
+  [ "$_fire" = "1" ] || return 0
+
+  local impl_files
+  impl_files=$(printf '%s\n' "$staged_status" | _bl072_impl_files)
+
+  if _bl072_tier_bypassable; then
+    tdd_emit_warn_term "$subject" "$impl_files"
+    tdd_ledger_row_ext "$subject" "$impl_files" bypassed
+    return 0
+  fi
+
+  # NON-bypassable tier — attested escape or hard block.  # BL-072-TDD-ENFORCE
+  if [ "${SOLO_TDD_ATTESTED:-0}" = "1" ]; then
+    local reason="${SOLO_TDD_REASON:-unspecified - attested via SOLO_TDD_ATTESTED}"
+    if tdd_record_attestation "$subject" "$impl_files" "$reason"; then
+      tdd_ledger_row_ext "$subject" "$impl_files" attested
+      echo "[OK] BL-072 TDD ordering: NON-bypassable tier, but the exception was ATTESTED and RECORDED to .claude/process-state.json::tdd_attestations[] (reason: $reason). Commit allowed (recorded, not silenced)." >&2
+      return 0
+    fi
+    # LOUD failure — an attested escape MUST be on the record; never a silent pass.
+    echo "[FAIL] BL-072 TDD ordering: SOLO_TDD_ATTESTED=1 but the attestation could NOT be recorded to .claude/process-state.json (jq/write failure). REFUSING the commit — an attested escape must be durably logged. Fix the write error (disk/permissions/jq) and retry, or add the missing test." >&2
+    return 1
+  fi
+
+  tdd_emit_fail_term "$subject" "$impl_files"
+  tdd_ledger_row_ext "$subject" "$impl_files" blocked
+  return 1   # BL-072-TDD-ENFORCE (hard block)
+}
+# ── end BL-072 Phase C2 block ────────────────────────────────────────
+
 # BL-030: --terminal-mode invocation from .git/hooks/framework-gate.sh.
 # Reads commit message from .git/COMMIT_EDITMSG instead of stdin JSON;
 # reads staged files from `git diff --cached` instead of tool-input;
 # emits human-readable diagnostics to stderr instead of JSON to stdout.
 TERMINAL_MODE=0
+# --tdd-only (BL-072 C2): scope a --terminal-mode invocation to JUST the
+# tier-keyed TDD gate — skip the process-checklist + operator-side lints. The
+# generated fallback pre-commit hook uses `--terminal-mode --tdd-only` so it
+# runs the real TDD gate WITHOUT newly pulling the full checklist/lint stack
+# into a hook that never carried them.
+TDD_ONLY=0
 for arg in "$@"; do
   case "$arg" in
     --terminal-mode) TERMINAL_MODE=1 ;;
+    --tdd-only)      TDD_ONLY=1 ;;
   esac
 done
 
@@ -42,6 +283,22 @@ if [ "$TERMINAL_MODE" -eq 1 ]; then
   PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "[FAIL] not a git repo" >&2; exit 1; }
   cd "$PROJECT_ROOT"
   COMMIT_MSG=$(cat .git/COMMIT_EDITMSG 2>/dev/null || echo "")
+
+  # BL-072 Phase C2: tier-keyed TDD-ordering gate. Runs ONLY under --tdd-only,
+  # which is how the generated COMMIT-MSG hook invokes the gate. commit-msg time
+  # is the ONLY git-hook point where .git/COMMIT_EDITMSG holds the CURRENT commit
+  # message (a pre-commit hook sees a STALE message — git writes it AFTER
+  # pre-commit runs), and the staged index is still intact there. Plain
+  # --terminal-mode (strict-mode framework-gate.sh, chained into .git/hooks/
+  # pre-commit) is deliberately left untouched — running the message-scoped TDD
+  # gate there would misread the subject. Called in an `if` condition so a
+  # non-zero return means "hard block" without set -e aborting mid-function.
+  if [ "$TDD_ONLY" -eq 1 ]; then
+    if ! tdd_terminal_enforce; then
+      exit 1
+    fi
+    exit 0
+  fi
 
   # Reuse process-checklist.sh's classifier.
   if [ -x "scripts/process-checklist.sh" ]; then
@@ -496,45 +753,25 @@ tdd_warn_check() {
   echo "$COMMAND" | grep -qE '\bgit\b.*\b(merge|revert|cherry-pick)\b' && return 0
   echo "$COMMAND" | grep -qE '\bgh\b.*\bpr\b.*\bmerge\b.*\-\-squash' && return 0
 
-  # Only feat/fix/refactor Conventional Commit subjects are in scope.
-  local subject
+  # Detection is shared with the --terminal-mode enforcement via _tdd_triggers
+  # (single source of truth). The staged set is fed as git NAME-STATUS so the
+  # C2 classifier can exclude pure deletions (the C1 path-only reader could
+  # not). Without the classifier lib, no-op (safe — C1 was WARN-only anyway).
+  local subject staged_status
   subject=$(_tdd_extract_subject)
-  echo "$subject" | grep -qE '^(feat|fix|refactor)(\([^)]*\))?!?:' || return 0
+  command -v _bl072_classify_status >/dev/null 2>&1 || return 0
+  staged_status=$(git diff --cached --name-status 2>/dev/null || true)
 
-  # The shared classification core must be present; without it, no-op (safe).
-  command -v _bl072_classify_paths >/dev/null 2>&1 || return 0
+  local _fire=0
+  _tdd_triggers "$subject" "$staged_status" && _fire=1   # BL-072-TDD-DETECT
+  [ "$_fire" = "1" ] || return 0
 
-  # This commit's changed paths = staged files.
-  local staged counts n_impl n_test
-  staged=$(git diff --cached --name-only 2>/dev/null || true)
-  counts=$(printf '%s\n' "$staged" | _bl072_classify_paths)
-  n_impl=${counts#IMPL:}; n_impl=${n_impl%% *}
-  n_test=${counts##*TEST:}
-
-  # No implementation files → nothing to enforce.
-  [ "${n_impl:-0}" -gt 0 ] 2>/dev/null || return 0
-  # A test rides along in the same commit → TDD satisfied, silent.
-  [ "${n_test:-0}" -eq 0 ] 2>/dev/null || return 0
-
-  # Branch allowance: a test written earlier on this branch (vs main) also
-  # satisfies TDD ordering. Guard for a missing main ref: try origin/main;
-  # if neither exists, skip the allowance (classify on this commit alone).
-  local base=""
-  if git rev-parse --verify --quiet main >/dev/null 2>&1; then
-    base="main"
-  elif git rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
-    base="origin/main"
-  fi
-  if [ -n "$base" ]; then
-    local branch_paths bcounts b_test
-    branch_paths=$(git diff --name-only "$base"...HEAD 2>/dev/null || true)
-    bcounts=$(printf '%s\n' "$branch_paths" | _bl072_classify_paths)
-    b_test=${bcounts##*TEST:}
-    [ "${b_test:-0}" -gt 0 ] 2>/dev/null && return 0
-  fi
-
-  # TRIGGER — implementation shipped without tests. WARN only, rc unchanged.
-  emit_tdd_warn "$subject" "$staged"  # BL-072-TDD-DETECT
+  # TRIGGER — implementation shipped without tests. This PreToolUse surface is
+  # WARN-only measurement (rc unchanged); the tier-keyed hard block lives on the
+  # --terminal-mode git-hook surface (tdd_terminal_enforce).
+  local impl_files
+  impl_files=$(printf '%s\n' "$staged_status" | _bl072_impl_files || true)
+  emit_tdd_warn "$subject" "$impl_files"
   return 0
 }
 

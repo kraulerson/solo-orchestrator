@@ -108,6 +108,26 @@ Baseline §2.5 forces `strict` for organizational projects in Sponsored POC or P
 
 The CI pipeline is your global hard enforcement boundary; on `strict` projects, the local `framework-gate.sh` adds a second hard enforcement boundary at commit time. The process checklist and the rest of the hook chain provide strong mechanical enforcement within Claude Code sessions. Everything else depends on the agent following instructions and the Orchestrator reviewing at decision gates. See the User Guide's "What Is Enforced vs. What Is Guided" section for the complete breakdown — including the audit-row taxonomy (`out_of_band_commit`, `terminal_commit_blocked`, `terminal_commit_passed`, `enforcement_level_set`, `escalation`, `claude_bypass_proposal`, `detector_error`) that this framework writes to `.claude/bypass-audit.json` over the project's lifetime. The deeper reference for that ledger — per-row lifecycle, atomic-append guarantees, cold-pickup successor jq recipes — is `docs/audit-log-lifecycle.md`.
 
+#### TDD ordering enforcement (BL-072) — the tier matrix
+
+Test-first ordering is mechanically enforced at commit time by `scripts/pre-commit-gate.sh`. The detector fires on `feat:`/`fix:`/`refactor:` commits (all other Conventional-Commit types — `docs:`, `test:`, `chore:`, `style:`, `build:`, `ci:`, `perf:`, `revert:` — are out of scope) when the commit stages at least one **implementation** file and **no** test file, and no test rode earlier on the same branch (`git diff main...HEAD`). Implementation excludes tests, `docs/`, `.github/`, `Reports/`, `templates/`, `scripts/lint-*.sh`, **all `*.md`**, **lockfiles** (`package-lock.json`, `*.lock`, `yarn.lock`), and **pure file deletions**.
+
+The *severity* of a trigger is keyed on the project **tier** — read from `.claude/phase-state.json` `deployment` + `poc_mode`, never the spoofable `track` (BL-084 proved `--track light` can be set on a sponsored project; the predicate is the shared `# BL-084-TIER-KEY` semantics used by `init.sh` and `check-phase-gate.sh`):
+
+| Tier (`deployment` / `poc_mode`) | On a trigger |
+|---|---|
+| **Personal** (`personal`, non-POC) | **WARN** (bypassable), logged to the ledger with `bypassed:true` |
+| **Private POC** (`personal` / `private_poc`) | **WARN** (bypassable), logged with `bypassed:true` |
+| **Sponsored POC** (`organizational` / `sponsored_poc`) | **HARD BLOCK** (`[FAIL]`, commit aborted) |
+| **Production** (`organizational`, non-POC) | **HARD BLOCK** (`[FAIL]`, commit aborted) |
+| *unscaffolded repo* (no `phase-state.json` / empty `deployment`) | **WARN** only — mothership safety; the framework's own commits never hard-block |
+
+**Where it runs.** For **agent** commits the PreToolUse hook surfaces the WARN as a pre-execution heads-up; the authoritative enforcement point for **both agent and human** commits is a **`commit-msg`** git hook that delegates to `pre-commit-gate.sh --terminal-mode --tdd-only`. `commit-msg` (not `pre-commit`) is used deliberately: git writes the commit message to `.git/COMMIT_EDITMSG` only *after* `pre-commit` runs, so a `pre-commit` hook cannot read the `feat`/`fix`/`refactor` subject the gate scopes on. `init.sh` installs this hook for every scaffolded project whose language has a distinct test-file convention (Rust, which uses inline `#[cfg(test)]` tests, is skipped).
+
+**Escape hatch — attested, never silenced.** On a non-bypassable tier, `SOLO_TDD_ATTESTED=1` (optionally `SOLO_TDD_REASON="<why>"`) allows the commit *and* records `{date, subject, reason, files}` to `.claude/process-state.json::tdd_attestations[]` via an atomic tmp+mv write. This exists for the integration surfaces (`init.sh`, host drivers, `upgrade-project.sh`) that are validated by UAT/scenario/integration rather than a fast-lane unit test. If the attestation *cannot* be recorded, the gate is LOUD and REFUSES the commit — an escape without a durable record is never granted.
+
+**Audit trail.** Every trigger appends a JSON row to `.claude/tdd-warn-ledger.jsonl` carrying `{date, subject, files, would_block:true, deployment, poc_mode, bypassed, attested, blocked}`. The logged bypass row *is* the audit trail across a tier promotion: when `upgrade-project.sh --to-sponsored-poc` (or `--deployment organizational`) rewrites `phase-state.json`, the same commit that only WARNed as Personal now hard-blocks — no code change to the gate, the tier flip alone flips enforcement.
+
 ---
 
 ## Process Right-Sizing
