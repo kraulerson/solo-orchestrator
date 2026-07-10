@@ -5,10 +5,13 @@
 set -uo pipefail
 
 # ═══════════════════════════════════════════════════════════════════════
-# scripts/run-phase3-validation.sh — BL-070 Phase 3 validation-scan driver
-# (SKELETON: harness + gate integration + attest-on-skip; NOT all 5 real
-# scanners — see the SCANNER REGISTRY notes below for what is real vs
-# stubbed).
+# scripts/run-phase3-validation.sh — BL-070 Phase 3 validation-scan driver.
+# ALL FIVE registered scanners are now REAL (BL-070 completed 2026-07-10):
+# semgrep-full-tree, license, snyk, zap-dast, threat-model. The tool-backed
+# arms (semgrep / license / snyk / zap-dast) detect-and-run-if-available and
+# SKIP under --offline so the gate autorun stays hermetic and instant; the
+# pure-local threat-model arm runs even offline. Nothing is stubbed-by-decision.
+# See the SCANNER REGISTRY notes below for each arm's detect/run/SKIP contract.
 #
 # WHY THIS EXISTS
 #   The Builder's/User guides + workflow.html imply Phase 3 automatically
@@ -103,11 +106,33 @@ fi
 #                               Minimal contract: it INVENTORIES licenses; a
 #                               license allow/deny POLICY is a deliberate
 #                               non-goal of this increment (pending decision).
-#   snyk               STUB   — `snyk test --json` needs `snyk auth` +
-#                               network. Registered but SKIP in the skeleton
-#                               (do NOT auto-run an auth prompt).
-#   zap-dast           STUB   — OWASP ZAP baseline needs Docker + a live
-#                               URL. Registered but SKIP in the skeleton.
+#   snyk               REAL   — dependency vulnerability scan (BL-070
+#                               completion, WP-B3). Detect-and-run-if-available:
+#                               SKIP under --offline; SKIP if `snyk` is not on
+#                               PATH (names `npm install -g snyk`); SKIP if not
+#                               authenticated (SNYK_TOKEN env OR a stored token
+#                               via `snyk config get api` — names `snyk auth`);
+#                               otherwise runs `snyk test --json`, archiving to
+#                               snyk-<timestamp>.json. Findings policy MIRRORS
+#                               the semgrep arm exactly (snyk exits 1 with a
+#                               report when vulns are found): rc>=2 / no report →
+#                               FAIL (execution error); vulnerabilities>0 → FAIL;
+#                               0 vulns → PASS. Every SKIP is attestable.
+#   zap-dast           REAL   — OWASP ZAP baseline DAST (BL-070 completion,
+#                               WP-B4). Detect-and-run-if-available: SKIP under
+#                               --offline; PLATFORM GATE FIRST — SKIP (attestable,
+#                               never a silent auto-pass) unless
+#                               .context.platform ∈ {web, api}; SKIP if `docker`
+#                               is not on PATH; SKIP if SOLO_ZAP_TARGET_URL is
+#                               unset (names the variable). Otherwise runs
+#                               `zap-baseline.py` via the ghcr.io/zaproxy/zaproxy
+#                               :stable image against SOLO_ZAP_TARGET_URL,
+#                               archiving the JSON to zap-dast-<timestamp>.json.
+#                               Findings policy MIRRORS the semgrep arm (zap-
+#                               baseline exits 1/2 on FAIL-/WARN-level alerts
+#                               while still producing a report): no report / rc>=3
+#                               → FAIL (execution error); alerts>0 (or a non-zero
+#                               baseline rc) → FAIL; 0 alerts → PASS.
 #   threat-model       REAL   — threat-model verification (BL-070 increment).
 #                               Validates every PROJECT_BIBLE.md Section-4
 #                               `TM-NNN` threat row against the newest Phase-3
@@ -138,9 +163,13 @@ _p3_label() {
 }
 
 _p3_kind() {   # "real" or "stub" — surfaced in --list and the summary.
+  # BL-070 COMPLETE (2026-07-10): all five registered scanners are REAL; the
+  # `*)` catch-all now only ever fires for an UNKNOWN name, never a shipped one.
   case "$1" in
     semgrep-full-tree) echo "real" ;;
     license)           echo "real" ;;
+    snyk)              echo "real" ;;
+    zap-dast)          echo "real" ;;
     threat-model)      echo "real" ;;
     *)                 echo "stub" ;;
   esac
@@ -483,21 +512,160 @@ _p3_scan_license() {
   fi
 }
 
-# STUB — Snyk dependency scan. Always SKIP in the skeleton.
+# REAL — Snyk dependency vulnerability scan (BL-070 completion, WP-B3).
+#
+# Detect-and-run-if-available ONLY (no auth prompt, no network under --offline):
+#   --offline                → SKIP (attestable), mirroring the semgrep arm — the
+#                              gate autorun runs --offline and must stay hermetic.
+#   snyk not on PATH         → SKIP (attestable), naming `npm install -g snyk`.
+#   snyk on PATH, no auth    → SKIP (attestable), naming `snyk auth`. Auth is the
+#                              canonical snyk way: SNYK_TOKEN env (CI convention)
+#                              OR a stored token that `snyk config get api`
+#                              prints (empty when unauthenticated). Cheap +
+#                              mockable; never triggers interactive `snyk auth`.
+#   authenticated            → run `snyk test --json`, archive to
+#                              snyk-<timestamp>.json.
+#
+# Findings policy MIRRORS _p3_scan_semgrep EXACTLY (verified against the semgrep
+# arm above): snyk exits 0 = no vulns, 1 = vulnerabilities found (still emits a
+# JSON report), 2 = execution error, 3 = no supported project. So — like
+# semgrep — rc>=2 OR no report → FAIL (execution error); findings>0 → FAIL;
+# 0 findings → PASS. This is a SECURITY scanner (findings block), NOT an
+# inventory like the license arm.
 _p3_scan_snyk() {
-  # BL-070 SKELETON STUB: `snyk test --json` needs `snyk auth` + network.
-  # We deliberately do NOT auto-run it (an auth prompt would hang unattended
-  # runs). Real invocation is a later increment.
-  P3_STATUS="SKIP"
-  P3_NOTE="snyk dependency scan stubbed (BL-070 skeleton) — needs 'snyk auth'; wire 'snyk test --json' in a later increment"
+  local archive="$1"
+  if [ -n "$OFFLINE" ]; then
+    P3_STATUS="SKIP"; P3_NOTE="offline mode (--offline / SOLO_PHASE3_OFFLINE) — Snyk dependency scan not run"
+    return
+  fi
+  if ! command -v snyk >/dev/null 2>&1; then
+    P3_STATUS="SKIP"
+    P3_NOTE="snyk not on PATH — install it (npm install -g snyk) to enable the dependency scan, or run it manually and attest"
+    return
+  fi
+  # Auth detection (cheap, non-interactive): SNYK_TOKEN env OR a stored token.
+  local snyk_api=""
+  snyk_api="$(snyk config get api 2>/dev/null || echo "")"
+  if [ -z "${SNYK_TOKEN:-}" ] && [ -z "$snyk_api" ]; then
+    P3_STATUS="SKIP"
+    P3_NOTE="snyk not authenticated — run 'snyk auth' (or set SNYK_TOKEN) to enable the dependency scan, or run it manually and attest"
+    return
+  fi
+  # Run the dependency scan (rc captured; snyk exits 1 WITH a report on findings).
+  local rc=0
+  snyk test --json > "$archive" 2>/dev/null || rc=$?   # BL-070-SNYK-DISPATCH
+  P3_ARCHIVE="$archive"
+  # rc>=2 (execution error / no supported project) OR an empty report → FAIL,
+  # mirroring semgrep's "rc>=2 || no archive → execution error".
+  if [ "$rc" -ge 2 ] || [ ! -s "$archive" ]; then
+    P3_STATUS="FAIL"; P3_NOTE="snyk execution error (rc=$rc) — no usable report; treat as a scan failure, not a skip"
+    return
+  fi
+  local findings=0
+  if command -v jq >/dev/null 2>&1; then
+    findings=$(jq '(.vulnerabilities | length) // 0' "$archive" 2>/dev/null || echo 0)
+    case "$findings" in ''|*[!0-9]*) findings=0 ;; esac
+  fi
+  if [ "$findings" -gt 0 ]; then
+    P3_STATUS="FAIL"; P3_NOTE="$findings snyk vulnerability finding(s) — review $archive"
+  else
+    P3_STATUS="PASS"; P3_NOTE="0 vulnerabilities (snyk test --json)"
+  fi
 }
 
-# STUB — OWASP ZAP DAST. Always SKIP in the skeleton.
+# REAL — OWASP ZAP baseline DAST (BL-070 completion, WP-B4).
+#
+# Detect-and-run-if-available ONLY (Docker + network only when everything lines
+# up; SKIP otherwise so the gate autorun stays hermetic):
+#   --offline                → SKIP (attestable), mirroring the semgrep arm.
+#   PLATFORM GATE (FIRST)    → read .context.platform the CANONICAL way (same
+#                              reader as scripts/check-phase-gate.sh); platform
+#                              ∉ {web, api} → SKIP (attestable) — DAST is a web/
+#                              api concern. Conservative + attestable, NEVER a
+#                              silent auto-pass.
+#   docker not on PATH       → SKIP (attestable).
+#   SOLO_ZAP_TARGET_URL unset→ SKIP (attestable), naming the variable — a DAST
+#                              scan needs a live target.
+#   all present              → run `zap-baseline.py` via the pinned ZAP image,
+#                              archive the JSON to zap-dast-<timestamp>.json.
+#
+# Findings policy MIRRORS _p3_scan_semgrep: zap-baseline exits 0 = clean,
+# 1 = FAIL-level alerts, 2 = WARN-level alerts (both still emit a JSON report),
+# >=3 = execution error. So — like semgrep — no report / rc>=3 → FAIL (execution
+# error); alerts>0 (or a non-zero baseline rc) → FAIL; 0 alerts → PASS.
 _p3_scan_zap() {
-  # BL-070 SKELETON STUB: OWASP ZAP baseline needs Docker + a live target
-  # URL (web/api platforms only). Real invocation is a later increment.
-  P3_STATUS="SKIP"
-  P3_NOTE="OWASP ZAP DAST stubbed (BL-070 skeleton) — needs Docker + a live URL; wire zap-baseline.py in a later increment"
+  local archive="$1"
+  if [ -n "$OFFLINE" ]; then
+    P3_STATUS="SKIP"; P3_NOTE="offline mode (--offline / SOLO_PHASE3_OFFLINE) — OWASP ZAP DAST not run"
+    return
+  fi
+
+  # PLATFORM GATE (first substantive check). DAST applies to web/api only.
+  # .context.platform in .claude/tool-preferences.json is the CANONICAL source
+  # (NOT manifest.json) — same reader as check-phase-gate.sh:1766.
+  local platform=""
+  if command -v jq >/dev/null 2>&1 && [ -f ".claude/tool-preferences.json" ]; then
+    platform=$(jq -r '.context.platform // ""' ".claude/tool-preferences.json" 2>/dev/null || echo "")
+  fi
+  [ "$platform" = "null" ] && platform=""
+  case "$platform" in
+    web|api) : ;;   # DAST-eligible
+    *)
+      P3_STATUS="SKIP"
+      P3_NOTE="DAST not applicable to platform '${platform:-unknown}' — OWASP ZAP runs for web/api platforms only; attest to record the skip"
+      return ;;
+  esac
+
+  # Docker is required to run the ZAP baseline image.
+  if ! command -v docker >/dev/null 2>&1; then
+    P3_STATUS="SKIP"
+    P3_NOTE="docker not on PATH — install Docker to enable OWASP ZAP DAST, or run the baseline scan manually and attest"
+    return
+  fi
+
+  # A DAST scan needs a live target URL.
+  if [ -z "${SOLO_ZAP_TARGET_URL:-}" ]; then
+    P3_STATUS="SKIP"
+    P3_NOTE="no target URL — set SOLO_ZAP_TARGET_URL=<live app/api URL> to enable OWASP ZAP DAST, or run it manually and attest"
+    return
+  fi
+
+  # Run the ZAP baseline scan via Docker. `-J <name>` writes the JSON report into
+  # the container's /zap/wrk, which is bind-mounted to a host tmpdir; copy it out
+  # to the archive afterwards. Whole invocation kept on ONE physical line so the
+  # mutation marker excises the entire dispatch (removing it → no report → FAIL).
+  local zap_tmp rc=0
+  zap_tmp=$(mktemp -d "${TMPDIR:-/tmp}/p3-zap-XXXXXX") || {
+    P3_STATUS="FAIL"; P3_NOTE="could not create a temp dir for the ZAP report"; return
+  }
+  docker run --rm -v "$zap_tmp:/zap/wrk" ghcr.io/zaproxy/zaproxy:stable zap-baseline.py -t "$SOLO_ZAP_TARGET_URL" -J zap-report.json >/dev/null 2>&1 || rc=$?   # BL-070-ZAP-DISPATCH
+  if [ -f "$zap_tmp/zap-report.json" ]; then
+    cp "$zap_tmp/zap-report.json" "$archive" 2>/dev/null || true
+  fi
+  rm -rf "$zap_tmp" 2>/dev/null || true
+  P3_ARCHIVE="$archive"
+
+  # No report at all → FAIL (docker/image/exec failure — a crash, not a skip).
+  if [ ! -s "$archive" ]; then
+    P3_STATUS="FAIL"; P3_NOTE="OWASP ZAP produced no report (rc=$rc) — treat as a scan failure, not a skip"
+    return
+  fi
+  # rc>=3 = execution error (docker error, image pull failure, ZAP crash) → FAIL.
+  if [ "$rc" -ge 3 ]; then
+    P3_STATUS="FAIL"; P3_NOTE="OWASP ZAP execution error (rc=$rc) — review $archive"
+    return
+  fi
+  local findings=0
+  if command -v jq >/dev/null 2>&1; then
+    findings=$(jq '[.site[]?.alerts[]?] | length' "$archive" 2>/dev/null || echo 0)
+    case "$findings" in ''|*[!0-9]*) findings=0 ;; esac
+  fi
+  # Alerts found (rc 1/2) OR any non-zero baseline rc → FAIL; clean → PASS.
+  if [ "$findings" -gt 0 ] || [ "$rc" -ne 0 ]; then
+    P3_STATUS="FAIL"; P3_NOTE="$findings ZAP alert(s) (baseline rc=$rc) — review $archive"
+  else
+    P3_STATUS="PASS"; P3_NOTE="0 ZAP alerts (baseline scan of $SOLO_ZAP_TARGET_URL)"
+  fi
 }
 
 # ── threat-model helpers (BL-070 increment, WP-B2) ───────────────────
