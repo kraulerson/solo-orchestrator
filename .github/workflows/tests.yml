@@ -90,6 +90,7 @@ jobs:
             tests/test-check-phase-gate-counter-sanitizer.sh
             tests/test-check-phase-gate-date-writeback.sh
             tests/test-check-phase-gate-noninteractive.sh
+            tests/test-check-phase-gate-poc-block-contract.sh
             tests/test-check-phase-gate-retroactive-approval.sh
             tests/test-check-phase-gate-self-approval.sh
             tests/test-check-phase-gate.sh

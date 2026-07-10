@@ -1109,6 +1109,11 @@ if bash "$SCRIPT_DIR/tests/test-check-phase-gate.sh" >/dev/null 2>&1; then
 else
   fail "tests/test-check-phase-gate.sh FAILED (run for details)"
 fi
+if bash "$SCRIPT_DIR/tests/test-check-phase-gate-poc-block-contract.sh" >/dev/null 2>&1; then
+  pass "tests/test-check-phase-gate-poc-block-contract.sh"
+else
+  fail "tests/test-check-phase-gate-poc-block-contract.sh FAILED (run for details)"
+fi
 if bash "$SCRIPT_DIR/tests/test-check-phase-gate-counter-sanitizer.sh" >/dev/null 2>&1; then
   pass "tests/test-check-phase-gate-counter-sanitizer.sh"
 else
