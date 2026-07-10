@@ -536,6 +536,19 @@ else
   fail "tests/test-bl073-review-manifest-gate.sh FAILED (run for details)"
 fi
 
+# BL-072 Phase C1: scripts/pre-commit-gate.sh must WARN (never block) when a
+# feat/fix/refactor commit ships implementation with no test in the same
+# commit and none earlier on the branch — appending a row to
+# .claude/tdd-warn-ledger.jsonl and always leaving rc=0. Shares its
+# file-classification core (scripts/lib/tdd-classify.sh) with the dogfood
+# replay. Mutation-proof: excising the marked `# BL-072-TDD-DETECT` trigger
+# line removes the WARN, flipping T-feat-no-tests-warns RED.
+if bash "$SCRIPT_DIR/tests/test-bl072-tdd-warn-detector.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl072-tdd-warn-detector.sh"
+else
+  fail "tests/test-bl072-tdd-warn-detector.sh FAILED (run for details)"
+fi
+
 # ----------------------------------------------------------------
 # TEST 0h2: BL-084 TIER-AWARE CUSTOM-HOST REMOTE POLICY
 # ----------------------------------------------------------------
