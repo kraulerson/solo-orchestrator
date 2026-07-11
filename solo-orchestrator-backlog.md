@@ -2203,3 +2203,22 @@ BL-077 (PR #156) shipped the fast lane (per-push) but the full suite runs manual
 Filed per the gate-#4 decision batch. The Phase-3 `license` scanner shipped REAL in PR #164 (BL-070 increment) deliberately **inventory-only**: it runs the per-language license tool, archives the report, and PASSes on any non-empty report — it does NOT judge the licenses it finds. Whether the framework should add an organizational **allow/deny policy layer** on top (e.g. flag copyleft licenses like GPL/AGPL for `deployment=organizational` projects, FAIL the scanner when a denied license appears, with an attestable override) is a **pending Karl decision** — recommendation at filing time was *file it, don't build it now*. If built, it would key on the same platform/deployment context the rest of the gate uses and reuse the attest-on-skip escape-hatch pattern so a deliberate exception is recorded rather than silenced.
 
 **Related:** [[bl070-phase3-validation-scans]] (the license scanner this would extend — inventory-only by design); PR #164 (the inventory-only license arm); `scripts/run-phase3-validation.sh::_p3_scan_license`.
+
+---
+
+## BL-087: BL-006 commit-msg delegate would hard-block inside the framework repo if a hook were ever installed (latent) + `--amend` surface asymmetry
+
+**Logged:** 2026-07-10 (PR #169 adversarial verification)
+**Category:** Debt / latent hazard + documented-behavior caveat
+**Severity:** Low
+**Status:** Open
+
+Two follow-ups from the PR #169 verifier (BL-010 residual fix), both zero-impact today:
+
+1. **Latent framework-repo trap.** `bl006_terminal_enforce` (scripts/pre-commit-gate.sh, commit-msg surface) delegates to `process-checklist.sh --check-commit-message`, which exits 1 via `guard_not_in_framework` (helpers-core.sh:184, CWD-based, no bypass) when run from the framework repo itself. The mothership is safe today ONLY because the framework repo installs no `.git/hooks/commit-msg` — the two other safety layers claimed in PR #169's body are false for the framework repo (it DOES contain scripts/process-checklist.sh, so the no-checklist no-op doesn't apply; and the delegate does NOT "phase-0 pass" from the framework root — it hard-fails via the guard, verifier-reproduced rc=1). If a commit-msg hook is ever wired into the framework repo (e.g. deeper dogfooding), its `feat:`/`fix:` commits would HARD-BLOCK (rc=1), not pass gracefully. Fix when triggered: give `bl006_terminal_enforce` an explicit in-framework-repo graceful pass, mirroring the C2 mothership-safety pattern for missing phase-state. A correction comment is on PR #169.
+
+2. **`--amend` parity asymmetry (documented behavior, not a defect).** The PreToolUse surface passes through `git commit --amend` (allow+WARN, pre-commit-gate.sh:710) while the commit-msg surface cannot detect an amend (git sets no MERGE_HEAD/CHERRY_PICK_HEAD/REVERT_HEAD sentinel for it) and therefore enforces. Structurally forced, identical to how C2's `tdd_terminal_enforce` already ships, and arguably more correct (an amend introducing feat content should face the Build Loop); recorded so the divergence from strict "same pass-throughs" parity is on the books.
+
+**Trigger:** (1) fires if/when anyone installs a commit-msg hook in the framework repo itself; (2) doc-only unless strict amend parity is ever demanded.
+
+**Related:** BL-010 (PR #169 + its correction comment); BL-006; `scripts/pre-commit-gate.sh::bl006_terminal_enforce`; `scripts/lib/helpers-core.sh::guard_not_in_framework`; the C2 mothership-safety pattern (PR #166).
