@@ -24,8 +24,8 @@ When a spec's design has shipped:
    existing citation of the old path resolving — prose references in
    `solo-orchestrator-backlog.md`, cross-references from other specs, and
    path citations in read-only scripts (`scripts/host-drivers/github.sh`,
-   `scripts/reconfigure-project.sh`, `scripts/upgrade-project.sh`) all land on
-   the stub and can click through.
+   `scripts/reconfigure-project.sh`) all land on the stub and can click
+   through.
 4. If a test reads the spec **content** (not just its path), repoint that
    test's spec-path variable at the archived copy — the content is intact, so
    the assertions keep passing. (Done here for the intake, phase-audit, and
