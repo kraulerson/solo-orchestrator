@@ -3,7 +3,17 @@
 #
 # Covers scripts/upgrade-project.sh --sync-framework (same-tier refresh of the
 # vendored gate scripts / helper libs / hooks / framework docs from the FRAMEWORK
-# copy being run) and its --dry-run / --install-hooks modifiers.
+# copy being run) and its --dry-run / --install-hooks / --apply-doc-updates /
+# --confirm-doc-overwrite modifiers.
+#
+# CONSENT IS DRIVEN BY FLAGS, NOT BY A TTY (review round 1). Every run here is
+# non-interactive, so the doc-apply consent path is exercised through the DECLARED
+# CLI flags — --apply-doc-updates <skip|sidecar|overwrite> chooses the action and
+# --confirm-doc-overwrite answers the destructive second consent — exactly the
+# channel real scripted operators use. That is what lets T-doc-overwrite-confirm-
+# declined / -accepted pin the # BL-099-CONFIRM gate without a pty, and what
+# T-mutation-confirm mutates. The production guard is unchanged for real
+# terminals: with a tty the gate still prompts via prompt_yes_no (default N).
 #
 # HERMETICITY: every run pins CDF_HOME to a nonexistent path (BL-001 CDF refresh
 # gracefully skips — no clone, no network), configures a git identity in each
@@ -31,6 +41,11 @@ fail_() { echo "  [FAIL] $1 — $2"; FAILED=$((FAILED + 1)); }
 _md5file() {
   if command -v md5 >/dev/null 2>&1; then md5 -q "$1"
   else md5sum "$1" | awk '{print $1}'; fi
+}
+
+# Portable octal file mode (GNU-first, BSD fallback) — house portability rule.
+_file_mode() {
+  stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1" 2>/dev/null || echo "?"
 }
 
 # Deterministic fingerprint of every file under a dir (relpath + content md5,
@@ -299,12 +314,13 @@ t_legacy_unmarked_precommit_sidecar() {
 }
 
 # ── T-doc-apply-sidecar (reference doc) ─────────────────────────────────────
+# Review round 1 (MAJOR-2): the apply channel is the DECLARED CLI flag
+# --apply-doc-updates; the undeclared SOLO_SYNC_DOC_APPLY env var is gone.
 t_doc_apply_sidecar() {
   local T; T=$(mktemp -d); local P="$T/proj"; mk_project "$P" python
   printf '%s\n' 'my customized user guide' > "$P/docs/reference/user-guide.md"
   local pre_md5; pre_md5=$(_md5file "$P/docs/reference/user-guide.md")
-  ( cd "$P" && unset GITHUB_BASE_REF; CDF_HOME="$P/.no-such-cdf" SOIF_NONINTERACTIVE=1 SOLO_SYNC_DOC_APPLY=sidecar \
-      "$SCRIPT" --sync-framework </dev/null 2>&1 ) >/dev/null
+  run_sync "$P" --apply-doc-updates sidecar >/dev/null
   local post_md5; post_md5=$(_md5file "$P/docs/reference/user-guide.md")
   if [ "$pre_md5" != "$post_md5" ]; then
     fail_ "T-doc-apply-sidecar" "sidecar apply modified the original doc (must stay untouched)"; rm -rf "$T"; return
@@ -312,42 +328,201 @@ t_doc_apply_sidecar() {
   if [ ! -f "$P/docs/reference/user-guide.md.new" ] || ! cmp -s "$REPO_ROOT/docs/user-guide.md" "$P/docs/reference/user-guide.md.new"; then
     fail_ "T-doc-apply-sidecar" "expected user-guide.md.new sidecar matching framework upstream"; rm -rf "$T"; return
   fi
-  pass "T-doc-apply-sidecar: drifted reference doc written as <doc>.new; original untouched"
+  pass "T-doc-apply-sidecar: '--apply-doc-updates sidecar' writes <doc>.new; original untouched"
   rm -rf "$T"
 }
 
-# ── T-doc-apply-overwrite-backs-up (reference doc) ──────────────────────────
-t_doc_apply_overwrite_backs_up() {
+# ── T-doc-noninteractive-no-flag-applies-nothing ────────────────────────────
+# The approved spec's rule: a bare non-interactive sync NOTICES doc drift and
+# applies NOTHING — no overwrite, no sidecar, no .bak.
+t_doc_noninteractive_no_flag_applies_nothing() {
+  local T; T=$(mktemp -d); local P="$T/proj"; mk_project "$P" python
+  printf '%s\n' 'my customized user guide' > "$P/docs/reference/user-guide.md"
+  local pre_md5; pre_md5=$(_md5file "$P/docs/reference/user-guide.md")
+  local out; out=$(run_sync "$P")            # no --apply-doc-updates at all
+  local post_md5; post_md5=$(_md5file "$P/docs/reference/user-guide.md")
+  if [ "$pre_md5" != "$post_md5" ]; then
+    fail_ "T-doc-noninteractive-no-flag-applies-nothing" "bare non-interactive sync MUTATED a drifted reference doc (must be notice-only)"; rm -rf "$T"; return
+  fi
+  if ls "$P/docs/reference/"user-guide.md.new "$P/docs/reference/"user-guide.md.bak.* >/dev/null 2>&1; then
+    fail_ "T-doc-noninteractive-no-flag-applies-nothing" "bare non-interactive sync wrote a .new/.bak artifact (must apply nothing)"; rm -rf "$T"; return
+  fi
+  if ! echo "$out" | grep -qF "notice only — not applied"; then
+    fail_ "T-doc-noninteractive-no-flag-applies-nothing" "expected the notice-only line naming --apply-doc-updates; tail:\n$(echo "$out" | tail -8)"; rm -rf "$T"; return
+  fi
+  pass "T-doc-noninteractive-no-flag-applies-nothing: bare non-interactive sync notices drift and applies nothing (no flag, no env var)"
+  rm -rf "$T"
+}
+
+# ── T-doc-overwrite-confirm-declined (MAJOR-1) ──────────────────────────────
+# Confirm answered N (overwrite requested, consent NOT given): the doc must stay
+# byte-identical, no .bak may be written, and a clear 'skipped' line is printed.
+# This is the test the shipped double-confirm had NONE of — the verifier deleted
+# the confirm and every test stayed green.
+t_doc_overwrite_confirm_declined() {
+  local T; T=$(mktemp -d); local P="$T/proj"; mk_project "$P" python
+  printf '%s\n' 'my customized user guide' > "$P/docs/reference/user-guide.md"
+  local pre_md5; pre_md5=$(_md5file "$P/docs/reference/user-guide.md")
+  # overwrite REQUESTED, consent WITHHELD (no --confirm-doc-overwrite) → declined.
+  local out rc=0; out=$(run_sync "$P" --apply-doc-updates overwrite) || rc=$?
+  local post_md5; post_md5=$(_md5file "$P/docs/reference/user-guide.md")
+  if [ "$rc" != "0" ]; then
+    fail_ "T-doc-overwrite-confirm-declined" "a declined overwrite must not fail the sync; rc=$rc tail:\n$(echo "$out" | tail -8)"; rm -rf "$T"; return
+  fi
+  if [ "$pre_md5" != "$post_md5" ]; then
+    fail_ "T-doc-overwrite-confirm-declined" "UNCONFIRMED overwrite mutated the doc (the # BL-099-CONFIRM consent gate did not hold)"; rm -rf "$T"; return
+  fi
+  if ls "$P/docs/reference/"user-guide.md.bak.* >/dev/null 2>&1; then
+    fail_ "T-doc-overwrite-confirm-declined" "a .bak was written for a declined overwrite (nothing may be touched)"; rm -rf "$T"; return
+  fi
+  if ! echo "$out" | grep -qF "skipped user-guide.md — in-place overwrite NOT confirmed"; then
+    fail_ "T-doc-overwrite-confirm-declined" "expected an explicit 'skipped … overwrite NOT confirmed' line; tail:\n$(echo "$out" | tail -8)"; rm -rf "$T"; return
+  fi
+  pass "T-doc-overwrite-confirm-declined: consent withheld → doc byte-identical, no .bak, explicit 'skipped … NOT confirmed' line"
+  rm -rf "$T"
+}
+
+# ── T-doc-overwrite-confirm-accepted (MAJOR-1) ──────────────────────────────
+# Confirm answered Y (--confirm-doc-overwrite): the doc IS replaced with upstream
+# AND a dated .bak holds the exact pre-overwrite bytes. (Supersedes the shipped
+# T-doc-apply-overwrite-backs-up, whose assertions are a subset of these.)
+t_doc_overwrite_confirm_accepted() {
   local T; T=$(mktemp -d); local P="$T/proj"; mk_project "$P" python
   printf '%s\n' 'my customized user guide' > "$P/docs/reference/user-guide.md"
   local old_md5; old_md5=$(_md5file "$P/docs/reference/user-guide.md")
-  ( cd "$P" && unset GITHUB_BASE_REF; CDF_HOME="$P/.no-such-cdf" SOIF_NONINTERACTIVE=1 SOLO_SYNC_DOC_APPLY=overwrite \
-      "$SCRIPT" --sync-framework </dev/null 2>&1 ) >/dev/null
+  run_sync "$P" --apply-doc-updates overwrite --confirm-doc-overwrite >/dev/null
   local bak; bak=$(ls "$P/docs/reference/"user-guide.md.bak.* 2>/dev/null | head -1)
   if ! cmp -s "$REPO_ROOT/docs/user-guide.md" "$P/docs/reference/user-guide.md"; then
-    fail_ "T-doc-apply-overwrite-backs-up" "overwrite did not replace the doc with framework upstream"; rm -rf "$T"; return
+    fail_ "T-doc-overwrite-confirm-accepted" "confirmed overwrite did not replace the doc with framework upstream"; rm -rf "$T"; return
   fi
   if [ -z "$bak" ] || [ "$(_md5file "$bak")" != "$old_md5" ]; then
-    fail_ "T-doc-apply-overwrite-backs-up" "expected a .bak.<date> backup preserving the pre-overwrite content"; rm -rf "$T"; return
+    fail_ "T-doc-overwrite-confirm-accepted" "expected a .bak.<date> holding the exact pre-overwrite bytes"; rm -rf "$T"; return
   fi
-  pass "T-doc-apply-overwrite-backs-up: overwrite applied upstream + kept a dated .bak of the operator's prior copy"
+  case "$bak" in
+    *.bak.[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) : ;;
+    *) fail_ "T-doc-overwrite-confirm-accepted" "backup '$bak' is not a dated .bak.<YYYY-MM-DD>"; rm -rf "$T"; return ;;
+  esac
+  pass "T-doc-overwrite-confirm-accepted: consent given → doc updated to upstream AND dated .bak preserves the prior bytes"
+  rm -rf "$T"
+}
+
+# ── T-doc-overwrite-backup-refusal (MAJOR-2c: never overwrite unbacked) ─────
+# The backup MUST land before the original is touched. A read-only docs/reference
+# still permits truncating the EXISTING doc, so this is the real hazard: cp of the
+# .bak fails, and a naive implementation would overwrite anyway. Expect: loud
+# refusal, doc untouched, no .bak, non-zero exit.
+t_doc_overwrite_backup_refusal() {
+  if [ "$(id -u)" = "0" ]; then
+    pass "T-doc-overwrite-backup-refusal: skipped (running as root — mode bits do not restrict root)"; return
+  fi
+  local T; T=$(mktemp -d); local P="$T/proj"; mk_project "$P" python
+  printf '%s\n' 'my customized user guide' > "$P/docs/reference/user-guide.md"
+  local pre_md5; pre_md5=$(_md5file "$P/docs/reference/user-guide.md")
+  chmod 500 "$P/docs/reference"     # no new files may be created; the doc itself stays writable
+  local out rc=0
+  out=$(run_sync "$P" --apply-doc-updates overwrite --confirm-doc-overwrite) || rc=$?
+  local post_md5; post_md5=$(_md5file "$P/docs/reference/user-guide.md")
+  chmod 755 "$P/docs/reference"
+  if [ "$pre_md5" != "$post_md5" ]; then
+    fail_ "T-doc-overwrite-backup-refusal" "doc was overwritten even though its backup could NOT be written (never overwrite unbacked)"; rm -rf "$T"; return
+  fi
+  if ls "$P/docs/reference/"user-guide.md.bak.* >/dev/null 2>&1; then
+    fail_ "T-doc-overwrite-backup-refusal" "a .bak exists — the fixture did not actually block backup creation"; rm -rf "$T"; return
+  fi
+  if ! echo "$out" | grep -qF "REFUSING to overwrite"; then
+    fail_ "T-doc-overwrite-backup-refusal" "expected a loud 'REFUSING to overwrite' line; tail:\n$(echo "$out" | tail -8)"; rm -rf "$T"; return
+  fi
+  if [ "$rc" = "0" ]; then
+    fail_ "T-doc-overwrite-backup-refusal" "sync exited 0 after refusing an overwrite — the refusal must never be silent"; rm -rf "$T"; return
+  fi
+  pass "T-doc-overwrite-backup-refusal: unwritable backup → doc untouched, no .bak, loud REFUSING line, non-zero exit"
+  rm -rf "$T"
+}
+
+# ── T-doc-apply-flag-usage-errors (MAJOR-2a: declared, hard-validated) ──────
+t_doc_apply_flag_usage_errors() {
+  local T; T=$(mktemp -d); local P="$T/proj"; mk_project "$P" python
+  local bad_val=n bare_flag=n no_sync_apply=n no_sync_confirm=n rc
+
+  rc=0; local o1; o1=$(run_sync "$P" --apply-doc-updates clobber) || rc=$?
+  [ "$rc" != "0" ] && echo "$o1" | grep -qiF "invalid --apply-doc-updates value" && bad_val=y
+
+  rc=0; local o2; o2=$(run_sync "$P" --apply-doc-updates) || rc=$?
+  [ "$rc" != "0" ] && echo "$o2" | grep -qiF "invalid --apply-doc-updates value" && bare_flag=y
+
+  # sync-only: both flags must be rejected on the tier-change path.
+  rc=0; local o3
+  o3=$( cd "$P" && unset GITHUB_BASE_REF; CDF_HOME="$P/.no" SOIF_NONINTERACTIVE=1 \
+        "$SCRIPT" --track standard --apply-doc-updates overwrite </dev/null 2>&1 ) || rc=$?
+  [ "$rc" != "0" ] && echo "$o3" | grep -qiF "only valid with --sync-framework" && no_sync_apply=y
+
+  rc=0; local o4
+  o4=$( cd "$P" && unset GITHUB_BASE_REF; CDF_HOME="$P/.no" SOIF_NONINTERACTIVE=1 \
+        "$SCRIPT" --track standard --confirm-doc-overwrite </dev/null 2>&1 ) || rc=$?
+  [ "$rc" != "0" ] && echo "$o4" | grep -qiF "only valid with --sync-framework" && no_sync_confirm=y
+
+  if [ "$bad_val" = y ] && [ "$bare_flag" = y ] && [ "$no_sync_apply" = y ] && [ "$no_sync_confirm" = y ]; then
+    pass "T-doc-apply-flag-usage-errors: unknown/missing --apply-doc-updates value is a hard usage error; both doc flags are refused without --sync-framework"
+  else
+    fail_ "T-doc-apply-flag-usage-errors" "bad_val=$bad_val bare_flag=$bare_flag no_sync_apply=$no_sync_apply no_sync_confirm=$no_sync_confirm (all should be y)"
+  fi
   rm -rf "$T"
 }
 
 # ── T-rendered-doc-never-applied (guards Karl's edge) ───────────────────────
+# Round 1 (MAJOR-2b): assert the # BL-099-DOC-GUARD holds under the MOST
+# destructive flag combination too — overwrite + confirm must STILL never touch
+# a rendered doc.
 t_rendered_doc_never_applied() {
   local T; T=$(mktemp -d); local P="$T/proj"; mk_project "$P" python
   printf '%s\n' '# My heavily customized CLAUDE.md — DO NOT OVERWRITE' > "$P/CLAUDE.md"
-  local pre_md5; pre_md5=$(_md5file "$P/CLAUDE.md")
-  local out; out=$(run_sync "$P" --install-hooks)
-  local post_md5; post_md5=$(_md5file "$P/CLAUDE.md")
-  if [ "$pre_md5" != "$post_md5" ]; then
-    fail_ "T-rendered-doc-never-applied" "CLAUDE.md (RENDERED doc) was mutated by the sync — must never be file-applied in this slice"; rm -rf "$T"; return
+  printf '%s\n' '# My heavily customized PROJECT_INTAKE.md' > "$P/PROJECT_INTAKE.md"
+  local pre_md5 pre_intake
+  pre_md5=$(_md5file "$P/CLAUDE.md"); pre_intake=$(_md5file "$P/PROJECT_INTAKE.md")
+  local out; out=$(run_sync "$P" --install-hooks --apply-doc-updates overwrite --confirm-doc-overwrite)
+  local post_md5 post_intake
+  post_md5=$(_md5file "$P/CLAUDE.md"); post_intake=$(_md5file "$P/PROJECT_INTAKE.md")
+  if [ "$pre_md5" != "$post_md5" ] || [ "$pre_intake" != "$post_intake" ]; then
+    fail_ "T-rendered-doc-never-applied" "a RENDERED doc was mutated under '--apply-doc-updates overwrite --confirm-doc-overwrite' — the guard must hold under EVERY flag combination"; rm -rf "$T"; return
+  fi
+  if ls "$P/"CLAUDE.md.bak.* "$P/"CLAUDE.md.new >/dev/null 2>&1; then
+    fail_ "T-rendered-doc-never-applied" "the sync wrote a .bak/.new for CLAUDE.md — rendered docs are notice-only"; rm -rf "$T"; return
   fi
   if ! echo "$out" | grep -qF "RENDERED from a template"; then
     fail_ "T-rendered-doc-never-applied" "expected the rendered-doc template notice for CLAUDE.md; tail:\n$(echo "$out" | tail -10)"; rm -rf "$T"; return
   fi
-  pass "T-rendered-doc-never-applied: drifted CLAUDE.md left byte-identical; template-level notice emitted (assisted apply deferred to BL-101)"
+  pass "T-rendered-doc-never-applied: CLAUDE.md + PROJECT_INTAKE.md byte-identical even under overwrite+confirm; template notice emitted (assisted apply deferred to BL-101)"
+  rm -rf "$T"
+}
+
+# ── T-hook-mode-preserved (MINOR-3) ─────────────────────────────────────────
+# _bl099_replace_region rewrites through mktemp (0600) + mv, so without an
+# explicit mode restore a 755 hook silently narrows (observed 755 → 711 after the
+# caller's chmod +x). init.sh ships hooks 755 — a refresh must keep them 755, and
+# a fresh install must land 755.
+t_hook_mode_preserved() {
+  local T; T=$(mktemp -d); local P="$T/proj"; mk_project "$P" python
+  mkdir -p "$P/.git/hooks"
+  {
+    printf '%s\n' '#!/usr/bin/env bash'
+    printf '%s\n' '# >>> SOIF BL-072 TDD gate (commit-msg) — managed by init.sh'
+    printf '%s\n' '# STALE-OLD-MANAGED-CONTENT (must be replaced)'
+    printf '%s\n' '# <<< SOIF BL-072 TDD gate'
+  } > "$P/.git/hooks/commit-msg"
+  chmod 755 "$P/.git/hooks/commit-msg"
+  run_sync "$P" --install-hooks >/dev/null
+  local refreshed_mode; refreshed_mode=$(_file_mode "$P/.git/hooks/commit-msg")
+  # Fresh install (both hooks absent) must land 755 as well.
+  rm -f "$P/.git/hooks/commit-msg" "$P/.git/hooks/pre-commit"
+  run_sync "$P" --install-hooks >/dev/null
+  local fresh_cm fresh_pc
+  fresh_cm=$(_file_mode "$P/.git/hooks/commit-msg")
+  fresh_pc=$(_file_mode "$P/.git/hooks/pre-commit")
+  if [ "$refreshed_mode" = "755" ] && [ "$fresh_cm" = "755" ] && [ "$fresh_pc" = "755" ]; then
+    pass "T-hook-mode-preserved: managed-block refresh keeps a 755 hook at 755; fresh installs land 755 (no mktemp 0600 narrowing)"
+  else
+    fail_ "T-hook-mode-preserved" "refreshed commit-msg=$refreshed_mode (expect 755); fresh commit-msg=$fresh_cm pre-commit=$fresh_pc (expect 755)"
+  fi
   rm -rf "$T"
 }
 
@@ -471,6 +646,49 @@ t_mutation_doc_guard() {
   rm -rf "$T"
 }
 
+# ── T-mutation-confirm: excise # BL-099-CONFIRM → declined overwrite RED ────
+# The proof MAJOR-1 demanded: with the marked consent line removed, an overwrite
+# that was NOT confirmed goes through anyway (the doc is clobbered). With it, the
+# doc is byte-identical. RED → restore → GREEN, on a scratch framework copy.
+t_mutation_confirm() {
+  local T; T=$(mktemp -d)
+  local TARGET_TOKEN='# BL-099-CONFIRM'
+  if [ "$(grep -cF "$TARGET_TOKEN" "$SCRIPT")" = "0" ]; then
+    fail_ "T-mutation-confirm" "marker '$TARGET_TOKEN' not found in $SCRIPT (test needs updating)"; rm -rf "$T"; return
+  fi
+  local FW="$T/fw"; make_fake_framework "$FW"
+  local doc_body='my customized user guide'
+
+  # Control: overwrite requested but NOT confirmed → doc untouched, no .bak.
+  local Pc="$T/pc"; mk_project "$Pc" python
+  printf '%s\n' "$doc_body" > "$Pc/docs/reference/user-guide.md"
+  local cpre; cpre=$(_md5file "$Pc/docs/reference/user-guide.md")
+  ( cd "$Pc" && unset GITHUB_BASE_REF; CDF_HOME="$Pc/.no" SOIF_NONINTERACTIVE=1 \
+      "$FW/scripts/upgrade-project.sh" --sync-framework --apply-doc-updates overwrite </dev/null 2>&1 ) >/dev/null || true
+  local control_untouched=n
+  [ "$(_md5file "$Pc/docs/reference/user-guide.md")" = "$cpre" ] \
+    && ! ls "$Pc/docs/reference/"user-guide.md.bak.* >/dev/null 2>&1 && control_untouched=y
+
+  # Mutant: excise the marked consent line → the unconfirmed overwrite lands.
+  grep -vF "$TARGET_TOKEN" "$FW/scripts/upgrade-project.sh" > "$FW/scripts/upgrade-project.sh.mut"
+  mv "$FW/scripts/upgrade-project.sh.mut" "$FW/scripts/upgrade-project.sh"
+  chmod +x "$FW/scripts/upgrade-project.sh"
+  local Pm="$T/pm"; mk_project "$Pm" python
+  printf '%s\n' "$doc_body" > "$Pm/docs/reference/user-guide.md"
+  local mpre; mpre=$(_md5file "$Pm/docs/reference/user-guide.md")
+  ( cd "$Pm" && unset GITHUB_BASE_REF; CDF_HOME="$Pm/.no" SOIF_NONINTERACTIVE=1 \
+      "$FW/scripts/upgrade-project.sh" --sync-framework --apply-doc-updates overwrite </dev/null 2>&1 ) >/dev/null || true
+  local mutant_clobbered=n
+  [ "$(_md5file "$Pm/docs/reference/user-guide.md")" != "$mpre" ] && mutant_clobbered=y
+
+  if [ "$control_untouched" = y ] && [ "$mutant_clobbered" = y ]; then
+    pass "T-mutation-confirm: consent gate holds an unconfirmed overwrite; excising '# BL-099-CONFIRM' clobbers the doc unconfirmed (the gate is load-bearing)"
+  else
+    fail_ "T-mutation-confirm" "control_untouched=$control_untouched (expect y — no consent, no write); mutant_clobbered=$mutant_clobbered (expect y — without the marker the overwrite must land)"
+  fi
+  rm -rf "$T"
+}
+
 t_sync_refreshes_stale_script
 t_exec_bit_probe
 t_sync_self_copy_refused
@@ -480,13 +698,19 @@ t_hook_refused_noninteractive_without_flag
 t_hook_backfill_consented
 t_rust_no_hook_expected
 t_hook_block_refresh_preserves_user_lines
+t_hook_mode_preserved
 t_legacy_unmarked_precommit_sidecar
 t_doc_apply_sidecar
-t_doc_apply_overwrite_backs_up
+t_doc_noninteractive_no_flag_applies_nothing
+t_doc_overwrite_confirm_declined
+t_doc_overwrite_confirm_accepted
+t_doc_overwrite_backup_refusal
+t_doc_apply_flag_usage_errors
 t_rendered_doc_never_applied
 t_pin_stamped
 t_mutation_sync
 t_mutation_doc_guard
+t_mutation_confirm
 
 echo ""
 echo "== Total: $((PASSED + FAILED)) | Passed: $PASSED | Failed: $FAILED =="

@@ -88,9 +88,25 @@ BACKFILL_ONLY=false
 # --sync-framework) computes + prints every action and writes NOTHING.
 # --install-hooks permits hook install/refresh in non-interactive contexts
 # (interactive runs always prompt; non-interactive otherwise only notices).
+#
+# Doc drift is DECLARED, never implicit (BL-099 SLICE-A review round 1). There is
+# NO environment-variable escape hatch: the ONLY way to apply a framework
+# reference doc in a non-interactive run is the explicit CLI pair
+#   --apply-doc-updates <skip|sidecar|overwrite>   what to do with a drifted doc
+#   --confirm-doc-overwrite                        the second, destructive-step
+#                                                  consent that `overwrite` needs
+# A bare non-interactive --sync-framework applies NOTHING (notice only). Both
+# flags are valid ONLY with --sync-framework, apply ONLY to the verbatim
+# docs/reference/*.md set, and NEVER to the sed-rendered CLAUDE.md /
+# PROJECT_INTAKE.md (see # BL-099-DOC-GUARD). Interactive runs always prompt.
 SYNC_FRAMEWORK=false
 DRY_RUN=false
 INSTALL_HOOKS=false
+APPLY_DOC_UPDATES=""
+CONFIRM_DOC_OVERWRITE=false
+# Set when a reference doc could NOT be backed up and was therefore left
+# untouched — the sync exits non-zero so the refusal is never silent.
+DOC_APPLY_FAILED=false
 
 # BL-018: BL-016-style structured error helper (summary + reason + action + context).
 _upgrade_fail() {
@@ -230,6 +246,22 @@ while [ $# -gt 0 ]; do
       DRY_RUN=true; shift; continue ;;
     --install-hooks)
       INSTALL_HOOKS=true; shift; continue ;;
+    --apply-doc-updates)
+      # BL-099 review round 1: the DECLARED apply channel for drifted framework
+      # reference docs (replaces the undeclared SOLO_SYNC_DOC_APPLY env var).
+      # Unknown / missing value is a HARD usage error — never a silent default.
+      case "${2:-}" in
+        skip|sidecar|overwrite)
+          APPLY_DOC_UPDATES="$2"; shift 2; continue ;;
+        *)
+          _upgrade_fail "invalid --apply-doc-updates value '${2:-(missing)}'" \
+                        "--apply-doc-updates takes exactly one of: skip, sidecar, overwrite." \
+                        "re-run with --apply-doc-updates skip|sidecar|overwrite (add --confirm-doc-overwrite for overwrite)." \
+                        "--apply-doc-updates='${2:-}'"
+          exit 1 ;;
+      esac ;;
+    --confirm-doc-overwrite)
+      CONFIRM_DOC_OVERWRITE=true; shift; continue ;;
     --to-production)
       TO_PRODUCTION=true
       shift
@@ -327,6 +359,22 @@ else
                   "--install-hooks authorizes non-interactive hook install/refresh during a framework sync; it has no meaning on the tier-change path." \
                   "add --sync-framework, or drop --install-hooks." \
                   "sync_framework=$SYNC_FRAMEWORK install_hooks=$INSTALL_HOOKS"
+    exit 1
+  fi
+  # BL-099 review round 1: the doc-apply flags are sync-only, exactly like
+  # --dry-run / --install-hooks. The tier-change path has no doc-drift step.
+  if [ -n "$APPLY_DOC_UPDATES" ]; then
+    _upgrade_fail "--apply-doc-updates is only valid with --sync-framework" \
+                  "--apply-doc-updates declares what to do with drifted framework reference docs during a framework sync; it has no meaning on the tier-change path." \
+                  "add --sync-framework, or drop --apply-doc-updates." \
+                  "sync_framework=$SYNC_FRAMEWORK apply_doc_updates='$APPLY_DOC_UPDATES'"
+    exit 1
+  fi
+  if [ "$CONFIRM_DOC_OVERWRITE" = true ]; then
+    _upgrade_fail "--confirm-doc-overwrite is only valid with --sync-framework" \
+                  "--confirm-doc-overwrite is the destructive-step consent for '--apply-doc-updates overwrite' during a framework sync; it has no meaning on the tier-change path." \
+                  "add --sync-framework --apply-doc-updates overwrite, or drop --confirm-doc-overwrite." \
+                  "sync_framework=$SYNC_FRAMEWORK confirm_doc_overwrite=$CONFIRM_DOC_OVERWRITE"
     exit 1
   fi
 fi
@@ -633,13 +681,26 @@ _bl099_extract_region() {
 # Replace the [open..close] region of <file> in place with <genfn>'s output,
 # preserving everything before the open marker and after the close marker
 # byte-exact (bash-3.2 / BSD-awk safe — no multiline awk -v).
+#
+# BL-099 review round 1 (MINOR-3): the rewrite goes through `mktemp` (mode 600)
+# and `mv`, so WITHOUT this the temp file's mode lands on the destination and a
+# hook init.sh shipped 755 silently narrows (observed: 755 → 711 after the
+# caller's `chmod +x`). Capture the destination's mode BEFORE the mv and restore
+# it after; a file that somehow has no readable mode falls back to 755, the mode
+# init.sh writes its hooks with.
 _bl099_replace_region() {
-  local file="$1" open="$2" close="$3" genfn="$4" tmp
+  local file="$1" open="$2" close="$3" genfn="$4" tmp mode
+  mode="$(stat -c '%a' "$file" 2>/dev/null || stat -f '%Lp' "$file" 2>/dev/null || echo '')"
   tmp="$(mktemp)"
   awk -v o="$open" '$0==o{exit} {print}' "$file" > "$tmp"
   "$genfn" >> "$tmp"
   awk -v c="$close" 'p{print} $0==c{p=1}' "$file" >> "$tmp"
   mv "$tmp" "$file"
+  if [ -n "$mode" ]; then
+    chmod "$mode" "$file" 2>/dev/null || true
+  else
+    chmod 755 "$file" 2>/dev/null || true
+  fi
 }
 
 # (e) SCRIPT SYNC — copy the mechanically-derived init.sh shipped set
@@ -782,19 +843,45 @@ _bl099_process_doc() {
   _bl099_doc_apply "$label" "$pfile" "$src"
 }
 
-# Reference-doc apply: interactive [s]kip/[n]ew-sidecar/[o]verwrite (with .bak +
-# double-confirm); non-interactive DEFAULT is notice-only. A disclosed scripted
-# escape hatch SOLO_SYNC_DOC_APPLY=sidecar|overwrite|skip authorizes apply in
-# non-interactive contexts (mirrors --install-hooks for hooks).
+# CONSENT gate for the ONE destructive doc action — an in-place overwrite of a
+# reference doc the operator may have customised. Deliberately shaped exactly
+# like _bl099_hook_consent (same file, same idiom):
+#   • interactive (real tty, no CI, no SOIF_NONINTERACTIVE) → ALWAYS prompt, via
+#     the shared prompt_yes_no helper, defaulting to N. A flag never pre-answers
+#     a prompt the operator can see (mirrors --install-hooks: "interactive runs
+#     always prompt").
+#   • non-interactive → yes ONLY with the explicit, declared --confirm-doc-overwrite.
+# There is no third channel: an unattended run can never auto-yes a destructive
+# overwrite. This is the gate the review round-1 finding (MAJOR-1) required be
+# pinned — see the # BL-099-CONFIRM call site and T-mutation-confirm.
+_bl099_overwrite_consent() {
+  if [ -t 0 ] && [ -z "${CI:-}" ] && [ -z "${SOIF_NONINTERACTIVE:-}" ]; then
+    prompt_yes_no "$1" "N"
+    return $?
+  fi
+  [ "$CONFIRM_DOC_OVERWRITE" = true ]
+}
+
+# Reference-doc apply (the 7 VERBATIM docs/reference/*.md only — rendered docs
+# never reach here, see # BL-099-DOC-GUARD).
+#   • interactive → [s]kip / [n]ew-sidecar / [o]verwrite, and `overwrite` still
+#     has to clear the # BL-099-CONFIRM consent gate.
+#   • non-interactive → the action comes ONLY from the declared CLI flag
+#     --apply-doc-updates <skip|sidecar|overwrite>. With no flag: notice only,
+#     nothing is applied (the approved spec's rule). There is NO env-var escape
+#     hatch (the undeclared SOLO_SYNC_DOC_APPLY was removed in review round 1).
+# `overwrite` NEVER touches the original until a dated .bak of it exists on disk
+# and verifies byte-identical; if the backup cannot be written the doc is left
+# untouched, the refusal is printed loudly, and the sync exits non-zero.
 _bl099_doc_apply() {
   local label="$1" pfile="$2" src="$3" action="" bak
   if [ -t 0 ] && [ -z "${CI:-}" ] && [ -z "${SOIF_NONINTERACTIVE:-}" ]; then
     printf '%b' "${BOLD}    Apply upstream ${label}? [s]kip / [n]ew sidecar / [o]verwrite: ${NC}"
     read -r action || action=""
   else
-    action="${SOLO_SYNC_DOC_APPLY:-}"
+    action="$APPLY_DOC_UPDATES"
     if [ -z "$action" ]; then
-      print_info "    non-interactive: notice only — not applied (scripted apply: SOLO_SYNC_DOC_APPLY=sidecar|overwrite)."
+      print_info "    non-interactive: notice only — not applied (declare an apply mode with --apply-doc-updates skip|sidecar|overwrite)."
       return 0
     fi
   fi
@@ -803,13 +890,19 @@ _bl099_doc_apply() {
       cp "$src" "$pfile.new"; _bl099_mirror_mode "$src" "$pfile.new"
       print_ok "    wrote sidecar $pfile.new (your file untouched — review + rename to apply)." ;;
     o|overwrite)
-      if [ -t 0 ] && [ -z "${CI:-}" ] && [ -z "${SOIF_NONINTERACTIVE:-}" ]; then
-        if ! prompt_yes_no "    Overwrite $label in place (a .bak backup is kept)? [y/N]" "N"; then
-          print_info "    overwrite cancelled."; return 0
-        fi
-      fi
+      _bl099_overwrite_consent "    Overwrite $label in place (a dated .bak backup is kept)? [y/N]" || { print_info "    skipped $label — in-place overwrite NOT confirmed (interactive: answer y; non-interactive: pass --confirm-doc-overwrite). Your file is untouched."; return 0; }  # BL-099-CONFIRM: the destructive in-place overwrite is gated on an explicit second consent — interactive prompt (default N) or the declared --confirm-doc-overwrite. Deleting this line lets an UNCONFIRMED overwrite through; T-mutation-confirm proves it.
       bak="$pfile.bak.$(date -u +%Y-%m-%d)"
-      cp "$pfile" "$bak"; cp "$src" "$pfile"; _bl099_mirror_mode "$src" "$pfile"
+      # NEVER overwrite unbacked: write + verify the backup BEFORE touching the
+      # original. A read-only docs/ dir still permits truncating an existing
+      # file, so a failed `cp` here is exactly the case that must refuse.
+      if ! cp "$pfile" "$bak" 2>/dev/null || ! cmp -s "$pfile" "$bak"; then
+        rm -f "$bak" 2>/dev/null || true
+        print_fail "    REFUSING to overwrite $label — could not write a verified backup at $bak. Your file is untouched."
+        print_info  "    fix the destination (permissions / disk space) and re-run, or use --apply-doc-updates sidecar."
+        DOC_APPLY_FAILED=true
+        return 1
+      fi
+      cp "$src" "$pfile"; _bl099_mirror_mode "$src" "$pfile"
       print_ok "    overwrote $label (backup: $bak)." ;;
     *)
       print_info "    skipped $label." ;;
@@ -835,7 +928,7 @@ _bl099_rendered_doc_notice() {
       print_info "    no soloFrameworkCommit pin recorded — $tmpl_rel has $nrev upstream revision(s) in framework history."
       if [ "$DRY_RUN" = true ]; then
         print_info "    [dry-run] would offer an UNRENDERED reference sidecar $label.upstream-template.new (reference only)."
-      elif [ "${SOLO_SYNC_DOC_APPLY:-}" = "sidecar" ] || { [ -t 0 ] && [ -z "${CI:-}" ] && [ -z "${SOIF_NONINTERACTIVE:-}" ] && prompt_yes_no "    Write an UNRENDERED reference sidecar $label.upstream-template.new? [y/N]" "N"; }; then
+      elif [ "$APPLY_DOC_UPDATES" = "sidecar" ] || { [ -t 0 ] && [ -z "${CI:-}" ] && [ -z "${SOIF_NONINTERACTIVE:-}" ] && prompt_yes_no "    Write an UNRENDERED reference sidecar $label.upstream-template.new? [y/N]" "N"; }; then
         {
           printf '%s\n' "<!-- UNRENDERED TEMPLATE — reference only, do NOT copy over your $label."
           printf '%s\n' "     Placeholders (e.g. __PROJECT_NAME__) are NOT filled in. Assisted apply: BL-101. -->"
@@ -850,14 +943,19 @@ _bl099_rendered_doc_notice() {
 }
 
 # DOC DRIFT driver — the 7 verbatim reference docs + the 2 rendered docs.
+# A doc whose backup could not be written returns non-zero (see _bl099_doc_apply);
+# under `set -e` that would abort the whole sync mid-flight, so each doc is run
+# tolerantly and the refusal is carried out-of-band in DOC_APPLY_FAILED, which
+# _run_sync_framework turns into a loud non-zero exit at the end. Every OTHER doc
+# still gets processed — one unwritable backup must not silently skip the rest.
 _bl099_doc_drift() {
   print_step "Framework document drift"
   local d
   for d in builders-guide governance-framework executive-review cli-setup-addendum user-guide security-scan-guide uat-authoring-guide; do
-    _bl099_process_doc "$d.md" "docs/reference/$d.md" "$ORCHESTRATOR_ROOT/docs/$d.md" false
+    _bl099_process_doc "$d.md" "docs/reference/$d.md" "$ORCHESTRATOR_ROOT/docs/$d.md" false || true
   done
-  _bl099_process_doc "CLAUDE.md" "CLAUDE.md" "templates/generated/claude-md.tmpl" true
-  _bl099_process_doc "PROJECT_INTAKE.md" "PROJECT_INTAKE.md" "templates/project-intake.md" true
+  _bl099_process_doc "CLAUDE.md" "CLAUDE.md" "templates/generated/claude-md.tmpl" true || true
+  _bl099_process_doc "PROJECT_INTAKE.md" "PROJECT_INTAKE.md" "templates/project-intake.md" true || true
 }
 
 # (4) PIN — stamp manifest.soloFrameworkCommit to the framework HEAD (with a loud
@@ -944,6 +1042,12 @@ _run_sync_framework() {
   fi
 
   echo ""
+  # BL-099 review round 1: a doc we refused to overwrite (no verified backup) is
+  # NEVER silenced — the run ends non-zero even though everything else succeeded.
+  if [ "$DOC_APPLY_FAILED" = true ]; then
+    print_fail "Framework sync finished, but one or more reference docs could NOT be backed up and were therefore NOT overwritten (see the REFUSING lines above). Those files are untouched."
+    exit 1
+  fi
   if [ "$DRY_RUN" = true ]; then
     print_ok "Framework sync dry-run complete — nothing was written. Re-run without --dry-run to apply."
   else
@@ -1013,7 +1117,22 @@ if [ "$SHOW_HELP" = true ]; then
   echo "  --dry-run               (with --sync-framework) Preview every action and write NOTHING."
   echo "  --install-hooks         (with --sync-framework) Authorize hook install/refresh in"
   echo "                          non-interactive contexts (interactive runs always prompt)."
-  echo "                          Rendered docs (CLAUDE.md/PROJECT_INTAKE.md) are notice-only."
+  echo "  --apply-doc-updates <skip|sidecar|overwrite>"
+  echo "                          (with --sync-framework) DECLARE what a non-interactive run does"
+  echo "                          with a drifted framework reference doc (docs/reference/*.md)."
+  echo "                          Omit it and a non-interactive sync applies NOTHING — it only"
+  echo "                          prints the drift notice. Interactive runs always ask instead."
+  echo "                            skip      — notice only (explicit form of the default)"
+  echo "                            sidecar   — write <doc>.new beside it; your file untouched"
+  echo "                            overwrite — replace in place; REQUIRES --confirm-doc-overwrite,"
+  echo "                                        and always keeps a dated <doc>.bak.<YYYY-MM-DD>"
+  echo "                                        (it refuses to overwrite if that backup can't be"
+  echo "                                        written, leaving your file untouched, exit != 0)."
+  echo "  --confirm-doc-overwrite (with --sync-framework --apply-doc-updates overwrite) The second,"
+  echo "                          destructive-step consent. Without it a non-interactive overwrite"
+  echo "                          is refused. Interactive runs prompt regardless."
+  echo "                          Rendered docs (CLAUDE.md/PROJECT_INTAKE.md) are notice-only under"
+  echo "                          EVERY flag combination — this mode never rewrites them."
   echo ""
   echo -e "${BOLD}--to-production pre-condition gate (code-upgrade-project-8):${NC}"
   echo "  --to-production refuses to clear poc_mode for organizational projects"

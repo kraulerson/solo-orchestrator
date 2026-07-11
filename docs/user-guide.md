@@ -1277,15 +1277,53 @@ touches nothing on disk — no tmp files, no CDF calls, no manifest writes.
   stamps `.claude/manifest.json`'s `soloFrameworkCommit` to the framework commit
   you synced from (distinct from CDF's `frameworkCommit`).
 
-**What it only notices (never applies):**
+**What it only notices (never applies unless you say so):**
 
 - **Framework reference docs** (`docs/reference/*.md`) — you get a drift notice
-  with a capped diff. Interactively you may skip, write a `<doc>.new` sidecar, or
-  overwrite in place (a dated `.bak` is kept). Non-interactive runs notice only.
+  with a capped diff. Interactively you are then asked per doc: skip, write a
+  `<doc>.new` sidecar, or overwrite in place. **A non-interactive run applies
+  nothing by default** — it prints the notice and moves on.
 - **`CLAUDE.md` and `PROJECT_INTAKE.md`** are *rendered* from templates for your
   project, so this mode **never** rewrites them — it shows a template-level diff
   (or an upstream-revision count) and points at the assisted-apply follow-up.
-  Your customised `CLAUDE.md` is safe.
+  Your customised `CLAUDE.md` is safe, under every flag below.
+
+#### Applying doc updates without a prompt: `--apply-doc-updates`
+
+Scripted / CI runs have no one to answer the prompt, so if you want a
+non-interactive sync to *act* on drifted reference docs you must say so on the
+command line. There is no environment variable and no hidden default:
+
+```bash
+# Notice only (this is also what you get with no flag at all):
+bash ~/solo-orchestrator/scripts/upgrade-project.sh --sync-framework \
+  --apply-doc-updates skip
+
+# Write <doc>.new next to each drifted doc; your files are untouched:
+bash ~/solo-orchestrator/scripts/upgrade-project.sh --sync-framework \
+  --apply-doc-updates sidecar
+
+# Replace drifted docs in place — needs the second, destructive-step consent:
+bash ~/solo-orchestrator/scripts/upgrade-project.sh --sync-framework \
+  --apply-doc-updates overwrite --confirm-doc-overwrite
+```
+
+- `--apply-doc-updates <skip|sidecar|overwrite>` — what a **non-interactive** run
+  does with a drifted `docs/reference/*.md`. An unknown value is a hard usage
+  error. Interactive runs ignore it and ask you per doc, as before.
+- `--confirm-doc-overwrite` — the separate consent for the one destructive
+  action. `--apply-doc-updates overwrite` **without** it is refused per doc
+  ("in-place overwrite NOT confirmed"), and your file is left byte-identical.
+  Interactively, the same second confirmation is a `[y/N]` prompt that defaults
+  to **no**.
+- **Overwrite always backs up first.** A dated `<doc>.bak.<YYYY-MM-DD>` is written
+  and verified *before* your file is touched. If that backup cannot be written
+  (read-only directory, no space), the sync **refuses to overwrite that doc**,
+  leaves it untouched, says so loudly, and exits non-zero. It never overwrites an
+  unbacked file.
+- Both flags are valid **only** with `--sync-framework`, and they apply **only**
+  to the seven verbatim `docs/reference/*.md` files. `CLAUDE.md` and
+  `PROJECT_INTAKE.md` stay notice-only no matter what you pass.
 
 ### Governance Health Checks
 
