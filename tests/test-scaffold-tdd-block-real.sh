@@ -17,7 +17,11 @@
 #   ...`) — the fixture supplied the dependency the real scaffold lacked. This
 #   test refuses to hand-copy: the fixture's scripts/ tree is byte-derived from
 #   INIT.SH'S OWN copy mechanism (a full hermetic `--no-remote-creation` init),
-#   so it fails if — and only if — the real product ships the gap.
+#   so it fails whenever the SHIPPED SCAFFOLD carries the gap. Note the scope
+#   (PR #175 verifier): init.sh's terminal `verify-install.sh --auto-fix` also
+#   backfills these files, so a copy-list-only regression self-heals and does
+#   NOT fail this test — tests/test-scaffold-source-closure.sh (PR-CI lane)
+#   is the check that pins the copy list itself.
 #
 # Cases:
 #   T-scaffold-ships-deps        the scaffold contains the four previously-
