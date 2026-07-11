@@ -275,7 +275,8 @@ from a checklist.
 
 Four incidents in the record, each with what changed as a result. Two are code
 failures with git artifacts; two are operational failures from the gate wave whose
-primary record is the wave's own handoffs and process notes rather than a single SHA.
+primary record is the operator's process notes — they are not repo-recorded and
+carry no SHA, and are reported here for completeness, not as repo-verifiable fact.
 
 **5a. The red-main incident (2026-07-08).** PRs #157 and #158 were merged with failing
 checks — the backlog reconcile flipped statuses (closing BL-079, missing BL-073's
@@ -328,9 +329,9 @@ re-run.
 |---|---|---|
 | Merged pull requests | **169** (`#1`–`#171`, gaps at `#5`, `#10`) | `gh pr list --state merged` → 169; ranges reconciled |
 | Merge commits reachable from HEAD | 177 (161 "Merge pull request #N") | `git log --merges \| wc -l`; `grep -c 'Merge pull request #'` |
-| Total commits | 692 | `git log --oneline \| wc -l` |
-| Commit span | 2026-04-04 → 2026-07-10 (wave closed 07-11 via #171) | `git log --format=%ci` first/last |
-| Commits by month | Apr 313 · May 15 · Jun 231 · Jul 133 | `git log --format=%ci \| cut -c1-7 \| sort \| uniq -c` |
+| Total commits | 692, counted at the commit preceding this report (its own commits excluded; the span end-date uses the same convention) | `git log --oneline \| wc -l` at the pre-report HEAD |
+| Commit span | 2026-04-04 → 2026-07-10 (wave closed 07-11 via #171) | `git log --format=%ci` first/last, same convention |
+| Commits by month | Apr 313 · May 15 · Jun 231 · Jul 133 | `git log --format=%ci \| cut -c1-7 \| sort \| uniq -c`, same convention |
 | Backlog entries (distinct) | **87** (82 numbered `BL-001..087`, gaps at 26/27/28/56/83; + 5 non-`BL-` entries) | parsed `## ` headers in `solo-orchestrator-backlog.md` |
 | — Closed | 65 | first Status line per entry |
 | — Resolved (older "done" wording) | 9 | " |
@@ -339,7 +340,7 @@ re-run.
 | — Open (actionable) | 3 (BL-025 opportunistic, BL-086, BL-087) | " |
 | — Parked | 1 (BL-017) | " |
 | Test files | 113 (`tests/*.sh`); 127 incl. subdirs | `ls tests/*.sh \| wc -l`; `find tests -name '*.sh'` |
-| CI fast-lane unit files | 72 (full ~3h suite manual-only) | `grep -cE 'tests/test.*\.sh' .github/workflows/tests.yml` |
+| CI fast-lane unit files | 72 (full ~3h suite manual-only) | `grep -cE '^\s+tests/test-.*\.sh$' .github/workflows/tests.yml` — anchored form; an unanchored `tests/test.*\.sh` grep also matches 4 comment lines and returns 76 |
 | Lint scripts | 11 (8 required as branch-protection checks) | `ls scripts/lint-*.sh`; close-out §1 |
 | Phase-3 scanners | 5, all `[real]` | `bash scripts/run-phase3-validation.sh --list` |
 | Shell scripts | 38 `scripts/*.sh` + 11 `scripts/lib/` + 2 hooks + `init.sh` | `ls` counts |
