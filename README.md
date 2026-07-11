@@ -59,7 +59,9 @@ The init script will:
 1. Authenticate: `claude` (OAuth) and `snyk auth`
 2. Fill out the Intake: run `bash scripts/intake-wizard.sh` for a guided walkthrough (interactive script or AI-assisted conversation), or open `PROJECT_INTAKE.md` directly. For **personal or Private POC projects only**, you can paste the intake form into your AI of choice and work with it to fill out the sections — but read through the result yourself to verify accuracy. Do not use this shortcut for organizational or production projects where intake accuracy drives compliance decisions.
 3. For organizational deployments: complete governance pre-conditions — or use a POC mode (Sponsored or Private) to defer non-technical approvals while you validate the framework
-4. Start Claude Code and give it the full project context:
+4. Start Claude Code **from inside your generated project directory** and give
+   it the full project context (the paths below exist in your generated
+   project — not in this framework repo):
    ```
    Read the following files in order, then confirm what you understand about
    this project before taking any action:
