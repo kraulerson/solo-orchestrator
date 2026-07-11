@@ -2435,3 +2435,27 @@ Orchestrating agents (in generated projects and on this repo) dispatch subagents
 Sequencing note: if BL-092 moves the Multi-Agent section into a phase-scoped reference file, this rubric rides along — the two entries are compatible in either order.
 
 **Related:** BL-092 (template modularization — shared surface); BL-089..BL-096 (the 2026-07-11 agent-optimization wave this joins); `templates/generated/claude-md.tmpl` (Multi-Agent Parallelism / Agent Personas sections); the 2026-07-10 model-inheritance incident (post-mortem `Reports/2026-07-11-project-post-mortem.md` §5).
+
+---
+
+## BL-098: Plan-first execution — the strongest model writes a junior-followable build plan before subagents build
+
+**Logged:** 2026-07-11 (Karl directive; completes BL-097)
+**Category:** Proposal / process + agent token efficiency (both repos)
+**Severity:** Medium
+**Status:** Open
+
+BL-097's model-selection rubric says WHO can build cheaply; this entry supplies the WHAT-makes-that-safe: before any multi-subagent build (or any delegated implementation above trivial), the STRONGEST available model produces a build plan to a **junior-followable standard**, so execution agents know exactly what to build AND how — letting execution model/effort drop a tier without quality loss, because the judgment was front-loaded.
+
+**The junior-followable standard** (set by living precedent — `docs/handoffs/archive/2026-07-09-gate-wave-execution-handoff.md` describes itself as "followable by a junior engineer" and this repo's 2026-07-09..11 wave executed cleanly from exactly such specs):
+1. Exact surfaces: files + **grep-able marker/function citations** (never bare line numbers — the citation convention).
+2. Step-by-step build order with contracts/interfaces stated, not implied.
+3. The test list, written first-class: each case's intent and its expected RED→GREEN mutation proof where enforcement code is touched.
+4. Explicit done-criteria and known traps (the handoff's ⚠️ pattern).
+5. **Escalate-on-ambiguity rule stated IN the plan:** an executor that hits a gap or contradiction STOPS and returns it to the planner — improvising around plan gaps is where cheaper models fail and is forbidden.
+
+**Process wiring:** plan authored by the top tier (BL-097 rule 3); the plan itself gets reviewed (adversarial review for gate/enforcement work; at minimum the work's verifier checks plan-conformance as a first-class target); execution dispatched per the BL-097 rubric; verifiers ≥ risk as before. Surfaces: the generated CLAUDE.md Multi-Agent Parallelism section + Superpowers writing-plans integration (`templates/generated/claude-md.tmpl`), `docs/builders-guide.md` construction/Build-Loop rules, mothership `CLAUDE.md`. Sequence-compatible with BL-092/BL-097 in any order (shared template surfaces — coordinate edits).
+
+**Economics rationale:** planning is a small fraction of a build's tokens; execution is the bulk. A top-tier plan converts execution from judgment work into conformance work — the cheapest thing to verify and the safest thing to delegate down-tier.
+
+**Related:** BL-097 (the rubric this enables); BL-092 (shared CLAUDE.md surface); the 2026-07-09 gate-wave handoff (the standard's precedent); Superpowers writing-plans skill; `docs/superpowers/plans/` convention.
