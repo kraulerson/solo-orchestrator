@@ -317,6 +317,19 @@ snyk auth
 
 > **⟁ PLATFORM MODULE:** License compliance tooling varies by ecosystem. Reference your Platform Module for the appropriate tool (`license-checker` for Node.js, `pip-licenses` for Python, `cargo-license` for Rust, etc.).
 
+**License deny policy (BL-086).** The Phase-3 `license` scanner does not only inventory licenses — it enforces a **tier-keyed deny policy** against strong copyleft (`GPL-2.0*`, `GPL-3.0*`, `AGPL-1.0*`, `AGPL-3.0*`, `SSPL-1.0`, plus bare `GPL`/`AGPL`). `LGPL-*`, `MPL-*`, `EPL-*`, and permissive licenses are **not** denied; matching is on the license field only (never package names) and boundary-safe; a dual `MIT OR GPL-3.0` passes (elect the safe side).
+
+The tier decides block vs. warn — keyed on the **actual tier** (`deployment` + `poc_mode`), never the spoofable `track`:
+
+| Tier | On a denied license |
+|---|---|
+| Organizational, Sponsored POC, **or Private POC** (the corporate track) | **HARD BLOCK** — the Phase 3→4 gate fails |
+| Pure personal (`deployment=personal`, no POC mode) | PASS + a large warning banner |
+
+**Why the Private POC blocks too (Karl, 2026-07-11).** A copyleft dependency is a one-way ratchet. A private POC is the runway to a Sponsored POC / production; at that transition the company must rip the dependency out, buy a commercial license, or accept share-your-source obligations on distribution or network service — and no sponsor approves that. So the entire corporate track is held to the destination tier's standard; only a purely personal project may proceed, behind a warning that the obligation travels with the code.
+
+Override or exempt via the optional `.claude/license-policy.json` DATA file (`{"deny":[...], "allow_packages":[...]}` — `deny` replaces the default list; `allow_packages` exempts commercially-licensed packages by name; malformed JSON is a LOUD scanner FAIL). Record a deliberate exception on a blocked tier with `SOLO_LICENSE_ATTESTED=1 SOLO_LICENSE_REASON="…"` (appended to `.claude/phase-state.json::phase3.license_exceptions[]` — attested, never silenced; a failed record REFUSES the pass). Full deny list, schema, and rationale: [Security Scan Interpretation Guide](security-scan-guide.md#license-compliance--deny-policy).
+
 ### 4. Platform-Specific Toolchain
 
 > **⟁ PLATFORM MODULE:** Reference your Platform Module for platform-specific SDK, compiler, packaging tool, and testing framework installation. Complete this before starting any project on that platform.
@@ -1218,7 +1231,7 @@ When a CI security check blocks the build, follow this escalation:
 2. **Genuine vulnerability:** Fix the code or update the dependency. Re-push. Do not bypass.
 3. **False positive:** Suppress at the line level with documentation (see Phase 3: Handling False Positives). Re-push.
 4. **Dependency vulnerability with no fix available:** Check if a patched version exists. If not, evaluate whether the vulnerable code path is reachable in your application. Document the risk and create a tracking issue. For organizational projects, get IT Security approval to proceed.
-5. **License violation:** Do not override. Find an alternative dependency with a compatible license. If no alternative exists, escalate to Legal (organizational) or evaluate the license terms carefully (personal).
+5. **License violation (denied copyleft, BL-086):** Do not override. Find an alternative dependency with a compatible license. On the corporate track (organizational / Sponsored POC / **Private POC**) this is a hard block; if no alternative exists, obtain a commercial license and exempt the package via `.claude/license-policy.json` `allow_packages`, or — only with Legal sign-off — record a deliberate exception with `SOLO_LICENSE_ATTESTED=1 SOLO_LICENSE_REASON="…"`. On a purely personal project the scanner warns rather than blocks, but heed the banner: the copyleft obligation travels with the code if you ever distribute, sell, run it as a service, or move it onto the corporate track.
 
 **Never** commit directly to main, disable CI, or use `--no-verify` to bypass security checks. If you are blocked and unsure how to proceed, ask for a security peer review. (On `strict` projects, every `--no-verify` commit is captured by the SessionStart out-of-band detector and recorded to `.claude/bypass-audit.json` — the bypass costs you nothing at commit time but it is visible in the audit log forever.)
 

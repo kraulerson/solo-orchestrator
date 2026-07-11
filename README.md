@@ -344,7 +344,7 @@ Each phase produces artifacts that gate entry into the next phase. The AI execut
 2. **Start Claude Code** — point it at the Intake and Builder's Guide
 3. **The agent executes each phase** — asking you only for clarifying questions and approval at decision gates
 4. **You review at decision gates** — architecture selection, test assertions, security scan results, go-live readiness
-5. **Phase 3 validates everything** — five validation scanners (full-tree Semgrep, license compliance, Snyk, OWASP ZAP DAST, threat-model verification), integration tests, and accessibility audit. The Phase 3→4 gate refuses to advance until every scanner reports pass or carries a signed skip attestation. Zero critical findings before proceeding.
+5. **Phase 3 validates everything** — five validation scanners (full-tree Semgrep, license compliance with a tier-keyed strong-copyleft deny policy, Snyk, OWASP ZAP DAST, threat-model verification), integration tests, and accessibility audit. The Phase 3→4 gate refuses to advance until every scanner reports pass or carries a signed skip attestation. Zero critical findings before proceeding.
 6. **Phase 4 releases** (full path) or **confirms ready to deploy** (POC path)
 
 The [User Guide](docs/user-guide.md) walks through each step in detail — what you do, what the agent does, what external approvals are needed (organizational), and what output to expect at each phase.

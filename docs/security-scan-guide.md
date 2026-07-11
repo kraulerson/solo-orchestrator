@@ -247,3 +247,63 @@ const pattern = new RegExp(config.searchPattern);
 ```
 
 Always include a comment explaining WHY it is a false positive. A suppression without explanation is indistinguishable from someone ignoring a real vulnerability.
+
+## License Compliance — Deny Policy
+
+The Phase-3 `license` scanner (`scripts/run-phase3-validation.sh`) does two jobs: it **inventories** every dependency's license (per-language tool: `license-checker` / `pip-licenses` / `cargo license` / `go-licenses` / `dotnet-project-licenses`), and — since **BL-086** — it enforces a **tier-keyed deny policy** on that inventory. It flags **strong copyleft** licenses and either BLOCKS the Phase 3→4 gate or emits a loud warning, depending on the project's tier.
+
+### Default deny list (strong copyleft only)
+
+| Denied (SPDX id or bare acronym) | Why |
+|---|---|
+| `GPL-2.0*`, `GPL-3.0*` | GNU GPL — file/link-level copyleft; distributing derived work obliges you to release source |
+| `AGPL-1.0*`, `AGPL-3.0*` | GNU Affero GPL — copyleft **also triggers on running it as a network service**, no distribution needed |
+| `SSPL-1.0` | Server Side Public License (MongoDB) — service-copyleft, not OSI-approved |
+| bare `GPL` / `AGPL` | acronym forms some tools emit (`GPLv3`, `AGPLv3`) |
+
+**Explicitly NOT denied:** `LGPL-*` (weak copyleft — dynamic linking is fine), `MPL-*`, `EPL-*`, and all permissive licenses (MIT, Apache-2.0, BSD-*, ISC, …). Matching is on the **license field only** (never package names) and is **boundary-safe**: `LGPL-3.0` never matches a `GPL-3.0` pattern.
+
+**Dual / `OR` licenses pass.** A top-level `OR` expression with any non-denied alternative — e.g. `MIT OR GPL-3.0` — PASSES: the consumer may elect the safe side. An `AND` expression or a bare denied id is flagged.
+
+### The tier rule (who blocks, who warns)
+
+Keyed on the **actual tier** (`deployment` + `poc_mode` from `.claude/phase-state.json`), **never** the spoofable `track`:
+
+| Tier | On a denied license |
+|---|---|
+| **Organizational** (`deployment=organizational`) | **HARD BLOCK** — Phase 3→4 gate fails |
+| **Sponsored POC** (`poc_mode=sponsored_poc`) | **HARD BLOCK** |
+| **Private POC** (`poc_mode=private_poc`) | **HARD BLOCK** |
+| **Pure personal** (`deployment=personal`, no `poc_mode`; or no phase-state) | **PASS + LARGE warning banner** |
+
+**Why a private POC blocks too (Karl, 2026-07-11).** A strong-copyleft dependency is a **one-way ratchet**. A private POC is the framework's runway to a Sponsored POC / production; at that transition the company must either rip the dependency out, buy a commercial license, or accept share-your-source obligations on distribution or network service. No sponsor approves that, so the whole corporate track is held to the destination tier's standard. Only a purely personal project may proceed — and then only behind a loud warning that the obligation travels with the code if its status ever changes (distributed, sold, run as a commercial service, or moved onto the corporate track).
+
+### Overriding the policy — `.claude/license-policy.json`
+
+An **optional DATA file** (read via `jq`; it is never sourced as a script):
+
+```json
+{
+  "deny": ["GPL-2.0", "GPL-3.0", "AGPL-3.0", "SSPL-1.0"],
+  "allow_packages": ["some-vendored-lib"]
+}
+```
+
+- **`deny`** — when the key is present, it **replaces** the default stem list entirely (an empty array therefore denies nothing — a deliberate choice). Entries are start-with stems (`MPL-2.0` matches `MPL-2.0`, `MPL-2.0+`, …).
+- **`allow_packages`** — exempts named packages (the **commercial-license case**): an entry matches an exact package name or `name@version`. Use this when you have negotiated a commercial license for an otherwise-denied dependency.
+- **Malformed JSON → a LOUD scanner FAIL** (never silently ignored).
+
+### Attested exception on a blocked tier
+
+If a blocked-tier project genuinely must ship with a denied license (e.g. a commercial license is in hand but not yet reflected in metadata), attest it — **recorded, never silenced**:
+
+```bash
+SOLO_LICENSE_ATTESTED=1 SOLO_LICENSE_REASON="commercial GPL license #12345 on file" \
+  bash scripts/run-phase3-validation.sh
+```
+
+This appends `{date, packages, licenses, reason}` to `.claude/phase-state.json::phase3.license_exceptions[]`, prints a loud `[ATTESTED]` line, and lets the scanner PASS. **If the record cannot be written, the scanner FAILs** rather than silently green-lighting — an exception you cannot record is an exception you do not get.
+
+### If the scanner blocks you
+
+Do NOT reach for the attestation first. Prefer, in order: (1) find a permissively-licensed alternative dependency; (2) if the license is genuinely dual and one side is safe, confirm the tool reported the full `OR` expression (the scanner honors it); (3) obtain a commercial license and record it via `allow_packages`; (4) only then, if a deliberate exception is warranted, attest it (organizational deployments: get Legal sign-off first).
