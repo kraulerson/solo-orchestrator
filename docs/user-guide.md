@@ -1235,6 +1235,58 @@ What the refresh does:
 
 **Frequency:** refresh biannually alongside the framework-document check below, or immediately whenever a CDF fix you need lands upstream.
 
+### Keeping your project current: `--sync-framework`
+
+CDF's `--backfill-only` (above) refreshes the *Development Guardrails* assets. A
+separate concern is the **solo-orchestrator** side of your project: the vendored
+gate scripts (`pre-commit-gate.sh`, `check-phase-gate.sh`, …), the helper libs,
+your git hooks, and the framework reference docs. Those are copied in at project
+creation and, at your current tier, only refresh as a side effect of a *tier
+change*. `scripts/upgrade-project.sh --sync-framework` is the same-tier refresh —
+it brings a month-old project up to current framework behaviour without changing
+your track or deployment.
+
+Run it from **inside your project**, using the **framework clone's** copy of the
+script (not your project's vendored copy — the script refuses that, because a
+copy syncing onto itself is a no-op):
+
+```bash
+cd ~/projects/your-project
+# Preview first — computes every change and writes NOTHING:
+bash ~/solo-orchestrator/scripts/upgrade-project.sh --sync-framework --dry-run
+# Then apply:
+bash ~/solo-orchestrator/scripts/upgrade-project.sh --sync-framework
+```
+
+Always run `--dry-run` first. It prints one line per file it *would* change and
+touches nothing on disk — no tmp files, no CDF calls, no manifest writes.
+
+**What it syncs (applies for you):**
+
+- **Vendored scripts + helper libs** — every script `init.sh` ships is compared
+  to the framework and re-copied when it drifts (file modes mirrored, so
+  executables stay executable). One line per *changed* file.
+- **Git hooks (ask-first).** The commit-msg TDD gate and the fallback pre-commit
+  hook are installed or refreshed **only with your consent**: interactively you
+  are prompted per hook; non-interactively nothing is touched unless you pass
+  `--install-hooks`. Refreshes replace only the framework-managed marker block —
+  anything you added outside it is preserved. A pre-`--sync-framework` hook with
+  no marker block is treated as entirely yours: it is never overwritten; a
+  `<hook>.new` sidecar is written for you to diff and adopt.
+- It also runs the manifest/host **backfills** and the **CDF asset refresh**, and
+  stamps `.claude/manifest.json`'s `soloFrameworkCommit` to the framework commit
+  you synced from (distinct from CDF's `frameworkCommit`).
+
+**What it only notices (never applies):**
+
+- **Framework reference docs** (`docs/reference/*.md`) — you get a drift notice
+  with a capped diff. Interactively you may skip, write a `<doc>.new` sidecar, or
+  overwrite in place (a dated `.bak` is kept). Non-interactive runs notice only.
+- **`CLAUDE.md` and `PROJECT_INTAKE.md`** are *rendered* from templates for your
+  project, so this mode **never** rewrites them — it shows a template-level diff
+  (or an upstream-revision count) and points at the assisted-apply follow-up.
+  Your customised `CLAUDE.md` is safe.
+
 ### Governance Health Checks
 
 In addition to application monitoring, track these governance signals:

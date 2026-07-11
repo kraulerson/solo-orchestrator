@@ -82,6 +82,15 @@ ACK_PRECONDITIONS=""
 # exits. Lets operators of pre-BL-030 projects upgrade their manifest
 # without choosing a track / deployment / POC transition.
 BACKFILL_ONLY=false
+# BL-099 SLICE-A: --sync-framework runs a DEDICATED same-tier refresh of the
+# vendored gate scripts / helper set / templates from the FRAMEWORK copy being
+# run (never a track/deployment/POC transition). --dry-run (valid only with
+# --sync-framework) computes + prints every action and writes NOTHING.
+# --install-hooks permits hook install/refresh in non-interactive contexts
+# (interactive runs always prompt; non-interactive otherwise only notices).
+SYNC_FRAMEWORK=false
+DRY_RUN=false
+INSTALL_HOOKS=false
 
 # BL-018: BL-016-style structured error helper (summary + reason + action + context).
 _upgrade_fail() {
@@ -215,6 +224,12 @@ while [ $# -gt 0 ]; do
       ;;
     --backfill-only)
       BACKFILL_ONLY=true; shift; continue ;;
+    --sync-framework)
+      SYNC_FRAMEWORK=true; shift; continue ;;
+    --dry-run)
+      DRY_RUN=true; shift; continue ;;
+    --install-hooks)
+      INSTALL_HOOKS=true; shift; continue ;;
     --to-production)
       TO_PRODUCTION=true
       shift
@@ -288,6 +303,34 @@ if [ "$_to_count" -gt 1 ]; then
   exit 1
 fi
 
+# BL-099: --sync-framework is a same-tier refresh; it is mutually exclusive with
+# every tier-change flag and with --backfill-only (which owns the manifest/CDF
+# backfill short-circuit). --dry-run / --install-hooks are sync-only modifiers.
+if [ "$SYNC_FRAMEWORK" = true ]; then
+  if [ -n "$TARGET_TRACK" ] || [ -n "$TARGET_DEPLOYMENT" ] || [ "$_to_count" -gt 0 ] || [ "$BACKFILL_ONLY" = true ]; then
+    _upgrade_fail "--sync-framework cannot be combined with a tier change or --backfill-only" \
+                  "--sync-framework performs a SAME-TIER refresh of vendored scripts/hooks/docs; it must not run alongside --track/--deployment/--to-*/--backfill-only." \
+                  "run the tier change on its own, then run --sync-framework separately (or vice-versa)." \
+                  "track='$TARGET_TRACK' deployment='$TARGET_DEPLOYMENT' to_count=$_to_count backfill_only=$BACKFILL_ONLY"
+    exit 1
+  fi
+else
+  if [ "$DRY_RUN" = true ]; then
+    _upgrade_fail "--dry-run is only valid with --sync-framework" \
+                  "--dry-run is a preview mode for the same-tier framework sync; the tier-change path has no dry-run." \
+                  "add --sync-framework, or drop --dry-run." \
+                  "sync_framework=$SYNC_FRAMEWORK dry_run=$DRY_RUN"
+    exit 1
+  fi
+  if [ "$INSTALL_HOOKS" = true ]; then
+    _upgrade_fail "--install-hooks is only valid with --sync-framework" \
+                  "--install-hooks authorizes non-interactive hook install/refresh during a framework sync; it has no meaning on the tier-change path." \
+                  "add --sync-framework, or drop --install-hooks." \
+                  "sync_framework=$SYNC_FRAMEWORK install_hooks=$INSTALL_HOOKS"
+    exit 1
+  fi
+fi
+
 # BL-018: --validate-only — emit resolved arg JSON and exit before any project read or mutation.
 # Requires at least one upgrade target so the resolved JSON has actionable content.
 if [ "$VALIDATE_ONLY" = true ]; then
@@ -353,6 +396,13 @@ if [ "$BACKFILL_ONLY" != true ]; then _bl015_sentinel_guard; fi
 # requiring the operator to also pick a track / deployment / POC
 # transition. Idempotent — both block on `! jq -e '.<field>'` so a
 # second run is a no-op.
+#
+# BL-099: factored into a function (behavior + ordering UNCHANGED for the
+# --backfill-only and full-upgrade paths — those still call it inline at this
+# exact point; the sentinel-block suite proves byte-compat) so the
+# --sync-framework path can invoke it AFTER its guards + source-check instead of
+# before them.
+_run_idempotent_backfill() {
 ( cd "$PROJECT_ROOT"
   # --- Host-aware migration (spec 2026-04-21) ---
   # Projects created before the host-aware gate need the flat CI template
@@ -515,6 +565,399 @@ if [ "$BACKFILL_ONLY" != true ]; then _bl015_sentinel_guard; fi
     unset _bl088_rel _bl088_src _bl088_dst
   fi
 )
+}
+
+# BL-099: run the shared backfill inline for the EXISTING paths — byte-compatible
+# ordering, exactly where the subshell used to execute. The --sync-framework path
+# SKIPS it here and calls it later (after its guards + source-check) so a refused
+# self-copy sync mutates nothing.
+if [ "$SYNC_FRAMEWORK" != true ]; then
+  _run_idempotent_backfill
+fi
+
+# ================================================================
+# BL-099 SLICE-A — same-tier framework sync (--sync-framework)
+# ================================================================
+# A DEDICATED flow (does NOT piggyback the pre-guard backfill above). Order:
+#   (a) sentinel guard  — already fired above (the non-backfill one-liner)
+#   (b) guard_not_in_framework (cwd = project root)
+#   (c) SOURCE-CHECK — refuse running the project's OWN scripts/ copy (self-copy)
+#   (d) shared idempotent backfill (post-guard; dry-run suppresses all writes)
+#   (e) script sync (mechanical shipped-set from init.sh)   # BL-099-SYNC
+#   (f) hooks (ask-first): commit-msg TDD gate + pre-commit fallback
+#   + doc drift (7 verbatim reference docs; CLAUDE.md/PROJECT_INTAKE notice-only)
+#   + pin manifest.soloFrameworkCommit (non-dry only)
+# DRY_RUN is threaded through EVERYTHING: every step prints what it WOULD do and
+# writes nothing (no tmp files, no CDF side effects, no manifest writes).
+
+# Mirror a source file's mode onto its destination (GNU-first stat, BSD fallback)
+# so a newly-shipped executable lands +x and a sourced lib stays 644.
+_bl099_mirror_mode() {
+  local mode
+  mode="$(stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1" 2>/dev/null || echo '')"
+  if [ -n "$mode" ]; then chmod "$mode" "$2" 2>/dev/null || true; fi
+}
+
+# Resolve the project's primary language (tool-preferences → intake-progress →
+# CLAUDE.md), for the commit-msg TDD-hook language gate.
+_bl099_resolve_language() {
+  local lang=""
+  if [ -f "$PROJECT_ROOT/.claude/tool-preferences.json" ]; then
+    lang="$(jq -r '.context.language // ""' "$PROJECT_ROOT/.claude/tool-preferences.json" 2>/dev/null || echo "")"
+  fi
+  if [ -z "$lang" ] && [ -f "$PROJECT_ROOT/.claude/intake-progress.json" ]; then
+    lang="$(jq -r '.language // ""' "$PROJECT_ROOT/.claude/intake-progress.json" 2>/dev/null || echo "")"
+  fi
+  if [ -z "$lang" ] && [ -f "$PROJECT_ROOT/CLAUDE.md" ]; then
+    lang="$(grep -m1 -i 'Primary Language' "$PROJECT_ROOT/CLAUDE.md" 2>/dev/null | sed 's/.*\*\* *//' | tr -d ' ' || true)"
+  fi
+  [ "$lang" = "null" ] && lang=""
+  printf '%s' "$lang"
+}
+
+# Consent gate for a hook install/refresh: interactive → prompt (default Y);
+# non-interactive → yes ONLY with the explicit --install-hooks authorization.
+_bl099_hook_consent() {
+  if [ -t 0 ] && [ -z "${CI:-}" ] && [ -z "${SOIF_NONINTERACTIVE:-}" ]; then
+    prompt_yes_no "$1" "Y"
+    return $?
+  fi
+  [ "$INSTALL_HOOKS" = true ]
+}
+
+# Extract the [open..close] marked region (inclusive) from a file.
+_bl099_extract_region() {
+  awk -v o="$2" -v c="$3" '$0==o{inr=1} inr{print} $0==c{inr=0}' "$1"
+}
+
+# Replace the [open..close] region of <file> in place with <genfn>'s output,
+# preserving everything before the open marker and after the close marker
+# byte-exact (bash-3.2 / BSD-awk safe — no multiline awk -v).
+_bl099_replace_region() {
+  local file="$1" open="$2" close="$3" genfn="$4" tmp
+  tmp="$(mktemp)"
+  awk -v o="$open" '$0==o{exit} {print}' "$file" > "$tmp"
+  "$genfn" >> "$tmp"
+  awk -v c="$close" 'p{print} $0==c{p=1}' "$file" >> "$tmp"
+  mv "$tmp" "$file"
+}
+
+# (e) SCRIPT SYNC — copy the mechanically-derived init.sh shipped set
+# framework→project; one line per CHANGED file only; source-mode mirrored.
+_bl099_sync_scripts() {
+  local shipped rel src dst changed=0 total=0
+  print_step "Vendored script set — sync from framework"
+  shipped="$(soif_parse_shipped_scripts "$ORCHESTRATOR_ROOT/init.sh" "$ORCHESTRATOR_ROOT/scripts")"
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    total=$((total + 1))
+    src="$ORCHESTRATOR_ROOT/$rel"
+    dst="$PROJECT_ROOT/$rel"
+    [ -f "$src" ] || continue
+    if [ -e "$dst" ] && [ "$src" -ef "$dst" ]; then continue; fi
+    if [ -f "$dst" ] && cmp -s "$src" "$dst"; then continue; fi
+    changed=$((changed + 1))
+    if [ "$DRY_RUN" = true ]; then
+      if [ -f "$dst" ]; then print_info "  [would sync] $rel (drift)"; else print_info "  [would sync] $rel (missing)"; fi
+      continue
+    fi
+    mkdir -p "$(dirname "$dst")"
+    cp "$src" "$dst"
+    _bl099_mirror_mode "$src" "$dst"
+    print_ok "  synced $rel"
+  done <<EOF
+$shipped
+EOF
+  if [ "$changed" -eq 0 ]; then
+    print_ok "  all $total vendored scripts already current."
+  elif [ "$DRY_RUN" = true ]; then
+    print_info "  $changed of $total vendored scripts would be synced."
+  else
+    print_ok "  $changed of $total vendored scripts synced."
+  fi
+}
+
+# (f) commit-msg TDD gate hook — refresh the marked block or install it, ask-first.
+_bl099_sync_commitmsg_hook() {
+  local hook="$PROJECT_ROOT/.git/hooks/commit-msg" lang test_pattern want current
+  print_step "commit-msg TDD gate hook"
+  lang="$(_bl099_resolve_language)"
+  test_pattern="$(soif_lang_test_pattern "$lang")"
+  if [ -z "$test_pattern" ]; then
+    print_info "  language '${lang:-unknown}' has no distinct test-file convention (e.g. rust) — commit-msg TDD hook not applicable (matches the scaffold; no prompt, no install)."
+    return 0
+  fi
+  want="$(soif_tdd_region_body)"
+  if [ -f "$hook" ] && grep -qF "$SOIF_TDD_OPEN" "$hook"; then
+    current="$(_bl099_extract_region "$hook" "$SOIF_TDD_OPEN" "$SOIF_TDD_CLOSE")"
+    if [ "$current" = "$want" ]; then
+      print_ok "  commit-msg TDD gate already current."
+      return 0
+    fi
+    if [ "$DRY_RUN" = true ]; then
+      print_info "  [would refresh] commit-msg TDD gate managed block is stale."
+      return 0
+    fi
+    if _bl099_hook_consent "  Refresh the stale commit-msg TDD gate block? [Y/n]"; then
+      _bl099_replace_region "$hook" "$SOIF_TDD_OPEN" "$SOIF_TDD_CLOSE" soif_tdd_region_body
+      chmod +x "$hook"
+      print_ok "  commit-msg TDD gate refreshed (managed block only; rest byte-preserved)."
+    else
+      print_info "  commit-msg TDD gate left unchanged (declined)."
+    fi
+    return 0
+  fi
+  if [ "$DRY_RUN" = true ]; then
+    print_info "  [would install] commit-msg TDD gate (hook absent or unmarked)."
+    return 0
+  fi
+  if _bl099_hook_consent "  Install the commit-msg TDD gate hook? [Y/n]"; then
+    mkdir -p "$PROJECT_ROOT/.git/hooks"
+    [ -f "$hook" ] || printf '%s\n' '#!/usr/bin/env bash' > "$hook"
+    soif_emit_tdd_commitmsg_block >> "$hook"
+    chmod +x "$hook"
+    print_ok "  commit-msg TDD gate installed."
+  else
+    print_info "  commit-msg TDD gate not installed (declined)."
+  fi
+}
+
+# (f) pre-commit fallback hook — refresh only the marked managed region; a legacy
+# UNMARKED hook is treated as fully user-owned (sidecar .new, never overwritten).
+_bl099_sync_precommit_hook() {
+  local hook="$PROJECT_ROOT/.git/hooks/pre-commit" want current
+  print_step "pre-commit fallback hook"
+  want="$(soif_precommit_region_body)"
+  if [ ! -f "$hook" ]; then
+    if [ "$DRY_RUN" = true ]; then print_info "  [would install] pre-commit fallback hook (absent)."; return 0; fi
+    if _bl099_hook_consent "  Install the pre-commit fallback hook? [Y/n]"; then
+      mkdir -p "$PROJECT_ROOT/.git/hooks"
+      soif_write_precommit_hook "$hook"
+      print_ok "  pre-commit fallback hook installed."
+    else
+      print_info "  pre-commit fallback hook not installed (declined)."
+    fi
+    return 0
+  fi
+  if grep -qF "$SOIF_PRECOMMIT_OPEN" "$hook"; then
+    current="$(_bl099_extract_region "$hook" "$SOIF_PRECOMMIT_OPEN" "$SOIF_PRECOMMIT_CLOSE")"
+    if [ "$current" = "$want" ]; then
+      print_ok "  pre-commit fallback hook already current."
+      return 0
+    fi
+    if [ "$DRY_RUN" = true ]; then print_info "  [would refresh] pre-commit fallback managed region is stale."; return 0; fi
+    if _bl099_hook_consent "  Refresh the stale pre-commit fallback managed region? [Y/n]"; then
+      _bl099_replace_region "$hook" "$SOIF_PRECOMMIT_OPEN" "$SOIF_PRECOMMIT_CLOSE" soif_precommit_region_body
+      chmod +x "$hook"
+      print_ok "  pre-commit fallback managed region refreshed (user additions outside it preserved)."
+    else
+      print_info "  pre-commit fallback hook left unchanged (declined)."
+    fi
+    return 0
+  fi
+  # Legacy UNMARKED pre-commit hook — treat the whole file as user-owned. NEVER
+  # overwrite in place; offer a sidecar so the operator can diff + adopt.
+  if [ "$DRY_RUN" = true ]; then print_info "  [would write sidecar] legacy unmarked pre-commit hook — .new sidecar, never overwritten."; return 0; fi
+  soif_write_precommit_hook "$hook.new"
+  print_warn "  pre-commit hook is a legacy UNMARKED hook — left untouched. Wrote $hook.new for review (diff, then adopt manually)."
+}
+
+# DOC DRIFT — one processor for the 7 verbatim reference docs AND the 2 rendered
+# docs; the rendered branch is guarded by # BL-099-DOC-GUARD.
+# _bl099_process_doc <label> <project_relpath> <framework_src_or_tmpl_relpath> <rendered:true|false>
+_bl099_process_doc() {
+  local label="$1" prel="$2" src="$3" rendered="$4"
+  local pfile="$PROJECT_ROOT/$prel" added removed
+  if [ "$rendered" = true ]; then _bl099_rendered_doc_notice "$label" "$prel" "$src"; return 0; fi  # BL-099-DOC-GUARD: CLAUDE.md / PROJECT_INTAKE.md are sed-RENDERED from templates, never file-copied — route to a template-level notice; NEVER apply (assisted apply is BL-101).
+  [ -f "$pfile" ] || { print_info "  $label: not present in project — skipping"; return 0; }
+  [ -f "$src" ]   || { print_info "  $label: not in framework — skipping"; return 0; }
+  if cmp -s "$pfile" "$src"; then print_ok "  $label: up to date"; return 0; fi
+  print_warn "  $label: differs from framework"
+  added=$(diff "$pfile" "$src" | grep -c '^>' || true)     # lint-counter-antipattern: allow string-interpolated into a human-readable notice line only, never used in arithmetic or a test comparison (mirrors scripts/check-updates.sh)
+  removed=$(diff "$pfile" "$src" | grep -c '^<' || true)   # lint-counter-antipattern: allow string-interpolated into a human-readable notice line only, never used in arithmetic or a test comparison (mirrors scripts/check-updates.sh)
+  print_info "    (+$added upstream / -$removed removed vs your copy)"
+  diff "$pfile" "$src" 2>/dev/null | head -40 | sed 's/^/    | /' || true
+  print_info "    full: diff \"$pfile\" \"$src\""
+  if [ "$DRY_RUN" = true ]; then print_info "    [dry-run] notice only — no apply."; return 0; fi
+  _bl099_doc_apply "$label" "$pfile" "$src"
+}
+
+# Reference-doc apply: interactive [s]kip/[n]ew-sidecar/[o]verwrite (with .bak +
+# double-confirm); non-interactive DEFAULT is notice-only. A disclosed scripted
+# escape hatch SOLO_SYNC_DOC_APPLY=sidecar|overwrite|skip authorizes apply in
+# non-interactive contexts (mirrors --install-hooks for hooks).
+_bl099_doc_apply() {
+  local label="$1" pfile="$2" src="$3" action="" bak
+  if [ -t 0 ] && [ -z "${CI:-}" ] && [ -z "${SOIF_NONINTERACTIVE:-}" ]; then
+    printf '%b' "${BOLD}    Apply upstream ${label}? [s]kip / [n]ew sidecar / [o]verwrite: ${NC}"
+    read -r action || action=""
+  else
+    action="${SOLO_SYNC_DOC_APPLY:-}"
+    if [ -z "$action" ]; then
+      print_info "    non-interactive: notice only — not applied (scripted apply: SOLO_SYNC_DOC_APPLY=sidecar|overwrite)."
+      return 0
+    fi
+  fi
+  case "$action" in
+    n|new|sidecar)
+      cp "$src" "$pfile.new"; _bl099_mirror_mode "$src" "$pfile.new"
+      print_ok "    wrote sidecar $pfile.new (your file untouched — review + rename to apply)." ;;
+    o|overwrite)
+      if [ -t 0 ] && [ -z "${CI:-}" ] && [ -z "${SOIF_NONINTERACTIVE:-}" ]; then
+        if ! prompt_yes_no "    Overwrite $label in place (a .bak backup is kept)? [y/N]" "N"; then
+          print_info "    overwrite cancelled."; return 0
+        fi
+      fi
+      bak="$pfile.bak.$(date -u +%Y-%m-%d)"
+      cp "$pfile" "$bak"; cp "$src" "$pfile"; _bl099_mirror_mode "$src" "$pfile"
+      print_ok "    overwrote $label (backup: $bak)." ;;
+    *)
+      print_info "    skipped $label." ;;
+  esac
+}
+
+# Rendered-doc notice: CLAUDE.md / PROJECT_INTAKE.md are template-rendered, so
+# this slice NEVER writes them — it surfaces a template-level diff (pinned) or an
+# upstream-revision count (unpinned) and points at BL-101 for assisted apply.
+_bl099_rendered_doc_notice() {
+  local label="$1" prel="$2" tmpl_rel="$3" pfile="$PROJECT_ROOT/$prel" pin nrev
+  [ -f "$pfile" ] || { print_info "  $label: not present in project — skipping"; return 0; }
+  pin="$(jq -r '.soloFrameworkCommit // ""' "$PROJECT_ROOT/.claude/manifest.json" 2>/dev/null || echo "")"
+  [ "$pin" = "null" ] && pin=""
+  print_warn "  $label: RENDERED from a template ($tmpl_rel) — this sync never file-copies it (assisted apply is BL-101)."
+  if git -C "$ORCHESTRATOR_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+    if [ -n "$pin" ]; then
+      print_info "    template changes since your pin ($pin → HEAD):"
+      git -C "$ORCHESTRATOR_ROOT" --no-pager diff "$pin" HEAD -- "$tmpl_rel" 2>/dev/null | head -40 | sed 's/^/    | /' || true
+      print_info "    full: git -C \"$ORCHESTRATOR_ROOT\" diff $pin HEAD -- $tmpl_rel"
+    else
+      nrev="$(git -C "$ORCHESTRATOR_ROOT" rev-list --count HEAD -- "$tmpl_rel" 2>/dev/null || echo "?")"
+      print_info "    no soloFrameworkCommit pin recorded — $tmpl_rel has $nrev upstream revision(s) in framework history."
+      if [ "$DRY_RUN" = true ]; then
+        print_info "    [dry-run] would offer an UNRENDERED reference sidecar $label.upstream-template.new (reference only)."
+      elif [ "${SOLO_SYNC_DOC_APPLY:-}" = "sidecar" ] || { [ -t 0 ] && [ -z "${CI:-}" ] && [ -z "${SOIF_NONINTERACTIVE:-}" ] && prompt_yes_no "    Write an UNRENDERED reference sidecar $label.upstream-template.new? [y/N]" "N"; }; then
+        {
+          printf '%s\n' "<!-- UNRENDERED TEMPLATE — reference only, do NOT copy over your $label."
+          printf '%s\n' "     Placeholders (e.g. __PROJECT_NAME__) are NOT filled in. Assisted apply: BL-101. -->"
+          cat "$ORCHESTRATOR_ROOT/$tmpl_rel"
+        } > "$pfile.upstream-template.new"
+        print_ok "    wrote reference sidecar $pfile.upstream-template.new (UNRENDERED — reference only, never applied)."
+      fi
+    fi
+  else
+    print_info "    framework dir is not a git checkout — cannot compute template drift."
+  fi
+}
+
+# DOC DRIFT driver — the 7 verbatim reference docs + the 2 rendered docs.
+_bl099_doc_drift() {
+  print_step "Framework document drift"
+  local d
+  for d in builders-guide governance-framework executive-review cli-setup-addendum user-guide security-scan-guide uat-authoring-guide; do
+    _bl099_process_doc "$d.md" "docs/reference/$d.md" "$ORCHESTRATOR_ROOT/docs/$d.md" false
+  done
+  _bl099_process_doc "CLAUDE.md" "CLAUDE.md" "templates/generated/claude-md.tmpl" true
+  _bl099_process_doc "PROJECT_INTAKE.md" "PROJECT_INTAKE.md" "templates/project-intake.md" true
+}
+
+# (4) PIN — stamp manifest.soloFrameworkCommit to the framework HEAD (with a loud
+# -dirty warn when the framework clone has uncommitted changes). camelCase, sits
+# BESIDE CDF's frameworkCommit (a SEPARATE clone) — never conflate the two.
+_bl099_stamp_pin() {
+  local mf="$PROJECT_ROOT/.claude/manifest.json" commit dirty="" tmp
+  [ -f "$mf" ] || { print_warn "  no .claude/manifest.json — cannot stamp soloFrameworkCommit"; return 0; }
+  if ! git -C "$ORCHESTRATOR_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+    print_info "  framework dir is not a git checkout — skipping soloFrameworkCommit pin"; return 0
+  fi
+  commit="$(git -C "$ORCHESTRATOR_ROOT" rev-parse HEAD 2>/dev/null || echo "")"
+  [ -n "$commit" ] || { print_warn "  could not resolve framework HEAD — skipping pin"; return 0; }
+  if ! git -C "$ORCHESTRATOR_ROOT" diff --quiet 2>/dev/null || ! git -C "$ORCHESTRATOR_ROOT" diff --cached --quiet 2>/dev/null; then
+    dirty="-dirty"
+    print_warn "  ⚠ framework clone has uncommitted changes — pinning ${commit}${dirty} (NOT a clean upstream commit; re-sync from a clean clone to pin an exact commit)."
+  fi
+  tmp="$(mktemp)"
+  jq --arg c "${commit}${dirty}" '.soloFrameworkCommit = $c' "$mf" > "$tmp" && mv "$tmp" "$mf"
+  rm -f "$tmp" 2>/dev/null || true
+  print_ok "  pinned .claude/manifest.json.soloFrameworkCommit = ${commit}${dirty}"
+}
+
+# Orchestrator for the whole sync flow (steps b–f + docs + pin).
+_run_sync_framework() {
+  # (b) refuse to operate inside the framework repo (cwd = project root).
+  guard_not_in_framework || exit 1
+
+  if [ -z "$PROJECT_ROOT" ]; then
+    print_fail "No Solo Orchestrator project found."
+    print_info "cd into your project (where .claude/phase-state.json lives), then run the FRAMEWORK clone's copy of this script with --sync-framework."
+    exit 1
+  fi
+  if ! command -v jq &>/dev/null; then
+    print_fail "jq is required but not installed."; exit 1
+  fi
+
+  # (c) SOURCE-CHECK — the running script MUST be the framework copy, not the
+  # project's own vendored scripts/ (else the sync would cp files onto
+  # themselves). Refuse before ANY mutation.
+  if [ "$SCRIPT_DIR" -ef "$PROJECT_ROOT/scripts" ]; then
+    print_fail "--sync-framework must run from the FRAMEWORK checkout, not the project's own scripts/ copy."
+    print_info "You ran the project's vendored copy ($PROJECT_ROOT/scripts/upgrade-project.sh) — syncing it onto itself is a no-op/error."
+    print_info "From inside your project, run the framework clone's copy instead:"
+    print_info "  cd \"$PROJECT_ROOT\" && bash /path/to/solo-orchestrator/scripts/upgrade-project.sh --sync-framework"
+    exit 1
+  fi
+  if [ "$PROJECT_ROOT" -ef "$ORCHESTRATOR_ROOT" ]; then
+    print_fail "--sync-framework target resolves to the framework repo itself — nothing to sync."
+    exit 1
+  fi
+
+  # Shared libs are safe to source now (framework side, source-check passed).
+  # shellcheck source=/dev/null
+  . "$SCRIPT_DIR/lib/scaffold-shipped-set.sh"
+  # shellcheck source=/dev/null
+  . "$SCRIPT_DIR/lib/hook-templates.sh"
+
+  local mode_label="apply"
+  [ "$DRY_RUN" = true ] && mode_label="dry-run — nothing will be written"
+  echo ""
+  print_step "Framework sync ($mode_label) — same-tier refresh from $ORCHESTRATOR_ROOT"
+  echo ""
+
+  # (d) shared idempotent backfill (post-guard). Dry-run suppresses all writes.
+  if [ "$DRY_RUN" = true ]; then
+    print_info "[dry-run] would run idempotent manifest/host backfills + install filesystem gates (no writes)."
+    print_info "[dry-run] would refresh CDF framework assets (BL-001)."
+  else
+    _run_idempotent_backfill
+    _refresh_cdf_assets_solo
+  fi
+
+  # (e) script sync + (f) hooks + doc drift + pin.
+  _bl099_sync_scripts        # BL-099-SYNC
+  _bl099_sync_commitmsg_hook
+  _bl099_sync_precommit_hook
+  _bl099_doc_drift
+  if [ "$DRY_RUN" = true ]; then
+    print_info "[dry-run] would stamp .claude/manifest.json.soloFrameworkCommit to the framework HEAD."
+  else
+    print_step "Framework pin"
+    _bl099_stamp_pin
+  fi
+
+  echo ""
+  if [ "$DRY_RUN" = true ]; then
+    print_ok "Framework sync dry-run complete — nothing was written. Re-run without --dry-run to apply."
+  else
+    print_ok "Framework sync complete. Review with 'git status' / 'git diff', then commit the refreshed files yourself."
+  fi
+  exit 0
+}
+
+# BL-099: dedicated same-tier sync dispatch — after the sentinel guard (fired
+# above for the non-backfill path), before the --backfill-only short-circuit and
+# all tier-change logic.
+if [ "$SYNC_FRAMEWORK" = true ]; then
+  _run_sync_framework
+fi
 
 # --backfill-only short-circuits here — no track / deployment / POC
 # transition follows.
@@ -561,6 +1004,16 @@ if [ "$SHOW_HELP" = true ]; then
   echo "                          Auto-detected when stdin is not a tty; this flag overrides for clarity."
   echo "  --validate-only         Parse + validate flags, print resolved JSON to stdout, exit 0."
   echo "                          No filesystem reads of project state; no mutation."
+  echo ""
+  echo -e "${BOLD}Same-tier framework sync (BL-099):${NC}"
+  echo "  --sync-framework        Refresh vendored gate scripts, helper libs, hooks, and framework"
+  echo "                          docs from the FRAMEWORK checkout being run — NO track/deployment"
+  echo "                          change. Run it from inside your project via the framework clone's"
+  echo "                          copy: cd <project> && bash <framework>/scripts/upgrade-project.sh --sync-framework"
+  echo "  --dry-run               (with --sync-framework) Preview every action and write NOTHING."
+  echo "  --install-hooks         (with --sync-framework) Authorize hook install/refresh in"
+  echo "                          non-interactive contexts (interactive runs always prompt)."
+  echo "                          Rendered docs (CLAUDE.md/PROJECT_INTAKE.md) are notice-only."
   echo ""
   echo -e "${BOLD}--to-production pre-condition gate (code-upgrade-project-8):${NC}"
   echo "  --to-production refuses to clear poc_mode for organizational projects"

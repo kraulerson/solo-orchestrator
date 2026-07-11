@@ -764,6 +764,14 @@ if bash "$SCRIPT_DIR/tests/test-upgrade-sentinel-block.sh" >/dev/null 2>&1; then
 else
   fail "tests/test-upgrade-sentinel-block.sh FAILED (run for details)"
 fi
+# BL-099 SLICE-A: --sync-framework same-tier refresh (script sync, ask-first
+# hooks, doc drift, soloFrameworkCommit pin, dry-run purity) + both mutation
+# proofs (# BL-099-SYNC dispatch, # BL-099-DOC-GUARD rendered-doc exclusion).
+if bash "$SCRIPT_DIR/tests/test-upgrade-sync-framework.sh" >/dev/null 2>&1; then
+  pass "tests/test-upgrade-sync-framework.sh"
+else
+  fail "tests/test-upgrade-sync-framework.sh FAILED (run for details)"
+fi
 # BL-061: manifest.json::deployment stayed stale after upgrade-project.sh
 # runs, encouraging two-source drift where a downstream reader could gate
 # the wrong tier. Regression suite covers happy-path parity, atomic

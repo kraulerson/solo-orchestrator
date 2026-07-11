@@ -42,6 +42,12 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# BL-099: the ship-set parser is factored into a shared lib so the sync path
+# (scripts/upgrade-project.sh --sync-framework) and this closure check derive
+# the shipped set from ONE source of truth. Both must stay green.
+# shellcheck source=/dev/null
+. "$REPO_ROOT/scripts/lib/scaffold-shipped-set.sh"
+
 PASSED=0
 FAILED=0
 pass()  { echo "  [PASS] $1"; PASSED=$((PASSED + 1)); }
@@ -58,21 +64,10 @@ closure_check() {
   work="$(mktemp -d)"
   ship="$work/ship"; opt="$work/opt"; : > "$ship"; : > "$opt"
 
-  # 1) Shipped set from init.sh cp lines.
-  grep -E 'cp[[:space:]]+"\$SCRIPT_DIR/scripts/' "$init_file" | while IFS= read -r line; do
-    rel="$(printf '%s\n' "$line" | sed -n 's#.*cp[[:space:]]*"\$SCRIPT_DIR/\(scripts/[^"]*\)".*#\1#p')"
-    [ -n "$rel" ] || continue
-    if [ "${rel%/}" != "$rel" ]; then
-      # captured path ends in '/': a glob copy of *.sh under that dir
-      base="${rel#scripts/}"
-      for f in "$scripts_dir/$base"*.sh; do
-        [ -f "$f" ] && printf 'scripts/%s%s\n' "$base" "$(basename "$f")" >> "$ship"
-      done
-    else
-      printf '%s\n' "$rel" >> "$ship"
-    fi
-  done
-  sort -u "$ship" -o "$ship"
+  # 1) Shipped set from init.sh cp lines — via the shared BL-099 parser
+  #    (soif_parse_shipped_scripts) so the closure check and the sync-mode
+  #    script sync can never disagree about what init.sh ships.
+  soif_parse_shipped_scripts "$init_file" "$scripts_dir" > "$ship"
 
   # 2) Optional set: any sibling the corpus references via a project-root
   #    prefix (degrade-safe, author-wired optional). Comments stripped.

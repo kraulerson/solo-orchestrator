@@ -138,6 +138,7 @@ jobs:
             tests/test-upgrade-non-interactive.sh
             tests/test-upgrade-project-atomic.sh
             tests/test-upgrade-sentinel-block.sh
+            tests/test-upgrade-sync-framework.sh
             tests/test-upgrade-to-production-preconditions.sh
             tests/test-upgrade-to-production-warn.sh
             tests/test-validate-counter-sanitizer.sh

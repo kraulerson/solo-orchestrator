@@ -197,6 +197,10 @@ else
   echo ""
   echo "  Review changes carefully before overwriting — your project may have"
   echo "  intentional customizations that should be preserved."
+  echo ""
+  echo "  Or, for a guided same-tier refresh of vendored scripts/hooks + doc-drift"
+  echo "  notices (BL-099), run from the framework clone (preview first):"
+  echo "    bash /path/to/solo-orchestrator/scripts/upgrade-project.sh --sync-framework --dry-run"
 fi
 echo -e "${BOLD}══════════════════════════════════════════════════════════${NC}"
 
