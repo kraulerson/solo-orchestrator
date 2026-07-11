@@ -135,9 +135,10 @@ trust the scripts:
   scripts and must be changed IN SYNC**: `pre-commit-gate.sh`,
   `check-phase-gate.sh`, `init.sh` (grep the marker `# BL-084-TIER-KEY` — it
   literally says "SYNC SIBLINGS") plus `scripts/lib/enforcement-level.sh`.
-- **Big files — grep, don't read whole** (`wc -l`, 2026-07-11): `init.sh` 4391,
-  `scripts/upgrade-project.sh` 2498, `scripts/intake-wizard.sh` 2245,
-  `scripts/check-phase-gate.sh` 1921, `tests/full-project-test-suite.sh` 2217.
+- **Big files — grep, don't read whole** (`wc -l`, 2026-07-11, approximate —
+  they grow): `init.sh` ~4400, `scripts/upgrade-project.sh` ~2500,
+  `scripts/intake-wizard.sh` ~2250, `scripts/check-phase-gate.sh` ~1900,
+  `tests/full-project-test-suite.sh` ~2230.
 
 ## HOUSE RULES DIGEST
 
