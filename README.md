@@ -81,7 +81,7 @@ See the [User Guide](docs/user-guide.md) for detailed walkthrough of each step.
 
 - **Phase-gated development** — Five phases (Discovery, Architecture, Construction, Validation, Release) with explicit gate criteria. No skipping ahead.
 - **Security by default** — SAST (Semgrep), secret detection (gitleaks), dependency scanning (Snyk), license compliance, and DAST (OWASP ZAP) installed and configured automatically. CI pipeline blocks merges on findings.
-- **Test-driven development** — Tests first, implementation second. Pre-commit hooks warn when implementation ships without tests.
+- **Test-driven development** — Tests first, implementation second. A tier-keyed commit-time gate hard-blocks a `feat`/`fix`/`refactor` commit that ships implementation with no accompanying test on Sponsored-POC and Production projects (a logged warning on Personal and Private POC), with a recorded attestation escape for integration surfaces that can't carry a unit test.
 - **9 languages, extensible to any** — TypeScript, Python, Rust, Go, C#, Kotlin, Java, Dart, Swift ship out of the box. Need C++? Drop one CI template at `templates/pipelines/ci/cpp.yml` — it appears as a language option automatically.
 - **4 platforms, extensible to any** — Web, desktop, mobile, and MCP server ship out of the box. Need Azure Microservices? Drop a platform module at `docs/platform-modules/azure-microservices.md` and a release pipeline at `templates/pipelines/release/azure-microservices.yml` — it appears as a platform option automatically. **No code changes to the init script.** The framework auto-discovers platforms and languages from the file system. See [Modular Architecture](#modular-architecture) for details.
 - **Enterprise governance** — Approval authorities, compliance screening, insurance requirements, backup maintainer, and audit trail. Full documentation suite for CIO/CISO/Legal review.
@@ -147,7 +147,8 @@ your-project/
 │   └── release.yml                       # Release pipeline — platform-specific
 ├── .gitignore                             # Language + platform-appropriate ignores
 ├── .git/hooks/
-│   └── pre-commit                        # Secret detection + SAST quick scan
+│   ├── pre-commit                        # Secret detection + SAST quick scan
+│   └── commit-msg                        # Tier-keyed TDD-ordering gate + Build-Loop commit-message check
 ├── .claude/
 │   ├── framework/                        # Development Guardrails for Claude Code (gates, hooks, rules)
 │   ├── manifest.json                     # CDF config: pinned commit, active profile, active rules/hooks
@@ -341,7 +342,7 @@ Each phase produces artifacts that gate entry into the next phase. The AI execut
 2. **Start Claude Code** — point it at the Intake and Builder's Guide
 3. **The agent executes each phase** — asking you only for clarifying questions and approval at decision gates
 4. **You review at decision gates** — architecture selection, test assertions, security scan results, go-live readiness
-5. **Phase 3 validates everything** — security scans, integration tests, accessibility audit, threat model verification. Zero critical findings before proceeding.
+5. **Phase 3 validates everything** — five validation scanners (full-tree Semgrep, license compliance, Snyk, OWASP ZAP DAST, threat-model verification), integration tests, and accessibility audit. The Phase 3→4 gate refuses to advance until every scanner reports pass or carries a signed skip attestation. Zero critical findings before proceeding.
 6. **Phase 4 releases** (full path) or **confirms ready to deploy** (POC path)
 
 The [User Guide](docs/user-guide.md) walks through each step in detail — what you do, what the agent does, what external approvals are needed (organizational), and what output to expect at each phase.
@@ -528,7 +529,7 @@ The methodology, intake template, platform modules, and CI pipeline templates ar
 
 ## Known Limitations
 
-- **Enforcement has mechanical layers but some gaps remain.** The CI pipeline (SAST, dependency audit, license checking, tests) blocks merges on failure. The Development Guardrails for Claude Code pre-commit hooks (gitleaks, Semgrep) catch issues at commit time locally. **TDD ordering is now a tier-keyed commit-time gate (BL-072): a `feat`/`fix`/`refactor` commit that ships implementation with no accompanying test is a HARD BLOCK on Sponsored-POC / Production projects (keyed on `deployment` + `poc_mode`, not the spoofable `track`) and a logged WARNING on Personal / Private-POC projects — with a recorded `SOLO_TDD_ATTESTED=1` escape hatch for the integration surfaces that cannot carry a fast-lane unit test.** Together these provide mechanical enforcement for security, testing, and code quality. Phase gates, scope control, and documentation updates still rely on the AI agent following CLAUDE.md instructions and the human reviewing at decision gates — these remain Tier 3 (guided) controls with no automated backstop yet.
+- **Enforcement has mechanical layers but some gaps remain.** The CI pipeline (SAST, dependency audit, license checking, tests) blocks merges on failure. The Development Guardrails for Claude Code pre-commit hooks (gitleaks, Semgrep) catch issues at commit time locally. **TDD ordering is now a tier-keyed commit-time gate (BL-072): a `feat`/`fix`/`refactor` commit that ships implementation with no accompanying test is a HARD BLOCK on Sponsored-POC / Production projects (keyed on `deployment` + `poc_mode`, not the spoofable `track`) and a logged WARNING on Personal / Private-POC projects — with a recorded `SOLO_TDD_ATTESTED=1` escape hatch for the integration surfaces that cannot carry a fast-lane unit test.** Together these provide mechanical enforcement for security, testing, and code quality. Phase transitions are backstopped too: `scripts/test-gate.sh` blocks Phase 2→3 while SEV-1/2 bugs are open, and `scripts/check-phase-gate.sh` refuses Phase 3→4 until all five validation scanners pass or carry a signed skip attestation (the summary is bound to the tree it validated, so a stale or dirty summary is never silently trusted). Scope control and documentation updates still rely on the AI agent following CLAUDE.md instructions and the human reviewing at decision gates — these remain Tier 3 (guided) controls with no automated backstop yet.
 - **Release pipelines require configuration.** CI pipelines work immediately on first push. Release pipelines are templates with TODOs for code signing, deployment secrets, and store credentials that must be configured before first release.
 - **Docker is local only.** OWASP ZAP and Qdrant run as local Docker containers (via Colima or Docker Desktop on macOS, system Docker on Linux). Remote Docker hosts and network-accessible containers are not yet supported.
 - **Linux package manager support covers apt, dnf, and pacman.** Alpine (apk) and other distributions require manual tool installation. The init script auto-detects brew (macOS), apt (Debian/Ubuntu), dnf (Fedora/RHEL), and pacman (Arch/Manjaro).
