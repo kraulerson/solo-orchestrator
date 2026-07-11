@@ -37,3 +37,15 @@ plan → PRs → shipped state stays intact and citable.
 - `2026-07-09-gate-wave-execution-handoff.md` — FULLY EXECUTED (gate wave
   shipped as PRs #160–#167); closed out by
   [`../2026-07-10-gate-wave-close-out.md`](../2026-07-10-gate-wave-close-out.md).
+
+## Citation convention for handoffs
+
+Handoffs must cite code by durable handles, not positions:
+
+- Cite a grep-able `# BL-NNN-...` marker comment (the repo's citation
+  primitive) or a function name — both survive edits above them.
+- NEVER cite a bare `file:line`. Line numbers drift as files change and have
+  mis-resolved within ~24h of a handoff being written.
+- If a line number is truly unavoidable, pair it with the marker/function it
+  points at and flag it VERIFY-BEFORE-USE. When reading any older handoff,
+  re-grep every line-number citation before trusting it.
