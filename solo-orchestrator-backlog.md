@@ -2276,3 +2276,140 @@ Two follow-ups from the PR #169 verifier (BL-010 residual fix), both zero-impact
 **Fix:** `init.sh` ships the driver (+chmod) and the three libs; `verify-install.sh` adds them to its verify arrays + fix functions (`--auto-fix` heals existing projects, BL-074 precedent); `upgrade-project.sh` gains an idempotent source-closure backfill inside the backfill subshell — after the BL-015 sentinel guard (BL-081 ordering) — so `--backfill-only` and the full upgrade both heal existing projects. Also added the init.sh-driven fidelity test `tests/test-scaffold-tdd-block-real.sh` (real Sponsored-POC scaffold blocks the test-less `feat:` commit; upgrade/verify backfill regressions).
 
 **Related:** BL-072 C2 (PR #166, added `tdd-classify.sh`); BL-070 (`run-phase3-validation.sh`); BL-074 (fixture-hides-scaffold-gap precedent); BL-015/BL-081 (sentinel-before-backfill ordering); PR #173 (surfacing adversarial review); PR #175 (this fix). `init.sh:~1305-1360`; `scripts/pre-commit-gate.sh:21-27`; `scripts/check-phase-gate.sh` BL-070-GATE-AUTORUN; `scripts/verify-install.sh`; `scripts/upgrade-project.sh`.
+
+---
+
+## BL-089: Scaffold documentation-foundation templates — doc map, pre-seeded identifier registry, archive-with-stubs convention
+
+**Logged:** 2026-07-11 (Pantheon feedback A, amended per critique)
+**Category:** Proposal / agent ergonomics (downstream)
+**Severity:** Medium
+**Status:** Open
+
+Pantheon's month of operation hit identifier-namespace collisions (four unrelated "D" schemes, two "F" schemes), ghost citations, and unmarked superseded docs. `init.sh` should generate three documentation foundations at project birth:
+1. **`docs/INDEX.md`** — a doc-map skeleton with an explicit authority order (canon > dated design docs > archive) and a conventions section (name matches the mothership's own `docs/INDEX.md` convention).
+2. **`docs/IDENTIFIERS.md`** — an identifier-scheme registry **pre-seeded with the namespaces the framework itself mints** (TM- threat rows, BUG-, ADR numbering, UAT scenario ids), carrying the rule "one prefix = one namespace; register before minting; cross-namespace references are always qualified." Amended from Pantheon's empty-file proposal: an empty registry with a rule is a documented-but-unenforced promise (the BL-070..073 defect species); pre-seeding makes it demonstrably in use from day one. No enforcement lint — a capital-letters-plus-digits heuristic would flag RFC-2119, ISO dates, and model names (BL-072's measured FP lesson).
+3. **`docs/archive/` convention** — superseded working docs are MOVED there with a status banner **plus a pointer stub left at the old path** (the load-bearing half Pantheon's proposal omitted — archiving without stubs manufactures ghost citations, their own finding #2). Mirrors the mothership convention (BL-049; the 2026-07-11 estate consolidation, PR #174).
+
+All three are template drops covered by the BL-088 scaffold-fidelity surface (new shipped files → closure/backfill implications; verify-install/upgrade backfill per BL-088 precedent).
+
+**Related:** Pantheon `docs/2026-07-10-agent-legibility-remediation-plan.md` §U2 (external); BL-088 (shipped-set closure); BL-049 (archive convention); PR #174 (mothership estate consolidation); BL-090/BL-091/BL-092 (siblings from the same feedback).
+
+---
+
+## BL-090: check-doc-refs — doc-reference integrity checker (dogfood-first, measured rollout, then ship downstream)
+
+**Logged:** 2026-07-11 (Pantheon feedback B1, amended per critique)
+**Category:** Proposal / doc integrity + agent ergonomics (both repos)
+**Severity:** Medium
+**Status:** Open
+
+Pantheon's worst documented incident: a ghost "ADR-0003" cited in a dozen documents that never existed as a file, surviving three weeks of review. The mothership is exposed to the same class: `scripts/lint-doc-anchors.sh` validates only SAME-FILE anchors (BL-048), not relative file references or ADR-style citations. Build the missing capability:
+- **Checker:** scans markdown for relative file references and ADR/identifier-style citations; fails when a target file does not exist. Consciously decide extension-of-`lint-doc-anchors.sh` vs sibling script (one doc-integrity tool beats two drifting half-tools) — justify in the PR.
+- **Exemptions:** an inline `(planned)` marker next to the citation, NOT a separate allowlist file — allowlists rot into permanent exemptions (the KNOWN_ORPHANS bridge had to be sealed; BL-035). The marker lives beside the citation and dies with it.
+- **Rollout, dogfood-first and measured:** (1) run on THIS repo; fix what it finds; wire into `run-lints.sh` + CI as WARN; (2) calibrate the false-positive rate — Pantheon's own month of history is a labeled corpus (its true positives are known); (3) WARN→BLOCK only on measured FP evidence, never on a calendar (BL-072 C1→C2 discipline); (4) then ship downstream via the existing ship-lints mechanism (`init.sh` already ships `lint-uat-scenarios.sh` + `lint-fixture-envelopes.sh`) + the CI template, under BL-088 closure/backfill.
+- **Folded in (from Pantheon B2, demoted to advisory):** an advisory check that NEW handoff docs avoid bare `file:line` citations (the 2026-07-11 measured rot: 2 of 5 line-cites in a day-old handoff mis-resolved; markers are the citation primitive). Pantheon's "SUPERSEDED-markers-in-bottom-half" positional heuristic is dropped — a legitimate trailing History section false-positives immediately.
+- House test standard applies: hermetic suite, RED→GREEN mutation proof, dual registration.
+
+**Related:** BL-048 / `scripts/lint-doc-anchors.sh` (the sibling this extends); BL-035 (allowlist-rot lesson); BL-072 (measured-rollout discipline); BL-088 (ship + backfill); BL-089/BL-091/BL-092 (siblings).
+
+---
+
+## BL-091: Builders-guide documentation-rules section — corrections-on-top, single-home decisions, enforceable fail-closed rule
+
+**Logged:** 2026-07-11 (Pantheon feedback C, amended per critique)
+**Category:** Proposal / documentation doctrine
+**Severity:** Low
+**Status:** Open
+
+Add a documentation-rules section to `docs/builders-guide.md` (and generate the essentials into scaffold guidance):
+1. **Corrections appear ABOVE what they supersede.** Append-only stacks are for ledgers (approval log, changelog) ONLY; living documents are rewritten in place with a short history. (Pantheon evidence: agents reading top-down absorbed stale claims first; a companion system was misdated for weeks by the equivalent bug.)
+2. **Ledger vs living-document distinction** stated explicitly per document type in the doc map.
+3. **Absolute language carries its premise.** Any "never/always" ruling records the premise beside it so reversal conditions are visible. Guidance only — unenforceable, and recorded as such.
+4. **Single-home decisions (INVERSION of Pantheon's echo-list proposal).** Pantheon proposed per-ruling "echo lists" naming every copy — but a hand-maintained list of copies is duplicate truth about duplicate truth; their own finding #6 predicts its drift. The rule here: every decision has ONE canonical home; all other mentions LINK to it (stubs when things move). Echo lists only where duplication is genuinely forced, and then BL-090's checker verifies each echo cites the canonical home.
+5. **Enforcement source-of-truth banners:** each guide that describes enforcement carries a one-line banner naming the gate scripts as canonical (prose may lag; the scripts do not). (Ergonomics audit F8 — enforcement claims currently live in ~6 documents with no drift detection.)
+6. **Fail-closed loudness — relocated to an ENFORCEABLE surface.** Pantheon's rule ("any subsystem degraded by configuration says so loudly at startup" — their credential sat silently empty for 24 days) is an engineering rule, not a doc rule. Land it as: (a) a builders-guide engineering rule, and (b) a standing threat-model row in the PROJECT_BIBLE template ("silently degraded subsystem"), which the now-real threat-model scanner (PR #165) verifies at Phase 3 — a gate, not prose.
+7. **Non-operator attribution:** quoted text from non-operator authors (multi-agent buses, external contributors) inside canon documents is attributed inline.
+
+**Related:** Pantheon plan §U2; BL-090 (the checker that machine-verifies rules 4-5 where possible); PR #165 (threat-model scanner — the enforcement surface for rule 6); ergonomics audit F8.
+
+---
+
+## BL-092: Generated CLAUDE.md phase-scoped modularization + session-start token diet
+
+**Logged:** 2026-07-11 (Pantheon feedback D, amended per critique + token survey)
+**Category:** Proposal / agent token efficiency (downstream)
+**Severity:** Medium
+**Status:** Open — do LAST of the BL-089..092 quartet (largest change)
+
+**Measured problem (2026-07-11):** every downstream session front-loads `templates/generated/claude-md.tmpl` (236 lines; persona table + UAT authoring + Phase-3/4 procedure ≈ a third of it, inapplicable to most sessions), and the README kickoff prompt instructs a full read of the builders-guide (**2,018 lines ≈ 25-30k tokens**) plus intake + platform module at every fresh start. Pantheon's finding: chronically inapplicable instructions train agents to treat instructions as optional — consistent with the framework's own gate-credibility principle.
+
+**Fix shape:**
+1. Move persona/UAT/Phase-3-4 detail into on-demand files under the scaffold's `docs/reference/`, leaving **phase-scoped pointers** ("Phase 3 sessions: read docs/reference/uat-authoring.md before authoring UAT").
+2. **Retrieval enforced, not hoped for:** the phase-gate / process-checklist machinery emits the "read X for this phase" reminder — the framework's phases are the structural advantage naive extraction lacks.
+3. Kickoff prompt (README + init next-steps) becomes phase-scoped: read the builders-guide SECTION for the current phase, not the whole guide.
+4. **Pointer-integrity guard (hard precondition):** template doc-pointers join the BL-088 scaffold-fidelity/closure surface — a pointer to an unshipped reference file is silent instruction loss (BL-088's class in doc form; Pantheon's finding #2). No modularization ships without this check.
+5. **Acceptance is measured:** template + per-session mandatory-read token estimate before/after; zero instructions lost (pointers, not deletions); a behavioral spot-check that the right reference gets pulled in a phase-scoped session. Cheaper alternative to A/B first in one live project: phase-labeled sections within the existing file (most of the benefit, zero retrieval risk).
+
+**Related:** BL-088 (closure surface); BL-089 (doc map the pointers live in); ergonomics audit F5-equivalent; `templates/generated/claude-md.tmpl`; `init.sh` next-steps output.
+
+---
+
+## BL-093: Split the backlog audit-trail into an archive file — 92% of the file is closed history every reader pays for
+
+**Logged:** 2026-07-11 (agent token survey)
+**Category:** Debt / agent token efficiency (mothership)
+**Severity:** Low
+**Status:** Open
+
+**Measured (2026-07-11):** `solo-orchestrator-backlog.md` is 2,278 lines / 244KB; 81 of 88 entries are Closed/Resolved/Won't-Fix audit trail, 7 are open-ish. Every agent that opens the file for orientation pays ~60k tokens for ~8% signal.
+
+**Fix shape:** move done entries to `solo-orchestrator-backlog-archive.md` (audit trail preserved — nothing deleted, per convention); the main file keeps Open/Deferred/Parked + the legend + a one-line pointer to the archive. Hard requirements: `scripts/lint-backlog-references.sh` spans both files; every `[[cross-reference]]` and `Related:` link between the two files is verified repo-wide before the move (BL-090-style referrer discipline — a broken cross-ref is the ghost-citation class); the what's-open grep recipe stays true; entries move WITH their full text (no stubs needed per-entry — one archive pointer in the legend suffices since entry IDs are unique and greppable across both files).
+
+**Trigger:** any time; bundle-able with BL-090's checker (which can then verify the cross-file references mechanically).
+
+**Related:** BL-090; the 2026-07-11 legend truth-up (PR #176); `scripts/lint-backlog-references.sh`.
+
+---
+
+## BL-094: Grep-anchored function/section indexes for the five biggest scripts
+
+**Logged:** 2026-07-11 (ergonomics audit F7 + agent token survey)
+**Category:** Debt / agent token efficiency (mothership)
+**Severity:** Low
+**Status:** Open
+
+`init.sh` (~4,400 lines), `scripts/upgrade-project.sh` (~2,500), `scripts/intake-wizard.sh` (~2,250), `scripts/check-phase-gate.sh` (~1,900), `tests/full-project-test-suite.sh` (~2,230) have no top-of-file map; agents either read tens of thousands of tokens or grep blind (init.sh has only 29 named functions across 4,400 lines — much logic is inline sections). Add a ~15-line index header to each listing **function names and `# ====` section-marker names only — NO line numbers** (a line-numbered index self-stales; the 2026-07-11 measured handoff-rot rate was 40% within a day, and PR #176's own count went stale in the same PR that wrote it). Convention documented in CLAUDE.md. Acceptance: every index entry greppable verbatim; a follow-up check (fold into BL-090 or run-lints) can verify index entries still exist in the body.
+
+**Related:** ergonomics audit F7; CLAUDE.md "big files" gotcha (PR #176); BL-046 (helpers split precedent for the deeper refactor this deliberately avoids).
+
+---
+
+## BL-095: Centralize deployment/poc_mode state parsing — nine scripts parse it inline today
+
+**Logged:** 2026-07-11 (ergonomics audit F4, grown by BL-086)
+**Category:** Debt / correctness + agent sync burden
+**Severity:** Medium
+**Status:** Open
+
+**Measured (2026-07-11):** nine files read `poc_mode`/`deployment` from state (check-phase-gate.sh — three DIFFERENT extraction variants, per audit; intake-wizard.sh; reconfigure-project.sh; run-phase3-validation.sh — BL-086 added another; pre-commit-gate.sh; process-checklist.sh; upgrade-project.sh; init.sh; verify-install.sh), while `scripts/lib/enforcement-level.sh` sits mostly unsourced. The duplicated parsing already caused the BL-084 null/production mishandling class, and every new gate re-derives it (BL-086 just did). Agents changing tier logic must locate and sync N inconsistent copies.
+
+**Fix shape:** single `read_deployment()` / `read_poc_mode()` (jq-with-grep-fallback, null-safe) in the shipped lib; migrate the nine call sites to it. **Predicates stay per-gate** where semantics deliberately differ (BL-084 bypass vs BL-086 license-tier) — this centralizes PARSING, not policy. Constraints: all existing mutation-proofed suites (BL-084, BL-072 C2, BL-086) stay green untouched in intent; the lib is on the shipped set (BL-088 closure covers it); migrate incrementally with per-site verification, not a big-bang.
+
+**Related:** ergonomics audit F4; BL-084 (the defect class); `# BL-084-TIER-KEY` sync-comment sites; `# BL-086-TIER`; `scripts/lib/enforcement-level.sh`; BL-088 (closure).
+
+---
+
+## BL-096: Cold-start hardening bundle — CDF preflight, --tdd-only help truth, contributor hook bootstrap
+
+**Logged:** 2026-07-11 (ergonomics audit F6/F9/F10 leftovers)
+**Category:** Debt / agent + contributor onboarding
+**Severity:** Low
+**Status:** Open
+
+Three small onboarding traps the 2026-07-11 CLAUDE.md documents but does not fix at the point of failure:
+1. **CDF preflight (F9):** tests/init.sh needing `~/.claude-dev-framework` fail deep in the suite on a fresh host; a preflight prints the exact `git clone` line at the point of failure instead.
+2. **`--tdd-only` help truth (F6):** the flag runs TWO message gates (BL-072 TDD + BL-006 Build Loop; name kept for hook back-compat) — surface this in `pre-commit-gate.sh --help`/usage text, and consider a `--commit-msg-gates` alias (hooks keep the old flag).
+3. **Contributor hook bootstrap (F10):** a one-liner (script or documented command) that installs `pre-commit-gate.sh` into `.git/hooks/` for framework contributors, so local commits face the same gates CI does instead of discovering them at PR time.
+
+**Related:** ergonomics audit F6/F9/F10; CLAUDE.md (PR #176 — documents these; this entry fixes them at source); CONTRIBUTING.md.
