@@ -98,21 +98,24 @@ is current.
 **Parked:** **BL-017** (intake-wizard.sh non-interactive mode — no operator
 demand in 60+ days; field-specific flags cover known needs).
 
-**Held trio — recon recommendations PRESENTED to Karl 2026-07-10, AWAITING his
-answer. DO NOT FLIP THESE.** They remain `Open — HELD 2026-07-05 pending BL-072
-design`. After the C2 hard block shipped, the one-pass recon recommends:
+**Held trio — DECIDED by Karl 2026-07-10.** Recon recommendations were presented;
+Karl decided BL-010 = "Fix it" (build the residual, then close) and retired
+BL-011 + BL-014 as Won't Fix. Outcomes:
 - **BL-010** (`.git/hooks/commit-msg` for editor-case / human-terminal coverage)
-  — **close-as-absorbed**: PR #166's commit-msg hook infrastructure already
-  delivers editor-case / human-terminal commit enforcement. The residual
-  "extend the BL-006 build-loop check to the same hook" is optional with no
-  demand signal.
-- **BL-011** (Cutline-ID-aware enforcement) — **Won't-Fix recommended**: not
-  absorbed by C2, zero demand in 78 days, and it conflicts doctrinally with
-  BL-007's convention-free rule.
-- **BL-014** (Commit-type hygiene enforcement) — **Won't-Fix recommended**:
-  C1/C2's measured 50% false-positive floor on the EASIER prefix+path signal
-  empirically confirms that diff-intent inference is too brittle to enforce, and
-  the attestation ledger already provides the honest audit trail.
+  — **Fixed + Closed (PR #169)**. PR #166's commit-msg hook infrastructure
+  already reached editor-case / human-terminal commits for the C2 TDD gate; PR
+  #169 wired the residual — the older BL-006 Build-Loop commit-message check —
+  into the same surface (`bl006_terminal_enforce`, delegating to the identical
+  `process-checklist.sh --check-commit-message` the PreToolUse path uses). Full
+  parity, mothership-safe, 11-assertion suite + RED→GREEN mutation.
+- **BL-011** (Cutline-ID-aware enforcement) — **Won't Fix (Karl 2026-07-10)**:
+  zero operator demand since 2026-04-23, and it would re-impose an F-/ID- ID
+  convention BL-007 deliberately avoided. Reopen on a concrete Cutline-drift case.
+- **BL-014** (Commit-type hygiene enforcement) — **Won't Fix (Karl 2026-07-10)**:
+  the BL-072 C1/C2 measurement (`Reports/2026-07-10-bl072-warn-dogfood.md`: 50%
+  false-positive floor on the simpler prefix+path signal) empirically shows
+  diff-intent inference would misfire worse; the C2 attestation ledger provides
+  the audit trail. Reopen on observed abuse of the commit-type escape route.
 
 ---
 
@@ -180,10 +183,9 @@ the known parametrized tool that needs a scenario argument).
 ## 5. What NOT to touch (unchanged from the execution handoff §3)
 
 - **Deferred:** BL-085 (full-suite CI-fast), BL-019/042/043 (next-quarter recon).
-- **Held pending Karl's answer:** BL-010/011/014 — recommendations are recorded
-  in §3 above; do NOT flip until Karl decides.
-- **Parked:** BL-017. **Won't Fix:** BL-012/013/058 (and, if Karl agrees,
-  BL-011/014).
+- **Held trio — DECIDED by Karl 2026-07-10 (see §3):** BL-010 fixed + closed
+  (PR #169); BL-011 + BL-014 Won't Fix.
+- **Parked:** BL-017. **Won't Fix:** BL-011/012/013/014/058.
 - The full-suite CI lane (`workflow_dispatch` `full` job) — leave manual-only.
 - **Branch protection settings** — leave as-is.
 - CDF (`~/.claude-dev-framework`) — no upstream work is in scope; if a fix turns
@@ -240,9 +242,9 @@ git worktree remove scratchpad/wt-pr125
 > close-out doc, then verify state — `main` green (cite the current
 > `gh run list --branch main` run IDs), branch protection active, no open PRs, no
 > pending-approval sentinel — and summarize what you see before dispatching
-> anything. The gate wave is DONE; the open work is: (1) whatever Karl decided on
-> the held trio BL-010/011/014 (recon recommendations are in §3 — close-BL-010,
-> Won't-Fix BL-011, Won't-Fix BL-014 — do NOT flip until he answers); (2) the new
+> anything. The gate wave is DONE; the held trio BL-010/011/014 is RESOLVED
+> (Karl 2026-07-10: BL-010 fixed + closed via PR #169; BL-011 + BL-014 Won't Fix
+> — see §3). The remaining open work is: (1) the new
 > BL-086 license-policy layer (Open, Karl decision on whether/when to build);
 > (3) the deferred set BL-019/042/043/085 (opportunistic only — no demand). Honor
 > every rule in the execution handoff §0 (no merge on red, TDD + mutation proofs,

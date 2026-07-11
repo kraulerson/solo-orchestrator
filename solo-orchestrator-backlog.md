@@ -193,7 +193,7 @@ Surfaced during lancache project UAT Session 1 (2026-04-22 → 2026-04-23). The 
 **Logged:** 2026-04-23
 **Category:** Proposal
 **Severity:** Low
-**Status:** Open — Optional; HELD 2026-07-05 pending BL-072 (TDD hard-enforce) design — that item may absorb editor-case/human-terminal commit enforcement.
+**Status:** Closed (2026-07-10, PR #166 shipped the commit-msg hook infrastructure; PR #169 wired the BL-006 check into it per Karl's "Fix it" decision).
 
 Punted from BL-006. Install a local `commit-msg` git hook via `init.sh` that invokes `scripts/process-checklist.sh --check-commit-message "$(head -n1 "$1")"`. Extends enforcement to two populations the PreToolUse hook cannot reach: (a) `git commit` with no `-m` flag (editor opens), and (b) human-Orchestrator commits from the terminal. The BL-006 design was explicitly built so this is a pure addition — no refactor needed.
 
@@ -203,6 +203,8 @@ Punted from BL-006. Install a local `commit-msg` git hook via `init.sh` that inv
 
 **Related:** BL-006 spec § 10 (out-of-scope note); `pre-commit-gate.sh` architecture is Claude-only by design.
 
+**Resolution:** Karl decided 2026-07-10 "Fix it" (build the residual, then close). PR #166 (BL-072 C2) already installed the `commit-msg` git hook (`init.sh::install_tdd_commit_msg_hook`, invoking `pre-commit-gate.sh --terminal-mode --tdd-only`), which reaches editor-written and human-terminal commits. PR #169 wired the older BL-006 Build-Loop commit-message check into that same surface via a new `bl006_terminal_enforce()` — it delegates to the SAME `process-checklist.sh --check-commit-message` subcommand the PreToolUse `bl006_check` uses, enforcing identical block conditions, subject (first message line), and remediation. Derivative commits pass through via their commit-msg-time git sentinels (`MERGE_HEAD` / `CHERRY_PICK_HEAD` / `REVERT_HEAD`), mirroring the PreToolUse command-string filters. Mothership-safe on two layers (no-op when the project lacks `scripts/process-checklist.sh`; `check_commit_message` phase-gates at `current_phase < 2`). Load-bearing wiring marked `# BL-010-COMMITMSG-BL006`. Tests: `tests/test-bl010-commitmsg-bl006.sh` (11 assertions — block / pass / editor-case real `git commit` / mothership no-op / cross-surface parity / RED→GREEN mutation), registered in both aggregators; the BL-072 C1/C2 suite stays green (36/36).
+
 ---
 
 ## BL-011: Cutline-ID-aware enforcement
@@ -210,7 +212,7 @@ Punted from BL-006. Install a local `commit-msg` git hook via `init.sh` that inv
 **Logged:** 2026-04-23
 **Category:** Proposal
 **Severity:** Low
-**Status:** Open — Optional; HELD 2026-07-05 pending BL-072 design — TDD/commit-type enforcement may absorb Cutline-ID-aware enforcement.
+**Status:** Won't Fix (2026-07-10, Karl decision). Zero operator demand since 2026-04-23; would re-impose an F-/ID- ID convention BL-007 deliberately avoided. Reopen on a concrete Cutline-drift case.
 
 Punted from BL-006. Parse `PRODUCT_MANIFESTO.md §5` for F-/ID- Cutline identifiers and require commits that touch Cutline work to explicitly reference the ID (e.g., `feat(ID1): ...`), cross-checking that each Cutline ID gets exactly one Build Loop. Catches drift where Cutline work masquerades as a bugfix (`fix(ID1): ...`) or doesn't mention the ID at all.
 
@@ -261,7 +263,7 @@ Punted from BL-006. `gh pr merge --squash` runs on the remote host, outside the 
 **Logged:** 2026-04-23
 **Category:** Proposal
 **Severity:** Low
-**Status:** Open — Optional; HELD 2026-07-05 pending BL-072 design — commit-type hygiene overlaps the TDD hard-enforce surface.
+**Status:** Won't Fix (2026-07-10, Karl decision). The BL-072 C1/C2 measurement (Reports/2026-07-10-bl072-warn-dogfood.md: 50% false-positive floor on the simpler prefix+path signal) empirically shows diff-intent inference would misfire worse; the C2 attestation ledger provides the audit trail. Reopen on observed abuse of the commit-type escape route.
 
 Punted from BL-006. Prevent mis-typed commit types — e.g., a real feature disguised as `chore:` or `refactor:` to evade the BL-006 gate. Would require intent inference from the staged diff (lines added to `src/`, new public API surface, new test files asserting behavior) combined with the declared commit-type.
 
