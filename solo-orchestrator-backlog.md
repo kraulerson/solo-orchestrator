@@ -2413,3 +2413,25 @@ Three small onboarding traps the 2026-07-11 CLAUDE.md documents but does not fix
 3. **Contributor hook bootstrap (F10):** a one-liner (script or documented command) that installs `pre-commit-gate.sh` into `.git/hooks/` for framework contributors, so local commits face the same gates CI does instead of discovering them at PR time.
 
 **Related:** ergonomics audit F6/F9/F10; CLAUDE.md (PR #176 — documents these; this entry fixes them at source); CONTRIBUTING.md.
+
+---
+
+## BL-097: Subagent model-selection rubric — assess-and-select instead of inheriting the session model
+
+**Logged:** 2026-07-11 (Karl directive, token-efficiency wave)
+**Category:** Proposal / agent token efficiency + capability (both repos)
+**Severity:** Low
+**Status:** Open
+
+Orchestrating agents (in generated projects and on this repo) dispatch subagents that today either silently inherit the session's model or blanket-use the top tier — both wrong: silent inheritance caused a real 2026-07-10 incident (a fleet ran on an unintended model until killed), and blanket top-tier is cost overkill for mechanical work. The rule to encode wherever multi-agent dispatch is documented (the generated CLAUDE.md's Multi-Agent Parallelism section — `templates/generated/claude-md.tmpl`; the mothership `CLAUDE.md`; `docs/builders-guide.md` if it covers dispatch):
+
+1. **Never inherit silently** — every dispatch names its model (and effort) explicitly.
+2. **Assess per dispatch** on three axes: task difficulty (judgment/design vs mechanical), blast radius (does an error ship? gate/enforcement code = high), and downstream verification (strongly verified work tolerates a cheaper implementer).
+3. **Tier guide:** top tier for enforcement/gate logic, adversarial verification, architecture judgment, and fact-verification documents; mid tier for routine well-specified implementation, doc drafting from verified sources, and structured refactors with strong tests; small tier for mechanical transforms, bulk searches, and classification sweeps.
+4. **Verifiers ≥ implementers** in tier whenever the work is risky.
+5. When uncertain: one tier up for enforcement code, one tier down for mechanical work.
+6. **Transparency:** the dispatch summary states the fleet's model/effort mix so the operator can veto.
+
+Sequencing note: if BL-092 moves the Multi-Agent section into a phase-scoped reference file, this rubric rides along — the two entries are compatible in either order.
+
+**Related:** BL-092 (template modularization — shared surface); BL-089..BL-096 (the 2026-07-11 agent-optimization wave this joins); `templates/generated/claude-md.tmpl` (Multi-Agent Parallelism / Agent Personas sections); the 2026-07-10 model-inheritance incident (post-mortem `Reports/2026-07-11-project-post-mortem.md` §5).
