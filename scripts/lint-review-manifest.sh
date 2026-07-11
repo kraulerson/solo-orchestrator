@@ -15,7 +15,11 @@
 #
 #   Top level MUST be a JSON object with a `reviews` array. Each entry:
 #     {
-#       "reviewer":  "<non-empty string>",          # REQUIRED (slug or persona)
+#       "reviewer":  "<non-empty string>",          # REQUIRED. Slug or persona for
+#                     # personal-track projects; on ORGANIZATIONAL deployments the
+#                     # review of record is a live person (senior dev included),
+#                     # named in signed_by — persona output is supplementary, not
+#                     # the review itself (builders-guide § Review manifest).
 #       "status":    "complete" | "skipped" | "failed",  # REQUIRED
 #       "artifact":  "<non-empty string>",           # REQUIRED (path to report)
 #       "signed_by": "<non-empty string>",           # OPTIONAL (validated if present)
