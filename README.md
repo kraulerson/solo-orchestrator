@@ -95,7 +95,7 @@ See the [User Guide](docs/user-guide.md) for detailed walkthrough of each step.
 | Tool | Required | Install |
 |---|---|---|
 | **Git** | Yes | Init script offers to install automatically (brew/apt/dnf). Or install manually: [git-scm.com](https://git-scm.com/downloads) |
-| **Node.js** | Yes | Floor: 18.17+ (matches init script version check). **Recommended: 20 LTS or 22 LTS** — Node 18 reached end-of-life April 2025, so new installs should pick a supported LTS. Init script offers to install automatically. Required as infrastructure tooling (Snyk CLI, license-checker) regardless of your project language. Also the runtime for JS/TS projects. |
+| **Node.js** | Yes | Floor: 18+ (the init script checks the major version). **Recommended: 20 LTS or 22 LTS** — Node 18 reached end-of-life April 2025, so new installs should pick a supported LTS. Init script offers to install automatically. Required as infrastructure tooling (Snyk CLI, license-checker) regardless of your project language. Also the runtime for JS/TS projects. |
 | **Language runtime** | Yes | Python, Rust/Cargo, .NET SDK, JDK, Go, or Flutter (if not using Node.js/TypeScript). Init script offers to install your selected runtime automatically. |
 | **jq** | Yes | Init script offers to install automatically (brew/apt/dnf). Required by the Development Guardrails for Claude Code for JSON operations. |
 | **Docker** | Recommended | Init script offers to install automatically. macOS: choice of Colima (recommended — headless, no license required, auto-starts on boot) or Docker Desktop. Linux: system package with systemd auto-start. Used by Qdrant (persistent semantic memory) and OWASP ZAP (DAST scanning). |
@@ -207,7 +207,7 @@ your-project/
 │   ├── resume.sh                          # Session resume prompt generator
 │   └── lib/helpers.sh                     # Shared shell helpers (colors, logging, MCP detection)
 ├── templates/
-│   ├── generated/                         # 26 .tmpl files (CLAUDE.md, Manifesto, Bible, ADR, ...)
+│   ├── generated/                         # 24 .tmpl files (CLAUDE.md, Manifesto, Bible, ADR, ...)
 │   ├── tool-matrix/                       # Tool resolution matrix per platform
 │   │   ├── common.json                    # Universal tools (git, node, jq, docker, ...)
 │   │   ├── web.json
