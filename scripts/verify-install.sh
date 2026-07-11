@@ -318,6 +318,10 @@ check_scripts() {
   local scripts=(
     "scripts/validate.sh"
     "scripts/check-phase-gate.sh"
+    # BL-088: the Phase-3→4 gate in check-phase-gate.sh auto-runs / points at
+    # this driver via P3_DRIVER="$SCRIPT_DIR/run-phase3-validation.sh". Verify +
+    # backfill it so pre-BL-088 projects heal on `verify-install --auto-fix`.
+    "scripts/run-phase3-validation.sh"
     "scripts/check-gate.sh"
     "scripts/check-updates.sh"
     "scripts/resume.sh"
@@ -353,6 +357,14 @@ check_scripts() {
   local libs=(
     "scripts/lib/enforcement-level.sh"
     "scripts/lib/gate-principles.sh"
+    # BL-088: sourced gate deps that shipped scripts load via
+    # "$SCRIPT_DIR/lib/<name>" — each absence silently breaks the sourcing
+    # gate (tdd-classify.sh no-ops the TDD hard block; phase2-state.sh crashes
+    # check-gate.sh's Phase-2 write-back; cdf-refresh.sh silently skips the CDF
+    # upgrade sync). Verify + backfill so pre-BL-088 projects heal on fixup.
+    "scripts/lib/tdd-classify.sh"
+    "scripts/lib/phase2-state.sh"
+    "scripts/lib/cdf-refresh.sh"
   )
   local lib_name
   for lib in "${libs[@]}"; do
@@ -1075,7 +1087,7 @@ fix_script() {
 }
 
 # Generate fix functions for each script
-for _s in validate check-phase-gate check-gate check-updates resume intake-wizard resolve-tools upgrade-project reconfigure-project verify-install test-gate check-versions session-version-check session-test-gate-check session-end-qdrant-reminder session-mcp-gate process-checklist pre-commit-gate track-tool-usage pending-approval lint-uat-scenarios escalate-to-user detect-out-of-band-commits install-filesystem-gates lint-fixture-envelopes; do
+for _s in validate check-phase-gate run-phase3-validation check-gate check-updates resume intake-wizard resolve-tools upgrade-project reconfigure-project verify-install test-gate check-versions session-version-check session-test-gate-check session-end-qdrant-reminder session-mcp-gate process-checklist pre-commit-gate track-tool-usage pending-approval lint-uat-scenarios escalate-to-user detect-out-of-band-commits install-filesystem-gates lint-fixture-envelopes; do
   eval "fix_script_chmod_${_s}() { chmod +x 'scripts/${_s}.sh'; }"
   eval "fix_script_copy_${_s}() { fix_script '${_s}.sh'; }"
 done
@@ -1085,6 +1097,11 @@ eval "fix_script_copy_record-claude-commit()  { fix_script 'hooks/record-claude-
 # BL-030: sourced libs — no chmod, copy only.
 fix_lib_copy_enforcement-level() { if has_source && [ -f "$SOURCE_DIR/scripts/lib/enforcement-level.sh" ]; then mkdir -p scripts/lib && cp "$SOURCE_DIR/scripts/lib/enforcement-level.sh" scripts/lib/; else return 1; fi; }
 fix_lib_copy_gate-principles()   { if has_source && [ -f "$SOURCE_DIR/scripts/lib/gate-principles.sh" ];   then mkdir -p scripts/lib && cp "$SOURCE_DIR/scripts/lib/gate-principles.sh"   scripts/lib/; else return 1; fi; }
+# BL-088: sourced gate deps (tdd-classify, phase2-state, cdf-refresh). No chmod
+# — they are sourced, not executed (mirrors enforcement-level/gate-principles).
+fix_lib_copy_tdd-classify()      { if has_source && [ -f "$SOURCE_DIR/scripts/lib/tdd-classify.sh" ];      then mkdir -p scripts/lib && cp "$SOURCE_DIR/scripts/lib/tdd-classify.sh"      scripts/lib/; else return 1; fi; }
+fix_lib_copy_phase2-state()      { if has_source && [ -f "$SOURCE_DIR/scripts/lib/phase2-state.sh" ];      then mkdir -p scripts/lib && cp "$SOURCE_DIR/scripts/lib/phase2-state.sh"      scripts/lib/; else return 1; fi; }
+fix_lib_copy_cdf-refresh()       { if has_source && [ -f "$SOURCE_DIR/scripts/lib/cdf-refresh.sh" ];       then mkdir -p scripts/lib && cp "$SOURCE_DIR/scripts/lib/cdf-refresh.sh"       scripts/lib/; else return 1; fi; }
 # Hooks live in a subdirectory; chmod + copy paths reflect that. The
 # basename of scripts/hooks/bypass-detector.sh is `bypass-detector`, so
 # the helper names must match (with hyphens, via eval).

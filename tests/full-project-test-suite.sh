@@ -522,6 +522,25 @@ else
   fail "tests/test-phase3-validation-gate.sh FAILED (run for details)"
 fi
 
+# BL-088: scaffold source-closure. init.sh must ship every sibling script that a
+# shipped gate sources/execs via "$SCRIPT_DIR/..." (tdd-classify.sh silently
+# no-op'd the TDD hard block; run-phase3-validation.sh's pass-path was
+# unreachable). test-scaffold-source-closure.sh is the static class killer (RED
+# if any shipped script sources an unshipped sibling); test-scaffold-tdd-block-
+# real.sh is the init.sh-driven fidelity proof (a real Sponsored-POC scaffold
+# blocks a test-less feat: commit) + the upgrade/verify backfill for existing
+# projects.
+if bash "$SCRIPT_DIR/tests/test-scaffold-source-closure.sh" >/dev/null 2>&1; then
+  pass "tests/test-scaffold-source-closure.sh"
+else
+  fail "tests/test-scaffold-source-closure.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-scaffold-tdd-block-real.sh" >/dev/null 2>&1; then
+  pass "tests/test-scaffold-tdd-block-real.sh"
+else
+  fail "tests/test-scaffold-tdd-block-real.sh FAILED (run for details)"
+fi
+
 # BL-070 increment (WP-B1): scripts/run-phase3-validation.sh's `license` scanner
 # promoted from stub to REAL. Reads the project language from
 # .claude/tool-preferences.json (.context.language — the canonical source, NOT
