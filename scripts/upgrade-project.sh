@@ -478,6 +478,42 @@ if [ "$BACKFILL_ONLY" != true ]; then _bl015_sentinel_guard; fi
     done
     print_ok "Vendored skills synced into .claude/skills/ (code-upgrade-project-3)"
   fi
+
+  # --- BL-088: scaffold source-closure backfill ---------------------------
+  # init.sh's copy list omitted several sourced gate dependencies, so projects
+  # scaffolded before the fix lack them and the sourcing gate breaks silently:
+  #   • scripts/lib/tdd-classify.sh — pre-commit-gate.sh's silent-skip source
+  #     loop no-op'd the tier-keyed TDD hard block (a test-less feat: commit in
+  #     a Sponsored-POC project was ALLOWED). This block restores enforcement.
+  #   • scripts/lib/phase2-state.sh — check-gate.sh sources it unguarded.
+  #   • scripts/lib/cdf-refresh.sh  — upgrade sources it to sync CDF assets.
+  #   • scripts/run-phase3-validation.sh — check-phase-gate.sh's Phase-3→4 gate
+  #     auto-runs / points the operator at it.
+  # Lives inside the backfill subshell (after the BL-015 sentinel guard, per
+  # BL-081 ordering) so BOTH --backfill-only and the full upgrade heal it.
+  # Idempotent: cp overwrites identically; the -ef self-copy guard skips the
+  # in-framework-repo invocation (source and dest resolve to the same file).
+  if [ -d scripts ]; then
+    mkdir -p scripts/lib
+    for _bl088_rel in \
+      "lib/tdd-classify.sh" \
+      "lib/phase2-state.sh" \
+      "lib/cdf-refresh.sh" \
+      "run-phase3-validation.sh"; do
+      _bl088_src="$SCRIPT_DIR/$_bl088_rel"
+      _bl088_dst="scripts/$_bl088_rel"
+      [ -f "$_bl088_src" ] || continue
+      if [ -e "$_bl088_dst" ] && [ "$_bl088_src" -ef "$_bl088_dst" ]; then
+        continue
+      fi
+      cp "$_bl088_src" "$_bl088_dst"
+      case "$_bl088_rel" in
+        run-phase3-validation.sh) chmod +x "$_bl088_dst" ;;  # exec'd by the gate
+      esac
+      print_ok "scripts/$_bl088_rel backfilled (BL-088 source-closure)"
+    done
+    unset _bl088_rel _bl088_src _bl088_dst
+  fi
 )
 
 # --backfill-only short-circuits here — no track / deployment / POC

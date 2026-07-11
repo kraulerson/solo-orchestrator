@@ -1307,6 +1307,12 @@ create_project() {
   cp "$SCRIPT_DIR/scripts/lib/helpers-full.sh"  scripts/lib/
   cp "$SCRIPT_DIR/scripts/validate.sh" scripts/
   cp "$SCRIPT_DIR/scripts/check-phase-gate.sh" scripts/
+  # BL-088: check-phase-gate.sh's Phase-3→4 gate auto-runs (and points the
+  # operator at) scripts/run-phase3-validation.sh via P3_DRIVER="$SCRIPT_DIR/
+  # run-phase3-validation.sh". Omitting it left the pass-path unreachable
+  # downstream — the gate failed closed but told the operator to run a script
+  # that did not exist in the scaffold. Ship the driver beside its caller.
+  cp "$SCRIPT_DIR/scripts/run-phase3-validation.sh" scripts/
   cp "$SCRIPT_DIR/scripts/check-gate.sh" scripts/
   cp "$SCRIPT_DIR/scripts/check-updates.sh" scripts/
   cp "$SCRIPT_DIR/scripts/resume.sh" scripts/
@@ -1340,6 +1346,23 @@ create_project() {
   # the strict-mode framework-gate.sh.
   cp "$SCRIPT_DIR/scripts/lib/enforcement-level.sh" scripts/lib/
   cp "$SCRIPT_DIR/scripts/lib/gate-principles.sh"   scripts/lib/
+  # BL-088: sourced gate dependencies that shipped gate scripts load via
+  # "$SCRIPT_DIR/lib/<name>" but that this copy list never enumerated. Each
+  # absence is a silent downstream failure of the sourcing gate:
+  #   • tdd-classify.sh — pre-commit-gate.sh sources it for the tier-keyed TDD
+  #     hard block (BL-072 C2). Its silent-skip loop meant a test-less feat:
+  #     commit in a Sponsored-POC scaffold was ALLOWED (rc=0) — the flagship
+  #     gate no-op'd. (Empirically proven, PR #173 adversarial review.)
+  #   • phase2-state.sh — check-gate.sh sources it (no [-f] guard) for Phase-2
+  #     step write-back; absent, that path dies "No such file or directory".
+  #   • cdf-refresh.sh — upgrade-project.sh sources it to refresh CDF assets;
+  #     absent, every scaffolded project silently skipped the CDF sync on
+  #     upgrade. The source-closure check (tests/test-scaffold-source-closure.sh)
+  #     is the class fix: it fails if any shipped script sources an unshipped
+  #     sibling.
+  cp "$SCRIPT_DIR/scripts/lib/tdd-classify.sh"      scripts/lib/
+  cp "$SCRIPT_DIR/scripts/lib/phase2-state.sh"      scripts/lib/
+  cp "$SCRIPT_DIR/scripts/lib/cdf-refresh.sh"       scripts/lib/
   cp "$SCRIPT_DIR/scripts/install-filesystem-gates.sh" scripts/
   cp "$SCRIPT_DIR/scripts/detect-out-of-band-commits.sh" scripts/
   cp "$SCRIPT_DIR/scripts/hooks/record-claude-commit.sh" scripts/hooks/
@@ -1353,7 +1376,7 @@ create_project() {
   cp "$SCRIPT_DIR/scripts/lib/host.sh" scripts/lib/
   cp "$SCRIPT_DIR/scripts/host-drivers/"*.sh scripts/host-drivers/
   chmod +x scripts/host-drivers/*.sh
-  chmod +x scripts/validate.sh scripts/check-phase-gate.sh scripts/check-gate.sh scripts/check-updates.sh scripts/resume.sh scripts/intake-wizard.sh scripts/resolve-tools.sh scripts/upgrade-project.sh scripts/reconfigure-project.sh scripts/verify-install.sh scripts/test-gate.sh scripts/check-versions.sh scripts/session-version-check.sh scripts/session-test-gate-check.sh scripts/session-end-qdrant-reminder.sh scripts/session-mcp-gate.sh scripts/process-checklist.sh scripts/pre-commit-gate.sh scripts/track-tool-usage.sh scripts/pending-approval.sh scripts/lint-uat-scenarios.sh
+  chmod +x scripts/validate.sh scripts/check-phase-gate.sh scripts/run-phase3-validation.sh scripts/check-gate.sh scripts/check-updates.sh scripts/resume.sh scripts/intake-wizard.sh scripts/resolve-tools.sh scripts/upgrade-project.sh scripts/reconfigure-project.sh scripts/verify-install.sh scripts/test-gate.sh scripts/check-versions.sh scripts/session-version-check.sh scripts/session-test-gate-check.sh scripts/session-end-qdrant-reminder.sh scripts/session-mcp-gate.sh scripts/process-checklist.sh scripts/pre-commit-gate.sh scripts/track-tool-usage.sh scripts/pending-approval.sh scripts/lint-uat-scenarios.sh
 
   # Copy intake suggestion files
   mkdir -p templates/intake-suggestions
