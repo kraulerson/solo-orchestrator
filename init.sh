@@ -2589,8 +2589,11 @@ EXITEOF
 }
 
 # install_tdd_commit_msg_hook — idempotently add a managed block to
-# .git/hooks/commit-msg that delegates to the framework gate's tier-keyed TDD
-# ordering enforcement (`pre-commit-gate.sh --terminal-mode --tdd-only`). A
+# .git/hooks/commit-msg that delegates to the framework gate's two message-scoped
+# commit-msg enforcers (`pre-commit-gate.sh --terminal-mode --tdd-only`): the
+# tier-keyed TDD-ordering gate (BL-072 C2) AND the BL-006 Build-Loop
+# commit-message check (BL-010) — the latter extends BL-006 to editor-opened /
+# human-terminal commits, which the AI-only PreToolUse hook cannot reach. A
 # non-zero exit aborts the commit. Composes with an existing commit-msg hook via
 # a marked block; graceful no-op if the gate script is absent at commit time.
 install_tdd_commit_msg_hook() {
@@ -2609,11 +2612,16 @@ install_tdd_commit_msg_hook() {
   {
     echo ""
     echo "$mark_open"
-    echo '# Tier-keyed test-first enforcement (BL-072 Phase C2): sponsored-POC /'
-    echo '# production -> HARD BLOCK when a feat/fix/refactor commit ships'
-    echo '# implementation with no accompanying test; personal / private-POC ->'
-    echo '# logged WARNING (bypassable). Escape: SOLO_TDD_ATTESTED=1 (recorded to'
-    echo '# .claude/process-state.json::tdd_attestations[]).'
+    echo '# Two message-scoped commit-msg gates run here (--terminal-mode --tdd-only):'
+    echo '#  1. Tier-keyed test-first enforcement (BL-072 Phase C2): sponsored-POC /'
+    echo '#     production -> HARD BLOCK when a feat/fix/refactor commit ships'
+    echo '#     implementation with no accompanying test; personal / private-POC ->'
+    echo '#     logged WARNING (bypassable). Escape: SOLO_TDD_ATTESTED=1 (recorded to'
+    echo '#     .claude/process-state.json::tdd_attestations[]).'
+    echo '#  2. BL-006 Build-Loop commit-message check (BL-010): a feat: commit in'
+    echo '#     Phase 2+ requires an active, sufficiently-complete Build Loop. This'
+    echo '#     surface reaches editor-opened / human-terminal commits the AI-only'
+    echo '#     PreToolUse hook cannot see.'
     echo 'if [ -x scripts/pre-commit-gate.sh ]; then'
     echo '  scripts/pre-commit-gate.sh --terminal-mode --tdd-only || exit 1'
     echo 'fi'

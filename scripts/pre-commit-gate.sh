@@ -261,16 +261,64 @@ tdd_terminal_enforce() {
 }
 # ── end BL-072 Phase C2 block ────────────────────────────────────────
 
+# ── BL-010: BL-006 Build-Loop commit-message check at the commit-msg surface ──
+# BL-006 (PR #15) enforces "a feat: commit requires an active, sufficiently
+# complete Build Loop". Until now it ran ONLY on the AI-tooling PreToolUse
+# surface (bl006_check, far below). Editor-opened commits (`git commit` with no
+# -m) and human-terminal commits never faced it — the residual BL-010 closes.
+# This function runs the SAME policy subcommand
+# (process-checklist.sh --check-commit-message) at COMMIT-MSG time, where
+# .git/COMMIT_EDITMSG holds the CURRENT message, so it reaches exactly those two
+# populations. It is invoked from the --tdd-only commit-msg surface (the
+# generated commit-msg hook) alongside the C2 TDD gate.
+#
+# SEMANTIC PARITY with the PreToolUse bl006_check: identical delegate, identical
+# message (first line / subject), identical block conditions and remediation.
+# Derivative commits that the PreToolUse path passes through via command-string
+# filters are passed through here via their commit-msg-time git sentinels
+# (MERGE_HEAD / CHERRY_PICK_HEAD / REVERT_HEAD). MOTHERSHIP SAFETY: two layers —
+# (1) no-op when the project has no scripts/process-checklist.sh (a repo that
+# predates BL-006, or the framework repo itself, which is NOT a scaffolded
+# project); (2) check_commit_message phase-gates (current_phase < 2 -> exit 0).
+# Returns 0 to ALLOW, non-zero to BLOCK (caller exits 1 -> git aborts commit).
+bl006_terminal_enforce() {
+  # Derivative commits: git writes these sentinels at commit-msg time. Mirrors
+  # the PreToolUse bl006_check merge/revert/cherry-pick pass-throughs (the
+  # PreToolUse path detects them from the command string; at commit-msg time the
+  # sentinel files are the equivalent, current signal).
+  [ -f .git/MERGE_HEAD ] && return 0
+  [ -f .git/CHERRY_PICK_HEAD ] && return 0
+  [ -f .git/REVERT_HEAD ] && return 0
+  # No project checklist -> nothing to enforce (safe no-op). CWD-relative on
+  # purpose: the commit-msg hook runs from the project root, and this must NOT
+  # resolve to the framework's own copy for a repo that has no scaffolded state.
+  [ -x scripts/process-checklist.sh ] || return 0
+  local subject rc=0
+  subject=$(printf '%s\n' "${COMMIT_MSG:-}" | head -n 1)
+  # Delegate the policy decision to the SAME subcommand the PreToolUse surface
+  # uses (identical block conditions + Case A/B remediation). Fold the delegate's
+  # stdout into stderr so its whole message reaches the terminal (git hooks
+  # ignore stdout). A non-zero exit propagates -> the caller aborts the commit.
+  bash scripts/process-checklist.sh --check-commit-message "$subject" >&2 || rc=$?   # BL-010-COMMITMSG-BL006
+  return "$rc"
+}
+# ── end BL-010 block ─────────────────────────────────────────────────
+
 # BL-030: --terminal-mode invocation from .git/hooks/framework-gate.sh.
 # Reads commit message from .git/COMMIT_EDITMSG instead of stdin JSON;
 # reads staged files from `git diff --cached` instead of tool-input;
 # emits human-readable diagnostics to stderr instead of JSON to stdout.
 TERMINAL_MODE=0
-# --tdd-only (BL-072 C2): scope a --terminal-mode invocation to JUST the
-# tier-keyed TDD gate — skip the process-checklist + operator-side lints. The
-# generated fallback pre-commit hook uses `--terminal-mode --tdd-only` so it
-# runs the real TDD gate WITHOUT newly pulling the full checklist/lint stack
-# into a hook that never carried them.
+# --tdd-only (BL-072 C2 + BL-010): scope a --terminal-mode invocation to the
+# two MESSAGE-SCOPED commit-msg gates — the tier-keyed TDD-ordering gate
+# (BL-072) AND the BL-006 Build-Loop commit-message check (BL-010) — while
+# skipping the full process-checklist + operator-side lints that plain
+# --terminal-mode runs. The generated commit-msg hook uses
+# `--terminal-mode --tdd-only`, so it runs both real gates WITHOUT newly pulling
+# the full checklist/lint stack into a hook that never carried them. The flag
+# name is retained (rather than renamed) for backward-compat with commit-msg
+# hooks already installed by init.sh: those keep working and pick up the added
+# BL-006 enforcement as soon as their scripts/pre-commit-gate.sh is refreshed.
 TDD_ONLY=0
 for arg in "$@"; do
   case "$arg" in
@@ -295,6 +343,13 @@ if [ "$TERMINAL_MODE" -eq 1 ]; then
   # non-zero return means "hard block" without set -e aborting mid-function.
   if [ "$TDD_ONLY" -eq 1 ]; then
     if ! tdd_terminal_enforce; then
+      exit 1
+    fi
+    # BL-010: the commit-msg surface ALSO runs the BL-006 Build-Loop
+    # commit-message check (bl006_terminal_enforce, defined above), extending
+    # BL-006 enforcement to editor-opened and human-terminal commits. Same
+    # policy as the PreToolUse surface; a non-zero return aborts the commit.
+    if ! bl006_terminal_enforce; then
       exit 1
     fi
     exit 0

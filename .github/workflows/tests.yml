@@ -69,6 +69,7 @@ jobs:
           # or helper. Regenerate with:
           #   grep -L 'init\.sh' tests/test-*.sh | sort
           tests=(
+            tests/test-bl010-commitmsg-bl006.sh
             tests/test-bl032-gitlab-free-approvals-attestation.sh
             tests/test-bl046-helpers-split.sh
             tests/test-bl069-install-cmds-consumers.sh
