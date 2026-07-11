@@ -2466,3 +2466,23 @@ BL-097's model-selection rubric says WHO can build cheaply; this entry supplies 
 5. **Bounded catch-up.** A fresh agent's full orientation read is: the scaffold/mothership CLAUDE.md + the single live handoff (if any) + its own plan slice. The backlog is consulted by grep recipe, guides by section, history never (BL-092/BL-093 enforce the fat ends of this).
 
 **Related:** BL-097 (the rubric this enables); BL-092 (shared CLAUDE.md surface + session-start diet); BL-093 (ledger diet); BL-091 (living-doc rules that govern plans); BL-090 (reference integrity for committed plans); the 2026-07-09 gate-wave handoff (the standard's precedent); Superpowers writing-plans skill; `docs/superpowers/plans/` convention.
+
+---
+
+## BL-099: Complete the auto-update system — session-start freshness check for framework/hooks/CDF + a `--sync-framework` remediation mode
+
+**Logged:** 2026-07-11 (Karl demand signal: "will the update script work on Pantheon?" + "I thought we had built in an auto update system")
+**Category:** Proposal / product gap (upgrade + session-start surfaces)
+**Severity:** Medium
+**Status:** Open
+
+**What exists today (verified):** tools are auto-checked at every session load — `scripts/session-version-check.sh` is injected as a SessionStart hook by `init.sh` (~:1750), wraps `check-versions.sh`, silent-when-current, never auto-updates ("always ask first," per the generated CLAUDE.md Session Start rules). **What does not:** framework freshness is manual-and-detection-only (`scripts/check-updates.sh` — operator-run, compares docs vs upstream, applies nothing, wired into no hook); nothing anywhere checks whether a project's installed git HOOKS are current (the C2 commit-msg hook gap on pre-2026-07-10 projects is invisible to every existing check); CDF assets refresh only during upgrade runs (BL-001); and `upgrade-project.sh` has NO same-tier sync mode — its purpose is tier changes, so gate scripts (`pre-commit-gate.sh`, `check-phase-gate.sh`, `process-checklist.sh`) only refresh as a tier-change side effect. Net: a month-old project (Pantheon) cannot cleanly reach current framework behavior at its current tier.
+
+**The three missing pieces:**
+1. **Session-start freshness check** (extend the `session-version-check.sh` pattern — fast, offline-safe, silent-when-current): compare `.claude/manifest.json::frameworkVersion/frameworkCommit` against the local framework clone when one is configured (skip silently when absent — never clone at session start); check installed hooks against the current hook set; check CDF asset staleness the way `check-updates.sh` compares docs. Output one loud line per stale surface, with the remediation command named.
+2. **`upgrade-project.sh --sync-framework`:** same-tier refresh of the vendored gate scripts, helper set, and templates from the framework copy being run, under the full existing discipline — BL-015/081 sentinel-first, BL-088 source-closure backfill, idempotent, plus a `--dry-run` (the script currently has none). This is the remediation the freshness check points at.
+3. **Hook backfill decision:** sync mode must handle hooks explicitly — pre-C2 projects lack `.git/hooks/commit-msg` entirely (PR #166 shipped install-time-only, disclosed); refresh-or-install with ask-first consent, never silently (the framework's attested-not-silenced doctrine applies to hook changes too).
+
+**Discipline unchanged:** detection is loud and automatic; remediation is consented, never auto-applied — the existing "Do NOT auto-update anything — always ask first" CLAUDE.md rule governs all three pieces.
+
+**Related:** BL-001 (CDF refresh); BL-088 (closure/backfill machinery this reuses); PR #166 (hook install-time-only decision); `scripts/check-updates.sh`; `scripts/session-version-check.sh`; `scripts/check-versions.sh`; `init.sh:~1750` (hook injection pattern); the 2026-07-11 Pantheon upgrade assessment (demand evidence).
