@@ -541,6 +541,17 @@ else
   fail "tests/test-scaffold-tdd-block-real.sh FAILED (run for details)"
 fi
 
+# Agent-ergonomics onboarding: tests/test-run-lints.sh — behavior suite for
+# scripts/run-lints.sh, the canonical local lint runner (runs every
+# scripts/lint-*.sh EXCEPT the parametrized lint-uat-scenarios.sh). Its
+# T-all-pass case executes the real lints end-to-end, so this block takes a
+# couple of minutes (the two slow full-tree scans dominate).
+if bash "$SCRIPT_DIR/tests/test-run-lints.sh" >/dev/null 2>&1; then
+  pass "tests/test-run-lints.sh"
+else
+  fail "tests/test-run-lints.sh FAILED (run for details)"
+fi
+
 # BL-070 increment (WP-B1): scripts/run-phase3-validation.sh's `license` scanner
 # promoted from stub to REAL. Reads the project language from
 # .claude/tool-preferences.json (.context.language — the canonical source, NOT
