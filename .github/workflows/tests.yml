@@ -124,6 +124,7 @@ jobs:
             tests/test-process-checklist-classifier.sh
             tests/test-process-checklist-reset-phase1.sh
             tests/test-record-claude-commit.sh
+            tests/test-scaffold-source-closure.sh
             tests/test-session-test-gate-check-merge.sh
             tests/test-specs-plans-remaining-quartet.sh
             tests/test-test-gate-counter-sanitizer.sh

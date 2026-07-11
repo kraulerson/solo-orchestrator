@@ -2222,3 +2222,28 @@ Two follow-ups from the PR #169 verifier (BL-010 residual fix), both zero-impact
 **Trigger:** (1) fires if/when anyone installs a commit-msg hook in the framework repo itself; (2) doc-only unless strict amend parity is ever demanded.
 
 **Related:** BL-010 (PR #169 + its correction comment); BL-006; `scripts/pre-commit-gate.sh::bl006_terminal_enforce`; `scripts/lib/helpers-core.sh::guard_not_in_framework`; the C2 mothership-safety pattern (PR #166).
+
+---
+
+## BL-088: init.sh scaffold omits sourced dependencies (tdd-classify.sh, run-phase3-validation.sh) — TDD hard block silently no-ops downstream
+
+**Logged:** 2026-07-11 (PR #173 adversarial review, empirical repro)
+**Category:** Bug / deployment-gap + defect-class (fixture-hides-scaffold-gap)
+**Severity:** High
+**Status:** Closed — shipped 2026-07-11 (PR #175). Fix-first-flip-second: the fix commit + this flip are both in PR #175.
+
+**What:** `init.sh` ships a CURATED `scripts/` copy list to every scaffolded project (`init.sh:~1305-1360`). It was never updated when BL-072 C2 (PR #166) added `scripts/lib/tdd-classify.sh`, which `scripts/pre-commit-gate.sh` sources via a silently-skipping loop (`:21-27` — absent ⇒ no-op). RESULT (empirically reproduced with a full hermetic `--deployment organizational --gov-mode sponsored_poc --language typescript --no-remote-creation` init): in a real scaffolded Sponsored-POC project a test-less `feat:` commit was ALLOWED (`rc=0`) — the flagship TDD hard block silently no-op'd downstream.
+
+**The two instances (same class):**
+1. `scripts/lib/tdd-classify.sh` — sourced by `pre-commit-gate.sh` (silent-skip loop) ⇒ the tier-keyed TDD hard block no-ops in the scaffold.
+2. `scripts/run-phase3-validation.sh` — `check-phase-gate.sh`'s Phase-3→4 gate auto-runs / points the operator at it (`P3_DRIVER="$SCRIPT_DIR/run-phase3-validation.sh"`). Unshipped, the gate failed CLOSED but instructed the operator to run a script that did not exist — the pass-path was unreachable.
+
+**Two further instances the closure check surfaced (also fixed):** `check-gate.sh` sources `scripts/lib/phase2-state.sh` (unguarded ⇒ "No such file or directory" crash) and `upgrade-project.sh` sources `scripts/lib/cdf-refresh.sh` (⇒ every scaffolded project silently skipped the CDF asset sync on upgrade). Neither was shipped.
+
+**Why the wave's tests missed it:** every BL-072 test copies `tdd-classify.sh` into its OWN fixture (`tests/test-bl072-tdd-warn-detector.sh:311/:391` `cp "$REPO_ROOT"/scripts/lib/*.sh …`) — the fixture supplied the dependency the real scaffold lacked. Fixture-hides-scaffold-gap: the test scaffold is not byte-derived from `init.sh`'s copy mechanism, so it cannot see what `init.sh` fails to ship (precedent: BL-074, the same class in test scaffolds).
+
+**The class fix (source-closure check):** `tests/test-scaffold-source-closure.sh` derives `init.sh`'s shipped set mechanically from its `cp` lines (not a hardcoded copy — that would drift; expands the `host-drivers/*.sh` glob) and asserts every `"$SCRIPT_DIR/<sibling>.sh"` a shipped script sources/execs is ALSO shipped (marker `# BL-088-CLOSURE`), excluding author-wired degrade-safe optionals (the `$PROJECT_ROOT`-preferred pre-commit-lint idiom). RED on pre-fix `init.sh` (4 gaps) → GREEN after (0 gaps, 42 shipped); mutation self-tests prove it load-bearing. This catches any FUTURE sourced-but-unshipped sibling, not just today's four.
+
+**Fix:** `init.sh` ships the driver (+chmod) and the three libs; `verify-install.sh` adds them to its verify arrays + fix functions (`--auto-fix` heals existing projects, BL-074 precedent); `upgrade-project.sh` gains an idempotent source-closure backfill inside the backfill subshell — after the BL-015 sentinel guard (BL-081 ordering) — so `--backfill-only` and the full upgrade both heal existing projects. Also added the init.sh-driven fidelity test `tests/test-scaffold-tdd-block-real.sh` (real Sponsored-POC scaffold blocks the test-less `feat:` commit; upgrade/verify backfill regressions).
+
+**Related:** BL-072 C2 (PR #166, added `tdd-classify.sh`); BL-070 (`run-phase3-validation.sh`); BL-074 (fixture-hides-scaffold-gap precedent); BL-015/BL-081 (sentinel-before-backfill ordering); PR #173 (surfacing adversarial review); PR #175 (this fix). `init.sh:~1305-1360`; `scripts/pre-commit-gate.sh:21-27`; `scripts/check-phase-gate.sh` BL-070-GATE-AUTORUN; `scripts/verify-install.sh`; `scripts/upgrade-project.sh`.
