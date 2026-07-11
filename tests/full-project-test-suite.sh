@@ -1166,6 +1166,16 @@ if bash "$SCRIPT_DIR/tests/test-check-commit-message.sh" >/dev/null 2>&1; then
 else
   fail "tests/test-check-commit-message.sh FAILED (run for details)"
 fi
+# BL-010: the BL-006 Build-Loop commit-message check now runs at the git
+# commit-msg hook surface (pre-commit-gate.sh --terminal-mode --tdd-only ->
+# bl006_terminal_enforce), reaching editor-opened and human-terminal commits.
+# Mutation-proof: excising the marked `# BL-010-COMMITMSG-BL006` delegation line
+# removes the refusal, flipping T-bl010-commitmsg-bl006-blocks RED.
+if bash "$SCRIPT_DIR/tests/test-bl010-commitmsg-bl006.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl010-commitmsg-bl006.sh"
+else
+  fail "tests/test-bl010-commitmsg-bl006.sh FAILED (run for details)"
+fi
 if bash "$SCRIPT_DIR/tests/test-check-phase-gate.sh" >/dev/null 2>&1; then
   pass "tests/test-check-phase-gate.sh"
 else

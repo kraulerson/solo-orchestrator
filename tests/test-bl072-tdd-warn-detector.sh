@@ -161,7 +161,7 @@ after=$(ledger_rows)
 if ! has_warn "$body" && [ "$rc" -eq 0 ] && [ "$after" -eq "$before" ]; then
   pass "T-feat-with-tests-silent: no WARN, rc=0, ledger unchanged (test rides along)"
 else
-  fail_ "T-feat-with-tests-silent" "expected silent+unchanged; rc=$rc ledger $before→$after; body: $body"
+  fail_ "T-feat-with-tests-silent" "expected silent+unchanged; rc=$rc ledger $before->$after; body: $body"
 fi
 teardown
 
@@ -193,7 +193,7 @@ after=$(ledger_rows)
 if ! has_warn "$body" && [ "$after" -eq "$before" ]; then
   pass "T-docs-only-silent: docs-only commit is silent, ledger unchanged"
 else
-  fail_ "T-docs-only-silent" "expected silent; rc=$rc ledger $before→$after; body: $body"
+  fail_ "T-docs-only-silent" "expected silent; rc=$rc ledger $before->$after; body: $body"
 fi
 teardown
 
@@ -222,7 +222,7 @@ after=$(ledger_rows)
 if ! has_warn "$body" && [ "$after" -eq "$before" ]; then
   pass "T-branch-diff-tests-count: earlier-branch test satisfies the gate (silent)"
 else
-  fail_ "T-branch-diff-tests-count" "expected silent (branch allowance); rc=$rc ledger $before→$after; body: $body"
+  fail_ "T-branch-diff-tests-count" "expected silent (branch allowance); rc=$rc ledger $before->$after; body: $body"
 fi
 teardown
 
@@ -754,7 +754,7 @@ after=$(ledger_rows)
 if [ "$rc" -eq 0 ] && ! has_fail "$body" && ! has_warn "$body" && [ "$after" -eq "$before" ]; then
   pass "T-lockfile-excluded: lockfile-only change is not implementation (silent, rc=0, no ledger row even on a sponsored tier)"
 else
-  fail_ "T-lockfile-excluded" "expected silent rc=0 + ledger unchanged; got rc=$rc ledger $before→$after body: $body"
+  fail_ "T-lockfile-excluded" "expected silent rc=0 + ledger unchanged; got rc=$rc ledger $before->$after body: $body"
 fi
 teardown
 
