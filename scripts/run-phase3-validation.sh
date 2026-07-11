@@ -103,9 +103,14 @@ fi
 #                               dotnet-project-licenses). Runs when the tool is
 #                               on PATH and we are not --offline; unsupported
 #                               language or missing tool → attestable SKIP.
-#                               Minimal contract: it INVENTORIES licenses; a
-#                               license allow/deny POLICY is a deliberate
-#                               non-goal of this increment (pending decision).
+#                               It INVENTORIES licenses AND (BL-086) enforces a
+#                               tier-keyed DENY POLICY on the archived report:
+#                               strong copyleft (GPL/AGPL/SSPL) BLOCKS the
+#                               corporate track (deployment=organizational OR
+#                               poc_mode=sponsored_poc OR private_poc); a pure
+#                               personal project warns loudly instead. Override
+#                               via .claude/license-policy.json; blocked-tier
+#                               attested escape via SOLO_LICENSE_ATTESTED=1.
 #   snyk               REAL   — dependency vulnerability scan (BL-070
 #                               completion, WP-B3). Detect-and-run-if-available:
 #                               SKIP under --offline; SKIP if `snyk` is not on
@@ -439,7 +444,342 @@ EOF
   return 0
 }
 
-# REAL — dependency-license compliance (BL-070 increment).
+# ═══════════════════════════════════════════════════════════════════════
+# BL-086 — tier-keyed license-policy DENY enforcement (2026-07-11)
+# ═══════════════════════════════════════════════════════════════════════
+# The BL-070 `license` arm INVENTORIES licenses (runs the per-language tool,
+# archives the report, PASSes on a non-empty report). BL-086 adds a DENY
+# POLICY on top, applied AFTER the inventory is archived (archive naming and
+# BL-082 provenance are UNCHANGED — this only reads the archive back and, on a
+# blocked-tier attestation, appends to phase-state.json under .claude/, which
+# the BL-082 scoped-dirty check already excludes so it cannot re-mark the
+# summary stale).
+#
+# DEFAULT DENY LIST — strong copyleft only. These are start-with STEMS matched
+# against whole license TOKENS (see _p3_token_denied). Token start-with
+# matching is inherently prefix/boundary-safe: "LGPL-3.0" is a single token
+# that does NOT start with "GPL" (it starts with "L"), so an LGPL / MPL / EPL
+# id can NEVER match a GPL stem — the prefix-safety the design requires, free.
+#   GPL-2.0*  GPL-3.0*   GNU GPL v2 / v3 (all suffixes: -only / -or-later / +)
+#   AGPL-1.0* AGPL-3.0*  GNU Affero GPL (copyleft triggers on network use alone)
+#   SSPL-1.0             MongoDB Server Side Public License
+#   GPL   AGPL           bare acronyms some tools emit ("GPLv3", "AGPLv3")
+# EXPLICITLY NOT DENIED: LGPL-* (weak copyleft), MPL-*, EPL-*, and every
+# permissive license (MIT, Apache-2.0, BSD-*, ISC, ...). Framework stance:
+# block STRONG copyleft on the corporate track; the rest is the operator's
+# call. Override the whole list via the .claude/license-policy.json DATA file.
+#
+# POLICY OVERRIDE (optional DATA file — NEVER a sourced script, so the BL-088
+# source-closure check stays green): .claude/license-policy.json read via jq:
+#     { "deny": ["SPDX-STEM", ...], "allow_packages": ["pkg", ...] }
+#   • deny (when the key is PRESENT) REPLACES the default stem list entirely
+#     (an empty array therefore denies nothing — a deliberate operator choice).
+#   • allow_packages exempts named packages by name (the commercial-license
+#     case): "pkg" matches an exact package name OR "pkg@<version>".
+#   Malformed JSON → a LOUD scanner FAIL (never a silent skip of the policy).
+DEFAULT_LICENSE_DENY="GPL-2.0 GPL-3.0 AGPL-1.0 AGPL-3.0 SSPL-1.0 GPL AGPL"
+
+# _p3_token_denied <UPPERCASE-TOKEN> — 0 iff the token starts with any stem in
+# $DENY_STEMS (dynamic-scoped from _p3_license_enforce). Token start-with
+# matching is boundary-safe by construction (see the DEFAULT DENY LIST note).
+_p3_token_denied() {
+  local tok="$1" stem rc=1
+  for stem in $DENY_STEMS; do
+    # The guard skips empty stems AND keeps the loop body non-empty, so
+    # excising the marked comparison below still yields a syntactically valid
+    # (but non-denying) script — the load-bearing T-mutation-deny proof.
+    [ -n "$stem" ] || continue
+    case "$tok" in "$stem"*) rc=0 ;; esac   # BL-086-DENY: denied-stem comparison (mutation target #1)
+  done
+  return "$rc"
+}
+
+# _p3_alt_has_denied <UPPERCASE-ALTERNATIVE> — 0 iff the alternative (one side
+# of a top-level OR; may itself be an AND-expression) carries a denied token.
+# Tokenize by turning every non-[A-Z0-9.+-] char into a space so an SPDX id
+# stays a single token and "GPL-3.0 AND MIT" splits into GPL-3.0 / AND / MIT.
+_p3_alt_has_denied() {
+  local toks t
+  toks="$(printf '%s' "$1" | tr -c 'A-Z0-9.+-' ' ')"
+  for t in $toks; do
+    _p3_token_denied "$t" && return 0
+  done
+  return 1
+}
+
+# _p3_expr_flagged <license-expr> — 0 (FLAGGED) iff EVERY top-level OR
+# alternative is denied; 1 (clean/elective) if any alternative is denied-free.
+# FP HYGIENE: a dual license like "MIT OR GPL-3.0" is NOT flagged — the
+# consumer may elect the safe (MIT) side. A bare denied id, or an AND-expression
+# carrying a denied id, IS flagged. Simple top-level OR split (uppercase, strip
+# parens, split on the literal " OR " operator — the spaces mean an internal
+# "-OR-" in "GPL-2.0-OR-LATER" never splits); no full SPDX parser.
+_p3_expr_flagged() {
+  local u rest alt any_clean=1
+  u="$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]' | tr '()' '  ')"
+  rest="$u"
+  while :; do
+    case "$rest" in
+      *" OR "*) alt="${rest%%" OR "*}"; rest="${rest#*" OR "}" ;;
+      *)        alt="$rest"; rest="" ;;
+    esac
+    if [ -n "$alt" ] && ! _p3_alt_has_denied "$alt"; then
+      any_clean=0; break   # a denied-free alternative exists → package can elect it
+    fi
+    [ -n "$rest" ] || break
+  done
+  [ "$any_clean" -eq 1 ]
+}
+
+# _p3_pkg_allowed <pkg> <allow-list-newlines> — 0 iff <pkg> is exempted by an
+# allow_packages entry (exact name, or "<name>@<version>"). Matched on the
+# PACKAGE name, NEVER the license.
+_p3_pkg_allowed() {
+  local pkg="$1" allow_raw="$2" a
+  [ -n "$allow_raw" ] || return 1
+  while IFS= read -r a; do
+    [ -n "$a" ] || continue
+    [ "$pkg" = "$a" ] && return 0
+    case "$pkg" in "$a"@*) return 0 ;; esac
+  done <<EOF
+$allow_raw
+EOF
+  return 1
+}
+
+# _p3_go_csv_pairs — stdin: go-licenses CSV rows "pkg,license-url,license";
+# stdout: "pkg<TAB>license" (field 1 + field 3; empty url handled).
+_p3_go_csv_pairs() {
+  local pkg url lic
+  while IFS=, read -r pkg url lic; do
+    [ -n "$pkg" ] || continue
+    printf '%s\t%s\n' "$pkg" "$lic"
+  done
+}
+
+# _p3_license_pairs <language> <archive> — echo "pkg<TAB>license" per package by
+# parsing the archived report in that tool's format. Returns 2 when the archive
+# is not valid JSON / not the expected shape (→ the caller LOUD-FAILs).
+_p3_license_pairs() {
+  local lang="$1" arch="$2"
+  jq empty "$arch" 2>/dev/null || return 2
+  case "$lang" in
+    typescript) jq -r 'to_entries[] | [.key, ((.value.licenses // "") | if type=="array" then join(" AND ") else tostring end)] | @tsv' "$arch" 2>/dev/null || return 2 ;;
+    python)     jq -r '.[] | [((.Name // "unknown")|tostring), ((.License // "")|tostring)] | @tsv' "$arch" 2>/dev/null || return 2 ;;
+    rust)       jq -r '.[] | [((.name // "unknown")|tostring), ((.license // "")|tostring)] | @tsv' "$arch" 2>/dev/null || return 2 ;;
+    csharp)     jq -r '.[] | [((.PackageName // .PackageId // .packageName // "unknown")|tostring), ((.LicenseType // .License // .licenseType // "")|tostring)] | @tsv' "$arch" 2>/dev/null || return 2 ;;
+    go)         jq -r '.lines[]?' "$arch" 2>/dev/null | _p3_go_csv_pairs ;;
+    *)          return 2 ;;
+  esac
+}
+
+# _p3_license_warn_banner <findings-newline-list> — the LARGE, bordered,
+# impossible-to-miss warning printed on the PURE-PERSONAL tier when a denied
+# license is present (pure ASCII so it renders everywhere).
+_p3_license_warn_banner() {
+  local findings="$1" f
+  echo ""
+  echo "=============================================================================="
+  echo "  !!  LICENSE WARNING - STRONG COPYLEFT DEPENDENCIES DETECTED (personal)  !!"
+  echo "=============================================================================="
+  echo "  These dependency license(s) are STRONG COPYLEFT (GPL / AGPL / SSPL class):"
+  echo ""
+  printf '%s\n' "$findings" | while IFS= read -r f; do
+    [ -n "$f" ] && echo "      * $f"
+  done
+  echo ""
+  echo "  This is ALLOWED for a PURELY PERSONAL project. But BEFORE you ever:"
+  echo "      - DISTRIBUTE or SELL this project (ship binaries / an app / a library),"
+  echo "      - RUN IT AS A COMMERCIAL SERVICE  (AGPL copyleft triggers on network"
+  echo "        SERVICE alone - no distribution required),"
+  echo "      - or TRANSITION it onto the organizational / sponsored-POC track,"
+  echo ""
+  echo "  you MUST first do ONE of these for EACH package above:"
+  echo "      1. REMOVE the dependency,"
+  echo "      2. obtain a COMMERCIAL license for it, or"
+  echo "      3. OPEN-SOURCE your own project's source under a compatible copyleft"
+  echo "         license (the share-your-source obligation travels with the code)."
+  echo ""
+  echo "  A private POC or ANY corporate-track project would be HARD-BLOCKED here;"
+  echo "  you may proceed today only because this project is purely personal."
+  echo "=============================================================================="
+  echo ""
+}
+
+# _p3_write_license_exception <pkgs-nl> <lics-nl> <reason> — atomically append
+# {date, packages[], licenses[], reason} to phase-state.json::phase3.
+# license_exceptions[] (the BL-072/BL-032 attested-not-silenced lineage; same
+# atomic tmp+mv + advisory-lock idiom as _p3_write_attestation). Returns 0 on
+# success, 1 on any failure (jq missing, dir not writable, jq/mv error) — the
+# caller turns a non-zero return into a scanner FAIL (recording failure REFUSES
+# the pass). A fast writability probe fails an unwritable .claude immediately
+# instead of spinning on the lock.
+_p3_write_license_exception() {
+  local pkgs="$1" lics="$2" reason="$3"
+  local file="$STATE_FILE"
+
+  if ! command -v jq >/dev/null 2>&1; then
+    echo -e "${RED}[FAIL]${NC} license exception needs jq to edit $file (jq not found)." >&2
+    return 1
+  fi
+
+  mkdir -p "$(dirname "$file")" 2>/dev/null || true
+  if [ ! -f "$file" ]; then
+    echo '{"phase3":{}}' > "$file" 2>/dev/null || {
+      echo -e "${RED}[FAIL]${NC} cannot create $file to record the license exception." >&2
+      return 1
+    }
+  fi
+
+  # Fast writability probe (adjacent temp) — an unwritable state dir FAILs now.
+  if ! ( : > "$file.wtest" ) 2>/dev/null; then
+    echo -e "${RED}[FAIL]${NC} cannot write next to $file (state dir not writable) — license exception NOT recorded." >&2
+    return 1
+  fi
+  rm -f "$file.wtest" 2>/dev/null || true
+
+  local at lock_dir attempts rc
+  at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  lock_dir="$file.lockdir"
+  attempts=0
+  while ! mkdir "$lock_dir" 2>/dev/null; do
+    attempts=$((attempts + 1))
+    if [ "$attempts" -ge 100 ]; then
+      echo -e "${RED}[FAIL]${NC} license-exception write lock timeout (>10s; stale $lock_dir from a killed run?)." >&2
+      return 1
+    fi
+    sleep 0.1
+  done
+
+  rc=0
+  (
+    tmp=$(mktemp "${file}.XXXXXX") || exit 1
+    trap 'rm -f "$tmp"; rmdir "$lock_dir" 2>/dev/null' EXIT INT TERM
+    if jq --arg at "$at" --arg pkgs "$pkgs" --arg lics "$lics" --arg reason "$reason" \
+         '.phase3 = (.phase3 // {}) | .phase3.license_exceptions = ((.phase3.license_exceptions // []) + [{"date":$at,"packages":($pkgs|split("\n")|map(select(length>0))),"licenses":($lics|split("\n")|map(select(length>0))),"reason":$reason}])' \
+         "$file" > "$tmp" 2>/dev/null; then
+      mv "$tmp" "$file" || exit 1
+      trap - EXIT INT TERM
+      exit 0
+    else
+      rm -f "$tmp"
+      trap - EXIT INT TERM
+      exit 1
+    fi
+  ) || rc=1
+  rmdir "$lock_dir" 2>/dev/null || true
+  return "$rc"
+}
+
+# _p3_license_enforce <language> <archive> <tool> — the BL-086 policy pass.
+# Runs ONLY after a clean inventory (P3_STATUS=PASS). Reads the archived report,
+# loads the deny policy, flags denied packages, and applies the TIER RULE. May
+# set P3_STATUS=FAIL (blocked tier / unparseable / policy malformed / attest
+# record failure) or leave it PASS (no denied licenses, OR-election, exempt,
+# pure-personal warn, or a recorded attestation).
+_p3_license_enforce() {
+  local lang="$1" arch="$2" tool="$3"
+
+  # ── policy override (optional DATA file, never sourced) ──
+  local policy=".claude/license-policy.json"
+  local DENY_STEMS="$DEFAULT_LICENSE_DENY"
+  local allow_raw=""
+  if [ -f "$policy" ]; then
+    if ! command -v jq >/dev/null 2>&1 || ! jq empty "$policy" 2>/dev/null; then
+      P3_STATUS="FAIL"
+      P3_NOTE="license policy $policy is malformed JSON (or jq unavailable) — refusing the deny scan; fix or remove it"
+      return
+    fi
+    if [ "$(jq -r 'has("deny")' "$policy" 2>/dev/null)" = "true" ]; then
+      DENY_STEMS="$(jq -r '.deny[]? | ascii_upcase' "$policy" 2>/dev/null | tr '\n' ' ')"
+    fi
+    allow_raw="$(jq -r '.allow_packages[]?' "$policy" 2>/dev/null)"
+  fi
+
+  # ── extract (package, license) pairs from the archived inventory ──
+  local pairs prc=0
+  pairs="$(_p3_license_pairs "$lang" "$arch")" || prc=$?
+  if [ "$prc" -ne 0 ]; then
+    P3_STATUS="FAIL"
+    P3_NOTE="license report ($tool/$lang) could not be parsed for the deny scan — invalid/unrecognised format in $arch (treat as a scan failure, not a skip)"
+    return
+  fi
+
+  # ── evaluate each package against the deny policy ──
+  local pkg lic findings="" findings_inline="" denied_pkgs="" denied_lics="" n=0
+  while IFS="$(printf '\t')" read -r pkg lic; do
+    [ -n "$pkg" ] || continue
+    # allow_packages exemption (commercial-license case) — on the PACKAGE name.
+    _p3_pkg_allowed "$pkg" "$allow_raw" && continue
+    if _p3_expr_flagged "$lic"; then
+      n=$((n + 1))
+      findings_inline="${findings_inline}${findings_inline:+, }${pkg} (${lic})"
+      findings="${findings}${pkg} (${lic})
+"
+      denied_pkgs="${denied_pkgs}${pkg}
+"
+      denied_lics="${denied_lics}${lic}
+"
+    fi
+  done <<EOF
+$pairs
+EOF
+
+  # No denied licenses → the inventory PASS stands (annotate the note).
+  if [ "$n" -eq 0 ]; then
+    P3_NOTE="${P3_NOTE}; policy: 0 denied license(s)"
+    return
+  fi
+
+  # Denied licenses present → the TIER decides block vs. warn. Read
+  # deployment + poc_mode from phase-state.json — NEVER `track` (spoofable:
+  # a sponsored/production project can carry track=light non-interactively).
+  local deployment poc_mode
+  deployment="$(grep -o '"deployment"[[:space:]]*:[[:space:]]*"[^"]*"' "$STATE_FILE" 2>/dev/null | sed 's/.*: *"//' | sed 's/"//')"
+  poc_mode="$(grep -o '"poc_mode"[[:space:]]*:[[:space:]]*"[^"]*"' "$STATE_FILE" 2>/dev/null | sed 's/.*: *"//' | sed 's/"//')"
+
+  # BL-086-TIER: which tiers BLOCK on a denied license. DELIBERATELY STRICTER
+  # than BL-084's bypass predicate: BL-084 treats poc_mode=private_poc as
+  # Personal-adjacent (BYPASSABLE) for the remote-PUSH gate, but here a private
+  # POC BLOCKS. WHY: a strong-copyleft dependency is a one-way ratchet. A
+  # private POC is the framework's runway to a Sponsored POC / production; at
+  # that transition the company must rip the dependency out, buy a commercial
+  # license, or accept share-your-source obligations on distribution / network
+  # service. No sponsor approves that, so the whole corporate track —
+  # deployment=organizational OR poc_mode=sponsored_poc OR poc_mode=private_poc
+  # — BLOCKS. Only a PURE personal project (deployment=personal, no poc_mode)
+  # is allowed to proceed, and then only behind a loud warning banner.
+  # Missing/empty phase-state (mothership / unscaffolded) → pure personal.
+  local blocked=false
+  [ "$deployment" = "organizational" ] || [ "$poc_mode" = "sponsored_poc" ] || [ "$poc_mode" = "private_poc" ] && blocked=true   # BL-086-TIER
+
+  if [ "$blocked" = true ]; then
+    # ATTESTED escape (attested, never silenced): record + PASS, or FAIL.
+    if [ "${SOLO_LICENSE_ATTESTED:-}" = "1" ]; then
+      local reason
+      reason="${SOLO_LICENSE_REASON:-unspecified — attested via SOLO_LICENSE_ATTESTED}"
+      if _p3_write_license_exception "$denied_pkgs" "$denied_lics" "$reason"; then
+        echo -e "  ${BLUE}[ATTESTED]${NC} license — $n denied-license package(s) attested (SOLO_LICENSE_ATTESTED): ${findings_inline} — reason: ${reason}"
+        P3_STATUS="PASS"
+        P3_NOTE="ATTESTED: $n package(s) carry denied licenses but were attested (recorded to ${STATE_FILE}::phase3.license_exceptions[]): ${findings_inline}"
+      else
+        P3_STATUS="FAIL"
+        P3_NOTE="denied license(s) present and the attestation record FAILED — refusing to pass; record it manually in ${STATE_FILE}::phase3.license_exceptions[]: ${findings_inline}"
+      fi
+      return
+    fi
+    P3_STATUS="FAIL"
+    P3_NOTE="$n package(s) carry denied licenses: ${findings_inline}"
+    return
+  fi
+
+  # PURE-PERSONAL tier: proceed, but emit the LARGE warning banner.
+  _p3_license_warn_banner "$findings"
+  P3_STATUS="PASS"
+  P3_NOTE="PERSONAL project: $n package(s) carry strong-copyleft licenses — ALLOWED with a warning (see banner above): ${findings_inline}"
+}
+
+# REAL — dependency-license compliance (BL-070 increment; BL-086 deny policy).
 _p3_scan_license() {
   local archive="$1"
   if [ -n "$OFFLINE" ]; then
@@ -501,12 +841,13 @@ _p3_scan_license() {
   esac
   P3_ARCHIVE="$archive"
 
-  # Minimal increment contract (a license allow/deny POLICY is a deliberate
-  # non-goal here — pending decision): PASS = a non-empty report exists,
-  # FAIL = the tool crashed / produced no output. This scanner INVENTORIES
-  # licenses; it does not judge them.
+  # Inventory contract (BL-070): PASS = a non-empty report exists, FAIL = the
+  # tool crashed / produced no output. BL-086 then layers a DENY POLICY on the
+  # archived inventory (tier-keyed block vs. warn) — only when the inventory
+  # itself succeeded (a crashed/empty report has nothing to judge).
   if [ -s "$archive" ]; then
     P3_STATUS="PASS"; P3_NOTE="license inventory produced via $tool ($language) — $archive"
+    _p3_license_enforce "$language" "$archive" "$tool"   # BL-086: deny-policy enforcement on the archived inventory
   else
     P3_STATUS="FAIL"; P3_NOTE="$tool produced no license report (rc=$rc) — treat as a scan failure, not a skip"
   fi
