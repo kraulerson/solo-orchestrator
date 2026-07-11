@@ -14,9 +14,29 @@ trigger/deadline if any, and status.
 - **Audit** — things to check periodically
 - **Drift-watch** — things that could silently break when upstream/environment changes
 
-**Status values:** `open` / `in-progress` / `promoted-to-spec` / `resolved` / `wontfix`.
+**Status values (as actually used — recount the `**Status:**` lines before trusting any tally):**
+- **Open** — active; not started, or in progress.
+- **Open — DEFERRED `<date>`** (also **Open — demoted to OPPORTUNISTIC**) — still Open, but consciously deprioritized. The revisit trigger is stated inline on the status line.
+- **Parked** — investigated, no current operator demand; an explicit re-evaluation trigger is noted inline.
+- **Closed** — shipped/done. MUST cite a PR # or a backticked commit SHA in the entry block (`scripts/lint-backlog-references.sh` enforces this).
+- **Resolved** — legacy synonym for **Closed** (early-convention "done"); same citation requirement.
+- **Won't Fix** — deliberately declined; the reopen trigger is noted inline.
 
-When an item is promoted to a full spec, leave the entry here with status `promoted-to-spec` and link the spec file — don't delete; the backlog is also an audit trail of what we considered.
+**What's-open recipe (this IS the index — don't add a static open-items list, it drifts):**
+
+```
+grep -n '\*\*Status:\*\* Open' solo-orchestrator-backlog.md
+```
+
+Returns the whole open family, including the `Open — DEFERRED` / `Open — demoted to OPPORTUNISTIC` variants (they are still `Open`).
+
+**Bugs file has a different grammar.** `solo-orchestrator-bugs.md` tracks `BUG-NNN` entries whose statuses are `Fixed` / `Superseded` (with the odd `Still …`); there is no literal `Open` status, so "open" there means *any BUG not marked Fixed/Superseded* — determined by negation, not by the status grep above.
+
+**Audit-trail convention — Closed entries are kept, never deleted.** The backlog is also a record of what we considered (including promoted-to-spec items, which stay with a link to the spec). Two things the naive grep above can misattribute:
+- Some Closed entries preserve an **`Original entry (pre-close, kept for audit trail):`** block that embeds its OWN `**Status:**` line. That preserved `Open` belongs to a since-Closed entry (e.g. BL-055) and will surface in the what's-open grep — eyeball for the `Original entry` marker before counting it as live.
+- A few entries use `## code-*-N:` headers (e.g. `## code-check-gates-1:`) instead of `## BL-NNN:`, so header-only scans miss them.
+
+Verify against the entry's current top-of-block status (and git history if in doubt) before treating any single status line as authoritative.
 
 ---
 
