@@ -14,7 +14,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-SPEC="$REPO_ROOT/docs/superpowers/specs/2026-04-21-host-aware-repo-gate-design.md"
+SPEC="$REPO_ROOT/docs/superpowers/specs/archive/2026-04-21-host-aware-repo-gate-design.md"
 PLAN="$REPO_ROOT/docs/superpowers/plans/archive/2026-04-22-host-aware-repo-gate-implementation.md"
 INIT_SH="$REPO_ROOT/init.sh"
 CHECK_GATE="$REPO_ROOT/scripts/check-gate.sh"
