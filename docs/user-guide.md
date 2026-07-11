@@ -1286,7 +1286,9 @@ touches nothing on disk — no tmp files, no CDF calls, no manifest writes.
 - **`CLAUDE.md` and `PROJECT_INTAKE.md`** are *rendered* from templates for your
   project, so this mode **never** rewrites them — it shows a template-level diff
   (or an upstream-revision count) and points at the assisted-apply follow-up.
-  Your customised `CLAUDE.md` is safe, under every flag below.
+  Your customised `CLAUDE.md` is safe, under every flag below. Nothing is written
+  *beside* them either: no `.new`, no `.bak`, no template copy — a sync leaves no
+  new `CLAUDE.md*` / `PROJECT_INTAKE.md*` file of any kind on disk.
 
 #### Applying doc updates without a prompt: `--apply-doc-updates`
 
@@ -1321,9 +1323,20 @@ bash ~/solo-orchestrator/scripts/upgrade-project.sh --sync-framework \
   (read-only directory, no space), the sync **refuses to overwrite that doc**,
   leaves it untouched, says so loudly, and exits non-zero. It never overwrites an
   unbacked file.
+- **A write that does not land is never reported as success.** Every apply — the
+  sidecar copy, the backup, the overwrite itself — is checked *and re-read* from
+  disk afterwards. If any of them fails (unwritable file, no space), the sync
+  prints a `[FAIL]` line naming the doc and the operation, leaves your original
+  bytes intact (restoring them from the dated backup if need be, which is kept),
+  keeps going with the *other* docs, and then **exits non-zero**. You will never
+  see `[OK]` for a doc that was not actually written.
+- **`--non-interactive`** forces this declared-flag channel even on a terminal:
+  with it, hooks need `--install-hooks` and doc applies need `--apply-doc-updates`
+  — no prompt is shown, and nothing is auto-answered `yes`.
 - Both flags are valid **only** with `--sync-framework`, and they apply **only**
   to the seven verbatim `docs/reference/*.md` files. `CLAUDE.md` and
-  `PROJECT_INTAKE.md` stay notice-only no matter what you pass.
+  `PROJECT_INTAKE.md` stay notice-only no matter what you pass — including
+  `--apply-doc-updates sidecar`, which writes nothing next to them.
 
 ### Governance Health Checks
 

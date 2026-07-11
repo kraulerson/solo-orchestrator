@@ -43,6 +43,50 @@ _md5file() {
   else md5sum "$1" | awk '{print $1}'; fi
 }
 
+# ── MUTATION HARNESS (review round 2) ───────────────────────────────────────
+# Round 1's mutation tests excised the marker LINE. That is fine when the marker
+# rides on the load-bearing statement, but it proves nothing about a marker that
+# rides on a comment — and a test that only asserts "the marker string is present"
+# is a tautology. Round 2 therefore attacks the FUNCTION BODY and leaves the
+# marker string in place: every mutation below verifies the marker still greps in
+# the mutant, then proves behaviour broke anyway.
+#
+# _neuter_fn <file> <fn> <body> — replace fn's whole body with <body>, keeping the
+# signature (and every marker comment in the file) untouched. bash-3.2 / BSD-awk
+# safe; matches a `<fn>() {` header at column 0 and the closing `}` at column 0.
+_neuter_fn() {
+  local file="$1" fn="$2" body="$3" tmp
+  tmp="$(mktemp)"
+  awk -v fn="$fn" -v body="$body" '
+    !mutated && index($0, fn "() {") == 1 { print; print "  " body; skip = 1; next }
+    skip && $0 == "}" { print; skip = 0; mutated = 1; next }
+    skip { next }
+    { print }
+  ' "$file" > "$tmp"
+  mv "$tmp" "$file"
+  chmod +x "$file"
+}
+
+# _extract_fn <file> <fn> — print fn's source (signature..closing brace) so a probe
+# can exercise the REAL production function in isolation.
+_extract_fn() {
+  awk -v fn="$2" '
+    index($0, fn "() {") == 1 { p = 1 }
+    p { print }
+    p && $0 == "}" { exit }
+  ' "$1"
+}
+
+# True iff <file> still contains <marker> (used to prove the mutation attacked
+# BEHAVIOUR, not the marker text — the anti-tautology check).
+_has_marker() { grep -qF "$2" "$1"; }
+
+# Every CLAUDE.md* / PROJECT_INTAKE.md* entry in the project root, one per line.
+# The rendered-doc fence promises this set never grows.
+_rendered_artifacts() {
+  ( cd "$1" && ls -1 2>/dev/null | grep -E '^(CLAUDE\.md|PROJECT_INTAKE\.md)' | LC_ALL=C sort ) || true
+}
+
 # Portable octal file mode (GNU-first, BSD fallback) — house portability rule.
 _file_mode() {
   stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1" 2>/dev/null || echo "?"
@@ -439,6 +483,81 @@ t_doc_overwrite_backup_refusal() {
   rm -rf "$T"
 }
 
+# ── T-doc-overwrite-write-failure-is-loud (round 2, MAJOR-A) ────────────────
+# The backup lands, and THEN the write fails (the doc itself is read-only, its
+# directory is not). Round 1's `cp "$src" "$pfile"` was unchecked and the driver
+# ran each doc as `… || true`, so this printed "[OK] overwrote user-guide.md" and
+# exited 0 — the operator was told a doc was updated when it was not. Expect: a
+# loud [FAIL] naming the doc, the ORIGINAL byte-intact, the dated backup KEPT, no
+# [OK] "overwrote" line, and a non-zero exit.
+t_doc_overwrite_write_failure_is_loud() {
+  if [ "$(id -u)" = "0" ]; then
+    pass "T-doc-overwrite-write-failure-is-loud: skipped (running as root — mode bits do not restrict root)"; return
+  fi
+  local T; T=$(mktemp -d); local P="$T/proj"; mk_project "$P" python
+  local doc="$P/docs/reference/user-guide.md"
+  printf '%s\n' 'my customized user guide' > "$doc"
+  local pre_md5; pre_md5=$(_md5file "$doc")
+  chmod 444 "$doc"                     # dir writable (backup CAN be taken); file unwritable (write CANNOT land)
+  local out rc=0
+  out=$(run_sync "$P" --apply-doc-updates overwrite --confirm-doc-overwrite) || rc=$?
+  local post_md5; post_md5=$(_md5file "$doc")
+  local bak; bak=$(ls "$P/docs/reference/"user-guide.md.bak.* 2>/dev/null | head -1)
+  chmod 644 "$doc" 2>/dev/null || true
+  if [ "$pre_md5" != "$post_md5" ]; then
+    fail_ "T-doc-overwrite-write-failure-is-loud" "the original was modified by a FAILED overwrite (it must be left byte-intact)"; rm -rf "$T"; return
+  fi
+  if ! echo "$out" | grep -qF "FAILED to overwrite user-guide.md"; then
+    fail_ "T-doc-overwrite-write-failure-is-loud" "no loud [FAIL] line naming the doc + the operation; tail:\n$(echo "$out" | tail -10)"; rm -rf "$T"; return
+  fi
+  if echo "$out" | grep -qF "overwrote user-guide.md"; then
+    fail_ "T-doc-overwrite-write-failure-is-loud" "printed an [OK] 'overwrote' line for a write that never landed (silent success)"; rm -rf "$T"; return
+  fi
+  if [ -z "$bak" ] || [ "$(_md5file "$bak")" != "$pre_md5" ]; then
+    fail_ "T-doc-overwrite-write-failure-is-loud" "the dated backup taken before the failed write must remain, holding the original bytes (got '$bak')"; rm -rf "$T"; return
+  fi
+  if [ "$rc" = "0" ]; then
+    fail_ "T-doc-overwrite-write-failure-is-loud" "sync exited 0 after a doc write FAILED — the failure must reach the summary AND the exit code"; rm -rf "$T"; return
+  fi
+  pass "T-doc-overwrite-write-failure-is-loud: unwritable destination → loud [FAIL], original byte-intact, backup kept, no [OK], non-zero exit"
+  rm -rf "$T"
+}
+
+# ── T-doc-sidecar-write-failure-is-loud (round 2, MAJOR-A) ──────────────────
+# The sidecar `cp` was unchecked too: an unwritable target printed "[OK] wrote
+# sidecar …" for a file that does not exist, and the run exited 0.
+t_doc_sidecar_write_failure_is_loud() {
+  if [ "$(id -u)" = "0" ]; then
+    pass "T-doc-sidecar-write-failure-is-loud: skipped (running as root — mode bits do not restrict root)"; return
+  fi
+  local T; T=$(mktemp -d); local P="$T/proj"; mk_project "$P" python
+  local doc="$P/docs/reference/user-guide.md"
+  printf '%s\n' 'my customized user guide' > "$doc"
+  local pre_md5; pre_md5=$(_md5file "$doc")
+  chmod 500 "$P/docs/reference"        # no NEW file may be created here → the .new sidecar cannot land
+  local out rc=0
+  out=$(run_sync "$P" --apply-doc-updates sidecar) || rc=$?
+  chmod 755 "$P/docs/reference"
+  local post_md5; post_md5=$(_md5file "$doc")
+  if [ "$pre_md5" != "$post_md5" ]; then
+    fail_ "T-doc-sidecar-write-failure-is-loud" "the original doc was modified by a failed SIDECAR write (it must never be touched)"; rm -rf "$T"; return
+  fi
+  if [ -f "$doc.new" ]; then
+    fail_ "T-doc-sidecar-write-failure-is-loud" "a .new sidecar exists — the fixture did not actually block sidecar creation"; rm -rf "$T"; return
+  fi
+  if ! echo "$out" | grep -qF "FAILED to write the sidecar"; then
+    fail_ "T-doc-sidecar-write-failure-is-loud" "no loud [FAIL] line for the failed sidecar write; tail:\n$(echo "$out" | tail -10)"; rm -rf "$T"; return
+  fi
+  if echo "$out" | grep -qF "wrote sidecar"; then
+    fail_ "T-doc-sidecar-write-failure-is-loud" "printed an [OK] 'wrote sidecar' line for a sidecar that does not exist (silent success)"; rm -rf "$T"; return
+  fi
+  if [ "$rc" = "0" ]; then
+    fail_ "T-doc-sidecar-write-failure-is-loud" "sync exited 0 after the sidecar write FAILED — the failure must reach the summary AND the exit code"; rm -rf "$T"; return
+  fi
+  pass "T-doc-sidecar-write-failure-is-loud: unwritable sidecar target → loud [FAIL], original untouched, no [OK], non-zero exit"
+  rm -rf "$T"
+}
+
 # ── T-doc-apply-flag-usage-errors (MAJOR-2a: declared, hard-validated) ──────
 t_doc_apply_flag_usage_errors() {
   local T; T=$(mktemp -d); local P="$T/proj"; mk_project "$P" python
@@ -470,29 +589,44 @@ t_doc_apply_flag_usage_errors() {
 }
 
 # ── T-rendered-doc-never-applied (guards Karl's edge) ───────────────────────
-# Round 1 (MAJOR-2b): assert the # BL-099-DOC-GUARD holds under the MOST
-# destructive flag combination too — overwrite + confirm must STILL never touch
-# a rendered doc.
+# Round 1 (MAJOR-2b) asserted the # BL-099-DOC-GUARD holds under overwrite+confirm.
+# Round 2 (MAJOR-B) found the hole that assertion missed: `--apply-doc-updates
+# sidecar` reached the RENDERED docs through the notice and wrote
+# <doc>.upstream-template.new BESIDE them, contradicting --help and the user guide
+# ("notice-only under EVERY flag combination"). So the fence is now asserted under
+# EVERY apply flag, and on the whole NAMESPACE — not just the two files: after a
+# sync, no file whose name begins with CLAUDE.md / PROJECT_INTAKE.md may exist
+# that did not exist before (no .new, no .bak, no .upstream-template.new).
 t_rendered_doc_never_applied() {
-  local T; T=$(mktemp -d); local P="$T/proj"; mk_project "$P" python
-  printf '%s\n' '# My heavily customized CLAUDE.md — DO NOT OVERWRITE' > "$P/CLAUDE.md"
-  printf '%s\n' '# My heavily customized PROJECT_INTAKE.md' > "$P/PROJECT_INTAKE.md"
-  local pre_md5 pre_intake
-  pre_md5=$(_md5file "$P/CLAUDE.md"); pre_intake=$(_md5file "$P/PROJECT_INTAKE.md")
-  local out; out=$(run_sync "$P" --install-hooks --apply-doc-updates overwrite --confirm-doc-overwrite)
-  local post_md5 post_intake
-  post_md5=$(_md5file "$P/CLAUDE.md"); post_intake=$(_md5file "$P/PROJECT_INTAKE.md")
-  if [ "$pre_md5" != "$post_md5" ] || [ "$pre_intake" != "$post_intake" ]; then
-    fail_ "T-rendered-doc-never-applied" "a RENDERED doc was mutated under '--apply-doc-updates overwrite --confirm-doc-overwrite' — the guard must hold under EVERY flag combination"; rm -rf "$T"; return
+  local combos_desc combo ok=y detail=""
+  for combo in "sidecar" "overwrite" "overwrite --confirm-doc-overwrite"; do
+    local T; T=$(mktemp -d); local P="$T/proj"; mk_project "$P" python
+    printf '%s\n' '# My heavily customized CLAUDE.md — DO NOT OVERWRITE' > "$P/CLAUDE.md"
+    printf '%s\n' '# My heavily customized PROJECT_INTAKE.md' > "$P/PROJECT_INTAKE.md"
+    local pre_md5 pre_intake pre_ls
+    pre_md5=$(_md5file "$P/CLAUDE.md"); pre_intake=$(_md5file "$P/PROJECT_INTAKE.md")
+    pre_ls=$(_rendered_artifacts "$P")
+    # shellcheck disable=SC2086
+    local out; out=$(run_sync "$P" --install-hooks --apply-doc-updates $combo)
+    local post_md5 post_intake post_ls
+    post_md5=$(_md5file "$P/CLAUDE.md"); post_intake=$(_md5file "$P/PROJECT_INTAKE.md")
+    post_ls=$(_rendered_artifacts "$P")
+    if [ "$pre_md5" != "$post_md5" ] || [ "$pre_intake" != "$post_intake" ]; then
+      ok=n; detail="a RENDERED doc was MUTATED under '--apply-doc-updates $combo'"
+    elif [ "$pre_ls" != "$post_ls" ]; then
+      ok=n; detail="'--apply-doc-updates $combo' created a new CLAUDE.md*/PROJECT_INTAKE.md* artifact — rendered docs are notice-only, nothing may be written beside them. before:[$(echo "$pre_ls" | tr '\n' ' ')] after:[$(echo "$post_ls" | tr '\n' ' ')]"
+    elif ! echo "$out" | grep -qF "RENDERED from a template"; then
+      ok=n; detail="'--apply-doc-updates $combo': missing the rendered-doc template notice; tail:\n$(echo "$out" | tail -10)"
+    fi
+    rm -rf "$T"
+    [ "$ok" = y ] || break
+  done
+  combos_desc="sidecar / overwrite / overwrite+confirm"
+  if [ "$ok" = y ]; then
+    pass "T-rendered-doc-never-applied: under $combos_desc, CLAUDE.md + PROJECT_INTAKE.md are byte-identical AND no new CLAUDE.md*/PROJECT_INTAKE.md* artifact appears; template notice still emitted (assisted apply is BL-101)"
+  else
+    fail_ "T-rendered-doc-never-applied" "$detail"
   fi
-  if ls "$P/"CLAUDE.md.bak.* "$P/"CLAUDE.md.new >/dev/null 2>&1; then
-    fail_ "T-rendered-doc-never-applied" "the sync wrote a .bak/.new for CLAUDE.md — rendered docs are notice-only"; rm -rf "$T"; return
-  fi
-  if ! echo "$out" | grep -qF "RENDERED from a template"; then
-    fail_ "T-rendered-doc-never-applied" "expected the rendered-doc template notice for CLAUDE.md; tail:\n$(echo "$out" | tail -10)"; rm -rf "$T"; return
-  fi
-  pass "T-rendered-doc-never-applied: CLAUDE.md + PROJECT_INTAKE.md byte-identical even under overwrite+confirm; template notice emitted (assisted apply deferred to BL-101)"
-  rm -rf "$T"
 }
 
 # ── T-hook-mode-preserved (MINOR-3) ─────────────────────────────────────────
@@ -590,7 +724,20 @@ t_mutation_sync() {
       "$FW/scripts/upgrade-project.sh" --sync-framework </dev/null 2>&1 ) >/dev/null
   local control_refreshed=n; [ "$(grep -c OLD-STALE "$Pc/scripts/check-phase-gate.sh")" = "0" ] && control_refreshed=y
 
-  # Mutant: excise the marked script-sync dispatch line from the framework copy.
+  # Mutant A (BODY NEUTER — round 2): gut _bl099_sync_scripts, leave the marked
+  # dispatch line (and the marker text) exactly where it is. Behaviour must still
+  # break — proving the test tracks the CODE, not the comment.
+  local FWb="$T/fwb"; make_fake_framework "$FWb"
+  _neuter_fn "$FWb/scripts/upgrade-project.sh" _bl099_sync_scripts 'return 0'
+  local body_marker_kept=n
+  _has_marker "$FWb/scripts/upgrade-project.sh" "$TARGET_TOKEN" && body_marker_kept=y
+  local Pb="$T/pb"; mk_project "$Pb" python
+  printf '#!/usr/bin/env bash\necho OLD-STALE\n' > "$Pb/scripts/check-phase-gate.sh"
+  ( cd "$Pb" && unset GITHUB_BASE_REF; CDF_HOME="$Pb/.no" SOIF_NONINTERACTIVE=1 \
+      "$FWb/scripts/upgrade-project.sh" --sync-framework </dev/null 2>&1 ) >/dev/null || true
+  local body_stale=n; [ "$(grep -c OLD-STALE "$Pb/scripts/check-phase-gate.sh")" = "1" ] && body_stale=y
+
+  # Mutant B (marker excision): the dispatch line itself is removed.
   grep -vF "$TARGET_TOKEN" "$FW/scripts/upgrade-project.sh" > "$FW/scripts/upgrade-project.sh.mut"
   mv "$FW/scripts/upgrade-project.sh.mut" "$FW/scripts/upgrade-project.sh"
   chmod +x "$FW/scripts/upgrade-project.sh"
@@ -600,10 +747,128 @@ t_mutation_sync() {
       "$FW/scripts/upgrade-project.sh" --sync-framework </dev/null 2>&1 ) >/dev/null || true
   local mutant_stale=n; [ "$(grep -c OLD-STALE "$Pm/scripts/check-phase-gate.sh")" = "1" ] && mutant_stale=y
 
-  if [ "$control_refreshed" = y ] && [ "$mutant_stale" = y ]; then
-    pass "T-mutation-sync: real script refreshes stale vendored scripts; excising '# BL-099-SYNC' leaves them stale (dispatch is load-bearing)"
+  if [ "$control_refreshed" = y ] && [ "$mutant_stale" = y ] && [ "$body_stale" = y ] && [ "$body_marker_kept" = y ]; then
+    pass "T-mutation-sync: real script refreshes stale vendored scripts; neutering _bl099_sync_scripts' BODY (marker '# BL-099-SYNC' still present) leaves them stale, as does excising the marked dispatch line (the sync is load-bearing, the comment is not the test)"
   else
-    fail_ "T-mutation-sync" "control_refreshed=$control_refreshed (expect y); mutant_stale=$mutant_stale (expect y — refresh must NOT happen without the marker)"
+    fail_ "T-mutation-sync" "control_refreshed=$control_refreshed (expect y); body_stale=$body_stale (expect y — a gutted _bl099_sync_scripts must NOT refresh); body_marker_kept=$body_marker_kept (expect y — the mutation must not have removed the marker); mutant_stale=$mutant_stale (expect y)"
+  fi
+  rm -rf "$T"
+}
+
+# ── T-mutation-doc-guard-body (round 2, MAJOR-B) ────────────────────────────
+# The fence's BODY is what protects the rendered docs — not the marker comment.
+# Neuter _bl099_doc_is_rendered (→ `return 1`), leave '# BL-099-DOC-GUARD' in the
+# file, and CLAUDE.md must fall straight through into the apply machinery: with
+# `--apply-doc-updates sidecar` the mutant writes CLAUDE.md.new, and with
+# overwrite+confirm it CLOBBERS CLAUDE.md with the unrendered template. The real
+# script does neither. That is the proof round 1's excision-only test could not
+# give (it merely asserted a notice line disappeared).
+t_mutation_doc_guard_body() {
+  local T; T=$(mktemp -d)
+  local TARGET_TOKEN='# BL-099-DOC-GUARD'
+  local FW="$T/fw"; make_fake_framework "$FW"
+
+  # Control: real script, sidecar requested → nothing written beside CLAUDE.md.
+  local Pc="$T/pc"; mk_project "$Pc" python
+  printf '%s\n' '# custom CLAUDE.md' > "$Pc/CLAUDE.md"
+  ( cd "$Pc" && unset GITHUB_BASE_REF; CDF_HOME="$Pc/.no" SOIF_NONINTERACTIVE=1 \
+      "$FW/scripts/upgrade-project.sh" --sync-framework --apply-doc-updates sidecar </dev/null 2>&1 ) >/dev/null || true
+  local control_clean=n
+  [ ! -e "$Pc/CLAUDE.md.new" ] && [ ! -e "$Pc/CLAUDE.md.upstream-template.new" ] && control_clean=y
+
+  # Mutant: gut the guard predicate's body; the marker stays in the file.
+  _neuter_fn "$FW/scripts/upgrade-project.sh" _bl099_doc_is_rendered 'return 1'
+  local marker_kept=n; _has_marker "$FW/scripts/upgrade-project.sh" "$TARGET_TOKEN" && marker_kept=y
+  local syntax_ok=n; bash -n "$FW/scripts/upgrade-project.sh" 2>/dev/null && syntax_ok=y
+
+  # (a) sidecar → the mutant writes CLAUDE.md.new (the guard was the only fence).
+  local Pm="$T/pm"; mk_project "$Pm" python
+  printf '%s\n' '# custom CLAUDE.md' > "$Pm/CLAUDE.md"
+  ( cd "$Pm" && unset GITHUB_BASE_REF; CDF_HOME="$Pm/.no" SOIF_NONINTERACTIVE=1 \
+      "$FW/scripts/upgrade-project.sh" --sync-framework --apply-doc-updates sidecar </dev/null 2>&1 ) >/dev/null || true
+  local mutant_sidecar=n; [ -f "$Pm/CLAUDE.md.new" ] && mutant_sidecar=y
+
+  # (b) overwrite+confirm → the mutant clobbers CLAUDE.md with the raw template.
+  local Po="$T/po"; mk_project "$Po" python
+  printf '%s\n' '# custom CLAUDE.md' > "$Po/CLAUDE.md"
+  local opre; opre=$(_md5file "$Po/CLAUDE.md")
+  ( cd "$Po" && unset GITHUB_BASE_REF; CDF_HOME="$Po/.no" SOIF_NONINTERACTIVE=1 \
+      "$FW/scripts/upgrade-project.sh" --sync-framework --apply-doc-updates overwrite --confirm-doc-overwrite </dev/null 2>&1 ) >/dev/null || true
+  local mutant_clobbered=n; [ "$(_md5file "$Po/CLAUDE.md")" != "$opre" ] && mutant_clobbered=y
+
+  if [ "$control_clean" = y ] && [ "$syntax_ok" = y ] && [ "$marker_kept" = y ] \
+     && [ "$mutant_sidecar" = y ] && [ "$mutant_clobbered" = y ]; then
+    pass "T-mutation-doc-guard-body: neutering _bl099_doc_is_rendered's BODY (marker '# BL-099-DOC-GUARD' still in the file) lets sidecar write CLAUDE.md.new and overwrite+confirm clobber CLAUDE.md — the real guard prevents both, so the fence is behaviour, not a comment"
+  else
+    fail_ "T-mutation-doc-guard-body" "control_clean=$control_clean (expect y — real script writes nothing beside CLAUDE.md under sidecar); syntax_ok=$syntax_ok marker_kept=$marker_kept (both expect y); mutant_sidecar=$mutant_sidecar mutant_clobbered=$mutant_clobbered (expect y — without the guard the rendered doc MUST be reachable)"
+  fi
+  rm -rf "$T"
+}
+
+# ── T-mutation-apply-status (round 2, MAJOR-A) ──────────────────────────────
+# _bl099_write_ok (# BL-099-APPLY-STATUS) is the ONE status check every mutating
+# doc write goes through. Neuter its BODY (→ `return 0`, i.e. "the write is always
+# fine") — marker text untouched — and the two write-failure fixtures must both go
+# RED: the run prints [OK] and exits 0 while nothing landed on disk. Restore →
+# GREEN (the failure tests themselves cover the restored path).
+t_mutation_apply_status() {
+  if [ "$(id -u)" = "0" ]; then
+    pass "T-mutation-apply-status: skipped (running as root — mode bits do not restrict root)"; return
+  fi
+  local T; T=$(mktemp -d)
+  local TARGET_TOKEN='# BL-099-APPLY-STATUS'
+  if ! _has_marker "$SCRIPT" "$TARGET_TOKEN"; then
+    fail_ "T-mutation-apply-status" "marker '$TARGET_TOKEN' not found in $SCRIPT (test needs updating)"; rm -rf "$T"; return
+  fi
+  local FW="$T/fw"; make_fake_framework "$FW"
+
+  # Control: real script — sidecar target unwritable → loud, non-zero.
+  local Pc="$T/pc"; mk_project "$Pc" python
+  printf '%s\n' 'my customized user guide' > "$Pc/docs/reference/user-guide.md"
+  chmod 500 "$Pc/docs/reference"
+  local crc=0 cout
+  cout=$( cd "$Pc" && unset GITHUB_BASE_REF; CDF_HOME="$Pc/.no" SOIF_NONINTERACTIVE=1 \
+      "$FW/scripts/upgrade-project.sh" --sync-framework --apply-doc-updates sidecar </dev/null 2>&1 ) || crc=$?
+  chmod 755 "$Pc/docs/reference"
+  local control_loud=n
+  [ "$crc" != "0" ] && echo "$cout" | grep -qF "FAILED to write the sidecar" && control_loud=y
+
+  # Mutant: gut the status checker. The marker string stays in the file.
+  _neuter_fn "$FW/scripts/upgrade-project.sh" _bl099_write_ok 'return 0'
+  local marker_kept=n; _has_marker "$FW/scripts/upgrade-project.sh" "$TARGET_TOKEN" && marker_kept=y
+  local syntax_ok=n; bash -n "$FW/scripts/upgrade-project.sh" 2>/dev/null && syntax_ok=y
+
+  # (a) sidecar failure → mutant claims success and exits 0.
+  local Ps="$T/ps"; mk_project "$Ps" python
+  printf '%s\n' 'my customized user guide' > "$Ps/docs/reference/user-guide.md"
+  chmod 500 "$Ps/docs/reference"
+  local src=0 sout
+  sout=$( cd "$Ps" && unset GITHUB_BASE_REF; CDF_HOME="$Ps/.no" SOIF_NONINTERACTIVE=1 \
+      "$FW/scripts/upgrade-project.sh" --sync-framework --apply-doc-updates sidecar </dev/null 2>&1 ) || src=$?
+  chmod 755 "$Ps/docs/reference"
+  local mutant_sidecar_silent=n
+  [ "$src" = "0" ] && echo "$sout" | grep -qF "wrote sidecar" && [ ! -f "$Ps/docs/reference/user-guide.md.new" ] \
+    && mutant_sidecar_silent=y
+
+  # (b) overwrite failure → mutant claims success and exits 0.
+  local Po="$T/po"; mk_project "$Po" python
+  local odoc="$Po/docs/reference/user-guide.md"
+  printf '%s\n' 'my customized user guide' > "$odoc"
+  local opre; opre=$(_md5file "$odoc")
+  chmod 444 "$odoc"
+  local orc=0 oout
+  oout=$( cd "$Po" && unset GITHUB_BASE_REF; CDF_HOME="$Po/.no" SOIF_NONINTERACTIVE=1 \
+      "$FW/scripts/upgrade-project.sh" --sync-framework --apply-doc-updates overwrite --confirm-doc-overwrite </dev/null 2>&1 ) || orc=$?
+  chmod 644 "$odoc" 2>/dev/null || true
+  local mutant_overwrite_silent=n
+  [ "$orc" = "0" ] && echo "$oout" | grep -qF "overwrote user-guide.md" \
+    && [ "$(_md5file "$odoc")" = "$opre" ] && mutant_overwrite_silent=y
+
+  if [ "$control_loud" = y ] && [ "$syntax_ok" = y ] && [ "$marker_kept" = y ] \
+     && [ "$mutant_sidecar_silent" = y ] && [ "$mutant_overwrite_silent" = y ]; then
+    pass "T-mutation-apply-status: neutering _bl099_write_ok's BODY (marker '# BL-099-APPLY-STATUS' still in the file) makes BOTH failed writes print [OK] and exit 0 with nothing on disk — the real check is what turns a failed apply into a loud non-zero run"
+  else
+    fail_ "T-mutation-apply-status" "control_loud=$control_loud (expect y — real script is loud + non-zero); syntax_ok=$syntax_ok marker_kept=$marker_kept (both expect y); mutant_sidecar_silent=$mutant_sidecar_silent mutant_overwrite_silent=$mutant_overwrite_silent (expect y — without the check the failures must go silent)"
   fi
   rm -rf "$T"
 }
@@ -681,12 +946,112 @@ t_mutation_confirm() {
   local mutant_clobbered=n
   [ "$(_md5file "$Pm/docs/reference/user-guide.md")" != "$mpre" ] && mutant_clobbered=y
 
-  if [ "$control_untouched" = y ] && [ "$mutant_clobbered" = y ]; then
-    pass "T-mutation-confirm: consent gate holds an unconfirmed overwrite; excising '# BL-099-CONFIRM' clobbers the doc unconfirmed (the gate is load-bearing)"
+  # Mutant B (BODY NEUTER — round 2): gut _bl099_overwrite_consent (→ always yes),
+  # leaving the marked call site AND the marker text exactly where they are. The
+  # unconfirmed overwrite must still land — the consent is the FUNCTION, not the
+  # comment.
+  local FWb="$T/fwb"; make_fake_framework "$FWb"
+  _neuter_fn "$FWb/scripts/upgrade-project.sh" _bl099_overwrite_consent 'return 0'
+  local body_marker_kept=n
+  _has_marker "$FWb/scripts/upgrade-project.sh" "$TARGET_TOKEN" && body_marker_kept=y
+  local Pb="$T/pb"; mk_project "$Pb" python
+  printf '%s\n' "$doc_body" > "$Pb/docs/reference/user-guide.md"
+  local bpre; bpre=$(_md5file "$Pb/docs/reference/user-guide.md")
+  ( cd "$Pb" && unset GITHUB_BASE_REF; CDF_HOME="$Pb/.no" SOIF_NONINTERACTIVE=1 \
+      "$FWb/scripts/upgrade-project.sh" --sync-framework --apply-doc-updates overwrite </dev/null 2>&1 ) >/dev/null || true
+  local body_clobbered=n
+  [ "$(_md5file "$Pb/docs/reference/user-guide.md")" != "$bpre" ] && body_clobbered=y
+
+  if [ "$control_untouched" = y ] && [ "$mutant_clobbered" = y ] \
+     && [ "$body_clobbered" = y ] && [ "$body_marker_kept" = y ]; then
+    pass "T-mutation-confirm: the consent gate holds an unconfirmed overwrite; neutering _bl099_overwrite_consent's BODY (marker '# BL-099-CONFIRM' still present) clobbers the doc unconfirmed, as does excising the marked call site (the gate is load-bearing)"
   else
-    fail_ "T-mutation-confirm" "control_untouched=$control_untouched (expect y — no consent, no write); mutant_clobbered=$mutant_clobbered (expect y — without the marker the overwrite must land)"
+    fail_ "T-mutation-confirm" "control_untouched=$control_untouched (expect y — no consent, no write); body_clobbered=$body_clobbered (expect y — a gutted consent must let the overwrite land); body_marker_kept=$body_marker_kept (expect y); mutant_clobbered=$mutant_clobbered (expect y)"
   fi
   rm -rf "$T"
+}
+
+# ── CONSENT PROBE HARNESS (round 2, MINOR-C + MINOR-D) ──────────────────────
+# The interactive branch of the three BL-099 consent paths is unreachable without
+# a pty, which is exactly why two bugs hid there: --non-interactive was ignored,
+# and the overwrite prompt's default-N was unpinned (flip it to Y and all 22 tests
+# stayed green). The probe EXTRACTS the real production functions and stubs ONLY
+# `_bl099_stdin_is_tty` — the single thing a pty-less test cannot answer. The
+# shipped guard is untouched (it still calls the real `[ -t 0 ]`); everything the
+# probe asserts is production code.
+#   $1 = value of NON_INTERACTIVE ("true" / "false")   → prints the run's output
+_consent_probe() {
+  local ni="$1" probe; probe="$(mktemp)"
+  {
+    printf '%s\n' '#!/usr/bin/env bash'
+    printf '%s\n' 'set -uo pipefail'
+    printf '%s\n' 'BOLD=""; NC=""'
+    printf '%s\n' 'INSTALL_HOOKS=false; CONFIRM_DOC_OVERWRITE=false; APPLY_DOC_UPDATES=""; DOC_APPLY_FAILED=false'
+    printf '%s\n' "NON_INTERACTIVE=$ni"
+    printf '%s\n' 'print_info() { echo "INFO $1"; }'
+    printf '%s\n' 'print_ok()   { echo "OK $1"; }'
+    printf '%s\n' 'print_warn() { echo "WARN $1"; }'
+    printf '%s\n' 'print_fail() { echo "FAIL $1"; }'
+    printf '%s\n' 'prompt_yes_no() { echo "PROMPTED[$1][default=$2]"; return 1; }'
+    _extract_fn "$SCRIPT" _bl099_forced_noninteractive
+    _extract_fn "$SCRIPT" _bl099_interactive
+    _extract_fn "$SCRIPT" _bl099_hook_consent
+    _extract_fn "$SCRIPT" _bl099_overwrite_consent
+    _extract_fn "$SCRIPT" _bl099_write_ok
+    _extract_fn "$SCRIPT" _bl099_mirror_mode
+    _extract_fn "$SCRIPT" _bl099_doc_apply
+    # The ONLY stub: pretend stdin is a terminal. Production still asks [ -t 0 ].
+    printf '%s\n' '_bl099_stdin_is_tty() { return 0; }'
+    printf '%s\n' '_bl099_hook_consent "hook?" && echo "HOOK=yes" || echo "HOOK=no"'
+    printf '%s\n' '_bl099_overwrite_consent "ovw?" && echo "OVW=yes" || echo "OVW=no"'
+    printf '%s\n' '_bl099_doc_apply "user-guide.md" "/nonexistent/user-guide.md" "/nonexistent/src.md" || true'
+  } > "$probe"
+  if ! bash -n "$probe" 2>/dev/null; then echo "PROBE-SYNTAX-ERROR"; rm -f "$probe"; return 0; fi
+  ( unset CI SOIF_NONINTERACTIVE; bash "$probe" </dev/null 2>&1 ) || true
+  rm -f "$probe"
+}
+
+# ── T-non-interactive-flag-honored (round 2, MINOR-C) ───────────────────────
+# --help promises --non-interactive "skips Y/N confirmations even on a tty", but
+# the three BL-099 consent paths only looked at CI / SOIF_NONINTERACTIVE / [-t 0]
+# and would have prompted a scripted operator anyway. With a terminal present:
+# NON_INTERACTIVE=false must PROMPT all three; NON_INTERACTIVE=true must prompt
+# NONE of them and fall back to the declared-flag channel.
+t_non_interactive_flag_honored() {
+  local inter forced
+  inter=$(_consent_probe false)
+  forced=$(_consent_probe true)
+  local i_hook=n i_ovw=n i_doc=n f_quiet=n f_hook=n f_ovw=n f_doc=n
+
+  echo "$inter" | grep -qF 'PROMPTED[hook?][default=Y]' && i_hook=y
+  echo "$inter" | grep -qF 'PROMPTED[ovw?][default=N]' && i_ovw=y
+  echo "$inter" | grep -qF 'Apply upstream user-guide.md' && i_doc=y
+
+  echo "$forced" | grep -qF 'PROMPTED' || f_quiet=y
+  echo "$forced" | grep -qF 'Apply upstream' || f_doc=y
+  echo "$forced" | grep -qxF 'HOOK=no' && f_hook=y
+  echo "$forced" | grep -qxF 'OVW=no' && f_ovw=y
+
+  if [ "$i_hook" = y ] && [ "$i_ovw" = y ] && [ "$i_doc" = y ] \
+     && [ "$f_quiet" = y ] && [ "$f_doc" = y ] && [ "$f_hook" = y ] && [ "$f_ovw" = y ]; then
+    pass "T-non-interactive-flag-honored: on a terminal, all three BL-099 consent paths prompt by default and NONE of them prompt under --non-interactive (hook falls back to --install-hooks, overwrite to --confirm-doc-overwrite, doc-apply to --apply-doc-updates)"
+  else
+    fail_ "T-non-interactive-flag-honored" "interactive: hook=$i_hook ovw=$i_ovw doc=$i_doc (all expect y); NON_INTERACTIVE=true: no-prompt=$f_quiet no-doc-prompt=$f_doc hook-denied=$f_hook ovw-denied=$f_ovw (all expect y — the flag must force the declared-flag channel).\ninteractive out:\n$inter\nforced out:\n$forced"
+  fi
+}
+
+# ── T-doc-overwrite-default-is-N (round 2, MINOR-D) ─────────────────────────
+# The destructive prompt's default is documented as No. It lives in a tty-only
+# branch, so flipping it to "Y" left all 22 round-1 tests green. This pins the
+# actual value the production function hands prompt_yes_no.
+t_doc_overwrite_default_is_n() {
+  local out; out=$(_consent_probe false)
+  local dflt; dflt=$(echo "$out" | sed -n 's/^PROMPTED\[ovw?\]\[default=\(.*\)\]$/\1/p' | head -1)
+  if [ "$dflt" = "N" ]; then
+    pass "T-doc-overwrite-default-is-N: the interactive in-place-overwrite prompt defaults to N (destructive → default no), pinned against the production function itself"
+  else
+    fail_ "T-doc-overwrite-default-is-N" "the overwrite prompt's default is '$dflt' — it MUST be 'N' (the user guide promises a [y/N] prompt defaulting to no). Probe output:\n$out"
+  fi
 }
 
 t_sync_refreshes_stale_script
@@ -705,12 +1070,18 @@ t_doc_noninteractive_no_flag_applies_nothing
 t_doc_overwrite_confirm_declined
 t_doc_overwrite_confirm_accepted
 t_doc_overwrite_backup_refusal
+t_doc_overwrite_write_failure_is_loud
+t_doc_sidecar_write_failure_is_loud
 t_doc_apply_flag_usage_errors
+t_doc_overwrite_default_is_n
+t_non_interactive_flag_honored
 t_rendered_doc_never_applied
 t_pin_stamped
 t_mutation_sync
 t_mutation_doc_guard
+t_mutation_doc_guard_body
 t_mutation_confirm
+t_mutation_apply_status
 
 echo ""
 echo "== Total: $((PASSED + FAILED)) | Passed: $PASSED | Failed: $FAILED =="
