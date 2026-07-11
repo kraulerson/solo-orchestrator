@@ -2486,3 +2486,26 @@ BL-097's model-selection rubric says WHO can build cheaply; this entry supplies 
 **Discipline unchanged:** detection is loud and automatic; remediation is consented, never auto-applied — the existing "Do NOT auto-update anything — always ask first" CLAUDE.md rule governs all three pieces.
 
 **Related:** BL-001 (CDF refresh); BL-088 (closure/backfill machinery this reuses); PR #166 (hook install-time-only decision); `scripts/check-updates.sh`; `scripts/session-version-check.sh`; `scripts/check-versions.sh`; `init.sh:~1750` (hook injection pattern); the 2026-07-11 Pantheon upgrade assessment (demand evidence).
+
+---
+
+## BL-100: Adversarial verification of delegated work — official acceptance step for subagent-built changes
+
+**Logged:** 2026-07-11 (Karl directive; completes the BL-097/BL-098 delegation trio)
+**Category:** Proposal / process (both repos)
+**Severity:** Medium
+**Status:** Open
+
+**What is official today:** adversarial personas at ten named phase steps (generated CLAUDE.md persona table — fresh context, refute-minded), the per-feature security audit (Build Loop 2.4, five parallel audit agents), and the gate-enforced Phase-3 review manifest with the `evaluation-prompts/` library. **What is missing:** between gates, a delegated (subagent-built) change has no required independent acceptance step — the implementing agent's own report is the only evidence its work is accepted on.
+
+**The rule to encode** (surfaces: generated CLAUDE.md Multi-Agent Parallelism section, `docs/builders-guide.md` Build Loop, mothership `CLAUDE.md`; coordinate with BL-092/BL-097/BL-098 on the shared template surfaces):
+1. Every delegated implementation above trivial is accepted only on an **independent adversarial verifier's verdict** — a fresh agent prompted to REFUTE, not confirm (the fresh-context principle the persona table already codifies, applied per change).
+2. **Calibrated rubric** with explicit criteria: `block` (any implementer claim contradicted by observation, or a known defect-class regression — silent-success, weak-test, non-hermetic, unregistered), `major_concerns` (vacuous assertion, spec miss, the verifier's own mutation survives), `minor_concerns`, `approve` = "tried to refute and failed." `major_concerns`+ blocks acceptance; verifiers must not default to minor to be polite (the Wave-3 lesson).
+3. **Claim reproduction:** the verifier independently re-runs every suite, lint, and check the implementer cites.
+4. **Double-mutation for enforcement/gate code:** the verifier designs and runs its OWN mutation, distinct from the implementer's documented proof; a surviving mutation = `major_concerns` minimum (weak-test class).
+5. **Tiering per BL-097:** verifier tier ≥ the work's blast radius — gate code verifies at top tier even when the implementation safely ran mid-tier.
+6. **Separation:** verifiers never fix — findings return to the planner/implementer (the BL-098 escalation loop), preserving reviewer independence.
+
+**Evidence this works (the 2026-07 gate + doc waves, `Reports/2026-07-11-project-post-mortem.md`):** the pattern caught the BL-088 scaffold deployment gap the entire registered test suite missed (surfaced by PR #173's verifier refusing to let the README oversell), killed surviving mutations behind PRs #160/#166/#168/#175, disproved the orchestrator's own false-alarm backlog tidy (PR #168), and was itself refuted-with-evidence once (PR #173's dead-path finding) — i.e., the protocol self-corrects in both directions.
+
+**Related:** BL-097 (who builds and verifies) + BL-098 (plan-first) — together the complete delegation protocol: plan → right-sized build → adversarial acceptance; BL-092 (shared CLAUDE.md surface); the archived 2026-07-09 gate-wave handoff §0 rule 3 (the arc-scoped precedent this makes permanent).
