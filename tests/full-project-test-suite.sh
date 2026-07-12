@@ -565,6 +565,30 @@ else
 fi
 fi
 
+# BL-109 S2 (Currency System, Layer 1 — Detection). test-freshness-check.sh is
+# the lib-level unit test (every drift class → tier, pin/path skip contracts,
+# torn cache, snooze hold/expiry + future clamp, machine-block JSON, fail-open
+# exit-0) — it never runs init.sh, so it is ALSO in the tests.yml unit fast lane.
+# test-freshness-birth.sh is the BL-088-precedent aggregator: it runs the REAL
+# init.sh to prove day-zero silence, hook injection, downstream ship-set, seeded
+# drift in the right tier, and the whole-tree I7 fingerprint. That aggregator is
+# SUITE_SKIP_AGGREGATORS-gated (a real init.sh scaffold is heavy) and is NEVER in
+# the unit list (it executes init.sh).
+if bash "$SCRIPT_DIR/tests/test-freshness-check.sh" >/dev/null 2>&1; then
+  pass "tests/test-freshness-check.sh"
+else
+  fail "tests/test-freshness-check.sh FAILED (run for details)"
+fi
+if [ "${SUITE_SKIP_AGGREGATORS:-0}" = "1" ]; then
+  section "BL-109 freshness birth fidelity — SKIPPED (SUITE_SKIP_AGGREGATORS=1; a real init.sh scaffold, runs standalone / full-suite)"
+else
+if bash "$SCRIPT_DIR/tests/test-freshness-birth.sh" >/dev/null 2>&1; then
+  pass "tests/test-freshness-birth.sh"
+else
+  fail "tests/test-freshness-birth.sh FAILED (run for details)"
+fi
+fi
+
 # Agent-ergonomics onboarding: tests/test-run-lints.sh — behavior suite for
 # scripts/run-lints.sh, the canonical local lint runner (runs every
 # scripts/lint-*.sh EXCEPT the parametrized lint-uat-scenarios.sh). Its

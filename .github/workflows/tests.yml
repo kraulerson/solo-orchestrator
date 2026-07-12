@@ -105,6 +105,7 @@ jobs:
             tests/test-enforcement-level-lib.sh
             tests/test-escalate-to-user.sh
             tests/test-filesystem-gate-install.sh
+            tests/test-freshness-check.sh
             tests/test-gate-principles.sh
             tests/test-gitlab-ci-status-stderr-approvals.sh
             tests/test-host-verify-protection-date-parse.sh

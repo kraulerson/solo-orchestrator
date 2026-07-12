@@ -1328,6 +1328,14 @@ create_project() {
   # upgrade-project.sh copy stays source-closed after a sync replaces it.
   cp "$SCRIPT_DIR/scripts/lib/hook-templates.sh"       scripts/lib/
   cp "$SCRIPT_DIR/scripts/lib/scaffold-shipped-set.sh" scripts/lib/
+  # BL-109 Currency System: the manifest currency-block reader/writer (S1) and
+  # the session-start freshness detector lib (S2). session-freshness-check.sh
+  # sources freshness-detect.sh, which sources currency-manifest.sh (which in
+  # turn sources scaffold-shipped-set.sh + hook-templates.sh, both above) — the
+  # whole chain must ship or the SessionStart hook is not source-closed
+  # downstream. (S1 carried obligation 5: currency-manifest.sh ships downstream.)
+  cp "$SCRIPT_DIR/scripts/lib/currency-manifest.sh"    scripts/lib/
+  cp "$SCRIPT_DIR/scripts/lib/freshness-detect.sh"     scripts/lib/
   cp "$SCRIPT_DIR/scripts/validate.sh" scripts/
   cp "$SCRIPT_DIR/scripts/check-phase-gate.sh" scripts/
   # BL-088: check-phase-gate.sh's Phase-3→4 gate auto-runs (and points the
@@ -1347,6 +1355,7 @@ create_project() {
   cp "$SCRIPT_DIR/scripts/test-gate.sh" scripts/
   cp "$SCRIPT_DIR/scripts/check-versions.sh" scripts/
   cp "$SCRIPT_DIR/scripts/session-version-check.sh" scripts/
+  cp "$SCRIPT_DIR/scripts/session-freshness-check.sh" scripts/   # BL-109 S2 (Currency System, Layer 1)
   cp "$SCRIPT_DIR/scripts/session-test-gate-check.sh" scripts/
   cp "$SCRIPT_DIR/scripts/session-end-qdrant-reminder.sh" scripts/
   cp "$SCRIPT_DIR/scripts/session-mcp-gate.sh" scripts/
@@ -1399,7 +1408,7 @@ create_project() {
   cp "$SCRIPT_DIR/scripts/lib/host.sh" scripts/lib/
   cp "$SCRIPT_DIR/scripts/host-drivers/"*.sh scripts/host-drivers/
   chmod +x scripts/host-drivers/*.sh
-  chmod +x scripts/validate.sh scripts/check-phase-gate.sh scripts/run-phase3-validation.sh scripts/check-gate.sh scripts/check-updates.sh scripts/resume.sh scripts/intake-wizard.sh scripts/resolve-tools.sh scripts/upgrade-project.sh scripts/reconfigure-project.sh scripts/verify-install.sh scripts/test-gate.sh scripts/check-versions.sh scripts/session-version-check.sh scripts/session-test-gate-check.sh scripts/session-end-qdrant-reminder.sh scripts/session-mcp-gate.sh scripts/process-checklist.sh scripts/pre-commit-gate.sh scripts/track-tool-usage.sh scripts/pending-approval.sh scripts/lint-uat-scenarios.sh
+  chmod +x scripts/validate.sh scripts/check-phase-gate.sh scripts/run-phase3-validation.sh scripts/check-gate.sh scripts/check-updates.sh scripts/resume.sh scripts/intake-wizard.sh scripts/resolve-tools.sh scripts/upgrade-project.sh scripts/reconfigure-project.sh scripts/verify-install.sh scripts/test-gate.sh scripts/check-versions.sh scripts/session-version-check.sh scripts/session-freshness-check.sh scripts/session-test-gate-check.sh scripts/session-end-qdrant-reminder.sh scripts/session-mcp-gate.sh scripts/process-checklist.sh scripts/pre-commit-gate.sh scripts/track-tool-usage.sh scripts/pending-approval.sh scripts/lint-uat-scenarios.sh
 
   # Copy intake suggestion files
   mkdir -p templates/intake-suggestions
@@ -1791,6 +1800,14 @@ PERMEOF
         # Add test gate check hook
         if ! jq -e '.hooks.SessionStart[0].hooks[] | select(.command | contains("session-test-gate-check.sh"))' .claude/settings.json >/dev/null 2>&1; then
           jq '.hooks.SessionStart[0].hooks += [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/session-test-gate-check.sh"}]' .claude/settings.json > .claude/settings.json.tmp \
+            && mv .claude/settings.json.tmp .claude/settings.json
+          hooks_added=true
+        fi
+        # BL-109 S2: freshness check hook (Currency System, Layer 1 — detection).
+        # Silent-when-current, zero-network, fail-open (exit 0 always), writes only
+        # .claude/cache/. Injected exactly like session-version-check.sh above.
+        if ! jq -e '.hooks.SessionStart[0].hooks[] | select(.command | contains("session-freshness-check.sh"))' .claude/settings.json >/dev/null 2>&1; then
+          jq '.hooks.SessionStart[0].hooks += [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/session-freshness-check.sh"}]' .claude/settings.json > .claude/settings.json.tmp \
             && mv .claude/settings.json.tmp .claude/settings.json
           hooks_added=true
         fi
@@ -2632,6 +2649,17 @@ generate_approval_log() {
 
 generate_gitignore() {
   cp "$SCRIPT_DIR/templates/generated/gitignore-base.tmpl" .gitignore
+
+  # BL-109 S2 (Currency System, Layer 1): the session-start freshness detector's
+  # atomic cache (snooze store + warm-cache marker). Operational state, never
+  # project content — invariant I7 confines detection's only project-tree write
+  # to `.claude/cache/`, which must therefore be gitignored so it never dirties
+  # the tree or shows up as a diff.
+  cat >> .gitignore << 'CACHEEOF'
+
+# BL-109 freshness detector cache (session-start Currency System state)
+.claude/cache/
+CACHEEOF
 
   # Add platform-specific ignores
   case "$PLATFORM" in
