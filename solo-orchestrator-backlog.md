@@ -2745,3 +2745,22 @@ For Rust the skip is *deliberate* (inline `#[cfg(test)]` tests cannot be detecte
 **Slices (each through BL-100 adversarial acceptance; guard registry grows every slice):** S0 done (PR #185 — engine + 25-row guard harness). S1 inventory → S2 detection → S3 staging (+ BL-101 generator factoring) → S3a write-primitive promotion (carries the four registry rows from PR #185's final review) → S4 apply/rollback → S5 teaching + machine-block lint contract + E2E items. Live-test protocol (design Appendix P): rung ladder scratch-scaffold → stale-scaffold → throwaway real-project clone → supervised Pantheon (detection → plan → ONE Class T item, then stop); never an unsupervised or batch apply on a real project.
 
 **Related:** BL-099 (SLICE-A shipped PR #185; SLICE-B superseded by L1 here — close it when S2 lands), BL-101 (superseded by L2/A1 — close when S3 lands), BL-105/BL-107/BL-108 (their manifest-level facts land in S1), BL-100 (acceptance doctrine), BL-097/BL-098 (tiering + plan-first: the v1.1 design is the plan of record), BL-092 (constrains L1: lean, zero network, ≤1s local).
+
+**S1 status (2026-07-12): MERGED (PR #191; verifier minor_concerns, approve-leaning — every implementer number reproduced exactly; verifier's own class-assignment mutation RED in both suites).** Carried obligations: (1) birth-stamp test pins Class M only as ">0" — tighten to an independently derived exact count (→ S2); (2) ~10 bulk `.tmpl` skeletons tracked nowhere — needs a §2-L0 class decision before staging (→ S3 dispatch); (3) the four PR #185 registry rows (→ S3a, already recorded); (4) `soloFrameworkPath` re-stamp on sync/apply (→ S3a); (5) `scripts/lib/currency-manifest.sh` ships downstream (→ S2).
+
+---
+
+## BL-110: soloFrameworkCommit is never stamped on `--no-remote-creation` scaffolds — the freshness pin is absent on the hermetic path
+
+**Logged:** 2026-07-12 (ground-truth conflict surfaced by the BL-109 S1 implementation agent — PR #191 declared deviation 1; independently verified in the main session)
+**Category:** Bug / pin contract (BL-099 SLICE-A follow-up)
+**Severity:** Medium
+**Status:** Open
+
+**Verified evidence:** the BL-099 birth-stamp (`# BL-099: birth-stamp .claude/manifest.json.soloFrameworkCommit`, init.sh ~:2498) lives INSIDE `create_and_protect_remote()` (opens ~:2182) — and that function's `--no-remote-creation` branch (~:2211) exits with `return 0` BEFORE the stamp is reached. Net: **every hermetic scaffold — all UAT/CI/agent runs and any operator passing `--no-remote-creation` — is born with NO `soloFrameworkCommit` pin.** Empirically reproduced during S1 (a real `--no-remote-creation` scaffold's manifest has no such key). The pin is the anchor of the entire Currency System (BL-109) and of `--sync-framework`'s drift reporting; a pin-absent manifest degrades both (sync stamps it on first run — self-healing there — but session-start detection reads it at birth).
+
+**Why tests missed it:** the BL-099 suites drive sync/stamp paths directly; no fidelity test scaffolds via `--no-remote-creation` and asserts the pin — the [[bl088-scaffold-source-closure]] fixture-hides-gap class, on a FLAG axis this time (BL-107 was the same class on the LANGUAGE axis).
+
+**Fix shape:** stamp the pin at the universal manifest-seed site (`prepare_initial_state_for_commit` — exactly where S1 anchored the `currency` block, which already records `soloFrameworkPath` there on every path); keep or dedupe the remote-path stamp (byte-compat decision documented in the PR); fidelity test asserting the pin on BOTH paths (with-remote fixture + `--no-remote-creation`), plus a mutation proof. Interim S2 contract: detection treats a pin-absent manifest as skip-silently for framework-drift checks (never a crash, never false drift).
+
+**Related:** BL-099 (the pin's origin, PR #185); BL-109 (S1 anchored the currency block at the universal site precisely because of this gap — PR #191 deviation 1); [[bl088-scaffold-source-closure]] (defect class); BL-107 (same class, language axis).
