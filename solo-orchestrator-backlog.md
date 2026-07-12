@@ -2662,3 +2662,49 @@ The audit's hollow set beyond BL-102/103/104. Each is declared **MUST**/**DECISI
 **Scope:** decide deliberately whether platform checklists become machine-checkable (a structured block per module the gate can read) or whether the MANDATORY language is downgraded to guidance to match reality. Do NOT leave the current mismatch. Not exhaustively audited — the four modules were grepped, not read end-to-end.
 
 **Related:** BL-105 (Phase-4 gate absence — the enclosing gap); BL-103/104.
+
+---
+
+## BL-107: Rust and `other`-language projects silently get NO TDD gate — including organizational/production tiers where it is advertised as non-bypassable
+
+**Logged:** 2026-07-12 (E2E-walk checklist derivation, PR #188)
+**Category:** Bug / gate integrity — documented-but-not-enforced, on a whole-language axis
+**Severity:** **High** (the flagship TDD hard block does not exist for two language selections, on tiers where the docs promise it cannot be bypassed)
+**Status:** Open
+
+**Verified.** `init.sh` (`install_precommit_hook`) derives a per-language `test_pattern`, and installs the BL-072/BL-010 commit-msg hook ONLY when it is non-empty:
+```
+rust)  src_ext="rs";  test_pattern="" ;;   # Rust tests are inline (#[cfg(test)])
+*)     src_ext="";    test_pattern="" ;;   # the catch-all: `other` and any unlisted language
+…
+if [ -n "$test_pattern" ] && [ -n "$src_ext" ]; then install_tdd_commit_msg_hook; fi
+```
+So a **Rust** project — or any project whose language falls to the `*)` catch-all (`other`) — receives **no commit-msg hook at all**. No BL-072 TDD ordering gate. No BL-010 Build-Loop commit-message check. This holds even for `deployment=organizational` / `poc_mode=sponsored_poc`, the tiers where BL-072 C2's own docs state the TDD block is a **hard block that cannot be bypassed** (only attested).
+
+For Rust the skip is *deliberate* (inline `#[cfg(test)]` tests cannot be detected by filename), but the consequence is not documented anywhere the operator or their agent will see it, and the framework's TDD promise is stated without a language carve-out. For the `*)` catch-all it is not deliberate at all — it is silent.
+
+**This is [[bl088-scaffold-source-closure]]'s exact failure mode on an axis nobody checked:** the gate exists, the tests pass (every BL-072 test fixture uses a language WITH a test_pattern), and the enforcement simply is not there in the real scaffold.
+
+**Fix shape:** (1) detect Rust tests by CONTENT, not filename — a diff adding `#[test]` / `#[cfg(test)]` counts as a test (the classifier already takes a changed-paths list; extend it to a changed-hunks check for languages with no filename convention); (2) for the `*)` catch-all, either install the hook with a conservative any-test-file heuristic or emit a LOUD init-time warning that TDD enforcement is unavailable for this language and record it in `phase-state.json` so the gate can surface it; (3) never let a non-bypassable tier silently lose its gate — if enforcement is unavailable, say so at init AND at every phase gate; (4) add the language axis to the scaffold-fidelity test (`tests/test-scaffold-tdd-block-real.sh` currently proves the block only for typescript).
+
+**Related:** [[bl088-scaffold-source-closure]] (same class); BL-072 (the gate that is missing); BL-010; `init.sh::install_precommit_hook`; `tests/test-scaffold-tdd-block-real.sh` (the fidelity test that must gain a rust/other case); PR #188 (the checklist derivation that surfaced it).
+
+---
+
+## BL-108: Templates that exist but are never shipped — including one a gate's own error message tells the operator to use
+
+**Logged:** 2026-07-12 (E2E-walk checklist derivation, PR #188)
+**Category:** Bug / scaffold completeness — the BL-088 class, in template form
+**Severity:** Medium
+**Status:** Open
+
+`templates/generated/security-audit-findings.tmpl` **exists in the framework** and `scripts/process-checklist.sh` names it in its own operator-facing error message:
+> `Create a findings file using templates/generated/security-audit-findings.tmpl`
+
+…but `init.sh` **never ships it** (`grep -c security-audit-findings init.sh` → **0**). The operator is told to use a template that does not exist in their project. The E2E-checklist derivation (PR #188) reports **8 of 25 templates never shipped, 5 of them demanded by a gate** — this is the confirmed exemplar; the full list is in `Reports/2026-07-12-e2e-walk/CODE-VS-MANUAL.md`.
+
+**This is [[bl088-scaffold-source-closure]] in template form.** BL-088 closed the class for *sourced scripts* (`tests/test-scaffold-source-closure.sh` derives init.sh's shipped set mechanically and fails if a shipped script sources an unshipped sibling). Nothing does the equivalent for **templates and artifact paths referenced by gates and error messages**.
+
+**Fix shape:** (1) enumerate the real gap from the PR #188 report — for each unshipped template, decide ship-it or delete-it-and-fix-the-referrer; (2) **extend the closure check to artifacts**: any `templates/**` path or artifact path named by a shipped script (error messages included) must be shipped, or the script must not name it — mechanically derived, like BL-088's parser, so it cannot drift; (3) TDD + mutation proof; registered in both aggregators.
+
+**Related:** [[bl088-scaffold-source-closure]] (the sibling class + the parser to extend); `scripts/process-checklist.sh` (the error message); `Reports/2026-07-12-e2e-walk/CODE-VS-MANUAL.md` (the full list); BL-105 (hollow gates — several share this root cause).
