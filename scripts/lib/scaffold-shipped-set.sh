@@ -47,3 +47,50 @@ soif_parse_shipped_scripts() {
     fi
   done | sort -u
 }
+
+# soif_parse_shipped_reference_docs <init_file>
+#   Prints one shipped verbatim reference doc per line ("docs/reference/<base>"),
+#   LC-sorted & deduped. Derived MECHANICALLY from init.sh's docs→docs/reference/
+#   cp lines (the seven-doc Class-T verbatim set: builders-guide,
+#   governance-framework, executive-review, cli-setup-addendum, user-guide,
+#   security-scan-guide, uat-authoring-guide). A `cp "$SCRIPT_DIR/docs/foo.md"
+#   docs/reference/` line yields "docs/reference/foo.md" (cp to a directory keeps
+#   the source basename). Extends the shipped-set parser to reference docs for
+#   the BL-109 currency inventory; NO hand-maintained list. bash-3.2 safe.
+soif_parse_shipped_reference_docs() {
+  local init_file="$1"
+  local line src base
+  grep -E 'cp[[:space:]]+"\$SCRIPT_DIR/docs/[^"]*"[[:space:]]+docs/reference/' "$init_file" \
+    | while IFS= read -r line; do
+        src="$(printf '%s\n' "$line" | sed -n 's#.*cp[[:space:]]*"\$SCRIPT_DIR/docs/\([^"]*\)".*#\1#p')"
+        [ -n "$src" ] || continue
+        base="${src##*/}"
+        printf 'docs/reference/%s\n' "$base"
+      done | sort -u
+}
+
+# soif_parse_shipped_skills <init_file> <skills_src_dir>
+#   Prints one shipped vendored-skill file per line (".claude/skills/<name>/SKILL.md"
+#   and, when the source ships one, ".claude/skills/<name>/NOTICE"), LC-sorted &
+#   deduped. Derived MECHANICALLY from init.sh's `for skill in <names>; do` loop
+#   (the vendored-skill installer) — the skill NAMES come from the loop header, and
+#   NOTICE is emitted only when <skills_src_dir>/<name>/NOTICE exists, mirroring
+#   init.sh's own `[ -f .../NOTICE ] && cp` conditional. Extends the shipped-set
+#   parser to skills for the BL-109 currency inventory; NO hand-maintained list.
+#   bash-3.2 safe.
+soif_parse_shipped_skills() {
+  local init_file="$1" skills_src_dir="$2"
+  local line names n
+  line="$(grep -E 'for[[:space:]]+skill[[:space:]]+in[[:space:]].*;[[:space:]]*do' "$init_file" | head -1)"
+  [ -n "$line" ] || return 0
+  # Capture the skill names between `in ` and the FIRST `;` — `[^;]*` (not `.*`)
+  # so a trailing `; do ...; done` on the same line can never over-match.
+  names="$(printf '%s\n' "$line" | sed -n 's#.*for[[:space:]]*skill[[:space:]]*in[[:space:]]*\([^;]*\);.*#\1#p')"
+  [ -n "$names" ] || return 0
+  for n in $names; do
+    printf '.claude/skills/%s/SKILL.md\n' "$n"
+    if [ -f "$skills_src_dir/$n/NOTICE" ]; then
+      printf '.claude/skills/%s/NOTICE\n' "$n"
+    fi
+  done | sort -u
+}

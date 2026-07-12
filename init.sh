@@ -85,6 +85,13 @@ source "$SCRIPT_DIR/scripts/lib/helpers.sh"
 # install_tdd_commit_msg_hook and scripts/upgrade-project.sh --sync-framework
 # emit byte-identical hooks from ONE source of truth.
 source "$SCRIPT_DIR/scripts/lib/hook-templates.sh"
+# BL-109-CURRENCY: currency-inventory (Layer 0) writer/reader helpers. Sourced
+# here so the render sites (generate_claude_md / PROJECT_INTAKE / the A2 template
+# copies) can stash render bases into $SOIF_CURRENCY_RENDERBASE_FILE, and
+# prepare_initial_state_for_commit can stamp the whole `currency` block into
+# .claude/manifest.json at birth. The lib transitively sources
+# scaffold-shipped-set.sh (mechanical shipped-set parsers) if not already loaded.
+source "$SCRIPT_DIR/scripts/lib/currency-manifest.sh"
 
 # ────────────────────────────────────────────────────────────────────
 # BL-064: init-failure tracking (silent-success defect class)
@@ -1438,6 +1445,14 @@ create_project() {
   mkdir -p templates/generated
   cp "$SCRIPT_DIR/templates/generated/project-bible.tmpl" templates/generated/
   cp "$SCRIPT_DIR/templates/generated/product-manifesto.tmpl" templates/generated/
+  # BL-109-CURRENCY: record the A2 (agent-authored) render bases by TEMPLATE sha
+  # only — PROJECT_BIBLE.md / PRODUCT_MANIFESTO.md are created by no script and
+  # do not exist at birth (review-r1 B3a), so there is no rendered-output sha and
+  # no files{} entry. Captured here, at the copy site, from the template source.
+  soif_currency_record_render_base A2 PROJECT_BIBLE.md \
+    "$SCRIPT_DIR/templates/generated/project-bible.tmpl" ""
+  soif_currency_record_render_base A2 PRODUCT_MANIFESTO.md \
+    "$SCRIPT_DIR/templates/generated/product-manifesto.tmpl" ""
   cp "$SCRIPT_DIR/templates/generated/frd.tmpl" templates/generated/
   cp "$SCRIPT_DIR/templates/generated/user-journey.tmpl" templates/generated/
   cp "$SCRIPT_DIR/templates/generated/data-contract.tmpl" templates/generated/
@@ -1920,6 +1935,13 @@ PERMEOF
   if [ -n "${RESOLVER_OUTPUT:-}" ]; then
     append_intake_tooling_summary "$RESOLVER_OUTPUT"
   fi
+
+  # BL-109-CURRENCY: capture the A1 render base for PROJECT_INTAKE.md HERE — at
+  # the end of its render (cp template → sed pre-fill → tooling append) — so the
+  # output sha is the render-time truth, never a post-hoc hash of a maybe-touched
+  # file (a MAJOR per the verify focus). {template sha, rendered-output sha}.
+  soif_currency_record_render_base A1 PROJECT_INTAKE.md \
+    "$SCRIPT_DIR/templates/project-intake.md" PROJECT_INTAKE.md
 
   # Generate phase state tracking.
   # BL-073: `review_gate_enforced` is the grandfather cutover for the
@@ -2584,6 +2606,13 @@ generate_claude_md() {
 Branch protection with required reviewers is recommended for organizational deployments and will be required when compliance modules are available. Until then, the Orchestrator creates and merges their own PRs with phase gate review at milestones. When branch protection is enabled, PRs require an independent reviewer before merge — this provides per-change code review that strengthens the governance audit trail.
 COMPEOF
   fi
+
+  # BL-109-CURRENCY: capture the A1 render base for CLAUDE.md HERE — at the end of
+  # its render (sed substitution + the conditional organizational append) — so the
+  # output sha is the render-time truth, never a post-hoc hash (a MAJOR per the
+  # verify focus). {template sha, rendered-output sha}.
+  soif_currency_record_render_base A1 CLAUDE.md \
+    "$SCRIPT_DIR/templates/generated/claude-md.tmpl" CLAUDE.md
 }
 
 generate_approval_log() {
@@ -4128,6 +4157,10 @@ HELPEOF
     resolve_and_install_tools
 
     log_section "Project Creation"
+    # BL-109-CURRENCY: start a fresh render-base scratch file BEFORE create_project
+    # so the render sites inside it (A2 template copies, PROJECT_INTAKE, CLAUDE.md)
+    # can stash {template sha, output sha} for the birth stamp.
+    soif_currency_renderbase_init
     create_project
 
     # BL-030: persist enforcement_level + deployment + poc_mode to manifest,
@@ -4244,6 +4277,21 @@ prepare_initial_state_for_commit() {
         > "$manifest"
     fi
   fi
+
+  # BL-109-CURRENCY: stamp the currency inventory block (design v1.1 §2-L0) into
+  # .claude/manifest.json at birth, immediately AFTER the framework-managed
+  # manifest seed above. Additive — every pre-existing field (soloFrameworkCommit
+  # / frameworkCommit / host / mode / … pins included) is preserved. files{} is
+  # derived MECHANICALLY from the shipped-set parsers and hashed from the
+  # just-scaffolded project tree (all cp/render/hook steps precede this call);
+  # render bases were captured AT the render sites into
+  # $SOIF_CURRENCY_RENDERBASE_FILE. This is the UNIVERSAL birth site —
+  # prepare_initial_state_for_commit runs on EVERY path (incl.
+  # --no-remote-creation), unlike the soloFrameworkCommit stamp, which is
+  # remote-path-only (see the S1 PR body's declared deviation). Skipped as a
+  # no-op when jq is unavailable (same contract as the soloFrameworkCommit stamp).
+  # Re-stamping on sync/apply (soloFrameworkPath refresh) is S3a — out of scope.
+  soif_currency_stamp "$manifest" "$SCRIPT_DIR/init.sh" "$SCRIPT_DIR" "." "$LANGUAGE" "$SCRIPT_DIR"   # BL-109-CURRENCY load-bearing stamping call
 
   # Seed bypass-audit.json with the init enforcement_level_set row.
   [ -f .claude/bypass-audit.json ] || echo "[]" > .claude/bypass-audit.json

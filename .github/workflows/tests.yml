@@ -101,6 +101,7 @@ jobs:
             tests/test-check-phase-gate-retroactive-approval.sh
             tests/test-check-phase-gate-self-approval.sh
             tests/test-check-phase-gate.sh
+            tests/test-currency-manifest.sh
             tests/test-enforcement-level-lib.sh
             tests/test-escalate-to-user.sh
             tests/test-filesystem-gate-install.sh
