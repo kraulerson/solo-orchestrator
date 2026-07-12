@@ -69,6 +69,43 @@ soif_parse_shipped_reference_docs() {
       done | sort -u
 }
 
+# soif_parse_shipped_templates <init_file>
+#   Prints one shipped verbatim project TEMPLATE per line
+#   ("templates/generated/<base>.tmpl"), LC-sorted & deduped. Derived MECHANICALLY
+#   from init.sh's `cp "$SCRIPT_DIR/templates/generated/<x>.tmpl" templates/generated/`
+#   lines — the bulk `.tmpl` skeletons init.sh ships verbatim into a project's own
+#   templates/generated/ so the Build Loop can generate FRDs / ADRs / handoffs / etc.
+#
+#   BL-109 S3, carried obligation 2 (the bulk-.tmpl class decision). These are
+#   Class T: shipped BYTE-FOR-BYTE into the project (like docs/reference/*.md), so
+#   the currency inventory tracks their drift and the plan offers upstream template
+#   improvements. THE RULE, in one sentence: a framework `.tmpl` that init.sh copies
+#   VERBATIM into the project's templates/generated/ is Class T; a `.tmpl` that
+#   init.sh RENDERS into a project artifact (A1/A2 render-source) is tracked via
+#   renderBases ONLY, not here; an unshipped framework-side `.tmpl` is excluded.
+#
+#   The three render-source templates that init.sh ALSO copies into
+#   templates/generated/ but whose IDENTITY is their renderBase entry —
+#   claude-md.tmpl (A1), project-bible.tmpl (A2), product-manifesto.tmpl (A2) — are
+#   EXCLUDED here so they are never double-tracked (files{} T *and* renderBases).
+#   That exclusion set is exactly the templates/generated/* rows of the A1/A2
+#   render-base map (design v1.1 §2-L0). bash-3.2 safe.
+soif_parse_shipped_templates() {
+  local init_file="$1"
+  local line src base
+  grep -E 'cp[[:space:]]+"\$SCRIPT_DIR/templates/generated/[^"]*\.tmpl"[[:space:]]+templates/generated/' "$init_file" \
+    | while IFS= read -r line; do
+        src="$(printf '%s\n' "$line" | sed -n 's#.*cp[[:space:]]*"\$SCRIPT_DIR/templates/generated/\([^"]*\.tmpl\)".*#\1#p')"
+        [ -n "$src" ] || continue
+        base="${src##*/}"
+        case "$base" in
+          # Render-source exclusions: tracked via renderBases (A1/A2), never T.
+          claude-md.tmpl|project-bible.tmpl|product-manifesto.tmpl) continue ;;
+        esac
+        printf 'templates/generated/%s\n' "$base"
+      done | sort -u
+}
+
 # soif_parse_shipped_skills <init_file> <skills_src_dir>
 #   Prints one shipped vendored-skill file per line (".claude/skills/<name>/SKILL.md"
 #   and, when the source ships one, ".claude/skills/<name>/NOTICE"), LC-sorted &

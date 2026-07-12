@@ -280,6 +280,78 @@ check_guard "mode/hook-refresh-preservation" "-" t_hook_mode_preserved modeprese
 # ── (J) THE INTERACTIVE APPLY-PROMPT FALLBACK (# BL-099-PROMPT-FALLBACK, BLOCK-2) ──
 check_guard "prompt/apply-fallback-is-skip" "# BL-099-PROMPT-FALLBACK" t_doc_prompt_default_is_skip subline '|| action="skip"  # BL-099-PROMPT-FALLBACK' '|| action="overwrite"  # BL-099-PROMPT-FALLBACK'
 
+# ══════════════════════════════════════════════════════════════════════════════════
+# ── (K) BL-109 S3 — PLAN STAGING GUARDS ───────────────────────────────────────────
+# The staging engine (scripts/lib/plan-staging.sh) + the --plan dispatch
+# (scripts/upgrade-project.sh) carry their OWN load-bearing guards. They are driven
+# by a DIFFERENT suite — tests/test-plan-staging.sh, which honours PLAN_ONLY (run one
+# named test) + PLAN_REPO_OVERRIDE (source the libs + run upgrade-project.sh from the
+# MUTANT tree) exactly as the sync suite honours BL099_ONLY/BL099_REPO_OVERRIDE. So
+# these rows neuter plan-staging.sh (lib guards) or upgrade-project.sh (the dispatch),
+# then assert the named plan-suite test goes RED. Same anti-cheat rules per row.
+# ══════════════════════════════════════════════════════════════════════════════════
+PLAN_PRISTINE_LIB="$REPO_ROOT/scripts/lib/plan-staging.sh"
+PLAN_MUT_LIB="$MUTANT_TREE/scripts/lib/plan-staging.sh"
+PLAN_SUITE="$REPO_ROOT/tests/test-plan-staging.sh"
+_reset_plan_lib() { cp "$PLAN_PRISTINE_LIB" "$PLAN_MUT_LIB"; }
+# Drive ONE plan-suite test against the mutant tree (PLAN_REPO_OVERRIDE re-points the
+# sourced libs + upgrade-project.sh; PLAN_ONLY selects the single killing test).
+_run_killing_plan() { PLAN_REPO_OVERRIDE="$MUTANT_TREE" PLAN_ONLY="$1" bash "$PLAN_SUITE" 2>&1; }
+
+# check_guard_plan <name> <marker|-> <killing_test> <target:lib|disp> <kind> [a1] [a2]
+#   lib  → neuter $MUTANT_TREE/scripts/lib/plan-staging.sh
+#   disp → neuter $MUT (the mutant upgrade-project.sh, the # BL-109-PLAN dispatch)
+check_guard_plan() {
+  local name="$1" marker="$2" tests="$3" target="$4" kind="$5" a1="$6" a2="$7"
+  local pristine mut saved="$MUT"
+  _reset_mutant; _reset_plan_lib
+  if [ "$target" = "lib" ]; then pristine="$PLAN_PRISTINE_LIB"; mut="$PLAN_MUT_LIB"; else pristine="$PRISTINE"; mut="$MUT"; fi
+  MUT="$mut"
+  if ! _apply_neuter "$kind" "$a1" "$a2"; then
+    MUT="$saved"; fail_ "$name" "neuter MIS-TARGETED (kind=$kind) — anchor/string absent or not unique; update the row"
+    GUARD_ROWS="${GUARD_ROWS}MISTARGET\t${name}\t${tests}\n"; _reset_mutant; _reset_plan_lib; return
+  fi
+  if cmp -s "$pristine" "$mut"; then
+    MUT="$saved"; fail_ "$name" "neuter produced an IDENTICAL file (kind=$kind)"
+    GUARD_ROWS="${GUARD_ROWS}NOOP\t${name}\t${tests}\n"; _reset_mutant; _reset_plan_lib; return
+  fi
+  if [ "$marker" != "-" ] && ! grep -qF "$marker" "$mut"; then
+    MUT="$saved"; fail_ "$name" "the neuter removed the marker '$marker' — attack behaviour, not the marker"
+    GUARD_ROWS="${GUARD_ROWS}MARKERGONE\t${name}\t${tests}\n"; _reset_mutant; _reset_plan_lib; return
+  fi
+  if ! bash -n "$mut" 2>/dev/null; then
+    MUT="$saved"; fail_ "$name" "the mutant has a bash syntax error (kind=$kind)"
+    GUARD_ROWS="${GUARD_ROWS}SYNTAX\t${name}\t${tests}\n"; _reset_mutant; _reset_plan_lib; return
+  fi
+  MUT="$saved"
+  local mout mrc=0; mout=$(_run_killing_plan "$tests") || mrc=$?
+  if [ "$mrc" = "0" ]; then
+    _reset_mutant; _reset_plan_lib
+    fail_ "$name" "SURVIVED — killing test [$tests] stayed GREEN against the neutered guard.\nmutant PASS/FAIL lines:\n$(echo "$mout" | grep -E '\[PASS\]|\[FAIL\]' | head -4)"
+    GUARD_ROWS="${GUARD_ROWS}SURVIVED\t${name}\t${tests}\n"; return
+  fi
+  _reset_mutant; _reset_plan_lib
+  local gout grc=0; gout=$(_run_killing_plan "$tests") || grc=$?
+  if [ "$grc" != "0" ]; then
+    fail_ "$name" "killing test [$tests] FAILS against the RESTORED pristine (flake).\nrestored PASS/FAIL lines:\n$(echo "$gout" | grep -E '\[PASS\]|\[FAIL\]' | head -4)"
+    GUARD_ROWS="${GUARD_ROWS}FLAKY\t${name}\t${tests}\n"; return
+  fi
+  pass "$name → RED under neuter ($kind), GREEN restored | killing: $tests"
+  GUARD_ROWS="${GUARD_ROWS}PINNED\t${name}\t${tests}\n"
+}
+
+check_guard_plan "plan/dispatch"        "# BL-109-PLAN"               t_plan_dispatch_creates_run_folder disp subline '_run_plan     # BL-109-PLAN' ':     # BL-109-PLAN'
+check_guard_plan "plan/exclusive-mkdir" "# BL-109-PLAN-MKDIR"         t_exclusive_mkdir                  lib  subline 'if ! mkdir "$RUN_DIR" 2>/dev/null; then' 'if ! mkdir -p "$RUN_DIR" 2>/dev/null; then'
+check_guard_plan "plan/write-fence-I1"  "# BL-109-PLAN-FENCE"         t_i1_write_fence                   lib  subline '"$RUN_DIR/UPDATE-PLAN.md"' '"$proj/UPDATE-PLAN.md"'
+check_guard_plan "plan/a2-fence"        "# BL-109-PLAN-A2FENCE"       t_a2_structural_only               lib  subline '_soif_plan_build_a2_structural "$RUN_DIR"' '_soif_plan_build_a1_candidate "$RUN_DIR"'
+check_guard_plan "plan/a1-placeholder"  "# BL-109-PLAN-A1PLACEHOLDER" t_a1_placeholder_withheld          lib  fnbody  _soif_plan_has_placeholder 'return 1'
+check_guard_plan "plan/base-sha"        "# BL-109-PLAN-BASESHA"       t_base_sha_recorded                lib  fnbody  _soif_plan_base_sha ':'
+# NB: the neuter target is escape-FREE (`>> "$items_tmp" … ;; # marker`) — the awk
+# `-v` in _neu_subline interprets \t/\n in the passed string, so a target containing
+# the printf format's \t/\n would mis-match. Routing the emitted retire row to
+# /dev/null drops it (no orphan item → no retire/rename → t_retire_emitted RED).
+check_guard_plan "plan/retire-verb"     "# BL-109-PLAN-RETIRE"        t_retire_emitted                   lib  subline '>> "$items_tmp"  ;; # BL-109-PLAN-RETIRE' '>> /dev/null  ;; # BL-109-PLAN-RETIRE'
+
 echo ""
 echo "── Guard-coverage registry (STATUS  guard  killing-test) ──"
 printf '%b' "$GUARD_ROWS" | sed 's/^/  /'

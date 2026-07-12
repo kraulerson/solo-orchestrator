@@ -121,6 +121,7 @@ jobs:
             tests/test-pending-approval.sh
             tests/test-phase-finalize.sh
             tests/test-phase3-validation-gate.sh
+            tests/test-plan-staging.sh
             tests/test-pre-commit-gate-classifier.sh
             tests/test-pre-commit-gate-lints.sh
             tests/test-process-checklist-auto-advance.sh

@@ -119,6 +119,10 @@ _soif_fresh_fw_source() {
   case "$rel" in
     scripts/*)
       printf '%s/%s' "$fw" "$rel" ;;
+    templates/generated/*)
+      # BL-109 S3: the bulk Class-T project templates (soif_parse_shipped_templates)
+      # ship byte-for-byte from the same relative path in the framework tree.
+      printf '%s/%s' "$fw" "$rel" ;;
     .claude/skills/*)
       name="${rel#.claude/skills/}"
       printf '%s/templates/generated/skills/%s' "$fw" "$name" ;;

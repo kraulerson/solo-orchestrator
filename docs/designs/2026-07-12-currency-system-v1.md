@@ -6,7 +6,7 @@
 
 ## §0 — Review-r1 amendment changelog (traceability)
 
-B1→§2-L3+§4+§5(S3a) · B2→§2-L0 · B3→§2-L2(A1/A2)+§2-L3(rollback)+I2 · B4→§2-L2(verbs)+§2-L1(orphans) · M1→§2-L2(roll-ups) · M2→§2-L2(run-id)+§2-L3(preconditions) · M3→§2-L3(--archive-item) · M4→§2-L2(selection) · M5→§2-L1(snooze) · M6→I7+§2-L1 · M7→I11 · M8→§2-L2(advisory separation) · M9→§2-L0(hook enum) · minors 1–10 folded in place.
+B1→§2-L3+§4+§5(S3a) · B2→§2-L0 · B3→§2-L2(A1/A2)+§2-L3(rollback)+I2 · B4→§2-L2(verbs)+§2-L1(orphans) · M1→§2-L2(roll-ups) · M2→§2-L2(run-id)+§2-L3(preconditions) · M3→§2-L3(--archive-item) · M4→§2-L2(selection) · M5→§2-L1(snooze) · M6→I7+§2-L1 · M7→I11 · M8→§2-L2(advisory separation) · M9→§2-L0(hook enum) · minors 1–10 folded in place. · S3: .tmpl class rule → §2-L0(files).
 
 ---
 
@@ -30,7 +30,7 @@ B1→§2-L3+§4+§5(S3a) · B2→§2-L0 · B3→§2-L2(A1/A2)+§2-L3(rollback)+I
 
 - `schemaVersion`
 - `soloFrameworkPath` — stamped by init.sh from its own `$SCRIPT_DIR`, re-stamped by every sync/apply; detection re-validates it and **silently skips framework checks when the path is gone or not a git checkout** (mirroring the existing `_bl099_stamp_pin` skip contract). Fixes the "pin vs clone" check having no path to check. Pins themselves stay where they live today: `soloFrameworkCommit` (Solo) and `frameworkCommit`/`frameworkVersion` (CDF) in this same file.
-- `files: {path → {sha256, mode, class, state}}` — derived from the same mechanical source as `scripts/lib/scaffold-shipped-set.sh` (extended to templates, reference docs, skills), never hand-listed. `state` participates in the verb lifecycle (§2-L2).
+- `files: {path → {sha256, mode, class, state}}` — derived from the same mechanical source as `scripts/lib/scaffold-shipped-set.sh` (extended to templates, reference docs, skills), never hand-listed. `state` participates in the verb lifecycle (§2-L2). **The `.tmpl` class rule (S3):** a framework `.tmpl` that `init.sh` copies **verbatim** into the project's `templates/generated/` is **Class T** (it joins the docs/reference verbatim set, tracked by `soif_parse_shipped_templates`); a `.tmpl` that `init.sh` **renders** into a project artifact (an A1/A2 render-source — `claude-md.tmpl`, `project-bible.tmpl`, `product-manifesto.tmpl`) is tracked via `renderBases` **only**, never double-listed in `files{}`; an unshipped framework-side `.tmpl` is **excluded**.
 - `renderBases` — **A1 artifacts only** (CLAUDE.md, PROJECT_INTAKE.md): template sha256 + rendered-output sha256, captured **at the render site** in init.sh. **A2 artifacts** (agent-authored: PRODUCT_MANIFESTO.md, PROJECT_BIBLE.md): template sha only — their content is user prose; a line-level base is meaningless (review r1 B3a).
 - `hooks: {name → present | absent-intentional | absent-unavailable}` — three states, not two (review r1 M9): Rust's missing commit-msg hook is `absent-intentional` (inline tests); the `*)` catch-all's is `absent-unavailable` and **reports at the enforcement tier** ("TDD gate unavailable for this language — BL-107") and converts to an offered `add` item the day upstream ships a fix. Expected-absence must never launder a bug into a fact.
 - `mcpProbe` — Context7 MCP config presence at init (via the existing `is_context7_mcp_registered`), honest best-effort only.
