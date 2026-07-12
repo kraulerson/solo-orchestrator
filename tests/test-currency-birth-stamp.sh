@@ -121,8 +121,30 @@ m_count="$(jq -r '[.currency.files[] | select(.class == "M")] | length' "$MAN")"
   || fail_ "Class T count" "expected 7, got $t_count"
 [ "$a1_count" = "2" ] && pass "Class A1 == 2 (CLAUDE.md + PROJECT_INTAKE.md)" \
   || fail_ "Class A1 count" "expected 2, got $a1_count"
-[ "$m_count" -gt 0 ] && pass "Class M > 0 (scripts + skills): $m_count" \
-  || fail_ "Class M count" "expected > 0, got $m_count"
+
+# — Class M count: INDEPENDENTLY re-derived, not a hardcoded number (BL-109 S2
+#   carried-obligation-7 tightening of the S1 '>0' placeholder). Recompute the
+#   shipped M set (scripts + vendored skills) via the SAME lib the product uses
+#   (scripts/lib/scaffold-shipped-set.sh) against the PRISTINE framework checkout,
+#   count those present in the scaffolded tree exactly as the product's row
+#   emitter does (skip-if-missing), and assert the manifest's M count matches
+#   EXACTLY. If init.sh grows/loses a shipped script or skill, both sides move
+#   together — the test can never drift the way a literal would.
+# shellcheck source=/dev/null
+. "$REPO_ROOT/scripts/lib/scaffold-shipped-set.sh"
+exp_m=0
+while IFS= read -r _rel; do
+  [ -n "$_rel" ] || continue
+  [ -f "$TS/$_rel" ] && exp_m=$((exp_m + 1))
+done <<EOF
+$(soif_parse_shipped_scripts "$INIT" "$REPO_ROOT/scripts")
+$(soif_parse_shipped_skills  "$INIT" "$REPO_ROOT/templates/generated/skills")
+EOF
+if [ "$m_count" = "$exp_m" ] && [ "$exp_m" -gt 0 ]; then
+  pass "Class M == independently lib-derived shipped-M count ($exp_m: scripts + skills)"
+else
+  fail_ "Class M count" "manifest M=$m_count but independent lib-derived M=$exp_m"
+fi
 
 # — A2 agent-authored artifacts NOT in files{} (do not exist at birth) —
 if [ "$(jq -r '.currency.files["PRODUCT_MANIFESTO.md"] // "null"' "$MAN")" = "null" ] \
