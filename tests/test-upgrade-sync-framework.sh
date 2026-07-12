@@ -81,6 +81,77 @@ _extract_fn() {
 # BEHAVIOUR, not the marker text — the anti-tautology check).
 _has_marker() { grep -qF "$2" "$1"; }
 
+# ── SILENT-SUCCESS `cp` STUB (review round 3) ───────────────────────────────
+# WHY THIS EXISTS. _bl099_write_ok is `[ "$1" -eq 0 ] && cmp -s "$2" "$3"` — a
+# status check AND a byte re-read. Round 2's two write-failure fixtures make the
+# destination unwritable with `chmod`, so `cp` EXITS NON-ZERO and the status half
+# alone already catches them: the round-3 verifier deleted the `cmp -s` half and
+# all 28 tests stayed green. The byte re-read — the whole reason the function is
+# belt-and-braces — was pinned by nothing.
+#
+# The hole that leaves is REACHABLE: a `cp` that RETURNS 0 WITHOUT LANDING THE
+# BYTES. Short write, ENOSPC, a destination that swallows writes, a shadowed `cp`
+# earlier on PATH. Status-only would print [OK] and exit 0 for a doc that was never
+# written — this repo's canonical silent-success defect class. `chmod` cannot
+# produce that state (an unwritable target makes cp FAIL, loudly), so no fixture
+# built out of file modes can ever pin the byte re-read. A lying `cp` can.
+#
+# MECHANISM (chosen over the alternatives, and deliberately surgical). The house
+# mock-CLI pattern (tests/host-drivers/mock-cli.sh) is "PATH-prepend a stub binary",
+# and that is what this is — but a blanket `cp` stub is too blunt: upgrade-project.sh
+# also cp's the whole vendored script set and the BL-088 skill files, so a global
+# no-op cp would sabotage half the sync and the assertions would no longer be about
+# doc-apply. So the stub is keyed on its DESTINATION: it lies about exactly one
+# target and delegates to the REAL cp for every other destination, leaving the rest
+# of the sync genuinely functional.
+#
+# Keyed on a destination GLOB, not an absolute path, on purpose: on macOS `mktemp -d`
+# hands back /var/folders/… while the script's own PROJECT_ROOT resolves through the
+# /private/var/… symlink, so an absolute-path equality test would silently never
+# match and the test would pass vacuously. The `.hits` witness file below is the
+# backstop for that entire class of mis-wiring — every test asserts the stub was
+# ACTUALLY exercised, so a stub that failed to take effect fails the test instead of
+# quietly making it green.
+#
+# HERMETIC + SCOPED: the stub directory is only ever prepended to PATH inside the
+# sync subshell (_run_sync_stubcp). The test harness's own file operations —
+# make_fake_framework's `cp -R`, the fixtures, _md5file — run in the parent shell
+# with the untouched PATH and are completely unaffected.
+#
+# _mk_silent_cp <bindir> <destination-glob>
+_mk_silent_cp() {
+  local bindir="$1" glob="$2" real_cp
+  real_cp="$(command -v cp)"
+  mkdir -p "$bindir"
+  {
+    printf '%s\n'  '#!/usr/bin/env bash'
+    printf '%s\n'  '# TEST STUB (BL-099 review round 3): a `cp` that reports SUCCESS (exit 0)'
+    printf '%s\n'  '# while writing NOTHING, for one destination only. Real cp for all others.'
+    printf 'REAL_CP=%q\n'     "$real_cp"
+    printf 'VICTIM_GLOB=%q\n' "$glob"
+    printf 'HITS=%q\n'        "$bindir/.hits"
+    printf '%s\n'  'dst=""; for a in "$@"; do dst="$a"; done   # last positional = destination (bash-3.2 safe)'
+    printf '%s\n'  'case "$dst" in'
+    printf '%s\n'  '  $VICTIM_GLOB) printf "%s\n" "$dst" >> "$HITS"; exit 0 ;;   # <- the lie: rc=0, zero bytes'
+    printf '%s\n'  'esac'
+    printf '%s\n'  'exec "$REAL_CP" "$@"'
+  } > "$bindir/cp"
+  chmod +x "$bindir/cp"
+}
+
+# True iff the silent-success stub actually intercepted a write (guards against a
+# vacuous pass — see the mis-wiring note above).
+_silent_cp_fired() { [ -s "$1/.hits" ]; }
+
+# Run a sync with the silent-success `cp` stub first on PATH, against an explicit
+# script (so the mutation test can point at a mutated framework copy).
+# _run_sync_stubcp <projdir> <script> <stub-bindir> [args...]
+_run_sync_stubcp() {
+  local proj="$1" script="$2" bindir="$3"; shift 3
+  ( cd "$proj" && unset GITHUB_BASE_REF; PATH="$bindir:$PATH" CDF_HOME="$proj/.no-such-cdf" SOIF_NONINTERACTIVE=1 \
+      "$script" --sync-framework "$@" </dev/null 2>&1 )
+}
+
 # Every CLAUDE.md* / PROJECT_INTAKE.md* entry in the project root, one per line.
 # The rendered-doc fence promises this set never grows.
 _rendered_artifacts() {
@@ -558,6 +629,88 @@ t_doc_sidecar_write_failure_is_loud() {
   rm -rf "$T"
 }
 
+# ── T-doc-overwrite-write-silently-fails-is-caught (round 3, MAJOR) ─────────
+# THE FIXTURE THE ROUND-2 SUITE WAS MISSING. Both round-2 write-failure tests use
+# `chmod` to make the destination unwritable, so `cp` exits NON-ZERO and the
+# `[ "$1" -eq 0 ]` half of _bl099_write_ok catches them on its own. This one drives
+# a `cp` that EXITS 0 AND COPIES NOTHING — the short-write / ENOSPC / shadowed-cp
+# shape — where the status is a lie and the byte re-read (`cmp -s`) is the ONLY
+# thing between the operator and a false "[OK] your doc was updated".
+#
+# Both mutating branches are exercised, because they fail through different code:
+#   (a) sidecar   — `cp src → <doc>.new` lies; nothing lands; must refuse loudly.
+#   (b) overwrite — the BACKUP uses the real cp (it lands and verifies), and then
+#       `cp src → <doc>` lies. The restore-from-backup cp is stubbed too, which is
+#       realistic and harmless: the doc was never written, so it still holds the
+#       operator's original bytes and the code's own `cmp -s "$bak" "$pfile"`
+#       confirms it and says so.
+# In BOTH: loud [FAIL] naming the doc, non-zero exit, NO [OK] line for that doc,
+# and the operator's original left byte-intact.
+t_doc_overwrite_write_silently_fails_is_caught() {
+  local T; T=$(mktemp -d)
+
+  # ── (a) SIDECAR: the `.new` write reports success and lands nothing. ──
+  local Ps="$T/ps"; mk_project "$Ps" python
+  local sdoc="$Ps/docs/reference/user-guide.md"
+  printf '%s\n' 'my customized user guide' > "$sdoc"
+  local spre; spre=$(_md5file "$sdoc")
+  local sbin="$T/bin-sidecar"; _mk_silent_cp "$sbin" '*/user-guide.md.new'
+  local sout src=0
+  sout=$(_run_sync_stubcp "$Ps" "$SCRIPT" "$sbin" --apply-doc-updates sidecar) || src=$?
+
+  if ! _silent_cp_fired "$sbin"; then
+    fail_ "T-doc-overwrite-write-silently-fails-is-caught" "(sidecar) the silent-success cp stub was never invoked — the fixture did not actually shadow cp, so this test would have passed vacuously"; rm -rf "$T"; return
+  fi
+  if [ -f "$sdoc.new" ]; then
+    fail_ "T-doc-overwrite-write-silently-fails-is-caught" "(sidecar) a .new sidecar exists — the stub was supposed to write nothing"; rm -rf "$T"; return
+  fi
+  if [ "$(_md5file "$sdoc")" != "$spre" ]; then
+    fail_ "T-doc-overwrite-write-silently-fails-is-caught" "(sidecar) the operator's original doc was modified by a failed sidecar write"; rm -rf "$T"; return
+  fi
+  if ! echo "$sout" | grep -qF "FAILED to write the sidecar"; then
+    fail_ "T-doc-overwrite-write-silently-fails-is-caught" "(sidecar) cp exited 0 with nothing on disk and the run did NOT complain — the byte re-read in _bl099_write_ok is not catching a lying cp; tail:\n$(echo "$sout" | tail -10)"; rm -rf "$T"; return
+  fi
+  if echo "$sout" | grep -qF "wrote sidecar"; then
+    fail_ "T-doc-overwrite-write-silently-fails-is-caught" "(sidecar) printed an [OK] 'wrote sidecar' line for a sidecar that does not exist (silent success)"; rm -rf "$T"; return
+  fi
+  if [ "$src" = "0" ]; then
+    fail_ "T-doc-overwrite-write-silently-fails-is-caught" "(sidecar) sync exited 0 after a write that never landed"; rm -rf "$T"; return
+  fi
+
+  # ── (b) OVERWRITE: backup lands for real; the in-place write reports success
+  #        and lands nothing. ──
+  local Po="$T/po"; mk_project "$Po" python
+  local odoc="$Po/docs/reference/user-guide.md"
+  printf '%s\n' 'my customized user guide' > "$odoc"
+  local opre; opre=$(_md5file "$odoc")
+  local obin="$T/bin-overwrite"; _mk_silent_cp "$obin" '*/user-guide.md'
+  local oout orc=0
+  oout=$(_run_sync_stubcp "$Po" "$SCRIPT" "$obin" --apply-doc-updates overwrite --confirm-doc-overwrite) || orc=$?
+  local obak; obak=$(ls "$Po/docs/reference/"user-guide.md.bak.* 2>/dev/null | head -1)
+
+  if ! _silent_cp_fired "$obin"; then
+    fail_ "T-doc-overwrite-write-silently-fails-is-caught" "(overwrite) the silent-success cp stub was never invoked — fixture mis-wired, the test would have passed vacuously"; rm -rf "$T"; return
+  fi
+  if [ "$(_md5file "$odoc")" != "$opre" ]; then
+    fail_ "T-doc-overwrite-write-silently-fails-is-caught" "(overwrite) the operator's original doc changed — the stub wrote nothing, so it must be byte-identical"; rm -rf "$T"; return
+  fi
+  if [ -z "$obak" ] || [ "$(_md5file "$obak")" != "$opre" ]; then
+    fail_ "T-doc-overwrite-write-silently-fails-is-caught" "(overwrite) the dated backup must exist and hold the original bytes (the backup cp is NOT stubbed — it must have really landed); got '$obak'"; rm -rf "$T"; return
+  fi
+  if ! echo "$oout" | grep -qF "FAILED to overwrite user-guide.md"; then
+    fail_ "T-doc-overwrite-write-silently-fails-is-caught" "(overwrite) cp exited 0 with nothing on disk and the run did NOT complain — the byte re-read in _bl099_write_ok is not catching a lying cp; tail:\n$(echo "$oout" | tail -10)"; rm -rf "$T"; return
+  fi
+  if echo "$oout" | grep -qF "overwrote user-guide.md"; then
+    fail_ "T-doc-overwrite-write-silently-fails-is-caught" "(overwrite) printed an [OK] 'overwrote' line for a write that never landed (silent success)"; rm -rf "$T"; return
+  fi
+  if [ "$orc" = "0" ]; then
+    fail_ "T-doc-overwrite-write-silently-fails-is-caught" "(overwrite) sync exited 0 after a write that never landed"; rm -rf "$T"; return
+  fi
+
+  pass "T-doc-overwrite-write-silently-fails-is-caught: a cp that EXITS 0 AND WRITES NOTHING is caught in BOTH the sidecar and the overwrite branch — loud [FAIL] naming the doc, no [OK], original byte-intact, backup kept, non-zero exit. Only the byte re-read (cmp -s) can see this; the exit-status check cannot."
+  rm -rf "$T"
+}
+
 # ── T-doc-apply-flag-usage-errors (MAJOR-2a: declared, hard-validated) ──────
 t_doc_apply_flag_usage_errors() {
   local T; T=$(mktemp -d); local P="$T/proj"; mk_project "$P" python
@@ -873,6 +1026,84 @@ t_mutation_apply_status() {
   rm -rf "$T"
 }
 
+# ── T-mutation-write-ok-byteread (round 3, MAJOR) ───────────────────────────
+# THE MUTATION THAT SURVIVED ROUND 2. T-mutation-apply-status guts _bl099_write_ok
+# WHOLESALE (`return 0`), which kills both halves at once — so it proves the
+# function exists, not that BOTH of its halves are load-bearing. The round-2
+# verifier deleted only the SECOND half:
+#
+#     _bl099_write_ok() { [ "$1" -eq 0 ]; }        # cmp -s dropped, marker intact
+#
+# …and all 28 tests stayed green. This test kills exactly that mutant. It is
+# strictly finer-grained than T-mutation-apply-status and BOTH must stay: this one
+# pins the byte re-read, that one pins the status check + the function's existence.
+#
+# The marker (# BL-099-APPLY-STATUS) rides on the three CALL SITES, not inside the
+# function, so it survives the neutering untouched — the anti-tautology check below
+# proves the mutation attacked BEHAVIOUR, not a comment.
+t_mutation_write_ok_byteread() {
+  local T; T=$(mktemp -d)
+  local TARGET_TOKEN='# BL-099-APPLY-STATUS'
+  if ! _has_marker "$SCRIPT" "$TARGET_TOKEN"; then
+    fail_ "T-mutation-write-ok-byteread" "marker '$TARGET_TOKEN' not found in $SCRIPT (test needs updating)"; rm -rf "$T"; return
+  fi
+  local FW="$T/fw"; make_fake_framework "$FW"
+  local FWS="$FW/scripts/upgrade-project.sh"
+
+  # Sanity: the REAL function must contain the byte re-read we are about to remove.
+  if ! _extract_fn "$FWS" _bl099_write_ok | grep -qF 'cmp -s'; then
+    fail_ "T-mutation-write-ok-byteread" "_bl099_write_ok no longer contains a 'cmp -s' byte re-read — this test mutates a line that is gone (test needs updating)"; rm -rf "$T"; return
+  fi
+
+  # ── CONTROL: real script, lying cp → loud + non-zero (GREEN). ──
+  local Pc="$T/pc"; mk_project "$Pc" python
+  printf '%s\n' 'my customized user guide' > "$Pc/docs/reference/user-guide.md"
+  local cbin="$T/bin-c"; _mk_silent_cp "$cbin" '*/user-guide.md.new'
+  local cout crc=0
+  cout=$(_run_sync_stubcp "$Pc" "$FWS" "$cbin" --apply-doc-updates sidecar) || crc=$?
+  local control_loud=n
+  _silent_cp_fired "$cbin" && [ "$crc" != "0" ] && echo "$cout" | grep -qF "FAILED to write the sidecar" && control_loud=y
+
+  # ── MUTANT: drop ONLY the `cmp -s` half. Marker text stays in the file. ──
+  _neuter_fn "$FWS" _bl099_write_ok '[ "$1" -eq 0 ]'
+  local marker_kept=n; _has_marker "$FWS" "$TARGET_TOKEN" && marker_kept=y
+  local syntax_ok=n;   bash -n "$FWS" 2>/dev/null && syntax_ok=y
+  local cmp_gone=n;    _extract_fn "$FWS" _bl099_write_ok | grep -qF 'cmp -s' || cmp_gone=y
+  local status_kept=n; _extract_fn "$FWS" _bl099_write_ok | grep -qF '-eq 0' && status_kept=y
+
+  # (a) sidecar: the mutant believes the lying cp → [OK] + exit 0 + no file.
+  local Ps="$T/ps"; mk_project "$Ps" python
+  printf '%s\n' 'my customized user guide' > "$Ps/docs/reference/user-guide.md"
+  local sbin="$T/bin-s"; _mk_silent_cp "$sbin" '*/user-guide.md.new'
+  local sout src=0
+  sout=$(_run_sync_stubcp "$Ps" "$FWS" "$sbin" --apply-doc-updates sidecar) || src=$?
+  local mutant_sidecar_silent=n
+  [ "$src" = "0" ] && echo "$sout" | grep -qF "wrote sidecar" && [ ! -f "$Ps/docs/reference/user-guide.md.new" ] \
+    && mutant_sidecar_silent=y
+
+  # (b) overwrite: same lie, in place. Mutant reports "overwrote" for a doc whose
+  #     bytes never changed.
+  local Po="$T/po"; mk_project "$Po" python
+  local odoc="$Po/docs/reference/user-guide.md"
+  printf '%s\n' 'my customized user guide' > "$odoc"
+  local opre; opre=$(_md5file "$odoc")
+  local obin="$T/bin-o"; _mk_silent_cp "$obin" '*/user-guide.md'
+  local oout orc=0
+  oout=$(_run_sync_stubcp "$Po" "$FWS" "$obin" --apply-doc-updates overwrite --confirm-doc-overwrite) || orc=$?
+  local mutant_overwrite_silent=n
+  [ "$orc" = "0" ] && echo "$oout" | grep -qF "overwrote user-guide.md" \
+    && [ "$(_md5file "$odoc")" = "$opre" ] && mutant_overwrite_silent=y
+
+  if [ "$control_loud" = y ] && [ "$syntax_ok" = y ] && [ "$marker_kept" = y ] \
+     && [ "$cmp_gone" = y ] && [ "$status_kept" = y ] \
+     && [ "$mutant_sidecar_silent" = y ] && [ "$mutant_overwrite_silent" = y ]; then
+    pass "T-mutation-write-ok-byteread: dropping ONLY the 'cmp -s' byte re-read from _bl099_write_ok (status check kept, marker '# BL-099-APPLY-STATUS' still in the file, syntax valid) makes a cp that exits 0 without writing print [OK] and exit 0 in BOTH branches — the byte re-read is load-bearing on its own, not redundant with the status check"
+  else
+    fail_ "T-mutation-write-ok-byteread" "control_loud=$control_loud (expect y — real script refuses a lying cp); syntax_ok=$syntax_ok marker_kept=$marker_kept cmp_gone=$cmp_gone status_kept=$status_kept (all expect y — the mutation must remove ONLY the byte re-read); mutant_sidecar_silent=$mutant_sidecar_silent mutant_overwrite_silent=$mutant_overwrite_silent (expect y — without the byte re-read the lying cp must go silently 'successful'). If the mutant is still LOUD, the byte re-read is not what catches this and the test is wrong; if the CONTROL is quiet, production regressed."
+  fi
+  rm -rf "$T"
+}
+
 # ── T-mutation-doc-guard: excise # BL-099-DOC-GUARD → rendered-doc RED ───────
 t_mutation_doc_guard() {
   local T; T=$(mktemp -d)
@@ -993,6 +1224,18 @@ _consent_probe() {
     printf '%s\n' 'print_warn() { echo "WARN $1"; }'
     printf '%s\n' 'print_fail() { echo "FAIL $1"; }'
     printf '%s\n' 'prompt_yes_no() { echo "PROMPTED[$1][default=$2]"; return 1; }'
+    # Review round 3 (MINOR): _bl099_doc_apply's interactive branch used to do a raw
+    # `printf` + `read -r`; it now goes through the shared prompt_choice helper
+    # (scripts/lib/helpers-core.sh). The probe stubs it exactly like prompt_yes_no —
+    # same reason, same pattern: capture the ARGUMENTS the production function hands
+    # the helper (a pty-less test cannot drive the real one), then return non-zero to
+    # simulate "operator gave no valid answer". Production must fall back to SKIP.
+    # NOTE the `>&2`: it mirrors the real helper, and it is load-bearing. prompt_choice
+    # writes its prompt + option list to STDERR and ONLY the chosen option to STDOUT,
+    # precisely because callers read the answer through `$(…)` — a prompt on stdout
+    # would be swallowed by the command substitution and returned as the "choice".
+    # A stub that echoes to stdout does not reproduce production and hides the prompt.
+    printf '%s\n' 'prompt_choice() { local p="$1"; shift; echo "PROMPTED-CHOICE[$p][options: $*]" >&2; return 1; }'
     _extract_fn "$SCRIPT" _bl099_forced_noninteractive
     _extract_fn "$SCRIPT" _bl099_interactive
     _extract_fn "$SCRIPT" _bl099_hook_consent
@@ -1032,11 +1275,45 @@ t_non_interactive_flag_honored() {
   echo "$forced" | grep -qxF 'HOOK=no' && f_hook=y
   echo "$forced" | grep -qxF 'OVW=no' && f_ovw=y
 
+  # Review round 3 (MINOR): the doc prompt must go through the SHARED prompt_choice
+  # helper, not a raw `read`. Without this assertion, reverting the call site to
+  # `printf … ; read -r action` would leave every other check above green (the raw
+  # version printed a prompt too), so "routed through the helper" would be unpinned
+  # — and scripts/lint-raw-read-prompt.sh cannot backstop it (it keys on `read -p` /
+  # `read -rp`; a printf-then-bare-`read -r` slips straight through — that lint scope
+  # gap is called out in PR #185). The option strings are pinned too: they are what
+  # _bl099_doc_apply's `case` arms match (sidecar → n|new|sidecar, overwrite →
+  # o|overwrite, skip → the safe `*` default), so renaming one silently turns a real
+  # choice into a no-op skip.
+  local i_choice=n i_opts=n
+  echo "$inter" | grep -qF 'PROMPTED-CHOICE[' && i_choice=y
+  echo "$inter" | grep -qF '[options: skip sidecar overwrite]' && i_opts=y
+
   if [ "$i_hook" = y ] && [ "$i_ovw" = y ] && [ "$i_doc" = y ] \
+     && [ "$i_choice" = y ] && [ "$i_opts" = y ] \
      && [ "$f_quiet" = y ] && [ "$f_doc" = y ] && [ "$f_hook" = y ] && [ "$f_ovw" = y ]; then
-    pass "T-non-interactive-flag-honored: on a terminal, all three BL-099 consent paths prompt by default and NONE of them prompt under --non-interactive (hook falls back to --install-hooks, overwrite to --confirm-doc-overwrite, doc-apply to --apply-doc-updates)"
+    pass "T-non-interactive-flag-honored: on a terminal, all three BL-099 consent paths prompt by default (the doc prompt via the shared prompt_choice helper, offering exactly skip/sidecar/overwrite) and NONE of them prompt under --non-interactive (hook falls back to --install-hooks, overwrite to --confirm-doc-overwrite, doc-apply to --apply-doc-updates)"
   else
-    fail_ "T-non-interactive-flag-honored" "interactive: hook=$i_hook ovw=$i_ovw doc=$i_doc (all expect y); NON_INTERACTIVE=true: no-prompt=$f_quiet no-doc-prompt=$f_doc hook-denied=$f_hook ovw-denied=$f_ovw (all expect y — the flag must force the declared-flag channel).\ninteractive out:\n$inter\nforced out:\n$forced"
+    fail_ "T-non-interactive-flag-honored" "interactive: hook=$i_hook ovw=$i_ovw doc=$i_doc via-prompt_choice=$i_choice options-skip/sidecar/overwrite=$i_opts (all expect y); NON_INTERACTIVE=true: no-prompt=$f_quiet no-doc-prompt=$f_doc hook-denied=$f_hook ovw-denied=$f_ovw (all expect y — the flag must force the declared-flag channel).\ninteractive out:\n$inter\nforced out:\n$forced"
+  fi
+}
+
+# ── T-doc-prompt-default-is-skip (round 3, MINOR) ───────────────────────────
+# prompt_choice returns non-zero with nothing on stdout when the operator gives no
+# valid answer (EOF, or the retry cap). The raw `read` it replaced had the same
+# safe fallback via `|| action=""`, and that MUST survive the migration: an operator
+# who hits Ctrl-D at the apply prompt must get SKIP — never a sidecar, and above all
+# never an in-place overwrite. The probe's prompt_choice stub returns 1 for exactly
+# this reason, so this pins the fallback against the real production function.
+t_doc_prompt_default_is_skip() {
+  local out; out=$(_consent_probe false)
+  local skipped=n wrote=n
+  echo "$out" | grep -qF 'skipped user-guide.md' && skipped=y
+  echo "$out" | grep -qE 'wrote sidecar|overwrote' && wrote=y
+  if [ "$skipped" = y ] && [ "$wrote" = n ]; then
+    pass "T-doc-prompt-default-is-skip: when the interactive apply prompt yields no valid answer (EOF / abort), the action defaults to SKIP — no sidecar, no overwrite, no write of any kind"
+  else
+    fail_ "T-doc-prompt-default-is-skip" "skipped=$skipped (expect y — the no-answer fallback must be skip) wrote=$wrote (expect n — nothing may be applied without an explicit choice). Probe output:\n$out"
   fi
 }
 
@@ -1072,8 +1349,10 @@ t_doc_overwrite_confirm_accepted
 t_doc_overwrite_backup_refusal
 t_doc_overwrite_write_failure_is_loud
 t_doc_sidecar_write_failure_is_loud
+t_doc_overwrite_write_silently_fails_is_caught
 t_doc_apply_flag_usage_errors
 t_doc_overwrite_default_is_n
+t_doc_prompt_default_is_skip
 t_non_interactive_flag_honored
 t_rendered_doc_never_applied
 t_pin_stamped
@@ -1082,6 +1361,7 @@ t_mutation_doc_guard
 t_mutation_doc_guard_body
 t_mutation_confirm
 t_mutation_apply_status
+t_mutation_write_ok_byteread
 
 echo ""
 echo "== Total: $((PASSED + FAILED)) | Passed: $PASSED | Failed: $FAILED =="

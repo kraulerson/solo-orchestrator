@@ -947,15 +947,33 @@ _bl099_overwrite_consent() {
 # is proof: `cp` can report success after a short write, and a `cp` that failed on
 # open leaves a destination that merely LOOKS untouched.
 #   $1 = exit status of the mutating command   $2 = source   $3 = destination
-# Neuter this body (→ `return 0`) and T-doc-overwrite-write-failure-is-loud +
-# T-doc-sidecar-write-failure-is-loud go RED — that is T-mutation-apply-status.
+#
+# BOTH HALVES ARE LOAD-BEARING, AND BOTH ARE NOW PINNED. Review round 3 caught the
+# round-2 tests half-covering this: the two round-2 write-failure fixtures make the
+# destination unwritable via `chmod`, so `cp` EXITS NON-ZERO and the `[ "$1" -eq 0 ]`
+# half alone already catches them. Delete the `cmp -s` half and all 28 tests stayed
+# green — the belt-and-braces byte re-read, the entire point of this function, was
+# unpinned. The reachable hole it leaves is a `cp` that RETURNS 0 WITHOUT LANDING
+# THE BYTES (short write, ENOSPC, a shadowed/stubbed cp on PATH, a destination that
+# swallows writes): status-only would report [OK] and exit 0 for a doc that was
+# never written — this repo's canonical silent-success defect class, and exactly
+# what round 2 was meant to kill.
+#
+# The two mutation proofs are therefore complementary, and BOTH must stay:
+#   • neuter the whole body (→ `return 0`)   → T-mutation-apply-status (round 2)
+#   • drop ONLY the `cmp -s` half            → T-mutation-write-ok-byteread (round 3)
+# The round-3 mutant is the one the round-2 suite could not see. It is killed by
+# T-doc-overwrite-write-silently-fails-is-caught, which drives a stub `cp` that
+# exits 0 and copies nothing — the only fixture where the byte re-read is the sole
+# thing standing between the operator and a false [OK].
 _bl099_write_ok() {
   [ "$1" -eq 0 ] && cmp -s "$2" "$3"
 }
 
 # Reference-doc apply (the 7 VERBATIM docs/reference/*.md only — rendered docs
 # never reach here, see # BL-099-DOC-GUARD).
-#   • interactive → [s]kip / [n]ew-sidecar / [o]verwrite, and `overwrite` still
+#   • interactive → a numbered prompt_choice of skip / sidecar / overwrite (the
+#     shared helper, NOT a raw read — see the call site), and `overwrite` still
 #     has to clear the # BL-099-CONFIRM consent gate.
 #   • non-interactive → the action comes ONLY from the declared CLI flag
 #     --apply-doc-updates <skip|sidecar|overwrite>. With no flag: notice only,
@@ -974,8 +992,31 @@ _bl099_write_ok() {
 _bl099_doc_apply() {
   local label="$1" pfile="$2" src="$3" action="" bak rc=0
   if _bl099_interactive; then
-    printf '%b' "${BOLD}    Apply upstream ${label}? [s]kip / [n]ew sidecar / [o]verwrite: ${NC}"
-    read -r action || action=""
+    # Review round 3 (MINOR): this used to be a raw `printf` + `read -r action`,
+    # which sidestepped the repo's prompt discipline. scripts/lint-raw-read-prompt.sh
+    # did not catch it — that lint keys on `read -p` / `read -rp` (the `-p` flag is
+    # what makes `read` block on a prompt), and a `printf`-then-bare-`read -r` is
+    # exactly the same defect wearing a different hat. The lint's SCOPE GAP is real
+    # and is filed as such in PR #185; this call site is now simply correct.
+    #
+    # The centralized helper (scripts/lib/helpers-core.sh::prompt_choice, in scope
+    # via `source lib/helpers.sh` at the top of this file) supplies what the raw
+    # read never did: an EOF guard (a scripted/heredoc caller that under-feeds the
+    # prompt gets a clean refusal instead of an infinite "Invalid choice" spin — the
+    # 2026-04-25 UAT bug), re-prompting on invalid input instead of silently
+    # coercing garbage, and a retry cap.
+    #
+    # SEMANTICS PRESERVED EXACTLY. The option strings are chosen so the `case` below
+    # is unchanged: "sidecar" hits `n|new|sidecar`, "overwrite" hits `o|overwrite`,
+    # and "skip" falls to `*)`. prompt_choice returns non-zero on EOF/abort with
+    # nothing on stdout, so `|| action=""` also lands on `*)` — i.e. THE DEFAULT IS
+    # STILL SKIP, the safe no-write action. And this branch is still reachable only
+    # when _bl099_interactive says so, so a non-interactive run never prompts.
+    #
+    # `action` is pre-declared `local` above and assigned separately on purpose:
+    # `local action="$(cmd)"` would mask the command substitution's exit status
+    # behind `local`'s, so the `|| action=""` fallback would never fire.
+    action="$(prompt_choice "    Apply upstream ${label}?" skip sidecar overwrite)" || action=""
   else
     action="$APPLY_DOC_UPDATES"
     if [ -z "$action" ]; then
