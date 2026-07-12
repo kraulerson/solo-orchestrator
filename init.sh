@@ -1274,7 +1274,13 @@ create_project() {
 
   # Copy framework documents
   print_info "Copying framework documents..."
-  mkdir -p docs/reference docs/platform-modules docs/test-results "docs/ADR documentation" "docs/api and interfaces" docs/snapshots docs/phase-0 docs/security-audits
+  # BL-103: docs/eval-results/ is the manifest's REQUIRED home — the Phase 3→4
+  # review gate reads docs/eval-results/review-manifest.json, and
+  # evaluation-prompts/Projects/run-reviews.sh writes it there. The scaffold never
+  # created the directory, so the gate's own remediation path pointed into a
+  # folder that did not exist. Create it up front, like every other gate-checked
+  # docs/ directory above.
+  mkdir -p docs/reference docs/platform-modules docs/test-results "docs/ADR documentation" "docs/api and interfaces" docs/snapshots docs/phase-0 docs/security-audits docs/eval-results
 
   cp "$SCRIPT_DIR/docs/builders-guide.md" docs/reference/
   cp "$SCRIPT_DIR/docs/governance-framework.md" docs/reference/

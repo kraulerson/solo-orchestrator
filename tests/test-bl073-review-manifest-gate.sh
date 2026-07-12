@@ -121,11 +121,20 @@ JSON
   # process-state.json: satisfy the Phase 1→2 ZDR gate (public) and the
   # branch-protection backstop (github_free_tier attestation) so neither
   # adds an unrelated issue.
+  #
+  # phase3_validation.steps_completed MUST list all nine steps (BL-104). This
+  # fixture used to pass `[]` and still exit 0 — because check-phase-gate.sh's
+  # P3-007 cross-check had no `else` arm and ZERO completed steps fell through
+  # it silently (1-8 steps blocked; 0 passed). This fixture was riding that
+  # inversion: it claimed to be a "golden-clean Phase-3 project" while recording
+  # that Phase-3 validation had never been started. BL-104 added the missing arm,
+  # so the fixture now has to be what it always said it was. See
+  # tests/test-bl104-gate-scoring.sh for the arm's own suite.
   cat > "$PROJ/.claude/process-state.json" <<JSON
 {
   "phase1_artifacts": { "data_classification": "public" },
   "phase2_init": { "attestations": { "branch_protection": { "reason": "github_free_tier" } } },
-  "phase3_validation": { "steps_completed": [] }
+  "phase3_validation": { "steps_completed": ["integration_testing","security_hardening","chaos_testing","accessibility_audit","performance_audit","contract_testing","results_archived","pre_launch_preparation","legal_review"] }
 }
 JSON
 

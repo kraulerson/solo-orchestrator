@@ -200,3 +200,27 @@ jobs:
       - name: Show PASS/FAIL inventory (on failure or on demand)
         if: always()
         run: bash scripts/lint-no-live-remote-in-tests.sh --list || true
+
+  # BL-103: portability backstop for evaluation-prompts/. The Phase 3→4 review
+  # gate (BL-073) hands operators `evaluation-prompts/Projects/run-reviews.sh` as
+  # its remediation — and that script (plus compose.sh and the Framework runner)
+  # used `declare -A` + `[[ -v x ]]`, bash >= 4.2 constructs that macOS
+  # /bin/bash 3.2.57 cannot even PARSE. Every other portability rule in this repo
+  # is lint-enforced over scripts/ and init.sh; evaluation-prompts/ was uncovered,
+  # which is how three shipped scripts sat dead. See
+  # scripts/lint-evalprompts-portability.sh header and
+  # tests/test-bl103-eval-generator.sh for the behavior suite. Same
+  # job-name-is-required-check convention as the jobs above — keep it stable.
+  evalprompts-portability-lint:
+    name: evalprompts-portability-lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Lint evaluation-prompts/ for bash-4 constructs (BL-103)
+        run: bash scripts/lint-evalprompts-portability.sh
+
+      - name: Show PASS/FAIL inventory (on failure or on demand)
+        if: always()
+        run: bash scripts/lint-evalprompts-portability.sh --list || true

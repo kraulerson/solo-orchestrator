@@ -125,6 +125,15 @@ trust the scripts:
 - `scripts/process-checklist.sh` (Build Loop / commit-ready classifier)
 - `scripts/run-phase3-validation.sh` (Phase 3 scanners)
 
+**THE `[WARN]` TRAP (check-phase-gate.sh).** The `[WARN]` vs `[FAIL]` text is
+**cosmetic** — the exit predicate is `if [ $issues -eq 0 ]`. So any "WARN" arm
+that runs `issues=$((issues + 1))` **BLOCKS the gate**, and a true non-blocking
+WARN must **omit** the increment. Two arms that both print `[WARN]` can have
+opposite gate outcomes. Read the `issues` increment, not the label — that
+mismatch is what hid both BL-104 scoring inversions (an `if/elif` with no `else`
+let 0/9 Phase-3 steps pass while 8/9 blocked; an empty manifest scored better
+than no manifest).
+
 ## GOTCHAS
 
 - `pre-commit-gate.sh --tdd-only` runs **TWO** message gates: the BL-072 TDD
