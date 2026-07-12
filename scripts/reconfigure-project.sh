@@ -249,49 +249,49 @@ get_release_vars() {
   local lang="$1"
   case "$lang" in
     typescript|javascript)
-      RELEASE_SETUP_ACTION="actions/setup-node@v4"
+      RELEASE_SETUP_ACTION="actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4 (v4.4.0)"
       RELEASE_SETUP_VERSION_KEY="node-version"
       RELEASE_SETUP_VERSION_VALUE="'lts/*'"
       RELEASE_INSTALL_COMMAND="npm ci"
       RELEASE_BUILD_COMMAND="npm run build"
       ;;
     python)
-      RELEASE_SETUP_ACTION="actions/setup-python@v5"
+      RELEASE_SETUP_ACTION="actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5 (v5.6.0)"
       RELEASE_SETUP_VERSION_KEY="python-version"
       RELEASE_SETUP_VERSION_VALUE="'3.x'"
       RELEASE_INSTALL_COMMAND="pip install -r requirements.txt"
       RELEASE_BUILD_COMMAND="python -m build"
       ;;
     rust)
-      RELEASE_SETUP_ACTION="dtolnay/rust-toolchain@stable"
+      RELEASE_SETUP_ACTION="dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable branch head 2026-06-30"
       RELEASE_SETUP_VERSION_KEY="toolchain"
       RELEASE_SETUP_VERSION_VALUE="stable"
       RELEASE_INSTALL_COMMAND="echo 'No separate install step for Rust'"
       RELEASE_BUILD_COMMAND="cargo build --release"
       ;;
     csharp)
-      RELEASE_SETUP_ACTION="actions/setup-dotnet@v4"
+      RELEASE_SETUP_ACTION="actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4 (v4.3.1)"
       RELEASE_SETUP_VERSION_KEY="dotnet-version"
       RELEASE_SETUP_VERSION_VALUE="'8.0.x'"
       RELEASE_INSTALL_COMMAND="dotnet restore"
       RELEASE_BUILD_COMMAND="dotnet build --configuration Release"
       ;;
     kotlin|java)
-      RELEASE_SETUP_ACTION="actions/setup-java@v4"
+      RELEASE_SETUP_ACTION="actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4 (v4.8.0)"
       RELEASE_SETUP_VERSION_KEY="java-version"
       RELEASE_SETUP_VERSION_VALUE="'21'"
       RELEASE_INSTALL_COMMAND="echo 'Gradle handles dependencies automatically'"
       RELEASE_BUILD_COMMAND="./gradlew build"
       ;;
     go)
-      RELEASE_SETUP_ACTION="actions/setup-go@v5"
+      RELEASE_SETUP_ACTION="actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5 (v5.6.0)"
       RELEASE_SETUP_VERSION_KEY="go-version"
       RELEASE_SETUP_VERSION_VALUE="'stable'"
       RELEASE_INSTALL_COMMAND="echo 'Go modules download automatically'"
       RELEASE_BUILD_COMMAND="go build ./..."
       ;;
     dart)
-      RELEASE_SETUP_ACTION="subosito/flutter-action@v2"
+      RELEASE_SETUP_ACTION="subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2 (v2.23.0)"
       RELEASE_SETUP_VERSION_KEY="channel"
       RELEASE_SETUP_VERSION_VALUE="'stable'"
       RELEASE_INSTALL_COMMAND="flutter pub get"
@@ -363,7 +363,9 @@ reconfigure() {
             local project_name
             project_name=$(jq -r '.project // "project"' .claude/phase-state.json 2>/dev/null)
             get_release_vars "$NEW_VALUE"
-            sed -e "s|__SETUP_ACTION__|$RELEASE_SETUP_ACTION|g" \
+            # BL-113: strip the template-only marker comment before substitution
+            sed -e 's|[[:space:]]*#.*__SOLO_TEMPLATE_ONLY__[[:space:]]*$||' \
+                -e "s|__SETUP_ACTION__|$RELEASE_SETUP_ACTION|g" \
                 -e "s|__SETUP_VERSION_KEY__|$RELEASE_SETUP_VERSION_KEY|g" \
                 -e "s|__SETUP_VERSION_VALUE__|$RELEASE_SETUP_VERSION_VALUE|g" \
                 -e "s|__INSTALL_COMMAND__|$RELEASE_INSTALL_COMMAND|g" \
@@ -411,7 +413,9 @@ reconfigure() {
         else
           get_release_vars "other"
         fi
-        sed -e "s|__SETUP_ACTION__|$RELEASE_SETUP_ACTION|g" \
+        # BL-113: strip the template-only marker comment before substitution
+        sed -e 's|[[:space:]]*#.*__SOLO_TEMPLATE_ONLY__[[:space:]]*$||' \
+            -e "s|__SETUP_ACTION__|$RELEASE_SETUP_ACTION|g" \
             -e "s|__SETUP_VERSION_KEY__|$RELEASE_SETUP_VERSION_KEY|g" \
             -e "s|__SETUP_VERSION_VALUE__|$RELEASE_SETUP_VERSION_VALUE|g" \
             -e "s|__INSTALL_COMMAND__|$RELEASE_INSTALL_COMMAND|g" \

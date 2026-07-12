@@ -27,9 +27,9 @@ jobs:
         shell: bash
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 (v4.3.1)
 
-      - uses: __SETUP_ACTION__
+      - uses: __SETUP_ACTION__ # nosemgrep -- the value here is a build-time PLACEHOLDER token, not an action ref: init.sh substitutes a SHA-pinned action (BL-113). This entire trailing comment is STRIPPED when the template is rendered, so NO suppression ever ships into a generated project. __SOLO_TEMPLATE_ONLY__
         with:
           __SETUP_VERSION_KEY__: __SETUP_VERSION_VALUE__
 
@@ -61,7 +61,7 @@ jobs:
         #     Import key and sign artifacts with gpg --detach-sign.
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4 (v4.6.2)
         with:
           name: release-${{ matrix.os }}
           path: dist/*
@@ -75,7 +75,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4 (v4.3.0)
 
       - name: Generate checksums
         run: sha256sum release-*/* > checksums.sha256
@@ -102,7 +102,7 @@ jobs:
       #       -J zap-report.json
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2 (v2.6.2)
         with:
           files: |
             release-*/*
