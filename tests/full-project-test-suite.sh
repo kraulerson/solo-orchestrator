@@ -541,6 +541,30 @@ else
   fail "tests/test-scaffold-tdd-block-real.sh FAILED (run for details)"
 fi
 
+# BL-109 S1 (Currency System, Layer 0 — Inventory). test-currency-manifest.sh is
+# the lib-level unit test (schema, class assignment, hook enum, sha/mode capture,
+# render-base capture, reader/writer round-trip, dual-source ban) — it never runs
+# init.sh, so it is ALSO in the tests.yml unit fast lane. test-currency-birth-
+# stamp.sh is the BL-088-precedent aggregator: it runs the REAL init.sh three
+# times (typescript/rust/other) to prove the currency block stamps at birth with
+# shas that recompute end-to-end and the three-state hook enum. That aggregator
+# is SUITE_SKIP_AGGREGATORS-gated (three scaffolds is heavy) and is NEVER in the
+# unit list (it executes init.sh).
+if bash "$SCRIPT_DIR/tests/test-currency-manifest.sh" >/dev/null 2>&1; then
+  pass "tests/test-currency-manifest.sh"
+else
+  fail "tests/test-currency-manifest.sh FAILED (run for details)"
+fi
+if [ "${SUITE_SKIP_AGGREGATORS:-0}" = "1" ]; then
+  section "BL-109 currency birth-stamp fidelity — SKIPPED (SUITE_SKIP_AGGREGATORS=1; three real init.sh scaffolds, runs standalone / full-suite)"
+else
+if bash "$SCRIPT_DIR/tests/test-currency-birth-stamp.sh" >/dev/null 2>&1; then
+  pass "tests/test-currency-birth-stamp.sh"
+else
+  fail "tests/test-currency-birth-stamp.sh FAILED (run for details)"
+fi
+fi
+
 # Agent-ergonomics onboarding: tests/test-run-lints.sh — behavior suite for
 # scripts/run-lints.sh, the canonical local lint runner (runs every
 # scripts/lint-*.sh EXCEPT the parametrized lint-uat-scenarios.sh). Its
