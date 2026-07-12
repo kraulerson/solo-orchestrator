@@ -31,6 +31,17 @@
 # ONLY here: BL099_REPO_OVERRIDE re-points its framework tree at the mutant, and
 # BL099_ONLY runs a single named test. A bare `bash tests/…` run ignores both.
 #
+# BL-112 EXTENSION. The registry now also covers the two COMMIT-TIME enforcement
+# generators — scripts/lib/hook-templates.sh (the emitted pre-commit hook) and
+# scripts/install-filesystem-gates.sh (the emitted strict framework gate) — whose
+# guards are killed by tests/test-bl112-commit-enforcement.sh (BL112_REPO_OVERRIDE
+# / BL112_ONLY, the same two hooks by another name). Those rows scaffold a REAL
+# project from the mutant tree and attempt a REAL `git commit`, so they are the
+# slowest rows here; they are also the only ones that can prove a commit gate
+# actually refuses a commit, which is precisely the proof BL-112 was missing.
+# Each row therefore declares its TARGET (which file in the mutant tree it
+# mutates) and the harness dispatches to the right killing suite.
+#
 # FAST-LANE: NOT in the tests.yml `unit` list ON PURPOSE. It neuters the script and
 # runs the suite ~2x per registry row (~25 rows), so it is minutes, not seconds —
 # an aggregator-only test (registered in tests/full-project-test-suite.sh). It does
@@ -43,8 +54,15 @@ set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-PRISTINE="$REPO_ROOT/scripts/upgrade-project.sh"
 SUITE="$REPO_ROOT/tests/test-upgrade-sync-framework.sh"
+SUITE_BL112="$REPO_ROOT/tests/test-bl112-commit-enforcement.sh"
+
+# Per-row TARGET: which file in the mutant tree gets neutered, and which suite
+# kills it. `upgrade` is the default (every pre-BL-112 row). PRISTINE/MUT are the
+# globals the neuter primitives operate on — _select_target rebinds them.
+PRISTINE=""
+MUT=""
+TARGET_KIND="upgrade"
 
 PASSED=0
 FAILED=0
@@ -71,12 +89,31 @@ mkdir -p "$MUTANT_TREE"
 cp -R "$REPO_ROOT/scripts"    "$MUTANT_TREE/scripts"
 cp -R "$REPO_ROOT/docs"       "$MUTANT_TREE/docs"
 cp -R "$REPO_ROOT/templates"  "$MUTANT_TREE/templates"
+# BL-112 rows scaffold from this tree with the REAL init.sh, which also reads
+# evaluation-prompts/ — copy it so a mutant-tree init.sh is a faithful framework.
+[ -d "$REPO_ROOT/evaluation-prompts" ] && cp -R "$REPO_ROOT/evaluation-prompts" "$MUTANT_TREE/evaluation-prompts"
 cp    "$REPO_ROOT/init.sh"    "$MUTANT_TREE/init.sh"
+chmod +x "$MUTANT_TREE/init.sh"
 ( cd "$MUTANT_TREE" && git init -q && git config user.email fw@t.local && git config user.name FW \
     && unset GITHUB_BASE_REF && git add -A && git commit -q -m "mutant framework HEAD" ) >/dev/null 2>&1
-MUT="$MUTANT_TREE/scripts/upgrade-project.sh"
 cleanup() { rm -rf "$ROOT_TMP" 2>/dev/null || true; }
 trap cleanup EXIT
+
+# _select_target <kind> — rebind PRISTINE/MUT (what the neuter primitives edit)
+# and TARGET_KIND (which suite _run_killing drives).
+_select_target() {
+  TARGET_KIND="$1"
+  case "$1" in
+    upgrade) PRISTINE="$REPO_ROOT/scripts/upgrade-project.sh"
+             MUT="$MUTANT_TREE/scripts/upgrade-project.sh" ;;
+    hooktpl) PRISTINE="$REPO_ROOT/scripts/lib/hook-templates.sh"
+             MUT="$MUTANT_TREE/scripts/lib/hook-templates.sh" ;;
+    gates)   PRISTINE="$REPO_ROOT/scripts/install-filesystem-gates.sh"
+             MUT="$MUTANT_TREE/scripts/install-filesystem-gates.sh" ;;
+    *) echo "  [FAIL] unknown target kind: $1" >&2; exit 2 ;;
+  esac
+}
+_select_target upgrade
 
 # Reset the mutant script to pristine (cp preserves the +x mode).
 _reset_mutant() { cp "$PRISTINE" "$MUT"; chmod +x "$MUT"; }
@@ -173,11 +210,18 @@ _apply_neuter() {
   esac
 }
 
-# Run ONE (or more, space-separated) BL-099 suite test(s) against the mutant tree.
+# Run ONE (or more, space-separated) killing test(s) against the mutant tree.
 # Prints the suite output; returns the suite's exit code (non-zero = a named test
-# FAILED, because BL099_ONLY runs only those tests).
+# FAILED, because the *_ONLY hook runs only those tests). Which suite is driven is
+# a property of the row's TARGET: upgrade-project.sh guards are killed by the
+# BL-099 sync suite; the commit-gate generators (hook-templates.sh,
+# install-filesystem-gates.sh) are killed by the BL-112 suite, which scaffolds
+# from the mutant tree with the REAL init.sh and attempts a REAL `git commit`.
 _run_killing() {
-  BL099_REPO_OVERRIDE="$MUTANT_TREE" BL099_ONLY="$1" bash "$SUITE" 2>&1
+  case "$TARGET_KIND" in
+    upgrade)       BL099_REPO_OVERRIDE="$MUTANT_TREE" BL099_ONLY="$1" bash "$SUITE" 2>&1 ;;
+    hooktpl|gates) BL112_REPO_OVERRIDE="$MUTANT_TREE" BL112_ONLY="$1" bash "$SUITE_BL112" 2>&1 ;;
+  esac
 }
 
 # ── THE REGISTRY PIPELINE ────────────────────────────────────────────────────────
@@ -207,6 +251,14 @@ check_guard() {
     _reset_mutant
     skip_ "$name" "killing test [$tests] short-circuits under root (mode bits do not restrict root) — cannot pin here on this host"
     GUARD_ROWS="${GUARD_ROWS}SKIP-root\t${name}\t${tests}\n"; return
+  fi
+  # A killing test that SKIPPED exits 0 — which would read as SURVIVED. It is not.
+  # The BL-112 SAST cases skip when semgrep is absent; say so instead of lying in
+  # either direction.
+  if echo "$mout" | grep -qF "[SKIP] $tests"; then
+    _reset_mutant
+    skip_ "$name" "killing test [$tests] SKIPPED on this host (semgrep absent) — the guard is UNPINNED here, not proven"
+    GUARD_ROWS="${GUARD_ROWS}SKIP-nosemgrep\t${name}\t${tests}\n"; return
   fi
   if [ "$mrc" = "0" ]; then
     _reset_mutant
@@ -279,6 +331,38 @@ check_guard "mode/hook-refresh-preservation" "-" t_hook_mode_preserved modeprese
 
 # ── (J) THE INTERACTIVE APPLY-PROMPT FALLBACK (# BL-099-PROMPT-FALLBACK, BLOCK-2) ──
 check_guard "prompt/apply-fallback-is-skip" "# BL-099-PROMPT-FALLBACK" t_doc_prompt_default_is_skip subline '|| action="skip"  # BL-099-PROMPT-FALLBACK' '|| action="overwrite"  # BL-099-PROMPT-FALLBACK'
+
+# ── (K) BL-112 — THE COMMIT-TIME ENFORCEMENT GENERATORS ──────────────────────────
+# Three guards, all three of which were BROKEN in production and all three of which
+# a static/fixture test would have missed. Killed by tests/test-bl112-commit-
+# enforcement.sh, which scaffolds a REAL project from the mutant tree and attempts
+# a REAL `git commit`: the ONLY test shape that can prove a commit gate refuses a
+# commit. These rows are the slow ones (a real init.sh per RED and per GREEN).
+
+# K1. The semgrep `--error` flag in the emitted pre-commit hook. Neuter = drop the
+#     flag (the exact pre-BL-112 invocation) => semgrep still DETECTS and PRINTS the
+#     planted eval(req.query.code) RCE, exits 0, and the commit lands.
+_select_target hooktpl
+check_guard "bl112/sast-error-flag" "# BL-112-SAST-ERROR" T-sast-blocks-real-commit \
+  subline '--severity=ERROR --error "${soif_staged[@]}"' '--severity=ERROR "${soif_staged[@]}"'
+
+# K2. The CONDITIONAL terminal exit in the emitted pre-commit hook. Neuter = make it
+#     unconditional (`if true; then exit "$FAILED"`) — byte-for-byte the pre-BL-112
+#     `exit $FAILED` semantics — which puts the appended `# >>> SOIF framework gate`
+#     block back BELOW a terminal exit, i.e. back into dead code.
+check_guard "bl112/strict-gate-reachable" "# BL-112-STRICT-GATE" T-strict-gate-blocks-unverified \
+  subline 'if [ "$FAILED" -ne 0 ]; then' 'if true; then'
+
+# K3. The framework gate's VERDICT PROPAGATION. Neuter = put the checker back behind
+#     a `!`, which is exactly the original `if ! cmd; then EXIT=$?` semantics: inside
+#     that branch `$?` is the status of the NEGATION, i.e. 0 whenever cmd FAILED — so
+#     EXIT was always 0 and the gate printed its [FAIL] and then `exit 0`. A gate
+#     whose verdict is discarded is not a gate; reachability alone does not save it.
+_select_target gates
+check_guard "bl112/gate-verdict-propagates" "# BL-112-GATE-EXIT" T-strict-gate-blocks-unverified \
+  subline '"$SCRIPTS/process-checklist.sh" --check-commit-ready 2>&1' '! "$SCRIPTS/process-checklist.sh" --check-commit-ready 2>&1'
+
+_select_target upgrade
 
 echo ""
 echo "── Guard-coverage registry (STATUS  guard  killing-test) ──"

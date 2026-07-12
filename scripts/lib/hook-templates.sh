@@ -16,11 +16,27 @@
 #     unknown), which is the gate init.sh uses to decide whether to install the
 #     commit-msg TDD hook at all.
 #   • soif_write_precommit_hook <file> — writes the full fallback pre-commit hook
-#     (shebang + managed region between markers). Byte-identical to init.sh's
-#     historical four-heredoc assembly APART FROM the two added marker lines.
+#     (shebang + managed region between markers).
 #   • soif_tdd_region_body / soif_emit_tdd_commitmsg_block — the commit-msg
 #     TDD-gate managed block (region = markers+body; block = leading blank +
 #     region, the exact bytes init.sh appended pre-refactor).
+#
+# BL-112 (E2E walk findings F8 + F9) — the two load-bearing lines in the EMITTED
+# pre-commit hook, both carrying a grep-able marker:
+#   • # BL-112-SAST-ERROR   — semgrep needs `--error` or it exits 0 ON FINDINGS,
+#     which made the [BLOCKED] arm dead code (an eval(req.query.code) Express RCE
+#     was detected, printed, and committed clean). `--severity=ERROR` bounds the
+#     gate to high-confidence findings so it stays passable.
+#   • # BL-112-STRICT-GATE  — the region's terminal exit is CONDITIONAL, because
+#     install-filesystem-gates.sh appends the BL-030 strict-gate block BELOW this
+#     region; an unconditional `exit $FAILED` made that block unreachable.
+# NOTE: nothing emitted into the hook may contain the literal marker text of
+# either managed block ("SOIF pre-commit fallback" / "SOIF framework gate") —
+# installers and tests grep for those strings, and a comment that mentions one is
+# indistinguishable from the block itself. Describe them; do not quote them.
+# tests/test-bl112-commit-enforcement.sh pins both lines against a REAL scaffold
+# and a REAL `git commit`; tests/test-bl099-guard-coverage.sh carries them as
+# registry rows.
 #
 # bash-3.2 safe. Pure emitters — no project-state reads, no network.
 
@@ -92,15 +108,56 @@ fi
 
 # --- SAST Quick Scan (Semgrep) ---
 if command -v semgrep &>/dev/null; then
-  # Scan only staged files for fast pre-commit feedback
-  staged_files=$(git diff --cached --name-only --diff-filter=ACM)
-  if [ -n "$staged_files" ]; then
-    if ! git diff --cached --name-only --diff-filter=ACM -z | xargs -0 semgrep scan --config=p/owasp-top-ten --quiet --no-git-ignore 2>/dev/null; then
+  # Scan only staged files for fast pre-commit feedback.
+  #
+  # NUL-delimited read into an array rather than `| xargs -0 semgrep …`: xargs
+  # COLLAPSES the utility's exit code (BSD xargs -> 1, GNU xargs -> 123 for ANY
+  # non-zero), which makes semgrep's "blocking findings" code (1) indistinguish-
+  # able from a semgrep TOOL failure (>=2: bad config, registry unreachable,
+  # parse error). The two must be told apart — one blocks, the other warns.
+  soif_staged=()
+  while IFS= read -r -d '' soif_f; do
+    soif_staged+=("$soif_f")
+  done < <(git diff --cached --name-only --diff-filter=ACM -z)
+
+  if [ "${#soif_staged[@]}" -gt 0 ]; then
+    # semgrep splits its output cleanly: FINDINGS go to stdout, the scan banner
+    # AND its fatal errors go to stderr. So we capture stderr rather than send it
+    # to /dev/null: on the happy path it is progress noise we drop (which is all
+    # `--quiet` ever bought us), and on a tool failure it is the ONLY place the
+    # real diagnostic appears — `--quiet` suppresses even that, which is why the
+    # flag is gone. Findings stay on stdout and are always shown.
+    soif_sg_err="$(mktemp)"
+    set +e
+    # BL-112-SAST-ERROR — `--error` is LOAD-BEARING. Semgrep exits 0 even when it
+    # finds (and prints!) issues unless --error is passed, so without it the
+    # [BLOCKED] arm below is UNREACHABLE and an `eval(req.query.code)` Express RCE
+    # is detected, printed, and committed clean (E2E walk finding F9).
+    # `--severity=ERROR` bounds the gate to semgrep's high-confidence rules: the
+    # gate must block real issues without becoming so noisy that operators route
+    # around it. WARNING/INFO findings still surface in the Phase-3 scanners + CI.
+    semgrep scan --config=p/owasp-top-ten --no-git-ignore \
+      --severity=ERROR --error "${soif_staged[@]}" 2>"$soif_sg_err"
+    soif_sg_rc=$?
+    set -e
+    if [ "$soif_sg_rc" -eq 1 ]; then
+      # 1 == semgrep found blocking findings (only ever returned with --error).
       echo ""
       echo "[BLOCKED] Semgrep detected security issues in staged files."
-      echo "  Review and fix the findings above before committing."
+      echo "  Review and fix the ERROR-severity findings above before committing."
       FAILED=1
+    elif [ "$soif_sg_rc" -ne 0 ]; then
+      # >=2 == semgrep ITSELF failed (invalid config, registry unreachable,
+      # unparseable rule). That is a TOOL-UNAVAILABLE condition, not a finding:
+      # WARN exactly like the semgrep-absent arm rather than blocking the commit
+      # with a "[BLOCKED] security issues" banner that names no issue. And SURFACE
+      # the diagnostic — an operator who cannot see why the scanner died cannot
+      # fix it, and a gate you cannot fix is a gate you route around.
+      echo ""
+      echo "[WARN] semgrep could not complete (exit $soif_sg_rc) — pre-commit SAST not enforced for this commit."
+      sed 's/^/  /' "$soif_sg_err" >&2
     fi
+    rm -f "$soif_sg_err"
   fi
 else
   echo "[WARN] semgrep not found — pre-commit SAST skipped."
@@ -159,19 +216,46 @@ fi
 SCHEMAEOF
 
   # Section 4 (was EXITEOF). The close marker is the region's final line.
+  #
+  # BL-112 (walk finding F8): this section used to be an UNCONDITIONAL
+  # `exit $FAILED`. scripts/install-filesystem-gates.sh appends the BL-030
+  # strict-mode gate block (`# >>> SOIF framework gate (BL-030)` … which runs
+  # .git/hooks/framework-gate.sh -> process-checklist.sh --check-commit-ready)
+  # BELOW this managed region — so the unconditional exit made that whole block
+  # UNREACHABLE DEAD CODE. Net effect: the phase2-init-verified, UAT-in-progress
+  # and build-loop-state gates had NO git-hook backstop and fired only through
+  # the AI-session PreToolUse hook; a human/terminal `git commit` walked straight
+  # through all three. The exit is now CONDITIONAL, which is the whole fix:
+  # the appended gate block is the surviving path and it runs.
+  #
+  # Exit contract (unchanged): any failing arm above => non-zero exit; every arm
+  # clean => fall through to the strict gate, which exits non-zero iff IT blocks.
+  # If the gate block is absent (light / no enforcement, or gate uninstalled) the
+  # hook ends here and the false `if` yields status 0.
+  #
+  # The region boundary is deliberate: the gate block must stay OUTSIDE the
+  # markers so BL-099's region refresh (_bl099_replace_region) can rewrite the
+  # fallback without clobbering the independently-managed gate block.
   cat <<'EXITEOF'
 
-exit $FAILED
+# --- Terminal exit / hand-off to the BL-030 strict gate ---
+# BL-112-STRICT-GATE: this exit is CONDITIONAL ON PURPOSE. install-filesystem-gates.sh
+# appends its strict-gate marker block BELOW this region, so an unconditional
+# `exit $FAILED` here turns that block into unreachable dead code and the gate
+# never runs. See scripts/lib/hook-templates.sh. Do not "simplify" it back.
+if [ "$FAILED" -ne 0 ]; then
+  exit "$FAILED"
+fi
 # <<< SOIF pre-commit fallback
 EXITEOF
 }
 
 # soif_write_precommit_hook <file>
 #   Writes the complete fallback pre-commit hook to <file> (shebang on line 1,
-#   then the managed region) and chmod +x's it. The bytes between the markers
-#   are byte-identical to init.sh's pre-BL-099 hook; the ONLY additions are the
-#   two marker lines. The sync path uses soif_precommit_region_body directly to
-#   refresh just the managed region of an already-marked hook.
+#   then the managed region) and chmod +x's it. The sync path uses
+#   soif_precommit_region_body directly to refresh just the managed region of an
+#   already-marked hook, preserving anything the operator (or
+#   install-filesystem-gates.sh) put outside the markers.
 soif_write_precommit_hook() {
   local hook="$1"
   printf '%s\n' '#!/usr/bin/env bash' > "$hook"

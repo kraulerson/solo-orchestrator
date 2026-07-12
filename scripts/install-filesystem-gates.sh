@@ -5,6 +5,13 @@
 # that sources .git/hooks/framework-gate.sh. Composes with existing chains
 # (gitleaks/Semgrep/TDD) without modifying them.
 #
+# BL-112: this block is APPENDED BELOW the SOIF pre-commit fallback's managed
+# region on purpose (BL-099 refreshes that region in place and must not clobber
+# this block). That only works because the fallback's terminal exit is CONDITIONAL
+# — see `# BL-112-STRICT-GATE` in scripts/lib/hook-templates.sh. An unconditional
+# `exit $FAILED` up there makes everything below it dead code, which is exactly
+# the bug BL-112 fixes. Pinned by tests/test-bl112-commit-enforcement.sh.
+#
 # Usage:
 #   install-filesystem-gates.sh --install <project_root>
 #   install-filesystem-gates.sh --uninstall <project_root>
@@ -46,18 +53,29 @@ SCRIPTS="$PROJECT_ROOT/scripts"
 [ -x "$SCRIPTS/process-checklist.sh" ] || exit 0
 [ -x "$SCRIPTS/pre-commit-gate.sh" ]   || exit 0
 
+# BL-112-GATE-EXIT — the verdict MUST be captured from the checker itself.
+# These two arms used to read `if ! "$SCRIPTS/…"; then EXIT=$?; … exit $EXIT; fi`.
+# Inside the then-branch of `if ! cmd`, `$?` is the status of the NEGATION — which
+# is 0 whenever cmd failed. So EXIT was ALWAYS 0 and the gate printed its [FAIL]
+# and then `exit 0`: the commit landed anyway. Combined with BL-112's F8 (the gate
+# was unreachable dead code) this gate was hollow twice over. Run the checker,
+# capture ITS status, and branch on that. `set -e` is deliberately not enabled in
+# this hook, so a non-zero checker does not abort before we can record the block.
+#
 # 1. Phase-prereq + check_commit_ready.
-if ! "$SCRIPTS/process-checklist.sh" --check-commit-ready 2>&1; then
-  EXIT=$?
+"$SCRIPTS/process-checklist.sh" --check-commit-ready 2>&1
+EXIT=$?
+if [ "$EXIT" -ne 0 ]; then
   bash "$SCRIPTS/install-filesystem-gates.sh" __record_block "$PROJECT_ROOT" "process-checklist" 2>/dev/null || true
-  exit $EXIT
+  exit "$EXIT"
 fi
 
 # 2. pre-commit-gate.sh in terminal mode.
-if ! "$SCRIPTS/pre-commit-gate.sh" --terminal-mode; then
-  EXIT=$?
+"$SCRIPTS/pre-commit-gate.sh" --terminal-mode
+EXIT=$?
+if [ "$EXIT" -ne 0 ]; then
   bash "$SCRIPTS/install-filesystem-gates.sh" __record_block "$PROJECT_ROOT" "pre-commit-gate" 2>/dev/null || true
-  exit $EXIT
+  exit "$EXIT"
 fi
 
 # Pass: record terminal_commit_passed row.

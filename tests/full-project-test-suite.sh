@@ -589,6 +589,24 @@ else
 fi
 fi
 
+# BL-112 commit-time enforcement fidelity — the same BL-088 precedent, applied to
+# the two commit gates that shipped HOLLOW into every generated project: the
+# pre-commit SAST arm (semgrep with no --error => detected, printed, committed) and
+# the BL-030 strict framework gate (unreachable below an unconditional `exit
+# $FAILED`, and its verdict discarded by an `if ! cmd; then EXIT=$?` capture). It
+# runs the REAL init.sh and REAL `git commit`s — the class of test that would have
+# caught all three. AGGREGATOR-ONLY: SUITE_SKIP_AGGREGATORS-gated here and NEVER in
+# the tests.yml unit list; lint-tests-registered.sh counts this reference.
+if [ "${SUITE_SKIP_AGGREGATORS:-0}" = "1" ]; then
+  section "BL-112 commit-enforcement fidelity — SKIPPED (SUITE_SKIP_AGGREGATORS=1; a real init.sh scaffold + real commits, runs standalone / full-suite)"
+else
+if bash "$SCRIPT_DIR/tests/test-bl112-commit-enforcement.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl112-commit-enforcement.sh"
+else
+  fail "tests/test-bl112-commit-enforcement.sh FAILED (run for details)"
+fi
+fi
+
 # Agent-ergonomics onboarding: tests/test-run-lints.sh — behavior suite for
 # scripts/run-lints.sh, the canonical local lint runner (runs every
 # scripts/lint-*.sh EXCEPT the parametrized lint-uat-scenarios.sh). Its
