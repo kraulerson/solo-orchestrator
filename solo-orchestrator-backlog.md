@@ -2537,3 +2537,104 @@ BL-097's model-selection rubric says WHO can build cheaply; this entry supplies 
 **Explicitly out of scope (evaluated and rejected):** vibe-check's ODI opportunity score (optional aid at most), its Reddit/review fetch pipeline, growth loops / cold-start / marketplace discovery, "Checkup Mode" (a beginner translation of a mattpocock skill whose original the framework already vendors; produces no framework artifacts), and its interactive-PRD/diagram engine (our UAT HTML + workflow.html are already stricter — zero external URL refs vs its CDN fonts/CSS).
 
 **Related:** [[bl088-scaffold-source-closure]] (same defect class — an instruction pointing at something the scaffold never ships); [[bl100-adversarial-acceptance]] (this is its research-side sibling: verify the claim, fail closed); [[bl092-claude-md-phase-scoped-modularization]] (constrains the shape); `docs/builders-guide.md:659` (Step 1.1.5) + `:182` (track table); `templates/generated/product-manifesto.tmpl`; `evaluation-prompts/Framework/Framwork Multi user test plan.md:290` (the predicted skip); upstream `references/DISCOVERY-DEEP-DIVE.md` (MIT © 2025 Amer Arab).
+
+---
+
+## BL-103: The six-eval generator is dead on arrival — bash-3.2 parse failure + slug/filename mismatch force every macOS operator to attest past the Phase 3→4 security gate
+
+**Logged:** 2026-07-11 (eval-prompt hollow-gate audit, triggered by BL-102)
+**Category:** Bug / gate integrity — the framework's flagship review gate has a broken remediation path
+**Severity:** **High** (the gate is real and blocking; its ONLY documented remediation cannot execute; the sole escape is the attestation bypass)
+**Status:** Open
+
+**The gate is real.** `scripts/check-phase-gate.sh` (`# BL-073-ESCALATE`) hard-FAILs the Phase 3→4 transition for `track ∈ {standard, full}` when the Security or Red Team review is missing/incomplete, and its failure message directs the operator to *"Run reviews: `evaluation-prompts/Projects/run-reviews.sh`"*.
+
+**Defect 1 — the generator cannot start on the reference platform (verified live).**
+```
+$ /bin/bash --version           → GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)
+$ /bin/bash -n evaluation-prompts/Projects/run-reviews.sh
+  line 142: conditional binary operator expected
+  line 142: syntax error near `"REVIEWERS[$num]"'
+```
+`run-reviews.sh:104` uses `declare -A REVIEWERS`; `:142`/`:198` use `[[ ! -v … ]]` — both bash ≥4.2. macOS `/bin/bash` is 3.2.57 and the shebang is `#!/bin/bash`. This violates the repo's own house rule (`CLAUDE.md`: *"no associative arrays (`declare -A`)"*) — but **no lint covers `evaluation-prompts/`**. `evaluation-prompts/Projects/compose.sh` (called by the runner) and `evaluation-prompts/Framework/run-reviews.sh` carry the same break.
+
+**Defect 2 — the filename contract is mismatched (independent of Defect 1; bites on bash-5 hosts too).** `run-reviews.sh:207` probes `"$PROJECT_DIR/${reviewer}-review-v1.md"` where `${reviewer}` is the REVIEWERS-map slug (`:104-110`), but the base prompts instruct the reviewer to save under a different name:
+
+| slug (runner probes) | base prompt writes | |
+|---|---|---|
+| `engineer` → `engineer-review-v1.md` | `senior-engineer-review-v1.md` (01) | ✗ |
+| `techuser` → `techuser-review-v1.md` | `technical-user-review-v1.md` (05) | ✗ |
+| **`redteam` → `redteam-review-v1.md`** | **`red-team-review-v1.md` (06)** | ✗ |
+| `cio` / `security` / `legal` | match | ✓ |
+
+The manifest entry is emitted only `if [ -f "$REVIEW_FILE" ]`. **Red Team is one of the two mandatory BLOCKING reviewers** — so a Red Team review that was actually performed and saved exactly as instructed is recorded as missing, and the gate FAILs.
+
+**Operator experience:** gate blocks → operator runs the named remediation → syntax error (macOS) or a silently-missing Red Team entry (Linux) → the only path forward is `SOLO_REVIEWERS_ATTESTED=1`. **The framework herds every macOS operator into attesting past its own flagship security gate.** `init.sh:1290-1292` ships the broken generator into every project and `init.sh:1930` stamps `review_gate_enforced: true`, so every new standard/full project inherits it.
+
+**Why it shipped green:** `tests/test-bl073-review-manifest-gate.sh` builds its manifest with a `write_manifest` heredoc and **never invokes the generator** — the gate is tested, the generator is not. Fixture-hides-product-gap, the [[bl088-scaffold-source-closure]] class in tooling form.
+
+**Fix:** (1) rewrite `Projects/run-reviews.sh` + `Projects/compose.sh` + `Framework/run-reviews.sh` in bash-3.2 (indexed arrays or `case`; no `[[ -v ]]`); (2) align the three slugs to the prompt-declared filenames (single source of truth — derive one from the other, don't maintain two lists); (3) add `scripts/lint-evalprompts-portability.sh` (`bash -n` under `/bin/bash` + ban `declare -A` / `[[ -v ]]` across `evaluation-prompts/**`), wired into `scripts/run-lints.sh` + CI; (4) add an integration test that RUNS the generator against a fixture project and lints the manifest it emits (closing the fixture-hides-gap hole).
+
+**Related:** BL-073 (the gate this breaks the remediation for); [[bl088-scaffold-source-closure]] (same class: shipped-but-broken/absent dependency, hidden by a fixture); `CLAUDE.md` portability rules; BL-104/105/106 (siblings from the same audit).
+
+---
+
+## BL-104: Phase-gate scoring inversions — zero Phase-3 steps silently PASSES, and an empty review manifest is a bypass
+
+**Logged:** 2026-07-11 (eval-prompt hollow-gate audit)
+**Category:** Bug / gate correctness (perverse incentives)
+**Severity:** Medium
+**Status:** Open
+
+Two verified scoring defects in `scripts/check-phase-gate.sh`:
+
+1. **Zero-step silent pass (P3-007).** The Phase-3 checklist cross-check reads:
+```bash
+if   [ "$p3_steps_done" -ge 9 ]; then  [OK]
+elif [ "$p3_steps_done" -gt 0 ]; then  [WARN]; issues=$((issues + 1))   # blocks
+fi                                                                       # 0 → NEITHER arm → PASS
+```
+**Never touching the Phase 3 checklist passes the gate; completing 8 of 9 steps blocks it.** Diligence is punished, total neglect sails through. Fix: add the missing `else` arm (0 steps → WARN, and — per gate-credibility discipline — decide deliberately whether it increments).
+
+2. **Empty-manifest bypass.** The *no-manifest* WARN arm increments `issues` (→ blocks), while the *incomplete-manifest* (grandfathered/light) WARN arm does not (→ passes). So `echo '{"reviews":[]}' > docs/eval-results/review-manifest.json` converts a blocking gate into a passing one. It also contradicts the documented contract (`builders-guide.md`: *"track=light / personal: WARN only (POC preserved)"* — yet an absent manifest currently blocks light track). Fix: make the two arms consistent with the documented contract; TDD + mutation proof.
+
+**Also document the trap:** in `check-phase-gate.sh`, `[WARN]` vs `[FAIL]` is **cosmetic** — the exit predicate is `if [ $issues -eq 0 ]`, so any WARN that also runs `issues=$((issues + 1))` **blocks**. A true WARN must omit the increment. This has bitten twice; record it in `CLAUDE.md` (Enforcement section) so the next "WARN-first" check doesn't accidentally hard-block.
+
+**Related:** BL-073; BL-103; `CLAUDE.md` ENFORCEMENT section.
+
+---
+
+## BL-105: Declared MUSTs with no home and no check — rollback test, monitoring verification, go-live, UAT sign-off, trademark, revenue, competency matrix, Go/No-Go
+
+**Logged:** 2026-07-11 (eval-prompt hollow-gate audit)
+**Category:** Debt / gate credibility (documented-but-not-enforced, the framework's cardinal class)
+**Severity:** Medium
+**Status:** Open
+
+The audit's hollow set beyond BL-102/103/104. Each is declared **MUST**/**DECISION GATE**/**MANDATORY** in `docs/builders-guide.md` but lacks a home, a check, or both:
+
+- **Phase 4 has NO gate at all** — `phase4_release` appears nowhere in `check-phase-gate.sh`. The rollback-test (Step 4.1.5, "**MUST**"), monitoring verification (4.3, *"'Configured' is not 'verified'"*), and go-live smoke test (4.2, "**DECISION GATE**") have real artifact checks in `process-checklist.sh` — but nothing ever forces the checklist to run, and Phase 4 is terminal. Predicted by the framework's own test plan (skips rollback / monitoring / smoke test).
+- **Step 3.6 Final UAT sign-off** — "formal acceptance sign-off recorded in `APPROVAL_LOG.md`", but **neither approval-log template has a UAT sign-off section**, and `pre_launch_preparation` has no artifact-check arm.
+- **Manifesto Appendices A/B/C are invisible to the Phase 0→1 gate** — `validate_manifesto_content` loops sections `1..8` only, so Revenue (A), Competency (B), and Trademark (C) can all be absent and the gate passes. The guide's Phase-0 Artifact Map (`:617-619`) additionally MIS-MAPS these to Sections 6/7/8, which are actually Post-MVP Backlog / Will-Not-Have / Open Questions.
+- **Competency Matrix** — `builders-guide.md` calls it *"not advisory"* with two MUSTs; the only implementation (`validate.sh::check_competency`) is **never invoked by any gate, hook, or CI**, reads `PROJECT_INTAKE.md` instead of Appendix B, and covers 4 of 9 domains.
+- **Step 1.1 Business Strategy Go/No-Go** — a DECISION GATE with no prompt block, no slot (Manifesto has no Appendix D), and zero script hits. (Sibling of BL-102; fix them together in the Appendix-D work.)
+- **`docs/eval-results/`** is never created by `init.sh` — the directory the review manifest must live in doesn't ship.
+
+**Fix shape (WARN-first throughout — never hard-block on artifacts existing projects lack):** add the missing template sections (Manifesto Appendix D; approval-log UAT/pen-test/attorney sections incl. `approval-log-personal.tmpl`, which lacks the pen-test + attorney slots the track-keyed gates demand — a [[bl088-scaffold-source-closure]]-class hole since the template is chosen by `deployment` while the gates key on `track`); create `docs/eval-results/` in `init.sh`; add a `phase4_release` cross-ref and an appendix-presence check to `check-phase-gate.sh`; wire `validate.sh --competency` as a WARN; fix the Phase-0 Artifact Map. Each gets TDD + a mutation proof; sequence after BL-103/104.
+
+**Related:** BL-102 (Appendix D lands the Go/No-Go + market signal together); BL-103; BL-104; [[bl088-scaffold-source-closure]]; BL-084 (deployment-vs-track orthogonality — the root of the personal-template gap).
+
+---
+
+## BL-106: Platform-module go-live checklists are declared MANDATORY and parsed by nothing
+
+**Logged:** 2026-07-11 (eval-prompt hollow-gate audit)
+**Category:** Debt / gate credibility
+**Severity:** Low
+**Status:** Open
+
+`docs/builders-guide.md` Step 4.2 marks the platform-module go-live checklist **"PLATFORM MODULE — MANDATORY"**, and the modules carry substantial checklists (`docs/platform-modules/mobile.md` alone: ~38 MUST/MANDATORY hits; desktop ~19; web ~7; mcp_server ~2). **No script parses `docs/platform-modules/*`** — the checklists are prose only.
+
+**Scope:** decide deliberately whether platform checklists become machine-checkable (a structured block per module the gate can read) or whether the MANDATORY language is downgraded to guidance to match reality. Do NOT leave the current mismatch. Not exhaustively audited — the four modules were grepped, not read end-to-end.
+
+**Related:** BL-105 (Phase-4 gate absence — the enclosing gap); BL-103/104.
