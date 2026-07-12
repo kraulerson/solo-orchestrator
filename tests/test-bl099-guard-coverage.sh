@@ -352,6 +352,26 @@ check_guard_plan "plan/base-sha"        "# BL-109-PLAN-BASESHA"       t_base_sha
 # /dev/null drops it (no orphan item → no retire/rename → t_retire_emitted RED).
 check_guard_plan "plan/retire-verb"     "# BL-109-PLAN-RETIRE"        t_retire_emitted                   lib  subline '>> "$items_tmp"  ;; # BL-109-PLAN-RETIRE' '>> /dev/null  ;; # BL-109-PLAN-RETIRE'
 
+# ── (K2) S3 REVIEW ROUND 1 — the two guards the review round added ────────────────
+# I11 CONSENT SCOPE. _soif_plan_is_i11_item is the ONE place that decides which items
+# can never be batch-consented: hooks (class) ∪ gate scripts (path). Neuter the
+# GATE-SCRIPT half only — `_soif_plan_is_enforcement_path "$path"` → `false` — so the
+# predicate still fires for hooks but matches no gate script. That is exactly the
+# half-delivered fence the review caught: a gate script would fall back to
+# batch-consent + diffstat-only, with no full diff to read before ticking the box that
+# rewrites the code deciding whether the operator's gates block. The killing test
+# drifts a gate script, a hook and an ordinary M script SIMULTANEOUSLY, so it also
+# proves the neuter is surgical (the hook half stays GREEN under it).
+check_guard_plan "plan/i11-consent-scope" "# BL-109-I11-CONSENT"      t_i11_consent_scope_simultaneous_drift lib subline '_soif_plan_is_enforcement_path "$path"' 'false'
+
+# A1 THREE-WAY LEG ORDER. `git merge-file -p <ours> <base> <theirs>` with base=render-
+# THEN and theirs=render-NOW. Swap base and theirs and the NEW render becomes the
+# common ancestor: the merge then treats the upstream delta as something to REVERT and
+# SILENTLY DROPS IT — a clean-looking candidate that is missing the very update it was
+# built to stage. No conflict, no error, no warning. The killing test makes all three
+# legs distinguishable and asserts the upstream delta reaches the candidate.
+check_guard_plan "plan/a1-merge-leg-order" "# BL-109-A1-MERGE-LEGS"   t_a1_merge_leg_order lib subline 'git merge-file -p "$run/incoming/${safe}.ours" "$then_out" "$now_out"' 'git merge-file -p "$run/incoming/${safe}.ours" "$now_out" "$then_out"'
+
 echo ""
 echo "── Guard-coverage registry (STATUS  guard  killing-test) ──"
 printf '%b' "$GUARD_ROWS" | sed 's/^/  /'

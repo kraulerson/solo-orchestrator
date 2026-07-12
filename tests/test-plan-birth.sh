@@ -56,12 +56,24 @@ fi
 MAN="$PROJ/.claude/manifest.json"
 jq --arg p "$PIN" '.soloFrameworkCommit = $p' "$MAN" > "$MAN.tmp" && mv "$MAN.tmp" "$MAN"
 
-# ── Whole-tree fingerprint BEFORE the plan (exclude volatile/expected dirs) ──
+# ── Whole-tree fingerprint BEFORE the plan (exclude volatile dirs only) ──
+# _fp <root> [run_folder_to_exclude]. S3 review round 1 (MINOR-2): this used to
+# exclude the ENTIRE `*/docs/updates/*` subtree, so a stray write to
+# docs/updates/STRAY.txt — inside the container dir but OUTSIDE the dated run folder —
+# was invisible to the I1 fence. Exclude ONLY the one run folder this plan created;
+# then any other write anywhere, docs/updates/ included, trips the fence. The
+# remaining exclusions are genuinely volatile machine state, not plan output.
 _fp() {
-  find "$1" -type f \
-    -not -path '*/docs/updates/*' -not -path '*/.git/*' \
+  local root="$1" excl="${2:-}"
+  find "$root" -type f \
+    -not -path '*/.git/*' \
     -not -path '*/.claude/cache/*' -not -path '*/.solo-orchestrator/*' 2>/dev/null \
-    | sort | while IFS= read -r f; do printf '%s  %s\n' "$(shasum -a 256 "$f" | awk '{print $1}')" "${f#"$1"}"; done
+    | sort | while IFS= read -r f; do
+        if [ -n "$excl" ]; then
+          case "$f" in "$excl"/*) continue ;; esac
+        fi
+        printf '%s  %s\n' "$(shasum -a 256 "$f" | awk '{print $1}')" "${f#"$root"}"
+      done
 }
 BEFORE="$(_fp "$PROJ")"
 
@@ -95,11 +107,13 @@ else
 fi
 
 # (2) I1 whole-tree fingerprint — ONLY the run folder appears; nothing else changed
-AFTER="$(_fp "$PROJ")"
+#     (the exclusion is the run folder ITSELF, not the docs/updates/ container — a
+#     stray sibling write under docs/updates/ trips this).
+AFTER="$(_fp "$PROJ" "$RUN")"
 if [ "$BEFORE" = "$AFTER" ]; then
-  pass "I1 fingerprint: the project tree is byte-identical outside docs/updates/"
+  pass "I1 fingerprint: the project tree is byte-identical outside the plan's own run folder"
 else
-  fail_ "I1 fingerprint" "the tree changed outside docs/updates/:"$'\n'"$(diff <(printf '%s' "$BEFORE") <(printf '%s' "$AFTER") | head)"
+  fail_ "I1 fingerprint" "the tree changed outside the run folder:"$'\n'"$(diff <(printf '%s' "$BEFORE") <(printf '%s' "$AFTER") | head)"
 fi
 
 # (3) real A1 candidate: generated, placeholder-free, picks up the upstream delta

@@ -8,10 +8,12 @@
 # rename linkage); the pinned checkbox grammar; base-sha recording; the shallow-
 # clone roll-up fallback line; pin-absent degradation; A2 structural-only (no
 # merge/patch, ever); A1 candidate placeholder-free + withheld-on-stray-placeholder;
-# the I1 run-folder write fence; and the # BL-109-PLAN dispatch (via the real
-# upgrade-project.sh). Several tests double as the killing tests driven by
-# tests/test-bl099-guard-coverage.sh (PLAN_ONLY selects one; PLAN_REPO_OVERRIDE
-# re-points the sourced libs + upgrade-project.sh at a mutant tree).
+# the A1 three-way LEG ORDER; the I11 consent scope (hooks + gate scripts) and the
+# I1 run-folder write fence (plus a sensitivity test proving the fence is not blind);
+# and the # BL-109-PLAN dispatch (via the real upgrade-project.sh). Several tests
+# double as the killing tests driven by tests/test-bl099-guard-coverage.sh (PLAN_ONLY
+# selects one; PLAN_REPO_OVERRIDE re-points the sourced libs + upgrade-project.sh at a
+# mutant tree).
 
 set -uo pipefail
 
@@ -147,9 +149,33 @@ EOF
 EOF
 }
 
+# _fingerprint <root> [run_folder_to_exclude] — sha of EVERY file under <root>, minus
+# ONLY the one run folder this invocation created.
+#
+# S3 review round 1 (MINOR-2): this used to exclude the whole `*/docs/updates/*`
+# subtree, which made the I1 fence test blind to exactly the writes it exists to
+# catch — a stray write to docs/updates/STRAY.txt is INSIDE the container dir but
+# OUTSIDE the dated run folder, and the fence never saw it. The run-id is known to the
+# caller, so exclude precisely that folder and nothing else: any other write anywhere
+# in the tree — including elsewhere under docs/updates/ — now trips the fence.
+# Pinned by t_i1_fence_catches_stray_outside_run_folder.
 _fingerprint() {
-  find "$1" -type f -not -path '*/docs/updates/*' 2>/dev/null \
-    | sort | while IFS= read -r f; do printf '%s  %s\n' "$(_sha "$f")" "${f#"$1"}"; done
+  local root="$1" excl="${2:-}"
+  find "$root" -type f 2>/dev/null | sort | while IFS= read -r f; do
+    if [ -n "$excl" ]; then
+      case "$f" in "$excl"/*) continue ;; esac
+    fi
+    printf '%s  %s\n' "$(_sha "$f")" "${f#"$root"}"
+  done
+}
+
+# mk_drifted_hook — install a commit-msg hook whose managed block is STALE vs the
+# framework template, and declare it in the manifest, so the detector emits a hook item.
+mk_drifted_hook() {
+  mkdir -p "$PROJ/.git/hooks"
+  printf '#!/bin/sh\n%s\nstale body\n%s\n' "$SOIF_TDD_OPEN" "$SOIF_TDD_CLOSE" > "$PROJ/.git/hooks/commit-msg"
+  jq '.currency.hooks = {"commit-msg":"present"}' "$PROJ/.claude/manifest.json" > "$PROJ/.claude/m.tmp" \
+    && mv "$PROJ/.claude/m.tmp" "$PROJ/.claude/manifest.json"
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -257,7 +283,10 @@ t_pin_absent_degrades() {
   local b; b="$(mktemp -d)"; mk_fixture "$b" absent
   local run rc=0; run="$(soif_plan_run "$PROJ" "$FW" "$FW/init.sh" "$b/nocdf")" || rc=$?
   local ok=1
-  [ "$rc" = 0 ] || { ok=1; }   # soif_plan_run returns 0 even pin-absent
+  # S3 review round 1 (MINOR-1): this line WAS `[ "$rc" = 0 ] || { ok=1; }` — the
+  # failure branch set the PASS value, so it asserted nothing. Pin-absent is a
+  # DEGRADE, not an error: the run must still succeed (rc 0) and produce the folder.
+  [ "$rc" = 0 ] || { ok=0; echo "    soif_plan_run returned rc=$rc pin-absent (must degrade, never fail)"; }
   [ -d "$run" ] || { ok=0; echo "    no run folder produced pin-absent"; }
   local m="$run/manifest.json"
   # framework-comparison verbs are UNAVAILABLE pin-absent (no drift/add/retire/rename)
@@ -332,30 +361,141 @@ t_a1_placeholder_withheld() {   # killing test: A1 placeholder-free assertion
 
 t_i1_write_fence() {   # killing test: plan-fence (writes stay under the run folder)
   local b; b="$(mktemp -d)"; mk_fixture "$b" real
-  local before after
+  local before after run
   before="$(_fingerprint "$PROJ")"
-  soif_plan_run "$PROJ" "$FW" "$FW/init.sh" "$b/nocdf" >/dev/null 2>&1
-  after="$(_fingerprint "$PROJ")"
+  run="$(soif_plan_run "$PROJ" "$FW" "$FW/init.sh" "$b/nocdf" 2>/dev/null)"
+  # Exclude ONLY the run folder this call created — every other byte in the tree,
+  # docs/updates/ included, is fenced.
+  after="$(_fingerprint "$PROJ" "$run")"
   if [ "$before" = "$after" ]; then
-    pass "I1 fence: --plan wrote NOTHING in the project tree outside docs/updates/"
+    pass "I1 fence: --plan wrote NOTHING in the project tree outside its own run folder"
   else
-    fail_ "I1 fence" "the project tree changed outside docs/updates/:"$'\n'"$(diff <(printf '%s' "$before") <(printf '%s' "$after") | head)"
+    fail_ "I1 fence" "the project tree changed outside the run folder:"$'\n'"$(diff <(printf '%s' "$before") <(printf '%s' "$after") | head)"
+  fi
+  rm -rf "$b"
+}
+
+t_i1_fence_catches_stray_outside_run_folder() {
+  # The fence test is only worth its name if it can SEE a stray write. Plant one
+  # inside the container dir but OUTSIDE the dated run folder — the exact blind spot
+  # the old whole-subtree exclusion had (S3 review round 1, MINOR-2) — and prove the
+  # fingerprint catches it.
+  local b; b="$(mktemp -d)"; mk_fixture "$b" real
+  local before after run
+  before="$(_fingerprint "$PROJ")"
+  run="$(soif_plan_run "$PROJ" "$FW" "$FW/init.sh" "$b/nocdf" 2>/dev/null)"
+  printf 'an escaped write\n' > "$PROJ/docs/updates/STRAY.txt"     # simulate a breached fence
+  after="$(_fingerprint "$PROJ" "$run")"
+  if [ "$before" != "$after" ] && printf '%s\n' "$after" | grep -q 'docs/updates/STRAY.txt'; then
+    pass "I1 fence is SENSITIVE: a stray write under docs/updates/ (outside the run folder) trips it"
+  else
+    fail_ "I1 fence sensitivity" "a stray docs/updates/STRAY.txt did NOT trip the fingerprint — the fence is blind"
   fi
   rm -rf "$b"
 }
 
 t_hook_item_consent_full_diff() {
   local b; b="$(mktemp -d)"; mk_fixture "$b" real
-  # add a drifted commit-msg hook so a hook item is produced (I11 item-consent + full diff)
-  mkdir -p "$PROJ/.git/hooks"
-  printf '#!/bin/sh\n%s\nstale body\n%s\n' "$SOIF_TDD_OPEN" "$SOIF_TDD_CLOSE" > "$PROJ/.git/hooks/commit-msg"
-  jq '.currency.hooks = {"commit-msg":"present"}' "$PROJ/.claude/manifest.json" > "$PROJ/.claude/m.tmp" && mv "$PROJ/.claude/m.tmp" "$PROJ/.claude/manifest.json"
+  mk_drifted_hook          # a drifted commit-msg hook → a hook item (I11)
   local run; run="$(soif_plan_run "$PROJ" "$FW" "$FW/init.sh" "$b/nocdf")"
-  local ok=1
+  local up="$run/UPDATE-PLAN.md" ok=1
   jq -e '.items[] | select(.class=="hook") | select(.consent=="item")' "$run/manifest.json" >/dev/null 2>&1 || { ok=0; echo "    no hook item with item-consent"; }
-  grep -qi 'item-consent required' "$run/UPDATE-PLAN.md" || { ok=0; echo "    UPDATE-PLAN lacks item-consent marker"; }
-  grep -qi 'full diff' "$run/UPDATE-PLAN.md" || grep -q '```diff' "$run/UPDATE-PLAN.md" || { ok=0; echo "    no embedded hook diff"; }
-  [ "$ok" = 1 ] && pass "hooks are item-consent with a full diff embedded (I11)" || fail_ "hook I11" "see above"
+  grep -qi 'item-consent required' "$up" || { ok=0; echo "    UPDATE-PLAN lacks the item-consent marker"; }
+  # S3 review round 1: this used to assert `grep -qi 'full diff'`, which matches the
+  # SECTION HEADING ("FULL diff, I11") — so it passed while the embedded ```diff block
+  # was EMPTY (the hook name was resolved off path "-", which matches no marker set).
+  # Assert the DIFF BODY itself: real hunk lines for the stale managed region.
+  grep -q '^--- installed/commit-msg' "$up" || { ok=0; echo "    no hook diff header (empty diff block?)"; }
+  grep -q '^@@' "$up"            || { ok=0; echo "    hook diff has no hunk header — the embedded diff is empty"; }
+  grep -q '^-stale body' "$up"   || { ok=0; echo "    hook diff does not show the stale managed-block line being replaced"; }
+  grep -qF '**Provenance:** framework `' "$up" || { ok=0; echo "    no provenance (upstream short-sha) for the hook item"; }
+  [ "$ok" = 1 ] && pass "hooks are item-consent with a REAL full diff + provenance embedded (I11)" || fail_ "hook I11" "see above"
+  rm -rf "$b"
+}
+
+t_i11_consent_scope_simultaneous_drift() {   # killing test: # BL-109-I11-CONSENT
+  # THE I11 SCOPE TEST. A gate script, a hook and an ordinary Class-M script drift
+  # SIMULTANEOUSLY. The first two are the scariest writes the updater can offer (the
+  # code that decides whether the operator's own gates block) and must get item-level
+  # consent + a FULL embedded unified diff + provenance. The third keeps the ordinary
+  # batch-consentable / diffstat treatment. Design v1.1 §3 I11.
+  local b; b="$(mktemp -d)"; mk_fixture "$b" real
+  mk_drifted_hook
+  local run; run="$(soif_plan_run "$PROJ" "$FW" "$FW/init.sh" "$b/nocdf")"
+  local up="$run/UPDATE-PLAN.md" m="$run/manifest.json" ok=1
+  local gate="fw-drift:scripts/pre-commit-gate.sh" hook="hook-drift:commit-msg" ord="fw-drift:scripts/foo.sh"
+
+  # all three items were actually derived (else the test would pass vacuously)
+  for want in "$gate" "$hook" "$ord"; do
+    jq -e --arg i "$want" '.items[] | select(.id==$i)' "$m" >/dev/null 2>&1 \
+      || { ok=0; echo "    fixture did not produce item $want"; }
+  done
+
+  # (1) GATE SCRIPT — item consent, never batch
+  [ "$(jq -r --arg i "$gate" '.items[] | select(.id==$i) | .consent' "$m")" = "item" ] \
+    || { ok=0; echo "    gate script is NOT item-consent (batch-consentable gate = I11 breach)"; }
+  # (2) GATE SCRIPT — the ⚠ marker follows its checkbox line
+  grep -A1 -F -- "- [ ] $gate — scripts/pre-commit-gate.sh" "$up" | grep -q 'item-consent required' \
+    || { ok=0; echo "    gate script checkbox carries no ⚠ item-consent marker"; }
+  # (3) GATE SCRIPT — a FULL embedded unified diff (never diffstat-only) + provenance
+  local gsec; gsec="$(awk '/^### `fw-drift:scripts\/pre-commit-gate.sh`/{f=1} f&&/^### `hook-drift/{f=0} f' "$up")"
+  printf '%s\n' "$gsec" | grep -q '^@@'            || { ok=0; echo "    gate script has NO hunk header — diffstat-only, the I11 breach"; }
+  printf '%s\n' "$gsec" | grep -q '^-echo gate v1' || { ok=0; echo "    gate script diff does not show the removed line"; }
+  printf '%s\n' "$gsec" | grep -q '^+echo gate v2' || { ok=0; echo "    gate script diff does not show the added line"; }
+  printf '%s\n' "$gsec" | grep -qF '**Provenance:** framework `' || { ok=0; echo "    gate script section carries no provenance"; }
+  # (4) HOOK — same treatment, same section
+  [ "$(jq -r --arg i "$hook" '.items[] | select(.id==$i) | .consent' "$m")" = "item" ] \
+    || { ok=0; echo "    hook is NOT item-consent"; }
+  grep -q '^### `hook-drift:commit-msg`' "$up" || { ok=0; echo "    hook has no item-consent section"; }
+  # (5) ORDINARY CLASS-M — unchanged: batch-consentable, diffstat in the facts table,
+  #     NO ⚠ marker, NO full-diff section (over-fencing every M item would drown the
+  #     signal that makes the gate-script fence meaningful).
+  [ "$(jq -r --arg i "$ord" '.items[] | select(.id==$i) | .consent' "$m")" = "batch" ] \
+    || { ok=0; echo "    ordinary M script was escalated to item-consent (fence too broad)"; }
+  grep -A1 -F -- "- [ ] $ord — scripts/foo.sh" "$up" | grep -q 'item-consent required' \
+    && { ok=0; echo "    ordinary M script carries an ⚠ item-consent marker"; }
+  grep -q '^### `fw-drift:scripts/foo.sh`' "$up" \
+    && { ok=0; echo "    ordinary M script got a full-diff item-consent section"; }
+  grep -qF '| `fw-drift:scripts/foo.sh` | M | update | +1/-1 |' "$up" \
+    || { ok=0; echo "    ordinary M script lost its diffstat row in the mechanical facts table"; }
+  [ "$ok" = 1 ] && pass "I11 scope: gate script + hook get item-consent & a FULL diff; the ordinary M script keeps batch/diffstat" \
+    || fail_ "I11 consent scope" "see above"
+  rm -rf "$b"
+}
+
+t_a1_merge_leg_order() {   # killing test: # BL-109-A1-MERGE-LEGS
+  # THE THREE-WAY LEG ORDER. `git merge-file -p <ours> <base> <theirs>` with
+  # ours=user-now, base=render-THEN, theirs=render-NOW. Swapping base and theirs makes
+  # the NEW render the common ancestor, so the merge treats the upstream delta as
+  # something to REVERT and SILENTLY DROPS IT — no conflict, no warning, the update
+  # the operator asked to stage simply is not there.
+  #
+  # The three legs are made distinguishable: base has "old body line"; theirs has
+  # "NEW upstream body line"/"extra new line"; ours has an ours-only "MY LOCAL EDIT".
+  # The correct merge OFFERS the upstream delta (whether cleanly or inside a conflict
+  # the operator resolves — conflict markers legitimately stay in the candidate). The
+  # swapped merge does not contain it AT ALL. That absence is the kill.
+  local b; b="$(mktemp -d)"; mk_fixture "$b" real 0
+  printf 'MY LOCAL EDIT\n' >> "$PROJ/CLAUDE.md"     # an ours-only leg (CLAUDE.md is a
+                                                    # renderBase, not a files{} entry —
+                                                    # this is not a local-edit notice)
+  local run; run="$(soif_plan_run "$PROJ" "$FW" "$FW/init.sh" "$b/nocdf")"
+  local cand="$run/merged/CLAUDE.md.candidate" ok=1
+  # the legs really are distinguishable (else the assertions below prove nothing)
+  grep -q 'old body line'        "$run/incoming/CLAUDE.md.render.then" || { ok=0; echo "    base leg (render-then) is not the OLD render"; }
+  grep -q 'NEW upstream body line' "$run/incoming/CLAUDE.md.render.now" || { ok=0; echo "    theirs leg (render-now) is not the NEW render"; }
+  grep -q 'MY LOCAL EDIT'        "$run/incoming/CLAUDE.md.ours"        || { ok=0; echo "    ours leg lost the user's local edit"; }
+  if [ -f "$cand" ]; then
+    # theirs (render-NOW) must reach the candidate — the swap silently drops exactly this
+    grep -q 'NEW upstream body line' "$cand" || { ok=0; echo "    candidate DROPPED the upstream delta — base/theirs swapped: the new render was treated as the common ancestor"; }
+    grep -q 'extra new line'         "$cand" || { ok=0; echo "    candidate dropped the upstream added line"; }
+    # ours must survive too
+    grep -q 'MY LOCAL EDIT'          "$cand" || { ok=0; echo "    candidate dropped the user's ours-only content"; }
+  else
+    ok=0; echo "    no A1 candidate built"
+  fi
+  [ "$ok" = 1 ] && pass "A1 three-way leg order pinned (base=render-then, ours=user-now, theirs=render-now)" \
+    || fail_ "A1 merge leg order" "see above"
   rm -rf "$b"
 }
 
@@ -398,7 +538,9 @@ EOF
 ALL_TESTS="t_folder_shape t_exclusive_mkdir t_verbs_and_rename t_retire_emitted \
 t_grammar_pin t_base_sha_recorded t_rollup_shallow_fallback t_pin_absent_degrades \
 t_a2_structural_only t_a1_candidate_placeholder_free t_a1_intake_candidate \
-t_a1_placeholder_withheld t_i1_write_fence t_hook_item_consent_full_diff \
+t_a1_placeholder_withheld t_a1_merge_leg_order t_i1_write_fence \
+t_i1_fence_catches_stray_outside_run_folder t_hook_item_consent_full_diff \
+t_i11_consent_scope_simultaneous_drift \
 t_plan_dispatch_creates_run_folder t_plan_blocked_under_sentinel"
 
 echo "== tests/test-plan-staging.sh (LIB_ROOT=$LIB_ROOT) =="

@@ -23,9 +23,16 @@
 #     patches/         A1 patches (git apply → the candidate)
 #
 # ITEM VERBS (review-r1 B4): add | update | retire | rename. Retire/rename are
-# ALWAYS item-consent. Hooks + gate scripts are ALWAYS item-consent with the FULL
-# unified diff (I11). Class A1 stages a generator-leg three-way candidate; Class A2
+# ALWAYS item-consent. Class A1 stages a generator-leg three-way candidate; Class A2
 # stages a structural diff ONLY (no merge, ever — review-r1 B3).
+#
+# I11 — THE CONSENT FENCE (# BL-109-I11-CONSENT). Hooks AND gate scripts are ALWAYS
+# item-consent, with the FULL embedded unified diff (never diffstat-only) and
+# provenance. ONE predicate (_soif_plan_is_i11_item) decides the scope, and all three
+# places that must agree ask it: the consent flag (_soif_plan_derive_items), the
+# non-negotiable normalization (soif_plan_run) and the full-diff emission
+# (_soif_plan_emit_update_plan). Ordinary Class-M/T items stay batch-consentable with
+# a diffstat + a staged diffs/ entry.
 #
 # MECHANICAL FACTS ONLY (review-r1 M8): class, verb, diffstat, base-sha, tier and
 # the CHANGELOG roll-up are all script-computed here; no model call. The roll-up is
@@ -92,20 +99,46 @@ _soif_plan_iso() {
     || date -u +"%Y-%m-%dT%H:%M:%SZ"
 }
 
-# _soif_plan_is_enforcement_path <rel> — gate scripts / hooks are ENFORCEMENT tier
-# AND item-consent (I11). Mirrors freshness-detect's list exactly.
+# _soif_plan_is_enforcement_path <rel> — 0 iff this tracked path is one of the
+# framework's own ENFORCEMENT scripts (the gate scripts + everything under
+# scripts/hooks/). It is ENFORCEMENT tier AND, per I11, item-consent.
+#
+# DERIVED, NEVER HAND-LISTED (review-r1 / S3 review round 1): the authoritative set
+# is the framework's own single enforcement-path predicate,
+# _soif_fresh_is_enforcement_path (scripts/lib/freshness-detect.sh), which encodes
+# CLAUDE.md's "ENFORCEMENT — SOURCE OF TRUTH" list (check-phase-gate / pre-commit-gate
+# / check-gate / process-checklist / run-phase3-validation + the enforcement libs
+# tdd-classify / enforcement-level / gate-principles / hook-templates) plus
+# scripts/hooks/*. Duplicating that list here is the BL-084-TIER-KEY trap (a predicate
+# that must be "changed in sync" always drifts), so this delegates instead.
+#
+# FAIL-SAFE: if the authoritative predicate is unavailable, treat the path AS
+# enforcement (demand item consent). The safe failure direction for a consent fence is
+# to over-protect, never to silently batch a gate script.
 _soif_plan_is_enforcement_path() {
   if command -v _soif_fresh_is_enforcement_path >/dev/null 2>&1; then
     _soif_fresh_is_enforcement_path "$1"; return $?
   fi
-  case "$1" in
-    scripts/pre-commit-gate.sh|scripts/check-phase-gate.sh|scripts/check-gate.sh|\
-    scripts/process-checklist.sh|scripts/run-phase3-validation.sh|\
-    scripts/lib/tdd-classify.sh|scripts/lib/enforcement-level.sh|\
-    scripts/lib/gate-principles.sh|scripts/lib/hook-templates.sh|\
-    scripts/hooks/*) return 0 ;;
-    *) return 1 ;;
-  esac
+  return 0
+}
+
+# _soif_plan_is_i11_item <class> <path> — THE I11 CONSENT SCOPE, in ONE place.
+# # BL-109-I11-CONSENT
+#
+# Design v1.1 §3 invariant I11: "`.git/hooks/*` AND gate scripts are never covered by
+# batch consent: item-level consent with the FULL unified diff (never diffstat-only)
+# and provenance (upstream commit id)." Both halves of that sentence route through
+# THIS predicate — the consent flag (_soif_plan_derive_items), the non-negotiable
+# normalization (soif_plan_run) and the full-diff emission
+# (_soif_plan_emit_update_plan) all ask it, so an item can never be item-consent in
+# one place and batch in another.
+#
+#   hook half  → class "hook" (the .git/hooks/* managed regions)
+#   gate half  → _soif_plan_is_enforcement_path (the derived gate-script set above)
+_soif_plan_is_i11_item() {                       # BL-109-I11-CONSENT
+  local class="$1" path="$2"
+  [ "$class" = "hook" ] && return 0
+  _soif_plan_is_enforcement_path "$path"
 }
 
 # _soif_plan_fw_relpath <fw> <init> <rel> — the framework repo-relative path a
@@ -173,7 +206,7 @@ _soif_plan_derive_items() {
       framework-drift)
         local cls consent
         cls="$(soif_currency_file_field "$mani" "$path" class)"; [ -n "$cls" ] || cls=M
-        if _soif_plan_is_enforcement_path "$path"; then consent=item; else consent=batch; fi
+        if _soif_plan_is_i11_item "$cls" "$path"; then consent=item; else consent=batch; fi   # BL-109-I11-CONSENT
         printf '%s\t%s\tupdate\t%s\t%s\t%s\t\n' "$id" "$cls" "$tier" "$path" "$consent" >> "$items_tmp" ;;
       orphan)
         local cls
@@ -212,7 +245,7 @@ _soif_plan_derive_items() {
       [ -z "$tracked" ] || continue                     # already tracked → not an add
       src="$(_soif_plan_fw_relpath "$fw" "$init" "$rel")"
       [ -f "$fw/$src" ] || continue                     # source must exist upstream
-      if _soif_plan_is_enforcement_path "$rel"; then consent=item; tier=enforcement; else consent=batch; tier=informational; fi
+      if _soif_plan_is_i11_item "$cls" "$rel"; then consent=item; tier=enforcement; else consent=batch; tier=informational; fi   # BL-109-I11-CONSENT
       printf 'add:%s\t%s\tadd\t%s\t%s\t%s\t\n' "$rel" "$cls" "$tier" "$rel" "$consent" >> "$items_tmp"
     done
   fi
@@ -295,17 +328,33 @@ _soif_plan_rollup() {
 # Each writes ONLY under $RUN_DIR. Returns the candidate/structural relpath (or
 # empty) on stdout so the manifest + UPDATE-PLAN can reference it.
 
+# _soif_plan_unified_diff <proj> <fw> <init> <verb> <path> — the FULL unified diff
+# (project-current → framework-current) for one file item, verb-aware. ONE definition:
+# both the diffs/ artifact (_soif_plan_build_diff) and the I11 full-diff embed in
+# UPDATE-PLAN.md (_soif_plan_emit_update_plan) render the SAME bytes from here, so a
+# gate script's embedded diff can never drift from its staged diff.
+_soif_plan_unified_diff() {
+  local proj="$1" fw="$2" init="$3" verb="$4" path="$5"
+  local fw_rel base new
+  fw_rel="$(_soif_plan_fw_relpath "$fw" "$init" "$path")"
+  base="$proj/$path"          # project-current
+  new="$fw/$fw_rel"           # framework-current
+  case "$verb" in
+    add)    diff -u /dev/null "$new" 2>/dev/null ;;
+    retire) diff -u "$base" /dev/null 2>/dev/null ;;
+    *)      diff -u "$base" "$new" 2>/dev/null ;;
+  esac
+  return 0                    # `diff` exits 1 on differences — never fail the caller
+}
+
 # _soif_plan_build_diff <run> <proj> <fw> <init> <pin> <pin_present> <id> <verb> <path>
 #   Class M/T (+ hook diffs live in UPDATE-PLAN, not here): a unified diff
 #   (framework-current vs project-current) + the mechanical roll-up. Prints the
 #   diff relpath.
 _soif_plan_build_diff() {
   local run="$1" proj="$2" fw="$3" init="$4" pin="$5" pin_present="$6" id="$7" verb="$8" path="$9"
-  local src fw_rel base new safe
+  local fw_rel safe
   fw_rel="$(_soif_plan_fw_relpath "$fw" "$init" "$path")"
-  src="$fw/$fw_rel"
-  base="$proj/$path"          # project-current
-  new="$src"                  # framework-current
   safe="$(printf '%s' "$id" | tr '/:' '__')"
   local dfile="diffs/${safe}.diff"
   {
@@ -313,11 +362,7 @@ _soif_plan_build_diff() {
     printf '# framework path: %s\n\n' "$fw_rel"
     printf '## Unified diff (project-current → framework-current)\n\n'
     printf '```diff\n'
-    case "$verb" in
-      add)    diff -u /dev/null "$new" 2>/dev/null ;;
-      retire) diff -u "$base" /dev/null 2>/dev/null ;;
-      *)      diff -u "$base" "$new" 2>/dev/null ;;
-    esac
+    _soif_plan_unified_diff "$proj" "$fw" "$init" "$verb" "$path"
     printf '```\n\n'
     printf '## Mechanical changelog roll-up\n\n'
     printf '```\n'
@@ -379,9 +424,17 @@ _soif_plan_build_a1_candidate() {
 
   cand="merged/${safe}.candidate"
   patch="patches/${safe}.patch"
-  # three-way: ours=user-now (copied so merge-file -p leaves inputs intact), base=then, theirs=now
+  # THE THREE-WAY LEG ORDER (# BL-109-A1-MERGE-LEGS) — load-bearing, and silently
+  # catastrophic if swapped. `git merge-file -p <ours> <base> <theirs>`:
+  #   ours   = the user's file NOW      (copied first so merge-file -p leaves it intact)
+  #   base   = render-THEN (old template at the pin, re-rendered) — the COMMON ANCESTOR
+  #   theirs = render-NOW  (new template at HEAD, re-rendered)
+  # Swapping base and theirs would make the NEW render the common ancestor, so the
+  # merge would treat the upstream delta as something to REVERT — it would quietly
+  # strip the update it was asked to stage, with no conflict to warn anyone. Pinned by
+  # t_a1_merge_leg_order (registry row plan/a1-merge-leg-order).
   cp "$userfile" "$run/incoming/${safe}.ours"
-  git merge-file -p "$run/incoming/${safe}.ours" "$then_out" "$now_out" > "$run/$cand" 2>/dev/null || true
+  git merge-file -p "$run/incoming/${safe}.ours" "$then_out" "$now_out" > "$run/$cand" 2>/dev/null || true   # BL-109-A1-MERGE-LEGS
   # patch: apply to the LIVE file (a/artifact b/artifact) → the candidate.
   diff -u -L "a/$artifact" -L "b/$artifact" "$userfile" "$run/$cand" > "$run/$patch" 2>/dev/null || true
   printf '%s\t%s\tcandidate' "$cand" "$patch"
@@ -654,6 +707,12 @@ soif_plan_run() {
     fw_rel="$(_soif_plan_fw_relpath "$fw" "$init" "$path")"
     dfile=""; cand=""; patch=""; struct=""; extra=""
 
+    # I11, non-negotiable (# BL-109-I11-CONSENT): a hook or a gate script is NEVER
+    # batch-consentable, whatever the derivation said. One predicate, asserted at the
+    # single point every item passes through — so no future verb/branch can leak a
+    # Class-M write to a gate script into the batch bucket.
+    if _soif_plan_is_i11_item "$class" "$path"; then consent=item; fi
+
     # base-sha = the LIVE file's sha at plan time (via _soif_plan_base_sha,
     # # BL-109-PLAN-BASESHA). framework_sha = the upstream file's sha (empty for
     # retire — the upstream is gone — and for hooks, which diff managed regions).
@@ -741,7 +800,7 @@ soif_plan_run() {
 
   # ── UPDATE-PLAN.md (# BL-109-PLAN-FENCE — the run-confined selection surface) ──
   _soif_plan_emit_update_plan "$RUN_DIR" "$run_id" "$now" "$fw" "$fw_head" "$fw_short" \
-      "$pin" "$pin_present" "$total" "$plan_rows_file" "$notices_file" "$proj" \
+      "$pin" "$pin_present" "$total" "$plan_rows_file" "$notices_file" "$proj" "$init" \
       > "$RUN_DIR/UPDATE-PLAN.md"                    # BL-109-PLAN-FENCE
 
   rm -f "$notices_file" "$items_file" "$manitems_file" "$plan_rows_file" 2>/dev/null || true
@@ -751,10 +810,11 @@ soif_plan_run() {
 
 # _soif_plan_emit_update_plan ... > UPDATE-PLAN.md — the human review doc + the
 # checkbox selection surface. Mechanical facts table + one grammar line per item;
-# hook/gate items carry the FULL unified diff inline (I11).
+# hook AND gate-script items carry the FULL unified diff inline (I11).
 _soif_plan_emit_update_plan() {
   local run="$1" run_id="$2" now="$3" fw="$4" fw_head="$5" fw_short="$6" \
-        pin="$7" pin_present="$8" total="$9" rows="${10}" notices="${11}" proj="${12}"
+        pin="$7" pin_present="$8" total="$9" rows="${10}" notices="${11}" proj="${12}" \
+        init="${13}"
   local pin_disp
   if [ "$pin_present" = true ]; then pin_disp="$(_soif_plan_short "$pin") → $(_soif_plan_short "$fw_head")"; else pin_disp="(absent) → $(_soif_plan_short "$fw_head")"; fi
 
@@ -811,20 +871,33 @@ _soif_plan_emit_update_plan() {
   done < "$rows"
   printf '\n'
 
-  # Item-consent details: hooks + gate scripts embed the FULL unified diff (I11).
-  local any_hook=0
+  # ── I11 — item-consent details for hooks AND gate scripts (# BL-109-I11-CONSENT) ──
+  # BOTH classes route through the SAME emission path: the ⚠ marker above, plus here a
+  # FULL embedded unified diff (never diffstat-only) and provenance (the upstream
+  # short-sha). These are the scariest writes the updater can offer — the code that
+  # decides whether the operator's own gates block — so the operator must be able to
+  # read every changed line without leaving this document.
+  local any_i11=0
   while IFS="$(printf '\t')" read -r id class verb tier path consent added removed bshort; do
     [ -n "$id" ] || continue
-    if [ "$class" = "hook" ]; then
-      if [ "$any_hook" = 0 ]; then printf '## Item-consent: hooks / gate scripts (full diff, I11)\n\n'; any_hook=1; fi
-      printf '### `%s` — %s (%s)\n\n' "$id" "$path" "$verb"
-      printf 'Hooks and gate scripts are NEVER batch-consented (invariant I11). Review the\n'
-      printf 'full managed-block diff below and provenance before ticking this item.\n\n'
-      printf '**Provenance:** framework `%s`\n\n' "$(_soif_plan_short "$fw_head")"
-      printf '```diff\n'
-      _soif_plan_hook_full_diff "$proj" "$fw" "$path" "$id"
-      printf '```\n\n'
+    _soif_plan_is_i11_item "$class" "$path" || continue          # BL-109-I11-CONSENT
+    if [ "$any_i11" = 0 ]; then
+      printf '## Item-consent: hooks + gate scripts (FULL diff, I11)\n\n'
+      printf 'Every item in this section is ENFORCEMENT machinery — a `.git/hooks/*` managed\n'
+      printf 'region or one of the gate scripts that decide whether your own gates block.\n'
+      printf 'They are NEVER batch-consented (invariant I11): tick each one individually,\n'
+      printf 'after reading its full diff below.\n\n'
+      any_i11=1
     fi
+    printf '### `%s` — %s (%s/%s)\n\n' "$id" "$path" "$class" "$verb"
+    printf '**Provenance:** framework `%s`\n\n' "$(_soif_plan_short "$fw_head")"
+    printf '```diff\n'
+    if [ "$class" = "hook" ]; then
+      _soif_plan_hook_full_diff "$proj" "$fw" "$path" "$id"      # managed-region diff
+    else
+      _soif_plan_unified_diff "$proj" "$fw" "$init" "$verb" "$path"
+    fi
+    printf '```\n\n'
   done < "$rows"
 
   # A1 no-agent application protocol.
@@ -856,9 +929,23 @@ _soif_plan_emit_update_plan() {
 # _soif_plan_hook_full_diff <proj> <fw> <hookpath> <id> — the full unified diff of a
 # hook's installed managed block vs the framework's current template body. Best-
 # effort + mechanical; never a network op.
+#
+# THE HOOK NAME COMES FROM THE ID, not the path (S3 review round 1). The S2 detector
+# emits hook items with path "-" (a hook is a managed REGION, not a tracked file), so
+# resolving the name off the path yielded `-`, which matched no marker set and made
+# this function emit an EMPTY diff — an I11 fence that documented a full diff and
+# shipped a blank code block. The id is `hook-<kind>:<name>` (hook-drift:commit-msg,
+# hook-missing:pre-commit), so the name is its suffix; the path is only a fallback for
+# a caller that passes a real .git/hooks/<name> path.
 _soif_plan_hook_full_diff() {
   local proj="$1" fw="$2" hookpath="$3" id="$4"
-  local name="${hookpath##*/}" installed="$proj/$hookpath"
+  local name installed
+  case "$id" in
+    hook-*:*) name="${id##*:}" ;;
+    *)        name="${hookpath##*/}" ;;
+  esac
+  installed="$proj/.git/hooks/$name"
+  [ -f "$installed" ] || installed="$proj/$hookpath"
   local fw_hooktpl="$fw/scripts/lib/hook-templates.sh" open close bodyfn
   case "$name" in
     pre-commit) open="${SOIF_PRECOMMIT_OPEN:-}"; close="${SOIF_PRECOMMIT_CLOSE:-}"; bodyfn=soif_precommit_region_body ;;
