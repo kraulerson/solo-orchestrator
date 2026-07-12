@@ -2808,7 +2808,7 @@ For Rust the skip is *deliberate* (inline `#[cfg(test)]` tests cannot be detecte
 **Logged:** 2026-07-12 (E2E validation walk, findings F14 + F15)
 **Category:** Bug / security-gate credibility
 **Severity:** **High**
-**Status:** Open
+**Status:** Closed — fixed in PR #196 (2026-07-12)
 
 **F14 — a fresh scaffold cannot pass its own security scan.** A freshly-scaffolded organizational project fails `semgrep --config auto` with **6 WARNING findings, ALL in framework-shipped files** — 5 mutable action-tags in the generated `.github/workflows/ci.yml` + `release.yml`, and 1 IFS-tamper in `scripts/check-versions.sh` — and **ZERO in the app's own `src/`**. An honest operator cannot clear Phase 3 without editing framework-generated files, and a scanner **FAIL is not attestable — only a SKIP is**. The framework hands you a project that fails the framework's own gate.
 
@@ -2816,7 +2816,27 @@ For Rust the skip is *deliberate* (inline `#[cfg(test)]` tests cannot be detecte
 
 **Fix shape:** (1) fix the framework-shipped findings at source (pin action SHAs in the generated workflows; fix the `check-versions.sh` IFS pattern) so a fresh scaffold is scan-clean — the acceptance test is *"scaffold → semgrep → zero findings"*; (2) the offline autorun must **not** silently downgrade a scanner that was previously FAILing or that is locally available — either run it online-capable, or surface `[STALE — last real result: FAIL]` rather than a fresh attestable SKIP; (3) make a scanner FAIL **attestable-but-loud** rather than unattestable-and-therefore-laundered. TDD + mutation proofs; scaffold-fidelity test.
 
-**Related:** BL-070 (the five real scanners); BL-082 (the staleness binding whose autorun is the laundering vector); BL-112 (commit-time SAST is hollow too); `Reports/2026-07-12-e2e-walk/RESULTS.md` (F14, F15).
+### Resolution (PR #196, 2026-07-12)
+
+**F14 — a fresh scaffold is now scan-clean.** Measured on a REAL `init.sh` organizational scaffold with a REAL `semgrep --config auto`: **6 findings BEFORE → 0 findings AFTER.**
+- Every GitHub Action in the shipped pipeline templates — and in the framework's own workflows — is pinned to an **immutable 40-hex commit SHA** with a `# vN (vX.Y.Z)` provenance comment. SHAs were resolved through the GitHub API (tag ref → annotated-tag deref → commit) and each was verified to be a real commit; none was invented. The `__SETUP_ACTION__` substitution values in `init.sh` **and** `scripts/reconfigure-project.sh` (sync siblings) are pinned too, so the sed-rendered `release.yml` is pinned as well.
+- Two latent bugs fell out of the pin work: `realm/SwiftLint@v0.57.0` was a **phantom ref** (no such tag — the real tag is `0.57.0`, unprefixed), and `dtolnay/rust-toolchain` now passes `toolchain: stable` explicitly because a SHA pin no longer carries the toolchain in the ref name.
+- `check-versions.sh::version_gte` no longer sets a function-scoped `IFS`; it uses the command-prefix form (`IFS='.' read -r -a`) — the remediation semgrep's own rule recommends. **No suppression** was used for it.
+- The one genuine false positive (`uses: __SETUP_ACTION__` — a build-time placeholder, not an action ref) carries a `# nosemgrep` **with a why-comment in the template only**; it is **stripped at render time** (keyed on a `__SOLO_TEMPLATE_ONLY__` marker) so no suppression ever ships into a generated project. The framework repo itself now scans to **0 findings**.
+
+**F15 — the laundering is dead.** Marker `# BL-113-NO-LAUNDER`, two defences:
+1. **Driver carry-forward** (`run-phase3-validation.sh::_p3_no_launder`) — a SKIP never overwrites a prior **REAL FAIL**. The driver reads back the most recent summary carrying a real (non-SKIP) verdict for that scanner; if it was FAIL, the SKIP is **refused** and recorded as FAIL with a `[STALE - last real result: FAIL]` note plus a machine-readable `CARRIED <scanner> <origin>` line. Covers all five scanners.
+2. **Gate refusal** (`check-phase-gate.sh`) — an offline-autorun SKIP for a scanner whose **tool is on PATH** is refused outright, attested or not. Scoped to semgrep, deliberately: its real-run path now degrades to an honest attestable SKIP when the rule registry is unreachable, so forcing a real run can never brick an offline operator (snyk's path FAILs instead, so it is not in scope).
+
+**Option (i) — "just run semgrep under the offline autorun" — was tested and REJECTED on evidence.** `semgrep --config auto` is **not** local-only: it hard-fetches its ruleset from `semgrep.dev` with **no local-cache fallback**. With the network blackholed it spends ~97 s retrying, exits rc=2, and writes no report. Running it from the gate would make the gate non-hermetic, slow, and would brick genuinely-offline operators. The autorun therefore **stays `--offline`** — the laundering dies, not the offline mode.
+
+**The framework remains usable genuinely offline.** `_p3_scan_semgrep` now reports a registry-unreachable run as an honest **attestable SKIP** rather than a FAIL (`# BL-113-SEMGREP-OFFLINE`); a FAIL there would have bricked an offline operator, since a FAIL is not attestable. No tool + no prior real FAIL still yields an honest attestable SKIP and a passable gate — asserted by `T-offline-still-usable`.
+
+**Tests:** `tests/test-bl113-sast-honesty.sh` (AGGREGATOR — real `init.sh`; registered in `tests/full-project-test-suite.sh`, never in the `tests.yml` unit list) — 17/17. Both anti-laundering guards are additionally pinned as rows in `tests/test-bl099-guard-coverage.sh` (27/27 PINNED; that harness was generalised to a per-section mutation target + killing suite, leaving every existing row unchanged). Mutation proofs: neutering `# BL-113-NO-LAUNDER` (marker intact) reintroduces the laundering → RED; restore → GREEN. Un-pinning one action in a scratch scaffold → the scan goes RED.
+
+**Note (deferred, not in scope):** F14's remediation message is still a no-op for a scanner FAIL — a FAIL remains **non-attestable by design**, which is the correct security posture now that a fresh scaffold no longer produces one. Option (iii) (make a FAIL "attestable-but-loud") was deliberately **not** taken: an attestable FAIL is a laundering vector by another name.
+
+**Related:** BL-070 (the five real scanners); BL-082 (the staleness binding whose autorun is the laundering vector); BL-112 (commit-time SAST is hollow too — the `[BLOCKED]` branch is still dead, unrelated to this fix); `Reports/2026-07-12-e2e-walk/RESULTS.md` (F14, F15).
 
 ---
 
