@@ -2476,6 +2476,8 @@ BL-097's model-selection rubric says WHO can build cheaply; this entry supplies 
 **Severity:** Medium
 **Status:** Open
 
+**Progress — SLICE-A shipped (PR #185):** `upgrade-project.sh --sync-framework` (piece 2) + `--dry-run` + ask-first hook install/refresh (piece 3) + framework doc-drift notices + `manifest.soloFrameworkCommit` pin. Rendered docs (`CLAUDE.md`/`PROJECT_INTAKE.md`) are notice-only in this slice — assisted apply is the new **BL-101**. **SLICE-B (piece 1, session-start freshness check) is still pending** — this entry stays Open until it lands.
+
 **What exists today (verified):** tools are auto-checked at every session load — `scripts/session-version-check.sh` is injected as a SessionStart hook by `init.sh` (~:1750), wraps `check-versions.sh`, silent-when-current, never auto-updates ("always ask first," per the generated CLAUDE.md Session Start rules). **What does not:** framework freshness is manual-and-detection-only (`scripts/check-updates.sh` — operator-run, compares docs vs upstream, applies nothing, wired into no hook); nothing anywhere checks whether a project's installed git HOOKS are current (the C2 commit-msg hook gap on pre-2026-07-10 projects is invisible to every existing check); CDF assets refresh only during upgrade runs (BL-001); and `upgrade-project.sh` has NO same-tier sync mode — its purpose is tier changes, so gate scripts (`pre-commit-gate.sh`, `check-phase-gate.sh`, `process-checklist.sh`) only refresh as a tier-change side effect. Net: a month-old project (Pantheon) cannot cleanly reach current framework behavior at its current tier.
 
 **The three missing pieces:**
@@ -2509,6 +2511,24 @@ BL-097's model-selection rubric says WHO can build cheaply; this entry supplies 
 **Evidence this works (the 2026-07 gate + doc waves, `Reports/2026-07-11-project-post-mortem.md`):** the pattern caught the BL-088 scaffold deployment gap the entire registered test suite missed (surfaced by PR #173's verifier refusing to let the README oversell), killed surviving mutations behind PRs #160/#166/#168/#175, disproved the orchestrator's own false-alarm backlog tidy (PR #168), and was itself refuted-with-evidence once (PR #173's dead-path finding) — i.e., the protocol self-corrects in both directions.
 
 **Related:** BL-097 (who builds and verifies) + BL-098 (plan-first) — together the complete delegation protocol: plan → right-sized build → adversarial acceptance; BL-092 (shared CLAUDE.md surface); the archived 2026-07-09 gate-wave handoff §0 rule 3 (the arc-scoped precedent this makes permanent).
+
+---
+
+## BL-101: Assisted apply for rendered docs — regenerate CLAUDE.md/PROJECT_INTAKE from recovered project vars + three-way merge
+
+**Logged:** 2026-07-11 (spun out of BL-099 SLICE-A, PR #185)
+**Category:** Proposal / product (upgrade surface)
+**Severity:** Low
+**Status:** Open
+
+**Why:** `upgrade-project.sh --sync-framework` (BL-099 SLICE-A) refreshes vendored scripts/hooks and *notices* framework doc drift, but it deliberately never rewrites `CLAUDE.md` / `PROJECT_INTAKE.md`: both are **sed-rendered** from templates (`templates/generated/claude-md.tmpl`, `templates/project-intake.md`) with project-specific substitutions and, for `PROJECT_INTAKE.md`, appended tool tables. A blind copy would clobber the operator's rendered/customized file with an unrendered template full of `__PLACEHOLDER__`s — so the slice shows a template-level diff (against the `manifest.soloFrameworkCommit` pin SLICE-A now stamps) and stops there.
+
+**The work:** an *assisted apply* mode that
+1. factors `init.sh`'s `generate_claude_md` (and the `PROJECT_INTAKE.md` cp + `append_intake_tooling_summary` flow) into a **parameterized generator** callable outside a full `init.sh` run;
+2. **recovers the render variables** — `PROJECT_NAME`, `PROJECT_DESCRIPTION`, `PLATFORM`, `TRACK`, `LANGUAGE`, `TEST_INTERVAL`, `DEPLOYMENT` — from project state (`.claude/phase-state.json`, `.claude/tool-preferences.json`, `.claude/manifest.json`, the existing `CLAUDE.md`);
+3. re-renders the current template with those vars and offers a **three-way merge** (old render / new render / operator's file) so upstream template improvements land without discarding customizations.
+
+**Enabled by:** the `soloFrameworkCommit` pin SLICE-A ships (gives a base commit for the three-way diff). **Related:** BL-099 (parent), BL-092 (shared CLAUDE.md template surface).
 
 ---
 

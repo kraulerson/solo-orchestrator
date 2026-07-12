@@ -82,6 +82,42 @@ ACK_PRECONDITIONS=""
 # exits. Lets operators of pre-BL-030 projects upgrade their manifest
 # without choosing a track / deployment / POC transition.
 BACKFILL_ONLY=false
+# BL-099 SLICE-A: --sync-framework runs a DEDICATED same-tier refresh of the
+# vendored gate scripts / helper set / templates from the FRAMEWORK copy being
+# run (never a track/deployment/POC transition). --dry-run (valid only with
+# --sync-framework) computes + prints every action and writes NOTHING.
+# --install-hooks permits hook install/refresh in non-interactive contexts
+# (interactive runs always prompt; non-interactive otherwise only notices).
+#
+# Doc drift is DECLARED, never implicit (BL-099 SLICE-A review round 1). There is
+# NO environment-variable escape hatch: the ONLY way to apply a framework
+# reference doc in a non-interactive run is the explicit CLI pair
+#   --apply-doc-updates <skip|sidecar|overwrite>   what to do with a drifted doc
+#   --confirm-doc-overwrite                        the second, destructive-step
+#                                                  consent that `overwrite` needs
+# A bare non-interactive --sync-framework applies NOTHING (notice only). Both
+# flags are valid ONLY with --sync-framework, apply ONLY to the verbatim
+# docs/reference/*.md set, and NEVER to the sed-rendered CLAUDE.md /
+# PROJECT_INTAKE.md (see # BL-099-DOC-GUARD). Interactive runs always prompt.
+#
+# Review round 2:
+#   • Every mutating doc write is status-checked (# BL-099-APPLY-STATUS). A write
+#     that does not land is LOUD ([FAIL]), leaves the original's bytes intact, and
+#     makes the whole run exit non-zero — never [OK] + exit 0.
+#   • The rendered docs are notice-only under EVERY flag/env combination: no
+#     .new, no .bak, no template copy, no `CLAUDE.md*` / `PROJECT_INTAKE.md*`
+#     artifact of any kind (# BL-099-DOC-GUARD is the single enforcement point).
+#   • --non-interactive forces the non-interactive channel for the sync's consent
+#     paths too (same semantics as CI / SOIF_NONINTERACTIVE): with it, hooks need
+#     --install-hooks and doc applies need --apply-doc-updates, tty or no tty.
+SYNC_FRAMEWORK=false
+DRY_RUN=false
+INSTALL_HOOKS=false
+APPLY_DOC_UPDATES=""
+CONFIRM_DOC_OVERWRITE=false
+# Set when a reference doc could NOT be backed up and was therefore left
+# untouched — the sync exits non-zero so the refusal is never silent.
+DOC_APPLY_FAILED=false
 
 # BL-018: BL-016-style structured error helper (summary + reason + action + context).
 _upgrade_fail() {
@@ -215,6 +251,28 @@ while [ $# -gt 0 ]; do
       ;;
     --backfill-only)
       BACKFILL_ONLY=true; shift; continue ;;
+    --sync-framework)
+      SYNC_FRAMEWORK=true; shift; continue ;;
+    --dry-run)
+      DRY_RUN=true; shift; continue ;;
+    --install-hooks)
+      INSTALL_HOOKS=true; shift; continue ;;
+    --apply-doc-updates)
+      # BL-099 review round 1: the DECLARED apply channel for drifted framework
+      # reference docs (replaces the undeclared SOLO_SYNC_DOC_APPLY env var).
+      # Unknown / missing value is a HARD usage error — never a silent default.
+      case "${2:-}" in
+        skip|sidecar|overwrite)
+          APPLY_DOC_UPDATES="$2"; shift 2; continue ;;
+        *)
+          _upgrade_fail "invalid --apply-doc-updates value '${2:-(missing)}'" \
+                        "--apply-doc-updates takes exactly one of: skip, sidecar, overwrite." \
+                        "re-run with --apply-doc-updates skip|sidecar|overwrite (add --confirm-doc-overwrite for overwrite)." \
+                        "--apply-doc-updates='${2:-}'"
+          exit 1 ;;
+      esac ;;
+    --confirm-doc-overwrite)
+      CONFIRM_DOC_OVERWRITE=true; shift; continue ;;
     --to-production)
       TO_PRODUCTION=true
       shift
@@ -288,6 +346,50 @@ if [ "$_to_count" -gt 1 ]; then
   exit 1
 fi
 
+# BL-099: --sync-framework is a same-tier refresh; it is mutually exclusive with
+# every tier-change flag and with --backfill-only (which owns the manifest/CDF
+# backfill short-circuit). --dry-run / --install-hooks are sync-only modifiers.
+if [ "$SYNC_FRAMEWORK" = true ]; then
+  if [ -n "$TARGET_TRACK" ] || [ -n "$TARGET_DEPLOYMENT" ] || [ "$_to_count" -gt 0 ] || [ "$BACKFILL_ONLY" = true ]; then
+    _upgrade_fail "--sync-framework cannot be combined with a tier change or --backfill-only" \
+                  "--sync-framework performs a SAME-TIER refresh of vendored scripts/hooks/docs; it must not run alongside --track/--deployment/--to-*/--backfill-only." \
+                  "run the tier change on its own, then run --sync-framework separately (or vice-versa)." \
+                  "track='$TARGET_TRACK' deployment='$TARGET_DEPLOYMENT' to_count=$_to_count backfill_only=$BACKFILL_ONLY"
+    exit 1
+  fi
+else
+  if [ "$DRY_RUN" = true ]; then
+    _upgrade_fail "--dry-run is only valid with --sync-framework" \
+                  "--dry-run is a preview mode for the same-tier framework sync; the tier-change path has no dry-run." \
+                  "add --sync-framework, or drop --dry-run." \
+                  "sync_framework=$SYNC_FRAMEWORK dry_run=$DRY_RUN"
+    exit 1
+  fi
+  if [ "$INSTALL_HOOKS" = true ]; then
+    _upgrade_fail "--install-hooks is only valid with --sync-framework" \
+                  "--install-hooks authorizes non-interactive hook install/refresh during a framework sync; it has no meaning on the tier-change path." \
+                  "add --sync-framework, or drop --install-hooks." \
+                  "sync_framework=$SYNC_FRAMEWORK install_hooks=$INSTALL_HOOKS"
+    exit 1
+  fi
+  # BL-099 review round 1: the doc-apply flags are sync-only, exactly like
+  # --dry-run / --install-hooks. The tier-change path has no doc-drift step.
+  if [ -n "$APPLY_DOC_UPDATES" ]; then
+    _upgrade_fail "--apply-doc-updates is only valid with --sync-framework" \
+                  "--apply-doc-updates declares what to do with drifted framework reference docs during a framework sync; it has no meaning on the tier-change path." \
+                  "add --sync-framework, or drop --apply-doc-updates." \
+                  "sync_framework=$SYNC_FRAMEWORK apply_doc_updates='$APPLY_DOC_UPDATES'"
+    exit 1
+  fi
+  if [ "$CONFIRM_DOC_OVERWRITE" = true ]; then
+    _upgrade_fail "--confirm-doc-overwrite is only valid with --sync-framework" \
+                  "--confirm-doc-overwrite is the destructive-step consent for '--apply-doc-updates overwrite' during a framework sync; it has no meaning on the tier-change path." \
+                  "add --sync-framework --apply-doc-updates overwrite, or drop --confirm-doc-overwrite." \
+                  "sync_framework=$SYNC_FRAMEWORK confirm_doc_overwrite=$CONFIRM_DOC_OVERWRITE"
+    exit 1
+  fi
+fi
+
 # BL-018: --validate-only — emit resolved arg JSON and exit before any project read or mutation.
 # Requires at least one upgrade target so the resolved JSON has actionable content.
 if [ "$VALIDATE_ONLY" = true ]; then
@@ -353,6 +455,13 @@ if [ "$BACKFILL_ONLY" != true ]; then _bl015_sentinel_guard; fi
 # requiring the operator to also pick a track / deployment / POC
 # transition. Idempotent — both block on `! jq -e '.<field>'` so a
 # second run is a no-op.
+#
+# BL-099: factored into a function (behavior + ordering UNCHANGED for the
+# --backfill-only and full-upgrade paths — those still call it inline at this
+# exact point; the sentinel-block suite proves byte-compat) so the
+# --sync-framework path can invoke it AFTER its guards + source-check instead of
+# before them.
+_run_idempotent_backfill() {
 ( cd "$PROJECT_ROOT"
   # --- Host-aware migration (spec 2026-04-21) ---
   # Projects created before the host-aware gate need the flat CI template
@@ -515,6 +624,645 @@ if [ "$BACKFILL_ONLY" != true ]; then _bl015_sentinel_guard; fi
     unset _bl088_rel _bl088_src _bl088_dst
   fi
 )
+}
+
+# BL-099: run the shared backfill inline for the EXISTING paths — byte-compatible
+# ordering, exactly where the subshell used to execute. The --sync-framework path
+# SKIPS it here and calls it later (after its guards + source-check) so a refused
+# self-copy sync mutates nothing.
+if [ "$SYNC_FRAMEWORK" != true ]; then
+  _run_idempotent_backfill
+fi
+
+# ================================================================
+# BL-099 SLICE-A — same-tier framework sync (--sync-framework)
+# ================================================================
+# A DEDICATED flow (does NOT piggyback the pre-guard backfill above). Order:
+#   (a) sentinel guard  — already fired above (the non-backfill one-liner)
+#   (b) guard_not_in_framework (cwd = project root)
+#   (c) SOURCE-CHECK — refuse running the project's OWN scripts/ copy (self-copy)
+#   (d) shared idempotent backfill (post-guard; dry-run suppresses all writes)
+#   (e) script sync (mechanical shipped-set from init.sh)   # BL-099-SYNC
+#   (f) hooks (ask-first): commit-msg TDD gate + pre-commit fallback
+#   + doc drift (7 verbatim reference docs; CLAUDE.md/PROJECT_INTAKE notice-only)
+#   + pin manifest.soloFrameworkCommit (non-dry only)
+# DRY_RUN is threaded through EVERYTHING: every step prints what it WOULD do and
+# writes nothing (no tmp files, no CDF side effects, no manifest writes).
+
+# Mirror a source file's mode onto its destination (GNU-first stat, BSD fallback)
+# so a newly-shipped executable lands +x and a sourced lib stays 644.
+#
+# Review round 2 (MAJOR-A): this RETURNS the chmod's status instead of swallowing
+# it — every mutating command in this slice is status-checked. A mode-mirror
+# failure is not content corruption (the bytes landed), so callers WARN rather
+# than fail the doc; but they must do that EXPLICITLY, never by ignoring the exit
+# code. A source file with no readable mode is a no-op success (nothing to mirror).
+_bl099_mirror_mode() {
+  local mode
+  mode="$(stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1" 2>/dev/null || echo '')"
+  [ -n "$mode" ] || return 0
+  chmod "$mode" "$2" 2>/dev/null
+}
+
+# Resolve the project's primary language (tool-preferences → intake-progress →
+# CLAUDE.md), for the commit-msg TDD-hook language gate.
+_bl099_resolve_language() {
+  local lang=""
+  if [ -f "$PROJECT_ROOT/.claude/tool-preferences.json" ]; then
+    lang="$(jq -r '.context.language // ""' "$PROJECT_ROOT/.claude/tool-preferences.json" 2>/dev/null || echo "")"
+  fi
+  if [ -z "$lang" ] && [ -f "$PROJECT_ROOT/.claude/intake-progress.json" ]; then
+    lang="$(jq -r '.language // ""' "$PROJECT_ROOT/.claude/intake-progress.json" 2>/dev/null || echo "")"
+  fi
+  if [ -z "$lang" ] && [ -f "$PROJECT_ROOT/CLAUDE.md" ]; then
+    lang="$(grep -m1 -i 'Primary Language' "$PROJECT_ROOT/CLAUDE.md" 2>/dev/null | sed 's/.*\*\* *//' | tr -d ' ' || true)"
+  fi
+  [ "$lang" = "null" ] && lang=""
+  printf '%s' "$lang"
+}
+
+# ── INTERACTIVE-CONTEXT PREDICATE (review round 2, MINOR-C) ──────────────────
+# Every BL-099 consent path used to inline `[ -t 0 ] && [ -z "$CI" ] && [ -z
+# "$SOIF_NONINTERACTIVE" ]` and IGNORE this script's own NON_INTERACTIVE variable
+# — even though --help advertises --non-interactive as "force non-interactive mode
+# (skips Y/N confirmations even on a tty)". There is now ONE predicate, and
+# NON_INTERACTIVE is a first-class member of it (identical semantics to
+# SOIF_NONINTERACTIVE). All three consent paths (_bl099_hook_consent,
+# _bl099_overwrite_consent, _bl099_doc_apply) go through it.
+#
+# Deliberately split in two: _bl099_stdin_is_tty isolates the ONE thing a test
+# cannot fake without a pty. That lets T-non-interactive-flag-honored and
+# T-doc-overwrite-default-is-N probe the REAL production functions (stubbing only
+# the tty question) without weakening the shipped guard — production still calls
+# the real `[ -t 0 ]`.
+_bl099_stdin_is_tty() { [ -t 0 ]; }
+
+_bl099_forced_noninteractive() {
+  [ -n "${CI:-}" ] || [ -n "${SOIF_NONINTERACTIVE:-}" ] || [ "${NON_INTERACTIVE:-false}" = true ]
+}
+
+_bl099_interactive() {
+  _bl099_stdin_is_tty && ! _bl099_forced_noninteractive
+}
+
+# Consent gate for a hook install/refresh: interactive → prompt (default Y);
+# non-interactive → yes ONLY with the explicit --install-hooks authorization.
+_bl099_hook_consent() {
+  if _bl099_interactive; then
+    prompt_yes_no "$1" "Y"
+    return $?
+  fi
+  [ "$INSTALL_HOOKS" = true ]
+}
+
+# Extract the [open..close] marked region (inclusive) from a file.
+_bl099_extract_region() {
+  awk -v o="$2" -v c="$3" '$0==o{inr=1} inr{print} $0==c{inr=0}' "$1"
+}
+
+# Replace the [open..close] region of <file> in place with <genfn>'s output,
+# preserving everything before the open marker and after the close marker
+# byte-exact (bash-3.2 / BSD-awk safe — no multiline awk -v).
+#
+# BL-099 review round 1 (MINOR-3): the rewrite goes through `mktemp` (mode 600)
+# and `mv`, so WITHOUT this the temp file's mode lands on the destination and a
+# hook init.sh shipped 755 silently narrows (observed: 755 → 711 after the
+# caller's `chmod +x`). Capture the destination's mode BEFORE the mv and restore
+# it after; a file that somehow has no readable mode falls back to 755, the mode
+# init.sh writes its hooks with.
+_bl099_replace_region() {
+  local file="$1" open="$2" close="$3" genfn="$4" tmp mode
+  mode="$(stat -c '%a' "$file" 2>/dev/null || stat -f '%Lp' "$file" 2>/dev/null || echo '')"
+  tmp="$(mktemp)"
+  awk -v o="$open" '$0==o{exit} {print}' "$file" > "$tmp"
+  "$genfn" >> "$tmp"
+  awk -v c="$close" 'p{print} $0==c{p=1}' "$file" >> "$tmp"
+  mv "$tmp" "$file"
+  if [ -n "$mode" ]; then
+    chmod "$mode" "$file" 2>/dev/null || true
+  else
+    chmod 755 "$file" 2>/dev/null || true
+  fi
+}
+
+# (e) SCRIPT SYNC — copy the mechanically-derived init.sh shipped set
+# framework→project; one line per CHANGED file only; source-mode mirrored.
+#
+# Review round 4 (MINOR-5): the `cp "$src" "$dst"` below used to be UNCHECKED and
+# followed by an UNCONDITIONAL `print_ok "  synced $rel"` — the exact silent-success
+# shape (# BL-099-APPLY-STATUS) the doc-apply path was hardened against. A `cp` that
+# reported success without landing the bytes (short write, ENOSPC, a shadowed cp on
+# PATH) printed [OK] for a file that was never synced. The write is now status-checked
+# through the SAME _bl099_write_ok (exit status AND a byte re-read); a failure is loud
+# ([FAIL] naming the file), sets DOC_APPLY_FAILED so the run's SUMMARY + EXIT CODE both
+# say so, and never prints [OK]. T-scriptsync-cp-failure-is-loud pins it.
+_bl099_sync_scripts() {
+  local shipped rel src dst changed=0 total=0 synced=0 rc
+  print_step "Vendored script set — sync from framework"
+  shipped="$(soif_parse_shipped_scripts "$ORCHESTRATOR_ROOT/init.sh" "$ORCHESTRATOR_ROOT/scripts")"
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    total=$((total + 1))
+    src="$ORCHESTRATOR_ROOT/$rel"
+    dst="$PROJECT_ROOT/$rel"
+    [ -f "$src" ] || continue
+    if [ -e "$dst" ] && [ "$src" -ef "$dst" ]; then continue; fi
+    if [ -f "$dst" ] && cmp -s "$src" "$dst"; then continue; fi
+    changed=$((changed + 1))
+    if [ "$DRY_RUN" = true ]; then
+      if [ -f "$dst" ]; then print_info "  [would sync] $rel (drift)"; else print_info "  [would sync] $rel (missing)"; fi
+      continue
+    fi
+    mkdir -p "$(dirname "$dst")"
+    rc=0; cp "$src" "$dst" 2>/dev/null || rc=$?
+    if ! _bl099_write_ok "$rc" "$src" "$dst"; then    # BL-099-APPLY-STATUS
+      print_fail "  FAILED to sync $rel (cp exit $rc) — the vendored copy was NOT updated; it still holds its previous bytes."
+      DOC_APPLY_FAILED=true
+      continue
+    fi
+    synced=$((synced + 1))
+    _bl099_mirror_mode "$src" "$dst" || print_warn "  (could not mirror the file mode onto $rel — contents are correct)"
+    print_ok "  synced $rel"
+  done <<EOF
+$shipped
+EOF
+  if [ "$changed" -eq 0 ]; then
+    print_ok "  all $total vendored scripts already current."
+  elif [ "$DRY_RUN" = true ]; then
+    print_info "  $changed of $total vendored scripts would be synced."
+  else
+    print_ok "  $synced of $total vendored scripts synced."
+  fi
+}
+
+# (f) commit-msg TDD gate hook — refresh the marked block or install it, ask-first.
+_bl099_sync_commitmsg_hook() {
+  local hook="$PROJECT_ROOT/.git/hooks/commit-msg" lang test_pattern want current
+  print_step "commit-msg TDD gate hook"
+  lang="$(_bl099_resolve_language)"
+  test_pattern="$(soif_lang_test_pattern "$lang")"
+  if [ -z "$test_pattern" ]; then
+    print_info "  language '${lang:-unknown}' has no distinct test-file convention (e.g. rust) — commit-msg TDD hook not applicable (matches the scaffold; no prompt, no install)."
+    return 0
+  fi
+  want="$(soif_tdd_region_body)"
+  if [ -f "$hook" ] && grep -qF "$SOIF_TDD_OPEN" "$hook"; then
+    current="$(_bl099_extract_region "$hook" "$SOIF_TDD_OPEN" "$SOIF_TDD_CLOSE")"
+    if [ "$current" = "$want" ]; then
+      print_ok "  commit-msg TDD gate already current."
+      return 0
+    fi
+    if [ "$DRY_RUN" = true ]; then
+      print_info "  [would refresh] commit-msg TDD gate managed block is stale."
+      return 0
+    fi
+    if _bl099_hook_consent "  Refresh the stale commit-msg TDD gate block? [Y/n]"; then
+      _bl099_replace_region "$hook" "$SOIF_TDD_OPEN" "$SOIF_TDD_CLOSE" soif_tdd_region_body
+      chmod +x "$hook"
+      print_ok "  commit-msg TDD gate refreshed (managed block only; rest byte-preserved)."
+    else
+      print_info "  commit-msg TDD gate left unchanged (declined)."
+    fi
+    return 0
+  fi
+  if [ "$DRY_RUN" = true ]; then
+    print_info "  [would install] commit-msg TDD gate (hook absent or unmarked)."
+    return 0
+  fi
+  if _bl099_hook_consent "  Install the commit-msg TDD gate hook? [Y/n]"; then
+    mkdir -p "$PROJECT_ROOT/.git/hooks"
+    [ -f "$hook" ] || printf '%s\n' '#!/usr/bin/env bash' > "$hook"
+    soif_emit_tdd_commitmsg_block >> "$hook"
+    chmod +x "$hook"
+    print_ok "  commit-msg TDD gate installed."
+  else
+    print_info "  commit-msg TDD gate not installed (declined)."
+  fi
+}
+
+# (f) pre-commit fallback hook — refresh only the marked managed region; a legacy
+# UNMARKED hook is treated as fully user-owned (sidecar .new, never overwritten).
+_bl099_sync_precommit_hook() {
+  local hook="$PROJECT_ROOT/.git/hooks/pre-commit" want current
+  print_step "pre-commit fallback hook"
+  want="$(soif_precommit_region_body)"
+  if [ ! -f "$hook" ]; then
+    if [ "$DRY_RUN" = true ]; then print_info "  [would install] pre-commit fallback hook (absent)."; return 0; fi
+    if _bl099_hook_consent "  Install the pre-commit fallback hook? [Y/n]"; then
+      mkdir -p "$PROJECT_ROOT/.git/hooks"
+      soif_write_precommit_hook "$hook"
+      print_ok "  pre-commit fallback hook installed."
+    else
+      print_info "  pre-commit fallback hook not installed (declined)."
+    fi
+    return 0
+  fi
+  if grep -qF "$SOIF_PRECOMMIT_OPEN" "$hook"; then
+    current="$(_bl099_extract_region "$hook" "$SOIF_PRECOMMIT_OPEN" "$SOIF_PRECOMMIT_CLOSE")"
+    if [ "$current" = "$want" ]; then
+      print_ok "  pre-commit fallback hook already current."
+      return 0
+    fi
+    if [ "$DRY_RUN" = true ]; then print_info "  [would refresh] pre-commit fallback managed region is stale."; return 0; fi
+    if _bl099_hook_consent "  Refresh the stale pre-commit fallback managed region? [Y/n]"; then
+      _bl099_replace_region "$hook" "$SOIF_PRECOMMIT_OPEN" "$SOIF_PRECOMMIT_CLOSE" soif_precommit_region_body
+      chmod +x "$hook"
+      print_ok "  pre-commit fallback managed region refreshed (user additions outside it preserved)."
+    else
+      print_info "  pre-commit fallback hook left unchanged (declined)."
+    fi
+    return 0
+  fi
+  # Legacy UNMARKED pre-commit hook — treat the whole file as user-owned. NEVER
+  # overwrite in place; offer a sidecar so the operator can diff + adopt.
+  if [ "$DRY_RUN" = true ]; then print_info "  [would write sidecar] legacy unmarked pre-commit hook — .new sidecar, never overwritten."; return 0; fi
+  soif_write_precommit_hook "$hook.new"
+  print_warn "  pre-commit hook is a legacy UNMARKED hook — left untouched. Wrote $hook.new for review (diff, then adopt manually)."
+}
+
+# ── THE RENDERED-DOC FENCE (# BL-099-DOC-GUARD) ──────────────────────────────
+# CLAUDE.md / PROJECT_INTAKE.md are sed-RENDERED from templates at scaffold time
+# (__PLACEHOLDERS__ filled in from the intake), so file-copying the TEMPLATE — or
+# anything derived from it — hands the operator a broken doc. They are therefore
+# NOTICE-ONLY under EVERY flag and env combination: no `.new`, no `.bak`, no
+# template copy, no file whose name begins with `CLAUDE.md` or `PROJECT_INTAKE.md`
+# is created by ANY BL-099 path. That is exactly what --help and the user guide
+# promise, and (review round 2, MAJOR-B) it is now what the code does: round 1
+# let `--apply-doc-updates sidecar` write a <doc>.upstream-template.new BESIDE a
+# rendered doc from inside the notice, contradicting both. The docs were right;
+# the fence moved to match them. Assisted apply — properly re-rendered — is BL-101.
+#
+# THIS PREDICATE IS THE SINGLE ENFORCEMENT POINT. It short-circuits a rendered doc
+# into the write-free notice BEFORE any apply mechanism (flags, prompts, consent)
+# can see it. Neuter its body (`return 1`) and the template is copied straight over
+# CLAUDE.md — T-rendered-doc-never-applied + T-mutation-doc-guard-body prove it.
+_bl099_doc_is_rendered() {
+  [ "$1" = true ]
+}
+
+# DOC DRIFT — one processor for the 7 verbatim reference docs AND the 2 rendered
+# docs; the rendered branch is guarded by # BL-099-DOC-GUARD.
+# Returns non-zero iff a declared apply FAILED (see _bl099_doc_apply); the driver
+# accumulates that into DOC_APPLY_FAILED.
+# _bl099_process_doc <label> <project_relpath> <framework_src_ABS_path> <rendered:true|false>
+_bl099_process_doc() {
+  local label="$1" prel="$2" src="$3" rendered="$4"
+  local pfile="$PROJECT_ROOT/$prel" added removed
+  if _bl099_doc_is_rendered "$rendered"; then _bl099_rendered_doc_notice "$label" "$prel" "$src"; return 0; fi  # BL-099-DOC-GUARD: a RENDERED doc short-circuits into the WRITE-FREE template notice here and can never reach _bl099_doc_apply under any flag — see _bl099_doc_is_rendered above.
+  [ -f "$pfile" ] || { print_info "  $label: not present in project — skipping"; return 0; }
+  [ -f "$src" ]   || { print_info "  $label: not in framework — skipping"; return 0; }
+  if cmp -s "$pfile" "$src"; then print_ok "  $label: up to date"; return 0; fi
+  print_warn "  $label: differs from framework"
+  added=$(diff "$pfile" "$src" | grep -c '^>' || true)     # lint-counter-antipattern: allow string-interpolated into a human-readable notice line only, never used in arithmetic or a test comparison (mirrors scripts/check-updates.sh)
+  removed=$(diff "$pfile" "$src" | grep -c '^<' || true)   # lint-counter-antipattern: allow string-interpolated into a human-readable notice line only, never used in arithmetic or a test comparison (mirrors scripts/check-updates.sh)
+  print_info "    (+$added upstream / -$removed removed vs your copy)"
+  diff "$pfile" "$src" 2>/dev/null | head -40 | sed 's/^/    | /' || true
+  print_info "    full: diff \"$pfile\" \"$src\""
+  if [ "$DRY_RUN" = true ]; then print_info "    [dry-run] notice only — no apply."; return 0; fi
+  _bl099_doc_apply "$label" "$pfile" "$src"
+}
+
+# CONSENT gate for the ONE destructive doc action — an in-place overwrite of a
+# reference doc the operator may have customised. Deliberately shaped exactly
+# like _bl099_hook_consent (same file, same idiom):
+#   • interactive (real tty, no CI, no SOIF_NONINTERACTIVE) → ALWAYS prompt, via
+#     the shared prompt_yes_no helper, defaulting to N. A flag never pre-answers
+#     a prompt the operator can see (mirrors --install-hooks: "interactive runs
+#     always prompt").
+#   • non-interactive → yes ONLY with the explicit, declared --confirm-doc-overwrite.
+# There is no third channel: an unattended run can never auto-yes a destructive
+# overwrite. This is the gate the review round-1 finding (MAJOR-1) required be
+# pinned — see the # BL-099-CONFIRM call site and T-mutation-confirm.
+#
+# The interactive default is "N" and that default is LOAD-BEARING (the user guide
+# promises "a [y/N] prompt that defaults to no"). The tty branch is unreachable in
+# a pty-less test, so review round 2 (MINOR-D) pins it behaviourally:
+# T-doc-overwrite-default-is-N extracts THIS function, forces the interactive
+# branch by stubbing _bl099_stdin_is_tty (never by relaxing the production guard),
+# and asserts the default handed to prompt_yes_no is exactly "N". Flip the "N"
+# below to "Y" and that test goes RED.
+_bl099_overwrite_consent() {
+  if _bl099_interactive; then
+    prompt_yes_no "$1" "N"    # destructive action → the default answer is NO.
+    return $?
+  fi
+  [ "$CONFIRM_DOC_OVERWRITE" = true ]
+}
+
+# ── WRITE-STATUS CHECK (# BL-099-APPLY-STATUS) ───────────────────────────────
+# The ONE status check every mutating write in _bl099_doc_apply goes through.
+# Review round 2 (MAJOR-A): before this, the `cp` in BOTH the sidecar and the
+# overwrite branch was UNCHECKED, and the driver invoked each doc as
+# `_bl099_process_doc … || true` — which disables errexit for the whole call chain
+# (bash exempts every command in an AND-OR list but the last, and that propagates
+# into the function body). Net: a failed write printed [OK] and the run exited 0.
+# That is this repo's canonical silent-success defect class.
+#
+# It takes the write's exit status AND re-reads the bytes, because neither alone
+# is proof: `cp` can report success after a short write, and a `cp` that failed on
+# open leaves a destination that merely LOOKS untouched.
+#   $1 = exit status of the mutating command   $2 = source   $3 = destination
+#
+# BOTH HALVES ARE LOAD-BEARING, AND BOTH ARE NOW PINNED. Review round 3 caught the
+# round-2 tests half-covering this: the two round-2 write-failure fixtures make the
+# destination unwritable via `chmod`, so `cp` EXITS NON-ZERO and the `[ "$1" -eq 0 ]`
+# half alone already catches them. Delete the `cmp -s` half and all 28 tests stayed
+# green — the belt-and-braces byte re-read, the entire point of this function, was
+# unpinned. The reachable hole it leaves is a `cp` that RETURNS 0 WITHOUT LANDING
+# THE BYTES (short write, ENOSPC, a shadowed/stubbed cp on PATH, a destination that
+# swallows writes): status-only would report [OK] and exit 0 for a doc that was
+# never written — this repo's canonical silent-success defect class, and exactly
+# what round 2 was meant to kill.
+#
+# The two mutation proofs are therefore complementary, and BOTH must stay:
+#   • neuter the whole body (→ `return 0`)   → T-mutation-apply-status (round 2)
+#   • drop ONLY the `cmp -s` half            → T-mutation-write-ok-byteread (round 3)
+# The round-3 mutant is the one the round-2 suite could not see. It is killed by
+# T-doc-overwrite-write-silently-fails-is-caught, which drives a stub `cp` that
+# exits 0 and copies nothing — the only fixture where the byte re-read is the sole
+# thing standing between the operator and a false [OK].
+_bl099_write_ok() {
+  [ "$1" -eq 0 ] && cmp -s "$2" "$3"
+}
+
+# Reference-doc apply (the 7 VERBATIM docs/reference/*.md only — rendered docs
+# never reach here, see # BL-099-DOC-GUARD).
+#   • interactive → a numbered prompt_choice of skip / sidecar / overwrite (the
+#     shared helper, NOT a raw read — see the call site), and `overwrite` still
+#     has to clear the # BL-099-CONFIRM consent gate.
+#   • non-interactive → the action comes ONLY from the declared CLI flag
+#     --apply-doc-updates <skip|sidecar|overwrite>. With no flag: notice only,
+#     nothing is applied (the approved spec's rule). There is NO env-var escape
+#     hatch (the undeclared SOLO_SYNC_DOC_APPLY was removed in review round 1).
+# `overwrite` NEVER touches the original until a dated .bak of it exists on disk
+# and verifies byte-identical; if the backup cannot be written the doc is left
+# untouched, the refusal is printed loudly, and the sync exits non-zero.
+#
+# EVERY mutating command below is status-checked through # BL-099-APPLY-STATUS
+# (_bl099_write_ok) and a failure is LOUD: it prints a [FAIL] line naming the doc
+# and the operation, leaves the original's bytes intact (the dated backup is kept
+# and, if the file on disk drifted, restored from), records DOC_APPLY_FAILED, and
+# returns non-zero so the run's SUMMARY and EXIT CODE both say so. No apply of any
+# kind may print [OK] unless the bytes are verifiably on disk.
+_bl099_doc_apply() {
+  local label="$1" pfile="$2" src="$3" action="" bak rc=0
+  if _bl099_interactive; then
+    # Review round 3 (MINOR): this used to be a raw `printf` + `read -r action`,
+    # which sidestepped the repo's prompt discipline. scripts/lint-raw-read-prompt.sh
+    # did not catch it — that lint keys on `read -p` / `read -rp` (the `-p` flag is
+    # what makes `read` block on a prompt), and a `printf`-then-bare-`read -r` is
+    # exactly the same defect wearing a different hat. The lint's SCOPE GAP is real
+    # and is filed as such in PR #185; this call site is now simply correct.
+    #
+    # The centralized helper (scripts/lib/helpers-core.sh::prompt_choice, in scope
+    # via `source lib/helpers.sh` at the top of this file) supplies what the raw
+    # read never did: an EOF guard (a scripted/heredoc caller that under-feeds the
+    # prompt gets a clean refusal instead of an infinite "Invalid choice" spin — the
+    # 2026-04-25 UAT bug), re-prompting on invalid input instead of silently
+    # coercing garbage, and a retry cap.
+    #
+    # SEMANTICS PRESERVED EXACTLY. The option strings are chosen so the `case` below
+    # is unchanged: "sidecar" hits `n|new|sidecar`, "overwrite" hits `o|overwrite`,
+    # and "skip" falls to `*)`. prompt_choice returns non-zero on EOF/abort with
+    # nothing on stdout, so the `|| action="skip"` fallback also lands on `*)` — i.e.
+    # THE DEFAULT IS SKIP, the safe no-write action. And this branch is still
+    # reachable only when _bl099_interactive says so, so a non-interactive run never
+    # prompts.
+    #
+    # `action` is pre-declared `local` above and assigned separately on purpose:
+    # `local action="$(cmd)"` would mask the command substitution's exit status
+    # behind `local`'s, so the `|| action="skip"` fallback would never fire.
+    #
+    # BL-099-PROMPT-FALLBACK: a prompt that yields no valid answer (EOF, abort, or
+    # the retry cap) MUST fall back to SKIP — never a sidecar and above all never an
+    # in-place overwrite. Change this fallback to any write action and an operator
+    # who hits Ctrl-D at the apply prompt gets an unrequested write; T-doc-prompt-
+    # default-is-skip pins it against the real function (round 4: the round-3 test
+    # was vacuous — the `overwrite` fallback was masked by the # BL-099-CONFIRM
+    # second gate, so the test now asserts the EXACT `*)` skip line, not just that
+    # no write landed).
+    action="$(prompt_choice "    Apply upstream ${label}?" skip sidecar overwrite)" || action="skip"  # BL-099-PROMPT-FALLBACK
+  else
+    action="$APPLY_DOC_UPDATES"
+    if [ -z "$action" ]; then
+      print_info "    non-interactive: notice only — not applied (declare an apply mode with --apply-doc-updates skip|sidecar|overwrite)."
+      return 0
+    fi
+  fi
+  case "$action" in
+    n|new|sidecar)
+      rc=0; cp "$src" "$pfile.new" 2>/dev/null || rc=$?
+      if ! _bl099_write_ok "$rc" "$src" "$pfile.new"; then    # BL-099-APPLY-STATUS
+        rm -f "$pfile.new" 2>/dev/null || true
+        print_fail "    FAILED to write the sidecar $pfile.new for $label (cp exit $rc) — NOTHING was applied. Your file is untouched."
+        print_info  "    fix the destination (permissions / disk space) and re-run."
+        DOC_APPLY_FAILED=true
+        return 1
+      fi
+      _bl099_mirror_mode "$src" "$pfile.new" || print_warn "    (could not mirror the file mode onto $pfile.new — contents are correct)"
+      print_ok "    wrote sidecar $pfile.new (your file untouched — review + rename to apply)." ;;
+    o|overwrite)
+      _bl099_overwrite_consent "    Overwrite $label in place (a dated .bak backup is kept)? [y/N]" || { print_info "    skipped $label — in-place overwrite NOT confirmed (interactive: answer y; non-interactive: pass --confirm-doc-overwrite). Your file is untouched."; return 0; }  # BL-099-CONFIRM: the destructive in-place overwrite is gated on an explicit second consent — interactive prompt (default N) or the declared --confirm-doc-overwrite. Deleting this line lets an UNCONFIRMED overwrite through; T-mutation-confirm proves it.
+      bak="$pfile.bak.$(date -u +%Y-%m-%d)"
+      # NEVER overwrite unbacked: write + verify the backup BEFORE touching the
+      # original. A read-only docs/ dir still permits truncating an existing
+      # file, so a failed `cp` here is exactly the case that must refuse.
+      rc=0; cp "$pfile" "$bak" 2>/dev/null || rc=$?
+      if ! _bl099_write_ok "$rc" "$pfile" "$bak"; then        # BL-099-APPLY-STATUS
+        rm -f "$bak" 2>/dev/null || true
+        print_fail "    REFUSING to overwrite $label — could not write a verified backup at $bak. Your file is untouched."
+        print_info  "    fix the destination (permissions / disk space) and re-run, or use --apply-doc-updates sidecar."
+        DOC_APPLY_FAILED=true
+        return 1
+      fi
+      # The overwrite itself is status-checked exactly the same way. On ANY failure
+      # (unwritable file, ENOSPC short write) the original is restored from the
+      # backup we just verified, the dated backup is KEPT, and we return non-zero.
+      rc=0; cp "$src" "$pfile" 2>/dev/null || rc=$?
+      if ! _bl099_write_ok "$rc" "$src" "$pfile"; then        # BL-099-APPLY-STATUS
+        cp "$bak" "$pfile" 2>/dev/null || true
+        if cmp -s "$bak" "$pfile"; then
+          print_fail "    FAILED to overwrite $label (cp exit $rc) — your original bytes are intact (verified against the backup $bak, which is kept). NOTHING upstream was applied."
+        else
+          print_fail "    FAILED to overwrite $label (cp exit $rc) and the file on disk no longer matches your original — your original bytes are SAFE in $bak. Restore it by hand: cp \"$bak\" \"$pfile\""
+        fi
+        print_info  "    fix the destination (permissions / disk space) and re-run, or use --apply-doc-updates sidecar."
+        DOC_APPLY_FAILED=true
+        return 1
+      fi
+      _bl099_mirror_mode "$src" "$pfile" || print_warn "    (could not mirror the file mode onto $label — contents are correct)"
+      print_ok "    overwrote $label (backup: $bak)." ;;
+    *)
+      print_info "    skipped $label." ;;
+  esac
+}
+
+# Rendered-doc notice — the WRITE-FREE side of # BL-099-DOC-GUARD. CLAUDE.md /
+# PROJECT_INTAKE.md are template-rendered, so this slice writes NEITHER them NOR
+# anything beside them (no .new, no .bak, no .upstream-template.new) under ANY
+# flag, prompt or env var. It only INFORMS: a template-level diff since the
+# project's pin, or an upstream-revision count when there is no pin — plus the
+# exact command to read the upstream template yourself. Assisted apply (properly
+# re-rendered from your intake) is BL-101.
+#
+# Round 1 shipped an `--apply-doc-updates sidecar` / prompt path here that wrote
+# <doc>.upstream-template.new BESIDE a rendered doc, which contradicted --help and
+# the user guide ("notice-only under EVERY flag combination"). Review round 2
+# (MAJOR-B) deleted the write, not the promise: a documented fence the code does
+# not enforce is the one defect this framework cannot ship.
+_bl099_rendered_doc_notice() {
+  local label="$1" prel="$2" src="$3" pfile="$PROJECT_ROOT/$prel" tmpl_rel pin nrev
+  tmpl_rel="${src#"$ORCHESTRATOR_ROOT"/}"
+  [ -f "$pfile" ] || { print_info "  $label: not present in project — skipping"; return 0; }
+  pin="$(jq -r '.soloFrameworkCommit // ""' "$PROJECT_ROOT/.claude/manifest.json" 2>/dev/null || echo "")"
+  [ "$pin" = "null" ] && pin=""
+  print_warn "  $label: RENDERED from a template ($tmpl_rel) — this sync NEVER writes it, and never writes anything beside it, under any flag (assisted apply is BL-101)."
+  if git -C "$ORCHESTRATOR_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+    if [ -n "$pin" ]; then
+      print_info "    template changes since your pin ($pin → HEAD):"
+      git -C "$ORCHESTRATOR_ROOT" --no-pager diff "$pin" HEAD -- "$tmpl_rel" 2>/dev/null | head -40 | sed 's/^/    | /' || true
+      print_info "    full: git -C \"$ORCHESTRATOR_ROOT\" diff $pin HEAD -- $tmpl_rel"
+    else
+      nrev="$(git -C "$ORCHESTRATOR_ROOT" rev-list --count HEAD -- "$tmpl_rel" 2>/dev/null || echo "?")"
+      print_info "    no soloFrameworkCommit pin recorded — $tmpl_rel has $nrev upstream revision(s) in framework history."
+      print_info "    read the upstream template yourself (UNRENDERED — placeholders are not filled in): git -C \"$ORCHESTRATOR_ROOT\" show HEAD:$tmpl_rel"
+    fi
+  else
+    print_info "    framework dir is not a git checkout — cannot compute template drift."
+  fi
+}
+
+# DOC DRIFT driver — the 7 verbatim reference docs + the 2 rendered docs.
+#
+# A doc whose apply FAILED (unwritable backup, or a write that did not land —
+# see _bl099_doc_apply / # BL-099-APPLY-STATUS) returns non-zero. Under `set -e`
+# that would abort the whole sync mid-flight, so each doc is run in an AND-OR
+# list — but the tail of that list is the ACCUMULATOR, never `|| true`: round 1's
+# `|| true` both suppressed errexit AND discarded the failure, which is precisely
+# how a failed write could exit 0. DOC_APPLY_FAILED is what _run_sync_framework
+# turns into a loud non-zero exit at the end. Every OTHER doc still gets processed
+# — one bad destination must not silently skip the rest.
+_bl099_doc_drift() {
+  print_step "Framework document drift"
+  local d
+  for d in builders-guide governance-framework executive-review cli-setup-addendum user-guide security-scan-guide uat-authoring-guide; do
+    _bl099_process_doc "$d.md" "docs/reference/$d.md" "$ORCHESTRATOR_ROOT/docs/$d.md" false || DOC_APPLY_FAILED=true
+  done
+  # ABSOLUTE template paths on purpose: the # BL-099-DOC-GUARD predicate is the
+  # ONLY thing keeping these two out of the apply machinery, so the fall-through
+  # must be genuinely dangerous — otherwise the guard's mutation test would be
+  # tautological (a relative src would simply "not be found in the framework").
+  _bl099_process_doc "CLAUDE.md" "CLAUDE.md" "$ORCHESTRATOR_ROOT/templates/generated/claude-md.tmpl" true || DOC_APPLY_FAILED=true
+  _bl099_process_doc "PROJECT_INTAKE.md" "PROJECT_INTAKE.md" "$ORCHESTRATOR_ROOT/templates/project-intake.md" true || DOC_APPLY_FAILED=true
+}
+
+# (4) PIN — stamp manifest.soloFrameworkCommit to the framework HEAD (with a loud
+# -dirty warn when the framework clone has uncommitted changes). camelCase, sits
+# BESIDE CDF's frameworkCommit (a SEPARATE clone) — never conflate the two.
+_bl099_stamp_pin() {
+  local mf="$PROJECT_ROOT/.claude/manifest.json" commit dirty="" tmp
+  [ -f "$mf" ] || { print_warn "  no .claude/manifest.json — cannot stamp soloFrameworkCommit"; return 0; }
+  if ! git -C "$ORCHESTRATOR_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+    print_info "  framework dir is not a git checkout — skipping soloFrameworkCommit pin"; return 0
+  fi
+  commit="$(git -C "$ORCHESTRATOR_ROOT" rev-parse HEAD 2>/dev/null || echo "")"
+  [ -n "$commit" ] || { print_warn "  could not resolve framework HEAD — skipping pin"; return 0; }
+  if ! git -C "$ORCHESTRATOR_ROOT" diff --quiet 2>/dev/null || ! git -C "$ORCHESTRATOR_ROOT" diff --cached --quiet 2>/dev/null; then
+    dirty="-dirty"
+    print_warn "  ⚠ framework clone has uncommitted changes — pinning ${commit}${dirty} (NOT a clean upstream commit; re-sync from a clean clone to pin an exact commit)."
+  fi
+  tmp="$(mktemp)"
+  jq --arg c "${commit}${dirty}" '.soloFrameworkCommit = $c' "$mf" > "$tmp" && mv "$tmp" "$mf"
+  rm -f "$tmp" 2>/dev/null || true
+  print_ok "  pinned .claude/manifest.json.soloFrameworkCommit = ${commit}${dirty}"
+}
+
+# Orchestrator for the whole sync flow (steps b–f + docs + pin).
+_run_sync_framework() {
+  # (b) refuse to operate inside the framework repo (cwd = project root).
+  guard_not_in_framework || exit 1
+
+  if [ -z "$PROJECT_ROOT" ]; then
+    print_fail "No Solo Orchestrator project found."
+    print_info "cd into your project (where .claude/phase-state.json lives), then run the FRAMEWORK clone's copy of this script with --sync-framework."
+    exit 1
+  fi
+  if ! command -v jq &>/dev/null; then
+    print_fail "jq is required but not installed."; exit 1
+  fi
+
+  # (c) SOURCE-CHECK — the running script MUST be the framework copy, not the
+  # project's own vendored scripts/ (else the sync would cp files onto
+  # themselves). Refuse before ANY mutation.
+  if [ "$SCRIPT_DIR" -ef "$PROJECT_ROOT/scripts" ]; then
+    print_fail "--sync-framework must run from the FRAMEWORK checkout, not the project's own scripts/ copy."
+    print_info "You ran the project's vendored copy ($PROJECT_ROOT/scripts/upgrade-project.sh) — syncing it onto itself is a no-op/error."
+    print_info "From inside your project, run the framework clone's copy instead:"
+    print_info "  cd \"$PROJECT_ROOT\" && bash /path/to/solo-orchestrator/scripts/upgrade-project.sh --sync-framework"
+    exit 1
+  fi
+  if [ "$PROJECT_ROOT" -ef "$ORCHESTRATOR_ROOT" ]; then
+    print_fail "--sync-framework target resolves to the framework repo itself — nothing to sync."
+    exit 1
+  fi
+
+  # Shared libs are safe to source now (framework side, source-check passed).
+  # shellcheck source=/dev/null
+  . "$SCRIPT_DIR/lib/scaffold-shipped-set.sh"
+  # shellcheck source=/dev/null
+  . "$SCRIPT_DIR/lib/hook-templates.sh"
+
+  local mode_label="apply"
+  [ "$DRY_RUN" = true ] && mode_label="dry-run — nothing will be written"
+  echo ""
+  print_step "Framework sync ($mode_label) — same-tier refresh from $ORCHESTRATOR_ROOT"
+  echo ""
+
+  # (d) shared idempotent backfill (post-guard). Dry-run suppresses all writes.
+  if [ "$DRY_RUN" = true ]; then
+    print_info "[dry-run] would run idempotent manifest/host backfills + install filesystem gates (no writes)."
+    print_info "[dry-run] would refresh CDF framework assets (BL-001)."
+  else
+    _run_idempotent_backfill
+    _refresh_cdf_assets_solo
+  fi
+
+  # (e) script sync + (f) hooks + doc drift + pin.
+  _bl099_sync_scripts        # BL-099-SYNC
+  _bl099_sync_commitmsg_hook
+  _bl099_sync_precommit_hook
+  _bl099_doc_drift
+  if [ "$DRY_RUN" = true ]; then
+    print_info "[dry-run] would stamp .claude/manifest.json.soloFrameworkCommit to the framework HEAD."
+  else
+    print_step "Framework pin"
+    _bl099_stamp_pin
+  fi
+
+  echo ""
+  # BL-099 review round 1 + round 2 (MAJOR-A): a doc whose apply did not land —
+  # because it could not be backed up, or because the write itself failed — is
+  # NEVER silenced. The run ends non-zero even though everything else succeeded,
+  # and the summary says which way it failed. An operator must never be told a doc
+  # was updated when it was not.
+  if [ "$DOC_APPLY_FAILED" = true ]; then
+    print_fail "Framework sync finished, but one or more reference docs could NOT be applied — the backup or the write itself failed (see the REFUSING / FAILED lines above). Those files still hold their original bytes; nothing upstream was applied to them."
+    exit 1
+  fi
+  if [ "$DRY_RUN" = true ]; then
+    print_ok "Framework sync dry-run complete — nothing was written. Re-run without --dry-run to apply."
+  else
+    print_ok "Framework sync complete. Review with 'git status' / 'git diff', then commit the refreshed files yourself."
+  fi
+  exit 0
+}
+
+# BL-099: dedicated same-tier sync dispatch — after the sentinel guard (fired
+# above for the non-backfill path), before the --backfill-only short-circuit and
+# all tier-change logic.
+if [ "$SYNC_FRAMEWORK" = true ]; then
+  _run_sync_framework
+fi
 
 # --backfill-only short-circuits here — no track / deployment / POC
 # transition follows.
@@ -559,8 +1307,39 @@ if [ "$SHOW_HELP" = true ]; then
   echo -e "${BOLD}Mode flags (BL-018):${NC}"
   echo "  --non-interactive       Force non-interactive mode (skips Y/N confirmations even on a tty)."
   echo "                          Auto-detected when stdin is not a tty; this flag overrides for clarity."
+  echo "                          It also forces --sync-framework's consent paths to the declared-flag"
+  echo "                          channel (hooks need --install-hooks; docs need --apply-doc-updates)."
   echo "  --validate-only         Parse + validate flags, print resolved JSON to stdout, exit 0."
   echo "                          No filesystem reads of project state; no mutation."
+  echo ""
+  echo -e "${BOLD}Same-tier framework sync (BL-099):${NC}"
+  echo "  --sync-framework        Refresh vendored gate scripts, helper libs, hooks, and framework"
+  echo "                          docs from the FRAMEWORK checkout being run — NO track/deployment"
+  echo "                          change. Run it from inside your project via the framework clone's"
+  echo "                          copy: cd <project> && bash <framework>/scripts/upgrade-project.sh --sync-framework"
+  echo "  --dry-run               (with --sync-framework) Preview every action and write NOTHING."
+  echo "  --install-hooks         (with --sync-framework) Authorize hook install/refresh in"
+  echo "                          non-interactive contexts (interactive runs always prompt)."
+  echo "  --apply-doc-updates <skip|sidecar|overwrite>"
+  echo "                          (with --sync-framework) DECLARE what a non-interactive run does"
+  echo "                          with a drifted framework reference doc (docs/reference/*.md)."
+  echo "                          Omit it and a non-interactive sync applies NOTHING — it only"
+  echo "                          prints the drift notice. Interactive runs always ask instead."
+  echo "                            skip      — notice only (explicit form of the default)"
+  echo "                            sidecar   — write <doc>.new beside it; your file untouched"
+  echo "                            overwrite — replace in place; REQUIRES --confirm-doc-overwrite,"
+  echo "                                        and always keeps a dated <doc>.bak.<YYYY-MM-DD>"
+  echo "                                        (it refuses to overwrite if that backup can't be"
+  echo "                                        written, leaving your file untouched, exit != 0)."
+  echo "                          Any apply whose write does NOT land (unwritable file/dir, no space)"
+  echo "                          is reported as a [FAIL] naming the doc, leaves your original bytes"
+  echo "                          intact, and makes the whole sync exit non-zero — never a silent [OK]."
+  echo "  --confirm-doc-overwrite (with --sync-framework --apply-doc-updates overwrite) The second,"
+  echo "                          destructive-step consent. Without it a non-interactive overwrite"
+  echo "                          is refused. Interactive runs prompt regardless (default: No)."
+  echo "                          Rendered docs (CLAUDE.md/PROJECT_INTAKE.md) are notice-only under"
+  echo "                          EVERY flag combination — this mode never rewrites them, and never"
+  echo "                          writes anything beside them (no .new, no .bak, no template copy)."
   echo ""
   echo -e "${BOLD}--to-production pre-condition gate (code-upgrade-project-8):${NC}"
   echo "  --to-production refuses to clear poc_mode for organizational projects"

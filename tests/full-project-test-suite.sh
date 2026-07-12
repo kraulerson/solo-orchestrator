@@ -787,6 +787,32 @@ if bash "$SCRIPT_DIR/tests/test-upgrade-sentinel-block.sh" >/dev/null 2>&1; then
 else
   fail "tests/test-upgrade-sentinel-block.sh FAILED (run for details)"
 fi
+# BL-099 SLICE-A: --sync-framework same-tier refresh (script sync, ask-first
+# hooks, doc drift, soloFrameworkCommit pin, dry-run purity) + both mutation
+# proofs (# BL-099-SYNC dispatch, # BL-099-DOC-GUARD rendered-doc exclusion).
+if bash "$SCRIPT_DIR/tests/test-upgrade-sync-framework.sh" >/dev/null 2>&1; then
+  pass "tests/test-upgrade-sync-framework.sh"
+else
+  fail "tests/test-upgrade-sync-framework.sh FAILED (run for details)"
+fi
+# BL-099 review round 4: SYSTEMATIC guard-coverage harness. Neuters every
+# load-bearing --sync-framework guard on a throwaway copy and proves the BL-099
+# suite goes RED (then GREEN restored) for each — the self-enforcing registry that
+# stops the four-round whack-a-mole. HEAVY (neuter + re-run the suite per registry
+# row → ~1 min, not seconds), so it is gated exactly like the other heavy
+# aggregators: SKIPPED in the SUITE_SKIP_AGGREGATORS="core" CI shard to keep the
+# unit fast lane fast, and NOT added to the tests.yml unit list. It still runs in a
+# standalone `bash tests/full-project-test-suite.sh` and in the full-suite lane, and
+# lint-tests-registered.sh counts this reference as its aggregator registration.
+if [ "${SUITE_SKIP_AGGREGATORS:-0}" = "1" ]; then
+  section "BL-099 guard-coverage harness — SKIPPED (SUITE_SKIP_AGGREGATORS=1; heavy, runs standalone / full-suite)"
+else
+if bash "$SCRIPT_DIR/tests/test-bl099-guard-coverage.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl099-guard-coverage.sh"
+else
+  fail "tests/test-bl099-guard-coverage.sh FAILED (run for details)"
+fi
+fi
 # BL-061: manifest.json::deployment stayed stale after upgrade-project.sh
 # runs, encouraging two-source drift where a downstream reader could gate
 # the wrong tier. Regression suite covers happy-path parity, atomic
