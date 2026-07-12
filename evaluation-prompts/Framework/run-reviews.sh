@@ -23,6 +23,12 @@
 #     legal-review-v1.md
 #     technical-user-review-v1.md
 #     (red team outputs inline deliverable)
+#
+# PORTABILITY (BL-103)
+#   bash-3.2 safe. This script previously used `declare -A` + `[[ -v x ]]`
+#   (bash >= 4.2) and was a SYNTAX ERROR on macOS /bin/bash 3.2.57, the repo's
+#   reference platform. The review table is now `case` dispatch. Lint-enforced by
+#   scripts/lint-evalprompts-portability.sh.
 # ==============================================================================
 
 set -euo pipefail
@@ -44,18 +50,23 @@ if [ ! -d "$FRAMEWORK_DIR" ]; then
     exit 1
 fi
 
-# Review definitions: number, prompt file, description
-declare -A REVIEWS
-REVIEWS[1]="01-senior-engineer-review.md|Senior Software Engineer"
-REVIEWS[2]="02-cio-review.md|CIO Strategic"
-REVIEWS[3]="03-security-review.md|SVP IT Security"
-REVIEWS[4]="04-legal-review.md|Corporate Legal"
-REVIEWS[5]="05-technical-user-review.md|Technical User (Non-Coder)"
-REVIEWS[6]="06-red-team-evaluation.md|Red Team / AppSec"
+# Review definitions: number → <prompt file>|<description>. rc=1 if unknown.
+review_entry() {
+    case "$1" in
+        1) echo "01-senior-engineer-review.md|Senior Software Engineer" ;;
+        2) echo "02-cio-review.md|CIO Strategic" ;;
+        3) echo "03-security-review.md|SVP IT Security" ;;
+        4) echo "04-legal-review.md|Corporate Legal" ;;
+        5) echo "05-technical-user-review.md|Technical User (Non-Coder)" ;;
+        6) echo "06-red-team-evaluation.md|Red Team / AppSec" ;;
+        *) return 1 ;;
+    esac
+}
 
 run_review() {
     local num=$1
-    local entry="${REVIEWS[$num]}"
+    local entry
+    entry=$(review_entry "$num") || return 1
     local prompt_file="${entry%%|*}"
     local description="${entry##*|}"
     local prompt_path="${PROMPT_DIR}/${prompt_file}"
@@ -99,7 +110,7 @@ echo "╚═══════════════════════�
 echo ""
 
 for num in "${TARGETS[@]}"; do
-    if [[ -v "REVIEWS[$num]" ]]; then
+    if review_entry "$num" >/dev/null 2>&1; then
         run_review "$num"
     else
         echo "WARNING: Review $num does not exist. Valid: 1-6"

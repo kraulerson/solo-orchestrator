@@ -21,13 +21,23 @@
 #   REVIEW_DIR   — path to reviews/ directory (default: ./reviews or auto-detect)
 #
 # OUTPUT:
-#   Review files written to the project root directory:
+#   Review files written to the project root directory. The FILENAME OF RECORD
+#   for each review is declared by its base prompt (bases/*.md) and resolved here
+#   via `compose.sh --artifact <reviewer>` — this script keeps NO filename table
+#   of its own. See compose.sh's header (BL-103) for why.
 #     senior-engineer-review-v1.md
 #     cio-review-v1.md
 #     security-review-v1.md
 #     legal-review-v1.md
 #     technical-user-review-v1.md
 #     red-team-review-v1.md
+#
+# PORTABILITY (BL-103)
+#   bash-3.2 safe. This script previously used `declare -A` and `[[ -v x ]]`
+#   (bash >= 4.2) and was therefore a SYNTAX ERROR on macOS /bin/bash 3.2.57 —
+#   the repo's reference platform, and the shell an operator runs it in when the
+#   Phase 3→4 gate hands them this path as the remediation. Reviewer tables are
+#   now `case` dispatch. Lint-enforced by scripts/lint-evalprompts-portability.sh.
 # ==============================================================================
 
 set -euo pipefail
@@ -100,14 +110,24 @@ if [ ! -f "${REVIEW_DIR}/modules/${MODULE}.md" ]; then
     exit 1
 fi
 
-# Reviewer definitions
-declare -A REVIEWERS
-REVIEWERS[1]="engineer|Senior Software Engineer"
-REVIEWERS[2]="cio|CIO Strategic"
-REVIEWERS[3]="security|SVP IT Security"
-REVIEWERS[4]="legal|Corporate Legal"
-REVIEWERS[5]="techuser|Technical User (Non-Coder)"
-REVIEWERS[6]="redteam|Red Team / Offensive Security"
+# Reviewer definitions — <slug>|<persona description>.
+# The persona description is what lands in the manifest's `reviewer` field;
+# check-phase-gate.sh's role mapping matches on it ("Red Team / Offensive
+# Security" → redteam, "SVP IT Security" → security), so do not reword these
+# without re-checking that mapping.
+# NOTE: no output FILENAME appears here by design — that is derived from the base
+# prompt (compose.sh --artifact). See compose.sh's header (BL-103).
+reviewer_entry() {
+    case "$1" in
+        1) echo "engineer|Senior Software Engineer" ;;
+        2) echo "cio|CIO Strategic" ;;
+        3) echo "security|SVP IT Security" ;;
+        4) echo "legal|Corporate Legal" ;;
+        5) echo "techuser|Technical User (Non-Coder)" ;;
+        6) echo "redteam|Red Team / Offensive Security" ;;
+        *) return 1 ;;
+    esac
+}
 
 # Determine which reviews to run
 if [ $# -eq 0 ]; then
@@ -139,12 +159,11 @@ REVIEW_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 REVIEW_DATE="${REVIEW_TIMESTAMP%%T*}"
 
 for num in "${TARGETS[@]}"; do
-    if [[ ! -v "REVIEWERS[$num]" ]]; then
+    if ! entry=$(reviewer_entry "$num"); then
         echo "WARNING: Review $num does not exist. Valid: 1-6"
         continue
     fi
 
-    entry="${REVIEWERS[$num]}"
     reviewer="${entry%%|*}"
     description="${entry##*|}"
     prompt_file="${TEMP_DIR}/${reviewer}-prompt.md"
@@ -195,16 +214,28 @@ echo "Generating review manifest..."
 # Build manifest entries
 MANIFEST_ENTRIES=""
 for num in "${TARGETS[@]}"; do
-    if [[ ! -v "REVIEWERS[$num]" ]]; then
+    if ! entry=$(reviewer_entry "$num"); then
         continue
     fi
 
-    entry="${REVIEWERS[$num]}"
     reviewer="${entry%%|*}"
     description="${entry##*|}"
 
-    # Find the review output file
-    REVIEW_FILE="$PROJECT_DIR/${reviewer}-review-v1.md"
+    # BL-103: DERIVE the expected filename from the base prompt's own
+    # declaration rather than assuming "<slug>-review-v1.md". The slug and the
+    # filename are NOT the same string for three of the six reviewers
+    # (engineer→senior-engineer, techuser→technical-user, redteam→red-team), and
+    # the old assumption silently dropped those entries from the manifest — so a
+    # completed Red Team review (a MANDATORY BLOCKING reviewer at the Phase 3→4
+    # gate) read as "missing" and FAILed the gate.
+    ARTIFACT=$(REVIEW_DIR="$REVIEW_DIR" "${REVIEW_DIR}/compose.sh" --artifact "$reviewer") || {
+        echo "ERROR: cannot resolve the output filename for reviewer '${reviewer}' from its base prompt." >&2
+        echo "       The base prompt must declare exactly one \`<name>-review-v1.md\`." >&2
+        exit 1
+    }
+
+    # Find the review output file (at the name the prompt itself asked for).
+    REVIEW_FILE="$PROJECT_DIR/${ARTIFACT}"
     if [ -f "$REVIEW_FILE" ]; then
         FILE_SHA=$(shasum -a 256 "$REVIEW_FILE" | cut -d' ' -f1)
         # BL-073 contract: reviewer/status/artifact/signed_by/date are the
@@ -212,11 +243,28 @@ for num in "${TARGETS[@]}"; do
         # only written when the review file exists, so status is "complete".
         # The provenance fields (file/sha256/commit/timestamp) are retained
         # as allowed extras for traceability.
-        MANIFEST_ENTRIES="${MANIFEST_ENTRIES}    {\"reviewer\": \"${description}\", \"status\": \"complete\", \"artifact\": \"${reviewer}-review-v1.md\", \"signed_by\": \"AI review (${description})\", \"date\": \"${REVIEW_DATE}\", \"file\": \"${reviewer}-review-v1.md\", \"sha256\": \"${FILE_SHA}\", \"commit\": \"${COMMIT_HASH}\", \"timestamp\": \"${REVIEW_TIMESTAMP}\"},"$'\n'
+        MANIFEST_ENTRIES="${MANIFEST_ENTRIES}    {\"reviewer\": \"${description}\", \"status\": \"complete\", \"artifact\": \"${ARTIFACT}\", \"signed_by\": \"AI review (${description})\", \"date\": \"${REVIEW_DATE}\", \"file\": \"${ARTIFACT}\", \"sha256\": \"${FILE_SHA}\", \"commit\": \"${COMMIT_HASH}\", \"timestamp\": \"${REVIEW_TIMESTAMP}\"},"$'\n'
+    else
+        # Loud, not silent: a requested review with no output file on disk is a
+        # gap the operator must see. The pre-BL-103 script emitted nothing here,
+        # which is exactly how the red-team drop went unnoticed.
+        echo "  WARNING: review $num (${description}) produced no ${ARTIFACT} — not recorded in the manifest."
     fi
 done
 
-# Write manifest (remove trailing comma)
+# Strip the trailing "," from the last entry.
+#
+# BL-103: the previous expression — $(echo "$MANIFEST_ENTRIES" | sed '$ s/,$//')
+# — DID NOT WORK. MANIFEST_ENTRIES is already newline-terminated, so `echo` added
+# a SECOND newline; sed's `$` address then landed on the trailing EMPTY line and
+# the real last entry kept its comma. Every manifest this generator has ever
+# written was therefore invalid JSON — `jq empty` rejects it, so
+# scripts/lint-review-manifest.sh FAILs it and check-phase-gate.sh's `jq
+# '.reviews | length'` yields nothing. Nobody saw it because the script could not
+# even parse on the reference platform (bash 3.2), so it never got this far.
+# Trim the delimiter off the variable instead of round-tripping through echo.
+MANIFEST_ENTRIES="${MANIFEST_ENTRIES%,$'\n'}"
+
 cat > "$MANIFEST_FILE" << MANEOF
 {
   "framework_version": "1.0",
@@ -225,10 +273,21 @@ cat > "$MANIFEST_FILE" << MANEOF
   "generated_at": "$REVIEW_TIMESTAMP",
   "commit": "$COMMIT_HASH",
   "reviews": [
-$(echo "$MANIFEST_ENTRIES" | sed '$ s/,$//')
+$MANIFEST_ENTRIES
   ]
 }
 MANEOF
+
+# Self-check: a malformed manifest silently defeats the Phase 3→4 review gate
+# (jq yields nothing → the gate reads "no reviews"). Refuse to hand the operator
+# a file that will not parse — fail loudly here instead.
+if command -v jq >/dev/null 2>&1; then
+    if ! jq empty "$MANIFEST_FILE" >/dev/null 2>&1; then
+        echo "ERROR: generated manifest is not valid JSON: $MANIFEST_FILE" >&2
+        echo "       The Phase 3→4 review gate cannot read it. This is a generator bug — please report." >&2
+        exit 1
+    fi
+fi
 
 echo ""
 echo "All requested reviews complete."
