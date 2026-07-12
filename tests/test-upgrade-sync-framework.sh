@@ -29,7 +29,13 @@
 set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# REPO_ROOT is normally this checkout. The guard-coverage harness
+# (tests/test-bl099-guard-coverage.sh) overrides it to a MUTANT framework tree via
+# BL099_REPO_OVERRIDE so it can run THIS suite against a neutered upgrade-project.sh
+# — run_sync / make_fake_framework both derive the framework side from REPO_ROOT, so
+# one override re-points the whole suite at the mutant. Unset by default: CI and a
+# bare `bash tests/…` run against the real checkout, unchanged.
+REPO_ROOT="${BL099_REPO_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 SCRIPT="$REPO_ROOT/scripts/upgrade-project.sh"
 
 PASSED=0
@@ -150,6 +156,71 @@ _run_sync_stubcp() {
   local proj="$1" script="$2" bindir="$3"; shift 3
   ( cd "$proj" && unset GITHUB_BASE_REF; PATH="$bindir:$PATH" CDF_HOME="$proj/.no-such-cdf" SOIF_NONINTERACTIVE=1 \
       "$script" --sync-framework "$@" </dev/null 2>&1 )
+}
+
+# ── CORRUPT-THEN-FAIL `cp` STUB (round 4, MINOR-3 — the REPAIR path) ─────────
+# The silent-cp stub above lands NOTHING, so the operator's file stays byte-intact
+# and the auto-restore in _bl099_doc_apply's overwrite branch is a no-op — it never
+# exercises the `cp "$bak" "$pfile"` REPAIR. This stub instead lets the in-place
+# overwrite PARTIALLY LAND garbage and THEN report failure (the ENOSPC / short-write
+# shape that corrupts before it fails), so the file on disk no longer matches the
+# original. Only the restore-from-backup can put it right.
+#
+# Keyed on the destination glob AND the source: the overwrite (src = framework doc)
+# corrupts+fails; the restore (src = *.bak.*, same destination) is let through to the
+# REAL cp so the repair can actually happen. The backup cp itself (a DIFFERENT
+# destination, <doc>.bak.<date>) never matches the victim glob and lands normally.
+# _mk_corrupt_fail_cp <bindir> <victim-dest-glob>
+_mk_corrupt_fail_cp() {
+  local bindir="$1" glob="$2" real_cp
+  real_cp="$(command -v cp)"
+  mkdir -p "$bindir"
+  {
+    printf '%s\n'  '#!/usr/bin/env bash'
+    printf '%s\n'  '# TEST STUB (BL-099 round 4): for ONE destination, a `cp` whose overwrite'
+    printf '%s\n'  '# PARTIALLY writes garbage then EXITS 1 (corrupt-then-fail). The restore cp'
+    printf '%s\n'  '# (source is the .bak) and every other destination use the real cp.'
+    printf 'REAL_CP=%q\n'     "$real_cp"
+    printf 'VICTIM_GLOB=%q\n' "$glob"
+    printf 'HITS=%q\n'        "$bindir/.hits"
+    printf '%s\n'  'src="$1"; dst=""; for a in "$@"; do dst="$a"; done   # first=source, last=destination'
+    printf '%s\n'  'case "$dst" in'
+    printf '%s\n'  '  $VICTIM_GLOB)'
+    printf '%s\n'  '    case "$src" in'
+    printf '%s\n'  '      *.bak.*) : ;;   # restore-from-backup — let the REAL cp repair the file'
+    printf '%s\n'  '      *) printf "CORRUPT-PARTIAL-WRITE\n" > "$dst"; printf "%s\n" "$dst" >> "$HITS"; exit 1 ;;'
+    printf '%s\n'  '    esac ;;'
+    printf '%s\n'  'esac'
+    printf '%s\n'  'exec "$REAL_CP" "$@"'
+  } > "$bindir/cp"
+  chmod +x "$bindir/cp"
+}
+
+# ── LANDS-BYTES-BUT-REPORTS-FAILURE `cp` STUB (round 4, MINOR-4 — status half) ─
+# _bl099_write_ok is `[ "$1" -eq 0 ] && cmp -s "$2" "$3"`. Round 3 pinned the
+# `cmp -s` half (a cp that exits 0 and writes nothing). This stub pins the OTHER
+# half: for one destination it does a REAL cp (correct bytes DO land, so `cmp -s`
+# passes) and THEN exits 1. Only the `[ "$1" -eq 0 ]` status check can see that the
+# write reported failure — drop it and the lying-failure is reported as [OK].
+# _mk_liar_fail_cp <bindir> <victim-dest-glob>
+_mk_liar_fail_cp() {
+  local bindir="$1" glob="$2" real_cp
+  real_cp="$(command -v cp)"
+  mkdir -p "$bindir"
+  {
+    printf '%s\n'  '#!/usr/bin/env bash'
+    printf '%s\n'  '# TEST STUB (BL-099 round 4): for ONE destination, a `cp` that copies the'
+    printf '%s\n'  '# bytes correctly (real cp) and THEN exits 1 — success bytes, failure status.'
+    printf 'REAL_CP=%q\n'     "$real_cp"
+    printf 'VICTIM_GLOB=%q\n' "$glob"
+    printf 'HITS=%q\n'        "$bindir/.hits"
+    printf '%s\n'  'dst=""; for a in "$@"; do dst="$a"; done'
+    printf '%s\n'  'case "$dst" in'
+    printf '%s\n'  '  $VICTIM_GLOB) "$REAL_CP" "$@"; printf "%s\n" "$dst" >> "$HITS"; exit 1 ;;   # bytes land, status lies'
+    printf '%s\n'  'esac'
+    printf '%s\n'  'exec "$REAL_CP" "$@"'
+  } > "$bindir/cp"
+  chmod +x "$bindir/cp"
 }
 
 # Every CLAUDE.md* / PROJECT_INTAKE.md* entry in the project root, one per line.
@@ -1298,22 +1369,40 @@ t_non_interactive_flag_honored() {
   fi
 }
 
-# ── T-doc-prompt-default-is-skip (round 3, MINOR) ───────────────────────────
+# ── T-doc-prompt-default-is-skip (round 3 MINOR; round 4 de-vacuumed) ────────
 # prompt_choice returns non-zero with nothing on stdout when the operator gives no
 # valid answer (EOF, or the retry cap). The raw `read` it replaced had the same
-# safe fallback via `|| action=""`, and that MUST survive the migration: an operator
-# who hits Ctrl-D at the apply prompt must get SKIP — never a sidecar, and above all
-# never an in-place overwrite. The probe's prompt_choice stub returns 1 for exactly
-# this reason, so this pins the fallback against the real production function.
+# safe fallback via `|| action="skip"` (# BL-099-PROMPT-FALLBACK), and that MUST
+# survive: an operator who hits Ctrl-D at the apply prompt must get SKIP — never a
+# sidecar, and above all never an in-place overwrite. The probe's prompt_choice stub
+# returns 1 for exactly this reason, so this pins the fallback against the real fn.
+#
+# ROUND-4 FIX — the round-3 assertion was VACUOUS. It grepped the SUBSTRING
+# 'skipped user-guide.md', which ALSO appears in the overwrite branch's
+# consent-denial line ("skipped user-guide.md — in-place overwrite NOT confirmed").
+# So flipping the fallback to `overwrite` still "passed": the fallback routed into
+# the overwrite arm, but the # BL-099-CONFIRM SECOND gate (prompt_yes_no → deny in
+# the probe) then refused the write and printed a message that STILL contained the
+# substring. The test was really pinning the confirm gate, not the fallback.
+#
+# The `*)` skip arm prints EXACTLY `    skipped <label>.` (trailing period, nothing
+# after). The overwrite-consent-denial prints `    skipped <label> — …NOT confirmed…`.
+# We now assert the EXACT default-skip line (anchored `\.$`) AND the absence of the
+# confirm-gate line, so a fallback of `overwrite` (routes through confirm) OR
+# `sidecar` (routes through the sidecar write) both go RED. Nothing else changed.
 t_doc_prompt_default_is_skip() {
   local out; out=$(_consent_probe false)
-  local skipped=n wrote=n
-  echo "$out" | grep -qF 'skipped user-guide.md' && skipped=y
+  local skipped_exact=n via_confirm=n wrote=n
+  # The pure `*)` default-skip line: "    skipped user-guide.md." — trailing period,
+  # end of line. The probe's print_info echoes "INFO <arg>", so anchor on md.$.
+  echo "$out" | grep -qE 'skipped user-guide\.md\.$' && skipped_exact=y
+  # The overwrite arm's consent-denial (proves the fallback wrongly chose overwrite).
+  echo "$out" | grep -qF 'in-place overwrite NOT confirmed' && via_confirm=y
   echo "$out" | grep -qE 'wrote sidecar|overwrote' && wrote=y
-  if [ "$skipped" = y ] && [ "$wrote" = n ]; then
-    pass "T-doc-prompt-default-is-skip: when the interactive apply prompt yields no valid answer (EOF / abort), the action defaults to SKIP — no sidecar, no overwrite, no write of any kind"
+  if [ "$skipped_exact" = y ] && [ "$via_confirm" = n ] && [ "$wrote" = n ]; then
+    pass "T-doc-prompt-default-is-skip: a no-answer apply prompt falls to the EXACT '*) skipped <label>.' arm (not the overwrite consent-denial that shares the 'skipped <label>' prefix) — the # BL-099-PROMPT-FALLBACK default is skip, never a write"
   else
-    fail_ "T-doc-prompt-default-is-skip" "skipped=$skipped (expect y — the no-answer fallback must be skip) wrote=$wrote (expect n — nothing may be applied without an explicit choice). Probe output:\n$out"
+    fail_ "T-doc-prompt-default-is-skip" "skipped_exact=$skipped_exact (expect y — the no-answer fallback must hit the pure '*)' skip arm, line ending 'user-guide.md.') via_confirm=$via_confirm (expect n — a fallback of 'overwrite' would route through the # BL-099-CONFIRM gate and print 'NOT confirmed') wrote=$wrote (expect n). Probe output:\n$out"
   fi
 }
 
@@ -1331,11 +1420,229 @@ t_doc_overwrite_default_is_n() {
   fi
 }
 
+# ── DRY-RUN MATRIX FIXTURES (round 4, BLOCK-1) ──────────────────────────────
+# Marker strings copied verbatim from scripts/lib/hook-templates.sh (the suite does
+# not source it; T-hook-mode-preserved hardcodes the same TDD marker). Keeping a
+# managed hook's markers here lets the "stalehooks" state land in the REFRESH branch.
+_MATRIX_TDD_OPEN='# >>> SOIF BL-072 TDD gate (commit-msg) — managed by init.sh'
+_MATRIX_TDD_CLOSE='# <<< SOIF BL-072 TDD gate'
+_MATRIX_PRECOMMIT_OPEN='# >>> SOIF pre-commit fallback'
+_MATRIX_PRECOMMIT_CLOSE='# <<< SOIF pre-commit fallback'
+
+# Build one of three dry-run matrix fixture STATES into <dir>. Each makes a DIFFERENT
+# set of write paths "hot" (a real, non-dry sync WOULD write there), so neutering any
+# single dry-run guard makes an escaped write show up in the surface fingerprint:
+#   greenfield — old-vintage manifest (backfill), NO hooks (hook INSTALL), a stale
+#                vendored script (script sync), a drifted ref doc (doc apply), no
+#                soloFrameworkCommit pin (pin stamp).
+#   stalehooks — current manifest, STALE MARKED commit-msg + pre-commit hooks (hook
+#                REFRESH), a drifted ref doc.
+#   legacyhook — current manifest, a LEGACY UNMARKED pre-commit hook (legacy .new
+#                sidecar), a drifted ref doc.
+_matrix_fixture() {
+  local dir="$1" state="$2"
+  mk_project "$dir" python
+  printf '%s\n' 'stale downstream user guide' > "$dir/docs/reference/user-guide.md"
+  case "$state" in
+    greenfield)
+      printf '%s\n' '{"frameworkVersion":"1.0.0","host":"github","mode":"personal"}' > "$dir/.claude/manifest.json"
+      rm -rf "$dir/.git/hooks"; mkdir -p "$dir/.git/hooks"
+      printf '#!/usr/bin/env bash\necho OLD-STALE\n' > "$dir/scripts/check-phase-gate.sh"
+      ;;
+    stalehooks)
+      mkdir -p "$dir/.git/hooks"
+      { printf '%s\n' '#!/usr/bin/env bash'; printf '%s\n' "$_MATRIX_TDD_OPEN"
+        printf '%s\n' '# STALE MANAGED BODY (must be refreshed)'; printf '%s\n' "$_MATRIX_TDD_CLOSE"
+      } > "$dir/.git/hooks/commit-msg"; chmod 755 "$dir/.git/hooks/commit-msg"
+      { printf '%s\n' '#!/usr/bin/env bash'; printf '%s\n' "$_MATRIX_PRECOMMIT_OPEN"
+        printf '%s\n' '# STALE MANAGED BODY (must be refreshed)'; printf '%s\n' "$_MATRIX_PRECOMMIT_CLOSE"
+      } > "$dir/.git/hooks/pre-commit"; chmod 755 "$dir/.git/hooks/pre-commit"
+      ;;
+    legacyhook)
+      mkdir -p "$dir/.git/hooks"
+      printf '#!/usr/bin/env bash\necho legacy user hook — unmarked\n' > "$dir/.git/hooks/pre-commit"
+      chmod 755 "$dir/.git/hooks/pre-commit"
+      ;;
+  esac
+  ( cd "$dir" && unset GITHUB_BASE_REF && git add -A && git commit -q -m "state:$state" ) >/dev/null 2>&1
+}
+
+# ── T-dry-run-pure-under-all-flags (round 4, BLOCK-1) ───────────────────────
+# THE test that makes BLOCK-1 impossible to reintroduce. --dry-run is the safety
+# preview operators are told to run FIRST; a dry-run that writes anything destroys
+# the feature's trust model. Round 4's verifier deleted the doc-apply dry-run guard
+# AND all four hook dry-run guards and the suite stayed 31/31 green, because no test
+# combined --dry-run with the flags that UNLOCK a write (--install-hooks,
+# --apply-doc-updates, --confirm-doc-overwrite, --non-interactive).
+#
+# For every parser-accepted dry-run combination, across three fixture states that
+# make every write path hot, this fingerprints the FULL mutated surface (scripts/,
+# docs/reference/, .claude/, .git/hooks/, CLAUDE.md, PROJECT_INTAKE.md) before and
+# after and asserts byte-identical + a non-zero exit-free run + NO .bak/.new/.tmp
+# residue anywhere. Neuter ANY dry-run guard and the write it was suppressing lands
+# in the fixture state that reaches it — RED here.
+t_dry_run_pure_under_all_flags() {
+  local state combo P T ok=y detail=""
+  # The write-unlocking dry-run combinations. Maximal combo also carries
+  # --non-interactive (a parser-accepted modifier) so "every accepted combo" holds.
+  local combos='--dry-run
+--dry-run --install-hooks --apply-doc-updates overwrite --confirm-doc-overwrite --non-interactive
+--dry-run --apply-doc-updates sidecar'
+  for state in greenfield stalehooks legacyhook; do
+    T=$(mktemp -d); P="$T/proj"; _matrix_fixture "$P" "$state"
+    local pre; pre=$(_surface_fp "$P")
+    while IFS= read -r combo; do
+      [ -n "$combo" ] || continue
+      local out rc=0
+      # shellcheck disable=SC2086
+      out=$(run_sync "$P" $combo) || rc=$?
+      local post; post=$(_surface_fp "$P")
+      local residue; residue=$(find "$P" \( -name '*.bak' -o -name '*.bak.*' -o -name '*.new' -o -name '*.tmp' -o -name '*.upstream-template.new' \) 2>/dev/null)
+      if [ "$rc" != "0" ]; then
+        ok=n; detail="[$state] '$combo' exited non-zero (rc=$rc) — a dry-run must never error; tail:\n$(echo "$out" | tail -6)"; break
+      fi
+      if [ "$pre" != "$post" ]; then
+        ok=n; detail="[$state] '$combo' MUTATED the surface under --dry-run (a write escaped a dry-run guard). diff:\n$(diff <(echo "$pre") <(echo "$post") | head -20)"; break
+      fi
+      if [ -n "$residue" ]; then
+        ok=n; detail="[$state] '$combo' left .bak/.new/.tmp residue under --dry-run:\n$residue"; break
+      fi
+    done <<EOF
+$combos
+EOF
+    rm -rf "$T"
+    [ "$ok" = y ] || break
+  done
+  if [ "$ok" = y ]; then
+    pass "T-dry-run-pure-under-all-flags: across greenfield/stalehooks/legacyhook fixtures and every write-unlocking --dry-run combo (--install-hooks / --apply-doc-updates {sidecar,overwrite} / --confirm-doc-overwrite / --non-interactive), the full surface is byte-identical, the run exits 0, and no .bak/.new/.tmp residue appears — every dry-run guard holds"
+  else
+    fail_ "T-dry-run-pure-under-all-flags" "$detail"
+  fi
+}
+
+# ── T-doc-overwrite-write-failure-restores-original (round 4, MINOR-3) ──────
+# The overwrite branch's REPAIR path: if the in-place write PARTIALLY lands then
+# fails (ENOSPC / short write), the file on disk is corrupt and only the auto-restore
+# `cp "$bak" "$pfile"` can put it right. Round 3's silent-cp fixture lands NOTHING, so
+# the file stays intact and the restore is a no-op — the repair was unpinned. This
+# drives a corrupt-then-fail cp so the restore is load-bearing, and pins BOTH the
+# restore AND the "intact vs restore-by-hand" message choice (inverting the message
+# arms leaves the file correct but lies about it).
+t_doc_overwrite_write_failure_restores_original() {
+  local T; T=$(mktemp -d); local P="$T/proj"; mk_project "$P" python
+  local doc="$P/docs/reference/user-guide.md"
+  printf '%s\n' 'MY CUSTOM USER-GUIDE EDITS — irreplaceable' > "$doc"
+  local pre; pre=$(_md5file "$doc")
+  local bin="$T/bin"; _mk_corrupt_fail_cp "$bin" '*/docs/reference/user-guide.md'
+  local out rc=0
+  out=$(_run_sync_stubcp "$P" "$SCRIPT" "$bin" --apply-doc-updates overwrite --confirm-doc-overwrite) || rc=$?
+  local bak; bak=$(ls "$P/docs/reference/"user-guide.md.bak.* 2>/dev/null | head -1)
+  local post; post=$(_md5file "$doc")
+  if ! _silent_cp_fired "$bin"; then
+    fail_ "T-doc-overwrite-write-failure-restores-original" "the corrupt-then-fail cp stub never fired — fixture mis-wired, the test would pass vacuously"; rm -rf "$T"; return
+  fi
+  if [ "$rc" = "0" ]; then
+    fail_ "T-doc-overwrite-write-failure-restores-original" "sync exited 0 after a failed overwrite — the failure must reach the exit code"; rm -rf "$T"; return
+  fi
+  if [ "$post" != "$pre" ]; then
+    fail_ "T-doc-overwrite-write-failure-restores-original" "the file on disk was NOT restored to the operator's original after a failed overwrite (auto-restore missing); pre=$pre post=$post"; rm -rf "$T"; return
+  fi
+  if [ -z "$bak" ] || [ "$(_md5file "$bak")" != "$pre" ]; then
+    fail_ "T-doc-overwrite-write-failure-restores-original" "the dated backup must exist and hold the original bytes; got '$bak'"; rm -rf "$T"; return
+  fi
+  if ! echo "$out" | grep -qF "your original bytes are intact"; then
+    fail_ "T-doc-overwrite-write-failure-restores-original" "expected the 'your original bytes are intact (verified against the backup…)' message after a successful restore; tail:\n$(echo "$out" | tail -10)"; rm -rf "$T"; return
+  fi
+  if echo "$out" | grep -qF "Restore it by hand"; then
+    fail_ "T-doc-overwrite-write-failure-restores-original" "printed the 'Restore it by hand' message even though the file WAS restored to the original (message arms inverted)"; rm -rf "$T"; return
+  fi
+  if echo "$out" | grep -qF "overwrote user-guide.md"; then
+    fail_ "T-doc-overwrite-write-failure-restores-original" "printed an [OK] 'overwrote' line for a write that failed"; rm -rf "$T"; return
+  fi
+  pass "T-doc-overwrite-write-failure-restores-original: a partial-write-then-fail overwrite is repaired from the dated backup — file byte-restored to the original, backup kept, 'original bytes are intact' message (not 'restore by hand'), no [OK], non-zero exit"
+  rm -rf "$T"
+}
+
+# ── T-doc-cp-reports-failure-is-caught (round 4, MINOR-4 — status half) ──────
+# _bl099_write_ok is `[ "$1" -eq 0 ] && cmp -s "$2" "$3"`. Round 3 pinned the byte
+# re-read (cmp -s) with a cp that exits 0 and writes nothing. This pins the OTHER
+# half: a cp that lands the bytes correctly (so cmp -s passes) but EXITS 1. Only the
+# `[ "$1" -eq 0 ]` status check can tell that the write reported failure; drop it and
+# a cp that reported failure is announced as a successful [OK] apply.
+t_doc_cp_reports_failure_is_caught() {
+  local T; T=$(mktemp -d); local P="$T/proj"; mk_project "$P" python
+  local doc="$P/docs/reference/user-guide.md"
+  printf '%s\n' 'my customized user guide' > "$doc"
+  local pre; pre=$(_md5file "$doc")
+  local bin="$T/bin"; _mk_liar_fail_cp "$bin" '*/user-guide.md.new'
+  local out rc=0
+  out=$(_run_sync_stubcp "$P" "$SCRIPT" "$bin" --apply-doc-updates sidecar) || rc=$?
+  if ! _silent_cp_fired "$bin"; then
+    fail_ "T-doc-cp-reports-failure-is-caught" "the lands-bytes-but-exits-1 cp stub never fired — fixture mis-wired, the test would pass vacuously"; rm -rf "$T"; return
+  fi
+  if [ "$rc" = "0" ]; then
+    fail_ "T-doc-cp-reports-failure-is-caught" "sync exited 0 after cp reported failure (exit 1) — the status half of _bl099_write_ok did not catch it"; rm -rf "$T"; return
+  fi
+  if ! echo "$out" | grep -qF "FAILED to write the sidecar"; then
+    fail_ "T-doc-cp-reports-failure-is-caught" "no loud [FAIL] for a cp that reported failure though the bytes happened to land; tail:\n$(echo "$out" | tail -10)"; rm -rf "$T"; return
+  fi
+  if echo "$out" | grep -qF "wrote sidecar"; then
+    fail_ "T-doc-cp-reports-failure-is-caught" "printed [OK] 'wrote sidecar' for a cp that reported failure (status half dropped → the exit code is ignored)"; rm -rf "$T"; return
+  fi
+  if [ "$(_md5file "$doc")" != "$pre" ]; then
+    fail_ "T-doc-cp-reports-failure-is-caught" "the operator's original doc was modified by a sidecar apply that failed"; rm -rf "$T"; return
+  fi
+  pass "T-doc-cp-reports-failure-is-caught: a cp that lands the bytes but EXITS 1 is caught by the exit-status half of _bl099_write_ok — loud [FAIL], no [OK], non-zero exit (the cmp -s half alone would pass, since the bytes are on disk)"
+  rm -rf "$T"
+}
+
+# ── T-scriptsync-cp-failure-is-loud (round 4, MINOR-5) ──────────────────────
+# _bl099_sync_scripts used to `cp` unchecked and then unconditionally print
+# "[OK] synced $rel" — the silent-success shape. This drives a silent cp (exit 0,
+# nothing written) for one vendored script and asserts the script sync now REFUSES to
+# claim success: loud [FAIL], the file left as-is, DOC_APPLY_FAILED → non-zero exit.
+t_scriptsync_cp_failure_is_loud() {
+  local T; T=$(mktemp -d); local P="$T/proj"; mk_project "$P" python
+  # Make the vendored set current, then stale ONE script so only it is synced.
+  cp -R "$REPO_ROOT/scripts/." "$P/scripts/" 2>/dev/null
+  printf '#!/usr/bin/env bash\necho OLD-STALE-PHASE-GATE\n' > "$P/scripts/check-phase-gate.sh"
+  local pre; pre=$(_md5file "$P/scripts/check-phase-gate.sh")
+  ( cd "$P" && unset GITHUB_BASE_REF && git add -A && git commit -q -m stale ) >/dev/null 2>&1
+  local bin="$T/bin"; _mk_silent_cp "$bin" '*/scripts/check-phase-gate.sh'
+  local out rc=0
+  out=$(_run_sync_stubcp "$P" "$SCRIPT" "$bin") || rc=$?
+  if ! _silent_cp_fired "$bin"; then
+    fail_ "T-scriptsync-cp-failure-is-loud" "the silent cp stub never fired on the vendored script — fixture mis-wired (the script was not seen as drifted?)"; rm -rf "$T"; return
+  fi
+  if [ "$rc" = "0" ]; then
+    fail_ "T-scriptsync-cp-failure-is-loud" "sync exited 0 after a vendored-script cp reported success without landing bytes — the unchecked cp / unconditional [OK] regressed"; rm -rf "$T"; return
+  fi
+  if ! echo "$out" | grep -qF "FAILED to sync scripts/check-phase-gate.sh"; then
+    fail_ "T-scriptsync-cp-failure-is-loud" "no loud [FAIL] naming the vendored script whose cp silently wrote nothing; tail:\n$(echo "$out" | tail -12)"; rm -rf "$T"; return
+  fi
+  if echo "$out" | grep -qE '\[OK\].*synced scripts/check-phase-gate\.sh'; then
+    fail_ "T-scriptsync-cp-failure-is-loud" "printed [OK] 'synced scripts/check-phase-gate.sh' for a script that was never written (silent success)"; rm -rf "$T"; return
+  fi
+  if [ "$(_md5file "$P/scripts/check-phase-gate.sh")" != "$pre" ]; then
+    fail_ "T-scriptsync-cp-failure-is-loud" "the stale vendored script's bytes changed — the silent cp was supposed to write nothing"; rm -rf "$T"; return
+  fi
+  pass "T-scriptsync-cp-failure-is-loud: a vendored-script cp that reports success without landing bytes is caught (# BL-099-APPLY-STATUS) — loud [FAIL] naming the file, no [OK], DOC_APPLY_FAILED → non-zero exit"
+  rm -rf "$T"
+}
+
+# ── TEST REGISTRY + SELECTOR ─────────────────────────────────────────────────
+# The full ordered list. A bare run executes all of them. The guard-coverage
+# harness runs ONE (or a few) by name via BL099_ONLY="t_foo t_bar" so it can neuter
+# a guard and assert the SPECIFIC killing test flips RED→GREEN without paying for
+# the whole suite per mutation. Every function named here must exist; an unknown
+# name in BL099_ONLY is a hard error (a typo must not silently run zero tests).
+_ALL_TESTS="
 t_sync_refreshes_stale_script
 t_exec_bit_probe
 t_sync_self_copy_refused
 t_sentinel_freezes_sync
 t_dry_run_mutates_nothing
+t_dry_run_pure_under_all_flags
 t_hook_refused_noninteractive_without_flag
 t_hook_backfill_consented
 t_rust_no_hook_expected
@@ -1350,6 +1657,9 @@ t_doc_overwrite_backup_refusal
 t_doc_overwrite_write_failure_is_loud
 t_doc_sidecar_write_failure_is_loud
 t_doc_overwrite_write_silently_fails_is_caught
+t_doc_overwrite_write_failure_restores_original
+t_doc_cp_reports_failure_is_caught
+t_scriptsync_cp_failure_is_loud
 t_doc_apply_flag_usage_errors
 t_doc_overwrite_default_is_n
 t_doc_prompt_default_is_skip
@@ -1362,6 +1672,18 @@ t_mutation_doc_guard_body
 t_mutation_confirm
 t_mutation_apply_status
 t_mutation_write_ok_byteread
+"
+
+_run_selected() {
+  local sel="${BL099_ONLY:-$_ALL_TESTS}" t
+  for t in $sel; do
+    if ! declare -f "$t" >/dev/null 2>&1; then
+      echo "  [FAIL] selector — unknown test '$t' (BL099_ONLY typo?)"; FAILED=$((FAILED + 1)); continue
+    fi
+    "$t"
+  done
+}
+_run_selected
 
 echo ""
 echo "== Total: $((PASSED + FAILED)) | Passed: $PASSED | Failed: $FAILED =="

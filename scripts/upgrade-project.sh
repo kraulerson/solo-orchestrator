@@ -747,8 +747,17 @@ _bl099_replace_region() {
 
 # (e) SCRIPT SYNC — copy the mechanically-derived init.sh shipped set
 # framework→project; one line per CHANGED file only; source-mode mirrored.
+#
+# Review round 4 (MINOR-5): the `cp "$src" "$dst"` below used to be UNCHECKED and
+# followed by an UNCONDITIONAL `print_ok "  synced $rel"` — the exact silent-success
+# shape (# BL-099-APPLY-STATUS) the doc-apply path was hardened against. A `cp` that
+# reported success without landing the bytes (short write, ENOSPC, a shadowed cp on
+# PATH) printed [OK] for a file that was never synced. The write is now status-checked
+# through the SAME _bl099_write_ok (exit status AND a byte re-read); a failure is loud
+# ([FAIL] naming the file), sets DOC_APPLY_FAILED so the run's SUMMARY + EXIT CODE both
+# say so, and never prints [OK]. T-scriptsync-cp-failure-is-loud pins it.
 _bl099_sync_scripts() {
-  local shipped rel src dst changed=0 total=0
+  local shipped rel src dst changed=0 total=0 synced=0 rc
   print_step "Vendored script set — sync from framework"
   shipped="$(soif_parse_shipped_scripts "$ORCHESTRATOR_ROOT/init.sh" "$ORCHESTRATOR_ROOT/scripts")"
   while IFS= read -r rel; do
@@ -765,7 +774,13 @@ _bl099_sync_scripts() {
       continue
     fi
     mkdir -p "$(dirname "$dst")"
-    cp "$src" "$dst"
+    rc=0; cp "$src" "$dst" 2>/dev/null || rc=$?
+    if ! _bl099_write_ok "$rc" "$src" "$dst"; then    # BL-099-APPLY-STATUS
+      print_fail "  FAILED to sync $rel (cp exit $rc) — the vendored copy was NOT updated; it still holds its previous bytes."
+      DOC_APPLY_FAILED=true
+      continue
+    fi
+    synced=$((synced + 1))
     _bl099_mirror_mode "$src" "$dst" || print_warn "  (could not mirror the file mode onto $rel — contents are correct)"
     print_ok "  synced $rel"
   done <<EOF
@@ -776,7 +791,7 @@ EOF
   elif [ "$DRY_RUN" = true ]; then
     print_info "  $changed of $total vendored scripts would be synced."
   else
-    print_ok "  $changed of $total vendored scripts synced."
+    print_ok "  $synced of $total vendored scripts synced."
   fi
 }
 
@@ -1009,14 +1024,24 @@ _bl099_doc_apply() {
     # SEMANTICS PRESERVED EXACTLY. The option strings are chosen so the `case` below
     # is unchanged: "sidecar" hits `n|new|sidecar`, "overwrite" hits `o|overwrite`,
     # and "skip" falls to `*)`. prompt_choice returns non-zero on EOF/abort with
-    # nothing on stdout, so `|| action=""` also lands on `*)` — i.e. THE DEFAULT IS
-    # STILL SKIP, the safe no-write action. And this branch is still reachable only
-    # when _bl099_interactive says so, so a non-interactive run never prompts.
+    # nothing on stdout, so the `|| action="skip"` fallback also lands on `*)` — i.e.
+    # THE DEFAULT IS SKIP, the safe no-write action. And this branch is still
+    # reachable only when _bl099_interactive says so, so a non-interactive run never
+    # prompts.
     #
     # `action` is pre-declared `local` above and assigned separately on purpose:
     # `local action="$(cmd)"` would mask the command substitution's exit status
-    # behind `local`'s, so the `|| action=""` fallback would never fire.
-    action="$(prompt_choice "    Apply upstream ${label}?" skip sidecar overwrite)" || action=""
+    # behind `local`'s, so the `|| action="skip"` fallback would never fire.
+    #
+    # BL-099-PROMPT-FALLBACK: a prompt that yields no valid answer (EOF, abort, or
+    # the retry cap) MUST fall back to SKIP — never a sidecar and above all never an
+    # in-place overwrite. Change this fallback to any write action and an operator
+    # who hits Ctrl-D at the apply prompt gets an unrequested write; T-doc-prompt-
+    # default-is-skip pins it against the real function (round 4: the round-3 test
+    # was vacuous — the `overwrite` fallback was masked by the # BL-099-CONFIRM
+    # second gate, so the test now asserts the EXACT `*)` skip line, not just that
+    # no write landed).
+    action="$(prompt_choice "    Apply upstream ${label}?" skip sidecar overwrite)" || action="skip"  # BL-099-PROMPT-FALLBACK
   else
     action="$APPLY_DOC_UPDATES"
     if [ -z "$action" ]; then

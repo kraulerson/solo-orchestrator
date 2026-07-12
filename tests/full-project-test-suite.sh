@@ -795,6 +795,16 @@ if bash "$SCRIPT_DIR/tests/test-upgrade-sync-framework.sh" >/dev/null 2>&1; then
 else
   fail "tests/test-upgrade-sync-framework.sh FAILED (run for details)"
 fi
+# BL-099 review round 4: SYSTEMATIC guard-coverage harness. Neuters every
+# load-bearing --sync-framework guard on a throwaway copy and proves the BL-099
+# suite goes RED (then GREEN restored) for each — the self-enforcing registry that
+# stops the four-round whack-a-mole. Aggregator-only (neuter + re-run the suite per
+# registry row → minutes, not seconds; NOT in the tests.yml unit fast lane).
+if bash "$SCRIPT_DIR/tests/test-bl099-guard-coverage.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl099-guard-coverage.sh"
+else
+  fail "tests/test-bl099-guard-coverage.sh FAILED (run for details)"
+fi
 # BL-061: manifest.json::deployment stayed stale after upgrade-project.sh
 # runs, encouraging two-source drift where a downstream reader could gate
 # the wrong tier. Regression suite covers happy-path parity, atomic
