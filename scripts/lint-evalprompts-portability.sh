@@ -106,14 +106,22 @@ violations=""
 scanned=0
 clean=0
 
-# CODE, NOT PROSE. Blank out comment text (full-line and trailing) before the
-# construct greps, keeping the line COUNT intact so grep -n still yields true
-# line numbers. Without this, the header comment that DOCUMENTS the ban ("this
-# script previously used `declare -A`…") would itself trip the lint — a lint you
-# cannot describe in a comment is a lint people work around. The `bash -n` arm
-# below reads the unmodified file, so nothing is hidden from the parser.
+# CODE, NOT PROSE — but FAIL CLOSED. Blank out FULL-LINE comments only, keeping
+# the line COUNT intact so grep -n still yields true line numbers. This exempts
+# the header comments that DOCUMENT the ban (a lint you cannot describe in a
+# comment is a lint people work around).
+#
+# Trailing comments are deliberately NOT stripped. A quote-unaware trailing-comment
+# stripper (`s/[[:space:]]#.*$//`) blanks everything after ANY whitespace-preceded
+# `#` — including one inside a string — so a banned construct sharing that line
+# would be silently missed (PR #187 adversarial review). A lint that can be fooled
+# by a `#` in a string is worse than no lint: it reports GREEN over a real
+# violation. The cost of failing closed is a trailing comment that names a banned
+# construct will trip the lint — put such a mention on its own line instead.
+# The `bash -n` arm below reads the unmodified file, so nothing is hidden from
+# the parser either way.
 code_only() {
-  sed -e 's/^[[:space:]]*#.*$//' -e 's/[[:space:]]#.*$//' "$1"
+  sed -e 's/^[[:space:]]*#.*$//' "$1"
 }
 
 # hits_with_context <script> <extended-regex> — print "N: <original line N>" for
@@ -176,8 +184,14 @@ while IFS= read -r sh; do
   if check_script "$sh"; then
     clean=$((clean + 1))
   fi
+# Scans *.sh and *.bash. KNOWN LIMIT (PR #187 review): an extensionless shell
+# script under evaluation-prompts/ would go unscanned. There are none today and
+# the three real scripts are all *.sh; a shebang sniff was tried and reverted —
+# `case` patterns inside a command substitution inside this heredoc break the
+# bash-3.2 parser, and a lint that mis-parses is worse than one with a stated
+# limit. If an extensionless script is ever added here, extend this find.
 done <<EOF
-$(find "$EVAL_DIR" -type f -name '*.sh' | LC_ALL=C sort)
+$(find "$EVAL_DIR" -type f \( -name '*.sh' -o -name '*.bash' \) | LC_ALL=C sort)
 EOF
 
 [ "$DO_LIST" -eq 1 ] && echo ""
