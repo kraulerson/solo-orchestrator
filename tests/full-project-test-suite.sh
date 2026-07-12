@@ -615,6 +615,29 @@ else
   fail "tests/test-bl073-review-manifest-gate.sh FAILED (run for details)"
 fi
 
+# BL-103: the six-eval generator the Phase 3→4 gate hands operators as its
+# remediation (evaluation-prompts/Projects/run-reviews.sh) must actually RUN on
+# the reference platform (bash 3.2 — it used declare -A / [[ -v ]] and was a
+# syntax error), and must RECORD every review it finds — including Red Team, a
+# mandatory blocking reviewer whose file the runner probed under the wrong name.
+# Runs the real generator against a hermetic fixture with a mock `claude`; pins
+# scripts/lint-evalprompts-portability.sh with a behavioural mutation proof.
+if bash "$SCRIPT_DIR/tests/test-bl103-eval-generator.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl103-eval-generator.sh"
+else
+  fail "tests/test-bl103-eval-generator.sh FAILED (run for details)"
+fi
+
+# BL-104: two scoring inversions in check-phase-gate.sh's Phase 3→4 block, where
+# doing LESS work scored BETTER — 0/9 process-checklist steps passed while 8/9
+# blocked (an if/elif with no else), and an empty `{"reviews":[]}` manifest
+# passed while NO manifest blocked. Mutation-proof on both markers.
+if bash "$SCRIPT_DIR/tests/test-bl104-gate-scoring.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl104-gate-scoring.sh"
+else
+  fail "tests/test-bl104-gate-scoring.sh FAILED (run for details)"
+fi
+
 # BL-072 Phase C1: scripts/pre-commit-gate.sh must WARN (never block) when a
 # feat/fix/refactor commit ships implementation with no test in the same
 # commit and none earlier on the branch — appending a row to

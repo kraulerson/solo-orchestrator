@@ -1561,6 +1561,21 @@ if [ "$current_phase" -ge 3 ]; then
   fi
 
   # P3-007: Cross-reference process-state.json for Phase 3 completion
+  #
+  # BL-104 (scoring inversion): this used to be a two-armed `if / elif` with NO
+  # `else`. 8/9 steps took the elif → WARN + issues++ → BLOCKED. But ZERO steps
+  # is neither `-ge 9` nor `-gt 0`, so it fell off the end of the chain and the
+  # gate PASSED IN SILENCE — a project that never ran Phase-3 validation at all
+  # outscored one that ran eight of the nine steps. The `else` arm below closes
+  # that hole.
+  #
+  # WHY IT BLOCKS (issues++), not a soft WARN: the arm immediately above blocks
+  # at 1-8 steps. A gate where 8/9 blocks and 0/9 passes is not a gate. Zero is
+  # strictly worse than eight, so it must score at least as harshly. Operators
+  # who genuinely have no Phase-3 state simply have no process-state.json, and
+  # the whole block is skipped — this arm only fires when the project HAS the
+  # file and it records nothing, which is the "checklist was never started"
+  # signal, not an absence of information.
   if [ -f ".claude/process-state.json" ] && command -v jq &>/dev/null; then
     p3_steps_done=$(jq '.phase3_validation.steps_completed | length' .claude/process-state.json 2>/dev/null || echo "0")
     case "$p3_steps_done" in ''|*[!0-9]*) p3_steps_done=0 ;; esac
@@ -1569,6 +1584,10 @@ if [ "$current_phase" -ge 3 ]; then
     elif [ "$p3_steps_done" -gt 0 ]; then
       echo -e "${YELLOW}[WARN]${NC} Phase 3 process checklist incomplete: $p3_steps_done/9 steps"
       issues=$((issues + 1))
+    else
+      echo -e "${YELLOW}[WARN]${NC} Phase 3 process checklist not started: 0/9 steps recorded in .claude/process-state.json"
+      echo "  Run Phase 3 validation: scripts/process-checklist.sh --start-phase3"
+      issues=$((issues + 1))   # BL-104-P3-ZERO
     fi
   fi
 fi
@@ -1681,6 +1700,13 @@ if [ "$current_phase" -ge 3 ]; then
     review_commit=$(jq -r '.commit // "unknown"' "$MANIFEST" 2>/dev/null || echo "unknown")
     echo -e "${GREEN}  [OK]${NC} Review manifest: $review_count review(s) recorded (commit: ${review_commit:0:8})"
 
+    # BL-104: how many reviews does this manifest actually ATTEST TO? A manifest
+    # whose `.reviews[]` holds nothing `complete` records no review work at all —
+    # see the BL-104-MANIFEST-ARM block below for why that number, not the mere
+    # existence of the file, is what the non-enforced arm must score on.
+    cpg_complete_reviews=$(jq '[ .reviews[]? | select((.status // "complete") == "complete") ] | length' "$MANIFEST" 2>/dev/null || echo "0")
+    case "$cpg_complete_reviews" in ''|*[!0-9]*) cpg_complete_reviews=0 ;; esac
+
     # Map each COMPLETE review entry to a canonical role. Red Team is tested
     # BEFORE Security because "Red Team / Offensive Security" also contains
     # "security"; ordering keeps the two roles distinct. Accepts both the
@@ -1725,6 +1751,31 @@ if [ "$current_phase" -ge 3 ]; then
           echo -e "${RED}[FAIL]${NC} Phase 3→4 review gate: track=$track requires the Security AND Red Team reviews before Phase 4 (missing: $cpg_missing_mandatory)."
           echo "  Run reviews: evaluation-prompts/Projects/run-reviews.sh — or attest: SOLO_REVIEWERS_ATTESTED=1 SOLO_REVIEWERS_ATTESTED_REASON=\"<reason>\""
           issues=$((issues + 1))
+        elif [ "$cpg_complete_reviews" -eq 0 ]; then
+          # BL-104 (scoring inversion): the no-manifest arm above WARNs and
+          # BLOCKS (issues++) even on the non-enforced / light / grandfathered
+          # track — that is the pre-BL-073 legacy contract and it is preserved.
+          # This arm — manifest present but incomplete — WARNs and does NOT
+          # block. Two [WARN] lines, opposite gate outcomes. The consequence:
+          #
+          #   (no manifest)                                  → BLOCKED
+          #   echo '{"reviews":[]}' > …/review-manifest.json → PASSED
+          #
+          # Creating an empty file — recording ZERO reviews — turned a blocking
+          # gate into a passing one. The bug is that the arms scored on FILE
+          # EXISTENCE, not on review CONTENT. Fix: a manifest that attests to no
+          # completed review is materially identical to no manifest, and blocks
+          # the same way.
+          #
+          # DELIBERATELY NARROW. A PARTIAL manifest (>= 1 completed review) still
+          # takes the WARN-only arm below, preserving the documented contract —
+          # builders-guide.md § Phase 3→4: "track=light / personal: WARN only
+          # (POC preserved); the bypass is logged." Real-but-incomplete review
+          # work on a POC is not blocked. And the enforced standard/full FAIL
+          # above is untouched: an empty manifest there still FAILs, as before.
+          echo -e "${YELLOW}[WARN]${NC} Phase 3→4 review gate: the review manifest records ZERO completed reviews (missing: $cpg_missing_mandatory; track=$track) — an empty manifest is not a review; treated as no manifest."
+          echo "  Run evaluation prompts before Phase 4: evaluation-prompts/Projects/run-reviews.sh"
+          issues=$((issues + 1))   # BL-104-MANIFEST-ARM
         else
           echo -e "${YELLOW}[WARN]${NC} Phase 3→4 review gate: Security and/or Red Team review incomplete (missing: $cpg_missing_mandatory; track=$track) — bypass logged (grandfathered / POC: not blocking)."
         fi
