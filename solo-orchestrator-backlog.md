@@ -2545,7 +2545,19 @@ BL-097's model-selection rubric says WHO can build cheaply; this entry supplies 
 **Logged:** 2026-07-11 (eval-prompt hollow-gate audit, triggered by BL-102)
 **Category:** Bug / gate integrity — the framework's flagship review gate has a broken remediation path
 **Severity:** **High** (the gate is real and blocking; its ONLY documented remediation cannot execute; the sole escape is the attestation bypass)
-**Status:** Open
+**Status:** Closed (PR #187, 2026-07-11)
+
+**Resolution (PR #187, 2026-07-11).** All four fix steps shipped, TDD with mutation proofs:
+1. **Portability.** `Projects/run-reviews.sh`, `Projects/compose.sh` and `Framework/run-reviews.sh` rewritten to bash-3.2 (`case` dispatch replaces `declare -A`; no `[[ -v ]]`). `/bin/bash -n` is now clean for every `evaluation-prompts/**/*.sh` on the 3.2.57 reference host.
+2. **Single source of truth.** The **base prompt** declares the artifact filename and is now the ONLY place that does. `compose.sh --artifact <reviewer>` DERIVES it by parsing that declaration; `run-reviews.sh` keeps no filename table. Drift is impossible rather than merely detectable, and a prompt with zero or >1 declarations is a hard error instead of a silent probe-miss. `senior-engineer` / `technical-user` / `red-team` now resolve — a performed Red Team review is RECORDED.
+3. **New lint** `scripts/lint-evalprompts-portability.sh` (`# BL-103-PORTABILITY`): `/bin/bash -n` + bans `declare -A` and `[[ -v ]]` across `evaluation-prompts/**`. Wired into `scripts/run-lints.sh` (now 11/11) and a new `evalprompts-portability-lint` job in `.github/workflows/lint.yml`.
+4. **Integration test** `tests/test-bl103-eval-generator.sh` (29 passed) RUNS the real generator against a hermetic fixture (mock `claude`, no network) and lints the manifest it emits — closing the fixture-hides-product-gap hole.
+
+**Defect 3, found while building the test (not in the original report): every manifest the generator ever wrote was INVALID JSON.** `$(echo "$MANIFEST_ENTRIES" | sed '$ s/,$//')` — `MANIFEST_ENTRIES` is already newline-terminated, so `echo` appended a second newline and sed's `$` address landed on a trailing EMPTY line; the real last entry kept its comma. `jq empty` rejects the file, so `lint-review-manifest.sh` FAILs it and the gate's `jq '.reviews | length'` reads nothing. Invisible until now because the script could not parse far enough to reach the write. Fixed, plus a `jq empty` self-check that refuses to emit a manifest the gate cannot read.
+
+`init.sh` now also scaffolds `docs/eval-results/` (the manifest's required home — see BL-105, which listed the same gap).
+
+Original entry (pre-close, kept for audit trail):
 
 **The gate is real.** `scripts/check-phase-gate.sh` (`# BL-073-ESCALATE`) hard-FAILs the Phase 3→4 transition for `track ∈ {standard, full}` when the Security or Red Team review is missing/incomplete, and its failure message directs the operator to *"Run reviews: `evaluation-prompts/Projects/run-reviews.sh`"*.
 
@@ -2584,7 +2596,19 @@ The manifest entry is emitted only `if [ -f "$REVIEW_FILE" ]`. **Red Team is one
 **Logged:** 2026-07-11 (eval-prompt hollow-gate audit)
 **Category:** Bug / gate correctness (perverse incentives)
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed (PR #187, 2026-07-11)
+
+**Resolution (PR #187, 2026-07-11).** Both inversions closed, TDD + marker-excision mutation proofs, in `tests/test-bl104-gate-scoring.sh` (13 passed).
+
+1. **Zero-step silent pass** — added the missing `else` arm (`# BL-104-P3-ZERO`). **It INCREMENTS `issues` (blocks).** Reasoning: the arm above blocks at 1-8 steps; a gate where 8/9 blocks and 0/9 passes is not a gate. Zero is strictly worse than eight and must score at least as harshly. Projects with genuinely no Phase-3 state are unaffected — the whole block is guarded by `[ -f ".claude/process-state.json" ]`, so this arm only fires when the file EXISTS and records nothing ("checklist never started"), not when information is absent.
+
+2. **Empty-manifest bypass** — the arms scored on FILE EXISTENCE, not review CONTENT. Now a manifest attesting to **zero completed reviews** is treated as materially identical to **no manifest** and blocks the same way (`# BL-104-MANIFEST-ARM`). Deliberately narrow, and chosen over two rejected alternatives: making the no-manifest arm stop incrementing would WEAKEN the gate (a light project with no reviews would stop blocking); making every incomplete manifest block would BREAK the documented contract (`builders-guide.md`: *"track=light / personal: WARN only (POC preserved)"*). So a **partial** manifest (≥1 completed review) keeps the light/grandfathered WARN-only behavior (pinned by `T-light-track-warn-only-preserved`), and the enforced standard/full FAIL is untouched (pinned by `T-empty-manifest-enforced-fails`).
+
+3. **The trap is documented** in `CLAUDE.md` § ENFORCEMENT: `[WARN]`/`[FAIL]` text is cosmetic; the exit predicate is `if [ $issues -eq 0 ]`, so any WARN that runs `issues=$((issues + 1))` BLOCKS, and a true WARN must omit it.
+
+**Collateral finding:** `tests/test-bl073-review-manifest-gate.sh`'s `build_project()` fixture called itself a "golden-clean Phase-3 project" while writing `"steps_completed": []` — it was **riding inversion 1**, and four of its cases went RED the moment the `else` arm landed. The fixture was corrected to record the nine steps it always claimed (29/29 green). Another fixture-hides-product-gap, same class as BL-103.
+
+Original entry (pre-close, kept for audit trail):
 
 Two verified scoring defects in `scripts/check-phase-gate.sh`:
 
