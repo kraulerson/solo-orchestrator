@@ -2668,6 +2668,8 @@ The audit's hollow set beyond BL-102/103/104. Each is declared **MUST**/**DECISI
 
 **Related:** BL-102 (Appendix D lands the Go/No-Go + market signal together); BL-103; BL-104; [[bl088-scaffold-source-closure]]; BL-084 (deployment-vs-track orthogonality — the root of the personal-template gap).
 
+**WALK-CONFIRMED 2026-07-12 (E2E validation walk — `Reports/2026-07-12-e2e-walk/RESULTS.md`), and worse than filed.** Proven end-to-end from a zero state: `--start-phase4` consults **only** `poc_mode` and advances **past a FAILing 3→4 gate**; `--finalize-phase 4` is invoked by **no** CI job or hook (`grep` → 0); `check-phase-gate.sh` contains **zero** `phase4_release` cross-references. Demonstrated: from `current_phase=0` with no gate ever passed, `--start-phase4` jumped straight to phase 4 and `git tag` cut a release — **nothing satisfied, nothing consulted.** The 3→4 gate is the framework's strongest (9 references) and **nothing forces it.** The per-step arms it does have are shallow: an **empty file** named `rollback` passes the "MANDATORY rollback test" (CM-H-15); the **single word `monitoring`** passes monitoring-verification (CM-H-17); `go_live_verified` passes on `RELEASE_NOTES.md` **existence alone** — the walk's app shipped with 5 missing security headers, no rate-limiting, and a build that does not boot (BL-117/F19). Also: `--finalize-phase 4` with the **5 step IDs the builders-guide names** FAILs on `handoff_tested` — a 6th step the guide names **nowhere** (D-6), so a guide-following operator is blocked by a step that is not documented.
+
 ---
 
 ## BL-106: Platform-module go-live checklists are declared MANDATORY and parsed by nothing
@@ -2764,3 +2766,124 @@ For Rust the skip is *deliberate* (inline `#[cfg(test)]` tests cannot be detecte
 **Fix shape:** stamp the pin at the universal manifest-seed site (`prepare_initial_state_for_commit` — exactly where S1 anchored the `currency` block, which already records `soloFrameworkPath` there on every path); keep or dedupe the remote-path stamp (byte-compat decision documented in the PR); fidelity test asserting the pin on BOTH paths (with-remote fixture + `--no-remote-creation`), plus a mutation proof. Interim S2 contract: detection treats a pin-absent manifest as skip-silently for framework-drift checks (never a crash, never false drift).
 
 **Related:** BL-099 (the pin's origin, PR #185); BL-109 (S1 anchored the currency block at the universal site precisely because of this gap — PR #191 deviation 1); [[bl088-scaffold-source-closure]] (defect class); BL-107 (same class, language axis).
+
+---
+
+## BL-111: The Phase 1→2 branch-protection backstop is unsatisfiable on the framework's own blessed hermetic flow — and it poisons every downstream gate snapshot
+
+**Logged:** 2026-07-12 (E2E validation walk, finding F5 — the walk's SOLE hard FAIL; independently reproduced by the adversarial re-walker, 0 overturned)
+**Category:** Bug / gate integrity — unsatisfiable gate
+**Severity:** **High**
+**Status:** Open
+
+**Evidence (`Reports/2026-07-12-e2e-walk/RESULTS.md`, item P1-013):** for a `github` + `organizational` + `--no-remote-creation` project — the framework's own blessed hermetic on-ramp, used by every UAT/CI/agent run — the Phase 1→2 gate emits `[FAIL] Phase 1→2 backstop: protection verification failed` with `issues++`. Cause chain: `scripts/lib/host.sh` AND `manifest.json` both exist, so `host_load_driver` succeeds and `host_verify_protection main org` runs → `_github_parse_origin` rejects the local bare-repo origin (`not a GitHub URL`) → return 1 → FAIL. **The documented remediation also fails** (`scripts/check-gate.sh --preflight` → same parse error, rc=1). And **there is no product path to record the exemption**: un-truncated `grep -rn 'attestations.branch_protection *=' scripts/` → **0 writers**; only `init.sh` writes `github_free_tier`, and only behind a real host-API 403 that `--no-remote-creation` never reaches; `reconfigure-project.sh` covers `zdr_*` but has no branch-protection field.
+
+**Blast radius:** `create_gate_snapshot` requires `issues=0`, so the clean 1→2 pass **and its snapshot — and, cascading, the 2→3 and 3→4 snapshots — are permanently unreachable** without a live remote or a re-init. The walk carried this gate RED across Stages 2–5. The walker refused to hand-forge the attestation JSON (that is the BL-103 sin) and graded FAIL per rubric R3a.
+
+**Fix shape:** (1) `host_verify_protection` must distinguish *"not a supported host URL"* (→ WARN + attestable) from *"host says unprotected"* (→ FAIL); (2) ship a post-init writer for the branch-protection attestation (extend `reconfigure-project.sh`, mirroring its `zdr_*` handling) so the exemption is recordable, attested-not-silenced; (3) make `check-gate.sh --preflight/--repair` succeed or explain on a non-host origin; (4) fidelity test: scaffold `--no-remote-creation` and prove the 1→2 gate is passable by legitimate means. TDD + mutation proof; registered in both aggregators.
+
+**Related:** BL-084 (deployment/track orthogonality); BL-110 (same `--no-remote-creation` blind spot, pin axis); [[bl088-scaffold-source-closure]] (fixture-hides-gap class — no test ever walked this flow); `Reports/2026-07-12-e2e-walk/RESULTS.md` (P1-013, F5).
+
+---
+
+## BL-112: Commit-time enforcement is hollow — the strict-mode git-hook gate is unreachable dead code, and the pre-commit SAST never blocks
+
+**Logged:** 2026-07-12 (E2E validation walk, findings F8 + F9; both independently reproduced by the re-walker — F9 dynamically)
+**Category:** Bug / enforcement — documented gates that do not fire
+**Severity:** **High**
+**Status:** Open
+
+**F8 — `framework-gate.sh` is dead code.** The generated `.git/hooks/pre-commit` runs an unconditional `exit $FAILED` **before** the block that invokes `.git/hooks/framework-gate.sh` (the BL-030 strict gate that runs `--check-commit-ready`), even when `enforcement_level=strict`. Net: the **phase2-init-verified**, **UAT-in-progress**, and **build-loop-state** blocks have **no git-hook backstop** — they fire only through the AI-session PreToolUse hook. Proven empirically twice in the walk: a real `git commit` succeeded with `phase2_init.verified=false`, and a `chore:` commit succeeded mid-UAT — both correctly refused by `--check-commit-ready` (rc=1) yet committed at the terminal. **Any human, script, or non-AI-session commit walks straight through three "blocking" gates.** (BL-072/BL-006 are unaffected — they have the commit-msg-hook backstop.)
+
+**F9 — the pre-commit SAST arm is decorative.** The hook invokes `semgrep scan --config=p/owasp-top-ten --quiet` **without `--error`**; semgrep exits 0 on findings unless `--error` is passed, so the hook's `[BLOCKED]` branch is unreachable. Demonstrated: an `eval(req.query.code)` Express injection flaw was **detected, printed, and committed clean**; the same finding with `--error` → rc=1. The gitleaks secret-scan arm *does* block — only the SAST arm is hollow.
+
+**Fix shape:** move the `framework-gate.sh` invocation **before** the terminal `exit`, or fold its checks into the surviving path (and mutation-prove that a `verified=false` / mid-UAT commit is refused **by git**, not only by the AI hook); add `--error` to the semgrep invocation (with a fixture proving a planted flaw goes RED). Both need scaffold-fidelity tests that run a REAL `git commit` in a REAL scaffold — the class of test that would have caught this.
+
+**Related:** BL-030 (the strict gate this makes unreachable); [[bl088-scaffold-source-closure]]; BL-113 (the Phase-3 half of the same story); `Reports/2026-07-12-e2e-walk/RESULTS.md` (F8, F9).
+
+---
+
+## BL-113: The framework fails its own Phase-3 SAST — and the staleness autorun launders that FAIL into an attestable SKIP
+
+**Logged:** 2026-07-12 (E2E validation walk, findings F14 + F15)
+**Category:** Bug / security-gate credibility
+**Severity:** **High**
+**Status:** Open
+
+**F14 — a fresh scaffold cannot pass its own security scan.** A freshly-scaffolded organizational project fails `semgrep --config auto` with **6 WARNING findings, ALL in framework-shipped files** — 5 mutable action-tags in the generated `.github/workflows/ci.yml` + `release.yml`, and 1 IFS-tamper in `scripts/check-versions.sh` — and **ZERO in the app's own `src/`**. An honest operator cannot clear Phase 3 without editing framework-generated files, and a scanner **FAIL is not attestable — only a SKIP is**. The framework hands you a project that fails the framework's own gate.
+
+**F15 — and the gate then hides it.** Whenever the tree is dirty (the *normal* state while authoring Phase-3 artifacts), the 3→4 gate's BL-082 staleness check **autoruns the validation driver with `--offline`**, which downgrades semgrep/license/snyk/zap to **SKIP**. The operator sees "scanner unavailable," attests the SKIP in good faith, and passes — never learning that a real scan **FAILs**. The one scanner that most needed a real result is the one the gate quietly stops confronting the operator with.
+
+**Fix shape:** (1) fix the framework-shipped findings at source (pin action SHAs in the generated workflows; fix the `check-versions.sh` IFS pattern) so a fresh scaffold is scan-clean — the acceptance test is *"scaffold → semgrep → zero findings"*; (2) the offline autorun must **not** silently downgrade a scanner that was previously FAILing or that is locally available — either run it online-capable, or surface `[STALE — last real result: FAIL]` rather than a fresh attestable SKIP; (3) make a scanner FAIL **attestable-but-loud** rather than unattestable-and-therefore-laundered. TDD + mutation proofs; scaffold-fidelity test.
+
+**Related:** BL-070 (the five real scanners); BL-082 (the staleness binding whose autorun is the laundering vector); BL-112 (commit-time SAST is hollow too); `Reports/2026-07-12-e2e-walk/RESULTS.md` (F14, F15).
+
+---
+
+## BL-114: Phase 0→1 gate integrity — an errexit abort kills the placeholder WARN, the intermediates WARN never blocks, and the 0→1 transition is locally un-gated
+
+**Logged:** 2026-07-12 (E2E validation walk, findings F1 + F2 + F3)
+**Category:** Bug / gate correctness
+**Severity:** Medium
+**Status:** Open
+
+Three defects in the same gate, all walk-reproduced:
+
+1. **F2 — dead WARN branch (errexit abort).** A placeholder-only manifesto section trips `set -euo pipefail` inside `validate_manifesto_content` and **aborts `check-phase-gate.sh` before the placeholder WARN prints** — rc=1 with *zero diagnostic and no summary*. The operator sees a bare failure with no reason; the WARN branch is effectively unreachable code.
+2. **F1 — non-blocking "blocking" WARN.** The phase-0-intermediates check never increments `issues`: deleting `docs/phase-0/frd.md` yields `2/3 saved` but **rc=0 `Phase gates consistent`** — contradicting the documented WARNS-and-blocks behavior. An **absent `docs/phase-0/` directory produces no warning at all**.
+3. **F3 — the 0→1 transition is un-gated locally.** A bare `check-phase-gate.sh` at `current_phase=0` validates **no** 0→1 evidence (manifesto/phase-0/approval checks are all `current_phase>=1`-guarded), and `start_phase1()` advances **with no gate consult**. Only the prospective `--gate phase_0_to_1` form checks anything.
+
+**Fix shape:** guard the manifesto content scan against errexit (subshell + explicit status) so the WARN prints and the gate summarizes; decide deliberately whether the intermediates check blocks (per the CLAUDE.md `issues++` = BLOCK rule) and make code match docs; make `start_phase1` consult the gate. Each with a mutation proof — note the `[WARN]`-vs-`issues++` trap.
+
+**Related:** BL-104 (the same `issues++`-is-the-real-verdict class); `Reports/2026-07-12-e2e-walk/RESULTS.md` (F1, F2, F3).
+
+---
+
+## BL-115: Approval evidence is satisfiable without approval — any date in the window counts, and the attorney gate is satisfied by its own template header
+
+**Logged:** 2026-07-12 (E2E validation walk, findings F6 + F16)
+**Category:** Bug / approval-evidence integrity
+**Severity:** Medium
+**Status:** Open
+
+**F6 — proximity-window date matching.** `_cpg_gate_has_evidence` greps for **any ISO date in the 15-line window** after a gate header, not the approval's **Date cell** — so a blank or missing approval date is masked by an incidental date in a Reference or Notes cell. Demonstrated at the 1→2 approval (P1-010). Extends the same proximity-window class found at P0-014. Also (CM-H-08): the approver's **role is never verified** — any name is accepted; the retroactive-STA-by-role check only fires for `upgraded_from:personal` projects (count = 0 here).
+
+**F16 — the attorney gate satisfies itself.** The Phase-3 attorney-review check greps `-qi 'attorney|legal review'` against `APPROVAL_LOG.md` — and the **organizational APPROVAL_LOG template ships with a literal `## Attorney / Legal Review` header**, so the gate passes with **zero real attorney entry**. Separately, deleting `PRIVACY_POLICY.md` **bypasses the legal_review step entirely** (the check is file-conditional): collect PII, write no policy, pass.
+
+**Fix shape:** parse the approval **row** (Date cell specifically, non-empty, plausible) rather than a proximity window; require a signer distinct from the template's own scaffolding text (the header alone must not satisfy); make the legal review **required-when-PII** rather than skipped-when-absent (BL-102's evidence-standard doctrine applies: fail closed). Mutation proofs on each.
+
+**Related:** BL-105 (hollow-gate family); BL-102 (fail-closed evidence doctrine); `Reports/2026-07-12-e2e-walk/RESULTS.md` (F6, F16, CM-H-08).
+
+---
+
+## BL-116: The "MANDATORY, non-bypassable" push gate is scoped to `host=other` only — first-class hosts scaffolded `--no-remote-creation` never get it
+
+**Logged:** 2026-07-12 (E2E validation walk, finding F7)
+**Category:** Bug / gate scope
+**Severity:** Medium
+**Status:** Open
+
+The BL-084 push-verification gate — documented as **MANDATORY and non-bypassable** — is implemented only for `host == "other"`. A `github` / `gitlab` / `bitbucket` project scaffolded with `--no-remote-creation` **never receives the mandatory push verification**: `grep -c 'push gate'` in the gate's output is **0**, both with and without a pushed remote. The scope comment's stated premise — *"first-class hosts are provably pushed at init"* — is **false for `--no-remote-creation`**, which is precisely the flow every hermetic/UAT/CI run and many operators use.
+
+**Fix shape:** key the push gate on *"is there a verified remote with the work pushed"*, not on host brand; or, if first-class hosts are genuinely exempt when a remote was created, make the exemption **conditional on remote creation having happened** (the manifest records it) and prove the `--no-remote-creation` case still gates. Mutation proof required — a "MANDATORY" gate that silently doesn't exist for the common path is the cardinal defect class.
+
+**Related:** BL-084; BL-110 + BL-111 (the same `--no-remote-creation` blind spot on the pin and protection axes — three findings, one uncovered flow); `Reports/2026-07-12-e2e-walk/RESULTS.md` (F7, P1-012).
+
+---
+
+## BL-117: BL-088 class recurrences — the production build ships without its own migration asset, and `check-maintenance.sh` is never scaffolded
+
+**Logged:** 2026-07-12 (E2E validation walk, findings F19 + F20)
+**Category:** Bug / scaffold closure (the [[bl088-scaffold-source-closure]] class)
+**Severity:** Medium
+**Status:** Open
+
+**F19 — the release does not boot.** The walked project's production build **does not run**: `tsc` omits `migrations/001_init.sql` from `dist/`, so the documented `npm start` (`node dist/src/server.js`) crashes `ENOENT`. The framework's `phase4_release:production_build` step has **no artifact or smoke arm** and was marked complete on a non-booting build. A "released" project that cannot start is the sharpest possible statement of the missing Phase-4 evidence arms.
+
+**F20 — a guide-referenced tool that is never shipped.** `scripts/check-maintenance.sh` is framework-only: `init.sh` ships it **0 times**, so the builders-guide's Step 4.4 maintenance tool returns *"No such file"* in-project — and nothing schedules it either.
+
+**The class, stated plainly (the walk's own honorable mention):** *a shipped instruction that points at an unshipped dependency* recurred **at least six times** in one walk — the TDD gate silently no-ops without `tdd-classify.sh` (BL-088, reproduced on demand), `security-audit-findings.tmpl` (BL-108), `rollback-test.tmpl` + `handoff-test-results.tmpl` (gate-referenced, never shipped), `check-maintenance.sh` (F20), and the app's own migration asset (F19). This is not a set of one-off bugs; it is a **structural gap between what `init.sh` ships and what the gates and guides demand.**
+
+**Fix shape:** ship the missing artifacts; add a **smoke arm** to `production_build` (the built artifact must start); and — the durable fix — **extend the BL-088 closure check from sourced scripts to every path any shipped script or guide names** (templates, tools, artifacts), mechanically derived so it cannot drift. That single check would have caught five of the six.
+
+**Related:** [[bl088-scaffold-source-closure]] (the parser to extend); BL-108 (templates half); BL-105 (the missing Phase-4 evidence arms); `Reports/2026-07-12-e2e-walk/RESULTS.md` (F19, F20, and the class inventory).
