@@ -273,10 +273,17 @@ _i11_section() {
 # green the moment the guard was neutered, which is the whole failure mode being pinned).
 _has_payload() {
   local f="$1"
+  # POSITIONAL, not spelling — the round-3 lesson, applied to the ORACLE ITSELF.
+  # A unified diff's file headers (--- / +++) only ever appear BEFORE the first @@,
+  # so ANY line starting with + or - AFTER a hunk header is payload — including one
+  # whose text happens to begin '+++'. The old rule here keyed on spelling
+  # (^\+ not followed by +), which is exactly the bug the shipped predicate was
+  # fixed for: it REJECTS a legitimate one-line change whose added text starts '+++'.
+  # This must stay an INDEPENDENT re-implementation (it must never call the guard it
+  # tests, or it would go green the moment that guard is neutered) — but independent
+  # means independently CORRECT, not independently wrong in the same way.
   grep -q '^@@' "$f" 2>/dev/null || return 1
-  grep -qE '^\+([^+]|$)' "$f" 2>/dev/null && return 0
-  grep -qE '^-([^-]|$)'  "$f" 2>/dev/null && return 0
-  return 1
+  awk '/^@@/ { in_hunk = 1; next } in_hunk && /^[+-]/ { found = 1; exit } END { exit !found }' "$f" 2>/dev/null
 }
 
 # _tree_fingerprint <root> — sha of every FILE plus the name of every DIRECTORY under
