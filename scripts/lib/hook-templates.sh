@@ -30,6 +30,11 @@
 #   • # BL-112-STRICT-GATE  — the region's terminal exit is CONDITIONAL, because
 #     install-filesystem-gates.sh appends the BL-030 strict-gate block BELOW this
 #     region; an unconditional `exit $FAILED` made that block unreachable.
+#   • # BL-112-SAST-NOTRUN  — the ONE behaviour for "the scanner did not run",
+#     shared by the tool-ABSENT arm and the tool-FAILED (rc>=2) arm: WARN loudly,
+#     never block, and never let a not-run scan look like a clean scan. The rc=0
+#     arm prints an [OK] receipt for the same reason (a silent pass is
+#     indistinguishable from an absent gate — the BL-112 defect class itself).
 # NOTE: nothing emitted into the hook may contain the literal marker text of
 # either managed block ("SOIF pre-commit fallback" / "SOIF framework gate") —
 # installers and tests grep for those strings, and a comment that mentions one is
@@ -107,6 +112,37 @@ fi
 
 
 # --- SAST Quick Scan (Semgrep) ---
+# BL-112-SAST-NOTRUN — "the scanner did not run" has exactly ONE meaning and ONE
+# behaviour here, whatever the cause (tool ABSENT, or tool PRESENT but FAILING):
+# WARN LOUDLY, never block. Both arms below call this, and both are pinned by
+# tests/test-bl112-commit-enforcement.sh in BOTH directions.
+#
+# WHY NOT BLOCK ON A TOOL FAILURE (the tempting answer, and the wrong one):
+#   • It buys NO security. Anyone who can break the scanner can instead take the
+#     strictly easier semgrep-ABSENT path (uninstall it, or shadow it on PATH),
+#     which WARNs by documented contract — or simply delete this hook, which is
+#     not version-controlled and needs no privileges at all. Blocking one of two
+#     equivalent doors, in a room with no walls, is theatre.
+#   • It is worse than theatre: it would make BREAKING the scanner strictly more
+#     costly than REMOVING it, i.e. it pays people to uninstall the scanner.
+#   • And it costs plenty. `p/owasp-top-ten` is a REGISTRY ruleset that semgrep
+#     fetches from semgrep.dev with no local-cache fallback, so a developer who
+#     is offline / proxied / rate-limited gets rc=2 on EVERY commit. A gate you
+#     cannot pass is a gate people --no-verify around — the exact culture BL-112
+#     exists to end.
+# The attested boundary for "the scanner could not run" is PHASE 3
+# (run-phase3-validation.sh + the 3->4 gate), where BL-113 made an un-run scan
+# unlaunderable and its skip attested and recorded. This hook is the fast local
+# tripwire, not the ledger. What it owes the operator is HONESTY: it must never
+# let a not-run scan look like a clean scan.
+soif_sast_not_enforced() {
+  echo ""
+  echo "[WARN] $1"
+  echo "  SAST NOT ENFORCED for this commit — the scanner did not run."
+  echo "  This is NOT a clean result: nothing was scanned. Phase 3 will require an"
+  echo "  attested scan; it cannot be cleared by a scanner that never ran."
+}
+
 if command -v semgrep &>/dev/null; then
   # Scan only staged files for fast pre-commit feedback.
   #
@@ -148,19 +184,30 @@ if command -v semgrep &>/dev/null; then
       FAILED=1
     elif [ "$soif_sg_rc" -ne 0 ]; then
       # >=2 == semgrep ITSELF failed (invalid config, registry unreachable,
-      # unparseable rule). That is a TOOL-UNAVAILABLE condition, not a finding:
-      # WARN exactly like the semgrep-absent arm rather than blocking the commit
-      # with a "[BLOCKED] security issues" banner that names no issue. And SURFACE
-      # the diagnostic — an operator who cannot see why the scanner died cannot
-      # fix it, and a gate you cannot fix is a gate you route around.
-      echo ""
-      echo "[WARN] semgrep could not complete (exit $soif_sg_rc) — pre-commit SAST not enforced for this commit."
+      # unparseable rule). BL-112-SAST-NOTRUN arm 2 of 2: the scanner did not run.
+      # DECLARED DECISION — this WARNs, it does not block; see the rationale on
+      # soif_sast_not_enforced above. It is treated identically to the absent arm
+      # because it IS the absent arm wearing a different coat. And it SURFACES the
+      # diagnostic: an operator who cannot see why the scanner died cannot fix it,
+      # and a gate you cannot fix is a gate you route around.
+      soif_sast_not_enforced "semgrep could not complete (exit $soif_sg_rc) — the tool itself failed."
       sed 's/^/  /' "$soif_sg_err" >&2
+    else
+      # 0 == the scan RAN and found nothing at ERROR severity. SAY SO. A gate that
+      # is silent when it passes is indistinguishable from a gate that never ran —
+      # which is the entire BL-112 defect class. This receipt is what makes the
+      # clean-commit test falsifiable: without it, "a clean file commits" is also
+      # true on a host where the scanner was simply skipped, and the test would
+      # pass vacuously while proving nothing.
+      echo "[OK] semgrep: SAST ran on ${#soif_staged[@]} staged file(s) — no ERROR-severity findings."
     fi
     rm -f "$soif_sg_err"
   fi
 else
-  echo "[WARN] semgrep not found — pre-commit SAST skipped."
+  # BL-112-SAST-NOTRUN arm 1 of 2 — the documented semgrep-absent contract: WARN,
+  # never block. Pinned in both directions (absent => the commit LANDS; invert the
+  # arm to block => the contract test goes RED).
+  soif_sast_not_enforced "semgrep not found — pre-commit SAST skipped."
   echo "  Install: brew install semgrep (macOS) or pip install semgrep"
 fi
 
