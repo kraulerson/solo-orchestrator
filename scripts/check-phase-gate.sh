@@ -1298,6 +1298,76 @@ fi
 # TRACKED downstream — an UNSCOPED check would mark every summary permanently
 # stale after its first PASS (self-defeating).
 
+# ═══════════════════════════════════════════════════════════════════════
+# BL-113 — the offline autorun must not launder a real FAIL into a SKIP.
+# ═══════════════════════════════════════════════════════════════════════
+# Walk finding F15: whenever the tree is dirty (the NORMAL state while the
+# operator is authoring Phase-3 artifacts) the BL-082 staleness check autoruns
+# the driver with `--offline`, which SKIPs every tool-backed scanner. The
+# operator saw "scanner unavailable", attested the SKIP in good faith, and
+# passed — never learning that a REAL semgrep run FAILs (F14). A FAIL is not
+# attestable; a SKIP is. The autorun was the laundry.
+#
+# TWO defences, both marked `# BL-113-NO-LAUNDER`:
+#
+#   1. IN THE DRIVER (scripts/run-phase3-validation.sh, `_p3_no_launder`): a
+#      SKIP never overwrites a prior REAL FAIL — it is promoted back to FAIL
+#      with a `[STALE - last real result: FAIL]` note and a machine-readable
+#      `CARRIED <scanner> <origin>` line. The gate surfaces that line verbatim
+#      below so the operator reads WHY the FAIL is there.
+#
+#   2. HERE: an offline-autorun SKIP for a scanner whose TOOL IS ON PATH is
+#      REFUSED — attested or not. It is not a result; it is the autorun's own
+#      choice not to look, and the operator cannot honestly sign "scanner
+#      unavailable" for a scanner that is installed. To clear it the operator
+#      must run the driver themselves WITHOUT `--offline`, which yields a real
+#      verdict (PASS/FAIL) or — with the tool present but no network — an
+#      HONEST, attestable SKIP recorded against a non-offline summary.
+#
+# THE AUTORUN STAYS `--offline` (deliberate, verified): `semgrep --config auto`
+# is NOT local-only. It hard-fetches its ruleset from semgrep.dev with no local
+# cache fallback (network blackholed: ~97s of retries, rc=2, no report). Running
+# it from the gate would make the gate non-hermetic, slow, and would brick
+# genuinely-offline operators. The laundering dies; the offline mode does not.
+#
+# GENUINELY OFFLINE STAYS USABLE: tool absent → no refusal → an honest SKIP is
+# still attestable and the gate is still passable. That is the whole point of
+# the attest-on-skip design and BL-113 does not touch it.
+
+# _cpg_phase3_scanner_tool <scanner> — echo the single binary whose presence on
+# PATH makes the scanner LOCALLY RUNNABLE, or "" when there is no unambiguous
+# one. Deliberately narrow (BL-113): only `semgrep-full-tree` is mapped.
+#   * semgrep is the SAST the walk caught being laundered, and its real-run path
+#     now degrades to an honest attestable SKIP when the rule registry is
+#     unreachable (`# BL-113-SEMGREP-OFFLINE`), so forcing a real run can never
+#     brick an offline operator.
+#   * `snyk`'s real-run path FAILs (not SKIPs) on an offline execution error, so
+#     forcing a real snyk run on an offline operator WOULD brick them.
+#   * `license` has no single binary (per-language tool); `threat-model` is
+#     pure-local and already runs under --offline.
+# The DRIVER-side carry-forward (defence 1) protects ALL FIVE scanners, so a
+# real FAIL from any of them is still never laundered.
+_cpg_phase3_scanner_tool() {
+  case "$1" in
+    semgrep-full-tree) echo "semgrep" ;;
+    *)                 echo "" ;;
+  esac
+}
+
+# _cpg_phase3_summary_offline <summary> — echo "yes"/"no": was this summary
+# produced by an --offline run (i.e. by the gate's own autorun)?
+_cpg_phase3_summary_offline() {
+  local v
+  v=$(grep -m1 '^- Offline:' "$1" 2>/dev/null | sed 's/^- Offline:[[:space:]]*//; s/[[:space:]]*$//' || true)
+  case "$v" in yes) echo "yes" ;; *) echo "no" ;; esac
+}
+
+# _cpg_phase3_carried_origin <summary> <scanner> — echo the origin summary of a
+# BL-113 carried-forward FAIL for <scanner>, or "".
+_cpg_phase3_carried_origin() {
+  awk -v s="$2" '$1=="CARRIED" && $2==s {v=$3} END{print v}' "$1" 2>/dev/null || true
+}
+
 # _cpg_phase3_attested <scanner>
 # 0 iff phase-state.json::phase3.attestations.<scanner> carries a non-empty
 # reason AND a non-empty sign-off. jq-absent → not-attested (conservative).
@@ -1433,15 +1503,36 @@ if [ "$current_phase" -ge 4 ]; then
   else
     p3_fail=0
     p3_unattested=0
+    p3_refused=0
     p3_detail=""
+    p3_summary_offline=$(_cpg_phase3_summary_offline "$p3_summary")
     for p3_scanner in semgrep-full-tree license snyk zap-dast threat-model; do
       p3_status=$(awk -v s="$p3_scanner" '$1=="RESULT" && $2==s {v=$3} END{print v}' "$p3_summary" 2>/dev/null || true)
       [ -n "$p3_status" ] || p3_status="MISSING"
       case "$p3_status" in
         PASS) ;;
         SKIP)
-          if _cpg_phase3_attested "$p3_scanner"; then
-            :   # attested-skip-with-signoff → acceptable
+          # BL-113-NO-LAUNDER (defence 2 — see the header block above). An
+          # offline-autorun SKIP for a scanner whose TOOL IS INSTALLED is not a
+          # result and is REFUSED, attested or not. `p3_refuse` is the whole
+          # decision: neutering the marked line below (marker intact) leaves it
+          # 0 forever, restores the laundering, and MUST turn
+          # tests/test-bl113-sast-honesty.sh::T-no-launder-dirty-tree RED.
+          # Both operands are pre-initialised on UNMARKED lines so the mutation
+          # stays syntactically valid and `set -u`-safe.
+          p3_tool=""
+          p3_refuse=0
+          p3_tool=$(_cpg_phase3_scanner_tool "$p3_scanner")
+          if [ -n "$p3_tool" ] && [ "$p3_summary_offline" = "yes" ] && command -v "$p3_tool" >/dev/null 2>&1; then
+            p3_refuse=1   # BL-113-NO-LAUNDER: locally-installed tool + offline autorun => the SKIP is not a result
+            :             # kept non-empty so excising the marked line above stays valid
+          fi
+          if [ "$p3_refuse" -eq 1 ]; then
+            p3_refused=$((p3_refused + 1))
+            p3_detail="${p3_detail}${p3_detail:+, }${p3_scanner}(offline-autorun SKIP REFUSED)"
+            echo -e "${RED}[FAIL]${NC} Phase 3→4: ${p3_scanner} — offline autorun SKIP REFUSED: the gate's own --offline autorun skipped it, but ${p3_tool} IS INSTALLED on this machine. An offline SKIP is not a clean bill of health and will NOT be accepted (attested or not). Run a REAL scan:  bash scripts/run-phase3-validation.sh   (no --offline)"
+          elif _cpg_phase3_attested "$p3_scanner"; then
+            :   # attested-skip-with-signoff → acceptable (honest no-tool/no-network SKIP)
           else
             p3_unattested=$((p3_unattested + 1))
             p3_detail="${p3_detail}${p3_detail:+, }${p3_scanner}(un-attested SKIP)"
@@ -1454,12 +1545,21 @@ if [ "$current_phase" -ge 4 ]; then
           # slip through as clean.
           p3_fail=$((p3_fail + 1))   # BL-070-FAIL-ARM: FAIL/MISSING status is gate-blocking (mutation target)
           p3_detail="${p3_detail}${p3_detail:+, }${p3_scanner}(${p3_status})"
+          # BL-113-NO-LAUNDER: if this FAIL is the driver's carry-forward of a
+          # prior REAL FAIL (defence 1), say so in words — the operator must
+          # know the scan they were about to attest away really ran and really
+          # failed, and that a FAIL is not attestable.
+          p3_carried_from=""
+          p3_carried_from=$(_cpg_phase3_carried_origin "$p3_summary" "$p3_scanner")   # BL-113-NO-LAUNDER
+          if [ -n "$p3_carried_from" ]; then
+            echo -e "${RED}[FAIL]${NC} Phase 3→4: ${p3_scanner} — [STALE — last real result: FAIL] (origin: ${p3_carried_from}). This scanner SKIPped in the latest run, but the last time it REALLY ran it FAILED, so the SKIP was refused rather than laundered. A FAIL is not attestable — fix the findings and re-run:  bash scripts/run-phase3-validation.sh   (no --offline)"
+          fi
           ;;
       esac
     done
-    if [ "$p3_fail" -gt 0 ] || [ "$p3_unattested" -gt 0 ]; then
+    if [ "$p3_fail" -gt 0 ] || [ "$p3_unattested" -gt 0 ] || [ "$p3_refused" -gt 0 ]; then
       p3_block=1
-      p3_msg="validation scans not clean: ${p3_fail} FAIL, ${p3_unattested} un-attested SKIP [${p3_detail}] — attest: bash scripts/run-phase3-validation.sh --attest <scanner> --reason \"...\", or install the tool and re-run"
+      p3_msg="validation scans not clean: ${p3_fail} FAIL, ${p3_unattested} un-attested SKIP, ${p3_refused} offline-autorun SKIP REFUSED (tool installed) [${p3_detail}] — attest: bash scripts/run-phase3-validation.sh --attest <scanner> --reason \"...\", or install the tool and re-run"
     else
       p3_ok_detail="all PASS or attested-skip; summary: $(basename "$p3_summary")"
     fi

@@ -614,6 +614,23 @@ else
 fi
 fi
 
+# BL-113 (SAST honesty — walk findings F14 + F15). test-bl113-sast-honesty.sh is a
+# BL-088-precedent AGGREGATOR: it runs the REAL init.sh and proves (F14) a fresh
+# scaffold scans CLEAN under the framework's own `semgrep --config auto`, and (F15)
+# the 3→4 gate's dirty-tree offline autorun no longer launders a REAL scanner FAIL
+# into an attestable SKIP — while a genuinely-offline project stays passable. It is
+# SUITE_SKIP_AGGREGATORS-gated (a real scaffold + a real semgrep run is heavy) and is
+# NEVER in the tests.yml unit list (it executes init.sh).
+if [ "${SUITE_SKIP_AGGREGATORS:-0}" = "1" ]; then
+  section "BL-113 SAST honesty — SKIPPED (SUITE_SKIP_AGGREGATORS=1; a real init.sh scaffold + semgrep, runs standalone / full-suite)"
+else
+if bash "$SCRIPT_DIR/tests/test-bl113-sast-honesty.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl113-sast-honesty.sh"
+else
+  fail "tests/test-bl113-sast-honesty.sh FAILED (run for details)"
+fi
+fi
+
 # Agent-ergonomics onboarding: tests/test-run-lints.sh — behavior suite for
 # scripts/run-lints.sh, the canonical local lint runner (runs every
 # scripts/lint-*.sh EXCEPT the parametrized lint-uat-scenarios.sh). Its
