@@ -111,6 +111,12 @@ BACKFILL_ONLY=false
 #     paths too (same semantics as CI / SOIF_NONINTERACTIVE): with it, hooks need
 #     --install-hooks and doc applies need --apply-doc-updates, tty or no tty.
 SYNC_FRAMEWORK=false
+# BL-109 S3: --plan stages a read-only framework UPDATE PLAN into a dated run
+# folder under docs/updates/ (design v1.1 §2-L2). It shares --sync-framework's
+# guard preconditions (guard_not_in_framework + source-check + jq) but writes
+# ONLY inside the run folder (invariant I1); it applies NOTHING and prompts for
+# NOTHING (consent + apply are S4). Marker # BL-109-PLAN on the dispatch.
+PLAN=false
 DRY_RUN=false
 INSTALL_HOOKS=false
 APPLY_DOC_UPDATES=""
@@ -253,6 +259,8 @@ while [ $# -gt 0 ]; do
       BACKFILL_ONLY=true; shift; continue ;;
     --sync-framework)
       SYNC_FRAMEWORK=true; shift; continue ;;
+    --plan)
+      PLAN=true; shift; continue ;;
     --dry-run)
       DRY_RUN=true; shift; continue ;;
     --install-hooks)
@@ -386,6 +394,22 @@ else
                   "--confirm-doc-overwrite is the destructive-step consent for '--apply-doc-updates overwrite' during a framework sync; it has no meaning on the tier-change path." \
                   "add --sync-framework --apply-doc-updates overwrite, or drop --confirm-doc-overwrite." \
                   "sync_framework=$SYNC_FRAMEWORK confirm_doc_overwrite=$CONFIRM_DOC_OVERWRITE"
+    exit 1
+  fi
+fi
+
+# BL-109 S3: --plan is a same-tier, READ-ONLY staging mode. It is mutually
+# exclusive with tier changes, --backfill-only, and --sync-framework (which is the
+# apply-side fast path). The sync-only modifiers (--dry-run/--install-hooks/doc
+# flags) have no meaning for --plan — it is inherently a preview and writes only
+# its run folder.
+if [ "$PLAN" = true ]; then
+  if [ -n "$TARGET_TRACK" ] || [ -n "$TARGET_DEPLOYMENT" ] || [ "$_to_count" -gt 0 ] \
+     || [ "$BACKFILL_ONLY" = true ] || [ "$SYNC_FRAMEWORK" = true ]; then
+    _upgrade_fail "--plan cannot be combined with a tier change, --backfill-only, or --sync-framework" \
+                  "--plan stages a read-only framework update plan (docs/updates/<run>/); it must run on its own." \
+                  "run --plan alone, review the plan, then apply separately." \
+                  "track='$TARGET_TRACK' deployment='$TARGET_DEPLOYMENT' to_count=$_to_count backfill_only=$BACKFILL_ONLY sync_framework=$SYNC_FRAMEWORK"
     exit 1
   fi
 fi
@@ -630,7 +654,11 @@ _run_idempotent_backfill() {
 # ordering, exactly where the subshell used to execute. The --sync-framework path
 # SKIPS it here and calls it later (after its guards + source-check) so a refused
 # self-copy sync mutates nothing.
-if [ "$SYNC_FRAMEWORK" != true ]; then
+#
+# BL-109 S3: --plan ALSO skips it (and never calls it) — --plan is read-only and
+# must write nothing outside its run folder (invariant I1). The backfill mutates
+# the manifest / host config / .claude/skills/, so it cannot run on the plan path.
+if [ "$SYNC_FRAMEWORK" != true ] && [ "$PLAN" != true ]; then
   _run_idempotent_backfill
 fi
 
@@ -1264,6 +1292,94 @@ if [ "$SYNC_FRAMEWORK" = true ]; then
   _run_sync_framework
 fi
 
+# ================================================================
+# BL-109 SLICE-S3 — read-only staging (--plan)
+# ================================================================
+# Shares --sync-framework's guard preconditions (guard_not_in_framework +
+# source-check + jq run FIRST), then hands off to the plan-staging engine, which
+# writes ONLY inside docs/updates/<run>/ (invariant I1). It applies nothing and
+# prompts for nothing.
+#
+# SENTINEL-UNDER-PLAN (declared decision — the CONSERVATIVE reading). Invariant I8
+# freezes all APPLY under a pending-approval sentinel; the design is silent on
+# --plan. The conservative reading of an ambiguous safety rule is to EXTEND it: a
+# pending user decision freezes framework operations, --plan included. So --plan
+# inherits the SAME block as sync/apply via the shared `_bl015_sentinel_guard`
+# fired on the non-backfill path ABOVE (before any mutation, before this dispatch).
+# We do NOT weaken that guard for --plan. A sentinel-blocked --plan exits non-zero
+# and creates NO run folder (tests/test-plan-staging.sh::t_plan_blocked_under_sentinel).
+_run_plan() {
+  guard_not_in_framework || exit 1
+
+  if [ -z "$PROJECT_ROOT" ]; then
+    print_fail "No Solo Orchestrator project found."
+    print_info "cd into your project (where .claude/phase-state.json lives), then run the FRAMEWORK clone's copy of this script with --plan."
+    exit 1
+  fi
+  if ! command -v jq &>/dev/null; then
+    print_fail "jq is required but not installed."; exit 1
+  fi
+
+  # SOURCE-CHECK — the running script MUST be the framework copy, not the project's
+  # own vendored scripts/ (staging reads templates + git history from the framework
+  # clone). Refuse before creating any run folder.
+  #
+  # NB: the `-ef` operand order below is DELIBERATELY the reverse of
+  # _run_sync_framework's identical self-copy check. `-ef` is symmetric, so this is
+  # the SAME test — but the guard-coverage registry (source-check/self-copy) pins the
+  # sync line by EXACT string, and a byte-identical duplicate here would make its
+  # neuter mis-target. Keep these two lines textually distinct.
+  if [ "$PROJECT_ROOT/scripts" -ef "$SCRIPT_DIR" ]; then
+    print_fail "--plan must run from the FRAMEWORK checkout, not the project's own scripts/ copy."
+    print_info "From inside your project, run the framework clone's copy instead:"
+    print_info "  cd \"$PROJECT_ROOT\" && bash /path/to/solo-orchestrator/scripts/upgrade-project.sh --plan"
+    exit 1
+  fi
+  if [ "$ORCHESTRATOR_ROOT" -ef "$PROJECT_ROOT" ]; then
+    print_fail "--plan target resolves to the framework repo itself — nothing to plan."
+    exit 1
+  fi
+
+  # NB: the pending-approval sentinel is enforced EARLIER (the shared
+  # _bl015_sentinel_guard on the non-backfill path, before any mutation). By the
+  # time control reaches here, no sentinel is pending — the conservative I8 reading.
+
+  # Shared libs, sourced framework-side (source-check passed).
+  # shellcheck source=/dev/null
+  . "$SCRIPT_DIR/lib/scaffold-shipped-set.sh"
+  # shellcheck source=/dev/null
+  . "$SCRIPT_DIR/lib/hook-templates.sh"
+  # shellcheck source=/dev/null
+  . "$SCRIPT_DIR/lib/currency-manifest.sh"
+  # shellcheck source=/dev/null
+  . "$SCRIPT_DIR/lib/freshness-detect.sh"
+  # shellcheck source=/dev/null
+  . "$SCRIPT_DIR/lib/render-project-docs.sh"
+  # shellcheck source=/dev/null
+  . "$SCRIPT_DIR/lib/plan-staging.sh"
+
+  local cdf_home="${CDF_HOME:-$HOME/.claude-dev-framework}"
+  echo ""
+  print_step "Staging a framework update plan (read-only — writes only under docs/updates/)"
+  local rundir=""
+  # soif_plan_run is written fail-TOLERANT (like the S2 detector) and its header
+  # states it assumes the caller does NOT run under errexit: many of its steps exit
+  # non-zero BY DESIGN (`diff` returns 1 whenever files differ — the normal case;
+  # `git merge-file` returns the conflict count). This script runs `set -euo
+  # pipefail`, so run the plan with errexit OFF inside the substitution subshell —
+  # the trailing `|| { … }` still catches a genuine precondition failure (exit 1).
+  rundir="$(set +e; soif_plan_run "$PROJECT_ROOT" "$ORCHESTRATOR_ROOT" "$ORCHESTRATOR_ROOT/init.sh" "$cdf_home")" \
+    || { print_fail "--plan failed to stage a run folder (see the message above)."; exit 1; }
+  echo ""
+  print_ok "Plan staged: $rundir"
+  print_info "Review $(basename "$rundir")/UPDATE-PLAN.md, tick the items you want, then apply (S4)."
+  exit 0
+}
+
+if [ "$PLAN" = true ]; then
+  _run_plan     # BL-109-PLAN
+fi
+
 # --backfill-only short-circuits here — no track / deployment / POC
 # transition follows.
 if [ "$BACKFILL_ONLY" = true ]; then
@@ -1311,6 +1427,17 @@ if [ "$SHOW_HELP" = true ]; then
   echo "                          channel (hooks need --install-hooks; docs need --apply-doc-updates)."
   echo "  --validate-only         Parse + validate flags, print resolved JSON to stdout, exit 0."
   echo "                          No filesystem reads of project state; no mutation."
+  echo ""
+  echo -e "${BOLD}Read-only staging (BL-109 Currency System):${NC}"
+  echo "  --plan                  Stage a framework UPDATE PLAN into a dated run folder under"
+  echo "                          docs/updates/<YYYY-MM-DD>_<fwsha>_<hhmmss>-<pid>/ for review."
+  echo "                          Read-only: writes ONLY inside the run folder, applies nothing,"
+  echo "                          prompts for nothing. Derives per-item verbs (add/update/retire/"
+  echo "                          rename), diffs, mechanical changelog roll-ups, A1 three-way"
+  echo "                          candidates (CLAUDE.md/PROJECT_INTAKE.md) and A2 structural diffs"
+  echo "                          (PRODUCT_MANIFESTO.md/PROJECT_BIBLE.md). Run it from inside your"
+  echo "                          project via the framework clone's copy, exactly like --sync-framework."
+  echo "                          Review UPDATE-PLAN.md, tick items, then apply (a later slice)."
   echo ""
   echo -e "${BOLD}Same-tier framework sync (BL-099):${NC}"
   echo "  --sync-framework        Refresh vendored gate scripts, helper libs, hooks, and framework"

@@ -166,14 +166,21 @@ _soif_currency_emit_file_row() {
 }
 
 # _soif_currency_mt_files_tsv <init_file> <framework_dir> <project_dir>
-#   Emits M (scripts + skills) and T (reference docs) rows, MECHANICALLY derived.
-#   `local x="$(...)"` captures are set-e-safe (local returns 0).
+#   Emits M (scripts + skills) and T (reference docs + bulk project templates)
+#   rows, MECHANICALLY derived. `local x="$(...)"` captures are set-e-safe (local
+#   returns 0).
+#
+#   BL-109 S3, carried obligation 2: the bulk `templates/generated/*.tmpl`
+#   skeletons init.sh ships verbatim are Class T (soif_parse_shipped_templates),
+#   joining the docs/reference verbatim set. Render-source templates (claude-md,
+#   project-bible, product-manifesto) are excluded there and stay renderBases-only.
 _soif_currency_mt_files_tsv() {
   local init_file="$1" fw_dir="$2" proj_dir="$3"
-  local scripts_list skills_list docs_list rel
+  local scripts_list skills_list docs_list templates_list rel
   scripts_list="$(soif_parse_shipped_scripts "$init_file" "$fw_dir/scripts" 2>/dev/null)"
   skills_list="$(soif_parse_shipped_skills "$init_file" "$fw_dir/templates/generated/skills" 2>/dev/null)"
   docs_list="$(soif_parse_shipped_reference_docs "$init_file" 2>/dev/null)"
+  templates_list="$(soif_parse_shipped_templates "$init_file" 2>/dev/null)"
   printf '%s\n' "$scripts_list" | while IFS= read -r rel; do
     if [ -n "$rel" ]; then _soif_currency_emit_file_row "$proj_dir" "$rel" M; fi
   done
@@ -181,6 +188,9 @@ _soif_currency_mt_files_tsv() {
     if [ -n "$rel" ]; then _soif_currency_emit_file_row "$proj_dir" "$rel" M; fi
   done
   printf '%s\n' "$docs_list" | while IFS= read -r rel; do
+    if [ -n "$rel" ]; then _soif_currency_emit_file_row "$proj_dir" "$rel" T; fi
+  done
+  printf '%s\n' "$templates_list" | while IFS= read -r rel; do
     if [ -n "$rel" ]; then _soif_currency_emit_file_row "$proj_dir" "$rel" T; fi
   done
 }

@@ -119,6 +119,10 @@ _soif_fresh_fw_source() {
   case "$rel" in
     scripts/*)
       printf '%s/%s' "$fw" "$rel" ;;
+    templates/generated/*)
+      # BL-109 S3: the bulk Class-T project templates (soif_parse_shipped_templates)
+      # ship byte-for-byte from the same relative path in the framework tree.
+      printf '%s/%s' "$fw" "$rel" ;;
     .claude/skills/*)
       name="${rel#.claude/skills/}"
       printf '%s/templates/generated/skills/%s' "$fw" "$name" ;;
@@ -212,6 +216,36 @@ _soif_fresh_check_framework() {
       [ -n "$rel" ] || continue
       src="$(_soif_fresh_fw_source "$fw" "$init" "$rel")"
       [ -n "$src" ] || continue                # unmappable class — leave to other checks
+
+      # (b0) MISSING LOCALLY (# BL-109-MISSING) — the manifest tracks it, but it is GONE
+      # from the project tree (an operator deleted it). This arm exists because the drift
+      # comparison below is MANIFEST-sha vs UPSTREAM-sha and never looked at the project
+      # file at all: a deleted-but-still-tracked gate script therefore surfaced as ordinary
+      # framework-drift with verb `update`, whose diff has no base — an EMPTY payload — and
+      # S3's fail-closed I11 payload guard then aborted the ENTIRE plan, naming the payload
+      # and the verb rather than the true cause, and taking every unrelated item down with
+      # it. The condition is now detected explicitly and named for what it is.
+      if [ ! -f "$proj/$rel" ]; then
+        if [ -f "$src" ]; then
+          # Still shipped upstream → OFFER IT BACK. A `add` verb, whose diff is a real
+          # /dev/null → upstream addition, so the I11 payload contract holds by
+          # construction. A deleted gate script is exactly the drift the operator most
+          # needs offered back, so refusing here would be the wrong kind of safe.
+          if _soif_fresh_is_enforcement_path "$rel"; then tier=enforcement; else tier=informational; fi
+          _soif_fresh_emit "missing:$rel" missing "$tier" "$rel" add "$(_soif_fresh_sha "$src")" \
+            "tracked file is missing from the project: $rel is tracked but not on disk (a sync would restore it from the framework)"
+        else
+          # Gone from BOTH sides: nothing to restore, and nothing on disk to retire. The
+          # manifest entry is simply stale. Emitting an `orphan`/retire here would promise
+          # to delete a file that is already gone — and its retire diff would be empty,
+          # which is the same hollow abort one verb over. The plan renders this as a
+          # NOTICE, never a checkbox (verb `untrack` = no filesystem action).
+          _soif_fresh_emit "missing:$rel" missing informational "$rel" untrack "gone@$head" \
+            "tracked file is missing from the project AND no longer exists upstream: $rel — nothing to apply; the manifest entry is stale (a sync would drop it)"
+        fi
+        continue
+      fi
+
       if [ ! -f "$src" ]; then
         # (c) ORPHAN — the manifest ships it but upstream deleted the source.
         _soif_fresh_emit "orphan:$rel" orphan enforcement "$rel" retire "gone@$head" \

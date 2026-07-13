@@ -200,6 +200,49 @@ else
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
+# BL-109 S3 review round 3 (minor 1). The drift arm compared the MANIFEST sha to the
+# UPSTREAM sha and never checked that the project file still EXISTS, so a tracked gate
+# script the operator had DELETED locally surfaced as ordinary framework-drift with verb
+# `update` — a diff with no base. Downstream (S3 --plan) that empty payload tripped the
+# fail-closed I11 guard and aborted the WHOLE plan, blaming the payload and the verb
+# instead of the missing file. The condition is now detected and NAMED (# BL-109-MISSING):
+# still shipped upstream → offered back (verb `add`, a real /dev/null → upstream diff);
+# gone upstream too → a stale manifest entry with nothing to apply (verb `untrack`).
+echo "=== tracked file MISSING from the project → named, not misdiagnosed as drift (BL-109-MISSING) ==="
+D="$(newdir)"; build_fw "$D/fw"; build_proj_current "$D/proj" "$FW" "$PIN"
+# drift the gate script upstream too — the pre-fix code reported THAT and hid the deletion
+printf 'echo gate v2\n' > "$FW/scripts/pre-commit-gate.sh"
+git -C "$FW" add -A >/dev/null 2>&1; git -C "$FW" commit -qm "gate v2" >/dev/null 2>&1
+rm -f "$D/proj/scripts/pre-commit-gate.sh"          # tracked GATE script, deleted locally
+run "$D/proj"
+mach="$(printf '%s' "$OUT" | sed -n '/```soif-freshness/,/```/p' | sed '1d;$d')"
+mtier="$(printf '%s' "$mach" | jq -r '.items[] | select(.id=="missing:scripts/pre-commit-gate.sh") | .tier' 2>/dev/null)"
+mverb="$(printf '%s' "$mach" | jq -r '.items[] | select(.id=="missing:scripts/pre-commit-gate.sh") | .verb' 2>/dev/null)"
+mmsg="$(printf '%s' "$mach" | jq -r '.items[] | select(.id=="missing:scripts/pre-commit-gate.sh") | .message' 2>/dev/null)"
+ndrift="$(printf '%s' "$mach" | jq -r '[.items[] | select(.id=="fw-drift:scripts/pre-commit-gate.sh")] | length' 2>/dev/null)"
+if [ "$mtier" = "enforcement" ] && [ "$mverb" = "add" ] && [ "$ndrift" = "0" ] \
+   && printf '%s' "$mmsg" | grep -q 'tracked file is missing from the project'; then
+  pass "a locally-deleted tracked GATE script is reported as MISSING (enforcement, verb=add, restorable) — never as framework-drift"
+else
+  fail_ "missing tracked file" "tier=[$mtier] verb=[$mverb] fw-drift-rows=[$ndrift] msg=[$mmsg]"
+fi
+
+# …and when it is gone UPSTREAM too, there is nothing to restore and nothing to retire.
+D="$(newdir)"; build_fw "$D/fw"; build_proj_current "$D/proj" "$FW" "$PIN"
+git -C "$FW" rm -q "scripts/validate.sh" >/dev/null 2>&1; rm -f "$FW/scripts/validate.sh"
+git -C "$FW" commit -qm "delete validate" >/dev/null 2>&1
+rm -f "$D/proj/scripts/validate.sh"                # gone from BOTH sides
+run "$D/proj"
+mach="$(printf '%s' "$OUT" | sed -n '/```soif-freshness/,/```/p' | sed '1d;$d')"
+gverb="$(printf '%s' "$mach" | jq -r '.items[] | select(.id=="missing:scripts/validate.sh") | .verb' 2>/dev/null)"
+norph="$(printf '%s' "$mach" | jq -r '[.items[] | select(.id=="orphan:scripts/validate.sh")] | length' 2>/dev/null)"
+if [ "$gverb" = "untrack" ] && [ "$norph" = "0" ]; then
+  pass "a tracked file gone from BOTH sides is a stale manifest entry (verb=untrack) — not a retire of a file that is already gone"
+else
+  fail_ "missing both sides" "verb=[$gverb] orphan-rows=[$norph] out=[$OUT]"
+fi
+
+# ════════════════════════════════════════════════════════════════════════════
 echo "=== hook drift (stale managed block) → enforcement ==="
 D="$(newdir)"; build_fw "$D/fw"; build_proj_current "$D/proj" "$FW" "$PIN"
 # Corrupt the installed commit-msg managed block so it differs from the template.

@@ -607,6 +607,31 @@ else
 fi
 fi
 
+# BL-109 S3 (Currency System, Layer 2 — Staging / --plan). test-plan-staging.sh is
+# the lib-level unit test (run-folder shape, exclusive mkdir, verbs incl.
+# retire/rename linkage, checkbox grammar pin, base-sha, shallow-clone roll-up
+# fallback, pin-absent degradation, A2 structural-only, A1 candidate placeholder
+# scans, the I1 write fence, the # BL-109-PLAN dispatch) — it never runs init.sh, so
+# it is ALSO in the tests.yml unit fast lane. test-plan-birth.sh is the
+# BL-088-precedent aggregator: it scaffolds a REAL project and runs the REAL --plan
+# against a scratch framework clone (I1 whole-tree fingerprint, real A1 candidate
+# from a genuinely-drifted template, live-tree scan, day-after freshness coherence).
+# That aggregator is SUITE_SKIP_AGGREGATORS-gated and is NEVER in the unit list.
+if bash "$SCRIPT_DIR/tests/test-plan-staging.sh" >/dev/null 2>&1; then
+  pass "tests/test-plan-staging.sh"
+else
+  fail "tests/test-plan-staging.sh FAILED (run for details)"
+fi
+if [ "${SUITE_SKIP_AGGREGATORS:-0}" = "1" ]; then
+  section "BL-109 plan-staging birth fidelity — SKIPPED (SUITE_SKIP_AGGREGATORS=1; a real init.sh scaffold + real --plan, runs standalone / full-suite)"
+else
+if bash "$SCRIPT_DIR/tests/test-plan-birth.sh" >/dev/null 2>&1; then
+  pass "tests/test-plan-birth.sh"
+else
+  fail "tests/test-plan-birth.sh FAILED (run for details)"
+fi
+fi
+
 # BL-113 (SAST honesty — walk findings F14 + F15). test-bl113-sast-honesty.sh is a
 # BL-088-precedent AGGREGATOR: it runs the REAL init.sh and proves (F14) a fresh
 # scaffold scans CLEAN under the framework's own `semgrep --config auto`, and (F15)
