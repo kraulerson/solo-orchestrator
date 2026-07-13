@@ -12,9 +12,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 (v4.3.1)
 
-      - uses: dtolnay/rust-toolchain@stable
+      # SHA-pinned (BL-113): the ref name no longer selects the toolchain, so
+      # the toolchain is now passed explicitly.
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable branch head 2026-06-30
+        with:
+          toolchain: stable
 
       - name: Build
         run: cargo build --release

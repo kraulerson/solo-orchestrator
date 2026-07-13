@@ -60,8 +60,18 @@ version_gte() {
 
   if [ "$a" = "$b" ]; then return 0; fi
 
-  local IFS='.'
-  local -a av=($a) bv=($b)
+  # BL-113: split on '.' WITHOUT setting IFS for the whole function body.
+  # `local IFS='.'` is flagged by semgrep `bash.lang.security.ifs-tampering`
+  # (a function-scoped IFS still changes word-splitting for every unquoted
+  # expansion below it, including any command this function later calls), and
+  # a fresh scaffold must pass the framework's own Phase-3 SAST. The
+  # command-prefix form scopes IFS to the single `read` builtin — exactly the
+  # remediation the rule recommends (`IFS="," read -a my_array`). `read`
+  # returns 1 at EOF-without-delimiter, so `|| :` keeps `set -e` happy when a
+  # version string is empty.
+  local -a av=() bv=()
+  IFS='.' read -r -a av <<< "$a" || :
+  IFS='.' read -r -a bv <<< "$b" || :
   local max=${#av[@]}
   [ ${#bv[@]} -gt $max ] && max=${#bv[@]}
 

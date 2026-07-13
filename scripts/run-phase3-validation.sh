@@ -301,6 +301,88 @@ _p3_actor() {
   fi
 }
 
+# ═══════════════════════════════════════════════════════════════════════
+# BL-113 — NO LAUNDERING: a real FAIL is never downgraded to a fresh SKIP.
+# ═══════════════════════════════════════════════════════════════════════
+# THE DEFECT (walk finding F15). The 3→4 gate autoruns THIS driver with
+# `--offline` whenever the working tree is dirty — the NORMAL state while the
+# operator is authoring Phase-3 artifacts. `--offline` SKIPs every tool-backed
+# scanner. So a scanner whose last REAL result was a FAIL (walk finding F14:
+# semgrep FAILed on a fresh scaffold) was silently rewritten to SKIP, the
+# operator attested the SKIP in good faith ("scanner unavailable"), and the
+# gate passed. A FAIL is NOT attestable; a SKIP is. The offline autorun was
+# the laundry.
+#
+# THE INVARIANT (marker `# BL-113-NO-LAUNDER`): a SKIP must never overwrite a
+# prior REAL verdict of FAIL. When a scanner SKIPs, this driver looks back at
+# the most recent summary that recorded a REAL (non-SKIP) verdict for that
+# scanner. If that verdict was FAIL, the SKIP is REFUSED: the status is
+# recorded as FAIL with a `[STALE - last real result: FAIL]` note plus a
+# machine-readable `CARRIED <scanner> <origin>` line, so the gate blocks and
+# the operator is told, in words, that the scan they are about to attest away
+# was really run and really failed.
+#
+# WHY NOT "just run semgrep under the offline autorun" (option (i))? VERIFIED
+# FALSE PREMISE: `semgrep --config auto` is NOT local-only. It hard-fetches its
+# ruleset from https://semgrep.dev/c/auto and has NO local cache fallback — with
+# the network blackholed it spends ~97s retrying, exits rc=2, and writes no
+# report. Running it from the gate's autorun would therefore (a) make the gate
+# non-hermetic and network-dependent, (b) add minutes to every dirty-tree gate
+# run, and (c) brick genuinely-offline operators. The autorun stays `--offline`;
+# the LAUNDERING is what dies, not the offline mode.
+#
+# OFFLINE MUST STAY USABLE. An honest "no tool / no network" SKIP remains
+# attestable (that is what makes the framework work on a plane). Two supports:
+#   * `_p3_scan_semgrep` now reports a registry-unreachable run as an honest
+#     SKIP rather than a FAIL (see `# BL-113-SEMGREP-OFFLINE`), so an operator
+#     with semgrep installed but no network can still produce a real, honest,
+#     attestable non-result by running the driver WITHOUT --offline.
+#   * The carry-forward below only fires when a REAL FAIL was actually observed.
+#
+# _p3_last_real_verdict <scanner> — echo "<PASS|FAIL> <origin-summary>" for the
+# most recent summary in RESULTS_DIR that recorded a REAL (non-SKIP) verdict for
+# <scanner>; echo "" when none exists. `CARRIED` provenance is preserved so the
+# origin of a carried FAIL does not drift forward each run. Never returns
+# non-zero (the verdict is the echoed string).
+_p3_last_real_verdict() {
+  local name="$1" f st origin
+  [ -d "$RESULTS_DIR" ] || { echo ""; return 0; }
+  for f in $(ls -1 "$RESULTS_DIR"/summary-*.md 2>/dev/null | sort -r); do
+    [ -f "$f" ] || continue
+    st=$(awk -v s="$name" '$1=="RESULT" && $2==s {v=$3} END{print v}' "$f" 2>/dev/null || true)
+    case "$st" in
+      PASS|FAIL)
+        origin=$(awk -v s="$name" '$1=="CARRIED" && $2==s {v=$3} END{print v}' "$f" 2>/dev/null || true)
+        [ -n "$origin" ] || origin=$(basename "$f")
+        echo "${st} ${origin}"
+        return 0
+        ;;
+    esac
+  done
+  echo ""
+  return 0
+}
+
+# _p3_no_launder <scanner> — THE load-bearing BL-113 decision. Reads the just-
+# computed P3_STATUS/P3_NOTE; if this run produced a SKIP but the scanner's most
+# recent REAL verdict was a FAIL, promotes the SKIP back to FAIL and records the
+# carry-forward origin in P3_CARRIED. Idempotent, and a no-op for PASS/FAIL.
+P3_CARRIED=""
+_p3_no_launder() {
+  local name="$1" lrv lrv_status lrv_origin
+  P3_CARRIED=""
+  [ "$P3_STATUS" = "SKIP" ] || return 0
+  lrv=$(_p3_last_real_verdict "$name")
+  [ -n "$lrv" ] || return 0
+  lrv_status="${lrv%% *}"
+  lrv_origin="${lrv#* }"
+  [ "$lrv_status" = "FAIL" ] || return 0
+  P3_CARRIED="$lrv_origin"
+  P3_STATUS="FAIL"
+  P3_NOTE="[STALE - last real result: FAIL] SKIP REFUSED (was: ${P3_NOTE}) - the last REAL run of this scanner (${lrv_origin}) FAILED; an offline/unavailable SKIP does not clear it. Re-run for a real verdict: bash scripts/run-phase3-validation.sh (no --offline)"
+  return 0
+}
+
 # _p3_is_attested <scanner>
 # Returns 0 iff phase-state.json::phase3.attestations.<scanner> carries a
 # non-empty reason AND a non-empty sign-off (the two-part attestation the
@@ -386,7 +468,17 @@ P3_STATUS=""; P3_NOTE=""; P3_ARCHIVE="-"
 _p3_scan_semgrep() {
   local archive="$1"
   if [ -n "$OFFLINE" ]; then
-    P3_STATUS="SKIP"; P3_NOTE="offline mode (--offline / SOLO_PHASE3_OFFLINE) — semgrep not run"
+    # BL-113: an offline SKIP must DISCLOSE whether the tool is sitting right
+    # there on PATH. "semgrep not run because the gate chose --offline, and
+    # semgrep IS installed" is a very different thing to attest than "semgrep
+    # is not available" — the gate refuses the former (# BL-113-NO-LAUNDER in
+    # check-phase-gate.sh) precisely because the operator cannot honestly sign
+    # "scanner unavailable" for a scanner that is installed.
+    if command -v semgrep >/dev/null 2>&1; then
+      P3_STATUS="SKIP"; P3_NOTE="offline mode (--offline / SOLO_PHASE3_OFFLINE) — semgrep not run, but semgrep IS INSTALLED locally: this SKIP is an artifact of the offline autorun, NOT a clean bill of health"
+    else
+      P3_STATUS="SKIP"; P3_NOTE="offline mode (--offline / SOLO_PHASE3_OFFLINE) — semgrep not run (semgrep is also not on PATH)"
+    fi
     return
   fi
   if ! command -v semgrep >/dev/null 2>&1; then
@@ -394,14 +486,31 @@ _p3_scan_semgrep() {
     return
   fi
   # REAL full-tree scan (distinct from pre-commit-gate.sh's staged-only scan).
-  local rc=0
-  semgrep --config auto --json --output "$archive" . >/dev/null 2>&1 || rc=$?
+  local rc=0 errlog
+  errlog=$(mktemp "${TMPDIR:-/tmp}/p3-semgrep-err-XXXXXX") || errlog="/dev/null"
+  semgrep --config auto --json --output "$archive" . >/dev/null 2>"$errlog" || rc=$?
   P3_ARCHIVE="$archive"
   # semgrep exit: 0 = clean, 1 = findings, >=2 = execution error.
   if [ "$rc" -ge 2 ] || [ ! -f "$archive" ]; then
+    # BL-113-SEMGREP-OFFLINE. `semgrep --config auto` is NOT local-only: it
+    # fetches its ruleset from semgrep.dev and has no local-cache fallback, so
+    # with no network it exits rc=2 having written NO report. Reporting that as
+    # a FAIL would BRICK a genuinely-offline operator (a FAIL is not
+    # attestable). A registry/network failure is an honest "could not look" —
+    # i.e. a SKIP, attestable with a reason + sign-off, exactly like an absent
+    # tool. A non-network execution error is still a real FAIL.
+    if grep -qiE 'semgrep\.dev|max retries|proxyerror|connectionerror|nameresolution|failed to establish a new connection|temporary failure in name resolution|network is unreachable|failed to resolve' "$errlog" 2>/dev/null; then
+      P3_STATUS="SKIP"
+      P3_NOTE="semgrep could not reach its rule registry (semgrep.dev) — rc=$rc, no report produced. \`--config auto\` requires network; this is a no-network SKIP, not a clean result"
+      P3_ARCHIVE="-"
+      rm -f "$errlog" 2>/dev/null || true
+      return
+    fi
     P3_STATUS="FAIL"; P3_NOTE="semgrep execution error (rc=$rc)"
+    rm -f "$errlog" 2>/dev/null || true
     return
   fi
+  rm -f "$errlog" 2>/dev/null || true
   local findings=0
   if command -v jq >/dev/null 2>&1; then
     findings=$(jq '(.results | length) // 0' "$archive" 2>/dev/null || echo 0)
@@ -1250,13 +1359,32 @@ echo -e "${BOLD}Phase 3 validation scans${NC}"
 
 # Accumulators.
 n_pass=0; n_skip_attested=0; n_skip_unattested=0; n_fail=0
+n_carried=0
 result_lines=""   # machine-readable "RESULT <name> <STATUS>" block
+carried_lines=""  # machine-readable "CARRIED <name> <origin-summary>" block
 table_rows=""     # human Markdown table body
 
 for s in $P3_SCANNERS; do
   _p3_run_scanner "$s" "$TS"
+
+  # BL-113-NO-LAUNDER — THE decision. A SKIP produced by this run must never
+  # overwrite a prior REAL FAIL for the same scanner (see the header block).
+  # Neutering the two marked lines below (marker intact) makes the promotion a
+  # no-op — a fresh attestable SKIP survives — and MUST turn
+  # tests/test-bl113-sast-honesty.sh::T-no-launder-dirty-tree RED.
+  # (`carried_origin` is pre-initialised on the UNMARKED line above so the
+  # mutation stays `set -u`-safe.)
+  carried_origin=""
+  _p3_no_launder "$s"                                     # BL-113-NO-LAUNDER
+  carried_origin="$P3_CARRIED"                            # BL-113-NO-LAUNDER
+
   status="$P3_STATUS"; note="$P3_NOTE"; archive="$P3_ARCHIVE"
   attested_col="-"
+  if [ -n "$carried_origin" ]; then
+    n_carried=$((n_carried + 1))
+    carried_lines="${carried_lines}CARRIED ${s} ${carried_origin}
+"
+  fi
 
   case "$status" in
     PASS)
@@ -1306,6 +1434,7 @@ fi
   echo "- Offline: $([ -n "$OFFLINE" ] && echo yes || echo no)"
   echo "- Scanners: $(echo $P3_SCANNERS | wc -w | tr -d ' ')"
   echo "- PASS: ${n_pass}  SKIP(attested): ${n_skip_attested}  SKIP(un-attested): ${n_skip_unattested}  FAIL: ${n_fail}"
+  echo "- SKIP-refused (BL-113 carry-forward of a prior REAL FAIL): ${n_carried}"
   echo "- Overall: ${overall}"
   echo ""
   echo "## Results"
@@ -1318,6 +1447,7 @@ fi
   echo ""
   echo '```'
   printf '%s' "$result_lines"
+  printf '%s' "$carried_lines"
   echo '```'
   echo ""
   echo "## Attest a skipped scanner"
@@ -1340,4 +1470,11 @@ fi
 echo -e "${YELLOW}[ACTION]${NC} $n_skip_unattested un-attested SKIP(s) / $n_fail FAIL(s) block Phase 3→4."
 echo "  Attest a skip:  bash scripts/run-phase3-validation.sh --attest <scanner> --reason \"...\""
 echo "  Or install the tool and re-run (drop --offline) to get a real result."
+if [ "$n_carried" -gt 0 ]; then
+  echo ""
+  echo -e "${RED}[BL-113]${NC} $n_carried scanner(s) SKIPped in this run but FAILED the last time they REALLY ran."
+  echo "  A real FAIL is NOT laundered into an attestable SKIP: those are recorded FAIL."
+  echo "  A FAIL is not attestable. Fix the findings, then re-run a REAL scan:"
+  echo "      bash scripts/run-phase3-validation.sh          (no --offline)"
+fi
 exit 1

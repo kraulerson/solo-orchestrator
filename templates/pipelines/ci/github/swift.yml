@@ -15,7 +15,7 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 (v4.3.1)
 
       - name: Select Xcode version
         run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
@@ -33,7 +33,7 @@ jobs:
         run: swift test
 
       - name: Lint (SwiftLint)
-        uses: realm/SwiftLint@v0.57.0
+        uses: realm/SwiftLint@168fb98ed1f3e343d703ecceaf518b6cf565207b # 0.57.0
         with:
           strict: true
 

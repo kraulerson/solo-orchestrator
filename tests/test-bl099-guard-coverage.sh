@@ -57,12 +57,11 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SUITE="$REPO_ROOT/tests/test-upgrade-sync-framework.sh"
 SUITE_BL112="$REPO_ROOT/tests/test-bl112-commit-enforcement.sh"
 
-# Per-row TARGET: which file in the mutant tree gets neutered, and which suite
-# kills it. `upgrade` is the default (every pre-BL-112 row). PRISTINE/MUT are the
-# globals the neuter primitives operate on — _select_target rebinds them.
+# Per-row TARGET: which file in the mutant tree gets neutered, and which suite kills
+# it. PRISTINE/MUT are the globals the neuter primitives operate on; `use_target`
+# (defined once MUTANT_TREE exists) rebinds them together with GUARD_RUNNER.
 PRISTINE=""
 MUT=""
-TARGET_KIND="upgrade"
 
 PASSED=0
 FAILED=0
@@ -99,24 +98,34 @@ chmod +x "$MUTANT_TREE/init.sh"
 cleanup() { rm -rf "$ROOT_TMP" 2>/dev/null || true; }
 trap cleanup EXIT
 
-# _select_target <kind> — rebind PRISTINE/MUT (what the neuter primitives edit)
-# and TARGET_KIND (which suite _run_killing drives).
-_select_target() {
-  TARGET_KIND="$1"
-  case "$1" in
-    upgrade) PRISTINE="$REPO_ROOT/scripts/upgrade-project.sh"
-             MUT="$MUTANT_TREE/scripts/upgrade-project.sh" ;;
-    hooktpl) PRISTINE="$REPO_ROOT/scripts/lib/hook-templates.sh"
-             MUT="$MUTANT_TREE/scripts/lib/hook-templates.sh" ;;
-    gates)   PRISTINE="$REPO_ROOT/scripts/install-filesystem-gates.sh"
-             MUT="$MUTANT_TREE/scripts/install-filesystem-gates.sh" ;;
-    *) echo "  [FAIL] unknown target kind: $1" >&2; exit 2 ;;
-  esac
-}
-_select_target upgrade
+# ── THE PER-SECTION TARGET (BL-113, 2026-07-12) ────────────────────────────────
+# The registry originally pinned exactly one script (upgrade-project.sh) with one
+# killing suite. The BL-113 anti-laundering guards live in DIFFERENT scripts and
+# are killed by a DIFFERENT suite, so three knobs are now section-scoped:
+#   PRISTINE      the real script a row mutates (the neuter primitives all edit $MUT)
+#   MUT           its copy inside $MUTANT_TREE
+#   GUARD_RUNNER  the function that runs the named killing test against $MUTANT_TREE
+# Every existing row keeps the BL-099 defaults below — nothing about them changes.
+#
+# MERGE NOTE (BL-112 × BL-113): both branches independently needed exactly this and
+# each grew its own version — BL-113's `use_target <pristine> <mut> <runner>` and
+# BL-112's `_select_target <kind>` enum. ONE survives: `use_target`, which is
+# strictly the more general of the two (arbitrary script, arbitrary killing suite,
+# no central enum to edit). The BL-112 rows are expressed in terms of it below.
+GUARD_RUNNER=_run_killing
 
 # Reset the mutant script to pristine (cp preserves the +x mode).
 _reset_mutant() { cp "$PRISTINE" "$MUT"; chmod +x "$MUT"; }
+
+# Point the registry at a different script + killing suite for the rows that follow.
+# use_target <pristine-path> <mutant-path> <runner-fn>
+use_target() { PRISTINE="$1"; MUT="$2"; GUARD_RUNNER="$3"; }
+
+# The BL-099 default: every row up to section (K) mutates upgrade-project.sh and is
+# killed by the sync suite. (PRISTINE/MUT are declared empty above and bound here,
+# because MUTANT_TREE does not exist until the tree is built.)
+use_target "$REPO_ROOT/scripts/upgrade-project.sh" \
+           "$MUTANT_TREE/scripts/upgrade-project.sh" _run_killing
 
 # ── NEUTER PRIMITIVES ───────────────────────────────────────────────────────────
 # Each rewrites $MUT in place, chmods +x (mv from mktemp drops the exec bit — the
@@ -198,6 +207,31 @@ _neu_modepreserve() {
   mv "$tmp" "$MUT"; chmod +x "$MUT"
 }
 
+# Neuter EVERY CODE line carrying literal <marker> to `: # <marker> (NEUTERED)` —
+# the marker survives (rule 4) and the decision body is gone. Comment-only lines
+# are left intact. Non-zero unless it hit at least once. This is the primitive for
+# guards whose decision is spread over more than one marked statement (BL-113).
+_neu_markerline() {
+  local marker="$1" tmp; tmp="$(mktemp)"
+  awk -v marker="$marker" '
+    {
+      line=$0
+      # leading-whitespace-only-then-# => a comment line; never neuter it.
+      s=line; sub(/^[ \t]+/, "", s)
+      if (substr(s,1,1)=="#") { print line; next }
+      if (index(line, marker)>0) {
+        n=match(line, /^[ \t]*/); ind=substr(line, 1, RLENGTH)
+        print ind ": # " marker " (NEUTERED)"
+        c++
+        next
+      }
+      print line
+    }
+    END { if(c<1) exit 3 }
+  ' "$MUT" > "$tmp" || { rm -f "$tmp"; return 1; }
+  mv "$tmp" "$MUT"; chmod +x "$MUT"
+}
+
 _apply_neuter() {
   local kind="$1" a1="$2" a2="$3"
   case "$kind" in
@@ -205,6 +239,7 @@ _apply_neuter() {
     fnbody)       _neu_fnbody "$a1" "$a2" ;;
     subline)      _neu_subline "$a1" "$a2" ;;
     delline)      _neu_delline "$a1" ;;
+    markerline)   _neu_markerline "$a1" ;;
     modepreserve) _neu_modepreserve ;;
     *) return 2 ;;
   esac
@@ -212,16 +247,29 @@ _apply_neuter() {
 
 # Run ONE (or more, space-separated) killing test(s) against the mutant tree.
 # Prints the suite output; returns the suite's exit code (non-zero = a named test
-# FAILED, because the *_ONLY hook runs only those tests). Which suite is driven is
-# a property of the row's TARGET: upgrade-project.sh guards are killed by the
-# BL-099 sync suite; the commit-gate generators (hook-templates.sh,
-# install-filesystem-gates.sh) are killed by the BL-112 suite, which scaffolds
-# from the mutant tree with the REAL init.sh and attempts a REAL `git commit`.
+# FAILED, because the *_ONLY hook runs only those tests). This is the BL-099
+# default runner: upgrade-project.sh guards are killed by the sync suite.
 _run_killing() {
-  case "$TARGET_KIND" in
-    upgrade)       BL099_REPO_OVERRIDE="$MUTANT_TREE" BL099_ONLY="$1" bash "$SUITE" 2>&1 ;;
-    hooktpl|gates) BL112_REPO_OVERRIDE="$MUTANT_TREE" BL112_ONLY="$1" bash "$SUITE_BL112" 2>&1 ;;
-  esac
+  BL099_REPO_OVERRIDE="$MUTANT_TREE" BL099_ONLY="$1" bash "$SUITE" 2>&1
+}
+
+# BL-112 runner: the commit-gate GENERATORS (hook-templates.sh,
+# install-filesystem-gates.sh) are killed by tests/test-bl112-commit-enforcement.sh,
+# which scaffolds a REAL project from the mutant tree with the REAL init.sh and then
+# attempts a REAL `git commit` — the only shape that can prove a commit gate refuses
+# a commit. (Whole-tree override, not a scripts/ swap: the hook bodies are BAKED IN
+# at scaffold time by init.sh, so the mutation has to be present before it runs.)
+_run_killing_bl112() {
+  BL112_REPO_OVERRIDE="$MUTANT_TREE" BL112_ONLY="$1" bash "$SUITE_BL112" 2>&1
+}
+
+# BL-113 runner: drive tests/test-bl113-sast-honesty.sh against the mutant tree's
+# scripts/. The suite scaffolds a real project with the REAL init.sh and then swaps
+# in the (possibly neutered) scripts via BL113_SCRIPTS_OVERRIDE; BL113_ONLY narrows
+# it to the anti-laundering arms so each row costs two scaffolds, not six.
+_run_killing_bl113() {
+  BL113_SCRIPTS_OVERRIDE="$MUTANT_TREE/scripts" BL113_ONLY="$1" \
+    bash "$REPO_ROOT/tests/test-bl113-sast-honesty.sh" 2>&1
 }
 
 # ── THE REGISTRY PIPELINE ────────────────────────────────────────────────────────
@@ -246,7 +294,7 @@ check_guard() {
     fail_ "$name" "the mutant has a bash syntax error — a syntax-broken mutant proves nothing (kind=$kind)"
     GUARD_ROWS="${GUARD_ROWS}SYNTAX\t${name}\t${tests}\n"; _reset_mutant; return
   fi
-  local mout mrc=0; mout=$(_run_killing "$tests") || mrc=$?
+  local mout mrc=0; mout=$("$GUARD_RUNNER" "$tests") || mrc=$?
   if echo "$mout" | grep -qF "running as root"; then
     _reset_mutant
     skip_ "$name" "killing test [$tests] short-circuits under root (mode bits do not restrict root) — cannot pin here on this host"
@@ -267,7 +315,7 @@ check_guard() {
   fi
   # RED confirmed. Restore and prove GREEN so the RED is attributable to the neuter.
   _reset_mutant
-  local gout grc=0; gout=$(_run_killing "$tests") || grc=$?
+  local gout grc=0; gout=$("$GUARD_RUNNER" "$tests") || grc=$?
   if [ "$grc" != "0" ]; then
     fail_ "$name" "killing test [$tests] FAILS even against the RESTORED pristine script — the RED was not caused by the neuter (environment/flake?).\nrestored PASS/FAIL lines:\n$(echo "$gout" | grep -E '\[PASS\]|\[FAIL\]' | head -4)"
     GUARD_ROWS="${GUARD_ROWS}FLAKY\t${name}\t${tests}\n"; return
@@ -342,7 +390,8 @@ check_guard "prompt/apply-fallback-is-skip" "# BL-099-PROMPT-FALLBACK" t_doc_pro
 # K1. The semgrep `--error` flag in the emitted pre-commit hook. Neuter = drop the
 #     flag (the exact pre-BL-112 invocation) => semgrep still DETECTS and PRINTS the
 #     planted eval(req.query.code) RCE, exits 0, and the commit lands.
-_select_target hooktpl
+use_target "$REPO_ROOT/scripts/lib/hook-templates.sh" \
+           "$MUTANT_TREE/scripts/lib/hook-templates.sh" _run_killing_bl112
 check_guard "bl112/sast-error-flag" "# BL-112-SAST-ERROR" T-sast-blocks-real-commit \
   subline '--severity=ERROR --error "${soif_staged[@]}"' '--severity=ERROR "${soif_staged[@]}"'
 
@@ -358,11 +407,34 @@ check_guard "bl112/strict-gate-reachable" "# BL-112-STRICT-GATE" T-strict-gate-b
 #     that branch `$?` is the status of the NEGATION, i.e. 0 whenever cmd FAILED — so
 #     EXIT was always 0 and the gate printed its [FAIL] and then `exit 0`. A gate
 #     whose verdict is discarded is not a gate; reachability alone does not save it.
-_select_target gates
+use_target "$REPO_ROOT/scripts/install-filesystem-gates.sh" \
+           "$MUTANT_TREE/scripts/install-filesystem-gates.sh" _run_killing_bl112
 check_guard "bl112/gate-verdict-propagates" "# BL-112-GATE-EXIT" T-strict-gate-blocks-unverified \
   subline '"$SCRIPTS/process-checklist.sh" --check-commit-ready 2>&1' '! "$SCRIPTS/process-checklist.sh" --check-commit-ready 2>&1'
 
-_select_target upgrade
+# ══════════════════════════════════════════════════════════════════════════════════
+# (L) BL-113 — THE ANTI-LAUNDERING GUARDS (a different pair of scripts, a different
+#     killing suite; same anti-cheat contract). Walk findings F14 + F15: the 3→4
+#     gate's dirty-tree autorun ran the validation driver with `--offline`, which
+#     rewrote a REAL semgrep FAIL into an attestable SKIP. Two defences, both
+#     marked `# BL-113-NO-LAUNDER`, both pinned here:
+#       driver — a SKIP never overwrites a prior REAL FAIL (carry-forward)
+#       gate   — an offline-autorun SKIP for an INSTALLED tool is refused outright
+#     The killing test is tests/test-bl113-sast-honesty.sh::T-no-launder-dirty-tree
+#     (driven with BL113_ONLY=no-launder). Neutering EITHER marked decision must
+#     turn it RED; restoring must turn it GREEN.
+# ══════════════════════════════════════════════════════════════════════════════════
+use_target "$REPO_ROOT/scripts/run-phase3-validation.sh" \
+           "$MUTANT_TREE/scripts/run-phase3-validation.sh" _run_killing_bl113
+check_guard "bl113/driver-carry-forward" "# BL-113-NO-LAUNDER" no-launder markerline '# BL-113-NO-LAUNDER'
+
+use_target "$REPO_ROOT/scripts/check-phase-gate.sh" \
+           "$MUTANT_TREE/scripts/check-phase-gate.sh" _run_killing_bl113
+check_guard "bl113/gate-refuses-offline-skip" "# BL-113-NO-LAUNDER" no-launder markerline '# BL-113-NO-LAUNDER'
+
+# Restore the BL-099 target for anything appended after this point.
+use_target "$REPO_ROOT/scripts/upgrade-project.sh" \
+           "$MUTANT_TREE/scripts/upgrade-project.sh" _run_killing
 
 echo ""
 echo "── Guard-coverage registry (STATUS  guard  killing-test) ──"
