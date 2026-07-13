@@ -330,7 +330,217 @@ check_guard "mode/hook-refresh-preservation" "-" t_hook_mode_preserved modeprese
 check_guard "prompt/apply-fallback-is-skip" "# BL-099-PROMPT-FALLBACK" t_doc_prompt_default_is_skip subline '|| action="skip"  # BL-099-PROMPT-FALLBACK' '|| action="overwrite"  # BL-099-PROMPT-FALLBACK'
 
 # ══════════════════════════════════════════════════════════════════════════════════
-# (K) BL-113 — THE ANTI-LAUNDERING GUARDS (a different pair of scripts, a different
+# ── (K) BL-109 S3 — PLAN STAGING GUARDS ───────────────────────────────────────────
+# The staging engine (scripts/lib/plan-staging.sh) + the --plan dispatch
+# (scripts/upgrade-project.sh) carry their OWN load-bearing guards. They are driven
+# by a DIFFERENT suite — tests/test-plan-staging.sh, which honours PLAN_ONLY (run one
+# named test) + PLAN_REPO_OVERRIDE (source the libs + run upgrade-project.sh from the
+# MUTANT tree) exactly as the sync suite honours BL099_ONLY/BL099_REPO_OVERRIDE. So
+# these rows neuter plan-staging.sh (lib guards) or upgrade-project.sh (the dispatch),
+# then assert the named plan-suite test goes RED. Same anti-cheat rules per row.
+# ══════════════════════════════════════════════════════════════════════════════════
+PLAN_PRISTINE_LIB="$REPO_ROOT/scripts/lib/plan-staging.sh"
+PLAN_MUT_LIB="$MUTANT_TREE/scripts/lib/plan-staging.sh"
+# The S2 DETECTOR is a third neuter target (`fresh`). The plan reuses freshness-detect's
+# comparison facts wholesale, so a guard can live in the detector and be killed by a plan
+# test — # BL-109-MISSING is exactly that: the detector decides whether a locally-deleted
+# tracked file is NAMED or silently mis-reported as framework-drift, and the plan is where
+# the mis-report detonates (an empty payload → a whole-plan abort).
+FRESH_PRISTINE_LIB="$REPO_ROOT/scripts/lib/freshness-detect.sh"
+FRESH_MUT_LIB="$MUTANT_TREE/scripts/lib/freshness-detect.sh"
+PLAN_SUITE="$REPO_ROOT/tests/test-plan-staging.sh"
+_reset_plan_lib()  { cp "$PLAN_PRISTINE_LIB"  "$PLAN_MUT_LIB"; }
+_reset_fresh_lib() { cp "$FRESH_PRISTINE_LIB" "$FRESH_MUT_LIB"; }
+# Drive ONE plan-suite test against the mutant tree (PLAN_REPO_OVERRIDE re-points the
+# sourced libs + upgrade-project.sh; PLAN_ONLY selects the single killing test).
+_run_killing_plan() { PLAN_REPO_OVERRIDE="$MUTANT_TREE" PLAN_ONLY="$1" bash "$PLAN_SUITE" 2>&1; }
+
+# check_guard_plan <name> <marker|-> <killing_test> <target:lib|fresh|disp> <kind> [a1] [a2]
+#   lib   → neuter $MUTANT_TREE/scripts/lib/plan-staging.sh
+#   fresh → neuter $MUTANT_TREE/scripts/lib/freshness-detect.sh (the S2 detector the plan reuses)
+#   disp  → neuter $MUT (the mutant upgrade-project.sh, the # BL-109-PLAN dispatch)
+check_guard_plan() {
+  local name="$1" marker="$2" tests="$3" target="$4" kind="$5" a1="$6" a2="$7"
+  local pristine mut saved="$MUT"
+  _reset_mutant; _reset_plan_lib; _reset_fresh_lib
+  case "$target" in
+    lib)   pristine="$PLAN_PRISTINE_LIB";  mut="$PLAN_MUT_LIB" ;;
+    fresh) pristine="$FRESH_PRISTINE_LIB"; mut="$FRESH_MUT_LIB" ;;
+    *)     pristine="$PRISTINE";           mut="$MUT" ;;
+  esac
+  MUT="$mut"
+  if ! _apply_neuter "$kind" "$a1" "$a2"; then
+    MUT="$saved"; fail_ "$name" "neuter MIS-TARGETED (kind=$kind) — anchor/string absent or not unique; update the row"
+    GUARD_ROWS="${GUARD_ROWS}MISTARGET\t${name}\t${tests}\n"; _reset_mutant; _reset_plan_lib; _reset_fresh_lib; return
+  fi
+  if cmp -s "$pristine" "$mut"; then
+    MUT="$saved"; fail_ "$name" "neuter produced an IDENTICAL file (kind=$kind)"
+    GUARD_ROWS="${GUARD_ROWS}NOOP\t${name}\t${tests}\n"; _reset_mutant; _reset_plan_lib; _reset_fresh_lib; return
+  fi
+  if [ "$marker" != "-" ] && ! grep -qF "$marker" "$mut"; then
+    MUT="$saved"; fail_ "$name" "the neuter removed the marker '$marker' — attack behaviour, not the marker"
+    GUARD_ROWS="${GUARD_ROWS}MARKERGONE\t${name}\t${tests}\n"; _reset_mutant; _reset_plan_lib; _reset_fresh_lib; return
+  fi
+  if ! bash -n "$mut" 2>/dev/null; then
+    MUT="$saved"; fail_ "$name" "the mutant has a bash syntax error (kind=$kind)"
+    GUARD_ROWS="${GUARD_ROWS}SYNTAX\t${name}\t${tests}\n"; _reset_mutant; _reset_plan_lib; _reset_fresh_lib; return
+  fi
+  MUT="$saved"
+  local mout mrc=0; mout=$(_run_killing_plan "$tests") || mrc=$?
+  if [ "$mrc" = "0" ]; then
+    _reset_mutant; _reset_plan_lib; _reset_fresh_lib
+    fail_ "$name" "SURVIVED — killing test [$tests] stayed GREEN against the neutered guard.\nmutant PASS/FAIL lines:\n$(echo "$mout" | grep -E '\[PASS\]|\[FAIL\]' | head -4)"
+    GUARD_ROWS="${GUARD_ROWS}SURVIVED\t${name}\t${tests}\n"; return
+  fi
+  _reset_mutant; _reset_plan_lib; _reset_fresh_lib
+  local gout grc=0; gout=$(_run_killing_plan "$tests") || grc=$?
+  if [ "$grc" != "0" ]; then
+    fail_ "$name" "killing test [$tests] FAILS against the RESTORED pristine (flake).\nrestored PASS/FAIL lines:\n$(echo "$gout" | grep -E '\[PASS\]|\[FAIL\]' | head -4)"
+    GUARD_ROWS="${GUARD_ROWS}FLAKY\t${name}\t${tests}\n"; return
+  fi
+  pass "$name → RED under neuter ($kind), GREEN restored | killing: $tests"
+  GUARD_ROWS="${GUARD_ROWS}PINNED\t${name}\t${tests}\n"
+}
+
+check_guard_plan "plan/dispatch"        "# BL-109-PLAN"               t_plan_dispatch_creates_run_folder disp subline '_run_plan     # BL-109-PLAN' ':     # BL-109-PLAN'
+check_guard_plan "plan/exclusive-mkdir" "# BL-109-PLAN-MKDIR"         t_exclusive_mkdir                  lib  subline 'if ! mkdir "$RUN_DIR" 2>/dev/null; then' 'if ! mkdir -p "$RUN_DIR" 2>/dev/null; then'
+check_guard_plan "plan/write-fence-I1"  "# BL-109-PLAN-FENCE"         t_i1_write_fence                   lib  subline '"$RUN_DIR/UPDATE-PLAN.md"' '"$proj/UPDATE-PLAN.md"'
+check_guard_plan "plan/a2-fence"        "# BL-109-PLAN-A2FENCE"       t_a2_structural_only               lib  subline '_soif_plan_build_a2_structural "$RUN_DIR"' '_soif_plan_build_a1_candidate "$RUN_DIR"'
+check_guard_plan "plan/a1-placeholder"  "# BL-109-PLAN-A1PLACEHOLDER" t_a1_placeholder_withheld          lib  fnbody  _soif_plan_has_placeholder 'return 1'
+check_guard_plan "plan/base-sha"        "# BL-109-PLAN-BASESHA"       t_base_sha_recorded                lib  fnbody  _soif_plan_base_sha ':'
+# NB: the neuter target is escape-FREE (`>> "$items_tmp" … ;; # marker`) — the awk
+# `-v` in _neu_subline interprets \t/\n in the passed string, so a target containing
+# the printf format's \t/\n would mis-match. Routing the emitted retire row to
+# /dev/null drops it (no orphan item → no retire/rename → t_retire_emitted RED).
+check_guard_plan "plan/retire-verb"     "# BL-109-PLAN-RETIRE"        t_retire_emitted                   lib  subline '>> "$items_tmp"  ;; # BL-109-PLAN-RETIRE' '>> /dev/null  ;; # BL-109-PLAN-RETIRE'
+
+# ── (K2) S3 REVIEW ROUND 1 — the two guards the review round added ────────────────
+# I11 CONSENT SCOPE. _soif_plan_is_i11_item is the ONE place that decides which items
+# can never be batch-consented: hooks (class) ∪ gate scripts (path). Neuter the
+# GATE-SCRIPT half only — `_soif_plan_is_enforcement_path "$path"` → `false` — so the
+# predicate still fires for hooks but matches no gate script. That is exactly the
+# half-delivered fence the review caught: a gate script would fall back to
+# batch-consent + diffstat-only, with no full diff to read before ticking the box that
+# rewrites the code deciding whether the operator's gates block. The killing test
+# drifts a gate script, a hook and an ordinary M script SIMULTANEOUSLY, so it also
+# proves the neuter is surgical (the hook half stays GREEN under it).
+check_guard_plan "plan/i11-consent-scope" "# BL-109-I11-CONSENT"      t_i11_consent_scope_simultaneous_drift lib subline '_soif_plan_is_enforcement_path "$path"' 'false'
+
+# A1 THREE-WAY LEG ORDER. `git merge-file -p <ours> <base> <theirs>` with base=render-
+# THEN and theirs=render-NOW. Swap base and theirs and the NEW render becomes the
+# common ancestor: the merge then treats the upstream delta as something to REVERT and
+# SILENTLY DROPS IT — a clean-looking candidate that is missing the very update it was
+# built to stage. No conflict, no error, no warning. The killing test makes all three
+# legs distinguishable and asserts the upstream delta reaches the candidate.
+check_guard_plan "plan/a1-merge-leg-order" "# BL-109-A1-MERGE-LEGS"   t_a1_merge_leg_order lib subline 'git merge-file -p "$run/incoming/${safe}.ours" "$then_out" "$now_out"' 'git merge-file -p "$run/incoming/${safe}.ours" "$now_out" "$then_out"'
+
+# ── (K3) S3 REVIEW ROUND 2 — THE I11 PAYLOAD GUARD + the two unpinned fence halves ─
+# THE PATTERN THIS ROUND ENDS. The I11 consent fence was caught HOLLOW three times on
+# one change, each time in a different arm — gate items rendered diffstat-only (r1); hook
+# items emitted an EMPTY ```diff block under a heading promising a full diff, because hook
+# rows carry path "-" (r1 fix round); a RENAMED gate script emitted an empty block because
+# `rename` had no arm in _soif_plan_unified_diff (r2). Three instances, ONE root cause:
+# nothing asserted that an I11 item's promised diff actually HAD a payload. The r1 hook
+# "fix" even shipped with a passing test, because the test grepped the HEADING.
+#
+# So the invariant is now STRUCTURAL, not per-verb: _soif_plan_diff_has_payload runs at
+# the single emission site on EVERY I11 item, and an empty/hunkless diff is a hard abort
+# that discards the run folder. The rows below pin the guard, both halves of the I11
+# predicate, and the tier derivation.
+
+# THE PAYLOAD GUARD ITSELF. Gut _soif_plan_diff_has_payload → it always says "yes, there
+# is a payload" → the hollow plan gets OFFERED instead of aborting. The killing test
+# drives it two ways (an empty upstream gate script end-to-end; a synthetic FUTURE verb
+# with no diff arm), both of which must hard-error, so this row also proves the guard is
+# what makes "every verb needs a diff arm" a machine fact rather than a review habit.
+check_guard_plan "plan/i11-payload"     "# BL-109-I11-PAYLOAD"        t_i11_empty_payload_hard_error lib fnbody _soif_plan_diff_has_payload 'return 0'
+
+# THE VERB ARMS, via the (class × verb) CROSS-PRODUCT. Delete the `rename)` arm — the
+# exact round-2 bug — and the rename falls through to `*)`, which diffs two paths of which
+# one never exists on a rename, yielding nothing. The payload guard converts that silent
+# hollow block into a named abort, so t_i11_payload_cross_product goes RED. The same holds
+# for add/retire/update/hook: the cross-product covers every arm, so a future verb added
+# without a diff arm trips this row automatically.
+check_guard_plan "plan/i11-verb-arms"   "# BL-109-I11-PAYLOAD"        t_i11_payload_cross_product lib subline '    rename)' '    rename-NOARM)'
+
+# THE HOOK HALF OF THE I11 PREDICATE. plan/i11-consent-scope (above) neuters only the GATE
+# half (_soif_plan_is_enforcement_path). A two-clause fence needs a kill per clause, so
+# this row neuters the HOOK clause: `[ "$class" = "hook" ]` never matches → hooks fall out
+# of the I11 scope entirely (batch consent, no full-diff section).
+check_guard_plan "plan/i11-hook-half"   "# BL-109-I11-CONSENT"        t_hook_item_consent_full_diff lib subline '  [ "$class" = "hook" ] && return 0' '  [ "$class" = "hook-NEVER" ] && return 0'
+
+# THE I11 NORMALIZATION IN soif_plan_run — now genuinely load-bearing. It USED to be a
+# second opinion (every derivation arm decided I11 consent for itself and this line
+# re-decided it), so neutering it changed nothing and the suite stayed 19/19 green while
+# the PR body called it "the single load-bearing point". The derivation arms now emit the
+# ordinary `batch` default and THIS is the only place that upgrades the I11 scope to
+# `item` — so flipping it to `if false` drops gate scripts AND hooks into the batch
+# bucket, and the killing test goes RED. The claim in the code is now true.
+check_guard_plan "plan/i11-normalize"   "# BL-109-I11-CONSENT"        t_i11_consent_scope_simultaneous_drift lib subline '    if _soif_plan_is_i11_item "$class" "$path"; then consent=item; fi' '    if false; then consent=item; fi'
+
+# TIER DERIVED FROM THE PATH. The retire arm hard-coded `tier=enforcement` for every
+# orphan, so retiring an ordinary script rendered as a ⚠ ENFORCEMENT item — a lie that
+# devalues the ⚠ on the items that ARE enforcement machinery. Pin the derivation by
+# collapsing the helper back to the constant it used to be.
+check_guard_plan "plan/retire-tier"     "# BL-109-PLAN-TIER"          t_retire_tier_derived_from_path lib fnbody _soif_plan_tier_for_path 'printf enforcement'
+
+# ── (K4) S3 REVIEW ROUND 3 — PIN THE GUARD'S STRICTNESS, NOT JUST ITS EXISTENCE ────
+# The round-2 verifier confirmed the payload guard WORKS (its own class × verb × tier
+# cross-product found zero hollow payloads) — and then weakened _soif_plan_diff_has_payload
+# to "any non-empty output" and watched all 22 plan tests and all 39 registry rows stay
+# GREEN. The guard was real; NOTHING PINNED HOW STRICT IT WAS. `plan/i11-payload` (above)
+# only kills the total gutting (`return 0`); every intermediate softening survived. That is
+# the WEAK-TEST class reappearing on the very guard built to kill the weak-test class.
+#
+# So the PREDICATE is now pinned directly, by t_payload_predicate_strictness, which drives
+# _soif_plan_diff_has_payload with crafted inputs in BOTH directions. The registry delivers
+# the strictness row as a FAMILY — one row per SPECIFIC weakening, because the harness
+# applies exactly one neuter per row and "kills the specific weakenings, not merely the
+# deletion of the function" is the whole point. Each body keeps the marker, stays
+# syntactically valid, and is a plausible careless edit rather than a straw man:
+#
+#   any-nonempty          the verifier's own weakening: any output at all counts.
+#   no-hunk-required      drop the hunk-header clause → loose +/- lines pass as a "diff".
+#   no-content-required   drop the content clause → a hunk header alone passes.
+#   file-headers-count    the classic: `^[-+]` file-wide, so the ---/+++ FILE HEADERS are
+#                         mistaken for content and a header-only block passes.
+#   over-strict           the OPPOSITE failure, and a real one — this IS the pre-round-3
+#                         predicate. It keyed on a line's SPELLING (`^\+` not followed by
+#                         another `+`), so a real diff whose payload TEXT begins with
+#                         `+++`/`---` was REJECTED and the plan fail-closed on a legitimate
+#                         update. An over-strict guard is a denial-of-service on the
+#                         operator's own updates, so the ACCEPT direction is pinned exactly
+#                         as hard as the REJECT direction.
+check_guard_plan "plan/i11-payload-strictness/any-nonempty"        "# BL-109-I11-PAYLOAD" t_payload_predicate_strictness lib fnbody _soif_plan_diff_has_payload '[ -s "$1" ]'
+check_guard_plan "plan/i11-payload-strictness/no-hunk-required"    "# BL-109-I11-PAYLOAD" t_payload_predicate_strictness lib fnbody _soif_plan_diff_has_payload 'grep -qE "^[-+]" "$1"'
+check_guard_plan "plan/i11-payload-strictness/no-content-required" "# BL-109-I11-PAYLOAD" t_payload_predicate_strictness lib fnbody _soif_plan_diff_has_payload 'grep -q "^@@" "$1"'
+check_guard_plan "plan/i11-payload-strictness/file-headers-count"  "# BL-109-I11-PAYLOAD" t_payload_predicate_strictness lib fnbody _soif_plan_diff_has_payload 'grep -q "^@@" "$1" && grep -qE "^[-+]" "$1"'
+check_guard_plan "plan/i11-payload-strictness/over-strict"         "# BL-109-I11-PAYLOAD" t_payload_predicate_strictness lib fnbody _soif_plan_diff_has_payload 'grep -q "^@@" "$1" && grep -qE "^[+]([^+]|$)|^[-]([^-]|$)" "$1"'
+
+# THE MISSING TRACKED FILE (# BL-109-MISSING) — two guards, one on each side of the seam.
+#
+# DETECTION (the S2 detector — the `fresh` target). The drift arm compared the MANIFEST sha
+# to the UPSTREAM sha and never checked that the project file still EXISTS. Neuter the
+# existence check and a locally-deleted tracked gate script falls straight back into the
+# drift comparison as verb `update` — a diff with no base, an EMPTY payload — and the
+# fail-closed I11 guard then aborts the WHOLE plan, naming the payload and the verb instead
+# of the missing file, taking every unrelated item down with it. This row reproduces that
+# bug exactly; the killing test asserts the true cause is named AND the blast radius is nil.
+check_guard_plan "plan/missing-detect"  "# BL-109-MISSING"            t_missing_tracked_file_restored fresh subline 'if [ ! -f "$proj/$rel" ]; then' 'if false; then'
+
+# THE OFFER (the plan side). Detecting it and then dropping it on the floor would leave the
+# operator with a gate script that is gone and a plan that never mentions it. Neuter the
+# `missing)` arm and the item vanishes from the plan entirely → RED.
+check_guard_plan "plan/missing-offer"   "# BL-109-MISSING"            t_missing_tracked_file_restored lib subline '      missing)' '      missing-NEVER)'
+
+# ABORT HYGIENE (# BL-109-PLAN-NOTRACE). A fail-closed --plan discarded its run folder but
+# left the docs/updates/ parent it had just created, so a plan that REFUSED to write a plan
+# still mutated an otherwise-untouched tree. Gut the container cleanup → the empty
+# containers survive the abort → the whole-tree fingerprint (files AND dirs) differs → RED.
+check_guard_plan "plan/abort-no-trace"  "# BL-109-PLAN-NOTRACE"       t_abort_leaves_no_trace lib fnbody _soif_plan_discard_container 'return 0'
+
+# ══════════════════════════════════════════════════════════════════════════════════
+# (L) BL-113 — THE ANTI-LAUNDERING GUARDS (a different pair of scripts, a different
 #     killing suite; same anti-cheat contract). Walk findings F14 + F15: the 3→4
 #     gate's dirty-tree autorun ran the validation driver with `--offline`, which
 #     rewrote a REAL semgrep FAIL into an attestable SKIP. Two defences, both

@@ -22,6 +22,12 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 INIT="$REPO_ROOT/init.sh"
 
+# The mechanical shipped-set parsers — the SAME source of truth the product uses to
+# build files{}, so the M/T count assertions below are independently re-derived,
+# never hardcoded (BL-109 S2 carried-obligation-7 + S3 .tmpl class rule).
+# shellcheck source=/dev/null
+. "$REPO_ROOT/scripts/lib/scaffold-shipped-set.sh"
+
 unset GITHUB_BASE_REF 2>/dev/null || true
 
 PASSED=0
@@ -113,12 +119,29 @@ no_mode="$(jq -r '[.currency.files[] | select(.mode == null or .mode == "")] | l
 [ "$no_mode" = "0" ] && pass "every files{} entry has a mode" \
   || fail_ "files{} mode" "$no_mode entries lack a mode"
 
-# — class breakdown: T == 7 (docs/reference verbatim set); A1 == 2; M > 0 —
+# — class breakdown: A1 == 2; T and M INDEPENDENTLY re-derived (never hardcoded) —
 t_count="$(jq -r '[.currency.files[] | select(.class == "T")] | length' "$MAN")"
 a1_count="$(jq -r '[.currency.files[] | select(.class == "A1")] | length' "$MAN")"
 m_count="$(jq -r '[.currency.files[] | select(.class == "M")] | length' "$MAN")"
-[ "$t_count" = "7" ] && pass "Class T == 7 (docs/reference verbatim set)" \
-  || fail_ "Class T count" "expected 7, got $t_count"
+
+# Class T = the docs/reference verbatim set + the bulk templates/generated/*.tmpl
+# skeletons init.sh ships verbatim (BL-109 S3 .tmpl class rule). Re-derive both via
+# the SAME lib the product uses, count those present in the scaffolded tree exactly
+# as the row emitter does (skip-if-missing), and assert EXACT parity — so adding or
+# dropping a shipped doc/template moves both sides together, never a literal.
+exp_t=0
+while IFS= read -r _rel; do
+  [ -n "$_rel" ] || continue
+  [ -f "$TS/$_rel" ] && exp_t=$((exp_t + 1))
+done <<EOF
+$(soif_parse_shipped_reference_docs "$INIT")
+$(soif_parse_shipped_templates "$INIT")
+EOF
+if [ "$t_count" = "$exp_t" ] && [ "$exp_t" -gt 7 ]; then
+  pass "Class T == independently lib-derived count ($exp_t: docs/reference + bulk .tmpl)"
+else
+  fail_ "Class T count" "manifest T=$t_count but independent lib-derived T=$exp_t (expected >7 after the .tmpl rule)"
+fi
 [ "$a1_count" = "2" ] && pass "Class A1 == 2 (CLAUDE.md + PROJECT_INTAKE.md)" \
   || fail_ "Class A1 count" "expected 2, got $a1_count"
 
