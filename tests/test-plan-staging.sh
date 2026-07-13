@@ -178,6 +178,107 @@ mk_drifted_hook() {
     && mv "$PROJ/.claude/m.tmp" "$PROJ/.claude/manifest.json"
 }
 
+# ── The I11 (class × verb) CROSS-PRODUCT fixture (# BL-109-I11-PAYLOAD) ──────────
+# mk_i11_matrix <basedir> [empty_gate:0|1]
+#
+# ONE plan run that produces EVERY I11 (class × verb) combination the engine can emit,
+# plus non-I11 controls. The point is not to test four verbs that happen to work today:
+# it is that a future verb whose diff arm is missing lands in this matrix automatically,
+# and the payload guard turns it into a hard, named failure instead of a blank code block
+# under a heading promising a full diff.
+#
+#   class=M  gate  verb=update  scripts/pre-commit-gate.sh       v1 → v2
+#   class=M  gate  verb=add     scripts/run-phase3-validation.sh upstream-only
+#   class=M  gate  verb=retire  scripts/process-checklist.sh     downstream-only, no sha match
+#   class=M  gate  verb=rename  scripts/check-gate.sh ↔ scripts/check-phase-gate.sh (sha match)
+#                               → TWO linked rows, BOTH I11, each rendering its own side
+#   class=hook     verb=update  commit-msg  (installed managed block is stale)
+#   class=hook     verb=add     pre-commit  (managed block missing from the installed hook)
+#
+#   CONTROLS (must NOT be I11, must NOT be enforcement tier):
+#   class=M  ord   verb=update  scripts/foo.sh
+#   class=M  ord   verb=retire  scripts/deadfile.sh   ← the # BL-109-PLAN-TIER case
+#
+# empty_gate=1 makes the upstream source of the gate-script ADD a ZERO-BYTE file, which
+# is the one way a real plan run can reach the emission site with a legitimately empty
+# I11 payload — the forcing function for the hard-error test.
+mk_i11_matrix() {
+  local base="$1" empty_gate="${2:-0}"
+  FW="$base/fw"; PROJ="$base/proj"
+  mkdir -p "$FW/scripts/lib" "$PROJ/.claude" "$PROJ/scripts" "$PROJ/.git/hooks"
+  cat > "$FW/init.sh" <<'EOF'
+#!/usr/bin/env bash
+cp "$SCRIPT_DIR/scripts/foo.sh" scripts/
+cp "$SCRIPT_DIR/scripts/pre-commit-gate.sh" scripts/
+cp "$SCRIPT_DIR/scripts/check-phase-gate.sh" scripts/
+cp "$SCRIPT_DIR/scripts/run-phase3-validation.sh" scripts/
+EOF
+  printf 'echo foo v2\n'          > "$FW/scripts/foo.sh"
+  printf 'echo gate v2\n'         > "$FW/scripts/pre-commit-gate.sh"
+  printf 'moved-gate-body\n'      > "$FW/scripts/check-phase-gate.sh"   # rename TARGET
+  if [ "$empty_gate" = "1" ]; then
+    : > "$FW/scripts/run-phase3-validation.sh"                          # 0 bytes → empty payload
+  else
+    printf 'echo phase3 v1\n'     > "$FW/scripts/run-phase3-validation.sh"
+  fi
+  cp "$LIB_ROOT/scripts/lib/hook-templates.sh" "$FW/scripts/lib/hook-templates.sh"
+  ( cd "$FW" && git init -q && git config user.email t@t.local && git config user.name t \
+      && git add -A && git commit -qm c0 ) >/dev/null 2>&1
+  PIN="$(git -C "$FW" rev-parse HEAD)"
+
+  printf 'echo foo v1\n'          > "$PROJ/scripts/foo.sh"              # ordinary update (control)
+  printf 'echo gate v1\n'         > "$PROJ/scripts/pre-commit-gate.sh"  # gate update
+  printf 'moved-gate-body\n'      > "$PROJ/scripts/check-gate.sh"       # rename SOURCE (sha match)
+  printf 'checklist body\n'       > "$PROJ/scripts/process-checklist.sh" # gate retire (no match)
+  printf 'dead\n'                 > "$PROJ/scripts/deadfile.sh"         # ordinary retire (control)
+  # hook UPDATE — stale managed block; hook ADD — an installed hook with NO managed block.
+  printf '#!/bin/sh\n%s\nstale body\n%s\n' "$SOIF_TDD_OPEN" "$SOIF_TDD_CLOSE" > "$PROJ/.git/hooks/commit-msg"
+  printf '#!/bin/sh\necho my own pre-commit\n' > "$PROJ/.git/hooks/pre-commit"
+
+  cat > "$PROJ/.claude/manifest.json" <<EOF
+{
+  "soloFrameworkCommit": "$PIN",
+  "currency": {
+    "schemaVersion": 1,
+    "soloFrameworkPath": "$FW",
+    "files": {
+      "scripts/foo.sh": {"sha256":"$(_sha "$PROJ/scripts/foo.sh")","mode":"755","class":"M","state":"current"},
+      "scripts/pre-commit-gate.sh": {"sha256":"$(_sha "$PROJ/scripts/pre-commit-gate.sh")","mode":"755","class":"M","state":"current"},
+      "scripts/check-gate.sh": {"sha256":"$(_sha "$PROJ/scripts/check-gate.sh")","mode":"755","class":"M","state":"current"},
+      "scripts/process-checklist.sh": {"sha256":"$(_sha "$PROJ/scripts/process-checklist.sh")","mode":"755","class":"M","state":"current"},
+      "scripts/deadfile.sh": {"sha256":"$(_sha "$PROJ/scripts/deadfile.sh")","mode":"755","class":"M","state":"current"}
+    },
+    "renderBases": {"A1": {}, "A2": {}},
+    "hooks": {"commit-msg": "present", "pre-commit": "present"},
+    "mcpProbe": {"context7": "absent"}
+  }
+}
+EOF
+}
+
+# _i11_section <update-plan> <item-id> — the I11 consent section for ONE item (from its
+# `### \`<id>\`` heading to the next `###`/`##` heading). Used to assert the diff BODY,
+# never the heading — asserting the heading is exactly how the hollow hook diff shipped.
+_i11_section() {
+  awk -v want="### \`$2\`" '
+    index($0, want)==1 { f=1; next }
+    f && (index($0,"### ")==1 || index($0,"## ")==1) { exit }
+    f { print }
+  ' "$1"
+}
+
+# _has_payload <text-on-stdin-file> — a REAL unified-diff payload: a hunk header AND a
+# +/- content line. The test-side mirror of _soif_plan_diff_has_payload (deliberately an
+# INDEPENDENT re-implementation: a test that called the guard it is testing would go
+# green the moment the guard was neutered, which is the whole failure mode being pinned).
+_has_payload() {
+  local f="$1"
+  grep -q '^@@' "$f" 2>/dev/null || return 1
+  grep -qE '^\+([^+]|$)' "$f" 2>/dev/null && return 0
+  grep -qE '^-([^-]|$)'  "$f" 2>/dev/null && return 0
+  return 1
+}
+
 # ══════════════════════════════════════════════════════════════════════════════
 # TESTS
 # ══════════════════════════════════════════════════════════════════════════════
@@ -534,13 +635,168 @@ EOF
   rm -rf "$b"
 }
 
+t_i11_payload_cross_product() {   # killing test: # BL-109-I11-PAYLOAD (verb arms)
+  # THE CROSS-PRODUCT. Every I11 (class × verb) the engine can emit, in ONE run, each
+  # asserted to carry a REAL diff payload (hunk header + a +/- content line) in its
+  # consent section — never a heading over an empty code block.
+  #
+  # This is the test that would have caught all THREE hollow-fence bugs: the gate-script
+  # diffstat-only (r1), the empty hook block (r1 fix round), and the empty renamed-gate
+  # block (r2). Remove ANY verb's arm from _soif_plan_unified_diff and the payload guard
+  # turns this RED — for that verb specifically, by name.
+  local b; b="$(mktemp -d)"; mk_i11_matrix "$b"
+  local run rc=0
+  run="$(soif_plan_run "$PROJ" "$FW" "$FW/init.sh" "$b/nocdf" 2>"$b/err")" || rc=$?
+  if [ "$rc" != 0 ] || [ -z "$run" ]; then
+    fail_ "I11 payload cross-product" "plan run FAILED (rc=$rc) — payload guard fired: $(head -6 "$b/err" | tr '\n' ' ')"
+    rm -rf "$b"; return
+  fi
+  local up="$run/UPDATE-PLAN.md" m="$run/manifest.json" ok=1 sec; sec="$b/sec"
+
+  # The matrix really was produced (else every assertion below is vacuous).
+  local gate_upd="fw-drift:scripts/pre-commit-gate.sh"
+  local gate_add="add:scripts/run-phase3-validation.sh"
+  local gate_ret="orphan:scripts/process-checklist.sh"
+  local gate_ren_old="orphan:scripts/check-gate.sh"
+  local gate_ren_new="add:scripts/check-phase-gate.sh"
+  local hook_upd="hook-drift:commit-msg"
+  local hook_add="hook-missing:pre-commit"
+
+  # (verb, id) pairs — the matrix. Each must exist AND carry a payload.
+  local pairs="update:$gate_upd add:$gate_add retire:$gate_ret rename:$gate_ren_old rename:$gate_ren_new update:$hook_upd add:$hook_add"
+  local pair want_verb want_id got_verb
+  for pair in $pairs; do
+    want_verb="${pair%%:*}"; want_id="${pair#*:}"
+    got_verb="$(jq -r --arg i "$want_id" '.items[] | select(.id==$i) | .verb' "$m" 2>/dev/null)"
+    if [ -z "$got_verb" ]; then
+      ok=0; echo "    MATRIX GAP: no item [$want_id] — the fixture did not produce the ($want_verb) row"; continue
+    fi
+    [ "$got_verb" = "$want_verb" ] || { ok=0; echo "    [$want_id] verb=$got_verb, expected $want_verb"; }
+    # every one of them is I11 → item-consent, never batch
+    [ "$(jq -r --arg i "$want_id" '.items[] | select(.id==$i) | .consent' "$m")" = "item" ] \
+      || { ok=0; echo "    [$want_id] is NOT item-consent — I11 breach"; }
+    # …and its consent section carries a REAL payload
+    _i11_section "$up" "$want_id" > "$sec"
+    if ! _has_payload "$sec"; then
+      ok=0
+      echo "    HOLLOW PAYLOAD: [$want_id] ($want_verb) — its I11 section promises a FULL diff but has no hunk header / no +/- content line"
+    fi
+  done
+
+  # The rename pair shows BOTH sides: the old path as a removal, the new path as an
+  # addition (the declared rendering — each checkbox shows what ticking THAT box does).
+  _i11_section "$up" "$gate_ren_old" > "$sec"
+  grep -q '^-moved-gate-body' "$sec" || { ok=0; echo "    rename OLD side does not show the file being removed"; }
+  _i11_section "$up" "$gate_ren_new" > "$sec"
+  grep -q '^+moved-gate-body' "$sec" || { ok=0; echo "    rename NEW side does not show the file being added"; }
+
+  # The staged diffs/ artifact for a rename is non-empty too (same producer, same bug).
+  local rdiff; rdiff="$(jq -r --arg i "$gate_ren_old" '.items[] | select(.id==$i) | .diff // empty' "$m")"
+  if [ -n "$rdiff" ] && [ -f "$run/$rdiff" ]; then
+    _has_payload "$run/$rdiff" || { ok=0; echo "    the staged diffs/ artifact for the rename is EMPTY"; }
+  fi
+
+  # CONTROLS — the fence stays narrow: ordinary scripts are still batch/diffstat.
+  [ "$(jq -r '.items[] | select(.id=="fw-drift:scripts/foo.sh") | .consent' "$m")" = "batch" ] \
+    || { ok=0; echo "    ordinary M update was escalated to item-consent (fence too broad)"; }
+  grep -q '^### `fw-drift:scripts/foo.sh`' "$up" \
+    && { ok=0; echo "    ordinary M update got a full-diff I11 section"; }
+
+  [ "$ok" = 1 ] && pass "I11 payload cross-product: every (class × verb) consent section carries a REAL diff — update/add/retire/rename × {gate, hook}" \
+    || fail_ "I11 payload cross-product" "see above"
+  rm -rf "$b"
+}
+
+t_i11_empty_payload_hard_error() {   # killing test: # BL-109-I11-PAYLOAD (the guard body)
+  # THE GUARD ITSELF. Two independent drives, both of which MUST hard-error:
+  #
+  #   (1) END-TO-END — a gate script whose upstream source is a ZERO-BYTE file. The add
+  #       arm produces `diff -u /dev/null <empty>` → nothing. soif_plan_run must ABORT,
+  #       name the item/class/verb, and leave NO run folder: a plan that cannot show the
+  #       operator what they are consenting to must not offer the consent at all.
+  #
+  #   (2) A FUTURE VERB — a synthetic verb with no arm in _soif_plan_unified_diff, which
+  #       is precisely how this bug class keeps arriving. It falls through `*)`, produces
+  #       nothing, and must be caught BY CONSTRUCTION rather than by the next reviewer.
+  #
+  # Neuter _soif_plan_diff_has_payload and BOTH go green-instead-of-abort → RED.
+  local b; b="$(mktemp -d)" ok=1
+
+  # ── (1) end-to-end: empty upstream gate script ───────────────────────────────
+  mk_i11_matrix "$b" 1
+  local run rc=0
+  run="$(soif_plan_run "$PROJ" "$FW" "$FW/init.sh" "$b/nocdf" 2>"$b/err")" || rc=$?
+  [ "$rc" != 0 ] || { ok=0; echo "    soif_plan_run exited 0 with an EMPTY I11 payload — the hollow plan was offered"; }
+  grep -q 'ABORT' "$b/err"                        || { ok=0; echo "    the abort is not loud (no ABORT on stderr)"; }
+  grep -q 'add:scripts/run-phase3-validation.sh' "$b/err" || { ok=0; echo "    the abort does not NAME the offending item"; }
+  grep -q 'class: M'                    "$b/err"  || { ok=0; echo "    the abort does not name the CLASS"; }
+  grep -q 'verb:  add'                  "$b/err"  || { ok=0; echo "    the abort does not name the VERB"; }
+  # FAIL CLOSED — no run folder, no UPDATE-PLAN, nothing to tick.
+  if find "$PROJ/docs/updates" -name 'UPDATE-PLAN.md' 2>/dev/null | grep -q .; then
+    ok=0; echo "    an UPDATE-PLAN.md survived the abort — a consent surface the operator cannot read"
+  fi
+  if [ -n "$run" ] && [ -d "$run" ]; then ok=0; echo "    the run folder survived the abort (not fail-closed)"; fi
+
+  # ── (2) a FUTURE verb with no diff arm ──────────────────────────────────────
+  # Drive the emitter directly with a rows file carrying an unknown verb on a gate path
+  # whose project + framework copies are IDENTICAL (so even the `*)` fallback yields
+  # nothing). No new verb can be added to the engine without a diff arm and stay silent.
+  local b2; b2="$(mktemp -d)"; mk_i11_matrix "$b2"
+  printf 'echo gate v2\n' > "$PROJ/scripts/pre-commit-gate.sh"      # identical to upstream
+  local rows notices out err erc=0
+  rows="$b2/rows"; notices="$b2/notices"; out="$b2/out"; err="$b2/err2"
+  : > "$notices"
+  # id \t class \t verb \t tier \t path \t consent \t added \t removed \t bshort
+  printf 'fw-drift:scripts/pre-commit-gate.sh\tM\tfrobnicate\tenforcement\tscripts/pre-commit-gate.sh\titem\t0\t0\tabc1234\n' > "$rows"
+  mkdir -p "$b2/run"
+  _soif_plan_emit_update_plan "$b2/run" "runid" "$(date +%s)" "$FW" "$PIN" "abc1234" \
+      "$PIN" true 1 "$rows" "$notices" "$PROJ" "$FW/init.sh" > "$out" 2>"$err" || erc=$?
+  [ "$erc" != 0 ] || { ok=0; echo "    an UNKNOWN verb with no diff arm emitted a plan instead of aborting"; }
+  grep -q 'frobnicate' "$err" || { ok=0; echo "    the abort does not name the unknown verb"; }
+  grep -qF '```diff' "$out"   && { ok=0; echo "    an empty \`\`\`diff block was printed under an I11 heading — the hollow-payload lie"; }
+
+  [ "$ok" = 1 ] && pass "an EMPTY I11 payload is a HARD ERROR: the plan aborts, names the item/class/verb, and leaves no run folder (a future verb with no diff arm trips it)" \
+    || fail_ "I11 empty payload hard error" "see above"
+  rm -rf "$b" "$b2"
+}
+
+t_retire_tier_derived_from_path() {   # killing test: # BL-109-PLAN-TIER
+  # TIER IS A PROPERTY OF THE PATH, NOT THE VERB. The retire arm used to hard-code
+  # `tier=enforcement` for every orphan, so retiring an ordinary script rendered as a ⚠
+  # ENFORCEMENT item — a lie about what the operator is being shown, and one that
+  # devalues the ⚠ on the items that really are enforcement machinery.
+  local b; b="$(mktemp -d)"; mk_i11_matrix "$b"
+  local run rc=0; run="$(soif_plan_run "$PROJ" "$FW" "$FW/init.sh" "$b/nocdf" 2>/dev/null)" || rc=$?
+  if [ "$rc" != 0 ]; then fail_ "retire tier" "plan run failed (rc=$rc)"; rm -rf "$b"; return; fi
+  local m="$run/manifest.json" ok=1
+
+  # an ORDINARY script retire → informational, and NOT an I11 item (no full-diff section)
+  [ "$(jq -r '.items[] | select(.id=="orphan:scripts/deadfile.sh") | .tier' "$m")" = "informational" ] \
+    || { ok=0; echo "    retiring an ORDINARY script is still tagged enforcement tier"; }
+  grep -q '^### `orphan:scripts/deadfile.sh`' "$run/UPDATE-PLAN.md" \
+    && { ok=0; echo "    an ordinary-script retire got an I11 full-diff section"; }
+  # a GATE-SCRIPT retire → enforcement (the predicate is not just returning a constant)
+  [ "$(jq -r '.items[] | select(.id=="orphan:scripts/process-checklist.sh") | .tier' "$m")" = "enforcement" ] \
+    || { ok=0; echo "    retiring a GATE script is NOT enforcement tier — the fence went blind"; }
+  # …and a gate-script ADD is enforcement too (same predicate, other verb)
+  [ "$(jq -r '.items[] | select(.id=="add:scripts/run-phase3-validation.sh") | .tier' "$m")" = "enforcement" ] \
+    || { ok=0; echo "    a gate-script ADD is not enforcement tier"; }
+  # both retires keep item-consent — a deletion is destructive whatever its tier
+  [ "$(jq -r '.items[] | select(.id=="orphan:scripts/deadfile.sh") | .consent' "$m")" = "item" ] \
+    || { ok=0; echo "    an ordinary retire lost item-consent (deletions are never batched)"; }
+  [ "$ok" = 1 ] && pass "retire/add TIER is derived from the path (# BL-109-PLAN-TIER): ordinary → informational, gate script → enforcement" \
+    || fail_ "retire tier derivation" "see above"
+  rm -rf "$b"
+}
+
 # ── registry + run ───────────────────────────────────────────────────────────
 ALL_TESTS="t_folder_shape t_exclusive_mkdir t_verbs_and_rename t_retire_emitted \
 t_grammar_pin t_base_sha_recorded t_rollup_shallow_fallback t_pin_absent_degrades \
 t_a2_structural_only t_a1_candidate_placeholder_free t_a1_intake_candidate \
 t_a1_placeholder_withheld t_a1_merge_leg_order t_i1_write_fence \
 t_i1_fence_catches_stray_outside_run_folder t_hook_item_consent_full_diff \
-t_i11_consent_scope_simultaneous_drift \
+t_i11_consent_scope_simultaneous_drift t_i11_payload_cross_product \
+t_i11_empty_payload_hard_error t_retire_tier_derived_from_path \
 t_plan_dispatch_creates_run_folder t_plan_blocked_under_sentinel"
 
 echo "== tests/test-plan-staging.sh (LIB_ROOT=$LIB_ROOT) =="

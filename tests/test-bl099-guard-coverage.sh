@@ -372,6 +372,56 @@ check_guard_plan "plan/i11-consent-scope" "# BL-109-I11-CONSENT"      t_i11_cons
 # legs distinguishable and asserts the upstream delta reaches the candidate.
 check_guard_plan "plan/a1-merge-leg-order" "# BL-109-A1-MERGE-LEGS"   t_a1_merge_leg_order lib subline 'git merge-file -p "$run/incoming/${safe}.ours" "$then_out" "$now_out"' 'git merge-file -p "$run/incoming/${safe}.ours" "$now_out" "$then_out"'
 
+# ── (K3) S3 REVIEW ROUND 2 — THE I11 PAYLOAD GUARD + the two unpinned fence halves ─
+# THE PATTERN THIS ROUND ENDS. The I11 consent fence was caught HOLLOW three times on
+# one change, each time in a different arm — gate items rendered diffstat-only (r1); hook
+# items emitted an EMPTY ```diff block under a heading promising a full diff, because hook
+# rows carry path "-" (r1 fix round); a RENAMED gate script emitted an empty block because
+# `rename` had no arm in _soif_plan_unified_diff (r2). Three instances, ONE root cause:
+# nothing asserted that an I11 item's promised diff actually HAD a payload. The r1 hook
+# "fix" even shipped with a passing test, because the test grepped the HEADING.
+#
+# So the invariant is now STRUCTURAL, not per-verb: _soif_plan_diff_has_payload runs at
+# the single emission site on EVERY I11 item, and an empty/hunkless diff is a hard abort
+# that discards the run folder. The rows below pin the guard, both halves of the I11
+# predicate, and the tier derivation.
+
+# THE PAYLOAD GUARD ITSELF. Gut _soif_plan_diff_has_payload → it always says "yes, there
+# is a payload" → the hollow plan gets OFFERED instead of aborting. The killing test
+# drives it two ways (an empty upstream gate script end-to-end; a synthetic FUTURE verb
+# with no diff arm), both of which must hard-error, so this row also proves the guard is
+# what makes "every verb needs a diff arm" a machine fact rather than a review habit.
+check_guard_plan "plan/i11-payload"     "# BL-109-I11-PAYLOAD"        t_i11_empty_payload_hard_error lib fnbody _soif_plan_diff_has_payload 'return 0'
+
+# THE VERB ARMS, via the (class × verb) CROSS-PRODUCT. Delete the `rename)` arm — the
+# exact round-2 bug — and the rename falls through to `*)`, which diffs two paths of which
+# one never exists on a rename, yielding nothing. The payload guard converts that silent
+# hollow block into a named abort, so t_i11_payload_cross_product goes RED. The same holds
+# for add/retire/update/hook: the cross-product covers every arm, so a future verb added
+# without a diff arm trips this row automatically.
+check_guard_plan "plan/i11-verb-arms"   "# BL-109-I11-PAYLOAD"        t_i11_payload_cross_product lib subline '    rename)' '    rename-NOARM)'
+
+# THE HOOK HALF OF THE I11 PREDICATE. plan/i11-consent-scope (above) neuters only the GATE
+# half (_soif_plan_is_enforcement_path). A two-clause fence needs a kill per clause, so
+# this row neuters the HOOK clause: `[ "$class" = "hook" ]` never matches → hooks fall out
+# of the I11 scope entirely (batch consent, no full-diff section).
+check_guard_plan "plan/i11-hook-half"   "# BL-109-I11-CONSENT"        t_hook_item_consent_full_diff lib subline '  [ "$class" = "hook" ] && return 0' '  [ "$class" = "hook-NEVER" ] && return 0'
+
+# THE I11 NORMALIZATION IN soif_plan_run — now genuinely load-bearing. It USED to be a
+# second opinion (every derivation arm decided I11 consent for itself and this line
+# re-decided it), so neutering it changed nothing and the suite stayed 19/19 green while
+# the PR body called it "the single load-bearing point". The derivation arms now emit the
+# ordinary `batch` default and THIS is the only place that upgrades the I11 scope to
+# `item` — so flipping it to `if false` drops gate scripts AND hooks into the batch
+# bucket, and the killing test goes RED. The claim in the code is now true.
+check_guard_plan "plan/i11-normalize"   "# BL-109-I11-CONSENT"        t_i11_consent_scope_simultaneous_drift lib subline '    if _soif_plan_is_i11_item "$class" "$path"; then consent=item; fi' '    if false; then consent=item; fi'
+
+# TIER DERIVED FROM THE PATH. The retire arm hard-coded `tier=enforcement` for every
+# orphan, so retiring an ordinary script rendered as a ⚠ ENFORCEMENT item — a lie that
+# devalues the ⚠ on the items that ARE enforcement machinery. Pin the derivation by
+# collapsing the helper back to the constant it used to be.
+check_guard_plan "plan/retire-tier"     "# BL-109-PLAN-TIER"          t_retire_tier_derived_from_path lib fnbody _soif_plan_tier_for_path 'printf enforcement'
+
 echo ""
 echo "── Guard-coverage registry (STATUS  guard  killing-test) ──"
 printf '%b' "$GUARD_ROWS" | sed 's/^/  /'

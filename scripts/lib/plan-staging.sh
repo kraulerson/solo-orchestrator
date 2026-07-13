@@ -26,13 +26,24 @@
 # ALWAYS item-consent. Class A1 stages a generator-leg three-way candidate; Class A2
 # stages a structural diff ONLY (no merge, ever — review-r1 B3).
 #
-# I11 — THE CONSENT FENCE (# BL-109-I11-CONSENT). Hooks AND gate scripts are ALWAYS
-# item-consent, with the FULL embedded unified diff (never diffstat-only) and
-# provenance. ONE predicate (_soif_plan_is_i11_item) decides the scope, and all three
-# places that must agree ask it: the consent flag (_soif_plan_derive_items), the
-# non-negotiable normalization (soif_plan_run) and the full-diff emission
-# (_soif_plan_emit_update_plan). Ordinary Class-M/T items stay batch-consentable with
-# a diffstat + a staged diffs/ entry.
+# I11 — THE CONSENT FENCE, in TWO halves that cannot drift apart:
+#
+#   SCOPE  (# BL-109-I11-CONSENT). ONE predicate, _soif_plan_is_i11_item (hooks by class
+#     ∪ gate scripts by path), and ONE decision point: the normalization in soif_plan_run
+#     that every item passes through before it reaches either the journal or the doc. The
+#     derivation arms emit the ordinary `batch` default and never re-decide it — a second
+#     opinion is how you get a guard that survives its own neuter (S3 review round 2).
+#
+#   PAYLOAD (# BL-109-I11-PAYLOAD). An I11 consent section MUST carry a REAL unified-diff
+#     payload — a hunk header AND a +/- content line. Asserted at the single emission
+#     site, for every class and every verb; an empty or hunkless block is a HARD ERROR
+#     that discards the whole run folder. This exists because the fence was caught HOLLOW
+#     three times (gate items diffstat-only; hook items emitting an EMPTY diff block; a
+#     RENAMED gate script emitting an empty block for want of a `rename` arm) — three
+#     bugs, one root cause: nothing asserted that a promised diff had anything in it.
+#     Patching the fourth verb would only have queued up a fifth.
+#
+# Ordinary Class-M/T items stay batch-consentable with a diffstat + a staged diffs/ entry.
 #
 # MECHANICAL FACTS ONLY (review-r1 M8): class, verb, diffstat, base-sha, tier and
 # the CHANGELOG roll-up are all script-computed here; no model call. The roll-up is
@@ -141,6 +152,23 @@ _soif_plan_is_i11_item() {                       # BL-109-I11-CONSENT
   _soif_plan_is_enforcement_path "$path"
 }
 
+# _soif_plan_tier_for_path <path> — the item TIER, DERIVED FROM THE PATH, never
+# hand-asserted by the verb. # BL-109-PLAN-TIER
+#
+# S3 review round 2: the retire/orphan arm hard-coded `tier=enforcement` for EVERY
+# retire, whatever the path — so retiring an ordinary script rendered as a ⚠ ENFORCEMENT
+# item, which is a lie about what the operator is looking at and devalues the ⚠ on the
+# items that really are enforcement machinery. Tier is a property of the PATH, so it asks
+# the SAME predicate the I11 scope asks (_soif_plan_is_enforcement_path → the framework's
+# own _soif_fresh_is_enforcement_path). One source of truth, no sync-siblings.
+#
+# NB tier ≠ consent. A retire of an ordinary script is `informational` TIER and still
+# item-consent (deleting a file the operator may depend on is not batchable) — that is a
+# destructiveness call, not an I11 claim, and it is made in _soif_plan_derive_items.
+_soif_plan_tier_for_path() {                     # BL-109-PLAN-TIER
+  if _soif_plan_is_enforcement_path "$1"; then printf 'enforcement'; else printf 'informational'; fi
+}
+
 # _soif_plan_fw_relpath <fw> <init> <rel> — the framework repo-relative path a
 # tracked project rel was shipped FROM (reuses freshness-detect's mechanical map).
 _soif_plan_fw_relpath() {
@@ -204,14 +232,20 @@ _soif_plan_derive_items() {
     [ -n "$id" ] || continue
     case "$check" in
       framework-drift)
-        local cls consent
-        cls="$(soif_currency_file_field "$mani" "$path" class)"; [ -n "$cls" ] || cls=M
-        if _soif_plan_is_i11_item "$cls" "$path"; then consent=item; else consent=batch; fi   # BL-109-I11-CONSENT
-        printf '%s\t%s\tupdate\t%s\t%s\t%s\t\n' "$id" "$cls" "$tier" "$path" "$consent" >> "$items_tmp" ;;
-      orphan)
+        # consent is PROVISIONAL here — `batch` is the ordinary default and soif_plan_run's
+        # single I11 normalization (# BL-109-I11-CONSENT) upgrades hooks + gate scripts to
+        # `item`. Deciding it here TOO would make that normalization dead code that only
+        # LOOKS load-bearing (S3 review round 2, minor 1). One decision point, one kill.
         local cls
         cls="$(soif_currency_file_field "$mani" "$path" class)"; [ -n "$cls" ] || cls=M
-        printf '%s\t%s\tretire\tenforcement\t%s\titem\t\n' "$id" "$cls" "$path" >> "$items_tmp"  ;; # BL-109-PLAN-RETIRE
+        printf '%s\t%s\tupdate\t%s\t%s\tbatch\t\n' "$id" "$cls" "$tier" "$path" >> "$items_tmp" ;;
+      orphan)
+        # TIER FROM THE PATH (# BL-109-PLAN-TIER), not hard-coded `enforcement`. Consent
+        # stays `item` for every retire: a deletion is destructive regardless of tier.
+        local cls otier
+        cls="$(soif_currency_file_field "$mani" "$path" class)"; [ -n "$cls" ] || cls=M
+        otier="$(_soif_plan_tier_for_path "$path")"                                            # BL-109-PLAN-TIER
+        printf '%s\t%s\tretire\t%s\t%s\titem\t\n' "$id" "$cls" "$otier" "$path" >> "$items_tmp"  ;; # BL-109-PLAN-RETIRE
       render-base)
         case "$path" in
           CLAUDE.md|PROJECT_INTAKE.md)
@@ -220,10 +254,13 @@ _soif_plan_derive_items() {
             printf '%s\tA2\tupdate\tinformational\t%s\titem\t\n' "$id" "$path" >> "$items_tmp" ;;
         esac ;;
       hook)
-        # hook-missing/hook-unavailable → add; hook-drift → update. I11 item-consent.
+        # hook-missing/hook-unavailable → add; hook-drift → update. A hook IS enforcement
+        # machinery whatever its path (hook rows carry path "-"), so the TIER is fixed
+        # here; the CONSENT is provisional and upgraded by the one I11 normalization in
+        # soif_plan_run — same single decision point as every other class.
         local hverb=update
         case "$id" in hook-missing:*|hook-unavailable:*) hverb=add ;; esac
-        printf '%s\thook\t%s\tenforcement\t%s\titem\t\n' "$id" "$hverb" "$path" >> "$items_tmp" ;;
+        printf '%s\thook\t%s\tenforcement\t%s\tbatch\t\n' "$id" "$hverb" "$path" >> "$items_tmp" ;;
       local-edit)
         printf 'local-edit\t%s\n' "$msg" >> "$notices" ;;
       framework)
@@ -237,7 +274,7 @@ _soif_plan_derive_items() {
   # framework-tree comparison, held to the same pin contract as drift/orphan so the
   # pin-absent path degrades cleanly to local-edit/hook/render-base only, BL-110).
   if [ "$pin_present" = true ]; then
-    local shipped rel cls tracked src consent tier
+    local shipped rel cls tracked src tier
     shipped="$(_soif_plan_framework_shipped "$fw" "$init")"
     printf '%s\n' "$shipped" | while IFS="$(printf '\t')" read -r rel cls; do
       [ -n "$rel" ] || continue
@@ -245,8 +282,10 @@ _soif_plan_derive_items() {
       [ -z "$tracked" ] || continue                     # already tracked → not an add
       src="$(_soif_plan_fw_relpath "$fw" "$init" "$rel")"
       [ -f "$fw/$src" ] || continue                     # source must exist upstream
-      if _soif_plan_is_i11_item "$cls" "$rel"; then consent=item; tier=enforcement; else consent=batch; tier=informational; fi   # BL-109-I11-CONSENT
-      printf 'add:%s\t%s\tadd\t%s\t%s\t%s\t\n' "$rel" "$cls" "$tier" "$rel" "$consent" >> "$items_tmp"
+      # TIER from the path (# BL-109-PLAN-TIER); CONSENT provisional (`batch`), upgraded
+      # for hooks + gate scripts by the ONE I11 normalization in soif_plan_run.
+      tier="$(_soif_plan_tier_for_path "$rel")"                                     # BL-109-PLAN-TIER
+      printf 'add:%s\t%s\tadd\t%s\t%s\tbatch\t\n' "$rel" "$cls" "$tier" "$rel" >> "$items_tmp"
     done
   fi
 
@@ -333,6 +372,14 @@ _soif_plan_rollup() {
 # both the diffs/ artifact (_soif_plan_build_diff) and the I11 full-diff embed in
 # UPDATE-PLAN.md (_soif_plan_emit_update_plan) render the SAME bytes from here, so a
 # gate script's embedded diff can never drift from its staged diff.
+#
+# EVERY VERB NEEDS AN ARM. `rename` had none (S3 review round 2): it fell through to
+# `*)` → `diff -u <project-current> <framework-current>`, and for BOTH legs of a rename
+# one of those two files does not exist (the retire leg's old path is gone upstream; the
+# add leg's new path is absent downstream), so `diff` errored to /dev/null and the
+# function returned an EMPTY diff. That is why the payload assertion below
+# (# BL-109-I11-PAYLOAD) exists: it is what makes "every verb needs an arm" a machine
+# fact instead of a code-review habit.
 _soif_plan_unified_diff() {
   local proj="$1" fw="$2" init="$3" verb="$4" path="$5"
   local fw_rel base new
@@ -342,9 +389,90 @@ _soif_plan_unified_diff() {
   case "$verb" in
     add)    diff -u /dev/null "$new" 2>/dev/null ;;
     retire) diff -u "$base" /dev/null 2>/dev/null ;;
+    rename)
+      # RENDERING CHOICE (S3 review round 2, declared): a rename is a LINKED retire+add,
+      # and _soif_plan_link_renames emits it as TWO rows (the old path and the new path,
+      # cross-linked by renameOf). Each row renders ITS OWN side — the old path as a full
+      # REMOVAL diff, the new path as a full ADDITION diff — rather than one combined
+      # old→new diff. Two reasons: (1) each row is its own checkbox, so the diff under a
+      # checkbox must show exactly what ticking THAT box does to the filesystem; (2) a
+      # combined diff would have to pick one row to hang off and leave the other row's
+      # box with no payload at all — the exact hollow-consent failure this round exists
+      # to kill. BOTH sides are therefore always shown, one per row.
+      if   [ -f "$base" ] && [ ! -f "$new" ]; then diff -u "$base" /dev/null 2>/dev/null   # old path: retire leg
+      elif [ ! -f "$base" ] && [ -f "$new" ]; then diff -u /dev/null "$new" 2>/dev/null    # new path: add leg
+      else                                         diff -u "$base" "$new" 2>/dev/null      # both present: content move
+      fi ;;
     *)      diff -u "$base" "$new" 2>/dev/null ;;
   esac
   return 0                    # `diff` exits 1 on differences — never fail the caller
+}
+
+# ── I11 PAYLOAD: the structural non-empty assertion (# BL-109-I11-PAYLOAD) ───────
+# WHY THIS IS A GUARD AND NOT A PATCH (S3 review round 2). The I11 consent fence has now
+# been caught HOLLOW three times on this one change, each time in a DIFFERENT arm: gate
+# items got diffstat-only (r1); hook items emitted an EMPTY ```diff block under a heading
+# promising a full diff, because hook rows carry path "-" (r1 fix round); a RENAMED gate
+# script emitted an empty block because `rename` had no arm in _soif_plan_unified_diff
+# (r2). One root cause every time: NOTHING asserted that the diff an I11 heading promises
+# actually HAS a payload. Patching a fourth verb would just wait for a fifth.
+#
+# So the invariant is now structural, asserted at the single emission site, for every
+# item, on every verb, forever: an I11 consent section MUST carry a REAL unified-diff
+# payload — at minimum one hunk header (@@) AND one +/- CONTENT line. An empty or hunkless
+# block is strictly WORSE than diffstat-only, because it LOOKS satisfied: the operator
+# ticks a box believing they read the change. There is no safe degraded mode here, so this
+# FAILS CLOSED — a plan that cannot show the operator what they are consenting to must not
+# offer the consent at all. A future verb added without a diff arm trips this on its first
+# run, loudly, naming itself.
+
+# _soif_plan_diff_has_payload <file> — 0 iff <file> holds a REAL unified-diff payload:
+# a hunk header AND at least one +/- content line (the `---`/`+++` file headers and a
+# bare `diff` banner do NOT count — a header-only block shows the operator nothing).
+_soif_plan_diff_has_payload() {                                   # BL-109-I11-PAYLOAD
+  local f="$1"
+  [ -s "$f" ] || return 1
+  grep -q '^@@' "$f" 2>/dev/null || return 1
+  grep -qE '^\+([^+]|$)' "$f" 2>/dev/null && return 0
+  grep -qE '^-([^-]|$)'  "$f" 2>/dev/null && return 0
+  return 1
+}
+
+# _soif_plan_i11_diff <proj> <fw> <init> <class> <verb> <path> <id> — the ONE producer
+# of an I11 consent payload. Hook items diff their managed REGION (they carry path "-",
+# so the hook name comes off the id); every other class diffs the file. Callers must run
+# the payload assertion on the result — see _soif_plan_payload_abort.
+_soif_plan_i11_diff() {                                           # BL-109-I11-PAYLOAD
+  local proj="$1" fw="$2" init="$3" class="$4" verb="$5" path="$6" id="$7"
+  if [ "$class" = "hook" ]; then
+    _soif_plan_hook_full_diff "$proj" "$fw" "$path" "$id"
+  else
+    _soif_plan_unified_diff "$proj" "$fw" "$init" "$verb" "$path"
+  fi
+}
+
+# _soif_plan_payload_abort <id> <class> <verb> <path> — the HARD ERROR. Names the item,
+# its class, its verb and its path, says why, and points at the cause. stderr only: the
+# caller's stdout IS the UPDATE-PLAN, which is being abandoned.
+_soif_plan_payload_abort() {                                      # BL-109-I11-PAYLOAD
+  local id="$1" class="$2" verb="$3" path="$4"
+  {
+    printf 'plan: ABORT — I11 item produced an EMPTY full diff.\n'
+    printf 'plan:   item:  %s\n' "$id"
+    printf 'plan:   class: %s\n' "$class"
+    printf 'plan:   verb:  %s\n' "$verb"
+    printf 'plan:   path:  %s\n' "$path"
+    printf 'plan:\n'
+    printf 'plan: Invariant I11 promises the operator the FULL unified diff of every hook\n'
+    printf 'plan: and gate-script change BEFORE they tick its consent box. This item has no\n'
+    printf 'plan: hunk header and no +/- content line, so its section would offer consent to\n'
+    printf 'plan: a change the operator cannot see — worse than diffstat-only, because it\n'
+    printf 'plan: LOOKS satisfied. Refusing to emit the plan (fail closed).\n'
+    printf 'plan:\n'
+    printf 'plan: Cause: no arm of _soif_plan_unified_diff / _soif_plan_hook_full_diff\n'
+    printf "plan: produces a payload for verb '%s' on class '%s'. Add the arm — do not\n" "$verb" "$class"
+    printf 'plan: silence this guard (# BL-109-I11-PAYLOAD).\n'
+  } >&2
 }
 
 # _soif_plan_build_diff <run> <proj> <fw> <init> <pin> <pin_present> <id> <verb> <path>
@@ -708,9 +836,18 @@ soif_plan_run() {
     dfile=""; cand=""; patch=""; struct=""; extra=""
 
     # I11, non-negotiable (# BL-109-I11-CONSENT): a hook or a gate script is NEVER
-    # batch-consentable, whatever the derivation said. One predicate, asserted at the
-    # single point every item passes through — so no future verb/branch can leak a
-    # Class-M write to a gate script into the batch bucket.
+    # batch-consentable. THIS IS THE ONLY PLACE THAT DECIDES IT — every derivation arm
+    # emits the ordinary `batch` default and this single point, which EVERY item passes
+    # through on its way to both the journal and the UPDATE-PLAN, upgrades the I11 scope
+    # to `item`. So no future verb or derivation branch can leak a write to a gate script
+    # into the batch bucket: a new arm gets the fence for free, by construction.
+    #
+    # S3 review round 2 (minor 1): this used to be a SECOND opinion — every arm decided
+    # I11 consent for itself and this line re-decided it — so neutering it changed
+    # nothing and the suite stayed green. A "load-bearing" guard that survives its own
+    # neuter is a false claim about the code. The duplicate decisions are gone; this line
+    # now carries the weight the comment claims, and the registry row plan/i11-normalize
+    # kills it.
     if _soif_plan_is_i11_item "$class" "$path"; then consent=item; fi
 
     # base-sha = the LIVE file's sha at plan time (via _soif_plan_base_sha,
@@ -799,9 +936,20 @@ soif_plan_run() {
       items:$items }' > "$RUN_DIR/manifest.json"
 
   # ── UPDATE-PLAN.md (# BL-109-PLAN-FENCE — the run-confined selection surface) ──
+  # FAIL CLOSED (# BL-109-I11-PAYLOAD): the emitter returns non-zero when an I11 item
+  # cannot be given the FULL diff its consent section promises. A half-written plan is
+  # NOT left on disk to be ticked — the whole run folder goes, so there is no consent
+  # surface at all. A plan the operator cannot read is not a plan.
+  local emit_rc=0
   _soif_plan_emit_update_plan "$RUN_DIR" "$run_id" "$now" "$fw" "$fw_head" "$fw_short" \
       "$pin" "$pin_present" "$total" "$plan_rows_file" "$notices_file" "$proj" "$init" \
-      > "$RUN_DIR/UPDATE-PLAN.md"                    # BL-109-PLAN-FENCE
+      > "$RUN_DIR/UPDATE-PLAN.md" || emit_rc=$?                  # BL-109-PLAN-FENCE
+  if [ "$emit_rc" != 0 ]; then                                   # BL-109-I11-PAYLOAD
+    rm -rf "$RUN_DIR" 2>/dev/null || true
+    rm -f "$notices_file" "$items_file" "$manitems_file" "$plan_rows_file" 2>/dev/null || true
+    echo "plan: no plan written — the run folder was discarded (nothing to consent to)." >&2
+    return 1
+  fi
 
   rm -f "$notices_file" "$items_file" "$manitems_file" "$plan_rows_file" 2>/dev/null || true
   printf '%s\n' "$RUN_DIR"
@@ -877,10 +1025,23 @@ _soif_plan_emit_update_plan() {
   # short-sha). These are the scariest writes the updater can offer — the code that
   # decides whether the operator's own gates block — so the operator must be able to
   # read every changed line without leaving this document.
-  local any_i11=0
+  local any_i11=0 dtmp
+  dtmp="$(mktemp)"
   while IFS="$(printf '\t')" read -r id class verb tier path consent added removed bshort; do
     [ -n "$id" ] || continue
     _soif_plan_is_i11_item "$class" "$path" || continue          # BL-109-I11-CONSENT
+
+    # PRODUCE, THEN ASSERT, THEN EMIT (# BL-109-I11-PAYLOAD). The diff is built into a
+    # temp and CHECKED FOR A REAL PAYLOAD before a single byte of its heading is printed.
+    # An empty/hunkless payload is a HARD ERROR, never a printed-anyway empty code block:
+    # the heading is the promise, so the promise is not made unless it can be kept.
+    _soif_plan_i11_diff "$proj" "$fw" "$init" "$class" "$verb" "$path" "$id" > "$dtmp" 2>/dev/null
+    if ! _soif_plan_diff_has_payload "$dtmp"; then                # BL-109-I11-PAYLOAD
+      _soif_plan_payload_abort "$id" "$class" "$verb" "$path"
+      rm -f "$dtmp" 2>/dev/null || true
+      return 1
+    fi
+
     if [ "$any_i11" = 0 ]; then
       printf '## Item-consent: hooks + gate scripts (FULL diff, I11)\n\n'
       printf 'Every item in this section is ENFORCEMENT machinery — a `.git/hooks/*` managed\n'
@@ -892,13 +1053,10 @@ _soif_plan_emit_update_plan() {
     printf '### `%s` — %s (%s/%s)\n\n' "$id" "$path" "$class" "$verb"
     printf '**Provenance:** framework `%s`\n\n' "$(_soif_plan_short "$fw_head")"
     printf '```diff\n'
-    if [ "$class" = "hook" ]; then
-      _soif_plan_hook_full_diff "$proj" "$fw" "$path" "$id"      # managed-region diff
-    else
-      _soif_plan_unified_diff "$proj" "$fw" "$init" "$verb" "$path"
-    fi
+    cat "$dtmp"
     printf '```\n\n'
   done < "$rows"
+  rm -f "$dtmp" 2>/dev/null || true
 
   # A1 no-agent application protocol.
   local any_a1=0
