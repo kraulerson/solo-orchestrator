@@ -2808,7 +2808,7 @@ For Rust the skip is *deliberate* (inline `#[cfg(test)]` tests cannot be detecte
 **Logged:** 2026-07-12 (E2E validation walk, findings F14 + F15)
 **Category:** Bug / security-gate credibility
 **Severity:** **High**
-**Status:** Closed — fixed in PR #196 (2026-07-12)
+**Status:** Closed — fixed in PR #197 (2026-07-12)
 
 **F14 — a fresh scaffold cannot pass its own security scan.** A freshly-scaffolded organizational project fails `semgrep --config auto` with **6 WARNING findings, ALL in framework-shipped files** — 5 mutable action-tags in the generated `.github/workflows/ci.yml` + `release.yml`, and 1 IFS-tamper in `scripts/check-versions.sh` — and **ZERO in the app's own `src/`**. An honest operator cannot clear Phase 3 without editing framework-generated files, and a scanner **FAIL is not attestable — only a SKIP is**. The framework hands you a project that fails the framework's own gate.
 
@@ -2816,7 +2816,7 @@ For Rust the skip is *deliberate* (inline `#[cfg(test)]` tests cannot be detecte
 
 **Fix shape:** (1) fix the framework-shipped findings at source (pin action SHAs in the generated workflows; fix the `check-versions.sh` IFS pattern) so a fresh scaffold is scan-clean — the acceptance test is *"scaffold → semgrep → zero findings"*; (2) the offline autorun must **not** silently downgrade a scanner that was previously FAILing or that is locally available — either run it online-capable, or surface `[STALE — last real result: FAIL]` rather than a fresh attestable SKIP; (3) make a scanner FAIL **attestable-but-loud** rather than unattestable-and-therefore-laundered. TDD + mutation proofs; scaffold-fidelity test.
 
-### Resolution (PR #196, 2026-07-12)
+### Resolution (PR #197, 2026-07-12)
 
 **F14 — a fresh scaffold is now scan-clean.** Measured on a REAL `init.sh` organizational scaffold with a REAL `semgrep --config auto`: **6 findings BEFORE → 0 findings AFTER.**
 - Every GitHub Action in the shipped pipeline templates — and in the framework's own workflows — is pinned to an **immutable 40-hex commit SHA** with a `# vN (vX.Y.Z)` provenance comment. SHAs were resolved through the GitHub API (tag ref → annotated-tag deref → commit) and each was verified to be a real commit; none was invented. The `__SETUP_ACTION__` substitution values in `init.sh` **and** `scripts/reconfigure-project.sh` (sync siblings) are pinned too, so the sed-rendered `release.yml` is pinned as well.
