@@ -292,45 +292,58 @@ check_guard "prompt/apply-fallback-is-skip" "# BL-099-PROMPT-FALLBACK" t_doc_pro
 # ══════════════════════════════════════════════════════════════════════════════════
 PLAN_PRISTINE_LIB="$REPO_ROOT/scripts/lib/plan-staging.sh"
 PLAN_MUT_LIB="$MUTANT_TREE/scripts/lib/plan-staging.sh"
+# The S2 DETECTOR is a third neuter target (`fresh`). The plan reuses freshness-detect's
+# comparison facts wholesale, so a guard can live in the detector and be killed by a plan
+# test — # BL-109-MISSING is exactly that: the detector decides whether a locally-deleted
+# tracked file is NAMED or silently mis-reported as framework-drift, and the plan is where
+# the mis-report detonates (an empty payload → a whole-plan abort).
+FRESH_PRISTINE_LIB="$REPO_ROOT/scripts/lib/freshness-detect.sh"
+FRESH_MUT_LIB="$MUTANT_TREE/scripts/lib/freshness-detect.sh"
 PLAN_SUITE="$REPO_ROOT/tests/test-plan-staging.sh"
-_reset_plan_lib() { cp "$PLAN_PRISTINE_LIB" "$PLAN_MUT_LIB"; }
+_reset_plan_lib()  { cp "$PLAN_PRISTINE_LIB"  "$PLAN_MUT_LIB"; }
+_reset_fresh_lib() { cp "$FRESH_PRISTINE_LIB" "$FRESH_MUT_LIB"; }
 # Drive ONE plan-suite test against the mutant tree (PLAN_REPO_OVERRIDE re-points the
 # sourced libs + upgrade-project.sh; PLAN_ONLY selects the single killing test).
 _run_killing_plan() { PLAN_REPO_OVERRIDE="$MUTANT_TREE" PLAN_ONLY="$1" bash "$PLAN_SUITE" 2>&1; }
 
-# check_guard_plan <name> <marker|-> <killing_test> <target:lib|disp> <kind> [a1] [a2]
-#   lib  → neuter $MUTANT_TREE/scripts/lib/plan-staging.sh
-#   disp → neuter $MUT (the mutant upgrade-project.sh, the # BL-109-PLAN dispatch)
+# check_guard_plan <name> <marker|-> <killing_test> <target:lib|fresh|disp> <kind> [a1] [a2]
+#   lib   → neuter $MUTANT_TREE/scripts/lib/plan-staging.sh
+#   fresh → neuter $MUTANT_TREE/scripts/lib/freshness-detect.sh (the S2 detector the plan reuses)
+#   disp  → neuter $MUT (the mutant upgrade-project.sh, the # BL-109-PLAN dispatch)
 check_guard_plan() {
   local name="$1" marker="$2" tests="$3" target="$4" kind="$5" a1="$6" a2="$7"
   local pristine mut saved="$MUT"
-  _reset_mutant; _reset_plan_lib
-  if [ "$target" = "lib" ]; then pristine="$PLAN_PRISTINE_LIB"; mut="$PLAN_MUT_LIB"; else pristine="$PRISTINE"; mut="$MUT"; fi
+  _reset_mutant; _reset_plan_lib; _reset_fresh_lib
+  case "$target" in
+    lib)   pristine="$PLAN_PRISTINE_LIB";  mut="$PLAN_MUT_LIB" ;;
+    fresh) pristine="$FRESH_PRISTINE_LIB"; mut="$FRESH_MUT_LIB" ;;
+    *)     pristine="$PRISTINE";           mut="$MUT" ;;
+  esac
   MUT="$mut"
   if ! _apply_neuter "$kind" "$a1" "$a2"; then
     MUT="$saved"; fail_ "$name" "neuter MIS-TARGETED (kind=$kind) — anchor/string absent or not unique; update the row"
-    GUARD_ROWS="${GUARD_ROWS}MISTARGET\t${name}\t${tests}\n"; _reset_mutant; _reset_plan_lib; return
+    GUARD_ROWS="${GUARD_ROWS}MISTARGET\t${name}\t${tests}\n"; _reset_mutant; _reset_plan_lib; _reset_fresh_lib; return
   fi
   if cmp -s "$pristine" "$mut"; then
     MUT="$saved"; fail_ "$name" "neuter produced an IDENTICAL file (kind=$kind)"
-    GUARD_ROWS="${GUARD_ROWS}NOOP\t${name}\t${tests}\n"; _reset_mutant; _reset_plan_lib; return
+    GUARD_ROWS="${GUARD_ROWS}NOOP\t${name}\t${tests}\n"; _reset_mutant; _reset_plan_lib; _reset_fresh_lib; return
   fi
   if [ "$marker" != "-" ] && ! grep -qF "$marker" "$mut"; then
     MUT="$saved"; fail_ "$name" "the neuter removed the marker '$marker' — attack behaviour, not the marker"
-    GUARD_ROWS="${GUARD_ROWS}MARKERGONE\t${name}\t${tests}\n"; _reset_mutant; _reset_plan_lib; return
+    GUARD_ROWS="${GUARD_ROWS}MARKERGONE\t${name}\t${tests}\n"; _reset_mutant; _reset_plan_lib; _reset_fresh_lib; return
   fi
   if ! bash -n "$mut" 2>/dev/null; then
     MUT="$saved"; fail_ "$name" "the mutant has a bash syntax error (kind=$kind)"
-    GUARD_ROWS="${GUARD_ROWS}SYNTAX\t${name}\t${tests}\n"; _reset_mutant; _reset_plan_lib; return
+    GUARD_ROWS="${GUARD_ROWS}SYNTAX\t${name}\t${tests}\n"; _reset_mutant; _reset_plan_lib; _reset_fresh_lib; return
   fi
   MUT="$saved"
   local mout mrc=0; mout=$(_run_killing_plan "$tests") || mrc=$?
   if [ "$mrc" = "0" ]; then
-    _reset_mutant; _reset_plan_lib
+    _reset_mutant; _reset_plan_lib; _reset_fresh_lib
     fail_ "$name" "SURVIVED — killing test [$tests] stayed GREEN against the neutered guard.\nmutant PASS/FAIL lines:\n$(echo "$mout" | grep -E '\[PASS\]|\[FAIL\]' | head -4)"
     GUARD_ROWS="${GUARD_ROWS}SURVIVED\t${name}\t${tests}\n"; return
   fi
-  _reset_mutant; _reset_plan_lib
+  _reset_mutant; _reset_plan_lib; _reset_fresh_lib
   local gout grc=0; gout=$(_run_killing_plan "$tests") || grc=$?
   if [ "$grc" != "0" ]; then
     fail_ "$name" "killing test [$tests] FAILS against the RESTORED pristine (flake).\nrestored PASS/FAIL lines:\n$(echo "$gout" | grep -E '\[PASS\]|\[FAIL\]' | head -4)"
@@ -421,6 +434,61 @@ check_guard_plan "plan/i11-normalize"   "# BL-109-I11-CONSENT"        t_i11_cons
 # devalues the ⚠ on the items that ARE enforcement machinery. Pin the derivation by
 # collapsing the helper back to the constant it used to be.
 check_guard_plan "plan/retire-tier"     "# BL-109-PLAN-TIER"          t_retire_tier_derived_from_path lib fnbody _soif_plan_tier_for_path 'printf enforcement'
+
+# ── (K4) S3 REVIEW ROUND 3 — PIN THE GUARD'S STRICTNESS, NOT JUST ITS EXISTENCE ────
+# The round-2 verifier confirmed the payload guard WORKS (its own class × verb × tier
+# cross-product found zero hollow payloads) — and then weakened _soif_plan_diff_has_payload
+# to "any non-empty output" and watched all 22 plan tests and all 39 registry rows stay
+# GREEN. The guard was real; NOTHING PINNED HOW STRICT IT WAS. `plan/i11-payload` (above)
+# only kills the total gutting (`return 0`); every intermediate softening survived. That is
+# the WEAK-TEST class reappearing on the very guard built to kill the weak-test class.
+#
+# So the PREDICATE is now pinned directly, by t_payload_predicate_strictness, which drives
+# _soif_plan_diff_has_payload with crafted inputs in BOTH directions. The registry delivers
+# the strictness row as a FAMILY — one row per SPECIFIC weakening, because the harness
+# applies exactly one neuter per row and "kills the specific weakenings, not merely the
+# deletion of the function" is the whole point. Each body keeps the marker, stays
+# syntactically valid, and is a plausible careless edit rather than a straw man:
+#
+#   any-nonempty          the verifier's own weakening: any output at all counts.
+#   no-hunk-required      drop the hunk-header clause → loose +/- lines pass as a "diff".
+#   no-content-required   drop the content clause → a hunk header alone passes.
+#   file-headers-count    the classic: `^[-+]` file-wide, so the ---/+++ FILE HEADERS are
+#                         mistaken for content and a header-only block passes.
+#   over-strict           the OPPOSITE failure, and a real one — this IS the pre-round-3
+#                         predicate. It keyed on a line's SPELLING (`^\+` not followed by
+#                         another `+`), so a real diff whose payload TEXT begins with
+#                         `+++`/`---` was REJECTED and the plan fail-closed on a legitimate
+#                         update. An over-strict guard is a denial-of-service on the
+#                         operator's own updates, so the ACCEPT direction is pinned exactly
+#                         as hard as the REJECT direction.
+check_guard_plan "plan/i11-payload-strictness/any-nonempty"        "# BL-109-I11-PAYLOAD" t_payload_predicate_strictness lib fnbody _soif_plan_diff_has_payload '[ -s "$1" ]'
+check_guard_plan "plan/i11-payload-strictness/no-hunk-required"    "# BL-109-I11-PAYLOAD" t_payload_predicate_strictness lib fnbody _soif_plan_diff_has_payload 'grep -qE "^[-+]" "$1"'
+check_guard_plan "plan/i11-payload-strictness/no-content-required" "# BL-109-I11-PAYLOAD" t_payload_predicate_strictness lib fnbody _soif_plan_diff_has_payload 'grep -q "^@@" "$1"'
+check_guard_plan "plan/i11-payload-strictness/file-headers-count"  "# BL-109-I11-PAYLOAD" t_payload_predicate_strictness lib fnbody _soif_plan_diff_has_payload 'grep -q "^@@" "$1" && grep -qE "^[-+]" "$1"'
+check_guard_plan "plan/i11-payload-strictness/over-strict"         "# BL-109-I11-PAYLOAD" t_payload_predicate_strictness lib fnbody _soif_plan_diff_has_payload 'grep -q "^@@" "$1" && grep -qE "^[+]([^+]|$)|^[-]([^-]|$)" "$1"'
+
+# THE MISSING TRACKED FILE (# BL-109-MISSING) — two guards, one on each side of the seam.
+#
+# DETECTION (the S2 detector — the `fresh` target). The drift arm compared the MANIFEST sha
+# to the UPSTREAM sha and never checked that the project file still EXISTS. Neuter the
+# existence check and a locally-deleted tracked gate script falls straight back into the
+# drift comparison as verb `update` — a diff with no base, an EMPTY payload — and the
+# fail-closed I11 guard then aborts the WHOLE plan, naming the payload and the verb instead
+# of the missing file, taking every unrelated item down with it. This row reproduces that
+# bug exactly; the killing test asserts the true cause is named AND the blast radius is nil.
+check_guard_plan "plan/missing-detect"  "# BL-109-MISSING"            t_missing_tracked_file_restored fresh subline 'if [ ! -f "$proj/$rel" ]; then' 'if false; then'
+
+# THE OFFER (the plan side). Detecting it and then dropping it on the floor would leave the
+# operator with a gate script that is gone and a plan that never mentions it. Neuter the
+# `missing)` arm and the item vanishes from the plan entirely → RED.
+check_guard_plan "plan/missing-offer"   "# BL-109-MISSING"            t_missing_tracked_file_restored lib subline '      missing)' '      missing-NEVER)'
+
+# ABORT HYGIENE (# BL-109-PLAN-NOTRACE). A fail-closed --plan discarded its run folder but
+# left the docs/updates/ parent it had just created, so a plan that REFUSED to write a plan
+# still mutated an otherwise-untouched tree. Gut the container cleanup → the empty
+# containers survive the abort → the whole-tree fingerprint (files AND dirs) differs → RED.
+check_guard_plan "plan/abort-no-trace"  "# BL-109-PLAN-NOTRACE"       t_abort_leaves_no_trace lib fnbody _soif_plan_discard_container 'return 0'
 
 echo ""
 echo "── Guard-coverage registry (STATUS  guard  killing-test) ──"

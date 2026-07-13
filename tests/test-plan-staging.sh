@@ -279,6 +279,30 @@ _has_payload() {
   return 1
 }
 
+# _tree_fingerprint <root> — sha of every FILE plus the name of every DIRECTORY under
+# <root>. Directories are in the fingerprint on purpose: a file-only fingerprint cannot
+# see an EMPTY leftover dir, and "a failed --plan left an empty docs/updates/ behind" is
+# exactly the trace this fingerprint exists to catch (# BL-109-PLAN-NOTRACE).
+_tree_fingerprint() {
+  local root="$1" p
+  find "$root" \( -type f -o -type d \) 2>/dev/null | sort | while IFS= read -r p; do
+    if [ -d "$p" ]; then printf 'DIR   %s\n' "${p#"$root"}"
+    else                 printf '%s  %s\n' "$(_sha "$p")" "${p#"$root"}"; fi
+  done
+}
+
+# _pp_reject / _pp_accept <label> <file> — the two directions of the payload predicate,
+# asserted DIRECTLY against _soif_plan_diff_has_payload (the real function, sourced from
+# LIB_ROOT — so the guard-coverage harness's mutant lib is what answers here).
+_pp_reject() {
+  if _soif_plan_diff_has_payload "$2"; then echo "    ACCEPTED a hollow payload — $1"; return 1; fi
+  return 0
+}
+_pp_accept() {
+  if ! _soif_plan_diff_has_payload "$2"; then echo "    REJECTED a REAL diff — $1"; return 1; fi
+  return 0
+}
+
 # ══════════════════════════════════════════════════════════════════════════════
 # TESTS
 # ══════════════════════════════════════════════════════════════════════════════
@@ -789,6 +813,249 @@ t_retire_tier_derived_from_path() {   # killing test: # BL-109-PLAN-TIER
   rm -rf "$b"
 }
 
+t_payload_predicate_strictness() {   # killing test: # BL-109-I11-PAYLOAD (the predicate)
+  # PIN THE GUARD'S STRICTNESS, NOT JUST ITS EXISTENCE (S3 review round 3).
+  #
+  # The payload guard WORKS: the round-2 verifier built its own (class × verb × tier)
+  # cross-product against the real engine and found ZERO hollow payloads. But NOTHING
+  # PINNED HOW STRICT IT IS — the same verifier weakened _soif_plan_diff_has_payload (down
+  # to "any non-empty output") and all 22 plan tests and all 39 registry rows stayed GREEN.
+  # A future edit could soften it to `grep -q .` and every test would still pass, and the
+  # hollow-payload lie — the thing this guard exists to kill — would be back.
+  #
+  # That is the WEAK-TEST class, on the guard built to kill the weak-test class. So the
+  # predicate is asserted DIRECTLY, on crafted inputs, in BOTH directions.
+  #
+  # The ACCEPT direction matters as much as the REJECT one: an OVER-strict predicate
+  # aborts a legitimate plan, which is a denial-of-service on the operator's own updates.
+  # The nasty case is a diff whose PAYLOAD is made of lines that LOOK like diff markers —
+  # an added line whose text begins `+++` renders as `++++ …`, a removed line whose text
+  # begins `---` renders as `---- …`, and a line containing `@@` renders as `+@@ …`. Those
+  # are REAL changes to REAL files (TOML fences, diff snippets inside docs, this very
+  # repo's own test fixtures) and they must be accepted, not mistaken for file headers or
+  # hunk headers. Position, not spelling, is what distinguishes a marker from content:
+  # markers precede the first `@@`, content follows it.
+  local b; b="$(mktemp -d)" ok=1
+
+  # ── REJECT: nothing here shows the operator a single changed line ───────────────
+  : > "$b/r-empty"                                       # empty
+  printf '   \n\t\n\n' > "$b/r-whitespace"               # whitespace only
+  cat > "$b/r-headers-no-hunk" <<'EOF'
+--- a/scripts/pre-commit-gate.sh
++++ b/scripts/pre-commit-gate.sh
+EOF
+  cat > "$b/r-hunk-no-content" <<'EOF'
+--- a/scripts/pre-commit-gate.sh
++++ b/scripts/pre-commit-gate.sh
+@@ -1,2 +1,2 @@
+ echo gate
+ exit 0
+EOF
+  cat > "$b/r-content-no-hunk" <<'EOF'
+--- a/scripts/pre-commit-gate.sh
++++ b/scripts/pre-commit-gate.sh
+-echo gate v1
++echo gate v2
+EOF
+  _pp_reject "empty output"                          "$b/r-empty"           || ok=0
+  _pp_reject "whitespace-only output"                "$b/r-whitespace"      || ok=0
+  _pp_reject "file headers with NO hunk header"      "$b/r-headers-no-hunk" || ok=0
+  _pp_reject "a hunk header with NO +/- content"     "$b/r-hunk-no-content" || ok=0
+  _pp_reject "+/- lines with NO hunk header"         "$b/r-content-no-hunk" || ok=0
+
+  # ── ACCEPT: every one of these shows the operator a real changed line ───────────
+  cat > "$b/a-minimal" <<'EOF'
+--- a/f
++++ b/f
+@@ -0,0 +1 @@
++hello
+EOF
+  cat > "$b/a-pure-add" <<'EOF'
+--- /dev/null
++++ b/scripts/run-phase3-validation.sh
+@@ -0,0 +1,2 @@
++#!/usr/bin/env bash
++echo phase3
+EOF
+  cat > "$b/a-pure-del" <<'EOF'
+--- a/scripts/process-checklist.sh
++++ /dev/null
+@@ -1,2 +0,0 @@
+-#!/usr/bin/env bash
+-echo checklist
+EOF
+  cat > "$b/a-one-line" <<'EOF'
+--- a/scripts/pre-commit-gate.sh
++++ b/scripts/pre-commit-gate.sh
+@@ -1 +1 @@
+-echo gate v1
++echo gate v2
+EOF
+  # NASTY (1) — the ONLY content line is an ADDED line whose text starts with `+++`.
+  cat > "$b/a-marker-add" <<'EOF'
+--- a/docs/example.md
++++ b/docs/example.md
+@@ -0,0 +1 @@
+++++ toml front-matter fence
+EOF
+  # NASTY (2) — the ONLY content line is a REMOVED line whose text starts with `---`.
+  cat > "$b/a-marker-del" <<'EOF'
+--- a/docs/example.md
++++ b/docs/example.md
+@@ -1 +0,0 @@
+---- yaml front-matter fence
+EOF
+  # NASTY (3) — a content line that looks like a HUNK header (must not be mistaken for
+  # one, must not be "double-counted" as both marker and content).
+  cat > "$b/a-marker-hunk" <<'EOF'
+--- a/docs/example.md
++++ b/docs/example.md
+@@ -1 +1 @@
+-@@ -1,2 +1,2 @@ old snippet
++@@ -3,4 +3,4 @@ new snippet
+EOF
+  # NASTY (4) — a first hunk with no content, a second hunk that carries the change.
+  cat > "$b/a-multi-hunk" <<'EOF'
+--- a/scripts/pre-commit-gate.sh
++++ b/scripts/pre-commit-gate.sh
+@@ -1,2 +1,2 @@
+ echo gate
+ exit 0
+@@ -9,1 +9,1 @@
+-echo old
++echo new
+EOF
+  _pp_accept "a minimal real diff (hunk + one + line)"        "$b/a-minimal"     || ok=0
+  _pp_accept "a pure addition"                                "$b/a-pure-add"    || ok=0
+  _pp_accept "a pure deletion"                                "$b/a-pure-del"    || ok=0
+  _pp_accept "a one-line change"                              "$b/a-one-line"    || ok=0
+  _pp_accept "payload whose added line TEXT begins with +++"  "$b/a-marker-add"  || ok=0
+  _pp_accept "payload whose removed line TEXT begins with ---" "$b/a-marker-del" || ok=0
+  _pp_accept "payload whose lines look like HUNK headers"     "$b/a-marker-hunk" || ok=0
+  _pp_accept "content in the SECOND hunk (first is context-only)" "$b/a-multi-hunk" || ok=0
+
+  [ "$ok" = 1 ] && pass "the I11 payload PREDICATE's strictness is pinned in BOTH directions: hollow blocks rejected (empty/whitespace/headers-only/hunkless/contentless), real diffs accepted — including payload lines that LOOK like +++/---/@@ markers" \
+    || fail_ "payload predicate strictness" "see above"
+  rm -rf "$b"
+}
+
+t_missing_tracked_file_restored() {   # killing test: # BL-109-MISSING
+  # THE MISDIAGNOSED ABORT (S3 review round 3, minor 1). freshness-detect's drift arm
+  # compared the MANIFEST sha to the UPSTREAM sha and never checked that the project file
+  # still EXISTS. So an operator who had locally deleted a tracked gate script (it stays in
+  # currency.files) got a drift item whose `update` diff had no base — an EMPTY payload —
+  # and the fail-closed payload guard then ABORTED THE WHOLE PLAN, blaming the payload/verb
+  # instead of the true cause, and bricking every unrelated item in the run.
+  #
+  # DECISION (declared): a missing tracked file is a LEGITIMATE PLAN ITEM, offered back.
+  # A deleted gate script is exactly the drift the operator most needs offered — refusing
+  # would leave the project permanently unplannable until they hand-restored a file they
+  # may not know is gone. It is emitted as `missing:<path>` with verb `add`, whose diff is
+  # a real /dev/null → upstream addition, so the I11 payload contract is met by
+  # construction. The MESSAGE names the TRUE cause. Nothing else in the plan is disturbed.
+  local b; b="$(mktemp -d)" ok=1
+  mk_i11_matrix "$b"
+  rm -f "$PROJ/scripts/pre-commit-gate.sh"      # tracked GATE script, deleted locally
+
+  # (a) the DETECTOR names the true cause — never a payload/verb misdiagnosis.
+  local fresh; fresh="$(soif_freshness_detect "$PROJ" "$PROJ/.claude/manifest.json" "$FW" "$FW/init.sh" "$b/nocdf")"
+  printf '%s\n' "$fresh" | grep -q '^missing:scripts/pre-commit-gate.sh' \
+    || { ok=0; echo "    the detector emits no missing: item for a locally-deleted tracked file"; }
+  printf '%s\n' "$fresh" | grep -q 'tracked file is missing from the project' \
+    || { ok=0; echo "    the message does not name the TRUE cause"; }
+  printf '%s\n' "$fresh" | grep -q '^fw-drift:scripts/pre-commit-gate.sh' \
+    && { ok=0; echo "    the deleted file is STILL emitted as framework-drift (the misdiagnosis survives)"; }
+
+  # (b) the PLAN completes — no abort, and the unrelated items are all still there.
+  local run rc=0
+  run="$(soif_plan_run "$PROJ" "$FW" "$FW/init.sh" "$b/nocdf" 2>"$b/err")" || rc=$?
+  if [ "$rc" != 0 ]; then
+    ok=0; echo "    the plan ABORTED on a locally-deleted tracked file (blast radius: every item)"
+    sed -n '1,6p' "$b/err" | sed 's/^/      /'
+  fi
+  if [ "$rc" = 0 ] && [ -n "$run" ]; then
+    local m="$run/manifest.json" up="$run/UPDATE-PLAN.md"
+    [ "$(jq -r '.items[] | select(.id=="missing:scripts/pre-commit-gate.sh") | .verb' "$m")" = "add" ] \
+      || { ok=0; echo "    the missing tracked file is not offered back as an add"; }
+    [ "$(jq -r '.items[] | select(.id=="missing:scripts/pre-commit-gate.sh") | .tier' "$m")" = "enforcement" ] \
+      || { ok=0; echo "    a missing GATE script is not enforcement tier"; }
+    [ "$(jq -r '.items[] | select(.id=="missing:scripts/pre-commit-gate.sh") | .consent' "$m")" = "item" ] \
+      || { ok=0; echo "    a missing GATE script was left batch-consentable (I11 breach)"; }
+    # the I11 section carries a REAL payload — the whole upstream file, offered back.
+    local sec="$b/sec"
+    _i11_section "$up" "missing:scripts/pre-commit-gate.sh" > "$sec"
+    _has_payload "$sec" || { ok=0; echo "    the missing-file consent section has NO diff payload"; }
+    grep -q '^+echo gate v2' "$sec" || { ok=0; echo "    the restore diff does not show the upstream content being added"; }
+    # NO BLAST RADIUS — the unrelated items survive.
+    for other in "add:scripts/run-phase3-validation.sh" "orphan:scripts/deadfile.sh" "fw-drift:scripts/foo.sh"; do
+      [ "$(jq -r --arg i "$other" '[.items[] | select(.id==$i)] | length' "$m")" = "1" ] \
+        || { ok=0; echo "    unrelated item vanished from the plan: $other"; }
+    done
+  fi
+
+  # (c) GONE BOTH SIDES — missing locally AND no longer shipped upstream. There is nothing
+  # to restore and nothing on disk to retire, so it is a NOTICE, never a checkbox: an
+  # `orphan` retire item here would have promised to delete a file that is already gone
+  # (and its retire diff would be empty → the same hollow abort, one verb over).
+  local b2; b2="$(mktemp -d)"; mk_i11_matrix "$b2"
+  rm -f "$PROJ/scripts/process-checklist.sh"    # tracked, deleted locally, NOT shipped upstream
+  local run2 rc2=0
+  run2="$(soif_plan_run "$PROJ" "$FW" "$FW/init.sh" "$b2/nocdf" 2>"$b2/err")" || rc2=$?
+  if [ "$rc2" != 0 ]; then
+    ok=0; echo "    the plan ABORTED on a tracked file that is gone from BOTH sides"
+    sed -n '1,6p' "$b2/err" | sed 's/^/      /'
+  fi
+  if [ "$rc2" = 0 ] && [ -n "$run2" ]; then
+    [ "$(jq -r '[.items[] | select(.id | test("scripts/process-checklist.sh"))] | length' "$run2/manifest.json")" = "0" ] \
+      || { ok=0; echo "    a file that is gone from BOTH sides was offered as a checkbox item"; }
+    grep -q 'tracked file is missing from the project' "$run2/UPDATE-PLAN.md" \
+      || { ok=0; echo "    the gone-both-sides case is silent — no notice names the true cause"; }
+  fi
+
+  [ "$ok" = 1 ] && pass "a locally-deleted TRACKED file is named for what it is (missing:) and OFFERED BACK as a real /dev/null → upstream add — never a payload/verb misdiagnosis, never a whole-plan abort" \
+    || fail_ "missing tracked file" "see above"
+  rm -rf "$b" "$b2"
+}
+
+t_abort_leaves_no_trace() {   # killing test: # BL-109-PLAN-NOTRACE
+  # ABORT HYGIENE (S3 review round 3, minor 2). On a fail-closed payload abort the engine
+  # discarded $RUN_DIR but left the docs/updates/ parent it had just created — so a
+  # READ-ONLY --plan that refused to write a plan still mutated an otherwise-untouched
+  # project tree. The assertion is a WHOLE-TREE fingerprint (files AND directories, so an
+  # empty leftover dir cannot hide): after the abort the project is byte-identical.
+  local b; b="$(mktemp -d)" ok=1
+  mk_i11_matrix "$b" 1                        # empty upstream gate script → payload abort
+  [ -d "$PROJ/docs" ] && { ok=0; echo "    fixture precondition: docs/ already exists"; }
+
+  local before after rc=0
+  before="$(_tree_fingerprint "$PROJ")"
+  soif_plan_run "$PROJ" "$FW" "$FW/init.sh" "$b/nocdf" >/dev/null 2>"$b/err" || rc=$?
+  [ "$rc" != 0 ] || { ok=0; echo "    the fixture did not abort — this test asserts nothing"; }
+  after="$(_tree_fingerprint "$PROJ")"
+  if [ "$before" != "$after" ]; then
+    ok=0; echo "    the FAILED plan left a trace in the project tree:"
+    diff <(printf '%s\n' "$before") <(printf '%s\n' "$after") | sed 's/^/      /'
+  fi
+  [ -d "$PROJ/docs/updates" ] && { ok=0; echo "    docs/updates/ survived a fail-closed abort"; }
+
+  # …and it NEVER removes a container that holds PRIOR runs (or one it did not create).
+  local b2; b2="$(mktemp -d)"; mk_i11_matrix "$b2" 1
+  mkdir -p "$PROJ/docs/updates/2020-01-01_deadbee_000000-1"
+  printf 'a prior run\n' > "$PROJ/docs/updates/2020-01-01_deadbee_000000-1/UPDATE-PLAN.md"
+  local before2 after2 rc2=0
+  before2="$(_tree_fingerprint "$PROJ")"
+  soif_plan_run "$PROJ" "$FW" "$FW/init.sh" "$b2/nocdf" >/dev/null 2>&1 || rc2=$?
+  [ "$rc2" != 0 ] || { ok=0; echo "    the prior-runs fixture did not abort"; }
+  after2="$(_tree_fingerprint "$PROJ")"
+  [ "$before2" = "$after2" ] || { ok=0; echo "    the abort disturbed a docs/updates/ that holds PRIOR runs"; }
+  [ -f "$PROJ/docs/updates/2020-01-01_deadbee_000000-1/UPDATE-PLAN.md" ] \
+    || { ok=0; echo "    a PRIOR run folder was destroyed by an unrelated abort"; }
+
+  [ "$ok" = 1 ] && pass "a fail-closed abort leaves NO trace: whole-tree fingerprint (files + dirs) byte-identical, docs/updates/ removed iff this run created it and it is empty — a container holding prior runs is never touched" \
+    || fail_ "abort hygiene" "see above"
+  rm -rf "$b" "$b2"
+}
+
 # ── registry + run ───────────────────────────────────────────────────────────
 ALL_TESTS="t_folder_shape t_exclusive_mkdir t_verbs_and_rename t_retire_emitted \
 t_grammar_pin t_base_sha_recorded t_rollup_shallow_fallback t_pin_absent_degrades \
@@ -796,7 +1063,9 @@ t_a2_structural_only t_a1_candidate_placeholder_free t_a1_intake_candidate \
 t_a1_placeholder_withheld t_a1_merge_leg_order t_i1_write_fence \
 t_i1_fence_catches_stray_outside_run_folder t_hook_item_consent_full_diff \
 t_i11_consent_scope_simultaneous_drift t_i11_payload_cross_product \
-t_i11_empty_payload_hard_error t_retire_tier_derived_from_path \
+t_i11_empty_payload_hard_error t_payload_predicate_strictness \
+t_retire_tier_derived_from_path t_missing_tracked_file_restored \
+t_abort_leaves_no_trace \
 t_plan_dispatch_creates_run_folder t_plan_blocked_under_sentinel"
 
 echo "== tests/test-plan-staging.sh (LIB_ROOT=$LIB_ROOT) =="

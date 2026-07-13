@@ -35,15 +35,27 @@
 #     opinion is how you get a guard that survives its own neuter (S3 review round 2).
 #
 #   PAYLOAD (# BL-109-I11-PAYLOAD). An I11 consent section MUST carry a REAL unified-diff
-#     payload — a hunk header AND a +/- content line. Asserted at the single emission
-#     site, for every class and every verb; an empty or hunkless block is a HARD ERROR
-#     that discards the whole run folder. This exists because the fence was caught HOLLOW
-#     three times (gate items diffstat-only; hook items emitting an EMPTY diff block; a
-#     RENAMED gate script emitting an empty block for want of a `rename` arm) — three
-#     bugs, one root cause: nothing asserted that a promised diff had anything in it.
-#     Patching the fourth verb would only have queued up a fifth.
+#     payload — a hunk header AND, after it, a +/- content line. Asserted at the single
+#     emission site, for every class and every verb; an empty or hunkless block is a HARD
+#     ERROR that discards the whole run folder. This exists because the fence was caught
+#     HOLLOW three times (gate items diffstat-only; hook items emitting an EMPTY diff
+#     block; a RENAMED gate script emitting an empty block for want of a `rename` arm) —
+#     three bugs, one root cause: nothing asserted that a promised diff had anything in
+#     it. Patching the fourth verb would only have queued up a fifth. The predicate's
+#     STRICTNESS is itself pinned (S3 review round 3) — see _soif_plan_diff_has_payload.
 #
 # Ordinary Class-M/T items stay batch-consentable with a diffstat + a staged diffs/ entry.
+#
+# MISSING (# BL-109-MISSING). A file tracked in currency.files{} but NOT on disk is named
+# for what it is — never mis-reported as framework-drift. Still shipped upstream → it is
+# OFFERED BACK (verb `add`, a real /dev/null → upstream diff). Gone upstream too → a stale
+# manifest entry with no filesystem action, so a NOTICE, never a checkbox. Detected in the
+# S2 detector's per-file loop, where the upstream source is already in hand.
+#
+# NO TRACE ON ABORT (# BL-109-PLAN-NOTRACE). --plan writes nothing outside its run folder
+# (I1) — and a --plan that ABORTS writes nothing at all. The container dirs this invocation
+# had to create are removed on every abort path, via `rmdir` (which refuses a non-empty
+# directory, so a docs/updates/ holding prior runs can never be destroyed).
 #
 # MECHANICAL FACTS ONLY (review-r1 M8): class, verb, diffstat, base-sha, tier and
 # the CHANGELOG roll-up are all script-computed here; no model call. The roll-up is
@@ -246,6 +258,26 @@ _soif_plan_derive_items() {
         cls="$(soif_currency_file_field "$mani" "$path" class)"; [ -n "$cls" ] || cls=M
         otier="$(_soif_plan_tier_for_path "$path")"                                            # BL-109-PLAN-TIER
         printf '%s\t%s\tretire\t%s\t%s\titem\t\n' "$id" "$cls" "$otier" "$path" >> "$items_tmp"  ;; # BL-109-PLAN-RETIRE
+      missing)
+        # MISSING TRACKED FILE (# BL-109-MISSING) — tracked in files{} but not on disk.
+        #
+        # Two sub-cases, and the difference is whether there is anything to SHOW:
+        #   verb add     → still shipped upstream. A LEGITIMATE ITEM: offer it back, with a
+        #                  real /dev/null → upstream diff. (Consent is the ordinary `batch`
+        #                  default here; soif_plan_run's single I11 normalization upgrades a
+        #                  gate script / hook to `item` — one decision point, as everywhere.)
+        #   verb untrack → gone upstream too. Nothing to restore, nothing on disk to retire,
+        #                  no filesystem action to consent to → a NOTICE, never a checkbox.
+        #                  Offering a checkbox whose diff must be empty is the hollow-consent
+        #                  lie the I11 payload guard exists to make impossible.
+        if [ "$verb" = "untrack" ]; then
+          printf 'missing\t%s\n' "$msg" >> "$notices"
+        else
+          local mcls mtier
+          mcls="$(soif_currency_file_field "$mani" "$path" class)"; [ -n "$mcls" ] || mcls=M
+          mtier="$(_soif_plan_tier_for_path "$path")"                                          # BL-109-PLAN-TIER
+          printf '%s\t%s\tadd\t%s\t%s\tbatch\t\n' "$id" "$mcls" "$mtier" "$path" >> "$items_tmp"
+        fi ;;
       render-base)
         case "$path" in
           CLAUDE.md|PROJECT_INTAKE.md)
@@ -426,16 +458,37 @@ _soif_plan_unified_diff() {
 # offer the consent at all. A future verb added without a diff arm trips this on its first
 # run, loudly, naming itself.
 
+# THE STRICTNESS IS ITSELF PINNED (S3 review round 3). The guard works — but nothing used
+# to pin HOW STRICT it is: the round-2 verifier weakened this predicate to "any non-empty
+# output" and all 22 plan tests and all 39 registry rows stayed GREEN. A guard whose
+# strictness is unpinned is one careless edit (`grep -q .`) away from letting the hollow
+# payload back in — the WEAK-TEST class, on the guard built to kill the weak-test class.
+# t_payload_predicate_strictness now drives this function DIRECTLY with crafted inputs in
+# both directions, and the plan/i11-payload-strictness registry rows prove each specific
+# weakening (and one OVER-strictness) goes RED.
+#
+# MARKERS ARE A MATTER OF POSITION, NOT SPELLING. The old predicate keyed on the SPELLING
+# of a line (`^\+` not followed by another `+`), which quietly REJECTED a real diff whose
+# payload happened to look like markup: an added line whose TEXT begins `+++` renders as
+# `++++ …`, a removed line whose text begins `---` renders as `---- …`. Those are ordinary
+# content (TOML fences, diff snippets inside docs, this repo's own fixtures) and rejecting
+# them aborts a legitimate plan — a denial-of-service on the operator's own updates, the
+# fail-closed guard turned against them. In unified-diff format the file headers ALWAYS
+# precede the first `@@`, so the sound rule is positional: after a hunk header opens the
+# payload region, ANY line starting with + or - is content, whatever it spells.
+#
 # _soif_plan_diff_has_payload <file> — 0 iff <file> holds a REAL unified-diff payload:
-# a hunk header AND at least one +/- content line (the `---`/`+++` file headers and a
-# bare `diff` banner do NOT count — a header-only block shows the operator nothing).
+# a hunk header (@@ at column 0) AND, AFTER it, at least one +/- line. The `---`/`+++`
+# file headers and a bare `diff` banner never count — they precede the first hunk, and a
+# header-only block shows the operator nothing.
 _soif_plan_diff_has_payload() {                                   # BL-109-I11-PAYLOAD
   local f="$1"
   [ -s "$f" ] || return 1
-  grep -q '^@@' "$f" 2>/dev/null || return 1
-  grep -qE '^\+([^+]|$)' "$f" 2>/dev/null && return 0
-  grep -qE '^-([^-]|$)'  "$f" 2>/dev/null && return 0
-  return 1
+  awk '
+    /^@@/ { hunk = 1; next }           # a hunk header (column 0) OPENS the payload region
+    hunk && /^[-+]/ { found = 1 }      # inside a hunk, ANY +/- line is CONTENT, not a marker
+    END { if (found) exit 0; exit 1 }
+  ' "$f"
 }
 
 # _soif_plan_i11_diff <proj> <fw> <init> <class> <verb> <path> <id> — the ONE producer
@@ -763,6 +816,25 @@ _soif_plan_grammar_line() {
   printf -- '- [ ] %s — %s (%s/%s)\n' "$id" "$path" "$class" "$verb"   # BL-109-PLAN-GRAMMAR
 }
 
+# ── ABORT HYGIENE (# BL-109-PLAN-NOTRACE) ───────────────────────────────────
+# _soif_plan_discard_container <proj> <made_updates:bool> <made_docs:bool>
+#
+# Undo the CONTAINER directories this invocation had to create, so a fail-closed abort
+# leaves the project byte-identical to what it found (asserted by a whole-tree fingerprint
+# in t_abort_leaves_no_trace — files AND dirs, because an empty leftover dir is invisible
+# to a file-only fingerprint).
+#
+# `rmdir` is the safety, not an afterthought: it REFUSES a non-empty directory, so a
+# docs/updates/ that holds PRIOR runs can never be removed — not even if the bookkeeping
+# flags were somehow wrong. Two independent conditions must both hold: we created it, AND
+# it is empty. Never `rm -rf` here.
+_soif_plan_discard_container() {                                 # BL-109-PLAN-NOTRACE
+  local proj="$1" made_updates="$2" made_docs="$3"
+  if [ "$made_updates" = true ]; then rmdir "$proj/docs/updates" 2>/dev/null || true; fi
+  if [ "$made_docs" = true ];    then rmdir "$proj/docs"         2>/dev/null || true; fi
+  return 0
+}
+
 # ── The dispatch (load-bearing) ──────────────────────────────────────────────
 # soif_plan_run <project_root> <framework_root> <init_file> <cdf_home> [now_override]
 #   Builds the whole run folder. Returns 0 on success (folder built), non-zero on a
@@ -791,9 +863,20 @@ soif_plan_run() {
   local run_id="${date_stamp}_${fw_short}_${hhmmss}-$$"
   local updates_dir="$proj/docs/updates"
   local RUN_DIR="$updates_dir/$run_id"
+
+  # LEAVE NO TRACE ON ABORT (# BL-109-PLAN-NOTRACE, S3 review round 3). --plan is READ-ONLY
+  # outside its run folder (I1), and a plan that REFUSES to write a plan must be read-only
+  # full stop. The payload abort discarded $RUN_DIR but left the docs/updates/ parent it had
+  # just created, so a failed --plan still mutated an otherwise-untouched project tree.
+  # Record which containers THIS invocation created so the abort paths can put them back.
+  local made_updates=false made_docs=false
+  [ -d "$proj/docs" ]   || made_docs=true
+  [ -d "$updates_dir" ] || made_updates=true
   mkdir -p "$updates_dir" 2>/dev/null || true
+
   if ! mkdir "$RUN_DIR" 2>/dev/null; then          # BL-109-PLAN-MKDIR (exclusive)
     echo "plan: run folder already exists — aborting to avoid clobbering a concurrent run: $RUN_DIR" >&2
+    _soif_plan_discard_container "$proj" "$made_updates" "$made_docs"   # BL-109-PLAN-NOTRACE
     return 1
   fi
   mkdir -p "$RUN_DIR/incoming" "$RUN_DIR/diffs" "$RUN_DIR/review" "$RUN_DIR/archive" \
@@ -946,6 +1029,7 @@ soif_plan_run() {
       > "$RUN_DIR/UPDATE-PLAN.md" || emit_rc=$?                  # BL-109-PLAN-FENCE
   if [ "$emit_rc" != 0 ]; then                                   # BL-109-I11-PAYLOAD
     rm -rf "$RUN_DIR" 2>/dev/null || true
+    _soif_plan_discard_container "$proj" "$made_updates" "$made_docs"   # BL-109-PLAN-NOTRACE
     rm -f "$notices_file" "$items_file" "$manitems_file" "$plan_rows_file" 2>/dev/null || true
     echo "plan: no plan written — the run folder was discarded (nothing to consent to)." >&2
     return 1
