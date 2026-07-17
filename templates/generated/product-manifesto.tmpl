@@ -218,3 +218,38 @@ Self-assessment of your ability to validate AI-generated output in each domain. 
 
 **Distribution Channel Requirements:**
 - [App Store / Play Store / Enterprise MDM / Web / Desktop self-hosted]: [Any certification, review, or compliance requirements imposed by the distribution channel — code signing, age rating, privacy policy URL, etc.]
+
+---
+
+## Appendix D: Market Signal & Go/No-Go Evidence
+
+<!--
+  Source: Steps 1.1 / 1.1.5 (builders-guide.md). Required on Standard and
+  Full tracks BEFORE committing to architecture; Light track fills the
+  SKIPPED line instead. "At least one positive signal" means documented
+  evidence someone else can re-fetch — not a gut feeling. The Phase 1→2
+  gate checks this appendix exists and is non-placeholder on Standard+
+  (WARN-first; check-phase-gate.sh # BL-102-MARKET-SIGNAL).
+-->
+
+**Track note:** [If Light track or internal tool, replace this appendix body with exactly: `SKIPPED — Light track / internal tool (Step 1.1.5 not required)` and delete the table.]
+
+### Market signals
+
+| # | Claim the signal supports | Signal type | Source (+ permalink) | Evidence tag | Verification outcome |
+|---|---|---|---|---|---|
+| 1 | [e.g. "solo operators want X"] | [customer interview / letter of intent / survey result / landing-page signups / competitor-review corpus] | [URL or artifact path] | [`seen it` / `hunch` / `guess`] | [re-fetched YYYY-MM-DD: text-match OK / FAILED] |
+
+**Evidence tags** (a differentiator built on a hunch is a bet, not a finding):
+- **`seen it`** — ≈3 independent sources, each re-fetched and text-matched.
+- **`hunch`** — plausible, unconfirmed; cannot carry a Go decision alone.
+- **`guess`** — inferred; recorded so it is not laundered into a finding later.
+
+**Verification counts:** checked: [N] · failed: [N] · dropped: [N]
+[Fail closed: an unverified source cannot lift a claim to `seen it` and cannot carry it alone. A high fail rate condemns the whole sweep — re-research, don't salvage.]
+
+### Go/No-Go decision (Step 1.1)
+
+- **Decision:** [GO / NO-GO] — [date]
+- **Decided by:** [Orchestrator name — this is an Orchestrator decision, not an AI decision]
+- **Rationale:** [2–5 sentences tying the decision to the table above. If no positive signal: the DECISION GATE applies — return to Phase 0.]

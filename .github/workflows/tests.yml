@@ -79,10 +79,12 @@ jobs:
             tests/test-bl072-tdd-warn-detector.sh
             tests/test-bl073-review-manifest-gate.sh
             tests/test-bl103-eval-generator.sh
+            tests/test-bl102-market-signal-warn.sh
             tests/test-bl104-gate-scoring.sh
             tests/test-bl118-sast-dom-xss.sh
             tests/test-bl119-stale-editmsg.sh
             tests/test-bl121-cutline-bsd-sed.sh
+            tests/test-bl124-pending-ratchet.sh
             tests/test-bypass-audit-integrity.sh
             tests/test-bypass-audit-lib.sh
             tests/test-bypass-audit-tmp-hardening.sh

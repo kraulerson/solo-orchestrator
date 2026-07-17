@@ -2035,6 +2035,68 @@ if [ -x "$TEST_GATE" ] && [ "$current_phase" -ge 3 ]; then
   fi
 fi
 
+# --- BL-124: Promotion-Ratchet PENDING markers (Phase 3→4) ---
+# BL-124-PENDING-RATCHET-BEGIN
+# upgrade-project.sh rewrites Light-track "SKIPPED" markers on
+# PRODUCT_MANIFESTO.md Appendix A (Revenue Model) / Appendix C (Trademark &
+# Legal) to "PENDING — required by track upgrade <old> → <new> on <date>" —
+# a promise the promotion itself re-demands. Until BL-124, NOTHING read that
+# marker: a project reached a tagged production release with the obligations
+# still literally PENDING (Dogfood-2 F-DF2-014 — the central-question hole:
+# the ratchet performed the re-demand and forgot to enforce it). This arm
+# FAILS the 3→4 gate while the marker is present. Keyed on the WRITER'S
+# LITERAL, not on track: track is spoofable (BL-084), and Light-track
+# projects carry SKIPPED — never PENDING — so they are naturally unaffected.
+# Keep the literal IN SYNC with upgrade-project.sh's writer
+# (tests/test-bl124-pending-ratchet.sh T-writer-reader-wired pins both sides
+# to one constant).
+if [ "$current_phase" -ge 4 ] && [ -f "PRODUCT_MANIFESTO.md" ]; then
+  echo ""
+  echo -e "${BOLD}Promotion Ratchet Check (BL-124)${NC}"
+  bl124_pending=$(grep -n "PENDING — required by track upgrade" PRODUCT_MANIFESTO.md 2>/dev/null) || bl124_pending=""
+  if [ -n "$bl124_pending" ]; then
+    echo -e "${RED}[FAIL]${NC} BL-124: PRODUCT_MANIFESTO.md still carries PENDING promotion marker(s) — the track upgrade re-demanded these obligations and they are unmet:"
+    echo "$bl124_pending" | sed 's/^/    /'
+    echo "    Fill the appendix (Revenue Model / Trademark & Legal), remove the PENDING marker, then re-run."
+    issues=$((issues + 1))
+  else
+    echo -e "${GREEN}[OK]${NC} BL-124: no PENDING promotion markers in PRODUCT_MANIFESTO.md"
+  fi
+fi
+# BL-124-PENDING-RATCHET-END
+
+# --- BL-102: Market Signal / Go-No-Go evidence (Phase 1→2, WARN-first) ---
+# BL-102-MARKET-SIGNAL-BEGIN
+# builders-guide Step 1.1.5: at least one DOCUMENTED market signal before
+# committing to architecture (Required on Standard/Full; SKIP on Light), with
+# the Step 1.1 Go/No-Go decision recorded. The home is PRODUCT_MANIFESTO.md
+# Appendix D (shipped by the template since BL-102). WARN-FIRST by design —
+# deliberately NO `issues` increment: never hard-block on a slot existing
+# projects don't have (BL-073 grandfather discipline; escalate to FAIL in a
+# later wave once the fleet carries the appendix). THE [WARN] TRAP (BL-104):
+# the increment, not the label, is the verdict — tests/
+# test-bl102-market-signal-warn.sh pins the ABSENCE of an increment by
+# exit-code parity, and its mutation case proves the pin catches an injected
+# increment. Do not add one here casually. Track-keyed (not marker-keyed):
+# acceptable for a WARN-only arm, and it is what BL-102 specifies.
+if [ "$current_phase" -ge 2 ] && [ -f "PRODUCT_MANIFESTO.md" ]; then
+  bl102_track=$(jq -r '.track // "standard"' "$PHASE_STATE" 2>/dev/null) || bl102_track="standard"
+  case "$bl102_track" in ''|null) bl102_track="standard" ;; esac
+  if [ "$bl102_track" != "light" ]; then
+    echo ""
+    echo -e "${BOLD}Market Signal Evidence Check (BL-102)${NC}"
+    if ! grep -q "## Appendix D: Market Signal" PRODUCT_MANIFESTO.md; then
+      # BL-102-MARKET-SIGNAL-WARNLINE
+      echo -e "${YELLOW}[WARN]${NC} BL-102: no 'Appendix D: Market Signal & Go/No-Go Evidence' section in PRODUCT_MANIFESTO.md (track: $bl102_track). Step 1.1.5 requires at least one documented, re-fetchable signal before architecture. WARN-first — not blocking yet."
+    elif grep -A 20 "## Appendix D: Market Signal" PRODUCT_MANIFESTO.md | grep -qE '\[e\.g\.|\[GO / NO-GO\]|\[customer interview /'; then
+      echo -e "${YELLOW}[WARN]${NC} BL-102: Appendix D exists but still carries template placeholder text — existence is not evidence (the hollow-gate class). Fill the signal table and the Go/No-Go decision. WARN-first — not blocking yet."
+    else
+      echo -e "${GREEN}[OK]${NC} BL-102: Appendix D market-signal evidence present (track: $bl102_track)"
+    fi
+  fi
+fi
+# BL-102-MARKET-SIGNAL-END
+
 echo ""
 if [ $issues -eq 0 ]; then
   echo -e "${GREEN}${BOLD}Phase gates consistent.${NC}"

@@ -650,13 +650,34 @@ Direct the AI to argue AGAINST building: competitors, existing solutions, Go/No-
 
 **DECISION GATE — Orchestrator decides Go or No-Go.**
 
-**Save as:** Record the Go/No-Go decision and key competitive factors as an appendix to `PRODUCT_MANIFESTO.md` or in the Project Bible Section 3 (Architecture Decision Record). The decision rationale must be persistent — an auditor should be able to verify this decision was made.
+```
+Record the Go/No-Go decision in PRODUCT_MANIFESTO.md Appendix D (Market
+Signal & Go/No-Go Evidence). The decision is the Orchestrator's, not the
+AI's. Cite the market-signal rows (Appendix D table) that support it. If
+there is no positive signal tagged `seen it`, the DECISION GATE applies:
+return to Phase 0 — do not proceed to architecture on hunches. The decision
+must be persistent and auditor-verifiable: dated, named, and reasoned in the
+appendix, not in chat.
+```
+
+**Save as:** `PRODUCT_MANIFESTO.md` Appendix D (Market Signal & Go/No-Go Evidence) — the decision row plus the signal table. The Phase 1→2 gate checks the appendix on Standard+ tracks (WARN-first). The decision rationale must be persistent — an auditor should be able to verify this decision was made.
 
 ---
 
 ### Step 1.1.5: Market Signal Validation (Standard+ Track)
 
-**Performed by the Orchestrator, not the AI.** At least one market signal before committing to architecture. Record the signal type (customer interview, letter of intent, survey result, landing page signups) and outcome in the Product Manifesto appendix or Project Bible. "At least one positive signal" means documented evidence, not a gut feeling.
+**Performed by the Orchestrator, not the AI.** At least one market signal before committing to architecture. Record the signal type (customer interview, letter of intent, survey result, landing page signups) and outcome in `PRODUCT_MANIFESTO.md` **Appendix D** (Market Signal & Go/No-Go Evidence — shipped by the template). "At least one positive signal" means documented evidence, not a gut feeling.
+
+**Evidence grammar.** Tag every signal row: **`seen it`** (≈3 independent sources, each verified per the protocol below) · **`hunch`** (plausible, unconfirmed) · **`guess`** (inferred). A differentiator built on a hunch is a bet, not a finding — Go decisions rest on `seen it` rows only.
+
+**Source-verification protocol (fail closed):**
+1. **Re-fetch every deliverable-bound source** before the decision — a source you cannot re-fetch is not evidence.
+2. **Text-match, not gist-match:** the quoted words must be findable at the URL; only `[...]` elisions are allowed.
+3. **Fail closed:** an unverified source cannot lift a claim to `seen it`, and cannot carry it alone.
+4. **A high fail rate condemns the whole sweep** — re-research; do not salvage the survivors.
+5. **Record the counts** in Appendix D: checked / failed / dropped.
+
+The protocol is deliberately source-agnostic: it is a standard, not a fetch pipeline — do not gate on any particular third-party mirror or API.
 
 **DECISION GATE — If no positive signal, return to Phase 0.**
 

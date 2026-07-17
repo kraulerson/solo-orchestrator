@@ -646,6 +646,29 @@ else
   fail "tests/test-bl121-cutline-bsd-sed.sh FAILED (run for details)"
 fi
 
+# BL-124 (Dogfood-2 F-DF2-014, High — the central-question hole): the Phase 3→4
+# gate must FAIL while PRODUCT_MANIFESTO.md carries the PENDING promotion
+# marker upgrade-project.sh writes on track upgrade. Wire-pins the writer's and
+# the reader's literals to one constant; bl104-style copy-mutant proves the arm
+# load-bearing. No init.sh -> ALSO in the tests.yml unit lane.
+if bash "$SCRIPT_DIR/tests/test-bl124-pending-ratchet.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl124-pending-ratchet.sh"
+else
+  fail "tests/test-bl124-pending-ratchet.sh FAILED (run for details)"
+fi
+
+# BL-102 (Market Signal Step 1.1.5): Appendix D ships in the manifesto
+# template, and check-phase-gate WARNs (WARN-FIRST — deliberately NO issues
+# increment, pinned by exit-code parity on an issues=0 fixture) when a
+# Standard+ project lacks or placeholder-fills it. The mutation case proves
+# both directions: excised arm -> warn gone; injected increment -> parity
+# breaks (the BL-104 [WARN]-trap inverse). No init.sh -> ALSO in the unit lane.
+if bash "$SCRIPT_DIR/tests/test-bl102-market-signal-warn.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl102-market-signal-warn.sh"
+else
+  fail "tests/test-bl102-market-signal-warn.sh FAILED (run for details)"
+fi
+
 # BL-109 S3 (Currency System, Layer 2 — Staging / --plan). test-plan-staging.sh is
 # the lib-level unit test (run-folder shape, exclusive mkdir, verbs incl.
 # retire/rename linkage, checkbox grammar pin, base-sha, shallow-clone roll-up
