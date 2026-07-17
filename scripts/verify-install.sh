@@ -1113,29 +1113,30 @@ fix_git_init() {
 }
 
 fix_precommit_hook() {
+  # BL-118-SINGLE-SOURCE — this used to inline a pre-BL-099/pre-BL-112 hook
+  # body (p/owasp-top-ten-only ruleset with --quiet and NO --error, so the
+  # [BLOCKED] arm was dead code; no managed-region markers, so BL-099's sync
+  # could not refresh it; an unconditional `exit $FAILED` that clobbers the
+  # BL-030 strict-gate hand-off). Repairing a "missing" hook re-installed the
+  # exact defects BL-112 and BL-118 fixed. The hook body has exactly ONE
+  # emitter: scripts/lib/hook-templates.sh::soif_write_precommit_hook — the
+  # same bytes init.sh installs and upgrade-project.sh --sync-framework
+  # refreshes. If no copy of that lib is reachable, FAIL the repair loudly;
+  # never fall back to an inline body (a stale "repaired" hook is worse than a
+  # missing one — it looks like enforcement).
+  local _hooktpl=""
+  if [ -f scripts/lib/hook-templates.sh ]; then
+    _hooktpl="scripts/lib/hook-templates.sh"
+  elif has_source && [ -f "$SOURCE_DIR/scripts/lib/hook-templates.sh" ]; then
+    _hooktpl="$SOURCE_DIR/scripts/lib/hook-templates.sh"
+  else
+    echo "  [FAIL] cannot repair pre-commit hook: scripts/lib/hook-templates.sh not found (neither project-local nor in the framework source)" >&2
+    return 1
+  fi
+  # shellcheck source=/dev/null
+  . "$_hooktpl"
   mkdir -p .git/hooks
-  cat > .git/hooks/pre-commit << 'HOOKEOF'
-#!/usr/bin/env bash
-set -euo pipefail
-FAILED=0
-if command -v gitleaks &>/dev/null; then
-  if ! gitleaks git --staged 2>/dev/null; then
-    echo "[BLOCKED] gitleaks detected secrets in staged files."
-    FAILED=1
-  fi
-fi
-if command -v semgrep &>/dev/null; then
-  staged_files=$(git diff --cached --name-only --diff-filter=ACM)
-  if [ -n "$staged_files" ]; then
-    if ! echo "$staged_files" | xargs semgrep scan --config=p/owasp-top-ten --quiet --no-git-ignore 2>/dev/null; then
-      echo "[BLOCKED] Semgrep detected security issues."
-      FAILED=1
-    fi
-  fi
-fi
-exit $FAILED
-HOOKEOF
-  chmod +x .git/hooks/pre-commit
+  soif_write_precommit_hook .git/hooks/pre-commit
 }
 
 fix_framework_clone() {
