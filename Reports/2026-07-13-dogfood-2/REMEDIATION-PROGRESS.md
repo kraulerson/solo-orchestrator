@@ -118,4 +118,17 @@
 - **Affected suites (green):** test-check-gate 5/5 · process-checklist ×4 (classifier/auto-advance/subject/reset-phase1) · run-lints 11/11.
 - **Adversarial verify (Opus-tier, laundering-focused brief):** verdict **SHIP conditional on finding A — condition MET pre-push**. A (precondition guard), B (provenance), C (presence-keyed idempotency) all landed in the amended commit, each with its own watched RED. Verifier also independently re-excised the BL-126 fence (excision-safe + fail-closed confirmed) and noted the recorder/steps-writer root-dir coherence is pre-existing (`_require_manifest` anchors cwd).
 
+---
+
+## WP-D2 — BL-110 (Med) pin absent on hermetic path + BL-116 (Med) push gate host-scoped — DONE-PR-open
+
+- **Branch:** `fix/bl110-bl116-noremote-blindspot` (stacked on PR #206). **PR #207**, commit `6e7ecaf`.
+- **Reproduce:** BL-116 hermetic RED — a github/org fixture with no init-push records and no remote produced **0 push-gate lines** (the MANDATORY gate did not exist for first-class hosts on the hermetic flow). BL-110 mutation-direction RED — a HEAD-reverted init.sh scaffolded a real `--no-remote-creation` project with `soloFrameworkCommit` **ABSENT**.
+- **Fix (markers):** `# BL-110-PIN-UNIVERSAL` — stamp moved to `prepare_initial_state_for_commit` (runs on every path, before the currency stamp; idempotent; remote-path duplicate removed with a pointer comment). `# BL-116-PUSH-GATE-SCOPE` (excision-safe fence) — the first-class exemption is EARNED: gate skipped only when `remote_repo_created`+`pushed_initial` are both recorded; host=other unconditional as before.
+- **Tests:** `test-bl116-push-gate-scope.sh` 4/4 (gated/exempt/other-regression/fence-excision mutant) — both lists. Scaffold suite gains `T-scaffold-pin-stamped` (pin == framework HEAD on the real hermetic scaffold) — 8/8.
+- **Fixture updates (honest modeling, not weakening):** bl104 / bl102 / backstop-attestation fixtures now record the two init-push steps they always represented — the scope fix correctly began gating fixtures that "never pushed", which is the fix WORKING. bl124's fixture left as-is (its assertions are diagnostic-scoped; the push-gate FAIL rides harmlessly in its output — noted for hygiene).
+- **Mutation proofs:** BL-116 in-test fence-excision (github no-remote case regresses to silence). BL-110: reverted-init probe scaffold → `MUTANT-PIN=ABSENT` → restore → scaffold suite pin case green.
+- **Affected suites (green):** bl104 · bl102 · backstop-attestation · bl124 · check-phase-gate · scaffold-tdd 8/8 · run-lints 11/11.
+- **Adversarial verify:** Opus-tier dispatched post-commit (both items Medium, mechanical scope/stamp changes with two-sided mutations on record) — outcome in the PR thread; any findings land as follow-up commits on the branch.
+
 - **Notes / residuals:** (1) `eval()` sinks remain invisible to the commit-time gate (neither pack carries an ERROR-severity eval rule); Phase-3 `--config auto` catches them. (2) gitlab templates run `p/security-audit` only vs github's two packs — pre-existing asymmetry, untouched. (3) The pinned `semgrep/semgrep-action@713efdd… (v1/v0.58.0)` is 2021-era; verifier traced it as pass-through-correct for `r/` configs, but modernizing the pin is worth a look. (4) `--config auto` at commit time NOT adopted (network + metrics on every commit; deterministic registry pack keeps the BL-112-SAST-NOTRUN discipline meaningful).

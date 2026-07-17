@@ -2763,6 +2763,8 @@ For Rust the skip is *deliberate* (inline `#[cfg(test)]` tests cannot be detecte
 **Severity:** Medium
 **Status:** Open
 
+**Status update 2026-07-17:** fix implemented on PR #207 (branch `fix/bl110-bl116-noremote-blindspot`), awaiting merge. `# BL-110-PIN-UNIVERSAL`: the stamp moved to the universal manifest-seed site in `prepare_initial_state_for_commit` (idempotent; remote-path duplicate removed with a pointer comment). Fidelity: `T-scaffold-pin-stamped` in the scaffold suite asserts pin == framework HEAD on a REAL `--no-remote-creation` init (8/8). Mutation observed both directions: HEAD-reverted init scaffolds with the pin ABSENT; fixed init stamps it. Evidence: `Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md` § WP-D2.
+
 **Verified evidence:** the BL-099 birth-stamp (`# BL-099: birth-stamp .claude/manifest.json.soloFrameworkCommit`, init.sh ~:2498) lives INSIDE `create_and_protect_remote()` (opens ~:2182) — and that function's `--no-remote-creation` branch (~:2211) exits with `return 0` BEFORE the stamp is reached. Net: **every hermetic scaffold — all UAT/CI/agent runs and any operator passing `--no-remote-creation` — is born with NO `soloFrameworkCommit` pin.** Empirically reproduced during S1 (a real `--no-remote-creation` scaffold's manifest has no such key). The pin is the anchor of the entire Currency System (BL-109) and of `--sync-framework`'s drift reporting; a pin-absent manifest degrades both (sync stamps it on first run — self-healing there — but session-start detection reads it at birth).
 
 **Why tests missed it:** the BL-099 suites drive sync/stamp paths directly; no fidelity test scaffolds via `--no-remote-creation` and asserts the pin — the [[bl088-scaffold-source-closure]] fixture-hides-gap class, on a FLAG axis this time (BL-107 was the same class on the LANGUAGE axis).
@@ -2898,6 +2900,8 @@ Three defects in the same gate, all walk-reproduced:
 **Category:** Bug / gate scope
 **Severity:** Medium
 **Status:** Open
+
+**Status update 2026-07-17:** fix implemented on PR #207 alongside BL-110, awaiting merge. `# BL-116-PUSH-GATE-SCOPE` (excision-safe fence) in check-phase-gate.sh: the first-class exemption is EARNED — skipped only when `remote_repo_created`+`pushed_initial` are on record (the on-disk meaning of "provably pushed at init"); host=other keeps unconditional gating. `tests/test-bl116-push-gate-scope.sh` 4/4 incl. the fence-excision mutant; the github no-remote RED was observed (0 push-gate lines pre-fix). Evidence: § WP-D2.
 
 The BL-084 push-verification gate — documented as **MANDATORY and non-bypassable** — is implemented only for `host == "other"`. A `github` / `gitlab` / `bitbucket` project scaffolded with `--no-remote-creation` **never receives the mandatory push verification**: `grep -c 'push gate'` in the gate's output is **0**, both with and without a pushed remote. The scope comment's stated premise — *"first-class hosts are provably pushed at init"* — is **false for `--no-remote-creation`**, which is precisely the flow every hermetic/UAT/CI run and many operators use.
 
