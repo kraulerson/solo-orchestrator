@@ -80,6 +80,7 @@ jobs:
             tests/test-bl073-review-manifest-gate.sh
             tests/test-bl103-eval-generator.sh
             tests/test-bl104-gate-scoring.sh
+            tests/test-bl118-sast-dom-xss.sh
             tests/test-bypass-audit-integrity.sh
             tests/test-bypass-audit-lib.sh
             tests/test-bypass-audit-tmp-hardening.sh
@@ -213,6 +214,18 @@ jobs:
           jq --version && git --version
           git config --global user.name "solo-orchestrator-ci"
           git config --global user.email "ci@solo-orchestrator.invalid"
+
+      - name: Install semgrep (live SAST cases)
+        # BL-118: the live DOM-XSS blocking cases (test-bl118-sast-dom-xss.sh)
+        # and the semgrep-REQUIRING BL-112 cases SKIP LOUDLY without semgrep,
+        # so without this step the blocking behaviour is never executed in CI —
+        # and a renamed/retired registry rule would re-blind every generated
+        # hook while CI stayed green (verifier finding, 2026-07-17). The unit
+        # lane stays semgrep-free on purpose (a registry fetch on every PR is
+        # flake surface); this manual full lane is where the live proof runs.
+        # An install failure fails the shard LOUDLY rather than silently
+        # skipping the only CI execution of the blocking arm.
+        run: pip install semgrep
 
       - name: Run shard — ${{ matrix.shard }}
         # SKIP_KNOWN_FAILING left unset -> 0, so known-RED guards still run.

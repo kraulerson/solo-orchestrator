@@ -607,6 +607,20 @@ else
 fi
 fi
 
+# BL-118 (Dogfood-2 F-DF2-007, Critical): the SAST gate must SEE browser DOM XSS.
+# Pins the DOM-sink ruleset (r/javascript.browser.security.insecure-document-method)
+# into every emitter of the semgrep invocation — the hook-templates lib (the hook's
+# single source of truth), all 20 generated CI pipelines, and verify-install.sh's
+# fix_precommit_hook (which used to re-inline a pre-BL-112 blind hook on repair).
+# Live cases drive a REAL `git commit` of `pane.innerHTML = userText` through the
+# lib-emitted hook (LOUD SKIP without semgrep). Emits the hook via the lib directly
+# — no scaffold run — so it is ALSO in the tests.yml unit fast lane.
+if bash "$SCRIPT_DIR/tests/test-bl118-sast-dom-xss.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl118-sast-dom-xss.sh"
+else
+  fail "tests/test-bl118-sast-dom-xss.sh FAILED (run for details)"
+fi
+
 # BL-109 S3 (Currency System, Layer 2 — Staging / --plan). test-plan-staging.sh is
 # the lib-level unit test (run-folder shape, exclusive mkdir, verbs incl.
 # retire/rename linkage, checkbox grammar pin, base-sha, shallow-clone roll-up
