@@ -982,7 +982,30 @@ if [ "$current_phase" -ge 2 ]; then
   if [ -f .claude/manifest.json ] && command -v jq >/dev/null 2>&1; then
     bl084_host=$(jq -r '.host // ""' .claude/manifest.json 2>/dev/null || echo "")
   fi
-  if [ "$bl084_host" = "other" ]; then
+  bl084_gate_applies=false
+  [ "$bl084_host" = "other" ] && bl084_gate_applies=true
+  # BL-116-PUSH-GATE-SCOPE-BEGIN
+  # BL-116: the gate used to be scoped `host == "other"` on the premise that
+  # "first-class hosts are provably pushed at init" — FALSE for
+  # --no-remote-creation, which is the blessed hermetic flow: a github/gitlab
+  # project scaffolded that way never received the MANDATORY push gate at all
+  # (E2E walk F7). The first-class exemption is now EARNED, not assumed: it
+  # holds only when phase2_init.steps_completed records BOTH
+  # remote_repo_created and pushed_initial — the on-disk meaning of "provably
+  # pushed at init". Fence is excision-safe: removing it restores the
+  # host=other-only scope.
+  if [ "$bl084_gate_applies" != true ]; then
+    bl084_init_pushed=false
+    if [ -f .claude/process-state.json ] && command -v jq >/dev/null 2>&1; then
+      if jq -e '.phase2_init.steps_completed | (index("remote_repo_created") != null) and (index("pushed_initial") != null)' \
+           .claude/process-state.json >/dev/null 2>&1; then
+        bl084_init_pushed=true
+      fi
+    fi
+    [ "$bl084_init_pushed" != true ] && bl084_gate_applies=true
+  fi
+  # BL-116-PUSH-GATE-SCOPE-END
+  if [ "$bl084_gate_applies" = true ]; then
     bl084_local_only_ack=false
     bl084_push_deferred_ack=false
     if [ -f .claude/process-state.json ] && command -v jq >/dev/null 2>&1; then

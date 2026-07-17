@@ -138,7 +138,7 @@ echo ""
 echo "T1: attestation present → backstop honors it, exits 0"
 setup_phase2_project
 cat > "$PROJ/.claude/process-state.json" <<'JSON'
-{"phase2_init":{"steps_completed":[],"attestations":{"branch_protection":{"attested_by":"orchestrator","at":"2026-04-27T00:00:00Z","reason":"github_free_tier"}}},
+{"phase2_init":{"steps_completed":["remote_repo_created","pushed_initial"],"attestations":{"branch_protection":{"attested_by":"orchestrator","at":"2026-04-27T00:00:00Z","reason":"github_free_tier"}}},
  "phase1_artifacts":{"data_classification":"public","zdr_attested":false}}
 JSON
 out=$(run_gate)
@@ -205,7 +205,7 @@ fi
 echo "T4: gitlab_free_tier_approvals attestation → backstop honors it, exits 0"
 setup_phase2_project
 cat > "$PROJ/.claude/process-state.json" <<'JSON'
-{"phase2_init":{"steps_completed":[],"attestations":{"branch_protection":{"attested_by":"orchestrator","at":"2026-06-30T12:00:00Z","reason":"gitlab_free_tier_approvals"}}},
+{"phase2_init":{"steps_completed":["remote_repo_created","pushed_initial"],"attestations":{"branch_protection":{"attested_by":"orchestrator","at":"2026-06-30T12:00:00Z","reason":"gitlab_free_tier_approvals"}}},
  "phase1_artifacts":{"data_classification":"public","zdr_attested":false}}
 JSON
 out=$(run_gate)

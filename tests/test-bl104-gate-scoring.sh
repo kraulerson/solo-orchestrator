@@ -152,7 +152,7 @@ JSON
   cat > "$PROJ/.claude/process-state.json" <<JSON
 {
   "phase1_artifacts": { "data_classification": "public" },
-  "phase2_init": { "attestations": { "branch_protection": { "reason": "github_free_tier" } } },
+  "phase2_init": { "steps_completed": ["remote_repo_created","pushed_initial"], "attestations": { "branch_protection": { "reason": "github_free_tier" } } },
   "phase3_validation": { "steps_completed": [ $steps_json ] }
 }
 JSON

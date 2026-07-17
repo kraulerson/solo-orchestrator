@@ -99,6 +99,23 @@ else
   fail_ "T-scaffold-ships-deps" "init.sh omitted one or more sourced deps (the BL-088 gap)"
 fi
 
+# ── T-scaffold-pin-stamped (BL-110) ─────────────────────────────────────────
+# The soloFrameworkCommit pin — the anchor of the Currency System and of
+# --sync-framework drift reporting — must be born on the HERMETIC path too.
+# Its old home inside create_and_protect_remote() sat after the
+# --no-remote-creation early return, so this exact scaffold (a real
+# --no-remote-creation init) was born pin-less.
+echo "=== T-scaffold-pin-stamped (BL-110): soloFrameworkCommit present on the hermetic path ==="
+pin="$(jq -r '.soloFrameworkCommit // ""' "$SCAFFOLD/.claude/manifest.json" 2>/dev/null)"
+fw_head="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null)"
+if [ -z "$pin" ]; then
+  fail_ "T-scaffold-pin-stamped" "--no-remote-creation scaffold born with NO soloFrameworkCommit pin (BL-110: the Currency System's anchor is absent on the blessed hermetic flow)"
+elif [ "$pin" != "$fw_head" ]; then
+  fail_ "T-scaffold-pin-stamped" "pin '$pin' != framework HEAD '$fw_head' — stamped from the wrong checkout"
+else
+  pass "T-scaffold-pin-stamped: soloFrameworkCommit = framework HEAD on the hermetic path"
+fi
+
 # ── T-scaffold-phase3-driver-present ────────────────────────────────────────
 echo "=== T-scaffold-phase3-driver-present: driver present + executable ==="
 if [ -x "$SCAFFOLD/scripts/run-phase3-validation.sh" ]; then

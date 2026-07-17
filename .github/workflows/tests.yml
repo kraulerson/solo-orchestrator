@@ -85,6 +85,7 @@ jobs:
             tests/test-bl118-sast-dom-xss.sh
             tests/test-bl119-stale-editmsg.sh
             tests/test-bl121-cutline-bsd-sed.sh
+            tests/test-bl116-push-gate-scope.sh
             tests/test-bl123-bp-attestation-recovery.sh
             tests/test-bl124-pending-ratchet.sh
             tests/test-bypass-audit-integrity.sh
