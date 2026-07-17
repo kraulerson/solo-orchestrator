@@ -18,7 +18,7 @@
 
 ---
 
-## WP-A1 — BL-118 (Critical): SAST blind to DOM XSS — DONE-PR-open
+## WP-A1 — BL-118 (Critical): SAST blind to DOM XSS — MERGED (2026-07-17, via PR #202 `88bddd3`)
 
 - **Branch:** `fix/bl118-sast-dom-xss` (stacked on `docs/dogfood2-findings-base` / PR #198). **PR #199**, fix commit `fbf2be8`.
 - **Reproduce (2026-07-17, semgrep 1.157.0):** positive control `sink.ts` (`eval`/`innerHTML`/`document.write`): `p/owasp-top-ten --severity=ERROR --error` → 0 findings, rc=0 (**the bug**). `r/javascript.browser.security.insecure-document-method --error` → 2 findings (innerHTML L3, document.write L4), rc=1; `--json` shows `severity=ERROR` for both, so the pack SURVIVES the `--severity=ERROR` bound → single-invocation fix valid. `eval` is flagged by NEITHER pack (residual, see notes).
@@ -36,7 +36,7 @@
 
 ---
 
-## WP-A3 — BL-119 (High) stale-COMMIT_EDITMSG brick + BL-087 & BL-133 fold-ins — DONE-PR-open
+## WP-A3 — BL-119 (High) stale-COMMIT_EDITMSG brick + BL-087 & BL-133 fold-ins — MERGED (2026-07-17, via PR #202 `88bddd3`)
 
 - **Branch:** `fix/bl119-stale-editmsg` (stacked on PR #199). **PR #200**, fix commit `f39d944`.
 - **Reproduce (hermetic E2E, in-repo):** strict scratch project, REAL `install-filesystem-gates.sh --install` chain; stale `feat(reader): render pane` in COMMIT_EDITMSG; real `git commit -m "docs: update readme"` → BLOCKED rc=1 with the walk's exact message `[FAIL] pre-commit gate: 'feat(...)' commit blocked — no Build Loop active.` BL-087: framework-lookalike + `--tdd-only` → rc=1 `Refusing to operate inside the Solo Orchestrator framework repo`. BL-133 (verifier repro): project-local BR lint + stale `docs: … BL-9999` + innocent staged file → rc=1 `backlog-references lint failed`.
@@ -53,7 +53,9 @@
 
 ---
 
-## WP-B1 — BL-121 (High): BSD-sed cutline miscount hard-blocks the production gate on macOS — DONE-PR-open
+## WP-B1 — BL-121 (High): BSD-sed cutline miscount hard-blocks the production gate on macOS — MERGED (2026-07-17, via PR #202 `88bddd3`)
+
+> **Stack-landing episode (operational lesson, 2026-07-17):** the four stacked PRs were merged ascending (#198→#201) with head branches KEPT, so GitHub merged each child into its parent branch and only #198's docs reached main — BL-118/119/121 were stranded in the intermediate branches. Recovered by PR #202 (`fix/dogfood2-stack-landing`): one merge of `origin/fix/bl119-stale-editmsg@026a521` (transitively the whole reviewed stack, zero new code), landing-verified (bl118 6/6 live, bl119 4/4, bl121 2/2, terminal-mode, run-lints 11/11). Root cause: PR-body guidance said "merge ascending" without the auto-delete-head-branches precondition that makes GitHub retarget children to main. **Repo setting "Automatically delete head branches" now enabled** — future stacks land correctly in ascending order.
 
 - **Branch:** `fix/bl121-cutline-bsd-sed` (stacked on PR #200). **PR #201**, commits `942b08b` (fix) + `d2feee7` (verifier NOTE-1 follow-up).
 - **Reproduce (this host, BSD sed):** `printf 'A\nSTOP-B\nC\n' | sed -n '/A/,/STOP\|NOPE/p'` → all 3 lines (range never closes). Behavior test pre-fix: fixture with a true 3-item cutline → **cutline_items=8** (EOF runoff; 68 vs 3 on the real walk). Block chain: miscount → WARN → test-gate exit 2 → check-phase-gate `issues+=1` → Phase 3→4 hard block (the [WARN] trap).
