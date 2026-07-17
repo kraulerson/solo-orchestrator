@@ -2865,7 +2865,9 @@ Three defects in the same gate, all walk-reproduced:
 
 **Fix shape:** guard the manifesto content scan against errexit (subshell + explicit status) so the WARN prints and the gate summarizes; decide deliberately whether the intermediates check blocks (per the CLAUDE.md `issues++` = BLOCK rule) and make code match docs; make `start_phase1` consult the gate. Each with a mutation proof — note the `[WARN]`-vs-`issues++` trap.
 
-**Related:** BL-104 (the same `issues++`-is-the-real-verdict class); `Reports/2026-07-12-e2e-walk/RESULTS.md` (F1, F2, F3).
+**Addendum (2026-07-13, Dogfood 2 finding F-DF2-003):** reproduced live on a real project — `process-checklist.sh --start-phase1` advances `current_phase` 0→1 with **no gate consult** (`[INFO] Advanced .current_phase: 0 → 1`, exit 0, while `gates.phase_0_to_1` is still null), and the command is **undocumented in `--help`** (`process-checklist.sh --help | grep -c start-phase1` → 0). An operator following the generated CLAUDE.md (which says to hand-edit `phase-state.json`) never discovers it, and the gate fires only if they *separately* run `check-phase-gate.sh`. Fold the "make `start_phase1` consult the gate" fix here, and add `--start-phase1` to the `--help` output.
+
+**Related:** BL-104 (the same `issues++`-is-the-real-verdict class); `Reports/2026-07-12-e2e-walk/RESULTS.md` (F1, F2, F3); `Reports/2026-07-13-dogfood-2/FINDINGS.md` (F-DF2-003).
 
 ---
 
@@ -2917,3 +2919,252 @@ The BL-084 push-verification gate — documented as **MANDATORY and non-bypassab
 **Fix shape:** ship the missing artifacts; add a **smoke arm** to `production_build` (the built artifact must start); and — the durable fix — **extend the BL-088 closure check from sourced scripts to every path any shipped script or guide names** (templates, tools, artifacts), mechanically derived so it cannot drift. That single check would have caught five of the six.
 
 **Related:** [[bl088-scaffold-source-closure]] (the parser to extend); BL-108 (templates half); BL-105 (the missing Phase-4 evidence arms); `Reports/2026-07-12-e2e-walk/RESULTS.md` (F19, F20, and the class inventory).
+
+---
+
+## BL-118: The pre-commit SAST gate (and CI SAST) is BLIND to browser DOM XSS — BL-112 made it reachable but it is aimed at a ruleset that cannot see `innerHTML`
+
+**Logged:** 2026-07-13 (Dogfood 2 walk, finding F-DF2-007)
+**Category:** Bug / security enforcement — the worst class (a security gate that reports "clean" on a real vulnerability)
+**Severity:** **Critical**
+**Status:** Open
+
+The generated pre-commit hook's Semgrep arm (marker `# BL-112-SAST-ERROR` in `init.sh`, which scaffolds `.git/hooks/pre-commit`) runs `semgrep scan --config=p/owasp-top-ten --no-git-ignore --severity=ERROR --error`. That ruleset **contains no browser DOM-sink rules.** A real stored DOM XSS (`pane.innerHTML = <attacker-influenced markup>`) was staged and committed on the flagship `web`/`typescript` platform; the hook reported **`[OK] semgrep: SAST ran on N staged file(s) — no ERROR-severity findings`** and the vulnerable code reached `main`.
+
+**Reproduce (positive control — proves it is the ruleset, not a broken scanner):** a file containing `eval(userInput)`, `el.innerHTML = userInput`, and `document.write(userInput)`:
+```
+semgrep scan --config=p/owasp-top-ten --severity=ERROR --error <file>   # → 0 findings
+semgrep scan --config=p/security-audit --error <file>                    # → 0 findings  (this pack is ALSO in CI)
+semgrep scan --config=p/xss --error <file>                               # → 0 findings
+semgrep scan --config=r/javascript.browser.security.insecure-document-method <file>  # → 2 findings, flags by line
+semgrep scan --config auto <file>                                        # → detects it (this is what run-phase3-validation uses)
+```
+CI shares the blindness: `.github/workflows/ci.yml` uses `config: p/owasp-top-ten, p/security-audit`. So a DOM XSS passes the commit gate AND CI, and is caught only by the Phase-3 full-tree `--config auto` scan — if the operator gets that far and semgrep can reach its registry (BL-113 offline hole). BL-112 correctly fixed the *plumbing* (`--error` is now passed, the `[BLOCKED]` arm is reachable, the verdict propagates); this is the successor defect — **reachable but aimed at the wrong rulebook.** The framework repo cannot self-detect it: `check_commit_message` short-circuits at `current_phase < 2` and the framework repo has no `phase-state.json`, so this path is never dogfooded.
+
+**Fix shape:** add `--config=r/javascript.browser.security.insecure-document-method` (browser DOM sinks) to BOTH the pre-commit hook (`# BL-112-SAST-ERROR` marker) and `ci.yml`; consider `--config auto` where the network allows, with the BL-113 offline-attestation discipline. **Add a mutation test to the framework suite** that stages a real `el.innerHTML = userInput` against the generated hook and asserts a non-zero exit — the test whose absence let this ship. Web is the flagship platform; its advertised commit-time SAST tripwire must see the #1 web vulnerability class.
+
+**Related:** BL-112 (armed the gate; this is what the gate is pointed at); BL-113 (the offline-SKIP hole in the same scanner family); `Reports/2026-07-13-dogfood-2/FINDINGS.md` (F-DF2-007, with the live commit transcript).
+
+---
+
+## BL-119: The strict terminal commit gate classifies every commit by the PREVIOUS commit's message — a correctly-blocked commit then bricks the repository
+
+**Logged:** 2026-07-13 (Dogfood 2 walk, finding F-DF2-006)
+**Category:** Bug / gate correctness + availability
+**Severity:** **High**
+**Status:** Open
+
+`.git/hooks/pre-commit` → `.git/hooks/framework-gate.sh` (strict mode) calls `process-checklist.sh --check-commit-ready` and `pre-commit-gate.sh --terminal-mode`. In `--terminal-mode`, `pre-commit-gate.sh` reads the subject from `.git/COMMIT_EDITMSG` (see the `TERMINAL_MODE` block). **At `pre-commit` time git has not yet written the new message — `COMMIT_EDITMSG` still holds a PREVIOUS commit's subject.** The file's own comments admit `commit-msg` is the only hook point where it is current; `framework-gate.sh` calls the classifier from `pre-commit` anyway.
+
+**Two failure directions:**
+- **FALSE BLOCK (real, halted the walk):** after any `feat:` commit whose Build Loop is closed, the stale `feat(...)` subject makes the gate demand an active Build Loop for **every subsequent commit — including `docs:`, `chore:`, `test:`, even pure-Markdown** — which are exempt. The project becomes uncommittable. The gate's own printed remedy (`reconfigure-project.sh --enforcement-level light`) is **refused** for organizational/sponsored-POC tiers (`forces strict`). The only listed escapes (`--no-verify`, a forged Build Loop) are forbidden.
+- **FALSE PASS (checked — CLOSED by the commit-msg hook):** the stale message could let a `feat:` skip BL-006 at pre-commit, but the `commit-msg` hook re-runs the check with the now-current message and catches it. So this is an **availability** defect, not a security bypass.
+
+**Reproduce:** land a `feat:` commit through a full Build Loop, then `git commit -m "docs: anything"` → `[FAIL] pre-commit gate: 'feat(...)' commit blocked — no Build Loop active`. Confirm the classifier is correct in isolation: `process-checklist.sh --check-commit-message "docs: x"` → allowed.
+
+**Newly exposed by BL-112** (which made this gate reachable — it "sat below an unconditional exit"). Reachable-but-wrong is the successor defect.
+
+**Fix shape:** `framework-gate.sh` must not run the commit-message classifier at `pre-commit` — either drop the message check from the pre-commit path (the `commit-msg` hook already does it with the correct message), or pass the real prospective subject. Regression test: a `docs:`-only commit immediately after a `feat:` commit must succeed on a strict organizational scaffold.
+
+**Related:** BL-112 (made this reachable); BL-087 (BL-006 commit-msg surface asymmetry); `Reports/2026-07-13-dogfood-2/FINDINGS.md` (F-DF2-006).
+
+---
+
+## BL-120: The Build-Loop `security_audit` step is existence-only — an audit that says "SEV-1, DO NOT SHIP" satisfies the gate exactly as well as a clean one
+
+**Logged:** 2026-07-13 (Dogfood 2 walk, finding F-DF2-008)
+**Category:** Bug / hollow gate
+**Severity:** **High**
+**Status:** Open
+
+`process-checklist.sh --complete-step build_loop:security_audit` verifies only that a file whose name contains the feature slug exists under `docs/security-audits/` (the `ls docs/security-audits/*"${feature_slug}"*` check). It never reads the file's verdict. During the walk, an audit file whose own heading read *"ROUND 1 — the naive implementation: CRITICAL — VULNERABLE. DO NOT SHIP."* satisfied the step, and the feature (a live stored XSS) committed. A security audit that concludes "do not ship" advances the gate identically to one that passes.
+
+**Reproduce:** with a Build Loop active, place any file `docs/security-audits/<feature-slug>-anything.md` (contents irrelevant) → `--complete-step build_loop:security_audit` → `[OK]`.
+
+**Fix shape:** the audit artifact needs a machine-readable verdict the step parses (e.g. a required `**Verdict:** PASS|FAIL` / `**Open findings:** N` front-matter line), and the step must FAIL on `FAIL` / non-zero open critical-high. Pair with BL-125 (no test execution at commit time) and BL-118 (SAST blind) — three independent controls all failed to stop the same real XSS; each should catch it.
+
+**Related:** BL-118 + BL-125 (the other two controls that missed the same XSS); BL-105 (the hollow-declared-MUST family); `Reports/2026-07-13-dogfood-2/FINDINGS.md` (F-DF2-008).
+
+---
+
+## BL-121: The MVP-Cutline reconciliation counter uses GNU-sed alternation — on BSD/macOS it counts to EOF and HARD-BLOCKS the production Phase 3→4 gate
+
+**Logged:** 2026-07-13 (Dogfood 2 walk, finding F-DF2-011)
+**Category:** Bug / portability — the exact class CLAUDE.md and `lint-counter-antipattern.sh` exist to prevent
+**Severity:** **High** (escalated from a Phase-2→3 WARN: at the production gate the identical bug is a hard BLOCK on the framework's own dev OS)
+**Status:** Open
+
+In `test-gate.sh`, the feature-completeness check counts MVP-Cutline items with:
+```
+cutline_items=$(sed -n '/Must-Have/,/Should-Have\|Will-Not-Have\|---/p' PRODUCT_MANIFESTO.md | grep -cE '^\s*-\s*\*\*')
+```
+`\|` is **GNU-sed alternation**; **BSD/macOS sed treats it as a literal**, so the terminator never matches and the range **runs to EOF**, counting every `- **bold**` bullet in the whole manifesto. On a real project this reported **68 cutline items vs the true 3**. Because `test-gate.sh --check-phase-gate` exits 2 on that WARN, and `check-phase-gate.sh` does `issues=$((issues+1))` on a bug-gate exit-2 (the `[WARN] Bug gate has warnings` arm), the **production Phase 3→4 gate hard-blocks** with every real check green. `5 ≥ 68` is unsatisfiable by any honest means; the only "escape" is `SOIF_PHASE_GATES=warn`, a global gate-disable.
+
+**Reproduce (on macOS):**
+```
+bash scripts/test-gate.sh --check-phase-gate        # → [WARN] Feature count (N) < MVP Cutline items (68); exit 2
+printf 'A\nSTOP-B\nC\n' | sed -n '/A/,/STOP\|NOPE/p'  # → prints all 3 lines (range never closes = BSD literal \|)
+sed -n '/Must-Have/,/Should-Have/p' PRODUCT_MANIFESTO.md | grep -cE '^\s*-\s*\*\*'  # GNU-intended → correct count
+```
+
+**Fix shape:** replace `\|` with a portable terminator — either a POSIX bracket/ERE via `sed -E` with a real alternation that BSD honors, or (cleaner) an `awk` range with a proper `/Should-Have|Will-Not-Have|^---/` regex, or bound the count to the section between the `## 5. MVP Cutline` heading and its `**CUTLINE**` marker. Add a fixture-based test asserting a known 3-item manifesto counts 3 on both sed flavors. This is precisely the GNU-first portability class CLAUDE.md warns about and `lint-counter-antipattern.sh` polices — extend the lint to catch `sed` alternation too.
+
+**Related:** BL-105 (the reconciliation MUST it implements); `lint-counter-antipattern.sh` (extend); `Reports/2026-07-13-dogfood-2/FINDINGS.md` (F-DF2-011).
+
+---
+
+## BL-122: The Phase-3 `zap-dast` gate counts ALL alerts unfiltered — ZAP rule 10049 fires under every Cache-Control value, so the DAST gate is unpassable for any web app
+
+**Logged:** 2026-07-13 (Dogfood 2 walk, finding F-DF2-012)
+**Category:** Bug / gate correctness (false-positive that blocks release)
+**Severity:** **High**
+**Status:** Open
+
+`run-phase3-validation.sh` (marker `# BL-070-ZAP-DISPATCH`) computes ZAP findings as `findings=$(jq '[.site[]?.alerts[]?] | length' "$archive")` — **every alert at every risk level, unfiltered.** A real, clean baseline scan against the built artifact (`FAIL-NEW=0, PASS=66`) still produces at least one **Informational (`riskcode=0`)** alert: rule **10049**, which fires as *"Storable but Non-Cacheable"* / *"Non-Storable Content"* / *"Storable and Cacheable Content"* under (respectively) **no `Cache-Control`, `no-store`, and `public,max-age`** — i.e. under every possible value. So `findings ≥ 1` always → `[FAIL] zap-dast` → Phase 3→4 blocked, for any web project. BL-113 (correctly) makes a FAIL un-attestable, so there is no legitimate escape.
+
+**Reproduce:** run the driver against any live static site with a valid CSP and headers → `[FAIL] zap-dast — 1 ZAP alert(s)`; inspect the archived JSON → the sole alert is `riskcode: 0`, `pluginid: 10049`.
+
+**Fix shape:** filter by risk — `jq '[.site[]?.alerts[]? | select((.riskcode|tonumber) >= 2)] | length'` (Medium+), or at minimum exclude `riskcode == 0`, matching the semgrep arm's `--severity ERROR` philosophy (block real issues, don't drown in informational noise). Document that informational alerts still surface in the archived report.
+
+**Related:** BL-070 (the driver); BL-113 (why a FAIL can't be attested past — correct, which is why the false FAIL must be fixed at source); `Reports/2026-07-13-dogfood-2/FINDINGS.md` (F-DF2-012).
+
+---
+
+## BL-123: The real-remote free-tier branch-protection recovery is circular — a non-interactive first run that meets the 403 without the flag pre-set cannot recover
+
+**Logged:** 2026-07-13 (Dogfood 2 walk, finding F-DF2-002; the real-remote counterpart to BL-111's hermetic defect)
+**Category:** Bug / unsatisfiable recovery path
+**Severity:** **High**
+**Status:** Open
+
+On a real free-tier GitHub **private** repo in **organizational** mode, `init.sh` creates the repo, pushes, then hits a genuine `HTTP 403 "Upgrade to GitHub Pro…"` on `host_configure_protection`. The `github_free_tier` attestation is writable **only inside `init.sh`'s in-flight fallback** (guarded by `BRANCH_PROTECTION_ATTESTED`). A **non-interactive first run** — the AI-orchestrator norm — cannot know to pre-set `--branch-protection-attested` (plan tier is not API-readable in advance; `gh api user` → `plan:null`), so it hard-fails at the 403. The two recovery paths then refer to each other in a closed circle: `check-gate.sh --repair` re-hits the 403 and prints *"Re-run with `--branch-protection-attested`"* — a flag `check-gate.sh` **does not accept** — and re-running `init.sh` dies at `host_create_repo` with `GraphQL: Name already exists`. Only escape: delete-and-recreate (works solely while the repo is empty). When the flag IS pre-set on the first run, the path works (verified) — so the defect is specifically the unattested-first-contact recovery.
+
+**Reproduce:** `init.sh --non-interactive … --deployment organizational --gov-mode sponsored_poc --visibility private` on a free-tier account **without** `--branch-protection-attested` → `[FAIL] Attestation required` exit 2; then `check-gate.sh --repair` → `[FAIL] Protection config failed`, recommends the flag it doesn't accept.
+
+**Fix shape:** give `check-gate.sh` an attestation-recording path (accept `--branch-protection-attested` / honor `SOLO_BP_ATTESTED=1`) so the documented `--repair` remediation can actually record the `github_free_tier` attestation post-hoc; OR have `init.sh` detect the 403 and offer to record the attestation non-interactively with a loud notice. One fix (an attestation-recording subcommand) closes both this and BL-111.
+
+**Related:** BL-111 (hermetic-path sibling; shared root cause — attestation writable only inside init's fallback); BL-002/BL-016 (the attestation machinery); `Reports/2026-07-13-dogfood-2/FINDINGS.md` (F-DF2-002).
+
+---
+
+## BL-124: Promotion RE-OPENS the light-track skips (`SKIPPED → PENDING`) and then no gate ever reads `PENDING` — the ratchet performs the re-demand and forgets to enforce it
+
+**Logged:** 2026-07-13 (Dogfood 2 walk, finding F-DF2-014; answers the walk's central question)
+**Category:** Bug / governance ratchet hole
+**Severity:** **High**
+**Status:** Open
+
+`upgrade-project.sh` (the "Refreshing PRODUCT_MANIFESTO.md Appendix A/C markers for track upgrade" step) rewrites the Light-track `**SKIPPED**` markers on Appendix A (Revenue Model) and Appendix C (Trademark & Legal) to `**PENDING — required by track upgrade light → full**`. **Nothing then reads that `PENDING` marker.** Combined with BL-102 (Market Signal Step 1.1.5 has no check), the three Phase-0/1 obligations the Light track legitimately let a project skip are — at Full track — *required by the written process, marked PENDING by the upgrade tool, and enforced by zero gates.* A project reaches a tagged production release with all three still literally saying "PENDING." This is worse than a silent gap: the framework visibly performs the re-demand, which reads to an auditor as a working ratchet.
+
+**Reproduce:**
+```
+grep -rl "PENDING" scripts/check-phase-gate.sh scripts/test-gate.sh \
+        scripts/run-phase3-validation.sh scripts/pre-commit-gate.sh   # → no matches (only upgrade-project.sh writes it)
+grep -rli "market.signal|1\.1\.5" scripts/*.sh                        # → no matches (BL-102)
+```
+
+**Fix shape:** `check-phase-gate.sh` must FAIL the Phase 3→4 gate (track-keyed: standard/full) when `PRODUCT_MANIFESTO.md` Appendix A/C still carry a `PENDING` marker, and enforce the Market Signal evidence (BL-102). The upgrade tool that writes `PENDING` and the gate that should read it must be wired to the same marker. This is the load-bearing answer to "does promotion re-demand what the POC skipped?" — today it *asks* but does not *check*.
+
+**Related:** BL-102 (Market Signal, the third un-enforced obligation); BL-105 (revenue/trademark among the hollow MUSTs); `upgrade-project.sh` (the writer); `Reports/2026-07-13-dogfood-2/FINDINGS.md` (F-DF2-014, the central-question evidence).
+
+---
+
+## BL-125: Nothing runs the test suite at commit time — a commit whose own tests are RED (proving the code is broken) lands clean
+
+**Logged:** 2026-07-13 (Dogfood 2 walk, finding F-DF2-009)
+**Category:** Bug / missing enforcement
+**Severity:** Medium
+**Status:** Open
+
+The Build-Loop `implemented` step is a self-attested mark; no gate (pre-commit hook, `framework-gate.sh`, or `check-commit-ready`) executes the project's test suite. During the walk, a commit landed while `npm test` was **5 failed | 54 passed** — the four failing tests were the adversarial fixtures *proving the staged code was an exploitable XSS*. The one control that actually detected the vulnerability (the tests) was consulted by no gate.
+
+**Reproduce:** stage code that makes a committed test fail; complete the Build-Loop steps; commit → succeeds despite red tests.
+
+**Fix shape:** add a test-execution arm to the commit path (or to `implemented`/`security_audit` completion) that runs the project's configured test command and blocks on failure — scoped to keep commit latency sane (changed-file-aware or a fast lane), with the same "tool-not-runnable → loud SKIP, never silent pass" discipline as the SAST arm (BL-112). Pairs with BL-118 and BL-120: three independent controls should each have stopped the same XSS.
+
+**Related:** BL-118 + BL-120 (the other two controls that missed the same bug); `Reports/2026-07-13-dogfood-2/FINDINGS.md` (F-DF2-009).
+
+---
+
+## BL-126: The `github_free_tier` branch-protection attestation is honored by 2 of its 3 consumers — `process-checklist.sh --verify-init` FAILs it
+
+**Logged:** 2026-07-13 (Dogfood 2 walk, finding F-DF2-005)
+**Category:** Bug / inconsistent attestation handling
+**Severity:** Medium
+**Status:** Open
+
+Three consumers read branch-protection state. `check-gate.sh --preflight` and `check-phase-gate.sh`'s Phase 1→2 backstop both read `.claude/process-state.json::phase2_init.attestations.branch_protection.reason` first and honor `github_free_tier` (`[OK] … branch protection attested`). But `process-checklist.sh`'s `verify_init()` calls `host_verify_protection "main" "$mode"` **directly, with no attestation check**, so on every attested free-tier project it prints `[FAIL] branch_protection_configured — protection verification failed`. An operator running `--verify-init` on a fresh attested project is told to run `check-gate.sh --preflight`, which then reports everything is fine — a contradiction with no resolution.
+
+**Reproduce:** on a free-tier private org scaffold with the `github_free_tier` attestation recorded, `bash scripts/process-checklist.sh --verify-init` → `[FAIL] branch_protection_configured`, while `check-gate.sh --preflight` → `[OK]`.
+
+**Fix shape:** `verify_init()` must read the `github_free_tier` / `gitlab_free_tier_approvals` attestation reason before calling `host_verify_protection`, exactly as its two sibling consumers do — ideally via a shared helper so the three cannot drift again (see BL-095, the centralize-state-parsing item).
+
+**Related:** BL-002/BL-032 (the attestation reasons); BL-095 (centralization would prevent the drift); `Reports/2026-07-13-dogfood-2/FINDINGS.md` (F-DF2-005).
+
+---
+
+## BL-127: The 9-step UAT process demands ZERO evidence — `results_received` is marked complete with an empty `submissions/`
+
+**Logged:** 2026-07-13 (Dogfood 2 walk, finding F-DF2-010)
+**Category:** Bug / hollow gate
+**Severity:** Medium
+**Status:** Open
+
+Every step of the `uat_session` checklist in `process-checklist.sh` is pure self-attestation. Most striking: `--complete-step uat_session:results_received` — the step whose entire meaning is "the tester's results are in" — succeeds with **zero files in `tests/uat/sessions/<date>-session-N/submissions/`**. `completeness_verified` verifies nothing; `triage_complete` consults no bug list. Contrast the Build-Loop `security_audit` step, which DOES require a matching file on disk (BL-120 shows even that is too weak, but it at least demands an artifact) — so the framework can require evidence here and simply doesn't.
+
+**Reproduce:** `bash scripts/process-checklist.sh --complete-step uat_session:results_received` with an empty `submissions/` dir → `[OK]`.
+
+**Fix shape:** gate the evidence-bearing steps on real artifacts — `results_received` on ≥1 file in `submissions/` (or an explicit, recorded "solo operator, no external testers" attestation for Light track), `completeness_verified` on a template-vs-submission diff. Keep the Light-track path frictionless via an attested solo mode, but make the attestation explicit rather than the default silence.
+
+**Related:** BL-105 (the hollow-declared-MUST family — UAT sign-off is named there); BL-120 (the analogous existence-only audit step); `Reports/2026-07-13-dogfood-2/FINDINGS.md` (F-DF2-010).
+
+---
+
+## BL-128: The six-eval review generator parses (BL-103 fixed) but never COMPLETES — the Phase 3→4 review gate's only documented remediation is unusable for the AI-operator
+
+**Logged:** 2026-07-13 (Dogfood 2 walk, finding F-DF2-015; the successor to BL-103's parse failure)
+**Category:** Bug / operationally-unusable tool
+**Severity:** Medium
+**Status:** Open
+
+`evaluation-prompts/Projects/run-reviews.sh` now parses on bash 3.2 and writes a valid manifest (BL-103 / PR #187 fixes confirmed in-source), but it runs **six sequential full LLM reviews** via nested `claude -p "$(cat prompt)"` (the per-reviewer invocation). Observed across multiple launches: (a) it blocks on the Claude Code trust dialog until `hasTrustDialogAccepted` is set; (b) after trust, it ran **~40 minutes, spawned ~159 orphaned `claude` processes, and produced no review files and no manifest**; (c) a mid-run spend limit killed one attempt. So the Phase 3→4 review gate's **only documented remediation** (the builders-guide Phase-3 Remediation section names this script) cannot in practice produce the manifest the gate requires — pushing the operator to the `SOLO_REVIEWERS_ATTESTED` escape not by choice but because the happy path does not terminate.
+
+**Reproduce:** `PROJECT_DIR=$(pwd) bash evaluation-prompts/Projects/run-reviews.sh web-app` in a generated project → hangs; no `docs/eval-results/review-manifest.json`.
+
+**Fix shape:** make the generator viable for headless/agent operation — bound each review with a timeout and clean process-group teardown; write the manifest incrementally (one entry per completed review) so a partial run is still usable; surface trust-dialog / spend-limit failures as actionable errors instead of a silent hang; and offer a `--compose-only` mode that emits the prompts for an operator/agent to run and a manifest-assembly step, so the manifest can be produced without the generator driving six live sessions.
+
+**Related:** BL-103 (the parse bug this succeeds — fixed); BL-073 (the review gate this feeds); `Reports/2026-07-13-dogfood-2/FINDINGS.md` (F-DF2-015).
+
+---
+
+## BL-129: `init.sh` non-interactive help text contradicts the gov-mode validation code — it tells operators the opposite of what the code accepts
+
+**Logged:** 2026-07-13 (Dogfood 2 walk, finding F-DF2-001)
+**Category:** Bug / doc-vs-code contradiction (THE SCRIPTS WIN → the help is wrong)
+**Severity:** Low
+**Status:** Open
+
+`init.sh --help-non-interactive` states `--gov-mode` is "REQUIRED when --deployment=organizational. NOT VALID when --deployment=personal." The validation code (the gov-mode rules block in `collect_inputs_non_interactive`) enforces the opposite mapping: `personal` accepts `private_poc` (and production), `organizational` accepts `sponsored_poc` (and production), and it **rejects** `organizational + private_poc` — the exact combo the run spec and the help text imply is valid. Following the help verbatim (`--deployment organizational --gov-mode private_poc`) is rejected. `enforcement-level.sh` and `init.sh::start_phase4` comments also still describe `organizational + private_poc` as a choosable tier — a combo `init.sh` can never produce (dead branch).
+
+**Reproduce:** `init.sh --non-interactive --validate-only --deployment organizational --gov-mode private_poc …` → `[FAIL] --gov-mode=private_poc is not valid for --deployment=organizational`.
+
+**Fix shape:** correct `--help-non-interactive` to state the real mapping (personal→{production, private_poc}; organizational→{production, sponsored_poc}); scrub the stale `organizational + private_poc` "choosable" comments in `enforcement-level.sh` and `init.sh`. Doc-only; no behavior change.
+
+**Related:** BL-084-TIER-KEY (the tier predicate); `Reports/2026-07-13-dogfood-2/FINDINGS.md` (F-DF2-001).
+
+---
+
+## BL-130: `run-phase3-validation.sh --attest` records an attestation for a FAILing scanner and prints `[OK]` with no warning
+
+**Logged:** 2026-07-13 (Dogfood 2 walk, finding F-DF2-013)
+**Category:** Bug / misleading UX (NOT a bypass — BL-113 still refuses to honor it)
+**Severity:** Low
+**Status:** Open
+
+`run-phase3-validation.sh --attest <scanner> --reason "…"` records the attestation and prints `[OK] Attested skip for '<scanner>' recorded` **even when that scanner is currently in FAIL state** (not merely un-run/SKIP). The next driver run still correctly reports `FAIL=… → FAIL` and does **not** honor the attestation for a FAIL — so BL-113's guarantee holds and no real FAIL is laundered into a pass. But the `[OK]` with no caveat invites the operator to believe they have cleared something they have not, and leaves a misleading "attested" row against a FAILing scanner.
+
+**Reproduce:** with a scanner in FAIL, `bash scripts/run-phase3-validation.sh --attest <scanner> --reason "x"` → `[OK] Attested skip … recorded`; re-run the driver → still `FAIL`.
+
+**Fix shape:** `--attest` should refuse (or loudly warn) when the named scanner's last result is FAIL, distinguishing "attest an un-runnable/SKIP tool" (legitimate) from "attest past a real FAIL" (refused). Message should point at BL-113's rule: a FAIL must be fixed or re-run, not attested.
+
+**Related:** BL-113 (the guarantee that still holds — this is a UX gap, not a hole in it); BL-070 (the driver); `Reports/2026-07-13-dogfood-2/FINDINGS.md` (F-DF2-013).
