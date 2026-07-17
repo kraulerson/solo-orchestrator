@@ -82,6 +82,7 @@ jobs:
             tests/test-bl104-gate-scoring.sh
             tests/test-bl118-sast-dom-xss.sh
             tests/test-bl119-stale-editmsg.sh
+            tests/test-bl121-cutline-bsd-sed.sh
             tests/test-bypass-audit-integrity.sh
             tests/test-bypass-audit-lib.sh
             tests/test-bypass-audit-tmp-hardening.sh
