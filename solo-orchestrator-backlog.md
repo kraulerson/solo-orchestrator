@@ -2927,7 +2927,7 @@ The BL-084 push-verification gate — documented as **MANDATORY and non-bypassab
 **Logged:** 2026-07-13 (Dogfood 2 walk, finding F-DF2-007)
 **Category:** Bug / security enforcement — the worst class (a security gate that reports "clean" on a real vulnerability)
 **Severity:** **Critical**
-**Status:** Open
+**Status:** Open — fix implemented on PR #199 (branch `fix/bl118-sast-dom-xss`), awaiting merge; mutation-proven (source-level break→RED→restore→GREEN plus the in-test strip-the-config mutation; adversarial verifier verdict SHIP). Evidence: `Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md` § WP-A1. Verifier follow-ups filed as BL-131 (residual sinks no registry rule covers) and BL-132 (worktree-vs-index scan gap).
 
 The generated pre-commit hook's Semgrep arm (marker `# BL-112-SAST-ERROR` in `init.sh`, which scaffolds `.git/hooks/pre-commit`) runs `semgrep scan --config=p/owasp-top-ten --no-git-ignore --severity=ERROR --error`. That ruleset **contains no browser DOM-sink rules.** A real stored DOM XSS (`pane.innerHTML = <attacker-influenced markup>`) was staged and committed on the flagship `web`/`typescript` platform; the hook reported **`[OK] semgrep: SAST ran on N staged file(s) — no ERROR-severity findings`** and the vulnerable code reached `main`.
 
@@ -3168,3 +3168,33 @@ Every step of the `uat_session` checklist in `process-checklist.sh` is pure self
 **Fix shape:** `--attest` should refuse (or loudly warn) when the named scanner's last result is FAIL, distinguishing "attest an un-runnable/SKIP tool" (legitimate) from "attest past a real FAIL" (refused). Message should point at BL-113's rule: a FAIL must be fixed or re-run, not attested.
 
 **Related:** BL-113 (the guarantee that still holds — this is a UX gap, not a hole in it); BL-070 (the driver); `Reports/2026-07-13-dogfood-2/FINDINGS.md` (F-DF2-013).
+
+---
+
+## BL-131: Commit-time SAST residual blindness — `insertAdjacentHTML`, jQuery `.html()`, `.vue` SFC scripts, and inline `<script>` in `.html` all commit clean (no public registry rule exists for them)
+
+**Logged:** 2026-07-17 (BL-118 adversarial verification, PR #199)
+**Category:** Bug / security enforcement — known-gap registration (defense-in-depth residue)
+**Severity:** Medium
+**Status:** Open
+
+Empirically proven through the real emitted hook during BL-118's adversarial verification: staged fixtures using `el.insertAdjacentHTML('beforeend', x)`, jQuery `$(sel).html(x)`, `innerHTML` inside a `.vue` SFC `<script>` block, and an inline `<script>` in a committed `.html` file all COMMIT CLEAN with the `[OK] semgrep: SAST ran` receipt. This is NOT a pack-choice error: the full `r/javascript.browser.security` pack and `p/xss` both produce zero findings on those fixtures at any severity (tested with and without explicit `location.*` taint sources) — no rule in the public registry covers them, so no `--config` addition can close this. The BL-118 fix's own coverage claim (innerHTML/outerHTML/document.write) is accurate; this entry exists so the residue is a recorded decision, not a rediscovery for the next dogfood.
+
+**Fix shape:** ship a small custom semgrep ruleset with the scaffold (e.g. `.semgrep/soif-dom-sinks.yml`, added as another `--config` in the hook + CI templates) covering the missing sinks at ERROR severity, with the same exact-token pins and mutation-test discipline as BL-118; or explicitly accept + document the residue in the security-model docs. Note Phase-3 `--config auto` does not close it either (registry-bound).
+
+**Related:** BL-118 (PR #199 — the covered sinks); BL-112 (the gate plumbing); BL-132 (the other verifier-found gap); `Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md` (WP-A1 verifier findings).
+
+---
+
+## BL-132: The pre-commit SAST arm scans WORKTREE paths, not INDEX content — stage the vuln, overwrite the worktree copy, and the committed bytes are never scanned
+
+**Logged:** 2026-07-17 (BL-118 adversarial verification, PR #199)
+**Category:** Bug / security enforcement — pre-existing BL-112 design gap (orthogonal to, and unchanged by, BL-118)
+**Severity:** Medium
+**Status:** Open
+
+Reproduced during BL-118's adversarial verification: `git add app.ts` (containing the XSS), overwrite the worktree `app.ts` with the clean version, `git commit` → the commit LANDS with the `[OK]` receipt, and `git show HEAD:app.ts` contains the vulnerable `innerHTML`. The hook hands semgrep staged PATHS (`git diff --cached --name-only`), so semgrep reads WORKTREE bytes, which need not be the staged bytes. Partial-stage (`git add -p`) and stage-then-edit flows also scan the wrong content in the benign direction (false signal from unstaged edits).
+
+**Fix shape:** scan index content: materialize staged blobs into a temp tree preserving relative paths/extensions (`git checkout-index --temp` or `git show :<path>`), run semgrep there, report findings against the real paths. Same BL-112-SAST-NOTRUN/receipt discipline. Check gitleaks parity while there (`gitleaks git --staged` already reads the index).
+
+**Related:** BL-112 (the arm's design); BL-118 (PR #199 — verifier proved the gap is orthogonal to the ruleset fix); `Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md` (WP-A1).
