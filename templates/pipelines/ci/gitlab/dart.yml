@@ -14,6 +14,10 @@ test:
   script:
     - dart analyze
     - dart test
+sast:
+  stage: security
+  image: returntocorp/semgrep
+  script: [semgrep --config=p/security-audit --config=r/javascript.browser.security.insecure-document-method --error]
 secrets:
   stage: security
   image: zricethezav/gitleaks:latest

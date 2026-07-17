@@ -2240,7 +2240,7 @@ Filed per the gate-#4 decision batch. The Phase-3 `license` scanner shipped REAL
 **Logged:** 2026-07-10 (PR #169 adversarial verification)
 **Category:** Debt / latent hazard + documented-behavior caveat
 **Severity:** Low
-**Status:** Open
+**Status:** Open — item 1 (the latent framework-repo hard-block) fixed on PR #200 (`# BL-087-MOTHERSHIP-PASS` in `bl006_terminal_enforce`: graceful pass with a loud [note] receipt when cwd matches the guard's own framework signature; mutation-proven, verifier-assessed incl. the spoof surface — see `Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md` § WP-A3). Item 2 (`--amend` asymmetry) remains documented behavior, no change.
 
 Two follow-ups from the PR #169 verifier (BL-010 residual fix), both zero-impact today:
 
@@ -2927,7 +2927,7 @@ The BL-084 push-verification gate — documented as **MANDATORY and non-bypassab
 **Logged:** 2026-07-13 (Dogfood 2 walk, finding F-DF2-007)
 **Category:** Bug / security enforcement — the worst class (a security gate that reports "clean" on a real vulnerability)
 **Severity:** **Critical**
-**Status:** Open
+**Status:** Open — fix implemented on PR #199 (branch `fix/bl118-sast-dom-xss`), awaiting merge; mutation-proven (source-level break→RED→restore→GREEN plus the in-test strip-the-config mutation; adversarial verifier verdict SHIP). Evidence: `Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md` § WP-A1. Verifier follow-ups filed as BL-131 (residual sinks no registry rule covers) and BL-132 (worktree-vs-index scan gap).
 
 The generated pre-commit hook's Semgrep arm (marker `# BL-112-SAST-ERROR` in `init.sh`, which scaffolds `.git/hooks/pre-commit`) runs `semgrep scan --config=p/owasp-top-ten --no-git-ignore --severity=ERROR --error`. That ruleset **contains no browser DOM-sink rules.** A real stored DOM XSS (`pane.innerHTML = <attacker-influenced markup>`) was staged and committed on the flagship `web`/`typescript` platform; the hook reported **`[OK] semgrep: SAST ran on N staged file(s) — no ERROR-severity findings`** and the vulnerable code reached `main`.
 
@@ -2952,7 +2952,7 @@ CI shares the blindness: `.github/workflows/ci.yml` uses `config: p/owasp-top-te
 **Logged:** 2026-07-13 (Dogfood 2 walk, finding F-DF2-006)
 **Category:** Bug / gate correctness + availability
 **Severity:** **High**
-**Status:** Open
+**Status:** Open — fix implemented on PR #200 (branch `fix/bl119-stale-editmsg`, stacked on PR #199), awaiting merge; mutation-proven (HEAD-revert→3-case RED→restore→GREEN; adversarial verifier verdict SHIP, incl. an empirical audit that the removed arm never had correct-message enforcement for any population). BL-087 item 1 and BL-133 fixed in the same PR. Evidence: `Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md` § WP-A3.
 
 `.git/hooks/pre-commit` → `.git/hooks/framework-gate.sh` (strict mode) calls `process-checklist.sh --check-commit-ready` and `pre-commit-gate.sh --terminal-mode`. In `--terminal-mode`, `pre-commit-gate.sh` reads the subject from `.git/COMMIT_EDITMSG` (see the `TERMINAL_MODE` block). **At `pre-commit` time git has not yet written the new message — `COMMIT_EDITMSG` still holds a PREVIOUS commit's subject.** The file's own comments admit `commit-msg` is the only hook point where it is current; `framework-gate.sh` calls the classifier from `pre-commit` anyway.
 
@@ -2998,6 +2998,8 @@ In `test-gate.sh`, the feature-completeness check counts MVP-Cutline items with:
 ```
 cutline_items=$(sed -n '/Must-Have/,/Should-Have\|Will-Not-Have\|---/p' PRODUCT_MANIFESTO.md | grep -cE '^\s*-\s*\*\*')
 ```
+**Status update 2026-07-17:** fix implemented on PR #201 (branch `fix/bl121-cutline-bsd-sed`, stacked on PR #200), awaiting merge; mutation-proven both directions (awk-revert → count 8 RED; lint-rule-revert → T11 RED). Adversarial verifier (Opus-tier) verdict **SHIP** — BSD/GNU parity proven on 6 fixture shapes incl. CRLF, and the end-to-end exit-2→exit-0 gate flip demonstrated; its NOTE-1 (unanchored opener re-opens on Section-5 bullets mentioning "Must-Have" — a quirk the GNU original shared) fixed in the same PR with the heading-anchored opener. Evidence: `Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md` § WP-B1.
+
 `\|` is **GNU-sed alternation**; **BSD/macOS sed treats it as a literal**, so the terminator never matches and the range **runs to EOF**, counting every `- **bold**` bullet in the whole manifesto. On a real project this reported **68 cutline items vs the true 3**. Because `test-gate.sh --check-phase-gate` exits 2 on that WARN, and `check-phase-gate.sh` does `issues=$((issues+1))` on a bug-gate exit-2 (the `[WARN] Bug gate has warnings` arm), the **production Phase 3→4 gate hard-blocks** with every real check green. `5 ≥ 68` is unsatisfiable by any honest means; the only "escape" is `SOIF_PHASE_GATES=warn`, a global gate-disable.
 
 **Reproduce (on macOS):**
@@ -3168,3 +3170,48 @@ Every step of the `uat_session` checklist in `process-checklist.sh` is pure self
 **Fix shape:** `--attest` should refuse (or loudly warn) when the named scanner's last result is FAIL, distinguishing "attest an un-runnable/SKIP tool" (legitimate) from "attest past a real FAIL" (refused). Message should point at BL-113's rule: a FAIL must be fixed or re-run, not attested.
 
 **Related:** BL-113 (the guarantee that still holds — this is a UX gap, not a hole in it); BL-070 (the driver); `Reports/2026-07-13-dogfood-2/FINDINGS.md` (F-DF2-013).
+
+---
+
+## BL-131: Commit-time SAST residual blindness — `insertAdjacentHTML`, jQuery `.html()`, `.vue` SFC scripts, and inline `<script>` in `.html` all commit clean (no public registry rule exists for them)
+
+**Logged:** 2026-07-17 (BL-118 adversarial verification, PR #199)
+**Category:** Bug / security enforcement — known-gap registration (defense-in-depth residue)
+**Severity:** Medium
+**Status:** Open
+
+Empirically proven through the real emitted hook during BL-118's adversarial verification: staged fixtures using `el.insertAdjacentHTML('beforeend', x)`, jQuery `$(sel).html(x)`, `innerHTML` inside a `.vue` SFC `<script>` block, and an inline `<script>` in a committed `.html` file all COMMIT CLEAN with the `[OK] semgrep: SAST ran` receipt. This is NOT a pack-choice error: the full `r/javascript.browser.security` pack and `p/xss` both produce zero findings on those fixtures at any severity (tested with and without explicit `location.*` taint sources) — no rule in the public registry covers them, so no `--config` addition can close this. The BL-118 fix's own coverage claim (innerHTML/outerHTML/document.write) is accurate; this entry exists so the residue is a recorded decision, not a rediscovery for the next dogfood.
+
+**Fix shape:** ship a small custom semgrep ruleset with the scaffold (e.g. `.semgrep/soif-dom-sinks.yml`, added as another `--config` in the hook + CI templates) covering the missing sinks at ERROR severity, with the same exact-token pins and mutation-test discipline as BL-118; or explicitly accept + document the residue in the security-model docs. Note Phase-3 `--config auto` does not close it either (registry-bound).
+
+**Related:** BL-118 (PR #199 — the covered sinks); BL-112 (the gate plumbing); BL-132 (the other verifier-found gap); `Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md` (WP-A1 verifier findings).
+
+---
+
+## BL-132: The pre-commit SAST arm scans WORKTREE paths, not INDEX content — stage the vuln, overwrite the worktree copy, and the committed bytes are never scanned
+
+**Logged:** 2026-07-17 (BL-118 adversarial verification, PR #199)
+**Category:** Bug / security enforcement — pre-existing BL-112 design gap (orthogonal to, and unchanged by, BL-118)
+**Severity:** Medium
+**Status:** Open
+
+Reproduced during BL-118's adversarial verification: `git add app.ts` (containing the XSS), overwrite the worktree `app.ts` with the clean version, `git commit` → the commit LANDS with the `[OK]` receipt, and `git show HEAD:app.ts` contains the vulnerable `innerHTML`. The hook hands semgrep staged PATHS (`git diff --cached --name-only`), so semgrep reads WORKTREE bytes, which need not be the staged bytes. Partial-stage (`git add -p`) and stage-then-edit flows also scan the wrong content in the benign direction (false signal from unstaged edits).
+
+**Fix shape:** scan index content: materialize staged blobs into a temp tree preserving relative paths/extensions (`git checkout-index --temp` or `git show :<path>`), run semgrep there, report findings against the real paths. Same BL-112-SAST-NOTRUN/receipt discipline. Check gitleaks parity while there (`gitleaks git --staged` already reads the index).
+
+**Related:** BL-112 (the arm's design); BL-118 (PR #199 — verifier proved the gap is orthogonal to the ruleset fix); `Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md` (WP-A1).
+
+---
+
+## BL-133: Plain `--terminal-mode` fed the STALE `COMMIT_EDITMSG` to `lint-backlog-references --pre-commit-mode` — the previous commit's message could block the current commit
+
+**Logged:** 2026-07-17 (BL-119 adversarial verification, PR #200)
+**Category:** Bug / gate correctness — BL-119's defect class, one more consumer
+**Severity:** Medium (narrow reach: the lint must be present project-locally — `init.sh` does not ship `lint-*.sh` downstream, so it bites framework-context repos and hand-copied setups)
+**Status:** Open — fixed on PR #200 alongside BL-119 (the feed is removed under the extended `# BL-119-NO-MSG-AT-PRECOMMIT` marker), awaiting merge; RED→GREEN + HEAD-revert mutation recorded in `Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md` § WP-A3.
+
+Verifier-reproduced: with a project-local `lint-backlog-references.sh` and a backlog containing only BL-001, write `docs: previous commit citing BL-9999` into `.git/COMMIT_EDITMSG` (the residue of a landed commit), stage an innocent file, `git commit -m "docs: innocent"` → **rc=1, "backlog-references lint failed"** — the PREVIOUS commit's message blocked the CURRENT commit. Same staleness mechanism as BL-119: pre-commit never sees the message being committed.
+
+**Fix (in PR #200):** the message feed is removed from the plain terminal path; the message-mode BR check survives on the PreToolUse surface, which parses the CURRENT message from the command. **Open design question (deliberately not decided unilaterally):** should the commit-msg surface (`--tdd-only`) grow a third arm running the BR message check with the current message? It would restore BR message coverage for editor/human-terminal commits, at the cost of widening a surface documented as exactly two gates. Decide when BL-107 (per-language commit-msg hooks) is implemented, since that changes the same surface.
+
+**Related:** BL-119 (PR #200, the defect class + fix); BL-010 (the commit-msg surface's contract); `scripts/lint-backlog-references.sh` (`--pre-commit-mode`).

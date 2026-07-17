@@ -404,7 +404,21 @@ check_phase_gate() {
     # Compare against MVP cutline if we can
     if [ -f "PRODUCT_MANIFESTO.md" ]; then
       local cutline_items
-      cutline_items=$(sed -n '/Must-Have/,/Should-Have\|Will-Not-Have\|---/p' PRODUCT_MANIFESTO.md 2>/dev/null | grep -cE '^\s*-\s*\*\*' || echo "0")
+      # BL-121-CUTLINE-COUNT — awk range, NOT sed: `\|` in a BASIC-regex sed
+      # program is GNU alternation but a BSD/macOS LITERAL, so the terminator
+      # never matched, the range ran to EOF, and every bold bullet in the
+      # whole manifesto was counted (68 vs the true 3 on the Dogfood-2 walk) —
+      # hard-blocking the production 3→4 gate via the exit-2 WARN arm. awk
+      # range patterns take real POSIX EREs on both platforms. `^---` is
+      # anchored on purpose: a Markdown rule is a whole line; unanchored `---`
+      # inside prose would close the range early. The OPENER is anchored to a
+      # Markdown heading (`^#+.*Must-Have`) — an unanchored opener re-opens
+      # the range on any Section-5 cutline bullet that mentions "Must-Have"
+      # (the template placeholder literally does), double-counting bold
+      # bullets there (BL-121 verifier NOTE-1; the GNU original had the same
+      # quirk). lint-counter-antipattern.sh flags basic-mode sed alternation
+      # so this class cannot recur.
+      cutline_items=$(awk '/^#+.*Must-Have/,/Should-Have|Will-Not-Have|^---/' PRODUCT_MANIFESTO.md 2>/dev/null | grep -cE '^\s*-\s*\*\*' || echo "0")
       case "$cutline_items" in ''|*[!0-9]*) cutline_items=0 ;; esac
       if [ "$cutline_items" -gt 0 ] && [ "$recorded_features" -gt 0 ]; then
         if [ "$recorded_features" -lt "$cutline_items" ]; then

@@ -39,7 +39,7 @@ sast:
   stage: security
   image: returntocorp/semgrep
   script:
-    - semgrep --config=p/owasp-top-ten --config=p/security-audit --error
+    - semgrep --config=p/owasp-top-ten --config=p/security-audit --config=r/javascript.browser.security.insecure-document-method --error
 
 secrets:
   stage: security

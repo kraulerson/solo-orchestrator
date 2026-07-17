@@ -172,7 +172,16 @@ if command -v semgrep &>/dev/null; then
     # `--severity=ERROR` bounds the gate to semgrep's high-confidence rules: the
     # gate must block real issues without becoming so noisy that operators route
     # around it. WARNING/INFO findings still surface in the Phase-3 scanners + CI.
-    semgrep scan --config=p/owasp-top-ten --no-git-ignore \
+    # BL-118-DOMXSS-CONFIG — p/owasp-top-ten contains NO browser DOM-sink rules:
+    # a stored DOM XSS (`pane.innerHTML = userText`) scanned CLEAN, printed the
+    # [OK] receipt, and shipped to main (Dogfood-2 finding F-DF2-007). The
+    # browser ruleset added below is severity=ERROR in the registry, so it
+    # survives the --severity=ERROR bound and flags innerHTML/outerHTML/
+    # document.write sinks. It rides on its OWN continuation line so the
+    # mutation test can strip exactly it. Removing it re-blinds the gate.
+    semgrep scan --config=p/owasp-top-ten \
+      --config=r/javascript.browser.security.insecure-document-method \
+      --no-git-ignore \
       --severity=ERROR --error "${soif_staged[@]}" 2>"$soif_sg_err"
     soif_sg_rc=$?
     set -e

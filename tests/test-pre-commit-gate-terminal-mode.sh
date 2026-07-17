@@ -45,14 +45,31 @@ EOF
 }
 teardown() { rm -rf "$TMP"; }
 
-# T1: --terminal-mode reads from COMMIT_EDITMSG and emits human-readable to stderr.
-echo "T1: --terminal-mode reads COMMIT_EDITMSG, emits stderr"
+# T1 (BL-119): plain --terminal-mode must IGNORE .git/COMMIT_EDITMSG. Its only
+# call site is framework-gate.sh at PRE-COMMIT time, where the file still holds
+# a PREVIOUS commit's subject — classifying by it bricked a strict repo
+# (Dogfood-2 F-DF2-006: after any landed feat: commit, docs:/chore:/test:
+# commits were blocked as "'feat(...)' — no Build Loop active"). This case
+# used to pin the OPPOSITE (block on the stale feat:) — that pinned the bug.
+# The message-scoped gates run at the COMMIT-MSG surface (--tdd-only), where
+# the message is CURRENT (see # BL-119-NO-MSG-AT-PRECOMMIT).
+echo "T1: plain --terminal-mode ignores a stale feat: COMMIT_EDITMSG (BL-119)"
 setup
 ( cd "$TMP" && echo source > src.go && git add src.go )
-echo "feat: add x" > "$TMP/.git/COMMIT_EDITMSG"
-out=$( cd "$TMP" && bash "$GATE" --terminal-mode 2>&1 >/dev/null || true )
-# In strict mode with no Build Loop progress, this should block (Phase 2 + source file + feat: prefix).
-if echo "$out" | grep -qE '\[FRAMEWORK GATE|FAIL|Block reason'; then pass "T1"; else fail_ "T1" "no human-readable block on stderr: $out"; fi
+echo "feat: add x" > "$TMP/.git/COMMIT_EDITMSG"   # stale previous-commit subject
+# SKIP_LINT=1 (here and below): this suite's subject is --terminal-mode
+# DISPATCH semantics, not the operator-side lint arm — that arm has its own
+# dedicated suite (test-pre-commit-gate-lints.sh). Without it, every rc=0
+# invocation walks the full-tree framework lints (~minutes each) via the
+# $SCRIPT_DIR fallback, and since BL-119 removed the early classifier exit,
+# ALL THREE cases would pay that walk — a unit-lane test cannot.
+rc=0
+out=$( cd "$TMP" && SKIP_LINT=1 bash "$GATE" --terminal-mode 2>&1 >/dev/null ) || rc=$?
+if [ "$rc" -eq 0 ] && ! echo "$out" | grep -q 'commit message classifier'; then
+  pass "T1"
+else
+  fail_ "T1" "stale-message classifier fired at pre-commit (rc=$rc): $out"
+fi
 teardown
 
 # T2: --terminal-mode exits 0 on docs-only commit (existing classifier reused).
@@ -60,7 +77,7 @@ echo "T2: --terminal-mode passes a docs-only commit"
 setup
 ( cd "$TMP" && echo "# README" > README.md && git add README.md )
 echo "docs: add README" > "$TMP/.git/COMMIT_EDITMSG"
-( cd "$TMP" && bash "$GATE" --terminal-mode >/dev/null 2>&1 ) && pass "T2" || fail_ "T2" "docs-only commit blocked"
+( cd "$TMP" && SKIP_LINT=1 bash "$GATE" --terminal-mode >/dev/null 2>&1 ) && pass "T2" || fail_ "T2" "docs-only commit blocked"
 teardown
 
 # T3: --terminal-mode does NOT emit JSON to stdout.
@@ -68,7 +85,7 @@ echo "T3: --terminal-mode does not emit JSON permission decision"
 setup
 ( cd "$TMP" && echo source > src.go && git add src.go )
 echo "feat: add x" > "$TMP/.git/COMMIT_EDITMSG"
-out=$( cd "$TMP" && bash "$GATE" --terminal-mode 2>/dev/null || true )
+out=$( cd "$TMP" && SKIP_LINT=1 bash "$GATE" --terminal-mode 2>/dev/null || true )
 if ! echo "$out" | grep -q "permissionDecision"; then pass "T3"; else fail_ "T3" "JSON permission decision leaked to stdout"; fi
 teardown
 

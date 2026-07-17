@@ -310,6 +310,66 @@ else
 fi
 teardown
 
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T11: BL-121 — basic-mode sed alternation (GNU-only) → exit 1 ==="
+# ════════════════════════════════════════════════════════════════════
+# In a BASIC-regex sed program, backslash-pipe is alternation on GNU but a
+# LITERAL on BSD/macOS — a range terminator carrying it never matches and the
+# range runs to EOF (BL-121: the MVP-Cutline counter reported 68 vs the true
+# 3 and hard-blocked the production gate on every Mac).
+setup
+cat > "$PROJ/scripts/bsd-trap.sh" <<'SH'
+#!/usr/bin/env bash
+items=$(sed -n '/Must-Have/,/Should-Have\|---/p' FILE.md | grep -c x)
+case "$items" in ''|*[!0-9]*) items=0 ;; esac
+SH
+out=$(run_lint); rc=$?
+if [ $rc -eq 1 ] && echo "$out" | grep -q "bsd-trap.sh" && echo "$out" | grep -qi "sed"; then
+  pass "T11: basic-mode sed alternation flagged"
+else
+  fail_ "T11" "expected exit 1 naming bsd-trap.sh with a sed-alternation message; rc=$rc; output:\n$out"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T12: BL-121 — sed -E/-r with escaped-literal pipe → exit 0 ==="
+# ════════════════════════════════════════════════════════════════════
+# In ERE mode a backslash-pipe is an ESCAPED LITERAL pipe — the correct idiom
+# for parsing |-delimited Markdown tables (check-phase-gate.sh does exactly
+# this). The rule must not flag it.
+setup
+cat > "$PROJ/scripts/ere-ok.sh" <<'SH'
+#!/usr/bin/env bash
+approver=$(echo "$row" | sed -E 's/.*\*\*Approver\*\*[[:space:]]*\|[[:space:]]*//; s/[[:space:]]*\|.*$//')
+cell=$(echo "$row" | sed -nr 's/a\|b/x/p')
+SH
+out=$(run_lint); rc=$?
+if [ $rc -eq 0 ]; then
+  pass "T12: ERE-mode sed with escaped literal pipe is exempt"
+else
+  fail_ "T12" "expected exit 0 (sed -E/-r backslash-pipe is an escaped LITERAL, the table-parsing idiom); rc=$rc; output:\n$out"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T13: BL-121 — sed alternation with allowlist marker + reason → exit 0 ==="
+# ════════════════════════════════════════════════════════════════════
+setup
+cat > "$PROJ/scripts/allowed.sh" <<'SH'
+#!/usr/bin/env bash
+items=$(sed -n '/A\|B/p' FILE.md)   # lint-counter-antipattern: allow gnu-sed-only fixture, exercised on Linux CI only
+SH
+out=$(run_lint); rc=$?
+if [ $rc -eq 0 ]; then
+  pass "T13: allowlisted sed alternation passes"
+else
+  fail_ "T13" "expected exit 0 with allowlist marker; rc=$rc; output:\n$out"
+fi
+teardown
+
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]

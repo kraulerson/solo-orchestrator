@@ -101,6 +101,23 @@ TARGET_GLOBS=(
 # has its `||` AFTER the `)` and is the CORRECT pattern (see T6c).
 ANTIPATTERN_RE='^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=\$\(.*(grep[[:space:]]+-[a-zA-Z]*c[a-zA-Z]*|jq[[:space:]].*length|[[:space:]]wc[[:space:]]).*\|\|[[:space:]]*(echo[[:space:]]+"?0"?|true|:)[[:space:]]*\)'
 
+# BL-121: GNU-only sed alternation. In a BASIC-regex sed program a
+# backslash-pipe is alternation on GNU but the LITERAL two characters on
+# BSD/macOS — a range like /A/,/B/p whose terminator carries it never
+# closes on a Mac and runs to EOF (the MVP-Cutline counter reported 68
+# items vs the true 3 and hard-blocked the production 3→4 gate,
+# Dogfood-2 F-DF2-011). `sed -E`/`-r`/`--regexp-extended` invocations
+# are exempt: in ERE mode a backslash-pipe is an ESCAPED LITERAL pipe —
+# the correct idiom for parsing |-delimited Markdown tables
+# (check-phase-gate.sh's approval-row cells do exactly that). The
+# `[^;|&]*` run keeps the match inside the sed invocation: a shell
+# pipe/`;`/`&` before the backslash-pipe means it belongs to a LATER
+# command (e.g. `sed ... | grep 'a\|b'` is grep's problem, not sed's).
+# Escape hatch: the same `# lint-counter-antipattern: allow <reason>`
+# marker as the counter rule.
+SED_BRE_ALT_RE='(^|[^A-Za-z0-9_])sed[[:space:]][^;|&]*\\\|'
+SED_ERE_FLAG_RE='(^|[^A-Za-z0-9_])sed[[:space:]]+(-[A-Za-z]*[Er][A-Za-z]*([[:space:]]|$)|--regexp-extended([[:space:]]|$))'
+
 # Strip a trailing `# lint-counter-antipattern: allow <reason>` and
 # return: VAR_NAME<TAB>ALLOW_REASON_OR_EMPTY<TAB>HAS_MARKER (0|1)
 # Caller checks: if HAS_MARKER=1 and reason empty → fail.
@@ -217,6 +234,26 @@ scan_file() {
         fi
         VIOLATIONS=$((VIOLATIONS + 1))
         LIST_ROWS="${LIST_ROWS}FAIL\t${rel}:${lineno}\t${var_name}\t${subtype}\n"
+      fi
+    fi
+
+    # BL-121: basic-mode sed alternation (constants + rationale at
+    # SED_BRE_ALT_RE above). Independent of the counter-capture rule — a
+    # line can violate either.
+    if echo "$line" | grep -Eq "$SED_BRE_ALT_RE" \
+       && ! echo "$line" | grep -Eq "$SED_ERE_FLAG_RE"; then
+      local sparsed sreason smarker slineno srel
+      sparsed=$(parse_line "$line")
+      sreason="$(printf '%s' "$sparsed" | cut -f2)"
+      smarker="$(printf '%s' "$sparsed" | cut -f3)"
+      slineno=$((i + 1))
+      srel="${file#"$REPO_ROOT"/}"
+      if [ "$smarker" = "1" ] && [ -n "$sreason" ]; then
+        LIST_ROWS="${LIST_ROWS}PASS\t${srel}:${slineno}\tsed-alternation\tallowlist:${sreason}\n"
+      else
+        echo "${srel}:${slineno}: lint-counter-antipattern: GNU-only sed alternation — a backslash-pipe in a BASIC-regex sed program is alternation on GNU but a LITERAL on BSD/macOS, so a range terminator carrying it never matches and the range runs to EOF (BL-121). Use an awk range/ERE, or sed -E with a real alternation, or append '# lint-counter-antipattern: allow <reason>'" >&2
+        VIOLATIONS=$((VIOLATIONS + 1))
+        LIST_ROWS="${LIST_ROWS}FAIL\t${srel}:${slineno}\tsed-alternation\tgnu-only-sed-alternation\n"
       fi
     fi
   done

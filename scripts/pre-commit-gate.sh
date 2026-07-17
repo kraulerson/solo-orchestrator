@@ -289,6 +289,21 @@ bl006_terminal_enforce() {
   [ -f .git/MERGE_HEAD ] && return 0
   [ -f .git/CHERRY_PICK_HEAD ] && return 0
   [ -f .git/REVERT_HEAD ] && return 0
+  # BL-087-MOTHERSHIP-PASS — the framework repo is NOT a scaffolded project,
+  # but it DOES contain scripts/process-checklist.sh, so the "no checklist ->
+  # no-op" layer below cannot protect it: the delegate would hard-refuse via
+  # guard_not_in_framework (rc=1) and, with a commit-msg hook installed in the
+  # framework repo itself, every feat:/fix: commit would brick. Detect the
+  # framework root with the guard's OWN signature (keep in sync with
+  # helpers-core.sh::guard_not_in_framework::_gnif_dir_is_framework) and pass
+  # GRACEFULLY — with a receipt, because a silent pass is indistinguishable
+  # from a gate that never ran.
+  if [ -f init.sh ] \
+     && grep -q "Solo Orchestrator — Project Initialization Script" init.sh 2>/dev/null \
+     && [ -d templates/generated ]; then
+    echo "[note] BL-006 message gate: framework repo detected (not a scaffolded project) — Build-Loop message enforcement not applicable here. Commit allowed." >&2
+    return 0
+  fi
   # No project checklist -> nothing to enforce (safe no-op). CWD-relative on
   # purpose: the commit-msg hook runs from the project root, and this must NOT
   # resolve to the framework's own copy for a repo that has no scaffolded state.
@@ -355,38 +370,20 @@ if [ "$TERMINAL_MODE" -eq 1 ]; then
     exit 0
   fi
 
-  # Reuse process-checklist.sh's classifier.
-  if [ -x "scripts/process-checklist.sh" ]; then
-    if ! bash scripts/process-checklist.sh --check-commit-message "$COMMIT_MSG" 2>&1 >&2; then
-      # shellcheck disable=SC1091
-      if [ -f "$PROJECT_ROOT/scripts/lib/gate-principles.sh" ]; then
-        source "$PROJECT_ROOT/scripts/lib/gate-principles.sh"
-      fi
-      echo "" >&2
-      echo "[FRAMEWORK GATE — strict mode]" >&2
-      echo "" >&2
-      echo "Block reason: commit message classifier rejected the message under current Phase / Build Loop state." >&2
-      echo "" >&2
-      echo "Why this rule exists:" >&2
-      if command -v principle_for >/dev/null 2>&1; then
-        principle_for "commit-classifier" >&2
-      else
-        echo "  See docs/user-guide.md commit-classifier section." >&2
-      fi
-      echo "" >&2
-      echo "To proceed:" >&2
-      echo "  Open a Build Loop:  scripts/process-checklist.sh --start-feature \"<name>\"" >&2
-      echo "  Complete steps:     scripts/process-checklist.sh --complete-step build_loop:tests_written" >&2
-      echo "  ...then commit again." >&2
-      echo "" >&2
-      echo "To bypass anyway (recorded in .claude/bypass-audit.json):" >&2
-      echo "  git commit --no-verify ..." >&2
-      echo "" >&2
-      echo "To downgrade enforcement permanently:" >&2
-      echo "  scripts/reconfigure-project.sh --enforcement-level light" >&2
-      exit 1
-    fi
-  fi
+  # BL-119-NO-MSG-AT-PRECOMMIT — plain --terminal-mode deliberately runs NO
+  # commit-message check. Its only call site is framework-gate.sh at PRE-COMMIT
+  # time, where .git/COMMIT_EDITMSG still holds a PREVIOUS commit's subject
+  # (git writes the new message AFTER pre-commit runs). Classifying by that
+  # stale subject bricked a strict repo (Dogfood-2 F-DF2-006): after any landed
+  # feat: commit, EVERY subsequent commit — docs:, chore:, test:, pure
+  # Markdown — was blocked as "'feat(...)' — no Build Loop active", and the
+  # gate's own printed remedies are refused/forbidden on the strict tiers. The
+  # message-scoped gates (BL-072 TDD ordering + BL-006 Build-Loop check) run
+  # at the COMMIT-MSG surface (--tdd-only above), the only git-hook point where
+  # the message is CURRENT. Message-independent gates still run at pre-commit:
+  # process-checklist --check-commit-ready (framework-gate step 1) and the
+  # operator-side lints below. Do not "restore" a message check here — any
+  # message this path can read is the wrong one.
 
   # --- Cycle-8 slot-5: operator-side lint promotion (terminal-mode) ---
   # All four CI lints fire on user-terminal commits too:
@@ -416,20 +413,13 @@ if [ "$TERMINAL_MODE" -eq 1 ]; then
       fi
     fi
 
-    BR_LINT=""
-    for cand in "$PROJECT_ROOT/scripts/lint-backlog-references.sh" \
-                "$SCRIPT_DIR/lint-backlog-references.sh"; do
-      [ -f "$cand" ] && { BR_LINT="$cand"; break; }
-    done
-    if [ -n "$BR_LINT" ] && [ -n "$COMMIT_MSG" ]; then
-      if ! br_out=$(printf '%s' "$COMMIT_MSG" | bash "$BR_LINT" --pre-commit-mode 2>&1); then
-        echo "[FRAMEWORK GATE — strict mode] backlog-references lint failed:" >&2
-        echo "$br_out" >&2
-        echo "" >&2
-        echo "To bypass anyway:  SKIP_LINT=1 git commit ..." >&2
-        exit 1
-      fi
-    fi
+    # BL-119-NO-MSG-AT-PRECOMMIT (part 2, BL-133): the backlog-references lint
+    # used to run here in --pre-commit-mode, fed from $COMMIT_MSG — the SAME
+    # stale previous-commit subject the removed classifier read. A previous
+    # commit citing a since-renumbered/bogus BL id blocked the CURRENT innocent
+    # commit (adversarial-verifier repro, 2026-07-17). Message-scoped BR
+    # checking survives on the PreToolUse surface, which parses the CURRENT
+    # message from the command. Do not re-add a message consumer to this path.
 
     # fix-functions-stderr: full-tree scan, no message dependency.
     FF_LINT=""
