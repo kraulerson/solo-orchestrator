@@ -2998,6 +2998,8 @@ In `test-gate.sh`, the feature-completeness check counts MVP-Cutline items with:
 ```
 cutline_items=$(sed -n '/Must-Have/,/Should-Have\|Will-Not-Have\|---/p' PRODUCT_MANIFESTO.md | grep -cE '^\s*-\s*\*\*')
 ```
+**Status update 2026-07-17:** fix implemented on PR #201 (branch `fix/bl121-cutline-bsd-sed`, stacked on PR #200), awaiting merge; mutation-proven both directions (awk-revert → count 8 RED; lint-rule-revert → T11 RED). Adversarial verifier (Opus-tier) verdict **SHIP** — BSD/GNU parity proven on 6 fixture shapes incl. CRLF, and the end-to-end exit-2→exit-0 gate flip demonstrated; its NOTE-1 (unanchored opener re-opens on Section-5 bullets mentioning "Must-Have" — a quirk the GNU original shared) fixed in the same PR with the heading-anchored opener. Evidence: `Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md` § WP-B1.
+
 `\|` is **GNU-sed alternation**; **BSD/macOS sed treats it as a literal**, so the terminator never matches and the range **runs to EOF**, counting every `- **bold**` bullet in the whole manifesto. On a real project this reported **68 cutline items vs the true 3**. Because `test-gate.sh --check-phase-gate` exits 2 on that WARN, and `check-phase-gate.sh` does `issues=$((issues+1))` on a bug-gate exit-2 (the `[WARN] Bug gate has warnings` arm), the **production Phase 3→4 gate hard-blocks** with every real check green. `5 ≥ 68` is unsatisfiable by any honest means; the only "escape" is `SOIF_PHASE_GATES=warn`, a global gate-disable.
 
 **Reproduce (on macOS):**
