@@ -91,7 +91,7 @@ cat > "$FIX/PRODUCT_MANIFESTO.md" <<'EOF'
 ## 5. MVP Cutline
 
 **Above the line (MVP — ships first):**
-- Open file (from Section 2 Must-Have list)
+- **Open file** (from Section 2 Must-Have list)
 - Find in doc (from Section 2 Must-Have list)
 
 ---
