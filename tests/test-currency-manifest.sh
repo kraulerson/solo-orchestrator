@@ -77,10 +77,15 @@ echo "== T2: hook enum (language matrix) =="
 assert_eq "T2-commit-msg typescript -> present"        "present"            "$(soif_currency_hook_state commit-msg typescript)"
 assert_eq "T2-commit-msg python -> present"            "present"            "$(soif_currency_hook_state commit-msg python)"
 assert_eq "T2-commit-msg go -> present"                "present"            "$(soif_currency_hook_state commit-msg go)"
-assert_eq "T2-commit-msg rust -> absent-intentional"   "absent-intentional" "$(soif_currency_hook_state commit-msg rust)"
-assert_eq "T2-commit-msg other -> absent-unavailable"  "absent-unavailable" "$(soif_currency_hook_state commit-msg other)"
-assert_eq "T2-commit-msg cobol -> absent-unavailable"  "absent-unavailable" "$(soif_currency_hook_state commit-msg cobol)"
-assert_eq "T2-commit-msg empty -> absent-unavailable"  "absent-unavailable" "$(soif_currency_hook_state commit-msg '')"
+# BL-107-UNIVERSAL-INSTALL: these four used to pin the SKIP (rust ->
+# absent-intentional, other/cobol/empty -> absent-unavailable) — that pinned
+# the bug: two whole language axes shipped with no TDD/BL-006 commit-msg gate.
+# The gate now installs for every language; the enum values remain reader-side
+# legacy states (pre-BL-107 manifests), covered by test-freshness-check.sh.
+assert_eq "T2-commit-msg rust -> present (BL-107)"     "present"            "$(soif_currency_hook_state commit-msg rust)"
+assert_eq "T2-commit-msg other -> present (BL-107)"    "present"            "$(soif_currency_hook_state commit-msg other)"
+assert_eq "T2-commit-msg cobol -> present (BL-107)"    "present"            "$(soif_currency_hook_state commit-msg cobol)"
+assert_eq "T2-commit-msg empty -> present (BL-107)"    "present"            "$(soif_currency_hook_state commit-msg '')"
 assert_eq "T2-pre-commit typescript -> present"        "present"            "$(soif_currency_hook_state pre-commit typescript)"
 assert_eq "T2-pre-commit rust -> present"              "present"            "$(soif_currency_hook_state pre-commit rust)"
 assert_eq "T2-unknown-hook -> absent-unavailable"      "absent-unavailable" "$(soif_currency_hook_state pre-push rust)"
@@ -248,12 +253,14 @@ assert_eq "T7-additive: frameworkCommit preserved"     "cafef00d" "$(jq -r '.fra
 MAN2="$TOPTMP/rust-manifest.json"
 printf '{"host":"gitlab"}\n' > "$MAN2"
 SOIF_CURRENCY_RENDERBASE_FILE="" soif_currency_stamp "$MAN2" "$FW/init.sh" "$FW" "$PROJ" rust "$FW"
-assert_eq "T7-rust fixture -> commit-msg absent-intentional" "absent-intentional" "$(jq -r '.currency.hooks["commit-msg"]' "$MAN2")"
-# An `other`-language fixture stamps absent-unavailable.
+# BL-107-UNIVERSAL-INSTALL: rust/other manifests now stamp present (the gate
+# ships for every language); the absent-* values remain reader-side legacy.
+assert_eq "T7-rust fixture -> commit-msg present (BL-107)" "present" "$(jq -r '.currency.hooks["commit-msg"]' "$MAN2")"
+# An `other`-language fixture also stamps present since BL-107.
 MAN3="$TOPTMP/other-manifest.json"
 printf '{"host":"gitlab"}\n' > "$MAN3"
 SOIF_CURRENCY_RENDERBASE_FILE="" soif_currency_stamp "$MAN3" "$FW/init.sh" "$FW" "$PROJ" other "$FW"
-assert_eq "T7-other fixture -> commit-msg absent-unavailable" "absent-unavailable" "$(jq -r '.currency.hooks["commit-msg"]' "$MAN3")"
+assert_eq "T7-other fixture -> commit-msg present (BL-107)" "present" "$(jq -r '.currency.hooks["commit-msg"]' "$MAN3")"
 
 # ════════════════════════════════════════════════════════════════════════════
 # T8 — dual-source ban (review-r1 B2): no product-code second-manifest filename

@@ -278,15 +278,24 @@ else
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
-echo "=== hook absent-intentional → silent ==="
+echo "=== hook absent-intentional (legacy pre-BL-107 rust) → enforcement ==="
+# REWRITTEN under the documented-bug exception: this case used to pin SILENCE
+# — which meant a pre-BL-107 rust project's missing TDD gate was never
+# surfaced, on exactly BL-107's headline axis (verifier finding, 2026-07-17).
+# Post-BL-107 nothing writes absent-intentional for commit-msg (the gate
+# installs universally), so surfacing the legacy value has zero false
+# positives: it can only mean "this scaffold predates BL-107 and its gate is
+# still missing — sync to install it."
 D="$(newdir)"; build_fw "$D/fw"; build_proj_current "$D/proj" "$FW" "$PIN"
 jq '.currency.hooks["commit-msg"]="absent-intentional"' "$D/proj/.claude/manifest.json" > "$D/proj/.claude/m.tmp" && mv "$D/proj/.claude/m.tmp" "$D/proj/.claude/manifest.json"
 rm -f "$D/proj/.git/hooks/commit-msg"
 run "$D/proj"
-if [ "$RC" -eq 0 ] && [ -z "$OUT" ]; then
-  pass "absent-intentional hook is silent (a real expected absence)"
+mach="$(printf '%s' "$OUT" | sed -n '/```soif-freshness/,/```/p' | sed '1d;$d')"
+ltier="$(printf '%s' "$mach" | jq -r '.items[] | select(.id=="hook-legacy-absent:commit-msg") | .tier' 2>/dev/null)"
+if [ "$ltier" = "enforcement" ] && printf '%s' "$OUT" | grep -q 'BL-107' && printf '%s' "$OUT" | grep -qi 'legacy'; then
+  pass "absent-intentional hook is surfaced at the enforcement tier citing BL-107 (legacy pre-BL-107 manifest)"
 else
-  fail_ "hook-absent-intentional" "rc=$RC out=[$OUT]"
+  fail_ "hook-absent-intentional" "expected an enforcement-tier hook-legacy-absent finding; tier=[$ltier] out=[$OUT]"
 fi
 
 # ════════════════════════════════════════════════════════════════════════════

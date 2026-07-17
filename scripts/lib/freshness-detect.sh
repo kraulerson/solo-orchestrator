@@ -289,7 +289,14 @@ _soif_fresh_check_hooks() {
     [ -n "$want_name" ] || continue
     case "$want_state" in
       absent-intentional)
-        : ;;                                    # silent — a real, expected absence
+        # BL-107-UNIVERSAL-INSTALL: since BL-107 nothing WRITES this value —
+        # the commit-msg gate installs for every language — so a manifest
+        # carrying it can only be a LEGACY pre-BL-107 scaffold (rust) whose
+        # TDD gate is still missing. Surfacing it has zero false positives;
+        # the old silent arm meant exactly the ticket's headline axis (rust)
+        # never heard its gate now exists (verifier finding, 2026-07-17).
+        _soif_fresh_emit "hook-legacy-absent:$want_name" hook enforcement "-" add "legacy-absent" \
+          "legacy pre-BL-107 manifest: the $want_name TDD gate now installs for every language — run upgrade-project.sh --sync-framework to install it (BL-107)" ;;
       absent-unavailable)
         # review-r1 M9 + BL-107 — never launder a bug into a fact.
         _soif_fresh_emit "hook-unavailable:$want_name" hook enforcement "-" add "unavailable" \

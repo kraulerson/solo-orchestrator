@@ -829,9 +829,14 @@ _bl099_sync_commitmsg_hook() {
   print_step "commit-msg TDD gate hook"
   lang="$(_bl099_resolve_language)"
   test_pattern="$(soif_lang_test_pattern "$lang")"
+  # BL-107-UNIVERSAL-INSTALL (sync axis): the hook is installed/refreshed for
+  # EVERY language — the old empty-pattern early-return replicated init.sh's
+  # BL-107 skip and left rust/`other` projects without the TDD + BL-006
+  # commit-msg gates on every tier. Inline Rust tests are recognized by the
+  # # BL-107-RUST-INLINE-TESTS content probe; `other` languages use the
+  # classifier's generic conventions.
   if [ -z "$test_pattern" ]; then
-    print_info "  language '${lang:-unknown}' has no distinct test-file convention (e.g. rust) — commit-msg TDD hook not applicable (matches the scaffold; no prompt, no install)."
-    return 0
+    print_info "  language '${lang:-unknown}' has no distinct test-file convention — installing the gate anyway (BL-107): generic conventions apply$([ "$lang" = "rust" ] && printf '%s' ", plus the inline #[test] content probe")."
   fi
   want="$(soif_tdd_region_body)"
   if [ -f "$hook" ] && grep -qF "$SOIF_TDD_OPEN" "$hook"; then
