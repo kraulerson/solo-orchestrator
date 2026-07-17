@@ -2240,7 +2240,7 @@ Filed per the gate-#4 decision batch. The Phase-3 `license` scanner shipped REAL
 **Logged:** 2026-07-10 (PR #169 adversarial verification)
 **Category:** Debt / latent hazard + documented-behavior caveat
 **Severity:** Low
-**Status:** Open
+**Status:** Open — item 1 (the latent framework-repo hard-block) fixed on PR #200 (`# BL-087-MOTHERSHIP-PASS` in `bl006_terminal_enforce`: graceful pass with a loud [note] receipt when cwd matches the guard's own framework signature; mutation-proven, verifier-assessed incl. the spoof surface — see `Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md` § WP-A3). Item 2 (`--amend` asymmetry) remains documented behavior, no change.
 
 Two follow-ups from the PR #169 verifier (BL-010 residual fix), both zero-impact today:
 
@@ -2952,7 +2952,7 @@ CI shares the blindness: `.github/workflows/ci.yml` uses `config: p/owasp-top-te
 **Logged:** 2026-07-13 (Dogfood 2 walk, finding F-DF2-006)
 **Category:** Bug / gate correctness + availability
 **Severity:** **High**
-**Status:** Open
+**Status:** Open — fix implemented on PR #200 (branch `fix/bl119-stale-editmsg`, stacked on PR #199), awaiting merge; mutation-proven (HEAD-revert→3-case RED→restore→GREEN; adversarial verifier verdict SHIP, incl. an empirical audit that the removed arm never had correct-message enforcement for any population). BL-087 item 1 and BL-133 fixed in the same PR. Evidence: `Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md` § WP-A3.
 
 `.git/hooks/pre-commit` → `.git/hooks/framework-gate.sh` (strict mode) calls `process-checklist.sh --check-commit-ready` and `pre-commit-gate.sh --terminal-mode`. In `--terminal-mode`, `pre-commit-gate.sh` reads the subject from `.git/COMMIT_EDITMSG` (see the `TERMINAL_MODE` block). **At `pre-commit` time git has not yet written the new message — `COMMIT_EDITMSG` still holds a PREVIOUS commit's subject.** The file's own comments admit `commit-msg` is the only hook point where it is current; `framework-gate.sh` calls the classifier from `pre-commit` anyway.
 
@@ -3198,3 +3198,18 @@ Reproduced during BL-118's adversarial verification: `git add app.ts` (containin
 **Fix shape:** scan index content: materialize staged blobs into a temp tree preserving relative paths/extensions (`git checkout-index --temp` or `git show :<path>`), run semgrep there, report findings against the real paths. Same BL-112-SAST-NOTRUN/receipt discipline. Check gitleaks parity while there (`gitleaks git --staged` already reads the index).
 
 **Related:** BL-112 (the arm's design); BL-118 (PR #199 — verifier proved the gap is orthogonal to the ruleset fix); `Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md` (WP-A1).
+
+---
+
+## BL-133: Plain `--terminal-mode` fed the STALE `COMMIT_EDITMSG` to `lint-backlog-references --pre-commit-mode` — the previous commit's message could block the current commit
+
+**Logged:** 2026-07-17 (BL-119 adversarial verification, PR #200)
+**Category:** Bug / gate correctness — BL-119's defect class, one more consumer
+**Severity:** Medium (narrow reach: the lint must be present project-locally — `init.sh` does not ship `lint-*.sh` downstream, so it bites framework-context repos and hand-copied setups)
+**Status:** Open — fixed on PR #200 alongside BL-119 (the feed is removed under the extended `# BL-119-NO-MSG-AT-PRECOMMIT` marker), awaiting merge; RED→GREEN + HEAD-revert mutation recorded in `Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md` § WP-A3.
+
+Verifier-reproduced: with a project-local `lint-backlog-references.sh` and a backlog containing only BL-001, write `docs: previous commit citing BL-9999` into `.git/COMMIT_EDITMSG` (the residue of a landed commit), stage an innocent file, `git commit -m "docs: innocent"` → **rc=1, "backlog-references lint failed"** — the PREVIOUS commit's message blocked the CURRENT commit. Same staleness mechanism as BL-119: pre-commit never sees the message being committed.
+
+**Fix (in PR #200):** the message feed is removed from the plain terminal path; the message-mode BR check survives on the PreToolUse surface, which parses the CURRENT message from the command. **Open design question (deliberately not decided unilaterally):** should the commit-msg surface (`--tdd-only`) grow a third arm running the BR message check with the current message? It would restore BR message coverage for editor/human-terminal commits, at the cost of widening a surface documented as exactly two gates. Decide when BL-107 (per-language commit-msg hooks) is implemented, since that changes the same surface.
+
+**Related:** BL-119 (PR #200, the defect class + fix); BL-010 (the commit-msg surface's contract); `scripts/lint-backlog-references.sh` (`--pre-commit-mode`).
