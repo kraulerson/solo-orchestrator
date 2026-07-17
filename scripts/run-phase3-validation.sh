@@ -1105,16 +1105,34 @@ _p3_scan_zap() {
     P3_STATUS="FAIL"; P3_NOTE="OWASP ZAP execution error (rc=$rc) — review $archive"
     return
   fi
-  local findings=0
-  if command -v jq >/dev/null 2>&1; then
-    findings=$(jq '[.site[]?.alerts[]?] | length' "$archive" 2>/dev/null || echo 0)
-    case "$findings" in ''|*[!0-9]*) findings=0 ;; esac
+  # BL-122-ZAP-RISK-FILTER — judge Medium+ (riskcode >= 2) alerts ONLY. The
+  # unfiltered count made this gate unpassable for every web app: ZAP rule
+  # 10049 (Storable/Cacheable Content, riskcode 0 = Informational) fires under
+  # EVERY possible Cache-Control value, so findings >= 1 always, and BL-113
+  # (correctly) refuses to attest past a FAIL (Dogfood-2 F-DF2-012). This
+  # mirrors the semgrep arm's --severity=ERROR philosophy: block real issues
+  # without drowning the operator in informational noise — lower-risk alerts
+  # remain visible in the archived report. riskcode is a STRING in ZAP JSON
+  # ("0".."3"); `// "0"` defaults a MISSING field to Informational, never to
+  # blocking. An UNPARSEABLE report is a FAIL, never a pass — a report nobody
+  # could read is not a clean scan (BL-112/BL-113 honesty class). jq may be
+  # assumed here: a jq-less host never reaches this block — the platform
+  # classification earlier in this function needs jq, and without it the arm
+  # takes the attestable SKIP path (verifier-confirmed on the pre-fix code
+  # too; there was never a jq-less silent pass). Baseline rc 1/2 alone no
+  # longer FAILs: those are ZAP's own WARN/FAIL thresholds over ALL alerts
+  # (informational included) — this risk filter IS the severity policy, and
+  # crashes (no report / rc >= 3) already FAILed above.
+  local findings
+  if ! findings=$(jq '[.site[]?.alerts[]? | select(((.riskcode // "0") | tonumber) >= 2)] | length' "$archive" 2>/dev/null); then
+    P3_STATUS="FAIL"; P3_NOTE="ZAP report unparseable by jq — refusing to guess; inspect $archive"
+    return
   fi
-  # Alerts found (rc 1/2) OR any non-zero baseline rc → FAIL; clean → PASS.
-  if [ "$findings" -gt 0 ] || [ "$rc" -ne 0 ]; then
-    P3_STATUS="FAIL"; P3_NOTE="$findings ZAP alert(s) (baseline rc=$rc) — review $archive"
+  case "$findings" in ''|*[!0-9]*) findings=0 ;; esac
+  if [ "$findings" -gt 0 ]; then
+    P3_STATUS="FAIL"; P3_NOTE="$findings Medium+ ZAP alert(s) (riskcode>=2; baseline rc=$rc) — review $archive"
   else
-    P3_STATUS="PASS"; P3_NOTE="0 ZAP alerts (baseline scan of $SOLO_ZAP_TARGET_URL)"
+    P3_STATUS="PASS"; P3_NOTE="0 Medium+ ZAP alerts (baseline rc=$rc; informational/low, if any, remain in $archive)"
   fi
 }
 
