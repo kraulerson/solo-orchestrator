@@ -634,6 +634,18 @@ else
   fail "tests/test-bl119-stale-editmsg.sh FAILED (run for details)"
 fi
 
+# BL-121 (Dogfood-2 F-DF2-011, High): the MVP-Cutline counter must count the
+# same 3 items on BSD and GNU text tools. The old GNU-only sed alternation made
+# the range run to EOF on macOS (68 vs 3) and hard-blocked the production 3→4
+# gate via the exit-2 WARN arm. Extracts and evaluates the LIVE assignment from
+# test-gate.sh against a trap-structured fixture manifesto. The cross-platform
+# tripwire for the class is lint-counter-antipattern's sed-alternation rule.
+if bash "$SCRIPT_DIR/tests/test-bl121-cutline-bsd-sed.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl121-cutline-bsd-sed.sh"
+else
+  fail "tests/test-bl121-cutline-bsd-sed.sh FAILED (run for details)"
+fi
+
 # BL-109 S3 (Currency System, Layer 2 — Staging / --plan). test-plan-staging.sh is
 # the lib-level unit test (run-folder shape, exclusive mkdir, verbs incl.
 # retire/rename linkage, checkbox grammar pin, base-sha, shallow-clone roll-up
