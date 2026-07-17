@@ -81,6 +81,7 @@ jobs:
             tests/test-bl103-eval-generator.sh
             tests/test-bl104-gate-scoring.sh
             tests/test-bl118-sast-dom-xss.sh
+            tests/test-bl119-stale-editmsg.sh
             tests/test-bypass-audit-integrity.sh
             tests/test-bypass-audit-lib.sh
             tests/test-bypass-audit-tmp-hardening.sh
@@ -125,6 +126,7 @@ jobs:
             tests/test-plan-staging.sh
             tests/test-pre-commit-gate-classifier.sh
             tests/test-pre-commit-gate-lints.sh
+            tests/test-pre-commit-gate-terminal-mode.sh
             tests/test-process-checklist-auto-advance.sh
             tests/test-process-checklist-check-commit-ready-subject.sh
             tests/test-process-checklist-classifier.sh

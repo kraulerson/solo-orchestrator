@@ -621,6 +621,19 @@ else
   fail "tests/test-bl118-sast-dom-xss.sh FAILED (run for details)"
 fi
 
+# BL-119 (Dogfood-2 F-DF2-006, High) + BL-087 fold-in: the strict terminal gate
+# must not classify a commit by the PREVIOUS commit's message (stale
+# .git/COMMIT_EDITMSG at pre-commit bricked the repo after any landed feat:
+# commit), and the commit-msg surface must pass GRACEFULLY inside the framework
+# repo itself instead of hard-refusing via guard_not_in_framework. Drives a REAL
+# `git commit` through the REAL framework-gate chain installed by
+# install-filesystem-gates.sh — no scaffold run, so ALSO in the unit fast lane.
+if bash "$SCRIPT_DIR/tests/test-bl119-stale-editmsg.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl119-stale-editmsg.sh"
+else
+  fail "tests/test-bl119-stale-editmsg.sh FAILED (run for details)"
+fi
+
 # BL-109 S3 (Currency System, Layer 2 — Staging / --plan). test-plan-staging.sh is
 # the lib-level unit test (run-folder shape, exclusive mkdir, verbs incl.
 # retire/rename linkage, checkbox grammar pin, base-sha, shallow-clone roll-up

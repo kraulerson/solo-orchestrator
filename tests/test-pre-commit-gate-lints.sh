@@ -232,14 +232,22 @@ else
   fail_ "T6a" "--terminal-mode did not surface counter-antipattern lint: $out"
 fi
 # Remove antipattern fixture and switch to an unknown BL.
+# T6b REWRITTEN (BL-119/BL-133): this case used to assert the OPPOSITE — that
+# --terminal-mode pipes the COMMIT_EDITMSG subject into the backlog-references
+# lint. At its only call site (framework-gate.sh at PRE-COMMIT) that file holds
+# a PREVIOUS commit's subject, so the pinned behavior was "the previous
+# commit's message can block the current commit" — BL-119's defect class
+# (adversarial-verifier repro, 2026-07-17). The message-mode BR check lives on
+# the PreToolUse surface (T3/T4 above), which parses the CURRENT message.
 rm "$PROJ/scripts/bad.sh"
 ( cd "$PROJ" && git reset HEAD -- scripts/bad.sh >/dev/null 2>&1 || true )
-echo "docs: typo (BL-999)" > "$PROJ/.git/COMMIT_EDITMSG"
-out=$( cd "$PROJ" && bash "$GATE" --terminal-mode 2>&1 >/dev/null || true )
-if echo "$out" | grep -qE 'backlog-references lint failed'; then
-  pass "T6b: --terminal-mode fires backlog-references lint"
+echo "docs: typo (BL-999)" > "$PROJ/.git/COMMIT_EDITMSG"   # stale previous subject
+rc=0
+out=$( cd "$PROJ" && bash "$GATE" --terminal-mode 2>&1 >/dev/null ) || rc=$?
+if [ "$rc" -eq 0 ] && ! echo "$out" | grep -qE 'backlog-references lint failed'; then
+  pass "T6b: --terminal-mode does NOT feed the stale COMMIT_EDITMSG to the backlog-references lint"
 else
-  fail_ "T6b" "--terminal-mode did not surface backlog-references lint: $out"
+  fail_ "T6b" "stale-message BR lint fired at pre-commit (rc=$rc): $out"
 fi
 teardown
 
