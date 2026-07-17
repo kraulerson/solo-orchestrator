@@ -37,6 +37,7 @@ jobs:
           config: >-
             p/owasp-top-ten
             p/security-audit
+            r/javascript.browser.security.insecure-document-method
 
       - name: Security - Secret detection (gitleaks)
         uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2 (v2.3.9)

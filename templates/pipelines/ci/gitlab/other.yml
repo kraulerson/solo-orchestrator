@@ -8,6 +8,10 @@ test:
   script:
     - echo "ERROR: Replace this with your test command (e.g., 'pytest', 'cargo test', etc.)"
     - exit 1  # intentional — CI should not pass until builder configures this
+sast:
+  stage: security
+  image: returntocorp/semgrep
+  script: [semgrep --config=p/security-audit --config=r/javascript.browser.security.insecure-document-method --error]
 secrets:
   stage: security
   image: zricethezav/gitleaks:latest
