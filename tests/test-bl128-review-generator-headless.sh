@@ -117,6 +117,7 @@ printf 'cio review\n'   > "$P2/cio-review-v1.md"
 printf 'legal review\n' > "$P2/legal-review-v1.md"
 out=$(run_runner "$P2" "$SD2" "" --assemble-manifest web-app 2 4); rc=$?
 nrev=$(jq -r '.reviews | length' "$P2/docs/eval-results/review-manifest.json" 2>/dev/null || echo 0)
+case "$nrev" in ''|*[!0-9]*) nrev=0 ;; esac
 if [ "$rc" -eq 0 ] && [ "$nrev" = "2" ] && [ ! -f "$SD2/claude-called" ] \
    && jq empty "$P2/docs/eval-results/review-manifest.json" 2>/dev/null; then
   pass "T-assemble-manifest"
@@ -144,6 +145,7 @@ P4="$TOPTMP/p4"; SD4="$TOPTMP/sd4"; mkdir -p "$SD4"; mk_proj "$P4"
 printf 'fail:Error: spend limit reached for this workspace\nwrite:legal-review-v1.md\n' > "$SD4/plan"
 out=$(run_runner "$P4" "$SD4" "" web-app 2 4); rc=$?
 nrev=$(jq -r '.reviews | length' "$P4/docs/eval-results/review-manifest.json" 2>/dev/null || echo 0)
+case "$nrev" in ''|*[!0-9]*) nrev=0 ;; esac
 if [ "$rc" -eq 0 ] && [ "$nrev" = "1" ] \
    && printf '%s' "$out" | grep -qiE "spend|usage" \
    && printf '%s' "$out" | grep -qi "legal"; then

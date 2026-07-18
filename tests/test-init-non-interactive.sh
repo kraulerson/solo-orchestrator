@@ -110,7 +110,7 @@ n7_personal_with_invalid_govmode() {
 # cannot drift apart silently again.
 n30_bl129_help_states_real_govmode_mapping() {
   local htxt
-  htxt=$("$INIT_SH" --help-non-interactive 2>&1 || true)
+  htxt=$("$INIT_SH" --help-non-interactive 2>&1 || true)  # lint-no-live-remote: allow help-only invocation prints usage and exits before any remote logic
   if printf '%s' "$htxt" | grep -q "NOT VALID when --deployment=personal"; then
     fail_ "N30" "--help-non-interactive still carries the FALSE claim 'NOT VALID when --deployment=personal' (BL-129: personal+private_poc is the only valid Private-POC pairing)"; return
   fi
