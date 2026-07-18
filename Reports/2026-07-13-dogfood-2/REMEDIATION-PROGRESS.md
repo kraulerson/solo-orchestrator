@@ -172,3 +172,14 @@
 - **Adversarial verify:** batched into the Phase-E/F consolidated verification (see final report) — the closure test's mechanical derivation + self-test + two-direction mutation is the strongest in-repo guard of the wave.
 
 - **Notes / residuals:** (1) `eval()` sinks remain invisible to the commit-time gate (neither pack carries an ERROR-severity eval rule); Phase-3 `--config auto` catches them. (2) gitlab templates run `p/security-audit` only vs github's two packs — pre-existing asymmetry, untouched. (3) The pinned `semgrep/semgrep-action@713efdd… (v1/v0.58.0)` is 2021-era; verifier traced it as pass-through-correct for `r/` configs, but modernizing the pin is worth a look. (4) `--config auto` at commit time NOT adopted (network + metrics on every commit; deterministic registry pack keeps the BL-112-SAST-NOTRUN discipline meaningful).
+
+---
+
+## WP-F3 — BL-130 (Low): `--attest` refuses a FAILing scanner — DONE-committed
+
+- **Branch:** `fix/phase-f-bl129-bl130-bl096` (stacked on PR #210). Groups the three small Phase-F items (F2/BL-129, F3/BL-130, F5/BL-096).
+- **Reproduce (RED, watched):** against the pre-fix driver (HEAD state, guard file-reverted), `T-attest-on-fail-refused` FAILED — `--attest semgrep-full-tree` with the newest summary saying `RESULT semgrep-full-tree FAIL` exited 0, printed `[OK] Attested skip … recorded`, and WROTE the attestation row into `phase3.attestations` (Dogfood-2 F-DF2-013 verbatim: an [OK]-recorded FAIL-masking row the driver would then refuse to honor).
+- **Fix:** `# BL-130-ATTEST-FAIL-GUARD-BEGIN/END` in `run-phase3-validation.sh`'s attest mode — after the reason check, `_p3_last_real_verdict "$ATTEST_SCANNER"` is consulted; `FAIL *` → refuse (exit 2) with a message citing BL-113's rule (a FAIL must be FIXED or RE-RUN, not attested — attestations cover scans that could not run) and naming the FAIL's origin summary. SKIP/none/PASS paths untouched.
+- **Tests:** `tests/test-bl130-attest-fail-guard.sh` **3/3** (BOTH lists; unit-lane eligible — no init.sh). T1 pins refusal + NO write + newest-summary-wins (older summary says PASS in-fixture); T2 pins the legitimate SKIP-attest path (rc=0, reason recorded); T3 in-suite fence-excision mutant — the guardless mutant RECORDS the FAIL-masking attestation (asserted POSITIVELY: rc=0 + [OK] + row present, so a crashed mutant cannot vacuously pass; driver verified self-contained, no scripts/lib siblings needed).
+- **Mutation:** the excision mutant IS the standing in-suite proof; the watched RED doubled as the whole-fix mutation (file-level revert → RED → restore → GREEN).
+- **Design note:** refusal (exit 2) chosen over loud-warn-and-record — the backlog offered both; recording a row the driver will never honor has no legitimate use, and the refusal message tells the operator exactly what to do instead. PASS-attest deliberately not blocked (pointless but harmless; not F-DF2-013's defect).

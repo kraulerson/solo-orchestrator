@@ -91,6 +91,7 @@ jobs:
             tests/test-bl116-push-gate-scope.sh
             tests/test-bl123-bp-attestation-recovery.sh
             tests/test-bl124-pending-ratchet.sh
+            tests/test-bl130-attest-fail-guard.sh
             tests/test-bypass-audit-integrity.sh
             tests/test-bypass-audit-lib.sh
             tests/test-bypass-audit-tmp-hardening.sh

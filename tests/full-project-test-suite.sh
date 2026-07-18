@@ -732,6 +732,17 @@ else
   fail "tests/test-bl124-pending-ratchet.sh FAILED (run for details)"
 fi
 
+# BL-130 (Dogfood-2 F-DF2-013, Low): --attest must REFUSE a scanner whose last
+# REAL verdict is FAIL — attestations cover scans that could not run, never
+# scans that ran and failed ([OK]-recorded a FAIL-masking row the driver would
+# then refuse to honor). In-suite fence-excision mutant. No init.sh -> both
+# lanes.
+if bash "$SCRIPT_DIR/tests/test-bl130-attest-fail-guard.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl130-attest-fail-guard.sh"
+else
+  fail "tests/test-bl130-attest-fail-guard.sh FAILED (run for details)"
+fi
+
 # BL-102 (Market Signal Step 1.1.5): Appendix D ships in the manifesto
 # template, and check-phase-gate WARNs (WARN-FIRST — deliberately NO issues
 # increment, pinned by exit-code parity on an issues=0 fixture) when a
