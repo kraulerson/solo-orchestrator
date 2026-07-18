@@ -93,6 +93,8 @@ jobs:
             tests/test-bl124-pending-ratchet.sh
             tests/test-bl130-attest-fail-guard.sh
             tests/test-bl096-cold-start.sh
+            tests/test-bl095-state-readers.sh
+            tests/test-bl128-review-generator-headless.sh
             tests/test-bypass-audit-integrity.sh
             tests/test-bypass-audit-lib.sh
             tests/test-bypass-audit-tmp-hardening.sh

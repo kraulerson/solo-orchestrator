@@ -526,8 +526,9 @@ load_project_context() {
   if [ -f "$phase_file" ] && command -v jq &>/dev/null; then
     PROJECT_NAME=$(jq -r '.project // empty' "$phase_file" 2>/dev/null)
     TRACK=$(jq -r '.track // empty' "$phase_file" 2>/dev/null)
-    DEPLOYMENT=$(jq -r '.deployment // empty' "$phase_file" 2>/dev/null)
-    POC_MODE=$(jq -r '.poc_mode // empty' "$phase_file" 2>/dev/null)
+    # BL-095: parse via the # BL-095-STATE-READERS fence (lib/helpers-core.sh).
+    DEPLOYMENT=$(soif_read_deployment "$phase_file")
+    POC_MODE=$(soif_read_poc_mode "$phase_file")
     [ "$POC_MODE" = "null" ] && POC_MODE=""
   fi
 

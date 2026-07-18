@@ -762,6 +762,30 @@ else
   fail "tests/test-bl096-cold-start.sh FAILED (run for details)"
 fi
 
+# BL-095 (ergonomics F4): ONE parsing surface for deployment/poc_mode
+# (# BL-095-STATE-READERS in lib/helpers-core.sh) — unit contract (null/
+# absent/missing-file/default/no-jq fallback), source-closure over the four
+# migrated files, and a fence-excision mutant that must CRASH check-phase-
+# gate (routing proof). Conforming-inline siblings (pre-commit-gate,
+# run-phase3-validation) documented at the fence. No init.sh -> both lanes.
+if bash "$SCRIPT_DIR/tests/test-bl095-state-readers.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl095-state-readers.sh"
+else
+  fail "tests/test-bl095-state-readers.sh FAILED (run for details)"
+fi
+
+# BL-128 (Dogfood-2 F-DF2-015): the review generator is headless-viable —
+# --compose-only / --assemble-manifest need no claude at all; live runs get a
+# per-review process-GROUP watchdog (REVIEW_TIMEOUT_SECS), actionable
+# trust/spend triage, continue-on-failure, and an incrementally-written
+# manifest. claude is a PATH stub throughout (plan-file driven). No init.sh
+# -> both lanes.
+if bash "$SCRIPT_DIR/tests/test-bl128-review-generator-headless.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl128-review-generator-headless.sh"
+else
+  fail "tests/test-bl128-review-generator-headless.sh FAILED (run for details)"
+fi
+
 # BL-102 (Market Signal Step 1.1.5): Appendix D ships in the manifesto
 # template, and check-phase-gate WARNs (WARN-FIRST — deliberately NO issues
 # increment, pinned by exit-code parity on an issues=0 fixture) when a
