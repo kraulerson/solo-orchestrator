@@ -321,6 +321,15 @@ Also: **PR #214 MERGED `528f5b2`** → BL-134 Closed.
 - **New findings, all filed:** **BL-137 (High)** — generated CI's governance job structurally unpassable (tools-needed arm blocks on dev-workstation tools no runner has); **BL-138 (Med)** — validate_approval_fields window-bleed (the one BL-115-class arm the remediation missed, plus any-bracket false positives on `[SIMULATED]`); **BL-139 (Med)** — framework-gate omits `--subject` → non-feat source commits blocked at Phase 2; **BL-140 (Med)** — zap-dast unretrievable under Colima (TMPDIR outside the virtiofs mount); F-DF3-003 (gitleaks flake) appended to BL-135's watch.
 - **Artifacts landed:** `Reports/2026-07-18-dogfood-3/{REPORT.md,LEDGER.md,FINDINGS.md}`.
 
+---
+
+## DOGFOOD-3 REMEDIATION — WP-BL137 (High): the CI-scoped tools gate — DONE-PR-open
+
+- **Branch:** `fix/bl137-ci-tools-gate` (off `main` @ `f64ae97`, post-#216).
+- **Reproduce (RED, watched):** T2 drove a fixture copy of check-phase-gate with a mini tool-matrix (one required tool, `check_command false`) under `CI=true` → the walk's verbatim `1 inconsistency(ies) found — blocking` (rc=1). T1/T3/T4 pre-passed, pinning the local block + both clean baselines.
+- **Fix:** `# BL-137-CI-TOOLS-SCOPE-BEGIN/END` — the `issues+1` at the tools arm now branches on `$CI`: CI → list stays printed + `[note] … binds on the dev workstation … NOT blocking here (BL-137)`; local → increment unchanged. Keyed strictly on `$CI`, never TTY (scripted local runs must keep blocking — the doctrine line is in the fence comment).
+- **Tests:** `tests/test-bl137-ci-tools-scope.sh` **5/5** (BOTH lists). Fixture reads ITS OWN templates/tool-matrix (check-phase-gate resolves PROJECT_ROOT from its location), so the resolver is fast + deterministic; `env -u CI` in the runner makes the local-block cases correct even when the suite itself runs under GitHub's CI=true. T5 = in-suite fence-excision mutant, positively asserted in BOTH directions (guardless mutant neither blocks locally nor notes in CI — the fence carries both arms).
+- **Blast radius (green, 9 suites):** bl104 · poc-block · backstop · bl124 · bl102 · bl116 · zdr-gate · bl073 · date-writeback. None carries tool-preferences.json (the arm requires it), so the arm is inert in their fixtures — verified by the sweep.
 ## DOGFOOD-3 REMEDIATION — WP-BL138 (Med): the approval-window bleed, third sibling — DONE-PR-open
 
 - **Branch:** `fix/bl138-approval-window` (off main, parallel to #217).
