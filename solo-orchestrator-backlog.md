@@ -3267,6 +3267,8 @@ The framework-generated CI workflow runs `check-phase-gate.sh`, whose "Tools nee
 
 **Fix shape:** in CI (`$CI` set), the tools-needed check becomes an informational note (the local dev machine is where the tools contract binds), OR the arm keys on which tools the CURRENT context can actually execute. Must keep the local-machine block intact — mutation-prove both directions.
 
+**Status update 2026-07-18:** fix implemented on branch `fix/bl137-ci-tools-gate` (PR open; Closed with PR + merge SHA at merge). `# BL-137-CI-TOOLS-SCOPE-BEGIN/END` at the increment site: `$CI` set → the missing-tools list still prints + an explicit `[note]` naming the scoping, NO increment; locally the block is byte-unchanged, keyed strictly on `$CI` (never TTY — scripted local runs keep blocking). `tests/test-bl137-ci-tools-scope.sh` 5/5 (both lists; mini tool-matrix fixture so the resolver is fast/deterministic — no BL-134-class full-matrix walk; `env -u CI` makes the local cases CI-portable): T2 RED watched reproducing the walk's verbatim `1 inconsistency(ies) found — blocking` under CI; T1/T4 pin the local block and clean baseline; in-suite fence-excision mutant proves the fence carries BOTH the CI note and the local increment. Blast radius: 9 gate-consumer suites green (none carries tool-preferences.json, so the arm is inert in their fixtures — verified by the sweep, not assumed). Evidence: ledger § DOGFOOD-3 REMEDIATION.
+
 **Related:** `Reports/2026-07-18-dogfood-3/` (F-DF3-002, repro = project CI run 29657490293); the `[WARN]`-trap doctrine (the arm is correctly blocking by increment — the defect is WHERE it blocks).
 
 ---
