@@ -309,3 +309,14 @@ Core finished INSIDE its 180-min window: **460 PASS / 5 FAIL**. All five triaged
 4./5. **TEST 5 + TEST 7** (full-project-test-suite) — the remembered 2026-07-12 pre-existing pair, now formally CI-surfaced. Filed **BL-136** (was "worth a backlog entry, NOT yet filed" — now filed).
 
 Also: **PR #214 MERGED `528f5b2`** → BL-134 Closed.
+
+---
+
+## DOGFOOD 3 — THE VALIDATION WALK (2026-07-18): 20/20 FIX-CHECKPOINTS HELD
+
+- **PR #215 MERGED `cab3268`** (core-shard triage) — with it, every full-lane failure fixed-or-filed; the walk launched against `main` @ `528f5b2`.
+- **The walk (fresh Fable-tier walker, one continuous agent, ~2h47m, 433 tool uses):** real private repo `kraulerson/project-dogfood-3` scaffolded by real init.sh → three-feature reader app built through the full Build Loop → corrected tier ladder (personal+private_poc/light → `--to-production --track full`) → real released, tagged **v1.0.0** with green release workflow. **Escape hatches: ZERO.** Framework repo byte-clean start AND end (proven, HEAD unchanged).
+- **THE CENTRAL QUESTION: YES — the ratchet holds.** POC blocked Phase 4 verbatim; promotion wrote the BL-124 PENDING markers into Appendices A/C/D; the gate FAILed on them until each was honestly resolved; Full track re-demanded the pen test (no exemption path) and flipped the review gate WARN→FAIL. Dogfood-2's F-DF2-014 hole is CLOSED. (Nuance recorded: BL-102 stays WARN-only and credits PENDING text as [OK] — the obligation is enforced via BL-124, not BL-102.)
+- **Fix-checkpoint scorecard: 20/20 HELD, zero REGRESSED, zero UNTESTABLE** — headline: the naive `innerHTML` commit was REFUSED BY GIT (the exact inverse of Dogfood-2's F-DF2-007); the real free-tier 403 recovered through `check-gate.sh --repair` end-to-end; `--attest` REFUSED a real threat-model FAIL; the headless review path produced a lint-valid manifest with no hang and no orphans; the BL-106 go-live checklist blocked until all six boxes were ticked and dated. Full table: `Reports/2026-07-18-dogfood-3/REPORT.md`.
+- **New findings, all filed:** **BL-137 (High)** — generated CI's governance job structurally unpassable (tools-needed arm blocks on dev-workstation tools no runner has); **BL-138 (Med)** — validate_approval_fields window-bleed (the one BL-115-class arm the remediation missed, plus any-bracket false positives on `[SIMULATED]`); **BL-139 (Med)** — framework-gate omits `--subject` → non-feat source commits blocked at Phase 2; **BL-140 (Med)** — zap-dast unretrievable under Colima (TMPDIR outside the virtiofs mount); F-DF3-003 (gitleaks flake) appended to BL-135's watch.
+- **Artifacts landed:** `Reports/2026-07-18-dogfood-3/{REPORT.md,LEDGER.md,FINDINGS.md}`.

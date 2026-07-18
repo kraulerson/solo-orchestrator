@@ -3239,6 +3239,8 @@ The core shard reported `[FAIL] tests/test-bl033-install-cmds-shape.sh` at 16:12
 
 **Related:** BL-134 (same run, diagnosed timing class); the full-lane runner's output-suppression pattern (worth `tee`-ing per sub-suite — this entry is the demand signal).
 
+**Observation 2026-07-18 (Dogfood 3, F-DF3-003):** the generated PROJECT's gitleaks CI step showed the same intermittent-flake shape (`ERR failed to scan Git repository error="stderr is not empty"` — failed on 3 commits, passed on others). Second data point for the CI-flake watch, different surface (project CI, not framework CI).
+
 ---
 
 ## BL-136: full-project-test-suite TEST 5 ("Phase gate script failed to run") and TEST 7 ("Dry-run missing resolver tool output") — pre-existing core-lane failures, on record since 2026-07-12
@@ -3251,6 +3253,66 @@ The core shard reported `[FAIL] tests/test-bl033-install-cmds-shape.sh` at 16:12
 Both reproduce in the core shard and predate the Dogfood-2 remediation (the 2026-07-12 local run hit the identical pair on then-main). Prior diagnosis notes: TEST 7's fixture under-feeds `prompt_choice` on the dry-run resolver path; TEST 5's phase-gate invocation fails in the suite's fixture context. Neither is covered by the unit lane. Fix shape: reproduce each in isolation, repair the FIXTURE if it models a stale world (the BL-134/zdr-gate pattern) or the product if the gate genuinely misbehaves; register nothing new (both live inside the aggregator).
 
 **Related:** BL-134 (the same run's other test-debt class); Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md § POST-RUN CI REPAIR (the fixture-era doctrine).
+
+---
+
+## BL-137: Generated CI's governance job is structurally unpassable — the phase-gate "Tools needed" arm blocks on dev-workstation tools no CI runner has
+
+**Logged:** 2026-07-18 (Dogfood 3, finding F-DF3-002)
+**Category:** Bug / gate credibility (generated-project CI)
+**Severity:** High
+**Status:** Open
+
+The framework-generated CI workflow runs `check-phase-gate.sh`, whose "Tools needed" arm (`issues=$((issues+1))`) blocks whenever Semgrep/Snyk CLI/Claude Code are absent from PATH — which is ALWAYS true on a CI runner (CI uses the semgrep-action container and never carries Snyk auth or the interactive Claude Code CLI). Dogfood 3's project repo: every CI job green EXCEPT `Governance - Phase gate check` = `Tools needed for Phase 1: Semgrep, Snyk CLI, Claude Code … 1 inconsistency(ies) found — blocking`, while the identical command exits 0 locally. The sibling auto-install prompt already hard-N's on `$CI` — the blocking arm needs the same environment awareness. There is NO honest in-project fix (the only workaround is the forbidden `SOIF_PHASE_GATES=warn`), so every generated project ships with a permanently red governance check — the documented-but-impossible class, which trains operators to ignore the governance lane entirely.
+
+**Fix shape:** in CI (`$CI` set), the tools-needed check becomes an informational note (the local dev machine is where the tools contract binds), OR the arm keys on which tools the CURRENT context can actually execute. Must keep the local-machine block intact — mutation-prove both directions.
+
+**Related:** `Reports/2026-07-18-dogfood-3/` (F-DF3-002, repro = project CI run 29657490293); the `[WARN]`-trap doctrine (the arm is correctly blocking by increment — the defect is WHERE it blocks).
+
+---
+
+## BL-138: validate_approval_fields' placeholder detector self-collides with the template — first gate unpassable while following the template's own conventions
+
+**Logged:** 2026-07-18 (Dogfood 3, finding F-DF3-001)
+**Category:** Bug / gate precision (window-bleed class)
+**Severity:** Medium
+**Status:** Open
+
+`check-phase-gate.sh::validate_approval_fields` uses `grep -A 20 "$gate_name"` + `grep -qiE "(Approver|Reviewer).*\[.*\]|YYYY-MM-DD"`. Two collisions, both hit in Dogfood 3 with a FULLY-FILLED gate entry: (1) writing the Approval-History row per the template's own convention makes the 20-line window bleed into the BL-105/115 UAT/Attorney PLACEHOLDER rows below; (2) any bracketed annotation in a filled cell (e.g. the dogfood-required `[SIMULATED]`) matches the placeholder regex. Result: `--start-phase1` refused with a diagnostic naming the wrong fix while name+date were correctly filled. This is the SAME window-bleed defect class the BL-115 fixes killed in `_cpg_gate_has_evidence` and `# BL-115-ATTORNEY-ENTRY` — this arm was missed.
+
+**Fix shape:** section-bound the window with the in-repo awk idiom (stop at next `## `), and tighten the placeholder predicate to template-literal placeholders (`\[Name\]`, `\[YYYY-MM-DD\]`-style), not any-bracket. Mutation-prove with a filled-entry-plus-history fixture and a `[SIMULATED]`-annotated cell.
+
+**Related:** BL-115 (the fixed siblings + the residual note that presaged this); `Reports/2026-07-18-dogfood-3/` (F-DF3-001 repro).
+
+---
+
+## BL-139: framework-gate.sh invokes --check-commit-ready without --subject — non-feat source commits blocked at Phase 2 on the terminal path
+
+**Logged:** 2026-07-18 (Dogfood 3, finding F-DF3-004)
+**Category:** Bug / gate precision (terminal-commit surface)
+**Severity:** Medium
+**Status:** Open
+
+`.git/hooks/framework-gate.sh` calls `process-checklist.sh --check-commit-ready` with NO `--subject`, so `check_commit_ready` cannot apply the documented `code-process-checklist-5` subject short-circuit and treats ANY staged source file as a feat commit. Dogfood 3 proof with identical staged `.ts`: no-subject → rc=1; `--subject "test(e2e): x"` → rc=0; a real `git commit -m "test(e2e): …"` at phase 2 aborted with `[FAIL] pre-commit gate: 'feat(...)' commit blocked`. The pre-commit surface cannot read the CURRENT message (the BL-119 lesson — git writes COMMIT_EDITMSG after pre-commit), so the fix is NOT "pass the message at pre-commit".
+
+**Fix shape:** decide deliberately: (a) move the feat-classification consult to the commit-msg surface (where the subject is current — the BL-119-consistent home), or (b) make the subject-less pre-commit invocation classify by STAGED CONTENT only with the feat-block downgraded to the commit-msg surface. Either way, `test:`/`chore:`/`refactor:` source commits must land while test-less feat commits stay blocked — both directions mutation-proven.
+
+**Related:** BL-119 (the surface doctrine); `code-process-checklist-5` (the defeated short-circuit); `Reports/2026-07-18-dogfood-3/` (F-DF3-004).
+
+---
+
+## BL-140: zap-dast unretrievable under Colima on macOS — report written in-container but never lands on the host (TMPDIR outside the virtiofs mount)
+
+**Logged:** 2026-07-18 (Dogfood 3, finding F-DF3-005)
+**Category:** Bug / scanner runtime portability
+**Severity:** Medium
+**Status:** Open
+
+`run-phase3-validation.sh`'s zap-dast leg mounts a `mktemp -d` work dir into the ZAP container. On macOS+Colima, `mktemp` lands in `$TMPDIR=/var/folders/...`, which Colima does NOT share (only `/Users/<user>` is virtiofs-mounted) — the container writes `/zap/wrk/zap-report.json` (verified, 24 KB) but the host dir stays empty, so the driver reports `OWASP ZAP produced no report (rc=2)` → FAIL on a verifiably clean app, and BL-130 then (correctly) refuses to attest the FAIL. No driver path to green on this common runtime. Dogfood 3's honest workaround (recorded, env-only): `TMPDIR=$HOME/.df3-tmp` → `[PASS] zap-dast — 0 Medium+`.
+
+**Fix shape:** place the ZAP work dir under `$HOME` (or the project tree) instead of `$TMPDIR`, or detect the docker context's mount capability and fail with a diagnostic NAMING the mount problem + the TMPDIR workaround. The FAIL-not-SKIP posture is correct (a scan that ran but is unreadable must not silently SKIP) — the fix is making the report readable, not softening the verdict.
+
+**Related:** BL-070 (the driver); BL-130 (whose refusal worked exactly as designed here); `Reports/2026-07-18-dogfood-3/` (F-DF3-005, incl. the root-cause mount analysis).
 
 ---
 
