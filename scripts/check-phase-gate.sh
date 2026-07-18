@@ -591,16 +591,33 @@ validate_approval_fields() {
   local gate_name="$1"  # e.g., "Phase 0.*Phase 1"
   local gate_label="$2" # e.g., "Phase 0→1"
 
-  # Find the gate section and check for populated approver/date fields
+  # Find the gate section and check for populated approver/date fields.
+  # BL-138 (Dogfood-3 F-DF3-001): the old `grep -A 20 "$gate_name"` window
+  # re-anchored on the `| **Gate** | Phase X → Y |` table ROW and bled past
+  # the section into the template's downstream UAT/Attorney PLACEHOLDER
+  # rows — the same window-bleed class killed in _cpg_gate_has_evidence
+  # (verifier SF#1) and # BL-115-ATTORNEY-ENTRY (E1b Claim-C); this was the
+  # missed arm. Window is now H2-HEADER-anchored, stops at the next `## `,
+  # and caps at +20 — table rows can neither anchor nor extend the scan.
+  # The section feeds the self-approval check below too, which equally must
+  # read THIS gate's rows only.
   local section
-  section=$(grep -A 20 "$gate_name" "$APPROVAL_LOG" 2>/dev/null || echo "")
+  section=$(awk -v h="^## .*${gate_name}" '$0 ~ h {f=1; next} f && /^## / {exit} f' "$APPROVAL_LOG" 2>/dev/null | head -20)
   [ -z "$section" ] && return 0  # No section = checked separately
 
-  # Check for template defaults that indicate unfilled fields
-  if echo "$section" | grep -qiE "(Approver|Reviewer).*\[.*\]|YYYY-MM-DD"; then
+  # BL-138-APPROVAL-WINDOW-BEGIN
+  # Placeholder predicate tightened to the TEMPLATE-LITERAL shapes the
+  # shipped approval-log templates actually carry — `[YYYY-MM-DD]` and
+  # `[Name`/`[Attorney`-style bracketed name placeholders. The old
+  # any-bracket arm (`(Approver|Reviewer).*\[.*\]`) flagged legitimate
+  # bracketed annotations (the dogfood-required `[SIMULATED]` tag), and the
+  # bare `YYYY-MM-DD` arm flagged date-FORMAT prose. A placeholder is what
+  # the template shipped, not any bracket an operator writes.
+  if echo "$section" | grep -qE '\[YYYY-MM-DD\]|\[Name|\[Attorney'; then
     echo -e "${YELLOW}[WARN]${NC} $gate_label: APPROVAL_LOG.md entry contains placeholder values — fill in approver name and date"
     issues=$((issues + 1))
   fi
+  # BL-138-APPROVAL-WINDOW-END
 
   # For organizational deployments: detect self-approval (P0-005).
   # code-check-gates-5 (audit v2, S3): the previous implementation

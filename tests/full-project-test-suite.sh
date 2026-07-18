@@ -786,6 +786,18 @@ else
   fail "tests/test-bl106-golive-checklist.sh FAILED (run for details)"
 fi
 
+# BL-138 (Dogfood-3 F-DF3-001): validate_approval_fields no longer
+# self-collides with the template — H2-anchored section-bounded window
+# (table rows can neither anchor nor extend the scan) + template-literal
+# placeholder predicate ([SIMULATED] and date-format prose are not
+# placeholders). Twin-fixture rc-parity isolation; in-suite fence-excision
+# mutant on a shape only the detector rejects. No init.sh -> both lanes.
+if bash "$SCRIPT_DIR/tests/test-bl138-approval-window.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl138-approval-window.sh"
+else
+  fail "tests/test-bl138-approval-window.sh FAILED (run for details)"
+fi
+
 # BL-128 (Dogfood-2 F-DF2-015): the review generator is headless-viable —
 # --compose-only / --assemble-manifest need no claude at all; live runs get a
 # per-review process-GROUP watchdog (REVIEW_TIMEOUT_SECS), actionable

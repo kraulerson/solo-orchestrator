@@ -3282,6 +3282,8 @@ The framework-generated CI workflow runs `check-phase-gate.sh`, whose "Tools nee
 
 **Fix shape:** section-bound the window with the in-repo awk idiom (stop at next `## `), and tighten the placeholder predicate to template-literal placeholders (`\[Name\]`, `\[YYYY-MM-DD\]`-style), not any-bracket. Mutation-prove with a filled-entry-plus-history fixture and a `[SIMULATED]`-annotated cell.
 
+**Status update 2026-07-18:** fix implemented on branch `fix/bl138-approval-window` (PR open; Closed with PR + merge SHA at merge). The window is H2-anchored (`^## ` + gate regex) and stops at the next `## ` with a +20 cap — table rows can neither anchor nor extend the scan (the `| **Gate** |` row was a second anchor, same bleed class as the two fixed siblings); the shared `$section` also feeds the self-approval check, which equally now reads only its own gate's rows. `# BL-138-APPROVAL-WINDOW` fences the tightened predicate: template literals only (`[YYYY-MM-DD]`, `[Name`, `[Attorney`) — `[SIMULATED]` and date-format prose are not placeholders. `tests/test-bl138-approval-window.sh` 5/5 (both lists): T1 = the walk's repro via twin-fixture rc-parity (RED watched rcA=1 vs rcB=0); T2/T3 pin true positives in-section; T4 pins the bare-prose false positive OUT; T5 fence-excision mutant on the [Name] shape (first T5 draft used a placeholder DATE and the BL-115 date-evidence arm correctly masked the mutant — recorded, fixture switched). self-approval + retroactive suites green on the bounded section. Evidence: ledger § DOGFOOD-3 REMEDIATION.
+
 **Related:** BL-115 (the fixed siblings + the residual note that presaged this); `Reports/2026-07-18-dogfood-3/` (F-DF3-001 repro).
 
 ---
