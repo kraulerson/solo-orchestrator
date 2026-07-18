@@ -89,20 +89,27 @@ build_poc_fixture() {
   local mode="$1"
   PROJ=$(mktemp -d)
   mkdir -p "$PROJ/.claude" "$PROJ/docs/test-results"
+  mkdir -p "$PROJ/docs/phase-0"
+  printf 'frd\n' > "$PROJ/docs/phase-0/frd.md"
+  printf 'journey\n' > "$PROJ/docs/phase-0/user-journey.md"
+  printf 'contract\n' > "$PROJ/docs/phase-0/data-contract.md"
 
   cat > "$PROJ/.claude/phase-state.json" <<JSON
 {"current_phase":3,"deployment":"personal","track":"light","poc_mode":"$mode","gates":{"phase_0_to_1":"2026-02-01","phase_1_to_2":"2026-03-01","phase_2_to_3":"2026-04-01"}}
 JSON
 
   cat > "$PROJ/.claude/process-state.json" <<'JSON'
-{"phase1_artifacts":{"data_classification":"public"}}
+{"phase1_artifacts":{"data_classification":"public"},"phase2_init":{"steps_completed":["remote_repo_created","pushed_initial"]}}
 JSON
 
   cat > "$PROJ/APPROVAL_LOG.md" <<'MD'
 # APPROVAL_LOG
 
 ## Phase Gate: Phase 0 → Phase 1
-Approved 2026-02-01 by Alice Approver
+| Field | Value |
+|---|---|
+| Approver | Alice Approver |
+| Date | 2026-02-01 |
 
 ## Phase Gate: Phase 1 → Phase 2
 Approved 2026-03-01 by Alice Approver

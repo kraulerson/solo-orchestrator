@@ -659,6 +659,17 @@ else
   fail "tests/test-bl121-cutline-bsd-sed.sh FAILED (run for details)"
 fi
 
+# BL-116 (Med): the MANDATORY push gate keys on recorded facts, not host brand
+# — first-class hosts are exempt only when remote_repo_created+pushed_initial
+# are on record ("provably pushed at init", on disk); --no-remote-creation
+# scaffolds now gate. Fence-excision mutant proves the scope change
+# load-bearing. No init.sh -> both lanes.
+if bash "$SCRIPT_DIR/tests/test-bl116-push-gate-scope.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl116-push-gate-scope.sh"
+else
+  fail "tests/test-bl116-push-gate-scope.sh FAILED (run for details)"
+fi
+
 # BL-123/BL-111/BL-126 (High/High/Med): the branch-protection attestation is
 # recordable post-hoc (check-gate.sh --repair --branch-protection-attested /
 # SOLO_BP_ATTESTED=1, host-keyed reason, explicit-only) and honored by ALL

@@ -2458,25 +2458,13 @@ create_and_protect_remote() {
 MANIFESTEOF
   fi
 
-  # BL-099: birth-stamp .claude/manifest.json.soloFrameworkCommit — the
-  # solo-orchestrator framework commit this project was scaffolded from. This
-  # is the pin scripts/upgrade-project.sh --sync-framework advances and reports
-  # drift against. camelCase and deliberately named to sit BESIDE — never be
-  # confused with — CDF's `frameworkCommit`, which pins the SEPARATE Development
-  # Guardrails clone. Stamped UNCONDITIONALLY after the manifest if/else (not
-  # inside either branch — the jq-merge branch is the common CDF-created path).
-  # Skipped with a note when the framework dir isn't a git checkout (e.g. a
-  # tarball install), leaving the field absent (sync treats absent as unpinned).
-  if git -C "$SCRIPT_DIR" rev-parse --git-dir >/dev/null 2>&1; then
-    _solo_fw_commit="$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null || echo "")"
-    if [ -n "$_solo_fw_commit" ]; then
-      jq --arg c "$_solo_fw_commit" '.soloFrameworkCommit = $c' .claude/manifest.json > .claude/manifest.json.tmp \
-        && mv .claude/manifest.json.tmp .claude/manifest.json
-    fi
-    unset _solo_fw_commit
-  else
-    print_info "solo-orchestrator framework dir is not a git checkout — skipping soloFrameworkCommit birth-stamp"
-  fi
+  # BL-099 / BL-110: the soloFrameworkCommit birth-stamp used to live HERE
+  # (remote path only) — which left every --no-remote-creation scaffold born
+  # with NO pin (BL-110: the anchor of the Currency System absent on the
+  # blessed hermetic flow). The stamp now lives at the UNIVERSAL manifest-seed
+  # site in prepare_initial_state_for_commit (# BL-110-PIN-UNIVERSAL), which
+  # runs on EVERY path before this function — by the time this branch
+  # executes, the pin is already present. Nothing to do here.
 
   # Trailing dedup pass. The named steps (remote_repo_created, pushed_initial,
   # branch_protection_configured, branch_protection_verified) are now written
@@ -4275,6 +4263,28 @@ prepare_initial_state_for_commit() {
   # remote-path-only (see the S1 PR body's declared deviation). Skipped as a
   # no-op when jq is unavailable (same contract as the soloFrameworkCommit stamp).
   # Re-stamping on sync/apply (soloFrameworkPath refresh) is S3a — out of scope.
+  # BL-110-PIN-UNIVERSAL — birth-stamp .claude/manifest.json.soloFrameworkCommit
+  # at the UNIVERSAL seed site (this function runs on EVERY path, including
+  # --no-remote-creation), fixing BL-110: the stamp's old home inside
+  # create_and_protect_remote() sat AFTER that function's --no-remote-creation
+  # early return, so every hermetic scaffold was born with NO pin — degrading
+  # the entire Currency System (BL-109) and --sync-framework drift reporting.
+  # Same contract as before: camelCase, sits BESIDE CDF's frameworkCommit;
+  # skipped with a note when the framework dir isn't a git checkout (sync
+  # treats absent as unpinned); idempotent (skip when already present).
+  if [ "$(jq -r '.soloFrameworkCommit // ""' "$manifest" 2>/dev/null)" = "" ]; then
+    if git -C "$SCRIPT_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+      _solo_fw_commit="$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null || echo "")"
+      if [ -n "$_solo_fw_commit" ]; then
+        jq --arg c "$_solo_fw_commit" '.soloFrameworkCommit = $c' "$manifest" > "$manifest.tmp" \
+          && mv "$manifest.tmp" "$manifest"
+      fi
+      unset _solo_fw_commit
+    else
+      print_info "solo-orchestrator framework dir is not a git checkout — skipping soloFrameworkCommit birth-stamp"
+    fi
+  fi
+
   soif_currency_stamp "$manifest" "$SCRIPT_DIR/init.sh" "$SCRIPT_DIR" "." "$LANGUAGE" "$SCRIPT_DIR"   # BL-109-CURRENCY load-bearing stamping call
 
   # Seed bypass-audit.json with the init enforcement_level_set row.
