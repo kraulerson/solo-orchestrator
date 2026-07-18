@@ -493,9 +493,18 @@ complete_step() {
       # a literal '## Attorney / Legal Review' header, so a bare
       # `grep -qi 'attorney|legal review'` was satisfied by the template's
       # own scaffolding with ZERO real entry (walk F16 — the gate satisfied
-      # itself). A real entry is a DATED table row under the section.
+      # itself). A real entry is a DATED table row under the section — and
+      # the window is SECTION-BOUNDED at the next `## ` header (E1b Claim-C):
+      # an unbounded `grep -A 15` anchored on the template's own
+      # `[Attorney / firm name]` placeholder row reached the NEIGHBOURING
+      # Penetration Test section's Date row, so a filled pen-test date
+      # satisfied the attorney gate while the attorney Date stayed a
+      # placeholder. Same defect class verifier SF#1 killed in
+      # _cpg_gate_has_evidence — awk from the H2 header (exclusive) to the
+      # next `## ` header or +15 lines, whichever first.
       if [ -f "APPROVAL_LOG.md" ] \
-         && grep -A 15 -i "attorney\|legal review" APPROVAL_LOG.md 2>/dev/null \
+         && awk 'tolower($0) ~ /^##[^#].*(attorney|legal review)/ {f=1; next} f && /^## / {exit} f' APPROVAL_LOG.md 2>/dev/null \
+            | head -15 \
             | grep -E '^\|' \
             | grep -qE '[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])'; then
         has_attorney_entry=true

@@ -224,6 +224,45 @@ else
   fail_ "T-attorney-real-entry-passes" "a REAL dated attorney row was rejected (rc=$rc): $(printf '%s' "$out" | tail -2 | tr '\n' ' ')"
 fi
 
+# ── BL-115 E1b Claim-C: a neighbouring section's date must not satisfy the ───
+# attorney gate. The personal template's own `[Attorney / firm name]`
+# placeholder is a SECOND grep anchor for `attorney`; its 15-line -A window
+# reaches the Penetration Test section's Date row, so filling in the pen-test
+# date (legitimate) while leaving the attorney Date a placeholder passed
+# legal_review — a cross-section bleed, the same defect class verifier SF#1
+# killed in _cpg_gate_has_evidence. The window must be SECTION-BOUNDED.
+echo "=== T-attorney-bleed-blocked ==="
+P="$TOPTMP/p-att3"
+mk_pc_proj "$P"
+printf 'policy\n' > "$P/PRIVACY_POLICY.md"
+cat > "$P/APPROVAL_LOG.md" <<'MD'
+# Approval Log
+
+## Attorney / Legal Review (if applicable)
+
+| Field | Value |
+|---|---|
+| **Reviewer** | [Attorney / firm name] |
+| **Date** | [YYYY-MM-DD] |
+| **Scope** | [Privacy Policy / ToS / other] |
+
+---
+
+## Penetration Test (if applicable)
+
+| Field | Value |
+|---|---|
+| **Tester** | Redwood Security LLC |
+| **Date** | 2026-07-12 |
+| **Report** | docs/test-results/2026-07-12_pen-test.md |
+MD
+out=$( cd "$P" && bash scripts/process-checklist.sh --complete-step phase3_validation:legal_review 2>&1 ); rc=$?
+if [ "$rc" -ne 0 ]; then
+  pass "T-attorney-bleed-blocked"
+else
+  fail_ "T-attorney-bleed-blocked" "legal_review completed with a PLACEHOLDER attorney Date — the pen-test section's date bled through the unbounded 15-line window (E1b Claim-C)"
+fi
+
 # ── BL-115 F16c: PII with NO privacy policy must FAIL, not skip ──────────────
 echo "=== T-legal-required-when-pii ==="
 P="$TOPTMP/p-pii"
