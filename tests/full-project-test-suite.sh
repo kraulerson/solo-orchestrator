@@ -17,6 +17,13 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEST_DIR=$(mktemp -d)
+
+# BL-096-CDF-PREFLIGHT (F9): report an absent ~/.claude-dev-framework AT
+# ENTRY with the exact clone line — previously a fresh host failed DEEP in
+# the scaffold tests with no hint. Warn-and-continue (`|| true`) is load-
+# bearing: the CI core shard runs CDF-less by design (init.sh auto-clones
+# over the network there), so absence must inform, never abort.
+bash "$SCRIPT_DIR/scripts/check-cdf-preflight.sh" || true
 PASS=0
 FAIL=0
 WARN=0
@@ -741,6 +748,18 @@ if bash "$SCRIPT_DIR/tests/test-bl130-attest-fail-guard.sh" >/dev/null 2>&1; the
   pass "tests/test-bl130-attest-fail-guard.sh"
 else
   fail "tests/test-bl130-attest-fail-guard.sh FAILED (run for details)"
+fi
+
+# BL-096 (ergonomics F6/F9/F10): cold-start hardening — the CDF preflight
+# names the exact clone line at suite ENTRY (warn-and-continue; CI runs
+# CDF-less), pre-commit-gate.sh --help tells the truth about --tdd-only
+# running BOTH message gates (+ the --commit-msg-gates honest-name alias,
+# behavior-pinned), and install-contributor-hooks.sh is CONTRIBUTING's
+# manual cp as one idempotent command. No init.sh -> both lanes.
+if bash "$SCRIPT_DIR/tests/test-bl096-cold-start.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl096-cold-start.sh"
+else
+  fail "tests/test-bl096-cold-start.sh FAILED (run for details)"
 fi
 
 # BL-102 (Market Signal Step 1.1.5): Appendix D ships in the manifesto

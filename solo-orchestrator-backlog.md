@@ -2414,6 +2414,8 @@ Three small onboarding traps the 2026-07-11 CLAUDE.md documents but does not fix
 
 **Related:** ergonomics audit F6/F9/F10; CLAUDE.md (PR #176 — documents these; this entry fixes them at source); CONTRIBUTING.md.
 
+**Status update 2026-07-17:** fix implemented on branch `fix/phase-f-bl129-bl130-bl096` (stacked on PR #210; PR number cited at close). F9: `scripts/check-cdf-preflight.sh` (init.sh's presence predicate; rc=1 + the exact clone line when absent) wired at `tests/full-project-test-suite.sh` ENTRY via `# BL-096-CDF-PREFLIGHT` — warn-and-continue (`|| true`) because the CI core shard runs CDF-less by design. F6: `pre-commit-gate.sh` gains a real `--help` (`# BL-096-GATE-HELP` — previously `--help` fell through to the stdin-JSON surface and exited 0 SILENTLY) stating that `--tdd-only` runs BOTH message gates (BL-072 + BL-006, name kept for hook back-compat), plus the adopted `--commit-msg-gates` honest-name alias (`# BL-096-COMMITMSG-ALIAS`, behavior-pinned to block identically). F10: `scripts/install-contributor-hooks.sh` (`# BL-096-CONTRIB-HOOK-INSTALL`; idempotent, refuses outside a framework checkout) + CONTRIBUTING.md now leads with the one-liner. `tests/test-bl096-cold-start.sh` 8/8 (both lists; RED watched 7/1 pre-fix; triple-mutation run killed each arm independently). Evidence: § WP-F5.
+
 ---
 
 ## BL-097: Subagent model-selection rubric — assess-and-select instead of inheriting the session model

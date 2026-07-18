@@ -369,10 +369,46 @@ TERMINAL_MODE=0
 # hooks already installed by init.sh: those keep working and pick up the added
 # BL-006 enforcement as soon as their scripts/pre-commit-gate.sh is refreshed.
 TDD_ONLY=0
+# BL-096-GATE-HELP (F6): a real --help surface. Before this, `--help` fell
+# through to the PreToolUse stdin-JSON path and exited 0 SILENTLY — the one
+# script whose flag names are load-bearing had no way to explain them. Help
+# must exit before any gate logic runs (hooks never pass --help).
+for arg in "$@"; do
+  if [ "$arg" = "--help" ] || [ "$arg" = "-h" ]; then
+    cat <<'GATEHELP'
+Usage: pre-commit-gate.sh [--terminal-mode] [--tdd-only | --commit-msg-gates]
+
+Surfaces:
+  (no flags)          PreToolUse hook mode: reads tool-input JSON on stdin,
+                      emits JSON verdicts on stdout. Not for manual use.
+  --terminal-mode     Git-hook/terminal mode: reads staged files from
+                      `git diff --cached`, prints diagnostics to stderr.
+                      Runs the message-INDEPENDENT pre-commit gates plus the
+                      process checklist and operator-side lints. Runs NO
+                      message-scoped gate (BL-119: a pre-commit hook sees a
+                      STALE .git/COMMIT_EDITMSG).
+  --tdd-only          With --terminal-mode: run ONLY the two MESSAGE-SCOPED
+                      commit-msg gates — the BL-072 tier-keyed TDD-ordering
+                      gate AND the BL-006 Build-Loop commit-message check
+                      (BL-010). Despite the name it is NOT TDD-only; the name
+                      is retained for back-compat with commit-msg hooks
+                      already installed by init.sh (BL-096).
+  --commit-msg-gates  Honest-name alias for --tdd-only (BL-096). Identical
+                      behavior; new hooks and humans should prefer this name.
+
+Exit codes: 0 = allow the commit, non-zero = block (the diagnostic names the
+gate that refused).
+GATEHELP
+    exit 0
+  fi
+done
 for arg in "$@"; do
   case "$arg" in
     --terminal-mode) TERMINAL_MODE=1 ;;
-    --tdd-only)      TDD_ONLY=1 ;;
+    # BL-096-COMMITMSG-ALIAS: --commit-msg-gates is the honest name for what
+    # this mode runs (BL-072 TDD ordering + BL-006 Build-Loop message check);
+    # --tdd-only is retained for hooks already installed by init.sh.
+    --tdd-only|--commit-msg-gates) TDD_ONLY=1 ;;
   esac
 done
 

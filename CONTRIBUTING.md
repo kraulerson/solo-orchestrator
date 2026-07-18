@@ -114,11 +114,11 @@ The framework lives in two repositories — both must be cloned for the test sui
    bash tests/host-drivers/run-all.sh
    ```
    Alternatively, run `bash init.sh` from a throwaway directory to exercise the full installer flow.
-4. Install the pre-commit gate locally (`init.sh` does this for user projects; contributors working on the framework itself must install it manually):
+4. Install the pre-commit gate locally (`init.sh` does this for user projects; contributors working on the framework itself install it with one command — BL-096):
    ```bash
-   cp scripts/pre-commit-gate.sh .git/hooks/pre-commit
-   chmod +x .git/hooks/pre-commit
+   bash scripts/install-contributor-hooks.sh
    ```
+   (Equivalent to `cp scripts/pre-commit-gate.sh .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit`; re-run any time to refresh the hook to the current gate script.)
 
 For deeper setup — MCP servers, profiles, CLAUDE.md authoring, host CLI installation — see `docs/cli-setup-addendum.md` and `docs/user-guide.md`.
 
