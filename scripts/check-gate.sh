@@ -47,6 +47,11 @@ Subcommands:
   --preflight       Dry-run: check current protection status without modifying anything.
                     Exits 0 if ready to cross Phase 1→2, non-zero if blocked.
   --repair          Re-run repo setup from last successful step (idempotent).
+                    With --branch-protection-attested (or SOLO_BP_ATTESTED=1):
+                    record the tier-limited branch-protection attestation
+                    post-hoc (host-keyed reason; explicit only — BL-123) so a
+                    project that met the free-tier 403 unattested can recover
+                    without destroy-and-recreate.
   --backfill-host   Infer host from git remote URL and write to manifest.
 
 Flags:
@@ -192,6 +197,68 @@ cmd_repair() {
       steps_json=$(jq -c '.phase2_init.steps_completed // []' .claude/process-state.json 2>/dev/null || echo "[]")
     fi
   }
+
+  # BL-123-BP-ATTEST-RECORD-BEGIN
+  # BL-123 / BL-111: an attestation-RECORDING path for --repair. The
+  # tier-limited attestation used to be writable ONLY inside init.sh's
+  # in-flight 403 fallback, so an unattested first contact with the 403 was
+  # unrecoverable: --repair re-hit the 403 and recommended a flag only
+  # init.sh accepted, and re-running init.sh died on "Name already exists"
+  # (Dogfood-2 F-DF2-002; BL-111 is the hermetic sibling). Accepting
+  # `--branch-protection-attested` (or SOLO_BP_ATTESTED=1) here records the
+  # SAME shape init.sh writes — attested_by/at/host-keyed reason plus the two
+  # bp step records — and the attested short-circuit below then fires before
+  # any host API call. EXPLICIT ONLY: never inferred, never defaulted;
+  # idempotent (skipped when an attestation already exists).
+  local _bp_want=0 _bp_arg
+  for _bp_arg in "$@"; do
+    case "$_bp_arg" in
+      --branch-protection-attested) _bp_want=1 ;;
+    esac
+  done
+  [ "${SOLO_BP_ATTESTED:-0}" = "1" ] && _bp_want=1
+  if [ "$_bp_want" -eq 1 ] && [ -f .claude/process-state.json ]; then
+    local _bp_existing_at _bp_existing_reason _bp_host _bp_reason
+    # Idempotency keys on the attestation's PRESENCE (.at), not on .reason —
+    # init.sh's 'other'-host attestation is reasonless, and a healthy attested
+    # project + the flag must be a no-op, never a refusal (verifier finding C).
+    _bp_existing_at=$(jq -r '.phase2_init.attestations.branch_protection.at // ""' \
+                        .claude/process-state.json 2>/dev/null || echo "")
+    _bp_existing_reason=$(jq -r '.phase2_init.attestations.branch_protection.reason // ""' \
+                            .claude/process-state.json 2>/dev/null || echo "")
+    if [ -n "$_bp_existing_at" ]; then
+      print_info "Repair: attestation already recorded (reason: ${_bp_existing_reason:-none — manual-host shape}) — --branch-protection-attested is a no-op."
+    elif ! _step_done "remote_repo_created" || ! _step_done "pushed_initial"; then
+      # Verifier finding A: the recorder must mirror the attested
+      # short-circuit's preconditions. init.sh's 403 fallback is only
+      # reachable AFTER create+push succeeded; recording without them would
+      # let 3 of 4 consumers honor a branch-protection attestation on a
+      # project with no pushed remote at all — a laundered gate.
+      print_fail "Post-hoc attestation preconditions unmet: remote_repo_created and pushed_initial must be on record first (the attestation covers the protection TIER, not the remote's existence). Run --repair without the flag to create/push, then re-run with it."
+      return 1
+    else
+      _bp_host=$(jq -r '.host // ""' .claude/manifest.json 2>/dev/null || echo "")
+      case "$_bp_host" in
+        github) _bp_reason="github_free_tier" ;;
+        gitlab) _bp_reason="gitlab_free_tier_approvals" ;;
+        *)
+          print_fail "Post-hoc branch-protection attestation is host-keyed (github/gitlab tier-limited plans); manifest host is '${_bp_host:-unset}'."
+          return 1 ;;
+      esac
+      # recorded_via: the provenance discriminator (verifier finding B) — an
+      # auditor must be able to tell a witnessed-at-403 init-time attestation
+      # from a post-hoc one recorded through this repair path.
+      jq --arg at "$(date -u +%FT%TZ)" --arg reason "$_bp_reason" \
+         '.phase2_init.attestations.branch_protection = {attested_by: "orchestrator", at: $at, reason: $reason, recorded_via: "check-gate-repair"}' \
+         .claude/process-state.json > .claude/process-state.json.tmp \
+         && mv .claude/process-state.json.tmp .claude/process-state.json
+      _record_phase2_step "branch_protection_configured"
+      _record_phase2_step "branch_protection_verified"
+      _refresh_steps_json
+      print_ok "Repair: branch-protection attestation RECORDED post-hoc (reason: $_bp_reason — upgrade the host plan to enable API enforcement; recorded_via: check-gate-repair). Explicit operator attestation; recorded to .claude/process-state.json."
+    fi
+  fi
+  # BL-123-BP-ATTEST-RECORD-END
 
   # Honor a recorded tier-limited attestation (spec category 6 / BL-002).
   # If the operator attested branch protection at init time, --repair has

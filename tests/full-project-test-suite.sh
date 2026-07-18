@@ -659,6 +659,17 @@ else
   fail "tests/test-bl121-cutline-bsd-sed.sh FAILED (run for details)"
 fi
 
+# BL-123/BL-111/BL-126 (High/High/Med): the branch-protection attestation is
+# recordable post-hoc (check-gate.sh --repair --branch-protection-attested /
+# SOLO_BP_ATTESTED=1, host-keyed reason, explicit-only) and honored by ALL
+# THREE consumers — verify_init consults it before any host API probe. In-test
+# fence-excision mutants prove both arms load-bearing. No init.sh -> both lanes.
+if bash "$SCRIPT_DIR/tests/test-bl123-bp-attestation-recovery.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl123-bp-attestation-recovery.sh"
+else
+  fail "tests/test-bl123-bp-attestation-recovery.sh FAILED (run for details)"
+fi
+
 # BL-124 (Dogfood-2 F-DF2-014, High — the central-question hole): the Phase 3→4
 # gate must FAIL while PRODUCT_MANIFESTO.md carries the PENDING promotion
 # marker upgrade-project.sh writes on track upgrade. Wire-pins the writer's and

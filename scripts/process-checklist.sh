@@ -617,10 +617,33 @@ verify_init() {
 
   # branch_protection_configured: REAL API verification via host dispatcher
   # (spec 2026-04-21 — replaces the previous "CI yaml exists" proxy check).
-  local host_dispatcher="$SCRIPT_DIR/lib/host.sh"
-  if [ -f "$host_dispatcher" ] && [ -f ".claude/manifest.json" ]; then
+  local bp_attest_reason="" bp_attested=0
+  # BL-126-ATTEST-CONSULT-BEGIN
+  # BL-126: consult the recorded tier-limited attestation BEFORE any host API
+  # probe — exactly as check-gate.sh --preflight and --repair, and the
+  # check-phase-gate.sh backstop, already do (the attestation IS the gate on
+  # tier-limited hosts). verify_init was the ONE consumer of three that
+  # ignored it, so --verify-init FAILed an honestly-attested free-tier
+  # scaffold (Dogfood-2 F-DF2-005). SYNC: keep the honored reason set aligned
+  # with check-gate.sh's short-circuits (github_free_tier,
+  # gitlab_free_tier_approvals); BL-095/WP-F4 is the future shared-helper
+  # home for this read. The fence is excision-safe: removing it leaves
+  # bp_attested=0 and the API chain below runs unchanged.
+  bp_attest_reason=$(jq -r '.phase2_init.attestations.branch_protection.reason // ""' "$PROCESS_STATE" 2>/dev/null || echo "")
+  if [ "$bp_attest_reason" = "github_free_tier" ] || [ "$bp_attest_reason" = "gitlab_free_tier_approvals" ]; then
+    if ! step_is_completed "phase2_init" "branch_protection_configured"; then
+      jq '.phase2_init.steps_completed += ["branch_protection_configured"]' "$PROCESS_STATE" > "$PROCESS_STATE.tmp" && mv "$PROCESS_STATE.tmp" "$PROCESS_STATE"
+      auto_marked=$((auto_marked + 1))
+    fi
+    print_ok "branch_protection_configured — attested (reason: $bp_attest_reason); API enforcement not available on this tier, the recorded attestation is the gate"
+    bp_attested=1
+  fi
+  # BL-126-ATTEST-CONSULT-END
+  if [ "$bp_attested" -eq 1 ]; then
+    :  # handled by the attestation consult above
+  elif [ -f "$SCRIPT_DIR/lib/host.sh" ] && [ -f ".claude/manifest.json" ]; then
     # shellcheck disable=SC1090
-    source "$host_dispatcher"
+    source "$SCRIPT_DIR/lib/host.sh"
     local mode
     mode=$(jq -r '.mode // "personal"' .claude/manifest.json 2>/dev/null || echo "personal")
     if host_load_driver 2>/dev/null && host_verify_protection "main" "$mode" 2>/dev/null; then
