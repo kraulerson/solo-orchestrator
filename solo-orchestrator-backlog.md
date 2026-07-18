@@ -2390,7 +2390,7 @@ Add a documentation-rules section to `docs/builders-guide.md` (and generate the 
 **Logged:** 2026-07-11 (ergonomics audit F4, grown by BL-086)
 **Category:** Debt / correctness + agent sync burden
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — shipped 2026-07-17 (PR #211, merged 2026-07-18 `27d4a78`). `# BL-095-STATE-READERS` in helpers-core.sh; 13 reader sites migrated; conforming-inline siblings named at the fence; E/F verifier ran a ten-shape equivalence matrix on both jq arms (no gate outcome can change) and its detector-hole finding is fixed in-suite. Evidence: § WP-F4 + § PHASE E/F CONSOLIDATED.
 
 **Measured (2026-07-11):** nine files read `poc_mode`/`deployment` from state (check-phase-gate.sh — three DIFFERENT extraction variants, per audit; intake-wizard.sh; reconfigure-project.sh; run-phase3-validation.sh — BL-086 added another; pre-commit-gate.sh; process-checklist.sh; upgrade-project.sh; init.sh; verify-install.sh), while `scripts/lib/enforcement-level.sh` sits mostly unsourced. The duplicated parsing already caused the BL-084 null/production mishandling class, and every new gate re-derives it (BL-086 just did). Agents changing tier logic must locate and sync N inconsistent copies.
 
@@ -2407,7 +2407,7 @@ Add a documentation-rules section to `docs/builders-guide.md` (and generate the 
 **Logged:** 2026-07-11 (ergonomics audit F6/F9/F10 leftovers)
 **Category:** Debt / agent + contributor onboarding
 **Severity:** Low
-**Status:** Open
+**Status:** Closed — shipped 2026-07-17 (PR #211, merged 2026-07-18 `27d4a78`). `check-cdf-preflight.sh` (warn-and-continue at suite entry), `# BL-096-GATE-HELP` + `--commit-msg-gates` alias (behavior-pinned), `install-contributor-hooks.sh`; triple-arm mutation run killed each guard independently. Evidence: § WP-F5.
 
 Three small onboarding traps the 2026-07-11 CLAUDE.md documents but does not fix at the point of failure:
 1. **CDF preflight (F9):** tests/init.sh needing `~/.claude-dev-framework` fail deep in the suite on a fresh host; a preflight prints the exact `git clone` line at the point of failure instead.
@@ -2541,7 +2541,7 @@ BL-097's model-selection rubric says WHO can build cheaply; this entry supplies 
 **Logged:** 2026-07-11 (surfaced while mining github.com/TexasBedouin/vibe-check — MIT © 2025 Amer Arab; adopted as IDEA, not vendored)
 **Category:** Bug / gate credibility — documented-but-not-enforced (the framework's cardinal defect class)
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — shipped 2026-07-17 (PR #204, merged 2026-07-18 `a5f2a09`). Appendix D (Market Signal & Go/No-Go) in the manifesto template + `# BL-102-MARKET-SIGNAL` WARN-first evidence arm (anchored placeholder regex, track≠light); parity pinned on the empirically-clean issues=0 fixture. Evidence: § WP-B3.
 
 **Status update 2026-07-17:** pieces 1–3 implemented on PR #204 (branch `fix/bl124-bl102-promotion-ratchet`), awaiting merge. Piece 1: `templates/generated/product-manifesto.tmpl` ships Appendix D (signal table, `seen it`/`hunch`/`guess` tags, fail-closed verification protocol + counts, Go/No-Go record, Light-track SKIPPED line). Piece 2: builders-guide Step 1.1 gains its missing prompt block; Step 1.1.5 gains the evidence grammar + source-agnostic verification protocol. Piece 3: `# BL-102-MARKET-SIGNAL` in check-phase-gate.sh — Phase 1→2 WARN-first (deliberately NO `issues` increment, per the entry's grandfather discipline; escalate later) on missing/placeholder Appendix D for track≠light. The non-blocking property is pinned by EXIT-CODE PARITY on an issues=0 fixture and its mutation case proves an injected increment breaks the parity (the BL-104 [WARN]-trap inverse, guarded both ways for the first time). Adversarial verifier (Opus) SHIP; its placeholder-regex over-match finding fixed pre-push (pattern anchored to the template's `[customer interview /` syntax; link labels no longer trip it). Evidence: `Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md` § WP-B3.
 
@@ -2659,7 +2659,7 @@ fi                                                                       # 0 →
 **Logged:** 2026-07-11 (eval-prompt hollow-gate audit)
 **Category:** Debt / gate credibility (documented-but-not-enforced, the framework's cardinal class)
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — shipped 2026-07-17 (PR #209, merged 2026-07-18 `6a21f99`). Phase 4 has a real gate: `# BL-105-START4-GATE-CONSULT` + `# BL-105-PHASE4-GATE` (presence keyed on started_at + the FILE's real phase — no circularity), three substantive-evidence arms, both approval-log templates gain UAT sign-off + attorney/pen-test slots; T6 of the upgrade suite rewritten to the gate-keyed door (documented-bug exception). Residuals recorded in § WP-E1b (competency depth, pass-path golden fixture, gate-side UAT reader). Evidence: § WP-E1b.
 
 **Status update 2026-07-17:** fix implemented on PR #209 (branch `fix/bl105-phase4-wave`), awaiting merge. `# BL-105-START4-GATE-CONSULT` (start-phase4 consults the 3→4 gate; refusal leaves state untouched) · `# BL-105-PHASE4-GATE` (a never-started checklist — `started_at` null — blocks at phase≥4) · substantive-evidence arms for rollback/monitoring/go-live (empty file / the word "monitoring" / bare RELEASE_NOTES existence all now REJECTED, with real-evidence pass cases pinned) · UAT Sign-off sections added to BOTH approval-log templates + Attorney/Pen-Test added to the personal one · artifact-map mis-map fixed + `handoff_tested` (D-6) documented · Competency Matrix WARN-first visible in the 0→1 gate. `docs/eval-results/` sub-item was already closed by BL-103. Residuals recorded: validate.sh competency depth (reads PROJECT_INTAKE, 4/9 domains); pass-path `--start-phase4` advance mechanics pending a golden 3→4 fixture; UAT sign-off gate-side check (the section now exists — a reader arm is future work). 11/11 suite incl. double-fence mutation. Evidence: `Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md` § WP-E1b.
 
@@ -2687,6 +2687,8 @@ The audit's hollow set beyond BL-102/103/104. Each is declared **MUST**/**DECISI
 **Severity:** Low
 **Status:** Closed — shipped 2026-07-18 (PR #213, merged `ab62028`). Karl chose MACHINE-CHECKABLE: `# BL-106-GOLIVE-CHECKLIST` (process-checklist.sh go_live_verified — every shipped-module Go-Live item must be TICKED in a dated docs/test-results/*go-live-checklist* artifact, zero unticked boxes, fail-closed naming items; standalone platforms exempt with a note) + `# BL-106-GOLIVE-TEMPLATE` (init.sh renders the artifact at scaffold birth). Grammar verified across all four modules incl. desktop's variant header. tests/test-bl106-golive-checklist.sh 8/8 (both lists; in-suite fence-excision mutant) + T-scaffold-golive-template in the real-init suite (9/9; generator mutation proven both directions). Guide Step 4.2 documents the enforcement. Evidence: ledger § POLICY DECISIONS IMPLEMENTED.
 
+**Decision 2026-07-18 (Karl): machine-checkable. IMPLEMENTED on `feat/bl106-golive-gate` (PR pending; Closed at merge):** `# BL-106-GOLIVE-CHECKLIST` in process-checklist.sh + `# BL-106-GOLIVE-TEMPLATE` in init.sh; `tests/test-bl106-golive-checklist.sh` 8/8 (both lists; RED watched 2/6 — six cases showed the hollow gate verbatim; in-suite fence-excision mutant) + real-init case `T-scaffold-golive-template` (init-side mutation proven both directions: generator present → 6-item artifact; excised → absent). Design: the shipped platform module's Go-Live section (H3 header matching `Go-Live`, top-level `- [ ]` items — all four modules parse under this grammar) becomes the single source; init.sh renders it into `docs/test-results/go-live-checklist.md` at scaffold time; the `phase4_release:go_live_verified` arm verifies every module item is ticked in a dated artifact (fail-closed naming missing/unticked items; standalone platforms with no module checklist are exempt with a loud note).
+
 **Status update 2026-07-17 — STOPPED, flagged for Karl:** this entry explicitly demands a deliberate choice ("decide deliberately whether platform checklists become machine-checkable … or the MANDATORY language is downgraded to match reality. Do NOT leave the current mismatch."). That is a product decision, not a mechanical fix — building a checklist parser for 4 platform modules is real feature work; downgrading the language changes the framework's promises. Left Open with both options on the table; see the remediation final report.
 
 `docs/builders-guide.md` Step 4.2 marks the platform-module go-live checklist **"PLATFORM MODULE — MANDATORY"**, and the modules carry substantial checklists (`docs/platform-modules/mobile.md` alone: ~38 MUST/MANDATORY hits; desktop ~19; web ~7; mcp_server ~2). **No script parses `docs/platform-modules/*`** — the checklists are prose only.
@@ -2702,7 +2704,7 @@ The audit's hollow set beyond BL-102/103/104. Each is declared **MUST**/**DECISI
 **Logged:** 2026-07-12 (E2E-walk checklist derivation, PR #188)
 **Category:** Bug / gate integrity — documented-but-not-enforced, on a whole-language axis
 **Severity:** **High** (the flagship TDD hard block does not exist for two language selections, on tiers where the docs promise it cannot be bypassed)
-**Status:** Open
+**Status:** Closed — shipped 2026-07-17 (PR #205, merged 2026-07-18 `24fa571`). `# BL-107-UNIVERSAL-INSTALL` (every language gets the commit-msg hook) + `# BL-107-RUST-INLINE-TESTS` (attribute family incl. rstest/proptest/wasm_bindgen, staged+branch axes, `--no-ext-diff`); currency/freshness read "present" universally, legacy-absent emits an enforcement-tier finding. Evidence: § WP-C1.
 
 **Status update 2026-07-17:** fix implemented on PR #205 (branch `fix/bl107-tdd-all-languages`), awaiting merge. `# BL-107-UNIVERSAL-INSTALL`: init.sh, the sync path, and the Currency hook-state predicate all install/expect the commit-msg gate for EVERY language; `# BL-107-RUST-INLINE-TESTS` in `_tdd_triggers`: staged- and branch-diff content probes count added `#[test]`/`#[cfg(test)]`/runtime-family (`::test]`)/harness-macro attributes as test evidence (`--no-ext-diff` load-bearing against external diff viewers). Freshness now surfaces legacy `absent-intentional` manifests at the enforcement tier (post-BL-107 nothing writes that value — zero false positives). Two-sided mutation matrix proven: full revert → hermetic false-block returns AND real rust/other scaffolds get no hook (test-less commits would land) → restore → green. Adversarial verifier (Fable) verdict SHIP; its three should-fixes (attribute-family regex, --no-ext-diff, freshness legacy silence) all landed in the same commit with their own RED→GREEN. Known guardrail-class residual (verifier note 4, accepted): the probe accepts any matching added line in any staged .rs (comments/strings) as evidence — strictly better than the pre-fix no-gate state, adversary-equivalent to stubbing a test file. Evidence: `Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md` § WP-C1.
 
@@ -2730,7 +2732,7 @@ For Rust the skip is *deliberate* (inline `#[cfg(test)]` tests cannot be detecte
 **Logged:** 2026-07-12 (E2E-walk checklist derivation, PR #188)
 **Category:** Bug / scaffold completeness — the BL-088 class, in template form
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — shipped 2026-07-17 (PR #210, merged 2026-07-18 `e927faa`). init.sh ships the 5 gate-demanded templates; the durable class fix is the MECHANICAL closure test (shipped-set from init cp lines vs referenced-set from non-comment script text + guide, self-tested extractor, count-floor vacuity guards per the E/F verifier). Evidence: § WP-E2.
 
 **Status update 2026-07-17:** fix implemented on PR #210 (branch `fix/bl108-bl117-ship-closure`), awaiting merge. The five gate-demanded templates now ship (security-audit-findings, security, threat-model-validation, rollback-test, handoff-test-results); the durable class fix is the MECHANICAL closure in `tests/test-bl108-bl117-ship-closure.sh` — the shipped set (init.sh cp lines) and the referenced set (non-comment script text + the guide) are both derived, so drift is impossible; the extractor's bite is self-tested and an init-revert mutation goes RED on exactly the shipped items. Evidence: `Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md` § WP-E2.
 
@@ -2771,7 +2773,7 @@ For Rust the skip is *deliberate* (inline `#[cfg(test)]` tests cannot be detecte
 **Logged:** 2026-07-12 (ground-truth conflict surfaced by the BL-109 S1 implementation agent — PR #191 declared deviation 1; independently verified in the main session)
 **Category:** Bug / pin contract (BL-099 SLICE-A follow-up)
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — shipped 2026-07-17 (PR #207, merged 2026-07-18 `12923b3`). `# BL-110-PIN-UNIVERSAL`: soloFrameworkCommit stamped in prepare_initial_state_for_commit — the hermetic path carries the pin too; T-scaffold-pin-stamped pins it on a real init. Evidence: § WP-D2.
 
 **Status update 2026-07-17:** fix implemented on PR #207 (branch `fix/bl110-bl116-noremote-blindspot`), awaiting merge. `# BL-110-PIN-UNIVERSAL`: the stamp moved to the universal manifest-seed site in `prepare_initial_state_for_commit` (idempotent; remote-path duplicate removed with a pointer comment). Fidelity: `T-scaffold-pin-stamped` in the scaffold suite asserts pin == framework HEAD on a REAL `--no-remote-creation` init (8/8). Mutation observed both directions: HEAD-reverted init scaffolds with the pin ABSENT; fixed init stamps it. Evidence: `Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md` § WP-D2.
 
@@ -2790,7 +2792,7 @@ For Rust the skip is *deliberate* (inline `#[cfg(test)]` tests cannot be detecte
 **Logged:** 2026-07-12 (E2E validation walk, finding F5 — the walk's SOLE hard FAIL; independently reproduced by the adversarial re-walker, 0 overturned)
 **Category:** Bug / gate integrity — unsatisfiable gate
 **Severity:** **High**
-**Status:** Open — the shared-lever fix (an attestation-recording path in check-gate.sh) shipped on PR #206 with BL-123; see BL-123's dated status update for the proof chain. This entry stays open pending merge + a hermetic-flow-specific verification pass.
+**Status:** Closed — shipped 2026-07-17 (PR #206, merged 2026-07-18 `7fa9753`). The shared-lever fix (BL-123's recording path) + `# BL-126-ATTEST-CONSULT`: verify_init consults the recorded attestation before any host API probe — the hermetic-flow consumer this entry demanded, proven load-bearing by the in-suite fence-excision mutants (the verification pass this entry's open-condition named). Evidence: § WP-D1.
 
 **Evidence (`Reports/2026-07-12-e2e-walk/RESULTS.md`, item P1-013):** for a `github` + `organizational` + `--no-remote-creation` project — the framework's own blessed hermetic on-ramp, used by every UAT/CI/agent run — the Phase 1→2 gate emits `[FAIL] Phase 1→2 backstop: protection verification failed` with `issues++`. Cause chain: `scripts/lib/host.sh` AND `manifest.json` both exist, so `host_load_driver` succeeds and `host_verify_protection main org` runs → `_github_parse_origin` rejects the local bare-repo origin (`not a GitHub URL`) → return 1 → FAIL. **The documented remediation also fails** (`scripts/check-gate.sh --preflight` → same parse error, rc=1). And **there is no product path to record the exemption**: un-truncated `grep -rn 'attestations.branch_protection *=' scripts/` → **0 writers**; only `init.sh` writes `github_free_tier`, and only behind a real host-API 403 that `--no-remote-creation` never reaches; `reconfigure-project.sh` covers `zdr_*` but has no branch-protection field.
 
@@ -2871,7 +2873,7 @@ For Rust the skip is *deliberate* (inline `#[cfg(test)]` tests cannot be detecte
 **Logged:** 2026-07-12 (E2E validation walk, findings F1 + F2 + F3)
 **Category:** Bug / gate correctness
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — shipped 2026-07-17 (PR #208, merged 2026-07-18 `31319fe`). `# BL-114-F2-ERREXIT-GUARD` (placeholder sections no longer abort the gate before its own diagnostic), `# BL-114-F1-INTERMEDIATES` (real blocking arm incl. absent-dir), `# BL-114-START1-GATE-CONSULT` (+ --help truth). Evidence: § WP-E1a.
 
 **Status update 2026-07-17:** fix implemented on PR #208 (branch `fix/bl114-bl115-bl127-gate-integrity`), awaiting merge. F2: `# BL-114-F2-ERREXIT-GUARD` — the placeholder WARN now prints (the empty grep-v pipeline no longer aborts the gate under pipefail). F1: `# BL-114-F1-INTERMEDIATES` — code matches docs: any missing Step-0 intermediate (or the absent directory, previously SILENT) blocks, labeled [FAIL] so verdict and label agree. F3/F-DF2-003: `# BL-114-START1-GATE-CONSULT` (excision-safe fence) — `--start-phase1` consults `--gate phase_0_to_1` before any state change and refuses on a failing gate; documented in `--help`. All RED-observed pre-fix; HEAD-revert reproduces the 9-failure RED. Evidence: `Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md` § WP-E1a.
 
@@ -2894,7 +2896,7 @@ Three defects in the same gate, all walk-reproduced:
 **Logged:** 2026-07-12 (E2E validation walk, findings F6 + F16)
 **Category:** Bug / approval-evidence integrity
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — shipped 2026-07-17 (PR #208, merged 2026-07-18 `31319fe`; attorney window section-bounded in the `3fee6d3` follow-up, merged via PR #210 `e927faa`). `# BL-115-DATE-CELL` (Date-ROW, section-bounded), `# BL-115-ATTORNEY-ENTRY` (H2-anchored, section-bounded), `# BL-115-PII-REQUIRED` (fail-closed when PII + no policy). Residuals recorded: approver-ROLE verification (CM-H-08); any-row date within the bounded attorney section. Evidence: § WP-E1a + § WP-E1b verdict block.
 
 **Status update 2026-07-17:** fix implemented on PR #208, awaiting merge. F6: `# BL-115-DATE-CELL` in `_cpg_gate_has_evidence` — the date must sit in the approval's Date ROW (both `| Date |` and `| **Date** |` shapes); a blank cell is no longer masked by a stray date in the window. F16: `# BL-115-ATTORNEY-ENTRY` — a real entry is a DATED table row under the section (the template's own header no longer satisfies); `# BL-115-PII-REQUIRED` — non-public `data_classification` with no privacy policy FAILS the step (required-when-PII, never skipped-when-absent). Role verification (CM-H-08) not addressed here — recorded as residual. Evidence: § WP-E1a.
 
@@ -2915,7 +2917,7 @@ Three defects in the same gate, all walk-reproduced:
 **Logged:** 2026-07-12 (E2E validation walk, finding F7)
 **Category:** Bug / gate scope
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — shipped 2026-07-17 (PR #207, merged 2026-07-18 `12923b3`). `# BL-116-PUSH-GATE-SCOPE`: the push-gate exemption requires recorded remote_repo_created + pushed_initial; the two pass-path fixture suites that predated the arm were modernized in `a52506a` (post-run CI repair). Evidence: § WP-D2 + § POST-RUN CI REPAIR.
 
 **Status update 2026-07-17:** fix implemented on PR #207 alongside BL-110, awaiting merge. `# BL-116-PUSH-GATE-SCOPE` (excision-safe fence) in check-phase-gate.sh: the first-class exemption is EARNED — skipped only when `remote_repo_created`+`pushed_initial` are on record (the on-disk meaning of "provably pushed at init"); host=other keeps unconditional gating. `tests/test-bl116-push-gate-scope.sh` 4/4 incl. the fence-excision mutant; the github no-remote RED was observed (0 push-gate lines pre-fix). Evidence: § WP-D2.
 
@@ -2932,7 +2934,7 @@ The BL-084 push-verification gate — documented as **MANDATORY and non-bypassab
 **Logged:** 2026-07-12 (E2E validation walk, findings F19 + F20)
 **Category:** Bug / scaffold closure (the [[bl088-scaffold-source-closure]] class)
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — shipped 2026-07-17 (PR #210, merged 2026-07-18 `e927faa`). The 4 guide-named tools ship (mechanical closure enforced) and `# BL-117-BUILD-SMOKE` demands a dated started-and-responded record for production_build (glob-loop resolver — the two-glob `ls ||` fallback was empirically shown to wipe found matches under pipefail). Evidence: § WP-E2.
 
 **Status update 2026-07-17:** fix implemented on PR #210 alongside BL-108, awaiting merge. F20: `check-maintenance.sh` + the three guide-named lints now ship (activating pre-commit-gate's documented project-local lint path); the guide-tools closure keeps the class shut. F19: `# BL-117-BUILD-SMOKE` — production_build requires a dated smoke record that the BUILT artifact was STARTED and responded (deviation from "actually start it" recorded: a bash checklist cannot own every stack's runtime contract; the recorded evidence of a real start is the enforceable unit, consistent with the rollback/monitoring bars). Fence-excision mutation in-suite. Evidence: § WP-E2.
 
@@ -3046,7 +3048,7 @@ sed -n '/Must-Have/,/Should-Have/p' PRODUCT_MANIFESTO.md | grep -cE '^\s*-\s*\*\
 **Logged:** 2026-07-13 (Dogfood 2 walk, finding F-DF2-012)
 **Category:** Bug / gate correctness (false-positive that blocks release)
 **Severity:** **High**
-**Status:** Open
+**Status:** Closed — shipped 2026-07-17 (PR #203, merged 2026-07-18 `01d4614`). `# BL-122-ZAP-RISK-FILTER`: verdict counts riskcode ≥ 2 only (jq), rc 1/2 excluded from the verdict, unparseable → FAIL; ZAP_INFO_LOW / ZAP_MIXED / ZAP_MALFORMED fixtures pin all three directions. Evidence: § WP-B2.
 
 **Status update 2026-07-17:** fix implemented on PR #203 (branch `fix/bl122-zap-risk-filter`, off the healed main), awaiting merge. `# BL-122-ZAP-RISK-FILTER`: Medium+ (riskcode≥2) alerts block; informational/low stay visible in the archive; unparseable report → FAIL naming the reason; baseline rc 1/2 dropped from the verdict (zap-baseline defaults ALL alerts to WARN → rc=1 was the permanent-FAIL mechanism itself). Mutation-proven (filter-revert → both count cases RED). Adversarial verifier (Opus) verdict SHIP — fails safe under hostile riskcode values, multi-site/`@`-key/instances shapes, and mixed reports; BL-113's a-FAIL-cannot-be-attested guarantee re-proven end-to-end (17/17). Evidence: `Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md` § WP-B2.
 
@@ -3065,7 +3067,7 @@ sed -n '/Must-Have/,/Should-Have/p' PRODUCT_MANIFESTO.md | grep -cE '^\s*-\s*\*\
 **Logged:** 2026-07-13 (Dogfood 2 walk, finding F-DF2-002; the real-remote counterpart to BL-111's hermetic defect)
 **Category:** Bug / unsatisfiable recovery path
 **Severity:** **High**
-**Status:** Open
+**Status:** Closed — shipped 2026-07-17 (PR #206, merged 2026-07-18 `7fa9753`). `# BL-123-BP-ATTEST-RECORD` in check-gate.sh --repair: host-keyed, precondition-guarded (remote_repo_created + pushed_initial), idempotent on .at, provenance-stamped; honored by all three consumers. 11-case suite. Evidence: § WP-D1.
 
 **Status update 2026-07-17:** fix implemented on PR #206 (branch `fix/bl123-bp-attestation-recovery`), awaiting merge; closes BL-111 (same lever) and BL-126 in one PR. `# BL-123-BP-ATTEST-RECORD` in check-gate.sh cmd_repair: `--branch-protection-attested` / `SOLO_BP_ATTESTED=1` records init.sh's exact attestation shape post-hoc — host-keyed reason, explicit-only, idempotent on presence (reasonless 'other'-host shape included), REFUSED unless remote_repo_created+pushed_initial are on record (verifier finding A: without the guard, 3 of 4 consumers would honor a no-remote attestation), with `recorded_via: "check-gate-repair"` provenance (finding B). `# BL-126-ATTEST-CONSULT` in process-checklist.sh verify_init: consults the recorded reason before any host API probe (excision-safe fence). 11/11 tests incl. two fence-excision mutants; adversarial verifier (Opus) SHIP with all three findings landed pre-push. Evidence: `Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md` § WP-D1.
 
@@ -3084,7 +3086,7 @@ On a real free-tier GitHub **private** repo in **organizational** mode, `init.sh
 **Logged:** 2026-07-13 (Dogfood 2 walk, finding F-DF2-014; answers the walk's central question)
 **Category:** Bug / governance ratchet hole
 **Severity:** **High**
-**Status:** Open
+**Status:** Closed — shipped 2026-07-17 (PR #204, merged 2026-07-18 `a5f2a09`). `# BL-124-PENDING-RATCHET`: the 3→4 gate FAILS while PRODUCT_MANIFESTO.md carries the track-upgrade PENDING marker; writer/reader literals wire-pinned; bl104-style copy-mutant proves the arm. Evidence: § WP-B3.
 
 **Status update 2026-07-17:** fix implemented on PR #204 (branch `fix/bl124-bl102-promotion-ratchet`), awaiting merge. `# BL-124-PENDING-RATCHET` in check-phase-gate.sh: the Phase 3→4 gate FAILs (issues++) while the manifesto carries the writer's literal `PENDING — required by track upgrade` — marker-keyed, not track-keyed (BL-084 spoofability; Light projects carry SKIPPED, never PENDING). Writer and reader wire-pinned to one constant by `tests/test-bl124-pending-ratchet.sh`; bl104-style copy-mutant proves the arm load-bearing. Adversarial verifier (Opus) verdict SHIP: evasion surfaces closed (missing manifesto already blocks at phase≥1; scope-down neutralized by marker persistence; em-dash byte-identical both sides; no false-positive contexts in tree). Evidence: `Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md` § WP-B3.
 
@@ -3125,7 +3127,7 @@ The Build-Loop `implemented` step is a self-attested mark; no gate (pre-commit h
 **Logged:** 2026-07-13 (Dogfood 2 walk, finding F-DF2-005)
 **Category:** Bug / inconsistent attestation handling
 **Severity:** Medium
-**Status:** Open — fixed on PR #206 alongside BL-123 (`# BL-126-ATTEST-CONSULT` in verify_init: attestation consulted before any host API probe, matching --preflight and the check-phase-gate backstop; fence-excision mutant proves it load-bearing), awaiting merge. Evidence: `Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md` § WP-D1.
+**Status:** Closed — shipped 2026-07-17 (PR #206, merged 2026-07-18 `7fa9753`). `# BL-126-ATTEST-CONSULT` in verify_init — the attestation is consulted before any host API probe, matching --preflight and the gate backstop; fence-excision mutant proves it load-bearing. Evidence: § WP-D1.
 
 Three consumers read branch-protection state. `check-gate.sh --preflight` and `check-phase-gate.sh`'s Phase 1→2 backstop both read `.claude/process-state.json::phase2_init.attestations.branch_protection.reason` first and honor `github_free_tier` (`[OK] … branch protection attested`). But `process-checklist.sh`'s `verify_init()` calls `host_verify_protection "main" "$mode"` **directly, with no attestation check**, so on every attested free-tier project it prints `[FAIL] branch_protection_configured — protection verification failed`. An operator running `--verify-init` on a fresh attested project is told to run `check-gate.sh --preflight`, which then reports everything is fine — a contradiction with no resolution.
 
@@ -3142,7 +3144,7 @@ Three consumers read branch-protection state. `check-gate.sh --preflight` and `c
 **Logged:** 2026-07-13 (Dogfood 2 walk, finding F-DF2-010)
 **Category:** Bug / hollow gate
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — shipped 2026-07-17 (PR #208, merged 2026-07-18 `31319fe`). `# BL-127-UAT-EVIDENCE`: results_received demands real files (session_id-resolved dir, dotfile-excluded count); the solo escape is EXPLICIT and RECORDED (SOLO_UAT_SOLO_ATTESTED → uat_session.solo_attestations[], off-Light-track warning). Evidence: § WP-E1a.
 
 **Status update 2026-07-17:** fix implemented on PR #208, awaiting merge. `# BL-127-UAT-EVIDENCE` — `results_received` requires ≥1 file in the newest session's `submissions/` OR the explicit `SOLO_UAT_SOLO_ATTESTED=1` escape, which is RECORDED to `uat_session.solo_attestations[]` (attested, not silenced). `completeness_verified`/`triage_complete` deepening deferred (recorded as residual — the evidence-bearing anchor step now gates). Evidence: § WP-E1a.
 
@@ -3161,7 +3163,7 @@ Every step of the `uat_session` checklist in `process-checklist.sh` is pure self
 **Logged:** 2026-07-13 (Dogfood 2 walk, finding F-DF2-015; the successor to BL-103's parse failure)
 **Category:** Bug / operationally-unusable tool
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — shipped 2026-07-17 (PR #211, merged 2026-07-18 `27d4a78`). `# BL-128-REVIEW-WATCHDOG` (per-review process-GROUP wall bound, TERM→KILL to -pgid — the 159-orphan teardown, verifier-proven against TERM-ignoring and SIGSTOPped trees), `# BL-128-FAILURE-TRIAGE` (continue-on-failure + trust/spend guidance), `# BL-128-INCREMENTAL-MANIFEST`, `--compose-only`/`--assemble-manifest` (claude-free). Evidence: § WP-F1.
 
 `evaluation-prompts/Projects/run-reviews.sh` now parses on bash 3.2 and writes a valid manifest (BL-103 / PR #187 fixes confirmed in-source), but it runs **six sequential full LLM reviews** via nested `claude -p "$(cat prompt)"` (the per-reviewer invocation). Observed across multiple launches: (a) it blocks on the Claude Code trust dialog until `hasTrustDialogAccepted` is set; (b) after trust, it ran **~40 minutes, spawned ~159 orphaned `claude` processes, and produced no review files and no manifest**; (c) a mid-run spend limit killed one attempt. So the Phase 3→4 review gate's **only documented remediation** (the builders-guide Phase-3 Remediation section names this script) cannot in practice produce the manifest the gate requires — pushing the operator to the `SOLO_REVIEWERS_ATTESTED` escape not by choice but because the happy path does not terminate.
 
@@ -3180,7 +3182,7 @@ Every step of the `uat_session` checklist in `process-checklist.sh` is pure self
 **Logged:** 2026-07-13 (Dogfood 2 walk, finding F-DF2-001)
 **Category:** Bug / doc-vs-code contradiction (THE SCRIPTS WIN → the help is wrong)
 **Severity:** Low
-**Status:** Open
+**Status:** Closed — shipped 2026-07-17 (PR #211, merged 2026-07-18 `27d4a78`). `--help-non-interactive` states the real gov-mode mapping; stale organizational+private_poc "choosable" comments rewritten as defensive-dead-code notes; N30–N32 pin help and code in both directions. Evidence: § WP-F2.
 
 `init.sh --help-non-interactive` states `--gov-mode` is "REQUIRED when --deployment=organizational. NOT VALID when --deployment=personal." The validation code (the gov-mode rules block in `collect_inputs_non_interactive`) enforces the opposite mapping: `personal` accepts `private_poc` (and production), `organizational` accepts `sponsored_poc` (and production), and it **rejects** `organizational + private_poc` — the exact combo the run spec and the help text imply is valid. Following the help verbatim (`--deployment organizational --gov-mode private_poc`) is rejected. `enforcement-level.sh` and `init.sh::start_phase4` comments also still describe `organizational + private_poc` as a choosable tier — a combo `init.sh` can never produce (dead branch).
 
@@ -3199,7 +3201,7 @@ Every step of the `uat_session` checklist in `process-checklist.sh` is pure self
 **Logged:** 2026-07-13 (Dogfood 2 walk, finding F-DF2-013)
 **Category:** Bug / misleading UX (NOT a bypass — BL-113 still refuses to honor it)
 **Severity:** Low
-**Status:** Open
+**Status:** Closed — shipped 2026-07-17 (PR #211, merged 2026-07-18 `27d4a78`). `# BL-130-ATTEST-FAIL-GUARD` refuses at write time citing BL-113's rule; the E/F verifier's MUST-FIX (`# BL-130-SPACE-SAFE-LRV` — the shared verdict oracle word-split spaced --results-dir, blinding this guard AND BL-113's carry) landed in `ca50a84` with a watched-RED spaced-dir case. Evidence: § WP-F3 + § PHASE E/F CONSOLIDATED.
 
 `run-phase3-validation.sh --attest <scanner> --reason "…"` records the attestation and prints `[OK] Attested skip for '<scanner>' recorded` **even when that scanner is currently in FAIL state** (not merely un-run/SKIP). The next driver run still correctly reports `FAIL=… → FAIL` and does **not** honor the attestation for a FAIL — so BL-113's guarantee holds and no real FAIL is laundered into a pass. But the `[OK]` with no caveat invites the operator to believe they have cleared something they have not, and leaves a misleading "attested" row against a FAILing scanner.
 
@@ -3261,7 +3263,7 @@ Reproduced during BL-118's adversarial verification: `git add app.ts` (containin
 **Logged:** 2026-07-17 (BL-119 adversarial verification, PR #200)
 **Category:** Bug / gate correctness — BL-119's defect class, one more consumer
 **Severity:** Medium (narrow reach: the lint must be present project-locally — `init.sh` does not ship `lint-*.sh` downstream, so it bites framework-context repos and hand-copied setups)
-**Status:** Closed — shipped 2026-07-17 (PR #200, landed via PR #202 `88bddd3`) alongside BL-119: the stale-message feed into the BR lint is removed under the extended `# BL-119-NO-MSG-AT-PRECOMMIT` marker; RED→GREEN + HEAD-revert mutation recorded in `Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md` § WP-A3. The open design question below (grow the commit-msg surface?) stays parked with BL-107.
+**Status:** Closed — shipped 2026-07-17 (PR #200, landed via PR #202 `88bddd3`) alongside BL-119: the stale-message feed into the BR lint is removed under the extended `# BL-119-NO-MSG-AT-PRECOMMIT` marker; RED→GREEN + HEAD-revert mutation recorded in `Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md` § WP-A3. The open design question below (grow the commit-msg surface?) stays parked with BL-107. **Decision 2026-07-18 (Karl):** leave removed — repo-side CI runs lint-backlog-references on every PR, the removed arm never enforced correctly for any population (A3 verifier audit), and no downstream demand for commit-time citation checking exists; re-home at commit-msg only if that demand appears (file a fresh entry then).
 
 Verifier-reproduced: with a project-local `lint-backlog-references.sh` and a backlog containing only BL-001, write `docs: previous commit citing BL-9999` into `.git/COMMIT_EDITMSG` (the residue of a landed commit), stage an innocent file, `git commit -m "docs: innocent"` → **rc=1, "backlog-references lint failed"** — the PREVIOUS commit's message blocked the CURRENT commit. Same staleness mechanism as BL-119: pre-commit never sees the message being committed.
 

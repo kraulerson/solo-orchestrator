@@ -116,6 +116,31 @@ else
   pass "T-scaffold-pin-stamped: soloFrameworkCommit = framework HEAD on the hermetic path"
 fi
 
+# ── T-scaffold-golive-template (BL-106) ─────────────────────────────────────
+# The MANDATORY platform go-live checklist is machine-checked from the
+# scaffold's birth (Karl's 2026-07-18 decision): init renders the module's
+# Go-Live items into docs/test-results/go-live-checklist.md — the artifact
+# the phase4 go_live_verified arm verifies. Without this, a fresh scaffold
+# hits the BL-106 block with no scaffolded remediation surface.
+echo "=== T-scaffold-golive-template (BL-106): checklist artifact born from the module ==="
+gl_art="$SCAFFOLD/docs/test-results/go-live-checklist.md"
+gl_mod=$(ls "$SCAFFOLD/docs/platform-modules/"*.md 2>/dev/null | head -1)
+if [ -z "$gl_mod" ]; then
+  fail_ "T-scaffold-golive-template" "scaffold shipped no platform module — cannot verify the checklist render"
+elif [ ! -f "$gl_art" ]; then
+  fail_ "T-scaffold-golive-template" "scaffold lacks docs/test-results/go-live-checklist.md (BL-106: go_live_verified will block with no scaffolded remediation)"
+else
+  gl_mod_n=$(awk '/^###[^#].*[Gg]o-[Ll]ive/{f=1; next} f && /^#/{exit} f' "$gl_mod" | grep -cE '^- \[ \]')
+  case "$gl_mod_n" in ''|*[!0-9]*) gl_mod_n=0 ;; esac
+  gl_art_n=$(grep -cE '^- \[ \]' "$gl_art")
+  case "$gl_art_n" in ''|*[!0-9]*) gl_art_n=0 ;; esac
+  if [ "$gl_mod_n" -gt 0 ] && [ "$gl_art_n" -eq "$gl_mod_n" ]; then
+    pass "T-scaffold-golive-template: artifact carries all $gl_mod_n module items (unticked, awaiting the operator)"
+  else
+    fail_ "T-scaffold-golive-template" "artifact unticked-items=$gl_art_n vs module items=$gl_mod_n — the scaffolded checklist does not mirror the module"
+  fi
+fi
+
 # ── T-scaffold-phase3-driver-present ────────────────────────────────────────
 echo "=== T-scaffold-phase3-driver-present: driver present + executable ==="
 if [ -x "$SCAFFOLD/scripts/run-phase3-validation.sh" ]; then

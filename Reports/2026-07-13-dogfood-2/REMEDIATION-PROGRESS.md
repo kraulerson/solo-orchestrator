@@ -68,7 +68,7 @@
 
 ---
 
-## WP-B2 — BL-122 (High): DAST gate unpassable for any web app — DONE-PR-open
+## WP-B2 — BL-122 (High): DAST gate unpassable for any web app — MERGED (2026-07-18, PR #203 `01d4614`)
 
 - **Branch:** `fix/bl122-zap-risk-filter` (off healed main `88bddd3`). **PR #203**, fix commit `f0f6c82` (amended pre-push to act on verifier Finding 1). Closure docs for the merged five ride as `56b23dd` on the same branch.
 - **Reproduce:** S-019 (real walk): clean baseline FAIL-NEW=0 / PASS=66 → `[FAIL] zap-dast — 1 ZAP alert(s)`; sole alert riskcode 0, pluginid 10049, which fires under EVERY Cache-Control value → zero-alerts unreachable → 3→4 permanently blocked; BL-113 correctly refuses to attest a FAIL. In-suite RED: info-only fixture FAILed, mixed fixture counted 2 not 1, malformed lacked the honest reason.
@@ -82,7 +82,7 @@
 
 ---
 
-## WP-B3 — BL-124 (High) promotion-ratchet PENDING + BL-102 (Med) Market Signal — DONE-PR-open
+## WP-B3 — BL-124 (High) promotion-ratchet PENDING + BL-102 (Med) Market Signal — MERGED (2026-07-18, PR #204 `a5f2a09`)
 
 - **Branch:** `fix/bl124-bl102-promotion-ratchet` (stacked on PR #203). **PR #204**, commit `bd10750` (amended pre-push for the verifier's regex finding).
 - **Reproduce:** `grep -rl PENDING scripts/check-phase-gate.sh scripts/test-gate.sh` → no matches (only upgrade-project.sh writes it); `grep -rliE 'market.?signal' scripts/` → zero hits; the walk reached a tagged release with all three re-demanded obligations literally PENDING (S-020). In-suite RED: pending fixture blocked only by unrelated scanner arms (BL-124 diagnostic absent); no BL-102 warn anywhere; template shipped no Appendix D.
@@ -96,7 +96,7 @@
 
 ---
 
-## WP-C1 — BL-107 (High): whole languages get no TDD gate — DONE-PR-open
+## WP-C1 — BL-107 (High): whole languages get no TDD gate — MERGED (2026-07-18, PR #205 `24fa571`)
 
 - **Branch:** `fix/bl107-tdd-all-languages` (stacked on PR #204). **PR #205**, commit `0f4ddb6` (amended pre-push with all three verifier should-fixes).
 - **Reproduce:** init.sh installed the commit-msg gate only when `soif_lang_test_pattern` was non-empty — rust and `other` scaffolds received NO commit-msg hook (no BL-072 TDD block, no BL-006 message check) on every tier incl. non-bypassable. Hermetic RED: an idiomatically-TDD'd Rust commit (impl + inline `#[cfg(test)]` in the SAME staged diff) was BLOCKED when the gate ran — proving universal install without a content probe would false-block. Currency predicate returned absent-intentional/absent-unavailable.
@@ -109,7 +109,7 @@
 
 ---
 
-## WP-D1 — BL-123 (High) + BL-111 (High) + BL-126 (Med): branch-protection attestation recovery — DONE-PR-open
+## WP-D1 — BL-123 (High) + BL-111 (High) + BL-126 (Med): branch-protection attestation recovery — MERGED (2026-07-18, PR #206 `7fa9753`)
 
 - **Branch:** `fix/bl123-bp-attestation-recovery` (stacked on PR #205). **PR #206**, commit `3a3e81b` (amended pre-push with all three verifier findings).
 - **Reproduce (hermetic):** unattested 403-world fixture (create+push recorded, protection not) — `--repair --branch-protection-attested` was silently IGNORED (no argv parse) and repair died at the dispatcher; `--verify-init` on an ATTESTED fixture printed `[FAIL] branch_protection_configured — protection verification failed` (the BL-126 one-of-three hole, provable hermetically because no host API exists here).
@@ -120,7 +120,7 @@
 
 ---
 
-## WP-D2 — BL-110 (Med) pin absent on hermetic path + BL-116 (Med) push gate host-scoped — DONE-PR-open
+## WP-D2 — BL-110 (Med) pin absent on hermetic path + BL-116 (Med) push gate host-scoped — MERGED (2026-07-18, PR #207 `12923b3` incl. the `a52506a` fixture repair)
 
 - **Branch:** `fix/bl110-bl116-noremote-blindspot` (stacked on PR #206). **PR #207**, commit `6e7ecaf`.
 - **Reproduce:** BL-116 hermetic RED — a github/org fixture with no init-push records and no remote produced **0 push-gate lines** (the MANDATORY gate did not exist for first-class hosts on the hermetic flow). BL-110 mutation-direction RED — a HEAD-reverted init.sh scaffolded a real `--no-remote-creation` project with `soloFrameworkCommit` **ABSENT**.
@@ -133,7 +133,7 @@
 
 ---
 
-## WP-E1a — BL-114 (Med) + BL-115 (Med) + BL-127 (Med): the gate-integrity trio — DONE-PR-open
+## WP-E1a — BL-114 (Med) + BL-115 (Med) + BL-127 (Med): the gate-integrity trio — MERGED (2026-07-18, PR #208 `31319fe`)
 
 - **Branch:** `fix/bl114-bl115-bl127-gate-integrity` (stacked on PR #207). **PR #208**, commit `8f6ea0a`.
 - **Reproduce (all RED-observed, 9 failures):** placeholder section → gate aborted with zero diagnostic right after "[OK] PRODUCT_MANIFESTO.md exists" (the errexit kill, walk F2); missing frd.md → rc=0 "consistent" (F1); absent docs/phase-0 → total silence; blank Date cell + stray Notes date → gate passed (F6); template's own attorney header satisfied legal_review (F16); PII + no policy → info-and-proceed; empty submissions/ → results_received [OK] (F-DF2-010); `--start-phase1` advanced 0→1 past a failing gate (F-DF2-003) and was absent from --help.
@@ -147,7 +147,7 @@
 
 ---
 
-## WP-E1b — BL-105 (Med, walk-confirmed worse than filed): Phase 4 gets a real gate — DONE-PR-open · BL-106 — STOPPED-flagged
+## WP-E1b — BL-105 (Med, walk-confirmed worse than filed): Phase 4 gets a real gate — MERGED (2026-07-18, PR #209 `6a21f99` incl. the `f337ffc` T6 rewrite) · BL-106 — STOPPED-flagged (stays Open)
 
 - **Branch:** `fix/bl105-phase4-wave` (stacked on PR #208). **PR #209**, commit `7b19a08`.
 - **Reproduce (9 RED):** `--start-phase4` advanced past a FAILING 3→4 gate (rc=0, phase 3→4); phase-4-with-no-checklist produced no diagnostic; empty rollback file passed; the word "monitoring" passed; empty RELEASE_NOTES passed; both templates lacked UAT Sign-off (+ personal lacked attorney/pen-test); the artifact map mis-mapped A/B/C to Sections 7/6/8; no competency line anywhere; fences absent.
@@ -161,7 +161,7 @@
 
 ---
 
-## WP-E2 — BL-108 (Med) + BL-117 (Med): the ship-closure wave — DONE-PR-open
+## WP-E2 — BL-108 (Med) + BL-117 (Med): the ship-closure wave — MERGED (2026-07-18, PR #210 `e927faa` incl. the `3fee6d3` BL-115 follow-up)
 
 - **Branch:** `fix/bl108-bl117-ship-closure` (stacked on PR #209). **PR #210**.
 - **Reproduce (RED):** the mechanical closure found the gate-named `security-audit-findings.tmpl` unshipped (the gate's own error text names it) and FOUR guide-named tools unshipped (`check-maintenance.sh` + `lint-backlog-references/counter-antipattern/review-manifest.sh`); `production_build` completed with no evidence at all (F19: the walk's "built" release did not boot).
@@ -175,7 +175,7 @@
 
 ---
 
-## WP-F3 — BL-130 (Low): `--attest` refuses a FAILing scanner — DONE-committed
+## WP-F3 — BL-130 (Low): `--attest` refuses a FAILing scanner — MERGED (2026-07-18, PR #211 `27d4a78` incl. the `ca50a84` space-safe MUST-FIX)
 
 - **Branch:** `fix/phase-f-bl129-bl130-bl096` (stacked on PR #210). Groups the three small Phase-F items (F2/BL-129, F3/BL-130, F5/BL-096).
 - **Reproduce (RED, watched):** against the pre-fix driver (HEAD state, guard file-reverted), `T-attest-on-fail-refused` FAILED — `--attest semgrep-full-tree` with the newest summary saying `RESULT semgrep-full-tree FAIL` exited 0, printed `[OK] Attested skip … recorded`, and WROTE the attestation row into `phase3.attestations` (Dogfood-2 F-DF2-013 verbatim: an [OK]-recorded FAIL-masking row the driver would then refuse to honor).
@@ -186,7 +186,7 @@
 
 ---
 
-## WP-F2 — BL-129 (Low): help text contradicted the gov-mode code — DONE-committed
+## WP-F2 — BL-129 (Low): help text contradicted the gov-mode code — MERGED (2026-07-18, PR #211 `27d4a78`)
 
 - **Branch:** `fix/phase-f-bl129-bl130-bl096`.
 - **Reproduce:** `--help-non-interactive` said `--gov-mode` is "REQUIRED when --deployment=organizational. NOT VALID when --deployment=personal." — the code enforces the OPPOSITE (personal accepts private_poc/production; organizational accepts sponsored_poc/production; organizational+private_poc REJECTED). Following the help verbatim got you rejected (F-DF2-001). THE-SCRIPTS-WIN doctrine → the help is the bug.
@@ -196,7 +196,7 @@
 
 ---
 
-## WP-F5 — BL-096 (Low): cold-start hardening bundle (F6/F9/F10) — DONE-committed
+## WP-F5 — BL-096 (Low): cold-start hardening bundle (F6/F9/F10) — MERGED (2026-07-18, PR #211 `27d4a78`)
 
 - **Branch:** `fix/phase-f-bl129-bl130-bl096`.
 - **Reproduce (RED, watched — 7 FAIL / 1 PASS):** no preflight script; the full suite never names the clone line at entry; `pre-commit-gate.sh --help` fell through to the stdin-JSON surface and exited 0 SILENTLY (a bonus defect the RED run surfaced); `--commit-msg-gates` unrecognized (silently became PLAIN --terminal-mode — rc=0, no BL-006 block); no contributor installer. The one PASS was the T6 control proving the BL-006 oracle (`--tdd-only` blocks `feat(...)` with no active Build Loop).
@@ -207,7 +207,7 @@
 
 ---
 
-## WP-F4 — BL-095 (Med): one state-parsing surface for deployment/poc_mode — DONE-committed
+## WP-F4 — BL-095 (Med): one state-parsing surface for deployment/poc_mode — MERGED (2026-07-18, PR #211 `27d4a78`)
 
 - **Branch:** `fix/phase-f-bl129-bl130-bl096`.
 - **Reproduce:** the measured spread, re-verified in-tree: THREE grep-sed variants (check-phase-gate ×3, process-checklist, run-phase3-validation), a jq-with-grep-fallback DUAL (check-phase-gate POC block), plain jq `// ""` / `// empty` (pre-commit-gate, upgrade-project ×6, intake-wizard ×2) — the duplication class that produced BL-084's null/production mishandling.
@@ -219,7 +219,7 @@
 
 ---
 
-## WP-F1 — BL-128 (Med): the review generator becomes headless-viable — DONE-committed
+## WP-F1 — BL-128 (Med): the review generator becomes headless-viable — MERGED (2026-07-18, PR #211 `27d4a78`)
 
 - **Branch:** `fix/phase-f-bl129-bl130-bl096`.
 - **Reproduce (RED, watched — 0/5):** `--compose-only`/`--assemble-manifest` parsed as a MODULE name (rc=1); a hanging review ran unbounded with no timeout report; T4 reproduced the documented death verbatim — the spend-limit stub's `Error: spend limit reached` aborted the whole suite under `set -e` with NO manifest written (the F-DF2-015 "40 min, 159 orphans, zero output" class); no incremental manifest witness.
@@ -266,9 +266,33 @@ Per the run spec, each Phase-G item gets a short decision-ready design note and 
 - **Stack propagation (each parent merged into its child so every OPEN PR's merge-ref carries every repair):** #207 `a52506a` → #208 merge `04a1d44` (bl073 29/29, trio 16/16) → #209 merge `2cf948f` (+ `f337ffc`; upgrade-warn 6/6) → #210 merge `31ea190` (E2 5/5) → #211 merge + RC2/RC3 fixes (this commit). Merge order for Karl is UNCHANGED: #207 → #208 → #209 → #210 → #211.
 - **Honest accounting:** two in-run claims are corrected by this repair: (1) "keep main green / every PR green" — the mid-stack unit lane was red from #207 until this repair; (2) the blast-radius batteries missed five consumer suites (bl073, poc-block-at-#207, upgrade-to-production-warn, and the two lint self-suites whose CI-side sensitivity differs from BSD). The final report's Honest-limits section is amended accordingly.
 
+
+---
+
+## RUN CLOSED — 2026-07-18: the full stack is merged
+
+Karl merged the entire stack ascending after the post-run CI repair: #203 `01d4614` → #204 `a5f2a09` → #205 `24fa571` → #206 `7fa9753` → #207 `12923b3` → #208 `31319fe` → #209 `6a21f99` → #210 `e927faa` → #211 `27d4a78`. All 20 backlog items fixed by the stack flipped to **Closed** with PR + merge-SHA citations (docs/dogfood2-closures branch); still Open by design: BL-106 (STOPPED — Karl's product choice), BL-131/BL-132 (recorded residuals), the Phase-G set (design notes above), and the Phase-H DEFERRED set. lint-backlog-references green over the closures.
+
+---
+
+## POLICY DECISIONS IMPLEMENTED (Karl, 2026-07-18) — branch `feat/bl106-golive-gate`
+
+Karl answered the three STOPPED questions; all three are acted on here:
+
+- **Semgrep → unit lane (BL-118 open question):** `pip install semgrep` step added to the tests.yml `unit` job with the full rationale comment — the LIVE DOM-XSS blocking cases now execute on every PR (the hermetic pins catch token drift; only a real run proves the emitted hook still blocks). Verified on this branch's own PR run.
+- **BL-133 → leave removed:** decision recorded in the entry (repo-side CI covers it; the removed arm never enforced correctly anywhere; re-home only on real downstream demand).
+- **BL-106 → MACHINE-CHECKABLE (the feature):**
+  - **Contract:** single source = the SHIPPED platform module. Grammar: H3 header matching /Go-Live/ (verified across all four modules incl. desktop's "Go-Live Verification (Append to Core Checklist)"), items = top-level `- [ ]` lines to the next header. Evidence: every module item TICKED (text-matched) in a dated `docs/test-results/*go-live-checklist*` artifact with zero unticked boxes. Standalone platforms (no module checklist — init's own "works standalone" branch) exempt with a loud note. No new state key needed: the shipped module file IS the platform record (handles 0/1/N modules uniformly).
+  - **Arm:** `# BL-106-GOLIVE-CHECKLIST-BEGIN/END` in process-checklist.sh `phase4_release:go_live_verified` (extends BL-105's substantive-notes arm). `< <(printf …)` iteration — no heredoc-in-case (the 3.2 parser trap) and no pipe-subshell flag loss.
+  - **Scaffold:** `# BL-106-GOLIVE-TEMPLATE` in init.sh — renders the module's items into the artifact at birth (unticked + Date/Verified-by placeholders), so the gate's demand always has a scaffolded home.
+  - **TDD:** `tests/test-bl106-golive-checklist.sh` **8/8** (BOTH lists). RED watched 2/6 — six cases showed `go_live_verified` completing with zero checklist enforcement (the hollow gate verbatim); T1 pre-passes by design (no-arm = permissive), T8 IS the excision mutant (in-suite, lib-complete copy, positively asserted). Grammar case for desktop's header shape included. Real-init case `T-scaffold-golive-template` added to test-scaffold-tdd-block-real.sh (artifact item-count must equal module item-count).
+  - **Blast radius (green, consumer-grep-selected per the CI-repair lesson):** bl105 12/12 · trio 17/17 · E2 5/5 · auto-advance · **upgrade-to-production-warn 6/6** (its fixtures ship no module → standalone-exempt path, unchanged) · lint-counter-antipattern clean (+ proactive GNU-side numeric-capture sanitization in the new scaffold case) · lint-tests-registered OK.
+  - **Guide:** Step 4.2's MANDATORY banner now documents the enforcement + artifact.
+  - **Init-side proof:** real-init GREEN half (artifact rendered, 6 items == web module's 6) + in-place fence-excision mutant (valid init, artifact ABSENT — the scaffold case would RED) + restore. Scaffold suite **9/9** incl. the new case. Recorded race, analyzed harmless: the mutation window overlapped the background suite run, but the excision can only DELETE generation (false-FAIL direction) — no case could false-PASS; the suite's own scaffold predated the window and its case passed on a generator-built artifact. Process note: don't in-place-mutate while a background consumer runs.
+
 ---
 
 ## POLICY PR MERGED + FULL-LANE VERDICTS (2026-07-18, cont.)
 
 - **PR #213 MERGED `ab62028`** — BL-106 flipped to Closed (machine-checkable go-live gate live on main); semgrep now in the unit lane (its first PR run executed the live DOM-XSS blocking cases and passed); BL-133 decision recorded (leave removed).
-- **Full-lane dispatch on `27d4a78`:** edge-pre-init ✓, edge-scripts ✓, **aggregators ✗ → diagnosed BL-134** (edge-case-test-suite T2.1/T2.2 rc=124: resolver bounds 30s vs a measured ~25s idle baseline — resolver+matrix byte-identical `8412b8c..main`, so pre-existing timing-margin test debt, NOT a remediation regression; T1.2 reproduced the class during the fix's own verification). Fix on `fix/edge-case-t2-bounds`: all resolver bounds normalized to 90s, T2.2's self-contradictory assertion recalibrated (<60s under a 90s cap), fast-rejection init cases kept at 30s. Core shard still running; the 2026-07-12 memory of two other pre-existing core-lane failures (dry-run resolver fixture, phase-gate run) is the watch-list for its verdict.
+- **Full-lane dispatch on `27d4a78`:** edge-pre-init ✓, edge-scripts ✓, **aggregators ✗ → diagnosed BL-134** (edge-case-test-suite T2.1/T2.2 rc=124: resolver bounds 30s vs a measured ~25s idle baseline — resolver+matrix byte-identical `8412b8c..main`, so pre-existing timing-margin test debt, NOT a remediation regression; T1.2 reproduced the class during the fix's own verification). Fix on `fix/edge-case-t2-bounds` (PR #214): all resolver bounds normalized to 90s, T2.2's self-contradictory assertion recalibrated (<60s under a 90s cap), fast-rejection init cases kept at 30s; full suite rerun rc=0, 27 PASS. Core shard still running; the 2026-07-12 memory of two other pre-existing core-lane failures (dry-run resolver fixture, phase-gate run) is the watch-list for its verdict.

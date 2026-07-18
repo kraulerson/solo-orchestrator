@@ -449,6 +449,55 @@ complete_step() {
         echo "  Record the released version, the date, and the go-live verification (smoke check) outcome." >&2
         artifact_check_failed=true
       fi
+      # BL-106-GOLIVE-CHECKLIST-BEGIN
+      # The platform-module go-live checklist is MANDATORY *and machine-
+      # checked* (Karl's 2026-07-18 decision — before this, the guide said
+      # MANDATORY and NOTHING parsed the modules: the documented-but-
+      # unenforced BL-070..073 species at the highest-stakes step). Single
+      # source = the SHIPPED module file: every top-level `- [ ]` item under
+      # an H3 /Go-Live/ header (all four modules parse under this grammar,
+      # incl. desktop's "Go-Live Verification") must appear TICKED in a
+      # dated docs/test-results/*go-live-checklist* artifact, and no
+      # unticked box may remain in the artifact. Projects whose shipped
+      # modules carry no go-live checklist (init's "works standalone"
+      # branch) are exempt with a loud note — there is no MANDATORY list to
+      # enforce.
+      local bl106_artifact="" bl106_f bl106_mod bl106_items bl106_item bl106_any=0
+      for bl106_f in docs/test-results/*go-live-checklist*; do
+        if [ -f "$bl106_f" ]; then bl106_artifact="$bl106_f"; break; fi
+      done
+      for bl106_mod in docs/platform-modules/*.md; do
+        [ -f "$bl106_mod" ] || continue
+        bl106_items=$(awk '/^###[^#].*[Gg]o-[Ll]ive/{f=1; next} f && /^#/{exit} f' "$bl106_mod" | grep -E '^- \[ \]' | sed 's/^- \[ \][[:space:]]*//' || true)
+        [ -n "$bl106_items" ] || continue
+        bl106_any=1
+        if [ -z "$bl106_artifact" ]; then
+          print_warn "The platform go-live checklist ($(basename "$bl106_mod")) is MANDATORY but no docs/test-results/*go-live-checklist* artifact exists."
+          echo "  Walk the module's Go-Live section, tick every item in docs/test-results/go-live-checklist.md (scaffolded by init.sh; copy the module's items if absent), date it, then re-run." >&2
+          artifact_check_failed=true
+          continue
+        fi
+        while IFS= read -r bl106_item; do
+          [ -n "$bl106_item" ] || continue
+          if ! grep -F -- "$bl106_item" "$bl106_artifact" | grep -qE '^- \[[xX]\]'; then
+            print_warn "go-live checklist item from $(basename "$bl106_mod") is NOT ticked in $(basename "$bl106_artifact"): $bl106_item"
+            artifact_check_failed=true
+          fi
+        done < <(printf '%s\n' "$bl106_items")
+      done
+      if [ -n "$bl106_artifact" ]; then
+        if grep -qE '^- \[ \]' "$bl106_artifact"; then
+          print_warn "$(basename "$bl106_artifact") still contains UNTICKED go-live items — every box must be checked (or the item resolved and removed with a reason) before go-live."
+          artifact_check_failed=true
+        fi
+        if ! grep -qE '[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])' "$bl106_artifact"; then
+          print_warn "$(basename "$bl106_artifact") carries no real completion date — fill the Date field (placeholders do not count)."
+          artifact_check_failed=true
+        fi
+      elif [ "$bl106_any" -eq 0 ]; then
+        print_info "No platform module ships a go-live checklist (standalone platform) — the BL-106 checklist gate is not applicable here."
+      fi
+      # BL-106-GOLIVE-CHECKLIST-END
       ;;
     phase4_release:monitoring_configured)
       # P4-001 + BL-105: "'Configured' is not 'verified'" — the walk passed
