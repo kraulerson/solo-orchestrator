@@ -61,6 +61,18 @@ jobs:
         # error.
         run: jq --version && git --version
 
+      - name: Install semgrep (live SAST cases)
+        # BL-118 follow-up (Karl's 2026-07-18 decision on the WP-A1 open
+        # question): the LIVE DOM-XSS blocking cases run on EVERY PR, not
+        # only in the manual full lane. The hermetic exact-token pins catch
+        # registry-token drift without semgrep, but only a real run proves
+        # the emitted hook still BLOCKS — a renamed/retired registry rule
+        # would otherwise re-blind every generated hook while CI stayed
+        # green between manual full-lane dispatches. Accepted cost: one
+        # registry fetch per PR. An install failure fails the lane LOUDLY
+        # rather than silently skipping the blocking arm.
+        run: pip install semgrep
+
       - name: Run fast unit tests
         run: |
           set -uo pipefail
@@ -94,6 +106,7 @@ jobs:
             tests/test-bl130-attest-fail-guard.sh
             tests/test-bl096-cold-start.sh
             tests/test-bl095-state-readers.sh
+            tests/test-bl106-golive-checklist.sh
             tests/test-bl128-review-generator-headless.sh
             tests/test-bypass-audit-integrity.sh
             tests/test-bypass-audit-lib.sh

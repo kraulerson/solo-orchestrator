@@ -272,3 +272,20 @@ Per the run spec, each Phase-G item gets a short decision-ready design note and 
 ## RUN CLOSED — 2026-07-18: the full stack is merged
 
 Karl merged the entire stack ascending after the post-run CI repair: #203 `01d4614` → #204 `a5f2a09` → #205 `24fa571` → #206 `7fa9753` → #207 `12923b3` → #208 `31319fe` → #209 `6a21f99` → #210 `e927faa` → #211 `27d4a78`. All 20 backlog items fixed by the stack flipped to **Closed** with PR + merge-SHA citations (docs/dogfood2-closures branch); still Open by design: BL-106 (STOPPED — Karl's product choice), BL-131/BL-132 (recorded residuals), the Phase-G set (design notes above), and the Phase-H DEFERRED set. lint-backlog-references green over the closures.
+
+---
+
+## POLICY DECISIONS IMPLEMENTED (Karl, 2026-07-18) — branch `feat/bl106-golive-gate`
+
+Karl answered the three STOPPED questions; all three are acted on here:
+
+- **Semgrep → unit lane (BL-118 open question):** `pip install semgrep` step added to the tests.yml `unit` job with the full rationale comment — the LIVE DOM-XSS blocking cases now execute on every PR (the hermetic pins catch token drift; only a real run proves the emitted hook still blocks). Verified on this branch's own PR run.
+- **BL-133 → leave removed:** decision recorded in the entry (repo-side CI covers it; the removed arm never enforced correctly anywhere; re-home only on real downstream demand).
+- **BL-106 → MACHINE-CHECKABLE (the feature):**
+  - **Contract:** single source = the SHIPPED platform module. Grammar: H3 header matching /Go-Live/ (verified across all four modules incl. desktop's "Go-Live Verification (Append to Core Checklist)"), items = top-level `- [ ]` lines to the next header. Evidence: every module item TICKED (text-matched) in a dated `docs/test-results/*go-live-checklist*` artifact with zero unticked boxes. Standalone platforms (no module checklist — init's own "works standalone" branch) exempt with a loud note. No new state key needed: the shipped module file IS the platform record (handles 0/1/N modules uniformly).
+  - **Arm:** `# BL-106-GOLIVE-CHECKLIST-BEGIN/END` in process-checklist.sh `phase4_release:go_live_verified` (extends BL-105's substantive-notes arm). `< <(printf …)` iteration — no heredoc-in-case (the 3.2 parser trap) and no pipe-subshell flag loss.
+  - **Scaffold:** `# BL-106-GOLIVE-TEMPLATE` in init.sh — renders the module's items into the artifact at birth (unticked + Date/Verified-by placeholders), so the gate's demand always has a scaffolded home.
+  - **TDD:** `tests/test-bl106-golive-checklist.sh` **8/8** (BOTH lists). RED watched 2/6 — six cases showed `go_live_verified` completing with zero checklist enforcement (the hollow gate verbatim); T1 pre-passes by design (no-arm = permissive), T8 IS the excision mutant (in-suite, lib-complete copy, positively asserted). Grammar case for desktop's header shape included. Real-init case `T-scaffold-golive-template` added to test-scaffold-tdd-block-real.sh (artifact item-count must equal module item-count).
+  - **Blast radius (green, consumer-grep-selected per the CI-repair lesson):** bl105 12/12 · trio 17/17 · E2 5/5 · auto-advance · **upgrade-to-production-warn 6/6** (its fixtures ship no module → standalone-exempt path, unchanged) · lint-counter-antipattern clean (+ proactive GNU-side numeric-capture sanitization in the new scaffold case) · lint-tests-registered OK.
+  - **Guide:** Step 4.2's MANDATORY banner now documents the enforcement + artifact.
+  - **Init-side proof:** real-init GREEN half (artifact rendered, 6 items == web module's 6) + in-place fence-excision mutant (valid init, artifact ABSENT — the scaffold case would RED) + restore. Scaffold suite **9/9** incl. the new case. Recorded race, analyzed harmless: the mutation window overlapped the background suite run, but the excision can only DELETE generation (false-FAIL direction) — no case could false-PASS; the suite's own scaffold predated the window and its case passed on a generator-built artifact. Process note: don't in-place-mutate while a background consumer runs.

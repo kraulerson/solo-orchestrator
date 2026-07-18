@@ -1828,7 +1828,9 @@ Walk through the production application manually on each target platform:
 - [ ] All production configuration values set correctly
 - [ ] Platform-specific checks per Platform Module
 
-> **⟁ PLATFORM MODULE — MANDATORY:** You MUST complete the platform-specific go-live checklist from your Platform Module in addition to the core checklist above. The Platform Module checklists contain critical platform requirements (SSL/security headers for web, code signing/auto-updater for desktop, app store metadata/certificates for mobile) that are not optional. Failure to complete platform-specific checks may result in deployment rejection (app store), security exposure (web), or broken functionality (desktop).
+> **⟁ PLATFORM MODULE — MANDATORY (machine-checked, BL-106):** You MUST complete the platform-specific go-live checklist from your Platform Module in addition to the core checklist above. The Platform Module checklists contain critical platform requirements (SSL/security headers for web, code signing/auto-updater for desktop, app store metadata/certificates for mobile) that are not optional. Failure to complete platform-specific checks may result in deployment rejection (app store), security exposure (web), or broken functionality (desktop).
+>
+> **How it is enforced:** init.sh rendered your module's checklist into `docs/test-results/go-live-checklist.md` at scaffold time. Tick every box as you verify it in production and fill the Date field — `scripts/process-checklist.sh --complete-step phase4_release:go_live_verified` parses your module's Go-Live section directly and BLOCKS while any module item is unticked or missing from the artifact, any box remains unticked, or the date is a placeholder. (Platforms whose module ships no go-live checklist are exempt with a note.)
 
 **DECISION GATE: All core AND platform-specific checks green before announcing launch.**
 
