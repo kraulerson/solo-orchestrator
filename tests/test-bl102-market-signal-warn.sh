@@ -125,6 +125,10 @@ MD
       echo ""
     done
   } > "$PROJ/PROJECT_BIBLE.md"
+  mkdir -p "$PROJ/docs/phase-0"
+  printf 'frd\n' > "$PROJ/docs/phase-0/frd.md"
+  printf 'journey\n' > "$PROJ/docs/phase-0/user-journey.md"
+  printf 'contract\n' > "$PROJ/docs/phase-0/data-contract.md"
 
   {
     local n

@@ -35,6 +35,26 @@ JSON
     cat > .claude/phase-state.json <<'JSON'
 {"current_phase":0,"track":"light","deployment":"personal","poc_mode":null,"phases":{}}
 JSON
+    # BL-114: --start-phase1 now consults the 0->1 gate — give the fixture a
+    # CLEAR gate (approval row with a dated Date cell, 8-section manifesto,
+    # the three Step-0 intermediates) so the auto-advance mechanics under
+    # test run against a passing gate.
+    cat > APPROVAL_LOG.md <<'MD'
+# Approval Log
+
+## Phase Gate: Phase 0 -> Phase 1
+| Field | Value |
+|---|---|
+| Approver | Alice Signer |
+| Date | 2026-02-01 |
+MD
+    for n in 1 2 3 4 5 6 7 8; do
+      { echo "## ${n}. Section ${n}"; echo "Substantive content ${n}."; echo ""; } >> PRODUCT_MANIFESTO.md
+    done
+    mkdir -p docs/phase-0
+    printf 'frd\n' > docs/phase-0/frd.md
+    printf 'journey\n' > docs/phase-0/user-journey.md
+    printf 'contract\n' > docs/phase-0/data-contract.md
     cat > .claude/process-state.json <<'JSON'
 {
   "phase1_architecture":{"steps_completed":[],"started_at":null},

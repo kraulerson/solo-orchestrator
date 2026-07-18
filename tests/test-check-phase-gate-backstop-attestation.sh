@@ -43,6 +43,10 @@ setup_phase2_project() {
   TMP=$(mktemp -d)
   PROJ="$TMP/p"
   mkdir -p "$PROJ/.claude"
+  mkdir -p "$PROJ/docs/phase-0"
+  printf 'frd\n' > "$PROJ/docs/phase-0/frd.md"
+  printf 'journey\n' > "$PROJ/docs/phase-0/user-journey.md"
+  printf 'contract\n' > "$PROJ/docs/phase-0/data-contract.md"
 
   cat > "$PROJ/.claude/manifest.json" <<'JSON'
 {"frameworkVersion":"test","host":"github","mode":"personal"}
@@ -56,10 +60,16 @@ JSON
 # APPROVAL_LOG
 
 ## Phase 0 → Phase 1
-Approved 2026-01-01
+| Field | Value |
+|---|---|
+| Approver | Alice Signer |
+| Date | 2026-01-01 |
 
 ## Phase 1 → Phase 2
-Approved 2026-02-01
+| Field | Value |
+|---|---|
+| Approver | Alice Signer |
+| Date | 2026-02-01 |
 MD
 
   # PRODUCT_MANIFESTO.md: minimal but with all 8 sections + content so
