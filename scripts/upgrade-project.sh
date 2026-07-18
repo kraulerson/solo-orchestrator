@@ -535,8 +535,9 @@ _run_idempotent_backfill() {
     mig_deployment=""
     mig_poc=""
     if [ -f .claude/phase-state.json ]; then
-      mig_deployment=$(jq -r '.deployment // ""' .claude/phase-state.json 2>/dev/null || echo "")
-      mig_poc=$(jq -r '.poc_mode // ""' .claude/phase-state.json 2>/dev/null || echo "")
+      # BL-095: parse via the # BL-095-STATE-READERS fence (lib/helpers-core.sh).
+      mig_deployment=$(soif_read_deployment .claude/phase-state.json)
+      mig_poc=$(soif_read_poc_mode .claude/phase-state.json)
       [ "$mig_deployment" = "null" ] && mig_deployment=""
       [ "$mig_poc" = "null" ] && mig_poc=""
     fi
@@ -1579,8 +1580,11 @@ if [ -f "$INTAKE_PROGRESS" ]; then
   if [ -z "$CURRENT_TRACK" ]; then
     CURRENT_TRACK=$(jq -r '.track // ""' "$INTAKE_PROGRESS")
   fi
-  CURRENT_DEPLOYMENT=$(jq -r '.deployment // ""' "$INTAKE_PROGRESS")
-  CURRENT_POC_MODE=$(jq -r '.poc_mode // ""' "$INTAKE_PROGRESS")
+  # BL-095: same top-level key shape as phase-state — the shared reader
+  # takes the file as an argument, so intake-progress reads route through
+  # the fence too.
+  CURRENT_DEPLOYMENT=$(soif_read_deployment "$INTAKE_PROGRESS")
+  CURRENT_POC_MODE=$(soif_read_poc_mode "$INTAKE_PROGRESS")
   if [ "$CURRENT_POC_MODE" = "null" ]; then
     CURRENT_POC_MODE=""
   fi
@@ -1601,10 +1605,10 @@ if [ -f "$PHASE_STATE" ]; then
     CURRENT_TRACK=$(jq -r '.track // ""' "$PHASE_STATE")
   fi
   if [ -z "$CURRENT_DEPLOYMENT" ]; then
-    CURRENT_DEPLOYMENT=$(jq -r '.deployment // ""' "$PHASE_STATE")
+    CURRENT_DEPLOYMENT=$(soif_read_deployment "$PHASE_STATE")
   fi
   if [ -z "$CURRENT_POC_MODE" ]; then
-    CURRENT_POC_MODE=$(jq -r '.poc_mode // ""' "$PHASE_STATE")
+    CURRENT_POC_MODE=$(soif_read_poc_mode "$PHASE_STATE")
     if [ "$CURRENT_POC_MODE" = "null" ]; then
       CURRENT_POC_MODE=""
     fi

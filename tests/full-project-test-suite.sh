@@ -17,6 +17,13 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEST_DIR=$(mktemp -d)
+
+# BL-096-CDF-PREFLIGHT (F9): report an absent ~/.claude-dev-framework AT
+# ENTRY with the exact clone line — previously a fresh host failed DEEP in
+# the scaffold tests with no hint. Warn-and-continue (`|| true`) is load-
+# bearing: the CI core shard runs CDF-less by design (init.sh auto-clones
+# over the network there), so absence must inform, never abort.
+bash "$SCRIPT_DIR/scripts/check-cdf-preflight.sh" || true
 PASS=0
 FAIL=0
 WARN=0
@@ -730,6 +737,53 @@ if bash "$SCRIPT_DIR/tests/test-bl124-pending-ratchet.sh" >/dev/null 2>&1; then
   pass "tests/test-bl124-pending-ratchet.sh"
 else
   fail "tests/test-bl124-pending-ratchet.sh FAILED (run for details)"
+fi
+
+# BL-130 (Dogfood-2 F-DF2-013, Low): --attest must REFUSE a scanner whose last
+# REAL verdict is FAIL — attestations cover scans that could not run, never
+# scans that ran and failed ([OK]-recorded a FAIL-masking row the driver would
+# then refuse to honor). In-suite fence-excision mutant. No init.sh -> both
+# lanes.
+if bash "$SCRIPT_DIR/tests/test-bl130-attest-fail-guard.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl130-attest-fail-guard.sh"
+else
+  fail "tests/test-bl130-attest-fail-guard.sh FAILED (run for details)"
+fi
+
+# BL-096 (ergonomics F6/F9/F10): cold-start hardening — the CDF preflight
+# names the exact clone line at suite ENTRY (warn-and-continue; CI runs
+# CDF-less), pre-commit-gate.sh --help tells the truth about --tdd-only
+# running BOTH message gates (+ the --commit-msg-gates honest-name alias,
+# behavior-pinned), and install-contributor-hooks.sh is CONTRIBUTING's
+# manual cp as one idempotent command. No init.sh -> both lanes.
+if bash "$SCRIPT_DIR/tests/test-bl096-cold-start.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl096-cold-start.sh"
+else
+  fail "tests/test-bl096-cold-start.sh FAILED (run for details)"
+fi
+
+# BL-095 (ergonomics F4): ONE parsing surface for deployment/poc_mode
+# (# BL-095-STATE-READERS in lib/helpers-core.sh) — unit contract (null/
+# absent/missing-file/default/no-jq fallback), source-closure over the four
+# migrated files, and a fence-excision mutant that must CRASH check-phase-
+# gate (routing proof). Conforming-inline siblings (pre-commit-gate,
+# run-phase3-validation) documented at the fence. No init.sh -> both lanes.
+if bash "$SCRIPT_DIR/tests/test-bl095-state-readers.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl095-state-readers.sh"
+else
+  fail "tests/test-bl095-state-readers.sh FAILED (run for details)"
+fi
+
+# BL-128 (Dogfood-2 F-DF2-015): the review generator is headless-viable —
+# --compose-only / --assemble-manifest need no claude at all; live runs get a
+# per-review process-GROUP watchdog (REVIEW_TIMEOUT_SECS), actionable
+# trust/spend triage, continue-on-failure, and an incrementally-written
+# manifest. claude is a PATH stub throughout (plan-file driven). No init.sh
+# -> both lanes.
+if bash "$SCRIPT_DIR/tests/test-bl128-review-generator-headless.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl128-review-generator-headless.sh"
+else
+  fail "tests/test-bl128-review-generator-headless.sh FAILED (run for details)"
 fi
 
 # BL-102 (Market Signal Step 1.1.5): Appendix D ships in the manifesto

@@ -512,15 +512,24 @@ gate_1_to_2=$(get_gate_date "phase_1_to_2")
 gate_2_to_3=$(get_gate_date "phase_2_to_3")
 gate_3_to_4=$(get_gate_date "phase_3_to_4")
 
-# Extract deployment type and track for conditional checks
-deployment=$(grep -o '"deployment"[[:space:]]*:[[:space:]]*"[^"]*"' "$PHASE_STATE" 2>/dev/null | sed 's/.*: *"//' | sed 's/"//' || echo "personal")
-track=$(grep -o '"track"[[:space:]]*:[[:space:]]*"[^"]*"' "$PHASE_STATE" 2>/dev/null | sed 's/.*: *"//' | sed 's/"//' || echo "light")
+# Extract deployment type and track for conditional checks.
+# BL-095: parsing goes through the # BL-095-STATE-READERS fence in
+# lib/helpers-core.sh (sourced above) — one surface instead of per-site
+# grep-sed variants. Per-site DEFAULTS stay here (policy, not parsing).
+# NOTE (E/F verifier A1): the pre-BL-095 `|| echo` defaults here were DEAD
+# (`||` bound to the last sed, which exits 0 on empty) — these defaults are
+# now LIVE on null/absent/missing state. Every current consumer tests
+# `= "organizational"` / `= "standard"` / `= "full"` only, so outcomes are
+# unchanged; a future `[ "$deployment" = "personal" ]` or `[ -z … ]` consumer
+# WILL see "personal"/"light" where the old code saw "".
+deployment=$(soif_read_deployment "$PHASE_STATE" "personal")
+track=$(soif_read_phase_state_key "$PHASE_STATE" "track" "light")
 # BL-084 (verifier follow-up): poc_mode is the SECOND half of the tier key
 # (with deployment) that decides push-escape bypass-eligibility below. It is
 # NOT keyed on `track` — a sponsored/production project can carry track=light.
-# `"poc_mode": null` (production / personal non-POC) is unquoted so this
-# quoted-value grep yields "" (correctly ≠ sponsored_poc).
-poc_mode=$(grep -o '"poc_mode"[[:space:]]*:[[:space:]]*"[^"]*"' "$PHASE_STATE" 2>/dev/null | sed 's/.*: *"//' | sed 's/"//' || echo "")
+# `"poc_mode": null` (production / personal non-POC) maps to "" in the reader
+# (correctly ≠ sponsored_poc — the null contract lives at the fence).
+poc_mode=$(soif_read_poc_mode "$PHASE_STATE")
 
 issues=0
 
@@ -789,7 +798,7 @@ validate_approval_section_dated() {
 # diagnostic so the operator knows which pre-condition lacks evidence.
 if [ "$deployment" = "organizational" ] && [ "$current_phase" -ge 0 ]; then
   poc_mode_val=""
-  poc_mode_val=$(grep -o '"poc_mode"[[:space:]]*:[[:space:]]*"[^"]*"' "$PHASE_STATE" 2>/dev/null | sed 's/.*: *"//' | sed 's/"//' || echo "")
+  poc_mode_val=$(soif_read_poc_mode "$PHASE_STATE")
 
   if [ -z "$poc_mode_val" ] || [ "$poc_mode_val" = "null" ]; then
     # Full organizational — all 6 pre-conditions required
@@ -1628,12 +1637,10 @@ fi
 
 # POC mode check (Phase 3→4) — block production release if in POC mode
 if [ "$current_phase" -ge 3 ]; then
-  poc_mode=""
-  if command -v jq &>/dev/null; then
-    poc_mode=$(jq -r '.poc_mode // empty' .claude/phase-state.json 2>/dev/null || echo "")
-  else
-    poc_mode=$(grep -o '"poc_mode"[[:space:]]*:[[:space:]]*"[^"]*"' .claude/phase-state.json 2>/dev/null | sed 's/.*: *"//' | sed 's/"//' || echo "")
-  fi
+  # BL-095: this was the jq-with-grep-fallback DUAL variant — exactly the
+  # branch pair soif_read_poc_mode implements once, with identical null
+  # semantics on both arms.
+  poc_mode=$(soif_read_poc_mode .claude/phase-state.json)
   if [ -n "$poc_mode" ] && [ "$poc_mode" != "null" ]; then
     echo "::error::Phase 4 (production release) is BLOCKED — project is in ${poc_mode//_/ } mode."
     echo "  POC projects complete at Phase 3 (ready to deploy)."

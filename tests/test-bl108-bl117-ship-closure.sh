@@ -66,14 +66,22 @@ shipped_scripts() {
 
 # ── T-template-closure ───────────────────────────────────────────────────────
 echo "=== T-template-closure ==="
+# E/F verifier E1 (vacuity guard): an extractor gone blind (regex drift, path
+# rename) yields an EMPTY referenced set, and closure over an empty set is a
+# silent certification of nothing. The count floor makes blindness loud —
+# the repo references many templates today, so 0 can only mean the extractor
+# broke.
+ref_n=$(referenced_templates | grep -c .)
 missing=""
 for t in $(referenced_templates); do
   if ! shipped_templates | grep -qx "$t"; then
     missing="$missing $t"
   fi
 done
-if [ -z "$missing" ]; then
-  pass "T-template-closure ($(referenced_templates | grep -c .) referenced templates all shipped)"
+if [ "$ref_n" -eq 0 ]; then
+  fail_ "T-template-closure" "referenced_templates extracted ZERO items — the extractor went blind and the closure would certify an empty set (E/F verifier E1)"
+elif [ -z "$missing" ]; then
+  pass "T-template-closure ($ref_n referenced templates all shipped)"
 else
   fail_ "T-template-closure" "shipped scripts/guide name templates init.sh never ships:$missing (BL-108 — the operator is told to use files that do not exist in their project)"
 fi
@@ -92,14 +100,20 @@ fi
 
 # ── T-guide-tools-shipped ────────────────────────────────────────────────────
 echo "=== T-guide-tools-shipped ==="
+# E/F verifier E1: same vacuity guard as T-template-closure — 0 extracted
+# guide-named tools can only mean the extractor broke, not that the guide
+# stopped naming tools.
+tool_n=$(guide_named_tools | grep -c .)
 tool_missing=""
 for s in $(guide_named_tools); do
   if ! shipped_scripts | grep -qx "$s"; then
     tool_missing="$tool_missing $s"
   fi
 done
-if [ -z "$tool_missing" ]; then
-  pass "T-guide-tools-shipped ($(guide_named_tools | grep -c .) guide-named tools all shipped)"
+if [ "$tool_n" -eq 0 ]; then
+  fail_ "T-guide-tools-shipped" "guide_named_tools extracted ZERO items — the extractor went blind and the closure would certify an empty set (E/F verifier E1)"
+elif [ -z "$tool_missing" ]; then
+  pass "T-guide-tools-shipped ($tool_n guide-named tools all shipped)"
 else
   fail_ "T-guide-tools-shipped" "builders-guide names in-project tools init.sh never ships:$tool_missing (BL-117 F20 — 'No such file' for a guide-following operator)"
 fi

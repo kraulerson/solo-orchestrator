@@ -2398,6 +2398,8 @@ Add a documentation-rules section to `docs/builders-guide.md` (and generate the 
 
 **Related:** ergonomics audit F4; BL-084 (the defect class); `# BL-084-TIER-KEY` sync-comment sites; `# BL-086-TIER`; `scripts/lib/enforcement-level.sh`; BL-088 (closure).
 
+**Status update 2026-07-17:** fix implemented on branch `fix/phase-f-bl129-bl130-bl096` (stacked on PR #210; PR number cited at close). `# BL-095-STATE-READERS-BEGIN/END` in `scripts/lib/helpers-core.sh` — `soif_read_phase_state_key <file> <key> [default]` + `soif_read_deployment`/`soif_read_poc_mode` wrappers (jq-first, quoted-value-grep fallback; JSON null / absent key / missing file ALL yield the caller's default on both arms). helpers-core.sh chosen deliberately: every gate consumer already sources it, every fixture already copies it, and init.sh already ships it — zero new sourcing surface, BL-088 closure already covers it. Migrated: check-phase-gate.sh (4 sites incl. the jq-with-grep-fallback dual + the adjacent `track` read), process-checklist.sh (1), upgrade-project.sh (6 — incl. the intake-progress reads, same top-level shape), intake-wizard.sh (2). **Deliberately NOT migrated (documented as sync siblings at the fence):** pre-commit-gate.sh (hook surface — a missing lib would brick commits, the BL-119 class), run-phase3-validation.sh (self-contained by design; harnesses copy it standalone), and verify-install.sh (reads the NESTED `.answers.poc_mode` shape from intake-progress.json — the readers are top-level-only by design). Legacy string-`"null"` post-guards kept at call sites (policy on legacy data, not parsing). `tests/test-bl095-state-readers.sh` 8/8 (both lists): unit contract + no-jq PATH stub + source-closure over the four migrated files + fence-excision mutant must CRASH check-phase-gate (routing proof, vacuous-proof in both directions). Evidence: § WP-F4.
+
 ---
 
 ## BL-096: Cold-start hardening bundle — CDF preflight, --tdd-only help truth, contributor hook bootstrap
@@ -2413,6 +2415,8 @@ Three small onboarding traps the 2026-07-11 CLAUDE.md documents but does not fix
 3. **Contributor hook bootstrap (F10):** a one-liner (script or documented command) that installs `pre-commit-gate.sh` into `.git/hooks/` for framework contributors, so local commits face the same gates CI does instead of discovering them at PR time.
 
 **Related:** ergonomics audit F6/F9/F10; CLAUDE.md (PR #176 — documents these; this entry fixes them at source); CONTRIBUTING.md.
+
+**Status update 2026-07-17:** fix implemented on branch `fix/phase-f-bl129-bl130-bl096` (stacked on PR #210; PR number cited at close). F9: `scripts/check-cdf-preflight.sh` (init.sh's presence predicate; rc=1 + the exact clone line when absent) wired at `tests/full-project-test-suite.sh` ENTRY via `# BL-096-CDF-PREFLIGHT` — warn-and-continue (`|| true`) because the CI core shard runs CDF-less by design. F6: `pre-commit-gate.sh` gains a real `--help` (`# BL-096-GATE-HELP` — previously `--help` fell through to the stdin-JSON surface and exited 0 SILENTLY) stating that `--tdd-only` runs BOTH message gates (BL-072 + BL-006, name kept for hook back-compat), plus the adopted `--commit-msg-gates` honest-name alias (`# BL-096-COMMITMSG-ALIAS`, behavior-pinned to block identically). F10: `scripts/install-contributor-hooks.sh` (`# BL-096-CONTRIB-HOOK-INSTALL`; idempotent, refuses outside a framework checkout) + CONTRIBUTING.md now leads with the one-liner. `tests/test-bl096-cold-start.sh` 8/8 (both lists; RED watched 7/1 pre-fix; triple-mutation run killed each arm independently). Evidence: § WP-F5.
 
 ---
 
@@ -3167,6 +3171,8 @@ Every step of the `uat_session` checklist in `process-checklist.sh` is pure self
 
 **Related:** BL-103 (the parse bug this succeeds — fixed); BL-073 (the review gate this feeds); `Reports/2026-07-13-dogfood-2/FINDINGS.md` (F-DF2-015).
 
+**Status update 2026-07-17:** fix implemented on branch `fix/phase-f-bl129-bl130-bl096` (stacked on PR #210; PR number cited at close). All four fix-shape asks landed in `run-reviews.sh`: `# BL-128-REVIEW-WATCHDOG` (per-review wall bound `REVIEW_TIMEOUT_SECS`, default 900s; the review runs in its OWN process group via `set -m` and TERM→KILL goes to `-pgid` — the 159-orphan teardown; bash-native poll loop because the host has no `timeout`/`gtimeout`); `# BL-128-INCREMENTAL-MANIFEST` (`generate_manifest` extracted to a function, called quiet after EVERY review + verbose at end — a killed run keeps everything completed so far); `# BL-128-FAILURE-TRIAGE` (a failed review no longer set-e-aborts the suite; trust-dialog and spend/usage-limit signatures get actionable guidance); `# BL-128-HEADLESS-ARGS` + `# BL-128-COMPOSE-ONLY` (`--compose-only` emits all composed prompts with provenance to `docs/eval-results/prompts/` and starts nothing — claude CLI not even required; `--assemble-manifest` builds+validates the manifest from artifacts already on disk). `tests/test-bl128-review-generator-headless.sh` 5/5 (both lists; claude is a plan-file-driven PATH stub; the incremental case is pinned by reviewer 2's stub OBSERVING reviewer 1's manifest entry mid-run; the group-kill case requires the recorded grandchild pid to be dead). RED watched 0/5 (T4 showed the set-e mid-run abort verbatim); combined 4-arm mutation → all 5 RED (incl. `grandchild-alive=yes`, the resurrected orphan defect) → restore → 5/5. `lint-evalprompts-portability` clean. Evidence: § WP-F1.
+
 ---
 
 ## BL-129: `init.sh` non-interactive help text contradicts the gov-mode validation code — it tells operators the opposite of what the code accepts
@@ -3182,6 +3188,8 @@ Every step of the `uat_session` checklist in `process-checklist.sh` is pure self
 
 **Fix shape:** correct `--help-non-interactive` to state the real mapping (personal→{production, private_poc}; organizational→{production, sponsored_poc}); scrub the stale `organizational + private_poc` "choosable" comments in `enforcement-level.sh` and `init.sh`. Doc-only; no behavior change.
 
+**Status update 2026-07-17:** fix implemented on branch `fix/phase-f-bl129-bl130-bl096` (stacked on PR #210; PR number cited at close). `--help-non-interactive` now states the real mapping (organizational: production, sponsored_poc — personal: production, private_poc — with the always-personal/always-organizational rule and a note that the previous text claimed the opposite); the stale "choosable iff … organizational AND poc_mode=private_poc" comments in `init.sh` (BL-030 resolve block) and `scripts/lib/enforcement-level.sh::assert_choosable` are rewritten as defensive-dead-code notes (the branch fires only on hand-edited manifests; behavior unchanged). Pinned by `test-init-non-interactive.sh` N30 (help-truth: false claim OUT, both real pairs IN — RED watched pre-fix, help-revert mutant killed) + N31/N32 (code mapping in both directions). Evidence: § WP-F2.
+
 **Related:** BL-084-TIER-KEY (the tier predicate); `Reports/2026-07-13-dogfood-2/FINDINGS.md` (F-DF2-001).
 
 ---
@@ -3194,6 +3202,8 @@ Every step of the `uat_session` checklist in `process-checklist.sh` is pure self
 **Status:** Open
 
 `run-phase3-validation.sh --attest <scanner> --reason "…"` records the attestation and prints `[OK] Attested skip for '<scanner>' recorded` **even when that scanner is currently in FAIL state** (not merely un-run/SKIP). The next driver run still correctly reports `FAIL=… → FAIL` and does **not** honor the attestation for a FAIL — so BL-113's guarantee holds and no real FAIL is laundered into a pass. But the `[OK]` with no caveat invites the operator to believe they have cleared something they have not, and leaves a misleading "attested" row against a FAILing scanner.
+
+**Status update 2026-07-17:** fix implemented on branch `fix/phase-f-bl129-bl130-bl096` (stacked on PR #210; PR number cited at close). `# BL-130-ATTEST-FAIL-GUARD-BEGIN/END` in `run-phase3-validation.sh`'s attest mode: refuses at WRITE time (exit 2, message cites BL-113's rule — a FAIL must be fixed or re-run, not attested) when `_p3_last_real_verdict` reports the scanner's newest real verdict is FAIL; the SKIP-attest path is untouched. `tests/test-bl130-attest-fail-guard.sh` (both lists): RED watched against the pre-fix driver (rc=0 + attestation WRITTEN against a FAILing scanner), newest-summary-wins pinned in-fixture, in-suite fence-excision mutant proves the guard load-bearing. Evidence: § WP-F3.
 
 **Reproduce:** with a scanner in FAIL, `bash scripts/run-phase3-validation.sh --attest <scanner> --reason "x"` → `[OK] Attested skip … recorded`; re-run the driver → still `FAIL`.
 

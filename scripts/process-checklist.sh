@@ -731,7 +731,8 @@ start_phase4() {
   # Check POC mode — Phase 4 is blocked for POC projects
   if [ -f "$PHASE_STATE" ]; then
     local poc_mode
-    poc_mode=$(grep -o '"poc_mode"[[:space:]]*:[[:space:]]*"[^"]*"' "$PHASE_STATE" 2>/dev/null | sed 's/.*: *"//' | sed 's/"//' || echo "")
+    # BL-095: parse via the # BL-095-STATE-READERS fence (lib/helpers-core.sh).
+    poc_mode=$(soif_read_poc_mode "$PHASE_STATE")
     if [ -n "$poc_mode" ] && [ "$poc_mode" != "null" ]; then
       print_fail "Phase 4 (production release) is blocked — project is in ${poc_mode//_/ } mode."
       echo "  POC projects complete at Phase 3. To unlock Phase 4:" >&2

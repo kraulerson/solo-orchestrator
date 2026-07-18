@@ -100,6 +100,38 @@ n7_personal_with_invalid_govmode() {
   pass "N7: --deployment=personal with --gov-mode=sponsored_poc (invalid for personal) → exit 1"
 }
 
+# BL-129 (Dogfood-2 F-DF2-001): --help-non-interactive said --gov-mode is
+# "NOT VALID when --deployment=personal" while the CODE accepts
+# personal+private_poc (the ONLY way to reach Private POC, per baseline §2.5 /
+# tier-crosscheck-2) and REJECTS organizational+private_poc — following the
+# help verbatim got you rejected. THE SCRIPTS WIN → the help must state the
+# real mapping. N30 pins the help text to the truth (and pins the false claim
+# OUT); N31/N32 pin the code mapping in both directions so help and code
+# cannot drift apart silently again.
+n30_bl129_help_states_real_govmode_mapping() {
+  local htxt
+  htxt=$("$INIT_SH" --help-non-interactive 2>&1 || true)  # lint-no-live-remote: allow help-only invocation prints usage and exits before any remote logic
+  if printf '%s' "$htxt" | grep -q "NOT VALID when --deployment=personal"; then
+    fail_ "N30" "--help-non-interactive still carries the FALSE claim 'NOT VALID when --deployment=personal' (BL-129: personal+private_poc is the only valid Private-POC pairing)"; return
+  fi
+  printf '%s' "$htxt" | grep -q "production, sponsored_poc" || { fail_ "N30" "help does not state the organizational mapping (production, sponsored_poc)"; return; }
+  printf '%s' "$htxt" | grep -q "production, private_poc" || { fail_ "N30" "help does not state the personal mapping (production, private_poc)"; return; }
+  pass "N30: --help-non-interactive states the real gov-mode mapping (BL-129)"
+}
+
+n31_bl129_personal_private_poc_accepted() {
+  local out; out=$(run_validate --project p --platform web --deployment personal --gov-mode private_poc --language typescript)
+  [ "${out%%|*}" = "0" ] || { fail_ "N31" "personal+private_poc REJECTED (rc=${out%%|*}) — the one valid Private-POC pairing must validate: ${out##*|}"; return; }
+  pass "N31: --deployment=personal with --gov-mode=private_poc → exit 0 (BL-129)"
+}
+
+n32_bl129_org_private_poc_rejected() {
+  local out; out=$(run_validate --project p --platform web --deployment organizational --gov-mode private_poc --language typescript --visibility public)
+  [ "${out%%|*}" = "1" ] || { fail_ "N32" "organizational+private_poc ACCEPTED (rc=${out%%|*}) — baseline §2.5: Private POC is always personal"; return; }
+  [[ "${out##*|}" == *"not valid for --deployment=organizational"* ]] || { fail_ "N32" "stderr should name the invalid pairing: ${out##*|}"; return; }
+  pass "N32: --deployment=organizational with --gov-mode=private_poc → exit 1 (BL-129)"
+}
+
 n8_other_without_remoteurl() {
   local out; out=$(run_validate --project p --platform web --deployment personal --language typescript --git-host other)
   [ "${out%%|*}" = "1" ] || { fail_ "N8" "expected exit 1, got: $out"; return; }
@@ -348,6 +380,9 @@ n26_default_project_dir
 n27_invalid_language_lists_supported
 n28_swift_on_linux_blocked
 n29_mcp_server_platform_alias
+n30_bl129_help_states_real_govmode_mapping
+n31_bl129_personal_private_poc_accepted
+n32_bl129_org_private_poc_rejected
 
 echo ""
 echo "== Total: $((PASSED + FAILED)) | Passed: $PASSED | Failed: $FAILED =="

@@ -463,3 +463,60 @@ prompt_install() {
     return 1
   fi
 }
+
+# BL-095-STATE-READERS-BEGIN
+# ONE parsing surface for top-level phase-state keys — nine files previously
+# parsed `deployment`/`poc_mode` inline (three different grep-sed variants, a
+# jq-with-grep-fallback dual, plain jq), and the duplication produced the
+# BL-084 null/production mishandling class. Parsing is centralized HERE;
+# per-gate PREDICATES (BL-084 bypass vs BL-086 license-tier semantics) stay
+# per-gate on purpose.
+#
+# Null semantics (the load-bearing contract): JSON null, an absent key, and a
+# missing file ALL yield the caller's default — jq maps null with `// ""`;
+# the no-jq grep fallback only matches QUOTED values, so an unquoted `null`
+# never matches and falls to the default identically.
+#
+# CONFORMING-INLINE SYNC SIBLINGS (deliberately NOT migrated — change these
+# in step with this fence):
+#   scripts/pre-commit-gate.sh    — hook surface; must not grow a sourcing
+#                                   dependency (a missing lib would brick
+#                                   commits, the BL-119 class). Uses the
+#                                   canonical `jq -r '.key // ""'` form.
+#   scripts/run-phase3-validation.sh — self-contained by design (harnesses
+#                                   copy it standalone). Uses the quoted-value
+#                                   grep form with identical null semantics.
+#   scripts/verify-install.sh     — reads the NESTED `.answers.poc_mode`
+#                                   shape from intake-progress.json; these
+#                                   readers are top-level-only on purpose
+#                                   (one key grammar), so that site stays
+#                                   inline until a nested need recurs.
+
+# soif_read_phase_state_key <state-file> <key> [default]
+# Echoes the string value of a TOP-LEVEL key, or the default. Never errors.
+soif_read_phase_state_key() {
+  local soif_rsk_file="$1" soif_rsk_key="$2" soif_rsk_def="${3:-}"
+  local soif_rsk_val=""
+  if [ ! -f "$soif_rsk_file" ]; then
+    printf '%s' "$soif_rsk_def"
+    return 0
+  fi
+  if command -v jq >/dev/null 2>&1; then
+    soif_rsk_val=$(jq -r --arg k "$soif_rsk_key" '.[$k] // ""' "$soif_rsk_file" 2>/dev/null || echo "")
+  else
+    soif_rsk_val=$(grep -o "\"$soif_rsk_key\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" "$soif_rsk_file" 2>/dev/null | head -1 | sed 's/.*: *"//' | sed 's/"//' || echo "")
+  fi
+  if [ -n "$soif_rsk_val" ]; then
+    printf '%s' "$soif_rsk_val"
+  else
+    printf '%s' "$soif_rsk_def"
+  fi
+  return 0
+}
+
+# soif_read_deployment <state-file> [default]
+soif_read_deployment() { soif_read_phase_state_key "$1" "deployment" "${2:-}"; }
+
+# soif_read_poc_mode <state-file> [default]
+soif_read_poc_mode()   { soif_read_phase_state_key "$1" "poc_mode" "${2:-}"; }
+# BL-095-STATE-READERS-END

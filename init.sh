@@ -3284,8 +3284,14 @@ Required flags (always):
 
 Required flags (conditional):
   --gov-mode MODE          One of: production, sponsored_poc, private_poc.
-                           REQUIRED when --deployment=organizational.
-                           NOT VALID when --deployment=personal.
+                           REQUIRED when --deployment=organizational
+                           (valid there: production, sponsored_poc).
+                           OPTIONAL when --deployment=personal
+                           (valid there: production, private_poc).
+                           private_poc is ALWAYS personal; sponsored_poc is
+                           ALWAYS organizational (baseline §2.5). BL-129:
+                           this text previously claimed the OPPOSITE mapping
+                           and following it verbatim was rejected.
   --remote-url URL         HTTPS or SSH URL of an existing remote repo.
                            REQUIRED when --git-host=other.
   --branch-protection-attested
@@ -4093,8 +4099,11 @@ HELPEOF
       *)          POC_MODE="$GOV_MODE" ;;
     esac
 
-    # BL-030: resolve enforcement_level. Choosable iff deployment=personal
-    # OR (organizational AND poc_mode=private_poc). Otherwise forced strict.
+    # BL-030: resolve enforcement_level. Choosable iff deployment=personal;
+    # otherwise forced strict. BL-129: the `organizational + private_poc`
+    # branch below is defensive dead code — the gov-mode rules above reject
+    # that combo ("Private POC is always personal"), so this arm only fires
+    # on a hand-edited manifest; do not describe it as a choosable tier.
     ENFORCEMENT_LEVEL="$ARG_ENFORCEMENT_LEVEL"
     [ "$ARG_CONFIRM_PITFALLS" = true ] && CONFIRM_PITFALLS=1
     _bl030_choosable=0
