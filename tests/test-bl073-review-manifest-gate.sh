@@ -98,6 +98,11 @@ build_project() {
   TMP=$(mktemp -d)
   PROJ="$TMP/p"
   mkdir -p "$PROJ/.claude" "$PROJ/docs/test-results" "$PROJ/docs/eval-results"
+  # BL-114 (PR #208): the 0->1 gate demands real Step-0 intermediates.
+  mkdir -p "$PROJ/docs/phase-0"
+  printf 'frd\n' > "$PROJ/docs/phase-0/frd.md"
+  printf 'journey\n' > "$PROJ/docs/phase-0/user-journey.md"
+  printf 'contract\n' > "$PROJ/docs/phase-0/data-contract.md"
 
   local flag_json=""
   [ "$flag" = "yes" ] && flag_json='"review_gate_enforced": true,'
@@ -133,7 +138,7 @@ JSON
   cat > "$PROJ/.claude/process-state.json" <<JSON
 {
   "phase1_artifacts": { "data_classification": "public" },
-  "phase2_init": { "attestations": { "branch_protection": { "reason": "github_free_tier" } } },
+  "phase2_init": { "steps_completed": ["remote_repo_created","pushed_initial"], "attestations": { "branch_protection": { "reason": "github_free_tier" } } },
   "phase3_validation": { "steps_completed": ["integration_testing","security_hardening","chaos_testing","accessibility_audit","performance_audit","contract_testing","results_archived","pre_launch_preparation","legal_review"] }
 }
 JSON
