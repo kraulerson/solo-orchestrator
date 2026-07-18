@@ -22,9 +22,13 @@
 #           SOLO_ZAP_TARGET_URL unset (names the variable). All attestable.
 #   run   = `zap-baseline.py` via the ghcr.io/zaproxy/zaproxy:stable image
 #           against SOLO_ZAP_TARGET_URL, archive zap-dast-<ts>.json.
-#   Findings policy MIRRORS the semgrep arm: zap-baseline exits 1/2 on FAIL-/
-#   WARN-level alerts while producing a report, >=3 on error — so no report /
-#   rc>=3 → FAIL, alerts>0 (or a non-zero baseline rc) → FAIL, 0 alerts → PASS.
+#   Findings policy MIRRORS the semgrep arm (BL-122): no report / rc>=3 → FAIL
+#   (crash, not a skip); Medium+ alerts (riskcode >= 2) → FAIL; ONLY
+#   informational/low alerts → PASS (rule 10049 fires under every possible
+#   Cache-Control value, so an unfiltered count made zero-alerts unreachable
+#   and the gate unpassable for any web app); unparseable/unevaluable report
+#   → FAIL naming the reason (a report nobody read is not a pass). Baseline
+#   rc 1/2 alone no longer fails — the risk filter IS the severity policy.
 #
 # Cases:
 #   T-snyk-auth-pass       authenticated + clean JSON report → PASS + non-empty
@@ -205,6 +209,13 @@ zap_archive() { ls -1 "$RDIR"/zap-dast-*.json 2>/dev/null | sort | tail -1; }
 
 ZAP_CLEAN='{"@version":"2.14.0","site":[{"@name":"http://app.local","alerts":[]}]}'
 ZAP_ALERTS='{"@version":"2.14.0","site":[{"@name":"http://app.local","alerts":[{"name":"X-Frame-Options Header Not Set","riskcode":"2"},{"name":"CSP Header Not Set","riskcode":"2"}]}]}'
+# BL-122 fixtures. ZAP rule 10049 (riskcode 0, Informational) fires under EVERY
+# possible Cache-Control value, so an unfiltered count makes the gate
+# unpassable for any web app — Informational/Low must NOT block; Medium+
+# (riskcode >= 2) must. riskcode is a STRING in real ZAP JSON.
+ZAP_INFO_LOW='{"@version":"2.14.0","site":[{"@name":"http://app.local","alerts":[{"name":"Storable and Cacheable Content","pluginid":"10049","riskcode":"0"},{"name":"Timestamp Disclosure","riskcode":"1"}]}]}'
+ZAP_MIXED='{"@version":"2.14.0","site":[{"@name":"http://app.local","alerts":[{"name":"Storable and Cacheable Content","pluginid":"10049","riskcode":"0"},{"name":"CSP Header Not Set","riskcode":"2"}]}]}'
+ZAP_MALFORMED='this is not json {'
 
 # ════════════════════════════════════════════════════════════════════
 echo ""
@@ -419,6 +430,68 @@ if echo "$out" | grep -q "\[PASS\] zap-dast"; then
   fail_ "T-zap-findings-fail" "alerts must NOT be reported as PASS"
 else
   pass "T-zap-findings-fail: alerts are not downgraded to PASS"
+fi
+unset ZAP_URL
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T-zap-info-only-pass: ONLY Informational/Low alerts (rc 1) → PASS (BL-122) ==="
+# ════════════════════════════════════════════════════════════════════
+# Dogfood-2 F-DF2-012: rule 10049 (riskcode 0) fires under EVERY Cache-Control
+# value, so counting it made zero-alerts unreachable and the DAST gate
+# permanently blocked Phase 3→4 for every web project — and BL-113 (correctly)
+# refuses to attest past a FAIL, so there was no legitimate escape. Policy now
+# mirrors the semgrep arm's --severity=ERROR: Medium+ (riskcode >= 2) blocks;
+# Informational/Low surface in the archived report but do not block.
+setup_zap web with-docker
+ZAP_URL="http://app.local"
+out="$(run_zap_driver "$ZAP_INFO_LOW" 1)"
+if echo "$out" | grep -q "\[PASS\] zap-dast"; then
+  pass "T-zap-info-only-pass: informational/low-only report passes"
+else
+  fail_ "T-zap-info-only-pass" "riskcode 0/1-only report must PASS (the unfiltered count made the gate unpassable for any web app); out:
+$(echo "$out" | grep -iE 'zap' | head)"
+fi
+if echo "$out" | grep -q "\[FAIL\] zap-dast"; then
+  fail_ "T-zap-info-only-pass" "informational/low alerts must not FAIL the gate"
+else
+  pass "T-zap-info-only-pass: no FAIL emitted for informational/low"
+fi
+unset ZAP_URL
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T-zap-mixed-risk-fail: riskcode 0 + riskcode 2 → FAIL counting ONLY the Medium+ (BL-122) ==="
+# ════════════════════════════════════════════════════════════════════
+setup_zap web with-docker
+ZAP_URL="http://app.local"
+out="$(run_zap_driver "$ZAP_MIXED" 2)"
+if echo "$out" | grep -q "\[FAIL\] zap-dast" && echo "$out" | grep -q "1 Medium+"; then
+  pass "T-zap-mixed-risk-fail: Medium+ alert blocks, counted as exactly 1"
+else
+  fail_ "T-zap-mixed-risk-fail" "expected [FAIL] zap-dast with '1 Medium+' (the riskcode-0 alert must not inflate the count); out:
+$(echo "$out" | grep -iE 'zap' | head)"
+fi
+unset ZAP_URL
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T-zap-malformed-report-fail: unparseable report → FAIL naming the reason (BL-122) ==="
+# ════════════════════════════════════════════════════════════════════
+# A report nobody could read is NOT a pass (BL-112/BL-113 honesty class). With
+# the rc arm no longer part of the verdict, an unparseable report must FAIL on
+# its own — and say WHY, not masquerade as an alert count.
+setup_zap web with-docker
+ZAP_URL="http://app.local"
+out="$(run_zap_driver "$ZAP_MALFORMED" 1)"
+if echo "$out" | grep -q "\[FAIL\] zap-dast" && echo "$out" | grep -qi "unparseable"; then
+  pass "T-zap-malformed-report-fail: unparseable report fails loudly with the reason"
+else
+  fail_ "T-zap-malformed-report-fail" "expected [FAIL] zap-dast mentioning 'unparseable'; out:
+$(echo "$out" | grep -iE 'zap' | head)"
 fi
 unset ZAP_URL
 teardown

@@ -18,7 +18,7 @@
 
 ---
 
-## WP-A1 — BL-118 (Critical): SAST blind to DOM XSS — DONE-PR-open
+## WP-A1 — BL-118 (Critical): SAST blind to DOM XSS — MERGED (2026-07-17, via PR #202 `88bddd3`)
 
 - **Branch:** `fix/bl118-sast-dom-xss` (stacked on `docs/dogfood2-findings-base` / PR #198). **PR #199**, fix commit `fbf2be8`.
 - **Reproduce (2026-07-17, semgrep 1.157.0):** positive control `sink.ts` (`eval`/`innerHTML`/`document.write`): `p/owasp-top-ten --severity=ERROR --error` → 0 findings, rc=0 (**the bug**). `r/javascript.browser.security.insecure-document-method --error` → 2 findings (innerHTML L3, document.write L4), rc=1; `--json` shows `severity=ERROR` for both, so the pack SURVIVES the `--severity=ERROR` bound → single-invocation fix valid. `eval` is flagged by NEITHER pack (residual, see notes).
@@ -36,7 +36,7 @@
 
 ---
 
-## WP-A3 — BL-119 (High) stale-COMMIT_EDITMSG brick + BL-087 & BL-133 fold-ins — DONE-PR-open
+## WP-A3 — BL-119 (High) stale-COMMIT_EDITMSG brick + BL-087 & BL-133 fold-ins — MERGED (2026-07-17, via PR #202 `88bddd3`)
 
 - **Branch:** `fix/bl119-stale-editmsg` (stacked on PR #199). **PR #200**, fix commit `f39d944`.
 - **Reproduce (hermetic E2E, in-repo):** strict scratch project, REAL `install-filesystem-gates.sh --install` chain; stale `feat(reader): render pane` in COMMIT_EDITMSG; real `git commit -m "docs: update readme"` → BLOCKED rc=1 with the walk's exact message `[FAIL] pre-commit gate: 'feat(...)' commit blocked — no Build Loop active.` BL-087: framework-lookalike + `--tdd-only` → rc=1 `Refusing to operate inside the Solo Orchestrator framework repo`. BL-133 (verifier repro): project-local BR lint + stale `docs: … BL-9999` + innocent staged file → rc=1 `backlog-references lint failed`.
@@ -53,7 +53,9 @@
 
 ---
 
-## WP-B1 — BL-121 (High): BSD-sed cutline miscount hard-blocks the production gate on macOS — DONE-PR-open
+## WP-B1 — BL-121 (High): BSD-sed cutline miscount hard-blocks the production gate on macOS — MERGED (2026-07-17, via PR #202 `88bddd3`)
+
+> **Stack-landing episode (operational lesson, 2026-07-17):** the four stacked PRs were merged ascending (#198→#201) with head branches KEPT, so GitHub merged each child into its parent branch and only #198's docs reached main — BL-118/119/121 were stranded in the intermediate branches. Recovered by PR #202 (`fix/dogfood2-stack-landing`): one merge of `origin/fix/bl119-stale-editmsg@026a521` (transitively the whole reviewed stack, zero new code), landing-verified (bl118 6/6 live, bl119 4/4, bl121 2/2, terminal-mode, run-lints 11/11). Root cause: PR-body guidance said "merge ascending" without the auto-delete-head-branches precondition that makes GitHub retarget children to main. **Repo setting "Automatically delete head branches" now enabled** — future stacks land correctly in ascending order.
 
 - **Branch:** `fix/bl121-cutline-bsd-sed` (stacked on PR #200). **PR #201**, commits `942b08b` (fix) + `d2feee7` (verifier NOTE-1 follow-up).
 - **Reproduce (this host, BSD sed):** `printf 'A\nSTOP-B\nC\n' | sed -n '/A/,/STOP\|NOPE/p'` → all 3 lines (range never closes). Behavior test pre-fix: fixture with a true 3-item cutline → **cutline_items=8** (EOF runoff; 68 vs 3 on the real walk). Block chain: miscount → WARN → test-gate exit 2 → check-phase-gate `issues+=1` → Phase 3→4 hard block (the [WARN] trap).
@@ -63,5 +65,19 @@
 - **Mutation proofs:** HEAD-revert both files → T-counts-three RED (=8) + T11 RED → restore → green. De-anchor the opener → RED (=4) → restore → GREEN.
 - **Affected suites (green):** test-test-gate-counter-sanitizer · test-test-gate-null-handling · test-unrecord-feature · test-bl073-review-manifest-gate · lint self-test 15/15 · run-lints 11/11 (repo-wide zero sed-alternation hits).
 - **Adversarial verify (Opus-tier — assess-and-select: mechanical fix + lint rule, heavily self-tested; lower blast radius than Phase A):** verdict **SHIP**. Semantic parity proven on 6 fixture shapes vs a GNU-emulation oracle (incl. CRLF; the `^---` anchor is MORE correct than the GNU original on mid-line `---`); end-to-end gate flip demonstrated (OLD: exit 2 spurious WARN → FIXED: exit 0 "Feature count matches MVP Cutline"); lint FP/FN sweep clean (the `-E` exemption is load-bearing for check-phase-gate's table parsing; multi-line/`-f`/variable-program seds are honest blind spots with zero in-tree instances). NOTE-1 fixed in `d2feee7` (verifier-validated: A1 6→3, A3 5→2, A0/A1b unchanged). NOTE-2 recorded: the arm warns on ANY count mismatch in either direction (pre-existing, unchanged). mawk/gawk parity is spec-based (no GNU tools on this host) and exercised for real by the ubuntu unit lane.
+
+---
+
+## WP-B2 — BL-122 (High): DAST gate unpassable for any web app — DONE-PR-open
+
+- **Branch:** `fix/bl122-zap-risk-filter` (off healed main `88bddd3`). **PR #203**, fix commit `f0f6c82` (amended pre-push to act on verifier Finding 1). Closure docs for the merged five ride as `56b23dd` on the same branch.
+- **Reproduce:** S-019 (real walk): clean baseline FAIL-NEW=0 / PASS=66 → `[FAIL] zap-dast — 1 ZAP alert(s)`; sole alert riskcode 0, pluginid 10049, which fires under EVERY Cache-Control value → zero-alerts unreachable → 3→4 permanently blocked; BL-113 correctly refuses to attest a FAIL. In-suite RED: info-only fixture FAILed, mixed fixture counted 2 not 1, malformed lacked the honest reason.
+- **Fix (marker):** `# BL-122-ZAP-RISK-FILTER` — riskcode≥2 blocks (string-typed, `// "0"` for missing, non-numeric → whole-jq failure → unparseable FAIL: fails safe); rc 1/2 dropped from the verdict (zap-baseline defaults ALL alerts to WARN → rc=1 for any alert was the unpassable mechanism; rc=2 needs a `-c` config the driver never passes; rc≥3/no-report still FAIL); unparseable report → FAIL naming the reason.
+- **Tests:** T-zap-info-only-pass · T-zap-mixed-risk-fail (asserts exactly "1 Medium+") · T-zap-malformed-report-fail — all RED pre-fix; suite 43/43 post-fix. Existing riskcode-2 fixtures unchanged.
+- **Mutation:** HEAD-revert → 4 RED sub-checks → restore → GREEN; verifier independently re-proved the filter line load-bearing (filter-only revert flips both count cases).
+- **Affected suites (green):** zap suite 43/43 · phase3-validation-gate 51/51 · bl113-sast-honesty 17/17 · bl070-threat-model · bl070-license · run-lints 11/11.
+- **Adversarial verify (Opus-tier):** verdict **SHIP**. Real ZAP `-J` schema fidelity confirmed (multi-site, `@`-keys, missing alerts, instances nesting); hostile riskcode battery fails safe everywhere (no path lets Medium+ PASS, none crashes into a silent pass); BL-113's attest-on-SKIP-only guarantee re-proven around the new verdict.
+  - **Acted on (amended into `f0f6c82`):** Finding 1 — my "no jq → FAIL" guard was unreachable dead code AND its rationale was false (jq-less hosts SKIP attestably at the upstream platform classification, pre-fix too — there was never a jq-less silent pass). Branch dropped; comment + commit narrative corrected.
+  - **Accepted as designed:** Finding 2 — a valid-JSON-but-structurally-empty report + rc 1/2 now PASSes; for that to hide a real Medium+ alert, zap-baseline would have to exit 1/2 while omitting from its own report the alert that drove the exit code — ~nil probability, and truncation yields invalid JSON → unparseable FAIL.
 
 - **Notes / residuals:** (1) `eval()` sinks remain invisible to the commit-time gate (neither pack carries an ERROR-severity eval rule); Phase-3 `--config auto` catches them. (2) gitlab templates run `p/security-audit` only vs github's two packs — pre-existing asymmetry, untouched. (3) The pinned `semgrep/semgrep-action@713efdd… (v1/v0.58.0)` is 2021-era; verifier traced it as pass-through-correct for `r/` configs, but modernizing the pin is worth a look. (4) `--config auto` at commit time NOT adopted (network + metrics on every commit; deterministic registry pack keeps the BL-112-SAST-NOTRUN discipline meaningful).
