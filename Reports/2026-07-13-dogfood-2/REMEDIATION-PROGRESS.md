@@ -143,6 +143,19 @@
 - **Mutation:** HEAD-revert of both scripts → the exact original 9-failure RED → restore → 12/12.
 - **Affected suites (final, green):** all 15 check-phase-gate/process-checklist suites · bl102 · bl104 · bl116 · bl123 · bl124 · bl119 · bl084-tier-aware · bl112 **13/13** · run-lints **11/11**.
 - **Residuals recorded:** approver-ROLE verification (CM-H-08) untouched; UAT `completeness_verified`/`triage_complete` deepening deferred (the evidence-bearing anchor step now gates).
-- **Adversarial verify:** dispatched post-commit (Opus) — outcome lands on the PR thread; findings become follow-up commits.
+- **Adversarial verify:** Opus — verdict **SHIP**; all four should-fixes (section-bounded Date window, .gitkeep exclusion, session_id resolution, off-track solo warning) landed as the follow-up commit `98d7a4e`, each RED-observed; trio suite 16/16. Verdict + disposition posted to PR #208.
+
+---
+
+## WP-E1b — BL-105 (Med, walk-confirmed worse than filed): Phase 4 gets a real gate — DONE-PR-open · BL-106 — STOPPED-flagged
+
+- **Branch:** `fix/bl105-phase4-wave` (stacked on PR #208). **PR #209**, commit `7b19a08`.
+- **Reproduce (9 RED):** `--start-phase4` advanced past a FAILING 3→4 gate (rc=0, phase 3→4); phase-4-with-no-checklist produced no diagnostic; empty rollback file passed; the word "monitoring" passed; empty RELEASE_NOTES passed; both templates lacked UAT Sign-off (+ personal lacked attorney/pen-test); the artifact map mis-mapped A/B/C to Sections 7/6/8; no competency line anywhere; fences absent.
+- **Fix:** `# BL-105-START4-GATE-CONSULT` + `# BL-105-PHASE4-GATE` (both excision-safe; the presence arm keys on `started_at` because `ensure_state_file` pre-seeds the skeleton — key-existence would have been an [OK]-on-everything hollow check, caught during implementation); three substantive-evidence arms (each with a real-evidence PASS case so the bar is provable in both directions); template sections; guide artifact-map + `handoff_tested` (D-6) documentation; Competency WARN-first visibility. `docs/eval-results/` sub-item noted as already closed by BL-103.
+- **Tests:** `test-bl105-phase4-wave.sh` **11/11** (both lists; double-fence mutation in-suite). `auto-advance` T4 REWRITTEN under the documented-bug exception — it pinned the unconsulted 3→4 advance; now pins refusal-with-untouched-state.
+- **Blast-radius (green):** trio 16/16 · bl124 · bl102 · bl116 · bl104 · check-phase-gate · backstop · poc-block · auto-advance · reset-phase1 · bl119 · bl123 · run-lints 11/11.
+- **Residuals recorded:** validate.sh competency depth (PROJECT_INTAKE-based, 4/9 domains); pass-path `--start-phase4` mechanics pending a golden 3→4 fixture; a gate-side UAT-sign-off reader arm (the template section now exists as its home).
+- **BL-106 — STOPPED-flagged for Karl:** the entry demands a deliberate product choice (machine-checkable platform checklists vs downgrading the MANDATORY language); both options recorded in the entry, decision left to Karl.
+- **Adversarial verify:** dispatched post-commit (Opus) — outcome to the PR thread.
 
 - **Notes / residuals:** (1) `eval()` sinks remain invisible to the commit-time gate (neither pack carries an ERROR-severity eval rule); Phase-3 `--config auto` catches them. (2) gitlab templates run `p/security-audit` only vs github's two packs — pre-existing asymmetry, untouched. (3) The pinned `semgrep/semgrep-action@713efdd… (v1/v0.58.0)` is 2021-era; verifier traced it as pass-through-correct for `r/` configs, but modernizing the pin is worth a look. (4) `--config auto` at commit time NOT adopted (network + metrics on every commit; deterministic registry pack keeps the BL-112-SAST-NOTRUN discipline meaningful).

@@ -2657,6 +2657,8 @@ fi                                                                       # 0 →
 **Severity:** Medium
 **Status:** Open
 
+**Status update 2026-07-17:** fix implemented on PR #209 (branch `fix/bl105-phase4-wave`), awaiting merge. `# BL-105-START4-GATE-CONSULT` (start-phase4 consults the 3→4 gate; refusal leaves state untouched) · `# BL-105-PHASE4-GATE` (a never-started checklist — `started_at` null — blocks at phase≥4) · substantive-evidence arms for rollback/monitoring/go-live (empty file / the word "monitoring" / bare RELEASE_NOTES existence all now REJECTED, with real-evidence pass cases pinned) · UAT Sign-off sections added to BOTH approval-log templates + Attorney/Pen-Test added to the personal one · artifact-map mis-map fixed + `handoff_tested` (D-6) documented · Competency Matrix WARN-first visible in the 0→1 gate. `docs/eval-results/` sub-item was already closed by BL-103. Residuals recorded: validate.sh competency depth (reads PROJECT_INTAKE, 4/9 domains); pass-path `--start-phase4` advance mechanics pending a golden 3→4 fixture; UAT sign-off gate-side check (the section now exists — a reader arm is future work). 11/11 suite incl. double-fence mutation. Evidence: `Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md` § WP-E1b.
+
 The audit's hollow set beyond BL-102/103/104. Each is declared **MUST**/**DECISION GATE**/**MANDATORY** in `docs/builders-guide.md` but lacks a home, a check, or both:
 
 - **Phase 4 has NO gate at all** — `phase4_release` appears nowhere in `check-phase-gate.sh`. The rollback-test (Step 4.1.5, "**MUST**"), monitoring verification (4.3, *"'Configured' is not 'verified'"*), and go-live smoke test (4.2, "**DECISION GATE**") have real artifact checks in `process-checklist.sh` — but nothing ever forces the checklist to run, and Phase 4 is terminal. Predicted by the framework's own test plan (skips rollback / monitoring / smoke test).
@@ -2680,6 +2682,8 @@ The audit's hollow set beyond BL-102/103/104. Each is declared **MUST**/**DECISI
 **Category:** Debt / gate credibility
 **Severity:** Low
 **Status:** Open
+
+**Status update 2026-07-17 — STOPPED, flagged for Karl:** this entry explicitly demands a deliberate choice ("decide deliberately whether platform checklists become machine-checkable … or the MANDATORY language is downgraded to match reality. Do NOT leave the current mismatch."). That is a product decision, not a mechanical fix — building a checklist parser for 4 platform modules is real feature work; downgrading the language changes the framework's promises. Left Open with both options on the table; see the remediation final report.
 
 `docs/builders-guide.md` Step 4.2 marks the platform-module go-live checklist **"PLATFORM MODULE — MANDATORY"**, and the modules carry substantial checklists (`docs/platform-modules/mobile.md` alone: ~38 MUST/MANDATORY hits; desktop ~19; web ~7; mcp_server ~2). **No script parses `docs/platform-modules/*`** — the checklists are prose only.
 
