@@ -2068,7 +2068,26 @@ if [ -f "$TOOL_PREFS" ] && [ -x "$RESOLVER" ] && command -v jq &>/dev/null; then
           fi
         fi
 
-        issues=$((issues + 1))
+        # BL-137-CI-TOOLS-SCOPE-BEGIN
+        # Dogfood-3 F-DF3-002 (High): this increment made the generated
+        # project's CI governance job STRUCTURALLY unpassable — the
+        # required-tools contract names DEV-WORKSTATION tools (Semgrep CLI,
+        # Snyk CLI, Claude Code) no CI runner carries (CI runs SAST via the
+        # semgrep-action container and never holds Snyk auth or an
+        # interactive CLI), so every push failed governance while the same
+        # command exited 0 locally. The sibling install prompts already
+        # hard-N under $CI; the BLOCK now scopes the same way: on a CI
+        # runner the missing-tools list above stays printed (visibility)
+        # with an explicit note, and is NOT counted as an issue — the
+        # contract binds where the tools run, the dev workstation. Keyed
+        # STRICTLY on $CI, never on TTY: scripted LOCAL runs (hooks, other
+        # gates driving this one) must keep blocking.
+        if [ -n "${CI:-}" ]; then
+          echo -e "${CYAN}[note]${NC} CI runner detected (\$CI set): the required-tools contract binds on the dev workstation, not this runner — listed above for visibility, NOT blocking here (BL-137)."
+        else
+          issues=$((issues + 1))
+        fi
+        # BL-137-CI-TOOLS-SCOPE-END
       fi
     fi
   fi
