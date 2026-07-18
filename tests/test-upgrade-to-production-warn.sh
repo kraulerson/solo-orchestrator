@@ -223,8 +223,21 @@ t5_check_phase_gate_no_poc_block_post_upgrade() {
   # Hold the fixture for T6.
 }
 
-# T6: process-checklist.sh --start-phase4 succeeds after --to-production.
-# Enforcement point #2 of Baseline §5 Invariant #3.
+# T6: after --to-production, --start-phase4's door is GATE-keyed, never
+# MODE-keyed. Enforcement point #2 of Baseline §5 Invariant #3.
+#
+# REWRITTEN under the documented-bug exception (BL-105, PR #209 — same class
+# as auto-advance T4 in this PR): the original expected rc=0, which RELIED on
+# --start-phase4 advancing with NO 3→4 gate consult (exactly the bug BL-105's
+# entry documents, F-DF2-003 class). This fixture is a real upgraded project
+# with NO 3→4 evidence, so post-BL-105 the consult refuses — CORRECTLY. The
+# invariant this suite pins (Baseline §5 #3: --to-production CLEARS the POC
+# block) is asserted directly: the poc_mode block must be GONE, and any
+# refusal must be the # BL-105-START4-GATE-CONSULT evidence gate with state
+# untouched. The rc=0 pass-path needs a 3→4-gate-complete fixture — the
+# recorded BL-105 residual ("pass-path --start-phase4 golden fixture");
+# building full review-manifest/UAT/security evidence inside this upgrade
+# suite would duplicate the bl105 suite's machinery for no added pin.
 t6_process_checklist_start_phase4_post_upgrade() {
   if [ -z "${TMPDIR_T:-}" ] || [ ! -d "$TMPDIR_T" ]; then
     fail_ "T6" "T4 fixture missing — cannot continue"
@@ -232,22 +245,31 @@ t6_process_checklist_start_phase4_post_upgrade() {
   fi
   local out rc=0
   out=$(cd "$TMPDIR_T" && bash "$REPO_ROOT/scripts/process-checklist.sh" --start-phase4 </dev/null 2>&1) || rc=$?
-  if [ "$rc" != "0" ]; then
-    fail_ "T6" "process-checklist.sh --start-phase4 failed at rc=$rc post-upgrade; tail:\n$(echo "$out" | tail -10)"
-    teardown_project; return
-  fi
   if echo "$out" | grep -qE 'Phase 4 .*blocked.* mode'; then
-    fail_ "T6" "process-checklist.sh --start-phase4 still emits poc_mode block after upgrade; out:\n$(echo "$out" | tail -10)"
+    fail_ "T6" "process-checklist.sh --start-phase4 still emits the poc_mode block after upgrade (the Invariant-#3 regression); out:\n$(echo "$out" | tail -10)"
     teardown_project; return
   fi
-  # Positive assertion: state file should now show Phase 4 started.
-  if [ -f "$TMPDIR_T/.claude/process-state.json" ]; then
-    local started_at
-    started_at=$(jq -r '.phase4_release.started_at // "null"' "$TMPDIR_T/.claude/process-state.json" 2>/dev/null)
-    if [ "$started_at" = "null" ] || [ -z "$started_at" ]; then
-      fail_ "T6" "phase4_release.started_at not populated in process-state.json (got '$started_at')"
+  local started_at
+  started_at=$(jq -r '.phase4_release.started_at // "null"' "$TMPDIR_T/.claude/process-state.json" 2>/dev/null)
+  if [ "$rc" != "0" ]; then
+    # A refusal is legitimate ONLY as the BL-105 3→4 gate consult (this
+    # fixture carries no 3→4 evidence). Anything else is a real failure.
+    if ! echo "$out" | grep -q "start-phase4 refused"; then
+      fail_ "T6" "--start-phase4 refused (rc=$rc) for something OTHER than the 3→4 gate consult; tail:\n$(echo "$out" | tail -10)"
       teardown_project; return
     fi
+    # Refusal-with-untouched-state (the auto-advance T4 contract).
+    if [ "$started_at" != "null" ] && [ -n "$started_at" ]; then
+      fail_ "T6" "gate consult REFUSED yet phase4_release.started_at was populated ('$started_at') — a refused advance must not touch state"
+      teardown_project; return
+    fi
+    pass "T6: post-upgrade --start-phase4 is GATE-keyed (3→4 consult refused for missing evidence; NO poc_mode block; state untouched)"
+    teardown_project; return
+  fi
+  # rc=0 path (a gate-complete fixture): phase 4 must actually start.
+  if [ "$started_at" = "null" ] || [ -z "$started_at" ]; then
+    fail_ "T6" "phase4_release.started_at not populated in process-state.json (got '$started_at')"
+    teardown_project; return
   fi
   pass "T6: scripts/process-checklist.sh --start-phase4 succeeds after --to-production (enforcement point #2)"
   teardown_project
