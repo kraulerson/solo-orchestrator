@@ -119,7 +119,10 @@ rm -rf "$T"
 # templates/tool-matrix/mcp_server.json does NOT exist. resolve-tools.sh
 # should gracefully fall back to common.json only (not error).
 T=$(mktemp -d)
-run_bounded 30 bash "$REPO_ROOT/scripts/resolve-tools.sh" \
+# Bound 30→90 (2026-07-18, BL-134 class): full resolver walks measure ~25s
+# idle; load pushed this one to rc=124 in the same session that surfaced
+# T2.1/T2.2. Same rationale as the T2 bounds below.
+run_bounded 90 bash "$REPO_ROOT/scripts/resolve-tools.sh" \
   --dev-os darwin --platform mcp_server --language other --track light \
   --phase 2 --matrix-dir "$REPO_ROOT/templates/tool-matrix" > "$T/out.json" 2>/dev/null
 if [ "$RC" = "0" ] && jq -e '.already_installed' "$T/out.json" >/dev/null 2>&1; then
@@ -159,7 +162,14 @@ cat > "$T/prefs.json" <<'JSON'
   ]
 }
 JSON
-run_bounded 30 bash "$REPO_ROOT/scripts/resolve-tools.sh" \
+# Bound raised 30→90 (2026-07-18, full-lane CI flake): a bare resolver run
+# on an IDLE machine measures ~25s (the matrix has grown since the bound
+# was set), leaving ~5s headroom — under CI-runner or parallel-suite load
+# the baseline crosses 30s and rc=124 fires with EMPTY output. 90s keeps a
+# real hang detectable while giving the honest baseline 3.5x headroom.
+# resolve-tools.sh and the matrix were byte-identical across the failing
+# window (diffed 8412b8c..main) — timing-margin debt, not a regression.
+run_bounded 90 bash "$REPO_ROOT/scripts/resolve-tools.sh" \
   --dev-os darwin --platform web --language javascript --track light --phase 2 \
   --matrix-dir "$REPO_ROOT/templates/tool-matrix" --tool-prefs "$T/prefs.json" > "$T/out.json" 2>/dev/null
 if [ "$RC" = "0" ] && jq -e '.already_installed[] | select(.name == "MyTool")' "$T/out.json" >/dev/null 2>&1; then
@@ -182,20 +192,27 @@ cat > "$T/prefs.json" <<'JSON'
 }
 JSON
 start_ts=$(date +%s)
-run_bounded 30 bash "$REPO_ROOT/scripts/resolve-tools.sh" \
+# Bound raised 30→90 (2026-07-18): the old 30s kill-cap CONTRADICTED the
+# case's own <50s pass assertion — the watchdog killed at 30 before the
+# assertion's discrimination window could exist, so any load spike over
+# the ~25s baseline produced rc=124 instead of a verdict. With 90s, a
+# hang regression (~70s+ = the sleep 60 + probes) is killed at 90 and
+# fails the <60s assertion; the honest timeout path finishes ~25-35s.
+run_bounded 90 bash "$REPO_ROOT/scripts/resolve-tools.sh" \
   --dev-os darwin --platform web --language javascript --track light --phase 2 \
   --matrix-dir "$REPO_ROOT/templates/tool-matrix" --tool-prefs "$T/prefs.json" > "$T/out.json" 2>/dev/null
 end_ts=$(date +%s)
 elapsed=$((end_ts - start_ts))
 # A hung HangTool should produce MANUAL placement (treated as not-installed).
 # Threshold is generous because resolve-tools iterates EVERY tool in the
-# matrix, each costing a check + version probe; on this machine the
-# baseline (without the addition) takes ~20-25s. A regression would mean
-# elapsed ~70s+ (the hung sleep 60 + outer bounds).
-if [ "$RC" = "0" ] && [ "$elapsed" -lt 50 ]; then
+# matrix, each costing a check + version probe; on an idle machine the
+# baseline (without the addition) measures ~25s, and CI-runner load adds
+# real variance. A regression means elapsed ~70s+ (the hung sleep 60 +
+# outer bounds), comfortably above the 60s line and below the 90s cap.
+if [ "$RC" = "0" ] && [ "$elapsed" -lt 60 ]; then
   pass "T2.2: hanging custom check times out cleanly (elapsed=${elapsed}s)"
 else
-  fail_ "T2.2" "rc=$RC, elapsed=${elapsed}s, expected <50s (regression = ≥70s)"
+  fail_ "T2.2" "rc=$RC, elapsed=${elapsed}s, expected <60s (regression = ≥70s)"
 fi
 # Cleanup any orphan sleep processes (the bash -c subshell may be killed
 # but its grandchild sleep can linger).
@@ -208,7 +225,7 @@ T=$(mktemp -d)
 cat > "$T/prefs.json" <<'JSON'
 {"skipped": [{"name": "Docker"}]}
 JSON
-run_bounded 30 bash "$REPO_ROOT/scripts/resolve-tools.sh" \
+run_bounded 90 bash "$REPO_ROOT/scripts/resolve-tools.sh" \
   --dev-os darwin --platform web --language javascript --track light --phase 2 \
   --matrix-dir "$REPO_ROOT/templates/tool-matrix" --tool-prefs "$T/prefs.json" > "$T/out.json" 2>/dev/null
 docker_in_any=$(jq '[(.already_installed[]?, .auto_install[]?, .manual_install[]?, .deferred[]?) | select(.name == "Docker")] | length' "$T/out.json" 2>/dev/null)
@@ -628,7 +645,7 @@ exit 0
 SH
 chmod +x "$SHIM_BIN/fake-hang-binary"
 start_ts=$(date +%s)
-PATH="$SHIM_BIN:$PATH" run_bounded 60 bash "$REPO_ROOT/scripts/resolve-tools.sh" \
+PATH="$SHIM_BIN:$PATH" run_bounded 90 bash "$REPO_ROOT/scripts/resolve-tools.sh" \
   --dev-os darwin --platform web --language other --track light --phase 1 \
   --matrix-dir "$T/matrix" > "$T/out.json" 2>/dev/null
 rc=$RC
