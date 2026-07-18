@@ -2685,7 +2685,7 @@ The audit's hollow set beyond BL-102/103/104. Each is declared **MUST**/**DECISI
 **Logged:** 2026-07-11 (eval-prompt hollow-gate audit)
 **Category:** Debt / gate credibility
 **Severity:** Low
-**Status:** Open
+**Status:** Closed — shipped 2026-07-18 (PR #213, merged `ab62028`). Karl chose MACHINE-CHECKABLE: `# BL-106-GOLIVE-CHECKLIST` (process-checklist.sh go_live_verified — every shipped-module Go-Live item must be TICKED in a dated docs/test-results/*go-live-checklist* artifact, zero unticked boxes, fail-closed naming items; standalone platforms exempt with a note) + `# BL-106-GOLIVE-TEMPLATE` (init.sh renders the artifact at scaffold birth). Grammar verified across all four modules incl. desktop's variant header. tests/test-bl106-golive-checklist.sh 8/8 (both lists; in-suite fence-excision mutant) + T-scaffold-golive-template in the real-init suite (9/9; generator mutation proven both directions). Guide Step 4.2 documents the enforcement. Evidence: ledger § POLICY DECISIONS IMPLEMENTED.
 
 **Decision 2026-07-18 (Karl): machine-checkable. IMPLEMENTED on `feat/bl106-golive-gate` (PR pending; Closed at merge):** `# BL-106-GOLIVE-CHECKLIST` in process-checklist.sh + `# BL-106-GOLIVE-TEMPLATE` in init.sh; `tests/test-bl106-golive-checklist.sh` 8/8 (both lists; RED watched 2/6 — six cases showed the hollow gate verbatim; in-suite fence-excision mutant) + real-init case `T-scaffold-golive-template` (init-side mutation proven both directions: generator present → 6-item artifact; excised → absent). Design: the shipped platform module's Go-Live section (H3 header matching `Go-Live`, top-level `- [ ]` items — all four modules parse under this grammar) becomes the single source; init.sh renders it into `docs/test-results/go-live-checklist.md` at scaffold time; the `phase4_release:go_live_verified` arm verifies every module item is ticked in a dated artifact (fail-closed naming missing/unticked items; standalone platforms with no module checklist are exempt with a loud note).
 
@@ -3212,6 +3212,19 @@ Every step of the `uat_session` checklist in `process-checklist.sh` is pure self
 **Fix shape:** `--attest` should refuse (or loudly warn) when the named scanner's last result is FAIL, distinguishing "attest an un-runnable/SKIP tool" (legitimate) from "attest past a real FAIL" (refused). Message should point at BL-113's rule: a FAIL must be fixed or re-run, not attested.
 
 **Related:** BL-113 (the guarantee that still holds — this is a UX gap, not a hole in it); BL-070 (the driver); `Reports/2026-07-13-dogfood-2/FINDINGS.md` (F-DF2-013).
+
+---
+
+## BL-134: edge-case-test-suite T2 timing bounds too tight — full-lane CI flake (rc=124 with empty output)
+
+**Logged:** 2026-07-18 (first full-lane workflow_dispatch after the Dogfood-2 remediation merge)
+**Category:** Bug / test debt (timing-margin flake, aggregator lane only)
+**Severity:** Low
+**Status:** Open — fix implemented same day on branch `fix/edge-case-t2-bounds` (PR open; status flips with PR + merge SHA cited once merged). ALL resolver-invoking bounds normalized to 90 (T2.1/T2.2 — the CI failures; T1.2 — flaked rc=124 in the local verification rerun of this very fix, proving the class; T2.3 and the shimmed T-resolver case for margin consistency); T2.2's `<50s` assertion (which its own 30s kill-cap made unreachable under load) recalibrated to `<60s` against the 90s cap. Fast-rejection init cases keep 30s (they exercise sub-second refusals).
+
+The full lane's aggregators shard failed on `tests/edge-case-test-suite.sh` T2.1/T2.2, both rc=124 (the suite's own watchdog). Root cause measured, not guessed: a bare `resolve-tools.sh` run on an idle machine takes ~25s (the tool matrix has grown since the 30s bound was set), leaving ~5s headroom; CI-runner or parallel-suite load pushes the honest baseline over the 30s kill-cap. `resolve-tools.sh` and `templates/tool-matrix/` were byte-identical across the failing window (`git diff 8412b8c..main` empty) — a pre-existing margin problem surfacing in the rarely-run full lane, NOT a remediation regression. T2.2's design also self-contradicted: a 30s cap below its own 50s assertion meant the case could never discriminate a real hang from load.
+
+**Related:** the 2026-07-12 memory of two OTHER pre-existing full-suite failures (dry-run resolver fixture, phase-gate run) — still unfiled, tracked for the core-shard verdict of the same run.
 
 ---
 
