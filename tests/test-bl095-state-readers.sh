@@ -115,16 +115,59 @@ else
 fi
 
 # ── Consumer closure: the four MIGRATED files must contain NO inline reader ──
-# parses (grep-sed variants or `jq -r '.deployment/.poc_mode` extractions) and
-# check-phase-gate must actually CALL the helpers. Writers (`jq '.poc_mode =`)
-# and the two documented conforming-inline files (pre-commit-gate.sh — hook
-# surface must not grow a sourcing dependency; run-phase3-validation.sh —
-# self-contained by design) are exempt BY NOT BEING IN THIS LIST; their
-# inline reads are named as sync-siblings at the # BL-095-STATE-READERS fence.
+# parses and check-phase-gate must actually CALL the helpers. Writers
+# (`jq '.poc_mode = …'`) and the documented conforming-inline files
+# (pre-commit-gate.sh — hook surface must not grow a sourcing dependency;
+# run-phase3-validation.sh — self-contained by design) are exempt BY NOT
+# BEING IN THIS LIST; their inline reads are named as sync-siblings at the
+# # BL-095-STATE-READERS fence.
+#
+# Detector (E/F verifier A5 — widened): the original pattern caught only the
+# canonical single-quoted spellings; `jq -r ".deployment"`, `jq '.deployment'`
+# (no -r), `.["deployment"]`, double-quoted grep patterns, and
+# `--arg`-style reads all slipped past. Now: ANY line mentioning jq or
+# `grep -o` that also mentions deployment/poc_mode is a hit, minus the
+# helper calls themselves, BL-095-marked lines, and writer assignments.
+# The self-test below runs the SAME function over a probe file carrying the
+# verifier's escape variants — detector blindness is loud, not silent.
+bl095_detect_inline_readers() {
+  # Exemptions, in order: comment lines; BL-095-marked lines; helper calls;
+  # writer assignments (`.poc_mode = …`); and `--arg X "$shellvar"` lines,
+  # which pass an ALREADY-READ shell variable INTO jq (composition, not a
+  # parse) — while `--arg k deployment` (a literal KEY name) stays caught.
+  grep -nE '(jq|grep -o)' "$1" 2>/dev/null \
+    | grep -E '(deployment|poc_mode)' \
+    | grep -vE '^[0-9]+:[[:space:]]*#' \
+    | grep -v 'BL-095' \
+    | grep -v 'soif_read_' \
+    | grep -vE '\.(deployment|poc_mode)"?\]?[[:space:]]*=([^=]|$)' \
+    | grep -vE -- '--arg [A-Za-z_]+ "\$' || true
+}
+
+echo "=== T-detector-sees-escape-variants ==="
+PROBE="$TOPTMP/detector-probe.sh"
+cat > "$PROBE" <<'EOF'
+a=$(jq -r '.deployment // ""' f.json)
+b=$(jq -r ".deployment" f.json)
+c=$(jq '.poc_mode' f.json)
+d=$(jq -r '.["deployment"]' f.json)
+e=$(jq -r --arg k deployment '.[$k]' f.json)
+f=$(grep -o '"poc_mode"[[:space:]]*:' f.json)
+g=$(grep -o "\"deployment\"[[:space:]]*:" f.json)
+legit1=$(soif_read_deployment f.json)   # helper call: jq-free, must NOT hit
+jq '.poc_mode = null' f.json > tmp      # writer: must NOT hit
+EOF
+nhits=$(bl095_detect_inline_readers "$PROBE" | grep -c .)
+if [ "$nhits" -eq 7 ]; then
+  pass "T-detector-sees-escape-variants (7/7 escape spellings caught, writer + helper exempt)"
+else
+  fail_ "T-detector-sees-escape-variants" "detector caught $nhits of 7 escape variants (verifier A5: a reintroduced inline parse in an uncaught spelling passes the tripwire silently): $(bl095_detect_inline_readers "$PROBE" | head -8 | tr '\n' ' ')"
+fi
+
 echo "=== T-no-inline-parse-left ==="
 leftovers=""
 for f in scripts/check-phase-gate.sh scripts/process-checklist.sh scripts/upgrade-project.sh scripts/intake-wizard.sh; do
-  hits=$(grep -nE "grep -o .\"(deployment|poc_mode)\"|jq -r '\.(deployment|poc_mode)" "$REPO_ROOT/$f" 2>/dev/null | grep -v "BL-095" || true)
+  hits=$(bl095_detect_inline_readers "$REPO_ROOT/$f")
   [ -n "$hits" ] && leftovers="$leftovers
 $f: $(printf '%s' "$hits" | head -3 | tr '\n' ' ')"
 done

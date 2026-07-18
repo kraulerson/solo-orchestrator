@@ -109,6 +109,28 @@ else
   fail_ "T-attest-skip-still-works" "rc=$rc reason='$wrote' — the guard broke the LEGITIMATE attest path (a SKIP must stay attestable): $(printf '%s' "$out" | tail -1)"
 fi
 
+# ── T2b (E/F verifier MUST-FIX): a SPACED absolute --results-dir must not ────
+# blind the oracle. _p3_last_real_verdict's old unquoted `for f in $(ls …)`
+# word-split fragmented spaced paths → every fragment failed [ -f ] → verdict
+# "" → the FAIL-attest guard silently PASSED and BL-113's no-launder carry
+# went blind in the same breath — on the framework's own reference platform
+# family (macOS paths with spaces, like this very repo's).
+echo "=== T-attest-fail-refused-spaced-dir ==="
+F2b="$TOPTMP/f2b sp aced"; mkdir -p "$F2b/rd"
+echo '{"phase3":{"attestations":{}}}' > "$F2b/st.json"
+cat > "$F2b/rd/summary-2001-01-01T00-00-00Z.md" <<'EOF'
+# Phase 3 summary (newest)
+RESULT semgrep-full-tree FAIL
+EOF
+out=$( cd "$F2b" && bash "$DRIVER" --attest semgrep-full-tree --reason "tool unavailable in CI" \
+    --results-dir "$F2b/rd" --state st.json 2>&1 ); rc=$?
+wrote=$(jq -r '.phase3.attestations["semgrep-full-tree"] // empty' "$F2b/st.json" 2>/dev/null)
+if [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -q "REFUSED" && [ -z "$wrote" ]; then
+  pass "T-attest-fail-refused-spaced-dir"
+else
+  fail_ "T-attest-fail-refused-spaced-dir" "rc=$rc wrote='$(printf '%s' "$wrote" | head -1)' — an ABSOLUTE SPACED --results-dir blinded _p3_last_real_verdict (word-split loop) and the FAIL was attested with [OK] (E/F verifier MUST-FIX)"
+fi
+
 # ── T3: fence excision resurrects the bug → the guard is load-bearing ────────
 echo "=== T-mutation-fence-excision ==="
 MUT="$TOPTMP/mutant.sh"

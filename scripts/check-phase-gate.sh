@@ -516,6 +516,12 @@ gate_3_to_4=$(get_gate_date "phase_3_to_4")
 # BL-095: parsing goes through the # BL-095-STATE-READERS fence in
 # lib/helpers-core.sh (sourced above) — one surface instead of per-site
 # grep-sed variants. Per-site DEFAULTS stay here (policy, not parsing).
+# NOTE (E/F verifier A1): the pre-BL-095 `|| echo` defaults here were DEAD
+# (`||` bound to the last sed, which exits 0 on empty) — these defaults are
+# now LIVE on null/absent/missing state. Every current consumer tests
+# `= "organizational"` / `= "standard"` / `= "full"` only, so outcomes are
+# unchanged; a future `[ "$deployment" = "personal" ]` or `[ -z … ]` consumer
+# WILL see "personal"/"light" where the old code saw "".
 deployment=$(soif_read_deployment "$PHASE_STATE" "personal")
 track=$(soif_read_phase_state_key "$PHASE_STATE" "track" "light")
 # BL-084 (verifier follow-up): poc_mode is the SECOND half of the tier key

@@ -347,7 +347,21 @@ _p3_actor() {
 _p3_last_real_verdict() {
   local name="$1" f st origin
   [ -d "$RESULTS_DIR" ] || { echo ""; return 0; }
-  for f in $(ls -1 "$RESULTS_DIR"/summary-*.md 2>/dev/null | sort -r); do
+  # BL-130-SPACE-SAFE-LRV (E/F verifier MUST-FIX): the old unquoted
+  # `for f in $(ls -1 … | sort -r)` word-split a spaced RESULTS_DIR into
+  # fragments, every fragment failed [ -f ], and the verdict came back "" —
+  # silently blinding BOTH the BL-130 attest-FAIL refusal and BL-113's
+  # no-launder carry (this function is their shared oracle) on macOS-style
+  # spaced paths. Glob into an array (space-safe; bash 3.2 has no nullglob —
+  # the [ -f ] filter drops the unmatched-literal element) and walk it in
+  # REVERSE: summary-<UTC-timestamp>.md names sort lexicographically =
+  # chronologically, so reverse index order == `sort -r` == newest first.
+  local _lrv_files _lrv_i
+  _lrv_files=( "$RESULTS_DIR"/summary-*.md )
+  _lrv_i=${#_lrv_files[@]}
+  while [ "$_lrv_i" -gt 0 ]; do
+    _lrv_i=$((_lrv_i - 1))
+    f="${_lrv_files[$_lrv_i]}"
     [ -f "$f" ] || continue
     st=$(awk -v s="$name" '$1=="RESULT" && $2==s {v=$3} END{print v}' "$f" 2>/dev/null || true)
     case "$st" in
