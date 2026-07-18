@@ -2117,6 +2117,49 @@ if [ "$current_phase" -ge 4 ] && [ -f "PRODUCT_MANIFESTO.md" ]; then
 fi
 # BL-124-PENDING-RATCHET-END
 
+# --- BL-105: Competency Matrix visibility (WARN-first, never blocking) ---
+# The builders-guide calls Appendix B "not advisory" with two MUSTs — and no
+# gate, hook, or CI ever looked at it. WARN-first per the grandfather
+# discipline (BL-073/BL-102): existing projects without the appendix must not
+# hard-block; NO issues increment here (the BL-104 [WARN] trap — the
+# increment is the verdict). Deeper domain scoring stays in
+# validate.sh::check_competency (residual: it reads PROJECT_INTAKE.md and
+# covers 4 of 9 domains — recorded in BL-105).
+if [ "$current_phase" -ge 1 ] && [ -f "PRODUCT_MANIFESTO.md" ]; then
+  if grep -q "## Appendix B" PRODUCT_MANIFESTO.md 2>/dev/null; then
+    echo -e "${GREEN}  [OK]${NC} Competency Matrix: Appendix B present (deep check: scripts/validate.sh --competency)"
+  else
+    echo -e "${YELLOW}[WARN]${NC} Competency Matrix (Appendix B) not found in PRODUCT_MANIFESTO.md — the guide calls it 'not advisory'. WARN-first, not blocking."
+  fi
+fi
+
+# --- BL-105: Phase-4 release checklist presence (Phase 4 was terminal + unforced) ---
+# BL-105-PHASE4-GATE-BEGIN
+# check-phase-gate.sh carried ZERO phase4_release cross-references: nothing
+# ever forced the Phase-4 checklist to run, and Phase 4 is terminal — the
+# walk reached a tagged release with the checklist never started. At
+# current_phase >= 4 the checklist must at least EXIST in process-state
+# (started via --start-phase4, which now also consults the 3→4 gate);
+# incomplete steps are surfaced as information (Phase 4 is in-progress by
+# nature), but a NEVER-STARTED checklist blocks. Excision-safe fence.
+if [ "$current_phase" -ge 4 ] && [ -f .claude/process-state.json ] && command -v jq >/dev/null 2>&1; then
+  echo ""
+  echo -e "${BOLD}Phase 4 Release Checklist (BL-105)${NC}"
+  # Keyed on started_at, NOT key-existence: ensure_state_file pre-seeds an
+  # empty phase4_release skeleton (started_at: null) on every invocation, so
+  # the key exists on any project process-checklist ever touched. started_at
+  # is written only by a real --start-phase4 (which now consults the gate).
+  if ! jq -e '.phase4_release.started_at // empty' .claude/process-state.json >/dev/null 2>&1; then
+    echo -e "${RED}[FAIL]${NC} BL-105: current_phase is $current_phase but the Phase-4 release checklist was NEVER STARTED (phase4_release.started_at is null) — run: scripts/process-checklist.sh --start-phase4"
+    issues=$((issues + 1))
+  else
+    bl105_p4_done=$(jq -r '.phase4_release.steps_completed | length' .claude/process-state.json 2>/dev/null) || bl105_p4_done=0
+    case "$bl105_p4_done" in ''|*[!0-9]*) bl105_p4_done=0 ;; esac
+    echo -e "${GREEN}[OK]${NC} BL-105: Phase-4 checklist started ($bl105_p4_done/6 steps recorded — production_build, rollback_tested, go_live_verified, monitoring_configured, handoff_written, handoff_tested)"
+  fi
+fi
+# BL-105-PHASE4-GATE-END
+
 # --- BL-102: Market Signal / Go-No-Go evidence (Phase 1→2, WARN-first) ---
 # BL-102-MARKET-SIGNAL-BEGIN
 # builders-guide Step 1.1.5: at least one DOCUMENTED market signal before

@@ -614,9 +614,9 @@ The competency matrix is not advisory — it drives mandatory tooling:
 | Step 0.2 — User Personas & Interaction Flow | `docs/phase-0/user-journey.md` | Section 3 (User Journeys) |
 | Step 0.3 — Data Input/Output & State Logic | `docs/phase-0/data-contract.md` | Section 4 (Data Contract) |
 | Step 0.4 — Product Manifesto & MVP Cutline | `PRODUCT_MANIFESTO.md` | Section 1 (Product Intent), Section 5 (MVP Cutline) |
-| Step 0.5 — Revenue Model & Unit Economics | Appendix A to `PRODUCT_MANIFESTO.md` (Standard+; Light: mark SKIPPED) | Section 7 (Revenue Model) |
-| Step 0.6 — Orchestrator Competency Matrix | Appendix B to `PRODUCT_MANIFESTO.md` (all tracks) | Section 6 (Competency Matrix) |
-| Step 0.7 — Trademark & Legal Pre-Check | Appendix C to `PRODUCT_MANIFESTO.md` (Standard+; Light: mark SKIPPED) | Section 8 (Legal & Compliance) |
+| Step 0.5 — Revenue Model & Unit Economics | Appendix A to `PRODUCT_MANIFESTO.md` (Standard+; Light: mark SKIPPED) | Appendix A (the manifesto body's Section 7 is Will-Not-Have — BL-105 map fix) |
+| Step 0.6 — Orchestrator Competency Matrix | Appendix B to `PRODUCT_MANIFESTO.md` (all tracks) | Appendix B (Section 6 is Post-MVP Backlog — BL-105 map fix) |
+| Step 0.7 — Trademark & Legal Pre-Check | Appendix C to `PRODUCT_MANIFESTO.md` (Standard+; Light: mark SKIPPED) | Appendix C (Section 8 is Open Questions — BL-105 map fix) |
 
 #### Gate Enforcement — What `check-phase-gate.sh` Validates
 
@@ -1912,6 +1912,8 @@ Direct the agent to generate `HANDOFF.md`:
 **Reality check:** Have someone attempt development setup and issue triage using only this document. Fix every gap they find. Repeat.
 
 **Process checkpoint:** `scripts/process-checklist.sh --complete-step phase4_release:handoff_written`
+
+**Then test the handoff (Step 4.5b — required 6th step):** have a fresh session (or the New-Maintainer persona with no prior context) follow HANDOFF.md end-to-end and record the result in `docs/test-results/YYYY-MM-DD_handoff-test.md`; then `scripts/process-checklist.sh --complete-step phase4_release:handoff_tested`. `--finalize-phase 4` requires all SIX steps — production_build, rollback_tested, go_live_verified, monitoring_configured, handoff_written, **handoff_tested** (this step was previously undocumented here: BL-105 D-6).
 
 **Agent persona — New Maintainer:** When writing handoff documentation, the agent adopts the mindset of a developer who is taking over this project on Monday with zero context. This is a business application — quality is more important than positivity. Be critical, extremely thorough, and meticulous. "I have 2 hours to get a dev environment running and fix a production bug. Every command must work verbatim. Every file path must be correct. Every dependency must be listed with version and install command." Test your own docs: could someone follow these instructions from a blank machine to a running dev environment to a fixed bug, using nothing but this document?
 

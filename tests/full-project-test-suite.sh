@@ -634,6 +634,20 @@ else
   fail "tests/test-bl119-stale-editmsg.sh FAILED (run for details)"
 fi
 
+# BL-105 (Med, walk-confirmed worse than filed): Phase 4 gets a real gate —
+# --start-phase4 consults the 3→4 gate; a never-started Phase-4 checklist
+# blocks at phase>=4; the rollback/monitoring/go-live artifact arms demand
+# substantive evidence (an empty file, the word 'monitoring', and bare
+# RELEASE_NOTES existence all used to pass); approval-log templates gain the
+# UAT sign-off + personal attorney/pen-test sections; the guide's artifact
+# map and the undocumented handoff_tested step are fixed; the Competency
+# Matrix is WARN-first visible. Double-fence mutation in-suite. Both lanes.
+if bash "$SCRIPT_DIR/tests/test-bl105-phase4-wave.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl105-phase4-wave.sh"
+else
+  fail "tests/test-bl105-phase4-wave.sh FAILED (run for details)"
+fi
+
 # BL-107 (High): every language gets the TDD/BL-006 commit-msg gate. Hermetic
 # half: the # BL-107-RUST-INLINE-TESTS content probe (inline #[cfg(test)]
 # additions count as tests — without it universal install would false-block
