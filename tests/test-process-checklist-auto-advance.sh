@@ -138,20 +138,26 @@ t3_start_phase3_advances_to_3() {
 }
 
 t4_start_phase4_advances_to_4() {
+  # REWRITTEN under the documented-bug exception (BL-105): this case used to
+  # pin the OPPOSITE — that --start-phase4 advances 3→4 with NO gate consult
+  # (the walk cut a tagged release from a zero state through exactly that
+  # hole). --start-phase4 now consults --gate phase_3_to_4 first; on this
+  # deliberately gate-failing fixture it must REFUSE and leave state
+  # untouched (no phase advance, no phase4_release init). The refusal + both
+  # mutation directions are pinned in test-bl105-phase4-wave.sh; the
+  # PASS-path advance mechanics (post-consult body — identical shape to
+  # start_phase1's, which T1 covers on its pass path) remain a recorded
+  # residual pending a golden 3→4 fixture.
   setup_phase_zero_project
   jq '.current_phase = 3' "$TMPDIR_T/.claude/phase-state.json" > "$TMPDIR_T/.claude/phase-state.json.tmp" && mv "$TMPDIR_T/.claude/phase-state.json.tmp" "$TMPDIR_T/.claude/phase-state.json"
   local out rc=0
   out=$(cd "$TMPDIR_T" && "$SCRIPT" --start-phase4 2>&1) || rc=$?
-  if [ "$rc" -ne 0 ]; then
-    fail_ "T4" "expected exit 0; rc=$rc out:\n$out"
-    teardown_project; return
-  fi
   local got; got=$(current_phase_in "$TMPDIR_T")
-  if [ "$got" != "4" ]; then
-    fail_ "T4" "expected current_phase=4 after --start-phase4, got $got"
-    teardown_project; return
+  if [ "$rc" -ne 0 ] && [ "$got" = "3" ] && ! jq -e '.phase4_release.started_at // empty' "$TMPDIR_T/.claude/process-state.json" >/dev/null 2>&1; then
+    pass "T4: --start-phase4 REFUSES on a failing 3→4 gate and leaves state untouched (BL-105)"
+  else
+    fail_ "T4" "expected refusal with untouched state on a failing gate; rc=$rc phase=$got phase4_release=$(jq -c '.phase4_release // "absent"' "$TMPDIR_T/.claude/process-state.json")"
   fi
-  pass "T4: --start-phase4 advances .current_phase 3 → 4"
   teardown_project
 }
 

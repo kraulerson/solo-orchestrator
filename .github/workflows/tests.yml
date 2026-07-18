@@ -81,6 +81,7 @@ jobs:
             tests/test-bl103-eval-generator.sh
             tests/test-bl102-market-signal-warn.sh
             tests/test-bl104-gate-scoring.sh
+            tests/test-bl105-phase4-wave.sh
             tests/test-bl107-tdd-all-languages.sh
             tests/test-bl118-sast-dom-xss.sh
             tests/test-bl119-stale-editmsg.sh

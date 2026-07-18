@@ -379,10 +379,22 @@ complete_step() {
       fi
       ;;
     phase4_release:rollback_tested)
-      # P4-001: Rollback test must produce evidence
-      if ! ls docs/test-results/*rollback* 2>/dev/null | head -1 >/dev/null 2>&1; then
+      # P4-001 + BL-105: the rollback test must produce SUBSTANTIVE evidence.
+      # Walk CM-H-15: an EMPTY file named *rollback* passed the "MANDATORY
+      # rollback test". Evidence = a non-empty record carrying a date and an
+      # outcome statement (verified/succeeded/passed/restored/failed — a
+      # recorded FAILURE is honest evidence too; an empty file is nothing).
+      local bl105_rb=""
+      bl105_rb=$(ls docs/test-results/*rollback* 2>/dev/null | head -1) || bl105_rb=""
+      if [ -z "$bl105_rb" ]; then
         print_warn "No rollback test results found in docs/test-results/."
         echo "  Record rollback test results: docs/test-results/YYYY-MM-DD_rollback-test.md" >&2
+        artifact_check_failed=true
+      elif [ ! -s "$bl105_rb" ] \
+           || ! grep -qE '[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])' "$bl105_rb" \
+           || ! grep -qiE 'verif|succeed|passed|restor|fail' "$bl105_rb"; then
+        print_warn "Rollback record '$bl105_rb' is not substantive evidence (empty, undated, or no outcome statement)."
+        echo "  The record must say WHAT was rolled back, WHEN (a date), and the OUTCOME (verified/restored/failed)." >&2
         artifact_check_failed=true
       fi
       ;;
@@ -394,18 +406,35 @@ complete_step() {
       fi
       ;;
     phase4_release:go_live_verified)
-      # P4-015: Go-live should be recorded
+      # P4-015 + BL-105: go-live verification is a DECISION GATE — the walk
+      # passed it on RELEASE_NOTES.md EXISTENCE alone while shipping a build
+      # that did not boot. The notes must be substantive: non-empty, naming a
+      # version, dated.
       if [ ! -f "RELEASE_NOTES.md" ]; then
         print_warn "RELEASE_NOTES.md not found — create release notes before marking go-live verified."
+        artifact_check_failed=true
+      elif [ ! -s "RELEASE_NOTES.md" ] \
+           || ! grep -qE 'v?[0-9]+\.[0-9]+' "RELEASE_NOTES.md" \
+           || ! grep -qE '[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])' "RELEASE_NOTES.md"; then
+        print_warn "RELEASE_NOTES.md is not substantive go-live evidence (empty, no version, or no date)."
+        echo "  Record the released version, the date, and the go-live verification (smoke check) outcome." >&2
         artifact_check_failed=true
       fi
       ;;
     phase4_release:monitoring_configured)
-      # P4-001: Monitoring must be verified (trigger test error)
+      # P4-001 + BL-105: "'Configured' is not 'verified'" — the walk passed
+      # this with the single word "monitoring" in HANDOFF.md (CM-H-17). The
+      # handoff must document the tool AND record a VERIFICATION EVENT (a
+      # triggered test error/alert that was received) — the step's own P4-001
+      # instruction.
       if [ -f "HANDOFF.md" ]; then
         if ! grep -qi "monitoring\|error tracking\|sentry\|crashlytics\|uptimerobot" HANDOFF.md 2>/dev/null; then
           print_warn "HANDOFF.md does not document monitoring configuration."
           echo "  Document monitoring tool, dashboard URL, and alert channel in HANDOFF.md Section 8." >&2
+          artifact_check_failed=true
+        elif ! grep -qiE 'test (error|alert)|triggered|synthetic' HANDOFF.md 2>/dev/null \
+             || ! grep -qiE 'received|confirmed|observed|fired|arrived' HANDOFF.md 2>/dev/null; then
+          print_warn "HANDOFF.md names monitoring but records NO verification event — 'configured' is not 'verified' (P4-001: trigger a test error and record that the alert arrived)."
           artifact_check_failed=true
         fi
       else
@@ -672,6 +701,24 @@ start_phase4() {
       exit 1
     fi
   fi
+
+  # BL-105-START4-GATE-CONSULT-BEGIN
+  # Walk-confirmed: --start-phase4 consulted ONLY poc_mode and advanced past
+  # a FAILING 3→4 gate — from current_phase=0 it jumped straight to 4 and
+  # `git tag` cut a release with nothing satisfied. The 3→4 gate (the
+  # framework's strongest — and previously forced by nothing) is consulted
+  # HERE, before any state change. Excision-safe fence.
+  local _sp4_gate="$SCRIPT_DIR/check-phase-gate.sh"
+  if [ -x "$_sp4_gate" ]; then
+    if ! bash "$_sp4_gate" --gate phase_3_to_4; then
+      print_fail "Phase 3→4 gate is NOT clear — start-phase4 refused (see the gate output above). Satisfy the gate, then re-run."
+      exit 1
+    fi
+  else
+    print_fail "check-phase-gate.sh not found beside this script — cannot verify the 3→4 gate; refusing to advance blind."
+    exit 1
+  fi
+  # BL-105-START4-GATE-CONSULT-END
 
   local now
   now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
