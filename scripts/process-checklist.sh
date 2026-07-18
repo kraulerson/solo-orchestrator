@@ -1111,6 +1111,14 @@ check_commit_ready() {
   if [ -f "$PHASE_STATE" ]; then
     current_phase=$(jq -r '.current_phase // 0' "$PHASE_STATE" 2>/dev/null || echo "0")
   fi
+  # Counter-sanitizer (2026-07-18, full-lane run 29649055577): jq's `// 0`
+  # only catches null/absent — a STRING value ("abc", "") passes through and
+  # `[ ... -lt 2 ]` leaked `integer expression expected` to stderr instead of
+  # sanitizing (test-init-schema-phase-gate T3a/T3c, failing since before the
+  # Dogfood-2 remediation — the one current_phase read the counter-sanitizer
+  # wave missed). Garbage → 0 → no enforcement, same contract as every other
+  # sanitized counter in the repo.
+  case "$current_phase" in ''|*[!0-9]*) current_phase=0 ;; esac
 
   # If phase < 2, no enforcement
   if [ "$current_phase" -lt 2 ]; then

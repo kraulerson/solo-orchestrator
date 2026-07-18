@@ -72,6 +72,13 @@ mk_phase2_project() {
   local zdr_reason="${4:-}"       # free text, or "" (omit)
 
   mkdir -p "$proj/.claude"
+  # BL-114 fixture era (same 2026-07-18 full-lane run): the 0→1 gate now
+  # BLOCKS on absent Step-0 intermediates — a pass-path fixture must carry
+  # them like a real compliant project does.
+  mkdir -p "$proj/docs/phase-0"
+  printf 'frd\n' > "$proj/docs/phase-0/frd.md"
+  printf 'journey\n' > "$proj/docs/phase-0/user-journey.md"
+  printf 'contract\n' > "$proj/docs/phase-0/data-contract.md"
 
   cat > "$proj/.claude/manifest.json" <<'JSON'
 {"frameworkVersion":"test","host":"github","mode":"personal","enforcement_level":"strict"}
@@ -93,7 +100,12 @@ JSON
     --arg rsn "$zdr_reason" \
     '{
       phase2_init: {
-        steps_completed: [],
+        # BL-116 fixture era (2026-07-18, full-lane run 29649055577): the
+        # push-gate exemption now requires RECORDED remote_repo_created +
+        # pushed_initial — an empty steps_completed models a pre-#207 world
+        # and the gate correctly blocked T8'"'"'s pass-path. Same repair class
+        # as bl073/poc-block in the post-run CI repair.
+        steps_completed: ["remote_repo_created","pushed_initial"],
         verified: false,
         attestations: {
           branch_protection: {
