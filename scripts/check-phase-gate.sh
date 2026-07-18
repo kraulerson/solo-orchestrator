@@ -327,9 +327,14 @@ _cpg_gate_has_evidence() {
   # anywhere in a 15-line proximity window: a BLANK Date cell used to be
   # masked by an incidental date in a Reference/Notes cell (walk F6 /
   # P1-010 — approval evidence satisfiable without approval). Accept both
-  # `| Date |` and `| **Date** |` row shapes; the first Date row after the
-  # header is the one that counts.
-  grep -A 15 "$header" "$APPROVAL_LOG" \
+  # `| Date |` and `| **Date** |` row shapes. The window is BOUNDED AT THE
+  # NEXT `## ` SECTION (verifier SF#1): without the bound, a section with
+  # NO Date row at all stole the next section's date through the window —
+  # a missing row must be at least as strict as a blank one. awk range:
+  # from the header line (exclusive) to the next section header or +15
+  # lines, whichever first.
+  awk -v h="$header" '$0 ~ h {f=1; next} f && /^## / {exit} f' "$APPROVAL_LOG" \
+    | head -15 \
     | grep -E '^\|[[:space:]]*\**[[:space:]]*Date[[:space:]]*\**[[:space:]]*\|' \
     | head -1 \
     | grep -qE "[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])"

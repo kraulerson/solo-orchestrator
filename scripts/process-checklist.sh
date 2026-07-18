@@ -476,19 +476,38 @@ complete_step() {
       # RECORDED (SOLO_UAT_SOLO_ATTESTED=1 + optional SOLO_UAT_REASON,
       # written to uat_session.solo_attestations[] — attested, not silenced;
       # the BL-032/071 lineage).
-      local uat_dir="" uat_n=0
-      uat_dir=$(ls -dt tests/uat/sessions/*/ 2>/dev/null | head -1) || uat_dir=""
+      local uat_dir="" uat_n=0 uat_sid=""
+      # Verifier SF#3: resolve the session dir from the STATE's session_id —
+      # an mtime-newest heuristic passed on a STALE session's files while the
+      # current session sat empty. Fall back to newest only when the state
+      # carries no session_id (legacy).
+      uat_sid=$(jq -r '.uat_session.session_id // ""' "$PROCESS_STATE" 2>/dev/null || echo "")
+      if [ -n "$uat_sid" ] && [ -d "tests/uat/sessions/$uat_sid" ]; then
+        uat_dir="tests/uat/sessions/$uat_sid/"
+      else
+        uat_dir=$(ls -dt tests/uat/sessions/*/ 2>/dev/null | head -1) || uat_dir=""
+      fi
       if [ "${SOLO_UAT_SOLO_ATTESTED:-0}" = "1" ]; then
-        local uat_reason uat_now
+        local uat_reason uat_now uat_track
         uat_reason="${SOLO_UAT_REASON:-unspecified - attested via SOLO_UAT_SOLO_ATTESTED}"
         uat_now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
         jq --arg r "$uat_reason" --arg at "$uat_now" \
            '.uat_session.solo_attestations = ((.uat_session.solo_attestations // []) + [{reason: $r, at: $at, step: "results_received"}])' \
            "$PROCESS_STATE" > "$PROCESS_STATE.tmp" && mv "$PROCESS_STATE.tmp" "$PROCESS_STATE"
         print_ok "results_received: SOLO-MODE attested and RECORDED (reason: $uat_reason) — no external submissions required."
+        # Verifier SF#4: the escape is FOR the Light/solo track. It stays
+        # usable elsewhere (recorded, never silent) but says so loudly —
+        # reviewers of an organizational/standard project should expect to
+        # ask why UAT ran with no external testers.
+        uat_track=$(jq -r '.track // ""' "$PHASE_STATE" 2>/dev/null || echo "")
+        if [ -n "$uat_track" ] && [ "$uat_track" != "light" ]; then
+          print_warn "solo-mode UAT attestation used OUTSIDE the Light track (track: $uat_track) — recorded to process-state; reviewers should expect a justification."
+        fi
       else
         if [ -n "$uat_dir" ] && [ -d "${uat_dir}submissions" ]; then
-          uat_n=$(find "${uat_dir}submissions" -type f 2>/dev/null | grep -c . ) || uat_n=0
+          # Verifier SF#2: exclude dotfiles — a lone .gitkeep (the standard
+          # keep-empty-dir convention) must not launder the evidence gate.
+          uat_n=$(find "${uat_dir}submissions" -type f ! -name '.*' 2>/dev/null | grep -c . ) || uat_n=0
           case "$uat_n" in ''|*[!0-9]*) uat_n=0 ;; esac
         fi
         if [ "$uat_n" -ge 1 ]; then

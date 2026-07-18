@@ -138,6 +138,31 @@ else
   fail_ "T-date-cell-required" "a BLANK approval Date cell passed the gate because a stray date sat in the Notes row within the 15-line window (rc=$rc, walk F6/P1-010)"
 fi
 
+# ── BL-115 verifier SF#1: a MISSING Date row must not steal the next section's ─
+echo "=== T-date-no-row-not-stolen ==="
+P="$TOPTMP/p-steal"
+build_p01 "$P" clean
+cat > "$P/APPROVAL_LOG.md" <<'MD'
+# Approval Log
+
+## Phase Gate: Phase 0 → Phase 1
+| Field | Value |
+|---|---|
+| Approver | Alice Signer |
+
+## Phase Gate: Phase 1 → Phase 2
+| Field | Value |
+|---|---|
+| Approver | Alice Signer |
+| Date | 2026-05-05 |
+MD
+out=$(run_p01 "$P"); rc=$?
+if [ "$rc" -ne 0 ]; then
+  pass "T-date-no-row-not-stolen"
+else
+  fail_ "T-date-no-row-not-stolen" "a 0→1 section with NO Date row passed by stealing the NEXT section's date through the 15-line window (verifier SF#1) — a missing row must be at least as strict as a blank one"
+fi
+
 # ── process-checklist fixtures (legal_review + UAT) ──────────────────────────
 mk_pc_proj() {
   local d="$1"
@@ -246,6 +271,46 @@ if [ "$rc" -eq 0 ] && [ -n "$recorded" ]; then
   pass "T-uat-solo-attested (recorded: $recorded)"
 else
   fail_ "T-uat-solo-attested" "solo-mode attestation rc=$rc recorded='$recorded' — the escape must work AND be durably recorded (attested, not silenced)"
+fi
+
+# ── BL-127 verifier SF#2: .gitkeep is not evidence ───────────────────────────
+echo "=== T-uat-gitkeep-not-evidence ==="
+P="$TOPTMP/p-uatgk"
+mk_pc_proj "$P"
+mkdir -p "$P/tests/uat/sessions/2026-07-17-session-1/submissions"
+touch "$P/tests/uat/sessions/2026-07-17-session-1/submissions/.gitkeep"
+out=$( cd "$P" && bash scripts/process-checklist.sh --complete-step uat_session:results_received 2>&1 ); rc=$?
+if [ "$rc" -ne 0 ]; then
+  pass "T-uat-gitkeep-not-evidence"
+else
+  fail_ "T-uat-gitkeep-not-evidence" "a lone .gitkeep counted as a submission (verifier SF#2 — the keep-empty-dir convention launders the evidence gate)"
+fi
+
+# ── BL-127 verifier SF#3: evidence resolves from session_id, not dir mtime ───
+echo "=== T-uat-session-id-resolved ==="
+P="$TOPTMP/p-uatsid"
+mk_pc_proj "$P"
+mkdir -p "$P/tests/uat/sessions/2026-07-17-session-1/submissions"
+mkdir -p "$P/tests/uat/sessions/2026-07-01-session-0/submissions"
+printf 'stale results\n' > "$P/tests/uat/sessions/2026-07-01-session-0/submissions/old.md"
+touch "$P/tests/uat/sessions/2026-07-01-session-0"
+out=$( cd "$P" && bash scripts/process-checklist.sh --complete-step uat_session:results_received 2>&1 ); rc=$?
+if [ "$rc" -ne 0 ]; then
+  pass "T-uat-session-id-resolved (the CURRENT session's empty submissions/ decide, not a stale dir's mtime)"
+else
+  fail_ "T-uat-session-id-resolved" "results_received passed on a STALE session's files while the state's session_id (2026-07-17-session-1) has none (verifier SF#3)"
+fi
+
+# ── BL-127 verifier SF#4: the solo escape warns outside the Light track ──────
+echo "=== T-uat-solo-warn-outside-light ==="
+P="$TOPTMP/p-uatorg"
+mk_pc_proj "$P"
+mkdir -p "$P/tests/uat/sessions/2026-07-17-session-1/submissions"
+out=$( cd "$P" && SOLO_UAT_SOLO_ATTESTED=1 bash scripts/process-checklist.sh --complete-step uat_session:results_received 2>&1 ); rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -qi "outside the Light track"; then
+  pass "T-uat-solo-warn-outside-light"
+else
+  fail_ "T-uat-solo-warn-outside-light" "solo-mode on a standard-track project (rc=$rc) must still be allowed+recorded but WARN that it is outside the Light track (verifier SF#4): $(printf '%s' "$out" | tail -1)"
 fi
 
 # ── BL-114 F3: --start-phase1 consults the gate ──────────────────────────────
