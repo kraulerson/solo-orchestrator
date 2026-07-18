@@ -2728,6 +2728,8 @@ For Rust the skip is *deliberate* (inline `#[cfg(test)]` tests cannot be detecte
 **Severity:** Medium
 **Status:** Open
 
+**Status update 2026-07-17:** fix implemented on PR #210 (branch `fix/bl108-bl117-ship-closure`), awaiting merge. The five gate-demanded templates now ship (security-audit-findings, security, threat-model-validation, rollback-test, handoff-test-results); the durable class fix is the MECHANICAL closure in `tests/test-bl108-bl117-ship-closure.sh` — the shipped set (init.sh cp lines) and the referenced set (non-comment script text + the guide) are both derived, so drift is impossible; the extractor's bite is self-tested and an init-revert mutation goes RED on exactly the shipped items. Evidence: `Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md` § WP-E2.
+
 `templates/generated/security-audit-findings.tmpl` **exists in the framework** and `scripts/process-checklist.sh` names it in its own operator-facing error message:
 > `Create a findings file using templates/generated/security-audit-findings.tmpl`
 
@@ -2925,6 +2927,8 @@ The BL-084 push-verification gate — documented as **MANDATORY and non-bypassab
 **Category:** Bug / scaffold closure (the [[bl088-scaffold-source-closure]] class)
 **Severity:** Medium
 **Status:** Open
+
+**Status update 2026-07-17:** fix implemented on PR #210 alongside BL-108, awaiting merge. F20: `check-maintenance.sh` + the three guide-named lints now ship (activating pre-commit-gate's documented project-local lint path); the guide-tools closure keeps the class shut. F19: `# BL-117-BUILD-SMOKE` — production_build requires a dated smoke record that the BUILT artifact was STARTED and responded (deviation from "actually start it" recorded: a bash checklist cannot own every stack's runtime contract; the recorded evidence of a real start is the enforceable unit, consistent with the rollback/monitoring bars). Fence-excision mutation in-suite. Evidence: § WP-E2.
 
 **F19 — the release does not boot.** The walked project's production build **does not run**: `tsc` omits `migrations/001_init.sql` from `dist/`, so the documented `npm start` (`node dist/src/server.js`) crashes `ENOENT`. The framework's `phase4_release:production_build` step has **no artifact or smoke arm** and was marked complete on a non-booting build. A "released" project that cannot start is the sharpest possible statement of the missing Phase-4 evidence arms.
 

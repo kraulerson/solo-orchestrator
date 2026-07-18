@@ -1340,6 +1340,16 @@ create_project() {
   cp "$SCRIPT_DIR/scripts/pending-approval.sh" scripts/      # BL-015
   cp "$SCRIPT_DIR/scripts/lint-uat-scenarios.sh" scripts/    # BL-009
   cp "$SCRIPT_DIR/scripts/lint-fixture-envelopes.sh" scripts/  # BL-030
+  # BL-117/BL-108: guide-named in-project tools that were never shipped.
+  # check-maintenance.sh is Step 4.4's cadence checker (F20: "No such file"
+  # for a guide-following operator). The three lints below are documented as
+  # running project-side (pre-commit-gate.sh prefers $PROJECT_ROOT-local
+  # copies; the guide describes exactly that) — shipping them activates the
+  # documented path. tests/test-bl108-bl117-ship-closure.sh closes the class.
+  cp "$SCRIPT_DIR/scripts/check-maintenance.sh" scripts/
+  cp "$SCRIPT_DIR/scripts/lint-backlog-references.sh" scripts/
+  cp "$SCRIPT_DIR/scripts/lint-counter-antipattern.sh" scripts/
+  cp "$SCRIPT_DIR/scripts/lint-review-manifest.sh" scripts/
   # BL-030: enforcement-level lib, gate-principles lib, filesystem-gate
   # installer, PostToolUse Claude-commit recorder, SessionStart out-of-
   # band detector. Required by reconfigure --enforcement-level and by
@@ -1376,7 +1386,7 @@ create_project() {
   cp "$SCRIPT_DIR/scripts/lib/host.sh" scripts/lib/
   cp "$SCRIPT_DIR/scripts/host-drivers/"*.sh scripts/host-drivers/
   chmod +x scripts/host-drivers/*.sh
-  chmod +x scripts/validate.sh scripts/check-phase-gate.sh scripts/run-phase3-validation.sh scripts/check-gate.sh scripts/check-updates.sh scripts/resume.sh scripts/intake-wizard.sh scripts/resolve-tools.sh scripts/upgrade-project.sh scripts/reconfigure-project.sh scripts/verify-install.sh scripts/test-gate.sh scripts/check-versions.sh scripts/session-version-check.sh scripts/session-freshness-check.sh scripts/session-test-gate-check.sh scripts/session-end-qdrant-reminder.sh scripts/session-mcp-gate.sh scripts/process-checklist.sh scripts/pre-commit-gate.sh scripts/track-tool-usage.sh scripts/pending-approval.sh scripts/lint-uat-scenarios.sh
+  chmod +x scripts/validate.sh scripts/check-phase-gate.sh scripts/run-phase3-validation.sh scripts/check-gate.sh scripts/check-updates.sh scripts/resume.sh scripts/intake-wizard.sh scripts/resolve-tools.sh scripts/upgrade-project.sh scripts/reconfigure-project.sh scripts/verify-install.sh scripts/test-gate.sh scripts/check-versions.sh scripts/session-version-check.sh scripts/session-freshness-check.sh scripts/session-test-gate-check.sh scripts/session-end-qdrant-reminder.sh scripts/session-mcp-gate.sh scripts/process-checklist.sh scripts/pre-commit-gate.sh scripts/track-tool-usage.sh scripts/pending-approval.sh scripts/lint-uat-scenarios.sh scripts/check-maintenance.sh scripts/lint-backlog-references.sh scripts/lint-counter-antipattern.sh scripts/lint-review-manifest.sh
 
   # Copy intake suggestion files
   mkdir -p templates/intake-suggestions
@@ -1448,6 +1458,15 @@ create_project() {
   # the orchestrator clone, CI restored only the project tree, etc.).
   # Without this copy that fallback was dead code in practice.
   cp "$SCRIPT_DIR/templates/generated/claude-md.tmpl" templates/generated/
+  # BL-108: the five GATE-DEMANDED templates that were never shipped — the
+  # gates' own error text and the builders-guide tell the operator to use
+  # them (8 of 25 were unshipped; these five are demanded by a gate arm).
+  # tests/test-bl108-bl117-ship-closure.sh closes the class mechanically.
+  cp "$SCRIPT_DIR/templates/generated/security-audit-findings.tmpl" templates/generated/
+  cp "$SCRIPT_DIR/templates/generated/security.tmpl" templates/generated/
+  cp "$SCRIPT_DIR/templates/generated/threat-model-validation.tmpl" templates/generated/
+  cp "$SCRIPT_DIR/templates/generated/rollback-test.tmpl" templates/generated/
+  cp "$SCRIPT_DIR/templates/generated/handoff-test-results.tmpl" templates/generated/
 
   # Install vendored skills (project-level, .claude/skills/<name>/).
   # Skills are markdown SKILL.md files with NOTICE-attribution preserved.

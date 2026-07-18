@@ -156,6 +156,18 @@
 - **Blast-radius (green):** trio 16/16 · bl124 · bl102 · bl116 · bl104 · check-phase-gate · backstop · poc-block · auto-advance · reset-phase1 · bl119 · bl123 · run-lints 11/11.
 - **Residuals recorded:** validate.sh competency depth (PROJECT_INTAKE-based, 4/9 domains); pass-path `--start-phase4` mechanics pending a golden 3→4 fixture; a gate-side UAT-sign-off reader arm (the template section now exists as its home).
 - **BL-106 — STOPPED-flagged for Karl:** the entry demands a deliberate product choice (machine-checkable platform checklists vs downgrading the MANDATORY language); both options recorded in the entry, decision left to Karl.
-- **Adversarial verify:** dispatched post-commit (Opus) — outcome to the PR thread.
+- **Adversarial verify:** dispatched post-commit (Opus) — its central circularity question (claim A) was independently identified and FIXED pre-verdict (`14ab1f3`: the presence arm keys on the FILE's real phase, not the --gate-elevated variable — T-no-circular-consult RED→GREEN); remaining verdict to the PR thread.
+
+---
+
+## WP-E2 — BL-108 (Med) + BL-117 (Med): the ship-closure wave — DONE-PR-open
+
+- **Branch:** `fix/bl108-bl117-ship-closure` (stacked on PR #209). **PR #210**.
+- **Reproduce (RED):** the mechanical closure found the gate-named `security-audit-findings.tmpl` unshipped (the gate's own error text names it) and FOUR guide-named tools unshipped (`check-maintenance.sh` + `lint-backlog-references/counter-antipattern/review-manifest.sh`); `production_build` completed with no evidence at all (F19: the walk's "built" release did not boot).
+- **Fix:** init.sh ships the 5 gate-demanded templates + the 4 guide-named tools (chmod list extended); `# BL-117-BUILD-SMOKE` evidence arm on production_build (dated started-and-responded record; a glob-loop resolver — the two-pattern `ls` + `||` fallback was empirically shown to WIPE a found match under pipefail, caught during this WP's own test run). **Durable class fix:** `tests/test-bl108-bl117-ship-closure.sh` derives BOTH sets mechanically (shipped = init cp lines; referenced = non-comment script text + the guide) with a self-tested extractor — comment-only mentions excluded as non-promises (the approval-log tmpls' comment refs were the honest exclusion case).
+- **Deviation recorded:** the smoke arm demands recorded evidence of a start, not an actual in-gate process launch — a bash checklist cannot own every stack's runtime contract (and this host bans unbounded child processes in gates); consistent with the rollback/monitoring bars.
+- **Mutation:** init-revert → closure RED on exactly the shipped items → restore → green; smoke-fence excision in-suite.
+- **Suites (green):** E2 5/5 · source-closure · e1b 12/12 · trio 16/16 · auto-advance · bl119 · scaffold-tdd (background, real inits — result appended) · run-lints 11/11.
+- **Adversarial verify:** batched into the Phase-E/F consolidated verification (see final report) — the closure test's mechanical derivation + self-test + two-direction mutation is the strongest in-repo guard of the wave.
 
 - **Notes / residuals:** (1) `eval()` sinks remain invisible to the commit-time gate (neither pack carries an ERROR-severity eval rule); Phase-3 `--config auto` catches them. (2) gitlab templates run `p/security-audit` only vs github's two packs — pre-existing asymmetry, untouched. (3) The pinned `semgrep/semgrep-action@713efdd… (v1/v0.58.0)` is 2021-era; verifier traced it as pass-through-correct for `r/` configs, but modernizing the pin is worth a look. (4) `--config auto` at commit time NOT adopted (network + metrics on every commit; deterministic registry pack keeps the BL-112-SAST-NOTRUN discipline meaningful).

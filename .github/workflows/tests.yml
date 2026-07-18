@@ -83,6 +83,7 @@ jobs:
             tests/test-bl104-gate-scoring.sh
             tests/test-bl105-phase4-wave.sh
             tests/test-bl107-tdd-all-languages.sh
+            tests/test-bl108-bl117-ship-closure.sh
             tests/test-bl118-sast-dom-xss.sh
             tests/test-bl119-stale-editmsg.sh
             tests/test-bl121-cutline-bsd-sed.sh
