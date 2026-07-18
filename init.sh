@@ -1423,6 +1423,33 @@ create_project() {
   if [ -f "$platform_module" ]; then
     cp "$platform_module" docs/platform-modules/
     print_ok "Platform module: $PLATFORM"
+    # BL-106-GOLIVE-TEMPLATE: render the module's MANDATORY Go-Live checklist
+    # into the artifact the phase-4 gate verifies (Karl's 2026-07-18
+    # machine-checkable decision). Single source: the module's H3 /Go-Live/
+    # section's top-level `- [ ]` items — the same grammar the
+    # # BL-106-GOLIVE-CHECKLIST arm in process-checklist.sh parses at
+    # go_live_verified time. The operator ticks every box and dates the
+    # header; the gate blocks on unticked/missing/undated.
+    local golive_items
+    golive_items=$(awk '/^###[^#].*[Gg]o-[Ll]ive/{f=1; next} f && /^#/{exit} f' "$platform_module" | grep -E '^- \[ \]' || true)
+    if [ -n "$golive_items" ]; then
+      {
+        echo "# Go-Live Checklist — $PROJECT_NAME ($PLATFORM)"
+        echo ""
+        echo "Rendered at scaffold time from \`docs/platform-modules/${PLATFORM}.md\` (its Go-Live"
+        echo "section is MANDATORY). Tick every box as you verify it in production; the"
+        echo "\`phase4_release:go_live_verified\` gate blocks while any box is unticked,"
+        echo "any module item is missing, or the Date below is a placeholder (BL-106)."
+        echo ""
+        echo "| Field | Value |"
+        echo "|---|---|"
+        echo "| **Date** | [YYYY-MM-DD] |"
+        echo "| **Verified by** | [name] |"
+        echo ""
+        printf '%s\n' "$golive_items"
+      } > docs/test-results/go-live-checklist.md
+      print_ok "Go-live checklist rendered: docs/test-results/go-live-checklist.md ($(printf '%s\n' "$golive_items" | grep -c .) items)"
+    fi
   else
     print_info "No platform module for '$PLATFORM'. The Builder's Guide works standalone."
   fi

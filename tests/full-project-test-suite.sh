@@ -774,6 +774,18 @@ else
   fail "tests/test-bl095-state-readers.sh FAILED (run for details)"
 fi
 
+# BL-106 (Karl's 2026-07-18 machine-checkable decision): the platform
+# go-live checklist is PARSED — the shipped module's H3 /Go-Live/ `- [ ]`
+# items must be ticked in a dated docs/test-results/*go-live-checklist*
+# artifact at go_live_verified; standalone platforms exempt with a note.
+# In-suite fence-excision mutant. No init.sh -> both lanes (the init-side
+# generator has its real-init case in test-scaffold-tdd-block-real.sh).
+if bash "$SCRIPT_DIR/tests/test-bl106-golive-checklist.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl106-golive-checklist.sh"
+else
+  fail "tests/test-bl106-golive-checklist.sh FAILED (run for details)"
+fi
+
 # BL-128 (Dogfood-2 F-DF2-015): the review generator is headless-viable —
 # --compose-only / --assemble-manifest need no claude at all; live runs get a
 # per-review process-GROUP watchdog (REVIEW_TIMEOUT_SECS), actionable
