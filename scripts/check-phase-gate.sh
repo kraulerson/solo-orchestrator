@@ -322,9 +322,22 @@ _cpg_gate_actor() {
 #   # BL-071-EVIDENCE-GATE
 _cpg_gate_has_evidence() {
   local header="$1"
-  grep -q "$header" "$APPROVAL_LOG" \
-    && grep -A 15 "$header" "$APPROVAL_LOG" \
-       | grep -qE "[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])"
+  grep -q "$header" "$APPROVAL_LOG" || return 1
+  # BL-115-DATE-CELL — the date must sit in the approval's Date ROW, not
+  # anywhere in a 15-line proximity window: a BLANK Date cell used to be
+  # masked by an incidental date in a Reference/Notes cell (walk F6 /
+  # P1-010 — approval evidence satisfiable without approval). Accept both
+  # `| Date |` and `| **Date** |` row shapes. The window is BOUNDED AT THE
+  # NEXT `## ` SECTION (verifier SF#1): without the bound, a section with
+  # NO Date row at all stole the next section's date through the window —
+  # a missing row must be at least as strict as a blank one. awk range:
+  # from the header line (exclusive) to the next section header or +15
+  # lines, whichever first.
+  awk -v h="$header" '$0 ~ h {f=1; next} f && /^## / {exit} f' "$APPROVAL_LOG" \
+    | head -15 \
+    | grep -E '^\|[[:space:]]*\**[[:space:]]*Date[[:space:]]*\**[[:space:]]*\|' \
+    | head -1 \
+    | grep -qE "[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])"
 }
 
 # _cpg_record_gate_date <gate_key> <label> <current_date>
@@ -529,9 +542,14 @@ validate_manifesto_content() {
     if ! grep -qE "^## ${section_num}\." "$file"; then
       missing_sections="${missing_sections} ${section_num}"
     else
-      # Check if section has content beyond template placeholders
+      # Check if section has content beyond template placeholders.
+      # BL-114-F2-ERREXIT-GUARD: `|| true` is LOAD-BEARING. A placeholder-only
+      # section filters down to NOTHING, the final `grep -v` exits 1, and
+      # under `set -euo pipefail` the un-guarded assignment ABORTED the whole
+      # gate BEFORE the placeholder WARN below ever printed — rc=1 with zero
+      # diagnostic (walk F2: the WARN branch was unreachable code).
       local section_content
-      section_content=$(sed -n "/^## ${section_num}\./,/^## [0-9]/p" "$file" | grep -v "^##" | grep -v "^---" | grep -v "^$" | grep -v "^<!--" | grep -v -e '-->$' | grep -v "^\[" | grep -v "^|.*|.*|$" | head -5)
+      section_content=$(sed -n "/^## ${section_num}\./,/^## [0-9]/p" "$file" | grep -v "^##" | grep -v "^---" | grep -v "^$" | grep -v "^<!--" | grep -v -e '-->$' | grep -v "^\[" | grep -v "^|.*|.*|$" | head -5) || true
       if [ -z "$section_content" ]; then
         placeholder_sections="${placeholder_sections} ${section_num}"
       fi
@@ -860,7 +878,14 @@ if [ "$current_phase" -ge 1 ]; then
     echo -e "${YELLOW}[WARN]${NC} Phase 0→1: PRODUCT_MANIFESTO.md not found"
     issues=$((issues + 1))
   fi
-  # Check for Phase 0 intermediate outputs (P0-002)
+  # Check for Phase 0 intermediate outputs (P0-002).
+  # BL-114-F1-INTERMEDIATES: the documented behavior is WARNS-AND-BLOCKS —
+  # but this check never incremented `issues` (deleting frd.md printed
+  # "2/3 saved" and the gate said "consistent", walk F1), and an ABSENT
+  # docs/phase-0/ produced no output at all. Code now matches docs: any
+  # missing intermediate BLOCKS, labeled [FAIL] so the verdict and the label
+  # agree (the BL-104 [WARN] trap runs the other way too — a blocking arm
+  # must not dress as a warning).
   if [ -d "docs/phase-0" ]; then
     p0_files=0
     [ -f "docs/phase-0/frd.md" ] && p0_files=$((p0_files + 1))
@@ -868,9 +893,13 @@ if [ "$current_phase" -ge 1 ]; then
     [ -f "docs/phase-0/data-contract.md" ] && p0_files=$((p0_files + 1))
     if [ $p0_files -eq 3 ]; then
       echo -e "${GREEN}  [OK]${NC} Phase 0 intermediates: frd.md, user-journey.md, data-contract.md"
-    elif [ $p0_files -gt 0 ]; then
-      echo -e "${YELLOW}[WARN]${NC} Phase 0 intermediates: $p0_files/3 saved (check docs/phase-0/)"
+    else
+      echo -e "${RED}[FAIL]${NC} Phase 0 intermediates: $p0_files/3 saved — docs/phase-0/ requires frd.md, user-journey.md, data-contract.md (Step 0 evidence; documented as blocking)"
+      issues=$((issues + 1))
     fi
+  else
+    echo -e "${RED}[FAIL]${NC} Phase 0 intermediates: docs/phase-0/ missing entirely — frd.md, user-journey.md, data-contract.md are required Step 0 evidence (documented as blocking)"
+    issues=$((issues + 1))
   fi
 fi
 

@@ -90,7 +90,10 @@ run_init() {
 build_gate_fixture() {
   local proj="$1" deployment="$2" poc_mode="$3" track="$4" verified="$5" ack="$6"
   local bare="$proj.bare.git"
-  mkdir -p "$proj/.claude"
+  mkdir -p "$proj/.claude" "$proj/docs/phase-0"
+  printf 'frd\n' > "$proj/docs/phase-0/frd.md"
+  printf 'journey\n' > "$proj/docs/phase-0/user-journey.md"
+  printf 'contract\n' > "$proj/docs/phase-0/data-contract.md"
   git init -q --bare "$bare"
 
   local now; now="$(date -u +%FT%TZ)"
@@ -120,10 +123,16 @@ JSON
 # APPROVAL_LOG
 
 ## Phase 0 → Phase 1
-Approved 2026-01-01
+| Field | Value |
+|---|---|
+| Approver | Alice Signer |
+| Date | 2026-01-01 |
 
 ## Phase 1 → Phase 2
-Approved 2026-02-01
+| Field | Value |
+|---|---|
+| Approver | Alice Signer |
+| Date | 2026-02-01 |
 MD
 
   {

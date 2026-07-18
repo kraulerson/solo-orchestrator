@@ -43,6 +43,10 @@ setup() {
   TMP=$(mktemp -d)
   PROJ="$TMP/p"
   mkdir -p "$PROJ/.claude"
+  mkdir -p "$PROJ/docs/phase-0"
+  printf 'frd\n' > "$PROJ/docs/phase-0/frd.md"
+  printf 'journey\n' > "$PROJ/docs/phase-0/user-journey.md"
+  printf 'contract\n' > "$PROJ/docs/phase-0/data-contract.md"
 }
 teardown() { rm -rf "$TMP"; }
 

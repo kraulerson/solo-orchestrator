@@ -88,6 +88,7 @@ while [ $# -gt 0 ]; do
       echo ""
       echo "Commands:"
       echo "  --start-feature NAME        Start a new build loop for the named feature"
+      echo "  --start-phase1              Begin Phase 1 architecture planning (consults the 0->1 gate first — BL-114)"
       echo "  --complete-step PROC:STEP   Complete a step in a process (sequential enforcement)"
       echo "  --start-uat N               Start UAT session N"
       echo "  --start-phase3              Start Phase 3 validation"
@@ -208,6 +209,24 @@ require_build_loop_state_for_commit() {
 
 start_phase1() {
   ensure_state_file
+  # BL-114-START1-GATE-CONSULT-BEGIN
+  # F3 / F-DF2-003: --start-phase1 used to advance current_phase 0→1 with NO
+  # gate consult — "[INFO] Advanced .current_phase: 0 → 1", exit 0, while
+  # gates.phase_0_to_1 was still null; from a zero state that chain reached a
+  # tagged release with nothing satisfied. The 0→1 gate is consulted HERE,
+  # before any state changes; a failing gate refuses the advance. Excision-
+  # safe fence (removing it restores the old unconsulted advance).
+  local _sp1_gate="$SCRIPT_DIR/check-phase-gate.sh"
+  if [ -x "$_sp1_gate" ]; then
+    if ! bash "$_sp1_gate" --gate phase_0_to_1; then
+      print_fail "Phase 0→1 gate is NOT clear — start-phase1 refused (see the gate output above). Satisfy the gate, then re-run."
+      exit 1
+    fi
+  else
+    print_fail "check-phase-gate.sh not found beside this script — cannot verify the 0→1 gate; refusing to advance blind."
+    exit 1
+  fi
+  # BL-114-START1-GATE-CONSULT-END
   local now
   now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
@@ -411,21 +430,93 @@ complete_step() {
       if [ -f "PRIVACY_POLICY.md" ] || [ -f "TERMS_OF_SERVICE.md" ] || [ -f "privacy-policy.md" ] || [ -f "terms-of-service.md" ]; then
         has_legal_docs=true
       fi
-      # Check for attorney review entry in APPROVAL_LOG.md
-      if [ -f "APPROVAL_LOG.md" ] && grep -qi "attorney\|legal review" APPROVAL_LOG.md 2>/dev/null; then
+      # Check for attorney review entry in APPROVAL_LOG.md.
+      # BL-115-ATTORNEY-ENTRY: the organizational APPROVAL_LOG template ships
+      # a literal '## Attorney / Legal Review' header, so a bare
+      # `grep -qi 'attorney|legal review'` was satisfied by the template's
+      # own scaffolding with ZERO real entry (walk F16 — the gate satisfied
+      # itself). A real entry is a DATED table row under the section.
+      if [ -f "APPROVAL_LOG.md" ] \
+         && grep -A 15 -i "attorney\|legal review" APPROVAL_LOG.md 2>/dev/null \
+            | grep -E '^\|' \
+            | grep -qE '[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])'; then
         has_attorney_entry=true
       fi
+      # BL-115-PII-REQUIRED: legal review is required-WHEN-PII, never
+      # skipped-when-absent — "collect PII, write no policy, pass" was a
+      # complete bypass (the check was file-conditional). Fail closed when
+      # the recorded data classification says non-public data and no policy
+      # exists (BL-102's evidence doctrine).
+      local bl115_data_class=""
+      bl115_data_class=$(jq -r '.phase1_artifacts.data_classification // ""' "$PROCESS_STATE" 2>/dev/null || echo "")
       # Logic: if legal docs exist, attorney entry is required (AND, not OR)
       if [ "$has_legal_docs" = true ] && [ "$has_attorney_entry" = false ]; then
         print_warn "Legal documents found but no attorney review recorded in APPROVAL_LOG.md."
         echo "  Privacy Policy and/or Terms of Service MUST be reviewed by qualified legal counsel." >&2
-        echo "  Record the review in APPROVAL_LOG.md (Attorney / Legal Review section)." >&2
+        echo "  Record the review as a DATED row in APPROVAL_LOG.md (Attorney / Legal Review section) — the section header alone is template scaffolding, not evidence." >&2
         artifact_check_failed=true
-      elif [ "$has_legal_docs" = false ] && [ "$has_attorney_entry" = false ]; then
-        # No legal docs and no attorney entry — likely N/A (no data collection)
-        print_info "No legal documents found — attorney review may not be required."
-        echo "  If this project collects user data, create a Privacy Policy and get attorney review." >&2
-        echo "  If not applicable: proceed (use SOIF_FORCE_STEP=true if this check blocks incorrectly)." >&2
+      elif [ "$has_legal_docs" = false ]; then
+        if [ -n "$bl115_data_class" ] && [ "$bl115_data_class" != "public" ]; then
+          print_warn "data_classification='$bl115_data_class' (non-public / PII-bearing) but NO privacy policy or ToS exists — legal review cannot be skipped by not writing the documents (fail closed)."
+          echo "  Create PRIVACY_POLICY.md (and TERMS_OF_SERVICE.md if applicable), obtain attorney review, record the dated row in APPROVAL_LOG.md." >&2
+          artifact_check_failed=true
+        elif [ "$has_attorney_entry" = false ]; then
+          # No legal docs, public/unset classification — likely N/A.
+          print_info "No legal documents found and data_classification is ${bl115_data_class:-unset}/public — attorney review may not be required."
+          echo "  If this project collects user data, create a Privacy Policy and get attorney review." >&2
+          echo "  If not applicable: proceed (use SOIF_FORCE_STEP=true if this check blocks incorrectly)." >&2
+        fi
+      fi
+      ;;
+    uat_session:results_received)
+      # BL-127-UAT-EVIDENCE: the step whose entire meaning is "the testers'
+      # results are IN" used to complete with ZERO files in submissions/ —
+      # pure self-attestation (Dogfood-2 F-DF2-010). Evidence-bearing steps
+      # gate on real artifacts; the Light/solo escape is EXPLICIT and
+      # RECORDED (SOLO_UAT_SOLO_ATTESTED=1 + optional SOLO_UAT_REASON,
+      # written to uat_session.solo_attestations[] — attested, not silenced;
+      # the BL-032/071 lineage).
+      local uat_dir="" uat_n=0 uat_sid=""
+      # Verifier SF#3: resolve the session dir from the STATE's session_id —
+      # an mtime-newest heuristic passed on a STALE session's files while the
+      # current session sat empty. Fall back to newest only when the state
+      # carries no session_id (legacy).
+      uat_sid=$(jq -r '.uat_session.session_id // ""' "$PROCESS_STATE" 2>/dev/null || echo "")
+      if [ -n "$uat_sid" ] && [ -d "tests/uat/sessions/$uat_sid" ]; then
+        uat_dir="tests/uat/sessions/$uat_sid/"
+      else
+        uat_dir=$(ls -dt tests/uat/sessions/*/ 2>/dev/null | head -1) || uat_dir=""
+      fi
+      if [ "${SOLO_UAT_SOLO_ATTESTED:-0}" = "1" ]; then
+        local uat_reason uat_now uat_track
+        uat_reason="${SOLO_UAT_REASON:-unspecified - attested via SOLO_UAT_SOLO_ATTESTED}"
+        uat_now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+        jq --arg r "$uat_reason" --arg at "$uat_now" \
+           '.uat_session.solo_attestations = ((.uat_session.solo_attestations // []) + [{reason: $r, at: $at, step: "results_received"}])' \
+           "$PROCESS_STATE" > "$PROCESS_STATE.tmp" && mv "$PROCESS_STATE.tmp" "$PROCESS_STATE"
+        print_ok "results_received: SOLO-MODE attested and RECORDED (reason: $uat_reason) — no external submissions required."
+        # Verifier SF#4: the escape is FOR the Light/solo track. It stays
+        # usable elsewhere (recorded, never silent) but says so loudly —
+        # reviewers of an organizational/standard project should expect to
+        # ask why UAT ran with no external testers.
+        uat_track=$(jq -r '.track // ""' "$PHASE_STATE" 2>/dev/null || echo "")
+        if [ -n "$uat_track" ] && [ "$uat_track" != "light" ]; then
+          print_warn "solo-mode UAT attestation used OUTSIDE the Light track (track: $uat_track) — recorded to process-state; reviewers should expect a justification."
+        fi
+      else
+        if [ -n "$uat_dir" ] && [ -d "${uat_dir}submissions" ]; then
+          # Verifier SF#2: exclude dotfiles — a lone .gitkeep (the standard
+          # keep-empty-dir convention) must not launder the evidence gate.
+          uat_n=$(find "${uat_dir}submissions" -type f ! -name '.*' 2>/dev/null | grep -c . ) || uat_n=0
+          case "$uat_n" in ''|*[!0-9]*) uat_n=0 ;; esac
+        fi
+        if [ "$uat_n" -ge 1 ]; then
+          print_ok "results_received: $uat_n submission file(s) present in ${uat_dir}submissions/"
+        else
+          print_warn "results_received means the testers' results are IN — but ${uat_dir:-tests/uat/sessions/<session>/}submissions/ has no files."
+          echo "  Place the tester submissions there, or — solo operator with no external testers — re-run with SOLO_UAT_SOLO_ATTESTED=1 [SOLO_UAT_REASON=\"...\"] (recorded to process-state, not silenced)." >&2
+          artifact_check_failed=true
+        fi
       fi
       ;;
     phase3_validation:integration_testing)

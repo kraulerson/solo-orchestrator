@@ -212,6 +212,10 @@ MD
     done
   } > "$PROJ/PROJECT_BIBLE.md"
 
+  mkdir -p "$PROJ/docs/phase-0"
+  printf 'frd\n' > "$PROJ/docs/phase-0/frd.md"
+  printf 'journey\n' > "$PROJ/docs/phase-0/user-journey.md"
+  printf 'contract\n' > "$PROJ/docs/phase-0/data-contract.md"
   echo "# Changelog" > "$PROJ/CHANGELOG.md"
   echo "# Handoff" > "$PROJ/HANDOFF.md"
   echo "# Incident Response" > "$PROJ/docs/INCIDENT_RESPONSE.md"

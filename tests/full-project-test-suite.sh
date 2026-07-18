@@ -659,6 +659,19 @@ else
   fail "tests/test-bl121-cutline-bsd-sed.sh FAILED (run for details)"
 fi
 
+# BL-114/BL-115/BL-127 (the E1a gate-integrity trio): the 0→1 gate's WARN
+# survives errexit and the intermediates check truly blocks; --start-phase1
+# consults the gate and is documented; approval evidence requires the Date
+# CELL (not any date in a proximity window); the attorney gate needs a dated
+# row (not the template's own header) and legal review is required-when-PII;
+# UAT results_received demands submissions or an explicit RECORDED solo-mode
+# attestation. No init.sh -> both lanes.
+if bash "$SCRIPT_DIR/tests/test-bl114-bl115-bl127-gate-integrity.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl114-bl115-bl127-gate-integrity.sh"
+else
+  fail "tests/test-bl114-bl115-bl127-gate-integrity.sh FAILED (run for details)"
+fi
+
 # BL-116 (Med): the MANDATORY push gate keys on recorded facts, not host brand
 # — first-class hosts are exempt only when remote_repo_created+pushed_initial
 # are on record ("provably pushed at init", on disk); --no-remote-creation
