@@ -3220,11 +3220,37 @@ Every step of the `uat_session` checklist in `process-checklist.sh` is pure self
 **Logged:** 2026-07-18 (first full-lane workflow_dispatch after the Dogfood-2 remediation merge)
 **Category:** Bug / test debt (timing-margin flake, aggregator lane only)
 **Severity:** Low
-**Status:** Open — fix implemented same day on branch `fix/edge-case-t2-bounds` (PR open; status flips with PR + merge SHA cited once merged). ALL resolver-invoking bounds normalized to 90 (T2.1/T2.2 — the CI failures; T1.2 — flaked rc=124 in the local verification rerun of this very fix, proving the class; T2.3 and the shimmed T-resolver case for margin consistency); T2.2's `<50s` assertion (which its own 30s kill-cap made unreachable under load) recalibrated to `<60s` against the 90s cap. Fast-rejection init cases keep 30s (they exercise sub-second refusals).
+**Status:** Closed — shipped 2026-07-18 (PR #214, merged `528f5b2`). ALL resolver-invoking bounds in edge-case-test-suite normalized to 90s; T2.2's self-contradictory assertion recalibrated (<60s under the 90s cap); full suite rerun rc=0, 27 PASS. Root cause measured (a ~25s idle resolver baseline vs 30s kill-caps; resolver+matrix byte-identical `8412b8c..main`).
 
 The full lane's aggregators shard failed on `tests/edge-case-test-suite.sh` T2.1/T2.2, both rc=124 (the suite's own watchdog). Root cause measured, not guessed: a bare `resolve-tools.sh` run on an idle machine takes ~25s (the tool matrix has grown since the 30s bound was set), leaving ~5s headroom; CI-runner or parallel-suite load pushes the honest baseline over the 30s kill-cap. `resolve-tools.sh` and `templates/tool-matrix/` were byte-identical across the failing window (`git diff 8412b8c..main` empty) — a pre-existing margin problem surfacing in the rarely-run full lane, NOT a remediation regression. T2.2's design also self-contradicted: a 30s cap below its own 50s assertion meant the case could never discriminate a real hang from load.
 
 **Related:** the 2026-07-12 memory of two OTHER pre-existing full-suite failures (dry-run resolver fixture, phase-gate run) — still unfiled, tracked for the core-shard verdict of the same run.
+
+---
+
+## BL-135: test-bl033-install-cmds-shape failed in the full-lane CI run but is GREEN locally — unreproduced divergence, needs a second data point
+
+**Logged:** 2026-07-18 (full-lane run 29649055577, core shard)
+**Category:** Bug / test flake (unreproduced)
+**Severity:** Low
+**Status:** Open
+
+The core shard reported `[FAIL] tests/test-bl033-install-cmds-shape.sh` at 16:12Z; the aggregate runner suppresses sub-suite output (`run for details`), so NO case-level detail is recoverable from the log. The suite passes locally on the same content (post-#213 main). Candidates: ubuntu/GNU divergence, runner load (the same run surfaced BL-134's timing-margin class), or a real intermittent. Disposition: watch the next full-lane dispatch — a second failure warrants instrumenting the runner to tee sub-suite output; a second pass declassifies to noise.
+
+**Related:** BL-134 (same run, diagnosed timing class); the full-lane runner's output-suppression pattern (worth `tee`-ing per sub-suite — this entry is the demand signal).
+
+---
+
+## BL-136: full-project-test-suite TEST 5 ("Phase gate script failed to run") and TEST 7 ("Dry-run missing resolver tool output") — pre-existing core-lane failures, on record since 2026-07-12
+
+**Logged:** 2026-07-18 (first formal CI surfacing, full-lane run 29649055577; observed locally 2026-07-12 during the BL-099 round-4 full run — recorded then as "worth a backlog entry, NOT yet filed")
+**Category:** Bug / test debt (full-lane only)
+**Severity:** Low
+**Status:** Open
+
+Both reproduce in the core shard and predate the Dogfood-2 remediation (the 2026-07-12 local run hit the identical pair on then-main). Prior diagnosis notes: TEST 7's fixture under-feeds `prompt_choice` on the dry-run resolver path; TEST 5's phase-gate invocation fails in the suite's fixture context. Neither is covered by the unit lane. Fix shape: reproduce each in isolation, repair the FIXTURE if it models a stale world (the BL-134/zdr-gate pattern) or the product if the gate genuinely misbehaves; register nothing new (both live inside the aggregator).
+
+**Related:** BL-134 (the same run's other test-debt class); Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md § POST-RUN CI REPAIR (the fixture-era doctrine).
 
 ---
 

@@ -296,3 +296,16 @@ Karl answered the three STOPPED questions; all three are acted on here:
 
 - **PR #213 MERGED `ab62028`** — BL-106 flipped to Closed (machine-checkable go-live gate live on main); semgrep now in the unit lane (its first PR run executed the live DOM-XSS blocking cases and passed); BL-133 decision recorded (leave removed).
 - **Full-lane dispatch on `27d4a78`:** edge-pre-init ✓, edge-scripts ✓, **aggregators ✗ → diagnosed BL-134** (edge-case-test-suite T2.1/T2.2 rc=124: resolver bounds 30s vs a measured ~25s idle baseline — resolver+matrix byte-identical `8412b8c..main`, so pre-existing timing-margin test debt, NOT a remediation regression; T1.2 reproduced the class during the fix's own verification). Fix on `fix/edge-case-t2-bounds` (PR #214): all resolver bounds normalized to 90s, T2.2's self-contradictory assertion recalibrated (<60s under a 90s cap), fast-rejection init cases kept at 30s; full suite rerun rc=0, 27 PASS. Core shard still running; the 2026-07-12 memory of two other pre-existing core-lane failures (dry-run resolver fixture, phase-gate run) is the watch-list for its verdict.
+
+---
+
+## CORE-SHARD VERDICT + TRIAGE (2026-07-18, full-lane run 29649055577 complete)
+
+Core finished INSIDE its 180-min window: **460 PASS / 5 FAIL**. All five triaged empirically; none is a remediation logic regression:
+
+1. **tier-crosscheck-6-zdr-gate T8** — the BL-116/BL-114 fixture-era class (a THIRD instance: the pass-path fixture wrote `steps_completed: []` and no `docs/phase-0/`, so the new push-gate and intermediates arms correctly refused it). FIXED on `fix/full-lane-fixture-era`: push records + intermediates added to `mk_phase2_project` with era comments; suite 8/8. Stack-CAUSED fixture debt, product behavior correct.
+2. **test-init-schema-phase-gate T3a/T3c** — PRE-EXISTING PRODUCT BUG, proven by running the suite at pre-remediation `8412b8c` in a worktree: identical 6/2 failure. `check_commit_ready`'s `current_phase` read (jq `// 0`) passes string garbage into `[ -lt ]` → `integer expression expected` leaks — the one counter the sanitizer wave missed, with the RED already in-tree. FIXED same branch: the canonical `case ''|*[!0-9]*` sanitizer (garbage → 0 → no enforcement).
+3. **test-bl033-install-cmds-shape** — GREEN locally on identical content; CI log detail suppressed by the aggregate runner. Filed **BL-135** (watch — a second full-lane data point decides).
+4./5. **TEST 5 + TEST 7** (full-project-test-suite) — the remembered 2026-07-12 pre-existing pair, now formally CI-surfaced. Filed **BL-136** (was "worth a backlog entry, NOT yet filed" — now filed).
+
+Also: **PR #214 MERGED `528f5b2`** → BL-134 Closed.
