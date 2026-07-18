@@ -2863,6 +2863,8 @@ For Rust the skip is *deliberate* (inline `#[cfg(test)]` tests cannot be detecte
 **Severity:** Medium
 **Status:** Open
 
+**Status update 2026-07-17:** fix implemented on PR #208 (branch `fix/bl114-bl115-bl127-gate-integrity`), awaiting merge. F2: `# BL-114-F2-ERREXIT-GUARD` — the placeholder WARN now prints (the empty grep-v pipeline no longer aborts the gate under pipefail). F1: `# BL-114-F1-INTERMEDIATES` — code matches docs: any missing Step-0 intermediate (or the absent directory, previously SILENT) blocks, labeled [FAIL] so verdict and label agree. F3/F-DF2-003: `# BL-114-START1-GATE-CONSULT` (excision-safe fence) — `--start-phase1` consults `--gate phase_0_to_1` before any state change and refuses on a failing gate; documented in `--help`. All RED-observed pre-fix; HEAD-revert reproduces the 9-failure RED. Evidence: `Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md` § WP-E1a.
+
 Three defects in the same gate, all walk-reproduced:
 
 1. **F2 — dead WARN branch (errexit abort).** A placeholder-only manifesto section trips `set -euo pipefail` inside `validate_manifesto_content` and **aborts `check-phase-gate.sh` before the placeholder WARN prints** — rc=1 with *zero diagnostic and no summary*. The operator sees a bare failure with no reason; the WARN branch is effectively unreachable code.
@@ -2883,6 +2885,8 @@ Three defects in the same gate, all walk-reproduced:
 **Category:** Bug / approval-evidence integrity
 **Severity:** Medium
 **Status:** Open
+
+**Status update 2026-07-17:** fix implemented on PR #208, awaiting merge. F6: `# BL-115-DATE-CELL` in `_cpg_gate_has_evidence` — the date must sit in the approval's Date ROW (both `| Date |` and `| **Date** |` shapes); a blank cell is no longer masked by a stray date in the window. F16: `# BL-115-ATTORNEY-ENTRY` — a real entry is a DATED table row under the section (the template's own header no longer satisfies); `# BL-115-PII-REQUIRED` — non-public `data_classification` with no privacy policy FAILS the step (required-when-PII, never skipped-when-absent). Role verification (CM-H-08) not addressed here — recorded as residual. Evidence: § WP-E1a.
 
 **F6 — proximity-window date matching.** `_cpg_gate_has_evidence` greps for **any ISO date in the 15-line window** after a gate header, not the approval's **Date cell** — so a blank or missing approval date is masked by an incidental date in a Reference or Notes cell. Demonstrated at the 1→2 approval (P1-010). Extends the same proximity-window class found at P0-014. Also (CM-H-08): the approver's **role is never verified** — any name is accepted; the retroactive-STA-by-role check only fires for `upgraded_from:personal` projects (count = 0 here).
 
@@ -3125,6 +3129,8 @@ Three consumers read branch-protection state. `check-gate.sh --preflight` and `c
 **Category:** Bug / hollow gate
 **Severity:** Medium
 **Status:** Open
+
+**Status update 2026-07-17:** fix implemented on PR #208, awaiting merge. `# BL-127-UAT-EVIDENCE` — `results_received` requires ≥1 file in the newest session's `submissions/` OR the explicit `SOLO_UAT_SOLO_ATTESTED=1` escape, which is RECORDED to `uat_session.solo_attestations[]` (attested, not silenced). `completeness_verified`/`triage_complete` deepening deferred (recorded as residual — the evidence-bearing anchor step now gates). Evidence: § WP-E1a.
 
 Every step of the `uat_session` checklist in `process-checklist.sh` is pure self-attestation. Most striking: `--complete-step uat_session:results_received` — the step whose entire meaning is "the tester's results are in" — succeeds with **zero files in `tests/uat/sessions/<date>-session-N/submissions/`**. `completeness_verified` verifies nothing; `triage_complete` consults no bug list. Contrast the Build-Loop `security_audit` step, which DOES require a matching file on disk (BL-120 shows even that is too weak, but it at least demands an artifact) — so the framework can require evidence here and simply doesn't.
 
