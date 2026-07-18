@@ -378,6 +378,35 @@ complete_step() {
         artifact_check_failed=true
       fi
       ;;
+    phase4_release:production_build)
+      # BL-117-BUILD-SMOKE-BEGIN
+      # F19: the walk's release was marked built and DID NOT BOOT (tsc
+      # omitted the migration asset; `npm start` crashed ENOENT) — the step
+      # had no evidence arm at all. The checklist cannot execute every
+      # stack's runtime itself (no universal start contract, and this host
+      # discipline forbids unbounded child processes in a gate), so the
+      # enforceable unit is RECORDED SMOKE EVIDENCE: a dated record that the
+      # BUILT artifact was started with its documented command and responded
+      # — same substantive-evidence bar as the rollback/monitoring arms.
+      # Glob loop, not a two-pattern ls: an unmatched second glob makes ls
+      # exit non-zero and the || fallback would WIPE a found first match
+      # under pipefail (empirically bitten during this fix's own test run).
+      local bl117_smoke="" _bl117_cand
+      for _bl117_cand in docs/test-results/*build-smoke* docs/test-results/*production-smoke*; do
+        if [ -f "$_bl117_cand" ]; then bl117_smoke="$_bl117_cand"; break; fi
+      done
+      if [ -z "$bl117_smoke" ]; then
+        print_warn "No production-build smoke record found (docs/test-results/*build-smoke*)."
+        echo "  Build, START the built artifact with its documented command, verify it responds, and record it: docs/test-results/YYYY-MM-DD_build-smoke.md (what was started, when, the outcome). A build nobody started is not a production build." >&2
+        artifact_check_failed=true
+      elif [ ! -s "$bl117_smoke" ] \
+           || ! grep -qE '[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])' "$bl117_smoke" \
+           || ! grep -qiE 'start|boot|serv|respond|verif' "$bl117_smoke"; then
+        print_warn "Smoke record '$bl117_smoke' is not substantive (empty, undated, or no started/responded statement)."
+        artifact_check_failed=true
+      fi
+      # BL-117-BUILD-SMOKE-END
+      ;;
     phase4_release:rollback_tested)
       # P4-001 + BL-105: the rollback test must produce SUBSTANTIVE evidence.
       # Walk CM-H-15: an EMPTY file named *rollback* passed the "MANDATORY
@@ -464,9 +493,18 @@ complete_step() {
       # a literal '## Attorney / Legal Review' header, so a bare
       # `grep -qi 'attorney|legal review'` was satisfied by the template's
       # own scaffolding with ZERO real entry (walk F16 — the gate satisfied
-      # itself). A real entry is a DATED table row under the section.
+      # itself). A real entry is a DATED table row under the section — and
+      # the window is SECTION-BOUNDED at the next `## ` header (E1b Claim-C):
+      # an unbounded `grep -A 15` anchored on the template's own
+      # `[Attorney / firm name]` placeholder row reached the NEIGHBOURING
+      # Penetration Test section's Date row, so a filled pen-test date
+      # satisfied the attorney gate while the attorney Date stayed a
+      # placeholder. Same defect class verifier SF#1 killed in
+      # _cpg_gate_has_evidence — awk from the H2 header (exclusive) to the
+      # next `## ` header or +15 lines, whichever first.
       if [ -f "APPROVAL_LOG.md" ] \
-         && grep -A 15 -i "attorney\|legal review" APPROVAL_LOG.md 2>/dev/null \
+         && awk 'tolower($0) ~ /^##[^#].*(attorney|legal review)/ {f=1; next} f && /^## / {exit} f' APPROVAL_LOG.md 2>/dev/null \
+            | head -15 \
             | grep -E '^\|' \
             | grep -qE '[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])'; then
         has_attorney_entry=true

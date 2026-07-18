@@ -2728,6 +2728,8 @@ For Rust the skip is *deliberate* (inline `#[cfg(test)]` tests cannot be detecte
 **Severity:** Medium
 **Status:** Open
 
+**Status update 2026-07-17:** fix implemented on PR #210 (branch `fix/bl108-bl117-ship-closure`), awaiting merge. The five gate-demanded templates now ship (security-audit-findings, security, threat-model-validation, rollback-test, handoff-test-results); the durable class fix is the MECHANICAL closure in `tests/test-bl108-bl117-ship-closure.sh` — the shipped set (init.sh cp lines) and the referenced set (non-comment script text + the guide) are both derived, so drift is impossible; the extractor's bite is self-tested and an init-revert mutation goes RED on exactly the shipped items. Evidence: `Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md` § WP-E2.
+
 `templates/generated/security-audit-findings.tmpl` **exists in the framework** and `scripts/process-checklist.sh` names it in its own operator-facing error message:
 > `Create a findings file using templates/generated/security-audit-findings.tmpl`
 
@@ -2892,6 +2894,8 @@ Three defects in the same gate, all walk-reproduced:
 
 **Status update 2026-07-17:** fix implemented on PR #208, awaiting merge. F6: `# BL-115-DATE-CELL` in `_cpg_gate_has_evidence` — the date must sit in the approval's Date ROW (both `| Date |` and `| **Date** |` shapes); a blank cell is no longer masked by a stray date in the window. F16: `# BL-115-ATTORNEY-ENTRY` — a real entry is a DATED table row under the section (the template's own header no longer satisfies); `# BL-115-PII-REQUIRED` — non-public `data_classification` with no privacy policy FAILS the step (required-when-PII, never skipped-when-absent). Role verification (CM-H-08) not addressed here — recorded as residual. Evidence: § WP-E1a.
 
+**Status update 2026-07-17 (E1b verifier follow-up, rides in PR #210):** the WP-E1b adversarial verifier found `# BL-115-ATTORNEY-ENTRY`'s window was NOT section-bounded — the personal template's `[Attorney / firm name]` placeholder row is a second grep anchor whose 15-line window reached the Penetration Test section's Date row, so a filled pen-test date satisfied the attorney gate with a placeholder attorney Date. Fixed by section-bounding with the `_cpg_gate_has_evidence` awk idiom (H2-header anchor, stop at next `## `, +15 cap); `T-attorney-bleed-blocked` in `tests/test-bl114-bl115-bl127-gate-integrity.sh` pins it (RED watched, exit-clause mutation kills). Evidence: § WP-E1b verdict block.
+
 **F6 — proximity-window date matching.** `_cpg_gate_has_evidence` greps for **any ISO date in the 15-line window** after a gate header, not the approval's **Date cell** — so a blank or missing approval date is masked by an incidental date in a Reference or Notes cell. Demonstrated at the 1→2 approval (P1-010). Extends the same proximity-window class found at P0-014. Also (CM-H-08): the approver's **role is never verified** — any name is accepted; the retroactive-STA-by-role check only fires for `upgraded_from:personal` projects (count = 0 here).
 
 **F16 — the attorney gate satisfies itself.** The Phase-3 attorney-review check greps `-qi 'attorney|legal review'` against `APPROVAL_LOG.md` — and the **organizational APPROVAL_LOG template ships with a literal `## Attorney / Legal Review` header**, so the gate passes with **zero real attorney entry**. Separately, deleting `PRIVACY_POLICY.md` **bypasses the legal_review step entirely** (the check is file-conditional): collect PII, write no policy, pass.
@@ -2925,6 +2929,8 @@ The BL-084 push-verification gate — documented as **MANDATORY and non-bypassab
 **Category:** Bug / scaffold closure (the [[bl088-scaffold-source-closure]] class)
 **Severity:** Medium
 **Status:** Open
+
+**Status update 2026-07-17:** fix implemented on PR #210 alongside BL-108, awaiting merge. F20: `check-maintenance.sh` + the three guide-named lints now ship (activating pre-commit-gate's documented project-local lint path); the guide-tools closure keeps the class shut. F19: `# BL-117-BUILD-SMOKE` — production_build requires a dated smoke record that the BUILT artifact was STARTED and responded (deviation from "actually start it" recorded: a bash checklist cannot own every stack's runtime contract; the recorded evidence of a real start is the enforceable unit, consistent with the rollback/monitoring bars). Fence-excision mutation in-suite. Evidence: § WP-E2.
 
 **F19 — the release does not boot.** The walked project's production build **does not run**: `tsc` omits `migrations/001_init.sql` from `dist/`, so the documented `npm start` (`node dist/src/server.js`) crashes `ENOENT`. The framework's `phase4_release:production_build` step has **no artifact or smoke arm** and was marked complete on a non-booting build. A "released" project that cannot start is the sharpest possible statement of the missing Phase-4 evidence arms.
 
