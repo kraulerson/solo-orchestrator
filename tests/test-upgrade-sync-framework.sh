@@ -436,17 +436,22 @@ t_hook_backfill_consented() {
   rm -rf "$T"
 }
 
-# ── T-rust-no-hook-expected: rust language → no commit-msg hook, no prompt ───
-t_rust_no_hook_expected() {
+# ── T-rust-hook-installed: rust language → commit-msg hook INSTALLED (BL-107) ─
+# REWRITTEN under the documented-bug exception: this case used to pin the
+# OPPOSITE (rust → no hook, "not applicable" notice) — that pinned BL-107's
+# bug: a whole language axis with no TDD/BL-006 commit-msg gate even on
+# non-bypassable tiers. The sync path now installs for every language; inline
+# Rust tests are recognized by the # BL-107-RUST-INLINE-TESTS content probe.
+t_rust_hook_installed() {
   local T; T=$(mktemp -d); local P="$T/proj"; mk_project "$P" rust
   local out; out=$(run_sync "$P" --install-hooks)
-  if [ -f "$P/.git/hooks/commit-msg" ]; then
-    fail_ "T-rust-no-hook-expected" "commit-msg hook installed for rust (empty test_pattern → must be skipped, matching init.sh's gate)"; rm -rf "$T"; return
+  if [ ! -f "$P/.git/hooks/commit-msg" ] || ! grep -qF "SOIF BL-072 TDD gate" "$P/.git/hooks/commit-msg"; then
+    fail_ "T-rust-hook-installed" "commit-msg hook NOT installed for rust — the BL-107 universal install regressed to the empty-pattern skip; tail:\n$(echo "$out" | tail -8)"; rm -rf "$T"; return
   fi
-  if ! echo "$out" | grep -qiF "not applicable"; then
-    fail_ "T-rust-no-hook-expected" "expected a 'not applicable' notice for rust; tail:\n$(echo "$out" | tail -8)"; rm -rf "$T"; return
+  if echo "$out" | grep -qiF "not applicable"; then
+    fail_ "T-rust-hook-installed" "sync still prints the pre-BL-107 'not applicable' skip notice for rust"; rm -rf "$T"; return
   fi
-  pass "T-rust-no-hook-expected: rust (empty test_pattern) gets no commit-msg hook and no prompt"
+  pass "T-rust-hook-installed: rust gets the commit-msg TDD gate (BL-107 universal install)"
   rm -rf "$T"
 }
 
@@ -1645,7 +1650,7 @@ t_dry_run_mutates_nothing
 t_dry_run_pure_under_all_flags
 t_hook_refused_noninteractive_without_flag
 t_hook_backfill_consented
-t_rust_no_hook_expected
+t_rust_hook_installed
 t_hook_block_refresh_preserves_user_lines
 t_hook_mode_preserved
 t_legacy_unmarked_precommit_sidecar

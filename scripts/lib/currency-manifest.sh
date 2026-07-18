@@ -44,8 +44,9 @@
 
 # ── Dependency wiring ────────────────────────────────────────────────────────
 # scaffold-shipped-set.sh provides the mechanical shipped-set parsers; source it
-# from our own directory if a caller has not already. hook-templates.sh provides
-# soif_lang_test_pattern (the hook-enum predicate); source it likewise.
+# from our own directory if a caller has not already. hook-templates.sh is
+# sourced for its region-body emitters/markers (the hook-enum predicate no
+# longer consults soif_lang_test_pattern — BL-107 installs universally).
 _soif_cm_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if ! command -v soif_parse_shipped_scripts >/dev/null 2>&1; then
   # shellcheck source=/dev/null
@@ -75,29 +76,25 @@ soif_currency_mode() {
 # ── Hook three-state enum (review-r1 M9) ─────────────────────────────────────
 # soif_currency_hook_state <hook-name> <language> — reproduces init.sh's own
 # install decision mechanically:
-#   commit-msg: init.sh installs the BL-072 TDD gate iff soif_lang_test_pattern
-#     is non-empty. So a language WITH a pattern -> present; rust (empty pattern
-#     BY DESIGN, inline #[cfg(test)] tests) -> absent-intentional; the `*)`
-#     catch-all (empty pattern, not rust — e.g. `other`) -> absent-unavailable,
-#     which Layer 1 surfaces at the enforcement tier ("TDD gate unavailable for
-#     this language — BL-107"). Expected-absence must never launder a bug into a
-#     fact.
+#   commit-msg: PRESENT for every language (BL-107-UNIVERSAL-INSTALL). Before
+#     BL-107, init.sh installed the BL-072 TDD gate only when
+#     soif_lang_test_pattern was non-empty, and this predicate mirrored the
+#     skip as absent-intentional (rust) / absent-unavailable (`other`). Those
+#     enum values remain VALID FOR READERS — manifests written by pre-BL-107
+#     scaffolds still carry them, and freshness-detect keeps surfacing
+#     absent-unavailable at the enforcement tier (citing BL-107) so a legacy
+#     project's missing gate is a finding, not a fact. New manifests record
+#     present.
 #   pre-commit: init.sh installs the fallback pre-commit hook UNCONDITIONALLY
 #     (language-agnostic gitleaks + Semgrep), so it is always present at birth.
 soif_currency_hook_state() {
-  local hook="$1" language="$2" pat
+  local hook="$1" language="$2"
   case "$hook" in
     pre-commit)
       printf '%s' "present" ;;
     commit-msg)
-      pat="$(soif_lang_test_pattern "$language" 2>/dev/null)"
-      if [ -n "$pat" ]; then
-        printf '%s' "present"
-      elif [ "$language" = "rust" ]; then
-        printf '%s' "absent-intentional"
-      else
-        printf '%s' "absent-unavailable"
-      fi ;;
+      # BL-107-UNIVERSAL-INSTALL: the gate ships for every language.
+      printf '%s' "present" ;;
     *)
       printf '%s' "absent-unavailable" ;;
   esac

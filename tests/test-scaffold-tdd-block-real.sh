@@ -186,6 +186,94 @@ else
   fail_ "T-backfill-verify" "verify --auto-fix did not restore all four deps (see bf-verify.log)"
 fi
 
+# ── BL-107: the language axis — rust + `other` scaffolds get the gate too ───
+# Before BL-107 these two languages received NO commit-msg hook at all (the
+# empty-test-pattern skip), so the flagship TDD hard block did not exist for
+# them on any tier. Each case runs its own REAL hermetic init.
+
+echo "=== T-scaffold-rust-tdd (BL-107): rust scaffold blocks test-less feat:, allows inline #[cfg(test)] ==="
+RUSTS="$TOPTMP/rust-scaffold"
+( cd "$TOPTMP" && "$INIT" --non-interactive \
+    --project bl107-rust \
+    --platform web \
+    --deployment organizational \
+    --gov-mode sponsored_poc \
+    --language rust \
+    --git-host github \
+    --visibility private \
+    --project-dir "$RUSTS" \
+    --no-remote-creation ) >"$TOPTMP/init-rust.out" 2>"$TOPTMP/init-rust.err"
+if [ $? -ne 0 ]; then
+  fail_ "T-scaffold-rust-tdd" "rust init.sh failed: $(tail -5 "$TOPTMP/init-rust.err" | tr '\n' '|')"
+elif ! grep -q 'tdd-only' "$RUSTS/.git/hooks/commit-msg" 2>/dev/null; then
+  fail_ "T-scaffold-rust-tdd" "rust scaffold has NO --tdd-only commit-msg hook — BL-107's universal install regressed (whole language unprotected)"
+else
+  ( cd "$RUSTS"
+    git config user.email bl107@test.invalid
+    git config user.name  bl107-test
+    mkdir -p src
+    printf 'pub fn add(a: i32, b: i32) -> i32 { a + b }\n' > src/widget.rs
+    git add src/widget.rs
+    git commit -m "feat: rust widget without a test" >"$RUSTS/commit.rust-impl.log" 2>&1 )
+  rust_impl_rc=$?
+  ( cd "$RUSTS"
+    printf 'pub fn add(a: i32, b: i32) -> i32 { a + b }\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn adds() { assert_eq!(super::add(2, 2), 4); }\n}\n' > src/widget.rs
+    git add src/widget.rs
+    git commit -m "feat: rust widget with inline tests" >"$RUSTS/commit.rust-inline.log" 2>&1 )
+  rust_inline_rc=$?
+  if [ "$rust_impl_rc" -eq 0 ]; then
+    fail_ "T-scaffold-rust-tdd" "test-less rust feat: commit LANDED on the sponsored-POC scaffold: $(tail -2 "$RUSTS/commit.rust-impl.log" | tr '\n' '|')"
+  elif ! grep -q 'BL-072 TDD ordering' "$RUSTS/commit.rust-impl.log"; then
+    fail_ "T-scaffold-rust-tdd" "blocked, but not by the BL-072 arm: $(tail -3 "$RUSTS/commit.rust-impl.log" | tr '\n' '|')"
+  elif [ "$rust_inline_rc" -ne 0 ]; then
+    fail_ "T-scaffold-rust-tdd" "an inline-#[cfg(test)] rust commit was BLOCKED (false block — the content probe is not reaching the scaffold): $(tail -3 "$RUSTS/commit.rust-inline.log" | tr '\n' '|')"
+  else
+    pass "T-scaffold-rust-tdd: rust scaffold blocks test-less feat: and allows inline-test commits"
+  fi
+fi
+
+echo "=== T-scaffold-other-tdd (BL-107): other-language scaffold blocks test-less feat:, allows tests/-tree ==="
+OTHERS="$TOPTMP/other-scaffold"
+( cd "$TOPTMP" && "$INIT" --non-interactive \
+    --project bl107-other \
+    --platform web \
+    --deployment organizational \
+    --gov-mode sponsored_poc \
+    --language other \
+    --git-host github \
+    --visibility private \
+    --project-dir "$OTHERS" \
+    --no-remote-creation ) >"$TOPTMP/init-other.out" 2>"$TOPTMP/init-other.err"
+if [ $? -ne 0 ]; then
+  fail_ "T-scaffold-other-tdd" "other init.sh failed: $(tail -5 "$TOPTMP/init-other.err" | tr '\n' '|')"
+elif ! grep -q 'tdd-only' "$OTHERS/.git/hooks/commit-msg" 2>/dev/null; then
+  fail_ "T-scaffold-other-tdd" "other-language scaffold has NO --tdd-only commit-msg hook — the catch-all axis is unprotected again"
+else
+  ( cd "$OTHERS"
+    git config user.email bl107@test.invalid
+    git config user.name  bl107-test
+    mkdir -p src
+    printf 'fn main = print "hi"\n' > src/widget.xyz
+    git add src/widget.xyz
+    git commit -m "feat: other widget without a test" >"$OTHERS/commit.other-impl.log" 2>&1 )
+  other_impl_rc=$?
+  ( cd "$OTHERS"
+    mkdir -p tests
+    printf 'assert widget == "hi"\n' > tests/widget.xyz
+    git add tests/widget.xyz
+    git commit -m "feat: other widget with a test" >"$OTHERS/commit.other-test.log" 2>&1 )
+  other_test_rc=$?
+  if [ "$other_impl_rc" -eq 0 ]; then
+    fail_ "T-scaffold-other-tdd" "test-less other-language feat: commit LANDED: $(tail -2 "$OTHERS/commit.other-impl.log" | tr '\n' '|')"
+  elif ! grep -q 'BL-072 TDD ordering' "$OTHERS/commit.other-impl.log"; then
+    fail_ "T-scaffold-other-tdd" "blocked, but not by the BL-072 arm: $(tail -3 "$OTHERS/commit.other-impl.log" | tr '\n' '|')"
+  elif [ "$other_test_rc" -ne 0 ]; then
+    fail_ "T-scaffold-other-tdd" "a tests/-tree other-language commit was BLOCKED (the generic heuristic is not serving): $(tail -3 "$OTHERS/commit.other-test.log" | tr '\n' '|')"
+  else
+    pass "T-scaffold-other-tdd: other-language scaffold blocks test-less feat: and allows tests/-tree commits"
+  fi
+fi
+
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]

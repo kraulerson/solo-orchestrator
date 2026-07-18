@@ -634,6 +634,19 @@ else
   fail "tests/test-bl119-stale-editmsg.sh FAILED (run for details)"
 fi
 
+# BL-107 (High): every language gets the TDD/BL-006 commit-msg gate. Hermetic
+# half: the # BL-107-RUST-INLINE-TESTS content probe (inline #[cfg(test)]
+# additions count as tests — without it universal install would false-block
+# idiomatic Rust TDD), the `other`-language generic-convention heuristic, and
+# the Currency hook-state predicate (present for every language). The INSTALL
+# half is proven by test-scaffold-tdd-block-real.sh's rust/other scaffold
+# cases (aggregator lane). No init.sh here -> ALSO in the unit lane.
+if bash "$SCRIPT_DIR/tests/test-bl107-tdd-all-languages.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl107-tdd-all-languages.sh"
+else
+  fail "tests/test-bl107-tdd-all-languages.sh FAILED (run for details)"
+fi
+
 # BL-121 (Dogfood-2 F-DF2-011, High): the MVP-Cutline counter must count the
 # same 3 items on BSD and GNU text tools. The old GNU-only sed alternation made
 # the range run to EOF on macOS (68 vs 3) and hard-blocked the production 3→4

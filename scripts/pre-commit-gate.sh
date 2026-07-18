@@ -98,6 +98,32 @@ _tdd_triggers() {
   n_test=${counts##*TEST:}
   [ "${n_impl:-0}" -gt 0 ] 2>/dev/null || return 1
   [ "${n_test:-0}" -eq 0 ] 2>/dev/null || return 1
+  # BL-107-RUST-INLINE-TESTS — content probe for languages whose tests live
+  # INSIDE implementation files. Idiomatic Rust unit tests are inline
+  # (#[cfg(test)] mod / #[test] fn), invisible to the path-only classifier —
+  # so once the commit-msg gate is installed for rust (BL-107 universal
+  # install), a correctly-TDD'd inline-test commit would FALSE-BLOCK without
+  # this. A staged .rs diff whose ADDED lines carry a test attribute counts
+  # as test evidence. Lives HERE (the gate), not in tdd-classify.sh: the
+  # classifier lib is contractually a pure function of the path set (C1
+  # live/replay parity); the C2 gate may consult git content the replay never
+  # sees. Cheap: runs only when the path classifier found zero tests AND .rs
+  # files are staged.
+  #
+  # The attribute family (verifier-hardened): std #[test]/#[test_case]/
+  # #[cfg(test)] plus #![cfg(test)], cfg(all(test,…))/cfg(any(test,…)), the
+  # runtime family (#[tokio::test], #[async_std::test], #[actix_rt::test],
+  # #[googletest::test] — anything ::test]), and the popular harness macros
+  # (rstest, wasm_bindgen_test, quickcheck, proptest). --no-ext-diff is
+  # LOAD-BEARING: a `git config diff.external` viewer (difftastic-style)
+  # otherwise replaces the patch and blinds the probe, false-blocking EVERY
+  # inline-test commit.
+  local _bl107_attr_re='^\+.*#!?\[(test|cfg\((all\(|any\()?test|([A-Za-z_][A-Za-z0-9_]*::)+test\]|rstest|wasm_bindgen_test|quickcheck|proptest)'
+  if printf '%s\n' "$staged" | grep -qE '\.rs([[:space:]]|$)'; then
+    if git diff --no-ext-diff --cached -U0 -- '*.rs' 2>/dev/null | grep -qE "$_bl107_attr_re"; then
+      return 1
+    fi
+  fi
   local base=""
   if git rev-parse --verify --quiet main >/dev/null 2>&1; then
     base="main"
@@ -110,6 +136,14 @@ _tdd_triggers() {
     bcounts=$(printf '%s\n' "$branch_status" | _bl072_classify_status)
     b_test=${bcounts##*TEST:}
     [ "${b_test:-0}" -gt 0 ] 2>/dev/null && return 1
+    # BL-107-RUST-INLINE-TESTS (branch axis): a test that rode EARLIER on the
+    # branch may be an inline .rs test — same content probe over base...HEAD
+    # (same attribute family + --no-ext-diff rationale as the staged probe).
+    if printf '%s\n' "$branch_status" | grep -qE '\.rs([[:space:]]|$)'; then
+      if git diff --no-ext-diff -U0 "$base"...HEAD -- '*.rs' 2>/dev/null | grep -qE "$_bl107_attr_re"; then
+        return 1
+      fi
+    fi
   fi
   return 0
 }

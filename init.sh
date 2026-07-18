@@ -2508,17 +2508,28 @@ install_precommit_hook() {
   soif_write_precommit_hook ".git/hooks/pre-commit"
   print_ok "Pre-commit hook installed (gitleaks + Semgrep + schema migration checks)"
 
-  # BL-072 Phase C2: install the tier-keyed TDD-ordering gate as a COMMIT-MSG
-  # hook -- the only git-hook point where .git/COMMIT_EDITMSG holds the CURRENT
-  # commit message (a pre-commit hook sees a stale message) and the staged index
-  # is intact. Skipped for languages with no distinct test-file convention (Rust
-  # uses inline #[cfg(test)] tests), matching the old inline check's scope: the
-  # gate fires iff soif_lang_test_pattern returned a non-empty pattern (every
-  # language with a pattern also had a non-empty src_ext, so the old
-  # `[ -n "$test_pattern" ] && [ -n "$src_ext" ]` reduces to this).
-  if [ -n "$test_pattern" ]; then
-    install_tdd_commit_msg_hook
-  fi
+  # BL-072 Phase C2 + BL-107: install the tier-keyed TDD-ordering gate as a
+  # COMMIT-MSG hook -- the only git-hook point where .git/COMMIT_EDITMSG holds
+  # the CURRENT commit message (a pre-commit hook sees a stale message) and the
+  # staged index is intact.
+  #
+  # BL-107-UNIVERSAL-INSTALL: installed for EVERY language. It used to be
+  # skipped when soif_lang_test_pattern was empty (rust, `other`) — which
+  # silently left two whole language axes with NO TDD gate and NO BL-006
+  # message check, including on organizational/sponsored tiers where the docs
+  # advertise the block as non-bypassable. The gate's classifier is
+  # language-agnostic (tests/ trees + a cross-language filename table), and
+  # inline Rust tests are seen by the # BL-107-RUST-INLINE-TESTS content probe
+  # in pre-commit-gate.sh — so universal install is both safe and owed.
+  install_tdd_commit_msg_hook
+  case "$LANGUAGE" in
+    rust)
+      print_info "TDD gate note (rust): inline #[test]/#[cfg(test)] additions in staged .rs diffs count as tests (content probe); tests/-tree files and *_test.rs count by path." ;;
+    *)
+      if [ -z "$test_pattern" ]; then
+        print_info "TDD gate note (${LANGUAGE:-unknown}): no language-specific test-file convention — the gate uses the generic conventions (tests/ trees + common test-file names). Name your tests accordingly or they will not be recognized."
+      fi ;;
+  esac
 }
 
 # install_tdd_commit_msg_hook — idempotently add a managed block to
