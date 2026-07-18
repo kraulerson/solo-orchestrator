@@ -109,6 +109,7 @@ jobs:
             tests/test-bl106-golive-checklist.sh
             tests/test-bl137-ci-tools-scope.sh
             tests/test-bl138-approval-window.sh
+            tests/test-bl139-subjectless-default.sh
             tests/test-bl128-review-generator-headless.sh
             tests/test-bypass-audit-integrity.sh
             tests/test-bypass-audit-lib.sh
