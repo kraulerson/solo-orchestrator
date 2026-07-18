@@ -3320,6 +3320,8 @@ The framework-generated CI workflow runs `check-phase-gate.sh`, whose "Tools nee
 
 **Related:** BL-070 (the driver); BL-130 (whose refusal worked exactly as designed here); `Reports/2026-07-18-dogfood-3/` (F-DF3-005, incl. the root-cause mount analysis).
 
+**Status update 2026-07-18:** fix implemented on branch `fix/bl140-zap-workdir` (stacked on #219; PR open; Closed with PR + merge SHA at merge). `# BL-140-ZAP-WORKDIR` — the bind-mount host dir moves from `$TMPDIR` mktemp to `$RESULTS_DIR/.zap-work.$$` (the project tree: where the operator works, inside VM shared mounts; the mktemp stays as the excision-fallback so the mutant restores the old behavior exactly). `# BL-140-ZAP-MOUNT-HINT` — the no-report FAIL now names the VM-mount diagnosis + the TMPDIR fallback (FAIL posture unchanged — an unreadable scan is not a clean scan). Three cases added to `test-bl070-snyk-zap-scanners.sh` (suite 47/47): the workdir witness case RED-watched with the `/var/folders` path on screen; the hint case; a dual-fence mutation case (workdir excision restores $TMPDIR positively; hint excision drops the diagnosis while FAIL survives). Driver blast radius green: bl130 4/4, license, threat-model, bl095 9/9. Evidence: ledger § DOGFOOD-3 REMEDIATION.
+
 ---
 
 ## BL-131: Commit-time SAST residual blindness — `insertAdjacentHTML`, jQuery `.html()`, `.vue` SFC scripts, and inline `<script>` in `.html` all commit clean (no public registry rule exists for them)

@@ -346,3 +346,11 @@ Also: **PR #214 MERGED `528f5b2`** → BL-134 Closed.
 - **Tests:** `tests/test-bl139-subjectless-default.sh` **5/5** (BOTH lists). T4 is the load-bearing case: through the REAL hooks, `test(unit):` lands AND a loop-less `feat:` still dies at commit-msg — the backstop that makes the flip safe, proven not asserted. T5 mutant restores the old default (subject-less blocks again; explicit subjects unaffected).
 - **Documented-bug rewrites (2):** commit-ready-subject T5 ("omitted --subject preserves legacy behaviour" — the legacy behaviour IS F-DF3-004) now asserts the flip; classifier T12's helper now proves source classification through the EXPLICIT feat path. 7/7 + 12/12.
 - **Blast radius (green):** bl119 4/4 (the real-hook sibling) · trio · bl105 · bl106 · auto-advance · E2 · schema-gate 8/8 · commit-ready-subject 7/7 · classifier 12/12.
+
+## DOGFOOD-3 REMEDIATION — WP-BL140 (Med): the ZAP work dir joins the project tree — DONE-PR-open
+
+- **Branch:** `fix/bl140-zap-workdir` (stacked on #219).
+- **Reproduce (RED, watched):** the new workdir-witness case printed the defect verbatim — host dir `/var/folders/…/p3-zap-XtH2O4` (macOS `$TMPDIR`, outside Colima's virtiofs mounts); the hint case showed the bare "produced no report" FAIL with no diagnosis.
+- **Fix:** `# BL-140-ZAP-WORKDIR` (bind host dir = `$RESULTS_DIR/.zap-work.$$`; original mktemp kept as the excision-fallback so the mutant restores `$TMPDIR` behavior exactly) + `# BL-140-ZAP-MOUNT-HINT` (the no-report FAIL names the VM-mount gap + the TMPDIR fallback; FAIL-not-SKIP posture untouched — the BL-112/113 honesty class).
+- **Tests:** three cases in `test-bl070-snyk-zap-scanners.sh` → **47/47** (the mock docker gained an env-gated hostdir witness, inert for existing cases). Dual-fence mutation case: workdir excision → witness back under `$TMPDIR` (positively asserted, crash-vacuity excluded); hint excision → diagnosis gone, FAIL survives.
+- **Blast radius (green):** bl130 4/4 · bl070 license · bl070 threat-model · bl095 9/9.

@@ -166,6 +166,10 @@ done
 if [ -n "${ZAP_MOCK_REPORT:-}" ] && [ -n "$hostdir" ] && [ -n "$report" ]; then
   printf '%s' "$ZAP_MOCK_REPORT" > "$hostdir/$report" 2>/dev/null || true
 fi
+# BL-140 witness: record the host side of the bind mount when a case asks.
+if [ -n "${ZAP_MOCK_HOSTDIR_WITNESS:-}" ]; then
+  printf '%s' "$hostdir" > "$ZAP_MOCK_HOSTDIR_WITNESS" 2>/dev/null || true
+fi
 exit "${ZAP_MOCK_RC:-0}"
 DOCKER_EOF
   chmod +x "$dir/docker"
@@ -712,6 +716,87 @@ $(echo "$real_out" | grep -iE 'zap' | head)"
     fail_ "T-mutation-zap" "mutant STILL emitted [PASS] zap-dast — dispatch not load-bearing (not a proof)"
   else
     pass "T-mutation-zap: mutant (dispatch stripped) does NOT emit [PASS] zap-dast (RED proof)"
+  fi
+fi
+unset ZAP_URL
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T-zap-workdir-in-project: the bind-mount host dir lives under the PROJECT (BL-140) ==="
+# ════════════════════════════════════════════════════════════════════
+# Dogfood-3 F-DF3-005: mktemp under macOS $TMPDIR (/var/folders/…) is OUTSIDE
+# Colima's virtiofs mounts — the container writes the report, the host dir
+# stays empty, a verifiably clean app FAILs. The work dir must live under the
+# project tree (which is where the operator works — inside the VM's shared
+# mounts). The mock docker records the host side of -v when asked.
+setup_zap web with-docker
+ZAP_URL="http://app.local"
+export ZAP_MOCK_HOSTDIR_WITNESS="$TMP/hostdir.txt"
+out="$(run_zap_driver "$(printf '{"site":[]}')" 0)"
+unset ZAP_MOCK_HOSTDIR_WITNESS
+wit="$(cat "$TMP/hostdir.txt" 2>/dev/null || echo "")"
+case "$wit" in
+  "$PROJ"/*)
+    pass "T-zap-workdir-in-project: host dir '$wit' is under the project tree" ;;
+  *)
+    fail_ "T-zap-workdir-in-project" "host dir '$wit' is NOT under the project (\$TMPDIR-based mktemp → invisible to Colima's mounts, F-DF3-005)" ;;
+esac
+unset ZAP_URL
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T-zap-noreport-mount-hint: the no-report FAIL names the VM-mount diagnosis (BL-140) ==="
+# ════════════════════════════════════════════════════════════════════
+setup_zap web with-docker
+ZAP_URL="http://app.local"
+out="$(run_zap_driver "" 0)"
+if echo "$out" | grep -q "\[FAIL\] zap-dast" && echo "$out" | grep -qiE "colima|shared mount|vm.*mount"; then
+  pass "T-zap-noreport-mount-hint: FAIL note carries the actionable mount diagnosis"
+else
+  fail_ "T-zap-noreport-mount-hint" "a report written in-container but unreadable host-side is the classic Colima symptom — the FAIL must NAME it; out:
+$(echo "$out" | grep -iE 'zap' | head)"
+fi
+unset ZAP_URL
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T-zap-bl140-mutations: both fences load-bearing ==="
+# ════════════════════════════════════════════════════════════════════
+# Excised-workdir mutant → host dir back under $TMPDIR (positively asserted);
+# excised-hint mutant → FAIL survives but the diagnosis is gone.
+setup_zap web with-docker
+ZAP_URL="http://app.local"
+MUT="$TMP/driver-mut.sh"
+sed '/# BL-140-ZAP-WORKDIR-BEGIN/,/# BL-140-ZAP-WORKDIR-END/d' "$DRIVER" > "$MUT"
+if grep -q "BL-140-ZAP-WORKDIR" "$MUT"; then
+  fail_ "T-zap-bl140-mutations" "workdir fence excision left marker text"
+else
+  export ZAP_MOCK_HOSTDIR_WITNESS="$TMP/hostdir-mut.txt"
+  ( cd "$PROJ" && PATH="$ZAP_BIN:$CLEAN_BIN" ZAP_MOCK_REPORT='{"site":[]}' ZAP_MOCK_RC=0 SOLO_ZAP_TARGET_URL="$ZAP_URL" "$BASH_BIN" "$MUT" --results-dir "$RDIR" </dev/null >/dev/null 2>&1 ) || true
+  unset ZAP_MOCK_HOSTDIR_WITNESS
+  witm="$(cat "$TMP/hostdir-mut.txt" 2>/dev/null || echo "")"
+  case "$witm" in
+    "$PROJ"/*)
+      fail_ "T-zap-bl140-mutations" "workdir-excised mutant STILL used the project dir ('$witm') — logic outside the fence" ;;
+    "")
+      fail_ "T-zap-bl140-mutations" "workdir-excised mutant recorded no host dir — mutant crashed (vacuous)" ;;
+    *)
+      pass "T-zap-bl140-mutations: workdir fence excision restores the \$TMPDIR mktemp ('$witm')" ;;
+  esac
+fi
+MUT2="$TMP/driver-mut2.sh"
+sed '/# BL-140-ZAP-MOUNT-HINT-BEGIN/,/# BL-140-ZAP-MOUNT-HINT-END/d' "$DRIVER" > "$MUT2"
+if grep -q "BL-140-ZAP-MOUNT-HINT" "$MUT2"; then
+  fail_ "T-zap-bl140-mutations" "hint fence excision left marker text"
+else
+  out2="$( cd "$PROJ" && PATH="$ZAP_BIN:$CLEAN_BIN" ZAP_MOCK_REPORT='' ZAP_MOCK_RC=0 SOLO_ZAP_TARGET_URL="$ZAP_URL" "$BASH_BIN" "$MUT2" --results-dir "$RDIR" </dev/null 2>&1 )" || true
+  if echo "$out2" | grep -q "\[FAIL\] zap-dast" && ! echo "$out2" | grep -qiE "colima|shared mount"; then
+    pass "T-zap-bl140-mutations: hint fence excision drops the diagnosis, FAIL survives"
+  else
+    fail_ "T-zap-bl140-mutations" "hint-excised mutant kept the diagnosis (logic outside fence) or lost the FAIL (vacuous)"
   fi
 fi
 unset ZAP_URL
