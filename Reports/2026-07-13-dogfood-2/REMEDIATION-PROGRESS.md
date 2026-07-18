@@ -183,3 +183,13 @@
 - **Tests:** `tests/test-bl130-attest-fail-guard.sh` **3/3** (BOTH lists; unit-lane eligible — no init.sh). T1 pins refusal + NO write + newest-summary-wins (older summary says PASS in-fixture); T2 pins the legitimate SKIP-attest path (rc=0, reason recorded); T3 in-suite fence-excision mutant — the guardless mutant RECORDS the FAIL-masking attestation (asserted POSITIVELY: rc=0 + [OK] + row present, so a crashed mutant cannot vacuously pass; driver verified self-contained, no scripts/lib siblings needed).
 - **Mutation:** the excision mutant IS the standing in-suite proof; the watched RED doubled as the whole-fix mutation (file-level revert → RED → restore → GREEN).
 - **Design note:** refusal (exit 2) chosen over loud-warn-and-record — the backlog offered both; recording a row the driver will never honor has no legitimate use, and the refusal message tells the operator exactly what to do instead. PASS-attest deliberately not blocked (pointless but harmless; not F-DF2-013's defect).
+
+---
+
+## WP-F2 — BL-129 (Low): help text contradicted the gov-mode code — DONE-committed
+
+- **Branch:** `fix/phase-f-bl129-bl130-bl096`.
+- **Reproduce:** `--help-non-interactive` said `--gov-mode` is "REQUIRED when --deployment=organizational. NOT VALID when --deployment=personal." — the code enforces the OPPOSITE (personal accepts private_poc/production; organizational accepts sponsored_poc/production; organizational+private_poc REJECTED). Following the help verbatim got you rejected (F-DF2-001). THE-SCRIPTS-WIN doctrine → the help is the bug.
+- **Fix (doc-only, zero behavior change):** help text now states the real mapping + the always-personal/always-organizational rule; the stale "choosable iff … organizational AND poc_mode=private_poc" comments in init.sh's BL-030 resolve block AND `enforcement-level.sh::assert_choosable` rewritten as defensive-dead-code notes (that combo is unproducible — the branch fires only on hand-edited manifests).
+- **Tests:** `test-init-non-interactive.sh` +3 → **32/32**: N30 help-truth (asserts the FALSE claim absent + both real pairs present; RED watched pre-fix 31/1), N31 personal+private_poc → exit 0, N32 organizational+private_poc → exit 1 naming the pairing. N31/N32 pin the code side so help and code cannot drift apart silently again. Suite is full-lane (invokes init.sh; validate-only, no scaffolds — runs in ~20s).
+- **Mutation:** sed-reinserted the false claim line → N30 RED (31/1) → restored → 32/32. `bash -n` on init.sh + enforcement-level.sh both clean.

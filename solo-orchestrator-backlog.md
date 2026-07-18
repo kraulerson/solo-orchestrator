@@ -3182,6 +3182,8 @@ Every step of the `uat_session` checklist in `process-checklist.sh` is pure self
 
 **Fix shape:** correct `--help-non-interactive` to state the real mapping (personal→{production, private_poc}; organizational→{production, sponsored_poc}); scrub the stale `organizational + private_poc` "choosable" comments in `enforcement-level.sh` and `init.sh`. Doc-only; no behavior change.
 
+**Status update 2026-07-17:** fix implemented on branch `fix/phase-f-bl129-bl130-bl096` (stacked on PR #210; PR number cited at close). `--help-non-interactive` now states the real mapping (organizational: production, sponsored_poc — personal: production, private_poc — with the always-personal/always-organizational rule and a note that the previous text claimed the opposite); the stale "choosable iff … organizational AND poc_mode=private_poc" comments in `init.sh` (BL-030 resolve block) and `scripts/lib/enforcement-level.sh::assert_choosable` are rewritten as defensive-dead-code notes (the branch fires only on hand-edited manifests; behavior unchanged). Pinned by `test-init-non-interactive.sh` N30 (help-truth: false claim OUT, both real pairs IN — RED watched pre-fix, help-revert mutant killed) + N31/N32 (code mapping in both directions). Evidence: § WP-F2.
+
 **Related:** BL-084-TIER-KEY (the tier predicate); `Reports/2026-07-13-dogfood-2/FINDINGS.md` (F-DF2-001).
 
 ---

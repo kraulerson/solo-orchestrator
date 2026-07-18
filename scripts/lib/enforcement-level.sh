@@ -32,8 +32,15 @@ read_enforcement_level() {
 # Returns 0 if the project's deployment / poc_mode allows the user to
 # pick enforcement_level. Returns 1 otherwise. No output unless error.
 #
-# Choosable: deployment=personal OR (deployment=organizational AND poc_mode=private_poc).
-# Non-choosable (forced strict): deployment=organizational AND poc_mode IN {sponsored_poc, "" (production)}.
+# Choosable: deployment=personal (any poc_mode init.sh can produce for it:
+# private_poc or production).
+# Non-choosable (forced strict): deployment=organizational (poc_mode
+# sponsored_poc or production).
+# BL-129: `organizational + private_poc` is NOT a producible combination —
+# init.sh's gov-mode rules reject it ("Private POC is always personal") — so
+# the branch below that would make it choosable is defensive dead code kept
+# only for hand-edited manifests; do not describe the combo as a choosable
+# tier anywhere.
 assert_choosable() {
   local project_root="${1:-.}"
   local manifest="$project_root/.claude/manifest.json"
