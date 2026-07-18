@@ -107,6 +107,23 @@ else
   fail_ "T-phase4-presence-gate" "current_phase=4 with NO phase4_release checklist state produced no BL-105 diagnostic (rc=$rc) — Phase 4 remains terminal and unforced"
 fi
 
+# ── T-no-circular-consult ────────────────────────────────────────────────────
+# The presence arm must key on the FILE's real phase, not the --gate-elevated
+# variable: `--gate phase_3_to_4` elevates current_phase to 4, so an
+# elevated-keyed arm demands a STARTED phase-4 checklist DURING the 3→4
+# prospective check — making --start-phase4's own consult SELF-BLOCKING even
+# when everything else passes (circular deadlock).
+echo "=== T-no-circular-consult ==="
+P="$TOPTMP/p-circ"
+mk_p4_proj "$P"
+jq '.phase4_release = {steps_completed: [], started_at: null}' "$P/.claude/process-state.json" > "$P/.claude/t" && mv "$P/.claude/t" "$P/.claude/process-state.json"
+out=$( cd "$P" && bash "$CPG" --gate phase_3_to_4 2>&1 ); rc=$?
+if printf '%s' "$out" | grep -q "NEVER STARTED"; then
+  fail_ "T-no-circular-consult" "--gate phase_3_to_4 on a real-phase-3 project demands an already-started Phase-4 checklist — the arm keys on the ELEVATED phase and start-phase4's own consult is self-blocking (circular)"
+else
+  pass "T-no-circular-consult"
+fi
+
 # ── T-rollback-empty-file-rejected ───────────────────────────────────────────
 echo "=== T-rollback-empty-file-rejected ==="
 P="$TOPTMP/p-rb"

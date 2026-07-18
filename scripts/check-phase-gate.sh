@@ -2142,7 +2142,18 @@ fi
 # (started via --start-phase4, which now also consults the 3→4 gate);
 # incomplete steps are surfaced as information (Phase 4 is in-progress by
 # nature), but a NEVER-STARTED checklist blocks. Excision-safe fence.
-if [ "$current_phase" -ge 4 ] && [ -f .claude/process-state.json ] && command -v jq >/dev/null 2>&1; then
+# Keyed on the FILE's REAL phase, not the (possibly --gate-elevated)
+# current_phase variable: `--gate phase_3_to_4` elevates the variable to 4,
+# and an elevated-keyed arm would demand a STARTED phase-4 checklist DURING
+# the prospective 3→4 check — making --start-phase4's own gate consult
+# SELF-BLOCKING (circular) on an otherwise-passing gate. This arm is a
+# retroactive audit of projects that ARE at phase 4 on disk.
+bl105_real_phase=0
+if [ -f "$PHASE_STATE" ] && command -v jq >/dev/null 2>&1; then
+  bl105_real_phase=$(jq -r '.current_phase // 0' "$PHASE_STATE" 2>/dev/null) || bl105_real_phase=0
+  case "$bl105_real_phase" in ''|*[!0-9]*) bl105_real_phase=0 ;; esac
+fi
+if [ "$bl105_real_phase" -ge 4 ] && [ -f .claude/process-state.json ] && command -v jq >/dev/null 2>&1; then
   echo ""
   echo -e "${BOLD}Phase 4 Release Checklist (BL-105)${NC}"
   # Keyed on started_at, NOT key-existence: ensure_state_file pre-seeds an
