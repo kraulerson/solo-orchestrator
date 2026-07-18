@@ -601,9 +601,19 @@ validate_approval_fields() {
   # and caps at +20 — table rows can neither anchor nor extend the scan.
   # The section feeds the self-approval check below too, which equally must
   # read THIS gate's rows only.
+  # EXISTENCE is still judged by the old any-line grep: a gate mentioned
+  # ANYWHERE (canonical H2, malformed H3, prose) must flow through to the
+  # blame walker below, whose own H2-strict scan owns the loud
+  # "gate section not found" refusal for malformed headers (PR #116 /
+  # T-blame-4 contract — an early return here silently swallowed that
+  # WARN, the exact silent-pass class the walker exists to close; caught
+  # by test-check-phase-gate-blame-walker.sh on this PR's first CI run).
+  grep -q "$gate_name" "$APPROVAL_LOG" 2>/dev/null || return 0  # truly absent = checked separately
   local section
   section=$(awk -v h="^## .*${gate_name}" '$0 ~ h {f=1; next} f && /^## / {exit} f' "$APPROVAL_LOG" 2>/dev/null | head -20)
-  [ -z "$section" ] && return 0  # No section = checked separately
+  # An EMPTY bounded section (malformed/non-H2 header) is NOT a skip: the
+  # placeholder predicate below no-ops on empty input and the walker still
+  # runs to refuse loudly.
 
   # BL-138-APPROVAL-WINDOW-BEGIN
   # Placeholder predicate tightened to the TEMPLATE-LITERAL shapes the
@@ -641,8 +651,19 @@ validate_approval_fields() {
   #      approver but the commit author does NOT — useful for
   #      catching operators who rewrote author metadata.
   if [ "$deployment" = "organizational" ]; then
-    local approver_name
-    approver_name=$(echo "$section" | awk -F'|' '/[Aa]pprover/ && !/Role/ { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $3); gsub(/\*/, "", $3); print $3; exit }' 2>/dev/null || echo "")
+    local approver_name walker_section
+    # BL-138 follow-up (caught by T-blame-4 on this PR's first CI run): the
+    # walker's PRE-extraction must stay PERMISSIVE (old any-line grep -A 20)
+    # — with the bounded `$section`, a malformed H3-header log yielded an
+    # empty section, no approver name, and the whole walker was SKIPPED,
+    # silencing its "gate section not found" refusal (the exact silent-pass
+    # class PR #116 closed). Permissive extraction is safe here: the walker
+    # re-locates the row with its own H2-strict awk and refuses LOUDLY on
+    # anything malformed — a bled or misparsed name can only lead to the
+    # WARN, never a silent pass. The tightened `$section` above remains the
+    # placeholder predicate's input.
+    walker_section=$(grep -A 20 "$gate_name" "$APPROVAL_LOG" 2>/dev/null || echo "")
+    approver_name=$(echo "$walker_section" | awk -F'|' '/[Aa]pprover/ && !/Role/ { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $3); gsub(/\*/, "", $3); print $3; exit }' 2>/dev/null || echo "")
     if [ -n "$approver_name" ] && [ "$approver_name" != "[Name]" ] && [ "$approver_name" != "" ]; then
       local approver_norm git_user git_user_norm commit_author commit_author_norm approver_line
       approver_norm=$(printf '%s' "$approver_name" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
