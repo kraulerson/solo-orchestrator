@@ -798,6 +798,19 @@ else
   fail "tests/test-bl137-ci-tools-scope.sh FAILED (run for details)"
 fi
 
+# BL-125 (Dogfood-2 F-DF2-009): the emitted pre-commit hook RUNS the
+# project's test command — RED tests block the commit ([BLOCKED]), green
+# tests land with a receipt, not-runnable (unconfigured / exit 127) is a
+# LOUD never-silent skip, docs-only commits take the fast lane, and the
+# npm scaffold placeholder is not detected as a suite. Hook emitted
+# straight from hook-templates.sh + real git commits; in-suite emitter
+# fence-excision mutant. No init.sh -> both lanes.
+if bash "$SCRIPT_DIR/tests/test-bl125-commit-test-exec.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl125-commit-test-exec.sh"
+else
+  fail "tests/test-bl125-commit-test-exec.sh FAILED (run for details)"
+fi
+
 # BL-139 (Dogfood-3 F-DF3-004): a subject-less --check-commit-ready no
 # longer presumes feat — framework-gate's pre-commit call cannot know the
 # subject (BL-119 doctrine), and the commit-msg surface owns the feat rule
