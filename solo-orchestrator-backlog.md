@@ -3261,7 +3261,7 @@ Both reproduce in the core shard and predate the Dogfood-2 remediation (the 2026
 **Logged:** 2026-07-18 (Dogfood 3, finding F-DF3-002)
 **Category:** Bug / gate credibility (generated-project CI)
 **Severity:** High
-**Status:** Open
+**Status:** Closed — shipped 2026-07-18 (PR #217, merged `ef0a6a1`). `# BL-137-CI-TOOLS-SCOPE-BEGIN/END` at the increment site: `$CI` set → missing-tools list still prints + explicit `[note]`, NO increment; the local block is byte-unchanged, keyed strictly on `$CI` (never TTY). `tests/test-bl137-ci-tools-scope.sh` 5/5 (both lists; in-suite fence-excision mutant proves the fence carries BOTH arms). Verifier: CI-spoof risk LOW/acceptable (no hook chain reaches check-phase-gate; dominated by the pre-existing warn dial). Evidence: ledger § DOGFOOD-3 REMEDIATION.
 
 The framework-generated CI workflow runs `check-phase-gate.sh`, whose "Tools needed" arm (`issues=$((issues+1))`) blocks whenever Semgrep/Snyk CLI/Claude Code are absent from PATH — which is ALWAYS true on a CI runner (CI uses the semgrep-action container and never carries Snyk auth or the interactive Claude Code CLI). Dogfood 3's project repo: every CI job green EXCEPT `Governance - Phase gate check` = `Tools needed for Phase 1: Semgrep, Snyk CLI, Claude Code … 1 inconsistency(ies) found — blocking`, while the identical command exits 0 locally. The sibling auto-install prompt already hard-N's on `$CI` — the blocking arm needs the same environment awareness. There is NO honest in-project fix (the only workaround is the forbidden `SOIF_PHASE_GATES=warn`), so every generated project ships with a permanently red governance check — the documented-but-impossible class, which trains operators to ignore the governance lane entirely.
 
@@ -3278,7 +3278,7 @@ The framework-generated CI workflow runs `check-phase-gate.sh`, whose "Tools nee
 **Logged:** 2026-07-18 (Dogfood 3, finding F-DF3-001)
 **Category:** Bug / gate precision (window-bleed class)
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — shipped 2026-07-18 (PR #218, merged `82bbab7`; blame-walker follow-up `719ddcb` on the same PR after CI caught the bounded `$section` silencing the walker's malformed-header refusal). Window H2-anchored + stop-at-next-`## ` + 20-line cap; `# BL-138-APPROVAL-WINDOW` predicate tightened to template literals only (`[SIMULATED]` and date-format prose no longer trip it). `tests/test-bl138-approval-window.sh` 5/5 (both lists; fence-excision mutant on the `[Name]` shape). Introduced the reachable past-cap edge filed as BL-143. Evidence: ledger § DOGFOOD-3 REMEDIATION.
 
 `check-phase-gate.sh::validate_approval_fields` uses `grep -A 20 "$gate_name"` + `grep -qiE "(Approver|Reviewer).*\[.*\]|YYYY-MM-DD"`. Two collisions, both hit in Dogfood 3 with a FULLY-FILLED gate entry: (1) writing the Approval-History row per the template's own convention makes the 20-line window bleed into the BL-105/115 UAT/Attorney PLACEHOLDER rows below; (2) any bracketed annotation in a filled cell (e.g. the dogfood-required `[SIMULATED]`) matches the placeholder regex. Result: `--start-phase1` refused with a diagnostic naming the wrong fix while name+date were correctly filled. This is the SAME window-bleed defect class the BL-115 fixes killed in `_cpg_gate_has_evidence` and `# BL-115-ATTORNEY-ENTRY` — this arm was missed.
 
@@ -3295,7 +3295,7 @@ The framework-generated CI workflow runs `check-phase-gate.sh`, whose "Tools nee
 **Logged:** 2026-07-18 (Dogfood 3, finding F-DF3-004)
 **Category:** Bug / gate precision (terminal-commit surface)
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — shipped 2026-07-18 (PR #219, merged `b6ca944`). Option (a) with zero new surface: `# BL-139-SUBJECTLESS-DEFAULT` — a subject-less `--check-commit-ready` no longer presumes feat; the commit-msg surface (BL-006) owns the feat rule with the CURRENT subject, so no enforcement is lost. `tests/test-bl139-subjectless-default.sh` 5/5 (both lists; T4 = the end-to-end backstop through the REAL hook chain: `test(unit):` source commit lands, loop-less `feat:` still dies at commit-msg). Backstop's population-conditionality filed as BL-141. Evidence: ledger § DOGFOOD-3 REMEDIATION.
 
 `.git/hooks/framework-gate.sh` calls `process-checklist.sh --check-commit-ready` with NO `--subject`, so `check_commit_ready` cannot apply the documented `code-process-checklist-5` subject short-circuit and treats ANY staged source file as a feat commit. Dogfood 3 proof with identical staged `.ts`: no-subject → rc=1; `--subject "test(e2e): x"` → rc=0; a real `git commit -m "test(e2e): …"` at phase 2 aborted with `[FAIL] pre-commit gate: 'feat(...)' commit blocked`. The pre-commit surface cannot read the CURRENT message (the BL-119 lesson — git writes COMMIT_EDITMSG after pre-commit), so the fix is NOT "pass the message at pre-commit".
 
@@ -3312,7 +3312,7 @@ The framework-generated CI workflow runs `check-phase-gate.sh`, whose "Tools nee
 **Logged:** 2026-07-18 (Dogfood 3, finding F-DF3-005)
 **Category:** Bug / scanner runtime portability
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — shipped 2026-07-18 (PR #220, merged `b75f5a9`). `# BL-140-ZAP-WORKDIR` (bind-mount host dir = `$RESULTS_DIR/.zap-work.$$`, absolutized against `$PWD` per verifier MUST-fix D1) + `# BL-140-ZAP-MOUNT-HINT` (no-report FAIL names the VM-mount diagnosis + TMPDIR fallback; FAIL-not-SKIP posture untouched) + `# BL-140-ARCHIVE-FRESH` (same-second archive collision de-flaked, MUST-fix D-extra). `test-bl070-snyk-zap-scanners.sh` 48/48, green 3× consecutive. SHOULD-fixes filed as BL-141/142/143. Evidence: ledger § DOGFOOD-3 REMEDIATION.
 
 `run-phase3-validation.sh`'s zap-dast leg mounts a `mktemp -d` work dir into the ZAP container. On macOS+Colima, `mktemp` lands in `$TMPDIR=/var/folders/...`, which Colima does NOT share (only `/Users/<user>` is virtiofs-mounted) — the container writes `/zap/wrk/zap-report.json` (verified, 24 KB) but the host dir stays empty, so the driver reports `OWASP ZAP produced no report (rc=2)` → FAIL on a verifiably clean app, and BL-130 then (correctly) refuses to attest the FAIL. No driver path to green on this common runtime. Dogfood 3's honest workaround (recorded, env-only): `TMPDIR=$HOME/.df3-tmp` → `[PASS] zap-dast — 0 Medium+`.
 
