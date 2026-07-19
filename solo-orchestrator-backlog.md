@@ -3352,6 +3352,8 @@ BL-139 flipped the subject-less `--check-commit-ready` default to not-feat on th
 
 **Related:** BL-107; BL-141 (same subsystem); `Reports/2026-07-18-dogfood-3/` verifier B1.
 
+**Status update 2026-07-19:** fix implemented on branch `fix/bl142-hook-templates-header` (PR open; Closed with PR + merge SHA at merge). Both stale header spots corrected (the Contents bullet and the soif_lang_test_pattern block comment): the pattern is documented as a test-EVIDENCE-detection switch, not an install gate — the hook installs for every language per BL-107-UNIVERSAL-INSTALL, with `_bl099_sync_commitmsg_hook`'s own comment named as the code-side truth. Doc-only; no behavior change (`bash -n` + emitted-hook byte-identity unaffected — comments only).
+
 ---
 
 ## BL-143: anti-self-approval control silently skips when the Approver row lies past validate_approval_fields' +20 section cap
