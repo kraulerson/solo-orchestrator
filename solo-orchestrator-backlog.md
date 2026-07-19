@@ -3339,6 +3339,8 @@ BL-139 flipped the subject-less `--check-commit-ready` default to not-feat on th
 
 **Related:** BL-139 (the flip this backstops); BL-107 (universal install — the fresh-scaffold half that IS covered); BL-099 (`_bl099_hook_consent`); `Reports/2026-07-18-dogfood-3/` verifier B1/B2.
 
+**Status update 2026-07-19:** fix implemented on branch `fix/bl141-commitmsg-repair` (PR open; Closed with PR + merge SHA at merge). `# BL-141-COMMITMSG-VERIFY` (verify-install: detect absent/unmarked/non-executable commit-msg hook as auto-fixable; `fix_commitmsg_hook` repairs via the hook-templates single source, composing + idempotent) + `# BL-141-SYNC-WARN` (the sync's declined arm warns — never silent — when pre-commit exists without commit-msg, naming both repairs). `tests/test-bl141-commitmsg-repair.sh` 6/6 ×3 (both lists; T2 = end-to-end backstop restoration through the real hook chain; dual fence-excision mutants). Evidence: ledger § WP-BL141.
+
 ---
 
 ## BL-142: hook-templates.sh header comment claims the sync path skips rust/unknown languages — contradicts BL-107 universal install
