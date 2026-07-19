@@ -286,6 +286,200 @@ else
   fi
 fi
 
+# ═════════════════════════════════════════════════════════════════════════════
+# Verifier-battery cases (consolidated adversarial verification, 2026-07-18):
+# the MUST-fix (Yes-ANYWHERE acceptance — A5b/A4b/A10) + the SHOULD regex,
+# tie-break, and candidate-filter tightenings. Semantics under fix: the LAST
+# '**All findings resolved:**' line and the LAST numeric '| Open | N |' row
+# govern, AFTER stripping HTML comments and fenced code blocks; ALL files
+# sharing the newest mtime must pass (fail-closed tie-break); only regular
+# FILES are verdict candidates.
+# ═════════════════════════════════════════════════════════════════════════════
+
+# ── T8 (MUST A5b): single-file multi-round — a LATER No beats an earlier Yes ─
+echo "=== T8-multiround-later-no-blocks ==="
+P="$TOPTMP/p8"; mk_loop "$P"
+cat > "$P/$AUDIT" <<'EOF'
+# Security Audit Findings — Feature: Comment Widget
+
+## Round 1 — 2026-07-15
+
+**All findings resolved:** Yes
+
+## Round 2 — 2026-07-18, regression: sanitizer removed
+
+**All findings resolved:** No
+EOF
+out=$(run_audit_step "$P"); rc=$?
+if [ "$rc" -ne 0 ] && ! step_recorded "$P"; then
+  pass "T8-multiround-later-no-blocks (the walk's own single-file rounds shape: the LATEST verdict governs)"
+else
+  fail_ "T8-multiround-later-no-blocks" "rc=$rc — an earlier round's Yes overrode the current round's No (verifier MUST A5b)"
+fi
+
+# ── T9 (MUST A4b): a Yes inside a fenced code block is an example, not a verdict ─
+echo "=== T9-fenced-example-not-verdict ==="
+P="$TOPTMP/p9"; mk_loop "$P"
+cat > "$P/$AUDIT" <<'EOF'
+# Security Audit Findings — Feature: Comment Widget
+
+The completed Summary must end like this:
+
+```
+**All findings resolved:** Yes
+```
+
+## Summary
+
+**All findings resolved:** No
+EOF
+out=$(run_audit_step "$P"); rc=$?
+if [ "$rc" -ne 0 ] && ! step_recorded "$P"; then
+  pass "T9-fenced-example-not-verdict"
+else
+  fail_ "T9-fenced-example-not-verdict" "rc=$rc — a quoted example Yes satisfied the gate over the real No (verifier MUST A4b)"
+fi
+
+# ── T10 (MUST A10): an HTML-commented-out Yes is not a verdict ───────────────
+echo "=== T10-commented-yes-not-verdict ==="
+P="$TOPTMP/p10"; mk_loop "$P"
+cat > "$P/$AUDIT" <<'EOF'
+# Security Audit Findings — Feature: Comment Widget
+
+Audit not performed yet.
+
+<!--
+When done, record:
+**All findings resolved:** Yes
+-->
+EOF
+out=$(run_audit_step "$P"); rc=$?
+if [ "$rc" -ne 0 ] && ! step_recorded "$P"; then
+  pass "T10-commented-yes-not-verdict"
+else
+  fail_ "T10-commented-yes-not-verdict" "rc=$rc — a commented-out Yes satisfied the gate on an unperformed audit (verifier MUST A10)"
+fi
+
+# ── T11: honest single-file progression — later clean round PASSES ───────────
+# The mirror of T8, and the false-positive guard on last-occurrence semantics:
+# round 1's historical | Open | 2 | must not block once round 2 records 0/Yes.
+echo "=== T11-multiround-honest-progress-passes ==="
+P="$TOPTMP/p11"; mk_loop "$P"
+cat > "$P/$AUDIT" <<'EOF'
+# Security Audit Findings — Feature: Comment Widget
+
+## Round 1 — 2026-07-15
+
+| Status | Count |
+|--------|-------|
+| Open | 2 |
+
+**All findings resolved:** No
+
+## Round 2 — 2026-07-18, both findings fixed
+
+| Status | Count |
+|--------|-------|
+| Fixed | 2 |
+| Open | 0 |
+
+**All findings resolved:** Yes
+EOF
+out=$(run_audit_step "$P"); rc=$?
+if [ "$rc" -eq 0 ] && step_recorded "$P"; then
+  pass "T11-multiround-honest-progress-passes (historical rounds do not brick an honestly-finished audit)"
+else
+  fail_ "T11-multiround-honest-progress-passes" "rc=$rc — round 1's history blocked a currently-clean audit (false positive): $(printf '%s' "$out" | tail -2 | tr '\n' ' ')"
+fi
+
+# ── T12 (SHOULD C6): equal-mtime tie must fail CLOSED ────────────────────────
+# Same touch -t on both files (ties are real: zip extraction, cp -R, coarse
+# filesystems); ls -t breaks ties name-ascending, which silently preferred the
+# stale clean round. Under the fix, EVERY newest-tie must pass.
+echo "=== T12-equal-mtime-tie-fails-closed ==="
+P="$TOPTMP/p12"; mk_loop "$P"
+cat > "$P/docs/security-audits/comment-widget-round1.md" <<'EOF'
+## Summary
+| Status | Count |
+|--------|-------|
+| Open | 0 |
+**All findings resolved:** Yes
+EOF
+cat > "$P/docs/security-audits/comment-widget-round2.md" <<'EOF'
+## Summary
+| Status | Count |
+|--------|-------|
+| Open | 2 |
+**All findings resolved:** No
+EOF
+touch -t 202607180303 "$P/docs/security-audits/comment-widget-round1.md"
+touch -t 202607180303 "$P/docs/security-audits/comment-widget-round2.md"
+out=$(run_audit_step "$P"); rc=$?
+if [ "$rc" -ne 0 ] && ! step_recorded "$P"; then
+  pass "T12-equal-mtime-tie-fails-closed (a same-mtime stale pass cannot mask the failing round — the BL-140 D-extra class)"
+else
+  fail_ "T12-equal-mtime-tie-fails-closed" "rc=$rc — the alphabetically-first clean round won the mtime tie over the failing one (verifier C6)"
+fi
+
+# ── T13 (SHOULD A1/A2/A3): markdown-equivalent Open rows still block ─────────
+echo "=== T13-loose-open-row-blocks ==="
+P="$TOPTMP/p13"; mk_loop "$P"
+printf '# Security Audit Findings — Feature: Comment Widget\n\n## Summary\n\n  | open | 3\n\n**All findings resolved:** Yes\n' > "$P/$AUDIT"
+out=$(run_audit_step "$P"); rc=$?
+if [ "$rc" -ne 0 ] && ! step_recorded "$P"; then
+  pass "T13-loose-open-row-blocks (indented/lowercase/lazy-pipe row is the same row — GFM-equivalent serialization cannot evade)"
+else
+  fail_ "T13-loose-open-row-blocks" "rc=$rc — '  | open | 3' (renders identically to '| Open | 3 |') evaded the block (verifier A1/A2/A3)"
+fi
+
+# ── T14 (SHOULD B3): colon-outside-bold Yes is the same verdict ──────────────
+echo "=== T14-colon-outside-bold-passes ==="
+P="$TOPTMP/p14"; mk_loop "$P"
+cat > "$P/$AUDIT" <<'EOF'
+# Security Audit Findings — Feature: Comment Widget
+
+## Summary
+
+| Status | Count |
+|--------|-------|
+| Open | 0 |
+
+**All findings resolved**: Yes
+EOF
+out=$(run_audit_step "$P"); rc=$?
+if [ "$rc" -eq 0 ] && step_recorded "$P"; then
+  pass "T14-colon-outside-bold-passes (the common hand-written colon placement is not a false positive)"
+else
+  fail_ "T14-colon-outside-bold-passes" "rc=$rc — '**All findings resolved**: Yes' was refused (verifier B3): $(printf '%s' "$out" | tail -2 | tr '\n' ' ')"
+fi
+
+# ── T15 (SHOULD C2): a slug-named DIRECTORY is not a verdict candidate ───────
+echo "=== T15-directory-not-candidate ==="
+P="$TOPTMP/p15"; mk_loop "$P"
+mkdir -p "$P/docs/security-audits/comment-widget-rounds"
+cat > "$P/$AUDIT" <<'EOF'
+## Summary
+| Status | Count |
+|--------|-------|
+| Open | 0 |
+**All findings resolved:** Yes
+EOF
+touch -t 202607190101 "$P/docs/security-audits/comment-widget-rounds"
+out=$(run_audit_step "$P"); rc=$?
+if [ "$rc" -eq 0 ] && step_recorded "$P"; then
+  pass "T15a-directory-not-candidate (a newer slug-named directory cannot hijack the verdict read)"
+else
+  fail_ "T15a-directory-not-candidate" "rc=$rc — a directory became the verdict source over the real passing audit (verifier C2): $(printf '%s' "$out" | tail -2 | tr '\n' ' ')"
+fi
+P="$TOPTMP/p15b"; mk_loop "$P"
+mkdir -p "$P/docs/security-audits/comment-widget-rounds"
+out=$(run_audit_step "$P"); rc=$?
+if [ "$rc" -ne 0 ] && ! step_recorded "$P"; then
+  pass "T15b-directory-only-still-blocks (existence via a directory with NO audit file stays fail-closed)"
+else
+  fail_ "T15b-directory-only-still-blocks" "rc=$rc — a bare directory satisfied the step with zero audit files (fail-open regression)"
+fi
+
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ] || exit 1
