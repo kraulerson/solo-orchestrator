@@ -763,6 +763,34 @@ teardown
 
 # ════════════════════════════════════════════════════════════════════
 echo ""
+echo "=== T-zap-workdir-absolute: a RELATIVE --results-dir still yields an ABSOLUTE -v host path (BL-140 D1) ==="
+# ════════════════════════════════════════════════════════════════════
+# Verifier D1 MUST-FIX: docker -v rejects a relative host path (rc=125,
+# "invalid characters for a local volume name"). RESULTS_DIR defaults to the
+# RELATIVE docs/test-results/phase3, and the documented bare invocation runs
+# from the project root — so the work dir MUST absolutize. Every OTHER case
+# passes --results-dir an ABSOLUTE path, which is why 47 tests missed this.
+# Here we pass a RELATIVE --results-dir and assert the witnessed -v host side
+# is absolute (and under the project).
+setup_zap web with-docker
+ZAP_URL="http://app.local"
+export ZAP_MOCK_HOSTDIR_WITNESS="$TMP/hostdir-rel.txt"
+( cd "$PROJ" && PATH="$ZAP_BIN:$CLEAN_BIN" ZAP_MOCK_REPORT="$(printf '{"site":[]}')" ZAP_MOCK_RC=0 SOLO_ZAP_TARGET_URL="$ZAP_URL" "$BASH_BIN" "$DRIVER" --results-dir "docs/test-results/phase3" </dev/null >/dev/null 2>&1 ) || true
+unset ZAP_MOCK_HOSTDIR_WITNESS
+witr="$(cat "$TMP/hostdir-rel.txt" 2>/dev/null || echo "")"
+case "$witr" in
+  /*)
+    pass "T-zap-workdir-absolute: relative --results-dir → absolute -v host path ('$witr')" ;;
+  "")
+    fail_ "T-zap-workdir-absolute" "no host dir witnessed — driver never dispatched docker (relative-path rc=125 crash?)" ;;
+  *)
+    fail_ "T-zap-workdir-absolute" "relative --results-dir produced a RELATIVE -v host path ('$witr') — docker -v would fail rc=125; the documented bare invocation is broken on every docker runtime (D1)" ;;
+esac
+unset ZAP_URL
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
 echo "=== T-zap-bl140-mutations: both fences load-bearing ==="
 # ════════════════════════════════════════════════════════════════════
 # Excised-workdir mutant → host dir back under $TMPDIR (positively asserted);
@@ -775,7 +803,13 @@ if grep -q "BL-140-ZAP-WORKDIR" "$MUT"; then
   fail_ "T-zap-bl140-mutations" "workdir fence excision left marker text"
 else
   export ZAP_MOCK_HOSTDIR_WITNESS="$TMP/hostdir-mut.txt"
-  ( cd "$PROJ" && PATH="$ZAP_BIN:$CLEAN_BIN" ZAP_MOCK_REPORT='{"site":[]}' ZAP_MOCK_RC=0 SOLO_ZAP_TARGET_URL="$ZAP_URL" "$BASH_BIN" "$MUT" --results-dir "$RDIR" </dev/null >/dev/null 2>&1 ) || true
+  # Each mutant sub-run gets its OWN results dir: TS is second-granularity
+  # and stamped once per run, so a shared dir lets a later sub-run cross-read
+  # an earlier one's same-second archive (verifier D-extra Heisenbug — red at
+  # normal speed, green under bash -x). The driver's own # BL-140-ARCHIVE-FRESH
+  # rm -f now also guards this, but per-run isolation is the primary fix.
+  RDIR_MUT1="$PROJ/docs/test-results/phase3-mut1"; mkdir -p "$RDIR_MUT1"
+  ( cd "$PROJ" && PATH="$ZAP_BIN:$CLEAN_BIN" ZAP_MOCK_REPORT='{"site":[]}' ZAP_MOCK_RC=0 SOLO_ZAP_TARGET_URL="$ZAP_URL" "$BASH_BIN" "$MUT" --results-dir "$RDIR_MUT1" </dev/null >/dev/null 2>&1 ) || true
   unset ZAP_MOCK_HOSTDIR_WITNESS
   witm="$(cat "$TMP/hostdir-mut.txt" 2>/dev/null || echo "")"
   case "$witm" in
@@ -792,7 +826,8 @@ sed '/# BL-140-ZAP-MOUNT-HINT-BEGIN/,/# BL-140-ZAP-MOUNT-HINT-END/d' "$DRIVER" >
 if grep -q "BL-140-ZAP-MOUNT-HINT" "$MUT2"; then
   fail_ "T-zap-bl140-mutations" "hint fence excision left marker text"
 else
-  out2="$( cd "$PROJ" && PATH="$ZAP_BIN:$CLEAN_BIN" ZAP_MOCK_REPORT='' ZAP_MOCK_RC=0 SOLO_ZAP_TARGET_URL="$ZAP_URL" "$BASH_BIN" "$MUT2" --results-dir "$RDIR" </dev/null 2>&1 )" || true
+  RDIR_MUT2="$PROJ/docs/test-results/phase3-mut2"; mkdir -p "$RDIR_MUT2"
+  out2="$( cd "$PROJ" && PATH="$ZAP_BIN:$CLEAN_BIN" ZAP_MOCK_REPORT='' ZAP_MOCK_RC=0 SOLO_ZAP_TARGET_URL="$ZAP_URL" "$BASH_BIN" "$MUT2" --results-dir "$RDIR_MUT2" </dev/null 2>&1 )" || true
   if echo "$out2" | grep -q "\[FAIL\] zap-dast" && ! echo "$out2" | grep -qiE "colima|shared mount"; then
     pass "T-zap-bl140-mutations: hint fence excision drops the diagnosis, FAIL survives"
   else

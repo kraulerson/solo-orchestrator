@@ -1112,8 +1112,19 @@ _p3_scan_zap() {
   # which is where the operator works and inside the VM's shared mounts.
   # The mktemp above is kept as the excision-fallback: removing this fence
   # restores the old $TMPDIR behavior exactly (mutation target).
+  #
+  # docker -v REQUIRES an ABSOLUTE host path (a relative one is read as a
+  # named-volume and fails rc=125) — and RESULTS_DIR defaults to the RELATIVE
+  # `docs/test-results/phase3`, so the work dir must be absolutized here or
+  # the documented bare invocation (`run-phase3-validation.sh` from the
+  # project root) breaks on EVERY docker runtime (verifier D1 MUST-FIX —
+  # every test fixture passed --results-dir an absolute path, which is why
+  # 47 tests could not see it). Resolve against $PWD without a cd (the
+  # driver never changes CWD).
   rm -rf "$zap_tmp" 2>/dev/null || true
-  zap_tmp="$RESULTS_DIR/.zap-work.$$"
+  local zap_base="$RESULTS_DIR"
+  case "$zap_base" in /*) ;; *) zap_base="$PWD/$zap_base" ;; esac
+  zap_tmp="$zap_base/.zap-work.$$"
   mkdir -p "$zap_tmp" || {
     P3_STATUS="FAIL"; P3_NOTE="could not create $zap_tmp for the ZAP report"; return
   }
@@ -1337,6 +1348,15 @@ _p3_scan_threat_model() {
 _p3_run_scanner() {
   local name="$1" ts="$2"
   local archive="$RESULTS_DIR/${name}-${ts}.json"
+  # BL-140-ARCHIVE-FRESH (verifier D-extra): `ts` is second-granularity and
+  # stamped once per run, so two runs of the same scanner within one second
+  # (or a re-run over an existing dir) collide on this path — and a scan
+  # that writes NO report would then read the STALE archive as its own
+  # result (`[ ! -s "$archive" ]` sees the old bytes). Clear it before
+  # dispatch: each scanner's verdict must come from THIS run's write or an
+  # honest empty. Real-scan exposure is ~nil (a real scan takes >>1s) but
+  # any double-invocation harness (the mutation cases) must not cross-read.
+  rm -f "$archive" 2>/dev/null || true
   P3_STATUS="SKIP"; P3_NOTE=""; P3_ARCHIVE="-"
   case "$name" in
     semgrep-full-tree) _p3_scan_semgrep "$archive" ;;
