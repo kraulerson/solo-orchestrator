@@ -323,14 +323,14 @@ Also: **PR #214 MERGED `528f5b2`** → BL-134 Closed.
 
 ---
 
-## DOGFOOD-3 REMEDIATION — WP-BL137 (High): the CI-scoped tools gate — DONE-PR-open
+## DOGFOOD-3 REMEDIATION — WP-BL137 (High): the CI-scoped tools gate — MERGED (2026-07-18, PR #217 `ef0a6a1`)
 
 - **Branch:** `fix/bl137-ci-tools-gate` (off `main` @ `f64ae97`, post-#216).
 - **Reproduce (RED, watched):** T2 drove a fixture copy of check-phase-gate with a mini tool-matrix (one required tool, `check_command false`) under `CI=true` → the walk's verbatim `1 inconsistency(ies) found — blocking` (rc=1). T1/T3/T4 pre-passed, pinning the local block + both clean baselines.
 - **Fix:** `# BL-137-CI-TOOLS-SCOPE-BEGIN/END` — the `issues+1` at the tools arm now branches on `$CI`: CI → list stays printed + `[note] … binds on the dev workstation … NOT blocking here (BL-137)`; local → increment unchanged. Keyed strictly on `$CI`, never TTY (scripted local runs must keep blocking — the doctrine line is in the fence comment).
 - **Tests:** `tests/test-bl137-ci-tools-scope.sh` **5/5** (BOTH lists). Fixture reads ITS OWN templates/tool-matrix (check-phase-gate resolves PROJECT_ROOT from its location), so the resolver is fast + deterministic; `env -u CI` in the runner makes the local-block cases correct even when the suite itself runs under GitHub's CI=true. T5 = in-suite fence-excision mutant, positively asserted in BOTH directions (guardless mutant neither blocks locally nor notes in CI — the fence carries both arms).
 - **Blast radius (green, 9 suites):** bl104 · poc-block · backstop · bl124 · bl102 · bl116 · zdr-gate · bl073 · date-writeback. None carries tool-preferences.json (the arm requires it), so the arm is inert in their fixtures — verified by the sweep.
-## DOGFOOD-3 REMEDIATION — WP-BL138 (Med): the approval-window bleed, third sibling — DONE-PR-open
+## DOGFOOD-3 REMEDIATION — WP-BL138 (Med): the approval-window bleed, third sibling — MERGED (2026-07-18, PR #218 `82bbab7` + follow-up `719ddcb`)
 
 - **Branch:** `fix/bl138-approval-window` (off main, parallel to #217).
 - **Reproduce (RED, watched):** T1 twin-parity — the annotated+downstream fixture rc=1 with the placeholder WARN vs its plain twin rc=0 (the walk's F-DF3-001 verbatim); T4 showed date-format PROSE tripping the bare-YYYY-MM-DD arm.
@@ -338,7 +338,7 @@ Also: **PR #214 MERGED `528f5b2`** → BL-134 Closed.
 - **Tests:** `tests/test-bl138-approval-window.sh` **5/5** (BOTH lists). T5 mutation note (recorded): the first draft's placeholder-DATE fixture let the BL-115 date-evidence arm mask the excised mutant (rc=1 either way) — switched to the `[Name]` reviewer shape, which ONLY the fenced detector rejects; the mutant now reaches rc=0, positively proving the fence. Oracle-masking-by-sibling-arm is a good trap to remember.
 - **Blast radius (green):** self-approval · retroactive-approval (both consume the now-bounded `$section`) · bl104 · poc-block · bl124 · bl102 · zdr · bl073 · date-writeback · trio 17/17.
 
-## DOGFOOD-3 REMEDIATION — WP-BL139 (Med): the subject-less feat presumption — DONE-PR-open
+## DOGFOOD-3 REMEDIATION — WP-BL139 (Med): the subject-less feat presumption — MERGED (2026-07-18, PR #219 `b6ca944`)
 
 - **Branch:** `fix/bl139-subject-surface` (stacked on #218). **Decision:** option (a) with zero new surface — the feat rule's home is the commit-msg surface (BL-119 doctrine), which ALREADY enforces it with the current subject; pre-commit's subject-less call simply stops presuming.
 - **Reproduce (RED, watched):** T1 direct (rc=1 + the presumed-feat guidance) and T4 END-TO-END through the real installer chain — a real `git commit -m "test(unit): …"` at Phase 2 aborted exactly as the walk recorded.
@@ -347,7 +347,7 @@ Also: **PR #214 MERGED `528f5b2`** → BL-134 Closed.
 - **Documented-bug rewrites (2):** commit-ready-subject T5 ("omitted --subject preserves legacy behaviour" — the legacy behaviour IS F-DF3-004) now asserts the flip; classifier T12's helper now proves source classification through the EXPLICIT feat path. 7/7 + 12/12.
 - **Blast radius (green):** bl119 4/4 (the real-hook sibling) · trio · bl105 · bl106 · auto-advance · E2 · schema-gate 8/8 · commit-ready-subject 7/7 · classifier 12/12.
 
-## DOGFOOD-3 REMEDIATION — WP-BL140 (Med): the ZAP work dir joins the project tree — DONE-PR-open
+## DOGFOOD-3 REMEDIATION — WP-BL140 (Med): the ZAP work dir joins the project tree — MERGED (2026-07-18, PR #220 `b75f5a9`)
 
 - **Branch:** `fix/bl140-zap-workdir` (stacked on #219).
 - **Reproduce (RED, watched):** the new workdir-witness case printed the defect verbatim — host dir `/var/folders/…/p3-zap-XtH2O4` (macOS `$TMPDIR`, outside Colima's virtiofs mounts); the hint case showed the bare "produced no report" FAIL with no diagnosis.
