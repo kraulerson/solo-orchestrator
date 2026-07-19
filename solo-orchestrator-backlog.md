@@ -3320,6 +3320,53 @@ The framework-generated CI workflow runs `check-phase-gate.sh`, whose "Tools nee
 
 **Related:** BL-070 (the driver); BL-130 (whose refusal worked exactly as designed here); `Reports/2026-07-18-dogfood-3/` (F-DF3-005, incl. the root-cause mount analysis).
 
+**Status update 2026-07-18:** fix implemented on branch `fix/bl140-zap-workdir` (stacked on #219; PR open; Closed with PR + merge SHA at merge). `# BL-140-ZAP-WORKDIR` — the bind-mount host dir moves from `$TMPDIR` mktemp to `$RESULTS_DIR/.zap-work.$$` (the project tree: where the operator works, inside VM shared mounts; the mktemp stays as the excision-fallback so the mutant restores the old behavior exactly). `# BL-140-ZAP-MOUNT-HINT` — the no-report FAIL now names the VM-mount diagnosis + the TMPDIR fallback (FAIL posture unchanged — an unreadable scan is not a clean scan). Three cases added to `test-bl070-snyk-zap-scanners.sh`: the workdir witness case RED-watched with the `/var/folders` path on screen; the hint case; a dual-fence mutation case (workdir excision restores $TMPDIR positively; hint excision drops the diagnosis while FAIL survives). Driver blast radius green: bl130 4/4, license, threat-model, bl095 9/9. Evidence: ledger § DOGFOOD-3 REMEDIATION.
+
+**Verifier follow-up 2026-07-18 (two MUST-FIXes landed on the same branch, suite now 48/48):** (1) **D1** — `docker -v` rejects a RELATIVE host path (rc=125), and `RESULTS_DIR` defaults to the relative `docs/test-results/phase3`, so the DOCUMENTED bare invocation was hard-broken on every docker runtime while all 47 fixtures (absolute `--results-dir`) passed. Fixed: `# BL-140-ZAP-WORKDIR` absolutizes the work dir against `$PWD` (no cd — the driver never changes CWD); new `T-zap-workdir-absolute` case passes a RELATIVE `--results-dir` and asserts an absolute `-v` host path (RED watched: `docs/test-results/phase3/.zap-work.NNN`). (2) **D-extra** — `_p3_run_scanner`'s second-granularity per-run timestamp let two same-second sub-runs collide on one archive path, so a no-report scan cross-read the prior run's clean archive (the mutation case was reproducibly red at normal speed, green under `bash -x`). Fixed BOTH sides: `# BL-140-ARCHIVE-FRESH` `rm -f "$archive"` before every dispatch (product de-flake) + the two mutation sub-runs isolated into separate results dirs. Green 3× consecutively. SHOULD-fixes filed as BL-141/142/143.
+
+---
+
+## BL-141: verify-install --auto-fix ignores the commit-msg hook; sync can silently leave it absent — the BL-139 "no enforcement lost" claim is population-conditional
+
+**Logged:** 2026-07-18 (Dogfood-3 wave verifier, B1/B2 SHOULD-fix)
+**Category:** Bug / enforcement coverage (strict-tier populations)
+**Severity:** Medium
+**Status:** Open
+
+BL-139 flipped the subject-less `--check-commit-ready` default to not-feat on the pre-commit surface, relying on the COMMIT-MSG hook to enforce feat-requires-Build-Loop with the current subject. That backstop is only present for populations that HAVE the commit-msg hook. The verifier's census: fresh `init.sh` scaffolds install it unconditionally (BL-107); but `verify-install --auto-fix` checks/repairs ONLY `.git/hooks/pre-commit` (no commit-msg detection anywhere in `scripts/verify-install.sh`), and the currency sync (`_bl099_sync_commitmsg_hook` via `_bl099_hook_consent`) installs it non-interactively ONLY with `--install-hooks` (default off) — a piped `--sync-framework` on a legacy project leaves it "not installed (declined)". For any such project that also runs the strict-tier `framework-gate.sh`, the BL-139 flip converts an over-broad block into NO terminal-path feat gate at all — concentrated on the strictest tiers where docs call the block non-bypassable.
+
+**Fix shape:** teach `verify-install --auto-fix` to detect a missing/stale commit-msg TDD hook and repair it (mirror the pre-commit path); make the sync path WARN when `.git/hooks/pre-commit` exists but the commit-msg hook does not. Mutation-prove: a project with pre-commit-but-no-commit-msg → auto-fix installs it → a loop-less feat commit is blocked again.
+
+**Related:** BL-139 (the flip this backstops); BL-107 (universal install — the fresh-scaffold half that IS covered); BL-099 (`_bl099_hook_consent`); `Reports/2026-07-18-dogfood-3/` verifier B1/B2.
+
+---
+
+## BL-142: hook-templates.sh header comment claims the sync path skips rust/unknown languages — contradicts BL-107 universal install
+
+**Logged:** 2026-07-18 (Dogfood-3 wave verifier, B1 stale-doc SHOULD-fix)
+**Category:** Bug / doc-vs-code contradiction (THE SCRIPTS WIN)
+**Severity:** Low
+**Status:** Open
+
+`scripts/lib/hook-templates.sh`'s header still says the currency sync path is "EXPECTED to lack the [commit-msg] hook" for rust/unknown languages — contradicted by `_bl099_sync_commitmsg_hook`'s own `BL-107-UNIVERSAL-INSTALL` comment, which installs for every language. Doc-only; correct the header to match the code (the scripts win).
+
+**Related:** BL-107; BL-141 (same subsystem); `Reports/2026-07-18-dogfood-3/` verifier B1.
+
+---
+
+## BL-143: anti-self-approval control silently skips when the Approver row lies past validate_approval_fields' +20 section cap
+
+**Logged:** 2026-07-18 (Dogfood-3 wave verifier, C3 SHOULD-fix)
+**Category:** Bug / gate precision (evasion edge)
+**Severity:** Medium
+**Status:** Open
+
+`validate_approval_fields`' bounded `$section` (BL-138) is capped at +20 lines. The self-approval extraction reads the approver name from that capped section; when a crafted APPROVAL_LOG pushes the Approver row past +20 (filler rows, or a Date row within `_cpg_gate_has_evidence`'s head-15 with the Approver row below), `approver_name` comes back empty and the `[ -n "$approver_name" ]` guard exits with NO WARN — the anti-self-approval control is silently skipped, even though the (uncapped) blame walker would locate the row. Pre-BL-138 the row-anchored window virtually always contained the Approver row, so BL-138 introduced the reachable edge.
+
+**Fix shape:** when the blame walker finds an Approver row the capped extraction could not, WARN (or take the name from the walker's located line). Mutation-prove with an org fixture whose Approver row sits at section-line 25.
+
+**Related:** BL-138 (the cap this exposes); the blame walker (`# BL-116` per-line self-approval); `Reports/2026-07-18-dogfood-3/` verifier C3. Note: the wave's blame-walker follow-up (`719ddcb`) restored the walker's PERMISSIVE pre-extraction, which mitigates the SKIP for the malformed-header case but NOT the past-cap-row case — this entry tracks the latter.
+
 ---
 
 ## BL-131: Commit-time SAST residual blindness — `insertAdjacentHTML`, jQuery `.html()`, `.vue` SFC scripts, and inline `<script>` in `.html` all commit clean (no public registry rule exists for them)
