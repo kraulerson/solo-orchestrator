@@ -323,14 +323,14 @@ Also: **PR #214 MERGED `528f5b2`** → BL-134 Closed.
 
 ---
 
-## DOGFOOD-3 REMEDIATION — WP-BL137 (High): the CI-scoped tools gate — DONE-PR-open
+## DOGFOOD-3 REMEDIATION — WP-BL137 (High): the CI-scoped tools gate — MERGED (2026-07-18, PR #217 `ef0a6a1`)
 
 - **Branch:** `fix/bl137-ci-tools-gate` (off `main` @ `f64ae97`, post-#216).
 - **Reproduce (RED, watched):** T2 drove a fixture copy of check-phase-gate with a mini tool-matrix (one required tool, `check_command false`) under `CI=true` → the walk's verbatim `1 inconsistency(ies) found — blocking` (rc=1). T1/T3/T4 pre-passed, pinning the local block + both clean baselines.
 - **Fix:** `# BL-137-CI-TOOLS-SCOPE-BEGIN/END` — the `issues+1` at the tools arm now branches on `$CI`: CI → list stays printed + `[note] … binds on the dev workstation … NOT blocking here (BL-137)`; local → increment unchanged. Keyed strictly on `$CI`, never TTY (scripted local runs must keep blocking — the doctrine line is in the fence comment).
 - **Tests:** `tests/test-bl137-ci-tools-scope.sh` **5/5** (BOTH lists). Fixture reads ITS OWN templates/tool-matrix (check-phase-gate resolves PROJECT_ROOT from its location), so the resolver is fast + deterministic; `env -u CI` in the runner makes the local-block cases correct even when the suite itself runs under GitHub's CI=true. T5 = in-suite fence-excision mutant, positively asserted in BOTH directions (guardless mutant neither blocks locally nor notes in CI — the fence carries both arms).
 - **Blast radius (green, 9 suites):** bl104 · poc-block · backstop · bl124 · bl102 · bl116 · zdr-gate · bl073 · date-writeback. None carries tool-preferences.json (the arm requires it), so the arm is inert in their fixtures — verified by the sweep.
-## DOGFOOD-3 REMEDIATION — WP-BL138 (Med): the approval-window bleed, third sibling — DONE-PR-open
+## DOGFOOD-3 REMEDIATION — WP-BL138 (Med): the approval-window bleed, third sibling — MERGED (2026-07-18, PR #218 `82bbab7` + follow-up `719ddcb`)
 
 - **Branch:** `fix/bl138-approval-window` (off main, parallel to #217).
 - **Reproduce (RED, watched):** T1 twin-parity — the annotated+downstream fixture rc=1 with the placeholder WARN vs its plain twin rc=0 (the walk's F-DF3-001 verbatim); T4 showed date-format PROSE tripping the bare-YYYY-MM-DD arm.
@@ -338,7 +338,7 @@ Also: **PR #214 MERGED `528f5b2`** → BL-134 Closed.
 - **Tests:** `tests/test-bl138-approval-window.sh` **5/5** (BOTH lists). T5 mutation note (recorded): the first draft's placeholder-DATE fixture let the BL-115 date-evidence arm mask the excised mutant (rc=1 either way) — switched to the `[Name]` reviewer shape, which ONLY the fenced detector rejects; the mutant now reaches rc=0, positively proving the fence. Oracle-masking-by-sibling-arm is a good trap to remember.
 - **Blast radius (green):** self-approval · retroactive-approval (both consume the now-bounded `$section`) · bl104 · poc-block · bl124 · bl102 · zdr · bl073 · date-writeback · trio 17/17.
 
-## DOGFOOD-3 REMEDIATION — WP-BL139 (Med): the subject-less feat presumption — DONE-PR-open
+## DOGFOOD-3 REMEDIATION — WP-BL139 (Med): the subject-less feat presumption — MERGED (2026-07-18, PR #219 `b6ca944`)
 
 - **Branch:** `fix/bl139-subject-surface` (stacked on #218). **Decision:** option (a) with zero new surface — the feat rule's home is the commit-msg surface (BL-119 doctrine), which ALREADY enforces it with the current subject; pre-commit's subject-less call simply stops presuming.
 - **Reproduce (RED, watched):** T1 direct (rc=1 + the presumed-feat guidance) and T4 END-TO-END through the real installer chain — a real `git commit -m "test(unit): …"` at Phase 2 aborted exactly as the walk recorded.
@@ -347,7 +347,7 @@ Also: **PR #214 MERGED `528f5b2`** → BL-134 Closed.
 - **Documented-bug rewrites (2):** commit-ready-subject T5 ("omitted --subject preserves legacy behaviour" — the legacy behaviour IS F-DF3-004) now asserts the flip; classifier T12's helper now proves source classification through the EXPLICIT feat path. 7/7 + 12/12.
 - **Blast radius (green):** bl119 4/4 (the real-hook sibling) · trio · bl105 · bl106 · auto-advance · E2 · schema-gate 8/8 · commit-ready-subject 7/7 · classifier 12/12.
 
-## DOGFOOD-3 REMEDIATION — WP-BL140 (Med): the ZAP work dir joins the project tree — DONE-PR-open
+## DOGFOOD-3 REMEDIATION — WP-BL140 (Med): the ZAP work dir joins the project tree — MERGED (2026-07-18, PR #220 `b75f5a9`)
 
 - **Branch:** `fix/bl140-zap-workdir` (stacked on #219).
 - **Reproduce (RED, watched):** the new workdir-witness case printed the defect verbatim — host dir `/var/folders/…/p3-zap-XtH2O4` (macOS `$TMPDIR`, outside Colima's virtiofs mounts); the hint case showed the bare "produced no report" FAIL with no diagnosis.
@@ -363,6 +363,30 @@ Also: **PR #214 MERGED `528f5b2`** → BL-134 Closed.
 - **MUST-2 (LANDED) — D-extra archive collision:** the mutation case was a timing Heisenbug (red normal / green under `bash -x`) — second-granularity per-run TS + shared results dir let a no-report sub-run cross-read a prior clean archive. Fixed BOTH: `# BL-140-ARCHIVE-FRESH` `rm -f "$archive"` pre-dispatch (product de-flake — a same-second stale archive could promote into a fresh verdict) + mutation sub-runs isolated to their own dirs. Suite 48/48, green 3× consecutive.
 - **SHOULD (filed, none blocks):** BL-141 (verify-install/sync must cover the commit-msg hook — the BL-139 backstop is population-conditional for legacy/declined/non-interactive-sync strict-tier projects; MEDIUM), BL-142 (stale hook-templates header vs BL-107), BL-143 (self-approval silently skips when the Approver row sits past the +20 cap — BL-138 introduced the reachable edge; MEDIUM). BL-137 second-marker hardening + T5 list-visibility assertion and the D2 signal-trap folded into the entries as optional.
 - **Also caught pre-verdict (CI, not the verifier):** #218's first CI run went RED on `test-check-phase-gate-blame-walker.sh` T-blame-4 — the bounded section had silenced the walker's malformed-header refusal; fixed `719ddcb` (permissive walker pre-extraction; bounded window stays the placeholder predicate's input), propagated #218→#219→#220. Battery-miss lesson: grep consumers of the VARIABLE, not just the function.
+---
+
+## WP-A2 (part 1) — BL-120 (High): the security_audit step reads the verdict — DONE-PR-open
+
+- **The original-scope gap closed:** WP-A2 (BL-120 + BL-125) was grouped in REMEDIATION-PLAN.md as the defense-in-depth trio siblings of BL-118 (three independent gates waved the same real XSS through) and was NEVER shipped in Phases A–F — surfaced by the 2026-07-18 handoff §3. This entry is part 1 (BL-120); BL-125 follows as part 2.
+- **Branch:** `fix/bl120-audit-verdict` (off `main` @ `b75f5a9`, post-#220).
+- **Reproduce (RED, watched):** T1 drove the walk's F-DF2-008 verbatim — an audit reading "CRITICAL — VULNERABLE. DO NOT SHIP." completed `--complete-step build_loop:security_audit` rc=0 (`[OK] Step 'security_audit' completed (4/6)` on screen). T2/T3/T5/T6b RED alongside (explicit No, Open>0-with-contradicting-Yes, unfilled placeholder, stale-pass-masking); T4/T6a pre-passed, pinning the no-false-positive direction.
+- **Grammar decision (deviation from the plan's example, recorded):** the plan suggested a new `**Verdict:** PASS|FAIL` line; shipped instead on the TEMPLATE'S OWN existing Summary grammar (`**All findings resolved:** Yes` + the `| Open | N |` row) — zero new artifact surface, the template's comment already PROMISED exactly this enforcement, and every artifact honestly made from the shipped template parses without migration. One grammar, one source (the BL-138 precision lesson; the BL-106 single-source pattern).
+- **Fix:** `# BL-120-AUDIT-VERDICT-BEGIN/END` in `process-checklist.sh`'s `build_loop:security_audit` arm, purely additive after the existence check (excision restores existence-only byte-exactly). Fail-closed ladder: Summary `| Open | N>0 |` blocks (negative dominates a contradicting Yes) → unqualified `**All findings resolved:** Yes` required (anchored; `Yes / No` placeholder and explicit No both block, distinct diagnostics) → no parseable verdict blocks ("an audit the gate cannot read is not a passed audit"). NEWEST matching file governs (multi-round: historical FAIL cannot block a newer clean audit; stale PASS cannot mask the current FAIL). Honesty boundary unchanged: a forged lying Yes remains possible (operator authors the artifact) — the gate closes the dishonest-by-OMISSION path, same boundary as BL-112/117.
+- **Tests:** `tests/test-bl120-audit-verdict.sh` **8/8** (BOTH lists). T7 = in-suite fence-excision mutant with vacuity guards (marker count asserted ≥2 before, 0 after; the DO-NOT-SHIP file must COMPLETE on the mutant — positively asserted, non-vacuous via T1). T6 mtimes via `touch -t` distinct minutes (BL-140 D-extra same-second lesson).
+- **Docs/template sync:** template comment now states the machine-check (was promising enforcement that didn't exist); builders-guide Step 2.4 checkpoint documents the verdict read. `test-bl112-commit-enforcement.sh`'s incidental verdict-less fixture upgraded to carry a passing Summary (setup fix, not a behavior pin).
+- **Blast radius (green):** bl120 suite · classifier · commit-ready-subject · auto-advance · bl139 5/5 · bl010 · check-commit-message 18/18 · specs-plans-quartet 10/10 · **bl112 13/13 (10m48s, slow lane)**.
+
+## WP-A2 (part 1) — BL-120 ADVERSARIAL VERIFICATION (verdict + disposition)
+
+- **Verifier:** Fable-tier, refutation brief on the uncommitted tree (~2.7h wall / 45 tool uses, scratch-only, every probe EXECUTED through a real `--complete-step`). **Verdict: SHIP-WITH-FIXES** — 1 MUST, 4 SHOULD; all landed pre-push.
+- **MUST (LANDED) — Yes-ANYWHERE acceptance:** the allow-check was a whole-file grep, so a single-file MULTI-ROUND audit (the walk's own artifact shape) whose current round said `**All findings resolved:** No` still completed on round 1's Yes (verifier A5b, rc=0 executed); a Yes inside a fenced code block (A4b) or an HTML comment on an unperformed audit (A10) did too. Fix: per file, strip HTML comments + fenced code blocks, then the LAST resolved-line governs; T8/T9/T10 RED-watched → GREEN, T11 pins the honest-progression mirror (early No, later Yes+Open 0 → passes).
+- **SHOULD (LANDED) — serialization-equivalent Open rows:** indented (≤3, GFM-legal), lowercase, `**bold**`, and lazy-trailing-pipe `| Open | N |` rows all evaded the case-sensitive anchored row grep while rendering identically (A1/A1b/A2/A3/A6). Fix: tolerant row regex + the LAST numeric row governs; T13.
+- **SHOULD (LANDED) — equal-mtime tie fail-open:** `ls -t` breaks ties name-ascending, so a same-mtime stale clean round beat the failing one (C6 executed; ties are real — zip extraction, cp -R; the BL-140 D-extra class). Fix: ALL files at the newest mtime must pass; T12.
+- **SHOULD (LANDED) — candidate hygiene:** verdict candidates are now `[ -f ]`-filtered (a slug-named DIRECTORY can neither hijack the read nor — new fail-open guard — satisfy the step bare, T15a/T15b); colon-outside-bold `**All findings resolved**: Yes` accepted (B3, T14); trailing period tolerated.
+- **SHOULD (LANDED) — doc parity:** builders-guide sentence aligned to the actual predicate (a Yes-only file with no Summary table passes — the `| Open | 0 |` row is not literally required, D1).
+- **What HELD (refuted attacks, executed):** honest template flows (verbatim copy blocks with the placeholder diagnostic; honestly-filled copy passes WITH its header comment); CRLF both directions; bold/trailing-space Yes; crash-resistance under `set -euo pipefail` (metachar feature names, spaces, unmatched globs, directory matches — never an rc≠0 crash or silent skip); `SOIF_FORCE_STEP=true` non-interactive still refused; fence excision byte-exact to main (the purely-additive claim verified literally); out-of-suite mutations (Open-regex broken → T3 RED; Yes-anchor broken → T5 RED); blast radius (only bl112 among tests drives the real step; its fixture upgrade was REQUIRED — the old prose content now blocks — and is itself the recorded migration-friction example for downstream mid-loop projects on sync).
+- **Suite after integration: 17/17**, in BOTH lists; three consecutive green runs recorded below.
+
 ---
 
 ## DOGFOOD-3 SHOULD-FIXES — WP-BL143 (Med): past-cap self-approval recovery — DONE-PR-open

@@ -8,7 +8,11 @@
   Save as: docs/security-audits/[feature-name]-security-audit.md
 
   This file must exist and have no "Open" findings before the security_audit
-  process step can be marked complete.
+  process step can be marked complete. MACHINE-CHECKED (BL-120): the step
+  parses this file's Summary — a `| Open | N |` row with N > 0 blocks, and
+  an unqualified `**All findings resolved:** Yes` is required (the unfilled
+  "Yes / No" placeholder blocks). An audit the gate cannot read is treated
+  as a failing audit.
 -->
 
 **Feature:** [Feature Name]

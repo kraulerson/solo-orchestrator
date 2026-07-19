@@ -107,6 +107,7 @@ jobs:
             tests/test-bl096-cold-start.sh
             tests/test-bl095-state-readers.sh
             tests/test-bl106-golive-checklist.sh
+            tests/test-bl120-audit-verdict.sh
             tests/test-bl143-pastcap-selfapproval.sh
             tests/test-bl137-ci-tools-scope.sh
             tests/test-bl138-approval-window.sh
