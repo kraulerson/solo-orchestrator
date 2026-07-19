@@ -591,16 +591,43 @@ validate_approval_fields() {
   local gate_name="$1"  # e.g., "Phase 0.*Phase 1"
   local gate_label="$2" # e.g., "Phase 0→1"
 
-  # Find the gate section and check for populated approver/date fields
+  # Find the gate section and check for populated approver/date fields.
+  # BL-138 (Dogfood-3 F-DF3-001): the old `grep -A 20 "$gate_name"` window
+  # re-anchored on the `| **Gate** | Phase X → Y |` table ROW and bled past
+  # the section into the template's downstream UAT/Attorney PLACEHOLDER
+  # rows — the same window-bleed class killed in _cpg_gate_has_evidence
+  # (verifier SF#1) and # BL-115-ATTORNEY-ENTRY (E1b Claim-C); this was the
+  # missed arm. Window is now H2-HEADER-anchored, stops at the next `## `,
+  # and caps at +20 — table rows can neither anchor nor extend the scan.
+  # The section feeds the self-approval check below too, which equally must
+  # read THIS gate's rows only.
+  # EXISTENCE is still judged by the old any-line grep: a gate mentioned
+  # ANYWHERE (canonical H2, malformed H3, prose) must flow through to the
+  # blame walker below, whose own H2-strict scan owns the loud
+  # "gate section not found" refusal for malformed headers (PR #116 /
+  # T-blame-4 contract — an early return here silently swallowed that
+  # WARN, the exact silent-pass class the walker exists to close; caught
+  # by test-check-phase-gate-blame-walker.sh on this PR's first CI run).
+  grep -q "$gate_name" "$APPROVAL_LOG" 2>/dev/null || return 0  # truly absent = checked separately
   local section
-  section=$(grep -A 20 "$gate_name" "$APPROVAL_LOG" 2>/dev/null || echo "")
-  [ -z "$section" ] && return 0  # No section = checked separately
+  section=$(awk -v h="^## .*${gate_name}" '$0 ~ h {f=1; next} f && /^## / {exit} f' "$APPROVAL_LOG" 2>/dev/null | head -20)
+  # An EMPTY bounded section (malformed/non-H2 header) is NOT a skip: the
+  # placeholder predicate below no-ops on empty input and the walker still
+  # runs to refuse loudly.
 
-  # Check for template defaults that indicate unfilled fields
-  if echo "$section" | grep -qiE "(Approver|Reviewer).*\[.*\]|YYYY-MM-DD"; then
+  # BL-138-APPROVAL-WINDOW-BEGIN
+  # Placeholder predicate tightened to the TEMPLATE-LITERAL shapes the
+  # shipped approval-log templates actually carry — `[YYYY-MM-DD]` and
+  # `[Name`/`[Attorney`-style bracketed name placeholders. The old
+  # any-bracket arm (`(Approver|Reviewer).*\[.*\]`) flagged legitimate
+  # bracketed annotations (the dogfood-required `[SIMULATED]` tag), and the
+  # bare `YYYY-MM-DD` arm flagged date-FORMAT prose. A placeholder is what
+  # the template shipped, not any bracket an operator writes.
+  if echo "$section" | grep -qE '\[YYYY-MM-DD\]|\[Name|\[Attorney'; then
     echo -e "${YELLOW}[WARN]${NC} $gate_label: APPROVAL_LOG.md entry contains placeholder values — fill in approver name and date"
     issues=$((issues + 1))
   fi
+  # BL-138-APPROVAL-WINDOW-END
 
   # For organizational deployments: detect self-approval (P0-005).
   # code-check-gates-5 (audit v2, S3): the previous implementation
@@ -624,8 +651,19 @@ validate_approval_fields() {
   #      approver but the commit author does NOT — useful for
   #      catching operators who rewrote author metadata.
   if [ "$deployment" = "organizational" ]; then
-    local approver_name
-    approver_name=$(echo "$section" | awk -F'|' '/[Aa]pprover/ && !/Role/ { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $3); gsub(/\*/, "", $3); print $3; exit }' 2>/dev/null || echo "")
+    local approver_name walker_section
+    # BL-138 follow-up (caught by T-blame-4 on this PR's first CI run): the
+    # walker's PRE-extraction must stay PERMISSIVE (old any-line grep -A 20)
+    # — with the bounded `$section`, a malformed H3-header log yielded an
+    # empty section, no approver name, and the whole walker was SKIPPED,
+    # silencing its "gate section not found" refusal (the exact silent-pass
+    # class PR #116 closed). Permissive extraction is safe here: the walker
+    # re-locates the row with its own H2-strict awk and refuses LOUDLY on
+    # anything malformed — a bled or misparsed name can only lead to the
+    # WARN, never a silent pass. The tightened `$section` above remains the
+    # placeholder predicate's input.
+    walker_section=$(grep -A 20 "$gate_name" "$APPROVAL_LOG" 2>/dev/null || echo "")
+    approver_name=$(echo "$walker_section" | awk -F'|' '/[Aa]pprover/ && !/Role/ { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $3); gsub(/\*/, "", $3); print $3; exit }' 2>/dev/null || echo "")
     if [ -n "$approver_name" ] && [ "$approver_name" != "[Name]" ] && [ "$approver_name" != "" ]; then
       local approver_norm git_user git_user_norm commit_author commit_author_norm approver_line
       approver_norm=$(printf '%s' "$approver_name" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
