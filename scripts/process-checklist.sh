@@ -1158,6 +1158,24 @@ check_commit_ready() {
       subject_is_feat=false
     fi
   fi
+  # BL-139-SUBJECTLESS-DEFAULT-BEGIN
+  # Dogfood-3 F-DF3-004: framework-gate.sh invokes this WITHOUT --subject
+  # (pre-commit CANNOT know the current subject — git writes COMMIT_EDITMSG
+  # after pre-commit, the BL-119 lesson), and the presumed-feat default
+  # blocked every legitimate test:/chore:/refactor: source commit at
+  # Phase 2 on the user-terminal path. A subject-less caller cannot claim
+  # the commit is a feat, so the default flips to NOT-feat here. NO
+  # enforcement is lost: the COMMIT-MSG surface (--terminal-mode
+  # --tdd-only → BL-006) enforces feat-requires-Build-Loop with the
+  # CURRENT subject one stage later — proven end-to-end by
+  # tests/test-bl139-subjectless-default.sh T4 (a loop-less `feat:` commit
+  # still dies at commit-msg; a `test:` commit lands). Excising this fence
+  # restores the presumed-feat default exactly (the override sits AFTER
+  # the original classify block by design).
+  if [ -z "$COMMIT_SUBJECT" ]; then
+    subject_is_feat=false
+  fi
+  # BL-139-SUBJECTLESS-DEFAULT-END
 
   # Read staged files
   local staged_files

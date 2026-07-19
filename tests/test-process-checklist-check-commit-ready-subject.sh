@@ -85,15 +85,20 @@ else
 fi
 teardown_project
 
-# T5: omitted --subject preserves legacy (file-heuristic) behaviour:
-# the .ts source file in src/ triggers the Build Loop block.
-echo "T5: omitted --subject falls back to file-heuristic enforcement"
+# T5 — REWRITTEN under the documented-bug exception (BL-139 / Dogfood-3
+# F-DF3-004): the original pinned the presumed-feat default on subject-less
+# calls — the defect itself. framework-gate.sh invokes this WITHOUT
+# --subject (pre-commit cannot know the current subject, the BL-119
+# lesson), so a subject-less call must NOT presume feat; the commit-msg
+# surface enforces the feat rule with the CURRENT subject (backstop proven
+# end-to-end in tests/test-bl139-subjectless-default.sh T4).
+echo "T5: omitted --subject does NOT presume feat (BL-139)"
 setup_project
 out=$(cd "$TMP" && "$SCRIPT" --check-commit-ready 2>&1) ; rc=$?
-if [ "$rc" -ne 0 ] && echo "$out" | grep -qE "(Build Loop|build_loop|feature)"; then
-  pass "T5: file-heuristic still blocks source commit when no subject given"
+if [ "$rc" -eq 0 ]; then
+  pass "T5: subject-less call passes the Build-Loop arm (feat rule owned by commit-msg)"
 else
-  fail_ "T5" "expected legacy block, got rc=$rc out=$out"
+  fail_ "T5" "subject-less call still presumed feat and blocked (rc=$rc) — F-DF3-004 regressed: $out"
 fi
 teardown_project
 

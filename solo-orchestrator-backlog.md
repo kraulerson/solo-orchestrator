@@ -3303,6 +3303,8 @@ The framework-generated CI workflow runs `check-phase-gate.sh`, whose "Tools nee
 
 **Related:** BL-119 (the surface doctrine); `code-process-checklist-5` (the defeated short-circuit); `Reports/2026-07-18-dogfood-3/` (F-DF3-004).
 
+**Status update 2026-07-18:** fix implemented on branch `fix/bl139-subject-surface` (stacked on #218; PR open; Closed with PR + merge SHA at merge). Decision taken = the entry's option (a) realized with zero new surface: `# BL-139-SUBJECTLESS-DEFAULT` — a subject-less `--check-commit-ready` no longer presumes feat (the override sits AFTER the original classify block, so fence excision restores the old default exactly); the commit-msg surface (BL-006, `--terminal-mode --tdd-only`) already enforces feat-requires-Build-Loop with the CURRENT subject, so no enforcement is lost. `tests/test-bl139-subjectless-default.sh` 5/5 (both lists): T1 = the walk's repro (RED watched); T2/T3 pin the explicit-subject paths; **T4 = the end-to-end backstop through the REAL installed hook chain (`test(unit):` source commit LANDS, loop-less `feat:` commit still dies at commit-msg)**; T5 fence-excision mutant. Two suites pinned the old presumed-feat default and were rewritten under the documented-bug exception (commit-ready-subject T5 → asserts the flip; classifier T12's helper → proves source classification through the explicit-feat path): 7/7 + 12/12. Evidence: ledger § DOGFOOD-3 REMEDIATION.
+
 ---
 
 ## BL-140: zap-dast unretrievable under Colima on macOS — report written in-container but never lands on the host (TMPDIR outside the virtiofs mount)

@@ -798,6 +798,18 @@ else
   fail "tests/test-bl137-ci-tools-scope.sh FAILED (run for details)"
 fi
 
+# BL-139 (Dogfood-3 F-DF3-004): a subject-less --check-commit-ready no
+# longer presumes feat — framework-gate's pre-commit call cannot know the
+# subject (BL-119 doctrine), and the commit-msg surface owns the feat rule
+# with the CURRENT subject (backstop proven end-to-end in-suite with the
+# real hook chain). In-suite fence-excision mutant restores the presumed-
+# feat default exactly. No init.sh -> both lanes.
+if bash "$SCRIPT_DIR/tests/test-bl139-subjectless-default.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl139-subjectless-default.sh"
+else
+  fail "tests/test-bl139-subjectless-default.sh FAILED (run for details)"
+fi
+
 # BL-138 (Dogfood-3 F-DF3-001): validate_approval_fields no longer
 # self-collides with the template — H2-anchored section-bounded window
 # (table rows can neither anchor nor extend the scan) + template-literal

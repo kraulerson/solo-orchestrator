@@ -67,7 +67,13 @@ stage_and_check_blocked() {
     git add "$file"
   )
   local out rc=0
-  out=$(cd "$TMPDIR_T" && "$SCRIPT" --check-commit-ready 2>&1) || rc=$?
+  # BL-139 (Dogfood-3 F-DF3-004, documented-bug rewrite): the subject-less
+  # invocation this helper used pinned the PRESUMED-FEAT default — the
+  # defect itself (framework-gate cannot know the subject; the commit-msg
+  # surface owns the feat rule). The source-classification claim this case
+  # exists for is preserved through the EXPLICIT feat path: a feat-subject
+  # source commit with no Build Loop must still block.
+  out=$(cd "$TMPDIR_T" && "$SCRIPT" --check-commit-ready --subject "feat: classifier probe" 2>&1) || rc=$?
   if [ "$rc" -eq 0 ]; then
     fail_ "$label" "expected non-zero exit for source commit ($file), got rc=0 out=$out"
     teardown_project
