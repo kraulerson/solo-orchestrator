@@ -362,6 +362,91 @@ complete_step() {
         echo "  Save as: docs/security-audits/${feature_slug}-security-audit.md" >&2
         artifact_check_failed=true
       fi
+      # BL-120-AUDIT-VERDICT-BEGIN
+      # F-DF2-008: this step was EXISTENCE-ONLY — the walk's audit read
+      # "CRITICAL — VULNERABLE. DO NOT SHIP." and satisfied the gate while a
+      # live stored XSS committed. The shipped template already promises the
+      # enforcement ("must … have no 'Open' findings before the
+      # security_audit process step can be marked complete"), so the verdict
+      # grammar is the TEMPLATE'S OWN Summary — zero new artifact surface.
+      # Per audit FILE (regular files only — a slug-named directory is not
+      # an audit), after stripping HTML comments and fenced code blocks (a
+      # quoted or commented-out verdict is an example, not a verdict —
+      # verifier A4/A10):
+      #   - the LAST `**All findings resolved:**` line governs (the walk's
+      #     own artifact appended rounds in ONE file; an earlier round's Yes
+      #     must not override the current round's No — verifier MUST A5b);
+      #     it must be an unqualified Yes (the unfilled `Yes / No`
+      #     placeholder and an explicit No both block); both colon-vs-bold
+      #     placements accepted (`resolved:** Yes` / `resolved**: Yes`);
+      #   - the LAST numeric `| Open | N |` row (indentation ≤3, case, bold,
+      #     and lazy trailing pipe all tolerated — GFM-equivalent
+      #     serializations are the same row) blocks on N > 0, dominating a
+      #     contradicting Yes;
+      #   - no parseable verdict blocks, FAIL-CLOSED: an audit the gate
+      #     cannot read is not a passed audit.
+      # ALL files sharing the newest mtime must pass — equal-mtime ties
+      # (zip extraction, cp -R, coarse filesystems) previously let ls -t's
+      # name-ascending tie-break prefer a stale clean round over the
+      # failing one (verifier C6; the BL-140 D-extra class). Forging a
+      # lying Yes stays possible — the operator authors the artifact; this
+      # gate closes the dishonest-by-OMISSION path, the same honesty
+      # boundary as BL-112/117.
+      if [ "$artifact_check_failed" = false ]; then
+        local bl120_f bl120_files="" bl120_mt bl120_max=0
+        for bl120_f in docs/security-audits/*"${feature_slug}"* \
+                       docs/security-audits/*"${feature_name}"*; do
+          [ -f "$bl120_f" ] || continue
+          bl120_mt=$(stat -c %Y "$bl120_f" 2>/dev/null || stat -f %m "$bl120_f" 2>/dev/null) || bl120_mt=0
+          case "$bl120_mt" in ''|*[!0-9]*) bl120_mt=0 ;; esac
+          if [ "$bl120_mt" -gt "$bl120_max" ]; then bl120_max="$bl120_mt"; fi
+          bl120_files="${bl120_files}${bl120_mt} ${bl120_f}
+"
+        done
+        if [ -z "$bl120_files" ]; then
+          # The existence arm matched something, but no candidate is a
+          # regular file (e.g. a slug-named directory) — fail closed, or a
+          # bare directory would complete the step with zero audit files.
+          print_warn "No regular audit FILE found for feature '$feature_name' (a matching directory is not an audit) — the step needs a readable findings file (BL-120)."
+          echo "  Save the audit as: docs/security-audits/${feature_slug}-security-audit.md" >&2
+          artifact_check_failed=true
+        fi
+        local bl120_entry bl120_body bl120_resolved bl120_open_row bl120_open_n
+        while IFS= read -r bl120_entry; do
+          [ -n "$bl120_entry" ] || continue
+          bl120_mt="${bl120_entry%% *}"
+          bl120_f="${bl120_entry#* }"
+          [ "$bl120_mt" -eq "$bl120_max" ] || continue
+          bl120_body=$(sed -e '/<!--/,/-->/d' -e '/^[[:space:]]*```/,/^[[:space:]]*```/d' "$bl120_f" 2>/dev/null) || bl120_body=""
+          bl120_resolved=$(printf '%s\n' "$bl120_body" \
+            | grep -iE '^[[:space:]]{0,3}\*\*all findings resolved(:\*\*|\*\*:)' | tail -1) || bl120_resolved=""
+          bl120_open_row=$(printf '%s\n' "$bl120_body" \
+            | grep -iE '^[[:space:]]{0,3}\|[[:space:]]*(\*\*)?open(\*\*)?[[:space:]]*\|[[:space:]]*[0-9]+[[:space:]]*(\||$)' | tail -1) || bl120_open_row=""
+          bl120_open_n=""
+          if [ -n "$bl120_open_row" ]; then
+            bl120_open_n=$(printf '%s\n' "$bl120_open_row" \
+              | sed -E 's/^[[:space:]]{0,3}\|[^|]*\|[[:space:]]*([0-9]+).*$/\1/') || bl120_open_n=""
+            case "$bl120_open_n" in ''|*[!0-9]*) bl120_open_n="" ;; esac
+          fi
+          if [ -n "$bl120_open_n" ] && [ "$bl120_open_n" -gt 0 ]; then
+            print_warn "Security audit '$bl120_f' records $bl120_open_n OPEN finding(s) in its latest Summary — a failing audit cannot complete this step (BL-120)."
+            echo "  Fix or formally accept every finding, set the Summary 'Open' count to 0 and '**All findings resolved:** Yes', then re-run." >&2
+            artifact_check_failed=true
+          elif [ -z "$bl120_resolved" ]; then
+            print_warn "Security audit '$bl120_f' carries NO machine-readable verdict — an audit the gate cannot read is not a passed audit (BL-120)."
+            echo "  Complete the template's Summary (templates/generated/security-audit-findings.tmpl): '| Open | 0 |' and '**All findings resolved:** Yes' — or resolve the findings it records first." >&2
+            artifact_check_failed=true
+          elif ! printf '%s\n' "$bl120_resolved" \
+                 | grep -qiE '(:\*\*|\*\*:)[[:space:]]*(\*\*)?yes(\*\*)?\.?[[:space:]]*$'; then
+            print_warn "Security audit '$bl120_f': the LATEST '**All findings resolved:**' line is not an unqualified Yes — an explicit No, or the unfilled 'Yes / No' placeholder, is not a passing verdict (BL-120)."
+            echo "  Resolve the findings the audit records, then set '**All findings resolved:** Yes' in its final Summary." >&2
+            artifact_check_failed=true
+          fi
+        done <<BL120EOF
+$bl120_files
+BL120EOF
+      fi
+      # BL-120-AUDIT-VERDICT-END
       ;;
     phase3_validation:security_hardening)
       # P3-008: Security hardening must produce scan results
