@@ -1102,6 +1102,33 @@ _p3_scan_zap() {
   zap_tmp=$(mktemp -d "${TMPDIR:-/tmp}/p3-zap-XXXXXX") || {
     P3_STATUS="FAIL"; P3_NOTE="could not create a temp dir for the ZAP report"; return
   }
+  # BL-140-ZAP-WORKDIR-BEGIN
+  # Dogfood-3 F-DF3-005: on macOS, mktemp lands in $TMPDIR (/var/folders/…),
+  # which VM-based Docker runtimes (Colima and friends) do NOT share — only
+  # /Users/<user> is mounted. The container then writes /zap/wrk/zap-report.json
+  # into a bind that never syncs back: the driver FAILs a verifiably clean
+  # app, and BL-130 (correctly) refuses to attest the FAIL — no path to
+  # green. The work dir therefore lives under the PROJECT results tree,
+  # which is where the operator works and inside the VM's shared mounts.
+  # The mktemp above is kept as the excision-fallback: removing this fence
+  # restores the old $TMPDIR behavior exactly (mutation target).
+  #
+  # docker -v REQUIRES an ABSOLUTE host path (a relative one is read as a
+  # named-volume and fails rc=125) — and RESULTS_DIR defaults to the RELATIVE
+  # `docs/test-results/phase3`, so the work dir must be absolutized here or
+  # the documented bare invocation (`run-phase3-validation.sh` from the
+  # project root) breaks on EVERY docker runtime (verifier D1 MUST-FIX —
+  # every test fixture passed --results-dir an absolute path, which is why
+  # 47 tests could not see it). Resolve against $PWD without a cd (the
+  # driver never changes CWD).
+  rm -rf "$zap_tmp" 2>/dev/null || true
+  local zap_base="$RESULTS_DIR"
+  case "$zap_base" in /*) ;; *) zap_base="$PWD/$zap_base" ;; esac
+  zap_tmp="$zap_base/.zap-work.$$"
+  mkdir -p "$zap_tmp" || {
+    P3_STATUS="FAIL"; P3_NOTE="could not create $zap_tmp for the ZAP report"; return
+  }
+  # BL-140-ZAP-WORKDIR-END
   docker run --rm -v "$zap_tmp:/zap/wrk" ghcr.io/zaproxy/zaproxy:stable zap-baseline.py -t "$SOLO_ZAP_TARGET_URL" -J zap-report.json >/dev/null 2>&1 || rc=$?   # BL-070-ZAP-DISPATCH
   if [ -f "$zap_tmp/zap-report.json" ]; then
     cp "$zap_tmp/zap-report.json" "$archive" 2>/dev/null || true
@@ -1112,6 +1139,13 @@ _p3_scan_zap() {
   # No report at all → FAIL (docker/image/exec failure — a crash, not a skip).
   if [ ! -s "$archive" ]; then
     P3_STATUS="FAIL"; P3_NOTE="OWASP ZAP produced no report (rc=$rc) — treat as a scan failure, not a skip"
+    # BL-140-ZAP-MOUNT-HINT-BEGIN
+    # The FAIL posture is correct (an unreadable scan is not a clean scan —
+    # the BL-112/BL-113 honesty class); the diagnosis must still be
+    # ACTIONABLE: a report written in-container but absent host-side is the
+    # classic VM-runtime mount gap.
+    P3_NOTE="$P3_NOTE. If Docker runs in a VM (Colima/Rancher/Lima), ensure this project sits inside the VM's shared mounts (Colima shares /Users by default) — a container-side report that never lands host-side is the classic symptom; as a fallback, set TMPDIR to a mounted path."
+    # BL-140-ZAP-MOUNT-HINT-END
     return
   fi
   # rc>=3 = execution error (docker error, image pull failure, ZAP crash) → FAIL.
@@ -1314,6 +1348,15 @@ _p3_scan_threat_model() {
 _p3_run_scanner() {
   local name="$1" ts="$2"
   local archive="$RESULTS_DIR/${name}-${ts}.json"
+  # BL-140-ARCHIVE-FRESH (verifier D-extra): `ts` is second-granularity and
+  # stamped once per run, so two runs of the same scanner within one second
+  # (or a re-run over an existing dir) collide on this path — and a scan
+  # that writes NO report would then read the STALE archive as its own
+  # result (`[ ! -s "$archive" ]` sees the old bytes). Clear it before
+  # dispatch: each scanner's verdict must come from THIS run's write or an
+  # honest empty. Real-scan exposure is ~nil (a real scan takes >>1s) but
+  # any double-invocation harness (the mutation cases) must not cross-read.
+  rm -f "$archive" 2>/dev/null || true
   P3_STATUS="SKIP"; P3_NOTE=""; P3_ARCHIVE="-"
   case "$name" in
     semgrep-full-tree) _p3_scan_semgrep "$archive" ;;
