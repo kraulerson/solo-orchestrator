@@ -823,6 +823,18 @@ else
   fail "tests/test-bl139-subjectless-default.sh FAILED (run for details)"
 fi
 
+# BL-120 (Dogfood-2 F-DF2-008): the security_audit step READS the audit's
+# verdict — the shipped template's own Summary grammar, fail-closed (a
+# DO-NOT-SHIP audit, an explicit No, the unfilled Yes / No placeholder,
+# recorded Open findings, or NO parseable verdict all block; the newest
+# matching file governs). In-suite fence-excision mutant restores
+# existence-only exactly. No init.sh -> both lanes.
+if bash "$SCRIPT_DIR/tests/test-bl120-audit-verdict.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl120-audit-verdict.sh"
+else
+  fail "tests/test-bl120-audit-verdict.sh FAILED (run for details)"
+fi
+
 # BL-138 (Dogfood-3 F-DF3-001): validate_approval_fields no longer
 # self-collides with the template — H2-anchored section-bounded window
 # (table rows can neither anchor nor extend the scan) + template-literal

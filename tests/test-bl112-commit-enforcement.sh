@@ -322,7 +322,9 @@ complete_build_loop() {
   local w="$1" feat="$2"
   ( cd "$w"
     mkdir -p docs/security-audits
-    printf '# security audit: %s\n\nNo findings.\n' "$feat" > "docs/security-audits/${feat}-security-audit.md"
+    # BL-120: the security_audit step now READS the verdict (template
+    # grammar) — the fixture must carry a passing one, not just exist.
+    printf '# security audit: %s\n\n| Open | 0 |\n\n**All findings resolved:** Yes\n' "$feat" > "docs/security-audits/${feat}-security-audit.md"
     scripts/process-checklist.sh --start-feature "$feat"
     for s in tests_written tests_verified_failing implemented security_audit documentation_updated; do
       scripts/process-checklist.sh --complete-step "build_loop:$s"
