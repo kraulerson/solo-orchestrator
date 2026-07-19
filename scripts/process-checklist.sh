@@ -362,6 +362,46 @@ complete_step() {
         echo "  Save as: docs/security-audits/${feature_slug}-security-audit.md" >&2
         artifact_check_failed=true
       fi
+      # BL-120-AUDIT-VERDICT-BEGIN
+      # F-DF2-008: this step was EXISTENCE-ONLY — the walk's audit read
+      # "CRITICAL — VULNERABLE. DO NOT SHIP." and satisfied the gate while a
+      # live stored XSS committed. The shipped template already promises the
+      # enforcement ("must … have no 'Open' findings before the
+      # security_audit process step can be marked complete"), so the verdict
+      # grammar is the TEMPLATE'S OWN Summary — zero new artifact surface:
+      #   - a `| Open | N |` Summary row with N > 0 blocks (negative signal
+      #     dominates any contradicting Yes);
+      #   - the step requires an unqualified `**All findings resolved:** Yes`
+      #     (the unfilled `Yes / No` placeholder and an explicit `No` both
+      #     block — an unfilled template is not a verdict);
+      #   - no parseable verdict at all blocks, FAIL-CLOSED: an audit the
+      #     gate cannot read is not a passed audit.
+      # The NEWEST matching file governs (multi-round audits: a historical
+      # failed round must not block a newer clean one, and a stale clean
+      # round must not mask the current failure). Forging a lying Yes stays
+      # possible — the operator authors the artifact; this gate closes the
+      # dishonest-by-OMISSION path, the same honesty boundary as BL-112/117.
+      if [ "$artifact_check_failed" = false ]; then
+        local bl120_audit=""
+        bl120_audit=$(ls -t docs/security-audits/*"${feature_slug}"* \
+                            docs/security-audits/*"${feature_name}"* 2>/dev/null | head -1) || true
+        if [ -n "$bl120_audit" ] \
+           && grep -qE '^\|[[:space:]]*Open[[:space:]]*\|[[:space:]]*[1-9][0-9]*[[:space:]]*\|' "$bl120_audit"; then
+          print_warn "Security audit '$bl120_audit' records OPEN findings in its Summary — a failing audit cannot complete this step (BL-120)."
+          echo "  Fix or formally accept every finding, set the Summary 'Open' count to 0 and '**All findings resolved:** Yes', then re-run." >&2
+          artifact_check_failed=true
+        elif [ -n "$bl120_audit" ] \
+             && ! grep -qiE '^\*\*all findings resolved:\*\*[[:space:]]*(\*\*)?yes(\*\*)?[[:space:]]*$' "$bl120_audit"; then
+          if grep -qiE '^\*\*all findings resolved:\*\*' "$bl120_audit"; then
+            print_warn "Security audit '$bl120_audit' does not record an unqualified '**All findings resolved:** Yes' — an explicit No, or the unfilled 'Yes / No' placeholder, is not a passing verdict (BL-120)."
+          else
+            print_warn "Security audit '$bl120_audit' carries NO machine-readable verdict — an audit the gate cannot read is not a passed audit (BL-120)."
+          fi
+          echo "  Complete the template's Summary (templates/generated/security-audit-findings.tmpl): '| Open | 0 |' and '**All findings resolved:** Yes' — or resolve the findings it records first." >&2
+          artifact_check_failed=true
+        fi
+      fi
+      # BL-120-AUDIT-VERDICT-END
       ;;
     phase3_validation:security_hardening)
       # P3-008: Security hardening must produce scan results

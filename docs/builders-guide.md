@@ -1234,6 +1234,8 @@ Consolidate findings from all agents before remediation. Without Superpowers, ru
 
 **Process checkpoint:** `scripts/process-checklist.sh --complete-step build_loop:security_audit`
 
+The checkpoint READS the audit's verdict (BL-120): the newest matching findings file under `docs/security-audits/` must record a Summary with `| Open | 0 |` and an unqualified `**All findings resolved:** Yes`. An audit that records open findings, says No, still carries the template's `Yes / No` placeholder, or has no machine-readable verdict at all BLOCKS the step — "the audit ran" is not "the audit passed".
+
 **AI-specific caution areas:** AI-generated code is disproportionately likely to have subtle issues in: complex state management (race conditions), data access efficiency, authentication edge cases, and content security configuration. Apply extra scrutiny in these areas.
 
 **Concrete mitigations for AI-generated code risks:**
