@@ -263,6 +263,15 @@ _run_killing_bl112() {
   BL112_REPO_OVERRIDE="$MUTANT_TREE" BL112_ONLY="$1" bash "$SUITE_BL112" 2>&1
 }
 
+# BL-125 runner: the commit-time TEST-EXECUTION arm is killed by
+# tests/test-bl125-commit-test-exec.sh, which emits the hook DIRECTLY from the
+# mutant tree's hook-templates.sh (the single source both installers consume)
+# and attempts a REAL `git commit` — no init.sh, so these rows are seconds.
+_run_killing_bl125() {
+  BL125_REPO_OVERRIDE="$MUTANT_TREE" BL125_ONLY="$1" \
+    bash "$REPO_ROOT/tests/test-bl125-commit-test-exec.sh" 2>&1
+}
+
 # BL-113 runner: drive tests/test-bl113-sast-honesty.sh against the mutant tree's
 # scripts/. The suite scaffolds a real project with the REAL init.sh and then swaps
 # in the (possibly neutered) scripts via BL113_SCRIPTS_OVERRIDE; BL113_ONLY narrows
@@ -411,6 +420,16 @@ use_target "$REPO_ROOT/scripts/install-filesystem-gates.sh" \
            "$MUTANT_TREE/scripts/install-filesystem-gates.sh" _run_killing_bl112
 check_guard "bl112/gate-verdict-propagates" "# BL-112-GATE-EXIT" T-strict-gate-blocks-unverified \
   subline '"$SCRIPTS/process-checklist.sh" --check-commit-ready 2>&1' '! "$SCRIPTS/process-checklist.sh" --check-commit-ready 2>&1'
+
+# K4. The BL-125 test-execution arm actually RUNS the project's test command. Neuter
+#     = replace the real invocation with `true` (the arm still prints its banner and
+#     receipts, but the verdict is hardwired green) => a RED suite lands. Killed by
+#     the bl125 suite's T1 via the dedicated runner — the emitted-hook path, not
+#     init.sh, so this row is cheap.
+use_target "$REPO_ROOT/scripts/lib/hook-templates.sh" \
+           "$MUTANT_TREE/scripts/lib/hook-templates.sh" _run_killing_bl125
+check_guard "bl125/test-exec-runs-real-cmd" "# BL-125-COMMIT-TESTS" T1 \
+  subline 'sh -c "$soif_test_cmd" </dev/null' 'sh -c "true" </dev/null'
 
 # ══════════════════════════════════════════════════════════════════════════════════
 # ── (K) BL-109 S3 — PLAN STAGING GUARDS ───────────────────────────────────────────

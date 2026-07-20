@@ -88,7 +88,7 @@ The AI writes code. The human makes every decision, validates every output, and 
 
 ### Enforcement Model
 
-The framework's controls operate at three tiers. The **CI pipeline** (SAST, dependency audit, license check, secret detection, build, tests, phase gate consistency, approval log integrity) provides mechanical enforcement — it blocks merges when checks fail. **Pre-commit hooks** (secret detection, SAST quick scan, test co-location, plus the strict-mode framework gate described below) provide early warning on commit. **LLM instructions** (CLAUDE.md, this guide, the Project Bible) provide comprehensive guidance that the agent follows between decision gates, with the human as the review layer.
+The framework's controls operate at three tiers. The **CI pipeline** (SAST, dependency audit, license check, secret detection, build, tests, phase gate consistency, approval log integrity) provides mechanical enforcement — it blocks merges when checks fail. **Pre-commit hooks** (secret detection, SAST quick scan, project test execution (BL-125), test co-location, plus the strict-mode framework gate described below) provide early warning on commit. **LLM instructions** (CLAUDE.md, this guide, the Project Bible) provide comprehensive guidance that the agent follows between decision gates, with the human as the review layer.
 
 **Project enforcement level.** Every Solo Orchestrator project carries an enforcement level — `strict` (default), `light`, or `no` — recorded in `.claude/manifest.json::.enforcement_level` and changeable later via `scripts/reconfigure-project.sh --enforcement-level`. The level controls how the framework treats **user-terminal git commits** (Claude-issued commits are governed identically at every level):
 
@@ -1081,6 +1081,7 @@ Direct the agent to generate the CI configuration:
 - [ ] Initial data model applies successfully
 - [ ] Pre-commit hook catches a test secret (gitleaks detects a hardcoded test value)
 - [ ] Pre-commit hook runs Semgrep (verify SAST scanning is active)
+- [ ] Pre-commit hook runs the project tests (BL-125): commit with a deliberately-failing test staged → the commit must be `[BLOCKED]`. The command resolves from `.claude/test-command` (first non-blank, non-comment line — point it at your fast lane if the full suite is slow), else a detected stack default (a real `package.json` scripts-block test entry / pytest / cargo / go). No command configured or runnable → the commit lands with a LOUD "PROJECT TESTS NOT ENFORCED" warning, never silently; commits staging no source (including deletes/renames — those DO count as source) skip with a receipt. Deliberate: a detected suite that runs but collects zero tests BLOCKS — this methodology is tests-first; write the first test or set `.claude/test-command`.
 - [ ] License checker runs clean
 - [ ] CI pipeline passes on first push
 - [ ] Backup/restore verified
