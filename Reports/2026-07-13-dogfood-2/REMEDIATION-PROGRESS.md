@@ -365,7 +365,7 @@ Also: **PR #214 MERGED `528f5b2`** → BL-134 Closed.
 - **Also caught pre-verdict (CI, not the verifier):** #218's first CI run went RED on `test-check-phase-gate-blame-walker.sh` T-blame-4 — the bounded section had silenced the walker's malformed-header refusal; fixed `719ddcb` (permissive walker pre-extraction; bounded window stays the placeholder predicate's input), propagated #218→#219→#220. Battery-miss lesson: grep consumers of the VARIABLE, not just the function.
 ---
 
-## WP-A2 (part 1) — BL-120 (High): the security_audit step reads the verdict — DONE-PR-open
+## WP-A2 (part 1) — BL-120 (High): the security_audit step reads the verdict — MERGED (2026-07-19, PR #223 `fdda7a2`)
 
 - **The original-scope gap closed:** WP-A2 (BL-120 + BL-125) was grouped in REMEDIATION-PLAN.md as the defense-in-depth trio siblings of BL-118 (three independent gates waved the same real XSS through) and was NEVER shipped in Phases A–F — surfaced by the 2026-07-18 handoff §3. This entry is part 1 (BL-120); BL-125 follows as part 2.
 - **Branch:** `fix/bl120-audit-verdict` (off `main` @ `b75f5a9`, post-#220).
@@ -389,7 +389,7 @@ Also: **PR #214 MERGED `528f5b2`** → BL-134 Closed.
 
 ---
 
-## WP-A2 (part 2) — BL-125 (Med): the commit path runs the project's tests — DONE-PR-open
+## WP-A2 (part 2) — BL-125 (Med): the commit path runs the project's tests — MERGED (2026-07-19, PR #224 `ad62827`)
 
 - **The trio completes:** BL-118 (SAST, Phase A) + BL-120 (audit verdict, part 1) + this — the three independent gates that all waved the same real XSS through each now catch it. This was the LAST open item of the original Dogfood-2 scope.
 - **Branch:** `fix/bl125-commit-tests` (off `main` @ `b75f5a9`, parallel to part 1's #223).
@@ -412,7 +412,7 @@ Also: **PR #214 MERGED `528f5b2`** → BL-134 Closed.
 
 ---
 
-## DOGFOOD-3 SHOULD-FIXES — WP-BL141 (Med): the commit-msg backstop repair — DONE-PR-open
+## DOGFOOD-3 SHOULD-FIXES — WP-BL141 (Med): the commit-msg backstop repair — MERGED (2026-07-20, PR #225 `cf10873`)
 
 - **Branch:** `fix/bl141-commitmsg-repair` (off `main` @ `b75f5a9`).
 - **Reproduce (RED, watched):** 6/6 failing pre-fix — T1 showed `verify-install --check-only` naming the pre-commit hook and NOTHING about commit-msg; T2 showed a repaired-less project landing a loop-less `feat:` commit (the population-conditional hole demonstrated end-to-end); T4 showed the sync's quiet `not installed (declined)` info line.
@@ -422,7 +422,7 @@ Also: **PR #214 MERGED `528f5b2`** → BL-134 Closed.
 
 ---
 
-## DOGFOOD-3 SHOULD-FIXES — WP-BL143 (Med): past-cap self-approval recovery — DONE-PR-open
+## DOGFOOD-3 SHOULD-FIXES — WP-BL143 (Med): past-cap self-approval recovery — MERGED (2026-07-20, PR #226 `2fb7cd1`)
 
 - **Branch:** `fix/bl143-pastcap-selfapproval` (off `main` @ `b75f5a9`).
 - **Reproduce (RED, watched):** T1 — an org fixture whose Approver row sits 29 lines into its own gate section (22 benign filler rows; past every `grep -A 20` window while the walker's uncapped scan reaches it), committed by the approver themselves → the gate produced ZERO self-approval output (the silent skip, C3 verbatim).
@@ -432,7 +432,7 @@ Also: **PR #214 MERGED `528f5b2`** → BL-134 Closed.
 
 ---
 
-## DOGFOOD-3 SHOULD-FIXES — WP-BL142 (Low, doc-only): the stale hook-templates header — DONE-PR-open
+## DOGFOOD-3 SHOULD-FIXES — WP-BL142 (Low, doc-only): the stale hook-templates header — MERGED (2026-07-20, PR #227 `23c996f`)
 
 - **Branch:** `fix/bl142-hook-templates-header` (off `main` @ `b75f5a9`). Comments only — no emitted byte changes, no tests to add (not an enforcement change; the doc-vs-code contradiction is resolved in favor of the code, THE-SCRIPTS-WIN doctrine).
 - **Fix:** both stale spots in `scripts/lib/hook-templates.sh` (the Contents bullet + the `soif_lang_test_pattern` block comment) now document the pattern as a test-EVIDENCE-detection switch, not an install gate; the hook installs universally per `# BL-107-UNIVERSAL-INSTALL`, with `_bl099_sync_commitmsg_hook`'s own comment named as the code-side truth. Verified: `grep -rn 'EXPECTED to lack' scripts/` → no matches; `bash -n` clean; a before/after emitted-hook diff is empty (comments sit outside the heredocs).
