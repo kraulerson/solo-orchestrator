@@ -823,6 +823,18 @@ else
   fail "tests/test-bl141-commitmsg-repair.sh FAILED (run for details)"
 fi
 
+# BL-143 (Dogfood-3 wave verifier C3): the anti-self-approval control no
+# longer silently skips when the Approver row lies past the -A 20 capped
+# pre-extraction — the name is recovered from the blame walker's own
+# UNCAPPED section scan, so the control RUNS (blame and all). The truly-
+# absent-row boundary is pinned unchanged. In-suite fence-excision mutant
+# restores the silent skip exactly. No init.sh -> both lanes.
+if bash "$SCRIPT_DIR/tests/test-bl143-pastcap-selfapproval.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl143-pastcap-selfapproval.sh"
+else
+  fail "tests/test-bl143-pastcap-selfapproval.sh FAILED (run for details)"
+fi
+
 # BL-139 (Dogfood-3 F-DF3-004): a subject-less --check-commit-ready no
 # longer presumes feat — framework-gate's pre-commit call cannot know the
 # subject (BL-119 doctrine), and the commit-msg surface owns the feat rule

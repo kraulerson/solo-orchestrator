@@ -3375,6 +3375,8 @@ BL-139 flipped the subject-less `--check-commit-ready` default to not-feat on th
 
 **Related:** BL-138 (the cap this exposes); the blame walker (`# BL-116` per-line self-approval); `Reports/2026-07-18-dogfood-3/` verifier C3. Note: the wave's blame-walker follow-up (`719ddcb`) restored the walker's PERMISSIVE pre-extraction, which mitigates the SKIP for the malformed-header case but NOT the past-cap-row case — this entry tracks the latter.
 
+**Status update 2026-07-19:** fix implemented on branch `fix/bl143-pastcap-selfapproval` (PR open; Closed with PR + merge SHA at merge). The entry's stronger option realized: `# BL-143-PASTCAP-RECOVERY` recovers the approver name from the blame walker's OWN uncapped H2-strict scan when the capped pre-extraction comes back empty — the control RUNS (per-line blame included) instead of warning-and-skipping. Truly-absent-row boundary unchanged and pinned. `tests/test-bl143-pastcap-selfapproval.sh` 5/5 ×3 (both lists; T1 = the C3 edge RED-watched as a zero-output silent skip; T5 fence-excision mutant). 12-suite gate-consumer battery green. Evidence: ledger § WP-BL143.
+
 ---
 
 ## BL-131: Commit-time SAST residual blindness — `insertAdjacentHTML`, jQuery `.html()`, `.vue` SFC scripts, and inline `<script>` in `.html` all commit clean (no public registry rule exists for them)

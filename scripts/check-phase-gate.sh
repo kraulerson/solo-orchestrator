@@ -664,6 +664,49 @@ validate_approval_fields() {
     # placeholder predicate's input.
     walker_section=$(grep -A 20 "$gate_name" "$APPROVAL_LOG" 2>/dev/null || echo "")
     approver_name=$(echo "$walker_section" | awk -F'|' '/[Aa]pprover/ && !/Role/ { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $3); gsub(/\*/, "", $3); print $3; exit }' 2>/dev/null || echo "")
+    # BL-143-PASTCAP-RECOVERY-BEGIN
+    # The permissive pre-extraction above is `grep -A 20` CAPPED: an
+    # Approver row sitting more than 20 lines past the LAST gate-name
+    # mention (filler/annotation rows — BL-138's bounding made the edge
+    # reachable, wave verifier C3) yields an EMPTY name here, and the
+    # `[ -n "$approver_name" ]` guard below skipped the ENTIRE
+    # anti-self-approval control with zero output — while the blame
+    # walker's own H2-strict scan (UNCAPPED: it walks to the next `## ` /
+    # `---`) would have located the row. Recover the name FROM THE
+    # WALKER'S OWN CONTRACT: locate the row with a faithful copy of the
+    # walker's awk (keep IN SYNC with the `approver_line=` scan below —
+    # this fence is deliberately ADDITIVE so excision restores the old
+    # silent skip exactly), then read column 3 off the located line. A log
+    # with truly NO Approver row anywhere stays out of scope (the
+    # pre-BL-138 status quo): NO_SECTION / NO_APPROVER / awk-failure keep
+    # their meanings in the walker's own arms, which are only reachable
+    # when a name exists to verify.
+    if [ -z "$approver_name" ] || [ "$approver_name" = "[Name]" ]; then
+      local bl143_line
+      bl143_line=$(awk -v gate="$gate_name" '
+        BEGIN { found_section = 0; found_approver = 0; approver_nr = 0 }
+        $0 ~ gate && /^## / { in_section = 1; found_section = 1; next }
+        in_section && /^## / { exit }
+        in_section && /^---[[:space:]]*$/ { exit }
+        in_section && /[Aa]pprover/ && !/Role/ {
+          if (!found_approver) { approver_nr = NR; found_approver = 1 }
+          exit
+        }
+        END {
+          if (found_approver) print approver_nr
+          else if (found_section) print "NO_APPROVER"
+          else print "NO_SECTION"
+        }
+      ' "$APPROVAL_LOG" 2>/dev/null || echo "")
+      case "$bl143_line" in
+        ''|*[!0-9]*) : ;;  # nothing locatable — the declared boundary
+        *)
+          approver_name=$(sed -n "${bl143_line}p" "$APPROVAL_LOG" 2>/dev/null \
+            | awk -F'|' '{ gsub(/^[[:space:]]+|[[:space:]]+$/, "", $3); gsub(/\*/, "", $3); print $3 }' 2>/dev/null) || approver_name=""
+          ;;
+      esac
+    fi
+    # BL-143-PASTCAP-RECOVERY-END
     if [ -n "$approver_name" ] && [ "$approver_name" != "[Name]" ] && [ "$approver_name" != "" ]; then
       local approver_norm git_user git_user_norm commit_author commit_author_norm approver_line
       approver_norm=$(printf '%s' "$approver_name" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')

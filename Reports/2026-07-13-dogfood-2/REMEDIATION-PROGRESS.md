@@ -422,6 +422,16 @@ Also: **PR #214 MERGED `528f5b2`** → BL-134 Closed.
 
 ---
 
+## DOGFOOD-3 SHOULD-FIXES — WP-BL143 (Med): past-cap self-approval recovery — DONE-PR-open
+
+- **Branch:** `fix/bl143-pastcap-selfapproval` (off `main` @ `b75f5a9`).
+- **Reproduce (RED, watched):** T1 — an org fixture whose Approver row sits 29 lines into its own gate section (22 benign filler rows; past every `grep -A 20` window while the walker's uncapped scan reaches it), committed by the approver themselves → the gate produced ZERO self-approval output (the silent skip, C3 verbatim).
+- **Fix:** `# BL-143-PASTCAP-RECOVERY` — when the capped pre-extraction yields no usable name, locate the Approver row with a faithful copy of the blame walker's own H2-strict awk (kept-in-sync note in the fence; deliberately ADDITIVE so excision restores the old skip byte-exactly) and take the name from the located line — the full control (per-line blame included) then RUNS. The truly-absent-row boundary is UNCHANGED and now pinned (NO_SECTION/NO_APPROVER stay with the walker's own loud arms, reachable as before).
+- **Tests:** `tests/test-bl143-pastcap-selfapproval.sh` **5/5 ×3** (BOTH lists): T1 the filed edge caught; T2 recovery-path false-positive guard (past-cap distinct approver stays clean); T3 within-cap parity; T4 the absent-row status quo pinned; T5 fence-excision mutant with vacuity guards.
+- **Blast radius (green, 12 suites):** self-approval · blame-walker · retroactive-approval · bl138 5/5 · bl104 · poc-block · gate-integrity trio · check-phase-gate main suite · bl124 · bl102 · date-writeback · backstop-attestation.
+
+---
+
 ## DOGFOOD-3 SHOULD-FIXES — WP-BL142 (Low, doc-only): the stale hook-templates header — DONE-PR-open
 
 - **Branch:** `fix/bl142-hook-templates-header` (off `main` @ `b75f5a9`). Comments only — no emitted byte changes, no tests to add (not an enforcement change; the doc-vs-code contradiction is resolved in favor of the code, THE-SCRIPTS-WIN doctrine).
