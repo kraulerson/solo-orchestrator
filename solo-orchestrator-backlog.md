@@ -3003,7 +3003,7 @@ CI shares the blindness: `.github/workflows/ci.yml` uses `config: p/owasp-top-te
 **Logged:** 2026-07-13 (Dogfood 2 walk, finding F-DF2-008)
 **Category:** Bug / hollow gate
 **Severity:** **High**
-**Status:** Open
+**Status:** Closed — shipped 2026-07-18 (PR #223, merged `fdda7a2`). `# BL-120-AUDIT-VERDICT`: the step parses the SHIPPED template's own Summary grammar fail-closed — per file (comments + code fences stripped) the LAST resolved-line and LAST numeric Open-row govern; Open>0 blocks, unqualified Yes required, no parseable verdict blocks; ALL files at the newest mtime must pass. Adversarial verifier (Fable) SHIP-WITH-FIXES — its MUST (Yes-ANYWHERE acceptance) + 4 SHOULDs landed RED-watched pre-push. `tests/test-bl120-audit-verdict.sh` 17/17 ×3 (both lists; fence-excision mutant). Evidence: ledger § WP-A2 part 1 + VERIFICATION.
 
 `process-checklist.sh --complete-step build_loop:security_audit` verifies only that a file whose name contains the feature slug exists under `docs/security-audits/` (the `ls docs/security-audits/*"${feature_slug}"*` check). It never reads the file's verdict. During the walk, an audit file whose own heading read *"ROUND 1 — the naive implementation: CRITICAL — VULNERABLE. DO NOT SHIP."* satisfied the step, and the feature (a live stored XSS) committed. A security audit that concludes "do not ship" advances the gate identically to one that passes.
 
@@ -3112,7 +3112,7 @@ grep -rli "market.signal|1\.1\.5" scripts/*.sh                        # → no m
 **Logged:** 2026-07-13 (Dogfood 2 walk, finding F-DF2-009)
 **Category:** Bug / missing enforcement
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — shipped 2026-07-18 (PR #224, merged `ad62827`). `# BL-125-TEST-EXEC` emitter fence → `# BL-125-COMMIT-TESTS` arm in every emitted pre-commit hook: `.claude/test-command` → scripts-block-scoped stack detect (npm placeholder excluded) → LOUD never-silent WARN; RED suite → [BLOCKED]; deletions/renames count as source. Adversarial verifier (Fable) SHIP-WITH-FIXES — both MUSTs (D/R+mts/cts false receipt; no-op certified PASSED) + S1-S4/S6 landed RED-watched, S5 declared. `tests/test-bl125-commit-test-exec.sh` 16/16 ×3 (both lists; emitter fence-excision mutant; guard-registry row K4 two-direction proof). WP-A2 complete — the BL-118+120+125 defense-in-depth trio each now catches the Dogfood-2 XSS. Evidence: ledger § WP-A2 part 2 + VERIFICATION.
 
 The Build-Loop `implemented` step is a self-attested mark; no gate (pre-commit hook, `framework-gate.sh`, or `check-commit-ready`) executes the project's test suite. During the walk, a commit landed while `npm test` was **5 failed | 54 passed** — the four failing tests were the adversarial fixtures *proving the staged code was an exploitable XSS*. The one control that actually detected the vulnerability (the tests) was consulted by no gate.
 
@@ -3335,7 +3335,7 @@ The framework-generated CI workflow runs `check-phase-gate.sh`, whose "Tools nee
 **Logged:** 2026-07-18 (Dogfood-3 wave verifier, B1/B2 SHOULD-fix)
 **Category:** Bug / enforcement coverage (strict-tier populations)
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — shipped 2026-07-19 (PR #225, merged `cf10873`). `# BL-141-COMMITMSG-VERIFY` (verify-install detects an absent/unmarked/non-executable commit-msg hook as auto-fixable; `fix_commitmsg_hook` repairs via the hook-templates single source, composing + idempotent) + `# BL-141-SYNC-WARN` (the sync's declined arm warns — never silent — when pre-commit exists without commit-msg). `tests/test-bl141-commitmsg-repair.sh` 6/6 ×3 (both lists; T2 = end-to-end backstop restoration through the real hook chain; dual fence-excision mutants). Consolidated wave verifier: SHIP. Evidence: ledger § WP-BL141 + the wave VERIFICATION.
 
 BL-139 flipped the subject-less `--check-commit-ready` default to not-feat on the pre-commit surface, relying on the COMMIT-MSG hook to enforce feat-requires-Build-Loop with the current subject. That backstop is only present for populations that HAVE the commit-msg hook. The verifier's census: fresh `init.sh` scaffolds install it unconditionally (BL-107); but `verify-install --auto-fix` checks/repairs ONLY `.git/hooks/pre-commit` (no commit-msg detection anywhere in `scripts/verify-install.sh`), and the currency sync (`_bl099_sync_commitmsg_hook` via `_bl099_hook_consent`) installs it non-interactively ONLY with `--install-hooks` (default off) — a piped `--sync-framework` on a legacy project leaves it "not installed (declined)". For any such project that also runs the strict-tier `framework-gate.sh`, the BL-139 flip converts an over-broad block into NO terminal-path feat gate at all — concentrated on the strictest tiers where docs call the block non-bypassable.
 
@@ -3352,7 +3352,7 @@ BL-139 flipped the subject-less `--check-commit-ready` default to not-feat on th
 **Logged:** 2026-07-18 (Dogfood-3 wave verifier, B1 stale-doc SHOULD-fix)
 **Category:** Bug / doc-vs-code contradiction (THE SCRIPTS WIN)
 **Severity:** Low
-**Status:** Open
+**Status:** Closed — shipped 2026-07-19 (PR #227, merged `23c996f`). Both stale header spots corrected (the pattern is a test-evidence-detection switch, not an install gate; hooks install universally per BL-107). Doc-only; emitted hooks proven byte-identical (stash round-trip cmp; re-proven by the consolidated wave verifier across all emitters, 21.6 KB). Consolidated wave verifier: SHIP. Evidence: ledger § WP-BL142 + the wave VERIFICATION.
 
 `scripts/lib/hook-templates.sh`'s header still says the currency sync path is "EXPECTED to lack the [commit-msg] hook" for rust/unknown languages — contradicted by `_bl099_sync_commitmsg_hook`'s own `BL-107-UNIVERSAL-INSTALL` comment, which installs for every language. Doc-only; correct the header to match the code (the scripts win).
 
@@ -3367,7 +3367,7 @@ BL-139 flipped the subject-less `--check-commit-ready` default to not-feat on th
 **Logged:** 2026-07-18 (Dogfood-3 wave verifier, C3 SHOULD-fix)
 **Category:** Bug / gate precision (evasion edge)
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — shipped 2026-07-19 (PR #226, merged `2fb7cd1`). `# BL-143-PASTCAP-RECOVERY`: the approver name is recovered from the blame walker's OWN uncapped H2-strict scan when the capped pre-extraction comes back empty — the control RUNS (per-line blame included) instead of silently skipping; truly-absent-row boundary unchanged and pinned. `tests/test-bl143-pastcap-selfapproval.sh` 5/5 ×3 (both lists; fence-excision mutant); 12-suite gate-consumer battery green. Consolidated wave verifier: SHIP (recovery awk proven byte-identical to the walker's); residuals filed as BL-144. Evidence: ledger § WP-BL143 + the wave VERIFICATION.
 
 `validate_approval_fields`' bounded `$section` (BL-138) is capped at +20 lines. The self-approval extraction reads the approver name from that capped section; when a crafted APPROVAL_LOG pushes the Approver row past +20 (filler rows, or a Date row within `_cpg_gate_has_evidence`'s head-15 with the Approver row below), `approver_name` comes back empty and the `[ -n "$approver_name" ]` guard exits with NO WARN — the anti-self-approval control is silently skipped, even though the (uncapped) blame walker would locate the row. Pre-BL-138 the row-anchored window virtually always contained the Approver row, so BL-138 introduced the reachable edge.
 
