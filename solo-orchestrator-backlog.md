@@ -3358,6 +3358,8 @@ BL-139 flipped the subject-less `--check-commit-ready` default to not-feat on th
 
 **Related:** BL-107; BL-141 (same subsystem); `Reports/2026-07-18-dogfood-3/` verifier B1.
 
+**Status update 2026-07-19:** fix implemented on branch `fix/bl142-hook-templates-header` (PR open; Closed with PR + merge SHA at merge). Both stale header spots corrected (the Contents bullet and the soif_lang_test_pattern block comment): the pattern is documented as a test-EVIDENCE-detection switch, not an install gate — the hook installs for every language per BL-107-UNIVERSAL-INSTALL, with `_bl099_sync_commitmsg_hook`'s own comment named as the code-side truth. Doc-only; no behavior change (`bash -n` + emitted-hook byte-identity unaffected — comments only).
+
 ---
 
 ## BL-143: anti-self-approval control silently skips when the Approver row lies past validate_approval_fields' +20 section cap
@@ -3419,3 +3421,31 @@ Verifier-reproduced: with a project-local `lint-backlog-references.sh` and a bac
 **Fix (in PR #200):** the message feed is removed from the plain terminal path; the message-mode BR check survives on the PreToolUse surface, which parses the CURRENT message from the command. **Open design question (deliberately not decided unilaterally):** should the commit-msg surface (`--tdd-only`) grow a third arm running the BR message check with the current message? It would restore BR message coverage for editor/human-terminal commits, at the cost of widening a surface documented as exactly two gates. Decide when BL-107 (per-language commit-msg hooks) is implemented, since that changes the same surface.
 
 **Related:** BL-119 (PR #200, the defect class + fix); BL-010 (the commit-msg surface's contract); `scripts/lint-backlog-references.sh` (`--pre-commit-mode`).
+
+## BL-144: self-approval scan is fully silent for malformed-header + past-cap and for past-cap placeholder Approver cells
+
+**Logged:** 2026-07-19 (Dogfood-3 SHOULD-fix wave consolidated verifier, S1+S2)
+**Category:** Bug / gate precision hardening (evasion residuals, pre-existing)
+**Severity:** Low
+**Status:** Open
+
+Two silent shapes survive BL-143, both executed and both byte-for-byte pre-existing on main: (a) a malformed `### `-header gate section whose Approver row also sits past the `-A 20` cap — the `# BL-143-PASTCAP-RECOVERY` awk computes `NO_SECTION` and its `''|*[!0-9]*)` arm discards it, while the walker's loud malformed-header refusal is only reachable when a name was pre-extracted (an attacker combining both evasions gets zero output); (b) a past-cap `| **Approver** | [Name] |` (or empty-cell) row — the BL-138 placeholder predicate is `head -20`-capped, and the recovery recovers `[Name]`, recognizes it in its own trigger condition, then drops it silently.
+
+**Fix shape (one-liners, sketched by the verifier):** surface the recovery's `NO_SECTION` through the walker's existing WARN (deliberate scope call: this also makes prose-only gate mentions loud — BL-143's T4 pinned boundary maps to `NO_APPROVER` and is NOT disturbed); WARN when the recovered name is `[Name]`/empty. Mutation-prove both with past-cap fixtures.
+
+**Related:** BL-143 (the recovery this hardens; its T4 pins the boundary to preserve); BL-138 (the capped placeholder predicate); `# BL-116` blame walker.
+
+---
+
+## BL-145: verify-install hook repairs write through symlinked hooks on the no-consent --auto-fix surface; hook checks blind to core.hooksPath
+
+**Logged:** 2026-07-19 (Dogfood-3 SHOULD-fix wave consolidated verifier, S3)
+**Category:** Debt / repair-surface hygiene (pre-existing class)
+**Severity:** Low
+**Status:** Open
+
+Executed: with `.git/hooks/commit-msg` symlinked to a shared out-of-tree file, `verify-install --auto-fix` appends the managed block into the symlink TARGET (target mutated, symlink kept). Pre-existing class — `fix_precommit_hook` is worse (full `soif_write_precommit_hook` clobber through the symlink), and the sync's install arm appends identically — but `--auto-fix` is a no-consent surface, so it deserves the guard first. Related observation: both hook checks read `.git/hooks/` literally, so a `core.hooksPath` project gets a PASS plus an inert "repair" (framework-generated projects never set it; parity with the pre-existing pre-commit blind spot).
+
+**Fix shape:** `[ -L .git/hooks/<hook> ]` → `register_manual` (repairing a shared file needs a human); optionally consult `git config core.hooksPath` in both checks and say so when set.
+
+**Related:** BL-141 (the repair surface); `# BL-118-SINGLE-SOURCE` (fix_precommit_hook); `_bl099_sync_commitmsg_hook`.

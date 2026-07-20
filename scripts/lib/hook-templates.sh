@@ -13,8 +13,11 @@
 #     the commit-msg hook (pre-existing markers, hoisted here as constants).
 #   • soif_lang_test_pattern <language> — the init.sh language→test-file-pattern
 #     table; empty for languages with no distinct test-file convention (rust,
-#     unknown), which is the gate init.sh uses to decide whether to install the
-#     commit-msg TDD hook at all.
+#     unknown). BL-142: this is NOT an install gate — since BL-107-UNIVERSAL-
+#     INSTALL, init.sh and the sync install the commit-msg TDD hook for EVERY
+#     language; an empty pattern only means the gate classifies test evidence
+#     by content/convention (rust's inline #[test] probe, generic conventions
+#     for unknown) instead of by filename.
 #   • soif_write_precommit_hook <file> — writes the full fallback pre-commit hook
 #     (shebang + managed region between markers).
 #   • soif_tdd_region_body / soif_emit_tdd_commitmsg_block — the commit-msg
@@ -59,9 +62,11 @@ SOIF_TDD_CLOSE='# <<< SOIF BL-072 TDD gate'
 # ── Language → test-file pattern (init.sh's table) ──────────────────────────
 # Echoes the test-file regex for a language, or the empty string for languages
 # with no distinct test-file convention (rust uses inline #[cfg(test)]; unknown
-# languages have none). init.sh installs the commit-msg TDD hook iff this is
-# non-empty — replicated by the sync path so rust/unknown are EXPECTED to lack
-# the hook (no prompt, no install).
+# languages have none). BL-142 (stale-doc fix): the hook itself is installed
+# for EVERY language by BOTH init.sh and the sync path (BL-107-UNIVERSAL-
+# INSTALL — see _bl099_sync_commitmsg_hook, whose own comment is the code-side
+# truth); an empty pattern here only switches the gate's test-evidence
+# detection from filename convention to content probes.
 soif_lang_test_pattern() {
   case "$1" in
     typescript|javascript) printf '%s' "\\.(test|spec)\\.(ts|tsx|js|jsx)$" ;;
