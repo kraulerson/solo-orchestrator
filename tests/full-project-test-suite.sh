@@ -811,6 +811,18 @@ else
   fail "tests/test-bl125-commit-test-exec.sh FAILED (run for details)"
 fi
 
+# BL-141 (Dogfood-3 wave verifier B1/B2): verify-install detects + repairs
+# the commit-msg TDD gate hook (the BL-139 backstop — post-flip it is the
+# ONLY terminal-path feat gate), composing with user hooks and idempotent;
+# a non-interactive sync that declines the install WARNs instead of leaving
+# the strict-tier backstop silently absent. Dual fence-excision mutants.
+# No init.sh -> both lanes.
+if bash "$SCRIPT_DIR/tests/test-bl141-commitmsg-repair.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl141-commitmsg-repair.sh"
+else
+  fail "tests/test-bl141-commitmsg-repair.sh FAILED (run for details)"
+fi
+
 # BL-139 (Dogfood-3 F-DF3-004): a subject-less --check-commit-ready no
 # longer presumes feat — framework-gate's pre-commit call cannot know the
 # subject (BL-119 doctrine), and the commit-msg surface owns the feat rule

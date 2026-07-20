@@ -409,3 +409,13 @@ Also: **PR #214 MERGED `528f5b2`** → BL-134 Closed.
 - **S5 RESOLVED AS DECLARED:** a DETECTED suite that runs and collects zero tests (pytest rc=5, jest no-tests) BLOCKS — deliberate TDD pressure consistent with the tests-first methodology; recorded in the fence contract comment + the guide checklist line with the two honest escapes.
 - **What HELD (refuted, executed):** prompting suites can't hang (`</dev/null`); unborn-HEAD safe; rc=127 semantics sound (no mainstream runner exits 127 on a failing-vs-missing test); npm placeholder/nested/non-executable paths all loud; the framework's own scaffolds hit no post-init brick; strict-gate hand-off clean both directions; BL-099 region round-trip exact (emitted bytes carry zero managed-region marker text); K1–K3 anchors still unique; bash-3.2 `bash -n` clean; suite falsifiable (WARN cases assert TEXT, not just rc; BL125_ONLY selects exactly; T8 vacuity guards fire).
 - **Suite after integration: 16/16, green 3× consecutive**, both lists; lints 11/11.
+
+---
+
+## DOGFOOD-3 SHOULD-FIXES — WP-BL141 (Med): the commit-msg backstop repair — DONE-PR-open
+
+- **Branch:** `fix/bl141-commitmsg-repair` (off `main` @ `b75f5a9`).
+- **Reproduce (RED, watched):** 6/6 failing pre-fix — T1 showed `verify-install --check-only` naming the pre-commit hook and NOTHING about commit-msg; T2 showed a repaired-less project landing a loop-less `feat:` commit (the population-conditional hole demonstrated end-to-end); T4 showed the sync's quiet `not installed (declined)` info line.
+- **Fix (two fences):** `# BL-141-COMMITMSG-VERIFY` in verify-install.sh — check_git detects an absent/unmarked/non-executable commit-msg hook (marker = `SOIF_TDD_OPEN`) as auto-fixable, and `fix_commitmsg_hook` repairs via the SINGLE SOURCE (hook-templates.sh emitters, the fix_precommit_hook/BL-118 doctrine — never inline a body), composing with user hooks and idempotent on the marker. `# BL-141-SYNC-WARN` in upgrade-project.sh — the declined-install arm WARNs (non-blocking, never silent) when `.git/hooks/pre-commit` exists but commit-msg does not, naming both repair commands.
+- **Tests:** `tests/test-bl141-commitmsg-repair.sh` **6/6 ×3** (BOTH lists). T2 is the load-bearing case: after `--auto-fix`, a loop-less `feat:` commit dies at the commit-msg surface again through the REAL installed chain (the bl139-T4 shape). T3 pins compose+idempotence (user bytes kept, marker exactly once across two runs). T5a/T5b dual fence-excision mutants with vacuity guards, T5b run from a faithful fake-framework tree.
+- **Blast radius (green):** sync-framework 35/35 (the WARN arm in place) · verify-install-bl030-coverage · fix-functions + eval-factory-gate (slow lane, run recorded below) · lints.
