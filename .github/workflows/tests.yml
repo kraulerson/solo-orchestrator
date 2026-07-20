@@ -108,6 +108,7 @@ jobs:
             tests/test-bl095-state-readers.sh
             tests/test-bl106-golive-checklist.sh
             tests/test-bl120-audit-verdict.sh
+            tests/test-bl125-commit-test-exec.sh
             tests/test-bl137-ci-tools-scope.sh
             tests/test-bl138-approval-window.sh
             tests/test-bl139-subjectless-default.sh

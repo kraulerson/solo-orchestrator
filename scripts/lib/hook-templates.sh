@@ -222,6 +222,122 @@ fi
 
 HOOKEOF
 
+  # BL-125-TEST-EXEC-BEGIN
+  # Emitter fence: excising this region removes the commit-time test arm from
+  # every hook this lib emits (the suite's mutation case pins exactly that).
+  # The EMITTED bytes carry their own marker, # BL-125-COMMIT-TESTS, kept
+  # distinct from this fence so in-hook greps and emitter excision never
+  # collide.
+  cat <<'TESTEOF'
+
+# --- Project Test Execution (BL-125) ---
+# BL-125-COMMIT-TESTS — Dogfood-2 F-DF2-009: a commit landed while `npm test`
+# was 5 failed | 54 passed; the failing tests were the adversarial fixtures
+# PROVING the staged code was an exploitable XSS. The one control that
+# actually saw the code run was consulted by no gate. This arm runs the
+# project's test command at commit time, under the SAST arm's honesty
+# contract (# BL-112-SAST-NOTRUN): not-runnable => LOUD skip, never a silent
+# pass; a suite that RAN and failed => BLOCK. rc=127 (runner not found) is
+# the one reliably tool-shaped exit and takes the not-runnable arm; every
+# other non-zero exit blocks — an ERRORING suite is not a passing suite.
+#   Resolution order: .claude/test-command (first line, operator-owned; set
+#   it to your fast lane if the full suite is slow) -> detected stack
+#   default (package.json real test script / pytest / cargo / go) -> loud
+#   not-enforced WARN.
+#   Fast lane (latency discipline): the arm runs only when STAGED files
+#   include source (added/copied/modified/DELETED/RENAMED); docs/config-only
+#   commits skip with a receipt.
+#   DECLARED (verifier S5): a DETECTED suite that runs and reports "no
+#   tests collected" (pytest rc=5, jest no-tests rc=1) BLOCKS — this repo's
+#   methodology is tests-first, so a source commit with a detected-but-
+#   empty suite is off-loop by definition; the escapes are honest and
+#   printed (write the first test, or point .claude/test-command at your
+#   lane).
+soif_tests_not_enforced() {
+  echo ""
+  echo "[WARN] $1"
+  echo "  PROJECT TESTS NOT ENFORCED for this commit — the suite did not run."
+  echo "  This is NOT a green result: nothing was executed. Configure the"
+  echo "  command in .claude/test-command (one line, e.g. 'npm test')."
+}
+# Verifier M1: D and R are in the filter ON PURPOSE — a commit that
+# DELETES or RENAMES the sanitizer is exactly the regression this arm
+# exists to stop, and the old ACM filter skipped it while printing the
+# "no source files staged" receipt (a false receipt — the dishonesty
+# class this arm fights). .mts/.cts are first-class typescript.
+soif_test_src=$(git diff --cached --name-only --diff-filter=ACMDR \
+  | grep -cE '\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|py|rb|go|rs|java|kt|kts|swift|cs|dart|c|h|cc|cpp|hpp|php|scala|vue|svelte)$') || soif_test_src=0
+case "$soif_test_src" in ''|*[!0-9]*) soif_test_src=0 ;; esac
+if [ "$soif_test_src" -gt 0 ]; then
+  soif_test_cmd=""
+  soif_test_cfg_warned=0
+  if [ -e .claude/test-command ]; then
+    # The config file is operator-owned: once it exists, IT resolves the
+    # command — no detect fallback (a broken config falling back to a
+    # different suite would run something the operator did not choose).
+    # Verifier M2/S2/S6: first non-blank, non-comment line, CRLF-stripped
+    # and trimmed; empty/unreadable/comment-only files take the LOUD arm —
+    # `sh -c '   '` and `sh -c '# npm test'` both exit 0, and certifying a
+    # no-op as "[OK] PASSED" is worse than the silent pass this arm ends.
+    if [ -r .claude/test-command ] && [ -s .claude/test-command ]; then
+      soif_test_cmd=$(tr -d '\r' < .claude/test-command | grep -vE '^[[:space:]]*(#|$)' | head -1) || soif_test_cmd=""
+      soif_test_cmd=$(printf '%s' "$soif_test_cmd" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    fi
+    if [ -z "$soif_test_cmd" ]; then
+      soif_tests_not_enforced "'.claude/test-command' exists but holds no runnable command (empty, unreadable, or only blank/comment lines)."
+      soif_test_cfg_warned=1
+    fi
+  elif [ -f package.json ] \
+       && sed -n '/"scripts"[[:space:]]*:/,/}/p' package.json | grep -qE '"test"[[:space:]]*:' \
+       && ! sed -n '/"scripts"[[:space:]]*:/,/}/p' package.json | grep -q 'no test specified'; then
+    # npm's scaffold placeholder script is `echo "Error: no test specified"
+    # && exit 1` — treating it as a real suite would brick every commit on a
+    # fresh scaffold (the BL-137 documented-but-impossible class). Verifier
+    # S1/S4: BOTH greps are scoped to the "scripts" block, so a dependency
+    # literally named "test" cannot trigger detection and a placeholder
+    # string elsewhere in package.json cannot disable a real suite.
+    soif_test_cmd="npm test"
+  elif [ -f pytest.ini ] || [ -f conftest.py ] \
+       || { [ -f pyproject.toml ] && grep -q '^\[tool\.pytest' pyproject.toml; }; then
+    soif_test_cmd="pytest"
+  elif [ -f Cargo.toml ]; then
+    soif_test_cmd="cargo test"
+  elif [ -f go.mod ]; then
+    soif_test_cmd="go test ./..."
+  fi
+  if [ -z "$soif_test_cmd" ]; then
+    if [ "$soif_test_cfg_warned" -eq 0 ]; then
+      soif_tests_not_enforced "no test command configured or detected for this project."
+    fi
+  else
+    echo ""
+    echo "[..] BL-125: running project tests: $soif_test_cmd"
+    set +e
+    sh -c "$soif_test_cmd" </dev/null
+    soif_test_rc=$?
+    set -e
+    if [ "$soif_test_rc" -eq 0 ]; then
+      # The receipt makes the clean-commit case falsifiable — a silent pass
+      # is indistinguishable from an arm that never ran (the BL-112 class).
+      echo "[OK] project tests: '$soif_test_cmd' PASSED — commit may proceed."
+    elif [ "$soif_test_rc" -eq 127 ]; then
+      soif_tests_not_enforced "'$soif_test_cmd' is not runnable here (exit 127 — runner not found)."
+    else
+      echo ""
+      echo "[BLOCKED] project tests FAILED (exit $soif_test_rc): $soif_test_cmd"
+      echo "  A commit whose own tests are RED cannot land (BL-125). The tests"
+      echo "  are the one control that actually sees the code run — fix the"
+      echo "  failures, or fix the tests if they are wrong. Slow suite? Point"
+      echo "  .claude/test-command at your fast lane."
+      FAILED=1
+    fi
+  fi
+else
+  echo "[OK] BL-125: no source files staged — project tests not required for this commit."
+fi
+TESTEOF
+  # BL-125-TEST-EXEC-END
+
   # Section 2 (was TDDEOF).
   cat <<'TDDEOF'
 
