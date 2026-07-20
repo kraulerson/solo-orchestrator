@@ -871,6 +871,16 @@ _bl099_sync_commitmsg_hook() {
     print_ok "  commit-msg TDD gate installed."
   else
     print_info "  commit-msg TDD gate not installed (declined)."
+    # BL-141-SYNC-WARN-BEGIN
+    # A quiet decline here is how a strict-tier project silently loses its
+    # ONLY terminal-path feat/Build-Loop gate: BL-139 moved that rule to the
+    # commit-msg surface, so pre-commit-present + commit-msg-absent is a
+    # project whose docs promise a non-bypassable block that does not exist.
+    # Non-blocking (a sync is not a gate), but never silent.
+    if [ -f "$PROJECT_ROOT/.git/hooks/pre-commit" ]; then
+      print_warn "  BL-141: pre-commit hook present but the commit-msg gate is ABSENT — post-BL-139 this project has NO terminal-path feat/Build-Loop gate. Repair: scripts/verify-install.sh --auto-fix, or re-run --sync-framework with --install-hooks."
+    fi
+    # BL-141-SYNC-WARN-END
   fi
 }
 

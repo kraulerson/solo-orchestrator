@@ -410,6 +410,25 @@ check_git() {
     register_manual "Pre-commit hook missing" "Initialize git first, then re-run verify"
   fi
 
+  # BL-141-COMMITMSG-VERIFY-BEGIN
+  # BL-139 moved the terminal-path feat/Build-Loop rule to the COMMIT-MSG
+  # surface, so a project whose commit-msg hook is absent has NO terminal
+  # feat gate at all — and this script repaired only pre-commit, leaving
+  # that hole invisible on exactly the legacy/declined populations that
+  # cannot get it from a fresh scaffold (BL-107 covers those). The marker
+  # literal is hook-templates.sh::SOIF_TDD_OPEN — the managed-block
+  # contract shared by init.sh and the sync; an unmarked or non-executable
+  # hook is as absent as no hook (it enforces nothing).
+  if [ -x ".git/hooks/commit-msg" ] \
+     && grep -qF '# >>> SOIF BL-072 TDD gate (commit-msg) — managed by init.sh' ".git/hooks/commit-msg" 2>/dev/null; then
+    register_pass "Commit-msg TDD gate hook installed"
+  elif [ -d ".git/hooks" ]; then
+    register_fixable "Commit-msg TDD gate hook missing (post-BL-139 this is the ONLY terminal-path feat/Build-Loop gate)" "fix_commitmsg_hook"
+  else
+    register_manual "Commit-msg TDD gate hook missing" "Initialize git first, then re-run verify"
+  fi
+  # BL-141-COMMITMSG-VERIFY-END
+
   if git rev-parse HEAD &>/dev/null 2>&1; then
     register_pass "Initial commit exists"
   else
@@ -1138,6 +1157,35 @@ fix_precommit_hook() {
   mkdir -p .git/hooks
   soif_write_precommit_hook .git/hooks/pre-commit
 }
+
+# BL-141-COMMITMSG-VERIFY-BEGIN (repair half; detection lives in check_git)
+# Mirrors fix_precommit_hook's BL-118-SINGLE-SOURCE doctrine: the block body
+# has exactly ONE emitter (hook-templates.sh) — never inline it. Composes
+# with an existing user hook (append the managed block) and is idempotent on
+# the SOIF_TDD_OPEN marker — byte-faithful to init.sh's
+# install_tdd_commit_msg_hook and the sync's install arm.
+fix_commitmsg_hook() {
+  local _hooktpl=""
+  if [ -f scripts/lib/hook-templates.sh ]; then
+    _hooktpl="scripts/lib/hook-templates.sh"
+  elif has_source && [ -f "$SOURCE_DIR/scripts/lib/hook-templates.sh" ]; then
+    _hooktpl="$SOURCE_DIR/scripts/lib/hook-templates.sh"
+  else
+    echo "  [FAIL] cannot repair commit-msg hook: scripts/lib/hook-templates.sh not found (neither project-local nor in the framework source)" >&2
+    return 1
+  fi
+  # shellcheck source=/dev/null
+  . "$_hooktpl"
+  mkdir -p .git/hooks
+  if [ ! -f .git/hooks/commit-msg ]; then
+    printf '%s\n' '#!/usr/bin/env bash' > .git/hooks/commit-msg
+  fi
+  if ! grep -qF "$SOIF_TDD_OPEN" .git/hooks/commit-msg; then
+    soif_emit_tdd_commitmsg_block >> .git/hooks/commit-msg
+  fi
+  chmod +x .git/hooks/commit-msg
+}
+# BL-141-COMMITMSG-VERIFY-END
 
 fix_framework_clone() {
   # Drop `2>/dev/null` per the same rationale as fix_tool_install

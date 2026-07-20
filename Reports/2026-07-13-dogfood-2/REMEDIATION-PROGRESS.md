@@ -412,6 +412,16 @@ Also: **PR #214 MERGED `528f5b2`** → BL-134 Closed.
 
 ---
 
+## DOGFOOD-3 SHOULD-FIXES — WP-BL141 (Med): the commit-msg backstop repair — DONE-PR-open
+
+- **Branch:** `fix/bl141-commitmsg-repair` (off `main` @ `b75f5a9`).
+- **Reproduce (RED, watched):** 6/6 failing pre-fix — T1 showed `verify-install --check-only` naming the pre-commit hook and NOTHING about commit-msg; T2 showed a repaired-less project landing a loop-less `feat:` commit (the population-conditional hole demonstrated end-to-end); T4 showed the sync's quiet `not installed (declined)` info line.
+- **Fix (two fences):** `# BL-141-COMMITMSG-VERIFY` in verify-install.sh — check_git detects an absent/unmarked/non-executable commit-msg hook (marker = `SOIF_TDD_OPEN`) as auto-fixable, and `fix_commitmsg_hook` repairs via the SINGLE SOURCE (hook-templates.sh emitters, the fix_precommit_hook/BL-118 doctrine — never inline a body), composing with user hooks and idempotent on the marker. `# BL-141-SYNC-WARN` in upgrade-project.sh — the declined-install arm WARNs (non-blocking, never silent) when `.git/hooks/pre-commit` exists but commit-msg does not, naming both repair commands.
+- **Tests:** `tests/test-bl141-commitmsg-repair.sh` **6/6 ×3** (BOTH lists). T2 is the load-bearing case: after `--auto-fix`, a loop-less `feat:` commit dies at the commit-msg surface again through the REAL installed chain (the bl139-T4 shape). T3 pins compose+idempotence (user bytes kept, marker exactly once across two runs). T5a/T5b dual fence-excision mutants with vacuity guards, T5b run from a faithful fake-framework tree.
+- **Blast radius (green):** sync-framework 35/35 (the WARN arm in place) · verify-install-bl030-coverage · fix-functions + eval-factory-gate (slow lane, run recorded below) · lints.
+
+---
+
 ## DOGFOOD-3 SHOULD-FIXES — WP-BL142 (Low, doc-only): the stale hook-templates header — DONE-PR-open
 
 - **Branch:** `fix/bl142-hook-templates-header` (off `main` @ `b75f5a9`). Comments only — no emitted byte changes, no tests to add (not an enforcement change; the doc-vs-code contradiction is resolved in favor of the code, THE-SCRIPTS-WIN doctrine).
