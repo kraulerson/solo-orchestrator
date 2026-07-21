@@ -2284,7 +2284,7 @@ Two follow-ups from the PR #169 verifier (BL-010 residual fix), both zero-impact
 **Logged:** 2026-07-11 (Pantheon feedback A, amended per critique)
 **Category:** Proposal / agent ergonomics (downstream)
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — shipped 2026-07-21 (PR #231, merged `e7bc567`). All three foundations instantiate at birth via `# BL-089-DOC-FOUNDATIONS` (docs/INDEX.md authority-order map, PRE-SEEDED docs/IDENTIFIERS.md per Karl's approved draft, docs/archive/README.md move-with-stubs). Two adversarial rounds: WP verifier SHIP-WITH-FIXES (2 MUSTs — nonexistent-checker promise, BUGS.md append-only misclass with the executed gate-wedge — all landed) + the BL-146 live-test reviewer's MAJOR (comment-blind wiring greps: a disabled-instantiation mutant passed every PR-blocking check; fixed with live-line anchors + the T6 liveness mutant). Suite 6/6; real-init case in the scaffold suite. Evidence: ledger § WP-BL089+BL091.
 
 **Decision 2026-07-20 (Karl):** GO. The `docs/IDENTIFIERS.md` pre-seed list is to be DRAFTED for his approval — "keep it as simple and logical as possible." Draft delivered 2026-07-20 (core minted namespaces TM-/ADR-/BUG-/UAT-/SEV + three registry rules). **APPROVED same day ("Labels approved") — the BL-089+091 WP is unblocked and in flight.**
 
@@ -2326,7 +2326,7 @@ Pantheon's worst documented incident: a ghost "ADR-0003" cited in a dozen docume
 **Logged:** 2026-07-11 (Pantheon feedback C, amended per critique)
 **Category:** Proposal / documentation doctrine
 **Severity:** Low
-**Status:** Open
+**Status:** Closed — shipped 2026-07-21 (PR #231, merged `e7bc567`, with BL-089). Builders-guide `## Documentation Rules` (all seven rules; rule-5 banner applied to the guide itself); essentials ship downstream in doc-index.tmpl Conventions; rule 6b is a GATE — the real standing TM-001 silently-degraded-subsystem row in project-bible.tmpl, scanner-id-set-neutral (proven against the real _p3_tm_* functions by two independent verifiers). Evidence: ledger § WP-BL089+BL091.
 
 **Decision 2026-07-20 (Karl):** GO, bundled with BL-089 in one WP once the IDENTIFIERS pre-seed draft is approved (this entry's rules reference the doc map/archive convention BL-089 creates).
 

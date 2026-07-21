@@ -447,7 +447,7 @@ Also: **PR #214 MERGED `528f5b2`** → BL-134 Closed.
 - **SHOULD residuals (all pre-existing on main, filed):** BL-144 — the self-approval scan stays fully SILENT for (a) malformed-H3 + past-cap combined (the recovery discards its own NO_SECTION) and (b) a past-cap `[Name]`/empty Approver cell (recovered, recognized, dropped); one-line WARNs sketched in the entry. BL-145 — verify-install's hook repairs write THROUGH symlinked hooks on the no-consent --auto-fix surface (fix_precommit_hook clobbers through; the commit-msg repair appends through), and both hook checks are blind to core.hooksPath; `[ -L ] → register_manual` sketched.
 ---
 
-## PHASE-G EXECUTION — WP-BL089+BL091 (Med+Low): the documentation foundations — DONE-PR-open
+## PHASE-G EXECUTION — WP-BL089+BL091 (Med+Low): the documentation foundations — MERGED (2026-07-21, PR #231 `e7bc567`)
 
 - **Unblocked by:** Karl's 2026-07-20 approvals (the IDENTIFIERS pre-seed draft, verbatim "Labels approved"; the GO on both entries).
 - **Branch:** `feat/bl089-bl091-doc-foundations` (off `main` @ `3282fe0`, post-#228).
