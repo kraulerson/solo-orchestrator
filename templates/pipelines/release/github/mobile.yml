@@ -344,7 +344,7 @@ permissions:
   #
   #     - name: DAST — OWASP ZAP baseline scan
   #       run: |
-  #         docker run --rm zaproxy/zap-stable zap-baseline.py \
+  #         docker run --rm ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
   #           -t ${{ vars.API_BASE_URL }} \
   #           -J zap-report.json
   #

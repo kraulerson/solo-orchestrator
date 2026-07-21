@@ -97,7 +97,7 @@ jobs:
       #
       # - name: DAST — OWASP ZAP baseline scan
       #   run: |
-      #     docker run --rm zaproxy/zap-stable zap-baseline.py \
+      #     docker run --rm ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
       #       -t http://localhost:${{ vars.APP_PORT || '3000' }} \
       #       -J zap-report.json
 

@@ -357,6 +357,119 @@ if [ -z "$g_nocmd" ];    then pass "Cg6-dir-or-git (all run 'gitleaks dir' or 'g
 if [ -z "$g_legacy" ];   then pass "Cg6-off-zricethezav"; else fail_ "Cg6-off-zricethezav" "zricethezav/gitleaks still referenced in:$g_legacy"; fi
 if [ -z "$g_unpinned" ]; then pass "Cg6-version-pinned (all gitleaks images carry a vX.Y.Z tag)"; else fail_ "Cg6-version-pinned" "gitleaks image not version-pinned in:$g_unpinned"; fi
 
+# ═══════════════════════════════════════════════════════════════════════════
+# WP-3 (BL-149): the emitted release DAST is the un-fixed BL-122 twin
+# ═══════════════════════════════════════════════════════════════════════════
+# templates/pipelines/release/github/web.yml ran
+#   docker run -t zaproxy/zap-stable zap-baseline.py -t ${{ vars.PREVIEW_URL }}
+# and judged the RAW exit code. ZAP baseline reports every alert as WARN (exit
+# 2) and rule 10049 (Storable/Cacheable, riskcode 0 = Informational) fires under
+# EVERY Cache-Control value (the proven BL-122 mechanism) — so any real site
+# fails the release. PR #203 fixed exactly this in run-phase3-validation.sh
+# (`# BL-122-ZAP-RISK-FILTER` + `# BL-140-ZAP-WORKDIR`) and never touched the
+# template. Aggravators: the image was unpinned (every other action in the file
+# is SHA-pinned); no guard when PREVIEW_URL is unset; and templates/tool-matrix/
+# web.json checked `zaproxy/zap-stable` — an image the scanner never uses.
+#
+# WP-3 ports the scanner's semantics into the emitted step (CONTENT pins, never
+# a live docker run): pinned image, mounted workdir + `-J` JSON, raw exit code
+# CAPTURED not judged, jq `riskcode>=2` verdict, unreadable/absent report FAILs
+# LOUDLY, guarded on PREVIEW_URL. And tool-matrix checks the SAME image.
+#
+# WP-3 CASES:
+#   Cz0  the two named files exist (vacuity guard — a rename must fail LOUD)
+#   Cz-a release web.yml pins ghcr.io/zaproxy/zaproxy:stable, never zap-stable
+#   Cz-b the ZAP step writes `-J` JSON to a mounted workdir, judges jq
+#        `riskcode>=2`, and CAPTURES the raw exit (`|| rc=$?`) — never the verdict
+#   Cz-c the step is guarded `if: vars.PREVIEW_URL != ''`
+#   Cz-d an absent/unparseable report FAILs loudly (the failure arms exist)
+#   Cz-e tool-matrix/web.json references the SAME pinned image (check + manual),
+#        never zap-stable
+
+REL_WEB="$REPO_ROOT/templates/pipelines/release/github/web.yml"
+TOOLMATRIX_WEB="$REPO_ROOT/templates/tool-matrix/web.json"
+ZAP_IMAGE='ghcr.io/zaproxy/zaproxy:stable'
+
+# ── Cz0: the named files exist (vacuity guard) ──────────────────────────────
+echo "Cz0: the WP-3 target files exist (a rename must fail loud, not vacuously pass)"
+if [ -f "$REL_WEB" ] && [ -f "$TOOLMATRIX_WEB" ]; then
+  pass "Cz0-files-present (release/github/web.yml + tool-matrix/web.json)"
+else
+  fail_ "Cz0-files-present" "a WP-3 target file is missing — cases below would be vacuous"
+fi
+
+# ── Cz-a: release web.yml pins the scanner's image, never the dead zap-stable ─
+echo "Cz-a: release web.yml pins $ZAP_IMAGE (never zaproxy/zap-stable)"
+if grep -Fq "$ZAP_IMAGE" "$REL_WEB"; then
+  pass "Cz-a-pin (release web.yml references $ZAP_IMAGE)"
+else
+  fail_ "Cz-a-pin" "release web.yml does not pin $ZAP_IMAGE"
+fi
+if grep -Fq 'zaproxy/zap-stable' "$REL_WEB"; then
+  fail_ "Cz-a-no-dead-image" "release web.yml still references the dead image zaproxy/zap-stable"
+else
+  pass "Cz-a-no-dead-image (no zaproxy/zap-stable in release web.yml)"
+fi
+
+# ── Cz-b: mounted workdir + -J JSON + jq riskcode>=2 verdict, raw exit CAPTURED
+echo "Cz-b: the ZAP step writes -J JSON to a mounted workdir + judges jq riskcode>=2, not the raw exit"
+if grep -Fq '/zap/wrk' "$REL_WEB" && grep -Fq -- '-J zap-report.json' "$REL_WEB"; then
+  pass "Cz-b-mount-json (mounts /zap/wrk + writes -J zap-report.json)"
+else
+  fail_ "Cz-b-mount-json" "no mounted /zap/wrk workdir + '-J zap-report.json' in release web.yml"
+fi
+if grep -Fq 'riskcode' "$REL_WEB" && grep -Fq '>= 2' "$REL_WEB"; then
+  pass "Cz-b-jq-verdict (jq judges riskcode >= 2)"
+else
+  fail_ "Cz-b-jq-verdict" "no jq 'riskcode >= 2' verdict in release web.yml (BL-122 risk filter not ported)"
+fi
+# The raw docker exit code must be CAPTURED, never BE the verdict: baseline rc
+# 1/2 are ZAP's own WARN/FAIL thresholds over ALL alerts (informational too).
+if grep -Fq '|| rc=$?' "$REL_WEB"; then
+  pass "Cz-b-raw-exit-captured (|| rc=\$? — the raw exit is captured, not the verdict)"
+else
+  fail_ "Cz-b-raw-exit-captured" "no '|| rc=\$?'-style capture — the raw docker exit is (still) the verdict"
+fi
+
+# ── Cz-c: guarded on PREVIEW_URL ────────────────────────────────────────────
+echo "Cz-c: the DAST step is guarded if: vars.PREVIEW_URL != ''"
+if grep -Fq "if: vars.PREVIEW_URL != ''" "$REL_WEB"; then
+  pass "Cz-c-preview-guard (if: vars.PREVIEW_URL != '')"
+else
+  fail_ "Cz-c-preview-guard" "no 'if: vars.PREVIEW_URL != \"\"' guard on the DAST step"
+fi
+
+# ── Cz-d: absent/unparseable report FAILs loudly (the BL-140/BL-122 posture) ─
+echo "Cz-d: an absent/unparseable ZAP report fails loudly (arms exist textually)"
+if grep -Fq 'no report' "$REL_WEB" && grep -Fq 'exit 1' "$REL_WEB"; then
+  pass "Cz-d-no-report-loud (absent-report arm exits 1)"
+else
+  fail_ "Cz-d-no-report-loud" "no loud 'no report … exit 1' arm in release web.yml"
+fi
+if grep -Fq 'unparseable' "$REL_WEB" && grep -Fq 'exit 1' "$REL_WEB"; then
+  pass "Cz-d-unparseable-loud (unparseable-report arm exits 1)"
+else
+  fail_ "Cz-d-unparseable-loud" "no loud 'unparseable … exit 1' arm in release web.yml"
+fi
+
+# ── Cz-e: tool-matrix/web.json checks the SAME image the scanner runs ────────
+echo "Cz-e: tool-matrix/web.json references $ZAP_IMAGE (check + manual), never zap-stable"
+if grep -Fq "docker image inspect $ZAP_IMAGE" "$TOOLMATRIX_WEB"; then
+  pass "Cz-e-check-command ($ZAP_IMAGE in check_command)"
+else
+  fail_ "Cz-e-check-command" "tool-matrix/web.json check_command does not inspect $ZAP_IMAGE"
+fi
+if grep -Fq "docker pull $ZAP_IMAGE" "$TOOLMATRIX_WEB"; then
+  pass "Cz-e-manual-hint ($ZAP_IMAGE in the manual install hint)"
+else
+  fail_ "Cz-e-manual-hint" "tool-matrix/web.json manual hint does not pull $ZAP_IMAGE"
+fi
+if grep -Fq 'zap-stable' "$TOOLMATRIX_WEB"; then
+  fail_ "Cz-e-no-dead-image" "tool-matrix/web.json still references the dead image zap-stable"
+else
+  pass "Cz-e-no-dead-image (no zap-stable in tool-matrix/web.json)"
+fi
+
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ] || exit 1
