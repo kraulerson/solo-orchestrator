@@ -3615,3 +3615,20 @@ gitleaks-action requires `GITLEAKS_LICENSE` for ORGANIZATION accounts and `fetch
 `lint-tests-registered.sh` checks aggregator registration only; nothing structural enforces the tests.yml unit list, while CLAUDE.md says the lint enforces BOTH. Today's delta is zero (verified) — latent, not live.
 
 **Fix shape:** fast-lane arm in lint-tests-registered.sh (every non-init-invoking `tests/test-*.sh` must appear in the tests.yml unit list) + true-up the CLAUDE.md sentence.
+
+**Status update 2026-07-21:** Fixed on branch `fix/bl154-unit-lane-lint` (WP-6 of
+the PR-sweep remediation; PR pending). The unit-lane arm now lives behind the
+`# BL-154-UNIT-LANE-BEGIN/END` fence in `scripts/lint-tests-registered.sh`: it
+resolves the fast-lane list from the `.github/workflows/tests.yml` `tests=(`
+array (a `--tests-yml FILE` override adds the fixture idiom that mirrors
+`--tests-dir` / `--aggregators`), derives the membership predicate from each
+file's own text (`grep -L 'init\.sh'`, the convention tests.yml documents —
+init.sh-invoking tests are aggregator-only and EXEMPT), and flags any non-init
+`tests/test-*.sh` missing from the array. A count-floor vacuity guard refuses a
+0-entry parse in repo mode (exit 2). Coverage added in-suite to
+`tests/test-lint-tests-registered.sh` (U1 exempt / U2 flag / U3 real-repo-clean /
+U4 fence-excision mutation / U5 tests.yml-entry-removal mutation). Real-repo
+delta remains 0 (all 70 non-init test-*.sh present in the 106-entry list). The
+CLAUDE.md HOUSE RULES sentence was trued up (the lint now enforces BOTH lists,
+with the init.sh exemption made explicit). **Stays Open** until the PR merges;
+flip to Closed at merge citing PR# + SHA.

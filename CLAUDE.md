@@ -156,9 +156,12 @@ than no manifest).
   RED → restore → GREEN. Prove it, don't assert it.
 - **Hermetic tests only** — no real remote creation (`lint-no-live-remote-in-tests.sh`
   enforces; a live `gh repo create` leaked a real repo on 2026-07-06).
-- **Register every new `tests/test-*.sh`** in BOTH
-  `tests/full-project-test-suite.sh` AND the `tests.yml` unit list
-  (`lint-tests-registered.sh` enforces).
+- **Register every new `tests/test-*.sh`** in
+  `tests/full-project-test-suite.sh` — AND, unless it invokes `init.sh`, in
+  the `tests.yml` unit list too (per the CANONICAL COMMANDS membership rule).
+  `lint-tests-registered.sh` enforces BOTH: the aggregator-registration
+  backstop (BL-038) and, via its BL-154 unit-lane arm, the tests.yml
+  `tests=(` membership of every non-`init.sh` test.
 - **Portability:** GNU-first `stat -c … || stat -f …`; never `((x++))` under
   `set -e`; configure a git identity in fixtures; unset `GITHUB_BASE_REF` in
   fixture git ops; no multibyte chars adjacent to variable expansions under
