@@ -419,3 +419,78 @@ new checkout pin.
 - `bash scripts/run-lints.sh` → PASS (tally in the PR body);
   `scripts/lint-tests-registered.sh` → OK (suite already registered in WP-1);
   `scripts/lint-backlog-references.sh` → OK after the BL-150 Status update.
+
+---
+
+## WP-6 — BL-154: tests.yml unit-list enforcement arm + CLAUDE.md true-up
+
+**Branch:** `fix/bl154-unit-lane-lint` · **Base:** `main` @ `origin/main`.
+**Status:** PR opened green, not merged. File-disjoint from the template wave
+(WP-1..3), so worked directly on an isolated worktree (no stacking).
+
+### Reproduce (the finding)
+`scripts/lint-tests-registered.sh` enforced ONLY aggregator registration
+(BL-038). Nothing structural greps `.github/workflows/tests.yml`, yet CLAUDE.md
+(CANONICAL COMMANDS + HOUSE RULES) claimed the lint enforces BOTH the aggregator
+list AND the fast-lane unit list. Latent, not live: today's delta is zero — all
+70 non-`init.sh` `tests/test-*.sh` files are already present in the 106-entry
+`tests=(` array (`comm` of `grep -L 'init\.sh' tests/test-*.sh` vs the array
+parsed from tests.yml → empty in the arm's direction). The 36 "extra" array
+entries contain the string `init.sh` (mentioned, not necessarily scaffolding);
+the arm treats them as EXEMPT, so no false positives.
+
+### Watched-RED (before the lint was touched)
+Extended the existing suite `tests/test-lint-tests-registered.sh` (NO new file)
+with U1–U5. Pre-implementation run: **`Results: 13 passed, 4 failed`** (exit 1):
+- **U1** (init.sh test exempt) RED — `rc=2` unknown flag `--tests-yml`
+- **U2** (non-init test absent from unit list must flag) RED — `rc=2` unknown flag
+- **U3** (real-repo unit-lane clean) already green (arm absent → nothing flagged)
+- **U4** (fence-excision mutation) RED — "no BL-154-UNIT-LANE fence found"
+- **U5** (tests.yml-entry-removal mutation) RED — `rc=2` unknown flag
+
+### Fix (behind the `# BL-154-UNIT-LANE-BEGIN/END` fence)
+- `--tests-yml FILE` override (fixture idiom mirroring `--tests-dir` /
+  `--aggregators`); flag acceptance + var init kept OUTSIDE the fence so the
+  excision mutant still parses the flag (only ENFORCEMENT reverts).
+- `_build_unit_list_set` parses the `tests=(` array MECHANICALLY (awk between
+  `tests=(` and its closing `)`, then `grep -oE 'tests/test-[A-Za-z0-9._-]+\.sh'`)
+  into a pipe-delimited membership string (same idiom as `REGISTERED_STR`). A
+  whole-file grep would over-count (the checkout comment names
+  `test-lint-backlog-references.sh`), so the array is scoped. Count-floor
+  vacuity guard: a 0-entry parse in repo mode exits 2 (refuse to claim a pass).
+- `_check_unit_lane` flags any top-level `tests/test-*.sh` that does NOT contain
+  `init.sh` (the exact `grep -L 'init\.sh'` convention tests.yml documents) and
+  is missing from the array. init.sh-invoking tests → EXEMPT (slow lane only).
+  Resolution: `--tests-yml` → fixture file; repo mode → real tests.yml; fixture
+  mode without `--tests-yml` → arm inactive (aggregator check still runs, so the
+  pre-existing T1–T11 fixtures are untouched).
+
+Post-implementation run: **`Results: 17 passed, 0 failed`** (exit 0).
+
+### Mutation proofs (in-suite, GREEN)
+- **U4 (fence-excision):** copy the lint, `sed '/# BL-154-UNIT-LANE-BEGIN/,/# BL-154-UNIT-LANE-END/d'`,
+  vacuity-guarded (marker count ≥ 1 AND mutant line-count < original) + `bash -n`
+  clean, re-run the U2 scenario → the non-init test is NO LONGER flagged (exit 0).
+  Proves the fence is load-bearing.
+- **U5 (tests.yml entry):** `grep -vF 'tests/test-check-gate.sh'` on a COPY of the
+  real tests.yml, consumed via `--tests-yml` against the real tests dir → that one
+  test is flagged (exit 1, named, "unit lane"). Proves the arm reads the real list.
+
+### CLAUDE.md disposition
+The overclaim is cured by the implementation. HOUSE RULES sentence trued up to
+make the `init.sh` exemption explicit and name both enforced lists (mechanism
+name `lint-tests-registered.sh` unchanged, per plan). CANONICAL COMMANDS
+"…are both lint-enforced" is now literally true — left as-is.
+
+### Blast radius
+- `bash tests/test-lint-tests-registered.sh` → 17/17 (exit 0).
+- `bash scripts/lint-tests-registered.sh` (repo mode) → OK, exit 0.
+- `bash scripts/run-lints.sh` → PASS (tally in the PR body).
+- `bash scripts/lint-backlog-references.sh` → OK (exit 0) after the BL-154
+  Status update.
+- Markers use the repo's dominant plain-ASCII fence style (`# BL-154-…-BEGIN`,
+  not the box-drawing `# ── …` form) so the standard `sed` excision idiom matches.
+
+### Deviations from the plan
+- None. The plan anticipated adding a fixture mode for tests.yml if absent
+  (there was none) — added `--tests-yml`, mirroring the existing override idiom.

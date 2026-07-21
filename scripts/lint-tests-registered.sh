@@ -107,27 +107,54 @@ SELF_PATH="$REPO_ROOT/scripts/lint-tests-registered.sh"
 LIST_MODE=0
 TESTS_DIR_OVERRIDE=""
 AGGREGATORS_OVERRIDE=""
+# --tests-yml FILE (BL-154): point the unit-lane arm at a fixture tests.yml.
+# The flag acceptance + this initialiser stay OUTSIDE the BL-154 fence so an
+# excision mutant (tests/test-lint-tests-registered.sh U4) still parses the
+# flag; the arm's ENFORCEMENT lives inside the fence and reverts on excision.
+UNIT_LIST_OVERRIDE=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --list) LIST_MODE=1; shift ;;
     --tests-dir)
-      [ $# -ge 2 ] || { echo "Usage: $0 [--list] [--tests-dir DIR] [--aggregators FILE[,FILE...]]" >&2; exit 2; }
+      [ $# -ge 2 ] || { echo "Usage: $0 [--list] [--tests-dir DIR] [--aggregators FILE[,FILE...]] [--tests-yml FILE]" >&2; exit 2; }
       TESTS_DIR_OVERRIDE="$2"; shift 2 ;;
     --aggregators)
-      [ $# -ge 2 ] || { echo "Usage: $0 [--list] [--tests-dir DIR] [--aggregators FILE[,FILE...]]" >&2; exit 2; }
+      [ $# -ge 2 ] || { echo "Usage: $0 [--list] [--tests-dir DIR] [--aggregators FILE[,FILE...]] [--tests-yml FILE]" >&2; exit 2; }
       AGGREGATORS_OVERRIDE="$2"; shift 2 ;;
+    --tests-yml)
+      [ $# -ge 2 ] || { echo "Usage: $0 [--list] [--tests-dir DIR] [--aggregators FILE[,FILE...]] [--tests-yml FILE]" >&2; exit 2; }
+      UNIT_LIST_OVERRIDE="$2"; shift 2 ;;
     -h|--help)
-      echo "Usage: $0 [--list] [--tests-dir DIR] [--aggregators FILE[,FILE...]]"; exit 0 ;;
-    *) echo "Usage: $0 [--list] [--tests-dir DIR] [--aggregators FILE[,FILE...]]" >&2; exit 2 ;;
+      echo "Usage: $0 [--list] [--tests-dir DIR] [--aggregators FILE[,FILE...]] [--tests-yml FILE]"; exit 0 ;;
+    *) echo "Usage: $0 [--list] [--tests-dir DIR] [--aggregators FILE[,FILE...]] [--tests-yml FILE]" >&2; exit 2 ;;
   esac
 done
 
 TESTS_DIR="${TESTS_DIR_OVERRIDE:-$REPO_ROOT/tests}"
 TEST_MODE=0
-if [ -n "$TESTS_DIR_OVERRIDE" ] || [ -n "$AGGREGATORS_OVERRIDE" ]; then
+if [ -n "$TESTS_DIR_OVERRIDE" ] || [ -n "$AGGREGATORS_OVERRIDE" ] || [ -n "$UNIT_LIST_OVERRIDE" ]; then
   TEST_MODE=1
 fi
+
+# BL-154-UNIT-LANE-BEGIN: resolve the tests.yml unit list source
+# The fast-lane unit list (.github/workflows/tests.yml `tests=(` array) is a
+# reviewed enumeration of every quick tests/test-*.sh that does NOT invoke
+# init.sh. This arm enforces membership. Resolution:
+#   • --tests-yml FILE  → that fixture file (test mode)
+#   • repo mode         → the real .github/workflows/tests.yml
+#   • fixture mode w/o --tests-yml → arm inactive (aggregator check still runs)
+# UNIT_LANE_ACTIVE / UNIT_LIST_STR are populated by _build_unit_list_set().
+UNIT_LANE_ACTIVE=0
+UNIT_LIST_STR="|"
+if [ -n "$UNIT_LIST_OVERRIDE" ]; then
+  UNIT_LIST_YML="$UNIT_LIST_OVERRIDE"
+elif [ "$TEST_MODE" -eq 0 ]; then
+  UNIT_LIST_YML="$REPO_ROOT/.github/workflows/tests.yml"
+else
+  UNIT_LIST_YML=""
+fi
+# BL-154-UNIT-LANE-END
 
 # Aggregator list (default vs. --aggregators override).
 declare -a AGGREGATORS
@@ -304,6 +331,66 @@ _parse_exempt() {
   return 0
 }
 
+# BL-154-UNIT-LANE-BEGIN: parse the tests.yml unit list
+# Populate UNIT_LIST_STR (pipe-delimited basename set, same idiom as
+# REGISTERED_STR) from the `tests=( … )` array of the resolved tests.yml.
+# The array is scoped mechanically (awk between `tests=(` and its closing
+# `)`), then every `tests/test-*.sh` token is collected — a whole-file grep
+# would over-count basenames mentioned in surrounding comments (e.g. the
+# checkout step names test-lint-backlog-references.sh in prose). A count
+# floor guards vacuity: in repo mode a 0-entry parse means the array shape
+# changed or the parser broke → refuse to claim a pass (exit 2).
+_build_unit_list_set() {
+  [ -n "$UNIT_LIST_YML" ] || return 0
+  if [ ! -r "$UNIT_LIST_YML" ]; then
+    if [ "$TEST_MODE" -eq 0 ]; then
+      echo "lint-tests-registered: cannot read the tests.yml unit list at $UNIT_LIST_YML — the BL-154 unit-lane arm cannot run; refusing to claim a clean pass" >&2
+      exit 2
+    fi
+    return 0
+  fi
+  local tok base count=0
+  while IFS= read -r tok; do
+    [ -n "$tok" ] || continue
+    base="${tok##*/}"
+    case "$UNIT_LIST_STR" in
+      *"|$base|"*) ;;
+      *) UNIT_LIST_STR="${UNIT_LIST_STR}${base}|"; count=$((count + 1)) ;;
+    esac
+  done < <(awk '/tests=\(/{f=1; next} f && /^[[:space:]]*\)/{f=0} f{print}' "$UNIT_LIST_YML" 2>/dev/null \
+           | grep -oE 'tests/test-[A-Za-z0-9._-]+\.sh' 2>/dev/null)
+  if [ "$count" -eq 0 ]; then
+    if [ "$TEST_MODE" -eq 0 ]; then
+      echo "lint-tests-registered: parsed 0 entries from the tests.yml unit list ('tests=(' array in $UNIT_LIST_YML) — the array shape changed or the parser broke; refusing to claim a clean pass" >&2
+      exit 2
+    fi
+    # Fixture mode: an empty unit list is legal (nothing to enforce).
+    return 0
+  fi
+  UNIT_LANE_ACTIVE=1
+}
+
+# Enforce unit-lane membership for a single candidate file. Applies only to
+# top-level tests/test-*.sh that do NOT invoke init.sh; an init.sh-invoking
+# test is aggregator-only by design (slow lane) and EXEMPT here. The init.sh
+# predicate is the file's own text (grep -L 'init\.sh') — the exact
+# convention the tests.yml comment documents as the unit-list generator.
+_check_unit_lane() {
+  local file="$1" base="$2" rel="$3"
+  [ "$UNIT_LANE_ACTIVE" -eq 1 ] || return 0
+  case "$base" in test-*.sh) ;; *) return 0 ;; esac
+  if grep -q 'init\.sh' "$file" 2>/dev/null; then
+    return 0
+  fi
+  case "$UNIT_LIST_STR" in
+    *"|${base}|"*) return 0 ;;
+  esac
+  echo "${rel}: lint-tests-registered: fast unit test is not listed in the tests.yml unit lane (the 'tests=(' array in .github/workflows/tests.yml). A tests/test-*.sh that does not invoke init.sh must be added there (see CLAUDE.md CANONICAL COMMANDS), or given a '# LINT_TEST_REGISTRATION_EXEMPT: <reason>' marker if it is intentionally manual-only." >&2
+  VIOLATIONS=$((VIOLATIONS + 1))
+  LIST_ROWS="${LIST_ROWS}FAIL\t${rel}\tnot-in-unit-lane\n"
+}
+# BL-154-UNIT-LANE-END
+
 scan_file() {
   local file="$1"
   [ -f "$file" ] || return 0
@@ -367,6 +454,13 @@ scan_file() {
     return 0
   fi
 
+  # BL-154-UNIT-LANE-BEGIN: enforce tests.yml unit-list membership
+  # Independent of the aggregator-registration check below (a file can be
+  # aggregator-registered yet missing from the fast-lane unit list). Runs
+  # only when a unit list is in scope; a no-op otherwise.
+  _check_unit_lane "$file" "$base" "$rel"
+  # BL-154-UNIT-LANE-END
+
   # BL-067 hot-path: pipe-delimited-string membership test instead of
   # the old O(m_aggregators × 2 greps) inner loop. REGISTERED_STR was
   # populated in Pass 1 by _build_registered_set(). Zero subprocesses
@@ -387,6 +481,10 @@ scan_file() {
 
 # ── Pass 1: build the registered-basename hash-set once. ────────────
 _build_registered_set
+
+# BL-154-UNIT-LANE-BEGIN: build the tests.yml unit-list set once.
+_build_unit_list_set
+# BL-154-UNIT-LANE-END
 
 # ── Pass 2: enumerate test files under TESTS_DIR. The four globs ────
 # cover the canonical patterns; missing dirs/no-match cases are
