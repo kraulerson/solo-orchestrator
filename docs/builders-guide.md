@@ -1504,7 +1504,7 @@ Consolidate all findings into a single remediation list. Fix critical findings f
    ```
 3. Full repository secret scan:
    ```bash
-   gitleaks detect --source . --verbose
+   gitleaks dir . --verbose
    ```
 4. License compliance (using your ecosystem's tool)
 5. Direct the agent to: fix all critical/high findings, verify data isolation on every interface, verify input validation at every entry point, write regression tests for every fix.

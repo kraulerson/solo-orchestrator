@@ -3526,6 +3526,8 @@ All 10 `templates/pipelines/ci/github/*.yml` pin `semgrep/semgrep-action@713efdd
 
 **Related:** BL-118 (the hook policy to mirror); BL-153 (the bitbucket image twin).
 
+**Status update 2026-07-21 (WP-2, branch `fix/bl148-bl153-semgrep-modernization`, stacked on merged WP-1 #235):** Implemented. All 10 `templates/pipelines/ci/github/*.yml` now run SAST in a sibling `container: semgrep/semgrep` job (`actions/checkout` with `fetch-depth: 0` → `semgrep scan …`), replacing the archived action. The scan's flag set is DERIVED from the local pre-commit hook (`scripts/lib/hook-templates.sh`) by the test suite — single source, never retyped. **Correction to the fix-shape above:** the hook policy is `--config=p/owasp-top-ten --config=r/javascript.browser.security.insecure-document-method --severity=ERROR --error` — it does **not** carry `p/security-audit`. Parity with the hook is the contract (CI now enforces the IDENTICAL ruleset the dev gate does), so the CI templates dropped `p/security-audit` to match. Verified (context7 + web) that `actions/checkout` runs cleanly in the Alpine-based `semgrep/semgrep` container: GitHub's runner detects Alpine and uses its musl node build for JS actions — this is Semgrep's own documented CI pattern. Watched-RED + mutation proof (strip the DOM-XSS config → parity RED → restore → GREEN) recorded; pinned by cases Cg1–Cg5 in `tests/test-bl147-ci-template-integrity.sh`. Status stays Open pending merge.
+
 ---
 
 ## BL-149: Emitted release-pipeline DAST is the un-fixed BL-122 twin — unpassable for essentially every web app
@@ -3600,6 +3602,8 @@ gitleaks-action requires `GITLEAKS_LICENSE` for ORGANIZATION accounts and `fetch
 **Fix shape:** `image: semgrep/semgrep` + the BL-148 flag policy; `gitleaks dir .` with a version-tagged image.
 
 **Related:** BL-148 (the github twin).
+
+**Status update 2026-07-21 (WP-2, branch `fix/bl148-bl153-semgrep-modernization`):** Implemented. Both bitbucket semgrep templates now use `image: semgrep/semgrep` with the hook-parity flags (`semgrep scan --config=p/owasp-top-ten --config=r/javascript.browser.security.insecure-document-method --severity=ERROR --error`). All 10 bitbucket gitleaks steps modernized: `gitleaks detect --source .` → `gitleaks dir .`; image `zricethezav/gitleaks:latest` → `ghcr.io/gitleaks/gitleaks:v8.30.1` (official image, version-pinned — latest release confirmed via `gh api repos/gitleaks/gitleaks/releases/latest` = v8.30.1, `ghcr.io/gitleaks/gitleaks:v8.30.1` manifest verified pullable). The SAME modernization was applied to the 10 gitlab CI templates for a consistent three-host surface: the global "no `returntocorp/semgrep` anywhere" invariant (WP-2's RED case Cg1 + the blast-radius grep) forced the gitlab semgrep image rename, and the gitleaks + flag-parity modernization rode along in the same edit. Pinned by cases Cg5/Cg6 in `tests/test-bl147-ci-template-integrity.sh`. Docs modernized: `docs/builders-guide.md`, `docs/user-guide.md` (`gitleaks detect --source .` → `gitleaks dir .`) and `docs/cli-setup-addendum.md` (stale "CI runs gitleaks-action" → "the gitleaks CLI"). Status stays Open pending merge.
 
 ---
 
