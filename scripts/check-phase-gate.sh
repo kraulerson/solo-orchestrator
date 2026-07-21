@@ -2154,7 +2154,7 @@ if [ -f "$TOOL_PREFS" ] && [ -x "$RESOLVER" ] && command -v jq &>/dev/null; then
         # project's CI governance job STRUCTURALLY unpassable — the
         # required-tools contract names DEV-WORKSTATION tools (Semgrep CLI,
         # Snyk CLI, Claude Code) no CI runner carries (CI runs SAST via the
-        # semgrep-action container and never holds Snyk auth or an
+        # semgrep container and never holds Snyk auth or an
         # interactive CLI), so every push failed governance while the same
         # command exited 0 locally. The sibling install prompts already
         # hard-N under $CI; the BLOCK now scopes the same way: on a CI

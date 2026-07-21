@@ -990,7 +990,7 @@ If any check fails, return to the Build Loop. Do not proceed to Phase 3.
 | Run E2E/integration tests on all target platforms | Fix failures — these are integration gaps | Same |
 | Run full SAST: `semgrep scan --config=p/owasp-top-ten --config=p/security-audit --severity ERROR --severity WARNING .` | Fix all critical/high findings | Same |
 | Run dependency scan: `snyk test` | Fix vulnerable dependencies | Same |
-| Run secret scan: `gitleaks detect --source . --verbose` | Remove any detected secrets | Same |
+| Run secret scan: `gitleaks dir . --verbose` | Remove any detected secrets | Same |
 | Generate SBOM (CycloneDX or equivalent) | Archive in docs/test-results/ | Same |
 | Validate threat model — every vector from Phase 1 has a verified mitigation or documented acceptance | Fix gaps | Same |
 | Run chaos/edge-case tests | Verify error recovery and input abuse defenses | Same |

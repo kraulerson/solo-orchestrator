@@ -12,13 +12,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 (v4.3.1)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
         with:
           fetch-depth: 0
 
       # SHA-pinned (BL-113): the ref name no longer selects the toolchain, so
       # the toolchain is now passed explicitly.
-      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable branch head 2026-06-30
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable branch head 2026-07-21
         with:
           toolchain: stable
 
@@ -33,14 +33,6 @@ jobs:
 
       - name: Lint
         run: cargo clippy -- -D warnings
-
-      - name: Security - SAST (Semgrep)
-        uses: semgrep/semgrep-action@713efdd345f3035192eaa63f56867b88e63e4e5d # v1 (v0.58.0)
-        with:
-          config: >-
-            p/owasp-top-ten
-            p/security-audit
-            r/javascript.browser.security.insecure-document-method
 
       - name: Security - Secret detection (gitleaks)
         run: |
@@ -110,3 +102,19 @@ jobs:
 
       - name: Governance - Session state check
         run: bash scripts/check-session-state.sh 2>/dev/null || true
+
+  # BL-148: SAST runs in the semgrep/semgrep container (replaces the archived
+  # Semgrep GitHub Action). The scan's config + severity flags MIRROR the local
+  # pre-commit hook (scripts/lib/hook-templates.sh) so CI and the dev gate enforce
+  # the IDENTICAL ruleset. semgrep/semgrep is Alpine-based; GitHub's runner detects
+  # that and runs JS actions (checkout) with its musl node build, so checkout works.
+  sast:
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
+        with:
+          fetch-depth: 0
+      - name: Security - SAST (Semgrep)
+        run: semgrep scan --config=p/owasp-top-ten --config=r/javascript.browser.security.insecure-document-method --severity=ERROR --error

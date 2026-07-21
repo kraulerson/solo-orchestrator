@@ -35,12 +35,12 @@
       "dev_os": ["darwin", "linux"],
       "platforms": ["web"],
       "languages": ["all"],
-      "check_command": "command -v docker && docker image inspect zaproxy/zap-stable &>/dev/null 2>&1",
+      "check_command": "command -v docker && docker image inspect ghcr.io/zaproxy/zaproxy:stable &>/dev/null 2>&1",
       "version_command": "echo 'docker image present'",
       "min_version": null,
       "latest_check": null,
       "install": {
-        "manual": "Requires Docker. Run: docker pull zaproxy/zap-stable"
+        "manual": "Requires Docker. Run: docker pull ghcr.io/zaproxy/zaproxy:stable"
       },
       "auto_installable": false,
       "substitutable": true,
