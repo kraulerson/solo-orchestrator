@@ -78,6 +78,13 @@ case "$*" in
     [ -n "${GLAB_PUT_APPR_STDERR:-}" ] && printf '%s\n' "$GLAB_PUT_APPR_STDERR" >&2
     exit "${GLAB_PUT_APPR_EXIT:-0}"
     ;;
+  *"-X POST"*"/approvals"*)
+    # BL-152: reset_approvals_on_push config (POST projects/:id/approvals —
+    # the non-rule config endpoint). Must be matched AFTER the approval_rules
+    # arm above (approval_rules never contains the substring "/approvals").
+    [ -n "${GLAB_POST_RESET_STDERR:-}" ] && printf '%s\n' "$GLAB_POST_RESET_STDERR" >&2
+    exit "${GLAB_POST_RESET_EXIT:-0}"
+    ;;
   *"-X PUT projects/"*)
     # PUT projects/:id  (sets only_allow_merge_if_pipeline_succeeds etc.)
     [ -n "${GLAB_PUT_PROJ_STDERR:-}" ] && printf '%s\n' "$GLAB_PUT_PROJ_STDERR" >&2
@@ -92,8 +99,10 @@ case "$*" in
     printf '%s' "${GLAB_GET_BRANCH_BODY:-{\}}"
     exit 0
     ;;
-  *"projects/"*"/approvals"*)
-    printf '%s' "${GLAB_GET_APPR_BODY:-{\}}"
+  *"projects/"*"/approval_rules"*)
+    # BL-152: verify now reads the approval-rules LIST (a JSON array) instead
+    # of the deprecated GET .../approvals + approvals_before_merge scalar.
+    printf '%s' "${GLAB_GET_APPR_BODY:-[]}"
     exit 0
     ;;
   api\ projects/*)
@@ -116,7 +125,8 @@ GLAB_EOF
   )
 }
 teardown_project() { rm -rf "$TMPDIR_T"; unset GLAB_POST_EXIT GLAB_POST_STDERR \
-  GLAB_PUT_APPR_EXIT GLAB_PUT_APPR_STDERR GLAB_PUT_PROJ_EXIT GLAB_PUT_PROJ_STDERR \
+  GLAB_PUT_APPR_EXIT GLAB_PUT_APPR_STDERR GLAB_POST_RESET_EXIT GLAB_POST_RESET_STDERR \
+  GLAB_PUT_PROJ_EXIT GLAB_PUT_PROJ_STDERR \
   GLAB_GET_PROJ_BODY GLAB_GET_BRANCH_BODY GLAB_GET_APPR_BODY GLAB_ARGV_LOG; }
 
 run_configure() {
@@ -182,7 +192,7 @@ t2_org_verify_fails_when_pipeline_gate_off() {
   # the gate must fail with the parity error message.
   setup_with_fake_glab
   export GLAB_GET_BRANCH_BODY='{"name":"main","allow_force_push":false,"push_access_levels":[{"access_level":0}]}'
-  export GLAB_GET_APPR_BODY='{"approvals_before_merge":1}'
+  export GLAB_GET_APPR_BODY='[{"approvals_required":1}]'
   export GLAB_GET_PROJ_BODY='{"only_allow_merge_if_pipeline_succeeds":false}'
   local out; out=$(run_verify org)
   local rc="${out%%|*}" stderr="${out#*|}"
@@ -201,7 +211,7 @@ t2_org_verify_fails_when_pipeline_gate_off() {
 t3_org_verify_passes_when_pipeline_gate_on() {
   setup_with_fake_glab
   export GLAB_GET_BRANCH_BODY='{"name":"main","allow_force_push":false,"push_access_levels":[{"access_level":0}]}'
-  export GLAB_GET_APPR_BODY='{"approvals_before_merge":1}'
+  export GLAB_GET_APPR_BODY='[{"approvals_required":1}]'
   export GLAB_GET_PROJ_BODY='{"only_allow_merge_if_pipeline_succeeds":true}'
   local out; out=$(run_verify org)
   local rc="${out%%|*}" stderr="${out#*|}"
@@ -362,6 +372,77 @@ t9_org_configure_uses_approval_rules_post() {
   teardown_project
 }
 
+t10_org_verify_reads_approval_rules() {
+  # BL-152 follow-up: host_verify_protection must read the required-approval
+  # count from the CURRENT API — GET projects/:id/approval_rules (a JSON
+  # array; any rule with approvals_required >= 1 satisfies it) — not the
+  # deprecated GET .../approvals + approvals_before_merge scalar (which no
+  # longer reflects approval_rules and would false-fail on Premium today).
+  setup_with_fake_glab
+  export GLAB_GET_BRANCH_BODY='{"name":"main","allow_force_push":false,"push_access_levels":[{"access_level":0}]}'
+  export GLAB_GET_APPR_BODY='[{"name":"Require approval","approvals_required":1}]'
+  export GLAB_GET_PROJ_BODY='{"only_allow_merge_if_pipeline_succeeds":true}'
+  local log="$TMPDIR_T/glab_calls.log"; : > "$log"
+  (
+    cd "$TMPDIR_T"
+    PATH="$TMPDIR_T/bin:$PATH"
+    export GLAB_GET_BRANCH_BODY GLAB_GET_APPR_BODY GLAB_GET_PROJ_BODY
+    export GLAB_ARGV_LOG="$log"
+    set +e
+    # shellcheck disable=SC1090
+    source "$DRIVER"
+    host_verify_protection main org >/dev/null 2>&1
+  )
+  # Verify must GET the approval-rules list.
+  if ! grep -qF 'approval_rules' "$log"; then
+    fail_ "T10" "expected verify to GET projects/:id/approval_rules; log=$(tr '\n' ';' < "$log")"
+    teardown_project; return
+  fi
+  # ...and must NOT still hit the deprecated GET projects/:id/approvals scalar.
+  if grep -qF 'projects/org%2Frepo/approvals' "$log"; then
+    fail_ "T10" "verify still calls the deprecated GET projects/:id/approvals; log=$(grep -F approvals "$log")"
+    teardown_project; return
+  fi
+  pass "T10: org verify reads approval_rules (approvals_required), not the deprecated approvals_before_merge (BL-152)"
+  teardown_project
+}
+
+t11_org_configure_sets_reset_approvals_on_push() {
+  # BL-152 follow-up: reset_approvals_on_push rode on the old /approvals PUT.
+  # It belongs to the /approvals CONFIG endpoint (not approval_rules), so it
+  # is re-applied via a dedicated POST projects/:id/approvals call after the
+  # approval_rules POST succeeds.
+  setup_with_fake_glab
+  export GLAB_POST_EXIT=0 GLAB_PUT_APPR_EXIT=0 GLAB_POST_RESET_EXIT=0 GLAB_PUT_PROJ_EXIT=0
+  local log="$TMPDIR_T/glab_calls.log"; : > "$log"
+  (
+    cd "$TMPDIR_T"
+    PATH="$TMPDIR_T/bin:$PATH"
+    export GLAB_POST_EXIT GLAB_PUT_APPR_EXIT GLAB_POST_RESET_EXIT GLAB_PUT_PROJ_EXIT
+    export GLAB_ARGV_LOG="$log"
+    set +e
+    # shellcheck disable=SC1090
+    source "$DRIVER"
+    host_configure_protection main org >/dev/null 2>&1
+  )
+  # There must be a POST carrying reset_approvals_on_push...
+  if ! grep 'reset_approvals_on_push' "$log" | grep -q -- '-X POST'; then
+    fail_ "T11" "expected a POST carrying reset_approvals_on_push; log=$(tr '\n' ';' < "$log")"
+    teardown_project; return
+  fi
+  # ...aimed at the /approvals config endpoint, NOT approval_rules.
+  if ! grep 'reset_approvals_on_push' "$log" | grep -qF '/approvals'; then
+    fail_ "T11" "reset_approvals_on_push not sent to the /approvals config endpoint; log=$(grep -F reset_approvals_on_push "$log")"
+    teardown_project; return
+  fi
+  if grep 'reset_approvals_on_push' "$log" | grep -qF 'approval_rules'; then
+    fail_ "T11" "reset_approvals_on_push wrongly sent to approval_rules; log=$(grep -F reset_approvals_on_push "$log")"
+    teardown_project; return
+  fi
+  pass "T11: org configure re-applies reset_approvals_on_push via POST /approvals (BL-152)"
+  teardown_project
+}
+
 echo "== tests/test-gitlab-ci-status-stderr-approvals.sh =="
 t1_org_configure_sets_pipeline_succeeds
 t2_org_verify_fails_when_pipeline_gate_off
@@ -372,6 +453,8 @@ t6_approvals_premium_only_returns_distinct_code
 t7_personal_mode_unchanged_on_success
 t8_backlog_has_bl032_entry
 t9_org_configure_uses_approval_rules_post
+t10_org_verify_reads_approval_rules
+t11_org_configure_sets_reset_approvals_on_push
 
 echo ""
 echo "== Total: $((PASSED + FAILED)) | Passed: $PASSED | Failed: $FAILED =="

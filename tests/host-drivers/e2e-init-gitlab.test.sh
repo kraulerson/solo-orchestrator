@@ -14,8 +14,9 @@
 #   api -X DELETE .../protected_branches/main    → tolerated (|| true) before recreate
 #   api -X POST .../protected_branches           → exit 0 with stdin payload
 #   api -X POST .../approval_rules               → exit 0 (org mode only; BL-152)
+#   api -X POST .../approvals                    → exit 0 (org: reset_approvals_on_push; BL-152)
 #   api projects/.../protected_branches/main     → GET, echo MOCK_GL_PROTECT_JSON
-#   api projects/.../approvals                   → GET (org), echo MOCK_GL_APPROVALS_JSON
+#   api projects/.../approval_rules              → GET (org), echo MOCK_GL_APPROVALS_JSON (array)
 #
 # Pattern-match order matters: `-X DELETE/POST/PUT` cases must come before
 # the bare-`api` GET fallback (all share the `/protected_branches` URL
@@ -47,8 +48,12 @@ cd /tmp
 #                                  `api -X POST .../approval_rules` (BL-152;
 #                                  knob name retained). Default 0.
 #   MOCK_GL_APPROVALS_PUT_ERR    — stderr emitted on failure
+#   MOCK_GL_RESET_POST_EXIT      — exit code for the reset_approvals_on_push
+#                                  config call `api -X POST .../approvals`
+#                                  (BL-152). Default 0.
+#   MOCK_GL_RESET_POST_ERR       — stderr emitted on failure
 #   MOCK_GL_PROTECT_JSON         — JSON body echoed by `api .../protected_branches/main` GET
-#   MOCK_GL_APPROVALS_JSON       — JSON body echoed by `api .../approvals` GET (org)
+#   MOCK_GL_APPROVALS_JSON       — JSON array echoed by `api .../approval_rules` GET (org)
 write_mock_glab() {
   local dir="$1"
   mkdir -p "$dir"
@@ -97,6 +102,18 @@ case "$*" in
     fi
     exit 0
     ;;
+  *"api -X POST "*approvals*)
+    # BL-152: reset_approvals_on_push config — POST projects/:id/approvals
+    # (the non-rule config endpoint). Matched AFTER the approval_rules arm
+    # ("approval_rules" never contains the substring "approvals").
+    rc="${MOCK_GL_RESET_POST_EXIT:-0}"
+    cat >/dev/null
+    if [ "$rc" -ne 0 ]; then
+      printf '%s\n' "${MOCK_GL_RESET_POST_ERR:-mock glab: reset-approvals-on-push POST failed}" >&2
+      exit "$rc"
+    fi
+    exit 0
+    ;;
   *"api -X PUT projects/"*)
     # PUT projects/:id (org-mode pipeline-success gate + discussion-
     # resolution settings — added by audit code-host-gitlab-2).
@@ -120,9 +137,11 @@ case "$*" in
     printf '%s\n' "${MOCK_GL_PROTECT_JSON:-{}}"
     exit 0
     ;;
-  *"api "*approvals*)
-    # GET approvals (org-mode verification)
-    printf '%s\n' "${MOCK_GL_APPROVALS_JSON:-{}}"
+  *"api "*approval_rules*)
+    # BL-152: GET approval_rules (org-mode verification) — verify now reads
+    # the approval-rules LIST (a JSON array), not the deprecated
+    # GET .../approvals + approvals_before_merge scalar.
+    printf '%s\n' "${MOCK_GL_APPROVALS_JSON:-[]}"
     exit 0
     ;;
   *)
@@ -174,6 +193,7 @@ scenario_teardown() {
   unset MOCK_GL_REPO_URL MOCK_GL_REPO_CREATE_EXIT MOCK_GL_REPO_CREATE_ERR
   unset MOCK_GL_PROTECT_POST_EXIT MOCK_GL_PROTECT_POST_ERR
   unset MOCK_GL_APPROVALS_PUT_EXIT MOCK_GL_APPROVALS_PUT_ERR
+  unset MOCK_GL_RESET_POST_EXIT MOCK_GL_RESET_POST_ERR
   unset MOCK_GL_PROTECT_JSON MOCK_GL_APPROVALS_JSON MOCK_GL_DELETE_EXIT
   unset MOCK_GL_PROJECT_PUT_EXIT MOCK_GL_PROJECT_PUT_ERR MOCK_GL_PROJECT_JSON
   unset GIT_CONFIG_GLOBAL GLAB_TOKEN
@@ -193,8 +213,8 @@ PROTECT_JSON_PERSONAL='{"name":"main","push_access_levels":[{"access_level":40}]
 # branches; MR-only access).
 PROTECT_JSON_ORG='{"name":"main","push_access_levels":[{"access_level":0}],"merge_access_levels":[{"access_level":40}],"allow_force_push":false}'
 
-# Org-mode approvals JSON: approvals_before_merge >= 1.
-APPROVALS_JSON_ORG='{"approvals_before_merge":1,"reset_approvals_on_push":true}'
+# Org-mode approval-rules LIST (BL-152): a rule requiring >= 1 approval.
+APPROVALS_JSON_ORG='[{"name":"Require approval","approvals_required":1}]'
 
 run_init_e2e() {
   local pname="$1" deployment="$2"; shift 2
