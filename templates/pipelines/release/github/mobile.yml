@@ -46,9 +46,9 @@ permissions:
 #     runs-on: ubuntu-latest
 #
 #     steps:
-#       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 (v4.3.1)
+#       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
 #
-#       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4 (v4.4.0)
+#       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7 (v7.0.0)
 #         with:
 #           node-version: '20'
 #
@@ -56,7 +56,7 @@ permissions:
 #         run: npm ci
 #
 #       - name: Setup Expo
-#         uses: expo/expo-github-action@c7b66a9c327a43a8fa7c0158e7f30d6040d2481e # v8 (8.2.1)
+#         uses: expo/expo-github-action@eab7a230208c952974db8c3245cfd78402c7b385 # v9 (9.0.0)
 #         with:
 #           eas-version: latest
 #           token: ${{ secrets.EXPO_TOKEN }}
@@ -72,7 +72,7 @@ permissions:
 #         #            Upload google-service-account.json as a repo secret or EAS secret.
 #
 #       - name: Create GitHub Release
-#         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2 (v2.6.2)
+#         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3 (v3.0.2)
 #         with:
 #           generate_release_notes: true
 
@@ -86,9 +86,9 @@ permissions:
 #     runs-on: ubuntu-latest
 #
 #     steps:
-#       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 (v4.3.1)
+#       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
 #
-#       - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4 (v4.8.0)
+#       - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5 (v5.6.0)
 #         with:
 #           distribution: temurin
 #           java-version: '17'
@@ -114,7 +114,7 @@ permissions:
 #         # prior step). Flutter does not consume keystore env vars automatically.
 #
 #       - name: Upload Android artifact
-#         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4 (v4.6.2)
+#         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7 (v7.0.1)
 #         with:
 #           name: __PROJECT_NAME__-android
 #           path: build/app/outputs/bundle/release/*.aab
@@ -123,7 +123,7 @@ permissions:
 #     runs-on: macos-latest
 #
 #     steps:
-#       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 (v4.3.1)
+#       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
 #
 #       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2 (v2.23.0)
 #         with:
@@ -141,7 +141,7 @@ permissions:
 #         #   3. Install the provisioning profile on the runner.
 #
 #       - name: Upload iOS artifact
-#         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4 (v4.6.2)
+#         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7 (v7.0.1)
 #         with:
 #           name: __PROJECT_NAME__-ios
 #           path: build/ios/ipa/*.ipa
@@ -151,10 +151,10 @@ permissions:
 #     runs-on: ubuntu-latest
 #
 #     steps:
-#       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4 (v4.3.0)
+#       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8 (v8.0.1)
 #
 #       - name: Create GitHub Release
-#         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2 (v2.6.2)
+#         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3 (v3.0.2)
 #         with:
 #           files: |
 #             __PROJECT_NAME__-android/*
@@ -176,9 +176,9 @@ permissions:
 #     runs-on: ubuntu-latest
 #
 #     steps:
-#       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 (v4.3.1)
+#       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
 #
-#       - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4 (v4.8.0)
+#       - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5 (v5.6.0)
 #         with:
 #           distribution: temurin
 #           java-version: '17'
@@ -194,13 +194,13 @@ permissions:
 #           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
 #
 #       - name: Upload artifact
-#         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4 (v4.6.2)
+#         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7 (v7.0.1)
 #         with:
 #           name: __PROJECT_NAME__-android
 #           path: app/build/outputs/bundle/release/*.aab
 #
 #       - name: Create GitHub Release
-#         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2 (v2.6.2)
+#         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3 (v3.0.2)
 #         with:
 #           files: app/build/outputs/bundle/release/*.aab
 #           generate_release_notes: true
@@ -220,7 +220,7 @@ permissions:
 #     runs-on: macos-latest
 #
 #     steps:
-#       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 (v4.3.1)
+#       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
 #
 #       - name: Select Xcode version
 #         run: sudo xcode-select -s /Applications/Xcode_16.0.app/Contents/Developer
@@ -300,13 +300,13 @@ permissions:
 #         #   </plist>
 #
 #       - name: Upload IPA artifact
-#         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4 (v4.6.2)
+#         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7 (v7.0.1)
 #         with:
 #           name: __PROJECT_NAME__-ios
 #           path: ${{ runner.temp }}/output/*.ipa
 #
 #       - name: Create GitHub Release
-#         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2 (v2.6.2)
+#         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3 (v3.0.2)
 #         with:
 #           files: ${{ runner.temp }}/output/*.ipa
 #           generate_release_notes: true
