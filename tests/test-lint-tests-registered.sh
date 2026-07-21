@@ -340,6 +340,171 @@ else
   fail_ "T11" "elapsed=${elapsed}s (budget ${BUDGET_SEC}s), lint_rc=${lint_rc} — BL-067 perf regression suspected"
 fi
 
+# ════════════════════════════════════════════════════════════════════
+# BL-154: the tests.yml unit-lane enforcement arm.
+#
+# Before BL-154 the lint enforced ONLY aggregator registration; the
+# CANONICAL COMMANDS / HOUSE RULES sentences in CLAUDE.md claimed it also
+# enforced membership of the .github/workflows/tests.yml fast-lane unit
+# list. It did not. The new arm (behind the # BL-154-UNIT-LANE fence)
+# closes that gap: every top-level tests/test-*.sh that does NOT invoke
+# init.sh must appear in the tests.yml `tests=(` array; an init.sh-invoking
+# test is EXEMPT (it belongs to the slow lane / aggregators only). The arm
+# consumes the unit list via a --tests-yml FILE override (fixture idiom
+# mirroring --tests-dir / --aggregators); in repo mode it defaults to the
+# real .github/workflows/tests.yml.
+#   • U1 (exempt): an init.sh-invoking test absent from the unit list → OK
+#   • U2 (flag):   a non-init test aggregator-registered but ABSENT from
+#                  the fixture unit list → exit 1, named + "unit lane"
+#   • U3 (repo):   the real repo passes the unit-lane arm (delta 0 today)
+#   • U4 (mutation, fence-excision): excise the BL-154 fence from a COPY →
+#                  the U2 scenario stops flagging (the fence is load-bearing)
+#   • U5 (mutation, tests.yml): drop one real entry from a COPY of the real
+#                  tests.yml consumed via --tests-yml → that test is flagged
+# ════════════════════════════════════════════════════════════════════
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== U1: init.sh-invoking test absent from unit list is EXEMPT → exit 0 ==="
+# ════════════════════════════════════════════════════════════════════
+# A test that scaffolds a project (invokes init.sh) is aggregator-only by
+# design — it must NOT be required in the fast-lane unit list. The arm
+# derives this from the file's own text (the grep -L 'init\.sh' convention
+# that tests.yml itself documents).
+setup_fixture
+cat > "$TMP/tests/test-scaffolder.sh" <<'SH'
+#!/usr/bin/env bash
+# This test scaffolds a real project (hermetic: --no-remote-creation, BL-076):
+bash "$REPO/init.sh" --no-remote-creation --platform web
+SH
+cat > "$TMP/tests/myagg.sh" <<SH
+#!/usr/bin/env bash
+bash "$TMP/tests/test-scaffolder.sh"
+SH
+# Fixture unit list that does NOT mention test-scaffolder.sh.
+cat > "$TMP/tests.yml" <<'SH'
+          tests=(
+            tests/test-some-fast-unit.sh
+          )
+SH
+out=$(bash "$LINTER" --tests-dir "$TMP/tests" --aggregators "$TMP/tests/myagg.sh" --tests-yml "$TMP/tests.yml" 2>&1); rc=$?
+if [ "$rc" -eq 0 ] && ! echo "$out" | grep -q "unit lane"; then
+  pass "U1: init.sh-invoking test exempt from the unit lane"
+else
+  fail_ "U1" "expected exit 0, no unit-lane flag; rc=$rc; output:\n$out"
+fi
+teardown_fixture
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== U2: non-init test registered but ABSENT from unit list → exit 1 ==="
+# ════════════════════════════════════════════════════════════════════
+# The load-bearing case: a fast (no init.sh) test that IS aggregator-
+# registered but is missing from the tests.yml unit list must be flagged.
+setup_fixture
+cat > "$TMP/tests/test-noninit-fast.sh" <<'SH'
+#!/usr/bin/env bash
+echo "fast unit test — no project scaffolding here"
+SH
+cat > "$TMP/tests/myagg.sh" <<SH
+#!/usr/bin/env bash
+bash "$TMP/tests/test-noninit-fast.sh"
+SH
+cat > "$TMP/tests.yml" <<'SH'
+          tests=(
+            tests/test-some-other-unit.sh
+          )
+SH
+out=$(bash "$LINTER" --tests-dir "$TMP/tests" --aggregators "$TMP/tests/myagg.sh" --tests-yml "$TMP/tests.yml" 2>&1); rc=$?
+if [ "$rc" -eq 1 ] \
+   && echo "$out" | grep -q "test-noninit-fast.sh" \
+   && echo "$out" | grep -q "unit lane"; then
+  pass "U2: unregistered-from-unit-lane non-init test flagged (exit 1 + diagnostic)"
+else
+  fail_ "U2" "expected exit 1 + 'unit lane' naming test-noninit-fast.sh; rc=$rc; output:\n$out"
+fi
+teardown_fixture
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== U3: real repo passes the unit-lane arm (BL-154 delta 0) → exit 0 ==="
+# ════════════════════════════════════════════════════════════════════
+# Repo-mode run resolves the real .github/workflows/tests.yml. Every
+# non-init tests/test-*.sh is present in the unit list today (verified
+# 2026-07-21), so the arm must not flag anything on the real repo.
+out=$(bash "$LINTER" 2>&1); rc=$?
+if [ "$rc" -eq 0 ] && ! echo "$out" | grep -q "unit lane"; then
+  pass "U3: repo HEAD is unit-lane-clean"
+else
+  fail_ "U3" "unit-lane arm flagged the real repo (delta should be 0); rc=$rc; output:\n$out"
+fi
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== U4: mutation — excise the BL-154 fence → U2 scenario stops flagging ==="
+# ════════════════════════════════════════════════════════════════════
+# Copy the linter, excise every # BL-154-UNIT-LANE-BEGIN..END region, and
+# re-run the U2 fixture. Without the fence the non-init unregistered test
+# must NO LONGER be flagged — proving the fence is what does the enforcing.
+setup_fixture
+cat > "$TMP/tests/test-noninit-fast.sh" <<'SH'
+#!/usr/bin/env bash
+echo "fast unit test — no project scaffolding here"
+SH
+cat > "$TMP/tests/myagg.sh" <<SH
+#!/usr/bin/env bash
+bash "$TMP/tests/test-noninit-fast.sh"
+SH
+cat > "$TMP/tests.yml" <<'SH'
+          tests=(
+            tests/test-some-other-unit.sh
+          )
+SH
+MUT="$TMP/mut"
+mkdir -p "$MUT/scripts"
+marker_n=$(grep -c 'BL-154-UNIT-LANE-BEGIN' "$LINTER" 2>/dev/null || echo "0")
+case "$marker_n" in ''|*[!0-9]*) marker_n=0 ;; esac
+orig_lines=$(wc -l < "$LINTER")
+sed '/# BL-154-UNIT-LANE-BEGIN/,/# BL-154-UNIT-LANE-END/d' "$LINTER" > "$MUT/scripts/lint-tests-registered.sh"
+mut_lines=$(wc -l < "$MUT/scripts/lint-tests-registered.sh")
+chmod +x "$MUT/scripts/lint-tests-registered.sh"
+if [ "$marker_n" -lt 1 ]; then
+  fail_ "U4" "no BL-154-UNIT-LANE fence found in the linter — nothing to excise (fix not in place)"
+elif [ "$mut_lines" -ge "$orig_lines" ]; then
+  fail_ "U4" "fence excision removed no lines (orig=$orig_lines mut=$mut_lines) — the marked region is empty/vacuous"
+elif ! bash -n "$MUT/scripts/lint-tests-registered.sh" 2>/dev/null; then
+  fail_ "U4" "excised mutant is syntactically broken — keep the fence excision-safe"
+else
+  out=$(bash "$MUT/scripts/lint-tests-registered.sh" --tests-dir "$TMP/tests" --aggregators "$TMP/tests/myagg.sh" --tests-yml "$TMP/tests.yml" 2>&1); rc=$?
+  if [ "$rc" -eq 0 ] && ! echo "$out" | grep -q "unit lane"; then
+    pass "U4: fence excised → the U2 scenario no longer flags (fence is load-bearing)"
+  else
+    fail_ "U4" "fence excised but the non-init test is still flagged — the fence does not contain the enforcement; rc=$rc; output:\n$out"
+  fi
+fi
+teardown_fixture
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== U5: mutation — drop one real entry from a tests.yml COPY → flagged ==="
+# ════════════════════════════════════════════════════════════════════
+# Copy the REAL tests.yml, remove one real non-init test's unit-list line,
+# and consume the copy via --tests-yml against the real tests dir. That one
+# test must now be flagged as missing from the unit lane.
+REAL_YML="$REPO_ROOT/.github/workflows/tests.yml"
+DROP="tests/test-check-gate.sh"
+MUTYML=$(mktemp)
+grep -vF "$DROP" "$REAL_YML" > "$MUTYML"
+out=$(bash "$LINTER" --tests-yml "$MUTYML" 2>&1); rc=$?
+if [ "$rc" -eq 1 ] \
+   && echo "$out" | grep -q "test-check-gate.sh" \
+   && echo "$out" | grep -q "unit lane"; then
+  pass "U5: dropping a real entry from the tests.yml copy flags that test"
+else
+  fail_ "U5" "expected exit 1 naming test-check-gate.sh via the unit lane; rc=$rc; output:\n$out"
+fi
+rm -f "$MUTYML"
+
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]
