@@ -6,7 +6,7 @@
 #   The generated project's CI runs check-phase-gate.sh as its governance
 #   job. The required-tools contract names DEV-WORKSTATION tools (Semgrep
 #   CLI, Snyk CLI, Claude Code) that no CI runner carries — CI does SAST via
-#   the semgrep-action container and never holds Snyk auth or an interactive
+#   the semgrep container and never holds Snyk auth or an interactive
 #   CLI. The arm's install PROMPTS already hard-N under $CI, but the
 #   `issues+1` BLOCK had no CI awareness: every generated project shipped
 #   with a permanently red governance check (the documented-but-impossible

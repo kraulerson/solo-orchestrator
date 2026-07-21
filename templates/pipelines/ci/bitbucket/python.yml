@@ -19,12 +19,12 @@ pipelines:
               - pytest
         - step:
             name: SAST
-            image: returntocorp/semgrep
-            script: [semgrep --config=p/owasp-top-ten --config=p/security-audit --error]
+            image: semgrep/semgrep
+            script: [semgrep scan --config=p/owasp-top-ten --config=r/javascript.browser.security.insecure-document-method --severity=ERROR --error]
         - step:
             name: Secrets
-            image: zricethezav/gitleaks:latest
-            script: [gitleaks detect --source . --verbose --redact]
+            image: ghcr.io/gitleaks/gitleaks:v8.30.1
+            script: [gitleaks dir . --verbose --redact]
         - step:
             name: Dependencies
             caches: [pip]

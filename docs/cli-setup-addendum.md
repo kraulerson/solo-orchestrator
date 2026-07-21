@@ -233,7 +233,7 @@ The Builder's Guide defines quality controls at each phase. The Development Guar
 | Builder's Guide Requirement | Development Guardrails Enforcement |
 |---|---|
 | TDD — tests before implementation (Phase 2, Step 2.2) | Pre-commit hook validates test file exists for changed source files |
-| Secret detection (Phase 2, Step 2.4) | Pre-commit hook runs gitleaks on staged files; CI pipeline runs gitleaks-action as backstop |
+| Secret detection (Phase 2, Step 2.4) | Pre-commit hook runs gitleaks on staged files; CI pipeline runs the gitleaks CLI as backstop |
 | SAST quick scan (Phase 2, Step 2.4) | Pre-commit hook runs Semgrep on staged files; CI pipeline runs full Semgrep scan |
 | License compliance (Phase 2, CI/CD) | Pre-push hook runs license-checker |
 | Documentation updates (Phase 2, Step 2.5) | Hook validates CHANGELOG.md updated when source files change |

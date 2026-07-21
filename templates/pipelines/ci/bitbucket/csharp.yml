@@ -11,8 +11,8 @@ pipelines:
           - dotnet list package --vulnerable --include-transitive 2>&1 | tee /tmp/v.out; ! grep -qi "vulnerable" /tmp/v.out
     - step:
         name: Secrets
-        image: zricethezav/gitleaks:latest
-        script: [gitleaks detect --source . --verbose --redact]
+        image: ghcr.io/gitleaks/gitleaks:v8.30.1
+        script: [gitleaks dir . --verbose --redact]
     - step:
         name: Governance
         image: bash:5
