@@ -128,7 +128,12 @@ noloud=""
 for f in "${GH_FILES[@]}"; do
   grep -Fq 'origin/main...HEAD' "$f" && bare="$bare ${f##*/}"
   grep -Fq 'github.base_ref'    "$f" || noexpr="$noexpr ${f##*/}"
-  grep -Fq 'git rev-parse --verify "$BASE"' "$f" || noloud="$noloud ${f##*/}"
+  # BL-147 follow-up (consolidated verifier MUST-1): bare `rev-parse --verify
+  # "$BASE"` returns rc 0 for ANY 40-hex string, existent or not — the
+  # force-push tamper passed silently. The ^{commit} peel demands a real
+  # commit object; the zeros literal guards ref-creation (no history yet).
+  grep -Fq 'git rev-parse --verify "$BASE^{commit}"' "$f" || noloud="$noloud ${f##*/}"
+  grep -Fq '0000000000000000000000000000000000000000' "$f" || noloud="$noloud ${f##*/}(no-zeros-guard)"
 done
 if [ -z "$bare" ]; then
   pass "Cd-no-bare-base"
@@ -141,7 +146,7 @@ else
   fail_ "Cd-explicit-base" "no explicit github.base_ref base in:$noexpr"
 fi
 if [ -z "$noloud" ]; then
-  pass "Cd-loud-fail (all $GH_COUNT rev-parse --verify the base)"
+  pass "Cd-loud-fail (all $GH_COUNT peel \$BASE^{commit} + carry the zeros ref-creation guard)"
 else
   fail_ "Cd-loud-fail" "no loud-fail 'git rev-parse --verify \"\$BASE\"' in:$noloud"
 fi
@@ -180,7 +185,7 @@ gbare=""
 gnoloud=""
 for f in "${gl_approval[@]}"; do
   grep -Fq 'origin/main...HEAD' "$f" && gbare="$gbare ${f##*/}"
-  grep -Fq 'git rev-parse --verify "$BASE"' "$f" || gnoloud="$gnoloud ${f##*/}"
+  grep -Fq 'git rev-parse --verify "$BASE^{commit}"' "$f" || gnoloud="$gnoloud ${f##*/}"
 done
 if [ -z "$gbare" ]; then
   pass "Cf-no-bare-base (gitlab)"
@@ -302,7 +307,7 @@ if [ -z "$bade" ]; then pass "Cg3-error-parity (all carry --error)"; else fail_ 
 echo "Cg4: every github CI template declares the semgrep/semgrep container"
 miss_img=""
 for f in "${GH_FILES[@]}"; do
-  grep -Eq '^[[:space:]]*image:[[:space:]]*semgrep/semgrep[[:space:]]*$' "$f" || miss_img="$miss_img ${f##*/}"
+  grep -Eq '^[[:space:]]*image:[[:space:]]*semgrep/semgrep:[0-9]+\.[0-9]+\.[0-9]+[[:space:]]*$' "$f" || miss_img="$miss_img ${f##*/}"
 done
 if [ -z "$miss_img" ]; then
   pass "Cg4-container (all $GH_COUNT use image: semgrep/semgrep)"
@@ -323,7 +328,7 @@ else
 fi
 n_badimg=""; n_badc=""; n_bads=""; n_bade=""
 for f in "${NONGH_SEMGREP[@]}"; do
-  grep -Eq '^[[:space:]]*image:[[:space:]]*semgrep/semgrep[[:space:]]*$' "$f" || n_badimg="$n_badimg ${f#*/ci/}"
+  grep -Eq '^[[:space:]]*image:[[:space:]]*semgrep/semgrep:[0-9]+\.[0-9]+\.[0-9]+[[:space:]]*$' "$f" || n_badimg="$n_badimg ${f#*/ci/}"
   extract_semgrep_policy "$f"
   [ "$EX_CONFIGS"  = "$HOOK_CONFIGS" ]  || n_badc="$n_badc ${f#*/ci/}(=$EX_CONFIGS)"
   [ "$EX_SEVERITY" = "$HOOK_SEVERITY" ] || n_bads="$n_bads ${f#*/ci/}"
@@ -495,6 +500,25 @@ fi
 #        carries `@<40-hex-sha> # <version comment>` (placeholder exempt)
 #   Cp2  every action-bearing RELEASE_SETUP_ACTION= entry in init.sh AND
 #        scripts/reconfigure-project.sh (the sync sibling) is likewise pinned
+
+# ── Ck1: the gitleaks CLI download is checksum-verified ──────────────────────
+# Consolidated-verifier SHOULD-4: the version-tagged curl|tar had no integrity
+# check — weaker than the SHA-pinned action it replaced. gitleaks ships
+# <ver>_checksums.txt; the step must fetch it and sha256-verify the tarball.
+echo "Ck1: every github gitleaks step sha256-verifies the download"
+miss_ck=""
+for f in "${GH_FILES[@]}"; do
+  if grep -q 'GITLEAKS_VERSION' "$f"; then
+    grep -q 'checksums.txt' "$f" && grep -q 'sha256sum' "$f" || miss_ck="$miss_ck ${f##*/}"
+  else
+    miss_ck="$miss_ck ${f##*/}(no-gitleaks-step)"
+  fi
+done
+if [ -z "$miss_ck" ]; then
+  pass "Ck1-gitleaks-checksum (all $GH_COUNT verify the tarball)"
+else
+  fail_ "Ck1-gitleaks-checksum" "no checksum verification in:$miss_ck"
+fi
 
 echo "Cp1: every uses: action ref is a 40-hex SHA pin + a version comment"
 CP1_FILES=()

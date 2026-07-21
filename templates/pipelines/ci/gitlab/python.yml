@@ -38,7 +38,7 @@ test:
 
 sast:
   stage: security
-  image: semgrep/semgrep
+  image: semgrep/semgrep:1.170.0
   script:
     - semgrep scan --config=p/owasp-top-ten --config=r/javascript.browser.security.insecure-document-method --severity=ERROR --error
 
@@ -73,7 +73,7 @@ governance:
       if [ -f APPROVAL_LOG.md ]; then
         BASE="origin/${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-${CI_DEFAULT_BRANCH:-main}}"
         git fetch origin "${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-${CI_DEFAULT_BRANCH:-main}}" --quiet || true
-        if ! git rev-parse --verify "$BASE" >/dev/null; then
+        if ! git rev-parse --verify "$BASE^{commit}" >/dev/null; then
           echo "ERROR: approval-log check cannot resolve base '$BASE' — failing LOUDLY (a check that cannot run must not pass)"
           exit 1
         fi

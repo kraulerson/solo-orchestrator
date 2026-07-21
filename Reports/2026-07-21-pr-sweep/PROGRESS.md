@@ -625,3 +625,15 @@ array, T10/T11 added + registered); `tests/host-drivers/gitlab.test.sh`
   old idempotent PUT, a second org-configure could create a duplicate/renamed
   rule. `host_configure_protection` runs once at Phase-2 init (rare re-runs),
   so low risk — noted for a durable follow-up.
+
+---
+
+## CONSOLIDATED ADVERSARIAL VERIFICATION (Fable) — wave verdict + the follow-up round
+
+- **Verdict:** WP-2/3/4/6 **approve** · WP-5 **minor_concerns** (completion round landed on #238 pre-merge: verify-path migrated to GET /approval_rules, `reset_approvals_on_push` restored via its owning endpoint — both watched-RED with isolated mutations, 11/0) · WP-1 **major_concerns** — one real MUST found in the merged work.
+- **MUST-1 (executed repro, landed in this follow-up):** `git rev-parse --verify "$BASE"` returns rc 0 for ANY 40-hex string, object present or not — so on a force-push to main, `github.event.before` is an absent object, the "loud-fail" guard passed, the diff died inside the `if <pipe>` condition, and a TAMPERED APPROVAL_LOG passed silently (end-to-end scenario proof: bare origin, history rewrite erasing an approval, --no-local clone, step exit 0). PR path unaffected; gitlab unaffected (branch-name bases).
+- **The follow-up fix (`fix/bl147-forcepush-guard`):** the guard peels `"$BASE^{commit}"` (demands a real commit object) in BOTH governance steps × all 10 github templates + the 2 gitlab twins; a NEW all-zeros ref-creation arm exits with a `::notice::` (zeros = new ref, nothing to compare — without this arm the ^{commit} peel would have bricked the scaffold's FIRST push, the BL-137 class); suite Cd/Cf updated in lockstep (they pinned the broken string) + the zeros-guard assertion.
+- **SHOULD-4 (landed):** the gitleaks download is now sha256-verified against the release's `_checksums.txt` (was: version-tagged but integrity-unchecked — weaker than the SHA-pinned action it replaced). New suite case Ck1.
+- **SHOULD-5 (landed, decision recorded):** `image: semgrep/semgrep` → `semgrep/semgrep:1.170.0` across all 22 tagless occurrences (github/gitlab/bitbucket). Decision: pin the ENGINE (reproducibility, consistent with the estate's pin discipline) — registry rulesets (`p/…`, `r/…`) are still fetched live at scan time, so rule currency is unaffected; engine-pin staleness is the BL-150/BL-109 watcher's problem, same as every other pin. Cg4/Cg5 now mandate the pinned form.
+- **What HELD (verifier):** the DAST jq verdict survived 9 hostile fixtures (every arm correct); semgrep parity survives config reordering; the merge matrix had zero silent wrong-merges (PROGRESS.md keep-both only — resolved as predicted at every round); WP-4 sibling tables byte-identical; suites green from their own trees.
+- **Mutation proofs (this round):** bare-`$BASE` revert in one template → Cd RED; unpinned semgrep in one → Cg4 RED; restore → 48/48 ×3. (Round note, recorded honestly: a careless `git checkout <file>` during the second mutation restore wiped python.yml's uncommitted fixes — caught immediately by the suite going 45/3, re-applied, 48/48 ×3. The suite catching its own harness's mistake is the point of the suite.)

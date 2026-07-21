@@ -36,7 +36,10 @@ jobs:
           # for org accounts and a full clone; the CLI needs neither and mirrors the local hook.
           # `gitleaks git` scans full history — hence fetch-depth: 0 on checkout.
           GITLEAKS_VERSION=8.30.1
-          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" | tar -xz gitleaks
+          curl -sSfLO "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_checksums.txt" \
+            | grep " gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz\$" | sha256sum -c -
+          tar -xzf "gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" gitleaks
           ./gitleaks git --redact --exit-code 1
 
       - name: Security - Dependency audit
@@ -57,8 +60,11 @@ jobs:
           # A default-depth checkout has no origin/main ref; a check that cannot run must not pass.
           BASE="origin/${{ github.base_ref || 'main' }}"
           if [ "${{ github.event_name }}" = "push" ]; then BASE="${{ github.event.before }}"; fi
+          if [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            echo "::notice::ref creation — no prior APPROVAL_LOG history to compare"; exit 0
+          fi
           git fetch origin "${{ github.base_ref || 'main' }}" --quiet || true
-          if ! git rev-parse --verify "$BASE" >/dev/null; then
+          if ! git rev-parse --verify "$BASE^{commit}" >/dev/null; then
             echo "::error::approval-log check cannot resolve base '$BASE' — failing LOUDLY (a check that cannot run must not pass)"; exit 1
           fi
           if git diff "$BASE...HEAD" -- APPROVAL_LOG.md | grep -qE '^\-[^-]'; then
@@ -71,8 +77,11 @@ jobs:
           # BL-147: same explicit-base + loud-fail resolution as the integrity step.
           BASE="origin/${{ github.base_ref || 'main' }}"
           if [ "${{ github.event_name }}" = "push" ]; then BASE="${{ github.event.before }}"; fi
+          if [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            echo "::notice::ref creation — no prior APPROVAL_LOG history to compare"; exit 0
+          fi
           git fetch origin "${{ github.base_ref || 'main' }}" --quiet || true
-          if ! git rev-parse --verify "$BASE" >/dev/null; then
+          if ! git rev-parse --verify "$BASE^{commit}" >/dev/null; then
             echo "::error::approval-author check cannot resolve base '$BASE' — failing LOUDLY (a check that cannot run must not pass)"; exit 1
           fi
           # When APPROVAL_LOG.md is modified, check the commit author against the listed approver.
@@ -106,7 +115,7 @@ jobs:
   sast:
     runs-on: ubuntu-latest
     container:
-      image: semgrep/semgrep
+      image: semgrep/semgrep:1.170.0
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
         with:
