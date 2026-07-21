@@ -74,14 +74,18 @@ fi
 
 # ── T2: init.sh ships + instantiates all three, inside the fence ─────────────
 echo "=== T2-init-ships-and-instantiates ==="
-check_init_wiring() {  # <init-file> → 0 iff all six wiring lines present
+check_init_wiring() {  # <init-file> → 0 iff all six wiring lines present AND LIVE
+  # BL-146 live-test MAJOR: substring greps matched COMMENTED-OUT cp lines —
+  # a mutant with the instantiation disabled sailed through every PR-blocking
+  # check (the real-init case lives in the manual-dispatch full lane only).
+  # Anchor on ^\s*cp, the ship-closure test's own comment-immune idiom.
   local f="$1"
-  grep -q 'templates/generated/doc-index.tmpl" templates/generated/' "$f" \
-    && grep -q 'templates/generated/identifiers.tmpl" templates/generated/' "$f" \
-    && grep -q 'templates/generated/archive-readme.tmpl" templates/generated/' "$f" \
-    && grep -q 'doc-index.tmpl" docs/INDEX.md' "$f" \
-    && grep -q 'identifiers.tmpl" docs/IDENTIFIERS.md' "$f" \
-    && grep -q 'archive-readme.tmpl" docs/archive/README.md' "$f"
+  grep -Eq '^[[:space:]]*cp .*templates/generated/doc-index\.tmpl" templates/generated/' "$f" \
+    && grep -Eq '^[[:space:]]*cp .*templates/generated/identifiers\.tmpl" templates/generated/' "$f" \
+    && grep -Eq '^[[:space:]]*cp .*templates/generated/archive-readme\.tmpl" templates/generated/' "$f" \
+    && grep -Eq '^[[:space:]]*cp .*doc-index\.tmpl" docs/INDEX\.md' "$f" \
+    && grep -Eq '^[[:space:]]*cp .*identifiers\.tmpl" docs/IDENTIFIERS\.md' "$f" \
+    && grep -Eq '^[[:space:]]*cp .*archive-readme\.tmpl" docs/archive/README\.md' "$f"
 }
 if check_init_wiring "$REPO_ROOT/init.sh" \
    && grep -q '# BL-089-DOC-FOUNDATIONS-BEGIN' "$REPO_ROOT/init.sh" \
@@ -147,13 +151,13 @@ else
   # is missing, which under-pins the fence-containment claim).
   t5_ok=true
   for t5_pat in \
-    'templates/generated/doc-index.tmpl" templates/generated/' \
-    'templates/generated/identifiers.tmpl" templates/generated/' \
-    'templates/generated/archive-readme.tmpl" templates/generated/' \
-    'doc-index.tmpl" docs/INDEX.md' \
-    'identifiers.tmpl" docs/IDENTIFIERS.md' \
-    'archive-readme.tmpl" docs/archive/README.md'; do
-    if grep -q "$t5_pat" "$TMP/init.mut.sh"; then
+    '^[[:space:]]*cp .*templates/generated/doc-index\.tmpl" templates/generated/' \
+    '^[[:space:]]*cp .*templates/generated/identifiers\.tmpl" templates/generated/' \
+    '^[[:space:]]*cp .*templates/generated/archive-readme\.tmpl" templates/generated/' \
+    '^[[:space:]]*cp .*doc-index\.tmpl" docs/INDEX\.md' \
+    '^[[:space:]]*cp .*identifiers\.tmpl" docs/IDENTIFIERS\.md' \
+    '^[[:space:]]*cp .*archive-readme\.tmpl" docs/archive/README\.md'; do
+    if grep -Eq "$t5_pat" "$TMP/init.mut.sh"; then
       t5_ok=false; echo "  survives outside the fence: $t5_pat"
     fi
   done
@@ -162,6 +166,42 @@ else
   else
     fail_ "T5-fence-excision-mutant" "wiring line(s) live outside the # BL-089-DOC-FOUNDATIONS fence (see above)"
   fi
+fi
+
+# ── T6: liveness mutant — COMMENTED-OUT wiring is not wiring ─────────────────
+# The BL-146 live-test MAJOR verbatim: comment the three instantiation cp
+# lines (+ the mkdir) inside the fence; the suite (and every PR-blocking
+# check) stayed green because the greps were comment-blind. Under the
+# anchored checker this mutant must FAIL the wiring check.
+echo "=== T6-commented-wiring-mutant ==="
+python3 - "$REPO_ROOT/init.sh" "$TMP/init.commented.sh" <<'PYEOF' 2>/dev/null || {
+import sys
+lines = open(sys.argv[1]).read().split('\n')
+out = []
+for l in lines:
+    st = l.strip()
+    if (st.startswith('cp ') and ('" docs/INDEX.md' in l or '" docs/IDENTIFIERS.md' in l or '" docs/archive/README.md' in l)) or st == 'mkdir -p docs/archive':
+        out.append('  # ' + st)
+    else:
+        out.append(l)
+open(sys.argv[2], 'w').write('\n'.join(out))
+PYEOF
+  true; }
+if [ ! -f "$TMP/init.commented.sh" ]; then
+  # No python3 on this host — build the mutant with sed (same effect: the
+  # three instantiation cp lines commented; mkdir left as-is is fine, the
+  # cp anchors alone must fail the checker).
+  sed -E 's|^([[:space:]]*)(cp .*" docs/INDEX\.md)|\1# \2|; s|^([[:space:]]*)(cp .*" docs/IDENTIFIERS\.md)|\1# \2|; s|^([[:space:]]*)(cp .*" docs/archive/README\.md)|\1# \2|' \
+    "$REPO_ROOT/init.sh" > "$TMP/init.commented.sh"
+fi
+if grep -q '# cp .*" docs/INDEX.md\|#cp .*" docs/INDEX.md' "$TMP/init.commented.sh" || ! grep -Eq '^[[:space:]]*cp .*" docs/INDEX\.md' "$TMP/init.commented.sh"; then
+  if check_init_wiring "$TMP/init.commented.sh"; then
+    fail_ "T6-commented-wiring-mutant" "a commented-out instantiation still satisfies the wiring check (the BL-146 MAJOR survives)"
+  else
+    pass "T6-commented-wiring-mutant (disabled wiring is caught — the checker demands LIVE cp lines)"
+  fi
+else
+  fail_ "T6-commented-wiring-mutant" "mutant construction failed (instantiation lines not commented) — cannot prove liveness"
 fi
 
 echo ""
