@@ -16,6 +16,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 (v4.3.1)
+        with:
+          fetch-depth: 0
 
       - name: Select Xcode version
         run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
@@ -46,9 +48,13 @@ jobs:
             r/javascript.browser.security.insecure-document-method
 
       - name: Security - Secret detection (gitleaks)
-        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2 (v2.3.9)
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # BL-151: run the gitleaks CLI directly — gitleaks-action needs GITLEAKS_LICENSE
+          # for org accounts and a full clone; the CLI needs neither and mirrors the local hook.
+          # `gitleaks git` scans full history — hence fetch-depth: 0 on checkout.
+          GITLEAKS_VERSION=8.30.1
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" | tar -xz gitleaks
+          ./gitleaks git --redact --exit-code 1
 
       - name: Security - Dependency audit
         run: |
@@ -72,6 +78,44 @@ jobs:
             echo "[WARN] swift-license not found — license check skipped."
             echo "  Install: brew install nicklama/tap/swift-license"
             echo "  Alternative: review Package.swift dependencies manually."
+          fi
+
+      - name: Governance - Approval log integrity
+        if: hashFiles('APPROVAL_LOG.md') != ''
+        run: |
+          # BL-147: resolve the diff base explicitly and fail LOUDLY if it cannot be resolved.
+          # A default-depth checkout has no origin/main ref; a check that cannot run must not pass.
+          BASE="origin/${{ github.base_ref || 'main' }}"
+          if [ "${{ github.event_name }}" = "push" ]; then BASE="${{ github.event.before }}"; fi
+          git fetch origin "${{ github.base_ref || 'main' }}" --quiet || true
+          if ! git rev-parse --verify "$BASE" >/dev/null; then
+            echo "::error::approval-log check cannot resolve base '$BASE' — failing LOUDLY (a check that cannot run must not pass)"; exit 1
+          fi
+          if git diff "$BASE...HEAD" -- APPROVAL_LOG.md | grep -qE '^\-[^-]'; then
+            echo "::error::APPROVAL_LOG.md has deleted or modified lines. This file is append-only."; exit 1
+          fi
+
+      - name: Governance - Approval author verification
+        if: hashFiles('APPROVAL_LOG.md') != ''
+        run: |
+          # BL-147: same explicit-base + loud-fail resolution as the integrity step.
+          BASE="origin/${{ github.base_ref || 'main' }}"
+          if [ "${{ github.event_name }}" = "push" ]; then BASE="${{ github.event.before }}"; fi
+          git fetch origin "${{ github.base_ref || 'main' }}" --quiet || true
+          if ! git rev-parse --verify "$BASE" >/dev/null; then
+            echo "::error::approval-author check cannot resolve base '$BASE' — failing LOUDLY (a check that cannot run must not pass)"; exit 1
+          fi
+          # When APPROVAL_LOG.md is modified, check the commit author against the listed approver.
+          if git diff --name-only "$BASE...HEAD" | grep -q 'APPROVAL_LOG.md'; then
+            COMMIT_AUTHOR=$(git log --format='%an' "$BASE...HEAD" -- APPROVAL_LOG.md | head -1)
+            ADDED_LINES=$(git diff "$BASE...HEAD" -- APPROVAL_LOG.md | grep '^+' | grep -i 'Approver' | head -1 || true)
+            if [ -n "$ADDED_LINES" ] && [ -n "$COMMIT_AUTHOR" ]; then
+              APPROVER_NAME=$(echo "$ADDED_LINES" | awk -F'|' '{ gsub(/^[[:space:]]+|[[:space:]]+$/, "", $3); gsub(/\*/, "", $3); gsub(/\+/, "", $3); print $3 }' | xargs)
+              if [ -n "$APPROVER_NAME" ] && [ "$APPROVER_NAME" != "$COMMIT_AUTHOR" ]; then
+                echo "::warning::Commit author ($COMMIT_AUTHOR) differs from listed approver ($APPROVER_NAME). Verify this is intentional."
+                # Organizations wanting hard enforcement: change ::warning:: to ::error:: and uncomment: exit 1
+              fi
+            fi
           fi
 
       - name: Governance - Phase gate check
