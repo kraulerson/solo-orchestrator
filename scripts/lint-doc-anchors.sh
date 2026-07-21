@@ -36,14 +36,29 @@
 #   and is out of scope for this linter (it never matches the `](#`
 #   prefix this script looks for).
 #
+# THE BL-090 CROSS-FILE ARM (2026-07-21, Karl's decision: EXTEND this
+# lint rather than build a sibling — one doc-integrity tool)
+#   Every relative `](path)` reference must resolve from the referencing
+#   file's directory. URLs, mailto:, absolute paths, bare #anchors, and
+#   fenced code are out of scope; `path#anchor` checks the FILE half
+#   (target-anchor validation is a later, corpus-calibrated rung).
+#   MEASURED ROLLOUT: warn-only by default (`warn:` lines; exit code
+#   untouched) — escalate with --strict-refs once the warning population
+#   stays at zero. Dogfood baseline 2026-07-21: 140 relative refs across
+#   81 files, ZERO warnings. Inline exemption: a literal `(planned)` on
+#   the referencing line marks a deliberately unwritten target.
+#   Ghost IDENTIFIER citations (ADR-0003-style) are steps 2-3 of BL-090,
+#   blocked on the Pantheon FP-calibration corpus — not in this arm.
+#
 # EXIT CODES
-#   0 — no broken anchors found.
-#   1 — one or more broken anchor references found.
+#   0 — no broken anchors found (ref warnings alone do not fail).
+#   1 — broken anchor(s) found, OR --strict-refs with ref warnings.
 #   2 — invocation / I/O error.
 #
 # USAGE
 #   bash scripts/lint-doc-anchors.sh           # quiet pass/fail
 #   bash scripts/lint-doc-anchors.sh --list    # PASS/FAIL table
+#   bash scripts/lint-doc-anchors.sh --strict-refs   # ref warns fail too
 #   bash scripts/lint-doc-anchors.sh --docs-dir DIR   # test-mode: scan
 #       an alternate directory (used by tests/test-lint-doc-anchors.sh)
 #
@@ -64,15 +79,18 @@ SELF_PATH="$REPO_ROOT/scripts/lint-doc-anchors.sh"
 LIST_MODE=0
 DOCS_DIR_OVERRIDE=""
 
+STRICT_REFS=0
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --list) LIST_MODE=1; shift ;;
+    --strict-refs) STRICT_REFS=1; shift ;;
     --docs-dir)
-      [ $# -ge 2 ] || { echo "Usage: $0 [--list] [--docs-dir DIR]" >&2; exit 2; }
+      [ $# -ge 2 ] || { echo "Usage: $0 [--list] [--strict-refs] [--docs-dir DIR]" >&2; exit 2; }
       DOCS_DIR_OVERRIDE="$2"; shift 2 ;;
     -h|--help)
-      echo "Usage: $0 [--list] [--docs-dir DIR]"; exit 0 ;;
-    *) echo "Usage: $0 [--list] [--docs-dir DIR]" >&2; exit 2 ;;
+      echo "Usage: $0 [--list] [--strict-refs] [--docs-dir DIR]"; exit 0 ;;
+    *) echo "Usage: $0 [--list] [--strict-refs] [--docs-dir DIR]" >&2; exit 2 ;;
   esac
 done
 
@@ -84,6 +102,7 @@ if [ ! -d "$DOCS_DIR" ]; then
 fi
 
 VIOLATIONS=0
+REF_WARNINGS=0
 LIST_ROWS=""
 FILES_SCANNED=0
 
@@ -178,6 +197,44 @@ process_file() {
     fi
     [ "$in_fence" -eq 1 ] && continue
 
+    # BL-090-DOC-REFS-BEGIN
+    # Cross-file reference arm (BL-090 step 1, Karl's 2026-07-20 decision:
+    # EXTEND this lint — one doc-integrity tool, not two drifting halves).
+    # Every `](path)` whose path is a RELATIVE file reference must resolve
+    # from the referencing file's directory. Out of scope by design: URLs
+    # (scheme://, mailto:), absolute paths, bare #anchors, fenced code
+    # (already skipped above). A `#suffix` is split off and the FILE half
+    # checked (target-anchor validation is the calibrated later rung).
+    # MEASURED ROLLOUT: warn-only by default — the exit code is untouched
+    # unless --strict-refs; escalate after the warning population is
+    # dogfooded to zero. Inline exemption: a literal `(planned)` on the
+    # referencing line marks a deliberately not-yet-written target.
+    case "$line" in
+      *']('*)
+        local ref_lineno=$((i + 1))
+        local ref_rest="$line" ref_target ref_file
+        case "$line" in *'(planned)'*) ref_rest="" ;; esac
+        while [[ "$ref_rest" == *']('* ]]; do
+          ref_rest="${ref_rest#*](}"
+          ref_target="${ref_rest%%)*}"
+          ref_rest="${ref_rest#"$ref_target"}"
+          [ -n "$ref_target" ] || continue
+          case "$ref_target" in
+            '#'*) continue ;;                          # same-file anchor — the original arm owns it
+            *'://'*|mailto:*|/*) continue ;;           # URL / absolute — out of scope
+          esac
+          ref_file="${ref_target%%#*}"
+          [ -n "$ref_file" ] || continue
+          if [ ! -e "$(dirname "$file")/$ref_file" ]; then
+            echo "warn: ${rel}:${ref_lineno} unresolved relative reference '${ref_file}' (BL-090; append '(planned)' on the line if the target is deliberately not written yet)" >&2
+            REF_WARNINGS=$((REF_WARNINGS + 1))
+            LIST_ROWS="${LIST_ROWS}WARN\t${rel}:${ref_lineno}\t${ref_file}\n"
+          fi
+        done
+        ;;
+    esac
+    # BL-090-DOC-REFS-END
+
     case "$line" in
       *'](#'*)
         local lineno=$((i + 1))
@@ -219,6 +276,14 @@ if [ "$VIOLATIONS" -gt 0 ]; then
   echo "" >&2
   echo "$VIOLATIONS broken anchor(s) found across $FILES_SCANNED file(s). Fix each link to point at the heading's current GitHub-derived slug (see scripts/lint-doc-anchors.sh header)." >&2
   exit 1
+fi
+
+if [ "$REF_WARNINGS" -gt 0 ]; then
+  echo "" >&2
+  echo "$REF_WARNINGS unresolved relative reference(s) across $FILES_SCANNED file(s) — WARN-tier (BL-090 measured rollout; does not fail the lint$( [ "$STRICT_REFS" -eq 1 ] && printf '%s' " — but --strict-refs is set, failing" )). " >&2
+  if [ "$STRICT_REFS" -eq 1 ]; then
+    exit 1
+  fi
 fi
 
 echo "OK: no broken in-document anchors across $FILES_SCANNED markdown file(s) under ${DOCS_DIR#"$REPO_ROOT"/}."

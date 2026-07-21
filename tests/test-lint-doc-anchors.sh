@@ -237,6 +237,137 @@ else
   fail_ "T-REPO" "current docs/ tree has broken anchors; rc=$rc; output:\n$out"
 fi
 
+# ════════════════════════════════════════════════════════════════════
+# BL-090 cases — the cross-file reference arm (Karl's 2026-07-20
+# decision: EXTEND this lint). WARN-tier by default (measured rollout):
+# broken relative refs report but do not fail; --strict-refs escalates.
+# ════════════════════════════════════════════════════════════════════
+
+echo ""
+echo "=== T8 (BL-090): broken relative ref → WARN line, exit stays 0 ==="
+setup_fixture
+cat > "$TMP/docs/refs.md" <<'MD'
+# Refs Fixture
+
+See [the missing doc](nonexistent-target.md) for details.
+MD
+out=$(run_lint_fixture); rc=$?
+if [ "$rc" -eq 0 ] && echo "$out" | grep -q 'warn:.*refs.md.*nonexistent-target.md'; then
+  pass "T8: broken relative ref warns without failing (measured rollout)"
+else
+  fail_ "T8" "expected rc=0 + a warn: line naming the ghost target; rc=$rc; output: $out"
+fi
+teardown_fixture
+
+echo ""
+echo "=== T9 (BL-090): --strict-refs escalates the same break to exit 1 ==="
+setup_fixture
+cat > "$TMP/docs/refs.md" <<'MD'
+# Refs Fixture
+
+See [the missing doc](nonexistent-target.md) for details.
+MD
+out=$(bash "$LINTER" --docs-dir "$TMP/docs" --strict-refs 2>&1); rc=$?
+if [ "$rc" -eq 1 ] && echo "$out" | grep -q 'nonexistent-target.md'; then
+  pass "T9: --strict-refs fails on the broken ref"
+else
+  fail_ "T9" "expected rc=1 under --strict-refs; rc=$rc; output: $out"
+fi
+teardown_fixture
+
+echo ""
+echo "=== T10 (BL-090): valid relative refs (sibling, subdir, ../, #suffix, image) pass ==="
+setup_fixture
+mkdir -p "$TMP/docs/sub"
+printf '# Target\n\n## A Section\n' > "$TMP/docs/target.md"
+printf '# Sub target\n' > "$TMP/docs/sub/inner.md"
+printf 'fake-png-bytes\n' > "$TMP/docs/diagram.png"
+cat > "$TMP/docs/refs.md" <<'MD'
+# Refs Fixture
+
+Sibling: [target](target.md). Subdir: [inner](sub/inner.md).
+With anchor suffix: [section](target.md#a-section).
+Image: ![diagram](diagram.png)
+MD
+cat > "$TMP/docs/sub/up.md" <<'MD'
+# Up-reference
+
+Parent: [target](../target.md)
+MD
+out=$(run_lint_fixture); rc=$?
+if [ "$rc" -eq 0 ] && ! echo "$out" | grep -q 'warn:'; then
+  pass "T10: sibling/subdir/parent/anchored/image refs all resolve"
+else
+  fail_ "T10" "valid refs produced warnings; rc=$rc; output: $out"
+fi
+teardown_fixture
+
+echo ""
+echo "=== T11 (BL-090): URLs, mailto, absolute paths, bare anchors, fenced code — all out of scope ==="
+setup_fixture
+cat > "$TMP/docs/skips.md" <<'MD'
+# Skips Fixture
+
+[web](https://example.com/page.md) [plain](http://example.com)
+[mail](mailto:x@example.com) [abs](/etc/hosts.md)
+[anchor-only](#skips-fixture)
+
+```
+[inside a fence](ghost-in-fence.md)
+```
+MD
+out=$(run_lint_fixture); rc=$?
+if [ "$rc" -eq 0 ] && ! echo "$out" | grep -q 'warn:'; then
+  pass "T11: out-of-scope reference shapes produce zero warnings"
+else
+  fail_ "T11" "an out-of-scope shape was flagged; rc=$rc; output: $out"
+fi
+teardown_fixture
+
+echo ""
+echo "=== T12 (BL-090): the (planned) inline exemption suppresses the warn ==="
+setup_fixture
+cat > "$TMP/docs/planned.md" <<'MD'
+# Planned Fixture
+
+The upcoming guide lives at [future doc](not-written-yet.md) (planned).
+MD
+out=$(run_lint_fixture); rc=$?
+if [ "$rc" -eq 0 ] && ! echo "$out" | grep -q 'warn:'; then
+  pass "T12: (planned) on the referencing line exempts the ghost target"
+else
+  fail_ "T12" "(planned) exemption not honored; rc=$rc; output: $out"
+fi
+teardown_fixture
+
+echo ""
+echo "=== T13 (BL-090): fence-excision mutant — the refs arm lives in its fence ==="
+m=$(grep -c 'BL-090-DOC-REFS' "$LINTER") || m=0
+case "$m" in ''|*[!0-9]*) m=0 ;; esac
+TMP_MUT_DIR=$(mktemp -d)
+MUTL="$TMP_MUT_DIR/lint.mut.sh"
+sed '/# BL-090-DOC-REFS-BEGIN/,/# BL-090-DOC-REFS-END/d' "$LINTER" > "$MUTL"
+l=$(grep -c 'BL-090-DOC-REFS' "$MUTL") || l=0
+case "$l" in ''|*[!0-9]*) l=0 ;; esac
+setup_fixture
+cat > "$TMP/docs/refs.md" <<'MD'
+# Refs Fixture
+
+See [the missing doc](nonexistent-target.md) for details.
+MD
+if [ "$m" -lt 2 ] || [ "$l" -ne 0 ]; then
+  fail_ "T13" "excision vacuous (markers before=$m after=$l) — fence absent"
+else
+  out=$(bash "$MUTL" --docs-dir "$TMP/docs" 2>&1); rc=$?
+  if [ "$rc" -eq 0 ] && ! echo "$out" | grep -q 'warn:'; then
+    pass "T13: excised arm warns on nothing — the fence carries the whole refs check"
+  else
+    fail_ "T13" "mutant still warned (or broke, rc=$rc) — the arm does not live (only) inside the fence: $out"
+  fi
+fi
+teardown_fixture
+rm -rf "$TMP_MUT_DIR"
+
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]
