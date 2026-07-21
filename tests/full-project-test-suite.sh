@@ -835,6 +835,19 @@ else
   fail "tests/test-bl143-pastcap-selfapproval.sh FAILED (run for details)"
 fi
 
+# BL-147 + BL-151 (PR-sweep WP-1): the ONE shared content-pin suite over
+# templates/pipelines/**. The emitted CI approval-log integrity steps are now
+# real — fetch-depth 0 + explicit base (github.base_ref) + loud-fail, no
+# 2>/dev/null silencer, stamped byte-identical into all 10 github langs (7 had
+# no steps at all) + the gitlab twins — and gitleaks runs via the license-free
+# CLI, not the org-license-trapped action. Template lists derived mechanically
+# with a count floor. Content-pin, hermetic. No init.sh -> both lanes.
+if bash "$SCRIPT_DIR/tests/test-bl147-ci-template-integrity.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl147-ci-template-integrity.sh"
+else
+  fail "tests/test-bl147-ci-template-integrity.sh FAILED (run for details)"
+fi
+
 # BL-139 (Dogfood-3 F-DF3-004): a subject-less --check-commit-ready no
 # longer presumes feat — framework-gate's pre-commit call cannot know the
 # subject (BL-119 doctrine), and the commit-msg surface owns the feat rule

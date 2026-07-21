@@ -69,7 +69,16 @@ governance:
     - bash scripts/check-changelog.sh 2>/dev/null || true
     # APPROVAL_LOG.md append-only enforcement
     - |
-      if [ -f APPROVAL_LOG.md ] && git diff origin/main...HEAD -- APPROVAL_LOG.md 2>/dev/null | grep -qE '^\-[^-]'; then
-        echo "ERROR: APPROVAL_LOG.md has deleted or modified lines (append-only)"
-        exit 1
+      # BL-147: resolve the base explicitly, fail LOUDLY if unresolvable, no stderr silencer.
+      if [ -f APPROVAL_LOG.md ]; then
+        BASE="origin/${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-${CI_DEFAULT_BRANCH:-main}}"
+        git fetch origin "${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-${CI_DEFAULT_BRANCH:-main}}" --quiet || true
+        if ! git rev-parse --verify "$BASE" >/dev/null; then
+          echo "ERROR: approval-log check cannot resolve base '$BASE' — failing LOUDLY (a check that cannot run must not pass)"
+          exit 1
+        fi
+        if git diff "$BASE...HEAD" -- APPROVAL_LOG.md | grep -qE '^\-[^-]'; then
+          echo "ERROR: APPROVAL_LOG.md has deleted or modified lines (append-only)"
+          exit 1
+        fi
       fi
