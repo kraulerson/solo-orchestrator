@@ -291,3 +291,131 @@ valid JSON. GREEN evidence: `scratchpad/wp3-GREEN.txt`.
   `zap-baseline.py` invocation (a docs example, not an emitted gate) — reported,
   not rewritten. No verdict logic was ported into gitlab/bitbucket release
   templates (they have no DAST — recorded in BL-149, not invented).
+
+---
+
+## WP-4 — BL-150: the action-pin refresh
+
+**Branch:** `fix/bl150-pin-refresh` · **Base:** `fix/bl149-release-dast` (stacked
+on WP-3 #237; the worktree was reset to WP-3's head @ `afd7161` and the WP-4
+branch cut from there). **Status:** PR opened green, not merged.
+
+### Reproduce (the finding)
+- The estate SHA-pins its GitHub Actions (BL-113), but every pin had drifted
+  1–3 majors behind upstream: `actions/checkout@v4.3.1` while latest is
+  `v7.0.1`; setup-node/-python/-go on v4/v5 while latest is v7; upload/download-
+  artifact, action-gh-release, golangci-lint-action, expo, setup-java, setup-
+  dotnet all stale. Action pins are structurally invisible to BL-109's currency
+  block (which tracks file SHAs / hooks / MCP), so nothing flags the drift.
+- Surfaces: `.github/workflows/{lint,tests}.yml` (the framework's OWN CI),
+  every emitted CI + release template, and the `RELEASE_SETUP_ACTION` pin table
+  — which exists in `init.sh` **and** a byte-identical sync sibling in
+  `scripts/reconfigure-project.sh`.
+
+### Action inventory (built FIRST, before any edit)
+`grep -rhoE 'uses: [^@ ]+@[^ ]+' templates/ .github/` (15 distinct actions) +
+the two `RELEASE_SETUP_ACTION` tables. For each: `releases/latest` → `.tag_name`
+→ `git/ref/tags/<tag>` → commit SHA (annotated tags de-ref'd once via
+`git/tags/<sha>`). Pin form `<40-hex-sha> # vN (vN.N.N)`.
+
+### Watched-RED (pre-green shape guard + mutation)
+Added WP-4 cases to the shared suite `tests/test-bl147-ci-template-integrity.sh`
+(WP-1 registered it in both lists; WP-4 only adds cases — SHAPE check only, no
+network, no version-freshness assertion):
+- **Cp1** every `uses:` ref under `templates/pipelines/**` + `.github/workflows/
+  *.yml` carries `@<40-hex-sha> # <version comment>` (the build-time placeholder
+  `__SETUP_ACTION__` is the sole exemption); floor 20.
+- **Cp2** every action-bearing `RELEASE_SETUP_ACTION=` entry in `init.sh` AND the
+  sync sibling `scripts/reconfigure-project.sh` is likewise SHA-pinned; floor 12.
+
+Because the estate was ALREADY sha-pinned (only STALE), the cases **PRE-PASS**
+on the stacked tree (`Cp1-floor 71 refs`, `Cp2-floor 14 entries`, all pinned) —
+a legitimate pre-green shape guard, exactly the case the task anticipated. The
+RED half is proven two ways: (i) the pin-refresh diff itself, and (ii) a
+**mutation** — flip `github/python.yml`'s checkout to a bare `@v4` tag →
+**Cp1-sha-pin RED** (`Results: 46 passed, 1 failed`); restore → GREEN
+(`47 passed, 0 failed`).
+
+### Fix — the pin table (old → new)
+| action | old | new | bump |
+|---|---|---|---|
+| actions/checkout | v4.3.1 | **v7.0.1** `3d3c42e…` | MAJOR |
+| actions/download-artifact | v4.3.0 | **v8.0.1** `3e5f45b…` | MAJOR |
+| actions/setup-node | v4.4.0 | **v7.0.0** `82076278…` | MAJOR |
+| actions/setup-python | v5.6.0 | **v7.0.0** `5fda3b9…` | MAJOR |
+| actions/setup-go | v5.6.0 | **v7.0.0** `b7ad1da…` | MAJOR |
+| actions/setup-java | v4.8.0 | **v5.6.0** `03ad4de…` | MAJOR |
+| actions/setup-dotnet | v4.3.1 | **v6.0.0** `a98b568…` | MAJOR |
+| actions/upload-artifact | v4.6.2 | **v7.0.1** `043fb46…` | MAJOR |
+| golangci/golangci-lint-action | v6.5.2 | **v9.3.0** `ba0d7d2…` | MAJOR |
+| softprops/action-gh-release | v2.6.2 | **v3.0.2** `3d0d988…` | MAJOR |
+| expo/expo-github-action | 8.2.1 | **9.0.0** `eab7a23…` | MAJOR (commented usage) |
+| google/osv-scanner-action | v2.3.5 | **v2.3.8** `9a49870…` | patch |
+| dtolnay/rust-toolchain | stable-head 06-30 | **stable-head 07-21** `4cda84d…` | branch head |
+| subosito/flutter-action | v2.23.0 | v2.23.0 (unchanged) | already current |
+| realm/SwiftLint | 0.57.0 | 0.57.0 (**DEFERRED**) | see below |
+
+### Input-compat verification (every MAJOR bump)
+Checked each major's release notes for renamed/removed inputs the templates
+actually use. **Result: zero input breakage** — the majors are Node-runtime
+bumps (node20→node24) + minimum-runner-version, not input renames:
+- checkout `fetch-depth: 0` — unchanged v4→v7.
+- setup-node `node-version`/`cache`/`registry-url` — unchanged; v5 added
+  auto-cache detection (additive), v6 limited auto-cache to npm (= what we use).
+- setup-python `python-version` — unchanged; v7 removed the `pip-install` input,
+  which the templates do NOT use.
+- setup-go `go-version`, setup-java `distribution`/`java-version`/`cache`,
+  setup-dotnet `dotnet-version` — all unchanged (node24 only).
+- upload-artifact `path`/`name` — unchanged; v7's new `archive` param defaults
+  to `true` (= the old zip behavior).
+- download-artifact (bare, download-all) — v8 defaults `digest-mismatch=error`
+  (a hardening; same-run artifacts never mismatch) and skips non-zip files by
+  Content-Type (upload-artifact v7 zips by default → unzipped normally). Safe.
+- action-gh-release `files`/`generate_release_notes` — unchanged (node24 only).
+- golangci-lint-action `version: latest` — the `version` input survives; v7+
+  supports golangci-lint **v2 only**, but `version: latest` already floats to
+  the v2 line and init.sh scaffolds **no `.golangci.yml`** (v2 runs on defaults),
+  so bumping the action major to v9 now MATCHES the linter major `latest`
+  resolves to (v6 + v2-linter was the latent mismatch). Recorded, not a blocker.
+
+### Deferred bump (reported, not built)
+- **realm/SwiftLint 0.57.0 → held.** The repo ships **no `action.yml`/`action.yaml`
+  at any ref** (confirmed via git-tree + raw fetch, tree not truncated) — it is a
+  root-`Dockerfile` container action. The template passes `with: strict: true`,
+  which has no verifiable input mapping, and the container contract **changed**
+  between 0.57.0 (`CMD ["swiftlint"]`, no ENTRYPOINT) and 0.65.0
+  (`ENTRYPOINT ["/usr/bin/swiftlint"]` + `CMD ["."]`). Per the plan's "do NOT
+  blind-bump anything whose used inputs you cannot verify — leave at current pin
+  and REPORT as deferred" rule, SwiftLint stays at 0.57.0. (The `strict` input
+  appearing vestigial is a separate latent SwiftLint-step issue, out of WP-4's
+  pin-refresh scope.)
+
+### Deviation from the plan (one, sibling-sync)
+- **`scripts/reconfigure-project.sh` updated in lockstep.** The plan's WP-4
+  "Files" line names `init.sh`'s `RELEASE_SETUP_ACTION` table but not this file.
+  reconfigure-project.sh carries a **byte-identical duplicate** of that table
+  (the CLAUDE.md "SYNC SIBLINGS" class); leaving it stale would emit old pins on
+  a reconfigure while init emits new ones. Both tables were bumped together and
+  verified `diff`-identical. Cp2 now guards both against future drift.
+
+### Fixed the framework's OWN CI too (sanctioned pins-only exception)
+`.github/workflows/{lint,tests}.yml` checkout pins were bumped (v4→v7). CLAUDE.md
+says don't modify lint.yml; this touches **pins only**, no job structure — the
+sanctioned exception per the plan. The PR's own CI run IS the live test of the
+new checkout pin.
+
+### Post-fix
+- Shared suite: **`Results: 47 passed, 0 failed`** (exit 0).
+- All 44 changed pipeline templates + `.github/workflows/*.yml` re-validated as
+  parseable YAML (PyYAML `safe_load`, 44/44); `tool-matrix/web.json` valid JSON.
+- `bash -n` clean on `init.sh`, `scripts/reconfigure-project.sh`, and the suite.
+
+### Blast radius
+- No OLD action SHA survives anywhere in `templates/ .github/ init.sh
+  scripts/reconfigure-project.sh` (per-SHA grep → none).
+- `grep -rnE '@v[0-9]' templates/ .github/ | grep -v '#'` → **nothing unpinned**.
+- Both commented example refs (mobile.yml, desktop.yml, the `# Example:` line)
+  were bumped along with the active pins for a consistent estate.
+- `bash scripts/run-lints.sh` → PASS (tally in the PR body);
+  `scripts/lint-tests-registered.sh` → OK (suite already registered in WP-1);
+  `scripts/lint-backlog-references.sh` → OK after the BL-150 Status update.
