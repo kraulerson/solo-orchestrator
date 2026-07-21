@@ -200,3 +200,94 @@ templates re-validated as parseable YAML (PyYAML `safe_load`, 30/0). Evidence:
   official current image `ghcr.io/gitleaks/gitleaks:v8.30.1` (DockerHub `gitleaks/gitleaks`
   does not exist; `zricethezav/*` is the retired personal namespace) — consistent
   with WP-3's `ghcr.io/zaproxy/*` convention.
+
+---
+
+## WP-3 — BL-149: port BL-122 into the release DAST + tool-matrix image fix
+
+**Branch:** `fix/bl149-release-dast` · **Base:** `fix/bl148-bl153-semgrep-modernization`
+(stacked on WP-2 #236; the worktree was reset to WP-2's head @ `4671df8`, and the
+WP-3 branch cut from there). **Status:** PR opened green, not merged.
+
+### Reproduce (the finding)
+- `templates/pipelines/release/github/web.yml` ran
+  `docker run -t zaproxy/zap-stable zap-baseline.py -t ${{ vars.PREVIEW_URL }}`
+  and judged the **RAW docker exit code**. ZAP baseline reports every alert as
+  WARN (exit 2), and rule 10049 (Storable/Cacheable, riskcode 0 = Informational)
+  fires under EVERY Cache-Control value (the proven BL-122 mechanism) — so any
+  real site fails the release. PR #203 fixed exactly this in
+  `run-phase3-validation.sh` (`# BL-122-ZAP-RISK-FILTER` + `# BL-140-ZAP-WORKDIR`)
+  and never touched the template.
+- Aggravators: the image was **unpinned** (every other action in the file is
+  SHA-pinned) and points at the dead `zaproxy/zap-stable`; **no guard** when
+  `PREVIEW_URL` is unset; `templates/tool-matrix/web.json` checked/pulled the
+  same dead `zaproxy/zap-stable` — an image the scanner never uses (CR-8 nit).
+- Out of scope (per BL-149): gitlab/bitbucket release templates have no DAST
+  step at all — recorded, not invented.
+
+### Watched-RED (before any template touched)
+Added WP-3 cases to the shared suite `tests/test-bl147-ci-template-integrity.sh`
+(WP-1 registered it in both lists; WP-3 only adds cases — content pins only, no
+live docker). Cases:
+- **Cz0** the two named files exist (vacuity guard — a rename must fail loud)
+- **Cz-a** release `web.yml` pins `ghcr.io/zaproxy/zaproxy:stable`, never `zap-stable`
+- **Cz-b** the ZAP step writes `-J zap-report.json` to a mounted `/zap/wrk`,
+  judges jq `riskcode >= 2`, and CAPTURES the raw exit (`|| rc=$?`) — never the verdict
+- **Cz-c** the step is guarded `if: vars.PREVIEW_URL != ''`
+- **Cz-d** an absent/unparseable report FAILs loudly (both arms exist textually)
+- **Cz-e** `tool-matrix/web.json` references the SAME image (check + manual), never `zap-stable`
+
+Pre-fix run: **`Results: 32 passed, 11 failed`** (exit 1) — WP-1+WP-2's 31 cases
+stay green, Cz0 passes (files exist), every other WP-3 assertion RED and mapped
+to the finding. RED evidence: `scratchpad/wp3-RED.txt`.
+
+### Fix
+- **`templates/pipelines/release/github/web.yml`** — the DAST step now mirrors the
+  Phase-3 scanner's verdict: `docker run --rm -v "$ZAP_WORK:/zap/wrk"
+  ghcr.io/zaproxy/zaproxy:stable zap-baseline.py -t "…PREVIEW_URL…" -J
+  zap-report.json || rc=$?` into an ABSOLUTE mounted workdir
+  (`${GITHUB_WORKSPACE}/.zap-work`, the BL-140 posture — docker `-v` rejects a
+  relative path as a named volume); the raw exit is CAPTURED, not judged; the
+  verdict is jq `[.site[]?.alerts[]? | select(((.riskcode // "0") | tonumber) >= 2)]
+  | length` (Medium+ only). An absent report → `::error:: … exit 1`; `rc>=3` →
+  execution-error `exit 1`; a jq-unparseable report → `::error:: … exit 1` (the
+  BL-140/BL-112 fail-loud honesty class). Step guarded `if: vars.PREVIEW_URL != ''`.
+- **`templates/tool-matrix/web.json`** — `check_command` and the manual hint now
+  inspect/pull `ghcr.io/zaproxy/zaproxy:stable` (the SAME image the scanner runs).
+
+Post-fix run: **`Results: 43 passed, 0 failed`** (exit 0). All changed release
+templates re-validated as parseable YAML (PyYAML `safe_load`) and web.json as
+valid JSON. GREEN evidence: `scratchpad/wp3-GREEN.txt`.
+
+### Mutation proof (backup + restore; restored to GREEN)
+- Remove the `|| rc=$?` capture from the docker line → under the runner's `set -e`
+  the raw docker exit becomes the step verdict → **Cz-b-raw-exit-captured RED**
+  (`Results: 42 passed, 1 failed`). Restore from backup → GREEN (`43 passed, 0 failed`).
+
+### Blast radius
+- `grep -rn 'zap-stable' templates/ scripts/ tests/ docs/` → the ONLY surviving
+  hits are the suite's own grep literals in `tests/test-bl147-ci-template-integrity.sh`
+  (the Cz assertions must contain the string to grep for it) and the historical
+  `docs/superpowers/plans/archive/**` (carved-out records). No live template,
+  script, or product doc references the dead image.
+- **Image-name cleanup (same dead-image defect, comment/doc-only):** the commented
+  DAST examples in `release/github/desktop.yml` + `mobile.yml` and the five
+  references in `docs/platform-modules/web.md` were repointed
+  `zaproxy/zap-stable` → `ghcr.io/zaproxy/zaproxy:stable`.
+- `bash scripts/run-lints.sh` → PASS (all lints; tally in the PR body).
+  `scripts/lint-backlog-references.sh` → OK after the BL-149 Status update.
+- No new test file → registration unchanged (WP-1 already registered the shared
+  suite in both `tests/full-project-test-suite.sh` and the `tests.yml` unit list).
+
+### Deviations from the plan
+- **Image-name cleanup beyond the two named files (blast-radius, not scope creep).**
+  The plan's WP-3 "Files" line names `web.yml` + `web.json`; the task's blast-radius
+  directive (`grep -rn 'zap-stable' …` → fix or report survivors) surfaced the SAME
+  dead image name in two commented DAST examples (`desktop.yml`, `mobile.yml`) and
+  `docs/platform-modules/web.md`. These are inert comments / docs — the image-name
+  fix is a pure find-replace of a nonexistent image (the CR-8 defect BL-149 names),
+  applied for a consistent estate. The **verdict-logic port** is confined to the
+  emitted `web.yml` per the plan; the docs' CI snippet still illustrates a plain
+  `zap-baseline.py` invocation (a docs example, not an emitted gate) — reported,
+  not rewritten. No verdict logic was ported into gitlab/bitbucket release
+  templates (they have no DAST — recorded in BL-149, not invented).
