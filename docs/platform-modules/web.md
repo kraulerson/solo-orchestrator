@@ -74,7 +74,7 @@ pip install pip-licenses
 
 **OWASP ZAP (DAST):**
 ```bash
-docker pull zaproxy/zap-stable
+docker pull ghcr.io/zaproxy/zaproxy:stable
 ```
 
 **Playwright (E2E) — installed per-project in Phase 3:**
@@ -106,7 +106,7 @@ Web applications don't have traditional "packaging" — they're deployed to host
 - name: Build
   run: npm run build
 - name: DAST Scan (Phase 3+)
-  run: docker run -t zaproxy/zap-stable zap-baseline.py -t $PREVIEW_URL
+  run: docker run -t ghcr.io/zaproxy/zaproxy:stable zap-baseline.py -t $PREVIEW_URL
 ```
 
 **Bundle optimization:**
@@ -136,10 +136,10 @@ Automate the full User Journey from the Product Manifesto. Run in CI on every pu
 
 ```bash
 # Baseline scan (passive — catches common issues)
-docker run -t zaproxy/zap-stable zap-baseline.py -t http://localhost:3000
+docker run -t ghcr.io/zaproxy/zaproxy:stable zap-baseline.py -t http://localhost:3000
 
 # Active scan (Full Track — more thorough, slower)
-docker run -t zaproxy/zap-stable zap-full-scan.py -t http://localhost:3000
+docker run -t ghcr.io/zaproxy/zaproxy:stable zap-full-scan.py -t http://localhost:3000
 ```
 
 Fix anything rated Medium or higher.
@@ -348,7 +348,7 @@ The Builder's Guide Phase 4 baseline (mechanically tracked by `scripts/process-c
 |---|---|---|
 | Semgrep | `pip install semgrep` | SAST |
 | gitleaks | `brew install gitleaks` | Secret detection |
-| OWASP ZAP | `docker pull zaproxy/zap-stable` | DAST |
+| OWASP ZAP | `docker pull ghcr.io/zaproxy/zaproxy:stable` | DAST |
 | license-checker | `npm install -g license-checker` | License compliance (Node.js) |
 | Snyk | `npm install -g snyk` | Dependency scanning |
 | CycloneDX | `npx @cyclonedx/cyclonedx-npm` | SBOM generation |

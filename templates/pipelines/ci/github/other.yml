@@ -15,13 +15,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 (v4.3.1)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
         with:
           fetch-depth: 0
 
       # TODO: Add language/runtime setup step
-      # Example: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4 (v4.4.0), actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5 (v5.6.0),
-      #   actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4 (v4.3.1), actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4 (v4.8.0), actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5 (v5.6.0)
+      # Example: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7 (v7.0.0), actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7 (v7.0.0),
+      #   actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6 (v6.0.0), actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5 (v5.6.0), actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7 (v7.0.0)
 
       # TODO: Install dependencies
       # - name: Install dependencies
@@ -34,14 +34,6 @@ jobs:
       # TODO: Test
       # - name: Test
       #   run: <your test command>
-
-      - name: Security - SAST (Semgrep)
-        uses: semgrep/semgrep-action@713efdd345f3035192eaa63f56867b88e63e4e5d # v1 (v0.58.0)
-        with:
-          config: >-
-            p/owasp-top-ten
-            p/security-audit
-            r/javascript.browser.security.insecure-document-method
 
       - name: Security - Secret detection (gitleaks)
         run: |
@@ -125,3 +117,19 @@ jobs:
       - name: Governance - Session state check
         run: bash scripts/check-session-state.sh 2>/dev/null || true
         # Tier 1.5: warning only. Set SOIF_STRICT_SESSION=true to block.
+
+  # BL-148: SAST runs in the semgrep/semgrep container (replaces the archived
+  # Semgrep GitHub Action). The scan's config + severity flags MIRROR the local
+  # pre-commit hook (scripts/lib/hook-templates.sh) so CI and the dev gate enforce
+  # the IDENTICAL ruleset. semgrep/semgrep is Alpine-based; GitHub's runner detects
+  # that and runs JS actions (checkout) with its musl node build, so checkout works.
+  sast:
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
+        with:
+          fetch-depth: 0
+      - name: Security - SAST (Semgrep)
+        run: semgrep scan --config=p/owasp-top-ten --config=r/javascript.browser.security.insecure-document-method --severity=ERROR --error
