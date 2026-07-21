@@ -2286,7 +2286,7 @@ Two follow-ups from the PR #169 verifier (BL-010 residual fix), both zero-impact
 **Severity:** Medium
 **Status:** Open
 
-**Decision 2026-07-20 (Karl):** GO. The `docs/IDENTIFIERS.md` pre-seed list is to be DRAFTED for his approval — "keep it as simple and logical as possible." Draft delivered 2026-07-20 (core minted namespaces TM-/ADR-/BUG-/UAT-/SEV + three registry rules); build the BL-089+091 WP once the draft is approved.
+**Decision 2026-07-20 (Karl):** GO. The `docs/IDENTIFIERS.md` pre-seed list is to be DRAFTED for his approval — "keep it as simple and logical as possible." Draft delivered 2026-07-20 (core minted namespaces TM-/ADR-/BUG-/UAT-/SEV + three registry rules). **APPROVED same day ("Labels approved") — the BL-089+091 WP is unblocked and in flight.**
 
 Pantheon's month of operation hit identifier-namespace collisions (four unrelated "D" schemes, two "F" schemes), ghost citations, and unmarked superseded docs. `init.sh` should generate three documentation foundations at project birth:
 1. **`docs/INDEX.md`** — a doc-map skeleton with an explicit authority order (canon > dated design docs > archive) and a conventions section (name matches the mothership's own `docs/INDEX.md` convention).
@@ -2348,7 +2348,7 @@ Add a documentation-rules section to `docs/builders-guide.md` (and generate the 
 **Severity:** Medium
 **Status:** Open — do LAST of the BL-089..092 quartet (largest change)
 
-**Decision 2026-07-20 (Karl):** BREAK IT UP — context-size reduction is an explicit goal. His architecture suggestion (not a directive): a main reference file that is a mandatory read each session and references the per-section instructions. Options analysis (pros/cons/alternatives, incl. the retrieval-enforcement question this entry's own doctrine raises) delivered 2026-07-20 for his pick; build follows the Dogfood-4 milestone per the 2026-07-20 sequencing decision.
+**Decision 2026-07-20 (Karl):** BREAK IT UP — context-size reduction is an explicit goal. Options analysis delivered same day; **Karl chose OPTION D**: the thin always-read index (his suggestion) PLUS retrieval enforcement — the checkpoint scripts (process-checklist/phase-gate) emit "read `docs/reference/X` now" at the exact consumption moments (UAT start → UAT authoring guide; Phase 3 entry → Phase-3/4 procedure), gate-checked where the procedure's outputs are checkable, degrading gracefully UPWARD into hook-based auto-injection on harnesses that support it. Proposed split list (persona table, UAT authoring, Phase-3/4 procedures ≈ a third of the file) rides with the build. Build follows the Dogfood-4 milestone.
 
 **Measured problem (2026-07-11):** every downstream session front-loads `templates/generated/claude-md.tmpl` (236 lines; persona table + UAT authoring + Phase-3/4 procedure ≈ a third of it, inapplicable to most sessions), and the README kickoff prompt instructs a full read of the builders-guide (**2,018 lines ≈ 25-30k tokens**) plus intake + platform module at every fresh start. Pantheon's finding: chronically inapplicable instructions train agents to treat instructions as optional — consistent with the framework's own gate-credibility principle.
 
@@ -3465,3 +3465,25 @@ Executed: with `.git/hooks/commit-msg` symlinked to a shared out-of-tree file, `
 **Fix shape:** `[ -L .git/hooks/<hook> ]` → `register_manual` (repairing a shared file needs a human); optionally consult `git config core.hooksPath` in both checks and say so when set.
 
 **Related:** BL-141 (the repair surface); `# BL-118-SINGLE-SOURCE` (fix_precommit_hook); `_bl099_sync_commitmsg_hook`.
+
+---
+
+## BL-146: Adversarial PR reviewer agent — highest technical standard, context7-current, optimal, stable, secure
+
+**Logged:** 2026-07-20 (Karl directive)
+**Category:** Proposal / review tooling (both repos)
+**Severity:** Medium
+**Status:** Open
+
+Karl's directive: an agent that reviews PRs ADVERSARIALLY with the intent of making sure the PR is of the highest technical standard, using the most up-to-date info from context7, as optimal as possible, stable, and secure.
+
+**What exists today:** the BL-100 adversarial-acceptance doctrine (practiced across the 2026-07 arcs, now folding into the BL-097 operating-model design); the gate-enforced Phase-3 review manifest + `evaluation-prompts/` library (phase-scoped, not PR-scoped); per-WP ad-hoc verifier dispatches (this arc's working practice — effective but hand-rolled each time). **What's missing:** a STANDING, dispatchable PR-review agent — point it at a PR, get a refutation-first review across five dimensions:
+1. **Technical standard** — correctness, idiom, and the repo's own discipline rules (marker fences, registration, hermeticity, portability).
+2. **Currency** — context7 lookups for every library/API/CLI the diff touches; deprecated or superseded usage is a finding (the context7 session rule, promoted to a review dimension).
+3. **Optimality** — simplification, efficiency, no unnecessary surface.
+4. **Stability** — edge cases, error handling, flake potential, test quality (vacuity/weak-test classes).
+5. **Security** — the adversarial security lens per change, not just per phase.
+
+**Design decisions to take before building:** trigger surface (slash-command vs `gh` comment vs auto-on-open); scope order (framework repo first, generated-project variant second); verdict grammar (reuse BL-100's block/major_concerns/minor_concerns/approve rubric — major+ blocks); how context7 is reached from the review environment (MCP availability in headless runs — the BL-128 lesson); reviewer MODEL comes from the operating model chosen per the BL-097 trio decision (this agent is the reviewer role's concrete tool — compose with that design, don't duplicate it).
+
+**Related:** BL-100 (the acceptance doctrine this makes standing); BL-097/BL-098 (operating model / reviewer role); BL-128 (headless review dispatch machinery precedent); `evaluation-prompts/` (the phase-review library); the context7 global rule.
