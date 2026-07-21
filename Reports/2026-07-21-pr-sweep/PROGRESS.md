@@ -181,17 +181,49 @@ the arm tracks the new call shape). Restore → **9/0 GREEN**.
   is exercised end-to-end by e2e-init-gitlab (7/0).
 - `bash scripts/run-lints.sh` → (tally in PR body).
 
-### Scope notes (recorded, NOT built — per plan "STOP and report, do not improvise")
-- **Verify path unchanged:** `host_verify_protection` still reads the
-  (also-deprecated) `approvals_before_merge` scalar from
-  `GET projects/:id/approvals`. WP-5's scope is "swap the [configure] call"
-  (BL-152's fix shape names only the POST); left as a follow-up since that read
-  may return 0 once the field is removed in v5. The unit + e2e verify fixtures
-  still pin `approvals_before_merge` and stay green.
-- **`reset_approvals_on_push:true` dropped:** it rode along on the old PUT but
-  belongs to the `/approvals` config endpoint, not `approval_rules`. Preserving
-  it would need a separate config POST beyond "swap the call". Flagged.
+### Follow-up (verifier-adjudicated SHOULD-FIXes — same branch/PR)
+The consolidated verifier held that BL-152 cannot close with the two items
+below merely "recorded", so they are now BUILT:
+
+- **Verify migrated off the deprecated scalar.** `host_verify_protection` now
+  reads `GET projects/:id/approval_rules` (a JSON array) and judges "approvals
+  configured" by ANY rule with `approvals_required >= 1`
+  (`jq -r '[.[]?.approvals_required // 0] | max // 0'`) — mirroring the
+  configure side. The old `.approvals_before_merge` read from `GET .../approvals`
+  is deprecated (removed in v5) and does NOT reflect approval_rules, so it would
+  false-fail on Premium once configure sets approvals via rules. Context7 confirmed
+  the GET `/approval_rules` array shape (each element carries `approvals_required`).
+- **`reset_approvals_on_push:true` re-applied.** Via a dedicated
+  `POST projects/:id/approvals` CONFIG call after the approval_rules POST
+  succeeds. Context7 confirmed `reset_approvals_on_push` is a current,
+  non-deprecated field on that config endpoint (only its `approvals_before_merge`
+  rule-count field was deprecated → migrated to approval_rules; the endpoint
+  survives for the non-rule settings). Ordering makes it Free-safe: the Premium
+  403 short-circuits at the approval_rules POST above, so the reset call is only
+  reached on a tier that supports it. Its failure returns exit 3 (contract header
+  updated: exit 3 now covers the approval-rules POST OR the reset config POST).
+
+**Watched-RED (both new cases, against the pre-follow-up driver `git checkout HEAD -- gitlab.sh`):**
+`8 passed / 3 failed` — **T10** (verify must GET `approval_rules`; RED log showed
+`api projects/org%2Frepo/approvals`), **T11** (configure must emit a
+`POST /approvals` carrying `reset_approvals_on_push`; RED log had no such call),
+and **T3** (its fixture now expects the array-based verify). Post-fix: **11/0**.
+
+**Isolated mutation proofs (finished driver; `</dev/null` to avoid the fixture's
+GET-stdin `cat` blocking on a piped stdin):** revert ONLY the verify read
+(`approval_rules` → `approvals_before_merge`) → **T10 RED, T11 green**; neutralize
+ONLY the reset payload → **T11 RED, T10 green**; restore → **11/0 GREEN**.
+
+**Fixtures updated:** `test-gitlab-ci-status-stderr-approvals.sh` (GET
+`approval_rules` arm returns the array via `GLAB_GET_APPR_BODY`, new
+`-X POST …/approvals` reset arm with `GLAB_POST_RESET_*` knobs, T2/T3 bodies →
+array, T10/T11 added + registered); `tests/host-drivers/gitlab.test.sh`
+(approval_rules GET mocks + reset POST mock); `tests/host-drivers/e2e-init-gitlab.test.sh`
+(GET `approval_rules` arm, new reset POST arm + `MOCK_GL_RESET_POST_*` knobs,
+`APPROVALS_JSON_ORG` → array).
+
+### Scope note still recorded (NOT built)
 - **Idempotency on re-run:** `POST …/approval_rules` creates a rule; unlike the
   old idempotent PUT, a second org-configure could create a duplicate/renamed
   rule. `host_configure_protection` runs once at Phase-2 init (rare re-runs),
-  so low risk — noted for the durable follow-up.
+  so low risk — noted for a durable follow-up.
