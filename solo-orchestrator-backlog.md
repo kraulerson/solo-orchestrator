@@ -2286,6 +2286,8 @@ Two follow-ups from the PR #169 verifier (BL-010 residual fix), both zero-impact
 **Severity:** Medium
 **Status:** Open
 
+**Decision 2026-07-20 (Karl):** GO. The `docs/IDENTIFIERS.md` pre-seed list is to be DRAFTED for his approval — "keep it as simple and logical as possible." Draft delivered 2026-07-20 (core minted namespaces TM-/ADR-/BUG-/UAT-/SEV + three registry rules). **APPROVED same day ("Labels approved") — the BL-089+091 WP is unblocked and in flight.**
+
 Pantheon's month of operation hit identifier-namespace collisions (four unrelated "D" schemes, two "F" schemes), ghost citations, and unmarked superseded docs. `init.sh` should generate three documentation foundations at project birth:
 1. **`docs/INDEX.md`** — a doc-map skeleton with an explicit authority order (canon > dated design docs > archive) and a conventions section (name matches the mothership's own `docs/INDEX.md` convention).
 2. **`docs/IDENTIFIERS.md`** — an identifier-scheme registry **pre-seeded with the namespaces the framework itself mints** (TM- threat rows, BUG-, ADR numbering, UAT scenario ids), carrying the rule "one prefix = one namespace; register before minting; cross-namespace references are always qualified." Amended from Pantheon's empty-file proposal: an empty registry with a rule is a documented-but-unenforced promise (the BL-070..073 defect species); pre-seeding makes it demonstrably in use from day one. No enforcement lint — a capital-letters-plus-digits heuristic would flag RFC-2119, ISO dates, and model names (BL-072's measured FP lesson).
@@ -2304,6 +2306,8 @@ All three are template drops covered by the BL-088 scaffold-fidelity surface (ne
 **Severity:** Medium
 **Status:** Open
 
+**Decision 2026-07-20 (Karl):** EXTEND `lint-doc-anchors.sh` (the entry's consciously-required tool-home decision — one doc-integrity tool, not two drifting half-tools). Step 1 (build + dogfood on this repo, WARN-tier) is cleared for autonomous work; steps 2–3 remain blocked on the Pantheon FP-calibration corpus.
+
 Pantheon's worst documented incident: a ghost "ADR-0003" cited in a dozen documents that never existed as a file, surviving three weeks of review. The mothership is exposed to the same class: `scripts/lint-doc-anchors.sh` validates only SAME-FILE anchors (BL-048), not relative file references or ADR-style citations. Build the missing capability:
 - **Checker:** scans markdown for relative file references and ADR/identifier-style citations; fails when a target file does not exist. Consciously decide extension-of-`lint-doc-anchors.sh` vs sibling script (one doc-integrity tool beats two drifting half-tools) — justify in the PR.
 - **Exemptions:** an inline `(planned)` marker next to the citation, NOT a separate allowlist file — allowlists rot into permanent exemptions (the KNOWN_ORPHANS bridge had to be sealed; BL-035). The marker lives beside the citation and dies with it.
@@ -2321,6 +2325,8 @@ Pantheon's worst documented incident: a ghost "ADR-0003" cited in a dozen docume
 **Category:** Proposal / documentation doctrine
 **Severity:** Low
 **Status:** Open
+
+**Decision 2026-07-20 (Karl):** GO, bundled with BL-089 in one WP once the IDENTIFIERS pre-seed draft is approved (this entry's rules reference the doc map/archive convention BL-089 creates).
 
 Add a documentation-rules section to `docs/builders-guide.md` (and generate the essentials into scaffold guidance):
 1. **Corrections appear ABOVE what they supersede.** Append-only stacks are for ledgers (approval log, changelog) ONLY; living documents are rewritten in place with a short history. (Pantheon evidence: agents reading top-down absorbed stale claims first; a companion system was misdated for weeks by the equivalent bug.)
@@ -2341,6 +2347,8 @@ Add a documentation-rules section to `docs/builders-guide.md` (and generate the 
 **Category:** Proposal / agent token efficiency (downstream)
 **Severity:** Medium
 **Status:** Open — do LAST of the BL-089..092 quartet (largest change)
+
+**Decision 2026-07-20 (Karl):** BREAK IT UP — context-size reduction is an explicit goal. Options analysis delivered same day; **Karl chose OPTION D**: the thin always-read index (his suggestion) PLUS retrieval enforcement — the checkpoint scripts (process-checklist/phase-gate) emit "read `docs/reference/X` now" at the exact consumption moments (UAT start → UAT authoring guide; Phase 3 entry → Phase-3/4 procedure), gate-checked where the procedure's outputs are checkable, degrading gracefully UPWARD into hook-based auto-injection on harnesses that support it. Proposed split list (persona table, UAT authoring, Phase-3/4 procedures ≈ a third of the file) rides with the build. Build follows the Dogfood-4 milestone.
 
 **Measured problem (2026-07-11):** every downstream session front-loads `templates/generated/claude-md.tmpl` (236 lines; persona table + UAT authoring + Phase-3/4 procedure ≈ a third of it, inapplicable to most sessions), and the README kickoff prompt instructs a full read of the builders-guide (**2,018 lines ≈ 25-30k tokens**) plus intake + platform module at every fresh start. Pantheon's finding: chronically inapplicable instructions train agents to treat instructions as optional — consistent with the framework's own gate-credibility principle.
 
@@ -2427,6 +2435,8 @@ Three small onboarding traps the 2026-07-11 CLAUDE.md documents but does not fix
 **Severity:** Low
 **Status:** Open
 
+**Decision 2026-07-20 (Karl, gates the BL-097/098/100 trio):** enforcement becomes a CONFIGURABLE OPERATING MODEL, not fixed doctrine — not every AI setup has multiple models. The user chooses the operating model at setup (per-ROLE model selection: architect, reviewer, programmer, etc.), the framework then ENFORCES the chosen policy, and a documented update path exists for when the choice proves too expensive (always-best) or not good enough (lower tier). Per-task/per-role model selection does not exist today and needs heavy design + architectural thought — a design doc (role taxonomy, config schema, enforcement surfaces, single-model degradation) precedes any build; sequenced after the Dogfood-4 milestone.
+
 Orchestrating agents (in generated projects and on this repo) dispatch subagents that today either silently inherit the session's model or blanket-use the top tier — both wrong: silent inheritance caused a real 2026-07-10 incident (a fleet ran on an unintended model until killed), and blanket top-tier is cost overkill for mechanical work. The rule to encode wherever multi-agent dispatch is documented (the generated CLAUDE.md's Multi-Agent Parallelism section — `templates/generated/claude-md.tmpl`; the mothership `CLAUDE.md`; `docs/builders-guide.md` if it covers dispatch):
 
 1. **Never inherit silently** — every dispatch names its model (and effort) explicitly.
@@ -2448,6 +2458,8 @@ Sequencing note: if BL-092 moves the Multi-Agent section into a phase-scoped ref
 **Category:** Proposal / process + agent token efficiency (both repos)
 **Severity:** Medium
 **Status:** Open
+
+**Decision 2026-07-20 (Karl):** governed by the trio decision recorded at BL-097 — configurable operating model, chosen at setup, then enforced, with a reconfigure path; design doc first, after the Dogfood-4 milestone.
 
 BL-097's model-selection rubric says WHO can build cheaply; this entry supplies the WHAT-makes-that-safe: before any multi-subagent build (or any delegated implementation above trivial), the STRONGEST available model produces a build plan to a **junior-followable standard**, so execution agents know exactly what to build AND how — letting execution model/effort drop a tier without quality loss, because the judgment was front-loaded.
 
@@ -2478,7 +2490,7 @@ BL-097's model-selection rubric says WHO can build cheaply; this entry supplies 
 **Logged:** 2026-07-11 (Karl demand signal: "will the update script work on Pantheon?" + "I thought we had built in an auto update system")
 **Category:** Proposal / product gap (upgrade + session-start surfaces)
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — folded into BL-109 (Karl's 2026-07-20 decision). Every piece is shipped or absorbed: SLICE-A (`--sync-framework` + dry-run + hook consent + the manifest pin) shipped PR #185; piece 1 (session-start freshness) superseded by and shipped as BL-109 L1/S2 (PR #193, merged `c564739` — fast, offline-safe, silent-when-current, names the remediation, exactly piece 1's contract); piece 3 (hook backfill) landed across BL-107 universal install (PR #205) + BL-141 verify-install repair/sync WARN (PR #225 `cf10873`). Remaining update-pipeline work continues under BL-109's ladder only — one umbrella, no drift.
 
 **Progress — SLICE-A shipped (PR #185):** `upgrade-project.sh --sync-framework` (piece 2) + `--dry-run` + ask-first hook install/refresh (piece 3) + framework doc-drift notices + `manifest.soloFrameworkCommit` pin. Rendered docs (`CLAUDE.md`/`PROJECT_INTAKE.md`) are notice-only in this slice — assisted apply is the new **BL-101**. **SLICE-B (piece 1, session-start freshness check) is still pending** — this entry stays Open until it lands.
 
@@ -2502,6 +2514,8 @@ BL-097's model-selection rubric says WHO can build cheaply; this entry supplies 
 **Severity:** Medium
 **Status:** Open
 
+**Decision 2026-07-20 (Karl):** governed by the trio decision recorded at BL-097 — the adversarial-acceptance rule becomes part of the chosen-and-then-enforced operating model (single-model setups need a degradation story: fresh-context same-model verification). Design doc first, after the Dogfood-4 milestone.
+
 **What is official today:** adversarial personas at ten named phase steps (generated CLAUDE.md persona table — fresh context, refute-minded), the per-feature security audit (Build Loop 2.4, five parallel audit agents), and the gate-enforced Phase-3 review manifest with the `evaluation-prompts/` library. **What is missing:** between gates, a delegated (subagent-built) change has no required independent acceptance step — the implementing agent's own report is the only evidence its work is accepted on.
 
 **The rule to encode** (surfaces: generated CLAUDE.md Multi-Agent Parallelism section, `docs/builders-guide.md` Build Loop, mothership `CLAUDE.md`; coordinate with BL-092/BL-097/BL-098 on the shared template surfaces):
@@ -2523,7 +2537,7 @@ BL-097's model-selection rubric says WHO can build cheaply; this entry supplies 
 **Logged:** 2026-07-11 (spun out of BL-099 SLICE-A, PR #185)
 **Category:** Proposal / product (upgrade surface)
 **Severity:** Low
-**Status:** Open
+**Status:** Closed — folded into BL-109 (Karl's 2026-07-20 decision). The core work shipped as BL-109 L2/A1: S3's staging factored `generate_claude_md` into the parameterized generator and builds the A1 render-leg candidates through it (PR #194, merged `4f2b4d3`). The one open UX question is DECIDED (Karl 2026-07-20): conflict handling = `.rej`-style droppings (headless-agent compatible, the BL-128 direction), WITH a LARGE, unmissable warning to the user whenever a conflict artifact is produced — recorded as a requirement on BL-109 S4/apply.
 
 **Why:** `upgrade-project.sh --sync-framework` (BL-099 SLICE-A) refreshes vendored scripts/hooks and *notices* framework doc drift, but it deliberately never rewrites `CLAUDE.md` / `PROJECT_INTAKE.md`: both are **sed-rendered** from templates (`templates/generated/claude-md.tmpl`, `templates/project-intake.md`) with project-specific substitutions and, for `PROJECT_INTAKE.md`, appended tool tables. A blind copy would clobber the operator's rendered/customized file with an unrendered template full of `__PLACEHOLDER__`s — so the slice shows a template-level diff (against the `manifest.soloFrameworkCommit` pin SLICE-A now stamps) and stops there.
 
@@ -2755,6 +2769,8 @@ For Rust the skip is *deliberate* (inline `#[cfg(test)]` tests cannot be detecte
 **Category:** Feature / update pipeline (absorbs BL-099 SLICE-B and BL-101 when their layers land)
 **Severity:** High (operator-directed; the framework's answer to "how do generated projects stay current")
 **Status:** Open
+
+**Decision 2026-07-20 (Karl):** the offer-and-apply escalation (proposing `--sync-framework` from the SessionStart surface on detection) is APPROVED — the option to update must exist — and is deliberately sequenced LAST in the current work queue (after the quick decided items, the Dogfood-4 milestone, and the design-first items). BL-099 and BL-101 are Closed into this ladder as of today; the BL-101 conflict-UX decision (`.rej`-style droppings + a LARGE unmissable warning on every conflict) is a recorded requirement on S4/apply.
 
 **Design of record:** `docs/designs/2026-07-12-currency-system-v1.md` (**v1.1** — normative for the build). v1 was **blocked** by an adversarial design review the same day (4 BLOCK / 9 MAJOR / 10 MINOR — record: `docs/designs/2026-07-12-currency-system-review-r1.md`); every amendment is folded into v1.1 with a traceability changelog (§0). The blocks, in one line each: v1 claimed the write-primitive existed on main (it does not — the promotion is now its own slice S3a); v1 specced a second manifest file (dual-source regression — now one `currency` block inside the existing `.claude/manifest.json`, plus `soloFrameworkPath` so the framework check has a path to check); v1's Class-A merge mechanics would have staged template placeholders into candidates and contradicted its own never-write-user-docs invariant at rollback (now split A1 render-legs-via-BL-101-generator / A2 structural-diff-only, rollback stages-never-writes); v1 had no verbs for upstream deletions/renames (now `add|update|retire|rename` + orphan reporting).
 
@@ -3449,3 +3465,25 @@ Executed: with `.git/hooks/commit-msg` symlinked to a shared out-of-tree file, `
 **Fix shape:** `[ -L .git/hooks/<hook> ]` → `register_manual` (repairing a shared file needs a human); optionally consult `git config core.hooksPath` in both checks and say so when set.
 
 **Related:** BL-141 (the repair surface); `# BL-118-SINGLE-SOURCE` (fix_precommit_hook); `_bl099_sync_commitmsg_hook`.
+
+---
+
+## BL-146: Adversarial PR reviewer agent — highest technical standard, context7-current, optimal, stable, secure
+
+**Logged:** 2026-07-20 (Karl directive)
+**Category:** Proposal / review tooling (both repos)
+**Severity:** Medium
+**Status:** Open
+
+Karl's directive: an agent that reviews PRs ADVERSARIALLY with the intent of making sure the PR is of the highest technical standard, using the most up-to-date info from context7, as optimal as possible, stable, and secure.
+
+**What exists today:** the BL-100 adversarial-acceptance doctrine (practiced across the 2026-07 arcs, now folding into the BL-097 operating-model design); the gate-enforced Phase-3 review manifest + `evaluation-prompts/` library (phase-scoped, not PR-scoped); per-WP ad-hoc verifier dispatches (this arc's working practice — effective but hand-rolled each time). **What's missing:** a STANDING, dispatchable PR-review agent — point it at a PR, get a refutation-first review across five dimensions:
+1. **Technical standard** — correctness, idiom, and the repo's own discipline rules (marker fences, registration, hermeticity, portability).
+2. **Currency** — context7 lookups for every library/API/CLI the diff touches; deprecated or superseded usage is a finding (the context7 session rule, promoted to a review dimension).
+3. **Optimality** — simplification, efficiency, no unnecessary surface.
+4. **Stability** — edge cases, error handling, flake potential, test quality (vacuity/weak-test classes).
+5. **Security** — the adversarial security lens per change, not just per phase.
+
+**Design decisions to take before building:** trigger surface (slash-command vs `gh` comment vs auto-on-open); scope order (framework repo first, generated-project variant second); verdict grammar (reuse BL-100's block/major_concerns/minor_concerns/approve rubric — major+ blocks); how context7 is reached from the review environment (MCP availability in headless runs — the BL-128 lesson); reviewer MODEL comes from the operating model chosen per the BL-097 trio decision (this agent is the reviewer role's concrete tool — compose with that design, don't duplicate it).
+
+**Related:** BL-100 (the acceptance doctrine this makes standing); BL-097/BL-098 (operating model / reviewer role); BL-128 (headless review dispatch machinery precedent); `evaluation-prompts/` (the phase-review library); the context7 global rule.
