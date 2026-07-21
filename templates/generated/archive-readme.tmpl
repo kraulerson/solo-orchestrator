@@ -16,6 +16,8 @@ Superseded working documents live here. Two rules, both mandatory:
    the old path instead of stubbing it turns every reference to it into a
    ghost citation.
 
-Ledgers (APPROVAL_LOG.md, CHANGELOG.md, BUGS.md) are never archived — they
-are append-only records, not working documents. See `docs/INDEX.md` for the
-ledger vs living-document distinction and the authority order.
+Ledgers (APPROVAL_LOG.md, CHANGELOG.md, BUGS.md) are never archived.
+APPROVAL_LOG and CHANGELOG are append-only records; BUGS.md appends rows and
+updates each row's status cells in place (its inline format contract —
+gate-parsed). None are working documents. See `docs/INDEX.md` for the ledger
+vs living-document distinction and the authority order.

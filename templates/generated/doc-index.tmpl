@@ -23,7 +23,7 @@ When documents disagree: **canon > dated design docs > archive.**
 | `PROJECT_BIBLE.md` | Architecture, threat model, data model — the technical canon | Living |
 | `PRODUCT_MANIFESTO.md` | What we're building and why; the MVP cutline | Living |
 | `FEATURES.md` | Completed-feature record | Living |
-| `BUGS.md` | Bug ledger (SEV-classed, gate-parsed) | Ledger |
+| `BUGS.md` | Bug ledger (SEV-classed, gate-parsed; rows append, status cells update in place) | Ledger |
 | `CHANGELOG.md` | Release ledger | Ledger |
 | `APPROVAL_LOG.md` | Gate approvals ledger | Ledger |
 | `docs/IDENTIFIERS.md` | Every ID prefix in use — check before minting | Living |
@@ -37,7 +37,8 @@ When documents disagree: **canon > dated design docs > archive.**
 
 ## Conventions
 
-- **Corrections appear ABOVE what they supersede.** Ledgers append; living
+- **Corrections appear ABOVE what they supersede.** Ledgers append (BUGS.md
+  also updates status cells in place — its gate-parsed contract); living
   documents are rewritten in place with a short history note.
 - **Every decision has ONE canonical home.** All other mentions LINK to it —
   never copy the ruling.

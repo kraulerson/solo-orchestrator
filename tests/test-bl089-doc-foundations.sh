@@ -140,10 +140,28 @@ l=$(grep -c 'BL-089-DOC-FOUNDATIONS' "$TMP/init.mut.sh") || l=0
 case "$l" in ''|*[!0-9]*) l=0 ;; esac
 if [ "$m" -lt 2 ] || [ "$l" -ne 0 ]; then
   fail_ "T5-fence-excision-mutant" "excision vacuous (markers before=$m after=$l)"
-elif check_init_wiring "$TMP/init.mut.sh"; then
-  fail_ "T5-fence-excision-mutant" "mutant init.sh still carries the wiring — the foundations do not live (only) inside the fence"
 else
-  pass "T5-fence-excision-mutant (excision removes the whole wiring — the fence is load-bearing)"
+  # Verifier SHOULD-1: assert the fence CONTAINS every wiring line — after
+  # excision each of the six must be individually GONE, or a line has crept
+  # outside the fence (check_init_wiring alone passes when merely ONE of six
+  # is missing, which under-pins the fence-containment claim).
+  t5_ok=true
+  for t5_pat in \
+    'templates/generated/doc-index.tmpl" templates/generated/' \
+    'templates/generated/identifiers.tmpl" templates/generated/' \
+    'templates/generated/archive-readme.tmpl" templates/generated/' \
+    'doc-index.tmpl" docs/INDEX.md' \
+    'identifiers.tmpl" docs/IDENTIFIERS.md' \
+    'archive-readme.tmpl" docs/archive/README.md'; do
+    if grep -q "$t5_pat" "$TMP/init.mut.sh"; then
+      t5_ok=false; echo "  survives outside the fence: $t5_pat"
+    fi
+  done
+  if [ "$t5_ok" = true ]; then
+    pass "T5-fence-excision-mutant (excision removes ALL six wiring lines — the fence contains the whole drop)"
+  else
+    fail_ "T5-fence-excision-mutant" "wiring line(s) live outside the # BL-089-DOC-FOUNDATIONS fence (see above)"
+  fi
 fi
 
 echo ""
