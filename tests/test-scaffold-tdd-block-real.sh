@@ -141,6 +141,31 @@ else
   fi
 fi
 
+# ── T-scaffold-doc-foundations (BL-089) ─────────────────────────────────────
+# The three documentation foundations land on disk at birth: the doc map,
+# the PRE-SEEDED identifier registry, and the archive convention README —
+# and the Bible's TM-001 standing threat row is REAL (BL-091 rule 6b), so
+# the Phase-3 threat-model demand is non-vacuous from day one.
+echo "=== T-scaffold-doc-foundations (BL-089): INDEX + IDENTIFIERS + archive README born real ==="
+df_ok=true
+for df_f in docs/INDEX.md docs/IDENTIFIERS.md docs/archive/README.md; do
+  [ -f "$SCAFFOLD/$df_f" ] || { df_ok=false; echo "  missing: $df_f"; }
+done
+if [ "$df_ok" = true ]; then
+  grep -q 'canon > dated design docs > archive' "$SCAFFOLD/docs/INDEX.md" || { df_ok=false; echo "  INDEX lacks the authority order"; }
+  grep -q '`TM-`' "$SCAFFOLD/docs/IDENTIFIERS.md" || { df_ok=false; echo "  IDENTIFIERS not pre-seeded (TM- row absent)"; }
+  grep -qi 'pointer stub' "$SCAFFOLD/docs/archive/README.md" || { df_ok=false; echo "  archive README lacks the stub rule"; }
+  # PROJECT_BIBLE.md is agent-authored in Phase 1 and does not exist at birth
+  # (init.sh's own BL-109 comment) — the standing row ships in the TEMPLATE
+  # copy the agent authors from.
+  grep -E '^\| TM-001 \|' "$SCAFFOLD/templates/generated/project-bible.tmpl" 2>/dev/null | grep -qi 'silently' || { df_ok=false; echo "  shipped Bible template's TM-001 standing threat row absent/placeholder"; }
+fi
+if [ "$df_ok" = true ]; then
+  pass "T-scaffold-doc-foundations: all three foundations + the real TM-001 row present at birth"
+else
+  fail_ "T-scaffold-doc-foundations" "see lines above (BL-089/BL-091 scaffold drop incomplete)"
+fi
+
 # ── T-scaffold-phase3-driver-present ────────────────────────────────────────
 echo "=== T-scaffold-phase3-driver-present: driver present + executable ==="
 if [ -x "$SCAFFOLD/scripts/run-phase3-validation.sh" ]; then

@@ -1495,6 +1495,21 @@ create_project() {
   cp "$SCRIPT_DIR/templates/generated/rollback-test.tmpl" templates/generated/
   cp "$SCRIPT_DIR/templates/generated/handoff-test-results.tmpl" templates/generated/
 
+  # BL-089-DOC-FOUNDATIONS-BEGIN
+  # The three documentation foundations, instantiated at birth (Pantheon's
+  # month without them: identifier-namespace collisions, a ghost ADR cited
+  # for three weeks, unmarked superseded docs). IDENTIFIERS ships PRE-SEEDED
+  # with the framework's own namespaces — an empty registry with a rule is a
+  # documented-but-unenforced promise.
+  cp "$SCRIPT_DIR/templates/generated/doc-index.tmpl" templates/generated/
+  cp "$SCRIPT_DIR/templates/generated/identifiers.tmpl" templates/generated/
+  cp "$SCRIPT_DIR/templates/generated/archive-readme.tmpl" templates/generated/
+  cp "$SCRIPT_DIR/templates/generated/doc-index.tmpl" docs/INDEX.md
+  cp "$SCRIPT_DIR/templates/generated/identifiers.tmpl" docs/IDENTIFIERS.md
+  mkdir -p docs/archive
+  cp "$SCRIPT_DIR/templates/generated/archive-readme.tmpl" docs/archive/README.md
+  # BL-089-DOC-FOUNDATIONS-END
+
   # Install vendored skills (project-level, .claude/skills/<name>/).
   # Skills are markdown SKILL.md files with NOTICE-attribution preserved.
   # Adding a new skill: drop it under templates/generated/skills/<name>/

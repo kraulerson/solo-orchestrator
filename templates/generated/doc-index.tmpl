@@ -1,0 +1,51 @@
+# Documentation Index
+
+<!--
+  BL-089: the doc map, scaffolded at project birth as docs/INDEX.md.
+  This is a LIVING document — keep it current as documents are added,
+  moved, or archived. One screen; a map, not a mirror.
+-->
+
+## Authority order
+
+When documents disagree: **canon > dated design docs > archive.**
+
+1. **Canon** — PROJECT_BIBLE.md, PRODUCT_MANIFESTO.md, CLAUDE.md, the ledgers.
+   Rewritten in place; always current.
+2. **Dated design docs** — point-in-time records (`docs/phase-0/`, dated
+   designs). True as of their date; canon wins on conflict.
+3. **Archive** — `docs/archive/`. Superseded; kept for the audit trail only.
+
+## Doc map
+
+| Path | What it is | Kind |
+|------|-----------|------|
+| `PROJECT_BIBLE.md` | Architecture, threat model, data model — the technical canon (authored in Phase 1) | Living |
+| `PRODUCT_MANIFESTO.md` | What we're building and why; the MVP cutline | Living |
+| `FEATURES.md` | Completed-feature record | Living |
+| `BUGS.md` | Bug ledger (SEV-classed, gate-parsed; rows append, status cells update in place) | Ledger |
+| `CHANGELOG.md` | Release ledger | Ledger |
+| `APPROVAL_LOG.md` | Gate approvals ledger | Ledger |
+| `docs/IDENTIFIERS.md` | Every ID prefix in use — check before minting | Living |
+| `docs/phase-0/` | FRD + user journey (dated Phase-0 records) | Dated |
+| `docs/ADR documentation/` | Architecture decision records | Dated |
+| `docs/reference/` | Builders guide + reference material | Reference |
+| `docs/platform-modules/` | Platform-specific procedures | Reference |
+| `docs/security-audits/` | Per-feature security audit findings | Dated |
+| `docs/test-results/` | Phase-3/4 scan + validation artifacts | Dated |
+| `docs/eval-results/` | Phase-3 review-manifest evaluation outputs | Dated |
+| `docs/api and interfaces/` | Interface documentation (per-endpoint/command contracts) | Living |
+| `docs/snapshots/` | Point-in-time project snapshots | Dated |
+| `docs/archive/` | Superseded docs (see its README for the rules) | Archive |
+
+## Conventions
+
+- **Corrections appear ABOVE what they supersede.** Ledgers append (BUGS.md
+  also updates status cells in place — its gate-parsed contract); living
+  documents are rewritten in place with a short history note.
+- **Every decision has ONE canonical home.** All other mentions LINK to it —
+  never copy the ruling.
+- **Archive with stubs.** Superseded docs MOVE to `docs/archive/` with a
+  status banner, and a pointer stub stays at the old path (see
+  `docs/archive/README.md`).
+- **Identifiers register before use.** See `docs/IDENTIFIERS.md`.

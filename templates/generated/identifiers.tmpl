@@ -1,0 +1,29 @@
+# Identifier Registry
+
+<!--
+  BL-089: pre-seeded at project birth with the namespaces the framework
+  itself mints — an empty registry with a rule is a documented-but-unenforced
+  promise. Scaffolded by init.sh as docs/IDENTIFIERS.md.
+-->
+
+Every ID prefix used in this project, in one place. **Before inventing a new
+ID scheme, check this table.** If your prefix isn't here, add it in the same
+commit that first uses it. Cross-namespace references are always qualified
+(write `TM-001`, never a bare `001`).
+
+| Prefix | What it names | Where it lives | Example |
+|--------|--------------|----------------|---------|
+| `TM-` | A threat from the threat model | PROJECT_BIBLE.md §4 (Phase 1.3); cross-referenced in every security audit and validated in Phase 3 | `TM-001` |
+| `ADR-` | An architecture decision record | `docs/ADR documentation/` | `ADR-0001` |
+| `BUG-` | A bug | `BUGS.md` (the `#` column, bare integer — cite as `BUG-<#>`, no zero-padding) | `BUG-7` |
+| `UAT-` | A user-acceptance-testing session (RESERVED citation form — session logs currently say "Session N") | UAT results (`scripts/process-checklist.sh --start-uat N`) | `UAT-3` |
+| `SEV-1`…`SEV-4` | Bug severity classes (fixed vocabulary, not sequential IDs) | `BUGS.md` / PROJECT_BIBLE.md Bug Severity Classification | `SEV-2` |
+
+## The three rules
+
+1. **One prefix, one meaning.** Never reuse a prefix for a second thing, even
+   in a different folder.
+2. **IDs are permanent.** Never renumber; a retired ID keeps its row here
+   with a note.
+3. **New schemes register here first** — same commit that first uses them. An
+   unregistered prefix in use is a ghost waiting to happen.
