@@ -3509,6 +3509,8 @@ The "Approval log integrity" + "Approval author verification" steps in `template
 
 **Related:** BL-112/BL-113 (the class); PR #8 (origin); BL-151 (shares the fetch-depth fix).
 
+**Status update 2026-07-21:** WP-1 shipped on branch `fix/bl147-bl151-ci-approval-integrity` (status stays Open — Closed flip happens at merge, citing PR# + SHA). All 10 `templates/pipelines/ci/github/*.yml` gained `fetch-depth: 0` on checkout; both governance approval steps (integrity + author verification) are now stamped BYTE-IDENTICAL into all 10 (7 previously had none — verified single sha across all 10), resolving the base explicitly (`origin/${{ github.base_ref || 'main' }}`, `${{ github.event.before }}` on push) and failing LOUDLY via `git rev-parse --verify "$BASE"` when the base cannot resolve; every `2>/dev/null` on an APPROVAL_LOG line is gone. The two gitlab approval twins (`python.yml`, `typescript.yml`) got the same explicit-base + loud-fail + no-silencer treatment via `CI_MERGE_REQUEST_TARGET_BRANCH_NAME`/`CI_DEFAULT_BRANCH`. Watched-RED via the wave's one shared content-pin suite `tests/test-bl147-ci-template-integrity.sh` (mechanically derived template lists + >=10 count floor): pre-fix **3 passed / 11 failed**, post-fix **14 passed / 0 failed**. Mutation proofs (both restored to GREEN): re-adding `2>/dev/null` to one template → case Cc RED (13/1); removing `fetch-depth: 0` from one → case Ca RED (13/1). Registered in BOTH `tests/full-project-test-suite.sh` and the `tests.yml` unit list. All 20 CI templates re-validated as parseable YAML.
+
 ---
 
 ## BL-148: Every generated GitHub CI workflow runs SAST via semgrep-action — archived upstream April 2024
@@ -3566,6 +3568,8 @@ gitleaks-action requires `GITLEAKS_LICENSE` for ORGANIZATION accounts and `fetch
 **Fix shape:** drop the action; run the gitleaks CLI directly (`gitleaks git` — no license, mirrors the local hook), riding BL-147's fetch-depth fix. Alternative (rejected for friction): wire the license secret.
 
 **Related:** BL-147 (shared checkout fix); BL-137 (the class).
+
+**Status update 2026-07-21:** WP-1 shipped on branch `fix/bl147-bl151-ci-approval-integrity` (status stays Open — Closed flip happens at merge, citing PR# + SHA). The `gitleaks/gitleaks-action` step was dropped from all 10 `templates/pipelines/ci/github/*.yml` and replaced by the license-free CLI (`GITLEAKS_VERSION=8.30.1` — the current release per `gh api repos/gitleaks/gitleaks/releases/latest` → `v8.30.1`; `curl … | tar -xz gitleaks && ./gitleaks git --redact --exit-code 1`), so no `GITLEAKS_LICENSE` is required for org accounts. `gitleaks git` scans full history, so it rides BL-147's `fetch-depth: 0` fix. Content-pinned by the shared suite `tests/test-bl147-ci-template-integrity.sh` case Ce (no `gitleaks/gitleaks-action`; every github CI template runs `./gitleaks git`). Suite tally post-fix **14 passed / 0 failed** (pre-fix 3/11). Registered in BOTH lists.
 
 ---
 
