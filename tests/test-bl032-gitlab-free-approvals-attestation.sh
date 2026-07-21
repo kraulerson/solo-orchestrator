@@ -69,9 +69,12 @@ case "$*" in
     [ -n "${GLAB_POST_STDERR:-}" ] && printf '%s\n' "$GLAB_POST_STDERR" >&2
     exit "${GLAB_POST_EXIT:-0}"
     ;;
-  *"-X PUT"*"/approvals"*)
-    # Track that this call actually happened — the SOLO_APPROVALS_ATTESTED
-    # shortcircuit is expected to skip it.
+  *"-X POST"*"/approval_rules"*)
+    # BL-152: required-approvals call is now POST projects/:id/approval_rules
+    # (was the deprecated PUT projects/:id/approvals). Track that this call
+    # actually happened — the SOLO_APPROVALS_ATTESTED shortcircuit is
+    # expected to skip it. Knob names (GLAB_PUT_APPR_*, APPROVALS_PUT_TRACKER)
+    # are internal and retained.
     [ -n "${APPROVALS_PUT_TRACKER:-}" ] && touch "$APPROVALS_PUT_TRACKER"
     [ -n "${GLAB_PUT_APPR_STDERR:-}" ] && printf '%s\n' "$GLAB_PUT_APPR_STDERR" >&2
     exit "${GLAB_PUT_APPR_EXIT:-0}"

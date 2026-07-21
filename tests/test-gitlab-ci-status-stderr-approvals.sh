@@ -54,8 +54,14 @@ setup_with_fake_glab() {
   cat > "$TMPDIR_T/bin/glab" <<'GLAB_EOF'
 #!/usr/bin/env bash
 # Fake glab — pattern-match the invocation and emit the canned response.
-# Drain stdin so piped --input payloads don't SIGPIPE.
-if [ ! -t 0 ]; then cat >/dev/null 2>&1 || true; fi
+# Drain stdin so piped --input payloads don't SIGPIPE. BL-152: capture the
+# payload (instead of discarding) so, when GLAB_ARGV_LOG is set, we can
+# record argv + payload and assert on the exact call shape (which
+# endpoint/method the driver invoked). Recording is off unless GLAB_ARGV_LOG
+# is set, so the other scenarios are unaffected.
+_glab_stdin=""
+if [ ! -t 0 ]; then _glab_stdin="$(cat 2>/dev/null || true)"; fi
+if [ -n "${GLAB_ARGV_LOG:-}" ]; then printf '%s\t%s\n' "$*" "$_glab_stdin" >> "$GLAB_ARGV_LOG"; fi
 
 case "$*" in
   *"-X DELETE"*"/protected_branches/"*)
@@ -65,7 +71,10 @@ case "$*" in
     [ -n "${GLAB_POST_STDERR:-}" ] && printf '%s\n' "$GLAB_POST_STDERR" >&2
     exit "${GLAB_POST_EXIT:-0}"
     ;;
-  *"-X PUT"*"/approvals"*)
+  *"-X POST"*"/approval_rules"*)
+    # BL-152: the required-approvals call is now POST projects/:id/approval_rules
+    # (was the deprecated PUT projects/:id/approvals). The GLAB_PUT_APPR_*
+    # knobs keep their names (internal test knobs) and drive this arm.
     [ -n "${GLAB_PUT_APPR_STDERR:-}" ] && printf '%s\n' "$GLAB_PUT_APPR_STDERR" >&2
     exit "${GLAB_PUT_APPR_EXIT:-0}"
     ;;
@@ -108,7 +117,7 @@ GLAB_EOF
 }
 teardown_project() { rm -rf "$TMPDIR_T"; unset GLAB_POST_EXIT GLAB_POST_STDERR \
   GLAB_PUT_APPR_EXIT GLAB_PUT_APPR_STDERR GLAB_PUT_PROJ_EXIT GLAB_PUT_PROJ_STDERR \
-  GLAB_GET_PROJ_BODY GLAB_GET_BRANCH_BODY GLAB_GET_APPR_BODY; }
+  GLAB_GET_PROJ_BODY GLAB_GET_BRANCH_BODY GLAB_GET_APPR_BODY GLAB_ARGV_LOG; }
 
 run_configure() {
   local mode="$1"
@@ -310,6 +319,49 @@ t8_backlog_has_bl032_entry() {
   pass "T8: BL-032 entry exists in backlog (GitLab BL-002 analog)"
 }
 
+# ─── BL-152: current approval-rules API (not the deprecated approvals PUT) ────
+
+t9_org_configure_uses_approval_rules_post() {
+  # BL-152: org mode must set required approvals via the CURRENT API —
+  # POST projects/:id/approval_rules with approvals_required — not the
+  # deprecated PUT projects/:id/approvals + approvals_before_merge (the
+  # field is scheduled for removal in GitLab REST API v5). The fake glab
+  # records every invocation's argv + payload to GLAB_ARGV_LOG; we assert
+  # on the recorded call shape rather than on an exit code, so this pins
+  # the exact endpoint/method/field the driver emits.
+  setup_with_fake_glab
+  export GLAB_POST_EXIT=0 GLAB_PUT_APPR_EXIT=0 GLAB_PUT_PROJ_EXIT=0
+  local log="$TMPDIR_T/glab_calls.log"
+  : > "$log"
+  (
+    cd "$TMPDIR_T"
+    PATH="$TMPDIR_T/bin:$PATH"
+    export GLAB_POST_EXIT GLAB_PUT_APPR_EXIT GLAB_PUT_PROJ_EXIT
+    export GLAB_ARGV_LOG="$log"
+    set +e
+    # shellcheck disable=SC1090
+    source "$DRIVER"
+    host_configure_protection main org >/dev/null 2>&1
+  )
+  # The required-approvals call must be a POST to .../approval_rules.
+  if ! grep 'approval_rules' "$log" | grep -q -- '-X POST'; then
+    fail_ "T9" "expected a 'POST projects/:id/approval_rules' invocation; log=$(tr '\n' ';' < "$log")"
+    teardown_project; return
+  fi
+  # ...carrying approvals_required in its payload.
+  if ! grep 'approval_rules' "$log" | grep -q 'approvals_required'; then
+    fail_ "T9" "approval_rules call missing approvals_required payload; log=$(grep approval_rules "$log")"
+    teardown_project; return
+  fi
+  # ...and must NOT emit the deprecated approvals_before_merge field anywhere.
+  if grep -q 'approvals_before_merge' "$log"; then
+    fail_ "T9" "driver still emits deprecated approvals_before_merge; log=$(grep approvals_before_merge "$log")"
+    teardown_project; return
+  fi
+  pass "T9: org configure uses POST projects/:id/approval_rules with approvals_required (BL-152)"
+  teardown_project
+}
+
 echo "== tests/test-gitlab-ci-status-stderr-approvals.sh =="
 t1_org_configure_sets_pipeline_succeeds
 t2_org_verify_fails_when_pipeline_gate_off
@@ -319,6 +371,7 @@ t5_approvals_put_generic_failure_surfaces_stderr
 t6_approvals_premium_only_returns_distinct_code
 t7_personal_mode_unchanged_on_success
 t8_backlog_has_bl032_entry
+t9_org_configure_uses_approval_rules_post
 
 echo ""
 echo "== Total: $((PASSED + FAILED)) | Passed: $PASSED | Failed: $FAILED =="
