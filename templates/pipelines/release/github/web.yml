@@ -47,13 +47,54 @@ jobs:
         #   Railway:  railway up --service ${{ vars.RAILWAY_SERVICE }}
         #   Netlify:  npx netlify deploy --prod --dir=dist
 
-      - name: DAST scan
-        # Set PREVIEW_URL in repository variables. This should point to your
-        # deployed staging or production URL. DAST runs after deploy so the
-        # application is live and reachable.
-        run: >
-          docker run -t zaproxy/zap-stable
-          zap-baseline.py -t ${{ vars.PREVIEW_URL }}
+      - name: DAST scan (OWASP ZAP baseline)
+        # Set PREVIEW_URL in repository variables (Settings -> Variables). It must
+        # point to your deployed staging/production URL. DAST runs after deploy so
+        # the application is live and reachable. The step is SKIPPED when
+        # PREVIEW_URL is unset — a DAST scan has no target without it.
+        #
+        # This mirrors the Phase-3 scanner's verdict (run-phase3-validation.sh,
+        # `# BL-122-ZAP-RISK-FILTER` + `# BL-140-ZAP-WORKDIR`): the RAW docker exit
+        # code is NOT the verdict. ZAP baseline exits 1/2 for its own WARN/FAIL
+        # thresholds over ALL alerts (informational included) — rule 10049
+        # (Storable/Cacheable, riskcode 0) fires under EVERY Cache-Control value,
+        # so a raw-exit gate is unpassable for real sites. The gate is instead a
+        # jq count of Medium+ (riskcode >= 2) alerts; an absent/unparseable report
+        # FAILs LOUDLY (a scan nobody can read is not a clean scan).
+        if: vars.PREVIEW_URL != ''
+        run: |
+          # Mounted work dir — docker -v REQUIRES an ABSOLUTE host path (a relative
+          # one is read as a named volume). ZAP writes -J JSON into /zap/wrk.
+          ZAP_WORK="${GITHUB_WORKSPACE}/.zap-work"
+          mkdir -p "$ZAP_WORK"
+          # Capture the raw exit — do NOT let it be the verdict.
+          rc=0
+          docker run --rm -v "$ZAP_WORK:/zap/wrk" ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py -t "${{ vars.PREVIEW_URL }}" -J zap-report.json || rc=$?
+          REPORT="$ZAP_WORK/zap-report.json"
+          # No report at all → a crash (docker/image/exec failure), not a skip: FAIL.
+          if [ ! -s "$REPORT" ]; then
+            echo "::error::OWASP ZAP produced no report (rc=$rc) — treat as a scan failure, not a pass"
+            exit 1
+          fi
+          # rc >= 3 = execution error (docker error, image pull failure, ZAP crash).
+          if [ "$rc" -ge 3 ]; then
+            echo "::error::OWASP ZAP execution error (rc=$rc) — inspect $REPORT"
+            exit 1
+          fi
+          # Judge Medium+ (riskcode >= 2) alerts ONLY. riskcode is a STRING in ZAP
+          # JSON ("0".."3"); `// "0"` defaults a MISSING field to Informational,
+          # never to blocking. An UNPARSEABLE report is a FAIL, never a pass.
+          if ! findings=$(jq '[.site[]?.alerts[]? | select(((.riskcode // "0") | tonumber) >= 2)] | length' "$REPORT"); then
+            echo "::error::ZAP report unparseable by jq — refusing to guess; inspect $REPORT"
+            exit 1
+          fi
+          case "$findings" in ''|*[!0-9]*) findings=0 ;; esac
+          if [ "$findings" -gt 0 ]; then
+            echo "::error::$findings Medium+ ZAP alert(s) (riskcode>=2; baseline rc=$rc) — review $REPORT"
+            exit 1
+          fi
+          echo "0 Medium+ ZAP alerts (baseline rc=$rc; informational/low, if any, remain in $REPORT)"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2 (v2.6.2)
