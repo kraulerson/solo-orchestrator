@@ -10,8 +10,8 @@ pipelines:
           - exit 1
     - step:
         name: Secrets
-        image: zricethezav/gitleaks:latest
-        script: [gitleaks detect --source . --verbose --redact]
+        image: ghcr.io/gitleaks/gitleaks:v8.30.1
+        script: [gitleaks dir . --verbose --redact]
     - step:
         name: Governance
         script:

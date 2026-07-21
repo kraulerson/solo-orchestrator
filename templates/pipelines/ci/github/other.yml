@@ -35,14 +35,6 @@ jobs:
       # - name: Test
       #   run: <your test command>
 
-      - name: Security - SAST (Semgrep)
-        uses: semgrep/semgrep-action@713efdd345f3035192eaa63f56867b88e63e4e5d # v1 (v0.58.0)
-        with:
-          config: >-
-            p/owasp-top-ten
-            p/security-audit
-            r/javascript.browser.security.insecure-document-method
-
       - name: Security - Secret detection (gitleaks)
         run: |
           # BL-151: run the gitleaks CLI directly — gitleaks-action needs GITLEAKS_LICENSE
@@ -125,3 +117,19 @@ jobs:
       - name: Governance - Session state check
         run: bash scripts/check-session-state.sh 2>/dev/null || true
         # Tier 1.5: warning only. Set SOIF_STRICT_SESSION=true to block.
+
+  # BL-148: SAST runs in the semgrep/semgrep container (replaces the archived
+  # Semgrep GitHub Action). The scan's config + severity flags MIRROR the local
+  # pre-commit hook (scripts/lib/hook-templates.sh) so CI and the dev gate enforce
+  # the IDENTICAL ruleset. semgrep/semgrep is Alpine-based; GitHub's runner detects
+  # that and runs JS actions (checkout) with its musl node build, so checkout works.
+  sast:
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 (v4.3.1)
+        with:
+          fetch-depth: 0
+      - name: Security - SAST (Semgrep)
+        run: semgrep scan --config=p/owasp-top-ten --config=r/javascript.browser.security.insecure-document-method --severity=ERROR --error

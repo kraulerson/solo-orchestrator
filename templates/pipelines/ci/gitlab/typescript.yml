@@ -37,15 +37,15 @@ test:
 
 sast:
   stage: security
-  image: returntocorp/semgrep
+  image: semgrep/semgrep
   script:
-    - semgrep --config=p/owasp-top-ten --config=p/security-audit --config=r/javascript.browser.security.insecure-document-method --error
+    - semgrep scan --config=p/owasp-top-ten --config=r/javascript.browser.security.insecure-document-method --severity=ERROR --error
 
 secrets:
   stage: security
-  image: zricethezav/gitleaks:latest
+  image: ghcr.io/gitleaks/gitleaks:v8.30.1
   script:
-    - gitleaks detect --source . --verbose --redact
+    - gitleaks dir . --verbose --redact
 
 dependencies:
   stage: security
