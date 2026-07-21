@@ -470,6 +470,98 @@ else
   pass "Cz-e-no-dead-image (no zap-stable in tool-matrix/web.json)"
 fi
 
+# ═══════════════════════════════════════════════════════════════════════════
+# WP-4 (BL-150): every pinned Action ref is a 40-hex commit SHA + version note
+# ═══════════════════════════════════════════════════════════════════════════
+# The estate SHA-pins its GitHub Actions (BL-113), but the pins had drifted 1–3
+# majors behind upstream (checkout v4→v7, setup-node v4→v7, action-gh-release
+# v2→v3, golangci-lint-action v6→v9, …). WP-4 re-pins every action to its
+# current release. These cases are a SHAPE guard ONLY — a 40-hex commit SHA + a
+# trailing version comment on every `uses:` line under templates/pipelines/**
+# and .github/workflows/*.yml, and on every action-bearing RELEASE_SETUP_ACTION
+# entry in init.sh AND its sync sibling scripts/reconfigure-project.sh. NO
+# network, NO version-freshness assertion: the currency WATCHER (does a pin LAG
+# upstream?) is BL-150's deferred half, tracked under BL-109. The sole exemption
+# is the build-time placeholder token `__SETUP_ACTION__` (init.sh/reconfigure
+# substitute a SHA-pinned action at render time, BL-113).
+#
+# PRE-GREEN GUARD: on a fully-pinned tree these PASS by construction — the
+# estate was already sha-pinned, only STALE. The RED half is proven by the
+# pin-refresh diff itself and by the recorded mutation (bare `@vN` tag →
+# Cp1-sha-pin RED). This is the sanctioned pre-green shape guard.
+#
+# WP-4 CASES:
+#   Cp1  every `uses:` action ref (templates/pipelines/** + .github/workflows)
+#        carries `@<40-hex-sha> # <version comment>` (placeholder exempt)
+#   Cp2  every action-bearing RELEASE_SETUP_ACTION= entry in init.sh AND
+#        scripts/reconfigure-project.sh (the sync sibling) is likewise pinned
+
+echo "Cp1: every uses: action ref is a 40-hex SHA pin + a version comment"
+CP1_FILES=()
+while IFS= read -r f; do
+  [ -n "$f" ] && CP1_FILES+=("$f")
+done < <( { find "$REPO_ROOT/templates/pipelines" -name '*.yml';
+            find "$REPO_ROOT/.github/workflows" -name '*.yml'; } | sort )
+
+cp1_total=0
+cp1_bad=0
+for f in "${CP1_FILES[@]}"; do
+  while IFS= read -r line; do
+    # Exempt the documented build-time placeholder (init.sh renders a pin, BL-113)
+    case "$line" in *__SETUP_ACTION__*) continue ;; esac
+    cp1_total=$((cp1_total + 1))
+    if printf '%s' "$line" | grep -Eq '@[0-9a-f]{40}[[:space:]]+#'; then
+      :
+    else
+      cp1_bad=$((cp1_bad + 1))
+      fail_ "Cp1-sha-pin" "${f#"$REPO_ROOT/"}: uses: is not <40-hex-sha> # <comment> -> $(printf '%s' "$line" | sed 's/^[[:space:]]*//')"
+    fi
+  done < <(grep -hE 'uses:[[:space:]]' "$f")
+done
+
+if [ "$cp1_total" -ge 20 ]; then
+  pass "Cp1-floor ($cp1_total uses: refs scanned, floor 20)"
+else
+  fail_ "Cp1-floor" "only $cp1_total uses: refs scanned (floor 20) — the scan is vacuous"
+fi
+if [ "$cp1_bad" -eq 0 ]; then
+  pass "Cp1-all-pinned (every uses: ref is SHA-pinned + version-commented)"
+fi
+
+echo "Cp2: every action-bearing RELEASE_SETUP_ACTION entry (init.sh + sync sibling) is SHA-pinned"
+# NB: these files are READ as data (grep), never executed — the `for … in`
+# inline form (not an array literal) keeps lint-no-live-remote-in-tests.sh from
+# mis-reading a `(`-prefixed init.sh path as a live init run (BL-076).
+cp2_total=0
+cp2_bad=0
+for f in "$REPO_ROOT/init.sh" "$REPO_ROOT/scripts/reconfigure-project.sh"; do
+  if [ ! -f "$f" ]; then
+    fail_ "Cp2-table-present" "${f#"$REPO_ROOT/"} missing — the RELEASE_SETUP_ACTION sync sibling is gone"
+    continue
+  fi
+  while IFS= read -r line; do
+    # Only entries that name an action carry '@'; the '# Pre-installed' and
+    # '# TODO' comment-only values have none and are correctly exempt.
+    printf '%s' "$line" | grep -q '@' || continue
+    cp2_total=$((cp2_total + 1))
+    if printf '%s' "$line" | grep -Eq '@[0-9a-f]{40}[[:space:]]+#'; then
+      :
+    else
+      cp2_bad=$((cp2_bad + 1))
+      fail_ "Cp2-sha-pin" "${f#"$REPO_ROOT/"}: RELEASE_SETUP_ACTION is not <40-hex-sha> # <comment> -> $(printf '%s' "$line" | sed 's/^[[:space:]]*//')"
+    fi
+  done < <(grep -hE '^[[:space:]]*RELEASE_SETUP_ACTION="' "$f")
+done
+
+if [ "$cp2_total" -ge 12 ]; then
+  pass "Cp2-floor ($cp2_total action-bearing RELEASE_SETUP_ACTION entries, floor 12)"
+else
+  fail_ "Cp2-floor" "only $cp2_total action-bearing RELEASE_SETUP_ACTION entries (floor 12) — vacuous"
+fi
+if [ "$cp2_bad" -eq 0 ]; then
+  pass "Cp2-all-pinned (every action-bearing RELEASE_SETUP_ACTION is SHA-pinned + commented)"
+fi
+
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ] || exit 1

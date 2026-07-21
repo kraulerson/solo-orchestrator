@@ -47,7 +47,7 @@ jobs:
     if: github.event_name == 'push' || github.event_name == 'pull_request'
     steps:
       - name: Checkout repository
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 (v4.3.1)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
         with:
           # tests/test-lint-backlog-references.sh runs the linter against the
           # REAL repo with `--base origin/main` (needs the origin/main ref and
@@ -239,7 +239,7 @@ jobs:
         shard: [core, edge-pre-init, edge-scripts, aggregators]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4 (v4.3.1)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
         with:
           fetch-depth: 0
 
