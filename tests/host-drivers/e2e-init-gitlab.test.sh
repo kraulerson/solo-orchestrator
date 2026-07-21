@@ -13,9 +13,10 @@
 #   repo create NAME --private|--public          → echo MOCK_GL_REPO_URL
 #   api -X DELETE .../protected_branches/main    → tolerated (|| true) before recreate
 #   api -X POST .../protected_branches           → exit 0 with stdin payload
-#   api -X PUT .../approvals                     → exit 0 (org mode only)
+#   api -X POST .../approval_rules               → exit 0 (org mode only; BL-152)
+#   api -X POST .../approvals                    → exit 0 (org: reset_approvals_on_push; BL-152)
 #   api projects/.../protected_branches/main     → GET, echo MOCK_GL_PROTECT_JSON
-#   api projects/.../approvals                   → GET (org), echo MOCK_GL_APPROVALS_JSON
+#   api projects/.../approval_rules              → GET (org), echo MOCK_GL_APPROVALS_JSON (array)
 #
 # Pattern-match order matters: `-X DELETE/POST/PUT` cases must come before
 # the bare-`api` GET fallback (all share the `/protected_branches` URL
@@ -43,10 +44,16 @@ cd /tmp
 #   MOCK_GL_REPO_CREATE_ERR      — stderr emitted on failure
 #   MOCK_GL_PROTECT_POST_EXIT    — exit code for `api -X POST .../protected_branches` (default 0)
 #   MOCK_GL_PROTECT_POST_ERR     — stderr emitted on failure
-#   MOCK_GL_APPROVALS_PUT_EXIT   — exit code for `api -X PUT .../approvals` (default 0)
+#   MOCK_GL_APPROVALS_PUT_EXIT   — exit code for the required-approvals call
+#                                  `api -X POST .../approval_rules` (BL-152;
+#                                  knob name retained). Default 0.
 #   MOCK_GL_APPROVALS_PUT_ERR    — stderr emitted on failure
+#   MOCK_GL_RESET_POST_EXIT      — exit code for the reset_approvals_on_push
+#                                  config call `api -X POST .../approvals`
+#                                  (BL-152). Default 0.
+#   MOCK_GL_RESET_POST_ERR       — stderr emitted on failure
 #   MOCK_GL_PROTECT_JSON         — JSON body echoed by `api .../protected_branches/main` GET
-#   MOCK_GL_APPROVALS_JSON       — JSON body echoed by `api .../approvals` GET (org)
+#   MOCK_GL_APPROVALS_JSON       — JSON array echoed by `api .../approval_rules` GET (org)
 write_mock_glab() {
   local dir="$1"
   mkdir -p "$dir"
@@ -84,11 +91,25 @@ case "$*" in
     fi
     exit 0
     ;;
-  *"api -X PUT "*approvals*)
+  *"api -X POST "*approval_rules*)
+    # BL-152: required-approvals call migrated from PUT .../approvals to
+    # POST .../approval_rules. Knob names (MOCK_GL_APPROVALS_PUT_*) retained.
     rc="${MOCK_GL_APPROVALS_PUT_EXIT:-0}"
     cat >/dev/null
     if [ "$rc" -ne 0 ]; then
-      printf '%s\n' "${MOCK_GL_APPROVALS_PUT_ERR:-mock glab: approvals PUT failed}" >&2
+      printf '%s\n' "${MOCK_GL_APPROVALS_PUT_ERR:-mock glab: approval_rules POST failed}" >&2
+      exit "$rc"
+    fi
+    exit 0
+    ;;
+  *"api -X POST "*approvals*)
+    # BL-152: reset_approvals_on_push config — POST projects/:id/approvals
+    # (the non-rule config endpoint). Matched AFTER the approval_rules arm
+    # ("approval_rules" never contains the substring "approvals").
+    rc="${MOCK_GL_RESET_POST_EXIT:-0}"
+    cat >/dev/null
+    if [ "$rc" -ne 0 ]; then
+      printf '%s\n' "${MOCK_GL_RESET_POST_ERR:-mock glab: reset-approvals-on-push POST failed}" >&2
       exit "$rc"
     fi
     exit 0
@@ -116,9 +137,11 @@ case "$*" in
     printf '%s\n' "${MOCK_GL_PROTECT_JSON:-{}}"
     exit 0
     ;;
-  *"api "*approvals*)
-    # GET approvals (org-mode verification)
-    printf '%s\n' "${MOCK_GL_APPROVALS_JSON:-{}}"
+  *"api "*approval_rules*)
+    # BL-152: GET approval_rules (org-mode verification) — verify now reads
+    # the approval-rules LIST (a JSON array), not the deprecated
+    # GET .../approvals + approvals_before_merge scalar.
+    printf '%s\n' "${MOCK_GL_APPROVALS_JSON:-[]}"
     exit 0
     ;;
   *)
@@ -170,6 +193,7 @@ scenario_teardown() {
   unset MOCK_GL_REPO_URL MOCK_GL_REPO_CREATE_EXIT MOCK_GL_REPO_CREATE_ERR
   unset MOCK_GL_PROTECT_POST_EXIT MOCK_GL_PROTECT_POST_ERR
   unset MOCK_GL_APPROVALS_PUT_EXIT MOCK_GL_APPROVALS_PUT_ERR
+  unset MOCK_GL_RESET_POST_EXIT MOCK_GL_RESET_POST_ERR
   unset MOCK_GL_PROTECT_JSON MOCK_GL_APPROVALS_JSON MOCK_GL_DELETE_EXIT
   unset MOCK_GL_PROJECT_PUT_EXIT MOCK_GL_PROJECT_PUT_ERR MOCK_GL_PROJECT_JSON
   unset GIT_CONFIG_GLOBAL GLAB_TOKEN
@@ -189,8 +213,8 @@ PROTECT_JSON_PERSONAL='{"name":"main","push_access_levels":[{"access_level":40}]
 # branches; MR-only access).
 PROTECT_JSON_ORG='{"name":"main","push_access_levels":[{"access_level":0}],"merge_access_levels":[{"access_level":40}],"allow_force_push":false}'
 
-# Org-mode approvals JSON: approvals_before_merge >= 1.
-APPROVALS_JSON_ORG='{"approvals_before_merge":1,"reset_approvals_on_push":true}'
+# Org-mode approval-rules LIST (BL-152): a rule requiring >= 1 approval.
+APPROVALS_JSON_ORG='[{"name":"Require approval","approvals_required":1}]'
 
 run_init_e2e() {
   local pname="$1" deployment="$2"; shift 2
@@ -237,8 +261,8 @@ else
 fi
 scenario_teardown
 
-# T2: org/strict success — additional `api -X PUT approvals` call,
-# host_verify_protection also GETs approvals (org-mode only).
+# T2: org/strict success — additional `api -X POST approval_rules` call
+# (BL-152), host_verify_protection also GETs approvals (org-mode only).
 echo "T2: gitlab + org/strict full success"
 scenario_setup "https://gitlab.com/e2e-test/org-success.git"
 export MOCK_GL_PROTECT_JSON="$PROTECT_JSON_ORG"
@@ -358,8 +382,8 @@ echo "=== T6: gitlab-exit-3 host-agnostic attestation flow (BL-031 fix) ==="
 # ════════════════════════════════════════════════════════════════════
 
 # T6 verifies the BL-031 fix at init.sh:1998-2045: the exit-3 attestation
-# fallback is now host-agnostic. Before BL-031, a gitlab org-mode approvals
-# PUT failure (gitlab.sh:120 returns exit 3) was met with GitHub-branded
+# fallback is now host-agnostic. Before BL-031, a gitlab org-mode
+# approval-rules POST failure (host_configure_protection returns exit 3) was met with GitHub-branded
 # messaging — "Branch protection unavailable on this repo (free-tier limit)"
 # and "Upgrade to GitHub Pro" — because init.sh:2010-2019 hardcoded those
 # strings against any exit-3 driver return.
@@ -375,7 +399,7 @@ echo "=== T6: gitlab-exit-3 host-agnostic attestation flow (BL-031 fix) ==="
 #   - the log does NOT contain "GitHub Pro" or "free-tier limit"
 #   - the log mentions "gitlab" in the warn/info (host-aware)
 #   - the gitlab driver's own stderr ("approvals config failed") surfaces
-echo "T6: org approvals PUT fails — host-agnostic attestation flow (BL-031 fixed)"
+echo "T6: org approval_rules POST fails — host-agnostic attestation flow (BL-031 fixed)"
 scenario_setup "https://gitlab.com/e2e-test/approvals-fail.git"
 export MOCK_GL_PROTECT_JSON="$PROTECT_JSON_ORG"
 export MOCK_GL_APPROVALS_JSON="$APPROVALS_JSON_ORG"
@@ -413,7 +437,7 @@ echo ""
 echo "=== T7: gitlab-exit-4 Premium-only approvals (BL-032 / code-host-gitlab-8) ==="
 # ════════════════════════════════════════════════════════════════════
 #
-# T7 is the BL-032 sibling to T6. When the approvals PUT fails on
+# T7 is the BL-032 sibling to T6. When the approval-rules POST fails on
 # gitlab.com Free with a Premium-feature-not-available error, the driver
 # now pattern-matches and returns exit 4 with a structured BL-032
 # remediation block (gitlab.sh code-host-gitlab-8 branch). init.sh
@@ -422,7 +446,7 @@ echo "=== T7: gitlab-exit-4 Premium-only approvals (BL-032 / code-host-gitlab-8)
 #
 # Assertions mirror T6 with the BL-032-specific wording substituted for
 # the driver's stderr check.
-echo "T7: org approvals PUT fails with Premium-tier message — BL-032 exit-4 path"
+echo "T7: org approval_rules POST fails with Premium-tier message — BL-032 exit-4 path"
 scenario_setup "https://gitlab.com/e2e-test/premium-only.git"
 export MOCK_GL_PROTECT_JSON="$PROTECT_JSON_ORG"
 export MOCK_GL_APPROVALS_JSON="$APPROVALS_JSON_ORG"

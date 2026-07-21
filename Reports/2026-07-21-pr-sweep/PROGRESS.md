@@ -494,3 +494,134 @@ name `lint-tests-registered.sh` unchanged, per plan). CANONICAL COMMANDS
 ### Deviations from the plan
 - None. The plan anticipated adding a fixture mode for tests.yml if absent
   (there was none) — added `--tests-yml`, mirroring the existing override idiom.
+
+---
+
+## WP-5 — BL-152: GitLab approval_rules migration
+
+**Branch:** `fix/bl152-gitlab-approval-rules` · **Base:** `main` @ `78d944e`
+(origin/main after WP-1 merged as #235). **Status:** PR opened green, not merged.
+File-disjoint from the template wave — no stacking.
+
+### Reproduce (the finding)
+`scripts/host-drivers/gitlab.sh` `host_configure_protection` (org mode) set
+required approvals via `glab api -X PUT projects/:id/approvals` with
+`{"approvals_before_merge":1,"reset_approvals_on_push":true}`. `approvals_before_merge`
+is deprecated since GitLab 14.0 and **scheduled for removal in REST API v5**
+(confirmed in the GitLab REST docs). On removal the PUT fails into the driver's
+generic exit-3 arm, not the handled BL-032 free-tier exit-4 arm.
+
+### API shape (Context7, GitLab REST docs — merge_request_approvals)
+- `POST /projects/:id/approval_rules` — **required:** `name` (string),
+  `approvals_required` (integer). **Optional:** `rule_type`
+  (`any_approver`/`regular`/`report_approver`), `user_ids`, `group_ids`, etc.
+- The docs explicitly advise **omitting `rule_type`** when creating rules via
+  the API ("Users should avoid using the rule_type field when building approval
+  rules via the API") — so the payload is `name` + `approvals_required` only.
+- `GET /projects/:id` still returns `approvals_before_merge` but flagged
+  `// Deprecated. Use merge request approvals API instead.` — the field's
+  removal in v5 is the currency risk BL-152 names.
+
+### Watched-RED (before the driver changed)
+New case **T9** in `tests/test-gitlab-ci-status-stderr-approvals.sh`. The fake
+`glab` was extended to record every invocation's argv + `--input` payload to
+`GLAB_ARGV_LOG` (off unless the env var is set → other scenarios unaffected).
+T9 asserts a `POST …/approval_rules` call that carries `approvals_required` and
+NO `approvals_before_merge`. Pre-fix run: **`8 passed / 1 failed`** — T9 RED,
+the recorded log showing `api -X PUT projects/org%2Frepo/approvals … {"approvals_before_merge":1,"reset_approvals_on_push":true}`.
+
+### Fix
+- Call migrated to
+  `glab api -X POST "projects/$project/approval_rules" --input - <<<'{"name":"Require approval","approvals_required":1}'`.
+- **BL-032 Premium sniff preserved verbatim:** the broad detection regex
+  (`premium|ultimate|not available on your plan|feature is not available|requires.*plan`)
+  is retained UNCHANGED. The exact Free-tier body for `approval_rules` is not
+  verifiable offline, so per the plan BOTH endpoints' 403 phrasings are covered
+  by the retained union (requiring MR approvals is the Premium gate regardless
+  of endpoint) — comment added saying so.
+- **rc 3 / rc 4 contract unchanged** — only the call underneath moved. Header
+  contract, the `WHY GLAB STDERR`/`WHY BL-032 EXISTS` blocks, the shortcircuit
+  comment, and the operator remediation message updated only where they named
+  the old endpoint (`projects/:id/approvals` + `approvals_before_merge` →
+  `projects/:id/approval_rules` + `approvals_required`; "PUT" → "POST").
+
+Post-fix run: **`9 passed / 0 failed`**.
+
+### Tests (fixture arms updated in lockstep — all four gitlab suites GREEN)
+- `tests/test-gitlab-ci-status-stderr-approvals.sh` → **9/0** (T9 added; fake-glab
+  arm `-X PUT …/approvals` → `-X POST …/approval_rules`).
+- `tests/test-bl032-gitlab-free-approvals-attestation.sh` → **8/0** (same arm
+  swap; `APPROVALS_PUT_TRACKER` + reactive/attested paths intact).
+- `tests/host-drivers/gitlab.test.sh` → **12/12** (org-configure mock
+  `-X PUT …/approvals` → `-X POST …/approval_rules`).
+- `tests/host-drivers/e2e-init-gitlab.test.sh` → **7/0** (mock arm swap; T6
+  exit-3 + T7 exit-4 Premium paths both fire on the new call; internal
+  `MOCK_GL_APPROVALS_PUT_*` knob names retained, noted).
+
+No NEW test file → no aggregator/tests.yml registration anchors touched
+(the RED case extends an existing suite already registered).
+
+### Mutation proof (against the migrated driver; restored to GREEN)
+Revert the driver call to the PUT form (copy mutated, then restored from a
+backup) → **T9 RED** (`5 passed / 4 failed`; the recorded log again shows
+`-X PUT …/approvals` + `approvals_before_merge`, and the fixture arm — now
+wired to the POST — no longer injects the T1/T5/T6 exit codes, further proving
+the arm tracks the new call shape). Restore → **9/0 GREEN**.
+
+### Blast radius
+- `grep -l gitlab tests/*.sh` → the 4 driver suites above plus 11 that only
+  mention "gitlab" for host/manifest/CI-template purposes; grep-verified NONE
+  reference the driver approvals call / source / `approvals_before_merge`. Ran
+  the fast ones (`test-bl116/118/147/123/currency-manifest/docs-cluster-six-pack/
+  lint-no-live-remote/specs-plans-remaining-quartet/check-phase-gate-backstop-attestation`)
+  → all **rc=0**. The init-heavy aggregators (edge-case, edge-cases-pre-init,
+  upgrade-paths) don't touch the driver call (grep-proven) and the init.sh path
+  is exercised end-to-end by e2e-init-gitlab (7/0).
+- `bash scripts/run-lints.sh` → (tally in PR body).
+
+### Follow-up (verifier-adjudicated SHOULD-FIXes — same branch/PR)
+The consolidated verifier held that BL-152 cannot close with the two items
+below merely "recorded", so they are now BUILT:
+
+- **Verify migrated off the deprecated scalar.** `host_verify_protection` now
+  reads `GET projects/:id/approval_rules` (a JSON array) and judges "approvals
+  configured" by ANY rule with `approvals_required >= 1`
+  (`jq -r '[.[]?.approvals_required // 0] | max // 0'`) — mirroring the
+  configure side. The old `.approvals_before_merge` read from `GET .../approvals`
+  is deprecated (removed in v5) and does NOT reflect approval_rules, so it would
+  false-fail on Premium once configure sets approvals via rules. Context7 confirmed
+  the GET `/approval_rules` array shape (each element carries `approvals_required`).
+- **`reset_approvals_on_push:true` re-applied.** Via a dedicated
+  `POST projects/:id/approvals` CONFIG call after the approval_rules POST
+  succeeds. Context7 confirmed `reset_approvals_on_push` is a current,
+  non-deprecated field on that config endpoint (only its `approvals_before_merge`
+  rule-count field was deprecated → migrated to approval_rules; the endpoint
+  survives for the non-rule settings). Ordering makes it Free-safe: the Premium
+  403 short-circuits at the approval_rules POST above, so the reset call is only
+  reached on a tier that supports it. Its failure returns exit 3 (contract header
+  updated: exit 3 now covers the approval-rules POST OR the reset config POST).
+
+**Watched-RED (both new cases, against the pre-follow-up driver `git checkout HEAD -- gitlab.sh`):**
+`8 passed / 3 failed` — **T10** (verify must GET `approval_rules`; RED log showed
+`api projects/org%2Frepo/approvals`), **T11** (configure must emit a
+`POST /approvals` carrying `reset_approvals_on_push`; RED log had no such call),
+and **T3** (its fixture now expects the array-based verify). Post-fix: **11/0**.
+
+**Isolated mutation proofs (finished driver; `</dev/null` to avoid the fixture's
+GET-stdin `cat` blocking on a piped stdin):** revert ONLY the verify read
+(`approval_rules` → `approvals_before_merge`) → **T10 RED, T11 green**; neutralize
+ONLY the reset payload → **T11 RED, T10 green**; restore → **11/0 GREEN**.
+
+**Fixtures updated:** `test-gitlab-ci-status-stderr-approvals.sh` (GET
+`approval_rules` arm returns the array via `GLAB_GET_APPR_BODY`, new
+`-X POST …/approvals` reset arm with `GLAB_POST_RESET_*` knobs, T2/T3 bodies →
+array, T10/T11 added + registered); `tests/host-drivers/gitlab.test.sh`
+(approval_rules GET mocks + reset POST mock); `tests/host-drivers/e2e-init-gitlab.test.sh`
+(GET `approval_rules` arm, new reset POST arm + `MOCK_GL_RESET_POST_*` knobs,
+`APPROVALS_JSON_ORG` → array).
+
+### Scope note still recorded (NOT built)
+- **Idempotency on re-run:** `POST …/approval_rules` creates a rule; unlike the
+  old idempotent PUT, a second org-configure could create a duplicate/renamed
+  rule. `host_configure_protection` runs once at Phase-2 init (rare re-runs),
+  so low risk — noted for a durable follow-up.

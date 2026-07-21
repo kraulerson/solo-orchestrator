@@ -7,11 +7,23 @@
 #   0  success
 #   1  invalid argument / origin parse failure
 #   2  protected_branches POST failed (generic — upstream message surfaced)
-#   3  approvals PUT failed (generic — upstream message surfaced)
-#   4  approvals PUT failed because the feature is Premium-only on gitlab.com
-#      Free tier (matched by the response body). Operators can't fix the API
-#      call from this host/tier combo; the BL-032 remediation message points
-#      them at upgrade / self-hosted / attestation escape-hatch options.
+#   3  approval-rules POST OR reset-approvals-on-push config POST failed
+#      (generic — upstream message surfaced)
+#   4  approval-rules POST failed because the feature is Premium-only on
+#      gitlab.com Free tier (matched by the response body). Operators can't
+#      fix the API call from this host/tier combo; the BL-032 remediation
+#      message points them at upgrade / self-hosted / attestation options.
+#
+#   BL-152: the required-approvals call was migrated from the deprecated
+#   `PUT projects/:id/approvals` + `approvals_before_merge` (scheduled for
+#   removal in GitLab REST API v5) to `POST projects/:id/approval_rules`
+#   with `approvals_required`. Exit codes 3/4 are unchanged; only the call
+#   underneath them moved. The `reset_approvals_on_push` setting (which rode
+#   on the old PUT payload) is re-applied via a dedicated
+#   `POST projects/:id/approvals` CONFIG call after the rule succeeds — its
+#   failure also returns 3. host_verify_protection likewise reads the count
+#   from `GET projects/:id/approval_rules` (max approvals_required), not the
+#   deprecated `approvals_before_merge` scalar.
 #   5  project-settings PUT (only_allow_merge_if_pipeline_succeeds) failed
 #      in org mode — upstream message surfaced.
 #
@@ -19,7 +31,7 @@
 #   Pre-fix, both glab api calls used `>/dev/null 2>&1` and emitted only a
 #   generic "failed to configure protection". Operators on gitlab.com Free
 #   org mode would hit a Premium-feature-not-available 403 on the
-#   approvals PUT and see no actionable detail. The github.sh driver
+#   approval-rules POST and see no actionable detail. The github.sh driver
 #   already captures stderr (BL-002 pattern, github.sh:117-138) to detect
 #   free-tier 403s; this driver now mirrors that discipline.
 #
@@ -33,9 +45,12 @@
 #   host_verify_protection asserts the same flag.
 #
 # WHY BL-032 EXISTS (code-host-gitlab-8)
-#   `projects/:id/approvals` with `approvals_before_merge>=1` is a
-#   Premium-tier feature on gitlab.com — Free tier returns 403 with a
-#   "not available on your plan" message. BL-032 in
+#   Requiring MR approvals is a Premium-tier feature on gitlab.com — Free
+#   tier returns 403 with a "not available on your plan" message. This
+#   holds for both the deprecated `projects/:id/approvals`
+#   (`approvals_before_merge`) endpoint and the current
+#   `projects/:id/approval_rules` (`approvals_required`) endpoint that
+#   BL-152 migrated the driver to. BL-032 in
 #   solo-orchestrator-backlog.md mirrors BL-002 for GitHub free-tier:
 #   document the gap, surface a clear remediation, and track the
 #   attestation escape-hatch as future work. The driver's exit-4 branch
@@ -164,7 +179,7 @@ host_configure_protection() {
     # ── BL-032-SHORTCIRCUIT-BEGIN (proactive attestation escape hatch) ──
     # SOLO_APPROVALS_ATTESTED=1 is the operator-side pre-attestation
     # channel wired up by init.sh's `--approvals-attested` flag. On
-    # gitlab.com Free tier the `projects/:id/approvals` PUT is
+    # gitlab.com Free tier the `projects/:id/approval_rules` POST is
     # Premium-only and always returns 403 — the reactive exit-4 branch
     # below catches this, but non-interactive runs (CI, dogfood
     # harnesses, scripted org setup) need a way to declare up front
@@ -193,24 +208,40 @@ host_configure_protection() {
     fi
     # ── BL-032-SHORTCIRCUIT-END ──
 
-    # code-host-gitlab-8: capture stderr from the approvals PUT so we can
-    # detect the gitlab.com Free Premium-only failure mode (BL-032). On
+    # code-host-gitlab-8: capture stderr from the approval-rules POST so we
+    # can detect the gitlab.com Free Premium-only failure mode (BL-032). On
     # Premium-only detection, return a dedicated exit code (4) with a
     # remediation message; on generic failure, surface the upstream
     # message and return 3.
-    if [ "${_bl032_skip_approvals:-0}" != "1" ] && ! glab_err=$(glab api -X PUT "projects/$project/approvals" \
-                      --input - <<<'{"approvals_before_merge":1,"reset_approvals_on_push":true}' 2>&1 >/dev/null); then
+    #
+    # BL-152: set required approvals via `POST projects/:id/approval_rules`
+    # (name + approvals_required) — the current API — instead of the
+    # deprecated `PUT projects/:id/approvals` + `approvals_before_merge`
+    # (deprecated since GitLab 14.0, scheduled for removal in REST API v5).
+    # Per the GitLab docs, `rule_type` is OMITTED when creating rules via
+    # the API (the docs advise against setting it); a name + approvals_required
+    # rule requires one approval before merge. Confirmed against the GitLab
+    # REST API docs (merge_request_approvals: POST /projects/:id/approval_rules).
+    if [ "${_bl032_skip_approvals:-0}" != "1" ] && ! glab_err=$(glab api -X POST "projects/$project/approval_rules" \
+                      --input - <<<'{"name":"Require approval","approvals_required":1}' 2>&1 >/dev/null); then
       # Premium-only signals from gitlab.com Free responses. The exact
       # wording has shifted across GitLab releases (the API has used
       # "premium", "not available on your plan", "feature is not
       # available", "Ultimate" for some flows); match a broad union so
       # the detection is resilient to minor message tweaks.
+      #
+      # BL-152: this union must cover BOTH the legacy `projects/:id/approvals`
+      # 403 and the current `projects/:id/approval_rules` 403. The exact
+      # Free-tier body for approval_rules is not verifiable offline, so the
+      # broad union is retained deliberately (both sniffs kept) rather than
+      # narrowed to a single endpoint's phrasing — requiring MR approvals is
+      # the Premium gate regardless of which endpoint sets it.
       if echo "$glab_err" | grep -qiE 'premium|ultimate|not available on your plan|feature is not available|requires.*plan'; then
         printf '%s\n' \
           "gitlab driver: required-approvals API is unavailable on this project's plan." \
           "" \
-          "  \`projects/:id/approvals\` with \`approvals_before_merge\` requires GitLab Premium" \
-          "  on gitlab.com (Free tier rejects the PUT). The API responded:" \
+          "  \`projects/:id/approval_rules\` with \`approvals_required\` requires GitLab Premium" \
+          "  on gitlab.com (Free tier rejects the POST). The API responded:" \
           "" \
           "$(printf '    %s\n' "$glab_err")" \
           "" \
@@ -224,6 +255,28 @@ host_configure_protection() {
         return 4
       fi
       echo "gitlab driver: protected branch set but approvals config failed" >&2
+      [ -n "$glab_err" ] && printf '  %s\n' "$glab_err" >&2
+      return 3
+    fi
+
+    # BL-152: reset_approvals_on_push rode along on the old
+    # `PUT projects/:id/approvals` payload. It is NOT a rule attribute, so it
+    # does not belong on approval_rules; it stays on the project approvals
+    # CONFIG endpoint (`POST projects/:id/approvals`). That endpoint's config
+    # settings (reset_approvals_on_push, disable_overriding_approvers, ...)
+    # are current — only its `approvals_before_merge` rule-count field was
+    # deprecated (migrated to approval_rules above). Confirmed against the
+    # GitLab REST docs (merge_request_approvals: POST /projects/:id/approvals
+    # carries reset_approvals_on_push).
+    #
+    # This block is reached ONLY when the approval_rules POST above SUCCEEDED
+    # (a failure `return`s first) and approvals are NOT attested-skipped — so
+    # on gitlab.com Free the Premium 403 short-circuits above and we never
+    # make a /approvals config call that would also 403; by the time we get
+    # here the tier already supports required approvals.
+    if [ "${_bl032_skip_approvals:-0}" != "1" ] && ! glab_err=$(glab api -X POST "projects/$project/approvals" \
+                      --input - <<<'{"reset_approvals_on_push":true}' 2>&1 >/dev/null); then
+      echo "gitlab driver: approval rule set but reset-approvals-on-push config failed" >&2
       [ -n "$glab_err" ] && printf '  %s\n' "$glab_err" >&2
       return 3
     fi
@@ -274,19 +327,29 @@ host_verify_protection() {
 
     # BL-032: when SOLO_APPROVALS_ATTESTED=1 the operator has pre-attested
     # that approvals are enforced by convention on gitlab.com Free (the
-    # `projects/:id/approvals` PUT is Premium-only, so the API check
-    # below would always report `approvals_before_merge=0` and false-fail
-    # this verify pass). host_configure_protection took the same
+    # required-approvals API is Premium-only, so the API check below would
+    # always report zero required approvals and false-fail this verify
+    # pass). host_configure_protection took the same
     # shortcircuit; parity here so verify doesn't undo the attestation
     # discipline. The attestation itself is written by init.sh with
     # reason=gitlab_free_tier_approvals and honored by check-gate.sh +
     # check-phase-gate.sh as the load-bearing gate.
+    #
+    # BL-152: read the required-approval count from the CURRENT API —
+    # `GET projects/:id/approval_rules` (a JSON array of rules) — and judge
+    # "approvals configured" by ANY rule requiring >= 1 approval. This mirrors
+    # host_configure_protection, which now SETS approvals via approval_rules.
+    # The old `GET .../approvals` `.approvals_before_merge` scalar is
+    # deprecated (removed in REST API v5) and does NOT reflect approval_rules,
+    # so reading it would false-fail once the driver sets approvals via the
+    # rules endpoint. Confirmed against the GitLab REST docs
+    # (merge_request_approvals: GET /projects/:id/approval_rules).
     if [ "${SOLO_APPROVALS_ATTESTED:-0}" != "1" ]; then
       local aresp
-      aresp=$(glab api "projects/$project/approvals" 2>/dev/null || echo '{}')
-      val=$(echo "$aresp" | jq -r '.approvals_before_merge // 0')
+      aresp=$(glab api "projects/$project/approval_rules" 2>/dev/null || echo '[]')
+      val=$(echo "$aresp" | jq -r '[.[]?.approvals_required // 0] | max // 0')
       if [ "$val" = "0" ] || [ "$val" = "null" ]; then
-        failures="${failures}approvals_before_merge is 0 (org mode requires at least 1)\n"
+        failures="${failures}no approval rule requires >= 1 approval (org mode requires at least 1)\n"
       fi
     fi
 
