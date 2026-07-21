@@ -853,6 +853,19 @@ fi
 # recorded Open findings, or NO parseable verdict all block; the newest
 # matching file governs). In-suite fence-excision mutant restores
 # existence-only exactly. No init.sh -> both lanes.
+# BL-089+BL-091 (Pantheon feedback, Karl-approved 2026-07-20): the doc
+# foundations ship at birth — doc map (authority order + conventions),
+# PRE-SEEDED identifier registry, archive-with-stubs README — and the
+# builders-guide carries the seven documentation rules incl. the REAL
+# standing TM-001 threat row in the Bible template (scanner-neutral by
+# id-set count). Text-derived (no init.sh) -> both lanes; the real-init
+# companion case lives in test-scaffold-tdd-block-real.sh.
+if bash "$SCRIPT_DIR/tests/test-bl089-doc-foundations.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl089-doc-foundations.sh"
+else
+  fail "tests/test-bl089-doc-foundations.sh FAILED (run for details)"
+fi
+
 if bash "$SCRIPT_DIR/tests/test-bl120-audit-verdict.sh" >/dev/null 2>&1; then
   pass "tests/test-bl120-audit-verdict.sh"
 else

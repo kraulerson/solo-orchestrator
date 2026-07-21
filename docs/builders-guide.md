@@ -1954,6 +1954,22 @@ Direct the agent to generate `HANDOFF.md`:
 
 ---
 
+## Documentation Rules
+
+> **Enforcement note (rule 5 applied to this guide):** where this guide describes enforcement, the **gate scripts are canonical** — `scripts/check-phase-gate.sh`, `scripts/pre-commit-gate.sh`, `scripts/process-checklist.sh`, `scripts/run-phase3-validation.sh`. Prose may lag; the scripts do not.
+
+Seven rules for every document this framework scaffolds (BL-091; the essentials also ship downstream in `docs/INDEX.md`'s Conventions section):
+
+1. **Corrections appear ABOVE what they supersede.** Agents read top-down; a stale claim absorbed first wins. Living documents are rewritten in place with a short history note — never corrected by appending below.
+2. **Ledgers append; living documents are rewritten in place.** APPROVAL_LOG, CHANGELOG, and BUGS are append-only records. Everything else is living: PROJECT_BIBLE, PRODUCT_MANIFESTO, FEATURES, the doc map. The doc map (`docs/INDEX.md`) labels each document's kind.
+3. **Absolute language carries its premise.** Any "never/always" ruling records the premise beside it, so the conditions under which it could be reversed stay visible. (Guidance only — unenforceable, and recorded as such.)
+4. **Every decision has ONE canonical home.** All other mentions LINK to it; when a document moves, a pointer stub stays at the old path. Copying a ruling creates duplicate truth, and duplicate truth drifts. Echo lists only where duplication is genuinely forced — and then each echo cites the canonical home.
+5. **Enforcement claims name the gate scripts as canonical.** Each document that describes enforcement carries a one-line banner (see the top of this section) naming the scripts as the source of truth.
+6. **Fail-closed loudness is an engineering rule, not a doc rule.** Any subsystem degraded by configuration says so LOUDLY at startup. This lands in two enforceable homes: this rule, and the standing **silently degraded subsystem** threat row (TM-001) shipped in every PROJECT_BIBLE — which the Phase-3 threat-model scanner requires to be validated. A gate, not prose.
+7. **Non-operator text is attributed inline.** Quoted text from non-operator authors (multi-agent buses, external contributors) inside canon documents is attributed inline where it appears.
+
+---
+
 ## Appendix A: Document Artifacts Produced Per Project
 
 | Artifact | Phase | Purpose | Location | Template |
@@ -1963,6 +1979,9 @@ Direct the agent to generate `HANDOFF.md`:
 | `APPROVAL_LOG.md` | 0 (init) | Phase gate approval audit trail (append-only) | Root | `approval-log-*.tmpl` |
 | `PRODUCT_MANIFESTO.md` | 0 | Requirements, MVP Cutline, Revenue Model, Competency Matrix | Root | `product-manifesto.tmpl` |
 | `PROJECT_BIBLE.md` | 1 | Architecture, data model, threat model, test strategy, coding standards | Root | `project-bible.tmpl` |
+| `docs/INDEX.md` | 0 (init) | Doc map: authority order, doc kinds, conventions (BL-089) | `docs/` | `doc-index.tmpl` |
+| `docs/IDENTIFIERS.md` | 0 (init) | Identifier registry, pre-seeded with the framework's namespaces (BL-089) | `docs/` | `identifiers.tmpl` |
+| Archive convention | 0 (init) | Superseded-doc rules: move with banner + pointer stub (BL-089) | `docs/archive/README.md` | `archive-readme.tmpl` |
 | Architecture Decision Records | 1-2 | Every major choice with alternatives and rationale | `docs/ADR documentation/NNNN-title.md` | `adr.tmpl` |
 | `CONTRIBUTING.md` | 2 | Coding standards for AI reference | Root | — |
 | `FEATURES.md` | 2+ | Living feature index — what each feature does, interfaces, ADRs, test coverage | Root | `features.tmpl` |

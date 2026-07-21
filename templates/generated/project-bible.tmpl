@@ -64,7 +64,15 @@
 
 | ID | Threat | STRIDE Category | Attack Path | Mitigation | Validation Reference |
 |---|---|---|---|---|---|
-| TM-001 | [Specific threat] | [S/T/R/I/D/E] | [Concrete attack path] | [Specific mitigation] | [Phase 3: docs/test-results/YYYY-MM-DD_threat-model-validation.md#TM-001] |
+| TM-001 | A subsystem silently degrades when its configuration is absent or invalid — the app runs, the capability quietly doesn't | D | A required credential/config value is empty or wrong; the dependent subsystem no-ops without an error, and nothing downstream notices (observed in the field: a credential sat silently empty for 24 days) | Every subsystem degraded by configuration says so LOUDLY at startup (a named log line or banner); startup checks verify required config is present and non-empty | [Phase 3: docs/test-results/YYYY-MM-DD_threat-model-validation.md#TM-001] |
+
+<!-- BL-091 rule 6b: TM-001 is a STANDING row shipped real at birth — the
+     silently-degraded-subsystem threat applies to every architecture, and a
+     real row makes the Phase-3 threat-model scanner's validation demand
+     non-vacuous from day one. Add your architecture-specific threats as
+     further rows in the same format. (No example row here on purpose: the
+     scanner counts TM tokens on ANY pipe-carrying line, comments included —
+     a piped example would create a phantom validation demand.) -->
 
 <!-- Use stable IDs (TM-001, TM-002...) so Phase 3 validation results can reference back.
      The Validation Reference column links to the Phase 3 test result that verified this mitigation.

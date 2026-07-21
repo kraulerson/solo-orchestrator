@@ -2288,6 +2288,8 @@ Two follow-ups from the PR #169 verifier (BL-010 residual fix), both zero-impact
 
 **Decision 2026-07-20 (Karl):** GO. The `docs/IDENTIFIERS.md` pre-seed list is to be DRAFTED for his approval — "keep it as simple and logical as possible." Draft delivered 2026-07-20 (core minted namespaces TM-/ADR-/BUG-/UAT-/SEV + three registry rules). **APPROVED same day ("Labels approved") — the BL-089+091 WP is unblocked and in flight.**
 
+**Status update 2026-07-20:** fix implemented on branch `feat/bl089-bl091-doc-foundations` (PR open; Closed with PR + merge SHA at merge). `# BL-089-DOC-FOUNDATIONS` in init.sh ships + instantiates all three foundations at birth (doc-index/identifiers/archive-readme tmpls → docs/INDEX.md, docs/IDENTIFIERS.md, docs/archive/README.md). `tests/test-bl089-doc-foundations.sh` 5/5 ×3 (both lists; fence-excision mutant) + real-init companion in the scaffold suite. Evidence: ledger § WP-BL089+BL091.
+
 Pantheon's month of operation hit identifier-namespace collisions (four unrelated "D" schemes, two "F" schemes), ghost citations, and unmarked superseded docs. `init.sh` should generate three documentation foundations at project birth:
 1. **`docs/INDEX.md`** — a doc-map skeleton with an explicit authority order (canon > dated design docs > archive) and a conventions section (name matches the mothership's own `docs/INDEX.md` convention).
 2. **`docs/IDENTIFIERS.md`** — an identifier-scheme registry **pre-seeded with the namespaces the framework itself mints** (TM- threat rows, BUG-, ADR numbering, UAT scenario ids), carrying the rule "one prefix = one namespace; register before minting; cross-namespace references are always qualified." Amended from Pantheon's empty-file proposal: an empty registry with a rule is a documented-but-unenforced promise (the BL-070..073 defect species); pre-seeding makes it demonstrably in use from day one. No enforcement lint — a capital-letters-plus-digits heuristic would flag RFC-2119, ISO dates, and model names (BL-072's measured FP lesson).
@@ -2327,6 +2329,8 @@ Pantheon's worst documented incident: a ghost "ADR-0003" cited in a dozen docume
 **Status:** Open
 
 **Decision 2026-07-20 (Karl):** GO, bundled with BL-089 in one WP once the IDENTIFIERS pre-seed draft is approved (this entry's rules reference the doc map/archive convention BL-089 creates).
+
+**Status update 2026-07-20:** implemented in the BL-089 WP (same branch/PR). Builders-guide `## Documentation Rules` carries all seven rules (the rule-5 source-of-truth banner applied to the guide itself); the essentials ship downstream in doc-index.tmpl's Conventions; rule 6b landed as the REAL standing TM-001 silently-degraded-subsystem row in project-bible.tmpl — scanner-id-set-neutral, validated by the Phase-3 threat-model scanner from day one (a gate, not prose). Evidence: ledger § WP-BL089+BL091.
 
 Add a documentation-rules section to `docs/builders-guide.md` (and generate the essentials into scaffold guidance):
 1. **Corrections appear ABOVE what they supersede.** Append-only stacks are for ledgers (approval log, changelog) ONLY; living documents are rewritten in place with a short history. (Pantheon evidence: agents reading top-down absorbed stale claims first; a companion system was misdated for weeks by the equivalent bug.)
