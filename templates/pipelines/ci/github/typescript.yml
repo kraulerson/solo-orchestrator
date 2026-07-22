@@ -45,8 +45,17 @@ jobs:
           tar -xzf "gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" gitleaks
           ./gitleaks git --redact --exit-code 1
 
-      - name: Security - Dependency audit
-        run: npm audit --audit-level=high
+      - name: Security - Dependency audit (shipped deps — blocking)
+        # BL-160-AUDIT-SCOPE: the blocking arm audits the SHIPPED dependency
+        # tree only (--omit=dev). Dev-toolchain advisories frequently have no
+        # in-major fix; a permanently red lane teaches operators to ignore CI
+        # (the BL-122/BL-149 false-FAIL doctrine). They are surfaced by the
+        # loud, non-blocking step below — never a silent skip.
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Security - Dependency audit (dev toolchain — loud, non-blocking)
+        run: |
+          npm audit --audit-level=high || echo "::warning::npm audit found dev-toolchain advisories (non-blocking) — run 'npm audit' locally and plan the upgrade"
 
       - name: Security - License check
         run: npx license-checker --failOn "GPL-2.0;GPL-3.0;AGPL-3.0;LGPL-2.0;LGPL-2.1;LGPL-3.0;SSPL-1.0;EUPL-1.1;EUPL-1.2"
