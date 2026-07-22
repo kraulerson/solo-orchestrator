@@ -3646,3 +3646,65 @@ delta remains 0 (all 70 non-init test-*.sh present in the 106-entry list). The
 CLAUDE.md HOUSE RULES sentence was trued up (the lint now enforces BOTH lists,
 with the init.sh exemption made explicit). **Stays Open** until the PR merges;
 flip to Closed at merge citing PR# + SHA.
+
+---
+
+## BL-155: phase2-init commit gate fired before staged-file classification — the documented Phase 1→2 transition commit was impossible
+
+**Logged:** 2026-07-22 (Dogfood-4 S0, finding F-DF4-001; fresh honest walker, real scaffold)
+**Category:** Bug / workflow deadlock (commit gate, generated projects)
+**Severity:** Medium
+**Status:** Open — fix implemented on PR #243 (branch `fix/bl155-phase2-init-transition-commit`), awaiting merge; flip to Closed at merge citing PR# + SHA.
+
+At `current_phase=2` with `phase2_init.verified=false`, the init-verified block in `process-checklist.sh::check_commit_ready` sat ABOVE the staged-file classification, so it blocked EVERY commit — including the docs/state-only Phase 1→2 transition commit that `templates/generated/claude-md.tmpl` step 3 instructs ("update `.claude/phase-state.json` … Commit both files together"). Chicken-and-egg: recording entry into Phase 2 required Phase-2 construction scaffolding first; the S0 walker (planning-only session) was forced into a minimal config-only scaffold to land its Phase-1 artifacts. Reachable at the user terminal since the BL-113 F8 fix made the git-hook backstop real.
+
+**Reproduce:** fixture at `current_phase=2`, `phase2_init.verified=false`; stage only `.claude/phase-state.json` + a `.md`; `process-checklist.sh --check-commit-ready` → `[FAIL] Phase 2 initialization not verified.`
+
+**Fix:** the block moved behind the existing docs/dep-manifest exemption (`# BL-155-INIT-AFTER-CLASSIFY` fence): docs/state-only and dep-manifest-only commits land; ANY non-exempt commit still requires verified init; never subject-conditional. Watched-RED TDD (`tests/test-bl155-phase2-init-transition-commit.sh`, registered both lanes), fence-excision mutant flips the enforcement pins RED, end-to-end `T-strict-gate-blocks-unverified` re-run green.
+
+**Related:** BL-113 (F8 made the block reachable); BL-139 (subjectless default, same function); [[dogfood-4-walk]].
+
+---
+
+## BL-156: builders-guide still calls the Phase-0 intermediates check "advisory" — it has been fully blocking since BL-114
+
+**Logged:** 2026-07-22 (Dogfood-4 S0, finding F-DF4-002)
+**Category:** Doc drift (builders-guide vs check-phase-gate.sh)
+**Severity:** Low
+**Status:** Open — fix implemented on PR #243 (docs commit on branch `fix/bl155-phase2-init-transition-commit`), awaiting merge; flip to Closed at merge citing PR# + SHA.
+
+`docs/builders-guide.md` (Phase 0→1 checklist) said the intermediates check is "(advisory)… Partial saves produce a WARN, not a block." The gate (`# BL-114-F1-INTERMEDIATES` in check-phase-gate.sh) blocks on ANY missing intermediate and on a missing `docs/phase-0/` directory — the guide bullet was never updated when BL-114 hardened the arm. The S0 walker read the guide, expected advisory, got `[FAIL] … (documented as blocking)`.
+
+**Fix:** guide bullet rewritten to state the blocking behavior and cite BL-114.
+
+**Related:** BL-114 (the hardening this bullet lagged).
+
+---
+
+## BL-157: `--no-remote-creation` + manual remote wiring leaves remote-setup markers unrecorded — free-tier attestation needs an undocumented two-step repair
+
+**Logged:** 2026-07-22 (Dogfood-4 S0, finding F-DF4-003)
+**Category:** UX / state-machine gap (init remote path)
+**Severity:** Low
+**Status:** Open
+
+Scaffolding with `--no-remote-creation` and wiring `origin` by hand (the exact-casing repo flow) never records `phase2_init.steps_completed: remote_repo_created` / `pushed_initial`. The BL-123 attestation path REFUSES post-hoc branch-protection attestation until those markers exist (deliberate, verifier-driven), so a free-tier operator must run `check-gate.sh --repair` once (reconciles the markers from the live remote, then re-hits the 403) and only THEN `--repair --branch-protection-attested`. The two-step works and is honest, but nothing documents it; the first `--repair` output does not say "run me again with the attestation flag."
+
+**Fix shape:** either record the markers during `--verify-init`/`--repair` preflight whenever a configured remote with the pushed branch is detected (keeping the BL-123 refusal for truly remote-less projects), or make the first `--repair` print the exact follow-up command; plus a builders-guide note in the `--no-remote-creation` section. Keep the BL-123 precondition semantics intact.
+
+**Related:** BL-123 (precondition guard), BL-126 (attestation consumers), BL-111.
+
+---
+
+## BL-158: `check-phase-gate.sh --gate <name>` prints the forced target phase as "Current phase" (cosmetic)
+
+**Logged:** 2026-07-22 (Dogfood-4 S0, finding F-DF4-004)
+**Category:** Cosmetic / audit clarity
+**Severity:** Low
+**Status:** Open
+
+With `--gate phase_0_to_1` the header prints `Current phase: 1` even when `phase-state.json` holds `current_phase: 0` — the script forces the target phase to run that gate's checks, but the label reads like recorded state and can confuse an audit trail (S0 walker flagged it while `current_phase` was still 0). No state is mutated.
+
+**Fix shape:** label the forced value distinctly (e.g., `Checking gate: phase_0_to_1 (as-if phase 1; recorded current_phase: 0)`).
+
+**Related:** BL-104 ([WARN]-label family — labels must not misstate the machine).

@@ -628,7 +628,7 @@ The following items are enforced by `scripts/check-phase-gate.sh` when `current_
 - [ ] **`PRODUCT_MANIFESTO.md` exists.**
 - [ ] **`PRODUCT_MANIFESTO.md` has substantive content.** The script checks that all 8 numbered sections (`## 1.` through `## 8.`) are present and contain text beyond template placeholders. Missing sections produce a FAIL; placeholder-only sections produce a WARN.
 - [ ] **No unresolved Open Questions in `PRODUCT_MANIFESTO.md`.** Any line matching `Status: Open` (case-insensitive) produces a FAIL.
-- [ ] **Phase 0 intermediate outputs saved** (advisory). If `docs/phase-0/` exists, the script checks for `frd.md`, `user-journey.md`, and `data-contract.md`. Partial saves produce a WARN, not a block.
+- [ ] **Phase 0 intermediate outputs saved** (blocking). The script requires all three of `docs/phase-0/frd.md`, `user-journey.md`, and `data-contract.md`. Any missing file — or a missing `docs/phase-0/` directory entirely — produces a `[FAIL]` and blocks the gate (BL-114: this check was hardened from its earlier advisory behavior; the gate label and verdict now agree).
 
 **Limitation — Manifesto content depth:** The gate script verifies that `PRODUCT_MANIFESTO.md` exists and has the 8 required section headings with non-empty content. It does not validate that section content matches the track requirements (e.g., Full track requiring revenue model detail, Standard track requiring competency matrix entries). Track-specific content completeness is the reviewer's responsibility.
 
