@@ -3811,6 +3811,8 @@ The two BL-147 governance steps (approval-log integrity, approval-author verific
 
 **Related:** BL-147 (the steps' origin — the injection shipped with the tamper-guard wave), BL-122/BL-149 (false-blocking doctrine), BL-148 (emitted-CI family).
 
+**Status update 2026-07-22 (adversarial verifier, fable tier):** SHIP-WITH-FIXES, applied on the PR. Verifier proved functional equivalence across the full event matrix (pull_request / push / all-zeros new-branch / workflow_dispatch / tamper — byte-identical output; the ONLY divergence is on a metachar base_ref, where the old form shell-expanded and resolved the wrong ref: the exact bug being closed). Cg8 hardening applied per its probes: flag regex now catches the no-space `${{github.` form AND `${{ env.* }}` in run: (the one variant semgrep does not backstop); the two line-based residuals (comment-in-run, KEY:-in-run) are documented in the test and covered by the semgrep backstop; lowercase env key false-FAILs loudly (accepted direction). M2/M5 mutants re-run RED post-hardening.
+
 ---
 
 ## BL-165: Phase-3 DAST against a static app's preview server always FAILs on host-header alerts the app cannot fix in code
@@ -3855,3 +3857,48 @@ A `fix:` commit staging only source + `.claude/phase-state.json` produced a BL-0
 **Fix shape:** exclude `.claude/` paths from the BL-072 impl-file classifier.
 
 **Related:** BL-072 (the gate), BL-139 (same-family classifier precision).
+
+---
+
+## BL-168: CI phase-gate governance job intermittently false-fails — threat-model scanner returns un-attested SKIP on a tree whose §4 table is present
+
+**Logged:** 2026-07-22 (Dogfood-4 S4, finding F-DF4-015; live CI on the work-example repo)
+**Category:** Bug / non-determinism (fail-closed reliability)
+**Severity:** Medium
+**Status:** Open — needs investigation (not locally reproduced)
+
+On the work-example repo, the CI `Governance - Phase gate check` job's phase-3-validation offline autorun intermittently reported `threat-model` as an **un-attested SKIP** ("PROJECT_BIBLE.md Section 4 threat table absent") on a checkout that plainly contains the §4 TM-001…TM-008 table — then a **no-change re-run PASSED**. Evidence: work-example run 29951076488 attempt 1 (FAIL on `[threat-model(un-attested SKIP)]`) vs attempt 2 (PASS), identical tree. Fail-closed (spurious blocks only, never a spurious pass), but "main green" is not reproducibly stable and legitimate merges can be blocked.
+
+**Investigation pointers:** `_p3_tm_has_table` (grep-based) in the validation lib; whether the autorun's summary-file selection (`docs/test-results/phase3/summary-*` latest-by-glob) can race or pick stale artifacts across attempts; any BL-140-family workdir assumption in the threat-model arm when invoked from the gate vs standalone. Reproduce by re-running the governance job on the work-example repo at `f759c86` several times.
+
+**Related:** BL-140 (workdir family), BL-104 (verdict-integrity family).
+
+---
+
+## BL-169: Scaffold gitignore's unanchored `test-results/` hides docs/test-results/ — every generated project's Phase 3→4 gate fails on a fresh CI checkout
+
+**Logged:** 2026-07-22 (Dogfood-4 S4, finding F-DF4-016)
+**Category:** Bug / scaffold (gitignore vs gate contract)
+**Severity:** High
+**Status:** Open — fix implemented on PR #245 (branch `fix/bl164-governance-env-indirection`), awaiting merge; flip to Closed at merge citing PR# + SHA.
+
+`templates/generated/gitignore-base.tmpl` ignored `test-results/` unanchored, which also matches `docs/test-results/` — the Phase-3 evidence directory `check-phase-gate.sh` REQUIRES for the 3→4 gate. Evidence was silently never committed: the gate passed locally (files in the working tree) and failed on every fresh CI checkout (`[FAIL] docs/test-results/ directory not found`). Masked on the work-example until S4 because the dependency-audit step failed first and halted the job before the governance steps ran (the same masking hid BL-170). The S4 walker diagnosed and fixed it project-side; this closes it at the source.
+
+**Fix:** template line root-anchored to `/test-results/` plus `docs/test-results/phase3/` (the transient BL-140 scanner workdir) ignored — mirrors the walker's live-CI-proven project config. Pinned by `tests/test-bl169-gitignore-anchor.sh` (pattern pins + a BEHAVIORAL `git check-ignore` pin: evidence tracked, runner output + workdir ignored), registered both lanes; mutation (revert to unanchored) kills T1/T2/T4 — the behavioral case shows `evidence_ignored=yes`, the exact defect.
+
+**Related:** BL-140 (workdir), BL-170 (same masking), the 3→4 gate's `docs/test-results/` requirement in check-phase-gate.sh.
+
+---
+
+## BL-170: APPROVAL_LOG fill-in-place template blocks conflict with the BL-147 append-only CI guard
+
+**Logged:** 2026-07-22 (Dogfood-4 S4, finding F-DF4-017)
+**Category:** Design conflict / latent (governance templates vs emitted CI)
+**Severity:** Medium
+**Status:** Open — design decision needed (template redesign with cross-script blast radius; deliberately NOT rushed at walk close-out)
+
+`templates/generated/approval-log-personal.tmpl` (and the org twin) pre-seed each phase gate as an empty fill-in-place table (`| **Reviewer** | |`, `| **Date** | |`). Once those template lines are pushed, FILLING them modifies committed lines — and the emitted `Governance - Approval log integrity` job fails ANY modified APPROVAL_LOG.md line (append-only, BL-147). A downstream operator following the template naively hits a red gate at their next crossing. The work-example never tripped it before S4 only because the dependency-audit step failed first on every historical run, halting the job before the governance steps executed (same masking as BL-169); the S4 walker crossed 3→4 by INSERTING filled rows as pure additions, leaving the placeholders untouched.
+
+**Fix shape (needs Karl):** replace pre-seeded empty tables with an instruction line ("append a completed approval table below this header when the gate is crossed — this file is append-only once pushed"), keeping the gate headers intact. Blast radius to validate IN SYNC: check-phase-gate.sh gate-date auto-record (`grep -A 15` date window under the header), BL-138 approval-window parsing, BL-143 self-approval scan (+20 section cap), the CI append-only guard, and any init/intake tests pinning template content. Each consumer needs a mutation-proofed re-validation against the appended-row shape.
+
+**Related:** BL-147 (the guard), BL-138/BL-143 (row parsers), BL-169 (same masking discovery).
