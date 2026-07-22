@@ -3503,7 +3503,7 @@ Karl's directive: an agent that reviews PRs ADVERSARIALLY with the intent of mak
 **Logged:** 2026-07-21 (BL-146 cumulative PR sweep, CR-1; validated in-session)
 **Category:** Bug / silent-success (emitted CI, security lane)
 **Severity:** High
-**Status:** Open
+**Status:** Closed — shipped 2026-07-21 (PR #235 `78d944e` + force-push follow-up PR #241 `2f53bda`). The approval-log integrity + author-verification steps are real in all 10 github + 2 gitlab templates: fetch-depth 0, explicit base resolution, and the `$BASE^{commit}` peel that demands a real commit object (the follow-up MUST — bare `--verify` passed any 40-hex string, letting a force-push tamper through silently) + an all-zeros ref-creation arm. `tests/test-bl147-ci-template-integrity.sh` 48/48. Evidence: ledger § PR-sweep WP-1 + the follow-up round.
 
 The "Approval log integrity" + "Approval author verification" steps in `templates/pipelines/ci/github/{python,typescript,other}.yml` (+ gitlab twins) run `git diff origin/main...HEAD -- APPROVAL_LOG.md 2>/dev/null | grep -qE '^\-[^-]'` — but the templates set NO `fetch-depth`, and `actions/checkout`'s default depth-1 clone has no `origin/main` ref: the diff dies `fatal: bad revision`, the `2>/dev/null` eats it, and the step PASSES on a tampered approval log (executed proof: sweep fixture). On push-to-main the expression is self-comparing (vacuous there too). Parity hole: 7 of 10 GitHub language templates never got the steps at all. Introduced PR #8 (`db2c14e`), never revisited — the BL-112/113 silent-success class, in the governance lane, shipped to every generated project.
 
@@ -3522,7 +3522,7 @@ The "Approval log integrity" + "Approval author verification" steps in `template
 **Logged:** 2026-07-21 (sweep CR-2; validated: `gh api repos/semgrep/semgrep-action` → archived:true, pushed 2024-04-09)
 **Category:** Bug / currency (emitted CI, security lane)
 **Severity:** High
-**Status:** Open
+**Status:** Closed — shipped 2026-07-21 (PR #236 `cef54c6`). All 10 github CI templates run SAST via the `semgrep/semgrep` container (engine pinned :1.170.0 in the follow-up) with flags DERIVED from the local hook's own invocation — CI and hook cannot drift. Evidence: ledger § PR-sweep WP-2.
 
 All 10 `templates/pipelines/ci/github/*.yml` pin `semgrep/semgrep-action@713efdd… # v1 (v0.58.0)` — the 2021 semgrep-agent era of an action dead upstream for 2+ years. Current upstream guidance (context7): the `semgrep/semgrep` container running `semgrep scan`/`semgrep ci`.
 
@@ -3539,7 +3539,7 @@ All 10 `templates/pipelines/ci/github/*.yml` pin `semgrep/semgrep-action@713efdd
 **Logged:** 2026-07-21 (sweep CR-3; validated: raw exit-code judgment on `zap-baseline.py`)
 **Category:** Bug / gate correctness (emitted release pipeline)
 **Severity:** High
-**Status:** Open
+**Status:** Closed — shipped 2026-07-21 (PR #237 `c6e4323`). Release DAST ports the BL-122 riskcode≥2 jq verdict (9 hostile fixtures pass), pins `ghcr.io/zaproxy/zaproxy:stable`, guards on PREVIEW_URL, and the tool-matrix image matches. Evidence: ledger § PR-sweep WP-3.
 
 `templates/pipelines/release/github/web.yml` runs `docker run -t zaproxy/zap-stable zap-baseline.py -t ${{ vars.PREVIEW_URL }}` and judges the RAW exit code — baseline reports ALL alerts as WARN (exit 2), and rule 10049 fires under every possible Cache-Control value (the proven BL-122 mechanism), so any real site fails the release. PR #203 fixed exactly this in `run-phase3-validation.sh` and never touched the template. Aggravators: image unpinned (every other action in the file is SHA-pinned); no guard when `PREVIEW_URL` is unset; gitlab/bitbucket release templates have no DAST at all (recorded, not fixed here).
 
@@ -3556,7 +3556,7 @@ All 10 `templates/pipelines/ci/github/*.yml` pin `semgrep/semgrep-action@713efdd
 **Logged:** 2026-07-21 (sweep CR-4; validated: checkout v4.3.1 vs v7.0.1 latest)
 **Category:** Debt / currency (framework workflows + emitted templates + init.sh pin table)
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — shipped 2026-07-21 (PR #240 `47b2019`). 11 action majors refreshed to current SHA pins across templates + both sibling RELEASE_SETUP_ACTION tables (SwiftLint deferred with evidence); a new shape case keeps any unpinned action out. The durable version-WATCHER half stays deferred to BL-109 (a lint diffing pins vs releases/latest), as this entry always scoped. Evidence: ledger § PR-sweep WP-4.
 
 checkout v4.3.1→v7.0.1, setup-node v4→v7, setup-python v5→v7, upload-artifact v4→v7, setup-java v4→v5, action-gh-release v2→v3, golangci-lint-action v6→v9, gitleaks-action v2→v3 (flutter-action current). Surfaces: `.github/workflows/{lint,tests}.yml`, all emitted CI/release templates, init.sh's `RELEASE_SETUP_ACTION` table. BL-109's currency block tracks file SHAs/hooks/MCP — action pins structurally invisible.
 
@@ -3571,7 +3571,7 @@ checkout v4.3.1→v7.0.1, setup-node v4→v7, setup-python v5→v7, upload-artif
 **Logged:** 2026-07-21 (sweep CR-5; validated: no GITLEAKS_LICENSE anywhere in templates; depth-1 checkout)
 **Category:** Bug / documented-but-impossible (emitted CI, org tier)
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — shipped 2026-07-21 (PR #235 `78d944e`). gitleaks runs via the license-free CLI in all github templates (checksum-verified in follow-up PR #241 `2f53bda`), no org-license trap, fetch-depth 0. Evidence: ledger § PR-sweep WP-1.
 
 gitleaks-action requires `GITLEAKS_LICENSE` for ORGANIZATION accounts and `fetch-depth: 0`; the emitted templates set neither. Organizational deployment is a first-class tier — the BL-137 class in the security lane.
 
@@ -3588,7 +3588,7 @@ gitleaks-action requires `GITLEAKS_LICENSE` for ORGANIZATION accounts and `fetch
 **Logged:** 2026-07-21 (sweep CR-6; validated: `glab api -X PUT projects/:id/approvals` + `approvals_before_merge` in gitlab.sh)
 **Category:** Debt / currency (host driver)
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — shipped 2026-07-21 (PR #238 `8e62be5`). The GitLab driver configures approvals via `POST /approval_rules` (approvals_required) AND verifies via `GET /approval_rules`, off the deprecated `approvals_before_merge` on both sides; `reset_approvals_on_push` restored via its owning endpoint; BL-032 free-tier detection preserved verbatim. POST-idempotency on re-run recorded as a low-risk durable note. Evidence: ledger § PR-sweep WP-5 + follow-up.
 
 `scripts/host-drivers/gitlab.sh` PUTs `/approvals` with `approvals_before_merge` — deprecated since 14.0, removal flagged (approval_rules is current; the field is slated out in API v5). Works today; on removal the failure lands in the generic exit-3 arm, not the handled BL-032 free-tier arm.
 
@@ -3607,7 +3607,7 @@ gitleaks-action requires `GITLEAKS_LICENSE` for ORGANIZATION accounts and `fetch
 **Logged:** 2026-07-21 (sweep CR-7; validated: `returntocorp/semgrep` + `zricethezav/gitleaks:latest` + `gitleaks detect` in the templates)
 **Category:** Bug / currency (emitted CI, bitbucket host)
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — shipped 2026-07-21 (PR #236 `cef54c6`). Bitbucket CI templates use `image: semgrep/semgrep` (pinned) with hook-parity flags and `gitleaks dir` on a version-tagged image. Evidence: ledger § PR-sweep WP-2.
 
 `returntocorp/semgrep` stopped receiving updates at the 2023 org rename (current: `semgrep/semgrep`) — generated bitbucket projects scan with a frozen engine/ruleset. `gitleaks detect` is the pre-8.19 deprecated form (`gitleaks git`/`dir` current); `:latest` tag unpinned.
 
@@ -3624,7 +3624,7 @@ gitleaks-action requires `GITLEAKS_LICENSE` for ORGANIZATION accounts and `fetch
 **Logged:** 2026-07-21 (sweep CR-8; validated: no lint greps tests.yml; current delta = 0)
 **Category:** Debt / latent enforcement gap + doc drift
 **Severity:** Low
-**Status:** Open
+**Status:** Closed — shipped 2026-07-21 (PR #239 `313d3e4`). `# BL-154-UNIT-LANE` arm in lint-tests-registered.sh enforces tests.yml unit-list membership for every non-init test; CLAUDE.md's claim is now literally true. Evidence: ledger § PR-sweep WP-6.
 
 `lint-tests-registered.sh` checks aggregator registration only; nothing structural enforces the tests.yml unit list, while CLAUDE.md says the lint enforces BOTH. Today's delta is zero (verified) — latent, not live.
 
