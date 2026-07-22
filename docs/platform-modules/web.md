@@ -165,6 +165,8 @@ Targets: Accessibility ≥90, Performance ≥90.
 
 AI-generated CSP policies tend to be too permissive or too restrictive. Test thoroughly.
 
+**Non-inheriting directives (BL-165):** `form-action`, `frame-ancestors`, and `base-uri` do NOT fall back to `default-src` — omit them and they are unrestricted even under `default-src 'none'`. Set all three explicitly (an app with no forms should carry `form-action 'none'`); DAST rule 10055 flags the omission. Note `frame-ancestors` is header-only (ignored in a `<meta>` CSP), which matters on static hosts that cannot set response headers.
+
 ### 4.5 Load Testing (Full Track)
 
 ```bash

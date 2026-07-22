@@ -3793,3 +3793,65 @@ The semgrep SAST arm (`# BL-118`) and the project-test arm (`# BL-125-COMMIT-TES
 **Fix shape:** the emitted hook's blocking arms append a `terminal_commit_blocked` row (gate name in `details.gate`, e.g. `semgrep`/`bl125_tests`) via `scripts/lib/bypass-audit.sh` before exiting; keep append-failure non-fatal (the block must never be weakened by ledger trouble). Mutation-proof the append.
 
 **Related:** BL-112 (ledger/detector family), BL-118, BL-125, BL-161 (ledger hygiene).
+
+---
+
+## BL-164: Emitted BL-147 governance steps are semgrep-ERROR shell-injectable — every generated github project's own Phase-3 SAST fails on the framework's scaffold
+
+**Logged:** 2026-07-22 (Dogfood-4 S3, finding F-DF4-010; caught by the project's own run-phase3-validation.sh full-tree scan)
+**Category:** Security hardening + false-blocking (emitted CI, all 10 github CI templates)
+**Severity:** High
+**Status:** Open — fix implemented on PR #245 (branch `fix/bl164-governance-env-indirection`), awaiting merge; flip to Closed at merge citing PR# + SHA.
+
+The two BL-147 governance steps (approval-log integrity, approval-author verification) interpolated `${{ github.base_ref }}`, `${{ github.event_name }}`, and `${{ github.event.before }}` directly into `run:` shell scripts — the actions shell-injection anti-pattern (semgrep `run-shell-injection`, ERROR). Two consequences: (1) real hardening gap per GitHub's own guidance (context values must enter the shell via `env:`); exploitability is bounded (base_ref must name an existing branch) but non-zero for repos accepting external branches; (2) worse in practice: the framework ships semgrep-full-tree as its Phase-3 scanner, so EVERY generated github project FAILs its own Phase-3 validation on the framework's emitted workflow — a guaranteed false-block on clean apps (BL-122/BL-149 doctrine) caused by our own emission. The S3 walker hit exactly this (`[FAIL] semgrep-full-tree — 2 findings`) and had to fix the emitted workflow project-side.
+
+**Reproduce:** scaffold any github project; `semgrep scan --config auto --severity=ERROR .github/workflows/ci.yml` → 2 `run-shell-injection` findings.
+
+**Fix:** `# BL-164` env-indirection in all 10 github CI templates — both governance steps gain an `env:` block (`BASE_REF`/`EVENT_NAME`/`EVENT_BEFORE`) and the `run:` scripts reference only quoted shell variables; `BASE^{commit}` loud-fail arms untouched. Live semgrep re-scan of the emitted form: rc=0, 0 findings. Pinned by Cg8 in `tests/test-bl147-ci-template-integrity.sh` (floor 12 incl. release templates; predicate: any `${{ github.` line must be a comment or an env-style assignment). Watched-RED (all 10 flagged pre-fix) → 54/54; mutation (reintroduce one interpolation) → Cg8 RED, killed. Scoped-out residual: `release/github/mcp_server.yml` carries the pattern only in commented-out TODO example lines (inert, unscanned) — left as-is.
+
+**Related:** BL-147 (the steps' origin — the injection shipped with the tamper-guard wave), BL-122/BL-149 (false-blocking doctrine), BL-148 (emitted-CI family).
+
+---
+
+## BL-165: Phase-3 DAST against a static app's preview server always FAILs on host-header alerts the app cannot fix in code
+
+**Logged:** 2026-07-22 (Dogfood-4 S3, findings F-DF4-011/012; zap-dast FAIL on a genuinely clean app)
+**Category:** Process gap / scanner harness guidance (Phase 3, static/web apps)
+**Severity:** Medium
+**Status:** Open
+
+`run-phase3-validation.sh`'s zap-dast arm (riskcode≥2 judge, BL-122-correct) scanned the built `dist/` served by `vite preview` and FAILed on 2 Medium alerts — missing CSP header and missing anti-clickjacking header. Both are DEPLOY-TIME host headers (documented in the project Bible §11 for the deploy boundary), not bundle properties: the S3 walker proved the same `dist/` passes (0 Medium+) when re-served with the documented headers. Net: for every static app, Phase-3 DAST run the obvious way yields a structural FAIL that no code change can fix — the operator either learns to discount the scanner (doctrine violation) or ad-hoc-invents a hardened serve harness, unguided.
+
+**Fix shape:** builders-guide/platform-module guidance (or a small serve harness in the validation script) to run Phase-3 DAST against the artifact WITH the project's documented production headers applied, recording the header config as part of the evidence; keep the raw-preview FAIL semantics for apps that claim no header dependence. web.md § 4.4 already gained the non-inheriting-directives note (form-action/frame-ancestors/base-uri — the third alert class this walk hit) on PR #245.
+
+**Related:** BL-122/BL-140/BL-149 (DAST family), BL-164 (same walk section).
+
+---
+
+## BL-166: `check-phase-gate.sh --gate phase_2_to_3` exit code is dominated by Phase 3→4 readiness — a legitimate 2→3 crossing reads as "blocked"
+
+**Logged:** 2026-07-22 (Dogfood-4 S3, finding F-DF4-013)
+**Category:** UX / gate semantics
+**Severity:** Medium
+**Status:** Open
+
+`--gate phase_2_to_3` forces `current_phase=3` to run the target gate's checks, but then ALSO runs the Phase 3→4 pre-gate checks that fire at phase 3 — so on a project that legitimately clears every 2→3 requirement the tool still exits 1 with `8 inconsistency(ies) found — blocking`, all eight being 3→4 deliverables (HANDOFF.md, sbom.json, pentest, …) that cannot exist yet. The S3 walker crossed via `--start-phase3` (which gates correctly on the bug gate + feature completeness), but the `--gate` invocation's false "blocked" verdict invites either alarm or — worse — habituation to red gate output.
+
+**Fix shape:** scope the `--gate <name>` exit predicate (and the summary count) to the NAMED gate's checks; print later-gate readiness as clearly-labeled non-counted `[INFO]/[NEXT]` lines. Sibling of BL-158 (forced-phase header label) — fix together.
+
+**Related:** BL-158, BL-104 (label-vs-verdict family).
+
+---
+
+## BL-167: BL-072 TDD-ordering warn counts `.claude/*.json` state files as "impl files with no accompanying test"
+
+**Logged:** 2026-07-22 (Dogfood-4 S3, finding F-DF4-014)
+**Category:** Cosmetic / classifier precision
+**Severity:** Low
+**Status:** Open
+
+A `fix:` commit staging only source + `.claude/phase-state.json` produced a BL-072 warn listing `.claude/phase-state.json` as an impl file lacking a test. Framework state files are never implementation; counting them as impl inflates warn noise on legitimate commits (personal tier: warn+log, so no block — but noise trains operators to skim warns).
+
+**Fix shape:** exclude `.claude/` paths from the BL-072 impl-file classifier.
+
+**Related:** BL-072 (the gate), BL-139 (same-family classifier precision).
