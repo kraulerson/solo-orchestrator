@@ -3745,6 +3745,8 @@ The emitted `npm audit --audit-level=high|moderate` step (github/gitlab/bitbucke
 
 **Related:** BL-122/BL-149 (false-FAIL doctrine), BL-148/BL-153 (emitted-CI currency family), BL-159 (same surface, contract docs).
 
+**Status update 2026-07-22 (adversarial verifier, fable tier):** SHIP-WITH-FIXES, all applied on the PR: Cg7-blocking predicate hardened (`^[^#]*` comment rejection + unguarded requirement — the verifier's two surviving mutants, a commented-out arm and an `|| true` suffix, both now RED at 51/52); dev-arm warning reworded to admit tool-failure as a cause ("advisories or audit failure"); web.md contract gains the GitHub-lane `build` script clause. Verifier confirmed empirically: the BL-160 repro shape (vite5/vitest2 dev-only fixture, full audit RC 1 vs --omit=dev RC 0), lockfile-only operation without node_modules, blocking-arm-first tool-failure loudness, and all backlog factual claims. Follow-up idea (not this PR): GitLab arm (b) as an `allow_failure: true` job for orange pipeline status instead of an in-log echo.
+
 ---
 
 ## BL-161: `.claude/bypass-audit.json` is tracked, but every terminal commit appends a receipt row — the working tree is perpetually one row dirty
@@ -3759,3 +3761,35 @@ The commit detector appends a `terminal_commit_passed` row to `.claude/bypass-au
 **Fix shape (design decision needed):** either (a) gitignore it like the sibling (audit trail becomes local-only — note its integrity is not cryptographically protected either way), or (b) stop recording routine `terminal_commit_passed` receipts in the tracked ledger (only bypass/out-of-band events), so the file changes only on actual events. Consider which consumers read the receipts (heartbeat semantics?) before choosing.
 
 **Related:** BL-112 (the detector), `templates/generated/gitignore-base.tmpl` (the sibling precedent).
+
+---
+
+## BL-162: BL-120 security-audit gate double-prints its OPEN-finding warning when feature slug == feature name
+
+**Logged:** 2026-07-22 (Dogfood-4 S2, finding F-DF4-008; observed during the Probe-B block — the block itself was CORRECT)
+**Category:** Cosmetic (gate output)
+**Severity:** Low
+**Status:** Open
+
+The `# BL-120-AUDIT-VERDICT` arm in `process-checklist.sh` globs audit files by both `*<slug>*` and `*<name>*`; when slug and name are identical (`find-in-document`), the same artifact matches twice and the `records N OPEN finding(s)` warning prints twice. Harmless — the step still blocks exactly once — but noisy audit output invites "is it checking two files?" confusion.
+
+**Fix shape:** dedupe the matched-file list before the verdict loop.
+
+**Related:** BL-120 (the arm; its BLOCK behavior verified HELD by Dogfood-4 S2 Probe B).
+
+---
+
+## BL-163: Blocked commit attempts leave NO row in bypass-audit.json — the SAST and test-execution blocks are invisible to the enforcement ledger
+
+**Logged:** 2026-07-22 (Dogfood-4 S2, finding F-DF4-009; both dishonest commit attempts blocked correctly but unrecorded)
+**Category:** Telemetry gap / audit-trail completeness (generated projects)
+**Severity:** Medium
+**Status:** Open
+
+The semgrep SAST arm (`# BL-118`) and the project-test arm (`# BL-125-COMMIT-TESTS`) live in the emitted pre-commit hook's fallback sequence, which exits non-zero BEFORE `.git/hooks/framework-gate.sh` runs — and framework-gate is the only writer of `terminal_commit_blocked` rows. Net: in Dogfood-4 S2, two real dishonest commit attempts (an `innerHTML` XSS sink; a red-tests commit) were both correctly REFUSED yet appended nothing to `.claude/bypass-audit.json` — the session's ledger shows only the clean landed commits. Enforcement is intact; the forensic record understates attempted violations. Anyone treating bypass-audit.json as the complete enforcement record (its stated purpose for out-of-band/bypass events) sees a cleaner history than reality.
+
+**Reproduce:** generated project, stage a `pane.innerHTML = userText` change, `git commit` → `[BLOCKED] Semgrep …`, exit 1; `jq '.events | length' .claude/bypass-audit.json` unchanged.
+
+**Fix shape:** the emitted hook's blocking arms append a `terminal_commit_blocked` row (gate name in `details.gate`, e.g. `semgrep`/`bl125_tests`) via `scripts/lib/bypass-audit.sh` before exiting; keep append-failure non-fatal (the block must never be weakened by ledger trouble). Mutation-proof the append.
+
+**Related:** BL-112 (ledger/detector family), BL-118, BL-125, BL-161 (ledger hygiene).
