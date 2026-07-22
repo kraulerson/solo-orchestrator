@@ -34,7 +34,13 @@ Thumbs.db
 # Test
 coverage/
 playwright-report/
-test-results/
+# BL-169: root-anchored — the unanchored form also matched docs/test-results/,
+# silently keeping the Phase-3 evidence the 3→4 gate REQUIRES out of git (the
+# gate then fails on every fresh CI checkout while passing locally). Only the
+# runner's own root-level output dir is ignored; docs/test-results/ is tracked
+# except the transient phase3/ scanner workdir (BL-140).
+/test-results/
+docs/test-results/phase3/
 
 # Debug
 *.log

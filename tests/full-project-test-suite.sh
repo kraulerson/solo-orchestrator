@@ -872,6 +872,16 @@ else
   fail "tests/test-bl155-phase2-init-transition-commit.sh FAILED (run for details)"
 fi
 
+# BL-169 (Dogfood-4 S4): the scaffold gitignore's unanchored `test-results/`
+# hid docs/test-results/ (the Phase-3 evidence the 3→4 gate requires) from
+# every fresh CI checkout. Root-anchored + transient phase3/ workdir ignored;
+# behavioral check-ignore pin. No init.sh -> both lanes.
+if bash "$SCRIPT_DIR/tests/test-bl169-gitignore-anchor.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl169-gitignore-anchor.sh"
+else
+  fail "tests/test-bl169-gitignore-anchor.sh FAILED (run for details)"
+fi
+
 # BL-089+BL-091 (Pantheon feedback, Karl-approved 2026-07-20): the doc
 # foundations ship at birth — doc map (authority order + conventions),
 # PRE-SEEDED identifier registry, archive-with-stubs README — and the

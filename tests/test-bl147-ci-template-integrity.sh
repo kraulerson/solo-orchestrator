@@ -437,11 +437,22 @@ if [ "${#GH_ALL[@]}" -ge 12 ]; then
 else
   fail_ "Cg8-floor" "found ${#GH_ALL[@]} github pipeline templates, expected >=12 — vacuous"
 fi
+# Verifier hardening (PR #245 adversarial pass): the flag regex tolerates
+# the no-space form (`${{github.` is valid Actions style and semgrep still
+# fires on it) and ALSO flags `${{ env.* }}` — the one probed variant with
+# NO semgrep backstop (the rule only matches github-context). The allow
+# filter stays github-only and requires an UPPER_SNAKE env key: a
+# lowercase key or an env-in-env assignment false-FAILs LOUDLY (uppercase
+# the key / restructure), which is the acceptable direction. DOCUMENTED
+# RESIDUALS (line-based predicate): a `${{ github.* }}` placed on a shell
+# comment line inside run:, or on a `KEY: ${{ … }}`-shaped line inside
+# run:, passes this pin — both ARE runner-expanded, and both are caught
+# by the semgrep run-shell-injection backstop the Phase-3 scanner runs.
 inj=""
 for f in "${GH_ALL[@]}"; do
-  if grep -E '\$\{\{ github\.' "$f" \
+  if grep -E '\$\{\{[[:space:]]*(github|env)\.' "$f" \
        | grep -vE '^[[:space:]]*#' \
-       | grep -vE '^[[:space:]]*[A-Z_]+:[[:space:]]*\$\{\{ github\.' \
+       | grep -vE '^[[:space:]]*[A-Z_]+:[[:space:]]*\$\{\{[[:space:]]*github\.' \
        | grep -q .; then
     inj="$inj ${f#*templates/pipelines/}"
   fi
