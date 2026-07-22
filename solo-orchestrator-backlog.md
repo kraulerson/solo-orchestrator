@@ -3710,3 +3710,52 @@ With `--gate phase_0_to_1` the header prints `Current phase: 1` even when `phase
 **Fix shape:** label the forced value distinctly (e.g., `Checking gate: phase_0_to_1 (as-if phase 1; recorded current_phase: 0)`).
 
 **Related:** BL-104 ([WARN]-label family — labels must not misstate the machine).
+
+---
+
+## BL-159: Emitted TypeScript CI demands `npm run lint`/`npm test` scripts nobody told the operator to create — ESLint 9 flat-config edge undocumented
+
+**Logged:** 2026-07-22 (Dogfood-4 S1, finding F-DF4-005; fresh honest walker, real Build Loop)
+**Category:** Doc gap / scaffold-CI contract (web platform module)
+**Severity:** Medium
+**Status:** Open — fix implemented on PR #244 (branch `fix/bl159-bl160-s1-ci-scaffold`), awaiting merge; flip to Closed at merge citing PR# + SHA.
+
+`templates/pipelines/ci/github/typescript.yml` (and the gitlab/bitbucket twins) run `npm run lint` and `npm test` unconditionally, but no framework doc tells the operator this contract exists — `docs/platform-modules/web.md` mentioned ESLint only as an optional security-plugin add-on. A fresh project whose operator has not wired those scripts (or has ESLint ≥9 without a flat `eslint.config.js` — the legacy `.eslintrc.*` is no longer read) reds CI out of the box: `ESLint couldn't find an eslint.config.(js|mjs|cjs) file`. The S1 walker had to discover and wire the flat config as unplanned construction work.
+
+**Fix:** contract documented in web.md § Phase 2 (scripts required before first push; ESLint-9 flat-config note with a minimal non-vacuous `typescript-eslint` starting point; pointer to the BL-160 audit-arm split). Deliberately NOT `--if-present` on the CI step — a silent skip is the silent-success defect class; the lane must fail loudly when the contract is unmet.
+
+**Fix-shape extension (open idea):** `--verify-init`'s `ci_pipeline_configured` step could mechanically check `package.json` for `lint`/`test` scripts when language=typescript.
+
+**Related:** BL-160 (same CI surface); BL-148 (emitted-CI currency family).
+
+---
+
+## BL-160: Emitted npm-audit step audits the full tree — dev-toolchain advisories with no in-major fix red the lane forever
+
+**Logged:** 2026-07-22 (Dogfood-4 S1, finding F-DF4-006)
+**Category:** Bug / false-FAIL doctrine (emitted CI, all three hosts)
+**Severity:** Medium
+**Status:** Open — fix implemented on PR #244 (branch `fix/bl159-bl160-s1-ci-scaffold`), awaiting merge; flip to Closed at merge citing PR# + SHA.
+
+The emitted `npm audit --audit-level=high|moderate` step (github/gitlab/bitbucket typescript templates) audits devDependencies too. S1's zero-runtime-deps app pinned vite^5/vitest^2 and hit 1 critical + 1 high dev-only advisories with **no in-major fix** — the lane reds forever unless the operator takes a breaking major upgrade or starts ignoring CI. A permanently red lane teaches operators to ignore CI: the BL-122/BL-149 false-FAIL doctrine applies.
+
+**Reproduce:** fresh typescript scaffold, pin vite^5 + vitest^2, push → CI `Security - Dependency audit` step exits 1 on dev-only advisories (`npm audit --audit-level=high` → `5 vulnerabilities (3 moderate, 1 high, 1 critical)`).
+
+**Fix:** `# BL-160-AUDIT-SCOPE` in all three typescript CI templates — the BLOCKING arm audits shipped deps only (`npm audit --omit=dev --audit-level=<host's existing level>`; per-host severity levels deliberately unchanged), plus a dev-inclusive LOUD non-blocking arm (`… || echo warning`) so dev advisories surface on every run without blocking (never a silent skip). `--omit=dev` support confirmed against current npm docs (context7 /npm/cli). Pinned by Cg7 (floor/blocking/dev-loud/no-bare) in `tests/test-bl147-ci-template-integrity.sh`; watched-RED (3 FAILs pre-fix), mutation (strip `--omit=dev` → Cg7-blocking + Cg7-no-bare RED) killed.
+
+**Related:** BL-122/BL-149 (false-FAIL doctrine), BL-148/BL-153 (emitted-CI currency family), BL-159 (same surface, contract docs).
+
+---
+
+## BL-161: `.claude/bypass-audit.json` is tracked, but every terminal commit appends a receipt row — the working tree is perpetually one row dirty
+
+**Logged:** 2026-07-22 (Dogfood-4 S1, finding F-DF4-007; also observed by the S0 walker)
+**Category:** UX / state-file hygiene (generated projects)
+**Severity:** Low
+**Status:** Open
+
+The commit detector appends a `terminal_commit_passed` row to `.claude/bypass-audit.json` on each terminal commit, and the file is NOT in the generated `.gitignore` (unlike its sibling `.claude/last-checked-commit.txt`, gitignored with a comment). Net: after the final commit of any session the tree is dirty by exactly one trailing row; committing it triggers another append (infinite chase). Both Dogfood-4 walkers independently hit it and left the file uncommitted.
+
+**Fix shape (design decision needed):** either (a) gitignore it like the sibling (audit trail becomes local-only — note its integrity is not cryptographically protected either way), or (b) stop recording routine `terminal_commit_passed` receipts in the tracked ledger (only bypass/out-of-band events), so the file changes only on actual events. Consider which consumers read the receipts (heartbeat semantics?) before choosing.
+
+**Related:** BL-112 (the detector), `templates/generated/gitignore-base.tmpl` (the sibling precedent).
