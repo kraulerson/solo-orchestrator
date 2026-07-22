@@ -62,15 +62,22 @@ jobs:
 
       - name: Governance - Approval log integrity
         if: hashFiles('APPROVAL_LOG.md') != ''
+        env:
+          # BL-164: github context enters the shell via env:, never by direct
+          # template expansion inside run: (actions shell-injection hardening;
+          # semgrep run-shell-injection flags the expanded form at ERROR).
+          BASE_REF: ${{ github.base_ref || 'main' }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_BEFORE: ${{ github.event.before }}
         run: |
           # BL-147: resolve the diff base explicitly and fail LOUDLY if it cannot be resolved.
           # A default-depth checkout has no origin/main ref; a check that cannot run must not pass.
-          BASE="origin/${{ github.base_ref || 'main' }}"
-          if [ "${{ github.event_name }}" = "push" ]; then BASE="${{ github.event.before }}"; fi
+          BASE="origin/${BASE_REF}"
+          if [ "$EVENT_NAME" = "push" ]; then BASE="$EVENT_BEFORE"; fi
           if [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
             echo "::notice::ref creation — no prior APPROVAL_LOG history to compare"; exit 0
           fi
-          git fetch origin "${{ github.base_ref || 'main' }}" --quiet || true
+          git fetch origin "$BASE_REF" --quiet || true
           if ! git rev-parse --verify "$BASE^{commit}" >/dev/null; then
             echo "::error::approval-log check cannot resolve base '$BASE' — failing LOUDLY (a check that cannot run must not pass)"; exit 1
           fi
@@ -80,14 +87,21 @@ jobs:
 
       - name: Governance - Approval author verification
         if: hashFiles('APPROVAL_LOG.md') != ''
+        env:
+          # BL-164: github context enters the shell via env:, never by direct
+          # template expansion inside run: (actions shell-injection hardening;
+          # semgrep run-shell-injection flags the expanded form at ERROR).
+          BASE_REF: ${{ github.base_ref || 'main' }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_BEFORE: ${{ github.event.before }}
         run: |
           # BL-147: same explicit-base + loud-fail resolution as the integrity step.
-          BASE="origin/${{ github.base_ref || 'main' }}"
-          if [ "${{ github.event_name }}" = "push" ]; then BASE="${{ github.event.before }}"; fi
+          BASE="origin/${BASE_REF}"
+          if [ "$EVENT_NAME" = "push" ]; then BASE="$EVENT_BEFORE"; fi
           if [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
             echo "::notice::ref creation — no prior APPROVAL_LOG history to compare"; exit 0
           fi
-          git fetch origin "${{ github.base_ref || 'main' }}" --quiet || true
+          git fetch origin "$BASE_REF" --quiet || true
           if ! git rev-parse --verify "$BASE^{commit}" >/dev/null; then
             echo "::error::approval-author check cannot resolve base '$BASE' — failing LOUDLY (a check that cannot run must not pass)"; exit 1
           fi
