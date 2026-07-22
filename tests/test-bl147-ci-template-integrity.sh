@@ -395,15 +395,21 @@ fi
 a_noblock=""; a_noloud=""; a_bare=""
 for f in "${TS_AUDIT_FILES[@]}"; do
   [ -f "$f" ] || continue
-  grep -Eq 'npm audit --omit=dev --audit-level=(high|moderate|low|critical)' "$f" \
+  # Verifier hardening (PR #244 adversarial pass): the `^[^#]*` prefix
+  # rejects comment placements (a commented-out arm must not satisfy the
+  # pin), and the blocking arm must be UNGUARDED — an `|| true`-suffixed
+  # blocking line is a disabled check, not a blocking check.
+  grep -E '^[^#]*npm audit --omit=dev --audit-level=(high|moderate|low|critical)' "$f" \
+      | grep -v -- '||' | grep -q . \
     || a_noblock="$a_noblock ${f##*/ci/}"
-  grep -Eq 'npm audit --audit-level=(high|moderate|low|critical)[^|]*\|\|' "$f" \
+  grep -E '^[^#]*npm audit --audit-level=(high|moderate|low|critical)[^|]*\|\|' "$f" \
+      | grep -q . \
     || a_noloud="$a_noloud ${f##*/ci/}"
   # A dev-inclusive invocation is the contiguous form `npm audit
   # --audit-level=` (the scoped form reads `npm audit --omit=dev
-  # --audit-level=` and does not contain that substring). Any such line
-  # without a `||` guard is the BL-160 defect.
-  if grep -E 'npm audit --audit-level=' "$f" | grep -v -- '||' | grep -q .; then
+  # --audit-level=` and does not contain that substring). Any such
+  # non-comment line without a `||` guard is the BL-160 defect.
+  if grep -E '^[^#]*npm audit --audit-level=' "$f" | grep -v -- '||' | grep -q .; then
     a_bare="$a_bare ${f##*/ci/}"
   fi
 done

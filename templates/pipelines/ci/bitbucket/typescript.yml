@@ -32,7 +32,7 @@ pipelines:
             script:
               - npm ci
               - npm audit --omit=dev --audit-level=moderate
-              - 'npm audit --audit-level=moderate || echo "WARNING dev-toolchain advisories (non-blocking) - run npm audit locally"'
+              - 'npm audit --audit-level=moderate || echo "WARNING dev-toolchain advisories or audit failure (non-blocking) - run npm audit locally"'
     - step:
         name: Governance
         image: bash:5

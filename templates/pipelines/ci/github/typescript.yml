@@ -55,7 +55,7 @@ jobs:
 
       - name: Security - Dependency audit (dev toolchain — loud, non-blocking)
         run: |
-          npm audit --audit-level=high || echo "::warning::npm audit found dev-toolchain advisories (non-blocking) — run 'npm audit' locally and plan the upgrade"
+          npm audit --audit-level=high || echo "::warning::npm audit reported dev-toolchain advisories or could not complete (non-blocking) — run 'npm audit' locally and plan the upgrade"
 
       - name: Security - License check
         run: npx license-checker --failOn "GPL-2.0;GPL-3.0;AGPL-3.0;LGPL-2.0;LGPL-2.1;LGPL-3.0;SSPL-1.0;EUPL-1.1;EUPL-1.2"

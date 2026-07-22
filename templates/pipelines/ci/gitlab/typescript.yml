@@ -55,7 +55,7 @@ dependencies:
     # dev-toolchain advisories are loud but non-blocking (BL-122/BL-149
     # false-FAIL doctrine — never a silent skip).
     - npm audit --omit=dev --audit-level=moderate
-    - 'npm audit --audit-level=moderate || echo "WARNING dev-toolchain advisories (non-blocking) - run npm audit locally"'
+    - 'npm audit --audit-level=moderate || echo "WARNING dev-toolchain advisories or audit failure (non-blocking) - run npm audit locally"'
 
 licenses:
   stage: security
