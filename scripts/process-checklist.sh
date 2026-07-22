@@ -1210,16 +1210,9 @@ check_commit_ready() {
     exit 0
   fi
 
-  # Phase 2: check init verification
-  if [ "$current_phase" -eq 2 ]; then
-    local init_verified
-    init_verified=$(jq -r '.phase2_init.verified' "$PROCESS_STATE")
-    if [ "$init_verified" != "true" ]; then
-      print_fail "Phase 2 initialization not verified."
-      echo "Run: scripts/process-checklist.sh --verify-init" >&2
-      exit 1
-    fi
-  fi
+  # Phase 2 init verification: the block used to live HERE, above the
+  # staged-file classification — see # BL-155-INIT-AFTER-CLASSIFY below
+  # for why it moved and what it still enforces.
 
   # code-process-checklist-5: subject-aware short-circuit decision. When
   # the caller passes a commit subject (--subject) AND it is NOT a
@@ -1232,10 +1225,12 @@ check_commit_ready() {
   # Loop. The flag is optional: callers that omit --subject fall back to
   # the original file-heuristic enforcement.
   #
-  # NOTE: the UAT-in-progress block below (lines ~947-957) and the
-  # Phase 2 init-verified block above are NOT bypassed by --subject —
-  # those are separate process gates that fire regardless of commit
-  # type. Only the Build-Loop-state requirement is subject-conditional.
+  # NOTE: the UAT-in-progress block below and the Phase 2 init-verified
+  # block (# BL-155-INIT-AFTER-CLASSIFY, after the docs exemption) are
+  # NOT bypassed by --subject. The init block IS file-conditional —
+  # docs/dep-manifest-only commits are exempt — but never
+  # subject-conditional. Only the Build-Loop-state requirement is
+  # subject-conditional.
   local subject_is_feat=true
   if [ -n "$COMMIT_SUBJECT" ]; then
     # Same feat regex as check_commit_message at line ~1126.
@@ -1307,6 +1302,30 @@ check_commit_ready() {
       exit 0
     fi
   fi
+
+  # BL-155-INIT-AFTER-CLASSIFY-BEGIN
+  # Dogfood-4 S0 F1: this block used to sit ABOVE the staged-file
+  # classification, so at Phase 2 with init unverified it blocked EVERY
+  # commit — including the docs/state-only Phase 1→2 transition commit
+  # the generated CLAUDE.md step 3 instructs ("Commit both files
+  # together"). Chicken-and-egg: recording entry into Phase 2 required
+  # Phase-2 construction setup first, forcing planning-only sessions
+  # into scaffolding work. Sitting AFTER the docs/dep-manifest
+  # exemption, docs/state-only commits land while ANY commit staging
+  # non-exempt files (source or otherwise) still requires
+  # phase2_init.verified=true — the T-strict-gate-blocks-unverified
+  # surface (tests/test-bl112-commit-enforcement.sh) is unchanged.
+  # Never subject-conditional: --subject does not bypass this block.
+  if [ "$current_phase" -eq 2 ]; then
+    local init_verified
+    init_verified=$(jq -r '.phase2_init.verified' "$PROCESS_STATE")
+    if [ "$init_verified" != "true" ]; then
+      print_fail "Phase 2 initialization not verified."
+      echo "Run: scripts/process-checklist.sh --verify-init" >&2
+      exit 1
+    fi
+  fi
+  # BL-155-INIT-AFTER-CLASSIFY-END
 
   # Phase 2 source commit checks
   if [ "$current_phase" -eq 2 ]; then
