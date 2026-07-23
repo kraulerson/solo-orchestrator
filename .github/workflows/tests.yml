@@ -117,6 +117,7 @@ jobs:
             tests/test-bl089-doc-foundations.sh
             tests/test-bl137-ci-tools-scope.sh
             tests/test-bl138-approval-window.sh
+            tests/test-bl170-approval-append-design.sh
             tests/test-bl139-subjectless-default.sh
             tests/test-bl128-review-generator-headless.sh
             tests/test-bypass-audit-integrity.sh

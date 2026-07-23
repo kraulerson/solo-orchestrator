@@ -7,7 +7,22 @@ framework: Solo Orchestrator v1.0
 
 # Approval Log — __PROJECT_NAME__
 
-This document records phase gate reviews for this project. For personal projects, the Orchestrator serves as their own reviewer. Update this log at each phase transition to maintain a record of what was reviewed and when.
+This document records phase gate reviews for this project. For personal projects, the Orchestrator serves as their own reviewer. Record each phase transition to maintain a log of what was reviewed and when.
+
+<!-- BL-170-APPEND-DESIGN: append-only recording contract for every gate/section below. -->
+
+**Recording an approval — append, never edit.** This log is append-only once pushed: the CI *Approval log integrity* job fails any commit that modifies or deletes a line already committed to `APPROVAL_LOG.md`. So do **not** fill a section's table in place. When you cross a gate (or complete a section below), **append** a completed copy of the shape below directly under that section's header, then commit — and never touch a line once it is committed:
+
+```
+| Field | Value |
+|---|---|
+| **Gate** | Phase N → Phase N+1 |
+| **Reviewer** | your name |
+| **Date** | YYYY-MM-DD |
+| **Artifacts reviewed** | the artifacts reviewed for this gate |
+| **Decision** | Approved |
+| **Notes** | optional notes |
+```
 
 ---
 
@@ -26,53 +41,29 @@ This document records phase gate reviews for this project. For personal projects
 
 ## Phase Gate: Phase 0 → Phase 1
 
-| Field | Value |
-|---|---|
-| **Gate** | Phase 0 → Phase 1 |
-| **Reviewer** | |
-| **Date** | |
-| **Artifacts reviewed** | PRODUCT_MANIFESTO.md |
-| **Decision** | Approved / Needs revision |
-| **Notes** | |
+<!-- BL-170-APPEND-DESIGN -->
+_When this gate is crossed, **append** a completed approval table directly below — use the shape at the top of this file (artifacts to review: PRODUCT_MANIFESTO.md). Append-only: never edit a line once pushed._
 
 ---
 
 ## Phase Gate: Phase 1 → Phase 2
 
-| Field | Value |
-|---|---|
-| **Gate** | Phase 1 → Phase 2 |
-| **Reviewer** | |
-| **Date** | |
-| **Artifacts reviewed** | PROJECT_BIBLE.md, Threat Model |
-| **Decision** | Approved / Needs revision |
-| **Notes** | |
+<!-- BL-170-APPEND-DESIGN -->
+_When this gate is crossed, **append** a completed approval table directly below — use the shape at the top of this file (artifacts to review: PROJECT_BIBLE.md, Threat Model). Append-only: never edit a line once pushed._
 
 ---
 
 ## Phase Gate: Phase 2 → Phase 3
 
-| Field | Value |
-|---|---|
-| **Gate** | Phase 2 → Phase 3 |
-| **Reviewer** | |
-| **Date** | |
-| **Artifacts reviewed** | Construction artifacts (code, tests, ADRs) |
-| **Decision** | Approved / Needs revision |
-| **Notes** | |
+<!-- BL-170-APPEND-DESIGN -->
+_When this gate is crossed, **append** a completed approval table directly below — use the shape at the top of this file (artifacts to review: construction artifacts — code, tests, ADRs). Append-only: never edit a line once pushed._
 
 ---
 
 ## Phase Gate: Phase 3 → Phase 4
 
-| Field | Value |
-|---|---|
-| **Gate** | Phase 3 → Phase 4 |
-| **Reviewer** | |
-| **Date** | |
-| **Artifacts reviewed** | Phase 3 test results (docs/test-results/), go-live checklist |
-| **Decision** | Approved / Needs revision |
-| **Notes** | |
+<!-- BL-170-APPEND-DESIGN -->
+_When this gate is crossed, **append** a completed approval table directly below — use the shape at the top of this file (artifacts to review: Phase 3 test results in docs/test-results/, go-live checklist). Append-only: never edit a line once pushed._
 
 ---
 
@@ -80,22 +71,27 @@ This document records phase gate reviews for this project. For personal projects
 
 _Record after deployment and go-live verification._
 
-| Field | Value |
-|---|---|
-| **Deployment Date** | |
-| **Go-Live Verified** | Yes / No |
-| **Rollback Tested** | Yes / No |
-| **Monitoring Verified** | Yes / No |
-| **Handoff Document** | HANDOFF.md completed |
-| **Notes** | |
+<!-- BL-170-APPEND-DESIGN -->
+_Append a completed copy of the shape below when Phase 4 is done. Append-only: never edit a line once pushed._
+
+    | Field | Value |
+    |---|---|
+    | **Deployment Date** | YYYY-MM-DD |
+    | **Go-Live Verified** | Yes |
+    | **Rollback Tested** | Yes |
+    | **Monitoring Verified** | Yes |
+    | **Handoff Document** | HANDOFF.md completed |
+    | **Notes** | optional notes |
 
 ---
 
 ## Approval History
 
+<!-- BL-170-APPEND-DESIGN -->
+_Append one row per post-launch change, maintenance review, or re-approval below. Append-only: never edit a row once pushed._
+
 | Date | Gate / Event | Decision | Notes |
 |---|---|---|---|
-| | | | |
 
 ---
 
@@ -105,12 +101,15 @@ _Record after deployment and go-live verification._
      below is the evidence the gate reads; the section header alone is
      template scaffolding, not evidence (BL-115 discipline). -->
 
-| Field | Value |
-|---|---|
-| **Signed off by** | [Name — the accepting operator/stakeholder] |
-| **Date** | [YYYY-MM-DD] |
-| **Session(s)** | [UAT session ids covered] |
-| **Notes** | [Open items accepted as-is, if any] |
+<!-- BL-170-APPEND-DESIGN -->
+_Append a completed copy of the shape below at final acceptance. Append-only: never edit a line once pushed._
+
+    | Field | Value |
+    |---|---|
+    | **Signed off by** | the accepting operator/stakeholder |
+    | **Date** | YYYY-MM-DD |
+    | **Session(s)** | UAT session ids covered |
+    | **Notes** | open items accepted as-is, if any |
 
 ---
 
@@ -121,11 +120,14 @@ _Record after deployment and go-live verification._
      while the track-keyed gates demand it (template chosen by deployment,
      gates keyed by track). A DATED row is the evidence. -->
 
-| Field | Value |
-|---|---|
-| **Reviewer** | [Attorney / firm name] |
-| **Date** | [YYYY-MM-DD] |
-| **Scope** | [Privacy Policy / ToS / other] |
+<!-- BL-170-APPEND-DESIGN -->
+_Append a completed copy of the shape below when legal review occurs. Append-only: never edit a line once pushed._
+
+    | Field | Value |
+    |---|---|
+    | **Reviewer** | Attorney / firm name |
+    | **Date** | YYYY-MM-DD |
+    | **Scope** | Privacy Policy / ToS / other |
 
 ---
 
@@ -133,8 +135,11 @@ _Record after deployment and go-live verification._
 
 <!-- BL-105: required on the Full track regardless of deployment. -->
 
-| Field | Value |
-|---|---|
-| **Tester** | [Person / firm] |
-| **Date** | [YYYY-MM-DD] |
-| **Report** | [docs/test-results/YYYY-MM-DD_pen-test.md] |
+<!-- BL-170-APPEND-DESIGN -->
+_Append a completed copy of the shape below when a penetration test is performed. Append-only: never edit a line once pushed._
+
+    | Field | Value |
+    |---|---|
+    | **Tester** | person / firm |
+    | **Date** | YYYY-MM-DD |
+    | **Report** | docs/test-results/YYYY-MM-DD_pen-test.md |
