@@ -113,8 +113,8 @@ Phase 3→4 crossed at gate exit 0; v1.0.0 released (SBOM + dist tarball).
 - **CI flake observed once**: the governance job's threat-model arm
   un-attested-SKIPped on a table-present tree and passed on a no-change re-run
   (BL-168, fail-closed; filed with run IDs).
-- Actions minutes: ~15 lightweight runs on a private repo; no runner/billing
-  anomalies.
+- Actions minutes: 19 lightweight runs on a private repo (count verified by
+  the BL-146 stack review); no runner/billing anomalies.
 
 ## Deliverables
 

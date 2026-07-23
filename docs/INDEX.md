@@ -75,6 +75,13 @@ Dated, point-in-time artifacts — evidence, not living docs. Naming convention 
 - **Dogfood / replay reports** — gate-behavior evidence run against this repo:
   [../Reports/2026-07-10-bl072-warn-dogfood.md](../Reports/2026-07-10-bl072-warn-dogfood.md) and
   [../Reports/2026-07-10-bl072-c2-replay.md](../Reports/2026-07-10-bl072-c2-replay.md).
+- **Walk / dogfood trees** — dated multi-file validation-walk records
+  (REPORT/FINDINGS/LEDGER-style): [../Reports/2026-07-12-e2e-walk/](../Reports/2026-07-12-e2e-walk/)
+  (checklist + code-vs-manual), [../Reports/2026-07-13-dogfood-2/](../Reports/2026-07-13-dogfood-2/)
+  (16 defects + remediation ledger), [../Reports/2026-07-18-dogfood-3/](../Reports/2026-07-18-dogfood-3/)
+  (fresh honest walker, 20/20 checkpoints), [../Reports/2026-07-21-pr-sweep/](../Reports/2026-07-21-pr-sweep/)
+  (BL-147..154 wave progress), [../Reports/2026-07-22-dogfood-4/](../Reports/2026-07-22-dogfood-4/)
+  (dishonest-operator walk — trio HELD 3/3, live-CI evidence, BL-155..170).
 - **Arc-close / test-suite / triage reports** — e.g. the S3 arc-close handoff, workflow-HTML validation, BL-035 orphan triage, and the April test-suite runs, all under [../Reports/](../Reports/).
 - **Project post-mortems** — retrospective write-ups also live in `Reports/` by
   the same date convention (a `2026-07-11-project-post-mortem.md` is being
