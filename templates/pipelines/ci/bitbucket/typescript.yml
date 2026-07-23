@@ -26,7 +26,13 @@ pipelines:
         - step:
             name: Dependencies
             caches: [node]
-            script: [npm ci, npm audit --audit-level=moderate]
+            # BL-160-AUDIT-SCOPE: blocking arm audits shipped deps only
+            # (--omit=dev); dev-toolchain advisories loud, non-blocking
+            # (BL-122/BL-149 false-FAIL doctrine — never a silent skip).
+            script:
+              - npm ci
+              - npm audit --omit=dev --audit-level=moderate
+              - 'npm audit --audit-level=moderate || echo "WARNING dev-toolchain advisories or audit failure (non-blocking) - run npm audit locally"'
     - step:
         name: Governance
         image: bash:5

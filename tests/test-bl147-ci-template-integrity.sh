@@ -362,6 +362,65 @@ if [ -z "$g_nocmd" ];    then pass "Cg6-dir-or-git (all run 'gitleaks dir' or 'g
 if [ -z "$g_legacy" ];   then pass "Cg6-off-zricethezav"; else fail_ "Cg6-off-zricethezav" "zricethezav/gitleaks still referenced in:$g_legacy"; fi
 if [ -z "$g_unpinned" ]; then pass "Cg6-version-pinned (all gitleaks images carry a vX.Y.Z tag)"; else fail_ "Cg6-version-pinned" "gitleaks image not version-pinned in:$g_unpinned"; fi
 
+# ── Cg7 (BL-160): npm-audit blocking arm scoped to shipped deps ─────────────
+# Dogfood-4 S1 F2: the emitted `npm audit --audit-level=…` step audits the
+# FULL tree, so dev-toolchain advisories with no in-major fix red the lane
+# forever on a project whose ship artifact has zero runtime deps — a
+# permanently red lane teaches operators to ignore CI (the BL-122/BL-149
+# false-FAIL doctrine). Contract pinned here, for every typescript CI
+# template across the three hosts:
+#   Cg7-floor     the three typescript templates exist (vacuity guard)
+#   Cg7-blocking  each carries a BLOCKING `npm audit --omit=dev
+#                 --audit-level=…` arm (shipped deps only)
+#   Cg7-dev-loud  each carries a dev-inclusive audit arm guarded by `||`
+#                 (loud, non-blocking — never a silent skip)
+#   Cg7-no-bare   no UNGUARDED dev-inclusive audit remains (a bare
+#                 `npm audit --audit-level=…` line without --omit=dev and
+#                 without a `||` guard is the BL-160 defect)
+echo "Cg7: typescript npm-audit arms — blocking scoped to --omit=dev, dev audit loud non-blocking"
+TS_AUDIT_FILES=(
+  "$REPO_ROOT/templates/pipelines/ci/github/typescript.yml"
+  "$REPO_ROOT/templates/pipelines/ci/gitlab/typescript.yml"
+  "$REPO_ROOT/templates/pipelines/ci/bitbucket/typescript.yml"
+)
+ts_missing=""
+for f in "${TS_AUDIT_FILES[@]}"; do
+  [ -f "$f" ] || ts_missing="$ts_missing ${f##*/ci/}"
+done
+if [ -z "$ts_missing" ]; then
+  pass "Cg7-floor (all 3 typescript CI templates present)"
+else
+  fail_ "Cg7-floor" "typescript CI template missing (rename must fail loud):$ts_missing"
+fi
+a_noblock=""; a_noloud=""; a_bare=""
+for f in "${TS_AUDIT_FILES[@]}"; do
+  [ -f "$f" ] || continue
+  # Verifier hardening (PR #244 adversarial pass): the `^[^#]*` prefix
+  # rejects comment placements (a commented-out arm must not satisfy the
+  # pin), and the blocking arm must be UNGUARDED — an `|| true`-suffixed
+  # blocking line is a disabled check, not a blocking check. BL-146
+  # review (R-244-1/2) tightened both further: the blocking arm also
+  # rejects `;`/`&&`-suffixed disables, and the dev arm's `||` RHS must
+  # actually WARN (::warning:: or WARNING) — a `|| true` silent skip is
+  # the exact defect class the arm exists to avoid.
+  grep -E '^[^#]*npm audit --omit=dev --audit-level=(high|moderate|low|critical)' "$f" \
+      | grep -vE '\|\||;|&&' | grep -q . \
+    || a_noblock="$a_noblock ${f##*/ci/}"
+  grep -E '^[^#]*npm audit --audit-level=(high|moderate|low|critical)[^|]*\|\|.*(::warning::|WARNING)' "$f" \
+      | grep -q . \
+    || a_noloud="$a_noloud ${f##*/ci/}"
+  # A dev-inclusive invocation is the contiguous form `npm audit
+  # --audit-level=` (the scoped form reads `npm audit --omit=dev
+  # --audit-level=` and does not contain that substring). Any such
+  # non-comment line without a `||` guard is the BL-160 defect.
+  if grep -E '^[^#]*npm audit --audit-level=' "$f" | grep -v -- '||' | grep -q .; then
+    a_bare="$a_bare ${f##*/ci/}"
+  fi
+done
+if [ -z "$a_noblock" ]; then pass "Cg7-blocking (all 3 carry npm audit --omit=dev --audit-level=…)"; else fail_ "Cg7-blocking" "no scoped blocking audit arm in:$a_noblock"; fi
+if [ -z "$a_noloud" ];  then pass "Cg7-dev-loud (all 3 carry a ||-guarded dev-inclusive audit)"; else fail_ "Cg7-dev-loud" "no loud non-blocking dev audit arm in:$a_noloud"; fi
+if [ -z "$a_bare" ];    then pass "Cg7-no-bare (no unguarded dev-inclusive audit remains)"; else fail_ "Cg7-no-bare" "unguarded dev-inclusive 'npm audit --audit-level' still present in:$a_bare"; fi
+
 # ═══════════════════════════════════════════════════════════════════════════
 # WP-3 (BL-149): the emitted release DAST is the un-fixed BL-122 twin
 # ═══════════════════════════════════════════════════════════════════════════

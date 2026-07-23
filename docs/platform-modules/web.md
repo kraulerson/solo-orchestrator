@@ -306,6 +306,11 @@ WEB-SPECIFIC REQUIREMENTS:
 
 Node.js projects use `package-lock.json` (npm) or `yarn.lock` (Yarn), both of which are auto-detected.
 
+**Emitted-CI script contract (TypeScript/JavaScript) — BL-159:** The CI pipeline the framework generates for your project runs `npm run lint` and `npm test` unconditionally — and the GitHub lane also runs `npm run build` (its Build step precedes Lint). Your `package.json` MUST define working `lint` and `test` scripts (plus `build` on GitHub) before the first push, or the CI lane fails out of the box (a check that cannot run must not pass — the lane fails loudly rather than silently skipping). Two sharp edges to know:
+
+- **ESLint ≥ 9 requires a flat config file** (`eslint.config.js` / `.mjs` / `.cjs`) — the legacy `.eslintrc.*` formats are no longer read by default. A project without a flat config fails `npm run lint` with `ESLint couldn't find an eslint.config.(js|mjs|cjs) file`. Minimal TypeScript starting point: `typescript-eslint`'s `tseslint.config(eslint.configs.recommended, ...tseslint.configs.recommended)`. Verify it is non-vacuous (it must actually flag a planted issue) before trusting the lane.
+- **The dependency-audit step is split** (BL-160): the blocking arm runs `npm audit --omit=dev` at the pipeline's audit level — the shipped dependency tree must be clean. Dev-toolchain advisories are reported by a separate loud, non-blocking arm; review them locally with `npm audit` and plan upgrades deliberately (they frequently have no in-major fix).
+
 ### Phase 3 — Security (Append to Core Steps)
 
 - [ ] CSP implemented and tested (Step 3.2.5 from previous guide versions)

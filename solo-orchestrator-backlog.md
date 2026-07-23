@@ -3710,3 +3710,86 @@ With `--gate phase_0_to_1` the header prints `Current phase: 1` even when `phase
 **Fix shape:** label the forced value distinctly (e.g., `Checking gate: phase_0_to_1 (as-if phase 1; recorded current_phase: 0)`).
 
 **Related:** BL-104 ([WARN]-label family — labels must not misstate the machine).
+
+---
+
+## BL-159: Emitted TypeScript CI demands `npm run lint`/`npm test` scripts nobody told the operator to create — ESLint 9 flat-config edge undocumented
+
+**Logged:** 2026-07-22 (Dogfood-4 S1, finding F-DF4-005; fresh honest walker, real Build Loop)
+**Category:** Doc gap / scaffold-CI contract (web platform module)
+**Severity:** Medium
+**Status:** Open — fix implemented on PR #244 (branch `fix/bl159-bl160-s1-ci-scaffold`), awaiting merge; flip to Closed at merge citing PR# + SHA.
+
+`templates/pipelines/ci/github/typescript.yml` (and the gitlab/bitbucket twins) run `npm run lint` and `npm test` unconditionally, but no framework doc tells the operator this contract exists — `docs/platform-modules/web.md` mentioned ESLint only as an optional security-plugin add-on. A fresh project whose operator has not wired those scripts (or has ESLint ≥9 without a flat `eslint.config.js` — the legacy `.eslintrc.*` is no longer read) reds CI out of the box: `ESLint couldn't find an eslint.config.(js|mjs|cjs) file`. The S1 walker had to discover and wire the flat config as unplanned construction work.
+
+**Fix:** contract documented in web.md § Phase 2 (scripts required before first push; ESLint-9 flat-config note with a minimal non-vacuous `typescript-eslint` starting point; pointer to the BL-160 audit-arm split). Deliberately NOT `--if-present` on the CI step — a silent skip is the silent-success defect class; the lane must fail loudly when the contract is unmet.
+
+**Fix-shape extension (open idea):** `--verify-init`'s `ci_pipeline_configured` step could mechanically check `package.json` for `lint`/`test` scripts when language=typescript.
+
+**Related:** BL-160 (same CI surface); BL-148 (emitted-CI currency family).
+
+---
+
+## BL-160: Emitted npm-audit step audits the full tree — dev-toolchain advisories with no in-major fix red the lane forever
+
+**Logged:** 2026-07-22 (Dogfood-4 S1, finding F-DF4-006)
+**Category:** Bug / false-FAIL doctrine (emitted CI, all three hosts)
+**Severity:** Medium
+**Status:** Open — fix implemented on PR #244 (branch `fix/bl159-bl160-s1-ci-scaffold`), awaiting merge; flip to Closed at merge citing PR# + SHA.
+
+The emitted `npm audit --audit-level=high|moderate` step (github/gitlab/bitbucket typescript templates) audits devDependencies too. S1's zero-runtime-deps app pinned vite^5/vitest^2 and hit 1 critical + 1 high dev-only advisories with **no in-major fix** — the lane reds forever unless the operator takes a breaking major upgrade or starts ignoring CI. A permanently red lane teaches operators to ignore CI: the BL-122/BL-149 false-FAIL doctrine applies.
+
+**Reproduce:** fresh typescript scaffold, pin vite^5 + vitest^2, push → CI `Security - Dependency audit` step exits 1 on dev-only advisories (`npm audit --audit-level=high` → `5 vulnerabilities (3 moderate, 1 high, 1 critical)`).
+
+**Fix:** `# BL-160-AUDIT-SCOPE` in all three typescript CI templates — the BLOCKING arm audits shipped deps only (`npm audit --omit=dev --audit-level=<host's existing level>`; per-host severity levels deliberately unchanged), plus a dev-inclusive LOUD non-blocking arm (`… || echo warning`) so dev advisories surface on every run without blocking (never a silent skip). `--omit=dev` support confirmed against current npm docs (context7 /npm/cli). Pinned by Cg7 (floor/blocking/dev-loud/no-bare) in `tests/test-bl147-ci-template-integrity.sh`; watched-RED (3 FAILs pre-fix), mutation (strip `--omit=dev` → Cg7-blocking + Cg7-no-bare RED) killed.
+
+**Related:** BL-122/BL-149 (false-FAIL doctrine), BL-148/BL-153 (emitted-CI currency family), BL-159 (same surface, contract docs).
+
+**Status update 2026-07-22 (adversarial verifier, fable tier):** SHIP-WITH-FIXES, all applied on the PR: Cg7-blocking predicate hardened (`^[^#]*` comment rejection + unguarded requirement — the verifier's two surviving mutants, a commented-out arm and an `|| true` suffix, both now RED at 51/52); dev-arm warning reworded to admit tool-failure as a cause ("advisories or audit failure"); web.md contract gains the GitHub-lane `build` script clause. Verifier confirmed empirically: the BL-160 repro shape (vite5/vitest2 dev-only fixture, full audit RC 1 vs --omit=dev RC 0), lockfile-only operation without node_modules, blocking-arm-first tool-failure loudness, and all backlog factual claims. Follow-up idea (not this PR): GitLab arm (b) as an `allow_failure: true` job for orange pipeline status instead of an in-log echo.
+
+---
+
+## BL-161: `.claude/bypass-audit.json` is tracked, but every terminal commit appends a receipt row — the working tree is perpetually one row dirty
+
+**Logged:** 2026-07-22 (Dogfood-4 S1, finding F-DF4-007; also observed by the S0 walker)
+**Category:** UX / state-file hygiene (generated projects)
+**Severity:** Low
+**Status:** Open
+
+The commit detector appends a `terminal_commit_passed` row to `.claude/bypass-audit.json` on each terminal commit, and the file is NOT in the generated `.gitignore` (unlike its sibling `.claude/last-checked-commit.txt`, gitignored with a comment). Net: after the final commit of any session the tree is dirty by exactly one trailing row; committing it triggers another append (infinite chase). Both Dogfood-4 walkers independently hit it and left the file uncommitted.
+
+**Fix shape (design decision needed):** either (a) gitignore it like the sibling (audit trail becomes local-only — note its integrity is not cryptographically protected either way), or (b) stop recording routine `terminal_commit_passed` receipts in the tracked ledger (only bypass/out-of-band events), so the file changes only on actual events. Consider which consumers read the receipts (heartbeat semantics?) before choosing.
+
+**Related:** BL-112 (the detector), `templates/generated/gitignore-base.tmpl` (the sibling precedent).
+
+---
+
+## BL-162: BL-120 security-audit gate double-prints its OPEN-finding warning when feature slug == feature name
+
+**Logged:** 2026-07-22 (Dogfood-4 S2, finding F-DF4-008; observed during the Probe-B block — the block itself was CORRECT)
+**Category:** Cosmetic (gate output)
+**Severity:** Low
+**Status:** Open
+
+The `# BL-120-AUDIT-VERDICT` arm in `process-checklist.sh` globs audit files by both `*<slug>*` and `*<name>*`; when slug and name are identical (`find-in-document`), the same artifact matches twice and the `records N OPEN finding(s)` warning prints twice. Harmless — the step still blocks exactly once — but noisy audit output invites "is it checking two files?" confusion.
+
+**Fix shape:** dedupe the matched-file list before the verdict loop.
+
+**Related:** BL-120 (the arm; its BLOCK behavior verified HELD by Dogfood-4 S2 Probe B).
+
+---
+
+## BL-163: Blocked commit attempts leave NO row in bypass-audit.json — the SAST and test-execution blocks are invisible to the enforcement ledger
+
+**Logged:** 2026-07-22 (Dogfood-4 S2, finding F-DF4-009; both dishonest commit attempts blocked correctly but unrecorded)
+**Category:** Telemetry gap / audit-trail completeness (generated projects)
+**Severity:** Medium
+**Status:** Open
+
+The semgrep SAST arm (`# BL-118`) and the project-test arm (`# BL-125-COMMIT-TESTS`) live in the emitted pre-commit hook's fallback sequence, which exits non-zero BEFORE `.git/hooks/framework-gate.sh` runs — and framework-gate is the only writer of `terminal_commit_blocked` rows. Net: in Dogfood-4 S2, two real dishonest commit attempts (an `innerHTML` XSS sink; a red-tests commit) were both correctly REFUSED yet appended nothing to `.claude/bypass-audit.json` — the session's ledger shows only the clean landed commits. Enforcement is intact; the forensic record understates attempted violations. Anyone treating bypass-audit.json as the complete enforcement record (its stated purpose for out-of-band/bypass events) sees a cleaner history than reality.
+
+**Reproduce:** generated project, stage a `pane.innerHTML = userText` change, `git commit` → `[BLOCKED] Semgrep …`, exit 1; `jq '.events | length' .claude/bypass-audit.json` unchanged.
+
+**Fix shape:** the emitted hook's blocking arms append a `terminal_commit_blocked` row (gate name in `details.gate`, e.g. `semgrep`/`bl125_tests`) via `scripts/lib/bypass-audit.sh` before exiting; keep append-failure non-fatal (the block must never be weakened by ledger trouble). Mutation-proof the append.
+
+**Related:** BL-112 (ledger/detector family), BL-118, BL-125, BL-161 (ledger hygiene).
