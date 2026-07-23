@@ -36,7 +36,7 @@ This document records all governance approvals for this project. Each entry capt
 These pre-conditions must be completed before Phase 0 begins. See Governance Framework Section V and Project Intake Section 8.
 
 <!-- BL-170-APPEND-DESIGN -->
-_**Append** one completed row per pre-condition to the table below — one each for: AI deployment path approved (IT Security), Insurance coverage confirmed (Insurance Broker), Liability entity designated (Legal / CIO), Project sponsor assigned (Executive Sponsor), Backup maintainer designated (Technical Lead), ITSM project registered (ITSM / PMO). Each appended row needs an approver name, role, an ISO day, method, and an evidence reference. Append-only: never edit a row once pushed._
+_**Append** one completed row per pre-condition to the table below — one each for: AI deployment path approved (IT Security), Insurance coverage confirmed (Insurance Broker), Liability entity designated (Legal / CIO), Project sponsor assigned (Executive Sponsor), Backup maintainer designated (Technical Lead), ITSM project registered (ITSM / PMO). Each appended row needs a row number in the `#` column (`| 1 |` … `| 6 |` — the production-upgrade tooling parses numbered rows), an approver name, role, an ISO day, method, and an evidence reference. Append-only: never edit a row once pushed._
 
 | # | Pre-Condition | Approver | Role | Date | Method | Reference | Notes |
 |---|---|---|---|---|---|---|---|
@@ -49,7 +49,7 @@ _**Append** one completed row per pre-condition to the table below — one each 
 **Evidence required:** Signed-off Phase 0 artifacts + compliance screening matrix.
 **Reference:** Governance Framework Section V; Builder's Guide Phase 0.
 <!-- BL-170-APPEND-DESIGN -->
-_When this gate is crossed, **append** a completed approval table directly below — use the shape at the top of this file (role: Project Sponsor; artifacts to review: PRODUCT_MANIFESTO.md, Compliance Screening Matrix). Append-only: never edit a line once pushed._
+_When this gate is crossed, **append** a completed approval table directly below (above this section's closing `---`) — use the shape at the top of this file (role: Project Sponsor; artifacts to review: PRODUCT_MANIFESTO.md, Compliance Screening Matrix). Append-only: never edit a line once pushed._
 
 ---
 
@@ -59,7 +59,7 @@ _When this gate is crossed, **append** a completed approval table directly below
 **Evidence required:** Written approval of Project Bible.
 **Reference:** Governance Framework Section V; Builder's Guide Phase 1.
 <!-- BL-170-APPEND-DESIGN -->
-_When this gate is crossed, **append** a completed approval table directly below — use the shape at the top of this file (role: Senior Technical Authority; artifacts to review: PROJECT_BIBLE.md, Architecture Decision Records, Threat Model). Append-only: never edit a line once pushed._
+_When this gate is crossed, **append** a completed approval table directly below (above this section's closing `---`) — use the shape at the top of this file (role: Senior Technical Authority; artifacts to review: PROJECT_BIBLE.md, Architecture Decision Records, Threat Model). Append-only: never edit a line once pushed._
 
 ---
 
@@ -69,7 +69,7 @@ _When this gate is crossed, **append** a completed approval table directly below
 **Evidence required:** Bug gate report (`test-gate.sh --check-phase-gate`), FEATURES.md vs MVP Cutline reconciliation, CI green.
 **Reference:** Governance Framework Section V; Builder's Guide Phase 2 Completion Checkpoint.
 <!-- BL-170-APPEND-DESIGN -->
-_When this gate is crossed, **append** a completed approval table directly below — use the shape at the top of this file (this gate is a self-review; the reviewer row carries: Orchestrator (personal) / Senior Technical Authority (organizational); artifacts to review: FEATURES.md, BUGS.md, CI status, PROJECT_BIBLE.md currency). Append-only: never edit a line once pushed._
+_When this gate is crossed, **append** a completed approval table directly below (above this section's closing `---`) — use the shape at the top of this file (this gate is a self-review; the reviewer row carries: Orchestrator (personal) / Senior Technical Authority (organizational); artifacts to review: FEATURES.md, BUGS.md, CI status, PROJECT_BIBLE.md currency). Append-only: never edit a line once pushed._
 
 ---
 
@@ -79,7 +79,7 @@ _When this gate is crossed, **append** a completed approval table directly below
 **Evidence required:** Security scan results, penetration test report (if required), go-live checklist.
 **Reference:** Governance Framework Section V; Builder's Guide Phase 3 and Phase 4.
 <!-- BL-170-APPEND-DESIGN -->
-_When this gate is crossed, **append** a completed approval table under EACH subsection header below — Application Owner first, then IT Security — using the shape at the top of this file. Append-only: never edit a line once pushed._
+_When this gate is crossed, **append** a completed approval table directly under EACH subsection header below (above this section's closing `---`) — Application Owner first, then IT Security — using the shape at the top of this file. Append-only: never edit a line once pushed._
 
 ### Application Owner Approval
 
@@ -129,7 +129,7 @@ _Append a completed copy of the shape below when legal review occurs. Append-onl
 _Required for Standard Track (with IT Security exemption path) and Full Track (no exemption)._
 
 <!-- BL-170-APPEND-DESIGN -->
-_Append a completed copy of the shape below when a penetration test is performed or exempted. Append-only: never edit a line once pushed._
+_Append a completed copy of the shape below when a penetration test is performed, or when IT Security records an exemption. Append-only: never edit a line once pushed._
 
     | Field | Value |
     |---|---|

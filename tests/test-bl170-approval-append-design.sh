@@ -144,6 +144,20 @@ append_gate01() { # <file> <label(Approver|Reviewer)> <name>
 
 # Append filled Application Owner + IT Security tables under the org Phase 3->4
 # subsection headers.
+# One-sided variant (verifier HIGH-1 case B6): ONLY IT Security appended —
+# realistic out-of-order approvals; must NOT satisfy dual-approval.
+append_p34_itsec_only() { # <file>
+  awk -v iso="$TODAY" '
+    { print }
+    /^### IT Security Approval$/ {
+      print ""; print "| Field | Value |"; print "|---|---|"
+      print "| **Gate** | Phase 3 to Phase 4 (IT Security) |"
+      print "| **Approver** | Grace Hopper |"; print "| **Role** | IT Security |"
+      print "| **Date** | " iso " |"; print "| **Method** | Ticket |"; print "| **Decision** | Approved |"
+    }
+  ' "$1" > "$1.t" && mv "$1.t" "$1"
+}
+
 append_p34_subsections() { # <file>
   awk -v iso="$TODAY" '
     { print }
@@ -236,6 +250,63 @@ else
     pass "B5: personal appended 0->1 table auto-records the gate date"
   else
     fail_ "B5: personal auto-record did not fire" "$(printf '%s' "$out" | grep -i 'phase 0' | head -2)"
+  fi
+
+  # B6 (verifier HIGH-1) — ONE-SIDED append must NOT pass dual-approval.
+  # With only IT Security appended, the (previously unbounded) App-Owner
+  # window bled into IT Security's Date row and dual-approval passed with
+  # one signer. The bounded validate_approval_section_dated must WARN.
+  P="$TOPTMP/b-org-p34-onesided"; mkdir -p "$P/.claude"
+  ( cd "$P" && git init -q && git config user.email amb@x.invalid && git config user.name "Ambient Person" )
+  printf '%s\n' '{"project":"d","current_phase":4,"deployment":"organizational","track":"standard","gates":{"phase_0_to_1":"'"$TODAY"'","phase_1_to_2":"'"$TODAY"'","phase_2_to_3":"'"$TODAY"'"}}' > "$P/.claude/phase-state.json"
+  sed -e "s|__PROJECT_NAME__|d|g" -e "s|__TODAY__|$TODAY|g" "$ORG_TMPL" > "$P/APPROVAL_LOG.md"
+  append_p34_itsec_only "$P/APPROVAL_LOG.md"
+  ( cd "$P" && git add -A && git -c user.name="Carol Author" -c user.email=carol@x.invalid commit -qm x )
+  out=$( cd "$P" && bash "$CPG" 2>&1 || true )
+  if printf '%s' "$out" | grep -q "missing: Application Owner"; then
+    pass "B6: IT-Security-only append does NOT satisfy dual-approval (missing App-Owner WARNED)"
+  elif printf '%s' "$out" | grep -q "both Application Owner and IT Security approvals dated"; then
+    fail_ "B6: dual-approval PASSED with one signer" "the App-Owner window bled into IT Security — BL-170 verifier HIGH-1 regression"
+  else
+    fail_ "B6: expected the missing-App-Owner WARN" "$(printf '%s' "$out" | grep -i 'application owner' | head -2)"
+  fi
+
+  # B7 (verifier HIGH-2) — a FRESH org template must not auto-satisfy the
+  # pen-test control: the instruction text used to contain
+  # 'penetration ... exempted' and matched the whole-file exemption grep,
+  # so every scaffold passed the Standard-track pen-test requirement from
+  # birth with zero recorded exemption.
+  P="$TOPTMP/b-org-pentest-fresh"; mkdir -p "$P/.claude"
+  ( cd "$P" && git init -q && git config user.email amb@x.invalid && git config user.name "Ambient Person" )
+  printf '%s\n' '{"project":"d","current_phase":4,"deployment":"organizational","track":"standard","gates":{"phase_0_to_1":"'"$TODAY"'","phase_1_to_2":"'"$TODAY"'","phase_2_to_3":"'"$TODAY"'"}}' > "$P/.claude/phase-state.json"
+  sed -e "s|__PROJECT_NAME__|d|g" -e "s|__TODAY__|$TODAY|g" "$ORG_TMPL" > "$P/APPROVAL_LOG.md"
+  ( cd "$P" && git add -A && git -c user.name="Carol Author" -c user.email=carol@x.invalid commit -qm x )
+  out=$( cd "$P" && bash "$CPG" 2>&1 || true )
+  if printf '%s' "$out" | grep -qi "Penetration test exempted"; then
+    fail_ "B7: fresh template auto-satisfied the pen-test exemption" "instruction-text collision — BL-170 verifier HIGH-2 regression"
+  elif printf '%s' "$out" | grep -qi "No penetration test results or IT Security exemption found"; then
+    pass "B7: fresh org template does NOT auto-satisfy the pen-test control (WARN present)"
+  else
+    fail_ "B7: expected the no-pentest WARN on a fresh template" "$(printf '%s' "$out" | grep -i 'penetration' | head -2)"
+  fi
+
+  # B8 (verifier MED-3) — window-budget pin: the CANONICAL dual append must
+  # keep the Phase 3->4 Date inside the head-15 evidence window so the gate
+  # date AUTO-RECORDS into phase-state.json. Guards the ~2-line budget:
+  # template preamble growth that pushes the appended Date past the window
+  # flips this RED (fail-closed today, silent tomorrow).
+  P="$TOPTMP/b-org-p34-budget"; mkdir -p "$P/.claude"
+  ( cd "$P" && git init -q && git config user.email amb@x.invalid && git config user.name "Ambient Person" )
+  printf '%s\n' '{"project":"d","current_phase":4,"deployment":"organizational","track":"standard","gates":{"phase_0_to_1":"'"$TODAY"'","phase_1_to_2":"'"$TODAY"'","phase_2_to_3":"'"$TODAY"'"}}' > "$P/.claude/phase-state.json"
+  sed -e "s|__PROJECT_NAME__|d|g" -e "s|__TODAY__|$TODAY|g" "$ORG_TMPL" > "$P/APPROVAL_LOG.md"
+  append_p34_subsections "$P/APPROVAL_LOG.md"
+  ( cd "$P" && git add -A && git -c user.name="Carol Author" -c user.email=carol@x.invalid commit -qm x )
+  ( cd "$P" && bash "$CPG" >/dev/null 2>&1 || true )
+  rec=$(jq -r '.gates.phase_3_to_4 // ""' "$P/.claude/phase-state.json" 2>/dev/null)
+  if [ -n "$rec" ]; then
+    pass "B8: canonical dual append auto-records phase_3_to_4 ($rec) — evidence window budget holds"
+  else
+    fail_ "B8: phase_3_to_4 did NOT auto-record" "appended Date fell outside the head-15 evidence window — budget regression"
   fi
 fi
 
