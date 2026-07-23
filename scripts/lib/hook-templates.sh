@@ -149,11 +149,6 @@ soif_ledger_blocked() {
     echo "[note] BL-163: jq unavailable — commit still refused, block not logged to the ledger." >&2
     return 0
   fi
-  # shellcheck disable=SC1090
-  . "$soif_lg_lib" 2>/dev/null || {
-    echo "[note] BL-163: could not load the ledger library — commit still refused, block not logged to the ledger." >&2
-    return 0
-  }
   soif_lg_ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null) || soif_lg_ts=""
   soif_lg_level=$(jq -r '.enforcement_level // "n/a"' "$soif_lg_root/.claude/manifest.json" 2>/dev/null) || soif_lg_level="n/a"
   [ -n "$soif_lg_level" ] || soif_lg_level="n/a"
@@ -166,7 +161,14 @@ soif_ledger_blocked() {
     echo "[note] BL-163: could not build the ledger row — commit still refused, block not logged to the ledger." >&2
     return 0
   fi
-  if ! bypass_audit_append "$soif_lg_root" "$soif_lg_row" >/dev/null 2>&1; then
+  # Verifier MAJOR (2026-07-23): source + append run in a SUBSHELL. `exit`
+  # in a sourced file exits the sourcing shell — a trojan/broken
+  # bypass-audit.sh that `exit 0`s would otherwise terminate the whole hook
+  # SUCCESSFULLY after "[BLOCKED]" printed, LANDING the refused commit. The
+  # subshell confines any exit/parse-error to the append attempt; the
+  # refusal and the [note] survive both.
+  # shellcheck disable=SC1090
+  if ! ( . "$soif_lg_lib" && bypass_audit_append "$soif_lg_root" "$soif_lg_row" ) >/dev/null 2>&1; then
     echo "[note] BL-163: ledger append failed — commit still refused, block not logged to the ledger." >&2
     return 0
   fi

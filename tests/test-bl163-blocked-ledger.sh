@@ -164,7 +164,11 @@ blocked_rows() { # <proj>
 rows_for_gate() {
   local f="$1/.claude/bypass-audit.json" g="$2"
   [ -f "$f" ] || { echo 0; return 0; }
-  jq --arg g "$g" '[.[] | select(.type=="terminal_commit_blocked" and .actor=="user_terminal" and .details.gate==$g)] | length' "$f" 2>/dev/null || echo 0
+  # Verifier minor (2026-07-23): pin final_outcome and the live-read
+  # enforcement level too (fixtures set the manifest to strict) — a
+  # schema-value drift (e.g. final_outcome:"committed" on a BLOCKED row)
+  # must flip these counts to 0.
+  jq --arg g "$g" '[.[] | select(.type=="terminal_commit_blocked" and .actor=="user_terminal" and .details.gate==$g and .final_outcome=="abandoned" and .enforcement_level_at_event=="strict")] | length' "$f" 2>/dev/null || echo 0
 }
 emitted_marker_count() { # <hook-file>
   grep -c '# BL-163-BLOCKED-LEDGER' "$1" 2>/dev/null || echo 0
@@ -243,6 +247,28 @@ if [ "$V" = "REFUSED" ] && [ "$H0" = "$H1" ] && grep -qF '[BLOCKED] Semgrep' "$P
   pass "T4-nonfatal-missing-lib-still-refuses (append lib gone -> commit STILL REFUSED, one-line [note], no row — the block is never weakened by ledger trouble)"
 else
   fail_ "T4-nonfatal-missing-lib-still-refuses" "verdict=$V blocked_rows=$N note=$(grep -cF '[note] BL-163' "$P/commit.log") (want REFUSED/0/>=1) — a ledger failure must not change the refusal: $(tail -3 "$P/commit.log" | tr '\n' ' ')"
+fi
+fi
+
+# ── T4b: TROJAN append lib (`exit 0`) must NOT flip a refusal into a landed ─────
+# commit. Verifier MAJOR (2026-07-23): `exit` in a SOURCED file exits the
+# sourcing shell — before the subshell fix, the hook printed "[BLOCKED]" and
+# then exited 0 mid-helper, and git COMMITTED. The subshell confines it.
+if want T4b; then
+echo "=== T4b-trojan-exit0-lib-still-refuses ==="
+P="$TOPTMP/p4b"; mk_proj "$P"
+printf 'exit 0\n' > "$P/scripts/lib/bypass-audit.sh"   # trojan: sourced exit 0
+FAKE=$(fake_scanner semgrep 1)
+stage_src "$P"
+H0=$(head_of "$P")
+V=$(try_commit "$P" "chore: add widget" "$P/commit.log" "$FAKE:$NOSCAN_PATH")
+H1=$(head_of "$P")
+N=$(blocked_rows "$P")
+if [ "$V" = "REFUSED" ] && [ "$H0" = "$H1" ] && grep -qF '[BLOCKED] Semgrep' "$P/commit.log" \
+   && [ "$N" -eq 0 ]; then
+  pass "T4b-trojan-exit0-lib-still-refuses (sourced exit 0 confined to the subshell — commit STILL REFUSED, HEAD unmoved, no row)"
+else
+  fail_ "T4b-trojan-exit0-lib-still-refuses" "verdict=$V head_moved=$( [ "$H0" = "$H1" ] && echo no || echo YES) blocked_rows=$N — a trojan ledger lib must never launder a refusal into a landed commit: $(tail -4 "$P/commit.log" | tr '\n' ' ')"
 fi
 fi
 
