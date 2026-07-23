@@ -134,6 +134,26 @@ else
 fi
 teardown_project
 
+# T6 (BL-146 review R-243-1): the init block is NEVER subject-conditional —
+# a non-feat --subject must not bypass it. Pins the property the
+# # BL-155-INIT-AFTER-CLASSIFY comment asserts; without this case, a future
+# refactor that early-exits on the subject short-circuit would break the
+# contract with every suite green.
+echo "T6: non-feat --subject does not bypass the init block"
+setup_project
+(
+  cd "$TMP"
+  echo "console.log(1)" > src/foo.ts
+  git add src/foo.ts
+)
+out=$(cd "$TMP" && "$SCRIPT" --check-commit-ready --subject "docs: sneak past init" 2>&1) ; rc=$?
+if [ "$rc" -ne 0 ] && echo "$out" | grep -qF "Phase 2 initialization not verified"; then
+  pass "T6: subject did not bypass init block (rc=$rc)"
+else
+  fail_ "T6" "expected rc!=0 + init message, got rc=$rc out=$out"
+fi
+teardown_project
+
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]
