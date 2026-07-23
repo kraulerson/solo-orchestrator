@@ -421,6 +421,54 @@ if [ -z "$a_noblock" ]; then pass "Cg7-blocking (all 3 carry npm audit --omit=de
 if [ -z "$a_noloud" ];  then pass "Cg7-dev-loud (all 3 carry a ||-guarded dev-inclusive audit)"; else fail_ "Cg7-dev-loud" "no loud non-blocking dev audit arm in:$a_noloud"; fi
 if [ -z "$a_bare" ];    then pass "Cg7-no-bare (no unguarded dev-inclusive audit remains)"; else fail_ "Cg7-no-bare" "unguarded dev-inclusive 'npm audit --audit-level' still present in:$a_bare"; fi
 
+# ── Cg8 (BL-164): no github-context expansion inside run: scripts ───────────
+# Dogfood-4 S3: the emitted BL-147 governance steps interpolated
+# ${{ github.base_ref }} / ${{ github.event.before }} / ${{ github.event_name }}
+# directly into run: shell — semgrep run-shell-injection flags it at ERROR, so
+# every generated github project's own Phase-3 full-tree SAST FAILed on the
+# framework's scaffold (and the pattern is real actions-hardening guidance:
+# context values must enter the shell via env:, never by template expansion).
+# Predicate: across ALL github pipeline templates (ci + release), any line
+# containing `${{ github.` must be either a comment or an env-style
+# `KEY: ${{ github.… }}` assignment. A floor guards vacuity.
+echo "Cg8: github-context values enter shell via env: only (no run: interpolation)"
+GH_ALL=( "${GH_FILES[@]}" )
+for f in "$REPO_ROOT"/templates/pipelines/release/github/*.yml; do
+  [ -f "$f" ] && GH_ALL+=("$f")
+done
+if [ "${#GH_ALL[@]}" -ge 12 ]; then
+  pass "Cg8-floor (${#GH_ALL[@]} github pipeline templates, floor 12)"
+else
+  fail_ "Cg8-floor" "found ${#GH_ALL[@]} github pipeline templates, expected >=12 — vacuous"
+fi
+# Verifier hardening (PR #245 adversarial pass): the flag regex tolerates
+# the no-space form (`${{github.` is valid Actions style and semgrep still
+# fires on it) and ALSO flags `${{ env.* }}`, `${{ vars.* }}`, and
+# `${{ inputs.* }}` — semgrep's run-shell-injection rule matches only the
+# github context, so those three have NO SAST backstop at all (BL-146
+# review R-245-1: `vars.*` in run: was live in release/github/web.yml and
+# both this pin and semgrep missed it). The allow filter admits
+# UPPER_SNAKE env-style assignments of any of the four contexts; a
+# lowercase key false-FAILs LOUDLY (uppercase it), the acceptable
+# direction. DOCUMENTED RESIDUALS (line-based predicate): a context
+# expansion on a shell comment line inside run:, or on a
+# `KEY: ${{ … }}`-shaped line inside run:, passes this pin — the
+# github-context forms of both are caught by the semgrep backstop.
+inj=""
+for f in "${GH_ALL[@]}"; do
+  if grep -E '\$\{\{[[:space:]]*(github|env|vars|inputs)\.' "$f" \
+       | grep -vE '^[[:space:]]*#' \
+       | grep -vE '^[[:space:]]*[A-Z_]+:[[:space:]]*\$\{\{[[:space:]]*(github|vars|inputs)\.' \
+       | grep -q .; then
+    inj="$inj ${f#*templates/pipelines/}"
+  fi
+done
+if [ -z "$inj" ]; then
+  pass "Cg8-env-indirection (no \${{ github.* }} reaches a run: script)"
+else
+  fail_ "Cg8-env-indirection" "github-context expansion outside env:/comments in:$inj"
+fi
+
 # ═══════════════════════════════════════════════════════════════════════════
 # WP-3 (BL-149): the emitted release DAST is the un-fixed BL-122 twin
 # ═══════════════════════════════════════════════════════════════════════════

@@ -3494,6 +3494,8 @@ Karl's directive: an agent that reviews PRs ADVERSARIALLY with the intent of mak
 
 **Related:** BL-100 (the acceptance doctrine this makes standing); BL-097/BL-098 (operating model / reviewer role); BL-128 (headless review dispatch machinery precedent); `evaluation-prompts/` (the phase-review library); the context7 global rule.
 
+**Live test 2 — 2026-07-23 (Karl-directed, Dogfood-4 stack):** one Fable subagent reviewed the four-PR stack #243→#244→#245→#247 under the five-dimension brief with the META-1..7 inputs honored (isolated worktree at the stack tip; pre-cleared mutation lab — 8 own mutations; lane-reachability judged against the actual PR-blocking set, which it corrected to 9 lint jobs + unit; context7 reachability probed then 7 queries across npm/Actions/ESLint/gitleaks/MDN; verdicts in BL-100 grammar with R-<PR#>-<n> IDs). Verdicts: #243 approve, #244/#245/#247 minor_concerns, ZERO blocking. Six minor findings, ALL applied same-day on the open branches: R-243-1 (T6 subject-non-bypass pin), R-244-1/2 (Cg7 dev-arm-must-WARN + ;/&&-disable rejection; both reviewer mutants re-run RED), R-245-1 (Cg8 extended to vars/inputs + the live web.yml `vars.PREVIEW_URL` env-indirected + comment corrected), R-247-1 (INDEX.md Reports entries), run-count nit. It also independently re-verified all 7 work-example run IDs, the release tag, five SHAs, and the BSD-grep repro. Second consecutive it-works datum for the standing-agent design.
+
 **Live test 2026-07-21 (Karl-directed):** one Fable subagent reviewed PRs #229+#231 under this entry's five-dimension brief. IT WORKS — verdicts #229 approve (every SHA/path/marker claim verified) and #231 major_concerns whose MAJOR was a genuine miss two prior adversarial verifiers left standing (comment-blind wiring greps: a disabled-instantiation mutant passed every PR-blocking check; only the manual-dispatch full lane would catch it). All findings landed same-day. Design inputs from the run (META): (1) the reviewer needs a WORKTREE pinned to the PR tip — this run got lucky that the checkout was the branch; (2) pre-cleared scratch/mutation-lab semantics (first lab setup was permission-denied); (3) verdict posting + numbered finding IDs in the ledger grammar; (4) a standing LANE-REACHABILITY probe — evaluate mutation survivorship against the PR-BLOCKING check set, not the whole estate (else every full-lane-only gap becomes an automatic major on unrelated PRs); (5) trigger = slash-command/dispatch-on-demand, NOT auto-on-open (~40 tool calls + a mutation lab per run); (6) context7 was reachable via ToolSearch and produced a real oracle (GFM cell-count grammar over the new tables) — headless dispatch must verify reachability before claiming currency coverage; (7) the Agent tool exposes a model knob but no EFFORT knob — "max effort" rode in the prompt; the operating-model design (BL-097) should carry effort as a first-class reviewer parameter.
 
 ---
@@ -3793,3 +3795,112 @@ The semgrep SAST arm (`# BL-118`) and the project-test arm (`# BL-125-COMMIT-TES
 **Fix shape:** the emitted hook's blocking arms append a `terminal_commit_blocked` row (gate name in `details.gate`, e.g. `semgrep`/`bl125_tests`) via `scripts/lib/bypass-audit.sh` before exiting; keep append-failure non-fatal (the block must never be weakened by ledger trouble). Mutation-proof the append.
 
 **Related:** BL-112 (ledger/detector family), BL-118, BL-125, BL-161 (ledger hygiene).
+
+---
+
+## BL-164: Emitted BL-147 governance steps are semgrep-ERROR shell-injectable — every generated github project's own Phase-3 SAST fails on the framework's scaffold
+
+**Logged:** 2026-07-22 (Dogfood-4 S3, finding F-DF4-010; caught by the project's own run-phase3-validation.sh full-tree scan)
+**Category:** Security hardening + false-blocking (emitted CI, all 10 github CI templates)
+**Severity:** High
+**Status:** Open — fix implemented on PR #245 (branch `fix/bl164-governance-env-indirection`), awaiting merge; flip to Closed at merge citing PR# + SHA.
+
+The two BL-147 governance steps (approval-log integrity, approval-author verification) interpolated `${{ github.base_ref }}`, `${{ github.event_name }}`, and `${{ github.event.before }}` directly into `run:` shell scripts — the actions shell-injection anti-pattern (semgrep `run-shell-injection`, ERROR). Two consequences: (1) real hardening gap per GitHub's own guidance (context values must enter the shell via `env:`); exploitability is bounded (base_ref must name an existing branch) but non-zero for repos accepting external branches; (2) worse in practice: the framework ships semgrep-full-tree as its Phase-3 scanner, so EVERY generated github project FAILs its own Phase-3 validation on the framework's emitted workflow — a guaranteed false-block on clean apps (BL-122/BL-149 doctrine) caused by our own emission. The S3 walker hit exactly this (`[FAIL] semgrep-full-tree — 2 findings`) and had to fix the emitted workflow project-side.
+
+**Reproduce:** scaffold any github project; `semgrep scan --config auto --severity=ERROR .github/workflows/ci.yml` → 2 `run-shell-injection` findings.
+
+**Fix:** `# BL-164` env-indirection in all 10 github CI templates — both governance steps gain an `env:` block (`BASE_REF`/`EVENT_NAME`/`EVENT_BEFORE`) and the `run:` scripts reference only quoted shell variables; `BASE^{commit}` loud-fail arms untouched. Live semgrep re-scan of the emitted form: rc=0, 0 findings. Pinned by Cg8 in `tests/test-bl147-ci-template-integrity.sh` (floor 12 incl. release templates; predicate: any `${{ github.` line must be a comment or an env-style assignment). Watched-RED (all 10 flagged pre-fix) → 54/54; mutation (reintroduce one interpolation) → Cg8 RED, killed. Scoped-out residual: `release/github/mcp_server.yml` carries the pattern only in commented-out TODO example lines (inert, unscanned) — left as-is.
+
+**Related:** BL-147 (the steps' origin — the injection shipped with the tamper-guard wave), BL-122/BL-149 (false-blocking doctrine), BL-148 (emitted-CI family).
+
+**Status update 2026-07-22 (adversarial verifier, fable tier):** SHIP-WITH-FIXES, applied on the PR. Verifier proved functional equivalence across the full event matrix (pull_request / push / all-zeros new-branch / workflow_dispatch / tamper — byte-identical output; the ONLY divergence is on a metachar base_ref, where the old form shell-expanded and resolved the wrong ref: the exact bug being closed). Cg8 hardening applied per its probes: flag regex now catches the no-space `${{github.` form AND `${{ env.* }}`/`${{ vars.* }}`/`${{ inputs.* }}` in run: (semgrep's rule matches only the github context, so those three have no SAST backstop; the BL-146 review's R-245-1 found a live `vars.PREVIEW_URL` run-interpolation in release/github/web.yml — env-indirected on this PR); the two line-based residuals (comment-in-run, KEY:-in-run) are documented in the test and covered by the semgrep backstop; lowercase env key false-FAILs loudly (accepted direction). M2/M5 mutants re-run RED post-hardening.
+
+---
+
+## BL-165: Phase-3 DAST against a static app's preview server always FAILs on host-header alerts the app cannot fix in code
+
+**Logged:** 2026-07-22 (Dogfood-4 S3, findings F-DF4-011/012; zap-dast FAIL on a genuinely clean app)
+**Category:** Process gap / scanner harness guidance (Phase 3, static/web apps)
+**Severity:** Medium
+**Status:** Open
+
+`run-phase3-validation.sh`'s zap-dast arm (riskcode≥2 judge, BL-122-correct) scanned the built `dist/` served by `vite preview` and FAILed on 2 Medium alerts — missing CSP header and missing anti-clickjacking header. Both are DEPLOY-TIME host headers (documented in the project Bible §11 for the deploy boundary), not bundle properties: the S3 walker proved the same `dist/` passes (0 Medium+) when re-served with the documented headers. Net: for every static app, Phase-3 DAST run the obvious way yields a structural FAIL that no code change can fix — the operator either learns to discount the scanner (doctrine violation) or ad-hoc-invents a hardened serve harness, unguided.
+
+**Fix shape:** builders-guide/platform-module guidance (or a small serve harness in the validation script) to run Phase-3 DAST against the artifact WITH the project's documented production headers applied, recording the header config as part of the evidence; keep the raw-preview FAIL semantics for apps that claim no header dependence. web.md § 4.4 already gained the non-inheriting-directives note (form-action/frame-ancestors/base-uri — the third alert class this walk hit) on PR #245.
+
+**Related:** BL-122/BL-140/BL-149 (DAST family), BL-164 (same walk section).
+
+---
+
+## BL-166: `check-phase-gate.sh --gate phase_2_to_3` exit code is dominated by Phase 3→4 readiness — a legitimate 2→3 crossing reads as "blocked"
+
+**Logged:** 2026-07-22 (Dogfood-4 S3, finding F-DF4-013)
+**Category:** UX / gate semantics
+**Severity:** Medium
+**Status:** Open
+
+`--gate phase_2_to_3` forces `current_phase=3` to run the target gate's checks, but then ALSO runs the Phase 3→4 pre-gate checks that fire at phase 3 — so on a project that legitimately clears every 2→3 requirement the tool still exits 1 with `8 inconsistency(ies) found — blocking`, all eight being 3→4 deliverables (HANDOFF.md, sbom.json, pentest, …) that cannot exist yet. The S3 walker crossed via `--start-phase3` (which gates correctly on the bug gate + feature completeness), but the `--gate` invocation's false "blocked" verdict invites either alarm or — worse — habituation to red gate output.
+
+**Fix shape:** scope the `--gate <name>` exit predicate (and the summary count) to the NAMED gate's checks; print later-gate readiness as clearly-labeled non-counted `[INFO]/[NEXT]` lines. Sibling of BL-158 (forced-phase header label) — fix together.
+
+**Related:** BL-158, BL-104 (label-vs-verdict family).
+
+---
+
+## BL-167: BL-072 TDD-ordering warn counts `.claude/*.json` state files as "impl files with no accompanying test"
+
+**Logged:** 2026-07-22 (Dogfood-4 S3, finding F-DF4-014)
+**Category:** Cosmetic / classifier precision
+**Severity:** Low
+**Status:** Open
+
+A `fix:` commit staging only source + `.claude/phase-state.json` produced a BL-072 warn listing `.claude/phase-state.json` as an impl file lacking a test. Framework state files are never implementation; counting them as impl inflates warn noise on legitimate commits (personal tier: warn+log, so no block — but noise trains operators to skim warns).
+
+**Fix shape:** exclude `.claude/` paths from the BL-072 impl-file classifier.
+
+**Related:** BL-072 (the gate), BL-139 (same-family classifier precision).
+
+---
+
+## BL-168: CI phase-gate governance job intermittently false-fails — threat-model scanner returns un-attested SKIP on a tree whose §4 table is present
+
+**Logged:** 2026-07-22 (Dogfood-4 S4, finding F-DF4-015; live CI on the work-example repo)
+**Category:** Bug / non-determinism (fail-closed reliability)
+**Severity:** Medium
+**Status:** Open — needs investigation (not locally reproduced)
+
+On the work-example repo, the CI `Governance - Phase gate check` job's phase-3-validation offline autorun intermittently reported `threat-model` as an **un-attested SKIP** ("PROJECT_BIBLE.md Section 4 threat table absent") on a checkout that plainly contains the §4 TM-001…TM-008 table — then a **no-change re-run PASSED**. Evidence: work-example run 29951076488 attempt 1 (FAIL on `[threat-model(un-attested SKIP)]`) vs attempt 2 (PASS), identical tree. Fail-closed (spurious blocks only, never a spurious pass), but "main green" is not reproducibly stable and legitimate merges can be blocked.
+
+**Investigation pointers:** `_p3_tm_has_table` (grep-based) in the validation lib; whether the autorun's summary-file selection (`docs/test-results/phase3/summary-*` latest-by-glob) can race or pick stale artifacts across attempts; any BL-140-family workdir assumption in the threat-model arm when invoked from the gate vs standalone. Reproduce by re-running the governance job on the work-example repo at `f759c86` several times.
+
+**Related:** BL-140 (workdir family), BL-104 (verdict-integrity family).
+
+---
+
+## BL-169: Scaffold gitignore's unanchored `test-results/` hides docs/test-results/ — every generated project's Phase 3→4 gate fails on a fresh CI checkout
+
+**Logged:** 2026-07-22 (Dogfood-4 S4, finding F-DF4-016)
+**Category:** Bug / scaffold (gitignore vs gate contract)
+**Severity:** High
+**Status:** Open — fix implemented on PR #245 (branch `fix/bl164-governance-env-indirection`), awaiting merge; flip to Closed at merge citing PR# + SHA.
+
+`templates/generated/gitignore-base.tmpl` ignored `test-results/` unanchored, which also matches `docs/test-results/` — the Phase-3 evidence directory `check-phase-gate.sh` REQUIRES for the 3→4 gate. Evidence was silently never committed: the gate passed locally (files in the working tree) and failed on every fresh CI checkout (`[FAIL] docs/test-results/ directory not found`). Masked on the work-example until S4 because the dependency-audit step failed first and halted the job before the governance steps ran (the same masking hid BL-170). The S4 walker diagnosed and fixed it project-side; this closes it at the source.
+
+**Fix:** template line root-anchored to `/test-results/` plus `docs/test-results/phase3/` (the transient BL-140 scanner workdir) ignored — mirrors the walker's live-CI-proven project config. Pinned by `tests/test-bl169-gitignore-anchor.sh` (pattern pins + a BEHAVIORAL `git check-ignore` pin: evidence tracked, runner output + workdir ignored), registered both lanes; mutation (revert to unanchored) kills T1/T2/T4 — the behavioral case shows `evidence_ignored=yes`, the exact defect.
+
+**Related:** BL-140 (workdir), BL-170 (same masking), the 3→4 gate's `docs/test-results/` requirement in check-phase-gate.sh.
+
+---
+
+## BL-170: APPROVAL_LOG fill-in-place template blocks conflict with the BL-147 append-only CI guard
+
+**Logged:** 2026-07-22 (Dogfood-4 S4, finding F-DF4-017)
+**Category:** Design conflict / latent (governance templates vs emitted CI)
+**Severity:** Medium
+**Status:** Open — design decision needed (template redesign with cross-script blast radius; deliberately NOT rushed at walk close-out)
+
+`templates/generated/approval-log-personal.tmpl` (and the org twin) pre-seed each phase gate as an empty fill-in-place table (`| **Reviewer** | |`, `| **Date** | |`). Once those template lines are pushed, FILLING them modifies committed lines — and the emitted `Governance - Approval log integrity` job fails ANY modified APPROVAL_LOG.md line (append-only, BL-147). A downstream operator following the template naively hits a red gate at their next crossing. The work-example never tripped it before S4 only because the dependency-audit step failed first on every historical run, halting the job before the governance steps executed (same masking as BL-169); the S4 walker crossed 3→4 by INSERTING filled rows as pure additions, leaving the placeholders untouched.
+
+**Fix shape (needs Karl):** replace pre-seeded empty tables with an instruction line ("append a completed approval table below this header when the gate is crossed — this file is append-only once pushed"), keeping the gate headers intact. Blast radius to validate IN SYNC: check-phase-gate.sh gate-date auto-record (`grep -A 15` date window under the header), BL-138 approval-window parsing, BL-143 self-approval scan (+20 section cap), the CI append-only guard, and any init/intake tests pinning template content. Each consumer needs a mutation-proofed re-validation against the appended-row shape.
+
+**Related:** BL-147 (the guard), BL-138/BL-143 (row parsers), BL-169 (same masking discovery).

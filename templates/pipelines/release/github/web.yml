@@ -62,6 +62,12 @@ jobs:
         # jq count of Medium+ (riskcode >= 2) alerts; an absent/unparseable report
         # FAILs LOUDLY (a scan nobody can read is not a clean scan).
         if: vars.PREVIEW_URL != ''
+        env:
+          # BL-164 family (BL-146 review R-245-1): repo vars enter the shell
+          # via env:, never by direct template expansion inside run: — vars.*
+          # has NO semgrep backstop (the run-shell-injection rule matches only
+          # the github context), so the Cg8 pin is the sole guard here.
+          PREVIEW_URL: ${{ vars.PREVIEW_URL }}
         run: |
           # Mounted work dir — docker -v REQUIRES an ABSOLUTE host path (a relative
           # one is read as a named volume). ZAP writes -J JSON into /zap/wrk.
@@ -70,7 +76,7 @@ jobs:
           # Capture the raw exit — do NOT let it be the verdict.
           rc=0
           docker run --rm -v "$ZAP_WORK:/zap/wrk" ghcr.io/zaproxy/zaproxy:stable \
-            zap-baseline.py -t "${{ vars.PREVIEW_URL }}" -J zap-report.json || rc=$?
+            zap-baseline.py -t "$PREVIEW_URL" -J zap-report.json || rc=$?
           REPORT="$ZAP_WORK/zap-report.json"
           # No report at all → a crash (docker/image/exec failure), not a skip: FAIL.
           if [ ! -s "$REPORT" ]; then
