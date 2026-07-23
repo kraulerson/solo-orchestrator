@@ -443,20 +443,22 @@ else
 fi
 # Verifier hardening (PR #245 adversarial pass): the flag regex tolerates
 # the no-space form (`${{github.` is valid Actions style and semgrep still
-# fires on it) and ALSO flags `${{ env.* }}` — the one probed variant with
-# NO semgrep backstop (the rule only matches github-context). The allow
-# filter stays github-only and requires an UPPER_SNAKE env key: a
-# lowercase key or an env-in-env assignment false-FAILs LOUDLY (uppercase
-# the key / restructure), which is the acceptable direction. DOCUMENTED
-# RESIDUALS (line-based predicate): a `${{ github.* }}` placed on a shell
-# comment line inside run:, or on a `KEY: ${{ … }}`-shaped line inside
-# run:, passes this pin — both ARE runner-expanded, and both are caught
-# by the semgrep run-shell-injection backstop the Phase-3 scanner runs.
+# fires on it) and ALSO flags `${{ env.* }}`, `${{ vars.* }}`, and
+# `${{ inputs.* }}` — semgrep's run-shell-injection rule matches only the
+# github context, so those three have NO SAST backstop at all (BL-146
+# review R-245-1: `vars.*` in run: was live in release/github/web.yml and
+# both this pin and semgrep missed it). The allow filter admits
+# UPPER_SNAKE env-style assignments of any of the four contexts; a
+# lowercase key false-FAILs LOUDLY (uppercase it), the acceptable
+# direction. DOCUMENTED RESIDUALS (line-based predicate): a context
+# expansion on a shell comment line inside run:, or on a
+# `KEY: ${{ … }}`-shaped line inside run:, passes this pin — the
+# github-context forms of both are caught by the semgrep backstop.
 inj=""
 for f in "${GH_ALL[@]}"; do
-  if grep -E '\$\{\{[[:space:]]*(github|env)\.' "$f" \
+  if grep -E '\$\{\{[[:space:]]*(github|env|vars|inputs)\.' "$f" \
        | grep -vE '^[[:space:]]*#' \
-       | grep -vE '^[[:space:]]*[A-Z_]+:[[:space:]]*\$\{\{[[:space:]]*github\.' \
+       | grep -vE '^[[:space:]]*[A-Z_]+:[[:space:]]*\$\{\{[[:space:]]*(github|vars|inputs)\.' \
        | grep -q .; then
     inj="$inj ${f#*templates/pipelines/}"
   fi
