@@ -2,7 +2,7 @@
 
 Read this first. It is the map for working effectively in THIS repository.
 Counts are date-stamped (they drift); prefer the grep/command recipes — run them
-to get current truth. Verified 2026-07-11.
+to get current truth. Verified 2026-07-23.
 
 ## WHAT THIS REPO IS
 
@@ -68,10 +68,10 @@ here.
 ## LINT GOTCHAS
 
 - `scripts/run-lints.sh` runs **every `scripts/lint-*.sh` EXCEPT
-  `lint-uat-scenarios.sh`** (10 of the 11 lint scripts as of 2026-07-11).
+  `lint-uat-scenarios.sh`** (11 of the 12 lint scripts as of 2026-07-23).
 - `scripts/lint-uat-scenarios.sh` is a **parametrized tool, not a repo lint**:
   bare-invoked it exits **2** with a `Usage:` message because it needs a
-  `<populated-html-file>` argument. It is **not** one of the 8 CI-required lint
+  `<populated-html-file>` argument. It is **not** one of the 9 CI-required lint
   jobs (`.github/workflows/lint.yml`), so run-lints deliberately skips it.
 - Two lints are **slow full-tree scans**: `lint-counter-antipattern.sh` (~90s)
   and `lint-raw-read-prompt.sh` (~40s). A full `run-lints.sh` is a couple of
@@ -111,7 +111,7 @@ before trusting it**.
 ## HANDOFFS
 
 - Live handoffs: `docs/handoffs/` — the **newest date is current** (as of
-  2026-07-11 that is `docs/handoffs/2026-07-10-gate-wave-close-out.md`).
+  2026-07-23 that is `docs/handoffs/2026-07-20-arc-close-phase-g.md`).
 - Superseded / fully-executed handoffs move to `docs/handoffs/archive/` with a
   pointer stub left at the old top-level path so citations still resolve. See
   `docs/handoffs/archive/README.md` (includes the citation convention).
@@ -144,10 +144,10 @@ than no manifest).
   scripts and must be changed IN SYNC**: `pre-commit-gate.sh`,
   `check-phase-gate.sh`, `init.sh` (grep the marker `# BL-084-TIER-KEY` — it
   literally says "SYNC SIBLINGS") plus `scripts/lib/enforcement-level.sh`.
-- **Big files — grep, don't read whole** (`wc -l`, 2026-07-11, approximate —
-  they grow): `init.sh` ~4400, `scripts/upgrade-project.sh` ~2500,
-  `scripts/intake-wizard.sh` ~2250, `scripts/check-phase-gate.sh` ~1900,
-  `tests/full-project-test-suite.sh` ~2230.
+- **Big files — grep, don't read whole** (`wc -l`, 2026-07-23, approximate —
+  they grow): `init.sh` ~4400, `scripts/upgrade-project.sh` ~3400,
+  `scripts/intake-wizard.sh` ~2250, `scripts/check-phase-gate.sh` ~2350,
+  `tests/full-project-test-suite.sh` ~2700.
 
 ## HOUSE RULES DIGEST
 
