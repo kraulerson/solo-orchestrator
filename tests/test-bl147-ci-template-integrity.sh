@@ -398,11 +398,15 @@ for f in "${TS_AUDIT_FILES[@]}"; do
   # Verifier hardening (PR #244 adversarial pass): the `^[^#]*` prefix
   # rejects comment placements (a commented-out arm must not satisfy the
   # pin), and the blocking arm must be UNGUARDED — an `|| true`-suffixed
-  # blocking line is a disabled check, not a blocking check.
+  # blocking line is a disabled check, not a blocking check. BL-146
+  # review (R-244-1/2) tightened both further: the blocking arm also
+  # rejects `;`/`&&`-suffixed disables, and the dev arm's `||` RHS must
+  # actually WARN (::warning:: or WARNING) — a `|| true` silent skip is
+  # the exact defect class the arm exists to avoid.
   grep -E '^[^#]*npm audit --omit=dev --audit-level=(high|moderate|low|critical)' "$f" \
-      | grep -v -- '||' | grep -q . \
+      | grep -vE '\|\||;|&&' | grep -q . \
     || a_noblock="$a_noblock ${f##*/ci/}"
-  grep -E '^[^#]*npm audit --audit-level=(high|moderate|low|critical)[^|]*\|\|' "$f" \
+  grep -E '^[^#]*npm audit --audit-level=(high|moderate|low|critical)[^|]*\|\|.*(::warning::|WARNING)' "$f" \
       | grep -q . \
     || a_noloud="$a_noloud ${f##*/ci/}"
   # A dev-inclusive invocation is the contiguous form `npm audit
