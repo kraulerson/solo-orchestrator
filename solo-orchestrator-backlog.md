@@ -3656,7 +3656,7 @@ flip to Closed at merge citing PR# + SHA.
 **Logged:** 2026-07-22 (Dogfood-4 S0, finding F-DF4-001; fresh honest walker, real scaffold)
 **Category:** Bug / workflow deadlock (commit gate, generated projects)
 **Severity:** Medium
-**Status:** Open — fix implemented on PR #243 (branch `fix/bl155-phase2-init-transition-commit`), awaiting merge; flip to Closed at merge citing PR# + SHA.
+**Status:** Closed — shipped 2026-07-22, merged 2026-07-23 (PR #243 `9402fb5`). `# BL-155-INIT-AFTER-CLASSIFY` relocates the phase2-init block behind the docs/dep-manifest exemption; the documented Phase 1→2 transition commit lands, non-exempt commits still require verified init. Watched-RED + excision mutant + e2e T-strict pin; fable verifier SHIP-WITH-FIXES applied; BL-146 stack review approve (+T6 subject-non-bypass pin). Evidence: Reports/2026-07-22-dogfood-4/ § S0.
 
 At `current_phase=2` with `phase2_init.verified=false`, the init-verified block in `process-checklist.sh::check_commit_ready` sat ABOVE the staged-file classification, so it blocked EVERY commit — including the docs/state-only Phase 1→2 transition commit that `templates/generated/claude-md.tmpl` step 3 instructs ("update `.claude/phase-state.json` … Commit both files together"). Chicken-and-egg: recording entry into Phase 2 required Phase-2 construction scaffolding first; the S0 walker (planning-only session) was forced into a minimal config-only scaffold to land its Phase-1 artifacts. Reachable at the user terminal since the BL-112 F8 fix made the git-hook backstop real.
 
@@ -3675,7 +3675,7 @@ At `current_phase=2` with `phase2_init.verified=false`, the init-verified block 
 **Logged:** 2026-07-22 (Dogfood-4 S0, finding F-DF4-002)
 **Category:** Doc drift (builders-guide vs check-phase-gate.sh)
 **Severity:** Low
-**Status:** Open — fix implemented on PR #243 (docs commit on branch `fix/bl155-phase2-init-transition-commit`), awaiting merge; flip to Closed at merge citing PR# + SHA.
+**Status:** Closed — shipped 2026-07-22, merged 2026-07-23 (PR #243 `9402fb5`). builders-guide bullet rewritten to the BL-114 blocking reality (any missing intermediate FAILs). Evidence: Reports/2026-07-22-dogfood-4/ § S0.
 
 `docs/builders-guide.md` (Phase 0→1 checklist) said the intermediates check is "(advisory)… Partial saves produce a WARN, not a block." The gate (`# BL-114-F1-INTERMEDIATES` in check-phase-gate.sh) blocks on ANY missing intermediate and on a missing `docs/phase-0/` directory — the guide bullet was never updated when BL-114 hardened the arm. The S0 walker read the guide, expected advisory, got `[FAIL] … (documented as blocking)`.
 
@@ -3720,7 +3720,7 @@ With `--gate phase_0_to_1` the header prints `Current phase: 1` even when `phase
 **Logged:** 2026-07-22 (Dogfood-4 S1, finding F-DF4-005; fresh honest walker, real Build Loop)
 **Category:** Doc gap / scaffold-CI contract (web platform module)
 **Severity:** Medium
-**Status:** Open — fix implemented on PR #244 (branch `fix/bl159-bl160-s1-ci-scaffold`), awaiting merge; flip to Closed at merge citing PR# + SHA.
+**Status:** Closed — shipped 2026-07-22, merged 2026-07-23 (PR #244 `18b1180`). Emitted-CI script contract documented in web.md § Phase 2 (lint/test + GitHub build lane; ESLint ≥9 flat-config edge). The --verify-init mechanical-check extension stays an open idea (fold into a future entry if wanted). Evidence: Reports/2026-07-22-dogfood-4/ § S1.
 
 `templates/pipelines/ci/github/typescript.yml` (and the gitlab/bitbucket twins) run `npm run lint` and `npm test` unconditionally, but no framework doc tells the operator this contract exists — `docs/platform-modules/web.md` mentioned ESLint only as an optional security-plugin add-on. A fresh project whose operator has not wired those scripts (or has ESLint ≥9 without a flat `eslint.config.js` — the legacy `.eslintrc.*` is no longer read) reds CI out of the box: `ESLint couldn't find an eslint.config.(js|mjs|cjs) file`. The S1 walker had to discover and wire the flat config as unplanned construction work.
 
@@ -3737,7 +3737,7 @@ With `--gate phase_0_to_1` the header prints `Current phase: 1` even when `phase
 **Logged:** 2026-07-22 (Dogfood-4 S1, finding F-DF4-006)
 **Category:** Bug / false-FAIL doctrine (emitted CI, all three hosts)
 **Severity:** Medium
-**Status:** Open — fix implemented on PR #244 (branch `fix/bl159-bl160-s1-ci-scaffold`), awaiting merge; flip to Closed at merge citing PR# + SHA.
+**Status:** Closed — shipped 2026-07-22, merged 2026-07-23 (PR #244 `18b1180`). `# BL-160-AUDIT-SCOPE` in all three typescript CI templates: blocking arm `npm audit --omit=dev` at each host's level + loud ||-guarded dev arm. Cg7 pins hardened twice (fable verifier: comment/`|| true` evasions; BL-146 review: silent-RHS + ;/&& disables) — all mutants RED. Live proof: work-example dependency-audit lane green post-upgrade. Evidence: Reports/2026-07-22-dogfood-4/ § S1.
 
 The emitted `npm audit --audit-level=high|moderate` step (github/gitlab/bitbucket typescript templates) audits devDependencies too. S1's zero-runtime-deps app pinned vite^5/vitest^2 and hit 1 critical + 1 high dev-only advisories with **no in-major fix** — the lane reds forever unless the operator takes a breaking major upgrade or starts ignoring CI. A permanently red lane teaches operators to ignore CI: the BL-122/BL-149 false-FAIL doctrine applies.
 
@@ -3803,7 +3803,7 @@ The semgrep SAST arm (`# BL-118`) and the project-test arm (`# BL-125-COMMIT-TES
 **Logged:** 2026-07-22 (Dogfood-4 S3, finding F-DF4-010; caught by the project's own run-phase3-validation.sh full-tree scan)
 **Category:** Security hardening + false-blocking (emitted CI, all 10 github CI templates)
 **Severity:** High
-**Status:** Open — fix implemented on PR #245 (branch `fix/bl164-governance-env-indirection`), awaiting merge; flip to Closed at merge citing PR# + SHA.
+**Status:** Closed — shipped 2026-07-22, merged 2026-07-23 (PR #245 `9b9c4c2`). `# BL-164` env-indirection in both governance steps across all 10 github CI templates; live semgrep 2 ERROR → 0; fable verifier proved full event-matrix byte-equivalence; Cg8 pin extended (BL-146 review) to env/vars/inputs incl. the live release web.yml PREVIEW_URL fix. Evidence: Reports/2026-07-22-dogfood-4/ § S3.
 
 The two BL-147 governance steps (approval-log integrity, approval-author verification) interpolated `${{ github.base_ref }}`, `${{ github.event_name }}`, and `${{ github.event.before }}` directly into `run:` shell scripts — the actions shell-injection anti-pattern (semgrep `run-shell-injection`, ERROR). Two consequences: (1) real hardening gap per GitHub's own guidance (context values must enter the shell via `env:`); exploitability is bounded (base_ref must name an existing branch) but non-zero for repos accepting external branches; (2) worse in practice: the framework ships semgrep-full-tree as its Phase-3 scanner, so EVERY generated github project FAILs its own Phase-3 validation on the framework's emitted workflow — a guaranteed false-block on clean apps (BL-122/BL-149 doctrine) caused by our own emission. The S3 walker hit exactly this (`[FAIL] semgrep-full-tree — 2 findings`) and had to fix the emitted workflow project-side.
 
@@ -3882,7 +3882,7 @@ On the work-example repo, the CI `Governance - Phase gate check` job's phase-3-v
 **Logged:** 2026-07-22 (Dogfood-4 S4, finding F-DF4-016)
 **Category:** Bug / scaffold (gitignore vs gate contract)
 **Severity:** High
-**Status:** Open — fix implemented on PR #245 (branch `fix/bl164-governance-env-indirection`), awaiting merge; flip to Closed at merge citing PR# + SHA.
+**Status:** Closed — shipped 2026-07-22, merged 2026-07-23 (PR #245 `9b9c4c2`). gitignore-base.tmpl root-anchored `/test-results/` + transient `docs/test-results/phase3/` ignored; behavioral check-ignore pin (revert-mutation shows evidence_ignored=yes). Evidence: Reports/2026-07-22-dogfood-4/ § S4.
 
 `templates/generated/gitignore-base.tmpl` ignored `test-results/` unanchored, which also matches `docs/test-results/` — the Phase-3 evidence directory `check-phase-gate.sh` REQUIRES for the 3→4 gate. Evidence was silently never committed: the gate passed locally (files in the working tree) and failed on every fresh CI checkout (`[FAIL] docs/test-results/ directory not found`). Masked on the work-example until S4 because the dependency-audit step failed first and halted the job before the governance steps ran (the same masking hid BL-170). The S4 walker diagnosed and fixed it project-side; this closes it at the source.
 
