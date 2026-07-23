@@ -811,6 +811,17 @@ else
   fail "tests/test-bl125-commit-test-exec.sh FAILED (run for details)"
 fi
 
+# BL-163 (Dogfood-4 F-DF4-009): a commit REFUSED by any blocking arm of the
+# emitted pre-commit hook (gitleaks / semgrep / bl125_tests) appends a
+# terminal_commit_blocked row to .claude/bypass-audit.json — best-effort, never
+# weakening the block. Hook emitted straight from hook-templates.sh + real git
+# commits, fake scanners, in-suite fence-excision mutant. No init.sh -> both lanes.
+if bash "$SCRIPT_DIR/tests/test-bl163-blocked-ledger.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl163-blocked-ledger.sh"
+else
+  fail "tests/test-bl163-blocked-ledger.sh FAILED (run for details)"
+fi
+
 # BL-141 (Dogfood-3 wave verifier B1/B2): verify-install detects + repairs
 # the commit-msg TDD gate hook (the BL-139 backstop — post-flip it is the
 # ONLY terminal-path feat gate), composing with user hooks and idempotent;
