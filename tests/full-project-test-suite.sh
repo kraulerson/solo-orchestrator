@@ -860,6 +860,18 @@ else
   fail "tests/test-bl139-subjectless-default.sh FAILED (run for details)"
 fi
 
+# BL-155 (Dogfood-4 S0 F1): the phase2-init-verified block fires AFTER the
+# docs/dep-manifest exemption — the docs/state-only Phase 1→2 transition
+# commit ("Commit both files together") lands with init unverified, while
+# any non-exempt commit still requires phase2_init.verified=true. Fence-
+# excision mutant proven RED on the enforcement pins. No init.sh -> both
+# lanes.
+if bash "$SCRIPT_DIR/tests/test-bl155-phase2-init-transition-commit.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl155-phase2-init-transition-commit.sh"
+else
+  fail "tests/test-bl155-phase2-init-transition-commit.sh FAILED (run for details)"
+fi
+
 # BL-089+BL-091 (Pantheon feedback, Karl-approved 2026-07-20): the doc
 # foundations ship at birth — doc map (authority order + conventions),
 # PRE-SEEDED identifier registry, archive-with-stubs README — and the

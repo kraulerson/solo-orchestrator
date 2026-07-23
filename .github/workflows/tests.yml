@@ -111,6 +111,7 @@ jobs:
             tests/test-bl125-commit-test-exec.sh
             tests/test-bl141-commitmsg-repair.sh
             tests/test-bl143-pastcap-selfapproval.sh
+            tests/test-bl155-phase2-init-transition-commit.sh
             tests/test-bl147-ci-template-integrity.sh
             tests/test-bl089-doc-foundations.sh
             tests/test-bl137-ci-tools-scope.sh
