@@ -1002,6 +1002,19 @@ else
   fail "tests/test-bl170-approval-append-design.sh FAILED (run for details)"
 fi
 
+# BL-166 + BL-158 (Dogfood-4 S3, residuals wave): check-phase-gate.sh --gate
+# <name> must scope its exit/count to the NAMED gate (Phase 3->4 readiness must
+# not dominate --gate phase_2_to_3) and must label the FORCED phase distinctly
+# ("as-if phase N; recorded current_phase: M"), not as "Current phase". Cases:
+# (a) clean-2->3/no-3->4 -> exit 0, (b) real 2->3 failure -> still exit 1,
+# (c) header label under --gate phase_0_to_1, (d) bare run byte-unchanged,
+# (e) in-suite fence-excision mutant. No init.sh -> both lanes.
+if bash "$SCRIPT_DIR/tests/test-bl166-gate-scope.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl166-gate-scope.sh"
+else
+  fail "tests/test-bl166-gate-scope.sh FAILED (run for details)"
+fi
+
 # BL-128 (Dogfood-2 F-DF2-015): the review generator is headless-viable —
 # --compose-only / --assemble-manifest need no claude at all; live runs get a
 # per-review process-GROUP watchdog (REVIEW_TIMEOUT_SECS), actionable
