@@ -595,13 +595,15 @@ _run_idempotent_backfill() {
   # absent, mirroring the create-if-missing posture of the last-checked-commit.txt
   # / bypass-audit.json siblings above.
   #
-  # GATED on the generated-project marker (.claude/manifest.json) EXACTLY like
-  # every sibling backfill in this function: the enclosing subshell does
+  # GATED on the generated-project marker (.claude/manifest.json), matching the
+  # host-field and BL-030 sibling backfills above: the enclosing subshell does
   # `cd "$PROJECT_ROOT"`, and on a projectless / in-framework invocation
   # PROJECT_ROOT is empty so that `cd` no-ops and cwd stays the invocation dir
-  # (e.g. the framework repo). Without this guard the block would append its two
-  # lines to the framework's OWN .gitignore. The sibling blocks avoid that only
-  # because they are manifest-gated; this one must be too.
+  # (e.g. the framework repo). Without this gate the block would append its two
+  # lines to the framework's OWN .gitignore. NOTE: not every sibling block in
+  # this function carries such a gate — the vendored-skills sync and the BL-088
+  # source-closure copy have NO project gate and do write outside generated
+  # projects today; that structural gap is tracked as BL-177.
   # BL-174-GITIGNORE-BACKFILL START
   if [ -f .claude/manifest.json ]; then
     if [ ! -f .gitignore ]; then
