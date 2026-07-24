@@ -108,6 +108,8 @@ jobs:
             tests/test-bl095-state-readers.sh
             tests/test-bl106-golive-checklist.sh
             tests/test-bl120-audit-verdict.sh
+            tests/test-bl162-audit-dedup.sh
+            tests/test-bl167-claude-classifier.sh
             tests/test-bl125-commit-test-exec.sh
             tests/test-bl163-blocked-ledger.sh
             tests/test-bl141-commitmsg-repair.sh

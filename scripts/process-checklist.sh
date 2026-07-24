@@ -393,10 +393,25 @@ complete_step() {
       # gate closes the dishonest-by-OMISSION path, the same honesty
       # boundary as BL-112/117.
       if [ "$artifact_check_failed" = false ]; then
-        local bl120_f bl120_files="" bl120_mt bl120_max=0
+        local bl120_f bl120_files="" bl120_mt bl120_max=0 bl120_seen=""
+        # BL-162-AUDIT-DEDUP: the two globs (*slug* and *name*) match the SAME
+        # file twice when feature_slug == feature_name (an already-slug-shaped
+        # feature like "find-in-document"), which made the verdict loop print
+        # its finding twice. Deduplicate by path so each distinct audit file is
+        # processed — and its verdict printed — exactly once. Print-count only:
+        # bl120_max is a max over identical mtimes (a duplicate cannot change
+        # it) and the verdict loop's any-open-blocks / newest-mtime semantics
+        # are unchanged (the BLOCK is idempotent — it sets
+        # artifact_check_failed=true regardless of how many times it fires).
+        local bl120_nl='
+'
         for bl120_f in docs/security-audits/*"${feature_slug}"* \
                        docs/security-audits/*"${feature_name}"*; do
           [ -f "$bl120_f" ] || continue
+          case "${bl120_nl}${bl120_seen}" in
+            *"${bl120_nl}${bl120_f}${bl120_nl}"*) continue ;;
+          esac
+          bl120_seen="${bl120_seen}${bl120_f}${bl120_nl}"
           bl120_mt=$(stat -c %Y "$bl120_f" 2>/dev/null || stat -f %m "$bl120_f" 2>/dev/null) || bl120_mt=0
           case "$bl120_mt" in ''|*[!0-9]*) bl120_mt=0 ;; esac
           if [ "$bl120_mt" -gt "$bl120_max" ]; then bl120_max="$bl120_mt"; fi
