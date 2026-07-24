@@ -1191,8 +1191,16 @@ _p3_scan_zap() {
 # TM-ID plus an Unmitigated table whose accepted risks each need an approver.
 
 # _p3_tm_has_table <file> — 0 iff <file> has at least one Section-4 threat row.
+# BL-168-TM-SIGPIPE: this was a two-stage `grep '|' | grep -Eq TM-…` pipeline.
+# Under this script's `set -uo pipefail`, the downstream -q exits on its first
+# match and closes the pipe; when the file's `|`-line output exceeds one grep
+# stdout buffer, the upstream grep dies SIGPIPE (141) mid-write and pipefail
+# read a PRESENT table as "absent" — an intermittent false un-attested SKIP
+# that blocked the CI gate on identical trees (~11% of live attempts; runs
+# 29949089493 att.7 / 29951076488 att.1). One grep = no pipe = no race; the
+# predicate is unchanged: a line carrying both a `|` and a TM id.
 _p3_tm_has_table() {
-  grep -E '\|' "$1" 2>/dev/null | grep -Eq 'TM-[0-9]{3}'
+  grep -Eq '\|.*TM-[0-9]{3}|TM-[0-9]{3}.*\|' "$1" 2>/dev/null
 }
 
 # _p3_tm_ids <file> — emit the whole-token TM-IDs from <file>'s table rows,

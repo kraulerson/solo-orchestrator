@@ -872,6 +872,17 @@ else
   fail "tests/test-bl155-phase2-init-transition-commit.sh FAILED (run for details)"
 fi
 
+# BL-168 (Dogfood-4 S4 → WP-2 investigation): _p3_tm_has_table's two-stage
+# grep pipeline raced SIGPIPE-under-pipefail — a present §4 table read as
+# absent on tables larger than one grep stdout buffer (~11% of live CI
+# attempts). Single-grep fix pinned on the shipped bytes; revert-mutation
+# reproduces rc=141 deterministically. No init.sh -> both lanes.
+if bash "$SCRIPT_DIR/tests/test-bl168-tm-table-sigpipe.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl168-tm-table-sigpipe.sh"
+else
+  fail "tests/test-bl168-tm-table-sigpipe.sh FAILED (run for details)"
+fi
+
 # BL-169 (Dogfood-4 S4): the scaffold gitignore's unanchored `test-results/`
 # hid docs/test-results/ (the Phase-3 evidence the 3→4 gate requires) from
 # every fresh CI checkout. Root-anchored + transient phase3/ workdir ignored;
