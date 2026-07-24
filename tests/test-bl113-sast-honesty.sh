@@ -479,16 +479,39 @@ else
   fail_ "T-mutation-no-launder setup" "neuter did not apply cleanly (driver=$mut_driver_hits gate=$mut_gate_hits) or broke syntax"
 fi
 
-# — RED arm (a): carry-forward, no semgrep on PATH —
+# — RED arm (a): DRIVER carry-forward, no semgrep on PATH.
+#
+# BL-173 re-aim: pin on the LAUNDERING-SPECIFIC delta, NOT the overall gate
+# verdict. On the pristine driver the marked `# BL-113-NO-LAUNDER` lines promote
+# the offline SKIP of a prior-REAL-FAIL scanner back to FAIL (proven load-bearing
+# by T-no-launder-dirty-tree (a) above, which on the SAME fixture asserts the
+# gate shows 'last real result: FAIL' AND the regenerated summary records semgrep
+# FAIL). Neutering those marked driver lines removes the promotion, so the
+# carry-forward FAIL degrades into the fresh SKIP the marker exists to prevent —
+# the exact laundering. Assert that degradation two ways, both the inverse of the
+# GREEN (a) case: (1) the regenerated offline summary now records semgrep-full-
+# tree SKIP (was FAIL when pristine — the DRIVER-side laundering, deterministic
+# and independent of attestation state), and (2) the gate no longer surfaces the
+# '[STALE — last real result: FAIL]' carry-forward line. The OLD assertion looked
+# for 'validation scans clean', which ADDITIONALLY required the regenerated SKIP
+# to be attested — an environment-sensitive signal that does NOT hold here (the
+# regenerated SKIP comes up un-attested), so the case failed for an unrelated
+# reason and was never pinned to the marked lines. Mirrors RED(b)'s "the guarded
+# signal is gone once the marked line is neutered" shape.
 seed_phase3 "$MUTP"
 seed_prior_real_fail "$MUTP"
 attest_all "$MUTP"
 dirty_tree "$MUTP"
 MOUT_A="$( cd "$MUTP" && PATH="$NOSEMGREP_PATH" bash scripts/check-phase-gate.sh --gate phase_3_to_4 2>&1 )" || true
-if printf '%s' "$MOUT_A" | grep -qi 'validation scans clean'; then
-  pass "T-mutation-no-launder RED(a): with the decision neutered the gate LAUNDERS again ('validation scans clean' despite a prior REAL FAIL) — the marked driver lines are load-bearing"
+MUT_SUM_A="$(ls -1 "$MUTP"/docs/test-results/phase3/summary-*.md 2>/dev/null | sort | tail -1)"
+carryfwd_gone=0
+printf '%s' "$MOUT_A" | grep -q 'last real result: FAIL' || carryfwd_gone=1
+sem_laundered=0
+{ [ -n "$MUT_SUM_A" ] && grep -q '^RESULT semgrep-full-tree SKIP' "$MUT_SUM_A"; } && sem_laundered=1
+if [ "$carryfwd_gone" -eq 1 ] && [ "$sem_laundered" -eq 1 ]; then
+  pass "T-mutation-no-launder RED(a): with the marked driver lines neutered the STALE→FAIL carry-forward degrades into a fresh SKIP (regenerated summary records semgrep SKIP, gate drops 'last real result: FAIL') — the laundering the marker prevents is back; the marked driver lines are load-bearing"
 else
-  fail_ "T-mutation-no-launder RED(a)" "neutering the driver decision did NOT reintroduce the laundering — the test is not actually pinned to the marked lines. Phase-3 lines: $(printf '%s' "$MOUT_A" | grep -i 'phase 3' | tr '\n' '|')"
+  fail_ "T-mutation-no-launder RED(a)" "neutering the driver decision did NOT reintroduce the laundering (carryfwd_gone=$carryfwd_gone sem_laundered=$sem_laundered; summary=$MUT_SUM_A) — the case is not pinned to the marked driver lines. Phase-3 lines: $(printf '%s' "$MOUT_A" | grep -i 'phase 3' | tr '\n' '|')"
 fi
 
 # — RED arm (b): gate refusal, semgrep stub on PATH, no prior FAIL —
