@@ -4020,3 +4020,22 @@ REFUSAL-PATH ENUMERATION (emitted commit-msg hook → `--terminal-mode --tdd-onl
 **Fix shape:** add CHERRY_PICK_HEAD / REVERT_HEAD to the `tdd_terminal_enforce` sentinel check, matching `bl006_terminal_enforce`; mutation-proof the added sentinels; confirm the PreToolUse surface parity. Keep MERGE_HEAD behavior unchanged.
 
 **Related:** BL-171 (surfaced this), BL-072 (the gate), BL-010/BL-006 (the sibling gate with the fuller sentinel set).
+
+---
+
+## BL-173: Two pre-existing full-suite test failures — currency-birth-stamp stale vs BL-107, and the BL-113 driver-mutation case is not pinned to its marked lines
+
+**Logged:** 2026-07-24 (surfaced by the residuals-wave verifiers; pre-existing on `main`, reproduced on `c6dff01`; neither is in the PR-blocking unit lane)
+**Category:** Test hygiene (full-suite-only failures)
+**Severity:** Low
+**Status:** Open
+
+Two `tests/` suites fail on a clean `main` checkout, unrelated to any in-flight work:
+
+1. **`tests/test-currency-birth-stamp.sh` — 2 failures, stale vs the BL-107 universal-hook-install contract.** Since BL-107, `init.sh` installs a commit-msg hook for EVERY language tier, but the test still expects `rust → absent-intentional` and `other → absent-unavailable`. Reproduced 2026-07-24: `Results: 16 passed, 2 failed` (`rust commit-msg — expected absent-intentional, got [present]`; `other commit-msg — expected absent-unavailable, got [present]`). The fix is to update the two expectations to the post-BL-107 contract (present for all tiers), keeping the rest of the manifest-currency assertions untouched.
+
+2. **`tests/test-bl113-sast-honesty.sh` — 1 failure, `T-mutation-no-launder RED(a)`.** Neutering the marked BL-113-NO-LAUNDER *driver* decision lines does NOT reintroduce the laundering the case expects — the Phase-3 output shows the run failing for OTHER reasons (un-attested SKIP path), so the mutation case is not actually pinned to the marked driver lines. RED(b) (the gate-side mutation) and GREEN still pass, so the gate-side marker is proven load-bearing; only the driver-side mutation case is mis-aimed. Environment-sensitive (invokes real `semgrep`); identical failure on `origin/main`, per the 2026-07-24 handoff. Reproduced 2026-07-24: `Results: 16 passed, 1 failed`. The fix is to re-aim RED(a) at a fixture state where the driver decision is genuinely load-bearing (clean tree + prior FAIL carry-forward), or assert on the laundering-specific output rather than overall gate verdict.
+
+Neither failure blocks PRs (both suites are full-suite-only, not in the `tests.yml` unit `tests=(` list). Both mask real regressions in their areas while red, which is the reason to clean them up rather than live with them.
+
+**Related:** BL-107 (the contract change item 1 is stale against), BL-113 (the honesty gate item 2 mis-tests), `docs/handoffs/2026-07-24-residuals-wave-and-next-builds.md` § 3 (first surfaced).
