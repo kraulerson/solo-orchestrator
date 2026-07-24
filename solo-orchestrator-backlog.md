@@ -3781,6 +3781,8 @@ The `# BL-120-AUDIT-VERDICT` arm in `process-checklist.sh` globs audit files by 
 
 **Related:** BL-120 (the arm; its BLOCK behavior verified HELD by Dogfood-4 S2 Probe B).
 
+**Status update 2026-07-23 (residuals wave WP-B, branch `fix/bl162-bl167-precision`; Karl-approved 2026-07-23; stays Open until merge):** Fixed (source+tests `424bdd4`). `# BL-162-AUDIT-DEDUP` in `process-checklist.sh`: the glob loop now deduplicates by path (a newline-bounded `bl120_seen` accumulator + a `case … continue` skip) BEFORE the verdict loop, so a file matched by both the `*slug*` and `*name*` globs is processed — and its verdict printed — exactly once. PRINT-COUNT ONLY, confirmed: `bl120_max` is a max over identical mtimes (the two duplicate entries carry the byte-identical `stat` value, so a duplicate cannot move it) and the verdict loop's newest-mtime selection + any-open-blocks tie-break are untouched — the BLOCK is idempotent (it sets `artifact_check_failed=true` regardless of how many times the arm fires), so WHICH verdict is reached is unchanged; only the duplicate PRINT is removed. TDD (`tests/test-bl162-audit-dedup.sh`, unit lane): watched-RED against pre-fix code = T1 FAIL (`warn_count=2` on the slug==name `find-in-document` fixture) with T2 (slug!=name) already single; GREEN post-fix 4/4 (T1 one warning + still BLOCKS, T2 unaffected, T3 mutation RED reverting the dedup restores the double-print / GREEN real prints once). Registered in BOTH lists. Blast radius all green: bl120 17/17, bl118 6/6, bl125 16/16, bl108-bl117 5/5, platform-security-bugs-closer 7/7, bl112 13/13. `run-lints.sh` 11/11.
+
 ---
 
 ## BL-163: Blocked commit attempts leave NO row in bypass-audit.json — the SAST and test-execution blocks are invisible to the enforcement ledger
@@ -3865,6 +3867,8 @@ A `fix:` commit staging only source + `.claude/phase-state.json` produced a BL-0
 **Fix shape:** exclude `.claude/` paths from the BL-072 impl-file classifier.
 
 **Related:** BL-072 (the gate), BL-139 (same-family classifier precision).
+
+**Status update 2026-07-23 (residuals wave WP-B, branch `fix/bl162-bl167-precision`; Karl-approved 2026-07-23; stays Open until merge):** Fixed (source+tests `424bdd4`). `# BL-167-CLAUDE-EXCLUDE` in `scripts/lib/tdd-classify.sh`: `_bl072_is_impl_file` gains a `.claude/*|*/.claude/*) return 1` arm so framework state files (`phase-state.json`, `process-state.json`, …) never classify as implementation. Scoped to `.claude/` ONLY — the exclusion did NOT over-reach: real source under `src/`/`lib/`/`app/` still classifies as impl (pinned by T2 + T3). TDD (`tests/test-bl167-claude-classifier.sh`, unit lane): watched-RED against pre-fix code = T1 FAIL (`.claude/phase-state.json` listed in the BL-072 WARN impl listing) + T3 FAIL (`_bl072_impl_files` emitted the `.claude/*` paths) + T4 FAIL (marker absent, nothing to mutate), with T2 (lone `src/app.ts`) already impl; GREEN post-fix 5/5 (T1 `.claude` excluded from the listing / `src/app.ts` still listed, T2 no over-reach, T3 direct-classifier assertions incl. nested `*/.claude/*`, T4 mutation RED excising the arm relists `.claude` / GREEN real omits it). Registered in BOTH lists. Blast radius all green: bl072 36/36, bl096 8/8, bl107 7/7, bl119 4/4, bl139 5/5, bl141 6/6, bl112 13/13, upgrade-sync-framework 35/35, scaffold-source-closure 6/6, scaffold-tdd-block-real 10/10. `run-lints.sh` 11/11.
 
 ---
 
