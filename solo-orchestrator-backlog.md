@@ -3416,6 +3416,8 @@ Empirically proven through the real emitted hook during BL-118's adversarial ver
 
 **Build note (2026-07-24, branch `fix/bl131-bl132-sast-hardening`):** Shipped `templates/semgrep/soif-dom-sinks.yml` — init.sh lays it into the scaffold's `.semgrep/` before the initial commit (so CI, which checks out the committed tree, sees it), and it is referenced as an extra `--config` in the emitted hook (marker `# BL-131-DOM-SINKS`) and all 22 generated CI pipelines (github×10 + gitlab×10 + bitbucket×2). Coverage: `insertAdjacentHTML` and jQuery `.html()` via precise js/ts AST rules (literal-argument RHS excluded to cut false positives); innerHTML/outerHTML/document.write/insertAdjacentHTML/jQuery inside `.vue`/`.html` via a `generic` + `pattern-regex` rule scoped by `paths:`. EMPIRICAL FINDING (semgrep 1.157.0): semgrep's `vue`/`html` language parsers do NOT expose the embedded `<script>` JS as a matchable AST (even `location.hash` fails to match in `vue` mode), so precise AST rules cannot reach those file types — `generic`+regex is the only way in, and it IS reachable. js/ts innerHTML/document.write are deliberately LEFT to the BL-118 registry browser pack, so the two rulesets do not overlap (verified: `T-mutation-domxss-config` still unblocks a js/ts innerHTML fixture by stripping only the registry line). RESIDUE (now documented in `docs/platform-modules/web.md`): the markup-file rule is syntactic regex, not taint-aware — a code sample shown as prose in an `.html` doc can false-positive (suppress with a `nosemgrep` line), and a sink split/aliased across lines can evade. Artifact pinned statically (ruleset ships + init.sh cp line + hook/CI `--config`) AND behaviorally (delete the ruleset → semgrep exits non-zero → the SAST arm WARNs loudly, never a silent clean pass). Proof: `tests/test-bl131-domsink-rules.sh` (static + isolated-rule-content + live-through-hook + deletion pin + `--config`-strip mutation). Status stays Open pending PR + merge.
 
+**Build note addendum (2026-07-24, supervisor-triaged increment):** the two hook-re-emitting paths now also DELIVER the ruleset (closing the incomplete-contract gap where a refreshed/repaired hook referenced a file the project never received): `scripts/upgrade-project.sh` `_bl099_sync_precommit_hook` gains helper `_bl131_ensure_domsinks_ruleset` (called from the install + refresh branches, DRY_RUN-aware, idempotent byte-compare, rides the hook's own consent), and `scripts/verify-install.sh` `fix_precommit_hook` restores the ruleset from the framework source (byte-compare + refresh-if-different, `lint-fix-functions-stderr`-clean, hook-write rc preserved). New cases: `tests/test-upgrade-sync-framework.sh` (`t_domsinks_ruleset_delivered_on_hook_install` / `_dry_run_no_write` / `_current_no_op`) and `tests/test-verify-install-fix-functions.sh` T15 (repair restores the ruleset). The residual tracking-registry gap (`templates/semgrep/` sits outside `scaffold-shipped-set.sh`'s parsers) is filed as BL-175, not fixed here.
+
 ---
 
 ## BL-132: The pre-commit SAST arm scans WORKTREE paths, not INDEX content — stage the vuln, overwrite the worktree copy, and the committed bytes are never scanned
@@ -4066,3 +4068,21 @@ Neither failure blocks PRs (both suites are full-suite-only, not in the `tests.y
 **Secondary (optional hardening, do when BL-174 is built):** `tests/test-filesystem-gate-install.sh` has zero pass-arm coverage — it passed unchanged under both BL-161 receipt mutations, so it cannot catch a regression in the clean-pass receipt path. Add one receipt case (a clean pass writes `.claude/last-gate-pass.txt` and no tracked-ledger row).
 
 **Related:** BL-161, BL-107, `templates/generated/gitignore-base.tmpl`.
+
+---
+
+## BL-175: The shipped DOM-sink ruleset (`templates/semgrep/soif-dom-sinks.yml`) is outside every mechanical tracking surface — not source-closure-tested (BL-108 class) and not currency-tracked (BL-109 class)
+
+**Logged:** 2026-07-24 (BL-131 WP-A implementer escalation, supervisor-triaged)
+**Category:** Scaffold-shipped-set / currency registry coverage gap
+**Severity:** Low
+**Status:** Open
+
+BL-131 ships a new vendored artifact, `templates/semgrep/soif-dom-sinks.yml`, that `init.sh` copies into every scaffold's `.semgrep/` and that the emitted pre-commit hook + generated CI reference by `--config`. But `scripts/lib/scaffold-shipped-set.sh`'s parsers enumerate only four shapes — `soif_parse_shipped_scripts` (scripts/), `soif_parse_shipped_reference_docs` (docs/reference/), `soif_parse_shipped_templates` (templates/generated/*.tmpl), and `soif_parse_shipped_skills` (the vendored-skill loop). A `cp "$SCRIPT_DIR/templates/semgrep/soif-dom-sinks.yml" .semgrep/` line matches NONE of them, so the ruleset is:
+
+- **not source-closure-tested** (BL-108 class): `tests/test-scaffold-source-closure.sh` derives the shipped set from those parsers, so a future edit that made the ruleset source an unshipped sibling would go uncaught (moot today — YAML sources nothing — but the tracking gap is real).
+- **not currency-tracked** (BL-109 class): the currency manifest/inventory stamps drift only for the tracked shapes, so an operator whose vendored ruleset drifts from the framework gets no freshness signal.
+
+**Fix shape:** extend the `scaffold-shipped-set.sh` parser registry with a `soif_parse_shipped_semgrep` (or a generalized `templates/<dir>/` verbatim-copy shape) covering `templates/semgrep/*.yml`, and fold it into the BL-109 currency stamping + the BL-108 closure derivation. Mutation-proof the new parser (a shipped ruleset appears in the derived set; an unshipped one does not).
+
+**Related:** BL-131 (ships the ruleset + the sync/verify-install delivery paths), BL-108 (source-closure), BL-109 (currency system).
