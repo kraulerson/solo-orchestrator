@@ -2390,7 +2390,8 @@ cp "$SCRIPT_DIR/docs/builders-guide.md" "$TEST4_FIXTURE/docs/reference/" 2>/dev/
 cp "$SCRIPT_DIR/docs/governance-framework.md" "$TEST4_FIXTURE/docs/reference/" 2>/dev/null || true
 cp "$SCRIPT_DIR/templates/project-intake.md" "$TEST4_FIXTURE/PROJECT_INTAKE.md"
 # BL-136: ship the full BL-046 helpers trio, mirroring init.sh's scaffold
-# (init.sh:1284-1286). check-phase-gate.sh (run bare by TEST 5) sources
+# (the `# BL-046: helpers.sh split` copy block in init.sh). check-phase-gate.sh
+# (run bare by TEST 5) sources
 # lib/helpers-core.sh directly; under its `set -euo pipefail` a missing
 # helpers-core.sh aborts the script BEFORE the "Phase Gate Consistency
 # Check" header, tripping TEST 5's "Phase gate script failed to run". The
@@ -2749,18 +2750,39 @@ else
   fail "Dry-run missing resolver tool output"
 fi
 
-if echo "$dry_output" | grep -qi "already installed\|WILL INSTALL\|MANUAL\|DEFERRED"; then
+# BL-136 F1: PIN the resolved combo. Menu positions are glob-derived, so a
+# deleted/added template silently shifts a fed answer (e.g. dropping the
+# csharp CI template slides "7" off typescript) and every OTHER assertion
+# still passes on the WRONG combo. Bind the fed sequence to the
+# collect_project_info summary line.
+if echo "$dry_output" | grep -q "Platform: web | Track: standard | Language: typescript"; then
+  pass "Dry-run resolved the fed combo (web / standard / typescript)"
+else
+  fail "Dry-run combo drifted — menu no longer maps to web/standard/typescript"
+fi
+
+# BL-136 F2: assert the BRACKETED per-tool statuses emitted by dry_run_summary,
+# NOT bare words. The pre-fix `grep -qi "…DEFERRED"` also matched the intake
+# prose "All governance deferred." printed BEFORE tool resolution, so it passed
+# even on runs that aborted before the resolver ran (CI-observed on the original
+# failing run). The bracketed forms ([already installed] / [WILL INSTALL] /
+# [MANUAL] / [DEFERRED Phase N]) appear ONLY once dry_run_summary rendered.
+if echo "$dry_output" | grep -q "\[already installed\]\|\[WILL INSTALL\]\|\[MANUAL\]\|\[DEFERRED"; then
   pass "Dry-run shows tool status categories"
 else
   fail "Dry-run missing tool status categories"
 fi
 
-# Verify no project was actually created
-if [ ! -d "/tmp/test-dryrun" ]; then
-  pass "Dry-run did not create project directory"
+# BL-136 F3: no-creation check, re-aimed. The old `[ ! -d /tmp/test-dryrun ]`
+# was vacuous — the current input never references that path (project name is a
+# prompt_input default of "", so the resolved dir is the repo's own parent, an
+# EXISTING directory that cannot support a `! -d` check). Assert instead the
+# dry_run_summary terminal no-op marker, emitted ONLY when init.sh completes the
+# dry-run WITHOUT proceeding to real project creation.
+if echo "$dry_output" | grep -q "Re-run without --dry-run to execute"; then
+  pass "Dry-run completed in no-op mode (no project created)"
 else
-  fail "Dry-run created a project directory (should not have)"
-  rm -rf "/tmp/test-dryrun"
+  fail "Dry-run did not reach its no-op completion marker (may have created a project)"
 fi
 
 # ================================================================
