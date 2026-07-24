@@ -348,6 +348,41 @@ else
 fi
 fi
 
+# ── T7 (pr-review R-262-1): the .claude/last-gate-pass.txt ignore line in the ────
+# generated gitignore TEMPLATE is PINNED — statically AND behaviorally. Without
+# this pin NO lane catches its deletion: bl169 pins only /test-results/; init.sh
+# commits with --no-verify so the full/aggregator lane never has a receipt present
+# at its clean-tree assertions; and the rest of THIS suite referenced the template
+# in comments only. The reviewer deleted the line and the entire PR-blocking set
+# stayed green, then showed a post-clean-commit `git status --porcelain` = `??
+# .claude/last-gate-pass.txt` (untracked → a downstream `git add -A` would TRACK it,
+# resurrecting the BL-161 dirty-chase in tracked form). The SIBLING
+# .claude/last-checked-commit.txt is pinned statically too (same class / same
+# precedent — its upgrade-path backfill gap is tracked as BL-174; this is the pair).
+if want T7; then
+echo "=== T7-gitignore-template-pins-receipt-line ==="
+TEMPLATE="$FRAMEWORK/templates/generated/gitignore-base.tmpl"
+t7_ok=1; t7_why=""
+if [ ! -f "$TEMPLATE" ]; then
+  t7_ok=0; t7_why="$t7_why template-file MISSING ($TEMPLATE);"
+else
+  # (a) static pin — the primary receipt line and its sibling, exactly anchored.
+  grep -qE '^\.claude/last-gate-pass\.txt$' "$TEMPLATE" || { t7_ok=0; t7_why="$t7_why static:last-gate-pass.txt MISSING;"; }
+  grep -qE '^\.claude/last-checked-commit\.txt$' "$TEMPLATE" || { t7_ok=0; t7_why="$t7_why static:last-checked-commit.txt(sibling) MISSING;"; }
+  # (b) behavioral — the template, dropped in as a real .gitignore, actually keeps
+  # the receipt out of git (git check-ignore -q exits 0 iff the path is ignored).
+  P="$TOPTMP/t7"; rm -rf "$P"; mkdir -p "$P"
+  ( cd "$P" && git init -q && git config user.email t@t.invalid && git config user.name t ) >/dev/null 2>&1
+  cp "$TEMPLATE" "$P/.gitignore"
+  ( cd "$P" && git check-ignore -q .claude/last-gate-pass.txt ) || { t7_ok=0; t7_why="$t7_why behavioral:git-check-ignore did NOT ignore .claude/last-gate-pass.txt;"; }
+fi
+if [ "$t7_ok" -eq 1 ]; then
+  pass "T7-gitignore-template-pins-receipt-line (static: last-gate-pass.txt + sibling last-checked-commit.txt present; behavioral: git check-ignore keeps the receipt out of git)"
+else
+  fail_ "T7-gitignore-template-pins-receipt-line" "$t7_why the generated gitignore template no longer keeps .claude/last-gate-pass.txt out of git — a clean commit would leave it UNTRACKED and a git add -A would resurrect the BL-161 dirty-chase in tracked form (pr-review R-262-1)"
+fi
+fi
+
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$SKIPPED" -gt 0 ] && echo "($SKIPPED skipped — see [SKIP] lines)"
