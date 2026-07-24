@@ -122,6 +122,45 @@ The framework lives in two repositories — both must be cloned for the test sui
 
 For deeper setup — MCP servers, profiles, CLAUDE.md authoring, host CLI installation — see `docs/cli-setup-addendum.md` and `docs/user-guide.md`.
 
+## PR review agent
+
+Before merging a non-trivial PR (or a PR stack), you can dispatch a standing
+**adversarial** reviewer: the `pr-reviewer` Claude Code agent. Its definition
+lives in this repo at `.claude/agents/pr-reviewer.md` — because `.claude/` is
+tracked (only `.claude/upgrade-snapshots/` is gitignored), Claude Code
+auto-discovers it as a project agent, so **no install step is needed**; a clone
+gets the reviewer for free.
+
+**How to dispatch.** Launch it via the Agent tool (subagent type `pr-reviewer`,
+which pins `model: fable`) and pass one or more PR numbers or a `base...head`
+range. It reviews **on demand only** — deliberately **NOT** auto-on-open: a run
+costs roughly **40+ tool calls plus a spun-up mutation lab**, so it is a
+before-merge tool you point at a PR, not a bot that fires on every push.
+
+**What it returns.** A refutation-first review across five dimensions —
+technical standard (incl. the repo's own discipline rules read from `CLAUDE.md`),
+currency (context7 lookups, with a reachability preflight and an explicit
+disclaimer if context7 is unreachable), optimality, stability (weak/vacuous-test
+hunting plus the reviewer's OWN mutations), and security. Every PR/commit/backlog
+claim is treated as unverified until independently reproduced. Output is a per-PR
+verdict in the BL-100 grammar — `approve` / `minor_concerns` / `major_concerns` /
+`block`, where `major_concerns` and above block merge — plus numbered
+`R-<PR#>-<n>` findings (dimension, claim, verbatim evidence, minimal fix), a
+prominently surfaced REFUTED-claims list, the refutations it tried and could not
+land, stack-level notes, and verbatim test/lint tallies. Mutation survivorship is
+judged against the **PR-blocking** check set (read from `.github/workflows/`), so
+a gap only a `workflow_dispatch`-only full lane would catch is reported at
+reduced severity and labeled. The agent is read-only: it never comments, edits,
+merges, commits, or pushes — findings come back to you.
+
+**Track record.** Two live tests before it was made standing: **2026-07-21** it
+reviewed PRs #229 + #231 and its `major_concerns` on #231 caught a genuine
+comment-blind wiring miss two prior adversarial verifiers had left standing;
+**2026-07-23** it reviewed the Dogfood-4 four-PR stack #243→#244→#245→#247
+(verdicts #243 `approve`, #244/#245/#247 `minor_concerns`, zero blocking) and its
+six minor findings were all applied same-day. See the `## BL-146:` entry in
+`solo-orchestrator-backlog.md` for the full records.
+
 ## What Not to Contribute
 
 - Changes to the core methodology (Builder's Guide phases, governance structure) without prior discussion in an issue
