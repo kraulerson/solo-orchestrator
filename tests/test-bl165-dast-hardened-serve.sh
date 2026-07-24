@@ -348,6 +348,109 @@ teardown
 
 # ════════════════════════════════════════════════════════════════════
 echo ""
+echo "=== (f) T-present-invalid-json: present but unparseable → raw + VISIBLE note, no engage ==="
+# ════════════════════════════════════════════════════════════════════
+# A declaration file that is PRESENT but invalid JSON must not fall back
+# SILENTLY: the raw-path verdict must say hardening was not applied, and nothing
+# is hooked or recorded. (Verifier Finding 1.)
+setup nodeclare
+printf '%s\n' 'this is not json {' > "$PROJ/.claude/dast-headers.json"
+ZAP_URL="http://app.local"; ZAP_MOCK_EXTRA_ALERT=""
+export ZAP_MOCK_HOOK_WITNESS="$TMP/hookf.txt"
+out="$(run_driver)"
+unset ZAP_MOCK_HOOK_WITNESS
+if echo "$out" | grep -q "\[FAIL\] zap-dast" && echo "$out" | grep -q "2 Medium+"; then
+  pass "(f) unparseable declaration → the raw missing-header FAIL is unchanged"
+else
+  fail_ "(f)" "expected the raw [FAIL] with 2 Medium+; out:
+$(echo "$out" | grep -iE 'zap' | head)"
+fi
+if echo "$out" | grep -qi "hardening NOT applied"; then
+  pass "(f) the raw-path note VISIBLY states hardening was not applied"
+else
+  fail_ "(f)" "a present-but-unparseable declaration must produce a visible 'hardening NOT applied' note; out:
+$(echo "$out" | grep -iE 'zap' | head)"
+fi
+if [ -z "$(cat "$TMP/hookf.txt" 2>/dev/null || echo "")" ] && [ -z "$(sidecar)" ]; then
+  pass "(f) no hook and no evidence for an unparseable declaration"
+else
+  fail_ "(f)" "an unparseable declaration must not hook or record evidence"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== (g) T-nonobject-headers: {\"headers\":\"foo\"} → not engaged + VISIBLE note ==="
+# ════════════════════════════════════════════════════════════════════
+# A non-object `.headers` must not engage: its string length must never be
+# mistaken for a header count. (Verifier Findings 2/3.)
+setup nodeclare
+printf '%s\n' '{"headers":"foo"}' > "$PROJ/.claude/dast-headers.json"
+ZAP_URL="http://app.local"; ZAP_MOCK_EXTRA_ALERT=""
+export ZAP_MOCK_HOOK_WITNESS="$TMP/hookg.txt"
+out="$(run_driver)"
+unset ZAP_MOCK_HOOK_WITNESS
+if echo "$out" | grep -q "\[FAIL\] zap-dast" && echo "$out" | grep -q "2 Medium+"; then
+  pass "(g) non-object .headers → raw missing-header FAIL"
+else
+  fail_ "(g)" "expected raw [FAIL] with 2 Medium+; out:
+$(echo "$out" | grep -iE 'zap' | head)"
+fi
+if [ -z "$(cat "$TMP/hookg.txt" 2>/dev/null || echo "")" ] && [ -z "$(sidecar)" ]; then
+  pass "(g) a string-valued .headers does not engage (no hook, no evidence)"
+else
+  fail_ "(g)" "a non-object .headers must not engage — string length must not be read as a header count"
+fi
+if echo "$out" | grep -qi "hardening NOT applied"; then
+  pass "(g) the note visibly states hardening was not applied"
+else
+  fail_ "(g)" "expected a visible 'hardening NOT applied' note; out:
+$(echo "$out" | grep -iE 'zap' | head)"
+fi
+if echo "$out" | grep -qi "hardened serve"; then
+  fail_ "(g)" "must NOT claim a hardened serve for a non-object declaration"
+else
+  pass "(g) no false hardened-serve claim"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== (h) T-shape-filter: mixed valid/number/empty → engages count=1, sidecar only the valid header ==="
+# ════════════════════════════════════════════════════════════════════
+# One valid non-empty string header + one number-valued + one empty-string:
+# only the valid one counts and is recorded (an empty-string value would make
+# real Replacer REMOVE the header, so it must never count as "applied").
+# (Verifier Findings 2/3.)
+setup nodeclare
+printf '%s\n' '{"headers":{"Content-Security-Policy":"default-src '"'"'self'"'"'","X-Frame-Options":123,"Referrer-Policy":""}}' \
+  > "$PROJ/.claude/dast-headers.json"
+ZAP_URL="http://app.local"; ZAP_MOCK_EXTRA_ALERT=""
+export ZAP_MOCK_HOOK_WITNESS="$TMP/hookh.txt"
+out="$(run_driver)"
+unset ZAP_MOCK_HOOK_WITNESS
+sc="$(sidecar)"
+if [ -n "$(cat "$TMP/hookh.txt" 2>/dev/null || echo "")" ] && [ -n "$sc" ]; then
+  pass "(h) the one valid string header engages the hardened serve (hook + evidence)"
+else
+  fail_ "(h)" "a declaration with one valid header must engage; hook='$(cat "$TMP/hookh.txt" 2>/dev/null)' sidecar='$sc'"
+fi
+if [ -n "$sc" ] && jq -e '.header_count==1 and ((.applied_headers|keys)==["Content-Security-Policy"])' "$sc" >/dev/null 2>&1; then
+  pass "(h) sidecar records EXACTLY the one valid header (count 1, CSP only — number/empty dropped)"
+else
+  fail_ "(h)" "sidecar must record only the non-empty string header; got:
+$([ -n "$sc" ] && cat "$sc")"
+fi
+if echo "$out" | grep -q "1 documented"; then
+  pass "(h) the note reports the shape-filtered count of 1"
+else
+  fail_ "(h)" "expected the note to report '1 documented' header; out:
+$(echo "$out" | grep -iE 'zap' | head)"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
 echo "=== (e) T-mutation-hardened-serve: excise the fence → case (a) goes RED ==="
 # ════════════════════════════════════════════════════════════════════
 # Delete the # BL-165-HARDENED-SERVE-BEGIN..END block from a driver copy. The

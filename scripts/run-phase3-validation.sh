@@ -1168,8 +1168,17 @@ _p3_scan_zap() {
   _bl165_note_suffix=""
   _bl165_decl=".claude/dast-headers.json"
   _bl165_hjson=""
+  _bl165_decl_present=0
   if [ -f "$_bl165_decl" ] && command -v jq >/dev/null 2>&1; then
-    _bl165_hjson="$(jq -c '.headers // {}' "$_bl165_decl" 2>/dev/null || echo "")"
+    _bl165_decl_present=1
+    # Shape guard: keep ONLY non-empty string-valued headers. A non-object
+    # `.headers` (string/number/array — e.g. {"headers":"foo"}, whose string
+    # LENGTH must never be mistaken for a header count), null, missing, invalid
+    # JSON, non-string values, and empty-string values all filter to {} → the
+    # raw path. An empty-string value must NEVER count as "applied": real ZAP
+    # Replacer REMOVES the header on an empty replacement — the opposite of
+    # hardening — so it must not silently green a gate.
+    _bl165_hjson="$(jq -c '(.headers // {}) | if type=="object" then . else {} end | with_entries(select((.value|type)=="string" and (.value|length)>0))' "$_bl165_decl" 2>/dev/null || echo "")"
     case "$_bl165_hjson" in ''|null|'{}') _bl165_hjson="" ;; esac
   fi
   _bl165_hcount=0
@@ -1217,6 +1226,15 @@ BL165_HOOK
       > "$_bl165_sidecar" 2>/dev/null || true
     _bl165_hook_args=(--hook=/zap/wrk/bl165-hook.py)
     _bl165_note_suffix=" against a hardened serve ($_bl165_hcount documented response header(s) applied from $_bl165_decl; config recorded in $(basename "$_bl165_sidecar"))"
+  elif [ "$_bl165_decl_present" -eq 1 ]; then
+    # A declaration is PRESENT but yielded no usable header (invalid JSON,
+    # non-object/empty `.headers`, or only non-string/empty-string values). Do
+    # NOT fall back silently: SAY SO in the verdict note (appears on both the
+    # PASS and FAIL raw-path notes below) so the operator sees that the file was
+    # read and ignored. Fixed literal only — no declaration content (header
+    # names/values) is ever interpolated, and this suffix feeds ONLY P3_NOTE,
+    # never the RESULT/CARRIED machine lines the gate parses.
+    _bl165_note_suffix=" (declaration $_bl165_decl present but empty/unparseable — hardening NOT applied)"
   fi
   # BL-165-HARDENED-SERVE-END
   docker run --rm -v "$zap_tmp:/zap/wrk" ghcr.io/zaproxy/zaproxy:stable zap-baseline.py -t "$SOLO_ZAP_TARGET_URL" -J zap-report.json ${_bl165_hook_args[@]+"${_bl165_hook_args[@]}"} >/dev/null 2>&1 || rc=$?   # BL-070-ZAP-DISPATCH
