@@ -4061,4 +4061,36 @@ Neither failure blocks PRs (both suites are full-suite-only, not in the `tests.y
 
 **Secondary (optional hardening, do when BL-174 is built):** `tests/test-filesystem-gate-install.sh` has zero pass-arm coverage — it passed unchanged under both BL-161 receipt mutations, so it cannot catch a regression in the clean-pass receipt path. Add one receipt case (a clean pass writes `.claude/last-gate-pass.txt` and no tracked-ledger row).
 
+**Build note (2026-07-24, branch `fix/bl174-gitignore-backfill`):** implemented the
+append-if-missing backfill inside `_run_idempotent_backfill` (marker
+`# BL-174-GITIGNORE-BACKFILL`), covering BOTH sidecar lines
+(`.claude/last-checked-commit.txt` and `.claude/last-gate-pass.txt`). Idempotent
+(`grep -qxF` guards each exact line → re-run is a byte-no-op), manifest-gated (runs
+for every generated project via the `.claude/manifest.json` marker, exactly like its
+sibling backfills), best-effort (`|| true` so a gitignore hiccup never fails the
+upgrade), and create-if-missing when a project has no `.gitignore` at all — the last
+two mirroring the marker-gated / create-if-missing posture of the sibling
+`.claude/last-checked-commit.txt` / `.claude/bypass-audit.json` backfills in the same
+function. **The manifest gate is load-bearing:** the enclosing subshell runs
+`cd "$PROJECT_ROOT"`, and because the `--backfill-only` path never reaches
+`guard_not_in_framework`, a projectless / in-framework invocation (empty
+`PROJECT_ROOT` → that `cd` no-ops → cwd stays the framework repo) would otherwise
+append the two lines to the framework's OWN `.gitignore`. An earlier UNGUARDED draft
+did exactly that (caught mid-build when an upgrade-family suite polluted the worktree
+`.gitignore`); the `.claude/manifest.json` gate — the same marker every sibling block
+uses — closes it. New hermetic suite `tests/test-bl174-gitignore-backfill.sh` (6
+cases; hand-built fixture, NO init.sh — copies the upgrade script + lib closure and
+drives `--backfill-only`; registered in BOTH the `tests.yml` unit lane and the
+full-project aggregator) pins the two lines BEHAVIORALLY via `git check-ignore` on an
+UPGRADED fixture (the BACKFILL side; the TEMPLATE side stays pinned by
+`tests/test-bl161-ledger-real-events-only.sh` T7) and adds T6 — a no-manifest
+projectless fixture must be a byte-no-op (its watched-RED was observed against the
+unguarded draft). Watched-RED + marker-excision mutation both captured. Secondary hardening also
+landed: `tests/test-filesystem-gate-install.sh` gained T8 — the suite's first
+pass-arm case (a clean commit through the installed gate writes the
+`.claude/last-gate-pass.txt` receipt and appends no row to the tracked
+`.claude/bypass-audit.json`), mutation-proved by deleting the
+`record_gate_pass_receipt` write line (T1–T7 stayed green — the suite was blind to
+the PASS terminal before T8). Status stays **Open** pending PR review/merge.
+
 **Related:** BL-161, BL-107, `templates/generated/gitignore-base.tmpl`.
