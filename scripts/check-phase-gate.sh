@@ -242,6 +242,12 @@ fi
 current_phase=$(grep -o '"current_phase"[[:space:]]*:[[:space:]]*"*[0-9][0-9]*"*' "$PHASE_STATE" | grep -o '[0-9][0-9]*' || echo "0")
 case "$current_phase" in ''|*[!0-9]*) current_phase=0 ;; esac
 
+# BL-158-GATE-LABEL: capture the RECORDED phase BEFORE any --gate override so the
+# header (and audit trails) can distinguish "as-if <forced>" from the state the
+# project actually records. On a bare run this equals current_phase (header
+# unchanged); under --gate it is the pre-override value.
+recorded_phase="$current_phase"
+
 # BL-060: --gate override. Force current_phase to the gate's TARGET
 # phase so the gate's checks fire (elevate), and cap subsequent
 # threshold comparisons at that phase so HIGHER-gate checks skip
@@ -254,6 +260,29 @@ if [ -n "$GATE_SCOPE" ]; then
     phase_2_to_3) current_phase=3 ;;
     phase_3_to_4) current_phase=4 ;;
   esac
+fi
+
+# BL-166-GATE-SCOPE: keep a scoped --gate run's exit/count confined to the NAMED
+# gate's checks. The override above sets current_phase to the named gate's TARGET
+# so that gate's checks fire — but the Phase 3→4 readiness blocks below are
+# guarded by `current_phase -ge 3`, which is EXACTLY the target of
+# --gate phase_2_to_3. Without this fence those later-gate readiness checks
+# (HANDOFF.md, sbom.json, pentest, docs/test-results/, review manifest, Phase-3
+# process checklist) all fire and increment `issues`, so a project that
+# legitimately clears every 2→3 requirement still exited 1 "8 inconsistency(ies)
+# — blocking" (BL-166). When --gate names a gate whose TARGET is below 4, we set
+# skip_later_gate=1; the Phase 3→4 readiness region then announces itself as a
+# single non-counted [NEXT] line and does NOT run its block-counting checks.
+#   • Bare run (no --gate): gate_scope_target="" and skip_later_gate stays 0 →
+#     full per-item enforcement, byte-for-byte unchanged (BL-166 requirement).
+#   • --gate phase_3_to_4 (target 4): skip_later_gate stays 0 → full enforcement.
+# The `skip_later_gate=1` decision line is the mutation target: neutering it
+# restores the leak and flips tests/test-bl166-gate-scope.sh::(a) RED.
+gate_scope_target=""
+skip_later_gate=0
+if [ -n "$GATE_SCOPE" ]; then
+  gate_scope_target="$current_phase"   # override set this to the named gate's target
+  [ "$gate_scope_target" -lt 4 ] && skip_later_gate=1   # BL-166-GATE-SCOPE mutation target
 fi
 
 get_gate_date() {
@@ -534,7 +563,15 @@ poc_mode=$(soif_read_poc_mode "$PHASE_STATE")
 issues=0
 
 echo -e "${BOLD}Phase Gate Consistency Check${NC}"
-echo "Current phase: $current_phase"
+# BL-158-GATE-LABEL — under a --gate override the printed phase is FORCED
+# ("as-if"), not the phase the project records; label it distinctly so an audit
+# trail does not read the forced value as recorded current_phase. With NO --gate
+# override the normal "Current phase: N" header is byte-for-byte unchanged.
+if [ -n "$GATE_SCOPE" ]; then
+  echo "Checking gate: $GATE_SCOPE (as-if phase $current_phase; recorded current_phase: $recorded_phase)"
+else
+  echo "Current phase: $current_phase"
+fi
 echo ""
 
 # --- Manifesto Content Validation (P0-003) ---
@@ -1727,8 +1764,19 @@ if [ "$current_phase" -ge 4 ]; then
   fi
 fi
 
+# ═══════════════════════════════════════════════════════════════════════
+# Phase 3→4 readiness region (fires at current_phase>=3). These blocks belong
+# to the phase_3_to_4 gate, not phase_2_to_3. Under a scoped --gate whose target
+# is below 4 (BL-166-GATE-SCOPE) each is skipped from counting and the region is
+# summarized as ONE non-counted [NEXT] line; a bare run keeps them all.
+# ═══════════════════════════════════════════════════════════════════════
+if [ "$skip_later_gate" -eq 1 ] && [ "$current_phase" -ge 3 ]; then
+  # BL-166-GATE-SCOPE — announce (do NOT count) the next gate's deliverables.
+  echo -e "${BLUE}[NEXT]${NC} Phase 3→4 readiness (HANDOFF.md, sbom.json, docs/test-results/, SECURITY.md, penetration test, review manifest, Phase-3 process checklist) is NOT evaluated under --gate $GATE_SCOPE — these belong to the phase_3_to_4 gate and are not counted against it."
+fi
+
 # POC mode check (Phase 3→4) — block production release if in POC mode
-if [ "$current_phase" -ge 3 ]; then
+if [ "$current_phase" -ge 3 ] && [ "$skip_later_gate" -eq 0 ]; then   # BL-166-GATE-SCOPE
   # BL-095: this was the jq-with-grep-fallback DUAL variant — exactly the
   # branch pair soif_read_poc_mode implements once, with identical null
   # semantics on both arms.
@@ -1742,7 +1790,7 @@ if [ "$current_phase" -ge 3 ]; then
 fi
 
 # Release pipeline configuration check (Phase 3→4)
-if [ "$current_phase" -ge 3 ]; then
+if [ "$current_phase" -ge 3 ] && [ "$skip_later_gate" -eq 0 ]; then   # BL-166-GATE-SCOPE
   if [ -f ".github/workflows/release.yml" ]; then
     todo_count=$(grep -c "TODO" .github/workflows/release.yml 2>/dev/null) || todo_count=0
     if [ "$todo_count" -gt 0 ]; then
@@ -1754,7 +1802,7 @@ if [ "$current_phase" -ge 3 ]; then
 fi
 
 # Artifact existence checks: Phase 3→4
-if [ "$current_phase" -ge 3 ]; then
+if [ "$current_phase" -ge 3 ] && [ "$skip_later_gate" -eq 0 ]; then   # BL-166-GATE-SCOPE
   for artifact in "HANDOFF.md" "docs/INCIDENT_RESPONSE.md" "sbom.json"; do
     if [ -f "$artifact" ]; then
       echo -e "${GREEN}  [OK]${NC} $artifact exists"
@@ -1867,7 +1915,7 @@ fi
 #   process-state.json) downgrades the FAIL to an attested OK and RECORDS
 #   the decision to .claude/process-state.json::phase3.attestations.reviewers
 #   (BL-032 lineage) — blocks are attested, not silenced.
-if [ "$current_phase" -ge 3 ]; then
+if [ "$current_phase" -ge 3 ] && [ "$skip_later_gate" -eq 0 ]; then   # BL-166-GATE-SCOPE
   MANIFEST="docs/eval-results/review-manifest.json"
 
   # Grandfather cutover: the FAIL applies only when the enforcement flag is
