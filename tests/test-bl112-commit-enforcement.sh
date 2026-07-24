@@ -57,8 +57,10 @@
 #                                  the UAT arm is the only thing that can block ->
 #                                  real source commit REFUSED BY GIT.
 #   T-clean-commit-still-works     everything satisfied -> real commit SUCCEEDS,
-#                                  and a terminal_commit_passed audit row proves
-#                                  the gate actually RAN (not that it is missing).
+#                                  and a NON-TRACKED .claude/last-gate-pass.txt
+#                                  receipt proves the gate actually RAN (not that
+#                                  it is missing) — while the TRACKED ledger gains
+#                                  NO routine terminal_commit_passed row (BL-161).
 #   T-tdd-gate-no-regression       the BL-072 wrong-order (test-less feat:) commit
 #                                  is still blocked by the commit-msg hook.
 #   T-mutation-sast-error          strip `--error` from the scaffold's hook ->
@@ -504,7 +506,19 @@ fi
 
 # ═════════════════════════════════════════════════════════════════════════════
 # T-clean-commit-still-works — the fix must not brick commits, AND the gate must
-# be proven to have RUN (a terminal_commit_passed audit row), not merely absent.
+# be proven to have RUN (not merely absent).
+#
+# BL-161 JUSTIFICATION (contract change BY DESIGN, Karl-approved 2026-07-23/24):
+#   The gate no longer appends a routine terminal_commit_passed row to the TRACKED
+#   ledger — that receipt left the working tree perpetually one row dirty after the
+#   final commit of every session (Dogfood-4 F-DF4-007). The "prove the gate RAN,
+#   not merely that nothing blocked" INTENT is preserved, not deleted: the PASS
+#   path now drops a NON-TRACKED gate-ran receipt .claude/last-gate-pass.txt
+#   (gitignored, mirroring .claude/last-checked-commit.txt). We assert BOTH halves,
+#   so the case is still non-vacuous: (1) the receipt EXISTS (the PASS terminal was
+#   reached — a commit that skipped the gate would not write it) AND (2) the tracked
+#   ledger gained NO terminal_commit_passed row (the dirty-tree regression stays
+#   fixed). See tests/test-bl161-ledger-real-events-only.sh for the full contract.
 # ═════════════════════════════════════════════════════════════════════════════
 if want T-clean-commit-still-works; then
   echo "=== T-clean-commit-still-works: everything satisfied -> real commit SUCCEEDS ==="
@@ -515,11 +529,13 @@ if want T-clean-commit-still-works; then
   plant_clean "$W" gadget
   V="$(try_commit "$W" "chore: land the gadget" "$W/commit.log")"
   H1="$(head_of "$W")"
+  receipt="$W/.claude/last-gate-pass.txt"
+  receipt_ok=no; [ -s "$receipt" ] && receipt_ok=yes
   passed_rows="$(jq '[.[] | select(.type == "terminal_commit_passed")] | length' "$W/.claude/bypass-audit.json" 2>/dev/null || echo 0)"
-  if [ "$V" = "COMMITTED" ] && [ "$H0" != "$H1" ] && [ "$passed_rows" -ge 1 ]; then
-    pass "T-clean-commit-still-works: commit landed AND the gate ran (terminal_commit_passed rows=$passed_rows)"
+  if [ "$V" = "COMMITTED" ] && [ "$H0" != "$H1" ] && [ "$receipt_ok" = "yes" ] && [ "$passed_rows" -eq 0 ]; then
+    pass "T-clean-commit-still-works: commit landed AND the gate ran (non-tracked last-gate-pass.txt receipt present) AND no routine pass row in the tracked ledger (BL-161)"
   else
-    fail_ "T-clean-commit-still-works" "verdict=$V head_moved=$( [ "$H0" != "$H1" ] && echo yes || echo NO) terminal_commit_passed_rows=$passed_rows; log: $(tail -8 "$W/commit.log" | tr '\n' '|')"
+    fail_ "T-clean-commit-still-works" "verdict=$V head_moved=$( [ "$H0" != "$H1" ] && echo yes || echo NO) gate_ran_receipt=$receipt_ok terminal_commit_passed_rows=$passed_rows; log: $(tail -8 "$W/commit.log" | tr '\n' '|')"
   fi
 fi
 
