@@ -144,6 +144,27 @@ docker run -t ghcr.io/zaproxy/zaproxy:stable zap-full-scan.py -t http://localhos
 
 Fix anything rated Medium or higher.
 
+**Hardened-serve harness for static apps (BL-165).** A static app's bare preview (`vite preview` over `dist/`) cannot emit the deploy-time host headers — CSP, `X-Frame-Options`, `frame-ancestors`, `Strict-Transport-Security`, `X-Content-Type-Options`, `Referrer-Policy` — that live at the deploy boundary (documented in Project Bible §11). ZAP baseline correctly flags every missing one as Medium+, so a genuinely clean app **structurally FAILs DAST** with no code change able to fix it. Do not discount the scanner and do not hand-roll an unguided serve. Instead, **declare** the production header set the deploy layer applies, and the Phase-3 validation arm (`scripts/run-phase3-validation.sh`, zap-dast) applies those headers to the responses ZAP judges (via ZAP's Replacer add-on) and rules on the app **as served in production**.
+
+Declare the set in **`.claude/dast-headers.json`** (same `.claude/*.json` machine-readable surface as `tool-preferences.json`):
+
+```json
+{
+  "headers": {
+    "Content-Security-Policy": "default-src 'self'; frame-ancestors 'none'; form-action 'none'; base-uri 'none'",
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload",
+    "Referrer-Policy": "no-referrer"
+  }
+}
+```
+
+- `headers` is a flat name → value map. Header values may contain spaces and quotes (CSP does) — they are passed verbatim, never shell-split.
+- The applied config is recorded as durable evidence next to the report (`zap-dast-<timestamp>.hardened-serve.json`) so the pass is auditable — an auditor sees exactly what hardening produced the verdict.
+- **This does not soften the gate.** Only the *declared* headers are applied; any other Medium+ alert (XSS, injection, insecure cookie, …) still fails. It is **fail-closed**: if a header cannot be applied, ZAP sees the un-hardened response and the missing-header alert fails the gate — a hardened pass can only arise when the declared headers were really applied.
+- **Declare only headers you actually ship.** The declaration is an attestation that the deploy layer sets these headers on every response. Verify it holds against the live site at go-live: `curl -I https://your.app` must show each declared header (see §5.2). If you declare no header dependence, omit the file entirely and the raw-preview FAIL semantics apply unchanged.
+
 ### 4.3 Performance & Accessibility
 
 **Lighthouse:**
@@ -166,6 +187,8 @@ Targets: Accessibility ≥90, Performance ≥90.
 AI-generated CSP policies tend to be too permissive or too restrictive. Test thoroughly.
 
 **Non-inheriting directives (BL-165):** `form-action`, `frame-ancestors`, and `base-uri` do NOT fall back to `default-src` — omit them and they are unrestricted even under `default-src 'none'`. Set all three explicitly (an app with no forms should carry `form-action 'none'`); DAST rule 10055 flags the omission. Note `frame-ancestors` is header-only (ignored in a `<meta>` CSP), which matters on static hosts that cannot set response headers.
+
+Because these headers live at the **deploy boundary** — a static bundle cannot set response headers itself — declare the production CSP (and the other security headers) in `.claude/dast-headers.json` so Phase-3 DAST judges the artifact *as served in production* rather than structurally FAILing the bare preview. See the **hardened-serve harness** under §4.2.
 
 ### 4.5 Load Testing (Full Track)
 

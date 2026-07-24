@@ -1052,6 +1052,14 @@ _p3_scan_snyk() {
 #                              scan needs a live target.
 #   all present              → run `zap-baseline.py` via the pinned ZAP image,
 #                              archive the JSON to zap-dast-<timestamp>.json.
+#   HARDENED SERVE (BL-165)  → if `.claude/dast-headers.json` declares a
+#                              production header set, apply those headers to the
+#                              responses ZAP judges (Replacer --hook in the
+#                              /zap/wrk bind) and judge the app AS SERVED IN
+#                              PRODUCTION, recording the applied config to
+#                              zap-dast-<timestamp>.hardened-serve.json. No
+#                              declaration → raw-preview FAIL semantics
+#                              unchanged. See `# BL-165-HARDENED-SERVE`.
 #
 # Findings policy MIRRORS _p3_scan_semgrep: zap-baseline exits 0 = clean,
 # 1 = FAIL-level alerts, 2 = WARN-level alerts (both still emit a JSON report),
@@ -1129,7 +1137,89 @@ _p3_scan_zap() {
     P3_STATUS="FAIL"; P3_NOTE="could not create $zap_tmp for the ZAP report"; return
   }
   # BL-140-ZAP-WORKDIR-END
-  docker run --rm -v "$zap_tmp:/zap/wrk" ghcr.io/zaproxy/zaproxy:stable zap-baseline.py -t "$SOLO_ZAP_TARGET_URL" -J zap-report.json >/dev/null 2>&1 || rc=$?   # BL-070-ZAP-DISPATCH
+  # BL-165-HARDENED-SERVE-BEGIN
+  # Dogfood-4 F-DF4-011/012: a static app's bare preview (`vite preview` over
+  # dist/) cannot emit the deploy-time host headers (CSP, X-Frame-Options,
+  # frame-ancestors, …) that live at the deploy boundary and are documented in
+  # the Project Bible section 11. ZAP baseline (correctly, riskcode>=2) FAILs on
+  # every missing one, so a genuinely clean app STRUCTURALLY FAILs DAST with no
+  # code change able to fix it — the operator learns to discount the scanner
+  # (doctrine violation) or hand-rolls an unguided serve harness. The S3 walker
+  # proved the same dist/ passes 0 Medium+ when re-served WITH the documented
+  # headers.
+  #
+  # When (and only when) the project DECLARES its production header set in the
+  # machine-readable `.claude/dast-headers.json` (canonical `.claude/*.json`
+  # config surface, same jq reader the platform gate above already uses — NOT
+  # prose-parsed from the Bible), harden the serve: apply every declared header
+  # to the responses ZAP judges, via ZAP's own Replacer add-on (a `--hook`
+  # dropped into the /zap/wrk bind — space-safe, no extra server/port/image),
+  # and record the applied config as durable evidence next to the report. The
+  # judge (BL-122 riskcode>=2, unchanged) then rules on the app AS SERVED IN
+  # PRODUCTION. This does NOT blunt the check: only the DECLARED headers are
+  # added, so any OTHER Medium+ alert (XSS, injection, insecure cookie, …) still
+  # fires and still FAILs. FAIL-CLOSED: if the hook cannot apply a rule ZAP sees
+  # the un-hardened response and the missing-header alert FAILs the gate — a
+  # hardened PASS can only arise when the declared headers were really applied.
+  # When NO header set is declared, this whole block is inert and the raw-preview
+  # FAIL semantics are byte-for-byte unchanged (the `${_bl165_hook_args[@]+…}`
+  # expansion on the dispatch line below is empty; `_bl165_note_suffix` is "").
+  _bl165_hook_args=()
+  _bl165_note_suffix=""
+  _bl165_decl=".claude/dast-headers.json"
+  _bl165_hjson=""
+  if [ -f "$_bl165_decl" ] && command -v jq >/dev/null 2>&1; then
+    _bl165_hjson="$(jq -c '.headers // {}' "$_bl165_decl" 2>/dev/null || echo "")"
+    case "$_bl165_hjson" in ''|null|'{}') _bl165_hjson="" ;; esac
+  fi
+  _bl165_hcount=0
+  if [ -n "$_bl165_hjson" ]; then
+    _bl165_hcount="$(printf '%s' "$_bl165_hjson" | jq -r 'length' 2>/dev/null || echo 0)"
+    case "$_bl165_hcount" in ''|*[!0-9]*) _bl165_hcount=0 ;; esac
+  fi
+  if [ -n "$_bl165_hjson" ] && [ "$_bl165_hcount" -gt 0 ]; then
+    # Headers file + hook land in the bind-mounted work dir → /zap/wrk inside
+    # the container; both are cleaned with $zap_tmp after the run.
+    printf '{"headers":%s}\n' "$_bl165_hjson" > "$zap_tmp/bl165-headers.json"
+    # The hook is flush-left (quoted heredoc, literal body) so the emitted
+    # Python is valid (top-level statements must not be indented).
+    cat > "$zap_tmp/bl165-hook.py" <<'BL165_HOOK'
+# BL-165-HARDENED-SERVE hook. Apply the project's declared production response
+# headers via ZAP's Replacer add-on (Response Header match type adds a header if
+# absent) so the baseline scan judges the artifact AS SERVED IN PRODUCTION.
+# Fail-closed: any rule that cannot be added leaves the un-hardened response,
+# whose missing-header alert FAILs the gate.
+import json
+
+def zap_started(zap, target):
+    try:
+        with open('/zap/wrk/bl165-headers.json') as fh:
+            headers = json.load(fh).get('headers', {})
+    except Exception:
+        return zap, target
+    for name in headers:
+        try:
+            zap.replacer.add_rule('bl165-' + name, 'true', 'RESP_HEADER',
+                                  'false', name, replacement=headers[name])
+        except Exception:
+            pass
+    return zap, target
+BL165_HOOK
+    # Durable evidence: the applied header config, next to the report archive so
+    # an auditor sees exactly what hardening produced the verdict.
+    _bl165_sidecar="${archive%.json}.hardened-serve.json"
+    jq -n \
+      --arg src "$SOLO_ZAP_TARGET_URL" \
+      --arg decl "$_bl165_decl" \
+      --arg gen "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      --argjson hdrs "$_bl165_hjson" \
+      '{mode:"hardened-serve", source_target:$src, declaration_file:$decl, applied_headers:$hdrs, header_count:($hdrs|length), generated:$gen}' \
+      > "$_bl165_sidecar" 2>/dev/null || true
+    _bl165_hook_args=(--hook=/zap/wrk/bl165-hook.py)
+    _bl165_note_suffix=" against a hardened serve ($_bl165_hcount documented response header(s) applied from $_bl165_decl; config recorded in $(basename "$_bl165_sidecar"))"
+  fi
+  # BL-165-HARDENED-SERVE-END
+  docker run --rm -v "$zap_tmp:/zap/wrk" ghcr.io/zaproxy/zaproxy:stable zap-baseline.py -t "$SOLO_ZAP_TARGET_URL" -J zap-report.json ${_bl165_hook_args[@]+"${_bl165_hook_args[@]}"} >/dev/null 2>&1 || rc=$?   # BL-070-ZAP-DISPATCH
   if [ -f "$zap_tmp/zap-report.json" ]; then
     cp "$zap_tmp/zap-report.json" "$archive" 2>/dev/null || true
   fi
@@ -1178,9 +1268,9 @@ _p3_scan_zap() {
   fi
   case "$findings" in ''|*[!0-9]*) findings=0 ;; esac
   if [ "$findings" -gt 0 ]; then
-    P3_STATUS="FAIL"; P3_NOTE="$findings Medium+ ZAP alert(s) (riskcode>=2; baseline rc=$rc) — review $archive"
+    P3_STATUS="FAIL"; P3_NOTE="$findings Medium+ ZAP alert(s) (riskcode>=2; baseline rc=$rc)${_bl165_note_suffix:-} — review $archive"
   else
-    P3_STATUS="PASS"; P3_NOTE="0 Medium+ ZAP alerts (baseline rc=$rc; informational/low, if any, remain in $archive)"
+    P3_STATUS="PASS"; P3_NOTE="0 Medium+ ZAP alerts (baseline rc=$rc; informational/low, if any, remain in $archive)${_bl165_note_suffix:-}"
   fi
 }
 
