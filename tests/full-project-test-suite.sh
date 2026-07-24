@@ -835,6 +835,19 @@ else
   fail "tests/test-bl163-blocked-ledger.sh FAILED (run for details)"
 fi
 
+# BL-171 (BL-163 verifier residual): a commit REFUSED by a MESSAGE-scoped
+# commit-msg gate (BL-072 TDD-ordering block -> commitmsg_tdd; BL-006 Build-Loop
+# block -> commitmsg_buildloop) appends a terminal_commit_blocked row via the
+# SHARED soif_ledger_blocked helper — best-effort, subshell-confined, never
+# weakening the refusal. --emit-blocked-gate carries the gate identity; the
+# refusal lives OUTSIDE the excisable # BL-171-COMMITMSG-LEDGER fence. Real git
+# commits through the emitted commit-msg hook. No init.sh -> both lanes.
+if bash "$SCRIPT_DIR/tests/test-bl171-commitmsg-ledger.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl171-commitmsg-ledger.sh"
+else
+  fail "tests/test-bl171-commitmsg-ledger.sh FAILED (run for details)"
+fi
+
 # BL-141 (Dogfood-3 wave verifier B1/B2): verify-install detects + repairs
 # the commit-msg TDD gate hook (the BL-139 backstop — post-flip it is the
 # ONLY terminal-path feat gate), composing with user hooks and idempotent;

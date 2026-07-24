@@ -82,38 +82,20 @@ soif_lang_test_pattern() {
   esac
 }
 
-# ── Fallback pre-commit hook ────────────────────────────────────────────────
-# soif_precommit_region_body
-#   Emits the managed region ONLY: the open marker, the hook body, and the close
-#   marker — everything EXCEPT the shebang (which must stay file line 1, outside
-#   the region). Used both to write a fresh hook and to refresh the region of an
-#   already-marked hook in place. Byte-identical to init.sh's pre-BL-099 hook
-#   APART FROM the two marker lines.
-soif_precommit_region_body() {
-  # Section 1a (open marker, header, set -e, FAILED=0). Open marker is the
-  # region's 1st line. Byte-identical to init.sh's pre-BL-099 hook APART FROM
-  # the two marker lines and the emitted BL-125 (test-exec) + BL-163 (blocked-
-  # ledger) sections inserted between the cats below.
-  cat <<'HOOKEOF'
-# >>> SOIF pre-commit fallback
-# Solo Orchestrator — Fallback Pre-Commit Hook
-# Provides baseline enforcement: secret detection + SAST + test co-location check.
-# If Development Guardrails for Claude Code is active, its hooks provide deeper coverage.
-
-set -euo pipefail
-
-FAILED=0
-HOOKEOF
-
-  # BL-163-LEDGER-EMIT-BEGIN
-  # Emitter fence (template-only, NOT emitted): excising this BEGIN..END region
-  # drops the blocked-commit ledger helper from every hook this lib emits. The
-  # EMITTED bytes below carry their own in-hook marker (the BEGIN/END pair, and a
-  # trailing tag on each call site) kept DISTINCT from this fence, so an in-hook
-  # grep and an emitter-level excision never collide — the same emitter-fence vs
-  # emitted-marker split BL-125 uses for its test-exec arm. Quoting: LEDGEREOF is
-  # single-quoted so the body is emitted literally; generated-project paths (which
-  # may contain spaces) are expanded only at hook RUN time and always double-quoted.
+# ── Shared blocked-commit ledger helper (BL-163 / BL-171) ───────────────────
+# soif_emit_ledger_helper — emits the best-effort, subshell-confined
+# soif_ledger_blocked() helper. ONE SOURCE OF TRUTH: embedded verbatim into BOTH
+# the fallback pre-commit hook (BL-163 blocking arms: gitleaks / semgrep / bl125)
+# AND the commit-msg hook (BL-171 message-gate refusals: TDD-ordering / Build-
+# Loop), so the ~40 helper bytes are never duplicated. The emitted bytes carry
+# their own in-hook BEGIN/END marker pair (distinct from each caller's emitter
+# fence), so an emitter-level excision of the helper body and an in-hook grep
+# never collide. Do NOT quote those marker strings in prose here: the mutation
+# suites range-delete them, and a comment that reproduces the literal marker is
+# indistinguishable from the marker itself. Quoting: LEDGEREOF is single-quoted so the body is
+# emitted literally; generated-project paths (which may contain spaces) are
+# expanded only at hook RUN time and always double-quoted.
+soif_emit_ledger_helper() {
   cat <<'LEDGEREOF'
 
 # BL-163-BLOCKED-LEDGER-BEGIN
@@ -176,6 +158,42 @@ soif_ledger_blocked() {
 }
 # BL-163-BLOCKED-LEDGER-END
 LEDGEREOF
+}
+
+# ── Fallback pre-commit hook ────────────────────────────────────────────────
+# soif_precommit_region_body
+#   Emits the managed region ONLY: the open marker, the hook body, and the close
+#   marker — everything EXCEPT the shebang (which must stay file line 1, outside
+#   the region). Used both to write a fresh hook and to refresh the region of an
+#   already-marked hook in place. Byte-identical to init.sh's pre-BL-099 hook
+#   APART FROM the two marker lines.
+soif_precommit_region_body() {
+  # Section 1a (open marker, header, set -e, FAILED=0). Open marker is the
+  # region's 1st line. Byte-identical to init.sh's pre-BL-099 hook APART FROM
+  # the two marker lines and the emitted BL-125 (test-exec) + BL-163 (blocked-
+  # ledger) sections inserted between the cats below.
+  cat <<'HOOKEOF'
+# >>> SOIF pre-commit fallback
+# Solo Orchestrator — Fallback Pre-Commit Hook
+# Provides baseline enforcement: secret detection + SAST + test co-location check.
+# If Development Guardrails for Claude Code is active, its hooks provide deeper coverage.
+
+set -euo pipefail
+
+FAILED=0
+HOOKEOF
+
+  # BL-163-LEDGER-EMIT-BEGIN
+  # Emitter fence (template-only, NOT emitted): excising this BEGIN..END region
+  # drops the blocked-commit ledger helper from the pre-commit hook this lib
+  # emits. The helper BYTES live ONCE in soif_emit_ledger_helper (above), shared
+  # verbatim with the commit-msg hook (BL-171) — no duplication. The EMITTED bytes
+  # carry their own in-hook marker (the BEGIN/END pair, plus a trailing tag on
+  # each call site) kept DISTINCT from this fence, so an in-hook grep and an
+  # emitter-level excision never collide — the same emitter-fence vs emitted-marker
+  # split BL-125 uses for its test-exec arm. (Prose here never reproduces those
+  # marker strings literally — the mutation suites range-delete them.)
+  soif_emit_ledger_helper
   # BL-163-LEDGER-EMIT-END
 
   # Section 1b (gitleaks + SAST arms). Continues the managed region.
@@ -526,6 +544,11 @@ soif_write_precommit_hook() {
 # ── Commit-msg BL-072 TDD gate block ────────────────────────────────────────
 # soif_tdd_region_body — the managed region ONLY (open marker … close marker),
 #   no leading blank line. Used for stale-comparison and in-place refresh.
+#   BL-171: the region now also embeds the shared soif_ledger_blocked helper and
+#   a # BL-171-COMMITMSG-LEDGER block that records a terminal_commit_blocked row
+#   when a message gate refuses (commitmsg_tdd / commitmsg_buildloop). The
+#   refusal itself (the plain non-zero -> exit 1) sits OUTSIDE that block so a
+#   fence excision drops the telemetry only, never the block.
 soif_tdd_region_body() {
   echo "$SOIF_TDD_OPEN"
   echo '# Two message-scoped commit-msg gates run here (--terminal-mode --tdd-only):'
@@ -539,7 +562,46 @@ soif_tdd_region_body() {
   echo '#     surface reaches editor-opened / human-terminal commits the AI-only'
   echo '#     PreToolUse hook cannot see.'
   echo 'if [ -x scripts/pre-commit-gate.sh ]; then'
-  echo '  scripts/pre-commit-gate.sh --terminal-mode --tdd-only || exit 1'
+  echo '  # BL-171: --emit-blocked-gate makes a genuine refusal exit 3 (BL-072'
+  echo '  # TDD-ordering block) or 4 (BL-006 Build-Loop block); any other non-zero'
+  echo '  # is some other refusal. WARN-tier / attested / allowed outcomes exit 0.'
+  echo '  # BL-171 (verifier MAJOR): capture the rc via `|| soif_cm_rc=$?`, NOT a'
+  echo '  # bare call + `$?`. When this region is composed onto a user hook whose'
+  echo '  # preamble runs `set -e` (the common case — init.sh/verify-install/'
+  echo '  # upgrade-project APPEND it to pre-existing hooks), a bare non-zero call'
+  echo '  # would abort the shell at this line before `$?` is read: the commit is'
+  echo '  # still refused but the ledger row silently vanishes — the very loss'
+  echo '  # BL-171 closes. The `||` consumes the non-zero so `set -e` never fires.'
+  echo '  soif_cm_rc=0'
+  echo '  scripts/pre-commit-gate.sh --terminal-mode --tdd-only --emit-blocked-gate || soif_cm_rc=$?'
+  # BL-171-LEDGER-EMIT-BEGIN
+  # Emitter fence (template-only, NOT emitted). The helper BYTES are the shared
+  # BL-163 source (soif_emit_ledger_helper); it is injected OUTSIDE the emitted
+  # # BL-171-COMMITMSG-LEDGER range on purpose, so this fence governs only the
+  # commit-msg CALL SITES while a helper-body excision stays BL-163's concern.
+  soif_emit_ledger_helper
+  cat <<'CMGATEEOF'
+# BL-171-COMMITMSG-LEDGER-BEGIN
+# BL-171-COMMITMSG-LEDGER — Dogfood-4 F-DF4-009 residual (named by the BL-163
+# verifier): the message-scoped commit-msg gates refuse a commit by exiting this
+# hook non-zero BEFORE .git/hooks/framework-gate.sh runs — so, exactly like
+# BL-163's pre-commit arms, a genuine refusal here left NO terminal_commit_blocked
+# row in .claude/bypass-audit.json. The gate's --emit-blocked-gate codes name
+# which gate refused; record the matching row best-effort. soif_ledger_blocked is
+# non-fatal and subshell-confined, so a broken/trojan ledger lib can never launder
+# the refusal. Excising this BEGIN..END block drops the TELEMETRY ONLY — the
+# refusal below (the plain non-zero -> exit 1) is untouched.
+  if [ "$soif_cm_rc" -eq 3 ]; then
+    soif_ledger_blocked commitmsg_tdd || true          # BL-171-COMMITMSG-LEDGER
+  elif [ "$soif_cm_rc" -eq 4 ]; then
+    soif_ledger_blocked commitmsg_buildloop || true    # BL-171-COMMITMSG-LEDGER
+  fi
+# BL-171-COMMITMSG-LEDGER-END
+CMGATEEOF
+  # BL-171-LEDGER-EMIT-END
+  echo '  if [ "$soif_cm_rc" -ne 0 ]; then'
+  echo '    exit 1'
+  echo '  fi'
   echo 'fi'
   echo "$SOIF_TDD_CLOSE"
 }

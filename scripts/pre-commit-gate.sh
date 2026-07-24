@@ -369,6 +369,13 @@ TERMINAL_MODE=0
 # hooks already installed by init.sh: those keep working and pick up the added
 # BL-006 enforcement as soon as their scripts/pre-commit-gate.sh is refreshed.
 TDD_ONLY=0
+# BL-171-COMMITMSG-EMIT: opt-in. Under --tdd-only, a GENUINE refusal exits with a
+# gate-specific code — 3 = BL-072 TDD-ordering block, 4 = BL-006 Build-Loop
+# message block — so the emitted commit-msg hook can name the refused gate in the
+# bypass-audit ledger (details.gate = commitmsg_tdd / commitmsg_buildloop).
+# Default OFF preserves the historical "non-zero = block, value = 1" contract for
+# every direct/other caller; only the generated commit-msg hook passes the flag.
+EMIT_BLOCKED_GATE=0
 # BL-096-GATE-HELP (F6): a real --help surface. Before this, `--help` fell
 # through to the PreToolUse stdin-JSON path and exited 0 SILENTLY — the one
 # script whose flag names are load-bearing had no way to explain them. Help
@@ -395,9 +402,15 @@ Surfaces:
                       already installed by init.sh (BL-096).
   --commit-msg-gates  Honest-name alias for --tdd-only (BL-096). Identical
                       behavior; new hooks and humans should prefer this name.
+  --emit-blocked-gate With --tdd-only: on a block, exit with a gate-specific
+                      code (3 = BL-072 TDD ordering, 4 = BL-006 Build Loop) so
+                      the emitted commit-msg hook can record which gate refused
+                      in the bypass-audit ledger (BL-171). Off by default; all
+                      other callers see the plain "block == exit 1" contract.
 
 Exit codes: 0 = allow the commit, non-zero = block (the diagnostic names the
-gate that refused).
+gate that refused). With --emit-blocked-gate the block code is 3 (TDD) / 4
+(Build Loop); without it, every block is exit 1.
 GATEHELP
     exit 0
   fi
@@ -409,6 +422,7 @@ for arg in "$@"; do
     # this mode runs (BL-072 TDD ordering + BL-006 Build-Loop message check);
     # --tdd-only is retained for hooks already installed by init.sh.
     --tdd-only|--commit-msg-gates) TDD_ONLY=1 ;;
+    --emit-blocked-gate) EMIT_BLOCKED_GATE=1 ;;   # BL-171-COMMITMSG-EMIT
   esac
 done
 
@@ -428,6 +442,9 @@ if [ "$TERMINAL_MODE" -eq 1 ]; then
   # non-zero return means "hard block" without set -e aborting mid-function.
   if [ "$TDD_ONLY" -eq 1 ]; then
     if ! tdd_terminal_enforce; then
+      # BL-171-COMMITMSG-EMIT: name the refused gate for the commit-msg hook's
+      # ledger row without changing the flag-less "block == exit 1" contract.
+      if [ "$EMIT_BLOCKED_GATE" -eq 1 ]; then exit 3; fi
       exit 1
     fi
     # BL-010: the commit-msg surface ALSO runs the BL-006 Build-Loop
@@ -435,6 +452,7 @@ if [ "$TERMINAL_MODE" -eq 1 ]; then
     # BL-006 enforcement to editor-opened and human-terminal commits. Same
     # policy as the PreToolUse surface; a non-zero return aborts the commit.
     if ! bl006_terminal_enforce; then
+      if [ "$EMIT_BLOCKED_GATE" -eq 1 ]; then exit 4; fi   # BL-171-COMMITMSG-EMIT
       exit 1
     fi
     exit 0
