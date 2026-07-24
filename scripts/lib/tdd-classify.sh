@@ -56,7 +56,7 @@ _bl072_is_test_file() {
 # _bl072_is_impl_file <path>
 # Returns 0 (true) if <path> is an implementation file: a modified/added file
 # that is NOT a test file and NOT under one of the exempt trees
-# (docs/, .github/, Reports/, templates/) and is NOT one of the exempt
+# (docs/, .github/, .claude/, Reports/, templates/) and is NOT one of the exempt
 # script shapes (scripts/lint-*.sh). Everything else counts as
 # implementation — the classifier is deliberately broad; the dogfood measures
 # how broad is too broad.
@@ -75,12 +75,13 @@ _bl072_is_impl_file() {
   base="${p##*/}"
   _bl072_is_test_file "$p" && return 1
   case "$p" in
-    docs/*|*/docs/*)     return 1 ;;
-    .github/*)           return 1 ;;
-    Reports/*)           return 1 ;;
-    templates/*)         return 1 ;;
-    scripts/lint-*.sh)   return 1 ;;
-    *.md)                return 1 ;;   # BL-072 C2: all markdown, anywhere
+    docs/*|*/docs/*)       return 1 ;;
+    .github/*)             return 1 ;;
+    .claude/*|*/.claude/*) return 1 ;;   # BL-167-CLAUDE-EXCLUDE: framework state files (phase-state.json, process-state.json, …) are never implementation
+    Reports/*)             return 1 ;;
+    templates/*)           return 1 ;;
+    scripts/lint-*.sh)     return 1 ;;
+    *.md)                  return 1 ;;   # BL-072 C2: all markdown, anywhere
   esac
   case "$base" in
     package-lock.json)   return 1 ;;   # BL-072 C2: npm lockfile (generated)

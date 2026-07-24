@@ -929,6 +929,29 @@ else
   fail "tests/test-bl120-audit-verdict.sh FAILED (run for details)"
 fi
 
+# BL-162 (Dogfood-4 S2 F-DF4-008): the BL-120 verdict arm globbed audit files
+# by both *slug* and *name*; when slug==name (an already-slug-shaped feature)
+# the same artifact matched twice and its OPEN-finding warning printed twice.
+# Dedupe by path (# BL-162-AUDIT-DEDUP) — print-count only, the BLOCK is
+# unchanged. In-suite mutation reverts the dedup → double-print returns.
+# No init.sh -> both lanes.
+if bash "$SCRIPT_DIR/tests/test-bl162-audit-dedup.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl162-audit-dedup.sh"
+else
+  fail "tests/test-bl162-audit-dedup.sh FAILED (run for details)"
+fi
+
+# BL-167 (Dogfood-4 S3 F-DF4-014): the BL-072 TDD-ordering classifier counted
+# .claude/* framework state files (phase-state.json, …) as impl files lacking
+# a test. _bl072_is_impl_file now excludes .claude/ (# BL-167-CLAUDE-EXCLUDE),
+# scoped to .claude/ only (real src/lib/app stays impl). In-suite mutation
+# excises the arm → .claude state relists as impl. No init.sh -> both lanes.
+if bash "$SCRIPT_DIR/tests/test-bl167-claude-classifier.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl167-claude-classifier.sh"
+else
+  fail "tests/test-bl167-claude-classifier.sh FAILED (run for details)"
+fi
+
 # BL-138 (Dogfood-3 F-DF3-001): validate_approval_fields no longer
 # self-collides with the template — H2-anchored section-bounded window
 # (table rows can neither anchor nor extend the scan) + template-literal
