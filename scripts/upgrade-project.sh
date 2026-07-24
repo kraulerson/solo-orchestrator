@@ -582,6 +582,54 @@ _run_idempotent_backfill() {
     print_info "  scripts/reconfigure-project.sh --enforcement-level <light|no> --confirm-pitfalls"
   fi
 
+  # --- BL-174: gitignore sidecar ignore-line backfill ---------------------
+  # init.sh's generate_gitignore() is the ONLY writer of the operational-state
+  # ignore lines, so an UPGRADED project picks up the receipt-WRITING gate
+  # behavior (the install-filesystem-gates.sh re-run above) but never the
+  # matching .gitignore lines. Net: .claude/last-gate-pass.txt (BL-161) and its
+  # sibling .claude/last-checked-commit.txt (BL-030) sit UNTRACKED, and a
+  # downstream `git add -A` would TRACK them — resurrecting the dirty-chase
+  # BL-161 / BL-030 removed. Idempotent append-if-missing: `grep -qxF` guards
+  # each EXACT line so a re-run is a byte-no-op. Best-effort (|| true) — a
+  # gitignore hiccup must never fail the upgrade. Creates .gitignore if wholly
+  # absent, mirroring the create-if-missing posture of the last-checked-commit.txt
+  # / bypass-audit.json siblings above.
+  #
+  # GATED on the generated-project marker (.claude/manifest.json) EXACTLY like
+  # every sibling backfill in this function: the enclosing subshell does
+  # `cd "$PROJECT_ROOT"`, and on a projectless / in-framework invocation
+  # PROJECT_ROOT is empty so that `cd` no-ops and cwd stays the invocation dir
+  # (e.g. the framework repo). Without this guard the block would append its two
+  # lines to the framework's OWN .gitignore. The sibling blocks avoid that only
+  # because they are manifest-gated; this one must be too.
+  # BL-174-GITIGNORE-BACKFILL START
+  if [ -f .claude/manifest.json ]; then
+    if [ ! -f .gitignore ]; then
+      : > .gitignore || true
+    fi
+    _bl174_added=0
+    if ! grep -qxF '.claude/last-checked-commit.txt' .gitignore 2>/dev/null; then
+      {
+        printf '\n# BL-030 operational state — the detection baseline file. Not project\n'
+        printf '# content; ignored so the SessionStart detector and init.sh finish clean.\n'
+        printf '.claude/last-checked-commit.txt\n'
+      } >> .gitignore && _bl174_added=1 || true
+    fi
+    if ! grep -qxF '.claude/last-gate-pass.txt' .gitignore 2>/dev/null; then
+      {
+        printf '\n# BL-161 operational state — the terminal-commit gate-ran receipt written by\n'
+        printf '# .git/hooks/framework-gate.sh on every CLEAN strict-mode commit. Not project\n'
+        printf '# content; ignored (like its sibling above) so it never dirties the tree.\n'
+        printf '.claude/last-gate-pass.txt\n'
+      } >> .gitignore && _bl174_added=1 || true
+    fi
+    if [ "$_bl174_added" -eq 1 ]; then
+      print_ok "gitignore sidecar ignore-lines backfilled (BL-174)"
+    fi
+    unset _bl174_added
+  fi
+  # BL-174-GITIGNORE-BACKFILL END
+
   # --- Vendored-skills sync (audit code-upgrade-project-3, S3 sweep) ---
   # init.sh's skill-install block (init.sh ~line 1239) enumerates each
   # vendored skill explicitly. Skills shipped after a project was created

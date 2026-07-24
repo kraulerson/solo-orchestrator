@@ -1845,6 +1845,11 @@ if bash "$SCRIPT_DIR/tests/test-filesystem-gate-install.sh" >/dev/null 2>&1; the
 else
   fail "tests/test-filesystem-gate-install.sh FAILED (run for details)"
 fi
+if bash "$SCRIPT_DIR/tests/test-bl174-gitignore-backfill.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl174-gitignore-backfill.sh"
+else
+  fail "tests/test-bl174-gitignore-backfill.sh FAILED (run for details)"
+fi
 
 # Enforcement-level family.
 if bash "$SCRIPT_DIR/tests/test-enforcement-level-lib.sh" >/dev/null 2>&1; then
