@@ -255,8 +255,14 @@ tdd_emit_fail_term() {
 # commit-msg time) and the staged name-status from git. Returns 0 to ALLOW
 # (silent / WARN / attested), 1 to BLOCK (caller exits 1 -> git aborts commit).
 tdd_terminal_enforce() {
-  # Derivative commit: a merge in progress is not a TDD-authoring event.
+  # Derivative commit: a merge / cherry-pick / revert in progress REPLAYS an
+  # already-reviewed change — not a TDD-authoring event. Mirror the sibling
+  # bl006_terminal_enforce sentinel set (git writes these at commit-msg time; a
+  # resumed cherry-pick/revert committed with a plain `git commit` presents no
+  # command string, so the sentinel file is the only signal here). BL-172.
   [ -f .git/MERGE_HEAD ] && return 0
+  [ -f .git/CHERRY_PICK_HEAD ] && return 0   # BL-172-RESUME-SENTINELS
+  [ -f .git/REVERT_HEAD ] && return 0        # BL-172-RESUME-SENTINELS
   command -v _tdd_triggers >/dev/null 2>&1 || return 0   # classifier absent -> no-op (safe)
 
   local subject staged_status
@@ -880,9 +886,15 @@ emit_tdd_warn() {
 tdd_warn_check() {
   _is_git_commit "$COMMAND" || return 0
 
-  # Derivative-commit filters (same set as bl006_check): pass through.
+  # Derivative-commit filters (same set as bl006_check): pass through. The two
+  # sentinel lines mirror tdd_terminal_enforce (BL-172): a resumed cherry-pick/
+  # revert committed with a plain `git commit` carries no cherry-pick/revert in
+  # the command string, so the command-string filter below would miss it — the
+  # sentinel file catches it, exactly as MERGE_HEAD already does for a merge.
   echo "$COMMAND" | grep -qE '\-\-amend\b' && return 0
   [ -f .git/MERGE_HEAD ] && return 0
+  [ -f .git/CHERRY_PICK_HEAD ] && return 0   # BL-172-RESUME-SENTINELS
+  [ -f .git/REVERT_HEAD ] && return 0        # BL-172-RESUME-SENTINELS
   echo "$COMMAND" | grep -qE '\bgit\b.*\b(merge|revert|cherry-pick)\b' && return 0
   echo "$COMMAND" | grep -qE '\bgh\b.*\bpr\b.*\bmerge\b.*\-\-squash' && return 0
 
