@@ -57,10 +57,12 @@ A user-terminal `git commit` was blocked by `.git/hooks/framework-gate.sh` becau
 
 ### `terminal_commit_passed`
 
-The mirror of the above — a user-terminal `git commit` was allowed through the gate. Recorded so that the log can show *every* user-terminal commit, not just the blocked ones (the W7 reader needs to see passes, not just refusals).
+The mirror of the above — a user-terminal `git commit` was allowed through the gate.
 
-- **Writer:** `framework-gate.sh`.
-- **Lifecycle:** terminal. `final_outcome: "committed"`.
+**BL-161 (Dogfood-4 F-DF4-007): no longer emitted on routine commits.** Appending a `terminal_commit_passed` receipt on *every* clean terminal commit left the working tree perpetually one row dirty after the final commit of a session (committing that trailing row triggers another append — an infinite chase). As of BL-161 a clean strict-mode terminal commit records **no** row in the tracked ledger; the gate instead drops a non-tracked `.claude/last-gate-pass.txt` receipt (gitignored, mirroring `.claude/last-checked-commit.txt`) as proof it reached its PASS terminal, so the tracked ledger changes only on real events. `terminal_commit_passed` remains a **schema-valid legacy type** — historical ledgers keep any rows they already have, so readers must still recognize it.
+
+- **Writer:** none (legacy; historically `framework-gate.sh`). The clean-pass proof now lives in the non-tracked `.claude/last-gate-pass.txt`.
+- **Lifecycle:** terminal. `final_outcome: "committed"` (legacy rows only).
 - **`actor`:** `user_terminal`.
 
 ### `out_of_band_commit`
@@ -105,7 +107,7 @@ The user-guide table gives you the high-level matrix. The audit log's *content* 
 
 | Level | Rows written | Notes |
 | - | - | - |
-| `strict` | `claude_bypass_proposal`, `terminal_commit_blocked`, `terminal_commit_passed`, `out_of_band_commit`, `enforcement_level_set`, `escalation`, `detector_error` | The full taxonomy. `framework-gate.sh` is installed; every user-terminal commit produces either a `blocked` or `passed` row. `--no-verify` skips the hook but the next SessionStart writes `out_of_band_commit` for the same SHA. |
+| `strict` | `claude_bypass_proposal`, `terminal_commit_blocked`, `out_of_band_commit`, `enforcement_level_set`, `escalation`, `detector_error` | `framework-gate.sh` is installed; a user-terminal commit the gate BLOCKS produces a `terminal_commit_blocked` row, while a clean pass writes **no** ledger row — only a non-tracked `.claude/last-gate-pass.txt` receipt (BL-161), so the tracked ledger records real events only. `--no-verify` skips the hook but the next SessionStart writes `out_of_band_commit` for the same SHA. (`terminal_commit_passed` is a legacy type — no longer written, still recognized in historical ledgers.) |
 | `light` | `claude_bypass_proposal`, `out_of_band_commit`, `enforcement_level_set`, `escalation`, `detector_error` | `framework-gate.sh` is NOT installed, so no `terminal_commit_blocked` / `terminal_commit_passed` rows. The SessionStart detector still runs and records every new SHA as `out_of_band_commit` (since none are blocked or passed by the gate). |
 | `no` | `claude_bypass_proposal`, `enforcement_level_set`, `escalation` | Only Claude-side events are recorded. The SessionStart detector exits early. A successor reading the log can see the level transition that disabled the user-terminal audit. |
 
