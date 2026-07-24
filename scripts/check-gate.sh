@@ -223,7 +223,7 @@ cmd_repair() {
   # provenance-consistent with the BL-123 recorder (writes through the shared
   # _record_phase2_step helper).
   if ! _step_done "remote_repo_created" || ! _step_done "pushed_initial"; then
-    local _bl157_heads _bl157_branch _bl157_cand
+    local _bl157_heads _bl157_branch _bl157_cand _bl157_sha
     if git remote get-url origin >/dev/null 2>&1 \
        && _bl157_heads=$(git ls-remote --heads origin 2>/dev/null); then
       # The configured remote answered ls-remote — the repo genuinely exists.
@@ -232,18 +232,30 @@ cmd_repair() {
         _refresh_steps_json
         print_info "Repair: recorded remote_repo_created — configured 'origin' answers ls-remote (repo exists on host). [BL-157]"
       fi
-      # pushed_initial only if that remote actually carries our branch head.
+      # pushed_initial only if that remote actually carries OUR branch head.
+      # BL-157 (verifier HIGH-1/2): match the branch EXACTLY via an awk field
+      # compare — NOT a grep BRE, where a branch name with regex metacharacters
+      # (`rel/1.x`) would launder a lookalike (`rel/1yx`) — AND require the
+      # matched remote head to be a commit THIS repo holds locally
+      # (`cat-file -e … ^{commit}`). Name-existence alone let a same-named but
+      # UNPUSHED remote branch (GitHub's "Initialize with README" default `main`,
+      # disjoint history) satisfy the marker with zero project code on the host,
+      # then earn the BL-123 attestation AND the BL-116 push-gate exemption. A
+      # genuine push guarantees the shared commit; an unrelated auto-init does
+      # not — so this records only when the code was really pushed.
       if ! _step_done "pushed_initial"; then
         _bl157_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
         for _bl157_cand in "$_bl157_branch" main master; do
           [ -z "$_bl157_cand" ] && continue
           [ "$_bl157_cand" = "HEAD" ] && continue
-          if printf '%s\n' "$_bl157_heads" | grep -q "[[:space:]]refs/heads/$_bl157_cand$"; then
-            _record_phase2_step "pushed_initial"
-            _refresh_steps_json
-            print_info "Repair: recorded pushed_initial — 'origin' carries the pushed '$_bl157_cand' branch. [BL-157]"
-            break
-          fi
+          _bl157_sha=$(printf '%s\n' "$_bl157_heads" \
+            | awk -v r="refs/heads/$_bl157_cand" '$2 == r { print $1; exit }')
+          [ -z "$_bl157_sha" ] && continue
+          git cat-file -e "$_bl157_sha^{commit}" 2>/dev/null || continue
+          _record_phase2_step "pushed_initial"
+          _refresh_steps_json
+          print_info "Repair: recorded pushed_initial — 'origin' carries our pushed '$_bl157_cand' head ($(printf '%.7s' "$_bl157_sha")). [BL-157]"
+          break
         done
       fi
     fi

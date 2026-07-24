@@ -142,6 +142,73 @@ mk_empty_remote_world() {
   jq -n '{phase2_init:{steps_completed:[],verified:false},build_loop:{feature:null,step:0,steps_completed:[]}}' > "$d/.claude/process-state.json"
 }
 
+# mk_unrelated_remote_world <dir> <host> — `origin` carries a same-NAMED `main`
+# from a DISJOINT history the project never pushed (GitHub "Initialize with
+# README" default). The local project has its OWN unpushed history. The remote
+# head is NOT a commit this repo holds, so pushed_initial must NOT record.
+mk_unrelated_remote_world() {
+  local d="$1" host="$2"
+  rm -rf "$d"; mkdir -p "$d/.claude"
+  local bare="$d.remote.git"; rm -rf "$bare"
+  git init --bare -q "$bare" >/dev/null 2>&1 || return 1
+  local seed="$d.seed"; rm -rf "$seed"
+  ( git init -q "$seed" \
+      && cd "$seed" \
+      && git config user.email s@t.invalid && git config user.name s \
+      && git symbolic-ref HEAD refs/heads/main \
+      && echo "auto-init readme" > README.md && git add README.md && git commit -q -m "Initial commit" \
+      && git push -q "file://$bare" main ) >/dev/null 2>&1 || return 1
+  rm -rf "$seed"
+  ( cd "$d" \
+      && git init -q \
+      && git config user.email t@t.invalid && git config user.name t \
+      && git symbolic-ref HEAD refs/heads/main \
+      && echo "my real code" > app.txt && git add app.txt && git commit -q -m "chore: init" \
+      && git remote add origin "file://$bare" ) >/dev/null 2>&1 || return 1
+  printf '{"frameworkVersion":"test","host":"%s","mode":"personal","deployment":"organizational","enforcement_level":"strict"}\n' "$host" > "$d/.claude/manifest.json"
+  jq -n '{phase2_init:{steps_completed:[],verified:false},build_loop:{feature:null,step:0,steps_completed:[]}}' > "$d/.claude/process-state.json"
+}
+
+# mk_lookalike_remote_world <dir> <host> — the project is on `rel/1.x`; `origin`
+# carries only `rel/1yx` (a regex-metachar lookalike) — never the real branch.
+mk_lookalike_remote_world() {
+  local d="$1" host="$2"
+  rm -rf "$d"; mkdir -p "$d/.claude"
+  local bare="$d.remote.git"; rm -rf "$bare"
+  git init --bare -q "$bare" >/dev/null 2>&1 || return 1
+  local seed="$d.seed"; rm -rf "$seed"
+  ( git init -q "$seed" \
+      && cd "$seed" \
+      && git config user.email s@t.invalid && git config user.name s \
+      && git symbolic-ref HEAD refs/heads/rel/1yx \
+      && echo "lookalike" > README.md && git add README.md && git commit -q -m "seed" \
+      && git push -q "file://$bare" rel/1yx ) >/dev/null 2>&1 || return 1
+  rm -rf "$seed"
+  ( cd "$d" \
+      && git init -q \
+      && git config user.email t@t.invalid && git config user.name t \
+      && git symbolic-ref HEAD refs/heads/rel/1.x \
+      && echo "my code" > app.txt && git add app.txt && git commit -q -m "chore: init" \
+      && git remote add origin "file://$bare" ) >/dev/null 2>&1 || return 1
+  printf '{"frameworkVersion":"test","host":"%s","mode":"personal","deployment":"organizational","enforcement_level":"strict"}\n' "$host" > "$d/.claude/manifest.json"
+  jq -n '{phase2_init:{steps_completed:[],verified:false},build_loop:{feature:null,step:0,steps_completed:[]}}' > "$d/.claude/process-state.json"
+}
+
+# mk_dead_remote_world <dir> <host> — `origin` is configured but points at a
+# path with no repo: ls-remote fails. Neither marker may record.
+mk_dead_remote_world() {
+  local d="$1" host="$2"
+  rm -rf "$d"; mkdir -p "$d/.claude"
+  ( cd "$d" \
+      && git init -q \
+      && git config user.email t@t.invalid && git config user.name t \
+      && git symbolic-ref HEAD refs/heads/main \
+      && echo x > README.md && git add README.md && git commit -q -m "chore: init" \
+      && git remote add origin "file://$d.nonexistent.git" ) >/dev/null 2>&1 || return 1
+  printf '{"frameworkVersion":"test","host":"%s","mode":"personal","deployment":"organizational","enforcement_level":"strict"}\n' "$host" > "$d/.claude/manifest.json"
+  jq -n '{phase2_init:{steps_completed:[],verified:false},build_loop:{feature:null,step:0,steps_completed:[]}}' > "$d/.claude/process-state.json"
+}
+
 attest_reason() { jq -r '.phase2_init.attestations.branch_protection.reason // ""' "$1/.claude/process-state.json" 2>/dev/null; }
 recorded_via()  { jq -r '.phase2_init.attestations.branch_protection.recorded_via // ""' "$1/.claude/process-state.json" 2>/dev/null; }
 step_recorded() { jq -e --arg s "$2" '.phase2_init.steps_completed | index($s) != null' "$1/.claude/process-state.json" >/dev/null 2>&1; }
@@ -254,15 +321,18 @@ fi
 
 # ── T-mutation-unconditional ─────────────────────────────────────────────────
 # Break the GENUINE detection so it fabricates a `main` head regardless of what
-# the remote actually carries (records unconditionally). Against the b2 fixture
-# (origin exists, NOTHING pushed) the mutant now records pushed_initial and the
-# BL-123 attestation gets written on an unpushed remote — proving the detection
-# guard is what protects the BL-123 precondition.
+# the remote actually carries. The fabricated head carries the project's REAL
+# local HEAD sha, so it passes the BL-157 cat-file guard too — isolating the
+# ls-remote-genuineness guard: against the b2 fixture (origin exists, NOTHING
+# pushed) the mutant records pushed_initial and the BL-123 attestation gets
+# written, proving the real ls-remote probe is what protects the precondition.
+# (A fabricated head with a BOGUS sha is instead caught by the cat-file guard —
+# that defense-in-depth is proven by T-unrelated-history-refused.)
 echo "=== T-mutation-unconditional ==="
 if ! grep -q "git ls-remote --heads origin 2>/dev/null" "$CG"; then
   fail_ "T-mutation-unconditional" "BL-157 ls-remote detection probe not found — cannot mutate the guard"
 else
-  sed 's|git ls-remote --heads origin 2>/dev/null|printf "x refs/heads/main"|' "$CG" > "$MUT/scripts/check-gate.sh"
+  sed 's|git ls-remote --heads origin 2>/dev/null|printf "%s refs/heads/main" "$(git rev-parse HEAD 2>/dev/null)"|' "$CG" > "$MUT/scripts/check-gate.sh"
   chmod +x "$MUT/scripts/check-gate.sh"
   if ! bash -n "$MUT/scripts/check-gate.sh" 2>/dev/null; then
     fail_ "T-mutation-unconditional" "mutant is syntactically broken"
@@ -276,6 +346,58 @@ else
       fail_ "T-mutation-unconditional" "the unconditional mutant did NOT record an attestation on the unpushed remote — the genuine-detection guard is not the thing protecting BL-123"
     fi
   fi
+fi
+
+# ── T-unrelated-history-refused (verifier HIGH-1) ────────────────────────────
+# The remote carries a same-NAMED `main` the project never pushed — GitHub's
+# "Initialize with README" default, a DISJOINT history. pushed_initial must be
+# recorded ONLY when the remote head is a commit this repo actually holds, so a
+# name match over unrelated code must NOT satisfy it (else attestation +
+# BL-116 push-gate exemption are earned with zero project code on the host).
+echo "=== T-unrelated-history-refused ==="
+P="$TOPTMP/p-unrelated"
+mk_unrelated_remote_world "$P" github || { fail_ "T-unrelated-history-refused" "fixture setup failed"; }
+out=$( cd "$P" && bash "$CG" --repair --branch-protection-attested 2>&1 ); rc=$?
+if step_recorded "$P" pushed_initial; then
+  fail_ "T-unrelated-history-refused" "pushed_initial recorded for a remote whose 'main' is UNRELATED history (never pushed) — name-only match laundered the gate: $(printf '%s' "$out" | tail -2 | tr '\n' ' ')"
+elif [ -n "$(attest_reason "$P")" ]; then
+  fail_ "T-unrelated-history-refused" "attestation recorded though the project's code was never pushed"
+elif [ "$rc" -eq 0 ]; then
+  fail_ "T-unrelated-history-refused" "single --repair --branch-protection-attested succeeded (rc=0) on an unpushed project — the BL-123 refusal was laundered"
+else
+  pass "T-unrelated-history-refused"
+fi
+
+# ── T-lookalike-branch-refused (verifier HIGH-2 / M1 substring, M2 metachar) ──
+# The remote carries only a LOOKALIKE branch, not the project's actual branch.
+# Two shapes in one: (1) local `rel/1.x`, remote `rel/1yx` — a grep BRE would
+# let `.` match `y`; the awk exact field compare must not. (2) also guards a
+# future substring/prefix regression (`main`-vs-`main2` class).
+echo "=== T-lookalike-branch-refused ==="
+P="$TOPTMP/p-lookalike"
+mk_lookalike_remote_world "$P" github || { fail_ "T-lookalike-branch-refused" "fixture setup failed"; }
+out=$( cd "$P" && bash "$CG" --repair --branch-protection-attested 2>&1 ); rc=$?
+if step_recorded "$P" pushed_initial; then
+  fail_ "T-lookalike-branch-refused" "pushed_initial recorded from a LOOKALIKE remote branch (regex-metachar / substring launder): $(printf '%s' "$out" | tail -2 | tr '\n' ' ')"
+elif [ "$rc" -eq 0 ]; then
+  fail_ "T-lookalike-branch-refused" "attestation succeeded on a project whose branch is not on the remote"
+else
+  pass "T-lookalike-branch-refused"
+fi
+
+# ── T-dead-origin-not-recorded (verifier M4) ─────────────────────────────────
+# `origin` is configured but points at a non-existent bare: ls-remote fails.
+# NEITHER marker may be recorded (the repo does not provably exist on any host).
+echo "=== T-dead-origin-not-recorded ==="
+P="$TOPTMP/p-dead"
+mk_dead_remote_world "$P" github || { fail_ "T-dead-origin-not-recorded" "fixture setup failed"; }
+out=$( cd "$P" && bash "$CG" --repair --branch-protection-attested 2>&1 ); rc=$?
+if step_recorded "$P" remote_repo_created; then
+  fail_ "T-dead-origin-not-recorded" "remote_repo_created recorded though 'origin' does not answer ls-remote (dead remote): $(printf '%s' "$out" | tail -2 | tr '\n' ' ')"
+elif [ -n "$(attest_reason "$P")" ]; then
+  fail_ "T-dead-origin-not-recorded" "attestation recorded against a dead origin"
+else
+  pass "T-dead-origin-not-recorded"
 fi
 
 echo ""
