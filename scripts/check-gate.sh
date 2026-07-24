@@ -198,6 +198,70 @@ cmd_repair() {
     fi
   }
 
+  # BL-157-REMOTE-MARKER-BEGIN
+  # BL-157: a scaffold created with `init.sh --no-remote-creation` whose
+  # operator later wired `origin` by hand and pushed never gets
+  # remote_repo_created / pushed_initial recorded — init.sh's recorder only
+  # fires on the API-create path that flag skipped. The BL-123 post-hoc
+  # attestation block just below REFUSES until those two markers are on record,
+  # so a free-tier operator was forced into an undocumented two-step: a plain
+  # `--repair` (which reconciles the markers via Steps 1-2 and then re-hits the
+  # 403), and only THEN `--repair --branch-protection-attested`.
+  #
+  # Reconcile the markers HERE, in the repair preflight, BEFORE the BL-123
+  # block runs — so a single `--repair --branch-protection-attested` succeeds
+  # when the remote is genuinely present. GENUINE detection only, never an
+  # assumption: remote_repo_created is recorded only when the configured
+  # `origin` answers `git ls-remote` (the repo provably exists on the host);
+  # pushed_initial only when that remote actually carries the project's branch
+  # head (current branch, else main/master — the same `git ls-remote --heads
+  # origin` primitive the check-phase-gate.sh BL-084 push backstop uses). A
+  # truly remote-less project (no `origin`, or an `origin` with no pushed
+  # branch) records NOTHING here, so the BL-123 refusal below stays exactly as
+  # designed — this SATISFIES the precondition when it is legitimately met, it
+  # does not weaken the guard. Idempotent (skips already-recorded steps) and
+  # provenance-consistent with the BL-123 recorder (writes through the shared
+  # _record_phase2_step helper).
+  if ! _step_done "remote_repo_created" || ! _step_done "pushed_initial"; then
+    local _bl157_heads _bl157_branch _bl157_cand _bl157_sha
+    if git remote get-url origin >/dev/null 2>&1 \
+       && _bl157_heads=$(git ls-remote --heads origin 2>/dev/null); then
+      # The configured remote answered ls-remote — the repo genuinely exists.
+      if ! _step_done "remote_repo_created"; then
+        _record_phase2_step "remote_repo_created"
+        _refresh_steps_json
+        print_info "Repair: recorded remote_repo_created — configured 'origin' answers ls-remote (repo exists on host). [BL-157]"
+      fi
+      # pushed_initial only if that remote actually carries OUR branch head.
+      # BL-157 (verifier HIGH-1/2): match the branch EXACTLY via an awk field
+      # compare — NOT a grep BRE, where a branch name with regex metacharacters
+      # (`rel/1.x`) would launder a lookalike (`rel/1yx`) — AND require the
+      # matched remote head to be a commit THIS repo holds locally
+      # (`cat-file -e … ^{commit}`). Name-existence alone let a same-named but
+      # UNPUSHED remote branch (GitHub's "Initialize with README" default `main`,
+      # disjoint history) satisfy the marker with zero project code on the host,
+      # then earn the BL-123 attestation AND the BL-116 push-gate exemption. A
+      # genuine push guarantees the shared commit; an unrelated auto-init does
+      # not — so this records only when the code was really pushed.
+      if ! _step_done "pushed_initial"; then
+        _bl157_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+        for _bl157_cand in "$_bl157_branch" main master; do
+          [ -z "$_bl157_cand" ] && continue
+          [ "$_bl157_cand" = "HEAD" ] && continue
+          _bl157_sha=$(printf '%s\n' "$_bl157_heads" \
+            | awk -v r="refs/heads/$_bl157_cand" '$2 == r { print $1; exit }')
+          [ -z "$_bl157_sha" ] && continue
+          git cat-file -e "$_bl157_sha^{commit}" 2>/dev/null || continue
+          _record_phase2_step "pushed_initial"
+          _refresh_steps_json
+          print_info "Repair: recorded pushed_initial — 'origin' carries our pushed '$_bl157_cand' head ($(printf '%.7s' "$_bl157_sha")). [BL-157]"
+          break
+        done
+      fi
+    fi
+  fi
+  # BL-157-REMOTE-MARKER-END
+
   # BL-123-BP-ATTEST-RECORD-BEGIN
   # BL-123 / BL-111: an attestation-RECORDING path for --repair. The
   # tier-limited attestation used to be writable ONLY inside init.sh's
@@ -234,7 +298,12 @@ cmd_repair() {
       # reachable AFTER create+push succeeded; recording without them would
       # let 3 of 4 consumers honor a branch-protection attestation on a
       # project with no pushed remote at all — a laundered gate.
-      print_fail "Post-hoc attestation preconditions unmet: remote_repo_created and pushed_initial must be on record first (the attestation covers the protection TIER, not the remote's existence). Run --repair without the flag to create/push, then re-run with it."
+      # BL-157-REMOTE-MARKER: with the preflight reconciler above, this refusal
+      # now fires ONLY for a genuinely remote-less project (no `origin`, or an
+      # `origin` with no pushed branch) — the guard is intact, we simply have
+      # nothing legitimate to reconcile from. Name the exact recovery command
+      # so the operator is not left guessing (BL-157 message ask).
+      print_fail "Post-hoc attestation preconditions unmet: no pushed remote branch detected on 'origin' (remote_repo_created / pushed_initial are not on record, and the repair preflight found no repo+branch to reconcile them from — BL-157). The attestation covers the protection TIER, not the remote's existence. Create and push the remote first, e.g.:  git push -u origin main   then re-run:  scripts/check-gate.sh --repair --branch-protection-attested"
       return 1
     else
       _bp_host=$(jq -r '.host // ""' .claude/manifest.json 2>/dev/null || echo "")
@@ -360,7 +429,15 @@ cmd_repair() {
   else
     print_info "Re-applying protection for $mode mode..."
     host_configure_protection main "$mode" 2>/dev/null || host_configure_protection master "$mode" \
-      || { print_fail "Protection config failed"; return 1; }
+      || { print_fail "Protection config failed"
+           # BL-157-REMOTE-MARKER: on a tier-limited host (free-tier 403 on the
+           # protection API) remote_repo_created/pushed_initial are already on
+           # record by now (recorded by init.sh's push, or reconciled in the
+           # BL-157 preflight above), so the operator can record the
+           # tier-limited attestation in ONE more step. Pre-BL-157 the first
+           # `--repair` never named the flag to add — the BL-157 message ask.
+           print_info "If the host rejected the protection API (free-tier 403 'Upgrade to…' on GitHub private repos, or GitLab Premium-only approvals), the create/push markers are on record — record the tier-limited attestation with:  scripts/check-gate.sh --repair --branch-protection-attested"
+           return 1; }
     _record_phase2_step "branch_protection_configured"
     _refresh_steps_json
   fi
