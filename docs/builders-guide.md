@@ -1024,6 +1024,21 @@ scripts/check-gate.sh --preflight       # dry-run: verifies protection
 scripts/check-gate.sh --repair          # re-applies protection if preflight fails
 ```
 
+**Recovering a `--no-remote-creation` project (manual remote wiring) — BL-157.** If you scaffolded with `init.sh --no-remote-creation` (no repo was created on the host) and later attached the remote by hand:
+
+```bash
+git remote add origin <your-clone-url>
+git push -u origin main
+```
+
+then `init.sh`'s create/push bookkeeping never ran, so `.claude/process-state.json` has no `remote_repo_created` / `pushed_initial` markers. `scripts/check-gate.sh --repair` now **reconciles those markers in its preflight** — but only after a *genuine* check that the configured `origin` answers `git ls-remote` **and** carries the pushed branch (never an assumption). On a free-tier host where protection APIs are unavailable (GitHub private-repo 403, GitLab Premium-only approvals), that lets a **single** command record the tier-limited attestation:
+
+```bash
+scripts/check-gate.sh --repair --branch-protection-attested
+```
+
+No two-step dance is needed. If you have **not** pushed a branch yet (`origin` missing, or created but empty), the attestation still **refuses** — push first, then re-run (the refusal message names the exact command). This is the same tier-limited attestation described under **GitHub tier limitation** and **GitLab Free-tier limitation** below; the only difference is that the create/push markers are reconciled from your manually-wired remote instead of being written by `init.sh`.
+
 **GitHub tier limitation — important.** On free-tier GitHub personal accounts, branch protection rules are **only supported on public repos**. Private repos require GitHub Pro ($4/month) or higher. If you run `init.sh` with a free-tier personal account and select `private` visibility, the driver will create the repo and push successfully but fail at `host_configure_protection` with HTTP 403: *"Upgrade to GitHub Pro or make this repository public to enable this feature."*
 
 Workarounds:
