@@ -2389,7 +2389,17 @@ mkdir -p "$TEST4_FIXTURE"/{docs/reference,docs/platform-modules,docs/test-result
 cp "$SCRIPT_DIR/docs/builders-guide.md" "$TEST4_FIXTURE/docs/reference/" 2>/dev/null || true
 cp "$SCRIPT_DIR/docs/governance-framework.md" "$TEST4_FIXTURE/docs/reference/" 2>/dev/null || true
 cp "$SCRIPT_DIR/templates/project-intake.md" "$TEST4_FIXTURE/PROJECT_INTAKE.md"
-cp "$SCRIPT_DIR/scripts/lib/helpers.sh" "$TEST4_FIXTURE/scripts/lib/"
+# BL-136: ship the full BL-046 helpers trio, mirroring init.sh's scaffold
+# (init.sh:1284-1286). check-phase-gate.sh (run bare by TEST 5) sources
+# lib/helpers-core.sh directly; under its `set -euo pipefail` a missing
+# helpers-core.sh aborts the script BEFORE the "Phase Gate Consistency
+# Check" header, tripping TEST 5's "Phase gate script failed to run". The
+# pre-BL-136 fixture copied only helpers.sh (the pre-split, self-contained
+# world). helpers-full.sh is included too so the helpers.sh shim's own
+# `source helpers-full.sh` resolves for any script that loads the shim.
+cp "$SCRIPT_DIR/scripts/lib/helpers.sh"      "$TEST4_FIXTURE/scripts/lib/"
+cp "$SCRIPT_DIR/scripts/lib/helpers-core.sh" "$TEST4_FIXTURE/scripts/lib/"
+cp "$SCRIPT_DIR/scripts/lib/helpers-full.sh" "$TEST4_FIXTURE/scripts/lib/"
 cp "$SCRIPT_DIR/scripts/resolve-tools.sh" "$TEST4_FIXTURE/scripts/"
 cp "$SCRIPT_DIR/scripts/check-phase-gate.sh" "$TEST4_FIXTURE/scripts/"
 cp "$SCRIPT_DIR/scripts/validate.sh" "$TEST4_FIXTURE/scripts/"
@@ -2700,14 +2710,29 @@ section "TEST 7: Dry-Run Mode"
 
 echo ""
 
-# Test dry-run with piped input
-dry_input="test-dryrun
-Dry run test
-3
+# Test dry-run with piped input.
+# BL-136: init.sh's intake consumes stdin ONLY at prompt_choice calls.
+# prompt_input (project name / description / directory) auto-returns its
+# default in a non-interactive/piped context WITHOUT reading a line (the
+# `[ ! -t 0 ]` guard in helpers-core.sh::prompt_input), so the piped
+# answers must be EXACTLY the ordered prompt_choice selections — no
+# name/description/dir lines. The pre-BL-136 fixture fed a name + a
+# description + a stale choice count; those two leading lines were
+# mis-consumed as invalid Platform-type entries and stdin then hit EOF at
+# the (since-added) Governance-mode prompt, so init.sh aborted before ever
+# printing "Tool Resolution" (the "Dry-run missing resolver tool output"
+# FAIL). prompt_choice has NO non-interactive default by design (a required
+# selection has no safe default), so SOIF_NONINTERACTIVE/</dev/null cannot
+# substitute for real answers here — the sequence must be fed.
+# Sequence: Platform=web(4) · Track=standard(2) · Deployment=personal(1) ·
+# Governance=Production Build(2) · Language=typescript(7) · Continue?=Y
+# (the raw `read` at init.sh's "Continue?" runs under `set -e`, so it needs
+# a value rather than EOF). Menu positions are alphabetical-plus-"other".
+dry_input="4
 2
 1
+2
 7
-/tmp/test-dryrun
 Y"
 
 dry_output=$(echo "$dry_input" | bash "$SCRIPT_DIR/init.sh" --dry-run 2>&1) || true
