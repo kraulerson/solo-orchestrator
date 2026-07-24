@@ -50,10 +50,10 @@ The Claude session attempted (or proposed) a framework bypass — most commonly 
 
 A user-terminal `git commit` was blocked by `.git/hooks/framework-gate.sh` because it violated the Build Loop / Phase classifier. Strict-mode only.
 
-- **Writer:** `framework-gate.sh` (installed by `scripts/install-filesystem-gates.sh` on strict projects).
-- **Lifecycle:** terminal. `user_response: "n/a", final_outcome: "recorded_only"`.
+- **Writer:** `framework-gate.sh` (installed by `scripts/install-filesystem-gates.sh` on strict projects); the emitted pre-commit fallback arms (BL-163) and commit-msg hook (BL-171) write the same row type via their shared `soif_ledger_blocked` helper (`scripts/lib/hook-templates.sh`).
+- **Lifecycle:** terminal. `user_response: "n/a", final_outcome: "abandoned"`.
 - **`actor`:** `user_terminal`.
-- **`details`:** the commit subject, the staged file list, the classifier's reason.
+- **`details`:** `{gate: <name>}` — the name of the gate that blocked (e.g. `process-checklist`, `pre-commit-gate`, `gitleaks`, `semgrep`, `bl125_tests`, `commitmsg_tdd`, `commitmsg_buildloop`).
 
 ### `terminal_commit_passed`
 
