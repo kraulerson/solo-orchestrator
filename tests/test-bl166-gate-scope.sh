@@ -273,6 +273,49 @@ else
   fail_ "(e)" "expected clean-copy exit 0 + mutant non-zero; got clean=$rc_e0 mutant=$rc_e1"
 fi
 
+# ════════════════════════════════════════════════════════════════════
+echo "=== (f) --gate phase_3_to_4 STILL enforces its own 3→4 items per-item (no skip) ==="
+# ════════════════════════════════════════════════════════════════════
+# The skip flag is set ONLY when the named gate's target is BELOW 4. Under
+# --gate phase_3_to_4 (target 4) the four readiness blocks MUST run per-item —
+# process-checklist.sh --start-phase4 consults exactly this invocation as a live
+# gate, so a threshold slip (`-lt 4` → `-le 4`) that skipped them would
+# authorize Phase 4 with everything unevaluated. Assert on CONTENT, not exit
+# code: the 3→4 gate-date WARN keeps exit 1 regardless, so only the per-item
+# diagnostic + the absence of a [NEXT] line discriminate.
+PF="$TOPTMP/f"
+build_clean_p3 "$PF"
+out_f=$( cd "$PF" && bash "$SCRIPT" --gate phase_3_to_4 2>&1 )
+f_ok=1
+if ! printf '%s' "$out_f" | grep -qF 'Phase 3→4: HANDOFF.md not found'; then
+  fail_ "(f-peritem)" "under --gate phase_3_to_4 the per-item 3→4 readiness check must run (expected 'Phase 3→4: HANDOFF.md not found'); out: $(printf '%s' "$out_f" | tail -4 | tr '\n' '|')"; f_ok=0
+fi
+if printf '%s' "$out_f" | grep -qF '[NEXT]'; then
+  fail_ "(f-next)" "the [NEXT] skip line must NOT appear under --gate phase_3_to_4 (its own gate)"; f_ok=0
+fi
+[ "$f_ok" -eq 1 ] && pass "(f) --gate phase_3_to_4 enforces 3→4 per-item, no [NEXT] skip"
+
+# ════════════════════════════════════════════════════════════════════
+echo "=== (g) T-mutation: threshold -lt 4 → -le 4 must be caught by (f) ==="
+# ════════════════════════════════════════════════════════════════════
+# The verifier's surviving mutant: broadening the threshold makes --gate
+# phase_3_to_4 ALSO skip its own blocks. Neuter it in a copy and re-run (f)'s
+# probe — the per-item diagnostic must vanish (mutant caught).
+MUTG="$TOPTMP/mutg/scripts"
+mkdir -p "$MUTG/lib"
+cp "$REPO_ROOT/scripts/check-phase-gate.sh" "$MUTG/check-phase-gate.sh"
+cp "$REPO_ROOT"/scripts/lib/*.sh "$MUTG/lib/" 2>/dev/null || true
+sed -i 's/\[ "\$gate_scope_target" -lt 4 \] && skip_later_gate=1/[ "$gate_scope_target" -le 4 ] \&\& skip_later_gate=1/' "$MUTG/check-phase-gate.sh" 2>/dev/null \
+  || sed -i '' 's/\[ "\$gate_scope_target" -lt 4 \] && skip_later_gate=1/[ "$gate_scope_target" -le 4 ] \&\& skip_later_gate=1/' "$MUTG/check-phase-gate.sh"
+PG="$TOPTMP/g"
+build_clean_p3 "$PG"
+out_g=$( cd "$PG" && bash "$MUTG/check-phase-gate.sh" --gate phase_3_to_4 2>&1 )
+if printf '%s' "$out_g" | grep -qF 'Phase 3→4: HANDOFF.md not found'; then
+  fail_ "(g)" "the -le 4 mutant did NOT skip the 3→4 blocks — (f) would not catch a threshold slip"
+else
+  pass "(g) threshold mutant (-le 4) skips its own 3→4 blocks → caught by (f)'s per-item assertion"
+fi
+
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]

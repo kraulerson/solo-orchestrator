@@ -1772,7 +1772,7 @@ fi
 # ═══════════════════════════════════════════════════════════════════════
 if [ "$skip_later_gate" -eq 1 ] && [ "$current_phase" -ge 3 ]; then
   # BL-166-GATE-SCOPE — announce (do NOT count) the next gate's deliverables.
-  echo -e "${BLUE}[NEXT]${NC} Phase 3→4 readiness (HANDOFF.md, sbom.json, docs/test-results/, SECURITY.md, penetration test, review manifest, Phase-3 process checklist) is NOT evaluated under --gate $GATE_SCOPE — these belong to the phase_3_to_4 gate and are not counted against it."
+  echo -e "${BLUE}[NEXT]${NC} Phase 3→4 readiness (POC-mode release block, release-pipeline TODOs, HANDOFF.md, docs/INCIDENT_RESPONSE.md, sbom.json, docs/test-results/, SECURITY.md, penetration test, review manifest, Phase-3 process checklist) is NOT evaluated under --gate $GATE_SCOPE — these belong to the phase_3_to_4 gate and are not counted against it."
 fi
 
 # POC mode check (Phase 3→4) — block production release if in POC mode
