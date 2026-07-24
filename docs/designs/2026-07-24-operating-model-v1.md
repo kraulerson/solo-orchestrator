@@ -1,12 +1,12 @@
 # The Configurable Operating Model — design v1 (normative-once-reviewed for the build)
 
-**Status:** v1.2, 2026-07-24 — **post review-r2** (both r1 and r2 returned BLOCK; r2 was narrow — all
-12 r1 resolutions verified genuine, and the 6 r2 findings R2-1..R2-6 are small edits confined to the
-F4/F6 areas, all folded below and mapped in §0). The build of the BL-097 / BL-098 / BL-100 delegation
-trio remains GATED on this doc clearing review. No product code, template edit, or policy text lands
-from this work package: design doc only. Every "exists today" anchor was re-grep-verified 2026-07-24 —
-r1's three refutations came from trusting a script's stale self-description, so nothing here is
-header-trusted (prefer the grep recipes over quoted line numbers; re-verify before editing).
+**Status:** v1.2.1, 2026-07-24 — **review-r3: APPROVE** (design cleared adversarial review; r1 and r2
+returned BLOCK → the v1.1/v1.2 remediations, and r3 folded two MINORs, R3-1/R3-2 — all mapped in §0).
+The build of the BL-097 / BL-098 / BL-100 delegation trio is now **un-gated on review**, still sequenced
+after Dogfood-4 per Karl's 2026-07-20 decision; the three backlog entries stay Open until the build
+lands. No product code, template edit, or policy text lands from this work package: design doc only.
+Every "exists today" anchor was re-grep-verified 2026-07-24 (prefer the grep recipes over quoted line
+numbers; re-verify before editing).
 
 **Provenance:** authored per Karl's recorded **2026-07-20 trio decision** (logged verbatim
 on BL-097, referenced by BL-098 and BL-100): enforcement of the delegation protocol becomes
@@ -46,11 +46,16 @@ top, not accreted; F1/F2/F3 were refuted "exists" claims — all now re-grepped,
 - **R2-1 (BLOCK) → §5.1** — corrected the ".claude/agents ships nothing" claim: init.sh ships none to generated projects (verified), but the framework repo carries BL-146's `pr-reviewer` (`.claude/agents/pr-reviewer.md`, `model: fable`) — the in-family precedent for mechanism (b).
 - **R2-2 (MAJOR) → §10-WP4a/WP4b** — added WPs building both ADOPTED F4 mechanisms: (b) manifest-rendered role-agent files and (a) the PreToolUse `Agent`-matcher gate, each with test intent + mutation proof.
 - **R2-3 (MAJOR) → §5.1/WP4b** — defined gate semantics: unbound (`modelsBound:false`) enforces only "a model is named" (BL-097 r1); the set-membership arm activates on bind; membership = exact-string over the bound set (no framework alias resolution — provider-neutrality).
-- **R2-4 (MAJOR) → §5.1/§5-s3** — replaced the uncitable "v2.1.63+": the `Agent` name is present by 2.1.69 (coexisting with `Task` in later entries — a gradual transition); fail-open now rests on **matcher inertness** (docs-confirmed), not a version compare. **Independent-verification note:** the `resolvedModel`/`modelsUsed` field names + versions (2.1.174/2.1.212) could NOT be confirmed in the public changelog, so the audit arm feature-detects rather than pins them — flagged for the re-reviewer (I did not launder the reviewer's numbers; see open question 7).
+- **R2-4 (MAJOR) → §5.1/§5-s3** — replaced the uncitable "v2.1.63+": the `Agent` name is present by 2.1.69 (coexisting with `Task` in later entries — a gradual transition); fail-open now rests on **matcher inertness** (docs-confirmed), not a version compare. **Independent-verification note:** the `resolvedModel`/`modelsUsed` versions (2.1.174/2.1.212) have zero mentions in the public changelog (verified), so I flagged rather than laundered — **resolved at r3 (see v1.2.1):** hooks.md's `Agent` `tool_response` table documents both; the pins are restored, feature-detection retained.
 - **R2-5 (MINOR) → §3/§4** — named the deterministic single-model pre-bind token: `tier:top` (all five roles).
 - **R2-6 (MINOR) → §10-WP5** — the session-start line now reports the gate active/inert (one word), so fail-open is attested, not silent.
 
-Status: v1.2 awaiting re-review; build still gated on it.
+**v1.2.1 (2026-07-24) — review-r3: APPROVE** (design cleared; no further round). Two MINOR folds:
+
+- **R3-1 → §5.1/§5-s3/Q7** — the `resolvedModel`@v2.1.174 / `modelsUsed`@v2.1.212 pins are **restored**, cited to **hooks.md's `Agent` `tool_response` schema table** (NOT the changelog). **Adjudication:** the r2 doubt was half-right — the changelog has **zero mentions (verified)**, but **hooks.md documents both**; my r2 hooks-docs search was the miss. The refuse-to-launder posture was ruled correct process, and the runtime mechanism **stays feature-detection** (version-proof; a doc-annotation anchor is weak). **Open question 7 is closed (resolved).** Cosmetic: "without an `Agent` matcher" → "whose dispatch tool is not named `Agent`".
+- **R3-2 → §5.1/WP4b** — adopted **STRICT** composition: the gate's names-no-model deny applies even to a role-typed dispatch (`subagent_type:<role>` with no explicit `model`); the shipped role file's frontmatter pin is defense-in-depth, not an exemption (BL-097 r1). Stated so the semantics and WP4b's test list agree.
+
+Status: **v1.2.1 — design APPROVED at review-r3.** The trio build is un-gated on review (still sequenced after Dogfood-4); the three backlog entries stay Open until it lands.
 
 ---
 
@@ -261,7 +266,7 @@ Claims are tiered **mechanical** / **auditable** / **advisory**.
 |---|---|---|---|---|
 | 1 | **Marker-delimited policy block in the generated `CLAUDE.md`** | Init renders the chosen per-role models into a marker-delimited region (`SOIF-OPMODEL-OPEN`…`_CLOSE`, mirroring `scripts/lib/hook-templates.sh`'s `SOIF_PRECOMMIT_OPEN/_CLOSE` managed regions); reconfigure rewrites the region idempotently in place; a **new** lint asserts the region matches the manifest `operatingModel` and the §3 `singleModel` iff. | **Mechanical** (on the artifact; executing surface in §10-WP4) | **F3: no render-vs-manifest lint exists today** — `lint-review-manifest.sh` is a JSON-*shape* linter. Nearest real precedents: the currency `renderBases` sha-tracking and the freshness `render-base` check; the marker region is the `hook-templates.sh` managed-block precedent. |
 | 2 | **Manifest machine-readable + surfaced at session start** | `operatingModel` is jq-readable; a SessionStart hook prints the chosen models once per session (silent otherwise) and, while `modelsBound:false`, nudges the operator to bind concrete ids. | **Mechanical** (surfacing) / **advisory** (adherence) | `init.sh` injects `session-version-check.sh` / `session-freshness-check.sh` into `.claude/settings.json` `.hooks.SessionStart`; `session-freshness-check.sh` (BL-109 S2) is the silent-when-current, fail-open, zero-network model. |
-| 3 | **Dispatch-summary transparency + post-hoc resolved-model audit** | Every dispatch summary states the fleet's model/effort mix (BL-097 r6). A PostToolUse arm can record the harness-reported actually-resolved model (and any mid-run swaps) so the *actual* model is auditable, not just the requested one. | **Auditable** (after the fact) | audit-artifact discipline mirrors `.claude/bypass-audit.json` row-writing; the resolved-model field is **feature-detected** (R2-4: its exact name/version is unconfirmed in the public changelog). |
+| 3 | **Dispatch-summary transparency + post-hoc resolved-model audit** | Every dispatch summary states the fleet's model/effort mix (BL-097 r6). A PostToolUse arm can record the harness's `resolvedModel` (v2.1.174) / `modelsUsed` (v2.1.212) so the *actual* model is auditable, not just the requested one. | **Auditable** (after the fact) | audit-artifact discipline mirrors `.claude/bypass-audit.json` row-writing; `resolvedModel` / `modelsUsed` are documented in hooks.md's `Agent` `tool_response` schema table (changelog: zero mentions — verified), and the field is **feature-detected** at runtime (version-proof). |
 | 4 | **Per-dispatch model gate (the F4 mechanism)** | A PreToolUse `Agent`-matcher gate and/or manifest-rendered `.claude/agents/` role pinning — **two adoptable mechanisms**, evaluated in the §5.1 decision table below. | **Mechanical** (fail-open by matcher inertness) + stated residual limits | Verified: the `Agent` matcher, `subagent_type`+`model` tool-input, deny via exit-2 / `permissionDecision` (Claude Code hooks docs); `init.sh`'s existing matcher-generic PreToolUse writes (Bash + Write/Edit). |
 | 5 | **Actual per-dispatch choice inside the conversation** | The agent chooses per role per the rendered policy. | **Advisory** (but constrained by surface 4 wherever a role agent-type or the gate applies) | the persona table's fresh-context doctrine is followed the same advisory way today. |
 | 6 | **Verifier-≥-implementer adherence (BL-097 r4 / BL-100 r5)** | The dispatching agent assigns the verifier at ≥ the work's blast radius. | **Advisory**, but its *output* (verifier verdict + double-mutation) is an **auditable** per-change artifact. | BL-100 rules 2–4. |
@@ -283,18 +288,18 @@ in-family precedent (b) generalizes. For a generated project both options are ne
 | Option | Enforces mechanically | Residual limit | Decision |
 |---|---|---|---|
 | **(b) Manifest-rendered `.claude/agents/` role files** — one generated agent per role, each pinning `model:`/`effort:` from `operatingModel` (a concrete id once `modelsBound`, else doctrine + no hard pin) | A dispatch naming `subagent_type: <role>` is model-pinned **by the harness** — the role→model binding becomes a harness-enforced fact, no gate needed | Governs only dispatches that USE a shipped role agent-type; an ad-hoc `subagent_type` or a raw `model:` override is not covered by (b) alone | **ADOPT for v1** — low-risk (generated markdown), harness-native, and the most direct delivery of the recorded "the framework then ENFORCES" language |
-| **(a) A PreToolUse `Agent`-matcher gate** — a shipped hook reading the dispatch tool-input, with the R2-3 semantics: while `modelsBound:false` deny a dispatch naming *no* model (BL-097 r1, "never inherit silently"); once `modelsBound:true` also deny a `model` outside the configured set | unbound: "every dispatch names a model"; bound: also "model ∈ the configured set" — **membership = exact-string over the bound set** (R2-3: the framework does NOT resolve aliases to ids — the id space is provider-specific and drifts; the operator binds whatever spelling they dispatch with, and the deny message names the set so a mismatch self-corrects) | Cannot classify an ad-hoc dispatch's ROLE/tier from `subagent_type`+`prompt` alone; the harness-reported `resolvedModel` may differ from the requested `model` (field name/version unconfirmed, R2-4 — feature-detect); the `Agent` matcher + `model` field are available by 2.1.69 | **ADOPT for v1** — **fail-open is automatic via matcher inertness** (docs-confirmed: on a harness without an `Agent` matcher the hook is simply never invoked — unmatched matcher = silently skipped — so no runtime version compare is needed); full semantics in WP4b |
+| **(a) A PreToolUse `Agent`-matcher gate** — a shipped hook reading the dispatch tool-input, with the R2-3 semantics: while `modelsBound:false` deny a dispatch naming *no* model (BL-097 r1, "never inherit silently"); once `modelsBound:true` also deny a `model` outside the configured set | unbound: "every dispatch names a model"; bound: also "model ∈ the configured set" — **membership = exact-string over the bound set** (R2-3: the framework does NOT resolve aliases to ids — the id space is provider-specific and drifts; the operator binds whatever spelling they dispatch with, and the deny message names the set so a mismatch self-corrects) | Cannot classify an ad-hoc dispatch's ROLE/tier from `subagent_type`+`prompt` alone; the harness's `resolvedModel` (v2.1.174, per hooks.md; feature-detected at runtime) may differ from the requested `model`; the `Agent` matcher + `model` field are available by 2.1.69 | **ADOPT for v1** — **fail-open is automatic via matcher inertness** (docs-confirmed: on a harness whose dispatch tool is not named `Agent` the hook is simply never invoked — unmatched matcher = silently skipped — so no runtime version compare is needed); full semantics in WP4b |
 
 **Honest residual limits surviving both:** (i) tier-*correctness* for an unclassified/ad-hoc dispatch
 — a gate enforces "a configured model," not "the right tier for this task" — stays advisory; (ii)
 `resolvedModel`/`modelsUsed` mean the request-time gate sees the *requested* model, not the harness's
 final resolution, so a **PostToolUse** audit of the actually-resolved model (surface 3) is the
 complement; (iii) harness-version coverage — the gate/pinning need the `Agent` matcher (present by
-2.1.69), but fail-open is free via matcher inertness (no runtime version compare). **R2-4 honesty
-note:** the `resolvedModel` / `modelsUsed` audit-field names and their introduction versions
-(2.1.174 / 2.1.212) could **not** be confirmed in the public changelog or hooks docs as of 2026-07-24
-(an independent search found zero mentions), so the audit arm must **feature-detect** whatever
-resolved-model field the harness exposes rather than pin a name or version — see the open question.
+2.1.69), but fail-open is free via matcher inertness (no runtime version compare). **R2-4/R3-1 note:**
+`resolvedModel` (v2.1.174) / `modelsUsed` (v2.1.212) are documented in **hooks.md's `Agent`
+`tool_response` schema table** — **changelog: zero mentions (verified); hooks.md: documents both** (the
+r2 doubt was a hooks-docs search miss, adjudicated at r3). The audit arm still **feature-detects** the
+field at runtime (version-proof) rather than hard-coding the name/version.
 
 **Bottom line:** per-dispatch policy is partly mechanical (render+lint, `.claude/agents` pinning,
 `Agent`-gate deny) with an honest advisory/auditable residue — v1's "impossible" was false.
@@ -523,10 +528,14 @@ session can plan directly from this list. Every WP goes through §6.3 adversaria
   `Agent` matcher in `.claude/settings.json` (the same matcher-generic jq-injection init already does for
   Bash and Write/Edit), shipped downstream with BL-088 source-closure. **Semantics (R2-3):** while
   `modelsBound:false` deny only a dispatch that names no model (BL-097 r1); once `modelsBound:true` also
-  deny a `model` not in the bound set (exact-string membership, no alias resolution). **Fail-open by matcher
-  inertness** — on a harness without the `Agent` matcher the hook never fires, so no version compare. *Tests:*
-  a model-less dispatch is denied; the unbound state denies ONLY the model-less case; a bound out-of-set model
-  is denied; the hook is inert (never fires) where no `Agent` matcher exists. **Mutation-provable:** neuter
+  deny a `model` not in the bound set (exact-string membership, no alias resolution). **Strict composition
+  (R3-2):** the names-no-model deny applies EVEN to a role-typed dispatch (`subagent_type:<role>` with no
+  explicit `model` param) — the shipped role file's frontmatter pin is defense-in-depth, not an exemption
+  (BL-097 r1 compels naming the model at the dispatch site); this is what the tests below already encode.
+  **Fail-open by matcher inertness** — on a harness whose dispatch tool is not named `Agent` the hook never
+  fires, so no version compare. *Tests:* a model-less dispatch is denied (including a role-typed one with no
+  `model`); the unbound state denies ONLY the model-less case; a bound out-of-set model is denied; the hook
+  is inert (never fires) where the dispatch tool is not named `Agent`. **Mutation-provable:** neuter
   the deny path → a model-less dispatch passes → RED.
 - **WP5 — Session-start surface.** A `session-operating-model-check.sh` (or an arm folded into
   `session-freshness-check.sh`) that prints the chosen models once, silent otherwise, fail-open
@@ -592,8 +601,9 @@ implementation and a double-mutation verify.
   the matcher-generic PreToolUse writes (Bash + Write/Edit), `session-freshness-check.sh`, the
   `bypass-audit.sh` enum + `test-bl029-integration.sh` T6 whitelist + `docs/audit-log-lifecycle.md` tables,
   `hook-templates.sh` `SOIF_*_OPEN/_CLOSE`, `soif_render_claude_md`, `.claude/agents/pr-reviewer.md`
-  (`model: fable`). Harness facts vs the Claude Code docs: matcher-inertness fail-open **confirmed**; the
-  `resolvedModel`/`modelsUsed` versions could **not** be confirmed (R2-4) — feature-detected, not pinned.
+  (`model: fable`). Harness facts vs the Claude Code docs: matcher-inertness fail-open **confirmed**; `resolvedModel`
+  (v2.1.174) / `modelsUsed` (v2.1.212) are in hooks.md's `Agent` `tool_response` table (changelog: zero
+  mentions — verified; r3 adjudicated the r2 hooks-docs search miss) — feature-detected at runtime.
 - **Any unresolved placeholders?** None. Every underdetermined choice is a decision table with one
   recommendation and stated alternatives (granularity §2; storage §3; id representation §3-F6; unattended
   default §4; per-dispatch enforcement §5.1; reconfigure verb §8; migration path §9).
@@ -628,10 +638,8 @@ implementation and a double-mutation verify.
    `local-edit|framework|framework-drift|orphan|hook|render-base|cdf`. That enum is a machine-block
    contract the S5 lint pins — flag it as a deliberate contract change so the lint and any consumer move in
    the same wave, not silently.
-7. **Unverifiable harness audit-field versions (R2-4 residue).** Review-r2 asked to pin
-   `resolvedModel`@2.1.174 and `modelsUsed`@2.1.212, but an independent search of the public Claude Code
-   changelog + hooks docs (2026-07-24) found zero mentions of either field or version. I did NOT pin them —
-   the surface-3 audit arm feature-detects whatever resolved-model field the harness exposes. If the
-   re-reviewer holds an internal/closed-source changelog confirming these, cite it and the pins can return;
-   absent that, feature-detection is the provable-anchor-compliant choice, and pinning an unverifiable
-   version would repeat the r1 laundering defect.
+7. **Harness audit-field versions — RESOLVED (r3).** review-r2 asked to pin `resolvedModel`@v2.1.174 /
+   `modelsUsed`@v2.1.212; I declined pending a verifiable anchor (the changelog had zero mentions — verified).
+   **r3 adjudication:** both are documented in **hooks.md's `Agent` `tool_response` schema table** — my r2
+   hooks-docs search was the miss. Pins restored (§5.1/§5-s3); the runtime mechanism stays **feature-detection**
+   (version-proof; a doc-annotation anchor is weak). The refuse-to-launder step was ruled correct process. Closed.
