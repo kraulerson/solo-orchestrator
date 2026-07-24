@@ -3692,7 +3692,7 @@ At `current_phase=2` with `phase2_init.verified=false`, the init-verified block 
 **Logged:** 2026-07-22 (Dogfood-4 S0, finding F-DF4-003)
 **Category:** UX / state-machine gap (init remote path)
 **Severity:** Low
-**Status:** Open
+**Status:** Closed — shipped + merged 2026-07-24 (PR #256 `5e1da61`). `# BL-157-REMOTE-MARKER`: `check-gate.sh --repair` auto-records remote_repo_created/pushed_initial when the remote genuinely carries the project's pushed head, collapsing the free-tier two-step to one. Fable verifier HIGH fixed: pushed_initial now requires the matched remote head to be a commit the repo holds locally (`cat-file -e`) + exact awk branch match — a same-named UNPUSHED remote can no longer launder the BL-123 attestation. BL-123 refusal for remote-less projects preserved (verified).
 
 Scaffolding with `--no-remote-creation` and wiring `origin` by hand (the exact-casing repo flow) never records `phase2_init.steps_completed: remote_repo_created` / `pushed_initial`. The BL-123 attestation path REFUSES post-hoc branch-protection attestation until those markers exist (deliberate, verifier-driven), so a free-tier operator must run `check-gate.sh --repair` once (reconciles the markers from the live remote, then re-hits the 403) and only THEN `--repair --branch-protection-attested`. The two-step works and is honest, but nothing documents it; the first `--repair` output does not say "run me again with the attestation flag."
 
@@ -3711,7 +3711,7 @@ Scaffolding with `--no-remote-creation` and wiring `origin` by hand (the exact-c
 **Logged:** 2026-07-22 (Dogfood-4 S0, finding F-DF4-004)
 **Category:** Cosmetic / audit clarity
 **Severity:** Low
-**Status:** Open
+**Status:** Closed — shipped + merged 2026-07-24 (PR #258 `6a19ae4`). `# BL-158-GATE-LABEL`: under `--gate` the header reads `Checking gate: <name> (as-if phase <forced>; recorded current_phase: <recorded>)` instead of a misleading `Current phase: N`; bare runs unchanged.
 
 With `--gate phase_0_to_1` the header prints `Current phase: 1` even when `phase-state.json` holds `current_phase: 0` — the script forces the target phase to run that gate's checks, but the label reads like recorded state and can confuse an audit trail (S0 walker flagged it while `current_phase` was still 0). No state is mutated.
 
@@ -3779,7 +3779,7 @@ The commit detector appends a `terminal_commit_passed` row to `.claude/bypass-au
 **Logged:** 2026-07-22 (Dogfood-4 S2, finding F-DF4-008; observed during the Probe-B block — the block itself was CORRECT)
 **Category:** Cosmetic (gate output)
 **Severity:** Low
-**Status:** Open
+**Status:** Closed — shipped + merged 2026-07-24 (PR #255 `aec1629`). `# BL-162-AUDIT-DEDUP`: the BL-120 audit-file globs are deduped by path so the OPEN-finding warning prints once when feature slug==name; the verdict/BLOCK are unchanged.
 
 The `# BL-120-AUDIT-VERDICT` arm in `process-checklist.sh` globs audit files by both `*<slug>*` and `*<name>*`; when slug and name are identical (`find-in-document`), the same artifact matches twice and the `records N OPEN finding(s)` warning prints twice. Harmless — the step still blocks exactly once — but noisy audit output invites "is it checking two files?" confusion.
 
@@ -3851,7 +3851,7 @@ The two BL-147 governance steps (approval-log integrity, approval-author verific
 **Logged:** 2026-07-22 (Dogfood-4 S3, finding F-DF4-013)
 **Category:** UX / gate semantics
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — shipped + merged 2026-07-24 (PR #258 `6a19ae4`). `# BL-166-GATE-SCOPE`: `--gate <name>` scopes its exit/count to the named gate (later-gate readiness prints as one non-counted `[NEXT]` line); `--gate phase_3_to_4` and bare runs unchanged. Fable verifier MAJOR (test gap) fixed: cases (f)/(g) guard the `-lt 4` threshold so a slip that skipped 3→4's own blocks (consulted by --start-phase4) is caught.
 
 `--gate phase_2_to_3` forces `current_phase=3` to run the target gate's checks, but then ALSO runs the Phase 3→4 pre-gate checks that fire at phase 3 — so on a project that legitimately clears every 2→3 requirement the tool still exits 1 with `8 inconsistency(ies) found — blocking`, all eight being 3→4 deliverables (HANDOFF.md, sbom.json, pentest, …) that cannot exist yet. The S3 walker crossed via `--start-phase3` (which gates correctly on the bug gate + feature completeness), but the `--gate` invocation's false "blocked" verdict invites either alarm or — worse — habituation to red gate output.
 
@@ -3870,7 +3870,7 @@ The two BL-147 governance steps (approval-log integrity, approval-author verific
 **Logged:** 2026-07-22 (Dogfood-4 S3, finding F-DF4-014)
 **Category:** Cosmetic / classifier precision
 **Severity:** Low
-**Status:** Open
+**Status:** Closed — shipped + merged 2026-07-24 (PR #255 `aec1629`). `# BL-167-CLAUDE-EXCLUDE`: `.claude/` (top-level and nested) is exempt from the BL-072 impl-file classifier; src/lib/app still classify as impl.
 
 A `fix:` commit staging only source + `.claude/phase-state.json` produced a BL-072 warn listing `.claude/phase-state.json` as an impl file lacking a test. Framework state files are never implementation; counting them as impl inflates warn noise on legitimate commits (personal tier: warn+log, so no block — but noise trains operators to skim warns).
 
@@ -3989,7 +3989,7 @@ redesign pass.
 **Logged:** 2026-07-23 (BL-163 verifier residual, named in the BL-163 fable record: "the emitted COMMIT-MSG hook's refusals (BL-072/BL-006 arms) still write no ledger row — same class, separate surface"); Karl-approved post-Dogfood-4 residuals wave.
 **Category:** Telemetry gap / audit-trail completeness (generated projects)
 **Severity:** Medium (same class as BL-163)
-**Status:** Open
+**Status:** Closed — shipped + merged 2026-07-24 (PR #257 `9e32ecc`). `# BL-171-COMMITMSG-LEDGER`: the emitted commit-msg hook's BL-072/BL-006 refusals now write terminal_commit_blocked rows (shared BL-163 subshell-confined helper; pre-commit hook byte-identical). Fable verifier MAJOR fixed: `soif_cm_rc=0; … || soif_cm_rc=$?` so a `set -e` composed preamble can't drop the row (T6 pins it). Filed BL-172 (TDD-gate sentinel gap).
 
 BL-163 closed the gap for the emitted PRE-COMMIT hook's blocking arms (gitleaks / semgrep / bl125_tests each append a `terminal_commit_blocked` row). Its verifier flagged the sibling surface: the emitted COMMIT-MSG hook refuses a commit — the BL-072 tier-keyed TDD-ordering HARD BLOCK, and the BL-006 Build-Loop commit-message check (BL-010) — by exiting the hook non-zero via `pre-commit-gate.sh --terminal-mode --tdd-only`. That exit happens BEFORE `.git/hooks/framework-gate.sh` runs, and framework-gate is the ONLY writer of `terminal_commit_blocked` rows — so, exactly like the pre-BL-163 pre-commit arms, a genuine commit-msg refusal appended NOTHING to `.claude/bypass-audit.json`. Enforcement is intact; the forensic record understates attempted violations at the message surface (a test-less feat: on a sponsored-POC/production tier, or a feat: with no active Build Loop, is correctly REFUSED yet leaves no ledger trace).
 
