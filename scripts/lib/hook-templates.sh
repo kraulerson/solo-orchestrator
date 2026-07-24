@@ -262,60 +262,95 @@ if command -v semgrep &>/dev/null; then
 
   if [ "${#soif_staged[@]}" -gt 0 ]; then
     # semgrep splits its output cleanly: FINDINGS go to stdout, the scan banner
-    # AND its fatal errors go to stderr. So we capture stderr rather than send it
-    # to /dev/null: on the happy path it is progress noise we drop (which is all
-    # `--quiet` ever bought us), and on a tool failure it is the ONLY place the
-    # real diagnostic appears — `--quiet` suppresses even that, which is why the
-    # flag is gone. Findings stay on stdout and are always shown.
+    # AND its fatal errors go to stderr. We capture BOTH to temp files: stderr so a
+    # tool failure's diagnostic survives (the only place it appears), and — new for
+    # BL-132 — stdout so finding paths can be rewritten from the temp index tree
+    # back to real repo-relative paths before they are shown.
     soif_sg_err="$(mktemp)"
-    set +e
-    # BL-112-SAST-ERROR — `--error` is LOAD-BEARING. Semgrep exits 0 even when it
-    # finds (and prints!) issues unless --error is passed, so without it the
-    # [BLOCKED] arm below is UNREACHABLE and an `eval(req.query.code)` Express RCE
-    # is detected, printed, and committed clean (E2E walk finding F9).
-    # `--severity=ERROR` bounds the gate to semgrep's high-confidence rules: the
-    # gate must block real issues without becoming so noisy that operators route
-    # around it. WARNING/INFO findings still surface in the Phase-3 scanners + CI.
-    # BL-118-DOMXSS-CONFIG — p/owasp-top-ten contains NO browser DOM-sink rules:
-    # a stored DOM XSS (`pane.innerHTML = userText`) scanned CLEAN, printed the
-    # [OK] receipt, and shipped to main (Dogfood-2 finding F-DF2-007). The
-    # browser ruleset added below is severity=ERROR in the registry, so it
-    # survives the --severity=ERROR bound and flags innerHTML/outerHTML/
-    # document.write sinks. It rides on its OWN continuation line so the
-    # mutation test can strip exactly it. Removing it re-blinds the gate.
-    semgrep scan --config=p/owasp-top-ten \
-      --config=r/javascript.browser.security.insecure-document-method \
-      --no-git-ignore \
-      --severity=ERROR --error "${soif_staged[@]}" 2>"$soif_sg_err"
-    soif_sg_rc=$?
-    set -e
-    if [ "$soif_sg_rc" -eq 1 ]; then
-      # 1 == semgrep found blocking findings (only ever returned with --error).
-      echo ""
-      echo "[BLOCKED] Semgrep detected security issues in staged files."
-      echo "  Review and fix the ERROR-severity findings above before committing."
-      FAILED=1
-      soif_ledger_blocked semgrep || true   # BL-163-BLOCKED-LEDGER
-    elif [ "$soif_sg_rc" -ne 0 ]; then
-      # >=2 == semgrep ITSELF failed (invalid config, registry unreachable,
-      # unparseable rule). BL-112-SAST-NOTRUN arm 2 of 2: the scanner did not run.
-      # DECLARED DECISION — this WARNs, it does not block; see the rationale on
-      # soif_sast_not_enforced above. It is treated identically to the absent arm
-      # because it IS the absent arm wearing a different coat. And it SURFACES the
-      # diagnostic: an operator who cannot see why the scanner died cannot fix it,
-      # and a gate you cannot fix is a gate you route around.
-      soif_sast_not_enforced "semgrep could not complete (exit $soif_sg_rc) — the tool itself failed."
-      sed 's/^/  /' "$soif_sg_err" >&2
+    soif_sg_out="$(mktemp)"
+    # BL-132-INDEX-SCAN — scan the STAGED CONTENT, not the worktree bytes. The old
+    # arm handed semgrep the staged PATHNAMES, so semgrep read whatever was on disk:
+    # `git add app.ts` (vuln), overwrite app.ts clean, and the COMMITTED bytes were
+    # never scanned — the flaw shipped with an [OK] receipt (BL-132 repro; `git add
+    # -p` / stage-then-edit share the hole). Materialize each staged blob into a
+    # throwaway tree that mirrors the repo layout (same relative path + extension so
+    # semgrep still picks the language), point semgrep at THAT tree, then strip the
+    # tree prefix off finding paths so the operator sees the real path. bash-3.2 and
+    # NUL-safe: soif_staged was read -z above; each path is used verbatim and git
+    # round-trips it through `git show :<path>`. A pathname git cannot express (a NUL
+    # byte) cannot be staged, so it cannot reach here.
+    soif_idx_tree="$(mktemp -d)"
+    soif_idx_ok=1
+    for soif_p in "${soif_staged[@]}"; do
+      mkdir -p "$soif_idx_tree/$(dirname "$soif_p")" 2>/dev/null || { soif_idx_ok=0; break; }
+      git show ":$soif_p" > "$soif_idx_tree/$soif_p" 2>/dev/null || { soif_idx_ok=0; break; }
+    done
+    if [ "$soif_idx_ok" -ne 1 ]; then
+      # Could not snapshot the index — honest NOTRUN (# BL-112-SAST-NOTRUN): never a
+      # silent pass, and never a false block on content we could not read.
+      soif_sast_not_enforced "could not materialize staged content for scanning — SAST skipped."
     else
-      # 0 == the scan RAN and found nothing at ERROR severity. SAY SO. A gate that
-      # is silent when it passes is indistinguishable from a gate that never ran —
-      # which is the entire BL-112 defect class. This receipt is what makes the
-      # clean-commit test falsifiable: without it, "a clean file commits" is also
-      # true on a host where the scanner was simply skipped, and the test would
-      # pass vacuously while proving nothing.
-      echo "[OK] semgrep: SAST ran on ${#soif_staged[@]} staged file(s) — no ERROR-severity findings."
+      set +e
+      # BL-112-SAST-ERROR — `--error` is LOAD-BEARING. Semgrep exits 0 even when it
+      # finds (and prints!) issues unless --error is passed, so without it the
+      # [BLOCKED] arm below is UNREACHABLE and an `eval(req.query.code)` Express RCE
+      # is detected, printed, and committed clean (E2E walk finding F9).
+      # `--severity=ERROR` bounds the gate to semgrep's high-confidence rules: the
+      # gate must block real issues without becoming so noisy that operators route
+      # around it. WARNING/INFO findings still surface in the Phase-3 scanners + CI.
+      # BL-118-DOMXSS-CONFIG — p/owasp-top-ten contains NO browser DOM-sink rules:
+      # a stored DOM XSS (`pane.innerHTML = userText`) scanned CLEAN, printed the
+      # [OK] receipt, and shipped to main (Dogfood-2 finding F-DF2-007). The browser
+      # ruleset is severity=ERROR in the registry, so it survives the
+      # --severity=ERROR bound and flags innerHTML/outerHTML/document.write sinks.
+      # BL-131-DOM-SINKS — the project-owned DOM-sink ruleset (under .semgrep/,
+      # shipped by init.sh) covers the sinks NO registry rule catches:
+      # insertAdjacentHTML, jQuery .html(), and innerHTML/document.write inside
+      # .vue/.html (which the registry's js/ts rules cannot reach). Referenced by the
+      # repo-relative path (git runs hooks at the work-tree root); passed
+      # UNCONDITIONALLY so a missing/deleted file makes semgrep exit >=2 and the
+      # NOTRUN arm fires LOUDLY — coverage can never silently vanish. Each --config
+      # rides its OWN continuation line so a mutation test can strip exactly one;
+      # removing either DOM line re-blinds the gate.
+      semgrep scan --config=p/owasp-top-ten \
+        --config=r/javascript.browser.security.insecure-document-method \
+        --config=.semgrep/soif-dom-sinks.yml \
+        --no-git-ignore \
+        --severity=ERROR --error "$soif_idx_tree" >"$soif_sg_out" 2>"$soif_sg_err"
+      soif_sg_rc=$?
+      set -e
+      # Map the temp-tree prefix off finding paths, then show semgrep's findings
+      # (stdout) with the real repo-relative paths. A clean scan prints nothing here.
+      sed "s#${soif_idx_tree}/##g" "$soif_sg_out"
+      if [ "$soif_sg_rc" -eq 1 ]; then
+        # 1 == semgrep found blocking findings (only ever returned with --error).
+        echo ""
+        echo "[BLOCKED] Semgrep detected security issues in staged files."
+        echo "  Review and fix the ERROR-severity findings above before committing."
+        FAILED=1
+        soif_ledger_blocked semgrep || true   # BL-163-BLOCKED-LEDGER
+      elif [ "$soif_sg_rc" -ne 0 ]; then
+        # >=2 == semgrep ITSELF failed (invalid/missing config, registry
+        # unreachable, unparseable rule). BL-112-SAST-NOTRUN arm 2 of 2: the scanner
+        # did not run. DECLARED DECISION — this WARNs, it does not block; see the
+        # rationale on soif_sast_not_enforced above. It is treated identically to
+        # the absent arm because it IS the absent arm wearing a different coat. And
+        # it SURFACES the diagnostic: an operator who cannot see why the scanner
+        # died cannot fix it, and a gate you cannot fix is a gate you route around.
+        soif_sast_not_enforced "semgrep could not complete (exit $soif_sg_rc) — the tool itself failed."
+        sed 's/^/  /' "$soif_sg_err" >&2
+      else
+        # 0 == the scan RAN and found nothing at ERROR severity. SAY SO. A gate that
+        # is silent when it passes is indistinguishable from a gate that never ran —
+        # which is the entire BL-112 defect class. This receipt is what makes the
+        # clean-commit test falsifiable: without it, "a clean file commits" is also
+        # true on a host where the scanner was simply skipped, and the test would
+        # pass vacuously while proving nothing.
+        echo "[OK] semgrep: SAST ran on ${#soif_staged[@]} staged file(s) — no ERROR-severity findings."
+      fi
     fi
-    rm -f "$soif_sg_err"
+    rm -rf "$soif_idx_tree"
+    rm -f "$soif_sg_err" "$soif_sg_out"
   fi
 else
   # BL-112-SAST-NOTRUN arm 1 of 2 — the documented semgrep-absent contract: WARN,

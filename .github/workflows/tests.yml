@@ -97,6 +97,8 @@ jobs:
             tests/test-bl107-tdd-all-languages.sh
             tests/test-bl108-bl117-ship-closure.sh
             tests/test-bl118-sast-dom-xss.sh
+            tests/test-bl132-sast-index-scan.sh
+            tests/test-bl131-domsink-rules.sh
             tests/test-bl119-stale-editmsg.sh
             tests/test-bl121-cutline-bsd-sed.sh
             tests/test-bl114-bl115-bl127-gate-integrity.sh

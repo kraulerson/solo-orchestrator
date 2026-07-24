@@ -1396,6 +1396,18 @@ create_project() {
   mkdir -p templates/tool-matrix
   cp "$SCRIPT_DIR/templates/tool-matrix/"*.json templates/tool-matrix/
 
+  # BL-131-DOM-SINKS: ship the project-owned DOM-XSS sink ruleset. The emitted
+  # pre-commit hook (scripts/lib/hook-templates.sh) and the generated CI both
+  # reference .semgrep/soif-dom-sinks.yml by repo-relative path as an extra
+  # --config; it covers the sinks NO public registry rule catches
+  # (insertAdjacentHTML, jQuery .html(), innerHTML/document.write in .vue/.html).
+  # Laid down HERE — before the initial commit below — so it is committed and CI
+  # (which checks out the committed tree) sees it. The hook passes it
+  # unconditionally, so a missing file makes semgrep exit non-zero and the SAST
+  # arm WARNs loudly (never a silent clean pass).
+  mkdir -p .semgrep
+  cp "$SCRIPT_DIR/templates/semgrep/soif-dom-sinks.yml" .semgrep/
+
   # Copy UAT template and create session directory structure
   mkdir -p tests/uat/templates tests/uat/sessions tests/uat/examples
   cp "$SCRIPT_DIR/templates/uat/test-session-template.md"   tests/uat/templates/test-session-template.md

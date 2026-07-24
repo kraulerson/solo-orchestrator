@@ -402,7 +402,7 @@ check_guard "prompt/apply-fallback-is-skip" "# BL-099-PROMPT-FALLBACK" t_doc_pro
 use_target "$REPO_ROOT/scripts/lib/hook-templates.sh" \
            "$MUTANT_TREE/scripts/lib/hook-templates.sh" _run_killing_bl112
 check_guard "bl112/sast-error-flag" "# BL-112-SAST-ERROR" T-sast-blocks-real-commit \
-  subline '--severity=ERROR --error "${soif_staged[@]}"' '--severity=ERROR "${soif_staged[@]}"'
+  subline '--severity=ERROR --error "$soif_idx_tree"' '--severity=ERROR "$soif_idx_tree"'
 
 # K2. The CONDITIONAL terminal exit in the emitted pre-commit hook. Neuter = make it
 #     unconditional (`if true; then exit "$FAILED"`) — byte-for-byte the pre-BL-112

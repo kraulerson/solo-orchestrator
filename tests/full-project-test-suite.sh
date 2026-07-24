@@ -628,6 +628,21 @@ else
   fail "tests/test-bl118-sast-dom-xss.sh FAILED (run for details)"
 fi
 
+# BL-131 + BL-132 (BL-118 adversarial verification residue): the emitted SAST arm
+# must scan STAGED index content (not worktree bytes) and the shipped custom ruleset
+# must catch the four DOM sinks no public registry rule covers. Both emit the hook
+# via the lib directly (no scaffold run) — ALSO in the tests.yml unit fast lane.
+if bash "$SCRIPT_DIR/tests/test-bl132-sast-index-scan.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl132-sast-index-scan.sh"
+else
+  fail "tests/test-bl132-sast-index-scan.sh FAILED (run for details)"
+fi
+if bash "$SCRIPT_DIR/tests/test-bl131-domsink-rules.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl131-domsink-rules.sh"
+else
+  fail "tests/test-bl131-domsink-rules.sh FAILED (run for details)"
+fi
+
 # BL-119 (Dogfood-2 F-DF2-006, High) + BL-087 fold-in: the strict terminal gate
 # must not classify a commit by the PREVIOUS commit's message (stale
 # .git/COMMIT_EDITMSG at pre-commit bricked the repo after any landed feat:
