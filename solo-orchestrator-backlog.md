@@ -4066,8 +4066,8 @@ append-if-missing backfill inside `_run_idempotent_backfill` (marker
 `# BL-174-GITIGNORE-BACKFILL`), covering BOTH sidecar lines
 (`.claude/last-checked-commit.txt` and `.claude/last-gate-pass.txt`). Idempotent
 (`grep -qxF` guards each exact line → re-run is a byte-no-op), manifest-gated (runs
-for every generated project via the `.claude/manifest.json` marker, exactly like its
-sibling backfills), best-effort (`|| true` so a gitignore hiccup never fails the
+for every generated project via the `.claude/manifest.json` marker, matching the
+host-field and BL-030 sibling backfills), best-effort (`|| true` so a gitignore hiccup never fails the
 upgrade), and create-if-missing when a project has no `.gitignore` at all — the last
 two mirroring the marker-gated / create-if-missing posture of the sibling
 `.claude/last-checked-commit.txt` / `.claude/bypass-audit.json` backfills in the same
@@ -4077,8 +4077,11 @@ function. **The manifest gate is load-bearing:** the enclosing subshell runs
 `PROJECT_ROOT` → that `cd` no-ops → cwd stays the framework repo) would otherwise
 append the two lines to the framework's OWN `.gitignore`. An earlier UNGUARDED draft
 did exactly that (caught mid-build when an upgrade-family suite polluted the worktree
-`.gitignore`); the `.claude/manifest.json` gate — the same marker every sibling block
-uses — closes it. New hermetic suite `tests/test-bl174-gitignore-backfill.sh` (6
+`.gitignore`); the `.claude/manifest.json` gate — matching the host-field and BL-030
+sibling backfills — closes it. NOTE: not every sibling block carries such a gate — the
+vendored-skills sync and the BL-088 source-closure copy have no project gate and write
+outside generated projects today (the framework repo's month-old untracked
+`.claude/skills/` is standing residue); that structural gap is tracked as **BL-177**. New hermetic suite `tests/test-bl174-gitignore-backfill.sh` (6
 cases; hand-built fixture, NO init.sh — copies the upgrade script + lib closure and
 drives `--backfill-only`; registered in BOTH the `tests.yml` unit lane and the
 full-project aggregator) pins the two lines BEHAVIORALLY via `git check-ignore` on an
@@ -4094,3 +4097,36 @@ pass-arm case (a clean commit through the installed gate writes the
 the PASS terminal before T8). Status stays **Open** pending PR review/merge.
 
 **Related:** BL-161, BL-107, `templates/generated/gitignore-base.tmpl`.
+
+## BL-177: `_run_idempotent_backfill` has no structural projectless/in-framework guard — two sibling blocks write outside generated projects today (`.claude/skills/`, BL-088 script copies)
+
+**Logged:** 2026-07-24 (BL-174 WP-D adversarial verifier)
+**Category:** Upgrade-path safety / framework-repo hygiene
+**Severity:** Medium
+**Status:** Open
+
+`scripts/upgrade-project.sh`'s `_run_idempotent_backfill` runs its whole body inside a subshell that opens with `( cd "$PROJECT_ROOT" …`. `find_project_root` keys on `.claude/phase-state.json`; when that marker is absent — the framework repo itself, or any non-project cwd — `PROJECT_ROOT` is the empty string and **`cd ""` is a SILENT rc-0 no-op under `set -euo pipefail` on bash 3.2** (empty operand → success, cwd unchanged), so the subshell proceeds in the INVOCATION directory rather than a project root. Nothing downstream re-checks that we are in a real project.
+
+The `--backfill-only` path reaches this with **no framework guard**: it fires `_bl015_sentinel_guard`, then `_run_idempotent_backfill`, then hits the `--backfill-only` short-circuit (`exit 0`) BEFORE `guard_not_in_framework` — which lives only on the full-upgrade / `--sync-framework` / `--plan` paths. So an in-framework `upgrade-project.sh --backfill-only` executes the entire backfill body against the framework tree. (`guard_not_in_framework` *does* refuse the identical cwd on the paths that call it, confirming the write is unintended — `--backfill-only` simply never gets there.)
+
+**Six-block gate survey of `_run_idempotent_backfill`** (what protects each writer):
+1. host-aware CI-template migration — **shape-gated only** (`[ -d templates/pipelines/ci ] && [ ! -d …/github ]`), no project marker.
+2. manifest host-field backfill — **manifest-gated** (`[ -f .claude/manifest.json ]`).
+3. BL-030 manifest backfill (incl. the `last-checked-commit.txt` / `bypass-audit.json` writes) — **manifest-gated**.
+4. BL-174 gitignore backfill — **manifest-gated** (added in the BL-174 WP-D fix, after an unguarded draft leaked into the framework repo's own `.gitignore`).
+5. vendored-skills sync — **gated only on the SOURCE dir** (`[ -d "$ORCHESTRATOR_ROOT/templates/generated/skills" ]`); **NO project gate**.
+6. BL-088 source-closure copy — **gated only on cwd shape** (`[ -d scripts ]`); **NO project gate**.
+
+**Two live leaks today.** Blocks 5 and 6 write into the invocation cwd whenever `_run_idempotent_backfill` runs projectless:
+- The skills sync does `mkdir -p .claude/skills` and copies each skill's `SKILL.md` / `NOTICE`. Its self-copy guard `[ "$skill_src" -ef "$skill_dest/" ]` **never matches** here, because the source (`templates/generated/skills/X`) and destination (`.claude/skills/X`) are DIFFERENT paths — the `-ef` guard only skips a true in-place self-copy, not a framework→`.claude/skills` copy. The framework repo's own **untracked `.claude/skills/` (dated ~2026-06-28, a month old at logging) is standing residue of exactly this leak.**
+- The BL-088 block `cp`s `lib/tdd-classify.sh`, `lib/phase2-state.sh`, `lib/cdf-refresh.sh`, `run-phase3-validation.sh` into `scripts/lib/…` of the invocation cwd, its `-ef` guard likewise skipping only a genuine self-copy.
+
+Net: BL-174 closed the *gitignore* instance of this class by manifest-gating block 4, but the **structural** gap — an unguarded subshell that silently runs in whatever cwd it is invoked from — remains, and blocks 5 and 6 still write outside generated projects.
+
+**Fix shape:**
+- Add ONE structural marker check at the TOP of the `_run_idempotent_backfill` subshell — `[ -f .claude/phase-state.json ] || [ -f .claude/manifest.json ] || { print_info "…"; exit 0; }` (the subshell `exit 0` returns from the function without mutating anything). **No current legitimate path regresses:** `find_project_root` already keys on `.claude/phase-state.json`, so any real project reached via a non-empty `PROJECT_ROOT` has that marker present in the cd'd cwd; only the projectless/in-framework case is refused.
+- PLUS call `guard_not_in_framework` on the `--backfill-only` entry (before the backfill) so an in-framework invocation refuses **LOUDLY** rather than silently no-opping — defense in depth matching the full-upgrade / sync paths.
+- Correct the BL-174 block comment so it no longer implies every sibling block is manifest-gated (done as a comment-only change in the BL-174 WP-D follow-up).
+- **Mutation proof:** a projectless fixture (a `scripts/` dir present, a skills source visible via `ORCHESTRATOR_ROOT`, but NO `.claude/manifest.json` and NO `.claude/phase-state.json`) → after the structural guard, `_run_idempotent_backfill` performs ZERO writes (no `.claude/skills/`, no `scripts/lib/` copies, no `.gitignore` append); excise the guard → the skills sync and BL-088 copies reappear (RED).
+
+**Related:** BL-174, BL-080, BL-081.
