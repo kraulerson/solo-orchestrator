@@ -933,6 +933,18 @@ else
   fail "tests/test-bl168-tm-table-sigpipe.sh FAILED (run for details)"
 fi
 
+# BL-165 (Dogfood-4 S3 F-DF4-011/012): the zap-dast arm's hardened-serve
+# harness. When a project declares its production header set in
+# .claude/dast-headers.json, the arm applies those headers to the responses ZAP
+# judges (Replacer --hook in the /zap/wrk bind), records the config as evidence,
+# and judges THAT with the unchanged BL-122 riskcode>=2 filter; no declaration
+# keeps the raw-preview FAIL semantics byte-for-byte. No init.sh -> both lanes.
+if bash "$SCRIPT_DIR/tests/test-bl165-dast-hardened-serve.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl165-dast-hardened-serve.sh"
+else
+  fail "tests/test-bl165-dast-hardened-serve.sh FAILED (run for details)"
+fi
+
 # BL-169 (Dogfood-4 S4): the scaffold gitignore's unanchored `test-results/`
 # hid docs/test-results/ (the Phase-3 evidence the 3→4 gate requires) from
 # every fresh CI checkout. Root-anchored + transient phase3/ workdir ignored;
