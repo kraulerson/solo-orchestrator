@@ -565,8 +565,15 @@ soif_tdd_region_body() {
   echo '  # BL-171: --emit-blocked-gate makes a genuine refusal exit 3 (BL-072'
   echo '  # TDD-ordering block) or 4 (BL-006 Build-Loop block); any other non-zero'
   echo '  # is some other refusal. WARN-tier / attested / allowed outcomes exit 0.'
-  echo '  scripts/pre-commit-gate.sh --terminal-mode --tdd-only --emit-blocked-gate'
-  echo '  soif_cm_rc=$?'
+  echo '  # BL-171 (verifier MAJOR): capture the rc via `|| soif_cm_rc=$?`, NOT a'
+  echo '  # bare call + `$?`. When this region is composed onto a user hook whose'
+  echo '  # preamble runs `set -e` (the common case — init.sh/verify-install/'
+  echo '  # upgrade-project APPEND it to pre-existing hooks), a bare non-zero call'
+  echo '  # would abort the shell at this line before `$?` is read: the commit is'
+  echo '  # still refused but the ledger row silently vanishes — the very loss'
+  echo '  # BL-171 closes. The `||` consumes the non-zero so `set -e` never fires.'
+  echo '  soif_cm_rc=0'
+  echo '  scripts/pre-commit-gate.sh --terminal-mode --tdd-only --emit-blocked-gate || soif_cm_rc=$?'
   # BL-171-LEDGER-EMIT-BEGIN
   # Emitter fence (template-only, NOT emitted). The helper BYTES are the shared
   # BL-163 source (soif_emit_ledger_helper); it is injected OUTSIDE the emitted

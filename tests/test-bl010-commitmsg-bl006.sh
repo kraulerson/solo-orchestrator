@@ -101,8 +101,11 @@ EOF
 }
 teardown() { rm -rf "$TMP"; }
 
-# Install a commit-msg hook byte-for-byte equivalent to what init.sh's
-# install_tdd_commit_msg_hook emits (the invocation line is the contract).
+# Install a commit-msg hook that pins the flag-less invocation CONTRACT: a
+# genuine block exits 1 via `... --tdd-only || exit 1`. (Since BL-171 the full
+# emitted region is a multi-line block with an --emit-blocked-gate rc capture
+# and ledger call; this suite deliberately exercises only the flag-less rc=1
+# contract that every direct caller relies on, not the emitted region's bytes.)
 install_commit_msg_hook() {
   mkdir -p "$PROJ/.git/hooks"
   cat > "$PROJ/.git/hooks/commit-msg" <<'EOF'

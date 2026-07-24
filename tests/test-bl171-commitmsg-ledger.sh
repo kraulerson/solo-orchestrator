@@ -284,6 +284,33 @@ else
 fi
 fi
 
+# ── T6 (verifier MAJOR): composed onto a `set -e` user preamble ────────────────
+# init.sh / verify-install / upgrade-project APPEND the emitted region to a
+# pre-existing user commit-msg hook; a `set -e` preamble is common. A bare gate
+# call + `$?` capture would abort the shell at the gate line before `$?` is read
+# — the commit is still REFUSED but the ledger row silently vanishes (the exact
+# telemetry loss BL-171 closes). The emitted `|| soif_cm_rc=$?` idiom must keep
+# both the refusal AND the row under `set -e`.
+if want T6; then
+echo "=== T6-composed-set-e-preamble ==="
+P="$TOPTMP/p6"; mk_proj "$P" organizational sponsored_poc none
+# Rebuild the commit-msg hook with a realistic user preamble that runs `set -e`
+# BEFORE the emitted region (mirrors the append-to-existing-hook install path).
+{ printf '%s\n' '#!/usr/bin/env bash' 'set -e' '# --- existing user commit-msg preamble ---'
+  ( . "$HOOKLIB" && soif_emit_tdd_commitmsg_block ); } > "$P/.git/hooks/commit-msg"
+chmod +x "$P/.git/hooks/commit-msg"
+stage_impl "$P"
+H0=$(head_of "$P")
+V=$(try_commit "$P" "feat: ship foo without a test" "$P/commit.log")
+H1=$(head_of "$P")
+N=$(blocked_rows "$P"); NG=$(rows_for_gate "$P" commitmsg_tdd)
+if [ "$V" = "REFUSED" ] && [ "$H0" = "$H1" ] && [ "$N" -eq 1 ] && [ "$NG" -eq 1 ]; then
+  pass "T6-composed-set-e-preamble (REFUSED + 1 commitmsg_tdd row even under a set -e user preamble — the || rc-capture survives errexit)"
+else
+  fail_ "T6-composed-set-e-preamble" "verdict=$V blocked_rows=$N gate_tdd=$NG (want REFUSED/1/1) — a set -e preamble aborted before the ledger row: $(tail -3 "$P/commit.log" | tr '\n' ' ')"
+fi
+fi
+
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$SKIPPED" -gt 0 ] && echo "($SKIPPED skipped — see [SKIP] lines)"
