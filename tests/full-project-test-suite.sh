@@ -848,6 +848,19 @@ else
   fail "tests/test-bl171-commitmsg-ledger.sh FAILED (run for details)"
 fi
 
+# BL-161 (Dogfood-4 F-DF4-007): the tracked bypass-audit ledger records ONLY
+# real events — a CLEAN terminal commit writes NO routine terminal_commit_passed
+# row (the tracked ledger is byte-identical; a non-tracked .claude/last-gate-pass.txt
+# receipt proves the gate reached its PASS terminal), while BLOCKED rows (framework-gate
+# BL-030 + emitted BL-163/BL-171 paths) and genuine bypass / enforcement-level /
+# out-of-band events STILL record. Gates installed directly via
+# install-filesystem-gates.sh + real git commits. No init.sh -> both lanes.
+if bash "$SCRIPT_DIR/tests/test-bl161-ledger-real-events-only.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl161-ledger-real-events-only.sh"
+else
+  fail "tests/test-bl161-ledger-real-events-only.sh FAILED (run for details)"
+fi
+
 # BL-141 (Dogfood-3 wave verifier B1/B2): verify-install detects + repairs
 # the commit-msg TDD gate hook (the BL-139 backstop — post-flip it is the
 # ONLY terminal-path feat gate), composing with user hooks and idempotent;

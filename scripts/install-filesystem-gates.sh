@@ -78,17 +78,29 @@ if [ "$EXIT" -ne 0 ]; then
   exit "$EXIT"
 fi
 
-# Pass: record terminal_commit_passed row.
+# BL-161-NO-ROUTINE-PASS — a CLEAN terminal commit records NO row in the tracked
+# ledger (.claude/bypass-audit.json records ONLY real events). Drop a NON-TRACKED
+# gate-ran receipt (.claude/last-gate-pass.txt, gitignored like
+# .claude/last-checked-commit.txt) so the PASS terminal stays provably reached
+# without leaving the working tree perpetually one row dirty (Dogfood-4 F-DF4-007).
 bash "$SCRIPTS/install-filesystem-gates.sh" __record_pass "$PROJECT_ROOT" 2>/dev/null || true
 exit 0
 GATE_EOF
   chmod +x "$GATE"
 }
 
-# Internal: write a terminal_commit_blocked or terminal_commit_passed audit row.
-# Called by framework-gate.sh via re-invocation.
+# Internal: write a terminal_commit_blocked audit row — a REAL enforcement event.
+# Called by framework-gate.sh via re-invocation on a BLOCKED terminal commit.
+#
+# BL-161-NO-ROUTINE-PASS — this writer records ONLY the blocked event. A CLEAN
+# commit no longer appends a terminal_commit_passed row here (that routine receipt
+# left the working tree perpetually one row dirty — Dogfood-4 F-DF4-007); the PASS
+# path drops a non-tracked receipt instead (see record_gate_pass_receipt).
+# terminal_commit_passed stays a schema-valid LEGACY type — old ledgers keep their
+# rows — it is simply no longer EMITTED. The `kind` arg is retained for the
+# __record_block call signature; blocked is the only kind this function writes.
 record_audit_row() {
-  local kind="$1"          # "blocked" or "passed"
+  local kind="$1"          # "blocked" — the only real event recorded here
   local proj="$2"
   local gate_name="${3:-}"
   local audit="$proj/.claude/bypass-audit.json"
@@ -96,22 +108,31 @@ record_audit_row() {
   command -v jq >/dev/null 2>&1 || return 0
   local ts row tmp type
   ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-  if [ "$kind" = "blocked" ]; then
-    type="terminal_commit_blocked"
-  else
-    type="terminal_commit_passed"
-  fi
+  type="terminal_commit_blocked"
   row=$(jq -nc \
     --arg ts "$ts" \
     --arg t "$type" \
     --arg g "$gate_name" \
-    '{timestamp:$ts, session_id:null, type:$t, actor:"user_terminal", enforcement_level_at_event:"strict", details:{gate:$g}, user_response:"n/a", final_outcome:(if $t=="terminal_commit_blocked" then "abandoned" else "committed" end)}')
+    '{timestamp:$ts, session_id:null, type:$t, actor:"user_terminal", enforcement_level_at_event:"strict", details:{gate:$g}, user_response:"n/a", final_outcome:"abandoned"}')
   tmp=$(mktemp)
   if jq --argjson r "$row" '. + [$r]' "$audit" > "$tmp" 2>/dev/null; then
     mv "$tmp" "$audit"
   else
     rm -f "$tmp"
   fi
+}
+
+# Internal: a CLEAN terminal commit's gate-ran receipt.
+# BL-161-NO-ROUTINE-PASS — does NOT touch the tracked ledger. Writes a NON-TRACKED
+# sidecar .claude/last-gate-pass.txt (the sanctioned mirror of
+# .claude/last-checked-commit.txt — both gitignored in
+# templates/generated/gitignore-base.tmpl) so the PASS terminal is provably
+# reached without dirtying the tracked working tree. Best-effort: any failure is
+# swallowed — a receipt hiccup must never affect the commit that already passed.
+record_gate_pass_receipt() {
+  local proj="$1"
+  mkdir -p "$proj/.claude" 2>/dev/null || true
+  date -u +"%Y-%m-%dT%H:%M:%SZ" > "$proj/.claude/last-gate-pass.txt" 2>/dev/null || true
 }
 
 case "$ACTION" in
@@ -160,7 +181,9 @@ EOF
     record_audit_row "blocked" "$2" "${3:-unknown}"
     ;;
   __record_pass)
-    record_audit_row "passed" "$2"
+    # BL-161-NO-ROUTINE-PASS — a clean pass writes a non-tracked receipt, not a
+    # tracked ledger row.
+    record_gate_pass_receipt "$2"
     ;;
   *)
     usage

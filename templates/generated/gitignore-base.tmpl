@@ -71,3 +71,12 @@ terraform.tfvars.json
 # detector run, and (b) made init.sh impossible to finish with a clean
 # tree, because the file can never point to its own commit hash.
 .claude/last-checked-commit.txt
+
+# BL-161 operational state — the terminal-commit gate-ran receipt. Written by
+# .git/hooks/framework-gate.sh on every CLEAN strict-mode terminal commit as proof
+# the gate reached its PASS terminal. Not project content, and (like its sibling
+# above) it can never point at its own commit — tracking it left the working tree
+# perpetually one row/line dirty on the final commit of every session
+# (Dogfood-4 F-DF4-007). The audit trail of REAL events (bypass / blocked /
+# out-of-band / enforcement-level) still lives in the TRACKED .claude/bypass-audit.json.
+.claude/last-gate-pass.txt

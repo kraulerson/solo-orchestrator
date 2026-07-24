@@ -11,6 +11,12 @@
 #     "type":                      "claude_bypass_proposal" | "terminal_commit_blocked" |
 #                                  "terminal_commit_passed" | "out_of_band_commit" |
 #                                  "enforcement_level_set" | "detector_error" | "escalation",
+#                                  (BL-161: "terminal_commit_passed" is a schema-valid
+#                                  LEGACY type — routine CLEAN terminal commits no
+#                                  longer emit it. The tracked ledger records only
+#                                  REAL events; a clean pass writes a non-tracked
+#                                  .claude/last-gate-pass.txt receipt instead. Old
+#                                  ledgers keep any historical passed rows.)
 #     "actor":                     "claude" | "user_terminal" | "user_terminal_inferred" | "framework",
 #     "enforcement_level_at_event":"no" | "light" | "strict" | "n/a",
 #     "details":                   { type-specific },
