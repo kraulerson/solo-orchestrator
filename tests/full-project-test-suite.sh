@@ -941,6 +941,18 @@ else
   fail "tests/test-bl138-approval-window.sh FAILED (run for details)"
 fi
 
+# BL-170 (Dogfood-4 F-DF4-017): the APPROVAL_LOG templates must not ship empty
+# fill-in-place gate tables (filling them modifies committed lines, which the
+# emitted append-only CI guard rejects). Pins: zero empty-value rows + append
+# marker per gate section; behavioural consumer cases drive check-phase-gate.sh
+# (auto-record / BL-138 / BL-143 / Phase 3->4 dual-approval) against APPENDED
+# tables; mutation proofs make the pins load-bearing. No init.sh -> both lanes.
+if bash "$SCRIPT_DIR/tests/test-bl170-approval-append-design.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl170-approval-append-design.sh"
+else
+  fail "tests/test-bl170-approval-append-design.sh FAILED (run for details)"
+fi
+
 # BL-128 (Dogfood-2 F-DF2-015): the review generator is headless-viable —
 # --compose-only / --assemble-manifest need no claude at all; live runs get a
 # per-review process-GROUP watchdog (REVIEW_TIMEOUT_SECS), actionable

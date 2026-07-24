@@ -9,7 +9,25 @@ framework: Solo Orchestrator v1.0
 
 This document records all governance approvals for this project. Each entry captures who approved what, when, and what evidence supports the approval. This is the auditable governance trail required by the Solo Orchestrator Enterprise Governance Framework (SOI-003-GOV, Section V).
 
-**Instructions:** Update this log at each phase gate transition. Every approval entry must include the approver's name, role, date, method of approval, and a reference to the evidence. Do not delete or modify previous entries — append only. Git history provides tamper evidence.
+**Instructions:** Record an approval at each phase gate transition. Every approval entry must include the approver's name, role, the ISO day, method of approval, and a reference to the evidence.
+
+<!-- BL-170-APPEND-DESIGN: append-only recording contract for every gate/section below. -->
+
+**Recording an approval — append, never edit.** This log is append-only once pushed: the CI *Approval log integrity* job fails any commit that modifies or deletes a line already committed to `APPROVAL_LOG.md`. So do **not** fill a section's table in place. When you cross a gate (or complete a section below), **append** a completed copy of the shape below directly under that section's header, then commit — and never touch a line once it is committed. Git history provides tamper evidence:
+
+```
+| Field | Value |
+|---|---|
+| **Gate** | Phase N → Phase N+1 |
+| **Approver** | approver name |
+| **Role** | approver's role |
+| **Date** | YYYY-MM-DD |
+| **Method** | Email / Ticket / Document |
+| **Reference** | evidence link or ticket id |
+| **Artifacts reviewed** | the artifacts reviewed for this gate |
+| **Decision** | Approved |
+| **Notes** | optional notes |
+```
 
 ---
 
@@ -17,14 +35,11 @@ This document records all governance approvals for this project. Each entry capt
 
 These pre-conditions must be completed before Phase 0 begins. See Governance Framework Section V and Project Intake Section 8.
 
+<!-- BL-170-APPEND-DESIGN -->
+_**Append** one completed row per pre-condition to the table below — one each for: AI deployment path approved (IT Security), Insurance coverage confirmed (Insurance Broker), Liability entity designated (Legal / CIO), Project sponsor assigned (Executive Sponsor), Backup maintainer designated (Technical Lead), ITSM project registered (ITSM / PMO). Each appended row needs a row number in the `#` column (`| 1 |` … `| 6 |` — the production-upgrade tooling parses numbered rows), an approver name, role, an ISO day, method, and an evidence reference. Append-only: never edit a row once pushed._
+
 | # | Pre-Condition | Approver | Role | Date | Method | Reference | Notes |
 |---|---|---|---|---|---|---|---|
-| 1 | AI deployment path approved | | IT Security | | Email / Ticket / Document | | |
-| 2 | Insurance coverage confirmed | | Insurance Broker | | Email / Ticket / Document | | |
-| 3 | Liability entity designated | | Legal / CIO | | Email / Ticket / Document | | |
-| 4 | Project sponsor assigned | | Executive Sponsor | | Email / Ticket / Document | | |
-| 5 | Backup maintainer designated | | Technical Lead | | Email / Ticket / Document | | |
-| 6 | ITSM project registered | | ITSM / PMO | | Email / Ticket / Document | | |
 
 ---
 
@@ -33,19 +48,8 @@ These pre-conditions must be completed before Phase 0 begins. See Governance Fra
 **Gate requirement:** Project Sponsor approves business justification and compliance screening.
 **Evidence required:** Signed-off Phase 0 artifacts + compliance screening matrix.
 **Reference:** Governance Framework Section V; Builder's Guide Phase 0.
-
-| Field | Value |
-|---|---|
-| **Gate** | Phase 0 → Phase 1 |
-| **Approver** | |
-| **Role** | Project Sponsor |
-| **Date** | |
-| **Method** | Email / Ticket / Document |
-| **Reference** | |
-| **Artifacts reviewed** | PRODUCT_MANIFESTO.md, Compliance Screening Matrix (Intake Section 8.4) |
-| **Decision** | Approved / Approved with conditions / Rejected |
-| **Conditions (if any)** | |
-| **Notes** | |
+<!-- BL-170-APPEND-DESIGN -->
+_When this gate is crossed, **append** a completed approval table directly below (above this section's closing `---`) — use the shape at the top of this file (role: Project Sponsor; artifacts to review: PRODUCT_MANIFESTO.md, Compliance Screening Matrix). Append-only: never edit a line once pushed._
 
 ---
 
@@ -54,19 +58,8 @@ These pre-conditions must be completed before Phase 0 begins. See Governance Fra
 **Gate requirement:** Senior Technical Authority approves architecture selection and security posture.
 **Evidence required:** Written approval of Project Bible.
 **Reference:** Governance Framework Section V; Builder's Guide Phase 1.
-
-| Field | Value |
-|---|---|
-| **Gate** | Phase 1 → Phase 2 |
-| **Approver** | |
-| **Role** | Senior Technical Authority |
-| **Date** | |
-| **Method** | Email / Ticket / Document |
-| **Reference** | |
-| **Artifacts reviewed** | PROJECT_BIBLE.md, Architecture Decision Records, Threat Model |
-| **Decision** | Approved / Approved with conditions / Rejected |
-| **Conditions (if any)** | |
-| **Notes** | |
+<!-- BL-170-APPEND-DESIGN -->
+_When this gate is crossed, **append** a completed approval table directly below (above this section's closing `---`) — use the shape at the top of this file (role: Senior Technical Authority; artifacts to review: PROJECT_BIBLE.md, Architecture Decision Records, Threat Model). Append-only: never edit a line once pushed._
 
 ---
 
@@ -75,19 +68,8 @@ These pre-conditions must be completed before Phase 0 begins. See Governance Fra
 **Gate requirement:** All MVP features built, test suite passing, no open SEV-1/2 bugs, documentation current.
 **Evidence required:** Bug gate report (`test-gate.sh --check-phase-gate`), FEATURES.md vs MVP Cutline reconciliation, CI green.
 **Reference:** Governance Framework Section V; Builder's Guide Phase 2 Completion Checkpoint.
-
-| Field | Value |
-|---|---|
-| **Gate** | Phase 2 → Phase 3 |
-| **Reviewer** | |
-| **Role** | Orchestrator (personal) / Senior Technical Authority (organizational) |
-| **Date** | |
-| **Method** | Self-review / Document review / Demo |
-| **Reference** | |
-| **Artifacts reviewed** | FEATURES.md, BUGS.md, CI status, PROJECT_BIBLE.md currency |
-| **Decision** | Approved / Approved with conditions / Rejected |
-| **Conditions (if any)** | |
-| **Notes** | |
+<!-- BL-170-APPEND-DESIGN -->
+_When this gate is crossed, **append** a completed approval table directly below (above this section's closing `---`) — use the shape at the top of this file (this gate is a self-review; the reviewer row carries: Orchestrator (personal) / Senior Technical Authority (organizational); artifacts to review: FEATURES.md, BUGS.md, CI status, PROJECT_BIBLE.md currency). Append-only: never edit a line once pushed._
 
 ---
 
@@ -96,36 +78,12 @@ These pre-conditions must be completed before Phase 0 begins. See Governance Fra
 **Gate requirement:** Application Owner and IT Security approve go-live readiness.
 **Evidence required:** Security scan results, penetration test report (if required), go-live checklist.
 **Reference:** Governance Framework Section V; Builder's Guide Phase 3 and Phase 4.
+<!-- BL-170-APPEND-DESIGN -->
+_When this gate is crossed, **append** a completed approval table directly under EACH subsection header below (above this section's closing `---`) — Application Owner first, then IT Security — using the shape at the top of this file. Append-only: never edit a line once pushed._
 
 ### Application Owner Approval
 
-| Field | Value |
-|---|---|
-| **Gate** | Phase 3 → Phase 4 (Application Owner) |
-| **Approver** | |
-| **Role** | Application Owner |
-| **Date** | |
-| **Method** | Email / Ticket / Document |
-| **Reference** | |
-| **Artifacts reviewed** | Phase 3 test results (docs/test-results/), go-live checklist |
-| **Decision** | Approved / Approved with conditions / Rejected |
-| **Conditions (if any)** | |
-| **Notes** | |
-
 ### IT Security Approval
-
-| Field | Value |
-|---|---|
-| **Gate** | Phase 3 → Phase 4 (IT Security) |
-| **Approver** | |
-| **Role** | IT Security |
-| **Date** | |
-| **Method** | Email / Ticket / Document |
-| **Reference** | |
-| **Artifacts reviewed** | SAST/DAST results, dependency scan, SBOM, penetration test (if applicable) |
-| **Decision** | Approved / Approved with conditions / Rejected |
-| **Conditions (if any)** | |
-| **Notes** | |
 
 ---
 
@@ -133,16 +91,19 @@ These pre-conditions must be completed before Phase 0 begins. See Governance Fra
 
 _Record after all Phase 4 deliverables are complete and the application is live._
 
-| Field | Value |
-|---|---|
-| **Deployment Date** | |
-| **Deployed By** | |
-| **Go-Live Verified By** | |
-| **Rollback Tested** | Yes / No — results at: docs/test-results/ |
-| **Monitoring Verified** | Yes / No — test error triggered and alert received |
-| **Handoff Document** | HANDOFF.md — tested by: [backup maintainer name] |
-| **ITSM Ticket** | [Ticket ID — closed] |
-| **Notes** | |
+<!-- BL-170-APPEND-DESIGN -->
+_Append a completed copy of the shape below when Phase 4 is done. Append-only: never edit a line once pushed._
+
+    | Field | Value |
+    |---|---|
+    | **Deployment Date** | YYYY-MM-DD |
+    | **Deployed By** | name |
+    | **Go-Live Verified By** | name |
+    | **Rollback Tested** | Yes — results at: docs/test-results/ |
+    | **Monitoring Verified** | Yes — test error triggered and alert received |
+    | **Handoff Document** | HANDOFF.md — tested by: backup maintainer name |
+    | **ITSM Ticket** | ticket id — closed |
+    | **Notes** | optional notes |
 
 ---
 
@@ -150,13 +111,16 @@ _Record after all Phase 4 deliverables are complete and the application is live.
 
 _Required when Privacy Policy or Terms of Service are generated. Standard+ Track with data collection._
 
-| Field | Value |
-|---|---|
-| **Reviewer** | [Attorney / firm name] |
-| **Date** | |
-| **Documents Reviewed** | Privacy Policy / Terms of Service / Both |
-| **Decision** | Approved / Approved with changes / Rejected |
-| **Notes** | |
+<!-- BL-170-APPEND-DESIGN -->
+_Append a completed copy of the shape below when legal review occurs. Append-only: never edit a line once pushed._
+
+    | Field | Value |
+    |---|---|
+    | **Reviewer** | Attorney / firm name |
+    | **Date** | YYYY-MM-DD |
+    | **Documents Reviewed** | Privacy Policy / Terms of Service / Both |
+    | **Decision** | Approved |
+    | **Notes** | optional notes |
 
 ---
 
@@ -164,24 +128,27 @@ _Required when Privacy Policy or Terms of Service are generated. Standard+ Track
 
 _Required for Standard Track (with IT Security exemption path) and Full Track (no exemption)._
 
-| Field | Value |
-|---|---|
-| **Test Performed** | Yes / No / Exempted |
-| **Tester** | [External tester or firm name] |
-| **Date** | |
-| **Report Location** | docs/test-results/ |
-| **Exemption Approver** | [IT Security name, if exempted] |
-| **Notes** | |
+<!-- BL-170-APPEND-DESIGN -->
+_Append a completed copy of the shape below when a penetration test is performed, or when IT Security records an exemption. Append-only: never edit a line once pushed._
+
+    | Field | Value |
+    |---|---|
+    | **Test Performed** | Yes / No / Exempted |
+    | **Tester** | external tester or firm name |
+    | **Date** | YYYY-MM-DD |
+    | **Report Location** | docs/test-results/ |
+    | **Exemption Approver** | IT Security name, if exempted |
+    | **Notes** | optional notes |
 
 ---
 
 ## Approval History
 
-_Append additional approvals here for post-launch changes, maintenance reviews, or re-approvals._
+<!-- BL-170-APPEND-DESIGN -->
+_Append one row per post-launch change, maintenance review, or re-approval below. Append-only: never edit a row once pushed._
 
 | Date | Gate / Event | Approver | Role | Decision | Reference |
 |---|---|---|---|---|---|
-| | | | | | |
 
 ---
 
@@ -191,9 +158,12 @@ _Append additional approvals here for post-launch changes, maintenance reviews, 
      below is the evidence the gate reads; the section header alone is
      template scaffolding, not evidence (BL-115 discipline). -->
 
-| Field | Value |
-|---|---|
-| **Signed off by** | [Name — the accepting stakeholder] |
-| **Date** | [YYYY-MM-DD] |
-| **Session(s)** | [UAT session ids covered] |
-| **Notes** | [Open items accepted as-is, if any] |
+<!-- BL-170-APPEND-DESIGN -->
+_Append a completed copy of the shape below at final acceptance. Append-only: never edit a line once pushed._
+
+    | Field | Value |
+    |---|---|
+    | **Signed off by** | the accepting stakeholder |
+    | **Date** | YYYY-MM-DD |
+    | **Session(s)** | UAT session ids covered |
+    | **Notes** | open items accepted as-is, if any |

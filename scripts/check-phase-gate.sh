@@ -844,7 +844,18 @@ validate_approval_fields() {
 validate_approval_section_dated() {
   local section_header="$1"  # e.g., "Application Owner Approval"
   local section
-  section=$(grep -A 15 "$section_header" "$APPROVAL_LOG" 2>/dev/null || echo "")
+  # BL-170 (verifier HIGH-1): section-BOUNDED, not a bare `grep -A 15`.
+  # The unbounded window bled into the NEXT subsection once the templates'
+  # pre-seeded empty `| **Date** | |` row (an accidental first-match
+  # shield) was removed by the append redesign — an IT-Security-only
+  # append satisfied the Application Owner check, passing dual-approval
+  # with ONE signer. Bound at the next header line, then cap at 15 (the
+  # documented evidence-window budget). Same defect class as BL-115/BL-138.
+  section=$(awk -v h="$section_header" '
+    found && /^#/ { exit }
+    found { print }
+    index($0, h) > 0 { found = 1 }
+  ' "$APPROVAL_LOG" 2>/dev/null | head -15)
   [ -z "$section" ] && return 1
   # Find the Date row; extract the value column (3rd pipe-field for
   # | Field | Value | tables). Strip whitespace and markdown bold.

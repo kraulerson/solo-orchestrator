@@ -3903,10 +3903,65 @@ On the work-example repo, the CI `Governance - Phase gate check` job's phase-3-v
 **Logged:** 2026-07-22 (Dogfood-4 S4, finding F-DF4-017)
 **Category:** Design conflict / latent (governance templates vs emitted CI)
 **Severity:** Medium
-**Status:** Open — design decision needed (template redesign with cross-script blast radius; deliberately NOT rushed at walk close-out)
+**Status:** Open — Karl approved the **append-instruction redesign** (2026-07-23); implemented on branch `fix/bl170-approval-append-design` (flips to Closed at merge).
 
 `templates/generated/approval-log-personal.tmpl` (and the org twin) pre-seed each phase gate as an empty fill-in-place table (`| **Reviewer** | |`, `| **Date** | |`). Once those template lines are pushed, FILLING them modifies committed lines — and the emitted `Governance - Approval log integrity` job fails ANY modified APPROVAL_LOG.md line (append-only, BL-147). A downstream operator following the template naively hits a red gate at their next crossing. The work-example never tripped it before S4 only because the dependency-audit step failed first on every historical run, halting the job before the governance steps executed (same masking as BL-169); the S4 walker crossed 3→4 by INSERTING filled rows as pure additions, leaving the placeholders untouched.
 
 **Fix shape (needs Karl):** replace pre-seeded empty tables with an instruction line ("append a completed approval table below this header when the gate is crossed — this file is append-only once pushed"), keeping the gate headers intact. Blast radius to validate IN SYNC: check-phase-gate.sh gate-date auto-record (`grep -A 15` date window under the header), BL-138 approval-window parsing, BL-143 self-approval scan (+20 section cap), the CI append-only guard, and any init/intake tests pinning template content. Each consumer needs a mutation-proofed re-validation against the appended-row shape.
 
 **Related:** BL-147 (the guard), BL-138/BL-143 (row parsers), BL-169 (same masking discovery).
+
+**Status update (2026-07-23 — append-instruction redesign implemented).** Both
+`templates/generated/approval-log-{personal,org}.tmpl` redesigned: every
+fill-in-place empty table (all 4 phase-gate blocks, Phase 4 Completion,
+Attorney/Legal, Penetration Test, UAT sign-off; org also Pre-Phase 0) is
+replaced by a short **append instruction** carrying a greppable
+`<!-- BL-170-APPEND-DESIGN -->` marker. A canonical copyable table shape now
+lives ONCE at the top of each file (outside every header-scoped parser window),
+and each gate section instructs the operator to append a completed copy under
+the header — never editing a shipped line. Multi-row tables (org Pre-Phase 0,
+Approval History) keep their column-header + separator and drop only the empty
+data rows so the operator appends rows below (append-only-safe).
+
+Consumer map + how each was validated IN SYNC (all mutation-safe against the
+appended-row shape): the instruction prose is deliberately kept free of any
+`^|`-anchored Date row, of the substring "date", of an `Approver` token without
+`Role`, and of `[YYYY-MM-DD]`/`[Name`/`[Attorney` bait — the three properties
+that respectively protect (a) `_cpg_gate_has_evidence` (BL-071 `head -15`
+first-`^|Date` auto-record — measured: appended Date lands at window-line ≤13
+for gates, ≤13 for the org Phase 3→4 Application-Owner subsection), (b)
+`validate.sh` `check_gate` (`grep -A 10` + `grep -i date | head -1` fallback)
+and `validate_approval_section_dated` (org Phase 3→4 subsections), and (c)
+`validate_approval_fields`/BL-138 placeholder predicate + the BL-143
+self-approval blame walker (which now reaches the operator's real appended
+`Approver` row instead of shadowing on template text). The BL-147 CI append-only
+guard is UNTOUCHED (the invariant). `init.sh generate_approval_log()` only
+substitutes `__PROJECT_NAME__`/`__TODAY__` — it does NOT fill gate tables, so the
+personal Pre-Phase 0 rows stay filled-at-birth (N/A + today) and were left as-is;
+no other section is pre-filled at scaffold time.
+
+Proof: new hermetic `tests/test-bl170-approval-append-design.sh` (16/16 green;
+registered in both the aggregator and the `tests.yml` unit lane) — template
+pins (RED baseline against `cc0ce71`: 12 personal / 25 org empty gate rows, 0
+markers → GREEN 0/0 with markers per section), behavioural cases driving the
+REAL `check-phase-gate.sh` on APPENDED tables (auto-record fires; BL-138 no
+false placeholder WARN; BL-143 detects self-approval when committer==approver
+and does NOT false-fail when committer!=approver; org Phase 3→4 dual-approval
+dated), and two mutation proofs (re-inject an empty row → pin RED; strip the
+marker → pin RED). Blast-radius battery all green (date-writeback, bl138, bl143,
+self-approval, retroactive-approval, blame-walker, check-phase-gate, bl105-phase4,
+bl114/115/127, upgrade-path, upgrade preconditions, retroactive-section,
+reconfigure, init-organizational, process-checklist, known-bugs).
+
+Residual (out of THIS WP's "both templates" scope, filed for follow-up):
+`scripts/upgrade-project.sh` carries its OWN embedded org approval-log template
+(personal→org upgrade path) that still ships empty fill-in-place tables, and its
+personal-log migration regex (`Phase (\d).*Phase (\d).*?\n.*?\*\*(?:Reviewer|Date)\*\*`)
+assumes the Reviewer/Date row sits on the line immediately after the gate header
+— which the new append shape breaks. Neither is exercised by the current upgrade
+tests (they use inline old-shape fixtures), so the battery stays green, but both
+are latent siblings of this bug in a different flow and should get their own
+redesign pass.
+
+
+**Verifier record (fable, 2026-07-23, SHIP-WITH-FIXES — all applied on the branch):** TWO HIGH merge-blocking regressions found, both silent governance bypasses vs main, both fixed with watched mutation-REDs: (1) `validate_approval_section_dated`'s unbounded `grep -A 15` — the deleted pre-seeded empty Date row had been an accidental first-match shield, so an IT-Security-ONLY append satisfied the Application Owner check and org dual-approval passed with ONE signer; now section-BOUNDED (awk to next header, head-15; BL-115/BL-138 defect class; pinned by B6, mutant-RED proven). (2) the org pen-test instruction's 'performed or exempted' phrase matched the whole-file `penetration.*exempted` grep — every scaffold auto-passed the Standard-track pen-test control from birth; reworded to 'records an exemption' (pinned by B7, wording-revert mutant-RED proven). MED: the ~2-line org 3→4 evidence-window budget now pinned end-to-end by B8 (phase_3_to_4 auto-record). LOW/NOTE also applied: instructions now say 'above this section's closing ---' (BL-143 walker bound) and Pre-Phase-0 rows must be numbered (production-upgrade parser); upgrade-project.sh's stale template-line comment trued. Suite now 19/19; consumer battery re-run green (11 suites). Verifier also confirmed: CI append-only lifecycle proven both directions; migration-regex residual is DEAD CODE (existing_gates never read) — residual list corrected.

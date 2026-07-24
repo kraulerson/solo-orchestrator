@@ -1884,7 +1884,7 @@ fi
 if [ "$TO_PRODUCTION" = true ] && [ -n "$CURRENT_POC_MODE" ]; then
   if [ "$CURRENT_DEPLOYMENT" = "organizational" ]; then
     # Canonical Pre-Phase-0 row labels — matches
-    # templates/generated/approval-log-org.tmpl:22-27.
+    # the BL-170 append-design shape in templates/generated/approval-log-org.tmpl (rows are operator-appended, numbered per its Pre-Phase-0 instruction).
     _gov_labels=(
       "AI deployment path approved"
       "Insurance coverage confirmed"

@@ -602,9 +602,11 @@ The competency matrix is not advisory — it drives mandatory tooling:
 
 ### Phase 0 → Phase 1 Gate
 
-**Organizational deployments:** The Project Sponsor must approve the business justification and compliance screening before proceeding to Phase 1. Record the approval in `APPROVAL_LOG.md` (Phase 0 → Phase 1 section) with the approver's name, date, method, and evidence reference.
+**Organizational deployments:** The Project Sponsor must approve the business justification and compliance screening before proceeding to Phase 1. Record the approval by **appending** a completed table under the `## Phase Gate: Phase 0 → Phase 1` header in `APPROVAL_LOG.md`, with the approver's name, date, method, and evidence reference.
 
-**Personal projects:** Review the Phase 0 artifacts yourself and record the self-review in `APPROVAL_LOG.md` before proceeding.
+**Personal projects:** Review the Phase 0 artifacts yourself and record the self-review by appending a completed table under the same gate header in `APPROVAL_LOG.md` before proceeding.
+
+> **How to record an approval (append-only).** `APPROVAL_LOG.md` is append-only once pushed — the emitted `Governance - Approval log integrity` CI job fails any commit that modifies or deletes a line already in the file. So do **not** fill a gate section's table in place. Each gate/section ships a short `<!-- BL-170-APPEND-DESIGN -->` instruction; when you cross the gate, **append** a completed copy of the table shape (shown once at the top of the file) directly under that section's `##`/`###` header, then commit — and never edit a line once it is committed. Keep the appended **Date** row within 15 lines of the gate header so the auto-record and gate checks find it.
 
 #### Phase 0 Artifact Map
 
@@ -856,9 +858,9 @@ Synthesize all Phase 1 outputs into `PROJECT_BIBLE.md`:
 
 **DECISION GATE — Review the complete Bible. This is the point of no return.**
 
-**Organizational deployments:** The Senior Technical Authority must approve the Project Bible before proceeding to Phase 2. Record the approval in `APPROVAL_LOG.md` (Phase 1 → Phase 2 section).
+**Organizational deployments:** The Senior Technical Authority must approve the Project Bible before proceeding to Phase 2. Record the approval by appending a completed table under the `## Phase Gate: Phase 1 → Phase 2` header in `APPROVAL_LOG.md` (append-only — see the "How to record an approval" note under the Phase 0 → Phase 1 gate).
 
-**Personal projects:** Record your self-review in `APPROVAL_LOG.md` before proceeding. **Known risk:** Self-review at this gate means the person least likely to catch their own architectural blind spots is the sole reviewer. For Standard+ track personal projects, consider seeking an external architecture review — a peer, mentor, or a separate Claude session using the adversarial evaluation prompt (`evaluation-prompts/Projects/bases/01-senior-engineer.md`). If this project is later upgraded to organizational deployment via `upgrade-project.sh`, the Senior Technical Authority will be required to retroactively review and approve the Project Bible.
+**Personal projects:** Record your self-review by appending a completed table under the same gate header in `APPROVAL_LOG.md` before proceeding. **Known risk:** Self-review at this gate means the person least likely to catch their own architectural blind spots is the sole reviewer. For Standard+ track personal projects, consider seeking an external architecture review — a peer, mentor, or a separate Claude session using the adversarial evaluation prompt (`evaluation-prompts/Projects/bases/01-senior-engineer.md`). If this project is later upgraded to organizational deployment via `upgrade-project.sh`, the Senior Technical Authority will be required to retroactively review and approve the Project Bible.
 
 #### Gate Enforcement — What `check-phase-gate.sh` Validates (Phase 1→2)
 
@@ -1633,7 +1635,7 @@ Direct the agent to create `docs/test-results/` and save:
 
 File naming convention: `[date]_[scan-type]_[pass|fail].[ext]` (e.g., `2026-04-02_semgrep_pass.json`).
 
-These artifacts serve as the audit evidence for Phase 3 completion. They are referenced in `APPROVAL_LOG.md` (Phase 3 → Phase 4 section) and included in the HANDOFF.md. Update the Approval Log with the go-live approval(s) before proceeding to Phase 4 deployment.
+These artifacts serve as the audit evidence for Phase 3 completion. They are referenced in `APPROVAL_LOG.md` (Phase 3 → Phase 4 section) and included in the HANDOFF.md. Record the go-live approval(s) by appending completed tables under the `## Phase Gate: Phase 3 → Phase 4` header before proceeding to Phase 4 deployment — for organizational deployments append one under **each** of the `### Application Owner Approval` and `### IT Security Approval` subsection headers (append-only — see the "How to record an approval" note under the Phase 0 → Phase 1 gate).
 
 **Process checkpoint:** `scripts/process-checklist.sh --complete-step phase3_validation:results_archived`
 
