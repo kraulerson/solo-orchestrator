@@ -102,6 +102,7 @@ jobs:
             tests/test-bl114-bl115-bl127-gate-integrity.sh
             tests/test-bl116-push-gate-scope.sh
             tests/test-bl123-bp-attestation-recovery.sh
+            tests/test-bl157-remote-marker-record.sh
             tests/test-bl124-pending-ratchet.sh
             tests/test-bl130-attest-fail-guard.sh
             tests/test-bl096-cold-start.sh

@@ -728,6 +728,19 @@ else
   fail "tests/test-bl123-bp-attestation-recovery.sh FAILED (run for details)"
 fi
 
+# BL-157 (Dogfood-4 F-DF4-003, Low): check-gate.sh --repair must RECONCILE the
+# remote-setup markers (remote_repo_created/pushed_initial) from a GENUINELY
+# present remote in its preflight, so a single --repair --branch-protection-
+# attested recovers a --no-remote-creation + hand-wired-origin project WITHOUT
+# weakening the BL-123 refusal for truly remote-less ones. Hermetic local-bare
+# remote; two mutation cases (fence-excision + unconditional-detection). No
+# init.sh -> ALSO in the tests.yml unit lane.
+if bash "$SCRIPT_DIR/tests/test-bl157-remote-marker-record.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl157-remote-marker-record.sh"
+else
+  fail "tests/test-bl157-remote-marker-record.sh FAILED (run for details)"
+fi
+
 # BL-124 (Dogfood-2 F-DF2-014, High — the central-question hole): the Phase 3→4
 # gate must FAIL while PRODUCT_MANIFESTO.md carries the PENDING promotion
 # marker upgrade-project.sh writes on track upgrade. Wire-pins the writer's and
