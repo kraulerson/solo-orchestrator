@@ -109,6 +109,7 @@ jobs:
             tests/test-bl106-golive-checklist.sh
             tests/test-bl120-audit-verdict.sh
             tests/test-bl125-commit-test-exec.sh
+            tests/test-bl163-blocked-ledger.sh
             tests/test-bl141-commitmsg-repair.sh
             tests/test-bl143-pastcap-selfapproval.sh
             tests/test-bl155-phase2-init-transition-commit.sh

@@ -90,7 +90,10 @@ soif_lang_test_pattern() {
 #   already-marked hook in place. Byte-identical to init.sh's pre-BL-099 hook
 #   APART FROM the two marker lines.
 soif_precommit_region_body() {
-  # Section 1 (was HOOKEOF, minus shebang). Open marker is the region's 1st line.
+  # Section 1a (open marker, header, set -e, FAILED=0). Open marker is the
+  # region's 1st line. Byte-identical to init.sh's pre-BL-099 hook APART FROM
+  # the two marker lines and the emitted BL-125 (test-exec) + BL-163 (blocked-
+  # ledger) sections inserted between the cats below.
   cat <<'HOOKEOF'
 # >>> SOIF pre-commit fallback
 # Solo Orchestrator — Fallback Pre-Commit Hook
@@ -100,6 +103,83 @@ soif_precommit_region_body() {
 set -euo pipefail
 
 FAILED=0
+HOOKEOF
+
+  # BL-163-LEDGER-EMIT-BEGIN
+  # Emitter fence (template-only, NOT emitted): excising this BEGIN..END region
+  # drops the blocked-commit ledger helper from every hook this lib emits. The
+  # EMITTED bytes below carry their own in-hook marker (the BEGIN/END pair, and a
+  # trailing tag on each call site) kept DISTINCT from this fence, so an in-hook
+  # grep and an emitter-level excision never collide — the same emitter-fence vs
+  # emitted-marker split BL-125 uses for its test-exec arm. Quoting: LEDGEREOF is
+  # single-quoted so the body is emitted literally; generated-project paths (which
+  # may contain spaces) are expanded only at hook RUN time and always double-quoted.
+  cat <<'LEDGEREOF'
+
+# BL-163-BLOCKED-LEDGER-BEGIN
+# --- Blocked-commit ledger (BL-163) ---
+# BL-163-BLOCKED-LEDGER — Dogfood-4 F-DF4-009: the blocking arms below (gitleaks,
+# semgrep, project-tests) set FAILED=1 and the hook exits non-zero BEFORE
+# .git/hooks/framework-gate.sh runs, and framework-gate is the ONLY writer of
+# terminal_commit_blocked rows — so two real dishonest commit attempts were
+# correctly REFUSED yet left NO trace in .claude/bypass-audit.json. This helper
+# records the block on the enforcement ledger, naming the arm in details.gate.
+# The schema mirrors framework-gate's row (install-filesystem-gates.sh
+# record_audit_row): type=terminal_commit_blocked, actor=user_terminal,
+# final_outcome=abandoned.
+#
+# BEST-EFFORT, NEVER A BLAST SHIELD: the append must NEVER weaken the refusal. A
+# missing/unreadable append library, an absent jq, or a failed write prints at
+# most a one-line [note] and returns 0; the caller's FAILED=1 and the hook's
+# terminal exit are untouched. Every call site invokes it as `... || true`, which
+# also keeps `set -e` from turning a ledger hiccup into a changed exit path.
+soif_ledger_blocked() {
+  soif_lg_gate="${1:-unknown}"
+  soif_lg_root=$(git rev-parse --show-toplevel 2>/dev/null) || soif_lg_root=""
+  if [ -z "$soif_lg_root" ]; then
+    echo "[note] BL-163: project root not found — commit still refused, block not logged to the ledger." >&2
+    return 0
+  fi
+  soif_lg_lib="$soif_lg_root/scripts/lib/bypass-audit.sh"
+  if [ ! -r "$soif_lg_lib" ]; then
+    echo "[note] BL-163: bypass-audit.sh unavailable — commit still refused, block not logged to the ledger." >&2
+    return 0
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "[note] BL-163: jq unavailable — commit still refused, block not logged to the ledger." >&2
+    return 0
+  fi
+  soif_lg_ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null) || soif_lg_ts=""
+  soif_lg_level=$(jq -r '.enforcement_level // "n/a"' "$soif_lg_root/.claude/manifest.json" 2>/dev/null) || soif_lg_level="n/a"
+  [ -n "$soif_lg_level" ] || soif_lg_level="n/a"
+  soif_lg_row=$(jq -nc \
+    --arg ts "$soif_lg_ts" \
+    --arg g "$soif_lg_gate" \
+    --arg lvl "$soif_lg_level" \
+    '{timestamp:$ts, session_id:null, type:"terminal_commit_blocked", actor:"user_terminal", enforcement_level_at_event:$lvl, details:{gate:$g}, user_response:"n/a", final_outcome:"abandoned"}' 2>/dev/null) || soif_lg_row=""
+  if [ -z "$soif_lg_row" ]; then
+    echo "[note] BL-163: could not build the ledger row — commit still refused, block not logged to the ledger." >&2
+    return 0
+  fi
+  # Verifier MAJOR (2026-07-23): source + append run in a SUBSHELL. `exit`
+  # in a sourced file exits the sourcing shell — a trojan/broken
+  # bypass-audit.sh that `exit 0`s would otherwise terminate the whole hook
+  # SUCCESSFULLY after "[BLOCKED]" printed, LANDING the refused commit. The
+  # subshell confines any exit/parse-error to the append attempt; the
+  # refusal and the [note] survive both.
+  # shellcheck disable=SC1090
+  if ! ( . "$soif_lg_lib" && bypass_audit_append "$soif_lg_root" "$soif_lg_row" ) >/dev/null 2>&1; then
+    echo "[note] BL-163: ledger append failed — commit still refused, block not logged to the ledger." >&2
+    return 0
+  fi
+  return 0
+}
+# BL-163-BLOCKED-LEDGER-END
+LEDGEREOF
+  # BL-163-LEDGER-EMIT-END
+
+  # Section 1b (gitleaks + SAST arms). Continues the managed region.
+  cat <<'HOOKEOF'
 
 # --- Secret Detection (gitleaks) ---
 if command -v gitleaks &>/dev/null; then
@@ -109,6 +189,7 @@ if command -v gitleaks &>/dev/null; then
     echo "  Remove the secrets, use environment variables or a secrets manager,"
     echo "  and rotate any credentials that were exposed."
     FAILED=1
+    soif_ledger_blocked gitleaks || true   # BL-163-BLOCKED-LEDGER
   fi
 else
   echo "[WARN] gitleaks not found — secret detection skipped."
@@ -196,6 +277,7 @@ if command -v semgrep &>/dev/null; then
       echo "[BLOCKED] Semgrep detected security issues in staged files."
       echo "  Review and fix the ERROR-severity findings above before committing."
       FAILED=1
+      soif_ledger_blocked semgrep || true   # BL-163-BLOCKED-LEDGER
     elif [ "$soif_sg_rc" -ne 0 ]; then
       # >=2 == semgrep ITSELF failed (invalid config, registry unreachable,
       # unparseable rule). BL-112-SAST-NOTRUN arm 2 of 2: the scanner did not run.
@@ -335,6 +417,7 @@ if [ "$soif_test_src" -gt 0 ]; then
       echo "  failures, or fix the tests if they are wrong. Slow suite? Point"
       echo "  .claude/test-command at your fast lane."
       FAILED=1
+      soif_ledger_blocked bl125_tests || true   # BL-163-BLOCKED-LEDGER
     fi
   fi
 else
