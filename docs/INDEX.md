@@ -58,6 +58,14 @@ Builder's Guide. Four first-class modules: [platform-modules/web.md](platform-mo
 [platform-modules/mcp_server.md](platform-modules/mcp_server.md).
 Adding another is covered by [extending-platforms.md](extending-platforms.md).
 
+## Designs (`docs/designs/`)
+
+Normative design docs authored before a build and held to the same adversarial review as
+code. Current: [designs/2026-07-12-currency-system-v1.md](designs/2026-07-12-currency-system-v1.md)
+(the currency/update pipeline, v1.1 post-review) and
+[designs/2026-07-24-operating-model-v1.md](designs/2026-07-24-operating-model-v1.md)
+(the configurable multi-agent operating model for BL-097/098/100).
+
 ## Reports (`Reports/`)
 
 Dated, point-in-time artifacts — evidence, not living docs. Naming convention is
