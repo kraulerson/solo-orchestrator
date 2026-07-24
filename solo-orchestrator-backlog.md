@@ -3764,7 +3764,7 @@ The emitted `npm audit --audit-level=high|moderate` step (github/gitlab/bitbucke
 **Logged:** 2026-07-22 (Dogfood-4 S1, finding F-DF4-007; also observed by the S0 walker)
 **Category:** UX / state-file hygiene (generated projects)
 **Severity:** Low
-**Status:** Open
+**Status:** Closed — shipped + merged 2026-07-24 (PR #262 `04a961d`). `# BL-161-NO-ROUTINE-PASS`: clean terminal commits write NO tracked ledger row (byte-identity pinned by cmp); the PASS terminal writes the non-tracked `.claude/last-gate-pass.txt` receipt (gitignored via tmpl; T7 pins the ignore line statically + behaviorally after the pr-reviewer's deletion mutant survived all lanes); blocked rows byte-identical (BL-163/BL-171 preserved); `terminal_commit_passed` legacy-valid. Fable verifier APPROVE-WITH-FIXES (3 mutations + fail-open probes; stale addendum sentence fixed; lifecycle-doc truth corrected) then pr-reviewer major_concerns→approve (R-262-1 T7 pin, R-262-2 builders-guide clause). Filed BL-174 (upgrade-path gitignore backfill).
 
 The commit detector appends a `terminal_commit_passed` row to `.claude/bypass-audit.json` on each terminal commit, and the file is NOT in the generated `.gitignore` (unlike its sibling `.claude/last-checked-commit.txt`, gitignored with a comment). Net: after the final commit of any session the tree is dirty by exactly one trailing row; committing it triggers another append (infinite chase). Both Dogfood-4 walkers independently hit it and left the file uncommitted.
 
@@ -3838,7 +3838,7 @@ The two BL-147 governance steps (approval-log integrity, approval-author verific
 **Logged:** 2026-07-22 (Dogfood-4 S3, findings F-DF4-011/012; zap-dast FAIL on a genuinely clean app)
 **Category:** Process gap / scanner harness guidance (Phase 3, static/web apps)
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — shipped + merged 2026-07-24 (PR #263 `25c34fe`). `# BL-165-HARDENED-SERVE`: a project declaring production headers in `.claude/dast-headers.json` is DAST-judged with those headers applied via a generated ZAP Replacer hook (evidence sidecar records the exact applied set); no declaration → raw-preview semantics byte-identical; BL-122 judge / BL-140 workdir / BL-168 sigpipe untouched. Fable verifier APPROVE ×2 (anti-blunting forced-engage mutation caught by 8 assertions; parser-compat proven) with 2 real MINORs applied (visible note on unparseable declarations; non-empty-string shape guard); pr-reviewer major_concerns→approve (R-263-1 hook-artifact witness + py_compile — M4/M4b now RED; empty-name filter; "configured" wording; local scoping; sidecar equality; 5-mutant re-check zero survivors). Residual: one-off live-ZAP smoke recommended at next dogfood walk.
 
 `run-phase3-validation.sh`'s zap-dast arm (riskcode≥2 judge, BL-122-correct) scanned the built `dist/` served by `vite preview` and FAILed on 2 Medium alerts — missing CSP header and missing anti-clickjacking header. Both are DEPLOY-TIME host headers (documented in the project Bible §11 for the deploy boundary), not bundle properties: the S3 walker proved the same `dist/` passes (0 Medium+) when re-served with the documented headers. Net: for every static app, Phase-3 DAST run the obvious way yields a structural FAIL that no code change can fix — the operator either learns to discount the scanner (doctrine violation) or ad-hoc-invents a hardened serve harness, unguided.
 
