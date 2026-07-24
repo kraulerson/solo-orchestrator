@@ -1164,6 +1164,8 @@ _p3_scan_zap() {
   # When NO header set is declared, this whole block is inert and the raw-preview
   # FAIL semantics are byte-for-byte unchanged (the `${_bl165_hook_args[@]+…}`
   # expansion on the dispatch line below is empty; `_bl165_note_suffix` is "").
+  local _bl165_hook_args _bl165_note_suffix _bl165_decl _bl165_hjson
+  local _bl165_decl_present _bl165_hcount _bl165_sidecar
   _bl165_hook_args=()
   _bl165_note_suffix=""
   _bl165_decl=".claude/dast-headers.json"
@@ -1171,14 +1173,15 @@ _p3_scan_zap() {
   _bl165_decl_present=0
   if [ -f "$_bl165_decl" ] && command -v jq >/dev/null 2>&1; then
     _bl165_decl_present=1
-    # Shape guard: keep ONLY non-empty string-valued headers. A non-object
-    # `.headers` (string/number/array — e.g. {"headers":"foo"}, whose string
-    # LENGTH must never be mistaken for a header count), null, missing, invalid
-    # JSON, non-string values, and empty-string values all filter to {} → the
-    # raw path. An empty-string value must NEVER count as "applied": real ZAP
-    # Replacer REMOVES the header on an empty replacement — the opposite of
-    # hardening — so it must not silently green a gate.
-    _bl165_hjson="$(jq -c '(.headers // {}) | if type=="object" then . else {} end | with_entries(select((.value|type)=="string" and (.value|length)>0))' "$_bl165_decl" 2>/dev/null || echo "")"
+    # Shape guard: keep ONLY entries with a non-empty NAME and a non-empty STRING
+    # value. A non-object `.headers` (string/number/array — e.g. {"headers":"foo"},
+    # whose string LENGTH must never be mistaken for a header count), null,
+    # missing, invalid JSON, an empty header name (not a valid replacer target),
+    # non-string values, and empty-string values all filter out → the raw path.
+    # An empty-string value must NEVER count as "applied": real ZAP Replacer
+    # REMOVES the header on an empty replacement — the opposite of hardening — so
+    # it must not silently green a gate.
+    _bl165_hjson="$(jq -c '(.headers // {}) | if type=="object" then . else {} end | with_entries(select((.key|length)>0 and (.value|type)=="string" and (.value|length)>0))' "$_bl165_decl" 2>/dev/null || echo "")"
     case "$_bl165_hjson" in ''|null|'{}') _bl165_hjson="" ;; esac
   fi
   _bl165_hcount=0
@@ -1225,7 +1228,7 @@ BL165_HOOK
       '{mode:"hardened-serve", source_target:$src, declaration_file:$decl, applied_headers:$hdrs, header_count:($hdrs|length), generated:$gen}' \
       > "$_bl165_sidecar" 2>/dev/null || true
     _bl165_hook_args=(--hook=/zap/wrk/bl165-hook.py)
-    _bl165_note_suffix=" against a hardened serve ($_bl165_hcount documented response header(s) applied from $_bl165_decl; config recorded in $(basename "$_bl165_sidecar"))"
+    _bl165_note_suffix=" against a hardened serve ($_bl165_hcount documented response header(s) configured from $_bl165_decl; config recorded in $(basename "$_bl165_sidecar"))"
   elif [ "$_bl165_decl_present" -eq 1 ]; then
     # A declaration is PRESENT but yielded no usable header (invalid JSON,
     # non-object/empty `.headers`, or only non-string/empty-string values). Do

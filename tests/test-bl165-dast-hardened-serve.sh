@@ -115,9 +115,20 @@ for a in "$@"; do
 done
 [ -n "${ZAP_MOCK_HOSTDIR_WITNESS:-}" ] && printf '%s' "$hostdir" > "$ZAP_MOCK_HOSTDIR_WITNESS" 2>/dev/null || true
 [ -n "${ZAP_MOCK_HOOK_WITNESS:-}" ]    && printf '%s' "$hook"    > "$ZAP_MOCK_HOOK_WITNESS"    2>/dev/null || true
+# Copy the generated hook artifact OUT of the bind so the suite can py_compile +
+# content-check it (the driver rm -rf's the workdir after the run). The
+# reviewer's M4 (hook written to the wrong path) and M4b (hook body corrupted to
+# invalid Python) are only caught when the suite actually observes this artifact.
+if [ -n "${ZAP_MOCK_HOOK_COPY:-}" ] && [ -f "$hostdir/bl165-hook.py" ]; then
+  cp "$hostdir/bl165-hook.py" "$ZAP_MOCK_HOOK_COPY" 2>/dev/null || true
+fi
 
 declared=""
-if [ -n "$hook" ] && [ -f "$hostdir/bl165-headers.json" ]; then
+# Suppression models ZAP+Replacer applying the declared headers. It requires the
+# --hook argv AND the headers file AND the hook ARTIFACT actually present at the
+# referenced /zap/wrk path — so M4 (hook at bl165-hook.py.DISABLED) yields no
+# suppression, the missing-header alerts fire, and case (a) goes RED.
+if [ -n "$hook" ] && [ -f "$hostdir/bl165-headers.json" ] && [ -f "$hostdir/bl165-hook.py" ]; then
   declared="$(cat "$hostdir/bl165-headers.json" 2>/dev/null || echo "")"
 fi
 _declared() { case "$declared" in *"$1"*) return 0 ;; *) return 1 ;; esac; }
@@ -195,7 +206,9 @@ echo "=== (a) T-declared-judges-hardened: declared headers → hardened PASS + e
 # written headers file suppress both → 0 Medium+ → PASS, with a recorded sidecar.
 setup declare
 ZAP_URL="http://app.local"; ZAP_MOCK_EXTRA_ALERT=""
+export ZAP_MOCK_HOOK_COPY="$TMP/hook-copy.py"
 out="$(run_driver)"
+unset ZAP_MOCK_HOOK_COPY
 if echo "$out" | grep -q "\[PASS\] zap-dast"; then
   pass "(a) declared clean-with-headers app → [PASS] zap-dast (hardened serve judged)"
 else
@@ -208,6 +221,32 @@ else
   fail_ "(a)" "expected the note to name the hardened serve; out:
 $(echo "$out" | grep -iE 'zap' | head)"
 fi
+# R-263-3: the note must claim the headers were CONFIGURED (handed to Replacer),
+# not "applied" (which the driver cannot prove) — an honesty fix.
+if echo "$out" | grep -q "documented response header(s) configured"; then
+  pass "(a) the engage note says headers were 'configured' (honest wording)"
+else
+  fail_ "(a)" "engage note must say 'configured', not 'applied'; out:
+$(echo "$out" | grep -iE 'zap' | head)"
+fi
+# R-263-1: the generated ZAP hook artifact must ACTUALLY exist in the bind, be
+# valid Python, and carry the Replacer logic — the reviewer's M4 (wrong path) /
+# M4b (corrupt body) survived because the suite never observed the artifact.
+if [ -f "$TMP/hook-copy.py" ]; then
+  pass "(a) the ZAP hook artifact existed at /zap/wrk/bl165-hook.py at scan time (catches M4)"
+else
+  fail_ "(a)" "the driver passed --hook but no bl165-hook.py existed in the bind (M4: written to the wrong path)"
+fi
+if [ -f "$TMP/hook-copy.py" ] && python3 -m py_compile "$TMP/hook-copy.py" 2>/dev/null; then
+  pass "(a) the generated hook is valid Python (py_compile — catches M4b)"
+else
+  fail_ "(a)" "the generated hook does not compile (M4b: corrupted hook body)"
+fi
+if [ -f "$TMP/hook-copy.py" ] && grep -q 'RESP_HEADER' "$TMP/hook-copy.py" && grep -q 'add_rule' "$TMP/hook-copy.py"; then
+  pass "(a) the hook body carries the RESP_HEADER Replacer add_rule logic"
+else
+  fail_ "(a)" "the generated hook is missing the RESP_HEADER add_rule logic"
+fi
 sc="$(sidecar)"
 if [ -n "$sc" ] && [ -s "$sc" ]; then
   pass "(a) evidence sidecar written ($(basename "$sc"))"
@@ -219,6 +258,14 @@ if [ -n "$sc" ] && jq -e '.applied_headers["Content-Security-Policy"] and .heade
 else
   fail_ "(a)" "sidecar must record the applied headers + count; got:
 $([ -n "$sc" ] && cat "$sc")"
+fi
+# R-263-5: exact equality — the sidecar's applied_headers must EQUAL the
+# declaration's usable subset (all 5 valid non-empty strings here), not merely
+# be truthy.
+if [ -n "$sc" ] && jq -e --argjson decl "$DECL_HEADERS" '.applied_headers == $decl.headers' "$sc" >/dev/null 2>&1; then
+  pass "(a) sidecar applied_headers EXACTLY equals the declared usable subset"
+else
+  fail_ "(a)" "sidecar applied_headers must equal the declared header set exactly; got: $([ -n "$sc" ] && jq -c '.applied_headers' "$sc")"
 fi
 teardown
 
@@ -445,6 +492,59 @@ if echo "$out" | grep -q "1 documented"; then
   pass "(h) the note reports the shape-filtered count of 1"
 else
   fail_ "(h)" "expected the note to report '1 documented' header; out:
+$(echo "$out" | grep -iE 'zap' | head)"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== (i) T-empty-name: empty header NAME is filtered (does not engage / is not counted) ==="
+# ════════════════════════════════════════════════════════════════════
+# An empty header NAME is not a header. {"headers":{"":"v"}} must NOT engage (no
+# valid replacer target); a mix of an empty-name entry and one valid header
+# engages with only the valid one. (Reviewer R-263-2.)
+setup nodeclare
+printf '%s\n' '{"headers":{"":"some-value"}}' > "$PROJ/.claude/dast-headers.json"
+ZAP_URL="http://app.local"; ZAP_MOCK_EXTRA_ALERT=""
+export ZAP_MOCK_HOOK_WITNESS="$TMP/hooki.txt"
+out="$(run_driver)"
+unset ZAP_MOCK_HOOK_WITNESS
+if [ -z "$(cat "$TMP/hooki.txt" 2>/dev/null || echo "")" ] && [ -z "$(sidecar)" ]; then
+  pass "(i-a) an empty-name-only declaration does NOT engage (no hook, no evidence)"
+else
+  fail_ "(i-a)" "an empty header name must be filtered — it is not a valid replacer target; hook='$(cat "$TMP/hooki.txt" 2>/dev/null)' sidecar='$(sidecar)'"
+fi
+if echo "$out" | grep -qi "hardening NOT applied"; then
+  pass "(i-a) the visibility note fires for an all-empty-name declaration"
+else
+  fail_ "(i-a)" "expected the 'hardening NOT applied' visibility note; out:
+$(echo "$out" | grep -iE 'zap' | head)"
+fi
+teardown
+
+setup nodeclare
+printf '%s\n' '{"headers":{"":"junk","Content-Security-Policy":"default-src '"'"'self'"'"'"}}' \
+  > "$PROJ/.claude/dast-headers.json"
+ZAP_URL="http://app.local"; ZAP_MOCK_EXTRA_ALERT=""
+export ZAP_MOCK_HOOK_WITNESS="$TMP/hooki2.txt"
+out="$(run_driver)"
+unset ZAP_MOCK_HOOK_WITNESS
+sc="$(sidecar)"
+if [ -n "$(cat "$TMP/hooki2.txt" 2>/dev/null || echo "")" ] && [ -n "$sc" ]; then
+  pass "(i-b) empty-name + one valid header engages (on the valid header)"
+else
+  fail_ "(i-b)" "a mix with one valid header must engage; hook='$(cat "$TMP/hooki2.txt" 2>/dev/null)' sidecar='$sc'"
+fi
+if [ -n "$sc" ] && jq -e '.header_count==1 and ((.applied_headers|keys)==["Content-Security-Policy"])' "$sc" >/dev/null 2>&1; then
+  pass "(i-b) sidecar records EXACTLY the one valid header (empty name dropped, count 1)"
+else
+  fail_ "(i-b)" "sidecar must drop the empty-name entry and record only CSP; got:
+$([ -n "$sc" ] && cat "$sc")"
+fi
+if echo "$out" | grep -q "1 documented"; then
+  pass "(i-b) the note reports the shape-filtered count of 1"
+else
+  fail_ "(i-b)" "expected the note to report '1 documented' header; out:
 $(echo "$out" | grep -iE 'zap' | head)"
 fi
 teardown
