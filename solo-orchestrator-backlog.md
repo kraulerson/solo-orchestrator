@@ -3479,7 +3479,7 @@ Executed: with `.git/hooks/commit-msg` symlinked to a shared out-of-tree file, `
 **Logged:** 2026-07-20 (Karl directive)
 **Category:** Proposal / review tooling (both repos)
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — the standing agent shipped + merged 2026-07-23 (PR #253 `f58bc76`): `.claude/agents/pr-reviewer.md` (model: fable), all seven META lessons from the two live tests baked in as greppable anchors, CONTRIBUTING dispatch doc. Framework-repo deliverable complete. Remaining as separate future work (design pointers, not blockers): the generated-project reviewer variant (the entry's 'scope order second'), and effort-as-a-first-class-reviewer-parameter which belongs to the BL-097 operating-model design.
 
 Karl's directive: an agent that reviews PRs ADVERSARIALLY with the intent of making sure the PR is of the highest technical standard, using the most up-to-date info from context7, as optimal as possible, stable, and secure.
 
@@ -3788,7 +3788,7 @@ The `# BL-120-AUDIT-VERDICT` arm in `process-checklist.sh` globs audit files by 
 **Logged:** 2026-07-22 (Dogfood-4 S2, finding F-DF4-009; both dishonest commit attempts blocked correctly but unrecorded)
 **Category:** Telemetry gap / audit-trail completeness (generated projects)
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — shipped + merged 2026-07-23 (PR #251 `2ad8878`). All three emitted blocking arms (gitleaks/semgrep/bl125) append a `terminal_commit_blocked` row via a best-effort helper (`# BL-163-BLOCKED-LEDGER`). Fable verifier caught a MAJOR — the helper sourced the ledger lib in the hook's own shell, so a trojan `exit 0` lib LANDED a refused commit; fixed by subshell-confining source+append, pinned by T4b. Residual (separate surface, future entry): the emitted commit-msg hook's refusals still write no row.
 
 The semgrep SAST arm (`# BL-118`) and the project-test arm (`# BL-125-COMMIT-TESTS`) live in the emitted pre-commit hook's fallback sequence, which exits non-zero BEFORE `.git/hooks/framework-gate.sh` runs — and framework-gate is the only writer of `terminal_commit_blocked` rows. Net: in Dogfood-4 S2, two real dishonest commit attempts (an `innerHTML` XSS sink; a red-tests commit) were both correctly REFUSED yet appended nothing to `.claude/bypass-audit.json` — the session's ledger shows only the clean landed commits. Enforcement is intact; the forensic record understates attempted violations. Anyone treating bypass-audit.json as the complete enforcement record (its stated purpose for out-of-band/bypass events) sees a cleaner history than reality.
 
@@ -3873,7 +3873,7 @@ A `fix:` commit staging only source + `.claude/phase-state.json` produced a BL-0
 **Logged:** 2026-07-22 (Dogfood-4 S4, finding F-DF4-015; live CI on the work-example repo)
 **Category:** Bug / non-determinism (fail-closed reliability)
 **Severity:** Medium
-**Status:** Open — root-caused + fix implemented on PR #250 (branch `fix/bl168-sigpipe-tm-table`), awaiting merge; flip to Closed at merge citing PR# + SHA. Karl approved the reproduce-first investigation 2026-07-23.
+**Status:** Closed — shipped + merged 2026-07-23 (PR #250 `7be4be4`). `# BL-168-TM-SIGPIPE`: `_p3_tm_has_table` collapsed to a single grep, killing the SIGPIPE-under-pipefail race that read present §4 tables as absent (~11% of live CI attempts). Reproduced live (run 29949089493 att.7) + deterministically past the grep write-buffer; pinned on the shipped bytes with a revert-mutation. DOWNSTREAM: existing generated projects need an `upgrade-project.sh` driver refresh (work-example refreshed 2026-07-23).
 
 On the work-example repo, the CI `Governance - Phase gate check` job's phase-3-validation offline autorun intermittently reported `threat-model` as an **un-attested SKIP** ("PROJECT_BIBLE.md Section 4 threat table absent") on a checkout that plainly contains the §4 TM-001…TM-008 table — then a **no-change re-run PASSED**. Evidence: work-example run 29951076488 attempt 1 (FAIL on `[threat-model(un-attested SKIP)]`) vs attempt 2 (PASS), identical tree. Fail-closed (spurious blocks only, never a spurious pass), but "main green" is not reproducibly stable and legitimate merges can be blocked.
 
@@ -3905,7 +3905,7 @@ On the work-example repo, the CI `Governance - Phase gate check` job's phase-3-v
 **Logged:** 2026-07-22 (Dogfood-4 S4, finding F-DF4-017)
 **Category:** Design conflict / latent (governance templates vs emitted CI)
 **Severity:** Medium
-**Status:** Open — Karl approved the **append-instruction redesign** (2026-07-23); implemented on branch `fix/bl170-approval-append-design` (flips to Closed at merge).
+**Status:** Closed — shipped + merged 2026-07-23 (PR #252 `d020d4e`). Both APPROVAL_LOG templates instruct append-below instead of fill-in-place (resolves the append-only-guard conflict); 12 consumers validated in sync. Fable verifier caught TWO HIGH silent-bypass regressions — an unbounded `grep -A 15` that let one signer pass org dual-approval (now section-bounded), and a pen-test instruction that matched the whole-file exemption grep (reworded) — both mutation-pinned (B6/B7). Residual (filed): upgrade-project.sh's own embedded org template is still fill-in-place (unreached by tests).
 
 `templates/generated/approval-log-personal.tmpl` (and the org twin) pre-seed each phase gate as an empty fill-in-place table (`| **Reviewer** | |`, `| **Date** | |`). Once those template lines are pushed, FILLING them modifies committed lines — and the emitted `Governance - Approval log integrity` job fails ANY modified APPROVAL_LOG.md line (append-only, BL-147). A downstream operator following the template naively hits a red gate at their next crossing. The work-example never tripped it before S4 only because the dependency-audit step failed first on every historical run, halting the job before the governance steps executed (same masking as BL-169); the S4 walker crossed 3→4 by INSERTING filled rows as pure additions, leaving the placeholders untouched.
 
