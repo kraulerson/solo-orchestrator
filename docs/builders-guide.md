@@ -1031,7 +1031,7 @@ git remote add origin <your-clone-url>
 git push -u origin main
 ```
 
-then `init.sh`'s create/push bookkeeping never ran, so `.claude/process-state.json` has no `remote_repo_created` / `pushed_initial` markers. `scripts/check-gate.sh --repair` now **reconciles those markers in its preflight** — but only after a *genuine* check that the configured `origin` answers `git ls-remote` **and** carries the pushed branch (never an assumption). On a free-tier host where protection APIs are unavailable (GitHub private-repo 403, GitLab Premium-only approvals), that lets a **single** command record the tier-limited attestation:
+then `init.sh`'s create/push bookkeeping never ran, so `.claude/process-state.json` has no `remote_repo_created` / `pushed_initial` markers. `scripts/check-gate.sh --repair` now **reconciles those markers in its preflight** — but only after a *genuine* check that the configured `origin` answers `git ls-remote` **and** its branch head is a commit your local repo actually holds — i.e. your code was really pushed, not merely a same-named branch on the remote (never an assumption). On a free-tier host where protection APIs are unavailable (GitHub private-repo 403, GitLab Premium-only approvals), that lets a **single** command record the tier-limited attestation:
 
 ```bash
 scripts/check-gate.sh --repair --branch-protection-attested

@@ -3704,6 +3704,8 @@ Scaffolding with `--no-remote-creation` and wiring `origin` by hand (the exact-c
 
 ---
 
+
+**Verifier record (fable, 2026-07-24, SHIP-WITH-FIXES — applied on the branch):** HIGH must-fix caught: the reconciler recorded `pushed_initial` on branch-NAME existence only (`grep refs/heads/<name>`), so a remote carrying a same-named but UNPUSHED `main` (GitHub's 'Initialize with README' default, disjoint history) earned the full BL-123 attestation AND the BL-116 push-gate exemption with zero project code on the host — a regression vs pre-fix, where an actual `git push` had to succeed. Also: the branch name was interpolated unescaped into a grep BRE (a `rel/1.x` local laundered a `rel/1yx` remote). FIX: exact awk field compare (`$2 == "refs/heads/<cand>"`) + require the matched head sha to be a commit the local repo holds (`git cat-file -e <sha>^{commit}`) — a genuine push guarantees the shared commit, an unrelated auto-init does not. Three fixtures added (T-unrelated-history-refused = the HIGH, T-lookalike-branch-refused = metachar/substring, T-dead-origin-not-recorded); the first two are watched-RED against the name-only version (attestation laundered onto an unpushed project) and GREEN with the fix. The existing unconditional mutant was updated to fabricate the real local HEAD sha (isolating the ls-remote-genuineness guard now that cat-file is defense-in-depth). Suite 10/10; attestation blast radius green (bl123 11, check-gate 5, bl130 4, bl032 8); run-lints 11/11. builders-guide 'carries the pushed branch' overstatement corrected.
 ## BL-158: `check-phase-gate.sh --gate <name>` prints the forced target phase as "Current phase" (cosmetic)
 
 **Logged:** 2026-07-22 (Dogfood-4 S0, finding F-DF4-004)
