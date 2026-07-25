@@ -863,6 +863,18 @@ else
   fail "tests/test-bl171-commitmsg-ledger.sh FAILED (run for details)"
 fi
 
+# BL-172: resume-sentinel parity — the BL-072 TDD-ordering commit-msg HARD BLOCK
+# (tdd_terminal_enforce) and its PreToolUse WARN sibling (tdd_warn_check) skip on
+# all three derivative sentinels (MERGE_HEAD / CHERRY_PICK_HEAD / REVERT_HEAD),
+# so a resumed cherry-pick/revert of impl-only content is no longer refused/
+# warned; a NORMAL impl-only commit still refuses/warns (anti-blunting), pinned
+# by a marker-excision mutation. Direct hermetic fixtures, no init.sh -> both lanes.
+if bash "$SCRIPT_DIR/tests/test-bl172-resume-sentinels.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl172-resume-sentinels.sh"
+else
+  fail "tests/test-bl172-resume-sentinels.sh FAILED (run for details)"
+fi
+
 # BL-161 (Dogfood-4 F-DF4-007): the tracked bypass-audit ledger records ONLY
 # real events — a CLEAN terminal commit writes NO routine terminal_commit_passed
 # row (the tracked ledger is byte-identical; a non-tracked .claude/last-gate-pass.txt
@@ -1860,6 +1872,11 @@ if bash "$SCRIPT_DIR/tests/test-filesystem-gate-install.sh" >/dev/null 2>&1; the
 else
   fail "tests/test-filesystem-gate-install.sh FAILED (run for details)"
 fi
+if bash "$SCRIPT_DIR/tests/test-bl174-gitignore-backfill.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl174-gitignore-backfill.sh"
+else
+  fail "tests/test-bl174-gitignore-backfill.sh FAILED (run for details)"
+fi
 
 # Enforcement-level family.
 if bash "$SCRIPT_DIR/tests/test-enforcement-level-lib.sh" >/dev/null 2>&1; then
@@ -2404,7 +2421,18 @@ mkdir -p "$TEST4_FIXTURE"/{docs/reference,docs/platform-modules,docs/test-result
 cp "$SCRIPT_DIR/docs/builders-guide.md" "$TEST4_FIXTURE/docs/reference/" 2>/dev/null || true
 cp "$SCRIPT_DIR/docs/governance-framework.md" "$TEST4_FIXTURE/docs/reference/" 2>/dev/null || true
 cp "$SCRIPT_DIR/templates/project-intake.md" "$TEST4_FIXTURE/PROJECT_INTAKE.md"
-cp "$SCRIPT_DIR/scripts/lib/helpers.sh" "$TEST4_FIXTURE/scripts/lib/"
+# BL-136: ship the full BL-046 helpers trio, mirroring init.sh's scaffold
+# (the `# BL-046: helpers.sh split` copy block in init.sh). check-phase-gate.sh
+# (run bare by TEST 5) sources
+# lib/helpers-core.sh directly; under its `set -euo pipefail` a missing
+# helpers-core.sh aborts the script BEFORE the "Phase Gate Consistency
+# Check" header, tripping TEST 5's "Phase gate script failed to run". The
+# pre-BL-136 fixture copied only helpers.sh (the pre-split, self-contained
+# world). helpers-full.sh is included too so the helpers.sh shim's own
+# `source helpers-full.sh` resolves for any script that loads the shim.
+cp "$SCRIPT_DIR/scripts/lib/helpers.sh"      "$TEST4_FIXTURE/scripts/lib/"
+cp "$SCRIPT_DIR/scripts/lib/helpers-core.sh" "$TEST4_FIXTURE/scripts/lib/"
+cp "$SCRIPT_DIR/scripts/lib/helpers-full.sh" "$TEST4_FIXTURE/scripts/lib/"
 cp "$SCRIPT_DIR/scripts/resolve-tools.sh" "$TEST4_FIXTURE/scripts/"
 cp "$SCRIPT_DIR/scripts/check-phase-gate.sh" "$TEST4_FIXTURE/scripts/"
 cp "$SCRIPT_DIR/scripts/validate.sh" "$TEST4_FIXTURE/scripts/"
@@ -2715,14 +2743,29 @@ section "TEST 7: Dry-Run Mode"
 
 echo ""
 
-# Test dry-run with piped input
-dry_input="test-dryrun
-Dry run test
-3
+# Test dry-run with piped input.
+# BL-136: init.sh's intake consumes stdin ONLY at prompt_choice calls.
+# prompt_input (project name / description / directory) auto-returns its
+# default in a non-interactive/piped context WITHOUT reading a line (the
+# `[ ! -t 0 ]` guard in helpers-core.sh::prompt_input), so the piped
+# answers must be EXACTLY the ordered prompt_choice selections — no
+# name/description/dir lines. The pre-BL-136 fixture fed a name + a
+# description + a stale choice count; those two leading lines were
+# mis-consumed as invalid Platform-type entries and stdin then hit EOF at
+# the (since-added) Governance-mode prompt, so init.sh aborted before ever
+# printing "Tool Resolution" (the "Dry-run missing resolver tool output"
+# FAIL). prompt_choice has NO non-interactive default by design (a required
+# selection has no safe default), so SOIF_NONINTERACTIVE/</dev/null cannot
+# substitute for real answers here — the sequence must be fed.
+# Sequence: Platform=web(4) · Track=standard(2) · Deployment=personal(1) ·
+# Governance=Production Build(2) · Language=typescript(7) · Continue?=Y
+# (the raw `read` at init.sh's "Continue?" runs under `set -e`, so it needs
+# a value rather than EOF). Menu positions are alphabetical-plus-"other".
+dry_input="4
 2
 1
+2
 7
-/tmp/test-dryrun
 Y"
 
 dry_output=$(echo "$dry_input" | bash "$SCRIPT_DIR/init.sh" --dry-run 2>&1) || true
@@ -2739,18 +2782,39 @@ else
   fail "Dry-run missing resolver tool output"
 fi
 
-if echo "$dry_output" | grep -qi "already installed\|WILL INSTALL\|MANUAL\|DEFERRED"; then
+# BL-136 F1: PIN the resolved combo. Menu positions are glob-derived, so a
+# deleted/added template silently shifts a fed answer (e.g. dropping the
+# csharp CI template slides "7" off typescript) and every OTHER assertion
+# still passes on the WRONG combo. Bind the fed sequence to the
+# collect_project_info summary line.
+if echo "$dry_output" | grep -q "Platform: web | Track: standard | Language: typescript"; then
+  pass "Dry-run resolved the fed combo (web / standard / typescript)"
+else
+  fail "Dry-run combo drifted — menu no longer maps to web/standard/typescript"
+fi
+
+# BL-136 F2: assert the BRACKETED per-tool statuses emitted by dry_run_summary,
+# NOT bare words. The pre-fix `grep -qi "…DEFERRED"` also matched the intake
+# prose "All governance deferred." printed BEFORE tool resolution, so it passed
+# even on runs that aborted before the resolver ran (CI-observed on the original
+# failing run). The bracketed forms ([already installed] / [WILL INSTALL] /
+# [MANUAL] / [DEFERRED Phase N]) appear ONLY once dry_run_summary rendered.
+if echo "$dry_output" | grep -q "\[already installed\]\|\[WILL INSTALL\]\|\[MANUAL\]\|\[DEFERRED"; then
   pass "Dry-run shows tool status categories"
 else
   fail "Dry-run missing tool status categories"
 fi
 
-# Verify no project was actually created
-if [ ! -d "/tmp/test-dryrun" ]; then
-  pass "Dry-run did not create project directory"
+# BL-136 F3: no-creation check, re-aimed. The old `[ ! -d /tmp/test-dryrun ]`
+# was vacuous — the current input never references that path (project name is a
+# prompt_input default of "", so the resolved dir is the repo's own parent, an
+# EXISTING directory that cannot support a `! -d` check). Assert instead the
+# dry_run_summary terminal no-op marker, emitted ONLY when init.sh completes the
+# dry-run WITHOUT proceeding to real project creation.
+if echo "$dry_output" | grep -q "Re-run without --dry-run to execute"; then
+  pass "Dry-run completed in no-op mode (no project created)"
 else
-  fail "Dry-run created a project directory (should not have)"
-  rm -rf "/tmp/test-dryrun"
+  fail "Dry-run did not reach its no-op completion marker (may have created a project)"
 fi
 
 # ================================================================

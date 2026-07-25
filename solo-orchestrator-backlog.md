@@ -2443,6 +2443,8 @@ Three small onboarding traps the 2026-07-11 CLAUDE.md documents but does not fix
 
 **Decision 2026-07-20 (Karl, gates the BL-097/098/100 trio):** enforcement becomes a CONFIGURABLE OPERATING MODEL, not fixed doctrine — not every AI setup has multiple models. The user chooses the operating model at setup (per-ROLE model selection: architect, reviewer, programmer, etc.), the framework then ENFORCES the chosen policy, and a documented update path exists for when the choice proves too expensive (always-best) or not good enough (lower tier). Per-task/per-role model selection does not exist today and needs heavy design + architectural thought — a design doc (role taxonomy, config schema, enforcement surfaces, single-model degradation) precedes any build; sequenced after the Dogfood-4 milestone.
 
+**2026-07-24 (design):** design doc authored, then revised through adversarial review — v1.1 cleared review-r1 (3 refuted "exists" claims + F4–F12), v1.2 folded review-r2 (R2-1..R2-6), and **v1.2.1 cleared adversarial review r3 (APPROVE), folding two minors** (`docs/designs/2026-07-24-operating-model-v1.md`, branch `docs/bl097-100-operating-model-design`), per the 2026-07-20 trio decision; **r4 (2026-07-25, the standing adversarial pr-reviewer on PR #269)** then refuted two narrative-layer claims (the version-floor story; a not-yet-built "S5 lint" cited as existing) — corrections folded as **v1.2.2** (`efab4f6`), re-verified minor_concerns/clear-to-merge, design decisions unchanged; build now un-gated on review (still sequenced after Dogfood-4) — Status stays Open until it lands.
+
 Orchestrating agents (in generated projects and on this repo) dispatch subagents that today either silently inherit the session's model or blanket-use the top tier — both wrong: silent inheritance caused a real 2026-07-10 incident (a fleet ran on an unintended model until killed), and blanket top-tier is cost overkill for mechanical work. The rule to encode wherever multi-agent dispatch is documented (the generated CLAUDE.md's Multi-Agent Parallelism section — `templates/generated/claude-md.tmpl`; the mothership `CLAUDE.md`; `docs/builders-guide.md` if it covers dispatch):
 
 1. **Never inherit silently** — every dispatch names its model (and effort) explicitly.
@@ -2466,6 +2468,8 @@ Sequencing note: if BL-092 moves the Multi-Agent section into a phase-scoped ref
 **Status:** Open
 
 **Decision 2026-07-20 (Karl):** governed by the trio decision recorded at BL-097 — configurable operating model, chosen at setup, then enforced, with a reconfigure path; design doc first, after the Dogfood-4 milestone.
+
+**2026-07-24 (design):** design doc authored, then revised through adversarial review — v1.1 cleared review-r1 (3 refuted "exists" claims + F4–F12), v1.2 folded review-r2 (R2-1..R2-6), and **v1.2.1 cleared adversarial review r3 (APPROVE), folding two minors** (`docs/designs/2026-07-24-operating-model-v1.md`, branch `docs/bl097-100-operating-model-design`), per the 2026-07-20 trio decision; **r4 (2026-07-25, the standing adversarial pr-reviewer on PR #269)** then refuted two narrative-layer claims (the version-floor story; a not-yet-built "S5 lint" cited as existing) — corrections folded as **v1.2.2** (`efab4f6`), re-verified minor_concerns/clear-to-merge, design decisions unchanged; build now un-gated on review (still sequenced after Dogfood-4) — Status stays Open until it lands.
 
 BL-097's model-selection rubric says WHO can build cheaply; this entry supplies the WHAT-makes-that-safe: before any multi-subagent build (or any delegated implementation above trivial), the STRONGEST available model produces a build plan to a **junior-followable standard**, so execution agents know exactly what to build AND how — letting execution model/effort drop a tier without quality loss, because the judgment was front-loaded.
 
@@ -2521,6 +2525,8 @@ BL-097's model-selection rubric says WHO can build cheaply; this entry supplies 
 **Status:** Open
 
 **Decision 2026-07-20 (Karl):** governed by the trio decision recorded at BL-097 — the adversarial-acceptance rule becomes part of the chosen-and-then-enforced operating model (single-model setups need a degradation story: fresh-context same-model verification). Design doc first, after the Dogfood-4 milestone.
+
+**2026-07-24 (design):** design doc authored, then revised through adversarial review — v1.1 cleared review-r1 (3 refuted "exists" claims + F4–F12), v1.2 folded review-r2 (R2-1..R2-6), and **v1.2.1 cleared adversarial review r3 (APPROVE), folding two minors** (`docs/designs/2026-07-24-operating-model-v1.md`, branch `docs/bl097-100-operating-model-design`), per the 2026-07-20 trio decision; **r4 (2026-07-25, the standing adversarial pr-reviewer on PR #269)** then refuted two narrative-layer claims (the version-floor story; a not-yet-built "S5 lint" cited as existing) — corrections folded as **v1.2.2** (`efab4f6`), re-verified minor_concerns/clear-to-merge, design decisions unchanged; build now un-gated on review (still sequenced after Dogfood-4) — Status stays Open until it lands.
 
 **What is official today:** adversarial personas at ten named phase steps (generated CLAUDE.md persona table — fresh context, refute-minded), the per-feature security audit (Build Loop 2.4, five parallel audit agents), and the gate-enforced Phase-3 review manifest with the `evaluation-prompts/` library. **What is missing:** between gates, a delegated (subagent-built) change has no required independent acceptance step — the implementing agent's own report is the only evidence its work is accepted on.
 
@@ -3267,6 +3273,8 @@ The core shard reported `[FAIL] tests/test-bl033-install-cmds-shape.sh` at 16:12
 
 **Observation 2026-07-18 (Dogfood 3, F-DF3-003):** the generated PROJECT's gitleaks CI step showed the same intermittent-flake shape (`ERR failed to scan Git repository error="stderr is not empty"` — failed on 3 commits, passed on others). Second data point for the CI-flake watch, different surface (project CI, not framework CI).
 
+**Investigation 2026-07-24 (WP-F, branch `fix/bl135-bl136-fullsuite-debt`):** local-stability datum + full candidate scan; NOT reproduced. (1) LOCAL 10× — `bash tests/test-bl033-install-cmds-shape.sh` ran ten consecutive times, ALL GREEN (rc=0, `Results: 8 passed, 0 failed` each; sub-second per run). Deterministic locally on `6fc1c11`. (2) CI LOG STILL AVAILABLE — `gh run view 29649055577 --log` retrieves (ubuntu-24.04 runner); it confirms the aggregate core shard prints ONLY `[FAIL] tests/test-bl033-install-cmds-shape.sh FAILED (run for details)` — NO case-level detail is recoverable, so WHICH of the 8 cases failed is unknowable from the log (this BOUNDS the diagnosis and re-justifies the per-sub-suite `tee` demand). That shard reported 5 failures total: this test, `tier-crosscheck-6` zdr-gate, `test-init-schema-phase-gate`, plus the two BL-136 cases (TEST 5 + TEST 7). (3) CANDIDATE SCAN (anchors = case/function names in `test-bl033-install-cmds-shape.sh`): the suite is exceptionally portable — `set -uo pipefail` (NOT `-e`), byte-comparison `[ "$x" = … ]` tests, and NO `sed -i`/`stat`/`date -d`/`grep -P`/`sort`/locale use. Host-shaped constructs, exhaustively: (a) `mktemp -d` in `_mk_matrix` (GNU+BSD both support the no-template form — benign); (b) the ONLY timing/race-shaped surface — the `$$`-keyed shared `/tmp/bl033-fail-fast-stage{1,2}-$$` markers in `T-array-fail-fast`, guarded by `rm -f` before use (low collision risk even under parallel-shard load); (c) COMMIT-STATE (not host) sensitivity — `T-migrated-entries` + `T-migrated-semantics` read the SHIPPED `templates/tool-matrix/common.json` and assert docker/colima carry the array shape, so a 2026-07-18 main with that matrix mid-migration would fail LEGITIMATELY and is NOT reproducible at `6fc1c11`. No candidate reproduces the failure locally, so the runner-`tee` instrumentation was deliberately NOT built this WP (per plan — build only if a candidate makes it locally reproducible). (4) DISPOSITION unchanged (Status stays Open, awaiting a second full-lane data point): per this entry's own rule, a second full-lane FAIL → `tee` each sub-suite's output (inspect candidate (c) first); a second full-lane PASS → declassify to noise.
+
 ---
 
 ## BL-136: full-project-test-suite TEST 5 ("Phase gate script failed to run") and TEST 7 ("Dry-run missing resolver tool output") — pre-existing core-lane failures, on record since 2026-07-12
@@ -3279,6 +3287,16 @@ The core shard reported `[FAIL] tests/test-bl033-install-cmds-shape.sh` at 16:12
 Both reproduce in the core shard and predate the Dogfood-2 remediation (the 2026-07-12 local run hit the identical pair on then-main). Prior diagnosis notes: TEST 7's fixture under-feeds `prompt_choice` on the dry-run resolver path; TEST 5's phase-gate invocation fails in the suite's fixture context. Neither is covered by the unit lane. Fix shape: reproduce each in isolation, repair the FIXTURE if it models a stale world (the BL-134/zdr-gate pattern) or the product if the gate genuinely misbehaves; register nothing new (both live inside the aggregator).
 
 **Related:** BL-134 (the same run's other test-debt class); Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md § POST-RUN CI REPAIR (the fixture-era doctrine).
+
+**Investigation 2026-07-24 (WP-F, branch `fix/bl135-bl136-fullsuite-debt`, fix commit `afd0431`):** both root-caused, both FIXTURE-ERA, both repaired IN `tests/full-project-test-suite.sh` (product code untouched); reproduced by extraction/isolation only (HARD LIMIT respected: the ~3h full suite and any workflow_dispatch were NOT run). Full-lane confirmation is OUTSTANDING — the reason Status stays Open (flips only after a green full-lane run post-merge).
+
+TEST 5 ("Phase gate script failed to run") — FIXTURE-ERA. TEST 4's shared scaffold (built once as `TEST4_FIXTURE`, copied per combo in `for run in "${TEST_RUNS[@]}"`) copied ONLY `scripts/lib/helpers.sh`. But `check-phase-gate.sh` runs `source "$SCRIPT_DIR/lib/helpers-core.sh"` at its top (the BL-046 core/full split) under `set -euo pipefail`; with that sibling absent the `source` fails and the script ABORTS before echoing its `Phase Gate Consistency Check` header — so the block's `grep -q "Phase Gate Consistency Check"` is false → FAIL. Corroborated by CI 29649055577, where TEST 5's SECOND assertion ("Phase gate can access tool-preferences.json") PASSED: the fixture dir existed and the gate RAN but died early. REPRO (scratchpad, staged): a faithful `test-web-typescript` scaffold with only `helpers.sh` → `check-phase-gate.sh: line 18: …/lib/helpers-core.sh: No such file or directory`, rc=1, header ABSENT; add `helpers-core.sh` + `helpers-full.sh` → rc=0, header present, "Phase gates consistent." REPAIR (`# BL-136` at the fixture-build `cp` block): ship the full helpers trio, mirroring init.sh's own scaffold (the `cp … helpers-core.sh` / `helpers-full.sh` copies that sit beside `helpers.sh`).
+
+TEST 7 ("Dry-run missing resolver tool output") — FIXTURE-ERA (confirms the prior `prompt_choice` under-feed diagnosis). The piped `dry_input` modeled a stale intake: `prompt_input` (project name/description) now auto-returns its default in a non-interactive/piped context WITHOUT consuming a line (`prompt_input`'s `[ ! -t 0 ]` guard in `helpers-core.sh`), so the two leading lines (`test-dryrun`, `Dry run test`) were mis-eaten as INVALID Platform-type entries; a Governance-mode `prompt_choice` was since added to the intake; the rest misaligned and stdin hit EOF at Governance — `prompt_choice`'s `stdin closed (EOF) before a valid choice was supplied` branch — aborting init.sh before "Tool Resolution" ever printed. `prompt_choice` has NO non-interactive default BY DESIGN (unlike `prompt_input`/`prompt_yes_no`/`prompt_install`), so the plan's `SOIF_NONINTERACTIVE=1`/`</dev/null` option does NOT apply here — the choice sequence must be fed. REPRO: old 8-line input → exit 1, `Tool Resolution` absent, dies at the Governance EOF. REPAIR (`# BL-136` above the `dry_input=` heredoc): feed the exact current `prompt_choice` sequence — platform=web(4) · track=standard(2) · deployment=personal(1) · governance=Production Build(2) · language=typescript(7) · then the raw `Continue?` read (under `set -e`, so it needs a value, not EOF). VALIDATED: repaired input → exit 0 with ALL FOUR TEST 7 assertions green (DRY RUN, Tool Resolution, tool-status categories, no project dir). The Docker-install `prompt_choice` (guarded on Docker-absent + interactive + Darwin/brew) does NOT fire — Docker is present on this host and on ubuntu-24.04 CI — so it cannot shift the sequence.
+
+BLAST RADIUS: `bash -n tests/full-project-test-suite.sh` clean; `scripts/run-lints.sh` 11/11 (`lint-tests-registered.sh` green — no registration lines touched); `test-bl033-install-cmds-shape.sh` still 8/8.
+
+**Verifier follow-up 2026-07-24 (APPROVE-WITH-FIXES, applied on the same branch):** the consolidated verifier CONFIRMED both fixture-era diagnoses with independent evidence (TEST 5: the `helpers.sh`-only `cp` predates the BL-046 split — born-valid-then-rotted; TEST 7: `prompt_choice`'s no-default EOF guard is documented design, so nothing to flip product-side) and independently re-derived the prompt sequence to match. It also flagged that the "ALL FOUR TEST 7 assertions green" evidence recorded above was OVERSTATED — TWO of those four were VACUOUS. Corrections F1-F4, all applied and each bite-proven: **(F1)** the fed menu numbers are glob-derived, so a shifted template could land on the WRONG combo with every assertion still green — added a combo-PIN on the `collect_project_info` summary line (`Platform: web | Track: standard | Language: typescript`); bite-proven by feeding language `6`=rust → the pin FAILS while the other four PASS. **(F2)** old assertion 3 `grep -qi "…DEFERRED"` matched the intake PROSE `Private POC — … All governance deferred.` printed BEFORE resolution (why it PASSED in the original CI run even though "Tool Resolution" never ran) — tightened to the BRACKETED `dry_run_summary` statuses (`[already installed]`/`[WILL INSTALL]`/`[MANUAL]`/`[DEFERRED`); bite-proven on the OLD stale input (the loose grep passes on the aborted output; the bracketed one FAILS). **(F3)** old assertion 4 `[ ! -d /tmp/test-dryrun ]` was FULLY vacuous (nothing in the new input references that path; the resolved default dir is the pre-existing repo parent `…/.claude/worktrees/`, so no `! -d` is possible) — re-aimed to the `dry_run_summary` terminal no-op marker `Re-run without --dry-run to execute` (emitted only when the dry-run completes WITHOUT creating). **(F4)** replaced the bare `init.sh:1284-1286` fixture cite with the grep-able `# BL-046: helpers.sh split` anchor (CITATION RULE). Net: TEST 7 now carries FIVE assertions, all green on good input and each proven to bite; `bash -n` clean; `run-lints.sh` 11/11. Status still Open — full-lane confirmation remains outstanding.
 
 ---
 
@@ -4035,6 +4053,26 @@ REFUSAL-PATH ENUMERATION (emitted commit-msg hook → `--terminal-mode --tdd-onl
 
 **Related:** BL-171 (surfaced this), BL-072 (the gate), BL-010/BL-006 (the sibling gate with the fuller sentinel set).
 
+**Build note (2026-07-24, branch `fix/bl172-sentinel-parity`, pre-PR — Status stays Open):**
+Added the two missing sentinels (`# BL-172-RESUME-SENTINELS`) to `tdd_terminal_enforce`,
+mirroring `bl006_terminal_enforce`'s three-sentinel set; MERGE_HEAD behavior is
+untouched. **Second-surface parity finding:** grepping MERGE_HEAD across
+`scripts/pre-commit-gate.sh` returns five skip sites — `tdd_terminal_enforce`
+(the target), `bl006_terminal_enforce` (the sibling, already three-sentinel), and
+three MERGE_HEAD-only sites. Of those three, the one whose in-function comment names
+`tdd_terminal_enforce` as its hard-block counterpart is `tdd_warn_check` — the SAME
+BL-072 gate's PreToolUse WARN entry point (Phase C1). It already passes explicit
+`git cherry-pick`/`git revert` COMMANDS via a command-string filter and resumed
+MERGES via its own MERGE_HEAD sentinel; the two sentinels were added there too so a
+cherry-pick/revert resumed with a plain `git commit` (no command-string keyword)
+also passes — identical extension, same marker. The other two MERGE_HEAD-only sites
+are DIFFERENT gates and were left untouched: `bl006_check` (the BL-006 PreToolUse
+gate) and `lints_check` (the operator-side lint-promotion surface). Pinned by
+`tests/test-bl172-resume-sentinels.sh` — 15 cases across both surfaces (cherry-pick/
+revert/merge pass-through, an anti-blunting case per surface proving a NORMAL
+impl-only commit still refuses/warns, and a marker-excision mutation proof).
+Registered in both the aggregator and the `tests.yml` unit lane.
+
 ---
 
 ## BL-173: Two pre-existing full-suite test failures — currency-birth-stamp stale vs BL-107, and the BL-113 driver-mutation case is not pinned to its marked lines
@@ -4054,6 +4092,8 @@ Neither failure blocks PRs (both suites are full-suite-only, not in the `tests.y
 
 **Related:** BL-107 (the contract change item 1 is stale against), BL-113 (the honesty gate item 2 mis-tests), `docs/handoffs/2026-07-24-residuals-wave-and-next-builds.md` § 3 (first surfaced).
 
+**Status update 2026-07-24 (fix built, awaiting merge — Status stays Open, flips to Closed with PR + merge SHA at merge):** repaired on branch `fix/bl173-test-cleanups`, commit `636bd11` (tests). **Test-only; no product code touched** — both were genuine STALE tests: the product already agrees with BL-107 (`soif_currency_hook_state` returns `present` for commit-msg on every language) and the BL-113 driver/gate carry-forward is intact (RED(b) + GREEN already proved the gate-side marker load-bearing). **Item 1 (`tests/test-currency-birth-stamp.sh`):** the rust/other commit-msg expectations moved `absent-intentional`/`absent-unavailable` → `present` (citing `# BL-107-UNIVERSAL-INSTALL`, PR #205); the header + both scaffold comments now document the enum's absent-* values as historical legacy-reader states never written by a fresh scaffold. 16/2 → **18/0**. **Item 2 (`tests/test-bl113-sast-honesty.sh`):** `T-mutation-no-launder RED(a)` was re-aimed off the overall gate verdict (`validation scans clean` — which ALSO needs the regenerated offline SKIP to be attested, an environment-sensitive signal that comes up un-attested here, so the case failed for an unrelated reason and was never pinned to the marked lines) onto the laundering-specific delta of the `# BL-113-NO-LAUNDER` driver decision: with the marked driver lines neutered the regenerated summary records semgrep **SKIP** (was FAIL) and the gate drops the `[STALE - last real result: FAIL]` carry-forward — the exact inverse of the pristine `T-no-launder-dirty-tree (a)` case (which still asserts FAIL + carry-forward present: the GREEN side, unchanged). 16/1 → **17/0**. Mutation-proven both directions (currency: flip an expectation back → suite RED → restore; bl113: leave the mutant copy PRISTINE → RED(a) fails with `carryfwd_gone=0 sem_laundered=0` and the gate shows `[STALE — last real result: FAIL]`/`semgrep-full-tree(FAIL)` → restore). Both suites green **twice in a row**; `scripts/run-lints.sh` 11/11. Neither suite was added to the `tests.yml` unit lane (both invoke real `init.sh`).
+
 ---
 
 ## BL-174: upgrade-path never backfills the gitignore ignore-lines — upgraded projects get the BL-161 receipt behavior but not its ignore line (same gap pre-exists for last-checked-commit.txt)
@@ -4070,6 +4110,41 @@ Neither failure blocks PRs (both suites are full-suite-only, not in the `tests.y
 **Fix shape:** an idempotent append-if-missing gitignore backfill for BOTH sidecar lines (`.claude/last-gate-pass.txt` AND `.claude/last-checked-commit.txt`) in `_run_idempotent_backfill`; mutation-proof it (the line is added exactly once; re-running is a no-op).
 
 **Secondary (optional hardening, do when BL-174 is built):** `tests/test-filesystem-gate-install.sh` has zero pass-arm coverage — it passed unchanged under both BL-161 receipt mutations, so it cannot catch a regression in the clean-pass receipt path. Add one receipt case (a clean pass writes `.claude/last-gate-pass.txt` and no tracked-ledger row).
+
+**Build note (2026-07-24, branch `fix/bl174-gitignore-backfill`):** implemented the
+append-if-missing backfill inside `_run_idempotent_backfill` (marker
+`# BL-174-GITIGNORE-BACKFILL`), covering BOTH sidecar lines
+(`.claude/last-checked-commit.txt` and `.claude/last-gate-pass.txt`). Idempotent
+(`grep -qxF` guards each exact line → re-run is a byte-no-op), manifest-gated (runs
+for every generated project via the `.claude/manifest.json` marker, matching the
+host-field and BL-030 sibling backfills), best-effort (`|| true` so a gitignore hiccup never fails the
+upgrade), and create-if-missing when a project has no `.gitignore` at all — the last
+two mirroring the marker-gated / create-if-missing posture of the sibling
+`.claude/last-checked-commit.txt` / `.claude/bypass-audit.json` backfills in the same
+function. **The manifest gate is load-bearing:** the enclosing subshell runs
+`cd "$PROJECT_ROOT"`, and because the `--backfill-only` path never reaches
+`guard_not_in_framework`, a projectless / in-framework invocation (empty
+`PROJECT_ROOT` → that `cd` no-ops → cwd stays the framework repo) would otherwise
+append the two lines to the framework's OWN `.gitignore`. An earlier UNGUARDED draft
+did exactly that (caught mid-build when an upgrade-family suite polluted the worktree
+`.gitignore`); the `.claude/manifest.json` gate — matching the host-field and BL-030
+sibling backfills — closes it. NOTE: not every sibling block carries such a gate — the
+vendored-skills sync and the BL-088 source-closure copy have no project gate and write
+outside generated projects today (the framework repo's month-old untracked
+`.claude/skills/` is standing residue); that structural gap is tracked as **BL-177**. New hermetic suite `tests/test-bl174-gitignore-backfill.sh` (6
+cases; hand-built fixture, NO init.sh — copies the upgrade script + lib closure and
+drives `--backfill-only`; registered in BOTH the `tests.yml` unit lane and the
+full-project aggregator) pins the two lines BEHAVIORALLY via `git check-ignore` on an
+UPGRADED fixture (the BACKFILL side; the TEMPLATE side stays pinned by
+`tests/test-bl161-ledger-real-events-only.sh` T7) and adds T6 — a no-manifest
+projectless fixture must be a byte-no-op (its watched-RED was observed against the
+unguarded draft). Watched-RED + marker-excision mutation both captured. Secondary hardening also
+landed: `tests/test-filesystem-gate-install.sh` gained T8 — the suite's first
+pass-arm case (a clean commit through the installed gate writes the
+`.claude/last-gate-pass.txt` receipt and appends no row to the tracked
+`.claude/bypass-audit.json`), mutation-proved by deleting the
+`record_gate_pass_receipt` write line (T1–T7 stayed green — the suite was blind to
+the PASS terminal before T8). Status stays **Open** pending PR review/merge.
 
 **Related:** BL-161, BL-107, `templates/generated/gitignore-base.tmpl`.
 
@@ -4090,6 +4165,62 @@ BL-131 ships a new vendored artifact, `templates/semgrep/soif-dom-sinks.yml`, th
 **Fix shape:** extend the `scaffold-shipped-set.sh` parser registry with a `soif_parse_shipped_semgrep` (or a generalized `templates/<dir>/` verbatim-copy shape) covering `templates/semgrep/*.yml`, and fold it into the BL-109 currency stamping + the BL-108 closure derivation. Mutation-proof the new parser (a shipped ruleset appears in the derived set; an unshipped one does not).
 
 **Related:** BL-131 (ships the ruleset + the sync/verify-install delivery paths), BL-108 (source-closure), BL-109 (currency system).
+
+---
+
+## BL-176: sentinel skip checks are blind in linked git worktrees — literal `.git/<SENTINEL>` paths miss the per-worktree gitdir
+
+**Logged:** 2026-07-24 (BL-172 WP-B fable verifier, findings F2+F3)
+**Category:** Gate precision / git-worktree correctness (commit-msg + PreToolUse sentinel skips)
+**Severity:** Low
+**Status:** Open
+
+In a **linked git worktree** `.git` is a FILE (a `gitdir:` pointer), not a directory, so the literal `[ -f .git/<SENTINEL> ]` derivative-commit skip tests are BLIND: mid-cherry-pick `[ -f .git/CHERRY_PICK_HEAD ]` is FALSE, while `git rev-parse --git-path CHERRY_PICK_HEAD` resolves to `.git/worktrees/<name>/CHERRY_PICK_HEAD` where the sentinel actually lives. Verified on git 2.50.1 by the BL-172 verifier's empirical probe, and independently reproduced in THIS repo's own `.claude/worktrees/agent-*` worktree: `.git` is a 103-byte file, `test -f .git/CHERRY_PICK_HEAD` → FALSE, and `git rev-parse --git-path CHERRY_PICK_HEAD` → `<repo>/.git/worktrees/<name>/CHERRY_PICK_HEAD`. In a normal (non-worktree) checkout `--git-path` returns `.git/<SENTINEL>`, so it is a drop-in replacement.
+
+Affects **all five** skip sites — the two BL-172 additions AND the pre-existing MERGE_HEAD lines AND `bl006_terminal_enforce`'s full three-sentinel set: `tdd_terminal_enforce`, `tdd_warn_check`, `bl006_terminal_enforce`, `bl006_check`, `lints_check`. Net: the BL-172 symptom (spurious refusal of a resumed cherry-pick/revert — and, pre-BL-172, a resumed merge) PERSISTS inside a linked worktree, because the skip never fires there.
+
+**Fail direction (calibration):** CLOSED. The blindness makes the gate MORE strict (a skip that *should* fire does not), so the only consequence is an inconvenient spurious refusal, NEVER a bypass. That is why this is Low, not a blocker.
+
+**Fix shape:** replace the literal `.git/<SENTINEL>` path tests with `git rev-parse --git-path <SENTINEL>` at all five sites (a drop-in in normal checkouts, correct in linked worktrees); mutation-proof each site.
+
+**Secondary (optional hardening, verifier F3):** write a `sentinel_skip` ledger row whenever a sentinel skip fires, so a forged-sentinel commit leaves a trace. Parity note: sentinel forgery is ALREADY possible via the pre-BL-172 MERGE_HEAD line and requires privileged `.git` write access — this introduces no new abuse class, hence a rider, not a blocker.
+
+**Related:** BL-172 (the sentinels this generalizes), BL-072 (the TDD gate), BL-006/BL-010 (the sibling gate), and this repo's own `.claude/worktrees/` agent workflow (where the blindness is live).
+
+---
+
+## BL-177: `_run_idempotent_backfill` has no structural projectless/in-framework guard — two sibling blocks write outside generated projects today (`.claude/skills/`, BL-088 script copies)
+
+**Logged:** 2026-07-24 (BL-174 WP-D adversarial verifier)
+**Category:** Upgrade-path safety / framework-repo hygiene
+**Severity:** Medium
+**Status:** Open
+
+`scripts/upgrade-project.sh`'s `_run_idempotent_backfill` runs its whole body inside a subshell that opens with `( cd "$PROJECT_ROOT" …`. `find_project_root` keys on `.claude/phase-state.json`; when that marker is absent — the framework repo itself, or any non-project cwd — `PROJECT_ROOT` is the empty string and **`cd ""` is a SILENT rc-0 no-op under `set -euo pipefail` on bash 3.2** (empty operand → success, cwd unchanged), so the subshell proceeds in the INVOCATION directory rather than a project root. Nothing downstream re-checks that we are in a real project.
+
+The `--backfill-only` path reaches this with **no framework guard**: it fires `_bl015_sentinel_guard`, then `_run_idempotent_backfill`, then hits the `--backfill-only` short-circuit (`exit 0`) BEFORE `guard_not_in_framework` — which lives only on the full-upgrade / `--sync-framework` / `--plan` paths. So an in-framework `upgrade-project.sh --backfill-only` executes the entire backfill body against the framework tree. (`guard_not_in_framework` *does* refuse the identical cwd on the paths that call it, confirming the write is unintended — `--backfill-only` simply never gets there.)
+
+**Six-block gate survey of `_run_idempotent_backfill`** (what protects each writer):
+1. host-aware CI-template migration — **shape-gated only** (`[ -d templates/pipelines/ci ] && [ ! -d …/github ]`), no project marker.
+2. manifest host-field backfill — **manifest-gated** (`[ -f .claude/manifest.json ]`).
+3. BL-030 manifest backfill (incl. the `last-checked-commit.txt` / `bypass-audit.json` writes) — **manifest-gated**.
+4. BL-174 gitignore backfill — **manifest-gated** (added in the BL-174 WP-D fix, after an unguarded draft leaked into the framework repo's own `.gitignore`).
+5. vendored-skills sync — **gated only on the SOURCE dir** (`[ -d "$ORCHESTRATOR_ROOT/templates/generated/skills" ]`); **NO project gate**.
+6. BL-088 source-closure copy — **gated only on cwd shape** (`[ -d scripts ]`); **NO project gate**.
+
+**Two live leaks today.** Blocks 5 and 6 write into the invocation cwd whenever `_run_idempotent_backfill` runs projectless:
+- The skills sync does `mkdir -p .claude/skills` and copies each skill's `SKILL.md` / `NOTICE`. Its self-copy guard `[ "$skill_src" -ef "$skill_dest/" ]` **never matches** here, because the source (`templates/generated/skills/X`) and destination (`.claude/skills/X`) are DIFFERENT paths — the `-ef` guard only skips a true in-place self-copy, not a framework→`.claude/skills` copy. The framework repo's own **untracked `.claude/skills/` (dated ~2026-06-28, a month old at logging) is standing residue of exactly this leak.**
+- The BL-088 block `cp`s `lib/tdd-classify.sh`, `lib/phase2-state.sh`, `lib/cdf-refresh.sh`, `run-phase3-validation.sh` into `scripts/lib/…` of the invocation cwd, its `-ef` guard likewise skipping only a genuine self-copy.
+
+Net: BL-174 closed the *gitignore* instance of this class by manifest-gating block 4, but the **structural** gap — an unguarded subshell that silently runs in whatever cwd it is invoked from — remains, and blocks 5 and 6 still write outside generated projects.
+
+**Fix shape:**
+- Add ONE structural marker check at the TOP of the `_run_idempotent_backfill` subshell — `[ -f .claude/phase-state.json ] || [ -f .claude/manifest.json ] || { print_info "…"; exit 0; }` (the subshell `exit 0` returns from the function without mutating anything). **No current legitimate path regresses:** `find_project_root` already keys on `.claude/phase-state.json`, so any real project reached via a non-empty `PROJECT_ROOT` has that marker present in the cd'd cwd; only the projectless/in-framework case is refused.
+- PLUS call `guard_not_in_framework` on the `--backfill-only` entry (before the backfill) so an in-framework invocation refuses **LOUDLY** rather than silently no-opping — defense in depth matching the full-upgrade / sync paths.
+- Correct the BL-174 block comment so it no longer implies every sibling block is manifest-gated (done as a comment-only change in the BL-174 WP-D follow-up).
+- **Mutation proof:** a projectless fixture (a `scripts/` dir present, a skills source visible via `ORCHESTRATOR_ROOT`, but NO `.claude/manifest.json` and NO `.claude/phase-state.json`) → after the structural guard, `_run_idempotent_backfill` performs ZERO writes (no `.claude/skills/`, no `scripts/lib/` copies, no `.gitignore` append); excise the guard → the skills sync and BL-088 copies reappear (RED).
+
+**Related:** BL-174, BL-080, BL-081.
 
 ---
 
