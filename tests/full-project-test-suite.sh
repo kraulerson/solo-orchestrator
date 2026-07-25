@@ -848,6 +848,18 @@ else
   fail "tests/test-bl171-commitmsg-ledger.sh FAILED (run for details)"
 fi
 
+# BL-172: resume-sentinel parity — the BL-072 TDD-ordering commit-msg HARD BLOCK
+# (tdd_terminal_enforce) and its PreToolUse WARN sibling (tdd_warn_check) skip on
+# all three derivative sentinels (MERGE_HEAD / CHERRY_PICK_HEAD / REVERT_HEAD),
+# so a resumed cherry-pick/revert of impl-only content is no longer refused/
+# warned; a NORMAL impl-only commit still refuses/warns (anti-blunting), pinned
+# by a marker-excision mutation. Direct hermetic fixtures, no init.sh -> both lanes.
+if bash "$SCRIPT_DIR/tests/test-bl172-resume-sentinels.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl172-resume-sentinels.sh"
+else
+  fail "tests/test-bl172-resume-sentinels.sh FAILED (run for details)"
+fi
+
 # BL-161 (Dogfood-4 F-DF4-007): the tracked bypass-audit ledger records ONLY
 # real events — a CLEAN terminal commit writes NO routine terminal_commit_passed
 # row (the tracked ledger is byte-identical; a non-tracked .claude/last-gate-pass.txt
