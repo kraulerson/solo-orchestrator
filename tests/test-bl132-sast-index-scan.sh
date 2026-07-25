@@ -94,6 +94,11 @@ XSS_TS='export function render(pane: HTMLElement, userText: string) {
 SAFE_TS='export function render(pane: HTMLElement, userText: string) {
   pane.textContent = userText;
 }'
+# A DOM-sink caught by the LOCAL ruleset (soif-insert-adjacent-html), valid as both
+# .ts and .js so it can be staged under .min.js. Used by the ignored-paths regression.
+IA_SINK='function render(el, u) {
+  el.insertAdjacentHTML("beforeend", u);
+}'
 
 # mk_repo <dir> <hookfile>: fresh repo w/ local identity + one benign commit landed
 # BEFORE the hook is installed, then the given hook installed as pre-commit and the
@@ -152,8 +157,10 @@ else
       fail_ "T-index-blocks-staged-vuln" "non-zero exit but HEAD MOVED"
     elif ! grep -q "app.ts" "$TOPTMP/o1"; then
       fail_ "T-index-blocks-staged-vuln" "blocked, but the finding did not name the real path app.ts — temp-prefix mapping missing"
+    elif grep -qE '/var/folders/|/tmp/tmp\.' "$TOPTMP/o1"; then
+      fail_ "T-index-blocks-staged-vuln" "the raw mktemp temp-tree prefix leaked into the operator-facing output — the path-mapping sed did not run (F3); a bare 'app.ts' grep passes anyway because the temp path contains the basename"
     else
-      pass "T-index-blocks-staged-vuln: STAGED bytes scanned, commit refused, HEAD unmoved, real path shown"
+      pass "T-index-blocks-staged-vuln: STAGED bytes scanned, commit refused, HEAD unmoved, real repo-relative path shown (no temp prefix)"
     fi
   fi
 fi
@@ -236,22 +243,134 @@ else
   fi
 fi
 
+# ── T-index-ignored-paths-scanned (verifier F1 regression) ───────────────────
+# Staged sinks under semgrep's default-ignored paths (tests/ dist/ *.min.js) MUST be
+# scanned. Pointing semgrep at the materialized DIRECTORY re-engaged its built-in
+# .semgrepignore and silently skipped them (F1); FIX B (explicit file targets)
+# restores coverage. RED (pre-FIX-B, directory scan): these COMMIT with [OK].
+echo "=== T-index-ignored-paths-scanned ==="
+if [ "$HAVE_SEMGREP" -eq 0 ]; then
+  skip_ "T-index-ignored-paths-scanned" "semgrep ABSENT — skip, not pass"
+else
+  R4="$TOPTMP/ignored"
+  if ! mk_repo "$R4" "$EMITTED"; then
+    fail_ "T-index-ignored-paths-scanned" "repo setup failed"
+  else
+    mkdir -p "$R4/tests" "$R4/dist"
+    printf '%s\n' "$IA_SINK" > "$R4/tests/vuln.ts"
+    printf '%s\n' "$IA_SINK" > "$R4/dist/payload.ts"
+    printf '%s\n' "$IA_SINK" > "$R4/lib.min.js"
+    H0="$(head_of "$R4")"
+    if ( cd "$R4" && git add tests/vuln.ts dist/payload.ts lib.min.js && git commit -m "feat: ignored-path sinks" ) >"$TOPTMP/o4" 2>&1; then V=COMMITTED; else V=REFUSED; fi
+    H1="$(head_of "$R4")"
+    if [ "$V" = "COMMITTED" ]; then
+      if not_enforced "$TOPTMP/o4"; then
+        skip_ "T-index-ignored-paths-scanned" "scanner did not run (registry unreachable?) — coverage UNPROVEN here"
+      else
+        fail_ "T-index-ignored-paths-scanned" "sinks under tests/ dist/ *.min.js COMMITTED CLEAN — default .semgrepignore silently skipped them (verifier F1 regression): $(grep -E '\[OK\]|\[BLOCKED\]' "$TOPTMP/o4" | head -1)"
+      fi
+    elif ! grep -q "\[BLOCKED\]" "$TOPTMP/o4"; then
+      fail_ "T-index-ignored-paths-scanned" "refused but without [BLOCKED] (wrong reason): $(tail -3 "$TOPTMP/o4" | tr '\n' '|')"
+    elif [ "$H0" != "$H1" ]; then
+      fail_ "T-index-ignored-paths-scanned" "non-zero exit but HEAD MOVED"
+    elif ! grep -q 'tests/vuln.ts' "$TOPTMP/o4" || ! grep -q 'dist/payload.ts' "$TOPTMP/o4" || ! grep -q 'lib.min.js' "$TOPTMP/o4"; then
+      fail_ "T-index-ignored-paths-scanned" "blocked, but not all three ignored-path sinks were NAMED — one was still skipped (found $(grep -cE 'tests/vuln\.ts|dist/payload\.ts|lib\.min\.js' "$TOPTMP/o4") of 3 refs)"
+    elif grep -qE '/var/folders/|/tmp/tmp\.' "$TOPTMP/o4"; then
+      fail_ "T-index-ignored-paths-scanned" "raw mktemp temp-tree prefix leaked into output (F3)"
+    else
+      pass "T-index-ignored-paths-scanned: sinks under tests/ dist/ *.min.js are ALL scanned + REFUSED (F1 regression closed)"
+    fi
+  fi
+  # control: a src/ sink is REFUSED both before and after FIX B — anchors that the
+  # hook DOES block when it sees a sink (so the ignored-path RED is meaningful).
+  R4c="$TOPTMP/ignored-ctrl"
+  if mk_repo "$R4c" "$EMITTED"; then
+    mkdir -p "$R4c/src"
+    printf '%s\n' "$IA_SINK" > "$R4c/src/ctrl.ts"
+    if ( cd "$R4c" && git add src/ctrl.ts && git commit -m "feat: src sink" ) >"$TOPTMP/o4c" 2>&1; then Vc=COMMITTED; else Vc=REFUSED; fi
+    if not_enforced "$TOPTMP/o4c"; then
+      skip_ "T-index-ignored-paths-control" "scanner did not run — control vacuous here"
+    elif [ "$Vc" = "REFUSED" ] && grep -q "\[BLOCKED\]" "$TOPTMP/o4c"; then
+      pass "T-index-ignored-paths-control: a src/ sink is REFUSED (the hook blocks when it sees a sink)"
+    else
+      fail_ "T-index-ignored-paths-control" "src/ sink verdict=$Vc (want REFUSED): $(tail -3 "$TOPTMP/o4c" | tr '\n' '|')"
+    fi
+  fi
+fi
+
+# ── T-mutation-content-guard (F2: empty/partial materialize -> loud NOTRUN) ───
+# The F2 size check turns an empty/partial materialization into a LOUD NOTRUN
+# instead of scanning an empty file and passing [OK]. The GREEN direction fires
+# BEFORE semgrep runs (no registry needed): force the materialization to write
+# empty/partial dests and the content check must NOTRUN. The RED direction removes
+# F2 so the empty scan passes [OK] silently (needs the registry, LOUD-SKIP if down).
+echo "=== T-mutation-content-guard ==="
+if [ "$HAVE_SEMGREP" -eq 0 ]; then
+  skip_ "T-mutation-content-guard" "semgrep ABSENT — skip, not pass"
+else
+  _idx_mutate() { awk -v old="$2" -v new="$3" '{p=index($0,old); if(p>0){$0=substr($0,1,p-1) new substr($0,p+length(old)); c++} print} END{if(c!=1) exit 3}' "$1"; }
+  _cg_commit() {  # <hookfile> <log>
+    local d; d="$(mktemp -d)"
+    mk_repo "$d" "$1" >/dev/null 2>&1 || { rm -rf "$d"; return 9; }
+    printf '%s\n' "$XSS_TS" > "$d/app.ts"
+    ( cd "$d" && git add app.ts && git commit -m "feat: app" ) >"$2" 2>&1 || true
+    rm -rf "$d"
+  }
+  cg_setup=1
+  MEMPTY="$TOPTMP/cg-empty"
+  _idx_mutate "$EMITTED" 'git cat-file blob ":$soif_p" > "$soif_idx_tree/$soif_p"' ': > "$soif_idx_tree/$soif_p"' > "$MEMPTY" || cg_setup=0
+  MPART="$TOPTMP/cg-part"
+  _idx_mutate "$EMITTED" 'git cat-file blob ":$soif_p" > "$soif_idx_tree/$soif_p"' 'git cat-file blob ":$soif_p" | head -c 3 > "$soif_idx_tree/$soif_p"' > "$MPART" || cg_setup=0
+  # F2-removed variant of M-empty: drop exactly the three F2 CHECK lines (keep the
+  # soif_idx_files+= collection), so the empty dest is scanned and passes [OK].
+  MEMPTY_NOF2="$TOPTMP/cg-empty-nof2"
+  awk '/soif_idx_want=/ {next} /soif_idx_got=/ {next} /soif_idx_ok=0; break; fi/ {next} {print}' "$MEMPTY" > "$MEMPTY_NOF2"
+  if [ "$cg_setup" != "1" ]; then
+    fail_ "T-mutation-content-guard" "MIS-TARGETED — the materialization anchor is not present exactly once"
+  elif ! bash -n "$MEMPTY" 2>/dev/null || ! bash -n "$MPART" 2>/dev/null || ! bash -n "$MEMPTY_NOF2" 2>/dev/null; then
+    fail_ "T-mutation-content-guard" "a content-guard mutant has a syntax error — a broken mutant proves nothing"
+  elif grep -qF 'soif_idx_want=' "$MEMPTY_NOF2"; then
+    fail_ "T-mutation-content-guard" "the F2-removal awk did not drop the content-check lines"
+  else
+    _cg_commit "$MEMPTY" "$TOPTMP/cg1"
+    _cg_commit "$MPART" "$TOPTMP/cg2"
+    _cg_commit "$MEMPTY_NOF2" "$TOPTMP/cg3"
+    if ! not_enforced "$TOPTMP/cg1"; then
+      fail_ "T-mutation-content-guard" "M-empty materialize did NOT go loud NOTRUN with F2 present — F2 is not catching the empty dest: $(tail -3 "$TOPTMP/cg1" | tr '\n' '|')"
+    elif ! not_enforced "$TOPTMP/cg2"; then
+      fail_ "T-mutation-content-guard" "M-partial materialize did NOT go loud NOTRUN with F2 present: $(tail -3 "$TOPTMP/cg2" | tr '\n' '|')"
+    elif grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/cg3"; then
+      pass "T-mutation-content-guard: empty+partial materialize -> loud NOTRUN WITH F2 (GREEN); F2 removed -> the empty scan passes [OK] silently (RED) — F2 is load-bearing"
+    elif not_enforced "$TOPTMP/cg3"; then
+      skip_ "T-mutation-content-guard" "F2 GREEN held (empty+partial -> NOTRUN); the F2-removed RED is unprovable here (scanner did not run on the empty-scan variant — registry unreachable?)"
+    else
+      fail_ "T-mutation-content-guard" "F2-removed empty materialize neither passed [OK] nor NOTRUN: $(tail -3 "$TOPTMP/cg3" | tr '\n' '|')"
+    fi
+  fi
+fi
+
 # ── T-mutation-index-scan ────────────────────────────────────────────────────
 # Revert exactly the index-scan: point semgrep back at the worktree paths
-# ("${soif_staged[@]}") instead of the temp index tree. The staged-vuln/clean-
-# worktree commit must then LAND (RED) — the clean worktree scans clean. Restore
-# the temp-tree target and the same commit is REFUSED (GREEN).
+# ("${soif_staged[@]}") instead of the EXPLICIT materialized index files. The
+# staged-vuln/clean-worktree commit must then LAND (RED) — the clean worktree scans
+# clean. Restore the index-files target and the same commit is REFUSED (GREEN).
+# awk literal index()/substr() replace (not sed): the index-files target expansion
+# ${soif_idx_files[@]+"${soif_idx_files[@]}"} is regex-hostile, so match it literally.
 echo "=== T-mutation-index-scan ==="
 if [ "$HAVE_SEMGREP" -eq 0 ]; then
   skip_ "T-mutation-index-scan" "semgrep ABSENT — mutation UNPROVEN (skip, not pass)"
 else
   MUT="$TOPTMP/mut-hook"
-  # shellcheck disable=SC2016
-  sed 's#--severity=ERROR --error "\$soif_idx_tree"#--severity=ERROR --error "\${soif_staged[@]}"#' "$EMITTED" > "$MUT"
-  if ! grep -qF '# BL-132-INDEX-SCAN' "$MUT"; then
+  MUT_MIS=0
+  awk -v old='--severity=ERROR --error ${soif_idx_files[@]+"${soif_idx_files[@]}"}' \
+      -v new='--severity=ERROR --error "${soif_staged[@]}"' '
+    { p=index($0, old); if(p>0){ $0=substr($0,1,p-1) new substr($0,p+length(old)); c++ } print }
+    END { if(c!=1) exit 3 }
+  ' "$EMITTED" > "$MUT" || MUT_MIS=1
+  if [ "$MUT_MIS" = "1" ]; then
+    fail_ "T-mutation-index-scan" "MIS-TARGETED — the index-files scan-target anchor is not present exactly once in the emitted hook"
+  elif ! grep -qF '# BL-132-INDEX-SCAN' "$MUT"; then
     fail_ "T-mutation-index-scan" "mutation removed the marker — it must attack BEHAVIOUR, not the marker"
-  elif diff -q "$EMITTED" "$MUT" >/dev/null 2>&1; then
-    fail_ "T-mutation-index-scan" "MIS-TARGETED — the temp-tree scan target anchor is not present exactly as expected"
   elif ! bash -n "$MUT" 2>/dev/null; then
     fail_ "T-mutation-index-scan" "mutated hook has a syntax error — a broken mutant proves nothing"
   else

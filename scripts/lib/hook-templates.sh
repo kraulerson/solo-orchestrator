@@ -274,16 +274,33 @@ if command -v semgrep &>/dev/null; then
     # never scanned — the flaw shipped with an [OK] receipt (BL-132 repro; `git add
     # -p` / stage-then-edit share the hole). Materialize each staged blob into a
     # throwaway tree that mirrors the repo layout (same relative path + extension so
-    # semgrep still picks the language), point semgrep at THAT tree, then strip the
-    # tree prefix off finding paths so the operator sees the real path. bash-3.2 and
-    # NUL-safe: soif_staged was read -z above; each path is used verbatim and git
-    # round-trips it through `git show :<path>`. A pathname git cannot express (a NUL
-    # byte) cannot be staged, so it cannot reach here.
+    # semgrep still picks the language), then hand semgrep the EXPLICIT materialized
+    # FILE targets (collected in soif_idx_files), never the tree directory.
+    #   WHY EXPLICIT FILES, NOT THE DIRECTORY (verifier F1): pointing semgrep at a
+    #   directory re-engages its built-in default .semgrepignore — staged sinks under
+    #   tests/ test/ build/ dist/ vendor/ node_modules/ and *.min.js are then SILENTLY
+    #   skipped and the commit lands with a false [OK] receipt. `--no-git-ignore` does
+    #   NOT disable those built-in defaults. Explicit file targets bypass ignore
+    #   filtering by semgrep's own documented semantics, restore the pre-BL-132
+    #   contract by construction, and keep the "ran on N staged file(s)" receipt
+    #   honest (N staged = N targeted).
+    # bash-3.2 and NUL-safe: soif_staged was read -z above; each path is used verbatim
+    # and git round-trips it through `git cat-file blob :<path>`. A pathname git cannot
+    # express (a NUL byte) cannot be staged, so it cannot reach here.
     soif_idx_tree="$(mktemp -d)"
     soif_idx_ok=1
+    soif_idx_files=()
     for soif_p in "${soif_staged[@]}"; do
       mkdir -p "$soif_idx_tree/$(dirname "$soif_p")" 2>/dev/null || { soif_idx_ok=0; break; }
-      git show ":$soif_p" > "$soif_idx_tree/$soif_p" 2>/dev/null || { soif_idx_ok=0; break; }
+      git cat-file blob ":$soif_p" > "$soif_idx_tree/$soif_p" 2>/dev/null || { soif_idx_ok=0; break; }
+      # F2 — positive content check: the materialized dest MUST match the staged
+      # blob's byte size, so a git read that returns 0 while writing nothing or a
+      # short/partial file cannot slip a non-empty staged blob past the scan as an
+      # empty file. A mismatch routes to the loud NOTRUN below, never a silent pass.
+      soif_idx_want=$(git cat-file -s ":$soif_p" 2>/dev/null) || soif_idx_want=""
+      soif_idx_got=$(wc -c < "$soif_idx_tree/$soif_p" 2>/dev/null | tr -d '[:space:]') || soif_idx_got=""
+      if [ -z "$soif_idx_want" ] || [ "$soif_idx_got" != "$soif_idx_want" ]; then soif_idx_ok=0; break; fi
+      soif_idx_files+=("$soif_idx_tree/$soif_p")
     done
     if [ "$soif_idx_ok" -ne 1 ]; then
       # Could not snapshot the index — honest NOTRUN (# BL-112-SAST-NOTRUN): never a
@@ -316,7 +333,7 @@ if command -v semgrep &>/dev/null; then
         --config=r/javascript.browser.security.insecure-document-method \
         --config=.semgrep/soif-dom-sinks.yml \
         --no-git-ignore \
-        --severity=ERROR --error "$soif_idx_tree" >"$soif_sg_out" 2>"$soif_sg_err"
+        --severity=ERROR --error ${soif_idx_files[@]+"${soif_idx_files[@]}"} >"$soif_sg_out" 2>"$soif_sg_err"
       soif_sg_rc=$?
       set -e
       # Map the temp-tree prefix off finding paths, then show semgrep's findings

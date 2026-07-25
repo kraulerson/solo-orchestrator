@@ -583,7 +583,7 @@ if want T-mutation-sast-error; then
   else
     W="$(fresh msast)"
     HK="$W/.git/hooks/pre-commit"
-    if ! _mutate "$HK" '--severity=ERROR --error "$soif_idx_tree"' '--severity=ERROR "$soif_idx_tree"'; then
+    if ! _mutate "$HK" '--severity=ERROR --error ${soif_idx_files[@]+"${soif_idx_files[@]}"}' '--severity=ERROR ${soif_idx_files[@]+"${soif_idx_files[@]}"}'; then
       fail_ "T-mutation-sast-error" "MIS-TARGETED — the semgrep invocation anchor is not present exactly once in the scaffolded hook"
     elif ! grep -qF '# BL-112-SAST-ERROR' "$HK"; then
       fail_ "T-mutation-sast-error" "the mutation removed the marker — it must attack BEHAVIOUR, not the marker text"
@@ -595,7 +595,7 @@ if want T-mutation-sast-error; then
       RED="$(try_commit "$W" "chore: add probe route (mutant)" "$W/red.log")"
       HR="$(head_of "$W")"
       # restore: put --error back, rewind, replay the SAME commit.
-      _mutate "$HK" '--severity=ERROR "$soif_idx_tree"' '--severity=ERROR --error "$soif_idx_tree"' \
+      _mutate "$HK" '--severity=ERROR ${soif_idx_files[@]+"${soif_idx_files[@]}"}' '--severity=ERROR --error ${soif_idx_files[@]+"${soif_idx_files[@]}"}' \
         || fail_ "T-mutation-sast-error" "restore mis-targeted"
       git -C "$W" reset -q --hard "$H0"
       plant_flaw "$W"
