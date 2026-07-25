@@ -4025,6 +4025,26 @@ REFUSAL-PATH ENUMERATION (emitted commit-msg hook → `--terminal-mode --tdd-onl
 
 **Related:** BL-171 (surfaced this), BL-072 (the gate), BL-010/BL-006 (the sibling gate with the fuller sentinel set).
 
+**Build note (2026-07-24, branch `fix/bl172-sentinel-parity`, pre-PR — Status stays Open):**
+Added the two missing sentinels (`# BL-172-RESUME-SENTINELS`) to `tdd_terminal_enforce`,
+mirroring `bl006_terminal_enforce`'s three-sentinel set; MERGE_HEAD behavior is
+untouched. **Second-surface parity finding:** grepping MERGE_HEAD across
+`scripts/pre-commit-gate.sh` returns five skip sites — `tdd_terminal_enforce`
+(the target), `bl006_terminal_enforce` (the sibling, already three-sentinel), and
+three MERGE_HEAD-only sites. Of those three, the one whose in-function comment names
+`tdd_terminal_enforce` as its hard-block counterpart is `tdd_warn_check` — the SAME
+BL-072 gate's PreToolUse WARN entry point (Phase C1). It already passes explicit
+`git cherry-pick`/`git revert` COMMANDS via a command-string filter and resumed
+MERGES via its own MERGE_HEAD sentinel; the two sentinels were added there too so a
+cherry-pick/revert resumed with a plain `git commit` (no command-string keyword)
+also passes — identical extension, same marker. The other two MERGE_HEAD-only sites
+are DIFFERENT gates and were left untouched: `bl006_check` (the BL-006 PreToolUse
+gate) and `lints_check` (the operator-side lint-promotion surface). Pinned by
+`tests/test-bl172-resume-sentinels.sh` — 15 cases across both surfaces (cherry-pick/
+revert/merge pass-through, an anti-blunting case per surface proving a NORMAL
+impl-only commit still refuses/warns, and a marker-excision mutation proof).
+Registered in both the aggregator and the `tests.yml` unit lane.
+
 ---
 
 ## BL-173: Two pre-existing full-suite test failures — currency-birth-stamp stale vs BL-107, and the BL-113 driver-mutation case is not pinned to its marked lines
@@ -4062,3 +4082,24 @@ Neither failure blocks PRs (both suites are full-suite-only, not in the `tests.y
 **Secondary (optional hardening, do when BL-174 is built):** `tests/test-filesystem-gate-install.sh` has zero pass-arm coverage — it passed unchanged under both BL-161 receipt mutations, so it cannot catch a regression in the clean-pass receipt path. Add one receipt case (a clean pass writes `.claude/last-gate-pass.txt` and no tracked-ledger row).
 
 **Related:** BL-161, BL-107, `templates/generated/gitignore-base.tmpl`.
+
+---
+
+## BL-176: sentinel skip checks are blind in linked git worktrees — literal `.git/<SENTINEL>` paths miss the per-worktree gitdir
+
+**Logged:** 2026-07-24 (BL-172 WP-B fable verifier, findings F2+F3)
+**Category:** Gate precision / git-worktree correctness (commit-msg + PreToolUse sentinel skips)
+**Severity:** Low
+**Status:** Open
+
+In a **linked git worktree** `.git` is a FILE (a `gitdir:` pointer), not a directory, so the literal `[ -f .git/<SENTINEL> ]` derivative-commit skip tests are BLIND: mid-cherry-pick `[ -f .git/CHERRY_PICK_HEAD ]` is FALSE, while `git rev-parse --git-path CHERRY_PICK_HEAD` resolves to `.git/worktrees/<name>/CHERRY_PICK_HEAD` where the sentinel actually lives. Verified on git 2.50.1 by the BL-172 verifier's empirical probe, and independently reproduced in THIS repo's own `.claude/worktrees/agent-*` worktree: `.git` is a 103-byte file, `test -f .git/CHERRY_PICK_HEAD` → FALSE, and `git rev-parse --git-path CHERRY_PICK_HEAD` → `<repo>/.git/worktrees/<name>/CHERRY_PICK_HEAD`. In a normal (non-worktree) checkout `--git-path` returns `.git/<SENTINEL>`, so it is a drop-in replacement.
+
+Affects **all five** skip sites — the two BL-172 additions AND the pre-existing MERGE_HEAD lines AND `bl006_terminal_enforce`'s full three-sentinel set: `tdd_terminal_enforce`, `tdd_warn_check`, `bl006_terminal_enforce`, `bl006_check`, `lints_check`. Net: the BL-172 symptom (spurious refusal of a resumed cherry-pick/revert — and, pre-BL-172, a resumed merge) PERSISTS inside a linked worktree, because the skip never fires there.
+
+**Fail direction (calibration):** CLOSED. The blindness makes the gate MORE strict (a skip that *should* fire does not), so the only consequence is an inconvenient spurious refusal, NEVER a bypass. That is why this is Low, not a blocker.
+
+**Fix shape:** replace the literal `.git/<SENTINEL>` path tests with `git rev-parse --git-path <SENTINEL>` at all five sites (a drop-in in normal checkouts, correct in linked worktrees); mutation-proof each site.
+
+**Secondary (optional hardening, verifier F3):** write a `sentinel_skip` ledger row whenever a sentinel skip fires, so a forged-sentinel commit leaves a trace. Parity note: sentinel forgery is ALREADY possible via the pre-BL-172 MERGE_HEAD line and requires privileged `.git` write access — this introduces no new abuse class, hence a rider, not a blocker.
+
+**Related:** BL-172 (the sentinels this generalizes), BL-072 (the TDD gate), BL-006/BL-010 (the sibling gate), and this repo's own `.claude/worktrees/` agent workflow (where the blindness is live).

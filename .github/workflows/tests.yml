@@ -114,6 +114,7 @@ jobs:
             tests/test-bl125-commit-test-exec.sh
             tests/test-bl163-blocked-ledger.sh
             tests/test-bl171-commitmsg-ledger.sh
+            tests/test-bl172-resume-sentinels.sh
             tests/test-bl161-ledger-real-events-only.sh
             tests/test-bl141-commitmsg-repair.sh
             tests/test-bl143-pastcap-selfapproval.sh
