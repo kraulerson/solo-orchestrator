@@ -2445,6 +2445,8 @@ Three small onboarding traps the 2026-07-11 CLAUDE.md documents but does not fix
 
 **2026-07-24 (design):** design doc authored, then revised through adversarial review — v1.1 cleared review-r1 (3 refuted "exists" claims + F4–F12), v1.2 folded review-r2 (R2-1..R2-6), and **v1.2.1 cleared adversarial review r3 (APPROVE), folding two minors** (`docs/designs/2026-07-24-operating-model-v1.md`, branch `docs/bl097-100-operating-model-design`), per the 2026-07-20 trio decision; **r4 (2026-07-25, the standing adversarial pr-reviewer on PR #269)** then refuted two narrative-layer claims (the version-floor story; a not-yet-built "S5 lint" cited as existing) — corrections folded as **v1.2.2** (`efab4f6`), re-verified minor_concerns/clear-to-merge, design decisions unchanged; build now un-gated on review (still sequenced after Dogfood-4) — Status stays Open until it lands.
 
+**Merged 2026-07-25 (PR #269 `8afb9ba`) — Status stays OPEN.** The **design of record** is on `main` at **v1.2.3** (`docs/designs/2026-07-24-operating-model-v1.md`), after **five adversarial rounds**: r1 BLOCK → v1.1, r2 BLOCK → v1.2, r3 **APPROVE** → v1.2.1, r4 (the standing pr-reviewer on PR #269; 2 MAJOR + 6 minor, narrative-layer only) → v1.2.2 `efab4f6`, r5 (a second full adversarial pass after r4; two of its three MAJORs were refuted on the merits by independent refuters, one survived — citation integrity, R-269-12) → **v1.2.3** `45869c5`. **No design decision changed after r3** — r4 and r5 folded narrative, coordination and citation corrections only. What merged is a DESIGN, not a build: this entry stays Open until the **§10 nine-WP build skeleton** lands (WP1 schema → WP4a/4b enforcement surfaces → …), which remains sequenced after the Dogfood-4 milestone per the recorded 2026-07-20 trio decision.
+
 Orchestrating agents (in generated projects and on this repo) dispatch subagents that today either silently inherit the session's model or blanket-use the top tier — both wrong: silent inheritance caused a real 2026-07-10 incident (a fleet ran on an unintended model until killed), and blanket top-tier is cost overkill for mechanical work. The rule to encode wherever multi-agent dispatch is documented (the generated CLAUDE.md's Multi-Agent Parallelism section — `templates/generated/claude-md.tmpl`; the mothership `CLAUDE.md`; `docs/builders-guide.md` if it covers dispatch):
 
 1. **Never inherit silently** — every dispatch names its model (and effort) explicitly.
@@ -2470,6 +2472,8 @@ Sequencing note: if BL-092 moves the Multi-Agent section into a phase-scoped ref
 **Decision 2026-07-20 (Karl):** governed by the trio decision recorded at BL-097 — configurable operating model, chosen at setup, then enforced, with a reconfigure path; design doc first, after the Dogfood-4 milestone.
 
 **2026-07-24 (design):** design doc authored, then revised through adversarial review — v1.1 cleared review-r1 (3 refuted "exists" claims + F4–F12), v1.2 folded review-r2 (R2-1..R2-6), and **v1.2.1 cleared adversarial review r3 (APPROVE), folding two minors** (`docs/designs/2026-07-24-operating-model-v1.md`, branch `docs/bl097-100-operating-model-design`), per the 2026-07-20 trio decision; **r4 (2026-07-25, the standing adversarial pr-reviewer on PR #269)** then refuted two narrative-layer claims (the version-floor story; a not-yet-built "S5 lint" cited as existing) — corrections folded as **v1.2.2** (`efab4f6`), re-verified minor_concerns/clear-to-merge, design decisions unchanged; build now un-gated on review (still sequenced after Dogfood-4) — Status stays Open until it lands.
+
+**Merged 2026-07-25 (PR #269 `8afb9ba`) — Status stays OPEN.** The **design of record** is on `main` at **v1.2.3** (`docs/designs/2026-07-24-operating-model-v1.md`), after **five adversarial rounds**: r1 BLOCK → v1.1, r2 BLOCK → v1.2, r3 **APPROVE** → v1.2.1, r4 (the standing pr-reviewer on PR #269; 2 MAJOR + 6 minor, narrative-layer only) → v1.2.2 `efab4f6`, r5 (a second full adversarial pass after r4; two of its three MAJORs were refuted on the merits by independent refuters, one survived — citation integrity, R-269-12) → **v1.2.3** `45869c5`. **No design decision changed after r3** — r4 and r5 folded narrative, coordination and citation corrections only. What merged is a DESIGN, not a build: this entry stays Open until the **§10 nine-WP build skeleton** lands (WP1 schema → WP4a/4b enforcement surfaces → …), which remains sequenced after the Dogfood-4 milestone per the recorded 2026-07-20 trio decision.
 
 BL-097's model-selection rubric says WHO can build cheaply; this entry supplies the WHAT-makes-that-safe: before any multi-subagent build (or any delegated implementation above trivial), the STRONGEST available model produces a build plan to a **junior-followable standard**, so execution agents know exactly what to build AND how — letting execution model/effort drop a tier without quality loss, because the judgment was front-loaded.
 
@@ -2527,6 +2531,8 @@ BL-097's model-selection rubric says WHO can build cheaply; this entry supplies 
 **Decision 2026-07-20 (Karl):** governed by the trio decision recorded at BL-097 — the adversarial-acceptance rule becomes part of the chosen-and-then-enforced operating model (single-model setups need a degradation story: fresh-context same-model verification). Design doc first, after the Dogfood-4 milestone.
 
 **2026-07-24 (design):** design doc authored, then revised through adversarial review — v1.1 cleared review-r1 (3 refuted "exists" claims + F4–F12), v1.2 folded review-r2 (R2-1..R2-6), and **v1.2.1 cleared adversarial review r3 (APPROVE), folding two minors** (`docs/designs/2026-07-24-operating-model-v1.md`, branch `docs/bl097-100-operating-model-design`), per the 2026-07-20 trio decision; **r4 (2026-07-25, the standing adversarial pr-reviewer on PR #269)** then refuted two narrative-layer claims (the version-floor story; a not-yet-built "S5 lint" cited as existing) — corrections folded as **v1.2.2** (`efab4f6`), re-verified minor_concerns/clear-to-merge, design decisions unchanged; build now un-gated on review (still sequenced after Dogfood-4) — Status stays Open until it lands.
+
+**Merged 2026-07-25 (PR #269 `8afb9ba`) — Status stays OPEN.** The **design of record** is on `main` at **v1.2.3** (`docs/designs/2026-07-24-operating-model-v1.md`), after **five adversarial rounds**: r1 BLOCK → v1.1, r2 BLOCK → v1.2, r3 **APPROVE** → v1.2.1, r4 (the standing pr-reviewer on PR #269; 2 MAJOR + 6 minor, narrative-layer only) → v1.2.2 `efab4f6`, r5 (a second full adversarial pass after r4; two of its three MAJORs were refuted on the merits by independent refuters, one survived — citation integrity, R-269-12) → **v1.2.3** `45869c5`. **No design decision changed after r3** — r4 and r5 folded narrative, coordination and citation corrections only. What merged is a DESIGN, not a build: this entry stays Open until the **§10 nine-WP build skeleton** lands (WP1 schema → WP4a/4b enforcement surfaces → …), which remains sequenced after the Dogfood-4 milestone per the recorded 2026-07-20 trio decision.
 
 **What is official today:** adversarial personas at ten named phase steps (generated CLAUDE.md persona table — fresh context, refute-minded), the per-feature security audit (Build Loop 2.4, five parallel audit agents), and the gate-enforced Phase-3 review manifest with the `evaluation-prompts/` library. **What is missing:** between gates, a delegated (subagent-built) change has no required independent acceptance step — the implementing agent's own report is the only evidence its work is accepted on.
 
@@ -3275,6 +3281,8 @@ The core shard reported `[FAIL] tests/test-bl033-install-cmds-shape.sh` at 16:12
 
 **Investigation 2026-07-24 (WP-F, branch `fix/bl135-bl136-fullsuite-debt`):** local-stability datum + full candidate scan; NOT reproduced. (1) LOCAL 10× — `bash tests/test-bl033-install-cmds-shape.sh` ran ten consecutive times, ALL GREEN (rc=0, `Results: 8 passed, 0 failed` each; sub-second per run). Deterministic locally on `6fc1c11`. (2) CI LOG STILL AVAILABLE — `gh run view 29649055577 --log` retrieves (ubuntu-24.04 runner); it confirms the aggregate core shard prints ONLY `[FAIL] tests/test-bl033-install-cmds-shape.sh FAILED (run for details)` — NO case-level detail is recoverable, so WHICH of the 8 cases failed is unknowable from the log (this BOUNDS the diagnosis and re-justifies the per-sub-suite `tee` demand). That shard reported 5 failures total: this test, `tier-crosscheck-6` zdr-gate, `test-init-schema-phase-gate`, plus the two BL-136 cases (TEST 5 + TEST 7). (3) CANDIDATE SCAN (anchors = case/function names in `test-bl033-install-cmds-shape.sh`): the suite is exceptionally portable — `set -uo pipefail` (NOT `-e`), byte-comparison `[ "$x" = … ]` tests, and NO `sed -i`/`stat`/`date -d`/`grep -P`/`sort`/locale use. Host-shaped constructs, exhaustively: (a) `mktemp -d` in `_mk_matrix` (GNU+BSD both support the no-template form — benign); (b) the ONLY timing/race-shaped surface — the `$$`-keyed shared `/tmp/bl033-fail-fast-stage{1,2}-$$` markers in `T-array-fail-fast`, guarded by `rm -f` before use (low collision risk even under parallel-shard load); (c) COMMIT-STATE (not host) sensitivity — `T-migrated-entries` + `T-migrated-semantics` read the SHIPPED `templates/tool-matrix/common.json` and assert docker/colima carry the array shape, so a 2026-07-18 main with that matrix mid-migration would fail LEGITIMATELY and is NOT reproducible at `6fc1c11`. No candidate reproduces the failure locally, so the runner-`tee` instrumentation was deliberately NOT built this WP (per plan — build only if a candidate makes it locally reproducible). (4) DISPOSITION unchanged (Status stays Open, awaiting a second full-lane data point): per this entry's own rule, a second full-lane FAIL → `tee` each sub-suite's output (inspect candidate (c) first); a second full-lane PASS → declassify to noise.
 
+**Merged 2026-07-25 (PR #267 `73c6083`) — Status stays OPEN.** The WP-F evidence pass above landed on `main` alongside the BL-136 fixture repairs. It changed no product code and no test code for this entry — it is an investigation record, not a fix — so the disposition is untouched: **still awaiting a second full-lane data point.** `tests/test-bl033-install-cmds-shape.sh` DOES run in the `core` shard (it is not `SUITE_SKIP_AGGREGATORS`-gated), so the next full-lane `workflow_dispatch` genuinely supplies that data point: a second FAIL → build the per-sub-suite `tee` instrumentation (inspect the commit-state candidate (c) first); a second PASS → declassify to noise and Close.
+
 ---
 
 ## BL-136: full-project-test-suite TEST 5 ("Phase gate script failed to run") and TEST 7 ("Dry-run missing resolver tool output") — pre-existing core-lane failures, on record since 2026-07-12
@@ -3297,6 +3305,10 @@ TEST 7 ("Dry-run missing resolver tool output") — FIXTURE-ERA (confirms the pr
 BLAST RADIUS: `bash -n tests/full-project-test-suite.sh` clean; `scripts/run-lints.sh` 11/11 (`lint-tests-registered.sh` green — no registration lines touched); `test-bl033-install-cmds-shape.sh` still 8/8.
 
 **Verifier follow-up 2026-07-24 (APPROVE-WITH-FIXES, applied on the same branch):** the consolidated verifier CONFIRMED both fixture-era diagnoses with independent evidence (TEST 5: the `helpers.sh`-only `cp` predates the BL-046 split — born-valid-then-rotted; TEST 7: `prompt_choice`'s no-default EOF guard is documented design, so nothing to flip product-side) and independently re-derived the prompt sequence to match. It also flagged that the "ALL FOUR TEST 7 assertions green" evidence recorded above was OVERSTATED — TWO of those four were VACUOUS. Corrections F1-F4, all applied and each bite-proven: **(F1)** the fed menu numbers are glob-derived, so a shifted template could land on the WRONG combo with every assertion still green — added a combo-PIN on the `collect_project_info` summary line (`Platform: web | Track: standard | Language: typescript`); bite-proven by feeding language `6`=rust → the pin FAILS while the other four PASS. **(F2)** old assertion 3 `grep -qi "…DEFERRED"` matched the intake PROSE `Private POC — … All governance deferred.` printed BEFORE resolution (why it PASSED in the original CI run even though "Tool Resolution" never ran) — tightened to the BRACKETED `dry_run_summary` statuses (`[already installed]`/`[WILL INSTALL]`/`[MANUAL]`/`[DEFERRED`); bite-proven on the OLD stale input (the loose grep passes on the aborted output; the bracketed one FAILS). **(F3)** old assertion 4 `[ ! -d /tmp/test-dryrun ]` was FULLY vacuous (nothing in the new input references that path; the resolved default dir is the pre-existing repo parent `…/.claude/worktrees/`, so no `! -d` is possible) — re-aimed to the `dry_run_summary` terminal no-op marker `Re-run without --dry-run to execute` (emitted only when the dry-run completes WITHOUT creating). **(F4)** replaced the bare `init.sh:1284-1286` fixture cite with the grep-able `# BL-046: helpers.sh split` anchor (CITATION RULE). Net: TEST 7 now carries FIVE assertions, all green on good input and each proven to bite; `bash -n` clean; `run-lints.sh` 11/11. Status still Open — full-lane confirmation remains outstanding.
+
+**Merged 2026-07-25 (PR #267 `73c6083`) — Status stays OPEN.** The TEST 5 / TEST 7 fixture repairs are on `main`. This entry's closure condition is unchanged and unmet: **a green full-lane `workflow_dispatch` run, which HAS NOT BEEN RUN.** Nothing about merging satisfies it — TEST 5 and TEST 7 live inside `tests/full-project-test-suite.sh`, which no PR-blocking lane executes.
+
+**Correction (2026-07-25) — the evidence plan is materially weaker than recorded above, and this is verified, not inferred.** The two suites repaired by the sibling PR #266 (BL-173) — `tests/test-currency-birth-stamp.sh` and `tests/test-bl113-sast-honesty.sh` — sit in the **`else` arm** of `if [ "${SUITE_SKIP_AGGREGATORS:-0}" = "1" ]` blocks inside `tests/full-project-test-suite.sh`, and the `full` job's **`core` shard sets exactly that variable** (`SUITE_SKIP_AGGREGATORS=1 bash tests/full-project-test-suite.sh` in `.github/workflows/tests.yml`). They are also excluded from the unit lane (both invoke real `init.sh`). **Worse than "the core shard skips them":** the `aggregators` shard, whose surrounding comment claims "Union of shards == the un-sharded suite", runs an EXPLICIT four-file list — `edge-cases-upgrade-input.sh`, `edge-case-test-suite.sh`, `known-bugs-test-suite.sh`, `upgrade-path-tests.sh` — and neither repaired suite is in it. Net: **NO CI lane, including a full `workflow_dispatch` dispatch of all four shards, executes either suite**, so a green full-lane run would confirm the TEST 5/TEST 7 repairs (which DO run in `core`) but would say nothing whatsoever about the BL-173 repairs, and the workflow's own union claim is inaccurate for at least these two suites. Anyone planning the full-lane dispatch should treat the two BL-173 suites as needing a separate standalone run, and should not read a green `aggregators` shard as covering the `SUITE_SKIP_AGGREGATORS`-gated set.
 
 ---
 
@@ -3424,7 +3436,7 @@ BL-139 flipped the subject-less `--check-commit-ready` default to not-feat on th
 **Logged:** 2026-07-17 (BL-118 adversarial verification, PR #199)
 **Category:** Bug / security enforcement — known-gap registration (defense-in-depth residue)
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — shipped + merged 2026-07-25 (PR #270 `b0b60aa`). `# BL-131-DOM-SINKS`: `templates/semgrep/soif-dom-sinks.yml` now ships into every scaffold's `.semgrep/` and is referenced as an extra `--config` by the emitted pre-commit hook and all 22 generated CI pipelines; both hook-re-emitting paths also DELIVER it (`_bl099_sync_precommit_hook` via the new `_bl131_ensure_domsinks_ruleset`, and `verify-install.sh`'s `fix_precommit_hook`), closing the incomplete-contract gap where a refreshed hook referenced a file the project never received. Coverage: `insertAdjacentHTML` + jQuery `.html()` via precise js/ts AST rules; the `.vue` / `.html` embedded-script sinks via a `generic`+`pattern-regex` rule — semgrep's `vue`/`html` parsers do NOT expose embedded `<script>` JS as a matchable AST (established empirically on semgrep 1.157.0), so `generic`+regex is the only way in. js/ts `innerHTML`/`document.write` are deliberately left to the BL-118 registry pack so the two rulesets do not overlap. Proof: `tests/test-bl131-domsink-rules.sh` 17/17 (static + isolated-rule-content + live-through-hook + deletion pin + `--config`-strip mutation). Residues tracked, not silently accepted: **BL-175** (the ruleset sits outside `scaffold-shipped-set.sh`'s parsers, so it is neither source-closure-tested nor currency-tracked) and the documented regex/non-taint residue in `docs/platform-modules/web.md`.
 
 Empirically proven through the real emitted hook during BL-118's adversarial verification: staged fixtures using `el.insertAdjacentHTML('beforeend', x)`, jQuery `$(sel).html(x)`, `innerHTML` inside a `.vue` SFC `<script>` block, and an inline `<script>` in a committed `.html` file all COMMIT CLEAN with the `[OK] semgrep: SAST ran` receipt. This is NOT a pack-choice error: the full `r/javascript.browser.security` pack and `p/xss` both produce zero findings on those fixtures at any severity (tested with and without explicit `location.*` taint sources) — no rule in the public registry covers them, so no `--config` addition can close this. The BL-118 fix's own coverage claim (innerHTML/outerHTML/document.write) is accurate; this entry exists so the residue is a recorded decision, not a rediscovery for the next dogfood.
 
@@ -3443,7 +3455,16 @@ Empirically proven through the real emitted hook during BL-118's adversarial ver
 **Logged:** 2026-07-17 (BL-118 adversarial verification, PR #199)
 **Category:** Bug / security enforcement — pre-existing BL-112 design gap (orthogonal to, and unchanged by, BL-118)
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — shipped + merged 2026-07-25 (PR #270 `b0b60aa`). `# BL-132-INDEX-SCAN`: the commit-time SAST arm materializes staged blobs and scans INDEX content instead of worktree pathnames, with the finding paths `sed`-mapped back to real repo-relative paths and both `# BL-112-SAST-NOTRUN` arms byte-preserved. Gitleaks already read the index (`gitleaks git --staged`) — no change needed there.
+
+**Closed honestly, not cleanly.** This took **three adversarial rounds**, and **two same-class regressions were found and fixed post-open** — every one of them the SAME "one bad entry blinds the whole commit" mechanism, and every one of them a regression *versus main* rather than a pre-existing hole:
+1. **Round 1 (fable verifier REJECT, F1).** The first cut pointed semgrep at the materialized DIRECTORY, which re-engages semgrep's built-in default `.semgrepignore`, so staged sinks under `tests/ test/ build/ dist/ vendor/ node_modules/` and `*.min.js` were SILENTLY skipped and the commit landed with an `[OK] … ran on N staged file(s)` receipt. FIX B hands semgrep EXPLICIT file targets (`soif_idx_files`), never the tree, plus the F2 positive content-size guard.
+2. **Round 2 (cross-PR REJECT, R-270-1 — `# BL-132-GITLINK-SKIP`).** A staged submodule GITLINK is index mode `160000`, not a blob, so `git cat-file blob` exits 128; the loop's all-or-nothing `break` discarded every already-materialized target and routed the WHOLE commit to NOTRUN — a vulnerability staged in a *sibling* file LANDED. A/B'd through the real emitter and a real `git commit`: OLD (`d857294`) BLOCKED, NEW (`bc08d36`) LANDED. **No lane caught it** — `test-bl132` 7/7, `test-bl131` 17/17 and `test-bl112` 13/13 were all green with the defect live.
+3. **Round 3 (PR #270 final gate, R-270-1B — `# BL-132-STAGE0-REF`).** `":$path"` is git REVISION syntax, so a repo-ROOT path beginning `0:`/`1:`/`2:`/`3:` fails `cat-file` on a perfectly healthy blob, is not a gitlink, and fell through to the same `break` — again a vulnerable sibling LANDED, again a regression versus main (`ed406c8` BLOCKED / `0765612` LANDED). All three cat-file sites now pin the stage explicitly as `":0:$path"`.
+
+Receipt honesty follows under `# BL-132-EMPTY-TARGETS` (the "ran on N staged file(s)" count is what was actually TARGETED, and zero targets routes to NOTRUN rather than claiming a scan). BL-178 landed in the same diff as round 2 by design (`# BL-178-PER-INDEX-DIR` rewrites the same loop). Green at merge: `test-bl132` 11/11, `test-bl131` 17/17, `test-bl118` 6/6, `test-bl112` 13/13, `run-lints` 11/11.
+
+**The defect CLASS is not retired, and one more instance is still Open.** Two pre-existing holes in the same arm were filed rather than folded — **BL-179** (High: rename-and-edit commits skip SAST entirely and silently, `--diff-filter=ACM` excludes `R`) — and a THIRD instance of the same all-or-nothing `break` was found by the #270 final-gate reviewer and filed as **BL-182** (Medium: a repo-relative path longer than ~958 chars is legal in the worktree but unrepresentable under the `mktemp -d` + `/<n>/` temp root, so materialization fails and the whole commit goes NOTRUN). BL-182 carries the structural fix direction — **retire the `break`** so the arm scans what DID materialize and routes to NOTRUN *naming the entry it could not read* — rather than patching a fourth trigger.
 
 Reproduced during BL-118's adversarial verification: `git add app.ts` (containing the XSS), overwrite the worktree `app.ts` with the clean version, `git commit` → the commit LANDS with the `[OK]` receipt, and `git show HEAD:app.ts` contains the vulnerable `innerHTML`. The hook hands semgrep staged PATHS (`git diff --cached --name-only`), so semgrep reads WORKTREE bytes, which need not be the staged bytes. Partial-stage (`git add -p`) and stage-then-edit flows also scan the wrong content in the benign direction (false signal from unstaged edits).
 
@@ -4047,7 +4068,7 @@ REFUSAL-PATH ENUMERATION (emitted commit-msg hook → `--terminal-mode --tdd-onl
 **Logged:** 2026-07-24 (surfaced by the BL-171 fable verifier; pre-existing, not introduced by BL-171)
 **Category:** Gate precision / sentinel parity (commit-msg TDD gate)
 **Severity:** Low
-**Status:** Open
+**Status:** Closed — shipped + merged 2026-07-25 (PR #265 `7866022`). `# BL-172-RESUME-SENTINELS`: CHERRY_PICK_HEAD / REVERT_HEAD added to **both** BL-072 TDD-gate surfaces — `tdd_terminal_enforce` (the commit-msg hard block, the filed target) and `tdd_warn_check` (the same gate's PreToolUse WARN entry point, found by a MERGE_HEAD survey of `scripts/pre-commit-gate.sh` and identified as the target's counterpart by its own in-function comment) — matching `bl006_terminal_enforce`'s three-sentinel set. MERGE_HEAD behavior untouched. The other two MERGE_HEAD-only sites are DIFFERENT gates and were deliberately left alone: `bl006_check` (BL-006 PreToolUse) and `lints_check` (lint-promotion). Pinned by `tests/test-bl172-resume-sentinels.sh` — 15 cases across both surfaces, including an anti-blunting case per surface (a NORMAL impl-only commit must still refuse/warn) and a marker-excision mutation proof; registered in both the aggregator and the `tests.yml` unit lane. Fable verifier APPROVE-WITH-FIXES; filed **BL-176** (the same five sentinel sites are blind inside linked git worktrees).
 
 `tdd_terminal_enforce` (the BL-072 commit-msg TDD-ordering gate in `scripts/pre-commit-gate.sh`) skips only when `.git/MERGE_HEAD` is present, whereas its sibling `bl006_terminal_enforce` honors all three of MERGE_HEAD / CHERRY_PICK_HEAD / REVERT_HEAD. Net: a strict-tier `git commit` resuming a cherry-pick or revert whose payload is an impl file with no accompanying test is REFUSED by the TDD gate (and, since BL-171, truthfully writes a `commitmsg_tdd` ledger row). The refusal is arguably defensible (the resumed content genuinely lacks a test), but it is an inconsistency with BL-006's sentinel set and with the `--amend` parity notes — a cherry-pick/revert is replaying an already-reviewed change, so re-imposing TDD ordering on it is likely wrong.
 
@@ -4082,7 +4103,7 @@ Registered in both the aggregator and the `tests.yml` unit lane.
 **Logged:** 2026-07-24 (surfaced by the residuals-wave verifiers; pre-existing on `main`, reproduced on `c6dff01`; neither is in the PR-blocking unit lane)
 **Category:** Test hygiene (full-suite-only failures)
 **Severity:** Low
-**Status:** Open
+**Status:** Closed — shipped + merged 2026-07-25 (PR #266 `d857294`). Closed **at merge**, per this entry's own stated condition ("flips to Closed with PR + merge SHA at merge") — it is **not** full-lane-gated; only BL-136 carries that condition. (An intermediate handoff asserted otherwise; that was corrected before merge.) Both suites repaired, **test-only, no product code**: `tests/test-currency-birth-stamp.sh` 16/2 → **18/0** (the rust/other commit-msg expectations moved `absent-intentional`/`absent-unavailable` → `present`, the post-`# BL-107-UNIVERSAL-INSTALL` contract the product already implemented) and `tests/test-bl113-sast-honesty.sh` 16/1 → **17/0** (`T-mutation-no-launder RED(a)` re-aimed off the environment-sensitive overall gate verdict onto the laundering-specific delta of the `# BL-113-NO-LAUNDER` driver decision). Mutation-proven in both directions; clean fable APPROVE (7-row mutation matrix; root-caused the supposed "flake" as deterministic). **Coverage caveat — recorded at BL-136:** neither repaired suite is executed by ANY CI lane today, so "repaired" is a local-run claim, not a CI-verified one.
 
 Two `tests/` suites fail on a clean `main` checkout, unrelated to any in-flight work:
 
@@ -4103,7 +4124,7 @@ Neither failure blocks PRs (both suites are full-suite-only, not in the `tests.y
 **Logged:** 2026-07-24 (BL-161 WP-1 fable verifier, Finding 1/4)
 **Category:** Upgrade-path parity / state-file hygiene (generated projects)
 **Severity:** Low
-**Status:** Open
+**Status:** Closed — shipped + merged 2026-07-25 (PR #268 `ed406c8`). `# BL-174-GITIGNORE-BACKFILL` in `_run_idempotent_backfill`: an idempotent append-if-missing gitignore backfill covering BOTH sidecar lines (`.claude/last-checked-commit.txt` AND `.claude/last-gate-pass.txt`) — `grep -qxF` guards make a re-run a byte-no-op, manifest-gated on `.claude/manifest.json`, best-effort (`|| true`), create-if-missing. **The manifest gate is load-bearing:** an earlier UNGUARDED draft appended the two lines to the framework repo's OWN `.gitignore` (caught mid-build). New hermetic suite `tests/test-bl174-gitignore-backfill.sh` (6 cases, no `init.sh`, registered in BOTH lanes) pins the lines BEHAVIORALLY via `git check-ignore` on an upgraded fixture, with T6 asserting a no-manifest projectless fixture is a byte-no-op. Secondary hardening landed too: `tests/test-filesystem-gate-install.sh` T8, that suite's first pass-arm case, mutation-proved by deleting the `record_gate_pass_receipt` write. Fable verifier APPROVE-WITH-FIXES. **Residual stays Open as BL-177 (Medium):** this fix closed the *gitignore* instance by manifest-gating one block; the STRUCTURAL projectless/in-framework gap in the same function is unfixed, and two sibling blocks (vendored-skills sync, BL-088 source-closure copy) still write outside generated projects today.
 
 `scripts/upgrade-project.sh` has **zero** gitignore writers — the `templates/generated/gitignore-base.tmpl` ignore lines reach a project only via `init.sh`'s `generate_gitignore()`. `_run_idempotent_backfill` re-runs `install-filesystem-gates.sh --install` (~`upgrade-project.sh:564-565`), so an UPGRADED strict project DOES pick up the new BL-161 receipt behavior (`.git/hooks/framework-gate.sh` drops `.claude/last-gate-pass.txt` on a clean pass) but NEVER receives the matching `.claude/last-gate-pass.txt` ignore line. Net: on an upgraded project the receipt sits UNTRACKED, and a downstream `git add -A` would TRACK it — resurrecting the BL-161 dirty-chase in tracked form. The IDENTICAL gap already pre-exists for the sibling `.claude/last-checked-commit.txt` (backfill writes that baseline at ~`upgrade-project.sh:561-562`, likewise with no ignore line).
 
@@ -4187,6 +4208,11 @@ Affects **all five** skip sites — the two BL-172 additions AND the pre-existin
 
 **Secondary (optional hardening, verifier F3):** write a `sentinel_skip` ledger row whenever a sentinel skip fires, so a forged-sentinel commit leaves a trace. Parity note: sentinel forgery is ALREADY possible via the pre-BL-172 MERGE_HEAD line and requires privileged `.git` write access — this introduces no new abuse class, hence a rider, not a blocker.
 
+**Rider (2026-07-25, added with the PR #265–#270 closures — do these THREE things in one change, not the `--git-path` conversion alone):**
+1. **The `--git-path` conversion itself**, at all five sites (`tdd_terminal_enforce`, `tdd_warn_check`, `bl006_terminal_enforce`, `bl006_check`, `lints_check`).
+2. **ALSO add CHERRY_PICK_HEAD / REVERT_HEAD to `bl006_check` and `lints_check`.** BL-172 (PR #265 `7866022`) extended only the two BL-072 TDD surfaces; these two remain **MERGE_HEAD-only**, so a cherry-pick or revert **resumed with a plain `git commit`** (no `git cherry-pick`/`git revert` keyword in the command string for the PreToolUse command-string filter to catch) is still refused there. That is the exact BL-172 symptom, unfixed, on two more surfaces — and it is invisible from BL-172's own entry, which deliberately scoped them out as "DIFFERENT gates".
+3. **Extract a shared `_derivative_resume_in_progress()` helper** (single `git rev-parse --git-path` sentinel test over the three-sentinel set) and call it from all five sites, so this becomes ONE change with ONE mutation proof instead of five parallel edits that can drift apart again. The current five-site duplication is precisely what let the sentinel sets diverge in the first place — BL-172 fixed two of five, and the `--git-path` blindness affects all five identically.
+
 **Related:** BL-172 (the sentinels this generalizes), BL-072 (the TDD gate), BL-006/BL-010 (the sibling gate), and this repo's own `.claude/worktrees/` agent workflow (where the blindness is live).
 
 ---
@@ -4231,7 +4257,7 @@ Net: BL-174 closed the *gitignore* instance of this class by manifest-gating blo
 **Logged:** 2026-07-24 (BL-131/132 WP-A fable verifier, F4)
 **Category:** Bug / security enforcement — index-materialization edge case (case-insensitive FS)
 **Severity:** Low
-**Status:** Open
+**Status:** Closed — shipped + merged 2026-07-25 (PR #270 `b0b60aa`), per this entry's own build-note condition ("Status stays Open pending PR + merge"). `# BL-178-PER-INDEX-DIR` in `scripts/lib/hook-templates.sh`: materialization moved from one flat `mktemp -d` tree to per-staged-entry subdirs (`$soif_idx_tree/<n>/<relpath>`, `<n>` = staged position), so no two staged paths can collide, and the path-mapping `sed` grew a `[0-9][0-9]*/` arm so the operator still sees the REAL repo-relative path — never a temp path, never a bare index number (re-verified for deeply-nested paths and paths containing spaces). Landed in the SAME diff as the R-270-1 gitlink security regression by design: both rewrite the same loop and the same `soif_idx_files` population, so splitting them meant rewriting it twice with a near-certain conflict. Proof: `tests/test-bl132-sast-index-scan.sh` `T-index-case-collision`, watched-RED first against the flat tree (`[OK] semgrep: SAST ran on 2 staged file(s)` with the vuln COMMITTED) then GREEN; the case-only pair is built with `git update-index --add --cacheinfo` because a case-INSENSITIVE checkout physically cannot hold both worktree files while the index can, and the case LOUD-SKIPs on a case-sensitive filesystem rather than passing vacuously. Mutation-proof M2: revert the per-index layout (dest + `sed` in sync) → RED → restore → GREEN. **Side effect now tracked as BL-182:** the extra `/<n>/` segment on top of the `mktemp -d` root shortens the longest repo-relative path the temp tree can represent.
 
 The BL-132 SAST arm materializes each staged blob into a single `mktemp -d` tree at its repo-relative path (`# BL-132-INDEX-SCAN` in `scripts/lib/hook-templates.sh`). On a case-INSENSITIVE filesystem (macOS APFS default, Windows NTFS), staging two files whose paths differ only in case — e.g. `Widget.ts` (containing the vuln) and `widget.ts` (clean) — collides in the temp tree: the second `git cat-file blob` write lands on the SAME on-disk path, overwriting the first blob. If the clean file materializes last, the vuln blob is lost and the commit lands `[OK]` (verifier F4, reproduced). FIX B (explicit file targets) does NOT close this — the collision happens at materialization, before target selection — and the F2 content-size guard does not catch it (each write is internally consistent; it is the earlier blob that was clobbered).
 
@@ -4330,3 +4356,195 @@ does not push the commit into a bogus NOTRUN.
 **Related:** BL-132 (the index-materialization arm this filter feeds), BL-125 (the
 sibling arm that already fixed exactly this filter defect), BL-112 (the
 silent-vs-loud SAST receipt contract).
+
+---
+
+## BL-180: init.sh's INTERACTIVE path never resolves enforcement_level — every hand-run scaffold is born with `enforcement_level: ""` and NO filesystem gate
+
+**Logged:** 2026-07-25 (surfaced by the WP2 planner during anchor verification; empirically confirmed by a dedicated pty A/B)
+**Category:** Bug / enforcement gap (BL-030 surface, interactive scaffold birth site)
+**Severity:** HIGH — the default operator UX (`./init.sh`, no flags) produces a project whose strict-mode commit gate was never installed, while every diagnostic reports the project as strict.
+**Status:** Open
+
+`ENFORCEMENT_LEVEL=""` at top-of-file. The only assigner is the `# BL-030: resolve enforcement_level`
+block, which sits INSIDE the `if [ "$NON_INTERACTIVE" = true ]` arm of `main`. The `else` arm runs only
+`check_prerequisites` + `collect_project_info`, and `collect_project_info` has no enforcement-level
+prompt and never assigns the variable — there is no interactive enforcement-level prompt anywhere in
+init.sh. The empty value flows verbatim into all four manifest-seed `jq` calls and the
+`enforcement_level_set` bypass-audit row in `prepare_initial_state_for_commit`, and makes the
+`if [ "$ENFORCEMENT_LEVEL" = "strict" ]` guard around `install-filesystem-gates.sh --install` a no-op.
+`CONFIRM_PITFALLS` is set in the same non-interactive-only block and is likewise never resolved.
+Note the sharp edge: that block ALREADY contains the exact default this entry asks for
+(`[ -z "$ENFORCEMENT_LEVEL" ] && ENFORCEMENT_LEVEL="strict"`) — it is simply unreachable from the
+interactive arm, so the fix is to hoist an equivalent line out of the dispatch, not to invent one.
+
+**Evidence — A/B on the same combo (web / standard / personal / production / typescript).** Side A: a
+REAL interactive `init.sh` (no flags) driven over a pty via `expect`, so `helpers-core.sh::prompt_input`
+takes its interactive branch. Hermetic — a stub `gh` refused at `gh auth status`, before `gh repo create`;
+`git remote -v` empty on both sides. Side B: same combo via `--non-interactive` flags.
+
+| | interactive (A) | non-interactive (B) |
+|---|---|---|
+| `jq '.enforcement_level' .claude/manifest.json` | `""` | `"strict"` |
+| `.git/hooks/framework-gate.sh` | ABSENT | present (2341 B) |
+| `grep -c 'SOIF framework gate (BL-030)' .git/hooks/pre-commit` | `0` | `1` |
+| bypass-audit init row `enforcement_level_at_event` | `""` | `"strict"` |
+
+Committed, not transient: `git show HEAD:.claude/manifest.json | jq '.enforcement_level'` → `""`.
+
+**Nothing downstream repairs it — and it is self-concealing.**
+- `verify-install.sh --auto-fix` (inside init AND standalone): rc=0, "Passed: 83 / Auto-fixable: 0 /
+  All checks passed. Installation is healthy." It verifies the installer was COPIED, never that the
+  hook was INSTALLED.
+- `upgrade-project.sh`'s BL-030 backfill — the block that would re-run the installer — is gated on
+  `! jq -e '.enforcement_level' …`. `jq -e` on `""` prints `""` and EXITS 0 (re-confirmed at filing),
+  so the block is skipped. **An empty value is strictly worse than a missing one:** it defeats the
+  migration written for exactly this.
+- `read_enforcement_level` (scripts/lib/enforcement-level.sh) maps `""` → `strict` via its
+  `case … *) echo "strict"` arm, so every lib-mediated diagnostic reports the project as strict while
+  the enforcement is absent.
+
+**Blast radius, permanent, per interactively-scaffolded project:** (1) `process-checklist.sh
+--check-commit-ready` never runs at commit time; (2) `pre-commit-gate.sh --terminal-mode` never runs,
+losing BOTH the BL-072 TDD-ordering gate and the BL-006 Build-Loop message check; (3) no
+`terminal_commit_blocked` / `__record_pass` / `__record_block` rows, so the BL-161/163/171 ledger is
+silent about its own absence; (4) every raw `jq -r '.enforcement_level // "strict"'` reader
+(`escalate-to-user.sh`, `hooks/bypass-detector.sh`, `lib/hook-templates.sh`) stamps `""` — `//` does
+NOT fire on an empty string. This is BL-112's hollow-gate class reproduced at the birth site.
+
+**Test gap (part of the finding):** NO test exercises a real interactive scaffold.
+`tests/test-enforcement-level-init.sh` is 100% `--non-interactive`; every piped fed-sequence `init.sh`
+invocation in `tests/` is `--dry-run`, which returns before `create_project` and never writes a
+manifest. The whole interactive `create_project` path is untested end-to-end.
+
+**Fix shape:** one line immediately AFTER the `if [ "$NON_INTERACTIVE" = true ] … else … fi` dispatch in
+`main` (before `log_section "Project Configuration"`), marked `# BL-180-ENFORCEMENT-DEFAULT`:
+`[ -z "$ENFORCEMENT_LEVEL" ] && ENFORCEMENT_LEVEL="strict"` — inert for the non-interactive arm, which
+always assigns first. Companion: emit `Enforcement: $ENFORCEMENT_LEVEL` from `dry_run_summary` to
+**stdout** (`log_line` only writes to the log file), so the existing piped `--dry-run` fixture can pin
+the interactive path in the UNIT lane without a pty. Aggregator-only companion: a pty-driven
+(`expect`, falling back to `script`) real-scaffold test asserting manifest + `framework-gate.sh`, with a
+LOUD SKIP when neither is available.
+
+**Mutation proof:** delete the marked line → interactive A/B goes RED (`""` + gate absent) → restore →
+GREEN (`strict` + gate present), non-interactive control identical both ways.
+
+**Adjacent, flagged not filed separately (same structural class — fix while in here):**
+`NO_REMOTE_CREATION="$ARG_NO_REMOTE_CREATION"` is also assigned only inside
+`collect_inputs_non_interactive`, so `--no-remote-creation` is silently inert interactively. `main`'s
+"Input flags require --non-interactive; ignoring" warning covers only
+`ARG_PROJECT$ARG_PLATFORM$ARG_DEPLOYMENT$ARG_LANGUAGE` — not that flag, nor `ARG_CONFIRM_PITFALLS`
+(which IS part of the BL-030 surface).
+
+**Related:** BL-030, BL-084, BL-112, BL-110 (same "written only on one path" class), BL-161/163/171.
+
+---
+
+## BL-181: lint-tests-registered.sh's BL-154 unit-lane arm is exempted by a COMMENT — a green lint is not evidence of unit-lane registration
+
+**Logged:** 2026-07-25 (WP2 planner; empirically confirmed by a three-state probe)
+**Category:** Lint precision / silent-success defect class (test-registration invariant)
+**Severity:** MEDIUM — the guard against orphaned fast tests is bypassable by an incidental comment, silently; CLAUDE.md documented a stronger guarantee than the lint provides.
+**Status:** Open
+
+`_check_unit_lane` decides "does this test invoke init.sh?" with `grep -q 'init\.sh' "$file"` over the
+ENTIRE file including comments. Any test that merely MENTIONS init.sh — including a comment saying it
+does NOT invoke init.sh — is exempted from the tests.yml `tests=(` membership requirement.
+
+**Evidence.** `grep -c 'init\.sh'` → test-currency-manifest.sh 12, test-plan-staging.sh 30,
+test-reconfigure-field-handlers.sh 1 (all three re-confirmed at filing). The first two ARE in the unit
+list (tests.yml) by human diligence, not by the lint. test-currency-manifest.sh's own header states the
+fast-lane invariant the lint is vacuous for. test-reconfigure-field-handlers.sh is aggregator-only and
+its single mention is the comment "We bypass init.sh (and its --non-interactive cost) by hand-rolling
+the …" — a comment saying it does not invoke init.sh is what exempts it.
+
+Three-state probe (throwaway test, trivial echo, NO init.sh invocation, aggregator-registered only):
+
+| probe body | `grep -c 'init\.sh'` | lint result |
+|---|---|---|
+| comment paragraph mentioning init.sh | 2 | `OK: every test file is registered…` rc=0 |
+| identical, mentions stripped | 0 | `not listed in the tests.yml unit lane` rc=1 |
+| identical, one bare `# init.sh` line | 1 | `OK: …` rc=0 |
+
+One comment line flips FAIL → PASS with zero executable change.
+
+**Doc correction — ALREADY APPLIED (2026-07-25, in the PR #265–#270 closures PR).** CLAUDE.md's HOUSE
+RULES DIGEST previously claimed the BL-154 arm enforces tests.yml membership "of every non-`init.sh`
+test". The enforced set is "every test whose file TEXT does not contain the string `init.sh`" —
+strictly smaller, and bypassable by a comment. That one CLAUDE.md line has been amended to describe
+what the lint actually enforces; **amend it BACK to the stronger wording when this entry is fixed**,
+since the fix is what makes the stronger claim true.
+
+**Fix shape:** restrict to executed lines, reusing `_build_registered_set`'s comment-stripping idiom,
+marked `# BL-181-UNIT-LANE-PREDICATE`:
+`if grep -vE '^[[:space:]]*#' "$file" 2>/dev/null | grep -q 'init\.sh'; then return 0; fi`
+Re-classifies exactly one current file (test-reconfigure-field-handlers.sh) — its tests.yml addition is
+part of the change. Does NOT catch a mention inside a quoted heredoc/string, so also render the
+exemption in `--list` output (`unit-lane-exempt:init-sh-invoker`) so it is visible in review.
+
+**Mutation proof:** fixture pair in tests/test-lint-tests-registered.sh — comment-only mention must FAIL
+rc=1, real invocation must PASS rc=0. Revert the `grep -vE` prefix → comment-only fixture flips FAIL →
+PASS → RED → restore → GREEN.
+
+**Related:** BL-154, BL-038/034/035, BL-067, CLAUDE.md CANONICAL COMMANDS + HOUSE RULES DIGEST.
+
+---
+
+## BL-182: A ~958+ character repo-relative path is UNREPRESENTABLE in the BL-132 index temp tree — PATH_MAX aborts materialization and the whole commit goes NOTRUN (third instance of the same class)
+
+**Logged:** 2026-07-25 (PR #270 final-gate adversarial review, R-270-3; confirmed A/B against main)
+**Category:** Bug / security enforcement — commit-time SAST materialization (the "one bad entry blinds the whole commit" class, instance 3)
+**Severity:** Medium
+**Status:** Open
+
+The BL-132 materialized destination is `$soif_idx_tree/$soif_idx_n/$soif_p` (`# BL-132-INDEX-SCAN` /
+`# BL-178-PER-INDEX-DIR` in `scripts/lib/hook-templates.sh`). `mktemp -d` contributes ~63 characters on
+macOS (`/var/folders/<2>/<30>/T/tmp.<10>`, measured) plus the `/<n>/` segment, and macOS `PATH_MAX` is
+**1024** (`getconf PATH_MAX /`). So a repo-relative path longer than **~958 characters** is perfectly
+legal in the worktree and in the index, but cannot be expressed as a destination in the temp tree.
+`mkdir -p` fails, the loop takes its all-or-nothing `soif_idx_ok=0; break`, every already-materialized
+sibling target is discarded, and the WHOLE commit routes to NOTRUN.
+
+**Evidence — real emitter, real `.git/hooks/pre-commit`, real `git commit`; repo-relative length 991,
+2 staged entries (the long path plus an ordinary sibling carrying a live XSS sink):**
+
+```
+MAIN ed406c8 -> [BLOCKED] Semgrep detected security issues in staged files.
+                SIBLING VULN LANDED? NO-BLOCKED
+HEAD 3157eb9 -> dirname: /var/folders/.../tmp.jzZLnTISwY/1/d0000.../long.js: File name too long
+                [WARN] could not materialize staged content for scanning — SAST skipped.
+                commit rc=0, sibling XSS LANDED
+```
+
+**Severity argument — Medium, and the reasoning matters more than the number.** Against it: this is a
+**REGRESSION versus main** (main BLOCKS the same fixture) and it is the **THIRD** instance of the same
+mechanism in the same loop, after R-270-1 (submodule gitlink) and R-270-1B (`0:`-prefixed stage
+syntax). For it: it fails **LOUD** — the BL-112 honest-NOTRUN contract holds, the operator is told
+`could not materialize staged content for scanning — SAST skipped`, and there is **never a false
+`[OK]`**; and the trigger needs a ~958+ character repo-relative path, which is pathological rather than
+typeable. That combination (loud + pathological) is what keeps it off the block list — not any doubt
+about the mechanism.
+
+**FIX DIRECTION — do NOT patch a third trigger.** Patching PATH_MAX specifically would be the third
+whack-a-mole fix to the same `break`, and a fourth trigger will exist. **Retire the all-or-nothing
+`break` in the `# BL-132-INDEX-SCAN` loop:** scan what DID materialize, and route to NOTRUN **naming
+the specific staged entry it could not read** — so the operator learns *which* file is unscanned
+instead of losing the entire commit's coverage. That retires the whole class at once (gitlink,
+stage-syntax, PATH_MAX, and whatever is fourth). The honest-receipt plumbing it needs already exists:
+`# BL-132-EMPTY-TARGETS` already counts ACTUAL targets rather than staged entries, and
+`# BL-132-GITLINK-SKIP` already demonstrates a per-entry `continue`. Care is required so that "scan the
+readable subset" never degrades into a silent partial pass — the per-entry NOTRUN must be as loud as
+today's whole-commit NOTRUN, and a commit with ANY unreadable entry must still be reported as
+not-fully-scanned. **Alternative / companion:** shorten the temp root (e.g. `mktemp -d` under a short
+fixed prefix), which raises the threshold but does not retire the class — hardening, not the fix.
+
+**Incidental, fix while in here:** the `2>/dev/null` sits on `mkdir -p`, but the
+`$(dirname "$soif_idx_dest")` command substitution runs FIRST with **unredirected** stderr — which is
+exactly why the raw `dirname: …: File name too long` line appears in the operator's commit output
+above. Redirect the substitution too, or the hook leaks a bare tool diagnostic into a security-gate
+transcript.
+
+**Related:** BL-132 (the arm, and the two already-fixed instances of this class), BL-179 (the other
+still-open hole in the same arm — rename-and-edit commits skip SAST entirely and silently), BL-178
+(the per-index subdir that adds the `/<n>/` segment), BL-112 (the honest-NOTRUN contract that holds
+here).

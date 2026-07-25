@@ -182,7 +182,7 @@ gaps with mutation proofs), PR #169 (BL-010, wiring the BL-006 commit-message ch
 into the commit-msg hook), PR #170 (files BL-087), and the documentation-wave PR #171
 (tracked the five June audit reports into git). The wave's own state check: `main`
 green, branch protection unchanged, no open PRs, no pending-approval sentinel
-(`docs/handoffs/2026-07-10-gate-wave-close-out.md:14-30`).
+(`docs/handoffs/archive/2026-07-10-gate-wave-close-out.md:14-30`).
 
 ---
 
@@ -310,7 +310,7 @@ lines under BL-003b and BL-043 actually belong to the *separate* entries
 `code-upgrade-project-8`, `code-check-gates-1`, and `code-check-gates-7-followup`.
 **Response:** nothing was touched, the false premises were reported instead, and
 `scripts/lint-backlog-references.sh` passes unchanged
-(`docs/handoffs/2026-07-10-gate-wave-close-out.md:158-172`). The safeguard — "verify
+(`docs/handoffs/archive/2026-07-10-gate-wave-close-out.md:158-172`). The safeguard — "verify
 each tidy against git history before deleting" — is why a well-intentioned cleanup did
 not become a regression.
 
@@ -389,12 +389,12 @@ Each is one sentence with its evidence.
    passing, preserving the audit trail across the exception.
 7. **The implementation surface can defeat the gate's own premise.** The TDD gate had
    to move from pre-commit to commit-msg because git doesn't write the subject until
-   after pre-commit runs (`docs/handoffs/2026-07-10-gate-wave-close-out.md:66-73`) —
+   after pre-commit runs (`docs/handoffs/archive/2026-07-10-gate-wave-close-out.md:66-73`) —
    the tool's mechanics, not the design, dictated placement.
 8. **Predicates must be scoped to intent.** BL-082's first cut read the tree as dirty
    the instant the gate wrote its own state file, which would have bricked the gate;
    the fix scoped the dirty check to exclude `.claude/` and results
-   (`docs/handoffs/2026-07-10-gate-wave-close-out.md:52-64`).
+   (`docs/handoffs/archive/2026-07-10-gate-wave-close-out.md:52-64`).
 9. **Your worst incident is your best guardrail if you mechanize the fix.** The
    red-main merge produced `enforce_admins` protection + a required citation lint,
    converting a discipline failure into a structural one
@@ -402,7 +402,7 @@ Each is one sentence with its evidence.
 10. **Verify cleanup against history before you cut.** The three "obvious" backlog
     tidies were all false alarms that would have deleted real entries; the
     verify-against-history safeguard saved them
-    (`docs/handoffs/2026-07-10-gate-wave-close-out.md:158-172`).
+    (`docs/handoffs/archive/2026-07-10-gate-wave-close-out.md:158-172`).
 11. **Durable at the PR boundary survives the kill.** When a usage-limit event killed
     the fleet mid-wave, the agents whose work was already a complete PR survived;
     long-lived shared branches would not have.
@@ -444,7 +444,7 @@ Nothing on this list is a blocker; all of it is explicitly dispositioned.
 There is also a standing **manual cleanup owed to Karl** that agents cannot do
 (destructive git ops are blocked in the tool): deleting ~11 merged wave branches, ~28
 stale `worktree-wf_*` branches, and old worktree directories, enumerated in
-`docs/handoffs/2026-07-10-gate-wave-close-out.md:197-233`.
+`docs/handoffs/archive/2026-07-10-gate-wave-close-out.md:197-233`.
 
 ---
 

@@ -9,7 +9,8 @@ plan → PRs → shipped state stays intact and citable.
 
 - **Live handoff:** the single most recent state-of-record for the current
   arc lives at the top level of `docs/handoffs/`. Right now that is
-  [`../2026-07-10-gate-wave-close-out.md`](../2026-07-10-gate-wave-close-out.md).
+  [`../2026-07-24-seven-wp-wave-handoff.md`](../2026-07-24-seven-wp-wave-handoff.md).
+  Everything else at the top level is a pointer stub.
 - **Archived handoff:** once a handoff is executed or superseded, its full
   text moves here and a short **pointer stub** is left at the original
   top-level path (title, one-line status, links to this archived copy and to
@@ -32,11 +33,28 @@ plan → PRs → shipped state stays intact and citable.
 
 ## Contents
 
+In chain order (oldest first). Each has a pointer stub at its old top-level path.
+
 - `2026-07-08-ci-arc-close-and-gate-wave.md` — SUPERSEDED by the 2026-07-09
   execution handoff (its gate-wave ordering was obsoleted the next day).
 - `2026-07-09-gate-wave-execution-handoff.md` — FULLY EXECUTED (gate wave
-  shipped as PRs #160–#167); closed out by
-  [`../2026-07-10-gate-wave-close-out.md`](../2026-07-10-gate-wave-close-out.md).
+  shipped as PRs #160–#167); closed out by the 2026-07-10 close-out.
+- `2026-07-10-gate-wave-close-out.md` — FULLY EXECUTED + SUPERSEDED (archived
+  2026-07-25). The gate wave closed; the arc it handed to is itself finished.
+  `Reports/2026-07-11-project-post-mortem.md` cites this document by line
+  number — those citations resolve against **this archived copy**, which is
+  byte-for-byte the original.
+- `2026-07-18-dogfood-remediation-handoff.md` — SUPERSEDED (archived
+  2026-07-25); described the Dogfood-2/3 remediation arc mid-flight.
+- `2026-07-20-arc-close-phase-g.md` — FULLY EXECUTED + SUPERSEDED (archived
+  2026-07-25). Its §4 Phase-G decisions were taken (the trio decision is
+  recorded on BL-097/098/100; Dogfood-4 ran and closed).
+- `2026-07-24-residuals-wave-and-next-builds.md` — FULLY EXECUTED + SUPERSEDED
+  (archived 2026-07-25). Residuals wave merged as PRs #255–#258; the two builds
+  it queued shipped as PR #262 (BL-161) and PR #263 (BL-165). Its § 3 is the
+  first surfacing of the two stale full-suite tests later filed as BL-173.
+- `2026-07-24-next-session-prompt.md` — FULLY EXECUTED (archived 2026-07-25);
+  the launch prompt for that BL-161 + BL-165 session.
 
 ## Citation convention for handoffs
 
