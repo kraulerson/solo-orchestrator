@@ -289,6 +289,7 @@ make_fake_framework() {
   cp -R "$REPO_ROOT/scripts" "$fw/scripts"
   cp -R "$REPO_ROOT/docs" "$fw/docs"
   cp -R "$REPO_ROOT/templates/generated" "$fw/templates/generated"
+  cp -R "$REPO_ROOT/templates/semgrep" "$fw/templates/semgrep"   # BL-131-DOM-SINKS: ruleset source the hook-refresh ensure reads
   cp "$REPO_ROOT/templates/project-intake.md" "$fw/templates/project-intake.md"
   ( cd "$fw" && git init -q && git config user.email fw@t.local && git config user.name FW \
       && unset GITHUB_BASE_REF && git add -A && git commit -q -m "fake framework HEAD" ) >/dev/null 2>&1
@@ -501,6 +502,95 @@ t_legacy_unmarked_precommit_sidecar() {
     fail_ "T-legacy-unmarked-precommit-sidecar" "expected a pre-commit.new sidecar carrying the managed hook"; rm -rf "$T"; return
   fi
   pass "T-legacy-unmarked-precommit-sidecar: legacy unmarked hook left byte-identical; managed hook offered as .new sidecar"
+  rm -rf "$T"
+}
+
+# ── T-domsinks-ruleset-delivered-on-hook-install (BL-131) ───────────────────
+# The emitted pre-commit hook --config's .semgrep/soif-dom-sinks.yml; a sync that
+# INSTALLS the hook must ALSO deliver that ruleset (# BL-131-DOM-SINKS in
+# _bl099_sync_precommit_hook), or the refreshed hook references a file the project
+# never received and the SAST arm NOTRUN-warns on every commit. RED before the
+# ensure: the file stays absent.
+t_domsinks_ruleset_delivered_on_hook_install() {
+  local T; T=$(mktemp -d); local P="$T/proj"; mk_project "$P"
+  rm -rf "$P/.semgrep"   # ruleset absent (pre-existing-project scenario)
+  run_sync "$P" --install-hooks >/dev/null
+  local dst="$P/.semgrep/soif-dom-sinks.yml"
+  if [ ! -f "$dst" ]; then
+    fail_ "T-domsinks-ruleset-delivered-on-hook-install" "sync installed the hook but did NOT deliver .semgrep/soif-dom-sinks.yml — the refreshed hook references a file the project never received (BL-131 incomplete contract)"; rm -rf "$T"; return
+  elif ! cmp -s "$REPO_ROOT/templates/semgrep/soif-dom-sinks.yml" "$dst"; then
+    fail_ "T-domsinks-ruleset-delivered-on-hook-install" "delivered ruleset does not match the framework copy"; rm -rf "$T"; return
+  fi
+  # A commit through the refreshed hook must be JUDGED (the SAST arm RAN with the
+  # delivered config), not NOTRUN on a missing ruleset. semgrep + registry gated.
+  if command -v semgrep >/dev/null 2>&1; then
+    printf 'export const x = 1;\n' > "$P/probe.ts"
+    ( cd "$P" && git add probe.ts && git commit -m "chore: probe" ) >"$T/clog" 2>&1 || true
+    if grep -qF 'SAST NOT ENFORCED' "$T/clog"; then
+      : # scanner did not run (registry unreachable) — the presence assertion stands
+    elif ! grep -qF '[OK] semgrep: SAST ran' "$T/clog"; then
+      fail_ "T-domsinks-ruleset-delivered-on-hook-install" "the refreshed hook produced no SAST verdict (neither [OK] nor NOTRUN) — the delivered ruleset may be broken; log: $(tail -4 "$T/clog" | tr '\n' '|')"; rm -rf "$T"; return
+    fi
+  fi
+  pass "T-domsinks-ruleset-delivered-on-hook-install: hook install also delivers the referenced DOM-sink ruleset"
+  rm -rf "$T"
+}
+
+# ── T-domsinks-ruleset-dry-run-no-write (BL-131) ────────────────────────────
+t_domsinks_ruleset_dry_run_no_write() {
+  local T; T=$(mktemp -d); local P="$T/proj"; mk_project "$P"
+  rm -rf "$P/.semgrep"
+  local out; out=$(run_sync "$P" --install-hooks --dry-run)
+  if [ -f "$P/.semgrep/soif-dom-sinks.yml" ]; then
+    fail_ "T-domsinks-ruleset-dry-run-no-write" "--dry-run WROTE .semgrep/soif-dom-sinks.yml (dry-run must be pure)"
+  elif ! printf '%s' "$out" | grep -qF 'soif-dom-sinks.yml'; then
+    fail_ "T-domsinks-ruleset-dry-run-no-write" "--dry-run did not announce the planned ruleset delivery"
+  else
+    pass "T-domsinks-ruleset-dry-run-no-write: --dry-run announces the ruleset delivery and writes nothing"
+  fi
+  rm -rf "$T"
+}
+
+# ── T-domsinks-ruleset-current-no-op (BL-131) ───────────────────────────────
+t_domsinks_ruleset_current_no_op() {
+  local T; T=$(mktemp -d); local P="$T/proj"; mk_project "$P"
+  mkdir -p "$P/.semgrep"; cp "$REPO_ROOT/templates/semgrep/soif-dom-sinks.yml" "$P/.semgrep/soif-dom-sinks.yml"
+  local before; before=$(_md5file "$P/.semgrep/soif-dom-sinks.yml")
+  local out; out=$(run_sync "$P" --install-hooks)
+  local after; after=$(_md5file "$P/.semgrep/soif-dom-sinks.yml")
+  if [ "$before" != "$after" ]; then
+    fail_ "T-domsinks-ruleset-current-no-op" "an already-current ruleset was rewritten (not a byte-no-op)"
+  elif printf '%s' "$out" | grep -qF 'delivered (the pre-commit hook'; then
+    fail_ "T-domsinks-ruleset-current-no-op" "the ensure claimed a delivery when the ruleset was already current (should no-op)"
+  else
+    pass "T-domsinks-ruleset-current-no-op: an already-current ruleset is a byte-no-op (never re-delivered/duplicated)"
+  fi
+  rm -rf "$T"
+}
+
+# ── T-domsinks-ruleset-restored-when-hook-current (BL-131, R-270-1) ─────────
+# The "hook already current" sync arm must still self-heal a missing ruleset:
+# hook at the current template + ruleset deleted → re-sync restores the file.
+# Pre-fix, that arm returned before any ensure ran, leaving the hook pointing
+# at a missing config (loud NOTRUN on every commit, no repair via sync).
+t_domsinks_ruleset_restored_when_hook_current() {
+  local T; T=$(mktemp -d); local P="$T/proj"; mk_project "$P"
+  run_sync "$P" --install-hooks >/dev/null
+  if [ ! -f "$P/.semgrep/soif-dom-sinks.yml" ]; then
+    fail_ "T-domsinks-ruleset-restored-when-hook-current" "precondition failed: install did not deliver the ruleset"; rm -rf "$T"; return
+  fi
+  rm -f "$P/.semgrep/soif-dom-sinks.yml"
+  local out; out=$(run_sync "$P" --install-hooks)
+  if ! printf '%s' "$out" | grep -qF 'already current'; then
+    fail_ "T-domsinks-ruleset-restored-when-hook-current" "fixture drift: second sync did not take the already-current arm"; rm -rf "$T"; return
+  fi
+  if [ ! -f "$P/.semgrep/soif-dom-sinks.yml" ]; then
+    fail_ "T-domsinks-ruleset-restored-when-hook-current" "already-current sync left the referenced ruleset MISSING (no self-heal; the hook NOTRUN-warns every commit until verify-install repairs it)"; rm -rf "$T"; return
+  fi
+  if ! cmp -s "$REPO_ROOT/templates/semgrep/soif-dom-sinks.yml" "$P/.semgrep/soif-dom-sinks.yml"; then
+    fail_ "T-domsinks-ruleset-restored-when-hook-current" "restored ruleset does not match the framework copy"; rm -rf "$T"; return
+  fi
+  pass "T-domsinks-ruleset-restored-when-hook-current: already-current hook arm self-heals a missing ruleset"
   rm -rf "$T"
 }
 
@@ -1654,6 +1744,10 @@ t_rust_hook_installed
 t_hook_block_refresh_preserves_user_lines
 t_hook_mode_preserved
 t_legacy_unmarked_precommit_sidecar
+t_domsinks_ruleset_delivered_on_hook_install
+t_domsinks_ruleset_dry_run_no_write
+t_domsinks_ruleset_current_no_op
+t_domsinks_ruleset_restored_when_hook_current
 t_doc_apply_sidecar
 t_doc_noninteractive_no_flag_applies_nothing
 t_doc_overwrite_confirm_declined

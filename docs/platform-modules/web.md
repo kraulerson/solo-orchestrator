@@ -206,6 +206,20 @@ docker pull grafana/k6
 
 Define realistic user scenarios. Ramp to expected peak traffic. Identify bottlenecks.
 
+### 4.6 SAST — DOM-XSS sink coverage and its limits (BL-131)
+
+The commit-time SAST gate (the generated `.git/hooks/pre-commit`) and the generated CI both run three semgrep configs: `p/owasp-top-ten`, the registry browser pack `r/javascript.browser.security.insecure-document-method` (innerHTML/outerHTML/`document.write` in **js/ts**, from BL-118), and a **project-owned ruleset shipped at `.semgrep/soif-dom-sinks.yml`** (BL-131). The project-owned ruleset closes the sinks the public registry covers nowhere:
+
+- **js/ts** — `element.insertAdjacentHTML(pos, x)` and jQuery `$(sel).html(x)` (matched precisely via the JS AST; a string-**literal** argument is allowed, so `insertAdjacentHTML('beforeend', '<hr>')` does not trip the gate).
+- **`.vue` / `.html`** — `innerHTML`/`outerHTML`, `document.write`/`writeln`, `insertAdjacentHTML`, and jQuery `.html()` inside a `.vue` SFC `<script>` block or an inline `<script>` in a committed `.html`.
+
+**Known residue (accepted, not a bug).** semgrep's `vue` and `html` language parsers do **not** expose the embedded `<script>` JavaScript as a matchable AST (verified against semgrep 1.157.0 — even a bare `location.hash` pattern matches nothing in `vue` mode). The only way to reach those file types is semgrep's **`generic` mode with `pattern-regex`**, which the ruleset uses (scoped to `*.vue`/`*.html`/`*.htm`). Regex matching is **syntactic, not taint-aware**, so two limits follow and are deliberately accepted:
+
+1. **False positives on markup prose.** A `.html` page that *shows* sink code as documentation/example text (e.g. a tutorial containing `el.innerHTML = data`) is flagged even though nothing executes. Suppress a confirmed-safe line with a semgrep inline comment (`// nosemgrep` / `<!-- nosemgrep -->` adjacent to the line) or log it in the false-positive register.
+2. **Evasion by construction.** A sink assembled across multiple lines, via an aliased method reference (including **bracket notation** — a computed member such as `el["insertAdjacentHTML"]` or `el[method]`, then called with the usual arguments), or by string concatenation that breaks the token pattern can slip past the `.vue`/`.html` regex. The js/ts AST rules are more robust but are still a heuristic (they flag a non-literal argument, not a proven attacker-tainted one), and they too match the dotted call shape rather than a computed-member alias.
+
+The gate is a fast **tripwire**, not a proof of safety: prefer `textContent` / `insertAdjacentText` or an explicit sanitizer (e.g. DOMPurify) for any attacker-influenced markup, and rely on the CSP (§4.4) and code review as the defense-in-depth layers behind it. If semgrep cannot run (absent, offline registry, or a missing `.semgrep/soif-dom-sinks.yml`), the arm WARNs **loudly** ("SAST NOT ENFORCED") rather than passing silently — a not-run scan is never a clean scan.
+
 ---
 
 ## 5. Deployment & Distribution

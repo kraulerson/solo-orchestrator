@@ -3432,6 +3432,10 @@ Empirically proven through the real emitted hook during BL-118's adversarial ver
 
 **Related:** BL-118 (PR #199 — the covered sinks); BL-112 (the gate plumbing); BL-132 (the other verifier-found gap); `Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md` (WP-A1 verifier findings).
 
+**Build note (2026-07-24, branch `fix/bl131-bl132-sast-hardening`):** Shipped `templates/semgrep/soif-dom-sinks.yml` — init.sh lays it into the scaffold's `.semgrep/` before the initial commit (so CI, which checks out the committed tree, sees it), and it is referenced as an extra `--config` in the emitted hook (marker `# BL-131-DOM-SINKS`) and all 22 generated CI pipelines (github×10 + gitlab×10 + bitbucket×2). Coverage: `insertAdjacentHTML` and jQuery `.html()` via precise js/ts AST rules (literal-argument RHS excluded to cut false positives); innerHTML/outerHTML/document.write/insertAdjacentHTML/jQuery inside `.vue`/`.html` via a `generic` + `pattern-regex` rule scoped by `paths:`. EMPIRICAL FINDING (semgrep 1.157.0): semgrep's `vue`/`html` language parsers do NOT expose the embedded `<script>` JS as a matchable AST (even `location.hash` fails to match in `vue` mode), so precise AST rules cannot reach those file types — `generic`+regex is the only way in, and it IS reachable. js/ts innerHTML/document.write are deliberately LEFT to the BL-118 registry browser pack, so the two rulesets do not overlap (verified: `T-mutation-domxss-config` still unblocks a js/ts innerHTML fixture by stripping only the registry line). RESIDUE (now documented in `docs/platform-modules/web.md`): the markup-file rule is syntactic regex, not taint-aware — a code sample shown as prose in an `.html` doc can false-positive (suppress with a `nosemgrep` line), and a sink split/aliased across lines can evade. Artifact pinned statically (ruleset ships + init.sh cp line + hook/CI `--config`) AND behaviorally (delete the ruleset → semgrep exits non-zero → the SAST arm WARNs loudly, never a silent clean pass). Proof: `tests/test-bl131-domsink-rules.sh` (static + isolated-rule-content + live-through-hook + deletion pin + `--config`-strip mutation). Status stays Open pending PR + merge.
+
+**Build note addendum (2026-07-24, supervisor-triaged increment):** the two hook-re-emitting paths now also DELIVER the ruleset (closing the incomplete-contract gap where a refreshed/repaired hook referenced a file the project never received): `scripts/upgrade-project.sh` `_bl099_sync_precommit_hook` gains helper `_bl131_ensure_domsinks_ruleset` (called from the install + refresh branches, DRY_RUN-aware, idempotent byte-compare, rides the hook's own consent), and `scripts/verify-install.sh` `fix_precommit_hook` restores the ruleset from the framework source (byte-compare + refresh-if-different, `lint-fix-functions-stderr`-clean, hook-write rc preserved). New cases: `tests/test-upgrade-sync-framework.sh` (`t_domsinks_ruleset_delivered_on_hook_install` / `_dry_run_no_write` / `_current_no_op`) and `tests/test-verify-install-fix-functions.sh` T15 (repair restores the ruleset). The residual tracking-registry gap (`templates/semgrep/` sits outside `scaffold-shipped-set.sh`'s parsers) is filed as BL-175, not fixed here.
+
 ---
 
 ## BL-132: The pre-commit SAST arm scans WORKTREE paths, not INDEX content — stage the vuln, overwrite the worktree copy, and the committed bytes are never scanned
@@ -3446,6 +3450,14 @@ Reproduced during BL-118's adversarial verification: `git add app.ts` (containin
 **Fix shape:** scan index content: materialize staged blobs into a temp tree preserving relative paths/extensions (`git checkout-index --temp` or `git show :<path>`), run semgrep there, report findings against the real paths. Same BL-112-SAST-NOTRUN/receipt discipline. Check gitleaks parity while there (`gitleaks git --staged` already reads the index).
 
 **Related:** BL-112 (the arm's design); BL-118 (PR #199 — verifier proved the gap is orthogonal to the ruleset fix); `Reports/2026-07-13-dogfood-2/REMEDIATION-PROGRESS.md` (WP-A1).
+
+**Build note (2026-07-24, branch `fix/bl131-bl132-sast-hardening`):** Fixed in the emitted pre-commit hook (`scripts/lib/hook-templates.sh`, marker `# BL-132-INDEX-SCAN`). The SAST arm now materializes each staged blob into a `mktemp -d` tree via `git show ":<path>"` (preserving relative path + extension so semgrep still detects the language), runs semgrep against that INDEX snapshot instead of the worktree pathnames, and `sed`s the temp prefix off finding paths so the operator sees real repo-relative paths. Both `# BL-112-SAST-NOTRUN` arms are byte-preserved; a materialization failure routes to the same loud NOTRUN helper (honest, never a silent pass). GITLEAKS PARITY (checked per the fix shape): the gitleaks arm already reads the index (`gitleaks git --staged`), so no change was needed there. Proof: `tests/test-bl132-sast-index-scan.sh` — staged-vuln/clean-worktree → REFUSED with the staged path named; clean-staged/vuln-worktree → LANDS (no false block on unstaged edits); NOTRUN contract intact; mutation (scan target reverted to the worktree paths) → RED → restore → GREEN. Status stays Open pending PR + merge.
+
+**Build note addendum (2026-07-24, verifier REJECT → fix):** the first cut scanned the materialized DIRECTORY (`semgrep … "$soif_idx_tree"`), which the fable verifier REJECTED with one BLOCKER (F1): pointing semgrep at a directory re-engages its built-in default `.semgrepignore`, so staged sinks under `tests/ test/ build/ dist/ vendor/ node_modules/` and `*.min.js` were SILENTLY skipped and the commit landed `[OK] semgrep: SAST ran on N staged file(s)` — a regression from the pre-BL-132 explicit-target contract (the OLD hook refused them). `--no-git-ignore` does NOT disable the built-in defaults (confirmed empirically). Every original fixture lived at repo root, which is why the first 4/4 stayed green. **FIX B** (supervisor-chosen): the materialization loop now collects each dest into `soif_idx_files=()` and semgrep is handed those EXPLICIT file targets (`${soif_idx_files[@]+"${soif_idx_files[@]}"}`, `set -u`-guarded), never the tree — explicit targets bypass ignore filtering by semgrep's documented semantics, restoring the contract by construction and keeping the "ran on N staged file(s)" receipt honest. Materialization switched to `git cat-file blob` and gained the **F2** positive content-size check (`git cat-file -s` vs `wc -c`) so a git read returning 0 while writing an empty/partial dest routes to the loud NOTRUN, not a silent pass. New/updated tests: `test-bl132` `T-index-ignored-paths-scanned` (S4 regression: sinks under tests/ dist/ *.min.js scanned+REFUSED, RED reproduced against the directory scan) + `T-mutation-content-guard` (M-empty/M-partial → NOTRUN with F2; F2 removed → silent [OK]) + `T-index-blocks-staged-vuln` F3 (assert the raw mktemp prefix is absent, not a bare basename grep); the three `--error` mutation anchors (`test-bl112`, `test-bl099-guard-coverage`, `test-bl132` `T-mutation-index-scan`) updated to the new array-expansion target and re-proven. Case-only-differing collision on case-insensitive FS filed as BL-178 (FIX B does not close it; stage is deliberately unusual, Low).
+
+**Build note addendum 2 (2026-07-25, cross-PR REJECT → fix — R-270-1 SECURITY REGRESSION + BL-178, landed together):** FIX B's materialization loop aborted on the FIRST staged path it could not `git cat-file blob`, and a **submodule GITLINK is index mode 160000, not a blob** — `git cat-file blob :sub` exits 128. The `break` therefore discarded EVERY already-materialized target and routed the WHOLE commit to NOTRUN, so a vulnerability staged in a *sibling* file **LANDED**. This was a **regression versus main**: A/B'd through the real shipped emitter with the same fixture and a real `git commit`, OLD (`d857294`) → BLOCKED rc=1, NEW (`bc08d36`) → LANDED rc=0 + NOTRUN; the gitlink-free control BLOCKED on both. The trigger is routine (`git submodule add`, or a pointer bump staged beside application code) and **no lane caught it** — with the defect live, `test-bl132` 7/7, `test-bl131` 17/17 and `test-bl112` 13/13 all passed, because no fixture in the repo staged a gitlink. Fixed under `# BL-132-GITLINK-SKIP`: a non-blob index entry is now SKIPPED rather than aborting the loop. The skip is **narrow by construction** — it is gated on the index MODE being `160000`, read back with a `:(literal)` pathspec so glob metacharacters and spaces cannot mis-resolve; anything that is neither a blob nor a gitlink (a missing/corrupt object for a REAL staged blob) still routes to the loud NOTRUN, verified by pruning a real blob's object so `cat-file -t` fails exactly as it does for a gitlink and watching NOTRUN fire with no silent skip. Receipt honesty follows under `# BL-132-EMPTY-TARGETS`: the `[OK] … ran on N staged file(s)` count is now `${#soif_idx_files[@]}` (what was ACTUALLY targeted) rather than `${#soif_staged[@]}` (what was staged), since the two can now legitimately differ, and **zero** materialized targets — a submodule pointer-bump commit stages only a gitlink — routes to NOTRUN instead of claiming a scan. **BL-178 landed in the same diff** (`# BL-178-PER-INDEX-DIR`): both defects rewrite the same loop and the same `soif_idx_files` population, so splitting them meant rewriting it twice with a near-certain conflict. Materialization moved from one flat tree to per-staged-entry subdirs (`$soif_idx_tree/<n>/<relpath>`), and the path-mapping `sed` grew the `[0-9][0-9]*/` arm so the operator still sees the REAL repo-relative path — never a temp path, never a bare index number. Reported-path contract re-verified end-to-end for deeply-nested paths and **paths containing spaces** (`src/my components/sub dir/space vuln.ts` round-trips verbatim). New watched-RED tests in `test-bl132`: `T-index-gitlink-not-blinding` (realistic LOCAL-path `git submodule add`, never a network remote; RED pre-fix = COMMITTED + "could not materialize"), `T-index-gitlink-only-honest` (pointer bump → lands, but no unearned `[OK]`), `T-index-case-collision` (BL-178; `update-index --cacheinfo` builds the case-only pair a case-insensitive CHECKOUT cannot hold, LOUD-SKIPs on a case-sensitive FS rather than passing vacuously; RED pre-fix = `[OK] semgrep: SAST ran on 2 staged file(s)` with the vuln committed). `T-mutation-content-guard`'s materialization anchors were retargeted to `$soif_idx_dest`. Mutation proofs: M1 drop the blob guard → gitlink test RED → restore → GREEN; M2 revert the per-index layout (dest + `sed` in sync) → case-collision test RED → restore → GREEN; M3 force a genuine read failure on a REAL blob → NOTRUN fires, no `[OK]`, nothing lands silently. Green: `test-bl132` 10/10, `test-bl131` 17/17, `test-bl112` 13/13, `test-upgrade-sync-framework` 39/39, `run-lints` 11/11.
+
+**Build note addendum 3 (2026-07-25, PR #270 final-gate adversarial review — R-270-1B SECURITY REGRESSION, same loop again):** addendum 2's loop addressed staged content as `":$soif_p"`. Git's REVISION syntax reads `:<0-3>:<path>` as a **merge-stage reference**, so for a staged file whose **repo-ROOT** name begins with `0:`, `1:`, `2:` or `3:` (e.g. `2:evil.js`) `git cat-file -t ":$soif_p"` FAILS on a perfectly healthy, fully readable blob — `fatal: path 'evil.js' does not exist`. That is not a gitlink, so `# BL-132-GITLINK-SKIP` did not `continue`; the entry fell through to `soif_idx_ok=0; break`, which discarded every already-materialized sibling target and routed the WHOLE commit to NOTRUN — **a genuinely vulnerable sibling then LANDED**. Same "one bad entry blinds the whole commit" mechanism as R-270-1, and a **regression versus main**: A/B'd through the real emitter, the real `.git/hooks/pre-commit` and a real `git commit` — main (`ed406c8`) `[BLOCKED]` / did not land, head (`0765612`) `[WARN] could not materialize staged content` / **landed**. Loud (NOTRUN, not a false `[OK]`), hence major rather than block, but not mergeable. Fixed under the new marker `# BL-132-STAGE0-REF`: all **three** cat-file sites in the loop (`-t` type probe, `blob` materialization, `-s` size probe) now pin the stage explicitly as `":0:$soif_p"`. Boundaries re-derived on git 2.50.1 before and after: `0:`/`1:`/`2:`/`3:` at repo root fail bare while `4:x.js` (only 0-3 are stage digits), `2evil.js` (the colon is required) and `sub/2:x.js` (root only) all resolve bare; `:0:` resolves ordinary paths identically (`:0:src/ok.js` → blob), so it is a strict improvement. The `git ls-files -s -- ":(literal)$soif_p"` gitlink probe is a **PATHSPEC, not a revision** — proven immune with `2:x.js`-shaped paths (correct `100644` row) rather than assumed, and deliberately left unchanged; a real gitlink still fails `cat-file -t ":0:sub"` while `ls-files` reports `160000`, so the skip still fires. The `# BL-132-GITLINK-SKIP` design comment was **corrected**: it had enumerated "a missing/corrupt object for a REAL staged blob" as the only other way `cat-file -t` can fail, which this review refuted. New watched-RED test `T-index-stage-syntax-path` in `tests/test-bl132-sast-index-scan.sh` stages `0:decoy.js` (insertAdjacentHTML sink) beside `app.ts` (innerHTML sink) and asserts BLOCKED with BOTH real repo-relative paths named, no temp prefix and no bare index number; RED first against the unfixed code (COMMITTED + "could not materialize", vuln shipped), GREEN after. Mutation proof: revert only the three `:0:` prefixes → RED → restore → GREEN. `T-mutation-content-guard`'s two `_idx_mutate` anchors were retargeted in lockstep (they are full literals, and the exactly-once check correctly reported MIS-TARGETED in between rather than passing vacuously — the coupling is now documented in the case). Green: `test-bl132` 11/11, `test-bl131` 17/17, `test-bl118` 6/6, `test-bl112` 13/13, `run-lints` 11/11. A separate PRE-EXISTING hole found in the same review (rename-and-edit commits skip SAST entirely and silently; identical on main) was filed as **BL-179**, not fixed here.
 
 ---
 
@@ -4140,6 +4152,24 @@ the PASS terminal before T8). Status stays **Open** pending PR review/merge.
 
 ---
 
+## BL-175: The shipped DOM-sink ruleset (`templates/semgrep/soif-dom-sinks.yml`) is outside every mechanical tracking surface — not source-closure-tested (BL-108 class) and not currency-tracked (BL-109 class)
+
+**Logged:** 2026-07-24 (BL-131 WP-A implementer escalation, supervisor-triaged)
+**Category:** Scaffold-shipped-set / currency registry coverage gap
+**Severity:** Low
+**Status:** Open
+
+BL-131 ships a new vendored artifact, `templates/semgrep/soif-dom-sinks.yml`, that `init.sh` copies into every scaffold's `.semgrep/` and that the emitted pre-commit hook + generated CI reference by `--config`. But `scripts/lib/scaffold-shipped-set.sh`'s parsers enumerate only four shapes — `soif_parse_shipped_scripts` (scripts/), `soif_parse_shipped_reference_docs` (docs/reference/), `soif_parse_shipped_templates` (templates/generated/*.tmpl), and `soif_parse_shipped_skills` (the vendored-skill loop). A `cp "$SCRIPT_DIR/templates/semgrep/soif-dom-sinks.yml" .semgrep/` line matches NONE of them, so the ruleset is:
+
+- **not source-closure-tested** (BL-108 class): `tests/test-scaffold-source-closure.sh` derives the shipped set from those parsers, so a future edit that made the ruleset source an unshipped sibling would go uncaught (moot today — YAML sources nothing — but the tracking gap is real).
+- **not currency-tracked** (BL-109 class): the currency manifest/inventory stamps drift only for the tracked shapes, so an operator whose vendored ruleset drifts from the framework gets no freshness signal.
+
+**Fix shape:** extend the `scaffold-shipped-set.sh` parser registry with a `soif_parse_shipped_semgrep` (or a generalized `templates/<dir>/` verbatim-copy shape) covering `templates/semgrep/*.yml`, and fold it into the BL-109 currency stamping + the BL-108 closure derivation. Mutation-proof the new parser (a shipped ruleset appears in the derived set; an unshipped one does not).
+
+**Related:** BL-131 (ships the ruleset + the sync/verify-install delivery paths), BL-108 (source-closure), BL-109 (currency system).
+
+---
+
 ## BL-176: sentinel skip checks are blind in linked git worktrees — literal `.git/<SENTINEL>` paths miss the per-worktree gitdir
 
 **Logged:** 2026-07-24 (BL-172 WP-B fable verifier, findings F2+F3)
@@ -4193,3 +4223,110 @@ Net: BL-174 closed the *gitignore* instance of this class by manifest-gating blo
 - **Mutation proof:** a projectless fixture (a `scripts/` dir present, a skills source visible via `ORCHESTRATOR_ROOT`, but NO `.claude/manifest.json` and NO `.claude/phase-state.json`) → after the structural guard, `_run_idempotent_backfill` performs ZERO writes (no `.claude/skills/`, no `scripts/lib/` copies, no `.gitignore` append); excise the guard → the skills sync and BL-088 copies reappear (RED).
 
 **Related:** BL-174, BL-080, BL-081.
+
+---
+
+## BL-178: Case-insensitive-filesystem materialization collision — case-only-differing staged files overwrite each other in the index temp tree, and the vuln blob can be lost
+
+**Logged:** 2026-07-24 (BL-131/132 WP-A fable verifier, F4)
+**Category:** Bug / security enforcement — index-materialization edge case (case-insensitive FS)
+**Severity:** Low
+**Status:** Open
+
+The BL-132 SAST arm materializes each staged blob into a single `mktemp -d` tree at its repo-relative path (`# BL-132-INDEX-SCAN` in `scripts/lib/hook-templates.sh`). On a case-INSENSITIVE filesystem (macOS APFS default, Windows NTFS), staging two files whose paths differ only in case — e.g. `Widget.ts` (containing the vuln) and `widget.ts` (clean) — collides in the temp tree: the second `git cat-file blob` write lands on the SAME on-disk path, overwriting the first blob. If the clean file materializes last, the vuln blob is lost and the commit lands `[OK]` (verifier F4, reproduced). FIX B (explicit file targets) does NOT close this — the collision happens at materialization, before target selection — and the F2 content-size guard does not catch it (each write is internally consistent; it is the earlier blob that was clobbered).
+
+**Honest calibration:** the trigger stage is deliberately unusual — git itself warns on case-only-differing paths on a case-insensitive checkout, and few real trees carry them. This is a materialization-fidelity gap, not a routine bypass.
+
+**Fix shape:** materialize into per-index SUBDIRS keyed by the staged-file INDEX (`$tree/<i>/<relpath>`) so no two staged paths can collide, collect the per-index dest into `soif_idx_files`, and update the path-mapping `sed` to strip the `<tree>/<i>/` prefix (recovering the real repo-relative path). Mutation-proof: stage `Widget.ts` (vuln) + `widget.ts` (clean) on a case-insensitive FS → the vuln must still be REFUSED.
+
+**Build note (2026-07-25, branch `fix/bl131-bl132-sast-hardening`):** Fixed as recorded, under the marker `# BL-178-PER-INDEX-DIR` in `scripts/lib/hook-templates.sh`. **Landed in the SAME diff as the R-270-1 gitlink security regression** — both defects rewrite the same materialization loop and the same `soif_idx_files` population, so shipping them separately meant rewriting that loop twice with a near-certain conflict (flagged by a cross-PR critic). Materialization moved from one flat `mktemp -d` tree to per-staged-entry subdirs (`$soif_idx_tree/<n>/<relpath>`, `<n>` = staged position), and the path-mapping `sed` grew the `[0-9][0-9]*/` arm so the `<n>/` segment is stripped back off finding paths — the operator still sees the REAL repo-relative path, never a temp path and never a bare index number (re-verified for deeply-nested paths and paths containing spaces). Proof: `tests/test-bl132-sast-index-scan.sh` `T-index-case-collision`, watched-RED first against the flat tree (`[OK] semgrep: SAST ran on 2 staged file(s)` with the vuln COMMITTED) then GREEN. The case-only pair is built with `git update-index --add --cacheinfo` because a case-INSENSITIVE *checkout* physically cannot hold both worktree files while the *index* can and routinely does (a tree authored on Linux, cloned on macOS); git's `:<path>` index lookup was confirmed case-EXACT there, and the case LOUD-SKIPs on a case-sensitive filesystem rather than passing vacuously. Mutation-proof M2: revert the per-index layout (dest + `sed` reverted in sync) → `T-index-case-collision` RED → restore → GREEN. Status stays **Open** pending PR + merge.
+
+**Related:** BL-132 (the index-materialization arm), BL-131 (the ruleset).
+
+---
+
+## BL-179: Pre-commit SAST skips a rename-and-edit commit ENTIRELY and SILENTLY — `soif_staged` filters `ACM`, so a renamed file is reported `R` and excluded
+
+**Logged:** 2026-07-25 (PR #270 final-gate adversarial review, R-270-2)
+**Category:** Bug / security enforcement — commit-time SAST target selection (silent-success class)
+**Severity:** High
+**Status:** Open
+
+The commit-time SAST arm builds its target list from
+`git diff --cached --name-only --diff-filter=ACM -z` (the NUL-delimited `soif_staged`
+read that feeds `# BL-132-INDEX-SCAN` in `scripts/lib/hook-templates.sh`, emitted by
+`soif_precommit_region_body`). `diff.renames` defaults to **true**, so git reports a
+rename as status `R` — which `ACM` **excludes**. A commit that renames a file *and*
+edits it in the same commit therefore presents **zero** staged entries to the scanner.
+
+Because the whole arm is wrapped in `if [ "${#soif_staged[@]}" -gt 0 ]` with **no
+`else`**, zero entries means the scanner is not merely skipped — it produces **no
+output at all**: no `[OK]` receipt, no `[BLOCKED]`, and *not even* the
+`soif_sast_not_enforced` / `SAST NOT ENFORCED` loud-NOTRUN that every other
+can't-scan path routes to (`# BL-112-SAST-NOTRUN`). The operator is told nothing
+whatsoever, which is precisely the BL-112 dishonesty class this arm exists to end.
+
+**Evidence (reproduced through the real emitter, the real `.git/hooks/pre-commit`, and
+a real `git commit`):** land a clean `old.ts`, install the emitted hook, then
+`git mv old.ts new.ts` + introduce `pane.innerHTML = userText` and stage it.
+
+```
+git diff --cached --name-status          -> R067  old.ts  new.ts
+--diff-filter=ACM    (the SAST arm)      -> (empty)   count=0
+--diff-filter=ACMDR  (the BL-125 arm)    -> new.ts    count=1
+--diff-filter=ACMR   (proposed)          -> new.ts    count=1
+commit verdict = COMMITTED ; `git show HEAD:new.ts` still contains innerHTML
+hook output: ZERO semgrep/SAST lines
+```
+
+**PRE-EXISTING — deliberately NOT fixed in PR #270.** The `--diff-filter=ACM -z` line
+is **byte-identical on `main` (`ed406c8`) and on the PR head (`0765612`)**, and the
+behaviour was verified identical on both. It is neither introduced nor worsened by
+that PR, so it is filed rather than folded in — the PR's own regression (R-270-1B,
+the `:<stage>:<path>` collision) is a separate surface in the same loop.
+
+**Severity argument.** This repo treats silent success in a security lane as
+**block-class**, and on the defect's own merits that is the right call: the trigger is
+a *routine* refactor (rename-and-edit is one of the most common commit shapes), the
+failure is total (the scanner never runs on the renamed file's content), and it is
+*quieter* than every other failure mode in the arm — the gitlink and stage-syntax bugs
+at least shout NOTRUN. Rated **High** rather than Critical only because the pre-push /
+CI SAST lanes still scan the tree afterwards, so the commit-time gate is the tripwire
+that is lost, not the last line of defence. It is **not** a merge blocker for PR #270
+purely because it is pre-existing and unchanged there.
+
+**The fixed sibling is ~120 lines away in the same emitted region.** The BL-125
+test-exec arm (`# BL-125-COMMIT-TESTS`, the `soif_test_src=` assignment) already uses
+`--diff-filter=ACMDR`, carrying an explicit "Verifier M1" comment stating that `D` and
+`R` are included **on purpose** because "a commit that DELETES or RENAMES the sanitizer
+is exactly the regression this arm exists to stop, and the old ACM filter skipped it
+while printing the ... receipt (a false receipt — the dishonesty class this arm
+fights)". The SAST arm never received the same correction.
+
+**Fix shape:** change the `soif_staged` read to `--diff-filter=ACMR`.
+- `R` must be **added**: a renamed file has staged content, and the `-z`/`--name-only`
+  output for an `R` entry is the **destination** path, which `git cat-file blob
+  ":0:<dest>"` resolves correctly (`# BL-132-STAGE0-REF`) — so no materialization
+  change is needed.
+- `D` must stay **excluded** (unlike BL-125's `ACMDR`): a deleted file has no staged
+  content to scan, so including it would hand the loop an index entry with no blob,
+  which is exactly the "one bad entry blinds the whole commit" shape that R-270-1 and
+  R-270-1B already cost this arm twice.
+- **Also close the no-`else` silence** while here: an empty `soif_staged` on a commit
+  that *did* stage something should route to `soif_sast_not_enforced`, not to nothing.
+  Rename-only (no edit) commits are the residual case and deserve a receipt.
+
+**Mutation-proof sketch:** new watched-RED fixture in
+`tests/test-bl132-sast-index-scan.sh` — land a clean file, `git mv` it while
+introducing an `innerHTML` sink, commit. RED pre-fix: `COMMITTED`, HEAD moves, the
+vuln is in `git show HEAD:<dest>`, and the log contains **no** `semgrep`/`SAST` line at
+all (assert the *absence* of output, not just the absence of `[BLOCKED]` — a
+`[BLOCKED]`-only assertion would also pass on a silent skip). GREEN post-fix:
+`REFUSED` + `[BLOCKED]` + the **destination** path named. Then mutate
+`ACMR` -> `ACM` -> RED -> restore -> GREEN. Add a control that a plain rename with **no**
+content change still lands (no false block), and one that a staged **deletion** alone
+does not push the commit into a bogus NOTRUN.
+
+**Related:** BL-132 (the index-materialization arm this filter feeds), BL-125 (the
+sibling arm that already fixed exactly this filter defect), BL-112 (the
+silent-vs-loud SAST receipt contract).

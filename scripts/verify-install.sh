@@ -1156,6 +1156,29 @@ fix_precommit_hook() {
   . "$_hooktpl"
   mkdir -p .git/hooks
   soif_write_precommit_hook .git/hooks/pre-commit
+  local _hookrc=$?
+  # BL-131-DOM-SINKS: the emitted hook --config's .semgrep/soif-dom-sinks.yml
+  # (init.sh ships it at scaffold time). A repair that re-emits the hook must also
+  # ensure that ruleset is present, or the "repaired" hook references a file the
+  # project lacks and the SAST arm WARNs 'SAST NOT ENFORCED' on every commit. The
+  # only source for it is the framework checkout (it is not a project-local lib);
+  # byte-compare + refresh-if-different, mirroring the hook's own refresh convention.
+  # Best-effort: the primary repair outcome is the hook write ($_hookrc) — a ruleset
+  # hiccup never flips that verdict. No stderr is suppressed (lint-fix-functions-stderr).
+  local _rsdst=".semgrep/soif-dom-sinks.yml"
+  if has_source && [ -f "$SOURCE_DIR/templates/semgrep/soif-dom-sinks.yml" ]; then
+    if [ ! -f "$_rsdst" ] || ! cmp -s "$SOURCE_DIR/templates/semgrep/soif-dom-sinks.yml" "$_rsdst"; then
+      mkdir -p .semgrep
+      if cp "$SOURCE_DIR/templates/semgrep/soif-dom-sinks.yml" "$_rsdst"; then
+        echo "  [OK] delivered .semgrep/soif-dom-sinks.yml (the pre-commit hook --config's it)"
+      else
+        echo "  [WARN] could not write .semgrep/soif-dom-sinks.yml — the repaired hook will WARN 'SAST NOT ENFORCED' until it is present" >&2
+      fi
+    fi
+  elif [ ! -f "$_rsdst" ]; then
+    echo "  [WARN] .semgrep/soif-dom-sinks.yml is absent and no framework source is reachable to restore it — the repaired hook will WARN 'SAST NOT ENFORCED' until it is provided (re-run inside the framework checkout, or copy templates/semgrep/soif-dom-sinks.yml into .semgrep/)." >&2
+  fi
+  return "$_hookrc"
 }
 
 # BL-141-COMMITMSG-VERIFY-BEGIN (repair half; detection lives in check_git)

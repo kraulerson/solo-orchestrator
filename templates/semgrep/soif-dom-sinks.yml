@@ -1,0 +1,86 @@
+# .semgrep/soif-dom-sinks.yml — Solo Orchestrator custom DOM-XSS sink ruleset.
+#
+# WHY THIS FILE EXISTS (BL-131)
+#   The commit-time SAST gate (scripts/lib/hook-templates.sh) and the generated CI
+#   run p/owasp-top-ten + r/javascript.browser.security.insecure-document-method.
+#   Empirically (BL-118 adversarial verification), the public registry covers NONE
+#   of these sink classes at any severity:
+#     • el.insertAdjacentHTML('beforeend', userInput)   — js/ts
+#     • $(sel).html(userInput)  (jQuery)                — js/ts
+#     • innerHTML / document.write in a .vue SFC <script>
+#     • innerHTML / document.write in an inline <script> of a committed .html
+#   So no --config addition against the registry can close them; this project-owned
+#   ruleset does, at ERROR severity so it survives the gate's --severity=ERROR bound.
+#
+# SCOPE / SEAMS (deliberate, documented in docs/platform-modules/web.md):
+#   • js/ts innerHTML/outerHTML/document.write are intentionally LEFT to the
+#     registry browser pack (BL-118) — this file does NOT re-cover them, so the two
+#     rulesets do not overlap and each is independently testable.
+#   • .vue and .html are matched with `generic` + pattern-regex: semgrep's vue/html
+#     parsers do not expose the embedded <script> JS as a matchable AST (verified,
+#     semgrep 1.157.0), so precise AST rules cannot reach them. Regex is SYNTACTIC,
+#     not taint-aware — a code sample shown as prose in an .html doc can
+#     false-positive (suppress with a `nosemgrep` line comment), and a sink
+#     assembled across lines / via aliasing can evade. This is the accepted residue.
+#   • Each rule excludes a string-LITERAL argument/RHS to cut false positives
+#     (el.innerHTML = "<b>x</b>" and insertAdjacentHTML('beforeend', '<hr>') pass).
+#
+# Editing note: this file is shipped verbatim into every scaffold's .semgrep/ and is
+# referenced by --config in BOTH the pre-commit hook and the CI templates. Keep rule
+# ids stable — tests pin them.
+rules:
+  - id: soif-insert-adjacent-html
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >-
+      insertAdjacentHTML() with non-literal HTML is a DOM-XSS sink. Use
+      insertAdjacentText(), or sanitize the markup before insertion.
+    metadata:
+      category: security
+      cwe: "CWE-79: Improper Neutralization of Input During Web Page Generation (Cross-site Scripting)"
+      owasp: "A03:2021 - Injection"
+      references:
+        - https://developer.mozilla.org/en-US/docs/Web/API/Element/insertAdjacentHTML#security_considerations
+    patterns:
+      - pattern: $EL.insertAdjacentHTML($POS, $HTML)
+      - pattern-not: $EL.insertAdjacentHTML($POS, "...")
+
+  - id: soif-jquery-html-sink
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >-
+      jQuery .html(x) with a non-literal argument is a DOM-XSS sink. Use .text(x),
+      or sanitize the markup before setting it.
+    metadata:
+      category: security
+      cwe: "CWE-79: Improper Neutralization of Input During Web Page Generation (Cross-site Scripting)"
+      owasp: "A03:2021 - Injection"
+      references:
+        - https://api.jquery.com/html/
+    patterns:
+      - pattern: $RECV.html($ARG)
+      - pattern-not: $RECV.html("...")
+      - pattern-not: $RECV.html()
+
+  - id: soif-dom-sink-markup
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      DOM-XSS sink (innerHTML/outerHTML, document.write, insertAdjacentHTML, or
+      jQuery .html()) with non-literal input in a markup file. Sanitize the markup,
+      or assign via textContent.
+    metadata:
+      category: security
+      cwe: "CWE-79: Improper Neutralization of Input During Web Page Generation (Cross-site Scripting)"
+      owasp: "A03:2021 - Injection"
+    paths:
+      include:
+        - "*.vue"
+        - "*.html"
+        - "*.htm"
+    patterns:
+      - pattern-either:
+          - pattern-regex: '\.(inner|outer)HTML\s*=\s*[^"''\s]'
+          - pattern-regex: '\bdocument\s*\.\s*write(ln)?\s*\(\s*[^"''\s)]'
+          - pattern-regex: '\.insertAdjacentHTML\s*\([^,]*,\s*[^"''\s)]'
+          - pattern-regex: '\.html\s*\(\s*[^"''\s)]'

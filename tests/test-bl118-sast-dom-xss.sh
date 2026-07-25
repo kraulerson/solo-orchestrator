@@ -214,6 +214,15 @@ mk_live_repo() {
       && echo "# bl118" > README.md \
       && git add README.md \
       && git commit -q -m "chore: init" ) || return 1
+  # BL-131/BL-132: the emitted hook now --config's .semgrep/soif-dom-sinks.yml
+  # (repo-relative) and scans a materialized index tree. Ship the ruleset so the
+  # SAST arm actually RUNS here instead of NOTRUN-ing on a missing config — bl118's
+  # own fixtures are innerHTML (registry-covered), so this is wiring, not coverage,
+  # but without it every live case below would LOUD-SKIP.
+  if [ -f "$REPO_ROOT/templates/semgrep/soif-dom-sinks.yml" ]; then
+    mkdir -p "$d/.semgrep"
+    cp "$REPO_ROOT/templates/semgrep/soif-dom-sinks.yml" "$d/.semgrep/soif-dom-sinks.yml"
+  fi
   cp "$EMITTED" "$d/.git/hooks/pre-commit"
   chmod +x "$d/.git/hooks/pre-commit"
 }

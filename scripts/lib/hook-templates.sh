@@ -262,60 +262,190 @@ if command -v semgrep &>/dev/null; then
 
   if [ "${#soif_staged[@]}" -gt 0 ]; then
     # semgrep splits its output cleanly: FINDINGS go to stdout, the scan banner
-    # AND its fatal errors go to stderr. So we capture stderr rather than send it
-    # to /dev/null: on the happy path it is progress noise we drop (which is all
-    # `--quiet` ever bought us), and on a tool failure it is the ONLY place the
-    # real diagnostic appears — `--quiet` suppresses even that, which is why the
-    # flag is gone. Findings stay on stdout and are always shown.
+    # AND its fatal errors go to stderr. We capture BOTH to temp files: stderr so a
+    # tool failure's diagnostic survives (the only place it appears), and — new for
+    # BL-132 — stdout so finding paths can be rewritten from the temp index tree
+    # back to real repo-relative paths before they are shown.
     soif_sg_err="$(mktemp)"
-    set +e
-    # BL-112-SAST-ERROR — `--error` is LOAD-BEARING. Semgrep exits 0 even when it
-    # finds (and prints!) issues unless --error is passed, so without it the
-    # [BLOCKED] arm below is UNREACHABLE and an `eval(req.query.code)` Express RCE
-    # is detected, printed, and committed clean (E2E walk finding F9).
-    # `--severity=ERROR` bounds the gate to semgrep's high-confidence rules: the
-    # gate must block real issues without becoming so noisy that operators route
-    # around it. WARNING/INFO findings still surface in the Phase-3 scanners + CI.
-    # BL-118-DOMXSS-CONFIG — p/owasp-top-ten contains NO browser DOM-sink rules:
-    # a stored DOM XSS (`pane.innerHTML = userText`) scanned CLEAN, printed the
-    # [OK] receipt, and shipped to main (Dogfood-2 finding F-DF2-007). The
-    # browser ruleset added below is severity=ERROR in the registry, so it
-    # survives the --severity=ERROR bound and flags innerHTML/outerHTML/
-    # document.write sinks. It rides on its OWN continuation line so the
-    # mutation test can strip exactly it. Removing it re-blinds the gate.
-    semgrep scan --config=p/owasp-top-ten \
-      --config=r/javascript.browser.security.insecure-document-method \
-      --no-git-ignore \
-      --severity=ERROR --error "${soif_staged[@]}" 2>"$soif_sg_err"
-    soif_sg_rc=$?
-    set -e
-    if [ "$soif_sg_rc" -eq 1 ]; then
-      # 1 == semgrep found blocking findings (only ever returned with --error).
-      echo ""
-      echo "[BLOCKED] Semgrep detected security issues in staged files."
-      echo "  Review and fix the ERROR-severity findings above before committing."
-      FAILED=1
-      soif_ledger_blocked semgrep || true   # BL-163-BLOCKED-LEDGER
-    elif [ "$soif_sg_rc" -ne 0 ]; then
-      # >=2 == semgrep ITSELF failed (invalid config, registry unreachable,
-      # unparseable rule). BL-112-SAST-NOTRUN arm 2 of 2: the scanner did not run.
-      # DECLARED DECISION — this WARNs, it does not block; see the rationale on
-      # soif_sast_not_enforced above. It is treated identically to the absent arm
-      # because it IS the absent arm wearing a different coat. And it SURFACES the
-      # diagnostic: an operator who cannot see why the scanner died cannot fix it,
-      # and a gate you cannot fix is a gate you route around.
-      soif_sast_not_enforced "semgrep could not complete (exit $soif_sg_rc) — the tool itself failed."
-      sed 's/^/  /' "$soif_sg_err" >&2
+    soif_sg_out="$(mktemp)"
+    # BL-132-INDEX-SCAN — scan the STAGED CONTENT, not the worktree bytes. The old
+    # arm handed semgrep the staged PATHNAMES, so semgrep read whatever was on disk:
+    # `git add app.ts` (vuln), overwrite app.ts clean, and the COMMITTED bytes were
+    # never scanned — the flaw shipped with an [OK] receipt (BL-132 repro; `git add
+    # -p` / stage-then-edit share the hole). Materialize each staged blob into a
+    # throwaway tree that mirrors the repo layout (same relative path + extension so
+    # semgrep still picks the language, under a per-entry subdir — see the
+    # BL-178-PER-INDEX-DIR note in the loop), then hand semgrep the EXPLICIT
+    # materialized FILE targets (collected in soif_idx_files), never the tree dir.
+    #   WHY EXPLICIT FILES, NOT THE DIRECTORY (verifier F1): pointing semgrep at a
+    #   directory re-engages its built-in default .semgrepignore — staged sinks under
+    #   tests/ test/ build/ dist/ vendor/ node_modules/ and *.min.js are then SILENTLY
+    #   skipped and the commit lands with a false [OK] receipt. `--no-git-ignore` does
+    #   NOT disable those built-in defaults. Explicit file targets bypass ignore
+    #   filtering by semgrep's own documented semantics and restore the pre-BL-132
+    #   contract by construction.
+    #   THE RECEIPT COUNTS TARGETS, NOT STAGED ENTRIES. Since # BL-132-GITLINK-SKIP
+    #   the two can legitimately differ (a staged submodule gitlink has no bytes to
+    #   scan), so the "[OK] … ran on N staged file(s)" line reports
+    #   ${#soif_idx_files[@]} — what was ACTUALLY targeted — and zero targets routes
+    #   to NOTRUN (# BL-132-EMPTY-TARGETS) rather than claiming a scan.
+    # bash-3.2 and NUL-safe: soif_staged was read -z above; each path is round-tripped
+    # through `git cat-file blob :0:<path>` — the STAGE-EXPLICIT form, see
+    # # BL-132-STAGE0-REF in the loop; a bare `:<path>` is NOT safe for arbitrary
+    # staged names. A pathname git cannot express (a NUL byte) cannot be staged, so it
+    # cannot reach here.
+    soif_idx_tree="$(mktemp -d)"
+    soif_idx_ok=1
+    soif_idx_files=()
+    soif_idx_n=0
+    for soif_p in "${soif_staged[@]}"; do
+      # BL-178-PER-INDEX-DIR — one subdir PER STAGED ENTRY ($tree/<n>/<relpath>),
+      # never one flat tree. On a case-INSENSITIVE filesystem (macOS APFS, Windows
+      # NTFS) two staged paths differing only in case — App.ts (the vuln) and
+      # app.ts (clean) — resolve to the SAME on-disk dest in a flat tree, so the
+      # second write CLOBBERS the first: the vuln blob is LOST and the commit lands
+      # with a false [OK] receipt (BL-178, reproduced). The F2 size check below
+      # cannot see it — each write is internally consistent; it is the EARLIER blob
+      # that was destroyed. Per-entry subdirs make the collision unrepresentable.
+      # <n> is the STAGED POSITION, and the path-mapping sed below strips the whole
+      # "$soif_idx_tree/<n>/" prefix back off finding paths so the operator is shown
+      # the REAL repo-relative path — never a temp path, never a bare index number.
+      soif_idx_n=$((soif_idx_n + 1))
+      # BL-132-GITLINK-SKIP — a staged SUBMODULE GITLINK is index mode 160000, NOT a
+      # blob: `git cat-file blob :0:sub` exits 128. Aborting the loop on it (the first
+      # cut's bare `break`) DISCARDED every already-materialized target and routed
+      # the WHOLE commit to NOTRUN — so a vulnerability staged in a sibling file
+      # LANDED, and the trigger is routine (`git submodule add` or a pointer bump in
+      # the same commit as application code). A gitlink has no bytes to scan, so
+      # SKIP it and keep scanning its siblings.
+      #   THIS IS NOT A BLANKET "unreadable => skip". The skip is gated on the index
+      #   MODE being 160000, read back with a `:(literal)` pathspec so a path
+      #   containing glob metacharacters or spaces cannot mis-resolve. Anything that
+      #   is neither a blob nor a gitlink is content we OWE the operator a scan of,
+      #   and still routes to the loud NOTRUN below. Verified: pruning a real blob's
+      #   object makes `cat-file -t` fail while ls-files still reports mode 100644.
+      #   CAUTION, and the reason # BL-132-STAGE0-REF below exists: a failing
+      #   `cat-file -t` does NOT imply a missing/corrupt object. An earlier revision
+      #   of this comment enumerated it as the only other cause; R-270-1B REFUTED
+      #   that — it also fails for a perfectly HEALTHY blob when the reference itself
+      #   is mis-parsed. Widen this skip only against a re-derived enumeration.
+      # BL-132-STAGE0-REF — address the index at an EXPLICIT stage, `:0:<path>`, never
+      # a bare `:<path>`. Git reads `:<0-3>:<path>` as a MERGE-STAGE reference, so for
+      # a staged file whose REPO-ROOT name begins with `0:`..`3:` (e.g. `2:evil.js`)
+      # the bare form parses as "stage 2 of evil.js" and FAILS on a fully readable
+      # blob. That is no gitlink, so the skip above does not fire: the entry fell
+      # through to `soif_idx_ok=0; break`, discarding every sibling target and
+      # NOTRUNning the WHOLE commit while a vulnerable sibling LANDED — a security-lane
+      # regression versus main, the same "one bad entry blinds the commit" shape as the
+      # gitlink bug (R-270-1B, reproduced A/B through the real emitter). Boundaries,
+      # verified on git 2.50.1: `0:`/`1:`/`2:`/`3:` at repo ROOT fail bare, while
+      # `4:x.js` (only 0-3 are stage digits), `2evil.js` (the colon is required) and
+      # `sub/2:x.js` (root only) all resolve bare. `:0:` resolves ordinary paths
+      # identically, so it is a strict improvement — and ALL THREE cat-file sites in
+      # this loop must carry it; a bare one anywhere reopens the hole. The `:(literal)`
+      # probe above is a PATHSPEC, not a revision, and was verified immune to this
+      # (a `2:x.js`-shaped path resolves correctly) — it is deliberately left as-is.
+      soif_idx_type=$(git cat-file -t ":0:$soif_p" 2>/dev/null) || soif_idx_type=""
+      if [ "$soif_idx_type" != "blob" ]; then
+        if git ls-files -s -- ":(literal)$soif_p" 2>/dev/null | grep -q '^160000 '; then
+          continue
+        fi
+        soif_idx_ok=0
+        break
+      fi
+      soif_idx_dest="$soif_idx_tree/$soif_idx_n/$soif_p"
+      mkdir -p "$(dirname "$soif_idx_dest")" 2>/dev/null || { soif_idx_ok=0; break; }
+      git cat-file blob ":0:$soif_p" > "$soif_idx_dest" 2>/dev/null || { soif_idx_ok=0; break; }
+      # F2 — positive content check: the materialized dest MUST match the staged
+      # blob's byte size, so a git read that returns 0 while writing nothing or a
+      # short/partial file cannot slip a non-empty staged blob past the scan as an
+      # empty file. A mismatch routes to the loud NOTRUN below, never a silent pass.
+      soif_idx_want=$(git cat-file -s ":0:$soif_p" 2>/dev/null) || soif_idx_want=""
+      soif_idx_got=$(wc -c < "$soif_idx_dest" 2>/dev/null | tr -d '[:space:]') || soif_idx_got=""
+      if [ -z "$soif_idx_want" ] || [ "$soif_idx_got" != "$soif_idx_want" ]; then soif_idx_ok=0; break; fi
+      soif_idx_files+=("$soif_idx_dest")
+    done
+    if [ "$soif_idx_ok" -ne 1 ]; then
+      # Could not snapshot the index — honest NOTRUN (# BL-112-SAST-NOTRUN): never a
+      # silent pass, and never a false block on content we could not read.
+      soif_sast_not_enforced "could not materialize staged content for scanning — SAST skipped."
+    elif [ "${#soif_idx_files[@]}" -eq 0 ]; then
+      # BL-132-EMPTY-TARGETS — nothing scannable was materialized (e.g. a submodule
+      # POINTER-BUMP commit stages only a gitlink). The scan did not happen, so the
+      # [OK] receipt below would be a lie: route to the same honest NOTRUN. This is
+      # the receipt-honesty half of BL-132-GITLINK-SKIP — skipping a gitlink must
+      # never buy a clean-looking commit.
+      soif_sast_not_enforced "no scannable staged content (all staged entries are non-blob, e.g. submodule gitlinks) — SAST skipped."
     else
-      # 0 == the scan RAN and found nothing at ERROR severity. SAY SO. A gate that
-      # is silent when it passes is indistinguishable from a gate that never ran —
-      # which is the entire BL-112 defect class. This receipt is what makes the
-      # clean-commit test falsifiable: without it, "a clean file commits" is also
-      # true on a host where the scanner was simply skipped, and the test would
-      # pass vacuously while proving nothing.
-      echo "[OK] semgrep: SAST ran on ${#soif_staged[@]} staged file(s) — no ERROR-severity findings."
+      set +e
+      # BL-112-SAST-ERROR — `--error` is LOAD-BEARING. Semgrep exits 0 even when it
+      # finds (and prints!) issues unless --error is passed, so without it the
+      # [BLOCKED] arm below is UNREACHABLE and an `eval(req.query.code)` Express RCE
+      # is detected, printed, and committed clean (E2E walk finding F9).
+      # `--severity=ERROR` bounds the gate to semgrep's high-confidence rules: the
+      # gate must block real issues without becoming so noisy that operators route
+      # around it. WARNING/INFO findings still surface in the Phase-3 scanners + CI.
+      # BL-118-DOMXSS-CONFIG — p/owasp-top-ten contains NO browser DOM-sink rules:
+      # a stored DOM XSS (`pane.innerHTML = userText`) scanned CLEAN, printed the
+      # [OK] receipt, and shipped to main (Dogfood-2 finding F-DF2-007). The browser
+      # ruleset is severity=ERROR in the registry, so it survives the
+      # --severity=ERROR bound and flags innerHTML/outerHTML/document.write sinks.
+      # BL-131-DOM-SINKS — the project-owned DOM-sink ruleset (under .semgrep/,
+      # shipped by init.sh) covers the sinks NO registry rule catches:
+      # insertAdjacentHTML, jQuery .html(), and innerHTML/document.write inside
+      # .vue/.html (which the registry's js/ts rules cannot reach). Referenced by the
+      # repo-relative path (git runs hooks at the work-tree root); passed
+      # UNCONDITIONALLY so a missing/deleted file makes semgrep exit >=2 and the
+      # NOTRUN arm fires LOUDLY — coverage can never silently vanish. Each --config
+      # rides its OWN continuation line so a mutation test can strip exactly one;
+      # removing either DOM line re-blinds the gate.
+      semgrep scan --config=p/owasp-top-ten \
+        --config=r/javascript.browser.security.insecure-document-method \
+        --config=.semgrep/soif-dom-sinks.yml \
+        --no-git-ignore \
+        --severity=ERROR --error ${soif_idx_files[@]+"${soif_idx_files[@]}"} >"$soif_sg_out" 2>"$soif_sg_err"
+      soif_sg_rc=$?
+      set -e
+      # Map the temp-tree prefix off finding paths, then show semgrep's findings
+      # (stdout) with the real repo-relative paths. A clean scan prints nothing here.
+      # The "[0-9][0-9]*/" arm strips the BL-178-PER-INDEX-DIR staged-position
+      # segment too — without it the operator would be shown "3/src/app.ts", a path
+      # that exists nowhere. Deeply-nested paths and paths CONTAINING SPACES round-
+      # trip unchanged (only the leading tree+index prefix is removed).
+      sed "s#${soif_idx_tree}/[0-9][0-9]*/##g" "$soif_sg_out"
+      if [ "$soif_sg_rc" -eq 1 ]; then
+        # 1 == semgrep found blocking findings (only ever returned with --error).
+        echo ""
+        echo "[BLOCKED] Semgrep detected security issues in staged files."
+        echo "  Review and fix the ERROR-severity findings above before committing."
+        FAILED=1
+        soif_ledger_blocked semgrep || true   # BL-163-BLOCKED-LEDGER
+      elif [ "$soif_sg_rc" -ne 0 ]; then
+        # >=2 == semgrep ITSELF failed (invalid/missing config, registry
+        # unreachable, unparseable rule). BL-112-SAST-NOTRUN arm 2 of 2: the scanner
+        # did not run. DECLARED DECISION — this WARNs, it does not block; see the
+        # rationale on soif_sast_not_enforced above. It is treated identically to
+        # the absent arm because it IS the absent arm wearing a different coat. And
+        # it SURFACES the diagnostic: an operator who cannot see why the scanner
+        # died cannot fix it, and a gate you cannot fix is a gate you route around.
+        soif_sast_not_enforced "semgrep could not complete (exit $soif_sg_rc) — the tool itself failed."
+        sed 's/^/  /' "$soif_sg_err" >&2
+      else
+        # 0 == the scan RAN and found nothing at ERROR severity. SAY SO. A gate that
+        # is silent when it passes is indistinguishable from a gate that never ran —
+        # which is the entire BL-112 defect class. This receipt is what makes the
+        # clean-commit test falsifiable: without it, "a clean file commits" is also
+        # true on a host where the scanner was simply skipped, and the test would
+        # pass vacuously while proving nothing.
+        # The count is the number of files ACTUALLY TARGETED (${#soif_idx_files[@]}),
+        # not the number staged: since BL-132-GITLINK-SKIP the two can differ, and a
+        # receipt that counts entries the scanner never saw is the BL-112 lie in a
+        # different coat. Zero targets never reaches here — it NOTRUNs above.
+        echo "[OK] semgrep: SAST ran on ${#soif_idx_files[@]} staged file(s) — no ERROR-severity findings."
+      fi
     fi
-    rm -f "$soif_sg_err"
+    rm -rf "$soif_idx_tree"
+    rm -f "$soif_sg_err" "$soif_sg_out"
   fi
 else
   # BL-112-SAST-NOTRUN arm 1 of 2 — the documented semgrep-absent contract: WARN,

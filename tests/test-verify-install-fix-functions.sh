@@ -466,6 +466,48 @@ else
 fi
 teardown
 
+# ============================================================
+# BL-131 — fix_precommit_hook must also RESTORE the DOM-sink ruleset the repaired
+# hook --config's. Extract + run the real function against a bare project with the
+# framework source available but the ruleset ABSENT: the ensure must deliver it, or
+# the "repaired" hook references a file the project lacks and the SAST arm
+# NOTRUN-warns on every commit (the incomplete-contract class this repo codified).
+# RED before the ensure: the ruleset stays absent.
+# ============================================================
+echo "T15: fix_precommit_hook restores .semgrep/soif-dom-sinks.yml the repaired hook --config's"
+T15TMP=$(mktemp -d)
+T15PROJ="$T15TMP/p"
+mkdir -p "$T15PROJ/scripts/lib"
+cp "$REPO_ROOT/scripts/lib/hook-templates.sh" "$T15PROJ/scripts/lib/hook-templates.sh"
+( cd "$T15PROJ" && git init -q ) >/dev/null 2>&1
+T15EXTRACT="$T15TMP/fix.sh"
+awk '/^fix_precommit_hook\(\) \{/,/^\}/' "$REPO_ROOT/scripts/verify-install.sh" > "$T15EXTRACT"
+T15DRIVER="$T15TMP/driver.sh"
+{
+  echo 'set -uo pipefail'
+  echo 'has_source() { return 0; }'          # framework source available
+  echo "SOURCE_DIR='$REPO_ROOT'"             # the space-bearing path is single-quoted
+  echo ". '$T15EXTRACT'"
+  echo 'fix_precommit_hook'
+} > "$T15DRIVER"
+( cd "$T15PROJ" && bash "$T15DRIVER" ) >"$T15TMP/out" 2>&1
+t15_ok=1; t15_why=""
+if ! grep -q '^fix_precommit_hook' "$T15EXTRACT"; then
+  t15_ok=0; t15_why="could not extract fix_precommit_hook() (renamed/moved?)"
+elif [ ! -x "$T15PROJ/.git/hooks/pre-commit" ]; then
+  t15_ok=0; t15_why="hook not written: $(tail -2 "$T15TMP/out" | tr '\n' ' ')"
+elif [ ! -f "$T15PROJ/.semgrep/soif-dom-sinks.yml" ]; then
+  t15_ok=0; t15_why="ruleset NOT restored — the repaired hook references a file the project lacks (BL-131 incomplete contract)"
+elif ! cmp -s "$REPO_ROOT/templates/semgrep/soif-dom-sinks.yml" "$T15PROJ/.semgrep/soif-dom-sinks.yml"; then
+  t15_ok=0; t15_why="restored ruleset does not match the framework copy"
+fi
+if [ "$t15_ok" = "1" ]; then
+  pass "T15: fix_precommit_hook re-emits the hook AND restores .semgrep/soif-dom-sinks.yml from the framework source"
+else
+  fail_ "T15" "$t15_why"
+fi
+rm -rf "$T15TMP"
+
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]

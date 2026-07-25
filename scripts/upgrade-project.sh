@@ -936,16 +936,51 @@ _bl099_sync_commitmsg_hook() {
 
 # (f) pre-commit fallback hook — refresh only the marked managed region; a legacy
 # UNMARKED hook is treated as fully user-owned (sidecar .new, never overwritten).
+# BL-131-DOM-SINKS: the emitted pre-commit hook --config's .semgrep/soif-dom-sinks.yml
+# (init.sh ships it at scaffold time). A sync that re-emits the hook must ALSO deliver
+# that ruleset, or the refreshed hook references a file the project never received and
+# the SAST arm NOTRUN-warns on every commit — the incomplete-contract class. Idempotent
+# byte-compare (mirrors the hook's own already-current check); under --dry-run it prints
+# the planned action and writes nothing. Called only from the hook install/refresh
+# branches, so it rides the SAME consent the operator gave for the hook.
+_bl131_ensure_domsinks_ruleset() {
+  local src="$ORCHESTRATOR_ROOT/templates/semgrep/soif-dom-sinks.yml"
+  local dst="$PROJECT_ROOT/.semgrep/soif-dom-sinks.yml"
+  [ -f "$src" ] || return 0                      # framework checkout predates the ruleset
+  if [ -f "$dst" ] && cmp -s "$src" "$dst"; then
+    return 0                                      # already current — no-op, never duplicate
+  fi
+  if [ "$DRY_RUN" = true ]; then
+    if [ -f "$dst" ]; then
+      print_info "  [would refresh] .semgrep/soif-dom-sinks.yml (SAST DOM-sink ruleset drifted from the framework)."
+    else
+      print_info "  [would install] .semgrep/soif-dom-sinks.yml (absent — the refreshed pre-commit hook --config's it)."
+    fi
+    return 0
+  fi
+  mkdir -p "$PROJECT_ROOT/.semgrep"
+  if cp "$src" "$dst"; then
+    print_ok "  .semgrep/soif-dom-sinks.yml delivered (the pre-commit hook --config's it)."
+  else
+    print_warn "  could not deliver .semgrep/soif-dom-sinks.yml — the refreshed hook will WARN 'SAST NOT ENFORCED' until it is present."
+  fi
+}
+
 _bl099_sync_precommit_hook() {
   local hook="$PROJECT_ROOT/.git/hooks/pre-commit" want current
   print_step "pre-commit fallback hook"
   want="$(soif_precommit_region_body)"
   if [ ! -f "$hook" ]; then
-    if [ "$DRY_RUN" = true ]; then print_info "  [would install] pre-commit fallback hook (absent)."; return 0; fi
+    if [ "$DRY_RUN" = true ]; then
+      print_info "  [would install] pre-commit fallback hook (absent)."
+      _bl131_ensure_domsinks_ruleset   # BL-131-DOM-SINKS: announce the ruleset delivery too
+      return 0
+    fi
     if _bl099_hook_consent "  Install the pre-commit fallback hook? [Y/n]"; then
       mkdir -p "$PROJECT_ROOT/.git/hooks"
       soif_write_precommit_hook "$hook"
       print_ok "  pre-commit fallback hook installed."
+      _bl131_ensure_domsinks_ruleset   # BL-131-DOM-SINKS: deliver the referenced ruleset under the same consent
     else
       print_info "  pre-commit fallback hook not installed (declined)."
     fi
@@ -955,13 +990,19 @@ _bl099_sync_precommit_hook() {
     current="$(_bl099_extract_region "$hook" "$SOIF_PRECOMMIT_OPEN" "$SOIF_PRECOMMIT_CLOSE")"
     if [ "$current" = "$want" ]; then
       print_ok "  pre-commit fallback hook already current."
+      _bl131_ensure_domsinks_ruleset   # BL-131-DOM-SINKS: self-heal the referenced ruleset even when the hook region is current (R-270-1)
       return 0
     fi
-    if [ "$DRY_RUN" = true ]; then print_info "  [would refresh] pre-commit fallback managed region is stale."; return 0; fi
+    if [ "$DRY_RUN" = true ]; then
+      print_info "  [would refresh] pre-commit fallback managed region is stale."
+      _bl131_ensure_domsinks_ruleset   # BL-131-DOM-SINKS: announce the ruleset delivery too
+      return 0
+    fi
     if _bl099_hook_consent "  Refresh the stale pre-commit fallback managed region? [Y/n]"; then
       _bl099_replace_region "$hook" "$SOIF_PRECOMMIT_OPEN" "$SOIF_PRECOMMIT_CLOSE" soif_precommit_region_body
       chmod +x "$hook"
       print_ok "  pre-commit fallback managed region refreshed (user additions outside it preserved)."
+      _bl131_ensure_domsinks_ruleset   # BL-131-DOM-SINKS: deliver the referenced ruleset under the same consent
     else
       print_info "  pre-commit fallback hook left unchanged (declined)."
     fi
