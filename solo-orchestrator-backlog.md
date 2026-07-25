@@ -3457,6 +3457,8 @@ Reproduced during BL-118's adversarial verification: `git add app.ts` (containin
 
 **Build note addendum 2 (2026-07-25, cross-PR REJECT → fix — R-270-1 SECURITY REGRESSION + BL-178, landed together):** FIX B's materialization loop aborted on the FIRST staged path it could not `git cat-file blob`, and a **submodule GITLINK is index mode 160000, not a blob** — `git cat-file blob :sub` exits 128. The `break` therefore discarded EVERY already-materialized target and routed the WHOLE commit to NOTRUN, so a vulnerability staged in a *sibling* file **LANDED**. This was a **regression versus main**: A/B'd through the real shipped emitter with the same fixture and a real `git commit`, OLD (`d857294`) → BLOCKED rc=1, NEW (`bc08d36`) → LANDED rc=0 + NOTRUN; the gitlink-free control BLOCKED on both. The trigger is routine (`git submodule add`, or a pointer bump staged beside application code) and **no lane caught it** — with the defect live, `test-bl132` 7/7, `test-bl131` 17/17 and `test-bl112` 13/13 all passed, because no fixture in the repo staged a gitlink. Fixed under `# BL-132-GITLINK-SKIP`: a non-blob index entry is now SKIPPED rather than aborting the loop. The skip is **narrow by construction** — it is gated on the index MODE being `160000`, read back with a `:(literal)` pathspec so glob metacharacters and spaces cannot mis-resolve; anything that is neither a blob nor a gitlink (a missing/corrupt object for a REAL staged blob) still routes to the loud NOTRUN, verified by pruning a real blob's object so `cat-file -t` fails exactly as it does for a gitlink and watching NOTRUN fire with no silent skip. Receipt honesty follows under `# BL-132-EMPTY-TARGETS`: the `[OK] … ran on N staged file(s)` count is now `${#soif_idx_files[@]}` (what was ACTUALLY targeted) rather than `${#soif_staged[@]}` (what was staged), since the two can now legitimately differ, and **zero** materialized targets — a submodule pointer-bump commit stages only a gitlink — routes to NOTRUN instead of claiming a scan. **BL-178 landed in the same diff** (`# BL-178-PER-INDEX-DIR`): both defects rewrite the same loop and the same `soif_idx_files` population, so splitting them meant rewriting it twice with a near-certain conflict. Materialization moved from one flat tree to per-staged-entry subdirs (`$soif_idx_tree/<n>/<relpath>`), and the path-mapping `sed` grew the `[0-9][0-9]*/` arm so the operator still sees the REAL repo-relative path — never a temp path, never a bare index number. Reported-path contract re-verified end-to-end for deeply-nested paths and **paths containing spaces** (`src/my components/sub dir/space vuln.ts` round-trips verbatim). New watched-RED tests in `test-bl132`: `T-index-gitlink-not-blinding` (realistic LOCAL-path `git submodule add`, never a network remote; RED pre-fix = COMMITTED + "could not materialize"), `T-index-gitlink-only-honest` (pointer bump → lands, but no unearned `[OK]`), `T-index-case-collision` (BL-178; `update-index --cacheinfo` builds the case-only pair a case-insensitive CHECKOUT cannot hold, LOUD-SKIPs on a case-sensitive FS rather than passing vacuously; RED pre-fix = `[OK] semgrep: SAST ran on 2 staged file(s)` with the vuln committed). `T-mutation-content-guard`'s materialization anchors were retargeted to `$soif_idx_dest`. Mutation proofs: M1 drop the blob guard → gitlink test RED → restore → GREEN; M2 revert the per-index layout (dest + `sed` in sync) → case-collision test RED → restore → GREEN; M3 force a genuine read failure on a REAL blob → NOTRUN fires, no `[OK]`, nothing lands silently. Green: `test-bl132` 10/10, `test-bl131` 17/17, `test-bl112` 13/13, `test-upgrade-sync-framework` 39/39, `run-lints` 11/11.
 
+**Build note addendum 3 (2026-07-25, PR #270 final-gate adversarial review — R-270-1B SECURITY REGRESSION, same loop again):** addendum 2's loop addressed staged content as `":$soif_p"`. Git's REVISION syntax reads `:<0-3>:<path>` as a **merge-stage reference**, so for a staged file whose **repo-ROOT** name begins with `0:`, `1:`, `2:` or `3:` (e.g. `2:evil.js`) `git cat-file -t ":$soif_p"` FAILS on a perfectly healthy, fully readable blob — `fatal: path 'evil.js' does not exist`. That is not a gitlink, so `# BL-132-GITLINK-SKIP` did not `continue`; the entry fell through to `soif_idx_ok=0; break`, which discarded every already-materialized sibling target and routed the WHOLE commit to NOTRUN — **a genuinely vulnerable sibling then LANDED**. Same "one bad entry blinds the whole commit" mechanism as R-270-1, and a **regression versus main**: A/B'd through the real emitter, the real `.git/hooks/pre-commit` and a real `git commit` — main (`ed406c8`) `[BLOCKED]` / did not land, head (`0765612`) `[WARN] could not materialize staged content` / **landed**. Loud (NOTRUN, not a false `[OK]`), hence major rather than block, but not mergeable. Fixed under the new marker `# BL-132-STAGE0-REF`: all **three** cat-file sites in the loop (`-t` type probe, `blob` materialization, `-s` size probe) now pin the stage explicitly as `":0:$soif_p"`. Boundaries re-derived on git 2.50.1 before and after: `0:`/`1:`/`2:`/`3:` at repo root fail bare while `4:x.js` (only 0-3 are stage digits), `2evil.js` (the colon is required) and `sub/2:x.js` (root only) all resolve bare; `:0:` resolves ordinary paths identically (`:0:src/ok.js` → blob), so it is a strict improvement. The `git ls-files -s -- ":(literal)$soif_p"` gitlink probe is a **PATHSPEC, not a revision** — proven immune with `2:x.js`-shaped paths (correct `100644` row) rather than assumed, and deliberately left unchanged; a real gitlink still fails `cat-file -t ":0:sub"` while `ls-files` reports `160000`, so the skip still fires. The `# BL-132-GITLINK-SKIP` design comment was **corrected**: it had enumerated "a missing/corrupt object for a REAL staged blob" as the only other way `cat-file -t` can fail, which this review refuted. New watched-RED test `T-index-stage-syntax-path` in `tests/test-bl132-sast-index-scan.sh` stages `0:decoy.js` (insertAdjacentHTML sink) beside `app.ts` (innerHTML sink) and asserts BLOCKED with BOTH real repo-relative paths named, no temp prefix and no bare index number; RED first against the unfixed code (COMMITTED + "could not materialize", vuln shipped), GREEN after. Mutation proof: revert only the three `:0:` prefixes → RED → restore → GREEN. `T-mutation-content-guard`'s two `_idx_mutate` anchors were retargeted in lockstep (they are full literals, and the exactly-once check correctly reported MIS-TARGETED in between rather than passing vacuously — the coupling is now documented in the case). Green: `test-bl132` 11/11, `test-bl131` 17/17, `test-bl118` 6/6, `test-bl112` 13/13, `run-lints` 11/11. A separate PRE-EXISTING hole found in the same review (rename-and-edit commits skip SAST entirely and silently; identical on main) was filed as **BL-179**, not fixed here.
+
 ---
 
 ## BL-133: Plain `--terminal-mode` fed the STALE `COMMIT_EDITMSG` to `lint-backlog-references --pre-commit-mode` — the previous commit's message could block the current commit
@@ -4240,3 +4242,91 @@ The BL-132 SAST arm materializes each staged blob into a single `mktemp -d` tree
 **Build note (2026-07-25, branch `fix/bl131-bl132-sast-hardening`):** Fixed as recorded, under the marker `# BL-178-PER-INDEX-DIR` in `scripts/lib/hook-templates.sh`. **Landed in the SAME diff as the R-270-1 gitlink security regression** — both defects rewrite the same materialization loop and the same `soif_idx_files` population, so shipping them separately meant rewriting that loop twice with a near-certain conflict (flagged by a cross-PR critic). Materialization moved from one flat `mktemp -d` tree to per-staged-entry subdirs (`$soif_idx_tree/<n>/<relpath>`, `<n>` = staged position), and the path-mapping `sed` grew the `[0-9][0-9]*/` arm so the `<n>/` segment is stripped back off finding paths — the operator still sees the REAL repo-relative path, never a temp path and never a bare index number (re-verified for deeply-nested paths and paths containing spaces). Proof: `tests/test-bl132-sast-index-scan.sh` `T-index-case-collision`, watched-RED first against the flat tree (`[OK] semgrep: SAST ran on 2 staged file(s)` with the vuln COMMITTED) then GREEN. The case-only pair is built with `git update-index --add --cacheinfo` because a case-INSENSITIVE *checkout* physically cannot hold both worktree files while the *index* can and routinely does (a tree authored on Linux, cloned on macOS); git's `:<path>` index lookup was confirmed case-EXACT there, and the case LOUD-SKIPs on a case-sensitive filesystem rather than passing vacuously. Mutation-proof M2: revert the per-index layout (dest + `sed` reverted in sync) → `T-index-case-collision` RED → restore → GREEN. Status stays **Open** pending PR + merge.
 
 **Related:** BL-132 (the index-materialization arm), BL-131 (the ruleset).
+
+---
+
+## BL-179: Pre-commit SAST skips a rename-and-edit commit ENTIRELY and SILENTLY — `soif_staged` filters `ACM`, so a renamed file is reported `R` and excluded
+
+**Logged:** 2026-07-25 (PR #270 final-gate adversarial review, R-270-2)
+**Category:** Bug / security enforcement — commit-time SAST target selection (silent-success class)
+**Severity:** High
+**Status:** Open
+
+The commit-time SAST arm builds its target list from
+`git diff --cached --name-only --diff-filter=ACM -z` (the NUL-delimited `soif_staged`
+read that feeds `# BL-132-INDEX-SCAN` in `scripts/lib/hook-templates.sh`, emitted by
+`soif_precommit_region_body`). `diff.renames` defaults to **true**, so git reports a
+rename as status `R` — which `ACM` **excludes**. A commit that renames a file *and*
+edits it in the same commit therefore presents **zero** staged entries to the scanner.
+
+Because the whole arm is wrapped in `if [ "${#soif_staged[@]}" -gt 0 ]` with **no
+`else`**, zero entries means the scanner is not merely skipped — it produces **no
+output at all**: no `[OK]` receipt, no `[BLOCKED]`, and *not even* the
+`soif_sast_not_enforced` / `SAST NOT ENFORCED` loud-NOTRUN that every other
+can't-scan path routes to (`# BL-112-SAST-NOTRUN`). The operator is told nothing
+whatsoever, which is precisely the BL-112 dishonesty class this arm exists to end.
+
+**Evidence (reproduced through the real emitter, the real `.git/hooks/pre-commit`, and
+a real `git commit`):** land a clean `old.ts`, install the emitted hook, then
+`git mv old.ts new.ts` + introduce `pane.innerHTML = userText` and stage it.
+
+```
+git diff --cached --name-status          -> R067  old.ts  new.ts
+--diff-filter=ACM    (the SAST arm)      -> (empty)   count=0
+--diff-filter=ACMDR  (the BL-125 arm)    -> new.ts    count=1
+--diff-filter=ACMR   (proposed)          -> new.ts    count=1
+commit verdict = COMMITTED ; `git show HEAD:new.ts` still contains innerHTML
+hook output: ZERO semgrep/SAST lines
+```
+
+**PRE-EXISTING — deliberately NOT fixed in PR #270.** The `--diff-filter=ACM -z` line
+is **byte-identical on `main` (`ed406c8`) and on the PR head (`0765612`)**, and the
+behaviour was verified identical on both. It is neither introduced nor worsened by
+that PR, so it is filed rather than folded in — the PR's own regression (R-270-1B,
+the `:<stage>:<path>` collision) is a separate surface in the same loop.
+
+**Severity argument.** This repo treats silent success in a security lane as
+**block-class**, and on the defect's own merits that is the right call: the trigger is
+a *routine* refactor (rename-and-edit is one of the most common commit shapes), the
+failure is total (the scanner never runs on the renamed file's content), and it is
+*quieter* than every other failure mode in the arm — the gitlink and stage-syntax bugs
+at least shout NOTRUN. Rated **High** rather than Critical only because the pre-push /
+CI SAST lanes still scan the tree afterwards, so the commit-time gate is the tripwire
+that is lost, not the last line of defence. It is **not** a merge blocker for PR #270
+purely because it is pre-existing and unchanged there.
+
+**The fixed sibling is ~120 lines away in the same emitted region.** The BL-125
+test-exec arm (`# BL-125-COMMIT-TESTS`, the `soif_test_src=` assignment) already uses
+`--diff-filter=ACMDR`, carrying an explicit "Verifier M1" comment stating that `D` and
+`R` are included **on purpose** because "a commit that DELETES or RENAMES the sanitizer
+is exactly the regression this arm exists to stop, and the old ACM filter skipped it
+while printing the ... receipt (a false receipt — the dishonesty class this arm
+fights)". The SAST arm never received the same correction.
+
+**Fix shape:** change the `soif_staged` read to `--diff-filter=ACMR`.
+- `R` must be **added**: a renamed file has staged content, and the `-z`/`--name-only`
+  output for an `R` entry is the **destination** path, which `git cat-file blob
+  ":0:<dest>"` resolves correctly (`# BL-132-STAGE0-REF`) — so no materialization
+  change is needed.
+- `D` must stay **excluded** (unlike BL-125's `ACMDR`): a deleted file has no staged
+  content to scan, so including it would hand the loop an index entry with no blob,
+  which is exactly the "one bad entry blinds the whole commit" shape that R-270-1 and
+  R-270-1B already cost this arm twice.
+- **Also close the no-`else` silence** while here: an empty `soif_staged` on a commit
+  that *did* stage something should route to `soif_sast_not_enforced`, not to nothing.
+  Rename-only (no edit) commits are the residual case and deserve a receipt.
+
+**Mutation-proof sketch:** new watched-RED fixture in
+`tests/test-bl132-sast-index-scan.sh` — land a clean file, `git mv` it while
+introducing an `innerHTML` sink, commit. RED pre-fix: `COMMITTED`, HEAD moves, the
+vuln is in `git show HEAD:<dest>`, and the log contains **no** `semgrep`/`SAST` line at
+all (assert the *absence* of output, not just the absence of `[BLOCKED]` — a
+`[BLOCKED]`-only assertion would also pass on a silent skip). GREEN post-fix:
+`REFUSED` + `[BLOCKED]` + the **destination** path named. Then mutate
+`ACMR` -> `ACM` -> RED -> restore -> GREEN. Add a control that a plain rename with **no**
+content change still lands (no false block), and one that a staged **deletion** alone
+does not push the commit into a bogus NOTRUN.
+
+**Related:** BL-132 (the index-materialization arm this filter feeds), BL-125 (the
+sibling arm that already fixed exactly this filter defect), BL-112 (the
+silent-vs-loud SAST receipt contract).
