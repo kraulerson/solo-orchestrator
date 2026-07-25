@@ -7,7 +7,7 @@
 > Karl authorized supervisor merges, and the wave has moved. **Everything in §1–§3 below is the 2026-07-24 EOD snapshot, kept as the historical record — it is NOT current state.** As of 2026-07-25:
 >
 > - **Merged:** #265 (BL-172, merge `7866022`) and #266 (BL-173, merge `d857294`). `main` is at **`d857294`**, not `6fc1c11`. BL-176 is therefore already in `main`, not on a branch.
-> - **Still open:** #267, #268, #269, #270, and this PR (#271).
+> - **Remaining queue as this was written:** #271 (this PR) merges first, then #267 → #269 → #268, with #270 last. **This list moves — `git fetch` and re-derive it; do not trust any inventory in this document.**
 > - **#270 is BLOCKED on a confirmed security regression** found by a second adversarial pass (a staged submodule gitlink aborts the whole BL-132 index scan, so a staged vuln that `main` blocks would land). Fix in progress; no lane catches it, so do not treat its green suites as coverage.
 > - **BL-173 closes AT MERGE** (its own entry's condition), not after a full-lane run. Only **BL-136** carries the full-lane condition; **BL-135** awaits a second data point.
 > - **Do NOT flip BUG-001** — see § 2.
