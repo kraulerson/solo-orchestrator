@@ -27,6 +27,24 @@
 #                                 not run ([WARN] semgrep not found + SAST NOT
 #                                 ENFORCED). The refactor must not disturb the
 #                                 # BL-112-SAST-NOTRUN contract.
+#   T-index-gitlink-not-blinding  live — a staged SUBMODULE GITLINK alongside a staged
+#                                 vuln must NOT blind the scan. RED pre-fix: index
+#                                 mode 160000 is not a blob, `git cat-file blob :sub`
+#                                 exits 128, the loop `break` discarded EVERY already-
+#                                 materialized target and the whole commit went NOTRUN
+#                                 -> the sibling vuln LANDED (# BL-132-GITLINK-SKIP).
+#   T-index-gitlink-only-honest   live — a submodule POINTER-BUMP commit (only a
+#                                 gitlink staged, nothing scannable) LANDS but must
+#                                 NOT print an `[OK] semgrep: SAST ran` receipt it did
+#                                 not earn — 0 materialized targets => loud NOTRUN.
+#   T-index-case-collision        live — BL-178: two staged paths differing only in
+#                                 case collide in a single flat temp tree on a case-
+#                                 INSENSITIVE filesystem; the later (clean) write
+#                                 clobbers the earlier (vuln) blob and the vuln lands
+#                                 with a false [OK]. Per-index subdirs
+#                                 (# BL-178-PER-INDEX-DIR) make the collision
+#                                 impossible. LOUD-SKIPs on a case-sensitive FS
+#                                 (unobservable there, would pass vacuously).
 #   T-mutation-index-scan         live — revert the emitted hook's scan target to the
 #                                 worktree paths (the pre-BL-132 behaviour) ->
 #                                 T-index-blocks-staged-vuln goes RED (the clean
@@ -298,6 +316,182 @@ else
   fi
 fi
 
+# ── T-index-gitlink-not-blinding (R-270-1 regression) ────────────────────────
+# A staged SUBMODULE GITLINK is index mode 160000, NOT a blob: `git cat-file blob
+# :sub` exits 128. The first cut's `|| { soif_idx_ok=0; break; }` therefore threw
+# away EVERY already-materialized target and routed the WHOLE commit to NOTRUN, so
+# a vulnerability staged in a sibling file LANDED. Trigger is routine: a
+# `git submodule add` / pointer bump in the same commit as application code.
+# The gitlink must be SKIPPED (it has no bytes to scan) while its siblings are
+# still scanned. RED pre-fix: COMMITTED + "could not materialize staged content".
+#
+# HERMETIC: the submodule source is a LOCAL directory created here — never a
+# network remote (house rule; a live `gh repo create` leaked a real repo
+# 2026-07-06). `-c protocol.file.allow=always` is required because git ≥2.38
+# refuses the file:// transport for submodules by default.
+echo "=== T-index-gitlink-not-blinding ==="
+# mk_submodule_src <dir>: a throwaway LOCAL repo with one commit, usable as a
+# submodule source over a plain filesystem path.
+mk_submodule_src() {
+  local s="$1"
+  mkdir -p "$s"
+  ( cd "$s" \
+      && git init -q \
+      && git config user.email "bl132@test.invalid" \
+      && git config user.name  "BL-132 Test" \
+      && echo "submodule payload" > lib.txt \
+      && git add lib.txt \
+      && git commit -q -m "chore: sub init" ) || return 1
+}
+# gitlink_mode <repo> <path>: the INDEX mode of <path> (160000 iff a gitlink).
+gitlink_mode() { ( cd "$1" && git ls-files -s -- "$2" 2>/dev/null | awk 'NR==1{print $1}' ); }
+
+if [ "$HAVE_SEMGREP" -eq 0 ]; then
+  skip_ "T-index-gitlink-not-blinding" "semgrep ABSENT — skip, not pass"
+  skip_ "T-index-gitlink-only-honest"  "semgrep ABSENT — skip, not pass"
+else
+  SUBSRC="$TOPTMP/subsrc"
+  R5="$TOPTMP/gitlink"
+  if ! mk_submodule_src "$SUBSRC"; then
+    fail_ "T-index-gitlink-not-blinding" "submodule source repo setup failed"
+    fail_ "T-index-gitlink-only-honest"  "submodule source repo setup failed"
+  elif ! mk_repo "$R5" "$EMITTED"; then
+    fail_ "T-index-gitlink-not-blinding" "repo setup failed"
+    fail_ "T-index-gitlink-only-honest"  "repo setup failed"
+  else
+    printf '%s\n' "$XSS_TS" > "$R5/app.ts"
+    ( cd "$R5" \
+        && git add app.ts \
+        && git -c protocol.file.allow=always submodule add -q "$SUBSRC" sub ) >"$TOPTMP/o5setup" 2>&1
+    GLMODE="$(gitlink_mode "$R5" sub)"
+    if [ "$GLMODE" != "160000" ]; then
+      # No gitlink got staged => the fixture proves NOTHING. Loud skip, never a pass.
+      skip_ "T-index-gitlink-not-blinding" "could not stage a submodule gitlink (mode='$GLMODE'; submodule add: $(tail -2 "$TOPTMP/o5setup" | tr '\n' '|')) — regression UNPROVEN here"
+      skip_ "T-index-gitlink-only-honest"  "could not stage a submodule gitlink — receipt honesty UNPROVEN here"
+    else
+      H0="$(head_of "$R5")"
+      if ( cd "$R5" && git commit -m "feat: app + submodule" ) >"$TOPTMP/o5" 2>&1; then V=COMMITTED; else V=REFUSED; fi
+      H1="$(head_of "$R5")"
+      if [ "$V" = "COMMITTED" ]; then
+        if grep -qF 'could not materialize staged content' "$TOPTMP/o5"; then
+          fail_ "T-index-gitlink-not-blinding" "the staged gitlink ABORTED materialization — every sibling target was discarded, the commit went NOTRUN and the staged innerHTML XSS LANDED (R-270-1): $(grep -E 'SAST NOT ENFORCED|could not materialize' "$TOPTMP/o5" | head -1)"
+        elif not_enforced "$TOPTMP/o5"; then
+          skip_ "T-index-gitlink-not-blinding" "scanner did not run (registry unreachable?) — blocking UNPROVEN here"
+        else
+          fail_ "T-index-gitlink-not-blinding" "staged innerHTML XSS COMMITTED alongside a gitlink: $(grep -E '\[OK\]|\[BLOCKED\]' "$TOPTMP/o5" | head -1)"
+        fi
+      elif ! grep -q "\[BLOCKED\]" "$TOPTMP/o5"; then
+        fail_ "T-index-gitlink-not-blinding" "refused but without [BLOCKED] (wrong reason): $(tail -3 "$TOPTMP/o5" | tr '\n' '|')"
+      elif [ "$H0" != "$H1" ]; then
+        fail_ "T-index-gitlink-not-blinding" "non-zero exit but HEAD MOVED"
+      elif ! grep -q 'app.ts' "$TOPTMP/o5"; then
+        fail_ "T-index-gitlink-not-blinding" "blocked, but the finding did not name the real path app.ts"
+      elif grep -qE '/var/folders/|/tmp/tmp\.' "$TOPTMP/o5"; then
+        fail_ "T-index-gitlink-not-blinding" "raw mktemp temp-tree prefix leaked into output (F3)"
+      elif grep -qE '(^|[^A-Za-z0-9_./-])[0-9]+/app\.ts' "$TOPTMP/o5"; then
+        fail_ "T-index-gitlink-not-blinding" "the per-index temp SUBDIR number leaked into the reported path — the path-mapping sed strips the tree but not the index dir"
+      else
+        pass "T-index-gitlink-not-blinding: staged gitlink SKIPPED, its sibling staged vuln still scanned + REFUSED, real path shown"
+      fi
+
+      # ── T-index-gitlink-only-honest (receipt honesty) ────────────────────────
+      # A submodule POINTER BUMP stages ONLY the gitlink. Nothing is scannable, so
+      # the hook must NOT print an "[OK] semgrep: SAST ran on N staged file(s)"
+      # receipt it did not earn — 0 materialized targets => loud NOTRUN.
+      ( cd "$SUBSRC" && echo "bump" >> lib.txt && git add lib.txt && git commit -q -m "chore: bump" ) >/dev/null 2>&1
+      ( cd "$R5" && git checkout -q -- . 2>/dev/null; git reset -q ) >/dev/null 2>&1
+      rm -f "$R5/app.ts"
+      ( cd "$R5/sub" && git fetch -q origin && git checkout -q "$( cd "$SUBSRC" && git rev-parse HEAD )" ) >/dev/null 2>&1
+      ( cd "$R5" && git add sub ) >/dev/null 2>&1
+      GL_ONLY="$( cd "$R5" && git diff --cached --name-only --diff-filter=ACM | tr '\n' ' ' )"
+      if [ "$GL_ONLY" != "sub " ]; then
+        skip_ "T-index-gitlink-only-honest" "could not stage a gitlink-ONLY index (staged='$GL_ONLY') — receipt honesty UNPROVEN here"
+      else
+        H0="$(head_of "$R5")"
+        if ( cd "$R5" && git commit -m "chore: bump submodule pointer" ) >"$TOPTMP/o6" 2>&1; then V6=COMMITTED; else V6=REFUSED; fi
+        H1="$(head_of "$R5")"
+        if grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/o6"; then
+          fail_ "T-index-gitlink-only-honest" "a gitlink-ONLY commit claimed a scan it did not do: $(grep -F '[OK] semgrep: SAST ran' "$TOPTMP/o6" | head -1)"
+        elif [ "$V6" != "COMMITTED" ] || [ "$H0" = "$H1" ]; then
+          fail_ "T-index-gitlink-only-honest" "a pointer bump must LAND (gitlinks are not blockable content); verdict=$V6 moved=$([ "$H0" != "$H1" ] && echo YES || echo NO): $(tail -3 "$TOPTMP/o6" | tr '\n' '|')"
+        elif ! not_enforced "$TOPTMP/o6"; then
+          fail_ "T-index-gitlink-only-honest" "0 scannable targets but no loud NOTRUN — the operator is told nothing: $(tail -3 "$TOPTMP/o6" | tr '\n' '|')"
+        else
+          pass "T-index-gitlink-only-honest: gitlink-only commit LANDS, no unearned [OK] receipt, loud NOTRUN instead"
+        fi
+      fi
+    fi
+  fi
+fi
+
+# ── T-index-case-collision (BL-178) ──────────────────────────────────────────
+# Two staged paths differing ONLY in case collide in a single FLAT temp tree on a
+# case-INSENSITIVE filesystem (macOS APFS, Windows NTFS): the second
+# `git cat-file blob` write lands on the SAME on-disk path and clobbers the first.
+# If the CLEAN blob materializes last the vuln blob is LOST and the commit lands
+# `[OK]`. The F2 size guard cannot see it — each write is internally consistent;
+# it is the EARLIER blob that was destroyed. Per-index subdirs close it.
+#
+# The index is built with `git update-index --cacheinfo` on purpose: a case-
+# INSENSITIVE CHECKOUT physically cannot hold both worktree files, but the INDEX
+# can and routinely does (a tree authored on Linux, cloned on macOS). git's
+# `:<path>` index lookup stays case-EXACT there — the fixture asserts that.
+echo "=== T-index-case-collision ==="
+CASE_INSENSITIVE_FS=0
+printf 'x' > "$TOPTMP/CaseFsProbe.tmp"
+[ -f "$TOPTMP/casefsprobe.tmp" ] && CASE_INSENSITIVE_FS=1
+rm -f "$TOPTMP/CaseFsProbe.tmp" "$TOPTMP/casefsprobe.tmp"
+if [ "$HAVE_SEMGREP" -eq 0 ]; then
+  skip_ "T-index-case-collision" "semgrep ABSENT — skip, not pass"
+elif [ "$CASE_INSENSITIVE_FS" -eq 0 ]; then
+  skip_ "T-index-case-collision" "filesystem is case-SENSITIVE — the temp-tree collision is UNOBSERVABLE here and this case would pass vacuously (BL-178 needs APFS/NTFS)"
+else
+  R7="$TOPTMP/casecol"
+  if ! mk_repo "$R7" "$EMITTED"; then
+    fail_ "T-index-case-collision" "repo setup failed"
+  else
+    CC_V="$( printf '%s\n' "$XSS_TS"  | ( cd "$R7" && git hash-object -w --stdin ) )"
+    CC_C="$( printf '%s\n' "$SAFE_TS" | ( cd "$R7" && git hash-object -w --stdin ) )"
+    ( cd "$R7" && git update-index --add --cacheinfo "100644,$CC_V,App.ts" \
+                && git update-index --add --cacheinfo "100644,$CC_C,app.ts" ) >/dev/null 2>&1
+    CC_ORDER="$( cd "$R7" && git diff --cached --name-only --diff-filter=ACM | tr '\n' ' ' )"
+    CC_UPPER_IS_VULN=0
+    ( cd "$R7" && git cat-file blob ":App.ts" 2>/dev/null ) | grep -q 'innerHTML' && CC_UPPER_IS_VULN=1
+    CC_LOWER_IS_CLEAN=0
+    ( cd "$R7" && git cat-file blob ":app.ts" 2>/dev/null ) | grep -q 'textContent' && CC_LOWER_IS_CLEAN=1
+    if [ "$CC_ORDER" != "App.ts app.ts " ]; then
+      # Materialization order matters: the CLEAN blob must be written LAST, or the
+      # flat tree would clobber the clean copy with the vuln and pass for free.
+      skip_ "T-index-case-collision" "the case-only pair did not stage in the expected order (staged='$CC_ORDER') — collision direction UNPROVEN here"
+    elif [ "$CC_UPPER_IS_VULN" -ne 1 ] || [ "$CC_LOWER_IS_CLEAN" -ne 1 ]; then
+      skip_ "T-index-case-collision" "git's :<path> index lookup is not case-EXACT on this host (App.ts vuln=$CC_UPPER_IS_VULN, app.ts clean=$CC_LOWER_IS_CLEAN) — fixture cannot distinguish the two blobs"
+    else
+      H0="$(head_of "$R7")"
+      if ( cd "$R7" && git commit -m "feat: case-only pair" ) >"$TOPTMP/o7" 2>&1; then V=COMMITTED; else V=REFUSED; fi
+      H1="$(head_of "$R7")"
+      if [ "$V" = "COMMITTED" ]; then
+        if not_enforced "$TOPTMP/o7"; then
+          skip_ "T-index-case-collision" "scanner did not run (registry unreachable?) — collision UNPROVEN here"
+        else
+          fail_ "T-index-case-collision" "the vuln blob App.ts was CLOBBERED in the flat temp tree by the clean app.ts and COMMITTED (BL-178): $(grep -E '\[OK\]|\[BLOCKED\]' "$TOPTMP/o7" | head -1)"
+        fi
+      elif ! grep -q "\[BLOCKED\]" "$TOPTMP/o7"; then
+        fail_ "T-index-case-collision" "refused but without [BLOCKED] (wrong reason): $(tail -3 "$TOPTMP/o7" | tr '\n' '|')"
+      elif [ "$H0" != "$H1" ]; then
+        fail_ "T-index-case-collision" "non-zero exit but HEAD MOVED"
+      elif ! grep -q 'App\.ts' "$TOPTMP/o7"; then
+        fail_ "T-index-case-collision" "blocked, but the finding did not name the REAL staged path App.ts (case-exact): $(tail -5 "$TOPTMP/o7" | tr '\n' '|')"
+      elif grep -qE '/var/folders/|/tmp/tmp\.' "$TOPTMP/o7"; then
+        fail_ "T-index-case-collision" "raw mktemp temp-tree prefix leaked into output (F3)"
+      elif grep -qE '(^|[^A-Za-z0-9_./-])[0-9]+/App\.ts' "$TOPTMP/o7"; then
+        fail_ "T-index-case-collision" "the per-index temp SUBDIR number leaked into the reported path — the path-mapping sed strips the tree but not the index dir"
+      else
+        pass "T-index-case-collision: case-only-differing staged blobs no longer collide, the vuln is REFUSED, real path App.ts shown"
+      fi
+    fi
+  fi
+fi
+
 # ── T-mutation-content-guard (F2: empty/partial materialize -> loud NOTRUN) ───
 # The F2 size check turns an empty/partial materialization into a LOUD NOTRUN
 # instead of scanning an empty file and passing [OK]. The GREEN direction fires
@@ -318,9 +512,9 @@ else
   }
   cg_setup=1
   MEMPTY="$TOPTMP/cg-empty"
-  _idx_mutate "$EMITTED" 'git cat-file blob ":$soif_p" > "$soif_idx_tree/$soif_p"' ': > "$soif_idx_tree/$soif_p"' > "$MEMPTY" || cg_setup=0
+  _idx_mutate "$EMITTED" 'git cat-file blob ":$soif_p" > "$soif_idx_dest"' ': > "$soif_idx_dest"' > "$MEMPTY" || cg_setup=0
   MPART="$TOPTMP/cg-part"
-  _idx_mutate "$EMITTED" 'git cat-file blob ":$soif_p" > "$soif_idx_tree/$soif_p"' 'git cat-file blob ":$soif_p" | head -c 3 > "$soif_idx_tree/$soif_p"' > "$MPART" || cg_setup=0
+  _idx_mutate "$EMITTED" 'git cat-file blob ":$soif_p" > "$soif_idx_dest"' 'git cat-file blob ":$soif_p" | head -c 3 > "$soif_idx_dest"' > "$MPART" || cg_setup=0
   # F2-removed variant of M-empty: drop exactly the three F2 CHECK lines (keep the
   # soif_idx_files+= collection), so the empty dest is scanned and passes [OK].
   MEMPTY_NOF2="$TOPTMP/cg-empty-nof2"

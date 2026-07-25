@@ -274,38 +274,86 @@ if command -v semgrep &>/dev/null; then
     # never scanned — the flaw shipped with an [OK] receipt (BL-132 repro; `git add
     # -p` / stage-then-edit share the hole). Materialize each staged blob into a
     # throwaway tree that mirrors the repo layout (same relative path + extension so
-    # semgrep still picks the language), then hand semgrep the EXPLICIT materialized
-    # FILE targets (collected in soif_idx_files), never the tree directory.
+    # semgrep still picks the language, under a per-entry subdir — see the
+    # BL-178-PER-INDEX-DIR note in the loop), then hand semgrep the EXPLICIT
+    # materialized FILE targets (collected in soif_idx_files), never the tree dir.
     #   WHY EXPLICIT FILES, NOT THE DIRECTORY (verifier F1): pointing semgrep at a
     #   directory re-engages its built-in default .semgrepignore — staged sinks under
     #   tests/ test/ build/ dist/ vendor/ node_modules/ and *.min.js are then SILENTLY
     #   skipped and the commit lands with a false [OK] receipt. `--no-git-ignore` does
     #   NOT disable those built-in defaults. Explicit file targets bypass ignore
-    #   filtering by semgrep's own documented semantics, restore the pre-BL-132
-    #   contract by construction, and keep the "ran on N staged file(s)" receipt
-    #   honest (N staged = N targeted).
+    #   filtering by semgrep's own documented semantics and restore the pre-BL-132
+    #   contract by construction.
+    #   THE RECEIPT COUNTS TARGETS, NOT STAGED ENTRIES. Since # BL-132-GITLINK-SKIP
+    #   the two can legitimately differ (a staged submodule gitlink has no bytes to
+    #   scan), so the "[OK] … ran on N staged file(s)" line reports
+    #   ${#soif_idx_files[@]} — what was ACTUALLY targeted — and zero targets routes
+    #   to NOTRUN (# BL-132-EMPTY-TARGETS) rather than claiming a scan.
     # bash-3.2 and NUL-safe: soif_staged was read -z above; each path is used verbatim
     # and git round-trips it through `git cat-file blob :<path>`. A pathname git cannot
     # express (a NUL byte) cannot be staged, so it cannot reach here.
     soif_idx_tree="$(mktemp -d)"
     soif_idx_ok=1
     soif_idx_files=()
+    soif_idx_n=0
     for soif_p in "${soif_staged[@]}"; do
-      mkdir -p "$soif_idx_tree/$(dirname "$soif_p")" 2>/dev/null || { soif_idx_ok=0; break; }
-      git cat-file blob ":$soif_p" > "$soif_idx_tree/$soif_p" 2>/dev/null || { soif_idx_ok=0; break; }
+      # BL-178-PER-INDEX-DIR — one subdir PER STAGED ENTRY ($tree/<n>/<relpath>),
+      # never one flat tree. On a case-INSENSITIVE filesystem (macOS APFS, Windows
+      # NTFS) two staged paths differing only in case — App.ts (the vuln) and
+      # app.ts (clean) — resolve to the SAME on-disk dest in a flat tree, so the
+      # second write CLOBBERS the first: the vuln blob is LOST and the commit lands
+      # with a false [OK] receipt (BL-178, reproduced). The F2 size check below
+      # cannot see it — each write is internally consistent; it is the EARLIER blob
+      # that was destroyed. Per-entry subdirs make the collision unrepresentable.
+      # <n> is the STAGED POSITION, and the path-mapping sed below strips the whole
+      # "$soif_idx_tree/<n>/" prefix back off finding paths so the operator is shown
+      # the REAL repo-relative path — never a temp path, never a bare index number.
+      soif_idx_n=$((soif_idx_n + 1))
+      # BL-132-GITLINK-SKIP — a staged SUBMODULE GITLINK is index mode 160000, NOT a
+      # blob: `git cat-file blob :sub` exits 128. Aborting the loop on it (the first
+      # cut's bare `break`) DISCARDED every already-materialized target and routed
+      # the WHOLE commit to NOTRUN — so a vulnerability staged in a sibling file
+      # LANDED, and the trigger is routine (`git submodule add` or a pointer bump in
+      # the same commit as application code). A gitlink has no bytes to scan, so
+      # SKIP it and keep scanning its siblings.
+      #   THIS IS NOT A BLANKET "unreadable => skip". The skip is gated on the index
+      #   MODE being 160000, read back with a `:(literal)` pathspec so a path
+      #   containing glob metacharacters or spaces cannot mis-resolve. Anything that
+      #   is neither a blob nor a gitlink — a missing/corrupt object for a REAL
+      #   staged blob — is content we OWE the operator a scan of, and still routes
+      #   to the loud NOTRUN below. Verified: pruning a real blob's object makes
+      #   `cat-file -t` fail while ls-files still reports mode 100644 => NOTRUN.
+      soif_idx_type=$(git cat-file -t ":$soif_p" 2>/dev/null) || soif_idx_type=""
+      if [ "$soif_idx_type" != "blob" ]; then
+        if git ls-files -s -- ":(literal)$soif_p" 2>/dev/null | grep -q '^160000 '; then
+          continue
+        fi
+        soif_idx_ok=0
+        break
+      fi
+      soif_idx_dest="$soif_idx_tree/$soif_idx_n/$soif_p"
+      mkdir -p "$(dirname "$soif_idx_dest")" 2>/dev/null || { soif_idx_ok=0; break; }
+      git cat-file blob ":$soif_p" > "$soif_idx_dest" 2>/dev/null || { soif_idx_ok=0; break; }
       # F2 — positive content check: the materialized dest MUST match the staged
       # blob's byte size, so a git read that returns 0 while writing nothing or a
       # short/partial file cannot slip a non-empty staged blob past the scan as an
       # empty file. A mismatch routes to the loud NOTRUN below, never a silent pass.
       soif_idx_want=$(git cat-file -s ":$soif_p" 2>/dev/null) || soif_idx_want=""
-      soif_idx_got=$(wc -c < "$soif_idx_tree/$soif_p" 2>/dev/null | tr -d '[:space:]') || soif_idx_got=""
+      soif_idx_got=$(wc -c < "$soif_idx_dest" 2>/dev/null | tr -d '[:space:]') || soif_idx_got=""
       if [ -z "$soif_idx_want" ] || [ "$soif_idx_got" != "$soif_idx_want" ]; then soif_idx_ok=0; break; fi
-      soif_idx_files+=("$soif_idx_tree/$soif_p")
+      soif_idx_files+=("$soif_idx_dest")
     done
     if [ "$soif_idx_ok" -ne 1 ]; then
       # Could not snapshot the index — honest NOTRUN (# BL-112-SAST-NOTRUN): never a
       # silent pass, and never a false block on content we could not read.
       soif_sast_not_enforced "could not materialize staged content for scanning — SAST skipped."
+    elif [ "${#soif_idx_files[@]}" -eq 0 ]; then
+      # BL-132-EMPTY-TARGETS — nothing scannable was materialized (e.g. a submodule
+      # POINTER-BUMP commit stages only a gitlink). The scan did not happen, so the
+      # [OK] receipt below would be a lie: route to the same honest NOTRUN. This is
+      # the receipt-honesty half of BL-132-GITLINK-SKIP — skipping a gitlink must
+      # never buy a clean-looking commit.
+      soif_sast_not_enforced "no scannable staged content (all staged entries are non-blob, e.g. submodule gitlinks) — SAST skipped."
     else
       set +e
       # BL-112-SAST-ERROR — `--error` is LOAD-BEARING. Semgrep exits 0 even when it
@@ -338,7 +386,11 @@ if command -v semgrep &>/dev/null; then
       set -e
       # Map the temp-tree prefix off finding paths, then show semgrep's findings
       # (stdout) with the real repo-relative paths. A clean scan prints nothing here.
-      sed "s#${soif_idx_tree}/##g" "$soif_sg_out"
+      # The "[0-9][0-9]*/" arm strips the BL-178-PER-INDEX-DIR staged-position
+      # segment too — without it the operator would be shown "3/src/app.ts", a path
+      # that exists nowhere. Deeply-nested paths and paths CONTAINING SPACES round-
+      # trip unchanged (only the leading tree+index prefix is removed).
+      sed "s#${soif_idx_tree}/[0-9][0-9]*/##g" "$soif_sg_out"
       if [ "$soif_sg_rc" -eq 1 ]; then
         # 1 == semgrep found blocking findings (only ever returned with --error).
         echo ""
@@ -363,7 +415,11 @@ if command -v semgrep &>/dev/null; then
         # clean-commit test falsifiable: without it, "a clean file commits" is also
         # true on a host where the scanner was simply skipped, and the test would
         # pass vacuously while proving nothing.
-        echo "[OK] semgrep: SAST ran on ${#soif_staged[@]} staged file(s) — no ERROR-severity findings."
+        # The count is the number of files ACTUALLY TARGETED (${#soif_idx_files[@]}),
+        # not the number staged: since BL-132-GITLINK-SKIP the two can differ, and a
+        # receipt that counts entries the scanner never saw is the BL-112 lie in a
+        # different coat. Zero targets never reaches here — it NOTRUNs above.
+        echo "[OK] semgrep: SAST ran on ${#soif_idx_files[@]} staged file(s) — no ERROR-severity findings."
       fi
     fi
     rm -rf "$soif_idx_tree"
