@@ -7,11 +7,16 @@
 # OWN copy/render/hook mechanism — the only way to catch a shipped-set or
 # render-site drift that a hand-built fixture would paper over.
 #
-# It runs init.sh THREE times (typescript / rust / other) to cover the hook
-# three-state enum (present / absent-intentional / absent-unavailable) against
-# init.sh's real language→hook install decision. That is why it is an AGGREGATOR:
-# it is registered ONLY in tests/full-project-test-suite.sh (SUITE_SKIP_AGGREGATORS
-# -gated), NEVER in the tests.yml unit list — it executes init.sh.
+# It runs init.sh THREE times (typescript / rust / other) to exercise init.sh's
+# real language→hook install decision across three representative language
+# classes. Post-BL-107 (# BL-107-UNIVERSAL-INSTALL, PR #205) the commit-msg TDD
+# gate installs for EVERY language tier, so all three scaffolds now record
+# commit-msg `present`; the enum's absent-intentional / absent-unavailable
+# states are HISTORICAL — retained only for READERS of pre-BL-107 manifests (see
+# scripts/lib/currency-manifest.sh :: soif_currency_hook_state), and NEVER
+# written by a fresh scaffold. That is why it is an AGGREGATOR: it is registered
+# ONLY in tests/full-project-test-suite.sh (SUITE_SKIP_AGGREGATORS-gated), NEVER
+# in the tests.yml unit list — it executes init.sh.
 #
 # Hermetic: mktemp, GITHUB_BASE_REF unset, init.sh run with --no-remote-creation
 # (the blessed no-live-remote path). bash-3.2 safe.
@@ -225,30 +230,37 @@ mcp="$(jq -r '.currency.mcpProbe.context7' "$MAN")"
   || fail_ "pre-commit" "not present"
 
 # ════════════════════════════════════════════════════════════════════════════
-# Scaffold 2 — rust: commit-msg hook is absent-intentional (inline tests).
+# Scaffold 2 — rust: commit-msg hook is PRESENT. Pre-BL-107 rust got no TDD gate
+# (inline tests → empty soif_lang_test_pattern → install skipped, recorded as
+# absent-intentional); # BL-107-UNIVERSAL-INSTALL (PR #205) now installs it for
+# EVERY language, so a fresh rust scaffold records `present`. The old
+# absent-intentional value is a legacy-reader state only (see the header block).
 # ════════════════════════════════════════════════════════════════════════════
 echo "=== Scaffolding rust project via real init.sh (hermetic) ==="
 RS="$TOPTMP/rs"
 if run_init rust curbl109rs "$RS"; then
   st="$(jq -r '.currency.hooks["commit-msg"]' "$RS/.claude/manifest.json")"
-  [ "$st" = "absent-intentional" ] \
-    && pass "rust -> commit-msg absent-intentional" \
-    || fail_ "rust commit-msg" "expected absent-intentional, got [$st]"
+  [ "$st" = "present" ] \
+    && pass "rust -> commit-msg present (BL-107 universal install)" \
+    || fail_ "rust commit-msg" "expected present (# BL-107-UNIVERSAL-INSTALL, PR #205), got [$st]"
 else
   fail_ "rust-scaffold-init" "init.sh exited non-zero; stderr tail: $(tail -6 "$TOPTMP/curbl109rs.err" | tr '\n' '|')"
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
-# Scaffold 3 — other: commit-msg hook is absent-unavailable (the *) catch-all,
-# surfaced at the enforcement tier — must NOT launder a bug into a fact.
+# Scaffold 3 — other: commit-msg hook is PRESENT. The `other` catch-all language
+# likewise gets the universal commit-msg gate (# BL-107-UNIVERSAL-INSTALL, PR
+# #205); pre-BL-107 it recorded absent-unavailable. A LEGACY manifest still
+# carrying absent-unavailable is surfaced as a finding at the enforcement tier,
+# never laundered into a fact — but a fresh scaffold records `present`.
 # ════════════════════════════════════════════════════════════════════════════
 echo "=== Scaffolding 'other'-language project via real init.sh (hermetic) ==="
 OT="$TOPTMP/ot"
 if run_init other curbl109ot "$OT"; then
   st="$(jq -r '.currency.hooks["commit-msg"]' "$OT/.claude/manifest.json")"
-  [ "$st" = "absent-unavailable" ] \
-    && pass "other -> commit-msg absent-unavailable" \
-    || fail_ "other commit-msg" "expected absent-unavailable, got [$st]"
+  [ "$st" = "present" ] \
+    && pass "other -> commit-msg present (BL-107 universal install)" \
+    || fail_ "other commit-msg" "expected present (# BL-107-UNIVERSAL-INSTALL, PR #205), got [$st]"
 else
   fail_ "other-scaffold-init" "init.sh exited non-zero; stderr tail: $(tail -6 "$TOPTMP/curbl109ot.err" | tr '\n' '|')"
 fi
