@@ -4096,6 +4096,7 @@ BL-131 ships a new vendored artifact, `templates/semgrep/soif-dom-sinks.yml`, th
 **Logged:** 2026-07-24 (BL-131/132 WP-A fable verifier, F4)
 **Category:** Bug / security enforcement — index-materialization edge case (case-insensitive FS)
 **Severity:** Low
+**Status:** Open
 
 The BL-132 SAST arm materializes each staged blob into a single `mktemp -d` tree at its repo-relative path (`# BL-132-INDEX-SCAN` in `scripts/lib/hook-templates.sh`). On a case-INSENSITIVE filesystem (macOS APFS default, Windows NTFS), staging two files whose paths differ only in case — e.g. `Widget.ts` (containing the vuln) and `widget.ts` (clean) — collides in the temp tree: the second `git cat-file blob` write lands on the SAME on-disk path, overwriting the first blob. If the clean file materializes last, the vuln blob is lost and the commit lands `[OK]` (verifier F4, reproduced). FIX B (explicit file targets) does NOT close this — the collision happens at materialization, before target selection — and the F2 content-size guard does not catch it (each write is internally consistent; it is the earlier blob that was clobbered).
 
