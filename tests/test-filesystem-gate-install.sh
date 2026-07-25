@@ -114,6 +114,54 @@ else
 fi
 teardown
 
+# T8: pass-arm coverage — a CLEAN commit through the installed gate writes the
+# .claude/last-gate-pass.txt receipt (BL-161) and appends NO row to the tracked
+# .claude/bypass-audit.json. Before T8 this installer suite was BLIND to the PASS
+# terminal: it stayed green under both BL-161 receipt mutations, so it could not
+# catch a regression in the clean-pass receipt path. Fixture mirrors
+# tests/test-bl161-ledger-real-events-only.sh T1 — the REAL installer + generated
+# framework-gate, with process-checklist / pre-commit-gate STUBS whose exit 0 is
+# the PASS verdict. The generated gate re-invokes the project's OWN
+# scripts/install-filesystem-gates.sh __record_pass, so the fixture copies it in.
+echo "T8: clean commit writes last-gate-pass.txt receipt, no tracked-ledger row"
+if [ ! -f "$INSTALLER" ]; then
+  fail_ "T8" "installer missing"
+elif ! command -v jq >/dev/null 2>&1; then
+  echo "  [SKIP] T8 — jq required for the strict-gate pass path"
+else
+  TMP=$(mktemp -d)
+  mkdir -p "$TMP/.claude" "$TMP/scripts" "$TMP/src"
+  printf '{"frameworkVersion":"test","enforcement_level":"strict"}\n' > "$TMP/.claude/manifest.json"
+  printf '[]\n' > "$TMP/.claude/bypass-audit.json"
+  cp "$INSTALLER" "$TMP/scripts/install-filesystem-gates.sh"
+  chmod +x "$TMP/scripts/install-filesystem-gates.sh"
+  printf '#!/bin/sh\nexit 0\n' > "$TMP/scripts/process-checklist.sh"
+  printf '#!/bin/sh\nexit 0\n' > "$TMP/scripts/pre-commit-gate.sh"
+  chmod +x "$TMP/scripts/process-checklist.sh" "$TMP/scripts/pre-commit-gate.sh"
+  ( cd "$TMP" && git init -q && git config user.email t@t.l && git config user.name t \
+      && git add -A && git commit -q -m "chore: seed" ) >/dev/null 2>&1
+  bash "$INSTALLER" --install "$TMP" >/dev/null 2>&1
+  printf 'export const x = 1;\n' > "$TMP/src/widget.ts"
+  ( cd "$TMP" && git add src/widget.ts ) >/dev/null 2>&1
+  ledger_before=$(cat "$TMP/.claude/bypass-audit.json")
+  if ( cd "$TMP" && git commit -q -m "chore: land widget" ) >/dev/null 2>&1; then
+    receipt=no
+    if [ -s "$TMP/.claude/last-gate-pass.txt" ]; then receipt=yes; fi
+    passrows=$(jq '[.[] | select(.type=="terminal_commit_passed")] | length' "$TMP/.claude/bypass-audit.json" 2>/dev/null || echo ERR)
+    ledger_after=$(cat "$TMP/.claude/bypass-audit.json")
+    lu=no
+    if [ "$ledger_before" = "$ledger_after" ]; then lu=yes; fi
+    if [ "$receipt" = yes ] && [ "$passrows" = 0 ] && [ "$lu" = yes ]; then
+      pass "T8 (receipt written, 0 terminal_commit_passed rows, tracked ledger byte-unchanged)"
+    else
+      fail_ "T8" "receipt=$receipt terminal_commit_passed_rows=$passrows tracked_ledger_unchanged=$lu (want yes/0/yes)"
+    fi
+  else
+    fail_ "T8" "clean commit REFUSED — the gate should PASS with exit-0 stubs"
+  fi
+  rm -rf "$TMP"
+fi
+
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]
