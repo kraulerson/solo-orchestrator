@@ -2,8 +2,8 @@
 
 **Status:** v1.2.2, 2026-07-25 — **review-r4 (the standing adversarial pr-reviewer, dispatched on PR #269):
 corrections folded** — 2 MAJORs (R-269-1 version-floor story; R-269-2 nonexistent "S5 lint") + 6 minors,
-all mapped in §0; no decision-table, adopted-mechanism, WP-boundary, or acceptance-criterion change.
-Prior: r3 APPROVE at v1.2.1; r1/r2 BLOCK → the v1.1/v1.2 remediations.
+all mapped in §0; no decision-table, adopted-mechanism, or WP-boundary change; WP3/WP4/WP4b/WP5 test intents retuned
+per R-269-3/4/5 (R-269-9 wording precision). Prior: r3 APPROVE at v1.2.1; r1/r2 BLOCK → the v1.1/v1.2 remediations.
 The build of the BL-097 / BL-098 / BL-100 delegation trio is now **un-gated on review**, still sequenced
 after Dogfood-4 per Karl's 2026-07-20 decision; the three backlog entries stay Open until the build
 lands. No product code, template edit, or policy text lands from this work package: design doc only.
@@ -58,7 +58,7 @@ top, not accreted; F1/F2/F3 were refuted "exists" claims — all now re-grepped,
 - **R3-1 → §5.1/§5-s3/Q7** — the `resolvedModel`@v2.1.174 / `modelsUsed`@v2.1.212 pins are **restored**, cited to **hooks.md's `Agent` `tool_response` schema table** (NOT the changelog). **Adjudication:** the r2 doubt was half-right — the changelog has **zero mentions (verified)**, but **hooks.md documents both**; my r2 hooks-docs search was the miss. The refuse-to-launder posture was ruled correct process, and the runtime mechanism **stays feature-detection** (version-proof; a doc-annotation anchor is weak). **Open question 7 is closed (resolved).** Cosmetic: "without an `Agent` matcher" → "whose dispatch tool is not named `Agent`".
 - **R3-2 → §5.1/WP4b** — adopted **STRICT** composition: the gate's names-no-model deny applies even to a role-typed dispatch (`subagent_type:<role>` with no explicit `model`); the shipped role file's frontmatter pin is defense-in-depth, not an exemption (BL-097 r1). Stated so the semantics and WP4b's test list agree.
 
-**v1.2.2 (2026-07-25) — review-r4 amendment map** (the standing adversarial pr-reviewer — `.claude/agents/pr-reviewer.md`, BL-146 — dispatched on PR #269; 2 MAJOR + 6 minor, all folded; no decision-table, adopted-mechanism, WP-boundary, or acceptance-criterion change):
+**v1.2.2 (2026-07-25) — review-r4 amendment map** (the standing adversarial pr-reviewer — `.claude/agents/pr-reviewer.md`, BL-146 — dispatched on PR #269; 2 MAJOR + 6 minor, all folded; no decision-table, adopted-mechanism, or WP-boundary change — WP3/WP4/WP4b/WP5 test intents retuned per R-269-3/4/5, and WP5's shipped attestation word-pair changed per R-269-5):
 
 - **R-269-1 (MAJOR) → §0-R2-4/§5.1×3** — the "uncitable v2.1.63+ / gradual transition / ≥2.1.69" story was FALSE: sub-agents.md documents the `Task`→`Agent` rename at exactly **2.1.63** ("In version 2.1.63, the Task tool was renamed to Agent. Existing `Task(...)` references in settings and agent definitions still work as aliases"). Floor corrected + cited; "gradual transition" deleted; fail-open was never floor-dependent, unchanged.
 - **R-269-2 (MAJOR) → §10-WP6/Q6** — "the S5 lint" does not exist: currency-design slice S5 is UNBUILT (`session-freshness-check.sh`'s MACHINE-BLOCK CONTRACT comment says "S5 will lint it" — future tense; today the `soif-freshness` fence's only consumers are the freshness scripts/tests). Both sites now say so and anchor to that comment.
