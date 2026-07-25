@@ -45,6 +45,15 @@
 #                                 (# BL-178-PER-INDEX-DIR) make the collision
 #                                 impossible. LOUD-SKIPs on a case-sensitive FS
 #                                 (unobservable there, would pass vacuously).
+#   T-index-stage-syntax-path     live — R-270-1B: a repo-ROOT staged path named
+#                                 `0:`..`3:`<something> collides with git's
+#                                 `:<stage>:<path>` MERGE-STAGE revision syntax, so the
+#                                 bare `git cat-file -t ":$soif_p"` fails on a HEALTHY
+#                                 blob; it is no gitlink, so it fell through to
+#                                 `soif_idx_ok=0; break` and the WHOLE commit went
+#                                 NOTRUN while a vulnerable sibling LANDED. The stage-0
+#                                 prefix (# BL-132-STAGE0-REF) disambiguates.
+#                                 RED pre-fix: COMMITTED + "could not materialize".
 #   T-mutation-index-scan         live — revert the emitted hook's scan target to the
 #                                 worktree paths (the pre-BL-132 behaviour) ->
 #                                 T-index-blocks-staged-vuln goes RED (the clean
@@ -492,12 +501,94 @@ else
   fi
 fi
 
+# ── T-index-stage-syntax-path (R-270-1B regression) ──────────────────────────
+# git's REVISION syntax reads `:<0-3>:<path>` as a MERGE-STAGE reference, so a staged
+# path whose REPO-ROOT name begins with `0:`, `1:`, `2:` or `3:` makes the BARE
+# `git cat-file -t ":$soif_p"` FAIL on a perfectly healthy, fully readable blob
+# ("fatal: path 'decoy.js' does not exist ..."). Verified boundaries (git 2.50.1):
+#   0:x.js / 2:x.js / 3:x.js -> FAIL     4:x.js -> blob (only 0-3 are stage digits)
+#   2evil.js -> blob (the colon is required)   sub/2:x.js -> blob (repo ROOT only)
+# Such an entry is NOT a gitlink, so # BL-132-GITLINK-SKIP does not `continue` it: it
+# fell through to `soif_idx_ok=0; break`, which DISCARDS every already-materialized
+# sibling target and routes the WHOLE commit to the loud NOTRUN — so a genuinely
+# vulnerable SIBLING file LANDS. That is a security-lane regression versus main, the
+# same "one bad entry blinds the whole commit" mechanism as R-270-1 (the gitlink bug).
+# The fix pins the stage explicitly (`:0:$soif_p`, # BL-132-STAGE0-REF) at all three
+# cat-file sites; `:0:` still resolves ordinary paths. The `:(literal)` gitlink probe
+# is a PATHSPEC, not a revision, and was verified immune — it is deliberately unchanged.
+# RED pre-fix: COMMITTED + "could not materialize staged content".
+echo "=== T-index-stage-syntax-path ==="
+if [ "$HAVE_SEMGREP" -eq 0 ]; then
+  skip_ "T-index-stage-syntax-path" "semgrep ABSENT — skip, not pass"
+else
+  R8="$TOPTMP/stagesyn"
+  SS_DECOY='0:decoy.js'
+  if ! mk_repo "$R8" "$EMITTED"; then
+    fail_ "T-index-stage-syntax-path" "repo setup failed"
+  else
+    # BOTH files carry a sink the shipped rulesets catch, so BOTH must be NAMED: the
+    # decoy proves the `0:`-prefixed entry was itself materialized and scanned (not
+    # merely skipped), the sibling proves it did not blind the rest of the commit.
+    printf '%s\n' "$IA_SINK" > "$R8/$SS_DECOY" 2>/dev/null || true
+    printf '%s\n' "$XSS_TS"  > "$R8/app.ts"
+    ( cd "$R8" && git add -- "$SS_DECOY" app.ts ) >/dev/null 2>&1
+    SS_STAGED="$( cd "$R8" && git diff --cached --name-only --diff-filter=ACM | tr '\n' ' ' )"
+    # Fixture-validity probes: the case proves nothing unless BOTH paths really staged
+    # AND this git really does show the collision (bare form fails, stage-0 succeeds).
+    SS_BARE_FAILS=0
+    ( cd "$R8" && git cat-file -t ":$SS_DECOY" ) >/dev/null 2>&1 || SS_BARE_FAILS=1
+    SS_STAGE0_OK=0
+    [ "$( cd "$R8" && git cat-file -t ":0:$SS_DECOY" 2>/dev/null )" = "blob" ] && SS_STAGE0_OK=1
+    if [ "$SS_STAGED" != "$SS_DECOY app.ts " ]; then
+      skip_ "T-index-stage-syntax-path" "could not stage the '$SS_DECOY' + app.ts pair (staged='$SS_STAGED') — a ':' in a filename may be unrepresentable here; regression UNPROVEN"
+    elif [ "$SS_BARE_FAILS" -ne 1 ] || [ "$SS_STAGE0_OK" -ne 1 ]; then
+      skip_ "T-index-stage-syntax-path" "this git shows no stage-syntax collision (bare-fails=$SS_BARE_FAILS stage0-blob=$SS_STAGE0_OK) — the case would pass vacuously"
+    else
+      H0="$(head_of "$R8")"
+      if ( cd "$R8" && git commit -m "feat: decoy + app" ) >"$TOPTMP/o8" 2>&1; then V=COMMITTED; else V=REFUSED; fi
+      H1="$(head_of "$R8")"
+      if [ "$V" = "COMMITTED" ]; then
+        if grep -qF 'could not materialize staged content' "$TOPTMP/o8"; then
+          fail_ "T-index-stage-syntax-path" "the staged '$SS_DECOY' hit git's :<stage>:<path> revision syntax on a HEALTHY blob, ABORTED materialization and routed the WHOLE commit to NOTRUN — the sibling app.ts innerHTML XSS LANDED (R-270-1B): $(grep -E 'SAST NOT ENFORCED|could not materialize' "$TOPTMP/o8" | head -1)"
+        elif not_enforced "$TOPTMP/o8"; then
+          skip_ "T-index-stage-syntax-path" "scanner did not run (registry unreachable?) — blocking UNPROVEN here"
+        else
+          fail_ "T-index-stage-syntax-path" "staged sinks COMMITTED alongside a '$SS_DECOY' path: $(grep -E '\[OK\]|\[BLOCKED\]' "$TOPTMP/o8" | head -1)"
+        fi
+      elif ! grep -q "\[BLOCKED\]" "$TOPTMP/o8"; then
+        fail_ "T-index-stage-syntax-path" "refused but without [BLOCKED] (wrong reason): $(tail -3 "$TOPTMP/o8" | tr '\n' '|')"
+      elif [ "$H0" != "$H1" ]; then
+        fail_ "T-index-stage-syntax-path" "non-zero exit but HEAD MOVED"
+      elif ! grep -qF "$SS_DECOY" "$TOPTMP/o8"; then
+        fail_ "T-index-stage-syntax-path" "blocked, but the '$SS_DECOY' entry itself was never NAMED — it was silently skipped rather than scanned"
+      elif ! grep -q 'app\.ts' "$TOPTMP/o8"; then
+        fail_ "T-index-stage-syntax-path" "blocked, but the SIBLING app.ts was not NAMED — the '$SS_DECOY' entry still cost the commit its sibling coverage"
+      elif grep -qE '/var/folders/|/tmp/tmp\.' "$TOPTMP/o8"; then
+        fail_ "T-index-stage-syntax-path" "raw mktemp temp-tree prefix leaked into output (F3)"
+      elif grep -qE '(^|[^A-Za-z0-9_./-])[0-9][0-9]*/(0:decoy\.js|app\.ts)' "$TOPTMP/o8"; then
+        fail_ "T-index-stage-syntax-path" "the per-index temp SUBDIR number leaked into a reported path — the operator is shown a path that exists nowhere"
+      else
+        pass "T-index-stage-syntax-path: a repo-root '$SS_DECOY' no longer collides with git stage syntax — BOTH it and its sibling app.ts are scanned + REFUSED, both real repo-relative paths shown"
+      fi
+    fi
+  fi
+fi
+
 # ── T-mutation-content-guard (F2: empty/partial materialize -> loud NOTRUN) ───
 # The F2 size check turns an empty/partial materialization into a LOUD NOTRUN
 # instead of scanning an empty file and passing [OK]. The GREEN direction fires
 # BEFORE semgrep runs (no registry needed): force the materialization to write
 # empty/partial dests and the content check must NOTRUN. The RED direction removes
 # F2 so the empty scan passes [OK] silently (needs the registry, LOUD-SKIP if down).
+#
+# ANCHOR COUPLING — the two _idx_mutate anchors below are the EXACT emitted
+# materialization line, matched literally (awk index(), `exit 3` unless it appears
+# EXACTLY once). They are therefore coupled to # BL-132-STAGE0-REF: changing the
+# emitted index reference (`:$soif_p` -> `:0:$soif_p`) makes this case report
+# MIS-TARGETED rather than pass vacuously, and the anchor must be retargeted in
+# lockstep. Keep the anchor a FULL literal — never relax it to a prefix that would
+# match both the stage-explicit and the bare form, because the whole point of the
+# exactly-once check is to notice when the surface it attacks has moved.
 echo "=== T-mutation-content-guard ==="
 if [ "$HAVE_SEMGREP" -eq 0 ]; then
   skip_ "T-mutation-content-guard" "semgrep ABSENT — skip, not pass"
@@ -512,9 +603,9 @@ else
   }
   cg_setup=1
   MEMPTY="$TOPTMP/cg-empty"
-  _idx_mutate "$EMITTED" 'git cat-file blob ":$soif_p" > "$soif_idx_dest"' ': > "$soif_idx_dest"' > "$MEMPTY" || cg_setup=0
+  _idx_mutate "$EMITTED" 'git cat-file blob ":0:$soif_p" > "$soif_idx_dest"' ': > "$soif_idx_dest"' > "$MEMPTY" || cg_setup=0
   MPART="$TOPTMP/cg-part"
-  _idx_mutate "$EMITTED" 'git cat-file blob ":$soif_p" > "$soif_idx_dest"' 'git cat-file blob ":$soif_p" | head -c 3 > "$soif_idx_dest"' > "$MPART" || cg_setup=0
+  _idx_mutate "$EMITTED" 'git cat-file blob ":0:$soif_p" > "$soif_idx_dest"' 'git cat-file blob ":0:$soif_p" | head -c 3 > "$soif_idx_dest"' > "$MPART" || cg_setup=0
   # F2-removed variant of M-empty: drop exactly the three F2 CHECK lines (keep the
   # soif_idx_files+= collection), so the empty dest is scanned and passes [OK].
   MEMPTY_NOF2="$TOPTMP/cg-empty-nof2"

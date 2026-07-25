@@ -289,9 +289,11 @@ if command -v semgrep &>/dev/null; then
     #   scan), so the "[OK] … ran on N staged file(s)" line reports
     #   ${#soif_idx_files[@]} — what was ACTUALLY targeted — and zero targets routes
     #   to NOTRUN (# BL-132-EMPTY-TARGETS) rather than claiming a scan.
-    # bash-3.2 and NUL-safe: soif_staged was read -z above; each path is used verbatim
-    # and git round-trips it through `git cat-file blob :<path>`. A pathname git cannot
-    # express (a NUL byte) cannot be staged, so it cannot reach here.
+    # bash-3.2 and NUL-safe: soif_staged was read -z above; each path is round-tripped
+    # through `git cat-file blob :0:<path>` — the STAGE-EXPLICIT form, see
+    # # BL-132-STAGE0-REF in the loop; a bare `:<path>` is NOT safe for arbitrary
+    # staged names. A pathname git cannot express (a NUL byte) cannot be staged, so it
+    # cannot reach here.
     soif_idx_tree="$(mktemp -d)"
     soif_idx_ok=1
     soif_idx_files=()
@@ -310,7 +312,7 @@ if command -v semgrep &>/dev/null; then
       # the REAL repo-relative path — never a temp path, never a bare index number.
       soif_idx_n=$((soif_idx_n + 1))
       # BL-132-GITLINK-SKIP — a staged SUBMODULE GITLINK is index mode 160000, NOT a
-      # blob: `git cat-file blob :sub` exits 128. Aborting the loop on it (the first
+      # blob: `git cat-file blob :0:sub` exits 128. Aborting the loop on it (the first
       # cut's bare `break`) DISCARDED every already-materialized target and routed
       # the WHOLE commit to NOTRUN — so a vulnerability staged in a sibling file
       # LANDED, and the trigger is routine (`git submodule add` or a pointer bump in
@@ -319,11 +321,31 @@ if command -v semgrep &>/dev/null; then
       #   THIS IS NOT A BLANKET "unreadable => skip". The skip is gated on the index
       #   MODE being 160000, read back with a `:(literal)` pathspec so a path
       #   containing glob metacharacters or spaces cannot mis-resolve. Anything that
-      #   is neither a blob nor a gitlink — a missing/corrupt object for a REAL
-      #   staged blob — is content we OWE the operator a scan of, and still routes
-      #   to the loud NOTRUN below. Verified: pruning a real blob's object makes
-      #   `cat-file -t` fail while ls-files still reports mode 100644 => NOTRUN.
-      soif_idx_type=$(git cat-file -t ":$soif_p" 2>/dev/null) || soif_idx_type=""
+      #   is neither a blob nor a gitlink is content we OWE the operator a scan of,
+      #   and still routes to the loud NOTRUN below. Verified: pruning a real blob's
+      #   object makes `cat-file -t` fail while ls-files still reports mode 100644.
+      #   CAUTION, and the reason # BL-132-STAGE0-REF below exists: a failing
+      #   `cat-file -t` does NOT imply a missing/corrupt object. An earlier revision
+      #   of this comment enumerated it as the only other cause; R-270-1B REFUTED
+      #   that — it also fails for a perfectly HEALTHY blob when the reference itself
+      #   is mis-parsed. Widen this skip only against a re-derived enumeration.
+      # BL-132-STAGE0-REF — address the index at an EXPLICIT stage, `:0:<path>`, never
+      # a bare `:<path>`. Git reads `:<0-3>:<path>` as a MERGE-STAGE reference, so for
+      # a staged file whose REPO-ROOT name begins with `0:`..`3:` (e.g. `2:evil.js`)
+      # the bare form parses as "stage 2 of evil.js" and FAILS on a fully readable
+      # blob. That is no gitlink, so the skip above does not fire: the entry fell
+      # through to `soif_idx_ok=0; break`, discarding every sibling target and
+      # NOTRUNning the WHOLE commit while a vulnerable sibling LANDED — a security-lane
+      # regression versus main, the same "one bad entry blinds the commit" shape as the
+      # gitlink bug (R-270-1B, reproduced A/B through the real emitter). Boundaries,
+      # verified on git 2.50.1: `0:`/`1:`/`2:`/`3:` at repo ROOT fail bare, while
+      # `4:x.js` (only 0-3 are stage digits), `2evil.js` (the colon is required) and
+      # `sub/2:x.js` (root only) all resolve bare. `:0:` resolves ordinary paths
+      # identically, so it is a strict improvement — and ALL THREE cat-file sites in
+      # this loop must carry it; a bare one anywhere reopens the hole. The `:(literal)`
+      # probe above is a PATHSPEC, not a revision, and was verified immune to this
+      # (a `2:x.js`-shaped path resolves correctly) — it is deliberately left as-is.
+      soif_idx_type=$(git cat-file -t ":0:$soif_p" 2>/dev/null) || soif_idx_type=""
       if [ "$soif_idx_type" != "blob" ]; then
         if git ls-files -s -- ":(literal)$soif_p" 2>/dev/null | grep -q '^160000 '; then
           continue
@@ -333,12 +355,12 @@ if command -v semgrep &>/dev/null; then
       fi
       soif_idx_dest="$soif_idx_tree/$soif_idx_n/$soif_p"
       mkdir -p "$(dirname "$soif_idx_dest")" 2>/dev/null || { soif_idx_ok=0; break; }
-      git cat-file blob ":$soif_p" > "$soif_idx_dest" 2>/dev/null || { soif_idx_ok=0; break; }
+      git cat-file blob ":0:$soif_p" > "$soif_idx_dest" 2>/dev/null || { soif_idx_ok=0; break; }
       # F2 — positive content check: the materialized dest MUST match the staged
       # blob's byte size, so a git read that returns 0 while writing nothing or a
       # short/partial file cannot slip a non-empty staged blob past the scan as an
       # empty file. A mismatch routes to the loud NOTRUN below, never a silent pass.
-      soif_idx_want=$(git cat-file -s ":$soif_p" 2>/dev/null) || soif_idx_want=""
+      soif_idx_want=$(git cat-file -s ":0:$soif_p" 2>/dev/null) || soif_idx_want=""
       soif_idx_got=$(wc -c < "$soif_idx_dest" 2>/dev/null | tr -d '[:space:]') || soif_idx_got=""
       if [ -z "$soif_idx_want" ] || [ "$soif_idx_got" != "$soif_idx_want" ]; then soif_idx_ok=0; break; fi
       soif_idx_files+=("$soif_idx_dest")
