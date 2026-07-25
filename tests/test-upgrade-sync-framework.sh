@@ -568,6 +568,32 @@ t_domsinks_ruleset_current_no_op() {
   rm -rf "$T"
 }
 
+# ── T-domsinks-ruleset-restored-when-hook-current (BL-131, R-270-1) ─────────
+# The "hook already current" sync arm must still self-heal a missing ruleset:
+# hook at the current template + ruleset deleted → re-sync restores the file.
+# Pre-fix, that arm returned before any ensure ran, leaving the hook pointing
+# at a missing config (loud NOTRUN on every commit, no repair via sync).
+t_domsinks_ruleset_restored_when_hook_current() {
+  local T; T=$(mktemp -d); local P="$T/proj"; mk_project "$P"
+  run_sync "$P" --install-hooks >/dev/null
+  if [ ! -f "$P/.semgrep/soif-dom-sinks.yml" ]; then
+    fail_ "T-domsinks-ruleset-restored-when-hook-current" "precondition failed: install did not deliver the ruleset"; rm -rf "$T"; return
+  fi
+  rm -f "$P/.semgrep/soif-dom-sinks.yml"
+  local out; out=$(run_sync "$P" --install-hooks)
+  if ! printf '%s' "$out" | grep -qF 'already current'; then
+    fail_ "T-domsinks-ruleset-restored-when-hook-current" "fixture drift: second sync did not take the already-current arm"; rm -rf "$T"; return
+  fi
+  if [ ! -f "$P/.semgrep/soif-dom-sinks.yml" ]; then
+    fail_ "T-domsinks-ruleset-restored-when-hook-current" "already-current sync left the referenced ruleset MISSING (no self-heal; the hook NOTRUN-warns every commit until verify-install repairs it)"; rm -rf "$T"; return
+  fi
+  if ! cmp -s "$REPO_ROOT/templates/semgrep/soif-dom-sinks.yml" "$P/.semgrep/soif-dom-sinks.yml"; then
+    fail_ "T-domsinks-ruleset-restored-when-hook-current" "restored ruleset does not match the framework copy"; rm -rf "$T"; return
+  fi
+  pass "T-domsinks-ruleset-restored-when-hook-current: already-current hook arm self-heals a missing ruleset"
+  rm -rf "$T"
+}
+
 # ── T-doc-apply-sidecar (reference doc) ─────────────────────────────────────
 # Review round 1 (MAJOR-2): the apply channel is the DECLARED CLI flag
 # --apply-doc-updates; the undeclared SOLO_SYNC_DOC_APPLY env var is gone.
@@ -1721,6 +1747,7 @@ t_legacy_unmarked_precommit_sidecar
 t_domsinks_ruleset_delivered_on_hook_install
 t_domsinks_ruleset_dry_run_no_write
 t_domsinks_ruleset_current_no_op
+t_domsinks_ruleset_restored_when_hook_current
 t_doc_apply_sidecar
 t_doc_noninteractive_no_flag_applies_nothing
 t_doc_overwrite_confirm_declined

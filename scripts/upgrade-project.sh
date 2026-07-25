@@ -940,6 +940,7 @@ _bl099_sync_precommit_hook() {
     current="$(_bl099_extract_region "$hook" "$SOIF_PRECOMMIT_OPEN" "$SOIF_PRECOMMIT_CLOSE")"
     if [ "$current" = "$want" ]; then
       print_ok "  pre-commit fallback hook already current."
+      _bl131_ensure_domsinks_ruleset   # BL-131-DOM-SINKS: self-heal the referenced ruleset even when the hook region is current (R-270-1)
       return 0
     fi
     if [ "$DRY_RUN" = true ]; then
