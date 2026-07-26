@@ -528,19 +528,36 @@ rm -f "$MUTYML"
 # Shared fixture builders for the U6/U7 pair. Identical in every respect
 # except WHERE the init.sh token sits: inside a comment vs. on an executed
 # line. That is the whole A/B.
+#
+# The comment-only fixture carries all THREE comment shapes a shell file can
+# spell, because the predicate needs a distinct regex atom for each and an
+# untested atom is an atom that can be silently reverted:
+#   • column-0 whole-line   — the original BL-181 shape
+#   • INDENTED whole-line   — the dominant form inside a function/if body;
+#     pins the `[[:space:]]*` in the predicate's whole-line stripper
+#   • TRAILING, at the end of an executed line — pins the trailing-comment
+#     stage; without it one repositioned comment still flipped FAIL → PASS
+# Each shape appears ALONE on its line, so any one of them surviving the
+# stripper is enough to re-exempt the file and turn U6 red.
 _bl181_fixture_comment_only() {
   cat > "$TMP/tests/test-bl181-comment-only.sh" <<'SH'
 #!/usr/bin/env bash
 # We bypass init.sh (and its --non-interactive cost) by hand-rolling the
-# fixture below — this test scaffolds nothing and runs in about a second.
-echo "fast unit test — no project scaffolding here"
+# fixture below - this test scaffolds nothing and runs in about a second.
+_hand_roll() {
+  # Indented mention of init.sh - still only a comment, still not an invocation.
+  echo "fast unit test - no project scaffolding here"   # and we never call init.sh
+}
+_hand_roll
 SH
 }
 _bl181_fixture_real_invoker() {
+  # The invocation carries a TRAILING comment of its own: stripping trailing
+  # comments must not truncate away an init.sh that sits BEFORE the `#`.
   cat > "$TMP/tests/test-bl181-real-invoker.sh" <<'SH'
 #!/usr/bin/env bash
 # This test scaffolds a real project (hermetic: --no-remote-creation, BL-076):
-bash "$REPO/init.sh" --no-remote-creation --platform web
+bash "$REPO/init.sh" --no-remote-creation --platform web  # hermetic scaffold
 SH
 }
 # Aggregator that registers both fixture names, and a unit list that lists

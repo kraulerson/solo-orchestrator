@@ -384,15 +384,35 @@ _build_unit_list_set() {
 #   a test exempted by the comment "We bypass init.sh (and its
 #   --non-interactive cost) by hand-rolling the …" — a comment stating the
 #   file does NOT invoke init.sh was what exempted it from the requirement.
-#   The predicate below therefore looks at EXECUTED lines only, reusing
-#   _build_registered_set's whole-line-comment-stripping idiom so both halves
-#   of this lint agree on what "a comment" means.
+#   The predicate below therefore looks at EXECUTED lines only. It needs BOTH
+#   stages, because a shell comment has two spellings and stripping only one
+#   leaves the defect alive in the other:
+#     • `grep -vE '^[[:space:]]*#'` drops WHOLE-LINE comments at any indent —
+#       the `[[:space:]]*` is load-bearing, since an indented comment is the
+#       dominant form inside a function or if-block body;
+#     • the `sed` then drops a TRAILING comment (`code   # note`) — without it
+#       the identical comment TEXT still exempted the file merely by moving to
+#       the end of an executable line, which is verbatim the BL-181 defect.
+#   The sed deliberately requires a NON-SPACE char before the whitespace run,
+#   so it fires only on a real trailing comment and never on a whole-line one
+#   (that stays the grep's job, and keeps the grep's `[[:space:]]*` testable).
+#   NOTE this half of the lint is deliberately STRICTER about what counts as a
+#   comment than _build_registered_set, whose documented contract counts an
+#   inline trailing comment as a real aggregator reference. The two halves
+#   answer different questions and their safe directions differ; do not
+#   "unify" them without re-deriving both contracts.
 #
 # RESIDUAL — KNOWN AND ACCEPTED, NOT A SILENT GAP.
-#   Stripping whole-line comments does NOT catch an `init.sh` mention that
-#   lives inside a quoted string or a heredoc body (e.g. a fixture that WRITES
-#   the token into a generated file). Such a file is still exempted even
-#   though it never executes init.sh. Two things bound that residual:
+#   Stripping comments does NOT catch an `init.sh` mention that lives inside a
+#   quoted string or a heredoc body (e.g. a fixture that WRITES the token into
+#   a generated file); nor a comment introduced with no preceding whitespace
+#   (`foo;#note`), which the sed's non-space-then-space guard skips. Such a
+#   file is still exempted even though it never executes init.sh. Note the
+#   sed's own error direction is the LOUD one: a `#` inside a quoted string can
+#   over-strip the rest of the line, which can only ever REMOVE hits and so
+#   DEMANDS the file into the unit lane — a red lint a human reads, never a
+#   silent exemption. (Measured at the time of the fix: over-stripping
+#   reclassified zero files in tests/.) Two things bound the residual:
 #     • it is conservative in the safe direction only for real invokers — a
 #       wrongly-exempted file is a test that quietly stays out of the fast
 #       lane, the exact BL-181 failure mode, just much rarer;
@@ -414,15 +434,16 @@ _build_unit_list_set() {
 #   size-dependent, so it looks fine on small fixtures and misfires on real
 #   test files: measured on this repo, tests/test-bl112-commit-enforcement.sh
 #   (a genuine init.sh scaffolder) gave rc=141 with `grep -q` and count=4 with
-#   `grep -c`. `grep -c` consumes all of its input, so the upstream grep never
-#   sees a closed pipe and the predicate is deterministic regardless of file
-#   size. Do NOT "simplify" this back to `grep -q`.
+#   `grep -c`. `grep -c` consumes all of its input (as does the `sed` stage
+#   between them), so nothing upstream ever sees a closed pipe and the
+#   predicate is deterministic regardless of file size. Do NOT "simplify" this
+#   back to `grep -q`, and keep every added stage a full-input consumer.
 _check_unit_lane() {
   local file="$1" base="$2" rel="$3"
   local exec_hits
   [ "$UNIT_LANE_ACTIVE" -eq 1 ] || return 0
   case "$base" in test-*.sh) ;; *) return 0 ;; esac
-  exec_hits=$(grep -vE '^[[:space:]]*#' "$file" 2>/dev/null | grep -c 'init\.sh') # BL-181-UNIT-LANE-PREDICATE
+  exec_hits=$(grep -vE '^[[:space:]]*#' "$file" 2>/dev/null | sed 's/\([^[:space:]]\)[[:space:]][[:space:]]*#.*$/\1/' | grep -c 'init\.sh') # BL-181-UNIT-LANE-PREDICATE
   case "$exec_hits" in ''|*[!0-9]*) exec_hits=0 ;; esac
   if [ "$exec_hits" -gt 0 ]; then
     case "$UNIT_LIST_STR" in
