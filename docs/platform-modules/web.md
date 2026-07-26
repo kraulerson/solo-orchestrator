@@ -220,6 +220,8 @@ The commit-time SAST gate (the generated `.git/hooks/pre-commit`) and the genera
 
 The gate is a fast **tripwire**, not a proof of safety: prefer `textContent` / `insertAdjacentText` or an explicit sanitizer (e.g. DOMPurify) for any attacker-influenced markup, and rely on the CSP (§4.4) and code review as the defense-in-depth layers behind it. If semgrep cannot run (absent, offline registry, or a missing `.semgrep/soif-dom-sinks.yml`), the arm WARNs **loudly** ("SAST NOT ENFORCED") rather than passing silently — a not-run scan is never a clean scan.
 
+**What the arm scans, and what "partial" means.** Targets are the **staged blobs** for every added, copied, modified or **renamed** path (`--diff-filter=ACMR`) — a rename-and-edit commit is scanned at its *destination*, and staged deletions are excluded because a deleted path has no content to scan. If a staged entry cannot be read out of the index (an unreadable object, a path the filesystem cannot express as a temp destination), the arm **scans everything else and reports the gap by name** rather than abandoning the commit's coverage: a finding in the readable subset still **blocks**, and a clean result over a partial set gets the loud "SAST NOT ENFORCED" report — never the `[OK] semgrep: SAST ran on N staged file(s)` receipt, which is emitted **only** when every staged blob was scanned. The arm always prints one of those verdicts; silence is never one of its outcomes.
+
 ---
 
 ## 5. Deployment & Distribution
