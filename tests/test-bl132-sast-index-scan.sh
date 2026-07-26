@@ -49,11 +49,63 @@
 #                                 `0:`..`3:`<something> collides with git's
 #                                 `:<stage>:<path>` MERGE-STAGE revision syntax, so the
 #                                 bare `git cat-file -t ":$soif_p"` fails on a HEALTHY
-#                                 blob; it is no gitlink, so it fell through to
-#                                 `soif_idx_ok=0; break` and the WHOLE commit went
+#                                 blob; it is no gitlink, so it fell through to the
+#                                 then-existing `soif_idx_ok=0; break` (retired by
+#                                 # BL-182-PER-ENTRY-SKIP) and the WHOLE commit went
 #                                 NOTRUN while a vulnerable sibling LANDED. The stage-0
-#                                 prefix (# BL-132-STAGE0-REF) disambiguates.
+#                                 prefix (# BL-132-STAGE0-REF) disambiguates; after
+#                                 BL-182 the same entry would instead forfeit the
+#                                 commit's [OK] receipt, so the prefix still earns it.
 #                                 RED pre-fix: COMMITTED + "could not materialize".
+#   T-rename-edit-scanned         live — BL-179: `diff.renames` defaults TRUE, so a
+#                                 rename-AND-edit commit is one status-R entry, which
+#                                 `--diff-filter=ACM` EXCLUDED. soif_staged came back
+#                                 empty and the arm (a `-gt 0` wrapper with no `else`)
+#                                 was skipped IN SILENCE. Filter -> ACMR. RED pre-fix:
+#                                 COMMITTED with ZERO SAST lines in the log.
+#   T-rename-only-not-silent      live — the residual R100 shape: a content-free rename
+#                                 must LAND but still be RECEIPTED. Pins the SILENCE.
+#   T-delete-only-honest          live — D stays OUT of the filter (do NOT copy the
+#                                 BL-125 arm's ACMDR): a deleted path has no staged
+#                                 blob, so including it would manufacture an unreadable
+#                                 entry. Deletion-only must land, be receipted, and
+#                                 never reach the loop with a blob-less entry.
+#   T-partial-clean-no-receipt    live — BL-182: one staged entry cannot be
+#                                 materialized, every other scans CLEAN. That is NOT a
+#                                 clean commit: NO [OK] receipt, loud NOTRUN, and the
+#                                 unreadable entry NAMED. RED pre-fix: the whole-commit
+#                                 abort names nothing and leaks a raw tool diagnostic.
+#   T-partial-vuln-still-blocks   live — BL-182, the regression the all-or-nothing
+#                                 `break` actually caused: one unreadable entry
+#                                 DISCARDED every materialized sibling, so a sibling's
+#                                 sink LANDED. A partial scan that finds a vuln must
+#                                 still [BLOCKED].
+#   T-gitlink-not-counted-unread  live — the two per-entry `continue`s mean OPPOSITE
+#                                 things: a gitlink is skipped with NO trace (not
+#                                 content), an unreadable entry forfeits the whole
+#                                 commit's [OK] and is named. Pins both directions of
+#                                 that distinction in one commit.
+#   T-pathmax-sibling-caught      live — BL-182's original trigger: a repo-relative path
+#                                 that overflows PATH_MAX under the mktemp temp root.
+#                                 Fires at the dirname/mkdir recovery point (the
+#                                 LONG_NAME cases fire at the write point). LOUD-SKIPs
+#                                 where the host can express the path.
+#   T-mutation-rename-filter      live — proof (a): ACMR -> ACM -> the rename case LANDS
+#                                 in silence (RED) -> restore -> REFUSED (GREEN).
+#   T-mutation-delete-filter      live — ACMR -> ACMDR -> a deletion-only commit reports
+#                                 lost coverage on a phantom entry (RED) -> restore ->
+#                                 honest receipt, no phantom (GREEN).
+#   T-mutation-empty-staged-silence  neuter the empty-staged report -> a deletion-only
+#                                 commit goes TOTALLY SILENT again (RED) -> restore ->
+#                                 receipted (GREEN). Pins the second half of BL-179.
+#                                 Needs no semgrep — an empty target set never reaches
+#                                 the scanner.
+#   T-mutation-partial-break      live — proof (b): restore the all-or-nothing recovery
+#                                 -> the partial+vuln case LANDS the sibling XSS (RED)
+#                                 -> restore per-entry recovery -> REFUSED (GREEN).
+#   T-mutation-partial-receipt    live — proof (c): disarm the no-unearned-receipt guard
+#                                 -> a clean-but-partial scan prints [OK] (RED) ->
+#                                 restore -> loud partial NOTRUN (GREEN).
 #   T-mutation-index-scan         live — revert the emitted hook's scan target to the
 #                                 worktree paths (the pre-BL-132 behaviour) ->
 #                                 T-index-blocks-staged-vuln goes RED (the clean
@@ -127,6 +179,48 @@ IA_SINK='function render(el, u) {
   el.insertAdjacentHTML("beforeend", u);
 }'
 
+# ── BL-179 rename fixtures ───────────────────────────────────────────────────
+# git only reports a RENAME (status R) when the destination is similar enough to the
+# source; below the threshold it reports A + D instead — and A is in ACM, so the
+# defect does not even trigger. VERIFIED on this host (git 2.50.1): a 3-line file
+# flipping textContent -> innerHTML scored `A new.ts / D old.ts`, NOT R. These
+# fixtures carry padding so a single-line edit keeps similarity high and the staged
+# status really is R. Every case that depends on it re-probes `--name-status` and
+# LOUD-SKIPs when git disagrees, rather than passing vacuously.
+REN_SAFE='export function render(pane: HTMLElement, userText: string) {
+  const a1 = 1; const a2 = 2; const a3 = 3; const a4 = 4;
+  const a5 = 5; const a6 = 6; const a7 = 7; const a8 = 8;
+  const a9 = 9; const b1 = 10; const b2 = 11; const b3 = 12;
+  const b4 = 13; const b5 = 14; const b6 = 15; const b7 = 16;
+  pane.textContent = userText;
+}'
+REN_VULN='export function render(pane: HTMLElement, userText: string) {
+  const a1 = 1; const a2 = 2; const a3 = 3; const a4 = 4;
+  const a5 = 5; const a6 = 6; const a7 = 7; const a8 = 8;
+  const a9 = 9; const b1 = 10; const b2 = 11; const b3 = 12;
+  const b4 = 13; const b5 = 14; const b6 = 15; const b7 = 16;
+  pane.innerHTML = userText;
+}'
+
+# ── BL-182 unreadable-entry generators ───────────────────────────────────────
+# Two staged entries that the INDEX can hold but the FILESYSTEM cannot express as a
+# materialization destination — the shape that used to abort the whole loop:
+#   LONG_NAME  a 303-byte single path COMPONENT. Every POSIX filesystem caps a
+#              component at NAME_MAX (255), so the `git cat-file blob > $dest`
+#              REDIRECT fails with ENAMETOOLONG regardless of how short the temp root
+#              is. Host-independent, which is why it is the primary generator here.
+#   LONG_PATH  a 1015-byte repo-relative path — the ORIGINAL BL-182 trigger. Whether
+#              it overflows depends on the mktemp root length vs PATH_MAX, so its case
+#              probes the host and LOUD-SKIPs if this host can represent it.
+LONG_NAME=""
+_bl182_i=0
+while [ "$_bl182_i" -lt 30 ]; do LONG_NAME="${LONG_NAME}0123456789"; _bl182_i=$((_bl182_i + 1)); done
+LONG_NAME="${LONG_NAME}.ts"
+LONG_PATH=""
+_bl182_i=0
+while [ "$_bl182_i" -lt 24 ]; do LONG_PATH="${LONG_PATH}d0123456789012345678901234567890123456789/"; _bl182_i=$((_bl182_i + 1)); done
+LONG_PATH="${LONG_PATH}long.js"
+
 # mk_repo <dir> <hookfile>: fresh repo w/ local identity + one benign commit landed
 # BEFORE the hook is installed, then the given hook installed as pre-commit and the
 # BL-131 ruleset placed at .semgrep/ (the emitted hook references it by --config).
@@ -147,6 +241,74 @@ mk_repo() {
 
 head_of() { ( cd "$1" && git rev-parse HEAD 2>/dev/null ) || echo none; }
 not_enforced() { grep -q "SAST NOT ENFORCED" "$1"; }
+
+# mk_repo_seeded <dir> <hookfile> <seedpath> <seedcontent>: mk_repo, then land ONE
+# more commit carrying <seedpath> BEFORE the hook is armed — so the seed does not pay
+# for a semgrep run and cannot be blocked. Needed by every rename/deletion fixture:
+# a rename has to have something to rename FROM.
+mk_repo_seeded() {
+  local d="$1" hook="$2" sp="$3" sc="$4"
+  mk_repo "$d" "$hook" || return 1
+  rm -f "$d/.git/hooks/pre-commit"
+  printf '%s\n' "$sc" > "$d/$sp"
+  ( cd "$d" && git add -- "$sp" && git commit -q -m "chore: seed $sp" ) || return 1
+  cp "$hook" "$d/.git/hooks/pre-commit"
+  chmod +x "$d/.git/hooks/pre-commit"
+}
+
+# any_sast_line <log>: TRUE iff the SAST arm said ANYTHING AT ALL.
+#   THIS IS THE BL-179 ASSERTION AND IT IS DELIBERATELY SHAPED AS THE ABSENCE OF AN
+#   ABSENCE. The rename-and-edit defect is SILENCE — soif_staged came back empty and
+#   the arm was wrapped in a `-gt 0` test with no `else`, so there was no [OK], no
+#   [BLOCKED], and not even the loud NOTRUN. A `! grep [BLOCKED]` assertion PASSES
+#   VACUOUSLY on that: "no [BLOCKED]" is exactly what total silence looks like. Only
+#   an assertion that some verdict WAS printed can tell a scan that cleared the commit
+#   apart from a scanner that was never asked.
+any_sast_line() { grep -qE '\[OK\] semgrep: SAST ran|\[BLOCKED\] Semgrep|SAST NOT ENFORCED' "$1"; }
+
+# stage_index_only <repo> <path> <content>: hash <content> into the object store and
+# add it to the INDEX at <path> WITHOUT ever creating a worktree file. The BL-182
+# entries cannot exist on disk (a 303-byte name component, a 1015-byte path), but the
+# index holds them happily — which is the whole defect: legal in the index, and the
+# materialization destination is what overflows.
+stage_index_only() {
+  local d="$1" p="$2" c="$3" sha
+  sha="$( printf '%s\n' "$c" | ( cd "$d" && git hash-object -w --stdin ) )" || return 1
+  [ -n "$sha" ] || return 1
+  ( cd "$d" && git update-index --add --cacheinfo "100644,$sha,$p" ) >/dev/null 2>&1
+}
+
+# fs_can_hold_name <name>: TRUE iff this filesystem accepts <name> as a single path
+# component. The LONG_NAME generator only proves anything where it FAILS.
+fs_can_hold_name() {
+  local probe="$TOPTMP/nameprobe"
+  rm -rf "$probe"; mkdir -p "$probe" || return 0
+  ( : > "$probe/$1" ) 2>/dev/null || { rm -rf "$probe"; return 1; }
+  rm -rf "$probe"; return 0
+}
+
+# _del_commit <hookfile> <log> -> COMMITTED|REFUSED|SETUPFAIL: land a clean file, then
+# commit its PURE DELETION through <hookfile>. Shared by the two mutation cases that
+# attack the deletion/empty-staged shapes; needs no semgrep, because a deletion-only
+# commit has no content for the scanner to look at — which is the entire point.
+_del_commit() {
+  local d; d="$(mktemp -d)"
+  mk_repo_seeded "$d" "$1" gone.ts "$REN_SAFE" >/dev/null 2>&1 || { rm -rf "$d"; echo SETUPFAIL; return; }
+  ( cd "$d" && git rm -q gone.ts ) >/dev/null 2>&1
+  if ( cd "$d" && git commit -m "chore: drop dead module" ) >"$2" 2>&1; then echo COMMITTED; else echo REFUSED; fi
+  rm -rf "$d"
+}
+
+# temp_tree_can_hold_path <relpath>: TRUE iff a mktemp -d root + the BL-178 per-index
+# segment + <relpath> is expressible on this host. The PATH_MAX case only proves
+# anything where it is NOT.
+temp_tree_can_hold_path() {
+  local t rc=0
+  t="$(mktemp -d)" || return 0
+  mkdir -p "$( dirname "$t/1/$1" 2>/dev/null )" 2>/dev/null || rc=1
+  rm -rf "$t"
+  [ "$rc" -eq 0 ]
+}
 
 # stage_then_overwrite <repo> <staged-content> <worktree-content> <log>
 #   Stage app.ts with <staged-content>, then overwrite the worktree copy with
@@ -327,7 +489,8 @@ fi
 
 # ── T-index-gitlink-not-blinding (R-270-1 regression) ────────────────────────
 # A staged SUBMODULE GITLINK is index mode 160000, NOT a blob: `git cat-file blob
-# :sub` exits 128. The first cut's `|| { soif_idx_ok=0; break; }` therefore threw
+# :sub` exits 128. The first cut's `|| { soif_idx_ok=0; break; }` (long since retired
+# by # BL-182-PER-ENTRY-SKIP — quoted here as history, not as a code citation) threw
 # away EVERY already-materialized target and routed the WHOLE commit to NOTRUN, so
 # a vulnerability staged in a sibling file LANDED. Trigger is routine: a
 # `git submodule add` / pointer bump in the same commit as application code.
@@ -509,10 +672,14 @@ fi
 #   0:x.js / 2:x.js / 3:x.js -> FAIL     4:x.js -> blob (only 0-3 are stage digits)
 #   2evil.js -> blob (the colon is required)   sub/2:x.js -> blob (repo ROOT only)
 # Such an entry is NOT a gitlink, so # BL-132-GITLINK-SKIP does not `continue` it: it
-# fell through to `soif_idx_ok=0; break`, which DISCARDS every already-materialized
-# sibling target and routes the WHOLE commit to the loud NOTRUN — so a genuinely
-# vulnerable SIBLING file LANDS. That is a security-lane regression versus main, the
-# same "one bad entry blinds the whole commit" mechanism as R-270-1 (the gitlink bug).
+# fell through to the loop's then-existing `soif_idx_ok=0; break` (that statement is
+# GONE — # BL-182-PER-ENTRY-SKIP retired it; this paragraph is history, not a code
+# citation), which DISCARDED every already-materialized sibling target and routed the
+# WHOLE commit to the loud NOTRUN — so a genuinely vulnerable SIBLING file LANDED. That
+# was a security-lane regression versus main, the same "one bad entry blinds the whole
+# commit" mechanism as R-270-1 (the gitlink bug). THE CASE STILL EARNS ITS KEEP after
+# BL-182: without the `:0:` prefix such an entry becomes an UNREADABLE entry, which now
+# forfeits the commit's [OK] receipt over content that was readable all along.
 # The fix pins the stage explicitly (`:0:$soif_p`, # BL-132-STAGE0-REF) at all three
 # cat-file sites; `:0:` still resolves ordinary paths. The `:(literal)` gitlink probe
 # is a PATHSPEC, not a revision, and was verified immune — it is deliberately unchanged.
@@ -574,6 +741,345 @@ else
   fi
 fi
 
+# ── T-rename-edit-scanned (BL-179) ───────────────────────────────────────────
+# `diff.renames` defaults to TRUE, so a commit that RENAMES a file and EDITS it in the
+# same breath is a single status-R entry — and the old `--diff-filter=ACM` EXCLUDED R.
+# soif_staged came back EMPTY, the arm's `-gt 0` wrapper had NO `else`, and the whole
+# scanner was skipped IN SILENCE: no [OK], no [BLOCKED], not even the loud NOTRUN.
+# Rename-and-edit is one of the most routine commit shapes there is, so this was a
+# security tripwire that a plain refactor walked straight through. Filter -> ACMR; the
+# `-z --name-only` output for an R entry is the DESTINATION, and `:0:<dest>` resolves
+# to the staged blob, so the materialization loop needs no change.
+# RED pre-fix: COMMITTED, HEAD moves, the sink is in `git show HEAD:new.ts`, and the
+# log carries ZERO SAST lines.
+echo "=== T-rename-edit-scanned ==="
+if [ "$HAVE_SEMGREP" -eq 0 ]; then
+  skip_ "T-rename-edit-scanned" "semgrep ABSENT — skip, not pass"
+else
+  R9="$TOPTMP/renedit"
+  if ! mk_repo_seeded "$R9" "$EMITTED" old.ts "$REN_SAFE"; then
+    fail_ "T-rename-edit-scanned" "repo setup failed"
+  else
+    ( cd "$R9" && git mv old.ts new.ts ) >/dev/null 2>&1
+    printf '%s\n' "$REN_VULN" > "$R9/new.ts"
+    # PATHSPEC-SCOPED to the DESTINATION ONLY, and both halves of that matter:
+    #   • a bare `git add -A` also sweeps in the untracked .semgrep/soif-dom-sinks.yml
+    #     mk_repo drops in, giving the arm a second staged entry to scan and receipt —
+    #     the case would then "see SAST output" while the renamed destination went
+    #     unscanned, i.e. pass for entirely the wrong reason;
+    #   • the source must NOT be listed: `git mv` already removed old.ts from the index
+    #     AND the worktree, so `git add -- old.ts new.ts` dies with "pathspec 'old.ts'
+    #     did not match any files" and stages NOTHING — the index keeps the pre-edit
+    #     blob, the rename scores 100%, and the fixture silently has no vuln in it.
+    ( cd "$R9" && git add -- new.ts ) >/dev/null 2>&1
+    RN_STATUS="$( cd "$R9" && git diff --cached --name-status | tr '\n' ' ' )"
+    # FIXTURE-VALIDITY PROBE, learned the hard way: an add that stages nothing leaves a
+    # 100%-similar rename with no sink in it, and every downstream assertion then passes
+    # for free. Assert the sink is really in the STAGED destination blob.
+    RN_HAS_SINK=0
+    ( cd "$R9" && git cat-file blob ":0:new.ts" 2>/dev/null ) | grep -q 'innerHTML' && RN_HAS_SINK=1
+    if [ "$RN_HAS_SINK" -ne 1 ]; then
+      fail_ "T-rename-edit-scanned" "FIXTURE INVALID — the staged destination blob does not contain the innerHTML sink (name-status='$RN_STATUS'); the edit never reached the index, so the case would prove nothing"
+    elif ! ( cd "$R9" && git diff --cached --name-status | grep -q '^R' ); then
+      skip_ "T-rename-edit-scanned" "git did not report a RENAME here (name-status='$RN_STATUS') — either diff.renames is off or the edit dropped similarity below the threshold, so the ACM-excludes-R defect cannot trigger and this case would pass vacuously"
+    else
+      H0="$(head_of "$R9")"
+      if ( cd "$R9" && git commit -m "refactor: rename and harden render" ) >"$TOPTMP/o9" 2>&1; then V=COMMITTED; else V=REFUSED; fi
+      H1="$(head_of "$R9")"
+      if ! any_sast_line "$TOPTMP/o9"; then
+        fail_ "T-rename-edit-scanned" "the SAST arm said NOTHING AT ALL on a rename-and-edit commit (name-status='$RN_STATUS') — no [OK], no [BLOCKED], not even the loud NOTRUN: --diff-filter=ACM excludes R, so soif_staged was EMPTY and the arm was skipped in silence (BL-179); verdict=$V"
+      elif [ "$V" = "COMMITTED" ]; then
+        if not_enforced "$TOPTMP/o9"; then
+          skip_ "T-rename-edit-scanned" "scanner did not run (registry unreachable?) — blocking UNPROVEN here"
+        else
+          fail_ "T-rename-edit-scanned" "the rename DESTINATION's innerHTML XSS COMMITTED: $(grep -E '\[OK\]|\[BLOCKED\]' "$TOPTMP/o9" | head -1)"
+        fi
+      elif ! grep -q "\[BLOCKED\]" "$TOPTMP/o9"; then
+        fail_ "T-rename-edit-scanned" "refused but without [BLOCKED] (wrong reason): $(tail -3 "$TOPTMP/o9" | tr '\n' '|')"
+      elif [ "$H0" != "$H1" ]; then
+        fail_ "T-rename-edit-scanned" "non-zero exit but HEAD MOVED"
+      elif ! grep -q 'new\.ts' "$TOPTMP/o9"; then
+        fail_ "T-rename-edit-scanned" "blocked, but the finding did not name the rename DESTINATION new.ts: $(tail -5 "$TOPTMP/o9" | tr '\n' '|')"
+      elif grep -qE '/var/folders/|/tmp/tmp\.' "$TOPTMP/o9"; then
+        fail_ "T-rename-edit-scanned" "raw mktemp temp-tree prefix leaked into output (F3)"
+      else
+        pass "T-rename-edit-scanned: a rename-and-edit commit IS scanned — the destination's staged XSS is REFUSED and new.ts is named (BL-179)"
+      fi
+    fi
+  fi
+fi
+
+# ── T-rename-only-not-silent (BL-179) ────────────────────────────────────────
+# The residual rename case: R100, no content change. It has staged content (the
+# destination), so it MUST be scanned and receipted — and pre-fix it produced the same
+# total silence as the rename-and-edit shape. This case exists to pin the SILENCE, not
+# the blocking: the commit is clean, so the only observable that can distinguish "the
+# gate ran and cleared it" from "the gate was never asked" is the receipt itself.
+echo "=== T-rename-only-not-silent ==="
+if [ "$HAVE_SEMGREP" -eq 0 ]; then
+  skip_ "T-rename-only-not-silent" "semgrep ABSENT — skip, not pass"
+else
+  RA="$TOPTMP/renonly"
+  if ! mk_repo_seeded "$RA" "$EMITTED" old.ts "$REN_SAFE"; then
+    fail_ "T-rename-only-not-silent" "repo setup failed"
+  else
+    ( cd "$RA" && git mv old.ts new.ts ) >/dev/null 2>&1
+    RA_STATUS="$( cd "$RA" && git diff --cached --name-status | tr '\n' ' ' )"
+    H0="$(head_of "$RA")"
+    if ( cd "$RA" && git commit -m "refactor: rename render module" ) >"$TOPTMP/oA" 2>&1; then V=COMMITTED; else V=REFUSED; fi
+    H1="$(head_of "$RA")"
+    case "$RA_STATUS" in R*) RA_IS_RENAME=1 ;; *) RA_IS_RENAME=0 ;; esac
+    if [ "$RA_IS_RENAME" -ne 1 ]; then
+      skip_ "T-rename-only-not-silent" "git did not report a pure RENAME here (name-status='$RA_STATUS') — case would pass vacuously"
+    elif ! any_sast_line "$TOPTMP/oA"; then
+      fail_ "T-rename-only-not-silent" "a rename-ONLY commit produced NO SAST output whatsoever (name-status='$RA_STATUS') — the operator cannot tell a clean scan from a scan that never happened (BL-179 silence); verdict=$V"
+    elif [ "$V" != "COMMITTED" ] || [ "$H0" = "$H1" ]; then
+      fail_ "T-rename-only-not-silent" "a clean rename must LAND; verdict=$V moved=$([ "$H0" != "$H1" ] && echo YES || echo NO): $(tail -3 "$TOPTMP/oA" | tr '\n' '|')"
+    elif grep -qF '[BLOCKED]' "$TOPTMP/oA"; then
+      fail_ "T-rename-only-not-silent" "a content-free rename was BLOCKED (false block): $(grep -F '[BLOCKED]' "$TOPTMP/oA" | head -1)"
+    else
+      pass "T-rename-only-not-silent: a rename-only commit LANDS and is RECEIPTED — the arm is never silent (BL-179)"
+    fi
+  fi
+fi
+
+# ── T-delete-only-honest (BL-179, the sharp edge of the filter) ──────────────
+# D MUST STAY OUT of the filter. The tempting move is to copy the BL-125 test arm's
+# `--diff-filter=ACMDR` wholesale, but the two arms want different things: BL-125 must
+# RUN THE TESTS when a sanitizer is deleted, while this arm must SCAN CONTENT — and a
+# deleted path has NO staged content. With D in, `git cat-file -t ":0:<deleted>"` fails
+# (verified here: exit 128), which manufactures an unreadable entry and re-creates the
+# very class BL-182 retires. So: a deletion-only commit must LAND, must NOT claim it
+# could not materialize anything, and must still SAY SOMETHING.
+echo "=== T-delete-only-honest ==="
+RB="$TOPTMP/delonly"
+if ! mk_repo_seeded "$RB" "$EMITTED" gone.ts "$REN_SAFE"; then
+  fail_ "T-delete-only-honest" "repo setup failed"
+else
+  ( cd "$RB" && git rm -q gone.ts ) >/dev/null 2>&1
+  RB_STAGED="$( cd "$RB" && git diff --cached --name-status | tr '\n' ' ' )"
+  H0="$(head_of "$RB")"
+  if ( cd "$RB" && git commit -m "chore: drop dead module" ) >"$TOPTMP/oB" 2>&1; then V=COMMITTED; else V=REFUSED; fi
+  H1="$(head_of "$RB")"
+  # `--name-status` separates the status letter from the path with a TAB, not a space,
+  # so this must be a prefix match — a `${var%% *}` word-split silently never matches
+  # and the case would LOUD-SKIP forever while looking healthy.
+  case "$RB_STAGED" in D*) RB_IS_DELETE=1 ;; *) RB_IS_DELETE=0 ;; esac
+  if [ "$RB_IS_DELETE" -ne 1 ]; then
+    skip_ "T-delete-only-honest" "could not stage a pure deletion (name-status='$RB_STAGED') — case UNPROVEN here"
+  elif [ "$V" != "COMMITTED" ] || [ "$H0" = "$H1" ]; then
+    fail_ "T-delete-only-honest" "a deletion-only commit must LAND; verdict=$V moved=$([ "$H0" != "$H1" ] && echo YES || echo NO): $(tail -5 "$TOPTMP/oB" | tr '\n' '|')"
+  elif grep -qF 'could not materialize staged content' "$TOPTMP/oB"; then
+    fail_ "T-delete-only-honest" "a pure DELETION was fed to the materialization loop as a non-blob — D leaked into the staged filter (the BL-125 ACMDR shape copied into a content scanner): $(grep -F 'could not materialize' "$TOPTMP/oB" | head -1)"
+  elif ! any_sast_line "$TOPTMP/oB"; then
+    fail_ "T-delete-only-honest" "a deletion-only commit produced NO SAST output at all — the arm's no-else silence (BL-179); verdict=$V"
+  else
+    pass "T-delete-only-honest: a deletion-only commit LANDS, is honestly receipted, and never reaches the loop with a blob-less entry (BL-179)"
+  fi
+fi
+
+# ── T-partial-clean-no-receipt (BL-182) ──────────────────────────────────────
+# THE SECURITY CONTRACT, HALF ONE. One staged entry cannot be materialized; every
+# OTHER staged entry scans CLEAN. That is NOT a clean commit — and it must never print
+# the `[OK] semgrep: SAST ran on N staged file(s)` receipt, because the entry that was
+# never read is exactly where a sink would hide (here it literally does: the unreadable
+# blob carries the innerHTML sink). Loud NOTRUN, and NAME the entry so the operator can
+# act on it. RED pre-fix: the whole-commit abort NOTRUNs without naming anything, and
+# leaks a raw `File name too long` tool diagnostic into the commit transcript.
+echo "=== T-partial-clean-no-receipt ==="
+if [ "$HAVE_SEMGREP" -eq 0 ]; then
+  skip_ "T-partial-clean-no-receipt" "semgrep ABSENT — skip, not pass"
+  skip_ "T-partial-vuln-still-blocks" "semgrep ABSENT — skip, not pass"
+  skip_ "T-gitlink-not-counted-unread" "semgrep ABSENT — skip, not pass"
+elif fs_can_hold_name "$LONG_NAME"; then
+  skip_ "T-partial-clean-no-receipt" "this filesystem accepts a ${#LONG_NAME}-byte path COMPONENT — the unreadable-entry generator does not fire here and the case would pass vacuously"
+  skip_ "T-partial-vuln-still-blocks" "this filesystem accepts a ${#LONG_NAME}-byte path COMPONENT — generator does not fire here"
+  skip_ "T-gitlink-not-counted-unread" "this filesystem accepts a ${#LONG_NAME}-byte path COMPONENT — generator does not fire here"
+else
+  RC="$TOPTMP/partclean"
+  if ! mk_repo "$RC" "$EMITTED"; then
+    fail_ "T-partial-clean-no-receipt" "repo setup failed"
+  elif ! stage_index_only "$RC" "$LONG_NAME" "$XSS_TS"; then
+    skip_ "T-partial-clean-no-receipt" "could not add a ${#LONG_NAME}-byte-component path to the index — generator UNAVAILABLE here"
+  else
+    printf '%s\n' "$SAFE_TS" > "$RC/app.ts"
+    ( cd "$RC" && git add app.ts ) >/dev/null 2>&1
+    RC_TYPE="$( cd "$RC" && git cat-file -t ":0:$LONG_NAME" 2>/dev/null )"
+    RC_N="$( cd "$RC" && git diff --cached --name-only --diff-filter=ACMR | wc -l | tr -d '[:space:]' )"
+    if [ "$RC_TYPE" != "blob" ] || [ "$RC_N" != "2" ]; then
+      skip_ "T-partial-clean-no-receipt" "fixture invalid (index type='$RC_TYPE' want blob, staged=$RC_N want 2) — partial coverage UNPROVEN here"
+    else
+      H0="$(head_of "$RC")"
+      if ( cd "$RC" && git commit -m "feat: two entries, one unreadable" ) >"$TOPTMP/oC" 2>&1; then V=COMMITTED; else V=REFUSED; fi
+      H1="$(head_of "$RC")"
+      if grep -qF 'semgrep could not complete' "$TOPTMP/oC"; then
+        # Without this the case would PASS VACUOUSLY: a tool failure also produces a
+        # loud NOTRUN with the unread entries named, so every assertion below would be
+        # satisfied by the WRONG arm — the clean-but-partial path would never run.
+        skip_ "T-partial-clean-no-receipt" "semgrep itself failed (registry unreachable?) — the CLEAN-but-partial arm was never exercised, so this case would pass on the tool-failure arm instead"
+      elif grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/oC"; then
+        fail_ "T-partial-clean-no-receipt" "an UNEARNED [OK] receipt over a PARTIAL scan — one staged entry was never read and it is the one carrying the sink: $(grep -F '[OK] semgrep: SAST ran' "$TOPTMP/oC" | head -1)"
+      elif ! not_enforced "$TOPTMP/oC"; then
+        fail_ "T-partial-clean-no-receipt" "partial coverage produced no loud NOTRUN — the operator is told nothing: $(tail -5 "$TOPTMP/oC" | tr '\n' '|')"
+      elif ! grep -qxF "    - $LONG_NAME" "$TOPTMP/oC"; then
+        fail_ "T-partial-clean-no-receipt" "the NOTRUN did not NAME the staged entry it could not read — the operator learns coverage was lost but not WHERE (BL-182); log: $(grep -c . "$TOPTMP/oC") lines, $(tail -4 "$TOPTMP/oC" | cut -c1-90 | tr '\n' '|')"
+      elif grep -q 'File name too long' "$TOPTMP/oC"; then
+        fail_ "T-partial-clean-no-receipt" "a raw tool diagnostic leaked into the operator's commit transcript — the 2>/dev/null is on the wrong command: $(grep -m1 'File name too long' "$TOPTMP/oC" | cut -c1-120)"
+      elif [ "$V" != "COMMITTED" ] || [ "$H0" = "$H1" ]; then
+        fail_ "T-partial-clean-no-receipt" "an unreadable entry must WARN, never block (BL-112 contract); verdict=$V moved=$([ "$H0" != "$H1" ] && echo YES || echo NO)"
+      else
+        pass "T-partial-clean-no-receipt: a clean-but-PARTIAL scan earns NO [OK] receipt — loud NOTRUN naming the unreadable entry, commit still lands (BL-182)"
+      fi
+    fi
+  fi
+
+  # ── T-partial-vuln-still-blocks (BL-182) ───────────────────────────────────
+  # THE SECURITY CONTRACT, HALF TWO — and the regression the all-or-nothing `break`
+  # actually caused. One unreadable entry used to DISCARD every already-materialized
+  # sibling and route the whole commit to NOTRUN, so a sink staged in a readable
+  # sibling LANDED — strictly worse than scanning nothing, because the operator's
+  # other siblings were silently disarmed. Scanning the readable subset must still
+  # BLOCK on what it finds there.
+  echo "=== T-partial-vuln-still-blocks ==="
+  RD="$TOPTMP/partvuln"
+  if ! mk_repo "$RD" "$EMITTED"; then
+    fail_ "T-partial-vuln-still-blocks" "repo setup failed"
+  elif ! stage_index_only "$RD" "$LONG_NAME" "$SAFE_TS"; then
+    skip_ "T-partial-vuln-still-blocks" "could not add the long-component path to the index — generator UNAVAILABLE here"
+  else
+    printf '%s\n' "$XSS_TS" > "$RD/app.ts"
+    ( cd "$RD" && git add app.ts ) >/dev/null 2>&1
+    RD_N="$( cd "$RD" && git diff --cached --name-only --diff-filter=ACMR | wc -l | tr -d '[:space:]' )"
+    if [ "$RD_N" != "2" ]; then
+      skip_ "T-partial-vuln-still-blocks" "fixture invalid (staged=$RD_N want 2) — regression UNPROVEN here"
+    else
+      H0="$(head_of "$RD")"
+      if ( cd "$RD" && git commit -m "feat: readable sibling carries the sink" ) >"$TOPTMP/oD" 2>&1; then V=COMMITTED; else V=REFUSED; fi
+      H1="$(head_of "$RD")"
+      if [ "$V" = "COMMITTED" ]; then
+        if grep -qF 'semgrep could not complete' "$TOPTMP/oD"; then
+          skip_ "T-partial-vuln-still-blocks" "semgrep itself failed (registry unreachable?) — blocking UNPROVEN here"
+        elif grep -qF 'could not materialize staged content' "$TOPTMP/oD"; then
+          fail_ "T-partial-vuln-still-blocks" "ONE unreadable staged entry discarded every already-materialized sibling and routed the WHOLE commit to NOTRUN — the readable sibling's innerHTML XSS LANDED (BL-182 all-or-nothing break): $(grep -E 'SAST NOT ENFORCED|could not materialize' "$TOPTMP/oD" | head -1)"
+        elif not_enforced "$TOPTMP/oD"; then
+          skip_ "T-partial-vuln-still-blocks" "scanner did not run (registry unreachable?) — blocking UNPROVEN here"
+        else
+          fail_ "T-partial-vuln-still-blocks" "the readable sibling's XSS COMMITTED: $(grep -E '\[OK\]|\[BLOCKED\]' "$TOPTMP/oD" | head -1)"
+        fi
+      elif ! grep -q "\[BLOCKED\]" "$TOPTMP/oD"; then
+        fail_ "T-partial-vuln-still-blocks" "refused but without [BLOCKED] (wrong reason): $(tail -3 "$TOPTMP/oD" | tr '\n' '|')"
+      elif [ "$H0" != "$H1" ]; then
+        fail_ "T-partial-vuln-still-blocks" "non-zero exit but HEAD MOVED"
+      elif ! grep -q 'app\.ts' "$TOPTMP/oD"; then
+        fail_ "T-partial-vuln-still-blocks" "blocked, but the finding did not name the real path app.ts"
+      elif ! grep -qxF "    - $LONG_NAME" "$TOPTMP/oD"; then
+        fail_ "T-partial-vuln-still-blocks" "blocked correctly, but the unreadable entry was never NAMED — a blocked commit still owes the operator its coverage gap (BL-182)"
+      else
+        pass "T-partial-vuln-still-blocks: an unreadable entry no longer blinds its siblings — the readable sibling's XSS is REFUSED and the coverage gap is named (BL-182)"
+      fi
+    fi
+  fi
+
+  # ── T-gitlink-not-counted-unread (BL-182 x BL-132-GITLINK-SKIP) ────────────
+  # The two per-entry `continue`s in the loop look identical and mean OPPOSITE things,
+  # so the distinction needs a pin of its own. A GITLINK is not content: it is skipped
+  # with NO trace and costs the commit nothing. An UNREADABLE entry IS content we owe a
+  # scan of: it forfeits the whole commit's [OK] receipt and is reported by name.
+  # Collapsing the two — in either direction — is a real hazard: treat a gitlink as
+  # unread and every submodule commit loses its receipt (operators stop reading the
+  # warning); treat an unreadable blob as a gitlink and an unscanned file buys a
+  # clean-looking commit, which is the silent-success class itself.
+  # Hermetic: the gitlink is a `--cacheinfo 160000` index row, so no submodule (and
+  # certainly no remote) is needed to produce one.
+  echo "=== T-gitlink-not-counted-unread ==="
+  RG2="$TOPTMP/mixedskip"
+  if ! mk_repo "$RG2" "$EMITTED"; then
+    fail_ "T-gitlink-not-counted-unread" "repo setup failed"
+  elif ! stage_index_only "$RG2" "$LONG_NAME" "$XSS_TS"; then
+    skip_ "T-gitlink-not-counted-unread" "could not add the long-component path to the index — generator UNAVAILABLE here"
+  else
+    RG2_SEED="$( cd "$RG2" && git rev-parse HEAD )"
+    ( cd "$RG2" && git update-index --add --cacheinfo "160000,$RG2_SEED,sub" ) >/dev/null 2>&1
+    printf '%s\n' "$SAFE_TS" > "$RG2/app.ts"
+    ( cd "$RG2" && git add app.ts ) >/dev/null 2>&1
+    RG2_MODE="$( cd "$RG2" && git ls-files -s -- ":(literal)sub" 2>/dev/null | awk 'NR==1{print $1}' )"
+    RG2_N="$( cd "$RG2" && git diff --cached --name-only --diff-filter=ACMR | wc -l | tr -d '[:space:]' )"
+    if [ "$RG2_MODE" != "160000" ] || [ "$RG2_N" != "3" ]; then
+      skip_ "T-gitlink-not-counted-unread" "fixture invalid (sub mode='$RG2_MODE' want 160000, staged=$RG2_N want 3) — the gitlink/unreadable distinction is UNPROVEN here"
+    else
+      H0="$(head_of "$RG2")"
+      if ( cd "$RG2" && git commit -m "feat: gitlink plus unreadable plus clean" ) >"$TOPTMP/oG" 2>&1; then V=COMMITTED; else V=REFUSED; fi
+      H1="$(head_of "$RG2")"
+      if grep -qF 'semgrep could not complete' "$TOPTMP/oG"; then
+        skip_ "T-gitlink-not-counted-unread" "semgrep itself failed (registry unreachable?) — the clean-but-partial arm was never exercised"
+      elif grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/oG"; then
+        fail_ "T-gitlink-not-counted-unread" "an UNEARNED [OK] over a commit with one unreadable entry: $(grep -F '[OK] semgrep: SAST ran' "$TOPTMP/oG" | head -1)"
+      elif ! grep -qxF "    - $LONG_NAME" "$TOPTMP/oG"; then
+        fail_ "T-gitlink-not-counted-unread" "the unreadable entry was not NAMED alongside a staged gitlink (BL-182); log tail: $(tail -4 "$TOPTMP/oG" | cut -c1-90 | tr '\n' '|')"
+      elif grep -qxF "    - sub" "$TOPTMP/oG"; then
+        fail_ "T-gitlink-not-counted-unread" "the staged GITLINK was reported as an entry that could not be READ — a gitlink is not content, and counting it as lost coverage would strip the receipt from every routine submodule commit"
+      elif [ "$V" != "COMMITTED" ] || [ "$H0" = "$H1" ]; then
+        fail_ "T-gitlink-not-counted-unread" "must WARN, never block (BL-112 contract); verdict=$V moved=$([ "$H0" != "$H1" ] && echo YES || echo NO)"
+      else
+        pass "T-gitlink-not-counted-unread: a staged gitlink is skipped WITHOUT being counted as lost coverage, while the unreadable blob beside it still forfeits the receipt and is named (BL-182 x BL-132-GITLINK-SKIP)"
+      fi
+    fi
+  fi
+fi
+
+# ── T-pathmax-sibling-caught (BL-182 original trigger) ───────────────────────
+# The filed trigger: a repo-relative path long enough that `mktemp -d` + the BL-178
+# `/<n>/` segment + the path exceeds PATH_MAX. Legal in the worktree and in the index,
+# unrepresentable as a materialization destination. Measured on the filing host at
+# repo-relative length 991: main BLOCKED the sibling, the PR head landed it. This case
+# fires at the DIRNAME/MKDIR site (the LONG_NAME cases fire at the WRITE site), so both
+# per-entry recovery points are covered.
+echo "=== T-pathmax-sibling-caught ==="
+if [ "$HAVE_SEMGREP" -eq 0 ]; then
+  skip_ "T-pathmax-sibling-caught" "semgrep ABSENT — skip, not pass"
+elif temp_tree_can_hold_path "$LONG_PATH"; then
+  skip_ "T-pathmax-sibling-caught" "this host CAN express a ${#LONG_PATH}-byte repo-relative path under a mktemp -d root plus the per-index segment (short temp root / large PATH_MAX) — the overflow does not fire and the case would pass vacuously"
+else
+  RE="$TOPTMP/pathmax"
+  if ! mk_repo "$RE" "$EMITTED"; then
+    fail_ "T-pathmax-sibling-caught" "repo setup failed"
+  elif ! stage_index_only "$RE" "$LONG_PATH" "$SAFE_TS"; then
+    skip_ "T-pathmax-sibling-caught" "could not add a ${#LONG_PATH}-byte path to the index — generator UNAVAILABLE here"
+  else
+    printf '%s\n' "$XSS_TS" > "$RE/app.ts"
+    ( cd "$RE" && git add app.ts ) >/dev/null 2>&1
+    RE_N="$( cd "$RE" && git diff --cached --name-only --diff-filter=ACMR | wc -l | tr -d '[:space:]' )"
+    if [ "$RE_N" != "2" ]; then
+      skip_ "T-pathmax-sibling-caught" "fixture invalid (staged=$RE_N want 2) — PATH_MAX regression UNPROVEN here"
+    else
+      H0="$(head_of "$RE")"
+      if ( cd "$RE" && git commit -m "feat: overlong path plus sibling" ) >"$TOPTMP/oE" 2>&1; then V=COMMITTED; else V=REFUSED; fi
+      H1="$(head_of "$RE")"
+      if [ "$V" = "COMMITTED" ]; then
+        if grep -qF 'semgrep could not complete' "$TOPTMP/oE"; then
+          skip_ "T-pathmax-sibling-caught" "semgrep itself failed (registry unreachable?) — blocking UNPROVEN here; checked BEFORE the abort verdict so a tool failure is not misreported as the BL-182 regression"
+        elif not_enforced "$TOPTMP/oE"; then
+          fail_ "T-pathmax-sibling-caught" "the overlong staged path aborted materialization and the whole commit went NOTRUN — the sibling app.ts innerHTML XSS LANDED (BL-182): $(grep -E 'SAST NOT ENFORCED|could not materialize' "$TOPTMP/oE" | head -1)"
+        else
+          fail_ "T-pathmax-sibling-caught" "the sibling XSS COMMITTED: $(grep -E '\[OK\]|\[BLOCKED\]' "$TOPTMP/oE" | head -1)"
+        fi
+      elif ! grep -q "\[BLOCKED\]" "$TOPTMP/oE"; then
+        fail_ "T-pathmax-sibling-caught" "refused but without [BLOCKED] (wrong reason): $(tail -3 "$TOPTMP/oE" | tr '\n' '|')"
+      elif [ "$H0" != "$H1" ]; then
+        fail_ "T-pathmax-sibling-caught" "non-zero exit but HEAD MOVED"
+      elif ! grep -q 'app\.ts' "$TOPTMP/oE"; then
+        fail_ "T-pathmax-sibling-caught" "blocked, but the sibling app.ts was not named"
+      elif grep -q '^dirname:' "$TOPTMP/oE" || grep -q 'File name too long' "$TOPTMP/oE"; then
+        fail_ "T-pathmax-sibling-caught" "a raw \`dirname\` diagnostic leaked into the operator's commit transcript — the 2>/dev/null sits on mkdir, but the command substitution runs FIRST with unredirected stderr: $(grep -m1 -E '^dirname:|File name too long' "$TOPTMP/oE" | cut -c1-120)"
+      elif ! grep -qxF "    - $LONG_PATH" "$TOPTMP/oE"; then
+        fail_ "T-pathmax-sibling-caught" "blocked correctly, but the overlong entry was never NAMED as unscanned (BL-182)"
+      else
+        pass "T-pathmax-sibling-caught: a PATH_MAX-overflowing staged path no longer blinds its siblings — the sibling XSS is REFUSED, the gap is named, no raw tool diagnostic leaks (BL-182)"
+      fi
+    fi
+  fi
+fi
+
 # ── T-mutation-content-guard (F2: empty/partial materialize -> loud NOTRUN) ───
 # The F2 size check turns an empty/partial materialization into a LOUD NOTRUN
 # instead of scanning an empty file and passing [OK]. The GREEN direction fires
@@ -589,6 +1095,12 @@ fi
 # lockstep. Keep the anchor a FULL literal — never relax it to a prefix that would
 # match both the stage-explicit and the bare form, because the whole point of the
 # exactly-once check is to notice when the surface it attacks has moved.
+#   Second coupling, added with # BL-182-PER-ENTRY-SKIP: the materialization line is
+#   now wrapped in a brace group (`{ … ; } 2>/dev/null`) so the SHELL's own "cannot
+#   create" diagnostic cannot leak past the redirect. The literal above is still a
+#   SUBSTRING of that line, so both mutants still splice cleanly — but if the group
+#   is ever reshaped so the literal no longer appears verbatim, the exactly-once
+#   check fires instead of the case quietly proving nothing.
 echo "=== T-mutation-content-guard ==="
 if [ "$HAVE_SEMGREP" -eq 0 ]; then
   skip_ "T-mutation-content-guard" "semgrep ABSENT — skip, not pass"
@@ -608,10 +1120,27 @@ else
   _idx_mutate "$EMITTED" 'git cat-file blob ":0:$soif_p" > "$soif_idx_dest"' 'git cat-file blob ":0:$soif_p" | head -c 3 > "$soif_idx_dest"' > "$MPART" || cg_setup=0
   # F2-removed variant of M-empty: drop exactly the three F2 CHECK lines (keep the
   # soif_idx_files+= collection), so the empty dest is scanned and passes [OK].
+  #   COUNTED, NOT BEST-EFFORT — and retargeted in lockstep with # BL-182-PER-ENTRY-SKIP,
+  #   which rewrote the conditional's tail from `soif_idx_ok=0; break` to the per-entry
+  #   `soif_idx_unread+=(...); continue`. The old pattern keyed on that tail; left
+  #   unretargeted it would silently stop matching, the two ASSIGNMENTS would still be
+  #   dropped, and the surviving conditional would reference an unset variable under
+  #   `set -u` — aborting the hook and REFUSING the commit for a reason that has
+  #   nothing to do with F2. That looks like a working test and proves nothing, so
+  #   each of the three lines must match EXACTLY ONCE or this reports MIS-TARGETED.
   MEMPTY_NOF2="$TOPTMP/cg-empty-nof2"
-  awk '/soif_idx_want=/ {next} /soif_idx_got=/ {next} /soif_idx_ok=0; break; fi/ {next} {print}' "$MEMPTY" > "$MEMPTY_NOF2"
+  cg_f2drop=1
+  awk '
+    /soif_idx_want=\$\(git cat-file -s/            { w++; next }
+    /soif_idx_got=\$\(wc -c/                       { g++; next }
+    /\[ "\$soif_idx_got" != "\$soif_idx_want" \]/  { c++; next }
+    { print }
+    END { if (w != 1 || g != 1 || c != 1) exit 3 }
+  ' "$MEMPTY" > "$MEMPTY_NOF2" || cg_f2drop=0
   if [ "$cg_setup" != "1" ]; then
     fail_ "T-mutation-content-guard" "MIS-TARGETED — the materialization anchor is not present exactly once"
+  elif [ "$cg_f2drop" != "1" ]; then
+    fail_ "T-mutation-content-guard" "MIS-TARGETED — the three F2 content-check lines are not each present exactly once in the emitted hook (the guard moved; retarget this removal in lockstep)"
   elif ! bash -n "$MEMPTY" 2>/dev/null || ! bash -n "$MPART" 2>/dev/null || ! bash -n "$MEMPTY_NOF2" 2>/dev/null; then
     fail_ "T-mutation-content-guard" "a content-guard mutant has a syntax error — a broken mutant proves nothing"
   elif grep -qF 'soif_idx_want=' "$MEMPTY_NOF2"; then
@@ -676,6 +1205,204 @@ else
       else
         fail_ "T-mutation-index-scan" "expected RED=COMMITTED/GREEN=REFUSED; got RED=$RED GREEN=$GREEN; red: $(tail -3 "$TOPTMP/red" | tr '\n' '|'); green: $(tail -3 "$TOPTMP/green" | tr '\n' '|')"
       fi
+    fi
+  fi
+fi
+
+# ── mutation helpers (BL-179 / BL-182) ───────────────────────────────────────
+# Literal awk index()/substr() replacement with an EXPECTED OCCURRENCE COUNT. The
+# count is the mis-target detector: if the surface a mutation attacks has moved or
+# multiplied, the mutant is reported MIS-TARGETED instead of silently proving nothing.
+# _mut_n <src> <dst> <literal-old> <literal-new> <expected-count>
+# The scan advances past each replacement rather than re-scanning the rewritten line,
+# so a <literal-new> that happens to CONTAIN <literal-old> cannot spin forever — a
+# mutation helper that hangs is worse than one that mis-targets, because a hang has no
+# verdict at all.
+_mut_n() {
+  awk -v old="$3" -v new="$4" -v want="$5" '
+    { out = ""; rest = $0
+      while ((p = index(rest, old)) > 0) {
+        out = out substr(rest, 1, p-1) new
+        rest = substr(rest, p + length(old))
+        c++
+      }
+      print out rest }
+    END { if (c != want) exit 3 }
+  ' "$1" > "$2"
+}
+
+# ── T-mutation-rename-filter (BL-179 proof (a)) ──────────────────────────────
+# Revert exactly the staged-target filter, ACMR -> ACM. The rename-and-edit commit's
+# destination is then never scanned and its XSS LANDS (RED); restore ACMR and the same
+# commit is REFUSED with a [BLOCKED] naming the destination (GREEN).
+#   THE RED IS "IT LANDS", NOT "IT IS SILENT". BL-179 had two halves — the filter and
+#   the missing `else` — and this mutation reverts only the first, so the surviving
+#   # BL-179-EMPTY-STAGED arm still prints a loud NOTRUN over the empty target set. The
+#   historical TOTAL silence is pinned separately: by T-rename-edit-scanned's
+#   any_sast_line() assertion (watched RED against the pre-fix lib) and by
+#   T-mutation-empty-staged-silence below, which attacks the other half directly.
+echo "=== T-mutation-rename-filter ==="
+if [ "$HAVE_SEMGREP" -eq 0 ]; then
+  skip_ "T-mutation-rename-filter" "semgrep ABSENT — mutation UNPROVEN (skip, not pass)"
+else
+  MRF="$TOPTMP/mut-acm"
+  if ! _mut_n "$EMITTED" "$MRF" '--diff-filter=ACMR -z' '--diff-filter=ACM -z' 1; then
+    fail_ "T-mutation-rename-filter" "MIS-TARGETED — the SAST staged-read filter '--diff-filter=ACMR -z' is not present exactly once in the emitted hook"
+  elif ! bash -n "$MRF" 2>/dev/null; then
+    fail_ "T-mutation-rename-filter" "mutated hook has a syntax error — a broken mutant proves nothing"
+  else
+    _ren_commit() {  # <hookfile> <log> -> COMMITTED|REFUSED
+      local d; d="$(mktemp -d)"
+      mk_repo_seeded "$d" "$1" old.ts "$REN_SAFE" >/dev/null 2>&1 || { rm -rf "$d"; echo SETUPFAIL; return; }
+      ( cd "$d" && git mv old.ts new.ts ) >/dev/null 2>&1
+      printf '%s\n' "$REN_VULN" > "$d/new.ts"
+      ( cd "$d" && git add -- new.ts ) >/dev/null 2>&1   # destination only: see T-rename-edit-scanned
+      if ! ( cd "$d" && git cat-file blob ":0:new.ts" 2>/dev/null ) | grep -q 'innerHTML'; then
+        rm -rf "$d"; echo SETUPFAIL; return
+      fi
+      if ( cd "$d" && git commit -m "refactor: rename and harden render" ) >"$2" 2>&1; then echo COMMITTED; else echo REFUSED; fi
+      rm -rf "$d"
+    }
+    MRF_RED="$(_ren_commit "$MRF" "$TOPTMP/mrf-red")"
+    MRF_GRN="$(_ren_commit "$EMITTED" "$TOPTMP/mrf-green")"
+    if [ "$MRF_RED" = "SETUPFAIL" ] || [ "$MRF_GRN" = "SETUPFAIL" ]; then
+      fail_ "T-mutation-rename-filter" "mutation fixture setup failed"
+    elif not_enforced "$TOPTMP/mrf-green"; then
+      skip_ "T-mutation-rename-filter" "scanner did not run on the GREEN side (registry unreachable?) — mutation direction unprovable here"
+    elif [ "$MRF_RED" = "COMMITTED" ] && ! grep -qF '[BLOCKED]' "$TOPTMP/mrf-red" \
+         && [ "$MRF_GRN" = "REFUSED" ] && grep -qF '[BLOCKED]' "$TOPTMP/mrf-green"; then
+      pass "T-mutation-rename-filter: ACM leaves the renamed destination unscanned and LANDS its XSS (RED); ACMR REFUSES it (GREEN) — the R in the filter is load-bearing"
+    else
+      fail_ "T-mutation-rename-filter" "expected RED=COMMITTED+no-[BLOCKED] / GREEN=REFUSED+[BLOCKED]; got RED=$MRF_RED (blocked=$(grep -cF '[BLOCKED]' "$TOPTMP/mrf-red")) GREEN=$MRF_GRN; red: $(tail -3 "$TOPTMP/mrf-red" | tr '\n' '|'); green: $(tail -3 "$TOPTMP/mrf-green" | tr '\n' '|')"
+    fi
+  fi
+
+fi
+
+# ── T-mutation-delete-filter (BL-179, D must stay OUT) ───────────────────────
+# Widen the filter to the BL-125 arm's ACMDR — the copy-paste this fix must NOT make.
+# A deletion-only commit then hands the loop an index entry with no blob, and the arm
+# reports it as unreadable content (RED: "could not materialize"). With ACMR the same
+# commit is honestly receipted and no phantom entry is ever manufactured (GREEN).
+echo "=== T-mutation-delete-filter ==="
+MDF="$TOPTMP/mut-acmdr"
+if ! _mut_n "$EMITTED" "$MDF" '--diff-filter=ACMR -z' '--diff-filter=ACMDR -z' 1; then
+  fail_ "T-mutation-delete-filter" "MIS-TARGETED — the SAST staged-read filter is not present exactly once in the emitted hook"
+elif ! bash -n "$MDF" 2>/dev/null; then
+  fail_ "T-mutation-delete-filter" "mutated hook has a syntax error — a broken mutant proves nothing"
+else
+  MDF_RED="$(_del_commit "$MDF" "$TOPTMP/mdf-red")"
+  MDF_GRN="$(_del_commit "$EMITTED" "$TOPTMP/mdf-green")"
+  if [ "$MDF_RED" = "SETUPFAIL" ] || [ "$MDF_GRN" = "SETUPFAIL" ]; then
+    fail_ "T-mutation-delete-filter" "mutation fixture setup failed"
+  elif grep -qF 'could not materialize staged content' "$TOPTMP/mdf-red" \
+       && ! grep -qF 'could not materialize staged content' "$TOPTMP/mdf-green" \
+       && any_sast_line "$TOPTMP/mdf-green"; then
+    pass "T-mutation-delete-filter: ACMDR feeds a blob-less deleted path to the loop and reports lost coverage (RED); ACMR never manufactures the phantom entry and still receipts the commit (GREEN)"
+  else
+    fail_ "T-mutation-delete-filter" "expected RED to report 'could not materialize' and GREEN not to; red_msg=$(grep -cF 'could not materialize' "$TOPTMP/mdf-red") green_msg=$(grep -cF 'could not materialize' "$TOPTMP/mdf-green") green_sast=$(grep -cE '\[OK\] semgrep: SAST ran|\[BLOCKED\] Semgrep|SAST NOT ENFORCED' "$TOPTMP/mdf-green"); red: $(tail -3 "$TOPTMP/mdf-red" | tr '\n' '|'); green: $(tail -3 "$TOPTMP/mdf-green" | tr '\n' '|')"
+  fi
+fi
+
+# ── T-mutation-empty-staged-silence (BL-179, the other half of the defect) ────
+# Attack # BL-179-EMPTY-STAGED directly: neuter the else-arm's report so an empty
+# target set produces nothing again. A deletion-only commit must then be TOTALLY
+# SILENT (RED) — no [OK], no [BLOCKED], no NOTRUN — and receipted once restored
+# (GREEN). This is the assertion shape the original defect demanded: the absence of an
+# absence, never the absence of a [BLOCKED]. Deliberately outside the semgrep guard:
+# an empty target set never reaches the scanner, so the case is provable on any host.
+echo "=== T-mutation-empty-staged-silence ==="
+MES="$TOPTMP/mut-silence"
+if ! _mut_n "$EMITTED" "$MES" 'soif_sast_not_enforced "no scannable staged file content' ': "silenced" #' 1; then
+  fail_ "T-mutation-empty-staged-silence" "MIS-TARGETED — the empty-staged report is not present exactly once in the emitted hook"
+elif ! bash -n "$MES" 2>/dev/null; then
+  fail_ "T-mutation-empty-staged-silence" "mutated hook has a syntax error — a broken mutant proves nothing"
+else
+  MES_RED="$(_del_commit "$MES" "$TOPTMP/mes-red")"
+  MES_GRN="$(_del_commit "$EMITTED" "$TOPTMP/mes-green")"
+  if [ "$MES_RED" = "SETUPFAIL" ] || [ "$MES_GRN" = "SETUPFAIL" ]; then
+    fail_ "T-mutation-empty-staged-silence" "mutation fixture setup failed"
+  elif ! any_sast_line "$TOPTMP/mes-red" && any_sast_line "$TOPTMP/mes-green" \
+       && [ "$MES_RED" = "COMMITTED" ] && [ "$MES_GRN" = "COMMITTED" ]; then
+    pass "T-mutation-empty-staged-silence: neutering the empty-staged report makes the arm TOTALLY SILENT again (RED); restored, the same commit is receipted (GREEN) — the missing else was half of BL-179"
+  else
+    fail_ "T-mutation-empty-staged-silence" "expected RED=silent / GREEN=receipted, both COMMITTED; got RED=$MES_RED (sast_lines=$(grep -cE '\[OK\] semgrep: SAST ran|\[BLOCKED\] Semgrep|SAST NOT ENFORCED' "$TOPTMP/mes-red")) GREEN=$MES_GRN (sast_lines=$(grep -cE '\[OK\] semgrep: SAST ran|\[BLOCKED\] Semgrep|SAST NOT ENFORCED' "$TOPTMP/mes-green")); red: $(tail -3 "$TOPTMP/mes-red" | tr '\n' '|')"
+  fi
+fi
+
+# ── T-mutation-partial-break (BL-182 proof (b)) ──────────────────────────────
+# Restore the all-or-nothing behaviour: every per-entry recovery point becomes
+# "throw away every sibling already materialized and stop". The partial+vuln fixture
+# must then COMMIT the sibling's XSS (RED) — that is the regression the `break`
+# actually caused. Per-entry recovery REFUSES it (GREEN).
+echo "=== T-mutation-partial-break ==="
+if [ "$HAVE_SEMGREP" -eq 0 ]; then
+  skip_ "T-mutation-partial-break" "semgrep ABSENT — mutation UNPROVEN (skip, not pass)"
+  skip_ "T-mutation-partial-receipt" "semgrep ABSENT — mutation UNPROVEN (skip, not pass)"
+elif fs_can_hold_name "$LONG_NAME"; then
+  skip_ "T-mutation-partial-break" "this filesystem accepts a ${#LONG_NAME}-byte path component — the unreadable-entry generator does not fire here"
+  skip_ "T-mutation-partial-receipt" "this filesystem accepts a ${#LONG_NAME}-byte path component — generator does not fire here"
+else
+  # <hookfile> <log> <sibling-content> -> COMMITTED|REFUSED, with an unreadable
+  # long-component entry staged alongside the sibling.
+  _partial_commit() {
+    local d; d="$(mktemp -d)"
+    mk_repo "$d" "$1" >/dev/null 2>&1 || { rm -rf "$d"; echo SETUPFAIL; return; }
+    stage_index_only "$d" "$LONG_NAME" "$XSS_TS" || { rm -rf "$d"; echo SETUPFAIL; return; }
+    printf '%s\n' "$3" > "$d/app.ts"
+    ( cd "$d" && git add app.ts ) >/dev/null 2>&1
+    if ( cd "$d" && git commit -m "feat: partial coverage fixture" ) >"$2" 2>&1; then echo COMMITTED; else echo REFUSED; fi
+    rm -rf "$d"
+  }
+  MPB="$TOPTMP/mut-break"
+  if ! _mut_n "$EMITTED" "$MPB" 'soif_idx_unread+=("$soif_p"); continue' 'soif_idx_files=(); break' 4; then
+    fail_ "T-mutation-partial-break" "MIS-TARGETED — the per-entry recovery statement is not present exactly 4 times in the emitted hook (the recovery points moved; retarget this mutation in lockstep)"
+  elif ! bash -n "$MPB" 2>/dev/null; then
+    fail_ "T-mutation-partial-break" "mutated hook has a syntax error — a broken mutant proves nothing"
+  else
+    MPB_RED="$(_partial_commit "$MPB" "$TOPTMP/mpb-red" "$XSS_TS")"
+    MPB_GRN="$(_partial_commit "$EMITTED" "$TOPTMP/mpb-green" "$XSS_TS")"
+    if [ "$MPB_RED" = "SETUPFAIL" ] || [ "$MPB_GRN" = "SETUPFAIL" ]; then
+      fail_ "T-mutation-partial-break" "mutation fixture setup failed"
+    elif [ "$MPB_GRN" = "COMMITTED" ] && not_enforced "$TOPTMP/mpb-green"; then
+      skip_ "T-mutation-partial-break" "scanner did not run on the GREEN side (registry unreachable?) — mutation direction unprovable here"
+    elif [ "$MPB_RED" = "COMMITTED" ] && not_enforced "$TOPTMP/mpb-red" \
+         && ! grep -qF '[BLOCKED]' "$TOPTMP/mpb-red" \
+         && [ "$MPB_GRN" = "REFUSED" ] && grep -qF '[BLOCKED]' "$TOPTMP/mpb-green"; then
+      # The RED side asserts a loud NOTRUN rather than one specific NOTRUN sentence:
+      # the mutant discards soif_idx_files AND never records the entry, so it lands in
+      # the zero-targets arm, not the could-not-materialize arm. The observable that
+      # matters — and the one that is the actual regression — is that the whole commit
+      # goes NOTRUN and the readable sibling's XSS LANDS.
+      pass "T-mutation-partial-break: all-or-nothing recovery discards the readable sibling, NOTRUNs the whole commit and LANDS its XSS (RED); per-entry recovery REFUSES it (GREEN) — retiring the break is load-bearing"
+    else
+      fail_ "T-mutation-partial-break" "expected RED=COMMITTED+loud-NOTRUN+no-[BLOCKED] / GREEN=REFUSED+[BLOCKED]; got RED=$MPB_RED (notrun=$(grep -cF 'SAST NOT ENFORCED' "$TOPTMP/mpb-red") blocked=$(grep -cF '[BLOCKED]' "$TOPTMP/mpb-red")) GREEN=$MPB_GRN; red: $(tail -3 "$TOPTMP/mpb-red" | tr '\n' '|'); green: $(tail -3 "$TOPTMP/mpb-green" | tr '\n' '|')"
+    fi
+  fi
+
+  # ── T-mutation-partial-receipt (BL-182 proof (c)) ──────────────────────────
+  # Disarm exactly the no-unearned-receipt guard so a CLEAN-but-PARTIAL scan prints
+  # the [OK] receipt. That is the silent-success class this arm exists to prevent, and
+  # it must be RED. Restored, the same commit gets the loud partial NOTRUN (GREEN).
+  echo "=== T-mutation-partial-receipt ==="
+  MPR="$TOPTMP/mut-receipt"
+  if ! _mut_n "$EMITTED" "$MPR" 'elif [ "${#soif_idx_unread[@]}" -gt 0 ]; then' 'elif false; then' 1; then
+    fail_ "T-mutation-partial-receipt" "MIS-TARGETED — the clean-but-partial receipt guard is not present exactly once in the emitted hook"
+  elif ! bash -n "$MPR" 2>/dev/null; then
+    fail_ "T-mutation-partial-receipt" "mutated hook has a syntax error — a broken mutant proves nothing"
+  else
+    MPR_RED="$(_partial_commit "$MPR" "$TOPTMP/mpr-red" "$SAFE_TS")"
+    MPR_GRN="$(_partial_commit "$EMITTED" "$TOPTMP/mpr-green" "$SAFE_TS")"
+    if [ "$MPR_RED" = "SETUPFAIL" ] || [ "$MPR_GRN" = "SETUPFAIL" ]; then
+      fail_ "T-mutation-partial-receipt" "mutation fixture setup failed"
+    elif ! grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/mpr-red"; then
+      skip_ "T-mutation-partial-receipt" "the disarmed mutant printed no [OK] either (scanner did not run — registry unreachable?) — the RED direction is unprovable here"
+    elif grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/mpr-green"; then
+      fail_ "T-mutation-partial-receipt" "the GREEN hook ALSO printed an [OK] receipt over a partial scan — the guard is not doing anything: $(grep -F '[OK] semgrep: SAST ran' "$TOPTMP/mpr-green" | head -1)"
+    elif ! not_enforced "$TOPTMP/mpr-green"; then
+      fail_ "T-mutation-partial-receipt" "the GREEN hook suppressed the receipt but printed no loud NOTRUN — silence is not honesty: $(tail -4 "$TOPTMP/mpr-green" | tr '\n' '|')"
+    else
+      pass "T-mutation-partial-receipt: disarming the guard buys an UNEARNED [OK] over a partial scan (RED); the guard routes it to the loud partial NOTRUN (GREEN)"
     fi
   fi
 fi

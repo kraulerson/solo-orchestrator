@@ -246,6 +246,34 @@ soif_sast_not_enforced() {
   echo "  This is NOT a clean result: nothing was scanned. Phase 3 will require an"
   echo "  attested scan; it cannot be cleared by a scanner that never ran."
 }
+# BL-182-PARTIAL-COVERAGE — the honest report for a scan that RAN but did not cover
+# every staged entry. It is deliberately a SECOND helper rather than a reuse of the
+# one above: saying "nothing was scanned" when a subset WAS scanned is its own small
+# dishonesty, and this arm's whole job is to describe reality. It carries the SAME
+# "SAST NOT ENFORCED" vocabulary, so every operator habit — and every test that greps
+# for that string — still sees the loud signal. Like the helper above it WARNs and
+# never blocks: an entry we could not read is not evidence of a defect, and blocking
+# on unreadable content would pay people to route around the gate (see the rationale
+# above). What it must never do is look CLEAN — that is # BL-182-NO-UNEARNED-RECEIPT.
+soif_sast_partial_coverage() {
+  echo ""
+  echo "[WARN] $1"
+  echo "  SAST NOT ENFORCED for this commit — the scan did not cover every staged entry."
+  echo "  This is NOT a clean result: the entries listed below were never scanned."
+  echo "  Phase 3 will require an attested scan; it cannot be cleared by a scan that"
+  echo "  skipped part of the commit."
+}
+# BL-182-NAME-THE-ENTRY — an operator told "coverage was partial" but not WHICH entry
+# was missed cannot act on it, and the old whole-commit abort told them nothing at all.
+# Every NOTRUN caused by an unreadable staged entry names the entries, one per line.
+# bash-3.2 + `set -u` safe: the `${a[@]+"${a[@]}"}` form is required because a bare
+# "${a[@]}" on an EMPTY array is an unbound-variable error under `set -u` in bash 3.2.
+soif_sast_unread_report() {
+  echo "  Staged entries NOT scanned (could not be read from the index):"
+  for soif_u in ${soif_idx_unread[@]+"${soif_idx_unread[@]}"}; do
+    echo "    - $soif_u"
+  done
+}
 
 if command -v semgrep &>/dev/null; then
   # Scan only staged files for fast pre-commit feedback.
@@ -255,10 +283,30 @@ if command -v semgrep &>/dev/null; then
   # non-zero), which makes semgrep's "blocking findings" code (1) indistinguish-
   # able from a semgrep TOOL failure (>=2: bad config, registry unreachable,
   # parse error). The two must be told apart — one blocks, the other warns.
+  # BL-179-STAGED-FILTER — the filter is ACMR, and BOTH the inclusion of R and the
+  # exclusion of D are load-bearing. They are not the same decision as the BL-125 test
+  # arm's ACMDR (~120 lines below) and must not be copied from it.
+  #   R (RENAME) MUST BE INCLUDED. `diff.renames` defaults to TRUE, so a commit that
+  #   renames a file AND edits it in the same breath is reported as ONE status-R entry
+  #   — which the old ACM filter EXCLUDED. soif_staged came back EMPTY, and since the
+  #   arm below was a `-gt 0` test with NO `else`, the scanner produced NO OUTPUT AT
+  #   ALL: no [OK], no [BLOCKED], and not even the loud NOTRUN every other can't-scan
+  #   path routes to. A routine rename-and-edit refactor walked an innerHTML sink past
+  #   the gate in total silence (BL-179, reproduced through the real emitter, the real
+  #   .git/hooks/pre-commit and a real `git commit`). For an R entry `--name-only -z`
+  #   emits the DESTINATION path, and `:0:<dest>` resolves to its staged blob, so the
+  #   materialization loop below needs no change at all.
+  #   D (DELETION) MUST STAY EXCLUDED. The BL-125 arm includes D because it must RUN
+  #   THE TESTS when a sanitizer is deleted; THIS arm must SCAN CONTENT, and a deleted
+  #   path has no staged content to scan. Including it hands the loop an index entry
+  #   whose `git cat-file -t ":0:<path>"` fails (verified: exit 128) — manufacturing a
+  #   phantom unreadable entry, i.e. a fresh instance of the very class BL-182 retires
+  #   below. Pinned in both directions by the ACMR->ACM and ACMR->ACMDR mutation cases
+  #   in tests/test-bl132-sast-index-scan.sh.
   soif_staged=()
   while IFS= read -r -d '' soif_f; do
     soif_staged+=("$soif_f")
-  done < <(git diff --cached --name-only --diff-filter=ACM -z)
+  done < <(git diff --cached --name-only --diff-filter=ACMR -z)
 
   if [ "${#soif_staged[@]}" -gt 0 ]; then
     # semgrep splits its output cleanly: FINDINGS go to stdout, the scan banner
@@ -294,9 +342,26 @@ if command -v semgrep &>/dev/null; then
     # # BL-132-STAGE0-REF in the loop; a bare `:<path>` is NOT safe for arbitrary
     # staged names. A pathname git cannot express (a NUL byte) cannot be staged, so it
     # cannot reach here.
+    # BL-182-PER-ENTRY-SKIP — THE ALL-OR-NOTHING `break` IS RETIRED. Every failure
+    # point in this loop used to do `soif_idx_ok=0; break`, which DISCARDED every
+    # sibling already materialized and routed the WHOLE commit to NOTRUN — so a sink
+    # staged in a readable sibling LANDED. That is strictly worse than scanning
+    # nothing, and the mechanism produced THREE separate defects in this one loop: a
+    # submodule gitlink (R-270-1), a repo-root path matching git's `:<stage>:<path>`
+    # syntax (R-270-1B), and a repo-relative path too long to express under the
+    # `mktemp -d` root (BL-182). Patching a fourth trigger was the wrong move; the
+    # CLASS is retired instead. Each unreadable entry is recorded in soif_idx_unread
+    # and the loop CONTINUES, so coverage degrades entry-by-entry instead of
+    # collapsing. The honesty half is non-negotiable and lives after the loop:
+    #   • any finding in what DID materialize still BLOCKS (# BL-182-PARTIAL-STILL-BLOCKS)
+    #   • a CLEAN scan over a PARTIAL set is NOT a clean scan and never earns the [OK]
+    #     receipt (# BL-182-NO-UNEARNED-RECEIPT)
+    #   • every NOTRUN caused by an unreadable entry NAMES it (# BL-182-NAME-THE-ENTRY)
+    # "Scan the readable subset" without those three is just the silent-success class
+    # wearing a smaller coat.
     soif_idx_tree="$(mktemp -d)"
-    soif_idx_ok=1
     soif_idx_files=()
+    soif_idx_unread=()
     soif_idx_n=0
     for soif_p in "${soif_staged[@]}"; do
       # BL-178-PER-INDEX-DIR — one subdir PER STAGED ENTRY ($tree/<n>/<relpath>),
@@ -324,6 +389,12 @@ if command -v semgrep &>/dev/null; then
       #   is neither a blob nor a gitlink is content we OWE the operator a scan of,
       #   and still routes to the loud NOTRUN below. Verified: pruning a real blob's
       #   object makes `cat-file -t` fail while ls-files still reports mode 100644.
+      #   THE TWO OUTCOMES ARE NO LONGER THE SAME SHAPE (# BL-182-PER-ENTRY-SKIP): a
+      #   gitlink `continue`s with NO trace, because it is not content and its absence
+      #   from the scan costs the operator nothing; an unreadable entry `continue`s
+      #   INTO soif_idx_unread, which forfeits the [OK] receipt for the whole commit
+      #   and is reported by name. Keep that distinction — collapsing them would let a
+      #   real unscanned blob buy a clean-looking commit.
       #   CAUTION, and the reason # BL-132-STAGE0-REF below exists: a failing
       #   `cat-file -t` does NOT imply a missing/corrupt object. An earlier revision
       #   of this comment enumerated it as the only other cause; R-270-1B REFUTED
@@ -334,10 +405,14 @@ if command -v semgrep &>/dev/null; then
       # a staged file whose REPO-ROOT name begins with `0:`..`3:` (e.g. `2:evil.js`)
       # the bare form parses as "stage 2 of evil.js" and FAILS on a fully readable
       # blob. That is no gitlink, so the skip above does not fire: the entry fell
-      # through to `soif_idx_ok=0; break`, discarding every sibling target and
-      # NOTRUNning the WHOLE commit while a vulnerable sibling LANDED — a security-lane
+      # through to the loop's then-existing `soif_idx_ok=0; break` (since retired by
+      # # BL-182-PER-ENTRY-SKIP), discarding every sibling target and NOTRUNning the
+      # WHOLE commit while a vulnerable sibling LANDED — a security-lane
       # regression versus main, the same "one bad entry blinds the commit" shape as the
-      # gitlink bug (R-270-1B, reproduced A/B through the real emitter). Boundaries,
+      # gitlink bug (R-270-1B, reproduced A/B through the real emitter). THE STAGE-0
+      # PREFIX IS STILL LOAD-BEARING after that retirement: without it such an entry
+      # becomes an UNREADABLE entry, which forfeits the commit's [OK] receipt and
+      # NOTRUNs on content that was perfectly readable all along. Boundaries,
       # verified on git 2.50.1: `0:`/`1:`/`2:`/`3:` at repo ROOT fail bare, while
       # `4:x.js` (only 0-3 are stage digits), `2evil.js` (the colon is required) and
       # `sub/2:x.js` (root only) all resolve bare. `:0:` resolves ordinary paths
@@ -350,32 +425,52 @@ if command -v semgrep &>/dev/null; then
         if git ls-files -s -- ":(literal)$soif_p" 2>/dev/null | grep -q '^160000 '; then
           continue
         fi
-        soif_idx_ok=0
-        break
+        soif_idx_unread+=("$soif_p"); continue
       fi
       soif_idx_dest="$soif_idx_tree/$soif_idx_n/$soif_p"
-      mkdir -p "$(dirname "$soif_idx_dest")" 2>/dev/null || { soif_idx_ok=0; break; }
-      git cat-file blob ":0:$soif_p" > "$soif_idx_dest" 2>/dev/null || { soif_idx_ok=0; break; }
+      # The `2>/dev/null` used to sit on `mkdir -p` while the `$(dirname …)` command
+      # substitution ran FIRST with UNREDIRECTED stderr — so a `dirname: …: File name
+      # too long` leaked raw into the operator's commit transcript (BL-182, observed).
+      # dirname carries its own redirect now, and an empty result is treated as a
+      # failure rather than being passed to `mkdir -p ""`.
+      soif_idx_ddir=$(dirname "$soif_idx_dest" 2>/dev/null) || soif_idx_ddir=""
+      if [ -z "$soif_idx_ddir" ] || ! mkdir -p "$soif_idx_ddir" 2>/dev/null; then
+        soif_idx_unread+=("$soif_p"); continue
+      fi
+      # BRACE-GROUPED REDIRECT, deliberately: bash applies redirections LEFT TO RIGHT,
+      # so `cmd > "$dest" 2>/dev/null` reports a failure to OPEN $dest before the
+      # `2>/dev/null` is in force — a >255-byte name component then prints a raw
+      # "File name too long" to the operator's terminal. Redirecting the GROUP puts
+      # /dev/null in place first, so the open failure is swallowed and handled here.
+      { git cat-file blob ":0:$soif_p" > "$soif_idx_dest"; } 2>/dev/null || { soif_idx_unread+=("$soif_p"); continue; }
       # F2 — positive content check: the materialized dest MUST match the staged
       # blob's byte size, so a git read that returns 0 while writing nothing or a
       # short/partial file cannot slip a non-empty staged blob past the scan as an
       # empty file. A mismatch routes to the loud NOTRUN below, never a silent pass.
       soif_idx_want=$(git cat-file -s ":0:$soif_p" 2>/dev/null) || soif_idx_want=""
       soif_idx_got=$(wc -c < "$soif_idx_dest" 2>/dev/null | tr -d '[:space:]') || soif_idx_got=""
-      if [ -z "$soif_idx_want" ] || [ "$soif_idx_got" != "$soif_idx_want" ]; then soif_idx_ok=0; break; fi
+      if [ -z "$soif_idx_want" ] || [ "$soif_idx_got" != "$soif_idx_want" ]; then soif_idx_unread+=("$soif_p"); continue; fi
       soif_idx_files+=("$soif_idx_dest")
     done
-    if [ "$soif_idx_ok" -ne 1 ]; then
-      # Could not snapshot the index — honest NOTRUN (# BL-112-SAST-NOTRUN): never a
-      # silent pass, and never a false block on content we could not read.
-      soif_sast_not_enforced "could not materialize staged content for scanning — SAST skipped."
-    elif [ "${#soif_idx_files[@]}" -eq 0 ]; then
-      # BL-132-EMPTY-TARGETS — nothing scannable was materialized (e.g. a submodule
-      # POINTER-BUMP commit stages only a gitlink). The scan did not happen, so the
-      # [OK] receipt below would be a lie: route to the same honest NOTRUN. This is
-      # the receipt-honesty half of BL-132-GITLINK-SKIP — skipping a gitlink must
-      # never buy a clean-looking commit.
-      soif_sast_not_enforced "no scannable staged content (all staged entries are non-blob, e.g. submodule gitlinks) — SAST skipped."
+    if [ "${#soif_idx_files[@]}" -eq 0 ]; then
+      if [ "${#soif_idx_unread[@]}" -gt 0 ]; then
+        # Nothing at all could be snapshotted — honest NOTRUN (# BL-112-SAST-NOTRUN):
+        # never a silent pass, and never a false block on content we could not read.
+        # The message text is unchanged from the pre-BL-182 whole-commit abort so
+        # operator docs and existing pins still match; what is NEW is that it now
+        # NAMES the entries (# BL-182-NAME-THE-ENTRY) instead of leaving the operator
+        # to guess which of their staged files went unscanned.
+        soif_sast_not_enforced "could not materialize staged content for scanning — SAST skipped."
+        soif_sast_unread_report
+      else
+        # BL-132-EMPTY-TARGETS — nothing scannable was materialized (e.g. a submodule
+        # POINTER-BUMP commit stages only a gitlink). The scan did not happen, so the
+        # [OK] receipt below would be a lie: route to the same honest NOTRUN. This is
+        # the receipt-honesty half of BL-132-GITLINK-SKIP — skipping a gitlink must
+        # never buy a clean-looking commit. Reached only when NOTHING was unreadable,
+        # so it can still speak plainly about non-blob entries.
+        soif_sast_not_enforced "no scannable staged content (all staged entries are non-blob, e.g. submodule gitlinks) — SAST skipped."
+      fi
     else
       set +e
       # BL-112-SAST-ERROR — `--error` is LOAD-BEARING. Semgrep exits 0 even when it
@@ -418,6 +513,12 @@ if command -v semgrep &>/dev/null; then
         echo ""
         echo "[BLOCKED] Semgrep detected security issues in staged files."
         echo "  Review and fix the ERROR-severity findings above before committing."
+        # BL-182-PARTIAL-STILL-BLOCKS — a finding in the readable subset BLOCKS even
+        # when coverage was partial. Under the old all-or-nothing `break` this commit
+        # went NOTRUN and the sibling's vulnerability LANDED; blocking on what we DID
+        # read is strictly safer. The operator is still shown the coverage gap, because
+        # a blocked commit is exactly when they are about to re-stage and retry.
+        if [ "${#soif_idx_unread[@]}" -gt 0 ]; then soif_sast_unread_report; fi
         FAILED=1
         soif_ledger_blocked semgrep || true   # BL-163-BLOCKED-LEDGER
       elif [ "$soif_sg_rc" -ne 0 ]; then
@@ -429,7 +530,23 @@ if command -v semgrep &>/dev/null; then
         # it SURFACES the diagnostic: an operator who cannot see why the scanner
         # died cannot fix it, and a gate you cannot fix is a gate you route around.
         soif_sast_not_enforced "semgrep could not complete (exit $soif_sg_rc) — the tool itself failed."
+        if [ "${#soif_idx_unread[@]}" -gt 0 ]; then soif_sast_unread_report; fi
         sed 's/^/  /' "$soif_sg_err" >&2
+      elif [ "${#soif_idx_unread[@]}" -gt 0 ]; then
+        # BL-182-NO-UNEARNED-RECEIPT — the scan RAN and came back clean, but it did not
+        # see everything that is being committed. A clean SUBSET is not a clean COMMIT:
+        # printing the [OK] receipt here would be precisely the BL-112 lie this whole
+        # arm exists to prevent, merely scoped to part of a commit instead of all of
+        # it — and the entry we could not read is exactly where a sink would hide.
+        # Route to the loud partial report and name what was missed.
+        # TWO COUNTS, NO DENOMINATOR — deliberately. "N of M staged entries" would be
+        # wrong the moment a gitlink is also staged: a gitlink is neither scanned nor
+        # unreadable (it is not content), so it belongs to neither count and any total
+        # that implies otherwise is a small lie in a message whose whole job is not to
+        # tell them. Report what WAS scanned and what could NOT be read; the list that
+        # follows names the second group exactly.
+        soif_sast_partial_coverage "SAST coverage was PARTIAL: ${#soif_idx_files[@]} staged file(s) scanned clean, ${#soif_idx_unread[@]} could NOT be read (listed below)."
+        soif_sast_unread_report
       else
         # 0 == the scan RAN and found nothing at ERROR severity. SAY SO. A gate that
         # is silent when it passes is indistinguishable from a gate that never ran —
@@ -441,11 +558,25 @@ if command -v semgrep &>/dev/null; then
         # not the number staged: since BL-132-GITLINK-SKIP the two can differ, and a
         # receipt that counts entries the scanner never saw is the BL-112 lie in a
         # different coat. Zero targets never reaches here — it NOTRUNs above.
+        # Reached ONLY with COMPLETE coverage — the branch above intercepts every
+        # commit that had an entry the loop could not read, so this receipt always
+        # means "every staged blob was scanned, and N is all of them".
         echo "[OK] semgrep: SAST ran on ${#soif_idx_files[@]} staged file(s) — no ERROR-severity findings."
       fi
     fi
     rm -rf "$soif_idx_tree"
     rm -f "$soif_sg_err" "$soif_sg_out"
+  else
+    # BL-179-EMPTY-STAGED — this `else` is the second half of BL-179 and it exists to
+    # END A SILENCE. Before it, zero staged targets meant zero OUTPUT: the operator was
+    # told nothing at all, which is indistinguishable from a clean scan and is the exact
+    # BL-112 dishonesty class this arm was built to close. With R now in the filter the
+    # residual shapes here are commits with no scannable content of their own — a pure
+    # DELETION, a type change — and they still deserve a receipt saying so. Deliberately
+    # the same loud NOTRUN as every other can't-scan path: "the scanner had nothing to
+    # look at" and "the scanner could not look" are the same fact to a reader deciding
+    # whether this commit was checked.
+    soif_sast_not_enforced "no scannable staged file content (nothing added, copied, modified or renamed) — SAST skipped."
   fi
 else
   # BL-112-SAST-NOTRUN arm 1 of 2 — the documented semgrep-absent contract: WARN,
