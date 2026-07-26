@@ -29,8 +29,8 @@ Session handoff documents. **One live state-of-record at the top level; finished
 handoffs move to `archive/` and leave a pointer stub at the old path** so every
 citation still resolves. Convention: [handoffs/archive/README.md](handoffs/archive/README.md).
 
-- **Live:** [handoffs/2026-07-10-gate-wave-close-out.md](handoffs/2026-07-10-gate-wave-close-out.md) — the current state-of-record (gate wave complete, PRs #160–#167 merged, `main` green with branch protection).
-- **Archived:** [handoffs/archive/](handoffs/archive/) — the 2026-07-08 CI-arc-close handoff (superseded) and the 2026-07-09 gate-wave execution handoff (fully executed). Pointer stubs remain at the two old top-level paths.
+- **Live:** [handoffs/2026-07-24-seven-wp-wave-handoff.md](handoffs/2026-07-24-seven-wp-wave-handoff.md) — the current state-of-record (the seven-WP wave shipped as PRs #265–#271; read its ⚠ SUPERSEDING UPDATE header first, then `git fetch` and re-derive merge state).
+- **Archived:** [handoffs/archive/](handoffs/archive/) — seven finished handoffs, 2026-07-08 through 2026-07-24, each with a pointer stub left at its old top-level path. See [handoffs/archive/README.md](handoffs/archive/README.md) for the per-file status (superseded vs fully executed). Everything at the top level of `docs/handoffs/` other than the live doc above is a stub.
 
 ## Superpowers (`docs/superpowers/`)
 

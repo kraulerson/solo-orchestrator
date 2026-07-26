@@ -111,7 +111,9 @@ before trusting it**.
 ## HANDOFFS
 
 - Live handoffs: `docs/handoffs/` — the **newest date is current** (as of
-  2026-07-23 that is `docs/handoffs/2026-07-20-arc-close-phase-g.md`).
+  2026-07-25 that is `docs/handoffs/2026-07-24-seven-wp-wave-handoff.md`).
+  Everything else at the top level is a pointer stub, so "newest date" and
+  "the one non-stub file" agree — if they ever disagree, trust the non-stub.
 - Superseded / fully-executed handoffs move to `docs/handoffs/archive/` with a
   pointer stub left at the old top-level path so citations still resolve. See
   `docs/handoffs/archive/README.md` (includes the citation convention).
@@ -161,7 +163,11 @@ than no manifest).
   the `tests.yml` unit list too (per the CANONICAL COMMANDS membership rule).
   `lint-tests-registered.sh` enforces BOTH: the aggregator-registration
   backstop (BL-038) and, via its BL-154 unit-lane arm, the tests.yml
-  `tests=(` membership of every non-`init.sh` test.
+  `tests=(` membership of tests that do not invoke `init.sh`. **Do not read a
+  green lint as proof of unit-lane registration:** `_check_unit_lane`'s
+  exemption test is a whole-file `grep -q 'init\.sh'`, so any test whose TEXT
+  mentions `init.sh` — *including a comment saying it does NOT invoke
+  init.sh* — is exempted (BL-181). Register by hand and check the list.
 - **Portability:** GNU-first `stat -c … || stat -f …`; never `((x++))` under
   `set -e`; configure a git identity in fixtures; unset `GITHUB_BASE_REF` in
   fixture git ops; no multibyte chars adjacent to variable expansions under

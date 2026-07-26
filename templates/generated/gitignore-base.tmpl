@@ -64,6 +64,18 @@ terraform.tfvars.json
 # in case a future flow leaves it behind)
 .claude-backup/
 
+# SYNC SIBLINGS (BL-174) — the two `.claude/*.txt` sidecar ignore lines below
+# (.claude/last-checked-commit.txt and .claude/last-gate-pass.txt) have TWO
+# writers and no mechanical lockstep check: this template, which reaches a
+# project only through init.sh's generate_gitignore(), and the idempotent
+# upgrade-path backfill marked `# BL-174-GITIGNORE-BACKFILL` in
+# scripts/upgrade-project.sh's `_run_idempotent_backfill`, which appends the
+# same two exact lines to an ALREADY-scaffolded project. Change one, change the
+# other IN THE SAME COMMIT — the backfill matches with `grep -qxF`, so an edit
+# here that is not mirrored there silently stops upgraded projects from ever
+# receiving the line (which is the BL-174 defect itself, reintroduced). Same
+# convention as the `# BL-084-TIER-KEY` SYNC-SIBLINGS predicate.
+#
 # BL-030 operational state — the detection baseline file. Not project
 # content. Updated by scripts/detect-out-of-band-commits.sh on every
 # SessionStart and by scripts/reconfigure-project.sh / init.sh after
