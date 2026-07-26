@@ -537,33 +537,55 @@ rm -f "$MUTYML"
 # (that was R-B-4: `[[:space:]][[:space:]]*` → `[[:space:]][[:space:]][[:space:]]*`
 # survived `lint-tests-registered.sh` rc=0 AND this suite at 24/0, while
 # re-exempting every single-space trailing comment — the commonest spelling
-# there is). So the fixture carries FIVE init.sh-bearing comment lines, each
-# shape ALONE on its line, so any one of them surviving the stripper is enough
-# to turn U6 red:
-#   • column-0 whole-line     — the original BL-181 shape; pins the `#` anchor
-#   • SPACE-indented whole-line — the dominant form inside a function/if body;
-#     pins the `*` in the whole-line stripper's `^[[:space:]]*#`
-#   • TAB-indented whole-line — pins `[[:space:]]` as a CHARACTER CLASS rather
-#     than a literal space; narrowing it to `^ *#` re-exempts tab-indented files
-#   • TRAILING at ONE space   — pins the LOWER bound of the trailing stage's
-#     whitespace run (a 2+ quantifier must not compile)
+# there is). The `#` in each stage needs the same treatment: narrowing either
+# one to `#[[:space:]]` re-exempts every file that spells a comment `#like
+# this` — that was R-B-10, and both mutants survived both PR-blocking checks
+# until this fixture grew the lines that kill them.
+#
+# So the fixture carries EIGHT init.sh-bearing comment lines, each shape ALONE
+# on its line, so any one of them surviving the stripper is enough to turn U6
+# red. Whole-line stage (`grep -vE '^[[:space:]]*#'`):
+#   • column-0, SPACE after the hash — the original BL-181 shape
+#   • column-0, NO space after the hash — pins this stage's `#` as a bare
+#     literal (a `#[[:space:]]` narrowing must not compile)
+#   • SPACE-indented — the dominant form inside a function/if body; pins the
+#     `*` in `^[[:space:]]*#`
+#   • TAB-indented — pins `[[:space:]]` as a CHARACTER CLASS rather than a
+#     literal space; narrowing it to `^ *#` re-exempts tab-indented files
+# Trailing stage (`sed 's/\([^[:space:]]\)[[:space:]][[:space:]]*#.*$/\1/'`):
+#   • TRAILING at ONE space   — pins the LOWER bound of the whitespace run
+#     (a 2+ quantifier must not compile)
 #   • TRAILING at THREE spaces — pins the UPPER side, i.e. the `*` itself (an
 #     exactly-one-space quantifier must not compile)
-# The one atom U6 canNOT pin is the sed's leading `\([^[:space:]]\)` guard:
-# every whole-line comment is already gone by the time the sed runs, so
-# deleting the guard is behaviour-neutral ON THIS FIXTURE. It is kept because
-# it stops the sed from masking the grep — with the guard removed, mutant A
-# (weakening `^[[:space:]]*#` to `^#`) would survive. Stated, not overclaimed.
+#   • TRAILING with NO space after the hash — pins THIS stage's `#` as a bare
+#     literal, independently of the whole-line stage's
+#   • TRAILING separated by a TAB — pins this stage's whitespace run as a
+#     CHARACTER CLASS; narrowing it to a literal space re-exempts every
+#     tab-separated trailing comment
+# Two atoms of the anchored line are NOT pinned by this fixture — stated, not
+# counted as covered:
+#   • the sed's leading `\([^[:space:]]\)` guard: every whole-line comment is
+#     already gone by the time the sed runs, so deleting the guard is
+#     behaviour-neutral ON THIS FIXTURE. It is kept because it stops the sed
+#     from masking the grep — with the guard removed, mutant A (weakening
+#     `^[[:space:]]*#` to `^#`) would survive.
+#   • the grep's `^` anchor: dropping it is NOT behaviour-neutral, but it is
+#     U7 — not U6 — that kills it. The real-invoker fixture's invocation
+#     carries a trailing comment, so an unanchored `[[:space:]]*#` would drop
+#     that whole line and demand a genuine invoker into the fast lane.
 _bl181_fixture_comment_only() {
   cat > "$TMP/tests/test-bl181-comment-only.sh" <<'SH'
 #!/usr/bin/env bash
 # We bypass init.sh (and its --non-interactive cost) by hand-rolling the
 # fixture below - this test scaffolds nothing and runs in about a second.
+#no space after the hash, and we never run init.sh here either.
 _hand_roll() {
   # Space-indented mention of init.sh - still a comment, still not an invocation.
 	# Tab-indented mention of init.sh - pins [[:space:]] as a class, not a space.
   echo "fast unit test - one space before the hash" # and we never call init.sh
   echo "fast unit test - three spaces before the hash"   # nor here: no init.sh
+  echo "fast unit test - no space after the trailing hash"  #nor here: no init.sh
+  echo "fast unit test - a tab before the trailing hash"	# and no init.sh here
 }
 _hand_roll
 SH
