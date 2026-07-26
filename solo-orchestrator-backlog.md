@@ -4565,14 +4565,84 @@ restore ⇒ 24 / 0 rc=0. Round 1's shipped predicate is therefore now a killed m
 
 **Residual after remediation (narrower, still stated in-script):** a mention inside a quoted string
 or a heredoc body still exempts, as does a comment introduced with no preceding whitespace
-(`foo;#note`). The one real instance on the tree is test-bl096-cold-start.sh's
-`printf '#!/usr/bin/env bash\n' > ".../scripts/init.sh"`, and it is already in the unit list, so
-that exemption is moot and correctly unrendered. `--list` remains the compensating control.
+(`foo;#note`). `--list` remains the compensating control.
 
-**Non-blocking, recorded so the class is not lost (R-B-3):** the SIGPIPE-under-`pipefail` defect
-class found in round 2 above (`cmd | grep -q` promoting rc=141) is live elsewhere in at least one
-other PR-blocking enforcement script. Pre-existing, not introduced here, deliberately out of scope
-for this change — file it separately rather than widening this one.
+---
+
+**REMEDIATION ROUND 3 (2026-07-26, WP-B — adversarial verifier `major_concerns` on round 2; still
+Open until merge).** Two findings, both reproduced before being fixed.
+
+* **R-B-4 — the fixture pinned each comment SPELLING but not its WIDTH, so round 2's own root cause
+  recurred.** Round 2 enriched `_bl181_fixture_comment_only` to three spellings and claimed all
+  atoms were pinned. They were not: every trailing comment in the fixture used THREE spaces, so
+  narrowing the trailing stage's quantifier `[[:space:]][[:space:]]*` (1+) to
+  `[[:space:]][[:space:]][[:space:]]*` (2+) — one character — left the fixture's behaviour
+  unchanged and survived **both** PR-blocking checks (`lint-tests-registered.sh` rc=0, suite
+  24 passed / 0 failed). Under that mutant a **single-space** trailing comment, the commonest
+  spelling in shell, re-exempts a file: A/B probe (two files identical but for the space count,
+  both aggregator-registered, unit list naming neither) gave
+  `SKIP … test-probe-single-space.sh unit-lane-exempt:init-sh-invoker` + `FAIL …
+  test-probe-three-space.sh not-in-unit-lane`, rc=1 with 1 violation, against a pristine control of
+  `FAIL`/`FAIL`, rc=1 with 2 violations. The same class held for the whole-line stage: the fixture's
+  indented comment used spaces only, so narrowing `^[[:space:]]*#` to `^ *#` also survived both
+  checks (rc=0, 24/0) while re-exempting every TAB-indented file.
+  **Fix is fixture-only — no production change.** `_bl181_fixture_comment_only` now carries FIVE
+  init.sh-bearing comment lines, each shape alone on its line: column-0 whole-line, SPACE-indented
+  whole-line, TAB-indented whole-line, trailing at ONE space, trailing at THREE spaces. The one atom U6 cannot
+  pin — the sed's leading `\([^[:space:]]\)` guard — is now stated as unpinnable-and-why rather
+  than counted as covered.
+* **R-B-5 — the round-2 residual paragraph undercounted by 5, and CLAUDE.md's restored absolute was
+  false by those same 5.** Round 2 asserted "the one real instance on the tree is
+  test-bl096-cold-start.sh … already in the unit list, so that exemption is moot". Running the
+  audit the `--list` surface exists for (`bash scripts/lint-tests-registered.sh --list | grep -c
+  unit-lane-exempt` → **33**) and classifying every row shows **5 of the 33 decisive exemptions
+  belong to files that never execute init.sh** — they name it inside a string as a `grep`/`awk`
+  target, or write a stub they never run:
+  `test-resolve-tools-memoization.sh` (`INIT_SH="$REPO_ROOT/init.sh"`, then `awk … "$INIT_SH"`),
+  `test-specs-plans-host-aware-quartet.sh` (`grep -q … "$INIT_SH"`),
+  `test-docs-cluster-six-pack.sh` (`grep -qE 'cp …' "$INIT_SH"`),
+  `test-platform-mobile-mcp-docs.sh` (`awk … "$INIT_SH"`),
+  `test-platform-security-bugs-closer.sh` (`cat > "$fake_fw/init.sh" <<'STUB'`, never executed).
+  A further **9 mention-only exemptions** are moot because the file is already in the unit list —
+  test-bl096-cold-start, test-bl108-bl117-ship-closure, test-bl119-stale-editmsg,
+  test-bl123-bp-attestation-recovery, test-bl141-commitmsg-repair, test-bl147-ci-template-integrity,
+  test-currency-manifest, test-freshness-check, test-upgrade-sync-framework — so "one instance" was
+  wrong by an order of magnitude in both directions.
+  **Fixed three ways.** (1) This paragraph replaces the undercount with the measured audit.
+  (2) CLAUDE.md HOUSE RULES now says the arm enforces membership of every test whose **executed
+  lines do not name** `init.sh` — the predicate stated literally — and adds "an exempt row is a
+  claim, not a verdict: read the rows, do not count them". (3) The 5 non-invokers were added to the
+  `tests=(` unit list: each is aggregator-registered in full-project-test-suite.sh, uses no
+  `git commit`/`git config user` and needs no `~/.claude-dev-framework`, and runs in 0-2s
+  (`rc=0 0s` resolve-tools-memoization `Results: 2 passed, 0 failed` · `rc=0 2s`
+  specs-plans-host-aware-quartet `== Total: 8 | Passed: 8 | Failed: 0 ==` · `rc=0 0s`
+  docs-cluster-six-pack `Results: 28 passed, 0 failed` · `rc=0 0s` platform-mobile-mcp-docs
+  `Results: 8 passed, 0 failed` · `rc=0 0s` platform-security-bugs-closer
+  `== Total: 7 | Passed: 7 | Failed: 0 ==`); all five already run on Linux via the green full lane.
+  The audit surface drops **33 → 28 rows**, and all 28 survivors are genuine invokers (the two the
+  naive command-position grep misses are `test-poc-modes.sh`, `run_bounded 90 bash "$INIT" …`, and
+  `test-bl099-guard-coverage.sh`, which copies init.sh into a mutant tree and drives scaffolding
+  sub-suites through `BL099_REPO_OVERRIDE`).
+
+Round-3 mutation proofs, all restored from a byte-exact backup (NOT `git checkout` — the fix is
+uncommitted, so that would silently revert it and fake a red). The round-3 fix is fixture-only, so
+each mutant is applied to the PRODUCTION predicate and killed by the enriched fixture through the
+existing U6: **C** trailing quantifier 1+ → 2+ ⇒ 23 passed / 1 failed rc=1 (U6), restore ⇒ 24 / 0
+rc=0. **D** `^[[:space:]]*#` → `^ *#` ⇒ 23 / 1 rc=1 (U6), restore ⇒ 24 / 0 rc=0. Round 2's mutants
+stay killed under the enriched fixture: **A** `^[[:space:]]*#` → `^#` ⇒ 23 / 1 rc=1; **B** delete
+the trailing-comment sed stage ⇒ 23 / 1 rc=1.
+
+**Note on this entry's own "Fix shape" paragraph (R-B-6):** the one-liner quoted there
+(`grep -vE '^[[:space:]]*#' … | grep -q 'init\.sh'`) is the SUPERSEDED round-1 proposal, kept for
+history. It is unsound twice over — SIGPIPE under `pipefail` (see build note item 2) and no
+trailing-comment stage — and U6 now kills it as mutant B. The shipped predicate is the two-stage
+form at `# BL-181-UNIT-LANE-PREDICATE`; read the script, not this paragraph.
+
+**Non-blocking, now owned rather than gestured at (R-B-3 / R-B-7):** the SIGPIPE-under-`pipefail`
+class (`cmd | grep -q` promoting rc=141 through `set -o pipefail`) is pre-existing and out of scope
+here. Round 2 said it was live "in at least one other PR-blocking enforcement script" without
+naming one, which left the class unowned. Filed as **BL-183** with the measurement recipe; do not
+widen this entry to cover it.
 
 ---
 
@@ -4634,3 +4704,70 @@ transcript.
 still-open hole in the same arm — rename-and-edit commits skip SAST entirely and silently), BL-178
 (the per-index subdir that adds the `/<n>/` segment), BL-112 (the honest-NOTRUN contract that holds
 here).
+
+---
+
+## BL-183: `producer | grep -q` under `set -o pipefail` inverts a predicate via SIGPIPE — size-dependent, so it passes every small fixture
+
+**Logged:** 2026-07-26 (split out of BL-181 remediation round 3, finding R-B-7 — the class was
+described there but never given an owner)
+**Category:** Enforcement correctness / portability — silent predicate inversion in gate scripts
+**Severity:** Medium — a predicate that reads FALSE when it should read TRUE, in scripts that decide
+whether a commit is allowed; but each site needs its own reachability proof, so this is an audit,
+not a known live break.
+
+**The mechanism, measured during BL-181.** Under `set -o pipefail`, `grep -q` exits the instant it
+matches. The upstream producer is still writing, dies of `SIGPIPE` (rc 141), and `pipefail` promotes
+that to the pipeline's status — so a pipeline whose *content* matched reports **failure**. Whether it
+fires depends on how much the producer still had to write when the downstream exited, i.e. on FILE
+SIZE, so it is invisible on small fixtures and appears only on real inputs. Measured instance:
+`_check_unit_lane` in `scripts/lint-tests-registered.sh` gave `rc=141` on
+`tests/test-bl112-commit-enforcement.sh` with `grep -q` versus `count=4` with `grep -c`, and picked a
+*different* victim file on consecutive runs of the same tree. Fixed there by making every stage a
+full-input consumer (`# BL-181-UNIT-LANE-PREDICATE`, and the long "WHY `grep -c` AND NOT `… | grep -q`"
+comment above it).
+
+**Scope of the audit — candidate sites, not confirmed breaks.** Non-comment `… | grep -[a-z]*q`
+pipelines in files that set `pipefail`, measured 2026-07-26 on this tree — **80 sites across 13
+files**, three of them authoritative gate scripts:
+
+| sites | file |
+|---|---|
+| 34 | `scripts/pre-commit-gate.sh` |
+| 9 | `scripts/process-checklist.sh` |
+| 8 | `scripts/check-phase-gate.sh` |
+| 5 | `scripts/upgrade-project.sh` |
+| 5 | `scripts/lint-counter-antipattern.sh` |
+| 4 | `scripts/validate.sh` |
+| 4 | `scripts/lint-fail-emit-exit-status.sh` |
+| 3 | `scripts/lint-no-live-remote-in-tests.sh` |
+| 3 | `scripts/lib/hook-templates.sh` |
+| 2 | `scripts/detect-out-of-band-commits.sh` |
+| 1 each | `scripts/lint-raw-read-prompt.sh`, `scripts/lint-fix-functions-stderr.sh`, `scripts/check-changelog.sh` |
+
+Reproduce with:
+```
+for f in scripts/*.sh scripts/lib/*.sh; do
+  grep -qE 'set -[a-zA-Z]*o[[:space:]]+pipefail' "$f" || continue
+  n=$(grep -vE '^[[:space:]]*#' "$f" | grep -cE '\|[[:space:]]*grep[[:space:]]+-[a-zA-Z]*q')
+  [ "$n" -gt 0 ] && printf '%3s  %s\n' "$n" "$f"
+done | sort -rn
+```
+
+**A site is only a real defect if all three hold** — a mechanical count is an upper bound, not a
+finding: (a) the producer can outlive the `grep -q` (large or streaming input — a `printf` of one
+line cannot SIGPIPE); (b) the pipeline's status is actually *consumed* (an `if`, `&&`, or captured
+`$?`), not discarded; (c) `pipefail` is in effect at that point. Triage the 80 against those three
+before changing anything.
+
+**Fix shape (per confirmed site):** make the downstream consume all input — `grep -c` plus a numeric
+test, or `grep -q` behind a variable that already holds the full producer output. Do NOT drop
+`pipefail`; it is load-bearing elsewhere. Each fix needs the same evidence BL-181 produced: a
+multi-KB fixture that fails with `grep -q` and passes with the consuming form (see U12 in
+`tests/test-lint-tests-registered.sh` for the pattern).
+
+**Status:** Open
+
+**Related:** BL-181 (where the class was found, measured, and fixed at one site), BL-168
+(`test-bl168-tm-table-sigpipe.sh` — a prior SIGPIPE instance, evidence that this is a recurring class
+in this repo), CLAUDE.md ENFORCEMENT — SOURCE OF TRUTH.
