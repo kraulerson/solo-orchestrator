@@ -3266,12 +3266,12 @@ The full lane's aggregators shard failed on `tests/edge-case-test-suite.sh` T2.1
 
 ---
 
-## BL-135: test-bl033-install-cmds-shape failed in the full-lane CI run but is GREEN locally — unreproduced divergence, needs a second data point
+## BL-135: test-bl033-install-cmds-shape fails on ubuntu CI and is GREEN on macOS — the harness depends on the host having Homebrew
 
 **Logged:** 2026-07-18 (full-lane run 29649055577, core shard)
-**Category:** Bug / test flake (unreproduced)
+**Category:** Bug / host-dependent test (NOT a flake — deterministic on both hosts)
 **Severity:** Low
-**Status:** Open
+**Status:** Closed — root-caused, reproduced locally, and fixed 2026-07-26 (commit `c98775c`, branch `fix/bl181-bl135-unit-lane`). Test-side fix at `# BL-135-RESOLVER-PROBE-STUB`; `scripts/resolve-tools.sh` deliberately unchanged. See the closure block at the end of this entry.
 
 The core shard reported `[FAIL] tests/test-bl033-install-cmds-shape.sh` at 16:12Z; the aggregate runner suppresses sub-suite output (`run for details`), so NO case-level detail is recoverable from the log. The suite passes locally on the same content (post-#213 main). Candidates: ubuntu/GNU divergence, runner load (the same run surfaced BL-134's timing-margin class), or a real intermittent. Disposition: watch the next full-lane dispatch — a second failure warrants instrumenting the runner to tee sub-suite output; a second pass declassifies to noise.
 
@@ -3282,6 +3282,75 @@ The core shard reported `[FAIL] tests/test-bl033-install-cmds-shape.sh` at 16:12
 **Investigation 2026-07-24 (WP-F, branch `fix/bl135-bl136-fullsuite-debt`):** local-stability datum + full candidate scan; NOT reproduced. (1) LOCAL 10× — `bash tests/test-bl033-install-cmds-shape.sh` ran ten consecutive times, ALL GREEN (rc=0, `Results: 8 passed, 0 failed` each; sub-second per run). Deterministic locally on `6fc1c11`. (2) CI LOG STILL AVAILABLE — `gh run view 29649055577 --log` retrieves (ubuntu-24.04 runner); it confirms the aggregate core shard prints ONLY `[FAIL] tests/test-bl033-install-cmds-shape.sh FAILED (run for details)` — NO case-level detail is recoverable, so WHICH of the 8 cases failed is unknowable from the log (this BOUNDS the diagnosis and re-justifies the per-sub-suite `tee` demand). That shard reported 5 failures total: this test, `tier-crosscheck-6` zdr-gate, `test-init-schema-phase-gate`, plus the two BL-136 cases (TEST 5 + TEST 7). (3) CANDIDATE SCAN (anchors = case/function names in `test-bl033-install-cmds-shape.sh`): the suite is exceptionally portable — `set -uo pipefail` (NOT `-e`), byte-comparison `[ "$x" = … ]` tests, and NO `sed -i`/`stat`/`date -d`/`grep -P`/`sort`/locale use. Host-shaped constructs, exhaustively: (a) `mktemp -d` in `_mk_matrix` (GNU+BSD both support the no-template form — benign); (b) the ONLY timing/race-shaped surface — the `$$`-keyed shared `/tmp/bl033-fail-fast-stage{1,2}-$$` markers in `T-array-fail-fast`, guarded by `rm -f` before use (low collision risk even under parallel-shard load); (c) COMMIT-STATE (not host) sensitivity — `T-migrated-entries` + `T-migrated-semantics` read the SHIPPED `templates/tool-matrix/common.json` and assert docker/colima carry the array shape, so a 2026-07-18 main with that matrix mid-migration would fail LEGITIMATELY and is NOT reproducible at `6fc1c11`. No candidate reproduces the failure locally, so the runner-`tee` instrumentation was deliberately NOT built this WP (per plan — build only if a candidate makes it locally reproducible). (4) DISPOSITION unchanged (Status stays Open, awaiting a second full-lane data point): per this entry's own rule, a second full-lane FAIL → `tee` each sub-suite's output (inspect candidate (c) first); a second full-lane PASS → declassify to noise.
 
 **Merged 2026-07-25 (PR #267 `73c6083`) — Status stays OPEN.** The WP-F evidence pass above landed on `main` alongside the BL-136 fixture repairs. It changed no product code and no test code for this entry — it is an investigation record, not a fix — so the disposition is untouched: **still awaiting a second full-lane data point.** `tests/test-bl033-install-cmds-shape.sh` DOES run in the `core` shard (it is not `SUITE_SKIP_AGGREGATORS`-gated), so the next full-lane `workflow_dispatch` genuinely supplies that data point: a second FAIL → build the per-sub-suite `tee` instrumentation (inspect the commit-state candidate (c) first); a second PASS → declassify to noise and Close.
+
+**CLOSURE 2026-07-26 — ROOT-CAUSED AND FIXED (commit `c98775c`). It was never a flake.** The
+second full-lane data point arrived and it was a FAIL, but the `tee` instrumentation this entry
+demanded was not needed: the divergence is deterministic and reproduces on demand.
+
+**Second CI data point.** Full-lane `workflow_dispatch` run **30204845017**, 2026-07-26, ubuntu
+runner. `full (core)` shard: `[FAIL] tests/test-bl033-install-cmds-shape.sh FAILED (run for
+details)` — the shard's **SOLE** failure (`FAIL: 1`), the other three shards green. Two FAILs on
+ubuntu (29649055577 on 2026-07-18, 30204845017 on 2026-07-26) against a suite that is
+deterministically GREEN on macOS is a host split, not noise — and the 10× local stability run
+recorded in the WP-F investigation above is now explained rather than contradicted.
+
+**Root cause.** `scripts/resolve-tools.sh` builds its install-key priority list by probing the
+**REAL HOST**:
+
+```
+HAS_BREW=false
+command -v brew &>/dev/null && HAS_BREW=true
+...
+[ "$HAS_BREW" = true ] && _keys="${_keys}darwin_brew,"
+```
+
+`tests/test-bl033-install-cmds-shape.sh` drives the resolver through its `_run_resolver` helper
+with `--dev-os darwin` and every scenario asserts on a `darwin_brew` install key. The helper's own
+comment claimed it "pins linux_apt keys via env so the harness never depends on the host's package
+managers" — **that comment was false**: the test set no env at all (zero exports) and the resolver
+has no env override. On macOS brew is present, `darwin_brew` is in the key list, 8/8 pass. On
+ubuntu brew is absent, `darwin_brew` is dropped, the fixture tool falls through to
+`.manual` / `manual_install`, and every scenario that reads `auto_install[0]` or expects a
+malformed-shape refusal collapses. Candidate (c) of the WP-F scan (commit-state sensitivity of the
+two `T-migrated-*` cases) was the wrong suspect — those two are precisely the survivors.
+
+**Local reproduction (the method, so it is repeatable).** Build a temp dir of symlinks to every
+executable in `/bin`, `/usr/bin`, `/sbin`, `/usr/sbin` while deliberately EXCLUDING `brew` (and
+omitting `/opt/homebrew/bin` and `/usr/local/bin` entirely), then run the suite with `PATH` set to
+that dir. Measured on the macOS host, byte-identical test content:
+
+| host state | result | rc |
+|---|---|---|
+| brew present (normal macOS) | `Results: 8 passed, 0 failed` | 0 |
+| brew hidden (emulated ubuntu) | `Results: 2 passed, 6 failed` | 1 |
+
+The 2 survivors are `T-migrated-entries` and `T-migrated-semantics` — the only cases that read
+`templates/tool-matrix/*.json` directly with `jq` and never call the resolver.
+
+**Fix — TEST-SIDE; the product is correct and was not touched.** Making `--dev-os` authoritative in
+`resolve-tools.sh` was considered and **rejected**: the host probe is correct behaviour, since a Mac
+user without Homebrew must be handed `darwin_manual`, not brew commands they cannot run. Regressing
+real behaviour to satisfy a test would be the wrong trade. Instead `# BL-135-RESOLVER-PROBE-STUB`
+in the test creates empty executable `brew` and `npm` stubs in a temp dir and prepends it to `PATH`
+as a **command-scoped assignment on the resolver invocation inside `_run_resolver` only** — never
+exported, so it cannot leak into sibling scenarios or sibling test files — with an `EXIT` trap
+removing the dir. The resolver only ever runs `command -v` against those names, so an empty file
+suffices; nothing is executed. That pins the key list to exactly
+`darwin_brew,darwin_manual,npm,manual` on every host. `apt`/`dnf`/`pacman` need no stub because they
+gate `linux_*` keys the harness never reaches under `--dev-os darwin` — stated in the comment, with
+the standing requirement that any future `--dev-os linux` scenario MUST extend the stub set. The
+false "pins ... via env" comment is replaced with one describing what the test actually does.
+
+**Proof.** `Results: 8 passed, 0 failed` rc=0 in three environments — brew present, brew hidden, and
+brew AND npm hidden. Watched-RED before the fix: brew hidden → `Results: 2 passed, 6 failed` rc=1.
+Mutation: delete the `PATH="$_BL135_STUB_DIR:$PATH"` prefix → brew-hidden run returns to
+`2 passed, 6 failed` rc=1 → restore → `8 passed, 0 failed` rc=0.
+
+**Residual.** The per-sub-suite `tee` instrumentation this entry demanded is still NOT built, and
+that demand is unaffected by this closure — the aggregate core-shard runner still prints only
+`FAILED (run for details)`, so the NEXT unrelated core-shard failure will be just as opaque. That is
+a separate ask, not part of BL-135. The 2026-07-18 Dogfood-3 gitleaks observation (F-DF3-003)
+recorded above is an unrelated surface and is NOT closed by this.
 
 ---
 
