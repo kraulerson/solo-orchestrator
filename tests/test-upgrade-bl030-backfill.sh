@@ -65,6 +65,35 @@ setup_pre_bl030_organizational_production() {
     && mv "$tmp" "$PROJ/.claude/bypass-audit.json"
   UPGRADE="$PROJ/scripts/upgrade-project.sh"
 }
+# BL-180: a project scaffolded by the pre-fix INTERACTIVE init.sh path — the
+# manifest carries the BL-030 keys but enforcement_level is the EMPTY STRING,
+# and the strict-mode filesystem gate was never installed because the
+# `[ "$ENFORCEMENT_LEVEL" = "strict" ]` guard saw "". This shape is strictly
+# WORSE than the pre-BL-030 shape above: `jq -e '.enforcement_level'` on ""
+# prints "" and EXITS 0, so the backfill's own `! jq -e …` gate treated the
+# broken project as already-migrated and skipped it. Mimic it exactly.
+setup_bl180_empty_level_personal() {
+  TMP=$(mktemp -d); PROJ="$TMP/p"
+  bash "$INIT" --non-interactive --project x --project-dir "$PROJ" --no-remote-creation \
+    --platform web --language typescript --track light --deployment personal \
+    >/dev/null 2>&1
+  # Blank the level — do NOT delete the key. That distinction IS the bug.
+  tmp=$(mktemp)
+  jq '.enforcement_level = ""' "$PROJ/.claude/manifest.json" > "$tmp" \
+    && mv "$tmp" "$PROJ/.claude/manifest.json"
+  # The gate the pre-fix interactive path never installed.
+  rm -f "$PROJ/.claude/last-checked-commit.txt"
+  rm -f "$PROJ/.git/hooks/framework-gate.sh"
+  bash "$PROJ/scripts/install-filesystem-gates.sh" --uninstall "$PROJ" >/dev/null 2>&1
+  # The birth audit row recorded "" as well.
+  tmp=$(mktemp)
+  jq '[.[] | select(.type != "enforcement_level_set")]' "$PROJ/.claude/bypass-audit.json" > "$tmp" \
+    && mv "$tmp" "$PROJ/.claude/bypass-audit.json"
+  tmp=$(mktemp)
+  jq '. + {deployment: "personal", poc_mode: null}' "$PROJ/.claude/phase-state.json" > "$tmp" \
+    && mv "$tmp" "$PROJ/.claude/phase-state.json"
+  UPGRADE="$PROJ/scripts/upgrade-project.sh"
+}
 teardown() { rm -rf "$TMP"; }
 
 # T1: pre-BL-030 personal project: upgrade backfills manifest fields.
@@ -157,6 +186,55 @@ if [ -s "$PROJ/.claude/last-checked-commit.txt" ]; then
   pass "T7: last-checked-commit.txt initialized"
 else
   fail_ "T7" "last-checked-commit.txt missing or empty"
+fi
+teardown
+
+# ── BL-180: EMPTY enforcement_level must be treated as ABSENT ──────────
+# The repair path for every project born on the pre-fix INTERACTIVE init.sh
+# path. See # BL-180-BACKFILL-EMPTY in scripts/upgrade-project.sh.
+
+# T8: the migration actually fires on an empty value.
+echo "T8: BL-180 — manifest with enforcement_level=\"\" is backfilled to strict"
+setup_bl180_empty_level_personal
+( cd "$PROJ" && bash "$UPGRADE" --backfill-only >/dev/null 2>&1 ) || true
+level=$(jq -r '.enforcement_level // empty' "$PROJ/.claude/manifest.json")
+if [ "$level" = "strict" ]; then
+  pass "T8: empty enforcement_level repaired to strict"
+else
+  fail_ "T8" "enforcement_level='$level' — the empty value defeated its own migration"
+fi
+teardown
+
+# T9: the repair is not cosmetic — the gate the interactive path never
+# installed must actually land on disk. Without this, T8 could pass on a
+# manifest edit that leaves the project just as hollow as before.
+echo "T9: BL-180 — backfill installs the filesystem gate the interactive path skipped"
+setup_bl180_empty_level_personal
+( cd "$PROJ" && bash "$UPGRADE" --backfill-only >/dev/null 2>&1 ) || true
+if [ -x "$PROJ/.git/hooks/framework-gate.sh" ] \
+   && grep -q "SOIF framework gate" "$PROJ/.git/hooks/pre-commit" 2>/dev/null; then
+  pass "T9: framework-gate.sh installed + wired into pre-commit"
+else
+  fail_ "T9" "gate still absent after backfill"
+fi
+teardown
+
+# T10: CONTROL — a manifest that already carries a real non-strict level must
+# NOT be re-strictified. The empty-vs-absent fix must widen the trigger only
+# to the empty string, never to a legitimately chosen tier. (personal + light
+# is the one combo where that distinction is observable.)
+echo "T10: BL-180 control — an explicit 'light' level is NOT clobbered by the backfill"
+TMP=$(mktemp -d); PROJ="$TMP/p"
+bash "$INIT" --non-interactive --project x --project-dir "$PROJ" --no-remote-creation \
+  --platform web --language typescript --track light --deployment personal \
+  --enforcement-level light --confirm-pitfalls >/dev/null 2>&1
+UPGRADE="$PROJ/scripts/upgrade-project.sh"
+( cd "$PROJ" && bash "$UPGRADE" --backfill-only >/dev/null 2>&1 ) || true
+level=$(jq -r '.enforcement_level // empty' "$PROJ/.claude/manifest.json")
+if [ "$level" = "light" ]; then
+  pass "T10: explicit light survives the backfill"
+else
+  fail_ "T10" "enforcement_level='$level' — backfill clobbered an explicit choice"
 fi
 teardown
 

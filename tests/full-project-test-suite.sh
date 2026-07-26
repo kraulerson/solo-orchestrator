@@ -1894,6 +1894,39 @@ if bash "$SCRIPT_DIR/tests/test-enforcement-level-reconfigure.sh" >/dev/null 2>&
 else
   fail "tests/test-enforcement-level-reconfigure.sh FAILED (run for details)"
 fi
+# BL-180: the INTERACTIVE birth site. Everything above this pair covers the
+# --non-interactive arm only, which is why an interactively scaffolded project
+# shipped with enforcement_level="" and no filesystem gate.
+#   * -interactive-enforcement.sh — fast, pty-free pin of the RESOLVED level,
+#     read off dry_run_summary's `# BL-180-DRYRUN-ENFORCEMENT` stdout line.
+#   * -interactive-scaffold-pty.sh — the real end-to-end scaffold over a pty
+#     (manifest + .git/hooks/framework-gate.sh on disk). Aggregator-ONLY: it
+#     invokes init.sh for a full create_project, so it must NOT be added to
+#     the .github/workflows/tests.yml unit lane. LOUD-SKIPS (rc=0, printed
+#     reason) when neither expect nor script is installed.
+if bash "$SCRIPT_DIR/tests/test-bl180-interactive-enforcement.sh" >/dev/null 2>&1; then
+  pass "tests/test-bl180-interactive-enforcement.sh"
+else
+  fail "tests/test-bl180-interactive-enforcement.sh FAILED (run for details)"
+fi
+# Output is CAPTURED, not discarded, for this one: its LOUD SKIP (no expect and
+# no script on PATH) is an rc=0 outcome, and the standard `>/dev/null 2>&1`
+# delegate shape would render it indistinguishable from a genuine 8/8 pass —
+# turning a documented skip back into the silent-success class this test exists
+# to close. Surface the skip in the suite line instead.
+bl180_pty_out=""
+bl180_pty_rc=0
+bl180_pty_out="$(bash "$SCRIPT_DIR/tests/test-bl180-interactive-scaffold-pty.sh" 2>&1)" || bl180_pty_rc=$?
+if [ "$bl180_pty_rc" -eq 0 ]; then
+  case "$bl180_pty_out" in
+    *"SKIPPED: no pty driver"*)
+      pass "tests/test-bl180-interactive-scaffold-pty.sh — SKIPPED (no expect/script on PATH; install expect to exercise the real interactive scaffold)" ;;
+    *)
+      pass "tests/test-bl180-interactive-scaffold-pty.sh" ;;
+  esac
+else
+  fail "tests/test-bl180-interactive-scaffold-pty.sh FAILED (run for details)"
+fi
 # --- BL-035 wiring B: init/upgrade ---
 # ================================================================
 # Registers the init-family and upgrade-family orphan tests that were
