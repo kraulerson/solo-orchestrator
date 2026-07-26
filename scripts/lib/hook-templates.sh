@@ -283,9 +283,12 @@ if command -v semgrep &>/dev/null; then
   # non-zero), which makes semgrep's "blocking findings" code (1) indistinguish-
   # able from a semgrep TOOL failure (>=2: bad config, registry unreachable,
   # parse error). The two must be told apart — one blocks, the other warns.
-  # BL-179-STAGED-FILTER — the filter is ACMR, and BOTH the inclusion of R and the
-  # exclusion of D are load-bearing. They are not the same decision as the BL-125 test
-  # arm's ACMDR (~120 lines below) and must not be copied from it.
+  # BL-179-STAGED-FILTER — the filter is ACMRT, and the inclusion of R and T AND the
+  # exclusion of D are each load-bearing. They are not the same decision as the BL-125
+  # test arm's ACMDR (~120 lines below) and must not be copied from it.
+  #   THE TEST THIS FILTER MUST PASS: does the status letter denote a staged entry that
+  #   HAS SCANNABLE CONTENT OF ITS OWN? A,C,M,R,T all do; D does not. Anything else and
+  #   the receipt below stops meaning what it says.
   #   R (RENAME) MUST BE INCLUDED. `diff.renames` defaults to TRUE, so a commit that
   #   renames a file AND edits it in the same breath is reported as ONE status-R entry
   #   — which the old ACM filter EXCLUDED. soif_staged came back EMPTY, and since the
@@ -296,17 +299,34 @@ if command -v semgrep &>/dev/null; then
   #   .git/hooks/pre-commit and a real `git commit`). For an R entry `--name-only -z`
   #   emits the DESTINATION path, and `:0:<dest>` resolves to its staged blob, so the
   #   materialization loop below needs no change at all.
+  #   T (TYPE CHANGE) MUST BE INCLUDED, and this one is the quieter hole because it does
+  #   NOT route to the empty-staged report. Replacing a symlink with a regular file is
+  #   ordinary repo hygiene; git calls it T, the old ACMR filter dropped it, and a CLEAN
+  #   SIBLING in the same commit kept soif_staged non-empty — so the arm sailed past the
+  #   # BL-179-EMPTY-STAGED else and printed `[OK] … ran on N staged file(s)` with N
+  #   counting only the sibling while the dropped entry carried an innerHTML sink
+  #   (R-WPC-1, reproduced through the real emitter and a real `git commit`: verdict
+  #   COMMITTED, sink present in the committed tree). A truncated TARGET SET produces
+  #   exactly the unearned receipt # BL-182-NO-UNEARNED-RECEIPT guards against, but the
+  #   loop never sees the entry, so that guard cannot fire — only the filter can.
+  #   T IS SAFE WHERE D IS NOT, and the difference is the whole reason both letters are
+  #   spelled out here. Verified on git 2.50.1: `git cat-file -t ":0:<path>"` returns
+  #   `blob` for a T entry in BOTH directions — symlink->file (index mode 100644) and
+  #   file->symlink (index mode 120000) — and for gitlink->file. T therefore never
+  #   manufactures a phantom unreadable entry. (A ->gitlink T would present index mode
+  #   160000 and be absorbed by # BL-132-GITLINK-SKIP, which is already correct. A bare
+  #   permission flip is reported M, not T, and was always covered.)
   #   D (DELETION) MUST STAY EXCLUDED. The BL-125 arm includes D because it must RUN
   #   THE TESTS when a sanitizer is deleted; THIS arm must SCAN CONTENT, and a deleted
   #   path has no staged content to scan. Including it hands the loop an index entry
   #   whose `git cat-file -t ":0:<path>"` fails (verified: exit 128) — manufacturing a
   #   phantom unreadable entry, i.e. a fresh instance of the very class BL-182 retires
-  #   below. Pinned in both directions by the ACMR->ACM and ACMR->ACMDR mutation cases
-  #   in tests/test-bl132-sast-index-scan.sh.
+  #   below. Pinned in all three directions by the ACMRT->ACMT, ACMRT->ACMR and
+  #   ACMRT->ACMDRT mutation cases in tests/test-bl132-sast-index-scan.sh.
   soif_staged=()
   while IFS= read -r -d '' soif_f; do
     soif_staged+=("$soif_f")
-  done < <(git diff --cached --name-only --diff-filter=ACMR -z)
+  done < <(git diff --cached --name-only --diff-filter=ACMRT -z)
 
   if [ "${#soif_staged[@]}" -gt 0 ]; then
     # semgrep splits its output cleanly: FINDINGS go to stdout, the scan banner
@@ -558,9 +578,17 @@ if command -v semgrep &>/dev/null; then
         # not the number staged: since BL-132-GITLINK-SKIP the two can differ, and a
         # receipt that counts entries the scanner never saw is the BL-112 lie in a
         # different coat. Zero targets never reaches here — it NOTRUNs above.
-        # Reached ONLY with COMPLETE coverage — the branch above intercepts every
-        # commit that had an entry the loop could not read, so this receipt always
-        # means "every staged blob was scanned, and N is all of them".
+        # Reached ONLY with COMPLETE coverage. Two things have to hold for that, and
+        # they are enforced in two different places — a reader checking this claim must
+        # check BOTH:
+        #   1. every entry the loop was GIVEN was read — the branch above intercepts any
+        #      commit with a non-empty soif_idx_unread;
+        #   2. the loop was given every staged entry that HAS content —
+        #      # BL-179-STAGED-FILTER. A letter missing from that filter truncates the
+        #      TARGET SET before the loop runs, so soif_idx_unread is empty, the guard
+        #      above cannot fire, and N is silently a count of a subset. That is exactly
+        #      how a staged TYPE CHANGE bought a false [OK] while the filter was ACMR
+        #      (R-WPC-1). The filter and this receipt are one contract, not two.
         echo "[OK] semgrep: SAST ran on ${#soif_idx_files[@]} staged file(s) — no ERROR-severity findings."
       fi
     fi
@@ -570,13 +598,15 @@ if command -v semgrep &>/dev/null; then
     # BL-179-EMPTY-STAGED — this `else` is the second half of BL-179 and it exists to
     # END A SILENCE. Before it, zero staged targets meant zero OUTPUT: the operator was
     # told nothing at all, which is indistinguishable from a clean scan and is the exact
-    # BL-112 dishonesty class this arm was built to close. With R now in the filter the
-    # residual shapes here are commits with no scannable content of their own — a pure
-    # DELETION, a type change — and they still deserve a receipt saying so. Deliberately
+    # BL-112 dishonesty class this arm was built to close. With R and T now in the filter
+    # the residual shape here is a commit with no scannable content of its own — a pure
+    # DELETION — and it still deserves a receipt saying so. (A TYPE CHANGE is emphatically
+    # NOT such a shape: it is a staged blob with real content and it belongs in the SCAN,
+    # not in this else — see the T paragraph of # BL-179-STAGED-FILTER.) Deliberately
     # the same loud NOTRUN as every other can't-scan path: "the scanner had nothing to
     # look at" and "the scanner could not look" are the same fact to a reader deciding
     # whether this commit was checked.
-    soif_sast_not_enforced "no scannable staged file content (nothing added, copied, modified or renamed) — SAST skipped."
+    soif_sast_not_enforced "no scannable staged file content (nothing added, copied, modified, renamed or type-changed) — SAST skipped."
   fi
 else
   # BL-112-SAST-NOTRUN arm 1 of 2 — the documented semgrep-absent contract: WARN,

@@ -70,6 +70,14 @@
 #                                 blob, so including it would manufacture an unreadable
 #                                 entry. Deletion-only must land, be receipted, and
 #                                 never reach the loop with a blob-less entry.
+#   T-typechange-scanned          live — R-WPC-1: a staged TYPE CHANGE (status letter T,
+#                                 e.g. a symlink materialized into a regular file) is a
+#                                 real blob with real content, and `--diff-filter=ACMR`
+#                                 EXCLUDED it. A clean sibling kept soif_staged non-empty,
+#                                 so the commit never reached the empty-staged report and
+#                                 instead printed `[OK] … on 1 staged file(s)` over TWO
+#                                 staged blobs. Filter -> ACMRT. RED pre-fix: COMMITTED
+#                                 with that unearned receipt and the sink in HEAD.
 #   T-partial-clean-no-receipt    live — BL-182: one staged entry cannot be
 #                                 materialized, every other scans CLEAN. That is NOT a
 #                                 clean commit: NO [OK] receipt, loud NOTRUN, and the
@@ -90,9 +98,12 @@
 #                                 Fires at the dirname/mkdir recovery point (the
 #                                 LONG_NAME cases fire at the write point). LOUD-SKIPs
 #                                 where the host can express the path.
-#   T-mutation-rename-filter      live — proof (a): ACMR -> ACM -> the rename case LANDS
-#                                 in silence (RED) -> restore -> REFUSED (GREEN).
-#   T-mutation-delete-filter      live — ACMR -> ACMDR -> a deletion-only commit reports
+#   T-mutation-rename-filter      live — proof (a): ACMRT -> ACMT -> the rename case
+#                                 LANDS its XSS (RED) -> restore -> REFUSED (GREEN).
+#   T-mutation-typechange-filter  live — ACMRT -> ACMR (the pre-R-WPC-1 value) -> the
+#                                 type-change case LANDS its sink behind an UNEARNED [OK]
+#                                 receipt (RED) -> restore -> REFUSED (GREEN).
+#   T-mutation-delete-filter      live — ACMRT -> ACMDRT -> a deletion-only commit reports
 #                                 lost coverage on a phantom entry (RED) -> restore ->
 #                                 honest receipt, no phantom (GREEN).
 #   T-mutation-empty-staged-silence  neuter the empty-staged report -> a deletion-only
@@ -252,6 +263,27 @@ mk_repo_seeded() {
   rm -f "$d/.git/hooks/pre-commit"
   printf '%s\n' "$sc" > "$d/$sp"
   ( cd "$d" && git add -- "$sp" && git commit -q -m "chore: seed $sp" ) || return 1
+  cp "$hook" "$d/.git/hooks/pre-commit"
+  chmod +x "$d/.git/hooks/pre-commit"
+}
+
+# mk_repo_typechange <dir> <hookfile>: mk_repo, then land a SYMLINK (link.ts -> README.md)
+# plus a clean regular sibling (app.ts) BEFORE the hook is armed, then arm it. The caller
+# replaces link.ts with a REGULAR FILE, which git reports as a status-T TYPE CHANGE.
+# Returns non-zero when this host cannot produce the shape — no symlink support, or
+# core.symlinks=false storing the seed as a plain blob — so the case LOUD-SKIPs instead
+# of quietly degrading into an ordinary `M` that proves nothing about the T filter.
+mk_repo_typechange() {
+  local d="$1" hook="$2"
+  mk_repo "$d" "$hook" || return 1
+  rm -f "$d/.git/hooks/pre-commit"
+  ( cd "$d" && ln -s README.md link.ts ) 2>/dev/null || return 1
+  [ -L "$d/link.ts" ] || return 1
+  printf '%s\n' 'export const seeded = 1;' > "$d/app.ts"
+  ( cd "$d" && git add -- link.ts app.ts && git commit -q -m "chore: seed symlink + sibling" ) || return 1
+  # The seeded INDEX entry must really be mode 120000. On a checkout where git stored
+  # the symlink as a regular file the later replacement is an `M`, not a `T`.
+  ( cd "$d" && git ls-files -s -- ":(literal)link.ts" 2>/dev/null ) | grep -q '^120000 ' || return 1
   cp "$hook" "$d/.git/hooks/pre-commit"
   chmod +x "$d/.git/hooks/pre-commit"
 }
@@ -878,6 +910,82 @@ else
   fi
 fi
 
+# ── T-typechange-scanned (BL-179, the filter's fourth letter) ────────────────
+# A staged TYPE CHANGE — git status letter T — is a real staged BLOB with real content,
+# and `--diff-filter=ACMR` EXCLUDED it. Materializing a symlink into a regular file
+# (`rm link.ts` then write it) is ordinary repo hygiene, and the resulting index entry
+# holds whatever bytes the new regular file carries.
+#   THIS IS NOT THE SAME SHAPE AS THE RENAME DEFECT, and that is why it needs its own
+#   case. A rename-only commit left soif_staged EMPTY, so the # BL-179-EMPTY-STAGED arm
+#   at least SAID something. Here a clean sibling keeps soif_staged non-empty, so the
+#   commit never reaches that arm: it prints the `[OK] semgrep: SAST ran on N staged
+#   file(s)` RECEIPT while N counts only the sibling and the unscanned T entry carries
+#   the sink. That is the unearned-receipt class (# BL-182-NO-UNEARNED-RECEIPT) reached
+#   through the FILTER instead of through the materialization loop — the loop never sees
+#   the entry, so the guard after it cannot fire.
+#   T IS SAFE TO INCLUDE WHERE D IS NOT (verified on this host, git 2.50.1):
+#   `git cat-file -t ":0:<path>"` returns `blob` for a T entry in BOTH directions —
+#   symlink->file (index mode 100644) and file->symlink (index mode 120000) — and for
+#   gitlink->file. So, unlike D, T never manufactures a phantom unreadable entry and the
+#   materialization loop needs no change. (A hypothetical ->gitlink T would present mode
+#   160000 and be absorbed by # BL-132-GITLINK-SKIP, which is already correct.)
+# RED pre-fix: COMMITTED, HEAD moves, `[OK] … on 1 staged file(s)` printed over TWO
+# staged blobs, and `git show HEAD:link.ts` still holds the innerHTML sink.
+echo "=== T-typechange-scanned ==="
+if [ "$HAVE_SEMGREP" -eq 0 ]; then
+  skip_ "T-typechange-scanned" "semgrep ABSENT — skip, not pass"
+else
+  RT="$TOPTMP/typechange"
+  if ! mk_repo_typechange "$RT" "$EMITTED"; then
+    skip_ "T-typechange-scanned" "this host could not seed a mode-120000 symlink index entry (no symlink support / core.symlinks=false) — the type-change generator is UNAVAILABLE and the case would degrade into an ordinary M"
+  else
+    rm -f "$RT/link.ts"
+    printf '%s\n' "$XSS_TS"  > "$RT/link.ts"     # the symlink becomes a REGULAR FILE carrying the sink
+    printf '%s\n' "$SAFE_TS" > "$RT/app.ts"      # a CLEAN sibling, so soif_staged is never empty
+    ( cd "$RT" && git add -- link.ts app.ts ) >/dev/null 2>&1
+    RT_STATUS="$( cd "$RT" && git diff --cached --name-status | tr '\n' ' ' )"
+    RT_TYPE="$( cd "$RT" && git cat-file -t ":0:link.ts" 2>/dev/null )"
+    RT_HAS_SINK=0
+    ( cd "$RT" && git cat-file blob ":0:link.ts" 2>/dev/null ) | grep -q 'innerHTML' && RT_HAS_SINK=1
+    # FIXTURE-VALIDITY PROBES, all three load-bearing: without the `^T` probe a host that
+    # reported `M` would pass this case for free (M was always in the filter); without the
+    # blob/sink probes a staged entry with no sink in it proves nothing about scanning.
+    if ! ( cd "$RT" && git diff --cached --name-status | grep -q '^T' ); then
+      skip_ "T-typechange-scanned" "git did not report a TYPE CHANGE here (name-status='$RT_STATUS') — the T-excluded-by-the-filter defect cannot trigger and this case would pass vacuously"
+    elif [ "$RT_TYPE" != "blob" ] || [ "$RT_HAS_SINK" -ne 1 ]; then
+      fail_ "T-typechange-scanned" "FIXTURE INVALID — the staged type-change entry is not a sink-carrying blob (index type='$RT_TYPE' want blob, sink=$RT_HAS_SINK want 1; name-status='$RT_STATUS')"
+    else
+      H0="$(head_of "$RT")"
+      if ( cd "$RT" && git commit -m "refactor: materialize the symlink" ) >"$TOPTMP/oT" 2>&1; then V=COMMITTED; else V=REFUSED; fi
+      H1="$(head_of "$RT")"
+      RT_LANDED="$( cd "$RT" && git show "HEAD:link.ts" 2>/dev/null | grep -c 'innerHTML' | tr -d '[:space:]' )"
+      if ! any_sast_line "$TOPTMP/oT"; then
+        fail_ "T-typechange-scanned" "the SAST arm said NOTHING AT ALL on a type-change commit (name-status='$RT_STATUS'); verdict=$V"
+      elif grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/oT"; then
+        fail_ "T-typechange-scanned" "an UNEARNED [OK] receipt — the staged TYPE CHANGE was excluded by --diff-filter (letter T), so N counts only the sibling while the unscanned entry carries the sink (BL-179); receipt: $(grep -F '[OK] semgrep: SAST ran' "$TOPTMP/oT" | head -1); sink landed in HEAD:link.ts=$RT_LANDED"
+      elif [ "$V" = "COMMITTED" ]; then
+        if not_enforced "$TOPTMP/oT"; then
+          skip_ "T-typechange-scanned" "scanner did not run (registry unreachable?) — blocking UNPROVEN here"
+        else
+          fail_ "T-typechange-scanned" "the type-change entry's innerHTML XSS COMMITTED (sink in HEAD:link.ts=$RT_LANDED): $(grep -E '\[OK\]|\[BLOCKED\]' "$TOPTMP/oT" | head -1)"
+        fi
+      elif ! grep -qF '[BLOCKED]' "$TOPTMP/oT"; then
+        fail_ "T-typechange-scanned" "refused but without [BLOCKED] (wrong reason): $(tail -3 "$TOPTMP/oT" | tr '\n' '|')"
+      elif [ "$H0" != "$H1" ]; then
+        fail_ "T-typechange-scanned" "non-zero exit but HEAD MOVED"
+      elif [ "$RT_LANDED" != "0" ]; then
+        fail_ "T-typechange-scanned" "blocked, but the sink is present in the committed tree (HEAD:link.ts matches=$RT_LANDED)"
+      elif ! grep -q 'link\.ts' "$TOPTMP/oT"; then
+        fail_ "T-typechange-scanned" "blocked, but the finding did not name the type-change path link.ts: $(tail -5 "$TOPTMP/oT" | tr '\n' '|')"
+      elif grep -qE '/var/folders/|/tmp/tmp\.' "$TOPTMP/oT"; then
+        fail_ "T-typechange-scanned" "raw mktemp temp-tree prefix leaked into output (F3)"
+      else
+        pass "T-typechange-scanned: a staged TYPE CHANGE is scanned — its innerHTML XSS is REFUSED, link.ts is named, and no [OK] is printed over a set the filter truncated (BL-179)"
+      fi
+    fi
+  fi
+fi
+
 # ── T-partial-clean-no-receipt (BL-182) ──────────────────────────────────────
 # THE SECURITY CONTRACT, HALF ONE. One staged entry cannot be materialized; every
 # OTHER staged entry scans CLEAN. That is NOT a clean commit — and it must never print
@@ -1149,10 +1257,22 @@ else
     _cg_commit "$MEMPTY" "$TOPTMP/cg1"
     _cg_commit "$MPART" "$TOPTMP/cg2"
     _cg_commit "$MEMPTY_NOF2" "$TOPTMP/cg3"
+    # THE NAMING ASSERTION IS DELIBERATE (R-WPC-2). The F2 size-mismatch point is one of
+    # the four per-entry recovery points # BL-182-PER-ENTRY-SKIP introduced, and its
+    # `soif_idx_unread` RECORDING — as opposed to a bare `continue` — was pinned only
+    # STRUCTURALLY, by the exactly-once counter above. A recovery point that skips the
+    # entry WITHOUT recording it produces the worst outcome in this whole arm: coverage
+    # is lost and nothing forfeits the receipt. `not_enforced` alone cannot see that (a
+    # single-entry fixture NOTRUNs either way, via # BL-132-EMPTY-TARGETS), so each F2
+    # arm additionally asserts the entry is NAMED, exact-line, by the unread report.
     if ! not_enforced "$TOPTMP/cg1"; then
       fail_ "T-mutation-content-guard" "M-empty materialize did NOT go loud NOTRUN with F2 present — F2 is not catching the empty dest: $(tail -3 "$TOPTMP/cg1" | tr '\n' '|')"
+    elif ! grep -qxF "    - app.ts" "$TOPTMP/cg1"; then
+      fail_ "T-mutation-content-guard" "M-empty materialize NOTRUNed but never NAMED app.ts — the F2 recovery point skipped the entry without recording it in soif_idx_unread, so a multi-entry commit would have lost that file's coverage and still earned its [OK] (R-WPC-2): $(tail -4 "$TOPTMP/cg1" | tr '\n' '|')"
     elif ! not_enforced "$TOPTMP/cg2"; then
       fail_ "T-mutation-content-guard" "M-partial materialize did NOT go loud NOTRUN with F2 present: $(tail -3 "$TOPTMP/cg2" | tr '\n' '|')"
+    elif ! grep -qxF "    - app.ts" "$TOPTMP/cg2"; then
+      fail_ "T-mutation-content-guard" "M-partial materialize NOTRUNed but never NAMED app.ts — see the M-empty arm above (R-WPC-2): $(tail -4 "$TOPTMP/cg2" | tr '\n' '|')"
     elif grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/cg3"; then
       pass "T-mutation-content-guard: empty+partial materialize -> loud NOTRUN WITH F2 (GREEN); F2 removed -> the empty scan passes [OK] silently (RED) — F2 is load-bearing"
     elif not_enforced "$TOPTMP/cg3"; then
@@ -1232,9 +1352,16 @@ _mut_n() {
 }
 
 # ── T-mutation-rename-filter (BL-179 proof (a)) ──────────────────────────────
-# Revert exactly the staged-target filter, ACMR -> ACM. The rename-and-edit commit's
-# destination is then never scanned and its XSS LANDS (RED); restore ACMR and the same
-# commit is REFUSED with a [BLOCKED] naming the destination (GREEN).
+# Drop exactly the R from the staged-target filter, ACMRT -> ACMT. The rename-and-edit
+# commit's destination is then never scanned and its XSS LANDS (RED); restore ACMRT and
+# the same commit is REFUSED with a [BLOCKED] naming the destination (GREEN).
+#   ONE LETTER AT A TIME, deliberately: this case owns R, T-mutation-typechange-filter
+#   owns T and T-mutation-delete-filter owns D. A mutant that dropped BOTH R and T would
+#   still go RED here while proving nothing about which letter carried the weight.
+#   ANCHOR COUPLING: the literal below carries the FULL filter value, so widening
+#   # BL-179-STAGED-FILTER by another letter makes _mut_n's exactly-once count fail and
+#   this case reports MIS-TARGETED rather than silently mutating nothing. That is the
+#   designed behaviour — retarget all three filter anchors in lockstep when it fires.
 #   THE RED IS "IT LANDS", NOT "IT IS SILENT". BL-179 had two halves — the filter and
 #   the missing `else` — and this mutation reverts only the first, so the surviving
 #   # BL-179-EMPTY-STAGED arm still prints a loud NOTRUN over the empty target set. The
@@ -1246,8 +1373,8 @@ if [ "$HAVE_SEMGREP" -eq 0 ]; then
   skip_ "T-mutation-rename-filter" "semgrep ABSENT — mutation UNPROVEN (skip, not pass)"
 else
   MRF="$TOPTMP/mut-acm"
-  if ! _mut_n "$EMITTED" "$MRF" '--diff-filter=ACMR -z' '--diff-filter=ACM -z' 1; then
-    fail_ "T-mutation-rename-filter" "MIS-TARGETED — the SAST staged-read filter '--diff-filter=ACMR -z' is not present exactly once in the emitted hook"
+  if ! _mut_n "$EMITTED" "$MRF" '--diff-filter=ACMRT -z' '--diff-filter=ACMT -z' 1; then
+    fail_ "T-mutation-rename-filter" "MIS-TARGETED — the SAST staged-read filter '--diff-filter=ACMRT -z' is not present exactly once in the emitted hook"
   elif ! bash -n "$MRF" 2>/dev/null; then
     fail_ "T-mutation-rename-filter" "mutated hook has a syntax error — a broken mutant proves nothing"
   else
@@ -1271,7 +1398,7 @@ else
       skip_ "T-mutation-rename-filter" "scanner did not run on the GREEN side (registry unreachable?) — mutation direction unprovable here"
     elif [ "$MRF_RED" = "COMMITTED" ] && ! grep -qF '[BLOCKED]' "$TOPTMP/mrf-red" \
          && [ "$MRF_GRN" = "REFUSED" ] && grep -qF '[BLOCKED]' "$TOPTMP/mrf-green"; then
-      pass "T-mutation-rename-filter: ACM leaves the renamed destination unscanned and LANDS its XSS (RED); ACMR REFUSES it (GREEN) — the R in the filter is load-bearing"
+      pass "T-mutation-rename-filter: ACMT leaves the renamed destination unscanned and LANDS its XSS (RED); ACMRT REFUSES it (GREEN) — the R in the filter is load-bearing"
     else
       fail_ "T-mutation-rename-filter" "expected RED=COMMITTED+no-[BLOCKED] / GREEN=REFUSED+[BLOCKED]; got RED=$MRF_RED (blocked=$(grep -cF '[BLOCKED]' "$TOPTMP/mrf-red")) GREEN=$MRF_GRN; red: $(tail -3 "$TOPTMP/mrf-red" | tr '\n' '|'); green: $(tail -3 "$TOPTMP/mrf-green" | tr '\n' '|')"
     fi
@@ -1279,14 +1406,65 @@ else
 
 fi
 
+# ── T-mutation-typechange-filter (R-WPC-1, the T is load-bearing) ────────────
+# Drop exactly the T from the staged-target filter, ACMRT -> ACMR — i.e. revert to the
+# value this remediation replaced. The staged TYPE CHANGE is then dropped from the
+# TARGET SET before the materialization loop ever runs, so soif_idx_unread stays EMPTY,
+# # BL-182-NO-UNEARNED-RECEIPT cannot fire, and the clean sibling buys an `[OK] … ran on
+# N staged file(s)` receipt while the dropped entry's innerHTML sink LANDS (RED).
+# Restore ACMRT and the same commit is REFUSED with a [BLOCKED] naming link.ts (GREEN).
+#   THE RED ASSERTION IS THE RECEIPT, NOT MERELY THE LANDING. "It committed" alone would
+#   also be satisfied by a loud NOTRUN, which is honest; the defect being pinned is the
+#   false [OK] over a set the FILTER truncated, so the RED requires that receipt present.
+echo "=== T-mutation-typechange-filter ==="
+if [ "$HAVE_SEMGREP" -eq 0 ]; then
+  skip_ "T-mutation-typechange-filter" "semgrep ABSENT — mutation UNPROVEN (skip, not pass)"
+else
+  MTF="$TOPTMP/mut-acmr"
+  _tc_commit() {  # <hookfile> <log> -> COMMITTED|REFUSED|SETUPFAIL|NOGEN
+    local d; d="$(mktemp -d)"
+    mk_repo_typechange "$d" "$1" >/dev/null 2>&1 || { rm -rf "$d"; echo NOGEN; return; }
+    rm -f "$d/link.ts"
+    printf '%s\n' "$XSS_TS"  > "$d/link.ts"
+    printf '%s\n' "$SAFE_TS" > "$d/app.ts"
+    ( cd "$d" && git add -- link.ts app.ts ) >/dev/null 2>&1
+    if ! ( cd "$d" && git diff --cached --name-status | grep -q '^T' ); then rm -rf "$d"; echo NOGEN; return; fi
+    if ! ( cd "$d" && git cat-file blob ":0:link.ts" 2>/dev/null ) | grep -q 'innerHTML'; then
+      rm -rf "$d"; echo SETUPFAIL; return
+    fi
+    if ( cd "$d" && git commit -m "refactor: materialize the symlink" ) >"$2" 2>&1; then echo COMMITTED; else echo REFUSED; fi
+    rm -rf "$d"
+  }
+  if ! _mut_n "$EMITTED" "$MTF" '--diff-filter=ACMRT -z' '--diff-filter=ACMR -z' 1; then
+    fail_ "T-mutation-typechange-filter" "MIS-TARGETED — the SAST staged-read filter '--diff-filter=ACMRT -z' is not present exactly once in the emitted hook"
+  elif ! bash -n "$MTF" 2>/dev/null; then
+    fail_ "T-mutation-typechange-filter" "mutated hook has a syntax error — a broken mutant proves nothing"
+  else
+    MTF_RED="$(_tc_commit "$MTF" "$TOPTMP/mtf-red")"
+    MTF_GRN="$(_tc_commit "$EMITTED" "$TOPTMP/mtf-green")"
+    if [ "$MTF_RED" = "NOGEN" ] || [ "$MTF_GRN" = "NOGEN" ]; then
+      skip_ "T-mutation-typechange-filter" "this host could not produce a status-T staged entry (no symlink support / core.symlinks=false) — mutation UNPROVEN here"
+    elif [ "$MTF_RED" = "SETUPFAIL" ] || [ "$MTF_GRN" = "SETUPFAIL" ]; then
+      fail_ "T-mutation-typechange-filter" "mutation fixture setup failed — the staged type-change blob carries no sink, so neither direction proves anything"
+    elif not_enforced "$TOPTMP/mtf-green"; then
+      skip_ "T-mutation-typechange-filter" "scanner did not run on the GREEN side (registry unreachable?) — mutation direction unprovable here"
+    elif [ "$MTF_RED" = "COMMITTED" ] && grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/mtf-red" \
+         && [ "$MTF_GRN" = "REFUSED" ] && grep -qF '[BLOCKED]' "$TOPTMP/mtf-green"; then
+      pass "T-mutation-typechange-filter: ACMR truncates the target set and buys an UNEARNED [OK] while the type-change sink LANDS (RED); ACMRT REFUSES it (GREEN) — the T in the filter is load-bearing (R-WPC-1)"
+    else
+      fail_ "T-mutation-typechange-filter" "expected RED=COMMITTED+[OK]-receipt / GREEN=REFUSED+[BLOCKED]; got RED=$MTF_RED (ok=$(grep -cF '[OK] semgrep: SAST ran' "$TOPTMP/mtf-red")) GREEN=$MTF_GRN (blocked=$(grep -cF '[BLOCKED]' "$TOPTMP/mtf-green")); red: $(tail -3 "$TOPTMP/mtf-red" | tr '\n' '|'); green: $(tail -3 "$TOPTMP/mtf-green" | tr '\n' '|')"
+    fi
+  fi
+fi
+
 # ── T-mutation-delete-filter (BL-179, D must stay OUT) ───────────────────────
-# Widen the filter to the BL-125 arm's ACMDR — the copy-paste this fix must NOT make.
+# Widen the filter with the BL-125 arm's D — the copy-paste this fix must NOT make.
 # A deletion-only commit then hands the loop an index entry with no blob, and the arm
-# reports it as unreadable content (RED: "could not materialize"). With ACMR the same
+# reports it as unreadable content (RED: "could not materialize"). With ACMRT the same
 # commit is honestly receipted and no phantom entry is ever manufactured (GREEN).
 echo "=== T-mutation-delete-filter ==="
-MDF="$TOPTMP/mut-acmdr"
-if ! _mut_n "$EMITTED" "$MDF" '--diff-filter=ACMR -z' '--diff-filter=ACMDR -z' 1; then
+MDF="$TOPTMP/mut-acmdrt"
+if ! _mut_n "$EMITTED" "$MDF" '--diff-filter=ACMRT -z' '--diff-filter=ACMDRT -z' 1; then
   fail_ "T-mutation-delete-filter" "MIS-TARGETED — the SAST staged-read filter is not present exactly once in the emitted hook"
 elif ! bash -n "$MDF" 2>/dev/null; then
   fail_ "T-mutation-delete-filter" "mutated hook has a syntax error — a broken mutant proves nothing"
@@ -1298,7 +1476,7 @@ else
   elif grep -qF 'could not materialize staged content' "$TOPTMP/mdf-red" \
        && ! grep -qF 'could not materialize staged content' "$TOPTMP/mdf-green" \
        && any_sast_line "$TOPTMP/mdf-green"; then
-    pass "T-mutation-delete-filter: ACMDR feeds a blob-less deleted path to the loop and reports lost coverage (RED); ACMR never manufactures the phantom entry and still receipts the commit (GREEN)"
+    pass "T-mutation-delete-filter: ACMDRT feeds a blob-less deleted path to the loop and reports lost coverage (RED); ACMRT never manufactures the phantom entry and still receipts the commit (GREEN)"
   else
     fail_ "T-mutation-delete-filter" "expected RED to report 'could not materialize' and GREEN not to; red_msg=$(grep -cF 'could not materialize' "$TOPTMP/mdf-red") green_msg=$(grep -cF 'could not materialize' "$TOPTMP/mdf-green") green_sast=$(grep -cE '\[OK\] semgrep: SAST ran|\[BLOCKED\] Semgrep|SAST NOT ENFORCED' "$TOPTMP/mdf-green"); red: $(tail -3 "$TOPTMP/mdf-red" | tr '\n' '|'); green: $(tail -3 "$TOPTMP/mdf-green" | tr '\n' '|')"
   fi
