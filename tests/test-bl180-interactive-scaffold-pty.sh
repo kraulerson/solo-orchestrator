@@ -26,6 +26,13 @@
 #   ONLY and must NOT be added to the .github/workflows/tests.yml unit lane.
 #   The fast pin for the same defect is tests/test-bl180-interactive-enforcement.sh.
 #
+# FIXTURE-SCOPED — and this is NOT free (see # BL-180-PTY-INTERACTIVE-ENV):
+#   prompt_input's non-interactive guard fires on CI / SOIF_NONINTERACTIVE
+#   INDEPENDENTLY of the tty, and when it does this run scaffolds into the
+#   checkout's PARENT rather than into its own mktemp -d. Those two vars are
+#   therefore unset for the run, T0a refuses to spawn init.sh if that unset
+#   ever stops taking, and T0b fails loudly if anything lands outside anyway.
+#
 # HERMETIC — no remote is ever contacted:
 #   * Git host is answered "other", the URL-paste path. It never invokes gh /
 #     glab / curl, so no authenticated host account can be touched.
@@ -157,6 +164,26 @@ export GIT_ASKPASS=/usr/bin/true
 # House rule: unset GITHUB_BASE_REF in fixture git ops.
 unset GITHUB_BASE_REF 2>/dev/null || true
 
+# ── BL-180-PTY-INTERACTIVE-ENV: neutralise the non-interactive overrides ─
+# helpers-core.sh::prompt_input / prompt_yes_no / prompt_choice all guard on
+#   [ ! -t 0 ] || [ -n "${CI:-}" ] || [ -n "${SOIF_NONINTERACTIVE:-}" ]
+# A pty satisfies `-t 0`, but CI and SOIF_NONINTERACTIVE are checked
+# INDEPENDENTLY of the tty — so on any host that exports them (every GitHub
+# Actions runner exports CI=true, which is precisely the environment of the
+# `full` lane this test is registered into) prompt_input auto-returns its
+# DEFAULT without consuming the fed answer. That is not merely a failing test:
+# PROJECT_NAME resolves to "" and
+#   PROJECT_DIR=$(prompt_input "Project directory" "$default_parent/$PROJECT_NAME")
+# resolves to "$default_parent/" — the PARENT DIRECTORY OF THE CHECKOUT — so a
+# complete git-init'd project is scaffolded OUTSIDE this fixture's own
+# `mktemp -d`. Driving the INTERACTIVE branch is the entire point of this test,
+# so these two are unset for the run. The piped/non-interactive branch is the
+# fast pin's job (tests/test-bl180-interactive-enforcement.sh), not this one.
+# T0a below re-asserts the unset actually took, and refuses to spawn init.sh
+# if it did not.
+unset CI 2>/dev/null || true
+unset SOIF_NONINTERACTIVE 2>/dev/null || true
+
 # Defence in depth: even though the "other" host path never shells out to a
 # host CLI, make gh/glab resolve to refusing stubs for the whole run.
 MOCK_DIR="$TMP/mockbin"
@@ -183,6 +210,42 @@ export PATH="$MOCK_DIR:$PATH"
 
 # init.sh refuses to scaffold from inside the framework repo.
 cd /tmp || exit 1
+
+# ── T0a: PRE-FLIGHT CONTAINMENT — checked BEFORE init.sh is ever spawned ─
+# This is the only assertion that can PREVENT rather than merely report an
+# escape, so it is deliberately ordered ahead of the run and exits without
+# spawning when it trips.
+#
+# ESCAPE_DIR is init.sh::collect_project_info's own expression
+#   default_parent="$(cd "$SCRIPT_DIR/.." && pwd)"
+# evaluated here with SCRIPT_DIR=$REPO_ROOT. When prompt_input takes its
+# non-interactive branch, PROJECT_NAME="" and the run scaffolds a whole
+# project into exactly this directory. Naming it up front is what makes a
+# future escape legible instead of surfacing as a confusing "no manifest at
+# <fixture path>" from T1.
+ESCAPE_DIR="$(cd "$REPO_ROOT/.." 2>/dev/null && pwd)"
+
+echo "T0a: pre-flight containment (interactive branch reachable, fixture-scoped)"
+preflight_err=""
+[ -n "${CI:-}" ] && preflight_err="CI is set ('$CI')"
+[ -z "$preflight_err" ] && [ -n "${SOIF_NONINTERACTIVE:-}" ] \
+  && preflight_err="SOIF_NONINTERACTIVE is set ('$SOIF_NONINTERACTIVE')"
+if [ -z "$preflight_err" ]; then
+  case "$PROJ/" in
+    "$TMP"/*) : ;;
+    *) preflight_err="PROJ ('$PROJ') is not under the fixture TMP ('$TMP')" ;;
+  esac
+fi
+if [ -n "$preflight_err" ]; then
+  fail_ "T0a" "REFUSING to spawn init.sh — $preflight_err.
+            helpers-core.sh::prompt_input would take its NON-interactive branch and
+            auto-return defaults, resolving PROJECT_DIR to '$ESCAPE_DIR/' and
+            scaffolding a complete project OUTSIDE this fixture. Nothing was run."
+  echo ""
+  echo "Results: $PASSED passed, $FAILED failed"
+  exit 1
+fi
+pass "T0a: interactive branch reachable (CI/SOIF_NONINTERACTIVE unset) and PROJ is inside \$TMP"
 
 # ── Driver: expect ─────────────────────────────────────────────────────
 # Pattern-driven rather than a fixed stream, because two prompts are
@@ -307,6 +370,27 @@ else
 fi
 echo "      init.sh rc=$INIT_RC, project dir=$PROJ"
 
+# ── T0b: POST-RUN ESCAPE DETECTOR — ordered BEFORE T1 on purpose ────────
+# T1 exits 1 the moment the fixture manifest is missing, so anything after it
+# never runs on the failing path. An escape is EXACTLY that failing path, which
+# is why the escape has to be diagnosed here rather than below: otherwise the
+# only message an operator sees is "no manifest at <fixture path>", which names
+# the one directory the project was NOT written to.
+#
+# .claude/manifest.json is the decisive scaffold artifact (create_project +
+# bl030_finalize_init write it). It has no legitimate reason to exist in the
+# checkout's parent, so this is a precise detector, not a heuristic.
+echo "T0b: the run stayed inside the fixture (no scaffold in the checkout's parent)"
+if [ -e "$ESCAPE_DIR/.claude/manifest.json" ]; then
+  fail_ "T0b" "ESCAPE — a project was scaffolded into '$ESCAPE_DIR', OUTSIDE this
+            fixture's mktemp -d ('$TMP'). This is the R-WPA-1 failure mode:
+            helpers-core.sh::prompt_input took its non-interactive branch, so
+            PROJECT_NAME resolved to \"\" and PROJECT_DIR to '$ESCAPE_DIR/'.
+            Remove that directory by hand — it was written by this test run."
+else
+  pass "T0b: no .claude/manifest.json in '$ESCAPE_DIR' — nothing escaped the fixture"
+fi
+
 # ── T1: the scaffold actually happened ─────────────────────────────────
 # Guards every assertion below from passing vacuously on a run that never got
 # past the wizard.
@@ -413,10 +497,23 @@ fi
 # ── T7: hermeticity self-check ─────────────────────────────────────────
 # Prove the run really did not attach a remote. If this ever fails, the test
 # has started touching a real host and must be fixed before anything else.
+#
+# THE EMPTY STRING MUST NOT BE THE PASS CONDITION ON ITS OWN. `git -C "$PROJ"
+# remote -v 2>/dev/null` prints NOTHING and exits non-zero when $PROJ is not a
+# git repository at all — indistinguishable from a healthy "no remotes" — so
+# discarding stderr and testing only `-z` made this case pass for the wrong
+# reason. Require the repo to exist AND the command to succeed before an empty
+# result is allowed to mean anything.
 echo "T7: no git remote was attached (hermeticity self-check)"
-remotes="$(git -C "$PROJ" remote -v 2>/dev/null)"
-if [ -z "$remotes" ]; then
-  pass "T7: git remote -v is empty"
+remotes=""
+remotes_rc=0
+remotes="$(git -C "$PROJ" remote -v 2>&1)" || remotes_rc=$?
+if [ ! -d "$PROJ/.git" ]; then
+  fail_ "T7" "'$PROJ' is not a git repository — 'no remotes' here would be vacuous, not hermetic"
+elif [ "$remotes_rc" -ne 0 ]; then
+  fail_ "T7" "git remote -v failed (rc=$remotes_rc): $(echo "$remotes" | tr '\n' '|')"
+elif [ -z "$remotes" ]; then
+  pass "T7: \$PROJ is a git repo and git remote -v is empty"
 else
   fail_ "T7" "a remote was attached: $(echo "$remotes" | tr '\n' '|')"
 fi

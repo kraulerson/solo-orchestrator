@@ -1911,9 +1911,20 @@ else
 fi
 # Output is CAPTURED, not discarded, for this one: its LOUD SKIP (no expect and
 # no script on PATH) is an rc=0 outcome, and the standard `>/dev/null 2>&1`
-# delegate shape would render it indistinguishable from a genuine 8/8 pass —
+# delegate shape would render it indistinguishable from a genuine 10/10 pass —
 # turning a documented skip back into the silent-success class this test exists
 # to close. Surface the skip in the suite line instead.
+#
+# NOT SUITE_SKIP_AGGREGATORS-gated, unlike the five real-scaffold siblings above
+# — a deliberate exception (verifier finding R-WPA-1, 2026-07-26). The `core`
+# shard is the ONLY CI shard that reaches this delegate (`aggregators` runs four
+# explicitly named files), so gating it here would leave the sole check that
+# catches a HOLLOW strict gate executing in zero CI lanes. The .github/workflows
+# `full` job installs `expect` so the supported driver is present rather than
+# the best-effort script(1) fallback. The fixture's own
+# # BL-180-PTY-INTERACTIVE-ENV unsets CI/SOIF_NONINTERACTIVE (a pty does NOT
+# defeat those two guards in helpers-core.sh::prompt_input) and its T0a refuses
+# to spawn init.sh at all if that ever stops taking.
 bl180_pty_out=""
 bl180_pty_rc=0
 bl180_pty_out="$(bash "$SCRIPT_DIR/tests/test-bl180-interactive-scaffold-pty.sh" 2>&1)" || bl180_pty_rc=$?
