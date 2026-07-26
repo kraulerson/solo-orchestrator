@@ -86,13 +86,44 @@ EOF
   echo "$tmp"
 }
 
-# Run the resolver against the fixture matrix. Uses --dev-os darwin
-# and pins linux_apt keys via env so the harness never depends on the
-# host's package managers. Returns resolver JSON on stdout, exit code
-# from the resolver.
+# BL-135-RESOLVER-PROBE-STUB — pin the resolver's package-manager probe
+# so this harness is host-independent.
+#
+# scripts/resolve-tools.sh builds its install-key priority list by
+# probing the REAL HOST (`command -v brew`, `command -v npm`, … — the
+# HAS_BREW/HAS_NPM block). That is CORRECT product behaviour: a Mac with
+# no Homebrew must be handed `darwin_manual`, not brew commands it cannot
+# run. So the product is left alone and the HARNESS is pinned instead.
+# Every `_run_resolver` scenario below asserts on a `darwin_brew` install
+# key; on a host without Homebrew (every ubuntu-latest CI runner) that
+# key is silently dropped from the priority list and 6 of the 8 scenarios
+# collapse — measured 8/8 with brew present, 2/8 with brew hidden. That
+# is the CI-vs-local divergence BL-135 tracked; it was never a flake.
+#
+# Only brew and npm are stubbed. apt/dnf/pacman gate the `linux_*` keys,
+# which this harness never reaches because `_run_resolver` always passes
+# `--dev-os darwin`; stubbing brew+npm makes the resolver's key list
+# exactly `darwin_brew,darwin_manual,npm,manual` on EVERY host. If a
+# scenario is ever added that passes `--dev-os linux`, it MUST extend
+# this stub set or the harness becomes host-dependent again.
+#
+# The resolver only ever runs `command -v` against these names — nothing
+# is executed — so an empty executable file is sufficient.
+_BL135_STUB_DIR=$(mktemp -d)
+for _bl135_stub in brew npm; do
+  : > "$_BL135_STUB_DIR/$_bl135_stub"
+  chmod +x "$_BL135_STUB_DIR/$_bl135_stub"
+done
+trap 'rm -rf "$_BL135_STUB_DIR"' EXIT
+
+# Run the resolver against the fixture matrix with --dev-os darwin. The
+# stub dir is prepended to PATH as a command-scoped assignment on the
+# resolver invocation ONLY — never exported, so it cannot leak into
+# sibling scenarios or sibling test files. Returns resolver JSON on
+# stdout, exit code from the resolver.
 _run_resolver() {
   local matrix_dir="$1"
-  bash "$RESOLVER" \
+  PATH="$_BL135_STUB_DIR:$PATH" bash "$RESOLVER" \
     --dev-os darwin \
     --platform web \
     --language typescript \
