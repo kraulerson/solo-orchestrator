@@ -4688,10 +4688,12 @@ Open until merge).** Two findings, both reproduced before being fixed.
   docs-cluster-six-pack `Results: 28 passed, 0 failed` · `rc=0 0s` platform-mobile-mcp-docs
   `Results: 8 passed, 0 failed` · `rc=0 0s` platform-security-bugs-closer
   `== Total: 7 | Passed: 7 | Failed: 0 ==`); all five already run on Linux via the green full lane.
-  The audit surface drops **33 → 28 rows**, and all 28 survivors are genuine invokers (the two the
-  naive command-position grep misses are `test-poc-modes.sh`, `run_bounded 90 bash "$INIT" …`, and
-  `test-bl099-guard-coverage.sh`, which copies init.sh into a mutant tree and drives scaffolding
-  sub-suites through `BL099_REPO_OVERRIDE`).
+  The audit surface drops **33 → 28 rows**. ~~All 28 survivors are genuine invokers~~ — **that
+  absolute was WRONG, see R-B-11 below**: it was a grep classification, and re-running the same
+  question as an EXECUTION trace found a 29th row misfiled. The two rows the naive
+  command-position grep misses are `test-poc-modes.sh` (`run_bounded 90 bash "$INIT" …`) and
+  `test-bl099-guard-coverage.sh` (copies init.sh into a mutant tree and drives scaffolding
+  sub-suites through `BL099_REPO_OVERRIDE`); both are confirmed invokers by execution in R-B-11.
 
 Round-3 mutation proofs, all restored from a byte-exact backup (NOT `git checkout` — the fix is
 uncommitted, so that would silently revert it and fake a red). The round-3 fix is fixture-only, so
@@ -4712,6 +4714,84 @@ class (`cmd | grep -q` promoting rc=141 through `set -o pipefail`) is pre-existi
 here. Round 2 said it was live "in at least one other PR-blocking enforcement script" without
 naming one, which left the class unowned. Filed as **BL-183** with the measurement recipe; do not
 widen this entry to cover it.
+
+---
+
+**REMEDIATION ROUND 4 (2026-07-26, WP-B — adversarial verifier `major_concerns` on round 3; still
+Open until merge).** Two findings. Both are the SAME two failure modes this entry has now produced
+three and two times respectively: an unpinned atom in the predicate regex (R-B-2, R-B-4, R-B-10) and
+a wrong absolute about the survivor set (R-B-5, R-B-11). Neither is a product defect — the shipped
+predicate is correct against every spelling below, verified before anything was touched.
+
+* **R-B-10 — three more single-atom mutations SURVIVED both PR-blocking checks.** Round 3 pinned
+  each comment's WIDTH but not the `#` itself, and pinned the whole-line stage's whitespace as a
+  class while leaving the TRAILING stage's whitespace pinned only by spaces. So three
+  one-character narrowings each re-opened BL-181 for a spelling the fixture did not carry, while
+  `lint-tests-registered.sh` stayed rc=0 and the suite stayed 24 passed / 0 failed:
+  narrowing the trailing whitespace run to a literal space (re-exempts every TAB-separated trailing
+  comment), narrowing the whole-line `#` to `#[[:space:]]`, and narrowing the trailing `#` to
+  `#[[:space:]]` (both re-exempt every `#like this` comment — a very common shell spelling).
+  **Fix is fixture-only — no production change.** `_bl181_fixture_comment_only` grows from five
+  init.sh-bearing comment lines to **eight**: adds a column-0 whole-line comment with no space
+  after the hash, a trailing comment with no space after the hash, and a TAB-separated trailing
+  comment.
+  Mutation proofs (mutant applied to the PRODUCTION predicate, killed through the existing U6,
+  restored from a byte-exact backup — NOT `git checkout`, which would silently revert uncommitted
+  work and fake a red): **E** trailing `[[:space:]][[:space:]]*` → `  *` ⇒ 23 passed / 1 failed rc=1
+  (U6) → restore ⇒ 24 / 0 rc=0. **F** `^[[:space:]]*#` → `^[[:space:]]*#[[:space:]]` ⇒ 23 / 1 rc=1
+  → 24 / 0 rc=0. **G** trailing `#` → `#[[:space:]]` ⇒ 23 / 1 rc=1 → 24 / 0 rc=0. Rounds 2–3's
+  mutants were re-run rather than assumed still dead: **A** `^#`, **B** delete the sed stage,
+  **C** quantifier 1+ → 2+, **D** `^ *#` — all 23 / 1 rc=1 → 24 / 0 rc=0. `lint-tests-registered.sh`
+  restored byte-identical each time (md5 `1a1cd956faf17ff6d7dbb4a0f242b133`).
+  The fixture header's "pins every regex atom except the sed's guard" claim is replaced. It now
+  names **two** unpinned atoms and states each one's MEASURED behaviour instead of asserting it:
+  deleting the sed's `\([^[:space:]]\)` guard leaves the suite at 24 / 0 (mutant **H**) — genuinely
+  behaviour-neutral on this fixture, kept because it stops the sed masking the grep; dropping the
+  grep's `^` anchor is NOT neutral but is killed by **U7 and U10**, not U6 (mutant **I**, 22 passed
+  / 2 failed rc=1), because the real-invoker fixture's invocation carries a trailing comment an
+  unanchored pattern would delete wholesale.
+* **R-B-11 — round 3's "all 28 survivors are genuine invokers" was a GREP verdict, and it was
+  wrong.** `tests/test-lint-no-live-remote.sh` sits on the exempt surface and never executes
+  init.sh: every mention is argument text inside single-quoted `body` strings that `assert_lint`
+  writes to a temp fixture for the lint to SCAN. It ran in ~5-6s, so it was silently absent from
+  every PR fast-lane run — exactly the BL-181 harm. Added to the tests.yml `tests=(` array
+  (confirmed: aggregator-registered in full-project-test-suite.sh, no `git commit`, no
+  `git config user`, no `~/.claude-dev-framework` dependency, `== Total: 14 | Passed: 14 |
+  Failed: 0 ==` rc=0 in 6s). **Linux evidence, not an assumption:** it already runs green on
+  ubuntu through the aggregator — full-lane run 30204845017 (2026-07-26), core shard,
+  `[PASS] scripts/lint-no-live-remote-in-tests.sh behavior tests (14/14)`. Unit list
+  **134 → 135** entries, hand-verified: exactly one occurrence
+  of the new path inside the array, zero duplicates, all 135 paths exist, YAML still parses.
+  Exempt surface **28 → 27** rows (its exemption is now moot, so U11's contract stops rendering it).
+
+  **The whole surface was then RE-AUDITED BY EXECUTION, not by grep** — because a grep verdict has
+  now under-read this surface twice. Method: append an env-gated marker line
+  (`printf … >> "${SOLO_INITSH_TRACE:-/dev/null}"`) to `init.sh` as line 2, then run each of the 28
+  rows under `bash -x` with `SOLO_INITSH_TRACE` set and a watchdog that kills the run the moment the
+  marker appears. A marker line is proof the init.sh CODE executed — including through a copy the
+  test makes, which no command-position grep can see. `init.sh` was restored byte-exact afterwards
+  (md5 `0be49cdda069dc4680e0172bd7b30e16`). Result: **27 of 28 rows fired the marker** (26 within
+  1s); the 1 that did not is `test-lint-no-live-remote.sh`, which ran to completion at rc=0 in 6s
+  with an empty marker file. No further non-invokers exist on this surface, so nothing else was
+  registered.
+
+  The verifier's second flag is **REFUTED by that trace**: `tests/test-bl099-guard-coverage.sh` was
+  called a milder mislabel ("exempted by a `cp "$REPO_ROOT/init.sh" …` line, never executing it").
+  It DOES execute init.sh. The xtrace shows the `cp` into `$TMPDIR/framework/init.sh`, and 74s later
+  the marker fires — the last traced command being
+  `BL112_REPO_OVERRIDE=$TMPDIR/framework bash tests/test-bl112-commit-enforcement.sh`, i.e. it
+  drives a scaffolding sub-suite against the mutant framework tree whose init.sh is that copy. It is
+  also ≥74s to reach that point, so it is not fast-lane material on either ground. Row kept exempt.
+
+  **The absolute is not re-stated in a stronger form anywhere.** All three sites that carried it —
+  CLAUDE.md HOUSE RULES, this entry's round-3 note, and the tests.yml unit-lane comment — now say
+  the same measured, dated thing: on the 2026-07-26 tree an execution trace classified all 27
+  remaining rows as invokers; that is a measurement at one commit, not a standing property, and the
+  instruction is to re-run the trace rather than cite the number.
+
+**Standing lesson for this entry (three recurrences of one class, two wrong survivor counts):** a
+regex atom that no fixture line exercises is an atom that can be reverted silently, and a survivor
+row that no execution proves is a claim, not a verdict. Enumerate and execute; do not assert.
 
 ---
 

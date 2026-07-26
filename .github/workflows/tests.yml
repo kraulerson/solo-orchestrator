@@ -93,8 +93,15 @@ jobs:
           # verdict — the predicate reads executed lines, so a file that only
           # names init.sh inside a string/heredoc (grep/awk target, or a stub
           # it writes) is exempted too. Read the rows, do not just count them:
-          # a 2026-07-26 audit of 33 rows found 5 such files and moved them
-          # here (BL-181 R-B-5).
+          # a 2026-07-26 grep-based audit of 33 rows moved 5 such files here
+          # (BL-181 R-B-5), and a second pass over the remaining 28 — this
+          # time an EXECUTION trace, not a grep — found one MORE
+          # (tests/test-lint-no-live-remote.sh, R-B-11). Audit by execution:
+          # instrument init.sh with an env-gated marker append and run each
+          # exempt row; a marker line is proof of invocation, a grep is not.
+          # As of that 2026-07-26 execution-trace pass, all 27 remaining rows
+          # invoked init.sh; that is a measurement of one tree at one commit,
+          # not a standing guarantee — re-run it, do not cite it.
           # Do NOT regenerate from `grep -L 'init\.sh' tests/test-*.sh`: that
           # matches comments too, so it silently drops any file that merely
           # mentions init.sh (BL-181).
@@ -187,6 +194,7 @@ jobs:
             tests/test-lint-counter-antipattern.sh
             tests/test-lint-doc-anchors.sh
             tests/test-lint-fix-functions-stderr.sh
+            tests/test-lint-no-live-remote.sh
             tests/test-lint-raw-read-prompt.sh
             tests/test-lint-tests-registered.sh
             tests/test-lint-uat-scenarios.sh

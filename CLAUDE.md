@@ -170,15 +170,19 @@ than no manifest).
   (`# BL-181-UNIT-LANE-PREDICATE`), so a mere *mention* of `init.sh` in a
   comment no longer exempts a test — in **either** spelling, whole-line at
   any indent **and** trailing (`code   # …`), and at any whitespace width
-  (tabs and single spaces included). Both spellings need their own stage in
-  the predicate, and U6's fixture in `tests/test-lint-tests-registered.sh`
-  pins every regex atom **except** the sed's `\([^[:space:]]\)` guard, which
-  is behaviour-neutral once whole-line comments are already stripped — that
-  exception is stated in the fixture header rather than papered over. Pin
-  each atom's WIDTH as well as its spelling: a one-character quantifier
-  narrowing re-opened BL-181 twice and passed both PR-blocking checks.
-  Before BL-181 a comment exempted a test outright and seven real files were
-  silently exempt that way.
+  (tabs and single spaces included), and whether or not a space follows the
+  `#`. Both spellings need their own stage in the predicate, and U6's fixture
+  in `tests/test-lint-tests-registered.sh` carries eight init.sh-bearing
+  comment lines to pin them. **Two** atoms of the anchored line are not
+  pinned by U6, and the fixture header names both rather than papering over
+  them: the sed's `\([^[:space:]]\)` guard (behaviour-neutral once whole-line
+  comments are stripped — deleting it leaves the suite at 24/0) and the
+  grep's `^` anchor (not neutral, but it is **U7** that kills it, at 22/2).
+  Pin each atom's WIDTH and its SPELLING, not just its presence: a
+  one-character narrowing — a quantifier, a character class, or `#` →
+  `#[[:space:]]` — re-opened BL-181 three times and passed both PR-blocking
+  checks every time. Before BL-181 a comment exempted a test outright and
+  seven real files were silently exempt that way.
   **Never derive the unit list from `grep -L 'init\.sh' tests/test-*.sh`**
   — that recipe matches comments and is what produced the hole. Residual: a
   mention inside a heredoc/string still exempts (a `grep`/`awk` target, or a
@@ -186,9 +190,15 @@ than no manifest).
   review — audit it with
   `bash scripts/lint-tests-registered.sh --list | grep unit-lane-exempt`.
   **An exempt row is a claim, not a verdict: read the rows, do not count
-  them.** A 2026-07-26 audit of 33 rows found 5 non-invokers hiding behind
-  that residual; they are now in the unit list and the surface is 28 rows,
-  all genuine invokers.
+  them — and audit them by EXECUTION, not by grep.** A 2026-07-26 grep-based
+  audit of 33 rows moved 5 non-invokers into the unit list; a second pass
+  over the remaining 28 — this time tracing execution — found one more
+  (`tests/test-lint-no-live-remote.sh`), so a grep audit has now under-read
+  this surface twice. The execution recipe: append an env-gated marker line
+  to `init.sh`, run each exempt row with that env var set, and treat a marker
+  as the only proof of invocation. On the tree of 2026-07-26 that pass
+  classified all 27 remaining rows as real invokers — a measurement at one
+  commit, not a standing property. Re-run it; do not cite it.
 - **Portability:** GNU-first `stat -c … || stat -f …`; never `((x++))` under
   `set -e`; configure a git identity in fixtures; unset `GITHUB_BASE_REF` in
   fixture git ops; no multibyte chars adjacent to variable expansions under
