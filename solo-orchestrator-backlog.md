@@ -4436,6 +4436,127 @@ GREEN (`strict` + gate present), non-interactive control identical both ways.
 `ARG_PROJECT$ARG_PLATFORM$ARG_DEPLOYMENT$ARG_LANGUAGE` — not that flag, nor `ARG_CONFIRM_PITFALLS`
 (which IS part of the BL-030 surface).
 
+**Build note (2026-07-26, worktree branch `worktree-wf_79ea23a3-eb4-1`):** Fixed exactly as the
+entry prescribed, under `# BL-180-ENFORCEMENT-DEFAULT` in `init.sh::main` —
+`[ -z "$ENFORCEMENT_LEVEL" ] && ENFORCEMENT_LEVEL="strict"`, hoisted out of the
+`if [ "$NON_INTERACTIVE" = true ] … else … fi` dispatch and placed immediately after it, before
+`log_section "Project Configuration"`. The `&&`-list form was **verified safe under
+`set -euo pipefail` on this host's bash 3.2.57 before being written** (`X="light";
+[ -z "$X" ] && X="strict"; echo` survives, rc=0 — a failing mid-script AND-list does not trip
+`set -e`), which is also why the pre-existing sibling inside the BL-030 choosable arm has always
+been safe. `docs/builders-guide.md`'s "`strict` (default)" claim is now TRUE on every entry path
+rather than only the non-interactive one, so no doc edit was needed.
+
+**Observability companion** `# BL-180-DRYRUN-ENFORCEMENT` in `dry_run_summary` emits
+`  Enforcement: $ENFORCEMENT_LEVEL` on **stdout**. This is load-bearing, not cosmetic: the sibling
+`log_line` calls write to the log FILE only, and that invisibility is exactly why every
+fed-sequence `--dry-run` fixture in the repo was blind to a defect sitting in plain sight. The
+value is echoed **verbatim** — never `// "strict"`-defaulted — so an unresolved level surfaces as
+an empty field instead of being cosmetically repaired at the reporting layer.
+
+**CONFIRM_PITFALLS — considered and deliberately NOT given the same treatment** (reasoning
+recorded in the marker comment). It is not the same defect: (a) `ENFORCEMENT_LEVEL`'s top-of-file
+`""` is not a legal value, whereas `CONFIRM_PITFALLS=0` already **is** its correct interactive
+value; (b) its only semantic is permission to DOWNGRADE below strict, and the interactive arm
+offers no downgrade to authorize — 0 is correct, not merely safe; (c) its other consumer is the
+bypass-audit birth row's `confirmed_pitfalls: ($confirmed=="1")`, so defaulting it to 1 would
+write a FALSE attestation ("operator accepted the pitfalls") into the audit trail of an operator
+who was never asked. Any non-zero default widens the bypass surface instead of closing it.
+
+**Tests — both watched-RED first.** (1) `tests/test-bl180-interactive-enforcement.sh` (7 cases,
+fast, pty-free): feeds the wizard's `prompt_choice` sequence to `init.sh --dry-run` and asserts the
+resolved level, with three NON-INTERACTIVE controls. Menu ordinals are **re-derived at run time**
+from the same globs/markers `collect_project_info` uses (`platform-modules/*.md` →
+`release/github/*.yml` → `other`; `ci/github/*.yml` filtered by the
+`# solo-orchestrator: platforms=` marker), not hardcoded — a stale ordinal is how the aggregator's
+TEST 7 fixture broke before BL-136 — and the run is bound to the resolved combo so a drifted
+derivation fails loudly instead of pinning the wrong project shape. Independently re-derived to
+`web=4 / typescript=7`, matching TEST 7. **T5 is the inertness proof**: non-interactive
+`--enforcement-level light --confirm-pitfalls` must still report `light`. (2)
+`tests/test-bl180-interactive-scaffold-pty.sh` (8 cases, aggregator-ONLY): a REAL interactive
+scaffold over a pty via `expect` (fallback `script`; LOUD SKIP with a printed reason when neither
+exists — verified by running it under a PATH containing neither). Hermetic by construction — Git
+host is answered `other` (URL-paste path, never touches gh/glab/curl) and the clone-URL prompt is
+answered EMPTY so `create_and_protect_remote` fails at its `[ -z "$remote_url" ]` guard **before**
+`git remote add`; `init.sh` consequently returns 2 via `record_init_failure` — expected, printed
+for diagnosis, and deliberately NOT asserted (pinning it would couple the test to unrelated
+host-setup outcomes). The real guarantees sit on artifacts written by the earlier
+`prepare_initial_state_for_commit`, plus T1 (the scaffold happened at all, so nothing below can
+pass vacuously) and T7 (`git remote -v` is empty). **Both drivers were
+actually exercised**, not just the primary: `SOIF_BL180_FORCE_SCRIPT_FALLBACK=1` forces the
+`script(1)` path (BSD/util-linux invocation auto-detected by probing) and also reports
+`8 passed, 0 failed`, so the fallback is not shipped-but-dead code.
+
+**Two findings the interactive path surfaced that no non-interactive fixture can.** (i) The nested
+CDF installer (`~/.claude-dev-framework/scripts/init.sh`, invoked from `create_project`) has
+`[ -t 0 ]`-guarded prompts — `Proceed with framework installation? (y/n)` and
+`Install Context7 now?` — that exist ONLY on a pty; the first cut of the driver hung on them for
+15 minutes, and the T1 "did the scaffold happen at all" guard reported it loudly with a transcript
+tail rather than passing vacuously. Note `[ "$proceed" != "y" ]` there is case-SENSITIVE, so "Y"
+aborts. (ii) The mutation proof caught a weak assertion **in my own test**: T5 originally grepped
+`.git/hooks/pre-commit` for `framework-gate.sh` and PASSED with the gate provably absent, because
+`scripts/lib/hook-templates.sh` names that file in explanatory COMMENTS emitted into every
+generated hook. T5 now asserts `install-filesystem-gates.sh`'s MARK_OPEN sentinel
+(`SOIF framework gate (BL-030)`), the string the filing's own A/B counted.
+
+**Mutation proof (both directions, with a non-interactive control identical in both).** Delete the
+`# BL-180-ENFORCEMENT-DEFAULT` line → fast pin `Results: 5 passed, 2 failed` (T1/T3 interactive RED
+showing literally `Enforcement: `; T4/T5/T6 non-interactive controls GREEN) and pty
+`Results: 4 passed, 4 failed` (T3 `enforcement_level=''`, T4 gate ABSENT, T5 sentinel absent, T6
+audit row `''` — the filing's signature reproduced exactly). Restore → `7 passed, 0 failed` and
+`8 passed, 0 failed`.
+
+**Registration:** both are registered in `tests/full-project-test-suite.sh` (enforcement-level
+cohort), and neither is in the `.github/workflows/tests.yml` unit lane — both invoke `init.sh`,
+and the documented membership rule is "does not invoke init.sh". Per BL-181 a green
+`lint-tests-registered.sh` proves NEITHER fact here (its unit-lane arm exempts any file whose text
+merely mentions `init.sh`), so both were verified BY HAND: grep of the aggregator for the two
+delegate invocations, and a grep of the `tests=(` array confirming absence. The pty test's aggregator entry deliberately
+CAPTURES output instead of `>/dev/null 2>&1` so its rc=0 LOUD SKIP cannot masquerade as a genuine
+8/8 pass. **See the escalation:** the fast pin is genuinely unit-lane-CAPABLE (seconds, hermetic,
+no scaffold) and would catch this on every PR instead of only in the manual ~3h lane, but listing
+it contradicts a rule stated in three places and would be silently deleted by the documented
+regeneration recipe (`grep -L 'init\.sh'`) — that rule change was left for a decision rather than
+made unilaterally.
+
+**Repair path for already-scaffolded projects — `# BL-180-BACKFILL-EMPTY` in
+`scripts/upgrade-project.sh`.** The BL-030 backfill's gate was `! jq -e '.enforcement_level' …`,
+and `jq -e` on `""` prints `""` and EXITS 0 (re-confirmed on this host across all four shapes:
+`""`→0, missing→1, `null`→1, `"strict"`→0), so the block skipped the very projects it exists to
+repair. Replaced with `[ -z "$(jq -r '.enforcement_level // ""' … )" ]`, which collapses BOTH
+absent and empty to `""` while a real level passes through verbatim. Deliberately scoped: it
+widens the trigger to the empty string ONLY — never to a legitimately chosen tier — and a
+malformed manifest still triggers the backfill exactly as the old `! jq -e` did, so that
+behaviour is unchanged. Watched-RED first with the gate untouched: `T8 [FAIL] enforcement_level=''
+— the empty value defeated its own migration`, `T9 [FAIL] gate still absent after backfill`,
+`Results: 8 passed, 2 failed` — with the T10 control (`explicit light survives the backfill`) and
+the T2 idempotency case PASSING in that same RED run, so the fix is proven to move only the two
+intended cases. New fixture `setup_bl180_empty_level_personal` reproduces the pre-fix interactive
+birth shape exactly: it BLANKS `enforcement_level` rather than deleting the key (that distinction
+IS the bug), uninstalls the gate, and strips the birth audit row. After the fix:
+`Results: 10 passed, 0 failed`.
+
+**Residual, reported not fixed (defense in depth):** `jq -r '.enforcement_level // "strict"'`
+does NOT fire on the empty string (`//` only substitutes on `null`/`false`), so
+`scripts/install-filesystem-gates.sh` (including the EMITTED `.git/hooks/framework-gate.sh`,
+which re-reads it on every commit and `exit 0`s when the value is not exactly `strict`),
+`scripts/escalate-to-user.sh` and `scripts/hooks/bypass-detector.sh` would still stamp/act on
+`""`. With the birth site and the repair path both fixed, `""` should no longer arise — but a
+hand-edited or partially-migrated manifest would silently self-disable the gate. Only
+`scripts/lib/enforcement-level.sh::read_enforcement_level` is immune (its `case … *) echo
+"strict"` arm). Hardening those three readers is a separate change.
+
+Status stays **Open** pending PR + merge.
+
+**Adjacent item — NOT fixed here, deliberately escalated (2026-07-26):** `--no-remote-creation`
+being silently inert interactively is a genuine SAFETY defect (an operator who asks for no remote
+still reaches `create_and_protect_remote` against their authenticated host), and it is a strictly
+larger change than a warning tweak: making the flag WORK interactively changes documented
+interactive-path semantics, while merely warning about it needs its own accurate message because
+`main`'s existing "interactive flow will prompt" text is FALSE for both `--no-remote-creation` and
+`--confirm-pitfalls` (nothing prompts for either). It wants its own watched-RED + test + review
+rather than being tacked onto this diff.
+
 **Related:** BL-030, BL-084, BL-112, BL-110 (same "written only on one path" class), BL-161/163/171.
 
 ---
