@@ -91,8 +91,18 @@
 #   T-gitlink-not-counted-unread  live — the two per-entry `continue`s mean OPPOSITE
 #                                 things: a gitlink is skipped with NO trace (not
 #                                 content), an unreadable entry forfeits the whole
-#                                 commit's [OK] and is named. Pins both directions of
-#                                 that distinction in one commit.
+#                                 commit's [OK] and is named. Pins the ACCEPT direction
+#                                 of the mode predicate; the REJECT direction is the
+#                                 case below (its unreadable entry is a HEALTHY blob
+#                                 that fails at the WRITE site, so it never enters the
+#                                 non-blob branch at all).
+#   T-nonblob-nongitlink-forfeits-receipt
+#                                 live — R-WPC2-1: a staged entry that is neither a blob
+#                                 nor a gitlink (a TREE object staged at index mode
+#                                 100644) must forfeit the receipt and be NAMED. Pins
+#                                 the REJECT direction of # BL-132-GITLINK-SKIP's mode
+#                                 test. RED under a widened predicate: [OK] receipt over
+#                                 a commit landing with an unscanned staged entry.
 #   T-pathmax-sibling-caught      live — BL-182's original trigger: a repo-relative path
 #                                 that overflows PATH_MAX under the mktemp temp root.
 #                                 Fires at the dirname/mkdir recovery point (the
@@ -117,6 +127,11 @@
 #   T-mutation-partial-receipt    live — proof (c): disarm the no-unearned-receipt guard
 #                                 -> a clean-but-partial scan prints [OK] (RED) ->
 #                                 restore -> loud partial NOTRUN (GREEN).
+#   T-mutation-gitlink-mode-blanket  live — R-WPC2-1: widen the skip's MODE test
+#                                 (`^160000 ` -> `^`) into the blanket "unreadable =>
+#                                 skip" the code forbids -> an unscanned staged entry
+#                                 LANDS behind an [OK] receipt (RED) -> restore ->
+#                                 receipt forfeited and the entry named (GREEN).
 #   T-mutation-index-scan         live — revert the emitted hook's scan target to the
 #                                 worktree paths (the pre-BL-132 behaviour) ->
 #                                 T-index-blocks-staged-vuln goes RED (the clean
@@ -308,6 +323,34 @@ stage_index_only() {
   sha="$( printf '%s\n' "$c" | ( cd "$d" && git hash-object -w --stdin ) )" || return 1
   [ -n "$sha" ] || return 1
   ( cd "$d" && git update-index --add --cacheinfo "100644,$sha,$p" ) >/dev/null 2>&1
+}
+
+# stage_tree_at_blob_mode <repo> <path>: write a real TREE object into <repo>'s object
+# store and add it to the INDEX at <path> CLAIMING index mode 100644. The result is a
+# staged entry that `git ls-files -s` reports as a blob (`100644 <sha> 0 <path>`) while
+# `git cat-file -t :0:<path>` resolves to `tree` — i.e. NOT a blob and NOT a gitlink.
+#   THIS IS THE REJECT DIRECTION OF THE # BL-132-GITLINK-SKIP MODE PREDICATE, and it is
+#   the only generator in this suite that reaches it. Every other unreadable-entry
+#   generator here (LONG_NAME, LONG_PATH) stages a HEALTHY blob and fails LATER, at the
+#   dirname/mkdir or write site, so the non-blob branch is never entered at all and the
+#   mode test is invisible to them. `--cacheinfo` is the only way to build the shape:
+#   git will not produce a mode/type mismatch on its own, which is exactly why it is a
+#   fixture and not a repo state anyone reaches by accident.
+# Hermetic: the tree is built through a THROWAWAY index (GIT_INDEX_FILE) so the repo's
+# real index is untouched, and the scratch worktree dir is removed again — no remote,
+# no submodule, nothing outside the fixture repo.
+stage_tree_at_blob_mode() {
+  local d="$1" p="$2" tsha
+  mkdir -p "$d/.bl182src" || return 1
+  printf 'x\n' > "$d/.bl182src/inner.txt" || return 1
+  tsha="$( cd "$d" \
+             && GIT_INDEX_FILE="$d/.git/bl182-scratch-index" git add -- .bl182src/inner.txt >/dev/null 2>&1 \
+             && GIT_INDEX_FILE="$d/.git/bl182-scratch-index" git write-tree 2>/dev/null )" || tsha=""
+  rm -f "$d/.git/bl182-scratch-index"
+  rm -rf "$d/.bl182src"
+  [ -n "$tsha" ] || return 1
+  [ "$( cd "$d" && git cat-file -t "$tsha" 2>/dev/null )" = "tree" ] || return 1
+  ( cd "$d" && git update-index --add --cacheinfo "100644,$tsha,$p" ) >/dev/null 2>&1
 }
 
 # fs_can_hold_name <name>: TRUE iff this filesystem accepts <name> as a single path
@@ -1097,6 +1140,14 @@ else
   # unread and every submodule commit loses its receipt (operators stop reading the
   # warning); treat an unreadable blob as a gitlink and an unscanned file buys a
   # clean-looking commit, which is the silent-success class itself.
+  # SCOPE, STATED PRECISELY (R-WPC2-1 refuted the earlier "pins BOTH directions" claim):
+  # this case pins the ACCEPT direction of the mode predicate — a real mode-160000 entry
+  # is skipped untraced — and pins that an unreadable entry beside it still forfeits the
+  # receipt. It does NOT reach the predicate's REJECT direction, because its unreadable
+  # entry ($LONG_NAME) is a HEALTHY blob: `git cat-file -t :0:$LONG_NAME` returns `blob`,
+  # so the non-blob branch that holds the mode test is never entered and widening that
+  # test to a blanket skip leaves this case GREEN. T-nonblob-nongitlink-forfeits-receipt
+  # below carries the REJECT direction; the two are a pair, not a duplicate.
   # Hermetic: the gitlink is a `--cacheinfo 160000` index row, so no submodule (and
   # certainly no remote) is needed to produce one.
   echo "=== T-gitlink-not-counted-unread ==="
@@ -1130,6 +1181,63 @@ else
         fail_ "T-gitlink-not-counted-unread" "must WARN, never block (BL-112 contract); verdict=$V moved=$([ "$H0" != "$H1" ] && echo YES || echo NO)"
       else
         pass "T-gitlink-not-counted-unread: a staged gitlink is skipped WITHOUT being counted as lost coverage, while the unreadable blob beside it still forfeits the receipt and is named (BL-182 x BL-132-GITLINK-SKIP)"
+      fi
+    fi
+  fi
+fi
+
+# ── T-nonblob-nongitlink-forfeits-receipt (R-WPC2-1) ─────────────────────────
+# THE REJECT DIRECTION OF THE MODE PREDICATE, which nothing else in this suite reaches.
+# T-gitlink-not-counted-unread above pins the ACCEPT direction (mode 160000 => skip with
+# no trace) and pins that a LONG_NAME entry still forfeits the receipt — but that entry
+# is a HEALTHY blob whose materialization fails at the WRITE site, so it never enters
+# the non-blob branch and the mode test is invisible to it. Widening the predicate to
+# the blanket "unreadable => skip" that # BL-132-GITLINK-SKIP explicitly forbids was
+# therefore INVISIBLE to every lane: the whole suite stayed 25/0 under it, and the
+# commit landed carrying an unscanned staged entry behind an unearned [OK] receipt —
+# the exact silent-success class BL-182 exists to retire (R-WPC2-1, reproduced A/B
+# through the real emitter, the real .git/hooks/pre-commit and a real `git commit`).
+# The fixture is a TREE object staged at index mode 100644: ls-files reports
+# `100644 <sha> 0 weird.ts` so the 160000 test must REJECT it, while
+# `git cat-file -t :0:weird.ts` says `tree` so it is genuinely not scannable content.
+# It must therefore be recorded as unread, forfeit the receipt, and be NAMED.
+echo "=== T-nonblob-nongitlink-forfeits-receipt ==="
+if [ "$HAVE_SEMGREP" -eq 0 ]; then
+  skip_ "T-nonblob-nongitlink-forfeits-receipt" "semgrep ABSENT — skip, not pass"
+else
+  RW="$TOPTMP/nonblob"
+  if ! mk_repo "$RW" "$EMITTED"; then
+    fail_ "T-nonblob-nongitlink-forfeits-receipt" "repo setup failed"
+  elif ! stage_tree_at_blob_mode "$RW" "weird.ts"; then
+    skip_ "T-nonblob-nongitlink-forfeits-receipt" "could not stage a tree object at blob mode — generator UNAVAILABLE here"
+  else
+    printf '%s\n' "$SAFE_TS" > "$RW/app.ts"
+    ( cd "$RW" && git add app.ts ) >/dev/null 2>&1
+    RW_MODE="$( cd "$RW" && git ls-files -s -- ":(literal)weird.ts" 2>/dev/null | awk 'NR==1{print $1}' )"
+    RW_TYPE="$( cd "$RW" && git cat-file -t ":0:weird.ts" 2>/dev/null )"
+    RW_N="$( cd "$RW" && git diff --cached --name-only --diff-filter=ACMRT | wc -l | tr -d '[:space:]' )"
+    # All three halves of the shape are re-probed: a fixture that degraded into a
+    # gitlink (mode 160000) would exercise the ACCEPT direction instead, and one that
+    # degraded into a real blob would never enter the non-blob branch at all. Either
+    # way the case would pass while proving nothing, so it LOUD-SKIPs.
+    if [ "$RW_MODE" = "160000" ] || [ "$RW_TYPE" = "blob" ] || [ "$RW_N" != "2" ]; then
+      skip_ "T-nonblob-nongitlink-forfeits-receipt" "fixture invalid (mode='$RW_MODE' must NOT be 160000, index type='$RW_TYPE' must NOT be blob, staged=$RW_N want 2) — the REJECT direction of the mode predicate is UNPROVEN here"
+    else
+      H0="$(head_of "$RW")"
+      if ( cd "$RW" && git commit -m "feat: non-blob non-gitlink entry beside a clean sibling" ) >"$TOPTMP/oW" 2>&1; then V=COMMITTED; else V=REFUSED; fi
+      H1="$(head_of "$RW")"
+      if grep -qF 'semgrep could not complete' "$TOPTMP/oW"; then
+        skip_ "T-nonblob-nongitlink-forfeits-receipt" "semgrep itself failed (registry unreachable?) — the CLEAN-but-partial arm was never exercised, so this case would pass on the tool-failure arm instead"
+      elif grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/oW"; then
+        fail_ "T-nonblob-nongitlink-forfeits-receipt" "a non-blob, NON-GITLINK staged entry was skipped with NO trace and the clean sibling bought an UNEARNED [OK] — the mode-gated skip has been widened into the blanket 'unreadable => skip' # BL-132-GITLINK-SKIP forbids (R-WPC2-1): $(grep -F '[OK] semgrep: SAST ran' "$TOPTMP/oW" | head -1)"
+      elif ! not_enforced "$TOPTMP/oW"; then
+        fail_ "T-nonblob-nongitlink-forfeits-receipt" "partial coverage produced no loud NOTRUN — the operator is told nothing: $(tail -5 "$TOPTMP/oW" | tr '\n' '|')"
+      elif ! grep -qxF "    - weird.ts" "$TOPTMP/oW"; then
+        fail_ "T-nonblob-nongitlink-forfeits-receipt" "the NOTRUN did not NAME the non-blob entry it could not read (# BL-182-NAME-THE-ENTRY); log tail: $(tail -4 "$TOPTMP/oW" | cut -c1-90 | tr '\n' '|')"
+      elif [ "$V" != "COMMITTED" ] || [ "$H0" = "$H1" ]; then
+        fail_ "T-nonblob-nongitlink-forfeits-receipt" "an unreadable entry must WARN, never block (BL-112 contract); verdict=$V moved=$([ "$H0" != "$H1" ] && echo YES || echo NO)"
+      else
+        pass "T-nonblob-nongitlink-forfeits-receipt: a staged entry that is neither blob nor gitlink forfeits the commit's [OK] receipt and is NAMED — the skip stays gated on index mode 160000 (R-WPC2-1)"
       fi
     fi
   fi
@@ -1581,6 +1689,69 @@ else
       fail_ "T-mutation-partial-receipt" "the GREEN hook suppressed the receipt but printed no loud NOTRUN — silence is not honesty: $(tail -4 "$TOPTMP/mpr-green" | tr '\n' '|')"
     else
       pass "T-mutation-partial-receipt: disarming the guard buys an UNEARNED [OK] over a partial scan (RED); the guard routes it to the loud partial NOTRUN (GREEN)"
+    fi
+  fi
+fi
+
+# ── T-mutation-gitlink-mode-blanket (R-WPC2-1, the 160000 MODE test is load-bearing) ──
+# Widen the skip's MODE test to a blanket match: `grep -q '^160000 '` -> `grep -q '^'`,
+# i.e. "any entry ls-files knows about is skippable". That is precisely the blanket
+# "unreadable => skip" # BL-132-GITLINK-SKIP forbids in prose, and prose is not a gate:
+# the mutant records nothing in soif_idx_unread, so # BL-182-NO-UNEARNED-RECEIPT cannot
+# fire and the clean sibling buys an `[OK] … ran on N staged file(s)` receipt while an
+# unscanned staged entry LANDS (RED). Restored, the same commit forfeits the receipt and
+# NAMES the entry (GREEN).
+#   Deliberately outside the fs_can_hold_name guard: this generator is a --cacheinfo
+#   index row, so unlike LONG_NAME/LONG_PATH it fires on every host and filesystem.
+#   THE RED ASSERTION IS THE RECEIPT, NOT MERELY THE LANDING — the commit lands in BOTH
+#   directions (an unreadable entry WARNs, never blocks), so "it committed" would be
+#   satisfied by the honest arm too. The defect being pinned is the false [OK].
+#   ANCHOR COUPLING: the literal carries the FULL predicate, so changing the mode test
+#   makes _mut_n's exactly-once count fail and this case reports MIS-TARGETED rather
+#   than silently mutating nothing. Retarget it in lockstep when that fires.
+echo "=== T-mutation-gitlink-mode-blanket ==="
+if [ "$HAVE_SEMGREP" -eq 0 ]; then
+  skip_ "T-mutation-gitlink-mode-blanket" "semgrep ABSENT — mutation UNPROVEN (skip, not pass)"
+else
+  MGM="$TOPTMP/mut-gitlink-mode"
+  _nonblob_commit() {  # <hookfile> <log> -> COMMITTED|REFUSED|SETUPFAIL
+    local d; d="$(mktemp -d)"
+    mk_repo "$d" "$1" >/dev/null 2>&1 || { rm -rf "$d"; echo SETUPFAIL; return; }
+    stage_tree_at_blob_mode "$d" "weird.ts" || { rm -rf "$d"; echo SETUPFAIL; return; }
+    printf '%s\n' "$SAFE_TS" > "$d/app.ts"
+    ( cd "$d" && git add app.ts ) >/dev/null 2>&1
+    # Re-probe the shape inside the fixture: a degraded fixture (real blob, or a
+    # gitlink) exercises a different branch and would prove nothing in either direction.
+    if [ "$( cd "$d" && git cat-file -t ":0:weird.ts" 2>/dev/null )" = "blob" ] \
+       || [ "$( cd "$d" && git ls-files -s -- ":(literal)weird.ts" 2>/dev/null | awk 'NR==1{print $1}' )" = "160000" ]; then
+      rm -rf "$d"; echo SETUPFAIL; return
+    fi
+    if ( cd "$d" && git commit -m "feat: non-blob non-gitlink entry beside a clean sibling" ) >"$2" 2>&1; then echo COMMITTED; else echo REFUSED; fi
+    rm -rf "$d"
+  }
+  if ! _mut_n "$EMITTED" "$MGM" "grep -q '^160000 '" "grep -q '^'" 1; then
+    fail_ "T-mutation-gitlink-mode-blanket" "MIS-TARGETED — the gitlink MODE predicate is not present exactly once in the emitted hook (the skip's mode test moved or was widened; retarget this mutation in lockstep)"
+  elif ! grep -qF '# BL-132-GITLINK-SKIP' "$MGM"; then
+    fail_ "T-mutation-gitlink-mode-blanket" "mutation removed the marker — it must attack BEHAVIOUR, not the marker"
+  elif ! bash -n "$MGM" 2>/dev/null; then
+    fail_ "T-mutation-gitlink-mode-blanket" "mutated hook has a syntax error — a broken mutant proves nothing"
+  else
+    MGM_RED="$(_nonblob_commit "$MGM" "$TOPTMP/mgm-red")"
+    MGM_GRN="$(_nonblob_commit "$EMITTED" "$TOPTMP/mgm-green")"
+    if [ "$MGM_RED" = "SETUPFAIL" ] || [ "$MGM_GRN" = "SETUPFAIL" ]; then
+      fail_ "T-mutation-gitlink-mode-blanket" "mutation fixture setup failed — no non-blob, non-gitlink staged entry, so neither direction proves anything"
+    elif grep -qF 'semgrep could not complete' "$TOPTMP/mgm-red" || grep -qF 'semgrep could not complete' "$TOPTMP/mgm-green"; then
+      skip_ "T-mutation-gitlink-mode-blanket" "semgrep itself failed (registry unreachable?) — mutation direction unprovable here"
+    elif ! grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/mgm-red"; then
+      skip_ "T-mutation-gitlink-mode-blanket" "the widened mutant printed no [OK] either (scanner did not run?) — the RED direction is unprovable here"
+    elif grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/mgm-green"; then
+      fail_ "T-mutation-gitlink-mode-blanket" "the GREEN hook ALSO printed an [OK] receipt over a silently-skipped non-blob entry — the mode test is not doing anything: $(grep -F '[OK] semgrep: SAST ran' "$TOPTMP/mgm-green" | head -1)"
+    elif ! grep -qxF "    - weird.ts" "$TOPTMP/mgm-green"; then
+      fail_ "T-mutation-gitlink-mode-blanket" "the GREEN hook suppressed the receipt but never NAMED the entry it could not read: $(tail -4 "$TOPTMP/mgm-green" | tr '\n' '|')"
+    elif [ "$MGM_RED" != "COMMITTED" ] || [ "$MGM_GRN" != "COMMITTED" ]; then
+      fail_ "T-mutation-gitlink-mode-blanket" "both directions must LAND (an unreadable entry WARNs, never blocks); got RED=$MGM_RED GREEN=$MGM_GRN"
+    else
+      pass "T-mutation-gitlink-mode-blanket: widening the skip's 160000 MODE test to a blanket match buys an UNEARNED [OK] over an unscanned staged entry (RED); the mode-gated skip forfeits the receipt and names it (GREEN) — the mode test is load-bearing (R-WPC2-1)"
     fi
   fi
 fi
