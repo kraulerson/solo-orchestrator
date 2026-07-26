@@ -89,6 +89,12 @@ jobs:
           # and see which files the exemption actually fired on with:
           #   bash scripts/lint-tests-registered.sh --list \
           #     | grep unit-lane-exempt
+          # Each such row is a CLAIM ("this file invokes init.sh"), not a
+          # verdict — the predicate reads executed lines, so a file that only
+          # names init.sh inside a string/heredoc (grep/awk target, or a stub
+          # it writes) is exempted too. Read the rows, do not just count them:
+          # a 2026-07-26 audit of 33 rows found 5 such files and moved them
+          # here (BL-181 R-B-5).
           # Do NOT regenerate from `grep -L 'init\.sh' tests/test-*.sh`: that
           # matches comments too, so it silently drops any file that merely
           # mentions init.sh (BL-181).
@@ -168,6 +174,7 @@ jobs:
             tests/test-check-phase-gate-self-approval.sh
             tests/test-check-phase-gate.sh
             tests/test-currency-manifest.sh
+            tests/test-docs-cluster-six-pack.sh
             tests/test-enforcement-level-lib.sh
             tests/test-escalate-to-user.sh
             tests/test-filesystem-gate-install.sh
@@ -189,6 +196,8 @@ jobs:
             tests/test-phase-finalize.sh
             tests/test-phase3-validation-gate.sh
             tests/test-plan-staging.sh
+            tests/test-platform-mobile-mcp-docs.sh
+            tests/test-platform-security-bugs-closer.sh
             tests/test-pre-commit-gate-classifier.sh
             tests/test-pre-commit-gate-lints.sh
             tests/test-pre-commit-gate-terminal-mode.sh
@@ -199,9 +208,11 @@ jobs:
             tests/test-prompt-install-noninteractive.sh
             tests/test-reconfigure-field-handlers.sh
             tests/test-record-claude-commit.sh
+            tests/test-resolve-tools-memoization.sh
             tests/test-run-lints.sh
             tests/test-scaffold-source-closure.sh
             tests/test-session-test-gate-check-merge.sh
+            tests/test-specs-plans-host-aware-quartet.sh
             tests/test-specs-plans-remaining-quartet.sh
             tests/test-test-gate-counter-sanitizer.sh
             tests/test-test-gate-null-handling.sh

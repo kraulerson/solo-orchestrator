@@ -529,24 +529,41 @@ rm -f "$MUTYML"
 # except WHERE the init.sh token sits: inside a comment vs. on an executed
 # line. That is the whole A/B.
 #
-# The comment-only fixture carries all THREE comment shapes a shell file can
-# spell, because the predicate needs a distinct regex atom for each and an
-# untested atom is an atom that can be silently reverted:
-#   • column-0 whole-line   — the original BL-181 shape
-#   • INDENTED whole-line   — the dominant form inside a function/if body;
-#     pins the `[[:space:]]*` in the predicate's whole-line stripper
-#   • TRAILING, at the end of an executed line — pins the trailing-comment
-#     stage; without it one repositioned comment still flipped FAIL → PASS
-# Each shape appears ALONE on its line, so any one of them surviving the
-# stripper is enough to re-exempt the file and turn U6 red.
+# The comment-only fixture carries every comment shape a shell file can spell,
+# because the predicate needs a distinct regex atom for each and an untested
+# atom is an atom that can be silently reverted. Pinning the SPELLING is not
+# enough — each atom's WIDTH has to be pinned too, or a one-character narrowing
+# of a quantifier re-opens BL-181 and still passes both PR-blocking checks
+# (that was R-B-4: `[[:space:]][[:space:]]*` → `[[:space:]][[:space:]][[:space:]]*`
+# survived `lint-tests-registered.sh` rc=0 AND this suite at 24/0, while
+# re-exempting every single-space trailing comment — the commonest spelling
+# there is). So the fixture carries FIVE init.sh-bearing comment lines, each
+# shape ALONE on its line, so any one of them surviving the stripper is enough
+# to turn U6 red:
+#   • column-0 whole-line     — the original BL-181 shape; pins the `#` anchor
+#   • SPACE-indented whole-line — the dominant form inside a function/if body;
+#     pins the `*` in the whole-line stripper's `^[[:space:]]*#`
+#   • TAB-indented whole-line — pins `[[:space:]]` as a CHARACTER CLASS rather
+#     than a literal space; narrowing it to `^ *#` re-exempts tab-indented files
+#   • TRAILING at ONE space   — pins the LOWER bound of the trailing stage's
+#     whitespace run (a 2+ quantifier must not compile)
+#   • TRAILING at THREE spaces — pins the UPPER side, i.e. the `*` itself (an
+#     exactly-one-space quantifier must not compile)
+# The one atom U6 canNOT pin is the sed's leading `\([^[:space:]]\)` guard:
+# every whole-line comment is already gone by the time the sed runs, so
+# deleting the guard is behaviour-neutral ON THIS FIXTURE. It is kept because
+# it stops the sed from masking the grep — with the guard removed, mutant A
+# (weakening `^[[:space:]]*#` to `^#`) would survive. Stated, not overclaimed.
 _bl181_fixture_comment_only() {
   cat > "$TMP/tests/test-bl181-comment-only.sh" <<'SH'
 #!/usr/bin/env bash
 # We bypass init.sh (and its --non-interactive cost) by hand-rolling the
 # fixture below - this test scaffolds nothing and runs in about a second.
 _hand_roll() {
-  # Indented mention of init.sh - still only a comment, still not an invocation.
-  echo "fast unit test - no project scaffolding here"   # and we never call init.sh
+  # Space-indented mention of init.sh - still a comment, still not an invocation.
+	# Tab-indented mention of init.sh - pins [[:space:]] as a class, not a space.
+  echo "fast unit test - one space before the hash" # and we never call init.sh
+  echo "fast unit test - three spaces before the hash"   # nor here: no init.sh
 }
 _hand_roll
 SH
