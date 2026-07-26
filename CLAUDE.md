@@ -166,12 +166,15 @@ than no manifest).
   `tests=(` membership of every test that does not invoke `init.sh`.
   Since BL-181 the exemption predicate reads **executed lines only**
   (`# BL-181-UNIT-LANE-PREDICATE`), so a mere *mention* of `init.sh` in a
-  comment no longer exempts a test — before BL-181 it did, and seven real
-  files were silently exempt that way. **Never derive the unit list from
-  `grep -L 'init\.sh' tests/test-*.sh`** — that recipe matches comments and
-  is what produced the hole. Residual: a mention inside a heredoc/string
-  still exempts, so every *decisive* exemption is rendered for review —
-  audit it with
+  comment no longer exempts a test — in **either** spelling, whole-line at
+  any indent **and** trailing (`code   # …`). Both spellings need their own
+  stage in the predicate, and both are pinned by U6's fixture in
+  `tests/test-lint-tests-registered.sh`; before BL-181 a comment exempted a
+  test outright and seven real files were silently exempt that way.
+  **Never derive the unit list from `grep -L 'init\.sh' tests/test-*.sh`**
+  — that recipe matches comments and is what produced the hole. Residual: a
+  mention inside a heredoc/string still exempts, so every *decisive*
+  exemption is rendered for review — audit it with
   `bash scripts/lint-tests-registered.sh --list | grep unit-lane-exempt`.
 - **Portability:** GNU-first `stat -c … || stat -f …`; never `((x++))` under
   `set -e`; configure a git identity in fixtures; unset `GITHUB_BASE_REF` in

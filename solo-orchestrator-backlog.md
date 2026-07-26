@@ -4534,6 +4534,46 @@ Watched-RED: U6/U8/U9/U10 fail against pre-BL-181 HEAD; U12 fails against the SI
 explicitly documented as WRONG as a membership rule. CLAUDE.md HOUSE RULES restored to the stronger
 claim the fix now earns, with the heredoc residual and the `--list` audit command named.
 
+**REMEDIATION (2026-07-26, WP-B round 2 — adversarial verifier `major_concerns` on the build note
+above; still Open until merge).** Two findings, both reproduced before being fixed:
+
+* **R-B-1 — the defect class was only HALF closed while the note above declared it closed.** The
+  first fix stripped WHOLE-LINE comments only, so the identical comment TEXT still exempted a file
+  merely by moving to the end of an executable line: `echo "hello"   # we bypass init.sh` gave
+  `rc=0` (EXEMPT) where the same words on their own line gave `rc=1` (DEMANDED). One comment
+  repositioned, zero executable change, FAIL → PASS — verbatim this entry's own defect statement.
+  `# BL-181-UNIT-LANE-PREDICATE` now carries a second stage that strips TRAILING comments too. The
+  sed deliberately requires a non-space char before the whitespace run so it fires only on real
+  trailing comments, which keeps the whole-line stage's `[[:space:]]*` independently testable.
+  Measured before shipping: the stricter predicate reclassifies **zero** files in `tests/` (so no
+  new `tests=(` entries), and its own error direction is the loud one — over-stripping can only
+  REMOVE hits, i.e. demand a file into the unit lane where a human sees a red lint, never exempt
+  one silently.
+* **R-B-2 — the `[[:space:]]*` half of the anchored line was pinned by NO test.** Weakening it to
+  `^#` re-opened BL-181 for every INDENTED comment (the dominant form inside a function body) and
+  survived both PR-blocking checks: `lint-tests-registered.sh` rc=0 and the suite at 24 passed /
+  0 failed. Root cause: every BL-181 fixture placed its comments at column 0. `_bl181_fixture_comment_only`
+  now carries all three comment spellings — column-0, indented, and trailing — each alone on its
+  line, so any one surviving the stripper turns U6 red. No new test case was added; the enriched
+  shared fixture kills both mutants through the existing U6.
+
+Mutation proofs, both directions, restore from a byte-exact backup (NOT `git checkout` — the fix is
+uncommitted, so that would silently revert the fix and fake a red): **A** weaken `^[[:space:]]*#` →
+`^#` ⇒ 23 passed / 1 failed rc=1 (U6), restore ⇒ 24 / 0 rc=0. **B** delete the trailing-comment sed
+stage — which reproduces the round-1 predicate byte-for-byte — ⇒ 23 passed / 1 failed rc=1 (U6),
+restore ⇒ 24 / 0 rc=0. Round 1's shipped predicate is therefore now a killed mutant.
+
+**Residual after remediation (narrower, still stated in-script):** a mention inside a quoted string
+or a heredoc body still exempts, as does a comment introduced with no preceding whitespace
+(`foo;#note`). The one real instance on the tree is test-bl096-cold-start.sh's
+`printf '#!/usr/bin/env bash\n' > ".../scripts/init.sh"`, and it is already in the unit list, so
+that exemption is moot and correctly unrendered. `--list` remains the compensating control.
+
+**Non-blocking, recorded so the class is not lost (R-B-3):** the SIGPIPE-under-`pipefail` defect
+class found in round 2 above (`cmd | grep -q` promoting rc=141) is live elsewhere in at least one
+other PR-blocking enforcement script. Pre-existing, not introduced here, deliberately out of scope
+for this change — file it separately rather than widening this one.
+
 ---
 
 ## BL-182: A ~958+ character repo-relative path is UNREPRESENTABLE in the BL-132 index temp tree — PATH_MAX aborts materialization and the whole commit goes NOTRUN (third instance of the same class)
