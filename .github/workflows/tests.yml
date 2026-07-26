@@ -12,11 +12,17 @@
 #   * unit (fast lane)  — push + pull_request. Runs only the quick unit
 #                         tests: the individual tests/test-*.sh files that
 #                         do NOT invoke init.sh and are NOT aggregators.
-#                         Derived from `grep -L 'init\.sh' tests/test-*.sh`
-#                         (66 files; ~5 min on macOS, expected faster on
-#                         Linux). The list is explicit and reviewable below
-#                         so a new orphan test cannot silently join CI —
-#                         add new entries deliberately.
+#                         The list is explicit and reviewable below so a new
+#                         orphan test cannot silently join CI — add new
+#                         entries deliberately.
+#                         BL-181: membership is enforced by
+#                         scripts/lint-tests-registered.sh, whose exemption
+#                         predicate looks at EXECUTED lines only. The older
+#                         `grep -L 'init\.sh' tests/test-*.sh` recipe is
+#                         WRONG as a membership rule — it exempts any file
+#                         that merely MENTIONS init.sh, including a comment
+#                         saying it does not invoke it. Seven such files
+#                         were exempted by a comment until BL-181 landed.
 #
 #   * full (slow lane)  — MANUAL dispatch only (workflow_dispatch); no nightly. Runs the
 #                         complete tests/full-project-test-suite.sh, which
@@ -78,11 +84,18 @@ jobs:
           set -uo pipefail
           # Explicit, reviewable list. A test belongs here iff it does not
           # invoke init.sh (no project scaffolding) and is not an aggregator
-          # or helper. Regenerate with:
-          #   grep -L 'init\.sh' tests/test-*.sh | sort
+          # or helper. Membership is machine-enforced — check it with:
+          #   bash scripts/lint-tests-registered.sh
+          # and see which files the exemption actually fired on with:
+          #   bash scripts/lint-tests-registered.sh --list \
+          #     | grep unit-lane-exempt
+          # Do NOT regenerate from `grep -L 'init\.sh' tests/test-*.sh`: that
+          # matches comments too, so it silently drops any file that merely
+          # mentions init.sh (BL-181).
           tests=(
             tests/test-bl010-commitmsg-bl006.sh
             tests/test-bl032-gitlab-free-approvals-attestation.sh
+            tests/test-bl033-install-cmds-shape.sh
             tests/test-bl046-helpers-split.sh
             tests/test-bl069-install-cmds-consumers.sh
             tests/test-bl070-license-scanner.sh
@@ -162,6 +175,7 @@ jobs:
             tests/test-gate-principles.sh
             tests/test-gitlab-ci-status-stderr-approvals.sh
             tests/test-host-verify-protection-date-parse.sh
+            tests/test-intake-wizard-fixes.sh
             tests/test-lint-backlog-references.sh
             tests/test-lint-counter-antipattern.sh
             tests/test-lint-doc-anchors.sh
@@ -182,6 +196,8 @@ jobs:
             tests/test-process-checklist-check-commit-ready-subject.sh
             tests/test-process-checklist-classifier.sh
             tests/test-process-checklist-reset-phase1.sh
+            tests/test-prompt-install-noninteractive.sh
+            tests/test-reconfigure-field-handlers.sh
             tests/test-record-claude-commit.sh
             tests/test-run-lints.sh
             tests/test-scaffold-source-closure.sh
@@ -190,12 +206,15 @@ jobs:
             tests/test-test-gate-counter-sanitizer.sh
             tests/test-test-gate-null-handling.sh
             tests/test-tier-crosscheck-6-followup-atomicity-and-jq.sh
+            tests/test-tier-crosscheck-6-zdr-gate.sh
             tests/test-unrecord-feature.sh
             tests/test-upgrade-cdf-refresh.sh
             tests/test-upgrade-interruption.sh
             tests/test-upgrade-manifest-refresh.sh
             tests/test-upgrade-non-interactive.sh
+            tests/test-upgrade-paths.sh
             tests/test-upgrade-project-atomic.sh
+            tests/test-upgrade-project-retroactive-section.sh
             tests/test-upgrade-sentinel-block.sh
             tests/test-upgrade-sync-framework.sh
             tests/test-upgrade-to-production-preconditions.sh

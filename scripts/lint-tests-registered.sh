@@ -372,14 +372,63 @@ _build_unit_list_set() {
 
 # Enforce unit-lane membership for a single candidate file. Applies only to
 # top-level tests/test-*.sh that do NOT invoke init.sh; an init.sh-invoking
-# test is aggregator-only by design (slow lane) and EXEMPT here. The init.sh
-# predicate is the file's own text (grep -L 'init\.sh') — the exact
-# convention the tests.yml comment documents as the unit-list generator.
+# test is aggregator-only by design (slow lane) and EXEMPT here.
+#
+# BL-181 — THE EXEMPTION PREDICATE IS ABOUT INVOCATION, NOT MENTION.
+#   The original predicate was a whole-file `grep -q 'init\.sh' "$file"`, i.e.
+#   the `grep -L 'init\.sh'` generator convention the tests.yml comment
+#   documents. That convention is a human-eyeball heuristic; as an ENFORCEMENT
+#   predicate it is unsound, because it exempts a file that merely MENTIONS
+#   init.sh. A three-state probe (BL-181) showed one added comment line flips
+#   this lint FAIL -> PASS with zero executable change, and the real repo had
+#   a test exempted by the comment "We bypass init.sh (and its
+#   --non-interactive cost) by hand-rolling the …" — a comment stating the
+#   file does NOT invoke init.sh was what exempted it from the requirement.
+#   The predicate below therefore looks at EXECUTED lines only, reusing
+#   _build_registered_set's whole-line-comment-stripping idiom so both halves
+#   of this lint agree on what "a comment" means.
+#
+# RESIDUAL — KNOWN AND ACCEPTED, NOT A SILENT GAP.
+#   Stripping whole-line comments does NOT catch an `init.sh` mention that
+#   lives inside a quoted string or a heredoc body (e.g. a fixture that WRITES
+#   the token into a generated file). Such a file is still exempted even
+#   though it never executes init.sh. Two things bound that residual:
+#     • it is conservative in the safe direction only for real invokers — a
+#       wrongly-exempted file is a test that quietly stays out of the fast
+#       lane, the exact BL-181 failure mode, just much rarer;
+#     • so every DECISIVE exemption (the file is exempted AND is absent from
+#       the unit list, i.e. the exemption actually changed the outcome) is
+#       rendered in --list as `unit-lane-exempt:init-sh-invoker`. The
+#       decision is reviewable instead of silent. An exempted file that is in
+#       the unit list anyway decided nothing and is not rendered.
+#   Closing the residual properly needs a shell-aware parse, which is out of
+#   proportion to the risk; the --list surface is the compensating control.
+#
+# WHY `grep -c` AND NOT `… | grep -q` — SIGPIPE + pipefail, MEASURED HERE.
+#   This script runs under `set -uo pipefail` (top of file). The obvious form
+#       grep -vE '^[[:space:]]*#' "$file" | grep -q 'init\.sh'
+#   is BROKEN under pipefail: `grep -q` exits the instant it matches, the
+#   upstream `grep -vE` is still writing, it dies of SIGPIPE (rc 141), and
+#   pipefail promotes that to the pipeline's status — so a file that DOES
+#   invoke init.sh is reported as "no match" and wrongly DEMANDED. It is
+#   size-dependent, so it looks fine on small fixtures and misfires on real
+#   test files: measured on this repo, tests/test-bl112-commit-enforcement.sh
+#   (a genuine init.sh scaffolder) gave rc=141 with `grep -q` and count=4 with
+#   `grep -c`. `grep -c` consumes all of its input, so the upstream grep never
+#   sees a closed pipe and the predicate is deterministic regardless of file
+#   size. Do NOT "simplify" this back to `grep -q`.
 _check_unit_lane() {
   local file="$1" base="$2" rel="$3"
+  local exec_hits
   [ "$UNIT_LANE_ACTIVE" -eq 1 ] || return 0
   case "$base" in test-*.sh) ;; *) return 0 ;; esac
-  if grep -q 'init\.sh' "$file" 2>/dev/null; then
+  exec_hits=$(grep -vE '^[[:space:]]*#' "$file" 2>/dev/null | grep -c 'init\.sh') # BL-181-UNIT-LANE-PREDICATE
+  case "$exec_hits" in ''|*[!0-9]*) exec_hits=0 ;; esac
+  if [ "$exec_hits" -gt 0 ]; then
+    case "$UNIT_LIST_STR" in
+      *"|${base}|"*) ;;  # already in the unit list — the exemption decided nothing
+      *) LIST_ROWS="${LIST_ROWS}SKIP\t${rel}\tunit-lane-exempt:init-sh-invoker\n" ;;
+    esac
     return 0
   fi
   case "$UNIT_LIST_STR" in

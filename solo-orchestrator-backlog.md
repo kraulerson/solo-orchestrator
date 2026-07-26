@@ -4488,6 +4488,52 @@ PASS → RED → restore → GREEN.
 
 **Related:** BL-154, BL-038/034/035, BL-067, CLAUDE.md CANONICAL COMMANDS + HOUSE RULES DIGEST.
 
+**BUILD NOTE (2026-07-26, WP-B — implemented, Open until merge).** Fixed at
+`# BL-181-UNIT-LANE-PREDICATE` in `_check_unit_lane` (scripts/lint-tests-registered.sh). Two
+corrections to this entry's own analysis, both verified empirically rather than assumed:
+
+1. **Scope was 7 files, not 1.** The entry predicted "exactly one current file
+   (test-reconfigure-field-handlers.sh)". A full sweep of `tests/` found **42** files whose
+   classification flips comment-mention → executed-lines, of which **35 were already in the
+   tests.yml unit list** (present by human diligence, exactly as the entry's Evidence paragraph
+   said of test-currency-manifest.sh / test-plan-staging.sh) and **7 were newly DEMANDED**:
+   test-bl033-install-cmds-shape, test-intake-wizard-fixes, test-prompt-install-noninteractive,
+   test-reconfigure-field-handlers, test-tier-crosscheck-6-zdr-gate, test-upgrade-paths,
+   test-upgrade-project-retroactive-section. All 7 were confirmed to genuinely not invoke
+   init.sh, to already be aggregator-registered in full-project-test-suite.sh, to set their own
+   git identity where they commit, and to be fast (1s/1s/3s/1s/2s/10s/1s, all rc=0). All 7 added
+   to the `tests=(` unit list in the same change.
+
+2. **The prescribed one-liner is UNSOUND on this host — it was not adopted verbatim.** The entry's
+   `grep -vE '^[[:space:]]*#' "$file" | grep -q 'init\.sh'` breaks under this script's
+   `set -uo pipefail`: `grep -q` exits on first match, the upstream `grep -vE` dies of SIGPIPE,
+   and pipefail promotes rc=141 to the pipeline — so a file that DOES invoke init.sh reads as a
+   NON-invoker and is wrongly demanded. Measured: tests/test-bl112-commit-enforcement.sh gives
+   `rc=141` with `grep -q` vs `count=4` with `grep -c`. It is size-dependent, hence invisible on
+   small fixtures and **nondeterministic across runs on the real tree** (one run flagged
+   test-bl099-guard-coverage.sh, the next test-bl112-commit-enforcement.sh). Shipped predicate
+   keeps the entry's exact semantics but uses a downstream that consumes all input:
+   `exec_hits=$(grep -vE '^[[:space:]]*#' "$file" 2>/dev/null | grep -c 'init\.sh')`.
+   Guarded by a dedicated regression test (U12) with a multi-KB fixture; `grep -q` fails it.
+
+**Visibility (implemented).** `--list` now renders every *decisive* exemption (exempted AND absent
+from the unit list — i.e. the exemption actually changed the outcome) as
+`unit-lane-exempt:init-sh-invoker`; 33 rows on the current tree. A moot exemption (file exempt but
+in the unit list anyway) is deliberately NOT rendered — U11 pins that.
+Audit: `bash scripts/lint-tests-registered.sh --list | grep unit-lane-exempt`.
+
+**Residual, stated in-script and unchanged:** a mention inside a quoted string or heredoc body
+still exempts. Accepted; the `--list` surface is the compensating control.
+
+**Tests (tests/test-lint-tests-registered.sh, 24 passed / 0 failed):** U6 comment-only mention →
+DEMANDED · U7 real invocation → EXEMPT · U8 mutation restoring the whole-file predicate → U6 stops
+flagging · U9 mutation disabling the exemption → U7 starts flagging · U10 `--list` renders the
+decisive exemption · U11 moot exemption not rendered · U12 SIGPIPE/pipefail regression.
+Watched-RED: U6/U8/U9/U10 fail against pre-BL-181 HEAD; U12 fails against the SIGPIPE-broken form.
+`.github/workflows/tests.yml` generator comments amended — the `grep -L 'init\.sh'` recipe is now
+explicitly documented as WRONG as a membership rule. CLAUDE.md HOUSE RULES restored to the stronger
+claim the fix now earns, with the heredoc residual and the `--list` audit command named.
+
 ---
 
 ## BL-182: A ~958+ character repo-relative path is UNREPRESENTABLE in the BL-132 index temp tree — PATH_MAX aborts materialization and the whole commit goes NOTRUN (third instance of the same class)

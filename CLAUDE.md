@@ -163,11 +163,16 @@ than no manifest).
   the `tests.yml` unit list too (per the CANONICAL COMMANDS membership rule).
   `lint-tests-registered.sh` enforces BOTH: the aggregator-registration
   backstop (BL-038) and, via its BL-154 unit-lane arm, the tests.yml
-  `tests=(` membership of tests that do not invoke `init.sh`. **Do not read a
-  green lint as proof of unit-lane registration:** `_check_unit_lane`'s
-  exemption test is a whole-file `grep -q 'init\.sh'`, so any test whose TEXT
-  mentions `init.sh` — *including a comment saying it does NOT invoke
-  init.sh* — is exempted (BL-181). Register by hand and check the list.
+  `tests=(` membership of every test that does not invoke `init.sh`.
+  Since BL-181 the exemption predicate reads **executed lines only**
+  (`# BL-181-UNIT-LANE-PREDICATE`), so a mere *mention* of `init.sh` in a
+  comment no longer exempts a test — before BL-181 it did, and seven real
+  files were silently exempt that way. **Never derive the unit list from
+  `grep -L 'init\.sh' tests/test-*.sh`** — that recipe matches comments and
+  is what produced the hole. Residual: a mention inside a heredoc/string
+  still exempts, so every *decisive* exemption is rendered for review —
+  audit it with
+  `bash scripts/lint-tests-registered.sh --list | grep unit-lane-exempt`.
 - **Portability:** GNU-first `stat -c … || stat -f …`; never `((x++))` under
   `set -e`; configure a git identity in fixtures; unset `GITHUB_BASE_REF` in
   fixture git ops; no multibyte chars adjacent to variable expansions under
