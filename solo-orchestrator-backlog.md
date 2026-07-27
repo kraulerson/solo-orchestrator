@@ -5364,3 +5364,99 @@ yet covered), BL-072 (`SOLO_TDD_ATTESTED` — the recorded-escape precedent to c
 makes suppression genuinely necessary), BL-182 / BL-179 (the coverage guards that are all satisfied
 here — this is not their class).
 
+---
+
+## BL-186: A staged file semgrep DECODES TO NOTHING is still invisible to the pre-commit SAST receipt — the parse-coverage guard shrinks the class, it does not close it
+
+**Logged:** 2026-07-27 (R-274Rv-1 residue, filed as part of the remediation that closed the reproduced triggers; measured through the real emitter and real `git commit`s on semgrep 1.157.0)
+**Category:** Enforcement / commit-time SAST — scanner-coverage attestation (the SIXTH instance of this arm's silent-success class, and the residue left after fixing it)
+**Severity:** **Medium.** Argued, not asserted, because the two obvious grades are both wrong:
+- It is **not High.** The one trigger that reproduces deterministically — an ordinary `.ts` saved as UTF-16 *with* a BOM, which is what a Windows editor writes — is **now caught** by `# BL-186-PARSE-COVERAGE` and forfeits the receipt. What remains needs an encoding a build toolchain would also choke on (UTF-16 with **no** BOM, or embedded NUL bytes), which is a file that would fail `tsc`/`node`/`eslint` long before it reached review. The exposure window is real but narrow.
+- It is **not Low**, because the failure mode is a **positive false attestation**, not lost coverage: the arm prints `[OK] semgrep: SAST ran on N staged file(s) — no ERROR-severity findings.` over a file no rule ever saw, and that receipt is what Phase 3 reads. BL-113 made an *un-run* scan unlaunderable; a scan that ran and understood nothing launders itself, because it is byte-identical to a clean one in every artifact the phase gate can inspect. Every guard in the arm is satisfied and correct — the file **was** selected, **was** materialized, **was** handed over and **was** accepted. It is the same shape as BL-185 in that respect: not a hole in the guards, a hole *beside* them.
+- **Medium is where those meet:** narrow trigger, but the worst possible failure mode when it fires, and no guard in the arm can currently see it.
+**Status:** Open
+
+**What the shipped guard now proves, stated exactly.** `# BL-112-SCAN-COVERAGE` plus
+`# BL-186-PARSE-COVERAGE` assert a conjunction of two facts read back out of semgrep's own banner:
+
+1. **selection** — the Scan Status header `Scanning N files with M Code rules:` reports N ≥ the number
+   of targets the materialization loop handed over; and
+2. **parse** — the Scan Summary line `Parsed lines: ~N%` reads `~100.0%`, which is *exact* rather than
+   rounded: semgrep's `pretty_print_percentage` clamps anything above 99.9 down to `99.9` unless the
+   numerator equals the denominator, so `~100.0%` means literally zero lines lost.
+
+Both fail **closed** — an absent, duplicated or unparseable line leaves the variable empty and routes
+to the loud NOTRUN, never to `[OK]`.
+
+**What it does NOT prove — the residue this entry is about.** Both numbers are produced by machinery
+that never has to *understand* the file. Selection is fixed before a byte is parsed; the parse
+percentage is driven by `total_lines_skipped`, which is populated **only from
+`ignore_log.core_failure_lines_by_file`** — i.e. only when semgrep-core *reports* a parse failure. A
+target semgrep decodes into nothing at all logs no failure, so nothing moves. Measured on 1.157.0,
+same 68-byte sink (`pane.innerHTML = userText`) in every case, same `--config` set,
+`--max-target-bytes=0`, invoked exactly as the emitted hook invokes it:
+
+| staged shape | `Targets scanned` | `Parsed lines` | findings | guard verdict |
+|---|---|---|---|---|
+| UTF-8 (control) | 1 | `~100.0%` | **1 blocking** | `[BLOCKED]` — correct |
+| UTF-16**LE** + BOM | 1 | `~50.0%` | 0 | receipt forfeited — **CAUGHT, deterministic (5/5)** |
+| UTF-16**BE** + BOM | 1 | `~0.0%` | 0 | receipt forfeited — **CAUGHT** |
+| binary blob as `vendor.js` (40 KB random) | 1 | `~95.3%`–`~100.0%` | 0 | **CAUGHT 4 RUNS IN 10** — the other 6 read `~100.0%` and kept the receipt |
+| unparseable `.ts` | 1 | `~0.0%` *or* `~100.0%` | 0 | **CAUGHT ONLY SOMETIMES** — semgrep's parsers recover, and a recovered parse reports no loss |
+| **UTF-16LE, no BOM** | **1** | **`~100.0%`** | **0** | **`[OK]` — MISSED** |
+| **UTF-16BE, no BOM** | **1** | **`~100.0%`** | **0** | **`[OK]` — MISSED** |
+| **embedded NUL bytes** | **1** | **`~100.0%`** | **0** | **`[OK]` — MISSED** |
+
+The three MISSED rows *and the two partially-caught ones* are this entry. Reproduced end to end
+through the shipped emitter `soif_write_precommit_hook` → a real `.git/hooks/pre-commit` → a real
+`git commit`: rc=0, the full `[OK]` receipt, and the sink present in `HEAD`.
+
+**The non-determinism is worth stating plainly, because it is easy to mis-measure.** The binary-blob
+row was written up as a clean CATCH on the strength of a single run reading `~92.8%`; re-running the
+same fixture ten times showed 6 runs at `~100.0%`. The fixture is `os.urandom(40000)`, so whether
+semgrep-core logs a parse failure depends on the bytes it happens to draw. Any future work here must
+repeat-run its fixtures before claiming a trigger is closed — and the shipped test
+(`T-utf16-parse-drop-no-receipt`) deliberately uses the BOM'd-UTF-16 shape, which *is* deterministic,
+rather than the binary one, which would be a flaky test.
+
+**Why the naive fixes were not taken.**
+- **"Compare against `Targets scanned` as well."** Already ruled out and the reason is recorded on
+  `# BL-112-SCAN-COVERAGE`: it counts targets whose *language matched a rule*, so it reads 1-of-2 for
+  the wholly ordinary commit `app.ts + README.md`. A guard built on it NOTRUNs almost every real
+  commit, and a gate that always cries wolf is a gate people route around — the exact culture BL-112
+  exists to end.
+- **"Reject staged blobs that are not valid UTF-8."** This is the most promising direction and it is
+  what a future fix should evaluate first, but it is a **policy** change, not a parse fix: it would
+  block or NOTRUN a legitimately latin-1-encoded source file (measured: latin-1 with an accented
+  comment parses fine and its sink **is** found, `~100.0%`, 1 blocking). Deciding what a generated
+  project owes a non-UTF-8 source tree is Karl's call, not an implementation detail.
+- **"Run semgrep with `--verbose` and read the per-file skip list."** Would attribute the gap per
+  file, which the current report explicitly says it cannot do — but it buries the operator in per-rule
+  noise on the one path where semgrep's stderr is surfaced verbatim, and it still does not help here,
+  because semgrep does not consider these files skipped.
+
+**A SECOND, SMALLER RESIDUE IS FILED HERE TOO (R-274Rv-3): the fail-closed cliff is now anchored on
+TWO banner lines, not one.** Both `Scanning N files with M Code rules:` and `Parsed lines: ~N%` are
+matched against shapes verified on exactly one semgrep version. A rejection is **permanent, not
+per-commit**: if either spelling changes, every commit in every generated project prints
+`SAST NOT ENFORCED … CANNOT BE VERIFIED` forever and the `[OK]` receipt is never earned again. Two
+concrete near misses are already in the 1.157.0 source (`semgrep/scan_report.py`):
+`respect_git_ignore` appends ` tracked by git` (legacy UX) or ` (only git-tracked)` (new UX) to the
+header, and the `simple_ux` treatment prints `{summary_line} with:` — **no rule count at all**. The
+emitted hook is insulated from the first today *only* because it always passes `--no-git-ignore`,
+which is a coupling nothing enforces. Deliberately NOT widened in the remediation: loosening an anchor
+while simultaneously adding a second one is how a "defensive" parse becomes an accidental fail-open.
+The right fix is a **version-tolerant probe** (match the stable atoms — `Scanning <N> file`, `Parsed
+lines:` — rather than the whole decorated line), with its own mutation case per atom.
+
+**Test coverage that exists today** (all in `tests/test-bl132-sast-index-scan.sh`, unit lane):
+`T-utf16-parse-drop-no-receipt` (the CAUGHT trigger), `T-parse-coverage-fails-closed` (the second
+anchor fails closed), `T-mutation-parse-coverage` (the parse clause is load-bearing on its own),
+`T-parse-coverage-no-cry-wolf` and `T-empty-target-receipt` (the guard does not NOTRUN ordinary or
+zero-byte commits). **No test pins the three MISSED rows** — deliberately: a test asserting the
+current wrong behaviour would have to be deleted by whoever fixes this. Add them with the fix.
+
+**Related:** BL-112 (the honesty contract this receipt serves), BL-113 (Phase 3 laundering — the
+reason a false `[OK]` outlives the commit), BL-182 / BL-179 (the coverage guards one layer in, all
+satisfied here), BL-185 (the other "guards are correct, the hole is beside them" entry filed the same
+day), BL-131 (the DOM-sink ruleset whose findings this receipt reports).
