@@ -505,6 +505,320 @@ else
 fi
 rm -f "$MUTYML"
 
+# ════════════════════════════════════════════════════════════════════
+# BL-181: the unit-lane exemption predicate must test INVOCATION, not MENTION.
+#
+# The BL-154 arm shipped with `grep -q 'init\.sh' "$file"` over the WHOLE file
+# including comments, so any test that merely mentioned init.sh was exempted
+# from the tests.yml unit-lane requirement — including a test whose comment
+# said it does NOT invoke init.sh. One comment line flipped the lint FAIL →
+# PASS with zero executable change. The fix (# BL-181-UNIT-LANE-PREDICATE)
+# strips whole-line comments first.
+#   • U6 (comment-only mention)  → must be DEMANDED (exit 1)
+#   • U7 (real invocation)       → must stay EXEMPT (exit 0)   [pair control]
+#   • U8 (mutation, BL-181 dir)  → restore the whole-file predicate in a COPY
+#                                  → U6 stops flagging (the fix is load-bearing)
+#   • U9 (mutation, over-correct)→ hardwire the predicate false in a COPY
+#                                  → U7 starts flagging (the exemption is real,
+#                                    the fix is not a blanket "demand all")
+#   • U10 (visibility)           → --list renders the DECISIVE exemption as
+#                                  `unit-lane-exempt:init-sh-invoker`
+# ════════════════════════════════════════════════════════════════════
+
+# Shared fixture builders for the U6/U7 pair. Identical in every respect
+# except WHERE the init.sh token sits: inside a comment vs. on an executed
+# line. That is the whole A/B.
+#
+# The comment-only fixture carries every comment shape a shell file can spell,
+# because the predicate needs a distinct regex atom for each and an untested
+# atom is an atom that can be silently reverted. Pinning the SPELLING is not
+# enough — each atom's WIDTH has to be pinned too, or a one-character narrowing
+# of a quantifier re-opens BL-181 and still passes both PR-blocking checks
+# (that was R-B-4: `[[:space:]][[:space:]]*` → `[[:space:]][[:space:]][[:space:]]*`
+# survived `lint-tests-registered.sh` rc=0 AND this suite at 24/0, while
+# re-exempting every single-space trailing comment — the commonest spelling
+# there is). The `#` in each stage needs the same treatment: narrowing either
+# one to `#[[:space:]]` re-exempts every file that spells a comment `#like
+# this` — that was R-B-10, and both mutants survived both PR-blocking checks
+# until this fixture grew the lines that kill them.
+#
+# So the fixture carries EIGHT init.sh-bearing comment lines, each shape ALONE
+# on its line, so any one of them surviving the stripper is enough to turn U6
+# red. Whole-line stage (`grep -vE '^[[:space:]]*#'`):
+#   • column-0, SPACE after the hash — the original BL-181 shape
+#   • column-0, NO space after the hash — pins this stage's `#` as a bare
+#     literal (a `#[[:space:]]` narrowing must not compile)
+#   • SPACE-indented — the dominant form inside a function/if body; pins the
+#     `*` in `^[[:space:]]*#`
+#   • TAB-indented — pins `[[:space:]]` as a CHARACTER CLASS rather than a
+#     literal space; narrowing it to `^ *#` re-exempts tab-indented files
+# Trailing stage (`sed 's/\([^[:space:]]\)[[:space:]][[:space:]]*#.*$/\1/'`):
+#   • TRAILING at ONE space   — pins the LOWER bound of the whitespace run
+#     (a 2+ quantifier must not compile)
+#   • TRAILING at THREE spaces — pins the UPPER side, i.e. the `*` itself (an
+#     exactly-one-space quantifier must not compile)
+#   • TRAILING with NO space after the hash — pins THIS stage's `#` as a bare
+#     literal, independently of the whole-line stage's
+#   • TRAILING separated by a TAB — pins this stage's whitespace run as a
+#     CHARACTER CLASS; narrowing it to a literal space re-exempts every
+#     tab-separated trailing comment
+# Two atoms of the anchored line are NOT pinned by this fixture — stated, not
+# counted as covered:
+#   • the sed's leading `\([^[:space:]]\)` guard: every whole-line comment is
+#     already gone by the time the sed runs, so deleting the guard is
+#     behaviour-neutral ON THIS FIXTURE. It is kept because it stops the sed
+#     from masking the grep — with the guard removed, mutant A (weakening
+#     `^[[:space:]]*#` to `^#`) would survive.
+#   • the grep's `^` anchor: dropping it is NOT behaviour-neutral, but it is
+#     U7 — not U6 — that kills it. The real-invoker fixture's invocation
+#     carries a trailing comment, so an unanchored `[[:space:]]*#` would drop
+#     that whole line and demand a genuine invoker into the fast lane.
+_bl181_fixture_comment_only() {
+  cat > "$TMP/tests/test-bl181-comment-only.sh" <<'SH'
+#!/usr/bin/env bash
+# We bypass init.sh (and its --non-interactive cost) by hand-rolling the
+# fixture below - this test scaffolds nothing and runs in about a second.
+#no space after the hash, and we never run init.sh here either.
+_hand_roll() {
+  # Space-indented mention of init.sh - still a comment, still not an invocation.
+	# Tab-indented mention of init.sh - pins [[:space:]] as a class, not a space.
+  echo "fast unit test - one space before the hash" # and we never call init.sh
+  echo "fast unit test - three spaces before the hash"   # nor here: no init.sh
+  echo "fast unit test - no space after the trailing hash"  #nor here: no init.sh
+  echo "fast unit test - a tab before the trailing hash"	# and no init.sh here
+}
+_hand_roll
+SH
+}
+_bl181_fixture_real_invoker() {
+  # The invocation carries a TRAILING comment of its own: stripping trailing
+  # comments must not truncate away an init.sh that sits BEFORE the `#`.
+  cat > "$TMP/tests/test-bl181-real-invoker.sh" <<'SH'
+#!/usr/bin/env bash
+# This test scaffolds a real project (hermetic: --no-remote-creation, BL-076):
+bash "$REPO/init.sh" --no-remote-creation --platform web  # hermetic scaffold
+SH
+}
+# Aggregator that registers both fixture names, and a unit list that lists
+# NEITHER — so the aggregator arm is satisfied and the unit-lane arm is the
+# only thing under test.
+_bl181_fixture_scaffolding() {
+  cat > "$TMP/tests/myagg.sh" <<SH
+#!/usr/bin/env bash
+bash "$TMP/tests/test-bl181-comment-only.sh"
+bash "$TMP/tests/test-bl181-real-invoker.sh"
+SH
+  cat > "$TMP/tests.yml" <<'SH'
+          tests=(
+            tests/test-some-other-unit.sh
+          )
+SH
+}
+_bl181_run() {
+  bash "$LINTER" --tests-dir "$TMP/tests" --aggregators "$TMP/tests/myagg.sh" \
+       --tests-yml "$TMP/tests.yml" "$@" 2>&1
+}
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== U6: comment-only init.sh MENTION is NOT an exemption → exit 1 ==="
+# ════════════════════════════════════════════════════════════════════
+setup_fixture
+_bl181_fixture_comment_only
+_bl181_fixture_scaffolding
+out=$(_bl181_run); rc=$?
+if [ "$rc" -eq 1 ] \
+   && echo "$out" | grep -q "test-bl181-comment-only.sh" \
+   && echo "$out" | grep -q "unit lane"; then
+  pass "U6: a test whose only init.sh reference is a comment is DEMANDED in the unit lane"
+else
+  fail_ "U6" "expected exit 1 + 'unit lane' naming test-bl181-comment-only.sh (a comment must not exempt); rc=$rc; output:\n$out"
+fi
+teardown_fixture
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== U7: real init.sh INVOCATION is still exempt → exit 0 ==="
+# ════════════════════════════════════════════════════════════════════
+# Pair control for U6. Same fixture shape, token on an EXECUTED line. If this
+# regressed, the BL-181 fix would have become a blanket "every test must be in
+# the unit lane" — which would drag ~40 scaffolding tests into the fast lane.
+setup_fixture
+_bl181_fixture_real_invoker
+_bl181_fixture_scaffolding
+out=$(_bl181_run); rc=$?
+if [ "$rc" -eq 0 ] && ! echo "$out" | grep -q "unit lane"; then
+  pass "U7: a test that really invokes init.sh stays exempt from the unit lane"
+else
+  fail_ "U7" "expected exit 0 with no unit-lane flag; rc=$rc; output:\n$out"
+fi
+teardown_fixture
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== U8: mutation — restore the pre-BL-181 whole-file predicate → U6 stops flagging ==="
+# ════════════════════════════════════════════════════════════════════
+# Rewrite the single # BL-181-UNIT-LANE-PREDICATE line in a COPY back to the
+# original whole-file grep. The U6 fixture must flip FAIL → PASS, proving the
+# comment-stripping prefix is what does the work (and that U6 is not passing
+# for some unrelated reason).
+setup_fixture
+_bl181_fixture_comment_only
+_bl181_fixture_scaffolding
+MUT="$TMP/mut"
+mkdir -p "$MUT/scripts"
+pred_n=$(grep -c '# BL-181-UNIT-LANE-PREDICATE$' "$LINTER" 2>/dev/null || echo "0")
+case "$pred_n" in ''|*[!0-9]*) pred_n=0 ;; esac
+# Single-quoted so $file stays literal. Whole-file grep = the pre-BL-181
+# predicate (comments included); the -c form keeps the mutant's shape
+# compatible with the surrounding `[ "$exec_hits" -gt 0 ]` test.
+PRE181='  exec_hits=$(grep -c "init\.sh" "$file" 2>/dev/null)'
+awk -v repl="$PRE181" '/# BL-181-UNIT-LANE-PREDICATE$/ { print repl; next } { print }' \
+    "$LINTER" > "$MUT/scripts/lint-tests-registered.sh"
+chmod +x "$MUT/scripts/lint-tests-registered.sh"
+if [ "$pred_n" -ne 1 ]; then
+  fail_ "U8" "expected exactly one '# BL-181-UNIT-LANE-PREDICATE' anchor line in the linter, found $pred_n — the mutation has no unambiguous target"
+elif cmp -s "$LINTER" "$MUT/scripts/lint-tests-registered.sh"; then
+  fail_ "U8" "the mutation changed nothing — the anchored line is already the pre-BL-181 predicate"
+elif ! bash -n "$MUT/scripts/lint-tests-registered.sh" 2>/dev/null; then
+  fail_ "U8" "mutant is syntactically broken — keep the predicate on one self-contained line"
+else
+  out=$(bash "$MUT/scripts/lint-tests-registered.sh" --tests-dir "$TMP/tests" \
+        --aggregators "$TMP/tests/myagg.sh" --tests-yml "$TMP/tests.yml" 2>&1); rc=$?
+  if [ "$rc" -eq 0 ] && ! echo "$out" | grep -q "unit lane"; then
+    pass "U8: pre-BL-181 predicate restored → the comment-only test is exempted again (fix is load-bearing)"
+  else
+    fail_ "U8" "expected the mutant to exempt the comment-only test (rc=0, no flag); rc=$rc; output:\n$out"
+  fi
+fi
+teardown_fixture
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== U9: mutation — hardwire the predicate false → U7 starts flagging ==="
+# ════════════════════════════════════════════════════════════════════
+# The other direction. If the exemption arm is removed entirely, a genuine
+# init.sh invoker must become a violation — which proves U7 passes because the
+# exemption fires, not because the unit-lane arm is inert in this fixture.
+setup_fixture
+_bl181_fixture_real_invoker
+_bl181_fixture_scaffolding
+MUT="$TMP/mut"
+mkdir -p "$MUT/scripts"
+NOEXEMPT='  exec_hits=0'
+awk -v repl="$NOEXEMPT" '/# BL-181-UNIT-LANE-PREDICATE$/ { print repl; next } { print }' \
+    "$LINTER" > "$MUT/scripts/lint-tests-registered.sh"
+chmod +x "$MUT/scripts/lint-tests-registered.sh"
+if cmp -s "$LINTER" "$MUT/scripts/lint-tests-registered.sh"; then
+  fail_ "U9" "the over-correction mutation changed nothing — no anchored predicate line to disable"
+elif ! bash -n "$MUT/scripts/lint-tests-registered.sh" 2>/dev/null; then
+  fail_ "U9" "over-correction mutant is syntactically broken"
+else
+  out=$(bash "$MUT/scripts/lint-tests-registered.sh" --tests-dir "$TMP/tests" \
+        --aggregators "$TMP/tests/myagg.sh" --tests-yml "$TMP/tests.yml" 2>&1); rc=$?
+  if [ "$rc" -eq 1 ] \
+     && echo "$out" | grep -q "test-bl181-real-invoker.sh" \
+     && echo "$out" | grep -q "unit lane"; then
+    pass "U9: exemption disabled → the real invoker is flagged (U7 passes because the exemption fires)"
+  else
+    fail_ "U9" "expected the no-exemption mutant to flag test-bl181-real-invoker.sh; rc=$rc; output:\n$out"
+  fi
+fi
+teardown_fixture
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== U10: --list renders the DECISIVE exemption as unit-lane-exempt:init-sh-invoker ==="
+# ════════════════════════════════════════════════════════════════════
+# BL-181 residual: comment-stripping does not catch an init.sh token inside a
+# quoted string / heredoc body, so a wrongly-exempted file is still possible.
+# The compensating control is that a decisive exemption (exempted AND absent
+# from the unit list) shows up in --list instead of being silent.
+setup_fixture
+_bl181_fixture_real_invoker
+_bl181_fixture_scaffolding
+out=$(_bl181_run --list); rc=$?
+if [ "$rc" -eq 0 ] \
+   && echo "$out" | grep -q "unit-lane-exempt:init-sh-invoker" \
+   && echo "$out" | grep "unit-lane-exempt:init-sh-invoker" | grep -q "test-bl181-real-invoker.sh"; then
+  pass "U10: --list surfaces the decisive unit-lane exemption on the exempted file's row"
+else
+  fail_ "U10" "expected a 'unit-lane-exempt:init-sh-invoker' row for test-bl181-real-invoker.sh; rc=$rc; output:\n$out"
+fi
+teardown_fixture
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== U11: an exempted file that IS in the unit list is NOT rendered as exempt ==="
+# ════════════════════════════════════════════════════════════════════
+# The exemption only "decided" something when the file is absent from the unit
+# list. Listing it there anyway makes the exemption moot, and a moot exemption
+# must not add noise to the review surface.
+setup_fixture
+_bl181_fixture_real_invoker
+cat > "$TMP/tests/myagg.sh" <<SH
+#!/usr/bin/env bash
+bash "$TMP/tests/test-bl181-real-invoker.sh"
+SH
+cat > "$TMP/tests.yml" <<'SH'
+          tests=(
+            tests/test-bl181-real-invoker.sh
+          )
+SH
+out=$(_bl181_run --list); rc=$?
+if [ "$rc" -eq 0 ] && ! echo "$out" | grep -q "unit-lane-exempt:init-sh-invoker"; then
+  pass "U11: a moot exemption (file already in the unit list) is not rendered"
+else
+  fail_ "U11" "expected no unit-lane-exempt row when the file is in the unit list; rc=$rc; output:\n$out"
+fi
+teardown_fixture
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== U12: SIGPIPE/pipefail regression — a LARGE real invoker stays exempt ==="
+# ════════════════════════════════════════════════════════════════════
+# The BL-181 predicate was first written as
+#     grep -vE '^[[:space:]]*#' "$file" | grep -q 'init\.sh'
+# which is broken under the linter's `set -o pipefail`: grep -q exits on the
+# first match, the upstream grep dies of SIGPIPE (rc 141), and pipefail
+# promotes that to the pipeline's status — so a real init.sh invoker is
+# reported as a NON-invoker and wrongly demanded into the unit lane. The
+# misfire is SIZE-dependent: every small fixture above passes with the broken
+# form, and only real (multi-KB) test files trip it — this repo's
+# tests/test-bl112-commit-enforcement.sh did, at rc=141.
+#
+# This fixture reproduces that shape deterministically: the init.sh invocation
+# is on line 3, followed by thousands of non-comment lines so the upstream grep
+# still has plenty to write when a `grep -q` downstream would exit. It must be
+# EXEMPT. With the `grep -q` form this test FAILS; with `grep -c` it passes.
+setup_fixture
+{
+  echo '#!/usr/bin/env bash'
+  echo '# Hermetic scaffolder (BL-076): --no-remote-creation, no live remote.'
+  echo 'bash "$REPO/init.sh" --no-remote-creation --platform web'
+  i=0
+  while [ "$i" -lt 4000 ]; do
+    echo "echo \"padding line $i — non-comment, keeps the upstream grep writing\""
+    i=$((i + 1))
+  done
+} > "$TMP/tests/test-bl181-big-invoker.sh"
+cat > "$TMP/tests/myagg.sh" <<SH
+#!/usr/bin/env bash
+bash "$TMP/tests/test-bl181-big-invoker.sh"
+SH
+cat > "$TMP/tests.yml" <<'SH'
+          tests=(
+            tests/test-some-other-unit.sh
+          )
+SH
+out=$(_bl181_run); rc=$?
+if [ "$rc" -eq 0 ] && ! echo "$out" | grep -q "unit lane"; then
+  pass "U12: a large real init.sh invoker stays exempt (no SIGPIPE/pipefail misfire)"
+else
+  fail_ "U12" "large real invoker was flagged — the predicate is SIGPIPE-sensitive (rc=141 under pipefail); use a downstream that consumes all input; rc=$rc; output:\n$out"
+fi
+teardown_fixture
+
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]

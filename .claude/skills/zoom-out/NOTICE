@@ -1,0 +1,46 @@
+This skill is adapted from the `zoom-out` skill in the mattpocock/skills
+repository (https://github.com/mattpocock/skills), licensed under the
+MIT License.
+
+Original copyright:
+
+  MIT License
+
+  Copyright (c) Matt Pocock
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+  THE SOFTWARE.
+
+Adaptations made for Solo Orchestrator:
+
+- The upstream SKILL.md is a one-paragraph prompt ("Go up a layer of abstraction.
+  Give me a map of all the relevant modules and callers, using the project's
+  domain glossary vocabulary.") The Solo adaptation expands it to point at
+  the framework's canonical artifacts as grounding sources, so the map
+  produced is structural rather than improvised.
+- "What to include" section enumerates: phase-state.json, process-state.json,
+  ADR documentation, PROJECT_BIBLE.md, backlog, pending-approval sentinels.
+- "When this is most valuable" section ties zoom-out to specific Solo
+  decision points: between features (Context Health Check), at phase
+  transitions, before hard debugging, on operator handoff, on design forks.
+- Preserves the upstream's `disable-model-invocation: true` frontmatter
+  flag so this only fires when the user explicitly invokes it.
+
+Original content was a 4-line body; the adapted version preserves the
+intent (zoom up, use real vocabulary) while making the map's substrate
+explicit so it produces a Solo-shaped output rather than a generic one.
