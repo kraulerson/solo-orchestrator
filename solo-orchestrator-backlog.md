@@ -5216,3 +5216,58 @@ multi-KB fixture that fails with `grep -q` and passes with the consuming form (s
 **Related:** BL-181 (where the class was found, measured, and fixed at one site), BL-168
 (`test-bl168-tm-table-sigpipe.sh` — a prior SIGPIPE instance, evidence that this is a recurring class
 in this repo), CLAUDE.md ENFORCEMENT — SOURCE OF TRUTH.
+
+---
+
+## BL-184: The full-suite aggregator destroyed its children's failure output — 177 delegates discarded stdout AND stderr, making every CI-only failure unactionable
+
+**Logged:** 2026-07-26 (surfaced while triaging the full-lane run `30204845017`; BL-183 was taken concurrently, so this entry is BL-184)
+**Category:** Verification lane / test infrastructure — diagnostic destruction (silent-success sibling class)
+**Severity:** High — not a product defect (nothing shipped behaves wrongly), but a force multiplier on every *other* defect: it converted every CI-only child failure into an unactionable one-liner. The cost is measured, not hypothetical — BL-135 sat open 2026-07-18 → 2026-07-26 across two ~3h full-lane runs with zero root-cause progress, because the diagnostic was destroyed at the moment of capture.
+**Status:** Open
+
+**Evidence.** All 177 delegates in `tests/full-project-test-suite.sh` matched exactly
+`if bash "$SCRIPT_DIR/<child>" [args] >/dev/null 2>&1; then / pass / else / fail / fi` — verified
+mechanically: 177 blocks, every one 5 lines, shape `PASS|ELSE|FAIL`, all flush-left. On failure the
+sole output was `<child> FAILED (run for details)` — and "run for details" is impossible for a
+failure that only reproduces in CI. Watched-RED A/B on a real child
+(`tests/test-bl169-gitignore-anchor.sh` forced red):
+
+BEFORE — `[FAIL] tests/test-bl169-gitignore-anchor.sh FAILED (run for details)` and nothing else.
+AFTER — the child's four `[FAIL]` case lines **plus its stderr**, inline:
+`grep: /nonexistent/forced-red-proof.tmpl: No such file or directory` — the actual root cause. The
+old shape discarded **stderr** as well as stdout, so the causal line was thrown away every time.
+
+**Fix shape.** `run_child_suite <rel-path> <pass-label> [fail-label] [-- <child-args>...]`, marker
+`# BL-184-CHILD-EVIDENCE`, closed by `# BL-184-CHILD-EVIDENCE-END`. Captures combined stdout+stderr
+to a scratch file outside `$TEST_DIR` (the TEST 4 fixture block documents an invariant that
+`$TEST_DIR` holds only simulated project dirs); on rc=0 emits only `pass` — byte-identical labels,
+zero extra log bytes; on rc≠0 emits `fail` then a delimited replay: a failure-marker digest (cap 25,
+emitted only when output exceeds the tail bound, because a pure tail MISSES an early failure in a
+chatty child) followed by the last 40 lines, each prefixed `    | ` so a child's `[FAIL]` can never
+be misread as the suite's own. Bounds are env-overridable (`SUITE_CHILD_TAIL_LINES`,
+`SUITE_CHILD_MARKER_LINES`); 40 was chosen from six measured children (8/10/18/18/30/53 lines) so the
+median child replays whole.
+
+**The helper always returns 0** — the aggregator is `set -euo pipefail` and calls it as a bare
+statement, so a non-zero return would abort the whole run at the first red child. Accounting stays in
+`fail()` and the suite still ends `exit $FAIL`. Replay uses `awk`/`printf`, never `echo -e` (child
+output is arbitrary text). No `cmd | grep | head` capture anywhere — that is the repo's own
+counter-antipattern trap.
+
+177/177 converted; equivalence proven by re-parsing both file versions and comparing the
+`(child path, child argv, pass-label, fail-label)` 4-tuple for all 177 sites in order. One delegate
+stays deliberately exempt: the BL-180 pty test already captured its own output and branches on a
+**success-side** LOUD SKIP that the helper cannot express (the helper prints nothing on rc=0).
+
+**Mutation proof.** M1: point the replay `awk` at `/dev/null` → `Results: 11 passed, 3 failed`
+(T1/T2/T3 RED). M2: revert the capture to the literal `>/dev/null 2>&1` regression → same RED.
+Restore → `Results: 14 passed, 0 failed`. Pinned by `tests/test-bl184-child-suite-evidence.sh`,
+which **slices the real aggregator** through its `-END` marker so it drives the shipped helper text
+rather than a copy; T13 additionally fails if any delegate regresses to the discard shape.
+
+**Related:** BL-135 (the measured cost — two full-lane runs lost), BL-034 / BL-035 (wired these 177
+delegates in, with the discard shape), BL-038 / BL-154 / BL-181 (registration lints), BL-180 (the one
+delegate that already captured, and why it stays exempt), BL-064 (silent-success-after-FAIL — same
+defect class, different surface).
+

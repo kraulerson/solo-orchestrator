@@ -93,7 +93,7 @@ jobs:
           # as membership while bash drops it from the array. A green lint is
           # therefore not proof that a listed test actually runs here. See the
           # residual recorded on `## BL-181:`.
-          # and see which files the exemption actually fired on with:
+          # See which files the exemption actually fired on with:
           #   bash scripts/lint-tests-registered.sh --list \
           #     | grep unit-lane-exempt
           # Each such row is a CLAIM ("this file invokes init.sh"), not a
@@ -106,9 +106,10 @@ jobs:
           # (tests/test-lint-no-live-remote.sh, R-B-11). Audit by execution:
           # instrument init.sh with an env-gated marker append and run each
           # exempt row; a marker line is proof of invocation, a grep is not.
-          # As of that 2026-07-26 execution-trace pass, all 27 remaining rows
-          # invoked init.sh; that is a measurement of one tree at one commit,
-          # not a standing guarantee — re-run it, do not cite it.
+          # As of that 2026-07-26 execution-trace pass, all 27 rows THEN
+          # PRESENT invoked init.sh; that is a measurement of one tree at one
+          # commit, not a standing guarantee — the tree has since grown to 29
+          # via the BL-180 suites. Re-run it; do not cite the number.
           # Do NOT regenerate from `grep -L 'init\.sh' tests/test-*.sh`: that
           # matches comments too, so it silently drops any file that merely
           # mentions init.sh (BL-181).
@@ -152,6 +153,7 @@ jobs:
             tests/test-bl172-resume-sentinels.sh
             tests/test-bl161-ledger-real-events-only.sh
             tests/test-bl174-gitignore-backfill.sh
+            tests/test-bl184-child-suite-evidence.sh
             tests/test-bl141-commitmsg-repair.sh
             tests/test-bl143-pastcap-selfapproval.sh
             tests/test-bl155-phase2-init-transition-commit.sh
