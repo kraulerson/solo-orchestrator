@@ -286,27 +286,76 @@ soif_sast_unread_report() {
 # `<stage>:` path syntax, PATH_MAX, rename, size) and the FIRST to emit a POSITIVE
 # FALSE ATTESTATION rather than merely losing coverage.
 #   SO THE FLAG IS NOT THE FIX. `--max-target-bytes=0` retires the size TRIGGER; this
-#   guard retires the CLASS, by refusing to say [OK] unless semgrep itself reports that
-#   it took every target we handed it. Per-rule skips, parse-time drops and whatever the
-#   next semgrep release adds are all covered by construction, with no sixth patch.
-# WHICH NUMBER, AND WHY NOT THE OBVIOUS ONE. Semgrep prints TWO counts and only one of
-# them is a coverage measure. `• Targets scanned: N` counts targets whose LANGUAGE
-# matched a rule, so it reads 1-of-2 for the wholly ordinary commit `app.ts + README.md`
-# — comparing against it would NOTRUN almost every real commit, and a gate that always
-# cries wolf is a gate people route around (the exact culture BL-112 exists to end;
-# measured on semgrep 1.157.0, see the SCAN-STATUS note below). The Scan Status header
-# `Scanning N files with M Code rules:` is the number that means "targets that survived
-# semgrep's own target filtering", independent of language match: measured 2-of-2 for
-# `app.ts + README.md`, 1-of-2 for `app.ts + <oversize>.js`, and 2-of-2 for that same
-# pair once --max-target-bytes=0 is passed. That is the invariant this guard asserts.
-# FAIL CLOSED, ALWAYS. If the header is missing, duplicated or unparseable — an older or
-# newer semgrep, a future output redesign — soif_sg_accepted stays EMPTY and the arm
-# takes the loud NOTRUN path. It must never fall through to [OK]: a parser that cannot
-# read the receipt's evidence and prints the receipt anyway IS the silent-success class,
-# wearing the coat of the code that was supposed to end it. The cost of that choice is
-# real and is accepted deliberately: on a host where the header never appears EVERY
-# commit reports NOT ENFORCED. That is loud, honest and non-blocking (this arm never
-# blocks on a can't-scan), and it is strictly better than a receipt nobody can trust.
+#   guard covers the STEP, by refusing to say [OK] unless semgrep itself reports that it
+#   took every target we handed it and parsed every line of what it took.
+# WHAT THIS GUARD DOES AND DOES NOT PROVE — STATE IT NARROWLY, IT HAS BEEN OVERSTATED
+# ONCE ALREADY. An earlier revision of this comment claimed "per-rule skips, parse-time
+# drops and whatever the next semgrep release adds are all covered by construction, with
+# no sixth patch." That was FALSE and was caught in review (R-274Rv-1). The two counters
+# it read are both TARGET-SELECTION counters — they answer "did semgrep take the file",
+# never "did semgrep understand the file" — so a target semgrep accepted and then failed
+# to PARSE satisfied every one of them and collected the full [OK] attestation. Measured
+# through the shipped emitter on semgrep 1.157.0: an ordinary TypeScript file saved as
+# UTF-16LE (a Windows editor default, 142 bytes) carrying `pane.innerHTML = userText`
+# COMMITTED with `[OK] semgrep: SAST ran on 1 staged file(s)` while the byte-identical
+# UTF-8 control was REFUSED. So the class is NOT closed by construction and this comment
+# no longer says it is. What the guard asserts is exactly the conjunction below, and the
+# residue it leaves is named at the end and tracked as BL-186.
+# THE THREE NUMBERS, AND WHY TWO OF THEM AND NOT THE THIRD. Semgrep prints three counts
+# and they measure different things.
+#   • `Targets scanned: N` counts targets whose LANGUAGE matched a rule, so it reads
+#     1-of-2 for the wholly ordinary commit `app.ts + README.md` — comparing against it
+#     would NOTRUN almost every real commit, and a gate that always cries wolf is a gate
+#     people route around (the exact culture BL-112 exists to end). RULED OUT.
+#   • The Scan Status header `Scanning N files with M Code rules:` is the number that
+#     means "targets that survived semgrep's own target FILTERING", independent of
+#     language match: measured 2-of-2 for `app.ts + README.md`, 1-of-2 for
+#     `app.ts + <oversize>.js`, and 2-of-2 for that same pair once --max-target-bytes=0
+#     is passed. USED — it is the SELECTION half of the invariant (soif_sg_accepted).
+#   • `Parsed lines: ~N%` is `(total_lines - lines_semgrep_core_failed_to_parse) /
+#     total_lines`, i.e. the only number in the banner that reports PARSE loss. USED —
+#     it is the COMPREHENSION half (soif_sg_parse_full, # BL-186-PARSE-COVERAGE).
+# WHY `Parsed lines` DOES NOT CRY WOLF, AND WHY ~100.0% IS EXACT RATHER THAN ROUNDED.
+# Measured `~100.0%` on 34 ordinary shapes: a.ts+b.ts; ts+md+json+yml; ts+py+go+vue+html;
+# all nine at once; a 1.27MB source file; a minified bundle; CRLF; a UTF-8 BOM; emoji; an
+# empty file; a 2000-line source; a large package-lock.json; and one well-formed file per
+# language across ts/tsx/js/py/go/java/cs/php/rs/kt/swift/rb/Dockerfile/tf/sh/sql/yml/
+# css/md. Zero false alarms. And the value cannot round UP into a false pass: semgrep's
+# pretty_print_percentage CLAMPS anything above 99.9 to `99.9` unless numerator ==
+# denominator exactly, so `~100.0%` means literally zero lines lost, not "about all of
+# them". It is unlike `Targets scanned` in precisely the way that matters here.
+# FAIL CLOSED, ALWAYS — BOTH HALVES. If either line is missing, duplicated or
+# unparseable — an older or newer semgrep, a future output redesign — the corresponding
+# variable stays EMPTY and the arm takes the loud NOTRUN path. It must never fall through
+# to [OK]: a parser that cannot read the receipt's evidence and prints the receipt anyway
+# IS the silent-success class, wearing the coat of the code that was supposed to end it.
+# The cost of that choice is real and is accepted deliberately, and it is now TWO anchored
+# banner lines rather than one: on a host where either never appears, EVERY commit reports
+# NOT ENFORCED. That is loud, honest and non-blocking (this arm never blocks on a
+# can't-scan), and it is strictly better than a receipt nobody can trust. The two lines
+# are highly correlated failures — both come from semgrep's text-output module — so the
+# second anchor adds little independent cliff risk, but it does add some, and the
+# remaining anchor-fragility is tracked rather than waved away (BL-186).
+# THE RESIDUE, NAMED (BL-186) — AND THE EXACT LIMIT OF WHAT THIS GUARD SEES. `Parsed
+# lines` is driven by `ignore_log.core_failure_lines_by_file`, so it moves if and only if
+# semgrep-core REPORTS a parse failure. That is a narrower thing than "semgrep understood
+# the file", and the gap is the residue. Measured on 1.157.0, same 68-byte innerHTML sink
+# in each, invoked exactly as this arm invokes it:
+#   • UTF-16LE with a BOM -> ~50.0%, UTF-16BE with a BOM -> ~0.0%. CAUGHT, and DETERMINISTIC
+#     (5/5 identical runs). This is the shape a Windows editor writes and it is the trigger
+#     that was reproduced against the previous revision (R-274Rv-1).
+#   • A 40KB random binary blob staged as `vendor.js` -> CAUGHT ONLY SOMETIMES: 4 of 10
+#     runs read ~95.3-99.4% and forfeited the receipt, 6 of 10 read ~100.0% and did not.
+#     Whether semgrep-core happens to log a failure depends on the bytes. Do NOT describe
+#     this trigger as closed; it is reduced.
+#   • An unparseable source file: sometimes ~0.0% (caught), sometimes ~100.0% — semgrep's
+#     parsers are error-recovering, and a recovered parse reports no loss.
+#   • UTF-16LE or UTF-16BE with NO BOM, and a file with embedded NUL bytes: NEVER caught.
+#     All report `Targets scanned: 1` AND `Parsed lines: ~100.0%` AND zero findings.
+# So: this guard closes the deterministic BOM'd-UTF-16 trigger, reduces the binary-blob
+# one, and does not touch the rest. It is a fourth precondition, not a closure. The
+# remainder is BL-186 and the phrase "covered by construction" does not belong anywhere
+# near this arm — it is what the previous revision claimed and it was false.
 #
 # THREE WARN HELPERS NOW, NOT ONE, AND THE SPLIT IS DELIBERATE — same reasoning
 # soif_sast_partial_coverage records for ITS split from soif_sast_not_enforced. Saying
@@ -330,6 +379,17 @@ soif_sast_scan_coverage_report() {
   else
     echo "  Coverage: UNVERIFIED — semgrep's scan-status line was absent or unreadable"
     echo "  (${#soif_idx_files[@]} staged file(s) were handed to it; how many it opened is unknown)."
+  fi
+  # # BL-186-PARSE-COVERAGE — the SECOND fact, and it is a different fact. "Accepted" is
+  # about target selection; this is about whether the bytes inside those targets were
+  # ever turned into something a rule could match. Both are printed on every forfeited
+  # receipt, always, even when only one of them is the reason: an operator told "coverage
+  # was partial" who then fixes the wrong half re-commits straight back into the other.
+  if [ -n "${soif_sg_parsed:-}" ]; then
+    echo "  Parse coverage: semgrep reports it parsed ${soif_sg_parsed}% of the lines in those file(s)."
+  else
+    echo "  Parse coverage: UNVERIFIED — semgrep's parse-coverage line was absent or"
+    echo "  unreadable, so how much of the staged content it understood is unknown."
   fi
   # NAMED, not counted — the # BL-182-NAME-THE-ENTRY contract. Semgrep's DEFAULT output
   # does not say WHICH target it declined (only --verbose does, and turning that on for
@@ -644,10 +704,80 @@ if command -v semgrep &>/dev/null; then
         soif_sg_accepted=$(sed -n 's/^[[:space:]]*Scanning \([0-9][0-9]*\) files\{0,1\} with [0-9][0-9]* Code rules:[[:space:]]*$/\1/p' "$soif_sg_err" 2>/dev/null) || soif_sg_accepted=""
       fi
       case "$soif_sg_accepted" in ''|*[!0-9]*) soif_sg_accepted="" ;; esac
+      # BL-186-PARSE-COVERAGE (parse) — the SECOND half of the invariant, and the half the
+      # counter above structurally cannot see: `Scanning N files` is fixed at TARGET
+      # SELECTION time, so a target semgrep accepts and then fails to PARSE satisfies it
+      # completely. Semgrep's `Parsed lines: ~N%` is the only number in the default banner
+      # that reports parse loss. Rationale, the measured no-cry-wolf evidence, and the
+      # residue this still does not catch are on # BL-112-SCAN-COVERAGE above.
+      #   Same defensive shape as the header parse, deliberately, line for line: require
+      #   the line EXACTLY ONCE, sanitize through a case-glob before any arithmetic, and
+      #   guard every command with `|| …=""` so `set -e` cannot abort the hook here.
+      #   NOT ANCHORED ON THE BULLET. The shipped line reads " • Parsed lines: ~100.0%".
+      #   The bullet is multibyte UTF-8 and this file is sourced under `set -u` on hosts
+      #   with a C locale, so it is matched by `.*` rather than embedded as a literal —
+      #   a decorative glyph is not evidence and must not be load-bearing.
+      #   NON-NUMERIC SPELLINGS FAIL CLOSED BY CONSTRUCTION. semgrep prints
+      #   "an unknown percentage" when it counted zero lines and "<0.1%" for a near-total
+      #   loss; neither matches the numeric pattern, so soif_sg_parsed stays EMPTY and the
+      #   arm NOTRUNs. That is the right answer for both — one is unknown, one is a near
+      #   total parse failure.
+      soif_sg_parsed_n=$(grep -cE 'Parsed lines: ~?[0-9][0-9]*(\.[0-9][0-9]*)?%[[:space:]]*$' "$soif_sg_err" 2>/dev/null) || soif_sg_parsed_n=0
+      soif_sg_parsed_n=$(printf '%s' "$soif_sg_parsed_n" | tr -d '[:space:]') || soif_sg_parsed_n=0
+      case "$soif_sg_parsed_n" in ''|*[!0-9]*) soif_sg_parsed_n=0 ;; esac
+      soif_sg_parsed=""
+      if [ "$soif_sg_parsed_n" -eq 1 ]; then
+        soif_sg_parsed=$(sed -n 's/^.*Parsed lines: ~\{0,1\}\([0-9][0-9]*\(\.[0-9][0-9]*\)\{0,1\}\)%[[:space:]]*$/\1/p' "$soif_sg_err" 2>/dev/null) || soif_sg_parsed=""
+      fi
+      case "$soif_sg_parsed" in ''|*[!0-9.]*) soif_sg_parsed="" ;; esac
+      # Compare on the INTEGER part only — bash 3.2 `test` has no floats, and it needs
+      # none: semgrep CLAMPS any value above 99.9 down to 99.9 unless the numerator equals
+      # the denominator exactly, so the integer part reaches 100 if and only if zero lines
+      # were lost. `~99.9%` (whole=99) is a real shortfall, not a rounding artefact.
+      soif_sg_parse_full=0
+      soif_sg_parsed_whole="${soif_sg_parsed%%.*}"
+      case "$soif_sg_parsed_whole" in
+        ''|*[!0-9]*) soif_sg_parsed_whole="" ;;
+      esac
+      if [ -n "$soif_sg_parsed_whole" ] && [ "$soif_sg_parsed_whole" -ge 100 ]; then
+        soif_sg_parse_full=1
+      elif [ -z "$soif_sg_parsed" ]; then
+        # # BL-186-EMPTY-TARGETS — THE VACUOUS CASE, AND IT IS CORROBORATED RATHER THAN
+        # TRUSTED. semgrep's percentage is (total_lines - lines_it_failed_to_parse) /
+        # total_lines, so when every target has ZERO lines the denominator is 0 and it
+        # prints the literal words "an unknown percentage" instead of a number. That is
+        # not a shortfall — nothing could have been lost — but the numeric parse above
+        # cannot tell it apart from an output redesign, and without this arm the wholly
+        # ordinary `touch src/placeholder.ts && git add && git commit` (a .gitkeep, an
+        # empty __init__.py, a stub module) lost its receipt. That is the `Targets
+        # scanned` cry-wolf failure all over again, so it is fixed rather than accepted.
+        #   THE PHRASE IS NEVER WHAT BUYS THE RECEIPT. Matching semgrep's English would be
+        #   a fail-OPEN string test — exactly the shape this arm refuses everywhere else —
+        #   so the phrase is not matched at all. The condition is a fact this hook can
+        #   check for itself: every target it materialized is zero bytes. If any target
+        #   has content, an unreadable percentage stays unreadable and the arm NOTRUNs,
+        #   whatever semgrep printed.
+        #   WHY "ZERO BYTES ON DISK" IS SAFE TO BELIEVE HERE, and it is a COUPLING, not an
+        #   assumption: the F2 content check a few lines up (soif_idx_want/soif_idx_got)
+        #   already refuses to add a target whose materialized size differs from the staged
+        #   blob's. So an empty target implies an empty STAGED BLOB; a truncated or failed
+        #   materialization is recorded in soif_idx_unread and forfeits the receipt through
+        #   # BL-182-NO-UNEARNED-RECEIPT before this code is reached. Weaken F2 and this
+        #   arm's premise goes with it — T-mutation-content-guard is what pins the pair.
+        soif_sg_all_empty=1
+        for soif_e in ${soif_idx_files[@]+"${soif_idx_files[@]}"}; do
+          if [ -s "$soif_e" ]; then soif_sg_all_empty=0; break; fi
+        done
+        if [ "$soif_sg_all_empty" -eq 1 ]; then soif_sg_parse_full=1; fi
+      fi
       # `-ge`, not `-eq`: the defect class is UNDER-scanning. An over-count would be a
       # semgrep bug of a different shape and is not this guard's business to block on.
+      # THE CONJUNCTION IS THE GUARD. Selection alone is not coverage — that is exactly
+      # what R-274Rv-1 proved — so the receipt needs BOTH halves, and each is mutation-
+      # tested on its own (T-mutation-scan-coverage owns the first, T-mutation-parse-
+      # coverage the second). Dropping either clause must go RED.
       soif_sg_covered=0
-      if [ -n "$soif_sg_accepted" ] && [ "$soif_sg_accepted" -ge "${#soif_idx_files[@]}" ]; then
+      if [ -n "$soif_sg_accepted" ] && [ "$soif_sg_accepted" -ge "${#soif_idx_files[@]}" ] && [ "$soif_sg_parse_full" -eq 1 ]; then
         soif_sg_covered=1
       fi
       # Map the temp-tree prefix off finding paths, then show semgrep's findings
@@ -713,19 +843,32 @@ if command -v semgrep &>/dev/null; then
         # the LOOP could not read, this guards the targets the SCANNER did not accept. The
         # [OK] receipt is forfeited either way, because the sentence it prints — "SAST ran
         # on N staged file(s)" — would be false.
-        # TWO SUB-ARMS, because "semgrep told us it skipped some" and "semgrep told us
-        # nothing we could read" are not the same claim and must not share wording. The
-        # first is a MEASURED shortfall; the second is an UNVERIFIABLE scan, and calling
-        # that "partial" would assert a fact not in evidence — the small dishonesty this
-        # whole arm exists to avoid.
-        if [ -n "$soif_sg_accepted" ]; then
-          soif_sast_coverage_warn \
-            "SAST coverage was PARTIAL: semgrep accepted only $soif_sg_accepted of the ${#soif_idx_files[@]} staged file(s) it was handed." \
-            "at least one staged file was handed to the scanner and never opened by it."
-        else
+        # FOUR SUB-ARMS, because these are four different claims and must not share
+        # wording. Two axes: WHICH half of the invariant failed (selection vs parse —
+        # # BL-186-PARSE-COVERAGE), and whether the failure is a MEASURED shortfall or an
+        # UNVERIFIABLE reading. Calling an unreadable line "partial" would assert a fact
+        # not in evidence, and telling an operator "semgrep skipped a file" when what
+        # actually happened is "semgrep could not parse the file it did open" sends them
+        # to fix the wrong thing. Both are the small dishonesty this whole arm exists to
+        # avoid. Ordered so the EARLIER pipeline stage is reported first: a selection
+        # shortfall makes the parse percentage a statement about a subset, so it would be
+        # misleading to lead with it.
+        if [ -z "$soif_sg_accepted" ]; then
           soif_sast_coverage_warn \
             "semgrep exited 0, but its scan-status line was absent or unreadable." \
             "the scan ran and its coverage of this commit CANNOT BE VERIFIED, so it is treated as a scan that did not run."
+        elif [ "$soif_sg_accepted" -lt "${#soif_idx_files[@]}" ]; then
+          soif_sast_coverage_warn \
+            "SAST coverage was PARTIAL: semgrep accepted only $soif_sg_accepted of the ${#soif_idx_files[@]} staged file(s) it was handed." \
+            "at least one staged file was handed to the scanner and never opened by it."
+        elif [ -z "$soif_sg_parsed" ]; then
+          soif_sast_coverage_warn \
+            "semgrep exited 0 and took every staged file, but its parse-coverage line was absent or unreadable." \
+            "how much of the staged content the scanner actually parsed CANNOT BE VERIFIED, so it is treated as a scan that did not run."
+        else
+          soif_sast_coverage_warn \
+            "SAST coverage was PARTIAL: semgrep took every staged file but parsed only ${soif_sg_parsed}% of their lines." \
+            "the unparsed lines were never matched against any rule, so a sink sitting on one of them would not have been reported."
         fi
         soif_sast_scan_coverage_report
       else
@@ -739,9 +882,9 @@ if command -v semgrep &>/dev/null; then
         # not the number staged: since BL-132-GITLINK-SKIP the two can differ, and a
         # receipt that counts entries the scanner never saw is the BL-112 lie in a
         # different coat. Zero targets never reaches here — it NOTRUNs above.
-        # Reached ONLY with COMPLETE coverage. THREE things have to hold for that, and
-        # they are enforced in three different places — a reader checking this claim must
-        # check ALL THREE. Each was added only after a false [OK] shipped without it:
+        # Reached ONLY with COMPLETE coverage. FOUR things have to hold for that, and
+        # they are enforced in four different places — a reader checking this claim must
+        # check ALL FOUR. Each was added only after a false [OK] shipped without it:
         #   1. every entry the loop was GIVEN was read — the branch above intercepts any
         #      commit with a non-empty soif_idx_unread;
         #   2. the loop was given every staged entry that HAS content —
@@ -753,10 +896,17 @@ if command -v semgrep &>/dev/null; then
         #   3. semgrep ACCEPTED every target the loop handed it — # BL-112-SCAN-COVERAGE.
         #      Preconditions 1 and 2 are both about what reaches the SCANNER; neither can
         #      see the scanner quietly dropping a target it was given, which is what a
-        #      >1MB staged blob did under the default --max-target-bytes (R-274R-1).
-        # The pattern across all three is the same and is the point: N counts the targets
+        #      >1MB staged blob did under the default --max-target-bytes (R-274R-1);
+        #   4. semgrep PARSED every line of what it accepted — # BL-186-PARSE-COVERAGE.
+        #      Preconditions 1-3 are ALL target-selection facts and none of them can see a
+        #      file semgrep took and then could not read: an ordinary .ts saved as UTF-16
+        #      satisfied all three and collected this receipt with its innerHTML sink
+        #      never looked at (R-274Rv-1).
+        # The pattern across all four is the same and is the point: N counts the targets
         # this arm INTENDED to scan, and every stage between "staged entry" and "bytes
-        # semgrep parsed" needs its own proof that nothing fell out of the set.
+        # semgrep parsed" needs its own proof that nothing fell out of the set. It is also
+        # why this list is not a closure claim — see the RESIDUE paragraph on
+        # # BL-112-SCAN-COVERAGE and BL-186. A fifth precondition will exist one day.
         echo "[OK] semgrep: SAST ran on ${#soif_idx_files[@]} staged file(s) — no ERROR-severity findings."
       fi
     fi

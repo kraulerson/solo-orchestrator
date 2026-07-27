@@ -147,6 +147,41 @@
 #                                 would) and a fully-covered CLEAN commit must take the
 #                                 loud NOTRUN, never [OK]. Pins that the parser itself
 #                                 cannot become a silent-success path.
+#   T-utf16-parse-drop-no-receipt live — R-274Rv-1: an ORDINARY TypeScript file saved as
+#                                 UTF-16LE (a Windows editor default) is ACCEPTED by
+#                                 semgrep — `Scanning 1 file`, `Targets scanned: 1` — and
+#                                 then not parsed. Every TARGET-SELECTION counter reads
+#                                 complete, so # BL-112-SCAN-COVERAGE alone certified it:
+#                                 `[OK] … ran on N staged file(s)` with the innerHTML sink
+#                                 in HEAD, while the byte-identical UTF-8 control was
+#                                 REFUSED. semgrep's own `Parsed lines: ~N%` is the number
+#                                 that sees it (# BL-186-PARSE-COVERAGE). The commit still
+#                                 LANDS — a can't-scan WARNs, it never blocks — so the
+#                                 assertion is the RECEIPT, not the landing.
+#                                 RED pre-fix: COMMITTED with that unearned [OK].
+#   T-empty-target-receipt        live — the OTHER cry-wolf shape, found by this suite's
+#                                 own T-mutation-content-guard going SKIP: a zero-byte
+#                                 staged file (a .gitkeep, an empty __init__.py) gives
+#                                 semgrep a zero-denominator percentage, which it prints
+#                                 as the words "an unknown percentage". The first cut of
+#                                 # BL-186-PARSE-COVERAGE read that as lost coverage and
+#                                 NOTRUNed a wholly ordinary commit. Nothing to parse is
+#                                 not a parse failure (# BL-186-EMPTY-TARGETS).
+#   T-parse-coverage-fails-closed live — the SECOND anchored banner line must fail closed
+#                                 exactly like the first. Break the `Parsed lines` parse
+#                                 and a fully-covered CLEAN commit must take the loud
+#                                 NOTRUN naming parse coverage as UNVERIFIED, never [OK].
+#   T-mutation-parse-coverage     live — proof (d): drop ONLY the parse clause from the
+#                                 coverage conjunction (`&& [ "$soif_sg_parse_full" -eq 1 ]`)
+#                                 -> the UTF-16 sink buys an [OK] receipt again (RED) ->
+#                                 restore -> receipt forfeited (GREEN). The selection
+#                                 clause is left intact, so this proves the parse half
+#                                 carries its own weight rather than riding on the other.
+#   T-parse-coverage-no-cry-wolf  live — the counter-objection that ruled `Targets scanned`
+#                                 OUT must not apply to `Parsed lines`: an ordinary
+#                                 multi-language commit (ts + md + json + yml + sh) must
+#                                 still EARN the [OK] receipt. A guard that NOTRUNs normal
+#                                 commits is a gate people route around.
 #   T-mutation-max-target-bytes   live — proof (a): strip the --max-target-bytes=0 line ->
 #                                 the oversize sink is never scanned and the commit LANDS
 #                                 (RED) -> restore -> REFUSED + [BLOCKED] (GREEN). Also
@@ -1995,6 +2030,234 @@ else
       fail_ "T-mutation-scan-coverage" "the GREEN hook forfeited the receipt but never NAMED the staged entries handed to the scanner (# BL-182-NAME-THE-ENTRY contract): $(tail -6 "$TOPTMP/msc-green" | tr '\n' '|')"
     else
       pass "T-mutation-scan-coverage: neutering the coverage verdict buys an UNEARNED [OK] over a target semgrep never opened (RED); the guard forfeits the receipt and NAMES the staged set (GREEN) — the class fix is load-bearing independently of the flag"
+    fi
+  fi
+fi
+
+# ═════════════════════════════════════════════════════════════════════════════
+# R-274Rv-1 — the SIXTH silent-success instance: a target semgrep ACCEPTS and then
+# does not PARSE. Every counter # BL-112-SCAN-COVERAGE reads is a TARGET-SELECTION
+# counter, fixed before a single byte is parsed, so all of them said "complete" while
+# the sink was never looked at. # BL-186-PARSE-COVERAGE reads the one number that sees
+# it, semgrep's own `Parsed lines: ~N%`.
+# ═════════════════════════════════════════════════════════════════════════════
+# write_utf16 <dest> <utf8-text>: <utf8-text> as UTF-16LE with a byte-order mark — what a
+# Windows editor writes when someone picks "Unicode" from the encoding dropdown. The BOM
+# is prepended with printf's OCTAL escapes rather than left to `iconv -t UTF-16`, whose
+# BOM/endianness policy differs between the macOS and glibc implementations (macOS emits
+# UTF-16BE+BOM). The fixture must be the same bytes everywhere or the case measures the
+# host's iconv instead of the hook.
+write_utf16() {
+  { printf '\377\376'; printf '%s\n' "$2" | iconv -f UTF-8 -t UTF-16LE; } > "$1" 2>/dev/null
+}
+# is_utf16 <file> <needle>: TRUE iff <file> really is wide-encoded on THIS host — the
+# needle round-trips back through iconv but is NOT findable in the raw bytes. Both halves
+# are load-bearing: a host without iconv silently produces a plain UTF-8 file, which would
+# make every case below "pass" while proving nothing (the UTF-8 control is exactly the
+# shape that BLOCKS). Same LOUD-SKIP discipline as is_oversize and fs_can_hold_name.
+is_utf16() {
+  grep -q "$2" "$1" 2>/dev/null && return 1
+  iconv -f UTF-16 -t UTF-8 < "$1" 2>/dev/null | grep -q "$2"
+}
+
+# _utf16_commit <hookfile> <log> -> COMMITTED|REFUSED|SETUPFAIL|NOGEN
+#   Stage the sink as UTF-16LE alongside a small CLEAN sibling. The sibling is
+#   load-bearing exactly as it is in _oversize_commit: it keeps the handed-to-semgrep
+#   count at 2 so a SELECTION shortfall would be visible and distinguishable, which is
+#   what makes this case a test of the PARSE half specifically — semgrep accepts 2 of 2
+#   here, and only `Parsed lines` dissents.
+_utf16_commit() {
+  local d; d="$(mktemp -d)"
+  mk_repo "$d" "$1" >/dev/null 2>&1 || { rm -rf "$d"; echo SETUPFAIL; return; }
+  write_utf16 "$d/app.ts" "$XSS_TS"
+  printf '%s\n' "$SAFE_TS" > "$d/ok.ts"
+  is_utf16 "$d/app.ts" innerHTML || { rm -rf "$d"; echo NOGEN; return; }
+  ( cd "$d" && git add -- app.ts ok.ts ) >/dev/null 2>&1
+  # The STAGED BLOB — not the worktree file — must carry the wide-encoded sink. git
+  # normalizes nothing here by default, but a host .gitattributes or a global
+  # core.autocrlf could, and a fixture that staged UTF-8 bytes would quietly become the
+  # control case and "pass" every direction below.
+  ( cd "$d" && git cat-file blob ":0:app.ts" ) > "$TOPTMP/utf16-probe" 2>/dev/null
+  is_utf16 "$TOPTMP/utf16-probe" innerHTML || { rm -rf "$d"; echo NOGEN; return; }
+  if ( cd "$d" && git commit -m "feat: add the renderer" ) >"$2" 2>&1; then echo COMMITTED; else echo REFUSED; fi
+  rm -rf "$d"
+}
+
+echo "=== T-utf16-parse-drop-no-receipt ==="
+if [ "$HAVE_SEMGREP" -eq 0 ]; then
+  skip_ "T-utf16-parse-drop-no-receipt" "semgrep ABSENT — the parse-coverage guard is UNPROVEN here (skip, NOT a pass)"
+else
+  U16_V="$(_utf16_commit "$EMITTED" "$TOPTMP/utf16")"
+  if [ "$U16_V" = "NOGEN" ]; then
+    skip_ "T-utf16-parse-drop-no-receipt" "this host could not stage a UTF-16 blob (no iconv?) — UNPROVEN here"
+  elif [ "$U16_V" = "SETUPFAIL" ]; then
+    fail_ "T-utf16-parse-drop-no-receipt" "fixture setup failed — the case proves nothing"
+  elif ! any_sast_line "$TOPTMP/utf16"; then
+    skip_ "T-utf16-parse-drop-no-receipt" "scanner did not run (registry unreachable?) — UNPROVEN here"
+  elif grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/utf16"; then
+    fail_ "T-utf16-parse-drop-no-receipt" "an UNEARNED [OK] receipt over a staged file semgrep accepted and never PARSED — every target-selection counter read complete while the sink went unseen (R-274Rv-1); receipt: $(grep -F '[OK] semgrep: SAST ran' "$TOPTMP/utf16" | head -1)"
+  elif [ "$U16_V" = "REFUSED" ] && grep -qF '[BLOCKED] Semgrep' "$TOPTMP/utf16"; then
+    # Strictly better than the contract requires — this host's semgrep read the wide
+    # encoding and flagged the sink outright. Nothing was mis-attested, so the case is
+    # satisfied, but say WHY so the transcript is not mistaken for the guard firing.
+    pass "T-utf16-parse-drop-no-receipt: this host's semgrep parsed the UTF-16 target and BLOCKED its sink outright — no false attestation possible"
+  elif not_enforced "$TOPTMP/utf16" && grep -qF 'Parse coverage:' "$TOPTMP/utf16"; then
+    pass "T-utf16-parse-drop-no-receipt: a staged file semgrep ACCEPTED but did not parse forfeits the [OK] receipt and reports parse coverage (# BL-186-PARSE-COVERAGE)"
+  else
+    fail_ "T-utf16-parse-drop-no-receipt" "verdict=$U16_V with neither an [OK], a [BLOCKED], nor a parse-coverage NOTRUN: $(tail -6 "$TOPTMP/utf16" | tr '\n' '|')"
+  fi
+fi
+
+# ── T-parse-coverage-no-cry-wolf (the objection that ruled `Targets scanned` out) ───
+# `Targets scanned` was rejected as the coverage number because it reads 1-of-2 for the
+# wholly ordinary commit `app.ts + README.md` — a guard built on it would NOTRUN almost
+# every real commit. `Parsed lines` is only admissible if it does NOT share that fault,
+# so pin the negative: an ordinary mixed-language commit must still EARN its receipt.
+echo "=== T-parse-coverage-no-cry-wolf ==="
+if [ "$HAVE_SEMGREP" -eq 0 ]; then
+  skip_ "T-parse-coverage-no-cry-wolf" "semgrep ABSENT — UNPROVEN here (skip, not pass)"
+else
+  _mixed_commit() {  # <hookfile> <log> -> COMMITTED|REFUSED|SETUPFAIL
+    local d; d="$(mktemp -d)"
+    mk_repo "$d" "$1" >/dev/null 2>&1 || { rm -rf "$d"; echo SETUPFAIL; return; }
+    printf '%s\n' "$SAFE_TS" > "$d/app.ts"
+    printf '# notes\n\nsome prose\n' > "$d/NOTES.md"
+    printf '{"a":1,"b":[1,2,3]}\n' > "$d/cfg.json"
+    printf 'a: 1\nb:\n  - x\n' > "$d/ci.yml"
+    printf '#!/usr/bin/env bash\nset -euo pipefail\necho hi\n' > "$d/run.sh"
+    ( cd "$d" && git add -- app.ts NOTES.md cfg.json ci.yml run.sh ) >/dev/null 2>&1
+    if ( cd "$d" && git commit -m "feat: add the renderer and its config" ) >"$2" 2>&1; then echo COMMITTED; else echo REFUSED; fi
+    rm -rf "$d"
+  }
+  CW_V="$(_mixed_commit "$EMITTED" "$TOPTMP/crywolf")"
+  if [ "$CW_V" = "SETUPFAIL" ]; then
+    fail_ "T-parse-coverage-no-cry-wolf" "fixture setup failed"
+  elif ! any_sast_line "$TOPTMP/crywolf"; then
+    skip_ "T-parse-coverage-no-cry-wolf" "scanner did not run (registry unreachable?) — UNPROVEN here"
+  elif grep -qF '[OK] semgrep: SAST ran on 5 staged file(s)' "$TOPTMP/crywolf"; then
+    pass "T-parse-coverage-no-cry-wolf: an ordinary ts+md+json+yml+sh commit still EARNS the [OK] receipt — the parse-coverage guard does not NOTRUN normal commits"
+  else
+    fail_ "T-parse-coverage-no-cry-wolf" "an ordinary 5-file commit lost its receipt — # BL-186-PARSE-COVERAGE is crying wolf, which is exactly why 'Targets scanned' was ruled out: verdict=$CW_V: $(tail -8 "$TOPTMP/crywolf" | tr '\n' '|')"
+  fi
+fi
+
+# ── T-empty-target-receipt (# BL-186-EMPTY-TARGETS: the vacuous case is not a shortfall) ──
+# `touch src/placeholder.ts && git add && git commit` — a .gitkeep, an empty __init__.py,
+# a stub module. Every target has ZERO lines, so semgrep's percentage has a zero
+# denominator and it prints the words "an unknown percentage" instead of a number. That
+# is not lost coverage and must not forfeit the receipt: the first cut of
+# # BL-186-PARSE-COVERAGE NOTRUNed this commit, which is the same cry-wolf failure that
+# ruled `Targets scanned` out. The receipt here is EARNED — there was nothing to miss.
+echo "=== T-empty-target-receipt ==="
+if [ "$HAVE_SEMGREP" -eq 0 ]; then
+  skip_ "T-empty-target-receipt" "semgrep ABSENT — UNPROVEN here (skip, not pass)"
+else
+  _empty_commit() {  # <hookfile> <log> -> COMMITTED|REFUSED|SETUPFAIL
+    local d; d="$(mktemp -d)"
+    mk_repo "$d" "$1" >/dev/null 2>&1 || { rm -rf "$d"; echo SETUPFAIL; return; }
+    : > "$d/placeholder.ts"
+    ( cd "$d" && git add -- placeholder.ts ) >/dev/null 2>&1
+    # A staged ZERO-BYTE blob is the whole point; if git or the host turned it into
+    # something else the case is measuring the wrong thing.
+    [ "$( ( cd "$d" && git cat-file -s ":0:placeholder.ts" ) 2>/dev/null )" = "0" ] || { rm -rf "$d"; echo SETUPFAIL; return; }
+    if ( cd "$d" && git commit -m "feat: add the placeholder module" ) >"$2" 2>&1; then echo COMMITTED; else echo REFUSED; fi
+    rm -rf "$d"
+  }
+  ET_V="$(_empty_commit "$EMITTED" "$TOPTMP/emptytgt")"
+  if [ "$ET_V" = "SETUPFAIL" ]; then
+    fail_ "T-empty-target-receipt" "fixture setup failed — the staged blob is not zero bytes, so the case proves nothing"
+  elif ! any_sast_line "$TOPTMP/emptytgt"; then
+    skip_ "T-empty-target-receipt" "scanner did not run (registry unreachable?) — UNPROVEN here"
+  elif grep -qF '[OK] semgrep: SAST ran on 1 staged file(s)' "$TOPTMP/emptytgt"; then
+    pass "T-empty-target-receipt: a zero-byte staged file still EARNS the receipt — a zero-denominator percentage is a vacuous case, not lost coverage (# BL-186-EMPTY-TARGETS)"
+  else
+    fail_ "T-empty-target-receipt" "an ordinary empty placeholder file lost its receipt — # BL-186-PARSE-COVERAGE is treating 'nothing to parse' as 'failed to parse': verdict=$ET_V: $(tail -8 "$TOPTMP/emptytgt" | tr '\n' '|')"
+  fi
+fi
+
+# ── T-parse-coverage-fails-closed (the SECOND anchor must fail closed like the first) ──
+# The fix added a second anchored banner line, so it added a second way for a future
+# semgrep to make the evidence unreadable. Break the `Parsed lines` grep exactly as an
+# output redesign would and a FULLY-COVERED, CLEAN commit must take the loud NOTRUN, not
+# [OK]. Without this the new parser is itself the next member of the class.
+echo "=== T-parse-coverage-fails-closed ==="
+if [ "$HAVE_SEMGREP" -eq 0 ]; then
+  skip_ "T-parse-coverage-fails-closed" "semgrep ABSENT — UNPROVEN here (skip, not pass)"
+else
+  MPP="$TOPTMP/mut-parse-parse"
+  _pc_commit() {  # <hookfile> <log> -> COMMITTED|REFUSED|SETUPFAIL
+    local d; d="$(mktemp -d)"
+    mk_repo "$d" "$1" >/dev/null 2>&1 || { rm -rf "$d"; echo SETUPFAIL; return; }
+    printf '%s\n' "$SAFE_TS" > "$d/app.ts"
+    ( cd "$d" && git add -- app.ts ) >/dev/null 2>&1
+    if ( cd "$d" && git commit -m "feat: add a clean renderer" ) >"$2" 2>&1; then echo COMMITTED; else echo REFUSED; fi
+    rm -rf "$d"
+  }
+  # Target the ERE FRAGMENT, not the bare phrase `Parsed lines: ` — that phrase occurs
+  # six times in the emitted hook, four of them in the arm's PROSE, and a mutant that
+  # rewrote comments would be attacking documentation instead of behaviour. The fragment
+  # `Parsed lines: ~?[0-9]` is unique to the exactly-once counter grep, which is the same
+  # atom (and the same mutant shape) T-coverage-parse-fails-closed attacks one line up.
+  if ! _mut_n "$EMITTED" "$MPP" 'Parsed lines: ~?[0-9]' 'SoifNoSuchSummaryLine: ~?[0-9]' 1; then
+    fail_ "T-parse-coverage-fails-closed" "MIS-TARGETED — the parse-coverage counter grep is not present exactly once in the emitted hook (the parse moved; retarget this case in lockstep)"
+  elif ! grep -qF '# BL-186-PARSE-COVERAGE' "$MPP"; then
+    fail_ "T-parse-coverage-fails-closed" "mutation removed the marker — it must attack BEHAVIOUR, not the marker"
+  elif ! bash -n "$MPP" 2>/dev/null; then
+    fail_ "T-parse-coverage-fails-closed" "mutated hook has a syntax error — a broken mutant proves nothing"
+  else
+    PC_RED="$(_pc_commit "$MPP" "$TOPTMP/pc-red")"
+    PC_GRN="$(_pc_commit "$EMITTED" "$TOPTMP/pc-green")"
+    if [ "$PC_RED" = "SETUPFAIL" ] || [ "$PC_GRN" = "SETUPFAIL" ]; then
+      fail_ "T-parse-coverage-fails-closed" "fixture setup failed"
+    elif ! grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/pc-green"; then
+      skip_ "T-parse-coverage-fails-closed" "the unmutated hook did not receipt a clean, fully-covered commit (scanner did not run?) — UNPROVEN here: $(tail -3 "$TOPTMP/pc-green" | tr '\n' '|')"
+    elif grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/pc-red"; then
+      fail_ "T-parse-coverage-fails-closed" "an unreadable parse-coverage line FELL THROUGH TO [OK] — the second anchor fails OPEN, so the guard itself is a silent-success path: $(grep -F '[OK] semgrep: SAST ran' "$TOPTMP/pc-red" | head -1)"
+    elif not_enforced "$TOPTMP/pc-red" && grep -qF 'CANNOT BE VERIFIED' "$TOPTMP/pc-red" && [ "$PC_RED" = "COMMITTED" ]; then
+      pass "T-parse-coverage-fails-closed: an unreadable parse-coverage line routes to the loud NOTRUN and never to [OK] (# BL-186-PARSE-COVERAGE fails CLOSED)"
+    else
+      fail_ "T-parse-coverage-fails-closed" "expected the broken parse to LAND with a loud UNVERIFIED NOTRUN; got RED=$PC_RED: $(tail -5 "$TOPTMP/pc-red" | tr '\n' '|')"
+    fi
+  fi
+fi
+
+# ── T-mutation-parse-coverage (proof (d): the parse clause carries its own weight) ────
+# Drop ONLY the parse clause from the coverage conjunction and leave the SELECTION clause
+# untouched. That is exactly the shipped code as it stood before R-274Rv-1 — semgrep
+# accepted 2 of 2, so the surviving clause is satisfied and the arm certifies a commit
+# whose sink was never parsed (RED). Restore the clause and the same commit forfeits its
+# receipt (GREEN).
+#   THE RED ASSERTION IS THE RECEIPT, NOT THE LANDING — the commit lands in BOTH
+#   directions (a coverage gap WARNs, it never blocks), so "it committed" would be
+#   satisfied by the honest arm too.
+echo "=== T-mutation-parse-coverage ==="
+if [ "$HAVE_SEMGREP" -eq 0 ]; then
+  skip_ "T-mutation-parse-coverage" "semgrep ABSENT — mutation UNPROVEN (skip, not pass)"
+else
+  MPC="$TOPTMP/mut-parse-clause"
+  if ! _mut_n "$EMITTED" "$MPC" ' && [ "$soif_sg_parse_full" -eq 1 ]' '' 1; then
+    fail_ "T-mutation-parse-coverage" "MIS-TARGETED — the parse clause of the coverage conjunction is not present exactly once in the emitted hook"
+  elif ! grep -qF '# BL-186-PARSE-COVERAGE' "$MPC"; then
+    fail_ "T-mutation-parse-coverage" "mutation removed the marker — it must attack BEHAVIOUR, not the marker"
+  elif ! bash -n "$MPC" 2>/dev/null; then
+    fail_ "T-mutation-parse-coverage" "mutated hook has a syntax error — a broken mutant proves nothing"
+  else
+    MPC_RED="$(_utf16_commit "$MPC" "$TOPTMP/mpc-red")"
+    MPC_GRN="$(_utf16_commit "$EMITTED" "$TOPTMP/mpc-green")"
+    if [ "$MPC_RED" = "NOGEN" ] || [ "$MPC_GRN" = "NOGEN" ]; then
+      skip_ "T-mutation-parse-coverage" "this host could not stage a UTF-16 blob — mutation UNPROVEN here"
+    elif [ "$MPC_RED" = "SETUPFAIL" ] || [ "$MPC_GRN" = "SETUPFAIL" ]; then
+      fail_ "T-mutation-parse-coverage" "mutation fixture setup failed"
+    elif [ "$MPC_RED" = "REFUSED" ] || [ "$MPC_GRN" = "REFUSED" ]; then
+      skip_ "T-mutation-parse-coverage" "this host's semgrep parsed the UTF-16 target and blocked its sink — there is no parse shortfall to detect, so the clause is UNPROVEN here"
+    elif ! grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/mpc-red"; then
+      skip_ "T-mutation-parse-coverage" "the mutant printed no [OK] either (scanner did not run?) — the RED direction is unprovable here: $(tail -3 "$TOPTMP/mpc-red" | tr '\n' '|')"
+    elif grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/mpc-green"; then
+      fail_ "T-mutation-parse-coverage" "the GREEN hook ALSO printed [OK] over an unparsed target — # BL-186-PARSE-COVERAGE is not doing anything: $(grep -F '[OK] semgrep: SAST ran' "$TOPTMP/mpc-green" | head -1)"
+    elif ! grep -qxF "    - app.ts" "$TOPTMP/mpc-green" || ! grep -qxF "    - ok.ts" "$TOPTMP/mpc-green"; then
+      fail_ "T-mutation-parse-coverage" "the GREEN hook forfeited the receipt but never NAMED the staged entries handed to the scanner (# BL-182-NAME-THE-ENTRY contract): $(tail -6 "$TOPTMP/mpc-green" | tr '\n' '|')"
+    else
+      pass "T-mutation-parse-coverage: dropping the parse clause alone re-buys the UNEARNED [OK] over an unparsed target (RED); restored, the receipt is forfeited and the staged set NAMED (GREEN) — the parse half is load-bearing independently of the selection half"
     fi
   fi
 fi
