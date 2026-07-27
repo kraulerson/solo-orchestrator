@@ -63,34 +63,137 @@ section() {
 }
 
 # ================================================================
+# BL-184-CHILD-EVIDENCE — the child-suite delegate runner
+# ================================================================
+# Every delegate in this file used to be invoked as
+#     if bash "$SCRIPT_DIR/<child>" >/dev/null 2>&1; then pass ...; else fail ...
+# which destroyed the diagnostic at the moment of capture. A child that fails
+# ONLY in CI produced exactly one line — "<child> FAILED (run for details)" —
+# and "run for details" was unactionable precisely BECAUSE the failure did not
+# reproduce locally. That catch-22 is why BL-135 sat open from 2026-07-18 to
+# 2026-07-26 across two ~3h full-lane runs with zero root-cause progress.
+#
+# run_child_suite captures combined stdout+stderr and, ON FAILURE ONLY, replays
+# a bounded excerpt inline so the failing case NAME reaches the CI log.
+#
+#   run_child_suite <path-relative-to-repo-root> <pass-label> [fail-label] [-- <child-arg>...]
+#
+# CONTRACT — read this before editing:
+#   * ALWAYS returns 0. The suite runs under `set -euo pipefail` and calls this
+#     as a bare statement, so any non-zero return would abort the entire run at
+#     the first red child. Failure accounting stays with fail(); the suite still
+#     ends `exit $FAIL`. This preserves the exit-code semantics of the if/else
+#     blocks it replaces exactly.
+#   * NOTHING is printed on success — pass() emits byte-identical text to the
+#     pre-BL-184 shape, so anything grepping those labels is unaffected, and a
+#     chatty-but-green child adds zero bytes to the log (its output goes to the
+#     scratch file, never to stdout).
+#   * fail-label defaults to "<path> FAILED (run for details)" — the exact
+#     string 149 of the 177 converted call sites already used verbatim.
+#   * Replay goes through awk/printf, never `echo -e`: child output is
+#     arbitrary text and `echo -e` would eat backslash escapes inside it.
+#   * Every replayed line carries the "    | " prefix so a child's own [FAIL]
+#     lines can never be misread as one of THIS suite's [FAIL] lines.
+#
+# BOUNDS — both overridable per-run for local debugging:
+#   SUITE_CHILD_TAIL_LINES=40 — sampled on this repo 2026-07-26: unit-style
+#     children emit 8/10/18/18/30/53 lines total (test-check-gate,
+#     -bl169-gitignore-anchor, -bl033-install-cmds-shape, -bl184-child-suite-
+#     evidence, -lint-tests-registered), so 40 replays the median child WHOLE
+#     and covers the closing cases plus the "Results: N passed, M failed" tally
+#     of the larger ones. The heavy aggregator children (edge-cases-*,
+#     host-drivers/run-all.sh, the BL-052 trio) run well past it — that is what
+#     SUITE_CHILD_MARKER_LINES is for.
+#     Log-volume ceiling is ~70 lines per RED child; a realistic bad run (<10
+#     red children) adds under 700 lines to a full-lane log already running to
+#     tens of thousands, and the pathological all-177-red run is a total loss
+#     whose log size is not the operative problem.
+#   SUITE_CHILD_MARKER_LINES=25 — a pure tail MISSES the failing case whenever a
+#     child fails EARLY and passes late, which is the common shape for the
+#     over-bound children. So for over-bound output the child's own
+#     failure-marker lines are digested FIRST, then the tail. Pinned by
+#     tests/test-bl184-child-suite-evidence.sh T2/T3.
+SUITE_CHILD_TAIL_LINES="${SUITE_CHILD_TAIL_LINES:-40}"
+SUITE_CHILD_MARKER_LINES="${SUITE_CHILD_MARKER_LINES:-25}"
+# Deliberately NOT inside $TEST_DIR: the TEST 4 fixture block documents an
+# invariant that $TEST_DIR holds only the simulated project dirs by the time
+# TEST 5+ reach into it.
+SUITE_CHILD_LOG="$(mktemp)"
+
+run_child_suite() {
+  local rel="$1"; shift
+  local pass_label="$1"; shift
+  local fail_label=""
+  if [ $# -gt 0 ] && [ "$1" != "--" ]; then
+    fail_label="$1"; shift
+  fi
+  if [ "${1:-}" = "--" ]; then shift; fi
+  [ -n "$fail_label" ] || fail_label="$rel FAILED (run for details)"
+
+  local rc=0
+  bash "$SCRIPT_DIR/$rel" "$@" > "$SUITE_CHILD_LOG" 2>&1 || rc=$?
+
+  if [ "$rc" -eq 0 ]; then
+    pass "$pass_label"
+    return 0
+  fi
+
+  fail "$fail_label"
+  printf '%s\n' "    +-- captured output BEGIN: $rel (exit $rc) --"
+  awk -v maxt="$SUITE_CHILD_TAIL_LINES" -v maxm="$SUITE_CHILD_MARKER_LINES" '
+    BEGIN {
+      pfx = "    | "; shown = 0; extra = 0
+      if (maxt < 1) maxt = 40
+      if (maxm < 1) maxm = 25
+    }
+    {
+      buf[NR % maxt] = $0
+      if ($0 ~ /\[FAIL\]|\[ERROR\]|FAILED|FAIL:|ERROR:|not ok/) {
+        if (shown < maxm) { shown++; mk[shown] = $0 } else { extra++ }
+      }
+    }
+    END {
+      if (NR == 0) { print pfx "(child produced no output)"; exit }
+      if (NR > maxt && shown > 0) {
+        print pfx "-- failure markers (" shown " of " (shown + extra) ") --"
+        for (i = 1; i <= shown; i++) print pfx mk[i]
+      }
+      start = (NR > maxt) ? NR - maxt + 1 : 1
+      print pfx "-- lines " start "-" NR " of " NR " --"
+      for (i = start; i <= NR; i++) print pfx buf[i % maxt]
+    }
+  ' "$SUITE_CHILD_LOG"
+  printf '%s\n' "    +-- captured output END: $rel --"
+  return 0
+}
+# BL-184-CHILD-EVIDENCE-END — tests/test-bl184-child-suite-evidence.sh slices
+# this file from line 1 to this marker so it exercises the REAL helper text,
+# not a copy. Keep the marker on its own line.
+
+# ================================================================
 # TEST 0: FIXTURE ENVELOPE LINT — fail fast on legacy schema in tests/
 # ================================================================
 section "Fixture envelope lint"
-if bash "$SCRIPT_DIR/scripts/lint-fixture-envelopes.sh" "$SCRIPT_DIR/tests" >/dev/null 2>&1; then
-  pass "All fixture envelopes use canonical Claude Code schema"
-else
-  fail "Legacy hook envelope schema found in tests/ (see scripts/lint-fixture-envelopes.sh)"
-fi
+run_child_suite "scripts/lint-fixture-envelopes.sh" \
+  "All fixture envelopes use canonical Claude Code schema" \
+  "Legacy hook envelope schema found in tests/ (see scripts/lint-fixture-envelopes.sh)" \
+  -- "$SCRIPT_DIR/tests"
 
 # ================================================================
 # TEST 0b: COUNTER-ANTIPATTERN LINT — wave-2 backstop after PRs #67-#71
 # ================================================================
 section "Counter-capture antipattern lint"
-if bash "$SCRIPT_DIR/scripts/lint-counter-antipattern.sh" >/dev/null 2>&1; then
-  pass "No unsanitized 'cmd | grep -c X || echo \"0\"' captures in tracked scripts"
-else
-  fail "Counter-capture antipattern found (see scripts/lint-counter-antipattern.sh --list)"
-fi
+run_child_suite "scripts/lint-counter-antipattern.sh" \
+  "No unsanitized 'cmd | grep -c X || echo \"0\"' captures in tracked scripts" \
+  "Counter-capture antipattern found (see scripts/lint-counter-antipattern.sh --list)"
 
 # Run the linter's own behavior-test suite so a regression in the lint
 # itself (false negative on the antipattern, false positive on the
 # sanitizer match, broken allowlist) is caught here too.
 section "Counter-antipattern lint — behavior test suite"
-if bash "$SCRIPT_DIR/tests/test-lint-counter-antipattern.sh" >/dev/null 2>&1; then
-  pass "scripts/lint-counter-antipattern.sh behavior tests (10/10)"
-else
-  fail "scripts/lint-counter-antipattern.sh behavior tests FAILED (run tests/test-lint-counter-antipattern.sh for details)"
-fi
+run_child_suite "tests/test-lint-counter-antipattern.sh" \
+  "scripts/lint-counter-antipattern.sh behavior tests (10/10)" \
+  "scripts/lint-counter-antipattern.sh behavior tests FAILED (run tests/test-lint-counter-antipattern.sh for details)"
 
 # ================================================================
 # TEST 0c: PHASE 1→2 BACKSTOP ATTESTATION (code-check-gates-1)
@@ -99,11 +202,9 @@ fi
 # Phase 1→2 backstop must honor a recorded `github_free_tier`
 # branch-protection attestation (mirroring scripts/check-gate.sh::cmd_preflight).
 section "Phase 1→2 backstop honors github_free_tier attestation"
-if bash "$SCRIPT_DIR/tests/test-check-phase-gate-backstop-attestation.sh" >/dev/null 2>&1; then
-  pass "scripts/check-phase-gate.sh backstop attestation tests (3/3)"
-else
-  fail "scripts/check-phase-gate.sh backstop attestation tests FAILED (run tests/test-check-phase-gate-backstop-attestation.sh for details)"
-fi
+run_child_suite "tests/test-check-phase-gate-backstop-attestation.sh" \
+  "scripts/check-phase-gate.sh backstop attestation tests (3/3)" \
+  "scripts/check-phase-gate.sh backstop attestation tests FAILED (run tests/test-check-phase-gate-backstop-attestation.sh for details)"
 
 # ================================================================
 # TEST 0c2: PHASE 1→2 RETROACTIVE STA APPROVAL (tier-crosscheck-5)
@@ -113,11 +214,9 @@ fi
 # APPROVAL_LOG.md has `upgraded_from: personal` AND current_phase >= 2
 # AND the Retroactive Phase 1 → Phase 2 STA Approval row is incomplete.
 section "Phase 1→2 retroactive STA approval surfaces WARN on personal→org upgrades"
-if bash "$SCRIPT_DIR/tests/test-check-phase-gate-retroactive-approval.sh" >/dev/null 2>&1; then
-  pass "scripts/check-phase-gate.sh retroactive STA approval tests (3/3)"
-else
-  fail "scripts/check-phase-gate.sh retroactive STA approval tests FAILED (run tests/test-check-phase-gate-retroactive-approval.sh for details)"
-fi
+run_child_suite "tests/test-check-phase-gate-retroactive-approval.sh" \
+  "scripts/check-phase-gate.sh retroactive STA approval tests (3/3)" \
+  "scripts/check-phase-gate.sh retroactive STA approval tests FAILED (run tests/test-check-phase-gate-retroactive-approval.sh for details)"
 
 # ================================================================
 # TEST 0c2b: PHASE 1→2 RETROACTIVE STA — UPGRADE-PROJECT STAMPING HALF
@@ -131,11 +230,9 @@ fi
 # end-to-end and inspects the resulting log for the section header +
 # field rows that check-phase-gate.sh depends on.
 section "upgrade-project.sh stamps retroactive STA section on personal→org upgrade"
-if bash "$SCRIPT_DIR/tests/test-upgrade-project-retroactive-section.sh" >/dev/null 2>&1; then
-  pass "scripts/upgrade-project.sh retroactive section stamping tests (2/2)"
-else
-  fail "scripts/upgrade-project.sh retroactive section stamping tests FAILED (run tests/test-upgrade-project-retroactive-section.sh for details)"
-fi
+run_child_suite "tests/test-upgrade-project-retroactive-section.sh" \
+  "scripts/upgrade-project.sh retroactive section stamping tests (2/2)" \
+  "scripts/upgrade-project.sh retroactive section stamping tests FAILED (run tests/test-upgrade-project-retroactive-section.sh for details)"
 
 # ================================================================
 # TEST 0c2c: PHASE 1→2 ZDR / DATA_CLASSIFICATION HARD GATE (tier-crosscheck-6)
@@ -156,22 +253,18 @@ fi
 #   * scripts/upgrade-project.sh personal→organizational refuses up-
 #     front when the classification is missing, redirecting to reconfigure.
 section "Phase 1→2 ZDR / data_classification hard gate (tier-crosscheck-6)"
-if bash "$SCRIPT_DIR/tests/test-tier-crosscheck-6-zdr-gate.sh" >/dev/null 2>&1; then
-  pass "tier-crosscheck-6 ZDR/data_classification hard gate tests (8/8)"
-else
-  fail "tier-crosscheck-6 ZDR/data_classification hard gate tests FAILED (run tests/test-tier-crosscheck-6-zdr-gate.sh for details)"
-fi
+run_child_suite "tests/test-tier-crosscheck-6-zdr-gate.sh" \
+  "tier-crosscheck-6 ZDR/data_classification hard gate tests (8/8)" \
+  "tier-crosscheck-6 ZDR/data_classification hard gate tests FAILED (run tests/test-tier-crosscheck-6-zdr-gate.sh for details)"
 
 # tier-crosscheck-6 follow-up: atomicity + jq-failure regression suite
 # (adversarial verifier follow-up on PR #105). Three tests covering the
 # defects the original suite did not catch: SIGTERM mid-mutation in
 # reconfigure-project.sh, silent-success on jq failure in
 # intake-wizard.sh's --data-classification path and persist_phase1_artifacts().
-if bash "$SCRIPT_DIR/tests/test-tier-crosscheck-6-followup-atomicity-and-jq.sh" >/dev/null 2>&1; then
-  pass "tier-crosscheck-6 follow-up (atomicity + jq surfacing) tests (3/3)"
-else
-  fail "tier-crosscheck-6 follow-up tests FAILED (run tests/test-tier-crosscheck-6-followup-atomicity-and-jq.sh for details)"
-fi
+run_child_suite "tests/test-tier-crosscheck-6-followup-atomicity-and-jq.sh" \
+  "tier-crosscheck-6 follow-up (atomicity + jq surfacing) tests (3/3)" \
+  "tier-crosscheck-6 follow-up tests FAILED (run tests/test-tier-crosscheck-6-followup-atomicity-and-jq.sh for details)"
 
 # ================================================================
 # TEST 0c3: ORGANIZATIONAL END-TO-END INIT (tests-init-host-attestation-4)
@@ -181,11 +274,9 @@ fi
 # organizational APPROVAL_LOG.md template + record deployment in
 # manifest/phase-state + honor --no-remote-creation.
 section "init.sh organizational end-to-end coverage"
-if bash "$SCRIPT_DIR/tests/test-init-organizational.sh" >/dev/null 2>&1; then
-  pass "init.sh organizational end-to-end tests (2/2)"
-else
-  fail "init.sh organizational end-to-end tests FAILED (run tests/test-init-organizational.sh for details)"
-fi
+run_child_suite "tests/test-init-organizational.sh" \
+  "init.sh organizational end-to-end tests (2/2)" \
+  "init.sh organizational end-to-end tests FAILED (run tests/test-init-organizational.sh for details)"
 
 # ================================================================
 # TEST 0c3b: BL-064 — init.sh non-zero exit + Setup INCOMPLETE banner after [FAIL]
@@ -199,11 +290,9 @@ fi
 # See solo-orchestrator-backlog.md BL-064 + adversarial-certainty-pass
 # report § S-7 for full context.
 section "init.sh non-zero exit + Setup INCOMPLETE after [FAIL] (BL-064)"
-if bash "$SCRIPT_DIR/tests/test-init-fail-status-propagation.sh" >/dev/null 2>&1; then
-  pass "init.sh BL-064 silent-success-after-FAIL tests (5/5)"
-else
-  fail "init.sh BL-064 silent-success-after-FAIL tests FAILED (run tests/test-init-fail-status-propagation.sh for details)"
-fi
+run_child_suite "tests/test-init-fail-status-propagation.sh" \
+  "init.sh BL-064 silent-success-after-FAIL tests (5/5)" \
+  "init.sh BL-064 silent-success-after-FAIL tests FAILED (run tests/test-init-fail-status-propagation.sh for details)"
 
 # ================================================================
 # TEST 0c3c: BL-064 — structural backstop lint for new print_fail sites
@@ -214,11 +303,9 @@ fi
 # `# lint-fail-emit-exit-status: allow <reason>` annotation. Prevents
 # regression of the BL-064 silent-success-after-FAIL defect class.
 section "Fail-emit exit-status propagation lint (BL-064 structural backstop)"
-if bash "$SCRIPT_DIR/scripts/lint-fail-emit-exit-status.sh" >/dev/null 2>&1; then
-  pass "Every print_fail in init.sh propagates to exit status (or is annotated)"
-else
-  fail "Fail-emit lint found a print_fail without exit-status propagation (see scripts/lint-fail-emit-exit-status.sh --list)"
-fi
+run_child_suite "scripts/lint-fail-emit-exit-status.sh" \
+  "Every print_fail in init.sh propagates to exit status (or is annotated)" \
+  "Fail-emit lint found a print_fail without exit-status propagation (see scripts/lint-fail-emit-exit-status.sh --list)"
 
 # ================================================================
 # TEST 0c4: BL-057 — --non-interactive must honor AUTO_INSTALL_TOOLS env
@@ -233,11 +320,9 @@ fi
 #   • AUTO_INSTALL_TOOLS=N            → init succeeds (rc=0), no install loop
 #   • AUTO_INSTALL_TOOLS=Y (explicit) → round-trips to default
 section "init.sh --non-interactive honors AUTO_INSTALL_TOOLS (BL-057)"
-if bash "$SCRIPT_DIR/tests/test-init-non-interactive-mobile-auto-install.sh" >/dev/null 2>&1; then
-  pass "init.sh --non-interactive AUTO_INSTALL_TOOLS tests (3/3)"
-else
-  fail "init.sh --non-interactive AUTO_INSTALL_TOOLS tests FAILED (run tests/test-init-non-interactive-mobile-auto-install.sh for details)"
-fi
+run_child_suite "tests/test-init-non-interactive-mobile-auto-install.sh" \
+  "init.sh --non-interactive AUTO_INSTALL_TOOLS tests (3/3)" \
+  "init.sh --non-interactive AUTO_INSTALL_TOOLS tests FAILED (run tests/test-init-non-interactive-mobile-auto-install.sh for details)"
 
 # ================================================================
 # TEST 0c5: BL-041 — write-permission preflight runs BEFORE framework-repo guard
@@ -253,11 +338,9 @@ fi
 # ways (preflight wins when target is unwritable; guard wins when
 # preflight passes; neither false-positives outside the framework).
 section "init.sh write-perm preflight before framework-repo guard (BL-041)"
-if bash "$SCRIPT_DIR/tests/test-init-write-perm-preflight.sh" >/dev/null 2>&1; then
-  pass "init.sh BL-041 layering tests (3/3)"
-else
-  fail "init.sh BL-041 layering tests FAILED (run tests/test-init-write-perm-preflight.sh for details)"
-fi
+run_child_suite "tests/test-init-write-perm-preflight.sh" \
+  "init.sh BL-041 layering tests (3/3)" \
+  "init.sh BL-041 layering tests FAILED (run tests/test-init-write-perm-preflight.sh for details)"
 
 # ================================================================
 # TEST 0d: BACKLOG-REFERENCES LINT — cycle-7 Slot-5 process backstop
@@ -267,18 +350,15 @@ fi
 # scripts/lint-backlog-references.sh header for the defect classes
 # and allowlist mechanism.
 section "Backlog-references lint"
-if bash "$SCRIPT_DIR/scripts/lint-backlog-references.sh" --base origin/main >/dev/null 2>&1; then
-  pass "Backlog references and Closed-status citations are consistent"
-else
-  fail "Backlog-references lint found drift (see scripts/lint-backlog-references.sh --base origin/main --list)"
-fi
+run_child_suite "scripts/lint-backlog-references.sh" \
+  "Backlog references and Closed-status citations are consistent" \
+  "Backlog-references lint found drift (see scripts/lint-backlog-references.sh --base origin/main --list)" \
+  -- --base origin/main
 
 section "Backlog-references lint — behavior test suite"
-if bash "$SCRIPT_DIR/tests/test-lint-backlog-references.sh" >/dev/null 2>&1; then
-  pass "scripts/lint-backlog-references.sh behavior tests (10/10)"
-else
-  fail "scripts/lint-backlog-references.sh behavior tests FAILED (run tests/test-lint-backlog-references.sh for details)"
-fi
+run_child_suite "tests/test-lint-backlog-references.sh" \
+  "scripts/lint-backlog-references.sh behavior tests (10/10)" \
+  "scripts/lint-backlog-references.sh behavior tests FAILED (run tests/test-lint-backlog-references.sh for details)"
 
 # ================================================================
 # TEST 0e: PLATFORM-MOBILE-MCP DOCS LINT
@@ -291,11 +371,9 @@ fi
 # reconciliation guidance. Closes S3 platform-modules-mobile-mcp-2,
 # -4, and -7.
 section "Platform mobile/MCP docs-drift tests"
-if bash "$SCRIPT_DIR/tests/test-platform-mobile-mcp-docs.sh" >/dev/null 2>&1; then
-  pass "tests/test-platform-mobile-mcp-docs.sh (8/8)"
-else
-  fail "tests/test-platform-mobile-mcp-docs.sh FAILED — re-run for details"
-fi
+run_child_suite "tests/test-platform-mobile-mcp-docs.sh" \
+  "tests/test-platform-mobile-mcp-docs.sh (8/8)" \
+  "tests/test-platform-mobile-mcp-docs.sh FAILED — re-run for details"
 
 # ================================================================
 # TEST 0f-0s: BL-034 WAVE 1-4 ORPHAN-TEST REGISTRATION
@@ -333,16 +411,12 @@ SKIP_KNOWN_FAILING="${SKIP_KNOWN_FAILING:-0}"
 # allowlist / heredoc / comment handling) so a broken lint script
 # can't silently start passing bad code.
 section "Lint behavior suites (fix-functions-stderr, raw-read-prompt)"
-if bash "$SCRIPT_DIR/tests/test-lint-fix-functions-stderr.sh" >/dev/null 2>&1; then
-  pass "scripts/lint-fix-functions-stderr.sh behavior tests (10/10)"
-else
-  fail "scripts/lint-fix-functions-stderr.sh behavior tests FAILED (run tests/test-lint-fix-functions-stderr.sh for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-lint-raw-read-prompt.sh" >/dev/null 2>&1; then
-  pass "scripts/lint-raw-read-prompt.sh behavior tests"
-else
-  fail "scripts/lint-raw-read-prompt.sh behavior tests FAILED (run tests/test-lint-raw-read-prompt.sh for details)"
-fi
+run_child_suite "tests/test-lint-fix-functions-stderr.sh" \
+  "scripts/lint-fix-functions-stderr.sh behavior tests (10/10)" \
+  "scripts/lint-fix-functions-stderr.sh behavior tests FAILED (run tests/test-lint-fix-functions-stderr.sh for details)"
+run_child_suite "tests/test-lint-raw-read-prompt.sh" \
+  "scripts/lint-raw-read-prompt.sh behavior tests" \
+  "scripts/lint-raw-read-prompt.sh behavior tests FAILED (run tests/test-lint-raw-read-prompt.sh for details)"
 
 # BL-076: no test may execute init.sh in a shape that can create a REAL
 # remote repo against an authenticated host (the kraulerson/foo leak).
@@ -350,16 +424,12 @@ fi
 # regression in the guard (false negative letting a live run through, or
 # false positive on a reporter string / mocked run) is caught here.
 section "No-live-remote-in-tests lint (BL-076)"
-if bash "$SCRIPT_DIR/scripts/lint-no-live-remote-in-tests.sh" >/dev/null 2>&1; then
-  pass "No test executes init.sh in a live-remote-reachable shape"
-else
-  fail "Non-hermetic init run found (see scripts/lint-no-live-remote-in-tests.sh --list)"
-fi
-if bash "$SCRIPT_DIR/tests/test-lint-no-live-remote.sh" >/dev/null 2>&1; then
-  pass "scripts/lint-no-live-remote-in-tests.sh behavior tests (14/14)"
-else
-  fail "scripts/lint-no-live-remote-in-tests.sh behavior tests FAILED (run tests/test-lint-no-live-remote.sh for details)"
-fi
+run_child_suite "scripts/lint-no-live-remote-in-tests.sh" \
+  "No test executes init.sh in a live-remote-reachable shape" \
+  "Non-hermetic init run found (see scripts/lint-no-live-remote-in-tests.sh --list)"
+run_child_suite "tests/test-lint-no-live-remote.sh" \
+  "scripts/lint-no-live-remote-in-tests.sh behavior tests (14/14)" \
+  "scripts/lint-no-live-remote-in-tests.sh behavior tests FAILED (run tests/test-lint-no-live-remote.sh for details)"
 
 # BL-051: tests/test-resolve-tools-memoization.sh — proves init.sh's
 # get_available_platforms() memoizes its filesystem scan (guard-var +
@@ -368,22 +438,18 @@ fi
 # the memoization and the scan fires 10× → T2 goes red. (Function is in
 # init.sh, not resolve-tools.sh — the BL-051/Step-4 filename is a known
 # misattribution; the test filename honors the backlog naming.)
-if bash "$SCRIPT_DIR/tests/test-resolve-tools-memoization.sh" >/dev/null 2>&1; then
-  pass "init.sh get_available_platforms() memoization (BL-051, 2/2)"
-else
-  fail "init.sh get_available_platforms() memoization tests FAILED (run tests/test-resolve-tools-memoization.sh for details)"
-fi
+run_child_suite "tests/test-resolve-tools-memoization.sh" \
+  "init.sh get_available_platforms() memoization (BL-051, 2/2)" \
+  "init.sh get_available_platforms() memoization tests FAILED (run tests/test-resolve-tools-memoization.sh for details)"
 
 # BL-038: tests/test-lint-tests-registered.sh — behavior suite for the
 # runner-registration backstop. Validates the lint's positive,
 # negative, EXEMPT-marker, mutation, and reverse-mutation paths so a
 # regression in the lint itself (false negative on a new orphan,
 # false positive on a comment-mention) is surfaced at the aggregator.
-if bash "$SCRIPT_DIR/tests/test-lint-tests-registered.sh" >/dev/null 2>&1; then
-  pass "scripts/lint-tests-registered.sh behavior tests"
-else
-  fail "scripts/lint-tests-registered.sh behavior tests FAILED (run tests/test-lint-tests-registered.sh for details)"
-fi
+run_child_suite "tests/test-lint-tests-registered.sh" \
+  "scripts/lint-tests-registered.sh behavior tests" \
+  "scripts/lint-tests-registered.sh behavior tests FAILED (run tests/test-lint-tests-registered.sh for details)"
 
 # BL-038: repo-wide lint invocation. Refuses to merge a new
 # tests/test-*.sh file unless an aggregator invokes it or the file
@@ -391,11 +457,21 @@ fi
 # header for the registration contract + KNOWN_ORPHANS_PENDING_BL035
 # bridge.
 section "Tests-registered lint (BL-038 structural backstop)"
-if bash "$SCRIPT_DIR/scripts/lint-tests-registered.sh" >/dev/null 2>&1; then
-  pass "Every tests/test-*.sh is invoked by an aggregator (or EXEMPT)"
-else
-  fail "Tests-registered lint found unregistered test file(s) (see scripts/lint-tests-registered.sh --list)"
-fi
+run_child_suite "scripts/lint-tests-registered.sh" \
+  "Every tests/test-*.sh is invoked by an aggregator (or EXEMPT)" \
+  "Tests-registered lint found unregistered test file(s) (see scripts/lint-tests-registered.sh --list)"
+
+# BL-184: this suite's OWN evidence contract. Slices the header of this file
+# through its `# BL-184-CHILD-EVIDENCE-END` marker and drives the real
+# run_child_suite against fixture children, pinning that a RED child's failing
+# case NAME reaches the log (including when the child is chattier than the tail
+# bound and fails early), that a GREEN child still contributes zero bytes, that
+# a RED child does not abort the run under `set -e`, and that no delegate here
+# has regressed to the evidence-destroying discard shape. Hermetic, no
+# scaffolding -> both lanes.
+section "BL-184: child-suite evidence contract"
+run_child_suite "tests/test-bl184-child-suite-evidence.sh" \
+  "tests/test-bl184-child-suite-evidence.sh (T0-T13 evidence contract)"
 
 # BL-048: tests/test-lint-doc-anchors.sh — behavior suite for the
 # dead-in-document-anchor backstop. Validates the lint's positive,
@@ -403,22 +479,18 @@ fi
 # paths so a regression in the lint itself (false negative on a
 # broken anchor, false positive on fenced example content) is
 # surfaced at the aggregator.
-if bash "$SCRIPT_DIR/tests/test-lint-doc-anchors.sh" >/dev/null 2>&1; then
-  pass "scripts/lint-doc-anchors.sh behavior tests"
-else
-  fail "scripts/lint-doc-anchors.sh behavior tests FAILED (run tests/test-lint-doc-anchors.sh for details)"
-fi
+run_child_suite "tests/test-lint-doc-anchors.sh" \
+  "scripts/lint-doc-anchors.sh behavior tests" \
+  "scripts/lint-doc-anchors.sh behavior tests FAILED (run tests/test-lint-doc-anchors.sh for details)"
 
 # BL-048: repo-wide lint invocation. Fails when a markdown file under
 # docs/ contains a `[text](#anchor)` reference whose target heading
 # doesn't exist in the same file (GitHub-derived slug, fence-aware).
 # See scripts/lint-doc-anchors.sh header for the derivation contract.
 section "Doc-anchors lint (BL-048 structural backstop)"
-if bash "$SCRIPT_DIR/scripts/lint-doc-anchors.sh" >/dev/null 2>&1; then
-  pass "Every in-document anchor reference under docs/ resolves"
-else
-  fail "Doc-anchors lint found broken anchor reference(s) (see scripts/lint-doc-anchors.sh --list)"
-fi
+run_child_suite "scripts/lint-doc-anchors.sh" \
+  "Every in-document anchor reference under docs/ resolves" \
+  "Doc-anchors lint found broken anchor reference(s) (see scripts/lint-doc-anchors.sh --list)"
 
 # ----------------------------------------------------------------
 # TEST 0g: INTAKE WIZARD + RECONFIGURE FIELD HANDLERS
@@ -428,16 +500,9 @@ fi
 # PR #84: tests/test-reconfigure-field-handlers.sh — atomic
 # snapshot pattern for reconfigure-project.sh --field handlers.
 section "Intake wizard + reconfigure field handlers (PRs #83, #84)"
-if bash "$SCRIPT_DIR/tests/test-intake-wizard-fixes.sh" >/dev/null 2>&1; then
-  pass "tests/test-intake-wizard-fixes.sh"
-else
-  fail "tests/test-intake-wizard-fixes.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-reconfigure-field-handlers.sh" >/dev/null 2>&1; then
-  pass "tests/test-reconfigure-field-handlers.sh"
-else
-  fail "tests/test-reconfigure-field-handlers.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-intake-wizard-fixes.sh" "tests/test-intake-wizard-fixes.sh"
+run_child_suite "tests/test-reconfigure-field-handlers.sh" \
+  "tests/test-reconfigure-field-handlers.sh"
 
 # ----------------------------------------------------------------
 # TEST 0h: CHECK-PHASE-GATE VARIANTS (noninteractive, self-approval)
@@ -447,16 +512,10 @@ fi
 # Phase 1→2 gate. Both tests exercise gate-policy enforcement
 # orthogonal to the backstop/retroactive paths covered in 0c/0c2.
 section "Check-phase-gate noninteractive + self-approval (PR #87)"
-if bash "$SCRIPT_DIR/tests/test-check-phase-gate-noninteractive.sh" >/dev/null 2>&1; then
-  pass "tests/test-check-phase-gate-noninteractive.sh"
-else
-  fail "tests/test-check-phase-gate-noninteractive.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-check-phase-gate-self-approval.sh" >/dev/null 2>&1; then
-  pass "tests/test-check-phase-gate-self-approval.sh"
-else
-  fail "tests/test-check-phase-gate-self-approval.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-check-phase-gate-noninteractive.sh" \
+  "tests/test-check-phase-gate-noninteractive.sh"
+run_child_suite "tests/test-check-phase-gate-self-approval.sh" \
+  "tests/test-check-phase-gate-self-approval.sh"
 # code-check-gates-7-followup (cycle-7 PR-#87 verifier major #4):
 # scripts/check-phase-gate.sh now uses per-line `git blame` (not
 # file-level `git log -1`) to resolve the commit author of the active
@@ -464,11 +523,8 @@ fi
 # self-approves gate A in C1 and Bob later commits a typo fix to gate
 # B in C2 → file-level lookup returned Bob → Alice's self-approval
 # silently passed. The blame-walker tests pin the fix.
-if bash "$SCRIPT_DIR/tests/test-check-phase-gate-blame-walker.sh" >/dev/null 2>&1; then
-  pass "tests/test-check-phase-gate-blame-walker.sh"
-else
-  fail "tests/test-check-phase-gate-blame-walker.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-check-phase-gate-blame-walker.sh" \
+  "tests/test-check-phase-gate-blame-walker.sh"
 
 # BL-060 (adversarial cert re-walker-4): scripts/check-phase-gate.sh
 # must parse `--gate <name>` and scope the check to the named gate.
@@ -483,11 +539,8 @@ fi
 #   - --gate with no phase-state.json fixture → exit 1 + error (never
 #     silently exits 0 the way the pre-fix no-argv path did).
 #   - --help / -h → exit 0 + usage text mentioning `--gate`.
-if bash "$SCRIPT_DIR/tests/test-check-phase-gate-argv-parser.sh" >/dev/null 2>&1; then
-  pass "tests/test-check-phase-gate-argv-parser.sh"
-else
-  fail "tests/test-check-phase-gate-argv-parser.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-check-phase-gate-argv-parser.sh" \
+  "tests/test-check-phase-gate-argv-parser.sh"
 
 # BL-071: scripts/check-phase-gate.sh must WRITE today's date into
 # phase-state.json::gates.<gate> (plus a sibling gates.<gate>_by actor)
@@ -499,20 +552,13 @@ fi
 # asserts the date is no longer recorded (proving the line is
 # load-bearing). Sibling init.sh seed fix (all 4 gate keys) is pinned by
 # test-init-seeds-four-gate-keys.sh below.
-if bash "$SCRIPT_DIR/tests/test-check-phase-gate-date-writeback.sh" >/dev/null 2>&1; then
-  pass "tests/test-check-phase-gate-date-writeback.sh"
-else
-  fail "tests/test-check-phase-gate-date-writeback.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-check-phase-gate-date-writeback.sh" \
+  "tests/test-check-phase-gate-date-writeback.sh"
 # BL-071 (rolled-in minor): init.sh's phase-state.json seed must emit all
 # four gate keys — pre-fix it missed phase_2_to_3. Bootstraps a real
 # init.sh project and asserts gates.{phase_0_to_1,phase_1_to_2,
 # phase_2_to_3,phase_3_to_4} are all present as null.
-if bash "$SCRIPT_DIR/tests/test-init-seeds-four-gate-keys.sh" >/dev/null 2>&1; then
-  pass "tests/test-init-seeds-four-gate-keys.sh"
-else
-  fail "tests/test-init-seeds-four-gate-keys.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-init-seeds-four-gate-keys.sh" "tests/test-init-seeds-four-gate-keys.sh"
 # BL-070: scripts/run-phase3-validation.sh (Phase 3 validation-scan driver) +
 # the attest-on-skip Phase 3→4 gate in scripts/check-phase-gate.sh. The docs
 # imply Phase 3 auto-runs Snyk/license/full-tree-Semgrep/ZAP/threat-model; a
@@ -523,11 +569,7 @@ fi
 # enforcement is mutation-proof: the suite strips the marked
 # `# BL-070-GATE-CHECK` lines from a copy of the gate and asserts the phase-3
 # FAIL disappears (proving the lines are load-bearing).
-if bash "$SCRIPT_DIR/tests/test-phase3-validation-gate.sh" >/dev/null 2>&1; then
-  pass "tests/test-phase3-validation-gate.sh"
-else
-  fail "tests/test-phase3-validation-gate.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-phase3-validation-gate.sh" "tests/test-phase3-validation-gate.sh"
 
 # BL-088: scaffold source-closure. init.sh must ship every sibling script that a
 # shipped gate sources/execs via "$SCRIPT_DIR/..." (tdd-classify.sh silently
@@ -537,16 +579,8 @@ fi
 # real.sh is the init.sh-driven fidelity proof (a real Sponsored-POC scaffold
 # blocks a test-less feat: commit) + the upgrade/verify backfill for existing
 # projects.
-if bash "$SCRIPT_DIR/tests/test-scaffold-source-closure.sh" >/dev/null 2>&1; then
-  pass "tests/test-scaffold-source-closure.sh"
-else
-  fail "tests/test-scaffold-source-closure.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-scaffold-tdd-block-real.sh" >/dev/null 2>&1; then
-  pass "tests/test-scaffold-tdd-block-real.sh"
-else
-  fail "tests/test-scaffold-tdd-block-real.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-scaffold-source-closure.sh" "tests/test-scaffold-source-closure.sh"
+run_child_suite "tests/test-scaffold-tdd-block-real.sh" "tests/test-scaffold-tdd-block-real.sh"
 
 # BL-109 S1 (Currency System, Layer 0 — Inventory). test-currency-manifest.sh is
 # the lib-level unit test (schema, class assignment, hook enum, sha/mode capture,
@@ -557,19 +591,11 @@ fi
 # shas that recompute end-to-end and the three-state hook enum. That aggregator
 # is SUITE_SKIP_AGGREGATORS-gated (three scaffolds is heavy) and is NEVER in the
 # unit list (it executes init.sh).
-if bash "$SCRIPT_DIR/tests/test-currency-manifest.sh" >/dev/null 2>&1; then
-  pass "tests/test-currency-manifest.sh"
-else
-  fail "tests/test-currency-manifest.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-currency-manifest.sh" "tests/test-currency-manifest.sh"
 if [ "${SUITE_SKIP_AGGREGATORS:-0}" = "1" ]; then
   section "BL-109 currency birth-stamp fidelity — SKIPPED (SUITE_SKIP_AGGREGATORS=1; three real init.sh scaffolds, runs standalone / full-suite)"
 else
-if bash "$SCRIPT_DIR/tests/test-currency-birth-stamp.sh" >/dev/null 2>&1; then
-  pass "tests/test-currency-birth-stamp.sh"
-else
-  fail "tests/test-currency-birth-stamp.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-currency-birth-stamp.sh" "tests/test-currency-birth-stamp.sh"
 fi
 
 # BL-109 S2 (Currency System, Layer 1 — Detection). test-freshness-check.sh is
@@ -581,19 +607,11 @@ fi
 # drift in the right tier, and the whole-tree I7 fingerprint. That aggregator is
 # SUITE_SKIP_AGGREGATORS-gated (a real init.sh scaffold is heavy) and is NEVER in
 # the unit list (it executes init.sh).
-if bash "$SCRIPT_DIR/tests/test-freshness-check.sh" >/dev/null 2>&1; then
-  pass "tests/test-freshness-check.sh"
-else
-  fail "tests/test-freshness-check.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-freshness-check.sh" "tests/test-freshness-check.sh"
 if [ "${SUITE_SKIP_AGGREGATORS:-0}" = "1" ]; then
   section "BL-109 freshness birth fidelity — SKIPPED (SUITE_SKIP_AGGREGATORS=1; a real init.sh scaffold, runs standalone / full-suite)"
 else
-if bash "$SCRIPT_DIR/tests/test-freshness-birth.sh" >/dev/null 2>&1; then
-  pass "tests/test-freshness-birth.sh"
-else
-  fail "tests/test-freshness-birth.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-freshness-birth.sh" "tests/test-freshness-birth.sh"
 fi
 
 # BL-112 commit-time enforcement fidelity — the same BL-088 precedent, applied to
@@ -607,11 +625,7 @@ fi
 if [ "${SUITE_SKIP_AGGREGATORS:-0}" = "1" ]; then
   section "BL-112 commit-enforcement fidelity — SKIPPED (SUITE_SKIP_AGGREGATORS=1; a real init.sh scaffold + real commits, runs standalone / full-suite)"
 else
-if bash "$SCRIPT_DIR/tests/test-bl112-commit-enforcement.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl112-commit-enforcement.sh"
-else
-  fail "tests/test-bl112-commit-enforcement.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl112-commit-enforcement.sh" "tests/test-bl112-commit-enforcement.sh"
 fi
 
 # BL-118 (Dogfood-2 F-DF2-007, Critical): the SAST gate must SEE browser DOM XSS.
@@ -622,26 +636,14 @@ fi
 # Live cases drive a REAL `git commit` of `pane.innerHTML = userText` through the
 # lib-emitted hook (LOUD SKIP without semgrep). Emits the hook via the lib directly
 # — no scaffold run — so it is ALSO in the tests.yml unit fast lane.
-if bash "$SCRIPT_DIR/tests/test-bl118-sast-dom-xss.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl118-sast-dom-xss.sh"
-else
-  fail "tests/test-bl118-sast-dom-xss.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl118-sast-dom-xss.sh" "tests/test-bl118-sast-dom-xss.sh"
 
 # BL-131 + BL-132 (BL-118 adversarial verification residue): the emitted SAST arm
 # must scan STAGED index content (not worktree bytes) and the shipped custom ruleset
 # must catch the four DOM sinks no public registry rule covers. Both emit the hook
 # via the lib directly (no scaffold run) — ALSO in the tests.yml unit fast lane.
-if bash "$SCRIPT_DIR/tests/test-bl132-sast-index-scan.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl132-sast-index-scan.sh"
-else
-  fail "tests/test-bl132-sast-index-scan.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-bl131-domsink-rules.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl131-domsink-rules.sh"
-else
-  fail "tests/test-bl131-domsink-rules.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl132-sast-index-scan.sh" "tests/test-bl132-sast-index-scan.sh"
+run_child_suite "tests/test-bl131-domsink-rules.sh" "tests/test-bl131-domsink-rules.sh"
 
 # BL-119 (Dogfood-2 F-DF2-006, High) + BL-087 fold-in: the strict terminal gate
 # must not classify a commit by the PREVIOUS commit's message (stale
@@ -650,11 +652,7 @@ fi
 # repo itself instead of hard-refusing via guard_not_in_framework. Drives a REAL
 # `git commit` through the REAL framework-gate chain installed by
 # install-filesystem-gates.sh — no scaffold run, so ALSO in the unit fast lane.
-if bash "$SCRIPT_DIR/tests/test-bl119-stale-editmsg.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl119-stale-editmsg.sh"
-else
-  fail "tests/test-bl119-stale-editmsg.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl119-stale-editmsg.sh" "tests/test-bl119-stale-editmsg.sh"
 
 # BL-105 (Med, walk-confirmed worse than filed): Phase 4 gets a real gate —
 # --start-phase4 consults the 3→4 gate; a never-started Phase-4 checklist
@@ -664,11 +662,7 @@ fi
 # UAT sign-off + personal attorney/pen-test sections; the guide's artifact
 # map and the undocumented handoff_tested step are fixed; the Competency
 # Matrix is WARN-first visible. Double-fence mutation in-suite. Both lanes.
-if bash "$SCRIPT_DIR/tests/test-bl105-phase4-wave.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl105-phase4-wave.sh"
-else
-  fail "tests/test-bl105-phase4-wave.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl105-phase4-wave.sh" "tests/test-bl105-phase4-wave.sh"
 
 # BL-107 (High): every language gets the TDD/BL-006 commit-msg gate. Hermetic
 # half: the # BL-107-RUST-INLINE-TESTS content probe (inline #[cfg(test)]
@@ -677,11 +671,7 @@ fi
 # the Currency hook-state predicate (present for every language). The INSTALL
 # half is proven by test-scaffold-tdd-block-real.sh's rust/other scaffold
 # cases (aggregator lane). No init.sh here -> ALSO in the unit lane.
-if bash "$SCRIPT_DIR/tests/test-bl107-tdd-all-languages.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl107-tdd-all-languages.sh"
-else
-  fail "tests/test-bl107-tdd-all-languages.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl107-tdd-all-languages.sh" "tests/test-bl107-tdd-all-languages.sh"
 
 # BL-121 (Dogfood-2 F-DF2-011, High): the MVP-Cutline counter must count the
 # same 3 items on BSD and GNU text tools. The old GNU-only sed alternation made
@@ -689,11 +679,7 @@ fi
 # gate via the exit-2 WARN arm. Extracts and evaluates the LIVE assignment from
 # test-gate.sh against a trap-structured fixture manifesto. The cross-platform
 # tripwire for the class is lint-counter-antipattern's sed-alternation rule.
-if bash "$SCRIPT_DIR/tests/test-bl121-cutline-bsd-sed.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl121-cutline-bsd-sed.sh"
-else
-  fail "tests/test-bl121-cutline-bsd-sed.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl121-cutline-bsd-sed.sh" "tests/test-bl121-cutline-bsd-sed.sh"
 
 # BL-108/BL-117 (the BL-088 class, artifact form): a shipped instruction must
 # never point at an unshipped dependency. Mechanical closures: every template
@@ -702,11 +688,7 @@ fi
 # gate's own error message); every scripts/*.sh the guide names must ship
 # (check-maintenance + 3 lints). Plus the production_build smoke-evidence arm
 # (F19: a "built" release that did not boot). Fence mutation in-suite.
-if bash "$SCRIPT_DIR/tests/test-bl108-bl117-ship-closure.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl108-bl117-ship-closure.sh"
-else
-  fail "tests/test-bl108-bl117-ship-closure.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl108-bl117-ship-closure.sh" "tests/test-bl108-bl117-ship-closure.sh"
 
 # BL-114/BL-115/BL-127 (the E1a gate-integrity trio): the 0→1 gate's WARN
 # survives errexit and the intermediates check truly blocks; --start-phase1
@@ -715,33 +697,23 @@ fi
 # row (not the template's own header) and legal review is required-when-PII;
 # UAT results_received demands submissions or an explicit RECORDED solo-mode
 # attestation. No init.sh -> both lanes.
-if bash "$SCRIPT_DIR/tests/test-bl114-bl115-bl127-gate-integrity.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl114-bl115-bl127-gate-integrity.sh"
-else
-  fail "tests/test-bl114-bl115-bl127-gate-integrity.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl114-bl115-bl127-gate-integrity.sh" \
+  "tests/test-bl114-bl115-bl127-gate-integrity.sh"
 
 # BL-116 (Med): the MANDATORY push gate keys on recorded facts, not host brand
 # — first-class hosts are exempt only when remote_repo_created+pushed_initial
 # are on record ("provably pushed at init", on disk); --no-remote-creation
 # scaffolds now gate. Fence-excision mutant proves the scope change
 # load-bearing. No init.sh -> both lanes.
-if bash "$SCRIPT_DIR/tests/test-bl116-push-gate-scope.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl116-push-gate-scope.sh"
-else
-  fail "tests/test-bl116-push-gate-scope.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl116-push-gate-scope.sh" "tests/test-bl116-push-gate-scope.sh"
 
 # BL-123/BL-111/BL-126 (High/High/Med): the branch-protection attestation is
 # recordable post-hoc (check-gate.sh --repair --branch-protection-attested /
 # SOLO_BP_ATTESTED=1, host-keyed reason, explicit-only) and honored by ALL
 # THREE consumers — verify_init consults it before any host API probe. In-test
 # fence-excision mutants prove both arms load-bearing. No init.sh -> both lanes.
-if bash "$SCRIPT_DIR/tests/test-bl123-bp-attestation-recovery.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl123-bp-attestation-recovery.sh"
-else
-  fail "tests/test-bl123-bp-attestation-recovery.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl123-bp-attestation-recovery.sh" \
+  "tests/test-bl123-bp-attestation-recovery.sh"
 
 # BL-157 (Dogfood-4 F-DF4-003, Low): check-gate.sh --repair must RECONCILE the
 # remote-setup markers (remote_repo_created/pushed_initial) from a GENUINELY
@@ -750,33 +722,22 @@ fi
 # weakening the BL-123 refusal for truly remote-less ones. Hermetic local-bare
 # remote; two mutation cases (fence-excision + unconditional-detection). No
 # init.sh -> ALSO in the tests.yml unit lane.
-if bash "$SCRIPT_DIR/tests/test-bl157-remote-marker-record.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl157-remote-marker-record.sh"
-else
-  fail "tests/test-bl157-remote-marker-record.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl157-remote-marker-record.sh" \
+  "tests/test-bl157-remote-marker-record.sh"
 
 # BL-124 (Dogfood-2 F-DF2-014, High — the central-question hole): the Phase 3→4
 # gate must FAIL while PRODUCT_MANIFESTO.md carries the PENDING promotion
 # marker upgrade-project.sh writes on track upgrade. Wire-pins the writer's and
 # the reader's literals to one constant; bl104-style copy-mutant proves the arm
 # load-bearing. No init.sh -> ALSO in the tests.yml unit lane.
-if bash "$SCRIPT_DIR/tests/test-bl124-pending-ratchet.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl124-pending-ratchet.sh"
-else
-  fail "tests/test-bl124-pending-ratchet.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl124-pending-ratchet.sh" "tests/test-bl124-pending-ratchet.sh"
 
 # BL-130 (Dogfood-2 F-DF2-013, Low): --attest must REFUSE a scanner whose last
 # REAL verdict is FAIL — attestations cover scans that could not run, never
 # scans that ran and failed ([OK]-recorded a FAIL-masking row the driver would
 # then refuse to honor). In-suite fence-excision mutant. No init.sh -> both
 # lanes.
-if bash "$SCRIPT_DIR/tests/test-bl130-attest-fail-guard.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl130-attest-fail-guard.sh"
-else
-  fail "tests/test-bl130-attest-fail-guard.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl130-attest-fail-guard.sh" "tests/test-bl130-attest-fail-guard.sh"
 
 # BL-096 (ergonomics F6/F9/F10): cold-start hardening — the CDF preflight
 # names the exact clone line at suite ENTRY (warn-and-continue; CI runs
@@ -784,11 +745,7 @@ fi
 # running BOTH message gates (+ the --commit-msg-gates honest-name alias,
 # behavior-pinned), and install-contributor-hooks.sh is CONTRIBUTING's
 # manual cp as one idempotent command. No init.sh -> both lanes.
-if bash "$SCRIPT_DIR/tests/test-bl096-cold-start.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl096-cold-start.sh"
-else
-  fail "tests/test-bl096-cold-start.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl096-cold-start.sh" "tests/test-bl096-cold-start.sh"
 
 # BL-095 (ergonomics F4): ONE parsing surface for deployment/poc_mode
 # (# BL-095-STATE-READERS in lib/helpers-core.sh) — unit contract (null/
@@ -796,11 +753,7 @@ fi
 # migrated files, and a fence-excision mutant that must CRASH check-phase-
 # gate (routing proof). Conforming-inline siblings (pre-commit-gate,
 # run-phase3-validation) documented at the fence. No init.sh -> both lanes.
-if bash "$SCRIPT_DIR/tests/test-bl095-state-readers.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl095-state-readers.sh"
-else
-  fail "tests/test-bl095-state-readers.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl095-state-readers.sh" "tests/test-bl095-state-readers.sh"
 
 # BL-106 (Karl's 2026-07-18 machine-checkable decision): the platform
 # go-live checklist is PARSED — the shipped module's H3 /Go-Live/ `- [ ]`
@@ -808,11 +761,7 @@ fi
 # artifact at go_live_verified; standalone platforms exempt with a note.
 # In-suite fence-excision mutant. No init.sh -> both lanes (the init-side
 # generator has its real-init case in test-scaffold-tdd-block-real.sh).
-if bash "$SCRIPT_DIR/tests/test-bl106-golive-checklist.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl106-golive-checklist.sh"
-else
-  fail "tests/test-bl106-golive-checklist.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl106-golive-checklist.sh" "tests/test-bl106-golive-checklist.sh"
 
 # BL-137 (Dogfood-3 F-DF3-002, High): the phase-gate "Tools needed" arm is
 # CI-scoped — on a runner ($CI set) the missing-tools list prints with a
@@ -820,11 +769,7 @@ fi
 # unpassable); locally the block is unchanged, keyed strictly on $CI. Mini
 # tool-matrix fixture; in-suite fence-excision mutant. No init.sh -> both
 # lanes.
-if bash "$SCRIPT_DIR/tests/test-bl137-ci-tools-scope.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl137-ci-tools-scope.sh"
-else
-  fail "tests/test-bl137-ci-tools-scope.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl137-ci-tools-scope.sh" "tests/test-bl137-ci-tools-scope.sh"
 
 # BL-125 (Dogfood-2 F-DF2-009): the emitted pre-commit hook RUNS the
 # project's test command — RED tests block the commit ([BLOCKED]), green
@@ -833,22 +778,14 @@ fi
 # npm scaffold placeholder is not detected as a suite. Hook emitted
 # straight from hook-templates.sh + real git commits; in-suite emitter
 # fence-excision mutant. No init.sh -> both lanes.
-if bash "$SCRIPT_DIR/tests/test-bl125-commit-test-exec.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl125-commit-test-exec.sh"
-else
-  fail "tests/test-bl125-commit-test-exec.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl125-commit-test-exec.sh" "tests/test-bl125-commit-test-exec.sh"
 
 # BL-163 (Dogfood-4 F-DF4-009): a commit REFUSED by any blocking arm of the
 # emitted pre-commit hook (gitleaks / semgrep / bl125_tests) appends a
 # terminal_commit_blocked row to .claude/bypass-audit.json — best-effort, never
 # weakening the block. Hook emitted straight from hook-templates.sh + real git
 # commits, fake scanners, in-suite fence-excision mutant. No init.sh -> both lanes.
-if bash "$SCRIPT_DIR/tests/test-bl163-blocked-ledger.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl163-blocked-ledger.sh"
-else
-  fail "tests/test-bl163-blocked-ledger.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl163-blocked-ledger.sh" "tests/test-bl163-blocked-ledger.sh"
 
 # BL-171 (BL-163 verifier residual): a commit REFUSED by a MESSAGE-scoped
 # commit-msg gate (BL-072 TDD-ordering block -> commitmsg_tdd; BL-006 Build-Loop
@@ -857,11 +794,7 @@ fi
 # weakening the refusal. --emit-blocked-gate carries the gate identity; the
 # refusal lives OUTSIDE the excisable # BL-171-COMMITMSG-LEDGER fence. Real git
 # commits through the emitted commit-msg hook. No init.sh -> both lanes.
-if bash "$SCRIPT_DIR/tests/test-bl171-commitmsg-ledger.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl171-commitmsg-ledger.sh"
-else
-  fail "tests/test-bl171-commitmsg-ledger.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl171-commitmsg-ledger.sh" "tests/test-bl171-commitmsg-ledger.sh"
 
 # BL-172: resume-sentinel parity — the BL-072 TDD-ordering commit-msg HARD BLOCK
 # (tdd_terminal_enforce) and its PreToolUse WARN sibling (tdd_warn_check) skip on
@@ -869,11 +802,7 @@ fi
 # so a resumed cherry-pick/revert of impl-only content is no longer refused/
 # warned; a NORMAL impl-only commit still refuses/warns (anti-blunting), pinned
 # by a marker-excision mutation. Direct hermetic fixtures, no init.sh -> both lanes.
-if bash "$SCRIPT_DIR/tests/test-bl172-resume-sentinels.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl172-resume-sentinels.sh"
-else
-  fail "tests/test-bl172-resume-sentinels.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl172-resume-sentinels.sh" "tests/test-bl172-resume-sentinels.sh"
 
 # BL-161 (Dogfood-4 F-DF4-007): the tracked bypass-audit ledger records ONLY
 # real events — a CLEAN terminal commit writes NO routine terminal_commit_passed
@@ -882,11 +811,8 @@ fi
 # BL-030 + emitted BL-163/BL-171 paths) and genuine bypass / enforcement-level /
 # out-of-band events STILL record. Gates installed directly via
 # install-filesystem-gates.sh + real git commits. No init.sh -> both lanes.
-if bash "$SCRIPT_DIR/tests/test-bl161-ledger-real-events-only.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl161-ledger-real-events-only.sh"
-else
-  fail "tests/test-bl161-ledger-real-events-only.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl161-ledger-real-events-only.sh" \
+  "tests/test-bl161-ledger-real-events-only.sh"
 
 # BL-141 (Dogfood-3 wave verifier B1/B2): verify-install detects + repairs
 # the commit-msg TDD gate hook (the BL-139 backstop — post-flip it is the
@@ -894,11 +820,7 @@ fi
 # a non-interactive sync that declines the install WARNs instead of leaving
 # the strict-tier backstop silently absent. Dual fence-excision mutants.
 # No init.sh -> both lanes.
-if bash "$SCRIPT_DIR/tests/test-bl141-commitmsg-repair.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl141-commitmsg-repair.sh"
-else
-  fail "tests/test-bl141-commitmsg-repair.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl141-commitmsg-repair.sh" "tests/test-bl141-commitmsg-repair.sh"
 
 # BL-143 (Dogfood-3 wave verifier C3): the anti-self-approval control no
 # longer silently skips when the Approver row lies past the -A 20 capped
@@ -906,11 +828,8 @@ fi
 # UNCAPPED section scan, so the control RUNS (blame and all). The truly-
 # absent-row boundary is pinned unchanged. In-suite fence-excision mutant
 # restores the silent skip exactly. No init.sh -> both lanes.
-if bash "$SCRIPT_DIR/tests/test-bl143-pastcap-selfapproval.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl143-pastcap-selfapproval.sh"
-else
-  fail "tests/test-bl143-pastcap-selfapproval.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl143-pastcap-selfapproval.sh" \
+  "tests/test-bl143-pastcap-selfapproval.sh"
 
 # BL-147 + BL-151 (PR-sweep WP-1): the ONE shared content-pin suite over
 # templates/pipelines/**. The emitted CI approval-log integrity steps are now
@@ -919,11 +838,8 @@ fi
 # no steps at all) + the gitlab twins — and gitleaks runs via the license-free
 # CLI, not the org-license-trapped action. Template lists derived mechanically
 # with a count floor. Content-pin, hermetic. No init.sh -> both lanes.
-if bash "$SCRIPT_DIR/tests/test-bl147-ci-template-integrity.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl147-ci-template-integrity.sh"
-else
-  fail "tests/test-bl147-ci-template-integrity.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl147-ci-template-integrity.sh" \
+  "tests/test-bl147-ci-template-integrity.sh"
 
 # BL-139 (Dogfood-3 F-DF3-004): a subject-less --check-commit-ready no
 # longer presumes feat — framework-gate's pre-commit call cannot know the
@@ -931,11 +847,7 @@ fi
 # with the CURRENT subject (backstop proven end-to-end in-suite with the
 # real hook chain). In-suite fence-excision mutant restores the presumed-
 # feat default exactly. No init.sh -> both lanes.
-if bash "$SCRIPT_DIR/tests/test-bl139-subjectless-default.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl139-subjectless-default.sh"
-else
-  fail "tests/test-bl139-subjectless-default.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl139-subjectless-default.sh" "tests/test-bl139-subjectless-default.sh"
 
 # BL-155 (Dogfood-4 S0 F1): the phase2-init-verified block fires AFTER the
 # docs/dep-manifest exemption — the docs/state-only Phase 1→2 transition
@@ -943,22 +855,15 @@ fi
 # any non-exempt commit still requires phase2_init.verified=true. Fence-
 # excision mutant proven RED on the enforcement pins. No init.sh -> both
 # lanes.
-if bash "$SCRIPT_DIR/tests/test-bl155-phase2-init-transition-commit.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl155-phase2-init-transition-commit.sh"
-else
-  fail "tests/test-bl155-phase2-init-transition-commit.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl155-phase2-init-transition-commit.sh" \
+  "tests/test-bl155-phase2-init-transition-commit.sh"
 
 # BL-168 (Dogfood-4 S4 → WP-2 investigation): _p3_tm_has_table's two-stage
 # grep pipeline raced SIGPIPE-under-pipefail — a present §4 table read as
 # absent on tables larger than one grep stdout buffer (~11% of live CI
 # attempts). Single-grep fix pinned on the shipped bytes; revert-mutation
 # reproduces rc=141 deterministically. No init.sh -> both lanes.
-if bash "$SCRIPT_DIR/tests/test-bl168-tm-table-sigpipe.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl168-tm-table-sigpipe.sh"
-else
-  fail "tests/test-bl168-tm-table-sigpipe.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl168-tm-table-sigpipe.sh" "tests/test-bl168-tm-table-sigpipe.sh"
 
 # BL-165 (Dogfood-4 S3 F-DF4-011/012): the zap-dast arm's hardened-serve
 # harness. When a project declares its production header set in
@@ -966,21 +871,13 @@ fi
 # judges (Replacer --hook in the /zap/wrk bind), records the config as evidence,
 # and judges THAT with the unchanged BL-122 riskcode>=2 filter; no declaration
 # keeps the raw-preview FAIL semantics byte-for-byte. No init.sh -> both lanes.
-if bash "$SCRIPT_DIR/tests/test-bl165-dast-hardened-serve.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl165-dast-hardened-serve.sh"
-else
-  fail "tests/test-bl165-dast-hardened-serve.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl165-dast-hardened-serve.sh" "tests/test-bl165-dast-hardened-serve.sh"
 
 # BL-169 (Dogfood-4 S4): the scaffold gitignore's unanchored `test-results/`
 # hid docs/test-results/ (the Phase-3 evidence the 3→4 gate requires) from
 # every fresh CI checkout. Root-anchored + transient phase3/ workdir ignored;
 # behavioral check-ignore pin. No init.sh -> both lanes.
-if bash "$SCRIPT_DIR/tests/test-bl169-gitignore-anchor.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl169-gitignore-anchor.sh"
-else
-  fail "tests/test-bl169-gitignore-anchor.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl169-gitignore-anchor.sh" "tests/test-bl169-gitignore-anchor.sh"
 
 # BL-089+BL-091 (Pantheon feedback, Karl-approved 2026-07-20): the doc
 # foundations ship at birth — doc map (authority order + conventions),
@@ -989,11 +886,7 @@ fi
 # standing TM-001 threat row in the Bible template (scanner-neutral by
 # id-set count). Text-derived (no init.sh) -> both lanes; the real-init
 # companion case lives in test-scaffold-tdd-block-real.sh.
-if bash "$SCRIPT_DIR/tests/test-bl089-doc-foundations.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl089-doc-foundations.sh"
-else
-  fail "tests/test-bl089-doc-foundations.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl089-doc-foundations.sh" "tests/test-bl089-doc-foundations.sh"
 
 # BL-120 (Dogfood-2 F-DF2-008): the security_audit step READS the audit's
 # verdict — the shipped template's own Summary grammar, fail-closed (a
@@ -1001,11 +894,7 @@ fi
 # recorded Open findings, or NO parseable verdict all block; the newest
 # matching file governs). In-suite fence-excision mutant restores
 # existence-only exactly. No init.sh -> both lanes.
-if bash "$SCRIPT_DIR/tests/test-bl120-audit-verdict.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl120-audit-verdict.sh"
-else
-  fail "tests/test-bl120-audit-verdict.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl120-audit-verdict.sh" "tests/test-bl120-audit-verdict.sh"
 
 # BL-162 (Dogfood-4 S2 F-DF4-008): the BL-120 verdict arm globbed audit files
 # by both *slug* and *name*; when slug==name (an already-slug-shaped feature)
@@ -1013,22 +902,14 @@ fi
 # Dedupe by path (# BL-162-AUDIT-DEDUP) — print-count only, the BLOCK is
 # unchanged. In-suite mutation reverts the dedup → double-print returns.
 # No init.sh -> both lanes.
-if bash "$SCRIPT_DIR/tests/test-bl162-audit-dedup.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl162-audit-dedup.sh"
-else
-  fail "tests/test-bl162-audit-dedup.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl162-audit-dedup.sh" "tests/test-bl162-audit-dedup.sh"
 
 # BL-167 (Dogfood-4 S3 F-DF4-014): the BL-072 TDD-ordering classifier counted
 # .claude/* framework state files (phase-state.json, …) as impl files lacking
 # a test. _bl072_is_impl_file now excludes .claude/ (# BL-167-CLAUDE-EXCLUDE),
 # scoped to .claude/ only (real src/lib/app stays impl). In-suite mutation
 # excises the arm → .claude state relists as impl. No init.sh -> both lanes.
-if bash "$SCRIPT_DIR/tests/test-bl167-claude-classifier.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl167-claude-classifier.sh"
-else
-  fail "tests/test-bl167-claude-classifier.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl167-claude-classifier.sh" "tests/test-bl167-claude-classifier.sh"
 
 # BL-138 (Dogfood-3 F-DF3-001): validate_approval_fields no longer
 # self-collides with the template — H2-anchored section-bounded window
@@ -1036,11 +917,7 @@ fi
 # placeholder predicate ([SIMULATED] and date-format prose are not
 # placeholders). Twin-fixture rc-parity isolation; in-suite fence-excision
 # mutant on a shape only the detector rejects. No init.sh -> both lanes.
-if bash "$SCRIPT_DIR/tests/test-bl138-approval-window.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl138-approval-window.sh"
-else
-  fail "tests/test-bl138-approval-window.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl138-approval-window.sh" "tests/test-bl138-approval-window.sh"
 
 # BL-170 (Dogfood-4 F-DF4-017): the APPROVAL_LOG templates must not ship empty
 # fill-in-place gate tables (filling them modifies committed lines, which the
@@ -1048,11 +925,8 @@ fi
 # marker per gate section; behavioural consumer cases drive check-phase-gate.sh
 # (auto-record / BL-138 / BL-143 / Phase 3->4 dual-approval) against APPENDED
 # tables; mutation proofs make the pins load-bearing. No init.sh -> both lanes.
-if bash "$SCRIPT_DIR/tests/test-bl170-approval-append-design.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl170-approval-append-design.sh"
-else
-  fail "tests/test-bl170-approval-append-design.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl170-approval-append-design.sh" \
+  "tests/test-bl170-approval-append-design.sh"
 
 # BL-166 + BL-158 (Dogfood-4 S3, residuals wave): check-phase-gate.sh --gate
 # <name> must scope its exit/count to the NAMED gate (Phase 3->4 readiness must
@@ -1061,11 +935,7 @@ fi
 # (a) clean-2->3/no-3->4 -> exit 0, (b) real 2->3 failure -> still exit 1,
 # (c) header label under --gate phase_0_to_1, (d) bare run byte-unchanged,
 # (e) in-suite fence-excision mutant. No init.sh -> both lanes.
-if bash "$SCRIPT_DIR/tests/test-bl166-gate-scope.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl166-gate-scope.sh"
-else
-  fail "tests/test-bl166-gate-scope.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl166-gate-scope.sh" "tests/test-bl166-gate-scope.sh"
 
 # BL-128 (Dogfood-2 F-DF2-015): the review generator is headless-viable —
 # --compose-only / --assemble-manifest need no claude at all; live runs get a
@@ -1073,11 +943,8 @@ fi
 # trust/spend triage, continue-on-failure, and an incrementally-written
 # manifest. claude is a PATH stub throughout (plan-file driven). No init.sh
 # -> both lanes.
-if bash "$SCRIPT_DIR/tests/test-bl128-review-generator-headless.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl128-review-generator-headless.sh"
-else
-  fail "tests/test-bl128-review-generator-headless.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl128-review-generator-headless.sh" \
+  "tests/test-bl128-review-generator-headless.sh"
 
 # BL-102 (Market Signal Step 1.1.5): Appendix D ships in the manifesto
 # template, and check-phase-gate WARNs (WARN-FIRST — deliberately NO issues
@@ -1085,11 +952,7 @@ fi
 # Standard+ project lacks or placeholder-fills it. The mutation case proves
 # both directions: excised arm -> warn gone; injected increment -> parity
 # breaks (the BL-104 [WARN]-trap inverse). No init.sh -> ALSO in the unit lane.
-if bash "$SCRIPT_DIR/tests/test-bl102-market-signal-warn.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl102-market-signal-warn.sh"
-else
-  fail "tests/test-bl102-market-signal-warn.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl102-market-signal-warn.sh" "tests/test-bl102-market-signal-warn.sh"
 
 # BL-109 S3 (Currency System, Layer 2 — Staging / --plan). test-plan-staging.sh is
 # the lib-level unit test (run-folder shape, exclusive mkdir, verbs incl.
@@ -1101,19 +964,11 @@ fi
 # against a scratch framework clone (I1 whole-tree fingerprint, real A1 candidate
 # from a genuinely-drifted template, live-tree scan, day-after freshness coherence).
 # That aggregator is SUITE_SKIP_AGGREGATORS-gated and is NEVER in the unit list.
-if bash "$SCRIPT_DIR/tests/test-plan-staging.sh" >/dev/null 2>&1; then
-  pass "tests/test-plan-staging.sh"
-else
-  fail "tests/test-plan-staging.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-plan-staging.sh" "tests/test-plan-staging.sh"
 if [ "${SUITE_SKIP_AGGREGATORS:-0}" = "1" ]; then
   section "BL-109 plan-staging birth fidelity — SKIPPED (SUITE_SKIP_AGGREGATORS=1; a real init.sh scaffold + real --plan, runs standalone / full-suite)"
 else
-if bash "$SCRIPT_DIR/tests/test-plan-birth.sh" >/dev/null 2>&1; then
-  pass "tests/test-plan-birth.sh"
-else
-  fail "tests/test-plan-birth.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-plan-birth.sh" "tests/test-plan-birth.sh"
 fi
 
 # BL-113 (SAST honesty — walk findings F14 + F15). test-bl113-sast-honesty.sh is a
@@ -1126,11 +981,7 @@ fi
 if [ "${SUITE_SKIP_AGGREGATORS:-0}" = "1" ]; then
   section "BL-113 SAST honesty — SKIPPED (SUITE_SKIP_AGGREGATORS=1; a real init.sh scaffold + semgrep, runs standalone / full-suite)"
 else
-if bash "$SCRIPT_DIR/tests/test-bl113-sast-honesty.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl113-sast-honesty.sh"
-else
-  fail "tests/test-bl113-sast-honesty.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl113-sast-honesty.sh" "tests/test-bl113-sast-honesty.sh"
 fi
 
 # Agent-ergonomics onboarding: tests/test-run-lints.sh — behavior suite for
@@ -1138,11 +989,7 @@ fi
 # scripts/lint-*.sh EXCEPT the parametrized lint-uat-scenarios.sh). Its
 # T-all-pass case executes the real lints end-to-end, so this block takes a
 # couple of minutes (the two slow full-tree scans dominate).
-if bash "$SCRIPT_DIR/tests/test-run-lints.sh" >/dev/null 2>&1; then
-  pass "tests/test-run-lints.sh"
-else
-  fail "tests/test-run-lints.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-run-lints.sh" "tests/test-run-lints.sh"
 
 # BL-070 increment (WP-B1): scripts/run-phase3-validation.sh's `license` scanner
 # promoted from stub to REAL. Reads the project language from
@@ -1155,11 +1002,7 @@ fi
 # language). Hermetic: the driver runs with a curated clean bin so no host
 # license tool / semgrep leaks in. Mutation-proof: excising the marked
 # `# BL-070-LICENSE-DISPATCH` line flips T-license-real-pass RED.
-if bash "$SCRIPT_DIR/tests/test-bl070-license-scanner.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl070-license-scanner.sh"
-else
-  fail "tests/test-bl070-license-scanner.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl070-license-scanner.sh" "tests/test-bl070-license-scanner.sh"
 
 # BL-070 (WP-B2): scripts/run-phase3-validation.sh's `threat-model` scanner
 # promoted from stub to REAL. Validates every PROJECT_BIBLE.md §4 `TM-NNN`
@@ -1170,11 +1013,8 @@ fi
 # names the unaccounted IDs. Pure-local parsing → deliberately RUNS under
 # --offline. Mutation-proof: excising the marked `# BL-070-TM-COMPARE`
 # coverage-diff line flips T-tm-missing-id-fail RED.
-if bash "$SCRIPT_DIR/tests/test-bl070-threat-model-scanner.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl070-threat-model-scanner.sh"
-else
-  fail "tests/test-bl070-threat-model-scanner.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl070-threat-model-scanner.sh" \
+  "tests/test-bl070-threat-model-scanner.sh"
 
 # BL-070 COMPLETION (WP-B3/B4): scripts/run-phase3-validation.sh's `snyk` and
 # `zap-dast` scanners promoted from stubs to REAL — after this arm ALL FIVE
@@ -1187,11 +1027,7 @@ fi
 # docker, curated clean bin (no host snyk/docker/semgrep leaks in). Mutation-
 # proof: excising `# BL-070-SNYK-DISPATCH` / `# BL-070-ZAP-DISPATCH` flips the
 # PASS cases RED.
-if bash "$SCRIPT_DIR/tests/test-bl070-snyk-zap-scanners.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl070-snyk-zap-scanners.sh"
-else
-  fail "tests/test-bl070-snyk-zap-scanners.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl070-snyk-zap-scanners.sh" "tests/test-bl070-snyk-zap-scanners.sh"
 
 # BL-073: scripts/check-phase-gate.sh's Phase 3→4 review-manifest check must
 # be a REAL, track-aware gate — FAIL (block) when the Security or Red Team
@@ -1201,11 +1037,8 @@ fi
 # process-state.json). Mutation-proof: excising the marked `# BL-073-ESCALATE`
 # escalation reverts the gate to WARN-only, flipping the *-fails cases RED.
 # Also pins scripts/lint-review-manifest.sh's schema validation.
-if bash "$SCRIPT_DIR/tests/test-bl073-review-manifest-gate.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl073-review-manifest-gate.sh"
-else
-  fail "tests/test-bl073-review-manifest-gate.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl073-review-manifest-gate.sh" \
+  "tests/test-bl073-review-manifest-gate.sh"
 
 # BL-103: the six-eval generator the Phase 3→4 gate hands operators as its
 # remediation (evaluation-prompts/Projects/run-reviews.sh) must actually RUN on
@@ -1214,21 +1047,13 @@ fi
 # mandatory blocking reviewer whose file the runner probed under the wrong name.
 # Runs the real generator against a hermetic fixture with a mock `claude`; pins
 # scripts/lint-evalprompts-portability.sh with a behavioural mutation proof.
-if bash "$SCRIPT_DIR/tests/test-bl103-eval-generator.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl103-eval-generator.sh"
-else
-  fail "tests/test-bl103-eval-generator.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl103-eval-generator.sh" "tests/test-bl103-eval-generator.sh"
 
 # BL-104: two scoring inversions in check-phase-gate.sh's Phase 3→4 block, where
 # doing LESS work scored BETTER — 0/9 process-checklist steps passed while 8/9
 # blocked (an if/elif with no else), and an empty `{"reviews":[]}` manifest
 # passed while NO manifest blocked. Mutation-proof on both markers.
-if bash "$SCRIPT_DIR/tests/test-bl104-gate-scoring.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl104-gate-scoring.sh"
-else
-  fail "tests/test-bl104-gate-scoring.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl104-gate-scoring.sh" "tests/test-bl104-gate-scoring.sh"
 
 # BL-072 Phase C1: scripts/pre-commit-gate.sh must WARN (never block) when a
 # feat/fix/refactor commit ships implementation with no test in the same
@@ -1237,11 +1062,7 @@ fi
 # file-classification core (scripts/lib/tdd-classify.sh) with the dogfood
 # replay. Mutation-proof: excising the marked `# BL-072-TDD-DETECT` trigger
 # line removes the WARN, flipping T-feat-no-tests-warns RED.
-if bash "$SCRIPT_DIR/tests/test-bl072-tdd-warn-detector.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl072-tdd-warn-detector.sh"
-else
-  fail "tests/test-bl072-tdd-warn-detector.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl072-tdd-warn-detector.sh" "tests/test-bl072-tdd-warn-detector.sh"
 
 # ----------------------------------------------------------------
 # TEST 0h2: BL-084 TIER-AWARE CUSTOM-HOST REMOTE POLICY
@@ -1255,11 +1076,8 @@ fi
 # gh). verify-install.sh routes the other-host CI/release absence to a
 # non-blocking warning. Two mutation proofs pin the load-bearing guarantees
 # (`# BL-084-TIER-GATE`, `# BL-084-PUSH-VERIFY`).
-if bash "$SCRIPT_DIR/tests/test-bl084-tier-aware-remote-policy.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl084-tier-aware-remote-policy.sh"
-else
-  fail "tests/test-bl084-tier-aware-remote-policy.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl084-tier-aware-remote-policy.sh" \
+  "tests/test-bl084-tier-aware-remote-policy.sh"
 
 # ----------------------------------------------------------------
 # TEST 0i: PENDING-APPROVAL RESOLVE-DECISION
@@ -1268,11 +1086,8 @@ fi
 # Exercises the question/options/recommendation round-trip the
 # pre-commit-gate's pa_check() depends on.
 section "Pending-approval resolve-decision (PR #87)"
-if bash "$SCRIPT_DIR/tests/test-pending-approval-resolve-decision.sh" >/dev/null 2>&1; then
-  pass "tests/test-pending-approval-resolve-decision.sh"
-else
-  fail "tests/test-pending-approval-resolve-decision.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-pending-approval-resolve-decision.sh" \
+  "tests/test-pending-approval-resolve-decision.sh"
 
 # ----------------------------------------------------------------
 # TEST 0j: BYPASS-AUDIT FAMILY
@@ -1283,21 +1098,12 @@ fi
 # detector. Pre-fix, hijacking $TMPDIR or trap-leaking from a
 # concurrent bypass-audit run was undetected.
 section "Bypass-audit hardening cohort (PR #93 + 2d5f917)"
-if bash "$SCRIPT_DIR/tests/test-bypass-audit-tmp-hardening.sh" >/dev/null 2>&1; then
-  pass "tests/test-bypass-audit-tmp-hardening.sh"
-else
-  fail "tests/test-bypass-audit-tmp-hardening.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-bypass-audit-trap-isolation.sh" >/dev/null 2>&1; then
-  pass "tests/test-bypass-audit-trap-isolation.sh"
-else
-  fail "tests/test-bypass-audit-trap-isolation.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-bypass-detector-session-id.sh" >/dev/null 2>&1; then
-  pass "tests/test-bypass-detector-session-id.sh"
-else
-  fail "tests/test-bypass-detector-session-id.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bypass-audit-tmp-hardening.sh" \
+  "tests/test-bypass-audit-tmp-hardening.sh"
+run_child_suite "tests/test-bypass-audit-trap-isolation.sh" \
+  "tests/test-bypass-audit-trap-isolation.sh"
+run_child_suite "tests/test-bypass-detector-session-id.sh" \
+  "tests/test-bypass-detector-session-id.sh"
 
 # ----------------------------------------------------------------
 # TEST 0k: HOST-DRIVER REGRESSIONS (date-parse + gitlab approvals)
@@ -1307,24 +1113,15 @@ fi
 # PR #91: gitlab-ci-status stderr surfacing for approval/protection
 # rule mismatches.
 section "Host-driver regressions (PRs #91, #93)"
-if bash "$SCRIPT_DIR/tests/test-host-verify-protection-date-parse.sh" >/dev/null 2>&1; then
-  pass "tests/test-host-verify-protection-date-parse.sh"
-else
-  fail "tests/test-host-verify-protection-date-parse.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-gitlab-ci-status-stderr-approvals.sh" >/dev/null 2>&1; then
-  pass "tests/test-gitlab-ci-status-stderr-approvals.sh"
-else
-  fail "tests/test-gitlab-ci-status-stderr-approvals.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-host-verify-protection-date-parse.sh" \
+  "tests/test-host-verify-protection-date-parse.sh"
+run_child_suite "tests/test-gitlab-ci-status-stderr-approvals.sh" \
+  "tests/test-gitlab-ci-status-stderr-approvals.sh"
 # BL-032 close: proactive gitlab.com Free approvals attestation
 # (--approvals-attested / SOLO_APPROVALS_ATTESTED=1) — mirrors BL-002's
 # github_free_tier attestation for the GitLab analog.
-if bash "$SCRIPT_DIR/tests/test-bl032-gitlab-free-approvals-attestation.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl032-gitlab-free-approvals-attestation.sh"
-else
-  fail "tests/test-bl032-gitlab-free-approvals-attestation.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl032-gitlab-free-approvals-attestation.sh" \
+  "tests/test-bl032-gitlab-free-approvals-attestation.sh"
 
 # ----------------------------------------------------------------
 # TEST 0l: VERIFY-INSTALL + PROMPT-INSTALL FIX-FUNCTIONS
@@ -1336,26 +1133,17 @@ fi
 # tests/test-prompt-install-noninteractive.sh (verifier-fix 33e351e)
 # is GREEN.
 section "Verify-install + prompt-install fix-functions (PRs #92, 33e351e)"
-if bash "$SCRIPT_DIR/tests/test-verify-install-fix-functions.sh" >/dev/null 2>&1; then
-  pass "tests/test-verify-install-fix-functions.sh"
-else
-  fail "tests/test-verify-install-fix-functions.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-prompt-install-noninteractive.sh" >/dev/null 2>&1; then
-  pass "tests/test-prompt-install-noninteractive.sh"
-else
-  fail "tests/test-prompt-install-noninteractive.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-verify-install-fix-functions.sh" \
+  "tests/test-verify-install-fix-functions.sh"
+run_child_suite "tests/test-prompt-install-noninteractive.sh" \
+  "tests/test-prompt-install-noninteractive.sh"
 # BL-050 (Step 4 ROI #6): the fix_tool_install_N eval-factory in
 # scripts/verify-install.sh:~1401 was previously synthesized on every
 # invocation including --check-only, wasting ~1.5-10 ms per call.
 # Gate check tests both success (skipped on check-only, run on
 # auto-fix) and failure (mutation revert restores overhead) paths.
-if bash "$SCRIPT_DIR/tests/test-verify-install-eval-factory-gate.sh" >/dev/null 2>&1; then
-  pass "tests/test-verify-install-eval-factory-gate.sh"
-else
-  fail "tests/test-verify-install-eval-factory-gate.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-verify-install-eval-factory-gate.sh" \
+  "tests/test-verify-install-eval-factory-gate.sh"
 
 # ----------------------------------------------------------------
 # TEST 0m: UPGRADE-PROJECT (interruption, sentinel-block, atomic)
@@ -1364,29 +1152,13 @@ fi
 # PR #95: upgrade interruption-recovery + bypass-sentinel-during-upgrade
 # blocking. The atomic suite mirrors the PR #54/#57 snapshot precedent.
 section "Upgrade-project atomicity, interruption, sentinel-block (PRs #80, #95)"
-if bash "$SCRIPT_DIR/tests/test-upgrade-project-atomic.sh" >/dev/null 2>&1; then
-  pass "tests/test-upgrade-project-atomic.sh"
-else
-  fail "tests/test-upgrade-project-atomic.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-upgrade-interruption.sh" >/dev/null 2>&1; then
-  pass "tests/test-upgrade-interruption.sh"
-else
-  fail "tests/test-upgrade-interruption.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-upgrade-sentinel-block.sh" >/dev/null 2>&1; then
-  pass "tests/test-upgrade-sentinel-block.sh"
-else
-  fail "tests/test-upgrade-sentinel-block.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-upgrade-project-atomic.sh" "tests/test-upgrade-project-atomic.sh"
+run_child_suite "tests/test-upgrade-interruption.sh" "tests/test-upgrade-interruption.sh"
+run_child_suite "tests/test-upgrade-sentinel-block.sh" "tests/test-upgrade-sentinel-block.sh"
 # BL-099 SLICE-A: --sync-framework same-tier refresh (script sync, ask-first
 # hooks, doc drift, soloFrameworkCommit pin, dry-run purity) + both mutation
 # proofs (# BL-099-SYNC dispatch, # BL-099-DOC-GUARD rendered-doc exclusion).
-if bash "$SCRIPT_DIR/tests/test-upgrade-sync-framework.sh" >/dev/null 2>&1; then
-  pass "tests/test-upgrade-sync-framework.sh"
-else
-  fail "tests/test-upgrade-sync-framework.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-upgrade-sync-framework.sh" "tests/test-upgrade-sync-framework.sh"
 # BL-099 review round 4: SYSTEMATIC guard-coverage harness. Neuters every
 # load-bearing --sync-framework guard on a throwaway copy and proves the BL-099
 # suite goes RED (then GREEN restored) for each — the self-enforcing registry that
@@ -1399,22 +1171,14 @@ fi
 if [ "${SUITE_SKIP_AGGREGATORS:-0}" = "1" ]; then
   section "BL-099 guard-coverage harness — SKIPPED (SUITE_SKIP_AGGREGATORS=1; heavy, runs standalone / full-suite)"
 else
-if bash "$SCRIPT_DIR/tests/test-bl099-guard-coverage.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl099-guard-coverage.sh"
-else
-  fail "tests/test-bl099-guard-coverage.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl099-guard-coverage.sh" "tests/test-bl099-guard-coverage.sh"
 fi
 # BL-061: manifest.json::deployment stayed stale after upgrade-project.sh
 # runs, encouraging two-source drift where a downstream reader could gate
 # the wrong tier. Regression suite covers happy-path parity, atomic
 # rollback, idempotence, and a mutation-proof that neutralizing the
 # section 2b jq write reproduces the original bug shape.
-if bash "$SCRIPT_DIR/tests/test-upgrade-manifest-refresh.sh" >/dev/null 2>&1; then
-  pass "tests/test-upgrade-manifest-refresh.sh"
-else
-  fail "tests/test-upgrade-manifest-refresh.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-upgrade-manifest-refresh.sh" "tests/test-upgrade-manifest-refresh.sh"
 # BL-001: upgrade-project.sh performed no CDF sync, so downstream projects
 # stayed frozen at their install-time .claude/framework/ assets. Regression
 # suite covers the happy-path refresh (--backfill-only), graceful skip on a
@@ -1422,11 +1186,7 @@ fi
 # mutation-proof that neutralizing solo_refresh_cdf's delegating call turns
 # the sync into a no-op. Integration scenarios skip cleanly when the CDF
 # clone is absent (CI without ~/.claude-dev-framework).
-if bash "$SCRIPT_DIR/tests/test-upgrade-cdf-refresh.sh" >/dev/null 2>&1; then
-  pass "tests/test-upgrade-cdf-refresh.sh"
-else
-  fail "tests/test-upgrade-cdf-refresh.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-upgrade-cdf-refresh.sh" "tests/test-upgrade-cdf-refresh.sh"
 
 # ----------------------------------------------------------------
 # TEST 0n: PROCESS-CHECKLIST (commit-ready-subject + reset-phase1)
@@ -1439,16 +1199,10 @@ fi
 # process-checklist.sh, so the script refuses with rc=1 even on
 # the healthy fixture.
 section "Process-checklist commit-ready-subject + reset-phase1 (PR #101)"
-if bash "$SCRIPT_DIR/tests/test-process-checklist-check-commit-ready-subject.sh" >/dev/null 2>&1; then
-  pass "tests/test-process-checklist-check-commit-ready-subject.sh"
-else
-  fail "tests/test-process-checklist-check-commit-ready-subject.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-process-checklist-reset-phase1.sh" >/dev/null 2>&1; then
-  pass "tests/test-process-checklist-reset-phase1.sh"
-else
-  fail "tests/test-process-checklist-reset-phase1.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-process-checklist-check-commit-ready-subject.sh" \
+  "tests/test-process-checklist-check-commit-ready-subject.sh"
+run_child_suite "tests/test-process-checklist-reset-phase1.sh" \
+  "tests/test-process-checklist-reset-phase1.sh"
 
 # ----------------------------------------------------------------
 # TEST 0o: PRE-COMMIT-GATE LINTS + CLASSIFIER
@@ -1456,16 +1210,9 @@ fi
 # Wave 3: scripts/pre-commit-gate.sh's lint-runner + commit-classifier
 # behavior tests. Both are unit-style and fast.
 section "Pre-commit-gate lints + classifier (Wave 3)"
-if bash "$SCRIPT_DIR/tests/test-pre-commit-gate-lints.sh" >/dev/null 2>&1; then
-  pass "tests/test-pre-commit-gate-lints.sh"
-else
-  fail "tests/test-pre-commit-gate-lints.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-pre-commit-gate-classifier.sh" >/dev/null 2>&1; then
-  pass "tests/test-pre-commit-gate-classifier.sh"
-else
-  fail "tests/test-pre-commit-gate-classifier.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-pre-commit-gate-lints.sh" "tests/test-pre-commit-gate-lints.sh"
+run_child_suite "tests/test-pre-commit-gate-classifier.sh" \
+  "tests/test-pre-commit-gate-classifier.sh"
 
 # ----------------------------------------------------------------
 # TEST 0p: VALIDATE PHASE 2→3 GATE
@@ -1473,11 +1220,7 @@ fi
 # PR #101: scripts/validate.sh's Phase 2→3 gate path — assert the
 # gate refuses to advance when the required artifacts are missing.
 section "validate.sh Phase 2→3 gate (PR #101)"
-if bash "$SCRIPT_DIR/tests/test-validate-phase-2-3-gate.sh" >/dev/null 2>&1; then
-  pass "tests/test-validate-phase-2-3-gate.sh"
-else
-  fail "tests/test-validate-phase-2-3-gate.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-validate-phase-2-3-gate.sh" "tests/test-validate-phase-2-3-gate.sh"
 
 # ----------------------------------------------------------------
 # TEST 0p2: VALIDATE READS PHASE-STATE.JSON::GATES (BL-059)
@@ -1488,11 +1231,8 @@ fi
 # but the log had not been mirrored. Fix reads JSON first, falls
 # back to APPROVAL_LOG.md for back-compat.
 section "validate.sh reads phase-state.json::gates (BL-059)"
-if bash "$SCRIPT_DIR/tests/test-validate-phase-state-gates.sh" >/dev/null 2>&1; then
-  pass "tests/test-validate-phase-state-gates.sh"
-else
-  fail "tests/test-validate-phase-state-gates.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-validate-phase-state-gates.sh" \
+  "tests/test-validate-phase-state-gates.sh"
 
 # ----------------------------------------------------------------
 # TEST 0q: SPECS+PLANS HOST-AWARE QUARTET
@@ -1501,11 +1241,8 @@ fi
 # (the spec/plan/test/code-review quartet must reflect the current
 # host_name without hard-coding github/gitlab/bitbucket).
 section "Specs+plans host-aware quartet (PR #97)"
-if bash "$SCRIPT_DIR/tests/test-specs-plans-host-aware-quartet.sh" >/dev/null 2>&1; then
-  pass "tests/test-specs-plans-host-aware-quartet.sh"
-else
-  fail "tests/test-specs-plans-host-aware-quartet.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-specs-plans-host-aware-quartet.sh" \
+  "tests/test-specs-plans-host-aware-quartet.sh"
 
 # ----------------------------------------------------------------
 # TEST 0r: EDGE-CASES AGGREGATORS (pre-init, scripts, upgrade-input)
@@ -1535,21 +1272,9 @@ if [ "${SUITE_SKIP_AGGREGATORS:-0}" = "1" ]; then
   section "Edge-cases aggregators — SKIPPED (SUITE_SKIP_AGGREGATORS=1; run as separate CI shards)"
 else
 section "Edge-cases aggregators (pre-init, scripts, upgrade-input)"
-if bash "$SCRIPT_DIR/tests/edge-cases-pre-init.sh" >/dev/null 2>&1; then
-  pass "tests/edge-cases-pre-init.sh"
-else
-  fail "tests/edge-cases-pre-init.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/edge-cases-scripts.sh" >/dev/null 2>&1; then
-  pass "tests/edge-cases-scripts.sh"
-else
-  fail "tests/edge-cases-scripts.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/edge-cases-upgrade-input.sh" >/dev/null 2>&1; then
-  pass "tests/edge-cases-upgrade-input.sh"
-else
-  fail "tests/edge-cases-upgrade-input.sh FAILED (run for details)"
-fi
+run_child_suite "tests/edge-cases-pre-init.sh" "tests/edge-cases-pre-init.sh"
+run_child_suite "tests/edge-cases-scripts.sh" "tests/edge-cases-scripts.sh"
+run_child_suite "tests/edge-cases-upgrade-input.sh" "tests/edge-cases-upgrade-input.sh"
 fi
 
 # ----------------------------------------------------------------
@@ -1564,11 +1289,7 @@ fi
 # aggregator wire so a silent regression can't slip past
 # `full-project-test-suite.sh`.
 section "BL-046 helpers.sh core/full split contract"
-if bash "$SCRIPT_DIR/tests/test-bl046-helpers-split.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl046-helpers-split.sh (T1..T5b)"
-else
-  fail "tests/test-bl046-helpers-split.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl046-helpers-split.sh" "tests/test-bl046-helpers-split.sh (T1..T5b)"
 
 # ----------------------------------------------------------------
 # TEST 0r-bl033: TOOL-MATRIX install_cmds STRUCTURED SHAPE (BL-033)
@@ -1584,11 +1305,8 @@ fi
 # actually use the array shape post-migration.
 # Registered here per BL-038 discipline.
 section "BL-033 tool-matrix install_cmds structured shape"
-if bash "$SCRIPT_DIR/tests/test-bl033-install-cmds-shape.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl033-install-cmds-shape.sh (T-back-compat, T-array-happy, T-array-fail-fast, T-mixed-invalid, T-empty-array, T-non-string-elements, T-migrated-entries, T-migrated-semantics)"
-else
-  fail "tests/test-bl033-install-cmds-shape.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl033-install-cmds-shape.sh" \
+  "tests/test-bl033-install-cmds-shape.sh (T-back-compat, T-array-happy, T-array-fail-fast, T-mixed-invalid, T-empty-array, T-non-string-elements, T-migrated-entries, T-migrated-semantics)"
 
 # ----------------------------------------------------------------
 # TEST 0r-bl069: install_cmds ARRAY CONSUMERS (BL-069)
@@ -1605,11 +1323,8 @@ fi
 # T-runner-happy-multi / T-extract-prefers-array / T-vi-multi-both RED.
 # Registered here per BL-038 discipline.
 section "BL-069 install_cmds array consumers"
-if bash "$SCRIPT_DIR/tests/test-bl069-install-cmds-consumers.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl069-install-cmds-consumers.sh (Groups A-E: split, run_install_stages, extraction, fix_tool_install dispatch, wrapper JSON regression)"
-else
-  fail "tests/test-bl069-install-cmds-consumers.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl069-install-cmds-consumers.sh" \
+  "tests/test-bl069-install-cmds-consumers.sh (Groups A-E: split, run_install_stages, extraction, fix_tool_install dispatch, wrapper JSON regression)"
 
 # ----------------------------------------------------------------
 # TEST 0s: HOST-DRIVER AGGREGATOR
@@ -1622,11 +1337,7 @@ fi
 # and surface the failure so the e2e-init regressions can't ship
 # silent.
 section "Host-driver aggregator (tests/host-drivers/run-all.sh)"
-if bash "$SCRIPT_DIR/tests/host-drivers/run-all.sh" >/dev/null 2>&1; then
-  pass "tests/host-drivers/run-all.sh (all children)"
-else
-  fail "tests/host-drivers/run-all.sh FAILED (run for details)"
-fi
+run_child_suite "tests/host-drivers/run-all.sh" "tests/host-drivers/run-all.sh (all children)"
 
 # --- BL-035 wiring C: test-gate/process/poc/docs ---
 # Registers the pre-Wave-1-4 orphan suites in the test-gate/session,
@@ -1643,36 +1354,16 @@ fi
 # antipattern defect class), test-gate null-handling, record/unrecord
 # governance-ledger helpers, and the session-driver test-gate/merge check.
 section "BL-035 C: test-gate / counter-sanitizer / session"
-if bash "$SCRIPT_DIR/tests/test-test-gate-counter-sanitizer.sh" >/dev/null 2>&1; then
-  pass "tests/test-test-gate-counter-sanitizer.sh (5/5)"
-else
-  fail "tests/test-test-gate-counter-sanitizer.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-test-gate-null-handling.sh" >/dev/null 2>&1; then
-  pass "tests/test-test-gate-null-handling.sh (5/5)"
-else
-  fail "tests/test-test-gate-null-handling.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-validate-counter-sanitizer.sh" >/dev/null 2>&1; then
-  pass "tests/test-validate-counter-sanitizer.sh (5/5)"
-else
-  fail "tests/test-validate-counter-sanitizer.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-record-claude-commit.sh" >/dev/null 2>&1; then
-  pass "tests/test-record-claude-commit.sh (9/9)"
-else
-  fail "tests/test-record-claude-commit.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-unrecord-feature.sh" >/dev/null 2>&1; then
-  pass "tests/test-unrecord-feature.sh (7/7)"
-else
-  fail "tests/test-unrecord-feature.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-session-test-gate-check-merge.sh" >/dev/null 2>&1; then
-  pass "tests/test-session-test-gate-check-merge.sh (9/9)"
-else
-  fail "tests/test-session-test-gate-check-merge.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-test-gate-counter-sanitizer.sh" \
+  "tests/test-test-gate-counter-sanitizer.sh (5/5)"
+run_child_suite "tests/test-test-gate-null-handling.sh" \
+  "tests/test-test-gate-null-handling.sh (5/5)"
+run_child_suite "tests/test-validate-counter-sanitizer.sh" \
+  "tests/test-validate-counter-sanitizer.sh (5/5)"
+run_child_suite "tests/test-record-claude-commit.sh" "tests/test-record-claude-commit.sh (9/9)"
+run_child_suite "tests/test-unrecord-feature.sh" "tests/test-unrecord-feature.sh (7/7)"
+run_child_suite "tests/test-session-test-gate-check-merge.sh" \
+  "tests/test-session-test-gate-check-merge.sh (9/9)"
 
 # ----------------------------------------------------------------
 # Process-checklist / pending-approval / poc-modes (BL-035 C)
@@ -1683,36 +1374,15 @@ fi
 # (T5: --to-private-poc from personal stays personal — aligned with E60,
 # see BL-079).
 section "BL-035 C: process-checklist / pending / poc-modes"
-if bash "$SCRIPT_DIR/tests/test-pending-approval.sh" >/dev/null 2>&1; then
-  pass "tests/test-pending-approval.sh (21/21)"
-else
-  fail "tests/test-pending-approval.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-process-checklist-auto-advance.sh" >/dev/null 2>&1; then
-  pass "tests/test-process-checklist-auto-advance.sh (7/7)"
-else
-  fail "tests/test-process-checklist-auto-advance.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-process-checklist-classifier.sh" >/dev/null 2>&1; then
-  pass "tests/test-process-checklist-classifier.sh (12/12)"
-else
-  fail "tests/test-process-checklist-classifier.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-phase-finalize.sh" >/dev/null 2>&1; then
-  pass "tests/test-phase-finalize.sh (6/6)"
-else
-  fail "tests/test-phase-finalize.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-platform-security-bugs-closer.sh" >/dev/null 2>&1; then
-  pass "tests/test-platform-security-bugs-closer.sh (7/7)"
-else
-  fail "tests/test-platform-security-bugs-closer.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-poc-modes.sh" >/dev/null 2>&1; then
-  pass "tests/test-poc-modes.sh (5/5)"
-else
-  fail "tests/test-poc-modes.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-pending-approval.sh" "tests/test-pending-approval.sh (21/21)"
+run_child_suite "tests/test-process-checklist-auto-advance.sh" \
+  "tests/test-process-checklist-auto-advance.sh (7/7)"
+run_child_suite "tests/test-process-checklist-classifier.sh" \
+  "tests/test-process-checklist-classifier.sh (12/12)"
+run_child_suite "tests/test-phase-finalize.sh" "tests/test-phase-finalize.sh (6/6)"
+run_child_suite "tests/test-platform-security-bugs-closer.sh" \
+  "tests/test-platform-security-bugs-closer.sh (7/7)"
+run_child_suite "tests/test-poc-modes.sh" "tests/test-poc-modes.sh (5/5)"
 
 # ----------------------------------------------------------------
 # Pre-commit-gate --terminal-mode (BL-035 C / BL-075)
@@ -1730,11 +1400,8 @@ fi
 # was already registered at TEST 0o (Wave-3) — the same BL-074 scaffold fix
 # turns it from RED (T6a/b/T11a/b) to GREEN there.
 section "BL-035 C: pre-commit-gate terminal-mode (BL-075)"
-if bash "$SCRIPT_DIR/tests/test-pre-commit-gate-terminal-mode.sh" >/dev/null 2>&1; then
-  pass "tests/test-pre-commit-gate-terminal-mode.sh (3/3)"
-else
-  fail "tests/test-pre-commit-gate-terminal-mode.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-pre-commit-gate-terminal-mode.sh" \
+  "tests/test-pre-commit-gate-terminal-mode.sh (3/3)"
 
 # ----------------------------------------------------------------
 # Docs / specs / lint suites (BL-035 C)
@@ -1742,21 +1409,10 @@ fi
 # Docs-cluster six-pack (doc-consistency guards), specs+plans remaining
 # quartet, and the UAT-scenarios lint behavior suite.
 section "BL-035 C: docs / specs / lint suites"
-if bash "$SCRIPT_DIR/tests/test-docs-cluster-six-pack.sh" >/dev/null 2>&1; then
-  pass "tests/test-docs-cluster-six-pack.sh (28/28)"
-else
-  fail "tests/test-docs-cluster-six-pack.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-specs-plans-remaining-quartet.sh" >/dev/null 2>&1; then
-  pass "tests/test-specs-plans-remaining-quartet.sh (10/10)"
-else
-  fail "tests/test-specs-plans-remaining-quartet.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-lint-uat-scenarios.sh" >/dev/null 2>&1; then
-  pass "tests/test-lint-uat-scenarios.sh (12/12)"
-else
-  fail "tests/test-lint-uat-scenarios.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-docs-cluster-six-pack.sh" "tests/test-docs-cluster-six-pack.sh (28/28)"
+run_child_suite "tests/test-specs-plans-remaining-quartet.sh" \
+  "tests/test-specs-plans-remaining-quartet.sh (10/10)"
+run_child_suite "tests/test-lint-uat-scenarios.sh" "tests/test-lint-uat-scenarios.sh (12/12)"
 # --- end BL-035 wiring C ---
 
 # ================================================================
@@ -1775,125 +1431,41 @@ fi
 section "BL-035 wiring A: governance/bypass, gate/check, enforcement-level"
 
 # Governance / bypass family.
-if bash "$SCRIPT_DIR/tests/test-bl029-integration.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl029-integration.sh (incl. folded bypass-audit-schema T1b)"
-else
-  fail "tests/test-bl029-integration.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-bl030-calibration-replay.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl030-calibration-replay.sh"
-else
-  fail "tests/test-bl030-calibration-replay.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-bypass-audit-integrity.sh" >/dev/null 2>&1; then
-  pass "tests/test-bypass-audit-integrity.sh"
-else
-  fail "tests/test-bypass-audit-integrity.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-bypass-audit-lib.sh" >/dev/null 2>&1; then
-  pass "tests/test-bypass-audit-lib.sh"
-else
-  fail "tests/test-bypass-audit-lib.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-bypass-detector.sh" >/dev/null 2>&1; then
-  pass "tests/test-bypass-detector.sh"
-else
-  fail "tests/test-bypass-detector.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-bypass-patterns.sh" >/dev/null 2>&1; then
-  pass "tests/test-bypass-patterns.sh"
-else
-  fail "tests/test-bypass-patterns.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-bypass-sentinel.sh" >/dev/null 2>&1; then
-  pass "tests/test-bypass-sentinel.sh"
-else
-  fail "tests/test-bypass-sentinel.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-out-of-band-detector.sh" >/dev/null 2>&1; then
-  pass "tests/test-out-of-band-detector.sh"
-else
-  fail "tests/test-out-of-band-detector.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-escalate-to-user.sh" >/dev/null 2>&1; then
-  pass "tests/test-escalate-to-user.sh"
-else
-  fail "tests/test-escalate-to-user.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl029-integration.sh" \
+  "tests/test-bl029-integration.sh (incl. folded bypass-audit-schema T1b)"
+run_child_suite "tests/test-bl030-calibration-replay.sh" "tests/test-bl030-calibration-replay.sh"
+run_child_suite "tests/test-bypass-audit-integrity.sh" "tests/test-bypass-audit-integrity.sh"
+run_child_suite "tests/test-bypass-audit-lib.sh" "tests/test-bypass-audit-lib.sh"
+run_child_suite "tests/test-bypass-detector.sh" "tests/test-bypass-detector.sh"
+run_child_suite "tests/test-bypass-patterns.sh" "tests/test-bypass-patterns.sh"
+run_child_suite "tests/test-bypass-sentinel.sh" "tests/test-bypass-sentinel.sh"
+run_child_suite "tests/test-out-of-band-detector.sh" "tests/test-out-of-band-detector.sh"
+run_child_suite "tests/test-escalate-to-user.sh" "tests/test-escalate-to-user.sh"
 
 # Gate / check family.
-if bash "$SCRIPT_DIR/tests/test-check-gate.sh" >/dev/null 2>&1; then
-  pass "tests/test-check-gate.sh"
-else
-  fail "tests/test-check-gate.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-check-changelog-filter.sh" >/dev/null 2>&1; then
-  pass "tests/test-check-changelog-filter.sh"
-else
-  fail "tests/test-check-changelog-filter.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-check-commit-message.sh" >/dev/null 2>&1; then
-  pass "tests/test-check-commit-message.sh"
-else
-  fail "tests/test-check-commit-message.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-check-gate.sh" "tests/test-check-gate.sh"
+run_child_suite "tests/test-check-changelog-filter.sh" "tests/test-check-changelog-filter.sh"
+run_child_suite "tests/test-check-commit-message.sh" "tests/test-check-commit-message.sh"
 # BL-010: the BL-006 Build-Loop commit-message check now runs at the git
 # commit-msg hook surface (pre-commit-gate.sh --terminal-mode --tdd-only ->
 # bl006_terminal_enforce), reaching editor-opened and human-terminal commits.
 # Mutation-proof: excising the marked `# BL-010-COMMITMSG-BL006` delegation line
 # removes the refusal, flipping T-bl010-commitmsg-bl006-blocks RED.
-if bash "$SCRIPT_DIR/tests/test-bl010-commitmsg-bl006.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl010-commitmsg-bl006.sh"
-else
-  fail "tests/test-bl010-commitmsg-bl006.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-check-phase-gate.sh" >/dev/null 2>&1; then
-  pass "tests/test-check-phase-gate.sh"
-else
-  fail "tests/test-check-phase-gate.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-check-phase-gate-poc-block-contract.sh" >/dev/null 2>&1; then
-  pass "tests/test-check-phase-gate-poc-block-contract.sh"
-else
-  fail "tests/test-check-phase-gate-poc-block-contract.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-check-phase-gate-counter-sanitizer.sh" >/dev/null 2>&1; then
-  pass "tests/test-check-phase-gate-counter-sanitizer.sh"
-else
-  fail "tests/test-check-phase-gate-counter-sanitizer.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-gate-principles.sh" >/dev/null 2>&1; then
-  pass "tests/test-gate-principles.sh"
-else
-  fail "tests/test-gate-principles.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-filesystem-gate-install.sh" >/dev/null 2>&1; then
-  pass "tests/test-filesystem-gate-install.sh"
-else
-  fail "tests/test-filesystem-gate-install.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-bl174-gitignore-backfill.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl174-gitignore-backfill.sh"
-else
-  fail "tests/test-bl174-gitignore-backfill.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-bl010-commitmsg-bl006.sh" "tests/test-bl010-commitmsg-bl006.sh"
+run_child_suite "tests/test-check-phase-gate.sh" "tests/test-check-phase-gate.sh"
+run_child_suite "tests/test-check-phase-gate-poc-block-contract.sh" \
+  "tests/test-check-phase-gate-poc-block-contract.sh"
+run_child_suite "tests/test-check-phase-gate-counter-sanitizer.sh" \
+  "tests/test-check-phase-gate-counter-sanitizer.sh"
+run_child_suite "tests/test-gate-principles.sh" "tests/test-gate-principles.sh"
+run_child_suite "tests/test-filesystem-gate-install.sh" "tests/test-filesystem-gate-install.sh"
+run_child_suite "tests/test-bl174-gitignore-backfill.sh" "tests/test-bl174-gitignore-backfill.sh"
 
 # Enforcement-level family.
-if bash "$SCRIPT_DIR/tests/test-enforcement-level-lib.sh" >/dev/null 2>&1; then
-  pass "tests/test-enforcement-level-lib.sh"
-else
-  fail "tests/test-enforcement-level-lib.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-enforcement-level-init.sh" >/dev/null 2>&1; then
-  pass "tests/test-enforcement-level-init.sh"
-else
-  fail "tests/test-enforcement-level-init.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-enforcement-level-reconfigure.sh" >/dev/null 2>&1; then
-  pass "tests/test-enforcement-level-reconfigure.sh"
-else
-  fail "tests/test-enforcement-level-reconfigure.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-enforcement-level-lib.sh" "tests/test-enforcement-level-lib.sh"
+run_child_suite "tests/test-enforcement-level-init.sh" "tests/test-enforcement-level-init.sh"
+run_child_suite "tests/test-enforcement-level-reconfigure.sh" \
+  "tests/test-enforcement-level-reconfigure.sh"
 # BL-180: the INTERACTIVE birth site. Everything above this pair covers the
 # --non-interactive arm only, which is why an interactively scaffolded project
 # shipped with enforcement_level="" and no filesystem gate.
@@ -1904,16 +1476,16 @@ fi
 #     invokes init.sh for a full create_project, so it must NOT be added to
 #     the .github/workflows/tests.yml unit lane. LOUD-SKIPS (rc=0, printed
 #     reason) when neither expect nor script is installed.
-if bash "$SCRIPT_DIR/tests/test-bl180-interactive-enforcement.sh" >/dev/null 2>&1; then
-  pass "tests/test-bl180-interactive-enforcement.sh"
-else
-  fail "tests/test-bl180-interactive-enforcement.sh FAILED (run for details)"
-fi
-# Output is CAPTURED, not discarded, for this one: its LOUD SKIP (no expect and
-# no script on PATH) is an rc=0 outcome, and the standard `>/dev/null 2>&1`
-# delegate shape would render it indistinguishable from a genuine 10/10 pass —
+run_child_suite "tests/test-bl180-interactive-enforcement.sh" \
+  "tests/test-bl180-interactive-enforcement.sh"
+# Output is INSPECTED, not just captured, for this one — so it is deliberately
+# NOT routed through run_child_suite. Its LOUD SKIP (no expect and no script on
+# PATH) is an rc=0 outcome, and run_child_suite prints nothing at all on rc=0,
+# which would render the skip indistinguishable from a genuine 10/10 pass —
 # turning a documented skip back into the silent-success class this test exists
-# to close. Surface the skip in the suite line instead.
+# to close. BL-184 fixed the FAILURE side of the delegate contract; this site
+# needs the SUCCESS side branched on, so it keeps its own capture and surfaces
+# the skip in the suite line.
 #
 # NOT SUITE_SKIP_AGGREGATORS-gated, unlike the five real-scaffold siblings above
 # — a deliberate exception (verifier finding R-WPA-1, 2026-07-26). The `core`
@@ -1967,67 +1539,29 @@ fi
 #              (production is valid for personal, baseline §2.5). N7 now pins
 #              the actually-rejected personal+sponsored_poc combo → exit 1.
 section "BL-035 wiring B: init family"
-if bash "$SCRIPT_DIR/tests/test-init-atomic-finalize.sh" >/dev/null 2>&1; then
-  pass "tests/test-init-atomic-finalize.sh (code-init-sh-6 atomic-finalize, 8/8)"
-else
-  fail "tests/test-init-atomic-finalize.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-init-no-remote-creation.sh" >/dev/null 2>&1; then
-  pass "tests/test-init-no-remote-creation.sh"
-else
-  fail "tests/test-init-no-remote-creation.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-init-schema-phase-gate.sh" >/dev/null 2>&1; then
-  pass "tests/test-init-schema-phase-gate.sh"
-else
-  fail "tests/test-init-schema-phase-gate.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-vendored-skills-install.sh" >/dev/null 2>&1; then
-  pass "tests/test-vendored-skills-install.sh"
-else
-  fail "tests/test-vendored-skills-install.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-init-atomic-finalize.sh" \
+  "tests/test-init-atomic-finalize.sh (code-init-sh-6 atomic-finalize, 8/8)"
+run_child_suite "tests/test-init-no-remote-creation.sh" "tests/test-init-no-remote-creation.sh"
+run_child_suite "tests/test-init-schema-phase-gate.sh" "tests/test-init-schema-phase-gate.sh"
+run_child_suite "tests/test-vendored-skills-install.sh" "tests/test-vendored-skills-install.sh"
 # N7 fix landed in this test (personal+sponsored_poc, not personal+production).
-if bash "$SCRIPT_DIR/tests/test-init-non-interactive.sh" >/dev/null 2>&1; then
-  pass "tests/test-init-non-interactive.sh (BL-016 --non-interactive validation, 29/29)"
-else
-  fail "tests/test-init-non-interactive.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-init-non-interactive.sh" \
+  "tests/test-init-non-interactive.sh (BL-016 --non-interactive validation, 29/29)"
 
 section "BL-035 wiring B: upgrade family"
-if bash "$SCRIPT_DIR/tests/test-upgrade-non-interactive.sh" >/dev/null 2>&1; then
-  pass "tests/test-upgrade-non-interactive.sh"
-else
-  fail "tests/test-upgrade-non-interactive.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-upgrade-bl030-backfill.sh" >/dev/null 2>&1; then
-  pass "tests/test-upgrade-bl030-backfill.sh"
-else
-  fail "tests/test-upgrade-bl030-backfill.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-upgrade-to-production-preconditions.sh" >/dev/null 2>&1; then
-  pass "tests/test-upgrade-to-production-preconditions.sh"
-else
-  fail "tests/test-upgrade-to-production-preconditions.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-upgrade-to-production-warn.sh" >/dev/null 2>&1; then
-  pass "tests/test-upgrade-to-production-warn.sh"
-else
-  fail "tests/test-upgrade-to-production-warn.sh FAILED (run for details)"
-fi
-if bash "$SCRIPT_DIR/tests/test-verify-install-bl030-coverage.sh" >/dev/null 2>&1; then
-  pass "tests/test-verify-install-bl030-coverage.sh"
-else
-  fail "tests/test-verify-install-bl030-coverage.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-upgrade-non-interactive.sh" "tests/test-upgrade-non-interactive.sh"
+run_child_suite "tests/test-upgrade-bl030-backfill.sh" "tests/test-upgrade-bl030-backfill.sh"
+run_child_suite "tests/test-upgrade-to-production-preconditions.sh" \
+  "tests/test-upgrade-to-production-preconditions.sh"
+run_child_suite "tests/test-upgrade-to-production-warn.sh" \
+  "tests/test-upgrade-to-production-warn.sh"
+run_child_suite "tests/test-verify-install-bl030-coverage.sh" \
+  "tests/test-verify-install-bl030-coverage.sh"
 # DECOMPOSED: only the unique T4 (BL-004 CI migration) / T5 (vendored-skills,
 # private-poc, manifesto) / T6 (POC-strip) cases remain; T1/T2/T3 tier-transition
 # cases were dropped as dups of tests/upgrade-path-tests.sh.
-if bash "$SCRIPT_DIR/tests/test-upgrade-paths.sh" >/dev/null 2>&1; then
-  pass "tests/test-upgrade-paths.sh (unique T4/T5/T6 after BL-035 decompose, 16/16)"
-else
-  fail "tests/test-upgrade-paths.sh FAILED (run for details)"
-fi
+run_child_suite "tests/test-upgrade-paths.sh" \
+  "tests/test-upgrade-paths.sh (unique T4/T5/T6 after BL-035 decompose, 16/16)"
 
 # ================================================================
 # TEST 1: RESOLVER MATRIX — ALL COMBINATIONS
@@ -2907,23 +2441,17 @@ if [ "${SUITE_SKIP_AGGREGATORS:-0}" = "1" ]; then
 else
 section "BL-052: previously-un-invoked aggregators (edge-case / known-bugs / upgrade-path)"
 
-if bash "$SCRIPT_DIR/tests/edge-case-test-suite.sh" >/dev/null 2>&1; then
-  pass "tests/edge-case-test-suite.sh (edge-case sweep — platform/tool-prefs/git-host/re-init/bypass-detector/intake/resolver-timeout)"
-else
-  fail "tests/edge-case-test-suite.sh FAILED (run tests/edge-case-test-suite.sh for the per-section [FAIL] lines)"
-fi
+run_child_suite "tests/edge-case-test-suite.sh" \
+  "tests/edge-case-test-suite.sh (edge-case sweep — platform/tool-prefs/git-host/re-init/bypass-detector/intake/resolver-timeout)" \
+  "tests/edge-case-test-suite.sh FAILED (run tests/edge-case-test-suite.sh for the per-section [FAIL] lines)"
 
-if bash "$SCRIPT_DIR/tests/known-bugs-test-suite.sh" >/dev/null 2>&1; then
-  pass "tests/known-bugs-test-suite.sh (BUG-1..BUG-8 + E1-E40 regression sweep)"
-else
-  fail "tests/known-bugs-test-suite.sh FAILED (run tests/known-bugs-test-suite.sh for details)"
-fi
+run_child_suite "tests/known-bugs-test-suite.sh" \
+  "tests/known-bugs-test-suite.sh (BUG-1..BUG-8 + E1-E40 regression sweep)" \
+  "tests/known-bugs-test-suite.sh FAILED (run tests/known-bugs-test-suite.sh for details)"
 
-if bash "$SCRIPT_DIR/tests/upgrade-path-tests.sh" >/dev/null 2>&1; then
-  pass "tests/upgrade-path-tests.sh (track/deployment/POC upgrade + strict-superset no-regression)"
-else
-  fail "tests/upgrade-path-tests.sh FAILED (run tests/upgrade-path-tests.sh for details)"
-fi
+run_child_suite "tests/upgrade-path-tests.sh" \
+  "tests/upgrade-path-tests.sh (track/deployment/POC upgrade + strict-superset no-regression)" \
+  "tests/upgrade-path-tests.sh FAILED (run tests/upgrade-path-tests.sh for details)"
 fi
 # --- end BL-052 aggregator wiring ---
 
@@ -2957,6 +2485,7 @@ fi
 
 # Cleanup
 rm -rf "$TEST_DIR"
+rm -f "$SUITE_CHILD_LOG"   # BL-184-CHILD-EVIDENCE scratch capture
 
 echo ""
 echo "Test directory cleaned up: $TEST_DIR"

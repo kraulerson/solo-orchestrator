@@ -119,6 +119,7 @@ jobs:
             tests/test-bl172-resume-sentinels.sh
             tests/test-bl161-ledger-real-events-only.sh
             tests/test-bl174-gitignore-backfill.sh
+            tests/test-bl184-child-suite-evidence.sh
             tests/test-bl141-commitmsg-repair.sh
             tests/test-bl143-pastcap-selfapproval.sh
             tests/test-bl155-phase2-init-transition-commit.sh
