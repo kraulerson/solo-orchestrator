@@ -530,7 +530,26 @@ _run_idempotent_backfill() {
   # path), installs the filesystem gate, initializes the detection
   # baseline, and writes an enforcement_level_set audit row sourced
   # 'upgrade-backfill' so the lifecycle is traceable.
-  if [ -f .claude/manifest.json ] && ! jq -e '.enforcement_level' .claude/manifest.json >/dev/null 2>&1; then
+  # BL-180-BACKFILL-EMPTY: an EMPTY enforcement_level counts as ABSENT.
+  # The old gate was `! jq -e '.enforcement_level' …`, and `jq -e` on the empty
+  # string prints "" and EXITS 0 — so a manifest carrying `enforcement_level: ""`
+  # looked already-migrated and this block was skipped. That made an empty value
+  # strictly WORSE than a missing one: it defeated the migration written for
+  # exactly this, and every project born on init.sh's pre-BL-180 INTERACTIVE
+  # path carried it (see # BL-180-ENFORCEMENT-DEFAULT in init.sh). Nothing else
+  # repaired those projects either — read_enforcement_level maps "" → strict, so
+  # every lib-mediated diagnostic reported them as strict while the commit-time
+  # gate was absent, and no operator had a reason to run reconfigure.
+  #
+  # `jq -r '.enforcement_level // ""'` collapses BOTH shapes to the empty string
+  # (`null // ""` → "", `"" // ""` → ""), while a real level passes through
+  # verbatim, so `-z` fires on absent-or-empty and NEVER on a legitimately
+  # chosen tier — an explicit `light` still survives untouched (pinned by T10 of
+  # tests/test-upgrade-bl030-backfill.sh, alongside T8/T9 for the repair itself).
+  # A malformed manifest makes jq fail with empty stdout, which triggers the
+  # backfill exactly as the old `! jq -e` did — the behaviour there is unchanged.
+  if [ -f .claude/manifest.json ] \
+     && [ -z "$(jq -r '.enforcement_level // ""' .claude/manifest.json 2>/dev/null)" ]; then
     print_step "Backfilling manifest.json BL-030 fields (deployment, poc_mode, enforcement_level)"
     mig_deployment=""
     mig_poc=""

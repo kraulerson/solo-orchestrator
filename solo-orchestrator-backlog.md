@@ -4436,6 +4436,237 @@ GREEN (`strict` + gate present), non-interactive control identical both ways.
 `ARG_PROJECT$ARG_PLATFORM$ARG_DEPLOYMENT$ARG_LANGUAGE` — not that flag, nor `ARG_CONFIRM_PITFALLS`
 (which IS part of the BL-030 surface).
 
+**Build note (2026-07-26, worktree branch `worktree-wf_79ea23a3-eb4-1`):** Fixed exactly as the
+entry prescribed, under `# BL-180-ENFORCEMENT-DEFAULT` in `init.sh::main` —
+`[ -z "$ENFORCEMENT_LEVEL" ] && ENFORCEMENT_LEVEL="strict"`, hoisted out of the
+`if [ "$NON_INTERACTIVE" = true ] … else … fi` dispatch and placed immediately after it, before
+`log_section "Project Configuration"`. The `&&`-list form was **verified safe under
+`set -euo pipefail` on this host's bash 3.2.57 before being written** (`X="light";
+[ -z "$X" ] && X="strict"; echo` survives, rc=0 — a failing mid-script AND-list does not trip
+`set -e`), which is also why the pre-existing sibling inside the BL-030 choosable arm has always
+been safe. `docs/builders-guide.md`'s "`strict` (default)" claim is now TRUE on every entry path
+rather than only the non-interactive one, so no doc edit was needed.
+
+**Observability companion** `# BL-180-DRYRUN-ENFORCEMENT` in `dry_run_summary` emits
+`  Enforcement: $ENFORCEMENT_LEVEL` on **stdout**. This is load-bearing, not cosmetic: the sibling
+`log_line` calls write to the log FILE only, and that invisibility is exactly why every
+fed-sequence `--dry-run` fixture in the repo was blind to a defect sitting in plain sight. The
+value is echoed **verbatim** — never `// "strict"`-defaulted — so an unresolved level surfaces as
+an empty field instead of being cosmetically repaired at the reporting layer.
+
+**CONFIRM_PITFALLS — considered and deliberately NOT given the same treatment** (reasoning
+recorded in the marker comment). It is not the same defect: (a) `ENFORCEMENT_LEVEL`'s top-of-file
+`""` is not a legal value, whereas `CONFIRM_PITFALLS=0` already **is** its correct interactive
+value; (b) its only semantic is permission to DOWNGRADE below strict, and the interactive arm
+offers no downgrade to authorize — 0 is correct, not merely safe; (c) its other consumer is the
+bypass-audit birth row's `confirmed_pitfalls: ($confirmed=="1")`, so defaulting it to 1 would
+write a FALSE attestation ("operator accepted the pitfalls") into the audit trail of an operator
+who was never asked. Any non-zero default widens the bypass surface instead of closing it.
+
+**Tests — both watched-RED first.** (1) `tests/test-bl180-interactive-enforcement.sh` (7 cases,
+fast, pty-free): feeds the wizard's `prompt_choice` sequence to `init.sh --dry-run` and asserts the
+resolved level, with three NON-INTERACTIVE controls. Menu ordinals are **re-derived at run time**
+from the same globs/markers `collect_project_info` uses (`platform-modules/*.md` →
+`release/github/*.yml` → `other`; `ci/github/*.yml` filtered by the
+`# solo-orchestrator: platforms=` marker), not hardcoded — a stale ordinal is how the aggregator's
+TEST 7 fixture broke before BL-136 — and the run is bound to the resolved combo so a drifted
+derivation fails loudly instead of pinning the wrong project shape. Independently re-derived to
+`web=4 / typescript=7`, matching TEST 7. **T5 is the inertness proof**: non-interactive
+`--enforcement-level light --confirm-pitfalls` must still report `light`. (2)
+`tests/test-bl180-interactive-scaffold-pty.sh` (10 cases, aggregator-ONLY): a REAL interactive
+scaffold over a pty via `expect` (fallback `script`; LOUD SKIP with a printed reason when neither
+exists — verified by running it under a PATH containing neither). Hermetic as to the NETWORK — Git
+host is answered `other` (URL-paste path, never touches gh/glab/curl) and the clone-URL prompt is
+answered EMPTY so `create_and_protect_remote` fails at its `[ -z "$remote_url" ]` guard **before**
+`git remote add`; `init.sh` consequently returns 2 via `record_init_failure` — expected, printed
+for diagnosis, and deliberately NOT asserted (pinning it would couple the test to unrelated
+host-setup outcomes). The real guarantees sit on artifacts written by the earlier
+`prepare_initial_state_for_commit`, plus T1 (the scaffold happened at all, so nothing below can
+pass vacuously) and T7 (`git remote -v` is empty). **Both drivers were
+actually exercised**, not just the primary: `SOIF_BL180_FORCE_SCRIPT_FALLBACK=1` forces the
+`script(1)` path (BSD/util-linux invocation auto-detected by probing) and also reports
+`10 passed, 0 failed`, so the fallback is not shipped-but-dead code.
+
+**REMEDIATION (2026-07-26, verifier finding R-WPA-1 — CONFIRMED, the original claim was wrong).**
+The pty fixture's "hermetic by construction" and `8 passed, 0 failed` claims held only on a host
+where `CI` is unset. `helpers-core.sh::prompt_input`'s guard is
+`[ ! -t 0 ] || [ -n "${CI:-}" ] || [ -n "${SOIF_NONINTERACTIVE:-}" ]` — the last two are checked
+**independently of the tty**, so a pty does not defeat them. Re-confirmed here with an isolated
+`expect` probe against the real function: with `CI` unset the call BLOCKS on `read` (interactive
+branch); with `CI=true` it prints `[WARN] Non-interactive context: prompt_input("Project
+directory") returning default …` and returns without reading. Every GitHub Actions runner exports
+`CI=true`, and that is exactly the environment of the `full` lane this test is registered into.
+The consequence is worse than a red test: `PROJECT_NAME` resolves to `""`, so
+`PROJECT_DIR=$(prompt_input "Project directory" "$default_parent/$PROJECT_NAME")` resolves to
+`"$default_parent/"` — the **parent directory of the checkout** — and a complete git-init'd
+project is scaffolded OUTSIDE the fixture's own `mktemp -d`. Reproduced end-to-end from a
+sandboxed COPY of the checkout (so the escape landed in a throwaway dir):
+`CI=true bash tests/test-bl180-interactive-scaffold-pty.sh` → `Results: 0 passed, 1 failed`,
+`EXIT=1`, and `$default_parent` went from `repo` to a full project tree
+(`.claude .claude-backup .git .github … PROJECT_INTAKE.md scripts templates tests`).
+
+Fixed under `# BL-180-PTY-INTERACTIVE-ENV` (three parts, all in the fixture):
+* `unset CI` / `unset SOIF_NONINTERACTIVE` beside the existing `unset GITHUB_BASE_REF` — driving
+  the INTERACTIVE branch is the whole point of this test, and the piped/non-interactive branch is
+  the fast pin's job. This is the actual repair: same sandbox, same `CI=true` invocation, now
+  `Results: 10 passed, 0 failed`, `EXIT=0`, `$default_parent` unchanged (`repo`).
+* **T0a — pre-flight containment**, ordered BEFORE `init.sh` is ever spawned and the only
+  assertion that can PREVENT rather than report an escape. It re-asserts `CI`/`SOIF_NONINTERACTIVE`
+  are unset and that `$PROJ` is under `$TMP`, and on failure prints the directory the run WOULD
+  have escaped to and exits **without spawning**. Watched-RED by deleting the `unset CI` line and
+  re-running under `CI=true`: `[FAIL] T0a — REFUSING to spawn init.sh — CI is set ('true') …`,
+  `Results: 0 passed, 1 failed`, and `$default_parent` **UNCHANGED** — i.e. the failure mode is now
+  "fails loudly, writes nothing" instead of "writes a project outside the fixture".
+* **T0b — post-run escape detector**, deliberately ordered before T1 because T1 `exit 1`s the
+  moment the fixture manifest is missing, which is *precisely* the escape path — so pre-remediation
+  the only message an operator saw named the one directory the project was NOT written to.
+  `.claude/manifest.json` in the checkout's parent is the decisive artifact (no legitimate reason
+  to exist there). Watched-RED by planting that file: `[FAIL] T0b — ESCAPE — a project was
+  scaffolded into '…', OUTSIDE this fixture`, `Results: 9 passed, 1 failed`; removed → `10/10`.
+
+**Also fixed — R-WPA-4 (weak assertion, the `2>/dev/null`-swallows-the-signal class).** T7's
+hermeticity self-check passed both when no remote was attached AND when `$PROJ` was not a git
+repository at all: the failing `git` call's stderr was discarded and its empty stdout was
+indistinguishable from "no remotes". It now requires `$PROJ/.git` to exist and the `git` call to
+succeed before an empty result is allowed to mean anything. Predicate-level watched-RED, OLD vs
+NEW over three inputs: `not-a-repo` OLD=**PASS** / NEW=`FAIL(not a git repo)`;
+`repo-no-remote` PASS/PASS; `repo-with-remote` FAIL/FAIL — the two legitimate cases agree, only
+the vacuous one changes.
+
+**CI driver (second half of R-WPA-1).** The `full` workflow job now installs `expect`
+(`sudo apt-get install -y expect`, alongside the existing semgrep step). `expect` is the fixture's
+SUPPORTED driver; the `script(1)` fallback is a positional stream that the test's own header calls
+best-effort and that desynchronises wherever a conditional prompt appears. Without the install the
+only end-to-end proof that a strict project is born with a REAL filesystem gate would silently
+degrade to the fallback. The alternative the verifier offered — wrapping the delegate in the
+`SUITE_SKIP_AGGREGATORS` gate its five real-scaffold siblings use — was **rejected**: that gate
+would remove the test from the `core` shard, and since the `aggregators` shard runs only four
+explicitly named files, the net effect would be **zero** CI lanes executing the only check that
+catches a hollow strict gate. Installing the driver preserves the catcher; gating it would delete
+it. Re-verified after remediation that the catcher still catches — the verifier's own MUT-3
+(`[ "$ENFORCEMENT_LEVEL" = "strict" ]` → `"strict_REVIEWER_MUT3"`) against the REMEDIATED fixture:
+`[FAIL] T4 — framework-gate.sh ABSENT`, `[FAIL] T5 — pre-commit lacks the 'SOIF framework gate
+(BL-030)' block`, `Results: 8 passed, 2 failed`.
+
+**Two findings the interactive path surfaced that no non-interactive fixture can.** (i) The nested
+CDF installer (`~/.claude-dev-framework/scripts/init.sh`, invoked from `create_project`) has
+`[ -t 0 ]`-guarded prompts — `Proceed with framework installation? (y/n)` and
+`Install Context7 now?` — that exist ONLY on a pty; the first cut of the driver hung on them for
+15 minutes, and the T1 "did the scaffold happen at all" guard reported it loudly with a transcript
+tail rather than passing vacuously. Note `[ "$proceed" != "y" ]` there is case-SENSITIVE, so "Y"
+aborts. (ii) The mutation proof caught a weak assertion **in my own test**: T5 originally grepped
+`.git/hooks/pre-commit` for `framework-gate.sh` and PASSED with the gate provably absent, because
+`scripts/lib/hook-templates.sh` names that file in explanatory COMMENTS emitted into every
+generated hook. T5 now asserts `install-filesystem-gates.sh`'s MARK_OPEN sentinel
+(`SOIF framework gate (BL-030)`), the string the filing's own A/B counted.
+
+**Mutation proof (both directions, with a non-interactive control identical in both).** Delete the
+`# BL-180-ENFORCEMENT-DEFAULT` line → fast pin `Results: 5 passed, 2 failed` (T1/T3 interactive RED
+showing literally `Enforcement: `; T4/T5/T6 non-interactive controls GREEN) and pty
+`Results: 6 passed, 4 failed` (T3 `enforcement_level=''`, T4 gate ABSENT, T5 sentinel absent, T6
+audit row `''` — the filing's signature reproduced exactly). Restore → `7 passed, 0 failed` and
+`10 passed, 0 failed`. (Re-run against the REMEDIATED fixture on 2026-07-26; the pty RED tally is
+`6 passed, 4 failed` rather than the pre-remediation `4 passed, 4 failed` because T0a/T0b are two
+additional PASSING cases under this mutation — the four caught consequences are unchanged, which
+is the point: the R-WPA-1 repair did not blunt the catcher.)
+
+**Registration:** both are registered in `tests/full-project-test-suite.sh` (enforcement-level
+cohort), and neither is in the `.github/workflows/tests.yml` unit lane — both invoke `init.sh`,
+and the documented membership rule is "does not invoke init.sh". Per BL-181 a green
+`lint-tests-registered.sh` proves NEITHER fact here (its unit-lane arm exempts any file whose text
+merely mentions `init.sh`), so both were verified BY HAND: grep of the aggregator for the two
+delegate invocations, and a grep of the `tests=(` array confirming absence. The pty test's aggregator entry deliberately
+CAPTURES output instead of `>/dev/null 2>&1` so its rc=0 LOUD SKIP cannot masquerade as a genuine
+10/10 pass.
+
+**LANE DECISION (2026-07-26, verifier findings R-WPA-2 + R-WPA-3) — RECORDED, not deferred.
+The BL-180 surface is accepted as FULL-LANE-ONLY.** The original escalation rested on a measured
+claim that was wrong: it described the fast pin as "seconds, hermetic, no scaffold". Hermetic and
+no-scaffold hold; **"seconds" does not.** Measured on this host,
+`bash tests/test-bl180-interactive-enforcement.sh` → `Results: 7 passed, 0 failed`, `EXIT=0`,
+**wall clock 116 s** — an order of magnitude off the claim, and roughly a 40 % increase on a unit
+lane documented at ~5 min. That measurement inverts the escalation's own premise, so the decision
+is to leave the membership rule ("does not invoke `init.sh`") ALONE and keep all three BL-180 test
+surfaces in the aggregator only. Three reasons, in order of weight: (1) the fast pin is not fast
+enough to be free on every PR; (2) changing the rule to "does not SCAFFOLD a project" is a
+governance edit touching `CLAUDE.md`, the `tests.yml` comments and the `grep -L 'init\.sh'`
+regeneration recipe — strictly larger than this remediation and the kind of change the WP said to
+escalate rather than make unilaterally; (3) the honest residual is narrower than it first looks,
+because the chain that made R-WPA-2 material has been broken — R-WPA-1 is fixed, so the pty test
+now PASSES under `CI=true` and genuinely executes in the `full` lane's `core` shard with `expect`
+installed. **The residual, stated plainly:** a mutation of the
+`[ "$ENFORCEMENT_LEVEL" = "strict" ]` gate-install guard in
+`init.sh::prepare_initial_state_for_commit` is still invisible to every PR-BLOCKING check
+(`lint-tests-registered` rc=0, `lint-no-live-remote` rc=0,
+`tests/test-filesystem-gate-install.sh` 8/8, `tests/test-enforcement-level-lib.sh` 10/10, and the
+fast pin 7/7 — which cannot observe it because `--dry-run` returns from `main()` before
+`create_project`). It is caught only by the manual `workflow_dispatch` lane. Closing that gap
+properly means a unit-lane-cheap pin on the gate-install guard specifically, which is its own
+work item — see the follow-on escalation below.
+
+**Repair path for already-scaffolded projects — `# BL-180-BACKFILL-EMPTY` in
+`scripts/upgrade-project.sh`.** The BL-030 backfill's gate was `! jq -e '.enforcement_level' …`,
+and `jq -e` on `""` prints `""` and EXITS 0 (re-confirmed on this host across all four shapes:
+`""`→0, missing→1, `null`→1, `"strict"`→0), so the block skipped the very projects it exists to
+repair. Replaced with `[ -z "$(jq -r '.enforcement_level // ""' … )" ]`, which collapses BOTH
+absent and empty to `""` while a real level passes through verbatim. Deliberately scoped: it
+widens the trigger to the empty string ONLY — never to a legitimately chosen tier — and a
+malformed manifest still triggers the backfill exactly as the old `! jq -e` did, so that
+behaviour is unchanged. Watched-RED first with the gate untouched: `T8 [FAIL] enforcement_level=''
+— the empty value defeated its own migration`, `T9 [FAIL] gate still absent after backfill`,
+`Results: 8 passed, 2 failed` — with the T10 control (`explicit light survives the backfill`) and
+the T2 idempotency case PASSING in that same RED run, so the fix is proven to move only the two
+intended cases. New fixture `setup_bl180_empty_level_personal` reproduces the pre-fix interactive
+birth shape exactly: it BLANKS `enforcement_level` rather than deleting the key (that distinction
+IS the bug), uninstalls the gate, and strips the birth audit row. After the fix:
+`Results: 10 passed, 0 failed`.
+
+**Residual, reported not fixed (defense in depth):** `jq -r '.enforcement_level // "strict"'`
+does NOT fire on the empty string (`//` only substitutes on `null`/`false`), so
+`scripts/install-filesystem-gates.sh` (including the EMITTED `.git/hooks/framework-gate.sh`,
+which re-reads it on every commit and `exit 0`s when the value is not exactly `strict`),
+`scripts/escalate-to-user.sh` and `scripts/hooks/bypass-detector.sh` would still stamp/act on
+`""`. With the birth site and the repair path both fixed, `""` should no longer arise — but a
+hand-edited or partially-migrated manifest would silently self-disable the gate. Only
+`scripts/lib/enforcement-level.sh::read_enforcement_level` is immune (its `case … *) echo
+"strict"` arm). Hardening those three readers is a separate change.
+
+Status stays **Open** pending PR + merge.
+
+**ESCALATED, not fixed here (2026-07-26, from the R-WPA-2 lane decision):** the gate-install guard
+`[ "$ENFORCEMENT_LEVEL" = "strict" ]` has no PR-blocking pin. The cheap shape would be a
+unit-lane test that drives `prepare_initial_state_for_commit`'s gate-install decision WITHOUT a
+full scaffold — but that function is not independently invocable today, so it needs either an
+extraction or a `--validate-only`-style seam in `init.sh`. That is a source change to the birth
+path with its own blast radius; it is deliberately NOT bundled into a remediation whose remit was
+the pty fixture's containment.
+
+**ESCALATED, not fixed here (2026-07-26, verifier finding R-WPA-5 — CONFIRMED):** both pty drivers
+answer `init.sh::resolve_and_install_tools`' consent gate with yes — the `expect` script has
+`-re {Proceed with this plan\?} { send -- "Y\r"; … }` and the `script(1)` answers file feeds bare
+`y` lines — so on a host missing an `auto_install`/`manual_install` tool the fixture authorises a
+REAL tool installation. The mock-`gh`/`glab` PATH shim does not cover this (it stubs the host CLIs,
+not package managers). Answering `N` instead is NOT a safe one-line change: the plan gate is a
+control-flow branch, and refusing it alters what `create_project` receives, so the whole 10-case
+contract would need re-deriving and re-watching. Left as-is with the behaviour recorded rather
+than half-changed. Note it did not fire on this host (all tools present) — which is exactly why it
+survived the first build.
+
+**Report-hygiene note (verifier finding R-WPA-6):** the implementer's tally block labelled an
+`edge-cases-pre-init` blast-radius run "105 dry-run assertions" while the quoted tally beneath it
+read 37. The label was wrong; the quoted tally is the evidence. No repo artifact carried the bad
+number (it lived only in the hand-off text), so there is nothing to correct in-tree — recorded
+here so the discrepancy is not re-derived as a real disagreement.
+
+**Adjacent item — NOT fixed here, deliberately escalated (2026-07-26):** `--no-remote-creation`
+being silently inert interactively is a genuine SAFETY defect (an operator who asks for no remote
+still reaches `create_and_protect_remote` against their authenticated host), and it is a strictly
+larger change than a warning tweak: making the flag WORK interactively changes documented
+interactive-path semantics, while merely warning about it needs its own accurate message because
+`main`'s existing "interactive flow will prompt" text is FALSE for both `--no-remote-creation` and
+`--confirm-pitfalls` (nothing prompts for either). It wants its own watched-RED + test + review
+rather than being tacked onto this diff.
+
 **Related:** BL-030, BL-084, BL-112, BL-110 (same "written only on one path" class), BL-161/163/171.
 
 ---
