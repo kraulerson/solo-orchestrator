@@ -4800,9 +4800,19 @@ since the fix is what makes the stronger claim true.
 **Fix shape:** restrict to executed lines, reusing `_build_registered_set`'s comment-stripping idiom,
 marked `# BL-181-UNIT-LANE-PREDICATE`:
 `if grep -vE '^[[:space:]]*#' "$file" 2>/dev/null | grep -q 'init\.sh'; then return 0; fi`
-Re-classifies exactly one current file (test-reconfigure-field-handlers.sh) — its tests.yml addition is
-part of the change. Does NOT catch a mention inside a quoted heredoc/string, so also render the
-exemption in `--list` output (`unit-lane-exempt:init-sh-invoker`) so it is visible in review.
+~~Re-classifies exactly one current file (test-reconfigure-field-handlers.sh)~~ — **CORRECTED
+2026-07-27 (retro audit of PR #272, which filed this entry): the "exactly one" prediction was wrong
+by 42x.** Measured with this entry's own prescribed predicate: **42** files re-classify, of which
+**35** were already in the `tests.yml` unit lane (the exemption decided nothing for them) and **7**
+were absent and newly FAIL the lint — `test-bl033-install-cmds-shape.sh`,
+`test-intake-wizard-fixes.sh`, `test-prompt-install-noninteractive.sh`,
+`test-reconfigure-field-handlers.sh`, `test-tier-crosscheck-6-zdr-gate.sh`, `test-upgrade-paths.sh`,
+`test-upgrade-project-retroactive-section.sh`. Their tests.yml additions are part of the change.
+**The undercount also concealed a hard cross-entry dependency:** `test-bl033-install-cmds-shape.sh`
+is BL-135's test and fails on Linux CI, so BL-181 could not land before BL-135 was fixed — the two
+had to ship together, which is why they do. Does NOT catch a mention inside a quoted heredoc/string,
+so also render the exemption in `--list` output (`unit-lane-exempt:init-sh-invoker`) so it is
+visible in review.
 
 **Mutation proof:** fixture pair in tests/test-lint-tests-registered.sh — comment-only mention must FAIL
 rc=1, real invocation must PASS rc=0. Revert the `grep -vE` prefix → comment-only fixture flips FAIL →
@@ -5045,6 +5055,32 @@ predicate is correct against every spelling below, verified before anything was 
 **Standing lesson for this entry (three recurrences of one class, two wrong survivor counts):** a
 regex atom that no fixture line exercises is an atom that can be reverted silently, and a survivor
 row that no execution proves is a claim, not a verdict. Enumerate and execute; do not assert.
+
+**Residual #2 — the SIBLING half of the same feature is still comment-defeatable (found 2026-07-27
+by the pre-merge adversarial review of PR #275; entry stays Open for it).** `_check_unit_lane` now
+reads executed lines, but `_build_unit_list_set` — which parses the `tests.yml` `tests=(` array to
+learn what IS registered — scopes with awk between `tests=(` and `)` and **never strips comments**.
+So an entry **commented out inside the array** is still collected as a member, while bash drops it
+from the array. Net: the test does not run in the fast lane and every PR-blocking check stays green.
+
+Reproduced on the merged tree: commenting out one entry left `lint-tests-registered` rc=0
+("OK: every test file is registered with an aggregator (or EXEMPT)"),
+`tests/test-lint-tests-registered.sh` at `Results: 24 passed, 0 failed`, and `run-lints`
+`11 lints — 11 passed, 0 failed` — while the array evaluated to 134 elements with zero references to
+the victim. Deleting the same line outright DOES go red, so the guard works for omission and not for
+commenting-out.
+
+**Scope note:** this is PRE-EXISTING, not introduced by the BL-181 fix — the awk in
+`_build_unit_list_set` is byte-identical before and after, verified on both revisions. An
+independent refuter confirmed that and downgraded it from the blocking grade it was first filed at.
+It is recorded here because it is the same "a comment defeats the guard" class this entry exists to
+retire, in the other half of the same feature.
+
+**Fix shape:** one awk predicate — `awk '/tests=\(/{f=1; next} f && /^[[:space:]]*\)/{f=0} f &&
+!/^[[:space:]]*#/{print}'` — plus a fixture pair in `tests/test-lint-tests-registered.sh`: a unit
+list carrying the victim COMMENTED OUT must exit 1 and name the file; the same list uncommented must
+exit 0. **Mutation proof:** revert the `!/^[[:space:]]*#/` predicate → the commented-out fixture
+flips from FAIL to PASS → RED → restore → GREEN.
 
 ---
 

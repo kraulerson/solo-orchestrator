@@ -177,17 +177,23 @@ than no manifest).
   pinned by U6, and the fixture header names both rather than papering over
   them: the sed's `\([^[:space:]]\)` guard (behaviour-neutral once whole-line
   comments are stripped — deleting it leaves the suite at 24/0) and the
-  grep's `^` anchor (not neutral, but it is **U7** that kills it, at 22/2).
+  grep's `^` anchor (not neutral — deleting it fails **U7 and U10**, at 22/2).
   Pin each atom's WIDTH and its SPELLING, not just its presence: a
   one-character narrowing — a quantifier, a character class, or `#` →
   `#[[:space:]]` — re-opened BL-181 three times and passed both PR-blocking
   checks every time. Before BL-181 a comment exempted a test outright and
   seven real files were silently exempt that way.
   **Never derive the unit list from `grep -L 'init\.sh' tests/test-*.sh`**
-  — that recipe matches comments and is what produced the hole. Residual: a
-  mention inside a heredoc/string still exempts (a `grep`/`awk` target, or a
-  stub the test writes), so every *decisive* exemption is rendered for
-  review — audit it with
+  — that recipe matches comments and is what produced the hole. **Two
+  residuals survive, so a green lint is still not proof a fast test runs in
+  the unit lane — check the list by hand.** (1) A mention inside a
+  heredoc/string still exempts (a `grep`/`awk` target, or a stub the test
+  writes). (2) In the OTHER half of the same feature, `_build_unit_list_set`
+  scopes the `tests.yml` array with awk and never strips comments, so an entry
+  **commented out** inside `tests=(` still counts as membership while bash
+  drops it — the lint stays green and the test does not run. Both are recorded
+  on `## BL-181:`, which stays Open for them. Every *decisive* exemption is
+  rendered for review — audit it with
   `bash scripts/lint-tests-registered.sh --list | grep unit-lane-exempt`.
   **An exempt row is a claim, not a verdict: read the rows, do not count
   them — and audit them by EXECUTION, not by grep.** A 2026-07-26 grep-based
@@ -197,8 +203,9 @@ than no manifest).
   this surface twice. The execution recipe: append an env-gated marker line
   to `init.sh`, run each exempt row with that env var set, and treat a marker
   as the only proof of invocation. On the tree of 2026-07-26 that pass
-  classified all 27 remaining rows as real invokers — a measurement at one
-  commit, not a standing property. Re-run it; do not cite it.
+  classified all 27 rows *then present* as real invokers — a measurement at
+  one commit, not a standing property. The tree has since grown (the BL-180
+  suites pushed it to 29). Re-run it; do not cite the number.
 - **Portability:** GNU-first `stat -c … || stat -f …`; never `((x++))` under
   `set -e`; configure a git identity in fixtures; unset `GITHUB_BASE_REF` in
   fixture git ops; no multibyte chars adjacent to variable expansions under

@@ -84,8 +84,15 @@ jobs:
           set -uo pipefail
           # Explicit, reviewable list. A test belongs here iff it does not
           # invoke init.sh (no project scaffolding) and is not an aggregator
-          # or helper. Membership is machine-enforced — check it with:
+          # or helper. Membership is machine-checked in the OMISSION direction
+          # — a fast test missing from this array fails the lint — with:
           #   bash scripts/lint-tests-registered.sh
+          # It is NOT tamper-proof in the other direction: `_build_unit_list_set`
+          # scopes with awk between `tests=(` and `)` and does not strip
+          # comments, so an entry COMMENTED OUT inside this array still counts
+          # as membership while bash drops it from the array. A green lint is
+          # therefore not proof that a listed test actually runs here. See the
+          # residual recorded on `## BL-181:`.
           # and see which files the exemption actually fired on with:
           #   bash scripts/lint-tests-registered.sh --list \
           #     | grep unit-lane-exempt
