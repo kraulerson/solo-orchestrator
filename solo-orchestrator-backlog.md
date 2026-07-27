@@ -3346,6 +3346,21 @@ brew AND npm hidden. Watched-RED before the fix: brew hidden → `Results: 2 pas
 Mutation: delete the `PATH="$_BL135_STUB_DIR:$PATH"` prefix → brew-hidden run returns to
 `2 passed, 6 failed` rc=1 → restore → `8 passed, 0 failed` rc=0.
 
+**Whole-lane sweep — is any OTHER unit-lane test brew-dependent?** Asked and answered by execution,
+not by inspection, because this test is not obviously special and a second instance would redden
+every PR just as effectively. The complete `tests.yml` unit `tests=(` array (135 files) was run
+twice: on the normal PATH → **ran 135; failed 0**; and with brew hidden → **ran 135; failed 0**.
+No other unit-lane test carries this dependency.
+
+**Trap for anyone re-running that sweep.** Hide brew SURGICALLY: farm only the PATH directories that
+actually contain a `brew` executable (symlink everything in them except `brew`) and leave every other
+PATH entry as the real directory. A whole-PATH symlink farm is NOT a valid instrument — it produced
+four spurious failures (test-bl132-sast-index-scan, test-bl125-commit-test-exec,
+test-bl163-blocked-ledger, test-bl161-ledger-real-events-only), all with `git: command not found`,
+because a farmed `git` loses its exec-path. The A/B that identified them as artefacts: the same farm
+WITH brew kept fails all four identically (`normalPATH=0  sandbox+brew=1  sandbox-brew=1`), so the
+failures had nothing to do with brew. Under the surgical sandbox all four pass.
+
 **Residual.** The per-sub-suite `tee` instrumentation this entry demanded is still NOT built, and
 that demand is unaffected by this closure — the aggregate core-shard runner still prints only
 `FAILED (run for details)`, so the NEXT unrelated core-shard failure will be just as opaque. That is
