@@ -5271,3 +5271,96 @@ delegates in, with the discard shape), BL-038 / BL-154 / BL-181 (registration li
 delegate that already captured, and why it stays exempt), BL-064 (silent-success-after-FAIL — same
 defect class, different surface).
 
+---
+
+## BL-185: `// nosemgrep` in staged content silently clears the pre-commit SAST gate and leaves NO receipt — the only UNRECORDED escape hatch in the repo (POLICY decision needed)
+
+**Logged:** 2026-07-27 (R-274R-4, surfaced by the adversarial review of the R-274R-1 / R-274R-2 fix; reproduced through the real emitter and a real `git commit` on semgrep 1.157.0)
+**Category:** Enforcement / commit-time SAST — escape-hatch accountability (NOT a scanner-coverage defect)
+**Severity:** **Medium**, and the grade is an argument rather than a reflex, because two readings pull in opposite directions and both are defensible:
+- It reads **High** if you score it as "a one-line comment turns the security gate off." It does, and the gate then prints the full `[OK] semgrep: SAST ran on N staged file(s) — no ERROR-severity findings.` receipt, which is the same false-attestation shape R-274R-1 was rated SEVERE for.
+- It is **not** High, because the mechanism is **sanctioned, documented and deliberate** — three shipped docs instruct builders to use it (below) — and because the pre-commit hook is not a security boundary in the first place: it is unversioned, uninstallable and already has a documented WARN-on-absent contract (`# BL-112-SAST-NOTRUN` spells out why blocking a breakable scanner is theatre). Anyone willing to write `// nosemgrep` could delete the hook. The gate is a **tripwire**, and a tripwire that a builder deliberately steps over is working as designed.
+- **Medium is where those meet:** the defect is not the suppression, it is that **this is the only escape in the repo that leaves no trace.** Every other one is recorded — BL-072's `SOLO_TDD_ATTESTED=1` writes `{date, subject, reason, files}` to `.claude/process-state.json::tdd_attestations[]` and REFUSES the commit if the record cannot be written; BL-163/BL-171 write `terminal_commit_blocked` rows to `.claude/bypass-audit.json`. Suppression is the one door with no logbook, and the cost lands in **Phase 3**, where BL-113 made an un-run scan unlaunderable — a *suppressed* scan launders itself, because it is indistinguishable from a clean one in every artifact the phase gate can read.
+**Status:** Open
+
+**Evidence (reproduced, this host, semgrep 1.157.0, git 2.50.1).** Emit the hook through the shipped
+emitter `soif_write_precommit_hook`, install it as a real `.git/hooks/pre-commit`, stage:
+
+```
+export function render(pane: HTMLElement, userText: string) {
+  // nosemgrep
+  pane.innerHTML = userText;
+}
+```
+
+`git commit` → **rc=0**, transcript is exactly
+`[OK] semgrep: SAST ran on 1 staged file(s) — no ERROR-severity findings.`,
+`git show HEAD:app.ts | grep -c innerHTML` → **1**, and `.claude/bypass-audit.json` **does not exist
+at all**. Note what makes this worse than a plain miss: the arm did not go quiet and it did not warn —
+it affirmatively certified the commit. Every coverage guard in the arm (`# BL-182-NO-UNEARNED-RECEIPT`,
+`# BL-179-STAGED-FILTER`, `# BL-112-SCAN-COVERAGE`) is satisfied and correct here, because the file
+*was* handed over, *was* materialized and *was* opened — semgrep read it and chose to report nothing.
+This is not a sixth instance of the silent-success class; it is a different problem wearing its coat.
+
+**THE OBVIOUS FIX IS PROVEN WORSE — DO NOT ADD `--disable-nosem`.** Measured on the same file, same
+config set, semgrep 1.157.0:
+
+```
+semgrep scan --config=r/javascript.browser.security.insecure-document-method \
+  --config=.semgrep/soif-dom-sinks.yml --severity=ERROR --error app.ts
+    -> rc=0, "Findings: 0 (0 blocking)", nothing printed
+
+  ... same, plus --disable-nosem
+    -> rc=1?  NO.  rc=0, "1 Code Finding" PRINTED, "Findings: 1 (1 blocking)"
+```
+
+With `--disable-nosem` the finding becomes **visible and is even counted as blocking**, and `--error`
+**still returns 0**. Dropped into this arm that produces the worst transcript of all: semgrep's finding
+block, followed by `[OK] semgrep: SAST ran on 1 staged file(s) — no ERROR-severity findings.`, in the
+same commit output — a gate that prints the vulnerability and then certifies the commit. That is
+strictly more corrosive than the current behaviour, which at least does not contradict itself.
+Any future attempt at this must first re-measure the `--disable-nosem` × `--error` × rc interaction on
+the then-current semgrep; the flag alone is not a fix on 1.157.0.
+
+**This is a POLICY decision for Karl, not an implementation task, and it is deliberately left unmade.**
+Inline suppression is instructed in three shipped documents:
+`docs/builders-guide.md` ("Inline suppression. Use the tool's suppression comment (e.g.
+`# nosemgrep: rule-id`) with a brief justification on the same line"),
+`docs/user-guide.md` (the CI-failure triage table: "If false positive: add inline suppression
+(`# nosemgrep: rule-id`) with a justification comment, then re-push"),
+and `docs/security-scan-guide.md` (`# nosemgrep: insecure-transport` for a local-service URL). BL-131's
+own residue note also tells builders to suppress markup-file regex false positives this way. Changing
+the mechanism without changing that guidance would strand the docs; changing the guidance is a call
+about how this methodology treats builder judgement, which is Karl's to make. Two questions, in order:
+
+1. **Does `nosemgrep` stay permitted at commit time at all?** (Recommendation: yes. Removing it makes
+   a regex false positive in an `.html` doc unfixable at the commit boundary, and a gate you cannot
+   pass is a gate people `--no-verify` around — the exact failure `# BL-112-SAST-NOTRUN` argues
+   against. The BL-131 residue makes those false positives a real, shipped occurrence, not a
+   hypothetical.)
+2. **If yes, must it leave a receipt?** (Recommendation: yes, and this is the whole of the item.
+   Bring it in line with every other escape in the repo: detect suppression directives in the STAGED
+   BLOBS the arm already materializes — a grep over `soif_idx_files`, no extra scanner invocation —
+   and, when any are present, forfeit the unqualified `[OK]`, print a receipt that NAMES the file and
+   the directive, and append a `sast_suppression` row alongside BL-163's `terminal_commit_blocked`
+   rows. Blocking is explicitly NOT proposed: the directive is sanctioned, so the fix is
+   accountability, not prohibition. Phase 3 then has an artifact to read, which is what closes the
+   BL-113 laundering gap.)
+
+**Deliberately out of scope here.** Whether `SOLO_SAST_SUPPRESSION_ATTESTED`-style justification text
+should be *required* (BL-072's `SOLO_TDD_REASON` precedent), and whether the same accounting is owed
+by the CI templates rather than only the local hook. Both depend on the answer to (2).
+
+**Reproduction harness:** the probe is three commands — emit via `soif_write_precommit_hook`, install
+as `.git/hooks/pre-commit`, commit the three-line file above; then re-run the two `semgrep scan`
+invocations shown, with and without `--disable-nosem`, to re-confirm the rc interaction on whatever
+semgrep version is current at the time.
+
+**Related:** BL-112 (`# BL-112-SAST-NOTRUN` — the "never let a not-run scan look like a clean scan"
+contract this escape sits just outside of, and the WARN-not-block rationale that argues against
+prohibition), BL-113 (made an un-run scan unlaunderable at the 3→4 gate — a *suppressed* scan is not
+yet covered), BL-072 (`SOLO_TDD_ATTESTED` — the recorded-escape precedent to copy), BL-163 / BL-171
+(the `.claude/bypass-audit.json` ledger this would write to), BL-131 (the markup-regex residue that
+makes suppression genuinely necessary), BL-182 / BL-179 (the coverage guards that are all satisfied
+here — this is not their class).
+
