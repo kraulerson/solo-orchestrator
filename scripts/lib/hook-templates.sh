@@ -274,6 +274,84 @@ soif_sast_unread_report() {
     echo "    - $soif_u"
   done
 }
+# BL-112-SCAN-COVERAGE — THE RECEIPT IS AN ATTESTATION, SO IT MUST BE EARNED END-TO-END.
+# The two guards above cover the entries the materialization loop could not READ. This
+# one covers the step AFTER that: semgrep is handed N materialized targets and may
+# silently DECLINE some of them. Its documented default `--max-target-bytes` is
+# 1,000,000, and an oversize target is dropped with NO error, rc still 0 — so before
+# this guard the arm printed `[OK] semgrep: SAST ran on N staged file(s)` counting a
+# file semgrep never opened (R-274R-1: 900,037 staged bytes -> REFUSED; the SAME
+# content padded to 1,100,032 -> COMMITTED with the [OK] receipt and the innerHTML sink
+# in HEAD). That was the FIFTH member of this arm's silent-success class (gitlink,
+# `<stage>:` path syntax, PATH_MAX, rename, size) and the FIRST to emit a POSITIVE
+# FALSE ATTESTATION rather than merely losing coverage.
+#   SO THE FLAG IS NOT THE FIX. `--max-target-bytes=0` retires the size TRIGGER; this
+#   guard retires the CLASS, by refusing to say [OK] unless semgrep itself reports that
+#   it took every target we handed it. Per-rule skips, parse-time drops and whatever the
+#   next semgrep release adds are all covered by construction, with no sixth patch.
+# WHICH NUMBER, AND WHY NOT THE OBVIOUS ONE. Semgrep prints TWO counts and only one of
+# them is a coverage measure. `• Targets scanned: N` counts targets whose LANGUAGE
+# matched a rule, so it reads 1-of-2 for the wholly ordinary commit `app.ts + README.md`
+# — comparing against it would NOTRUN almost every real commit, and a gate that always
+# cries wolf is a gate people route around (the exact culture BL-112 exists to end;
+# measured on semgrep 1.157.0, see the SCAN-STATUS note below). The Scan Status header
+# `Scanning N files with M Code rules:` is the number that means "targets that survived
+# semgrep's own target filtering", independent of language match: measured 2-of-2 for
+# `app.ts + README.md`, 1-of-2 for `app.ts + <oversize>.js`, and 2-of-2 for that same
+# pair once --max-target-bytes=0 is passed. That is the invariant this guard asserts.
+# FAIL CLOSED, ALWAYS. If the header is missing, duplicated or unparseable — an older or
+# newer semgrep, a future output redesign — soif_sg_accepted stays EMPTY and the arm
+# takes the loud NOTRUN path. It must never fall through to [OK]: a parser that cannot
+# read the receipt's evidence and prints the receipt anyway IS the silent-success class,
+# wearing the coat of the code that was supposed to end it. The cost of that choice is
+# real and is accepted deliberately: on a host where the header never appears EVERY
+# commit reports NOT ENFORCED. That is loud, honest and non-blocking (this arm never
+# blocks on a can't-scan), and it is strictly better than a receipt nobody can trust.
+#
+# THREE WARN HELPERS NOW, NOT ONE, AND THE SPLIT IS DELIBERATE — same reasoning
+# soif_sast_partial_coverage records for ITS split from soif_sast_not_enforced. Saying
+# "nothing was scanned" when a subset WAS scanned is a small dishonesty; so is saying
+# "these entries were never scanned" when what we actually know is "one of these was".
+# All three carry the SAME "SAST NOT ENFORCED" vocabulary, so every operator habit and
+# every test that greps for that string still sees the loud signal, and all three WARN
+# without blocking — a target the scanner declined is not evidence of a defect, and
+# blocking on it would pay people to route around the gate (rationale above). The two
+# lines that differ are parameters here rather than a fourth copy of the helper.
+soif_sast_coverage_warn() {
+  echo ""
+  echo "[WARN] $1"
+  echo "  SAST NOT ENFORCED for this commit — $2"
+  echo "  Phase 3 will require an attested scan; it cannot be cleared by a scan whose"
+  echo "  coverage of the staged commit is unproven."
+}
+soif_sast_scan_coverage_report() {
+  if [ -n "${soif_sg_accepted:-}" ]; then
+    echo "  Coverage: semgrep accepted $soif_sg_accepted of the ${#soif_idx_files[@]} staged file(s) handed to it."
+  else
+    echo "  Coverage: UNVERIFIED — semgrep's scan-status line was absent or unreadable"
+    echo "  (${#soif_idx_files[@]} staged file(s) were handed to it; how many it opened is unknown)."
+  fi
+  # NAMED, not counted — the # BL-182-NAME-THE-ENTRY contract. Semgrep's DEFAULT output
+  # does not say WHICH target it declined (only --verbose does, and turning that on for
+  # every commit would bury the operator in per-rule noise on the one path where stderr
+  # is surfaced verbatim). So this names the exact set that was handed over and says
+  # plainly that attribution stops there, rather than implying a precision it does not
+  # have. Semgrep's own skip summary follows and usually identifies the entry outright
+  # ("Files larger than 1.0 MB: 1" against a listed set of three is not a puzzle).
+  echo "  Staged entries handed to the scanner (semgrep's default output does not"
+  echo "  attribute coverage per file, so all of them are listed):"
+  for soif_c in ${soif_idx_rel[@]+"${soif_idx_rel[@]}"}; do
+    echo "    - $soif_c"
+  done
+  echo "  Re-run semgrep with --verbose on these paths to see exactly what it skipped."
+  # Bounded excerpt of semgrep's own Scan Summary skip section, which usually identifies
+  # the entry outright ("Files larger than 1.0 MB: 1" against a listed set of three is
+  # not a puzzle). TWO independent stop conditions on purpose: the section's bullet lines
+  # are all INDENTED, so the first unindented line ends it, and an 8-line cap catches the
+  # case where a future semgrep stops indenting. An unbounded range would dump the whole
+  # banner — the version-check notice included — into the operator's commit transcript.
+  awk '/Scan skipped/{soif_f=1} soif_f{ if ($0 !~ /^[ \t]/) exit; print; soif_n=soif_n+1; if (soif_n>=8) exit }' "$soif_sg_err" 2>/dev/null | sed 's/^/    /'
+}
 
 if command -v semgrep &>/dev/null; then
   # Scan only staged files for fast pre-commit feedback.
@@ -381,6 +459,12 @@ if command -v semgrep &>/dev/null; then
     # wearing a smaller coat.
     soif_idx_tree="$(mktemp -d)"
     soif_idx_files=()
+    # soif_idx_rel is soif_idx_files' REPO-RELATIVE twin, appended at the same and only
+    # site, so index i of one is index i of the other. It exists so
+    # # BL-112-SCAN-COVERAGE can NAME the entries handed to semgrep in the operator's
+    # own path vocabulary; the temp-tree paths in soif_idx_files are meaningless to them
+    # (that is the whole reason findings get the # BL-178-PER-INDEX-DIR prefix stripped).
+    soif_idx_rel=()
     soif_idx_unread=()
     soif_idx_n=0
     for soif_p in "${soif_staged[@]}"; do
@@ -471,6 +555,7 @@ if command -v semgrep &>/dev/null; then
       soif_idx_got=$(wc -c < "$soif_idx_dest" 2>/dev/null | tr -d '[:space:]') || soif_idx_got=""
       if [ -z "$soif_idx_want" ] || [ "$soif_idx_got" != "$soif_idx_want" ]; then soif_idx_unread+=("$soif_p"); continue; fi
       soif_idx_files+=("$soif_idx_dest")
+      soif_idx_rel+=("$soif_p")
     done
     if [ "${#soif_idx_files[@]}" -eq 0 ]; then
       if [ "${#soif_idx_unread[@]}" -gt 0 ]; then
@@ -514,13 +599,57 @@ if command -v semgrep &>/dev/null; then
       # NOTRUN arm fires LOUDLY — coverage can never silently vanish. Each --config
       # rides its OWN continuation line so a mutation test can strip exactly one;
       # removing either DOM line re-blinds the gate.
+      # BL-112-MAX-TARGET-BYTES — 0 DISABLES semgrep's size filter, whose documented
+      # default is 1,000,000 bytes. Without this, a staged blob one byte over that is
+      # dropped SILENTLY, rc stays 0, and the [OK] receipt below counts a file semgrep
+      # never opened (R-274R-1). A >1MB staged source file is unusual but entirely
+      # legal — a generated bundle, a vendored lib, a fixture corpus — and "large" is
+      # not "safe": the sink sat on line 2. This rides its OWN continuation line, like
+      # each --config above, so a mutation test can strip exactly one thing.
+      #   THE FLAG IS ONLY HALF THE FIX. It retires this TRIGGER; # BL-112-SCAN-COVERAGE
+      #   below retires the CLASS, and the two are proved independently — with the flag
+      #   stripped, the coverage guard must still refuse the receipt.
+      #   THE LATENCY TRADE IS DELIBERATE. Disabling the cap means a genuinely enormous
+      #   staged blob is now parsed instead of skipped, so such a commit gets slower. The
+      #   alternative — keep the cap and let the coverage guard turn every oversize entry
+      #   into a NOTRUN — is worse: the file still goes unscanned AND the commit loses its
+      #   receipt, i.e. all of the cost and none of the coverage. If semgrep cannot cope
+      #   it exits >=2 and the arm WARNs loudly, which is the honest outcome either way.
       semgrep scan --config=p/owasp-top-ten \
         --config=r/javascript.browser.security.insecure-document-method \
         --config=.semgrep/soif-dom-sinks.yml \
+        --max-target-bytes=0 \
         --no-git-ignore \
         --severity=ERROR --error ${soif_idx_files[@]+"${soif_idx_files[@]}"} >"$soif_sg_out" 2>"$soif_sg_err"
       soif_sg_rc=$?
       set -e
+      # BL-112-SCAN-COVERAGE (parse) — read back how many targets semgrep says it
+      # accepted. Rationale, the choice of counter, and the fail-closed contract are on
+      # soif_sast_scan_coverage_report above; this is only the parse, and it is written
+      # so that EVERY failure mode lands on the empty string:
+      #   • require the Scan Status header to appear EXACTLY ONCE (0 or 2+ => unparseable,
+      #     which also makes a future multi-product banner fail closed instead of guessing);
+      #   • sanitize the captured value through the same case-glob the rest of this hook
+      #     uses for numbers, so a non-numeric capture cannot reach an arithmetic test and
+      #     flip the gate the way a multi-line CURRENT_PHASE once did;
+      #   • guard every command with `|| …=""` so `set -e` cannot abort the hook here.
+      # Header shape on semgrep 1.157.0: two leading spaces, "Scanning <N> file[s] with
+      # <M> Code rules:" — singular at N=1, and no ANSI escapes when stderr is a file
+      # (which it always is here). Both spellings are matched.
+      soif_sg_hdr_n=$(grep -cE '^[[:space:]]*Scanning [0-9][0-9]* files? with [0-9][0-9]* Code rules:[[:space:]]*$' "$soif_sg_err" 2>/dev/null) || soif_sg_hdr_n=0
+      soif_sg_hdr_n=$(printf '%s' "$soif_sg_hdr_n" | tr -d '[:space:]') || soif_sg_hdr_n=0
+      case "$soif_sg_hdr_n" in ''|*[!0-9]*) soif_sg_hdr_n=0 ;; esac
+      soif_sg_accepted=""
+      if [ "$soif_sg_hdr_n" -eq 1 ]; then
+        soif_sg_accepted=$(sed -n 's/^[[:space:]]*Scanning \([0-9][0-9]*\) files\{0,1\} with [0-9][0-9]* Code rules:[[:space:]]*$/\1/p' "$soif_sg_err" 2>/dev/null) || soif_sg_accepted=""
+      fi
+      case "$soif_sg_accepted" in ''|*[!0-9]*) soif_sg_accepted="" ;; esac
+      # `-ge`, not `-eq`: the defect class is UNDER-scanning. An over-count would be a
+      # semgrep bug of a different shape and is not this guard's business to block on.
+      soif_sg_covered=0
+      if [ -n "$soif_sg_accepted" ] && [ "$soif_sg_accepted" -ge "${#soif_idx_files[@]}" ]; then
+        soif_sg_covered=1
+      fi
       # Map the temp-tree prefix off finding paths, then show semgrep's findings
       # (stdout) with the real repo-relative paths. A clean scan prints nothing here.
       # The "[0-9][0-9]*/" arm strips the BL-178-PER-INDEX-DIR staged-position
@@ -539,6 +668,11 @@ if command -v semgrep &>/dev/null; then
         # read is strictly safer. The operator is still shown the coverage gap, because
         # a blocked commit is exactly when they are about to re-stage and retry.
         if [ "${#soif_idx_unread[@]}" -gt 0 ]; then soif_sast_unread_report; fi
+        # Same reasoning one layer out (# BL-112-SCAN-COVERAGE): a finding in what
+        # semgrep DID accept still blocks, and the operator is still told that the scan
+        # behind the block was incomplete — otherwise they fix the one reported finding
+        # and re-commit believing the rest was checked.
+        if [ "$soif_sg_covered" -ne 1 ]; then soif_sast_scan_coverage_report; fi
         FAILED=1
         soif_ledger_blocked semgrep || true   # BL-163-BLOCKED-LEDGER
       elif [ "$soif_sg_rc" -ne 0 ]; then
@@ -567,6 +701,33 @@ if command -v semgrep &>/dev/null; then
         # follows names the second group exactly.
         soif_sast_partial_coverage "SAST coverage was PARTIAL: ${#soif_idx_files[@]} staged file(s) scanned clean, ${#soif_idx_unread[@]} could NOT be read (listed below)."
         soif_sast_unread_report
+        # Both gaps can hold at once (an unreadable entry AND a target semgrep declined),
+        # and they are different facts about different entries. Report both; suppressing
+        # the second because the first already forfeited the receipt would leave the
+        # operator fixing one gap and re-committing into the other.
+        if [ "$soif_sg_covered" -ne 1 ]; then soif_sast_scan_coverage_report; fi
+      elif [ "$soif_sg_covered" -ne 1 ]; then
+        # BL-112-SCAN-COVERAGE (verdict) — the scan RAN, exited 0, every staged entry was
+        # READ, and semgrep still did not take everything it was handed. Structurally this
+        # is # BL-182-NO-UNEARNED-RECEIPT one layer further out: BL-182 guards the entries
+        # the LOOP could not read, this guards the targets the SCANNER did not accept. The
+        # [OK] receipt is forfeited either way, because the sentence it prints — "SAST ran
+        # on N staged file(s)" — would be false.
+        # TWO SUB-ARMS, because "semgrep told us it skipped some" and "semgrep told us
+        # nothing we could read" are not the same claim and must not share wording. The
+        # first is a MEASURED shortfall; the second is an UNVERIFIABLE scan, and calling
+        # that "partial" would assert a fact not in evidence — the small dishonesty this
+        # whole arm exists to avoid.
+        if [ -n "$soif_sg_accepted" ]; then
+          soif_sast_coverage_warn \
+            "SAST coverage was PARTIAL: semgrep accepted only $soif_sg_accepted of the ${#soif_idx_files[@]} staged file(s) it was handed." \
+            "at least one staged file was handed to the scanner and never opened by it."
+        else
+          soif_sast_coverage_warn \
+            "semgrep exited 0, but its scan-status line was absent or unreadable." \
+            "the scan ran and its coverage of this commit CANNOT BE VERIFIED, so it is treated as a scan that did not run."
+        fi
+        soif_sast_scan_coverage_report
       else
         # 0 == the scan RAN and found nothing at ERROR severity. SAY SO. A gate that
         # is silent when it passes is indistinguishable from a gate that never ran —
@@ -578,9 +739,9 @@ if command -v semgrep &>/dev/null; then
         # not the number staged: since BL-132-GITLINK-SKIP the two can differ, and a
         # receipt that counts entries the scanner never saw is the BL-112 lie in a
         # different coat. Zero targets never reaches here — it NOTRUNs above.
-        # Reached ONLY with COMPLETE coverage. Two things have to hold for that, and
-        # they are enforced in two different places — a reader checking this claim must
-        # check BOTH:
+        # Reached ONLY with COMPLETE coverage. THREE things have to hold for that, and
+        # they are enforced in three different places — a reader checking this claim must
+        # check ALL THREE. Each was added only after a false [OK] shipped without it:
         #   1. every entry the loop was GIVEN was read — the branch above intercepts any
         #      commit with a non-empty soif_idx_unread;
         #   2. the loop was given every staged entry that HAS content —
@@ -588,7 +749,14 @@ if command -v semgrep &>/dev/null; then
         #      TARGET SET before the loop runs, so soif_idx_unread is empty, the guard
         #      above cannot fire, and N is silently a count of a subset. That is exactly
         #      how a staged TYPE CHANGE bought a false [OK] while the filter was ACMR
-        #      (R-WPC-1). The filter and this receipt are one contract, not two.
+        #      (R-WPC-1). The filter and this receipt are one contract, not two;
+        #   3. semgrep ACCEPTED every target the loop handed it — # BL-112-SCAN-COVERAGE.
+        #      Preconditions 1 and 2 are both about what reaches the SCANNER; neither can
+        #      see the scanner quietly dropping a target it was given, which is what a
+        #      >1MB staged blob did under the default --max-target-bytes (R-274R-1).
+        # The pattern across all three is the same and is the point: N counts the targets
+        # this arm INTENDED to scan, and every stage between "staged entry" and "bytes
+        # semgrep parsed" needs its own proof that nothing fell out of the set.
         echo "[OK] semgrep: SAST ran on ${#soif_idx_files[@]} staged file(s) — no ERROR-severity findings."
       fi
     fi
@@ -656,12 +824,31 @@ soif_tests_not_enforced() {
   echo "  This is NOT a green result: nothing was executed. Configure the"
   echo "  command in .claude/test-command (one line, e.g. 'npm test')."
 }
-# Verifier M1: D and R are in the filter ON PURPOSE — a commit that
-# DELETES or RENAMES the sanitizer is exactly the regression this arm
-# exists to stop, and the old ACM filter skipped it while printing the
-# "no source files staged" receipt (a false receipt — the dishonesty
-# class this arm fights). .mts/.cts are first-class typescript.
-soif_test_src=$(git diff --cached --name-only --diff-filter=ACMDR \
+# BL-179-TESTARM-FILTER — Verifier M1: D, R and T are in the filter ON
+# PURPOSE — a commit that DELETES, RENAMES or TYPE-CHANGES the sanitizer
+# is exactly the regression this arm exists to stop, and the old ACM
+# filter skipped it while printing the "no source files staged" receipt
+# (a false receipt — the dishonesty class this arm fights).
+#   T (TYPE CHANGE) IS IN FOR THE SAME REASON D AND R ARE: a type change
+#   is a REAL STAGED BLOB of source, and de-symlinking a file (symlink ->
+#   regular file, index mode 100644) is an ordinary refactor, not an
+#   exotic shape. While this read was ACMDR such a commit was invisible
+#   here: the suite never ran and the arm printed
+#   `[OK] BL-125: no source files staged — project tests not required for
+#   this commit.` over a staged source change — verbatim the failure the
+#   comment above says this filter exists to stop (R-274R-2, reproduced
+#   through the real emitter with an always-failing test command: control
+#   `M src/real.ts` -> REFUSED with the suite running; `T src/lib.ts` ->
+#   COMMITTED, suite never ran; same staged index, `ACMDR` sees [] and
+#   `ACMDRT` sees [src/lib.ts]).
+#   THIS FILTER IS STILL NOT THE SAST ARM'S. That one is ACMRT and
+#   deliberately EXCLUDES D (# BL-179-STAGED-FILTER): it must SCAN
+#   CONTENT and a deleted path has none. This arm must RUN THE TESTS, and
+#   a deletion is precisely when they must run. The two agree on T and
+#   disagree on D for reasons specific to each; do not sync them by
+#   copying.
+# .mts/.cts are first-class typescript.
+soif_test_src=$(git diff --cached --name-only --diff-filter=ACMDRT \
   | grep -cE '\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|py|rb|go|rs|java|kt|kts|swift|cs|dart|c|h|cc|cpp|hpp|php|scala|vue|svelte)$') || soif_test_src=0
 case "$soif_test_src" in ''|*[!0-9]*) soif_test_src=0 ;; esac
 if [ "$soif_test_src" -gt 0 ]; then

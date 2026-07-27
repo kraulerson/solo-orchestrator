@@ -132,6 +132,34 @@
 #                                 skip" the code forbids -> an unscanned staged entry
 #                                 LANDS behind an [OK] receipt (RED) -> restore ->
 #                                 receipt forfeited and the entry named (GREEN).
+#   T-oversize-blob-scanned       live — R-274R-1: a staged blob over semgrep's DEFAULT
+#                                 --max-target-bytes (1,000,000) is dropped by the
+#                                 SCANNER with no error and rc=0, so it never reaches a
+#                                 rule while the arm still prints `[OK] … ran on N staged
+#                                 file(s)` — the first member of this arm's silent-success
+#                                 class to emit a POSITIVE FALSE ATTESTATION. Same content,
+#                                 only padding differs: 900,037 bytes -> REFUSED,
+#                                 1,100,032 -> COMMITTED with [OK]. Fixed at
+#                                 # BL-112-MAX-TARGET-BYTES (=0 disables the filter).
+#                                 RED pre-fix: COMMITTED, [OK] receipt, sink in HEAD.
+#   T-coverage-parse-fails-closed live — # BL-112-SCAN-COVERAGE must FAIL CLOSED. Break
+#                                 the scan-status parse (as a semgrep output redesign
+#                                 would) and a fully-covered CLEAN commit must take the
+#                                 loud NOTRUN, never [OK]. Pins that the parser itself
+#                                 cannot become a silent-success path.
+#   T-mutation-max-target-bytes   live — proof (a): strip the --max-target-bytes=0 line ->
+#                                 the oversize sink is never scanned and the commit LANDS
+#                                 (RED) -> restore -> REFUSED + [BLOCKED] (GREEN). Also
+#                                 asserts the RED transcript carries NO [OK]: with the
+#                                 flag gone the coverage guard must still hold the honesty
+#                                 line even though the sink escapes.
+#   T-mutation-scan-coverage      live — proof (b), the CLASS guard in isolation: with the
+#                                 flag already stripped, neuter # BL-112-SCAN-COVERAGE
+#                                 (soif_sg_covered=0 -> =1) -> the unscanned oversize blob
+#                                 buys an [OK] receipt and LANDS (RED) -> restore the guard
+#                                 alone -> no [OK], loud coverage NOTRUN naming the staged
+#                                 entries (GREEN). This is what proves the fix is the class
+#                                 and not the flag.
 #   T-mutation-index-scan         live — revert the emitted hook's scan target to the
 #                                 worktree paths (the pre-BL-132 behaviour) ->
 #                                 T-index-blocks-staged-vuln goes RED (the clean
@@ -204,6 +232,30 @@ SAFE_TS='export function render(pane: HTMLElement, userText: string) {
 IA_SINK='function render(el, u) {
   el.insertAdjacentHTML("beforeend", u);
 }'
+
+# ── R-274R-1 oversize fixture ────────────────────────────────────────────────
+# write_oversize <dest> <first-lines>: <first-lines> followed by enough comment padding
+# to carry the file PAST semgrep's documented default --max-target-bytes (1,000,000).
+# The sink sits on line 2 — "large" is not "safe", and the point of the case is that a
+# perfectly ordinary vulnerability rides in on a file that merely got big (a generated
+# bundle, a vendored lib, a fixture corpus). Padding is emitted by awk, not a bash loop:
+# a 1MB file built one `echo` at a time is measurably slow in bash 3.2 and this suite
+# builds several.
+OVERSIZE_MIN=1000000
+write_oversize() {
+  { printf '%s\n' "$2"
+    awk 'BEGIN{ l="// "; for(i=0;i<25;i++) l = l "padding"; for(n=0;n<7000;n++) print l }'
+  } > "$1"
+}
+# is_oversize <file>: TRUE iff the file really cleared the limit on THIS host. Every
+# case that depends on the shape re-probes it and LOUD-SKIPs rather than passing
+# vacuously — the same discipline the rename fixtures use for `--name-status`.
+is_oversize() {
+  local n
+  n=$(wc -c < "$1" 2>/dev/null | tr -d '[:space:]') || n=0
+  case "$n" in ''|*[!0-9]*) n=0 ;; esac
+  [ "$n" -gt "$OVERSIZE_MIN" ]
+}
 
 # ── BL-179 rename fixtures ───────────────────────────────────────────────────
 # git only reports a RENAME (status R) when the destination is similar enough to the
@@ -1752,6 +1804,197 @@ else
       fail_ "T-mutation-gitlink-mode-blanket" "both directions must LAND (an unreadable entry WARNs, never blocks); got RED=$MGM_RED GREEN=$MGM_GRN"
     else
       pass "T-mutation-gitlink-mode-blanket: widening the skip's 160000 MODE test to a blanket match buys an UNEARNED [OK] over an unscanned staged entry (RED); the mode-gated skip forfeits the receipt and names it (GREEN) — the mode test is load-bearing (R-WPC2-1)"
+    fi
+  fi
+fi
+
+# ═════════════════════════════════════════════════════════════════════════════
+# R-274R-1 — the SCANNER's own target filter (the fifth silent-success instance,
+# and the first to emit a POSITIVE FALSE ATTESTATION rather than lose a verdict)
+# ═════════════════════════════════════════════════════════════════════════════
+# _oversize_commit <hookfile> <log> -> COMMITTED|REFUSED|SETUPFAIL|NOGEN
+#   Stage TWO blobs: an OVERSIZE one carrying the innerHTML sink, and a small CLEAN
+#   sibling. The sibling is load-bearing in two ways — it keeps the target set at 2 so a
+#   shortfall is measurable (1 accepted of 2 handed), and it is what made the pre-fix
+#   receipt read `[OK] … ran on 2 staged file(s)` while semgrep had opened exactly one.
+_oversize_commit() {
+  local d; d="$(mktemp -d)"
+  mk_repo "$d" "$1" >/dev/null 2>&1 || { rm -rf "$d"; echo SETUPFAIL; return; }
+  write_oversize "$d/big.ts" "$XSS_TS"
+  is_oversize "$d/big.ts" || { rm -rf "$d"; echo NOGEN; return; }
+  printf '%s\n' "$SAFE_TS" > "$d/app.ts"
+  ( cd "$d" && git add -- big.ts app.ts ) >/dev/null 2>&1
+  # The staged BLOB must really carry the sink — a fixture that stages clean bytes
+  # would "pass" every direction of every case below while proving nothing.
+  #   VIA A FILE, NOT A PIPE, and that is not a style choice: `git cat-file blob | grep -q`
+  #   makes grep exit at the first match while git is still writing a megabyte, git dies
+  #   of SIGPIPE, and under this suite's `pipefail` the pipeline reports FAILURE on a
+  #   fixture that is perfectly correct. The other cat-file probes in this file pipe
+  #   safely only because their blobs are a few hundred bytes.
+  ( cd "$d" && git cat-file blob ":0:big.ts" ) > "$TOPTMP/oversize-probe" 2>/dev/null
+  if ! grep -q 'innerHTML' "$TOPTMP/oversize-probe"; then
+    rm -rf "$d"; echo SETUPFAIL; return
+  fi
+  if ( cd "$d" && git commit -m "feat: add the bundled renderer" ) >"$2" 2>&1; then echo COMMITTED; else echo REFUSED; fi
+  rm -rf "$d"
+}
+
+echo "=== T-oversize-blob-scanned ==="
+if [ "$HAVE_SEMGREP" -eq 0 ]; then
+  skip_ "T-oversize-blob-scanned" "semgrep ABSENT — the scanner's own target filter is UNPROVEN here (skip, NOT a pass)"
+else
+  OS_V="$(_oversize_commit "$EMITTED" "$TOPTMP/oversize")"
+  if [ "$OS_V" = "NOGEN" ]; then
+    skip_ "T-oversize-blob-scanned" "this host could not build a >${OVERSIZE_MIN}-byte fixture — UNPROVEN here"
+  elif [ "$OS_V" = "SETUPFAIL" ]; then
+    fail_ "T-oversize-blob-scanned" "fixture setup failed — the staged oversize blob carries no sink, so the case proves nothing"
+  elif not_enforced "$TOPTMP/oversize" && ! grep -qF 'coverage of the staged commit' "$TOPTMP/oversize"; then
+    skip_ "T-oversize-blob-scanned" "scanner did not run (registry unreachable?) — UNPROVEN here"
+  elif [ "$OS_V" = "REFUSED" ] && grep -qF '[BLOCKED] Semgrep' "$TOPTMP/oversize"; then
+    pass "T-oversize-blob-scanned: a >1MB staged blob is SCANNED and its sink BLOCKS the commit (# BL-112-MAX-TARGET-BYTES)"
+  elif grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/oversize"; then
+    fail_ "T-oversize-blob-scanned" "an UNEARNED [OK] receipt over a staged blob semgrep never opened — the scanner's default --max-target-bytes dropped it silently (R-274R-1); receipt: $(grep -F '[OK] semgrep: SAST ran' "$TOPTMP/oversize" | head -1)"
+  else
+    fail_ "T-oversize-blob-scanned" "verdict=$OS_V without a [BLOCKED]: $(tail -4 "$TOPTMP/oversize" | tr '\n' '|')"
+  fi
+fi
+
+# ── T-coverage-parse-fails-closed (the parser must not become the new silent path) ──
+# Break the scan-status parse exactly as a future semgrep output redesign would: the
+# grep that locates the `Scanning N files with M Code rules:` header no longer matches,
+# so soif_sg_accepted stays EMPTY. A FULLY-COVERED, CLEAN commit must then take the loud
+# NOTRUN — not [OK]. Without this the fix's own parser is the sixth member of the class:
+# a guard that silently answers "covered" whenever it cannot read the evidence.
+#   The fixture is deliberately the BORING case (one small clean file, complete
+#   coverage), because that is the commit a fail-OPEN parser would wave through.
+echo "=== T-coverage-parse-fails-closed ==="
+if [ "$HAVE_SEMGREP" -eq 0 ]; then
+  skip_ "T-coverage-parse-fails-closed" "semgrep ABSENT — UNPROVEN here (skip, not pass)"
+else
+  MCP="$TOPTMP/mut-cov-parse"
+  _clean_commit() {  # <hookfile> <log> -> COMMITTED|REFUSED|SETUPFAIL
+    local d; d="$(mktemp -d)"
+    mk_repo "$d" "$1" >/dev/null 2>&1 || { rm -rf "$d"; echo SETUPFAIL; return; }
+    printf '%s\n' "$SAFE_TS" > "$d/app.ts"
+    ( cd "$d" && git add -- app.ts ) >/dev/null 2>&1
+    if ( cd "$d" && git commit -m "feat: add a clean renderer" ) >"$2" 2>&1; then echo COMMITTED; else echo REFUSED; fi
+    rm -rf "$d"
+  }
+  if ! _mut_n "$EMITTED" "$MCP" 'Scanning [0-9][0-9]* files? with' 'SoifNoSuchBanner [0-9][0-9]* files? with' 1; then
+    fail_ "T-coverage-parse-fails-closed" "MIS-TARGETED — the scan-status grep pattern is not present exactly once in the emitted hook (the parse moved; retarget this case in lockstep)"
+  elif ! grep -qF '# BL-112-SCAN-COVERAGE' "$MCP"; then
+    fail_ "T-coverage-parse-fails-closed" "mutation removed the marker — it must attack BEHAVIOUR, not the marker"
+  elif ! bash -n "$MCP" 2>/dev/null; then
+    fail_ "T-coverage-parse-fails-closed" "mutated hook has a syntax error — a broken mutant proves nothing"
+  else
+    CP_RED="$(_clean_commit "$MCP" "$TOPTMP/cp-red")"
+    CP_GRN="$(_clean_commit "$EMITTED" "$TOPTMP/cp-green")"
+    if [ "$CP_RED" = "SETUPFAIL" ] || [ "$CP_GRN" = "SETUPFAIL" ]; then
+      fail_ "T-coverage-parse-fails-closed" "fixture setup failed"
+    elif ! grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/cp-green"; then
+      skip_ "T-coverage-parse-fails-closed" "the unmutated hook did not receipt a clean, fully-covered commit (scanner did not run?) — UNPROVEN here: $(tail -3 "$TOPTMP/cp-green" | tr '\n' '|')"
+    elif grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/cp-red"; then
+      fail_ "T-coverage-parse-fails-closed" "an unreadable scan-status line FELL THROUGH TO [OK] — the coverage parse fails OPEN, which makes the guard itself a silent-success path: $(grep -F '[OK] semgrep: SAST ran' "$TOPTMP/cp-red" | head -1)"
+    elif not_enforced "$TOPTMP/cp-red" && grep -qF 'CANNOT BE VERIFIED' "$TOPTMP/cp-red" && [ "$CP_RED" = "COMMITTED" ]; then
+      pass "T-coverage-parse-fails-closed: an unreadable scan-status line routes to the loud NOTRUN and never to [OK] (# BL-112-SCAN-COVERAGE fails CLOSED)"
+    else
+      fail_ "T-coverage-parse-fails-closed" "expected the broken parse to LAND with a loud UNVERIFIED NOTRUN; got RED=$CP_RED: $(tail -5 "$TOPTMP/cp-red" | tr '\n' '|')"
+    fi
+  fi
+fi
+
+# ── T-mutation-max-target-bytes (proof (a): the flag retires the TRIGGER) ─────
+# Strip exactly the --max-target-bytes=0 continuation line. Semgrep's default 1,000,000
+# filter comes back, the oversize blob is never opened, its sink is never seen and the
+# commit LANDS (RED). Restore the line and the same commit is REFUSED with [BLOCKED]
+# naming big.ts (GREEN).
+#   THE RED ALSO ASSERTS THE ABSENCE OF [OK]. That is the division of labour between the
+#   two halves of this fix: with the flag gone the sink escapes, but the coverage guard
+#   must STILL refuse to certify the commit. A RED that printed [OK] would mean the class
+#   guard is not doing its job either — and the case below proves it the other way round.
+echo "=== T-mutation-max-target-bytes ==="
+if [ "$HAVE_SEMGREP" -eq 0 ]; then
+  skip_ "T-mutation-max-target-bytes" "semgrep ABSENT — mutation UNPROVEN (skip, not pass)"
+else
+  MMB="$TOPTMP/mut-no-maxbytes"
+  # sed, not _mut_n, for this one: the target is a whole CONTINUATION LINE and its
+  # literal ends in a backslash, which awk's `-v` assignment processes as an escape —
+  # _mut_n would silently mutate the wrong thing. The exactly-once count that makes
+  # _mut_n a mis-target detector is kept, just spelled out here. Anchored ^…$ on the
+  # full line so the flag's appearances in this arm's PROSE cannot be hit.
+  MMB_N=$(grep -c '^        --max-target-bytes=0 \\$' "$EMITTED") || MMB_N=0
+  MMB_N=$(printf '%s' "$MMB_N" | tr -d '[:space:]')
+  case "$MMB_N" in ''|*[!0-9]*) MMB_N=0 ;; esac
+  sed '/^        --max-target-bytes=0 \\$/d' "$EMITTED" > "$MMB"
+  if [ "$MMB_N" -ne 1 ]; then
+    fail_ "T-mutation-max-target-bytes" "MIS-TARGETED — the --max-target-bytes=0 continuation line is not present exactly once in the emitted hook (found $MMB_N)"
+  elif ! bash -n "$MMB" 2>/dev/null; then
+    fail_ "T-mutation-max-target-bytes" "mutated hook has a syntax error — a broken mutant proves nothing"
+  else
+    MMB_RED="$(_oversize_commit "$MMB" "$TOPTMP/mmb-red")"
+    MMB_GRN="$(_oversize_commit "$EMITTED" "$TOPTMP/mmb-green")"
+    if [ "$MMB_RED" = "NOGEN" ] || [ "$MMB_GRN" = "NOGEN" ]; then
+      skip_ "T-mutation-max-target-bytes" "this host could not build a >${OVERSIZE_MIN}-byte fixture — mutation UNPROVEN here"
+    elif [ "$MMB_RED" = "SETUPFAIL" ] || [ "$MMB_GRN" = "SETUPFAIL" ]; then
+      fail_ "T-mutation-max-target-bytes" "mutation fixture setup failed"
+    elif [ "$MMB_GRN" != "REFUSED" ] || ! grep -qF '[BLOCKED] Semgrep' "$TOPTMP/mmb-green"; then
+      fail_ "T-mutation-max-target-bytes" "the GREEN (unmutated) side did not block the oversize sink — the flag is not doing what this case claims: verdict=$MMB_GRN: $(tail -4 "$TOPTMP/mmb-green" | tr '\n' '|')"
+    elif [ "$MMB_RED" = "REFUSED" ]; then
+      skip_ "T-mutation-max-target-bytes" "this host's semgrep scanned the >1MB target even WITHOUT --max-target-bytes=0 (no default size filter here) — the RED direction is unreproducible, so the flag's necessity is UNPROVEN on this host"
+    elif grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/mmb-red"; then
+      fail_ "T-mutation-max-target-bytes" "with the flag stripped the arm printed an [OK] receipt over an unscanned blob — # BL-112-SCAN-COVERAGE should have forfeited it: $(grep -F '[OK] semgrep: SAST ran' "$TOPTMP/mmb-red" | head -1)"
+    else
+      pass "T-mutation-max-target-bytes: stripping --max-target-bytes=0 lets the >1MB sink LAND (RED, and still no [OK]); restored, the same commit is REFUSED with [BLOCKED] (GREEN)"
+    fi
+  fi
+fi
+
+# ── T-mutation-scan-coverage (proof (b): the guard retires the CLASS) ────────
+# Start from the flag-stripped hook above — i.e. an arm that provably hands semgrep a
+# target it will decline — and neuter ONLY # BL-112-SCAN-COVERAGE's verdict
+# (`soif_sg_covered=0` -> `=1`, so the arm always believes it was fully covered). The
+# unscanned oversize blob then buys the `[OK] … ran on 2 staged file(s)` receipt and its
+# sink LANDS (RED). Restore the guard alone — the flag stays stripped — and the same
+# commit forfeits the receipt and prints the loud coverage NOTRUN naming both staged
+# entries (GREEN).
+#   THIS IS THE CASE THAT DISTINGUISHES THE TWO HALVES OF THE FIX. Shipping only the
+#   flag would leave this suite green while the class stayed open: the sixth trigger
+#   (a per-rule timeout, a parse skip, whatever semgrep adds next) would print [OK] all
+#   over again. The mutant deliberately keeps the flag OFF so the guard is tested on a
+#   real shortfall rather than a synthetic one.
+#   THE RED ASSERTION IS THE RECEIPT, NOT THE LANDING — the commit lands in BOTH
+#   directions here (a coverage gap WARNs, it never blocks), so "it committed" would be
+#   satisfied by the honest arm too.
+echo "=== T-mutation-scan-coverage ==="
+if [ "$HAVE_SEMGREP" -eq 0 ]; then
+  skip_ "T-mutation-scan-coverage" "semgrep ABSENT — mutation UNPROVEN (skip, not pass)"
+else
+  MSC="$TOPTMP/mut-cov-neutered"
+  if [ ! -f "$TOPTMP/mut-no-maxbytes" ]; then
+    skip_ "T-mutation-scan-coverage" "the flag-stripped base hook was not built (see T-mutation-max-target-bytes) — UNPROVEN here"
+  elif ! _mut_n "$TOPTMP/mut-no-maxbytes" "$MSC" 'soif_sg_covered=0' 'soif_sg_covered=1' 1; then
+    fail_ "T-mutation-scan-coverage" "MIS-TARGETED — the coverage verdict assignment is not present exactly once in the emitted hook"
+  elif ! grep -qF '# BL-112-SCAN-COVERAGE' "$MSC"; then
+    fail_ "T-mutation-scan-coverage" "mutation removed the marker — it must attack BEHAVIOUR, not the marker"
+  elif ! bash -n "$MSC" 2>/dev/null; then
+    fail_ "T-mutation-scan-coverage" "mutated hook has a syntax error — a broken mutant proves nothing"
+  else
+    MSC_RED="$(_oversize_commit "$MSC" "$TOPTMP/msc-red")"
+    MSC_GRN="$(_oversize_commit "$TOPTMP/mut-no-maxbytes" "$TOPTMP/msc-green")"
+    if [ "$MSC_RED" = "NOGEN" ] || [ "$MSC_GRN" = "NOGEN" ]; then
+      skip_ "T-mutation-scan-coverage" "this host could not build a >${OVERSIZE_MIN}-byte fixture — mutation UNPROVEN here"
+    elif [ "$MSC_RED" = "SETUPFAIL" ] || [ "$MSC_GRN" = "SETUPFAIL" ]; then
+      fail_ "T-mutation-scan-coverage" "mutation fixture setup failed"
+    elif [ "$MSC_GRN" = "REFUSED" ]; then
+      skip_ "T-mutation-scan-coverage" "this host's semgrep scanned the >1MB target even without --max-target-bytes=0 — no shortfall exists to detect, so the guard is UNPROVEN here"
+    elif ! grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/msc-red"; then
+      skip_ "T-mutation-scan-coverage" "the neutered mutant printed no [OK] either (scanner did not run?) — the RED direction is unprovable here: $(tail -3 "$TOPTMP/msc-red" | tr '\n' '|')"
+    elif grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/msc-green"; then
+      fail_ "T-mutation-scan-coverage" "the GREEN hook ALSO printed [OK] over a target semgrep declined — # BL-112-SCAN-COVERAGE is not doing anything: $(grep -F '[OK] semgrep: SAST ran' "$TOPTMP/msc-green" | head -1)"
+    elif ! grep -qxF "    - big.ts" "$TOPTMP/msc-green" || ! grep -qxF "    - app.ts" "$TOPTMP/msc-green"; then
+      fail_ "T-mutation-scan-coverage" "the GREEN hook forfeited the receipt but never NAMED the staged entries handed to the scanner (# BL-182-NAME-THE-ENTRY contract): $(tail -6 "$TOPTMP/msc-green" | tr '\n' '|')"
+    else
+      pass "T-mutation-scan-coverage: neutering the coverage verdict buys an UNEARNED [OK] over a target semgrep never opened (RED); the guard forfeits the receipt and NAMES the staged set (GREEN) — the class fix is load-bearing independently of the flag"
     fi
   fi
 fi
