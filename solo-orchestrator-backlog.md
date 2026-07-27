@@ -4332,6 +4332,43 @@ Net: BL-174 closed the *gitignore* instance of this class by manifest-gating blo
 - Correct the BL-174 block comment so it no longer implies every sibling block is manifest-gated (done as a comment-only change in the BL-174 WP-D follow-up).
 - **Mutation proof:** a projectless fixture (a `scripts/` dir present, a skills source visible via `ORCHESTRATOR_ROOT`, but NO `.claude/manifest.json` and NO `.claude/phase-state.json`) → after the structural guard, `_run_idempotent_backfill` performs ZERO writes (no `.claude/skills/`, no `scripts/lib/` copies, no `.gitignore` append); excise the guard → the skills sync and BL-088 copies reappear (RED).
 
+**Escalation 2026-07-27 — the leak was briefly COMMITTED, which raises the priority.** The untracked
+`.claude/skills/` residue this entry documents was swept into a commit by a `git add -A` run from a
+worktree that carried it (`bb69806`), and reached `main` via PR #275 — so for a short window the
+framework repo TRACKED 7 files of leak output (`grill-with-docs`, `session-handoff`, `sweep-triage`,
+`zoom-out`), duplicating the canonical copies in `templates/generated/skills/`. Untracked again and
+added to the repo's own `.gitignore` alongside the `.claude/upgrade-snapshots/` precedent, with a
+comment stating that the ignore is a TRAP-DISARM, not a fix.
+
+Three consequences for this entry:
+
+1. **PRIORITY rises; the `**Severity:** Medium` field is unchanged and correct.** The leak is not
+   merely untidy — it is one `git add -A` away from becoming repo content, and this repo's agent
+   workflow runs `git add -A` routinely. Measured 2026-07-27, the untracked residue sits in **3**
+   worktree checkouts (all pre-dating `bb69806`; the total count drifts constantly as runs create
+   and destroy them, so only the numerator is durable) **and the main checkout** — and the main
+   checkout is where `git add -A` actually runs, which is what makes it reachable. *(An earlier
+   draft of this paragraph claimed "every `.claude/worktrees/agent-*` checkout"; the pre-PR review
+   measured 1 of 27 and refuted it. Corrected here rather than left in the audit trail.)*
+
+2. **The leaked files are NOT inert, so "delete the residue" is not a cleanup instruction.** Claude
+   Code auto-discovers project-scoped skills at `.claude/skills/`, so while these sit on disk they
+   ARE this repo's project skill set — verified 2026-07-27: `grill-with-docs`, `session-handoff` and
+   `sweep-triage` are live in agent sessions here and absent from `~/.claude/skills/`, and `zoom-out`
+   is correctly missing from the model-invocable list because its own frontmatter sets
+   `disable-model-invocation: true`, which proves the harness parsed these files. Deleting them
+   silently switches four skills off — and the new `.gitignore` line would hide that happening.
+   **The disposition is therefore an open decision, not housekeeping:** either delete deliberately,
+   or track them on purpose the way `.claude/agents/pr-reviewer.md` already is. Do not fold that
+   choice into an unrelated fix.
+
+3. **A `.gitignore` line is NOT the fix and must not be mistaken for one.** It disarms the
+   `git add -A` trap in THIS repo only. The structural guard at the top of the
+   `_run_idempotent_backfill` subshell (see the fix shape above) is still required, and until it
+   lands the leak keeps being written — simply no longer visible to `git status`, which is worse for
+   detection. Whoever implements the guard should re-examine whether the ignore line should come
+   back out so a recurrence announces itself.
+
 **Related:** BL-174, BL-080, BL-081.
 
 ---

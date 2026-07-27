@@ -9,3 +9,29 @@ test-logs/
 # (code-upgrade-project-5 atomic finalize). Retained for forensics
 # under keep-3 retention; not project source.
 .claude/upgrade-snapshots/
+
+# BL-177 leak output: must not be TRACKED here. These files arrive when
+# _run_idempotent_backfill's vendored-skills block runs projectless and writes
+# into the INVOCATION cwd (its `cd ""` is a silent rc-0 no-op under bash 3.2,
+# and the block is gated only on the SOURCE dir existing). The canonical
+# copies live in templates/generated/skills/ and ship from there, so tracking
+# these would duplicate them byte-for-byte.
+#
+# NOT inert, despite the origin: Claude Code auto-discovers project-scoped
+# skills at this path, so while they sit on disk they ARE this repo's project
+# skill set. Ignoring keeps them working locally; do not "clean up" by
+# deleting without deciding that on purpose (see `## BL-177:`).
+#
+# Ignored so a `git add -A` cannot commit them again — it did once, in
+# `bb69806`, reaching main via PR #275. This disarms that trap; it does NOT
+# fix BL-177, and it makes the leak invisible to `git status`.
+.claude/skills/
+
+# Linked worktrees for agent/workflow runs. Untracked and NOT ignored until
+# 2026-07-27, which left the same `git add -A` trap armed with a far larger
+# blast radius: each is a nested checkout whose `.git` is a FILE, so `git add
+# -A` records it as a mode-160000 gitlink rather than its contents — dozens
+# of them at any moment. The sibling `.worktrees/` rule at the
+# top of this file does NOT cover this path (a pattern with no internal slash
+# matches only a directory literally named `.worktrees`).
+.claude/worktrees/
