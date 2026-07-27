@@ -318,6 +318,18 @@ jobs:
         # skipping the only CI execution of the blocking arm.
         run: pip install semgrep
 
+      - name: Install expect (BL-180 real interactive scaffold)
+        # tests/test-bl180-interactive-scaffold-pty.sh drives a REAL interactive
+        # init.sh over a pty. `expect` is its SUPPORTED driver; the script(1)
+        # fallback is a positional stream that its own header calls best-effort
+        # and that desynchronises on any host where a conditional prompt
+        # ("Install Docker via:", CDF's "Install Context7 now?") appears. The
+        # runner image is not guaranteed to carry expect, so without this step
+        # the only end-to-end proof that a strict project is born with a REAL
+        # filesystem gate would silently degrade to the fallback driver.
+        # Install failure fails the shard LOUDLY rather than quietly downgrading.
+        run: sudo apt-get update && sudo apt-get install -y expect
+
       - name: Run shard — ${{ matrix.shard }}
         # SKIP_KNOWN_FAILING left unset -> 0, so known-RED guards still run.
         env:

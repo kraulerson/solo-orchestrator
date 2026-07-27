@@ -4437,9 +4437,16 @@ all (assert the *absence* of output, not just the absence of `[BLOCKED]` — a
 content change still lands (no false block), and one that a staged **deletion** alone
 does not push the commit into a bogus NOTRUN.
 
+**Build note (2026-07-26, branch `worktree-wf_79ea23a3-eb4-3`):** Fixed under the new marker `# BL-179-STAGED-FILTER` in `scripts/lib/hook-templates.sh`, **in the same diff as BL-182** — both rewrite the same emitted SAST region (`soif_precommit_region_body`), so shipping them apart meant rewriting that region twice with a near-certain conflict. The staged-target read is now `--diff-filter=ACMR -z`, and BOTH halves of that filter are pinned. **`R` is in:** `diff.renames` defaults true, so a rename-and-edit commit is one status-R entry that `ACM` excluded; `soif_staged` came back EMPTY and the arm's `-gt 0` wrapper had **no `else`**, so the scanner produced no output whatsoever. `--name-only -z` emits the DESTINATION for an R entry and `:0:<dest>` resolves to its staged blob, so the materialization loop needed no change at all. **`D` deliberately stays out** — this is NOT the BL-125 arm's `ACMDR`: that arm must RUN TESTS when a sanitizer is deleted, this one must SCAN CONTENT, and a deleted path has no staged blob (`git cat-file -t ":0:<deleted>"` → exit 128, re-verified on git 2.50.1 here), so including it would manufacture a phantom unreadable entry — a fresh instance of the very class BL-182 retires. The no-`else` silence is closed by `# BL-179-EMPTY-STAGED`: an empty staged set routes to the same loud NOTRUN, so **the arm now has no silent path left**. Proof (`tests/test-bl132-sast-index-scan.sh`): `T-rename-edit-scanned` (R090 rename+edit → REFUSED, destination named), `T-rename-only-not-silent` (R100 → LANDS but is receipted), `T-delete-only-honest` (deletion-only → LANDS, receipted, never reaches the loop with a blob-less entry). All three assert through `any_sast_line()` — the **absence of an absence** — because a `! grep [BLOCKED]` assertion passes vacuously on a silent skip, which is exactly how this hole survived a suite that was 11/11 green. Watched-RED against the pristine lib: all three FAILED with "the SAST arm said NOTHING AT ALL" / "produced NO SAST output whatsoever", `verdict=COMMITTED`. Mutation proofs: `T-mutation-rename-filter` (ACMR→ACM → the destination goes unscanned and its XSS LANDS → restore → REFUSED + `[BLOCKED]`), `T-mutation-delete-filter` (ACMR→ACMDR → a deletion-only commit reports lost coverage on a phantom entry → restore → honest receipt, no phantom), `T-mutation-empty-staged-silence` (neuter the empty-staged report → a deletion-only commit is TOTALLY SILENT again → restore → receipted). **Fixture lesson worth keeping:** rename detection needs ≥50% similarity, and a 3-line file flipping `textContent`→`innerHTML` scores `A`+`D` — under which `ACM` *does* include the destination and the defect never triggers. The fixtures pad the file, re-probe `--name-status` (LOUD-SKIP if git disagrees), and assert the sink is really present in the staged destination blob; an early cut staged nothing at all (`git add -A -- old.ts new.ts` dies with "pathspec 'old.ts' did not match any files" because `git mv` already removed the source from BOTH index and worktree, and git aborts the whole add) and so produced a 100%-similar rename with no vuln in it — which the new validity probe now catches instead of passing. Green: `test-bl132` 23/23, `test-bl131` 17/17, `test-bl118` 6/6, `test-bl112` 13/13, `test-bl113` 17/17, `test-upgrade-sync-framework` 39/39, `run-lints` 11/11. Blast-radius sweep of every other suite that consumes the emitted hook, also green: `test-bl099-guard-coverage` 53/53 (the `--error` registry anchor still RED-under-neuter), `test-bl125-commit-test-exec` 16/16, `test-bl163-blocked-ledger` 7/7, `test-bl161-ledger-real-events-only` 7/7, `test-freshness-check` 26/26, `test-verify-install-fix-functions` 16/16. Status stays **Open** pending PR + merge.
+
+**Remediation note (2026-07-26, branch `worktree-wf_79ea23a3-eb4-9`) — the filter is `ACMRT`, not `ACMR`.** An adversarial verifier returned **major_concerns** against the build note above (R-WPC-1) and was **right**: `--diff-filter=ACMR` also excludes **`T` (TYPE CHANGE)**, and a T entry is a perfectly readable staged blob. Reproduced independently through the real emitter and a real `git commit`: seed `link.ts` as a **symlink**, replace it with a **regular file** carrying `pane.innerHTML = userText`, stage a clean sibling `app.ts` → `--name-status` reports `M app.ts` / `T link.ts`, `ACMR` sees only `app.ts`, `git ls-files -s link.ts` is `100644 …` and `git cat-file -t :0:link.ts` is `blob` — and the commit printed **`[OK] semgrep: SAST ran on 1 staged file(s)`** and LANDED with the sink in the tree (`git show HEAD:link.ts | grep -c innerHTML` → 1). This was **not a regression** — the identical A/B against the pre-BL-179 lib behaves the same — but the build note above shipped the claim that the hole was CLOSED, into `docs/platform-modules/web.md` and into the `# BL-182-NO-UNEARNED-RECEIPT` reasoning, and that claim was false. **The lesson generalises: the filter is part of the receipt's contract.** `# BL-182-NO-UNEARNED-RECEIPT` can only fire for entries the loop was GIVEN; a status letter missing from `--diff-filter` truncates the TARGET SET *before* the loop, so `soif_idx_unread` stays empty, no guard fires, and `N` silently counts a subset. Fix: `--diff-filter=ACMRT -z` at `# BL-179-STAGED-FILTER`. **`T` is safe where `D` is not**, verified in every direction on git 2.50.1 here: `git cat-file -t ":0:<path>"` returns `blob` for a T entry both ways — symlink→file (index mode 100644) and file→symlink (index mode 120000) — and for gitlink→file, so unlike `D` it never manufactures a phantom unreadable entry and the materialization loop still needs no change; a hypothetical →gitlink T would present mode 160000 and be absorbed by the existing `# BL-132-GITLINK-SKIP`, and a bare permission flip is reported `M`, not `T`. New proof (`tests/test-bl132-sast-index-scan.sh`): **`T-typechange-scanned`** — the symlink→file materialization above, asserting the ABSENCE of the `[OK]` receipt as its own arm (not merely "it committed", because a NOTRUN would satisfy that and a NOTRUN is honest). Watched-RED against the pre-fix lib: `[FAIL] … an UNEARNED [OK] receipt — the staged TYPE CHANGE was excluded by --diff-filter (letter T) … receipt: [OK] semgrep: SAST ran on 1 staged file(s) …; sink landed in HEAD:link.ts=1`, tally `Results: 23 passed, 1 failed (0 skipped)`. Mutation proof **`T-mutation-typechange-filter`** (ACMRT→ACMR → unearned `[OK]` + sink LANDS → restore → REFUSED + `[BLOCKED]`); the source-level mutation of the marked line gave `Results: 21 passed, 4 failed` and restored to `25 passed, 0 failed`. The **three filter-mutation cases now attack one letter each** — `T-mutation-rename-filter` ACMRT→**ACM**T (R), `T-mutation-typechange-filter` ACMRT→ACM**R** (T), `T-mutation-delete-filter` ACMRT→ACM**D**RT (D) — because a mutant that drops two letters goes RED while proving nothing about which one carried the weight. All three anchors were retargeted in lockstep, and their exactly-once counters did exactly what they are for: under the source mutation all three reported `MIS-TARGETED` rather than silently mutating nothing. Corrected alongside: the `# BL-179-EMPTY-STAGED` residual-shapes list (a type change is **not** a content-free shape and no longer appears there), the receipt comment (it now states the filter as the second precondition of "complete coverage"), the operator-facing `no scannable staged file content (…)` enumeration, and the `docs/platform-modules/web.md` paragraph. Also, from the same review (R-WPC-2, minor): the F2 size-mismatch recovery point's `soif_idx_unread` recording was pinned only STRUCTURALLY, so `T-mutation-content-guard` now additionally asserts the entry is NAMED on both its F2 arms — watched-RED by removing the recording (`then continue; fi`), which gave `[FAIL] … NOTRUNed but never NAMED app.ts` and `Results: 23 passed, 2 failed`. Green after: `test-bl132` **25/25** (was 23), `test-bl131` 17/17, `test-bl118` 6/6, `test-bl112` 13/13, `test-bl113` 17/17, `test-upgrade-sync-framework` 39/39, `run-lints` 11/11 — all exit 0. Blast radius (the emitted hook's bytes changed, so every consumer was re-run): `test-bl125-commit-test-exec` 16/16 — the sibling arm whose `ACMDR` filter this one deliberately does NOT copy — and `test-bl099-guard-coverage` `== Total: 53 | Pinned: 53 | Failed: 0 | Skipped: 0 ==`, both exit 0. **Lane honesty (R-WPC-5):** of everything cited above, `test-bl132`, `test-bl131`, `test-bl118`, `test-upgrade-sync-framework` and `test-bl125-commit-test-exec` are in the `tests.yml` **unit fast lane** and therefore gate the PR; `test-bl112`, `test-bl113` and `test-bl099-guard-coverage` are **full-lane only** (`workflow_dispatch`) and were run locally, so their green is evidence but not a gate. **NOT fixed here, deliberately (R-WPC-3, informational):** the Phase≥2 schema-drift advisory in the same file still reads `--diff-filter=ACM`, so a rename-and-edit of `schema.prisma` / `models.py` / `*.entity.ts` never trips it. That is a different arm with different semantics and no test coverage of its own; folding it in unproven would repeat the mistake this note is correcting. Status stays **Open** pending PR + merge.
+
+**Remediation note #2 (2026-07-26, branch `worktree-wf_79ea23a3-eb4-15`) — this entry's filter is UNCHANGED; the round's one blocking finding landed on BL-182's arm.** A second adversarial round returned **major_concerns**, and its single blocking finding (R-WPC2-1) was a test-coverage gap in the `# BL-132-GITLINK-SKIP` mode predicate's REJECT direction — see **BL-182's remediation note #2** for the reproduction, the fix, the watched-RED and the mutation proof. `--diff-filter=ACMRT` at `# BL-179-STAGED-FILTER` was re-examined and stands; all three one-letter filter mutations (`T-mutation-rename-filter` ACMRT→ACMT, `T-mutation-typechange-filter` ACMRT→ACMR, `T-mutation-delete-filter` ACMRT→ACMDRT) re-ran GREEN, as did `T-mutation-empty-staged-silence`, in `Results: 27 passed, 0 failed (0 skipped)`, `EXIT=0`. **R-WPC2-3 (informational, deliberately still NOT fixed):** the verifier independently re-derived R-WPC-3 — the Phase≥2 schema-drift advisory in the SAME emitted hook still reads `--diff-filter=ACM`, so a rename-and-edit (status `R`) or a type change (status `T`) of a schema file never trips it: the identical filter-letter defect this entry fixed one arm above. The verifier **agreed with the deferral** (different arm, non-blocking advisory, no test coverage of its own) and recorded it only so it is not lost; it stays deferred here on the same reasoning — folding it in unproven is the mistake remediation note #1 already had to correct once. Status stays **Open** pending PR + merge.
+
 **Related:** BL-132 (the index-materialization arm this filter feeds), BL-125 (the
 sibling arm that already fixed exactly this filter defect), BL-112 (the
-silent-vs-loud SAST receipt contract).
+silent-vs-loud SAST receipt contract), BL-182 (the all-or-nothing `break` in the
+same region, fixed in the same diff).
 
 ---
 
@@ -4519,6 +4526,237 @@ GREEN (`strict` + gate present), non-interactive control identical both ways.
 "Input flags require --non-interactive; ignoring" warning covers only
 `ARG_PROJECT$ARG_PLATFORM$ARG_DEPLOYMENT$ARG_LANGUAGE` — not that flag, nor `ARG_CONFIRM_PITFALLS`
 (which IS part of the BL-030 surface).
+
+**Build note (2026-07-26, worktree branch `worktree-wf_79ea23a3-eb4-1`):** Fixed exactly as the
+entry prescribed, under `# BL-180-ENFORCEMENT-DEFAULT` in `init.sh::main` —
+`[ -z "$ENFORCEMENT_LEVEL" ] && ENFORCEMENT_LEVEL="strict"`, hoisted out of the
+`if [ "$NON_INTERACTIVE" = true ] … else … fi` dispatch and placed immediately after it, before
+`log_section "Project Configuration"`. The `&&`-list form was **verified safe under
+`set -euo pipefail` on this host's bash 3.2.57 before being written** (`X="light";
+[ -z "$X" ] && X="strict"; echo` survives, rc=0 — a failing mid-script AND-list does not trip
+`set -e`), which is also why the pre-existing sibling inside the BL-030 choosable arm has always
+been safe. `docs/builders-guide.md`'s "`strict` (default)" claim is now TRUE on every entry path
+rather than only the non-interactive one, so no doc edit was needed.
+
+**Observability companion** `# BL-180-DRYRUN-ENFORCEMENT` in `dry_run_summary` emits
+`  Enforcement: $ENFORCEMENT_LEVEL` on **stdout**. This is load-bearing, not cosmetic: the sibling
+`log_line` calls write to the log FILE only, and that invisibility is exactly why every
+fed-sequence `--dry-run` fixture in the repo was blind to a defect sitting in plain sight. The
+value is echoed **verbatim** — never `// "strict"`-defaulted — so an unresolved level surfaces as
+an empty field instead of being cosmetically repaired at the reporting layer.
+
+**CONFIRM_PITFALLS — considered and deliberately NOT given the same treatment** (reasoning
+recorded in the marker comment). It is not the same defect: (a) `ENFORCEMENT_LEVEL`'s top-of-file
+`""` is not a legal value, whereas `CONFIRM_PITFALLS=0` already **is** its correct interactive
+value; (b) its only semantic is permission to DOWNGRADE below strict, and the interactive arm
+offers no downgrade to authorize — 0 is correct, not merely safe; (c) its other consumer is the
+bypass-audit birth row's `confirmed_pitfalls: ($confirmed=="1")`, so defaulting it to 1 would
+write a FALSE attestation ("operator accepted the pitfalls") into the audit trail of an operator
+who was never asked. Any non-zero default widens the bypass surface instead of closing it.
+
+**Tests — both watched-RED first.** (1) `tests/test-bl180-interactive-enforcement.sh` (7 cases,
+fast, pty-free): feeds the wizard's `prompt_choice` sequence to `init.sh --dry-run` and asserts the
+resolved level, with three NON-INTERACTIVE controls. Menu ordinals are **re-derived at run time**
+from the same globs/markers `collect_project_info` uses (`platform-modules/*.md` →
+`release/github/*.yml` → `other`; `ci/github/*.yml` filtered by the
+`# solo-orchestrator: platforms=` marker), not hardcoded — a stale ordinal is how the aggregator's
+TEST 7 fixture broke before BL-136 — and the run is bound to the resolved combo so a drifted
+derivation fails loudly instead of pinning the wrong project shape. Independently re-derived to
+`web=4 / typescript=7`, matching TEST 7. **T5 is the inertness proof**: non-interactive
+`--enforcement-level light --confirm-pitfalls` must still report `light`. (2)
+`tests/test-bl180-interactive-scaffold-pty.sh` (10 cases, aggregator-ONLY): a REAL interactive
+scaffold over a pty via `expect` (fallback `script`; LOUD SKIP with a printed reason when neither
+exists — verified by running it under a PATH containing neither). Hermetic as to the NETWORK — Git
+host is answered `other` (URL-paste path, never touches gh/glab/curl) and the clone-URL prompt is
+answered EMPTY so `create_and_protect_remote` fails at its `[ -z "$remote_url" ]` guard **before**
+`git remote add`; `init.sh` consequently returns 2 via `record_init_failure` — expected, printed
+for diagnosis, and deliberately NOT asserted (pinning it would couple the test to unrelated
+host-setup outcomes). The real guarantees sit on artifacts written by the earlier
+`prepare_initial_state_for_commit`, plus T1 (the scaffold happened at all, so nothing below can
+pass vacuously) and T7 (`git remote -v` is empty). **Both drivers were
+actually exercised**, not just the primary: `SOIF_BL180_FORCE_SCRIPT_FALLBACK=1` forces the
+`script(1)` path (BSD/util-linux invocation auto-detected by probing) and also reports
+`10 passed, 0 failed`, so the fallback is not shipped-but-dead code.
+
+**REMEDIATION (2026-07-26, verifier finding R-WPA-1 — CONFIRMED, the original claim was wrong).**
+The pty fixture's "hermetic by construction" and `8 passed, 0 failed` claims held only on a host
+where `CI` is unset. `helpers-core.sh::prompt_input`'s guard is
+`[ ! -t 0 ] || [ -n "${CI:-}" ] || [ -n "${SOIF_NONINTERACTIVE:-}" ]` — the last two are checked
+**independently of the tty**, so a pty does not defeat them. Re-confirmed here with an isolated
+`expect` probe against the real function: with `CI` unset the call BLOCKS on `read` (interactive
+branch); with `CI=true` it prints `[WARN] Non-interactive context: prompt_input("Project
+directory") returning default …` and returns without reading. Every GitHub Actions runner exports
+`CI=true`, and that is exactly the environment of the `full` lane this test is registered into.
+The consequence is worse than a red test: `PROJECT_NAME` resolves to `""`, so
+`PROJECT_DIR=$(prompt_input "Project directory" "$default_parent/$PROJECT_NAME")` resolves to
+`"$default_parent/"` — the **parent directory of the checkout** — and a complete git-init'd
+project is scaffolded OUTSIDE the fixture's own `mktemp -d`. Reproduced end-to-end from a
+sandboxed COPY of the checkout (so the escape landed in a throwaway dir):
+`CI=true bash tests/test-bl180-interactive-scaffold-pty.sh` → `Results: 0 passed, 1 failed`,
+`EXIT=1`, and `$default_parent` went from `repo` to a full project tree
+(`.claude .claude-backup .git .github … PROJECT_INTAKE.md scripts templates tests`).
+
+Fixed under `# BL-180-PTY-INTERACTIVE-ENV` (three parts, all in the fixture):
+* `unset CI` / `unset SOIF_NONINTERACTIVE` beside the existing `unset GITHUB_BASE_REF` — driving
+  the INTERACTIVE branch is the whole point of this test, and the piped/non-interactive branch is
+  the fast pin's job. This is the actual repair: same sandbox, same `CI=true` invocation, now
+  `Results: 10 passed, 0 failed`, `EXIT=0`, `$default_parent` unchanged (`repo`).
+* **T0a — pre-flight containment**, ordered BEFORE `init.sh` is ever spawned and the only
+  assertion that can PREVENT rather than report an escape. It re-asserts `CI`/`SOIF_NONINTERACTIVE`
+  are unset and that `$PROJ` is under `$TMP`, and on failure prints the directory the run WOULD
+  have escaped to and exits **without spawning**. Watched-RED by deleting the `unset CI` line and
+  re-running under `CI=true`: `[FAIL] T0a — REFUSING to spawn init.sh — CI is set ('true') …`,
+  `Results: 0 passed, 1 failed`, and `$default_parent` **UNCHANGED** — i.e. the failure mode is now
+  "fails loudly, writes nothing" instead of "writes a project outside the fixture".
+* **T0b — post-run escape detector**, deliberately ordered before T1 because T1 `exit 1`s the
+  moment the fixture manifest is missing, which is *precisely* the escape path — so pre-remediation
+  the only message an operator saw named the one directory the project was NOT written to.
+  `.claude/manifest.json` in the checkout's parent is the decisive artifact (no legitimate reason
+  to exist there). Watched-RED by planting that file: `[FAIL] T0b — ESCAPE — a project was
+  scaffolded into '…', OUTSIDE this fixture`, `Results: 9 passed, 1 failed`; removed → `10/10`.
+
+**Also fixed — R-WPA-4 (weak assertion, the `2>/dev/null`-swallows-the-signal class).** T7's
+hermeticity self-check passed both when no remote was attached AND when `$PROJ` was not a git
+repository at all: the failing `git` call's stderr was discarded and its empty stdout was
+indistinguishable from "no remotes". It now requires `$PROJ/.git` to exist and the `git` call to
+succeed before an empty result is allowed to mean anything. Predicate-level watched-RED, OLD vs
+NEW over three inputs: `not-a-repo` OLD=**PASS** / NEW=`FAIL(not a git repo)`;
+`repo-no-remote` PASS/PASS; `repo-with-remote` FAIL/FAIL — the two legitimate cases agree, only
+the vacuous one changes.
+
+**CI driver (second half of R-WPA-1).** The `full` workflow job now installs `expect`
+(`sudo apt-get install -y expect`, alongside the existing semgrep step). `expect` is the fixture's
+SUPPORTED driver; the `script(1)` fallback is a positional stream that the test's own header calls
+best-effort and that desynchronises wherever a conditional prompt appears. Without the install the
+only end-to-end proof that a strict project is born with a REAL filesystem gate would silently
+degrade to the fallback. The alternative the verifier offered — wrapping the delegate in the
+`SUITE_SKIP_AGGREGATORS` gate its five real-scaffold siblings use — was **rejected**: that gate
+would remove the test from the `core` shard, and since the `aggregators` shard runs only four
+explicitly named files, the net effect would be **zero** CI lanes executing the only check that
+catches a hollow strict gate. Installing the driver preserves the catcher; gating it would delete
+it. Re-verified after remediation that the catcher still catches — the verifier's own MUT-3
+(`[ "$ENFORCEMENT_LEVEL" = "strict" ]` → `"strict_REVIEWER_MUT3"`) against the REMEDIATED fixture:
+`[FAIL] T4 — framework-gate.sh ABSENT`, `[FAIL] T5 — pre-commit lacks the 'SOIF framework gate
+(BL-030)' block`, `Results: 8 passed, 2 failed`.
+
+**Two findings the interactive path surfaced that no non-interactive fixture can.** (i) The nested
+CDF installer (`~/.claude-dev-framework/scripts/init.sh`, invoked from `create_project`) has
+`[ -t 0 ]`-guarded prompts — `Proceed with framework installation? (y/n)` and
+`Install Context7 now?` — that exist ONLY on a pty; the first cut of the driver hung on them for
+15 minutes, and the T1 "did the scaffold happen at all" guard reported it loudly with a transcript
+tail rather than passing vacuously. Note `[ "$proceed" != "y" ]` there is case-SENSITIVE, so "Y"
+aborts. (ii) The mutation proof caught a weak assertion **in my own test**: T5 originally grepped
+`.git/hooks/pre-commit` for `framework-gate.sh` and PASSED with the gate provably absent, because
+`scripts/lib/hook-templates.sh` names that file in explanatory COMMENTS emitted into every
+generated hook. T5 now asserts `install-filesystem-gates.sh`'s MARK_OPEN sentinel
+(`SOIF framework gate (BL-030)`), the string the filing's own A/B counted.
+
+**Mutation proof (both directions, with a non-interactive control identical in both).** Delete the
+`# BL-180-ENFORCEMENT-DEFAULT` line → fast pin `Results: 5 passed, 2 failed` (T1/T3 interactive RED
+showing literally `Enforcement: `; T4/T5/T6 non-interactive controls GREEN) and pty
+`Results: 6 passed, 4 failed` (T3 `enforcement_level=''`, T4 gate ABSENT, T5 sentinel absent, T6
+audit row `''` — the filing's signature reproduced exactly). Restore → `7 passed, 0 failed` and
+`10 passed, 0 failed`. (Re-run against the REMEDIATED fixture on 2026-07-26; the pty RED tally is
+`6 passed, 4 failed` rather than the pre-remediation `4 passed, 4 failed` because T0a/T0b are two
+additional PASSING cases under this mutation — the four caught consequences are unchanged, which
+is the point: the R-WPA-1 repair did not blunt the catcher.)
+
+**Registration:** both are registered in `tests/full-project-test-suite.sh` (enforcement-level
+cohort), and neither is in the `.github/workflows/tests.yml` unit lane — both invoke `init.sh`,
+and the documented membership rule is "does not invoke init.sh". Per BL-181 a green
+`lint-tests-registered.sh` proves NEITHER fact here (its unit-lane arm exempts any file whose text
+merely mentions `init.sh`), so both were verified BY HAND: grep of the aggregator for the two
+delegate invocations, and a grep of the `tests=(` array confirming absence. The pty test's aggregator entry deliberately
+CAPTURES output instead of `>/dev/null 2>&1` so its rc=0 LOUD SKIP cannot masquerade as a genuine
+10/10 pass.
+
+**LANE DECISION (2026-07-26, verifier findings R-WPA-2 + R-WPA-3) — RECORDED, not deferred.
+The BL-180 surface is accepted as FULL-LANE-ONLY.** The original escalation rested on a measured
+claim that was wrong: it described the fast pin as "seconds, hermetic, no scaffold". Hermetic and
+no-scaffold hold; **"seconds" does not.** Measured on this host,
+`bash tests/test-bl180-interactive-enforcement.sh` → `Results: 7 passed, 0 failed`, `EXIT=0`,
+**wall clock 116 s** — an order of magnitude off the claim, and roughly a 40 % increase on a unit
+lane documented at ~5 min. That measurement inverts the escalation's own premise, so the decision
+is to leave the membership rule ("does not invoke `init.sh`") ALONE and keep all three BL-180 test
+surfaces in the aggregator only. Three reasons, in order of weight: (1) the fast pin is not fast
+enough to be free on every PR; (2) changing the rule to "does not SCAFFOLD a project" is a
+governance edit touching `CLAUDE.md`, the `tests.yml` comments and the `grep -L 'init\.sh'`
+regeneration recipe — strictly larger than this remediation and the kind of change the WP said to
+escalate rather than make unilaterally; (3) the honest residual is narrower than it first looks,
+because the chain that made R-WPA-2 material has been broken — R-WPA-1 is fixed, so the pty test
+now PASSES under `CI=true` and genuinely executes in the `full` lane's `core` shard with `expect`
+installed. **The residual, stated plainly:** a mutation of the
+`[ "$ENFORCEMENT_LEVEL" = "strict" ]` gate-install guard in
+`init.sh::prepare_initial_state_for_commit` is still invisible to every PR-BLOCKING check
+(`lint-tests-registered` rc=0, `lint-no-live-remote` rc=0,
+`tests/test-filesystem-gate-install.sh` 8/8, `tests/test-enforcement-level-lib.sh` 10/10, and the
+fast pin 7/7 — which cannot observe it because `--dry-run` returns from `main()` before
+`create_project`). It is caught only by the manual `workflow_dispatch` lane. Closing that gap
+properly means a unit-lane-cheap pin on the gate-install guard specifically, which is its own
+work item — see the follow-on escalation below.
+
+**Repair path for already-scaffolded projects — `# BL-180-BACKFILL-EMPTY` in
+`scripts/upgrade-project.sh`.** The BL-030 backfill's gate was `! jq -e '.enforcement_level' …`,
+and `jq -e` on `""` prints `""` and EXITS 0 (re-confirmed on this host across all four shapes:
+`""`→0, missing→1, `null`→1, `"strict"`→0), so the block skipped the very projects it exists to
+repair. Replaced with `[ -z "$(jq -r '.enforcement_level // ""' … )" ]`, which collapses BOTH
+absent and empty to `""` while a real level passes through verbatim. Deliberately scoped: it
+widens the trigger to the empty string ONLY — never to a legitimately chosen tier — and a
+malformed manifest still triggers the backfill exactly as the old `! jq -e` did, so that
+behaviour is unchanged. Watched-RED first with the gate untouched: `T8 [FAIL] enforcement_level=''
+— the empty value defeated its own migration`, `T9 [FAIL] gate still absent after backfill`,
+`Results: 8 passed, 2 failed` — with the T10 control (`explicit light survives the backfill`) and
+the T2 idempotency case PASSING in that same RED run, so the fix is proven to move only the two
+intended cases. New fixture `setup_bl180_empty_level_personal` reproduces the pre-fix interactive
+birth shape exactly: it BLANKS `enforcement_level` rather than deleting the key (that distinction
+IS the bug), uninstalls the gate, and strips the birth audit row. After the fix:
+`Results: 10 passed, 0 failed`.
+
+**Residual, reported not fixed (defense in depth):** `jq -r '.enforcement_level // "strict"'`
+does NOT fire on the empty string (`//` only substitutes on `null`/`false`), so
+`scripts/install-filesystem-gates.sh` (including the EMITTED `.git/hooks/framework-gate.sh`,
+which re-reads it on every commit and `exit 0`s when the value is not exactly `strict`),
+`scripts/escalate-to-user.sh` and `scripts/hooks/bypass-detector.sh` would still stamp/act on
+`""`. With the birth site and the repair path both fixed, `""` should no longer arise — but a
+hand-edited or partially-migrated manifest would silently self-disable the gate. Only
+`scripts/lib/enforcement-level.sh::read_enforcement_level` is immune (its `case … *) echo
+"strict"` arm). Hardening those three readers is a separate change.
+
+Status stays **Open** pending PR + merge.
+
+**ESCALATED, not fixed here (2026-07-26, from the R-WPA-2 lane decision):** the gate-install guard
+`[ "$ENFORCEMENT_LEVEL" = "strict" ]` has no PR-blocking pin. The cheap shape would be a
+unit-lane test that drives `prepare_initial_state_for_commit`'s gate-install decision WITHOUT a
+full scaffold — but that function is not independently invocable today, so it needs either an
+extraction or a `--validate-only`-style seam in `init.sh`. That is a source change to the birth
+path with its own blast radius; it is deliberately NOT bundled into a remediation whose remit was
+the pty fixture's containment.
+
+**ESCALATED, not fixed here (2026-07-26, verifier finding R-WPA-5 — CONFIRMED):** both pty drivers
+answer `init.sh::resolve_and_install_tools`' consent gate with yes — the `expect` script has
+`-re {Proceed with this plan\?} { send -- "Y\r"; … }` and the `script(1)` answers file feeds bare
+`y` lines — so on a host missing an `auto_install`/`manual_install` tool the fixture authorises a
+REAL tool installation. The mock-`gh`/`glab` PATH shim does not cover this (it stubs the host CLIs,
+not package managers). Answering `N` instead is NOT a safe one-line change: the plan gate is a
+control-flow branch, and refusing it alters what `create_project` receives, so the whole 10-case
+contract would need re-deriving and re-watching. Left as-is with the behaviour recorded rather
+than half-changed. Note it did not fire on this host (all tools present) — which is exactly why it
+survived the first build.
+
+**Report-hygiene note (verifier finding R-WPA-6):** the implementer's tally block labelled an
+`edge-cases-pre-init` blast-radius run "105 dry-run assertions" while the quoted tally beneath it
+read 37. The label was wrong; the quoted tally is the evidence. No repo artifact carried the bad
+number (it lived only in the hand-off text), so there is nothing to correct in-tree — recorded
+here so the discrepancy is not re-derived as a real disagreement.
+
+**Adjacent item — NOT fixed here, deliberately escalated (2026-07-26):** `--no-remote-creation`
+being silently inert interactively is a genuine SAFETY defect (an operator who asks for no remote
+still reaches `create_and_protect_remote` against their authenticated host), and it is a strictly
+larger change than a warning tweak: making the flag WORK interactively changes documented
+interactive-path semantics, while merely warning about it needs its own accurate message because
+`main`'s existing "interactive flow will prompt" text is FALSE for both `--no-remote-creation` and
+`--confirm-pitfalls` (nothing prompts for either). It wants its own watched-RED + test + review
+rather than being tacked onto this diff.
 
 **Related:** BL-030, BL-084, BL-112, BL-110 (same "written only on one path" class), BL-161/163/171.
 
@@ -4864,10 +5102,17 @@ exactly why the raw `dirname: …: File name too long` line appears in the opera
 above. Redirect the substitution too, or the hook leaks a bare tool diagnostic into a security-gate
 transcript.
 
+**Build note (2026-07-26, branch `worktree-wf_79ea23a3-eb4-3`):** The **CLASS is retired, not the trigger** — landed with BL-179 in the same rewrite of the emitted SAST region. `# BL-182-PER-ENTRY-SKIP`: every `soif_idx_ok=0; break` is gone (the variable no longer exists); an entry that cannot be read is appended to `soif_idx_unread` and the loop CONTINUES, so coverage degrades entry-by-entry instead of collapsing. Three honesty guarantees are what make "scan the readable subset" safe rather than a smaller silent-success, and each carries its own marker: **`# BL-182-PARTIAL-STILL-BLOCKS`** — a finding in the readable subset BLOCKS even when coverage was partial (this is the actual regression the `break` caused: a sibling's sink LANDED, strictly worse than scanning nothing); **`# BL-182-NO-UNEARNED-RECEIPT`** — a CLEAN scan over a PARTIAL set never prints `[OK] semgrep: SAST ran on N staged file(s)`, it routes to the new `soif_sast_partial_coverage` helper, a SECOND loud reporter rather than a reuse of `soif_sast_not_enforced` because "nothing was scanned" is itself false when a subset was (it carries the same `SAST NOT ENFORCED` vocabulary, so every operator habit and every existing grep still fires); **`# BL-182-NAME-THE-ENTRY`** — `soif_sast_unread_report` lists each unread entry one per line on EVERY arm that has one (nothing-materialized NOTRUN, tool-failure NOTRUN, partial-clean report, and the `[BLOCKED]` path, because a blocked commit is exactly when the operator is about to re-stage). Zero targets with nothing unread still hits the unchanged `# BL-132-EMPTY-TARGETS` gitlink-only NOTRUN; the `[OK]` receipt is now reachable ONLY with complete coverage, and it still counts `${#soif_idx_files[@]}`. **Incidental leak fixed, plus a second one found while fixing it:** the `2>/dev/null` sat on `mkdir -p` while `$(dirname …)` ran first with unredirected stderr — `dirname` now carries its own redirect and an empty result is treated as failure; and the materialization write is wrapped in a brace group (`{ …; } 2>/dev/null`) because bash applies redirections LEFT TO RIGHT and reports a failure to OPEN the destination BEFORE `2>/dev/null` is in force, which leaked a raw `File name too long` from the shell itself (verified both ways here). Proof (`tests/test-bl132-sast-index-scan.sh`): `T-partial-clean-no-receipt` (unreadable entry carrying the sink + clean sibling → no `[OK]`, loud NOTRUN, entry NAMED as a `    - <path>` line, commit lands, and no raw tool diagnostic), `T-partial-vuln-still-blocks` (unreadable entry + sibling carrying the sink → `[BLOCKED]`, sibling named, gap named), `T-pathmax-sibling-caught` (the filed 1015-byte repo-relative path; fires at the dirname/mkdir recovery point where the other two fire at the write point). Two generators, both index-only via `git update-index --add --cacheinfo` because neither path can exist in a worktree: a **303-byte single path COMPONENT** (over NAME_MAX 255 on every POSIX filesystem — host-independent, hence primary) and the **1015-byte path** (PATH_MAX-dependent, so its case probes a real `mktemp -d` root and LOUD-SKIPs where the host can express it). Watched-RED against the pristine lib: all three FAILED — "ONE unreadable staged entry discarded every already-materialized sibling and routed the WHOLE commit to NOTRUN — the readable sibling's innerHTML XSS LANDED", and the clean case failed on "the NOTRUN did not NAME the staged entry it could not read" (the naming assertion is `grep -qxF "    - <path>"`, deliberately exact-line, because the pre-fix raw `File name too long` leak CONTAINS the path and a loose `grep -F` would have passed vacuously). Mutation proofs: `T-mutation-partial-break` (restore all-or-nothing recovery at all 4 points → the whole commit NOTRUNs and the sibling XSS LANDS → restore → REFUSED) and `T-mutation-partial-receipt` (disarm the no-unearned-receipt guard → an `[OK]` over a partial scan → restore → loud partial NOTRUN). `T-mutation-content-guard`'s F2-removal anchor was **retargeted in lockstep** (it keyed on the removed `soif_idx_ok=0; break; fi`) and upgraded from a best-effort `awk` to an exactly-once-per-line COUNTED one: left unretargeted it would have dropped the two F2 assignments while leaving the conditional referencing an unset variable under `set -u`, aborting the hook and refusing the commit for a reason unrelated to F2 — a case that looks healthy and proves nothing. Green: `test-bl132` 23/23, `test-bl131` 17/17, `test-bl118` 6/6, `test-bl112` 13/13, `test-bl113` 17/17, `test-upgrade-sync-framework` 39/39, `run-lints` 11/11. Blast-radius sweep of every other suite that consumes the emitted hook, also green: `test-bl099-guard-coverage` 53/53 (the `--error` registry anchor still RED-under-neuter), `test-bl125-commit-test-exec` 16/16, `test-bl163-blocked-ledger` 7/7, `test-bl161-ledger-real-events-only` 7/7, `test-freshness-check` 26/26, `test-verify-install-fix-functions` 16/16. Status stays **Open** pending PR + merge.
+
+**Remediation note (2026-07-26, branch `worktree-wf_79ea23a3-eb4-9`) — scoping "the `[OK]` receipt is reachable ONLY with complete coverage".** That sentence in the build note above is true **of this entry's guard** and was false **of the arm as a whole**, and the difference is worth carrying forward. `# BL-182-NO-UNEARNED-RECEIPT` compares what was scanned against `soif_idx_unread`, i.e. against the entries the materialization loop was GIVEN. It cannot see an entry that never reached the loop — and `# BL-179-STAGED-FILTER` decides that. While the filter read `--diff-filter=ACMR` a staged **TYPE CHANGE** (status letter `T`, a real `100644` blob) was dropped before the loop, so `soif_idx_unread` was empty, this guard could not fire, and a clean sibling bought `[OK] semgrep: SAST ran on 1 staged file(s)` over a commit carrying an unscanned `innerHTML` sink (R-WPC-1; reproduced through the real emitter and a real `git commit`). Filter → `ACMRT`; full detail, evidence and mutation proofs in **BL-179's remediation note**. Nothing in this entry's own code or contract changed. Two knock-on items from the same review: the receipt comment in `soif_precommit_region_body` now names BOTH preconditions of "complete coverage" (every given entry read **and** every content-bearing entry given) instead of only the first; and, per R-WPC-2, the **F2 size-mismatch recovery point** — one of the four this entry introduced — had its `soif_idx_unread` recording pinned only STRUCTURALLY, by `T-mutation-partial-break`'s exactly-four occurrence counter, so `T-mutation-content-guard` now also asserts the entry is NAMED on both F2 arms (watched-RED by replacing the recording with a bare `then continue; fi` → `[FAIL] … NOTRUNed but never NAMED app.ts`, `Results: 23 passed, 2 failed`). Green after: `test-bl132` **25/25**, `test-bl131` 17/17, `test-bl118` 6/6, `test-bl112` 13/13, `test-bl113` 17/17, `test-upgrade-sync-framework` 39/39, `run-lints` 11/11, all exit 0. Status stays **Open** pending PR + merge.
+
+**Remediation note #2 (2026-07-26, branch `worktree-wf_79ea23a3-eb4-15`) — the mode predicate's REJECT direction had NO test, and NO lane could see the gap.** A second adversarial round returned **major_concerns** (R-WPC2-1), refuting the claim in remediation note #1 that `T-gitlink-not-counted-unread` "pins BOTH directions of the gitlink-vs-unreadable distinction". Only the ACCEPT direction was pinned, and the verifier was **right** — reproduced here independently, before touching anything, with a mutation distinct from all five already in the suite. **The mutation (M1):** widen the skip's index-MODE test at `# BL-132-GITLINK-SKIP` from `git ls-files -s -- ":(literal)$soif_p" | grep -q '^160000 '` to `grep -q '^'` — i.e. exactly the blanket "unreadable => skip" the comment directly above it forbids in capitals ("THIS IS NOT A BLANKET 'unreadable => skip'"). **The fixture:** a real **TREE object staged at index mode 100644** (`git update-index --add --cacheinfo "100644,<tree-sha>,weird.ts"`) beside a clean readable sibling — `git ls-files -s` reports `100644 <sha> 0 weird.ts` so the 160000 test must REJECT it, while `git cat-file -t :0:weird.ts` returns `tree` so it genuinely is not scannable content. A/B through the real emitter, the real `.git/hooks/pre-commit` and a real `git commit`, git 2.50.1 / semgrep 1.157.0: PRISTINE → `verdict=COMMITTED`, `[WARN] SAST coverage was PARTIAL: 1 staged file(s) scanned clean, 1 could NOT be read (listed below).` + `    - weird.ts`; M1 MUTANT → `verdict=COMMITTED`, `[OK] semgrep: SAST ran on 1 staged file(s) — no ERROR-severity findings.` — an **unearned receipt on a commit that LANDS carrying an unscanned staged entry**, the exact silent-success class this entry exists to retire. **No lane caught it.** With M1 applied to `scripts/lib/hook-templates.sh`, the owning suite `tests/test-bl132-sast-index-scan.sh` — a PR-gating member of the `tests.yml` unit lane — returned `Results: 25 passed, 0 failed (0 skipped)`, `EXIT=0`, identical to the pristine baseline, and `T-gitlink-not-counted-unread` PASSED verbatim under it; `grep -rlE "cacheinfo|160000|hash-object" tests/` returns that one file, so no sibling suite could have seen it either. **Why the existing case was blind:** its unreadable entry is `$LONG_NAME`, a perfectly HEALTHY blob (`git ls-files -s` → mode `100644`, `git cat-file -t ":0:$LONG_NAME"` → `blob`, verified) whose materialization fails LATER, at the write redirect; the `if [ "$soif_idx_type" != "blob" ]` branch that holds the mode test is never entered, so the predicate is invisible to it. `$LONG_PATH` is the same story at the dirname/mkdir site. Reaching the REJECT direction needs a genuine non-blob, non-gitlink index entry, and only `--cacheinfo` can build one. **This is a TEST-COVERAGE gap, NOT a product defect — the shipped predicate is correct and is UNCHANGED.** Fix is `tests/test-bl132-sast-index-scan.sh` only: new hermetic helper `stage_tree_at_blob_mode` (builds the tree through a throwaway `GIT_INDEX_FILE` so the fixture's real index is untouched), new case **`T-nonblob-nongitlink-forfeits-receipt`** (asserts NO `[OK] semgrep: SAST ran`, a loud NOTRUN, `grep -qxF "    - weird.ts"`, and WARN-not-block, with LOUD-SKIP guards re-probing all three halves of the shape), and new mutation case **`T-mutation-gitlink-mode-blanket`**. Watched-RED with M1 applied to the lib: `[FAIL] T-nonblob-nongitlink-forfeits-receipt — a non-blob, NON-GITLINK staged entry was skipped with NO trace and the clean sibling bought an UNEARNED [OK] … receipt: [OK] semgrep: SAST ran on 1 staged file(s) — no ERROR-severity findings.` and `[FAIL] T-mutation-gitlink-mode-blanket — MIS-TARGETED — the gitlink MODE predicate is not present exactly once in the emitted hook`, tally `Results: 25 passed, 2 failed (0 skipped)`, `EXIT=1`. That second failure is the mutation case's DESIGNED behaviour and is itself evidence: a widened predicate makes the anchor vanish, so the case fails loudly instead of mutating nothing. Restored: `Results: 27 passed, 0 failed (0 skipped)`, `EXIT=0`. The in-suite comment on `T-gitlink-not-counted-unread` and the file's CASES header now state the ACCEPT/REJECT split precisely instead of claiming both. Green after, all exit 0: `test-bl132` **27/27** (was 25), `test-bl131` `Results: 17 passed, 0 failed (0 skipped)`, `test-bl118` `Results: 6 passed, 0 failed (0 skipped)`, `test-bl113` `Results: 17 passed, 0 failed`, `test-bl112` `Results: 13 passed, 0 failed, 0 skipped`, `test-bl125` `Results: 16 passed, 0 failed`, `test-upgrade-sync-framework` `== Total: 39 | Passed: 39 | Failed: 0 ==`, `run-lints` `11 lints — 11 passed, 0 failed`. **Lane honesty:** `test-bl132`, `test-bl131`, `test-bl118`, `test-bl125` and `test-upgrade-sync-framework` gate the PR via the `tests.yml` unit lane; `test-bl112` and `test-bl113` are full-lane only and were run locally. Also recorded from this round, no action taken: **R-WPC2-2** (informational) — the dispatch brief's implementer-claims text was stale relative to the SHA under review; the in-tree notes were accurate. Status stays **Open** pending PR + merge.
+
 **Related:** BL-132 (the arm, and the two already-fixed instances of this class), BL-179 (the other
-still-open hole in the same arm — rename-and-edit commits skip SAST entirely and silently), BL-178
-(the per-index subdir that adds the `/<n>/` segment), BL-112 (the honest-NOTRUN contract that holds
-here).
+hole in the same arm — rename-and-edit commits skipped SAST entirely and silently, and the staged
+filter whose letters bound this entry's receipt guarantee; fixed in the SAME diff as this entry),
+BL-178 (the per-index subdir that adds the `/<n>/` segment), BL-112 (the honest-NOTRUN contract
+that holds here).
 
 ---
 

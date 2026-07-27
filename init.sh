@@ -3261,6 +3261,16 @@ dry_run_summary() {
   echo "  Track:     $TRACK"
   echo "  Language:  $LANGUAGE"
   echo "  Directory: $PROJECT_DIR"
+  # BL-180-DRYRUN-ENFORCEMENT: surface the RESOLVED enforcement level on
+  # STDOUT. The sibling log_line "…" calls in main() write to the log FILE
+  # only, so a piped fixture cannot observe them — which is why BL-180 (the
+  # interactive arm never resolving ENFORCEMENT_LEVEL at all) survived every
+  # fed-sequence --dry-run test in the repo. Printing it here makes the
+  # interactive resolution assertable without a pty; the value is echoed
+  # verbatim (NOT defaulted) so an unresolved level shows up as an empty
+  # field rather than being cosmetically repaired at the reporting layer.
+  # Pinned by tests/test-bl180-interactive-enforcement.sh.
+  echo "  Enforcement: $ENFORCEMENT_LEVEL"
   echo ""
 
   echo -e "${BOLD}Tool Resolution:${NC}"
@@ -4195,6 +4205,38 @@ HELPEOF
     check_prerequisites
     collect_project_info
   fi
+
+  # BL-180-ENFORCEMENT-DEFAULT: resolve ENFORCEMENT_LEVEL for EVERY path.
+  # The `# BL-030: resolve enforcement_level` block above lives inside the
+  # NON_INTERACTIVE arm, and the interactive arm (check_prerequisites +
+  # collect_project_info) has no enforcement-level prompt anywhere — so a
+  # hand-run `./init.sh` used to reach prepare_initial_state_for_commit with
+  # ENFORCEMENT_LEVEL still at its top-of-file "". That empty value flowed
+  # verbatim into the manifest, into the bypass-audit enforcement_level_set
+  # row, and made the `[ "$ENFORCEMENT_LEVEL" = "strict" ]` guard around
+  # install-filesystem-gates.sh --install a silent no-op: every interactively
+  # scaffolded project was born with NO commit-time gate while every
+  # lib-mediated diagnostic reported it as strict (read_enforcement_level maps
+  # "" → strict). It was also self-concealing — upgrade-project.sh's BL-030
+  # backfill could not repair it (see # BL-180-BACKFILL-EMPTY there).
+  #
+  # STRICT IS THE RIGHT DEFAULT, not merely a safe one: strict is what the
+  # non-interactive arm already resolves to when no --enforcement-level is
+  # supplied (both its forced arm and its choosable arm's own `-z` default),
+  # so this makes the two entry points agree instead of inventing a tier.
+  #
+  # INERT FOR THE NON-INTERACTIVE ARM: that arm assigns ENFORCEMENT_LEVEL on
+  # every one of its branches before falling through here, so the `-z` guard
+  # never fires there and an explicit `--enforcement-level light` survives
+  # untouched. Proven, not asserted — see T5/T6 of
+  # tests/test-bl180-interactive-enforcement.sh.
+  #
+  # CONFIRM_PITFALLS is deliberately NOT given the same treatment: its
+  # top-of-file default is already 0, it is only ever read as permission to
+  # DOWNGRADE, and the interactive arm offers no downgrade to permit — so 0
+  # is the correct interactive resolution and defaulting it to anything else
+  # would widen the bypass surface rather than close it.
+  [ -z "$ENFORCEMENT_LEVEL" ] && ENFORCEMENT_LEVEL="strict"
 
   log_section "Project Configuration"
   log_line "Project: $PROJECT_NAME"

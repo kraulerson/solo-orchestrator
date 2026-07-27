@@ -220,6 +220,10 @@ The commit-time SAST gate (the generated `.git/hooks/pre-commit`) and the genera
 
 The gate is a fast **tripwire**, not a proof of safety: prefer `textContent` / `insertAdjacentText` or an explicit sanitizer (e.g. DOMPurify) for any attacker-influenced markup, and rely on the CSP (§4.4) and code review as the defense-in-depth layers behind it. If semgrep cannot run (absent, offline registry, or a missing `.semgrep/soif-dom-sinks.yml`), the arm WARNs **loudly** ("SAST NOT ENFORCED") rather than passing silently — a not-run scan is never a clean scan.
 
+**What the arm scans, and what "partial" means.** Targets are the **staged blobs** for every added, copied, modified, **renamed** or **type-changed** path (`--diff-filter=ACMRT`) — a rename-and-edit commit is scanned at its *destination*, replacing a symlink with a regular file is scanned as the new file's content, and staged deletions are excluded because a deleted path has no content to scan. If a staged entry cannot be read out of the index (an unreadable object, a path the filesystem cannot express as a temp destination), the arm **scans everything else and reports the gap by name** rather than abandoning the commit's coverage: a finding in the readable subset still **blocks**, and a clean result over a partial set gets the loud "SAST NOT ENFORCED" report — never the `[OK] semgrep: SAST ran on N staged file(s)` receipt. The arm always prints one of those verdicts; silence is never one of its outcomes.
+
+Read that receipt precisely: **it means every blob the filter selected was scanned, and `N` is all of them.** The filter is the boundary of the claim, not a detail beneath it — a status letter missing from `--diff-filter` removes an entry before the scan is even attempted, so nothing is reported as unread and `N` silently counts a subset. That is exactly how a staged **type change** slipped through while the filter was `ACMR`. If you audit this gate, audit the filter letters alongside the receipt; the two are one contract.
+
 ---
 
 ## 5. Deployment & Distribution
