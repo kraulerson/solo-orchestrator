@@ -2362,7 +2362,14 @@ if [ "$HAVE_SEMGREP" -eq 0 ]; then
   skip_ "T-rule-timeout-names-the-rule" "semgrep ABSENT — UNPROVEN here (skip, not pass)"
 elif [ ! -s "$TOPTMP/dense" ]; then
   skip_ "T-rule-timeout-names-the-rule" "the dense-oversize transcript was not produced (see T-oversize-dense-no-receipt) — UNPROVEN here"
-elif ! grep -qF 'Rule coverage: semgrep reported' "$TOPTMP/dense" || ! grep -qF 'rule-timeout warning(s)' "$TOPTMP/dense"; then
+# THIS GUARD IS A SKIP CONDITION, SO ITS STRINGS ARE LOAD-BEARING IN THE DANGEROUS
+# DIRECTION: if they stop matching the hook's wording the case does not FAIL, it silently
+# stops testing. It was moved in lockstep with the R-772-4 rewording of the rule-coverage
+# sentence ("warning(s)" -> "warning line(s)", because the counter counts LINES and semgrep
+# prints two of them per timeout once --timeout-threshold trips). On this host the case is
+# an active PASS, not a skip — if it ever reports SKIP after a hook-wording change, fix the
+# strings, do not accept the skip.
+elif ! grep -qF 'Rule coverage: semgrep reported' "$TOPTMP/dense" || ! grep -qF 'rule-timeout warning line(s)' "$TOPTMP/dense"; then
   skip_ "T-rule-timeout-names-the-rule" "no rule timed out on this host, so there is nothing to attribute — UNPROVEN here"
 elif ! grep -qF 'heavy.ts' "$TOPTMP/dense"; then
   fail_ "T-rule-timeout-names-the-rule" "the rule-coverage report never named the target: $(tail -8 "$TOPTMP/dense" | tr '\n' '|')"
