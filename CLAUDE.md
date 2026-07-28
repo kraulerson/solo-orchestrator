@@ -56,10 +56,28 @@ here.
 - **Run every repo lint locally:** `bash scripts/run-lints.sh` (one PASS/FAIL
   line per lint, summary, non-zero exit iff any failed). This is the dev-tool
   wrapper — see LINT GOTCHAS.
-- **CI fast lane (unit):** the explicit file list in the `unit` job of
-  `.github/workflows/tests.yml`. A test belongs there iff it does not invoke
-  `init.sh` and is not an aggregator. That list plus `tests/full-project-test-suite.sh`
-  are both lint-enforced (see HOUSE RULES).
+- **CI fast lane (unit):** the explicit file list in the **`unit-shard`** job of
+  `.github/workflows/tests.yml` (BL-190 renamed the job; it was `unit`). A test
+  belongs there iff it does not invoke `init.sh` and is not an aggregator. That
+  list plus `tests/full-project-test-suite.sh` are both lint-enforced (see
+  HOUSE RULES).
+  - **Adding a test is still a ONE-LINE edit** — append it to the canonical
+    array. The lane is sharded (matrix `shard: [lint-sweep, lint-scan, sast,
+    slow-misc, rest]`), but only the measured long poles are pinned to a
+    shard by the `pin_*` arrays; `rest` is the COMPLEMENT, so a new entry
+    lands there automatically.
+  - **Never write the literal array-opening token (`tests`+`=`+`(`) anywhere
+    else in that file below the array.** `_build_unit_list_set` scopes with an
+    UNANCHORED `awk '/tests=\(/'` and does not strip comments, so a second
+    occurrence re-opens the scope and folds every `tests/test-*.sh` path
+    after it into the lint's membership set — a test merely NAMED in a
+    comment would then satisfy the lint while never running. The pin arrays
+    are named `pin_*` for exactly this reason.
+  - The job name **`unit` is a required status check** on `main` (confirmed
+    via `gh api repos/kraulerson/solo-orchestrator/branches/main/protection`).
+    It survives as a zero-work aggregator job that is red unless every
+    `unit-shard` leg is green. Renaming or deleting it leaves every PR waiting
+    forever on a check that never reports.
 - **FULL suite is ~3h and `workflow_dispatch`-only** (`.github/workflows/tests.yml`
   `full` job: `if: github.event_name == 'workflow_dispatch'`, `timeout-minutes: 180`).
   Never run it casually. Locally, `bash tests/full-project-test-suite.sh` and

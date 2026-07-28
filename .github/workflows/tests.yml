@@ -15,6 +15,17 @@
 #                         The list is explicit and reviewable below so a new
 #                         orphan test cannot silently join CI — add new
 #                         entries deliberately.
+#                         BL-190: the lane is SHARDED. The list below is
+#                         still one canonical array; a matrix job
+#                         (`unit-shard`) partitions it across five parallel
+#                         runners, and a zero-work `unit` job aggregates
+#                         them so the branch-protection check name survives.
+#                         Nothing was demoted to the full lane: the set of
+#                         tests that gate a PR is byte-identical before and
+#                         after, only the wall clock changed (~19 min serial
+#                         -> ~5.5 min FOR THIS LANE). That is NOT the
+#                         PR-blocking number — see the critical-path note on
+#                         the unit-shard job below.
 #                         BL-181: membership is enforced by
 #                         scripts/lint-tests-registered.sh, whose exemption
 #                         predicate looks at EXECUTED lines only. The older
@@ -31,7 +42,13 @@
 #
 # The tests are hermetic (BL-076 lint enforces no live-remote init.sh runs),
 # so CI does NOT authenticate gh and creates no real remotes. Keep it that
-# way. Do not modify lint.yml.
+# way.
+#
+# (The "do not modify lint.yml" line that used to sit here was a scope guard
+# for the sharding change, not a standing rule. Karl lifted it so the BL-191
+# `if: always()` -> `if: failure()` fix to lint.yml's nine inventory steps
+# could land alongside this — that fix is what actually moves the PR-blocking
+# floor, and it is documented in lint.yml's own header.)
 
 name: tests
 
@@ -42,15 +59,118 @@ on:
   workflow_dispatch:   # the full lane is manual-only (no scheduled nightly)
 
 jobs:
-  # ── Fast lane ──────────────────────────────────────────────────────────
-  # Quick unit tests only, on every push and PR. Target: a few minutes.
-  unit:
-    name: unit
+  # ── Fast lane (sharded) ────────────────────────────────────────────────
+  # BL-190: the fast lane was SERIAL and had reached its own 20-minute cap —
+  # 18m51s on main (run 30297887329) and CANCELLED at 20m15s on PR #278,
+  # "The operation was canceled", not an assertion failure. A lane that
+  # blocks any PR merely for ADDING a test has stopped being a fast lane, so
+  # this splits the SAME test list across parallel shards instead of raising
+  # the cap (raising it would only hide the next doubling).
+  #
+  # Where the 18m51s went (measured, run 30297887329, ::group:: spans):
+  #     318s tests/test-run-lints.sh
+  #     243s tests/test-lint-counter-antipattern.sh
+  #     122s tests/test-pre-commit-gate-lints.sh
+  #      77s tests/test-bl132-sast-index-scan.sh   (213s on PR #278)
+  #      54s tests/test-bl131-domsink-rules.sh
+  #      41s tests/test-lint-raw-read-prompt.sh
+  #      37s tests/test-upgrade-sync-framework.sh
+  #      34s tests/test-plan-staging.sh
+  #      16s tests/test-lint-doc-anchors.sh
+  #     170s the other 127 files, TOGETHER (avg 1.34s)
+  # i.e. 85% of the lane is nine files, and the other 127 are noise. Sharding
+  # is therefore the whole fix; nothing needs to be deleted, skipped or
+  # demoted, and every test below still runs on every PR.
+  #
+  # WHY THOSE NINE ARE SLOW (verified, not assumed). The two biggest are
+  # lint work the PR ALREADY does elsewhere:
+  #   • tests/test-run-lints.sh — its T-all-pass arm runs `scripts/run-lints.sh`
+  #     over the REAL repo, i.e. all 11 lints end-to-end.
+  #   • tests/test-lint-counter-antipattern.sh — 12 tiny fixture cases, plus
+  #     "T9: MERGE GATE" which runs the linter over the REAL repo. Same for
+  #     test-lint-raw-read-prompt.sh and test-lint-doc-anchors.sh.
+  # lint.yml already runs each of those lints over the repo in its own
+  # PARALLEL job (counter-antipattern-lint, raw-read-prompt-lint,
+  # doc-anchors-lint — all three are required checks), so on a PR the
+  # full-tree counter-antipattern scan executed FOUR times per PR, not the
+  # three originally claimed:
+  #   1. lint.yml counter-antipattern-lint, step "Lint counter-capture
+  #      antipattern"                                       207s on main
+  #   2. lint.yml counter-antipattern-lint, step "Show PASS/FAIL
+  #      inventory" — the `--list` re-scan, then gated `if: always()`,
+  #      so it re-ran on SUCCESS too                        204s on main
+  #   3. tests/test-lint-counter-antipattern.sh `T9: MERGE GATE`
+  #   4. tests/test-run-lints.sh `T-all-pass`, via scripts/run-lints.sh
+  # (1) and (2) are measured from run 30297887996 job 90083310253 (main
+  # @ 9d71824); (3) and (4) are the 243s attributed above.
+  #
+  # (2) IS NOW GONE ON GREEN RUNS. This change also flips lint.yml's nine
+  # inventory steps from `if: always()` to `if: failure()` (BL-191), so on a
+  # passing PR the scan runs THREE times and on a failing one it still runs
+  # four — the inventory prints exactly when someone needs it. The remaining
+  # duplication is genuine merge gates the suites own, so nothing is
+  # removed; (3) and (4) are merely moved off each other's critical path.
+  # The root cost is still scripts/lint-counter-antipattern.sh's
+  # `scan_file`, which forks `echo "$line" | grep -Eq` PER LINE of every
+  # file it walks; making that a single-pass scan is an enforcement-script
+  # change (TDD + mutation proof) and stays out of scope for a CI rebalance.
+  # BL-191 stays Open for it.
+  #
+  # SHARDS. Only the measured long poles are pinned; `rest` is the
+  # COMPLEMENT of the pins, so a newly added test needs no edit here — it
+  # lands in `rest` automatically and the partition assertion still holds.
+  # Expected wall clock per shard. The per-file seconds are MEASURED; the
+  # per-shard totals are DERIVED from them (measured seconds + ~20s job
+  # overhead, itself measured from the old serial job's non-test steps).
+  # No run has yet executed the five-leg topology, so nothing in this table
+  # is an observation:
+  #     lint-sweep  318s ->  ~5.5 min   (  1 file)
+  #     lint-scan   299s ->  ~5.2 min   (  3 files)
+  #     sast        281s ->  ~4.9 min   (  3 files; PR #278 worst case for bl132)
+  #     slow-misc   193s ->  ~3.5 min   (  3 files)
+  #     rest        157s ->  ~2.9 min   (126 files; the shard that grows)
+  #                 ----                ----
+  #                1248s                 136 files — same 136 as the serial lane
+  # THIS LANE's long pole is ~5.5 min against a 12-minute cap. The cap is
+  # LOWERED from 20 on purpose: it has to stay a tripwire, not a ceiling to
+  # grow into.
+  #
+  # THE PR-BLOCKING CRITICAL PATH IS NOT THIS LANE'S NUMBER — check both.
+  # Sharding alone would have left the PR floored at ~7-9 min by lint.yml's
+  # REQUIRED `counter-antipattern-lint` job: MEASURED 6m59s on main (run
+  # 30297887996, job 90083310253, @ 9d71824) and 9m03s on PR #278 (run
+  # 30380689795, job 90347515417, @ 8ea8c6c). Sharding takes THIS lane off
+  # the critical path; it cannot lower that floor.
+  #
+  # So this change also lowers the floor, in lint.yml (BL-191): its nine
+  # `--list` inventory steps go `if: always()` -> `if: failure()`, dropping
+  # a full duplicate scan from every green lint job. DERIVED, not observed —
+  # no run has executed either topology yet:
+  #     counter-antipattern-lint  419s -> ~215s  (~3.6 min)  main
+  #                               543s -> ~277s  (~4.6 min)  PR #278
+  #     unit lane long pole       lint-sweep ~5.5 min, plus the `unit`
+  #                               aggregator that gates on it     ~6 min
+  # The lint floor drops below the unit lane, so the expected new
+  # PR-blocking critical path is ~6 min, SET BY THIS LANE's lint-sweep
+  # shard — the first time it has been the unit lane's number to own.
+  # Lowering it further means making the scan itself cheap: BL-191's
+  # per-line-fork rewrite, still Open.
+  unit-shard:
+    name: unit-shard (${{ matrix.shard }})
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Deliberately LOWER than the old 20. Slowest measured shard is ~5.5 min,
+    # so this is ~2x headroom; if a shard ever approaches it, that is the
+    # signal to re-pin, exactly as it was here.
+    timeout-minutes: 12
     # Only the fast lane on push / PR. The full suite runs on schedule /
     # dispatch (see the `full` job's guard below).
     if: github.event_name == 'push' || github.event_name == 'pull_request'
+    strategy:
+      # Report every shard. A red shard must not cancel the others, or the
+      # PR author sees one failure and cannot tell what else is broken.
+      fail-fast: false
+      matrix:
+        shard: [lint-sweep, lint-scan, sast, slow-misc, rest]
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
@@ -74,14 +194,70 @@ jobs:
         # registry-token drift without semgrep, but only a real run proves
         # the emitted hook still BLOCKS — a renamed/retired registry rule
         # would otherwise re-blind every generated hook while CI stayed
-        # green between manual full-lane dispatches. Accepted cost: one
-        # registry fetch per PR. An install failure fails the lane LOUDLY
-        # rather than silently skipping the blocking arm.
+        # green between manual full-lane dispatches. An install failure fails
+        # the lane LOUDLY rather than silently skipping the blocking arm.
+        #
+        # BL-190: installed in EVERY shard, not only `sast`. The semgrep
+        # suites are pinned to `sast` today, but `rest` is the complement —
+        # a future semgrep-requiring test lands there with no edit here, and
+        # those suites SKIP LOUDLY (not fail) without semgrep, which is
+        # precisely the silent-blinding this step exists to prevent. Uniform
+        # install keeps the pin map free to move. Cost: the "one registry
+        # fetch per PR" of the old serial lane becomes one per shard, ~12s
+        # each and fully parallel, so it is not on the critical path.
         run: pip install semgrep
 
-      - name: Run fast unit tests
+      - name: Run fast unit tests — shard ${{ matrix.shard }}
+        env:
+          SHARD: ${{ matrix.shard }}
+          # strategy.job-total is the number of legs in the matrix above.
+          # See the roster-drift guard at the top of the script.
+          SHARD_TOTAL: ${{ strategy.job-total }}
         run: |
           set -uo pipefail
+
+          # ── Shard roster: the SINGLE SOURCE for the shard set ──────────
+          # THE HAZARD. `rest` is the complement of the PINNED paths, not of
+          # the paths some shard actually ran. So if a shard stops existing
+          # but its pins keep contributing to `pinned`, its tests are
+          # excluded from `rest` and then run NOWHERE — while the partition
+          # arithmetic still balances and every remaining shard still goes
+          # green. A hand-maintained leg COUNT does not close that: you
+          # delete the leg, you update the count because the error message
+          # told you to, and the tests vanish anyway.
+          #
+          # THE CLOSURE. This roster is the only place a shard is named in
+          # this script. The leg-count guard counts it; `pins_for` cases on
+          # exactly these names; the pinned set is built by walking this
+          # roster THROUGH `pins_for`; and the dispatch validates against
+          # it. Delete a name here and its `pin_*` array is ORPHANED — it
+          # no longer enters `pinned`, so those paths fall back into `rest`
+          # and STILL RUN. Fail-safe, not silently dropped.
+          shard_names="lint-sweep lint-scan sast slow-misc rest"
+
+          roster="|"
+          shard_arms=0
+          for s in $shard_names; do
+            roster="${roster}${s}|"
+            shard_arms=$((shard_arms + 1))
+          done
+
+          # The matrix leg count is the one thing this script cannot read —
+          # it lives in the YAML above. `strategy.job-total` carries it down
+          # so a matrix edited apart from the roster fails loudly. This is
+          # now the ONLY hand-kept correspondence, and getting it wrong is
+          # non-silent in both directions: too few legs fails here, and an
+          # extra leg fails the roster-membership check below.
+          if [ "${SHARD_TOTAL}" != "${shard_arms}" ]; then
+            echo "shard roster drift: the matrix declares ${SHARD_TOTAL} leg(s) but the roster names ${shard_arms} (${shard_names}). Edit the matrix list and the roster TOGETHER." >&2
+            exit 1
+          fi
+
+          case "$roster" in
+            *"|${SHARD}|"*) ;;
+            *) echo "unknown shard: '${SHARD}' is not in the roster (${shard_names})" >&2
+               exit 1 ;;
+          esac
           # Explicit, reviewable list. A test belongs here iff it does not
           # invoke init.sh (no project scaffolding) and is not an aggregator
           # or helper. Membership is machine-checked in the OMISSION direction
@@ -252,8 +428,147 @@ jobs:
             tests/test-validate-phase-state-gates.sh
           )
 
-          failed=()
+          # ── BL-190 shard pins ──────────────────────────────────────────
+          # These arrays PARTITION the canonical list above; they do not add
+          # to it and they must never contain a path that is not in it (the
+          # assertion below enforces exactly that). Only the measured long
+          # poles are named — `rest` is the complement, so appending to the
+          # canonical array above is still the ONLY edit a new test needs.
+          #
+          # NOTHING BELOW THIS LINE MAY CONTAIN THE LITERAL ARRAY-OPENING
+          # TOKEN (the word `tests`, `=`, open-paren). Not in an array name,
+          # not in a comment, not inside an echo string.
+          # scripts/lint-tests-registered.sh scopes the unit list with
+          # `awk '/tests=\(/{f=1;next} f && /^[ ]*\)/{f=0}'` — an UNANCHORED
+          # substring match with no comment stripping — so any reappearance
+          # of that token re-opens the scope, and every `tests/test-*.sh`
+          # path between it and the next lone `)` line gets folded into the
+          # lint's membership set. That is a silent widening of an
+          # enforcement predicate: a new test file merely NAMED in a comment
+          # down here would satisfy the lint while never running in CI —
+          # verbatim the BL-181 defect class. `pin_*` names cannot match,
+          # and the prose/echo text below is worded to avoid the token.
+          # Comment-out is likewise not a move mechanism anywhere in the
+          # canonical array: the same awk does not strip comments, so a
+          # commented entry still counts as membership while bash drops it
+          # (BL-181 residual #2). Move a path BETWEEN pin arrays instead.
+          #
+          # Seconds are measured CI time from run 30297887329 (main @ 9d71824).
+          pin_lint_sweep=(
+            tests/test-run-lints.sh                    # 318s — runs the WHOLE lint sweep over the real repo
+          )
+          pin_lint_scan=(
+            tests/test-lint-counter-antipattern.sh     # 243s — T9 re-scans the real repo
+            tests/test-lint-raw-read-prompt.sh         #  41s — real-repo arm
+            tests/test-lint-doc-anchors.sh             #  16s — real-repo arm
+          )
+          pin_sast=(
+            tests/test-bl132-sast-index-scan.sh        #  77s on main, 213s on PR #278 — pinned at the worst case
+            tests/test-bl131-domsink-rules.sh          #  54s
+            tests/test-bl118-sast-dom-xss.sh           #  13s
+          )
+          pin_slow_misc=(
+            tests/test-pre-commit-gate-lints.sh        # 122s — runs 4 lint copies inside fixture projects
+            tests/test-upgrade-sync-framework.sh       #  37s
+            tests/test-plan-staging.sh                 #  34s
+          )
+
+          # The ONLY thing that maps a roster name to a pin array. Both the
+          # pinned-set build and the dispatch go through this function, so
+          # they cannot disagree, and an array with no arm here is simply
+          # never claimed — its paths stay in `rest`. `rest` itself pins
+          # nothing: it is the computed complement. A roster name with no
+          # arm is a hard error, never a silently empty shard.
+          pins_for() {
+            case "$1" in
+              lint-sweep) printf '%s\n' "${pin_lint_sweep[@]}" ;;
+              lint-scan)  printf '%s\n' "${pin_lint_scan[@]}" ;;
+              sast)       printf '%s\n' "${pin_sast[@]}" ;;
+              slow-misc)  printf '%s\n' "${pin_slow_misc[@]}" ;;
+              rest)       : ;;
+              *) echo "shard roster: '$1' is in the roster but has no arm in pins_for" >&2
+                 return 1 ;;
+            esac
+          }
+
+          # Canonical set, with a duplicate guard (a path listed twice would
+          # make the partition arithmetic below lie).
+          canon="|"
           for t in "${tests[@]}"; do
+            case "$canon" in
+              *"|${t}|"*)
+                echo "unit list: '${t}' appears twice in the canonical unit array" >&2
+                exit 1 ;;
+            esac
+            canon="${canon}${t}|"
+          done
+
+          # Pinned set — built by walking the ROSTER through `pins_for`,
+          # never by naming the pin arrays directly. That indirection is
+          # what makes an orphaned array fall into `rest` instead of
+          # vanishing from CI. Every pin must exist in the canonical list,
+          # exactly once, and be claimed by exactly one shard.
+          pinned="|"
+          n_pinned=0
+          for s in $shard_names; do
+            shard_pins=$(pins_for "$s") || exit 1
+            for t in $shard_pins; do
+              case "$canon" in
+                *"|${t}|"*) ;;
+                *) echo "shard pins: '${t}' is pinned to shard '${s}' but is absent from the canonical unit array" >&2
+                   exit 1 ;;
+              esac
+              case "$pinned" in
+                *"|${t}|"*) echo "shard pins: '${t}' is pinned to more than one shard" >&2
+                            exit 1 ;;
+              esac
+              pinned="${pinned}${t}|"
+              n_pinned=$((n_pinned + 1))
+            done
+          done
+
+          # `rest` = canonical minus pinned.
+          rest_list=()
+          for t in "${tests[@]}"; do
+            case "$pinned" in
+              *"|${t}|"*) ;;
+              *) rest_list+=("${t}") ;;
+            esac
+          done
+
+          # COVERAGE ASSERTION — the five shards are a partition of the
+          # canonical list: disjoint (guarded above) and complete (here).
+          # Every shard job re-runs this, so a mis-pin fails the PR loudly
+          # instead of silently dropping a test out of CI.
+          n_union=$((n_pinned + ${#rest_list[@]}))
+          if [ "$n_union" -ne "${#tests[@]}" ]; then
+            echo "shard partition is not a cover: shards total ${n_union}, canonical unit array has ${#tests[@]}" >&2
+            exit 1
+          fi
+
+          # Dispatch through the SAME source the pinned set was built from,
+          # so a leg can never run one set while `rest` excludes another.
+          # `rest` is the computed complement; membership of $SHARD in the
+          # roster was already validated at the top.
+          run_list=()
+          if [ "${SHARD}" = "rest" ]; then
+            run_list=( "${rest_list[@]}" )
+          else
+            for t in $(pins_for "${SHARD}"); do
+              run_list+=("${t}")
+            done
+          fi
+
+          if [ "${#run_list[@]}" -eq 0 ]; then
+            echo "shard '${SHARD}' selected 0 tests — the pin map or the shard name is wrong" >&2
+            exit 1
+          fi
+
+          echo "shard '${SHARD}': ${#run_list[@]} of ${#tests[@]} unit tests"
+          echo "partition verified: ${n_pinned} pinned + ${#rest_list[@]} rest == ${#tests[@]} canonical"
+
+          failed=()
+          for t in "${run_list[@]}"; do
             echo "::group::${t}"
             if bash "${t}"; then
               echo "PASS ${t}"
@@ -267,12 +582,49 @@ jobs:
 
           echo ""
           echo "==================================================================="
-          echo "Ran ${#tests[@]} unit test file(s); ${#failed[@]} failed."
+          echo "Shard ${SHARD}: ran ${#run_list[@]} unit test file(s); ${#failed[@]} failed."
           if [ "${#failed[@]}" -ne 0 ]; then
             echo "Failed: ${failed[*]}"
             exit 1
           fi
-          echo "All unit tests passed."
+          echo "All unit tests in shard ${SHARD} passed."
+
+  # ── Required-check anchor ──────────────────────────────────────────────
+  # `unit` is a REQUIRED STATUS CHECK on main (branch protection lists it
+  # alongside the eight lint jobs). A matrix cannot keep that name — its
+  # check runs are `unit-shard (<shard>)` — and deleting the `unit` context
+  # would leave every PR waiting forever on a check that never reports. So
+  # the name survives here as a zero-work aggregator that is red unless
+  # EVERY shard is green. Same convention as lint.yml: the job name is the
+  # branch-protection label — keep it stable.
+  #
+  # `needs.unit-shard.result` is the matrix's ROLLED-UP result: `success`
+  # only when all five legs succeeded. `always()` is required so this job
+  # still runs (and still fails) when a shard fails, times out, or is
+  # cancelled — a cancelled shard yields `cancelled` here and turns `unit`
+  # RED. Note what PR #278's 20m15s cancellation was and was not: it was
+  # NOT silent, and it DID block — the check reported and the PR could not
+  # merge. The defect was that the lane blocked any PR that ADDED a test,
+  # regardless of content. Sharding fixes that; the aggregator exists to
+  # keep the required check name reporting at all.
+  unit:
+    name: unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [unit-shard]
+    if: always() && (github.event_name == 'push' || github.event_name == 'pull_request')
+    steps:
+      - name: Assert every unit shard succeeded
+        env:
+          SHARD_RESULT: ${{ needs.unit-shard.result }}
+        run: |
+          set -uo pipefail
+          echo "unit-shard (matrix) aggregate result: ${SHARD_RESULT}"
+          if [ "${SHARD_RESULT}" != "success" ]; then
+            echo "unit: the sharded fast lane did not fully succeed (aggregate result: ${SHARD_RESULT}). Open the unit-shard (…) jobs for the failing shard." >&2
+            exit 1
+          fi
+          echo "unit: all unit-shard legs passed."
 
   # ── Slow lane (sharded) ────────────────────────────────────────────────
   # Serial, the full suite is ~1h — dominated by ~140 sequential init.sh
