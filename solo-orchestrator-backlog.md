@@ -5403,14 +5403,59 @@ same 68-byte sink (`pane.innerHTML = userText`) in every case, same `--config` s
 | UTF-16**LE** + BOM | 1 | `~50.0%` | 0 | receipt forfeited — **CAUGHT, deterministic (5/5)** |
 | UTF-16**BE** + BOM | 1 | `~0.0%` | 0 | receipt forfeited — **CAUGHT** |
 | binary blob as `vendor.js` (40 KB random) | 1 | `~95.3%`–`~100.0%` | 0 | **CAUGHT 4 RUNS IN 10** — the other 6 read `~100.0%` and kept the receipt |
-| unparseable `.ts` | 1 | `~0.0%` *or* `~100.0%` | 0 | **CAUGHT ONLY SOMETIMES** — semgrep's parsers recover, and a recovered parse reports no loss |
+| unparseable `.ts` — **hard token-stream break** | **1** | **`~100.0%`** | **0** | **`[OK]` — MISSED, deterministic (5/5)** — see the correction below |
 | **UTF-16LE, no BOM** | **1** | **`~100.0%`** | **0** | **`[OK]` — MISSED** |
 | **UTF-16BE, no BOM** | **1** | **`~100.0%`** | **0** | **`[OK]` — MISSED** |
 | **embedded NUL bytes** | **1** | **`~100.0%`** | **0** | **`[OK]` — MISSED** |
 | dense >1MB `.ts`, sink on line 2 (1,216,567 B) | 1 | `~100.0%` | 0 | was **`[OK]` — MISSED**; now caught by `# BL-187-RULE-COVERAGE` |
 | same sink, >1MB of **comment** padding (1,253,093 B) | 1 | `~100.0%` | **1 blocking** | `[BLOCKED]` — correct, and this is why the row above was invisible |
 
-The three MISSED rows *and the two partially-caught ones* are this entry. Reproduced end to end
+**CORRECTION (2026-07-28, R-772-2) — the `unparseable .ts` row UNDERSTATED a deterministic miss, and
+it has been rewritten above.** It previously read "`~0.0%` *or* `~100.0%` — **CAUGHT ONLY SOMETIMES**",
+which made a reliable failure sound like a coin flip and put it in the same bucket as the genuinely
+probabilistic binary-blob row. Re-measured on 1.157.0 at the arm's exact flag set, DEFAULT verbosity,
+on a two-line fixture:
+
+```
+export function r(p){ p.innerHTML = window.name; }
+function ((( broken $$$
+```
+
+`Parsed lines: ~100.0%`, rc=0, `Findings: 0` — **5 of 5 identical runs**, no variance at all — while
+the same sink alone in a well-formed file is rc=1 and `[BLOCKED]`. **That semgrep-level pair was
+independently re-measured on 2026-07-28** while making this correction. R-772-2 additionally drove it
+through the real path (the hook emitted from the pristine lib, 5 independent repos): **LANDED 5 of
+5**, `[OK]` receipt earned, sink present in `HEAD` — **reported once, not re-run here.** The
+mechanism is not a defect in the percentage: semgrep's parsers are
+error-recovering, so a recovered parse honestly reports no loss. `Parsed lines` is the **wrong
+instrument for this shape**, not a broken one — which is why this row belongs in the MISSED family
+and not in the partial one. The distinction matters for the fix: a probabilistic miss argues for a
+better threshold, a deterministic one argues for a different signal.
+
+**And a different signal EXISTS, one flag away — recorded here so the fix does not have to re-derive
+it, and so it does not anchor on the wrong string.** The same fixture under `--verbose` prints
+`[WARN] Syntax error at line <target>:N`. Specificity control, same flags, clean file: count **0**.
+Broken file: count **1**. That is a real discriminator.
+**The obvious alternative phrase is a TRAP and was measured to be one.**
+`Partially analyzed due to parsing or internal Semgrep errors` looks like the better anchor and is
+not: it is a section **header** semgrep prints on **every** verbose scan — count 1 on the clean
+control too. What differs is the bullet beneath it, ` • <none>` versus ` • brokensink.ts`. Anchoring
+on the header would forfeit the receipt on **every** commit — the BL-112 cry-wolf failure verbatim.
+Anchor on `Syntax error at line`, or on the non-`<none>` bullet; never on the header.
+**Adding `--verbose` is NOT part of this entry and was deliberately not done.** It changes the shipped
+invocation on the one path where stderr is surfaced verbatim to the operator, so it is a POLICY call
+about commit-transcript noise versus a deterministic parse-break detector. It belongs to whoever
+fixes this entry, with a no-cry-wolf case alongside.
+
+**Does the Severity survive the reclassification?** Yes, and it is checked rather than assumed,
+because this entry's own recorded lesson is that a grade argued from "what remains" is only as good
+as the completeness of the table. The **Medium** grade rests on the surviving MISSED rows needing a
+file a build toolchain would also reject. `function ((( broken $$$` is **not valid TypeScript** — it
+fails `tsc`, `node` and `eslint` exactly like the no-BOM UTF-16 and embedded-NUL rows do — so the
+newly-promoted row joins the family the argument was already made about rather than breaking it. What
+changed is the row's *reliability*, not its *reachability*: Medium stands.
+
+The **four** MISSED rows *and the one partially-caught one* are this entry. Reproduced end to end
 through the shipped emitter `soif_write_precommit_hook` → a real `.git/hooks/pre-commit` → a real
 `git commit`: rc=0, the full `[OK]` receipt, and the sink present in `HEAD`.
 
@@ -5504,7 +5549,8 @@ wrong behaviour would have to be deleted by whoever fixes this. Add them with th
 reason a false `[OK]` outlives the commit), BL-182 / BL-179 (the coverage guards one layer in, all
 satisfied here), BL-185 (the other "guards are correct, the hole is beside them" entry filed the same
 day), BL-187 (the rule-execution third of the same invariant, and the residue THIS entry's table was
-missing), BL-131 (the DOM-sink ruleset whose findings this receipt reports).
+missing), BL-189 (rule-set RESOLUTION — the stage UPSTREAM of every fact in the table above, and the
+eighth instance of the class), BL-131 (the DOM-sink ruleset whose findings this receipt reports).
 
 ---
 
@@ -5536,6 +5582,25 @@ stderr, invoked with the arm's exact flag set: `Scanning 1 file with 174 Code ru
 `Warning: 1 timeout error(s) in …/heavy.ts when running the following rules:
 [javascript.browser.security.insecure-document-method.insecure-document-method]`. The one rule that
 catches the sink is the one that ran out of semgrep's default 5-second per-rule, per-file budget.
+
+**The `Warning:` line is not the ONLY line carrying the atom, and that is why the guard counts LINES
+(2026-07-28, R-772-4).** Once `--timeout-threshold` trips, semgrep also prints
+`Semgrep stopped running rules on <target> after N timeout error(s).` — so **one** timeout can yield
+**two** atom-bearing lines, at the shipped defaults (`--timeout=5`, `--timeout-threshold=3`) and with
+no flag change. `soif_sg_timeouts` is `grep -cE 'timeout error\(s\)'`, i.e. a count of *lines*, and
+the operator-facing sentence was corrected from "N rule-timeout **warning(s)**" to
+"N rule-timeout **warning line(s)**" to match. **The verdict was never affected** — it is `-eq 0`,
+and any non-zero count forfeits the receipt — so this was a labelling defect, fixed by labelling.
+**Do not "fix" it by narrowing the count to `Warning: [0-9]+ timeout error\(s\)`.** That was
+considered and rejected: it is the *match-the-sentence* shape this very entry exists to warn about
+(every extra token is another upstream-rename cliff), it buys nothing the verdict uses, and the
+watched-RED case it would owe — "the threshold-skip line arrives without the `Warning:` line and the
+verdict still fires" — needs three real timeouts on one target, which is host-speed-dependent; the
+existing `T-mutation-rule-timeout` already carries an explicit SKIP arm for a host whose semgrep
+finishes the rule inside its budget (it PASSES on the 2026-07-28 host — the arm exists because that
+cannot be relied on). A guard whose proof can only skip on some hosts is not a guard. That the second
+line *also* carries the atom is what makes the threshold path **covered**
+rather than missed, and it is a property of the broad anchor — narrowing would give it up.
 
 **Size was never the variable — DENSITY was.** The comment-padded row above is the control and it is
 the whole reason this shipped: every oversize case in `tests/test-bl132-sast-index-scan.sh` rode a
@@ -5587,7 +5652,9 @@ residue** — a test asserting it would have to be deleted by whoever closes it.
 **Related:** BL-186 (the parse third of the same invariant, and the entry whose residue table was
 missing this row), BL-112 (the honesty contract the receipt serves), BL-113 (Phase 3 laundering — why
 a false `[OK]` outlives the commit), BL-185 (the other open "the guards are correct, the hole is
-beside them" entry), BL-188 (the same trigger left open in the CI job that backstops this hook).
+beside them" entry), BL-188 (the same trigger left open in the CI job that backstops this hook),
+BL-189 (rule-set RESOLUTION — the same named-string fragility one stage further upstream, where the
+detector does not exist at all).
 
 ---
 
@@ -5636,3 +5703,129 @@ was invisible. Do NOT do (2) without (1).
 
 **Related:** BL-187 / BL-186 / BL-112 (the hook-side invariant CI is meant to backstop), BL-147 (the
 CI-template integrity suite whose parity case is the blind spot).
+
+---
+
+## BL-189: An EIGHTH silent-success instance — a `--config` id that resolves to ZERO rules scans clean, exits 0, and every coverage fact reads COMPLETE
+
+**Logged:** 2026-07-28 (R-772-1 — found in round 3 of the SAST class-fix review; filed, not fixed)
+**Category:** Enforcement / pre-commit SAST — rule-set RESOLUTION coverage
+**Severity:** **High.** Argued, and deliberately one notch above BL-186/BL-187:
+- It is **not Medium**, because unlike every sibling in this family the trigger needs **no unusual
+  input**. BL-186 needs a UTF-16 file or a binary blob; BL-187 needs a >1MB dense source file;
+  BL-179 needed a rename. This one needs **nothing staged at all that is out of the ordinary** — an
+  entirely normal `.ts` with an `innerHTML` sink commits clean. What changed is **upstream**, not in
+  the commit, so no property of the operator's code makes it more or less likely.
+- It is **not Critical**, because it does not silently *weaken* an arm that is otherwise working:
+  `p/owasp-top-ten` and the project-owned `.semgrep/soif-dom-sinks.yml` keep resolving, so the loss
+  is scoped to the rules of the id that went away. It degrades coverage, it does not zero it.
+- The aggravating factor that keeps it at High: **it is invisible on every surface a generated
+  project has.** Every one of the three coverage facts # BL-112-SCAN-COVERAGE,
+  # BL-186-PARSE-COVERAGE and # BL-187-RULE-COVERAGE reads COMPLETE — *and each is telling the
+  truth*. Semgrep really did select, parse and finish everything it was asked to do. The lie is one
+  stage upstream of anything the arm measures.
+**Status:** Open
+
+**The stage none of the five preconditions covers.** The `[OK]` receipt enumerates five
+preconditions (see the receipt comment in `scripts/lib/hook-templates.sh`, and the residue paragraph
+on `# BL-186-PARSE-COVERAGE`). All five are about what happens **at or after target selection**.
+Rule-set RESOLUTION happens **before** selection: semgrep takes the `--config` list, fetches what it
+can, and — for an id that no longer exists — contributes **zero rules** and says nothing at all.
+
+**Measured on semgrep 1.157.0, at the arm's exact flag set.** A retired registry id
+(`r/javascript.browser.security.this-rule-was-retired`) was passed **alongside a working
+`p/owasp-top-ten`**, so the registry is provably reachable and this is **not** a network-fallback
+artefact:
+
+```
+semgrep scan --config=p/owasp-top-ten \
+  --config=r/javascript.browser.security.this-rule-was-retired \
+  --config=.semgrep/soif-dom-sinks.yml \
+  --max-target-bytes=0 \
+  --no-git-ignore \
+  --severity=ERROR --error app.ts
+```
+
+(All three `--config` lines, as shipped — the count columns below shift if any is dropped, so a
+reproduction that omits `soif-dom-sinks.yml` will not match these numbers.)
+
+| | retired id | control (real id) |
+|---|---|---|
+| exit code | **0** | 1 |
+| Scan Status header | `Scanning 1 file with 173 Code rules:` | `Scanning 1 file with 174 Code rules:` |
+| `Findings:` | **0 (0 blocking)** | 1 (1 blocking) |
+| `Rules run:` | 28 | 29 |
+| `Targets scanned:` | 1 | 1 |
+| `Parsed lines:` | `~100.0%` | `~100.0%` |
+| finding lines on stdout | **0** | 15 |
+| lines matching `error|warn|not found|unknown|invalid` | **0** | 0 |
+| hook verdict | **`[OK]` receipt, commit LANDS** | `[BLOCKED]` |
+
+The last row is the one to read twice: **the noise count is 0 in BOTH columns.** It does not
+discriminate — it is there to show that the retired-id run produces **no diagnostic of any kind**
+about a config that resolved to nothing, not to distinguish the two runs. The only thing that moves
+is the rule count, by exactly the size of the pack that vanished.
+
+The target was a two-line `app.ts` containing `p.innerHTML = s;`. Nowhere in stdout or stderr does
+semgrep mention that a requested config resolved to nothing; the only Scan-Summary line in that slot
+is ` • No ignore information available`.
+
+**Provenance, because this stack has already shipped two REFUTED measurements.** The semgrep-level
+table above was **independently re-measured on 2026-07-28** while filing this entry, on
+semgrep 1.157.0, and it reproduced R-772-1's numbers exactly once all three `--config` lines were
+used — a first attempt that omitted `soif-dom-sinks.yml` read 170/26 and 171/27, which is how the
+"count columns shift" caveat above was learned. The **end-to-end confirmation is R-772-1's and was
+NOT re-run here**: renaming the `# BL-118-DOMXSS-CONFIG` registry id exactly once in
+`scripts/lib/hook-templates.sh` and driving a real commit through the emitted hook, giving a DOM-XSS
+sink that the pristine hook REFUSES committed with the full `[OK]` receipt. Treat the first as
+verified and the second as reported-once; re-drive it before building the fix on it.
+
+**The trigger is UPSTREAM REGISTRY DRIFT, and that is the whole point.** The id is a **literal** in
+`# BL-118-DOMXSS-CONFIG`. It stops resolving on the day Semgrep retires, renames or re-namespaces
+that rule — with **no commit to this repo and no change in any generated project**. A gate that
+silently loses coverage on someone else's release schedule is not a gate the operator can reason
+about, and the `[OK]` receipt actively asserts the opposite.
+
+**The framework's only current detector protects THIS repo, not deployed projects.** The
+`Install semgrep (live SAST cases)` step in `.github/workflows/tests.yml` runs the real DOM-XSS
+blocking cases on **every PR**, and its own comment names this exact failure mode ("a renamed/retired
+registry rule would otherwise re-blind every generated hook while CI stayed green"). That canary is
+real and it works — for **solo-orchestrator**. A **generated** project ships the hook and none of
+that CI: it has no live blocking case, no pinned-token check, and no other way to notice. So the
+population most exposed to this defect is exactly the population with zero detection, and the gap
+between "we would catch it here" and "they would never catch it there" is the reason this is filed
+rather than waved off as an upstream problem.
+
+**Fix shape (not implemented; sketched so the next agent does not re-derive it).** The honest fix is
+a **fourth fact**, read from the same banner, in the same fail-closed shape as the first two:
+1. Read back the **rule count** from the Scan Status header — the arm already parses that line for
+   `soif_sg_accepted` and already tolerates the singular `Code rule:` spelling (R-274Rv2-8), so the
+   capture is a second `\1` on an existing regex, not a new anchor and not a new cliff.
+2. Compare it against a **floor pinned in the emitted hook** — the minimum rule count the shipped
+   `--config` set is known to resolve to. Below the floor => forfeit the receipt via the existing
+   `soif_sast_coverage_warn`, with a fifth sub-arm added **above** the `else` (the `else` is
+   load-bearing; see its comment).
+3. The floor must be **generous and version-tolerant**, because registry packs grow and shrink
+   legitimately. It is bounding a *collapse*, not asserting an exact set. A floor that cries wolf on
+   an ordinary pack update is worse than no floor — that is the BL-112 cry-wolf failure again.
+4. **Alternative, and it should be considered first:** `--config` ids that must never vanish could be
+   **vendored** into `.semgrep/` next to `soif-dom-sinks.yml`, which removes the resolution stage for
+   them entirely. That trades registry freshness for determinism and is a POLICY call for Karl, not
+   an implementation detail. It is the same trade `# BL-131-DOM-SINKS` already made once.
+
+**Mutation-proof sketch.** The trigger is already reproducible without touching the registry:
+- **RED:** in the emitted hook, rename the `# BL-118-DOMXSS-CONFIG` id to a non-existent one (exactly
+  one line changed, the way `_mut_n` already does it in `tests/test-bl132-sast-index-scan.sh`), stage
+  a file carrying a sink that ONLY that ruleset catches, commit. Assert the commit **LANDS with
+  `[OK]`** — that is the defect, and it must be watched failing before any guard is written.
+- **GREEN:** restore the id; assert the same commit is **`[BLOCKED]`**.
+- **GUARD:** with the guard in place, the RED case must flip to a forfeited receipt naming the
+  rule-count shortfall — and, critically, a **second** case must prove the guard does NOT fire on the
+  pristine config set, or the floor is a cry-wolf. Both directions, or it is not proved.
+- Note the fixture must pick a sink caught by the retired id and **not** by `p/owasp-top-ten`,
+  otherwise the surviving pack blocks the commit and the case passes vacuously.
+
+**Related:** BL-112 (the silent-success class this is the eighth instance of), BL-186 (parse
+coverage), BL-187 (rule-execution coverage — the nearest sibling, and the one whose "named-string
+detector, not a proof" asymmetry this shares), BL-188 (the CI lane does not carry the hook's guards
+either), BL-118 (`# BL-118-DOMXSS-CONFIG` — the literal registry id that is the drift surface).
