@@ -561,15 +561,22 @@ soif_sast_scan_coverage_report() {
   #     `Scan skipped:` is semgrep's target-DISCOVERY report. This arm ships
   #     `--max-target-bytes=0` (# BL-112-MAX-TARGET-BYTES), which disables the only skip
   #     reason its explicit-file invocation can hit, so the section cannot appear AS
-  #     INVOKED — verified across nine configurations. It is NOT unreachable in general:
-  #     strip that flag and the same run prints
-  #     ` • Scan skipped:` / `   ◦ Files larger than  files 1.0 MB: 1`. A directory target
-  #     plus `.semgrepignore` reaches it by a second route. So the old excerpt was dead
-  #     ONLY because of what this arm passes — not because semgrep never emits it.
-  #   Upstream states the governing rule (semgrep 0.85.0 release note): "Explicitly
-  #   targeted files are now unaffected by global filters such as include/exclude patterns
-  #   and file size limits". If `--max-target-bytes` is ever reinstated (see BL-187), this
-  #   excerpt becomes live again and the deletion should be reconsidered.
+  #     INVOKED. FALSIFIER, run it rather than trusting this: strip that flag and the same
+  #     run prints ` • Scan skipped:` / `   ◦ Files larger than  files 1.0 MB: 1`. A
+  #     directory target plus `.semgrepignore` reaches it by a second route. So the old
+  #     excerpt was dead ONLY because of what this arm passes — not because semgrep never
+  #     emits it.
+  #   DO NOT LEAN ON UPSTREAM'S 0.85.0 RELEASE NOTE HERE. It claims more than 1.157.0
+  #   delivers: "Explicitly targeted files are now unaffected by global filters such as
+  #   include/exclude patterns and file size limits". Measured on 1.157.0, only the
+  #   PATTERN half survives — an `--exclude=` match and a `.semgrepignore` match are both
+  #   scanned anyway (`Targets scanned: 1`) — but an explicitly targeted 2,028,890-byte
+  #   file under the DEFAULT cap is SKIPPED (`Targets scanned: 0`, ` • Scan skipped:`).
+  #   The size half is FALSE on the pinned version, and that is exactly why this arm must
+  #   pass the flag. If `--max-target-bytes` is ever reinstated (see BL-187), this excerpt
+  #   becomes live again and the deletion should be reconsidered — do not conclude from
+  #   that release note that a cap cannot silently drop a staged blob. It can; # BL-112-
+  #   SCAN-COVERAGE exists because it did.
   #   Do NOT restore it as-is, and do NOT reach for `--verbose` to make the section exist
   #   — that is a behaviour change to the invocation and out of this helper's scope. The
   #   line below already tells the operator the true thing.
