@@ -5372,6 +5372,7 @@ here — this is not their class).
 **Category:** Enforcement / commit-time SAST — scanner-coverage attestation (the SIXTH instance of this arm's silent-success class, and the residue left after fixing it)
 **Severity:** **Medium.** Argued, not asserted, because the two obvious grades are both wrong:
 - It is **not High.** The one trigger that reproduces deterministically — an ordinary `.ts` saved as UTF-16 *with* a BOM, which is what a Windows editor writes — is **now caught** by `# BL-186-PARSE-COVERAGE` and forfeits the receipt. What remains needs an encoding a build toolchain would also choke on (UTF-16 with **no** BOM, or embedded NUL bytes), which is a file that would fail `tsc`/`node`/`eslint` long before it reached review. The exposure window is real but narrow.
+  - **CORRECTION (2026-07-27, R-274Rv2-1/-6): that "narrow" argument was resting on a MISSING ROW, and the missing row was a valid file.** This entry's residue table originally listed encoding failures only, so "what remains needs an encoding a build toolchain would also choke on" read as the complete residue. It was not. A **per-rule timeout on a dense >1MB source file** also produced the full false `[OK]` — and that file is perfectly ordinary TypeScript that `tsc` compiles happily. The row is now in the table below and the trigger is **CAUGHT** by `# BL-187-RULE-COVERAGE`, filed the same day; the Medium grade survives only because the row was closed, not because the argument for it was sound. The lesson is procedural: **a Severity argued from "what remains" is only as good as the completeness of the residue table**, and this one was written from the trigger that had just been fixed rather than from a fresh hunt.
 - It is **not Low**, because the failure mode is a **positive false attestation**, not lost coverage: the arm prints `[OK] semgrep: SAST ran on N staged file(s) — no ERROR-severity findings.` over a file no rule ever saw, and that receipt is what Phase 3 reads. BL-113 made an *un-run* scan unlaunderable; a scan that ran and understood nothing launders itself, because it is byte-identical to a clean one in every artifact the phase gate can inspect. Every guard in the arm is satisfied and correct — the file **was** selected, **was** materialized, **was** handed over and **was** accepted. It is the same shape as BL-185 in that respect: not a hole in the guards, a hole *beside* them.
 - **Medium is where those meet:** narrow trigger, but the worst possible failure mode when it fires, and no guard in the arm can currently see it.
 **Status:** Open
@@ -5406,10 +5407,25 @@ same 68-byte sink (`pane.innerHTML = userText`) in every case, same `--config` s
 | **UTF-16LE, no BOM** | **1** | **`~100.0%`** | **0** | **`[OK]` — MISSED** |
 | **UTF-16BE, no BOM** | **1** | **`~100.0%`** | **0** | **`[OK]` — MISSED** |
 | **embedded NUL bytes** | **1** | **`~100.0%`** | **0** | **`[OK]` — MISSED** |
+| dense >1MB `.ts`, sink on line 2 (1,216,567 B) | 1 | `~100.0%` | 0 | was **`[OK]` — MISSED**; now caught by `# BL-187-RULE-COVERAGE` |
+| same sink, >1MB of **comment** padding (1,253,093 B) | 1 | `~100.0%` | **1 blocking** | `[BLOCKED]` — correct, and this is why the row above was invisible |
 
 The three MISSED rows *and the two partially-caught ones* are this entry. Reproduced end to end
 through the shipped emitter `soif_write_precommit_hook` → a real `.git/hooks/pre-commit` → a real
 `git commit`: rc=0, the full `[OK]` receipt, and the sink present in `HEAD`.
+
+**The last two rows were added on 2026-07-27 (R-274Rv2-1) and they are the reason to distrust a
+residue table written from one trigger.** They are not an encoding failure at all — the file is valid
+UTF-8 that `tsc` compiles — so nothing in the original table's shape would have led anyone to them.
+The mechanism is semgrep's **default 5-second per-rule, per-file timeout**: it accepted the file,
+parsed 100% of it, abandoned the one rule that catches the line-2 `innerHTML` sink, printed
+`Warning: 1 timeout error(s) in …heavy.ts when running the following rules: [javascript.browser.
+security.insecure-document-method…]` and `✅ Scan completed successfully.`, and exited 0. Both shipped
+halves read COMPLETE. **The comment-padded row is the control that explains the blind spot:** the
+suite's only oversize fixture padded with `// paddingpadding…` comment lines, which are cheap for a
+rule to walk, so it was the one >1MB shape structurally incapable of provoking the defect. Size was
+never the variable — *density* was. The fixture now has a code-dense variant
+(`write_oversize_dense`) and `T-oversize-dense-no-receipt` pins it.
 
 **The non-determinism is worth stating plainly, because it is easy to mis-measure.** The binary-blob
 row was written up as a clean CATCH on the strength of a single run reading `~92.8%`; re-running the
@@ -5420,11 +5436,21 @@ repeat-run its fixtures before claiming a trigger is closed — and the shipped 
 rather than the binary one, which would be a flaky test.
 
 **Why the naive fixes were not taken.**
-- **"Compare against `Targets scanned` as well."** Already ruled out and the reason is recorded on
-  `# BL-112-SCAN-COVERAGE`: it counts targets whose *language matched a rule*, so it reads 1-of-2 for
-  the wholly ordinary commit `app.ts + README.md`. A guard built on it NOTRUNs almost every real
-  commit, and a gate that always cries wolf is a gate people route around — the exact culture BL-112
-  exists to end.
+- **"Compare against `Targets scanned` as well."** Ruled out, but **the reason originally recorded
+  here and on `# BL-112-SCAN-COVERAGE` was a false measurement and has been rewritten (R-274Rv2-5).**
+  The old text said it "reads 1-of-2 for the wholly ordinary commit `app.ts + README.md`" (an
+  escalation added "and 0 for `README.md` alone"). Neither reproduces. Re-measured on semgrep 1.157.0
+  with this arm's exact flag set, targets laid out in the BL-178 per-index-dir shape, cwd a real
+  work-tree root: `app.ts + README.md` → `Targets scanned: 2`; `README.md` alone → 1;
+  `package.json` alone → 1; all at `~100.0%`. Semgrep's own table shows why — `<multilang>  3 rules
+  2 files`: three rules in the resolved set apply to every target regardless of language. On the
+  oversize case both counters agree anyway (`Scanning 1 file` / `Targets scanned: 1` of 2 handed), so
+  the counter *would* have worked. **The real and defensible objection is that it is
+  REGISTRY-DEPENDENT:** what it reports is a function of which rules the live registry resolves, so
+  dropping or changing one `--config` turns it back into a language-match count with nothing in the
+  hook changing — and *then* it NOTRUNs ordinary commits. `Scanning N files` is fixed by target
+  filtering alone and is registry-independent. That is the argument now recorded in all three places
+  (the marker comment, this bullet, and the `T-parse-coverage-no-cry-wolf` header).
 - **"Reject staged blobs that are not valid UTF-8."** This is the most promising direction and it is
   what a future fix should evaluate first, but it is a **policy** change, not a parse fix: it would
   block or NOTRUN a legitimately latin-1-encoded source file (measured: latin-1 with an accented
@@ -5449,14 +5475,164 @@ while simultaneously adding a second one is how a "defensive" parse becomes an a
 The right fix is a **version-tolerant probe** (match the stable atoms — `Scanning <N> file`, `Parsed
 lines:` — rather than the whole decorated line), with its own mutation case per atom.
 
+> **UPDATE 2026-07-27 (R-274Rv2-8): a THIRD near miss was not hypothetical — it was live, and it is
+> now fixed rather than filed.** The header parse hard-required the **plural** `Code rules:`, and
+> semgrep really does emit the singular: `semgrep scan --config=<one-rule.yml>` prints
+> `Scanning 1 file with 1 Code rule:` on 1.157.0 (reproduced). A generated project whose resolved
+> ruleset is one rule would therefore have printed `SAST NOT ENFORCED … CANNOT BE VERIFIED` on
+> **every commit, forever** — the permanent cliff this sub-entry describes, already reachable. Both
+> spellings are now accepted in the counting grep *and* the extracting sed, pinned by
+> `T-scan-status-singular-rule` (green half proves both atoms accept the singular, red half proves
+> the grep atom is decisive). This is a **narrow widening to a spelling semgrep is measured emitting**
+> — it admits a real header and nothing else — and it does not discharge the version-tolerant-probe
+> work above, which stays open.
+
 **Test coverage that exists today** (all in `tests/test-bl132-sast-index-scan.sh`, unit lane):
 `T-utf16-parse-drop-no-receipt` (the CAUGHT trigger), `T-parse-coverage-fails-closed` (the second
 anchor fails closed), `T-mutation-parse-coverage` (the parse clause is load-bearing on its own),
 `T-parse-coverage-no-cry-wolf` and `T-empty-target-receipt` (the guard does not NOTRUN ordinary or
-zero-byte commits). **No test pins the three MISSED rows** — deliberately: a test asserting the
-current wrong behaviour would have to be deleted by whoever fixes this. Add them with the fix.
+zero-byte commits). Added 2026-07-27: `T-parse-threshold-exact` and `T-mutation-parse-threshold` pin
+the **`>= 100` threshold itself** — until then the exactness argued at length on
+`# BL-186-PARSE-COVERAGE` was pinned by nothing, and a reviewer's one-character mutation
+(`-ge 100` → `-ge 99`, which silently re-admits genuine parse loss) passed the entire PR-blocking set
+at 36/0. Both new cases drive a **stub semgrep** through the shipped emitter and a real `git commit`,
+because no real fixture lands in `[99, 100)` on demand; each carries a `~100.0%` control so it cannot
+pass vacuously. **No test pins the three MISSED rows** — deliberately: a test asserting the current
+wrong behaviour would have to be deleted by whoever fixes this. Add them with the fix.
 
 **Related:** BL-112 (the honesty contract this receipt serves), BL-113 (Phase 3 laundering — the
 reason a false `[OK]` outlives the commit), BL-182 / BL-179 (the coverage guards one layer in, all
 satisfied here), BL-185 (the other "guards are correct, the hole is beside them" entry filed the same
-day), BL-131 (the DOM-sink ruleset whose findings this receipt reports).
+day), BL-187 (the rule-execution third of the same invariant, and the residue THIS entry's table was
+missing), BL-131 (the DOM-sink ruleset whose findings this receipt reports).
+
+---
+
+## BL-187: The commit-time SAST rule-coverage guard is a NAMED-STRING DETECTOR, not a proof — and semgrep's per-rule timeout is a POLICY decision Karl has not made
+
+**Logged:** 2026-07-27 (R-274Rv2-1 residue, filed as part of the remediation that closed the reproduced trigger; measured through the shipped emitter `soif_write_precommit_hook` → a real `.git/hooks/pre-commit` → real `git commit`s, semgrep 1.157.0)
+**Category:** Enforcement / commit-time SAST — scanner-coverage attestation (the SEVENTH instance of this arm's silent-success class, and the residue left after fixing it)
+**Severity:** **Medium**, and the argument is deliberately *not* the one BL-186 used — see that entry's own CORRECTION for why "what remains is narrow" is a claim that has already failed here once.
+- It is **not High.** The reproduced trigger is closed: `# BL-187-RULE-COVERAGE` reads semgrep's `Warning: N timeout error(s) in <target> when running the following rules: [...]` line back out of the captured stderr and forfeits the `[OK]` receipt, naming the target and the exact rule. A commit that hits it now gets a loud NOTRUN instead of a false attestation.
+- It is **not Low**, for two independent reasons. (1) The check's good case is the warning's **ABSENCE**, so unlike the other two thirds of the invariant it *cannot* fail closed — a future semgrep that renames, reformats or drops that warning re-opens the exact R-274Rv2-1 hole, silently and in every generated project, with no test able to notice. That is a **fail-open anchor** shipped into enforcement code, and it is the first one in this arm. (2) The failure mode when it does fire is the worst one available: a positive false attestation over a file no rule matched (see BL-186's Severity argument, which applies verbatim).
+- **Medium is where those meet:** trigger closed, but by an instrument that is structurally weaker than the two beside it, and the arm now certifies commits on the strength of a string semgrep is not contractually obliged to print.
+**Status:** Open
+
+**What was reproduced, exactly.** A **dense** 1,216,567-byte `.ts` — ordinary generated-bundle-looking
+code (object literals with an arrow function each), valid UTF-8, `tsc` compiles it — carrying
+`pane.innerHTML = userText;` on line 2, staged and committed through the real hook:
+
+| staged bytes | padding | verdict | receipt |
+|---|---|---|---|
+| 196,561 | code | REFUSED | `[BLOCKED] Semgrep` |
+| 600,561 | code | REFUSED | `[BLOCKED] Semgrep` |
+| **1,216,567** | **code** | **COMMITTED** | **`[OK] semgrep: SAST ran on 1 staged file(s)`, sink in `HEAD`** |
+| 1,253,093 | comments | REFUSED | `[BLOCKED] Semgrep` |
+
+Deterministic — 5 of 5 repeat runs at the dense >1MB size committed with the receipt. Semgrep's own
+stderr, invoked with the arm's exact flag set: `Scanning 1 file with 174 Code rules:`,
+`✅ Scan completed successfully.`, `Findings: 0 (0 blocking)`, `Targets scanned: 1`,
+`Parsed lines: ~100.0%`, `rc=0` — **every fact both existing halves check read COMPLETE** — plus
+`Warning: 1 timeout error(s) in …/heavy.ts when running the following rules:
+[javascript.browser.security.insecure-document-method.insecure-document-method]`. The one rule that
+catches the sink is the one that ran out of semgrep's default 5-second per-rule, per-file budget.
+
+**Size was never the variable — DENSITY was.** The comment-padded row above is the control and it is
+the whole reason this shipped: every oversize case in `tests/test-bl132-sast-index-scan.sh` rode a
+fixture padded with 7,000 identical `// paddingpadding…` lines, which is the one >1MB shape
+structurally incapable of provoking a per-rule timeout. The suite proved `--max-target-bytes=0` on the
+only large-file shape immune to the residue that makes the flag insufficient. Fixed with
+`write_oversize_dense` + `T-oversize-dense-no-receipt` + `T-mutation-rule-timeout`.
+
+**THE POLICY QUESTION FOR KARL, AND IT IS THE POINT OF THIS ENTRY: does the pre-commit hook keep
+semgrep's 5-second per-rule timeout?** Three options, measured on this host, none of them free:
+
+1. **Keep the 5s default + the detector (what shipped).** A dense >1MB file goes UNSCANNED but the
+   commit says so loudly and the receipt is forfeited. Honest, bounded latency — and it is exactly the
+   "all of the cost and none of the coverage" outcome that `# BL-112-MAX-TARGET-BYTES` calls *worse*
+   in its own rationale for disabling the size cap. The two decisions are now inconsistent with each
+   other, deliberately, because the third option is not mine to pick.
+2. **`--timeout=0`.** Measured: the dense fixture is **`[BLOCKED]`** — the sink is caught — in ~11s
+   wall. But "no limit" in a pre-commit hook means a rule with catastrophic backtracking hangs the
+   operator's terminal with **no message and no timeout**, which is worse than a forfeited receipt on
+   every axis this arm cares about: not loud, not honest, indistinguishable from a crash, and the
+   fastest possible route to `--no-verify` becoming habit.
+3. **A finite larger value (`--timeout=30`, `--timeout=60`).** Almost certainly the right answer, but
+   it is a **latency budget** — how long may a commit block? — and picking the number by feel is the
+   improvisation this remediation was told not to do.
+
+Whichever is chosen, the detector stays: it is what makes options 1 and 3 honest when they do fire.
+
+**The residue, stated narrowly.** Even with the detector, this arm cannot prove "every rule finished
+against every target" — it can only notice a warning semgrep chooses to print. Semgrep exposes real
+per-rule timing only under `--time`/`--json`, which this arm does not use and which would mean parsing
+a JSON document in a bash hook. Three specific gaps:
+- **Rename/reformat of the warning** re-opens the hole silently. No test can catch this; only a
+  version bump review would.
+- **`--verbose`-only skips.** Semgrep's default output does not enumerate per-file skips, so anything
+  it declines for a reason it does not warn about stays invisible (the same limit `# BL-112-SCAN-
+  COVERAGE`'s report already admits to for target selection).
+- **The check is a presence test, so an unreadable count sanitizes to 0** — i.e. to "no timeout seen".
+  That is the fail-OPEN direction, and it is the honest consequence of the shape, not an oversight.
+
+**Test coverage that exists today** (`tests/test-bl132-sast-index-scan.sh`, unit lane):
+`T-oversize-dense-no-receipt` (the reproduced trigger; watched RED against the pre-fix lib, which
+printed the full `[OK]` over the dense >1MB sink), `T-rule-timeout-names-the-rule` (the forfeited
+receipt names the target and the rule, temp-tree prefix mapped off, and follows semgrep's ~120-column
+line WRAP so the rule ids are not cut off), `T-mutation-rule-timeout` (the third clause is
+load-bearing independently of the other two), `T-mutation-max-target-bytes-value` (the flag's VALUE
+is behaviour, not spelling — `0` → `1000000` reinstates R-274R-1). **No test pins the fail-open
+residue** — a test asserting it would have to be deleted by whoever closes it.
+
+**Related:** BL-186 (the parse third of the same invariant, and the entry whose residue table was
+missing this row), BL-112 (the honesty contract the receipt serves), BL-113 (Phase 3 laundering — why
+a false `[OK]` outlives the commit), BL-185 (the other open "the guards are correct, the hole is
+beside them" entry), BL-188 (the same trigger left open in the CI job that backstops this hook).
+
+---
+
+## BL-188: The CI SAST job does NOT match the pre-commit hook it backstops — no `--max-target-bytes`, no `--no-git-ignore`, and the parity lint cannot see the difference
+
+**Logged:** 2026-07-27 (R-274Rv2-7 — scope gap noticed while remediating R-274R-1; filed, not fixed)
+**Category:** Enforcement / CI templates — pre-commit ↔ CI parity
+**Severity:** **Medium.** Argued:
+- It is **not High**, because it is a *second* line of defence failing, not the first: the pre-commit
+  hook now scans >1MB files (`--max-target-bytes=0`) and forfeits its receipt on a rule timeout, so a
+  generated project running the hook is covered at the point the code is written.
+- It is **not Low**, because the CI job exists precisely for the case where the hook did **not** run —
+  an operator who never installed it, a `--no-verify` commit, a machine without semgrep — and in that
+  case CI is the only scan there is. It fails in the same silent, `[OK]`-shaped way the hook did
+  before R-274R-1: a >1MB file is dropped, exit stays 0, the job goes green. A gate whose *backstop*
+  reproduces the defect the primary just fixed is a half-fixed defect.
+**Status:** Open
+
+**The divergence.** `templates/pipelines/ci/**/*.yml` invoke semgrep with the `--config` set and
+`--severity`/`--error`, and **without** `--max-target-bytes` and **without** `--no-git-ignore`. So in
+every generated project's CI:
+- any committed file over semgrep's **1,000,000-byte** default is silently skipped — R-274R-1,
+  verbatim, in the job that is supposed to catch what the hook missed. Verified by reading the
+  templates: `grep -rn semgrep templates/pipelines/ci/` shows
+  `semgrep scan --config=… --config=… --config=… --severity=ERROR --error` and nothing else;
+- `--no-git-ignore` is absent. This one is **narrower and arguably correct for CI** — an ignored path
+  is not in the repo — but it is a real divergence for a file that was committed *before* being
+  ignored, which the hook would scan (it reads **staged blobs from the index**, where a `.gitignore`
+  entry must not decide whether a commit is scanned) and CI would not. Decide it explicitly rather
+  than by omission.
+Neither has a coverage guard: nothing in the CI job reads `Scanning N files`, `Parsed lines` or the
+timeout warning back, so the CI lane has none of the three preconditions the hook now enforces.
+
+**And the lint that exists to stop exactly this cannot see it.** `tests/test-bl147-ci-template-integrity.sh`
+case `Cg3` declares "parity is the contract" — but its `extract_semgrep_policy` compares only
+`--config`, `--severity` and `--error`. Every flag added to the hook since is outside the comparison,
+so the two surfaces can drift arbitrarily while the case stays green. **That is the more important
+half of this entry:** fixing the flags without widening `extract_semgrep_policy` leaves the same hole
+open for the next flag.
+
+**What a fix owes.** (1) Widen `extract_semgrep_policy` to compare the FULL flag set, with a mutation
+case proving a dropped flag goes RED. (2) Bring the CI templates to parity. (3) Decide explicitly
+whether CI also needs the coverage guards, or whether "CI is a broad sweep, the hook is the
+attestation" is the recorded contract — it currently is not recorded anywhere, which is why the drift
+was invisible. Do NOT do (2) without (1).
+
+**Related:** BL-187 / BL-186 / BL-112 (the hook-side invariant CI is meant to backstop), BL-147 (the
+CI-template integrity suite whose parity case is the blind spot).
