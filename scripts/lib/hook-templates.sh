@@ -555,17 +555,24 @@ soif_sast_scan_coverage_report() {
   # have, and it points the operator at the one invocation that CAN attribute.
   #   AN EARLIER REVISION ENDED THIS FUNCTION WITH A BOUNDED `/Scan skipped/` awk EXCERPT
   #   AND A SENTENCE PROMISING THAT "semgrep's own skip summary follows and usually
-  #   identifies the entry outright". BOTH WERE REMOVED AS DEAD, R-772-3: semgrep 1.157.0
-  #   NEVER PRINTS `Scan skipped` at default verbosity. Measured `grep -c 'Scan skipped'`
-  #   = 0 across three configurations — a ~1.79MB target under the DEFAULT 1,000,000-byte
-  #   cap, the same pair under `--max-target-bytes=0`, and a target excluded with
-  #   `--exclude` — while the string semgrep actually emits in that slot is
-  #   ` • No ignore information available`. The excerpt therefore printed nothing, ever,
-  #   and the comment asserted output nobody could see, inside the one arm whose entire
-  #   subject is not asserting what you cannot see. Do NOT restore it, and do NOT reach
-  #   for `--verbose` to make the section exist — that is a behaviour change to the
-  #   invocation and it is out of this helper's scope. The line below already tells the
-  #   operator the true thing.
+  #   identifies the entry outright". BOTH WERE REMOVED (R-772-3) — but state the reason
+  #   as a MECHANISM, not a universal, because the universal is false and was itself
+  #   refuted in review:
+  #     `Scan skipped:` is semgrep's target-DISCOVERY report. This arm ships
+  #     `--max-target-bytes=0` (# BL-112-MAX-TARGET-BYTES), which disables the only skip
+  #     reason its explicit-file invocation can hit, so the section cannot appear AS
+  #     INVOKED — verified across nine configurations. It is NOT unreachable in general:
+  #     strip that flag and the same run prints
+  #     ` • Scan skipped:` / `   ◦ Files larger than  files 1.0 MB: 1`. A directory target
+  #     plus `.semgrepignore` reaches it by a second route. So the old excerpt was dead
+  #     ONLY because of what this arm passes — not because semgrep never emits it.
+  #   Upstream states the governing rule (semgrep 0.85.0 release note): "Explicitly
+  #   targeted files are now unaffected by global filters such as include/exclude patterns
+  #   and file size limits". If `--max-target-bytes` is ever reinstated (see BL-187), this
+  #   excerpt becomes live again and the deletion should be reconsidered.
+  #   Do NOT restore it as-is, and do NOT reach for `--verbose` to make the section exist
+  #   — that is a behaviour change to the invocation and out of this helper's scope. The
+  #   line below already tells the operator the true thing.
   echo "  Staged entries handed to the scanner (semgrep's default output does not"
   echo "  attribute coverage per file, so all of them are listed):"
   for soif_c in ${soif_idx_rel[@]+"${soif_idx_rel[@]}"}; do
