@@ -561,22 +561,27 @@ soif_sast_scan_coverage_report() {
   #     `Scan skipped:` is semgrep's target-DISCOVERY report. This arm ships
   #     `--max-target-bytes=0` (# BL-112-MAX-TARGET-BYTES), which disables the only skip
   #     reason its explicit-file invocation can hit, so the section cannot appear AS
-  #     INVOKED. FALSIFIER, run it rather than trusting this: strip that flag and the same
-  #     run prints ` • Scan skipped:` / `   ◦ Files larger than  files 1.0 MB: 1`. A
+  #     INVOKED. FALSIFIER, run it rather than trusting this — and note its PRECONDITION,
+  #     without which it does not fire at all: stage a target LARGER THAN 1 MB, strip that
+  #     flag, and the same run prints ` • Scan skipped:` /
+  #     `   ◦ Files larger than  files 1.0 MB: 1`. On an ordinary sub-1MB commit, stripping
+  #     the flag changes nothing (`Targets scanned: 1` either way) — a reader who tries it
+  #     there sees no difference and wrongly concludes this claim is unverifiable. A
   #     directory target plus `.semgrepignore` reaches it by a second route. So the old
   #     excerpt was dead ONLY because of what this arm passes — not because semgrep never
   #     emits it.
   #   DO NOT LEAN ON UPSTREAM'S 0.85.0 RELEASE NOTE HERE. It claims more than 1.157.0
   #   delivers: "Explicitly targeted files are now unaffected by global filters such as
-  #   include/exclude patterns and file size limits". Measured on 1.157.0, only the
+  #   include/exclude patterns and file size limits, and `.semgrepignore` patterns also do
+  #   not affect them". Measured on 1.157.0, only the
   #   PATTERN half survives — an `--exclude=` match and a `.semgrepignore` match are both
   #   scanned anyway (`Targets scanned: 1`) — but an explicitly targeted 2,028,890-byte
   #   file under the DEFAULT cap is SKIPPED (`Targets scanned: 0`, ` • Scan skipped:`).
   #   The size half is FALSE on the pinned version, and that is exactly why this arm must
   #   pass the flag. If `--max-target-bytes` is ever reinstated (see BL-187), this excerpt
   #   becomes live again and the deletion should be reconsidered — do not conclude from
-  #   that release note that a cap cannot silently drop a staged blob. It can; # BL-112-
-  #   SCAN-COVERAGE exists because it did.
+  #   that release note that a cap cannot silently drop a staged blob. It can, and
+  #   # BL-112-SCAN-COVERAGE exists because it did.
   #   Do NOT restore it as-is, and do NOT reach for `--verbose` to make the section exist
   #   — that is a behaviour change to the invocation and out of this helper's scope. The
   #   line below already tells the operator the true thing.
