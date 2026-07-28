@@ -289,32 +289,56 @@ soif_sast_unread_report() {
 #   guard covers the STEP, by refusing to say [OK] unless semgrep itself reports that it
 #   took every target we handed it and parsed every line of what it took.
 # WHAT THIS GUARD DOES AND DOES NOT PROVE — STATE IT NARROWLY, IT HAS BEEN OVERSTATED
-# ONCE ALREADY. An earlier revision of this comment claimed "per-rule skips, parse-time
-# drops and whatever the next semgrep release adds are all covered by construction, with
-# no sixth patch." That was FALSE and was caught in review (R-274Rv-1). The two counters
-# it read are both TARGET-SELECTION counters — they answer "did semgrep take the file",
-# never "did semgrep understand the file" — so a target semgrep accepted and then failed
-# to PARSE satisfied every one of them and collected the full [OK] attestation. Measured
-# through the shipped emitter on semgrep 1.157.0: an ordinary TypeScript file saved as
-# UTF-16LE (a Windows editor default, 142 bytes) carrying `pane.innerHTML = userText`
-# COMMITTED with `[OK] semgrep: SAST ran on 1 staged file(s)` while the byte-identical
-# UTF-8 control was REFUSED. So the class is NOT closed by construction and this comment
-# no longer says it is. What the guard asserts is exactly the conjunction below, and the
-# residue it leaves is named at the end and tracked as BL-186.
-# THE THREE NUMBERS, AND WHY TWO OF THEM AND NOT THE THIRD. Semgrep prints three counts
-# and they measure different things.
-#   • `Targets scanned: N` counts targets whose LANGUAGE matched a rule, so it reads
-#     1-of-2 for the wholly ordinary commit `app.ts + README.md` — comparing against it
-#     would NOTRUN almost every real commit, and a gate that always cries wolf is a gate
-#     people route around (the exact culture BL-112 exists to end). RULED OUT.
-#   • The Scan Status header `Scanning N files with M Code rules:` is the number that
-#     means "targets that survived semgrep's own target FILTERING", independent of
-#     language match: measured 2-of-2 for `app.ts + README.md`, 1-of-2 for
-#     `app.ts + <oversize>.js`, and 2-of-2 for that same pair once --max-target-bytes=0
-#     is passed. USED — it is the SELECTION half of the invariant (soif_sg_accepted).
+# ONCE ALREADY, AND THE UNDERSTATEMENT COST A SECOND FALSE ATTESTATION. An earlier
+# revision of this comment claimed "per-rule skips, parse-time drops and whatever the next
+# semgrep release adds are all covered by construction, with no sixth patch." That was
+# FALSE and was caught in review (R-274Rv-1). The two counters it read are both
+# TARGET-SELECTION counters — they answer "did semgrep take the file", never "did semgrep
+# understand the file" — so a target semgrep accepted and then failed to PARSE satisfied
+# every one of them and collected the full [OK] attestation. Measured through the shipped
+# emitter on semgrep 1.157.0: an ordinary TypeScript file saved as UTF-16LE (a Windows
+# editor default, 142 bytes) carrying `pane.innerHTML = userText` COMMITTED with
+# `[OK] semgrep: SAST ran on 1 staged file(s)` while the byte-identical UTF-8 control was
+# REFUSED. Adding the parse half did NOT close the class either: review R-274Rv2-1 then
+# reproduced a THIRD stage — semgrep takes the file, parses 100% of it, and ABANDONS a
+# rule part-way through on its default 5-second per-rule timeout. Both existing halves
+# read COMPLETE and the arm certified the commit again. So the class is NOT closed by
+# construction, this comment no longer says it is, and the conjunction is now THREE facts
+# read out of semgrep's own banner — one per pipeline stage.
+# THE NUMBERS, AND WHY THESE AND NOT THE OTHERS. Semgrep's banner carries several counts
+# and they measure different stages.
+#   • The Scan Status header `Scanning N files with M Code rules:` means "targets that
+#     survived semgrep's own target FILTERING". It is fixed by target filtering alone, so
+#     it is independent of WHICH rules the live registry happened to resolve — measured
+#     2-of-2 for `app.ts + README.md`, 1-of-2 for `app.ts + <oversize>.js`, and 2-of-2 for
+#     that same pair once --max-target-bytes=0 is passed. USED — it is the SELECTION half
+#     of the invariant (soif_sg_accepted).
+#   • `Targets scanned: N` is the plausible-looking alternative and it is REGISTRY-
+#     DEPENDENT, which is the reason it is not used. It counts targets whose LANGUAGE
+#     matched a rule, so what it reports depends on the resolved ruleset rather than on
+#     this commit. With the three --config sets this arm passes it currently agrees with
+#     the header on every shape measured (`app.ts + README.md` -> 2, `README.md` alone
+#     -> 1, `package.json` alone -> 1) because the resolved set contains `<multilang>`
+#     rules that apply to every target regardless of language — semgrep's own table prints
+#     `<multilang>  3 rules  2 files`. Drop or change one --config and that stops being
+#     true without anything in this arm changing, and the guard would start NOTRUNning
+#     ordinary commits — the cry-wolf failure BL-112 exists to end. RULED OUT for being a
+#     fact about the registry rather than a fact about this commit.
+#     (AN EARLIER REVISION OF THIS BULLET CLAIMED IT READS 1-of-2 FOR `app.ts + README.md`
+#     AND 0 FOR `README.md` ALONE. Both were REFUTED by measurement in review, R-274Rv2-5;
+#     the argument above is the one the probe actually supports.)
 #   • `Parsed lines: ~N%` is `(total_lines - lines_semgrep_core_failed_to_parse) /
 #     total_lines`, i.e. the only number in the banner that reports PARSE loss. USED —
 #     it is the COMPREHENSION half (soif_sg_parse_full, # BL-186-PARSE-COVERAGE).
+#   • `Warning: N timeout error(s) in <target> when running the following rules: [...]`
+#     is the only line in the DEFAULT banner that reports a rule which started and did not
+#     finish. USED — it is the RULE-EXECUTION third (# BL-187-RULE-COVERAGE). Note the
+#     shape difference and do not paper over it: the other two are NUMBERS parsed and
+#     compared, this one is a NAMED STRING whose ABSENCE is the good case. That makes it a
+#     trigger detector rather than a proof, and the difference is the residue tracked as
+#     BL-187.
+#   • `Rules run: N` was checked and is NOT a discriminator: the timed-out run reports
+#     `Rules run: 29` exactly like a clean one, because a rule that started counts as run.
 # WHY `Parsed lines` DOES NOT CRY WOLF, AND WHY ~100.0% IS EXACT RATHER THAN ROUNDED.
 # Measured `~100.0%` on 34 ordinary shapes: a.ts+b.ts; ts+md+json+yml; ts+py+go+vue+html;
 # all nine at once; a 1.27MB source file; a minified bundle; CRLF; a UTF-8 BOM; emoji; an
@@ -324,18 +348,29 @@ soif_sast_unread_report() {
 # pretty_print_percentage CLAMPS anything above 99.9 to `99.9` unless numerator ==
 # denominator exactly, so `~100.0%` means literally zero lines lost, not "about all of
 # them". It is unlike `Targets scanned` in precisely the way that matters here.
-# FAIL CLOSED, ALWAYS — BOTH HALVES. If either line is missing, duplicated or
-# unparseable — an older or newer semgrep, a future output redesign — the corresponding
-# variable stays EMPTY and the arm takes the loud NOTRUN path. It must never fall through
-# to [OK]: a parser that cannot read the receipt's evidence and prints the receipt anyway
-# IS the silent-success class, wearing the coat of the code that was supposed to end it.
-# The cost of that choice is real and is accepted deliberately, and it is now TWO anchored
-# banner lines rather than one: on a host where either never appears, EVERY commit reports
-# NOT ENFORCED. That is loud, honest and non-blocking (this arm never blocks on a
-# can't-scan), and it is strictly better than a receipt nobody can trust. The two lines
-# are highly correlated failures — both come from semgrep's text-output module — so the
-# second anchor adds little independent cliff risk, but it does add some, and the
-# remaining anchor-fragility is tracked rather than waved away (BL-186).
+# FAIL CLOSED, ALWAYS — AND THE THIRD FACT IS THE ONE EXCEPTION, SAID OUT LOUD. If either
+# NUMERIC line is missing, duplicated or unparseable — an older or newer semgrep, a future
+# output redesign — the corresponding variable stays EMPTY and the arm takes the loud
+# NOTRUN path. It must never fall through to [OK]: a parser that cannot read the receipt's
+# evidence and prints the receipt anyway IS the silent-success class, wearing the coat of
+# the code that was supposed to end it. The cost of that choice is real and is accepted
+# deliberately, and it is TWO anchored banner lines rather than one: on a host where either
+# never appears, EVERY commit reports NOT ENFORCED. That is loud, honest and non-blocking
+# (this arm never blocks on a can't-scan), and it is strictly better than a receipt nobody
+# can trust. The two lines are highly correlated failures — both come from semgrep's
+# text-output module — so the second anchor adds little independent cliff risk, but it does
+# add some, and the remaining anchor-fragility is tracked rather than waved away (BL-186).
+#   THE TIMEOUT CHECK CANNOT HAVE THAT SHAPE AND THIS COMMENT WILL NOT PRETEND IT DOES.
+#   Its good case is the line's ABSENCE, so "absent => fail closed" would NOTRUN every
+#   commit ever made. It is therefore a POSITIVE DETECTOR for a spelling semgrep emits
+#   today, verified on 1.157.0, and a future release that renames the warning re-opens
+#   exactly the hole R-274Rv2-1 found — silently. That is a real asymmetry between the
+#   three facts, it is not fixable from the default banner (semgrep exposes per-rule
+#   timing only under --time/--json, which this arm does not use), and it is filed as
+#   BL-187 rather than described as closed. Anchor on the atom `timeout error(s)` and
+#   NOT on the whole sentence: semgrep WRAPS that warning across two lines at ~120
+#   columns even when stderr is a file, so matching the full "…when running the following
+#   rules:" phrase would fail on the wrap.
 # THE RESIDUE, NAMED (BL-186) — AND THE EXACT LIMIT OF WHAT THIS GUARD SEES. `Parsed
 # lines` is driven by `ignore_log.core_failure_lines_by_file`, so it moves if and only if
 # semgrep-core REPORTS a parse failure. That is a narrower thing than "semgrep understood
@@ -352,10 +387,27 @@ soif_sast_unread_report() {
 #     parsers are error-recovering, and a recovered parse reports no loss.
 #   • UTF-16LE or UTF-16BE with NO BOM, and a file with embedded NUL bytes: NEVER caught.
 #     All report `Targets scanned: 1` AND `Parsed lines: ~100.0%` AND zero findings.
-# So: this guard closes the deterministic BOM'd-UTF-16 trigger, reduces the binary-blob
-# one, and does not touch the rest. It is a fourth precondition, not a closure. The
-# remainder is BL-186 and the phrase "covered by construction" does not belong anywhere
-# near this arm — it is what the previous revision claimed and it was false.
+#   • A PER-RULE TIMEOUT ON A DENSE >1MB SOURCE FILE: it was never caught by these two and
+#     that is the row this paragraph was missing (R-274Rv2-1). It is not an exotic
+#     encoding — it is a file `tsc` compiles happily. Measured through the shipped emitter
+#     on 1.157.0, sink on line 2 of an otherwise ordinary generated-looking .ts, padding
+#     that is CODE rather than comments: 196,561 and 600,561 bytes -> REFUSED [BLOCKED];
+#     1,216,567 bytes -> COMMITTED with the full `[OK]` receipt and the sink in HEAD,
+#     DETERMINISTICALLY (5/5). semgrep printed `Scanning 1 file`, `Targets scanned: 1`,
+#     `Parsed lines: ~100.0%`, `✅ Scan completed successfully.` and rc=0 — every fact both
+#     halves check read COMPLETE — plus one line neither of them read: `Warning: 1 timeout
+#     error(s) in …heavy.ts when running the following rules:
+#     [javascript.browser.security.insecure-document-method…]`. NOW CAUGHT, by
+#     # BL-187-RULE-COVERAGE, which is why this row reads differently from the ones above.
+#     THE PADDING SHAPE IS THE WHOLE POINT: the same sink under >1MB of COMMENT padding
+#     (1,253,093 bytes) is BLOCKED, because comments are cheap to match. A fixture that
+#     pads with comments is the one large-file shape that structurally cannot provoke this,
+#     which is exactly how the first revision of this guard shipped believing it was safe.
+# So: this guard closes the deterministic BOM'd-UTF-16 trigger and the per-rule-timeout
+# trigger, reduces the binary-blob one, and does not touch the rest. It is a fourth and a
+# fifth precondition, not a closure. The remainder is BL-186 (encoding) and BL-187 (rule
+# execution), and the phrase "covered by construction" does not belong anywhere near this
+# arm — it is what the previous revision claimed and it was false.
 #
 # THREE WARN HELPERS NOW, NOT ONE, AND THE SPLIT IS DELIBERATE — same reasoning
 # soif_sast_partial_coverage records for ITS split from soif_sast_not_enforced. Saying
@@ -390,6 +442,29 @@ soif_sast_scan_coverage_report() {
   else
     echo "  Parse coverage: UNVERIFIED — semgrep's parse-coverage line was absent or"
     echo "  unreadable, so how much of the staged content it understood is unknown."
+  fi
+  # # BL-187-RULE-COVERAGE — the THIRD fact, and again a different one. Selection is which
+  # targets semgrep took; parse is whether their bytes became something a rule could match;
+  # this is whether the rules then FINISHED running against them. Printed on every
+  # forfeited receipt for the same reason the other two are: an operator who fixes the
+  # encoding and re-commits into an abandoned rule has been sent to the wrong half twice.
+  #   AND IT IS THE ONE GAP THIS ARM CAN ATTRIBUTE PER FILE. Semgrep's default output does
+  #   not say which target it DECLINED (hence the "all of them are listed" hedge below),
+  #   but the timeout warning names the target AND the exact rule ids. Surfacing it is
+  #   strictly the # BL-182-NAME-THE-ENTRY contract being honoured where it can be.
+  if [ "${soif_sg_timeouts:-0}" -gt 0 ]; then
+    echo "  Rule coverage: semgrep reported ${soif_sg_timeouts} rule-timeout warning(s). At least one"
+    echo "  rule was ABANDONED part-way through a target, so that rule never matched it."
+    # The warning WRAPS across two lines at ~120 columns even when stderr is a file, so an
+    # anchor-line-only excerpt would cut the rule ids off. Print from the anchor to the
+    # first blank line (semgrep's own block separator), capped at 10 lines total across all
+    # warnings so a many-target commit cannot dump the banner into the transcript. The
+    # temp-tree prefix is mapped off with the same sed the findings use — an operator shown
+    # a /var/folders/… path they cannot resolve has been told nothing.
+    awk '/timeout error\(s\)/{soif_t=1} soif_t{ if ($0 ~ /^[[:space:]]*$/) { soif_t=0; next } print; soif_m=soif_m+1; if (soif_m>=10) exit }' "$soif_sg_err" 2>/dev/null \
+      | sed "s#${soif_idx_tree}/[0-9][0-9]*/##g" | sed 's/^/    /'
+  else
+    echo "  Rule coverage: semgrep reported no rule-timeout warnings."
   fi
   # NAMED, not counted — the # BL-182-NAME-THE-ENTRY contract. Semgrep's DEFAULT output
   # does not say WHICH target it declined (only --verbose does, and turning that on for
@@ -669,12 +744,33 @@ if command -v semgrep &>/dev/null; then
       #   THE FLAG IS ONLY HALF THE FIX. It retires this TRIGGER; # BL-112-SCAN-COVERAGE
       #   below retires the CLASS, and the two are proved independently — with the flag
       #   stripped, the coverage guard must still refuse the receipt.
-      #   THE LATENCY TRADE IS DELIBERATE. Disabling the cap means a genuinely enormous
-      #   staged blob is now parsed instead of skipped, so such a commit gets slower. The
-      #   alternative — keep the cap and let the coverage guard turn every oversize entry
-      #   into a NOTRUN — is worse: the file still goes unscanned AND the commit loses its
-      #   receipt, i.e. all of the cost and none of the coverage. If semgrep cannot cope
-      #   it exits >=2 and the arm WARNs loudly, which is the honest outcome either way.
+      #   THE LATENCY TRADE IS DELIBERATE, AND THE RATIONALE PREVIOUSLY RECORDED HERE WAS
+      #   MEASURABLY WRONG IN BOTH DIRECTIONS (R-274Rv2-2). It said (a) "if semgrep cannot
+      #   cope it exits >=2 and the arm WARNs loudly" and (b) "keep the cap and let the
+      #   coverage guard turn every oversize entry into a NOTRUN is worse — all of the cost
+      #   and none of the coverage." Measured on 1.157.0, both fail for the case this
+      #   comment's own examples name (a generated bundle, a vendored lib):
+      #     (a) semgrep does NOT exit >=2. On a dense 1,216,567-byte .ts it exits 0 and
+      #         prints `✅ Scan completed successfully.` while a rule quietly times out.
+      #     (b) With the cap left at its 1,000,000 default the SELECTION guard SEES the
+      #         shortfall (`accepted 0 of 1`) and forfeits the receipt. With the cap
+      #         disabled semgrep accepts the file, abandons the rule on its per-rule
+      #         timeout, reports full selection AND full parse coverage, and — before
+      #         # BL-187-RULE-COVERAGE existed — the arm CERTIFIED the commit. The flag
+      #         converted a guard-VISIBLE shortfall into a guard-INVISIBLE one.
+      #   THE FLAG IS STILL RIGHT, for the reason the old text got right by accident: for
+      #   LOW-COMPLEXITY oversize blobs it buys real coverage (verified: the >1MB
+      #   comment-padded fixture is REFUSED with the flag and merely NOTRUN without it).
+      #   What made it safe is not the flag, it is # BL-187-RULE-COVERAGE landing beside
+      #   it. Do not restate (a) or (b); they are refuted, and they are recorded here so
+      #   the next reader does not re-derive them.
+      #   THE PER-RULE TIMEOUT IS LEFT AT ITS 5s DEFAULT, DELIBERATELY AND AS A DEFERRAL.
+      #   `--timeout=0` removes the limit and DOES catch the dense fixture ([BLOCKED],
+      #   ~11s wall on this host) — but "no limit" in a pre-commit hook means a rule with
+      #   catastrophic backtracking hangs the operator's terminal with no message, which is
+      #   worse than a forfeited receipt on every axis this arm cares about: not loud, not
+      #   honest, and indistinguishable from a crash. Picking a finite larger value is a
+      #   latency-budget POLICY call, not an implementation detail. Filed as BL-187.
       semgrep scan --config=p/owasp-top-ten \
         --config=r/javascript.browser.security.insecure-document-method \
         --config=.semgrep/soif-dom-sinks.yml \
@@ -694,14 +790,21 @@ if command -v semgrep &>/dev/null; then
       #     flip the gate the way a multi-line CURRENT_PHASE once did;
       #   • guard every command with `|| …=""` so `set -e` cannot abort the hook here.
       # Header shape on semgrep 1.157.0: two leading spaces, "Scanning <N> file[s] with
-      # <M> Code rules:" — singular at N=1, and no ANSI escapes when stderr is a file
-      # (which it always is here). Both spellings are matched.
-      soif_sg_hdr_n=$(grep -cE '^[[:space:]]*Scanning [0-9][0-9]* files? with [0-9][0-9]* Code rules:[[:space:]]*$' "$soif_sg_err" 2>/dev/null) || soif_sg_hdr_n=0
+      # <M> Code rule[s]:" and no ANSI escapes when stderr is a file (which it always is
+      # here). BOTH NUMBERS SINGULARIZE and both spellings are matched — the file count at
+      # N=1 ("Scanning 1 file"), and the RULE count at M=1 ("with 1 Code rule:"), which was
+      # verified by running semgrep against a single-rule --config and reading back
+      # `Scanning 1 file with 1 Code rule:` (R-274Rv2-8). The rule plural was hard-required
+      # here until that measurement, which made a one-rule resolved set a PERMANENT NOTRUN
+      # cliff: soif_sg_accepted would stay empty on every commit, forever, in every
+      # generated project. Widening to accept a spelling semgrep really emits only ever
+      # admits a real header; an unrecognised one still leaves the variable empty.
+      soif_sg_hdr_n=$(grep -cE '^[[:space:]]*Scanning [0-9][0-9]* files? with [0-9][0-9]* Code rules?:[[:space:]]*$' "$soif_sg_err" 2>/dev/null) || soif_sg_hdr_n=0
       soif_sg_hdr_n=$(printf '%s' "$soif_sg_hdr_n" | tr -d '[:space:]') || soif_sg_hdr_n=0
       case "$soif_sg_hdr_n" in ''|*[!0-9]*) soif_sg_hdr_n=0 ;; esac
       soif_sg_accepted=""
       if [ "$soif_sg_hdr_n" -eq 1 ]; then
-        soif_sg_accepted=$(sed -n 's/^[[:space:]]*Scanning \([0-9][0-9]*\) files\{0,1\} with [0-9][0-9]* Code rules:[[:space:]]*$/\1/p' "$soif_sg_err" 2>/dev/null) || soif_sg_accepted=""
+        soif_sg_accepted=$(sed -n 's/^[[:space:]]*Scanning \([0-9][0-9]*\) files\{0,1\} with [0-9][0-9]* Code rules\{0,1\}:[[:space:]]*$/\1/p' "$soif_sg_err" 2>/dev/null) || soif_sg_accepted=""
       fi
       case "$soif_sg_accepted" in ''|*[!0-9]*) soif_sg_accepted="" ;; esac
       # BL-186-PARSE-COVERAGE (parse) — the SECOND half of the invariant, and the half the
@@ -770,14 +873,42 @@ if command -v semgrep &>/dev/null; then
         done
         if [ "$soif_sg_all_empty" -eq 1 ]; then soif_sg_parse_full=1; fi
       fi
+      # BL-187-RULE-COVERAGE (parse) — THE THIRD FACT, AND THE ONE THE FIRST TWO
+      # STRUCTURALLY CANNOT SEE. Selection is fixed before a byte is parsed; the parse
+      # percentage is fixed once the AST exists. Neither is touched by what happens NEXT:
+      # semgrep starts a rule against a target, hits its default 5-second per-rule timeout,
+      # abandons that rule for that target, and reports a completed scan. Measured on
+      # 1.157.0 through the shipped emitter (R-274Rv2-1): a dense 1,216,567-byte .ts with
+      # `pane.innerHTML = userText` on line 2 gave `Scanning 1 file`, `Targets scanned: 1`,
+      # `Parsed lines: ~100.0%`, rc=0 and the full [OK] receipt, while the ONE rule that
+      # catches that sink was the rule that timed out.
+      #   PRESENCE, NOT A NUMBER, AND THE ASYMMETRY IS DELIBERATE AND DOCUMENTED. The two
+      #   halves above compare counts and fail closed on an unreadable line. This one asks
+      #   whether a warning is THERE, so its good case is absence and "fail closed on
+      #   absence" would NOTRUN every commit. See the FAIL CLOSED paragraph on
+      #   # BL-112-SCAN-COVERAGE: this is a trigger detector, the residue is BL-187, and it
+      #   must not be described as closing the class.
+      #   MATCH THE ATOM, NOT THE SENTENCE — semgrep wraps the warning across two lines at
+      #   ~120 columns even when stderr is a file, so `timeout error(s)` is the whole
+      #   pattern. Same defensive plumbing as the other two: `|| …=0` so `set -e` cannot
+      #   abort the hook, and a case-glob sanitize before the value reaches any arithmetic.
+      #   A non-numeric or unreadable count sanitizes to 0, i.e. to "no timeout seen" —
+      #   which is the fail-OPEN direction and is the honest consequence of a presence
+      #   test, not an oversight. It is why this clause is a floor on the guarantee and not
+      #   the guarantee itself.
+      soif_sg_timeouts=$(grep -cE 'timeout error\(s\)' "$soif_sg_err" 2>/dev/null) || soif_sg_timeouts=0
+      soif_sg_timeouts=$(printf '%s' "$soif_sg_timeouts" | tr -d '[:space:]') || soif_sg_timeouts=0
+      case "$soif_sg_timeouts" in ''|*[!0-9]*) soif_sg_timeouts=0 ;; esac
       # `-ge`, not `-eq`: the defect class is UNDER-scanning. An over-count would be a
       # semgrep bug of a different shape and is not this guard's business to block on.
-      # THE CONJUNCTION IS THE GUARD. Selection alone is not coverage — that is exactly
-      # what R-274Rv-1 proved — so the receipt needs BOTH halves, and each is mutation-
-      # tested on its own (T-mutation-scan-coverage owns the first, T-mutation-parse-
-      # coverage the second). Dropping either clause must go RED.
+      # THE CONJUNCTION IS THE GUARD, AND IT IS THREE FACTS FOR THREE PIPELINE STAGES.
+      # Selection alone is not coverage — that is what R-274Rv-1 proved — and selection
+      # plus parse is not coverage either, which is what R-274Rv2-1 proved. Each clause is
+      # mutation-tested on its own (T-mutation-scan-coverage owns selection,
+      # T-mutation-parse-coverage parse, T-mutation-rule-timeout rule execution). Dropping
+      # any one of the three must go RED.
       soif_sg_covered=0
-      if [ -n "$soif_sg_accepted" ] && [ "$soif_sg_accepted" -ge "${#soif_idx_files[@]}" ] && [ "$soif_sg_parse_full" -eq 1 ]; then
+      if [ -n "$soif_sg_accepted" ] && [ "$soif_sg_accepted" -ge "${#soif_idx_files[@]}" ] && [ "$soif_sg_parse_full" -eq 1 ] && [ "$soif_sg_timeouts" -eq 0 ]; then
         soif_sg_covered=1
       fi
       # Map the temp-tree prefix off finding paths, then show semgrep's findings
@@ -843,16 +974,24 @@ if command -v semgrep &>/dev/null; then
         # the LOOP could not read, this guards the targets the SCANNER did not accept. The
         # [OK] receipt is forfeited either way, because the sentence it prints — "SAST ran
         # on N staged file(s)" — would be false.
-        # FOUR SUB-ARMS, because these are four different claims and must not share
-        # wording. Two axes: WHICH half of the invariant failed (selection vs parse —
-        # # BL-186-PARSE-COVERAGE), and whether the failure is a MEASURED shortfall or an
-        # UNVERIFIABLE reading. Calling an unreadable line "partial" would assert a fact
-        # not in evidence, and telling an operator "semgrep skipped a file" when what
-        # actually happened is "semgrep could not parse the file it did open" sends them
-        # to fix the wrong thing. Both are the small dishonesty this whole arm exists to
-        # avoid. Ordered so the EARLIER pipeline stage is reported first: a selection
-        # shortfall makes the parse percentage a statement about a subset, so it would be
-        # misleading to lead with it.
+        # FIVE SUB-ARMS, because these are five different claims and must not share
+        # wording. Two axes: WHICH third of the invariant failed (selection, parse —
+        # # BL-186-PARSE-COVERAGE — or rule execution, # BL-187-RULE-COVERAGE), and
+        # whether the failure is a MEASURED shortfall or an UNVERIFIABLE reading. Calling
+        # an unreadable line "partial" would assert a fact not in evidence; telling an
+        # operator "semgrep skipped a file" when what actually happened is "semgrep could
+        # not parse the file it did open" — or "semgrep read every line and then gave up on
+        # a rule" — sends them to fix the wrong thing. All are the small dishonesty this
+        # whole arm exists to avoid. Ordered so the EARLIER pipeline stage is reported
+        # first: a selection shortfall makes the parse percentage a statement about a
+        # subset, and a parse shortfall makes the rule result a statement about a subset,
+        # so it would be misleading to lead with either.
+        #   THE LAST ARM IS AN `else` AND THAT IS LOAD-BEARING, NOT LAZINESS. Reaching this
+        #   block means soif_sg_covered is 0; the four tests above cover every way the
+        #   selection and parse clauses can fail; so the residue is exactly the timeout
+        #   clause. An `elif` on the timeout count would leave a silent no-output arm if a
+        #   FOURTH clause is ever added — which is the BL-179 `-gt 0` with no `else` defect
+        #   verbatim. Whoever adds a fourth clause must add its arm ABOVE this `else`.
         if [ -z "$soif_sg_accepted" ]; then
           soif_sast_coverage_warn \
             "semgrep exited 0, but its scan-status line was absent or unreadable." \
@@ -865,10 +1004,14 @@ if command -v semgrep &>/dev/null; then
           soif_sast_coverage_warn \
             "semgrep exited 0 and took every staged file, but its parse-coverage line was absent or unreadable." \
             "how much of the staged content the scanner actually parsed CANNOT BE VERIFIED, so it is treated as a scan that did not run."
-        else
+        elif [ "$soif_sg_parse_full" -ne 1 ]; then
           soif_sast_coverage_warn \
             "SAST coverage was PARTIAL: semgrep took every staged file but parsed only ${soif_sg_parsed}% of their lines." \
             "the unparsed lines were never matched against any rule, so a sink sitting on one of them would not have been reported."
+        else
+          soif_sast_coverage_warn \
+            "SAST coverage was PARTIAL: semgrep read every staged file in full, then ABANDONED at least one rule on its per-rule timeout (${soif_sg_timeouts} warning(s))." \
+            "a rule that ran out of time never finished matching, so a sink only that rule detects would not have been reported."
         fi
         soif_sast_scan_coverage_report
       else
@@ -882,9 +1025,9 @@ if command -v semgrep &>/dev/null; then
         # not the number staged: since BL-132-GITLINK-SKIP the two can differ, and a
         # receipt that counts entries the scanner never saw is the BL-112 lie in a
         # different coat. Zero targets never reaches here — it NOTRUNs above.
-        # Reached ONLY with COMPLETE coverage. FOUR things have to hold for that, and
-        # they are enforced in four different places — a reader checking this claim must
-        # check ALL FOUR. Each was added only after a false [OK] shipped without it:
+        # Reached ONLY with COMPLETE coverage. FIVE things have to hold for that, and
+        # they are enforced in five different places — a reader checking this claim must
+        # check ALL FIVE. Each was added only after a false [OK] shipped without it:
         #   1. every entry the loop was GIVEN was read — the branch above intercepts any
         #      commit with a non-empty soif_idx_unread;
         #   2. the loop was given every staged entry that HAS content —
@@ -901,12 +1044,20 @@ if command -v semgrep &>/dev/null; then
         #      Preconditions 1-3 are ALL target-selection facts and none of them can see a
         #      file semgrep took and then could not read: an ordinary .ts saved as UTF-16
         #      satisfied all three and collected this receipt with its innerHTML sink
-        #      never looked at (R-274Rv-1).
-        # The pattern across all four is the same and is the point: N counts the targets
-        # this arm INTENDED to scan, and every stage between "staged entry" and "bytes
-        # semgrep parsed" needs its own proof that nothing fell out of the set. It is also
-        # why this list is not a closure claim — see the RESIDUE paragraph on
-        # # BL-112-SCAN-COVERAGE and BL-186. A fifth precondition will exist one day.
+        #      never looked at (R-274Rv-1);
+        #   5. no rule was ABANDONED part-way — # BL-187-RULE-COVERAGE. Preconditions 1-4
+        #      are all fixed before or at parse time and none of them can see semgrep
+        #      giving up on a rule afterwards: a dense 1.2MB .ts satisfied all four
+        #      (`Scanning 1 file`, `Targets scanned: 1`, `Parsed lines: ~100.0%`, rc=0) and
+        #      collected this receipt while the one rule that catches its line-2 innerHTML
+        #      sink hit semgrep's 5-second per-rule timeout (R-274Rv2-1).
+        # The pattern across all five is the same and is the point: N counts the targets
+        # this arm INTENDED to scan, and every stage between "staged entry" and "a rule
+        # finished matching" needs its own proof that nothing fell out of the set. It is
+        # also why this list is not a closure claim — see the RESIDUE paragraph on
+        # # BL-112-SCAN-COVERAGE, BL-186 and BL-187. A SIXTH precondition will exist one
+        # day; the previous revision of this line predicted a fifth and was right within
+        # one review round.
         echo "[OK] semgrep: SAST ran on ${#soif_idx_files[@]} staged file(s) — no ERROR-severity findings."
       fi
     fi
