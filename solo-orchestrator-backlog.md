@@ -4332,6 +4332,43 @@ Net: BL-174 closed the *gitignore* instance of this class by manifest-gating blo
 - Correct the BL-174 block comment so it no longer implies every sibling block is manifest-gated (done as a comment-only change in the BL-174 WP-D follow-up).
 - **Mutation proof:** a projectless fixture (a `scripts/` dir present, a skills source visible via `ORCHESTRATOR_ROOT`, but NO `.claude/manifest.json` and NO `.claude/phase-state.json`) → after the structural guard, `_run_idempotent_backfill` performs ZERO writes (no `.claude/skills/`, no `scripts/lib/` copies, no `.gitignore` append); excise the guard → the skills sync and BL-088 copies reappear (RED).
 
+**Escalation 2026-07-27 — the leak was briefly COMMITTED, which raises the priority.** The untracked
+`.claude/skills/` residue this entry documents was swept into a commit by a `git add -A` run from a
+worktree that carried it (`bb69806`), and reached `main` via PR #275 — so for a short window the
+framework repo TRACKED 7 files of leak output (`grill-with-docs`, `session-handoff`, `sweep-triage`,
+`zoom-out`), duplicating the canonical copies in `templates/generated/skills/`. Untracked again and
+added to the repo's own `.gitignore` alongside the `.claude/upgrade-snapshots/` precedent, with a
+comment stating that the ignore is a TRAP-DISARM, not a fix.
+
+Three consequences for this entry:
+
+1. **PRIORITY rises; the `**Severity:** Medium` field is unchanged and correct.** The leak is not
+   merely untidy — it is one `git add -A` away from becoming repo content, and this repo's agent
+   workflow runs `git add -A` routinely. Measured 2026-07-27, the untracked residue sits in **3**
+   worktree checkouts (all pre-dating `bb69806`; the total count drifts constantly as runs create
+   and destroy them, so only the numerator is durable) **and the main checkout** — and the main
+   checkout is where `git add -A` actually runs, which is what makes it reachable. *(An earlier
+   draft of this paragraph claimed "every `.claude/worktrees/agent-*` checkout"; the pre-PR review
+   measured 1 of 27 and refuted it. Corrected here rather than left in the audit trail.)*
+
+2. **The leaked files are NOT inert, so "delete the residue" is not a cleanup instruction.** Claude
+   Code auto-discovers project-scoped skills at `.claude/skills/`, so while these sit on disk they
+   ARE this repo's project skill set — verified 2026-07-27: `grill-with-docs`, `session-handoff` and
+   `sweep-triage` are live in agent sessions here and absent from `~/.claude/skills/`, and `zoom-out`
+   is correctly missing from the model-invocable list because its own frontmatter sets
+   `disable-model-invocation: true`, which proves the harness parsed these files. Deleting them
+   silently switches four skills off — and the new `.gitignore` line would hide that happening.
+   **The disposition is therefore an open decision, not housekeeping:** either delete deliberately,
+   or track them on purpose the way `.claude/agents/pr-reviewer.md` already is. Do not fold that
+   choice into an unrelated fix.
+
+3. **A `.gitignore` line is NOT the fix and must not be mistaken for one.** It disarms the
+   `git add -A` trap in THIS repo only. The structural guard at the top of the
+   `_run_idempotent_backfill` subshell (see the fix shape above) is still required, and until it
+   lands the leak keeps being written — simply no longer visible to `git status`, which is worse for
+   detection. Whoever implements the guard should re-examine whether the ignore line should come
+   back out so a recurrence announces itself.
+
 **Related:** BL-174, BL-080, BL-081.
 
 ---
@@ -5829,3 +5866,261 @@ a **fourth fact**, read from the same banner, in the same fail-closed shape as t
 coverage), BL-187 (rule-execution coverage — the nearest sibling, and the one whose "named-string
 detector, not a proof" asymmetry this shares), BL-188 (the CI lane does not carry the hook's guards
 either), BL-118 (`# BL-118-DOMXSS-CONFIG` — the literal registry id that is the drift surface).
+
+---
+
+## BL-190: The `unit` fast lane reached its own 20-minute cap and began blocking PRs for ADDING a test rather than for failing one
+
+> **Numbering note.** This entry and BL-191 were first filed as BL-185/BL-186. PR #278 was already
+> open with its own BL-185…BL-189, so it has precedence and these two were renumbered to BL-190/191
+> before either branch merged. Any pre-merge reference to "BL-185 (the lane rebalance)" or
+> "BL-186 (the per-line fork)" means these entries.
+
+**Logged:** 2026-07-28
+**Status:** Open — remediation shipped on branch `perf/unit-lane-shard-rebalance`; flip to Closed with
+the PR # once merged (a Closed entry must cite a PR # or a backticked SHA, and neither exists yet).
+**Category:** CI capacity / merge-blocking
+**Severity:** High — a required status check that fails on capacity, not on correctness, blocks every
+PR indiscriminately and teaches everyone to ignore it.
+
+**The measurement.** `.github/workflows/tests.yml` `unit` had `timeout-minutes: 20` and was running a
+serial list of 136 test files. Job 90083307522 (run 30297887329, main @ `9d71824`) took **18m51s**;
+the preceding two main runs were 19m21s and 20m00s. PR #278 added SAST cases and its `unit` job was
+**CANCELLED at 20m15s** — "The operation was canceled", not an assertion failure. The lane was at its
+cap, so any PR that added a test case failed on wall clock regardless of content.
+
+**Where the time went** (per-test `::group::` spans extracted from the two job logs; only >=15s shown):
+
+| seconds | file |
+|---|---|
+| 318 | `tests/test-run-lints.sh` |
+| 243 | `tests/test-lint-counter-antipattern.sh` |
+| 122 | `tests/test-pre-commit-gate-lints.sh` |
+| 77 (213 on PR #278) | `tests/test-bl132-sast-index-scan.sh` |
+| 54 | `tests/test-bl131-domsink-rules.sh` |
+| 41 | `tests/test-lint-raw-read-prompt.sh` |
+| 37 | `tests/test-upgrade-sync-framework.sh` |
+| 34 | `tests/test-plan-staging.sh` |
+| 16 | `tests/test-lint-doc-anchors.sh` |
+| 170 | **the other 127 files, together** (avg 1.34s) |
+
+85% of the lane is nine files; the remaining 127 are noise. That shape is why sharding is a complete
+fix and no test needed deleting, skipping or demoting.
+
+**The duplication is real, and was verified rather than assumed.** `tests/test-run-lints.sh`'s
+`T-all-pass` arm runs `scripts/run-lints.sh` over the **real repo** — all 11 lints end to end.
+`tests/test-lint-counter-antipattern.sh` is 12 cheap fixture cases plus `T9: MERGE GATE`, which runs
+the linter over the **real repo**; `tests/test-lint-raw-read-prompt.sh` and
+`tests/test-lint-doc-anchors.sh` have the same real-repo arm. `.github/workflows/lint.yml` already
+runs each of those lints over the repo in its own parallel job, and `counter-antipattern-lint`,
+`raw-read-prompt-lint` and `doc-anchors-lint` are all **required** checks.
+
+**The count was wrong: it is FOUR, not three.** The original filing said the counter-antipattern
+scan runs three times per PR. Re-counted against the workflows and the run logs, the full-tree scan
+executed **four** times:
+
+| # | site | measured |
+|---|---|---|
+| 1 | `lint.yml` `counter-antipattern-lint`, step "Lint counter-capture antipattern" | 207s |
+| 2 | `lint.yml` `counter-antipattern-lint`, step "Show PASS/FAIL inventory" — the `--list` re-scan, then gated `if: always()`, so it re-ran on SUCCESS too | 204s |
+| 3 | `tests/test-lint-counter-antipattern.sh` `T9: MERGE GATE` | (of the 243s) |
+| 4 | `tests/test-run-lints.sh` `T-all-pass`, via `scripts/run-lints.sh` | (of the 243s) |
+
+(1) and (2) from run 30297887996 job 90083310253, main @ `9d71824`. The missed one was (2) — a
+second execution hiding inside the *same job* as (1), which is why a per-job reading found three.
+**Site (2) is now gone on green runs**: this change also flips lint.yml's inventory steps to
+`if: failure()` (BL-191), so a passing PR pays the scan three times and a failing one still pays
+four. The rest are genuine merge gates the suites own, so nothing was removed — (3) and (4) were
+moved off each other's critical path.
+
+**The fix — rebalance, not a bigger cap.** Raising `timeout-minutes` was explicitly rejected: it only
+hides the next doubling. `unit` became a matrix job `unit-shard` over
+`[lint-sweep, lint-scan, sast, slow-misc, rest]`, cap **lowered** 20 → 12 so it stays a tripwire.
+Nothing is demoted: the set of tests gating a PR is identical before and after.
+
+**The headline number was overstated, and is corrected here.** The original commit subject and this
+entry both claimed "~5.5 min critical path". That is the **unit lane's** new long pole, not the
+PR-blocking critical path. Sharding alone would have left the PR floored at **~7-9 min** by
+lint.yml's required `counter-antipattern-lint` job — **measured 6m59s** on main (run 30297887996,
+job 90083310253, @ `9d71824`) and **9m03s** on PR #278 (run 30380689795, job 90347515417,
+@ `8ea8c6c`) — which sharding does not touch. So the honest framing is: **~5.5 min for the unit
+lane; the PR-blocking critical path becomes ~7-9 min, floored by lint.yml's required
+counter-antipattern-lint.** That refutation is what motivated folding the BL-191 lint.yml fix into
+the same change; with it, the lint floor drops to ~3.6-4.6 min and the expected critical path
+becomes **~6 min, set by this lane's `lint-sweep` shard**. All post-change timings are **DERIVED**,
+not observed — no run has yet executed the five-leg topology or the `if: failure()` lint jobs.
+
+**The cost side, on the record.** Sharding buys wall clock with billable minutes and job count.
+DERIVED (GitHub bills each job rounded UP to the whole minute; ~22s per-job overhead measured from
+the old serial job's non-test steps):
+
+- **Unit lane:** ~19 → ~26 job-minutes (6+6+6+4+3 for the five legs at PR #278's worst case, plus 1
+  for the `unit` aggregator; ~23 on a main-like tree where `sast` is 144s not 281s).
+- **Lint jobs**, thanks to the BL-191 `if: failure()` change: ~16 → ~12 job-minutes
+  (counter-antipattern 7→4, raw-read-prompt 2→1, the other seven unchanged at 1 each).
+- **Whole PR:** ~35 → ~38 job-minutes across **10 → 15 jobs**, for ~18m53s → ~6 min of wall clock.
+
+The trade is a real one and should be re-judged if the runner bill matters more than PR latency.
+
+**Two structural hazards the design had to dodge, both load-bearing.**
+1. `_build_unit_list_set` in `scripts/lint-tests-registered.sh` scopes the unit list with an
+   **unanchored** `awk '/tests=\(/…'` that does **not** strip comments. A second array whose name ends
+   in that token — or the token merely appearing in a comment or an `echo` string below the array —
+   re-opens the scope and folds every following `tests/test-*.sh` path into the lint's membership set.
+   A new test named only in a comment would then satisfy the lint while never running: verbatim the
+   BL-181 defect class. Hence the pin arrays are `pin_*`, and the prose below the array is worded to
+   avoid the token. Proof: the parser's output is byte-identical before and after (136 entries), and
+   `scripts/lint-tests-registered.sh --list` is byte-identical (209 rows, 29 `unit-lane-exempt`).
+2. `rest` is the complement of the **pinned** paths, not of the paths some shard actually ran, so
+   deleting a leg from the matrix would silently stop running that leg's pinned tests with the
+   partition arithmetic still balancing.
+
+**Hazard 2's first guard did not close it, and was rebuilt.** The original guard pinned
+`strategy.job-total` to a hand-written `shard_arms=5`. That is a second hand-kept copy of the same
+fact, and its own error message told you to update it (*"Change the matrix list, the case arms and
+the pin arrays TOGETHER, then update shard_arms"*) — so a maintainer who follows the instructions
+deletes the leg, bumps the count, and the pinned tests vanish anyway. **Proved reachable**: on a
+scratch copy, deleting the `sast` leg + its `case` arm + `shard_arms` 5→4 left all four remaining
+shards **green** while `tests/test-bl118-sast-dom-xss.sh`,
+`tests/test-bl131-domsink-rules.sh` and `tests/test-bl132-sast-index-scan.sh` ran in **no** shard —
+133 of 136, with the in-workflow partition assertion still balancing because `pinned` still counted
+them and `rest` still excluded them.
+
+Rebuilt so the **case dispatch is the single source** of the pinned set: a `shard_names` roster
+declared once, a `pins_for()` that cases on exactly those names, `pinned` built by walking the
+roster *through* `pins_for`, and the dispatch reading the same function. An orphaned `pin_*` array
+is then never claimed, so its paths fall back into `rest` and **still run**. Mutation proof, all
+four executing the real `run:` script extracted from the committed YAML:
+
+| mutation | result |
+|---|---|
+| N1 — delete `sast` from BOTH matrix and roster (the real maintainer action) | **fail-safe**: `rest` 126 → **129**, partition still 136, all tests still run |
+| N2 — delete the leg from the matrix only | every leg exits 1: `shard roster drift: the matrix declares 4 leg(s) but the roster names 5` |
+| N3 — delete the name from the roster only | every leg exits 1, same guard, inverted |
+| N4 — roster name with no `pins_for` arm (typo class) | every leg exits 1: `'sasts' is in the roster but has no arm in pins_for` |
+
+The matrix leg count remains the one hand-kept correspondence — it lives in YAML the script cannot
+read — but it is now non-silent in both directions (N2 and N3).
+
+**Also:** `unit` is a **required status check** on `main` (confirmed via
+`gh api repos/kraulerson/solo-orchestrator/branches/main/protection`). A matrix cannot keep that name,
+so `unit` survives as a zero-work aggregator job that is red unless every `unit-shard` leg is green.
+Renaming or deleting it would leave every PR waiting forever on a check that never reports.
+
+**FOR KARL — branch protection decision, not yet made.** The required contexts on `main` are
+`unit` plus eight lint jobs. The five new `unit-shard (<shard>)` checks are **not** individually
+required, by design — the `unit` aggregator is red unless every leg is green, so they are covered
+transitively. If you would rather each leg be independently required, that is a branch-protection
+edit nobody can make from a PR, and it must be done in the same window as the merge or the `unit`
+context alone will gate.
+
+**Pre-existing finding, unrelated to this change but recorded here because it surfaced during it:**
+`lint.yml` defines **nine** lint jobs but only **eight** are required on `main` —
+`evalprompts-portability-lint` runs on every PR and **does not block**. Confirmed against the
+protection API contexts list. Not fixed here; it is a policy call.
+
+**Related:** BL-191 (the per-line fork that makes the counter-antipattern scan cost 4 minutes in the
+first place — the deeper fix; its `if: failure()` half shipped with this change), BL-154 / BL-181
+(the unit-lane membership lint this had to leave behaviourally untouched), BL-077 (which created
+these lanes).
+
+---
+
+## BL-191: `lint-counter-antipattern.sh` forks a subshell per LINE, and every PR paid that ~4-minute scan four times — two of them in the same job
+
+> **Numbering note.** Filed first as BL-186; renumbered to BL-191 because PR #278 already held
+> BL-185…BL-189. See the note on BL-190.
+
+**Logged:** 2026-07-28
+**Status:** Open — the **duplicate-execution half is FIXED** on branch
+`perf/unit-lane-shard-rebalance` (below); the **per-line fork itself is not**, and that is what this
+entry stays open for. Flip to Closed only when `scan_file` is single-pass.
+**Category:** CI capacity / lint performance
+**Severity:** Medium — no correctness impact; it is the single largest cost in PR CI, and it is the
+root cause under BL-190's symptom.
+
+**The mechanism.** `scan_file` in `scripts/lint-counter-antipattern.sh` reads each file into an array
+and then, for every line, runs `echo "$line" | grep -Eq "$ANTIPATTERN_RE"` — a fork plus a pipe **per
+line** across `scripts/**`, `tests/**` and `init.sh`. Measured cost of one full-tree scan: **243s** on
+`ubuntu-latest` (run 30297887329), ~90s on the macOS host.
+
+**It was paid FOUR times per PR, not three.** The original filing (and BL-190's) said three. The
+missed execution was a second one inside the *same* `counter-antipattern-lint` job, which is why a
+per-job reading undercounted:
+
+| # | site | measured |
+|---|---|---|
+| 1 | `lint.yml` `counter-antipattern-lint` — the gating step | 207s main / 269s PR #278 |
+| 2 | `lint.yml` `counter-antipattern-lint` — the `--list` inventory step, gated `if: always()` | 204s main / 269s PR #278 |
+| 3 | `tests/test-lint-counter-antipattern.sh` `T9: MERGE GATE` | (of the 243s) |
+| 4 | `tests/test-run-lints.sh` `T-all-pass` → `scripts/run-lints.sh` | (of the 243s) |
+
+Sources: run 30297887996 job 90083310253 (main @ `9d71824`, job total **419s**) and run 30380689795
+job 90347515417 (PR #278 @ `8ea8c6c`, job total **543s**). In both, the inventory step costs
+**almost exactly half the job**.
+
+### SHIPPED with BL-190: `if: always()` → `if: failure()` on the inventory steps
+
+**The count here is NINE, not three and not eight.** Every job in `lint.yml` is a PAIR — a gating
+step that runs the lint, and an inventory step that re-runs the *same* lint with `--list`. There are
+nine jobs and therefore **nine** such pairs, and all nine inventory steps were `if: always()`.
+Two greps undercount and both were used at some point in review:
+
+- `grep -c 'sh --list'` returns **8**. It misses
+  `bash scripts/lint-backlog-references.sh --base "origin/${BASE_REF}" --list || true`, where
+  `--base …` sits between `sh` and `--list`.
+- Counting by step name misses `review-manifest-lint`, whose step is named "Show roster", not
+  "Show PASS/FAIL inventory".
+
+Structural count (parse the YAML, don't grep): 9 jobs, 9 `if: always()` steps, 9 `--list` steps, and
+the sets coincide exactly — **there is no `always()` step that is not a `--list` re-scan.**
+
+**Nothing stops being checked.** The gating steps are untouched: nine of them, no `if:`, no
+`continue-on-error`. Only the inventory re-scan became conditional, and `failure()` and `always()`
+are *identical on the failure path* — the only path the inventory was ever for. Evidence from three
+real runs where a gating step failed:
+
+| run | job | gating step | inventory step | job conclusion |
+|---|---|---|---|---|
+| 29952639143 | backlog-references-lint | **failure** | success (ran) | **failure** |
+| 29633780347 | counter-antipattern-lint | **failure** | success (ran) | **failure** |
+| 29136956152 | backlog-references-lint | **failure** | success (ran) | **failure** |
+
+Run 29633780347's `no-live-remote-in-tests-lint` is the clearest read of the semantics: its middle
+step, which has no `if:`, shows **skipped** after the failure while the `always()` inventory step
+shows **success**. That is exactly the situation `failure()` also selects. So a red lint still goes
+red, still blocks, and still prints its inventory; the `|| true` still prevents the inventory from
+ever being what fails a job — proven by the same run, where the tree was dirty enough to fail the
+gate and the inventory step still concluded `success`.
+
+**"or on demand" was never real.** `lint.yml` has no `workflow_dispatch` trigger — only
+`push: branches: [main]` and `pull_request` — so `github.event_name == 'workflow_dispatch'` would be
+unreachable dead code, and a UI re-run preserves the ORIGINAL event name rather than becoming a
+dispatch. Plain `if: failure()` therefore loses nothing that existed. The step names dropped "or on
+demand" to match; the genuine on-demand path is local: `bash scripts/lint-<name>.sh --list`.
+
+**Saving (DERIVED — no run has executed the `if: failure()` topology):** counter-antipattern-lint
+419s → ~215s on main and 543s → ~277s on PR #278; raw-read-prompt-lint 89s → ~47s; doc-anchors-lint
+38s → ~22s. Because the lint jobs run in PARALLEL, the PR-blocking lint floor is the *slowest* one,
+so it moves from **~7-9 min to ~3.6-4.6 min** — below the sharded unit lane's ~5.5 min, making that
+lane the new long pole for the first time.
+
+### STILL OPEN: the per-line fork
+
+**The fix.** Replace the per-line fork with a single-pass `grep -nE` over each file (or over the whole
+target set), then post-process only the matching lines for the sanitizer/allowlist checks. The
+neighbour-line lookahead (`LINES[i+1]`) and the BL-121 sed-alternation rule both still need the file
+body, so the rewrite has to preserve line numbering — this is why it is not a trivial edit.
+
+**Why it is still not bundled.** This is an **enforcement script**, so it needs the house TDD
+treatment: break the marked line → RED → restore → GREEN, against
+`tests/test-lint-counter-antipattern.sh` (13 cases incl. the BL-121 arms). The `if: failure()` change
+above is a workflow-only edit with no behaviour change to any lint, which is why it could ride along;
+rewriting `scan_file` cannot. Expected remaining payoff: roughly **-240s from the `lint-sweep`
+shard, -240s from `lint-scan`, and a further -190s from lint.yml's required job** — i.e. it is now
+the only thing left that lowers the ~6 min critical path.
+
+**Related:** BL-190 (the lane rebalance this sits under, and where the `if: failure()` half shipped),
+BL-121 (the sed-alternation rule the rewrite must preserve), BL-067..BL-071 (the wave-1 remediation
+this lint backstops).
+

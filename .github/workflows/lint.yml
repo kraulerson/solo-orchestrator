@@ -12,6 +12,44 @@
 # Subsequent CI jobs (shellcheck, security review, full test suite
 # under CI, etc.) can be added as additional workflows or as
 # additional jobs in this file.
+#
+# ── BL-191: the inventory steps are `if: failure()`, NOT `if: always()` ──
+#
+# Every job here is a PAIR of steps: a GATING step that runs the lint and
+# fails the job, and an INVENTORY step that re-runs the SAME lint with
+# `--list` to print the per-file PASS/FAIL roster. There are NINE such
+# pairs — one per job — and under `if: always()` the inventory step re-ran
+# the full scan on GREEN runs too, where nobody reads it. That doubled
+# every lint job. Measured on the counter-antipattern job (run 30297887996,
+# job 90083310253, main @ 9d71824): 207s gating + 204s inventory = 419s.
+# It is the single slowest PR-blocking job in the repo, so it alone sets
+# the lint floor for the whole PR.
+#
+# `failure()` and `always()` are IDENTICAL on the failure path — which is
+# the only path the inventory was ever for. Evidence, three real runs where
+# a gating step failed: run 29952639143 (backlog-references-lint), run
+# 29633780347 (counter-antipattern-lint), run 29136956152
+# (backlog-references-lint). In every one: gating step `failure`, inventory
+# step `success` (it RAN), job conclusion `failure`. Run 29633780347's
+# no-live-remote job is the clearest read — its middle step with no `if:`
+# shows `skipped` while the `always()` inventory step shows `success`,
+# which is exactly the semantics `failure()` also selects. So a red lint
+# still goes red and still prints its inventory; only the green-path
+# re-scan is gone.
+#
+# The `|| true` stays and is load-bearing: `--list` exits non-zero on a
+# dirty tree, and an inventory step must never be what fails a job. Run
+# 29633780347 proves it end to end — the tree was dirty enough to fail the
+# gate, and the inventory step still concluded `success`.
+#
+# WHY NOT `failure() || github.event_name == 'workflow_dispatch'`: this
+# workflow has no `workflow_dispatch` trigger (see `on:` below — only
+# `push: branches: [main]` and `pull_request`), so that arm is unreachable
+# dead code. A UI re-run is not an on-demand path either: it preserves the
+# ORIGINAL event name, so it would not satisfy it. The step names dropped
+# "or on demand" for the same reason — the real on-demand path is local:
+#     bash scripts/lint-<name>.sh --list
+# If anyone ever adds a `workflow_dispatch` trigger here, revisit this.
 
 name: lint
 
@@ -35,8 +73,8 @@ jobs:
       - name: Lint counter-capture antipattern
         run: bash scripts/lint-counter-antipattern.sh
 
-      - name: Show PASS/FAIL inventory (on failure or on demand)
-        if: always()
+      - name: Show PASS/FAIL inventory (on failure)
+        if: failure()
         run: bash scripts/lint-counter-antipattern.sh --list || true
 
   # Cycle-7 Slot-5 sibling backstop: process discipline for backlog
@@ -64,8 +102,8 @@ jobs:
           BASE_REF: ${{ github.base_ref || 'main' }}
         run: bash scripts/lint-backlog-references.sh --base "origin/${BASE_REF}"
 
-      - name: Show PASS/FAIL inventory (on failure or on demand)
-        if: always()
+      - name: Show PASS/FAIL inventory (on failure)
+        if: failure()
         env:
           BASE_REF: ${{ github.base_ref || 'main' }}
         run: bash scripts/lint-backlog-references.sh --base "origin/${BASE_REF}" --list || true
@@ -87,8 +125,8 @@ jobs:
       - name: Lint fix_*() function stderr silencers
         run: bash scripts/lint-fix-functions-stderr.sh
 
-      - name: Show PASS/FAIL inventory (on failure or on demand)
-        if: always()
+      - name: Show PASS/FAIL inventory (on failure)
+        if: failure()
         run: bash scripts/lint-fix-functions-stderr.sh --list || true
 
   # Cycle-8 wave-3 Slot-5 sibling: ban raw `read -rp` / `read -p`
@@ -108,8 +146,8 @@ jobs:
       - name: Lint raw read -rp / read -p sites
         run: bash scripts/lint-raw-read-prompt.sh
 
-      - name: Show PASS/FAIL inventory (on failure or on demand)
-        if: always()
+      - name: Show PASS/FAIL inventory (on failure)
+        if: failure()
         run: bash scripts/lint-raw-read-prompt.sh --list || true
 
   # BL-038 (cycle-9): structural backstop for the BL-034 orphan-test
@@ -128,8 +166,8 @@ jobs:
       - name: Lint tests-registered (BL-038 structural backstop)
         run: bash scripts/lint-tests-registered.sh
 
-      - name: Show PASS/FAIL inventory (on failure or on demand)
-        if: always()
+      - name: Show PASS/FAIL inventory (on failure)
+        if: failure()
         run: bash scripts/lint-tests-registered.sh --list || true
 
   # BL-048: structural backstop for dead in-document anchors under
@@ -149,8 +187,8 @@ jobs:
       - name: Lint in-document anchors under docs/ (BL-048)
         run: bash scripts/lint-doc-anchors.sh
 
-      - name: Show PASS/FAIL inventory (on failure or on demand)
-        if: always()
+      - name: Show PASS/FAIL inventory (on failure)
+        if: failure()
         run: bash scripts/lint-doc-anchors.sh --list || true
 
   # BL-073: schema backstop for the Phase 3→4 review manifest
@@ -171,8 +209,8 @@ jobs:
       - name: Lint review-manifest schema (BL-073)
         run: bash scripts/lint-review-manifest.sh
 
-      - name: Show roster (on failure or on demand)
-        if: always()
+      - name: Show roster (on failure)
+        if: failure()
         run: bash scripts/lint-review-manifest.sh --list || true
 
   # BL-076: hermeticity backstop for the test suite. A test that runs the
@@ -197,8 +235,8 @@ jobs:
       - name: Run the lint's own behavior suite
         run: bash tests/test-lint-no-live-remote.sh
 
-      - name: Show PASS/FAIL inventory (on failure or on demand)
-        if: always()
+      - name: Show PASS/FAIL inventory (on failure)
+        if: failure()
         run: bash scripts/lint-no-live-remote-in-tests.sh --list || true
 
   # BL-103: portability backstop for evaluation-prompts/. The Phase 3→4 review
@@ -221,6 +259,6 @@ jobs:
       - name: Lint evaluation-prompts/ for bash-4 constructs (BL-103)
         run: bash scripts/lint-evalprompts-portability.sh
 
-      - name: Show PASS/FAIL inventory (on failure or on demand)
-        if: always()
+      - name: Show PASS/FAIL inventory (on failure)
+        if: failure()
         run: bash scripts/lint-evalprompts-portability.sh --list || true
