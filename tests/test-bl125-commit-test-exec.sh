@@ -114,6 +114,39 @@ mk_proj() {
 head_of()   { ( cd "$1" && git rev-parse HEAD 2>/dev/null ); }
 stage_src() { ( cd "$1" && printf 'export const x = 1;\n' > src/widget.ts && git add src/widget.ts ); }
 
+# mk_proj_typechange <dir> [templates-lib] — mk_proj, then land a SYMLINK at
+# src/lib.ts BEFORE the hook is armed, then arm it. The caller replaces src/lib.ts
+# with a REGULAR source file, which git reports as a status-T TYPE CHANGE — an
+# ordinary de-symlinking refactor, and the shape R-274R-2 showed was invisible to
+# this arm while its filter read ACMDR.
+# Returns non-zero when this host cannot produce the shape (no symlink support, or
+# core.symlinks=false storing the seed as a plain blob), so the cases LOUD-SKIP
+# instead of degrading into an ordinary `M` that proves nothing about the T.
+mk_proj_typechange() {
+  local d="$1" lib="${2:-$HOOKLIB}"
+  mk_proj "$d" "$lib" || return 1
+  rm -f "$d/.git/hooks/pre-commit"
+  ( cd "$d" && ln -s ../seed src/lib.ts ) 2>/dev/null || return 1
+  [ -L "$d/src/lib.ts" ] || return 1
+  ( cd "$d" && git add -- src/lib.ts \
+      && PATH="$NOSCAN_PATH" git commit -q -m "chore: seed symlink" </dev/null ) || return 1
+  # The seeded INDEX entry must really be mode 120000; on a checkout where git stored
+  # the symlink as a regular file the later replacement is an `M`, not a `T`.
+  ( cd "$d" && git ls-files -s -- ":(literal)src/lib.ts" 2>/dev/null ) | grep -q '^120000 ' || return 1
+  ( source "$lib" && soif_write_precommit_hook "$d/.git/hooks/pre-commit" ) || return 1
+  chmod +x "$d/.git/hooks/pre-commit"
+}
+
+# stage_typechange <dir> — replace the seeded symlink with a REGULAR .ts source file
+# and stage it. Non-zero unless git really reports the staged entry as T.
+stage_typechange() {
+  local d="$1"
+  rm -f "$d/src/lib.ts"
+  printf 'export const lib = 1;\n' > "$d/src/lib.ts"
+  ( cd "$d" && git add -- src/lib.ts ) || return 1
+  ( cd "$d" && git diff --cached --name-status | grep -q '^T' ) || return 1
+}
+
 # try_commit <proj> <subject> <log> → echoes LANDED | REFUSED
 try_commit() {
   local proj="$1" subj="$2" log="$3"
@@ -389,6 +422,87 @@ if [ "$V" = "LANDED" ] && grep -qF "PASSED" "$P/commit.log"; then
   pass "T14-crlf-config-line-runs (a Windows-edited config still resolves to the real command)"
 else
   fail_ "T14-crlf-config-line-runs" "verdict=$V — a CRLF line ending turned the command into exit-127 noise (verifier S6): $(tail -3 "$P/commit.log" | tr '\n' ' ')"
+fi
+fi
+
+# ═════════════════════════════════════════════════════════════════════════════
+# R-274R-2 — the FOURTH --diff-filter, and the one PR #274 left behind
+# ═════════════════════════════════════════════════════════════════════════════
+# Commit 405d691 added T to the SAST arm's filter (# BL-179-STAGED-FILTER, ACM ->
+# ACMRT) and did not touch this arm's sibling read, which stayed ACMDR. A staged
+# TYPE CHANGE of a real source file — symlink replaced by a regular file, index
+# mode 100644, an ordinary de-symlinking refactor — was therefore invisible here:
+# the suite never ran and the arm printed
+#   [OK] BL-125: no source files staged — project tests not required for this commit.
+# which is verbatim the failure the "Verifier M1" comment says the filter exists to
+# stop. Filter -> ACMDRT at # BL-179-TESTARM-FILTER.
+#   These two cases are the FIRST type-change coverage this suite has ever had
+#   (`grep -n "typechange\|120000"` returned nothing before them), which is exactly
+#   why the hole survived a suite that was 16/16 green.
+
+if want T15; then
+echo "=== T15-typechange-runs-tests ==="
+P="$TOPTMP/p15"
+if ! mk_proj_typechange "$P"; then
+  skip_ "T15-typechange-runs-tests" "this host could not seed a mode-120000 symlink (no symlink support / core.symlinks=false) — the T shape is UNPROVEN here (skip, NOT a pass)"
+else
+  set_testcmd "$P" 1
+  if ! stage_typechange "$P"; then
+    skip_ "T15-typechange-runs-tests" "git did not report the staged entry as a TYPE CHANGE on this host — UNPROVEN here"
+  else
+    H0=$(head_of "$P")
+    V=$(try_commit "$P" "refactor: materialize the symlink" "$P/commit.log")
+    H1=$(head_of "$P")
+    if [ "$V" = "REFUSED" ] && [ "$H0" = "$H1" ] && grep -qF '[BLOCKED] project tests FAILED' "$P/commit.log"; then
+      pass "T15-typechange-runs-tests (a staged TYPE CHANGE of source RUNS the suite — an always-failing suite refuses the commit)"
+    elif grep -qF 'no source files staged' "$P/commit.log"; then
+      fail_ "T15-typechange-runs-tests" "the arm printed the FALSE receipt 'no source files staged' over a staged source TYPE CHANGE — --diff-filter is missing T, so the RED suite never ran and the commit LANDED (R-274R-2); verdict=$V"
+    else
+      fail_ "T15-typechange-runs-tests" "verdict=$V — a staged source type change did not reach the RED suite: $(tail -3 "$P/commit.log" | tr '\n' ' ')"
+    fi
+  fi
+fi
+fi
+
+if want T16; then
+echo "=== T16-mutation-typechange-filter ==="
+# Revert exactly the T, ACMDRT -> ACMDR (the value PR #274 left here), at the LIB
+# level — this arm's filter lives in the emitter, and mk_proj emits the hook from
+# whichever lib it is handed, so a lib mutant is the honest analogue of the emitted-
+# hook mutants the SAST suite uses.
+#   THE RED ASSERTION IS THE FALSE RECEIPT, NOT MERELY THE LANDING. "It committed"
+#   would also be satisfied by a loud not-enforced WARN, which is honest; the defect
+#   being pinned is the arm CLAIMING no source was staged while source was staged.
+MUTLIB16="$TOPTMP/hook-templates.acmdr.sh"
+n16=$(grep -c -- '--diff-filter=ACMDRT \\' "$HOOKLIB") || n16=0
+n16=$(printf '%s' "$n16" | tr -d '[:space:]')
+case "$n16" in ''|*[!0-9]*) n16=0 ;; esac
+sed 's/--diff-filter=ACMDRT \\/--diff-filter=ACMDR \\/' "$HOOKLIB" > "$MUTLIB16"
+if [ "$n16" -ne 1 ]; then
+  fail_ "T16-mutation-typechange-filter" "MIS-TARGETED — the BL-125 staged-source filter '--diff-filter=ACMDRT' is not present exactly once in $HOOKLIB (found $n16); retarget this mutation in lockstep"
+elif ! ( source "$MUTLIB16" && soif_write_precommit_hook "$TOPTMP/mut16-hook" ) >/dev/null 2>&1; then
+  fail_ "T16-mutation-typechange-filter" "the mutant lib could not emit a hook — a broken mutant proves nothing"
+elif ! bash -n "$TOPTMP/mut16-hook" 2>/dev/null; then
+  fail_ "T16-mutation-typechange-filter" "mutated hook has a syntax error — a broken mutant proves nothing"
+else
+  PR16="$TOPTMP/p16-red"; PG16="$TOPTMP/p16-green"
+  RED16=SETUPFAIL; GRN16=SETUPFAIL
+  if mk_proj_typechange "$PR16" "$MUTLIB16"; then
+    set_testcmd "$PR16" 1
+    stage_typechange "$PR16" && RED16=$(try_commit "$PR16" "refactor: materialize the symlink" "$PR16/commit.log")
+  fi
+  if mk_proj_typechange "$PG16"; then
+    set_testcmd "$PG16" 1
+    stage_typechange "$PG16" && GRN16=$(try_commit "$PG16" "refactor: materialize the symlink" "$PG16/commit.log")
+  fi
+  if [ "$RED16" = "SETUPFAIL" ] || [ "$GRN16" = "SETUPFAIL" ]; then
+    skip_ "T16-mutation-typechange-filter" "this host could not produce a status-T staged entry — mutation UNPROVEN here"
+  elif [ "$RED16" = "LANDED" ] && grep -qF 'no source files staged' "$PR16/commit.log" \
+       && [ "$GRN16" = "REFUSED" ] && grep -qF '[BLOCKED] project tests FAILED' "$PG16/commit.log"; then
+    pass "T16-mutation-typechange-filter: ACMDR hides the staged TYPE CHANGE and prints the FALSE 'no source files staged' receipt while the RED suite never runs (RED); ACMDRT runs it and REFUSES the commit (GREEN) — the T is load-bearing (R-274R-2)"
+  else
+    fail_ "T16-mutation-typechange-filter" "expected RED=LANDED+false-receipt / GREEN=REFUSED+[BLOCKED]; got RED=$RED16 (false_receipt=$(grep -cF 'no source files staged' "$PR16/commit.log")) GREEN=$GRN16 (blocked=$(grep -cF '[BLOCKED] project tests FAILED' "$PG16/commit.log")); red: $(tail -3 "$PR16/commit.log" | tr '\n' ' ')"
+  fi
 fi
 fi
 

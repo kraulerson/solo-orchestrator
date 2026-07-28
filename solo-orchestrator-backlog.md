@@ -5250,9 +5250,85 @@ multi-KB fixture that fails with `grep -q` and passes with the consuming form (s
 
 **Status:** Open
 
+**UPDATE 2026-07-28 — CONFIRMED LIVE, and the census above UNDER-COUNTED because it never
+scanned `tests/`.** Two things changed. (1) The class now has a **measured, reproducible
+instance outside the lint scripts**, and it is the whole explanation for a "green locally,
+red on CI" asymmetry that had been blamed on the semgrep registry. (2) The reproduce recipe
+above iterates `scripts/*.sh scripts/lib/*.sh` only — `tests/` was never in scope, and the
+confirmed instance lives there. Re-run the census over `tests/*.sh` before calling the
+80-site table complete.
+
+**The confirmed instance.** In `tests/test-bl131-domsink-rules.sh` and
+`tests/test-bl118-sast-dom-xss.sh`, both of which set `set -uo pipefail`:
+
+```
+has_live() { grep -v '^[[:space:]]*#' "$1" | grep -qF -- "$2"; }
+```
+
+(`test-bl118-sast-dom-xss.sh` carries a second copy, `has_cfg`, with `grep -qE` and the same
+shape.) The producer is `grep -v` streaming the **whole emitted pre-commit hook** — multi-KB,
+which is exactly the "real input, not a small fixture" condition this entry says is required.
+`grep -qF` exits on the first match, `grep -v` takes EPIPE, GNU grep exits 2, `pipefail`
+promotes it, and **a string that IS present is reported ABSENT**.
+
+| host | grep | rate |
+|---|---|---|
+| Linux | GNU grep 3.11 | **1–7 failures per 300 runs** |
+| macOS | BSD grep 2.6.0 | **0 per 300 runs** |
+
+That asymmetry is the finding: BSD grep does not exit non-zero on the truncated read, so the
+whole class is invisible on this repo's primary dev host and appears only in CI. The two
+cases it flakes are `T-hook-references-ruleset` (in `test-bl131-domsink-rules.sh`) and
+`T-hook-carries-domxss-config` (in `test-bl118-sast-dom-xss.sh`). Both call `has_live` /
+`has_cfg` inside an `if`/`elif`/`||`, so condition (b) — the status is consumed — holds.
+
+**The three emitted-hook sites, enumerated, and this is the half that matters more than the
+tests.** The table above counts `scripts/lib/hook-templates.sh` at 3. Those three sites are
+in the **EMITTED hook** — the bytes written into every generated project's
+`.git/hooks/pre-commit` — and the emitted hook runs under `set -euo pipefail` (the only
+`pipefail` in the file; nothing in the emitted body ever does `set +o pipefail`, and the
+`set +e`/`set -e` pairs around `semgrep scan` and the test command toggle **errexit only**,
+so condition (c) holds at all three). **A flaky enforcement gate is worse than a flaky test.**
+
+1. **`# BL-132-GITLINK-SKIP`** — `git ls-files -s -- ":(literal)$soif_p" | grep -q '^160000 '`.
+   Producer is one pathspec, so at most one line: condition (a) is very weak. Lowest risk of
+   the three; do not "fix" it without a reachability proof.
+2. **`# BL-125-COMMIT-TESTS`, npm test-script detection** —
+   `sed -n '/"scripts"[[:space:]]*:/,/}/p' package.json | grep -qE '"test"[[:space:]]*:'`.
+   `sed -n` with a range keeps reading to EOF after printing, so on a `package.json` past the
+   pipe buffer the producer genuinely outlives the `grep -qE`. **Strongest candidate.**
+   Failure mode: the `&&` chain reads false, npm detection fails, and the commit-time test arm
+   degrades to `soif_tests_not_enforced` — a loud WARN — on a project that *does* have a real
+   `npm test`. Loud, but it is the BL-125 gate silently not running.
+3. **`# BL-125-COMMIT-TESTS`, placeholder-script rejection** —
+   `! sed -n '…' package.json | grep -q 'no test specified'`. Same producer, but the status is
+   **negated**, so the inversion runs the other way: a SIGPIPE-truncated read on a
+   `package.json` that DOES carry npm's placeholder makes the negation true, the hook adopts
+   `soif_test_cmd="npm test"` against the placeholder, and **every commit on a fresh scaffold
+   blocks** — the BL-137 "documented-but-impossible" class.
+
+**Explicitly NOT in the fix set.** `soif_test_src=$(git diff --cached … | grep -cE '…')` in the
+same block uses `grep -c`, which reads to EOF — no SIGPIPE, and it is already the prescribed
+fix shape, with the numeric guard on the next line. And
+`[ -f pyproject.toml ] && grep -q '^\[tool\.pytest' pyproject.toml` is **not a pipeline** —
+`grep` takes the file directly, so there is no producer to kill.
+
+**Two more `tests/` files carry the shape with `echo`-of-a-variable producers** and were not
+rate-measured: `has_review_fail`/`has_bypass_warn`/`has_empty_man_warn` in
+`tests/test-bl104-gate-scoring.sh` and `has_review_fail`/`has_bypass_warn`/`has_attested`/
+`has_full_six` in `tests/test-bl073-review-manifest-gate.sh`. These echo whole captured gate
+outputs (several KB), so triage rule (a) does not automatically clear them — check whether
+those two files set `pipefail` before deciding.
+
+**Fix shape is unchanged** (`grep -c` + numeric test, or `grep -q` over a variable that
+already holds the full producer output; never drop `pipefail`). The emitted-hook sites need
+the house TDD treatment — a multi-KB `package.json` fixture that fails with `grep -q` and
+passes with the consuming form — because they are enforcement code shipped downstream.
+
 **Related:** BL-181 (where the class was found, measured, and fixed at one site), BL-168
 (`test-bl168-tm-table-sigpipe.sh` — a prior SIGPIPE instance, evidence that this is a recurring class
-in this repo), CLAUDE.md ENFORCEMENT — SOURCE OF TRUTH.
+in this repo), BL-125 (the commit-time test arm two of the three emitted-hook sites belong to),
+BL-132 (the gitlink skip that owns the third), CLAUDE.md ENFORCEMENT — SOURCE OF TRUTH.
 
 ---
 
@@ -5565,3 +5641,193 @@ the only thing left that lowers the ~6 min critical path.
 BL-121 (the sed-alternation rule the rewrite must preserve), BL-067..BL-071 (the wave-1 remediation
 this lint backstops).
 
+---
+
+## BL-187: The commit-time SAST rule-coverage guard is a NAMED-STRING DETECTOR, not a proof — and semgrep's per-rule timeout is a POLICY decision Karl has not made
+
+**Logged:** 2026-07-27 (R-274Rv2-1 residue, filed as part of the remediation that closed the reproduced trigger; measured through the shipped emitter `soif_write_precommit_hook` → a real `.git/hooks/pre-commit` → real `git commit`s, semgrep 1.157.0)
+**Category:** Enforcement / commit-time SAST — scanner-coverage attestation (the residue left after fixing the reproduced trigger)
+**Severity:** **Medium.**
+- It is **not High.** The reproduced trigger is closed: `# BL-187-RULE-COVERAGE` reads semgrep's `Warning: N timeout error(s) in <target> when running the following rules: [...]` line back out of the captured stderr and forfeits the `[OK]` receipt, naming the target and the exact rule. A commit that hits it now gets a loud NOTRUN instead of a false attestation.
+- It is **not Low**, for two independent reasons. (1) The check's good case is the warning's **ABSENCE**, so unlike the selection half of the invariant it *cannot* fail closed — a future semgrep that renames, reformats or drops that warning re-opens the exact R-274Rv2-1 hole, silently and in every generated project, with no test able to notice. That is a **fail-open anchor** shipped into enforcement code, and it is the first one in this arm. **BL-192 is what that risk looks like when it lands** — a different clause of the same guard, blinded by an upstream release with no spelling change at all. Treat that as a demonstration, not a coincidence. (2) The failure mode when it does fire is the worst one available: a positive false attestation over a file no rule matched.
+- **Medium is where those meet:** trigger closed, but by an instrument that is structurally weaker than the one beside it, and the arm now certifies commits on the strength of a string semgrep is not contractually obliged to print.
+
+**Status:** Open
+
+**What was reproduced, exactly.** A **dense** 1,216,567-byte `.ts` — ordinary generated-bundle-looking
+code (object literals with an arrow function each), valid UTF-8, `tsc` compiles it — carrying
+`pane.innerHTML = userText;` on line 2, staged and committed through the real hook:
+
+| staged bytes | padding | verdict | receipt |
+|---|---|---|---|
+| 196,561 | code | REFUSED | `[BLOCKED] Semgrep` |
+| 600,561 | code | REFUSED | `[BLOCKED] Semgrep` |
+| **1,216,567** | **code** | **COMMITTED** | **`[OK] semgrep: SAST ran on 1 staged file(s)`, sink in `HEAD`** |
+| 1,253,093 | comments | REFUSED | `[BLOCKED] Semgrep` |
+
+Deterministic — 5 of 5 repeat runs at the dense >1MB size committed with the receipt. Semgrep's own
+stderr, invoked with the arm's exact flag set: `Scanning 1 file with 174 Code rules:`,
+`✅ Scan completed successfully.`, `Findings: 0 (0 blocking)`, `Targets scanned: 1`, `rc=0` —
+**every fact the selection half checks read COMPLETE** — plus
+`Warning: 1 timeout error(s) in …/heavy.ts when running the following rules:
+[javascript.browser.security.insecure-document-method.insecure-document-method]`. The one rule that
+catches the sink is the one that ran out of semgrep's default 5-second per-rule, per-file budget.
+
+**The `Warning:` line is not the ONLY line carrying the atom, and that is why the guard counts LINES
+(R-772-4).** Once `--timeout-threshold` trips, semgrep also prints
+`Semgrep stopped running rules on <target> after N timeout error(s).` — so **one** timeout can yield
+**two** atom-bearing lines, at the shipped defaults (`--timeout=5`, `--timeout-threshold=3`) and with
+no flag change. `soif_sg_timeouts` is `grep -cE 'timeout error\(s\)'`, i.e. a count of *lines*, and
+the operator-facing sentence reads "N rule-timeout **warning line(s)**" to match. **The verdict is
+unaffected either way** — it is `-eq 0`, and any non-zero count forfeits the receipt.
+**Do not "fix" it by narrowing the count to `Warning: [0-9]+ timeout error\(s\)`.** That was
+considered and rejected: it is the *match-the-sentence* shape this very entry exists to warn about
+(every extra token is another upstream-rename cliff), it buys nothing the verdict uses, and the
+watched-RED case it would owe — "the threshold-skip line arrives without the `Warning:` line and the
+verdict still fires" — needs three real timeouts on one target, which is host-speed-dependent; the
+existing `T-mutation-rule-timeout` already carries an explicit SKIP arm for a host whose semgrep
+finishes the rule inside its budget. A guard whose proof can only skip on some hosts is not a guard.
+That the second line *also* carries the atom is what makes the threshold path **covered** rather than
+missed, and it is a property of the broad anchor — narrowing would give it up.
+
+**Size was never the variable — DENSITY was.** The comment-padded row above is the control and it is
+the whole reason this shipped: every oversize case in `tests/test-bl132-sast-index-scan.sh` rode a
+fixture padded with 7,000 identical `// paddingpadding…` lines, which is the one >1MB shape
+structurally incapable of provoking a per-rule timeout. The suite proved `--max-target-bytes=0` on the
+only large-file shape immune to the residue that makes the flag insufficient. Fixed with
+`write_oversize_dense` + `T-oversize-dense-no-receipt` + `T-mutation-rule-timeout`.
+
+**THE POLICY QUESTION FOR KARL, AND IT IS THE POINT OF THIS ENTRY: does the pre-commit hook keep
+semgrep's 5-second per-rule timeout?** Three options, measured, none of them free:
+
+1. **Keep the 5s default + the detector (what shipped).** A dense >1MB file goes UNSCANNED but the
+   commit says so loudly and the receipt is forfeited. Honest, bounded latency — and it is exactly the
+   "all of the cost and none of the coverage" outcome that `# BL-112-MAX-TARGET-BYTES` calls *worse*
+   in its own rationale for disabling the size cap. The two decisions are inconsistent with each
+   other, deliberately, because the third option is not the implementer's to pick.
+2. **`--timeout=0`.** Measured: the dense fixture is **`[BLOCKED]`** — the sink is caught — in ~11s
+   wall. But "no limit" in a pre-commit hook means a rule with catastrophic backtracking hangs the
+   operator's terminal with **no message and no timeout**, which is worse than a forfeited receipt on
+   every axis this arm cares about: not loud, not honest, indistinguishable from a crash, and the
+   fastest possible route to `--no-verify` becoming habit.
+3. **A finite larger value (`--timeout=30`, `--timeout=60`).** Almost certainly the right answer, but
+   it is a **latency budget** — how long may a commit block? — and picking the number by feel is the
+   kind of decision this repo files rather than guesses.
+
+**Related:** BL-112 (the silent-success class this arm exists to close), BL-192 (the sibling clause
+that was withdrawn when its instrument went blind — the realised version of this entry's risk (1)),
+BL-118 / BL-131 (the rulesets whose findings this guard protects), `# BL-187-RULE-COVERAGE` and
+`# BL-112-SCAN-COVERAGE` in `scripts/lib/hook-templates.sh`.
+
+---
+
+## BL-192: On semgrep >= 1.171.0 `Parsed lines: ~100.0%` is reported for a file semgrep never decoded — the banner's SPELLING did not change, its VALUE stopped being true, and any guard reading it grants `[OK]` over an unscanned sink
+
+**Logged:** 2026-07-28 (found by an isolated-venv two-version diagnostic run while splitting the BL-112 SAST-coverage stack; measured on macOS and Linux)
+**Category:** Enforcement / commit-time SAST — scanner-coverage attestation. **This is a defect in the INSTRUMENT, not in the clause that read it**, which is why the clause was withdrawn rather than repaired.
+**Severity:** **High.** The argument, with the counter-argument stated first because it is real:
+- **The case for Medium.** It is not a regression. `main` has never shipped a parse/decode clause, so nothing that works today stops working. The withdrawn clause is not in any generated project. And the trigger needs a staged file semgrep cannot decode.
+- **Why High wins anyway.** (a) The outcome is a **positive false attestation** — `[OK] semgrep: SAST ran on N staged file(s) — no ERROR-severity findings.` printed over a file containing `pane.innerHTML = userText` that no rule ever saw. That is the exact shape BL-112 and BL-118 exist to prevent, and this arm's own severity convention treats "losing a verdict" and "asserting a false one" as different classes. (b) It is **LIVE right now** for anyone whose semgrep is >= 1.171.0: generated projects do not pin semgrep, `init.sh` tells operators to `brew install semgrep` / `pip install semgrep`, and both resolve to latest. (c) The trigger set is **wider than exotic encodings** and includes at least one shape that is ordinary source — a hard token-stream break in a `.ts` file is deterministic, not a coin flip. (d) There is **no operator workaround**, because there is nothing for an operator to observe: the banner reads 100%, the exit code is 0, and the findings list is empty. A defect an operator cannot detect and cannot route around does not get to be Medium.
+
+**Status:** Open
+
+**The two-version table.** Identical fixture in every row: an ordinary TypeScript file saved as
+UTF-16LE **with a BOM** (what a Windows editor writes when "Unicode" is picked from the encoding
+dropdown), carrying `pane.innerHTML = userText`. Isolated venv per version, this arm's exact flag set,
+default verbosity. Both platforms agree.
+
+| semgrep | `Parsed lines:` reported | what actually happened | a guard reading it says |
+|---|---|---|---|
+| **1.157.0** | `~85.7%` | file not decoded, sink unseen | receipt FORFEITED — correct |
+| **1.171.0** | `~100.0%` | file not decoded, sink unseen | **`[OK]` — false attestation** |
+
+**The banner SPELLING did not change.** This is the part that makes it dangerous rather than merely
+inconvenient. Every fail-closed defence in `# BL-112-SCAN-COVERAGE` is built for a *renamed or
+reformatted* line: if the anchor stops matching, the variable stays empty and the arm NOTRUNs loudly.
+That machinery works perfectly here and protects nothing, because the line still matches, still parses,
+and still yields a number. **The number is what became untrustworthy.** No amount of parser hardening
+detects this; a fail-closed anchor cannot fail closed on a value that is well-formed and wrong.
+
+**`--json` is not an escape — it is strictly worse.** Measured on the same fixture: the JSON output
+affirmatively reports **both files as scanned** and **`skipped: []`**. So switching the arm to `--json`
+would replace an untrustworthy number with an explicit positive claim that nothing was skipped. That is
+a downgrade, and it is recorded here so the next reader does not spend the afternoon on it.
+
+**`--x-ls-long` does expose skip reasons and cannot carry a gate.** It surfaces per-target skip
+information, which is the right *shape* of evidence — but it is an experimental flag (the `x-` prefix
+is upstream's own marker) and is documented as unstable. An unstable interface behind a commit-blocking
+gate is a permanent-NOTRUN cliff waiting for a release, which is the failure BL-112 exists to end.
+
+**The open design question, which is the actual work item.** The guard must **verify the decode
+itself** rather than trusting semgrep's self-report. Everything in `# BL-112-SCAN-COVERAGE` today is a
+question about what the scanner *says*; this stage needs a question the hook can answer *about the
+bytes it already holds* — it materializes every staged blob into a temp tree before invoking semgrep,
+so the bytes are in hand. Candidate directions, none of them evaluated yet, listed so the next reader
+starts from a set rather than a blank page:
+- decode-check the materialized target directly (BOM sniff, NUL-byte scan, a UTF-8 validity pass) and
+  forfeit the receipt on anything the hook cannot itself read as text — the strongest option, because
+  it depends on nothing upstream;
+- `--verbose` and anchor on `[WARN] Syntax error at line <target>:N`, which IS a real discriminator
+  (count 1 on a broken file, 0 on the clean control) — but turning `--verbose` on for every commit is a
+  change to the shipped invocation and the one path where stderr reaches the operator verbatim, so it
+  is a policy call, not a bug fix. **Do NOT anchor on `Partially analyzed due to parsing or internal
+  Semgrep errors`** — measured, that is a section HEADER printed on EVERY verbose scan (count 1 on the
+  clean control too); what changes is the bullet beneath it, ` • <none>` vs ` • brokensink.ts`;
+- pin semgrep to a known-good version in generated projects — rejected as a *solution* (it freezes rule
+  coverage to buy a coverage check) but worth recording as a mitigation.
+
+**What was pulled, and where it is.** The clause (`# BL-186-PARSE-COVERAGE`, plus
+`# BL-186-EMPTY-TARGETS`), its two report lines, its two NOTRUN sub-arms, and six test cases —
+`T-utf16-parse-drop-no-receipt`, `T-mutation-parse-coverage`, `T-parse-coverage-fails-closed`,
+`T-parse-threshold-exact`, `T-mutation-parse-threshold`, `T-empty-target-receipt` — live on the
+unmerged branch `fix/bl112-sast-scan-coverage` (`e87dbd3`). They are **correct code against a broken
+instrument**; do not re-derive them. Restore them **only** with a decode check that does not depend on
+`Parsed lines`, and re-measure on the semgrep the project actually has — a green suite on a pinned old
+semgrep is exactly how this gap would ship. Note in particular that `T-parse-threshold-exact` and
+`T-mutation-parse-threshold` exist because the `-ge 100` threshold was UNPINNED once and a reviewer's
+`-ge 100` → `-ge 99` mutant survived the entire PR-blocking set; a restoration owes those back.
+
+**Related:** BL-112 (the silent-success class), BL-118 (the DOM-XSS ruleset whose findings this stage
+protects), BL-187 (the sibling clause with the same fail-open shape — this entry is what that risk
+looks like once realised), and the `# BL-112-SCAN-COVERAGE` block in `scripts/lib/hook-templates.sh`,
+which carries the same measurement inline so a reader of the code does not need this file.
+
+---
+
+## BL-193: On CI the emitted hook forfeited the SAST receipt on essentially EVERY clean commit, cascading 13 mutation/coverage proofs into silent SKIPs while the shard reported only 3 named failures — NOT reproducible on any local platform, cause unknown
+
+**Logged:** 2026-07-28 (observed on the `sast` shard while validating the BL-112 SAST-coverage stack; recorded WITHOUT a diagnosis, deliberately)
+**Category:** CI / test-instrument integrity — the green-looking-permanent-SKIP class
+**Severity:** **Medium-High**, and the severity is about the SKIP CASCADE, not about the receipt.
+- The receipt forfeiture itself is the honest direction: a hook that cannot verify coverage WARNs and lets the commit land. If that were all, this would be Low and cosmetic.
+- What makes it serious is what it did to the **proofs**. Thirteen mutation and coverage cases are written to `skip_` when the unmutated control does not produce an `[OK]` receipt — correctly, because a mutation proof whose GREEN direction never fires proves nothing and must not report PASS. When the receipt is forfeited on every clean commit, **all thirteen skip at once**, and the shard's summary line shows 3 named failures. Thirteen enforcement proofs stopped proving anything and the transcript looked like a three-failure run.
+- That is this repo's named **green-looking-permanent-skip** class (the same shape as BL-181's comment-exemption hole and BL-187's host-speed SKIP arm): the signal is not a red test, it is the *absence* of a test, and nothing in the tally distinguishes the two.
+
+**Status:** Open
+
+**NOT REPRODUCIBLE LOCALLY, on any platform tried.** macOS (arm64), Linux/arm64 and Linux/x86_64 all
+receipt a clean commit normally. **No cause is proposed here, deliberately.** Candidate stories exist
+— registry reachability from the CI runner, a semgrep version difference on the runner image, a
+sandbox/tmpdir interaction with the BL-132 index temp tree, `PATH` resolution of `semgrep` inside the
+hook — and every one of them is a guess. Writing a guess into this entry would give the next reader a
+hypothesis to confirm instead of a measurement to take, which is how the BL-104 scoring inversions
+survived two reviews.
+
+**Recommended next step, and it is a single concrete action.** Re-run the `sast` shard with **the
+hook's semgrep stderr captured as a CI artifact.** The hook already writes it to `$soif_sg_err` and
+already deletes it (`rm -f "$soif_sg_err" "$soif_sg_out"` at the end of the SAST arm); the diagnostic
+is to preserve that file, or to have the test harness copy it out, on the runner. Everything needed to
+choose between the candidate stories is in those bytes — the Scan Status header, the exit code, the
+config-resolution errors — and nothing else measured so far distinguishes them.
+
+**Also worth fixing regardless of the cause: the tally must not hide this.** A shard that skips 13
+proofs and prints 3 failures is under-reporting by a factor of four. `tests/test-bl132-sast-index-scan.sh`
+already prints `!! N case(s) SKIPPED — skipped != passed.` before its `Results:` line; the CI summary
+does not surface it. Consider failing a shard, or at minimum annotating it, when the skip count crosses
+a threshold — a run where most of the enforcement proofs skipped is not a run that validated anything.
+
+**Related:** BL-183 (a *different* CI-only-vs-local asymmetry measured in the same session, with a
+known cause — do not conflate them; that one is GNU-vs-BSD grep under `pipefail`, this one is not
+explained), BL-181 (the green-looking-exempt class), BL-187 (a host-dependent SKIP arm in the same
+suite, which is why the skip vocabulary is load-bearing here), BL-184 (the aggregator that discarded
+child output — the reason CI-only failures in this repo are hard to read at all).
