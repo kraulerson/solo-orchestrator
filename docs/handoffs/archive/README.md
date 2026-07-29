@@ -9,7 +9,7 @@ plan → PRs → shipped state stays intact and citable.
 
 - **Live handoff:** the single most recent state-of-record for the current
   arc lives at the top level of `docs/handoffs/`. Right now that is
-  [`../2026-07-24-seven-wp-wave-handoff.md`](../2026-07-24-seven-wp-wave-handoff.md).
+  [`../2026-07-29-sast-coverage-and-ci-lane.md`](../2026-07-29-sast-coverage-and-ci-lane.md).
   Everything else at the top level is a pointer stub.
 - **Archived handoff:** once a handoff is executed or superseded, its full
   text moves here and a short **pointer stub** is left at the original
@@ -55,6 +55,14 @@ In chain order (oldest first). Each has a pointer stub at its old top-level path
   first surfacing of the two stale full-suite tests later filed as BL-173.
 - `2026-07-24-next-session-prompt.md` — FULLY EXECUTED (archived 2026-07-25);
   the launch prompt for that BL-161 + BL-165 session.
+- `2026-07-24-seven-wp-wave-handoff.md` — FULLY EXECUTED + SUPERSEDED (archived
+  2026-07-29). Its wave landed as #265 (`7866022`), #266 (`d857294`), #271
+  (`064d578`), #269 (`8afb9ba`), #268 (`ed406c8`) and #270 (`b0b60aa`); the
+  closures it queued shipped as #272 (`d970b27`). Its § 3 blocker — a staged
+  submodule gitlink aborting the BL-132 index scan — was fixed before #270
+  merged. Note this file carries its OWN ⚠ SUPERSEDING UPDATE header from
+  2026-07-25 warning that its § 1–§ 3 inventory was already stale when written;
+  treat both layers as historical.
 
 ## Citation convention for handoffs
 

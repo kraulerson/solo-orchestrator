@@ -10,6 +10,6 @@
 >
 > - **Full archived copy:** [`archive/2026-07-09-gate-wave-execution-handoff.md`](archive/2026-07-09-gate-wave-execution-handoff.md)
 > - **Closed out by (now archived):** [`archive/2026-07-10-gate-wave-close-out.md`](archive/2026-07-10-gate-wave-close-out.md)
-> - **Live state-of-record:** [`2026-07-24-seven-wp-wave-handoff.md`](2026-07-24-seven-wp-wave-handoff.md)
+> - **Live state-of-record:** [`2026-07-29-sast-coverage-and-ci-lane.md`](2026-07-29-sast-coverage-and-ci-lane.md)
 >
 > See [`archive/README.md`](archive/README.md) for the handoff-archive convention.
