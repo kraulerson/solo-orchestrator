@@ -6012,7 +6012,39 @@ need different fixes. Added `# BL-193-COUNT`: the report now prints the observed
 which case it is. This is an operator-facing improvement independent of BL-193 — a generated
 project hitting this was told its coverage was unverifiable with no way to tell why.
 
-**What the next `sast` shard run should now discriminate**, without pre-judging which:
+**ROOT CAUSE — FOUND, 2026-07-29. semgrep puts its scan-status banner on a DIFFERENT STREAM on the
+runner, and the guard hard-coded one.** The instrumented run answered it in one shot: the count came
+back **0** — the header the parse needs is not on stderr at all on the GitHub runner, while the same
+header is plainly visible in the transcript. It is visible because the findings dump prints
+`$soif_sg_out` (STDOUT) unconditionally on the scan-completed path. Measured: **STDERR on this macOS
+host, STDOUT on the GitHub Linux runner**, on both 1.157.0 and 1.172.0.
+
+So on the runner `soif_sg_hdr_n` read 0, `soif_sg_accepted` stayed empty, coverage could never be
+verified, and the emitted hook **NOTRUNed every clean commit** — a permanent cry-wolf on any host
+where semgrep routes it that way. Not a flake, not a test artefact: a shipped defect in the gate.
+
+**The half that matters more than the cry-wolf.** FOUR readers hard-coded `$soif_sg_err`, and one of
+them is the **fail-OPEN** clause — `soif_sg_timeouts`, whose contract is "no timeout seen ⇒ coverage
+may be granted". A stream-blind read there returns 0 unconditionally and the hook grants an
+**unearned `[OK]` over a target whose rule was abandoned** — precisely the BL-112 false-attestation
+defect this arm exists to prevent. Crying wolf is loud and wrong; that one is silent and wrong.
+
+**Fix (`# BL-193-STATUS-STREAM`).** All four readers now read a merged view of both streams.
+Concatenating rather than picking a stream is deliberate: correct whether the banner is on one, the
+other, or split; needs no guess about which frontend is installed; and fails **CLOSED** — a banner
+duplicated across both counts 2, which the exactly-once rule already treats as unparseable.
+
+**Pinned by `T-status-on-stdout-earns-receipt`** in `tests/test-bl132-sast-index-scan.sh`: a semgrep
+shim that behaves exactly like the runner (banner on stdout, no findings, exit 0) must still earn the
+`[OK]` receipt. **Hermetic and deterministic** — no real semgrep, no registry, no network — so unlike
+the three cases this defect actually broke, it cannot go UNPROVEN on a quiet host. bl132 39/0/0.
+
+**Why it took four CI rounds, which is the transferable part.** The evidence was on screen the whole
+time and three successive layers of instrumentation were discarding it: the aggregator (BL-184), then
+a `tail -8` that landed on an unrelated WARN block, then a message that collapsed "saw 0" and "saw
+2+" into "absent or unreadable". Each layer had to be fixed before the next became visible.
+
+**Superseded — kept for the audit trail.** The list below was written before the cause was known:
 `SAST NOT ENFORCED … the scanner did not run` (semgrep never ran — `PATH` resolution inside the
 hook on the runner) · `semgrep could not complete (exit N)` (ran and failed; `N` discriminates) ·
 `SAST coverage was PARTIAL` or `could not materialize staged content` (the BL-132 index temp

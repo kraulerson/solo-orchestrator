@@ -577,7 +577,7 @@ soif_sast_scan_coverage_report() {
     # warnings so a many-target commit cannot dump the banner into the transcript. The
     # temp-tree prefix is mapped off with the same sed the findings use — an operator shown
     # a /var/folders/… path they cannot resolve has been told nothing.
-    awk '/timeout error\(s\)/{soif_t=1} soif_t{ if ($0 ~ /^[[:space:]]*$/) { soif_t=0; next } print; soif_m=soif_m+1; if (soif_m>=10) exit }' "$soif_sg_err" 2>/dev/null \
+    awk '/timeout error\(s\)/{soif_t=1} soif_t{ if ($0 ~ /^[[:space:]]*$/) { soif_t=0; next } print; soif_m=soif_m+1; if (soif_m>=10) exit }' "${soif_sg_status:-$soif_sg_err}" 2>/dev/null \
       | sed "s#${soif_idx_tree}/[0-9][0-9]*/##g" | sed 's/^/    /'
   else
     echo "  Rule coverage: semgrep reported no rule-timeout warnings."
@@ -966,6 +966,29 @@ if command -v semgrep &>/dev/null; then
         --severity=ERROR --error ${soif_idx_files[@]+"${soif_idx_files[@]}"} >"$soif_sg_out" 2>"$soif_sg_err"
       soif_sg_rc=$?
       set -e
+      # BL-193-STATUS-STREAM — READ SEMGREP'S STATUS TEXT FROM BOTH STREAMS.
+      # Which stream semgrep puts its human-readable status banner on is an
+      # implementation detail of the frontend that happens to be running, NOT a
+      # contract. Measured 2026-07-29: on this macOS host the `Scanning N files
+      # with M Code rules:` header lands on STDERR; on the GitHub Linux runner it
+      # lands on STDOUT. The guards below hard-coded stderr, so on the runner the
+      # header count read 0, coverage could never be verified, and the emitted hook
+      # NOTRUNed EVERY clean commit — permanently crying wolf on any host where
+      # semgrep routes it that way. That is BL-193, and it took four CI rounds to
+      # find because the header was visible in the transcript the whole time (the
+      # findings dump prints $soif_sg_out unconditionally), just not in the file
+      # the parse was reading.
+      # Concatenating is deliberate over picking a stream: it is correct whether the
+      # banner is on one, the other, or split across both, and it needs no guess
+      # about which frontend is installed. Its failure mode is fail-CLOSED — a
+      # banner duplicated across both streams counts 2, which the exactly-once rule
+      # already treats as unparseable, i.e. NOTRUN rather than a false receipt.
+      # The timeout detector reads it too, and that one matters more: it is the
+      # FAIL-OPEN clause (no timeout seen => coverage may be granted), so a
+      # stream-blind read there would hand out an unearned [OK] over a target whose
+      # rule was abandoned — the exact BL-112 defect this arm exists to prevent.
+      soif_sg_status="$(mktemp)"
+      cat "$soif_sg_err" "$soif_sg_out" > "$soif_sg_status" 2>/dev/null || :
       # BL-112-SCAN-COVERAGE (parse) — read back how many targets semgrep says it
       # accepted. Rationale, the choice of counter, and the fail-closed contract are on
       # soif_sast_scan_coverage_report above; this is only the parse, and it is written
@@ -986,12 +1009,12 @@ if command -v semgrep &>/dev/null; then
       # cliff: soif_sg_accepted would stay empty on every commit, forever, in every
       # generated project. Widening to accept a spelling semgrep really emits only ever
       # admits a real header; an unrecognised one still leaves the variable empty.
-      soif_sg_hdr_n=$(grep -cE '^[[:space:]]*Scanning [0-9][0-9]* files? with [0-9][0-9]* Code rules?:[[:space:]]*$' "$soif_sg_err" 2>/dev/null) || soif_sg_hdr_n=0
+      soif_sg_hdr_n=$(grep -cE '^[[:space:]]*Scanning [0-9][0-9]* files? with [0-9][0-9]* Code rules?:[[:space:]]*$' "$soif_sg_status" 2>/dev/null) || soif_sg_hdr_n=0
       soif_sg_hdr_n=$(printf '%s' "$soif_sg_hdr_n" | tr -d '[:space:]') || soif_sg_hdr_n=0
       case "$soif_sg_hdr_n" in ''|*[!0-9]*) soif_sg_hdr_n=0 ;; esac
       soif_sg_accepted=""
       if [ "$soif_sg_hdr_n" -eq 1 ]; then
-        soif_sg_accepted=$(sed -n 's/^[[:space:]]*Scanning \([0-9][0-9]*\) files\{0,1\} with [0-9][0-9]* Code rules\{0,1\}:[[:space:]]*$/\1/p' "$soif_sg_err" 2>/dev/null) || soif_sg_accepted=""
+        soif_sg_accepted=$(sed -n 's/^[[:space:]]*Scanning \([0-9][0-9]*\) files\{0,1\} with [0-9][0-9]* Code rules\{0,1\}:[[:space:]]*$/\1/p' "$soif_sg_status" 2>/dev/null) || soif_sg_accepted=""
       fi
       case "$soif_sg_accepted" in ''|*[!0-9]*) soif_sg_accepted="" ;; esac
       # NO PARSE/DECODE CLAUSE HERE — WITHDRAWN ON MEASUREMENT, FILED AS BL-192, AND ITS
@@ -1033,7 +1056,7 @@ if command -v semgrep &>/dev/null; then
       #   which is the fail-OPEN direction and is the honest consequence of a presence
       #   test, not an oversight. It is why this clause is a floor on the guarantee and not
       #   the guarantee itself.
-      soif_sg_timeouts=$(grep -cE 'timeout error\(s\)' "$soif_sg_err" 2>/dev/null) || soif_sg_timeouts=0
+      soif_sg_timeouts=$(grep -cE 'timeout error\(s\)' "$soif_sg_status" 2>/dev/null) || soif_sg_timeouts=0
       soif_sg_timeouts=$(printf '%s' "$soif_sg_timeouts" | tr -d '[:space:]') || soif_sg_timeouts=0
       case "$soif_sg_timeouts" in ''|*[!0-9]*) soif_sg_timeouts=0 ;; esac
       # `-ge`, not `-eq`: the defect class is UNDER-scanning. An over-count would be a
@@ -1200,7 +1223,7 @@ if command -v semgrep &>/dev/null; then
       fi
     fi
     rm -rf "$soif_idx_tree"
-    rm -f "$soif_sg_err" "$soif_sg_out"
+    rm -f "$soif_sg_err" "$soif_sg_out" ${soif_sg_status:+"$soif_sg_status"}
   else
     # BL-179-EMPTY-STAGED — this `else` is the second half of BL-179 and it exists to
     # END A SILENCE. Before it, zero staged targets meant zero OUTPUT: the operator was

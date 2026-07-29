@@ -604,6 +604,47 @@ else
   fi
 fi
 
+# ── T-status-on-stdout-earns-receipt (BL-193) ────────────────────────────────
+# WHICH STREAM semgrep puts its scan-status banner on is a frontend implementation
+# detail, not a contract. Measured 2026-07-29: STDERR on this macOS host, STDOUT on
+# the GitHub Linux runner. The coverage guard hard-coded stderr, so on the runner the
+# header count read 0, coverage could never be verified, and the emitted hook NOTRUNed
+# EVERY clean commit — a permanent cry-wolf on any host that routes it that way. This
+# case pins the fix (# BL-193-STATUS-STREAM) with a semgrep shim that behaves exactly
+# like the runner: banner on STDOUT, findings none, exit 0.
+# Hermetic and deterministic — no real semgrep, no registry, no network — so unlike the
+# three cases this defect actually broke, it cannot go UNPROVEN on a quiet host.
+echo "=== T-status-on-stdout-earns-receipt ==="
+SG_STDOUT_DIR="$TOPTMP/sgshim-stdout"
+mkdir -p "$SG_STDOUT_DIR"
+cat > "$SG_STDOUT_DIR/semgrep" <<'SHIM'
+#!/usr/bin/env bash
+# Count the target paths the hook handed us, then print the scan-status banner on
+# STDOUT (the runner's behaviour) and nothing on stderr. Exit 0, no findings.
+n=0
+for a in "$@"; do case "$a" in -*) ;; *) n=$((n + 1)) ;; esac; done
+echo "  Scanning ${n} files with 174 Code rules:"
+exit 0
+SHIM
+chmod +x "$SG_STDOUT_DIR/semgrep"
+R_SO="$TOPTMP/status-stdout"
+if ! mk_repo "$R_SO" "$EMITTED"; then
+  fail_ "T-status-on-stdout-earns-receipt" "fixture setup failed"
+else
+  printf 'export function r(el, u) {\n  el.textContent = u;\n}\n' > "$R_SO/app.ts"
+  ( cd "$R_SO" && git add app.ts ) >/dev/null 2>&1
+  SO_OUT="$TOPTMP/status-stdout.log"
+  ( cd "$R_SO" && PATH="$SG_STDOUT_DIR:$PATH" git commit -m "feat: add the renderer" ) > "$SO_OUT" 2>&1
+  SO_RC=$?
+  if [ "$SO_RC" -ne 0 ]; then
+    fail_ "T-status-on-stdout-earns-receipt" "the commit was REFUSED with a clean shim scan: $(sast_evidence "$SO_OUT")"
+  elif ! grep -qF '[OK] semgrep: SAST ran' "$SO_OUT"; then
+    fail_ "T-status-on-stdout-earns-receipt" "a banner on STDOUT forfeited the receipt — the coverage guard is reading only one stream again (BL-193): $(sast_evidence "$SO_OUT")"
+  else
+    pass "T-status-on-stdout-earns-receipt: a scan-status banner on STDOUT still earns the [OK] receipt (# BL-193-STATUS-STREAM)"
+  fi
+fi
+
 # ── T-notrun-contract-intact (semgrep OFF the PATH) ──────────────────────────
 # Mirror bl112's honest shim: replace every PATH entry holding semgrep with a
 # symlink mirror of all its OTHER entries, so semgrep — and only semgrep — is gone.
