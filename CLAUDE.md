@@ -129,7 +129,7 @@ before trusting it**.
 ## HANDOFFS
 
 - Live handoffs: `docs/handoffs/` — the **newest date is current** (as of
-  2026-07-25 that is `docs/handoffs/2026-07-24-seven-wp-wave-handoff.md`).
+  2026-07-29 that is `docs/handoffs/2026-07-29-sast-coverage-and-ci-lane.md`).
   Everything else at the top level is a pointer stub, so "newest date" and
   "the one non-stub file" agree — if they ever disagree, trust the non-stub.
 - Superseded / fully-executed handoffs move to `docs/handoffs/archive/` with a
