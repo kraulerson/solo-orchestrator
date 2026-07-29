@@ -67,7 +67,24 @@ soif_write_precommit_hook "$EMITTED"
 
 # Comment-stripped fixed-string grep: a config that survives only in a comment is
 # not a config.
-has_live() { grep -v '^[[:space:]]*#' "$1" | grep -qF -- "$2"; }
+# BL-183-NO-SIGPIPE — one process, no pipe. The former
+# `grep -v '^[[:space:]]*#' "$1" | grep -qF -- "$2"` inverts its own verdict under
+# this file's `set -uo pipefail`: `grep -q` exits on the first match, closing the
+# read end, the still-writing `grep -v` takes EPIPE/SIGPIPE, and pipefail reports
+# that failure — so a string that IS present reads as absent. It is a race on how
+# much the producer has left to write, so it hides while a file is small and
+# surfaces when it grows; the emitted hook going 645 -> 1231 lines turned it red
+# on CI (`grep: write error: Broken pipe`) while macOS stayed green, and the
+# message blamed missing BL-131 wiring that was never missing.
+# The full mechanism and a runnable falsifier are on has_live in
+# tests/test-bl118-sast-dom-xss.sh (search BL-183-NO-SIGPIPE).
+has_live() { # <file> <fixed-string>
+  SOIF_NEEDLE="$2" awk '
+    /^[[:space:]]*#/ { next }
+    index($0, ENVIRON["SOIF_NEEDLE"]) { found = 1; exit }
+    END { exit(found ? 0 : 1) }
+  ' "$1"
+}
 
 # ── Fixture files (one per sink + benign control) ────────────────────────────
 FX="$TOPTMP/fx"; mkdir -p "$FX"

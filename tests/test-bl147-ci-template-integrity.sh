@@ -241,23 +241,100 @@ BB_COUNT=${#BB_FILES[@]}
 # Join the hook's `semgrep scan …` invocation across its line-continuations,
 # then read the --config / --severity / --error tokens off it. The staged-files
 # array + stderr redirect carry no config/severity token, so they drop out.
-HOOK_INVOC="$(awk '
-  /semgrep scan/ { collecting=1 }
-  collecting {
-    line=$0
-    sub(/[[:space:]]*\\[[:space:]]*$/, "", line)
-    printf "%s ", line
-    if ($0 !~ /\\[[:space:]]*$/) exit
-  }' "$HOOK")"
-HOOK_CONFIGS="$(printf '%s\n' "$HOOK_INVOC" | grep -oE '\-\-config=[^[:space:]]+' | sort -u | tr '\n' ' ')"
-HOOK_SEVERITY="$(printf '%s\n' "$HOOK_INVOC" | grep -oE '\-\-severity=[A-Za-z]+' | head -1)"
-if printf '%s\n' "$HOOK_INVOC" | grep -qE '(^|[[:space:]])--error([[:space:]]|$)'; then HOOK_ERROR=yes; else HOOK_ERROR=no; fi
+#
+# BL-194-DERIVE-ANCHOR — WHY THIS IS ANCHORED ON A MARKER AND NOT ON THE COMMAND
+# NAME. The collector used to scope with a bare, unanchored /semgrep scan/ over
+# the whole file and never stripped comments, so the FIRST line mentioning the
+# command won — and `# BL-112-MAX-TARGET-BYTES` documents the invocation in prose
+# above it, carrying a FALSIFIER that necessarily names the command. That prose
+# line has no trailing `\`, so the collector emitted it and exited: configs=''
+# severity='' error=no. Cg3/Cg5 then compared 22 templates against the EMPTY
+# policy and reported a config-parity break that did not exist, in a message that
+# named parity rather than derivation — which is how it got mis-diagnosed as a
+# real hook/CI divergence. Matching on a name that prose is entitled to use is
+# the defect; the fix is to start at a marker prose is not entitled to forge.
+# This is the same shape as `_build_unit_list_set`'s unanchored `tests=(` scoper
+# (see CLAUDE.md CANONICAL COMMANDS) — an awk scoper that reads comments.
+#
+# FALSIFIER: in scripts/lib/hook-templates.sh, move the `# BL-194-HOOK-SEMGREP-POLICY`
+# marker line to the very top of the file (above the FALSIFIER prose) and re-run
+# this suite — Cg-derive goes RED naming the marker, and does NOT silently derive
+# the prose. Cg-derive-prose-immune / Cg-derive-marker-required below pin both
+# halves on fixtures, so this does not depend on the live file's current shape.
+derive_semgrep_policy() {   # <file> -> sets D_CONFIGS D_SEVERITY D_ERROR D_INVOC
+  local file="$1"
+  D_INVOC="$(awk '
+    /BL-194-HOOK-SEMGREP-POLICY/ { armed=1; next }
+    !armed { next }
+    !collecting && /^[[:space:]]*#/ { next }
+    { collecting=1
+      line=$0
+      sub(/[[:space:]]*\\[[:space:]]*$/, "", line)
+      printf "%s ", line
+      if ($0 !~ /\\[[:space:]]*$/) exit
+    }' "$file")"
+  D_CONFIGS="$(printf '%s\n' "$D_INVOC" | grep -oE '\-\-config=[^[:space:]]+' | sort -u | tr '\n' ' ')"
+  D_SEVERITY="$(printf '%s\n' "$D_INVOC" | grep -oE '\-\-severity=[A-Za-z]+' | head -1)"
+  if printf '%s\n' "$D_INVOC" | grep -qE '(^|[[:space:]])--error([[:space:]]|$)'; then D_ERROR=yes; else D_ERROR=no; fi
+}
+
+derive_semgrep_policy "$HOOK"
+HOOK_INVOC="$D_INVOC"
+HOOK_CONFIGS="$D_CONFIGS"
+HOOK_SEVERITY="$D_SEVERITY"
+HOOK_ERROR="$D_ERROR"
 
 echo "Cg-derive: hook semgrep policy derived from hook-templates.sh (single source)"
-if [ -n "$HOOK_CONFIGS" ] && [ -n "$HOOK_SEVERITY" ] && [ "$HOOK_ERROR" = yes ]; then
+if ! printf '%s\n' "$HOOK_INVOC" | grep -q 'semgrep scan'; then
+  # Anchor drift, not a policy change — say so, so the next reader does not spend
+  # the diagnosis on the 22 CI templates the way this suite's message once caused.
+  fail_ "Cg-derive" "the '# BL-194-HOOK-SEMGREP-POLICY' anchor in scripts/lib/hook-templates.sh no longer sits immediately above the 'semgrep scan' invocation (collected: '$HOOK_INVOC') — restore the anchor; the CI templates are NOT implicated"
+elif [ -n "$HOOK_CONFIGS" ] && [ -n "$HOOK_SEVERITY" ] && [ "$HOOK_ERROR" = yes ]; then
   pass "Cg-derive (configs='$HOOK_CONFIGS' severity='$HOOK_SEVERITY' --error=$HOOK_ERROR)"
 else
   fail_ "Cg-derive" "could not derive the semgrep policy (configs='$HOOK_CONFIGS' severity='$HOOK_SEVERITY' error=$HOOK_ERROR)"
+fi
+
+# ── Cg-derive-prose-immune: documentation can NEVER move this suite's verdict ─
+# Decoys sit on both sides of the anchor, and the one after it is indented prose
+# of exactly the shape the real hook ships (a FALSIFIER naming the command).
+echo "Cg-derive-prose-immune: prose naming 'semgrep scan' cannot become the policy"
+derive_semgrep_policy /dev/stdin <<'PROSE_FIXTURE'
+run_soif_sast() {
+  #   FALSIFIER — RUN IT, DO NOT TRUST THIS:
+  #     semgrep scan --config=p/decoy-before --severity=INFO   # in-project
+      : "not the invocation"   # trailing comment naming semgrep scan --config=p/decoy-trailing
+      # BL-194-HOOK-SEMGREP-POLICY — anchor
+      #     semgrep scan --config=p/decoy-after --severity=INFO
+      semgrep scan --config=p/real-one \
+        --config=r/real-two \
+        --severity=WARNING --error ${files[@]+"${files[@]}"} >"$out" 2>"$err"
+}
+PROSE_FIXTURE
+if [ "$D_CONFIGS" = "--config=p/real-one --config=r/real-two " ] \
+   && [ "$D_SEVERITY" = "--severity=WARNING" ] && [ "$D_ERROR" = yes ]; then
+  pass "Cg-derive-prose-immune (3 decoys ignored, landed on the invocation)"
+else
+  fail_ "Cg-derive-prose-immune" "prose hijacked the derivation (configs='$D_CONFIGS' severity='$D_SEVERITY' error=$D_ERROR)"
+fi
+
+# ── Cg-derive-marker-required: no anchor => derive NOTHING, never guess ───────
+# Without this the collector could fall back to name-matching, which is the
+# defect BL-194-DERIVE-ANCHOR removed. An absent anchor must be loud, not lenient.
+echo "Cg-derive-marker-required: an absent anchor derives nothing (fails loudly)"
+derive_semgrep_policy /dev/stdin <<'NOMARKER_FIXTURE'
+run_soif_sast() {
+      semgrep scan --config=p/unanchored \
+        --severity=ERROR --error "${files[@]}"
+}
+NOMARKER_FIXTURE
+if [ -z "$D_INVOC" ] && [ -z "$D_CONFIGS" ] && [ "$D_ERROR" = no ]; then
+  pass "Cg-derive-marker-required (no anchor -> empty policy -> Cg-derive fails)"
+else
+  # Print the COLLECTED TEXT, not just the parsed fields — the failing mutant
+  # collects a non-policy line, whose configs/error parse to exactly the values
+  # a pass would show. A message that omits D_INVOC reads as a false alarm.
+  fail_ "Cg-derive-marker-required" "collected text with no anchor present: '$D_INVOC' (configs='$D_CONFIGS' severity='$D_SEVERITY' error=$D_ERROR) — the derivation must emit NOTHING without the anchor"
 fi
 
 # extract a template's semgrep policy -> sets EX_CONFIGS EX_SEVERITY EX_ERROR

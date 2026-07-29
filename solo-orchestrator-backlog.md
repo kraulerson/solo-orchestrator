@@ -5330,6 +5330,47 @@ passes with the consuming form — because they are enforcement code shipped dow
 in this repo), BL-125 (the commit-time test arm two of the three emitted-hook sites belong to),
 BL-132 (the gitlink skip that owns the third), CLAUDE.md ENFORCEMENT — SOURCE OF TRUTH.
 
+**UPDATE 2026-07-29 — the two `tests/` sites are FIXED; the entry stays Open for the three
+emitted-hook sites and the un-run `tests/` census.** Fixed in PR #280: `has_live` in
+`tests/test-bl131-domsink-rules.sh`, and `has_live` + `has_cfg` in
+`tests/test-bl118-sast-dom-xss.sh` (marker `# BL-183-NO-SIGPIPE`).
+
+**It stopped being a flake, and the reason is the correction that matters here.** The
+2026-07-28 measurement above put this at **1–7 failures per 300 runs on Linux**. On PR #280 it
+fired on the **first** CI run, in **both** files at once. That is not luck: the rate is a
+function of how much the producer still has to write when `grep -q` exits, and #280 roughly
+**doubled the emitted hook — 645 → 1231 lines, 41,211 → 88,824 bytes** — which moved the
+comment-stripped remainder after the match from 5,758 to 8,166 bytes. **Read the rate in that
+table as a property of a FILE SIZE, not of the defect.** Anything that grows the emitted hook
+raises it, and the hook grows on nearly every SAST change.
+
+**What it cost, and this is the argument for fixing latent sites of this class before they
+bite.** The inversion did not merely fail — it failed with a *security* message. CI reported
+`p/owasp-top-ten dropped — the fix must ADD DOM coverage, not trade away the Express-RCE
+coverage BL-112 proved` and `the emitted hook's semgrep invocation does not --config the
+shipped ruleset (BL-131 wiring absent)`. Both configs were present the entire time. A
+predicate that inverts does not report "I could not tell"; it reports the opposite fact with
+full confidence, in the vocabulary of the thing it was guarding.
+
+**The fix deviates from the prescribed shape above, deliberately.** This entry prescribes
+`grep -c` + a numeric test, or `grep -q` over a variable already holding the producer's full
+output. Both keep a pipe and stay correct only because the consumer is made to read to EOF —
+i.e. they fix the *symptom* while leaving the hazardous shape in place for the next editor to
+re-narrow. These three sites instead use **single-process awk** (`index()` for the fixed-string
+predicate, `$0 ~ str` for the ERE one), so there is **no pipe to break** and no invariant a
+later edit can quietly violate. Prefer this form for new predicates; the `grep -c` shape
+remains correct where a pipeline is unavoidable.
+
+**Evidence (all re-runnable):** the inversion is deterministic given enough trailing output —
+`rc=141 PIPESTATUS=141 0` on **macOS/BSD grep** with a 3.7 MB fixture whose match is on line 1,
+which also **corrects the table above**: BSD grep's "0 per 300" is a size artefact of that
+fixture, not immunity. Ten paired old-vs-new checks agree on the real emitted hook (5 needles
+that must be found, 2 that must not, comment-only text still not "live", the DOMXSS ERE, and
+the suffix-typo that must still be rejected). Guarded by **`T-predicate-no-sigpipe`** in
+`tests/test-bl118-sast-dom-xss.sh`, which builds a >1 MB fixture, asserts the fixture is large
+enough to force the race before asserting anything else, and checks both directions so it
+cannot pass vacuously; restoring the pipe spelling turns it RED (mutation-proven).
+
 ---
 
 ## BL-184: The full-suite aggregator destroyed its children's failure output — 177 delegates discarded stdout AND stderr, making every CI-only failure unactionable
@@ -5871,3 +5912,72 @@ known cause — do not conflate them; that one is GNU-vs-BSD grep under `pipefai
 explained), BL-181 (the green-looking-exempt class), BL-187 (a host-dependent SKIP arm in the same
 suite, which is why the skip vocabulary is load-bearing here), BL-184 (the aggregator that discarded
 child output — the reason CI-only failures in this repo are hard to read at all).
+
+---
+
+## BL-194: A documentation comment silently became the enforced policy — `test-bl147`'s parity derivation scoped on `/semgrep scan/`, so the FALSIFIER prose above the invocation won and 22 CI templates were graded against an empty policy
+
+**Logged:** 2026-07-29 (found while diagnosing PR #280's `unit-shard (rest)` failure)
+**Category:** Test-instrument integrity — unanchored scoper reads comments (the `_build_unit_list_set` class)
+**Severity:** Medium. It fails LOUD, so nothing shipped wrong — but it fails loud **in the wrong
+vocabulary**, and that cost a full mis-diagnosis that was written into a handoff as settled fact.
+**Status:** Closed (2026-07-29, PR #280) — for the derivation. The general lint gap it exposes is
+carried on BL-181, which already owns the sibling instance.
+
+**What happened.** `tests/test-bl147-ci-template-integrity.sh` derives the semgrep policy that all 22
+CI templates must match from the emitted hook itself — deliberately, so the flags are never retyped.
+It scoped that derivation with:
+
+```
+awk '/semgrep scan/ { collecting=1 } collecting { …join line-continuations… }'
+```
+
+Unanchored, and it never stripped comments. PR #280 added a `FALSIFIER:` block above the invocation
+which — as a falsifier must — **names the command it wants the reader to run**:
+
+```
+#     semgrep scan "${A[@]}" big.ts               # in-project  -> Targets scanned: 1
+```
+
+That comment is the first `/semgrep scan/` in the file. It carries no trailing `\`, so the collector
+emitted that one prose line and exited. Result: `configs='' severity='' error=no`, and every
+`Cg3-*`/`Cg5-*` case then compared a real template against the **empty** policy and failed.
+
+**Why this is worth an entry rather than a one-line patch.** The failure named the wrong subsystem.
+Seven `[FAIL]` lines said *config parity broken across 22 templates* — a hook↔CI divergence — when the
+templates were untouched and correct. The diagnosis that followed blamed `--max-target-bytes=0` for
+being absent from the templates and proposed adding an inert flag to all 22 files; that conclusion was
+recorded in `docs/handoffs/2026-07-29-sast-coverage-and-ci-lane.md` § 3 as reproduced and settled. It
+was neither. **A loud failure is not a safe failure if it accuses the wrong component** — the cost of
+this class is measured in the work the message sends the next reader off to do.
+
+**Same shape as the one CLAUDE.md already warns about.** `_build_unit_list_set` in
+`scripts/lint-tests-registered.sh` scopes the `tests.yml` array with an unanchored `awk '/tests=\(/'`
+and likewise does not strip comments — which is why the pin arrays there are named `pin_*`. Two
+instances now, in two different files, both from *matching on a token that prose is entitled to use*.
+
+**The fix.** Anchor the collector on a marker prose cannot forge, rather than on the command's name:
+`# BL-194-HOOK-SEMGREP-POLICY` in `scripts/lib/hook-templates.sh` sits immediately above the
+invocation; the derivation starts there, skips the marker's own comment lines, and collects the first
+executable line. It then **asserts the collected text contains `semgrep scan`**, so a marker that
+drifts away from the invocation fails `Cg-derive` with a message naming *the anchor* and stating
+explicitly that the CI templates are not implicated.
+
+Guarded by two new cases in the same suite: `Cg-derive-prose-immune` (decoys before the anchor, after
+the anchor, and in a trailing comment — the derivation must still land on the real invocation) and
+`Cg-derive-marker-required` (no anchor ⇒ derive **nothing**; never fall back to guessing). Four
+mutation proofs, all RED then restored GREEN at 56/0: delete the anchor gate; delete the comment-skip
+rule; move the marker to the top of the hook (this is the shipped FALSIFIER, run verbatim); delete the
+marker entirely.
+
+**Residual, stated rather than papered over.** The anchor makes *prose* harmless but does not make the
+suite immune to every edit — if a future refactor splits `semgrep scan \` and its first `--config`
+across two lines, the derivation still collects correctly (it joins continuations), but if the marker
+is separated from the invocation by a non-comment line the assertion fires. That is the intended
+direction: loud and correctly attributed, never silent.
+
+**Related:** BL-181 (the sibling unanchored-awk instance and its two residuals), BL-147 (the suite this
+lives in), BL-112 (the `# BL-112-MAX-TARGET-BYTES` prose whose falsifier triggered it), and the
+`adversarial-verify-patterns` memory note requiring a runnable falsifier in shipped comments — this
+entry is the first case where **satisfying that rule broke a test**, which is a cost of the rule worth
+knowing, not an argument against it.

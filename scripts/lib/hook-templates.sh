@@ -908,6 +908,16 @@ if command -v semgrep &>/dev/null; then
       #   worse than a forfeited receipt on every axis this arm cares about: not loud, not
       #   honest, and indistinguishable from a crash. Picking a finite larger value is a
       #   latency-budget POLICY call, not an implementation detail. Filed as BL-187.
+      # BL-194-HOOK-SEMGREP-POLICY — ANCHOR, NOT PROSE. The next non-comment line is the
+      # single source of this hook's semgrep policy; tests/test-bl147-ci-template-integrity.sh
+      # starts collecting HERE, joins the line-continuations, and derives the flag set every
+      # CI template must match. It never retypes the flags. Keep this marker IMMEDIATELY
+      # above the invocation with only comment lines between: the suite asserts the text it
+      # collected contains `semgrep scan`, so a marker that drifts fails Cg-derive loudly
+      # instead of deriving an empty policy. Before this anchor the collector scoped on an
+      # unanchored /semgrep scan/ over the whole file, so the FALSIFIER comment above (which
+      # names the command, as a falsifier must) won the race and the suite reported a
+      # config-parity break that did not exist.
       semgrep scan --config=p/owasp-top-ten \
         --config=r/javascript.browser.security.insecure-document-method \
         --config=.semgrep/soif-dom-sinks.yml \
