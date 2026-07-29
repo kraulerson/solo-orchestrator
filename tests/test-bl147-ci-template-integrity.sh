@@ -44,6 +44,10 @@ PASSED=0
 FAILED=0
 pass()  { echo "  [PASS] $1"; PASSED=$((PASSED + 1)); }
 fail_() { echo "  [FAIL] $1 — $2"; FAILED=$((FAILED + 1)); }
+# SKIPPED is counted and reported separately — skipped != passed. It is used only
+# by # BL-194-DERIVE-GATE, and only ever alongside a [FAIL] Cg-derive.
+SKIPPED=0
+skip_() { echo "  [SKIP] $1 — $2"; SKIPPED=$((SKIPPED + 1)); }
 
 # ── Mechanically derived template lists (never hand-enumerated) ──────────────
 GH_FILES=()
@@ -241,24 +245,271 @@ BB_COUNT=${#BB_FILES[@]}
 # Join the hook's `semgrep scan …` invocation across its line-continuations,
 # then read the --config / --severity / --error tokens off it. The staged-files
 # array + stderr redirect carry no config/severity token, so they drop out.
-HOOK_INVOC="$(awk '
-  /semgrep scan/ { collecting=1 }
-  collecting {
-    line=$0
-    sub(/[[:space:]]*\\[[:space:]]*$/, "", line)
-    printf "%s ", line
-    if ($0 !~ /\\[[:space:]]*$/) exit
-  }' "$HOOK")"
-HOOK_CONFIGS="$(printf '%s\n' "$HOOK_INVOC" | grep -oE '\-\-config=[^[:space:]]+' | sort -u | tr '\n' ' ')"
-HOOK_SEVERITY="$(printf '%s\n' "$HOOK_INVOC" | grep -oE '\-\-severity=[A-Za-z]+' | head -1)"
-if printf '%s\n' "$HOOK_INVOC" | grep -qE '(^|[[:space:]])--error([[:space:]]|$)'; then HOOK_ERROR=yes; else HOOK_ERROR=no; fi
+#
+# BL-194-DERIVE-ANCHOR — WHY THIS IS ANCHORED ON A MARKER AND NOT ON THE COMMAND
+# NAME. The collector used to scope with a bare, unanchored /semgrep scan/ over
+# the whole file and never stripped comments, so the FIRST line mentioning the
+# command won — and `# BL-112-MAX-TARGET-BYTES` documents the invocation in prose
+# above it, carrying a FALSIFIER that necessarily names the command. That prose
+# line has no trailing `\`, so the collector emitted it and exited: configs=''
+# severity='' error=no. Cg3/Cg5 then compared 22 templates against the EMPTY
+# policy and reported a config-parity break that did not exist, in a message that
+# named parity rather than derivation — which is how it got mis-diagnosed as a
+# real hook/CI divergence. Matching on a name that prose is entitled to use is
+# the defect; the fix is to start at a marker prose is not entitled to forge.
+# This is the same shape as `_build_unit_list_set`'s unanchored `tests=(` scoper
+# (see CLAUDE.md CANONICAL COMMANDS) — an awk scoper that reads comments.
+#
+# FALSIFIER: in scripts/lib/hook-templates.sh, move the `# BL-194-HOOK-SEMGREP-POLICY`
+# marker line to the very top of the file (above the FALSIFIER prose) and re-run
+# this suite — Cg-derive goes RED naming the marker, and does NOT silently derive
+# the prose. Cg-derive-prose-immune / Cg-derive-marker-required below pin both
+# halves on fixtures, so this does not depend on the live file's current shape.
+derive_semgrep_policy() {   # <file> -> sets D_CONFIGS D_SEVERITY D_ERROR D_INVOC
+  local file="$1"
+  D_INVOC="$(awk '
+    # BL-194-DERIVE-TRY-EVERY — try EVERY marker occurrence in file order and
+    # accept the first whose collected text actually contains `semgrep scan`.
+    # A first-match scan is forgeable by the idiomatic act of listing the marker
+    # in the file header marker index (which is how this file documents its other
+    # markers, and what CLAUDE.md CITATION RULE pushes an author toward) — that
+    # alone re-opened BL-194 with the identical 7-line "22 templates disagree"
+    # signature. A last-match scan is forgeable the same way from a footer. Only
+    # try-every + the `semgrep scan` check makes prose harmless in BOTH
+    # directions, which is why the check below is load-bearing and not a
+    # belt-and-braces assertion.
+    { line[NR] = $0 }
+    END {
+      for (i = 1; i <= NR; i++) {
+        if (line[i] !~ /BL-194-HOOK-SEMGREP-POLICY/) continue
+        out = ""; collecting = 0
+        for (j = i + 1; j <= NR; j++) {
+          if (!collecting) {                 # skip the anchor own comment lines
+            probe = line[j]
+            sub(/^[[:space:]]*/, "", probe)
+            if (probe ~ /^#/) continue
+          }
+          collecting = 1
+          cur = line[j]
+          sub(/[[:space:]]*\\[[:space:]]*$/, "", cur)
+          out = out cur " "
+          if (line[j] !~ /\\[[:space:]]*$/) break
+        }
+        # BL-194-DERIVE-UNAMBIGUOUS — count ACCEPTING occurrences; do not stop at
+        # the first. Try-every alone still loses to any EARLIER occurrence whose
+        # next non-comment line happens to contain `semgrep scan` — a stale
+        # anchor+invocation pair left by a refactor, or the marker embedded in a
+        # STRING above some other invocation. Both derive a real-looking policy
+        # from the wrong text, so the derivation SUCCEEDS and BL-194-DERIVE-GATE
+        # never engages: the suite goes back to accusing 22 templates with no
+        # correctly-attributed line at all. Requiring exactly one acceptance turns
+        # both into a loud, correctly-attributed failure.
+        if (out ~ /semgrep scan/) { hits++; if (hits == 1) best = out }
+      }
+      if (hits == 1) printf "%s", best
+    }' "$file")"
+  D_CONFIGS="$(printf '%s\n' "$D_INVOC" | grep -oE '\-\-config=[^[:space:]]+' | sort -u | tr '\n' ' ')"
+  D_SEVERITY="$(printf '%s\n' "$D_INVOC" | grep -oE '\-\-severity=[A-Za-z]+' | head -1)"
+  if printf '%s\n' "$D_INVOC" | grep -qE '(^|[[:space:]])--error([[:space:]]|$)'; then D_ERROR=yes; else D_ERROR=no; fi
+}
 
+derive_semgrep_policy "$HOOK"
+HOOK_INVOC="$D_INVOC"
+HOOK_CONFIGS="$D_CONFIGS"
+HOOK_SEVERITY="$D_SEVERITY"
+HOOK_ERROR="$D_ERROR"
+
+# BL-194-DERIVE-GATE — when the derivation fails there is NO expected policy, so
+# every Cg3/Cg5 parity case below would compare a correct template against the
+# empty string and emit six more `[FAIL]` lines naming templates by file. That is
+# the ENTIRE defect this work exists to remove: seven accusatory lines pointing at
+# 22 innocent files. Fixing only the derivation left 1 correct line + 6 accusatory
+# ones, which is the same misdirection with a smaller multiplier. So a failed
+# derivation SKIPS the parity cases instead of running them against nothing.
+# Skipping is safe here and not a hole: HOOK_POLICY_OK=0 only ever accompanies a
+# `[FAIL] Cg-derive`, so the suite is already red and cannot be read as a pass.
+HOOK_POLICY_OK=1
 echo "Cg-derive: hook semgrep policy derived from hook-templates.sh (single source)"
-if [ -n "$HOOK_CONFIGS" ] && [ -n "$HOOK_SEVERITY" ] && [ "$HOOK_ERROR" = yes ]; then
+if ! printf '%s\n' "$HOOK_INVOC" | grep -q 'semgrep scan'; then
+  # Anchor drift, not a policy change — say so, so the next reader does not spend
+  # the diagnosis on the 22 CI templates the way this suite's message once caused.
+  HOOK_POLICY_OK=0
+  fail_ "Cg-derive" "could not derive ONE unambiguous semgrep policy from scripts/lib/hook-templates.sh via the '# BL-194-HOOK-SEMGREP-POLICY' anchor (collected: '$HOOK_INVOC'). Either the anchor no longer sits immediately above the 'semgrep scan' invocation, or MORE THAN ONE anchor now resolves to an invocation (a stale duplicate, or the marker inside a string) — grep the marker and leave exactly one that precedes the real invocation. The CI templates are NOT implicated, and the Cg3/Cg5 parity cases are SKIPPED below rather than run against an empty policy"
+elif [ -n "$HOOK_CONFIGS" ] && [ -n "$HOOK_SEVERITY" ] && [ "$HOOK_ERROR" = yes ]; then
   pass "Cg-derive (configs='$HOOK_CONFIGS' severity='$HOOK_SEVERITY' --error=$HOOK_ERROR)"
 else
-  fail_ "Cg-derive" "could not derive the semgrep policy (configs='$HOOK_CONFIGS' severity='$HOOK_SEVERITY' error=$HOOK_ERROR)"
+  HOOK_POLICY_OK=0
+  fail_ "Cg-derive" "could not derive the semgrep policy (configs='$HOOK_CONFIGS' severity='$HOOK_SEVERITY' error=$HOOK_ERROR) — the CI templates are NOT implicated; Cg3/Cg5 parity cases are SKIPPED below"
 fi
+
+# ── Cg-derive-prose-immune: documentation can NEVER move this suite's verdict ─
+# Decoys sit on both sides of the anchor, and the one after it is indented prose
+# of exactly the shape the real hook ships (a FALSIFIER naming the command).
+echo "Cg-derive-prose-immune: prose naming 'semgrep scan' cannot become the policy"
+derive_semgrep_policy /dev/stdin <<'PROSE_FIXTURE'
+run_soif_sast() {
+  #   FALSIFIER — RUN IT, DO NOT TRUST THIS:
+  #     semgrep scan --config=p/decoy-before --severity=INFO   # in-project
+      : "not the invocation"   # trailing comment naming semgrep scan --config=p/decoy-trailing
+      # BL-194-HOOK-SEMGREP-POLICY — anchor
+      #     semgrep scan --config=p/decoy-after --severity=INFO
+      semgrep scan --config=p/real-one \
+        --config=r/real-two \
+        --severity=WARNING --error ${files[@]+"${files[@]}"} >"$out" 2>"$err"
+}
+PROSE_FIXTURE
+if [ "$D_CONFIGS" = "--config=p/real-one --config=r/real-two " ] \
+   && [ "$D_SEVERITY" = "--severity=WARNING" ] && [ "$D_ERROR" = yes ]; then
+  pass "Cg-derive-prose-immune (3 decoys ignored, landed on the invocation)"
+else
+  fail_ "Cg-derive-prose-immune" "prose hijacked the derivation (configs='$D_CONFIGS' severity='$D_SEVERITY' error=$D_ERROR)"
+fi
+
+# ── Cg-derive-marker-required: no anchor => derive NOTHING, never guess ───────
+# Without this the collector could fall back to name-matching, which is the
+# defect BL-194-DERIVE-ANCHOR removed. An absent anchor must be loud, not lenient.
+echo "Cg-derive-marker-required: an absent anchor derives nothing (fails loudly)"
+derive_semgrep_policy /dev/stdin <<'NOMARKER_FIXTURE'
+run_soif_sast() {
+      semgrep scan --config=p/unanchored \
+        --severity=ERROR --error "${files[@]}"
+}
+NOMARKER_FIXTURE
+if [ -z "$D_INVOC" ] && [ -z "$D_CONFIGS" ] && [ "$D_ERROR" = no ]; then
+  pass "Cg-derive-marker-required (no anchor -> empty policy -> Cg-derive fails)"
+else
+  # Print the COLLECTED TEXT, not just the parsed fields — the failing mutant
+  # collects a non-policy line, whose configs/error parse to exactly the values
+  # a pass would show. A message that omits D_INVOC reads as a false alarm.
+  fail_ "Cg-derive-marker-required" "collected text with no anchor present: '$D_INVOC' (configs='$D_CONFIGS' severity='$D_SEVERITY' error=$D_ERROR) — the derivation must emit NOTHING without the anchor"
+fi
+
+# ── Cg-derive-decoy-marker-first: naming the anchor in prose must stay harmless ─
+# THE FIRST FIX FOR BL-194 WAS ITSELF FORGEABLE. It armed on the FIRST marker
+# occurrence, so adding the marker to this file's own header marker index — the
+# idiomatic way hook-templates.sh documents every other marker, and what
+# CLAUDE.md's CITATION RULE pushes an author toward — re-opened the defect with
+# the identical "22 templates disagree" signature. This case pins the
+# try-every-occurrence loop AND the `semgrep scan` acceptance check, which is the
+# only thing that lets the loop reject a decoy and move on.
+# Pins two atoms that a one-character narrowing would otherwise free:
+#   • the FULL marker string. Narrow /BL-194-HOOK-SEMGREP-POLICY/ to /BL-194/ and
+#     the `BL-194` mention below arms first; its next non-comment line IS a real
+#     `semgrep scan`, so the acceptance check passes and the WRONG policy wins.
+#   • the acceptance check itself. Delete it and the first decoy is taken
+#     unconditionally, wrong policy again.
+echo "Cg-derive-decoy-marker-first: an anchor named in prose, before the real one, must not win"
+derive_semgrep_policy /dev/stdin <<'DECOY_FIXTURE'
+# Header marker index, as hook-templates.sh writes one:
+#   • # BL-194-HOOK-SEMGREP-POLICY — keep it immediately above the invocation.
+      : "an executable line that is not the policy"
+# A bare BL-194 mention, followed by a DIFFERENT semgrep invocation:
+      semgrep scan --config=p/decoy-second-invocation --severity=INFO
+      # BL-194-HOOK-SEMGREP-POLICY — anchor
+      semgrep scan --config=p/real-one \
+        --severity=WARNING --error "${files[@]}"
+DECOY_FIXTURE
+if [ "$D_CONFIGS" = "--config=p/real-one " ] && [ "$D_SEVERITY" = "--severity=WARNING" ]; then
+  pass "Cg-derive-decoy-marker-first (a prose mention of the anchor is skipped, not taken)"
+else
+  fail_ "Cg-derive-decoy-marker-first" "a decoy anchor named in prose captured the derivation: collected '$D_INVOC' (configs='$D_CONFIGS' severity='$D_SEVERITY') — the loop must try EVERY occurrence and accept only one whose text contains 'semgrep scan'"
+fi
+
+# ── Cg-derive-comment-widths: pin the SPELLING of the comment skip ─────────────
+# BL-181's lesson, applied before it costs anything: a one-character narrowing of
+# a comment predicate passes every check while re-opening the hole. The skip is
+# `sub(/^[[:space:]]*/,"",probe)` then `probe ~ /^#/`. Of its two candidate atoms,
+# exactly ONE is load-bearing, and this case pins that one only — the fixture puts
+# both comment forms between the anchor and the invocation, so a form the narrowed
+# predicate stops recognising is collected AS the policy, fails the `semgrep scan`
+# acceptance check, finds no further anchor, and derives nothing.
+#   • PINNED — `#` -> `#[[:space:]]`. Requiring a blank after `#` stops
+#     `#no-space-after-hash` from being a comment. MEASURED: the narrowed form
+#     fails this suite (57/1); restored, 58/0.
+#   • NOT PINNED, because it is BEHAVIOUR-NEUTRAL — `[[:space:]]*` -> `+`. Stated
+#     plainly rather than asserted as covered: the `sub()` only STRIPS leading
+#     blanks and the `^#` test runs on the result, so a column-0 comment is left
+#     unchanged by either spelling and still matches. MEASURED both ways: both
+#     report "recognised as comment", and the narrowed suite is 58/0. A fixture
+#     claiming to pin it would pass for the wrong reason — which is worse than
+#     leaving it unpinned and saying so.
+echo "Cg-derive-comment-widths: column-0 and no-space-after-# comments are still comments"
+derive_semgrep_policy /dev/stdin <<'WIDTH_FIXTURE'
+      # BL-194-HOOK-SEMGREP-POLICY — anchor
+# column-0 comment (neutral atom — see the note above; kept so the fixture covers the shape)
+#no-space-after-hash: this is the atom the case actually pins
+      semgrep scan --config=p/real-one \
+        --severity=WARNING --error "${files[@]}"
+WIDTH_FIXTURE
+if [ "$D_CONFIGS" = "--config=p/real-one " ] && [ "$D_SEVERITY" = "--severity=WARNING" ]; then
+  pass "Cg-derive-comment-widths (no-space-after-# comment skipped; column-0 shape covered)"
+else
+  fail_ "Cg-derive-comment-widths" "a comment form was not recognised, so it was collected as the policy: '$D_INVOC' (configs='$D_CONFIGS') — check the SPELLING of the '#' test, not just its presence"
+fi
+
+# ── Cg-derive-ambiguous-anchor: TWO resolving anchors must derive NOTHING ─────
+# Try-every alone was not enough. An EARLIER occurrence whose next non-comment
+# line contains `semgrep scan` wins outright, and because the derivation then
+# SUCCEEDS on the wrong text, BL-194-DERIVE-GATE never engages — the suite
+# reverts to the original BL-194 signature with ZERO correctly-attributed lines.
+# Two placements do this and neither is exotic: a stale anchor+invocation pair
+# left behind by a refactor, and the marker embedded in a STRING (not a comment)
+# above some other invocation. Both are covered here; the fix is to require
+# exactly one accepting occurrence (# BL-194-DERIVE-UNAMBIGUOUS).
+echo "Cg-derive-ambiguous-anchor: two anchors that both resolve derive NOTHING"
+derive_semgrep_policy /dev/stdin <<'AMBIG_FIXTURE'
+      # BL-194-HOOK-SEMGREP-POLICY — a stale copy left by a refactor
+      semgrep scan --config=p/stale-only         --severity=WARNING --error "${files[@]}"
+      soif_note='see # BL-194-HOOK-SEMGREP-POLICY for the policy'
+      semgrep scan --config=p/from-a-string --severity=INFO --error
+      # BL-194-HOOK-SEMGREP-POLICY — anchor
+      semgrep scan --config=p/real-one         --severity=ERROR --error "${files[@]}"
+AMBIG_FIXTURE
+if [ -z "$D_INVOC" ] && [ -z "$D_CONFIGS" ]; then
+  pass "Cg-derive-ambiguous-anchor (3 resolving anchors -> derive nothing -> Cg-derive fails loudly)"
+else
+  fail_ "Cg-derive-ambiguous-anchor" "an ambiguous anchor set still produced a policy: '$D_INVOC' (configs='$D_CONFIGS') — with more than one anchor resolving, the derivation must refuse rather than pick one, or Cg-derive reports success on the wrong text and the parity cases accuse the templates again"
+fi
+
+# ── Cg-derive-continuation-comment: the `!collecting` guard IS load-bearing ────
+# An earlier revision of this file documented this guard as unpinned, claiming a
+# verdict could flip "only if such a line carries a --config". That was REFUTED:
+# a continuation line beginning `#` with NO trailing backslash ends the command
+# in bash, so dropping it mid-collection makes the collector join the NEXT,
+# unrelated command — importing both its --config and its --severity. Guard on is
+# the correct reading. Pinned here rather than re-documented as unpinned.
+echo "Cg-derive-continuation-comment: a '#' continuation without a backslash ends the command"
+derive_semgrep_policy /dev/stdin <<'CONTCMT_FIXTURE'
+      # BL-194-HOOK-SEMGREP-POLICY — anchor
+      semgrep scan --config=p/real-one         #stopper-with-no-backslash
+        --config=p/NOT-IN-THE-INVOCATION --severity=INFO --error
+CONTCMT_FIXTURE
+if [ "$D_CONFIGS" = "--config=p/real-one " ] && [ -z "$D_SEVERITY" ]; then
+  pass "Cg-derive-continuation-comment (collection stops at the '#' line; the next command is not joined)"
+else
+  fail_ "Cg-derive-continuation-comment" "the collector joined a following, unrelated command: configs='$D_CONFIGS' severity='$D_SEVERITY' — the !collecting guard on the comment-skip rule is load-bearing; without it a '#' continuation is dropped and the next command's flags are imported into the policy"
+fi
+
+# ATOMS THAT REMAIN UNPINNED, NAMED RATHER THAN ASSUMED COVERED. The practice
+# CLAUDE.md uses for BL-181 two residuals: say which parts have no safety net.
+#   1. `[[:space:]]*` -> `+` in the comment-skip `sub()`. BEHAVIOUR-NEUTRAL and
+#      measured as such: the `sub()` only STRIPS leading blanks and the `^#` test
+#      runs on the result, so a column-0 comment is unchanged by either spelling
+#      and still matches. Checked across 11 line shapes on three awk
+#      implementations (BWK, mawk, gawk): zero verdict differences, and the suite
+#      is green under the narrowed form. A fixture claiming to pin it would pass
+#      for the wrong reason.
+#   2. The `HOOK_POLICY_OK` gate itself (# BL-194-DERIVE-GATE). Replacing its
+#      condition with a constant false leaves this suite green, because the gate
+#      only changes OUTPUT on a run that is already red. It is unpinned, and its
+#      loss is a legibility regression rather than a correctness one — but it is
+#      the whole point of the BL-194 work, so it is named here rather than
+#      quietly trusted.
+# The `!collecting` guard was ALSO listed here as unpinned, on the argument that
+# a verdict could flip "only if such a line carries a --config". That claim was
+# REFUTED (a `#` continuation with no trailing backslash imports the NEXT
+# command flags wholesale), so it is now pinned by
+# Cg-derive-continuation-comment above rather than documented away.
 
 # extract a template's semgrep policy -> sets EX_CONFIGS EX_SEVERITY EX_ERROR
 extract_semgrep_policy() {
@@ -299,9 +550,15 @@ for f in "${GH_FILES[@]}"; do
   [ "$EX_SEVERITY" = "$HOOK_SEVERITY" ] || bads="$bads ${f##*/}"
   [ "$EX_ERROR"    = "$HOOK_ERROR" ]    || bade="$bade ${f##*/}"
 done
-if [ -z "$badc" ]; then pass "Cg3-config-parity (all $GH_COUNT == '$HOOK_CONFIGS')"; else fail_ "Cg3-config-parity" "config set != hook '$HOOK_CONFIGS' in:$badc"; fi
-if [ -z "$bads" ]; then pass "Cg3-severity-parity (all == '$HOOK_SEVERITY')"; else fail_ "Cg3-severity-parity" "severity != hook in:$bads"; fi
-if [ -z "$bade" ]; then pass "Cg3-error-parity (all carry --error)"; else fail_ "Cg3-error-parity" "--error presence != hook in:$bade"; fi
+if [ "$HOOK_POLICY_OK" -eq 0 ]; then   # BL-194-DERIVE-GATE
+  skip_ "Cg3-config-parity"   "no hook policy was derived — comparing templates against '' would accuse 22 correct files; fix Cg-derive first"
+  skip_ "Cg3-severity-parity" "no hook policy was derived (see Cg-derive)"
+  skip_ "Cg3-error-parity"    "no hook policy was derived (see Cg-derive)"
+else
+  if [ -z "$badc" ]; then pass "Cg3-config-parity (all $GH_COUNT == '$HOOK_CONFIGS')"; else fail_ "Cg3-config-parity" "config set != hook '$HOOK_CONFIGS' in:$badc"; fi
+  if [ -z "$bads" ]; then pass "Cg3-severity-parity (all == '$HOOK_SEVERITY')"; else fail_ "Cg3-severity-parity" "severity != hook in:$bads"; fi
+  if [ -z "$bade" ]; then pass "Cg3-error-parity (all carry --error)"; else fail_ "Cg3-error-parity" "--error presence != hook in:$bade"; fi
+fi
 
 # ── Cg4: github semgrep runs in the semgrep/semgrep container job ────────────
 echo "Cg4: every github CI template declares the semgrep/semgrep container"
@@ -335,9 +592,15 @@ for f in "${NONGH_SEMGREP[@]}"; do
   [ "$EX_ERROR"    = "$HOOK_ERROR" ]    || n_bade="$n_bade ${f#*/ci/}"
 done
 if [ -z "$n_badimg" ]; then pass "Cg5-image (all use image: semgrep/semgrep)"; else fail_ "Cg5-image" "no 'image: semgrep/semgrep' in:$n_badimg"; fi
-if [ -z "$n_badc" ];   then pass "Cg5-config-parity (all == '$HOOK_CONFIGS')"; else fail_ "Cg5-config-parity" "config set != hook in:$n_badc"; fi
-if [ -z "$n_bads" ];   then pass "Cg5-severity-parity"; else fail_ "Cg5-severity-parity" "severity != hook in:$n_bads"; fi
-if [ -z "$n_bade" ];   then pass "Cg5-error-parity"; else fail_ "Cg5-error-parity" "--error presence != hook in:$n_bade"; fi
+if [ "$HOOK_POLICY_OK" -eq 0 ]; then   # BL-194-DERIVE-GATE (Cg5-image above is policy-independent, so it still runs)
+  skip_ "Cg5-config-parity"   "no hook policy was derived (see Cg-derive)"
+  skip_ "Cg5-severity-parity" "no hook policy was derived (see Cg-derive)"
+  skip_ "Cg5-error-parity"    "no hook policy was derived (see Cg-derive)"
+else
+  if [ -z "$n_badc" ];   then pass "Cg5-config-parity (all == '$HOOK_CONFIGS')"; else fail_ "Cg5-config-parity" "config set != hook in:$n_badc"; fi
+  if [ -z "$n_bads" ];   then pass "Cg5-severity-parity"; else fail_ "Cg5-severity-parity" "severity != hook in:$n_bads"; fi
+  if [ -z "$n_bade" ];   then pass "Cg5-error-parity"; else fail_ "Cg5-error-parity" "--error presence != hook in:$n_bade"; fi
+fi
 
 # ── Cg6: non-github gitleaks steps modernized (dir/git, pinned, off zricethezav)
 echo "Cg6: gitlab+bitbucket gitleaks steps modernized (dir/git, version-pinned)"
@@ -694,6 +957,9 @@ if [ "$cp2_bad" -eq 0 ]; then
 fi
 
 echo ""
-echo "Results: $PASSED passed, $FAILED failed"
+if [ "${SKIPPED:-0}" -gt 0 ]; then
+  echo "!! ${SKIPPED} case(s) SKIPPED — skipped != passed."
+fi
+echo "Results: $PASSED passed, $FAILED failed${SKIPPED:+ (${SKIPPED} skipped)}"
 [ "$FAILED" -eq 0 ] || exit 1
 exit 0

@@ -67,7 +67,24 @@ soif_write_precommit_hook "$EMITTED"
 
 # Comment-stripped fixed-string grep: a config that survives only in a comment is
 # not a config.
-has_live() { grep -v '^[[:space:]]*#' "$1" | grep -qF -- "$2"; }
+# BL-183-NO-SIGPIPE — one process, no pipe. The former
+# `grep -v '^[[:space:]]*#' "$1" | grep -qF -- "$2"` inverts its own verdict under
+# this file's `set -uo pipefail`: `grep -q` exits on the first match, closing the
+# read end, the still-writing `grep -v` takes EPIPE/SIGPIPE, and pipefail reports
+# that failure — so a string that IS present reads as absent. It is a race on how
+# much the producer has left to write, so it hides while a file is small and
+# surfaces when it grows; the emitted hook going 645 -> 1231 lines turned it red
+# on CI (`grep: write error: Broken pipe`) while macOS stayed green, and the
+# message blamed missing BL-131 wiring that was never missing.
+# The full mechanism and a runnable falsifier are on has_live in
+# tests/test-bl118-sast-dom-xss.sh (search BL-183-NO-SIGPIPE).
+has_live() { # <file> <fixed-string>
+  SOIF_NEEDLE="$2" awk '
+    /^[[:space:]]*#/ { next }
+    index($0, ENVIRON["SOIF_NEEDLE"]) { found = 1; exit }
+    END { exit(found ? 0 : 1) }
+  ' "$1"
+}
 
 # ── Fixture files (one per sink + benign control) ────────────────────────────
 FX="$TOPTMP/fx"; mkdir -p "$FX"
@@ -91,6 +108,46 @@ slabel() { eval "printf '%s' \"\$S_LABEL_$1\""; }
 # ═══════════════════════════════════════════════════════════════════════════════
 # STATIC PINS (hermetic)
 # ═══════════════════════════════════════════════════════════════════════════════
+# ── T-predicate-no-sigpipe ───────────────────────────────────────────────────
+# BL-183-NO-SIGPIPE guard for THIS file's copy of has_live. It was previously
+# unguarded: reverting has_live to the defective `grep -v … | grep -qF` spelling
+# left this suite at 17/0 on macOS and would have been caught on Linux only ~3
+# runs in 1000 — i.e. the fix could be silently undone and every check would
+# stay green. bl118 carries the same case for its two copies.
+echo "=== T-predicate-no-sigpipe ==="
+SIGP_FX="$TOPTMP/sigpipe-fixture.txt"
+{
+  echo "  --config=$RULESET_REF \\"
+  echo '  --config=p/owasp-top-ten \'
+  # An INDENTED comment carrying the same tokens. Not padding: the whole point of
+  # has_live is "a config that only survives in a comment is not a config", and a
+  # narrowing of the comment predicate to /^#/ would report these PRESENT after the
+  # real lines were deleted. Without this line the fixture cannot see that.
+  echo "      # $RULESET_REF and p/owasp-top-ten named only in a comment"
+  # ~3 MB of trailing content is the PRECONDITION, not padding: it is what keeps
+  # the producer writing after the consumer exits. Shrink it and the old spelling
+  # passes here while still failing on a real hook.
+  awk 'BEGIN { for (i = 0; i < 200000; i++) print "filler line " i }'
+} > "$SIGP_FX"
+SIGP_BYTES=$(wc -c < "$SIGP_FX" | tr -d ' ')
+# Same fixture with the two EXECUTABLE config lines removed — only the comment
+# survives, so both needles must now read ABSENT.
+SIGP_CMT="$TOPTMP/sigpipe-comment-only.txt"
+grep -v -- '--config=' "$SIGP_FX" > "$SIGP_CMT"   # keeps the comment, drops both live lines
+if [ "$SIGP_BYTES" -lt 1000000 ]; then
+  fail_ "T-predicate-no-sigpipe" "fixture is only $SIGP_BYTES bytes — too small to force the race; this case would pass vacuously"
+elif ! has_live "$SIGP_FX" "--config=$RULESET_REF"; then
+  fail_ "T-predicate-no-sigpipe" "has_live reported an ABSENT string that is on line 1 of a ${SIGP_BYTES}-byte file — the predicate is pipe-based again and inverts under set -o pipefail (BL-183)"
+elif ! has_live "$SIGP_FX" "p/owasp-top-ten"; then
+  fail_ "T-predicate-no-sigpipe" "has_live missed a string on line 2 of a ${SIGP_BYTES}-byte file — same inversion (BL-183)"
+elif has_live "$SIGP_FX" "p/definitely-not-in-this-file"; then
+  fail_ "T-predicate-no-sigpipe" "has_live reported a string that is NOT in the fixture — the predicate now passes vacuously, which would bless any hook"
+elif has_live "$SIGP_CMT" "$RULESET_REF" || has_live "$SIGP_CMT" "p/owasp-top-ten"; then
+  fail_ "T-predicate-no-sigpipe" "a config that survives ONLY in an indented comment was reported live — the comment predicate has been narrowed (e.g. /^#/ instead of /^[[:space:]]*#/), which would bless a hook whose real --config lines were deleted"
+else
+  pass "T-predicate-no-sigpipe: correct across ${SIGP_BYTES} bytes, both directions, and comment-only configs are NOT live"
+fi
+
 echo "=== T-ruleset-ships ==="
 if [ ! -f "$RULESET_SRC" ]; then
   fail_ "T-ruleset-ships" "templates/semgrep/soif-dom-sinks.yml is missing — the shipped artifact does not exist"

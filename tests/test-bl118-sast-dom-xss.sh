@@ -30,6 +30,16 @@
 #                                    still carries p/owasp-top-ten, --severity=ERROR
 #                                    and --error (the fix must ADD coverage, not
 #                                    trade away BL-112's).
+#   T-predicate-no-sigpipe           hermetic — has_live/has_cfg must survive a
+#                                    file with megabytes of content AFTER the
+#                                    match. The pipe spelling they replaced
+#                                    (# BL-183-NO-SIGPIPE) returns 141 there and
+#                                    reports a PRESENT string as ABSENT, which is
+#                                    how a green macOS run shipped a CI failure
+#                                    claiming `p/owasp-top-ten dropped`. This case
+#                                    guards the predicates themselves — without it
+#                                    every other case here is only as trustworthy
+#                                    as the helper it calls.
 #   T-ci-templates-carry-domxss-config hermetic — all generated CI pipelines
 #                                    (github + gitlab, every language) carry the
 #                                    DOM-sink config on their semgrep step.
@@ -84,11 +94,43 @@ trap 'rm -rf "$TOPTMP"' EXIT
 # verified 2026-07-17 against semgrep 1.157.0 --json output.
 DOMXSS_CFG='r/javascript.browser.security.insecure-document-method'
 
-# Comment-stripped fixed-string grep: a config that only survives in a comment
+# Comment-stripped fixed-string search: a config that only survives in a comment
 # is not a config. Returns 0 iff the string appears on a non-comment line.
+#
+# BL-183-NO-SIGPIPE — ONE PROCESS, NO PIPE, AND THAT IS THE WHOLE POINT. This was
+# `grep -v '^[[:space:]]*#' "$1" | grep -qF -- "$2"`, and under this file's
+# `set -uo pipefail` that spelling INVERTS ITS OWN VERDICT: `grep -q` exits the
+# instant it matches, closing the read end, so the still-writing `grep -v` takes
+# EPIPE/SIGPIPE, and pipefail hands the pipeline that failure — a FOUND result
+# reported as NOT FOUND. It is a race on how much the producer has left to write,
+# so it hides while a file is small and surfaces when it grows. That is exactly
+# what happened: the emitted hook went 645 -> 1,221 lines (41,211 -> 87,956 bytes,
+# measured at a8dbef7, the commit CI actually went red on) and CI went red on
+# GitHub's Linux runner with `grep: write error: Broken pipe` in the log, while
+# every local macOS run stayed green. The failure was maximally misleading — it
+# claimed `p/owasp-top-ten dropped`, a security regression, when the config was
+# present the whole time. awk with index() gives the same fixed-string,
+# comment-stripped semantics in a single process, so there is no pipe to break.
+#
+# FALSIFIER — restore the pipe spelling and run, from a bash shell:
+#   printf 'MATCH_ME\n' > /tmp/e.txt; for i in $(seq 1 200000); do echo "f $i"; done >> /tmp/e.txt
+#   bash -c 'set -uo pipefail; grep -v "^[[:space:]]*#" /tmp/e.txt | grep -qF -- MATCH_ME
+#            echo "rc=$? PIPESTATUS=${PIPESTATUS[*]}"'
+# Measured on this host: `rc=141 PIPESTATUS=141 0` — the match is on line 1 and
+# the predicate still reports failure. The awk form below returns rc=0. The
+# 1,688,904 bytes (~1.7 MB) that command produces are the PRECONDITION, not
+# decoration: they keep the producer writing after the consumer has exited.
+# Without them the producer usually finishes first and the bug stays invisible.
+# (T-predicate-no-sigpipe's own fixture below is ~3.7 MB — a different number for
+# a different artefact; do not read either as a restatement of the other.)
 has_live() { # <file> <fixed-string>
-  # `--` guards fixed strings that start with a dash (e.g. "--severity=ERROR").
-  grep -v '^[[:space:]]*#' "$1" | grep -qF -- "$2"
+  # The needle travels via the environment, not `awk -v`: -v processes backslash
+  # escapes in the value, which would silently corrupt any needle containing one.
+  SOIF_NEEDLE="$2" awk '
+    /^[[:space:]]*#/ { next }
+    index($0, ENVIRON["SOIF_NEEDLE"]) { found = 1; exit }
+    END { exit(found ? 0 : 1) }
+  ' "$1"
 }
 
 # EXACT-TOKEN pin for the DOM-sink config (adversarial-verifier finding,
@@ -99,8 +141,60 @@ has_live() { # <file> <fixed-string>
 # continuation `\`, a flow-sequence `]`, or end-of-line) the rule id.
 DOMXSS_CFG_RE='(=|[[:space:]])r/javascript\.browser\.security\.insecure-document-method([[:space:]]|\\|]|$)'
 has_cfg() { # <file>
-  grep -v '^[[:space:]]*#' "$1" | grep -qE -- "$DOMXSS_CFG_RE"
+  # BL-183-NO-SIGPIPE — same inversion, same fix as has_live above; see its
+  # comment for the mechanism and the runnable falsifier. `$0 ~ str` is awk's
+  # dynamic-regex form and takes the SAME ERE dialect grep -E was given, so
+  # DOMXSS_CFG_RE is reused verbatim rather than re-spelled for a second engine.
+  SOIF_RE="$DOMXSS_CFG_RE" awk '
+    /^[[:space:]]*#/ { next }
+    $0 ~ ENVIRON["SOIF_RE"] { found = 1; exit }
+    END { exit(found ? 0 : 1) }
+  ' "$1"
 }
+
+# ── T-predicate-no-sigpipe ───────────────────────────────────────────────────
+# Guards the two helpers above. Runs FIRST: if the predicates lie, every verdict
+# below is worthless, so this must be the first thing that goes red.
+echo "=== T-predicate-no-sigpipe ==="
+SIGP_FX="$TOPTMP/sigpipe-fixture.txt"
+{
+  echo '  --config=r/javascript.browser.security.insecure-document-method \'
+  echo '  --config=p/owasp-top-ten \'
+  # An INDENTED comment naming both configs. NOT padding — it is the only thing
+  # that can see a narrowing of the comment predicate from /^[[:space:]]*#/ to
+  # /^#/. The real emitted hook carries exactly this shape at
+  # `# BL-118-DOMXSS-CONFIG`, and under the narrowed form has_live reports
+  # p/owasp-top-ten PRESENT even after both executable --config lines are gone —
+  # i.e. it would bless a hook whose DOM coverage had been deleted, which is the
+  # precise invariant has_live exists to enforce ("a config that only survives in
+  # a comment is not a config").
+  echo '      # BL-118-DOMXSS-CONFIG — p/owasp-top-ten and r/javascript.browser.security.insecure-document-method named ONLY here'
+  # ~3 MB of trailing content is the PRECONDITION, not padding: it is what makes
+  # the producer still be writing when the consumer exits. Shrink it and the old
+  # spelling passes here while still failing on a real hook — a guard that cannot
+  # fail is worse than no guard.
+  awk 'BEGIN { for (i = 0; i < 200000; i++) print "filler line " i }'
+} > "$SIGP_FX"
+sigp_bytes=$(wc -c < "$SIGP_FX" | tr -d ' ')
+# The same fixture with both EXECUTABLE --config lines removed: only the comment
+# survives, so BOTH predicates must now read ABSENT.
+SIGP_CMT="$TOPTMP/sigpipe-comment-only.txt"
+grep -v -- '--config=' "$SIGP_FX" > "$SIGP_CMT"   # keeps the comment, drops both live lines
+if [ "$sigp_bytes" -lt 1000000 ]; then
+  fail_ "T-predicate-no-sigpipe" "fixture is only $sigp_bytes bytes — too small to force the race; this case would pass vacuously"
+elif ! has_live "$SIGP_FX" "p/owasp-top-ten"; then
+  fail_ "T-predicate-no-sigpipe" "has_live reported an ABSENT string that is on line 2 of a ${sigp_bytes}-byte file — the predicate is pipe-based again and inverts under set -o pipefail (BL-183)"
+elif ! has_cfg "$SIGP_FX"; then
+  fail_ "T-predicate-no-sigpipe" "has_cfg reported an ABSENT config that is on line 1 of a ${sigp_bytes}-byte file — same inversion (BL-183)"
+elif has_live "$SIGP_FX" "p/definitely-not-in-this-file"; then
+  fail_ "T-predicate-no-sigpipe" "has_live reported a string that is NOT in the fixture — the predicate now passes vacuously, which would bless any hook"
+elif has_live "$SIGP_CMT" "p/owasp-top-ten"; then
+  fail_ "T-predicate-no-sigpipe" "a config surviving ONLY in an INDENTED comment was reported live — the comment predicate has been narrowed (e.g. /^#/ instead of /^[[:space:]]*#/). That is not cosmetic: it blesses a hook whose executable --config lines were deleted"
+elif has_cfg "$SIGP_CMT"; then
+  fail_ "T-predicate-no-sigpipe" "has_cfg matched the DOM-sink rule id in an INDENTED comment after the executable line was removed — same narrowing, same consequence"
+else
+  pass "T-predicate-no-sigpipe (both predicates correct across ${sigp_bytes} bytes, both directions, and comment-only configs are NOT live)"
+fi
 
 # ── T-hook-carries-domxss-config ─────────────────────────────────────────────
 echo "=== T-hook-carries-domxss-config ==="
