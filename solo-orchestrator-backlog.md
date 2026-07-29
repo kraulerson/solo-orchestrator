@@ -5913,6 +5913,39 @@ explained), BL-181 (the green-looking-exempt class), BL-187 (a host-dependent SK
 suite, which is why the skip vocabulary is load-bearing here), BL-184 (the aggregator that discarded
 child output — the reason CI-only failures in this repo are hard to read at all).
 
+**UPDATE 2026-07-29 — one candidate story is now REFUTED BY MEASUREMENT: it is not the semgrep
+version.** This entry deliberately listed candidates without endorsing one. Eliminating them by
+measurement is the intended way to close it, so recording the elimination — not just the survivors —
+is the point of this update.
+
+The run that produced the 3 failures + 10 skips installed **semgrep 1.172.0** (`pip install semgrep`,
+unpinned; it had been 1.171.0 a day earlier — the drift is continuous). This host runs 1.157.0, and
+"the runner has a different semgrep" was the strongest story on the list. Measured:
+
+| measurement | 1.157.0 | 1.172.0 |
+|---|---|---|
+| Scan Status banner on the exact 5-file fixture `T-coverage-no-cry-wolf` uses | `Scanning 5 files with 174 Code rules:` | **byte-identical** |
+| header count seen by the guard's regex / exit code | 1 / rc=0 | 1 / rc=0 |
+| `tests/test-bl132-sast-index-scan.sh`, full suite | **38 passed, 0 failed, 0 skipped** | **38 passed, 0 failed, 0 skipped** |
+
+Every one of the 3 CI failures and all 10 CI skips **passes locally on the CI version itself**. So the
+banner the `# BL-112-SCAN-COVERAGE` guard parses did not change spelling or value across the drift,
+and the version difference explains nothing here. **Do not re-derive this.** Cross-reference BL-192,
+which is about the *soundness* of a different semgrep metric on ≥1.171.0 — that finding stands and is
+unaffected; this one is only about whether the version explains BL-193, and it does not.
+
+**Measurement trap that cost a false negative on the first attempt, recorded so the next reader does
+not repeat it.** A pip-installed semgrep in a venv still reports the **Homebrew** version if
+`/opt/homebrew/bin` is on `PATH` — `$VENV/bin/semgrep --version` printed `1.157.0` while
+`pip show semgrep` said `1.172.0`. Measure with the environment cleared:
+`env -i PATH="$VENV/bin:/usr/bin:/bin" "$VENV/bin/semgrep" --version`. Without that you compare a
+version against itself and conclude, wrongly, that there is no difference to find.
+
+**Surviving candidates, unranked:** sandbox/tmpdir interaction with the BL-132 index temp tree,
+`PATH` resolution of `semgrep` inside the emitted hook on the runner, and runner-side registry
+behaviour. The recommended next step above is unchanged and is still the single action that
+distinguishes them: **preserve `$soif_sg_err` as a CI artifact.**
+
 ---
 
 ## BL-194: A documentation comment silently became the enforced policy — `test-bl147`'s parity derivation scoped on `/semgrep scan/`, so the FALSIFIER prose above the invocation won and 22 CI templates were graded against an empty policy
