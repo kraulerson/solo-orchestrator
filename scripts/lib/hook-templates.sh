@@ -505,7 +505,22 @@ soif_sast_scan_coverage_report() {
   if [ -n "${soif_sg_accepted:-}" ]; then
     echo "  Coverage: semgrep accepted $soif_sg_accepted of the ${#soif_idx_files[@]} staged file(s) handed to it."
   else
-    echo "  Coverage: UNVERIFIED — semgrep's scan-status line was absent or unreadable"
+    # BL-193-COUNT — say WHICH failure, not "absent or unreadable". The parse
+    # requires the scan-status header EXACTLY ONCE, so this arm is reached by two
+    # materially different conditions that need different operator actions:
+    #   0  — semgrep printed no header the parse recognises (wrong stream, a
+    #        spelling this version emits that the regex does not accept, or a scan
+    #        that never got far enough to print one)
+    #   2+ — more than one header, i.e. an ambiguous/multi-product banner; the
+    #        parse refuses to guess which one describes this commit
+    # Collapsing them cost a full CI diagnosis round: the message named neither,
+    # and the count is the one datum that separates them.
+    echo "  Coverage: UNVERIFIED — expected semgrep's scan-status line exactly once, saw ${soif_sg_hdr_n:-0}"
+    if [ "${soif_sg_hdr_n:-0}" -eq 0 ] 2>/dev/null; then
+      echo "  (no line matching 'Scanning <N> file(s) with <M> Code rule(s):' was found on semgrep's stderr)"
+    else
+      echo "  (${soif_sg_hdr_n} such lines were found; the parse refuses to guess which describes this commit)"
+    fi
     echo "  (${#soif_idx_files[@]} staged file(s) were handed to it; how many it opened is unknown)."
   fi
   # NO PARSE-COVERAGE LINE HERE, AND ITS ABSENCE IS A DECISION, NOT AN OMISSION. A
@@ -1121,7 +1136,7 @@ if command -v semgrep &>/dev/null; then
         #   Whoever adds a third clause must add its arm ABOVE this `else`.
         if [ -z "$soif_sg_accepted" ]; then
           soif_sast_coverage_warn \
-            "semgrep exited 0, but its scan-status line was absent or unreadable." \
+            "semgrep exited 0, but its scan-status line was not found exactly once (saw ${soif_sg_hdr_n:-0}) — see the Coverage line below." \
             "the scan ran and its coverage of this commit CANNOT BE VERIFIED, so it is treated as a scan that did not run."
         elif [ "$soif_sg_accepted" -lt "${#soif_idx_files[@]}" ]; then
           soif_sast_coverage_warn \

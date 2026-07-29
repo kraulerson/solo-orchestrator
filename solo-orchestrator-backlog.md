@@ -5984,6 +5984,34 @@ which arm it will be. Failure-path only; it cannot change a verdict. Its falsifi
 as written: point it at a log with no SAST section and it prints `(no SAST section in <path>)`
 rather than nothing, because silence would be indistinguishable from a helper that never ran.
 
+**FIRST DIAGNOSIS FROM THE CAPTURE (2026-07-29) — three candidates eliminated, and the surviving
+one needs a number the message was not printing.** The instrumented run says, in the hook's own
+words:
+
+```
+  Scanning 5 files with 174 Code rules:
+ • Targets scanned: 5
+[WARN] semgrep exited 0, but its scan-status line was absent or unreadable.
+  SAST NOT ENFORCED for this commit
+```
+
+**semgrep scanned all five files and said so, and the guard rejected the report anyway.** The
+header is byte-clean — dumped from the CI log, no ANSI, no trailing bytes, exactly the shape
+`^[[:space:]]*Scanning [0-9]+ files? with [0-9]+ Code rules?:[[:space:]]*$` accepts.
+
+Eliminated by measurement, not by argument:
+- **Not the version.** Byte-identical banner on 1.157.0 and 1.172.0; `bl132` 38/0/0 on both.
+- **Not the stream.** The banner is on stderr under `env -i`, under `CI=true`, and under
+  `CI=true GITHUB_ACTIONS=true` — both versions. It never moves to stdout.
+- **Not a locally-reproducible multi-header.** Under the FULL three-config invocation the hook
+  actually runs, the header count is **1** in all four version × env combinations.
+
+So the count the guard saw on the runner was 0 or 2+, and **the message named neither** — the
+parse requires the header exactly once, and "absent or unreadable" collapses two conditions that
+need different fixes. Added `# BL-193-COUNT`: the report now prints the observed count and says
+which case it is. This is an operator-facing improvement independent of BL-193 — a generated
+project hitting this was told its coverage was unverifiable with no way to tell why.
+
 **What the next `sast` shard run should now discriminate**, without pre-judging which:
 `SAST NOT ENFORCED … the scanner did not run` (semgrep never ran — `PATH` resolution inside the
 hook on the runner) · `semgrep could not complete (exit N)` (ran and failed; `N` discriminates) ·
