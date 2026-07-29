@@ -37,13 +37,20 @@
 #   the invocation in prose above it, carrying a FALSIFIER that necessarily names
 #   the command. The suite then graded 22 correct CI templates against an empty
 #   policy and reported a config-parity break that did not exist.
-#   THE ANCHOR IS SAFE TO NAME IN PROSE — including on this very line. The
-#   collector tries EVERY occurrence of the marker in file order and accepts the
-#   first whose collected text actually contains `semgrep scan`, so a mention in
-#   this header, or anywhere else, is skipped rather than winning. That property
-#   is pinned by `Cg-derive-decoy-marker-first` in the suite; do not replace the
-#   try-every-occurrence loop with a first-match or last-match scan, which would
-#   re-open it in one direction or the other.
+#   THE ANCHOR IS SAFE TO NAME IN A COMMENT — including on this very line. The
+#   collector tries EVERY occurrence in file order, skips the comment lines that
+#   follow each one, and accepts an occurrence only if the text it collects
+#   contains `semgrep scan`; a mention inside a comment block therefore resolves
+#   to nothing and is passed over. Pinned by `Cg-derive-decoy-marker-first`.
+#   IT IS NOT SAFE ANYWHERE — that claim was refuted. The marker inside a STRING
+#   (not a comment) sitting above some other `semgrep scan` DOES resolve, as does
+#   a stale anchor+invocation pair left by a refactor. Neither is caught by
+#   try-every, because the derivation then succeeds on the wrong text. What
+#   catches both is requiring EXACTLY ONE resolving occurrence
+#   (`# BL-194-DERIVE-UNAMBIGUOUS`), which turns them into one loud,
+#   correctly-attributed failure. Do not replace the try-every loop with a
+#   first-match or last-match scan (each is forgeable from one end), and do not
+#   drop the exactly-one count.
 #   ONLY THE ONE-LINE MARKER BELONGS INSIDE THE HEREDOC. This rationale is
 #   framework-side deliberately: everything between `cat <<'HOOKEOF'` and
 #   `HOOKEOF` is written verbatim into every generated project's

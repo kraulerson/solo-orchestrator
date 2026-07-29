@@ -5382,10 +5382,15 @@ remains correct where a pipeline is unavoidable.
 line 1, which also **corrects the table above**: BSD grep's "0 per 300" is a size artefact of
 the fixture used there, not immunity. Ten paired old-vs-new checks agree on the real emitted hook (5 needles
 that must be found, 2 that must not, comment-only text still not "live", the DOMXSS ERE, and
-the suffix-typo that must still be rejected). Guarded by **`T-predicate-no-sigpipe`** in
-`tests/test-bl118-sast-dom-xss.sh`, which builds a >1 MB fixture, asserts the fixture is large
-enough to force the race before asserting anything else, and checks both directions so it
-cannot pass vacuously; restoring the pipe spelling turns it RED (mutation-proven).
+the suffix-typo that must still be rejected). Guarded by **`T-predicate-no-sigpipe`**, which exists in BOTH
+`tests/test-bl118-sast-dom-xss.sh` (for its `has_live` + `has_cfg`) and
+`tests/test-bl131-domsink-rules.sh` (for its own third copy — that one was unguarded at first,
+and reverting it to the pipe spelling left the suite 17/0 green on macOS). Each builds a >1 MB
+fixture, asserts the fixture is large enough to force the race BEFORE asserting anything else,
+checks both directions so it cannot pass vacuously, and carries an INDENTED comment naming the
+same configs plus a comment-stripped variant — so narrowing the comment predicate to `/^#/`,
+which would bless a hook whose executable `--config` lines were deleted, also turns it RED.
+Restoring the pipe spelling turns it RED in both files (mutation-proven).
 
 ---
 
@@ -6039,16 +6044,38 @@ Skipping is safe rather than a hole: that path is reachable only alongside a `[F
 so the suite is already red, and the skip count prints on its own line
 (`!! N case(s) SKIPPED — skipped != passed.`) per this repo's skip vocabulary.
 
+**TRY-EVERY WAS STILL NOT ENOUGH — round three.** Trying every occurrence fixed the header-index
+forgery but lost to any EARLIER occurrence whose next non-comment line contains `semgrep scan`:
+a stale anchor+invocation pair left by a refactor, or the marker embedded in a **string** rather
+than a comment. Both are worse than the original defect in one specific way — the derivation
+*succeeds* on the wrong text, so `# BL-194-DERIVE-GATE` never engages and the suite emits the
+original 7-line "22 templates disagree" signature with **zero** correctly-attributed lines.
+Closed by requiring **exactly one** resolving occurrence (`# BL-194-DERIVE-UNAMBIGUOUS`): two or
+more derive nothing and `Cg-derive` fails naming the ambiguity. Measured — both placements now
+give `53 passed, 1 failed (6 skipped)`: one correct line, six skips, nothing accused. Pinned by
+`Cg-derive-ambiguous-anchor`. The claim in `hook-templates.sh` that the marker was safe to name
+"anywhere else" was refuted by the string case and is now scoped to comments.
+
 **Atoms pinned, and the ones that are NOT — stated rather than assumed covered.** Three
 one-character narrowings survived the first round of guards at 56/0. Now: narrowing the marker to
 `/BL-194/` fails (`Cg-derive-decoy-marker-first`); narrowing the comment test to `#[[:space:]]`
 fails (`Cg-derive-comment-widths`); deleting the `semgrep scan` acceptance check fails.
 **`[[:space:]]*` -> `+` is BEHAVIOUR-NEUTRAL and deliberately not pinned** — the `sub()` only
 strips leading blanks and the `^#` test runs on the result, so a column-0 comment is unchanged by
-either spelling and still matches; measured both ways, both "recognised as comment", suite 58/0
-under the narrowed form. Same for the `!collecting` guard, on the shapes this hook can produce.
-Both are named in the suite rather than given fixtures that would pass for the wrong reason — the
-practice CLAUDE.md already uses for BL-181's two unpinned atoms.
+either spelling and still matches; measured across 11 line shapes on three awk implementations
+(BWK, mawk, gawk) with zero verdict differences, suite green under the narrowed form. The
+`HOOK_POLICY_OK` gate is the second unpinned atom: replacing its condition with a constant false
+leaves the suite green, because it only changes OUTPUT on an already-red run. Both are named in
+the suite rather than given fixtures that would pass for the wrong reason — the practice
+CLAUDE.md already uses for BL-181's two unpinned atoms.
+
+**The `!collecting` guard was on that unpinned list and should not have been.** The stated
+reason — that a verdict could flip "only if such a line carries a `--config`" — was REFUTED: a
+continuation line beginning `#` with **no trailing backslash** ends the command in bash, so
+dropping it mid-collection makes the collector join the NEXT, unrelated command and import both
+its `--config` and its `--severity`. It is now pinned by `Cg-derive-continuation-comment`.
+Recorded because the error was in the *argument for leaving it unpinned*, not in the code —
+which is the harder failure to notice.
 
 **Only the one-line marker ships downstream.** The rationale lives framework-side, above
 `soif_write_precommit_hook`. The first revision put a 10-line essay *inside* `cat <<'HOOKEOF'`,

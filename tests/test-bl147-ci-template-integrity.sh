@@ -295,8 +295,18 @@ derive_semgrep_policy() {   # <file> -> sets D_CONFIGS D_SEVERITY D_ERROR D_INVO
           out = out cur " "
           if (line[j] !~ /\\[[:space:]]*$/) break
         }
-        if (out ~ /semgrep scan/) { printf "%s", out; exit }
+        # BL-194-DERIVE-UNAMBIGUOUS — count ACCEPTING occurrences; do not stop at
+        # the first. Try-every alone still loses to any EARLIER occurrence whose
+        # next non-comment line happens to contain `semgrep scan` — a stale
+        # anchor+invocation pair left by a refactor, or the marker embedded in a
+        # STRING above some other invocation. Both derive a real-looking policy
+        # from the wrong text, so the derivation SUCCEEDS and BL-194-DERIVE-GATE
+        # never engages: the suite goes back to accusing 22 templates with no
+        # correctly-attributed line at all. Requiring exactly one acceptance turns
+        # both into a loud, correctly-attributed failure.
+        if (out ~ /semgrep scan/) { hits++; if (hits == 1) best = out }
       }
+      if (hits == 1) printf "%s", best
     }' "$file")"
   D_CONFIGS="$(printf '%s\n' "$D_INVOC" | grep -oE '\-\-config=[^[:space:]]+' | sort -u | tr '\n' ' ')"
   D_SEVERITY="$(printf '%s\n' "$D_INVOC" | grep -oE '\-\-severity=[A-Za-z]+' | head -1)"
@@ -324,7 +334,7 @@ if ! printf '%s\n' "$HOOK_INVOC" | grep -q 'semgrep scan'; then
   # Anchor drift, not a policy change — say so, so the next reader does not spend
   # the diagnosis on the 22 CI templates the way this suite's message once caused.
   HOOK_POLICY_OK=0
-  fail_ "Cg-derive" "the '# BL-194-HOOK-SEMGREP-POLICY' anchor in scripts/lib/hook-templates.sh no longer sits immediately above the 'semgrep scan' invocation (collected: '$HOOK_INVOC') — restore the anchor; the CI templates are NOT implicated, and the Cg3/Cg5 parity cases are SKIPPED below rather than run against an empty policy"
+  fail_ "Cg-derive" "could not derive ONE unambiguous semgrep policy from scripts/lib/hook-templates.sh via the '# BL-194-HOOK-SEMGREP-POLICY' anchor (collected: '$HOOK_INVOC'). Either the anchor no longer sits immediately above the 'semgrep scan' invocation, or MORE THAN ONE anchor now resolves to an invocation (a stale duplicate, or the marker inside a string) — grep the marker and leave exactly one that precedes the real invocation. The CI templates are NOT implicated, and the Cg3/Cg5 parity cases are SKIPPED below rather than run against an empty policy"
 elif [ -n "$HOOK_CONFIGS" ] && [ -n "$HOOK_SEVERITY" ] && [ "$HOOK_ERROR" = yes ]; then
   pass "Cg-derive (configs='$HOOK_CONFIGS' severity='$HOOK_SEVERITY' --error=$HOOK_ERROR)"
 else
@@ -437,24 +447,69 @@ else
   fail_ "Cg-derive-comment-widths" "a comment form was not recognised, so it was collected as the policy: '$D_INVOC' (configs='$D_CONFIGS') — check the SPELLING of the '#' test, not just its presence"
 fi
 
-# NOT PINNED, AND SAID SO RATHER THAN FAKED — the `!collecting` guard on the
-# comment-skip rule. It stops a line-continuation whose first non-blank character
-# is `#` from being dropped mid-collection. bash treats such a line as an ARGUMENT,
-# not a comment, so it is reachable in principle; but the emitted hook's invocation
-# has no such continuation, and a fixture built to force one would pin a shape this
-# file cannot produce. Deleting the guard leaves this suite green. Documented, in
-# the manner CLAUDE.md uses for BL-181's two unpinned atoms, so the next reader
-# knows it is unprotected rather than assuming the tally covers it.
-# MEASURED, so this is not an assumption: run the collector over each of the three
-# fixtures above with the guard on and off — the collected text is IDENTICAL in all
-# three. The only shape that separates them is a continuation line beginning `#`:
-#     semgrep scan --config=p/real-one \
-#       #argument-not-comment \
-#       --severity=WARNING --error x
-# guard on collects the `#argument-not-comment` token, guard off drops it. Even
-# there the derived configs/severity are unchanged, so a verdict flips only if such
-# a line carries a `--config`. That is the shape to add a fixture for IF the hook
-# ever grows one — not before.
+# ── Cg-derive-ambiguous-anchor: TWO resolving anchors must derive NOTHING ─────
+# Try-every alone was not enough. An EARLIER occurrence whose next non-comment
+# line contains `semgrep scan` wins outright, and because the derivation then
+# SUCCEEDS on the wrong text, BL-194-DERIVE-GATE never engages — the suite
+# reverts to the original BL-194 signature with ZERO correctly-attributed lines.
+# Two placements do this and neither is exotic: a stale anchor+invocation pair
+# left behind by a refactor, and the marker embedded in a STRING (not a comment)
+# above some other invocation. Both are covered here; the fix is to require
+# exactly one accepting occurrence (# BL-194-DERIVE-UNAMBIGUOUS).
+echo "Cg-derive-ambiguous-anchor: two anchors that both resolve derive NOTHING"
+derive_semgrep_policy /dev/stdin <<'AMBIG_FIXTURE'
+      # BL-194-HOOK-SEMGREP-POLICY — a stale copy left by a refactor
+      semgrep scan --config=p/stale-only         --severity=WARNING --error "${files[@]}"
+      soif_note='see # BL-194-HOOK-SEMGREP-POLICY for the policy'
+      semgrep scan --config=p/from-a-string --severity=INFO --error
+      # BL-194-HOOK-SEMGREP-POLICY — anchor
+      semgrep scan --config=p/real-one         --severity=ERROR --error "${files[@]}"
+AMBIG_FIXTURE
+if [ -z "$D_INVOC" ] && [ -z "$D_CONFIGS" ]; then
+  pass "Cg-derive-ambiguous-anchor (3 resolving anchors -> derive nothing -> Cg-derive fails loudly)"
+else
+  fail_ "Cg-derive-ambiguous-anchor" "an ambiguous anchor set still produced a policy: '$D_INVOC' (configs='$D_CONFIGS') — with more than one anchor resolving, the derivation must refuse rather than pick one, or Cg-derive reports success on the wrong text and the parity cases accuse the templates again"
+fi
+
+# ── Cg-derive-continuation-comment: the `!collecting` guard IS load-bearing ────
+# An earlier revision of this file documented this guard as unpinned, claiming a
+# verdict could flip "only if such a line carries a --config". That was REFUTED:
+# a continuation line beginning `#` with NO trailing backslash ends the command
+# in bash, so dropping it mid-collection makes the collector join the NEXT,
+# unrelated command — importing both its --config and its --severity. Guard on is
+# the correct reading. Pinned here rather than re-documented as unpinned.
+echo "Cg-derive-continuation-comment: a '#' continuation without a backslash ends the command"
+derive_semgrep_policy /dev/stdin <<'CONTCMT_FIXTURE'
+      # BL-194-HOOK-SEMGREP-POLICY — anchor
+      semgrep scan --config=p/real-one         #stopper-with-no-backslash
+        --config=p/NOT-IN-THE-INVOCATION --severity=INFO --error
+CONTCMT_FIXTURE
+if [ "$D_CONFIGS" = "--config=p/real-one " ] && [ -z "$D_SEVERITY" ]; then
+  pass "Cg-derive-continuation-comment (collection stops at the '#' line; the next command is not joined)"
+else
+  fail_ "Cg-derive-continuation-comment" "the collector joined a following, unrelated command: configs='$D_CONFIGS' severity='$D_SEVERITY' — the !collecting guard on the comment-skip rule is load-bearing; without it a '#' continuation is dropped and the next command's flags are imported into the policy"
+fi
+
+# ATOMS THAT REMAIN UNPINNED, NAMED RATHER THAN ASSUMED COVERED. The practice
+# CLAUDE.md uses for BL-181 two residuals: say which parts have no safety net.
+#   1. `[[:space:]]*` -> `+` in the comment-skip `sub()`. BEHAVIOUR-NEUTRAL and
+#      measured as such: the `sub()` only STRIPS leading blanks and the `^#` test
+#      runs on the result, so a column-0 comment is unchanged by either spelling
+#      and still matches. Checked across 11 line shapes on three awk
+#      implementations (BWK, mawk, gawk): zero verdict differences, and the suite
+#      is green under the narrowed form. A fixture claiming to pin it would pass
+#      for the wrong reason.
+#   2. The `HOOK_POLICY_OK` gate itself (# BL-194-DERIVE-GATE). Replacing its
+#      condition with a constant false leaves this suite green, because the gate
+#      only changes OUTPUT on a run that is already red. It is unpinned, and its
+#      loss is a legibility regression rather than a correctness one — but it is
+#      the whole point of the BL-194 work, so it is named here rather than
+#      quietly trusted.
+# The `!collecting` guard was ALSO listed here as unpinned, on the argument that
+# a verdict could flip "only if such a line carries a --config". That claim was
+# REFUTED (a `#` continuation with no trailing backslash imports the NEXT
+# command flags wholesale), so it is now pinned by
+# Cg-derive-continuation-comment above rather than documented away.
 
 # extract a template's semgrep policy -> sets EX_CONFIGS EX_SEVERITY EX_ERROR
 extract_semgrep_policy() {
