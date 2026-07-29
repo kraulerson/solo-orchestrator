@@ -5335,14 +5335,30 @@ emitted-hook sites and the un-run `tests/` census.** Fixed in PR #280: `has_live
 `tests/test-bl131-domsink-rules.sh`, and `has_live` + `has_cfg` in
 `tests/test-bl118-sast-dom-xss.sh` (marker `# BL-183-NO-SIGPIPE`).
 
-**It stopped being a flake, and the reason is the correction that matters here.** The
-2026-07-28 measurement above put this at **1–7 failures per 300 runs on Linux**. On PR #280 it
-fired on the **first** CI run, in **both** files at once. That is not luck: the rate is a
-function of how much the producer still has to write when `grep -q` exits, and #280 roughly
-**doubled the emitted hook — 645 → 1231 lines, 41,211 → 88,824 bytes** — which moved the
-comment-stripped remainder after the match from 5,758 to 8,166 bytes. **Read the rate in that
-table as a property of a FILE SIZE, not of the defect.** Anything that grows the emitted hook
-raises it, and the hook grows on nearly every SAST change.
+**It is STILL A FLAKE — an earlier revision of this paragraph claimed otherwise and was
+refuted by measurement.** What is true is narrower: the rate is a function of how much the
+producer still has to write when `grep -q` exits, and #280 roughly **doubled the emitted hook —
+645 → 1,221 lines, 41,211 → 87,956 bytes** at `a8dbef7`, the commit CI actually went red on
+(the 1,231/88,824 figures elsewhere include the marker lines the FIX adds, so do not use them
+for the before/after). That moved the comment-stripped remainder after the match from **5,879
+to 8,287 bytes** — recipe, because an absolute byte count is meaningless without one:
+
+```
+grep -v '^[[:space:]]*#' <emitted-hook> \
+  | awk '/p\/owasp-top-ten/ && !f { f=1; next } f { n += length($0)+1 } END { print n }'
+```
+
+**What was withdrawn, and why it matters.** The claim was: *"It stopped being a flake… it fired
+on the first CI run, in both files at once. That is not luck."* Measured on Linux / GNU grep
+3.11 (the CI toolchain), 1000 runs of the old spelling per hook size: **3/1000 at 41,211 bytes,
+9/1000 at 87,956 bytes**. That is 0.9 % — squarely a flake, and squarely inside the **1–7 per
+300** band this entry's own table already recorded. Firing on the first run in both files was
+luck, on top of a rate that had roughly tripled. **The direction is real and the size coupling
+is real; the phase change was not.** Read the rate table as a property of a FILE SIZE — anything
+that grows the emitted hook raises it, and the hook grows on nearly every SAST change — but do
+not read it as "fixed at size N". This retraction is recorded rather than silently edited
+because the withdrawn sentence is exactly the shape [[adversarial-verify-patterns]] warns about:
+an absolute claim ("that is not luck") standing in for a rate measurement nobody had taken.
 
 **What it cost, and this is the argument for fixing latent sites of this class before they
 bite.** The inversion did not merely fail — it failed with a *security* message. CI reported
@@ -5362,9 +5378,9 @@ later edit can quietly violate. Prefer this form for new predicates; the `grep -
 remains correct where a pipeline is unavoidable.
 
 **Evidence (all re-runnable):** the inversion is deterministic given enough trailing output —
-`rc=141 PIPESTATUS=141 0` on **macOS/BSD grep** with a 3.7 MB fixture whose match is on line 1,
-which also **corrects the table above**: BSD grep's "0 per 300" is a size artefact of that
-fixture, not immunity. Ten paired old-vs-new checks agree on the real emitted hook (5 needles
+`rc=141 PIPESTATUS=141 0` on **macOS/BSD grep** with a 1,688,904-byte fixture whose match is on
+line 1, which also **corrects the table above**: BSD grep's "0 per 300" is a size artefact of
+the fixture used there, not immunity. Ten paired old-vs-new checks agree on the real emitted hook (5 needles
 that must be found, 2 that must not, comment-only text still not "live", the DOMXSS ERE, and
 the suffix-typo that must still be rejected). Guarded by **`T-predicate-no-sigpipe`** in
 `tests/test-bl118-sast-dom-xss.sh`, which builds a >1 MB fixture, asserts the fixture is large
@@ -6002,6 +6018,43 @@ the anchor, and in a trailing comment — the derivation must still land on the 
 mutation proofs, all RED then restored GREEN at 56/0: delete the anchor gate; delete the comment-skip
 rule; move the marker to the top of the hook (this is the shipped FALSIFIER, run verbatim); delete the
 marker entirely.
+
+**THE FIRST FIX WAS ITSELF FORGEABLE — caught in adversarial review, and the second-order defect
+is the interesting one.** Arming on the FIRST marker occurrence meant that adding the marker to
+`hook-templates.sh`'s own header marker index — which is how that file documents every other
+marker, and what CLAUDE.md's CITATION RULE pushes an author toward — re-opened BL-194 with the
+*identical* 7-line "22 templates disagree" signature. The fix had moved the defect from "a token
+prose is entitled to use" (`semgrep scan`) to "a token prose is *also* entitled to use" (the
+marker name), while the new guard case's banner claimed documentation could "NEVER" move the
+verdict. The collector now tries **every** occurrence in file order and accepts the first whose
+collected text contains `semgrep scan` (`# BL-194-DERIVE-TRY-EVERY`), so a mention anywhere —
+header, footer, this entry — is skipped rather than winning. First-match and last-match are each
+forgeable from one end; only try-every closes both.
+
+**A failed derivation now SKIPS the parity cases instead of running them against nothing**
+(`# BL-194-DERIVE-GATE`). Fixing only the derivation still left `1 correct + 6 accusatory`
+`[FAIL]` lines naming CI templates by file whenever Cg-derive failed — the same misdirection with
+a smaller multiplier, in the suite whose whole purpose here was to stop accusing innocent files.
+Skipping is safe rather than a hole: that path is reachable only alongside a `[FAIL] Cg-derive`,
+so the suite is already red, and the skip count prints on its own line
+(`!! N case(s) SKIPPED — skipped != passed.`) per this repo's skip vocabulary.
+
+**Atoms pinned, and the ones that are NOT — stated rather than assumed covered.** Three
+one-character narrowings survived the first round of guards at 56/0. Now: narrowing the marker to
+`/BL-194/` fails (`Cg-derive-decoy-marker-first`); narrowing the comment test to `#[[:space:]]`
+fails (`Cg-derive-comment-widths`); deleting the `semgrep scan` acceptance check fails.
+**`[[:space:]]*` -> `+` is BEHAVIOUR-NEUTRAL and deliberately not pinned** — the `sub()` only
+strips leading blanks and the `^#` test runs on the result, so a column-0 comment is unchanged by
+either spelling and still matches; measured both ways, both "recognised as comment", suite 58/0
+under the narrowed form. Same for the `!collecting` guard, on the shapes this hook can produce.
+Both are named in the suite rather than given fixtures that would pass for the wrong reason — the
+practice CLAUDE.md already uses for BL-181's two unpinned atoms.
+
+**Only the one-line marker ships downstream.** The rationale lives framework-side, above
+`soif_write_precommit_hook`. The first revision put a 10-line essay *inside* `cat <<'HOOKEOF'`,
+writing ~870 bytes of framework test-infrastructure prose — including the path
+`tests/test-bl147-ci-template-integrity.sh`, which does not exist in a generated project — into
+every downstream `.git/hooks/pre-commit`.
 
 **Residual, stated rather than papered over.** The anchor makes *prose* harmless but does not make the
 suite immune to every edit — if a future refactor splits `semgrep scan \` and its first `--config`

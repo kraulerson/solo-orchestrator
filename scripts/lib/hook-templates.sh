@@ -24,6 +24,32 @@
 #     TDD-gate managed block (region = markers+body; block = leading blank +
 #     region, the exact bytes init.sh appended pre-refactor).
 #
+# BL-194-HOOK-SEMGREP-POLICY — the anchor that `tests/test-bl147-ci-template-
+# integrity.sh` derives the CI-template semgrep policy from. It sits immediately
+# above the `semgrep scan` invocation inside the emitted hook; the suite starts
+# collecting at the anchor, skips the anchor's own comment lines, joins the
+# line-continuations, and asserts the collected text contains `semgrep scan` —
+# so the flags are never retyped and a drifted anchor fails loudly instead of
+# deriving an empty policy.
+#   WHY AN ANCHOR AND NOT THE COMMAND NAME. The collector used to scope on a bare
+#   `/semgrep scan/` over the whole file with no comment stripping, so the first
+#   line MENTIONING the command won — and `# BL-112-MAX-TARGET-BYTES` documents
+#   the invocation in prose above it, carrying a FALSIFIER that necessarily names
+#   the command. The suite then graded 22 correct CI templates against an empty
+#   policy and reported a config-parity break that did not exist.
+#   THE ANCHOR IS SAFE TO NAME IN PROSE — including on this very line. The
+#   collector tries EVERY occurrence of the marker in file order and accepts the
+#   first whose collected text actually contains `semgrep scan`, so a mention in
+#   this header, or anywhere else, is skipped rather than winning. That property
+#   is pinned by `Cg-derive-decoy-marker-first` in the suite; do not replace the
+#   try-every-occurrence loop with a first-match or last-match scan, which would
+#   re-open it in one direction or the other.
+#   ONLY THE ONE-LINE MARKER BELONGS INSIDE THE HEREDOC. This rationale is
+#   framework-side deliberately: everything between `cat <<'HOOKEOF'` and
+#   `HOOKEOF` is written verbatim into every generated project's
+#   `.git/hooks/pre-commit`, where a path like `tests/test-bl147-…` does not
+#   exist and this discussion is noise to the operator reading their own hook.
+#
 # BL-112 (E2E walk findings F8 + F9) — the two load-bearing lines in the EMITTED
 # pre-commit hook, both carrying a grep-able marker:
 #   • # BL-112-SAST-ERROR   — semgrep needs `--error` or it exits 0 ON FINDINGS,
@@ -908,16 +934,8 @@ if command -v semgrep &>/dev/null; then
       #   worse than a forfeited receipt on every axis this arm cares about: not loud, not
       #   honest, and indistinguishable from a crash. Picking a finite larger value is a
       #   latency-budget POLICY call, not an implementation detail. Filed as BL-187.
-      # BL-194-HOOK-SEMGREP-POLICY — ANCHOR, NOT PROSE. The next non-comment line is the
-      # single source of this hook's semgrep policy; tests/test-bl147-ci-template-integrity.sh
-      # starts collecting HERE, joins the line-continuations, and derives the flag set every
-      # CI template must match. It never retypes the flags. Keep this marker IMMEDIATELY
-      # above the invocation with only comment lines between: the suite asserts the text it
-      # collected contains `semgrep scan`, so a marker that drifts fails Cg-derive loudly
-      # instead of deriving an empty policy. Before this anchor the collector scoped on an
-      # unanchored /semgrep scan/ over the whole file, so the FALSIFIER comment above (which
-      # names the command, as a falsifier must) won the race and the suite reported a
-      # config-parity break that did not exist.
+      # BL-194-HOOK-SEMGREP-POLICY — anchor; the next non-comment line is this hook's
+      # semgrep policy. Rationale is framework-side, above soif_write_precommit_hook.
       semgrep scan --config=p/owasp-top-ten \
         --config=r/javascript.browser.security.insecure-document-method \
         --config=.semgrep/soif-dom-sinks.yml \
