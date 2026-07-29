@@ -557,18 +557,63 @@ soif_sast_scan_coverage_report() {
   #     directory target plus `.semgrepignore` reaches it by a second route. So the old
   #     excerpt was dead ONLY because of what this arm passes — not because semgrep never
   #     emits it.
-  #   DO NOT LEAN ON UPSTREAM'S 0.85.0 RELEASE NOTE HERE. It claims more than 1.157.0
-  #   delivers: "Explicitly targeted files are now unaffected by global filters such as
-  #   include/exclude patterns and file size limits, and `.semgrepignore` patterns also do
-  #   not affect them". Measured on 1.157.0, only the
-  #   PATTERN half survives — an `--exclude=` match and a `.semgrepignore` match are both
-  #   scanned anyway (`Targets scanned: 1`) — but an explicitly targeted 2,028,890-byte
-  #   file under the DEFAULT cap is SKIPPED (`Targets scanned: 0`, ` • Scan skipped:`).
-  #   The size half is FALSE on the pinned version, and that is exactly why this arm must
-  #   pass the flag. If `--max-target-bytes` is ever reinstated (see BL-187), this excerpt
-  #   becomes live again and the deletion should be reconsidered — do not conclude from
-  #   that release note that a cap cannot silently drop a staged blob. It can, and
-  #   # BL-112-SCAN-COVERAGE exists because it did.
+  #   UPSTREAM'S 0.85.0 RELEASE NOTE IS TRUE — IT JUST DOES NOT REACH THIS ARM'S TARGETS,
+  #   AND THE CAUSE IS TARGET POSITION, NOT A VERSION DEFECT. The note reads "Explicitly
+  #   targeted files are now unaffected by global filters such as include/exclude patterns
+  #   and file size limits, and `.semgrepignore` patterns also do not affect them".
+  #   AN EARLIER REVISION OF THIS PARAGRAPH CALLED THE SIZE HALF "FALSE ON THE PINNED
+  #   VERSION". THAT IS REFUTED — it generalised from a single OUT-OF-PROJECT probe. The
+  #   exemption is scoped to targets INSIDE the scan's PROJECT ROOT; a target outside that
+  #   root is an ordinary global-filter subject, size cap included.
+  #   MEASURED, semgrep 1.157.0, ONE 2,506,065-byte .ts, cwd = the git repo in ALL FOUR
+  #   rows, this arm's exact --config set. `hdr` is the scan-status line the parse below
+  #   greps for; `skipped` counts lines matching `Scan skipped`:
+  #     relative path, INSIDE repo               rc=1  hdr=`Scanning 1 file …`   skipped=0
+  #     absolute path, INSIDE repo               rc=1  hdr=`Scanning 1 file …`   skipped=0
+  #     absolute path, OUTSIDE repo              rc=0  hdr=`Scanning 0 files …`  skipped=1
+  #     absolute OUTSIDE + --max-target-bytes=0  rc=1  hdr=`Scanning 1 file …`   skipped=0
+  #   Row 3 is the only one that loses the file: `Targets scanned: 0` plus ` • Scan
+  #   skipped:` / `   ◦ Files larger than  files 1.0 MB: 1`. Deterministic, 3 of 3.
+  #   THE HEADER IS STILL EMITTED IN ROW 3, AND THAT DECIDES WHICH NOTRUN FIRES. It reads
+  #   `Scanning 0 files with N Code rules:` — the parse below MATCHES that, so
+  #   soif_sg_accepted is "0" and not empty, and the receipt is forfeited on the COUNT
+  #   COMPARISON rather than on the fail-closed unreadable-header path. Do not record this
+  #   row as "no header"; that names the wrong arm.
+  #   THE BOUNDARY IS THE PROJECT ROOT, NOT THE SPELLING OF THE PATH. Rows 1 and 2 agree,
+  #   so absolute-versus-relative is not the variable. Re-measured with cwd swapped: a
+  #   target inside a NON-git cwd is SCANNED, and a target inside a git work-tree reached
+  #   from a cwd outside it is SKIPPED. The root is cwd, widened to its enclosing git
+  #   work-tree where there is one.
+  #   THE PATTERN HALF HOLDS IN BOTH POSITIONS — RE-MEASURED, NOT RESTATED. An `--exclude=`
+  #   match and a `.semgrepignore` match are both scanned anyway (`Targets scanned: 1`)
+  #   whether the target is in-project or out of it. The asymmetry is SIZE-ONLY.
+  #   SO WHY THE FLAG IS STILL LOAD-BEARING AS SHIPPED. # BL-132-INDEX-SCAN materializes
+  #   every staged blob into a `mktemp -d` tree and hands semgrep ABSOLUTE paths under it.
+  #   That tree is OUTSIDE the project root, so EVERY target this arm scans is row 3 —
+  #   global filters DO apply, and without `--max-target-bytes=0` a >1MB staged blob is
+  #   dropped silently (R-274R-1). The flag is right; the reason recorded here for two
+  #   revisions was not.
+  #   DURABILITY WARNING — THIS RATIONALE IS COUPLED TO WHERE THE INDEX TREE LIVES, AND
+  #   NOTHING TESTS THE COUPLING. Move that tree INSIDE the repo — a plausible fix for the
+  #   PATH_MAX trigger on # BL-182-PER-ENTRY-SKIP, since a shorter root buys back name
+  #   length — and every target becomes row 1: upstream's exemption starts applying, the
+  #   size filter stops firing on its own, and `--max-target-bytes=0` becomes a no-op for
+  #   the trigger it was added for. NOTHING WOULD GO RED. The flag would simply stop doing
+  #   anything while this comment went on claiming it does. Any such refactor MUST
+  #   RE-DERIVE the table above rather than assume it, and must not read a green suite as
+  #   evidence the flag still earns its place.
+  #   FALSIFIER — RUN IT, DO NOT TRUST THIS. In a scratch git repo holding one >1MB .ts,
+  #   with cwd = that repo:
+  #     A=(--config=.semgrep/soif-dom-sinks.yml --no-git-ignore --severity=ERROR --error)
+  #     semgrep scan "${A[@]}" big.ts               # in-project  -> Targets scanned: 1
+  #     semgrep scan "${A[@]}" /elsewhere/big.ts    # out-project -> Targets scanned: 0
+  #   PRECONDITION, without which NEITHER row moves: the file must exceed 1 MB. Under the
+  #   cap both read `Targets scanned: 1`, and a reader who tries it there sees no
+  #   difference and wrongly concludes the claim is unverifiable.
+  #   If `--max-target-bytes` is ever reinstated (see BL-187), the deleted `Scan skipped`
+  #   excerpt becomes live again and its removal should be reconsidered — do not conclude
+  #   from that release note that a cap cannot silently drop a staged blob. Against this
+  #   arm's out-of-project targets it can, and # BL-112-SCAN-COVERAGE exists because it did.
   #   Do NOT restore it as-is, and do NOT reach for `--verbose` to make the section exist
   #   — that is a behaviour change to the invocation and out of this helper's scope. The
   #   line below already tells the operator the true thing.
@@ -908,8 +953,13 @@ if command -v semgrep &>/dev/null; then
       # dead ends, and the open design question (a decode guard must verify the decode
       # ITSELF, not read semgrep's self-report) are on # BL-112-SCAN-COVERAGE above.
       #   DO NOT RE-ADD THE CLAUSE WITHOUT RE-MEASURING THE INSTRUMENT ON THE SEMGREP THE
-      #   PROJECT ACTUALLY HAS. Generated projects do not pin semgrep, so "it passed on my
-      #   host" is not evidence about the host that will run it.
+      #   PROJECT ACTUALLY HAS — AND NOTE WHICH SEMGREP THAT IS, BECAUSE THERE ARE TWO.
+      #   THIS HOOK runs whatever `semgrep` is on the operator's PATH and pins nothing, so
+      #   "it passed on my host" is not evidence about the host that will run it. The CI
+      #   SAST job is a DIFFERENT surface and IS pinned — every generated CI template that
+      #   runs semgrep pins `image: semgrep/semgrep:1.170.0`, one release below the 1.171.0
+      #   version on which this instrument goes blind (BL-192), so a routine currency bump
+      #   crosses that line for every generated project at once.
       # BL-187-RULE-COVERAGE (parse) — THE THIRD FACT, AND THE ONE THE FIRST TWO
       # STRUCTURALLY CANNOT SEE. Selection is fixed before a byte is parsed; the parse
       # percentage is fixed once the AST exists. Neither is touched by what happens NEXT:

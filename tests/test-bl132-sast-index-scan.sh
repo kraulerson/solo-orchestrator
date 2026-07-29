@@ -148,11 +148,17 @@
 #                                 loud NOTRUN, never [OK]. Pins that the parser itself
 #                                 cannot become a silent-success path.
 #   NOT IN THIS SUITE, AND THE ABSENCE IS DELIBERATE — THE PARSE/DECODE STAGE.
-#                                 Six cases covering a `Parsed lines: ~N%` clause
+#                                 FIVE cases covering a `Parsed lines: ~N%` clause
 #                                 (T-utf16-parse-drop-no-receipt, T-mutation-parse-coverage,
 #                                 T-parse-coverage-fails-closed, T-parse-threshold-exact,
 #                                 T-mutation-parse-threshold) were
-#                                 written, measured and WITHDRAWN before merge. The clause
+#                                 written, measured and WITHDRAWN before merge. FIVE, NOT
+#                                 SIX — the set difference against
+#                                 origin/fix/bl112-sast-scan-coverage (e87dbd3) leaves SIX
+#                                 parse-named cases, but T-parse-coverage-no-cry-wolf was
+#                                 RENAMED to T-coverage-no-cry-wolf and KEPT (below), and
+#                                 T-empty-target-receipt was KEPT and rescoped. Count the
+#                                 withdrawals, not the renames. The clause
 #                                 works on semgrep 1.157.0 and is BLIND on >= 1.171.0, where
 #                                 the banner reads `Parsed lines: ~100.0%` for a file semgrep
 #                                 never decoded. Do not re-add the cases without re-measuring
