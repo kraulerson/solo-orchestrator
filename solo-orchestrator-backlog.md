@@ -3374,7 +3374,7 @@ recorded above is an unrelated surface and is NOT closed by this.
 **Logged:** 2026-07-18 (first formal CI surfacing, full-lane run 29649055577; observed locally 2026-07-12 during the BL-099 round-4 full run — recorded then as "worth a backlog entry, NOT yet filed")
 **Category:** Bug / test debt (full-lane only)
 **Severity:** Low
-**Status:** Open
+**Status:** Closed — 2026-07-29, on the full-lane `workflow_dispatch` run **`30204845017`** (2026-07-26, head `d970b27`). **Closed on the per-test evidence, NOT on the run's colour — that run's overall conclusion is `failure`.** Both of this entry's tests passed every case in it: TEST 5 (`[PASS] Phase gate script runs in created project`, `[PASS] Phase gate can access tool-preferences.json`) and TEST 7 (five `[PASS]` rows, including `Dry-run shows resolver-based tool output`, the specific symptom filed here). The shard went red on ONE unrelated child, `tests/test-bl033-install-cmds-shape.sh`, which passes locally 8/0 and is owned by the already-Closed **BL-135** (fixed at `c98775c`, an ancestor of `main` but NOT of the head that run tested). `full (aggregators)`, `full (edge-scripts)` and `full (edge-pre-init)` were all green. Citing "the full lane was green" would have been false; **this AMENDS the closure condition this entry recorded for itself, and says so rather than pretending otherwise.** The recorded condition — still present in the body below, in bold, twice — was *a green full-lane run*. That is not what happened: the lane is red. The amendment is to the narrower condition *both of this entry's tests green in a full-lane run*, on the grounds that the lane's only failure is unrelated, separately owned (it is the already-Closed BL-135, observed on a head that predates its fix `c98775c`), and cannot be made green by anything in this entry's scope. Amending a recorded condition is legitimate; quietly restating it as though it had always been the narrower one is not, and an earlier draft of this line did exactly that.
 
 Both reproduce in the core shard and predate the Dogfood-2 remediation (the 2026-07-12 local run hit the identical pair on then-main). Prior diagnosis notes: TEST 7's fixture under-feeds `prompt_choice` on the dry-run resolver path; TEST 5's phase-gate invocation fails in the suite's fixture context. Neither is covered by the unit lane. Fix shape: reproduce each in isolation, repair the FIXTURE if it models a stale world (the BL-134/zdr-gate pattern) or the product if the gate genuinely misbehaves; register nothing new (both live inside the aggregator).
 
@@ -4397,7 +4397,7 @@ The BL-132 SAST arm materializes each staged blob into a single `mktemp -d` tree
 **Logged:** 2026-07-25 (PR #270 final-gate adversarial review, R-270-2)
 **Category:** Bug / security enforcement — commit-time SAST target selection (silent-success class)
 **Severity:** High
-**Status:** Open
+**Status:** Closed — shipped + merged 2026-07-27 (PR #274 `24ac0bd`). `# BL-179-STAGED-FILTER`: the SAST staged-read filter moved `ACM` → `ACMRT`, so a rename-and-edit commit is scanned instead of skipped entirely and silently. Landed in the same rewrite of the emitted SAST region as BL-182 by design — both touch the same loop and the same `soif_idx_files` population. **AS SHIPPED IN PR #274 the BL-125 test-exec arm was deliberately NOT changed** — it remained `ACMDR`, and `# BL-179-STAGED-FILTER`'s shipped comment says why: "They are not the same decision as the BL-125 test arm's ACMDR (~120 lines below) and must not be copied from it." **PR #280 (`8f36382`) later moved that arm to `ACMDRT` under `# BL-179-TESTARM-FILTER`, for its own reason** — so on `main` today the arm is `ACMDRT` and the quoted comment beside it is itself stale. Both statements are true of their own commit and neither is true of the other; that is the point of stamping them. (A first draft of this closure credited that change to PR #274, where it did not happen. Preserved as BL-196's worked example.)
 
 The commit-time SAST arm builds its target list from
 `git diff --cached --name-only --diff-filter=ACM -z` (the NUL-delimited `soif_staged`
@@ -4492,7 +4492,7 @@ same region, fixed in the same diff).
 **Logged:** 2026-07-25 (surfaced by the WP2 planner during anchor verification; empirically confirmed by a dedicated pty A/B)
 **Category:** Bug / enforcement gap (BL-030 surface, interactive scaffold birth site)
 **Severity:** HIGH — the default operator UX (`./init.sh`, no flags) produces a project whose strict-mode commit gate was never installed, while every diagnostic reports the project as strict.
-**Status:** Open
+**Status:** Closed — shipped + merged 2026-07-27 (PR #273 `3ad2bf7`). The interactive `init.sh` path now resolves `enforcement_level` and installs the filesystem gate, so a hand-run scaffold is no longer born with `enforcement_level: ""` while every diagnostic reports it as strict. Filed and fixed in the same wave; the defect was that the NON-interactive path did both and the interactive path did neither, so the gap was invisible to anyone testing with flags.
 
 `ENFORCEMENT_LEVEL=""` at top-of-file. The only assigner is the `# BL-030: resolve enforcement_level`
 block, which sits INSIDE the `if [ "$NON_INTERACTIVE" = true ]` arm of `main`. The `else` arm runs only
@@ -5126,7 +5126,7 @@ flips from FAIL to PASS → RED → restore → GREEN.
 **Logged:** 2026-07-25 (PR #270 final-gate adversarial review, R-270-3; confirmed A/B against main)
 **Category:** Bug / security enforcement — commit-time SAST materialization (the "one bad entry blinds the whole commit" class, instance 3)
 **Severity:** Medium
-**Status:** Open
+**Status:** Closed — shipped + merged 2026-07-27 (PR #274 `24ac0bd`), together with BL-179 in one rewrite of the emitted SAST region. `# BL-182-PER-ENTRY-SKIP`: the all-or-nothing `soif_idx_ok=0; break` is gone (the variable no longer exists in executable code — the two remaining textual hits in `scripts/lib/hook-templates.sh` are comments describing the retired mechanism, which is worth knowing before anyone re-greps and concludes otherwise). An unreadable entry is appended to `soif_idx_unread` and the loop CONTINUES, so coverage degrades entry-by-entry instead of collapsing. Three honesty guarantees keep "scan the readable subset" from becoming a smaller silent-success, each with its own marker: `# BL-182-PARTIAL-STILL-BLOCKS`, `# BL-182-NO-UNEARNED-RECEIPT`, `# BL-182-NAME-THE-ENTRY`.
 
 The BL-132 materialized destination is `$soif_idx_tree/$soif_idx_n/$soif_p` (`# BL-132-INDEX-SCAN` /
 `# BL-178-PER-INDEX-DIR` in `scripts/lib/hook-templates.sh`). `mktemp -d` contributes ~63 characters on
@@ -5147,7 +5147,21 @@ HEAD 3157eb9 -> dirname: /var/folders/.../tmp.jzZLnTISwY/1/d0000.../long.js: Fil
                 commit rc=0, sibling XSS LANDED
 ```
 
-**Severity argument — Medium, and the reasoning matters more than the number.** Against it: this is a
+**Severity argument — Medium, and the reasoning matters more than the number.**
+
+> **CORRECTION (2026-07-29): the "REGRESSION versus main" clause below is FALSE AS WRITTEN, and is
+> kept rather than deleted because the way it went wrong is the transferable part.** The A/B was run
+> against a `main` that did not yet carry the defect — but by the time this sentence was committed,
+> it did. Measured: `## BL-182:` was committed at **2026-07-25T17:57:31Z**; PR #270 (`b0b60aa`),
+> which INTRODUCED the mechanism, merged at **2026-07-25T17:37:58Z** — **19 minutes 33 seconds
+> earlier**. Proof the mechanism arrived with #270: `git show b0b60aa:scripts/lib/hook-templates.sh
+> | grep -c 'soif_idx_ok=0'` = **5**, versus **0** at `b0b60aa^1`. So the correct reading is "a
+> regression introduced by #270, filed against the branch before it merged", not "a divergence from
+> main". **The lesson: an A/B against `main` is stamped with a time, and a review that runs while
+> its own PR is merging is comparing against a moving target.** Severity is unaffected — the
+> mechanism, the loudness argument, and the pathological trigger all stand.
+
+Against it: this is a
 **REGRESSION versus main** (main BLOCKS the same fixture) and it is the **THIRD** instance of the same
 mechanism in the same loop, after R-270-1 (submodule gitlink) and R-270-1B (`0:`-prefixed stage
 syntax). For it: it fails **LOUD** — the BL-112 honest-NOTRUN contract holds, the operator is told
@@ -5399,7 +5413,7 @@ Restoring the pipe spelling turns it RED in both files (mutation-proven).
 **Logged:** 2026-07-26 (surfaced while triaging the full-lane run `30204845017`; BL-183 was taken concurrently, so this entry is BL-184)
 **Category:** Verification lane / test infrastructure — diagnostic destruction (silent-success sibling class)
 **Severity:** High — not a product defect (nothing shipped behaves wrongly), but a force multiplier on every *other* defect: it converted every CI-only child failure into an unactionable one-liner. The cost is measured, not hypothetical — BL-135 sat open 2026-07-18 → 2026-07-26 across two ~3h full-lane runs with zero root-cause progress, because the diagnostic was destroyed at the moment of capture.
-**Status:** Open
+**Status:** Closed — shipped + merged 2026-07-27 (PR #276 `ffc43a8`). All 177 aggregator delegates now preserve child stdout AND stderr on failure instead of `>/dev/null 2>&1`, so a CI-only child failure is actionable rather than a `run for details` that could not be run. **Its cost was still being paid after the fix landed**: the full-lane run `30204845017` (2026-07-26, one day BEFORE this merged) reports `[FAIL] tests/test-bl033-install-cmds-shape.sh FAILED (run for details)` and nothing else — see **BL-135**, whose second CI data point is that same run; its `run for details` is unactionable only because the run predates this fix by a day.
 
 **Evidence.** All 177 delegates in `tests/full-project-test-suite.sh` matched exactly
 `if bash "$SCRIPT_DIR/<child>" [args] >/dev/null 2>&1; then / pass / else / fail / fi` — verified
@@ -6179,3 +6193,94 @@ lives in), BL-112 (the `# BL-112-MAX-TARGET-BYTES` prose whose falsifier trigger
 `adversarial-verify-patterns` memory note requiring a runnable falsifier in shipped comments — this
 entry is the first case where **satisfying that rule broke a test**, which is a cost of the rule worth
 knowing, not an argument against it.
+
+---
+
+## BL-195: WITHDRAWN — duplicate of BL-135 (Closed), filed in error
+
+**Logged:** 2026-07-29 · **Withdrawn:** 2026-07-29, same day, before merge (adversarial review, R-BK-2)
+**Status:** Won't Fix — withdrawn as a duplicate; the defect is real and is owned by **BL-135**, which
+is Closed with the fix `c98775c`.
+
+**What it claimed.** That `tests/test-bl033-install-cmds-shape.sh` failing on the full lane while
+passing locally 8/0 was an untracked CI-only red, and that the next step was to spend a
+`workflow_dispatch` (~3h) re-diagnosing it. It also warned the reader *not* to assume it shared a
+cause with BL-135.
+
+**Why that was wrong — and it is worth keeping rather than deleting.** BL-135's title is
+*"test-bl033-install-cmds-shape fails on ubuntu CI and is GREEN on macOS — the harness depends on the
+host having Homebrew"*. It is the same test, the same asymmetry, and BL-135's own body **already
+cites the identical run** `30204845017` as its second CI data point. It was root-caused (a Homebrew
+probe in `scripts/resolve-tools.sh`) and fixed at `c98775c` — which is an ancestor of `main` but
+**NOT** of `d970b27`, the head that run tested. So the observation was a pre-fix head reproducing an
+already-solved defect, and the entry told the next reader to spend three hours re-deriving it while
+explicitly steering them away from the entry that had the answer.
+
+**The transferable part.** The evidence was collected correctly and interpreted without checking
+whether an existing entry already owned it. A `grep -n 'test-bl033' solo-orchestrator-backlog.md`
+before filing would have surfaced BL-135 immediately. **Before filing a CI-only asymmetry, grep the
+backlog for the failing test's name.** This repo has several such asymmetries and they do NOT share
+a cause — BL-135 was a host Homebrew probe, BL-183 was GNU-vs-BSD grep under `pipefail`, and the
+`sast`-shard one tracked on PR #280 was a stream difference in semgrep's status banner. Three
+symptoms that look identical in a transcript, three unrelated mechanisms; pattern-matching on the
+symptom is unreliable in both directions, which is what produced this duplicate.
+
+**Residual worth one line, and only one.** The run cited is pre-fix, so it is not evidence that
+`test-bl033` still fails today; equally, no post-`c98775c` full lane has been run. If a future full
+lane shows it red again, reopen **BL-135**, do not file a new entry.
+
+---
+
+## BL-196: Nothing catches a broken or misspelled `# BL-NNN-…` marker comment, though CLAUDE.md makes it the repo's citation primitive
+
+**Logged:** 2026-07-29
+**Category:** Enforcement gap / citation integrity
+**Severity:** Medium — silent. A marker that is renamed, typo'd or deleted breaks every citation that
+points at it, and no lint, test or gate notices.
+**Status:** Open
+
+**The gap.** CLAUDE.md § CITATION RULE says to cite code by a grep-able `# BL-NNN-…` marker comment
+or a function name, **never** a bare `file:line`, because line numbers have mis-resolved within 24h
+of a handoff being written. The marker is therefore load-bearing infrastructure — and it is
+completely unenforced. There is no lint that:
+- resolves every `# BL-NNN-…` marker cited in `solo-orchestrator-backlog.md`, `docs/**` or
+  `CLAUDE.md` to an actual occurrence in the tree; or
+- flags a marker defined in code that no document references (dead citation anchor); or
+- catches a marker whose `BL-NNN` prefix names an entry that does not exist.
+
+**Why it is worth a lint rather than review vigilance — with a worked example produced by the very
+commit that files this entry — and the example got SHARPER when its first version turned out to be
+wrong.** BL-179's closure, in this same diff, credited `# BL-179-TESTARM-FILTER` (the BL-125 test
+arm moving to `ACMDRT`) to **PR #274**. Adversarial review reported the marker "exists nowhere",
+which was true of `main` at `818c6eb` — and false a day earlier and 14 minutes later, because the
+marker had been on the unmerged PR #280 branch since `dbd78fa` (2026-07-28) and #280 merged as
+`8f36382` while this branch was being corrected.
+
+So the real defect was never invention. **It was MISATTRIBUTION: a real marker and a real change,
+described accurately, credited to the wrong PR.** That is the stronger case for this lint, not the
+weaker one — an invented marker at least fails a grep, whereas a correctly-spelled marker cited
+against the wrong PR resolves fine and is invisible to `lint-backlog-references.sh`, which checks
+only that a cited **entry** exists and never that a cited **marker** does, still less that it landed
+where the citation says. Both readings of this incident passed every automated check the repo has;
+only human-grade review caught either. And the first correction was itself falsified by a merge
+between writing and pushing, which is the second lesson: **a marker claim is stamped with a tree,
+and "exists nowhere" is a statement about one commit, not about the repo.**
+
+**Scope, measured rather than asserted — and stamped, per the lesson above.** An earlier draft of
+this entry claimed markers with a test backstop are "the exception". That is false: **measured at
+`818c6eb`**, of **202** `# BL-NNN-…` marker families in `scripts/`, `init.sh` and `tests/`, **165 are
+named somewhere under `tests/`**. (At `8f36382`, after PR #280, the same recipe reads **215 / 177** —
+the ratio is stable, the absolute numbers are not, which is exactly why the stamp is here.) Naming is weaker than
+asserting — a mention in a comment is not a guard — so the count of markers whose *loss* would turn a
+suite red is lower than 165 and has not been measured here. The gap this entry files is therefore
+**not** "markers are unprotected"; it is that **nothing validates the citation direction**: prose →
+marker, and marker → entry.
+
+**Suggested shape.** A `scripts/lint-bl-markers.sh` doing three passes: (a) every `# BL-NNN-` marker
+in `scripts/**`, `tests/**`, `init.sh` resolves to a `## BL-NNN:` entry; (b) every marker cited in
+prose resolves to a marker in code; (c) a floor so the lint cannot pass vacuously if the grep breaks.
+Registration per the house rule: `scripts/run-lints.sh` picks up `lint-*.sh` automatically, plus a
+`.github/workflows/lint.yml` job if it is to block.
+
+**Related:** CLAUDE.md § CITATION RULE, BL-179 (whose closure carried the worked example above),
+BL-038/BL-181 (the registration-lint family this would join).
