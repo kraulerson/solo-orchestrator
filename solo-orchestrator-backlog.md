@@ -6608,6 +6608,186 @@ recorded on the PR).
 
 ---
 
+## BL-199: The README's own Quick Start could not be executed — `guard_not_in_framework`'s unconditional cwd check refused `./init.sh` from inside the clone, and no test ever ran the documented sequence
+
+**Logged:** 2026-07-29
+**Category:** Product defect / docs-vs-code contradiction / coverage hole
+**Severity:** High — this is the FIRST command a new user runs. The documented onboarding path
+exited 1 before any prompt.
+**Status:** Open — implemented on `fix/bl199-quickstart-from-clone`; flips to Closed at merge (PR
+citation added then, per the Closed-status citation rule).
+
+**The defect.** README § Quick Start said: `git clone` → `cd solo-orchestrator` → `chmod +x init.sh`
+→ `./init.sh`. init.sh's early block called `guard_not_in_framework "$_early_target"`, whose FIRST
+arm is an **unconditional cwd check** — `_gnif_dir_is_framework "$(pwd)"` — so from inside the clone
+init.sh refused before reaching a single prompt. Measured on `08315c0` from the clone root with
+`--project-dir` pointing at a benign external tempdir: **rc=1**, `[FAIL] Refusing to operate inside
+the Solo Orchestrator framework repo. Detected framework signature (cwd): …`. Supplying an explicit
+external target did **not** help: the cwd arm runs first and does not care what the target is. The
+only invocation that worked from the clone was `--dry-run`, which skips both checks by design.
+
+The advice the refusal printed made it worse: *"Move to your project directory and re-run: cd
+/path/to/your-project"*. For a first-time user there is no project directory yet — creating it is
+what they were trying to do.
+
+**The coverage hole — and why it stayed open.** No test ever executed the README's literal sequence.
+`tests/edge-cases-pre-init.sh` E8b hit this exact wall: the harness runs init.sh from inside the
+framework checkout, the cwd arm fired first, and the read-only-target assertion was unreachable, so
+E8b was SKIPped. BL-041's fix reordered `preflight_target_writable` to run BEFORE
+`guard_not_in_framework` — which got the **TEST** past the wall without anyone asking why the
+**USER** was behind it. The init.sh comment block records the reasoning verbatim: *"The previous
+ordering also blocked tests/edge-cases-pre-init.sh E8b … Reordering the two closes that test gap
+without weakening either guard."* True as written, and the user-facing contradiction survived it
+untouched. Lesson for the class: **when a guard blocks a test, ask whether it also blocks the
+documented user path before you route around it.**
+
+**The decided contract (Karl, 2026-07-29).** Quoted:
+
+> 1. Running init.sh FROM INSIDE the clone is the SUPPORTED flow.
+> 2. The script must still FAIL when the operation would write ONTO the framework itself: target ==
+>    framework root, target INSIDE the framework tree, or target is another framework clone
+>    (signature match).
+> 3. `./init.sh --project-dir <bare-name>` creates the project ONE LEVEL UP from the framework
+>    clone: `/x/solo-orchestrator/init.sh --project-dir testproject` → `/x/testproject/`. Anchor is
+>    the PARENT OF THE DIRECTORY CONTAINING init.sh (SCRIPT_DIR/..), NOT the cwd.
+> 4. README Quick Start documents `./init.sh --project-dir <project-folder-name>` as the activation.
+
+**The fix.** Two new functions in `scripts/lib/helpers-core.sh`:
+- `# BL-199-SIBLING-RESOLVE` — `soif_resolve_target_dir <raw> <anchor_parent>`. Empty → empty;
+  **absolute → unchanged** (the back-compat hinge, and what makes the resolver idempotent so all
+  three init.sh call sites can apply it); relative → joined to the anchor, then lexically normalized
+  (`.` dropped, `seg/..` collapsed) in a bash-3.2-safe loop with no `realpath` dependency.
+- `# BL-199-TARGET-GUARD` — `guard_target_not_in_framework <abs_target> <framework_root>`. Three
+  arms: target is a framework clone by signature (the security-audits-1 S3 vector, preserved);
+  target IS the framework root; target is INSIDE the framework tree. The third arm is **new** — the
+  old cwd check never saw subdirectory targets — and both the root and inside arms compare PHYSICAL
+  and as-given forms so a symlinked temp root cannot slip past on a spelling difference. The refusal
+  text deliberately does **not** reuse the old guidance: it tells the operator that running from the
+  clone is fine and offers the two legitimate target shapes.
+
+In `init.sh`: `# BL-199-SIBLING-ANCHOR` (`soif_sibling_anchor`, the `SCRIPT_DIR/..` anchor) plus
+three resolve sites — the early block (fast-fail UX, BL-041's preflight-first ordering **preserved**
+and still pinned by E8b and `test-init-write-perm-preflight` T1), the non-interactive existence
+check (so "already exists" tests the real target, and so a config-file `project_dir` is covered),
+and `create_project()`, which resolves + guards immediately before `mkdir` and is commented as **the
+authoritative gate** because the interactive and config-file paths only converge there.
+
+**Blast radius, deliberately bounded.** `guard_not_in_framework` is **unchanged** and still cwd-first
+for every other caller — **six scripts, eight call sites**, measured 2026-07-29 with
+`grep -rn guard_not_in_framework --include='*.sh' scripts/`: `verify-install.sh`,
+`reconfigure-project.sh`, `upgrade-project.sh` (×3), `pending-approval.sh`, `process-checklist.sh`,
+`intake-wizard.sh`. (The dispatch brief for this change said "seven other callers"; the measured
+figure is six scripts / eight sites, and `pending-approval.sh` additionally defines a same-named
+no-op fallback, which is a definition and not a call.) Those genuinely operate ON the cwd project
+and must keep refusing inside the framework. Only init.sh's call site flipped. The one
+structural edit to the old function is behaviour-neutral: its inner `_gnif_dir_is_framework` now
+delegates to a hoisted top-level `_soif_dir_is_framework`, because bash only publishes a nested
+definition after the enclosing function has run and the new guard needed the same signature probe.
+
+**The contract flip in the test suite.** `tests/test-init-write-perm-preflight.sh` **T2** asserted
+that framework-cwd + a WRITABLE EXTERNAL target was refused ("defense-in-depth preserved"). Under
+the new contract that invocation is the supported flow and succeeds — keeping the assertion would
+have pinned the defect. T2 is rewritten to pin the defense-in-depth that survives: framework-cwd +
+a preflight-PASSING target INSIDE the framework → refusal, with nothing created. T1 (the ordering
+pin) and T3 survive unchanged; their exact-banner greps were widened to the shared `Refusing to
+operate` opener so they catch either guard's message.
+
+**New coverage.** `tests/test-bl199-quickstart-from-clone.sh` builds its own framework clone in a
+tempdir and runs the README's literal sequence: T1 README-literal → sibling scaffold; T2 anchor is
+`SCRIPT_DIR/..` not the cwd (run from a THIRD directory, so the two anchors actually differ — the
+brief's original shape had cwd == `SCRIPT_DIR/..` and could not have detected M1); T3 inside-target
+refused before any `mkdir`; T4 target-is-this-clone's-root refused (green pre-fix, back-compat pin —
+and see below, it isolates no single arm); T5 absolute external target from the clone cwd; T6 the
+clone's file list is byte-identical before and after T1. Mutation proofs **M1** (anchor := cwd → T2
+red) and **M2** (drop the inside-framework arm → T3 red; the mutant scaffolded a whole project INTO
+the clone). Pre-fix baseline for the record: T1/T2/T3/T5 red, T4/T6 green. Registered in
+`tests/full-project-test-suite.sh` only — it invokes init.sh, so the tests.yml unit-lane exemption
+is legitimate (`lint-tests-registered.sh --list` renders it as `unit-lane-exempt:init-sh-invoker`).
+
+**Adversarial review round (2026-07-29, against `fe2d045`) — two blockers, both real.**
+
+*R-199-1, the security blocker.* macOS APFS is case-INSENSITIVE by default and `pwd -P` resolves
+symlinks but does NOT canonicalize case, so two spellings stay distinct STRINGS naming one
+directory and the byte-wise prefix match in `_bl199_path_is_inside` missed them. Measured
+end-to-end on `cabd709`: `--project-dir "$TMP/CLONE/injected"` against a clone at `$TMP/clone`
+exited **rc=0 with no refusal and scaffolded 602 files INSIDE the framework**. The root itself was
+refused only incidentally, via arm (a)'s `[ -f "$d/init.sh" ]` following the case-insensitive
+lookup; subdirectories had no backstop at all. **Fix:** device+inode identity (`_bl199_dir_id`,
+GNU-first `stat -c '%d:%i' || stat -f '%d:%i'`, after a `cd … && pwd -P` because `stat` does not
+dereference a symlink argument on either platform), applied to both the is-root and the
+ancestor-walk checks. Identity is spelling-agnostic by construction and covers symlinks, hardlinked
+directories and bind mounts in one predicate. Explicitly **not** a `tr '[:upper:]' '[:lower:]'`
+comparison: on a genuinely case-SENSITIVE filesystem `/x/FOO` and `/x/foo` are different
+directories and case-folding would false-REFUSE a legitimate target — correct on neither kind of
+filesystem, where identity is correct on both. The string comparisons are kept as a cheap first
+pass.
+
+*R-199-2, the coverage blocker.* T4's shape (`target == framework root`) is satisfied redundantly by
+arms (a) and (b), so it could not detect the loss of either — the reviewer's mutants MX4 (signature
+arm off) and MX5 (is-root arm off) both **survived 8/8**. Worse, init.sh's coverage of the
+security-audits-1 **S3 vector was zero**: the only test of that vector,
+`test-platform-security-bugs-closer.sh::T3a`, exercises the OLD `guard_not_in_framework`, which
+init.sh no longer calls. Added the isolating shapes: **T8** = S3v, `--project-dir` at a SECOND,
+different framework clone from a benign cwd (only arm (a) can see it); **T7** = target IS the
+framework root against a fixture whose `templates/generated` is absent, which blinds arm (a), while
+arm (c) starts at the target's PARENT and so never matches the target itself (only arm (b) can see
+it). Both targets EXIST, so both tests assert on text unique to the guard rather than on `rc!=0`,
+which the existence check would also produce. Mutation proofs **M3** (= MX4) and **M6** (= MX5) run
+both in-suite and now die. Also added **T9** case-variant, **T10** symlinked target, **T11** a
+prefix-sibling (`clone-2`) that must still be ALLOWED so the fix cannot over-refuse, plus **M4**
+(identity comparison off → T9 red) and **M5** (both `pwd -P` resolutions off → T10 red, closing
+R-199-7's unpinned physicalization).
+
+**Stated, not papered over — and CORRECTED in round 2.** Round 1 claimed that *every* string
+comparison in arms (b) and (c) was a strict subset of the identity check beside it. **Three of the
+four are; the fourth is not, and that claim was false.** `_bl199_path_is_inside "$abs_target"
+"$fw_root"` — the AS-GIVEN comparison in arm (c) — uniquely catches a symlink that lives INSIDE the
+framework and points OUTSIDE it (`ln -s /elsewhere "$FW/escape"`, target `$FW/escape/proj`):
+identity and the physicalized string both say "outside", because the bytes really do land
+elsewhere. Measured — removing that atom flips the target from REFUSE to allow. Round 1 shipped
+that behaviour by over-determination, undocumented and unpinned; **T12** and **M7** now pin it.
+The remaining three atoms, and `_bl199_physical_path`'s `pwd -P` while `_bl199_dir_id` does its own
+(which is why M5 must remove both), are genuine over-determination on the cheap path.
+
+**Decision recorded — `$FW/escape/proj` is REFUSED, deliberately.** This is a judgement call, not
+an obvious invariant: physically nothing is written into the framework, so allowing it would not
+break the no-contamination invariant. It is refused because the contract is stated over the path
+the OPERATOR SUPPLIES ("not the clone, not anything inside it"), because otherwise acceptance would
+depend on which symlinks happen to exist in the framework tree — framework CONTENTS deciding an
+operator-input question, unpredictably and changeably — and because anyone who genuinely wants that
+destination can pass its real absolute path. Refusal is the conservative side of a real ambiguity.
+
+**Two hardening items from round 2.** The identity checks FAIL OPEN when the framework root has no
+usable device+inode (no working `stat`, or an unsearchable root). Failing open is deliberate —
+failing closed would refuse every target on such a box and brick init.sh — and the degradation is
+narrow (only a case-variant or symlinked spelling is missed; the string comparisons still refuse
+the root and any lexically-inside target), and unreachable through init.sh, where `fw_root` is
+`$SCRIPT_DIR`. But *silent* degradation is this repo's named defect class, so it now emits a
+`print_warn` to stderr. Separately, the `stat`-identity claim covers symlinks by measurement (T10 +
+M5); it *should* cover hardlinked directories and bind mounts by definition, but no test in this
+repo can reach either (unprivileged directory hardlinks are refused on both platforms, macOS has no
+bind mounts), so that is written down as a deduction and not as a tested property.
+
+T9 and M4 SKIP on case-sensitive filesystems, so the aggregator label deliberately carries no fixed
+N/N and the suite's tally line now reports `Skipped` explicitly — `run_child_suite` prints a child's
+output only on FAILURE, so on Linux a green run would otherwise leave no trace that two cases never
+executed (BL-197's class in miniature).
+
+**Follow-up NOT done in this change — `--dry-run` does not refuse a target it will refuse for real.**
+Measured: `--validate-only` with an in-framework target exits 1 with the refusal; `--dry-run` exits
+0 and prints "Re-run without --dry-run to execute". Pre-existing and harmless (dry-run writes
+nothing), but the README offers `--dry-run` as the preview, so the preview now ends by recommending
+a command that will be refused. Deliberately deferred rather than half-fixed: the flag half is a
+three-line change, but the README's own tip is bare `./init.sh --dry-run` — the INTERACTIVE path,
+where no target exists at the early block and the guard would have to move into `dry_run_summary`.
+Fixing only the flag half would not fix the documented example. No new BL number is minted here
+because the numbering space is contested across unmerged branches; this paragraph is the filing.
+
+**Related:** BL-041 (the reorder that routed around this without seeing it), security-audits-1 S3
+(the target-dir argument whose vector is preserved by arm (a)), CLAUDE.md § CITATION RULE.
+
+---
+
 ## BL-200: The token-stream-break blind spot — an ordinary ASCII source file with a syntax error hides its sink from semgrep, and no byte-level check can see it
 
 **Logged:** 2026-07-29 (split out of BL-198 v2 after review finding R-1 proved v1's plan blessed it).

@@ -660,7 +660,13 @@ else
     fail "E8b: expected non-zero exit (write-perm preflight); got rc=0"
   elif ! echo "$e8b_output" | grep -qE "write permission denied|Cannot create project directory"; then
     fail "E8b: did not emit write-permission marker (rc=$e8b_exit). Tail: $(echo "$e8b_output" | tail -5)"
-  elif echo "$e8b_output" | grep -q "Refusing to operate inside the Solo Orchestrator framework repo"; then
+  # BL-199 (2026-07-29): widened from the old guard's exact banner to the
+  # shared "Refusing to operate" opener. init.sh now guards the TARGET
+  # (guard_target_not_in_framework), whose refusal deliberately uses different
+  # guidance text — the old exact-string grep would have gone blind to a
+  # layering regression by the new guard. E8b's contract is unchanged: this
+  # target's parent is read-only, so the preflight must still win.
+  elif echo "$e8b_output" | grep -q "Refusing to operate"; then
     fail "E8b: framework-repo guard fired first (BL-041 layering regressed). Tail: $(echo "$e8b_output" | tail -5)"
   else
     pass "E8b: write-perm preflight fires before framework-repo guard (BL-041 layering active)"
