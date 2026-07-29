@@ -5964,8 +5964,33 @@ version against itself and conclude, wrongly, that there is no difference to fin
 
 **Surviving candidates, unranked:** sandbox/tmpdir interaction with the BL-132 index temp tree,
 `PATH` resolution of `semgrep` inside the emitted hook on the runner, and runner-side registry
-behaviour. The recommended next step above is unchanged and is still the single action that
-distinguishes them: **preserve `$soif_sg_err` as a CI artifact.**
+behaviour.
+
+**THE RECOMMENDED ACTION IS DONE — and it did not need a product change (`# BL-193-EVIDENCE`).**
+The recommendation above was "preserve `$soif_sg_err` as a CI artifact", which would have meant
+editing the emitted hook — shipped enforcement code — to keep a temp file for a debugging need.
+That was the wrong place, and it was unnecessary: **the bytes were already being captured and
+then thrown away.** All three failing cases write the hook's FULL output to `$TOPTMP/<log>` and
+then report only `tail -8` (or `tail -3`) of it — which on these fixtures lands squarely on the
+unrelated `[WARN] no test command configured` block plus git's commit summary. The SAST section
+was in the file the whole time and never reached the transcript. **That is the BL-184
+evidence-destruction class one level below the aggregator**: BL-184 fixed the parent discarding
+its children's output; here the child discards its own.
+
+Replaced with `sast_evidence()`, which prints every line matching the emitted hook's SAST
+reporter vocabulary plus semgrep's own banner — deliberately the whole vocabulary, so an arm
+that fires for an unanticipated reason is still shown rather than filtered out by a guess about
+which arm it will be. Failure-path only; it cannot change a verdict. Its falsifier is runnable
+as written: point it at a log with no SAST section and it prints `(no SAST section in <path>)`
+rather than nothing, because silence would be indistinguishable from a helper that never ran.
+
+**What the next `sast` shard run should now discriminate**, without pre-judging which:
+`SAST NOT ENFORCED … the scanner did not run` (semgrep never ran — `PATH` resolution inside the
+hook on the runner) · `semgrep could not complete (exit N)` (ran and failed; `N` discriminates) ·
+`SAST coverage was PARTIAL` or `could not materialize staged content` (the BL-132 index temp
+tree — sandbox/tmpdir) · a `Scanning N files with M Code rules:` line whose `N` differs from the
+staged count (the coverage arithmetic, and we would finally see the number). That set covers
+every surviving candidate above, which is what makes it the single action worth taking.
 
 ---
 

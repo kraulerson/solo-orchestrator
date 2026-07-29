@@ -393,6 +393,30 @@ mk_repo() {
 head_of() { ( cd "$1" && git rev-parse HEAD 2>/dev/null ) || echo none; }
 not_enforced() { grep -q "SAST NOT ENFORCED" "$1"; }
 
+# BL-193-EVIDENCE — print the SAST section, not a blind tail.
+# The three cases that use this (T-coverage-no-cry-wolf, T-empty-target-receipt,
+# T-mutation-typechange-filter) fail ONLY on the GitHub runner and pass on every
+# local platform tried, including on CI own semgrep 1.172.0. So the CI transcript
+# IS the diagnosis — and each of them ended its message with a `tail -8`/`tail -3`
+# of the hook output, which on these fixtures lands on the unrelated
+# `[WARN] no test command configured` block plus git commit summary. The SAST
+# section was captured to the log and then discarded at the moment of capture:
+# the BL-184 evidence-destruction class, one level below the aggregator.
+# The pattern matches every arm of the emitted hook SAST reporter vocabulary plus
+# semgrep own banner, so an arm firing for an unanticipated reason is still shown
+# instead of being filtered out by a guess about which arm it will be.
+# FALSIFIER: point it at a log with no SAST section — it prints
+# `(no SAST section in <path>)` rather than nothing. Silence would be
+# indistinguishable from a helper that failed to run.
+sast_evidence() {  # <logfile> -> one line, pipe-separated
+  awk '
+    /semgrep|SAST|\[BLOCKED\]|\[OK\]|Staged entries|Scanning|Targets scanned|coverage|scanner|NOTRUN/ {
+      n++; printf "%s|", $0
+    }
+    END { if (!n) printf "(no SAST section in %s)", FILENAME }
+  ' "$1"
+}
+
 # mk_repo_seeded <dir> <hookfile> <seedpath> <seedcontent>: mk_repo, then land ONE
 # more commit carrying <seedpath> BEFORE the hook is armed — so the seed does not pay
 # for a semgrep run and cannot be blocked. Needed by every rename/deletion fixture:
@@ -1685,7 +1709,7 @@ else
          && [ "$MTF_GRN" = "REFUSED" ] && grep -qF '[BLOCKED]' "$TOPTMP/mtf-green"; then
       pass "T-mutation-typechange-filter: ACMR truncates the target set and buys an UNEARNED [OK] while the type-change sink LANDS (RED); ACMRT REFUSES it (GREEN) — the T in the filter is load-bearing (R-WPC-1)"
     else
-      fail_ "T-mutation-typechange-filter" "expected RED=COMMITTED+[OK]-receipt / GREEN=REFUSED+[BLOCKED]; got RED=$MTF_RED (ok=$(grep -cF '[OK] semgrep: SAST ran' "$TOPTMP/mtf-red")) GREEN=$MTF_GRN (blocked=$(grep -cF '[BLOCKED]' "$TOPTMP/mtf-green")); red: $(tail -3 "$TOPTMP/mtf-red" | tr '\n' '|'); green: $(tail -3 "$TOPTMP/mtf-green" | tr '\n' '|')"
+      fail_ "T-mutation-typechange-filter" "expected RED=COMMITTED+[OK]-receipt / GREEN=REFUSED+[BLOCKED]; got RED=$MTF_RED (ok=$(grep -cF '[OK] semgrep: SAST ran' "$TOPTMP/mtf-red")) GREEN=$MTF_GRN (blocked=$(grep -cF '[BLOCKED]' "$TOPTMP/mtf-green")); red: $(sast_evidence "$TOPTMP/mtf-red"); green: $(sast_evidence "$TOPTMP/mtf-green")"
     fi
   fi
 fi
@@ -2111,7 +2135,7 @@ else
   elif grep -qF '[OK] semgrep: SAST ran on 5 staged file(s)' "$TOPTMP/crywolf"; then
     pass "T-coverage-no-cry-wolf: an ordinary ts+md+json+yml+sh commit still EARNS the [OK] receipt — # BL-112-SCAN-COVERAGE does not NOTRUN normal commits"
   else
-    fail_ "T-coverage-no-cry-wolf" "an ordinary 5-file commit lost its receipt — # BL-112-SCAN-COVERAGE is crying wolf, which is exactly why 'Targets scanned' was ruled out: verdict=$CW_V: $(tail -8 "$TOPTMP/crywolf" | tr '\n' '|')"
+    fail_ "T-coverage-no-cry-wolf" "an ordinary 5-file commit lost its receipt — # BL-112-SCAN-COVERAGE is crying wolf, which is exactly why 'Targets scanned' was ruled out: verdict=$CW_V: $(sast_evidence "$TOPTMP/crywolf")"
   fi
 fi
 
@@ -2151,7 +2175,7 @@ else
   elif grep -qF '[OK] semgrep: SAST ran on 1 staged file(s)' "$TOPTMP/emptytgt"; then
     pass "T-empty-target-receipt: a zero-byte staged file still EARNS the receipt — semgrep's scan-status header counts it as an accepted target, so # BL-112-SCAN-COVERAGE does not cry wolf on a placeholder"
   else
-    fail_ "T-empty-target-receipt" "an ordinary empty placeholder file lost its receipt — # BL-112-SCAN-COVERAGE is treating 'nothing to scan' as 'a target was declined', which would NOTRUN every .gitkeep commit forever: verdict=$ET_V: $(tail -8 "$TOPTMP/emptytgt" | tr '\n' '|')"
+    fail_ "T-empty-target-receipt" "an ordinary empty placeholder file lost its receipt — # BL-112-SCAN-COVERAGE is treating 'nothing to scan' as 'a target was declined', which would NOTRUN every .gitkeep commit forever: verdict=$ET_V: $(sast_evidence "$TOPTMP/emptytgt")"
   fi
 fi
 
