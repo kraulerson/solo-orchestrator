@@ -205,6 +205,10 @@ jobs:
         # install keeps the pin map free to move. Cost: the "one registry
         # fetch per PR" of the old serial lane becomes one per shard, ~12s
         # each and fully parallel, so it is not on the critical path.
+        # semgrep is deliberately UNPINNED — Karl's 2026-07-29 decision, recorded with
+        # its reasoning on solo-orchestrator-backlog.md § BL-192 (DECISION block): a
+        # stale scanner stops catching new vulnerabilities. Do not pin. The generated-
+        # project templates float too, sequenced behind BL-198 — see BL-201.
         run: pip install semgrep
 
       - name: Run fast unit tests — shard ${{ matrix.shard }}
@@ -677,6 +681,10 @@ jobs:
         # flake surface); this manual full lane is where the live proof runs.
         # An install failure fails the shard LOUDLY rather than silently
         # skipping the only CI execution of the blocking arm.
+        # semgrep is deliberately UNPINNED — Karl's 2026-07-29 decision, recorded with
+        # its reasoning on solo-orchestrator-backlog.md § BL-192 (DECISION block): a
+        # stale scanner stops catching new vulnerabilities. Do not pin. The generated-
+        # project templates float too, sequenced behind BL-198 — see BL-201.
         run: pip install semgrep
 
       - name: Install expect (BL-180 real interactive scaffold)

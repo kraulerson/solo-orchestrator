@@ -5880,6 +5880,39 @@ starts from a set rather than a blank page:
 - pin semgrep to a known-good version in generated projects — rejected as a *solution* (it freezes rule
   coverage to buy a coverage check) but worth recording as a mitigation.
 
+**DECISION 2026-07-29 (Karl) — DO NOT PIN semgrep, and this is deliberate, not an oversight.**
+**Scope: this repo's own CI installs** (`.github/workflows/tests.yml`, two `pip install semgrep`
+sites — both now carry a pointer comment back to this paragraph) **and the emitted hook's PATH
+resolution.** Recorded here because "unpinned dependency" reads as a defect to anyone auditing the CI
+config, and the next agent to see `pip install semgrep` with no version WILL want to fix it. The
+reasoning: *a security scan is no good if a project is several weeks or months old and the scanner
+isn't checking for new vulnerabilities.* Pinning trades away exactly the thing the scanner exists
+for. The measured facts support leaving it: § BL-193 showed the version drift (1.171.0 → 1.172.0 in
+**a day**) was **not** the cause of the `sast` failures — both versions emit a byte-identical banner,
+and `test-bl132` **was 38/0/0 on each at that measurement** (the suite has since grown; it reads
+39/0/0 with `T-status-on-stdout-earns-receipt`) — so pinning was never buying correctness here, only
+build determinism.
+
+**SECOND DECISION, same day, after the pin-vs-float ramifications were laid out (Karl) — the 22
+generated-project CI templates FLOAT too, sequenced AFTER BL-198 lands, with version logging added at
+the same time.** Today `templates/pipelines/ci/**` pins `image: semgrep/semgrep:1.170.0` at 22 sites —
+one release below the 1.171.0 threshold where this entry's metric silently changed meaning, which is
+what makes "safely frozen" an illusion. Karl's reasoning applies MOST to generated projects (they are
+the ones that age), and detection is measured non-monotone (a fixture 1.157.0 misses, 1.171.0
+catches), so a pinned project never receives that catch. Sequencing is load-bearing: float only after
+BL-198 removes every dependence on scanner-reported numbers. Filed as **BL-201**, which also carries
+the trap: `tests/test-bl147-ci-template-integrity.sh` Cg4/Cg5-image REQUIRE the version-pinned image
+form, so the float commit must update that suite in the same diff or go red.
+
+**The consequence for THIS entry is the load-bearing part: the PRIMARY fix must not depend on
+semgrep's behaviour at all.** With the scanner deliberately free to change under us — now on every
+surface — any gate whose CORRECTNESS rests on what semgrep *reports* is a future permanent-NOTRUN or
+a future false receipt, whichever way the next release moves. A question about bytes the hook already
+holds has no version to drift; that is **BL-198** (transcode-first). A *detector* built on semgrep's
+reporting is admissible only as best-effort hardening whose failure degrades to today's behaviour —
+never to a false receipt — and only with a framework-side canary test pinning the exact spelling so
+drift is loud; that is **BL-200**.
+
 **What was pulled, and where it is — FIVE cases, not six.** The clause (`# BL-186-PARSE-COVERAGE`,
 plus `# BL-186-EMPTY-TARGETS`), its two report lines, its two NOTRUN sub-arms, and **five** test
 cases — `T-utf16-parse-drop-no-receipt`, `T-mutation-parse-coverage`, `T-parse-coverage-fails-closed`,
@@ -6284,3 +6317,397 @@ Registration per the house rule: `scripts/run-lints.sh` picks up `lint-*.sh` aut
 
 **Related:** CLAUDE.md § CITATION RULE, BL-179 (whose closure carried the worked example above),
 BL-038/BL-181 (the registration-lint family this would join).
+
+---
+
+## BL-197: The diagnostic-destruction class — an instrument that discards the evidence needed to act on the failure it is reporting
+
+**Logged:** 2026-07-29 (three instances measured in one session — two cost a CI round-trip each; the
+third, BL-184's, cost eight days across two ~3h full-lane runs)
+**Category:** Verification lane / observability — meta-class
+**Severity:** Medium-High **as a class**. No single instance is a product defect; together they are a
+multiplier on the time-to-diagnose of every OTHER defect, and each was found only after its cost —
+a round-trip or, for instance 1, eight days — was already paid.
+**Status:** Open
+
+**The class.** *A diagnostic that discards, truncates or blurs the evidence needed to act on the
+failure it is reporting.* It is the sibling of the silent-success class (print `[FAIL]`, then
+`exit 0`): there the **verdict** lies; here the verdict is correct and the **evidence** is destroyed.
+
+| # | Where | What it destroyed | Cost |
+|---|---|---|---|
+| 1 | `tests/full-project-test-suite.sh`, 177 delegates (**BL-184**, Closed) | child stdout AND stderr, at the moment of capture | BL-135 sat open 2026-07-18 → 2026-07-26 across two ~3h full-lane runs with zero root-cause progress |
+| 2 | `tests/test-bl132-sast-index-scan.sh`, 3 cases (**BL-193**) | the hook's SAST section — captured to `$TOPTMP/<log>`, then reported via `tail -8`, which lands on an unrelated `[WARN] no test command configured` block | one CI round-trip; the section was in the file the whole time |
+| 3 | the emitted hook's coverage reporter (**BL-193**, `# BL-193-COUNT`) | the header COUNT — `"absent or unreadable"` collapsed `0` and `2+`, which need different operator actions | one CI round-trip, and it shipped to every generated project |
+
+**Instances 2 and 3 compounded; instance 1 did not — and an earlier draft of this entry got that
+wrong, which is recorded because a lessons-learned entry with a wrong causal chain teaches the wrong
+lesson.** The draft claimed a three-layer stack with the BL-184 aggregator as layer 1. Refuted twice
+over: the `sast` shard that carried BL-193 runs its tests DIRECTLY from `tests.yml` (the 177-delegate
+aggregator appears only in the `full` lane's `core` shard), and BL-184's fix merged 2026-07-27 — a day
+BEFORE BL-193 was first observed. BL-184 is a real member of this class with its own measured cost
+(BL-135's eight days); it simply was not in BL-193's path. What DID compound was two layers:
+`tail -8` printed past the SAST section the case had already captured, and the reporter beneath it
+collapsed "saw 0" and "saw 2+" into "absent or unreadable". BL-193's root cause (semgrep's status
+banner arrives on a different stream on the runner) was **present in the captured log from the first
+failing run — and never surfaced to the transcript**: the findings dump does print `$soif_sg_out`
+unconditionally, but the hook's whole stdout was itself captured to `$TOPTMP/<log>`, of which only a
+tail was shown. Two rounds of instrumentation had to land before the log's own words reached anyone.
+
+**The tell, and it is checkable at review time.** In all three the information was *present* and
+discarded at the last step — not unavailable. Each was a formatting choice: a `>/dev/null 2>&1`, a
+`tail -N`, an `echo` naming a symptom rather than a number. So the review question is narrow:
+
+> **When this arm fires, does its output contain what the reader needs to act — and was the underlying
+> evidence available at that point?** If the second answer is yes and the first is no, it is this class.
+
+**Candidate lint, in the spirit of `lint-fix-functions-stderr.sh`.** Flag `tail -[0-9]` / `head -[0-9]`
+inside a failure-reporting expansion (`fail_ "…" "$(… tail -N …)"`), and `>/dev/null 2>&1` on a command
+whose status feeds a failure message. Both are heuristics with real false positives, so it should
+**render its hits for review** — the `--list` pattern `lint-tests-registered.sh` already uses — rather
+than block outright. A blocking lint here would be its own cry-wolf.
+
+**Prior art in this repo, and the accurate gap — a SCOPE claim, not a universal.** An earlier draft
+said "nothing covers the evidence half"; false, and disproved by the very lint this entry nominates
+as its model: `scripts/lint-fix-functions-stderr.sh` exists precisely because a `2>/dev/null` inside
+a `fix_*` function left an operator with "fix returned non-zero" and NO diagnostic — that IS the
+evidence half. The true gap is its scope: it covers `fix_*` functions on the operator-facing surface,
+while all three instances above lived where it does not look — a test aggregator's delegates, a test
+case's failure message, and a heredoc-emitted hook body. (`lint-fail-emit-exit-status.sh` covers the
+sibling *verdict* half.) The three instances were each caught by a human reading a transcript and
+asking why it said so little — which does not scale and did not, in fact, happen quickly.
+
+**Related:** BL-184 (instance 1, Closed), BL-193 (instances 2 and 3), BL-196 (the sibling
+citation-integrity gap filed the same day), `scripts/lint-fail-emit-exit-status.sh`, and the
+silent-success class recorded in the `adversarial-verify-patterns` memory note.
+
+---
+
+## BL-198: Implementation plan v2 — TRANSCODE undecodable-but-textual staged files and scan the converted bytes; reject only as the fallback
+
+**Logged:** 2026-07-29 (plan requested by Karl; diagnosis is BL-192 and is settled — do NOT re-derive it)
+**Revised:** 2026-07-29, same day — **v1 was refuted in adversarial review and its shape was wrong.**
+v1 proposed detect-and-refuse (BOM/NUL ⇒ forfeit the receipt) and claimed the byte precheck was "the
+only candidate that survives." Two blocking findings, both reproduced independently before this
+rewrite: **(R-1)** v1's own Definition of Done required granting the `[OK]` receipt over an unscanned
+sink — an ordinary pure-ASCII `.ts` carrying `p.innerHTML = window.name` PLUS a token-stream break is
+missed by semgrep deterministically (control `rc=1, Findings: 1`; broken `rc=0, Findings: 0`; 5/5)
+while the BOM/NUL predicate reads it as clean text; **(R-2)** "only candidate" was false — transcoding
+was never considered, and it is measurably better. Kept in the header because a plan that ships its
+own refutation is the BL-192 pattern one level up, and the next reader should know this plan already
+paid for that lesson.
+**Category:** Enforcement / commit-time SAST — coverage attestation
+**Severity:** High, inherited from BL-192: the outcome it prevents is a **positive false attestation**
+(`[OK] semgrep: SAST ran on N staged file(s) — no ERROR-severity findings.` printed over a file the
+parser never decoded).
+**Status:** Open — planned, not started.
+
+**Read first, and do not repeat this work:** BL-192 (the measured diagnosis, the two-version table,
+the two DECISION blocks), the `# BL-112-SCAN-COVERAGE` block in `scripts/lib/hook-templates.sh` —
+including its `THE RESIDUE, NAMED` paragraph, which already lists the token-stream-break case this
+plan explicitly does NOT cover (that is **BL-200**) — and BL-201 (the template float this plan
+unblocks).
+
+### Why transcode beats reject — measured, not argued
+
+Same fixture (`p.innerHTML = window.name` saved as UTF-16LE, no BOM), the hook's exact flag set:
+
+| approach | result | operator experience |
+|---|---|---|
+| v1: detect & refuse | receipt forfeited, sink UNSCANNED | permanent NOTRUN — every commit from that editor cries wolf, forever |
+| **v2: `iconv -f UTF-16LE -t UTF-8`, scan the copy** | **`rc=1` — the sink BLOCKS the commit** | nothing to explain; the gate simply works |
+
+Transcoding satisfies every criterion the BL-192 decision blocks set: it is a byte operation the hook
+performs on bytes it already holds (the temp tree of `# BL-132-INDEX-SCAN` materializes every staged
+blob before semgrep runs), it has no semgrep version to drift, and its failure mode is fail-closed.
+**Ordering constraint the implementer must not miss (review R2-4):** the materialized slot is guarded
+by the F2 byte-size check (dest must equal `git cat-file -s` of the staged blob), and UTF-16→UTF-8
+roughly halves the byte count — a transcode that overwrote the slot BEFORE F2 would fail F2 on every
+converted file and forfeit every receipt, the exact cry-wolf this plan exists to avoid. Transcode
+AFTER F2 has validated the raw copy, writing the converted bytes to the **IDENTICAL path** —
+`$soif_idx_tree/<n>/<relpath>`, same directory, same basename, same extension. F2 has already passed,
+so the size change is harmless. UTF-16→UTF-8 maps newlines 1:1, so finding
+line numbers stay true and `# BL-178-PER-INDEX-DIR`'s path mapping is untouched.
+
+### Work packages
+
+- **WP0 — the classifier, stated as ONE decision tree so no branch is left to interpretation.**
+  Round-2 review refuted this WP's first draft twice — a head-window sniff and a fail-open
+  no-signal branch, both defeated with built fixtures — so the tree is now exhaustive:
+  1. **NUL-free file → passthrough.** Plain UTF-8, Latin-1/CP1252, empty — the family semgrep
+     already parses (Latin-1 measured in review: the sink IS detected). Nothing to do.
+     **NUL-free ≠ decodable, and this branch's residue is named rather than papered over
+     (review R3-2):** UTF-16 text whose every code unit has two non-zero bytes (pure CJK, Greek,
+     Cyrillic, emoji) is NUL-free AND undecodable, and passes through to a clean scan and a
+     receipt. Tightening this to "NUL-free AND valid UTF-8" is the obvious fix and is WRONG —
+     Latin-1 source is also NUL-free and also invalid UTF-8, and it must pass through (measured:
+     sink caught). So the residue stands, bounded: a single ASCII byte — any newline — puts a NUL
+     in the file and hands it to WP0.3, in BOTH endiannesses, and one newline in 642 bytes still
+     resolves parity unambiguously (WP0.3's rule is all-zeros-on-one-parity, not a ratio). A
+     zero-ASCII single-line source file is the whole exposure. **The obvious widener was attacked
+     and failed:** legacy multibyte source still live in real codebases — Shift-JIS, EUC-JP,
+     GB18030, Big5, all NUL-free and all invalid UTF-8 — is handled correctly by semgrep, sink
+     caught in every one (measured). Passthrough is right for them, which is also why WP0.1 must
+     not be tightened.
+  2. **NULs + BOM → the BOM is a CLAIM, not knowledge.** Check the four BOMs **longest first**
+     (`FF FE 00 00` / `00 00 FE FF` before `FF FE` / `FE FF`): `FF FE` is a PREFIX of the UTF-32LE
+     BOM, and WP1 must name an encoding to pick `iconv -f`, so order is load-bearing. (An earlier
+     draft said order "must not matter" while simultaneously requiring the encoding to be named
+     off the match — that contradiction is deleted, this sentence replaces it.) Then DERIVE the
+     endianness from the zero positions of the WHOLE body and require BOM and derivation to
+     AGREE; disagreement ⇒ unvouchable ⇒ WP2 loud. **The derivation is STRIDE-AWARE — 2-byte
+     parity against a UTF-16 BOM, 4-byte against a UTF-32 BOM.** A UTF-32 file carries zeros on
+     both 2-byte parities, so a literal 2-byte reading calls an honest UTF-32LE file "ambiguous"
+     and cries wolf on it (measured in review: WP2 loud under 2-byte, transcoded-and-caught under
+     4-byte). Fails safe, but it contradicts the matrix row below, so the stride is stated here. A lying BOM (`FF FE` over a UTF-16BE body)
+     otherwise transcodes to NUL-free, valid-UTF-8 garbage that passes every output check and
+     mints a receipt over a live sink — built and reproduced in review, BOTH directions; the
+     agree-check catches both liars and passes the honest file.
+  3. **NULs + no BOM + parity signal over the WHOLE FILE → transcode with the derived endianness.**
+     Whole file, never a head window: a UTF-16 file opening with a CJK comment block has ZERO
+     zero-bytes in its head (CJK code units use both bytes), so a head-window sniff reads "no
+     signal" and waves an intact sink through — built in review. Whole-file parity reads the same
+     file unambiguously (every zero on one parity) and the sink is caught. Real source always
+     carries ASCII syntax characters, so real UTF-16 source always has a whole-file signal.
+  4. **NULs + no BOM + NO whole-file signal — the branch where fail-open hid.** The first draft
+     said "passthrough, today's behaviour" — and "today" IS the BL-192 false attestation, so the
+     one branch where the classifier admits ignorance was the one branch that quietly vouched.
+     Rule: if the file's extension is in the source set the shipped rulesets target, route to
+     **WP2 loud** (near-unreachable for honest files, per 3 — real source has ASCII, hence a
+     signal). Otherwise — PNG, archives, genuine binaries — passthrough untouched, receipt
+     unaffected, exactly as today, which for real binaries is correct. **This set's drift fails
+     OPEN** (an extension not yet listed passes through rather than going loud), so pin it against
+     the shipped rulesets in a test. It is NOT v1's allowlist problem returning: v1's gated the
+     ENTIRE check, so drift left a whole language unprotected; this one gates only the
+     NUL+no-BOM+no-signal branch, and what actually reaches it with a source extension is binary
+     content in source clothing — BL-192's own `40KB binary blob staged as vendor.js` residue item,
+     which this branch newly CATCHES.
+  `git diff --cached --numstat` is demoted to a FIRST-PASS filter only: it cleanly exempts
+  plain-text files from the tree above, but it lumps UTF-16 TEXT in with real binaries (measured in
+  review — all three UTF-16 fixtures and the PNG alike read as binary), so it cannot be the
+  classifier this WP once hoped it might be.
+- **WP1 — transcode, with the encoding VOUCHED on all three surfaces.** BOM → encoding CLAIMED,
+  confirmed against the whole-body derivation (WP0.2); no-BOM → derived outright (WP0.3). Transcode
+  AFTER F2 per the ordering constraint above, REPLACING the raw copy at the IDENTICAL path —
+  **via a temp file and `mv`, NEVER by redirecting into the file being read.** `iconv … > "$dest"`
+  truncates `$dest` before iconv opens it, so iconv converts an EMPTY file, returns **rc=0**, and the
+  raw bytes are gone: measured 140 bytes → 0, output NUL-free and valid UTF-8, so all three vouching
+  surfaces pass and a clean scan mints the receipt over a destroyed sink. It fails on the happy path
+  too — 100% of transcodes yield 0 bytes — so WP3's `sink CAUGHT` cases go RED on the implementer's
+  first run and it cannot ship; that is why this is a footgun and not a hole. Convert to a temp file,
+  validate it, then `mv` it over the destination. `iconv`'s exit code carries the partial-conversion
+  cases correctly (odd-length and lone-surrogate fixtures both return rc=1 → WP2 loud, raw bytes
+  intact).
+  **NOT a "sibling" path — that word was in an earlier draft and review R3-1 measured it breaking two
+  contracts at once.** semgrep picks a target's language from its EXTENSION, so the two natural
+  sibling spellings both scan clean and mint the receipt (`app.ts.utf8` → `rc=0`, extensionless →
+  `rc=0`, versus `rc=1 findings=1` at the original name) — a fresh false-receipt path created by the
+  fix itself. And `# BL-178-PER-INDEX-DIR`'s operator-facing mapping,
+  `sed "s#${soif_idx_tree}/[0-9][0-9]*/##g"`, only strips the prefix for the unchanged path: a
+  suffixed sibling reports a repo path that does not exist, a parallel-root sibling shows the operator
+  a raw temp path — exactly what BL-178 was filed to end. The two constraints intersect at one shape:
+  the identical path. If the raw bytes must be retained, stash them at `$soif_idx_tree/raw/<n>/<relpath>` — INSIDE the
+  tree, under a reserved non-numeric segment. **Not outside it (review R4-2):** the SAST arm's only
+  cleanup is `rm -rf "$soif_idx_tree"` with no `trap`/EXIT handler, so anything stashed outside leaks
+  a temp file on every commit, forever. Inside is invisible to the scan (semgrep only ever receives
+  the explicit `${soif_idx_files[@]}` targets), invisible to BL-178's sed (`[0-9][0-9]*` cannot match
+  `raw`), and cleaned for free. Simplest of all: do not retain them — nothing after F2 needs them. The receipt names it: `N staged file(s) transcoded from UTF-16 for scanning`.
+  UTF-32: attempt via BOM only, longest-first per WP0.2; anything else falls to WP2.
+  **THE WRONG-ENDIAN TRAP — round-2 review proved the first draft claimed "closed by construction"
+  on ONE surface when the principle has to hold on THREE.** A wrong-endian transcode yields garbage
+  that can be NUL-free AND valid UTF-8 — semgrep scans it "clean" and the false receipt this plan
+  exists to kill comes back through the fix itself. The fail-closed principle binds at every
+  surface: (1) a BOM's claim must AGREE with the whole-body zero-position derivation; (2) a no-BOM
+  file is transcoded only with a DERIVED endianness — never guessed, never try-both; (3) output
+  containing a NUL or failing UTF-8 validation is a failed transcode. Disagreement or ambiguity at
+  ANY surface ⇒ WP2 loud. **A transcode this plan cannot vouch for is treated as a transcode that
+  failed — at all three places that sentence has to hold, not one.**
+- **WP2 — the fail-closed fallback.** `iconv` absent, `iconv` non-zero, or output not valid UTF-8 →
+  v1's behaviour becomes the FALLBACK: forfeit the receipt, route to the existing
+  `soif_sast_not_enforced` / `soif_sast_partial_coverage` vocabulary, NAME the file
+  (`# BL-182-NAME-THE-ENTRY`). No new reporter. Never silent.
+- **WP3 — restore the five withdrawn cases from `e87dbd3` (PR #278), re-aimed and STRONGER.**
+  `T-utf16-parse-drop-no-receipt`, `T-mutation-parse-coverage`, `T-parse-coverage-fails-closed`,
+  `T-parse-threshold-exact`, `T-mutation-parse-threshold` are correct code against a broken
+  instrument; restore their SHAPE with the predicate re-aimed off `Parsed lines` onto WP0/WP1 — and
+  the UTF-16 cases flip expectation from "receipt forfeited" to **"sink CAUGHT and commit BLOCKED"**,
+  which is the stronger DoD transcoding buys. The last two are owed back specifically: they exist
+  because a `-ge 100` threshold was left unpinned once and a reviewer's `-ge 100` → `-ge 99` mutant
+  survived the entire PR-blocking set. Any numeric boundary WP0/WP1 introduces (the parity
+  ratio threshold) owes an equivalent exact-value mutation proof. **Not the head-window size — WP0.3
+  abolished the head window; an earlier draft required a proof of its size two work packages after
+  deleting the concept, which is how a deleted idea gets re-implemented.**
+- **WP4 — anti-cry-wolf regression.** `T-coverage-no-cry-wolf` and `T-empty-target-receipt` stay
+  green throughout; add the binary-commit case.
+
+### The fixture matrix — every row labelled, none left to interpretation
+
+| fixture | expected |
+|---|---|
+| UTF-16LE **with** BOM, carrying the sink (BL-192's) | transcoded; **sink caught, commit BLOCKED** |
+| UTF-16LE **no** BOM, carrying the sink (the trap: decodes as VALID UTF-8) | transcoded via parity heuristic; **caught, BLOCKED** |
+| UTF-16BE **with** BOM | transcoded; caught |
+| UTF-16BE **no** BOM | transcoded via parity; caught |
+| UTF-8 **with** BOM (legal, common from Windows editors) | passed through untouched; scanned normally |
+| plain UTF-8 control with the sink | untouched; caught (the baseline) |
+| empty file | untouched; receipt still earned (`T-empty-target-receipt` pins this) |
+| PNG / binary | untouched, no transcode attempt; receipt unaffected |
+| Latin-1/CP1252 source (invalid UTF-8, no NUL, no BOM) | untouched; semgrep handles it — measured in review, the sink IS detected |
+| **lying BOM**: `FF FE` (claims LE) over a UTF-16BE body carrying the sink — and the mirror image | BOM/derivation DISAGREE → unvouchable → WP2 loud NOTRUN naming the file (review-built; without the agree-check both directions minted a receipt over garbage) |
+| UTF-16LE, no BOM, opening with a CJK comment block, sink intact after it | whole-file parity → transcoded → **caught, BLOCKED** (a head-window sniff read "no signal" and waved it through — refuted in review) |
+| UTF-32LE with BOM (`FF FE 00 00`), sink | longest-BOM-first → UTF-32LE → transcoded → caught (measured rc=1). Shortest-first misreads it as UTF-16LE and degrades SAFELY (output keeps NULs → WP2) but cries wolf on a legitimate file — hence WP0.2's ordering rule |
+| pure-CJK UTF-16 no-BOM, source extension, **no ASCII at all** | **PASSTHROUGH — residue, NOT closed by this plan.** No ASCII ⇒ no NUL ⇒ WP0.1 fires first and WP0.4 is never reached; semgrep cannot decode it and scans it clean, so the receipt is granted. An earlier draft of this row claimed WP2 loud, which the tree does not produce (review R3-2). Near-unreachable: any single ASCII character — **including a newline** — introduces a NUL and routes the file to WP0.3, where it is caught |
+
+### Explicitly out of scope → BL-200, and saying so is the point
+
+**Two residues, both named — a plan that hides one is the v1 failure.** (i) The zero-ASCII UTF-16
+case above (WP0.1, review R3-2): NUL-free, undecodable, passes through. Bounded to single-line
+zero-ASCII files; not closed here because the only tightening that would close it breaks Latin-1
+passthrough. (ii) The token-stream break, which is the larger one:
+
+**The token-stream-break case is covered by NO byte-level candidate, this plan's included.** A
+pure-ASCII source file with a syntax break beside the sink passes every byte test here and semgrep
+misses the sink deterministically. v1 hid that residue and its DoD blessed it; v2 names it and hands
+it to **BL-200** (the `--verbose` detector behind a framework-side canary). Until BL-200 lands, the
+receipt's honest reading is unchanged from `# BL-112-SCAN-COVERAGE`'s residue note: presence of a
+finding is a fact; absence is evidence only for files semgrep can actually parse.
+
+### Rejected approaches, with the measurement, so they are not re-proposed
+
+- **`--json`** — affirmatively reports the undecoded file as scanned, with no skip recorded
+  (`skipped: []` on 1.171.0; the key entirely absent on 1.157.0 — spelling is version-dependent,
+  the lie is not). Strictly worse than the banner.
+- **`--verbose` as the PRIMARY gate** — report-dependent, which both DECISION blocks on BL-192 now
+  rule out for correctness-bearing gates. Survives only as BL-200's best-effort detector with a
+  canary. (Do NOT anchor on `Partially analyzed due to parsing or internal Semgrep errors` — it is a
+  section header printed on EVERY verbose scan; the discriminator is the `[WARN] Syntax error at
+  line <target>:` line, count 1 vs 0.)
+- **`--x-ls-long`** — right shape, experimental by upstream's own `x-` marker; a permanent-NOTRUN
+  cliff waiting for a release.
+- **A canary FILE staged alongside targets** — tested and refuted for this class: generic-regex
+  fires 186 matches on the undetected file; an appended ASCII marker is found on all six UTF-16
+  fixtures while the body vulnerability is missed.
+- **Pinning semgrep** — Karl's two decisions on BL-192: this repo's CI stays unpinned; the 22
+  template pins float AFTER this plan lands (BL-201).
+
+### Definition of done
+
+A UTF-16LE staged file carrying `pane.innerHTML = userText` — with and without a BOM — is
+**transcoded and its sink BLOCKS the commit** on whatever semgrep the host has. An ordinary
+**well-formed** source commit, an empty placeholder, a UTF-8-BOM file, a Latin-1 file and a
+binary-touching commit all still earn the receipt untouched. `iconv` failure forfeits the receipt
+loudly, naming the file. Every numeric boundary carries an exact-value mutation proof. No clause
+added by this work reads anything semgrep printed. The token-break residue is explicitly deferred to
+BL-200 and named in the receipt's documentation — this plan's DoD cannot be satisfied by blessing it.
+
+**Related:** BL-192 (diagnosis + both decisions), BL-200 (the residue this plan refuses to claim),
+BL-201 (the template float this plan unblocks), BL-112 (the silent-success class), BL-187 (the
+sibling fail-open clause), BL-182 (`# BL-182-NAME-THE-ENTRY`), BL-183 (no `grep -q` into a pipe),
+PR #278 / `e87dbd3` (holds the five withdrawn cases; STAYS OPEN until WP3 lands — Karl, 2026-07-29,
+recorded on the PR).
+
+---
+
+## BL-200: The token-stream-break blind spot — an ordinary ASCII source file with a syntax error hides its sink from semgrep, and no byte-level check can see it
+
+**Logged:** 2026-07-29 (split out of BL-198 v2 after review finding R-1 proved v1's plan blessed it).
+**Numbering note:** BL-199 is deliberately skipped here — it is reserved by the concurrent init.sh
+quick-start branch (`fix/bl199-quickstart-from-clone`), reserved cross-branch precisely to avoid the
+divergent-`## BL-NNN:`-header trap recorded on BL-187. The gap is a reservation, not a lost entry.
+**Category:** Enforcement / commit-time SAST — the residue BL-198 deliberately does not claim
+**Severity:** Medium-High. Same false-attestation outcome as BL-192 (`[OK]` over an unscanned sink),
+and the trigger is ORDINARY SOURCE — no exotic encoding, just a syntax break in the same file. What
+keeps it below BL-192: a syntax-broken file usually fails the project's own build/tests, so a second
+independent gate tends to catch the commit. **That "usually" is softer than it looks, and for a
+measured reason (review R2-5), not the tier one first guessed:** the BL-125 test arm carries no tier
+gating at all, but `soif_tests_not_enforced` is a pure WARN — no failure flag, the commit lands — so
+any project with no configured `.claude/test-command` and no auto-detectable suite has NO second
+gate on ANY tier. The severity holds because such projects exist in numbers; it is why this stays
+open rather than Won't Fix.
+
+**The measurement (reproduced twice, independently — implementer and reviewer, 5/5 deterministic).**
+Fixture: `export function r(p){ p.innerHTML = window.name; }` plus a second line `function ((( broken
+$$$`. Hook's exact flag set, semgrep 1.157.0:
+
+| file | rc | findings |
+|---|---|---|
+| clean sink alone | 1 | 1 blocking |
+| same sink + the break | **0** | **0** |
+
+Byte facts on the broken file: first four bytes ASCII, no BOM, no NUL, decodes as valid UTF-8. Every
+predicate in BL-198 reads it as clean text. **The premise was also attacked and held (review):** five
+modern-TypeScript constructs a parser might plausibly choke on (`satisfies`, `using`, `accessor`,
+decorators, `const` type parameters) were all scanned correctly, sink caught — the trigger needs a
+GENUINE token-stream break, not merely new syntax. `# BL-112-SCAN-COVERAGE`'s residue paragraph has named
+this case since it shipped; this entry gives it an owner.
+
+**The only known detector, and the terms under which it is admissible.** `--verbose` emits
+`[WARN] Syntax error at line <target>:N` — count 1 on the broken file, 0 on the clean control
+(measured; and do NOT anchor on the `Partially analyzed…` header, which prints on every verbose
+scan). That detector is REPORT-DEPENDENT, which the BL-192 decision blocks rule out for
+correctness-bearing gates — so it is admissible only as: **best-effort hardening whose failure
+degrades to today's behaviour** (anchor drifts ⇒ detector under-detects ⇒ status quo; it can never
+mint a false receipt because it only ever FORFEITS receipts), **behind a framework-side canary
+test** — a committed broken fixture scanned by the host semgrep in this repo's CI, asserting the
+warning's exact spelling still fires, so an upstream respelling turns OUR lane red instead of
+silently blinding every generated project.
+
+**Costs to weigh at build time, not silently:** `--verbose` changes the shipped invocation and
+raises stderr volume on the one path where scanner stderr reaches the operator; the canary needs
+semgrep on the CI host (already true of the `sast` shard). Sequenced AFTER BL-198 — the transcode
+work rewrites the same region, and two hands in that block at once is how BL-179/BL-182 earned their
+"same rewrite by design" note.
+
+**Status:** Open — blocked by BL-198.
+
+**Related:** BL-198 (the plan that refuses to claim this), BL-192 (the decision blocks that
+constrain the design), `# BL-112-SCAN-COVERAGE` (the residue note that named it first), BL-193
+(why report-dependent anchors need canaries: spellings move between versions and even between
+streams).
+
+---
+
+## BL-201: Float the 22 generated-project semgrep template pins and log the scanner version — AFTER BL-198 lands
+
+**Logged:** 2026-07-29 (Karl's decision, made after the pin-vs-float ramifications were laid out; the
+companion decision — this repo's own CI stays unpinned — is recorded on BL-192)
+**Category:** Generated-project CI / currency
+**Severity:** Medium. Nothing is broken today; what ages is coverage. The pinned `1.170.0` sits one
+release below the 1.171.0 threshold where BL-192's metric silently changed meaning, and detection is
+measured non-monotone (a fixture 1.157.0 misses, 1.171.0 catches) — a pinned project never receives
+that catch, and nobody is watching the pin age.
+
+**The decision (Karl, 2026-07-29):** *"Float the templates after BL-198 lands, and add the version
+logging."* Rationale as recorded on BL-192: a security scan is no good if a project several weeks or
+months old isn't checking for new vulnerabilities; stale is the invisible failure, loud-red-in-CI is
+the failure mode this framework prefers everywhere else.
+
+**Deliverables:**
+1. All 22 `image: semgrep/semgrep:1.170.0` sites under `templates/pipelines/ci/**` (github + gitlab +
+   bitbucket) move to a floating form (exact tag form decided at build per registry convention).
+2. **Every semgrep job gains a version-log line** (`semgrep --version` into the job output) so "what
+   scanned this merge?" is always answerable even though the build is no longer reproducible — the
+   agreed price of floating, paid consciously.
+3. **THE TRAP, called out so the build does not walk into it:**
+   `tests/test-bl147-ci-template-integrity.sh` `Cg4-container` and `Cg5-image` REQUIRE
+   `image: semgrep/semgrep:[0-9]+.[0-9]+.[0-9]+` — the version-PINNED form. The float commit must
+   update those assertions in the SAME diff (to pin the floating form + the presence of the
+   version-log line, so the suite keeps refusing a silently re-pinned or log-less template) or the
+   PR-blocking lane goes red on arrival. **And fix the assertions' failure MESSAGES in the same
+   diff (review R2-7):** they currently read `no 'image: semgrep/semgrep' in: …` while the grep
+   actually demands the VERSIONED form — a float implementer reading that message would conclude
+   the assertion is broken rather than that it wants a version. That is BL-197's
+   evidence-destruction class in miniature: the message names a symptom the check does not test.
+
+**Sequencing is load-bearing:** blocked by BL-198. Floating first would widen the window in which a
+scanner behaviour shift meets a gate that still trusted scanner-reported numbers; after BL-198, no
+clause reads anything semgrep prints, and version drift can only ever ADD findings loudly.
+
+**Adjacent, noted not scoped:** the emitted hook's receipt could print the scanner version for the
+same debuggability (BL-193 cost a day partly to version archaeology). One line; decide at build.
+
+**Status:** Open — blocked by BL-198.
+
+**Related:** BL-192 (both decision blocks), BL-198 (the gate this waits on), BL-147 (the parity
+suite that must move in the same diff), BL-193 (the version-archaeology cost that motivates the
+logging).
