@@ -9,7 +9,7 @@ plan → PRs → shipped state stays intact and citable.
 
 - **Live handoff:** the single most recent state-of-record for the current
   arc lives at the top level of `docs/handoffs/`. Right now that is
-  [`../2026-07-29-sast-coverage-and-ci-lane.md`](../2026-07-29-sast-coverage-and-ci-lane.md).
+  [`../2026-07-30-post-sast-wave-next-steps.md`](../2026-07-30-post-sast-wave-next-steps.md).
   Everything else at the top level is a pointer stub.
 - **Archived handoff:** once a handoff is executed or superseded, its full
   text moves here and a short **pointer stub** is left at the original
@@ -63,6 +63,13 @@ In chain order (oldest first). Each has a pointer stub at its old top-level path
   merged. Note this file carries its OWN ⚠ SUPERSEDING UPDATE header from
   2026-07-25 warning that its § 1–§ 3 inventory was already stale when written;
   treat both layers as historical.
+
+- `2026-07-29-sast-coverage-and-ci-lane.md` — FULLY EXECUTED + SUPERSEDED (archived
+  2026-07-30). Every PR it tracked merged (#280 `8f36382`, #281, #282, #283) and BL-193 — the
+  blocker its § 3 was written around — was root-caused and Closed. Two things make it worth
+  reading after archival: its § 3 ⚠ CORRECTION (the first draft blamed the wrong subsystem and
+  told the next session to edit 22 innocent CI templates), and its §§ 5–7, which remain the
+  reference for BL-192's `Parsed lines` root cause. Its own header marks §§ 1–4 superseded.
 
 ## Citation convention for handoffs
 

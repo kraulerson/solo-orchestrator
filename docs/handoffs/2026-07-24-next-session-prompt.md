@@ -9,6 +9,6 @@
 >
 > - **Full archived copy:** [`archive/2026-07-24-next-session-prompt.md`](archive/2026-07-24-next-session-prompt.md)
 > - **Companion handoff (also archived):** [`2026-07-24-residuals-wave-and-next-builds.md`](2026-07-24-residuals-wave-and-next-builds.md)
-> - **Live state-of-record:** [`2026-07-29-sast-coverage-and-ci-lane.md`](2026-07-29-sast-coverage-and-ci-lane.md)
+> - **Live state-of-record:** [`2026-07-30-post-sast-wave-next-steps.md`](2026-07-30-post-sast-wave-next-steps.md)
 >
 > See [`archive/README.md`](archive/README.md) for the handoff-archive convention.

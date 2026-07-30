@@ -29,8 +29,8 @@ Session handoff documents. **One live state-of-record at the top level; finished
 handoffs move to `archive/` and leave a pointer stub at the old path** so every
 citation still resolves. Convention: [handoffs/archive/README.md](handoffs/archive/README.md).
 
-- **Live:** [handoffs/2026-07-29-sast-coverage-and-ci-lane.md](handoffs/2026-07-29-sast-coverage-and-ci-lane.md) — the current state-of-record (eleven PRs merged; CI feedback ~19 min → ~6 min; #280 and #278 still open). Read its § 3 ⚠ CORRECTION before acting on the blocker, then `git fetch` and re-derive merge state.
-- **Archived:** [handoffs/archive/](handoffs/archive/) — eight finished handoffs, 2026-07-08 through 2026-07-24, each with a pointer stub left at its old top-level path. See [handoffs/archive/README.md](handoffs/archive/README.md) for the per-file status (superseded vs fully executed). Everything at the top level of `docs/handoffs/` other than the live doc above is a stub.
+- **Live:** [handoffs/2026-07-30-post-sast-wave-next-steps.md](handoffs/2026-07-30-post-sast-wave-next-steps.md) — the current state-of-record (`main` at `3a196ee`; the SAST wave closed; next is BL-183's shipped npm-detector defect, then the BL-198 build). Its § 8 is a paste-ready resume prompt.
+- **Archived:** [handoffs/archive/](handoffs/archive/) — nine finished handoffs, 2026-07-08 through 2026-07-29, each with a pointer stub left at its old top-level path. See [handoffs/archive/README.md](handoffs/archive/README.md) for the per-file status (superseded vs fully executed). Everything at the top level of `docs/handoffs/` other than the live doc above is a stub.
 
 ## Superpowers (`docs/superpowers/`)
 
