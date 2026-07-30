@@ -13,6 +13,6 @@
 >   copy, not against this stub.
 > - **Superseded by (next in the chain):** [`archive/2026-07-18-dogfood-remediation-handoff.md`](archive/2026-07-18-dogfood-remediation-handoff.md)
 >   → [`archive/2026-07-20-arc-close-phase-g.md`](archive/2026-07-20-arc-close-phase-g.md)
-> - **Live state-of-record:** [`2026-07-29-sast-coverage-and-ci-lane.md`](2026-07-29-sast-coverage-and-ci-lane.md)
+> - **Live state-of-record:** [`2026-07-30-post-sast-wave-next-steps.md`](2026-07-30-post-sast-wave-next-steps.md)
 >
 > See [`archive/README.md`](archive/README.md) for the handoff-archive convention.

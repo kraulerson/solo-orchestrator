@@ -12,6 +12,6 @@
 > - **Full archived copy:** [`archive/2026-07-24-residuals-wave-and-next-builds.md`](archive/2026-07-24-residuals-wave-and-next-builds.md)
 >   (§ 3 = the two pre-existing full-suite failures, later filed as BL-173)
 > - **Companion launch prompt (also archived):** [`2026-07-24-next-session-prompt.md`](2026-07-24-next-session-prompt.md)
-> - **Superseded by / live state-of-record:** [`2026-07-29-sast-coverage-and-ci-lane.md`](2026-07-29-sast-coverage-and-ci-lane.md)
+> - **Superseded by / live state-of-record:** [`2026-07-30-post-sast-wave-next-steps.md`](2026-07-30-post-sast-wave-next-steps.md)
 >
 > See [`archive/README.md`](archive/README.md) for the handoff-archive convention.
