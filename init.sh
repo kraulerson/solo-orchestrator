@@ -100,6 +100,27 @@ source "$SCRIPT_DIR/scripts/lib/currency-manifest.sh"
 # pin the byte-identity.)
 source "$SCRIPT_DIR/scripts/lib/render-project-docs.sh"
 
+# BL-199 (2026-07-29): the anchor a bare/relative --project-dir resolves
+# against. It is the PARENT OF THE DIRECTORY CONTAINING init.sh — NOT the cwd.
+#
+#   /x/solo-orchestrator/init.sh --project-dir testproject   ->  /x/testproject/
+#
+# Karl's worked example invokes init.sh by full path, so the cwd is whatever
+# the operator happened to be standing in; anchoring there would scatter
+# projects unpredictably. Anchoring on SCRIPT_DIR/.. makes `--project-dir
+# <name>` mean "beside the clone" no matter where it is invoked from, which is
+# also what the interactive directory prompt has always defaulted to.
+# Mutation-pinned by tests/test-bl199-quickstart-from-clone.sh::M1 — that test
+# rewrites the _anchor_base line below and requires T2 to go red.
+soif_sibling_anchor() {
+  # BL-199-SIBLING-ANCHOR
+  local _anchor_base="$SCRIPT_DIR/.."
+  local _anchor
+  _anchor="$(cd "$_anchor_base" 2>/dev/null && pwd -P)"
+  [ -n "$_anchor" ] || _anchor="$SCRIPT_DIR"
+  printf '%s' "$_anchor"
+}
+
 # ────────────────────────────────────────────────────────────────────
 # BL-064: init-failure tracking (silent-success defect class)
 # ────────────────────────────────────────────────────────────────────
@@ -722,6 +743,12 @@ collect_project_info() {
   PROJECT_DIR="${PROJECT_DIR%\"}"
   PROJECT_DIR="${PROJECT_DIR#\'}"
   PROJECT_DIR="${PROJECT_DIR%\'}"
+  # BL-199: the DEFAULT above is already the sibling-of-the-clone path and is
+  # absolute, so it passes through the resolver untouched. Running the TYPED
+  # value through the same resolver is what makes a typed bare name ("my-app")
+  # land beside the clone too, instead of wherever the operator's shell
+  # happened to be. create_project() re-resolves and guards before mkdir.
+  PROJECT_DIR="$(soif_resolve_target_dir "$PROJECT_DIR" "$(soif_sibling_anchor)")"
 
   echo ""
   print_info "Project: $PROJECT_NAME"
@@ -1235,6 +1262,18 @@ write_tool_preferences() {
 # PHASE 4: Create Project
 # ================================================================
 create_project() {
+  # BL-199 — THE AUTHORITATIVE GATE. Every path into the scaffold funnels
+  # through this single mkdir, so the resolve + guard pair belongs here:
+  #   • non-interactive flag path  — already resolved upstream (idempotent)
+  #   • config-file path           — resolved at the existence check
+  #   • INTERACTIVE prompt path    — resolved here and only here for a typed
+  #                                  bare name, and guarded here and only here
+  # The copy in main()'s early block is fast-fail UX (it fires before the log
+  # file and tool installation), not the enforcement point. If you delete one
+  # of the two, delete THAT one — not this.
+  PROJECT_DIR="$(soif_resolve_target_dir "$PROJECT_DIR" "$(soif_sibling_anchor)")"
+  guard_target_not_in_framework "$PROJECT_DIR" "$SCRIPT_DIR" || exit 1
+
   print_step "Creating project at $PROJECT_DIR..."
 
   mkdir -p "$PROJECT_DIR"
@@ -3374,7 +3413,16 @@ Required flags (conditional):
 Optional flags (with defaults):
   --description TEXT       One-sentence project description. Default: "".
   --track TRACK            One of: light, standard, full. Default: standard.
-  --project-dir PATH       Project directory path. Default: $HOME/Code/$PROJECT.
+  --project-dir PATH       Project directory. Default: $HOME/Code/$PROJECT.
+                           A BARE NAME or any relative path is created BESIDE
+                           the framework clone — one level up from the
+                           directory holding init.sh, NOT relative to your
+                           current directory. So from a fresh clone:
+                             ./init.sh --project-dir my-project
+                           puts the project next to solo-orchestrator/.
+                           An absolute path is used exactly as given. Either
+                           way the target may not be the framework repo, a
+                           directory inside it, or another framework clone.
   --git-host HOST          One of: github, gitlab, bitbucket, other. Default: github.
   --visibility VIS         One of: private, public. Default: private.
                            NOTE: organizational deployments force private.
@@ -3870,6 +3918,16 @@ collect_inputs_non_interactive() {
     esac
   fi
 
+  # BL-199: resolve a bare/relative project_dir BEFORE the existence check, so
+  # "already exists" tests the REAL target rather than a cwd-relative accident.
+  # The early block already resolved a --project-dir supplied as a flag; this
+  # call also covers the config-file source (cfg_get project_dir above), which
+  # is read after the early block. The resolver is idempotent — an absolute
+  # value passes through unchanged — so applying it twice is harmless.
+  if [ -n "${ARG_PROJECT_DIR:-}" ]; then
+    ARG_PROJECT_DIR="$(soif_resolve_target_dir "$ARG_PROJECT_DIR" "$(soif_sibling_anchor)")"
+  fi
+
   # project_dir existence check
   local effective_project_dir="${ARG_PROJECT_DIR:-$HOME/Code/$ARG_PROJECT}"
   if [ -e "$effective_project_dir" ] && [ "$ARG_ALLOW_EXISTING_DIR" != true ]; then
@@ -4085,8 +4143,20 @@ HELPEOF
   # BL-041 (2026-06-30): the write-permission preflight and the
   # framework-repo guard share a target-dir resolution step. Compute
   # _early_target once and feed it to BOTH checks, in the order:
-  #   1. preflight_target_writable  — operator-facing
-  #   2. guard_not_in_framework     — developer-facing
+  #   1. preflight_target_writable        — operator-facing
+  #   2. guard_target_not_in_framework    — developer-facing
+  #
+  # BL-199 (2026-07-29) changed WHICH guard runs here, not the ordering.
+  # init.sh used to call guard_not_in_framework, whose first arm is an
+  # unconditional cwd check — which made the README's own Quick Start
+  # (clone → cd solo-orchestrator → ./init.sh) impossible: the script
+  # refused from inside the clone even with --project-dir pointing at a
+  # benign external path. Running from the clone is now the SUPPORTED
+  # flow, so init.sh guards the TARGET only. The cwd-first
+  # guard_not_in_framework is untouched and still used by the six other
+  # scripts / eight call sites (measured 2026-07-29:
+  # `grep -rn guard_not_in_framework --include='*.sh' scripts/`), which really
+  # do operate ON the cwd project.
   #
   # Rationale: a real operator who points --project-dir at an unwritable
   # location should get the relevant permission error, not the framework-
@@ -4105,15 +4175,33 @@ HELPEOF
   # inside the framework repo itself).
   if [ "$DRY_RUN" != true ]; then
     # Resolve the effective target dir: explicit --project-dir wins; non-interactive
-    # default is $HOME/Code/$ARG_PROJECT; interactive flow resolves later via prompt
-    # (in that path the cwd check is the only signal until prompts run, which is
-    # the same scope as before).
+    # default is $HOME/Code/$ARG_PROJECT; interactive flow resolves later via prompt.
+    # BL-199: in the interactive path this block has NO target to check — the old
+    # cwd arm used to fire there and no longer exists — so create_project()'s
+    # resolve+guard pair is the only gate that path passes through. That is why
+    # it, not this block, is the authoritative one.
     _early_target=""
+    _early_from_flag=false
     if [ -n "${ARG_PROJECT_DIR:-}" ]; then
       _early_target="$ARG_PROJECT_DIR"
+      _early_from_flag=true
     elif [ "$NON_INTERACTIVE" = true ] && [ -n "${ARG_PROJECT:-}" ]; then
       _early_target="$HOME/Code/$ARG_PROJECT"
     fi
+
+    # BL-199: resolve a bare/relative --project-dir to its sibling-of-the-clone
+    # absolute form BEFORE either check, so the preflight probes the real
+    # parent and the guard compares the real target. Absolute values pass
+    # through unchanged, so this is a no-op for every pre-BL-199 caller.
+    # Written back to ARG_PROJECT_DIR when that was the source, so the
+    # downstream existence check and PROJECT_DIR assignment see the same path.
+    if [ -n "$_early_target" ]; then
+      _early_target="$(soif_resolve_target_dir "$_early_target" "$(soif_sibling_anchor)")"
+      if [ "$_early_from_flag" = true ]; then
+        ARG_PROJECT_DIR="$_early_target"
+      fi
+    fi
+    unset _early_from_flag
 
     # 1. Operator-facing: write-permission preflight (BL-041 / audit
     # recommendation C). Must run BEFORE the framework-repo guard so the
@@ -4126,11 +4214,13 @@ HELPEOF
       exit 1
     fi
 
-    # 2. Developer-facing: framework-repo guard. security-audits-1
-    # (S3, 2026-04-26 audit sweep) added the optional target argument so
-    # this catches a malicious or honest-mistake caller that supplies
-    # --project-dir=$FRAMEWORK_REPO from a benign cwd.
-    if ! guard_not_in_framework "$_early_target"; then
+    # 2. Developer-facing: TARGET-only framework guard (BL-199). Refuses when
+    # the target is the framework root, inside the framework tree, or another
+    # framework clone (the security-audits-1 S3 vector, preserved). This is a
+    # fast-fail UX check only — create_project() runs the same guard again
+    # immediately before mkdir and is the authoritative gate, because the
+    # interactive and config-file paths resolve their target after this point.
+    if ! guard_target_not_in_framework "$_early_target" "$SCRIPT_DIR"; then
       exit 1
     fi
     unset _early_target

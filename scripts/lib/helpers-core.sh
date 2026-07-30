@@ -7,6 +7,7 @@
 #   - prompt_input / prompt_yes_no / prompt_choice / prompt_install
 #   - run_with_timeout
 #   - guard_not_in_framework
+#   - soif_resolve_target_dir / guard_target_not_in_framework (BL-199)
 #
 # The heavier "full" surface (init_log/finalize_log log-file rotation
 # and MCP-detection helpers) lives in scripts/lib/helpers-full.sh.
@@ -155,9 +156,26 @@ prompt_yes_no() {
 
 # Refuse to operate as a project if cwd OR an explicit target directory is
 # the Solo Orchestrator framework repo itself. Every project-targeted script
-# (init.sh, verify-install.sh, process-checklist.sh, upgrade-project.sh,
+# (verify-install.sh, process-checklist.sh, upgrade-project.sh,
 # intake-wizard.sh, pending-approval.sh, reconfigure-project.sh) must call
 # this BEFORE any file writes.
+#
+# Keep the phrase "Every project-targeted script" and the parenthesized list
+# exactly where they are: tests/test-platform-security-bugs-closer.sh::T4b
+# anchors an awk scan on that phrase and stops at the first `)`.
+#
+# init.sh used to be on that list and is NOT any more — BL-199, 2026-07-29.
+# What remains is six scripts / eight call sites (measured 2026-07-29 with
+# `grep -rn guard_not_in_framework --include='*.sh' scripts/`; upgrade-project.sh
+# accounts for three of them, and pending-approval.sh also defines a no-op
+# fallback of the same name, which is a definition, not a call).
+# It is the one script here that does not operate on the cwd: it CREATES a
+# target directory. Running it from inside the clone is the documented Quick
+# Start, so it calls guard_target_not_in_framework (below) instead, which
+# checks the target and ignores the cwd. The list above is parity-pinned by
+# tests/test-platform-security-bugs-closer.sh::T4b — every basename inside
+# those parentheses must have a real call site, so do not re-add init.sh to
+# it without restoring the call.
 #
 # Usage:
 #   guard_not_in_framework               # checks $(pwd) only (legacy / default)
@@ -181,20 +199,30 @@ prompt_yes_no() {
 # contains "Solo Orchestrator — Project Initialization Script" — a string
 # that's specific to this framework and won't appear in arbitrary projects'
 # init.sh files. Also check for templates/generated/ to triple-confirm.
+#
+# BL-199 (2026-07-29): the signature probe was hoisted OUT of
+# guard_not_in_framework into the top-level _soif_dir_is_framework below, so
+# guard_target_not_in_framework can reuse it without first having to call
+# guard_not_in_framework (bash only publishes a nested function definition
+# after the enclosing function has actually run). guard_not_in_framework's
+# own contract is unchanged — its inner _gnif_dir_is_framework is now a
+# one-line delegate, keeping ONE source of truth for the signature.
+_soif_dir_is_framework() {
+  local d="$1"
+  [ -n "$d" ] || return 1
+  [ -f "$d/init.sh" ] || return 1
+  grep -q "Solo Orchestrator — Project Initialization Script" "$d/init.sh" 2>/dev/null || return 1
+  [ -d "$d/templates/generated" ] || return 1
+  return 0
+}
+
 guard_not_in_framework() {
   local target="${1:-}"
   local cwd
   cwd="$(pwd)"
 
   # Helper: returns 0 if $1 looks like the framework repo root.
-  _gnif_dir_is_framework() {
-    local d="$1"
-    [ -n "$d" ] || return 1
-    [ -f "$d/init.sh" ] || return 1
-    grep -q "Solo Orchestrator — Project Initialization Script" "$d/init.sh" 2>/dev/null || return 1
-    [ -d "$d/templates/generated" ] || return 1
-    return 0
-  }
+  _gnif_dir_is_framework() { _soif_dir_is_framework "$1"; }
 
   _gnif_emit_refusal() {
     local where="$1"     # human label: "cwd" or "--project-dir"
@@ -220,6 +248,370 @@ guard_not_in_framework() {
   # 2. target-dir check (security-audits-1). Only runs when caller supplies $1.
   if [ -n "$target" ] && _gnif_dir_is_framework "$target"; then
     _gnif_emit_refusal "--project-dir / target" "$target"
+    return 1
+  fi
+
+  return 0
+}
+
+# ── BL-199: run-from-the-clone support ───────────────────────────────────
+#
+# Why these exist (2026-07-29). README § Quick Start has always said
+# `git clone` → `cd solo-orchestrator` → `./init.sh`, but guard_not_in_framework's
+# FIRST arm is an unconditional cwd check, so from inside the clone init.sh
+# refused before any prompt — even with --project-dir pointing at a benign
+# external path (measured rc=1). Only --dry-run worked. Karl's decision:
+#
+#   1. Running init.sh FROM INSIDE the clone is the SUPPORTED flow.
+#   2. It must still FAIL when the operation would write ONTO the framework
+#      itself: target == framework root, target INSIDE the framework tree,
+#      or target is another framework clone (signature match).
+#   3. `./init.sh --project-dir <bare-name>` creates the project ONE LEVEL UP
+#      from the framework clone.
+#
+# These are NEW functions. guard_not_in_framework keeps its cwd-first
+# contract for its six other scripts / eight call sites (verify-install.sh,
+# reconfigure-project.sh, upgrade-project.sh ×3, pending-approval.sh,
+# process-checklist.sh, intake-wizard.sh) — those genuinely operate ON the
+# cwd project and must still refuse inside the framework. Only init.sh, which
+# operates on a TARGET it is about to create, moves to the target-only guard.
+
+# Resolve a user-supplied project directory to the path init.sh will write.
+#   soif_resolve_target_dir <raw> <anchor_parent>
+#
+#   • empty <raw>        → empty (interactive flow resolves later via prompt)
+#   • absolute <raw>     → returned UNCHANGED. This is the back-compat hinge:
+#                          every pre-BL-199 caller and test passes an absolute
+#                          --project-dir, and it also makes the resolver
+#                          idempotent, so the three call sites in init.sh can
+#                          each apply it without compounding.
+#   • relative <raw>     → "<anchor_parent>/<raw>", then lexically normalized.
+#
+# The anchor is the PARENT OF THE DIRECTORY CONTAINING init.sh (SCRIPT_DIR/..),
+# never the cwd — Karl's worked example invokes init.sh by full path:
+#   /x/solo-orchestrator/init.sh --project-dir testproject  →  /x/testproject/
+# Anchoring on the cwd would put the project wherever the operator happened to
+# be standing, which is exactly the surprise this change exists to remove.
+#
+# Normalization is LEXICAL and bash-3.2-safe (no realpath, no GNU-only flags):
+# `.` segments are dropped and `seg/..` pairs collapse. Symlinks are NOT
+# resolved here — guard_target_not_in_framework physicalizes separately, so a
+# `..` escape through a symlink still cannot smuggle a write into the framework.
+soif_resolve_target_dir() {   # BL-199-SIBLING-RESOLVE
+  local raw="${1:-}"
+  local anchor="${2:-}"
+
+  if [ -z "$raw" ]; then
+    printf '%s' ""
+    return 0
+  fi
+
+  local combined
+  case "$raw" in
+    /*) printf '%s' "$raw"; return 0 ;;
+    *)
+      if [ -n "$anchor" ]; then
+        combined="$anchor/$raw"
+      else
+        combined="$raw"
+      fi
+      ;;
+  esac
+
+  local leading=""
+  case "$combined" in
+    /*) leading="/" ;;
+  esac
+
+  local rest="$combined"
+  local acc=""
+  local seg=""
+  while [ -n "$rest" ]; do
+    seg="${rest%%/*}"
+    if [ "$seg" = "$rest" ]; then
+      rest=""
+    else
+      rest="${rest#*/}"
+    fi
+    case "$seg" in
+      ''|'.')
+        : ;;
+      '..')
+        if [ -n "$acc" ]; then
+          acc="${acc%/*}"
+        fi ;;
+      *)
+        acc="$acc/$seg" ;;
+    esac
+  done
+
+  local result
+  if [ "$leading" = "/" ]; then
+    result="$acc"
+    [ -n "$result" ] || result="/"
+  else
+    result="${acc#/}"
+    [ -n "$result" ] || result="."
+  fi
+  printf '%s' "$result"
+}
+
+# Physicalize a path whose leaf may not exist yet: walk up to the deepest
+# EXISTING directory, resolve that with `cd … && pwd -P`, then re-append the
+# non-existent tail. Needed because the framework root exists (so it can be
+# physicalized) while the target usually does not, and on macOS a mktemp path
+# (/var/folders/…) is a symlink to /private/var/folders/… — comparing a
+# logical target against a physical root would silently miss.
+_bl199_physical_path() {
+  local p="${1:-}"
+  [ -n "$p" ] || { printf '%s' ""; return 0; }
+
+  local tail=""
+  local probe="$p"
+  local parent=""
+  while [ ! -d "$probe" ]; do
+    parent="$(dirname "$probe")"
+    if [ "$parent" = "$probe" ]; then
+      # Walked to the filesystem root with nothing existing — nothing to
+      # physicalize against; hand back the input unchanged.
+      printf '%s' "$p"
+      return 0
+    fi
+    if [ -n "$tail" ]; then
+      tail="$(basename "$probe")/$tail"
+    else
+      tail="$(basename "$probe")"
+    fi
+    probe="$parent"
+  done
+
+  local phys
+  phys="$(cd "$probe" 2>/dev/null && pwd -P)"
+  [ -n "$phys" ] || phys="$probe"
+  if [ -n "$tail" ]; then
+    printf '%s/%s' "$phys" "$tail"
+  else
+    printf '%s' "$phys"
+  fi
+}
+
+# Device+inode identity of a directory, as "dev:ino"; empty on any failure.
+#
+# Why identity and not string comparison (R-199-1, 2026-07-29 adversarial
+# review). macOS APFS is case-INSENSITIVE by default and `pwd -P` resolves
+# symlinks but does NOT canonicalize case, so `<x>/solo-orchestrator` and
+# `<x>/SOLO-ORCHESTRATOR` stay distinct STRINGS naming the SAME directory. The
+# byte-wise prefix match below therefore missed them, and the reviewer took it
+# end-to-end: `--project-dir "$TMP/CLONE/injected"` with the clone at
+# `$TMP/clone` scaffolded 400 files INSIDE the framework, rc=0, no refusal.
+# dev+inode is spelling-agnostic by construction and demonstrably covers
+# symlinks (pinned by T10 + M5). It SHOULD also cover hardlinked directories
+# and bind mounts, since those are the same identity by definition — but that
+# is a deduction, not a measurement: unprivileged directory hardlinks are
+# refused on both platforms and macOS has no bind mounts, so no test in this
+# repo reaches either. Stated as a deduction on purpose; do not cite it as
+# tested.
+#
+# NOT a `tr '[:upper:]' '[:lower:]'` comparison: on a genuinely case-SENSITIVE
+# filesystem `/x/FOO` and `/x/foo` are different directories, and lowercasing
+# would false-REFUSE a legitimate target. Identity is correct on both kinds of
+# filesystem; case-folding is correct on neither.
+#
+# The `cd … && pwd -P` step matters: `stat` does not dereference a symlink
+# argument on either GNU or BSD, so stat'ing a symlinked directory would return
+# the LINK's inode. Resolving first makes the id the real directory's.
+# GNU-first per CLAUDE.md § Portability.
+_bl199_dir_id() {
+  local d="${1:-}"
+  [ -n "$d" ] || return 1
+  [ -d "$d" ] || return 1
+  local p
+  p="$(cd "$d" 2>/dev/null && pwd -P)" || return 1
+  [ -n "$p" ] || return 1
+  stat -c '%d:%i' "$p" 2>/dev/null || stat -f '%d:%i' "$p" 2>/dev/null
+}
+
+# True when <target> IS the framework root by device+inode identity.
+# Requires a non-empty fw_id: if `stat` is unavailable the id is empty and this
+# must return FALSE rather than matching empty-against-empty, which would
+# refuse every target on the box.
+_bl199_target_is_framework_root() {
+  local t="${1:-}"
+  local fw_id="${2:-}"
+  [ -n "$fw_id" ] || return 1
+  local id
+  id="$(_bl199_dir_id "$t")"
+  [ -n "$id" ] || return 1
+  [ "$id" = "$fw_id" ]
+}
+
+# True when any ANCESTOR of <target> is the framework root, by identity.
+# Starts at the target's PARENT — never the target itself, so "IS the root" and
+# "is INSIDE the root" stay separately decided (and separately testable) by
+# _bl199_target_is_framework_root and this function respectively.
+_bl199_ancestor_is_framework() {
+  local start="${1:-}"
+  local fw_id="${2:-}"
+  [ -n "$start" ] || return 1
+  [ -n "$fw_id" ] || return 1
+  local probe parent id
+  probe="$(dirname "$start")"
+  while : ; do
+    if [ -d "$probe" ]; then
+      id="$(_bl199_dir_id "$probe")"
+      if [ -n "$id" ] && [ "$id" = "$fw_id" ]; then
+        return 0
+      fi
+    fi
+    parent="$(dirname "$probe")"
+    [ "$parent" = "$probe" ] && break
+    probe="$parent"
+  done
+  return 1
+}
+
+# True when <child> is strictly below <parent> (prefix match on parent + "/").
+_bl199_path_is_inside() {
+  local child="${1:-}"
+  local parent="${2:-}"
+  [ -n "$child" ] || return 1
+  [ -n "$parent" ] || return 1
+  case "$child" in
+    "$parent"/*) return 0 ;;
+  esac
+  return 1
+}
+
+# Operator-facing refusal for the target guard. Deliberately NOT the
+# guard_not_in_framework text: that message tells the operator to leave the
+# framework directory, which under the BL-199 contract is wrong advice. Only
+# the "Refusing to operate" opener is shared (tests distinguish the two by the
+# guidance lines that follow).
+_bl199_emit_target_refusal() {
+  local reason="$1"
+  local target="$2"
+  local fw_root="$3"
+  print_fail "Refusing to operate on the Solo Orchestrator framework itself."
+  echo "  Reason:           $reason" >&2
+  echo "  Requested target: $target" >&2
+  echo "  Framework root:   $fw_root" >&2
+  echo "" >&2
+  echo "  Running init.sh from inside the clone is fine — that is the" >&2
+  echo "  documented Quick Start flow. What is not allowed is scaffolding a" >&2
+  echo "  project ONTO the framework itself." >&2
+  echo "" >&2
+  echo "  Pick one:" >&2
+  echo "    ./init.sh --project-dir my-project" >&2
+  echo "        creates my-project BESIDE the clone (one level up)" >&2
+  echo "    ./init.sh --project-dir /absolute/path/outside/the/framework" >&2
+  echo "        creates it wherever you name, as long as it is not under" >&2
+  echo "        $fw_root" >&2
+}
+
+# Refuse when the resolved TARGET would write onto the framework itself.
+#   guard_target_not_in_framework <abs_target> <framework_root>
+#
+# Three arms, each independently load-bearing and each pinned by exactly one
+# test shape in tests/test-bl199-quickstart-from-clone.sh:
+#   (a) the target IS *a* framework clone (signature match) — the
+#       security-audits-1 S3 vector, preserved verbatim: a caller supplying
+#       --project-dir=$SOME_OTHER_FRAMEWORK_CLONE from a benign cwd.
+#       Isolated by T8, whose target is a SECOND, different clone: neither (b)
+#       nor (c) can see it, so disabling (a) turns T8 red.
+#   (b) the target IS *this* framework's root. Isolated by T7, whose fixture is
+#       a framework root with templates/generated deliberately absent — that
+#       kills (a) for the fixture, and (c) starts at the target's PARENT and so
+#       never matches the target itself. Disabling (b) turns T7 red.
+#   (c) the target is INSIDE this framework's tree. This arm is NEW — the old
+#       cwd-based guard never had it: with the cwd check gone, a subdirectory
+#       target (`--project-dir "$FRAMEWORK/sub"`) would otherwise scaffold a
+#       whole project into the framework checkout. Measured on the pre-fix tree
+#       from a benign cwd: rc=0, project created inside the repo. Isolated by
+#       T3, and by T9/T10 for the identity half specifically.
+#
+# Each of (b) and (c) is evaluated THREE ways, cheapest first: the as-given
+# string, the symlink-resolved (`pwd -P`) string, and finally device+inode
+# identity. The string passes are a fast path only — identity is the one that
+# is actually correct, because two different spellings can name one directory
+# (case-insensitive filesystems, symlinks, bind mounts). See _bl199_dir_id for
+# the measured bypass that forced this (R-199-1).
+#
+# NOTE ON REDUNDANCY, so a reader does not mistake it for coverage. THREE of
+# the four string comparisons in (b) and (c) are strict subsets of the identity
+# checks beside them: deleting one alone changes no observable behaviour and no
+# test notices. That is deliberate over-determination on the cheap path.
+#
+# The FOURTH is not, and the first version of this comment wrongly said it was
+# (caught in review, 2026-07-29). `_bl199_path_is_inside "$abs_target"
+# "$fw_root"` — the AS-GIVEN comparison in arm (c) — uniquely catches a symlink
+# that lives INSIDE the framework and points OUTSIDE it:
+#     ln -s /somewhere/else "$FW/escape";  --project-dir "$FW/escape/proj"
+# Identity says "outside" (the bytes really do land elsewhere) and the
+# physicalized string agrees, so removing this atom flips that target from
+# REFUSE to allow. Measured. T12 pins it and M7 proves it.
+#
+# DECISION — that target is REFUSED, deliberately (2026-07-29). Physically
+# nothing would be written into the framework, so allowing it would not break
+# the no-contamination invariant. It is refused anyway because:
+#   • the contract is stated over the path the OPERATOR SUPPLIES — "not the
+#     clone, not anything inside it" — and `$FW/escape/proj` is inside it by
+#     the only reading a user can perform without resolving symlinks;
+#   • otherwise whether a target is accepted would depend on what symlinks
+#     happen to exist in the framework tree, i.e. on framework contents rather
+#     than on operator input. That is unpredictable and would silently change
+#     as the tree changes;
+#   • an operator who genuinely wants that destination can pass its real
+#     absolute path, which is allowed and clearer.
+# Refusal is the conservative side of a genuine ambiguity, and it is now
+# pinned rather than emergent.
+#
+# The behaviour each ARM owns is what the T7/T8/T3 shapes pin.
+guard_target_not_in_framework() {   # BL-199-TARGET-GUARD
+  local abs_target="${1:-}"
+  local fw_root="${2:-}"
+
+  # No resolvable target yet (interactive flow before the prompt), or no
+  # framework root to compare against: nothing this guard can say.
+  [ -n "$abs_target" ] || return 0
+  [ -n "$fw_root" ] || return 0
+
+  if _soif_dir_is_framework "$abs_target"; then
+    _bl199_emit_target_refusal \
+      "the target is itself a Solo Orchestrator framework clone (signature match)" \
+      "$abs_target" "$fw_root"
+    return 1
+  fi
+
+  local fw_phys tgt_phys fw_id
+  fw_phys="$(_bl199_physical_path "$fw_root")"
+  tgt_phys="$(_bl199_physical_path "$abs_target")"
+  fw_id="$(_bl199_dir_id "$fw_root")"
+
+  # R2-2: the identity checks FAIL OPEN when the framework root has no usable
+  # device+inode — no working `stat`, or a framework root this process cannot
+  # search. Failing open is the right choice (failing closed would refuse every
+  # target on such a box, bricking init.sh entirely) and the degradation is
+  # narrow: the string comparisons still refuse the framework root and any
+  # lexically-inside target; only a case-variant or symlinked spelling would be
+  # missed. But SILENT degradation is this repo's named defect class, so say so
+  # out loud. Unreachable in practice through init.sh, where fw_root is
+  # SCRIPT_DIR and the script has already resolved it. To stderr, so it cannot
+  # contaminate the --validate-only JSON on stdout.
+  if [ -z "$fw_id" ]; then
+    print_warn "Framework identity (device+inode) unavailable for '$fw_root' — falling back to string-only comparison. A case-variant or symlinked spelling of the framework path may not be recognised. Check that 'stat' works and that the directory is searchable." >&2
+  fi
+
+  if [ "$tgt_phys" = "$fw_phys" ] || [ "$abs_target" = "$fw_root" ] || _bl199_target_is_framework_root "$abs_target" "$fw_id"; then
+    _bl199_emit_target_refusal \
+      "the target IS the framework root" \
+      "$abs_target" "$fw_root"
+    return 1
+  fi
+
+  if _bl199_path_is_inside "$tgt_phys" "$fw_phys" || _bl199_path_is_inside "$abs_target" "$fw_root" || _bl199_ancestor_is_framework "$tgt_phys" "$fw_id"; then
+    _bl199_emit_target_refusal \
+      "the target is inside the framework tree" \
+      "$abs_target" "$fw_root"
     return 1
   fi
 

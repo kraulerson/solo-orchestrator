@@ -35,3 +35,12 @@ test-logs/
 # top of this file does NOT cover this path (a pattern with no internal slash
 # matches only a directory literally named `.worktrees`).
 .claude/worktrees/
+
+# BL-199 / R-199-9: tests/test-init-write-perm-preflight.sh::T2 aims a real
+# init.sh run at a path INSIDE this checkout to prove the target guard refuses
+# before mkdir. On a healthy tree nothing is ever created here — the guard runs
+# first — and the test both removes it and arms an EXIT/INT/TERM trap. This
+# rule is the third line of defence: if a regression ever does scaffold a
+# ~600-file project here and the interpreter dies before cleanup, it must not
+# be committable by a `git add -A`.
+.bl199-t2-guard-probe/

@@ -307,10 +307,12 @@ These are not framework-specific issues — they apply to any AI-assisted develo
 git clone https://github.com/kraulerson/solo-orchestrator.git
 cd solo-orchestrator
 chmod +x init.sh
-./init.sh
+./init.sh --project-dir my-project
 ```
 
-The script prompts for 7 inputs:
+Running init.sh from inside the clone is the supported flow. `--project-dir my-project` — a bare folder name — creates the project **beside** the clone, as a sibling of `solo-orchestrator/`, and skips the directory prompt below. Pass an absolute path instead and it is used exactly as given. Plain `./init.sh` with no flags still works and asks you interactively. Either way init refuses a target that would write onto the framework itself — the clone, anything inside it, or another copy of solo-orchestrator.
+
+The script prompts for 7 inputs (6 if you passed `--project-dir`):
 
 | Prompt | What You Enter | Guidance |
 |---|---|---|
@@ -320,7 +322,7 @@ The script prompts for 7 inputs:
 | **Project track** | Light / Standard / Full | **Light:** internal tools, <10 users, skip market audit. **Standard:** external users, moderate complexity. **Full:** enterprise buyers, sensitive data, pen testing mandatory. |
 | **Personal or Organizational** | Personal / Organizational | Organizational adds governance pre-flight requirements and approval authority structures. |
 | **Primary language** | TypeScript, Python, Rust, C#, Kotlin, Java, Go, Dart, Swift, Other | Determines the CI pipeline template (testing, linting, SAST, dependency audit). |
-| **Project directory** | Path (default: `~/projects/your-project`) | Where the project is created. |
+| **Project directory** | Path — press Enter to accept the default | Where the project is created. The default is the **clone's parent directory** plus your project name, i.e. a sibling of `solo-orchestrator/` (it falls back to `~/projects/` only if that parent cannot be resolved). Typing a bare name here resolves against that same parent, so it also lands beside the clone; type an absolute path to put it anywhere else. Skipped entirely when you pass `--project-dir`. |
 
 ### What Gets Generated
 

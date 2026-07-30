@@ -343,6 +343,33 @@ run_child_suite "tests/test-init-write-perm-preflight.sh" \
   "init.sh BL-041 layering tests FAILED (run tests/test-init-write-perm-preflight.sh for details)"
 
 # ================================================================
+# TEST 0c6: BL-199 — the README Quick Start actually works from the clone
+# ================================================================
+# README § Quick Start has always said clone → cd solo-orchestrator →
+# ./init.sh, but init.sh called guard_not_in_framework, whose first arm is an
+# UNCONDITIONAL cwd check — so from inside the clone init.sh refused before any
+# prompt, even with --project-dir pointing at a benign external path. Only
+# --dry-run worked, and no test ever ran the README's literal sequence (E8b
+# above hit the same wall; BL-041 reordered preflight-before-guard to get the
+# TEST past it). Karl's 2026-07-29 contract: running from the clone is the
+# SUPPORTED flow; a bare --project-dir creates the project BESIDE the clone
+# (anchor = SCRIPT_DIR/.., not the cwd); writing onto the framework — its root,
+# anything inside it, or another clone — is still refused.
+# Builds its own framework clone in a tempdir (init.sh needs its whole
+# templates/scripts/docs tree beside it) and carries all seven mutation proofs
+# in-suite. Invokes init.sh → aggregator lane only, not the tests.yml unit list.
+# Deliberately NOT a fixed N/N label: T9 and M4 SKIP on case-sensitive
+# filesystems (they exercise a case-variant path that is a genuinely different
+# directory there), so the pass count differs by platform. A hardcoded count
+# would read as a failure on one of the two. The child's own tally line reports
+# `Skipped` explicitly, which is what makes those skips visible here — this
+# helper prints the child's output only when the child FAILS.
+section "init.sh runs from inside the clone, scaffolds beside it (BL-199)"
+run_child_suite "tests/test-bl199-quickstart-from-clone.sh" \
+  "init.sh BL-199 quick-start-from-clone tests (all cases + 7 mutation proofs)" \
+  "init.sh BL-199 quick-start-from-clone tests FAILED (run tests/test-bl199-quickstart-from-clone.sh for details)"
+
+# ================================================================
 # TEST 0d: BACKLOG-REFERENCES LINT — cycle-7 Slot-5 process backstop
 # ================================================================
 # Sibling of the counter-antipattern lint above; catches drift between

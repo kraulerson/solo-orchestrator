@@ -41,8 +41,19 @@ The User Guide is your operating manual. The other documents (Builder's Guide, G
 git clone https://github.com/kraulerson/solo-orchestrator.git
 cd solo-orchestrator
 chmod +x init.sh
-./init.sh
+./init.sh --project-dir my-project
 ```
+
+**Where your project lands.** `--project-dir my-project` — a bare folder name —
+creates the project **next to the clone**, as a sibling of `solo-orchestrator/`,
+not inside it. Clone into `~/Code` and you get `~/Code/my-project/` alongside
+`~/Code/solo-orchestrator/`. Give an **absolute path** instead
+(`./init.sh --project-dir ~/work/my-project`) and it is used exactly as written,
+anywhere outside the framework. Running plain `./init.sh` with no flags still
+works and prompts you interactively — the directory question defaults to that
+same sibling path, so you can just press Enter. The one thing init will refuse
+is a target that would write onto the framework itself: the clone, anything
+inside it, or another copy of solo-orchestrator.
 
 > **Preview first?** Run `./init.sh --dry-run` to see what will be installed and created without making any changes.
 
