@@ -1304,8 +1304,12 @@ soif_tests_not_enforced() {
 # never tested against the opening line, as in sed), and a later
 # `"scripts" :` line may re-open it — so the S1/S4 scoping is byte-for-byte
 # the old semantics, minus the inversion. <pat> is a dynamic ERE, matching
-# the grep -qE it replaces; the placeholder needle contains no ERE
-# metacharacters, so the old grep -q fixed-string read is unchanged too.
+# the grep -qE it replaces; the placeholder needle contains no metacharacters
+# in either grammar, so the old grep -q read (a BRE match, not fixed-string)
+# is unchanged too. Portability: the [[:space:]] class needs a POSIX-class-
+# capable awk — macOS awk, gawk, and mawk >= 1.3.4 (Debian/Ubuntu defaults)
+# all qualify; on an older awk the detection arm degrades to the LOUD
+# not-enforced WARN below, never a silent pass.
 soif_npm_scripts_has() {
   awk -v pat="$1" '
     !r && /"scripts"[[:space:]]*:/ { r = 1; if ($0 ~ pat) f = 1; next }
@@ -1365,9 +1369,14 @@ if [ "$soif_test_src" -gt 0 ]; then
     # && exit 1` — treating it as a real suite would brick every commit on a
     # fresh scaffold (the BL-137 documented-but-impossible class). Verifier
     # S1/S4: BOTH reads are scoped to the "scripts" block (see
-    # # BL-183-NPM-NO-SIGPIPE above), so a dependency literally named "test"
-    # cannot trigger detection and a placeholder string elsewhere in
-    # package.json cannot disable a real suite.
+    # # BL-183-NPM-NO-SIGPIPE above), so while a MULTI-LINE scripts block is
+    # present a dependency literally named "test" cannot trigger detection
+    # and a placeholder string elsewhere in package.json cannot disable a
+    # real suite. One known leak, faithfully preserved from the sed range
+    # this replaced: a ONE-LINE block (`"scripts": {},` or `{ "lint": … },`)
+    # never closes the range on its own line, so a `"test":` key in the NEXT
+    # object can still trigger detection (recorded on BL-183; equivalence
+    # with the old spelling was this fix's contract).
     soif_test_cmd="npm test"
   elif [ -f pytest.ini ] || [ -f conftest.py ] \
        || { [ -f pyproject.toml ] && grep -q '^\[tool\.pytest' pyproject.toml; }; then
