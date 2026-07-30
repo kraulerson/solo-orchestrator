@@ -6614,8 +6614,29 @@ recorded on the PR).
 **Category:** Product defect / docs-vs-code contradiction / coverage hole
 **Severity:** High — this is the FIRST command a new user runs. The documented onboarding path
 exited 1 before any prompt.
-**Status:** Open — implemented on `fix/bl199-quickstart-from-clone`; flips to Closed at merge (PR
-citation added then, per the Closed-status citation rule).
+**Status:** Open — DEFERRED. **Delivered by PR #284** (`fix/bl199-quickstart-from-clone`) — the
+quick-start contract, the target-based guard, the sibling resolver, the README, the audit-record and
+user-guide corrections, and the 19-case suite with seven mutation proofs all shipped there.
+
+**It is DEFERRED rather than Closed for one named residual: `--dry-run` does not refuse a target it
+will refuse for real.** `--validate-only` refuses (rc=1); `--dry-run` returns rc=0 and prints
+"Re-run without --dry-run to execute" — so the preview tells the operator to run a command that will
+then be refused. Harmless (no writes occur) and pre-existing, but not closed here **deliberately**:
+fixing the flag half alone would leave the README's own tip — bare `./init.sh --dry-run` — still
+wrong, because that is the INTERACTIVE path, where no target exists at the early-guard block and the
+guard would have to move into `dry_run_summary`. A half-fix would read as closed while the documented
+example stayed broken, and would add a new inconsistency between the two dry-run shapes.
+
+**Why DEFERRED and not a fresh entry.** CLAUDE.md's canonical what's-open recipe
+(`grep -n '\*\*Status:\*\* Open'`) returns the DEFERRED variants, so the residual stays visible with
+no new machinery; minting a number would gamble on numbering contention that does NOT resolve at
+merge (other unmerged branches are not visible from here, and a collision would land exactly when
+someone is merging); and a stub entry would lose the reasoning above, which is the only thing that
+makes the residual intelligible. BL-181 is the precedent — substantially delivered, one named
+residual, stays Open.
+
+**Audit-trail note:** because this entry is not Closed, `lint-backlog-references.sh` does not require
+a PR citation — so PR #284 is cited in this prose deliberately. A future closer should keep it.
 
 **The defect.** README § Quick Start said: `git clone` → `cd solo-orchestrator` → `chmod +x init.sh`
 → `./init.sh`. init.sh's early block called `guard_not_in_framework "$_early_target"`, whose FIRST
