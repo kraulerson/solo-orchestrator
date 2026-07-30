@@ -5406,6 +5406,47 @@ same configs plus a comment-stripped variant — so narrowing the comment predic
 which would bless a hook whose executable `--config` lines were deleted, also turns it RED.
 Restoring the pipe spelling turns it RED in both files (mutation-proven).
 
+**UPDATE 2026-07-30 — the two emitted-hook npm sites are FIXED (`3a5949f`); the entry stays
+Open for the gitlink site and the un-run `tests/` census.** Sites 2 and 3 of the emitted-hook
+enumeration above (`# BL-125-COMMIT-TESTS` npm detection + placeholder rejection) are replaced
+by `soif_npm_scripts_has` — single-process awk, marker `# BL-183-NPM-NO-SIGPIPE` in
+`scripts/lib/hook-templates.sh` — per this entry's own deviation note: no pipe to break. The
+awk emulates the sed range exactly (opens at a `"scripts" :` line and tests it, closes at the
+first in-scope `}`, may re-open later), so the S1/S4 scripts-block scoping is unchanged.
+
+**A precondition in this entry was WRONG, recorded here rather than silently edited.** The
+"Fix shape" paragraph above prescribes "a multi-KB `package.json` fixture", and the site-2
+enumeration says "on a `package.json` past the pipe buffer". Neither reproduces: `sed`'s range
+closes at the first `}`, after which it READS the rest of the file without WRITING, and SIGPIPE
+needs a write. **The trigger is a large `scripts` BLOCK** — measured 20/20 inversions on a
+~1.2 MB block vs 0/20 on a 1.26 MB file with an ordinary block, independently reproduced by a
+second session from scratch (flaky band ~33–55 KB, deterministic from ~82–110 KB). A fixture
+built to this entry's own prescription would have shown the defect "unreproducible".
+
+Guarded by **T17/T18/T19/T20** in `tests/test-bl125-commit-test-exec.sh`: detection and
+placeholder scope at ~330 KB block scale (both watched RED against the old spelling — T17's
+commit LANDED with the gate silently off; T18 REFUSED where the small-file semantics
+warn-and-land), whole-block-read completeness (a truncating rewrite goes RED), and a standing
+both-directions mutant that re-spells each call back to the old pipeline and requires the
+inversion to return. Each case asserts its fixture's post/pre-match block bytes ≥ 150 KB
+BEFORE asserting behavior, so a fixture edit cannot quietly turn it vacuous.
+
+**Still open:** (1) `# BL-132-GITLINK-SKIP` — single-line producer, condition (a) very weak;
+do not "fix" without a reachability proof, per the triage rule above. (2) The `tests/` census
+this entry has never run (the 80-site table scanned `scripts/` only). (3) The two
+`echo`-of-a-variable candidates in `test-bl104-gate-scoring.sh` / `test-bl073-review-manifest-gate.sh`.
+(4) **The scripts-block scope has a preserved RANGE LEAK on one-line blocks** — found by the
+fix's own adversarial review, present in BOTH spellings (equivalence was the contract, so the
+awk faithfully keeps it): a one-line `"scripts": {},` (or any one-line block) never closes the
+range on its own line — the end pattern is never tested against the opening line, exactly as in
+sed — so the range stays open into the NEXT object and a dependency literally named `test`
+(`"dependencies": { "test": "1.0.0" }` — a real npm package) still triggers detection.
+Reviewer-built fixtures `empty-scripts-leak` / `oneline-block-leak`: both spellings agree,
+rc=0. Consequence when it fires: `npm test` adopted with no test script → `Missing script:
+"test"` → non-127 non-zero → source commits BLOCK (the BL-137 class). The S1/S4 comment at the
+call site now states the leak instead of overclaiming; closing it means deliberately changing
+the range semantics — a semantic change the SIGPIPE fix explicitly refused to smuggle in.
+
 ---
 
 ## BL-184: The full-suite aggregator destroyed its children's failure output — 177 delegates discarded stdout AND stderr, making every CI-only failure unactionable

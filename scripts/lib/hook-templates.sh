@@ -1286,6 +1286,36 @@ soif_tests_not_enforced() {
   echo "  This is NOT a green result: nothing was executed. Configure the"
   echo "  command in .claude/test-command (one line, e.g. 'npm test')."
 }
+# BL-183-NPM-NO-SIGPIPE — single-process awk replaces the two
+# `sed -n '/"scripts"…/,/}/p' package.json | grep -q …` pipelines that used
+# to sit in the elif below. Under this hook's `set -euo pipefail`, grep -q
+# exits on first match, sed dies of SIGPIPE writing the rest of the SCRIPTS
+# BLOCK (the range closes at the first `}`, so the trigger is a big block,
+# not a big file), and pipefail promotes rc 141 into "no match" —
+# deterministically on a monorepo-sized block (measured PIPESTATUS=141 0:
+# grep MATCHED and the pipeline still reported false). The detection call
+# then read a real suite as absent — the test gate silently stopped running
+# — and the NEGATED placeholder call read the other way, adopting npm test
+# against a fresh scaffold (the BL-137 documented-but-impossible class).
+# awk is one process on the file: no pipe, nothing to SIGPIPE, no invariant
+# a later edit can quietly re-narrow. It emulates the sed range exactly —
+# a `"scripts" :` line opens the scope (and is itself tested, as sed printed
+# it), the first in-scope line containing `}` closes it (the end pattern is
+# never tested against the opening line, as in sed), and a later
+# `"scripts" :` line may re-open it — so the S1/S4 scoping is byte-for-byte
+# the old semantics, minus the inversion. <pat> is a dynamic ERE, matching
+# the grep -qE it replaces; the placeholder needle contains no metacharacters
+# in either grammar, so the old grep -q read (a BRE match, not fixed-string)
+# is unchanged too. Portability: the [[:space:]] class needs a POSIX-class-
+# capable awk — macOS awk, gawk, and mawk >= 1.3.4 (Debian/Ubuntu defaults)
+# all qualify; on an older awk the detection arm degrades to the LOUD
+# not-enforced WARN below, never a silent pass.
+soif_npm_scripts_has() {
+  awk -v pat="$1" '
+    !r && /"scripts"[[:space:]]*:/ { r = 1; if ($0 ~ pat) f = 1; next }
+    r { if ($0 ~ pat) f = 1; if (index($0, "}")) r = 0 }
+    END { exit f ? 0 : 1 }' package.json
+}
 # BL-179-TESTARM-FILTER — Verifier M1: D, R and T are in the filter ON
 # PURPOSE — a commit that DELETES, RENAMES or TYPE-CHANGES the sanitizer
 # is exactly the regression this arm exists to stop, and the old ACM
@@ -1333,14 +1363,20 @@ if [ "$soif_test_src" -gt 0 ]; then
       soif_test_cfg_warned=1
     fi
   elif [ -f package.json ] \
-       && sed -n '/"scripts"[[:space:]]*:/,/}/p' package.json | grep -qE '"test"[[:space:]]*:' \
-       && ! sed -n '/"scripts"[[:space:]]*:/,/}/p' package.json | grep -q 'no test specified'; then
+       && soif_npm_scripts_has '"test"[[:space:]]*:' \
+       && ! soif_npm_scripts_has 'no test specified'; then
     # npm's scaffold placeholder script is `echo "Error: no test specified"
     # && exit 1` — treating it as a real suite would brick every commit on a
     # fresh scaffold (the BL-137 documented-but-impossible class). Verifier
-    # S1/S4: BOTH greps are scoped to the "scripts" block, so a dependency
-    # literally named "test" cannot trigger detection and a placeholder
-    # string elsewhere in package.json cannot disable a real suite.
+    # S1/S4: BOTH reads are scoped to the "scripts" block (see
+    # # BL-183-NPM-NO-SIGPIPE above), so while a MULTI-LINE scripts block is
+    # present a dependency literally named "test" cannot trigger detection
+    # and a placeholder string elsewhere in package.json cannot disable a
+    # real suite. One known leak, faithfully preserved from the sed range
+    # this replaced: a ONE-LINE block (`"scripts": {},` or `{ "lint": … },`)
+    # never closes the range on its own line, so a `"test":` key in the NEXT
+    # object can still trigger detection (recorded on BL-183; equivalence
+    # with the old spelling was this fix's contract).
     soif_test_cmd="npm test"
   elif [ -f pytest.ini ] || [ -f conftest.py ] \
        || { [ -f pyproject.toml ] && grep -q '^\[tool\.pytest' pyproject.toml; }; then
