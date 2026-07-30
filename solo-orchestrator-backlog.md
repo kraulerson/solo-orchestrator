@@ -5982,6 +5982,15 @@ protects), BL-187 (the sibling clause with the same fail-open shape — this ent
 looks like once realised), and the `# BL-112-SCAN-COVERAGE` block in `scripts/lib/hook-templates.sh`,
 which carries the same measurement inline so a reader of the code does not need this file.
 
+**UPDATE 2026-07-30 — the PRIMARY fix this diagnosis called for is IMPLEMENTED: BL-198
+(transcode-first) landed in `02eaa0f` (`# BL-198-TRANSCODE`).** The false-attestation shape this
+entry measured — a UTF-16 staged sink collecting the `[OK]` receipt — now BLOCKS (watched RED
+then GREEN through the real emitted hook, 8 fixture rows). Per this entry's own DECISION
+blocks, no clause of the fix reads anything semgrep reports. The entry STAYS OPEN deliberately
+for its two spawned residues: BL-200 (the token-stream break, the best-effort `--verbose`
+detector + canary) and BL-201 (the 22 template pins float, sequenced after BL-198 — now
+unblocked). Close this entry when both land.
+
 ---
 
 ## BL-193: On CI the emitted hook forfeited the SAST receipt on essentially EVERY clean commit, cascading 13 mutation/coverage proofs into silent SKIPs while the shard reported only 3 named failures — NOT reproducible on any local platform, cause unknown
@@ -6476,7 +6485,31 @@ paid for that lesson.
 **Severity:** High, inherited from BL-192: the outcome it prevents is a **positive false attestation**
 (`[OK] semgrep: SAST ran on N staged file(s) — no ERROR-severity findings.` printed over a file the
 parser never decoded).
-**Status:** Open — planned, not started.
+**Status:** Closed — implemented 2026-07-30 in `02eaa0f` (WP0–WP4 complete; marker `# BL-198-TRANSCODE`
+in `scripts/lib/hook-templates.sh`, reporter `# BL-198-UNTX-REPORT`, extension tripwire `# BL-198-EXT-SET`).
+
+**Closure record.** The decision tree shipped as planned: NUL scan → BOM longest-first →
+whole-body stride-aware zero-parity derivation with the claim/derivation agree-check →
+transcode-to-UTF-8 at the IDENTICAL tree path (temp + `mv`, after F2) → fail-closed named
+NOTRUN for everything unvouchable. The receipt attests the conversion count. **One deviation
+from this plan's text, recorded in the fence comment:** no `numstat` first pass — its binary
+heuristic reads only the first 8000 bytes, so a late-first-NUL UTF-16 file would be exempted
+as "text" and slip the classifier; the whole-file NUL count has no window. Strictly stronger,
+same tree. **No parity ratio exists** (the rule shipped as all-zeros-on-one-parity, exact),
+so the plan's "numeric boundary" proof obligation attaches to the BOM match ORDER instead —
+`T-mutation-parse-threshold` proves shortest-first degrades the UTF-32 row to a SAFE cry-wolf,
+never a receipt. DoD walked: UTF-16LE±BOM/BE±BOM/UTF-32LE+BOM sinks all transcode and BLOCK;
+well-formed, empty, UTF-8-BOM, Latin-1 and binary commits keep their receipts untouched;
+iconv failure (unpaired surrogate) forfeits loudly naming the file; no clause added by this
+work reads anything semgrep printed; the token-break residue is deferred to BL-200 and named
+in the receipt's own documentation. WP3's five withdrawn cases are restored re-aimed
+(`T-utf16-parse-drop-no-receipt` flips to sink-BLOCKED, `T-parse-coverage-fails-closed` to
+iconv failure, `T-parse-threshold-exact` to BOM order, plus both mutation proofs) — the
+condition #278 was held open for. Suite 53/0 with the 8 sink rows watched RED first (every
+one printed the `[OK]` receipt over the unseen sink pre-fix); six sibling emitted-hook
+suites green; 11/11 lints. Residues, still named: BL-200 (token break — no byte-level test
+can see it) and the zero-ASCII single-line UTF-16 passthrough (bounded; pinned by
+`T-pure-cjk-residue-passthrough`).
 
 **Read first, and do not repeat this work:** BL-192 (the measured diagnosis, the two-version table,
 the two DECISION blocks), the `# BL-112-SCAN-COVERAGE` block in `scripts/lib/hook-templates.sh` —
@@ -6935,7 +6968,7 @@ semgrep on the CI host (already true of the `sast` shard). Sequenced AFTER BL-19
 work rewrites the same region, and two hands in that block at once is how BL-179/BL-182 earned their
 "same rewrite by design" note.
 
-**Status:** Open — blocked by BL-198.
+**Status:** Open — unblocked 2026-07-30 (BL-198 implemented in `02eaa0f`).
 
 **Related:** BL-198 (the plan that refuses to claim this), BL-192 (the decision blocks that
 constrain the design), `# BL-112-SCAN-COVERAGE` (the residue note that named it first), BL-193
@@ -6983,7 +7016,7 @@ clause reads anything semgrep prints, and version drift can only ever ADD findin
 **Adjacent, noted not scoped:** the emitted hook's receipt could print the scanner version for the
 same debuggability (BL-193 cost a day partly to version archaeology). One line; decide at build.
 
-**Status:** Open — blocked by BL-198.
+**Status:** Open — unblocked 2026-07-30 (BL-198 implemented in `02eaa0f`).
 
 **Related:** BL-192 (both decision blocks), BL-198 (the gate this waits on), BL-147 (the parity
 suite that must move in the same diff), BL-193 (the version-archaeology cost that motivates the
