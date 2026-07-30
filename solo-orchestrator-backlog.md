@@ -5963,21 +5963,9 @@ eliminated as a cause first (byte-identical banner on 1.157.0 and 1.172.0; `test
 both), as was the stream-moves-under-CI hypothesis (`CI=true`, `GITHUB_ACTIONS=true` — stderr in
 every combination, both versions).
 
-**The half that mattered more than the cry-wolf.** FOUR readers hard-coded `$soif_sg_err`, and one
-was the **fail-OPEN** clause: `soif_sg_timeouts`, whose contract is "no timeout seen ⇒ coverage may
-be granted". A stream-blind read there returns 0 unconditionally and grants an **unearned `[OK]` over
-a target whose rule was abandoned** — the BL-112 false-attestation defect this arm exists to prevent.
-Crying wolf is loud and wrong; that one is silent and wrong.
-
-**Fix — `# BL-193-STATUS-STREAM`.** All four readers now read a merged view of both streams.
-Concatenating rather than picking a stream is deliberate: correct whether the banner is on one, the
-other, or split; no guess about which frontend is installed; and it fails **CLOSED** — a banner
-duplicated across both counts 2, which the exactly-once rule already treats as unparseable.
-
-**Pinned by `T-status-on-stdout-earns-receipt`** (`tests/test-bl132-sast-index-scan.sh`): a semgrep
-shim behaving exactly like the runner — banner on stdout, no findings, exit 0 — must still earn the
-`[OK]` receipt. **Hermetic and deterministic**: no real semgrep, no registry, no network, so unlike
-the three cases this defect actually broke, it cannot go UNPROVEN on a quiet host.
+The fail-open half of the defect, the `# BL-193-STATUS-STREAM` fix, and its pinning case are
+narrated ONCE, in the root-cause section below (**ROOT CAUSE — FOUND, 2026-07-29**) — this
+closure block deliberately does not repeat them.
 
 **Result on CI:** the `sast` shard passed for the first time in four rounds, and — the outcome this
 entry's severity was always about — **`test-bl132`'s silent skips fell from 10 to 2**. The skip
@@ -5995,6 +5983,11 @@ were each discarding it. That is the transferable part and it is why BL-197 exis
 `$soif_sg_err` as a CI artifact" — which would have meant editing shipped enforcement code to retain
 a temp file for a debugging need. Unnecessary: the bytes were already being captured and thrown away
 at the last step.
+
+**Original entry (pre-close, kept for audit trail):** everything below this line was written
+while the cause was unknown; its directives are historical (the recommended capture is DONE,
+the candidates are eliminated, the root cause is found — see the dated sections as they
+resolve, in order).
 
 **NOT REPRODUCIBLE LOCALLY, on any platform tried.** macOS (arm64), Linux/arm64 and Linux/x86_64 all
 receipt a clean commit normally. **No cause is proposed here, deliberately.** Candidate stories exist

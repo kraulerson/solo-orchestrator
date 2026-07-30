@@ -4,7 +4,9 @@
 
 ## 1. Where we are
 
-`main` is at **`3a196ee`**. Backlog: **194 `BL-`numbered entries, 30 open**. Count with the
+`main` is at **`3a196ee`**, where the backlog reads **194 `BL-`numbered entries, 31 open**; this
+branch's BL-193 closure takes it to **30 open at merge** (no single repo state satisfies "at
+`3a196ee`" and "30 open" together — re-derive after merging). Count with the
 trap-aware recipe, never a raw grep — BL-055's preserved pre-close block carries its own
 `**Status:** Open`:
 
@@ -22,7 +24,9 @@ Everything else is merged and green.
 
 ## 2. What shipped 2026-07-29
 
-Sixteen PRs. The four that matter to the next session:
+Five PRs merged 2026-07-29 (#280–#284); sixteen across the whole arc, and the arc total had been
+inherited under this single-day header until review caught it. The four that matter to the next
+session:
 
 - **#280** (`8f36382`) — the SAST coverage stack. Root-caused **BL-193**: semgrep writes its
   scan-status banner to **stderr on macOS and stdout on the GitHub runner**, and the coverage guard
@@ -145,4 +149,4 @@ Re-measure claims rather than inheriting them — including your own from earlie
 
 ## 8. Resume prompt
 
-> Continuing work on **solo-orchestrator** at `/Users/karl/Documents/Claude Projects/solo-orchestrator`. Read `CLAUDE.md` first, then `docs/handoffs/2026-07-30-post-sast-wave-next-steps.md`. **State:** `main` at `3a196ee`; backlog 194 entries, 30 open — use the trap-aware recipe in § 1, never a raw grep. `git fetch` and re-derive before trusting any of this. One PR open: **#278, a draft that must NOT be merged** — it is the only copy of four backlog entries and five test cases BL-198's WP4 needs, and its red `sast` shard is a deliberate pre-fix snapshot; do not fix or rebase it. **FIRST: BL-183's emitted-hook npm detector (§ 3.1)** — a live defect in shipped enforcement code where a project with a real jest suite is told `PROJECT TESTS NOT ENFORCED` and the commit-time test gate silently stops running, measured 20/20 deterministic and reproduced end-to-end. **BL-183's own stated precondition for that site is WRONG** and will send you to a fixture that does not reproduce: the trigger is a large `scripts` block, not a large `package.json`, because `sed`'s range closes at the first `}` and SIGPIPE needs a write. Fix with single-process awk preserving the S1/S4 scripts-block scoping; own PR. **THEN BL-198** (§ 3.2 — transcode after F2, identical path not a sibling, never redirect `iconv` into the file it reads), which unblocks BL-201, BL-200 and #278's closure. **THEN § 3.3 and § 3.4.** The operating-model build needs re-planning, not resuming — all three WP plans are lost and must be re-derived from `docs/designs/2026-07-24-operating-model-v1.md` (§ 4). **Standing gates (§ 5):** adversarial `pr-reviewer` before `gh pr create`, docs-only included; never merge on red; never `--no-verify`; mutation proofs must be checked for vacuity; attest lints AFTER committing, because `lint-backlog-references.sh` scans commit messages and a pre-commit run cannot see them. Read § 6 before writing any backlog entry or handoff — every substantive error last session was in prose, not code, and three adversarial rounds each found something real.
+> Continuing work on **solo-orchestrator** at `/Users/karl/Documents/Claude Projects/solo-orchestrator`. Read `CLAUDE.md` first, then `docs/handoffs/2026-07-30-post-sast-wave-next-steps.md`. **State:** `main` at `3a196ee` before this branch merges (31 open there; 194 entries, 30 open once the BL-193 closure lands) — use the trap-aware recipe in § 1, never a raw grep. `git fetch` and re-derive before trusting any of this. One PR open: **#278, a draft that must NOT be merged** — it is the only copy of four backlog entries and five test cases BL-198's WP4 needs, and its red `sast` shard is a deliberate pre-fix snapshot; do not fix or rebase it. **FIRST: BL-183's emitted-hook npm detector (§ 3.1)** — a live defect in shipped enforcement code where a project with a real jest suite is told `PROJECT TESTS NOT ENFORCED` and the commit-time test gate silently stops running, measured 20/20 deterministic and reproduced end-to-end. **BL-183's own stated precondition for that site is WRONG** and will send you to a fixture that does not reproduce: the trigger is a large `scripts` block, not a large `package.json`, because `sed`'s range closes at the first `}` and SIGPIPE needs a write. Fix with single-process awk preserving the S1/S4 scripts-block scoping; own PR. **THEN BL-198** (§ 3.2 — transcode after F2, identical path not a sibling, never redirect `iconv` into the file it reads), which unblocks BL-201, BL-200 and #278's closure. **THEN § 3.3 and § 3.4.** The operating-model build needs re-planning, not resuming — all three WP plans are lost and must be re-derived from `docs/designs/2026-07-24-operating-model-v1.md` (§ 4). **Standing gates (§ 5):** adversarial `pr-reviewer` before `gh pr create`, docs-only included; never merge on red; never `--no-verify`; mutation proofs must be checked for vacuity; attest lints AFTER committing, because `lint-backlog-references.sh` scans commit messages and a pre-commit run cannot see them. Read § 6 before writing any backlog entry or handoff — every substantive error last session was in prose, not code, and three adversarial rounds each found something real.
