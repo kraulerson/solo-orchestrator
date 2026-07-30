@@ -5952,7 +5952,49 @@ which carries the same measurement inline so a reader of the code does not need 
 - What makes it serious is what it did to the **proofs**. Thirteen mutation and coverage cases are written to `skip_` when the unmutated control does not produce an `[OK]` receipt — correctly, because a mutation proof whose GREEN direction never fires proves nothing and must not report PASS. When the receipt is forfeited on every clean commit, **all thirteen skip at once**, and the shard's summary line shows 3 named failures. Thirteen enforcement proofs stopped proving anything and the transcript looked like a three-failure run.
 - That is this repo's named **green-looking-permanent-skip** class (the same shape as BL-181's comment-exemption hole and BL-187's host-speed SKIP arm): the signal is not a red test, it is the *absence* of a test, and nothing in the tally distinguishes the two.
 
-**Status:** Open
+**Status:** Closed — root-caused and fixed 2026-07-29, merged in PR #280 (`8f36382`).
+
+**The cause, and it was never a flake:** semgrep writes its scan-status banner
+(`Scanning N files with M Code rules:`) to **stderr on macOS** and **stdout on the GitHub Linux
+runner**. The coverage parse hard-coded stderr, so on CI the header count read **0**,
+`soif_sg_accepted` stayed empty, coverage could never be verified, and the emitted hook **NOTRUNed
+every clean commit** — a permanent cry-wolf on any host that routes it that way. Version drift was
+eliminated as a cause first (byte-identical banner on 1.157.0 and 1.172.0; `test-bl132` 38/0/0 on
+both), as was the stream-moves-under-CI hypothesis (`CI=true`, `GITHUB_ACTIONS=true` — stderr in
+every combination, both versions).
+
+**The half that mattered more than the cry-wolf.** FOUR readers hard-coded `$soif_sg_err`, and one
+was the **fail-OPEN** clause: `soif_sg_timeouts`, whose contract is "no timeout seen ⇒ coverage may
+be granted". A stream-blind read there returns 0 unconditionally and grants an **unearned `[OK]` over
+a target whose rule was abandoned** — the BL-112 false-attestation defect this arm exists to prevent.
+Crying wolf is loud and wrong; that one is silent and wrong.
+
+**Fix — `# BL-193-STATUS-STREAM`.** All four readers now read a merged view of both streams.
+Concatenating rather than picking a stream is deliberate: correct whether the banner is on one, the
+other, or split; no guess about which frontend is installed; and it fails **CLOSED** — a banner
+duplicated across both counts 2, which the exactly-once rule already treats as unparseable.
+
+**Pinned by `T-status-on-stdout-earns-receipt`** (`tests/test-bl132-sast-index-scan.sh`): a semgrep
+shim behaving exactly like the runner — banner on stdout, no findings, exit 0 — must still earn the
+`[OK]` receipt. **Hermetic and deterministic**: no real semgrep, no registry, no network, so unlike
+the three cases this defect actually broke, it cannot go UNPROVEN on a quiet host.
+
+**Result on CI:** the `sast` shard passed for the first time in four rounds, and — the outcome this
+entry's severity was always about — **`test-bl132`'s silent skips fell from 10 to 2**. The skip
+cascade, not the receipt, was the damage: thirteen mutation and coverage proofs had stopped proving
+anything while the shard reported three failures.
+
+**Two supporting fixes shipped with it, both of the class BL-197 now owns.** `# BL-193-EVIDENCE`
+replaced a `tail -8` that printed past the SAST section the cases had already captured;
+`# BL-193-COUNT` replaced `"absent or unreadable"`, which collapsed "saw 0" and "saw 2+" — two
+conditions needing different operator actions — into one phrase. **It took four CI rounds to read a
+root cause that was on screen from the first failing run**, because three layers of instrumentation
+were each discarding it. That is the transferable part and it is why BL-197 exists.
+
+**The recommendation this entry carried was NOT what fixed it, deliberately.** It said "preserve
+`$soif_sg_err` as a CI artifact" — which would have meant editing shipped enforcement code to retain
+a temp file for a debugging need. Unnecessary: the bytes were already being captured and thrown away
+at the last step.
 
 **NOT REPRODUCIBLE LOCALLY, on any platform tried.** macOS (arm64), Linux/arm64 and Linux/x86_64 all
 receipt a clean commit normally. **No cause is proposed here, deliberately.** Candidate stories exist
