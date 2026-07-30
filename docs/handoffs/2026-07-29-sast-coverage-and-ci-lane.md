@@ -6,6 +6,29 @@
 > `BL-192`, `BL-193`, `BL-194` exist only on **#280**; `BL-185`–`BL-189` only on **#278**. They
 > land with their PRs. Everything else this document cites is on `main` today.
 
+> ### ⚠ SUPERSEDING UPDATE — 2026-07-30. Read this before acting on §§ 1–4.
+>
+> **Everything in §§ 1–4 below is the 2026-07-29 snapshot and is NO LONGER CURRENT.** `main` is at
+> **`3a196ee`**, not `08d5eec`. All four PRs this document describes as open or pending have merged:
+> **#280** (`8f36382`), **#281**, **#282**, **#283**, plus **#284** (BL-199, the README quick-start
+> fix, which post-dates this document entirely). Backlog: **194 entries, 30 open**.
+>
+> - **BL-193 is CLOSED** — root cause found and fixed. § 3's "still open" framing is historical. The
+>   banner arrives on a **different stream** on the runner (stdout on Linux CI, stderr on macOS) and
+>   the guard hard-coded stderr; `# BL-193-STATUS-STREAM` reads both. The `sast` shard is green and
+>   `test-bl132`'s silent skips fell **10 → 2**.
+> - **BL-194 is CLOSED**; **BL-192** remains Open and now has an implementation plan, **BL-198**
+>   (transcode-first, four adversarial rounds). **BL-200** and **BL-201** were split out of it.
+> - **#278 is now a DRAFT**, deliberately — held open until BL-198's WP4 restores its five withdrawn
+>   test cases. Its red `sast` shard is the pre-fix snapshot of the defects fixed in #280; do not
+>   "fix" it and do not rebase it, or the record it is kept for is destroyed.
+> - **§ 4's two open decisions are ANSWERED** (Karl, 2026-07-29): semgrep stays unpinned in this
+>   repo's CI, and the 22 generated-project template pins float too — sequenced after BL-198, with
+>   version logging. Both recorded on BL-192; the float is BL-201.
+>
+> §§ 5–7 (the BL-192 root cause, what's next, references) remain accurate, except § 7's WP-plan
+> pointer, which is corrected in place.
+
 ## 1. Where we are
 
 `main` is at **`08d5eec`**. Backlog on `main`: **183 `BL-`numbered entries** (186 counting the three legacy `## code-*:` headers), **27 open** — count with the trap-aware recipe, not a raw grep, because BL-055's preserved pre-close block carries its own `**Status:** Open` line:
