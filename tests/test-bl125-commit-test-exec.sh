@@ -506,6 +506,217 @@ else
 fi
 fi
 
+# ═════════════════════════════════════════════════════════════════════════════
+# BL-183 — the npm-detection predicates must survive a monorepo-sized scripts
+# block. The old spelling (sed -n '/"scripts"…/,/}/p' package.json | grep -q …)
+# inverts under the emitted hook's `set -euo pipefail`: grep -q exits on first
+# match, sed dies of SIGPIPE writing the REST OF THE BLOCK (the range closes at
+# the first `}`, so a big package.json with a small scripts block never fires —
+# the trigger is the block, not the file), and pipefail promotes rc 141 into
+# "no match". Measured deterministic on this fixture class: PIPESTATUS=141 0 —
+# grep MATCHED and the pipeline still reported false. The detection site then
+# reads a real suite as absent (the test gate silently stops running); the
+# NEGATED placeholder site reads the other way (placeholder "absent" -> npm
+# test adopted against a block the small-file semantics say is placeholder-
+# bearing). Fix: single-process awk (soif_npm_scripts_has) — no pipe to break.
+# ═════════════════════════════════════════════════════════════════════════════
+
+# mk_bigpkg <dir> <shape> — package.json whose scripts block carries ~330 KB
+# around the line the predicate matches on (>> the 64 KB pipe buffer and the
+# ~110 KB determinism band measured in BL-183). One entry per line, and no `}`
+# in any value — a `}` would close the sed range early and hide the defect.
+#   test-first        "test": real failing suite FIRST, ~330 KB after it
+#   placeholder-early 'no test specified' inside ANOTHER script's value first,
+#                     real "test" key LAST (so old-spelling detection survives
+#                     while the old placeholder check SIGPIPEs — the site-3
+#                     inversion isolated)
+#   test-last         no placeholder, "test" key LAST after ~330 KB (whole-
+#                     block completeness: a truncating rewrite must not miss it)
+mk_bigpkg() {
+  local d="$1" shape="$2"
+  awk -v shape="$shape" 'BEGIN{
+    print "{"
+    print "  \"name\": \"fixture\","
+    print "  \"version\": \"0.0.1\","
+    print "  \"scripts\": {"
+    if (shape == "test-first")        print "    \"test\": \"exit 1\","
+    if (shape == "placeholder-early") print "    \"lint\": \"echo no test specified here on purpose\","
+    for (i = 0; i < 7000; i++) printf "    \"s%05d\": \"echo filler line number %05d\",\n", i, i
+    if (shape == "test-first")        print "    \"zlast\": \"echo done\""
+    else                              print "    \"test\": \"exit 1\""
+    print "  }"
+    print "}"
+  }' > "$d/package.json"
+}
+
+# bigpkg_tail <dir> <needle> — bytes the sed producer still had to write after
+# the first scripts-block line containing <needle>: the SIGPIPE exposure. Each
+# case asserts this is large enough to force the race BEFORE asserting any
+# behavior, so a future fixture edit cannot quietly turn the case vacuous.
+bigpkg_tail() {
+  awk -v needle="$2" '
+    !f && index($0, needle) { f = 1; next }
+    f && index($0, "}")     { exit }
+    f                       { n += length($0) + 1 }
+    END { print n + 0 }' "$1/package.json"
+}
+
+# bigpkg_lead <dir> <needle> — bytes between the scripts-block open and the
+# first line containing <needle> (the exposure BEFORE a late match — what a
+# truncating rewrite would fail to read).
+bigpkg_lead() {
+  awk -v needle="$2" '
+    !s && index($0, "\"scripts\"") { s = 1; next }
+    s && index($0, needle)          { print n + 0; exit }
+    s                               { n += length($0) + 1 }' "$1/package.json"
+}
+
+if want T17; then
+echo "=== T17-npm-detect-survives-big-scripts-block ==="
+if ! command -v npm >/dev/null 2>&1; then
+  skip_ "T17-npm-detect-survives-big-scripts-block" "npm ABSENT on this host — the npm-detect arm is UNPROVEN here (skip, NOT a pass)"
+else
+  P="$TOPTMP/p17"; mk_proj "$P"
+  mk_bigpkg "$P" test-first
+  TAIL17=$(bigpkg_tail "$P" '"test"')
+  case "$TAIL17" in ''|*[!0-9]*) TAIL17=0 ;; esac
+  if [ "$TAIL17" -lt 150000 ]; then
+    fail_ "T17-npm-detect-survives-big-scripts-block" "fixture too small to force the race (post-match block bytes=$TAIL17 < 150000) — the case is VACUOUS, fix mk_bigpkg"
+  else
+    stage_src "$P"
+    H0=$(head_of "$P")
+    V=$(try_commit "$P" "chore: add widget" "$P/commit.log")
+    H1=$(head_of "$P")
+    if [ "$V" = "REFUSED" ] && [ "$H0" = "$H1" ] \
+       && grep -qF '[BLOCKED] project tests FAILED' "$P/commit.log" \
+       && ! grep -qF 'PROJECT TESTS NOT ENFORCED' "$P/commit.log"; then
+      pass "T17-npm-detect-survives-big-scripts-block (a real suite behind ~330 KB of sibling scripts is still detected — RED suite refuses the commit)"
+    else
+      fail_ "T17-npm-detect-survives-big-scripts-block" "verdict=$V — a real npm suite behind a big scripts block was not enforced (BL-183 SIGPIPE inversion: the test gate silently stopped running): $(tail -3 "$P/commit.log" | tr '\n' ' ')"
+    fi
+  fi
+fi
+fi
+
+if want T18; then
+echo "=== T18-placeholder-scope-survives-big-scripts-block ==="
+# Pins the PRESERVED small-file semantics at scale, not an endorsement of the
+# scope: 'no test specified' ANYWHERE in the scripts block reads as npm's
+# placeholder and detection declines (T6's semantics — see the S1/S4 comment
+# in the emitter). Old spelling on this fixture: detection survives (match is
+# LATE, nothing left to write) while the negated placeholder check SIGPIPEs —
+# `! rc141` reads TRUE, npm test is adopted, and the commit BLOCKS where the
+# small-file predicate would have warned. npm is required so that pre-fix
+# failure mode is the loud [BLOCKED], not a vacuously-landing exit 127.
+if ! command -v npm >/dev/null 2>&1; then
+  skip_ "T18-placeholder-scope-survives-big-scripts-block" "npm ABSENT on this host — the pre-fix failure mode is unreproducible here (skip, NOT a pass)"
+else
+  P="$TOPTMP/p18"; mk_proj "$P"
+  mk_bigpkg "$P" placeholder-early
+  TAIL18=$(bigpkg_tail "$P" 'no test specified')
+  case "$TAIL18" in ''|*[!0-9]*) TAIL18=0 ;; esac
+  if [ "$TAIL18" -lt 150000 ]; then
+    fail_ "T18-placeholder-scope-survives-big-scripts-block" "fixture too small to force the race (post-placeholder block bytes=$TAIL18 < 150000) — the case is VACUOUS, fix mk_bigpkg"
+  else
+    stage_src "$P"
+    V=$(try_commit "$P" "chore: add widget" "$P/commit.log")
+    if [ "$V" = "LANDED" ] && grep -qF 'PROJECT TESTS NOT ENFORCED' "$P/commit.log" \
+       && ! grep -qF '[BLOCKED] project tests FAILED' "$P/commit.log"; then
+      pass "T18-placeholder-scope-survives-big-scripts-block (the placeholder read is size-independent — same verdict as T6 at ~330 KB)"
+    else
+      fail_ "T18-placeholder-scope-survives-big-scripts-block" "verdict=$V — the negated placeholder check inverted at scale (BL-183: '! rc141' read the placeholder as absent and adopted npm test): $(tail -3 "$P/commit.log" | tr '\n' ' ')"
+    fi
+  fi
+fi
+fi
+
+if want T19; then
+echo "=== T19-npm-detect-test-key-late ==="
+# Both spellings pass this today (a LATE match leaves the producer nothing to
+# write, so the old pipe survives too). It stands as the other direction of
+# T17's coin: the fix must read the WHOLE block, so a rewrite that truncates
+# (reads only the first N KB and misses a late "test" key) goes RED here
+# instead of shipping. The vacuity guard is bigpkg_lead, not bigpkg_tail.
+if ! command -v npm >/dev/null 2>&1; then
+  skip_ "T19-npm-detect-test-key-late" "npm ABSENT on this host — the npm-detect arm is UNPROVEN here (skip, NOT a pass)"
+else
+  P="$TOPTMP/p19"; mk_proj "$P"
+  mk_bigpkg "$P" test-last
+  LEAD19=$(bigpkg_lead "$P" '"test"')
+  case "$LEAD19" in ''|*[!0-9]*) LEAD19=0 ;; esac
+  if [ "$LEAD19" -lt 150000 ]; then
+    fail_ "T19-npm-detect-test-key-late" "fixture too small (pre-match block bytes=$LEAD19 < 150000) — the case is VACUOUS, fix mk_bigpkg"
+  else
+    stage_src "$P"
+    V=$(try_commit "$P" "chore: add widget" "$P/commit.log")
+    if [ "$V" = "REFUSED" ] && grep -qF '[BLOCKED] project tests FAILED' "$P/commit.log"; then
+      pass "T19-npm-detect-test-key-late (a \"test\" key ~330 KB into the block is still read — the predicate consumes the whole block)"
+    else
+      fail_ "T19-npm-detect-test-key-late" "verdict=$V — a late \"test\" key was missed (truncating predicate?): $(tail -3 "$P/commit.log" | tr '\n' ' ')"
+    fi
+  fi
+fi
+fi
+
+if want T20; then
+echo "=== T20-mutation-npm-detect-pipe-respell ==="
+# Re-spell each soif_npm_scripts_has call back to the exact pipeline BL-183
+# replaced (the one-character-narrowing lesson of BL-181: a standing mutant,
+# not a one-time proof). RED: the mutant lib re-acquires the inversion on the
+# big-block fixtures. GREEN: the real lib does not. Both directions run HERE
+# so `BL125_ONLY="T20"` is an honest standalone verdict, per T16's precedent.
+if ! command -v npm >/dev/null 2>&1; then
+  skip_ "T20-mutation-npm-detect-pipe-respell" "npm ABSENT on this host — the GREEN directions are unprovable here (skip, NOT a pass)"
+else
+  Q="'"
+  # ── Mutant A: detection call -> old sed|grep -qE pipeline ──────────────────
+  MUTA="$TOPTMP/hook-templates.pipeA.sh"
+  nA=$(grep -cF "&& soif_npm_scripts_has ${Q}\"test\"" "$HOOKLIB") || nA=0
+  case "$nA" in ''|*[!0-9]*) nA=0 ;; esac
+  awk -v q="$Q" '
+    index($0, "&& soif_npm_scripts_has " q "\"test\"") {
+      print "       && sed -n " q "/\"scripts\"[[:space:]]*:/,/}/p" q " package.json | grep -qE " q "\"test\"[[:space:]]*:" q " \\"
+      next
+    }
+    { print }' "$HOOKLIB" > "$MUTA"
+  # ── Mutant B: placeholder call -> old negated sed|grep -q pipeline ─────────
+  MUTB="$TOPTMP/hook-templates.pipeB.sh"
+  nB=$(grep -cF "&& ! soif_npm_scripts_has ${Q}no test specified" "$HOOKLIB") || nB=0
+  case "$nB" in ''|*[!0-9]*) nB=0 ;; esac
+  awk -v q="$Q" '
+    index($0, "&& ! soif_npm_scripts_has " q "no test specified") {
+      print "       && ! sed -n " q "/\"scripts\"[[:space:]]*:/,/}/p" q " package.json | grep -q " q "no test specified" q "; then"
+      next
+    }
+    { print }' "$HOOKLIB" > "$MUTB"
+  if [ "$nA" -ne 1 ] || [ "$nB" -ne 1 ]; then
+    fail_ "T20-mutation-npm-detect-pipe-respell" "MIS-TARGETED — expected each soif_npm_scripts_has call exactly once in $HOOKLIB (detection=$nA placeholder=$nB); retarget this mutation in lockstep"
+  elif ! grep -qF "| grep -qE" "$MUTA" || grep -qF "&& soif_npm_scripts_has ${Q}\"test\"" "$MUTA" \
+       || ! grep -qF "| grep -q ${Q}no test specified" "$MUTB" || grep -qF "&& ! soif_npm_scripts_has" "$MUTB"; then
+    fail_ "T20-mutation-npm-detect-pipe-respell" "mutant construction vacuous — the old spelling did not land or the new call survived (A/B)"
+  elif ! ( source "$MUTA" && soif_write_precommit_hook "$TOPTMP/mut20a-hook" ) >/dev/null 2>&1 \
+       || ! bash -n "$TOPTMP/mut20a-hook" 2>/dev/null \
+       || ! ( source "$MUTB" && soif_write_precommit_hook "$TOPTMP/mut20b-hook" ) >/dev/null 2>&1 \
+       || ! bash -n "$TOPTMP/mut20b-hook" 2>/dev/null; then
+    fail_ "T20-mutation-npm-detect-pipe-respell" "a mutant lib could not emit a syntactically valid hook — a broken mutant proves nothing"
+  else
+    RA=SETUPFAIL; GA=SETUPFAIL; RB=SETUPFAIL; GB=SETUPFAIL
+    PRA="$TOPTMP/p20-redA"; if mk_proj "$PRA" "$MUTA"; then mk_bigpkg "$PRA" test-first; stage_src "$PRA"; RA=$(try_commit "$PRA" "chore: add widget" "$PRA/commit.log"); fi
+    PGA="$TOPTMP/p20-greenA"; if mk_proj "$PGA"; then mk_bigpkg "$PGA" test-first; stage_src "$PGA"; GA=$(try_commit "$PGA" "chore: add widget" "$PGA/commit.log"); fi
+    PRB="$TOPTMP/p20-redB"; if mk_proj "$PRB" "$MUTB"; then mk_bigpkg "$PRB" placeholder-early; stage_src "$PRB"; RB=$(try_commit "$PRB" "chore: add widget" "$PRB/commit.log"); fi
+    PGB="$TOPTMP/p20-greenB"; if mk_proj "$PGB"; then mk_bigpkg "$PGB" placeholder-early; stage_src "$PGB"; GB=$(try_commit "$PGB" "chore: add widget" "$PGB/commit.log"); fi
+    if [ "$RA" = "LANDED" ] && grep -qF 'PROJECT TESTS NOT ENFORCED' "$PRA/commit.log" \
+       && [ "$GA" = "REFUSED" ] && grep -qF '[BLOCKED] project tests FAILED' "$PGA/commit.log" \
+       && [ "$RB" = "REFUSED" ] && grep -qF '[BLOCKED] project tests FAILED' "$PRB/commit.log" \
+       && [ "$GB" = "LANDED" ] && grep -qF 'PROJECT TESTS NOT ENFORCED' "$PGB/commit.log"; then
+      pass "T20-mutation-npm-detect-pipe-respell: each re-piped predicate re-acquires its inversion (detection: real suite unenforced; placeholder: scaffold-shape bricked) and the awk spelling does not — both replacements are load-bearing (BL-183)"
+    else
+      fail_ "T20-mutation-npm-detect-pipe-respell" "expected redA=LANDED+warn/greenA=REFUSED+blocked/redB=REFUSED+blocked/greenB=LANDED+warn; got redA=$RA greenA=$GA redB=$RB greenB=$GB; redA: $(tail -2 "$PRA/commit.log" | tr '\n' ' ') redB: $(tail -2 "$PRB/commit.log" | tr '\n' ' ')"
+    fi
+  fi
+fi
+fi
+
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$SKIPPED" -gt 0 ] && echo "($SKIPPED skipped — see [SKIP] lines)"
