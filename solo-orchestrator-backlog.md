@@ -5435,6 +5435,17 @@ BEFORE asserting behavior, so a fixture edit cannot quietly turn it vacuous.
 do not "fix" without a reachability proof, per the triage rule above. (2) The `tests/` census
 this entry has never run (the 80-site table scanned `scripts/` only). (3) The two
 `echo`-of-a-variable candidates in `test-bl104-gate-scoring.sh` / `test-bl073-review-manifest-gate.sh`.
+(4) **The scripts-block scope has a preserved RANGE LEAK on one-line blocks** — found by the
+fix's own adversarial review, present in BOTH spellings (equivalence was the contract, so the
+awk faithfully keeps it): a one-line `"scripts": {},` (or any one-line block) never closes the
+range on its own line — the end pattern is never tested against the opening line, exactly as in
+sed — so the range stays open into the NEXT object and a dependency literally named `test`
+(`"dependencies": { "test": "1.0.0" }` — a real npm package) still triggers detection.
+Reviewer-built fixtures `empty-scripts-leak` / `oneline-block-leak`: both spellings agree,
+rc=0. Consequence when it fires: `npm test` adopted with no test script → `Missing script:
+"test"` → non-127 non-zero → source commits BLOCK (the BL-137 class). The S1/S4 comment at the
+call site now states the leak instead of overclaiming; closing it means deliberately changing
+the range semantics — a semantic change the SIGPIPE fix explicitly refused to smuggle in.
 
 ---
 
