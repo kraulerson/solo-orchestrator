@@ -7082,7 +7082,8 @@ is exclusively about `check-versions.sh`; nothing in the generated project detec
 incomplete" or "intake done but Phase 0 never started" at session start. The stranded-after-
 intake state is MORE common than mid-intake: main-menu modes 1 and 2 BOTH land there by
 construction (mode 1 completes the intake and ends on a print naming no first message; mode
-2's guided session ends the same way), and mode 3 lands in intake-INCOMPLETE.
+2 hands off to Claude and reaches the same state when that session ends), and mode 3 lands
+in intake-INCOMPLETE.
 `.claude/intake-progress.json` is written by MAIN-MENU mode 1 ONLY (`init_progress` is never called on
 the AI-assist or manual paths), so it must never be the sole detection signal —
 `scripts/validate.sh`'s blank-table-cell count over `PROJECT_INTAKE.md` is the mode-agnostic
@@ -7135,8 +7136,9 @@ wizard prompt to 5** — a light-track user who presses Enter records 5 and is e
 the divergence is the default outcome, not an edge case.
 
 **Three surfaces disagree**, and each is read by a different consumer: the enforced field
-(the gate), the rendered `CLAUDE.md` line `- **Testing interval:** Every __TEST_INTERVAL__
-features (configured in Intake Section 11.5)` (the AGENT — and its parenthetical is the
+(the gate), `claude-md.tmpl`'s line `- **Testing interval:** Every __TEST_INTERVAL__
+features (configured in Intake Section 11.5)` — rendered into the project's `CLAUDE.md` with
+the placeholder substituted (the AGENT — and its parenthetical is the
 false advertisement),
 and the intake prose (the USER). Two sibling defects of the same class, found in the same
 sweep and in scope for the fix:
@@ -7262,7 +7264,7 @@ the BL-073 Phase 3→4 gate (Security + Red Team mandatory on standard/full).
 - `run-reviews.sh --trigger` is PROPOSED, not existing;
 - archival naming must carry a verdict slot to align with the documented convention
   (`docs/test-results` uses `[date]_[scan-type]_[pass|fail].[ext]`, per the builders
-guide): `<date>_<reviewer>_<pass|fail>.md`,
+  guide): `<date>_<reviewer>_<pass|fail>.md`,
   with `trigger` in the manifest;
 - `SOIF_PHASE_GATES=warn` is NOT side-effect-free (it still writes gate dates) — do not
   describe it as a preview mode in the rollout plan.
