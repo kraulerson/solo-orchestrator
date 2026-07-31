@@ -7092,6 +7092,10 @@ pre-existing, and NARROWED by this fix, which now catches the whole-script-comme
 old suite passed 60/0) are filed as BL-206. R-BL201-4 (supply-chain: `:latest` vs the prior
 mutable `1.170.0` tag is the same registry-compromise exposure; only a digest pin differs, and
 digest-pinning is the staleness posture this entry's decision rejects) recorded, no action.
+Confirm round on the delta: **minor_concerns, safe to open** — M8a/M8b confirmed dead against the
+deny-by-default sweep, zero refuted claims, no regression on numeric pins, no false positives on
+the tree's 20 legitimate comment mentions; its one new note-level find (R-BL201-5, the
+quote-blind comment strip) is named in the sweep header and filed on BL-206 item 3.
 
 **Related:** BL-192 (both decision blocks), BL-198 (the gate this waited on), BL-147 (the parity
 suite that moved in the same diff), BL-193 (the version-archaeology cost that motivates the
@@ -7380,7 +7384,7 @@ R-BL201-3 — and filed as named limits rather than silently accepted)
 the shipped templates; the primary enforcement (Cg2/Cg3 github coverage, the Cg4/Cg5 anchors,
 the Cg-no-repin sweep) is unaffected.
 
-Two residuals, one family — the suite's predicates read bytes, not semantics:
+Three residuals, one family — the suite's predicates read bytes, not semantics:
 
 1. **Vacuous version log (R-BL201-2).** Cg4-/Cg5-version-log accept any executable line
    CONTAINING `semgrep --version` — measured: `run: echo semgrep --version` satisfies the pin
@@ -7395,12 +7399,20 @@ Two residuals, one family — the suite's predicates read bytes, not semantics:
    NONGH_SEMGREP census, while Cg5-version-log stays green off the intact version line.
    Pre-existing: at pre-BL-201 main the whole-script-commented variant survived 60/0; BL-201's
    Cg5-version-log narrowed the window to this scan-line-only variant.
+3. **Quote-blind comment strip (R-BL201-5, confirm round).** Cg-no-repin's `sed 's/#.*//'`
+   truncates at a `#` INSIDE a quoted scalar, so a pinned ref later on the same line escapes —
+   measured: `run: echo 'a#b' && docker run semgrep/semgrep:1.170.0` planted outside the
+   per-file lists survives 63/0. Contrived carriers only (`${VAR#prefix}`, URL fragments); the
+   failure direction is safe (truncation can only DROP lines from the deny set, never accuse a
+   clean one), and the per-file anchors remain the primary enforcement. Named in the
+   `# BL-201-FLOAT-SWEEP` header.
 
 **Fix shape:** a Cg2-analogue for non-github templates (an executable `semgrep scan --config`
 line required, `^[^#]*`-guarded) closes item 2 cheaply, and `extract_semgrep_policy` should strip
 comments so a commented DECOY line can never become the compared policy (the Cg-derive fixtures'
-prose-immunity discipline, applied to the template side). Item 1 stays a named limit unless the
-suite gains a render-and-execute stage.
+prose-immunity discipline, applied to the template side). Item 3 wants a quote-aware strip (awk)
+or standing acceptance as a named limit. Item 1 stays a named limit unless the suite gains a
+render-and-execute stage.
 
 **Status:** Open
 
