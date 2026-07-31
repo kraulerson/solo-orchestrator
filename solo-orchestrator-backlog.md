@@ -7048,11 +7048,35 @@ clause reads anything semgrep prints, and version drift can only ever ADD findin
 **Adjacent, noted not scoped:** the emitted hook's receipt could print the scanner version for the
 same debuggability (BL-193 cost a day partly to version archaeology). One line; decide at build.
 
-**Status:** Open — unblocked 2026-07-30 (BL-198 implemented in `02eaa0f`).
+**Status:** Closed — implemented 2026-07-31 on `fix/bl201-float-semgrep-pins` (`cd35254`; markers
+`# BL-201-FLOAT` at all 22 template sites, `# BL-201-FLOAT-ASSERT` / `# BL-201-FLOAT-SWEEP` in
+tests/test-bl147-ci-template-integrity.sh). The floating form decided at build is the explicit
+`image: semgrep/semgrep:latest` — semgrep's own CI docs use both the bare and `:latest` spellings;
+the explicit tag is grep-able and lets the suite demand an EXACT anchored match. Every semgrep job
+logs `semgrep --version` before the scan (github: a dedicated step; gitlab block/flow and
+bitbucket flow scripts: the first command). Deliverable 3 landed in the same diff, as this entry
+required: Cg4-container/Cg5-image now demand the exact anchored `:latest` (a re-pinned
+`semgrep/semgrep:X.Y.Z` fails BY DESIGN), new Cg4-/Cg5-version-log cases pin an EXECUTABLE log
+line (comment-immune `^[^#]*`, the Cg7 house pattern), a new Cg-no-repin sweep refuses a pinned
+semgrep image ANYWHERE under templates/pipelines (the backstop for files outside the per-file
+lists), and the R2-7 failure-message fix shipped — the messages now state that the checks demand
+the floating tag / an executable log line. hook-templates.sh's "the CI surface IS pinned" comment
+was corrected in the same diff (rendered emitted hook verified verbatim — render, not grep).
+Proofs: RED 58/5 on the pinned tree, GREEN 63/0; five mutants (re-pinned github, deleted github
+log step, commented-out gitlab log line, re-pinned bitbucket, a pin planted OUTSIDE the per-file
+lists — the last caught ONLY by the sweep, its unique value) each failed EXACTLY the expected
+case(s) with empty stderr, intact control green; suites bl112 13/0, bl118 7/0, bl125 22/0,
+bl131 18/0, bl132 56/0; lints 11/11. The adjacent hook-receipt version line ("one line; decide at
+build") is DEFERRED, decided: 63 test references pin the `[OK] semgrep` receipt text, so one debug
+line does not justify moving that surface in this diff — it rides with BL-200, which reworks the
+same hook region. Observed while verifying, pre-existing and NOT this change's:
+`templates/pipelines/ci/gitlab/java.yml` fails strict libyaml parse (colons in the maven
+dependencies flow scalar, present at the pre-change HEAD; GitLab's own parser accepts it) — noted
+for housekeeping. gitleaks stays version-pinned (Cg6): the float decision is semgrep-specific.
 
-**Related:** BL-192 (both decision blocks), BL-198 (the gate this waits on), BL-147 (the parity
-suite that must move in the same diff), BL-193 (the version-archaeology cost that motivates the
-logging).
+**Related:** BL-192 (both decision blocks), BL-198 (the gate this waited on), BL-147 (the parity
+suite that moved in the same diff), BL-193 (the version-archaeology cost that motivates the
+logging), BL-200 (carries the deferred hook-receipt version line).
 
 ---
 
