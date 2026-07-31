@@ -6536,7 +6536,11 @@ honest future tightening. (5) **R-BL198-5:** `.cxx/.hh/.hxx/.m/.mm` added to
 `# BL-198-EXT-SET`. Reviewer note recorded, pre-existing: semgrep's
 `--exclude-binary-files` defaults ON and the hook passes neither spelling — a dropped
 binary target is caught by the selection guard, so not a hole; noted so it is not
-rediscovered. Final: suite 55/0; residues now THREE, all named: BL-200 (token break), the
+rediscovered. A third targeted round found **R-BL198-6**: the R-BL198-3 floor itself was the BL-183 SIGPIPE
+class re-introduced (awk early-exit under pipefail — detection ERASED on outputs past ~8KB;
+no live path reaches it after the range bound, which is exactly why the defense-in-depth
+surface must work). Fixed to a full-input consumer + pinned both-spellings
+(`T-utf8-floor-no-sigpipe`), watched RED→GREEN. Final: suite 56/0; residues THREE, all named: BL-200 (token break), the
 zero-ASCII single-line passthrough, and the wrong-parity loud NOTRUN.
 
 **Read first, and do not repeat this work:** BL-192 (the measured diagnosis, the two-version table,
