@@ -9,7 +9,7 @@ plan → PRs → shipped state stays intact and citable.
 
 - **Live handoff:** the single most recent state-of-record for the current
   arc lives at the top level of `docs/handoffs/`. Right now that is
-  [`../2026-07-31-six-pr-wave-close.md`](../2026-07-31-six-pr-wave-close.md).
+  [`../2026-07-31-bl201-bl200-close.md`](../2026-07-31-bl201-bl200-close.md).
   Everything else at the top level is a pointer stub.
 - **Archived handoff:** once a handoff is executed or superseded, its full
   text moves here and a short **pointer stub** is left at the original
@@ -70,6 +70,14 @@ In chain order (oldest first). Each has a pointer stub at its old top-level path
   reading after archival: its § 3 ⚠ CORRECTION (the first draft blamed the wrong subsystem and
   told the next session to edit 22 innocent CI templates), and its §§ 5–7, which remain the
   reference for BL-192's `Parsed lines` root cause. Its own header marks §§ 1–4 superseded.
+- `2026-07-30-post-sast-wave-next-steps.md` — FULLY EXECUTED + SUPERSEDED (archived
+  2026-07-31 morning; this Contents entry added at the evening archival — the morning pass
+  updated the live pointer but missed the list). Every item it queued shipped in the six-PR
+  wave #285–#290; its § 4 operating-model re-planning note carried forward unexecuted.
+- `2026-07-31-six-pr-wave-close.md` — FULLY EXECUTED (its § 4.1/§ 4.2) + SUPERSEDED (archived
+  2026-07-31 evening). BL-201 shipped as #292, BL-200 as #293; its § 4.3 pick-list and § 5
+  re-planning note carry forward in the successor. Worth reading after archival: its § 3 named
+  defect classes, which the successor's § 3 extends with this wave's additions.
 
 ## Citation convention for handoffs
 

@@ -473,8 +473,14 @@ jobs:
             tests/test-bl132-sast-index-scan.sh        #  77s on main, 213s on PR #278 — pinned at the worst case
             tests/test-bl131-domsink-rules.sh          #  54s
             tests/test-bl118-sast-dom-xss.sh           #  13s
-            tests/test-bl200-syntax-detector.sh        # live semgrep + registry — belongs with the sast toolchain
-            tests/test-bl200-syntax-canary.sh          # THE canary: must run where the CI host's real semgrep is
+            tests/test-bl200-syntax-canary.sh          # THE canary (fast): keeps the exact-spelling pin beside the sast toolchain
+            # tests/test-bl200-syntax-detector.sh runs in `rest` (the complement), UNPINNED —
+            # deliberately. It first landed here and pushed this shard from ~4m46 typical to
+            # 6m31, and a slow-registry evening then busted the 12-minute cap mid-run (PR #294
+            # round 1, canceled during bl132 with pysemgrep still alive). Per the cap's own
+            # doctrine above the timeout-minutes line, approaching the cap is the RE-PIN
+            # signal — not a raise. semgrep is installed in EVERY shard (BL-190), so the
+            # suite loses nothing by living in `rest` (~3m typical there).
           )
           pin_slow_misc=(
             tests/test-pre-commit-gate-lints.sh        # 122s — runs 4 lint copies inside fixture projects
