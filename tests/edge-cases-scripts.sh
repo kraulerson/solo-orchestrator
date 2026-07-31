@@ -200,6 +200,12 @@ section "E12: resume.sh with empty/missing CLAUDE.md"
 E12_DIR="$TEST_DIR/e12-no-claude"
 create_test_project "$E12_DIR"
 rm -f "$E12_DIR/CLAUDE.md"
+# BL-202: resume.sh is now state-aware — at phase 0 with no PRODUCT_MANIFESTO.md
+# it prints the Section-13 first-message instead of the classic prompt. E12's
+# contract is the CLASSIC path's robustness to a missing/empty CLAUDE.md, so
+# the fixture gets a manifesto to be genuinely mid-flight; the assertions below
+# are unchanged.
+printf '# manifesto\n' > "$E12_DIR/PRODUCT_MANIFESTO.md"
 
 result=0
 output=$( cd "$E12_DIR" && bash "$E12_DIR/scripts/resume.sh" 2>&1 </dev/null ) || result=$?
@@ -236,6 +242,7 @@ fi
 # Test with empty CLAUDE.md
 E12B_DIR="$TEST_DIR/e12-empty-claude"
 create_test_project "$E12B_DIR"
+printf '# manifesto\n' > "$E12B_DIR/PRODUCT_MANIFESTO.md"   # BL-202: keep E12b on the classic path (see E12a note)
 : > "$E12B_DIR/CLAUDE.md"
 
 result=0

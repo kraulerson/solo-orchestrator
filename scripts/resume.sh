@@ -23,6 +23,47 @@ if [ -f ".claude/phase-state.json" ]; then
   [ -z "$PHASE" ] && PHASE="unknown"
 fi
 
+# --- BL-202: state-aware first-message branches ---------------------------
+# This script is the SINGLE generator of "what do I paste into Claude Code";
+# every wizard/init print points here. Three states, checked in order:
+#   1. intake unfinished  -> the intake first-message
+#   2. intake done, Phase 0 never started -> the project's own Section 13
+#      (Agent Initialization Prompt) verbatim
+#   3. anything else -> the classic resume prompt below
+# Detection matches scripts/session-intake-check.sh (blank-cell predicate).
+if [ -f "PROJECT_INTAKE.md" ] && [ "$PHASE" != "unknown" ] && [ "${PHASE:-1}" -eq 0 ] 2>/dev/null; then
+  bl202_blanks=$(grep -cE '\| *\|$|\| *$' PROJECT_INTAKE.md 2>/dev/null || true)
+  case "$bl202_blanks" in ''|*[!0-9]*) bl202_blanks=0 ;; esac
+  if [ "$bl202_blanks" -gt 20 ]; then
+    echo -e "${CYAN}--- Copy everything below this line into Claude Code ---${NC}"
+    echo ""
+    if [ -f "INTAKE_GUIDED_PROMPT.md" ]; then
+      echo "Read INTAKE_GUIDED_PROMPT.md and follow it."
+    else
+      echo "Help me finish this project's intake: read PROJECT_INTAKE.md and walk me"
+      echo "through the unfilled sections, writing my answers into the file as we go."
+    fi
+    echo ""
+    echo -e "${CYAN}--- End (a blank Claude Code screen means it is ready and waiting, not stuck) ---${NC}"
+    exit 0
+  fi
+  if [ ! -f "PRODUCT_MANIFESTO.md" ]; then
+    # Extract §13's fenced prompt from the PROJECT's intake (not the template).
+    bl202_s13=$(awk '/^## 13\./{f=1; next} f && /^## /{exit} f && /^```/{c = !c; next} f && c' PROJECT_INTAKE.md 2>/dev/null)
+    echo -e "${CYAN}--- Copy everything below this line into Claude Code ---${NC}"
+    echo ""
+    if [ -n "$bl202_s13" ]; then
+      printf '%s\n' "$bl202_s13"
+    else
+      echo "Read PROJECT_INTAKE.md — Section 13 is your initialization prompt — and"
+      echo "begin Phase 0 from it."
+    fi
+    echo ""
+    echo -e "${CYAN}--- End (a blank Claude Code screen means it is ready and waiting, not stuck) ---${NC}"
+    exit 0
+  fi
+fi
+
 # Last 3 git log entries
 RECENT_COMMITS="(no commits)"
 if command -v git &>/dev/null && [ -d ".git" ]; then

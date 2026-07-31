@@ -1739,7 +1739,13 @@ run_script_mode() {
   echo ""
   print_ok "Answers saved to $PROGRESS_FILE"
   print_ok "PROJECT_INTAKE.md updated with 'Intake Answers (Auto-Populated)' appendix"
-  print_info "Review PROJECT_INTAKE.md, then start Claude Code and begin Phase 0."
+  print_ok "Your intake is filled in. Nothing more is needed here."
+  echo ""
+  echo "  Next: open Claude Code and give it the project."
+  echo "    1. Type:  claude"
+  echo "    2. It will sit there quietly until you send a message — that's normal."
+  echo "    3. Paste the first message printed by:  bash scripts/resume.sh"
+  echo "       (it prints your project's own Section 13 initialization prompt)"
   echo ""
 }
 
@@ -1829,6 +1835,7 @@ PROMPTEOF
   echo "    2. Generate prompt file only"
   echo "       INTAKE_GUIDED_PROMPT.md is ready for you to review first."
   echo "       When ready: claude \"Read INTAKE_GUIDED_PROMPT.md and begin\""
+  echo "       (a blank Claude Code screen means it is ready and waiting, not stuck)"
   echo ""
   local launch_choice
   read -rp "$(echo -e "  ${BOLD}Select [1-2]${NC}: ")" launch_choice # lint-raw-read-prompt: allow intake-wizard.sh interactive-only launch-mode choice (1 = launch Claude, 2 = generate prompt file); wizard is interactive-only by design
@@ -1839,7 +1846,8 @@ PROMPTEOF
       cd "$PROJECT_ROOT"
       exec claude "Read INTAKE_GUIDED_PROMPT.md and follow its instructions to help me fill out PROJECT_INTAKE.md."
     else
-      print_warn "Claude Code not found. Install it first, then run:"
+      print_warn "Claude Code isn't installed on this computer."
+      print_info "Install it from https://claude.com/claude-code, then run:"
       echo "  claude \"Read INTAKE_GUIDED_PROMPT.md and begin\""
     fi
   else
@@ -2247,6 +2255,8 @@ main() {
       ;;
     3)
       print_info "No problem. Open PROJECT_INTAKE.md in your editor when ready."
+      print_info "When you've filled it in, run: bash scripts/resume.sh"
+      print_info "That prints the exact message to paste into Claude Code to begin."
       print_info "See docs/reference/user-guide.md Section 3 for field-by-field guidance."
       ;;
     *)

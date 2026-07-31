@@ -378,6 +378,7 @@ jobs:
             tests/test-gate-principles.sh
             tests/test-gitlab-ci-status-stderr-approvals.sh
             tests/test-host-verify-protection-date-parse.sh
+            tests/test-bl202-session-intake-check.sh
             tests/test-intake-wizard-fixes.sh
             tests/test-lint-backlog-references.sh
             tests/test-lint-counter-antipattern.sh
