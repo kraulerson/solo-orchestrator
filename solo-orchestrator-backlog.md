@@ -7064,23 +7064,26 @@ logging).
 
 **The dead-air, measured.** Claude Code loads project context only when the FIRST message is
 sent; an open session with no message does nothing. The only path that avoids this is the
-wizard's launch option 1, which passes the prompt as a CLI argument (`exec claude "Read
+wizard's launch-sub-menu option 1, which passes the prompt as a CLI argument (`exec claude "Read
 INTAKE_GUIDED_PROMPT.md and follow its instructions …"` in `run_claude_mode`). Every other
 path strands the user in front of a silent prompt:
 
-- wizard option 2 / `claude`-not-found prints a one-liner the user must remember later;
+- launch-sub-menu option 2 / `claude`-not-found prints a one-liner the user must remember later;
 - desktop/IDE launches and mid-intake resumes have no instruction at all;
 - the script-mode completion print says only *"Review PROJECT_INTAKE.md, then start Claude
   Code and begin Phase 0."* — with no hint of what to type;
-- manual mode (3) writes nothing and points nowhere;
+- main-menu mode 3 (manual) writes nothing and names no Claude Code next action (it points
+  at the editor and the user guide only — which is why fix 3 adds the `resume.sh` pointer);
 - init.sh's Phase-0 paste block is wrapped in `│ … │` box characters, so drag-selecting it
   copies the box art.
 
 **Claude's side is equally blind.** The generated `CLAUDE.md`'s `### Session Start` section
 is exclusively about `check-versions.sh`; nothing in the generated project detects "intake
 incomplete" or "intake done but Phase 0 never started" at session start. The stranded-after-
-intake state is MORE common than mid-intake: modes 2 and 3 land there by construction.
-`.claude/intake-progress.json` is written by mode 1 ONLY (`init_progress` is never called on
+intake state is MORE common than mid-intake: main-menu modes 1 and 2 BOTH land there by
+construction (mode 1 completes the intake and ends on a print naming no first message; mode
+2's guided session ends the same way), and mode 3 lands in intake-INCOMPLETE.
+`.claude/intake-progress.json` is written by MAIN-MENU mode 1 ONLY (`init_progress` is never called on
 the AI-assist or manual paths), so it must never be the sole detection signal —
 `scripts/validate.sh`'s blank-table-cell count over `PROJECT_INTAKE.md` is the mode-agnostic
 predicate (>20 blank cells ⇒ incomplete), with intake-progress as corroboration.
@@ -7117,27 +7120,31 @@ this entry's filing PR — the guide told users to paste from the section that s
 
 **Logged:** 2026-07-30 (found during plan refinement for the eval-cadence discussion)
 **Category:** Enforcement correctness / silent-config — the class where a user's recorded choice never reaches the code that enforces it
-**Severity:** High for trust, low for safety — the gate fires MORE often than asked (2 < 5), but the user's answer is ignored without a word, and on the light track that is the DEFAULT outcome.
+**Severity:** High for trust, low for safety — the gate fires MORE often than asked (2 < 5), but the user's answer is ignored without a word, and on the light track that is the DEFAULT outcome. The sibling `session-test-gate-check.sh` defect below fails the OTHER way — open.
 
 **The mechanism.** `run_section_11_5` in `scripts/intake-wizard.sh` saves the user's N into
 `.claude/intake-progress.json::answers.testing_interval` and renders it into
 `PROJECT_INTAKE.md` prose — and nowhere else. The ENFORCED field is
-`.claude/build-progress.json::test_interval`, read by `scripts/test-gate.sh` (`jq
-'.test_interval // 2'`) and `scripts/session-test-gate-check.sh`; it is written exactly once,
-by init.sh, from a hardcoded `TEST_INTERVAL=2` on BOTH the interactive and `--non-interactive`
-paths. `scripts/reconfigure-project.sh` and `scripts/upgrade-project.sh` have no such field.
+`.claude/build-progress.json::test_interval`, read by `scripts/test-gate.sh` (`jq -r
+'.test_interval // 2'`) and `scripts/session-test-gate-check.sh`; it has TWO production
+writers, both hardcoding 2: init.sh (`TEST_INTERVAL=2`, on BOTH the interactive and
+`--non-interactive` paths) and `ensure_progress_file()` in `scripts/test-gate.sh`, which
+RECREATES a missing `build-progress.json` with a heredoc-literal `"test_interval": 2`. `scripts/reconfigure-project.sh` and `scripts/upgrade-project.sh` have no such field.
 So the enforced N is frozen at 2 regardless of the answer. **The light track defaults the
 wizard prompt to 5** — a light-track user who presses Enter records 5 and is enforced at 2:
 the divergence is the default outcome, not an edge case.
 
 **Three surfaces disagree**, and each is read by a different consumer: the enforced field
-(the gate), the rendered `CLAUDE.md` "Testing interval: Every N features (configured in
-Intake Section 11.5)" line (the AGENT — and its parenthetical is the false advertisement),
+(the gate), the rendered `CLAUDE.md` line `- **Testing interval:** Every __TEST_INTERVAL__
+features (configured in Intake Section 11.5)` (the AGENT — and its parenthetical is the
+false advertisement),
 and the intake prose (the USER). Two sibling defects of the same class, found in the same
 sweep and in scope for the fix:
 - `scripts/session-test-gate-check.sh` reads `.test_interval` with **no `// 2`** — `jq -r` on
-  a missing key prints the literal string `null` with rc 0, the `|| echo 2` never fires, and
-  the `-ge` comparison errors;
+  a missing key prints the literal string `null` with rc 0, the `|| echo 2` never fires, the
+  `-ge` comparison errors, and the gate FAILS OPEN (the `if` takes its else branch —
+  reproduced under bash 3.2); the `features_since_last_test` and `testing_required` reads in
+  the same script carry the identical missing-default bug;
 - `scripts/verify-install.sh` renders with `${TEST_INTERVAL:-5}` under a comment claiming
   init defaults to 5 (it defaults to 2) — a repair re-render fabricates a "5" nobody enforces.
 
@@ -7153,12 +7160,15 @@ absent ⇒ print the effective value and change nothing). Plus the two sibling f
 a self-revealing display: `test-gate.sh`'s OK branch names the interval and its source, and
 warns with the exact reconfigure command when the intake answer differs. init.sh's hardcoded
 2 STAYS (intake can never precede init — the wizard hard-requires `.claude/phase-state.json`).
+The blast radius includes the SECOND writer: `ensure_progress_file()` must keep a recreated
+file consistent with the recorded answer, or the fix silently reverts to 2 whenever the file
+is lost.
 Precedent: reconfigure's tier-crosscheck-6, the identical canonical-state-never-propagated
 defect. `tests/edge-cases-scripts.sh` E56 pins `test_interval=2` after a no-intake
 `--non-interactive` init — unchanged behavior, but E56 runs only in the full lane; run it
 locally with the fix.
 
-**Related:** BL-202 (same wizard file — land this first), BL-205 (the eval cadence rides this
+**Related:** BL-202 (same wizard file — BL-203 lands FIRST, then BL-202), BL-205 (the eval cadence rides this
 interval), `templates/generated/claude-md.tmpl`'s "configured in Intake Section 11.5" line
 (the cleanest citation for the false promise).
 
@@ -7172,8 +7182,9 @@ interval), `templates/generated/claude-md.tmpl`'s "configured in Intake Section 
 **Category:** Onboarding / novice UX audit — findings enumerated, each needs its own small fix
 **Severity:** Medium — every finding has a workaround a technical user would find; the framework's audience includes users who will not.
 
-**What exists and works:** `host_require_cli` (per-driver: gh/glab/bitbucket) checks CLI
-presence AND auth before `host_create_repo`, with per-OS install guidance; init creates the
+**What exists and works:** `host_require_cli` runs before `host_create_repo` (github/gitlab:
+CLI presence AND auth, with per-OS install guidance; bitbucket: env credential pair + curl —
+no CLI, no per-OS block); init creates the
 repo, adds the remote, pushes, and the Phase 1→2 gate blocks until the push is verified
 (`BL-084-PUSH-VERIFY`, tier-keyed escape hatches; BL-032 free-tier attestations). Do NOT
 re-file "no auth pre-flight exists" — it exists and runs at init.
@@ -7185,23 +7196,30 @@ re-file "no auth pre-flight exists" — it exists and runs at init.
 2. `--repair` dead-ends on `host=other`: `scripts/lib/host.sh` returns 10 with *"'other' host
    requires user-supplied URL — call from init.sh interactively"* — framework-internal
    language shown to the exact user who chose bring-your-own-host;
-3. repo-name collision loops forever: repair retries the SAME name (`.answers.project_name`,
-   else `basename $(pwd)`) with no `--name`/`--visibility` overrides;
-4. org users cannot create in an org namespace: `host_create_repo` passes a bare name — every
-   org-tier repo lands in the operator's personal namespace or fails; SAML/SSO orgs fail at
-   create-time while `gh auth status` passes, and the only workaround (create by hand, choose
-   `other`) is the path finding 2 shows is unsupported at repair;
-5. the CLI/credential probe runs at the wrong time: the wizard's good retry/switch/continue
-   menu probes at host-selection — but the wizard runs AFTER init; init's own host prompt has
-   no probe, so (e.g.) a Bitbucket user discovers the required
-   `BITBUCKET_API_TOKEN`(+`_EMAIL`) exports at push time. Move the probe to init's selection
-   point. The wizard's *"CLI will be verified again at init.sh"* sentence is backwards — fix it;
+3. repo-name collision fails IDENTICALLY on every re-invocation: repair makes a single
+   attempt with the same derived name (`.answers.project_name`, else `basename $(pwd)`) and
+   offers no `--name`/`--visibility` overrides — deterministic re-failure with no way out;
+4. org users cannot create in an org namespace on github/gitlab: those drivers pass a bare
+   name, which `gh` documents as defaulting to the personal namespace (`OWNER/REPO` is the
+   documented org form); bitbucket is the exception — its driver namespaces via
+   `BITBUCKET_WORKSPACE`. SAML/SSO create-time failure while `gh auth status` passes is
+   INFERENCE from GitHub's documented org-authorization model, not measured here; the only
+   workaround (create by hand, choose `other`) is the path finding 2 shows is unsupported
+   at repair;
+5. the CLI/credential probe runs at the wrong MOMENT: init's pre-flight fires later in the
+   run (`host_require_cli` immediately before `host_create_repo`), not at the host PROMPT —
+   so a wrong choice (e.g. bitbucket without `BITBUCKET_API_TOKEN`(+`_EMAIL`) exported) is
+   discovered only after answering the subsequent prompts, though still before any repo
+   exists. The wizard's retry/switch/continue menu shows the better shape but runs after
+   init entirely, and its *"CLI will be verified again at init.sh"* sentence is backwards —
+   move the probe to init's selection point and fix the sentence;
 6. the visibility prompt is a bare `private|public` with zero explanation, and free-tier
    private silently costs branch protection (surfacing much later as an attestation prompt);
    add the plain-language explanation with the free-tier note;
 7. host + visibility are asked twice (init, then the wizard, after the repo exists) — to a
-   novice this reads as "my earlier answer didn't save"; skip or pre-fill from
-   `.claude/manifest.json`;
+   novice this reads as "my earlier answer didn't save"; skip or pre-fill (host from
+   `.claude/manifest.json`; visibility exists only in
+   `.claude/intake-progress.json::answers.repo_visibility`);
 8. nothing upstream of the choice explains WHY a remote matters ("this is your backup — a
    lost disk without one loses all work"); the framing exists only inside the data-loss
    warning arm. Add it to Next Steps.
@@ -7226,13 +7244,16 @@ trigger designations; runs automated at the milestones.
 
 **What exists:** six templated reviewers (`evaluation-prompts/Projects/`, compose.sh +
 run-reviews.sh with per-reviewer watchdogs after F-DF2-015 — six unbounded `claude -p` calls
-once orphaned ~159 processes), the manifest (`docs/eval-results/review-manifest.json`), and
+once orphaned ~159 processes), the manifest contract (`docs/eval-results/review-manifest.json` in GENERATED projects —
+the path does not exist in this repo), and
 the BL-073 Phase 3→4 gate (Security + Red Team mandatory on standard/full).
 
 **Corrections this entry carries so the design starts from today's ACTUAL gate behavior:**
 - a MISSING review manifest already BLOCKS at phase ≥ 3 for every track — both arms increment
   `issues` (the `[WARN]` label is cosmetic; the increment is the verdict). "Presence-checking
-  is non-blocking today" is false;
+  is non-blocking today" is false (two qualifiers: `--gate <lower-gate>` scoping skips the
+  block entirely per `# BL-166-GATE-SCOPE`, and the `SOLO_REVIEWERS_ATTESTED` hatch is gated
+  on standard/full — light/personal have NO attestation route out of a missing manifest);
 - BL-073 is the grandfathering precedent (`review_gate_enforced`); BL-104 is the
   scoring-inversion precedent — do not conflate;
 - manifest `phase`/`trigger` keys need NO lint change (extra keys are legal); the staleness
@@ -7240,7 +7261,8 @@ the BL-073 Phase 3→4 gate (Security + Red Team mandatory on standard/full).
   behavior for date-less entries, or it is bypassable by deleting a field the lint permits;
 - `run-reviews.sh --trigger` is PROPOSED, not existing;
 - archival naming must carry a verdict slot to align with the documented convention
-  (`docs/test-results` uses `[date]_[tool]_[pass|fail]`): `<date>_<reviewer>_<pass|fail>.md`,
+  (`docs/test-results` uses `[date]_[scan-type]_[pass|fail].[ext]`, per the builders
+guide): `<date>_<reviewer>_<pass|fail>.md`,
   with `trigger` in the manifest;
 - `SOIF_PHASE_GATES=warn` is NOT side-effect-free (it still writes gate dates) — do not
   describe it as a preview mode in the rollout plan.
