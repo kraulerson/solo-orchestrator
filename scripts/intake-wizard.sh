@@ -1739,7 +1739,7 @@ run_script_mode() {
   echo ""
   print_ok "Answers saved to $PROGRESS_FILE"
   print_ok "PROJECT_INTAKE.md updated with 'Intake Answers (Auto-Populated)' appendix"
-  print_ok "Your intake is filled in. Nothing more is needed here."
+  print_ok "Done — your answers are recorded in the appendix at the end of PROJECT_INTAKE.md."
   echo ""
   echo "  Next: open Claude Code and give it the project."
   echo "    1. Type:  claude"

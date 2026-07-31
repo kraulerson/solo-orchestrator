@@ -3,8 +3,14 @@
 # BL-202: Claude Code loads project context only when the FIRST message is
 # sent, so a fresh session in a generated project dead-airs — the user does
 # not know what to type, and Claude does not know the intake is unfinished.
-# This hook puts that fact INTO context on every launch surface (CLI, desktop,
-# IDE), where terminal prints can never reach. Contract mirrors
+# This hook puts that fact INTO CLAUDE'S CONTEXT on every launch surface (CLI,
+# desktop, IDE). Honest contract (review R-BL202-3): SessionStart stdout is
+# context for Claude, NOT text shown to the operator — the blank screen stays
+# blank until they type SOMETHING, but whatever they type, Claude's first
+# reply now knows the intake state and relays it. The documented
+# initialUserMessage JSON field could start the conversation outright; that
+# upgrade is deliberately out of scope here and noted on BL-202. Contract
+# otherwise mirrors
 # session-test-gate-check.sh / session-freshness-check.sh: silent when
 # healthy, fail-open (exit 0 always), the agent RELAYS the output.
 #
@@ -22,6 +28,10 @@ set -uo pipefail
 [ -f ".claude/phase-state.json" ] || exit 0
 [ -f "PROJECT_INTAKE.md" ] || exit 0
 
+# Without jq the ack below is unreadable AND the printed remedy is unrunnable —
+# an unsilenceable nag loop (review R-BL202-6). Every sibling hook guards this.
+command -v jq >/dev/null 2>&1 || exit 0
+
 # The operator already chose to proceed without the intake — never nag twice.
 ACK=$(jq -r '.intake.proceed_without_intake_acknowledged // false' .claude/process-state.json 2>/dev/null) || ACK="false"
 [ "$ACK" = "true" ] && exit 0
@@ -32,7 +42,8 @@ case "$CURRENT_PHASE" in ''|*[!0-9]*) CURRENT_PHASE=0 ;; esac
 [ "$CURRENT_PHASE" -eq 0 ] || exit 0
 
 # BL-202-INTAKE-DETECT-BEGIN
-blank_cells=$(grep -cE '\| *\|$|\| *$' PROJECT_INTAKE.md 2>/dev/null || true)
+# BL-202-INTAKE-PREDICATE (SYNC SIBLINGS: scripts/validate.sh, scripts/session-intake-check.sh, scripts/resume.sh) — count only truly-blank cells: '\| *\|$'. The old '|\| *$' alternative matched EVERY table row (constant 258 on real intakes — review R-BL202-1).
+blank_cells=$(grep -cE '\| *\|$' PROJECT_INTAKE.md 2>/dev/null || true)
 case "$blank_cells" in ''|*[!0-9]*) blank_cells=0 ;; esac
 
 if [ "$blank_cells" -gt 20 ]; then
@@ -43,8 +54,8 @@ This project's intake (PROJECT_INTAKE.md) has ~${blank_cells} unfilled fields an
 not started. Offer the operator these two choices ONCE, then respect the answer:
   1. Continue the intake now — run: bash scripts/intake-wizard.sh
      (or work through PROJECT_INTAKE.md's unfilled sections together).
-  2. Proceed without it — record the choice so this notice never repeats:
-     [ -f .claude/process-state.json ] || echo '{}' > .claude/process-state.json
+  2. Proceed without it — record the choice so this notice never repeats (if
+     .claude/process-state.json is missing, run bash scripts/process-checklist.sh --verify-init first):
      jq '.intake.proceed_without_intake_acknowledged = true' .claude/process-state.json > .claude/process-state.json.tmp && mv .claude/process-state.json.tmp .claude/process-state.json
 If the operator's first message is a real task, answer it AFTER offering this choice once —
 never block their work over paperwork.

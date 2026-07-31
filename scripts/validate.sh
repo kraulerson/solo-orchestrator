@@ -383,7 +383,8 @@ print_section "Intake Completeness"
 
 if [ -f "PROJECT_INTAKE.md" ]; then
   # Count blank table cells (likely unfilled fields)
-  blank_cells=$(grep -cE '\| *\|$|\| *$' PROJECT_INTAKE.md 2>/dev/null || true)
+  # BL-202-INTAKE-PREDICATE (SYNC SIBLINGS: scripts/validate.sh, scripts/session-intake-check.sh, scripts/resume.sh) — count only truly-blank cells: '\| *\|$'. The old '|\| *$' alternative matched EVERY table row (constant 258 on real intakes — review R-BL202-1).
+  blank_cells=$(grep -cE '\| *\|$' PROJECT_INTAKE.md 2>/dev/null || true)
   case "$blank_cells" in ''|*[!0-9]*) blank_cells=0 ;; esac
   # Count N/A entries (explicitly marked as not applicable — this is fine)
   na_cells=$(grep -ciE '\| *N/?A' PROJECT_INTAKE.md 2>/dev/null || true)

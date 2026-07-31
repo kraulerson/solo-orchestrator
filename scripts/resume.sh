@@ -32,7 +32,8 @@ fi
 #   3. anything else -> the classic resume prompt below
 # Detection matches scripts/session-intake-check.sh (blank-cell predicate).
 if [ -f "PROJECT_INTAKE.md" ] && [ "$PHASE" != "unknown" ] && [ "${PHASE:-1}" -eq 0 ] 2>/dev/null; then
-  bl202_blanks=$(grep -cE '\| *\|$|\| *$' PROJECT_INTAKE.md 2>/dev/null || true)
+  # BL-202-INTAKE-PREDICATE (SYNC SIBLINGS: scripts/validate.sh, scripts/session-intake-check.sh, scripts/resume.sh) — count only truly-blank cells: '\| *\|$'. The old '|\| *$' alternative matched EVERY table row (constant 258 on real intakes — review R-BL202-1).
+  bl202_blanks=$(grep -cE '\| *\|$' PROJECT_INTAKE.md 2>/dev/null || true)
   case "$bl202_blanks" in ''|*[!0-9]*) bl202_blanks=0 ;; esac
   if [ "$bl202_blanks" -gt 20 ]; then
     echo -e "${CYAN}--- Copy everything below this line into Claude Code ---${NC}"

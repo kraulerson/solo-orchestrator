@@ -1365,7 +1365,6 @@ create_project() {
   cp "$SCRIPT_DIR/scripts/session-freshness-check.sh" scripts/   # BL-109 S2 (Currency System, Layer 1)
   cp "$SCRIPT_DIR/scripts/session-test-gate-check.sh" scripts/
   cp "$SCRIPT_DIR/scripts/session-intake-check.sh" scripts/   # BL-202 (intake/Phase-0 dead-air)
-  cp "$SCRIPT_DIR/scripts/start-here.sh" scripts/             # BL-202 first-timer alias for resume.sh
   cp "$SCRIPT_DIR/scripts/session-end-qdrant-reminder.sh" scripts/
   cp "$SCRIPT_DIR/scripts/session-mcp-gate.sh" scripts/
   cp "$SCRIPT_DIR/scripts/process-checklist.sh" scripts/
@@ -1427,7 +1426,7 @@ create_project() {
   cp "$SCRIPT_DIR/scripts/lib/host.sh" scripts/lib/
   cp "$SCRIPT_DIR/scripts/host-drivers/"*.sh scripts/host-drivers/
   chmod +x scripts/host-drivers/*.sh
-  chmod +x scripts/validate.sh scripts/check-phase-gate.sh scripts/run-phase3-validation.sh scripts/check-gate.sh scripts/check-updates.sh scripts/resume.sh scripts/intake-wizard.sh scripts/resolve-tools.sh scripts/upgrade-project.sh scripts/reconfigure-project.sh scripts/verify-install.sh scripts/test-gate.sh scripts/check-versions.sh scripts/session-version-check.sh scripts/session-freshness-check.sh scripts/session-test-gate-check.sh scripts/session-intake-check.sh scripts/start-here.sh scripts/session-end-qdrant-reminder.sh scripts/session-mcp-gate.sh scripts/process-checklist.sh scripts/pre-commit-gate.sh scripts/track-tool-usage.sh scripts/pending-approval.sh scripts/lint-uat-scenarios.sh scripts/check-maintenance.sh scripts/lint-backlog-references.sh scripts/lint-counter-antipattern.sh scripts/lint-review-manifest.sh
+  chmod +x scripts/validate.sh scripts/check-phase-gate.sh scripts/run-phase3-validation.sh scripts/check-gate.sh scripts/check-updates.sh scripts/resume.sh scripts/intake-wizard.sh scripts/resolve-tools.sh scripts/upgrade-project.sh scripts/reconfigure-project.sh scripts/verify-install.sh scripts/test-gate.sh scripts/check-versions.sh scripts/session-version-check.sh scripts/session-freshness-check.sh scripts/session-test-gate-check.sh scripts/session-intake-check.sh scripts/session-end-qdrant-reminder.sh scripts/session-mcp-gate.sh scripts/process-checklist.sh scripts/pre-commit-gate.sh scripts/track-tool-usage.sh scripts/pending-approval.sh scripts/lint-uat-scenarios.sh scripts/check-maintenance.sh scripts/lint-backlog-references.sh scripts/lint-counter-antipattern.sh scripts/lint-review-manifest.sh
 
   # Copy intake suggestion files
   mkdir -p templates/intake-suggestions
@@ -3131,7 +3130,7 @@ print_next_steps() {
   echo "     bash scripts/intake-wizard.sh          — guided wizard (interactive or AI-assisted)"
   echo "     Or edit directly: $PROJECT_DIR/PROJECT_INTAKE.md"
   echo "     When the intake is done, 'bash scripts/resume.sh' prints the exact"
-  echo "     first message to paste into Claude Code (BL-202)."
+  echo "     first message to paste into Claude Code."
   echo ""
   echo "     IMPORTANT: Run the wizard and edit the intake from your PROJECT directory,"
   echo "     not from the solo-orchestrator source directory."
@@ -3179,23 +3178,10 @@ print_next_steps() {
   echo "     cd $PROJECT_DIR"
   echo "     claude"
   echo ""
-  echo "     Then give the agent the full project context. A blank Claude Code"
-  echo "     screen means it is ready and waiting, not stuck."
-  echo ""
-  echo "     --- copy from here ---------------------------------------------"
-  echo "     Read the following files in order, then confirm what you"
-  echo "     understand about this project before taking any action:"
-  echo ""
-  echo "     1. CLAUDE.md (your instructions and constraints)"
-  echo "     2. PROJECT_INTAKE.md (the product definition)"
-  echo "     3. docs/reference/builders-guide.md (the phase-gate method)"
-  echo "     4. docs/platform-modules/ (platform-specific guidance)"
-  echo "     5. .claude/phase-state.json (current phase)"
-  echo ""
-  echo "     After reading, summarize: the project goal, your constraints,"
-  echo "     the current phase, and what tools/MCP servers are available to"
-  echo "     you. Then begin Phase 0. Ask me only for clarifying questions."
-  echo "     --- to here ----------------------------------------------------"
+  echo "     Then paste the first message printed by:  bash scripts/resume.sh"
+  echo "     (state-aware: it prints the intake prompt, the Phase-0 initialization"
+  echo "     prompt from PROJECT_INTAKE.md Section 13, or the resume prompt — and a"
+  echo "     blank Claude Code screen means it is ready and waiting, not stuck)"
   echo ""
 
   if [ -f "$PROJECT_DIR/.github/workflows/release.yml" ]; then

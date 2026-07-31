@@ -21,7 +21,6 @@ RESUME="$REPO_ROOT/scripts/resume.sh"
 
 PASSED=0
 FAILED=0
-SKIPPED=0
 pass()  { echo "  [PASS] $1"; PASSED=$((PASSED + 1)); }
 fail_() { echo "  [FAIL] $1 — $2"; FAILED=$((FAILED + 1)); }
 
@@ -128,7 +127,42 @@ else
   elif grep -q 'INTAKE INCOMPLETE' "$TOPTMP/h6.log"; then
     fail_ "H6-mutation-detect-fence" "excising the detection fence did NOT silence the incomplete arm — the fence is not cutting what it claims"
   else
-    pass "H6-mutation-detect-fence (excised detection -> the incomplete arm goes dark while the mutant runs clean — the fence is load-bearing and the mutant is runnable)"
+    # Negative control (the R-BL203-13 lesson, run rather than claimed): the
+    # INTACT hook on the same fixture must still speak, or this case cannot
+    # tell an excision from a hook that never fires.
+    ( cd "$D" && bash "$HOOK" </dev/null ) > "$TOPTMP/h6-intact.log" 2>/dev/null || true
+    if grep -q 'INTAKE INCOMPLETE' "$TOPTMP/h6-intact.log"; then
+      pass "H6-mutation-detect-fence (excised -> dark, intact -> speaks, mutant runnable — the fence is load-bearing and the case discriminates)"
+    else
+      fail_ "H6-mutation-detect-fence" "NEGATIVE CONTROL FAILED — the intact hook did not fire on the incomplete fixture, so this case cannot discriminate"
+    fi
+  fi
+fi
+
+# ── H7: the predicate against the REAL template (review R-BL202-1) ───────────
+# The suite's hand-rolled fixtures could not see the shipped predicate counting
+# EVERY table row (constant 258, filled or not). Pin discrimination against the
+# artifact that matters: the shipped template must read INCOMPLETE, and the same
+# file with every blank cell filled must read complete.
+echo "=== H7-template-predicate-discriminates ==="
+TPL="$REPO_ROOT/templates/project-intake.md"
+if [ ! -f "$TPL" ]; then
+  fail_ "H7-template-predicate-discriminates" "template missing at $TPL"
+else
+  D="$TOPTMP/h7"; mkdir -p "$D/.claude"
+  printf '{"current_phase": "0"}\n' > "$D/.claude/phase-state.json"
+  cp "$TPL" "$D/PROJECT_INTAKE.md"
+  run_hook "$D" "$TOPTMP/h7a.log"
+  sed 's/|[[:space:]]*|$/| filled |/' "$TPL" > "$D/PROJECT_INTAKE.md"
+  H7_BLANKS=$(grep -cE '\| *\|$' "$D/PROJECT_INTAKE.md" || true)  # lint-counter-antipattern: allow — sanitized on the next line to 1, not 0: zero is this assertion's PASS value, so the fail-safe default must be nonzero
+  case "$H7_BLANKS" in ''|*[!0-9]*) H7_BLANKS=1 ;; esac
+  run_hook "$D" "$TOPTMP/h7b.log"
+  if grep -q 'INTAKE INCOMPLETE' "$TOPTMP/h7a.log" \
+     && [ "${H7_BLANKS:-1}" = "0" ] \
+     && ! grep -q 'INTAKE INCOMPLETE' "$TOPTMP/h7b.log"; then
+    pass "H7-template-predicate-discriminates (the SHIPPED template reads incomplete; the same file fully filled reads complete — the predicate discriminates on the real artifact)"
+  else
+    fail_ "H7-template-predicate-discriminates" "unfilled-fires=$(grep -c 'INTAKE INCOMPLETE' "$TOPTMP/h7a.log") filled-blanks=$H7_BLANKS filled-fires=$(grep -c 'INTAKE INCOMPLETE' "$TOPTMP/h7b.log") — the predicate does not discriminate on the shipped template (R-BL202-1)"
   fi
 fi
 
@@ -166,7 +200,6 @@ else
 fi
 
 echo ""
-if [ "$SKIPPED" -gt 0 ]; then echo "($SKIPPED skipped)"; fi
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ] || exit 1
 exit 0
