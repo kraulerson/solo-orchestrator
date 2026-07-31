@@ -217,7 +217,7 @@ your-project/
 │   ├── session-test-gate-check.sh         # SessionStart hook: test gate + MCP gate init
 │   ├── session-mcp-gate.sh                # PreToolUse hook: block Write/Edit until MCP called
 │   ├── session-end-qdrant-reminder.sh     # Stop hook: Qdrant storage reminder
-│   ├── resume.sh                          # Session resume prompt generator
+│   ├── resume.sh                          # Prints the exact first message to paste (state-aware: intake / Phase 0 / resume)
 │   └── lib/helpers.sh                     # Shared shell helpers (colors, logging, MCP detection)
 ├── templates/
 │   ├── generated/                         # 24 .tmpl files (CLAUDE.md, Manifesto, Bible, ADR, ...)
