@@ -2790,6 +2790,14 @@ For Rust the skip is *deliberate* (inline `#[cfg(test)]` tests cannot be detecte
 
 **Decision 2026-07-20 (Karl):** the offer-and-apply escalation (proposing `--sync-framework` from the SessionStart surface on detection) is APPROVED — the option to update must exist — and is deliberately sequenced LAST in the current work queue (after the quick decided items, the Dogfood-4 milestone, and the design-first items). BL-099 and BL-101 are Closed into this ladder as of today; the BL-101 conflict-UX decision (`.rej`-style droppings + a LARGE unmissable warning on every conflict) is a recorded requirement on S4/apply.
 
+**Decision 2026-07-31 (Karl): the build starts AFTER THE QUICK SWEEP.** The 07-20 sequencing's
+queue is finished (Dogfood-4 done; that era's decided items shipped), so the go-signal is
+re-anchored to the current queue: first the small hardening builds (BL-207, BL-206, BL-191's
+second half, the newly-decided BL-185 receipt and BL-187 30s-timeout items, BL-196/197,
+BL-176/144/145 and the java.yml wart), then **S1 (inventory) begins as the next MAJOR build** —
+ahead of, or alongside, the design-doc items (BL-205; the operating-model WP re-planning). Not
+held for real drift; not last behind the medium builds.
+
 **Design of record:** `docs/designs/2026-07-12-currency-system-v1.md` (**v1.1** — normative for the build). v1 was **blocked** by an adversarial design review the same day (4 BLOCK / 9 MAJOR / 10 MINOR — record: `docs/designs/2026-07-12-currency-system-review-r1.md`); every amendment is folded into v1.1 with a traceability changelog (§0). The blocks, in one line each: v1 claimed the write-primitive existed on main (it does not — the promotion is now its own slice S3a); v1 specced a second manifest file (dual-source regression — now one `currency` block inside the existing `.claude/manifest.json`, plus `soloFrameworkPath` so the framework check has a path to check); v1's Class-A merge mechanics would have staged template placeholders into candidates and contradicted its own never-write-user-docs invariant at rollback (now split A1 render-legs-via-BL-101-generator / A2 structural-diff-only, rollback stages-never-writes); v1 had no verbs for upstream deletions/renames (now `add|update|retire|rename` + orphan reporting).
 
 **Shape (four layers):** L0 inventory — the `currency` block (shas, modes, classes, verb state, render bases, three-state hook expectations incl. `absent-unavailable` surfacing BL-107, MCP presence). L1 detection — SessionStart, read-only except an atomic cache, ZERO network at session start, fail-open, silent-when-current, tiered (enforcement drift never silently snoozeable: 7-day expiry + bypass-audit). L2 staging — dated committable run folder (`docs/updates/…`), item verbs, checkbox selection as the single human surface parsed one-way into a machine journal, mechanical facts script-side, mid-tier advisory review (pros/cons/repercussions) confined and injection-pinned. L3 apply — `soif_write` transactional primitive (archive-first, byte-verify, atomic rename, WAL journal, symlink refusal), batch validate-all→commit-all→verify-all with crash recovery, item-consent-only for hooks/gate scripts (new invariant I11), `--rollback` from run archives (staged-never-written for user docs).
@@ -5607,6 +5615,18 @@ that was withdrawn when its instrument went blind — the realised version of th
 BL-118 / BL-131 (the rulesets whose findings this guard protects), `# BL-187-RULE-COVERAGE` and
 `# BL-112-SCAN-COVERAGE` in `scripts/lib/hook-templates.sh`.
 
+**DECIDED 2026-07-31 (Karl): the per-rule timeout is raised to 30 SECONDS** (`--timeout=30` on the
+emitted hook's invocation; semgrep's default 5s stands nowhere in the hook once this ships). The
+latency budget is now policy, not a deferral: the measured dense-fixture case needed ~11s of rule
+time, so 30s catches it with ~3x headroom while keeping the hard ceiling that makes a
+pathological rule a forfeited receipt instead of a frozen terminal. Build notes: the
+`# BL-187-RULE-COVERAGE` timeout detector STAYS exactly as shipped (30s shrinks the class, it
+does not close it — the entry's whole point); re-measure the dense fixture under the new budget
+(bl132's rule-timeout cases pin the behavior and must move in the same diff if their fixture now
+BLOCKS instead of forfeiting); the flag joins `--max-target-bytes=0`/`--no-git-ignore`/`--verbose`
+in the hook-only flag set, so BL-188's CI-parity scope inherits it. Status stays Open — now a
+BUILD item, no longer a decision blocker.
+
 ---
 
 ## BL-190: The `unit` fast lane reached its own 20-minute cap and began blocking PRs for ADDING a test rather than for failing one
@@ -5631,6 +5651,14 @@ ITEMS in this entry remain live and are NOT closed by this flip: (1) whether the
 aggregator is required; coverage is transitive); (2) `lint.yml` defines nine lint jobs but only
 eight are required — `evalprompts-portability-lint` runs and does not block. Both are
 branch-protection/policy calls only Karl can make.
+**BOTH DECIDED 2026-07-31 (Karl):** (1) **summarizer-only stands as the deliberate design** — the
+`unit` aggregator remains the sole required test context; the transitive coverage is now a
+recorded decision, not an accident of setup (its tamper weakness — deleting/renaming the
+aggregator — is the documented loud everything-jams failure, accepted). (2) **the ninth lint is
+now REQUIRED**: `evalprompts-portability-lint` was added to `main`'s required status checks the
+same day, applied live via the branch-protection API and verified — the required set is now 10
+contexts (`unit` + all nine lints), and the "nine defined / eight required" sentence above is
+retired.
 **Category:** CI capacity / merge-blocking
 **Severity:** High — a required status check that fails on capacity, not on correctness, blocks every
 PR indiscriminately and teaches everyone to ignore it.
@@ -7599,6 +7627,19 @@ transcode build (#287), the BL-201 float (#292), and the BL-200 detector (#293) 
 surface: re-measure every claim against current `main` before building on it.
 This entry's core is a POLICY question (should `// nosemgrep` in staged content be receipted,
 warned, or blocked?) — still undecided; decision item for Karl.
+
+**DECIDED 2026-07-31 (Karl): "Allow it, but log it."** Both of the entry's questions answered on
+its own recommended lines: (1) `nosemgrep` STAYS permitted at commit time — a gate a builder
+cannot pass for a false positive is a gate they route around; (2) it MUST leave a receipt,
+bringing it in line with every other escape in the repo. The build contract is the entry's own
+question-2 shape: detect suppression directives in the STAGED BLOBS the arm already materializes
+(a grep over the materialized targets — no extra scanner invocation); when any are present,
+forfeit the unqualified `[OK]`, print a receipt NAMING the file and the directive, and append a
+`sast_suppression` row alongside BL-163's `terminal_commit_blocked` rows in
+`.claude/bypass-audit.json`. The commit still LANDS. The shipped guidance docs stay true as
+written (the mechanism is unchanged; the receipt is additive), so no doc-stranding. The
+`--disable-nosem` non-fix stays banned per the entry's measurement. Status stays Open — this is
+now a BUILD item, no longer a decision blocker.
 
 ---
 
