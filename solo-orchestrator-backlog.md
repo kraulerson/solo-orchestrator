@@ -7025,7 +7025,8 @@ weighed as required: the rc>=2 stderr dump is kept WHOLE under verbose (truncati
 class; semgrep prints fatal errors at the END). BL-201's deferred receipt line landed here
 additively (`scanner: semgrep <v>` on the [OK]/[BLOCKED]/tool-failed reports; `(version unknown)`
 on capture failure, pinned by T-stub-version-unknown never to cost a receipt) without touching the
-63-reference `[OK] semgrep:` line. Proofs: detector suite RED 0/7 pre-fix → GREEN 7/7 (in-suite
+heavily-pinned `[OK] semgrep:` line (63 test references at the time of BL-201's deferral decision;
+the reviewer counts 71 today — the number drifts, the untouched-line fact is what matters). Proofs: detector suite RED 0/7 pre-fix → GREEN 7/7 (in-suite
 mutations for the flag and the conjunct); canary 4/4; bl147 63/0 (policy derivation and CI flag
 parity read config/severity/--error only); bl112 13/0, bl118 7/0, bl125 22/0, bl131 18/0, bl132
 56/0 after re-pinning its two boundary cases as measured disjunctions (`7b4b4a6` — the detector
@@ -7038,6 +7039,21 @@ report-dependence (respell ⇒ under-detect ⇒ pre-BL-200 receipt; canary-guard
 lane — a generated project stays blind until a framework update propagates) and the prefilter
 bound (a sinkless broken file may pass unwarned; it has nothing to hide). Both accepted by this
 entry's own admissibility terms.
+
+**Pre-PR adversarial review (2026-07-31): minor_concerns, non-blocking; every load-bearing claim
+independently reproduced** (the forfeit-only property attacked and held: no constructible grant,
+block, or receipt-on-detector-failure; both semgrep versions re-verified; the re-pins judged a
+legitimate safe-direction narrowing, not laundering). Its one refutation, RF-1, was COMMENT
+precision: the anchor cannot stop an already-broken file's echoed continuation lines from
+inflating the count (only the first echoed line is prefixed) — what is measured-impossible is a
+CLEAN file's content reaching the stream at all. Fixed in the confirm-round commit: the comment
+now says exactly that, the reviewer's surviving `^`-drop mutant is killed by a new
+T-stub-anchor-indent case (the anchor's WIDTH pinned, BL-181 doctrine), and canary C5 asserts
+the hook-grep/canary lockstep verbatim instead of pleading for it in a comment. Recorded from the
+round, no action: R-BL200-3 (echoed content can likewise inflate the HEADER count and mis-LABEL a
+forfeit's diagnosis — still forfeit-only in every path, PLAUSIBLE not run end-to-end) and the
+measured cost ledger (`semgrep --version` ~0.7s per semgrep-path commit; `--verbose` itself is
+free — 2.14s vs 2.15s scan wall-time).
 
 **Related:** BL-198 (the plan that refuses to claim this), BL-192 (the decision blocks that
 constrain the design), `# BL-112-SCAN-COVERAGE` (the residue note that named it first), BL-193
