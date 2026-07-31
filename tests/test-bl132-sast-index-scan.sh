@@ -1862,7 +1862,7 @@ else
   # it must be RED. Restored, the same commit gets the loud partial NOTRUN (GREEN).
   echo "=== T-mutation-partial-receipt ==="
   MPR="$TOPTMP/mut-receipt"
-  if ! _mut_n "$EMITTED" "$MPR" 'elif [ "${#soif_idx_unread[@]}" -gt 0 ]; then' 'elif false; then' 1; then
+  if ! _mut_n "$EMITTED" "$MPR" 'elif [ "${#soif_idx_unread[@]}" -gt 0 ] || [ "${#soif_idx_untx[@]}" -gt 0 ]; then' 'elif false; then' 1; then
     fail_ "T-mutation-partial-receipt" "MIS-TARGETED — the clean-but-partial receipt guard is not present exactly once in the emitted hook"
   elif ! bash -n "$MPR" 2>/dev/null; then
     fail_ "T-mutation-partial-receipt" "mutated hook has a syntax error — a broken mutant proves nothing"
@@ -2480,6 +2480,562 @@ elif ! grep -qF 'CANNOT BE VERIFIED' "$TOPTMP/sr-red"; then
   fail_ "T-scan-status-singular-rule" "the plural-only mutant neither receipted nor reported an unverifiable header: $(tail -6 "$TOPTMP/sr-red" | tr '\n' '|')"
 else
   pass "T-scan-status-singular-rule: 'Scanning 1 file with 1 Code rule:' EARNS the receipt; narrowing the grep back to the plural turns it into a permanent NOTRUN (RED) — the singular spelling is real and is now accepted (R-274Rv2-8)"
+fi
+
+# ═════════════════════════════════════════════════════════════════════════════════
+# BL-198 — TRANSCODE-FIRST DECODE COVERAGE (# BL-198-TRANSCODE in the emitted hook).
+# BL-192's gap: semgrep ACCEPTS a UTF-16 staged file, cannot decode it, scans it
+# "clean", and the four-precondition receipt prints over an unseen sink — a positive
+# false attestation. The fix classifies each materialized blob AFTER F2 (NUL scan →
+# BOM longest-first → whole-file stride-aware zero-parity derivation, BOM and
+# derivation required to AGREE), transcodes vouched UTF-16/UTF-32 to UTF-8 at the
+# IDENTICAL tree path (temp + mv, never a redirect into the source), and fails
+# CLOSED to a loud named NOTRUN on anything it cannot vouch. These cases are the
+# fixture matrix from the BL-198 plan; five restore the shape of the cases withdrawn
+# with the BL-186 parse clause (held on PR #278 @ e87dbd3), re-aimed off semgrep's
+# self-report onto the transcode — the UTF-16 sink cases flip from "receipt
+# forfeited" to the stronger "sink CAUGHT, commit BLOCKED".
+#   Every fixture asserts its own byte shape (NUL count, BOM bytes, length parity)
+#   before any behavior assertion, so a fixture edit cannot quietly turn a case
+#   vacuous. A plain-UTF-8 control probe gates the sink cases: on a host where the
+#   baseline sink does not block (no registry, rules unresolved), they SKIP as
+#   UNPROVEN rather than mis-reporting the transcode.
+# ═════════════════════════════════════════════════════════════════════════════════
+
+HAVE_ICONV=0
+command -v iconv >/dev/null 2>&1 && HAVE_ICONV=1
+
+_bl198_nuls() {  # <file> -> count of NUL bytes
+  local tot non
+  tot=$(wc -c < "$1" 2>/dev/null | tr -d '[:space:]') || tot=0
+  non=$(LC_ALL=C tr -d '\000' < "$1" 2>/dev/null | wc -c | tr -d '[:space:]') || non=0
+  echo $(( tot - non ))
+}
+
+_bl198_head4() {  # <file> -> first 4 bytes as bare hex
+  od -An -N4 -tx1 "$1" 2>/dev/null | tr -d ' \t\n'
+}
+
+_bl198_run() {  # <hookfile> <log> <relpath> <bytesfile> -> COMMITTED|REFUSED|SETUPFAIL
+  local d v
+  d="$(mktemp -d)"
+  mk_repo "$d" "$1" >/dev/null 2>&1 || { rm -rf "$d"; echo SETUPFAIL; return; }
+  cp "$4" "$d/$3" 2>/dev/null || { rm -rf "$d"; echo SETUPFAIL; return; }
+  ( cd "$d" && git add -- "$3" ) >/dev/null 2>&1 || { rm -rf "$d"; echo SETUPFAIL; return; }
+  if ( cd "$d" && git commit -m "feat: add module" ) >"$2" 2>&1; then v=COMMITTED; else v=REFUSED; fi
+  rm -rf "$d"
+  echo "$v"
+}
+
+BL198FIX="$TOPTMP/bl198fix"
+mkdir -p "$BL198FIX"
+
+# Control probe: the SAME sink in plain UTF-8 must block on this host, or the
+# UTF-16 cases cannot distinguish "transcode failed" from "rules never resolved".
+BL198_CONTROL=0
+if [ "$HAVE_SEMGREP" -eq 1 ]; then
+  printf '%s\n' "$REN_VULN" > "$BL198FIX/control.bin"
+  BL198_CTL_V="$(_bl198_run "$EMITTED" "$TOPTMP/bl198-control" widget.ts "$BL198FIX/control.bin")"
+  if [ "$BL198_CTL_V" = "REFUSED" ] && grep -qF '[BLOCKED] Semgrep' "$TOPTMP/bl198-control"; then
+    BL198_CONTROL=1
+  fi
+fi
+
+_bl198_skip_reason() {  # -> the reason the matrix cases cannot run, or empty
+  if [ "$HAVE_SEMGREP" -eq 0 ]; then echo "semgrep ABSENT"; return; fi
+  if [ "$HAVE_ICONV" -eq 0 ]; then echo "iconv ABSENT — cannot build UTF-16 fixtures"; return; fi
+  if [ "$BL198_CONTROL" -eq 0 ]; then echo "plain-UTF-8 sink control did not BLOCK (registry unreachable?)"; fi
+}
+
+# ── T-utf16-parse-drop-no-receipt (restored from e87dbd3, RE-AIMED) ───────────────
+# The original case pinned "receipt forfeited" via the withdrawn parse clause. The
+# transcode buys the stronger DoD: the SAME fixture — an ordinary .ts saved as
+# UTF-16LE WITH BOM, carrying the innerHTML sink — is now DECODED and its sink
+# BLOCKS the commit outright.
+echo "=== T-utf16-parse-drop-no-receipt ==="
+BL198_WHY="$(_bl198_skip_reason)"
+if [ -n "$BL198_WHY" ]; then
+  skip_ "T-utf16-parse-drop-no-receipt" "$BL198_WHY — UNPROVEN here (skip, NOT a pass)"
+else
+  { printf '\xff\xfe'; printf '%s\n' "$REN_VULN" | iconv -f UTF-8 -t UTF-16LE; } > "$BL198FIX/le-bom.bin"
+  if [ "$(_bl198_nuls "$BL198FIX/le-bom.bin")" -eq 0 ] || [ "$(_bl198_head4 "$BL198FIX/le-bom.bin" | cut -c1-4)" != "fffe" ]; then
+    fail_ "T-utf16-parse-drop-no-receipt" "fixture is not BOM'd UTF-16LE (nuls=$(_bl198_nuls "$BL198FIX/le-bom.bin") head=$(_bl198_head4 "$BL198FIX/le-bom.bin")) — the case proves nothing"
+  else
+    U16A_V="$(_bl198_run "$EMITTED" "$TOPTMP/bl198-lebom" widget.ts "$BL198FIX/le-bom.bin")"
+    if [ "$U16A_V" = "SETUPFAIL" ]; then
+      fail_ "T-utf16-parse-drop-no-receipt" "fixture setup failed"
+    elif [ "$U16A_V" = "REFUSED" ] && grep -qF '[BLOCKED] Semgrep' "$TOPTMP/bl198-lebom" \
+         && ! grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/bl198-lebom"; then
+      pass "T-utf16-parse-drop-no-receipt: a UTF-16LE+BOM staged sink is transcoded and BLOCKS — the BL-192 false attestation is gone and the DoD is the strong form"
+    else
+      fail_ "T-utf16-parse-drop-no-receipt" "verdict=$U16A_V — the sink in a UTF-16LE+BOM .ts did not block (BL-192: semgrep scans the undecoded bytes 'clean' and the receipt lies): $(sast_evidence "$TOPTMP/bl198-lebom")"
+    fi
+  fi
+fi
+
+# ── T-utf16le-nobom-sink-blocked (the decoy row: NO BOM, decodes as valid UTF-8) ──
+# UTF-16LE without a BOM is the trap variant: the raw bytes happen to be valid
+# UTF-8 (every other byte NUL), so any "is it valid UTF-8?" tightening waves it
+# through. Whole-file zero-parity derivation is what catches it.
+echo "=== T-utf16le-nobom-sink-blocked ==="
+BL198_WHY="$(_bl198_skip_reason)"
+if [ -n "$BL198_WHY" ]; then
+  skip_ "T-utf16le-nobom-sink-blocked" "$BL198_WHY — UNPROVEN here (skip, NOT a pass)"
+else
+  printf '%s\n' "$REN_VULN" | iconv -f UTF-8 -t UTF-16LE > "$BL198FIX/le-nobom.bin"
+  U16B_H="$(_bl198_head4 "$BL198FIX/le-nobom.bin" | cut -c1-4)"
+  if [ "$(_bl198_nuls "$BL198FIX/le-nobom.bin")" -eq 0 ] || [ "$U16B_H" = "fffe" ]; then
+    fail_ "T-utf16le-nobom-sink-blocked" "fixture is not BOM-less UTF-16LE (head=$U16B_H) — the case proves nothing"
+  else
+    U16B_V="$(_bl198_run "$EMITTED" "$TOPTMP/bl198-lenobom" widget.ts "$BL198FIX/le-nobom.bin")"
+    if [ "$U16B_V" = "REFUSED" ] && grep -qF '[BLOCKED] Semgrep' "$TOPTMP/bl198-lenobom"; then
+      pass "T-utf16le-nobom-sink-blocked: BOM-less UTF-16LE (raw bytes are VALID UTF-8 — the decoy) is parity-derived, transcoded, and its sink BLOCKS"
+    else
+      fail_ "T-utf16le-nobom-sink-blocked" "verdict=$U16B_V — the BOM-less UTF-16LE sink did not block: $(sast_evidence "$TOPTMP/bl198-lenobom")"
+    fi
+  fi
+fi
+
+# ── T-utf16be-sink-blocked (both BE variants: with and without BOM) ───────────────
+echo "=== T-utf16be-sink-blocked ==="
+BL198_WHY="$(_bl198_skip_reason)"
+if [ -n "$BL198_WHY" ]; then
+  skip_ "T-utf16be-sink-blocked" "$BL198_WHY — UNPROVEN here (skip, NOT a pass)"
+else
+  { printf '\xfe\xff'; printf '%s\n' "$REN_VULN" | iconv -f UTF-8 -t UTF-16BE; } > "$BL198FIX/be-bom.bin"
+  printf '%s\n' "$REN_VULN" | iconv -f UTF-8 -t UTF-16BE > "$BL198FIX/be-nobom.bin"
+  if [ "$(_bl198_head4 "$BL198FIX/be-bom.bin" | cut -c1-4)" != "feff" ] || [ "$(_bl198_nuls "$BL198FIX/be-nobom.bin")" -eq 0 ]; then
+    fail_ "T-utf16be-sink-blocked" "BE fixtures malformed — the case proves nothing"
+  else
+    BE1_V="$(_bl198_run "$EMITTED" "$TOPTMP/bl198-bebom" widget.ts "$BL198FIX/be-bom.bin")"
+    BE2_V="$(_bl198_run "$EMITTED" "$TOPTMP/bl198-benobom" widget.ts "$BL198FIX/be-nobom.bin")"
+    if [ "$BE1_V" = "REFUSED" ] && grep -qF '[BLOCKED] Semgrep' "$TOPTMP/bl198-bebom" \
+       && [ "$BE2_V" = "REFUSED" ] && grep -qF '[BLOCKED] Semgrep' "$TOPTMP/bl198-benobom"; then
+      pass "T-utf16be-sink-blocked: UTF-16BE sinks block with a BOM (claim+derivation agree) and without one (derivation alone)"
+    else
+      fail_ "T-utf16be-sink-blocked" "BE+BOM=$BE1_V BE-noBOM=$BE2_V (both must REFUSE): $(sast_evidence "$TOPTMP/bl198-benobom")"
+    fi
+  fi
+fi
+
+# ── T-utf16-cjk-head-sink-blocked (the head-window refuter) ───────────────────────
+# The file OPENS with a CJK comment block — UTF-16 code units with BOTH bytes
+# non-zero, so a head-window sniff sees no NULs and reads "no signal" — and the
+# ASCII sink sits after it. Whole-file parity must still catch it. (No BOM.)
+echo "=== T-utf16-cjk-head-sink-blocked ==="
+BL198_WHY="$(_bl198_skip_reason)"
+if [ -n "$BL198_WHY" ]; then
+  skip_ "T-utf16-cjk-head-sink-blocked" "$BL198_WHY — UNPROVEN here (skip, NOT a pass)"
+else
+  { printf '// %s\n' "中文注释中文注释中文注释中文注释中文注释中文注释中文注释中文注释"; printf '%s\n' "$REN_VULN"; } | iconv -f UTF-8 -t UTF-16LE > "$BL198FIX/cjk-head.bin"
+  if [ "$(_bl198_nuls "$BL198FIX/cjk-head.bin")" -eq 0 ]; then
+    fail_ "T-utf16-cjk-head-sink-blocked" "fixture carries no NULs at all — it is not the shape this case names"
+  else
+    CJK_V="$(_bl198_run "$EMITTED" "$TOPTMP/bl198-cjk" widget.ts "$BL198FIX/cjk-head.bin")"
+    if [ "$CJK_V" = "REFUSED" ] && grep -qF '[BLOCKED] Semgrep' "$TOPTMP/bl198-cjk"; then
+      pass "T-utf16-cjk-head-sink-blocked: a CJK-opening UTF-16 file is parity-read over the WHOLE file and its sink blocks — no head window to fool"
+    else
+      fail_ "T-utf16-cjk-head-sink-blocked" "verdict=$CJK_V — the CJK-head UTF-16 sink did not block: $(sast_evidence "$TOPTMP/bl198-cjk")"
+    fi
+  fi
+fi
+
+# ── T-parse-threshold-exact (restored from e87dbd3, RE-AIMED at BOM order) ────────
+# The original pinned an exact `-ge 100` threshold. The transcode design has no
+# ratio (the parity rule is all-zeros-on-one-parity, exact by construction); the
+# boundary that CAN silently re-narrow is the BOM match ORDER — `FF FE` is a
+# PREFIX of the UTF-32LE BOM, so longest-first is load-bearing. A UTF-32LE+BOM
+# sink must be read as UTF-32LE and block; shortest-first would misread it as
+# UTF-16LE, fail the output vouch, and cry wolf on a legitimate file.
+echo "=== T-parse-threshold-exact ==="
+BL198_WHY="$(_bl198_skip_reason)"
+if [ -n "$BL198_WHY" ]; then
+  skip_ "T-parse-threshold-exact" "$BL198_WHY — UNPROVEN here (skip, NOT a pass)"
+else
+  { printf '\xff\xfe\x00\x00'; printf '%s\n' "$REN_VULN" | iconv -f UTF-8 -t UTF-32LE; } > "$BL198FIX/u32le-bom.bin"
+  if [ "$(_bl198_head4 "$BL198FIX/u32le-bom.bin")" != "fffe0000" ]; then
+    fail_ "T-parse-threshold-exact" "fixture head is not the UTF-32LE BOM — the case proves nothing"
+  else
+    U32_V="$(_bl198_run "$EMITTED" "$TOPTMP/bl198-u32" widget.ts "$BL198FIX/u32le-bom.bin")"
+    if [ "$U32_V" = "REFUSED" ] && grep -qF '[BLOCKED] Semgrep' "$TOPTMP/bl198-u32"; then
+      pass "T-parse-threshold-exact: a UTF-32LE+BOM sink is matched longest-first, transcoded as UTF-32LE, and BLOCKS"
+    else
+      fail_ "T-parse-threshold-exact" "verdict=$U32_V — the UTF-32LE+BOM sink did not block (BOM order or stride derivation broken): $(sast_evidence "$TOPTMP/bl198-u32")"
+    fi
+  fi
+fi
+
+# ── T-utf16-lying-bom-notrun (the agree-check, BOTH directions) ───────────────────
+# A BOM is a CLAIM. `FF FE` (claims LE) over a UTF-16BE body transcodes to
+# NUL-free valid-UTF-8 GARBAGE that passes every output check — so without the
+# claim/derivation agree-check the fix itself mints a fresh false receipt. Both
+# lying directions must land as a LOUD named NOTRUN: never scanned-clean, never
+# blocked, never receipted.
+echo "=== T-utf16-lying-bom-notrun ==="
+BL198_WHY="$(_bl198_skip_reason)"
+if [ -n "$BL198_WHY" ]; then
+  skip_ "T-utf16-lying-bom-notrun" "$BL198_WHY — UNPROVEN here (skip, NOT a pass)"
+else
+  { printf '\xff\xfe'; printf '%s\n' "$REN_VULN" | iconv -f UTF-8 -t UTF-16BE; } > "$BL198FIX/lie-le-over-be.bin"
+  { printf '\xfe\xff'; printf '%s\n' "$REN_VULN" | iconv -f UTF-8 -t UTF-16LE; } > "$BL198FIX/lie-be-over-le.bin"
+  LIE1_V="$(_bl198_run "$EMITTED" "$TOPTMP/bl198-lie1" widget.ts "$BL198FIX/lie-le-over-be.bin")"
+  LIE2_V="$(_bl198_run "$EMITTED" "$TOPTMP/bl198-lie2" widget.ts "$BL198FIX/lie-be-over-le.bin")"
+  LIE_OK=1
+  for LIE_LOG in "$TOPTMP/bl198-lie1" "$TOPTMP/bl198-lie2"; do
+    if ! grep -qF 'SAST NOT ENFORCED' "$LIE_LOG" || ! grep -qF 'widget.ts' "$LIE_LOG" \
+       || grep -qF '[OK] semgrep: SAST ran' "$LIE_LOG"; then LIE_OK=0; fi
+  done
+  if [ "$LIE1_V" = "COMMITTED" ] && [ "$LIE2_V" = "COMMITTED" ] && [ "$LIE_OK" -eq 1 ]; then
+    pass "T-utf16-lying-bom-notrun: both lying-BOM directions land as a LOUD NOTRUN that NAMES widget.ts — no receipt over garbage, no block on an unvouchable read"
+  else
+    fail_ "T-utf16-lying-bom-notrun" "lie1=$LIE1_V lie2=$LIE2_V named-and-unreceipted=$LIE_OK — a lying BOM must forfeit the receipt and name the file, in both directions: $(sast_evidence "$TOPTMP/bl198-lie1")"
+  fi
+fi
+
+# ── T-parse-coverage-fails-closed (restored from e87dbd3, RE-AIMED at iconv) ──────
+# The original pinned the withdrawn clause's unreadable-banner arm. Re-aimed: a
+# vouched-looking file iconv still cannot convert — BOM'd UTF-16LE with an
+# UNPAIRED HIGH SURROGATE (U+D834 with no low half) — must fail CLOSED: iconv
+# exits non-zero, the raw bytes stay intact, the receipt is forfeited, the file
+# is NAMED, and the commit lands as a WARN (an unconvertible file is not
+# evidence of a defect).
+echo "=== T-parse-coverage-fails-closed ==="
+BL198_WHY="$(_bl198_skip_reason)"
+if [ -n "$BL198_WHY" ]; then
+  skip_ "T-parse-coverage-fails-closed" "$BL198_WHY — UNPROVEN here (skip, NOT a pass)"
+else
+  { printf '\xff\xfe'; printf 'const a = "x";\n' | iconv -f UTF-8 -t UTF-16LE; printf '\x34\xd8'; printf 'const b = "y";\n' | iconv -f UTF-8 -t UTF-16LE; } > "$BL198FIX/surrogate.bin"
+  if iconv -f UTF-16LE -t UTF-8 "$BL198FIX/surrogate.bin" >/dev/null 2>&1; then
+    skip_ "T-parse-coverage-fails-closed" "this host's iconv ACCEPTS an unpaired surrogate — the iconv-failure path is unreachable with this fixture here (skip, NOT a pass)"
+  else
+    SUR_V="$(_bl198_run "$EMITTED" "$TOPTMP/bl198-sur" widget.ts "$BL198FIX/surrogate.bin")"
+    if [ "$SUR_V" = "COMMITTED" ] && grep -qF 'SAST NOT ENFORCED' "$TOPTMP/bl198-sur" \
+       && grep -qF 'widget.ts' "$TOPTMP/bl198-sur" \
+       && ! grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/bl198-sur"; then
+      pass "T-parse-coverage-fails-closed: an unconvertible (unpaired-surrogate) UTF-16 file forfeits the receipt LOUDLY, names the file, and never mints [OK]"
+    else
+      fail_ "T-parse-coverage-fails-closed" "verdict=$SUR_V — iconv failure must be a loud named NOTRUN, never a receipt: $(sast_evidence "$TOPTMP/bl198-sur")"
+    fi
+  fi
+fi
+
+# ── T-utf16-clean-transcode-receipt (the receipt names the transcode) ─────────────
+echo "=== T-utf16-clean-transcode-receipt ==="
+BL198_WHY="$(_bl198_skip_reason)"
+if [ -n "$BL198_WHY" ]; then
+  skip_ "T-utf16-clean-transcode-receipt" "$BL198_WHY — UNPROVEN here (skip, NOT a pass)"
+else
+  { printf '\xff\xfe'; printf '%s\n' "$SAFE_TS" | iconv -f UTF-8 -t UTF-16LE; } > "$BL198FIX/le-clean.bin"
+  CLN_V="$(_bl198_run "$EMITTED" "$TOPTMP/bl198-clean" widget.ts "$BL198FIX/le-clean.bin")"
+  if [ "$CLN_V" = "COMMITTED" ] && grep -qF '[OK] semgrep: SAST ran on 1 staged file(s)' "$TOPTMP/bl198-clean" \
+     && grep -qE 'transcoded' "$TOPTMP/bl198-clean"; then
+    pass "T-utf16-clean-transcode-receipt: a CLEAN UTF-16 file earns the receipt AND the receipt says it was transcoded — the conversion is attested, not silent"
+  else
+    fail_ "T-utf16-clean-transcode-receipt" "verdict=$CLN_V — a clean UTF-16 commit must earn a receipt that NAMES the transcode: $(sast_evidence "$TOPTMP/bl198-clean")"
+  fi
+fi
+
+# ── T-utf8-bom-passthrough + T-latin1-passthrough (must NOT be touched) ───────────
+# UTF-8+BOM is legal and common from Windows editors; Latin-1 is NUL-free and
+# invalid UTF-8 and semgrep handles it (measured in the plan's review) — the
+# classifier must pass BOTH through untouched with the receipt intact. Latin-1 is
+# also why "NUL-free AND valid UTF-8" is the WRONG tightening.
+echo "=== T-utf8-bom-and-latin1-passthrough ==="
+if [ "$HAVE_SEMGREP" -eq 0 ]; then
+  skip_ "T-utf8-bom-and-latin1-passthrough" "semgrep ABSENT — UNPROVEN here (skip, NOT a pass)"
+else
+  { printf '\xef\xbb\xbf'; printf '%s\n' "$SAFE_TS"; } > "$BL198FIX/u8bom.bin"
+  printf 'const cafe = "caf\xe9";\nexport const n = 1;\n' > "$BL198FIX/latin1.bin"
+  if [ "$(_bl198_nuls "$BL198FIX/u8bom.bin")" -ne 0 ] || [ "$(_bl198_nuls "$BL198FIX/latin1.bin")" -ne 0 ]; then
+    fail_ "T-utf8-bom-and-latin1-passthrough" "passthrough fixtures unexpectedly carry NULs — wrong shape"
+  else
+    U8_V="$(_bl198_run "$EMITTED" "$TOPTMP/bl198-u8bom" widget.ts "$BL198FIX/u8bom.bin")"
+    L1_V="$(_bl198_run "$EMITTED" "$TOPTMP/bl198-latin1" widget.ts "$BL198FIX/latin1.bin")"
+    if [ "$U8_V" = "COMMITTED" ] && grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/bl198-u8bom" \
+       && ! grep -qE 'transcoded' "$TOPTMP/bl198-u8bom" \
+       && [ "$L1_V" = "COMMITTED" ] && grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/bl198-latin1" \
+       && ! grep -qE 'transcoded' "$TOPTMP/bl198-latin1"; then
+      pass "T-utf8-bom-and-latin1-passthrough: UTF-8+BOM and Latin-1 sources pass through untouched and still earn the receipt — no transcode, no cry-wolf"
+    else
+      fail_ "T-utf8-bom-and-latin1-passthrough" "u8bom=$U8_V latin1=$L1_V — NUL-free files must be untouched with receipts intact: $(sast_evidence "$TOPTMP/bl198-latin1")"
+    fi
+  fi
+fi
+
+# ── T-binary-passthrough-receipt (WP4's binary-commit case) ───────────────────────
+# A real binary (PNG magic + NULs, non-source extension) staged beside a clean .ts:
+# no transcode attempt, no block, and the commit LANDS exactly as it does today.
+echo "=== T-binary-passthrough-receipt ==="
+if [ "$HAVE_SEMGREP" -eq 0 ]; then
+  skip_ "T-binary-passthrough-receipt" "semgrep ABSENT — UNPROVEN here (skip, NOT a pass)"
+else
+  _bl198_bin_commit() {  # <hookfile> <log> -> COMMITTED|REFUSED|SETUPFAIL
+    local d; d="$(mktemp -d)"
+    mk_repo "$d" "$1" >/dev/null 2>&1 || { rm -rf "$d"; echo SETUPFAIL; return; }
+    printf '\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde' > "$d/logo.png"
+    printf '%s\n' "$SAFE_TS" > "$d/app.ts"
+    ( cd "$d" && git add -- logo.png app.ts ) >/dev/null 2>&1
+    if ( cd "$d" && git commit -m "feat: add renderer and logo" ) >"$2" 2>&1; then echo COMMITTED; else echo REFUSED; fi
+    rm -rf "$d"
+  }
+  BIN_V="$(_bl198_bin_commit "$EMITTED" "$TOPTMP/bl198-bin")"
+  if [ "$BIN_V" = "COMMITTED" ] && ! grep -qE 'transcoded' "$TOPTMP/bl198-bin" \
+     && ! grep -qF '[BLOCKED] Semgrep' "$TOPTMP/bl198-bin"; then
+    pass "T-binary-passthrough-receipt: a PNG (NULs, no BOM, no parity signal, non-source extension) rides along untouched — no transcode attempt, no block, commit lands"
+  else
+    fail_ "T-binary-passthrough-receipt" "verdict=$BIN_V — a binary sibling must neither transcode nor block: $(sast_evidence "$TOPTMP/bl198-bin")"
+  fi
+fi
+
+# ── T-pure-cjk-residue-passthrough (the NAMED residue, pinned as documentation) ───
+# A single-line zero-ASCII pure-CJK UTF-16 file has NO NUL anywhere (every code
+# unit is two non-zero bytes), so WP0.1 passes it through and semgrep scans it
+# undecoded — receipt granted. This is the plan's DOCUMENTED residue (review
+# R3-2), bounded to zero-ASCII single-line files, and deliberately NOT closed:
+# the only tightening that would catch it also breaks Latin-1 passthrough. The
+# case pins the boundary so a future "fix" that silently widens or narrows it
+# shows up here.
+echo "=== T-pure-cjk-residue-passthrough ==="
+BL198_WHY="$(_bl198_skip_reason)"
+if [ -n "$BL198_WHY" ]; then
+  skip_ "T-pure-cjk-residue-passthrough" "$BL198_WHY — UNPROVEN here (skip, NOT a pass)"
+else
+  printf '%s' "中文注释中文注释中文注释中文注释" | iconv -f UTF-8 -t UTF-16LE > "$BL198FIX/purecjk.bin"
+  if [ "$(_bl198_nuls "$BL198FIX/purecjk.bin")" -ne 0 ]; then
+    fail_ "T-pure-cjk-residue-passthrough" "fixture carries a NUL — it is not the zero-ASCII shape the residue names"
+  else
+    CJ2_V="$(_bl198_run "$EMITTED" "$TOPTMP/bl198-purecjk" widget.ts "$BL198FIX/purecjk.bin")"
+    if [ "$CJ2_V" = "COMMITTED" ] && grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/bl198-purecjk" \
+       && ! grep -qE 'transcoded' "$TOPTMP/bl198-purecjk"; then
+      pass "T-pure-cjk-residue-passthrough: the zero-ASCII single-line UTF-16 residue passes through with a receipt — NAMED and BOUNDED in the plan, pinned here so the boundary cannot move silently"
+    else
+      fail_ "T-pure-cjk-residue-passthrough" "verdict=$CJ2_V — the documented residue boundary moved (this case exists to make that loud): $(sast_evidence "$TOPTMP/bl198-purecjk")"
+    fi
+  fi
+fi
+
+# ── T-u32bom-over-u16-body-notrun (review R-BL198-1 — the stride-shift liar) ──────
+# A UTF-32LE BOM (FF FE 00 00) prefixed to a UTF-16LE body: the 4-byte shift puts a
+# zero on every position ≡3 (mod 4), so the naive stride-4 derivation AGREES with
+# the lie (z[3]==n/4 exactly), macOS libiconv then accepts the out-of-range code
+# points a real UTF-32 read of UTF-16 bytes produces, and the output is NUL-free —
+# all three vouching surfaces defeated, [OK] receipt over a live sink (reproduced
+# end-to-end in review). The U+10FFFF range bound closes it: in genuine UTF-32LE
+# byte@2 of every group is <= 0x10 (and byte@1 for BE) — exact for BMP AND astral —
+# while the shifted UTF-16 body carries ordinary ASCII there. Expect: loud named
+# NOTRUN, no receipt, no block, commit lands.
+echo "=== T-u32bom-over-u16-body-notrun ==="
+BL198_WHY="$(_bl198_skip_reason)"
+if [ -n "$BL198_WHY" ]; then
+  skip_ "T-u32bom-over-u16-body-notrun" "$BL198_WHY — UNPROVEN here (skip, NOT a pass)"
+else
+  { printf '\xff\xfe\x00\x00'; printf '%s\n' "$REN_VULN" | iconv -f UTF-8 -t UTF-16LE; } > "$BL198FIX/u32lie.bin"
+  if [ "$(_bl198_head4 "$BL198FIX/u32lie.bin")" != "fffe0000" ]; then
+    fail_ "T-u32bom-over-u16-body-notrun" "fixture head is not the UTF-32LE BOM — the case proves nothing"
+  else
+    U32L_V="$(_bl198_run "$EMITTED" "$TOPTMP/bl198-u32lie" widget.ts "$BL198FIX/u32lie.bin")"
+    if [ "$U32L_V" = "COMMITTED" ] && grep -qF 'SAST NOT ENFORCED' "$TOPTMP/bl198-u32lie" \
+       && grep -qF 'widget.ts' "$TOPTMP/bl198-u32lie" \
+       && ! grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/bl198-u32lie" \
+       && ! grep -qF '[BLOCKED] Semgrep' "$TOPTMP/bl198-u32lie"; then
+      pass "T-u32bom-over-u16-body-notrun: a stride-4 BOM over a stride-2 body is caught by the U+10FFFF range bound — loud named NOTRUN, never a receipt over garbage (R-BL198-1)"
+    else
+      fail_ "T-u32bom-over-u16-body-notrun" "verdict=$U32L_V — the stride-shift liar must be a loud named NOTRUN (a receipt here is the BL-192 false attestation reborn through the fix itself): $(sast_evidence "$TOPTMP/bl198-u32lie")"
+    fi
+  fi
+fi
+
+# ── T-u16-wrongparity-residue (review R-BL198-2 — the THIRD residue, pinned) ──────
+# One code unit whose LOW byte is 0x00 — U+3000 ideographic space, U+0100 Ā, any
+# astral char with a zero surrogate byte (U+1F600) — puts a single zero on the
+# wrong parity and collapses the all-zeros-on-one-parity signal: the file goes
+# LOUD named NOTRUN, forever. This is deliberate and pinned AS the boundary:
+# relaxing to a dominance ratio would let a CRAFTED no-BOM file steer the
+# derivation to the wrong endianness, whose transcode is NUL-free valid-UTF-8
+# garbage — a receipt over an unscanned sink, the strictly worse failure. Exact
+# stays; the cost is this loud residue (named in the plan and the fence comment).
+echo "=== T-u16-wrongparity-residue ==="
+BL198_WHY="$(_bl198_skip_reason)"
+if [ -n "$BL198_WHY" ]; then
+  skip_ "T-u16-wrongparity-residue" "$BL198_WHY — UNPROVEN here (skip, NOT a pass)"
+else
+  printf 'const pad = "\343\200\200";\nexport const n = 1;\n' | iconv -f UTF-8 -t UTF-16LE > "$BL198FIX/wrongparity.bin"
+  WP_EVEN_ZEROS=$(od -An -v -tx1 "$BL198FIX/wrongparity.bin" | awk '{ for (i = 1; i <= NF; i++) { if ($i == "00" && n % 2 == 0) e++; n++ } } END { print e + 0 }')
+  if [ "${WP_EVEN_ZEROS:-0}" -eq 0 ]; then
+    fail_ "T-u16-wrongparity-residue" "fixture has no wrong-parity zero (U+3000 low byte) — it is not the residue shape"
+  else
+    WPR_V="$(_bl198_run "$EMITTED" "$TOPTMP/bl198-wrongparity" widget.ts "$BL198FIX/wrongparity.bin")"
+    if [ "$WPR_V" = "COMMITTED" ] && grep -qF 'SAST NOT ENFORCED' "$TOPTMP/bl198-wrongparity" \
+       && grep -qF 'widget.ts' "$TOPTMP/bl198-wrongparity" \
+       && ! grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/bl198-wrongparity"; then
+      pass "T-u16-wrongparity-residue: a clean UTF-16LE file with one U+3000 is a LOUD named NOTRUN — the exactness residue is real, bounded, and pinned (R-BL198-2; dominance was rejected because it reopens crafted mis-derivation)"
+    else
+      fail_ "T-u16-wrongparity-residue" "verdict=$WPR_V — the wrong-parity residue boundary moved (this case exists to make that loud): $(sast_evidence "$TOPTMP/bl198-wrongparity")"
+    fi
+  fi
+fi
+
+# ── T-utf8-floor-no-sigpipe (review R-BL198-6 — the BL-183 class, same file) ──────
+# The transcode-output byte floor is a `od | awk` pipeline under the hook's
+# `set -euo pipefail`. An `exit` in awk's MAIN rule SIGPIPEs od on input past the
+# pipe buffer: rc 141, and the `|| soif_tc_badbyte=""` guard ERASES the detection
+# awk just printed — the floor fails OPEN as a pure function of file size
+# (threshold ~1-8 KB; measured in review with awk printing 'bad' every time).
+# No live path reaches the floor today (R-BL198-1's bound caps code points at
+# U+10FFFF), which is exactly why it must work: it is the surface that catches a
+# future weakening of surface 1. Both spellings run here against a >100 KB
+# bad-byte-FIRST fixture (the T-predicate-no-sigpipe pattern from bl118/bl131),
+# plus a spelling pin on the emitted hook so the shipped floor cannot quietly
+# revert to the early-exit form. LOCKSTEP: the two awk programs below must match
+# the emitted hook's floor line (# BL-198 comment block, soif_tc_badbyte).
+echo "=== T-utf8-floor-no-sigpipe ==="
+FLOOR_FIX="$TOPTMP/floor-fixture.bin"
+{ printf '\xf5'; awk 'BEGIN { for (i = 0; i < 8000; i++) print "abcdefghijklm" }'; } > "$FLOOR_FIX"
+FLOOR_SZ=$(wc -c < "$FLOOR_FIX" | tr -d '[:space:]')
+if [ "${FLOOR_SZ:-0}" -lt 100000 ]; then
+  fail_ "T-utf8-floor-no-sigpipe" "fixture too small to force the race ($FLOOR_SZ < 100000) — the case is VACUOUS"
+elif [ "$(grep -c 'soif_tc_badbyte=' "$EMITTED")" -ne 1 ]; then
+  fail_ "T-utf8-floor-no-sigpipe" "the floor assignment line is not present exactly once in the emitted hook (assignment + its || reset share the line) — retarget this pin in lockstep"
+else
+  _floor_old() {  # the early-exit spelling (MUST miss on the big fixture under pipefail)
+    ( set -euo pipefail
+      v=$(od -An -v -tx1 "$FLOOR_FIX" 2>/dev/null | awk '{ for (i = 1; i <= NF; i++) if ($i >= "f5") { print "bad"; exit } }') || v=""
+      [ -n "$v" ] && echo DETECTED || echo MISSED ) 2>/dev/null
+  }
+  _floor_new() {  # the full-input-consumer spelling (MUST detect at every size)
+    ( set -euo pipefail
+      v=$(od -An -v -tx1 "$FLOOR_FIX" 2>/dev/null | awk '{ for (i = 1; i <= NF; i++) if ($i >= "f5") b = 1 } END { if (b) print "bad" }') || v=""
+      [ -n "$v" ] && echo DETECTED || echo MISSED ) 2>/dev/null
+  }
+  FLOOR_OLD_V="$(_floor_old)"
+  FLOOR_NEW_V="$(_floor_new)"
+  if [ "$FLOOR_OLD_V" != "MISSED" ]; then
+    fail_ "T-utf8-floor-no-sigpipe" "the early-exit spelling did NOT miss on a $FLOOR_SZ-byte bad-first fixture (got $FLOOR_OLD_V) — the fixture no longer forces the race, so the case proves nothing"
+  elif [ "$FLOOR_NEW_V" != "DETECTED" ]; then
+    fail_ "T-utf8-floor-no-sigpipe" "the END-form spelling MISSED the bad byte — the fixed floor does not detect"
+  elif grep -qF 'if ($i >= "f5") { print "bad"; exit }' "$EMITTED"; then
+    fail_ "T-utf8-floor-no-sigpipe" "the emitted hook still carries the early-exit floor spelling — the SIGPIPE class is live in the shipped bytes (R-BL198-6)"
+  elif ! grep -qF 'if ($i >= "f5") b = 1 } END { if (b) print "bad" }' "$EMITTED"; then
+    fail_ "T-utf8-floor-no-sigpipe" "the emitted hook does not carry the END-form floor spelling — the lockstep pin lost its target; retarget in lockstep"
+  else
+    pass "T-utf8-floor-no-sigpipe: the early-exit floor misses a $FLOOR_SZ-byte bad-first output under pipefail while the shipped END-form detects it — the defense-in-depth surface actually defends (R-BL198-6, the BL-183 class)"
+  fi
+fi
+
+# ── T-mutation-parse-coverage (restored from e87dbd3, RE-AIMED at the fence) ──────
+# Excise the whole # BL-198-TRANSCODE fence from the emitted hook -> the BL-192
+# false attestation RETURNS (UTF-16LE+BOM sink lands with the [OK] receipt) — RED.
+# The unmutated hook REFUSES the same fixture — GREEN. Both directions run here so
+# the case is an honest standalone verdict.
+echo "=== T-mutation-parse-coverage ==="
+BL198_WHY="$(_bl198_skip_reason)"
+if [ -n "$BL198_WHY" ]; then
+  skip_ "T-mutation-parse-coverage" "$BL198_WHY — mutation UNPROVEN here (skip, NOT a pass)"
+else
+  MTC="$TOPTMP/mut-transcode"
+  MTC_B=$(grep -c '# BL-198-TRANSCODE-BEGIN' "$EMITTED") || MTC_B=0
+  MTC_E=$(grep -c '# BL-198-TRANSCODE-END' "$EMITTED") || MTC_E=0
+  sed '/# BL-198-TRANSCODE-BEGIN/,/# BL-198-TRANSCODE-END/d' "$EMITTED" > "$MTC"
+  # Count only the fence MARKERS left — the init comment outside the fence
+  # legitimately names BL-198-TRANSCODE and must survive the excision.
+  MTC_LEFT=$(grep -cE 'BL-198-TRANSCODE-(BEGIN|END)' "$MTC") || MTC_LEFT=0
+  if [ "$MTC_B" -ne 1 ] || [ "$MTC_E" -ne 1 ] || [ "$MTC_LEFT" -ne 0 ]; then
+    fail_ "T-mutation-parse-coverage" "MIS-TARGETED — fence not present exactly once (begin=$MTC_B end=$MTC_E left=$MTC_LEFT); retarget this mutation in lockstep"
+  elif ! bash -n "$MTC" 2>/dev/null; then
+    fail_ "T-mutation-parse-coverage" "mutated hook has a syntax error — a broken mutant proves nothing"
+  else
+    chmod +x "$MTC"
+    MTC_RED="$(_bl198_run "$MTC" "$TOPTMP/bl198-mut-red" widget.ts "$BL198FIX/le-bom.bin")"
+    MTC_GRN="$(_bl198_run "$EMITTED" "$TOPTMP/bl198-mut-grn" widget.ts "$BL198FIX/le-bom.bin")"
+    if [ "$MTC_RED" = "COMMITTED" ] && grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/bl198-mut-red" \
+       && [ "$MTC_GRN" = "REFUSED" ] && grep -qF '[BLOCKED] Semgrep' "$TOPTMP/bl198-mut-grn"; then
+      pass "T-mutation-parse-coverage: excising the # BL-198-TRANSCODE fence brings the BL-192 false attestation back (RED: receipt over an unseen sink) and the shipped hook blocks it (GREEN) — the fence is load-bearing"
+    else
+      fail_ "T-mutation-parse-coverage" "expected RED=COMMITTED+receipt / GREEN=REFUSED+blocked; got RED=$MTC_RED GREEN=$MTC_GRN: $(sast_evidence "$TOPTMP/bl198-mut-red")"
+    fi
+  fi
+fi
+
+# ── T-mutation-parse-threshold (restored from e87dbd3, RE-AIMED at BOM order) ─────
+# Swap the BOM match so the UTF-16LE prefix is tested BEFORE the UTF-32LE BOM —
+# the one-character-narrowing analogue for this classifier. The UTF-32LE+BOM sink
+# then derives stride-2 (a UTF-32 file carries zeros on BOTH 2-byte parities), the
+# claim/derivation agree-check fails, and the file degrades to a LOUD cry-wolf
+# NOTRUN instead of a caught sink (RED). The shipped order transcodes and BLOCKS
+# (GREEN). Degrading SAFELY is exactly why this is a mutation case and not a hole:
+# the failure direction is a false WARN, never a false receipt.
+echo "=== T-mutation-parse-threshold ==="
+BL198_WHY="$(_bl198_skip_reason)"
+if [ -n "$BL198_WHY" ]; then
+  skip_ "T-mutation-parse-threshold" "$BL198_WHY — mutation UNPROVEN here (skip, NOT a pass)"
+else
+  MBO="$TOPTMP/mut-bomorder"
+  MBO_N=$(grep -c 'fffe0000\*) soif_tc_bom="UTF-32LE" ;;' "$EMITTED") || MBO_N=0
+  awk '
+    /fffe0000\*\) soif_tc_bom="UTF-32LE" ;;/ { print "          fffe*)     soif_tc_bom=\"UTF-16LE\" ;;"; print; next }
+    /fffe\*\)     soif_tc_bom="UTF-16LE" ;;/ { next }
+    { print }' "$EMITTED" > "$MBO"
+  if [ "$MBO_N" -ne 1 ] || ! grep -qF 'fffe*)' "$MBO" || cmp -s "$EMITTED" "$MBO"; then
+    fail_ "T-mutation-parse-threshold" "MIS-TARGETED — could not reorder the BOM arms (n=$MBO_N, identical=$(cmp -s "$EMITTED" "$MBO" && echo yes || echo no)); retarget this mutation in lockstep"
+  elif ! bash -n "$MBO" 2>/dev/null; then
+    fail_ "T-mutation-parse-threshold" "mutated hook has a syntax error — a broken mutant proves nothing"
+  else
+    chmod +x "$MBO"
+    MBO_RED="$(_bl198_run "$MBO" "$TOPTMP/bl198-bom-red" widget.ts "$BL198FIX/u32le-bom.bin")"
+    MBO_GRN="$(_bl198_run "$EMITTED" "$TOPTMP/bl198-bom-grn" widget.ts "$BL198FIX/u32le-bom.bin")"
+    if [ "$MBO_RED" = "COMMITTED" ] && grep -qF 'SAST NOT ENFORCED' "$TOPTMP/bl198-bom-red" \
+       && ! grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/bl198-bom-red" \
+       && [ "$MBO_GRN" = "REFUSED" ] && grep -qF '[BLOCKED] Semgrep' "$TOPTMP/bl198-bom-grn"; then
+      pass "T-mutation-parse-threshold: shortest-first BOM order degrades the UTF-32LE sink to a cry-wolf NOTRUN (RED, safe direction) and longest-first catches it (GREEN) — the order is load-bearing (was: the -ge 100 exact-threshold proof)"
+    else
+      fail_ "T-mutation-parse-threshold" "expected RED=COMMITTED+NOTRUN-no-receipt / GREEN=REFUSED+blocked; got RED=$MBO_RED GREEN=$MBO_GRN: $(sast_evidence "$TOPTMP/bl198-bom-red")"
+    fi
+  fi
+fi
+
+# ── T-ext-set-pinned (the WP0.4 drift tripwire — its failure mode is fail-OPEN) ───
+# The NULs+no-BOM+no-signal branch routes LOUD only for extensions in the
+# # BL-198-EXT-SET literal; an extension missing from it passes through instead —
+# fail-open by design (real binaries must pass), so drift is silent. Two pins:
+# (1) STATIC — every extension in the BL-125 test arm's source list (the house
+# definition of "source") must appear in the hook's BL-198-EXT-SET literal;
+# (2) BEHAVIORAL — a both-parities NUL file (no BOM, no derivable signal) with a
+# source extension lands as a LOUD named NOTRUN, never a receipt.
+echo "=== T-ext-set-pinned ==="
+EXT_LINE=$(grep -A2 '# BL-198-EXT-SET' "$EMITTED" | grep '\*\.' | head -1)
+TESTARM_EXTS=$(grep -oE '\\.\(([a-z|]+)\)\$' "$EMITTED" | head -1 | sed 's/^\\\.(//; s/)\$//')
+if [ -z "$EXT_LINE" ] || [ -z "$TESTARM_EXTS" ]; then
+  fail_ "T-ext-set-pinned" "could not extract the BL-198-EXT-SET case line or the BL-125 test-arm extension list from the emitted hook — retarget this pin in lockstep"
+else
+  EXT_MISSING=""
+  for EXT in $(printf '%s' "$TESTARM_EXTS" | tr '|' ' '); do
+    case "$EXT_LINE" in *"*.$EXT"*) : ;; *) EXT_MISSING="$EXT_MISSING $EXT" ;; esac
+  done
+  if [ -n "$EXT_MISSING" ]; then
+    fail_ "T-ext-set-pinned" "BL-198-EXT-SET is missing source extensions the BL-125 arm treats as source:$EXT_MISSING — the no-signal branch fails OPEN for them"
+  else
+    BL198_WHY="$(_bl198_skip_reason)"
+    if [ -n "$BL198_WHY" ]; then
+      skip_ "T-ext-set-pinned" "static pin PASSED; behavioral half unprovable: $BL198_WHY"
+    else
+      # Both-parities NULs: 'A\0\0B' repeated — zeros at even AND odd offsets.
+      awk 'BEGIN { for (i = 0; i < 64; i++) printf "A%c%cB", 0, 0 }' > "$BL198FIX/nosignal.bin"
+      NS_NULS="$(_bl198_nuls "$BL198FIX/nosignal.bin")"
+      NS_HEAD="$(_bl198_head4 "$BL198FIX/nosignal.bin" | cut -c1-4)"
+      if [ "$NS_NULS" -eq 0 ] || [ "$NS_HEAD" = "fffe" ] || [ "$NS_HEAD" = "feff" ]; then
+        fail_ "T-ext-set-pinned" "no-signal fixture malformed (nuls=$NS_NULS head=$NS_HEAD)"
+      else
+        NS_V="$(_bl198_run "$EMITTED" "$TOPTMP/bl198-nosignal" widget.ts "$BL198FIX/nosignal.bin")"
+        if [ "$NS_V" = "COMMITTED" ] && grep -qF 'SAST NOT ENFORCED' "$TOPTMP/bl198-nosignal" \
+           && grep -qF 'widget.ts' "$TOPTMP/bl198-nosignal" \
+           && ! grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/bl198-nosignal"; then
+          pass "T-ext-set-pinned: the test-arm source set is a subset of BL-198-EXT-SET (static), and an undecodable no-signal .ts routes LOUD and named, never receipted (behavioral) — binary-in-source-clothing is CAUGHT"
+        else
+          fail_ "T-ext-set-pinned" "verdict=$NS_V — a NUL-bearing no-signal .ts must be a loud named NOTRUN: $(sast_evidence "$TOPTMP/bl198-nosignal")"
+        fi
+      fi
+    fi
+  fi
 fi
 
 echo ""

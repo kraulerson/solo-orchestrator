@@ -307,6 +307,24 @@ soif_sast_unread_report() {
     echo "    - $soif_u"
   done
 }
+# BL-198-UNTX-REPORT — the same # BL-182-NAME-THE-ENTRY contract for the OTHER
+# way an entry escapes the scan: its bytes were read fine, but their text
+# encoding could not be VOUCHED (BOM disagrees with the whole-body derivation,
+# no derivable signal on a source extension, or iconv could not convert them),
+# so handing them to semgrep would produce a clean-looking scan of bytes the
+# scanner cannot decode — the BL-192 false attestation. This is a sibling
+# LIST-PRINTER, not new reporting vocabulary: the WARN framing still comes from
+# soif_sast_not_enforced / soif_sast_partial_coverage above, exactly like the
+# unread list. It is a separate printer for the same reason partial_coverage is
+# separate from not_enforced — saying "could not be read" about a file that WAS
+# read is its own small dishonesty.
+soif_sast_untx_report() {
+  echo "  Staged entries NOT scanned (text encoding could not be vouched or converted — BL-198):"
+  for soif_u in ${soif_idx_untx[@]+"${soif_idx_untx[@]}"}; do
+    echo "    - $soif_u"
+  done
+  echo "  Save these files as UTF-8 (or add a correct byte-order mark) to restore SAST coverage."
+}
 # BL-112-SCAN-COVERAGE — THE RECEIPT IS AN ATTESTATION, SO IT MUST BE EARNED END-TO-END.
 # The two guards above cover the entries the materialization loop could not READ. This
 # one covers the step AFTER that: semgrep is handed N materialized targets and may
@@ -786,6 +804,11 @@ if command -v semgrep &>/dev/null; then
     # (that is the whole reason findings get the # BL-178-PER-INDEX-DIR prefix stripped).
     soif_idx_rel=()
     soif_idx_unread=()
+    # BL-198: initialized OUTSIDE the # BL-198-TRANSCODE fence, deliberately —
+    # the reporting arms below read both, and excising the classifier (the
+    # fence is a mutation target) must leave them defined-and-empty, not unset.
+    soif_idx_untx=()
+    soif_tc_count=0
     soif_idx_n=0
     for soif_p in "${soif_staged[@]}"; do
       # BL-178-PER-INDEX-DIR — one subdir PER STAGED ENTRY ($tree/<n>/<relpath>),
@@ -874,6 +897,157 @@ if command -v semgrep &>/dev/null; then
       soif_idx_want=$(git cat-file -s ":0:$soif_p" 2>/dev/null) || soif_idx_want=""
       soif_idx_got=$(wc -c < "$soif_idx_dest" 2>/dev/null | tr -d '[:space:]') || soif_idx_got=""
       if [ -z "$soif_idx_want" ] || [ "$soif_idx_got" != "$soif_idx_want" ]; then soif_idx_unread+=("$soif_p"); continue; fi
+      # BL-198-TRANSCODE-BEGIN — decode coverage (BL-192's gap): semgrep ACCEPTS a
+      # UTF-16/UTF-32 staged file, cannot decode it, scans the raw bytes "clean",
+      # and the four-precondition receipt prints over an unseen sink. The receipt
+      # attests bytes-scanned, so the fix operates on bytes the hook already holds:
+      # classify the materialized copy and TRANSCODE it to UTF-8 in place. Runs
+      # AFTER F2, deliberately — UTF-16→UTF-8 roughly halves the byte count, so a
+      # transcode before the size check would fail every converted file and turn
+      # the fix into a permanent cry-wolf. Writes land on the IDENTICAL tree path:
+      # a sibling name is silently unscanned (semgrep picks language by extension)
+      # and breaks # BL-178-PER-INDEX-DIR's operator path mapping — the two
+      # constraints intersect at exactly this shape. Deviation from the BL-198
+      # plan text, recorded: no `git diff --cached --numstat` first pass. numstat's
+      # binary heuristic reads only the FIRST 8000 bytes, so a UTF-16 file whose
+      # first NUL sits later would be exempted as "text" and slip the classifier;
+      # the NUL count below reads the whole file (one streaming `tr` per staged
+      # blob, gated behind F2) and has no such window. Strictly stronger, same
+      # decision tree.
+      #   The classifier, exhaustive (WP0): NUL-free → passthrough (UTF-8, Latin-1,
+      #   Shift-JIS and friends — semgrep handles them; "NUL-free AND valid UTF-8"
+      #   is the WRONG tightening, it breaks Latin-1). NULs+BOM → the BOM is a
+      #   CLAIM, matched LONGEST-FIRST (`FF FE` is a prefix of the UTF-32LE BOM),
+      #   and it must AGREE with the whole-body derivation — a lying BOM otherwise
+      #   transcodes to NUL-free valid-UTF-8 garbage that scans clean and mints
+      #   the receipt over a live sink. NULs+no-BOM → whole-file zero-parity
+      #   derivation (never a head window: a CJK comment block has no NULs in its
+      #   head), stride-aware (2-byte vs 4-byte per BOM family; UTF-32 is
+      #   attempted via BOM only). The rule is ALL-zeros-on-one-parity — exact,
+      #   not a ratio. NULs+no-BOM+no-signal → a source extension routes LOUD
+      #   (that shape is binary content in source clothing — BL-192's own
+      #   `vendor.js` residue, newly CAUGHT); anything else is a real binary and
+      #   passes through untouched, exactly as today. TWO named residues,
+      #   deliberately NOT closed: (a) a zero-ASCII single-line UTF-16 file has
+      #   no NUL at all and passes through undecoded (bounded — any newline puts
+      #   a NUL in the file); the only tightening that closes it breaks Latin-1.
+      #   Pinned by T-pure-cjk-residue-passthrough. (b) one code unit whose LOW
+      #   byte is 0x00 — U+0100 Ā, U+3000 ideographic space, an astral char with
+      #   a zero surrogate byte — puts a zero on the wrong parity and collapses
+      #   the signal: the file goes LOUD named NOTRUN, every commit, until saved
+      #   as UTF-8 (review R-BL198-2). Exactness stays anyway: a dominance RATIO
+      #   would let a crafted no-BOM file steer the derivation to the WRONG
+      #   endianness, whose transcode is NUL-free valid-UTF-8 garbage and a
+      #   receipt over an unscanned sink — the strictly worse failure. Pinned by
+      #   T-u16-wrongparity-residue.
+      # Size is SELF-measured rather than borrowed from F2's soif_idx_want, so
+      # this fence stays inert (never unbound) under the F2-excision mutant —
+      # the two guards are proved independently and must fail independently.
+      soif_tc_size=$(wc -c < "$soif_idx_dest" 2>/dev/null | tr -d '[:space:]') || soif_tc_size=""
+      soif_tc_nonul=$(LC_ALL=C tr -d '\000' < "$soif_idx_dest" 2>/dev/null | wc -c | tr -d '[:space:]') || soif_tc_nonul=""
+      case "$soif_tc_size" in ''|*[!0-9]*) soif_tc_size="" ;; esac
+      case "$soif_tc_nonul" in ''|*[!0-9]*) soif_tc_nonul="$soif_tc_size" ;; esac
+      if [ -n "$soif_tc_size" ] && [ "$soif_tc_nonul" != "$soif_tc_size" ]; then
+        # NULs present. Read the BOM claim (longest-first), then derive.
+        soif_tc_head=$(od -An -N4 -tx1 "$soif_idx_dest" 2>/dev/null | tr -d ' \t\n') || soif_tc_head=""
+        soif_tc_bom=""
+        case "$soif_tc_head" in
+          fffe0000*) soif_tc_bom="UTF-32LE" ;;
+          0000feff*) soif_tc_bom="UTF-32BE" ;;
+          fffe*)     soif_tc_bom="UTF-16LE" ;;
+          feff*)     soif_tc_bom="UTF-16BE" ;;
+        esac
+        soif_tc_stride=2
+        case "$soif_tc_bom" in UTF-32*) soif_tc_stride=4 ;; esac
+        # Whole-body derivation. Zeros come only from code units with a 0x00 byte,
+        # and in real text those bytes sit on ONE parity (LE: odd; BE: even) —
+        # UTF-32's invariant is the always-zero high byte (LE: position 3;
+        # BE: position 0). Anything else — zeros on both parities, odd length —
+        # is AMBIGUOUS and derives nothing, which fails CLOSED below.
+        # The stride-4 arms carry the U+10FFFF RANGE BOUND (review R-BL198-1): a
+        # UTF-32LE BOM prefixed to a UTF-16LE body shifts a zero onto every
+        # position ≡3 (mod 4), so the zero-position test alone AGREES with the
+        # lie — and libiconv on macOS happily converts the out-of-range code
+        # points a UTF-32 read of UTF-16 bytes produces, minting NUL-free
+        # "valid" output. In GENUINE UTF-32, byte@2 of every LE group (byte@1
+        # for BE) is <= 0x10 — exact for BMP and astral alike — while a shifted
+        # UTF-16 body carries ordinary ASCII there. Lexical compare is sound:
+        # od emits fixed-width lowercase hex, whose string order equals numeric
+        # order. Pinned by T-u32bom-over-u16-body-notrun.
+        soif_tc_der=$(od -An -v -tx1 "$soif_idx_dest" 2>/dev/null | awk -v stride="$soif_tc_stride" '
+          { for (i = 1; i <= NF; i++) { p = n % stride; if ($i == "00") z[p]++; if (p == 1 && $i > m1) m1 = $i; if (p == 2 && $i > m2) m2 = $i; n++ } }
+          END {
+            if (n == 0 || n % stride != 0) exit 0
+            if (stride == 2) {
+              if (z[1] > 0 && z[0] == 0) print "UTF-16LE"
+              else if (z[0] > 0 && z[1] == 0) print "UTF-16BE"
+            } else {
+              if (z[3] == n / 4 && z[0] < n / 4 && m2 <= "10") print "UTF-32LE"
+              else if (z[0] == n / 4 && z[3] < n / 4 && m1 <= "10") print "UTF-32BE"
+            }
+          }' 2>/dev/null) || soif_tc_der=""
+        soif_tc_enc=""
+        soif_tc_bad=0
+        if [ -n "$soif_tc_bom" ]; then
+          if [ "$soif_tc_der" = "$soif_tc_bom" ]; then soif_tc_enc="$soif_tc_bom"; else soif_tc_bad=1; fi
+        elif [ -n "$soif_tc_der" ]; then
+          soif_tc_enc="$soif_tc_der"
+        else
+          # No BOM, no signal. A source extension here is unvouchable content the
+          # rulesets are supposed to see — route LOUD. This list is pinned against
+          # the test arm's source-extension list by T-mutation-ext-set-pinned
+          # (drift in this literal fails open, so the pin is the tripwire).
+          # BL-198-EXT-SET
+          case "$soif_p" in
+            *.ts|*.tsx|*.mts|*.cts|*.js|*.jsx|*.mjs|*.cjs|*.py|*.rb|*.go|*.rs|*.java|*.kt|*.kts|*.swift|*.cs|*.dart|*.c|*.h|*.cc|*.cpp|*.hpp|*.cxx|*.hh|*.hxx|*.m|*.mm|*.php|*.scala|*.vue|*.svelte|*.html|*.htm|*.sh)
+              soif_tc_bad=1 ;;
+          esac
+        fi
+        if [ "$soif_tc_bad" -eq 1 ]; then
+          soif_idx_untx+=("$soif_p")
+          continue
+        fi
+        if [ -n "$soif_tc_enc" ]; then
+          # WP1 — convert to a TEMP file and mv over the dest. NEVER redirect
+          # iconv into the file it reads: `iconv f > f` truncates f first, iconv
+          # converts an EMPTY file, returns 0, and the raw bytes are gone — a
+          # receipt over destroyed evidence. The temp lives INSIDE the tree
+          # (cleaned by the one rm -rf; invisible to the scan — semgrep receives
+          # only the explicit target list). Output is vouched before the mv:
+          # NUL-free AND valid UTF-8, else the transcode FAILED and the raw
+          # bytes stay intact. Brace-grouped redirect for the same reason as the
+          # cat-file above: the open failure must be swallowed, not printed raw.
+          soif_tc_tmp="$soif_idx_dest.soif-bl198-tmp"
+          soif_tc_ok=0
+          if { iconv -f "$soif_tc_enc" -t UTF-8 "$soif_idx_dest" > "$soif_tc_tmp"; } 2>/dev/null; then
+            soif_tc_ok=1
+            soif_tc_osize=$(wc -c < "$soif_tc_tmp" 2>/dev/null | tr -d '[:space:]') || soif_tc_osize=""
+            soif_tc_ononul=$(LC_ALL=C tr -d '\000' < "$soif_tc_tmp" 2>/dev/null | wc -c | tr -d '[:space:]') || soif_tc_ononul=""
+            if [ -z "$soif_tc_osize" ] || [ "$soif_tc_osize" != "$soif_tc_ononul" ]; then soif_tc_ok=0; fi
+            if ! iconv -f UTF-8 -t UTF-8 "$soif_tc_tmp" >/dev/null 2>&1; then soif_tc_ok=0; fi
+            # Byte-level UTF-8 floor (review R-BL198-3): macOS libiconv accepts
+            # non-RFC-3629 5-byte sequences, making the revalidation above inert
+            # there. 0xF5-0xFF never appear in valid UTF-8, so any such byte in
+            # the output is a failed transcode. Same lexical-hex trick as the
+            # derivation; the iconv check above stays as the stricter belt where
+            # the platform provides it. The awk is a FULL-INPUT consumer — flag
+            # in the rule, print in END — because an early `exit` SIGPIPEs od on
+            # >pipe-buffer output, pipefail promotes rc 141, and the || guard
+            # ERASES the detection (review R-BL198-6 — the BL-183 class, caught
+            # re-entering this very file; pinned by T-utf8-floor-no-sigpipe).
+            soif_tc_badbyte=$(od -An -v -tx1 "$soif_tc_tmp" 2>/dev/null | awk '{ for (i = 1; i <= NF; i++) if ($i >= "f5") b = 1 } END { if (b) print "bad" }') || soif_tc_badbyte=""
+            if [ -n "$soif_tc_badbyte" ]; then soif_tc_ok=0; fi
+          fi
+          if [ "$soif_tc_ok" -eq 1 ] && mv "$soif_tc_tmp" "$soif_idx_dest" 2>/dev/null; then
+            soif_tc_count=$((soif_tc_count + 1))
+          else
+            rm -f "$soif_tc_tmp" 2>/dev/null || :
+            soif_idx_untx+=("$soif_p")
+            continue
+          fi
+        fi
+      fi
+      # BL-198-TRANSCODE-END
       soif_idx_files+=("$soif_idx_dest")
       soif_idx_rel+=("$soif_p")
     done
@@ -887,6 +1061,13 @@ if command -v semgrep &>/dev/null; then
         # to guess which of their staged files went unscanned.
         soif_sast_not_enforced "could not materialize staged content for scanning — SAST skipped."
         soif_sast_unread_report
+        if [ "${#soif_idx_untx[@]}" -gt 0 ]; then soif_sast_untx_report; fi
+      elif [ "${#soif_idx_untx[@]}" -gt 0 ]; then
+        # BL-198: every scannable entry was read fine but none could be VOUCHED —
+        # e.g. a single-file commit whose one file wears a lying BOM. Same honest
+        # NOTRUN contract, encoding-specific wording, entries named.
+        soif_sast_not_enforced "staged content could not be made scannable (unvouchable text encoding) — SAST skipped."
+        soif_sast_untx_report
       else
         # BL-132-EMPTY-TARGETS — nothing scannable was materialized (e.g. a submodule
         # POINTER-BUMP commit stages only a gitlink). The scan did not happen, so the
@@ -1091,6 +1272,7 @@ if command -v semgrep &>/dev/null; then
         # read is strictly safer. The operator is still shown the coverage gap, because
         # a blocked commit is exactly when they are about to re-stage and retry.
         if [ "${#soif_idx_unread[@]}" -gt 0 ]; then soif_sast_unread_report; fi
+        if [ "${#soif_idx_untx[@]}" -gt 0 ]; then soif_sast_untx_report; fi
         # Same reasoning one layer out (# BL-112-SCAN-COVERAGE): a finding in what
         # semgrep DID accept still blocks, and the operator is still told that the scan
         # behind the block was incomplete — otherwise they fix the one reported finding
@@ -1108,8 +1290,9 @@ if command -v semgrep &>/dev/null; then
         # died cannot fix it, and a gate you cannot fix is a gate you route around.
         soif_sast_not_enforced "semgrep could not complete (exit $soif_sg_rc) — the tool itself failed."
         if [ "${#soif_idx_unread[@]}" -gt 0 ]; then soif_sast_unread_report; fi
+        if [ "${#soif_idx_untx[@]}" -gt 0 ]; then soif_sast_untx_report; fi
         sed 's/^/  /' "$soif_sg_err" >&2
-      elif [ "${#soif_idx_unread[@]}" -gt 0 ]; then
+      elif [ "${#soif_idx_unread[@]}" -gt 0 ] || [ "${#soif_idx_untx[@]}" -gt 0 ]; then
         # BL-182-NO-UNEARNED-RECEIPT — the scan RAN and came back clean, but it did not
         # see everything that is being committed. A clean SUBSET is not a clean COMMIT:
         # printing the [OK] receipt here would be precisely the BL-112 lie this whole
@@ -1122,8 +1305,13 @@ if command -v semgrep &>/dev/null; then
         # that implies otherwise is a small lie in a message whose whole job is not to
         # tell them. Report what WAS scanned and what could NOT be read; the list that
         # follows names the second group exactly.
-        soif_sast_partial_coverage "SAST coverage was PARTIAL: ${#soif_idx_files[@]} staged file(s) scanned clean, ${#soif_idx_unread[@]} could NOT be read (listed below)."
-        soif_sast_unread_report
+        # BL-198: both escape routes land here — entries the loop could not READ
+        # and entries whose encoding could not be VOUCHED. Both facts are reported
+        # (same both-facts rule as the coverage report below); the combined count
+        # keeps the headline honest when only one list is populated.
+        soif_sast_partial_coverage "SAST coverage was PARTIAL: ${#soif_idx_files[@]} staged file(s) scanned clean, $(( ${#soif_idx_unread[@]} + ${#soif_idx_untx[@]} )) not scanned (listed below)."
+        if [ "${#soif_idx_unread[@]}" -gt 0 ]; then soif_sast_unread_report; fi
+        if [ "${#soif_idx_untx[@]}" -gt 0 ]; then soif_sast_untx_report; fi
         # Both gaps can hold at once (an unreadable entry AND a target semgrep declined),
         # and they are different facts about different entries. Report both; suppressing
         # the second because the first already forfeited the receipt would leave the
@@ -1204,14 +1392,25 @@ if command -v semgrep &>/dev/null; then
         #      (`Scanning 1 file`, `Targets scanned: 1`, rc=0) and collected this receipt
         #      while the one rule that catches its line-2 innerHTML sink hit semgrep's
         #      5-second per-rule timeout (R-274Rv2-1).
-        # THE GAP THIS RECEIPT DOES NOT COVER, STATED HERE RATHER THAN LEFT TO INFERENCE:
-        # nothing above verifies that semgrep DECODED the bytes it accepted. A file it
-        # takes and cannot read satisfies every one of the four — an ordinary .ts saved as
-        # UTF-16 did exactly that (R-274Rv-1) — and this line still prints. A clause that
-        # read semgrep's `Parsed lines: ~N%` was built for that gap and WITHDRAWN because
-        # on semgrep >= 1.171.0 the number is ~100.0% for a file semgrep never decoded.
-        # The gap is BL-192. Read this receipt as "the four checks above did not fire",
-        # never as "this commit was scanned in full".
+        # THE DECODE GAP IS NOW COVERED — BY BYTES, NOT BY SEMGREP'S SELF-REPORT.
+        # A file semgrep accepts but cannot read used to satisfy all four checks (an
+        # ordinary .ts saved as UTF-16 did exactly that, R-274Rv-1 / BL-192; the
+        # `Parsed lines: ~N%` clause built for it was WITHDRAWN because >= 1.171.0
+        # reports ~100.0% for a file semgrep never decoded). # BL-198-TRANSCODE now
+        # vouches or converts the bytes BEFORE semgrep sees them, and anything it
+        # cannot vouch forfeits this receipt by name — so reaching this line also
+        # means every target was NUL-free-or-transcoded-and-vouched.
+        # THE GAPS THAT REMAIN, NAMED RATHER THAN LEFT TO INFERENCE (both deferred
+        # deliberately, neither closable by any byte-level test):
+        #   • BL-200 — the TOKEN-STREAM BREAK: a pure-ASCII source file with a syntax
+        #     break beside the sink passes every byte test here and semgrep misses the
+        #     sink deterministically. Until BL-200's detector lands, absence of a
+        #     finding is evidence only for files semgrep can actually parse.
+        #   • the zero-ASCII single-line UTF-16 residue (no NUL anywhere, so the
+        #     classifier passes it through undecoded) — bounded: any newline puts a
+        #     NUL in the file; pinned by T-pure-cjk-residue-passthrough.
+        # Read this receipt as "the checks above did not fire", never as "this commit
+        # was scanned in full".
         # The pattern across all four is the same and is the point: N counts the targets
         # this arm INTENDED to scan, and every stage between "staged entry" and "a rule
         # finished matching" needs its own proof that nothing fell out of the set. It is
@@ -1220,6 +1419,11 @@ if command -v semgrep &>/dev/null; then
         # one day; an earlier revision of this line predicted one and was right within a
         # single review round.
         echo "[OK] semgrep: SAST ran on ${#soif_idx_files[@]} staged file(s) — no ERROR-severity findings."
+        # BL-198: the conversion is attested, never silent — an operator whose
+        # UTF-16 file was scanned via a converted copy is told so on the receipt.
+        if [ "${soif_tc_count:-0}" -gt 0 ]; then
+          echo "  ($soif_tc_count staged file(s) transcoded from UTF-16/UTF-32 to UTF-8 for scanning — BL-198)"
+        fi
       fi
     fi
     rm -rf "$soif_idx_tree"
