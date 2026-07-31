@@ -927,11 +927,19 @@ if command -v semgrep &>/dev/null; then
       #   not a ratio. NULs+no-BOM+no-signal → a source extension routes LOUD
       #   (that shape is binary content in source clothing — BL-192's own
       #   `vendor.js` residue, newly CAUGHT); anything else is a real binary and
-      #   passes through untouched, exactly as today. Named residue, deliberately
-      #   NOT closed: a zero-ASCII single-line UTF-16 file has no NUL at all and
-      #   passes through undecoded (bounded — any newline puts a NUL in the file);
-      #   the only tightening that closes it breaks Latin-1. Pinned by
-      #   T-pure-cjk-residue-passthrough.
+      #   passes through untouched, exactly as today. TWO named residues,
+      #   deliberately NOT closed: (a) a zero-ASCII single-line UTF-16 file has
+      #   no NUL at all and passes through undecoded (bounded — any newline puts
+      #   a NUL in the file); the only tightening that closes it breaks Latin-1.
+      #   Pinned by T-pure-cjk-residue-passthrough. (b) one code unit whose LOW
+      #   byte is 0x00 — U+0100 Ā, U+3000 ideographic space, an astral char with
+      #   a zero surrogate byte — puts a zero on the wrong parity and collapses
+      #   the signal: the file goes LOUD named NOTRUN, every commit, until saved
+      #   as UTF-8 (review R-BL198-2). Exactness stays anyway: a dominance RATIO
+      #   would let a crafted no-BOM file steer the derivation to the WRONG
+      #   endianness, whose transcode is NUL-free valid-UTF-8 garbage and a
+      #   receipt over an unscanned sink — the strictly worse failure. Pinned by
+      #   T-u16-wrongparity-residue.
       # Size is SELF-measured rather than borrowed from F2's soif_idx_want, so
       # this fence stays inert (never unbound) under the F2-excision mutant —
       # the two guards are proved independently and must fail independently.
@@ -956,16 +964,26 @@ if command -v semgrep &>/dev/null; then
         # UTF-32's invariant is the always-zero high byte (LE: position 3;
         # BE: position 0). Anything else — zeros on both parities, odd length —
         # is AMBIGUOUS and derives nothing, which fails CLOSED below.
+        # The stride-4 arms carry the U+10FFFF RANGE BOUND (review R-BL198-1): a
+        # UTF-32LE BOM prefixed to a UTF-16LE body shifts a zero onto every
+        # position ≡3 (mod 4), so the zero-position test alone AGREES with the
+        # lie — and libiconv on macOS happily converts the out-of-range code
+        # points a UTF-32 read of UTF-16 bytes produces, minting NUL-free
+        # "valid" output. In GENUINE UTF-32, byte@2 of every LE group (byte@1
+        # for BE) is <= 0x10 — exact for BMP and astral alike — while a shifted
+        # UTF-16 body carries ordinary ASCII there. Lexical compare is sound:
+        # od emits fixed-width lowercase hex, whose string order equals numeric
+        # order. Pinned by T-u32bom-over-u16-body-notrun.
         soif_tc_der=$(od -An -v -tx1 "$soif_idx_dest" 2>/dev/null | awk -v stride="$soif_tc_stride" '
-          { for (i = 1; i <= NF; i++) { if ($i == "00") z[n % stride]++; n++ } }
+          { for (i = 1; i <= NF; i++) { p = n % stride; if ($i == "00") z[p]++; if (p == 1 && $i > m1) m1 = $i; if (p == 2 && $i > m2) m2 = $i; n++ } }
           END {
             if (n == 0 || n % stride != 0) exit 0
             if (stride == 2) {
               if (z[1] > 0 && z[0] == 0) print "UTF-16LE"
               else if (z[0] > 0 && z[1] == 0) print "UTF-16BE"
             } else {
-              if (z[3] == n / 4 && z[0] < n / 4) print "UTF-32LE"
-              else if (z[0] == n / 4 && z[3] < n / 4) print "UTF-32BE"
+              if (z[3] == n / 4 && z[0] < n / 4 && m2 <= "10") print "UTF-32LE"
+              else if (z[0] == n / 4 && z[3] < n / 4 && m1 <= "10") print "UTF-32BE"
             }
           }' 2>/dev/null) || soif_tc_der=""
         soif_tc_enc=""
@@ -981,7 +999,7 @@ if command -v semgrep &>/dev/null; then
           # (drift in this literal fails open, so the pin is the tripwire).
           # BL-198-EXT-SET
           case "$soif_p" in
-            *.ts|*.tsx|*.mts|*.cts|*.js|*.jsx|*.mjs|*.cjs|*.py|*.rb|*.go|*.rs|*.java|*.kt|*.kts|*.swift|*.cs|*.dart|*.c|*.h|*.cc|*.cpp|*.hpp|*.php|*.scala|*.vue|*.svelte|*.html|*.htm|*.sh)
+            *.ts|*.tsx|*.mts|*.cts|*.js|*.jsx|*.mjs|*.cjs|*.py|*.rb|*.go|*.rs|*.java|*.kt|*.kts|*.swift|*.cs|*.dart|*.c|*.h|*.cc|*.cpp|*.hpp|*.cxx|*.hh|*.hxx|*.m|*.mm|*.php|*.scala|*.vue|*.svelte|*.html|*.htm|*.sh)
               soif_tc_bad=1 ;;
           esac
         fi
@@ -1007,6 +1025,14 @@ if command -v semgrep &>/dev/null; then
             soif_tc_ononul=$(LC_ALL=C tr -d '\000' < "$soif_tc_tmp" 2>/dev/null | wc -c | tr -d '[:space:]') || soif_tc_ononul=""
             if [ -z "$soif_tc_osize" ] || [ "$soif_tc_osize" != "$soif_tc_ononul" ]; then soif_tc_ok=0; fi
             if ! iconv -f UTF-8 -t UTF-8 "$soif_tc_tmp" >/dev/null 2>&1; then soif_tc_ok=0; fi
+            # Byte-level UTF-8 floor (review R-BL198-3): macOS libiconv accepts
+            # non-RFC-3629 5-byte sequences, making the revalidation above inert
+            # there. 0xF5-0xFF never appear in valid UTF-8, so any such byte in
+            # the output is a failed transcode. Same lexical-hex trick as the
+            # derivation; the iconv check above stays as the stricter belt where
+            # the platform provides it.
+            soif_tc_badbyte=$(od -An -v -tx1 "$soif_tc_tmp" 2>/dev/null | awk '{ for (i = 1; i <= NF; i++) if ($i >= "f5") { print "bad"; exit } }') || soif_tc_badbyte=""
+            if [ -n "$soif_tc_badbyte" ]; then soif_tc_ok=0; fi
           fi
           if [ "$soif_tc_ok" -eq 1 ] && mv "$soif_tc_tmp" "$soif_idx_dest" 2>/dev/null; then
             soif_tc_count=$((soif_tc_count + 1))

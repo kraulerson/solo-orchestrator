@@ -2814,6 +2814,67 @@ else
   fi
 fi
 
+# ── T-u32bom-over-u16-body-notrun (review R-BL198-1 — the stride-shift liar) ──────
+# A UTF-32LE BOM (FF FE 00 00) prefixed to a UTF-16LE body: the 4-byte shift puts a
+# zero on every position ≡3 (mod 4), so the naive stride-4 derivation AGREES with
+# the lie (z[3]==n/4 exactly), macOS libiconv then accepts the out-of-range code
+# points a real UTF-32 read of UTF-16 bytes produces, and the output is NUL-free —
+# all three vouching surfaces defeated, [OK] receipt over a live sink (reproduced
+# end-to-end in review). The U+10FFFF range bound closes it: in genuine UTF-32LE
+# byte@2 of every group is <= 0x10 (and byte@1 for BE) — exact for BMP AND astral —
+# while the shifted UTF-16 body carries ordinary ASCII there. Expect: loud named
+# NOTRUN, no receipt, no block, commit lands.
+echo "=== T-u32bom-over-u16-body-notrun ==="
+BL198_WHY="$(_bl198_skip_reason)"
+if [ -n "$BL198_WHY" ]; then
+  skip_ "T-u32bom-over-u16-body-notrun" "$BL198_WHY — UNPROVEN here (skip, NOT a pass)"
+else
+  { printf '\xff\xfe\x00\x00'; printf '%s\n' "$REN_VULN" | iconv -f UTF-8 -t UTF-16LE; } > "$BL198FIX/u32lie.bin"
+  if [ "$(_bl198_head4 "$BL198FIX/u32lie.bin")" != "fffe0000" ]; then
+    fail_ "T-u32bom-over-u16-body-notrun" "fixture head is not the UTF-32LE BOM — the case proves nothing"
+  else
+    U32L_V="$(_bl198_run "$EMITTED" "$TOPTMP/bl198-u32lie" widget.ts "$BL198FIX/u32lie.bin")"
+    if [ "$U32L_V" = "COMMITTED" ] && grep -qF 'SAST NOT ENFORCED' "$TOPTMP/bl198-u32lie" \
+       && grep -qF 'widget.ts' "$TOPTMP/bl198-u32lie" \
+       && ! grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/bl198-u32lie" \
+       && ! grep -qF '[BLOCKED] Semgrep' "$TOPTMP/bl198-u32lie"; then
+      pass "T-u32bom-over-u16-body-notrun: a stride-4 BOM over a stride-2 body is caught by the U+10FFFF range bound — loud named NOTRUN, never a receipt over garbage (R-BL198-1)"
+    else
+      fail_ "T-u32bom-over-u16-body-notrun" "verdict=$U32L_V — the stride-shift liar must be a loud named NOTRUN (a receipt here is the BL-192 false attestation reborn through the fix itself): $(sast_evidence "$TOPTMP/bl198-u32lie")"
+    fi
+  fi
+fi
+
+# ── T-u16-wrongparity-residue (review R-BL198-2 — the THIRD residue, pinned) ──────
+# One code unit whose LOW byte is 0x00 — U+3000 ideographic space, U+0100 Ā, any
+# astral char with a zero surrogate byte (U+1F600) — puts a single zero on the
+# wrong parity and collapses the all-zeros-on-one-parity signal: the file goes
+# LOUD named NOTRUN, forever. This is deliberate and pinned AS the boundary:
+# relaxing to a dominance ratio would let a CRAFTED no-BOM file steer the
+# derivation to the wrong endianness, whose transcode is NUL-free valid-UTF-8
+# garbage — a receipt over an unscanned sink, the strictly worse failure. Exact
+# stays; the cost is this loud residue (named in the plan and the fence comment).
+echo "=== T-u16-wrongparity-residue ==="
+BL198_WHY="$(_bl198_skip_reason)"
+if [ -n "$BL198_WHY" ]; then
+  skip_ "T-u16-wrongparity-residue" "$BL198_WHY — UNPROVEN here (skip, NOT a pass)"
+else
+  printf 'const pad = "\343\200\200";\nexport const n = 1;\n' | iconv -f UTF-8 -t UTF-16LE > "$BL198FIX/wrongparity.bin"
+  WP_EVEN_ZEROS=$(od -An -v -tx1 "$BL198FIX/wrongparity.bin" | awk '{ for (i = 1; i <= NF; i++) { if ($i == "00" && n % 2 == 0) e++; n++ } } END { print e + 0 }')
+  if [ "${WP_EVEN_ZEROS:-0}" -eq 0 ]; then
+    fail_ "T-u16-wrongparity-residue" "fixture has no wrong-parity zero (U+3000 low byte) — it is not the residue shape"
+  else
+    WPR_V="$(_bl198_run "$EMITTED" "$TOPTMP/bl198-wrongparity" widget.ts "$BL198FIX/wrongparity.bin")"
+    if [ "$WPR_V" = "COMMITTED" ] && grep -qF 'SAST NOT ENFORCED' "$TOPTMP/bl198-wrongparity" \
+       && grep -qF 'widget.ts' "$TOPTMP/bl198-wrongparity" \
+       && ! grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/bl198-wrongparity"; then
+      pass "T-u16-wrongparity-residue: a clean UTF-16LE file with one U+3000 is a LOUD named NOTRUN — the exactness residue is real, bounded, and pinned (R-BL198-2; dominance was rejected because it reopens crafted mis-derivation)"
+    else
+      fail_ "T-u16-wrongparity-residue" "verdict=$WPR_V — the wrong-parity residue boundary moved (this case exists to make that loud): $(sast_evidence "$TOPTMP/bl198-wrongparity")"
+    fi
+  fi
+fi
+
 # ── T-mutation-parse-coverage (restored from e87dbd3, RE-AIMED at the fence) ──────
 # Excise the whole # BL-198-TRANSCODE fence from the emitted hook -> the BL-192
 # false attestation RETURNS (UTF-16LE+BOM sink lands with the [OK] receipt) — RED.
