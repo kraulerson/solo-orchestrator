@@ -5617,8 +5617,20 @@ BL-118 / BL-131 (the rulesets whose findings this guard protects), `# BL-187-RUL
 > "BL-186 (the per-line fork)" means these entries.
 
 **Logged:** 2026-07-28
-**Status:** Open — remediation shipped on branch `perf/unit-lane-shard-rebalance`; flip to Closed with
-the PR # once merged (a Closed entry must cite a PR # or a backticked SHA, and neither exists yet).
+**Status:** Closed — merged 2026-07-29 in PR #279 (`3282c97`, "shard the unit lane, drop the
+duplicate lint scans — PR critical path ~18m53s to ~6 min"). Bookkeeping performed 2026-07-31: the
+entry's own flip condition ("Closed with the PR # once merged") was satisfied at that merge and
+never recorded. The shipped design has since proven itself in production twice: the `unit`
+aggregator correctly went red over failing shard legs on #293 round 1 and #294 round 1, and the
+"approaching the cap is the re-pin signal" doctrine was exercised as written when BL-200's
+detector suite pushed the sast shard past the 12-minute cap (re-pinned to `rest`, PR #294).
+Local branch `perf/unit-lane-shard-rebalance` holds one SUPERSEDED draft commit (`05f3be6`,
+pre-renumber "BL-185" label) — prunable at Karl's discretion, nothing unique on it. TWO DECISION
+ITEMS in this entry remain live and are NOT closed by this flip: (1) whether the five
+`unit-shard (<shard>)` checks should be individually required on `main` (today only the `unit`
+aggregator is required; coverage is transitive); (2) `lint.yml` defines nine lint jobs but only
+eight are required — `evalprompts-portability-lint` runs and does not block. Both are
+branch-protection/policy calls only Karl can make.
 **Category:** CI capacity / merge-blocking
 **Severity:** High — a required status check that fails on capacity, not on correctness, blocks every
 PR indiscriminately and teaches everyone to ignore it.
@@ -5772,9 +5784,12 @@ these lanes).
 > BL-185…BL-189. See the note on BL-190.
 
 **Logged:** 2026-07-28
-**Status:** Open — the **duplicate-execution half is FIXED** on branch
-`perf/unit-lane-shard-rebalance` (below); the **per-line fork itself is not**, and that is what this
-entry stays open for. Flip to Closed only when `scan_file` is single-pass.
+**Status:** Open — the **duplicate-execution half is FIXED and MERGED** (PR #279, `3282c97` — the
+same merge that closed BL-190; recorded 2026-07-31, the wording here had still said "on branch");
+the **per-line fork itself is not**, and that is what this entry stays open for. Flip to Closed
+only when `scan_file` is single-pass. Current cost of the surviving half: the
+`counter-antipattern-lint` job runs ~4m24s–4m38s per PR (measured on #292/#293/#294), now once
+per lane rather than four times.
 **Category:** CI capacity / lint performance
 **Severity:** Medium — no correctness impact; it is the single largest cost in PR CI, and it is the
 root cause under BL-190's symptom.
