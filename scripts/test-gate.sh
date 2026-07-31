@@ -300,8 +300,10 @@ unrecord_feature() {
   cur_fslt=$(jq -r '.features_since_last_test // 0' "$BUILD_PROGRESS")
   case "$cur_fslt" in ''|*[!0-9]*) cur_fslt=0 ;; esac
   cur_fslhc=$(jq -r '.features_since_last_health_check // 0' "$BUILD_PROGRESS")
+  case "$cur_fslhc" in ''|*[!0-9]*) cur_fslhc=0 ;; esac
   cur_testing=$(jq -r '.testing_required // false' "$BUILD_PROGRESS")
   interval=$(jq -r '.test_interval // 2' "$BUILD_PROGRESS")
+  case "$interval" in ''|*[!0-9]*) interval=2 ;; esac
 
   new_fslt=$(( cur_fslt - 1 < 0 ? 0 : cur_fslt - 1 ))
   new_fslhc=$(( cur_fslhc - 1 < 0 ? 0 : cur_fslhc - 1 ))

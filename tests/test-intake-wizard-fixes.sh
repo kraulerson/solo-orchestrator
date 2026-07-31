@@ -581,8 +581,12 @@ D=$(mktemp -d)
 awk '/<< PROMPTEOF/{f=1;next} /^PROMPTEOF$/{f=0} f' "$WIZARD" > "$D/body.txt"
 { echo 'cat << PROMPTEOF'; cat "$D/body.txt"; echo 'PROMPTEOF'; } > "$D/render.sh"
 RENDERED=$( cd "$D" && bash --noprofile --norc render.sh </dev/null 2>/dev/null )
+# NEEDLE split keeps the literal init-script token off executed lines — the
+# BL-181 unit-lane predicate reads names-on-executed-lines, and the token
+# here would silently exempt this file from the tests.yml membership lint.
+NEEDLE='init'; NEEDLE="${NEEDLE}.sh"
 if printf '%s' "$RENDERED" | grep -qF -- '`bash scripts/test-gate.sh --set-interval N`' \
-   && printf '%s' "$RENDERED" | grep -qF -- '`init.sh`' \
+   && printf '%s' "$RENDERED" | grep -qF -- "\`$NEEDLE\`" \
    && ! printf '%s' "$RENDERED" | grep -qF '[FAIL]'; then
   pass "T-bl203-guided-prompt-instructs (the RENDERED prompt carries the literal --set-interval command and instruction 9's init reference — no backtick executed)"
 else
@@ -633,6 +637,11 @@ echo "T-bl203-mutation: excising the marked write line makes the answer a no-op 
 D=$(mktemp -d)
 _bl203_fixture "$D"
 MUT="$D/test-gate.mut.sh"
+# R-BL203-13: the mutant must be RUNNABLE or the case is vacuous — it sources
+# lib/helpers-core.sh relative to its own location, so give it the real libs
+# and require an empty stderr as proof it reached the BL-203 code at all (an
+# unloadable copy dies at source-time and looks identical by field value).
+mkdir -p "$D/lib" && cp "$REPO_ROOT/scripts/lib/"*.sh "$D/lib/"
 MARKS=$(grep -c 'BL-203-INTERVAL-PLUMB' "$TESTGATE" 2>/dev/null) || MARKS=0
 sed '/# BL-203-INTERVAL-PLUMB$/d' "$TESTGATE" > "$MUT"
 LEFT=$(grep -c 'BL-203-INTERVAL-PLUMB' "$MUT" 2>/dev/null) || LEFT=0
@@ -643,9 +652,11 @@ elif [ "${LEFT:-0}" -ne 0 ]; then
 elif ! bash -n "$MUT" 2>/dev/null; then
   fail_ "T-bl203-mutation" "mutant has a syntax error — a broken mutant proves nothing (the marked line needs its : guard)"
 else
-  ( cd "$D" && bash "$MUT" --set-interval 5 ) >/dev/null 2>&1 || true
+  ( cd "$D" && bash "$MUT" --set-interval 5 ) >/dev/null 2>"$D/mut.stderr" || true
   MUT_GOT=$(jq -r '.test_interval' "$D/.claude/build-progress.json" 2>/dev/null)
-  if [ "$MUT_GOT" = "2" ]; then
+  if [ -s "$D/mut.stderr" ]; then
+    fail_ "T-bl203-mutation" "the mutant errored before reaching the BL-203 code ($(head -1 "$D/mut.stderr")) — a mutant that cannot run proves nothing (R-BL203-13)"
+  elif [ "$MUT_GOT" = "2" ]; then
     pass "T-bl203-mutation (excised writer -> the answer no-ops again, field stays 2 — the marked line is load-bearing and the mutant is non-vacuous)"
   else
     fail_ "T-bl203-mutation" "mutant still wrote test_interval=$MUT_GOT — the mutation is not cutting the write path"
