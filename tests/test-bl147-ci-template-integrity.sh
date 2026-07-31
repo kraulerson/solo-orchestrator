@@ -215,6 +215,15 @@ fi
 #   • gitlab + bitbucket: rename the semgrep image off returntocorp, bring the
 #     flags to hook parity, and modernize gitleaks (detect --source -> dir;
 #     :latest -> a version-pinned ghcr image).
+#   • BL-201 (2026-07-31): the semgrep image FLOATS (`semgrep/semgrep:latest`).
+#     Karl's recorded decision (backlog BL-201, rationale on BL-192): a pinned
+#     scanner ages out of new detections silently — stale is the invisible
+#     failure. The agreed price is reproducibility, paid consciously by logging
+#     `semgrep --version` in EVERY semgrep job. Cg4/Cg5 pin the floating tag
+#     AND the log line, and REFUSE a re-pinned (`semgrep/semgrep:X.Y.Z`) or
+#     log-less template. gitleaks stays version-pinned (Cg6) — the float
+#     decision is semgrep-specific, made safe by BL-198 (no gate clause reads
+#     anything semgrep prints, so version drift can only ADD findings loudly).
 #
 # PARITY DERIVATION (single source): the expected semgrep flag set is DERIVED
 # from the hook's own `semgrep scan` invocation in scripts/lib/hook-templates.sh
@@ -225,9 +234,14 @@ fi
 #        returntocorp/semgrep (GLOBAL — github, gitlab, bitbucket, release, …)
 #   Cg2  every github CI template carries a `semgrep scan --config` invocation
 #   Cg3  every github semgrep invocation's config/severity/--error EQUAL the hook
-#   Cg4  every github CI template declares the `image: semgrep/semgrep` container
-#   Cg5  every non-github (gitlab+bitbucket) semgrep step uses image:
-#        semgrep/semgrep with hook-parity config/severity/--error flags
+#   Cg4  every github CI template declares the FLOATING `image:
+#        semgrep/semgrep:latest` container AND logs `semgrep --version` (BL-201)
+#   Cg5  every non-github (gitlab+bitbucket) semgrep step uses the floating
+#        image with hook-parity config/severity/--error flags AND a version log
+#   Cg-no-repin  every executable `semgrep/semgrep` reference under
+#        templates/pipelines is EXACTLY `:latest` — numeric/digest/named-tag
+#        pins and the bare spelling all refused (backstop beyond the
+#        Cg4/Cg5 per-file lists)
 #   Cg6  every non-github gitleaks step is modernized: no `detect --source`,
 #        runs `gitleaks dir`/`git`, off zricethezav, version-pinned image
 
@@ -560,16 +574,28 @@ else
   if [ -z "$bade" ]; then pass "Cg3-error-parity (all carry --error)"; else fail_ "Cg3-error-parity" "--error presence != hook in:$bade"; fi
 fi
 
-# ── Cg4: github semgrep runs in the semgrep/semgrep container job ────────────
-echo "Cg4: every github CI template declares the semgrep/semgrep container"
-miss_img=""
+# ── Cg4: github semgrep runs in the FLOATING semgrep/semgrep container job ──
+# BL-201-FLOAT-ASSERT: the tag must be EXACTLY `:latest` — anchored to end of
+# line, so a re-pinned `semgrep/semgrep:X.Y.Z` fails BY DESIGN (reversing
+# BL-201 takes a recorded decision, not a quiet edit). The float's agreed
+# price is a `semgrep --version` log line in the job; `^[^#]*` (the Cg7 house
+# pattern, PR #244) rejects comment placements — a commented-out log line
+# must not satisfy the pin.
+echo "Cg4: every github CI template floats semgrep/semgrep:latest + logs the version"
+miss_img=""; miss_ver=""
 for f in "${GH_FILES[@]}"; do
-  grep -Eq '^[[:space:]]*image:[[:space:]]*semgrep/semgrep:[0-9]+\.[0-9]+\.[0-9]+[[:space:]]*$' "$f" || miss_img="$miss_img ${f##*/}"
+  grep -Eq '^[[:space:]]*image:[[:space:]]*semgrep/semgrep:latest[[:space:]]*$' "$f" || miss_img="$miss_img ${f##*/}"
+  grep -Eq '^[^#]*semgrep --version' "$f" || miss_ver="$miss_ver ${f##*/}"
 done
 if [ -z "$miss_img" ]; then
-  pass "Cg4-container (all $GH_COUNT use image: semgrep/semgrep)"
+  pass "Cg4-container (all $GH_COUNT float image: semgrep/semgrep:latest)"
 else
-  fail_ "Cg4-container" "no 'image: semgrep/semgrep' container in:$miss_img"
+  fail_ "Cg4-container" "no floating 'image: semgrep/semgrep:latest' line — the check demands the EXACT tag ':latest' anchored at end of line, so a version-pinned image (e.g. :1.170.0) fails here on purpose (BL-201 floats the scanner; see the backlog entry before re-pinning) — in:$miss_img"
+fi
+if [ -z "$miss_ver" ]; then
+  pass "Cg4-version-log (all $GH_COUNT log semgrep --version)"
+else
+  fail_ "Cg4-version-log" "no executable 'semgrep --version' line — the image floats (BL-201), so the job log is the ONLY record of which scanner scanned a run; a comment mention does not count — in:$miss_ver"
 fi
 
 # ── Cg5: non-github semgrep steps — image rename + hook flag parity ─────────
@@ -583,15 +609,19 @@ if [ "${#NONGH_SEMGREP[@]}" -ge 12 ]; then
 else
   fail_ "Cg5-floor" "found ${#NONGH_SEMGREP[@]} non-github semgrep templates, expected >=12 — vacuous"
 fi
-n_badimg=""; n_badc=""; n_bads=""; n_bade=""
+# BL-201-FLOAT-ASSERT (non-github half) — same exact-`:latest` anchor and same
+# comment-immune version-log predicate as Cg4; see the note there.
+n_badimg=""; n_badver=""; n_badc=""; n_bads=""; n_bade=""
 for f in "${NONGH_SEMGREP[@]}"; do
-  grep -Eq '^[[:space:]]*image:[[:space:]]*semgrep/semgrep:[0-9]+\.[0-9]+\.[0-9]+[[:space:]]*$' "$f" || n_badimg="$n_badimg ${f#*/ci/}"
+  grep -Eq '^[[:space:]]*image:[[:space:]]*semgrep/semgrep:latest[[:space:]]*$' "$f" || n_badimg="$n_badimg ${f#*/ci/}"
+  grep -Eq '^[^#]*semgrep --version' "$f" || n_badver="$n_badver ${f#*/ci/}"
   extract_semgrep_policy "$f"
   [ "$EX_CONFIGS"  = "$HOOK_CONFIGS" ]  || n_badc="$n_badc ${f#*/ci/}(=$EX_CONFIGS)"
   [ "$EX_SEVERITY" = "$HOOK_SEVERITY" ] || n_bads="$n_bads ${f#*/ci/}"
   [ "$EX_ERROR"    = "$HOOK_ERROR" ]    || n_bade="$n_bade ${f#*/ci/}"
 done
-if [ -z "$n_badimg" ]; then pass "Cg5-image (all use image: semgrep/semgrep)"; else fail_ "Cg5-image" "no 'image: semgrep/semgrep' in:$n_badimg"; fi
+if [ -z "$n_badimg" ]; then pass "Cg5-image (all float image: semgrep/semgrep:latest)"; else fail_ "Cg5-image" "no floating 'image: semgrep/semgrep:latest' line — the check demands the EXACT tag ':latest' anchored at end of line, so a version-pinned image fails here on purpose (BL-201) — in:$n_badimg"; fi
+if [ -z "$n_badver" ]; then pass "Cg5-version-log (all log semgrep --version)"; else fail_ "Cg5-version-log" "no executable 'semgrep --version' line — the float's agreed price is that the job log answers 'what scanned this merge?'; a comment mention does not count — in:$n_badver"; fi
 if [ "$HOOK_POLICY_OK" -eq 0 ]; then   # BL-194-DERIVE-GATE (Cg5-image above is policy-independent, so it still runs)
   skip_ "Cg5-config-parity"   "no hook policy was derived (see Cg-derive)"
   skip_ "Cg5-severity-parity" "no hook policy was derived (see Cg-derive)"
@@ -600,6 +630,37 @@ else
   if [ -z "$n_badc" ];   then pass "Cg5-config-parity (all == '$HOOK_CONFIGS')"; else fail_ "Cg5-config-parity" "config set != hook in:$n_badc"; fi
   if [ -z "$n_bads" ];   then pass "Cg5-severity-parity"; else fail_ "Cg5-severity-parity" "severity != hook in:$n_bads"; fi
   if [ -z "$n_bade" ];   then pass "Cg5-error-parity"; else fail_ "Cg5-error-parity" "--error presence != hook in:$n_bade"; fi
+fi
+
+# ── Cg-no-repin: every executable semgrep/semgrep ref is EXACTLY :latest ────
+# BL-201-FLOAT-SWEEP: Cg4/Cg5 anchor only the files in TODAY'S lists; this
+# sweep is the backstop that catches a pinned semgrep image in a file those
+# lists never see — a new template family, a release pipeline, a copy-paste.
+# The predicate is deny-by-default (review R-BL201-1: the first cut matched
+# only `:[0-9]` and a DIGEST pin `@sha256:…` — the STRONGEST pin form — plus
+# named tags like `:canary` sailed through): after stripping comments
+# (whole-line and trailing), any line still carrying `semgrep/semgrep` must
+# carry `semgrep/semgrep:latest` at a tag boundary, so numeric tags, digests,
+# named tags, `:latest-nonroot`, and the BARE floating spelling are ALL
+# refused — one canonical form. Named residuals, not papered over: the
+# check is line-granular, so a single line carrying both an acceptable and
+# a pinned ref escapes; and the comment-strip is QUOTE-BLIND — a `#` inside
+# a quoted scalar truncates the strip mid-string, so a pinned ref AFTER it
+# on the same line escapes (review R-BL201-5; contrived carriers only, and
+# the failure direction is safe — truncation can only DROP lines from the
+# deny set, never accuse a clean one). The per-file Cg4/Cg5 anchors are the
+# primary enforcement; this is the breadth backstop. gitleaks pins are
+# untouched: the pattern is semgrep-specific by construction.
+echo "Cg-no-repin: every executable semgrep/semgrep reference under templates/pipelines is exactly :latest"
+repin="$(grep -rn 'semgrep/semgrep' "$PIPE_DIR" 2>/dev/null \
+  | sed 's/#.*//' \
+  | grep 'semgrep/semgrep' \
+  | grep -Ev 'semgrep/semgrep:latest([^A-Za-z0-9._-]|$)' \
+  | cut -d: -f1 | sort -u | sed "s|$REPO_ROOT/||" | tr '\n' ' ')"
+if [ -z "$repin" ]; then
+  pass "Cg-no-repin"
+else
+  fail_ "Cg-no-repin" "non-:latest semgrep/semgrep reference on an executable line in: ${repin}(the ONLY accepted form is the exact tag semgrep/semgrep:latest — numeric tags, @sha256 digests, named tags like :canary, and the bare spelling all fail here; BL-201 floats the scanner deliberately, and re-pinning requires reversing that recorded decision on the backlog, not a template edit)"
 fi
 
 # ── Cg6: non-github gitleaks steps modernized (dir/git, pinned, off zricethezav)

@@ -7048,11 +7048,59 @@ clause reads anything semgrep prints, and version drift can only ever ADD findin
 **Adjacent, noted not scoped:** the emitted hook's receipt could print the scanner version for the
 same debuggability (BL-193 cost a day partly to version archaeology). One line; decide at build.
 
-**Status:** Open — unblocked 2026-07-30 (BL-198 implemented in `02eaa0f`).
+**Status:** Closed — implemented 2026-07-31 on `fix/bl201-float-semgrep-pins` (`cd35254`; markers
+`# BL-201-FLOAT` at all 22 template sites, `# BL-201-FLOAT-ASSERT` / `# BL-201-FLOAT-SWEEP` in
+tests/test-bl147-ci-template-integrity.sh). The floating form decided at build is the explicit
+`image: semgrep/semgrep:latest` — semgrep's own CI docs use both the bare and `:latest` spellings;
+the explicit tag is grep-able and lets the suite demand an EXACT anchored match. Every semgrep job
+logs `semgrep --version` before the scan (github: a dedicated step; gitlab block/flow and
+bitbucket flow scripts: the first command). Deliverable 3 landed in the same diff, as this entry
+required: Cg4-container/Cg5-image now demand the exact anchored `:latest` (a re-pinned
+`semgrep/semgrep:X.Y.Z` fails BY DESIGN), new Cg4-/Cg5-version-log cases pin an EXECUTABLE log
+line (comment-immune `^[^#]*`, the Cg7 house pattern), a new Cg-no-repin sweep refuses a pinned
+semgrep image ANYWHERE under templates/pipelines (the backstop for files outside the per-file
+lists), and the R2-7 failure-message fix shipped — the messages now state that the checks demand
+the floating tag / an executable log line. hook-templates.sh's "the CI surface IS pinned" comment
+was corrected in the same diff (rendered emitted hook verified verbatim — render, not grep).
+Proofs: RED 58/5 on the pinned tree, GREEN 63/0; five mutants (re-pinned github, deleted github
+log step, commented-out gitlab log line, re-pinned bitbucket, a pin planted OUTSIDE the per-file
+lists — the last caught ONLY by the sweep, its unique value) each failed EXACTLY the expected
+case(s) with empty stderr, intact control green; suites bl112 13/0, bl118 7/0, bl125 22/0,
+bl131 18/0, bl132 56/0; lints 11/11. The adjacent hook-receipt version line ("one line; decide at
+build") is DEFERRED, decided: 63 test references pin the `[OK] semgrep` receipt text, so one debug
+line does not justify moving that surface in this diff — it rides with BL-200, which reworks the
+same hook region. Observed while verifying, pre-existing and NOT this change's:
+`templates/pipelines/ci/gitlab/java.yml` fails strict libyaml parse (colons in the maven
+dependencies flow scalar, present at the pre-change HEAD; GitLab's own parser accepts it) — noted
+for housekeeping. gitleaks stays version-pinned (Cg6): the float decision is semgrep-specific.
 
-**Related:** BL-192 (both decision blocks), BL-198 (the gate this waits on), BL-147 (the parity
-suite that must move in the same diff), BL-193 (the version-archaeology cost that motivates the
-logging).
+**UPDATE 2026-07-31 (pre-PR adversarial review round):** verdict **minor_concerns**, non-blocking;
+zero refuted claims — the reviewer independently reproduced the RED/GREEN tallies to the digit and
+all five documented mutants (plus its own quoted-scalar and trailing-comment kill attempts, all
+caught). R-BL201-1 — the sweep's first cut matched only `:[0-9]`, so a DIGEST pin (`@sha256:…`,
+the STRONGEST pin form) or a named tag (`:canary`) planted OUTSIDE the per-file lists survived —
+fixed in this same PR: Cg-no-repin is now deny-by-default (after comment-stripping, any executable
+line carrying `semgrep/semgrep` must carry exactly `semgrep/semgrep:latest` at a tag boundary;
+numeric, digest, named-tag, `:latest-nonroot`, and bare spellings all refused). Re-proved with a
+six-probe battery + intact control: digest/canary/bare/nonroot each fail EXACTLY Cg-no-repin with
+empty stderr; a whole-line comment mention leaves the suite green; a trailing-comment mention
+leaves the SWEEP silent while the Cg5-image anchor still fails loudly (primary enforcement, as
+designed); intact 63/0. R-BL201-2 (a vacuous `run: echo semgrep --version` satisfies the
+version-log pin — the `^[^#]*` house pattern's known ceiling) and R-BL201-3 (`extract_semgrep_policy`
+is comment-blind and no case demands non-github templates carry an EXECUTABLE scan line —
+pre-existing, and NARROWED by this fix, which now catches the whole-script-commented variant the
+old suite passed 60/0) are filed as BL-206. R-BL201-4 (supply-chain: `:latest` vs the prior
+mutable `1.170.0` tag is the same registry-compromise exposure; only a digest pin differs, and
+digest-pinning is the staleness posture this entry's decision rejects) recorded, no action.
+Confirm round on the delta: **minor_concerns, safe to open** — M8a/M8b confirmed dead against the
+deny-by-default sweep, zero refuted claims, no regression on numeric pins, no false positives on
+the tree's 20 legitimate comment mentions; its one new note-level find (R-BL201-5, the
+quote-blind comment strip) is named in the sweep header and filed on BL-206 item 3.
+
+**Related:** BL-192 (both decision blocks), BL-198 (the gate this waited on), BL-147 (the parity
+suite that moved in the same diff), BL-193 (the version-archaeology cost that motivates the
+logging), BL-200 (carries the deferred hook-receipt version line), BL-206 (the review round's two
+grep-level residuals).
 
 ---
 
@@ -7324,3 +7372,49 @@ F-DF2-015, `evaluation-prompts/v2-concepts/post-mvp-feature-development.md` (the
 adjacent, unwired).
 
 **Status:** Open
+
+---
+
+## BL-206: test-bl147's semgrep predicates are grep-level — a vacuous version log satisfies the pin, and a non-github template can lose its scan line to a comment while parity stays green
+
+**Logged:** 2026-07-31 (both surfaced by BL-201's pre-PR adversarial review — R-BL201-2 /
+R-BL201-3 — and filed as named limits rather than silently accepted)
+**Category:** Test-suite hardening / generated-project CI
+**Severity:** Low. Both are decay/tamper windows in the suite's own instruments, not defects in
+the shipped templates; the primary enforcement (Cg2/Cg3 github coverage, the Cg4/Cg5 anchors,
+the Cg-no-repin sweep) is unaffected.
+
+Three residuals, one family — the suite's predicates read bytes, not semantics:
+
+1. **Vacuous version log (R-BL201-2).** Cg4-/Cg5-version-log accept any executable line
+   CONTAINING `semgrep --version` — measured: `run: echo semgrep --version` satisfies the pin
+   (suite 63/0). This is the documented ceiling of the `^[^#]*` house pattern (Cg7, PR #244): a
+   grep cannot cheaply verify execution semantics. A real fix renders/executes the job script —
+   the render-class work, not a one-line widen.
+2. **Comment-blind parity extraction (R-BL201-3).** `extract_semgrep_policy` greps the first
+   `semgrep (scan )?--config` line WITHOUT comment-stripping, and no case requires non-github
+   templates to carry an EXECUTABLE `semgrep scan` line (Cg2 covers github only). Measured at the
+   BL-201 tip: commenting out ONLY the `- semgrep scan …` line of gitlab/python.yml survives
+   63/0 — the commented line still feeds the parity comparison AND keeps the template in the
+   NONGH_SEMGREP census, while Cg5-version-log stays green off the intact version line.
+   Pre-existing: at pre-BL-201 main the whole-script-commented variant survived 60/0; BL-201's
+   Cg5-version-log narrowed the window to this scan-line-only variant.
+3. **Quote-blind comment strip (R-BL201-5, confirm round).** Cg-no-repin's `sed 's/#.*//'`
+   truncates at a `#` INSIDE a quoted scalar, so a pinned ref later on the same line escapes —
+   measured: `run: echo 'a#b' && docker run semgrep/semgrep:1.170.0` planted outside the
+   per-file lists survives 63/0. Contrived carriers only (`${VAR#prefix}`, URL fragments); the
+   failure direction is safe (truncation can only DROP lines from the deny set, never accuse a
+   clean one), and the per-file anchors remain the primary enforcement. Named in the
+   `# BL-201-FLOAT-SWEEP` header.
+
+**Fix shape:** a Cg2-analogue for non-github templates (an executable `semgrep scan --config`
+line required, `^[^#]*`-guarded) closes item 2 cheaply, and `extract_semgrep_policy` should strip
+comments so a commented DECOY line can never become the compared policy (the Cg-derive fixtures'
+prose-immunity discipline, applied to the template side). Item 3 wants a quote-aware strip (awk)
+or standing acceptance as a named limit. Item 1 stays a named limit unless the suite gains a
+render-and-execute stage.
+
+**Status:** Open
+
+**Related:** BL-201 (the review that surfaced both), BL-147 (the suite), BL-181 (the
+mention-vs-execution class), BL-197 (failure-message honesty — the R2-7 sibling).
