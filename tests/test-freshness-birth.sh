@@ -89,6 +89,19 @@ else
   fail_ "hook-injected" "no SessionStart entry for session-freshness-check.sh (settings.json present? $( [ -f "$PROJ/.claude/settings.json" ] && echo yes || echo no ))"
 fi
 
+# ── BL-202 (review R-BL202-2): the intake hook must be SHIPPED and INJECTED ──
+# A registered-but-unshipped hook is a failing SessionStart in every generated
+# project — the reviewer excised only the cp line and every PR-blocking check
+# stayed green. This is the birth-level pin that closes that hole.
+echo "=== BL-202 intake hook shipped + injected ==="
+if [ -f "$PROJ/scripts/session-intake-check.sh" ] && [ -x "$PROJ/scripts/session-intake-check.sh" ] \
+   && jq -e '.hooks.SessionStart[]?.hooks[]? | select(.command | contains("session-intake-check.sh"))' \
+        "$PROJ/.claude/settings.json" >/dev/null 2>&1; then
+  pass "session-intake-check.sh shipped (executable) and injected into SessionStart"
+else
+  fail_ "bl202-hook-birth" "shipped=$( [ -f "$PROJ/scripts/session-intake-check.sh" ] && echo yes || echo no ) exec=$( [ -x "$PROJ/scripts/session-intake-check.sh" ] && echo yes || echo no ) injected=$( jq -e '.hooks.SessionStart[]?.hooks[]? | select(.command | contains("session-intake-check.sh"))' "$PROJ/.claude/settings.json" >/dev/null 2>&1 && echo yes || echo no )"
+fi
+
 # ── DAY-ZERO SILENCE — zero bytes stdout+stderr, exit 0 ──────────────────────
 echo "=== day-zero silence ==="
 d0_out="$(CDF_HOME="$NOCDF" CLAUDE_PROJECT_DIR="$PROJ" bash "$SUT" 2>"$TOPTMP/d0.err")"; d0_rc=$?

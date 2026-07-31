@@ -369,7 +369,7 @@ Either way, the **Phase 1→2 gate enforces a verified remote**, keyed on the sa
 | `docs/platform-modules/` | init.sh (copied) | Nothing | Platform-specific guidance |
 | `docs/reference/security-scan-guide.md` | init.sh (copied) | Nothing | Plain-language guide for common scan findings |
 | `scripts/intake-wizard.sh` | init.sh (copied) | Run to fill out the Intake | Guided script or AI-assisted conversation |
-| `scripts/resume.sh` | init.sh (copied) | Run at session start | Generates resume prompt from project state |
+| `scripts/resume.sh` | init.sh (copied) | Run at session start | Prints the exact first message to paste — state-aware: intake prompt, Phase-0 initialization prompt (Intake §13), or the classic resume prompt |
 | `templates/intake-suggestions/` | init.sh (copied) | Nothing | Context-aware suggestions for the wizard |
 | **Superpowers** | You (optional) | Install plugin, configure in CLAUDE.md | See [CLI Setup Addendum](cli-setup-addendum.md#1-superpowers) |
 | **Context7 MCP** | You (optional) | One command to add MCP server | See [CLI Setup Addendum](cli-setup-addendum.md#4-context7) |

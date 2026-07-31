@@ -528,6 +528,7 @@ run_child_suite "scripts/lint-doc-anchors.sh" \
 # snapshot pattern for reconfigure-project.sh --field handlers.
 section "Intake wizard + reconfigure field handlers (PRs #83, #84)"
 run_child_suite "tests/test-intake-wizard-fixes.sh" "tests/test-intake-wizard-fixes.sh"
+run_child_suite "tests/test-bl202-session-intake-check.sh" "tests/test-bl202-session-intake-check.sh"
 run_child_suite "tests/test-reconfigure-field-handlers.sh" \
   "tests/test-reconfigure-field-handlers.sh"
 

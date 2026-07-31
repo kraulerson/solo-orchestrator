@@ -7113,6 +7113,18 @@ CONSOLIDATE, not add a fourth magic phrase.
 class this repairs for onboarding), `docs/user-guide.md`'s §12→§13 pointer fix (shipped with
 this entry's filing PR — the guide told users to paste from the section that says "do not edit").
 
+**UPDATE 2026-07-31 — fix landed; two recorded residuals.** The fix shipped (SessionStart hook
+`scripts/session-intake-check.sh`, state-aware `resume.sh`, converged prints) with its honest
+contract: SessionStart stdout is CLAUDE'S context, not operator-visible text — the blank screen
+stays until the user types something, but the first reply then knows the intake state and relays
+it. (1) Claude Code's documented `initialUserMessage` SessionStart JSON field could start the
+conversation outright — the full fix for the user-facing half; deliberately out of scope here,
+recorded as this entry's follow-up. (2) `README.md`'s Quick Start still carries the last verbatim
+copy of the kickoff paste block; consolidating it onto the generator needs its own pass against
+the BL-199 quick-start pins, so it is left in place and named here rather than touched blind.
+Also unaddressed by choice: `resume.sh`'s §13 extractor accepts only the shipped `## 13.` heading
+spelling (hardening-only, reviewer-rated), and an unreadable PROJECT_INTAKE.md reads as complete.
+
 **Status:** Open
 
 ---
