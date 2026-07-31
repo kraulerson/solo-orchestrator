@@ -5617,7 +5617,7 @@ BL-118 / BL-131 (the rulesets whose findings this guard protects), `# BL-187-RUL
 > "BL-186 (the per-line fork)" means these entries.
 
 **Logged:** 2026-07-28
-**Status:** Closed — merged 2026-07-29 in PR #279 (`3282c97`, "shard the unit lane, drop the
+**Status:** Closed — merged 2026-07-28 in PR #279 (`3282c97`, "shard the unit lane, drop the
 duplicate lint scans — PR critical path ~18m53s to ~6 min"). Bookkeeping performed 2026-07-31: the
 entry's own flip condition ("Closed with the PR # once merged") was satisfied at that merge and
 never recorded. The shipped design has since proven itself in production twice: the `unit`
@@ -5788,8 +5788,8 @@ these lanes).
 same merge that closed BL-190; recorded 2026-07-31, the wording here had still said "on branch");
 the **per-line fork itself is not**, and that is what this entry stays open for. Flip to Closed
 only when `scan_file` is single-pass. Current cost of the surviving half: the
-`counter-antipattern-lint` job runs ~4m24s–4m38s per PR (measured on #292/#293/#294), now once
-per lane rather than four times.
+`counter-antipattern-lint` job runs ~4m24s–4m44s per PR head (measured across #292/#293/#294
+heads; the review's fuller envelope), now once per lane rather than four times.
 **Category:** CI capacity / lint performance
 **Severity:** Medium — no correctness impact; it is the single largest cost in PR CI, and it is the
 root cause under BL-190's symptom.
@@ -7597,7 +7597,7 @@ here — this is not their class).
 recorded prune-blocker on that branch is now satisfied by this filing. Written BEFORE the BL-198
 transcode build (#287), the BL-201 float (#292), and the BL-200 detector (#293) reshaped the same
 surface: re-measure every claim against current `main` before building on it.
-This entry'\''s core is a POLICY question (should `// nosemgrep` in staged content be receipted,
+This entry's core is a POLICY question (should `// nosemgrep` in staged content be receipted,
 warned, or blocked?) — still undecided; decision item for Karl.
 
 ---
@@ -7854,8 +7854,8 @@ transcode build (#287), the BL-201 float (#292), and the BL-200 detector (#293) 
 surface: re-measure every claim against current `main` before building on it.
 Still live by inspection (2026-07-31): the CI templates run `semgrep scan --config=… --severity=ERROR
 --error` with NO `--max-target-bytes=0` and NO `--no-git-ignore`, and since BL-200 the hook
-additionally passes `--verbose` (deliberately hook-only — its detector reads the hook'\''s own
-stderr file); test-bl147'\''s parity cases compare config/severity/--error ONLY, so the flag
+additionally passes `--verbose` (deliberately hook-only — its detector reads the hook's own
+stderr file); test-bl147's parity cases compare config/severity/--error ONLY, so the flag
 divergence remains invisible to the parity lint exactly as this entry says.
 
 ---
@@ -7990,6 +7990,32 @@ either), BL-118 (`# BL-118-DOMXSS-CONFIG` — the literal registry id that is th
 recorded prune-blocker on that branch is now satisfied by this filing. Written BEFORE the BL-198
 transcode build (#287), the BL-201 float (#292), and the BL-200 detector (#293) reshaped the same
 surface: re-measure every claim against current `main` before building on it.
-Unverified against current `main`; note the hook'\''s exactly-once header parse accepts
+Unverified against current `main`; note the hook's exactly-once header parse accepts
 `with 0 Code rules:` (the regex admits 0), so the zero-rule silent-success shape plausibly still
 earns the receipt today — measure before building.
+
+---
+
+## BL-207: Nothing guards `## BL-NNN:` header UNIQUENESS in the backlog — a duplicate entry header passes every lint
+
+**Logged:** 2026-07-31 (found by the pre-PR review of the BL-185/186/188/189 filing branch —
+R-PREPR-5 — and proven BY EXECUTION, not grep: a duplicate `## BL-187:` header appended in the
+reviewer's mutation lab passed `scripts/lint-backlog-references.sh` with rc=0)
+**Category:** Backlog integrity / lint
+**Severity:** Low — the property currently holds (zero duplicates by grep), but the filing pattern
+this repo now uses (importing entries from retained branches; cross-branch number reservations
+like the BL-199/BL-200 note; the BL-187 divergence that #278's close comment records) makes
+duplicate headers a live hazard class, and header uniqueness is what makes `BL-NNN` grep-able as
+the citation primitive.
+
+**Fix shape:** a one-liner arm in `scripts/lint-backlog-references.sh` — extract all `^## BL-[0-9]+:`
+IDs, fail on any ID appearing more than once, message naming the duplicated ID and both line
+numbers. TDD with the reviewer's own mutant (append a duplicate header → RED → remove → GREEN).
+When BL-093's archive split lands, the check must span BOTH files (an ID present in main AND
+archive is the same defect).
+
+**Status:** Open
+
+**Related:** BL-093 (the split that widens the surface), BL-196 (the marker-citation validator —
+same "the citation primitive has no guard" family), the BL-200 numbering note (cross-branch
+reservation discipline).

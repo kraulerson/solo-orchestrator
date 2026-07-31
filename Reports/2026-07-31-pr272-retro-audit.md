@@ -29,7 +29,8 @@ today's `main` needs remediation from this audit.**
    meaningless downstream — optional one-line trim, unfiled.
 3. **R-272-3 (trivial, attributed to LATER waves, not #272):** older handoff stubs' "Live
    state-of-record" lines point one hop behind (at `2026-07-30-…`, itself now a stub). The chain
-   resolves in two hops and CLAUDE.md's "trust the non-stub" rule — added by #272 itself — covers
+   resolves by following it (two-plus hops — three as of this writing, after #294 stubbed the
+   middle link) and CLAUDE.md's "trust the non-stub" rule — added by #272 itself — covers
    it. Candidate fix for a future handoff-close pass: point stub Live-lines at `docs/INDEX.md`
    instead of a moving filename.
 
