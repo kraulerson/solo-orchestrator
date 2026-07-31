@@ -1484,7 +1484,10 @@ if command -v semgrep &>/dev/null; then
         #     report-dependence, accepted by decision on BL-200 and watched by the canary.
         #   • the zero-ASCII single-line UTF-16 residue (no NUL anywhere, so the
         #     classifier passes it through undecoded) — bounded: any newline puts a
-        #     NUL in the file; pinned by T-pure-cjk-residue-passthrough.
+        #     NUL in the file. Since BL-200, a semgrep that warns while chewing the
+        #     undecoded bytes forfeits this receipt too (measured on 1.157.0) — a
+        #     best-effort narrowing, not a closure; T-pure-cjk-residue-passthrough
+        #     pins BOTH arms of that disjunction.
         # Read this receipt as "the checks above did not fire", never as "this commit
         # was scanned in full".
         # The pattern across all five is the same and is the point: N counts the targets
