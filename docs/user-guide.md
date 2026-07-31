@@ -547,7 +547,7 @@ The agent reads `CLAUDE.md` automatically. This file contains your project confi
 
 ### The Initialization Prompt
 
-Section 12 of the Intake contains a ready-to-use initialization prompt. Copy and paste it into the agent at the start of Phase 0. It tells the agent:
+Section 13 of the Intake contains a ready-to-use initialization prompt. Copy and paste it into the agent at the start of Phase 0. It tells the agent:
 
 - The Intake is the primary constraint
 - The Builder's Guide is the process reference
