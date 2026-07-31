@@ -2790,19 +2790,31 @@ For Rust the skip is *deliberate* (inline `#[cfg(test)]` tests cannot be detecte
 
 **Decision 2026-07-20 (Karl):** the offer-and-apply escalation (proposing `--sync-framework` from the SessionStart surface on detection) is APPROVED — the option to update must exist — and is deliberately sequenced LAST in the current work queue (after the quick decided items, the Dogfood-4 milestone, and the design-first items). BL-099 and BL-101 are Closed into this ladder as of today; the BL-101 conflict-UX decision (`.rej`-style droppings + a LARGE unmissable warning on every conflict) is a recorded requirement on S4/apply.
 
-**Decision 2026-07-31 (Karl): the build starts AFTER THE QUICK SWEEP.** The 07-20 sequencing's
-queue is finished (Dogfood-4 done; that era's decided items shipped), so the go-signal is
-re-anchored to the current queue: first the small hardening builds (BL-207, BL-206, BL-191's
-second half, the newly-decided BL-185 receipt and BL-187 30s-timeout items, BL-196/197,
-BL-176/144/145 and the java.yml wart), then **S1 (inventory) begins as the next MAJOR build** —
-ahead of, or alongside, the design-doc items (BL-205; the operating-model WP re-planning). Not
-held for real drift; not last behind the medium builds.
+**Decision 2026-07-31 (Karl; re-confirmed the same day after review R-KD31-1 caught the stale
+ladder sentence mis-briefing the first ask): the REMAINING build starts AFTER THE QUICK SWEEP,
+one rung at a time.** The 07-20 sequencing's queue is finished (Dogfood-4 done; that era's
+decided items shipped), and S0–S3 are already merged (corrected ladder above), so this go-signal
+governs the APPLY half. Order: first the small hardening builds (BL-207, BL-206, BL-191's second
+half, the newly-decided BL-185 receipt and BL-187 30s-timeout items, BL-196/197, BL-176/144/145,
+and the java.yml wart recorded on Closed BL-201 — file it as its own entry when the sweep picks
+it up), then **S3a — the transactional write-primitive promotion, carrying PR #185's four
+registry rows — begins as the next MAJOR build**: pure infrastructure with its full safety-proof
+battery, nothing applied to any real project in that slice. It runs ahead of, or alongside, the
+design-doc items (BL-205; the operating-model WP re-planning). **S4 (apply/rollback) does NOT
+ride this go — it gets its OWN explicit decision from Karl once S3a has survived adversarial
+review**, preserving the 07-20 caution exactly at the boundary where writes reach real projects.
+Not held for real drift; not last behind the medium builds.
 
 **Design of record:** `docs/designs/2026-07-12-currency-system-v1.md` (**v1.1** — normative for the build). v1 was **blocked** by an adversarial design review the same day (4 BLOCK / 9 MAJOR / 10 MINOR — record: `docs/designs/2026-07-12-currency-system-review-r1.md`); every amendment is folded into v1.1 with a traceability changelog (§0). The blocks, in one line each: v1 claimed the write-primitive existed on main (it does not — the promotion is now its own slice S3a); v1 specced a second manifest file (dual-source regression — now one `currency` block inside the existing `.claude/manifest.json`, plus `soloFrameworkPath` so the framework check has a path to check); v1's Class-A merge mechanics would have staged template placeholders into candidates and contradicted its own never-write-user-docs invariant at rollback (now split A1 render-legs-via-BL-101-generator / A2 structural-diff-only, rollback stages-never-writes); v1 had no verbs for upstream deletions/renames (now `add|update|retire|rename` + orphan reporting).
 
 **Shape (four layers):** L0 inventory — the `currency` block (shas, modes, classes, verb state, render bases, three-state hook expectations incl. `absent-unavailable` surfacing BL-107, MCP presence). L1 detection — SessionStart, read-only except an atomic cache, ZERO network at session start, fail-open, silent-when-current, tiered (enforcement drift never silently snoozeable: 7-day expiry + bypass-audit). L2 staging — dated committable run folder (`docs/updates/…`), item verbs, checkbox selection as the single human surface parsed one-way into a machine journal, mechanical facts script-side, mid-tier advisory review (pros/cons/repercussions) confined and injection-pinned. L3 apply — `soif_write` transactional primitive (archive-first, byte-verify, atomic rename, WAL journal, symlink refusal), batch validate-all→commit-all→verify-all with crash recovery, item-consent-only for hooks/gate scripts (new invariant I11), `--rollback` from run archives (staged-never-written for user docs).
 
-**Slices (each through BL-100 adversarial acceptance; guard registry grows every slice):** S0 done (PR #185 — engine + 25-row guard harness). S1 inventory → S2 detection → S3 staging (+ BL-101 generator factoring) → S3a write-primitive promotion (carries the four registry rows from PR #185's final review) → S4 apply/rollback → S5 teaching + machine-block lint contract + E2E items. Live-test protocol (design Appendix P): rung ladder scratch-scaffold → stale-scaffold → throwaway real-project clone → supervised Pantheon (detection → plan → ONE Class T item, then stop); never an unsupervised or batch apply on a real project.
+**Slices (each through BL-100 adversarial acceptance; guard registry grows every slice):** **S0–S3
+ARE DONE** (S0 PR #185 — engine + 25-row guard harness; S1 inventory PR #191; S2 detection PR #193;
+S3 staging + BL-101 generator factoring PR #194 — all merged 2026-07-12; this sentence previously
+said only "S0 done" and mis-briefed a 2026-07-31 scheduling decision — corrected per review
+R-KD31-1). REMAINING: S3a write-primitive promotion (carries the four registry rows from PR #185's
+final review) → S4 apply/rollback → S5 teaching + machine-block lint contract + E2E items. Live-test protocol (design Appendix P): rung ladder scratch-scaffold → stale-scaffold → throwaway real-project clone → supervised Pantheon (detection → plan → ONE Class T item, then stop); never an unsupervised or batch apply on a real project.
 
 **Related:** BL-099 (SLICE-A shipped PR #185; SLICE-B superseded by L1 here — close it when S2 lands), BL-101 (superseded by L2/A1 — close when S3 lands), BL-105/BL-107/BL-108 (their manifest-level facts land in S1), BL-100 (acceptance doctrine), BL-097/BL-098 (tiering + plan-first: the v1.1 design is the plan of record), BL-092 (constrains L1: lean, zero network, ≤1s local).
 
@@ -5617,13 +5629,15 @@ BL-118 / BL-131 (the rulesets whose findings this guard protects), `# BL-187-RUL
 
 **DECIDED 2026-07-31 (Karl): the per-rule timeout is raised to 30 SECONDS** (`--timeout=30` on the
 emitted hook's invocation; semgrep's default 5s stands nowhere in the hook once this ships). The
-latency budget is now policy, not a deferral: the measured dense-fixture case needed ~11s of rule
-time, so 30s catches it with ~3x headroom while keeping the hard ceiling that makes a
-pathological rule a forfeited receipt instead of a frozen terminal. Build notes: the
-`# BL-187-RULE-COVERAGE` timeout detector STAYS exactly as shipped (30s shrinks the class, it
-does not close it — the entry's whole point); re-measure the dense fixture under the new budget
-(bl132's rule-timeout cases pin the behavior and must move in the same diff if their fixture now
-BLOCKS instead of forfeiting); the flag joins `--max-target-bytes=0`/`--no-git-ignore`/`--verbose`
+latency budget is now policy, not a deferral: the measured dense-fixture case blocked in ~11s WALL
+at timeout=0 (the abandoned rule's own time is bounded above by that), so 30s catches it with at
+least ~3x headroom while keeping the hard ceiling that makes a pathological rule a forfeited
+receipt instead of a frozen terminal. Build notes: the `# BL-187-RULE-COVERAGE` timeout detector
+STAYS exactly as shipped (30s shrinks the class, it does not close it — the entry's whole point);
+re-measure the dense fixture under the new budget — and mind that bl132's rule-timeout cases SKIP
+(not fail) when the fixture stops timing out on a host, so nothing PR-blocking enforces the
+re-pin: watch the skip column and re-densify the fixture until it times out at 30s, or the
+mutation proof goes silently unproven (review R-KD31-3); the flag joins `--max-target-bytes=0`/`--no-git-ignore`/`--verbose`
 in the hook-only flag set, so BL-188's CI-parity scope inherits it. Status stays Open — now a
 BUILD item, no longer a decision blocker.
 
