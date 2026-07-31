@@ -238,8 +238,10 @@ fi
 #        semgrep/semgrep:latest` container AND logs `semgrep --version` (BL-201)
 #   Cg5  every non-github (gitlab+bitbucket) semgrep step uses the floating
 #        image with hook-parity config/severity/--error flags AND a version log
-#   Cg-no-repin  no templates/pipelines file pins `semgrep/semgrep:X.Y.Z`
-#        anywhere (backstop beyond the Cg4/Cg5 per-file lists)
+#   Cg-no-repin  every executable `semgrep/semgrep` reference under
+#        templates/pipelines is EXACTLY `:latest` — numeric/digest/named-tag
+#        pins and the bare spelling all refused (backstop beyond the
+#        Cg4/Cg5 per-file lists)
 #   Cg6  every non-github gitleaks step is modernized: no `detect --source`,
 #        runs `gitleaks dir`/`git`, off zricethezav, version-pinned image
 
@@ -630,18 +632,31 @@ else
   if [ -z "$n_bade" ];   then pass "Cg5-error-parity"; else fail_ "Cg5-error-parity" "--error presence != hook in:$n_bade"; fi
 fi
 
-# ── Cg-no-repin: no pinned semgrep image anywhere under templates/pipelines ──
+# ── Cg-no-repin: every executable semgrep/semgrep ref is EXACTLY :latest ────
 # BL-201-FLOAT-SWEEP: Cg4/Cg5 anchor only the files in TODAY'S lists; this
-# sweep (Cg1's shape) is the backstop that catches a version-pinned semgrep
-# image in a file those lists never see — a new template family, a release
-# pipeline, a copy-paste. gitleaks pins are untouched: the pattern is
-# semgrep-specific by construction.
-echo "Cg-no-repin: no templates/pipelines file pins semgrep/semgrep:X.Y.Z"
-repin="$(grep -rlE 'semgrep/semgrep:[0-9]' "$PIPE_DIR" 2>/dev/null | sed "s|$REPO_ROOT/||" | tr '\n' ' ')"
+# sweep is the backstop that catches a pinned semgrep image in a file those
+# lists never see — a new template family, a release pipeline, a copy-paste.
+# The predicate is deny-by-default (review R-BL201-1: the first cut matched
+# only `:[0-9]` and a DIGEST pin `@sha256:…` — the STRONGEST pin form — plus
+# named tags like `:canary` sailed through): after stripping comments
+# (whole-line and trailing), any line still carrying `semgrep/semgrep` must
+# carry `semgrep/semgrep:latest` at a tag boundary, so numeric tags, digests,
+# named tags, `:latest-nonroot`, and the BARE floating spelling are ALL
+# refused — one canonical form. Named residual, not papered over: the check
+# is line-granular, so a single line carrying both an acceptable and a
+# pinned ref escapes (the per-file Cg4/Cg5 anchors are the primary
+# enforcement; this is the breadth backstop). gitleaks pins are untouched:
+# the pattern is semgrep-specific by construction.
+echo "Cg-no-repin: every executable semgrep/semgrep reference under templates/pipelines is exactly :latest"
+repin="$(grep -rn 'semgrep/semgrep' "$PIPE_DIR" 2>/dev/null \
+  | sed 's/#.*//' \
+  | grep 'semgrep/semgrep' \
+  | grep -Ev 'semgrep/semgrep:latest([^A-Za-z0-9._-]|$)' \
+  | cut -d: -f1 | sort -u | sed "s|$REPO_ROOT/||" | tr '\n' ' ')"
 if [ -z "$repin" ]; then
   pass "Cg-no-repin"
 else
-  fail_ "Cg-no-repin" "version-pinned semgrep image found in: ${repin}(BL-201 floats the scanner deliberately — a pinned scanner silently stops catching new vulnerabilities; re-pinning requires reversing that recorded decision on the backlog, not a template edit)"
+  fail_ "Cg-no-repin" "non-:latest semgrep/semgrep reference on an executable line in: ${repin}(the ONLY accepted form is the exact tag semgrep/semgrep:latest — numeric tags, @sha256 digests, named tags like :canary, and the bare spelling all fail here; BL-201 floats the scanner deliberately, and re-pinning requires reversing that recorded decision on the backlog, not a template edit)"
 fi
 
 # ── Cg6: non-github gitleaks steps modernized (dir/git, pinned, off zricethezav)
