@@ -175,10 +175,13 @@ _mut_n() {
   ' "$1" > "$2"
 }
 
-# mk_stub <dir> <syntax-line-or-empty> <version-rc> <version-out>: a PATH
-# semgrep whose scan arm prints a well-formed banner on stderr (selection
-# satisfied at 1>=1) plus an optional column-0 warning line, exit 0 (clean
-# scan); its --version arm is configurable. Every stub case carries its own
+# mk_stub <dir> <syntax-line-or-empty> <version-rc> <version-out> [stdout]: a
+# PATH semgrep whose scan arm prints a well-formed banner on stderr (selection
+# satisfied at 1>=1) plus an optional column-0 warning line — on stderr by
+# default, on STDOUT when the fifth argument says so (the hook reads the
+# CONCATENATED streams precisely because BL-193 measured routing as
+# frontend-dependent; T-stub-warn-on-stdout pins that width). Exit 0 (clean
+# scan); the --version arm is configurable. Every stub case carries its own
 # control — a stub that broke the arm outright would make "the receipt was
 # forfeited" pass vacuously.
 mk_stub() {
@@ -190,8 +193,13 @@ mk_stub() {
     printf 'fi\n'
     printf 'cat >&2 <<SOIFSTUBEOF\n'
     printf '  Scanning 1 file with 174 Code rules:\n'
-    if [ -n "$2" ]; then printf '%s\n' "$2"; fi
+    if [ -n "$2" ] && [ "${5:-}" != "stdout" ]; then printf '%s\n' "$2"; fi
     printf 'SOIFSTUBEOF\n'
+    if [ -n "$2" ] && [ "${5:-}" = "stdout" ]; then
+      printf 'cat <<SOIFSTUBOUTEOF\n'
+      printf '%s\n' "$2"
+      printf 'SOIFSTUBOUTEOF\n'
+    fi
     printf 'exit 0\n'
   } > "$1/semgrep"
   chmod +x "$1/semgrep"
@@ -314,6 +322,30 @@ elif [ "$V" != "COMMITTED" ] || ! grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/ai.
   fail_ "T-stub-anchor-indent" "an INDENTED warning moved the count — the ^ anchor has been widened or dropped; indented/nested occurrences would now inflate the forfeit count: $(tail -6 "$TOPTMP/ai.log" | tr '\n' '|')"
 else
   pass "T-stub-anchor-indent: an indented exact-spelling warning does not count — the column-0 anchor carries width, not decoration (R-BL200-1)"
+fi
+
+# ── T-stub-warn-on-stdout (confirm-round mutant C: the both-streams read) ───
+# BL-193's measured lesson: which stream semgrep's status text lands on is
+# frontend ROUTING, not contract (the Scan Status header is stderr on this
+# host and stdout on the GitHub runner). The detector reads the CONCATENATED
+# status file for exactly that reason — and the reviewer's mutant C, swapping
+# that read to the stderr file alone, survived every case while C5's literal
+# stayed byte-identical. This pins the width: the exact warning arriving on
+# STDOUT (banner still on stderr) must still forfeit.
+echo "=== T-stub-warn-on-stdout ==="
+STUB_WOUT="$TOPTMP/stub-warn-stdout"
+mk_stub "$STUB_WOUT" '[WARN] Syntax error at line app.ts:1:' 0 '9.99.9-stub' stdout
+V="$(_commit_file "$EMITTED" "$CLEAN_TS" "$TOPTMP/wo.log" "$STUB_WOUT")"
+if [ "$V" = "SETUPFAIL" ]; then
+  fail_ "T-stub-warn-on-stdout" "fixture setup failed"
+elif [ "$V" != "COMMITTED" ]; then
+  fail_ "T-stub-warn-on-stdout" "the warn arm must not block: $(tail -6 "$TOPTMP/wo.log" | tr '\n' '|')"
+elif grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/wo.log"; then
+  fail_ "T-stub-warn-on-stdout" "a stdout-routed exact warning earned the receipt — the detector's read has narrowed to one stream (reviewer mutant C); BL-193 measured routing as frontend-dependent, so this under-detects on real hosts: $(tail -6 "$TOPTMP/wo.log" | tr '\n' '|')"
+elif ! grep -qF 'token-stream break' "$TOPTMP/wo.log"; then
+  fail_ "T-stub-warn-on-stdout" "forfeited without naming the break: $(tail -8 "$TOPTMP/wo.log" | tr '\n' '|')"
+else
+  pass "T-stub-warn-on-stdout: a stdout-routed exact warning still forfeits — the concatenated both-streams read carries width (confirm-round mutant C killed)"
 fi
 
 # ── T-mutation-verbose-flag ─────────────────────────────────────────────────
