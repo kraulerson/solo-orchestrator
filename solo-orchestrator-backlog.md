@@ -6507,9 +6507,37 @@ in the receipt's own documentation. WP3's five withdrawn cases are restored re-a
 iconv failure, `T-parse-threshold-exact` to BOM order, plus both mutation proofs) — the
 condition #278 was held open for. Suite 53/0 with the 8 sink rows watched RED first (every
 one printed the `[OK]` receipt over the unseen sink pre-fix); six sibling emitted-hook
-suites green; 11/11 lints. Residues, still named: BL-200 (token break — no byte-level test
-can see it) and the zero-ASCII single-line UTF-16 passthrough (bounded; pinned by
-`T-pure-cjk-residue-passthrough`).
+suites green; 11/11 lints.
+
+**Adversarial review round (fable), verdict `block` → fixed in `a54df64` — and every finding was real.**
+(1) **R-BL198-1, the blocker:** a UTF-32LE BOM prefixed to a UTF-16LE sink body defeated all
+three vouching surfaces — the 4-byte shift puts a zero on every position ≡3 (mod 4) so the
+stride-4 derivation AGREED with the lie, and macOS libiconv converts the out-of-range code
+points to NUL-free output — reproduced end-to-end by the reviewer with the `[OK]` receipt
+printed and the sink in HEAD: the BL-192 false attestation reborn through the fix itself.
+Closed by the **U+10FFFF range bound** in the derivation (genuine UTF-32 has byte@2 ≤ 0x10
+per LE group, byte@1 for BE — exact for BMP and astral; the reviewer validated the bound
+against genuine/astral/liar shapes in both endiannesses). Watched RED then GREEN
+(`T-u32bom-over-u16-body-notrun`). (2) **R-BL198-2:** the plan's WP0.3 claim *"real UTF-16
+source always has a whole-file signal"* is **REFUTED, recorded here rather than silently
+edited**: one code unit with a 0x00 LOW byte (U+0100, U+3000, an astral char with a zero
+surrogate byte) puts a zero on the wrong parity and collapses the exact rule — a clean CJK
+file with one ideographic space is a permanent loud NOTRUN. Kept exact ANYWAY, as a **third
+named residue** (`T-u16-wrongparity-residue` pins it): a dominance ratio would let a crafted
+no-BOM file steer the derivation to the wrong endianness, whose transcode is NUL-free
+valid-UTF-8 garbage and a receipt over an unscanned sink — the strictly worse failure. The
+residue fails LOUD and names the file; the remedy it prints (save as UTF-8) is real.
+(3) **R-BL198-3:** the output UTF-8 revalidation is inert on macOS (libiconv accepts 5-byte
+sequences) — added the byte-level floor (any 0xF5-0xFF byte in the output ⇒ failed
+transcode; RFC 3629 exact). (4) **R-BL198-4, deviation #2 recorded:** `T-ext-set-pinned`
+pins the extension set against the BL-125 source list — a PROXY for "the shipped rulesets",
+not the rulesets themselves; deriving language→extension from the ruleset YAMLs is the
+honest future tightening. (5) **R-BL198-5:** `.cxx/.hh/.hxx/.m/.mm` added to
+`# BL-198-EXT-SET`. Reviewer note recorded, pre-existing: semgrep's
+`--exclude-binary-files` defaults ON and the hook passes neither spelling — a dropped
+binary target is caught by the selection guard, so not a hole; noted so it is not
+rediscovered. Final: suite 55/0; residues now THREE, all named: BL-200 (token break), the
+zero-ASCII single-line passthrough, and the wrong-parity loud NOTRUN.
 
 **Read first, and do not repeat this work:** BL-192 (the measured diagnosis, the two-version table,
 the two DECISION blocks), the `# BL-112-SCAN-COVERAGE` block in `scripts/lib/hook-templates.sh` —
