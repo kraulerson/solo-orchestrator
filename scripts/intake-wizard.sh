@@ -1597,6 +1597,17 @@ run_section_11_5() {
   bug_tool=$(prompt_input "Bug tracking tool" "GitHub Issues")
 
   save_answer "testing_interval"   "$interval"
+  # BL-203-INTERVAL-PLUMB — the recorded answer must also reach the ENFORCED
+  # field (.claude/build-progress.json::test_interval); saving it into the
+  # intake record alone is the silent no-op BL-203 documents. test-gate.sh
+  # --set-interval is the single writer.
+  if [ -f "scripts/test-gate.sh" ]; then
+    if bash scripts/test-gate.sh --set-interval "$interval" >/dev/null 2>&1; then
+      print_info "Enforced testing interval set to every $interval feature(s)."
+    else
+      print_warn "Could not update the enforced interval — run: bash scripts/test-gate.sh --set-interval $interval"
+    fi
+  fi
   save_answer "human_tester_count" "$tester_count"
   save_answer "sev_critical_sla"   "$sev_critical"
   save_answer "sev_high_sla"       "$sev_high"
@@ -1775,6 +1786,7 @@ PROMPTEOF
 9. Section 12 (Tooling Configuration) is auto-populated by `init.sh` from `.claude/tool-preferences.json` — do not prompt the user; confirm the section is recorded and move on.
 10. Section 13 (Agent Initialization Prompt): auto-generate from the answers. Do not ask the user to write this.
 11. At the end, summarize what was filled in and flag any fields left blank.
+12. After Section 11.5's testing interval is answered, run `bash scripts/test-gate.sh --set-interval N` (N = the answer) — the recorded answer does not reach the enforced gate by itself (BL-203), and this path never runs the wizard's own plumbing.
 
 ## Suggestion Data
 

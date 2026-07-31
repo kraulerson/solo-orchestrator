@@ -20,6 +20,7 @@ BUILD_PROGRESS=".claude/build-progress.json"
 # --- Argument parsing ---
 ACTION=""
 FEATURE_NAME=""
+NEW_INTERVAL=""
 
 # Source-guard: the argument parser, "no action" check, and dispatch run only
 # when this script is executed directly. When sourced by tests (to call
@@ -31,6 +32,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
       --check-batch)        ACTION="check-batch";        shift ;;
       --check-phase-gate)   ACTION="check-phase-gate";   shift ;;
       --reset-counter)      ACTION="reset-counter";       shift ;;
+      --set-interval)       ACTION="set-interval"; NEW_INTERVAL="${2:-}"; shift 2 ;;
       --reset-health-check) ACTION="reset-health-check"; shift ;;
       --record-feature)     ACTION="record-feature"; FEATURE_NAME="$2"; shift 2 ;;
       --unrecord-feature)   ACTION="unrecord-feature"; FEATURE_NAME="$2"; shift 2 ;;
@@ -41,6 +43,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
         echo "  --check-batch         Check if testing session is due (exit 0=continue, 1=testing required)"
         echo "  --check-phase-gate    Check if Phase 2→3 transition is clear (exit 0=clear, 1=blocked, 2=warnings)"
         echo "  --reset-counter       Reset feature counter after testing session completes"
+        echo "  --set-interval N      Set the enforced testing interval (BL-203: the intake answer's single writer)"
         echo "  --record-feature N    Record a completed feature and increment counter"
         echo "  --unrecord-feature N  Un-record a feature recorded in error (interactive; inverse of --record-feature)"
         exit 0
@@ -74,7 +77,52 @@ ensure_progress_file() {
   "sessions_completed": 0
 }
 EOF
+    # BL-203: this heredoc is the SECOND writer of test_interval (init.sh is
+    # the first), so a recreated file must honor the interval the operator
+    # recorded at intake — otherwise the recorded answer silently reverts to 2
+    # whenever this file is lost (review R-203-1). The intake answer is the
+    # only recoverable source here; absent or non-numeric, the heredoc's 2
+    # stands.
+    local recorded
+    recorded=$(jq -r '.answers.testing_interval // empty' .claude/intake-progress.json 2>/dev/null) || recorded=""
+    case "$recorded" in ''|*[!0-9]*) recorded="" ;; esac
+    if [ -n "$recorded" ] && [ "$recorded" -gt 0 ]; then
+      : # BL-203 guard: the marked line below is excisable without a syntax break
+      _bl203_apply_interval "$recorded" # BL-203-INTERVAL-PLUMB
+    fi
   fi
+}
+
+# _bl203_apply_interval <N> — the one place test_interval is ever changed after
+# creation: writes the field, re-evaluates testing_required against the new N,
+# and keeps the rendered CLAUDE.md prose line in step (sed-in-place, NOT
+# soif_render_claude_md — that renderer is under a byte-identity contract).
+_bl203_apply_interval() {
+  local n="$1" tmp
+  tmp=$(mktemp)
+  jq --argjson n "$n" '
+    .test_interval = $n |
+    .testing_required = ((.features_since_last_test // 0) >= $n)
+  ' "$BUILD_PROGRESS" > "$tmp" && mv "$tmp" "$BUILD_PROGRESS"
+  if [ -f "CLAUDE.md" ] && grep -q 'Testing interval:' CLAUDE.md; then
+    sed -i.bak "s|\(\*\*Testing interval:\*\* Every \)[0-9][0-9]*\( features\)|\1${n}\2|" CLAUDE.md && rm -f CLAUDE.md.bak
+  fi
+}
+
+set_interval() {
+  local n="$1"
+  case "$n" in ''|*[!0-9]*)
+    print_fail "Usage: scripts/test-gate.sh --set-interval N (positive integer; got '${n:-}')"
+    exit 1 ;;
+  esac
+  if [ "$n" -lt 1 ]; then
+    print_fail "The testing interval must be at least 1 (got $n)"
+    exit 1
+  fi
+  ensure_progress_file
+  : # BL-203 guard: the marked line below is excisable without a syntax break
+  _bl203_apply_interval "$n" # BL-203-INTERVAL-PLUMB
+  print_ok "Enforced testing interval set: every $n feature(s) (.claude/build-progress.json)"
 }
 
 # --- Actions ---
@@ -95,6 +143,17 @@ check_batch() {
   else
     local remaining=$((interval - since_last))
     print_ok "Clear to continue ($remaining features until next testing session)"
+    # BL-203: name the interval and its source, and surface a recorded-answer
+    # mismatch with the exact remedy — the silent-config class this fixes is
+    # only dead if the divergence is self-revealing wherever it can exist.
+    print_info "Testing every $interval features (from .claude/build-progress.json)"
+    local intake_n
+    intake_n=$(jq -r '.answers.testing_interval // empty' .claude/intake-progress.json 2>/dev/null) || intake_n=""
+    case "$intake_n" in ''|*[!0-9]*) intake_n="" ;; esac
+    if [ -n "$intake_n" ] && [ "$intake_n" != "$interval" ]; then
+      print_warn "Your intake asked for testing every $intake_n features, but this project enforces every $interval."
+      print_info "To make them match: bash scripts/test-gate.sh --set-interval $intake_n"
+    fi
     exit 0
   fi
 }
@@ -470,6 +529,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     check-batch)        check_batch ;;
     check-phase-gate)   check_phase_gate ;;
     reset-counter)      reset_counter ;;
+    set-interval)       set_interval "$NEW_INTERVAL" ;;
     record-feature)     record_feature "$FEATURE_NAME" ;;
     unrecord-feature)   unrecord_feature "$FEATURE_NAME" ;;
     reset-health-check)

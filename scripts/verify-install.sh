@@ -762,11 +762,13 @@ fix_claude_md() {
   fi
 
   # Resolve substitution values with safe defaults. PROJECT_NAME and
-  # PROJECT_DESCRIPTION may be empty; init.sh defaults
-  # TEST_INTERVAL to 5 if Section 11.5 is unset.
+  # PROJECT_DESCRIPTION may be empty. TEST_INTERVAL defaults to 2 — the SAME
+  # default init.sh writes and test-gate.sh enforces (`// 2`); an earlier
+  # revision defaulted 5 under a comment claiming init defaults to 5 (false),
+  # so a repair re-render fabricated an interval nobody enforced (BL-203).
   local proj_name="${PROJECT_NAME:-unknown}"
   local proj_desc="${PROJECT_DESCRIPTION:-}"
-  local test_interval="${TEST_INTERVAL:-5}"
+  local test_interval="${TEST_INTERVAL:-2}"
 
   local staged
   staged=$(mktemp "${TMPDIR:-/tmp}/claude-md-stage.XXXXXX") || return 1

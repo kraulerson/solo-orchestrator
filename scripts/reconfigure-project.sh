@@ -321,6 +321,19 @@ reconfigure() {
   cd "$PROJECT_ROOT"
 
   case "$FIELD" in
+    test_interval)
+      # BL-203-INTERVAL-PLUMB — delegate to the single writer so the enforced
+      # field, testing_required, and the CLAUDE.md prose line move together.
+      case "$NEW_VALUE" in ''|*[!0-9]*)
+        print_fail "test_interval must be a positive integer (got '$NEW_VALUE')"
+        exit 1 ;;
+      esac
+      if ! bash scripts/test-gate.sh --set-interval "$NEW_VALUE"; then
+        print_fail "test-gate.sh --set-interval $NEW_VALUE failed — nothing changed"
+        exit 1
+      fi
+      print_ok "Testing interval reconfigured: every $NEW_VALUE feature(s)"
+      ;;
     language)
       # Update tool-preferences.json
       if [ -f ".claude/tool-preferences.json" ] && command -v jq &>/dev/null; then

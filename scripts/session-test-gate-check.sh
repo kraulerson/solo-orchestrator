@@ -197,9 +197,16 @@ fi
 # Read state
 FEATURES_COMPLETED=$(jq -r '.features_completed | length' "$BUILD_PROGRESS" 2>/dev/null || echo "0")
 case "$FEATURES_COMPLETED" in ''|*[!0-9]*) FEATURES_COMPLETED=0 ;; esac
-SINCE_LAST=$(jq -r '.features_since_last_test' "$BUILD_PROGRESS" 2>/dev/null || echo "0")
-INTERVAL=$(jq -r '.test_interval' "$BUILD_PROGRESS" 2>/dev/null || echo "2")
-TESTING_REQUIRED=$(jq -r '.testing_required' "$BUILD_PROGRESS" 2>/dev/null || echo "false")
+# BL-203: `jq -r` on a MISSING key prints the literal string `null` at rc 0,
+# so the `|| echo` fallbacks never fired and the -ge comparison below errored
+# with `integer expression expected` — taking the else branch, i.e. failing
+# OPEN. The `// default` inside jq plus the sanitizer line is the repo's
+# canonical shape (lint-counter-antipattern enforces the sanitizer).
+SINCE_LAST=$(jq -r '.features_since_last_test // 0' "$BUILD_PROGRESS" 2>/dev/null || echo "0")
+case "$SINCE_LAST" in ''|*[!0-9]*) SINCE_LAST=0 ;; esac
+INTERVAL=$(jq -r '.test_interval // 2' "$BUILD_PROGRESS" 2>/dev/null || echo "2")
+case "$INTERVAL" in ''|*[!0-9]*) INTERVAL=2 ;; esac
+TESTING_REQUIRED=$(jq -r '.testing_required // false' "$BUILD_PROGRESS" 2>/dev/null || echo "false")
 
 # Check 1: Testing session is overdue
 if [ "$TESTING_REQUIRED" = "true" ] || [ "$SINCE_LAST" -ge "$INTERVAL" ]; then
