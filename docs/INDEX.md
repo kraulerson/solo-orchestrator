@@ -91,6 +91,7 @@ Dated, point-in-time artifacts — evidence, not living docs. Naming convention 
   (BL-147..154 wave progress), [../Reports/2026-07-22-dogfood-4/](../Reports/2026-07-22-dogfood-4/)
   (dishonest-operator walk — trio HELD 3/3, live-CI evidence, BL-155..170).
 - **Arc-close / test-suite / triage reports** — e.g. the S3 arc-close handoff, workflow-HTML validation, BL-035 orphan triage, and the April test-suite runs, all under [../Reports/](../Reports/).
+- **[../Reports/2026-07-31-pr272-retro-audit.md](../Reports/2026-07-31-pr272-retro-audit.md)** — record of the queued retroactive audit of PR #272 (the one unreviewed merge): verdict FINDINGS-INERT; the skipped review would have caught exactly one live coverage hole (BL-181's 7-vs-1 undercount, repaired next day).
 - **Project post-mortems** — retrospective write-ups also live in `Reports/` by
   the same date convention (a `2026-07-11-project-post-mortem.md` is being
   authored in a parallel unit; it will appear here on merge).
