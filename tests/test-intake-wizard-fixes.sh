@@ -496,6 +496,174 @@ fi
 # ----------------------------------------------------------------
 # Summary
 # ----------------------------------------------------------------
+# ----------------------------------------------------------------
+# BL-203 — the intake's testing-interval answer must reach the ENFORCED
+# field. Single writer: `test-gate.sh --set-interval N` (marker
+# # BL-203-INTERVAL-PLUMB), called from the wizard's script path and
+# instructed on the AI path; ensure_progress_file() (the SECOND writer)
+# must honor the recorded answer when recreating; the session hook's
+# reads must not fail open on missing keys. Fixtures are hand-rolled —
+# NO scaffolding — so these stay unit-lane eligible.
+# ----------------------------------------------------------------
+TESTGATE="$REPO_ROOT/scripts/test-gate.sh"
+SESSCHECK="$REPO_ROOT/scripts/session-test-gate-check.sh"
+
+_bl203_fixture() {  # <dir> — minimal project state for test-gate.sh
+  mkdir -p "$1/.claude"
+  printf '{\n  "features_completed": ["a","b","c","d"],\n  "features_since_last_test": 4,\n  "test_interval": 2,\n  "last_test_session": null,\n  "testing_required": true,\n  "tester_count": 1,\n  "bug_tracker": "github_issues",\n  "sessions_completed": 0\n}\n' > "$1/.claude/build-progress.json"
+  printf -- '- **Testing interval:** Every 2 features (configured in Intake Section 11.5)\n' > "$1/CLAUDE.md"
+}
+
+echo ""
+echo "T-bl203-set-interval: the single-writer action exists and is atomic+complete"
+D=$(mktemp -d)
+_bl203_fixture "$D"
+if ( cd "$D" && bash "$TESTGATE" --set-interval 5 ) >/dev/null 2>&1 \
+   && [ "$(jq -r '.test_interval' "$D/.claude/build-progress.json")" = "5" ] \
+   && jq -e '.test_interval | type == "number"' "$D/.claude/build-progress.json" >/dev/null \
+   && [ "$(jq -r '.testing_required' "$D/.claude/build-progress.json")" = "false" ] \
+   && grep -qF 'Every 5 features (configured in Intake Section 11.5)' "$D/CLAUDE.md" \
+   && ( cd "$D" && bash "$TESTGATE" --set-interval 4 ) >/dev/null 2>&1 \
+   && [ "$(jq -r '.testing_required' "$D/.claude/build-progress.json")" = "true" ]; then
+  pass "T-bl203-set-interval (numeric-typed field, testing_required false at 4<5 and TRUE at the 4>=4 boundary, CLAUDE.md prose in step)"
+else
+  fail_ "T-bl203-set-interval" "test-gate.sh --set-interval 5 did not land in all three places: field=$(jq -r '.test_interval' "$D/.claude/build-progress.json" 2>/dev/null) required=$(jq -r '.testing_required' "$D/.claude/build-progress.json" 2>/dev/null) claude_md=$(grep -c 'Every 5 features' "$D/CLAUDE.md" 2>/dev/null)"
+fi
+rm -rf "$D"
+
+echo ""
+echo "T-bl203-set-interval-rejects: non-numeric and zero are refused, file untouched"
+D=$(mktemp -d)
+_bl203_fixture "$D"
+BAD=0
+( cd "$D" && bash "$TESTGATE" --set-interval abc ) >/dev/null 2>&1 && BAD=1
+( cd "$D" && bash "$TESTGATE" --set-interval 0 ) >/dev/null 2>&1 && BAD=1
+if [ "$BAD" -eq 0 ] && [ "$(jq -r '.test_interval' "$D/.claude/build-progress.json")" = "2" ]; then
+  pass "T-bl203-set-interval-rejects (abc and 0 exit non-zero and change nothing)"
+else
+  fail_ "T-bl203-set-interval-rejects" "invalid input accepted or file mutated (bad=$BAD interval=$(jq -r '.test_interval' "$D/.claude/build-progress.json"))"
+fi
+rm -rf "$D"
+
+echo ""
+echo "T-bl203-set-interval-hardened: oversized input and corrupt JSON fail LOUDLY, doc never advances past the gate"
+D=$(mktemp -d)
+_bl203_fixture "$D"
+HARD_OK=1
+( cd "$D" && bash "$TESTGATE" --set-interval 99999999999999999999 ) >/dev/null 2>&1 && HARD_OK=0
+[ "$(jq -r '.test_interval' "$D/.claude/build-progress.json")" = "2" ] || HARD_OK=0
+printf 'THIS IS NOT JSON {{{\n' > "$D/.claude/build-progress.json"
+( cd "$D" && bash "$TESTGATE" --set-interval 5 ) >/dev/null 2>&1 && HARD_OK=0
+grep -qF 'Every 2 features' "$D/CLAUDE.md" || HARD_OK=0
+if [ "$HARD_OK" -eq 1 ]; then
+  pass "T-bl203-set-interval-hardened (a 20-digit interval is refused before it can park the gate open; corrupt JSON exits non-zero and CLAUDE.md is NOT advanced — R-BL203-2/-4)"
+else
+  fail_ "T-bl203-set-interval-hardened" "an invalid write path returned success or advanced the doc past the gate (interval=$(jq -r '.test_interval' "$D/.claude/build-progress.json" 2>/dev/null) md=$(grep -o 'Every [0-9]* features' "$D/CLAUDE.md" 2>/dev/null))"
+fi
+rm -rf "$D"
+
+echo ""
+echo "T-bl203-wizard-calls-set-interval: the script path plumbs the answer"
+if awk '/^run_section_11_5\(\)/,/^}/' "$WIZARD" | grep -qF -- '--set-interval "$interval"'; then
+  pass "T-bl203-wizard-calls-set-interval (run_section_11_5 invokes the single writer)"
+else
+  fail_ "T-bl203-wizard-calls-set-interval" "run_section_11_5 saves testing_interval but never calls test-gate.sh --set-interval — the answer is a silent no-op (BL-203)"
+fi
+
+echo ""
+echo "T-bl203-guided-prompt-instructs: the AI path plumbs it too"
+# RENDERED, not source-grepped: the PROMPTEOF heredoc is UNQUOTED, so an
+# unescaped backtick EXECUTES at prompt-generation time and ships the
+# command's error text instead of the command (review R-BL203-1 — a source
+# grep passed green over exactly that). Render every PROMPTEOF body in an
+# empty fixture dir and assert the literal commands survive.
+D=$(mktemp -d)
+awk '/<< PROMPTEOF/{f=1;next} /^PROMPTEOF$/{f=0} f' "$WIZARD" > "$D/body.txt"
+{ echo 'cat << PROMPTEOF'; cat "$D/body.txt"; echo 'PROMPTEOF'; } > "$D/render.sh"
+RENDERED=$( cd "$D" && bash --noprofile --norc render.sh </dev/null 2>/dev/null )
+# NEEDLE split keeps the literal init-script token off executed lines — the
+# BL-181 unit-lane predicate reads names-on-executed-lines, and the token
+# here would silently exempt this file from the tests.yml membership lint.
+NEEDLE='init'; NEEDLE="${NEEDLE}.sh"
+if printf '%s' "$RENDERED" | grep -qF -- '`bash scripts/test-gate.sh --set-interval N`' \
+   && printf '%s' "$RENDERED" | grep -qF -- "\`$NEEDLE\`" \
+   && ! printf '%s' "$RENDERED" | grep -qF '[FAIL]'; then
+  pass "T-bl203-guided-prompt-instructs (the RENDERED prompt carries the literal --set-interval command and instruction 9's init reference — no backtick executed)"
+else
+  fail_ "T-bl203-guided-prompt-instructs" "the rendered guided prompt lost a backticked command to heredoc expansion (R-BL203-1): $(printf '%s' "$RENDERED" | grep -n 'set-interval\|Tooling Configuration' | head -2 | tr '\n' '|')"
+fi
+rm -rf "$D"
+
+echo ""
+echo "T-bl203-ensure-recreate-consistent: the SECOND writer honors the recorded answer"
+D=$(mktemp -d)
+mkdir -p "$D/.claude"
+printf '{"answers": {"testing_interval": "7"}}\n' > "$D/.claude/intake-progress.json"
+printf -- '- **Testing interval:** Every 2 features (configured in Intake Section 11.5)\n' > "$D/CLAUDE.md"
+( cd "$D" && bash "$TESTGATE" --check-batch ) >/dev/null 2>&1 || true
+GOT=$(jq -r '.test_interval' "$D/.claude/build-progress.json" 2>/dev/null)
+if [ "$GOT" = "7" ] && grep -qF 'Every 2 features' "$D/CLAUDE.md"; then
+  pass "T-bl203-ensure-recreate-consistent (a recreated file carries the recorded 7 — and the read-only query did NOT touch CLAUDE.md, R-BL203-6)"
+else
+  fail_ "T-bl203-ensure-recreate-consistent" "ensure_progress_file recreated with test_interval=$GOT — the second writer silently reverts the answer (review R-203-1)"
+fi
+rm -rf "$D"
+
+echo ""
+echo "T-bl203-session-check-null-safe: missing keys must not error or fail open"
+D=$(mktemp -d)
+mkdir -p "$D/.claude"
+printf '{"current_phase": "2"}\n' > "$D/.claude/phase-state.json"
+printf '{"features_since_last_test": 4}\n' > "$D/.claude/build-progress.json"
+OUT=$( cd "$D" && bash "$SESSCHECK" 2>&1 ); RC=$?
+if [ "$RC" -eq 0 ] && ! printf '%s' "$OUT" | grep -q 'integer expression' \
+   && printf '%s' "$OUT" | grep -q 'TEST GATE BLOCKED'; then
+  pass "T-bl203-session-check-null-safe (missing test_interval defaults to 2; 4>=2 correctly reports the gate, no bash error)"
+else
+  fail_ "T-bl203-session-check-null-safe" "rc=$RC — a missing test_interval key must default to 2 and still report (got: $(printf '%s' "$OUT" | head -2 | tr '\n' '|'))"
+fi
+rm -rf "$D"
+
+echo ""
+echo "T-bl203-verify-install-default: the repair renderer must not fabricate a 5"
+if grep -qF ':-5}' "$REPO_ROOT/scripts/verify-install.sh"; then
+  fail_ "T-bl203-verify-install-default" "verify-install.sh still defaults TEST_INTERVAL to 5 under a false comment — a repair re-render writes an interval nobody enforces"
+else
+  pass "T-bl203-verify-install-default (the repair default matches the enforced default)"
+fi
+
+echo ""
+echo "T-bl203-mutation: excising the marked write line makes the answer a no-op again"
+D=$(mktemp -d)
+_bl203_fixture "$D"
+MUT="$D/test-gate.mut.sh"
+# R-BL203-13: the mutant must be RUNNABLE or the case is vacuous — it sources
+# lib/helpers-core.sh relative to its own location, so give it the real libs
+# and require an empty stderr as proof it reached the BL-203 code at all (an
+# unloadable copy dies at source-time and looks identical by field value).
+mkdir -p "$D/lib" && cp "$REPO_ROOT/scripts/lib/"*.sh "$D/lib/"
+MARKS=$(grep -c 'BL-203-INTERVAL-PLUMB' "$TESTGATE" 2>/dev/null) || MARKS=0
+sed '/# BL-203-INTERVAL-PLUMB$/d' "$TESTGATE" > "$MUT"
+LEFT=$(grep -c 'BL-203-INTERVAL-PLUMB' "$MUT" 2>/dev/null) || LEFT=0
+if [ "${MARKS:-0}" -lt 1 ]; then
+  fail_ "T-bl203-mutation" "no # BL-203-INTERVAL-PLUMB marker in test-gate.sh — nothing to excise (mis-targeted)"
+elif [ "${LEFT:-0}" -ne 0 ]; then
+  fail_ "T-bl203-mutation" "excision left $LEFT marker(s) — vacuous mutant"
+elif ! bash -n "$MUT" 2>/dev/null; then
+  fail_ "T-bl203-mutation" "mutant has a syntax error — a broken mutant proves nothing (the marked line needs its : guard)"
+else
+  ( cd "$D" && bash "$MUT" --set-interval 5 ) >/dev/null 2>"$D/mut.stderr" || true
+  MUT_GOT=$(jq -r '.test_interval' "$D/.claude/build-progress.json" 2>/dev/null)
+  if [ -s "$D/mut.stderr" ]; then
+    fail_ "T-bl203-mutation" "the mutant errored before reaching the BL-203 code ($(head -1 "$D/mut.stderr")) — a mutant that cannot run proves nothing (R-BL203-13)"
+  elif [ "$MUT_GOT" = "2" ]; then
+    pass "T-bl203-mutation (excised writer -> the answer no-ops again, field stays 2 — the marked line is load-bearing and the mutant is non-vacuous)"
+  else
+    fail_ "T-bl203-mutation" "mutant still wrote test_interval=$MUT_GOT — the mutation is not cutting the write path"
+  fi
+fi
+rm -rf "$D"
+
 echo ""
 echo "==============================="
 echo "Passed: $PASSED   Failed: $FAILED"

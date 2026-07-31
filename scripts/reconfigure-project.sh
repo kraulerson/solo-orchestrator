@@ -68,6 +68,7 @@ while [ $# -gt 0 ]; do
       echo "       scripts/reconfigure-project.sh --reset-detection-baseline"
       echo ""
       echo "Supported fields:"
+      echo "  test_interval     — enforced testing interval (delegates to test-gate.sh --set-interval; BL-203)"
       echo "  language   — Regenerates CI pipeline, .gitignore language entries, permissions"
       echo "  platform   — Regenerates release pipeline, copies new platform module"
       echo "  name       — Updates phase-state.json, CLAUDE.md, APPROVAL_LOG.md header,"
@@ -321,6 +322,19 @@ reconfigure() {
   cd "$PROJECT_ROOT"
 
   case "$FIELD" in
+    test_interval)
+      # BL-203-INTERVAL-PLUMB — delegate to the single writer so the enforced
+      # field, testing_required, and the CLAUDE.md prose line move together.
+      case "$NEW_VALUE" in ''|*[!0-9]*)
+        print_fail "test_interval must be a positive integer (got '$NEW_VALUE')"
+        exit 1 ;;
+      esac
+      if ! bash scripts/test-gate.sh --set-interval "$NEW_VALUE"; then
+        print_fail "test-gate.sh --set-interval $NEW_VALUE failed — nothing changed"
+        exit 1
+      fi
+      print_ok "Testing interval reconfigured: every $NEW_VALUE feature(s)"
+      ;;
     language)
       # Update tool-preferences.json
       if [ -f ".claude/tool-preferences.json" ] && command -v jq &>/dev/null; then

@@ -1597,6 +1597,20 @@ run_section_11_5() {
   bug_tool=$(prompt_input "Bug tracking tool" "GitHub Issues")
 
   save_answer "testing_interval"   "$interval"
+  # BL-203-INTERVAL-PLUMB — the recorded answer must also reach the ENFORCED
+  # field (.claude/build-progress.json::test_interval); saving it into the
+  # intake record alone is the silent no-op BL-203 documents. test-gate.sh
+  # --set-interval is the single writer.
+  if [ -f "scripts/test-gate.sh" ]; then
+    if bash scripts/test-gate.sh --set-interval "$interval" >/dev/null 2>&1; then
+      print_info "Enforced testing interval set to every $interval feature(s)."
+    else
+      print_warn "Could not update the enforced interval — run: bash scripts/test-gate.sh --set-interval $interval"
+    fi
+  else
+    # R-BL203-7: an absent writer must not become the silent no-op again.
+    print_warn "scripts/test-gate.sh not found — the enforced interval is unchanged. Run: bash scripts/test-gate.sh --set-interval $interval"
+  fi
   save_answer "human_tester_count" "$tester_count"
   save_answer "sev_critical_sla"   "$sev_critical"
   save_answer "sev_high_sla"       "$sev_high"
@@ -1772,9 +1786,10 @@ PROMPTEOF
    - **Sponsored POC:** Organization knows. AI deployment path + sponsor + time allocation required. Insurance, liability, ITSM, exit criteria, backup maintainer deferred. Constraints: no production deployment, no real user data, no external users. All technical work is production-grade.
    - **Private POC:** Personal exploration. All pre-conditions deferred. Same constraints as Sponsored POC.
 8. Write completed sections into PROJECT_INTAKE.md progressively as you go.
-9. Section 12 (Tooling Configuration) is auto-populated by `init.sh` from `.claude/tool-preferences.json` — do not prompt the user; confirm the section is recorded and move on.
+9. Section 12 (Tooling Configuration) is auto-populated by \`init.sh\` from \`.claude/tool-preferences.json\` — do not prompt the user; confirm the section is recorded and move on.
 10. Section 13 (Agent Initialization Prompt): auto-generate from the answers. Do not ask the user to write this.
 11. At the end, summarize what was filled in and flag any fields left blank.
+12. After Section 11.5's testing interval is answered, run \`bash scripts/test-gate.sh --set-interval N\` (N = the answer) — the recorded answer does not reach the enforced gate by itself (BL-203), and this path never runs the wizard's own plumbing. This heredoc is UNQUOTED (context values substitute), so backticks here MUST stay escaped or they execute at prompt-generation time (review R-BL203-1).
 
 ## Suggestion Data
 
