@@ -19,8 +19,9 @@ pipelines:
               - pytest
         - step:
             name: SAST
-            image: semgrep/semgrep:1.170.0
-            script: [semgrep scan --config=p/owasp-top-ten --config=r/javascript.browser.security.insecure-document-method --config=.semgrep/soif-dom-sinks.yml --severity=ERROR --error]
+            # BL-201-FLOAT: the tag floats deliberately — a pinned scanner silently stops catching new vulnerabilities (backlog BL-201); the job logs semgrep --version. Do not re-pin without reversing that decision.
+            image: semgrep/semgrep:latest
+            script: [semgrep --version, semgrep scan --config=p/owasp-top-ten --config=r/javascript.browser.security.insecure-document-method --config=.semgrep/soif-dom-sinks.yml --severity=ERROR --error]
         - step:
             name: Secrets
             image: ghcr.io/gitleaks/gitleaks:v8.30.1

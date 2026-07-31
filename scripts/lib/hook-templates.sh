@@ -1210,10 +1210,12 @@ if command -v semgrep &>/dev/null; then
       #   PROJECT ACTUALLY HAS — AND NOTE WHICH SEMGREP THAT IS, BECAUSE THERE ARE TWO.
       #   THIS HOOK runs whatever `semgrep` is on the operator's PATH and pins nothing, so
       #   "it passed on my host" is not evidence about the host that will run it. The CI
-      #   SAST job is a DIFFERENT surface and IS pinned — every generated CI template that
-      #   runs semgrep pins `image: semgrep/semgrep:1.170.0`, one release below the 1.171.0
-      #   version on which this instrument goes blind (BL-192), so a routine currency bump
-      #   crosses that line for every generated project at once.
+      #   SAST job is a DIFFERENT surface and — since BL-201 — floats too: every generated
+      #   CI template that runs semgrep uses `image: semgrep/semgrep:latest` and logs
+      #   `semgrep --version` in the job (# BL-201-FLOAT). Both surfaces therefore track
+      #   current semgrep, already past the 1.171.0 blindness line of BL-192 — which is
+      #   safe only because BL-198 removed every clause that reads semgrep's self-report;
+      #   the job log, not a pin, answers which version scanned any given run.
       # BL-187-RULE-COVERAGE (parse) — THE THIRD FACT, AND THE ONE THE FIRST TWO
       # STRUCTURALLY CANNOT SEE. Selection is fixed before a byte is parsed; the parse
       # percentage is fixed once the AST exists. Neither is touched by what happens NEXT:
