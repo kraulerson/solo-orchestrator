@@ -1269,11 +1269,17 @@ if command -v semgrep &>/dev/null; then
       # SELF-REPORT to GRANT receipts and lies at ~100% on >=1.171.0; this one reads a
       # warning's PRESENCE and can only ever FORFEIT — under-detection (a respelled
       # warning, a quieter verbose) degrades to exactly the pre-BL-200 behaviour, pinned
-      # by T-stub-respell-degrades. COLUMN-0 ANCHORED, deliberately: verbose echoes the
-      # offending FILE CONTENT right after the warning, and a staged file may
-      # legitimately CONTAIN this very string (this framework's own suites do); the
-      # anchor keeps an echoed mention from counting, and a false positive here only
-      # forfeits, never blocks. The spelling is canary-pinned framework-side
+      # by T-stub-respell-degrades. COLUMN-0 ANCHORED, deliberately — and precise about
+      # what the anchor buys (review RF-1): a staged file's content reaches this stream
+      # ONLY inside a genuine warning's echo. Measured both ways: a CLEAN file whose
+      # content IS this very string at column 0 contributes zero (its content never
+      # enters the stream), while an already-broken file's echoed continuation lines DO
+      # land at column 0 and can INFLATE the count of a scan that was forfeiting anyway
+      # (only the first echoed line gets a prefix). So the anchor's job is width, not
+      # immunity: indented/nested occurrences never count (pinned by
+      # T-stub-anchor-indent), the count stays a warning tally on clean commits, and
+      # any inflation only ever forfeits harder — never grants, never blocks. The
+      # spelling is canary-pinned framework-side
       # (tests/test-bl200-syntax-canary.sh) so an upstream respell reds the framework's
       # OWN lane instead of silently blinding every generated project. Same presence-test
       # plumbing as the timeout clause: `|| …=0` so `set -e` cannot abort the hook, and

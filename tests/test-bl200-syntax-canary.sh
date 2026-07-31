@@ -55,6 +55,20 @@ skip_() { echo "  [SKIP] $1 — $2"; SKIPPED=$((SKIPPED + 1)); }
 TOPTMP="$(mktemp -d)"
 trap 'rm -rf "$TOPTMP"' EXIT
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# ── C5-hook-lockstep (review R-BL200-1: the lockstep is asserted, not asked) ─
+# The header below says "if you change one, change both" — this case makes that
+# a check instead of a plea: the hook template must carry this canary's exact
+# grep atom verbatim. Runs before the semgrep gate because it needs no scanner.
+echo "=== C5-hook-lockstep ==="
+if grep -qF "grep -cE '^\\[WARN\\] Syntax error at line '" "$REPO_ROOT/scripts/lib/hook-templates.sh"; then
+  pass "C5-hook-lockstep (the hook's detector grep carries this canary's exact atom verbatim)"
+else
+  fail_ "C5-hook-lockstep" "scripts/lib/hook-templates.sh's # BL-200-SYNTAX-BREAK grep no longer matches this canary's atom verbatim — the two are lockstep BY CONTRACT; a canary pinning a spelling the hook does not read protects nothing. Update both together"
+fi
+
 if ! command -v semgrep >/dev/null 2>&1; then
   echo ""
   echo "#################################################################"
@@ -70,6 +84,7 @@ if ! command -v semgrep >/dev/null 2>&1; then
   echo ""
   echo "!! ${SKIPPED} case(s) SKIPPED — skipped != passed."
   echo "Results: $PASSED passed, $FAILED failed (${SKIPPED} skipped)"
+  [ "$FAILED" -eq 0 ] || exit 1
   exit 0
 fi
 

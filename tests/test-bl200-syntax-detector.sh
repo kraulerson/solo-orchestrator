@@ -296,6 +296,26 @@ else
   pass "T-stub-version-unknown: version-capture failure degrades to an honest 'version unknown', receipt intact"
 fi
 
+# ── T-stub-anchor-indent (review R-BL200-1: the ^ atom pinned by WIDTH) ─────
+# Drop the anchor from the hook's detector grep and THIS is the case that goes
+# red: an INDENTED exact-spelling warning must NOT count. Semgrep prints the
+# real warning at column 0 (canary C1 pins that against the live scanner);
+# the `^` exists so indented/nested occurrences — echoed content, quoted
+# mentions — never move the count. The forfeit-direction control is
+# T-stub-respell-degrades' exact-spelling half. Pin the atom's WIDTH, not just
+# its presence (the BL-181 doctrine).
+echo "=== T-stub-anchor-indent ==="
+STUB_INDENT="$TOPTMP/stub-indent"
+mk_stub "$STUB_INDENT" '  [WARN] Syntax error at line app.ts:1:' 0 '9.99.9-stub'
+V="$(_commit_file "$EMITTED" "$CLEAN_TS" "$TOPTMP/ai.log" "$STUB_INDENT")"
+if [ "$V" = "SETUPFAIL" ]; then
+  fail_ "T-stub-anchor-indent" "fixture setup failed"
+elif [ "$V" != "COMMITTED" ] || ! grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/ai.log"; then
+  fail_ "T-stub-anchor-indent" "an INDENTED warning moved the count — the ^ anchor has been widened or dropped; indented/nested occurrences would now inflate the forfeit count: $(tail -6 "$TOPTMP/ai.log" | tr '\n' '|')"
+else
+  pass "T-stub-anchor-indent: an indented exact-spelling warning does not count — the column-0 anchor carries width, not decoration (R-BL200-1)"
+fi
+
 # ── T-mutation-verbose-flag ─────────────────────────────────────────────────
 echo "=== T-mutation-verbose-flag ==="
 if [ "$HAVE_LIVE" -ne 1 ]; then
