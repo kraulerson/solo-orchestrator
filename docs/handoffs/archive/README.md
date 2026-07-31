@@ -9,7 +9,7 @@ plan → PRs → shipped state stays intact and citable.
 
 - **Live handoff:** the single most recent state-of-record for the current
   arc lives at the top level of `docs/handoffs/`. Right now that is
-  [`../2026-07-30-post-sast-wave-next-steps.md`](../2026-07-30-post-sast-wave-next-steps.md).
+  [`../2026-07-31-six-pr-wave-close.md`](../2026-07-31-six-pr-wave-close.md).
   Everything else at the top level is a pointer stub.
 - **Archived handoff:** once a handoff is executed or superseded, its full
   text moves here and a short **pointer stub** is left at the original
