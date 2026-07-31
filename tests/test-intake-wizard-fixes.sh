@@ -520,9 +520,12 @@ D=$(mktemp -d)
 _bl203_fixture "$D"
 if ( cd "$D" && bash "$TESTGATE" --set-interval 5 ) >/dev/null 2>&1 \
    && [ "$(jq -r '.test_interval' "$D/.claude/build-progress.json")" = "5" ] \
+   && jq -e '.test_interval | type == "number"' "$D/.claude/build-progress.json" >/dev/null \
    && [ "$(jq -r '.testing_required' "$D/.claude/build-progress.json")" = "false" ] \
-   && grep -qF 'Every 5 features (configured in Intake Section 11.5)' "$D/CLAUDE.md"; then
-  pass "T-bl203-set-interval (writes the field, re-evaluates testing_required at 4<5, updates the CLAUDE.md prose in place)"
+   && grep -qF 'Every 5 features (configured in Intake Section 11.5)' "$D/CLAUDE.md" \
+   && ( cd "$D" && bash "$TESTGATE" --set-interval 4 ) >/dev/null 2>&1 \
+   && [ "$(jq -r '.testing_required' "$D/.claude/build-progress.json")" = "true" ]; then
+  pass "T-bl203-set-interval (numeric-typed field, testing_required false at 4<5 and TRUE at the 4>=4 boundary, CLAUDE.md prose in step)"
 else
   fail_ "T-bl203-set-interval" "test-gate.sh --set-interval 5 did not land in all three places: field=$(jq -r '.test_interval' "$D/.claude/build-progress.json" 2>/dev/null) required=$(jq -r '.testing_required' "$D/.claude/build-progress.json" 2>/dev/null) claude_md=$(grep -c 'Every 5 features' "$D/CLAUDE.md" 2>/dev/null)"
 fi
@@ -543,6 +546,23 @@ fi
 rm -rf "$D"
 
 echo ""
+echo "T-bl203-set-interval-hardened: oversized input and corrupt JSON fail LOUDLY, doc never advances past the gate"
+D=$(mktemp -d)
+_bl203_fixture "$D"
+HARD_OK=1
+( cd "$D" && bash "$TESTGATE" --set-interval 99999999999999999999 ) >/dev/null 2>&1 && HARD_OK=0
+[ "$(jq -r '.test_interval' "$D/.claude/build-progress.json")" = "2" ] || HARD_OK=0
+printf 'THIS IS NOT JSON {{{\n' > "$D/.claude/build-progress.json"
+( cd "$D" && bash "$TESTGATE" --set-interval 5 ) >/dev/null 2>&1 && HARD_OK=0
+grep -qF 'Every 2 features' "$D/CLAUDE.md" || HARD_OK=0
+if [ "$HARD_OK" -eq 1 ]; then
+  pass "T-bl203-set-interval-hardened (a 20-digit interval is refused before it can park the gate open; corrupt JSON exits non-zero and CLAUDE.md is NOT advanced — R-BL203-2/-4)"
+else
+  fail_ "T-bl203-set-interval-hardened" "an invalid write path returned success or advanced the doc past the gate (interval=$(jq -r '.test_interval' "$D/.claude/build-progress.json" 2>/dev/null) md=$(grep -o 'Every [0-9]* features' "$D/CLAUDE.md" 2>/dev/null))"
+fi
+rm -rf "$D"
+
+echo ""
 echo "T-bl203-wizard-calls-set-interval: the script path plumbs the answer"
 if awk '/^run_section_11_5\(\)/,/^}/' "$WIZARD" | grep -qF -- '--set-interval "$interval"'; then
   pass "T-bl203-wizard-calls-set-interval (run_section_11_5 invokes the single writer)"
@@ -552,22 +572,34 @@ fi
 
 echo ""
 echo "T-bl203-guided-prompt-instructs: the AI path plumbs it too"
-if grep -qF 'test-gate.sh --set-interval' "$WIZARD" && awk '/PROMPTEOF/,0' "$WIZARD" >/dev/null 2>&1 \
-   && sed -n '/cat.*PROMPTEOF/,/^PROMPTEOF/p' "$WIZARD" | grep -qF -- '--set-interval'; then
-  pass "T-bl203-guided-prompt-instructs (the guided prompt tells the agent to run the writer — run_section_11_5 never runs on this path)"
+# RENDERED, not source-grepped: the PROMPTEOF heredoc is UNQUOTED, so an
+# unescaped backtick EXECUTES at prompt-generation time and ships the
+# command's error text instead of the command (review R-BL203-1 — a source
+# grep passed green over exactly that). Render every PROMPTEOF body in an
+# empty fixture dir and assert the literal commands survive.
+D=$(mktemp -d)
+awk '/<< PROMPTEOF/{f=1;next} /^PROMPTEOF$/{f=0} f' "$WIZARD" > "$D/body.txt"
+{ echo 'cat << PROMPTEOF'; cat "$D/body.txt"; echo 'PROMPTEOF'; } > "$D/render.sh"
+RENDERED=$( cd "$D" && bash --noprofile --norc render.sh </dev/null 2>/dev/null )
+if printf '%s' "$RENDERED" | grep -qF -- '`bash scripts/test-gate.sh --set-interval N`' \
+   && printf '%s' "$RENDERED" | grep -qF -- '`init.sh`' \
+   && ! printf '%s' "$RENDERED" | grep -qF '[FAIL]'; then
+  pass "T-bl203-guided-prompt-instructs (the RENDERED prompt carries the literal --set-interval command and instruction 9's init reference — no backtick executed)"
 else
-  fail_ "T-bl203-guided-prompt-instructs" "the AI-assist guided prompt carries no --set-interval instruction — the fix silently no-ops on the path init.sh advertises first"
+  fail_ "T-bl203-guided-prompt-instructs" "the rendered guided prompt lost a backticked command to heredoc expansion (R-BL203-1): $(printf '%s' "$RENDERED" | grep -n 'set-interval\|Tooling Configuration' | head -2 | tr '\n' '|')"
 fi
+rm -rf "$D"
 
 echo ""
 echo "T-bl203-ensure-recreate-consistent: the SECOND writer honors the recorded answer"
 D=$(mktemp -d)
 mkdir -p "$D/.claude"
 printf '{"answers": {"testing_interval": "7"}}\n' > "$D/.claude/intake-progress.json"
+printf -- '- **Testing interval:** Every 2 features (configured in Intake Section 11.5)\n' > "$D/CLAUDE.md"
 ( cd "$D" && bash "$TESTGATE" --check-batch ) >/dev/null 2>&1 || true
 GOT=$(jq -r '.test_interval' "$D/.claude/build-progress.json" 2>/dev/null)
-if [ "$GOT" = "7" ]; then
-  pass "T-bl203-ensure-recreate-consistent (a recreated build-progress.json carries the recorded 7, not the heredoc 2)"
+if [ "$GOT" = "7" ] && grep -qF 'Every 2 features' "$D/CLAUDE.md"; then
+  pass "T-bl203-ensure-recreate-consistent (a recreated file carries the recorded 7 — and the read-only query did NOT touch CLAUDE.md, R-BL203-6)"
 else
   fail_ "T-bl203-ensure-recreate-consistent" "ensure_progress_file recreated with test_interval=$GOT — the second writer silently reverts the answer (review R-203-1)"
 fi

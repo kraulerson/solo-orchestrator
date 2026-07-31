@@ -82,46 +82,73 @@ EOF
     # recorded at intake — otherwise the recorded answer silently reverts to 2
     # whenever this file is lost (review R-203-1). The intake answer is the
     # only recoverable source here; absent or non-numeric, the heredoc's 2
-    # stands.
+    # stands. JSON ONLY — this runs from read-only queries (--check-batch,
+    # session hooks), which must never mutate CLAUDE.md (review R-BL203-6);
+    # the prose edit belongs to the explicit --set-interval action alone.
     local recorded
     recorded=$(jq -r '.answers.testing_interval // empty' .claude/intake-progress.json 2>/dev/null) || recorded=""
-    case "$recorded" in ''|*[!0-9]*) recorded="" ;; esac
-    if [ -n "$recorded" ] && [ "$recorded" -gt 0 ]; then
+    case "$recorded" in ''|*[!0-9]*|0*|??????*) recorded="" ;; esac
+    if [ -n "$recorded" ]; then
       : # BL-203 guard: the marked line below is excisable without a syntax break
-      _bl203_apply_interval "$recorded" # BL-203-INTERVAL-PLUMB
+      _bl203_write_json "$recorded" || true # BL-203-INTERVAL-PLUMB
     fi
   fi
 }
 
-# _bl203_apply_interval <N> — the one place test_interval is ever changed after
-# creation: writes the field, re-evaluates testing_required against the new N,
-# and keeps the rendered CLAUDE.md prose line in step (sed-in-place, NOT
-# soif_render_claude_md — that renderer is under a byte-identity contract).
-_bl203_apply_interval() {
+# _bl203_write_json <N> — the one write path for test_interval: sets the field
+# and re-evaluates testing_required against the new N. FAILS LOUDLY: a jq
+# failure (malformed or strange-shaped JSON) must never return 0 — a silent
+# success here recreates the exact doc-vs-gate divergence BL-203 documents
+# (review R-BL203-2). jq runs first and alone so its status is seen; mv only
+# on success.
+_bl203_write_json() {
   local n="$1" tmp
   tmp=$(mktemp)
-  jq --argjson n "$n" '
+  if ! jq --argjson n "$n" '
     .test_interval = $n |
     .testing_required = ((.features_since_last_test // 0) >= $n)
-  ' "$BUILD_PROGRESS" > "$tmp" && mv "$tmp" "$BUILD_PROGRESS"
-  if [ -f "CLAUDE.md" ] && grep -q 'Testing interval:' CLAUDE.md; then
-    sed -i.bak "s|\(\*\*Testing interval:\*\* Every \)[0-9][0-9]*\( features\)|\1${n}\2|" CLAUDE.md && rm -f CLAUDE.md.bak
+  ' "$BUILD_PROGRESS" > "$tmp" 2>/dev/null; then
+    rm -f "$tmp"
+    print_fail "Could not update .claude/build-progress.json (malformed JSON?) — nothing changed."
+    return 1
+  fi
+  if ! mv "$tmp" "$BUILD_PROGRESS"; then
+    rm -f "$tmp"
+    print_fail "Could not replace .claude/build-progress.json — nothing changed."
+    return 1
   fi
 }
 
 set_interval() {
   local n="$1"
-  case "$n" in ''|*[!0-9]*)
-    print_fail "Usage: scripts/test-gate.sh --set-interval N (positive integer; got '${n:-}')"
+  # Bound as well as shape: an all-digit value past ~5 digits breaks bash's
+  # integer tests downstream and would park the gate permanently open
+  # (review R-BL203-4). Leading zeros rejected with it; 1..99999 is ample.
+  case "$n" in ''|*[!0-9]*|0*|??????*)
+    print_fail "Usage: scripts/test-gate.sh --set-interval N (integer 1-99999; got '${n:-}')"
     exit 1 ;;
   esac
-  if [ "$n" -lt 1 ]; then
-    print_fail "The testing interval must be at least 1 (got $n)"
+  ensure_progress_file
+  soif_si_ok=0
+  # The marked line below is the write; excising it must leave valid syntax
+  # (the mutation case pins exactly that), so the failure test reads a flag.
+  _bl203_write_json "$n" && soif_si_ok=1 # BL-203-INTERVAL-PLUMB
+  if [ "$soif_si_ok" -ne 1 ]; then
     exit 1
   fi
-  ensure_progress_file
-  : # BL-203 guard: the marked line below is excisable without a syntax break
-  _bl203_apply_interval "$n" # BL-203-INTERVAL-PLUMB
+  # Prose second, and only after the enforced field moved — the doc must never
+  # advance past the gate (review R-BL203-2). Unique backup suffix so a user's
+  # own CLAUDE.md.bak is never clobbered (R-BL203-10); guard on the NUMERIC
+  # form so an unsubstituted __TEST_INTERVAL__ placeholder warns instead of
+  # silently staying wrong (R-BL203-11).
+  if [ -f "CLAUDE.md" ]; then
+    if grep -qE '\*\*Testing interval:\*\* Every [0-9][0-9]* features' CLAUDE.md; then
+      sed -i.soif-bl203-bak "s|\(\*\*Testing interval:\*\* Every \)[0-9][0-9]*\( features\)|\1${n}\2|" CLAUDE.md \
+        && rm -f CLAUDE.md.soif-bl203-bak
+    elif grep -q 'Testing interval:' CLAUDE.md; then
+      print_warn "CLAUDE.md's Testing interval line is not in the rendered numeric form (unsubstituted template?) — prose not updated."
+    fi
+  fi
   print_ok "Enforced testing interval set: every $n feature(s) (.claude/build-progress.json)"
 }
 
@@ -134,7 +161,9 @@ check_batch() {
   # `[: null: integer expression expected` in the comparison below.
   local since_last interval
   since_last=$(jq -r '.features_since_last_test // 0' "$BUILD_PROGRESS")
+  case "$since_last" in ''|*[!0-9]*) since_last=0 ;; esac
   interval=$(jq -r '.test_interval // 2' "$BUILD_PROGRESS")
+  case "$interval" in ''|*[!0-9]*) interval=2 ;; esac
 
   if [ "$since_last" -ge "$interval" ]; then
     print_fail "Testing session required ($since_last features since last test, interval is $interval)"
@@ -179,7 +208,9 @@ record_feature() {
   # `[: null: integer expression expected` in the comparison below.
   local since_last interval
   since_last=$(jq -r '.features_since_last_test // 0' "$BUILD_PROGRESS")
+  case "$since_last" in ''|*[!0-9]*) since_last=0 ;; esac
   interval=$(jq -r '.test_interval // 2' "$BUILD_PROGRESS")
+  case "$interval" in ''|*[!0-9]*) interval=2 ;; esac
 
   print_ok "Feature '$name' recorded ($since_last/$interval until next test session)"
 
@@ -267,6 +298,7 @@ unrecord_feature() {
   # arithmetic and integer-comparison errors below.
   cur_array=$(jq -c '.features_completed // []' "$BUILD_PROGRESS")
   cur_fslt=$(jq -r '.features_since_last_test // 0' "$BUILD_PROGRESS")
+  case "$cur_fslt" in ''|*[!0-9]*) cur_fslt=0 ;; esac
   cur_fslhc=$(jq -r '.features_since_last_health_check // 0' "$BUILD_PROGRESS")
   cur_testing=$(jq -r '.testing_required // false' "$BUILD_PROGRESS")
   interval=$(jq -r '.test_interval // 2' "$BUILD_PROGRESS")

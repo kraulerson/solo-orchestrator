@@ -68,6 +68,7 @@ while [ $# -gt 0 ]; do
       echo "       scripts/reconfigure-project.sh --reset-detection-baseline"
       echo ""
       echo "Supported fields:"
+      echo "  test_interval     — enforced testing interval (delegates to test-gate.sh --set-interval; BL-203)"
       echo "  language   — Regenerates CI pipeline, .gitignore language entries, permissions"
       echo "  platform   — Regenerates release pipeline, copies new platform module"
       echo "  name       — Updates phase-state.json, CLAUDE.md, APPROVAL_LOG.md header,"
