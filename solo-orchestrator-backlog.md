@@ -7053,7 +7053,13 @@ the hook-grep/canary lockstep verbatim instead of pleading for it in a comment. 
 round, no action: R-BL200-3 (echoed content can likewise inflate the HEADER count and mis-LABEL a
 forfeit's diagnosis — still forfeit-only in every path, PLAUSIBLE not run end-to-end) and the
 measured cost ledger (`semgrep --version` ~0.7s per semgrep-path commit; `--verbose` itself is
-free — 2.14s vs 2.15s scan wall-time).
+free — 2.14s vs 2.15s scan wall-time). The confirm round (minor_concerns, "clear to open the PR")
+verified both round-1 kills doubly and found ONE new note-level survivor, mutant C — narrowing the
+detector's read from the concatenated status file to the stderr file alone, byte-identical under
+C5, bounded to under-detection. Killed the same day by its prescribed pin, T-stub-warn-on-stdout
+(the exact warning routed to STDOUT with the banner on stderr must still forfeit — BL-193
+measured stream routing as frontend-dependent, so the both-streams read is width, not style);
+mutant-C kill verified (suite fails exactly that case), detector suite 9/9 intact.
 
 **Related:** BL-198 (the plan that refuses to claim this), BL-192 (the decision blocks that
 constrain the design), `# BL-112-SCAN-COVERAGE` (the residue note that named it first), BL-193
