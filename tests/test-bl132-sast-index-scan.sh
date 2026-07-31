@@ -2875,6 +2875,53 @@ else
   fi
 fi
 
+# ── T-utf8-floor-no-sigpipe (review R-BL198-6 — the BL-183 class, same file) ──────
+# The transcode-output byte floor is a `od | awk` pipeline under the hook's
+# `set -euo pipefail`. An `exit` in awk's MAIN rule SIGPIPEs od on input past the
+# pipe buffer: rc 141, and the `|| soif_tc_badbyte=""` guard ERASES the detection
+# awk just printed — the floor fails OPEN as a pure function of file size
+# (threshold ~1-8 KB; measured in review with awk printing 'bad' every time).
+# No live path reaches the floor today (R-BL198-1's bound caps code points at
+# U+10FFFF), which is exactly why it must work: it is the surface that catches a
+# future weakening of surface 1. Both spellings run here against a >100 KB
+# bad-byte-FIRST fixture (the T-predicate-no-sigpipe pattern from bl118/bl131),
+# plus a spelling pin on the emitted hook so the shipped floor cannot quietly
+# revert to the early-exit form. LOCKSTEP: the two awk programs below must match
+# the emitted hook's floor line (# BL-198 comment block, soif_tc_badbyte).
+echo "=== T-utf8-floor-no-sigpipe ==="
+FLOOR_FIX="$TOPTMP/floor-fixture.bin"
+{ printf '\xf5'; awk 'BEGIN { for (i = 0; i < 8000; i++) print "abcdefghijklm" }'; } > "$FLOOR_FIX"
+FLOOR_SZ=$(wc -c < "$FLOOR_FIX" | tr -d '[:space:]')
+if [ "${FLOOR_SZ:-0}" -lt 100000 ]; then
+  fail_ "T-utf8-floor-no-sigpipe" "fixture too small to force the race ($FLOOR_SZ < 100000) — the case is VACUOUS"
+elif [ "$(grep -c 'soif_tc_badbyte=' "$EMITTED")" -ne 1 ]; then
+  fail_ "T-utf8-floor-no-sigpipe" "the floor assignment line is not present exactly once in the emitted hook (assignment + its || reset share the line) — retarget this pin in lockstep"
+else
+  _floor_old() {  # the early-exit spelling (MUST miss on the big fixture under pipefail)
+    ( set -euo pipefail
+      v=$(od -An -v -tx1 "$FLOOR_FIX" 2>/dev/null | awk '{ for (i = 1; i <= NF; i++) if ($i >= "f5") { print "bad"; exit } }') || v=""
+      [ -n "$v" ] && echo DETECTED || echo MISSED ) 2>/dev/null
+  }
+  _floor_new() {  # the full-input-consumer spelling (MUST detect at every size)
+    ( set -euo pipefail
+      v=$(od -An -v -tx1 "$FLOOR_FIX" 2>/dev/null | awk '{ for (i = 1; i <= NF; i++) if ($i >= "f5") b = 1 } END { if (b) print "bad" }') || v=""
+      [ -n "$v" ] && echo DETECTED || echo MISSED ) 2>/dev/null
+  }
+  FLOOR_OLD_V="$(_floor_old)"
+  FLOOR_NEW_V="$(_floor_new)"
+  if [ "$FLOOR_OLD_V" != "MISSED" ]; then
+    fail_ "T-utf8-floor-no-sigpipe" "the early-exit spelling did NOT miss on a $FLOOR_SZ-byte bad-first fixture (got $FLOOR_OLD_V) — the fixture no longer forces the race, so the case proves nothing"
+  elif [ "$FLOOR_NEW_V" != "DETECTED" ]; then
+    fail_ "T-utf8-floor-no-sigpipe" "the END-form spelling MISSED the bad byte — the fixed floor does not detect"
+  elif grep -qF 'if ($i >= "f5") { print "bad"; exit }' "$EMITTED"; then
+    fail_ "T-utf8-floor-no-sigpipe" "the emitted hook still carries the early-exit floor spelling — the SIGPIPE class is live in the shipped bytes (R-BL198-6)"
+  elif ! grep -qF 'if ($i >= "f5") b = 1 } END { if (b) print "bad" }' "$EMITTED"; then
+    fail_ "T-utf8-floor-no-sigpipe" "the emitted hook does not carry the END-form floor spelling — the lockstep pin lost its target; retarget in lockstep"
+  else
+    pass "T-utf8-floor-no-sigpipe: the early-exit floor misses a $FLOOR_SZ-byte bad-first output under pipefail while the shipped END-form detects it — the defense-in-depth surface actually defends (R-BL198-6, the BL-183 class)"
+  fi
+fi
+
 # ── T-mutation-parse-coverage (restored from e87dbd3, RE-AIMED at the fence) ──────
 # Excise the whole # BL-198-TRANSCODE fence from the emitted hook -> the BL-192
 # false attestation RETURNS (UTF-16LE+BOM sink lands with the [OK] receipt) — RED.

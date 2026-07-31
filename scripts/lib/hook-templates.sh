@@ -1030,8 +1030,12 @@ if command -v semgrep &>/dev/null; then
             # there. 0xF5-0xFF never appear in valid UTF-8, so any such byte in
             # the output is a failed transcode. Same lexical-hex trick as the
             # derivation; the iconv check above stays as the stricter belt where
-            # the platform provides it.
-            soif_tc_badbyte=$(od -An -v -tx1 "$soif_tc_tmp" 2>/dev/null | awk '{ for (i = 1; i <= NF; i++) if ($i >= "f5") { print "bad"; exit } }') || soif_tc_badbyte=""
+            # the platform provides it. The awk is a FULL-INPUT consumer — flag
+            # in the rule, print in END — because an early `exit` SIGPIPEs od on
+            # >pipe-buffer output, pipefail promotes rc 141, and the || guard
+            # ERASES the detection (review R-BL198-6 — the BL-183 class, caught
+            # re-entering this very file; pinned by T-utf8-floor-no-sigpipe).
+            soif_tc_badbyte=$(od -An -v -tx1 "$soif_tc_tmp" 2>/dev/null | awk '{ for (i = 1; i <= NF; i++) if ($i >= "f5") b = 1 } END { if (b) print "bad" }') || soif_tc_badbyte=""
             if [ -n "$soif_tc_badbyte" ]; then soif_tc_ok=0; fi
           fi
           if [ "$soif_tc_ok" -eq 1 ] && mv "$soif_tc_tmp" "$soif_idx_dest" 2>/dev/null; then
