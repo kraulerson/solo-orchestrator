@@ -1137,6 +1137,16 @@ if command -v semgrep &>/dev/null; then
       #   worse than a forfeited receipt on every axis this arm cares about: not loud, not
       #   honest, and indistinguishable from a crash. Picking a finite larger value is a
       #   latency-budget POLICY call, not an implementation detail. Filed as BL-187.
+      # BL-200-SYNTAX-BREAK (flag) — `--verbose` exists here for ONE line of output:
+      # `[WARN] Syntax error at line <target>:N`, the only known tell for a token-stream
+      # break (an ordinary ASCII file whose syntax error hides its sink from every rule —
+      # measured on 1.157.0: the same staged sink is rc=1/1 finding alone and rc=0/0
+      # findings with a break beside it). stdout is byte-identical with and without the
+      # flag and the Scan Status header still prints exactly once (both measured), so the
+      # parses below are undisturbed; the price is stderr volume, paid consciously — see
+      # the dump note on the rc>=2 arm. The reader is # BL-200-SYNTAX-BREAK (parse)
+      # below; the spelling is canary-pinned framework-side
+      # (tests/test-bl200-syntax-canary.sh).
       # BL-194-HOOK-SEMGREP-POLICY — anchor; the next non-comment line is this hook's
       # semgrep policy. Rationale is framework-side, above soif_write_precommit_hook.
       semgrep scan --config=p/owasp-top-ten \
@@ -1144,9 +1154,21 @@ if command -v semgrep &>/dev/null; then
         --config=.semgrep/soif-dom-sinks.yml \
         --max-target-bytes=0 \
         --no-git-ignore \
+        --verbose \
         --severity=ERROR --error ${soif_idx_files[@]+"${soif_idx_files[@]}"} >"$soif_sg_out" 2>"$soif_sg_err"
       soif_sg_rc=$?
       set -e
+      # BL-200-SCANNER-VERSION — capture what actually scanned this commit, for the
+      # receipt and the blocked/failed reports. BL-193's version archaeology cost a day,
+      # and since BL-201 the CI image floats while this hook runs PATH semgrep unpinned,
+      # so the printed line is the ONLY durable record of the answer. Debuggability,
+      # never a gate: every failure mode lands on the empty string and prints as
+      # "(version unknown)" — a version lookup must not cost a receipt (pinned by
+      # T-stub-version-unknown). sed -n 1p reads ALL input (no SIGPIPE, BL-183 class);
+      # the ctrl-strip keeps a hostile multi-line banner from smuggling bytes into the
+      # terminal line.
+      soif_sg_version=$(semgrep --version 2>/dev/null) || soif_sg_version=""
+      soif_sg_version=$(printf '%s' "$soif_sg_version" | sed -n 1p | tr -d '[:cntrl:]') || soif_sg_version=""
       # BL-193-STATUS-STREAM — READ SEMGREP'S STATUS TEXT FROM BOTH STREAMS.
       # Which stream semgrep puts its human-readable status banner on is an
       # implementation detail of the frontend that happens to be running, NOT a
@@ -1242,18 +1264,45 @@ if command -v semgrep &>/dev/null; then
       soif_sg_timeouts=$(grep -cE 'timeout error\(s\)' "$soif_sg_status" 2>/dev/null) || soif_sg_timeouts=0
       soif_sg_timeouts=$(printf '%s' "$soif_sg_timeouts" | tr -d '[:space:]') || soif_sg_timeouts=0
       case "$soif_sg_timeouts" in ''|*[!0-9]*) soif_sg_timeouts=0 ;; esac
+      # BL-200-SYNTAX-BREAK (parse) — count semgrep's own syntax-error warnings. THIS IS
+      # NOT THE WITHDRAWN BL-192 CLAUSE: that one read semgrep's parse-coverage
+      # SELF-REPORT to GRANT receipts and lies at ~100% on >=1.171.0; this one reads a
+      # warning's PRESENCE and can only ever FORFEIT — under-detection (a respelled
+      # warning, a quieter verbose) degrades to exactly the pre-BL-200 behaviour, pinned
+      # by T-stub-respell-degrades. COLUMN-0 ANCHORED, deliberately: verbose echoes the
+      # offending FILE CONTENT right after the warning, and a staged file may
+      # legitimately CONTAIN this very string (this framework's own suites do); the
+      # anchor keeps an echoed mention from counting, and a false positive here only
+      # forfeits, never blocks. The spelling is canary-pinned framework-side
+      # (tests/test-bl200-syntax-canary.sh) so an upstream respell reds the framework's
+      # OWN lane instead of silently blinding every generated project. Same presence-test
+      # plumbing as the timeout clause: `|| …=0` so `set -e` cannot abort the hook, and
+      # the case-glob sanitizes a non-numeric count to "no break seen" — the fail-OPEN
+      # direction, the honest consequence of a presence test. PREFILTER FACT (measured):
+      # semgrep only PARSES a file some rule's literal prefilter admits, so this warning
+      # only exists for files textually carrying a rule token — which includes every file
+      # hiding a sink, i.e. the threat model; a sinkless broken file may pass unwarned,
+      # and has nothing to hide.
+      soif_sg_syntax=$(grep -cE '^\[WARN\] Syntax error at line ' "$soif_sg_status" 2>/dev/null) || soif_sg_syntax=0
+      soif_sg_syntax=$(printf '%s' "$soif_sg_syntax" | tr -d '[:space:]') || soif_sg_syntax=0
+      case "$soif_sg_syntax" in ''|*[!0-9]*) soif_sg_syntax=0 ;; esac
       # `-ge`, not `-eq`: the defect class is UNDER-scanning. An over-count would be a
       # semgrep bug of a different shape and is not this guard's business to block on.
-      # THE CONJUNCTION IS THE GUARD, AND IT IS TWO FACTS FOR TWO PIPELINE STAGES.
-      # Selection alone is not coverage — that is what R-274Rv2-1 proved, on a file semgrep
-      # selected, parsed in full, and then abandoned a rule on. Each clause is
-      # mutation-tested on its own (T-mutation-scan-coverage owns selection,
-      # T-mutation-rule-timeout rule execution). Dropping either must go RED.
-      #   TWO, NOT THREE. A parse/decode clause sat here and was withdrawn — see the block
-      #   above and BL-192. The conjunction is a FLOOR on what is proved, never a claim that
-      #   the list is complete; the [OK] receipt's precondition list says so in four items.
+      # THE CONJUNCTION IS THE GUARD, AND IT IS THREE FACTS FOR THREE PIPELINE STAGES:
+      # selection (# BL-112-SCAN-COVERAGE), parse (# BL-200-SYNTAX-BREAK), rule execution
+      # (# BL-187-RULE-COVERAGE). Selection alone is not coverage — that is what
+      # R-274Rv2-1 proved, on a file semgrep selected, parsed in full, and then abandoned
+      # a rule on. Each clause is mutation-tested on its own (T-mutation-scan-coverage
+      # owns selection, T-mutation-syntax-clause the parse conjunct,
+      # T-mutation-rule-timeout rule execution). Dropping any one must go RED.
+      #   THE PARSE CLAUSE IS NOT THE WITHDRAWN ONE. What was withdrawn (BL-192, block
+      #   above) read semgrep's parse-coverage self-report to GRANT receipts; what sits
+      #   here counts a warning's presence and only ever FORFEITS (# BL-200-SYNTAX-BREAK
+      #   (parse) has the full distinction). The conjunction stays a FLOOR on what is
+      #   proved, never a claim that the list is complete; the [OK] receipt's
+      #   precondition list says so in five items.
       soif_sg_covered=0
-      if [ -n "$soif_sg_accepted" ] && [ "$soif_sg_accepted" -ge "${#soif_idx_files[@]}" ] && [ "$soif_sg_timeouts" -eq 0 ]; then
+      if [ -n "$soif_sg_accepted" ] && [ "$soif_sg_accepted" -ge "${#soif_idx_files[@]}" ] && [ "$soif_sg_timeouts" -eq 0 ] && [ "$soif_sg_syntax" -eq 0 ]; then
         soif_sg_covered=1
       fi
       # Map the temp-tree prefix off finding paths, then show semgrep's findings
@@ -1268,6 +1317,7 @@ if command -v semgrep &>/dev/null; then
         echo ""
         echo "[BLOCKED] Semgrep detected security issues in staged files."
         echo "  Review and fix the ERROR-severity findings above before committing."
+        echo "  scanner: semgrep ${soif_sg_version:-(version unknown)}"
         # BL-182-PARTIAL-STILL-BLOCKS — a finding in the readable subset BLOCKS even
         # when coverage was partial. Under the old all-or-nothing `break` this commit
         # went NOTRUN and the sibling's vulnerability LANDED; blocking on what we DID
@@ -1291,8 +1341,13 @@ if command -v semgrep &>/dev/null; then
         # it SURFACES the diagnostic: an operator who cannot see why the scanner
         # died cannot fix it, and a gate you cannot fix is a gate you route around.
         soif_sast_not_enforced "semgrep could not complete (exit $soif_sg_rc) — the tool itself failed."
+        echo "  scanner: semgrep ${soif_sg_version:-(version unknown)}"
         if [ "${#soif_idx_unread[@]}" -gt 0 ]; then soif_sast_unread_report; fi
         if [ "${#soif_idx_untx[@]}" -gt 0 ]; then soif_sast_untx_report; fi
+        # BL-200: --verbose (above) swells this dump. Kept WHOLE deliberately — the one
+        # path where scanner stderr reaches the operator is the one path where truncating
+        # it would be diagnostic destruction (BL-197's class), and semgrep prints its
+        # fatal errors at the END, where any truncation would cut.
         sed 's/^/  /' "$soif_sg_err" >&2
       elif [ "${#soif_idx_unread[@]}" -gt 0 ] || [ "${#soif_idx_untx[@]}" -gt 0 ]; then
         # BL-182-NO-UNEARNED-RECEIPT — the scan RAN and came back clean, but it did not
@@ -1336,17 +1391,20 @@ if command -v semgrep &>/dev/null; then
         # exists to avoid. Ordered so the EARLIER pipeline stage is reported first: a
         # selection shortfall makes the rule result a statement about a subset, so it would
         # be misleading to lead with the timeout.
-        #   THERE IS NO PARSE ARM, AND THAT IS THE WITHDRAWN CLAUSE, NOT AN OVERSIGHT. Two
-        #   further arms lived here ("its parse-coverage line was absent or unreadable" and
-        #   "parsed only N% of their lines") and went with the clause that fed them —
-        #   BL-192. Whoever restores a parse/decode clause must restore ITS OWN arms here,
-        #   above the `else`.
-        #   THE LAST ARM IS AN `else` AND THAT IS LOAD-BEARING, NOT LAZINESS. Reaching this
-        #   block means soif_sg_covered is 0; the two tests above cover every way the
-        #   selection clause can fail; so the residue is exactly the timeout clause. An
-        #   `elif` on the timeout count would leave a silent no-output arm if a THIRD clause
-        #   is ever added — which is the BL-179 `-gt 0` with no `else` defect verbatim.
-        #   Whoever adds a third clause must add its arm ABOVE this `else`.
+        #   THE PARSE ARM BELOW IS # BL-200-SYNTAX-BREAK'S, NOT THE WITHDRAWN CLAUSE'S.
+        #   Two arms lived here ("its parse-coverage line was absent or unreadable" and
+        #   "parsed only N% of their lines") and went with the percentage-reader that fed
+        #   them — BL-192; whoever restores THAT clause must restore ITS OWN arms too.
+        #   The syntax arm reports a different instrument (a warning's presence, forfeit-
+        #   only) and sits in pipeline position: selection first, then parse, then the
+        #   rule-execution residue.
+        #   THE LAST ARM IS AN `else` AND THAT IS LOAD-BEARING, NOT LAZINESS. Reaching
+        #   this block means soif_sg_covered is 0; the two selection tests and the syntax
+        #   arm above it cover every way the selection and parse clauses can fail; so the
+        #   residue is exactly the timeout clause. An `elif` on the timeout count would
+        #   leave a silent no-output arm if a FOURTH clause is ever added — which is the
+        #   BL-179 `-gt 0` with no `else` defect verbatim. Whoever adds a fourth clause
+        #   must add its arm ABOVE this `else`.
         if [ -z "$soif_sg_accepted" ]; then
           soif_sast_coverage_warn \
             "semgrep exited 0, but its scan-status line was not found exactly once (saw ${soif_sg_hdr_n:-0}) — see the Coverage line below." \
@@ -1355,6 +1413,14 @@ if command -v semgrep &>/dev/null; then
           soif_sast_coverage_warn \
             "SAST coverage was PARTIAL: semgrep accepted only $soif_sg_accepted of the ${#soif_idx_files[@]} staged file(s) it was handed." \
             "at least one staged file was handed to the scanner and never opened by it."
+        elif [ "$soif_sg_syntax" -gt 0 ]; then
+          # BL-200-SYNTAX-BREAK (verdict) — the parse-stage arm. Warn, never block: the
+          # detector is report-dependent and the BL-192 decision blocks keep such
+          # instruments out of the blocking path — forfeiting the receipt is the whole
+          # entitlement, and T-break-forfeits-receipt pins that the commit still LANDS.
+          soif_sast_coverage_warn \
+            "semgrep reported ${soif_sg_syntax} syntax-error warning(s) on staged file(s) — a token-stream break; everything past the break is invisible to every rule (BL-200)." \
+            "a file the scanner cannot parse cannot be vouched for. Fix the syntax error (the build would demand it anyway) and re-commit."
         else
           soif_sast_coverage_warn \
             "SAST coverage was PARTIAL: semgrep accepted every staged file, then ABANDONED at least one rule on its per-rule timeout (${soif_sg_timeouts} warning line(s))." \
@@ -1372,9 +1438,9 @@ if command -v semgrep &>/dev/null; then
         # not the number staged: since BL-132-GITLINK-SKIP the two can differ, and a
         # receipt that counts entries the scanner never saw is the BL-112 lie in a
         # different coat. Zero targets never reaches here — it NOTRUNs above.
-        # WHAT THIS RECEIPT DOES AND DOES NOT ATTEST, IN FOUR ITEMS AND ONE NAMED GAP.
-        # FOUR things have to hold to reach this line, and they are enforced in four
-        # different places — a reader checking this claim must check ALL FOUR. Each was
+        # WHAT THIS RECEIPT DOES AND DOES NOT ATTEST, IN FIVE ITEMS AND ONE NAMED GAP.
+        # FIVE things have to hold to reach this line, and they are enforced in five
+        # different places — a reader checking this claim must check ALL FIVE. Each was
         # added only after a false [OK] shipped without it:
         #   1. every entry the loop was GIVEN was read — the branch above intercepts any
         #      commit with a non-empty soif_idx_unread;
@@ -1393,7 +1459,15 @@ if command -v semgrep &>/dev/null; then
         #      giving up on a rule afterwards: a dense 1.2MB .ts satisfied all three
         #      (`Scanning 1 file`, `Targets scanned: 1`, rc=0) and collected this receipt
         #      while the one rule that catches its line-2 innerHTML sink hit semgrep's
-        #      5-second per-rule timeout (R-274Rv2-1).
+        #      5-second per-rule timeout (R-274Rv2-1);
+        #   5. no syntax-error warning was seen — # BL-200-SYNTAX-BREAK. Preconditions 1-4
+        #      all hold on a pure-ASCII file whose token-stream break makes every rule
+        #      past the break blind (measured: the same sink is rc=1/1 finding alone,
+        #      rc=0/0 with a break beside it). BEST-EFFORT, unlike 1-4, and honestly so:
+        #      it reads a warning semgrep may respell, so it can UNDER-detect — degrading
+        #      to the pre-BL-200 receipt — but never over-grant; the spelling is
+        #      canary-pinned framework-side (tests/test-bl200-syntax-canary.sh), and the
+        #      prefilter caveat on # BL-200-SYNTAX-BREAK (parse) bounds what "seen" means.
         # THE DECODE GAP IS NOW COVERED — BY BYTES, NOT BY SEMGREP'S SELF-REPORT.
         # A file semgrep accepts but cannot read used to satisfy all four checks (an
         # ordinary .ts saved as UTF-16 did exactly that, R-274Rv-1 / BL-192; the
@@ -1402,25 +1476,26 @@ if command -v semgrep &>/dev/null; then
         # vouches or converts the bytes BEFORE semgrep sees them, and anything it
         # cannot vouch forfeits this receipt by name — so reaching this line also
         # means every target was NUL-free-or-transcoded-and-vouched.
-        # THE GAPS THAT REMAIN, NAMED RATHER THAN LEFT TO INFERENCE (both deferred
-        # deliberately, neither closable by any byte-level test):
-        #   • BL-200 — the TOKEN-STREAM BREAK: a pure-ASCII source file with a syntax
-        #     break beside the sink passes every byte test here and semgrep misses the
-        #     sink deterministically. Until BL-200's detector lands, absence of a
-        #     finding is evidence only for files semgrep can actually parse.
+        # THE GAPS THAT REMAIN, NAMED RATHER THAN LEFT TO INFERENCE:
+        #   • BL-200's detector is BEST-EFFORT (item 5): a respelled warning, or a broken
+        #     file no rule's prefilter ever admits, goes undetected and the receipt then
+        #     reads exactly as it did pre-BL-200. The deterministic sink-hiding half of
+        #     the token-stream-break gap is closed; the residue is the detector's own
+        #     report-dependence, accepted by decision on BL-200 and watched by the canary.
         #   • the zero-ASCII single-line UTF-16 residue (no NUL anywhere, so the
         #     classifier passes it through undecoded) — bounded: any newline puts a
         #     NUL in the file; pinned by T-pure-cjk-residue-passthrough.
         # Read this receipt as "the checks above did not fire", never as "this commit
         # was scanned in full".
-        # The pattern across all four is the same and is the point: N counts the targets
+        # The pattern across all five is the same and is the point: N counts the targets
         # this arm INTENDED to scan, and every stage between "staged entry" and "a rule
         # finished matching" needs its own proof that nothing fell out of the set. It is
         # also why this list is not a closure claim — see the RESIDUE paragraph on
-        # # BL-112-SCAN-COVERAGE, plus BL-192 and BL-187. A FIFTH precondition will exist
-        # one day; an earlier revision of this line predicted one and was right within a
-        # single review round.
+        # # BL-112-SCAN-COVERAGE, plus BL-192 and BL-187. An earlier revision of this
+        # block predicted "a FIFTH precondition will exist one day" and was right — item 5
+        # is it (BL-200). The prediction stands re-armed: a SIXTH will exist one day.
         echo "[OK] semgrep: SAST ran on ${#soif_idx_files[@]} staged file(s) — no ERROR-severity findings."
+        echo "  scanner: semgrep ${soif_sg_version:-(version unknown)}"
         # BL-198: the conversion is attested, never silent — an operator whose
         # UTF-16 file was scanned via a converted copy is told so on the receipt.
         if [ "${soif_tc_count:-0}" -gt 0 ]; then
