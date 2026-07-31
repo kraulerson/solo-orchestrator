@@ -162,12 +162,17 @@ _commit_file() {
 }
 
 # _mut_n <src> <dst> <old> <new> <want>: literal replace, exactly <want> times.
+# OLD/NEW ride ENVIRON, not -v, DELIBERATELY: awk processes escape sequences in
+# -v values, and this suite's '--verbose \' literal ends in a lone backslash —
+# BSD awk keeps it (local pass), mawk/gawk mangle it (the CI sast shard failed
+# exactly T-mutation-verbose-flag as MIS-TARGETED on an emitted hook that was
+# fine). ENVIRON passes bytes untouched on every awk. want is numeric — -v safe.
 _mut_n() {
-  awk -v old="$3" -v new="$4" -v want="$5" '
+  SOIF_MUT_OLD="$3" SOIF_MUT_NEW="$4" awk -v want="$5" '
     { out = ""; rest = $0
-      while ((p = index(rest, old)) > 0) {
-        out = out substr(rest, 1, p-1) new
-        rest = substr(rest, p + length(old))
+      while ((p = index(rest, ENVIRON["SOIF_MUT_OLD"])) > 0) {
+        out = out substr(rest, 1, p-1) ENVIRON["SOIF_MUT_NEW"]
+        rest = substr(rest, p + length(ENVIRON["SOIF_MUT_OLD"]))
         c++
       }
       print out rest }
