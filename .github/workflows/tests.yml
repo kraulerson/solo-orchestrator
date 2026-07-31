@@ -313,6 +313,8 @@ jobs:
             tests/test-bl118-sast-dom-xss.sh
             tests/test-bl132-sast-index-scan.sh
             tests/test-bl131-domsink-rules.sh
+            tests/test-bl200-syntax-detector.sh
+            tests/test-bl200-syntax-canary.sh
             tests/test-bl119-stale-editmsg.sh
             tests/test-bl121-cutline-bsd-sed.sh
             tests/test-bl114-bl115-bl127-gate-integrity.sh
@@ -471,6 +473,8 @@ jobs:
             tests/test-bl132-sast-index-scan.sh        #  77s on main, 213s on PR #278 — pinned at the worst case
             tests/test-bl131-domsink-rules.sh          #  54s
             tests/test-bl118-sast-dom-xss.sh           #  13s
+            tests/test-bl200-syntax-detector.sh        # live semgrep + registry — belongs with the sast toolchain
+            tests/test-bl200-syntax-canary.sh          # THE canary: must run where the CI host's real semgrep is
           )
           pin_slow_misc=(
             tests/test-pre-commit-gate-lints.sh        # 122s — runs 4 lint copies inside fixture projects

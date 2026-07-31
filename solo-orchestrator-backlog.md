@@ -7000,12 +7000,71 @@ semgrep on the CI host (already true of the `sast` shard). Sequenced AFTER BL-19
 work rewrites the same region, and two hands in that block at once is how BL-179/BL-182 earned their
 "same rewrite by design" note.
 
-**Status:** Open — unblocked 2026-07-30 (BL-198 implemented in `02eaa0f`).
+**Status:** Closed — implemented 2026-07-31 on `fix/bl200-token-break-detector` (`a969686`, re-pins
+`7b4b4a6`; markers `# BL-200-SYNTAX-BREAK` (flag/parse/verdict) and `# BL-200-SCANNER-VERSION` in
+scripts/lib/hook-templates.sh; suites tests/test-bl200-syntax-detector.sh and the canary
+tests/test-bl200-syntax-canary.sh, both registered in the aggregator + the tests.yml unit list and
+PINNED to the sast shard). Shipped exactly on this entry's terms. `--verbose` added to the emitted
+invocation — measured first on 1.157.0: stdout byte-identical, the Scan Status header still
+exactly-once, the timeout atom untouched, so every existing parse is undisturbed; without the flag
+the warning does not exist at all (plain/broken syntax-count 0), so the flag is load-bearing and
+mutation-pinned (T-mutation-verbose-flag). A third conjunct counts `^\[WARN\] Syntax error at
+line ` at column 0 (anchored: verbose echoes the offending FILE CONTENT after the warning, and a
+staged file may legitimately contain the string) and can only FORFEIT — warn-not-block per this
+entry's admissibility terms (T-break-forfeits-receipt pins the commit still lands), and a
+RESPELLED warning degrades to the pre-BL-200 receipt, pinned in both directions by
+T-stub-respell-degrades. The `Partially analyzed…` do-not-anchor warning held (measured printing
+on every verbose scan). The canary is NETWORK-FREE via a measured prefilter fact this entry did
+not know: semgrep only PARSES files some rule's literal prefilter admits (a nonsense-token probe
+never produced the warning), so the probe rule shares the fixture's `innerHTML` literal — which is
+also why the detector covers the threat model: a file hiding a sink textually CONTAINS the sink.
+Canary pins: C1 the exact spelling fires; C2 the blind spot is still rc=0 (its failure text names
+the good-news case: semgrep failing loud would warrant re-evaluating BL-200); C3 a same-prefilter
+VALID control that must match (non-vacuity); C4 the exactly-once header under --verbose. Costs
+weighed as required: the rc>=2 stderr dump is kept WHOLE under verbose (truncation is BL-197's
+class; semgrep prints fatal errors at the END). BL-201's deferred receipt line landed here
+additively (`scanner: semgrep <v>` on the [OK]/[BLOCKED]/tool-failed reports; `(version unknown)`
+on capture failure, pinned by T-stub-version-unknown never to cost a receipt) without touching the
+heavily-pinned `[OK] semgrep:` line (63 test references at the time of BL-201's deferral decision;
+the reviewer counts 71 today — the number drifts, the untouched-line fact is what matters). Proofs: detector suite RED 0/7 pre-fix → GREEN 7/7 (in-suite
+mutations for the flag and the conjunct); canary 4/4; bl147 63/0 (policy derivation and CI flag
+parity read config/severity/--error only); bl112 13/0, bl118 7/0, bl125 22/0, bl131 18/0, bl132
+56/0 after re-pinning its two boundary cases as measured disjunctions (`7b4b4a6` — the detector
+NARROWED two documented boundaries in the safe direction: the zero-ASCII UTF-16 residue and the
+transcode-fence excision both now forfeit the receipt on a warning-emitting semgrep instead of
+buying a false [OK]); lints 11/11. docs/platform-modules/web.md brought to the five-precondition
+truth, which also repaired PRE-EXISTING BL-198 drift (PR #287 never updated its decode-gap
+paragraph — it still described the transcode fix as unbuilt). Residues, named: the detector's
+report-dependence (respell ⇒ under-detect ⇒ pre-BL-200 receipt; canary-guarded in THIS repo's
+lane — a generated project stays blind until a framework update propagates) and the prefilter
+bound (a sinkless broken file may pass unwarned; it has nothing to hide). Both accepted by this
+entry's own admissibility terms.
+
+**Pre-PR adversarial review (2026-07-31): minor_concerns, non-blocking; every load-bearing claim
+independently reproduced** (the forfeit-only property attacked and held: no constructible grant,
+block, or receipt-on-detector-failure; both semgrep versions re-verified; the re-pins judged a
+legitimate safe-direction narrowing, not laundering). Its one refutation, RF-1, was COMMENT
+precision: the anchor cannot stop an already-broken file's echoed continuation lines from
+inflating the count (only the first echoed line is prefixed) — what is measured-impossible is a
+CLEAN file's content reaching the stream at all. Fixed in the confirm-round commit: the comment
+now says exactly that, the reviewer's surviving `^`-drop mutant is killed by a new
+T-stub-anchor-indent case (the anchor's WIDTH pinned, BL-181 doctrine), and canary C5 asserts
+the hook-grep/canary lockstep verbatim instead of pleading for it in a comment. Recorded from the
+round, no action: R-BL200-3 (echoed content can likewise inflate the HEADER count and mis-LABEL a
+forfeit's diagnosis — still forfeit-only in every path, PLAUSIBLE not run end-to-end) and the
+measured cost ledger (`semgrep --version` ~0.7s per semgrep-path commit; `--verbose` itself is
+free — 2.14s vs 2.15s scan wall-time). The confirm round (minor_concerns, "clear to open the PR")
+verified both round-1 kills doubly and found ONE new note-level survivor, mutant C — narrowing the
+detector's read from the concatenated status file to the stderr file alone, byte-identical under
+C5, bounded to under-detection. Killed the same day by its prescribed pin, T-stub-warn-on-stdout
+(the exact warning routed to STDOUT with the banner on stderr must still forfeit — BL-193
+measured stream routing as frontend-dependent, so the both-streams read is width, not style);
+mutant-C kill verified (suite fails exactly that case), detector suite 9/9 intact.
 
 **Related:** BL-198 (the plan that refuses to claim this), BL-192 (the decision blocks that
 constrain the design), `# BL-112-SCAN-COVERAGE` (the residue note that named it first), BL-193
 (why report-dependent anchors need canaries: spellings move between versions and even between
-streams).
+streams), BL-201 (its deferred receipt line landed here).
 
 ---
 
@@ -7097,10 +7156,15 @@ deny-by-default sweep, zero refuted claims, no regression on numeric pins, no fa
 the tree's 20 legitimate comment mentions; its one new note-level find (R-BL201-5, the
 quote-blind comment strip) is named in the sweep header and filed on BL-206 item 3.
 
+**UPDATE 2026-07-31 (same day, BL-200's build):** the deferred hook-receipt version line landed
+with BL-200 (`a969686`, `# BL-200-SCANNER-VERSION`) exactly as scoped here — an ADDITIVE
+`scanner: semgrep <v>` line on the [OK]/[BLOCKED]/tool-failed reports; the 63 pinned
+`[OK] semgrep:` references were never touched, which was this deferral's whole reason.
+
 **Related:** BL-192 (both decision blocks), BL-198 (the gate this waited on), BL-147 (the parity
 suite that moved in the same diff), BL-193 (the version-archaeology cost that motivates the
-logging), BL-200 (carries the deferred hook-receipt version line), BL-206 (the review round's two
-grep-level residuals).
+logging), BL-200 (carries the deferred hook-receipt version line — landed, see UPDATE), BL-206
+(the review round's two grep-level residuals).
 
 ---
 

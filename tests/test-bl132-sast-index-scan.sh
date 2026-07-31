@@ -2790,11 +2790,20 @@ fi
 # ── T-pure-cjk-residue-passthrough (the NAMED residue, pinned as documentation) ───
 # A single-line zero-ASCII pure-CJK UTF-16 file has NO NUL anywhere (every code
 # unit is two non-zero bytes), so WP0.1 passes it through and semgrep scans it
-# undecoded — receipt granted. This is the plan's DOCUMENTED residue (review
-# R3-2), bounded to zero-ASCII single-line files, and deliberately NOT closed:
-# the only tightening that would catch it also breaks Latin-1 passthrough. The
-# case pins the boundary so a future "fix" that silently widens or narrows it
-# shows up here.
+# undecoded. This is the plan's DOCUMENTED residue (review R3-2), bounded to
+# zero-ASCII single-line files, and deliberately NOT closed at the BYTE layer:
+# the only tightening that would catch it there also breaks Latin-1 passthrough.
+# The case pins the boundary so a future "fix" that silently widens or narrows
+# it shows up here.
+#   THE RECEIPT HALF IS A MEASURED DISJUNCTION SINCE BL-200. The passthrough
+#   facts are HARD pins (no transcode, no block, commit lands). What the receipt
+#   then says depends on whether the HOST semgrep emits its syntax-error warning
+#   while chewing the undecoded bytes: where it does (measured on 1.157.0), the
+#   BL-200 detector forfeits the receipt and the residue no longer buys an
+#   unearned [OK] — a strict narrowing, best-effort by BL-200's own terms; where
+#   it stays silent, the pre-BL-200 receipt shape stands, which is the residue
+#   as BL-198 documented it. BOTH arms are named; anything else — a block, a
+#   transcode, a forfeit with no BL-200 warn — is a moved boundary and fails.
 echo "=== T-pure-cjk-residue-passthrough ==="
 BL198_WHY="$(_bl198_skip_reason)"
 if [ -n "$BL198_WHY" ]; then
@@ -2805,11 +2814,15 @@ else
     fail_ "T-pure-cjk-residue-passthrough" "fixture carries a NUL — it is not the zero-ASCII shape the residue names"
   else
     CJ2_V="$(_bl198_run "$EMITTED" "$TOPTMP/bl198-purecjk" widget.ts "$BL198FIX/purecjk.bin")"
-    if [ "$CJ2_V" = "COMMITTED" ] && grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/bl198-purecjk" \
-       && ! grep -qE 'transcoded' "$TOPTMP/bl198-purecjk"; then
-      pass "T-pure-cjk-residue-passthrough: the zero-ASCII single-line UTF-16 residue passes through with a receipt — NAMED and BOUNDED in the plan, pinned here so the boundary cannot move silently"
+    if [ "$CJ2_V" != "COMMITTED" ] || grep -qE 'transcoded' "$TOPTMP/bl198-purecjk" \
+       || grep -qF '[BLOCKED] Semgrep' "$TOPTMP/bl198-purecjk"; then
+      fail_ "T-pure-cjk-residue-passthrough" "verdict=$CJ2_V — the PASSTHROUGH boundary moved (no transcode, no block, commit lands are the hard pins; this case exists to make movement loud): $(sast_evidence "$TOPTMP/bl198-purecjk")"
+    elif grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/bl198-purecjk"; then
+      pass "T-pure-cjk-residue-passthrough: passthrough intact and the receipt is GRANTED — this host's semgrep is silent on the undecoded bytes, the residue stands exactly as BL-198 documented it"
+    elif grep -qF 'token-stream break' "$TOPTMP/bl198-purecjk"; then
+      pass "T-pure-cjk-residue-passthrough: passthrough intact and the receipt is FORFEITED by the BL-200 warn — this host's semgrep chokes loudly on the undecoded bytes, so the residue no longer buys an unearned [OK] (a strict, best-effort narrowing)"
     else
-      fail_ "T-pure-cjk-residue-passthrough" "verdict=$CJ2_V — the documented residue boundary moved (this case exists to make that loud): $(sast_evidence "$TOPTMP/bl198-purecjk")"
+      fail_ "T-pure-cjk-residue-passthrough" "the receipt was withheld with NO BL-200 token-stream warn — neither documented arm; the boundary moved somewhere new: $(sast_evidence "$TOPTMP/bl198-purecjk")"
     fi
   fi
 fi
@@ -2947,11 +2960,25 @@ else
     chmod +x "$MTC"
     MTC_RED="$(_bl198_run "$MTC" "$TOPTMP/bl198-mut-red" widget.ts "$BL198FIX/le-bom.bin")"
     MTC_GRN="$(_bl198_run "$EMITTED" "$TOPTMP/bl198-mut-grn" widget.ts "$BL198FIX/le-bom.bin")"
-    if [ "$MTC_RED" = "COMMITTED" ] && grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/bl198-mut-red" \
-       && [ "$MTC_GRN" = "REFUSED" ] && grep -qF '[BLOCKED] Semgrep' "$TOPTMP/bl198-mut-grn"; then
-      pass "T-mutation-parse-coverage: excising the # BL-198-TRANSCODE fence brings the BL-192 false attestation back (RED: receipt over an unseen sink) and the shipped hook blocks it (GREEN) — the fence is load-bearing"
+    # RED SINCE BL-200: the excision no longer buys the FULL BL-192 false
+    # attestation on every host, because the syntax detector is an INDEPENDENT
+    # second layer — on a semgrep that warns while chewing the undecoded bytes
+    # (measured on 1.157.0) the receipt is forfeited even with the fence gone.
+    # What the excision provably loses on EVERY host is the BLOCK: only the
+    # transcode makes the sink VISIBLE, so the mutant commit LANDS (the harm)
+    # while the shipped hook REFUSES it. The receipt half is the same measured
+    # disjunction as T-pure-cjk-residue-passthrough: granted (detector-silent
+    # host — the original false attestation) or forfeited WITH the BL-200 warn
+    # (defense-in-depth degrading safely); anything else fails.
+    if [ "$MTC_RED" != "COMMITTED" ] || grep -qF '[BLOCKED] Semgrep' "$TOPTMP/bl198-mut-red" \
+       || [ "$MTC_GRN" != "REFUSED" ] || ! grep -qF '[BLOCKED] Semgrep' "$TOPTMP/bl198-mut-grn"; then
+      fail_ "T-mutation-parse-coverage" "expected RED=COMMITTED(sink lands, unblocked) / GREEN=REFUSED+blocked; got RED=$MTC_RED GREEN=$MTC_GRN — the fence's blocking power is the hard pin: $(sast_evidence "$TOPTMP/bl198-mut-red")"
+    elif grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/bl198-mut-red"; then
+      pass "T-mutation-parse-coverage: excising the # BL-198-TRANSCODE fence lands the sink WITH the full BL-192 false receipt on this host (RED), the shipped hook blocks it (GREEN) — the fence is load-bearing"
+    elif grep -qF 'token-stream break' "$TOPTMP/bl198-mut-red"; then
+      pass "T-mutation-parse-coverage: excising the # BL-198-TRANSCODE fence lands the sink (RED — the harm survives excision) but the BL-200 detector independently forfeits the receipt on this host (defense-in-depth: the excision degrades to a loud forfeit, not a false attestation); the shipped hook blocks it (GREEN) — the fence carries the BLOCK"
     else
-      fail_ "T-mutation-parse-coverage" "expected RED=COMMITTED+receipt / GREEN=REFUSED+blocked; got RED=$MTC_RED GREEN=$MTC_GRN: $(sast_evidence "$TOPTMP/bl198-mut-red")"
+      fail_ "T-mutation-parse-coverage" "the mutant's receipt was withheld with NO BL-200 warn — neither documented arm; something else moved: $(sast_evidence "$TOPTMP/bl198-mut-red")"
     fi
   fi
 fi

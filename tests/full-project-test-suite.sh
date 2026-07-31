@@ -672,6 +672,8 @@ run_child_suite "tests/test-bl118-sast-dom-xss.sh" "tests/test-bl118-sast-dom-xs
 # via the lib directly (no scaffold run) — ALSO in the tests.yml unit fast lane.
 run_child_suite "tests/test-bl132-sast-index-scan.sh" "tests/test-bl132-sast-index-scan.sh"
 run_child_suite "tests/test-bl131-domsink-rules.sh" "tests/test-bl131-domsink-rules.sh"
+run_child_suite "tests/test-bl200-syntax-detector.sh" "tests/test-bl200-syntax-detector.sh"
+run_child_suite "tests/test-bl200-syntax-canary.sh" "tests/test-bl200-syntax-canary.sh"
 
 # BL-119 (Dogfood-2 F-DF2-006, High) + BL-087 fold-in: the strict terminal gate
 # must not classify a commit by the PREVIOUS commit's message (stale
