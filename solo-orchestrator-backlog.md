@@ -7186,7 +7186,15 @@ locally with the fix.
 interval), `templates/generated/claude-md.tmpl`'s "configured in Intake Section 11.5" line
 (the cleanest citation for the false promise).
 
-**Status:** Open
+**Status:** Closed — implemented and merged 2026-07-31 in PR #289 (`bf4c45b`; marker
+`# BL-203-INTERVAL-PLUMB`). The single writer `test-gate.sh --set-interval` now carries the intake
+answer to `.claude/build-progress.json::test_interval` from the wizard's script path, the AI-guided
+prompt, and a `reconfigure-project.sh` field arm; the second writer (`ensure_progress_file`) honors
+the recorded answer on recreation; the session hook's fails-open reads and `verify-install.sh`'s
+fabricated default are repaired; the gate self-reveals a recorded-answer mismatch with the exact
+remedy. Four adversarial review rounds (thirteen findings, every one real — a rendered-prompt
+integrity hole, a silent-success write, a gate-killing input bound, and a vacuous mutation proof
+among them); no residuals.
 
 ---
 
