@@ -642,11 +642,15 @@ fi
 # (whole-line and trailing), any line still carrying `semgrep/semgrep` must
 # carry `semgrep/semgrep:latest` at a tag boundary, so numeric tags, digests,
 # named tags, `:latest-nonroot`, and the BARE floating spelling are ALL
-# refused — one canonical form. Named residual, not papered over: the check
-# is line-granular, so a single line carrying both an acceptable and a
-# pinned ref escapes (the per-file Cg4/Cg5 anchors are the primary
-# enforcement; this is the breadth backstop). gitleaks pins are untouched:
-# the pattern is semgrep-specific by construction.
+# refused — one canonical form. Named residuals, not papered over: the
+# check is line-granular, so a single line carrying both an acceptable and
+# a pinned ref escapes; and the comment-strip is QUOTE-BLIND — a `#` inside
+# a quoted scalar truncates the strip mid-string, so a pinned ref AFTER it
+# on the same line escapes (review R-BL201-5; contrived carriers only, and
+# the failure direction is safe — truncation can only DROP lines from the
+# deny set, never accuse a clean one). The per-file Cg4/Cg5 anchors are the
+# primary enforcement; this is the breadth backstop. gitleaks pins are
+# untouched: the pattern is semgrep-specific by construction.
 echo "Cg-no-repin: every executable semgrep/semgrep reference under templates/pipelines is exactly :latest"
 repin="$(grep -rn 'semgrep/semgrep' "$PIPE_DIR" 2>/dev/null \
   | sed 's/#.*//' \
