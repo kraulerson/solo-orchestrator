@@ -101,9 +101,35 @@ run_fixture() { bash "$LINTER" --root "$TMP" 2>&1; return $?; }
 # the real backlog's broken citations would then resolve EXACT off this
 # suite — masking the very thing the allowlist documents.
 allowlisted_tokens() {
-  sed -n '/BL-196-ALLOWLIST-BEGIN/,/BL-196-ALLOWLIST-END/p' "$LINTER" \
+  sed -n '/BL-196-ALLOWLIST-BEGIN/,/BL-196-ALLOWLIST-END/p' "${1:-$LINTER}" \
     | grep -E '^BL-[0-9]+[a-z]?-[A-Za-z][A-Za-z0-9_-]*\|' \
     | sed -e 's/|.*//'
+}
+
+# ── unaccounted_allowlist_tokens: the T-REPO-LIST predicate, factored out so
+# T17 can run it against a deliberately-corrupted allowlist. Scans the REAL
+# tree with the given lint and echoes one line per allowlisted token that has
+# NEITHER its own `allowlist:` row NOR its own `resolved (EXACT)` row.
+#
+# PER-TOKEN, not a global disjunction. An earlier draft short-circuited on
+# "at least one row rendered anywhere", which let a bogus or stale allowlist
+# entry ride along green behind the real rows — the accounting has to be owed
+# by each token individually or it accounts for nothing.
+unaccounted_allowlist_tokens() {
+  local lint="${1:-$LINTER}" root="${2:-}" out t
+  if [ -n "$root" ]; then
+    out=$(bash "$lint" --root "$root" --list 2>&1)
+  else
+    out=$(bash "$lint" --list 2>&1)
+  fi
+  while IFS= read -r t; do
+    [ -n "$t" ] || continue
+    printf '%s\n' "$out" | grep -qF "$(printf '\t%s\tresolved (EXACT)' "$t")" && continue
+    printf '%s\n' "$out" | grep -qF "$(printf '\t%s\tallowlist: ' "$t")" && continue
+    printf '%s\n' "$t"
+  done <<EOF
+$(allowlisted_tokens "$lint")
+EOF
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -420,37 +446,78 @@ echo "=== T-REPO-LIST: the script-level allowlist mechanism is accounted for ===
 # on a MISS, so the moment fix/bl112-sast-scan-coverage merges and the BL-186
 # markers come back, a row-count assertion reds the required unit lane with
 # zero edits to BL-196 — and deleting the allowlist rows does not rescue it
-# either. The predicate is therefore a DISJUNCTION over the allowlist read
-# out of the lint at runtime:
-#   • at least one reasoned row renders (today: the markers are still gone), OR
-#   • every allowlisted token renders as `resolved (EXACT)` (post-merge: the
-#     markers are back and the rows are merely stale), which is VACUOUSLY
-#     true once the rows are deleted.
-# Every ordering of {merge, delete the rows} is green; a token that renders
-# NEITHER way is a genuine finding and still fails.
+# either.
+#
+# The predicate is PER-TOKEN, not a global disjunction. Each allowlisted token,
+# read out of the lint at runtime, must own EITHER its own reasoned
+# `allowlist:` row (today: the markers are still gone) OR its own
+# `resolved (EXACT)` row (post-merge: the markers are back and the row is
+# merely stale). Every ordering of {merge, delete the rows} is green, and an
+# empty allowlist is vacuously satisfied — which is what makes "delete the
+# rows" a valid move.
+#
+# WHY PER-TOKEN AND NOT `rows >= 1 OR all-EXACT`: that disjunction
+# SHORT-CIRCUITS. With the real rows rendering, `rows >= 1` was true and no
+# token was ever checked individually, so a bogus or stale allowlist entry
+# rode along green — the accounting has to be owed by each token or it
+# accounts for nothing. T17 pins exactly that.
 out=$(bash "$LINTER" --list 2>&1); rc=$?
 rows=$(printf '%s\n' "$out" | grep -c 'allowlist: ') || rows=0
 case "$rows" in ''|*[!0-9]*) rows=0 ;; esac
-not_exact=""
-tok_total=0
+tok_total=$(allowlisted_tokens | grep -c .) || tok_total=0
+case "$tok_total" in ''|*[!0-9]*) tok_total=0 ;; esac
+unaccounted=""
 while IFS= read -r t; do
   [ -n "$t" ] || continue
-  tok_total=$((tok_total + 1))
-  printf '%s\n' "$out" | grep -qF "$(printf '\t%s\tresolved (EXACT)' "$t")" \
-    || not_exact="$not_exact $t"
+  unaccounted="$unaccounted $t"
 done <<EOF
-$(allowlisted_tokens)
+$(unaccounted_allowlist_tokens)
 EOF
-# Disjunction, evaluated exactly as written above. The second arm is vacuous
-# for an empty allowlist, which is what makes "delete the rows" a valid move.
-mech_ok=0
-[ "$rows" -ge 1 ] && mech_ok=1
-[ -z "$not_exact" ] && mech_ok=1
-if [ "$rc" -eq 0 ] && [ "$mech_ok" -eq 1 ]; then
-  pass "T-REPO-LIST: allowlist mechanism accounted for ($tok_total token(s), $rows row(s) rendered)"
+if [ "$rc" -eq 0 ] && [ -z "$unaccounted" ]; then
+  pass "T-REPO-LIST: all $tok_total allowlisted token(s) individually accounted for ($rows row(s) rendered)"
 else
-  fail_ "T-REPO-LIST" "rc=$rc; rendered rows=$rows; allowlisted tokens not resolving EXACT:$not_exact"
+  fail_ "T-REPO-LIST" "rc=$rc; rendered rows=$rows; allowlisted token(s) owning neither an allowlist row nor an EXACT row:$unaccounted"
 fi
+
+echo ""
+echo "=== T17 (RF-3): a BOGUS allowlist token is caught even while real rows render ==="
+# The regression this pins is the SHORT-CIRCUIT, so the mutant must be built in
+# the regime where the old predicate was satisfied: the real rows ARE
+# rendering. A `rows >= 1` test passes here; the per-token test must not.
+#
+# The mutant lives OUTSIDE the repo and is pointed at the real tree with
+# --root, so it never joins the code surface and cannot mint its own bogus
+# token. (The literal below is minted in tests/, which is harmless: accounting
+# is about --list ROWS, and rows exist only for prose CITATIONS. Nothing cites
+# it, so it can own no row by either route — which is the point.)
+BOGUS_TOK="BL-196-BOGUS-ALLOWLIST-PROBE"
+T17DIR=$(mktemp -d)
+T17L="$T17DIR/lint.bogus.sh"
+# Splice one bogus row in immediately after the fence opener. Built with sed,
+# not `awk -v`: the repo's portability rule is ENVIRON-or-nothing for passing
+# shell values into awk, and here neither is needed.
+{
+  sed -n '1,/BL-196-ALLOWLIST-BEGIN/p' "$LINTER"
+  printf '%s|deliberately bogus row, T17 probe\n' "$BOGUS_TOK"
+  sed -n '/BL-196-ALLOWLIST-BEGIN/,$p' "$LINTER" | sed '1d'
+} > "$T17L"
+# The mutant lives outside the repo, so it must be pointed at the real tree
+# explicitly — otherwise its REPO_ROOT resolves to the temp dir, it exits 2
+# with no backlog, and every token reads "unaccounted" for the wrong reason.
+# The mut_rows>=1 arm below is what refuses that false positive.
+ctl_unacc=$(unaccounted_allowlist_tokens "$LINTER" "$REPO_ROOT" | grep -c .) || ctl_unacc=0
+case "$ctl_unacc" in ''|*[!0-9]*) ctl_unacc=0 ;; esac
+mut_unacc=$(unaccounted_allowlist_tokens "$T17L" "$REPO_ROOT") || mut_unacc=""
+mut_rows=$(bash "$T17L" --root "$REPO_ROOT" --list 2>&1 | grep -c 'allowlist: ') || mut_rows=0
+case "$mut_rows" in ''|*[!0-9]*) mut_rows=0 ;; esac
+if [ "$ctl_unacc" -eq 0 ] \
+   && [ "$mut_rows" -ge 1 ] \
+   && printf '%s\n' "$mut_unacc" | grep -qxF "$BOGUS_TOK"; then
+  pass "T17: bogus allowlist token reported unaccounted while $mut_rows real row(s) still render (short-circuit is gone)"
+else
+  fail_ "T17" "expected control 0 unaccounted, mutant rows>=1 AND the bogus token unaccounted; ctl=$ctl_unacc mut_rows=$mut_rows mut_unaccounted:[$mut_unacc]"
+fi
+rm -rf "$T17DIR"
 
 echo ""
 echo "=== T14 (R-BL196-2): an EMPTY entry-id set exits 2, never a false OK ==="

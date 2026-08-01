@@ -32,7 +32,7 @@
 #       on all THREE populations — markers, citations, backlog entry ids —
 #       turn a silent no-op into a loud exit 2, and an EMPTY entry set is
 #       refused outright before either join runs (# BL-196-EMPTY-SET-GUARD).
-#       Measured on this branch, 2026-07-31: 284 marker tokens in the code
+#       Measured on this branch, 2026-07-31: 285 marker tokens in the code
 #       surface, 368 citations in the prose surface, 204 entry ids. The
 #       floors sit well below all three so ordinary churn never trips them.
 #
@@ -189,7 +189,7 @@ fi
 ROOT="$(cd "$ROOT" && pwd)" || { echo "lint-bl-markers: cannot enter root: $ROOT" >&2; exit 2; }
 
 # Vacuity floors (pass c). Real-tree defaults sit well below the measured
-# populations (284 markers / 368 citations / 204 entry ids, 2026-07-31); a
+# populations (285 markers / 368 citations / 204 entry ids, 2026-07-31); a
 # fixture tree under --root defaults to 0 and raises them explicitly.
 if [ -z "$MIN_MARKERS" ]; then
   if [ -n "$ROOT_OVERRIDE" ]; then MIN_MARKERS=0; else MIN_MARKERS=50; fi
@@ -281,8 +281,17 @@ done
 #      `cp scripts/lint-bl-markers.sh scripts/zz-copy.sh`: the copy
 #      carries the sentinel because the sentinel is part of the file.
 # Layer 3 subsumes 1 and 2 for honest copies; 1 and 2 stay because they
-# cost nothing and still hold if someone strips the sentinel line.
-# T16 in tests/test-lint-bl-markers.sh is the canary for layer 3.
+# cost nothing and still hold if someone strips the sentinel line — but
+# READ THAT NARROWLY: it holds only for a copy whose PATH still matches
+# layer 1 or 2. A de-sentinelled copy under an arbitrary name defeats all
+# three, and no layer here detects it. That residual is deliberate and is
+# the sabotage class, not the accident class: every layer above is aimed
+# at a copy someone made in good faith (a backup, a rename, an
+# experiment). Nothing in this lint is a defence against an author who is
+# actively editing it to lie.
+# T16 in tests/test-lint-bl-markers.sh is the canary for layer 3, and its
+# control arm is exactly the de-sentinelled copy — so the residual is
+# demonstrated, not merely asserted.
 SELF_SENTINEL="BL-196-SELF-EXCLUDE-SENTINEL"
 if [ -s "$CODE_FILES" ]; then
   grep -vxF "$SELF_REL" "$CODE_FILES" \
