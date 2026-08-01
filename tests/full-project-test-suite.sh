@@ -557,6 +557,12 @@ run_child_suite "scripts/lint-bl-markers.sh" \
 section "Intake wizard + reconfigure field handlers (PRs #83, #84)"
 run_child_suite "tests/test-intake-wizard-fixes.sh" "tests/test-intake-wizard-fixes.sh"
 run_child_suite "tests/test-bl202-session-intake-check.sh" "tests/test-bl202-session-intake-check.sh"
+# BL-202 residual 2: README § Quick Start carried the last hand-maintained
+# verbatim copy of the kickoff paste block. It now points at the one generator;
+# this suite pins that it stays pointed there, stays honest that resume.sh is
+# downstream-only, and keeps documenting the BL-199 bare-name activation that
+# tests/test-bl199-quickstart-from-clone.sh executes but never reads.
+run_child_suite "tests/test-bl202-readme-kickoff-consolidation.sh" "tests/test-bl202-readme-kickoff-consolidation.sh"
 run_child_suite "tests/test-reconfigure-field-handlers.sh" \
   "tests/test-reconfigure-field-handlers.sh"
 

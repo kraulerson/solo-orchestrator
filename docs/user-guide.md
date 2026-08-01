@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | **Document ID** | SOI-007-GUIDE |
-| **Version** | 1.4 |
+| **Version** | 1.5 |
 | **Date** | 2026-08-01 |
 | **Classification** | User Guide |
 | **Companion Documents** | SOI-002-BUILD v1.0 (Builder's Guide), SOI-003-GOV v1.0 (Governance Framework), SOI-004-INTAKE v1.0 (Project Intake Template) |
@@ -14,27 +14,27 @@
 
 This guide walks you through using the Solo Orchestrator Framework from first setup to production maintenance. It covers what you do, when, and why — with separate paths for personal projects and organizational deployments.
 
-For what the framework *is*, how it works at a conceptual level, and what it is not suited for, see the [README](../README.md). This guide assumes you have read that and decided to proceed.
+For what the framework *is*, how it works at a conceptual level, and what it is not suited for, see the [README](https://github.com/kraulerson/solo-orchestrator#readme). This guide assumes you have read that and decided to proceed.
 
 ### Document Map
 
 | Document | Priority | What It Contains | When You Need It |
 |---|---|---|---|
 | **This guide** (user-guide.md) | **Follow** | What you do, step by step, from setup to maintenance | Start here |
-| [**Project Intake**](../templates/project-intake.md) | **Fill out** | Your product definition — wizard available | Pre-Phase 0 |
-| [**Platform Module**](platform-modules/) | **Reference** | Platform-specific architecture, tooling, testing, distribution | Phases 1-4 |
-| [**README**](../README.md) | Skim | Framework overview, prerequisites, platform/language support | Before starting |
+| **Project Intake** (`PROJECT_INTAKE.md`, created by `init.sh` in your project root) | **Fill out** | Your product definition — wizard available | Pre-Phase 0 |
+| [**Platform Module**](https://github.com/kraulerson/solo-orchestrator/tree/main/docs/platform-modules) | **Reference** | Platform-specific architecture, tooling, testing, distribution | Phases 1-4 |
+| [**README**](https://github.com/kraulerson/solo-orchestrator#readme) | Skim | Framework overview, prerequisites, platform/language support | Before starting |
 | [**Builder's Guide**](builders-guide.md) | Reference | The complete methodology — deep reference for phases, glossary, and advanced procedures | When you need detail beyond what this guide provides |
 | [**CLI Setup Addendum**](cli-setup-addendum.md) | Reference | Claude Code configuration, Superpowers, MCP servers | After init, before Phase 0 |
 | [**Security Scan Guide**](security-scan-guide.md) | Reference | Plain-language guide to common scan findings | When you get scan results |
 | [**Governance Framework**](governance-framework.md) | Org only | Approval authorities, compliance, risk, portfolio governance | Organizational deployments |
 | [**Executive Review**](executive-review.md) | Org only | Business case for CIO evaluation | Organizational evaluation |
 | [**Example Project**](https://github.com/kraulerson/solo-orchestrator-example-project) | Browse | Complete artifact trail from building MeshScope — see what each phase produces | Before starting, or anytime |
-| [**Extending Platforms**](extending-platforms.md) | Contributor | How to add a new platform type to the framework | When adding platforms |
-| [**Framework Evaluation Prompts**](../evaluation-prompts/Framework/) | Evaluation | Adversarial reviews of the framework itself from 6 professional perspectives | After framework updates or retooling |
-| [**Project Evaluation Prompts**](../evaluation-prompts/Projects/) | Evaluation | Adversarial reviews of any project built with the framework from 6 professional perspectives | Phase 3 validation, before production deployment |
+| [**Extending Platforms**](https://github.com/kraulerson/solo-orchestrator/blob/main/docs/extending-platforms.md) | Contributor | How to add a new platform type to the framework | When adding platforms |
+| [**Framework Evaluation Prompts**](https://github.com/kraulerson/solo-orchestrator/tree/main/evaluation-prompts/Framework) | Evaluation | Adversarial reviews of the framework itself from 6 professional perspectives | After framework updates or retooling |
+| [**Project Evaluation Prompts**](https://github.com/kraulerson/solo-orchestrator/tree/main/evaluation-prompts/Projects) | Evaluation | Adversarial reviews of any project built with the framework from 6 professional perspectives | Phase 3 validation, before production deployment |
 
-**What you actually need open:** This guide, the [Project Intake](../templates/project-intake.md), and your [Platform Module](platform-modules/). Everything else is reference material — the table above tells you when each document becomes relevant.
+**What you actually need open:** This guide, your project's `PROJECT_INTAKE.md`, and your [Platform Module](https://github.com/kraulerson/solo-orchestrator/tree/main/docs/platform-modules). Everything else is reference material — the table above tells you when each document becomes relevant.
 
 **How to read this guide:** Follow it step by step. Read the section for your current step, do the step, then read the next section. You do not need to read this guide end-to-end before starting. Each section tells you exactly what to do, what the AI agent does, and what to review before moving on.
 
@@ -46,11 +46,11 @@ For what the framework *is*, how it works at a conceptual level, and what it is 
 
 ### What This Framework Is
 
-A structured methodology for a single experienced technologist to build MVP-quality applications with a clear path to production, using AI as the execution layer. You define intent, constraints, and validation. The AI generates architecture, code, tests, and documentation within those constraints. It is phase-gated, test-driven, and security-scanned at every step. The output is a functional, tested, security-scanned MVP — production deployment requires additional hardening, operational readiness, and (for organizational projects) governance completion. See the [README](../README.md) for the full overview.
+A structured methodology for a single experienced technologist to build MVP-quality applications with a clear path to production, using AI as the execution layer. You define intent, constraints, and validation. The AI generates architecture, code, tests, and documentation within those constraints. It is phase-gated, test-driven, and security-scanned at every step. The output is a functional, tested, security-scanned MVP — production deployment requires additional hardening, operational readiness, and (for organizational projects) governance completion. See the [README](https://github.com/kraulerson/solo-orchestrator#readme) for the full overview.
 
 ### What You Should Know Before You Start
 
-**AI-generated code IP:** Software built using this framework is generated in part by AI. The copyright status of AI-generated code is legally unsettled under current U.S. and international law. The framework's human-directed phase gates strengthen copyright claims but do not guarantee protection. Do not assume full copyright protection for AI-generated code without consulting qualified IP counsel. See the [README Legal Notices](../README.md#legal-notices) for the full disclosure.
+**AI-generated code IP:** Software built using this framework is generated in part by AI. The copyright status of AI-generated code is legally unsettled under current U.S. and international law. The framework's human-directed phase gates strengthen copyright claims but do not guarantee protection. Do not assume full copyright protection for AI-generated code without consulting qualified IP counsel. See the [README Legal Notices](https://github.com/kraulerson/solo-orchestrator#legal-notices) for the full disclosure.
 
 **AI-generated legal documents:** Any Privacy Policies, Terms of Service, or other legal documents produced during the build process must be reviewed by qualified legal counsel before deployment.
 
@@ -320,7 +320,7 @@ The script prompts for 7 inputs (6 if you passed `--project-dir`):
 |---|---|---|
 | **Project name** | Lowercase, no spaces (e.g., `invoice-tool`) | This becomes the directory name and appears in generated files. |
 | **One-sentence description** | What does it do, in plain language | Used in CLAUDE.md and the Intake template. |
-| **Platform type** | Web / Desktop / Mobile / MCP Server / Other | Determines which Platform Module is loaded and which release pipeline is generated. Pick the primary delivery surface. See the [Extending Platforms Guide](extending-platforms.md) to add new platform types. |
+| **Platform type** | Web / Desktop / Mobile / MCP Server / Other | Determines which Platform Module is loaded and which release pipeline is generated. Pick the primary delivery surface. See the [Extending Platforms Guide](https://github.com/kraulerson/solo-orchestrator/blob/main/docs/extending-platforms.md) to add new platform types. |
 | **Project track** | Light / Standard / Full | **Light:** internal tools, <10 users, skip market audit. **Standard:** external users, moderate complexity. **Full:** enterprise buyers, sensitive data, pen testing mandatory. |
 | **Personal or Organizational** | Personal / Organizational | Organizational adds governance pre-flight requirements and approval authority structures. |
 | **Primary language** | TypeScript, Python, Rust, C#, Kotlin, Java, Go, Dart, Swift, Other | Determines the CI pipeline template (testing, linting, SAST, dependency audit). |
@@ -542,14 +542,17 @@ The Intake has a checklist at the bottom. Verify every item before starting:
 
 ```bash
 cd ~/projects/your-project
-claude
+bash scripts/resume.sh   # prints the exact first message for where you are
+claude                   # paste it as your first message
 ```
 
-The agent reads `CLAUDE.md` automatically. This file contains your project configuration, framework rules, and tool constraints.
+Claude Code loads `CLAUDE.md` — your project configuration, framework rules, and tool constraints — when the session starts, but the agent does not **act on** any of it until you send your **first message**. Until then nothing happens: a blank Claude Code screen means it is ready and waiting, not stuck.
+
+`scripts/resume.sh` is the one place that decides what that first message should be. It is state-aware: the intake prompt while your Intake is unfinished, the Section 13 initialization prompt once the Intake is done and Phase 0 has not started, and a resume prompt once work is under way.
 
 ### The Initialization Prompt
 
-Section 13 of the Intake contains a ready-to-use initialization prompt. Copy and paste it into the agent at the start of Phase 0. It tells the agent:
+Section 13 of the Intake contains a ready-to-use initialization prompt. `bash scripts/resume.sh` prints it verbatim at the point you need it, so you do not have to find and copy it by hand — but you can also paste it in yourself at the start of Phase 0. Either way, it tells the agent:
 
 - The Intake is the primary constraint
 - The Builder's Guide is the process reference
@@ -613,7 +616,7 @@ AI coding agents have context limits. For long-running projects:
 
 ## 5. Phase-by-Phase Walkthrough
 
-This section covers what **you** do at each phase — not what the agent does. For the agent's process, prompts, and remediation procedures, see the [Builder's Guide](builders-guide.md). For platform-specific instructions at each phase, see your [Platform Module](platform-modules/).
+This section covers what **you** do at each phase — not what the agent does. For the agent's process, prompts, and remediation procedures, see the [Builder's Guide](builders-guide.md). For platform-specific instructions at each phase, see your [Platform Module](https://github.com/kraulerson/solo-orchestrator/tree/main/docs/platform-modules).
 
 **How to read this section:** Each phase has a table showing your actions with separate columns for personal and organizational paths. "Same" means no difference between paths. Where the organizational path has additional requirements, they are listed explicitly.
 
@@ -1558,7 +1561,7 @@ npm install -g snyk
 
 **"My project is too complex for one person."**
 
-If your project needs multiple concurrent developers, microservices, or 99.99%+ SLA, it is outside the framework's current scope. Regulated-industry compliance (SOC 2, HIPAA, PCI-DSS) is a planned extension — the governance structure already provides role-based approval gate separation, but compliance-specific modules have not yet been built. See "What This Is Not (Today)" in the [README](../README.md).
+If your project needs multiple concurrent developers, microservices, or 99.99%+ SLA, it is outside the framework's current scope. Regulated-industry compliance (SOC 2, HIPAA, PCI-DSS) is a planned extension — the governance structure already provides role-based approval gate separation, but compliance-specific modules have not yet been built. See "What This Is Not (Today)" in the [README](https://github.com/kraulerson/solo-orchestrator#readme).
 
 ---
 
@@ -1648,7 +1651,8 @@ Pick the primary platform and use its module. Cross-platform concerns (e.g., a w
 
 | Version | Date | Changes |
 |---|---|---|
-| 1.4 | 2026-08-01 | Prerequisite-honesty audit: added jq and Git host CLI (`gh`/`glab`/Bitbucket credentials) rows to the Personal Project Prerequisites table (1.1), cross-referenced from the Organizational table (1.2) via "same as personal". |
+| 1.5 | 2026-08-01 | Prerequisite-honesty audit: added jq and Git host CLI (`gh`/`glab`/Bitbucket credentials) rows to the Personal Project Prerequisites table (1.1), cross-referenced from the Organizational table (1.2) via "same as personal". |
+| 1.4 | 2026-08-01 | Session Start: corrected the claim that the agent acts on `CLAUDE.md` when the session opens — context is loaded at startup but not acted on until the first message, which is the dead-air this section now names; added `scripts/resume.sh` to the session-start commands and the blank-screen reassurance. The Initialization Prompt: noted that `scripts/resume.sh` prints the Intake Section 13 prompt verbatim, so it need not be found and copied by hand (the manual path is retained). |
 | 1.3 | 2026-04-10 | Added MCP Server platform to domain modules table, Extending Platforms Guide to document map, updated platform selection guidance. |
 | 1.2 | 2026-04-08 | Added Process Enforcement Details subsection (7 items) and POC Mode Lifecycle subsection (4 items) to close UAT documentation gaps. |
 | 1.1 | 2026-04-02 | Added evaluation prompts documentation (framework and project review prompts). |

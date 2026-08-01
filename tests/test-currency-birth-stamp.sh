@@ -229,6 +229,27 @@ mcp="$(jq -r '.currency.mcpProbe.context7' "$MAN")"
   && pass "pre-commit hook present" \
   || fail_ "pre-commit" "not present"
 
+# — BL-090 ref-integrity arm, exercised against a REAL generated project —
+# scripts/lint-doc-anchors.sh's cross-file reference arm (# BL-090-DOC-REFS)
+# had only ever been dogfooded against the FRAMEWORK repo's OWN docs/ tree,
+# where docs/user-guide.md and docs/builders-guide.md live ONE LEVEL
+# SHALLOWER (docs/) than where init.sh ships them (docs/reference/ — one
+# level deeper). A relative link that resolves at one depth silently breaks
+# at the other, and the framework's own dogfood run can never catch it,
+# because it never scans a SHIPPED copy — only a generated project's docs/
+# tree exercises the depth the reader actually sees. Run the ref-integrity
+# arm in --strict-refs mode against THIS scaffold's real docs/ tree (root
+# docs + docs/reference + docs/platform-modules) so a future edit to either
+# guide that reintroduces a depth-mismatched or ghost relative link fails
+# HERE, not silently in every downstream project.
+doc_refs_out="$(bash "$REPO_ROOT/scripts/lint-doc-anchors.sh" --docs-dir "$TS" --strict-refs 2>&1)"
+doc_refs_rc=$?
+if [ "$doc_refs_rc" -eq 0 ]; then
+  pass "generated project docs/ tree: BL-090 ref-integrity arm clean (--strict-refs)"
+else
+  fail_ "generated project doc-ref integrity" "lint-doc-anchors --strict-refs exited $doc_refs_rc against $TS — $(printf '%s' "$doc_refs_out" | tail -6 | tr '\n' '|')"
+fi
+
 # ════════════════════════════════════════════════════════════════════════════
 # Scaffold 2 — rust: commit-msg hook is PRESENT. Pre-BL-107 rust got no TDD gate
 # (inline tests → empty soif_lang_test_pattern → install skipped, recorded as

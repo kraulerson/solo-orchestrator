@@ -73,7 +73,7 @@ The following are outside the current scope. They are content gaps addressable t
 - **Large-scale distributed systems** (microservices, multi-region) — Addressable through new platform modules. The extensibility model supports this; the modules have not been written.
 - **Enterprise integration projects** (SAP, Salesforce, custom ERP) — Specialized domains addressable through dedicated platform modules and intake suggestion files.
 
-Additional platform modules can be added following the [Extending Platforms Guide](extending-platforms.md).
+Additional platform modules can be added following the [Extending Platforms Guide](https://github.com/kraulerson/solo-orchestrator/blob/main/docs/extending-platforms.md).
 
 ### How This Differs From "Vibe Coding"
 
