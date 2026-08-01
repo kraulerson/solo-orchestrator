@@ -8100,7 +8100,7 @@ script: [mvn -B dependency:analyze org.owasp:dependency-check-maven:check --no-t
 ```
 
 Old libyaml (Psych / Ruby 2.6, libyaml 0.2.1) rejects colons inside plain scalars in flow
-sequences; modern parsers (PyYAML — every loader — and GitLab's own Go parser) accept it, which
+sequences; modern parsers (PyYAML — every loader — and current GitLab stacks, whose libyaml accepts it) do, which
 is why this survived unnoticed until BL-201's closure review ran a stricter probe. Pre-existing
 since the template was written; not introduced by any recent change.
 
@@ -8113,12 +8113,16 @@ ruby -ryaml -e 'YAML.load_file("templates/pipelines/ci/gitlab/java.yml")'
 A Python probe (`python3 -c 'import yaml; yaml.safe_load(open("templates/pipelines/ci/gitlab/java.yml"))'`)
 **wrongly passes** — PyYAML is lenient about colons in flow-context plain scalars where libyaml
 is not — so a Python check is not evidence this is fine; the ruby/libyaml probe is the one that
-reproduces the failure a stricter YAML consumer (or an older GitLab Runner's own bundled Psych)
+reproduces the failure an older libyaml-based consumer (e.g. Psych on Ruby 2.6)
 would hit.
 
 **Status:** Open — the fix ships on this same branch (`fix/bl208-java-yaml-strict-parse`: the
 single flow-scalar script item is double-quoted as one string so strict libyaml parses it, with
 no semantic change to the executed command). This entry closes at that branch's merge commit.
+Residual, recorded per review R-BL208-1: NO check in either lane strict-parses the 30 CI
+templates (nothing greps or loads them with a strict libyaml), so a recurrence of this exact
+wart merges green — reintroducing the unquoted line passed test-bl147 63/0 and all nine lint
+jobs by identity. Candidate follow-up: a ruby-guarded strict-parse arm in test-bl147.
 
 **Related:** BL-201 (the closure UPDATE where this was first observed and deferred to
 housekeeping).
