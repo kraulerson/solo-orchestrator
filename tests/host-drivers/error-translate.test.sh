@@ -162,7 +162,42 @@ e6_order_sso_beats_403() {
   if ! grep -qiE 'too many requests|short time' <<<"$t" || grep -qi 'not allowed' <<<"$t"; then
     fail_ "E6b" "a 403 that is really a rate limit was classified as generic permission: $t"; return
   fi
-  pass "E6: SSO and rate-limit 403s outrank the generic-permission arm"
+  # R-BL204-5: the header calls the ORDER load-bearing, but only
+  # specific-before-generic was pinned. Nothing pinned which of the two
+  # SPECIFIC arms wins when a message matches BOTH. Pin the intended winner:
+  # SSO is first because it is the one with a concrete, one-click fix; a
+  # rate-limit explanation would send the user off to wait for a wall that
+  # is not the actual blocker.
+  t=$(xlat 'HTTP 403: rate limit exceeded while the acme-corp organization SAML authorization check ran')
+  if ! grep -qi 'authoriz' <<<"$t"; then
+    fail_ "E6c" "a message matching BOTH the SSO and rate-limit arms must be explained as SSO (first arm wins): $t"; return
+  fi
+  if grep -qiE 'too many requests|short time' <<<"$t"; then
+    fail_ "E6c" "both-match message produced the rate-limit explanation — arm order regressed: $t"; return
+  fi
+  pass "E6: SSO and rate-limit 403s outrank generic permission, and SSO outranks rate-limit on a both-match"
+}
+
+# ── E6d (R-BL204-4): the SSO arm must not fire on unrelated prose ──
+#
+# `enabled or enforced` was carried in the SSO pattern as a fragment of
+# GitHub's SAML sentence. It is ordinary English: GitHub's own secondary-rate-
+# limit and org-policy messages use it too, and the fragment names no
+# SSO-specific concept at all. Measured: it adds zero true positives that
+# `saml`/`sso`/`single sign-on` do not already catch, and at least one false
+# positive that hands a rate-limited user an SSO runaround.
+e6d_sso_arm_does_not_overreach() {
+  local t
+  t=$(xlat 'HTTP 403: abuse detection is enabled or enforced for this endpoint; please retry later')
+  if grep -qi 'authoriz' <<<"$t"; then
+    fail_ "E6d" "the SSO arm fired on prose that has nothing to do with single sign-on: $t"; return
+  fi
+  # And the genuine SAML sentence must still classify as SSO without it.
+  t=$(xlat 'HTTP 403: the `acme` organization has enabled or enforced SAML SSO for this resource')
+  if ! grep -qi 'authoriz' <<<"$t"; then
+    fail_ "E6d" "narrowing the SSO pattern lost a genuine SAML message: $t"; return
+  fi
+  pass "E6d: the SSO arm fires on SAML/SSO tokens, not on the ordinary phrase 'enabled or enforced'"
 }
 
 # ── E7: the raw text stays BELOW the translation, never above it ──
@@ -326,6 +361,120 @@ STUB
   rm -rf "$T"
 }
 
+# ── E14 (R-BL204-1): bitbucket's PROTECTION arms, not just create ──
+#
+# The first pass wired exactly ONE bitbucket call site (host_create_repo) while
+# the commit message claimed "create + auth + protection" for all three
+# drivers. host_configure_protection had three raw-output arms: the listing
+# failure printed a 200-char API-body snippet, the force/delete POST failure
+# printed a generic line with the host's words dropped entirely, and the
+# org-mode POSTs returned 2 with NO diagnostic at all. Bitbucket is also the
+# driver whose users are least likely to read curl output, since it is the one
+# with no CLI — they are handling raw API tokens by hand.
+#
+# Hermetic: a curl stub on PATH, a git repo in mktemp. No network.
+e14_bitbucket_protection_routes_through_translator() {
+  local T; T=$(mktemp -d)
+  stub_bin "$T/bin" curl <<'STUB'
+#!/usr/bin/env bash
+# Dispatch on argv: the listing GET carries `pattern=`, the creates carry POST.
+case "$*" in
+  *"branch-restrictions?pattern="*)
+    if [ -n "${BB_LIST_FAIL:-}" ]; then
+      echo 'HTTP 401: Unauthorized — the API token is invalid or has expired' >&2
+      echo 'HTTP 401: Unauthorized — the API token is invalid or has expired'
+      exit 22
+    fi
+    echo '{"values":[]}'
+    exit 0 ;;
+  *"-X POST"*)
+    echo 'HTTP 403: Forbidden — your account lacks admin permission on this repository' >&2
+    echo 'HTTP 403: Forbidden — your account lacks admin permission on this repository'
+    exit 22 ;;
+  *) echo '{}'; exit 0 ;;
+esac
+STUB
+  (
+    cd "$T"
+    git init -q
+    git config user.email t@t.local
+    git config user.name t
+    git remote add origin https://bitbucket.org/ws/repo.git
+  ) >/dev/null 2>&1
+
+  # ── E14a: the LISTING failure arm (returns 2 before any POST) ──
+  local out_a
+  out_a=$(
+    cd "$T"
+    PATH="$T/bin:$PATH"
+    export BITBUCKET_API_TOKEN=tok BITBUCKET_API_TOKEN_EMAIL=a@b.c BITBUCKET_WORKSPACE=ws
+    export BB_LIST_FAIL=1
+    # shellcheck disable=SC1090
+    source "$BB_DRIVER"
+    host_configure_protection main personal 2>&1 >/dev/null
+    printf 'RC=%s' "$?"
+  )
+  case "$out_a" in
+    *"RC=2"*) ;;
+    *) fail_ "E14a" "the listing-failure arm must still return 2: $out_a"; rm -rf "$T"; return ;;
+  esac
+  case "$out_a" in
+    *"could not list existing restrictions"*) ;;
+    *) fail_ "E14a" "the listing-failure diagnostic lost its name (pre-existing contract): $out_a"; rm -rf "$T"; return ;;
+  esac
+  case "$out_a" in
+    *"$WHAT_ANCHOR"*) ;;
+    *) fail_ "E14a" "bitbucket's protection listing failure is still raw jargon: $out_a"; rm -rf "$T"; return ;;
+  esac
+
+  # ── E14b: the restriction-POST failure arm ──
+  local out_b
+  out_b=$(
+    cd "$T"
+    PATH="$T/bin:$PATH"
+    export BITBUCKET_API_TOKEN=tok BITBUCKET_API_TOKEN_EMAIL=a@b.c BITBUCKET_WORKSPACE=ws
+    # shellcheck disable=SC1090
+    source "$BB_DRIVER"
+    host_configure_protection main personal 2>&1 >/dev/null
+    printf 'RC=%s' "$?"
+  )
+  case "$out_b" in
+    *"RC=2"*) ;;
+    *) fail_ "E14b" "the POST-failure arm must still return 2: $out_b"; rm -rf "$T"; return ;;
+  esac
+  case "$out_b" in
+    *"failed to set force restriction"*) ;;
+    *) fail_ "E14b" "the POST-failure arm lost its pre-existing message: $out_b"; rm -rf "$T"; return ;;
+  esac
+  case "$out_b" in
+    *"$WHAT_ANCHOR"*) ;;
+    *) fail_ "E14b" "bitbucket's restriction-POST failure drops the host's words entirely: $out_b"; rm -rf "$T"; return ;;
+  esac
+  case "$out_b" in
+    *"lacks admin permission"*) ;;
+    *) fail_ "E14b" "the raw API body must still reach the operator: $out_b"; rm -rf "$T"; return ;;
+  esac
+
+  # ── E14c: the ORG-mode POSTs were silent (bare `|| return 2`) ──
+  local out_c
+  out_c=$(
+    cd "$T"
+    PATH="$T/bin:$PATH"
+    export BITBUCKET_API_TOKEN=tok BITBUCKET_API_TOKEN_EMAIL=a@b.c BITBUCKET_WORKSPACE=ws
+    # shellcheck disable=SC1090
+    source "$BB_DRIVER"
+    host_configure_protection main org 2>&1 >/dev/null
+    printf 'RC=%s' "$?"
+  )
+  case "$out_c" in
+    *"$WHAT_ANCHOR"*) ;;
+    *) fail_ "E14c" "org-mode protection failure is still silent/raw: $out_c"; rm -rf "$T"; return ;;
+  esac
+
+  pass "E14: bitbucket host_configure_protection routes listing, restriction-POST and org-mode failures through the translator (exit 2 and the pre-existing messages preserved)"
+  rm -rf "$T"
+}
+
 # ── E12: the BL-002 free-tier block still classifies FIRST and returns 3 ──
 
 e12_bl002_precedence_preserved() {
@@ -412,11 +561,13 @@ e3_expired_auth
 e4_permission_403
 e5_unknown_is_raw_only
 e6_order_sso_beats_403
+e6d_sso_arm_does_not_overreach
 e7_raw_below_translation
 e8_github_create_routes_through_translator
 e9_github_auth_probe_routes_through_translator
 e10_gitlab_create_routes_through_translator
 e11_bitbucket_create_routes_through_translator
+e14_bitbucket_protection_routes_through_translator
 e12_bl002_precedence_preserved
 e13_mutation_translation_is_load_bearing
 

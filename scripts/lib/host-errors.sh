@@ -42,9 +42,18 @@ host_explain_error() {
   local raw="${1:-}"
   local what="" action=""
 
-  if grep -qiE 'saml|(^|[^[:alnum:]])sso([^[:alnum:]]|$)|single[ -]sign[ -]on|enabled or enforced' <<<"$raw"; then
+  # R-BL204-4: `enabled or enforced` was carried here as a fragment of
+  # GitHub's SAML sentence, but it is ordinary English that GitHub also uses
+  # in abuse-detection and org-policy messages — a measured false positive
+  # ("abuse detection is enabled or enforced" got an SSO runaround) that adds
+  # zero true positives the SAML/SSO/single-sign-on tokens do not already
+  # catch. Match on the NAMES of the mechanism, never on prose around it.
+  if grep -qiE 'saml|(^|[^[:alnum:]])sso([^[:alnum:]]|$)|single[ -]sign[ -]on' <<<"$raw"; then
     what="Your organization makes you authorize a login before it will work on the organization's repositories. Your login is fine; it just has not been authorized there yet."
-    action="Open the authorization link in the raw text below and click Authorize, or re-run 'gh auth login' and pick the organization when prompted."
+    # R-BL204-6: `gh auth login` does not prompt for an organization — the
+    # org authorization happens on the browser page the login flow opens.
+    # Describing a prompt that does not exist sends the user hunting for it.
+    action="Open the authorization link in the raw text below and click Authorize, or re-run 'gh auth login' and grant access to the organization on the browser page that opens."
   elif grep -qiE 'rate limit|rate-limit|secondary rate|abuse detection|(^|[^0-9])429([^0-9]|$)|too many requests|retry-after' <<<"$raw"; then
     what="You made too many requests to the host in a short time, so it is turning you away for a while. Nothing is broken and nothing was lost."
     action="Wait a few minutes, then run the same command again."

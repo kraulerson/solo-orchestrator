@@ -4464,6 +4464,46 @@ _resolve_host_visibility_mode() {
 }
 
 # ================================================================
+# BL-204-VISIBILITY-PERSIST — record the visibility answer for the wizard
+# ================================================================
+# R-BL204-2: `.claude/intake-progress.json::answers.repo_visibility` had
+# exactly ONE writer in the whole repo — the intake wizard itself. init
+# RESOLVED the visibility (from --visibility, from a config file, or from its
+# own prompt) and then dropped it on the floor. So on every real first run the
+# wizard's BL-204-PREFILL lookup found nothing and blind-asked, which is the
+# precise thing finding 7 exists to stop: the user answers, then gets asked
+# again as if the answer never saved.
+#
+# Writing it here also feeds scripts/check-gate.sh, which reads the same key
+# with a silent `// "private"` default — a public repo was being described as
+# private there for the same reason.
+#
+# NEVER CLOBBER OPERATOR STATE. If the file exists and parses, merge into
+# .answers and keep every other key. If it exists and does NOT parse, do
+# nothing at all: an unreadable progress file is the operator's to recover,
+# and overwriting it with a one-key stub would destroy a part-finished intake.
+_bl204_persist_visibility_answer() {
+  local visibility="${1:-}"
+  [ -n "$visibility" ] || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  local prog=".claude/intake-progress.json"
+  mkdir -p .claude 2>/dev/null || return 0
+  local tmp built
+  tmp=$(mktemp) || return 0
+  if [ -f "$prog" ]; then
+    jq empty "$prog" >/dev/null 2>&1 || { rm -f "$tmp"; return 0; }
+    built=$(jq --arg v "$visibility" '.answers = ((.answers // {}) + {repo_visibility: $v})' "$prog") \
+      || { rm -f "$tmp"; return 0; }
+  else
+    built=$(jq -n --arg v "$visibility" '{answers: {repo_visibility: $v}}') \
+      || { rm -f "$tmp"; return 0; }
+  fi
+  printf '%s\n' "$built" > "$tmp" && mv "$tmp" "$prog"   # BL-204-VISIBILITY-PERSIST-WRITE
+  rm -f "$tmp" 2>/dev/null || true
+  return 0
+}
+
+# ================================================================
 # BL-204-VISIBILITY-EXPLAIN — plain-language private vs public
 # ================================================================
 # Kept verbatim in step with the wizard's copy of this text
@@ -4550,6 +4590,13 @@ prepare_initial_state_for_commit() {
   _resolve_host_visibility_mode
 
   mkdir -p .claude
+
+  # R-BL204-2: persist the resolved visibility so the intake wizard can
+  # CONFIRM it instead of blind-asking. The host needs no equivalent — it
+  # lands in .claude/manifest.json a few lines below, which is where the
+  # wizard's BL-204-PREFILL reads it from. Visibility has no manifest field,
+  # so without this line the prefill has nothing to find.
+  _bl204_persist_visibility_answer "$_RESOLVED_VISIBILITY"   # BL-204-VISIBILITY-PERSIST
 
   # Seed manifest with all framework-managed fields. remote_url stays "" until
   # create_and_protect_remote actually creates the repo; if it doesn't, the

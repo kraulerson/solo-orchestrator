@@ -927,12 +927,54 @@ HEOF
   [ "$D_VIS" = "public" ] || D_OK=0
   grep -qF "$BL204_FREETIER_ANCHOR" <<<"$D_ERR" || D_OK=0
 
-  if [ "$A_OK" -eq 1 ] && [ "$B_OK" -eq 1 ] && [ "$C_OK" -eq 1 ] && [ "$D_OK" -eq 1 ]; then
-    pass "T-bl204-prefill (remembered values are confirmed not re-asked; with neither source the original prompts + the free-tier note still run; the two halves prefill independently; 'change it' also gets the explanation)"
+  # ── Case E (R-BL204-2): the PRIMARY flow — a project fresh out of init,
+  # seeded with ONLY what init itself writes.
+  #
+  # THE GAP THIS CLOSES. Cases A/C/D hand-seed answers.repo_visibility, and
+  # the only writer of that key in the whole repo was the wizard. init
+  # resolved _RESOLVED_VISIBILITY (from --visibility, or a prompt) and threw
+  # it away, so on every real first run the wizard found nothing and
+  # blind-asked — the visibility half of "ask once" was a no-op everywhere
+  # except in this file's own fixtures. That is the fixture-masks-gap class:
+  # the test seeded the very state whose absence was the defect.
+  #
+  # So this case does NOT hand-write the key. It runs init's own persistence
+  # function to produce the file, then feeds THAT file to the wizard. The only
+  # test plumbing is the copy from .claude/ (where init writes) to the flat
+  # path the harness reads; the CONTENT is exactly what init produced.
+  D5=$(mktemp -d)
+  mkdir -p "$D5/run"
+  cat > "$D5/persist.sh" <<PEOF
+#!/usr/bin/env bash
+set -uo pipefail
+PEOF
+  awk '/^_bl204_persist_visibility_answer\(\) \{/{f=1} f{print} f&&/^\}$/{exit}' "$INITSH" >> "$D5/persist.sh"
+  echo '_bl204_persist_visibility_answer "public"' >> "$D5/persist.sh"
+  ( cd "$D5/run" && bash "$D5/persist.sh" ) >/dev/null 2>&1
+  E_OK=1
+  E_WROTE=$(jq -r '.answers.repo_visibility // "MISSING"' "$D5/run/.claude/intake-progress.json" 2>/dev/null) || E_WROTE="NOFILE"
+  [ "$E_WROTE" = "public" ] || E_OK=0
+  # Now the wizard, against init's real output plus the manifest init writes.
+  _bl204_harness "$D5"
+  printf '{"host":"github","mode":"personal"}\n' > "$D5/manifest.json"
+  cp "$D5/run/.claude/intake-progress.json" "$D5/intake-progress.json" 2>/dev/null || printf '{"answers":{}}\n' > "$D5/intake-progress.json"
+  E_ERR=$(printf '1\n1\n' | bash "$D5/harness.sh" 2>&1 >/dev/null)
+  E_VIS=$(jq -r '.answers.repo_visibility // "MISSING"' "$D5/intake-progress.json")
+  [ "$E_VIS" = "public" ] || E_OK=0
+  # The decisive assertion: a CONFIRM, not a blind private|public menu.
+  grep -qE '^[[:space:]]*2\.[[:space:]]*public$' <<<"$E_ERR" && E_OK=0
+  grep -qi 'remembered from your setup answers — repository visibility' <<<"$E_ERR" || E_OK=0
+  # And init must actually CALL the persistence function — a function nobody
+  # invokes is the same no-op wearing a different hat.
+  grep -qF '_bl204_persist_visibility_answer' \
+    <<<"$(_bl204_fnbody "$INITSH" prepare_initial_state_for_commit)" || E_OK=0
+
+  if [ "$A_OK" -eq 1 ] && [ "$B_OK" -eq 1 ] && [ "$C_OK" -eq 1 ] && [ "$D_OK" -eq 1 ] && [ "$E_OK" -eq 1 ]; then
+    pass "T-bl204-prefill (remembered values are confirmed not re-asked; with neither source the original prompts + the free-tier note still run; the two halves prefill independently; 'change it' also gets the explanation; and the PRIMARY flow works off what init itself persists)"
   else
-    fail_ "T-bl204-prefill" "A(ok=$A_OK host=$A_HOST vis=$A_VIS) B(ok=$B_OK host=$B_HOST vis=$B_VIS) C(ok=$C_OK host=$C_HOST vis=$C_VIS) D(ok=$D_OK vis=$D_VIS) — BL-204 finding 7"
+    fail_ "T-bl204-prefill" "A(ok=$A_OK host=$A_HOST vis=$A_VIS) B(ok=$B_OK host=$B_HOST vis=$B_VIS) C(ok=$C_OK host=$C_HOST vis=$C_VIS) D(ok=$D_OK vis=$D_VIS) E(ok=$E_OK wrote=$E_WROTE vis=$E_VIS) — BL-204 finding 7 / R-BL204-2"
   fi
-  rm -rf "$D" "$D2" "$D3" "$D4"
+  rm -rf "$D" "$D2" "$D3" "$D4" "$D5"
 fi
 
 echo ""

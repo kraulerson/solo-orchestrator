@@ -212,6 +212,26 @@ _bb_parse_origin() {
   esac
 }
 
+# _bb_post_restriction <workspace_repo> <kind-label> <payload>
+# BL-204-ERROR-TRANSLATE (R-BL204-1): one place that POSTs a branch
+# restriction, names the kind on failure, and routes the host's response
+# through the plain-language translator. Defined at FILE scope, not nested
+# inside host_configure_protection — a nested definition would leak into the
+# global namespace on first call anyway, and taking the repo as an argument
+# keeps it testable on its own.
+_bb_post_restriction() {
+  local workspace_repo="${1:?workspace_repo required}"
+  local label="${2:?kind label required}"
+  local body="${3:?payload required}"
+  local out
+  if ! out=$(printf '%s' "$body" | _bb_curl POST "$_bb_api_base/repositories/$workspace_repo/branch-restrictions"); then
+    echo "bitbucket driver: failed to set $label restriction on $workspace_repo" >&2
+    host_explain_error "$out"   # BL-204-ERROR-TRANSLATE
+    return 2
+  fi
+  return 0
+}
+
 host_configure_protection() {
   local branch="${1:?}"; local mode="${2:?}"
   local workspace_repo
@@ -240,8 +260,14 @@ host_configure_protection() {
   if [ "$listing_rc" -ne 0 ] || ! echo "$existing" | jq -e '.values | type == "array"' >/dev/null 2>&1; then
     local snippet
     snippet=$(printf '%s' "$existing" | head -c 200)
-    printf 'bitbucket driver: could not list existing restrictions for %s on %s (rc=%s): %s\n' \
-      "$branch" "$workspace_repo" "$listing_rc" "$snippet" >&2
+    printf 'bitbucket driver: could not list existing restrictions for %s on %s (rc=%s).\n' \
+      "$branch" "$workspace_repo" "$listing_rc" >&2
+    # BL-204-ERROR-TRANSLATE (R-BL204-1): the snippet used to be appended raw
+    # to the line above. Bitbucket is the driver with NO CLI — its users are
+    # handling raw API tokens by hand and are the least likely of the three to
+    # read an HTTP body. The 200-char bound is kept: it is what the operator
+    # sees, and status codes appear at the front of every response shape here.
+    host_explain_error "$snippet"
     return 2
   fi
   local delete_diag=""
@@ -262,18 +288,24 @@ host_configure_protection() {
   fi
 
   # Create restrictions: force-push off, delete off (both modes)
-  local kind
+  local kind post_out
   for kind in force delete; do
     local payload="{\"kind\":\"$kind\",\"pattern\":\"$branch\",\"users\":[],\"groups\":[]}"
-    echo "$payload" | _bb_curl POST "$_bb_api_base/repositories/$workspace_repo/branch-restrictions" >/dev/null || {
+    # BL-204-ERROR-TRANSLATE (R-BL204-1): capture the POST body instead of
+    # discarding it to /dev/null. Pre-fix this arm printed a generic
+    # "failed to set <kind> restriction" and threw the host's own words away,
+    # so the operator learned THAT it failed and never why.
+    if ! post_out=$(echo "$payload" | _bb_curl POST "$_bb_api_base/repositories/$workspace_repo/branch-restrictions"); then
       # PR #90 verifier MAJOR fix: flush the buffered delete-diagnostic
       # on POST failure too — operator running without SOIF_DEBUG must
       # still see which leftover restriction blocked creation. Before:
       # only the SOIF_DEBUG branch flushed; this path lost the timing
       # context permanently.
       [ -n "$delete_diag" ] && printf '%s' "$delete_diag" >&2
-      echo "bitbucket driver: failed to set $kind restriction" >&2; return 2
-    }
+      echo "bitbucket driver: failed to set $kind restriction" >&2
+      host_explain_error "$post_out"   # BL-204-ERROR-TRANSLATE
+      return 2
+    fi
   done
 
   # Org mode: require approvals on PRs + block direct push + require
@@ -284,9 +316,15 @@ host_configure_protection() {
     local payload_push='{"kind":"push","pattern":"'"$branch"'","users":[],"groups":[]}'
     local payload_approve='{"kind":"require_approvals_to_merge","pattern":"'"$branch"'","value":1,"users":[],"groups":[]}'
     local payload_builds='{"kind":"require_passing_builds_to_merge","pattern":"'"$branch"'","value":1,"users":[],"groups":[]}'
-    echo "$payload_push"    | _bb_curl POST "$_bb_api_base/repositories/$workspace_repo/branch-restrictions" >/dev/null || return 2
-    echo "$payload_approve" | _bb_curl POST "$_bb_api_base/repositories/$workspace_repo/branch-restrictions" >/dev/null || return 2
-    echo "$payload_builds"  | _bb_curl POST "$_bb_api_base/repositories/$workspace_repo/branch-restrictions" >/dev/null || return 2
+    # BL-204-ERROR-TRANSLATE (R-BL204-1): these three were bare
+    # `| _bb_curl … >/dev/null || return 2` — a SILENT non-zero. Org-mode
+    # protection could fail with nothing whatsoever on stderr, which is the
+    # worst shape of all: init reports "Remote setup did not complete
+    # cleanly" and the operator has no thread to pull. Route each through the
+    # shared helper so the kind is named and the host's words are translated.
+    _bb_post_restriction "$workspace_repo" "push"                          "$payload_push"    || return 2
+    _bb_post_restriction "$workspace_repo" "require_approvals_to_merge"    "$payload_approve" || return 2
+    _bb_post_restriction "$workspace_repo" "require_passing_builds_to_merge" "$payload_builds"  || return 2
   fi
   return 0
 }
