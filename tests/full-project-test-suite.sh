@@ -869,6 +869,19 @@ run_child_suite "tests/test-bl141-commitmsg-repair.sh" "tests/test-bl141-commitm
 run_child_suite "tests/test-bl143-pastcap-selfapproval.sh" \
   "tests/test-bl143-pastcap-selfapproval.sh"
 
+# BL-144 (Dogfood-3 SHOULD-fix wave verifier S1+S2): the two shapes the
+# self-approval scan stayed FULLY SILENT for after BL-143 — a malformed
+# `### ` header COMBINED with a past-cap Approver row (the recovery computed
+# NO_SECTION and discarded it, while the walker's loud refusal was
+# unreachable), and a recovered `[Name]`/blank Approver cell (recognized,
+# then dropped). Both now WARN-and-BLOCK. Fixtures are the SHIPPED org
+# approval-log template filled per its own append-design instructions, built
+# so the defect is the project's ONLY inconsistency — the oracle is rc 0→1
+# plus the rendered `issues` count, never the label. BL-143's no-Approver-row
+# boundary pinned. Per-arm fence-excision mutants. No init.sh -> both lanes.
+run_child_suite "tests/test-bl144-selfapproval-silent-arms.sh" \
+  "tests/test-bl144-selfapproval-silent-arms.sh"
+
 # BL-147 + BL-151 (PR-sweep WP-1): the ONE shared content-pin suite over
 # templates/pipelines/**. The emitted CI approval-log integrity steps are now
 # real — fetch-depth 0 + explicit base (github.base_ref) + loud-fail, no
