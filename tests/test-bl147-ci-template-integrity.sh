@@ -897,7 +897,7 @@ else
 fi
 
 # ── Cg-no-repin-strip-controls (# BL-206-STRIP-CONTROLS) ─────────────────────
-# Ten fixtures through the SAME predicate the sweep runs, in THREE groups. Two
+# Thirteen fixtures (4 caught + 2 exempt + 4 documented misses + 3 never-accuse controls) through the SAME predicate the sweep runs, in THREE groups. Two
 # of the groups assert things the sweep DOES; one asserts things it deliberately
 # does NOT. Reading the group names is the whole point of the case.
 #
