@@ -365,7 +365,9 @@ done <<< "$BLOCK_REPORT"
 #     exempting it here would make this arm disagree with the very
 #     splitter it protects, and the audit-trail block would silently
 #     capture the ID. Quoting a header inside an entry body is still
-#     fine — indent or fence it and the `^` anchor skips it (T15).
+#     fine, but INDENT it (T15) — awk is fence-blind, so a ```-fenced
+#     header still sitting at column 0 is counted, exactly as the
+#     splitter counts it. Only leading whitespace exempts.
 #
 #   • HEADERS ONLY, anchored (T15). Prose cross-references
 #     ("supersedes BL-050") repeat by design and are never violations;
@@ -381,9 +383,20 @@ done <<< "$BLOCK_REPORT"
 #     merge anything and would only distort the ID in the diagnostic,
 #     which reviewers grep for verbatim.
 #
-# BL-093 note: when the archive split lands, this arm must span BOTH
-# files — an ID present in the main backlog AND the archive is the same
-# defect.
+# NOT COVERED (known residuals, so the scope is readable here and not
+# only in the review record):
+#   • `## code-*-N:` headers in this same file (two exist as of
+#     2026-07-31: `## code-upgrade-project-8:` and
+#     `## code-check-gates-1:`) — this arm keys on `BL-` IDs only, which
+#     matches the rest of the lint's scope. A duplicate `code-*` header
+#     is not caught.
+#   • `## BUG-NNN:` headers in solo-orchestrator-bugs.md (7 today) —
+#     that file is never opened by this lint (DELIBERATE SCOPE above
+#     targets only the canonical backlog), so BUG IDs have no
+#     uniqueness guard at all.
+#   • BL-093: when the archive split lands, this arm must span BOTH
+#     files — an ID present in the main backlog AND the archive is the
+#     same defect.
 #
 # ONE awk pass emits both records: a `TOTAL` line (the header count, for
 # the --list row) and a `DUP` line per duplicated ID. Deriving the total
@@ -428,7 +441,7 @@ while IFS=$'\t' read -r rec_kind rec_id rec_count rec_lines; do
       ;;
     DUP)
       # ASCII-only diagnostic: no multibyte char adjacent to an expansion.
-      echo "lint-backlog-references: duplicate entry header '${rec_id}': ${rec_count} headers at lines ${rec_lines}; each BL-NNN must have exactly one '## BL-NNN:' header (indent or fence a header quoted inside an entry body)" >&2
+      echo "lint-backlog-references: duplicate entry header '${rec_id}': ${rec_count} headers at lines ${rec_lines}; each BL-NNN must have exactly one '## BL-NNN:' header (to quote one inside an entry body, indent it -- a code fence at column 0 does not exempt)" >&2
       VIOLATIONS=$((VIOLATIONS + 1))
       HEADER_DUPES=$((HEADER_DUPES + 1))
       LIST_ROWS="${LIST_ROWS}FAIL\theader-uniqueness\t${rec_id}\tduplicate header at lines ${rec_lines}\n"

@@ -575,6 +575,73 @@ teardown
 
 # ════════════════════════════════════════════════════════════════════
 echo ""
+echo "=== T20: TWO duplicated IDs are reported in FIRST-HEADER order ==="
+# ════════════════════════════════════════════════════════════════════
+# Pins the `order[]` index against a `for (k in seen)` regression: awk's
+# in-iteration order is UNSPECIFIED, so a for-in implementation emits
+# duplicates in hash order and diagnostics reshuffle between runs/hosts.
+# Every earlier case has at most ONE duplicated ID, where any ordering
+# looks identical — the reviewer's for-in mutant survived 21/0 for
+# exactly that reason.
+#
+# ID choice is empirical, not arbitrary. Under this host's awk
+# (BSD awk, bash 3.2.57) `for (k in seen)` yields BL-050 BEFORE BL-005,
+# i.e. the reverse of first-header order, so the mutant is visible. The
+# pair the review suggested (BL-001/BL-100 with BL-001 first) hashes in
+# the same order as first-header order and would NOT have exposed it —
+# verified with a probe before choosing.
+#
+# The ASSERTION is implementation-independent: first-header order is the
+# specified contract and `order[]` satisfies it on any awk. Only the
+# MUTANT's visibility depends on the host's hash order, which is the
+# normal limit of mutation testing against unspecified behaviour.
+#
+# The fixture also separates "first-header order" from "order of the
+# SECOND occurrence": BL-050's duplicate (line 13) precedes BL-005's
+# duplicate (line 19), so an implementation keyed on the later header
+# would also emit BL-050 first and fail here.
+setup
+write_backlog '## BL-005: first entry, duplicated last
+
+**Status:** Open
+
+Body.
+
+## BL-050: second entry, duplicated first
+
+**Status:** Open
+
+Body.
+
+## BL-050: duplicate of the SECOND id
+
+**Status:** Open
+
+Body.
+
+## BL-005: duplicate of the FIRST id
+
+**Status:** Open
+
+Body.
+'
+out=$(run_lint); rc=$?
+dup_order=$(printf '%s\n' "$out" \
+  | grep -o "duplicate entry header '[^']*'" \
+  | sed "s/.*'\([^']*\)'/\1/" \
+  | tr '\n' ' ')
+if [ $rc -eq 1 ] \
+   && [ "$dup_order" = "BL-005 BL-050 " ] \
+   && echo "$out" | grep -q "'BL-005': 2 headers at lines 1, 19" \
+   && echo "$out" | grep -q "'BL-050': 2 headers at lines 7, 13"; then
+  pass "T20: both duplicated IDs reported, ordered by first header (BL-005 then BL-050)"
+else
+  fail_ "T20" "expected exit 1 and dup order 'BL-005 BL-050 '; got rc=$rc order='$dup_order'; output:\n$out"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
 echo "=== T9: MERGE GATE — run linter against current repo HEAD vs origin/main → exit 0 ==="
 # ════════════════════════════════════════════════════════════════════
 # Wave-2 acceptance criterion (mirrors PR #72 T9): proves the lint
