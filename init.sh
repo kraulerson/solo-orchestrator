@@ -1424,6 +1424,9 @@ create_project() {
   # inside the initialized project (audit: code-init-sh-2).
   mkdir -p scripts/host-drivers
   cp "$SCRIPT_DIR/scripts/lib/host.sh" scripts/lib/
+  # BL-204-ERROR-TRANSLATE: the drivers source ../lib/host-errors.sh relative
+  # to their own location, so it must land in the project alongside host.sh.
+  cp "$SCRIPT_DIR/scripts/lib/host-errors.sh" scripts/lib/
   cp "$SCRIPT_DIR/scripts/host-drivers/"*.sh scripts/host-drivers/
   chmod +x scripts/host-drivers/*.sh
   chmod +x scripts/validate.sh scripts/check-phase-gate.sh scripts/run-phase3-validation.sh scripts/check-gate.sh scripts/check-updates.sh scripts/resume.sh scripts/intake-wizard.sh scripts/resolve-tools.sh scripts/upgrade-project.sh scripts/reconfigure-project.sh scripts/verify-install.sh scripts/test-gate.sh scripts/check-versions.sh scripts/session-version-check.sh scripts/session-freshness-check.sh scripts/session-test-gate-check.sh scripts/session-intake-check.sh scripts/session-end-qdrant-reminder.sh scripts/session-mcp-gate.sh scripts/process-checklist.sh scripts/pre-commit-gate.sh scripts/track-tool-usage.sh scripts/pending-approval.sh scripts/lint-uat-scenarios.sh scripts/check-maintenance.sh scripts/lint-backlog-references.sh scripts/lint-counter-antipattern.sh scripts/lint-review-manifest.sh
@@ -3118,6 +3121,29 @@ print_next_steps() {
   echo -e "${BOLD}Project:${NC} $PROJECT_NAME"
   echo -e "${BOLD}Location:${NC} $PROJECT_DIR"
   echo ""
+  # BL-204-REMOTE-WHY (finding 8): state plainly what the remote is FOR, at
+  # the one screen every successful run ends on. Pre-fix this framing appeared
+  # ONLY inside the data-loss warning arm — i.e. only to users who had already
+  # hit a failure — so the users whose remote worked never learned what it was
+  # protecting them from, and the users whose remote did NOT work met the idea
+  # for the first time in an error message.
+  local _bl204_remote_url=""
+  if command -v jq >/dev/null 2>&1 && [ -f "$PROJECT_DIR/.claude/manifest.json" ]; then
+    _bl204_remote_url=$(jq -r '.remote_url // empty' "$PROJECT_DIR/.claude/manifest.json" 2>/dev/null || echo "")
+  fi
+  echo -e "${BOLD}Your backup:${NC}"
+  if [ -n "$_bl204_remote_url" ]; then
+    echo "  $_bl204_remote_url"
+    echo "  That remote is your backup — the copy that lives somewhere other than this"
+    echo "  machine. Keep pushing to it. If this disk dies and the work is only here,"
+    echo "  all of it is gone."
+  else
+    echo "  NONE YET — this project exists only on this disk."
+    echo "  A remote is your backup: the copy that lives somewhere other than this"
+    echo "  machine. Until you have one, a lost or failed disk loses all of the work."
+    echo "  Set one up with: cd $PROJECT_DIR && scripts/check-gate.sh --repair"
+  fi
+  echo ""
   echo -e "${BOLD}Next Steps:${NC}"
   echo ""
   echo "  1. AUTHENTICATE (manual — requires browser):"
@@ -4401,8 +4427,24 @@ _resolve_host_visibility_mode() {
   elif [ -f .claude/intake-progress.json ]; then
     _RESOLVED_VISIBILITY=$(jq -r '.answers.repo_visibility // empty' .claude/intake-progress.json 2>/dev/null || echo "")
   fi
+
+  # BL-204-REMOTE-WHY (finding 8): nothing upstream of the choice explained
+  # what a remote is FOR. Say it before the prompt, not inside the failure arm.
+  if [ -z "${_RESOLVED_HOST:-}" ]; then
+    print_info "About this question: your remote is your backup — the copy that lives"
+    print_info "somewhere other than this machine. If this disk dies and there is no"
+    print_info "remote, every bit of the work is gone."
+  fi
   # Fallback: prompt inline if neither source supplied a value (interactive mode only).
   [ -z "${_RESOLVED_HOST:-}" ]       && _RESOLVED_HOST=$(prompt_choice "Git host:" "github" "gitlab" "bitbucket" "other")
+
+  # BL-204-VISIBILITY-EXPLAIN (finding 6): the bare `private|public` prompt
+  # never said what either word means, and never said that private on a
+  # free-tier personal GitHub account forfeits branch protection — a cost that
+  # only reappears much later as an attestation prompt with no context.
+  if [ -z "${_RESOLVED_VISIBILITY:-}" ]; then
+    _bl204_explain_visibility
+  fi
   [ -z "${_RESOLVED_VISIBILITY:-}" ] && _RESOLVED_VISIBILITY=$(prompt_choice "Repository visibility:" "private" "public")
 
   # Map DEPLOYMENT "organizational" → "org" for consistency with spec
@@ -4413,6 +4455,126 @@ _resolve_host_visibility_mode() {
     print_warn "Org mode forces private visibility (overriding '$_RESOLVED_VISIBILITY')"
     _RESOLVED_VISIBILITY="private"
   fi
+
+  # BL-204-PROBE-AT-SELECT (finding 5): the host choice is SETTLED at this
+  # point — probe the CLI/credentials NOW rather than leaving the discovery to
+  # create_and_protect_remote, which runs after every remaining prompt has
+  # been answered and after the whole project tree has been scaffolded.
+  _bl204_probe_host_at_selection "$_RESOLVED_HOST"
+}
+
+# ================================================================
+# BL-204-VISIBILITY-PERSIST — record the visibility answer for the wizard
+# ================================================================
+# R-BL204-2: `.claude/intake-progress.json::answers.repo_visibility` had
+# exactly ONE writer in the whole repo — the intake wizard itself. init
+# RESOLVED the visibility (from --visibility, from a config file, or from its
+# own prompt) and then dropped it on the floor. So on every real first run the
+# wizard's BL-204-PREFILL lookup found nothing and blind-asked, which is the
+# precise thing finding 7 exists to stop: the user answers, then gets asked
+# again as if the answer never saved.
+#
+# Writing it here also feeds scripts/check-gate.sh, which reads the same key
+# with a silent `// "private"` default — a public repo was being described as
+# private there for the same reason.
+#
+# NEVER CLOBBER OPERATOR STATE. If the file exists and parses, merge into
+# .answers and keep every other key. If it exists and does NOT parse, do
+# nothing at all: an unreadable progress file is the operator's to recover,
+# and overwriting it with a one-key stub would destroy a part-finished intake.
+_bl204_persist_visibility_answer() {
+  local visibility="${1:-}"
+  [ -n "$visibility" ] || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  local prog=".claude/intake-progress.json"
+  mkdir -p .claude 2>/dev/null || return 0
+  local tmp built
+  tmp=$(mktemp) || return 0
+  if [ -f "$prog" ]; then
+    jq empty "$prog" >/dev/null 2>&1 || { rm -f "$tmp"; return 0; }
+    built=$(jq --arg v "$visibility" '.answers = ((.answers // {}) + {repo_visibility: $v})' "$prog") \
+      || { rm -f "$tmp"; return 0; }
+  else
+    built=$(jq -n --arg v "$visibility" '{answers: {repo_visibility: $v}}') \
+      || { rm -f "$tmp"; return 0; }
+  fi
+  printf '%s\n' "$built" > "$tmp" && mv "$tmp" "$prog"   # BL-204-VISIBILITY-PERSIST-WRITE
+  rm -f "$tmp" 2>/dev/null || true
+  return 0
+}
+
+# ================================================================
+# BL-204-VISIBILITY-EXPLAIN — plain-language private vs public
+# ================================================================
+# Kept verbatim in step with the wizard's copy of this text
+# (scripts/intake-wizard.sh::_bl204_explain_visibility). Two prompts, one
+# explanation — a user who meets the question in either place gets the same
+# words, including the free-tier cost.
+_bl204_explain_visibility() {
+  print_info "Who can see this code?"
+  print_info "  private — only you and the people you invite can see the code. Most projects."
+  print_info "  public  — anyone on the internet can read the code. Only you can change it."
+  print_info ""
+  print_info "One trade-off worth knowing before you choose:"
+  print_info "  On a free personal GitHub account, a PRIVATE repo cannot have branch protection"
+  print_info "  (the safety rail that stops accidental force-pushes and deletions of main)."
+  print_info "  If you pick private on a free account, the framework will later ask you to"
+  print_info "  attest that you follow those rules by hand instead. A PUBLIC repo on the same"
+  print_info "  free account gets the real thing, and so does a private repo on a paid plan."
+}
+
+# ================================================================
+# BL-204-PROBE-AT-SELECT — probe the host at the moment of choice
+# ================================================================
+# BL-204 finding 5: `host_require_cli` ran ONLY immediately before
+# `host_create_repo`, so choosing a host whose CLI is missing (or whose
+# credentials are not exported — bitbucket without BITBUCKET_API_TOKEN is the
+# audited case) was discovered many prompts later. This probe runs at the
+# selection point and is ADVISORY: it always returns 0, because the
+# pre-create probe in create_and_protect_remote is still the decisive gate and
+# still records the failure via record_init_failure. Making this one fatal
+# would move the gate and change the exit contract; making it loud is enough
+# to fix the discovery problem the finding actually describes.
+_bl204_probe_host_at_selection() {
+  local host="${1:-}"
+  # Nothing to probe when no remote will be created.
+  [ "${NO_REMOTE_CREATION:-false}" = true ] && return 0
+  case "$host" in
+    github|gitlab|bitbucket) ;;
+    *) return 0 ;;   # 'other' has no CLI to probe
+  esac
+  local dispatcher="$SCRIPT_DIR/scripts/lib/host.sh"
+  local driver="$SCRIPT_DIR/scripts/host-drivers/$host.sh"
+  if [ ! -f "$dispatcher" ] || [ ! -f "$driver" ]; then
+    return 0
+  fi
+  # Subshell: the driver defines host_* functions, and create_and_protect_remote
+  # sources them itself later. Keeping them out of this scope means the probe
+  # cannot change which implementation the create path ends up running.
+  local probe_out probe_rc
+  probe_out=$(
+    # shellcheck disable=SC1090
+    source "$dispatcher"
+    # shellcheck disable=SC1090
+    source "$driver"
+    host_require_cli 2>&1
+  ) && probe_rc=0 || probe_rc=$?
+  if [ "$probe_rc" -eq 0 ]; then
+    # Deliberately not "CLI found": bitbucket has no CLI, it checks exported
+    # credentials. One sentence that is true for all three drivers.
+    print_ok "Your $host access is set up and working."
+    return 0
+  fi
+  echo ""
+  print_warn "The tools for '$host' are not ready yet — found this while checking your choice."
+  print_info "Telling you now rather than after the rest of the questions: this is what"
+  print_info "stops the backup copy of your project from being created."
+  [ -n "$probe_out" ] && printf '%s\n' "$probe_out" >&2
+  print_info "Setup will keep going and try again when it creates the repository."
+  print_info "If it still is not ready then, the project stays on this machine and you can"
+  print_info "finish the remote later with: scripts/check-gate.sh --repair"
+  echo ""
+  return 0
 }
 
 # Lay down ALL durable state BEFORE the chore-init commit so it is captured
@@ -4428,6 +4590,13 @@ prepare_initial_state_for_commit() {
   _resolve_host_visibility_mode
 
   mkdir -p .claude
+
+  # R-BL204-2: persist the resolved visibility so the intake wizard can
+  # CONFIRM it instead of blind-asking. The host needs no equivalent — it
+  # lands in .claude/manifest.json a few lines below, which is where the
+  # wizard's BL-204-PREFILL reads it from. Visibility has no manifest field,
+  # so without this line the prefill has nothing to find.
+  _bl204_persist_visibility_answer "$_RESOLVED_VISIBILITY"   # BL-204-VISIBILITY-PERSIST
 
   # Seed manifest with all framework-managed fields. remote_url stays "" until
   # create_and_protect_remote actually creates the repo; if it doesn't, the

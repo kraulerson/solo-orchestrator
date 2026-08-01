@@ -77,6 +77,10 @@ FRAMEWORK_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # override PROGRESS_FILE/INTAKE_FILE before calling save_answer etc.
 PROGRESS_FILE="${PROJECT_ROOT:-}/.claude/intake-progress.json"
 INTAKE_FILE="${PROJECT_ROOT:-}/PROJECT_INTAKE.md"
+# BL-204-PREFILL: the framework manifest is where the git host chosen during
+# init already lives. Declared beside PROGRESS_FILE (and overridable the same
+# way) so run_section_1_repo_setup can be exercised in isolation by tests.
+MANIFEST_FILE="${MANIFEST_FILE:-${PROJECT_ROOT:-}/.claude/manifest.json}"
 SUGGESTIONS_DIR="$FRAMEWORK_ROOT/templates/intake-suggestions"
 
 # Project context (loaded from progress file or phase-state.json)
@@ -573,17 +577,90 @@ run_section_1() {
   repo_url=$(prompt_input "Repository URL (if already created, or Enter to skip)" "")
   save_answer "repo_url" "${repo_url:-TBD}"
 
+  run_section_1_repo_setup
+
+  save_section 1
+  echo ""
+}
+
+# ================================================================
+# BL-204-VISIBILITY-EXPLAIN — plain-language private vs public
+# ================================================================
+# BL-204 finding 6: the visibility prompt was a bare `private|public` with
+# zero explanation, and choosing "private" on a free-tier personal GitHub
+# account silently forfeits branch protection — a cost that only surfaces
+# much later in the run, as an attestation prompt the user has no context
+# for. Say it HERE, where the choice is actually made.
+_bl204_explain_visibility() {
+  print_info "Who can see this code?"
+  print_info "  private — only you and the people you invite can see the code. Most projects."
+  print_info "  public  — anyone on the internet can read the code. Only you can change it."
+  print_info ""
+  print_info "One trade-off worth knowing before you choose:"
+  print_info "  On a free personal GitHub account, a PRIVATE repo cannot have branch protection"
+  print_info "  (the safety rail that stops accidental force-pushes and deletions of main)."
+  print_info "  If you pick private on a free account, the framework will later ask you to"
+  print_info "  attest that you follow those rules by hand instead. A PUBLIC repo on the same"
+  print_info "  free account gets the real thing, and so does a private repo on a paid plan."
+}
+
+# ================================================================
+# SECTION 1 (repo half): git host + repository visibility
+# ================================================================
+# Split out of run_section_1 by BL-204 so the whole repo-setup exchange —
+# the "why", the prefill, the probe, the visibility explanation — is one
+# reviewable unit that tests can drive in isolation.
+run_section_1_repo_setup() {
+  # BL-204-REMOTE-WHY (finding 8): say why any of this matters BEFORE asking
+  # which host. Pre-fix this framing existed ONLY inside the data-loss warning
+  # arm, i.e. only after something had already gone wrong.
+  print_info "About the next two questions: your remote is your backup."
+  print_info "It is the copy of this project that lives somewhere other than this machine."
+  print_info "If this disk dies and there is no remote, every bit of the work is gone."
+  echo ""
+
   # --- Git host selection (spec 2026-04-21 host-aware repo gate) ---
-  local git_host
-  git_host=$(prompt_choice "Git host for this project:" \
-    "github" \
-    "gitlab" \
-    "bitbucket" \
-    "other")
+  # BL-204-PREFILL (finding 7): the host was already chosen during init and
+  # recorded in .claude/manifest.json — by the time this wizard runs the
+  # remote usually EXISTS. Asking again, blind, reads to a novice as "my
+  # earlier answer didn't save". Show what is remembered and confirm it.
+  local git_host="" remembered_host="" host_was_remembered=0
+  if [ -f "$MANIFEST_FILE" ] && command -v jq >/dev/null 2>&1; then
+    :  # guard: keeps the block well-formed when the marked read is excised
+    remembered_host=$(jq -r '.host // empty' "$MANIFEST_FILE" 2>/dev/null || echo "")  # BL-204-PREFILL-READ
+  fi
+  if [ -n "$remembered_host" ]; then
+    host_was_remembered=1
+    print_info "Remembered from your setup answers — git host: $remembered_host"
+    print_info "(recorded in .claude/manifest.json; you are confirming it, not re-answering it)"
+    local host_confirm
+    host_confirm=$(prompt_choice "Keep '$remembered_host' as the git host?" \
+      "keep it" \
+      "change it")
+    if [ "$host_confirm" = "change it" ]; then
+      host_was_remembered=0
+      git_host=$(prompt_choice "Git host for this project:" \
+        "github" \
+        "gitlab" \
+        "bitbucket" \
+        "other")
+    else
+      git_host="$remembered_host"
+    fi
+  else
+    git_host=$(prompt_choice "Git host for this project:" \
+      "github" \
+      "gitlab" \
+      "bitbucket" \
+      "other")
+  fi
   save_answer "git_host" "$git_host"
 
-  # Probe CLI availability for first-class hosts (github/gitlab/bitbucket)
-  if [ "$git_host" != "other" ]; then
+  # BL-204-PROBE-AT-SELECT (wizard half of finding 5): probe only when the
+  # host is genuinely being CHOSEN here. A remembered host means init already
+  # created the remote against it, so a second probe is noise at best and, if
+  # the CLI has since been uninstalled, an alarming false problem.
+  if [ "$host_was_remembered" -eq 0 ] && [ "$git_host" != "other" ]; then
     local dispatcher="$SCRIPT_DIR/lib/host.sh"
     local driver="$SCRIPT_DIR/host-drivers/$git_host.sh"
     if [ -f "$dispatcher" ] && [ -f "$driver" ]; then
@@ -610,7 +687,14 @@ run_section_1() {
             save_answer "git_host" "$git_host"
             ;;
           continue)
-            echo "Continuing intake — CLI will be verified again at init.sh." >&2
+            # BL-204 finding 5: the pre-fix line here promised the CLI would
+            # "be verified again at init.sh". That is backwards — this wizard
+            # runs AFTER init, so nothing downstream re-verifies. Name the
+            # actual remediation instead.
+            echo "Continuing intake — the wizard itself does not need the host CLI." >&2
+            echo "Setting up the remote already happened during setup. If that step did" >&2
+            echo "not finish, install and authenticate the CLI, then run:" >&2
+            echo "  bash scripts/check-gate.sh --repair" >&2
             ;;
         esac
       fi
@@ -619,12 +703,32 @@ run_section_1() {
   fi
 
   # --- Repository visibility ---
-  local repo_visibility
-  repo_visibility=$(prompt_choice "Repository visibility:" "private" "public")
+  # BL-204-PREFILL (finding 7): visibility lives only in
+  # .claude/intake-progress.json::answers.repo_visibility — the manifest never
+  # records it. Same confirm-don't-re-ask treatment as the host above; the two
+  # halves prefill independently because their sources are independent.
+  local repo_visibility="" remembered_visibility=""
+  if [ -f "$PROGRESS_FILE" ] && command -v jq >/dev/null 2>&1; then
+    :  # guard: keeps the block well-formed when the marked read is excised
+    remembered_visibility=$(jq -r '.answers.repo_visibility // empty' "$PROGRESS_FILE" 2>/dev/null || echo "")  # BL-204-PREFILL-READ
+  fi
+  if [ -n "$remembered_visibility" ]; then
+    print_info "Remembered from your setup answers — repository visibility: $remembered_visibility"
+    local vis_confirm
+    vis_confirm=$(prompt_choice "Keep '$remembered_visibility' as the repository visibility?" \
+      "keep it" \
+      "change it")
+    if [ "$vis_confirm" = "change it" ]; then
+      _bl204_explain_visibility
+      repo_visibility=$(prompt_choice "Repository visibility:" "private" "public")
+    else
+      repo_visibility="$remembered_visibility"
+    fi
+  else
+    _bl204_explain_visibility
+    repo_visibility=$(prompt_choice "Repository visibility:" "private" "public")
+  fi
   save_answer "repo_visibility" "$repo_visibility"
-
-  save_section 1
-  echo ""
 }
 
 # ================================================================

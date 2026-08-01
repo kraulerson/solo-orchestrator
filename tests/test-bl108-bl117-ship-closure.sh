@@ -63,6 +63,34 @@ shipped_scripts() {
     | grep -oE 'scripts/[a-z][a-z0-9-]*\.sh' \
     | sed 's|scripts/||' | sort -u
 }
+# R-BL204-3 — THE THIRD ARTIFACT SHAPE: a shipped script that reaches a
+# dependency by RELATIVE path out of its own subdirectory.
+#
+# The host drivers live in scripts/host-drivers/ and source their libs as
+# `../lib/<name>.sh`. Neither extractor above can see that: one looks for
+# templates/generated/*.tmpl, the other for scripts/<tool>.sh. So a driver
+# could depend on a lib init.sh never ships and the whole closure stayed
+# green — which is exactly what happened. Deleting init.sh's
+# `cp .../host-errors.sh` line left this suite, both BL-204 suites, the
+# bitbucket driver suite and every lint GREEN.
+#
+# And the loss is SILENT downstream, not loud: each driver carries a
+# pass-through fallback (`command -v host_explain_error || host_explain_error()
+# { …raw… }`) so a scaffolded project with the lib missing degrades quietly
+# back to raw jargon — no error, no missing-file message, just the defect the
+# lib existed to fix, reintroduced in every generated project.
+shipped_libs() {
+  grep -E '^[[:space:]]*cp .*"?\$SCRIPT_DIR"?/scripts/lib/[A-Za-z0-9._-]+\.sh' "$REPO_ROOT/init.sh" \
+    | grep -oE 'scripts/lib/[A-Za-z0-9._-]+\.sh' \
+    | sed 's|.*/||' | sort -u
+}
+host_driver_lib_deps() {
+  # Executed lines only — a comment naming a lib is not a dependency.
+  grep -hE '\.\./lib/[A-Za-z0-9._-]+\.sh' "$REPO_ROOT"/scripts/host-drivers/*.sh 2>/dev/null \
+    | grep -vE '^[[:space:]]*#' \
+    | grep -ohE '\.\./lib/[A-Za-z0-9._-]+\.sh' \
+    | sed 's|.*/||' | sort -u
+}
 
 # ── T-template-closure ───────────────────────────────────────────────────────
 echo "=== T-template-closure ==="
@@ -173,6 +201,47 @@ else
       fail_ "T-mutation-bl117-smoke" "mutant still blocks (rc=$rc) — the fence does not contain the arm"
     fi
   fi
+fi
+
+# ── T-host-driver-lib-closure (R-BL204-3) ────────────────────────────────────
+echo "=== T-host-driver-lib-closure ==="
+# Same vacuity guard as the two closures above: a blind extractor certifies an
+# empty set. The drivers reference at least one lib today, so 0 means the
+# regex drifted (a rename of scripts/host-drivers/, or a driver switching to
+# some other path shape) — not that the dependency went away.
+dep_n=$(host_driver_lib_deps | grep -c .)
+lib_missing=""
+for l in $(host_driver_lib_deps); do
+  if ! shipped_libs | grep -qx "$l"; then
+    lib_missing="$lib_missing $l"
+  fi
+done
+if [ "$dep_n" -eq 0 ]; then
+  fail_ "T-host-driver-lib-closure" "host_driver_lib_deps extracted ZERO items — the extractor went blind and the closure would certify an empty set"
+elif [ -z "$lib_missing" ]; then
+  pass "T-host-driver-lib-closure ($dep_n driver lib dependency/ies all shipped)"
+else
+  fail_ "T-host-driver-lib-closure" "scripts/host-drivers/*.sh source libs init.sh never ships:$lib_missing (R-BL204-3 — the driver's pass-through fallback makes the loss SILENT in every generated project)"
+fi
+
+# ── T-host-driver-lib-extractor-bites ────────────────────────────────────────
+# Self-test for BOTH halves: prove each extractor sees a line shaped like the
+# real thing. A closure between two blind extractors passes vacuously.
+echo "=== T-host-driver-lib-extractor-bites ==="
+dep_probe=$(printf '_X="$(dirname "${BASH_SOURCE[0]}")/../lib/zz-bogus-dep.sh"\n' \
+  | grep -vE '^[[:space:]]*#' \
+  | grep -ohE '\.\./lib/[A-Za-z0-9._-]+\.sh' | sed 's|.*/||')
+ship_probe=$(printf '  cp "$SCRIPT_DIR/scripts/lib/zz-bogus-ship.sh" scripts/lib/\n' \
+  | grep -E '^[[:space:]]*cp .*"?\$SCRIPT_DIR"?/scripts/lib/[A-Za-z0-9._-]+\.sh' \
+  | grep -oE 'scripts/lib/[A-Za-z0-9._-]+\.sh' | sed 's|.*/||')
+# And a comment naming a lib must NOT be counted as a dependency.
+comment_probe=$(printf '# the drivers source ../lib/zz-comment-only.sh at load\n' \
+  | grep -vE '^[[:space:]]*#' \
+  | grep -ohE '\.\./lib/[A-Za-z0-9._-]+\.sh' | sed 's|.*/||')
+if [ "$dep_probe" = "zz-bogus-dep.sh" ] && [ "$ship_probe" = "zz-bogus-ship.sh" ] && [ -z "$comment_probe" ]; then
+  pass "T-host-driver-lib-extractor-bites (dep + ship extractors both bite; a comment-only mention does not)"
+else
+  fail_ "T-host-driver-lib-extractor-bites" "an extractor is blind or over-eager (dep='$dep_probe' want zz-bogus-dep.sh; ship='$ship_probe' want zz-bogus-ship.sh; comment='$comment_probe' want empty) — the closure would pass vacuously"
 fi
 
 echo ""

@@ -4,6 +4,19 @@
 # Implements the solo-orchestrator host driver contract defined in spec
 # docs/superpowers/specs/2026-04-21-host-aware-repo-gate-design.md.
 
+# BL-204-ERROR-TRANSLATE: load the plain-language host-error translator. The
+# path is derived from THIS file's location, so it resolves both in the
+# framework repo and inside a scaffolded project (init.sh ships both files
+# into scripts/lib + scripts/host-drivers). The fallback definition keeps the
+# driver usable if the lib is ever missing — a driver must never die because
+# an explanation is unavailable.
+_HOST_ERRORS_LIB="$(dirname "${BASH_SOURCE[0]}")/../lib/host-errors.sh"
+if [ -f "$_HOST_ERRORS_LIB" ]; then
+  # shellcheck disable=SC1090
+  . "$_HOST_ERRORS_LIB"
+fi
+command -v host_explain_error >/dev/null 2>&1 || host_explain_error() { [ -n "${1:-}" ] && printf '%s\n' "$1" >&2; return 0; }
+
 host_name() { echo "github"; }
 
 host_require_cli() {
@@ -22,9 +35,18 @@ host_require_cli() {
       'Re-run whatever invoked this after install+auth completes.' >&2
     return 1
   fi
-  if ! gh auth status >/dev/null 2>&1; then
+  # BL-204-ERROR-TRANSLATE: capture what `gh auth status` actually said. The
+  # pre-fix code discarded it, so an EXPIRED token and a never-logged-in
+  # machine produced byte-identical output — two different problems, one
+  # message. The translator classifies the expired/revoked case; the
+  # install/login guidance below still prints either way.
+  local auth_err
+  if ! auth_err=$(gh auth status 2>&1); then
     printf '%s\n' \
       'github driver: `gh` installed but not authenticated.' \
+      '' >&2
+    host_explain_error "$auth_err"
+    printf '%s\n' \
       '' \
       'Authenticate with: gh auth login' \
       '' \
@@ -47,7 +69,8 @@ host_create_repo() {
   esac
   local result
   if ! result=$(gh repo create "$name" "--$visibility" 2>&1); then
-    echo "$result" >&2
+    echo "github driver: could not create the repository '$name' on GitHub." >&2
+    host_explain_error "$result"   # BL-204-ERROR-TRANSLATE
     return 1
   fi
   # gh prints the URL as the last line
@@ -133,7 +156,7 @@ host_configure_protection() {
       return 3
     fi
     echo "github driver: failed to configure protection on $owner_repo#$branch ($mode mode)" >&2
-    [ -n "$gh_err" ] && printf '  %s\n' "$gh_err" >&2
+    host_explain_error "$gh_err"   # BL-204-ERROR-TRANSLATE
     return 2
   fi
   return 0

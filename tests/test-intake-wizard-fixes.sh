@@ -686,6 +686,351 @@ else
 fi
 rm -rf "$D"
 
+# ----------------------------------------------------------------
+# BL-204 — happy-path remote-setup UX (findings 5, 6, 7, 8).
+#
+# Findings 1-4 (repair/auth/collision/org-namespace FAILURE paths) are
+# deliberately NOT covered here — they are a separate wave.
+#
+#   5  probe at the SELECTION moment (`# BL-204-PROBE-AT-SELECT`)
+#   6  visibility explained, incl. the free-tier cost (`# BL-204-VISIBILITY-EXPLAIN`)
+#   7  ask once — prefill/confirm instead of a blind re-ask (`# BL-204-PREFILL`)
+#   8  say WHY a remote matters, upstream of the choice (`# BL-204-REMOTE-WHY`)
+#
+# The init-script token is assembled from parts on every executed line below,
+# exactly as the BL-202 case above does: the BL-181/BL-154 unit-lane predicate
+# reads names-on-executed-lines and a literal token here would silently exempt
+# this whole file from the tests.yml membership lint. Do not "simplify" it.
+# ----------------------------------------------------------------
+INITSH="$REPO_ROOT/init"; INITSH="${INITSH}.sh"
+INITTOK="init"; INITTOK="${INITTOK}.sh"
+
+# _bl204_fnbody <file> <function-name> — echo one shell function's body.
+#
+# NEVER `awk … | grep -q` here. This file runs under `set -o pipefail`, and
+# `grep -q` exits at the first match: whether the producer finishes first or
+# takes SIGPIPE (exit 141, which pipefail promotes to the pipeline's status)
+# is a RACE. That race made two of the cases below flap PASS/FAIL on identical
+# trees before this helper existed. Capture, then match with a here-string.
+_bl204_fnbody() {
+  awk -v fn="$2" '
+    $0 ~ ("^" fn "\\(\\) \\{") { inside=1 }
+    inside { print; if ($0 == "}") { exit } }
+  ' "$1"
+}
+
+# The two cross-surface anchors. Both the wizard and the init script must
+# carry them VERBATIM, so a fix applied to only one surface fails.
+BL204_FREETIER_ANCHOR='On a free personal GitHub account, a PRIVATE repo cannot have branch protection'
+BL204_BACKUP_ANCHOR='your remote is your backup'
+
+echo ""
+echo "T-bl204-remote-why: the backup framing is stated upstream of the host choice, and in Next Steps"
+BL204_WHY_OK=1
+grep -qiF "$BL204_BACKUP_ANCHOR" "$WIZARD" || BL204_WHY_OK=0
+grep -qiF "$BL204_BACKUP_ANCHOR" "$INITSH" || BL204_WHY_OK=0
+grep -qF '# BL-204-REMOTE-WHY' "$WIZARD" || BL204_WHY_OK=0
+grep -qF '# BL-204-REMOTE-WHY' "$INITSH" || BL204_WHY_OK=0
+# The sentence must name the data-loss consequence, not just say "backup".
+grep -qiE 'lost .*(disk|drive|laptop|machine)|(disk|drive|laptop|machine) (dies|fails|is lost)' "$WIZARD" || BL204_WHY_OK=0
+grep -qiE 'lost .*(disk|drive|laptop|machine)|(disk|drive|laptop|machine) (dies|fails|is lost)' "$INITSH" || BL204_WHY_OK=0
+# And it must reach print_next_steps, not only the create path (finding 8).
+grep -qF '# BL-204-REMOTE-WHY' <<<"$(_bl204_fnbody "$INITSH" print_next_steps)" || BL204_WHY_OK=0
+if [ "$BL204_WHY_OK" -eq 1 ]; then
+  pass "T-bl204-remote-why (both surfaces say the remote IS the backup and name the data-loss consequence; the Next Steps copy is inside print_next_steps)"
+else
+  fail_ "T-bl204-remote-why" "BL-204 finding 8: the 'why a remote' sentence is missing from the wizard, the init script, or print_next_steps"
+fi
+
+echo ""
+echo "T-bl204-visibility-explain: private/public is explained, with the free-tier branch-protection cost"
+BL204_VIS_OK=1
+for _f in "$WIZARD" "$INITSH"; do
+  grep -qF '# BL-204-VISIBILITY-EXPLAIN' "$_f" || BL204_VIS_OK=0
+  grep -qF "$BL204_FREETIER_ANCHOR" "$_f" || BL204_VIS_OK=0
+  # Plain-language private/public, not a bare `private|public` menu.
+  # `.*` not `[^\n]*`: grep is line-based so they mean the same thing here,
+  # but BSD ERE reads `\n` inside a bracket as the literal chars n and \,
+  # which would silently stop matching if the copy ever gained an "n".
+  grep -qiE 'private.*only you' "$_f" || BL204_VIS_OK=0
+  grep -qiE 'public.*anyone' "$_f" || BL204_VIS_OK=0
+  # Name the later cost by the name the user will actually see (BL-032/BL-002
+  # surface it as an attestation prompt much later in the run).
+  grep -qiF 'attest' "$_f" || BL204_VIS_OK=0
+done
+if [ "$BL204_VIS_OK" -eq 1 ]; then
+  pass "T-bl204-visibility-explain (both prompts explain private vs public AND the free-tier branch-protection cost, naming the attestation it turns into)"
+else
+  fail_ "T-bl204-visibility-explain" "BL-204 finding 6: a visibility prompt is still bare, or one surface lacks the free-tier note"
+fi
+
+echo ""
+echo "T-bl204-probe-at-select: the CLI/credential probe fires when the host is chosen, and the pre-create backstop survives"
+BL204_PROBE_OK=1
+grep -qF '# BL-204-PROBE-AT-SELECT' "$INITSH" || BL204_PROBE_OK=0
+# The probe must be reached from the host-resolution function, not only from
+# the pre-create block (finding 5).
+grep -qF '_bl204_probe_host_at_selection' \
+  <<<"$(_bl204_fnbody "$INITSH" _resolve_host_visibility_mode)" || BL204_PROBE_OK=0
+# BACKSTOP: create_and_protect_remote must still probe immediately before create.
+grep -qF 'host_require_cli' \
+  <<<"$(_bl204_fnbody "$INITSH" create_and_protect_remote)" || BL204_PROBE_OK=0
+if [ "$BL204_PROBE_OK" -eq 1 ]; then
+  pass "T-bl204-probe-at-select (the probe is wired into _resolve_host_visibility_mode AND the pre-create host_require_cli backstop is intact)"
+else
+  fail_ "T-bl204-probe-at-select" "BL-204 finding 5: the probe is not at the selection point, or the pre-create backstop was removed"
+fi
+
+echo ""
+echo "T-bl204-probe-functional: an unauthenticated CLI is reported AT selection, without aborting init"
+D=$(mktemp -d)
+mkdir -p "$D/bin"
+cat > "$D/bin/gh" <<'GHSTUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"auth status"*)
+    echo 'error: The token in keyring is invalid or has expired. Try: gh auth login' >&2
+    exit 1 ;;
+  *) exit 0 ;;
+esac
+GHSTUB
+chmod +x "$D/bin/gh"
+cat > "$D/probe.sh" <<PROBEEOF
+#!/usr/bin/env bash
+set -uo pipefail
+SCRIPT_DIR="$REPO_ROOT"
+NON_INTERACTIVE=true
+BOLD=''; NC=''; CYAN=''; GREEN=''; BLUE=''; YELLOW=''; RED=''
+log_line()   { :; }
+print_step() { echo "[STEP] \$1"; }
+print_ok()   { echo "[OK] \$1"; }
+print_warn() { echo "[WARN] \$1"; }
+print_fail() { echo "[FAIL] \$1"; }
+print_info() { echo "[INFO] \$1"; }
+PROBEEOF
+awk '/^_bl204_probe_host_at_selection\(\) \{/{f=1} f{print} f&&/^\}$/{exit}' "$INITSH" >> "$D/probe.sh"
+echo '_bl204_probe_host_at_selection "github"; echo "RC=$?"' >> "$D/probe.sh"
+PROBE_OUT=$( cd "$D" && PATH="$D/bin:$PATH" bash "$D/probe.sh" 2>&1 </dev/null )
+if grep -qF 'RC=0' <<<"$PROBE_OUT" \
+   && grep -qiE 'github' <<<"$PROBE_OUT" \
+   && grep -qiE 'auth|log in|sign in|credential' <<<"$PROBE_OUT"; then
+  pass "T-bl204-probe-functional (a failing probe warns at selection time, names the host and the auth fix, and returns 0 so init continues to the backstop)"
+else
+  fail_ "T-bl204-probe-functional" "the selection-time probe did not report an unauthenticated CLI (or aborted init): $(printf '%s' "$PROBE_OUT" | tr '\n' '|' | cut -c1-300)"
+fi
+rm -rf "$D"
+
+echo ""
+echo "T-bl204-wizard-sentence: the backwards 'verified again' sentence is gone and replaced with the truth"
+# Assembled from parts: a literal init-script token on an executed line would
+# exempt this file from the unit lane (see the header note above).
+BL204_BACKWARDS="CLI will be verified again at $INITTOK"
+if grep -qF "$BL204_BACKWARDS" "$WIZARD"; then
+  fail_ "T-bl204-wizard-sentence" "the wizard still claims the CLI will be verified again later — it runs AFTER the init script, so nothing re-verifies (BL-204 finding 5)"
+elif grep -qF 'check-gate.sh --repair' \
+       <<<"$(_bl204_fnbody "$WIZARD" run_section_1_repo_setup)"; then
+  pass "T-bl204-wizard-sentence (the continue arm now points at the real remediation, check-gate.sh --repair)"
+else
+  fail_ "T-bl204-wizard-sentence" "the backwards sentence is gone but the continue arm names no real next step"
+fi
+
+echo ""
+echo "T-bl204-prefill: remembered host/visibility are shown and CONFIRMED, never re-asked blind"
+if ! command -v jq >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; then
+  echo "  [SKIP] T-bl204-prefill — jq or python3 unavailable"
+else
+  # Build a harness that runs the wizard's repo-setup block against a
+  # controlled MANIFEST_FILE + PROGRESS_FILE. SCRIPT_DIR points at an EMPTY
+  # dir so the host-driver probe block is inert — this test is about the
+  # prefill, and the probe has its own case above. Hermetic: no network.
+  _bl204_harness() {  # <dir>
+    local d="$1"
+    mkdir -p "$d/emptyscripts"
+    cat > "$d/harness.sh" <<HEOF
+#!/usr/bin/env bash
+set -uo pipefail
+SCRIPT_DIR="$d/emptyscripts"
+PROGRESS_FILE="$d/intake-progress.json"
+MANIFEST_FILE="$d/manifest.json"
+_PAUSE_FILE="$d/.pause-sentinel"
+BOLD=''; NC=''; CYAN=''; GREEN=''; BLUE=''; YELLOW=''; RED=''
+print_info() { echo "\$1" >&2; }
+print_ok()   { echo "\$1" >&2; }
+print_warn() { echo "\$1" >&2; }
+print_fail() { echo "\$1" >&2; }
+print_step() { echo "\$1" >&2; }
+log_line()   { :; }
+save_section() { :; }
+HEOF
+    local fn
+    for fn in prompt_input prompt_choice _request_pause check_pause_requested save_answer _bl204_explain_visibility run_section_1_repo_setup; do
+      awk -v fn="$fn" '
+        $0 ~ ("^" fn "\\(\\) \\{") { inside=1 }
+        inside { print; if ($0 == "}") { inside=0; print ""; exit } }
+      ' "$WIZARD" >> "$d/harness.sh"
+    done
+    echo 'run_section_1_repo_setup' >> "$d/harness.sh"
+  }
+
+  # ── Case A: BOTH remembered → confirm, keep, no blind re-ask ──
+  D=$(mktemp -d)
+  _bl204_harness "$D"
+  printf '{"host":"gitlab","mode":"personal"}\n' > "$D/manifest.json"
+  printf '{"answers":{"repo_visibility":"public"}}\n' > "$D/intake-progress.json"
+  A_ERR=$(printf '1\n1\n' | bash "$D/harness.sh" 2>&1 >/dev/null)
+  A_HOST=$(jq -r '.answers.git_host // "MISSING"' "$D/intake-progress.json")
+  A_VIS=$(jq -r '.answers.repo_visibility // "MISSING"' "$D/intake-progress.json")
+  A_OK=1
+  [ "$A_HOST" = "gitlab" ] || A_OK=0
+  [ "$A_VIS" = "public" ] || A_OK=0
+  grep -qi 'remember' <<<"$A_ERR" || A_OK=0
+  # A blind re-ask would list all four hosts; a confirm must not.
+  grep -qE '^[[:space:]]*3\.[[:space:]]*bitbucket' <<<"$A_ERR" && A_OK=0
+
+  # ── Case B: NEITHER source → the original blind prompts, unchanged ──
+  D2=$(mktemp -d)
+  _bl204_harness "$D2"
+  printf '{"answers":{}}\n' > "$D2/intake-progress.json"
+  B_ERR=$(printf '1\n1\n' | bash "$D2/harness.sh" 2>&1 >/dev/null)
+  B_HOST=$(jq -r '.answers.git_host // "MISSING"' "$D2/intake-progress.json")
+  B_VIS=$(jq -r '.answers.repo_visibility // "MISSING"' "$D2/intake-progress.json")
+  B_OK=1
+  [ "$B_HOST" = "github" ] || B_OK=0
+  [ "$B_VIS" = "private" ] || B_OK=0
+  grep -qE '^[[:space:]]*3\.[[:space:]]*bitbucket' <<<"$B_ERR" || B_OK=0
+  grep -qF "$BL204_FREETIER_ANCHOR" <<<"$B_ERR" || B_OK=0
+
+  # ── Case C: host remembered, visibility NOT → mixed, each half independent ──
+  D3=$(mktemp -d)
+  _bl204_harness "$D3"
+  printf '{"host":"bitbucket"}\n' > "$D3/manifest.json"
+  printf '{"answers":{}}\n' > "$D3/intake-progress.json"
+  C_ERR=$(printf '1\n2\n' | bash "$D3/harness.sh" 2>&1 >/dev/null)
+  C_HOST=$(jq -r '.answers.git_host // "MISSING"' "$D3/intake-progress.json")
+  C_VIS=$(jq -r '.answers.repo_visibility // "MISSING"' "$D3/intake-progress.json")
+  C_OK=1
+  [ "$C_HOST" = "bitbucket" ] || C_OK=0
+  [ "$C_VIS" = "public" ] || C_OK=0
+
+  # ── Case D: visibility remembered but the user says CHANGE IT → the
+  # explanation must run on THAT path too. Added after a mutation run showed
+  # the "change it" arm's _bl204_explain_visibility call could be deleted
+  # with every case still green: A/C never reach it and B reaches the OTHER
+  # call site, so a user who actively wants to reconsider — precisely the one
+  # who needs the free-tier note — was unprotected.
+  D4=$(mktemp -d)
+  _bl204_harness "$D4"
+  printf '{"answers":{"repo_visibility":"private"}}\n' > "$D4/intake-progress.json"
+  D_ERR=$(printf '1\n2\n2\n' | bash "$D4/harness.sh" 2>&1 >/dev/null)
+  D_VIS=$(jq -r '.answers.repo_visibility // "MISSING"' "$D4/intake-progress.json")
+  D_OK=1
+  [ "$D_VIS" = "public" ] || D_OK=0
+  grep -qF "$BL204_FREETIER_ANCHOR" <<<"$D_ERR" || D_OK=0
+
+  # ── Case E (R-BL204-2): the PRIMARY flow — a project fresh out of init,
+  # seeded with ONLY what init itself writes.
+  #
+  # THE GAP THIS CLOSES. Cases A/C/D hand-seed answers.repo_visibility, and
+  # the only writer of that key in the whole repo was the wizard. init
+  # resolved _RESOLVED_VISIBILITY (from --visibility, or a prompt) and threw
+  # it away, so on every real first run the wizard found nothing and
+  # blind-asked — the visibility half of "ask once" was a no-op everywhere
+  # except in this file's own fixtures. That is the fixture-masks-gap class:
+  # the test seeded the very state whose absence was the defect.
+  #
+  # So this case does NOT hand-write the key. It runs init's own persistence
+  # function to produce the file, then feeds THAT file to the wizard. The only
+  # test plumbing is the copy from .claude/ (where init writes) to the flat
+  # path the harness reads; the CONTENT is exactly what init produced.
+  D5=$(mktemp -d)
+  mkdir -p "$D5/run"
+  cat > "$D5/persist.sh" <<PEOF
+#!/usr/bin/env bash
+set -uo pipefail
+PEOF
+  awk '/^_bl204_persist_visibility_answer\(\) \{/{f=1} f{print} f&&/^\}$/{exit}' "$INITSH" >> "$D5/persist.sh"
+  echo '_bl204_persist_visibility_answer "public"' >> "$D5/persist.sh"
+  ( cd "$D5/run" && bash "$D5/persist.sh" ) >/dev/null 2>&1
+  E_OK=1
+  E_WROTE=$(jq -r '.answers.repo_visibility // "MISSING"' "$D5/run/.claude/intake-progress.json" 2>/dev/null) || E_WROTE="NOFILE"
+  [ "$E_WROTE" = "public" ] || E_OK=0
+  # Now the wizard, against init's real output plus the manifest init writes.
+  _bl204_harness "$D5"
+  printf '{"host":"github","mode":"personal"}\n' > "$D5/manifest.json"
+  cp "$D5/run/.claude/intake-progress.json" "$D5/intake-progress.json" 2>/dev/null || printf '{"answers":{}}\n' > "$D5/intake-progress.json"
+  E_ERR=$(printf '1\n1\n' | bash "$D5/harness.sh" 2>&1 >/dev/null)
+  E_VIS=$(jq -r '.answers.repo_visibility // "MISSING"' "$D5/intake-progress.json")
+  [ "$E_VIS" = "public" ] || E_OK=0
+  # The decisive assertion: a CONFIRM, not a blind private|public menu.
+  grep -qE '^[[:space:]]*2\.[[:space:]]*public$' <<<"$E_ERR" && E_OK=0
+  grep -qi 'remembered from your setup answers — repository visibility' <<<"$E_ERR" || E_OK=0
+  # And init must actually CALL the persistence function — a function nobody
+  # invokes is the same no-op wearing a different hat.
+  grep -qF '_bl204_persist_visibility_answer' \
+    <<<"$(_bl204_fnbody "$INITSH" prepare_initial_state_for_commit)" || E_OK=0
+
+  if [ "$A_OK" -eq 1 ] && [ "$B_OK" -eq 1 ] && [ "$C_OK" -eq 1 ] && [ "$D_OK" -eq 1 ] && [ "$E_OK" -eq 1 ]; then
+    pass "T-bl204-prefill (remembered values are confirmed not re-asked; with neither source the original prompts + the free-tier note still run; the two halves prefill independently; 'change it' also gets the explanation; and the PRIMARY flow works off what init itself persists)"
+  else
+    fail_ "T-bl204-prefill" "A(ok=$A_OK host=$A_HOST vis=$A_VIS) B(ok=$B_OK host=$B_HOST vis=$B_VIS) C(ok=$C_OK host=$C_HOST vis=$C_VIS) D(ok=$D_OK vis=$D_VIS) E(ok=$E_OK wrote=$E_WROTE vis=$E_VIS) — BL-204 finding 7 / R-BL204-2"
+  fi
+  rm -rf "$D" "$D2" "$D3" "$D4" "$D5"
+fi
+
+echo ""
+echo "T-bl204-mutation: excising the marked prefill reads restores the blind double-ask"
+if ! command -v jq >/dev/null 2>&1; then
+  echo "  [SKIP] T-bl204-mutation — jq unavailable"
+else
+  D=$(mktemp -d)
+  MARKS=$(grep -c '# BL-204-PREFILL-READ$' "$WIZARD" 2>/dev/null) || MARKS=0
+  sed '/# BL-204-PREFILL-READ$/d' "$WIZARD" > "$D/wizard.mut.sh"
+  LEFT=$(grep -c '# BL-204-PREFILL-READ$' "$D/wizard.mut.sh" 2>/dev/null) || LEFT=0
+  if [ "${MARKS:-0}" -lt 2 ]; then
+    fail_ "T-bl204-mutation" "expected a '# BL-204-PREFILL-READ' marker on BOTH prefill reads (host + visibility); found ${MARKS:-0}"
+  elif [ "${LEFT:-0}" -ne 0 ]; then
+    fail_ "T-bl204-mutation" "excision left $LEFT marker(s) — vacuous mutant"
+  elif ! bash -n "$D/wizard.mut.sh" 2>/dev/null; then
+    fail_ "T-bl204-mutation" "mutant has a syntax error — a broken mutant proves nothing (the marked lines need their : guard)"
+  else
+    mkdir -p "$D/emptyscripts"
+    cat > "$D/harness.sh" <<MHEOF
+#!/usr/bin/env bash
+set -uo pipefail
+SCRIPT_DIR="$D/emptyscripts"
+PROGRESS_FILE="$D/intake-progress.json"
+MANIFEST_FILE="$D/manifest.json"
+_PAUSE_FILE="$D/.pause-sentinel"
+BOLD=''; NC=''; CYAN=''; GREEN=''; BLUE=''; YELLOW=''; RED=''
+print_info() { echo "\$1" >&2; }
+print_ok()   { echo "\$1" >&2; }
+print_warn() { echo "\$1" >&2; }
+print_fail() { echo "\$1" >&2; }
+print_step() { echo "\$1" >&2; }
+log_line()   { :; }
+save_section() { :; }
+MHEOF
+    for fn in prompt_input prompt_choice _request_pause check_pause_requested save_answer _bl204_explain_visibility run_section_1_repo_setup; do
+      awk -v fn="$fn" '
+        $0 ~ ("^" fn "\\(\\) \\{") { inside=1 }
+        inside { print; if ($0 == "}") { inside=0; print ""; exit } }
+      ' "$D/wizard.mut.sh" >> "$D/harness.sh"
+    done
+    echo 'run_section_1_repo_setup' >> "$D/harness.sh"
+    printf '{"host":"gitlab"}\n' > "$D/manifest.json"
+    printf '{"answers":{"repo_visibility":"public"}}\n' > "$D/intake-progress.json"
+    MUT_ERR=$(printf '1\n1\n' | bash "$D/harness.sh" 2>&1 >/dev/null)
+    MUT_HOST=$(jq -r '.answers.git_host // "MISSING"' "$D/intake-progress.json")
+    MUT_VIS=$(jq -r '.answers.repo_visibility // "MISSING"' "$D/intake-progress.json")
+    if [ "$MUT_HOST" = "github" ] && [ "$MUT_VIS" = "private" ]; then
+      pass "T-bl204-mutation (without the marked reads the wizard blind-asks again and overwrites gitlab/public with the menu's first option — the reads are load-bearing)"
+    else
+      fail_ "T-bl204-mutation" "mutant still honored the remembered values (host=$MUT_HOST vis=$MUT_VIS) — the mutation is not cutting the prefill path"
+    fi
+  fi
+  rm -rf "$D"
+fi
+
 echo ""
 echo "==============================="
 echo "Passed: $PASSED   Failed: $FAILED"
