@@ -77,7 +77,11 @@ echo "T2: --terminal-mode passes a docs-only commit"
 setup
 ( cd "$TMP" && echo "# README" > README.md && git add README.md )
 echo "docs: add README" > "$TMP/.git/COMMIT_EDITMSG"
-( cd "$TMP" && SKIP_LINT=1 bash "$GATE" --terminal-mode >/dev/null 2>&1 ) && pass "T2" || fail_ "T2" "docs-only commit blocked"
+# BL-197: this used to be `>/dev/null 2>&1 && pass || fail_ "docs-only
+# commit blocked"` — the gate's own explanation of WHY it blocked went to
+# /dev/null, leaving the reader the one fact they already had. T1 above
+# already used the capturing idiom; T2 now matches it.
+t2_out=$( cd "$TMP" && SKIP_LINT=1 bash "$GATE" --terminal-mode 2>&1 ) && pass "T2" || fail_ "T2" "docs-only commit blocked: $t2_out"
 teardown
 
 # T3: --terminal-mode does NOT emit JSON to stdout.
