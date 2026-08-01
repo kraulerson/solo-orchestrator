@@ -166,6 +166,260 @@ else
   fi
 fi
 
+# ═══════════════════════════════════════════════════════════════════════════
+# BL-202 FOLLOW-UP — the SessionStart JSON envelope and initialUserMessage.
+#
+# The original fix could only put text in CLAUDE'S context; the screen still
+# stayed blank until the operator typed something. The follow-up emits the
+# documented SessionStart JSON instead of plain stdout, so it can ALSO seed the
+# first user turn (`initialUserMessage`) on a genuinely fresh conversation.
+#
+# WHAT THESE CASES PIN, and why each is load-bearing:
+#   • ONE form per run. Mixing plain stdout and JSON from a single hook is
+#     UNDEFINED per the hook docs, so every speaking path must emit exactly one
+#     compact JSON document (J1) and the silent paths must emit nothing at all
+#     (J8) — not an empty envelope.
+#   • additionalContext is the PARITY field (J2/J3). Whatever the client does
+#     with initialUserMessage, the pre-follow-up behaviour must still hold, so
+#     the full instruction text has to survive the round trip byte-for-byte —
+#     including the multi-line body and the remedy line's shell punctuation.
+#     That is why the escaping must be jq's, never hand-rolled (M2).
+#   • initialUserMessage is SOURCE-GATED (J4/J5 present; J6/J7 absent).
+#     `source` is startup|resume|clear|compact (plus fork variants). Injecting a
+#     synthetic user turn on resume/compact would corrupt a REAL, in-flight
+#     conversation, so the gate fails CLOSED on everything it does not
+#     positively recognise — including an absent, truncated or garbage
+#     envelope. Uncertainty must never auto-message.
+# HERMETIC: fixtures only, stdin supplied explicitly on every run.
+# ═══════════════════════════════════════════════════════════════════════════
+
+# run_hook_stdin <dir> <log> <envelope> — run_hook, but feeding a SessionStart
+# envelope on stdin instead of closing it.
+run_hook_stdin() {
+  ( cd "$1" && printf '%s' "$3" | bash "$HOOK" ) > "$2" 2>"$2.err"
+}
+# jget <log> <filter> — decoded field; empty string on any parse failure.
+jget() { jq -r "$2" "$1" 2>/dev/null || true; }
+# has_ium <log> — rc 0 iff hookSpecificOutput.initialUserMessage is present.
+has_ium() { jq -e '.hookSpecificOutput | has("initialUserMessage")' "$1" >/dev/null 2>&1; }
+# raw_lines <file> — physical line count of the EMITTED document.
+raw_lines() { wc -l < "$1" | tr -d ' '; }
+
+JA="$TOPTMP/ja"; mk_proj "$JA" 25 0    # state 1: INTAKE INCOMPLETE
+JB="$TOPTMP/jb"; mk_proj "$JB" 3 0     # state 2: READY FOR PHASE 0
+
+# ── J1: a speaking run emits exactly ONE valid compact JSON document ─────────
+echo "=== J1-json-envelope-shape ==="
+run_hook_stdin "$JA" "$TOPTMP/ja-startup.log" '{"hook_event_name":"SessionStart","source":"startup"}'
+run_hook_stdin "$JB" "$TOPTMP/jb-startup.log" '{"hook_event_name":"SessionStart","source":"startup"}'
+J1_OK=1; J1_WHY=""
+for f in "$TOPTMP/ja-startup.log" "$TOPTMP/jb-startup.log"; do
+  jq -e . "$f" >/dev/null 2>&1 || { J1_OK=0; J1_WHY="$J1_WHY [$(basename "$f"):unparseable]"; }
+  [ "$(jget "$f" '.hookSpecificOutput.hookEventName')" = "SessionStart" ] \
+    || { J1_OK=0; J1_WHY="$J1_WHY [$(basename "$f"):hookEventName]"; }
+  [ "$(raw_lines "$f")" = "1" ] || { J1_OK=0; J1_WHY="$J1_WHY [$(basename "$f"):not-one-line]"; }
+  if [ -s "$f.err" ]; then J1_OK=0; J1_WHY="$J1_WHY [$(basename "$f"):stderr]"; fi
+done
+if [ "$J1_OK" -eq 1 ]; then
+  pass "J1-json-envelope-shape (both live states emit one compact parseable document with hookEventName=SessionStart and clean stderr — never a mix of plain text and JSON)"
+else
+  fail_ "J1-json-envelope-shape" "$J1_WHY first-bytes-a=$(head -c 100 "$TOPTMP/ja-startup.log" 2>/dev/null) first-bytes-b=$(head -c 100 "$TOPTMP/jb-startup.log" 2>/dev/null)"
+fi
+
+# ── J2: additionalContext carries the pre-follow-up text in BOTH states ──────
+echo "=== J2-additionalcontext-both-states ==="
+J2A=$(jget "$TOPTMP/ja-startup.log" '.hookSpecificOutput.additionalContext')
+J2B=$(jget "$TOPTMP/jb-startup.log" '.hookSpecificOutput.additionalContext')
+if printf '%s\n' "$J2A" | grep -q 'INTAKE INCOMPLETE' \
+   && printf '%s\n' "$J2A" | grep -q 'bash scripts/intake-wizard.sh' \
+   && printf '%s\n' "$J2A" | grep -q 'proceed_without_intake_acknowledged' \
+   && printf '%s\n' "$J2B" | grep -q 'READY FOR PHASE 0' \
+   && printf '%s\n' "$J2B" | grep -q 'bash scripts/resume.sh'; then
+  pass "J2-additionalcontext-both-states (the full instruction text still reaches Claude's context in both actionable states — the graceful-degradation path if initialUserMessage is ignored)"
+else
+  fail_ "J2-additionalcontext-both-states" "incomplete-ctx=$(printf '%s' "$J2A" | head -1) ready-ctx=$(printf '%s' "$J2B" | head -1)"
+fi
+
+# ── J3: escaping is jq's, proven on the REAL message text ────────────────────
+# The message is multi-line and its remedy line carries shell punctuation
+# ('  >  &&  =). A hand-rolled encoder emits raw newlines and dies here.
+echo "=== J3-json-string-escaping-real-text ==="
+J3_REMEDY="     jq '.intake.proceed_without_intake_acknowledged = true' .claude/process-state.json > .claude/process-state.json.tmp && mv .claude/process-state.json.tmp .claude/process-state.json"
+J3_DECODED_LINES=$(printf '%s\n' "$J2A" | wc -l | tr -d ' ')
+case "$J3_DECODED_LINES" in ''|*[!0-9]*) J3_DECODED_LINES=0 ;; esac
+if grep -qF '\n' "$TOPTMP/ja-startup.log" \
+   && [ "$(raw_lines "$TOPTMP/ja-startup.log")" = "1" ] \
+   && [ "$J3_DECODED_LINES" -ge 8 ] \
+   && printf '%s\n' "$J2A" | grep -qxF "$J3_REMEDY"; then
+  pass "J3-json-string-escaping-real-text (the emitted doc is one physical line carrying escaped \\n, and decodes back to a >=8-line body whose remedy line round-trips byte-for-byte)"
+else
+  fail_ "J3-json-string-escaping-real-text" "raw-lines=$(raw_lines "$TOPTMP/ja-startup.log") decoded-lines=$J3_DECODED_LINES remedy-roundtrip=$(printf '%s\n' "$J2A" | grep -cxF "$J3_REMEDY" 2>/dev/null || echo 0)"
+fi
+
+# ── J4: initialUserMessage present on source=startup, in BOTH states ─────────
+echo "=== J4-initialusermessage-on-startup ==="
+J4A=$(jget "$TOPTMP/ja-startup.log" '.hookSpecificOutput.initialUserMessage')
+J4B=$(jget "$TOPTMP/jb-startup.log" '.hookSpecificOutput.initialUserMessage')
+J4A_LINES=$(printf '%s\n' "$J4A" | wc -l | tr -d ' ')
+J4B_LINES=$(printf '%s\n' "$J4B" | wc -l | tr -d ' ')
+if has_ium "$TOPTMP/ja-startup.log" && has_ium "$TOPTMP/jb-startup.log" \
+   && [ -n "$J4A" ] && [ -n "$J4B" ] \
+   && [ "$J4A_LINES" = "1" ] && [ "$J4B_LINES" = "1" ] \
+   && [ "${#J4A}" -le 200 ] && [ "${#J4B}" -le 200 ] \
+   && printf '%s\n' "$J4A" | grep -qi 'intake' \
+   && printf '%s\n' "$J4B" | grep -q 'scripts/resume.sh'; then
+  pass "J4-initialusermessage-on-startup (a fresh startup seeds a short one-line user-voiced first turn in both states — the incomplete one asks about the intake, the ready one asks for the Phase 0 prompt via resume.sh)"
+else
+  fail_ "J4-initialusermessage-on-startup" "incomplete-msg='$J4A' (lines=$J4A_LINES len=${#J4A}) ready-msg='$J4B' (lines=$J4B_LINES len=${#J4B})"
+fi
+
+# ── J5: source=clear is a fresh conversation too ─────────────────────────────
+echo "=== J5-initialusermessage-on-clear ==="
+run_hook_stdin "$JA" "$TOPTMP/ja-clear.log" '{"source":"clear"}'
+run_hook_stdin "$JB" "$TOPTMP/jb-clear.log" '{"source":"clear"}'
+if has_ium "$TOPTMP/ja-clear.log" && has_ium "$TOPTMP/jb-clear.log" \
+   && [ "$(jget "$TOPTMP/ja-clear.log" '.hookSpecificOutput.initialUserMessage')" = "$J4A" ] \
+   && [ "$(jget "$TOPTMP/jb-clear.log" '.hookSpecificOutput.initialUserMessage')" = "$J4B" ]; then
+  pass "J5-initialusermessage-on-clear (/clear starts a genuinely new conversation, so it seeds the same first turn as startup — in both states)"
+else
+  fail_ "J5-initialusermessage-on-clear" "a=$(head -c 160 "$TOPTMP/ja-clear.log" 2>/dev/null) b=$(head -c 160 "$TOPTMP/jb-clear.log" 2>/dev/null)"
+fi
+
+# ── J6: every NON-fresh source keeps context and withholds the user turn ─────
+# resume/compact are mid-conversation refreshes; an unrecognised value (a future
+# fork variant) must be treated the same way. Context parity is unconditional.
+echo "=== J6-no-initialusermessage-on-resume-compact ==="
+J6_ENVS=( '{"source":"resume"}' '{"source":"compact"}' '{"source":"resume_fork"}' '{"source":""}' '{"session_id":"abc"}' )
+J6_OK=1; J6_WHY=""; j6i=0
+while [ "$j6i" -lt "${#J6_ENVS[@]}" ]; do
+  j6env="${J6_ENVS[$j6i]}"; j6log="$TOPTMP/j6-$j6i.log"
+  run_hook_stdin "$JA" "$j6log" "$j6env"
+  jq -e . "$j6log" >/dev/null 2>&1 || { J6_OK=0; J6_WHY="$J6_WHY [$j6env:unparseable]"; }
+  [ -n "$(jget "$j6log" '.hookSpecificOutput.additionalContext')" ] \
+    || { J6_OK=0; J6_WHY="$J6_WHY [$j6env:no-additionalContext]"; }
+  if has_ium "$j6log"; then J6_OK=0; J6_WHY="$J6_WHY [$j6env:LEAKED-initialUserMessage]"; fi
+  j6i=$((j6i + 1))
+done
+run_hook_stdin "$JB" "$TOPTMP/j6-ready-resume.log" '{"source":"resume"}'
+if has_ium "$TOPTMP/j6-ready-resume.log"; then J6_OK=0; J6_WHY="$J6_WHY [ready/resume:LEAKED-initialUserMessage]"; fi
+if [ "$J6_OK" -eq 1 ]; then
+  pass "J6-no-initialusermessage-on-resume-compact (resume, compact, an unrecognised fork-style value, an empty source and a source-less envelope all keep additionalContext and withhold the synthetic user turn — a mid-conversation refresh is never hijacked)"
+else
+  fail_ "J6-no-initialusermessage-on-resume-compact" "$J6_WHY"
+fi
+
+# ── J7: an unusable envelope is treated as NOT-fresh (fail closed) ───────────
+echo "=== J7-unreadable-stdin-fails-closed ==="
+run_hook "$JA" "$TOPTMP/j7-closed.log"
+run_hook_stdin "$JA" "$TOPTMP/j7-garbage.log" 'this is not json at all {{{'
+run_hook_stdin "$JA" "$TOPTMP/j7-truncated.log" '{"source":"startup"'
+J7_OK=1; J7_WHY=""
+for f in "$TOPTMP/j7-closed.log" "$TOPTMP/j7-garbage.log" "$TOPTMP/j7-truncated.log"; do
+  jq -e . "$f" >/dev/null 2>&1 || { J7_OK=0; J7_WHY="$J7_WHY [$(basename "$f"):unparseable-output]"; }
+  [ -n "$(jget "$f" '.hookSpecificOutput.additionalContext')" ] \
+    || { J7_OK=0; J7_WHY="$J7_WHY [$(basename "$f"):no-additionalContext]"; }
+  if has_ium "$f"; then J7_OK=0; J7_WHY="$J7_WHY [$(basename "$f"):LEAKED-initialUserMessage]"; fi
+  if [ -s "$f.err" ]; then J7_OK=0; J7_WHY="$J7_WHY [$(basename "$f"):stderr]"; fi
+done
+if [ "$J7_OK" -eq 1 ]; then
+  pass "J7-unreadable-stdin-fails-closed (closed stdin, garbage, and a TRUNCATED envelope that literally contains the word startup all degrade to context-only — uncertainty never auto-messages, and the hook still speaks)"
+else
+  fail_ "J7-unreadable-stdin-fails-closed" "$J7_WHY"
+fi
+
+# ── J8: the silent states stay COMPLETELY silent, envelope or not ────────────
+echo "=== J8-silent-states-emit-nothing ==="
+J8_OK=1; J8_WHY=""
+D="$TOPTMP/j8-ack"; mk_proj "$D" 25 0
+printf '{"intake": {"proceed_without_intake_acknowledged": true}}\n' > "$D/.claude/process-state.json"
+D2="$TOPTMP/j8-phase"; mk_proj "$D2" 25 2
+D3="$TOPTMP/j8-noproj"; mkdir -p "$D3"
+D4="$TOPTMP/j8-healthy"; mk_proj "$D4" 3 0; printf '# manifesto\n' > "$D4/PRODUCT_MANIFESTO.md"
+for d in "$D" "$D2" "$D3" "$D4"; do
+  j8log="$TOPTMP/$(basename "$d").log"
+  run_hook_stdin "$d" "$j8log" '{"source":"startup"}'
+  if [ -s "$j8log" ]; then J8_OK=0; J8_WHY="$J8_WHY [$(basename "$d"):SPOKE:$(head -c 80 "$j8log")]"; fi
+  if [ -s "$j8log.err" ]; then J8_OK=0; J8_WHY="$J8_WHY [$(basename "$d"):stderr]"; fi
+done
+if [ "$J8_OK" -eq 1 ]; then
+  pass "J8-silent-states-emit-nothing (acked, past-Phase-0, not-a-project and healthy all print NOTHING even on a startup envelope — no empty JSON shell, no seeded turn)"
+else
+  fail_ "J8-silent-states-emit-nothing" "$J8_WHY"
+fi
+
+# ── J9: no jq -> silent exit 0 (the encoder's own guard) ─────────────────────
+echo "=== J9-no-jq-silent ==="
+J9_BIN="$TOPTMP/nojq-bin"; mkdir -p "$J9_BIN"
+J9_RC=0
+( cd "$JA" && PATH="$J9_BIN" /bin/bash "$HOOK" </dev/null ) > "$TOPTMP/j9.log" 2>"$TOPTMP/j9.err" || J9_RC=$?
+if [ "$J9_RC" -ne 0 ]; then
+  fail_ "J9-no-jq-silent" "hook exited $J9_RC without jq — fail-open is absolute, every path exits 0"
+elif [ -s "$TOPTMP/j9.log" ] || [ -s "$TOPTMP/j9.err" ]; then
+  fail_ "J9-no-jq-silent" "spoke without jq: out=$(head -c 80 "$TOPTMP/j9.log" 2>/dev/null) err=$(head -c 80 "$TOPTMP/j9.err" 2>/dev/null)"
+elif ! [ -s "$TOPTMP/ja-startup.log" ]; then
+  fail_ "J9-no-jq-silent" "NEGATIVE CONTROL FAILED — the same fixture is silent WITH jq too, so this case cannot discriminate"
+else
+  pass "J9-no-jq-silent (jq missing -> exit 0, zero bytes on both streams; the same fixture speaks when jq is present, so the guard is what silences it)"
+fi
+
+# ── M1: mutation — the source gate's arm list is what withholds the turn ─────
+echo "=== M1-mutation-source-gate ==="
+M1MUT="$TOPTMP/hook.srcgate.mut.sh"
+M1N=$(grep -c 'BL-202-SOURCE-GATE' "$HOOK" 2>/dev/null) || M1N=0
+sed 's/startup|clear) FRESH_SESSION=true/startup|clear|resume|compact) FRESH_SESSION=true/' "$HOOK" > "$M1MUT" 2>/dev/null || true
+run_hook_stdin "$JA" "$TOPTMP/m1-intact-resume.log" '{"source":"resume"}'
+if [ "$M1N" -ne 1 ]; then
+  fail_ "M1-mutation-source-gate" "the BL-202-SOURCE-GATE marker is not present exactly once (n=$M1N) — retarget this mutation in lockstep"
+elif cmp -s "$M1MUT" "$HOOK"; then
+  fail_ "M1-mutation-source-gate" "the sed was a no-op (its target moved) — a mutant identical to the original proves nothing"
+elif ! bash -n "$M1MUT" 2>/dev/null; then
+  fail_ "M1-mutation-source-gate" "mutant has a syntax error — a broken mutant proves nothing"
+else
+  ( cd "$JA" && printf '%s' '{"source":"resume"}' | bash "$M1MUT" ) > "$TOPTMP/m1.log" 2>"$TOPTMP/m1.err" || true
+  if [ -s "$TOPTMP/m1.err" ]; then
+    fail_ "M1-mutation-source-gate" "the mutant errored before reaching the code ($(head -1 "$TOPTMP/m1.err")) — an unrunnable mutant proves nothing"
+  elif ! has_ium "$TOPTMP/m1.log"; then
+    fail_ "M1-mutation-source-gate" "widening the arm list to resume/compact did NOT leak initialUserMessage — that case arm is not what decides"
+  elif has_ium "$TOPTMP/m1-intact-resume.log"; then
+    fail_ "M1-mutation-source-gate" "NEGATIVE CONTROL FAILED — the INTACT hook already emits initialUserMessage on resume"
+  elif ! has_ium "$TOPTMP/ja-startup.log"; then
+    fail_ "M1-mutation-source-gate" "NEGATIVE CONTROL FAILED — the INTACT hook emits nothing on startup either, so this case cannot discriminate"
+  else
+    pass "M1-mutation-source-gate (adding resume|compact to the gate's arm list leaks the synthetic turn onto a mid-conversation refresh; intact stays closed on resume and open on startup — the arm list is load-bearing)"
+  fi
+fi
+
+# ── M2: mutation — jq is what makes the output valid JSON ────────────────────
+# Replace both encoder lines with the hand-rolled interpolation a reviewer might
+# think is equivalent. The real message text is multi-line, so it emits raw
+# control characters inside a JSON string and the document stops parsing.
+echo "=== M2-mutation-json-encoder ==="
+M2MUT="$TOPTMP/hook.encoder.mut.sh"
+M2N=$(grep -c 'BL-202-JSON-ENCODE' "$HOOK" 2>/dev/null) || M2N=0
+M2_NAIVE='    out="{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"$ctx\"}}"'
+export M2_NAIVE
+awk 'BEGIN{r=ENVIRON["M2_NAIVE"]} index($0,"BL-202-JSON-ENCODE"){print r; next} {print}' "$HOOK" > "$M2MUT" 2>/dev/null || true
+if [ "$M2N" -ne 2 ]; then
+  fail_ "M2-mutation-json-encoder" "expected exactly 2 BL-202-JSON-ENCODE lines (one per gate branch), found $M2N — retarget this mutation in lockstep"
+elif cmp -s "$M2MUT" "$HOOK"; then
+  fail_ "M2-mutation-json-encoder" "the awk substitution was a no-op — a mutant identical to the original proves nothing"
+elif ! bash -n "$M2MUT" 2>/dev/null; then
+  fail_ "M2-mutation-json-encoder" "mutant has a syntax error — a broken mutant proves nothing"
+else
+  ( cd "$JA" && printf '%s' '{"source":"startup"}' | bash "$M2MUT" ) > "$TOPTMP/m2.log" 2>"$TOPTMP/m2.err" || true
+  if [ -s "$TOPTMP/m2.err" ]; then
+    fail_ "M2-mutation-json-encoder" "the mutant errored before reaching the code ($(head -1 "$TOPTMP/m2.err")) — an unrunnable mutant proves nothing"
+  elif [ ! -s "$TOPTMP/m2.log" ]; then
+    fail_ "M2-mutation-json-encoder" "the mutant emitted nothing — it never reached the encoder, so this case cannot discriminate"
+  elif jq -e . "$TOPTMP/m2.log" >/dev/null 2>&1; then
+    fail_ "M2-mutation-json-encoder" "hand-rolled interpolation still parsed as JSON — the encoder is not what makes the output valid"
+  elif ! jq -e . "$TOPTMP/ja-startup.log" >/dev/null 2>&1; then
+    fail_ "M2-mutation-json-encoder" "NEGATIVE CONTROL FAILED — the INTACT hook's output is not valid JSON on the same fixture"
+  else
+    pass "M2-mutation-json-encoder (swapping jq for hand-rolled interpolation emits raw newlines inside the string and the document stops parsing; intact parses on the same fixture — jq's encoding is load-bearing)"
+  fi
+fi
+
 # ── R1: resume.sh, incomplete intake -> the intake first-message ─────────────
 echo "=== R1-resume-intake-branch ==="
 D="$TOPTMP/r1"; mk_proj "$D" 25 0
