@@ -5,8 +5,8 @@
 | Field | Value |
 |---|---|
 | **Document ID** | SOI-007-GUIDE |
-| **Version** | 1.3 |
-| **Date** | 2026-04-10 |
+| **Version** | 1.4 |
+| **Date** | 2026-08-01 |
 | **Classification** | User Guide |
 | **Companion Documents** | SOI-002-BUILD v1.0 (Builder's Guide), SOI-003-GOV v1.0 (Governance Framework), SOI-004-INTAKE v1.0 (Project Intake Template) |
 
@@ -1648,6 +1648,7 @@ Pick the primary platform and use its module. Cross-platform concerns (e.g., a w
 
 | Version | Date | Changes |
 |---|---|---|
+| 1.4 | 2026-08-01 | Prerequisite-honesty audit: added jq and Git host CLI (`gh`/`glab`/Bitbucket credentials) rows to the Personal Project Prerequisites table (1.1), cross-referenced from the Organizational table (1.2) via "same as personal". |
 | 1.3 | 2026-04-10 | Added MCP Server platform to domain modules table, Extending Platforms Guide to document map, updated platform selection guidance. |
 | 1.2 | 2026-04-08 | Added Process Enforcement Details subsection (7 items) and POC Mode Lifecycle subsection (4 items) to close UAT documentation gaps. |
 | 1.1 | 2026-04-02 | Added evaluation prompts documentation (framework and project review prompts). |

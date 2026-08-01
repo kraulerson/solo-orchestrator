@@ -569,7 +569,7 @@ This is the initial release of the Solo Orchestrator Framework. It has been used
 
 | Document | Role | Version | Date |
 |---|---|---|---|
-| **User Guide** | **Follow step-by-step** | v1.3 | 2026-04-10 |
+| **User Guide** | **Follow step-by-step** | v1.4 | 2026-08-01 |
 | **Project Intake Template** | **Fill out (wizard helps)** | v1.0 | 2026-04-02 |
 | **Platform Modules** (Web, Desktop, Mobile, MCP Server) | **Reference during build** | v1.0 | 2026-04-02 / 2026-04-10 |
 | Builder's Guide | Reference — advanced methodology detail | v1.1 | 2026-04-10 |
