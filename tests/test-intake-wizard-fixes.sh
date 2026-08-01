@@ -749,8 +749,11 @@ for _f in "$WIZARD" "$INITSH"; do
   grep -qF '# BL-204-VISIBILITY-EXPLAIN' "$_f" || BL204_VIS_OK=0
   grep -qF "$BL204_FREETIER_ANCHOR" "$_f" || BL204_VIS_OK=0
   # Plain-language private/public, not a bare `private|public` menu.
-  grep -qiE 'private[^\n]*only you' "$_f" || BL204_VIS_OK=0
-  grep -qiE 'public[^\n]*anyone' "$_f" || BL204_VIS_OK=0
+  # `.*` not `[^\n]*`: grep is line-based so they mean the same thing here,
+  # but BSD ERE reads `\n` inside a bracket as the literal chars n and \,
+  # which would silently stop matching if the copy ever gained an "n".
+  grep -qiE 'private.*only you' "$_f" || BL204_VIS_OK=0
+  grep -qiE 'public.*anyone' "$_f" || BL204_VIS_OK=0
   # Name the later cost by the name the user will actually see (BL-032/BL-002
   # surface it as an attestation prompt much later in the run).
   grep -qiF 'attest' "$_f" || BL204_VIS_OK=0
