@@ -384,6 +384,7 @@ jobs:
             tests/test-intake-wizard-fixes.sh
             tests/test-lint-backlog-references.sh
             tests/test-lint-counter-antipattern.sh
+            tests/test-lint-diagnostic-destruction.sh
             tests/test-lint-doc-anchors.sh
             tests/test-lint-fix-functions-stderr.sh
             tests/test-lint-no-live-remote.sh
