@@ -394,6 +394,7 @@ jobs:
             tests/test-bl202-session-intake-check.sh
             tests/test-intake-wizard-fixes.sh
             tests/test-lint-backlog-references.sh
+            tests/test-lint-bl-markers.sh
             tests/test-lint-counter-antipattern.sh
             tests/test-lint-diagnostic-destruction.sh
             tests/test-lint-doc-anchors.sh

@@ -527,6 +527,26 @@ run_child_suite "scripts/lint-doc-anchors.sh" \
   "Every in-document anchor reference under docs/ resolves" \
   "Doc-anchors lint found broken anchor reference(s) (see scripts/lint-doc-anchors.sh --list)"
 
+# BL-196: tests/test-lint-bl-markers.sh — behavior suite for the
+# marker-citation backstop. Validates both directions (marker -> backlog
+# entry, prose citation -> live marker), the family/glob resolution rules,
+# the false-positive guards that keep bare prose hyphenation out of scope,
+# the frozen-surface exclusions, the allowlist semantics, and the vacuity
+# floor — plus the fence-excision mutation that proves the cite -> marker
+# check is where the comment says it is.
+section "Marker-citation lint (BL-196 structural backstop)"
+run_child_suite "tests/test-lint-bl-markers.sh" \
+  "scripts/lint-bl-markers.sh behavior tests" \
+  "scripts/lint-bl-markers.sh behavior tests FAILED (run tests/test-lint-bl-markers.sh for details)"
+
+# BL-196: repo-wide lint invocation. Fails when prose in the live surface
+# cites a `# BL-NNN-…` marker that no longer exists in the code surface,
+# or when a marker in code names a backlog entry that was never filed.
+# See scripts/lint-bl-markers.sh header for the surface definitions.
+run_child_suite "scripts/lint-bl-markers.sh" \
+  "Every live marker citation resolves to a marker in code" \
+  "Marker-citation lint found broken citation(s) (see scripts/lint-bl-markers.sh --list)"
+
 # ----------------------------------------------------------------
 # TEST 0g: INTAKE WIZARD + RECONFIGURE FIELD HANDLERS
 # ----------------------------------------------------------------

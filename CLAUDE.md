@@ -86,11 +86,13 @@ here.
 ## LINT GOTCHAS
 
 - `scripts/run-lints.sh` runs **every `scripts/lint-*.sh` EXCEPT
-  `lint-uat-scenarios.sh`** (11 of the 12 lint scripts as of 2026-07-23).
+  `lint-uat-scenarios.sh`** (12 of the 13 lint scripts as of 2026-07-31 — BL-196
+  added `lint-bl-markers.sh`, and run-lints discovers it by glob, no wiring).
 - `scripts/lint-uat-scenarios.sh` is a **parametrized tool, not a repo lint**:
   bare-invoked it exits **2** with a `Usage:` message because it needs a
-  `<populated-html-file>` argument. It is **not** one of the 9 CI-required lint
-  jobs (`.github/workflows/lint.yml`), so run-lints deliberately skips it.
+  `<populated-html-file>` argument. It is **not** one of the CI lint jobs
+  (`.github/workflows/lint.yml`, 10 jobs as of 2026-07-31), so run-lints
+  deliberately skips it.
 - Two lints are **slow full-tree scans**: `lint-counter-antipattern.sh` (~90s)
   and `lint-raw-read-prompt.sh` (~40s). A full `run-lints.sh` is a couple of
   minutes — that is expected, not a hang.
@@ -125,6 +127,32 @@ Cite code by a **grep-able `# BL-NNN-…` marker comment** or a **function name*
 within 24h of being written; the marker comment is the repo's citation
 primitive. When reading an old handoff, **re-grep every line-number citation
 before trusting it**.
+
+**BL-196: the marker half is now lint-enforced** —
+`scripts/lint-bl-markers.sh` (in the run-lints sweep and the
+`bl-markers-lint` CI job; **not** a required check — that is Karl's later
+call). Two directions, plus a vacuity floor:
+- every `# BL-NNN-…` marker in the **code surface** (`init.sh`, `scripts/`,
+  `tests/`, `templates/`, `evaluation-prompts/`, `.github/`) names a real
+  `## BL-NNN:` entry;
+- every marker **cited** in the **live prose surface** (`CLAUDE.md`,
+  `README.md`, `CONTRIBUTING.md`, `solo-orchestrator-backlog.md`,
+  `docs/**` minus `docs/handoffs/archive/**`) resolves to a marker that
+  still exists. Frozen artifacts are deliberately out of scope —
+  `Reports/**`, archived handoffs, `solo-orchestrator-bugs.md` — because
+  they are stamped to the tree they were written against.
+
+**A citation only counts when prose marks it as code**: backticked
+(`` `# BL-084-TIER-KEY` ``) or hash-prefixed (`# BL-084-TIER-KEY`). A
+**bare** `BL-NNN-suffix` token is invisible to the lint — of 21 bare hits,
+**10** are real markers that go unchecked and **11** are ordinary prose
+hyphenation: BL-140-family, BL-030-edit (left bare here on purpose —
+backtick either one and this very line goes red).
+**Backtick your markers** and they become enforced. Cite a fence family
+(`# BL-105-PHASE4-GATE`) or a glob (`# BL-102-MARKET-SIGNAL-*`) and it
+resolves against the `-BEGIN`/`-END` members; a **truncation typo does
+not**. Deliberately-withdrawn markers get an allowlist row with a reason,
+never a deletion.
 
 ## HANDOFFS
 
