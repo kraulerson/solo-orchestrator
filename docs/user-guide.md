@@ -5,8 +5,8 @@
 | Field | Value |
 |---|---|
 | **Document ID** | SOI-007-GUIDE |
-| **Version** | 1.3 |
-| **Date** | 2026-04-10 |
+| **Version** | 1.4 |
+| **Date** | 2026-08-01 |
 | **Classification** | User Guide |
 | **Companion Documents** | SOI-002-BUILD v1.0 (Builder's Guide), SOI-003-GOV v1.0 (Governance Framework), SOI-004-INTAKE v1.0 (Project Intake Template) |
 
@@ -540,14 +540,17 @@ The Intake has a checklist at the bottom. Verify every item before starting:
 
 ```bash
 cd ~/projects/your-project
-claude
+bash scripts/resume.sh   # prints the exact first message for where you are
+claude                   # paste it as your first message
 ```
 
-The agent reads `CLAUDE.md` automatically. This file contains your project configuration, framework rules, and tool constraints.
+Claude Code loads `CLAUDE.md` — your project configuration, framework rules, and tool constraints — when the session starts, but the agent does not **act on** any of it until you send your **first message**. Until then nothing happens: a blank Claude Code screen means it is ready and waiting, not stuck.
+
+`scripts/resume.sh` is the one place that decides what that first message should be. It is state-aware: the intake prompt while your Intake is unfinished, the Section 13 initialization prompt once the Intake is done and Phase 0 has not started, and a resume prompt once work is under way.
 
 ### The Initialization Prompt
 
-Section 13 of the Intake contains a ready-to-use initialization prompt. Copy and paste it into the agent at the start of Phase 0. It tells the agent:
+Section 13 of the Intake contains a ready-to-use initialization prompt. `bash scripts/resume.sh` prints it verbatim at the point you need it, so you do not have to find and copy it by hand — but you can also paste it in yourself at the start of Phase 0. Either way, it tells the agent:
 
 - The Intake is the primary constraint
 - The Builder's Guide is the process reference
@@ -1646,6 +1649,7 @@ Pick the primary platform and use its module. Cross-platform concerns (e.g., a w
 
 | Version | Date | Changes |
 |---|---|---|
+| 1.4 | 2026-08-01 | Session Start: corrected the claim that the agent acts on `CLAUDE.md` when the session opens — context is loaded at startup but not acted on until the first message, which is the dead-air this section now names; added `scripts/resume.sh` to the session-start commands and the blank-screen reassurance. The Initialization Prompt: noted that `scripts/resume.sh` prints the Intake Section 13 prompt verbatim, so it need not be found and copied by hand (the manual path is retained). |
 | 1.3 | 2026-04-10 | Added MCP Server platform to domain modules table, Extending Platforms Guide to document map, updated platform selection guidance. |
 | 1.2 | 2026-04-08 | Added Process Enforcement Details subsection (7 items) and POC Mode Lifecycle subsection (4 items) to close UAT documentation gaps. |
 | 1.1 | 2026-04-02 | Added evaluation prompts documentation (framework and project review prompts). |

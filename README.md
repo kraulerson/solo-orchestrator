@@ -70,21 +70,32 @@ The init script will:
 1. Authenticate: `claude` (OAuth) and `snyk auth`
 2. Fill out the Intake: run `bash scripts/intake-wizard.sh` for a guided walkthrough (interactive script or AI-assisted conversation), or open `PROJECT_INTAKE.md` directly. For **personal or Private POC projects only**, you can paste the intake form into your AI of choice and work with it to fill out the sections — but read through the result yourself to verify accuracy. Do not use this shortcut for organizational or production projects where intake accuracy drives compliance decisions.
 3. For organizational deployments: complete governance pre-conditions — or use a POC mode (Sponsored or Private) to defer non-technical approvals while you validate the framework
-4. Start Claude Code **from inside your generated project directory** and give
-   it the full project context (the paths below exist in your generated
-   project — not in this framework repo):
+4. Start Claude Code **from inside your generated project directory** — and let
+   your project print its own first message rather than composing one by hand:
+   ```bash
+   cd ../my-project         # the SIBLING init created, not the framework clone
+   bash scripts/resume.sh   # prints the exact first message — copy it
+   claude                   # paste it as your very first message
    ```
-   Read the following files in order, then confirm what you understand about
-   this project before taking any action:
-   1. CLAUDE.md (your instructions and constraints)
-   2. PROJECT_INTAKE.md (the product definition)
-   3. docs/reference/builders-guide.md (the phase-gate methodology)
-   4. docs/platform-modules/<your-platform>.md (platform-specific guidance)
-   5. .claude/phase-state.json (current phase)
-   After reading, summarize: the project goal, your constraints, the current
-   phase, and what tools/MCP servers are available to you. Then begin Phase 0.
-   Ask me only for clarifying questions.
-   ```
+   `scripts/resume.sh` is copied into your project by the init script, so it
+   **does not exist in this framework repo** — it becomes available once init
+   has created your project, and not before. The same is true of everything the
+   message it prints will name (`CLAUDE.md`, `PROJECT_INTAKE.md`,
+   `docs/reference/`, `.claude/`): those live in your generated project.
+
+   The script is state-aware, so the message is right wherever you actually
+   stopped:
+   - **Intake not finished** — a prompt asking Claude to walk you through the
+     unfilled sections of `PROJECT_INTAKE.md`, writing your answers into the
+     file as you go.
+   - **Intake finished, Phase 0 not started** — your project's own Section 13
+     *Agent Initialization Prompt*, printed verbatim out of your
+     `PROJECT_INTAKE.md`. That is the prompt that points the agent at the
+     Intake, the Builder's Guide, and your Platform Module, and starts Phase 0.
+   - **Work already under way** — a resume prompt carrying your current phase,
+     recent commits, and tool-version status.
+
+   The script brackets the message with a `--- Copy everything below this line into Claude Code ---` banner and a matching `--- End ... ---` line; copy what sits between them. **A blank Claude Code screen means it is ready and waiting, not stuck** — nothing happens until you send that first message.
 
 See the [User Guide](docs/user-guide.md) for detailed walkthrough of each step.
 
@@ -352,7 +363,7 @@ Each phase produces artifacts that gate entry into the next phase. The AI execut
 ### The Workflow
 
 1. **Fill out the Intake** — run `bash scripts/intake-wizard.sh` for a guided walkthrough, or open `PROJECT_INTAKE.md` directly
-2. **Start Claude Code** — point it at the Intake and Builder's Guide
+2. **Start Claude Code** — paste the first message printed by `bash scripts/resume.sh`; it points the agent at the Intake, the Builder's Guide, and your Platform Module
 3. **The agent executes each phase** — asking you only for clarifying questions and approval at decision gates
 4. **You review at decision gates** — architecture selection, test assertions, security scan results, go-live readiness
 5. **Phase 3 validates everything** — five validation scanners (full-tree Semgrep, license compliance with a tier-keyed strong-copyleft deny policy, Snyk, OWASP ZAP DAST, threat-model verification), integration tests, and accessibility audit. The Phase 3→4 gate refuses to advance until every scanner reports pass or carries a signed skip attestation. Zero critical findings before proceeding.
