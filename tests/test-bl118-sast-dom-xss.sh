@@ -252,7 +252,8 @@ EXTRACT="$TOPTMP/fix_precommit_hook.sh"
 # green even if the guard were deleted. The fixture below is a plain
 # .git/hooks path with no core.hooksPath, so the real guard passes through.
 : > "$EXTRACT"
-for _vifn in _bl145_symlink_target _bl145_configured_hookspath \
+for _vifn in _bl145_symlink_target _bl145_hookspath_is_set \
+             _bl145_configured_hookspath _bl145_hookspath_label \
              _bl145_refuse_unsafe_hook_write fix_precommit_hook; do
   awk -v fn="$_vifn" '$0 ~ "^" fn "\\(\\) \\{", /^\}/' "$VI" >> "$EXTRACT"
 done

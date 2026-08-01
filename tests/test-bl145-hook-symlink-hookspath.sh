@@ -155,10 +155,24 @@ run_autofix() {  # run_autofix <projdir> [script-override]
 # Today: the managed block is APPENDED INTO THE TARGET (target mutated, link
 # kept). Required: the target is byte-identical afterwards and the refusal
 # NAMES it.
+#
+# The link value here is deliberately RELATIVE (R-BL145-2). `readlink` without
+# `-f` prints the RAW value, which is meaningless from the project root, so
+# _bl145_symlink_target anchors it to the LINK's own directory
+# (# BL-145-RELATIVE-ANCHOR). Asserting the ANCHORED spelling pins that atom's
+# width: delete the anchoring arm and this assertion goes RED (T6c re-proves it
+# mechanically). T2 keeps an ABSOLUTE link so both spellings stay covered.
 echo "=== T1-commitmsg-symlink-target-preserved ==="
 P="$TOPTMP/p1"; mk_proj "$P"
 SH1="$TOPTMP/dotfiles1/commit-msg"; mk_shared_hook "$SH1" exec
-ln -s "$SH1" "$P/.git/hooks/commit-msg"
+REL1="../../../dotfiles1/commit-msg"
+# The anchored spelling as the guard PRINTS it: check_git passes the hook path
+# as `.git/hooks/<hook>`, and verify-install always runs from the project root,
+# so `.git/hooks/../../../dotfiles1/commit-msg` resolves for the operator while
+# the raw readlink value does not.
+ANCHORED1=".git/hooks/$REL1"
+ln -s "$REL1" "$P/.git/hooks/commit-msg"
+[ -e "$P/.git/hooks/commit-msg" ] || fail_ "T1-setup" "the relative link does not resolve — fixture is wrong, not the code"
 out=$(run_autofix "$P")
 if ! cmp -s "$SH1" "$SH1.pristine"; then
   fail_ "T1-commitmsg-symlink-target-preserved" "--auto-fix wrote THROUGH the symlink: the shared target $SH1 was mutated ($(grep -cF "$TDD_OPEN" "$SH1" 2>/dev/null || echo 0) managed block(s) appended)"
@@ -166,10 +180,10 @@ elif [ ! -L "$P/.git/hooks/commit-msg" ]; then
   fail_ "T1-commitmsg-symlink-target-preserved" "the symlink itself was replaced — the operator's link is gone"
 elif ! printf '%s' "$out" | grep -qi 'symlink'; then
   fail_ "T1-commitmsg-symlink-target-preserved" "target intact but the refusal is SILENT — no 'symlink' in the report: $(printf '%s' "$out" | grep -i 'commit-msg' | head -2 | tr '\n' ' ')"
-elif ! printf '%s' "$out" | grep -qF "$SH1"; then
-  fail_ "T1-commitmsg-symlink-target-preserved" "the refusal does not NAME the target it declined to clobber ($SH1)"
+elif ! printf '%s' "$out" | grep -qF "$ANCHORED1"; then
+  fail_ "T1-commitmsg-symlink-target-preserved" "the refusal does not NAME the target it declined to clobber, ANCHORED to the link's own directory ($ANCHORED1) — a raw '$REL1' cannot be acted on from the project root: $(printf '%s' "$out" | grep -i 'symlink' | head -2 | tr '\n' ' ')"
 else
-  pass "T1-commitmsg-symlink-target-preserved (target byte-identical, link kept, refusal names it)"
+  pass "T1-commitmsg-symlink-target-preserved (target byte-identical, link kept, refusal names the RELATIVE link's target anchored to its own directory)"
 fi
 
 # ── T2: pre-commit symlink — the FULL-CLOBBER half ───────────────────────────
@@ -189,6 +203,41 @@ elif ! printf '%s' "$out" | grep -qi 'symlink' || ! printf '%s' "$out" | grep -q
   fail_ "T2-precommit-symlink-target-preserved" "target intact but the refusal does not name it loudly: $(printf '%s' "$out" | grep -i 'pre-commit' | head -2 | tr '\n' ' ')"
 else
   pass "T2-precommit-symlink-target-preserved (target byte-identical, link kept, refusal names it)"
+fi
+
+# ── T2b: the HOOKS DIRECTORY itself is a symlink (R-BL145-1, the BLOCK) ──────
+# `ln -s ~/.githooks .git/hooks` is the classic idiom, and it defeats a LEAF
+# `-L` test completely: .git/hooks/pre-commit is a regular file INSIDE the
+# shared directory, so the guard saw nothing and --auto-fix clobbered a 3-line
+# shared hook into the full SOIF hook AND created a second file (commit-msg) in
+# the operator's shared directory. Required: refuse, naming the DIRECTORY's
+# resolved target, and leave the shared directory byte-for-byte as it was.
+echo "=== T2b-hooksdir-symlink-target-preserved ==="
+P="$TOPTMP/p2b"; mk_proj "$P"
+SHD="$TOPTMP/dotfiles-hooksdir"
+mkdir -p "$SHD"
+{
+  printf '%s\n' '#!/usr/bin/env bash'
+  printf '%s\n' '# dotfiles-managed hooks DIRECTORY shared by every repo I own'
+  printf '%s\n' 'echo "user-owned hook ran"'
+} > "$SHD/pre-commit"
+PRIS2B="$TOPTMP/pristine-hooksdir-pre-commit"
+cp "$SHD/pre-commit" "$PRIS2B"
+rm -rf "$P/.git/hooks"
+ln -s "$SHD" "$P/.git/hooks"
+out=$(run_autofix "$P")
+t2berr=""
+cmp -s "$SHD/pre-commit" "$PRIS2B" || t2berr="$t2berr CLOBBERED-the-shared-hook($(wc -l < "$SHD/pre-commit" | tr -d ' ')-lines-now)"
+[ -e "$SHD/commit-msg" ] && t2berr="$t2berr CREATED-commit-msg-in-the-shared-dir"
+n2b=$(ls -1 "$SHD" | wc -l | tr -d ' ')
+[ "$n2b" = "1" ] || t2berr="$t2berr shared-dir-now-has-$n2b-entries"
+[ -L "$P/.git/hooks" ] || t2berr="$t2berr the-operators-directory-link-was-replaced"
+printf '%s' "$out" | grep -qi 'symlink' || t2berr="$t2berr refusal-is-silent"
+printf '%s' "$out" | grep -qF "$SHD" || t2berr="$t2berr refusal-does-not-name-the-DIRECTORY-target"
+if [ -n "$t2berr" ]; then
+  fail_ "T2b-hooksdir-symlink-target-preserved" "a symlinked .git/hooks defeats a leaf-only guard:$t2berr"
+else
+  pass "T2b-hooksdir-symlink-target-preserved (shared dir untouched: 1 entry, byte-identical; link kept; refusal names the directory's target)"
 fi
 
 # ── T3: DANGLING symlink must not conjure a file at the far end ──────────────
@@ -247,6 +296,67 @@ else
   pass "T5-hookspath-no-false-pass (an inert .git/hooks hook is no longer a PASS, and --auto-fix does NOT write into the configured dir)"
 fi
 
+# ── T7: core.hooksPath set to the EMPTY STRING (R-BL145-4) ───────────────────
+# `git config core.hooksPath ""` reads back as rc=0 with EMPTY output, so a
+# guard keyed on output emptiness calls it unset and reproduces the original
+# false PASS. It is not benign: measured on git 2.50.1, a repo with
+# hooksPath set-empty does NOT run .git/hooks/pre-commit (the control below
+# proves the same hook fires once the key is unset). "Set" must therefore be
+# read off the EXIT STATUS.
+echo "=== T7-hookspath-empty-string ==="
+P="$TOPTMP/p7"; mk_proj "$P"
+printf '%s\n%s\n' '#!/usr/bin/env bash' 'touch "$PWD/HOOK-RAN"' > "$P/.git/hooks/pre-commit"
+chmod +x "$P/.git/hooks/pre-commit"
+( cd "$P" && git config core.hooksPath "" )
+# Premise probe (evidence, not an oracle — reported in the verdict text).
+( cd "$P" && printf 'x\n' > probe.txt && git add probe.txt && git commit -q -m "chore: probe" ) >/dev/null 2>&1
+if [ -e "$P/HOOK-RAN" ]; then t7probe="git DID run .git/hooks/pre-commit"; else t7probe="git did NOT run .git/hooks/pre-commit"; fi
+chk=$( cd "$P" && bash scripts/verify-install.sh --check-only </dev/null 2>&1 ) || true
+t7err=""
+printf '%s' "$chk" | grep -q 'core.hooksPath' || t7err="$t7err never-mentions-the-set-but-empty-hooksPath"
+printf '%s' "$chk" | grep -qi 'pre-commit hook installed' && t7err="$t7err false-PASS-on-a-hook-git-will-not-run"
+if [ -n "$t7err" ]; then
+  fail_ "T7-hookspath-empty-string" "set-but-empty is read as unset:$t7err (probe: $t7probe)"
+else
+  pass "T7-hookspath-empty-string (set-but-empty is SET — no false PASS, and the report names it; probe: $t7probe)"
+fi
+
+# ── T8: DEGENERATE core.hooksPath=.git/hooks (R-BL145-3b) ────────────────────
+# The configured directory IS the default one, so any claim that git "ignores
+# .git/hooks" here is simply false. The hook that is installed is the one git
+# runs, so it must still PASS.
+echo "=== T8-hookspath-degenerate-no-false-claims ==="
+P="$TOPTMP/p8"; mk_proj "$P"
+( cd "$P" && git config core.hooksPath .git/hooks )
+chk=$( cd "$P" && bash scripts/verify-install.sh --check-only </dev/null 2>&1 ) || true
+t8err=""
+printf '%s' "$chk" | grep -qi 'ignores .git/hooks' && t8err="$t8err false-claim:'ignores .git/hooks'"
+printf '%s' "$chk" | grep -qi 'pre-commit hook installed' || t8err="$t8err lost-the-legitimate-PASS"
+if [ -n "$t8err" ]; then
+  fail_ "T8-hookspath-degenerate-no-false-claims" "$t8err | $(printf '%s' "$chk" | grep -i 'hooksPath' | head -2 | tr '\n' ' ')"
+else
+  pass "T8-hookspath-degenerate-no-false-claims (hooksPath=.git/hooks: still a PASS, and no false 'git ignores .git/hooks' claim)"
+fi
+
+# ── T9: a PRESENT but UNMARKED hook in the hooksPath dir (R-BL145-3c) ────────
+# The hook exists and git runs it — it just is not the managed SOIF block. The
+# row must say so, not claim nothing is installed.
+echo "=== T9-hookspath-unmarked-hook-wording ==="
+P="$TOPTMP/p9"; mk_proj "$P"
+mkdir -p "$P/.githooks"
+printf '%s\n%s\n' '#!/usr/bin/env bash' 'echo user-owned commit-msg hook' > "$P/.githooks/commit-msg"
+chmod +x "$P/.githooks/commit-msg"
+( cd "$P" && git config core.hooksPath .githooks )
+chk=$( cd "$P" && bash scripts/verify-install.sh --check-only </dev/null 2>&1 ) || true
+t9err=""
+printf '%s' "$chk" | grep -qi 'not the managed hook' || t9err="$t9err never-says-'not the managed hook'"
+printf '%s' "$chk" | grep -qi 'commit-msg TDD gate hook is not installed' && t9err="$t9err says-'not installed'-about-a-hook-that-IS-installed"
+if [ -n "$t9err" ]; then
+  fail_ "T9-hookspath-unmarked-hook-wording" "$t9err | $(printf '%s' "$chk" | grep -i 'commit-msg' | head -2 | tr '\n' ' ')"
+else
+  pass "T9-hookspath-unmarked-hook-wording (an unmarked hook in the hooksPath dir is reported as 'not the managed hook', not as absent)"
+fi
+
 # ── T6: fence-excision mutants — both guards are load-bearing ────────────────
 echo "=== T6-fence-excision-mutants ==="
 
@@ -294,6 +404,36 @@ else
     pass "T6b-hookspath-mutant (excised guard -> the blind, inert .git/hooks repair returns: the guard is load-bearing)"
   else
     fail_ "T6b-hookspath-mutant" "mutant stayed hooksPath-aware (inert-write=$([ -e "$P/.git/hooks/pre-commit" ] && echo yes || echo no)) — the awareness does not (only) live in the fence"
+  fi
+fi
+
+# T6c: the RELATIVE-ANCHOR atom (R-BL145-2). Deleting the single marked line
+# that anchors a relative link value to the link's own directory survived the
+# suite before this pin; now it must not.
+MUT_AN="$TOPTMP/verify-install.anchor-mutant.sh"
+an_before=$(grep -c 'BL-145-RELATIVE-ANCHOR' "$REPO_ROOT/scripts/verify-install.sh") || an_before=0
+case "$an_before" in ''|*[!0-9]*) an_before=0 ;; esac
+sed '/# BL-145-RELATIVE-ANCHOR/d' "$REPO_ROOT/scripts/verify-install.sh" > "$MUT_AN"
+an_after=$(grep -c 'BL-145-RELATIVE-ANCHOR' "$MUT_AN") || an_after=0
+case "$an_after" in ''|*[!0-9]*) an_after=0 ;; esac
+if [ "$an_before" -lt 1 ] || [ "$an_after" -ne 0 ]; then
+  fail_ "T6c-relative-anchor-atom" "excision vacuous — no '# BL-145-RELATIVE-ANCHOR' line to delete (before=$an_before after=$an_after); the anchoring atom is unpinned"
+elif ! bash -n "$MUT_AN"; then
+  fail_ "T6c-relative-anchor-atom" "mutant does not parse — the marker is not on a self-contained line"
+else
+  P="$TOPTMP/p6c"; mk_proj "$P"
+  SH6C="$TOPTMP/dotfiles6c/commit-msg"; mk_shared_hook "$SH6C" exec
+  REL6C="../../../dotfiles6c/commit-msg"
+  ANCHORED6C=".git/hooks/$REL6C"
+  ln -s "$REL6C" "$P/.git/hooks/commit-msg"
+  cp "$MUT_AN" "$P/scripts/verify-install.sh"; chmod +x "$P/scripts/verify-install.sh"
+  out=$(run_autofix "$P")
+  if printf '%s' "$out" | grep -qF "$ANCHORED6C"; then
+    fail_ "T6c-relative-anchor-atom" "the mutant still printed the anchored path — the anchoring does not (only) live on the marked line, so the atom is not pinned"
+  elif ! printf '%s' "$out" | grep -qi 'symlink'; then
+    fail_ "T6c-relative-anchor-atom" "mutant stopped refusing altogether — the deletion changed more than the anchoring"
+  else
+    pass "T6c-relative-anchor-atom (excised anchor -> the refusal degrades to the raw, unactionable link value: the atom is load-bearing)"
   fi
 fi
 

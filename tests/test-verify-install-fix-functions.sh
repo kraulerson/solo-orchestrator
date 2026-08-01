@@ -489,7 +489,8 @@ T15EXTRACT="$T15TMP/fix.sh"
 # T15's fixture is a plain .git/hooks path with no core.hooksPath, so the real
 # guard passes through and the ruleset assertion below is unchanged.
 : > "$T15EXTRACT"
-for _t15fn in _bl145_symlink_target _bl145_configured_hookspath \
+for _t15fn in _bl145_symlink_target _bl145_hookspath_is_set \
+              _bl145_configured_hookspath _bl145_hookspath_label \
               _bl145_refuse_unsafe_hook_write fix_precommit_hook; do
   awk -v fn="$_t15fn" '$0 ~ "^" fn "\\(\\) \\{", /^\}/' \
     "$REPO_ROOT/scripts/verify-install.sh" >> "$T15EXTRACT"

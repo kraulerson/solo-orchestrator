@@ -410,19 +410,32 @@ check_scripts() {
 #      link. `--auto-fix` is a NO-CONSENT surface (init.sh and
 #      upgrade-project.sh call it), so it must never do that: repairing a
 #      shared file needs a human. We REFUSE, loudly, naming the target.
+#      A LEAF `-L` test is NOT sufficient. `ln -s ~/.githooks .git/hooks` is
+#      the classic idiom, and it makes every hook path a regular file inside
+#      someone else's directory: the leaf test sees nothing, and the repair
+#      clobbered a shared 3-line hook into the full 1587-line SOIF hook AND
+#      created a second file next to it. Both the leaf AND its DIRECTORY are
+#      tested. Checks are untouched by this (a symlinked hooks dir whose hooks
+#      work still PASSES) — only the WRITE is refused.
 #
 #   2. core.hooksPath BLINDNESS. When `core.hooksPath` is set git runs hooks
-#      from THAT directory and ignores `.git/hooks` entirely. The checks read
-#      `.git/hooks/` literally, so such a project got a green PASS for a hook
-#      git never runs — plus an "auto-fixed" repair written into the inert
-#      `.git/hooks`. Policy: the CHECKS honor the setting (look where git
-#      looks) and the REPAIRS refuse loudly. Not writing into the configured
-#      directory is deliberate and is the same rule as (1): core.hooksPath is
-#      commonly a directory shared across repos (`git config --global
-#      core.hooksPath ~/.githooks`) or one tracked in the project — a
-#      no-consent write there is exactly the clobber this guard exists to
-#      prevent, and writing to `.git/hooks` instead would be an inert repair
-#      that reports success. Framework-generated projects never set it.
+#      from THAT directory. The checks read `.git/hooks/` literally, so such a
+#      project got a green PASS for a hook git never runs — plus an
+#      "auto-fixed" repair written into a directory git does not consult.
+#      Policy: the CHECKS honor the setting (look where git looks) and the
+#      REPAIRS refuse loudly. Not writing into the configured directory is
+#      deliberate and is the same rule as (1): core.hooksPath is commonly a
+#      directory shared across repos (`git config --global core.hooksPath
+#      ~/.githooks`) or one tracked in the project — a no-consent write there
+#      is exactly the clobber this guard exists to prevent, and writing to
+#      `.git/hooks` instead would be a repair git may never run that still
+#      reports success. Framework-generated projects never set it.
+#      "Set" is keyed on git's EXIT STATUS, not on the value: `git config
+#      core.hooksPath ""` reads back rc=0 with EMPTY output, and on git 2.50.1
+#      that repo runs NO hook from .git/hooks — keying on emptiness would call
+#      it unset and reproduce the original false PASS exactly. The value may
+#      also legitimately BE `.git/hooks`, so no message here may claim that
+#      git "ignores .git/hooks".
 #
 # PORTABILITY: `readlink -f` does not exist on BSD/macOS, so link targets are
 # resolved with a guarded plain `readlink` (prints the raw link value on both
@@ -436,16 +449,27 @@ _bl145_symlink_target() {
   [ -n "$t" ] || { printf '%s' ""; return 0; }
   case "$t" in
     /*) ;;
-    *) t="$(dirname "$p")/$t" ;;
+    *) t="$(dirname "$p")/$t" ;;   # BL-145-RELATIVE-ANCHOR
   esac
   printf '%s' "$t"
   return 0
 }
 
-# _bl145_configured_hookspath — the configured core.hooksPath, or empty when
-# unset. `--path` tilde-expands (`~/.githooks`); the plain read is the
-# fallback for git builds that reject it. Never returns non-zero: callers run
-# under `set -e`.
+# _bl145_hookspath_is_set — TRUE (0) iff core.hooksPath is CONFIGURED, read off
+# git's EXIT STATUS and never off the value. `git config core.hooksPath ""`
+# reads back as rc=0 with EMPTY output, and that is not benign: measured on git
+# 2.50.1, a repo with hooksPath set-empty runs NO hook from .git/hooks. Keying
+# "set" on output emptiness therefore reproduces the exact false PASS this
+# guard exists to remove.
+_bl145_hookspath_is_set() {
+  command -v git >/dev/null 2>&1 || return 1
+  git config core.hooksPath >/dev/null 2>&1
+}
+
+# _bl145_configured_hookspath — the configured core.hooksPath VALUE. Empty
+# means either unset or set-to-empty; ask _bl145_hookspath_is_set which.
+# `--path` tilde-expands (`~/.githooks`); the plain read is the fallback for
+# git builds that reject it. Never returns non-zero: callers run under `set -e`.
 _bl145_configured_hookspath() {
   local hp=""
   if command -v git >/dev/null 2>&1; then
@@ -455,6 +479,19 @@ _bl145_configured_hookspath() {
     fi
   fi
   printf '%s' "$hp"
+  return 0
+}
+
+# _bl145_hookspath_label — the configured value rendered for humans, so a
+# set-but-empty key is not printed as a blank.
+_bl145_hookspath_label() {
+  local hp
+  hp="$(_bl145_configured_hookspath)"
+  if [ -z "$hp" ]; then
+    printf '%s' "the empty string"
+  else
+    printf "'%s'" "$hp"
+  fi
   return 0
 }
 
@@ -468,17 +505,28 @@ _bl145_unsafe_to_repair() {
   if [ -L "$p" ]; then
     local t
     t="$(_bl145_symlink_target "$p")"
-    register_manual "$label at $p is a SYMLINK -> ${t:-<unresolvable target>} — refusing to repair (the write would go THROUGH the link and modify that shared file)" \
+    register_manual "$label at $p is a SYMLINK -> ${t:-<unresolvable target>} — refusing to repair (the write would go THROUGH the link and modify the file it ultimately points at)" \
       "Repairing a shared/out-of-tree hook needs a human. Either update ${t:-the link target} yourself, or replace the link with a real file and re-run: rm $p && bash scripts/verify-install.sh --auto-fix"
+    return 0
+  fi
+  # A LEAF test is not enough: `ln -s ~/.githooks .git/hooks` is the classic
+  # idiom, and then every hook path is a regular file INSIDE someone else's
+  # shared directory. Checks still PASS on such a repo (git runs those hooks
+  # fine) — only the WRITE is refused, mirroring the core.hooksPath policy.
+  local pd
+  pd="$(dirname "$p")"
+  if [ -L "$pd" ]; then
+    local dt
+    dt="$(_bl145_symlink_target "$pd")"
+    register_manual "$label: its hooks DIRECTORY $pd is a SYMLINK -> ${dt:-<unresolvable target>} — refusing to repair (the write would land inside the directory it ultimately points at)" \
+      "Repairing hooks inside a shared/out-of-tree directory needs a human. Either install the hook in ${dt:-the link target} yourself, or replace the directory link with a real directory and re-run: rm $pd && bash scripts/verify-install.sh --auto-fix"
     return 0
   fi
   # BL-145-SYMLINK-GUARD-END
   # BL-145-HOOKSPATH-BEGIN
-  local hp
-  hp="$(_bl145_configured_hookspath)"
-  if [ -n "$hp" ]; then
-    register_manual "$label is not installed in the core.hooksPath directory '$hp' (git ignores .git/hooks here) — refusing to repair" \
-      "verify-install will not write into a core.hooksPath directory (it can be shared across repos or tracked in the project). Install the hook there yourself, or run: git config --unset core.hooksPath && bash scripts/verify-install.sh --auto-fix"
+  if _bl145_hookspath_is_set; then
+    register_manual "$label is not the managed hook in the core.hooksPath directory $(_bl145_hookspath_label) — refusing to repair" \
+      "verify-install will not write into a core.hooksPath directory (it can be shared across repos or tracked in the project). Install the managed hook there yourself, or run: git config --unset core.hooksPath && bash scripts/verify-install.sh --auto-fix"
     return 0
   fi
   # BL-145-HOOKSPATH-END
@@ -495,15 +543,24 @@ _bl145_refuse_unsafe_hook_write() {
   if [ -L "$p" ]; then
     local t
     t="$(_bl145_symlink_target "$p")"
-    echo "  [FAIL] refusing to repair $label: $p is a SYMLINK -> ${t:-<unresolvable target>}; writing it would modify that shared file. Update the target yourself, or replace the link with a real file (rm $p) and re-run." >&2
+    echo "  [FAIL] refusing to repair $label: $p is a SYMLINK -> ${t:-<unresolvable target>}; writing it would modify the file it ultimately points at. Update that file yourself, or replace the link with a real file (rm $p) and re-run." >&2
+    return 1
+  fi
+  # The directory half of the same hazard (`ln -s ~/.githooks .git/hooks`):
+  # the leaf is a plain file inside a shared directory, so a leaf-only test
+  # sees nothing and the write lands in someone else's dotfiles.
+  local pd
+  pd="$(dirname "$p")"
+  if [ -L "$pd" ]; then
+    local dt
+    dt="$(_bl145_symlink_target "$pd")"
+    echo "  [FAIL] refusing to repair $label: its hooks DIRECTORY $pd is a SYMLINK -> ${dt:-<unresolvable target>}; writing $p would create or overwrite a file inside the directory it ultimately points at. Install it there yourself, or replace the directory link with a real directory (rm $pd) and re-run." >&2
     return 1
   fi
   # BL-145-SYMLINK-GUARD-END
   # BL-145-HOOKSPATH-BEGIN
-  local hp
-  hp="$(_bl145_configured_hookspath)"
-  if [ -n "$hp" ]; then
-    echo "  [FAIL] refusing to repair $label: git core.hooksPath is set to '$hp', so a hook written to $p would be INERT, and writing into '$hp' (often shared across repos or tracked in the project) needs your consent. Install it there yourself, or run: git config --unset core.hooksPath" >&2
+  if _bl145_hookspath_is_set; then
+    echo "  [FAIL] refusing to repair $label: git core.hooksPath is set to $(_bl145_hookspath_label), so a hook written to $p may not be the one git runs, and writing into a core.hooksPath directory (often shared across repos or tracked in the project) needs your consent. Install it there yourself, or run: git config --unset core.hooksPath" >&2
     return 1
   fi
   # BL-145-HOOKSPATH-END
@@ -523,19 +580,23 @@ check_git() {
   # instead of the `.git/hooks` literal they used to hard-code.
   local _hooksdir=".git/hooks"
   # BL-145-HOOKSPATH-BEGIN
-  local _hookspath
-  _hookspath="$(_bl145_configured_hookspath)"
-  if [ -n "$_hookspath" ]; then
-    _hooksdir="$_hookspath"
+  # "Set" is read off git's exit status, never off the value: a set-but-EMPTY
+  # core.hooksPath reads back rc=0 with no output, and on git 2.50.1 such a
+  # repo runs no hook from .git/hooks at all. An empty value leaves NO valid
+  # hooks directory, so `_hooksdir` is emptied and the `-n` guards below stop
+  # any hook from being reported installed.
+  if _bl145_hookspath_is_set; then
+    _hooksdir="$(_bl145_configured_hookspath)"
     # Say so — non-blocking on its own; the per-hook rows below carry the
     # verdict. A relative value is resolved by git against the top of the
-    # working tree, which is where verify-install runs.
-    register_warn "git core.hooksPath is set ('$_hookspath') — git runs hooks from there and IGNORES .git/hooks; hook checks target that directory" \
-      "verify-install checks '$_hookspath' but will not write hooks into it (it can be shared across repos or tracked in the project). To let --auto-fix manage hooks again: git config --unset core.hooksPath"
+    # working tree, which is where verify-install runs. Note the value may
+    # legitimately BE .git/hooks, so this must not claim git ignores it.
+    register_warn "git core.hooksPath is set to $(_bl145_hookspath_label) — git runs hooks from there, and that is the directory these hook checks target" \
+      "verify-install checks the configured directory but will not write hooks into it (it can be shared across repos or tracked in the project). To let --auto-fix manage hooks again: git config --unset core.hooksPath"
   fi
   # BL-145-HOOKSPATH-END
 
-  if [ -x "$_hooksdir/pre-commit" ]; then
+  if [ -n "$_hooksdir" ] && [ -x "$_hooksdir/pre-commit" ]; then
     register_pass "Pre-commit hook installed ($_hooksdir/pre-commit)"
   elif _bl145_unsafe_to_repair "$_hooksdir/pre-commit" "Pre-commit hook"; then
     : # the refusal row is registered by the guard, naming what it declined
@@ -554,7 +615,7 @@ check_git() {
   # literal is hook-templates.sh::SOIF_TDD_OPEN — the managed-block
   # contract shared by init.sh and the sync; an unmarked or non-executable
   # hook is as absent as no hook (it enforces nothing).
-  if [ -x "$_hooksdir/commit-msg" ] \
+  if [ -n "$_hooksdir" ] && [ -x "$_hooksdir/commit-msg" ] \
      && grep -qF '# >>> SOIF BL-072 TDD gate (commit-msg) — managed by init.sh' "$_hooksdir/commit-msg" 2>/dev/null; then
     register_pass "Commit-msg TDD gate hook installed ($_hooksdir/commit-msg)"
   elif _bl145_unsafe_to_repair "$_hooksdir/commit-msg" "Commit-msg TDD gate hook"; then
