@@ -20,23 +20,41 @@
 #     Code, and the sibling hooks' plain stdout coexists with it.
 #   • initialUserMessage seeds an actual first user turn, and so is written in
 #     the OPERATOR'S voice and kept short — the heavy instructions stay in
-#     additionalContext. Its client-side behaviour (auto-submit vs. pre-fill)
-#     is UNDERDOCUMENTED, so the same request is ALSO carried by
-#     additionalContext: a client or version that ignores the field lands
-#     exactly on the pre-follow-up behaviour. Degradation by construction.
-#   • It is emitted ONLY for source ∈ {startup, clear} — genuine fresh
-#     conversations. resume/compact are mid-conversation context refreshes
-#     where a synthetic user message would CORRUPT a real conversation, so the
-#     gate FAILS CLOSED: absent, unreadable, unparsable or unrecognised
-#     (incl. future fork variants) all count as NOT-fresh. This is
-#     deliberately the OPPOSITE default from session-test-gate-check.sh, whose
-#     missing-envelope default is "startup" for legacy compatibility.
+#     additionalContext. The docs say it "appears as the first user message in
+#     a new session (startup/fork only)", so on any other source the client is
+#     expected to ignore it. We do not lean on that: the same request is ALSO
+#     carried by additionalContext, so a client or version that drops the field
+#     lands exactly on the pre-follow-up behaviour. Degradation by
+#     construction, not by hope.
+#   • The documented source enum is startup|resume|clear|compact|fork. We emit
+#     initialUserMessage ONLY for {startup, clear}, and the gate FAILS CLOSED on
+#     everything else — absent, unreadable, unparsable, or unrecognised:
+#       - resume / compact are mid-conversation context refreshes;
+#       - fork is withheld DELIBERATELY, and it is the interesting one: the
+#         docs pair it with startup as a client-honoured source, but a fork
+#         INHERITS a real conversation's history, so a synthetic "I just opened
+#         this project" would talk over live context. A forked session loses
+#         nothing but the auto-start — additionalContext still fires.
+#       - clear is KEPT in the arms although the docs list only startup/fork as
+#         client-honoured: /clear empties the conversation, so seeding it is
+#         safe, and if the client ignores the field there additionalContext
+#         carries the same request. Harmless either way.
+#     This is deliberately the OPPOSITE default from session-test-gate-check.sh,
+#     whose missing-envelope default is "startup" for legacy compatibility.
 #   • Plain stdout and JSON from ONE hook is UNDEFINED, so every speaking path
 #     goes through emit_state() and emits one form only. The single non-JSON
 #     fallback fires when jq itself fails, i.e. before anything is written.
-#   • Silence stays silence. The not-a-project, no-jq, acknowledged and
-#     past-Phase-0 paths print NOTHING — no envelope, no empty JSON.
-# Fail-open is absolute: every path exits 0.
+#   • Silence stays silence — FIVE states print NOTHING (no envelope, no empty
+#     JSON), and the fifth is a fall-through that is easy to miss:
+#       1. not a generated project (no phase-state.json / no PROJECT_INTAKE.md);
+#       2. jq unavailable;
+#       3. the operator's proceed-without-intake ack is recorded;
+#       4. current_phase > 0;
+#       5. Phase 0, intake filled, and PRODUCT_MANIFESTO.md ALREADY PRESENT —
+#          this one clears every early guard and exits at the last `if`, which
+#          is exactly why the stdin read must live inside emit_state (see
+#          # BL-202-LAZY-STDIN) and not at file scope.
+# Fail-open is absolute: every path exits 0, and no silent path reads stdin.
 #
 # Detection is MODE-AGNOSTIC — the blank-table-cell count over
 # PROJECT_INTAKE.md (scripts/validate.sh's predicate, >20 = incomplete).
@@ -68,26 +86,35 @@ case "$CURRENT_PHASE" in ''|*[!0-9]*) CURRENT_PHASE=0 ;; esac
 [ "$CURRENT_PHASE" -eq 0 ] || exit 0
 
 # BL-202-INITIAL-MSG-BEGIN
-# Read SessionStart's `source` from the stdin envelope and decide whether
-# seeding a synthetic first user turn is SAFE. Deliberately placed after every
-# silence guard: a silent run must never block on an unclosed stdin pipe.
-FRESH_SESSION=false
-if [ ! -t 0 ]; then
-  ENVELOPE=$(cat 2>/dev/null) || ENVELOPE=""
-  if [ -n "$ENVELOPE" ]; then
-    SESSION_SOURCE=$(printf '%s' "$ENVELOPE" | jq -r '.source // ""' 2>/dev/null) || SESSION_SOURCE=""
-    case "$SESSION_SOURCE" in
-      startup|clear) FRESH_SESSION=true ;;  # BL-202-SOURCE-GATE — fresh conversations ONLY; every other value (resume, compact, fork variants, "") leaves the gate shut
-    esac
-  fi
-fi
-
 # emit_state <additional-context> <initial-user-message>
 # ONE JSON document per run. initialUserMessage is included only behind the
 # source gate; additionalContext always carries the full text, so dropping the
 # field costs nothing but the auto-start.
+#
+# THE STDIN ENVELOPE IS READ LAZILY — here, on the first (and only) speaking
+# call, never at file scope (review R-BL202FU-1). The hook has FIVE silent
+# states and the fifth is a FALL-THROUGH that clears every early guard: Phase 0
+# + intake filled + PRODUCT_MANIFESTO.md already present. An eager read at file
+# scope therefore ran with nothing to say — and `cat` never sees EOF while any
+# writer holds the pipe open, so a hook that was about to stay silent could
+# BLOCK SessionStart indefinitely. Reading inside the speaking path makes that
+# state unreachable by construction rather than by ordering.
 emit_state() {
-  local ctx="$1" msg="$2" out=""
+  local ctx="$1"
+  local msg="$2"
+  local out=""
+  local ENVELOPE=""
+  local SESSION_SOURCE=""
+  local FRESH_SESSION=false
+  if [ ! -t 0 ]; then
+    ENVELOPE=$(cat 2>/dev/null) || ENVELOPE=""  # BL-202-LAZY-STDIN — the ONLY stdin read in this hook, reachable only from a speaking path
+    if [ -n "$ENVELOPE" ]; then
+      SESSION_SOURCE=$(printf '%s' "$ENVELOPE" | jq -r '.source // ""' 2>/dev/null) || SESSION_SOURCE=""
+      case "$SESSION_SOURCE" in
+        startup|clear) FRESH_SESSION=true ;;  # BL-202-SOURCE-GATE — fresh conversations ONLY; every other value (resume, compact, fork, unknown, "") leaves the gate shut
+      esac
+    fi
+  fi
   if [ "$FRESH_SESSION" = "true" ]; then
     out=$(jq -n -c --arg ctx "$ctx" --arg msg "$msg" '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:$ctx,initialUserMessage:$msg}}' 2>/dev/null) || out=""  # BL-202-JSON-ENCODE
   else

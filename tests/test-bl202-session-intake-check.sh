@@ -289,7 +289,14 @@ fi
 # resume/compact are mid-conversation refreshes; an unrecognised value (a future
 # fork variant) must be treated the same way. Context parity is unconditional.
 echo "=== J6-no-initialusermessage-on-resume-compact ==="
-J6_ENVS=( '{"source":"resume"}' '{"source":"compact"}' '{"source":"resume_fork"}' '{"source":""}' '{"session_id":"abc"}' )
+# `fork` is a REAL source value in the documented enum (startup|resume|clear|
+# compact|fork) and the one place withholding is a genuine DECISION rather than
+# a fall-through: the docs say initialUserMessage applies to startup/fork, but a
+# fork INHERITS a real conversation's history, so seeding a synthetic first turn
+# there would talk over live context. We fail closed on it deliberately —
+# additionalContext still fires, so a forked session loses nothing but the
+# auto-start. `resume_fork` stays alongside as an unrecognised-value probe.
+J6_ENVS=( '{"source":"resume"}' '{"source":"compact"}' '{"source":"fork"}' '{"source":"resume_fork"}' '{"source":""}' '{"session_id":"abc"}' )
 J6_OK=1; J6_WHY=""; j6i=0
 while [ "$j6i" -lt "${#J6_ENVS[@]}" ]; do
   j6env="${J6_ENVS[$j6i]}"; j6log="$TOPTMP/j6-$j6i.log"
@@ -360,6 +367,113 @@ elif ! [ -s "$TOPTMP/ja-startup.log" ]; then
   fail_ "J9-no-jq-silent" "NEGATIVE CONTROL FAILED — the same fixture is silent WITH jq too, so this case cannot discriminate"
 else
   pass "J9-no-jq-silent (jq missing -> exit 0, zero bytes on both streams; the same fixture speaks when jq is present, so the guard is what silences it)"
+fi
+
+# ── S1/S2: the stdin read must be unreachable from EVERY silent state ────────
+# R-BL202FU-1. The hook has FIVE silent states, not four — the fifth is a
+# FALL-THROUGH, which is why it was missed: Phase 0 + intake filled (<=20 blank
+# cells) + PRODUCT_MANIFESTO.md present clears every early guard and only exits
+# at the last `if`. An EAGER stdin read placed before that `if` therefore runs
+# in a silent state, and `cat` cannot see EOF while any writer holds the pipe
+# open — so a hook that has nothing to say can BLOCK SessionStart indefinitely.
+# The fix is a LAZY read inside emit_state(): reached only on a speaking call.
+# S1 pins the structure (one read site, inside the function); S2 pins the
+# behaviour against a real held-open pipe. Structure alone would pass a hoisted
+# copy; behaviour alone would pass a version that happens not to block today.
+echo "=== S1-stdin-read-is-lazy ==="
+S1_START=$(grep -n '^emit_state() {' "$HOOK" 2>/dev/null | head -1 | cut -d: -f1)
+case "${S1_START:-}" in ''|*[!0-9]*) S1_START=0 ;; esac
+S1_END=0
+if [ "$S1_START" -gt 0 ]; then
+  S1_END=$(awk -v s="$S1_START" 'NR>=s && /^}$/{print NR; exit}' "$HOOK" 2>/dev/null)
+  case "${S1_END:-}" in ''|*[!0-9]*) S1_END=0 ;; esac
+fi
+S1_N=$(grep -c 'ENVELOPE=\$(cat' "$HOOK" 2>/dev/null) || S1_N=0
+case "$S1_N" in ''|*[!0-9]*) S1_N=0 ;; esac
+S1_READ=$(grep -n 'ENVELOPE=\$(cat' "$HOOK" 2>/dev/null | head -1 | cut -d: -f1)
+case "${S1_READ:-}" in ''|*[!0-9]*) S1_READ=0 ;; esac
+# The marker must sit ON the read line — a file-wide count would also be
+# satisfied by the header's citation of it, which is a cite, not the anchor.
+S1_MARKED=0
+if [ "$S1_READ" -gt 0 ]; then
+  S1_MARKED=$(awk -v n="$S1_READ" 'NR==n' "$HOOK" 2>/dev/null | grep -c 'BL-202-LAZY-STDIN') || S1_MARKED=0
+  case "$S1_MARKED" in ''|*[!0-9]*) S1_MARKED=0 ;; esac
+fi
+S1_INSIDE=no
+if [ "$S1_START" -gt 0 ] && [ "$S1_END" -gt "$S1_START" ] \
+   && [ "$S1_READ" -gt "$S1_START" ] && [ "$S1_READ" -lt "$S1_END" ]; then
+  S1_INSIDE=yes
+fi
+if [ "$S1_N" -eq 1 ] && [ "$S1_INSIDE" = "yes" ] && [ "$S1_MARKED" -eq 1 ]; then
+  pass "S1-stdin-read-is-lazy (exactly one stdin read, and it sits inside emit_state's body — so no silent state can reach it)"
+else
+  fail_ "S1-stdin-read-is-lazy" "read-sites=$S1_N read-line=$S1_READ emit_state-body=$S1_START..$S1_END inside=$S1_INSIDE marker-on-read-line=$S1_MARKED — expected exactly ONE stdin read, INSIDE emit_state's body, carrying the # BL-202-LAZY-STDIN marker; an eager read outside emit_state is reachable from all five silent states and blocks on a held-open pipe"
+fi
+
+# fifo_probe <tag> <runner> — run <runner> with a FIFO on stdin that a writer
+# holds OPEN while sending nothing (the exact shape that starves `cat` of EOF),
+# and wait a BOUNDED 3s. No timeout(1) on this host, so the bound is a poll
+# loop over a done-file. Sets FP_HUNG / FP_RC / FP_OUT / FP_ERR. rc 2 = no mkfifo.
+FP_HUNG=0; FP_RC=""; FP_OUT=""; FP_ERR=""
+fifo_probe() {
+  # One name per `local`: a single `local` expands ALL its words before it
+  # assigns any of them, so a later word referencing an earlier name reads it
+  # as unset — an "unbound variable" abort under set -u.
+  local tag="$1"
+  local runner="$2"
+  local fifo="$TOPTMP/$tag.fifo"
+  local done_f="$TOPTMP/$tag.done"
+  local wpid=""
+  local hpid=""
+  local w=0
+  FP_OUT="$TOPTMP/$tag.out"; FP_ERR="$TOPTMP/$tag.err"; FP_HUNG=0; FP_RC=""
+  rm -f "$fifo" "$done_f" "$FP_OUT" "$FP_ERR"
+  mkfifo "$fifo" 2>/dev/null || return 2
+  # Writer holds the pipe open for 6s — longer than the 3s bound, so a real
+  # block cannot be masked by the writer closing early.
+  ( exec 9>"$fifo"; sleep 6 ) >/dev/null 2>&1 &
+  wpid=$!
+  ( bash "$runner" <"$fifo" > "$FP_OUT" 2> "$FP_ERR"; printf '%s\n' "$?" > "$done_f" ) >/dev/null 2>&1 &
+  hpid=$!
+  while [ ! -f "$done_f" ] && [ "$w" -lt 30 ]; do sleep 0.1; w=$((w + 1)); done
+  [ -f "$done_f" ] || FP_HUNG=1
+  kill "$wpid" 2>/dev/null || true
+  kill "$hpid" 2>/dev/null || true
+  wait "$wpid" 2>/dev/null || true
+  wait "$hpid" 2>/dev/null || true
+  FP_RC=$(cat "$done_f" 2>/dev/null || true)
+  return 0
+}
+
+echo "=== S2-silent-state-never-blocks-on-stdin ==="
+SH="$TOPTMP/silent-healthy"; mk_proj "$SH" 3 0
+printf '# manifesto\n' > "$SH/PRODUCT_MANIFESTO.md"   # the FIFTH silent state: the fall-through
+S2_RUNNER="$TOPTMP/s2-runner.sh"
+{ printf '#!/usr/bin/env bash\n'
+  printf 'cd %s || exit 99\n' "$(printf '%q' "$SH")"
+  printf 'exec bash %s\n' "$(printf '%q' "$HOOK")"; } > "$S2_RUNNER"
+S2_CTRL="$TOPTMP/s2-ctrl.sh"
+printf '#!/usr/bin/env bash\nexec cat >/dev/null\n' > "$S2_CTRL"
+if ! fifo_probe s2ctrl "$S2_CTRL"; then
+  fail_ "S2-silent-state-never-blocks-on-stdin" "mkfifo unavailable — this case cannot run, so it must not report a pass"
+elif [ "$FP_HUNG" -ne 1 ]; then
+  # POSITIVE CONTROL for the DETECTOR: a reader that provably blocks on this
+  # pipe must be flagged. If it is not, the probe cannot detect a hang at all
+  # and a green S2 would be meaningless.
+  fail_ "S2-silent-state-never-blocks-on-stdin" "DETECTOR CONTROL FAILED — a plain blocking \`cat\` on the same held-open pipe was NOT flagged as hung, so this probe cannot detect a block"
+else
+  fifo_probe s2real "$S2_RUNNER"
+  S2_OUT_B=$(wc -c < "$FP_OUT" 2>/dev/null | tr -d ' '); case "${S2_OUT_B:-}" in ''|*[!0-9]*) S2_OUT_B=-1 ;; esac
+  S2_ERR_B=$(wc -c < "$FP_ERR" 2>/dev/null | tr -d ' '); case "${S2_ERR_B:-}" in ''|*[!0-9]*) S2_ERR_B=-1 ;; esac
+  if [ "$FP_HUNG" -ne 0 ]; then
+    fail_ "S2-silent-state-never-blocks-on-stdin" "the healthy/silent state BLOCKED on a held-open empty pipe (>3s) — an eager stdin read is reachable from a state that has nothing to say, and it stalls SessionStart"
+  elif [ "$FP_RC" != "0" ]; then
+    fail_ "S2-silent-state-never-blocks-on-stdin" "exit=$FP_RC on the silent fall-through — fail-open is absolute, every path exits 0"
+  elif [ "$S2_OUT_B" != "0" ] || [ "$S2_ERR_B" != "0" ]; then
+    fail_ "S2-silent-state-never-blocks-on-stdin" "the silent fall-through spoke: stdout=${S2_OUT_B}B stderr=${S2_ERR_B}B"
+  else
+    pass "S2-silent-state-never-blocks-on-stdin (the fifth silent state — intake filled, manifesto present — returns immediately with exit 0 and zero bytes even while a writer holds stdin open sending nothing; the same probe does flag a genuinely blocking reader)"
+  fi
 fi
 
 # ── M1: mutation — the source gate's arm list is what withholds the turn ─────
