@@ -238,10 +238,17 @@ fi
 #        semgrep/semgrep:latest` container AND logs `semgrep --version` (BL-201)
 #   Cg5  every non-github (gitlab+bitbucket) semgrep step uses the floating
 #        image with hook-parity config/severity/--error flags AND a version log
+#   Cg5-scan-exec (BL-206 item 2) every non-github semgrep template carries an
+#        EXECUTABLE `semgrep scan --config` line — the Cg2 analogue this half
+#        never had, so a scan line lost to a `#` now FAILS instead of feeding
+#        the parity comparison from the grave
 #   Cg-no-repin  every executable `semgrep/semgrep` reference under
 #        templates/pipelines is EXACTLY `:latest` — numeric/digest/named-tag
 #        pins and the bare spelling all refused (backstop beyond the
 #        Cg4/Cg5 per-file lists)
+#   Cg-no-repin-quote-aware (BL-206 item 3) that sweep's comment strip obeys the
+#        real YAML/shell comment rule, so a pinned ref after a quoted `#`, a
+#        `${VAR#prefix}` or a URL fragment can no longer be truncated away
 #   Cg6  every non-github gitleaks step is modernized: no `detect --source`,
 #        runs `gitleaks dir`/`git`, off zricethezav, version-pinned image
 
@@ -525,10 +532,78 @@ fi
 # command flags wholesale), so it is now pinned by
 # Cg-derive-continuation-comment above rather than documented away.
 
+# ── BL-206-QUOTE-AWARE-STRIP: a comment strip a quoted `#` cannot fool ───────
+# ONE strip, used by BOTH halves of BL-206: extract_semgrep_policy (so a
+# commented-out DECOY `semgrep scan --config` line can never become the compared
+# policy) and the Cg-no-repin sweep (whose `sed 's/#.*//'` was quote-blind —
+# review R-BL201-5 measured `run: echo 'a#b' && docker run semgrep/semgrep:1.170.0`
+# surviving the WHOLE suite at 63/0, because the sed truncated inside the quoted
+# scalar and threw away the pinned ref that followed it).
+#
+# The rule implemented is the one BOTH YAML and shell actually use: a `#` opens a
+# comment only at the start of a line or after a blank, and never inside a quoted
+# scalar. That is what closes all three carriers the review named — a quoted `#`,
+# a shell parameter expansion `${VAR#prefix}`, and a URL fragment `…/doc#anchor`.
+#
+# UNTERMINATED-QUOTE FALLBACK — deliberate, and pinned by Cg-no-repin-quote-aware
+# below. A plain YAML scalar may carry a lone apostrophe (a `- name: Don't re-pin`
+# step with a trailing comment naming an old pin), which a quote tracker reads as
+# an unclosed quote; it would then treat that comment as content and ACCUSE a
+# clean file, which is a false FAIL on a template nobody has broken. That
+# is the one direction the old sed could never produce, so losing it would be a
+# real regression, not a stricter check. When a line's quotes do not close, this
+# therefore falls back to the naive first-`#` cut and the sweep keeps its safe
+# direction: truncation can only DROP a line from the deny set, never accuse one.
+#
+# PORTABILITY (cross-awk): strict POSIX awk only — substr/length/index/sprintf,
+# NO regex, and NO string literal passed through `-v` (the escape processing that
+# made ENVIRON the house rule; here not even ENVIRON is needed). The three
+# literals are built with sprintf("%c", N) from their ASCII codes, so neither the
+# shell nor awk ever processes an escape. Character-vs-byte semantics (gawk in a
+# UTF-8 locale vs mawk/BWK) cannot move the result: every character is either
+# copied through untouched or compared against a single-byte ASCII literal, so
+# the output is a prefix of the input under either unit. MEASURED on this host's
+# BWK awk (/usr/bin/awk version 20200816) ONLY — gawk and mawk are not installed
+# here and no container runtime was available, so cross-awk identity is ARGUED
+# from the construction above, not measured. Said plainly rather than claimed.
+strip_yaml_comments() {   # <file> -> stdout: one comment-stripped line per input line
+  awk '
+    BEGIN { SQ = sprintf("%c", 39); DQ = sprintf("%c", 34); HS = sprintf("%c", 35)
+            BLANK = sprintf("%c%c", 32, 9) }
+    {
+      out = ""; inq = ""; n = length($0)
+      for (i = 1; i <= n; i++) {
+        c = substr($0, i, 1)
+        if (inq != "") { out = out c; if (c == inq) inq = ""; continue }
+        if (c == SQ || c == DQ) { inq = c; out = out c; continue }
+        if (c == HS) {
+          if (i == 1) p = substr(BLANK, 1, 1); else p = substr($0, i - 1, 1)
+          if (index(BLANK, p) > 0) break        # a real comment opens here
+        }
+        out = out c
+      }
+      if (inq != "") {                          # quotes never closed -> naive cut
+        k = index($0, HS)
+        if (k > 0) out = substr($0, 1, k - 1); else out = $0
+      }
+      print out
+    }
+  ' "$1"
+}
+
 # extract a template's semgrep policy -> sets EX_CONFIGS EX_SEVERITY EX_ERROR
+# BL-206-EXTRACT-COMMENT-STRIP — the compared line is chosen AFTER comment
+# stripping. Before this, the collector greped the RAW file, so a commented-out
+# `- semgrep scan --config=…` line still fed the Cg3/Cg5 parity comparison:
+# commenting out ONLY that line in gitlab/python.yml left the suite at 63/0
+# (measured, BL-206 item 2) — a dead line supplied a passing policy for a job
+# that would scan nothing. Stripping matters in the other direction too: a
+# trailing comment must not SUPPLY flags the executable line lacks
+# (`… --config=A --config=B --config=C # --severity=ERROR --error` would
+# otherwise pass parity over an invocation carrying neither).
 extract_semgrep_policy() {
   local file="$1" line
-  line="$(grep -E 'semgrep (scan )?--config' "$file" | head -1)"
+  line="$(strip_yaml_comments "$file" | grep -E 'semgrep (scan )?--config' | head -1)"
   EX_CONFIGS="$(printf '%s\n' "$line" | grep -oE '\-\-config=[^][:space:],]+' | sort -u | tr '\n' ' ')"
   EX_SEVERITY="$(printf '%s\n' "$line" | grep -oE '\-\-severity=[A-Za-z]+' | head -1)"
   if printf '%s\n' "$line" | grep -qE '(^|[[:space:]])--error([[:space:]]|\]|$)'; then EX_ERROR=yes; else EX_ERROR=no; fi
@@ -611,10 +686,28 @@ else
 fi
 # BL-201-FLOAT-ASSERT (non-github half) — same exact-`:latest` anchor and same
 # comment-immune version-log predicate as Cg4; see the note there.
-n_badimg=""; n_badver=""; n_badc=""; n_bads=""; n_bade=""
+#
+# BL-206-NONGH-SCAN-EXEC — the Cg2 analogue this half never had. Cg2 requires an
+# EXECUTABLE `semgrep scan --config` line of every GITHUB template; nothing
+# required one here, so a non-github template could lose its scan line to a `#`
+# and stay green on every other case: the census below is comment-blind so the
+# file stayed in the check set, the dead line still fed the parity comparison
+# (until # BL-206-EXTRACT-COMMENT-STRIP), and Cg5-version-log stayed green off
+# the INTACT `semgrep --version` line one line above. Measured at the BL-201 tip:
+# commenting out ONLY the `- semgrep scan …` line of gitlab/python.yml survived
+# the whole suite at 63/0. `^[^#]*` is the Cg7/PR-#244 house pattern — it demands
+# a line on which no `#` precedes the invocation.
+#
+# The census stays COMMENT-BLIND on purpose (`semgrep (scan )?--config`, raw): if
+# it read executable lines only, commenting the scan line would make the file
+# DISAPPEAR from the check set rather than fail in it — a silent shrink, caught
+# only by the Cg5-floor count. Keeping it blind means the file stays and this
+# case names it by filename.
+n_badimg=""; n_badver=""; n_badscan=""; n_badc=""; n_bads=""; n_bade=""
 for f in "${NONGH_SEMGREP[@]}"; do
   grep -Eq '^[[:space:]]*image:[[:space:]]*semgrep/semgrep:latest[[:space:]]*$' "$f" || n_badimg="$n_badimg ${f#*/ci/}"
   grep -Eq '^[^#]*semgrep --version' "$f" || n_badver="$n_badver ${f#*/ci/}"
+  grep -Eq '^[^#]*semgrep scan --config' "$f" || n_badscan="$n_badscan ${f#*/ci/}"
   extract_semgrep_policy "$f"
   [ "$EX_CONFIGS"  = "$HOOK_CONFIGS" ]  || n_badc="$n_badc ${f#*/ci/}(=$EX_CONFIGS)"
   [ "$EX_SEVERITY" = "$HOOK_SEVERITY" ] || n_bads="$n_bads ${f#*/ci/}"
@@ -622,6 +715,7 @@ for f in "${NONGH_SEMGREP[@]}"; do
 done
 if [ -z "$n_badimg" ]; then pass "Cg5-image (all float image: semgrep/semgrep:latest)"; else fail_ "Cg5-image" "no floating 'image: semgrep/semgrep:latest' line — the check demands the EXACT tag ':latest' anchored at end of line, so a version-pinned image fails here on purpose (BL-201) — in:$n_badimg"; fi
 if [ -z "$n_badver" ]; then pass "Cg5-version-log (all log semgrep --version)"; else fail_ "Cg5-version-log" "no executable 'semgrep --version' line — the float's agreed price is that the job log answers 'what scanned this merge?'; a comment mention does not count — in:$n_badver"; fi
+if [ -z "$n_badscan" ]; then pass "Cg5-scan-exec (all ${#NONGH_SEMGREP[@]} carry an executable semgrep scan --config line)"; else fail_ "Cg5-scan-exec" "no EXECUTABLE 'semgrep scan --config' line — the check demands a line with NO '#' before the invocation ('^[^#]*semgrep scan --config'), so a scan line that has been commented out does not count, even though the file is still counted as a semgrep template (the census is deliberately comment-blind so a commented-out scan FAILS here instead of vanishing from the check set) — in:$n_badscan"; fi
 if [ "$HOOK_POLICY_OK" -eq 0 ]; then   # BL-194-DERIVE-GATE (Cg5-image above is policy-independent, so it still runs)
   skip_ "Cg5-config-parity"   "no hook policy was derived (see Cg-derive)"
   skip_ "Cg5-severity-parity" "no hook policy was derived (see Cg-derive)"
@@ -642,25 +736,88 @@ fi
 # (whole-line and trailing), any line still carrying `semgrep/semgrep` must
 # carry `semgrep/semgrep:latest` at a tag boundary, so numeric tags, digests,
 # named tags, `:latest-nonroot`, and the BARE floating spelling are ALL
-# refused — one canonical form. Named residuals, not papered over: the
-# check is line-granular, so a single line carrying both an acceptable and
-# a pinned ref escapes; and the comment-strip is QUOTE-BLIND — a `#` inside
-# a quoted scalar truncates the strip mid-string, so a pinned ref AFTER it
-# on the same line escapes (review R-BL201-5; contrived carriers only, and
-# the failure direction is safe — truncation can only DROP lines from the
-# deny set, never accuse a clean one). The per-file Cg4/Cg5 anchors are the
-# primary enforcement; this is the breadth backstop. gitleaks pins are
-# untouched: the pattern is semgrep-specific by construction.
+# refused — one canonical form.
+#
+# BL-206-QUOTE-BLIND-FIX (item 3): the strip used to be `sed 's/#.*//'`, which
+# truncates at the FIRST `#` on the line whatever it is quoting. R-BL201-5
+# measured the escape: `run: echo 'a#b' && docker run semgrep/semgrep:1.170.0`
+# planted outside the per-file lists survived the whole suite at 63/0, and so did
+# a `${VAR#prefix}` carrier. The sed is now strip_yaml_comments (see
+# # BL-206-QUOTE-AWARE-STRIP), which cuts only at a `#` that is unquoted AND at a
+# line start or after a blank — the actual YAML/shell comment rule — so all three
+# carriers the review named (quoted `#`, parameter expansion, URL fragment) are
+# now caught. Cg-no-repin-quote-aware below pins that on fixtures.
+#
+# REMAINING residuals, named rather than papered over:
+#   • line-granular — a single line carrying BOTH an acceptable and a pinned ref
+#     escapes, because the deny filter is applied per line.
+#   • unterminated quotes fall back to the naive first-`#` cut, so a pinned ref
+#     in a trailing comment on a line with a lone apostrophe (`- name: Don't …`)
+#     is still dropped from the deny set. That fallback is deliberate: without it
+#     the same line would be ACCUSED, and false accusation is the one direction
+#     the old sed could never produce. Pinned as a fixture, not left to drift.
+# The per-file Cg4/Cg5 anchors are the primary enforcement; this is the breadth
+# backstop, and its own vacuity is covered by them (Cg4-container + Cg5-image
+# already require 22 files to carry the image line, so an enumeration that found
+# nothing here could not leave the suite green). gitleaks pins are untouched: the
+# pattern is semgrep-specific by construction.
+
+# BL-206-REPIN-PREDICATE — ONE predicate, run by the sweep AND by its fixtures,
+# so the fixture cases below cannot drift away from what the sweep does.
+file_has_repin() {   # <file> -> rc 0 iff a non-:latest semgrep/semgrep ref survives comment-stripping
+  strip_yaml_comments "$1" \
+    | grep 'semgrep/semgrep' \
+    | grep -Ev 'semgrep/semgrep:latest([^A-Za-z0-9._-]|$)' \
+    | grep -q .
+}
+
 echo "Cg-no-repin: every executable semgrep/semgrep reference under templates/pipelines is exactly :latest"
-repin="$(grep -rn 'semgrep/semgrep' "$PIPE_DIR" 2>/dev/null \
-  | sed 's/#.*//' \
-  | grep 'semgrep/semgrep' \
-  | grep -Ev 'semgrep/semgrep:latest([^A-Za-z0-9._-]|$)' \
-  | cut -d: -f1 | sort -u | sed "s|$REPO_ROOT/||" | tr '\n' ' ')"
+repin=""
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  file_has_repin "$f" && repin="$repin${f#"$REPO_ROOT/"} "
+done < <(grep -rl 'semgrep/semgrep' "$PIPE_DIR" 2>/dev/null | sort)
 if [ -z "$repin" ]; then
   pass "Cg-no-repin"
 else
   fail_ "Cg-no-repin" "non-:latest semgrep/semgrep reference on an executable line in: ${repin}(the ONLY accepted form is the exact tag semgrep/semgrep:latest — numeric tags, @sha256 digests, named tags like :canary, and the bare spelling all fail here; BL-201 floats the scanner deliberately, and re-pinning requires reversing that recorded decision on the backlog, not a template edit)"
+fi
+
+# ── Cg-no-repin-quote-aware: the strip is quote-aware, and still exempts comments
+# Six fixtures, run through the SAME predicate the sweep uses. The first three are
+# the carriers R-BL201-5 named and measured surviving; the next two are the
+# comments that must stay exempt (the fix must not turn documentation into a
+# failure); the last pins the deliberate unterminated-quote fallback, so removing
+# it — which would ACCUSE that line — shows up here as a verdict change instead of
+# passing unnoticed.
+echo "Cg-no-repin-quote-aware: a pin after a quoted '#' is caught; comments stay exempt"
+qa_bad=""
+file_has_repin /dev/stdin <<'QA_QUOTED' || qa_bad="$qa_bad quoted-hash"
+    - run: echo 'a#b' && docker run semgrep/semgrep:1.170.0
+QA_QUOTED
+file_has_repin /dev/stdin <<'QA_PAREXP' || qa_bad="$qa_bad param-expansion"
+    - run: echo ${TAG#v} && docker run semgrep/semgrep@sha256:0123456789abcdef
+QA_PAREXP
+file_has_repin /dev/stdin <<'QA_URLFRAG' || qa_bad="$qa_bad url-fragment"
+    - run: curl https://example.test/pins#semgrep && docker run semgrep/semgrep:canary
+QA_URLFRAG
+if file_has_repin /dev/stdin <<'QA_WHOLELINE'
+    # historical note: this job used to pin semgrep/semgrep:1.170.0
+    - run: docker run semgrep/semgrep:latest scan
+QA_WHOLELINE
+then qa_bad="$qa_bad whole-line-comment-ACCUSED"; fi
+if file_has_repin /dev/stdin <<'QA_TRAILING'
+    - run: docker run semgrep/semgrep:latest scan   # was semgrep/semgrep:1.170.0
+QA_TRAILING
+then qa_bad="$qa_bad trailing-comment-ACCUSED"; fi
+if file_has_repin /dev/stdin <<'QA_UNTERMINATED'
+    - name: Don't re-pin the scanner   # semgrep/semgrep:1.170.0
+QA_UNTERMINATED
+then qa_bad="$qa_bad unterminated-quote-fallback-changed"; fi
+if [ -z "$qa_bad" ]; then
+  pass "Cg-no-repin-quote-aware (3 quote-blind carriers caught, 2 comment forms exempt, fallback pinned)"
+else
+  fail_ "Cg-no-repin-quote-aware" "the comment strip does not implement the YAML/shell comment rule — a '#' opens a comment ONLY when it is unquoted AND at a line start or after a blank. Fixtures whose verdict is wrong:$qa_bad (a *-ACCUSED name means a genuine COMMENT was treated as executable, which false-FAILs a clean template; 'quoted-hash'/'param-expansion'/'url-fragment' mean the strip truncated inside a quote or at a non-comment '#' and threw away the pinned ref after it — the R-BL201-5 escape; 'unterminated-quote-fallback-changed' means the deliberate naive fallback for a line whose quotes never close was altered, which trades a silent DROP for a false accusation — update the residual note above before keeping that change)"
 fi
 
 # ── Cg6: non-github gitleaks steps modernized (dir/git, pinned, off zricethezav)
