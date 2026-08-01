@@ -2312,6 +2312,21 @@ All three are template drops covered by the BL-088 scaffold-fidelity surface (ne
 
 **Status update 2026-07-21 (step 1 SHIPPED):** implemented on branch `feat/bl090-doc-refs` (PR open; step-1 completion cited at merge — the ENTRY stays Open for steps 2–3, corpus-blocked). `# BL-090-DOC-REFS` fence in lint-doc-anchors.sh: every relative `](path)` must resolve from the referencing file's dir; URL/mailto/absolute/#-only/fenced out of scope; `path#anchor` checks the file half; `(planned)` inline exemption; WARN-tier default with `--strict-refs` escalation. Six new suite cases (T8–T13 incl. fence-excision mutant; suite 15/15; T8/T9 RED-watched). **Dogfood result: 140 relative refs across 81 docs files, ZERO warnings** (planted-ghost probe confirms the arm is live on the real tree) — the escalation-ready baseline. Evidence: ledger § WP-BL090-S1.
 
+**Trade-off recorded 2026-08-01 (PR #309, review finding R-2):** the checker's
+first run against a GENERATED project tree (via `--docs-dir`) found 15
+unresolved refs in the shipped `docs/reference/` guides — the ship depth is one
+level below the lint depth, a class the framework-tree dogfood can never see.
+The fixes replaced those relative links with absolute URLs pinned to
+`kraulerson/solo-orchestrator@main` because the upgrade-sync machinery
+byte-compares shipped copies against sources (a post-copy rewrite would read as
+user customization forever). Accepted cost, named here durably: absolute refs
+leave the `# BL-090-DOC-REFS` arm's scope by design (`://` is skipped), so
+future rot of those URLs is invisible to the lint estate — it would surface
+only via a manual sweep or the optional unit-lane generated-tree sibling test
+recorded in the session follow-ups list. The generated-tree pin itself lives in
+`tests/test-bl108-bl117-ship-closure.sh`'s sibling suite
+`tests/test-currency-birth-stamp.sh` (full lane, init-invoking).
+
 Pantheon's worst documented incident: a ghost "ADR-0003" cited in a dozen documents that never existed as a file, surviving three weeks of review. The mothership is exposed to the same class: `scripts/lint-doc-anchors.sh` validates only SAME-FILE anchors (BL-048), not relative file references or ADR-style citations. Build the missing capability:
 - **Checker:** scans markdown for relative file references and ADR/identifier-style citations; fails when a target file does not exist. Consciously decide extension-of-`lint-doc-anchors.sh` vs sibling script (one doc-integrity tool beats two drifting half-tools) — justify in the PR.
 - **Exemptions:** an inline `(planned)` marker next to the citation, NOT a separate allowlist file — allowlists rot into permanent exemptions (the KNOWN_ORPHANS bridge had to be sealed; BL-035). The marker lives beside the citation and dies with it.
@@ -7384,7 +7399,25 @@ the BL-199 quick-start pins, so it is left in place and named here rather than t
 Also unaddressed by choice: `resume.sh`'s §13 extractor accepts only the shipped `## 13.` heading
 spelling (hardening-only, reviewer-rated), and an unreadable PROJECT_INTAKE.md reads as complete.
 
-**Status:** Open
+**UPDATE 2026-08-01 — both residuals delivered; entry CLOSED.** Residual 1
+(`initialUserMessage`) landed in PR #308: the hook emits the SessionStart JSON
+envelope — `additionalContext` byte-identical to the previous stdout, the
+auto-start message gated to `startup`/`clear` sources and read LAZILY inside
+`emit_state()` after review demonstrated a silent-state hang on a held-open
+stdin pipe (fixed by construction; pinned structurally and behaviorally, the
+behavioral case carrying a detector positive control). Per current client docs
+the field takes effect on startup/fork only; `fork` deliberately withholds.
+Residual 2 (the README kickoff copy) landed in PR #310: README § Quick Start
+now points at `bash scripts/resume.sh` with an explicit pre-init honesty
+sentence, and `tests/test-bl202-readme-kickoff-consolidation.sh` — the first
+test in the tree to read README.md at all — fails if a verbatim OR reworded
+paste block returns in either fence style (a tilde-fence blind spot was found
+by review and closed with its own mutation proof). The two hardening notes
+above stay recorded, deliberately non-blocking: revisit on demand.
+
+**Status:** Closed (2026-08-01) — delivered across PR #290 (SessionStart hook,
+state-aware `resume.sh`, converged prints), PR #308 (`initialUserMessage`),
+and PR #310 (README consolidation + user-guide Session-Start correction).
 
 ---
 
@@ -7507,6 +7540,28 @@ re-file "no auth pre-flight exists" — it exists and runs at init.
 Plus: host-error jargon (403s, rate limits, SSO) is surfaced raw — translate the 3-4 common
 causes into one plain sentence + one action each, keeping the raw text below (precedent: the
 free-tier-403 translation block in `scripts/host-drivers/github.sh`).
+
+**UPDATE 2026-08-01 — the happy-path half (findings 5, 6, 7, 8 + the jargon
+item) DELIVERED in PR #312.** Probe at the selection moment
+(`# BL-204-PROBE-AT-SELECT`, advisory — the decisive pre-create gate is
+unchanged) and the wizard's backwards "verified again at init.sh" sentence
+replaced with the truthful `check-gate.sh --repair` pointer; visibility
+explained with the free-tier note (`# BL-204-VISIBILITY-EXPLAIN`); ask-once
+with init-side persistence (`# BL-204-PREFILL` reading,
+`# BL-204-VISIBILITY-PERSIST` writing — review proved the first cut a no-op on
+the real flow: only the wizard ever wrote the key, and the blind re-ask
+OVERWROTE the user's answer with the menu's first option, which also silently
+mis-informed `check-gate.sh`'s `// "private"` default read); the
+why-a-remote-matters sentence + Next-Steps backup line (`# BL-204-REMOTE-WHY`);
+and `scripts/lib/host-errors.sh` (`# BL-204-ERROR-TRANSLATE`) translating
+SSO/rate-limit/expired-auth/403 above the preserved raw output in all three
+drivers, shipped downstream with the ship line pinned by a new
+driver-lib-closure walk in `tests/test-bl108-bl117-ship-closure.sh`. Review
+bonus: bitbucket's org-mode protection POSTs previously failed with NO output
+at all — a fully silent failure beyond finding 1's scope, now translated.
+**Findings 1–4 (repair-path guard, host=other repair dead-end, collision
+retry, org-namespace creation) remain the OPEN remainder of this entry** —
+finding 4 is the most org-relevant residual.
 
 **Status:** Open
 
