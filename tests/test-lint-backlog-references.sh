@@ -359,6 +359,221 @@ fi
 teardown
 
 # ════════════════════════════════════════════════════════════════════
+# BL-207 — entry-header UNIQUENESS (Step 4, `# BL-207-HEADER-UNIQUENESS`)
+#
+# T14..T19 pin the arm that fails when the same `BL-NNN` owns more than
+# one `^## BL-NNN:` header. T14 is the reviewer's own mutant verbatim
+# (a duplicate `## BL-187:` header appended to the backlog, which passed
+# the lint with rc=0 before this arm existed). T15 is the negative
+# control. T16 pins the deliberate NO-exemption decision for preserved
+# `Original entry (pre-close` blocks. T17 pins the `[a-z]?` sub-ID
+# grammar (a narrowing to `^## BL-[0-9]+:` goes blind to `BL-003a`, and
+# a suffix-stripping extraction would conflate BL-003/003a/003b). T18
+# pins mode parity with Step 3. T19 pins the --list row.
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T14: duplicate '## BL-187:' entry header → exit 1 naming BOTH line numbers ==="
+setup
+write_backlog '## BL-186: first entry
+
+**Status:** Open
+
+Body.
+
+## BL-187: original entry
+
+**Status:** Open
+
+Body.
+
+## BL-188: another entry
+
+**Status:** Open
+
+Body.
+
+## BL-187: duplicate header appended in the reviewer mutation lab
+
+**Status:** Open
+
+Body.
+'
+out=$(run_lint); rc=$?
+if [ $rc -eq 1 ] \
+   && echo "$out" | grep -q "duplicate entry header 'BL-187'" \
+   && echo "$out" | grep -q "lines 7, 19"; then
+  pass "T14: duplicate BL-187 header is rejected, both line numbers named"
+else
+  fail_ "T14" "expected exit 1 + duplicate-header diagnostic naming lines 7, 19; rc=$rc; output:\n$out"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T15: unique headers + prose mentions + indented lookalike → exit 0 ==="
+# ════════════════════════════════════════════════════════════════════
+# Negative control for T14, and it pins HEADERS-ONLY scope: repeated
+# prose mentions of an ID are normal (cross-references), and an indented
+# sample header inside an entry body is not an entry header — only the
+# anchored `^## BL-NNN:` form counts.
+setup
+write_backlog '## BL-001: first entry
+
+**Status:** Open
+
+Cross-references BL-001, BL-001 and BL-002 in prose. A sample header,
+indented so it is body text rather than a real entry header:
+
+    ## BL-001: sample header quoted inside the entry body
+
+## BL-002: second entry
+
+**Status:** Open
+
+Body.
+'
+out=$(run_lint); rc=$?
+if [ $rc -eq 0 ]; then
+  pass "T15: unique headers pass; prose mentions and indented lookalikes are not headers"
+else
+  fail_ "T15" "expected exit 0; rc=$rc; output:\n$out"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T16: duplicate header INSIDE a preserved 'Original entry (pre-close' block → exit 1 ==="
+# ════════════════════════════════════════════════════════════════════
+# Deliberate decision (see `# BL-207-HEADER-UNIQUENESS` in the lint):
+# preserved audit-trail blocks get NO exemption. Step 3's block splitter
+# already treats any `^## BL-NNN:` line as an entry header, so an
+# un-indented header inside a preserved block really does truncate the
+# enclosing block and open a second one for the same ID. Exempting it
+# here would make the uniqueness arm disagree with the splitter it is
+# meant to protect. The fix is to indent/fence the quoted header, which
+# T15 shows already passes.
+setup
+write_backlog '## BL-050: closed entry with a preserved original block
+
+**Status:** Closed — shipped 2026-01-02 (PR #42)
+
+Original entry (pre-close, kept for audit trail):
+
+## BL-050: closed entry with a preserved original block
+
+**Status:** Open
+
+Body.
+'
+out=$(run_lint); rc=$?
+if [ $rc -eq 1 ] \
+   && echo "$out" | grep -q "duplicate entry header 'BL-050'" \
+   && echo "$out" | grep -q "lines 1, 7"; then
+  pass "T16: preserved audit-trail blocks get no exemption from the uniqueness arm"
+else
+  fail_ "T16" "expected exit 1 + duplicate-header diagnostic naming lines 1, 7; rc=$rc; output:\n$out"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T17: sub-ID grammar — duplicate '## BL-003a:' flagged, BL-003/003a/003b not conflated ==="
+# ════════════════════════════════════════════════════════════════════
+setup
+write_backlog '## BL-003: parent entry
+
+**Status:** Open
+
+Body.
+
+## BL-003a: gitlab split
+
+**Status:** Open
+
+Body.
+
+## BL-003b: bitbucket split
+
+**Status:** Open
+
+Body.
+
+## BL-003a: duplicated split
+
+**Status:** Open
+
+Body.
+'
+out=$(run_lint); rc=$?
+if [ $rc -eq 1 ] \
+   && echo "$out" | grep -q "duplicate entry header 'BL-003a'" \
+   && echo "$out" | grep -q "lines 7, 19" \
+   && ! echo "$out" | grep -q "duplicate entry header 'BL-003'"; then
+  pass "T17: BL-003a duplicate flagged; BL-003 / BL-003a / BL-003b stay distinct IDs"
+else
+  fail_ "T17" "expected exit 1, duplicate 'BL-003a' at lines 7, 19, and no 'BL-003' duplicate; rc=$rc; output:\n$out"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T18: --pre-commit-mode also runs the uniqueness arm → exit 1 ==="
+# ════════════════════════════════════════════════════════════════════
+# Mode parity with T13: Step 4 is structural on the backlog file, so an
+# operator committing a duplicate header is blocked at commit time, not
+# only in CI.
+setup
+write_backlog '## BL-042: first
+
+**Status:** Open
+
+Body.
+
+## BL-042: second
+
+**Status:** Open
+
+Body.
+'
+out=$( cd "$PROJ" && bash scripts/lint-backlog-references.sh --pre-commit-mode \
+        --message "chore: unrelated change" 2>&1 ); rc=$?
+if [ $rc -eq 1 ] && echo "$out" | grep -q "duplicate entry header 'BL-042'"; then
+  pass "T18: --pre-commit-mode runs the header-uniqueness arm"
+else
+  fail_ "T18" "expected exit 1 + duplicate-header diagnostic; rc=$rc; output:\n$out"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T19: --list renders the header-uniqueness verdict for review ==="
+# ════════════════════════════════════════════════════════════════════
+# House pattern: a decisive judgement must be renderable, not merely
+# silent-on-pass. The PASS row carries the header count so a reviewer
+# can see the arm actually looked at something.
+setup
+write_backlog '## BL-001: first
+
+**Status:** Open
+
+Body.
+
+## BL-002: second
+
+**Status:** Open
+
+Body.
+'
+out=$( cd "$PROJ" && bash scripts/lint-backlog-references.sh --base base --list 2>&1 ); rc=$?
+if [ $rc -eq 0 ] && echo "$out" | grep -q "header-uniqueness" \
+   && echo "$out" | grep -q "2 BL header(s), all unique"; then
+  pass "T19: --list shows the header-uniqueness PASS row with the header count"
+else
+  fail_ "T19" "expected exit 0 + header-uniqueness list row with count 2; rc=$rc; output:\n$out"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
 echo ""
 echo "=== T9: MERGE GATE — run linter against current repo HEAD vs origin/main → exit 0 ==="
 # ════════════════════════════════════════════════════════════════════

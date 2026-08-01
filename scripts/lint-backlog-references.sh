@@ -5,7 +5,7 @@
 # the wave-2 backstop after counter-sanitizer remediation; this is the
 # Slot-5 sibling that backstops backlog-citation hygiene).
 #
-# THE TWO DEFECT CLASSES
+# THE THREE DEFECT CLASSES
 #
 # 1. Unknown BL reference in a commit message.
 #    A commit subject or body cites `BL-NNN` (e.g. `fix(init): host-
@@ -27,6 +27,12 @@
 #      - `**Status:** Closed — shipped DATE (PR #N).` (current convention)
 #    The check is structural — any of these satisfy as long as a PR# or
 #    SHA appears somewhere in the entry block.
+#
+# 3. Duplicate `## BL-NNN:` entry header (BL-207).
+#    The same ID owns two (or more) entry headers, so `BL-NNN` stops
+#    being a unique key — grep, the citation primitive, and this
+#    script's own block splitter all resolve ambiguously. See the
+#    `# BL-207-HEADER-UNIQUENESS` arm below for the decisions.
 #
 # DELIBERATE SCOPE
 #   • Targets ONLY solo-orchestrator-backlog.md (the canonical backlog).
@@ -83,10 +89,11 @@
 #   worse, walk historical commits the operator can't fix from this
 #   commit. Instead, the prospective commit message is supplied via
 #   `--message <text>` or stdin and scanned for `BL-NNN` tokens.
-#   Step 3 (backlog-block scan for Closed/Resolved without citation)
-#   runs unchanged — it's structural on the backlog file, independent
-#   of git history. This is the contract scripts/pre-commit-gate.sh
-#   relies on when invoking the lint at commit time.
+#   Steps 3 and 4 (backlog-block scan for Closed/Resolved without
+#   citation; entry-header uniqueness) run unchanged — both are
+#   structural on the backlog file, independent of git history. This is
+#   the contract scripts/pre-commit-gate.sh relies on when invoking the
+#   lint at commit time.
 
 set -uo pipefail
 
@@ -336,6 +343,96 @@ while IFS=$'\t' read -r id status_found has_pr has_sha has_allow allow_reason; d
     LIST_ROWS="${LIST_ROWS}FAIL\t${id}\t-\tuncited-closure\n"
   fi
 done <<< "$BLOCK_REPORT"
+
+# ── Step 4: entry-header UNIQUENESS ────────────────────────────────
+# BL-207-HEADER-UNIQUENESS
+#
+# Every `BL-NNN` must own exactly ONE `^## BL-NNN:` header. Uniqueness
+# is what makes the ID grep-able as this repo's citation primitive, and
+# Step 3's block splitter assumes it: a second header for the same ID
+# truncates the first block and opens a second one, so the citation
+# check silently evaluates the wrong text. Structural on the file, so
+# it runs in BOTH modes (like Step 3) — an operator adding a duplicate
+# header is blocked at commit time, not only in CI.
+#
+# THREE DECISIONS, each pinned by a test in
+# tests/test-lint-backlog-references.sh:
+#
+#   • NO exemption for preserved `Original entry (pre-close, kept for
+#     audit trail):` blocks (T16). A duplicate is a duplicate wherever
+#     it appears: the splitter above already reads an un-indented
+#     `^## BL-NNN:` line inside such a block as a real entry header, so
+#     exempting it here would make this arm disagree with the very
+#     splitter it protects, and the audit-trail block would silently
+#     capture the ID. Quoting a header inside an entry body is still
+#     fine — indent or fence it and the `^` anchor skips it (T15).
+#
+#   • HEADERS ONLY, anchored (T15). Prose cross-references
+#     ("supersedes BL-050") repeat by design and are never violations;
+#     only the anchored header form is a key.
+#
+#   • The ID grammar is `BL-[0-9]+[a-z]?`, identical to Step 1's
+#     valid-ID builder (T17). The narrower `^## BL-[0-9]+:` from the
+#     BL-207 sketch would go blind to the `BL-003a` / `BL-003b` suffix
+#     splits; the suffix is part of the ID, so those three are distinct
+#     keys and must not be folded together. No case folding is applied
+#     (unlike the commit-token path): the header regex only matches an
+#     upper-case `BL-` with a lower-case suffix, so folding could not
+#     merge anything and would only distort the ID in the diagnostic,
+#     which reviewers grep for verbatim.
+#
+# BL-093 note: when the archive split lands, this arm must span BOTH
+# files — an ID present in the main backlog AND the archive is the same
+# defect.
+#
+# ONE awk pass emits both records: a `TOTAL` line (the header count, for
+# the --list row) and a `DUP` line per duplicated ID. Deriving the total
+# here rather than from a second `grep -c … || true` capture is
+# deliberate — that capture is exactly the counter antipattern
+# scripts/lint-counter-antipattern.sh exists to reject (it caught this
+# during development). Duplicates are emitted in FIRST-HEADER order via
+# the `order[]` index, not `for (k in seen)`, so output is deterministic
+# without a `| sort` (awk's `in` iteration order is unspecified).
+HEADER_SCAN=$(awk '
+  {
+    if (match($0, /^## BL-[0-9]+[a-z]?:/)) {
+      # Drop the leading "## " (3 chars) and the trailing ":" (1 char).
+      id = substr($0, 4, RLENGTH - 4)
+      total = total + 1
+      if (seen[id] == 0) { nids = nids + 1; order[nids] = id }
+      seen[id] = seen[id] + 1
+      if (at[id] == "") { at[id] = NR } else { at[id] = at[id] ", " NR }
+    }
+  }
+  END {
+    printf "TOTAL\t%d\n", total + 0
+    for (i = 1; i <= nids; i++) {
+      k = order[i]
+      if (seen[k] > 1) printf "DUP\t%s\t%d\t%s\n", k, seen[k], at[k]
+    }
+  }
+' "$BACKLOG")
+
+HEADER_TOTAL=0
+HEADER_DUPES=0
+while IFS=$'\t' read -r rec_kind rec_id rec_count rec_lines; do
+  case "$rec_kind" in
+    TOTAL)
+      HEADER_TOTAL="$rec_id"
+      ;;
+    DUP)
+      # ASCII-only diagnostic: no multibyte char adjacent to an expansion.
+      echo "lint-backlog-references: duplicate entry header '${rec_id}': ${rec_count} headers at lines ${rec_lines}; each BL-NNN must have exactly one '## BL-NNN:' header (indent or fence a header quoted inside an entry body)" >&2
+      VIOLATIONS=$((VIOLATIONS + 1))
+      HEADER_DUPES=$((HEADER_DUPES + 1))
+      LIST_ROWS="${LIST_ROWS}FAIL\theader-uniqueness\t${rec_id}\tduplicate header at lines ${rec_lines}\n"
+      ;;
+  esac
+done <<< "$HEADER_SCAN"
+
+if [ "$HEADER_DUPES" -eq 0 ]; then
+  LIST_ROWS="${LIST_ROWS}PASS\theader-uniqueness\t-\t${HEADER_TOTAL} BL header(s), all unique\n"
+fi
 
 if [ "$LIST_MODE" -eq 1 ]; then
   printf 'STATUS\tSOURCE\tTOKEN\tDETAIL\n'
