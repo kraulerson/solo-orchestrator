@@ -172,37 +172,132 @@ should_skip_file() {
   return 1
 }
 
+# ── BL-191-SINGLE-PASS-SCAN ───────────────────────────────────────────
+# scan_file matches ONE `grep -naE` pass per RULE per FILE. It used to
+# run `echo "$line" | grep -Eq "$RE"` for EVERY line of every walked
+# file — ~100k lines across the walk, two pipelines each, on the order
+# of 400k forks. Measured cost of one full-tree scan before this
+# rewrite: 243s on ubuntu-latest (BL-191), ~300s on the macOS host.
+#
+# WHAT DID NOT CHANGE — this is a fork-count rewrite, not a rule
+# rewrite. The matcher is still `grep -E`, the regex constants are
+# untouched, and each rule still sees the raw bytes of one whole line,
+# so verdicts, diagnostic text, line numbers and LIST_ROWS order are
+# byte-identical. Deliberately NOT awk: keeping grep -E keeps the ENGINE
+# identical across the rewrite (that is what makes byte-identity
+# provable rather than argued), and it sidesteps the gawk / mawk /
+# BSD-awk divergence this file already exists to police (BL-121).
+#
+# `-a` (--text; GNU and BSD grep both have it) is load-bearing. Whole-
+# file grep can classify a file with an invalid multibyte sequence as
+# binary and print "Binary file … matches" INSTEAD of numbered lines;
+# the old per-line form fed grep one already-decoded line on stdin and
+# so never met that path. `-a` pins the text path unconditionally.
+#
+# THE TWO `continue`s of the old per-line loop are load-bearing and are
+# preserved verbatim as `do_sed=0` / the comment short-circuit below:
+#   1. a pure-comment line is skipped for BOTH rules (the counter regex
+#      is ^-anchored to an identifier so it can never match a comment,
+#      but the sed regex is unanchored — the skip is all that holds it
+#      off);
+#   2. a line whose counter capture carries an allowlist marker is NOT
+#      evaluated against the BL-121 sed rule at all — marker or empty
+#      reason alike.
+# Both are pinned by T14/T15/T18 in tests/test-lint-counter-antipattern.sh.
 scan_file() {
   local file="$1"
   [ -f "$file" ] || return 0
   should_skip_file "$file" && return 0
 
-  # Read all lines into an array so we can look at N+1.
-  local -a LINES=()
-  local line
-  while IFS= read -r line || [ -n "$line" ]; do
-    LINES+=("$line")
-  done < "$file"
+  # BL-191-UNREADABLE-IS-EXIT-2. The rule passes below originally carried
+  # `2>/dev/null`, which turned an UNREADABLE target into a SILENT clean
+  # pass: grep's diagnostic suppressed, zero hits recorded, file reported
+  # fine. The pre-BL-191 loop was false-clean on this path too, but
+  # LOUDLY — bash printed its own redirect error. Silence is the worse
+  # failure mode, and this script's header already documents
+  # `2 — invocation / I/O error`, so honour that contract instead of
+  # guessing about a file we cannot read. The `2>/dev/null`s are gone
+  # with it, so any residual grep diagnostic now surfaces. T22 pins this.
+  if [ ! -r "$file" ]; then
+    echo "lint-counter-antipattern: cannot read ${file} — refusing to report it clean" >&2
+    exit 2
+  fi
 
-  local i n
-  n=${#LINES[@]}
-  for ((i = 0; i < n; i++)); do
-    line="${LINES[i]}"
+  local rel="${file#"$REPO_ROOT"/}"
+
+  # Rule-level whole-file passes. grep -n emits `LINENO:CONTENT`; the
+  # single-file form never prefixes a filename, so `%%:*` / `#*:` split
+  # it exactly.
+  local -a ANTI_NO=() ANTI_TXT=()
+  local -a SED_NO=() SED_TXT=()
+  local SED_ERE_SET=":"
+  local hit
+
+  while IFS= read -r hit || [ -n "$hit" ]; do
+    ANTI_NO+=("${hit%%:*}")
+    ANTI_TXT+=("${hit#*:}")
+  done < <(grep -naE "$ANTIPATTERN_RE" "$file")
+
+  while IFS= read -r hit || [ -n "$hit" ]; do
+    SED_NO+=("${hit%%:*}")
+    SED_TXT+=("${hit#*:}")
+  done < <(grep -naE "$SED_BRE_ALT_RE" "$file")
+
+  local an=${#ANTI_NO[@]} bn=${#SED_NO[@]}
+  [ "$an" -eq 0 ] && [ "$bn" -eq 0 ] && return 0
+
+  # The `sed -E` exemption is evaluated PER LINE (T19), so it needs the
+  # exempt line NUMBERS, not a whole-file boolean. Only worth a fork
+  # where the basic-mode rule actually hit.
+  if [ "$bn" -gt 0 ]; then
+    while IFS= read -r hit || [ -n "$hit" ]; do
+      SED_ERE_SET="${SED_ERE_SET}${hit%%:*}:"
+    done < <(grep -naE "$SED_ERE_FLAG_RE" "$file")
+  fi
+
+  # The N+1 sanitizer lookahead still needs the file body, and it must
+  # be the SAME `read -r` decode the old loop used. Load it lazily: on
+  # the current tree only 34 of 243 walked files have a counter hit.
+  local -a LINES=()
+  local lines_loaded=0
+
+  # Ordered merge of the two hit lists. grep emits ascending line
+  # numbers, so a two-index walk reproduces the old single for-loop's
+  # visit order exactly, including "counter rule before sed rule" when
+  # one line trips both.
+  local ai=0 bi=0
+  local lineno line do_anti do_sed
+  while [ "$ai" -lt "$an" ] || [ "$bi" -lt "$bn" ]; do
+    do_anti=0
+    do_sed=0
+    if [ "$ai" -lt "$an" ] && { [ "$bi" -ge "$bn" ] || [ "${ANTI_NO[$ai]}" -le "${SED_NO[$bi]}" ]; }; then
+      lineno="${ANTI_NO[$ai]}"
+      line="${ANTI_TXT[$ai]}"
+      do_anti=1
+      ai=$((ai + 1))
+      if [ "$bi" -lt "$bn" ] && [ "${SED_NO[$bi]}" -eq "$lineno" ]; then
+        do_sed=1
+        bi=$((bi + 1))
+      fi
+    else
+      lineno="${SED_NO[$bi]}"
+      line="${SED_TXT[$bi]}"
+      do_sed=1
+      bi=$((bi + 1))
+    fi
+
     # Skip lines that are pure comments (no var=$( ... ) shape).
     case "${line#"${line%%[![:space:]]*}"}" in
       '#'*) continue ;;
     esac
 
-    if echo "$line" | grep -Eq "$ANTIPATTERN_RE"; then
+    if [ "$do_anti" -eq 1 ]; then
       # Parse var name + allowlist.
       local parsed var_name allow_reason has_marker
       parsed=$(parse_line "$line")
       var_name="$(printf '%s' "$parsed" | cut -f1)"
       allow_reason="$(printf '%s' "$parsed" | cut -f2)"
       has_marker="$(printf '%s' "$parsed" | cut -f3)"
-
-      local lineno=$((i + 1))
-      local rel="${file#"$REPO_ROOT"/}"
 
       if [ "$has_marker" = "1" ]; then
         if [ -z "$allow_reason" ]; then
@@ -212,48 +307,62 @@ scan_file() {
         else
           LIST_ROWS="${LIST_ROWS}PASS\t${rel}:${lineno}\t${var_name}\tallowlist:${allow_reason}\n"
         fi
-        continue
-      fi
-
-      # Check next line for the case-statement sanitizer with matching var.
-      local next="${LINES[i+1]:-}"
-      local sanitizer_re
-      sanitizer_re="$(sanitizer_regex_for "$var_name")"
-      if echo "$next" | grep -Eq "$sanitizer_re"; then
-        LIST_ROWS="${LIST_ROWS}PASS\t${rel}:${lineno}\t${var_name}\tsanitized\n"
+        # The old per-line loop `continue`d here, which ALSO skipped the
+        # BL-121 sed rule for this line — on BOTH arms above, marker with
+        # a reason and marker with an empty one alike. Dropping this is
+        # the one silent divergence a merged walk invites, and it is
+        # invisible on a clean tree (main has zero sed-alternation rows).
+        # T14 pins it. # BL-191-ALLOWLIST-SHORT-CIRCUIT
+        do_sed=0
       else
-        # Identify the failure subtype for a clearer message.
-        local subtype="missing-sanitizer"
-        # If next line is ALSO a case statement but for a different var,
-        # call that out — that's the copy-paste bug class T5 protects.
-        if echo "$next" | grep -Eq '^[[:space:]]*case[[:space:]]+"\$[A-Za-z_][A-Za-z0-9_]*"[[:space:]]+in[[:space:]]+'\'''\''[[:space:]]*\|'; then
-          subtype="sanitizer-var-mismatch"
-          echo "${rel}:${lineno}: lint-counter-antipattern: capture of '\$${var_name}' is not sanitized — next-line case-statement uses a different var name" >&2
-        else
-          echo "${rel}:${lineno}: lint-counter-antipattern: capture of '\$${var_name}' is not sanitized — add 'case \"\$${var_name}\" in '\'''\''|*[!0-9]*) ${var_name}=0 ;; esac' on the next line, or append '# lint-counter-antipattern: allow <reason>'" >&2
+        # Check next line for the case-statement sanitizer with matching var.
+        if [ "$lines_loaded" -eq 0 ]; then
+          local body_line
+          while IFS= read -r body_line || [ -n "$body_line" ]; do
+            LINES+=("$body_line")
+          done < "$file"
+          lines_loaded=1
         fi
-        VIOLATIONS=$((VIOLATIONS + 1))
-        LIST_ROWS="${LIST_ROWS}FAIL\t${rel}:${lineno}\t${var_name}\t${subtype}\n"
+        # LINES is 0-based, so element [$lineno] IS line $lineno+1.
+        local next="${LINES[$lineno]:-}"
+        local sanitizer_re
+        sanitizer_re="$(sanitizer_regex_for "$var_name")"
+        if echo "$next" | grep -Eq "$sanitizer_re"; then
+          LIST_ROWS="${LIST_ROWS}PASS\t${rel}:${lineno}\t${var_name}\tsanitized\n"
+        else
+          # Identify the failure subtype for a clearer message.
+          local subtype="missing-sanitizer"
+          # If next line is ALSO a case statement but for a different var,
+          # call that out — that's the copy-paste bug class T5 protects.
+          if echo "$next" | grep -Eq '^[[:space:]]*case[[:space:]]+"\$[A-Za-z_][A-Za-z0-9_]*"[[:space:]]+in[[:space:]]+'\'''\''[[:space:]]*\|'; then
+            subtype="sanitizer-var-mismatch"
+            echo "${rel}:${lineno}: lint-counter-antipattern: capture of '\$${var_name}' is not sanitized — next-line case-statement uses a different var name" >&2
+          else
+            echo "${rel}:${lineno}: lint-counter-antipattern: capture of '\$${var_name}' is not sanitized — add 'case \"\$${var_name}\" in '\'''\''|*[!0-9]*) ${var_name}=0 ;; esac' on the next line, or append '# lint-counter-antipattern: allow <reason>'" >&2
+          fi
+          VIOLATIONS=$((VIOLATIONS + 1))
+          LIST_ROWS="${LIST_ROWS}FAIL\t${rel}:${lineno}\t${var_name}\t${subtype}\n"
+        fi
       fi
     fi
 
     # BL-121: basic-mode sed alternation (constants + rationale at
     # SED_BRE_ALT_RE above). Independent of the counter-capture rule — a
     # line can violate either.
-    if echo "$line" | grep -Eq "$SED_BRE_ALT_RE" \
-       && ! echo "$line" | grep -Eq "$SED_ERE_FLAG_RE"; then
-      local sparsed sreason smarker slineno srel
+    case "$SED_ERE_SET" in
+      *":${lineno}:"*) do_sed=0 ;;
+    esac
+    if [ "$do_sed" -eq 1 ]; then
+      local sparsed sreason smarker
       sparsed=$(parse_line "$line")
       sreason="$(printf '%s' "$sparsed" | cut -f2)"
       smarker="$(printf '%s' "$sparsed" | cut -f3)"
-      slineno=$((i + 1))
-      srel="${file#"$REPO_ROOT"/}"
       if [ "$smarker" = "1" ] && [ -n "$sreason" ]; then
-        LIST_ROWS="${LIST_ROWS}PASS\t${srel}:${slineno}\tsed-alternation\tallowlist:${sreason}\n"
+        LIST_ROWS="${LIST_ROWS}PASS\t${rel}:${lineno}\tsed-alternation\tallowlist:${sreason}\n"
       else
-        echo "${srel}:${slineno}: lint-counter-antipattern: GNU-only sed alternation — a backslash-pipe in a BASIC-regex sed program is alternation on GNU but a LITERAL on BSD/macOS, so a range terminator carrying it never matches and the range runs to EOF (BL-121). Use an awk range/ERE, or sed -E with a real alternation, or append '# lint-counter-antipattern: allow <reason>'" >&2
+        echo "${rel}:${lineno}: lint-counter-antipattern: GNU-only sed alternation — a backslash-pipe in a BASIC-regex sed program is alternation on GNU but a LITERAL on BSD/macOS, so a range terminator carrying it never matches and the range runs to EOF (BL-121). Use an awk range/ERE, or sed -E with a real alternation, or append '# lint-counter-antipattern: allow <reason>'" >&2
         VIOLATIONS=$((VIOLATIONS + 1))
-        LIST_ROWS="${LIST_ROWS}FAIL\t${srel}:${slineno}\tsed-alternation\tgnu-only-sed-alternation\n"
+        LIST_ROWS="${LIST_ROWS}FAIL\t${rel}:${lineno}\tsed-alternation\tgnu-only-sed-alternation\n"
       fi
     fi
   done

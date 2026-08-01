@@ -14,9 +14,12 @@
 #   of the 8 CI-required lint jobs in .github/workflows/lint.yml, so running it
 #   here would spuriously fail the sweep.
 #
-#   NOTE: two of the scanned lints are slow full-tree scans —
-#   lint-counter-antipattern.sh (~90s) and lint-raw-read-prompt.sh (~40s) — so a
-#   full run is a couple of minutes. That is expected.
+#   NOTE: lint-raw-read-prompt.sh (~40s) is a slow full-tree scan — it still
+#   forks `echo "$line" | grep -Eq` PER LINE of every file it walks.
+#   lint-counter-antipattern.sh USED to be the worse of the two (~90s when this
+#   note was written; 407-469s on the tree as of 2026-07-31, 3 runs), but BL-191
+#   made its scan single-pass and it now runs in ~4s. A full run is still a
+#   couple of minutes — measured 1m58s on the macOS host. That is expected.
 #
 # NOT A SHIPPED SCRIPT
 #   This is a DEV tool. It is deliberately NOT in any init.sh copy list and is

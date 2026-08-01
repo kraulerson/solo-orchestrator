@@ -110,11 +110,16 @@ jobs:
   # four — the inventory prints exactly when someone needs it. The remaining
   # duplication is genuine merge gates the suites own, so nothing is
   # removed; (3) and (4) are merely moved off each other's critical path.
-  # The root cost is still scripts/lint-counter-antipattern.sh's
-  # `scan_file`, which forks `echo "$line" | grep -Eq` PER LINE of every
-  # file it walks; making that a single-pass scan is an enforcement-script
-  # change (TDD + mutation proof) and stays out of scope for a CI rebalance.
-  # BL-191 stays Open for it.
+  # The root cost WAS scripts/lint-counter-antipattern.sh's `scan_file`,
+  # which forked `echo "$line" | grep -Eq` PER LINE of every file it walks.
+  # That half of BL-191 has since SHIPPED: `scan_file` now runs one
+  # `grep -naE` pass per RULE per FILE, verified byte-identical (stdout,
+  # stderr and exit code) on the clean tree, on a seeded full-tree copy
+  # carrying 32 FAIL rows and 10 sed-alternation rows, and on five seeded
+  # fixtures. Measured on the macOS host, 3 runs each: 407.6/425.6/468.7s
+  # before, 3.84/4.05/3.93s after. The CI seconds recorded in this file
+  # PRE-DATE that change — re-measure before trusting any of them for
+  # rebalancing.
   #
   # SHARDS. Only the measured long poles are pinned; `rest` is the
   # COMPLEMENT of the pins, so a newly added test needs no edit here — it
@@ -153,8 +158,11 @@ jobs:
   # The lint floor drops below the unit lane, so the expected new
   # PR-blocking critical path is ~6 min, SET BY THIS LANE's lint-sweep
   # shard — the first time it has been the unit lane's number to own.
-  # Lowering it further means making the scan itself cheap: BL-191's
-  # per-line-fork rewrite, still Open.
+  # Lowering it further meant making the scan itself cheap, and BL-191's
+  # per-line-fork rewrite has now landed (~110x on the macOS host). Every
+  # second figure above therefore pre-dates it and is an UPPER bound; the
+  # lane's new long pole has not been measured on CI. Re-measure before
+  # repinning shards — do not derive from this table.
   unit-shard:
     name: unit-shard (${{ matrix.shard }})
     runs-on: ubuntu-latest
@@ -469,7 +477,7 @@ jobs:
             tests/test-run-lints.sh                    # 318s — runs the WHOLE lint sweep over the real repo
           )
           pin_lint_scan=(
-            tests/test-lint-counter-antipattern.sh     # 243s — T9 re-scans the real repo
+            tests/test-lint-counter-antipattern.sh     # 243s at pin time — T9 re-scans the real repo; BL-191 made that scan single-pass, so re-measure before repinning
             tests/test-lint-raw-read-prompt.sh         #  41s — real-repo arm
             tests/test-lint-doc-anchors.sh             #  16s — real-repo arm
           )
