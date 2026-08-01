@@ -214,6 +214,8 @@ Post-launch maintenance stabilizes to 1-2 hours/week (50-80 hours/year). The fir
 |---|---|---|
 | Git | Yes | [git-scm.com](https://git-scm.com/downloads) |
 | Language runtime | Yes | Node.js, Python, Rust, Go, Java/Kotlin, C#/.NET, or Dart/Flutter — depends on your language choice |
+| jq | Yes | Init offers auto-install (brew/apt/dnf). Required by the Development Guardrails for Claude Code for JSON operations. |
+| Git host CLI (`gh` or `glab`) | Yes, if using GitHub or GitLab (default host: GitHub) | **Install and authenticate before running init** — not auto-installed. `gh`: `brew install gh`, then `gh auth login`. `glab`: `brew install glab`, then `glab auth login`. Bitbucket needs no CLI — export `BITBUCKET_API_TOKEN` + `BITBUCKET_API_TOKEN_EMAIL` + `BITBUCKET_WORKSPACE` instead. See [CLI Setup Addendum § Git Host CLIs](cli-setup-addendum.md#git-host-clis). |
 | Docker | Recommended | Init offers auto-install. macOS: Colima (recommended, headless) or Docker Desktop. Linux: system package. Needed for Qdrant semantic memory and OWASP ZAP DAST scanning. |
 | Claude Code | Recommended | Installed by `init.sh`, or manually: `brew install claude-code` (macOS) |
 

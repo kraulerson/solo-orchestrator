@@ -111,8 +111,10 @@ See the [User Guide](docs/user-guide.md) for detailed walkthrough of each step.
 | **Node.js** | Yes | Floor: 18+ (the init script checks the major version). **Recommended: 20 LTS or 22 LTS** — Node 18 reached end-of-life April 2025, so new installs should pick a supported LTS. Init script offers to install automatically. Required as infrastructure tooling (Snyk CLI, license-checker) regardless of your project language. Also the runtime for JS/TS projects. |
 | **Language runtime** | Yes | Python, Rust/Cargo, .NET SDK, JDK, Go, or Flutter (if not using Node.js/TypeScript). Init script offers to install your selected runtime automatically. |
 | **jq** | Yes | Init script offers to install automatically (brew/apt/dnf). Required by the Development Guardrails for Claude Code for JSON operations. |
+| **Git host CLI** (`gh` or `glab`) | Yes, if using GitHub or GitLab (default host: GitHub) | **Install and authenticate BEFORE running init** — not auto-installed. init.sh needs a working, authenticated CLI partway through the run to create and protect your remote repo; a missing/unauthenticated CLI fails the run at that point, not up front. `gh` (GitHub): `brew install gh` (macOS) or [Linux install](https://github.com/cli/cli/blob/trunk/docs/install_linux.md), then `gh auth login`. `glab` (GitLab): `brew install glab`, then `glab auth login`. **Bitbucket** needs no CLI — export `BITBUCKET_API_TOKEN` + `BITBUCKET_API_TOKEN_EMAIL` + `BITBUCKET_WORKSPACE` instead (legacy `BITBUCKET_USER`/`BITBUCKET_APP_PASSWORD` also accepted). `--git-host other` needs neither. Full instructions: [CLI Setup Addendum § Git Host CLIs](docs/cli-setup-addendum.md#git-host-clis). |
 | **Docker** | Recommended | Init script offers to install automatically. macOS: choice of Colima (recommended — headless, no license required, auto-starts on boot) or Docker Desktop. Linux: system package with systemd auto-start. Used by Qdrant (persistent semantic memory) and OWASP ZAP (DAST scanning). |
 | **Claude Code** | Recommended | Installed by init script. Framework is optimized for Claude Code; other AI coding agents can use the methodology but the CLI Setup Addendum and Phase 2 workflow accelerators are Claude Code-specific. |
+| **GPG** | Optional | Used for commit signing. Not auto-installed — init only prints the command. macOS: `brew install gnupg`. Linux: `sudo apt install -y gnupg` / `sudo dnf install -y gnupg2` / `sudo pacman -S --noconfirm gnupg`. |
 
 Init also auto-installs security tooling: Semgrep (SAST), gitleaks (secret detection), Snyk CLI (dependency scanning), Lighthouse (web performance), and OWASP ZAP (DAST, requires Docker).
 
@@ -127,6 +129,11 @@ wsl --install
 # After restart, open Ubuntu from the Start menu
 # Install Git and jq (needed before init can run):
 sudo apt install -y git jq
+
+# If you'll use GitHub or GitLab, install + authenticate the host CLI too
+# (not auto-installed — see Prerequisites table above):
+#   gh:   https://github.com/cli/cli/blob/trunk/docs/install_linux.md
+#   glab: https://gitlab.com/gitlab-org/cli/-/releases
 
 # Clone and run from within WSL, not from Windows
 # The init script will offer to install Node.js and other prerequisites
