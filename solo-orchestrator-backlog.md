@@ -4328,7 +4328,7 @@ and the BL-006 message check SILENTLY DID NOT RUN — an open-direction bypass t
 `.claude/worktrees/agent-*` flow sat in, proven by mutation G6 and reproduced end-to-end in
 review (approve; the reviewer also validated the MERGED state incl. the new BL-197 lint over the
 new suite before the PR). Residuals FILED: BL-209 (the `.git/hooks` install-path blindness class
-— 38 non-comment lines across 9 files) and BL-210 (`--check-commit-ready` has no derivative
+— ~36 non-comment lines across 9 files, 38 at the review tree) and BL-210 (`--check-commit-ready` has no derivative
 filter).
 
 In a **linked git worktree** `.git` is a FILE (a `gitdir:` pointer), not a directory, so the literal `[ -f .git/<SENTINEL> ]` derivative-commit skip tests are BLIND: mid-cherry-pick `[ -f .git/CHERRY_PICK_HEAD ]` is FALSE, while `git rev-parse --git-path CHERRY_PICK_HEAD` resolves to `.git/worktrees/<name>/CHERRY_PICK_HEAD` where the sentinel actually lives. Verified on git 2.50.1 by the BL-172 verifier's empirical probe, and independently reproduced in THIS repo's own `.claude/worktrees/agent-*` worktree: `.git` is a 103-byte file, `test -f .git/CHERRY_PICK_HEAD` → FALSE, and `git rev-parse --git-path CHERRY_PICK_HEAD` → `<repo>/.git/worktrees/<name>/CHERRY_PICK_HEAD`. In a normal (non-worktree) checkout `--git-path` returns `.git/<SENTINEL>`, so it is a drop-in replacement.
@@ -5878,8 +5878,8 @@ PRE-EXISTING unanchored exemption scope — narrowing it is a live follow-up tha
 T21's characterization pin). Unreadable files now exit 2 loudly
 (`# BL-191-UNREADABLE-IS-EXIT-2`, T22 real chmod case) instead of the old silent false-clean.
 The duplicate-execution half had merged earlier (PR #279, `3282c97`). Follow-up FILED AS
-BL-211: `lint-raw-read-prompt.sh` carries the identical per-line fork (~40s, now the slowest
-lint). Final battery: 8 atoms, suite 24/0.
+BL-211: `lint-raw-read-prompt.sh` carries the identical per-line fork (~40-50s measured, now
+the slowest lint). Final battery: 8 atoms, suite 24/0.
 **Category:** CI capacity / lint performance
 **Severity:** Medium — no correctness impact; it is the single largest cost in PR CI, and it is the
 root cause under BL-190's symptom.
@@ -7625,7 +7625,7 @@ prose-immunity discipline, applied to the template side). Item 3 wants a quote-a
 or standing acceptance as a named limit. Item 1 stays a named limit unless the suite gains a
 render-and-execute stage.
 
-**Status:** Closed — merged 2026-08-01 in PR #300 (six `# BL-206-*` markers; suite 67/0). Item 2
+**Status:** Closed — merged 2026-08-01 in PR #300 (ten `# BL-206-*` markers; suite 67/0). Item 2
 shipped in both halves — Cg5-scan-exec (an executable scan line required in every non-github
 template) and comment-stripped extraction — both mutation-pinned after review proved the first
 cut's two atoms unpinned (their reverts had survived 65/0). Item 3 closed by RETREAT, exactly the
@@ -8249,7 +8249,7 @@ housekeeping).
 
 ---
 
-## BL-209: The `.git/hooks` INSTALL-path class is blind to worktrees, symlinks, and core.hooksPath — 38 non-comment lines across 9 files write or probe a path git may not use
+## BL-209: The `.git/hooks` INSTALL-path class is blind to worktrees, symlinks, and core.hooksPath — ~36 non-comment lines across 9 files write or probe a path git may not use
 
 **Logged:** 2026-08-01 (consolidated from BL-145's named residual and BL-176's review inventory —
 the same class observed from two directions in the quick sweep)
@@ -8260,10 +8260,12 @@ still live on these arms), writing to `.git/hooks` in a linked worktree (hooks l
 gitdir — the write lands, but probes reading `.git/hooks` literally mis-answer), and
 `core.hooksPath` blindness (an installed hook git never runs; an inert write).
 
-**The census (BL-176 review, exact):** 38 non-comment `.git/hooks` lines — verify-install 13
-(now guarded by BL-145), upgrade-project 6, init.sh 5, install-filesystem-gates 4,
+**The census (BL-176 review tree, exact):** 38 non-comment `.git/hooks` lines — verify-install 13,
+upgrade-project 6, init.sh 5, install-filesystem-gates 4,
 install-contributor-hooks 4, process-checklist 2, lib/plan-staging 2, validate 1,
-lib/freshness-detect 1. The fix shape is BL-145's and BL-176's combined: resolve via
+lib/freshness-detect 1. Post-BL-145 (#305 reworked two verify-install lines) the same predicate
+measures 36 (verify-install 11) — the review-tree figure is kept as provenance, re-count before
+building. The fix shape is BL-145's and BL-176's combined: resolve via
 `git rev-parse --git-path hooks` / `--git-common-dir`, refuse-not-write through symlinks on
 no-consent surfaces, and honor-or-refuse `core.hooksPath` keyed on `git config`'s exit status.
 init.sh's arm is the lowest-risk (a fresh scaffold has no worktrees or dotfiles links yet);
@@ -8302,7 +8304,7 @@ ready-made predicate), BL-006 (the classifier this advises).
 **Category:** CI capacity / lint performance
 **Severity:** Low. Same mechanism as BL-191's fixed half (`echo "$line" | grep -Eq` per line),
 same fix shape (single `grep -naE` pass per rule per file with an ordered merge, engine-identical
-so byte-identity is provable), same proof obligations (SEEDED-corpus byte-identity — a clean-tree
+so byte-identity is provable; ~40-50s today), same proof obligations (SEEDED-corpus byte-identity — a clean-tree
 diff proves almost nothing — plus the NUL-domain divergence check BL-191's T20/T21 taught:
 whole-line raw evaluation moves BOTH rules and exemptions). At ~40s it is now the long pole of
 `run-lints.sh` after BL-191 took the previous ~5-7 minute pole to ~4 seconds.
