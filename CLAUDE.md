@@ -144,10 +144,10 @@ call). Two directions, plus a vacuity floor:
 
 **A citation only counts when prose marks it as code**: backticked
 (`` `# BL-084-TIER-KEY` ``) or hash-prefixed (`# BL-084-TIER-KEY`). A
-**bare** `BL-NNN-suffix` token is invisible to the lint — ~10 real markers
-on the tree are written that way and go unchecked, while ~9 lookalikes are
-ordinary prose hyphenation: BL-140-family, BL-030-edit (left bare here on
-purpose — backtick either one and this very line goes red).
+**bare** `BL-NNN-suffix` token is invisible to the lint — of 21 bare hits,
+**10** are real markers that go unchecked and **11** are ordinary prose
+hyphenation: BL-140-family, BL-030-edit (left bare here on purpose —
+backtick either one and this very line goes red).
 **Backtick your markers** and they become enforced. Cite a fence family
 (`# BL-105-PHASE4-GATE`) or a glob (`# BL-102-MARKET-SIGNAL-*`) and it
 resolves against the `-BEGIN`/`-END` members; a **truncation typo does

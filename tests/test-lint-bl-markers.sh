@@ -95,6 +95,17 @@ teardown_fixture() { rm -rf "$TMP"; }
 
 run_fixture() { bash "$LINTER" --root "$TMP" 2>&1; return $?; }
 
+# ── allowlisted_tokens: the lint's SCRIPT-LEVEL allowlist, read out of the
+# lint at runtime. Deliberately not hard-coded: writing an allowlisted token
+# into this file would mint it in tests/, the real tree's code surface, and
+# the real backlog's broken citations would then resolve EXACT off this
+# suite — masking the very thing the allowlist documents.
+allowlisted_tokens() {
+  sed -n '/BL-196-ALLOWLIST-BEGIN/,/BL-196-ALLOWLIST-END/p' "$LINTER" \
+    | grep -E '^BL-[0-9]+[a-z]?-[A-Za-z][A-Za-z0-9_-]*\|' \
+    | sed -e 's/|.*//'
+}
+
 # ════════════════════════════════════════════════════════════════════
 echo ""
 echo "=== T1: prose cite that resolves exactly -> exit 0 ==="
@@ -404,13 +415,134 @@ else
 fi
 
 echo ""
-echo "=== T-REPO-LIST: the script-level allowlist is live and rendered ==="
+echo "=== T-REPO-LIST: the script-level allowlist mechanism is accounted for ==="
+# DO NOT tighten this back to "at least one allowlist row". Rows render only
+# on a MISS, so the moment fix/bl112-sast-scan-coverage merges and the BL-186
+# markers come back, a row-count assertion reds the required unit lane with
+# zero edits to BL-196 — and deleting the allowlist rows does not rescue it
+# either. The predicate is therefore a DISJUNCTION over the allowlist read
+# out of the lint at runtime:
+#   • at least one reasoned row renders (today: the markers are still gone), OR
+#   • every allowlisted token renders as `resolved (EXACT)` (post-merge: the
+#     markers are back and the rows are merely stale), which is VACUOUSLY
+#     true once the rows are deleted.
+# Every ordering of {merge, delete the rows} is green; a token that renders
+# NEITHER way is a genuine finding and still fails.
 out=$(bash "$LINTER" --list 2>&1); rc=$?
-if [ "$rc" -eq 0 ] && echo "$out" | grep -q 'allowlist: '; then
-  pass "T-REPO-LIST: --list renders at least one reasoned allowlist row"
+rows=$(printf '%s\n' "$out" | grep -c 'allowlist: ') || rows=0
+case "$rows" in ''|*[!0-9]*) rows=0 ;; esac
+not_exact=""
+tok_total=0
+while IFS= read -r t; do
+  [ -n "$t" ] || continue
+  tok_total=$((tok_total + 1))
+  printf '%s\n' "$out" | grep -qF "$(printf '\t%s\tresolved (EXACT)' "$t")" \
+    || not_exact="$not_exact $t"
+done <<EOF
+$(allowlisted_tokens)
+EOF
+# Disjunction, evaluated exactly as written above. The second arm is vacuous
+# for an empty allowlist, which is what makes "delete the rows" a valid move.
+mech_ok=0
+[ "$rows" -ge 1 ] && mech_ok=1
+[ -z "$not_exact" ] && mech_ok=1
+if [ "$rc" -eq 0 ] && [ "$mech_ok" -eq 1 ]; then
+  pass "T-REPO-LIST: allowlist mechanism accounted for ($tok_total token(s), $rows row(s) rendered)"
 else
-  fail_ "T-REPO-LIST" "expected rc=0 and a rendered allowlist row; rc=$rc"
+  fail_ "T-REPO-LIST" "rc=$rc; rendered rows=$rows; allowlisted tokens not resolving EXACT:$not_exact"
 fi
+
+echo ""
+echo "=== T14 (R-BL196-2): an EMPTY entry-id set exits 2, never a false OK ==="
+# The NR==FNR trap. With an empty first file the idiom stays true for every
+# record of the SECOND file, so pass (a) swallowed every marker site into the
+# entry set and printed `OK: ...` over a completely unchecked tree. Two
+# independent fixes are pinned here and by T15: this guard, and the switch to
+# FILENAME discrimination.
+setup_fixture
+printf '# fixture backlog with no entry headers\n\nnothing here\n' \
+  > "$TMP/solo-orchestrator-backlog.md"
+cat > "$TMP/CLAUDE.md" <<'MD'
+# Fixture orientation
+
+The live arm is marked `# BL-196-FIXTURE-LIVE`.
+MD
+out=$(run_fixture); rc=$?
+if [ "$rc" -eq 2 ] \
+   && echo "$out" | grep -q 'EMPTY ENTRY SET' \
+   && ! echo "$out" | grep -q '^OK:'; then
+  pass "T14: empty entry set exits 2 naming the cause, and prints no OK verdict"
+else
+  fail_ "T14" "expected exit 2 + EMPTY ENTRY SET and NO OK line; rc=$rc; output:\n$out"
+fi
+teardown_fixture
+
+echo ""
+echo "=== T15 (R-BL196-2): an EMPTY marker set still REPORTS the broken cite ==="
+# The same trap on the other join. With zero marker tokens the citation list
+# was consumed as if it were the token set, so every broken cite vanished and
+# the lint passed. On the real tree the marker floor hides this; under --root,
+# where the floors default to 0, it was a live false pass.
+setup_fixture
+printf '#!/usr/bin/env bash\necho no markers here at all\n' > "$TMP/scripts/thing.sh"
+cat > "$TMP/CLAUDE.md" <<'MD'
+# Fixture orientation
+
+The renamed arm is `# BL-196-FIXTURE-GHOST`, which no longer exists.
+MD
+out=$(run_fixture); rc=$?
+if [ "$rc" -eq 1 ] && echo "$out" | grep -q 'BL-196-FIXTURE-GHOST'; then
+  pass "T15: zero-marker code surface still reports the broken citation"
+else
+  fail_ "T15" "expected exit 1 naming the ghost (the join must not swallow the cites); rc=$rc; output:\n$out"
+fi
+teardown_fixture
+
+echo ""
+echo "=== T16 (R-BL196-6): an arbitrarily-named COPY of the lint cannot mint tokens ==="
+# Exact-path self-exclusion is defeated by `cp lint.sh scripts/zz-copy.sh`:
+# the copy re-mints every token the lint names — including its own allowlist —
+# so allowlisted citations resolve EXACT and the allowlist silently stops
+# meaning anything. Layer 3 of the exclusion is a CONTENT sentinel, which
+# travels with the bytes and so survives any rename.
+#
+# The sentinel is assembled at runtime. Written as a literal, this file would
+# carry it and exclude ITSELF from the real tree's code surface — an
+# unintended coverage hole in the fix's own test.
+SENTINEL="BL-196-SELF-EXCLUDE""-SENTINEL"
+# A structural marker that lives ONLY inside the lint, so the fixture's own
+# files cannot supply it.
+COPY_ONLY_TOKEN="BL-196-EMPTY-SET-GUARD"
+setup_fixture
+cp "$LINTER" "$TMP/scripts/zz-copy.sh"
+{
+  printf '# Fixture orientation\n\n'
+  printf 'Cite: `# %s`\n' "$COPY_ONLY_TOKEN"
+} > "$TMP/CLAUDE.md"
+out=$(run_fixture); rc_excl=$?
+
+# CONTROL: the same copy with the sentinel lines stripped IS a valid definer.
+# Without this arm T16 would also pass if the fixture simply never carried the
+# token — the classic vacuous-canary failure.
+#
+# The control is asserted on the CITATION verdict, not on the exit code. A
+# de-sentinelled copy is a full copy of the lint, so its own header mints
+# markers for a dozen unrelated entries that the small fixture backlog does
+# not carry, and pass (a) reports those — a true finding about the fixture,
+# and noise with respect to what this case measures. What must flip is
+# exactly one thing: the copy-only token stops being reported as a broken
+# citation, because the copy now supplies it.
+sed "/${SENTINEL}/d" "$LINTER" > "$TMP/scripts/zz-copy.sh"
+out_ctl=$(run_fixture); rc_ctl=$?
+cite_broken_re="cites marker '# ${COPY_ONLY_TOKEN}'"
+
+if [ "$rc_excl" -eq 1 ] && echo "$out" | grep -qF "$cite_broken_re" \
+   && ! echo "$out_ctl" | grep -qF "$cite_broken_re"; then
+  pass "T16: sentinel-bearing copy mints nothing; de-sentinelled control resolves the same token (rc_ctl=$rc_ctl on unrelated pass-(a) noise)"
+else
+  fail_ "T16" "expected the copy-only token reported broken WITH the sentinel and NOT reported without it; rc_excl=$rc_excl rc_ctl=$rc_ctl; output:\n$out\n--- control ---\n$out_ctl"
+fi
+teardown_fixture
 
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"

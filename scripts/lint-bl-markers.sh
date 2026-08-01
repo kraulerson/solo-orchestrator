@@ -18,17 +18,23 @@
 #   (a) MARKER -> ENTRY. Every `# BL-NNN-…` marker comment in the code
 #       surface names a `BL-NNN` that has a `## BL-NNN:` entry in
 #       solo-orchestrator-backlog.md. Catches a marker minted against a
-#       typo'd or nonexistent entry id.
+#       typo'd or nonexistent entry id. Measured on this branch,
+#       2026-07-31: 86 distinct marker prefixes, 0 without an entry.
+#       (86, not 85 — this lint's own test fixtures mint BL-196. Count it
+#       with the recipe, never from memory: that off-by-one is exactly the
+#       stamped-to-a-tree failure `## BL-196:` is about.)
 #   (b) CITE -> MARKER. Every marker CITATION in the live prose surface
 #       resolves to a marker token that actually exists in the code
 #       surface. This is the core defect class: a cite in prose naming a
 #       marker that no longer exists in code.
-#   (c) VACUITY FLOOR. If either grep breaks (a regex edit, a moved
-#       directory, a renamed surface), the scan would find nothing and
-#       "pass". Floors on the two populations turn a silent no-op into a
-#       loud exit 2. Measured on this branch, 2026-07-31: 280 marker
-#       tokens in the code surface, 368 citations in the prose surface.
-#       The floors sit well below both so ordinary churn never trips them.
+#   (c) VACUITY FLOOR. If a grep breaks (a regex edit, a moved directory,
+#       a renamed surface), the scan would find nothing and "pass". Floors
+#       on all THREE populations — markers, citations, backlog entry ids —
+#       turn a silent no-op into a loud exit 2, and an EMPTY entry set is
+#       refused outright before either join runs (# BL-196-EMPTY-SET-GUARD).
+#       Measured on this branch, 2026-07-31: 284 marker tokens in the code
+#       surface, 368 citations in the prose surface, 204 entry ids. The
+#       floors sit well below all three so ordinary churn never trips them.
 #
 # THE CODE SURFACE (where a marker is DEFINED)
 #   init.sh, scripts/, tests/, templates/, evaluation-prompts/, .github/ —
@@ -44,7 +50,10 @@
 #   SELF-EXCLUSION: this script excludes ITSELF from the code surface. Its
 #   allowlist below names withdrawn markers verbatim, and a lint that can
 #   satisfy its own resolution check by mentioning a token in its own
-#   allowlist would be self-certifying. Nothing else is excluded.
+#   allowlist would be self-certifying. Exclusion is by exact path, by the
+#   `scripts/lint-bl-markers*.sh` rename shape, AND by a content sentinel,
+#   so an arbitrarily-named COPY of this file cannot re-mint the allowlisted
+#   tokens (`# BL-196-SELF-EXCLUDE-BEGIN`). Nothing else is excluded.
 #
 # THE PROSE SURFACE (where a marker is CITED)
 #   CLAUDE.md, README.md, CONTRIBUTING.md, solo-orchestrator-backlog.md,
@@ -121,16 +130,19 @@
 #   bash scripts/lint-bl-markers.sh --root DIR   # test-mode: scan an
 #       alternate tree (used by tests/test-lint-bl-markers.sh). Under
 #       --root the vacuity floors default to 0 — a fixture is SUPPOSED to
-#       be small — and can be raised explicitly with the two flags below
-#       so the floor itself stays testable.
-#   bash scripts/lint-bl-markers.sh --min-markers N --min-cites N
+#       be small — and can be raised explicitly with the flags below so the
+#       floor itself stays testable.
+#   bash scripts/lint-bl-markers.sh --min-markers N --min-cites N \
+#        --min-entries N
 #
 # BASH 3.2 COMPATIBILITY
 #   macOS ships bash 3.2.57 as /bin/bash. No associative arrays, no
 #   ${var,,}, no `((x++))` under set -e. Sets are temp files; the two
-#   resolution joins are single awk passes over two files (the NR==FNR
-#   trick), so no shell variable is ever interpolated into an awk
-#   program — awk reads its inputs, never `-v`.
+#   resolution joins are single awk passes over two files, discriminated by
+#   `FILENAME == ARGV[1]` and deliberately NOT by the `NR==FNR` idiom —
+#   `NR==FNR` is TRUE for every record of the second file when the first is
+#   empty, which turned both joins into silent no-ops. No shell variable is
+#   ever interpolated into an awk program — awk reads its inputs, never `-v`.
 
 set -uo pipefail
 
@@ -141,8 +153,9 @@ LIST_MODE=0
 ROOT_OVERRIDE=""
 MIN_MARKERS=""
 MIN_CITES=""
+MIN_ENTRIES=""
 
-USAGE="Usage: $0 [--list] [--root DIR] [--min-markers N] [--min-cites N]"
+USAGE="Usage: $0 [--list] [--root DIR] [--min-markers N] [--min-cites N] [--min-entries N]"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -156,6 +169,9 @@ while [ $# -gt 0 ]; do
     --min-cites)
       [ $# -ge 2 ] || { echo "$USAGE" >&2; exit 2; }
       MIN_CITES="$2"; shift 2 ;;
+    --min-entries)
+      [ $# -ge 2 ] || { echo "$USAGE" >&2; exit 2; }
+      MIN_ENTRIES="$2"; shift 2 ;;
     -h|--help) echo "$USAGE"; exit 0 ;;
     *) echo "$USAGE" >&2; exit 2 ;;
   esac
@@ -173,16 +189,20 @@ fi
 ROOT="$(cd "$ROOT" && pwd)" || { echo "lint-bl-markers: cannot enter root: $ROOT" >&2; exit 2; }
 
 # Vacuity floors (pass c). Real-tree defaults sit well below the measured
-# populations (280 markers / 368 citations, 2026-07-31); a fixture tree
-# under --root defaults to 0 and raises them explicitly.
+# populations (284 markers / 368 citations / 204 entry ids, 2026-07-31); a
+# fixture tree under --root defaults to 0 and raises them explicitly.
 if [ -z "$MIN_MARKERS" ]; then
   if [ -n "$ROOT_OVERRIDE" ]; then MIN_MARKERS=0; else MIN_MARKERS=50; fi
 fi
 if [ -z "$MIN_CITES" ]; then
   if [ -n "$ROOT_OVERRIDE" ]; then MIN_CITES=0; else MIN_CITES=25; fi
 fi
+if [ -z "$MIN_ENTRIES" ]; then
+  if [ -n "$ROOT_OVERRIDE" ]; then MIN_ENTRIES=0; else MIN_ENTRIES=50; fi
+fi
 case "$MIN_MARKERS" in ''|*[!0-9]*) echo "$USAGE" >&2; exit 2 ;; esac
 case "$MIN_CITES"   in ''|*[!0-9]*) echo "$USAGE" >&2; exit 2 ;; esac
+case "$MIN_ENTRIES" in ''|*[!0-9]*) echo "$USAGE" >&2; exit 2 ;; esac
 
 BACKLOG="$ROOT/solo-orchestrator-backlog.md"
 if [ ! -f "$BACKLOG" ]; then
@@ -206,9 +226,18 @@ trap 'rm -rf "$TMPD"' EXIT
 # depend on semgrep's `Parsed lines`. Entries BL-186, BL-189 and BL-192
 # all cite them as not-on-this-tree on purpose. That is BL-196's own
 # lesson — a marker claim is stamped with a tree — so the citations are
-# correct and it is this lint that must yield. Delete these rows when the
-# branch merges (they then resolve by exact match) or when the entries are
-# rewritten.
+# correct and it is this lint that must yield.
+#
+# WHEN `fix/bl112-sast-scan-coverage` MERGES, do BOTH of these:
+#   1. delete the two rows below — the tokens then resolve by exact match
+#      and the rows become dead weight; and
+#   2. re-read `T-REPO-LIST` in tests/test-lint-bl-markers.sh. That case
+#      asserts the allowlist MECHANISM is live, and rows only render on a
+#      MISS — so the merge alone changes what it observes. It is written to
+#      accept EITHER a rendered allowlist row OR every allowlisted token
+#      resolving EXACT (and it is vacuously satisfied once the rows are
+#      gone), so the ORDER does not matter and neither step reds the unit
+#      lane on its own. Do not tighten it back to "at least one row".
 ALLOWLIST="
 BL-186-PARSE-COVERAGE|withdrawn to unmerged branch fix/bl112-sast-scan-coverage (e87dbd3) per BL-192; cited as not-on-this-tree on purpose
 BL-186-EMPTY-TARGETS|withdrawn to unmerged branch fix/bl112-sast-scan-coverage (e87dbd3) per BL-192; cited as not-on-this-tree on purpose
@@ -236,12 +265,39 @@ for surface_entry in $CODE_SURFACE; do
     done < <(find "$target" -type f -print 2>/dev/null)
   fi
 done
+# ── BL-196-SELF-EXCLUDE-BEGIN ───────────────────────────────────────────
 # Self-exclusion (see header): this script's own allowlist names tokens
 # verbatim; letting it define them would make the lint self-certifying.
+#
+# THREE LAYERS, because an exact-path exclusion is trivially defeated.
+# A COPY of this script anywhere in the code surface re-mints every
+# allowlisted token, and every allowlisted citation then resolves EXACT —
+# a silent, whole-check bypass that no diagnostic mentions:
+#   1. the exact self path;
+#   2. any `scripts/lint-bl-markers*.sh` — the rename/backup shape
+#      (`lint-bl-markers.sh.bak`, `lint-bl-markers-v2.sh`);
+#   3. ANY file in the surface carrying the sentinel string below,
+#      whatever it is called. This is the layer that catches
+#      `cp scripts/lint-bl-markers.sh scripts/zz-copy.sh`: the copy
+#      carries the sentinel because the sentinel is part of the file.
+# Layer 3 subsumes 1 and 2 for honest copies; 1 and 2 stay because they
+# cost nothing and still hold if someone strips the sentinel line.
+# T16 in tests/test-lint-bl-markers.sh is the canary for layer 3.
+SELF_SENTINEL="BL-196-SELF-EXCLUDE-SENTINEL"
 if [ -s "$CODE_FILES" ]; then
-  grep -vxF "$SELF_REL" "$CODE_FILES" > "$CODE_FILES.keep"
+  grep -vxF "$SELF_REL" "$CODE_FILES" \
+    | grep -vE '^scripts/lint-bl-markers[^/]*\.sh$' > "$CODE_FILES.keep"
   mv "$CODE_FILES.keep" "$CODE_FILES"
 fi
+if [ -s "$CODE_FILES" ]; then
+  ( cd "$ROOT" && tr '\n' '\0' < "$CODE_FILES" \
+      | xargs -0 grep -lF "$SELF_SENTINEL" 2>/dev/null ) | sort -u > "$TMPD/self-copies"
+  if [ -s "$TMPD/self-copies" ]; then
+    grep -vxF -f "$TMPD/self-copies" "$CODE_FILES" > "$CODE_FILES.keep"
+    mv "$CODE_FILES.keep" "$CODE_FILES"
+  fi
+fi
+# ── BL-196-SELF-EXCLUDE-END ─────────────────────────────────────────────
 # Drop binary and empty files in ONE pass. grep -I skips binaries and the
 # empty pattern matches every line of every text file, so what survives is
 # exactly the set awk can safely read. Without this a stray .DS_Store (or
@@ -270,6 +326,21 @@ case "$MARKER_COUNT" in ''|*[!0-9]*) MARKER_COUNT=0 ;; esac
 ENTRY_IDS="$TMPD/entry-ids"
 grep -oE '^## BL-[0-9]+[a-z]?:' "$BACKLOG" 2>/dev/null \
   | sed -e 's/^## //' -e 's/:$//' | sort -u > "$ENTRY_IDS"
+
+ENTRY_COUNT=$(grep -c . "$ENTRY_IDS" 2>/dev/null) || ENTRY_COUNT=0
+case "$ENTRY_COUNT" in ''|*[!0-9]*) ENTRY_COUNT=0 ;; esac
+
+# ── BL-196-EMPTY-SET-GUARD ──────────────────────────────────────────────
+# An EMPTY entry-id set is never a legitimate state: the file exists (checked
+# above) and every backlog has `## BL-NNN:` headers. It is the signature of a
+# broken header regex or the wrong file, and it must fail LOUDLY rather than
+# be inherited by the joins below — see the FILENAME note on each join for
+# what an empty first file used to do to an NR==FNR discriminator.
+if [ "$ENTRY_COUNT" -eq 0 ]; then
+  echo "lint-bl-markers: EMPTY ENTRY SET — no '## BL-NNN:' headers matched in $BACKLOG." >&2
+  echo "That is not a clean tree, it is a broken scan: the header regex, the file, or the surface list is wrong. Refusing to report a verdict." >&2
+  exit 2
+fi
 
 VIOLATIONS=0
 LIST_ROWS=""
@@ -307,8 +378,16 @@ if [ -s "$CODE_FILES" ]; then
       | xargs -0 awk -f "$EXTRACT_DEFS" 2>/dev/null ) > "$MARKER_SITES"
 fi
 
+# The join discriminates on FILENAME, NOT on `NR==FNR`. With an EMPTY first
+# file the classic `NR==FNR` idiom stays true for every record of the SECOND
+# file — awk never read a record from the first, so NR and FNR march together
+# — and the whole marker-site set is silently swallowed into `ent[]`, printing
+# nothing and reporting a clean pass over an unchecked tree. FILENAME cannot
+# drift that way: a record either came from ARGV[1] or it did not. The
+# EMPTY-SET-GUARD above already refuses this state; this is the second layer,
+# because the guard protects one call site and the idiom is copied.
 UNKNOWN_ENTRY_SITES="$TMPD/unknown-entry-sites"
-awk -F'\t' 'NR==FNR { ent[$1]=1; next } !($3 in ent)' \
+awk -F'\t' 'FILENAME == ARGV[1] { ent[$1]=1; next } !($3 in ent)' \
   "$ENTRY_IDS" "$MARKER_SITES" > "$UNKNOWN_ENTRY_SITES"
 
 while IFS=$'\t' read -r m_file m_line m_id; do
@@ -373,9 +452,13 @@ case "$PROSE_CITES" in ''|*[!0-9]*) PROSE_CITES=0 ;; esac
 
 # Resolution join: EXACT match, else FAMILY match (`TOKEN-` prefixes a
 # known code token). Emits `verdict<TAB>file<TAB>line<TAB>token<TAB>ann`.
+# FILENAME-discriminated for the same reason as the pass-(a) join above: an
+# empty MARKER_TOKENS under `NR==FNR` swallowed the entire citation list and
+# reported nothing. On the real tree the marker floor masks that; under
+# --root, where the floors default to 0, it was a live false pass.
 RESOLVED="$TMPD/cites-resolved"
 awk -F'\t' '
-  NR==FNR { n++; toks[n] = $1; tok[$1] = 1; next }
+  FILENAME == ARGV[1] { n++; toks[n] = $1; tok[$1] = 1; next }
   {
     verdict = "MISS"
     if ($3 in tok) verdict = "EXACT"
@@ -421,16 +504,19 @@ done < "$RESOLVED"
 if [ "$LIST_MODE" -eq 1 ]; then
   printf 'STATUS\tPASS\tFILE:LINE\tTOKEN\tDETAIL\n'
   printf '%b' "$LIST_ROWS"
-  printf 'INFO\tpopulation\t-\t-\t%s marker token(s) in the code surface, %s citation(s) in the prose surface\n' \
-    "$MARKER_COUNT" "$PROSE_CITES"
+  printf 'INFO\tpopulation\t-\t-\t%s marker token(s) in the code surface, %s citation(s) in the prose surface, %s backlog entry id(s)\n' \
+    "$MARKER_COUNT" "$PROSE_CITES" "$ENTRY_COUNT"
 fi
 
 # ── PASS (c): vacuity floor ─────────────────────────────────────────────
-# A broken regex or a moved directory makes both populations collapse to
-# zero, and a lint with nothing to check "passes". Refuse to.
-if [ "$MARKER_COUNT" -lt "$MIN_MARKERS" ] || [ "$PROSE_CITES" -lt "$MIN_CITES" ]; then
+# A broken regex or a moved directory makes a population collapse, and a lint
+# with nothing to check "passes". Refuse to. All THREE populations are floored:
+# the entry-id set is the input to pass (a)'s join, so a collapsed entry set is
+# every bit as blinding as a collapsed marker set.
+if [ "$MARKER_COUNT" -lt "$MIN_MARKERS" ] || [ "$PROSE_CITES" -lt "$MIN_CITES" ] \
+   || [ "$ENTRY_COUNT" -lt "$MIN_ENTRIES" ]; then
   echo "" >&2
-  echo "lint-bl-markers: VACUOUS SCAN — found $MARKER_COUNT marker token(s) (floor $MIN_MARKERS) and $PROSE_CITES citation(s) (floor $MIN_CITES)." >&2
+  echo "lint-bl-markers: VACUOUS SCAN — found $MARKER_COUNT marker token(s) (floor $MIN_MARKERS), $PROSE_CITES citation(s) (floor $MIN_CITES) and $ENTRY_COUNT backlog entry id(s) (floor $MIN_ENTRIES)." >&2
   echo "The scan collapsed, so a pass would be meaningless. Check the code/prose surface lists and the extraction regexes in this script." >&2
   exit 2
 fi
