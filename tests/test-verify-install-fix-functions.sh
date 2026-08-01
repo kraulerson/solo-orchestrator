@@ -481,7 +481,20 @@ mkdir -p "$T15PROJ/scripts/lib"
 cp "$REPO_ROOT/scripts/lib/hook-templates.sh" "$T15PROJ/scripts/lib/hook-templates.sh"
 ( cd "$T15PROJ" && git init -q ) >/dev/null 2>&1
 T15EXTRACT="$T15TMP/fix.sh"
-awk '/^fix_precommit_hook\(\) \{/,/^\}/' "$REPO_ROOT/scripts/verify-install.sh" > "$T15EXTRACT"
+# BL-145: fix_precommit_hook now opens with a repair-safety guard
+# (_bl145_refuse_unsafe_hook_write — never write THROUGH a symlinked hook, never
+# write an inert hook under core.hooksPath). Extract its helpers alongside the
+# function instead of STUBBING them: a stub would make this harness green even
+# if the guard were silently removed, and the guard is the point of BL-145.
+# T15's fixture is a plain .git/hooks path with no core.hooksPath, so the real
+# guard passes through and the ruleset assertion below is unchanged.
+: > "$T15EXTRACT"
+for _t15fn in _bl145_symlink_target _bl145_hookspath_is_set \
+              _bl145_configured_hookspath _bl145_hookspath_label \
+              _bl145_refuse_unsafe_hook_write fix_precommit_hook; do
+  awk -v fn="$_t15fn" '$0 ~ "^" fn "\\(\\) \\{", /^\}/' \
+    "$REPO_ROOT/scripts/verify-install.sh" >> "$T15EXTRACT"
+done
 T15DRIVER="$T15TMP/driver.sh"
 {
   echo 'set -uo pipefail'
