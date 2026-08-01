@@ -339,6 +339,7 @@ jobs:
             tests/test-bl184-child-suite-evidence.sh
             tests/test-bl141-commitmsg-repair.sh
             tests/test-bl143-pastcap-selfapproval.sh
+            tests/test-bl144-selfapproval-silent-arms.sh
             tests/test-bl155-phase2-init-transition-commit.sh
             tests/test-bl168-tm-table-sigpipe.sh
             tests/test-bl165-dast-hardened-serve.sh
@@ -385,6 +386,7 @@ jobs:
             tests/test-intake-wizard-fixes.sh
             tests/test-lint-backlog-references.sh
             tests/test-lint-counter-antipattern.sh
+            tests/test-lint-diagnostic-destruction.sh
             tests/test-lint-doc-anchors.sh
             tests/test-lint-fix-functions-stderr.sh
             tests/test-lint-no-live-remote.sh

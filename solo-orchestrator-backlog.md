@@ -6523,6 +6523,38 @@ asking why it said so little — which does not scale and did not, in fact, happ
 citation-integrity gap filed the same day), `scripts/lint-fail-emit-exit-status.sh`, and the
 silent-success class recorded in the `adversarial-verify-patterns` memory note.
 
+**UPDATE 2026-07-31 — the lint LANDED; entry stays Open for instance 3 only.** Delivered on
+`fix/bl197-diagnostic-destruction-lint` (`0585b90` + review round `ddb3f2f`;
+`scripts/lint-diagnostic-destruction.sh`, markers `# BL-197-DD1-SILENCER` /
+`# BL-197-DD1-FAILARM` / `# BL-197-CODE-SKELETON` / `# BL-197-IO-HARD-FAIL`; suite
+`tests/test-lint-diagnostic-destruction.sh`, 21/0). What ships: DD1 gating (one-line
+silenced-diagnostic failure reports, seven silencer spellings, four reporters, presence-probe
+carve-out anchored to the LAST simple command, `# lint-diag-ok: <reason>` exemption with
+empty-reason-fails), DD2 truncated-evidence census behind `--census` (489 sites, ADVISORY —
+a 216-row gating roster would itself be diagnostic destruction), heredoc bodies scanned
+(instance 3 lived in one), and hard exit-2 on unusable I/O instead of silent skips. EIGHT true
+positives on the merge-day tree were fixed in the same diff (five `bash -n` and one `jq` site in
+the full-suite aggregator, one terminal-mode case) or reason-annotated (the init.sh push
+fallback). Review arc: two adversarial rounds. Round 1 (major_concerns) proved the suite pinned
+only 3 of 7 spellings — three excision mutants survived every PR-blocking check, the thrice-
+recorded BL-181 class; killed by a 12-must-flag/10-control battery (T19), each mutant now failing
+by name. The reviewer's own template then exposed TWO false positives (a reporter merely NAMED in
+a string; the whole shape QUOTED) — fixed by quoted-span blanking and arm-head reporter matching.
+Confirm round: minor_concerns, merge unblocked; its fresh attack found only constructed
+zero-live-exposure corners, accepted as named residuals: backslash-escape blindness in the
+skeleton (FP and FN both constructible, ~4-line fix if it ever goes live), the mid-arm reporter
+after `{ echo ctx; fail_ …; }` (the one regression direction vs the per-line engine — zero tree
+sites), subshell-arm and `$'…'`-quoted reporters, `$(…)` in the probe strip set. MEASURED
+SURVIVING SHAPES beyond scope (round-1 census, recorded so the narrowness is a decision, not a
+blind spot): ~10 multi-line `|| {` reporter arms with silencers (6 in
+`tests/upgrade-path-tests.sh`, 1 in `run-phase3-validation.sh`), ~100 multi-line
+`if ! cmd 2>/dev/null` + reporter sites (~50 of them mutant-parse guards of exactly the shape
+this PR fixed in the aggregator), bare `echo "[FAIL]"`-style reporters. The lint job is in
+lint.yml but NOT a required check (Karl's promotion call, consistent with the
+evalprompts-portability precedent). **Instance 3 (symptom-instead-of-number messages) remains
+unmechanized — 1,120 zero-interpolation candidates, mostly correct — and is what this entry now
+stays Open for.**
+
 ---
 
 ## BL-198: Implementation plan v2 — TRANSCODE undecodable-but-textual staged files and scan the converted bytes; reject only as the fallback
@@ -8074,3 +8106,55 @@ archive is the same defect).
 **Related:** BL-093 (the split that widens the surface), BL-196 (the marker-citation validator —
 same "the citation primitive has no guard" family), the BL-200 numbering note (cross-branch
 reservation discipline).
+
+---
+
+## BL-208: `templates/pipelines/ci/gitlab/java.yml` fails a STRICT libyaml parse — colons in the maven flow-scalar script item
+
+**Logged:** 2026-07-31 (pre-existing, first observed and noted for housekeeping on Closed
+BL-201's closure UPDATE: "Observed while verifying, pre-existing and NOT this change's:
+`templates/pipelines/ci/gitlab/java.yml` fails strict libyaml parse (colons in the maven
+dependencies flow scalar, present at the pre-change HEAD; GitLab's own parser accepts it) —
+noted for housekeeping")
+**Category:** Generated-project CI / template YAML correctness
+**Severity:** Low
+
+`templates/pipelines/ci/gitlab/java.yml` fails a STRICT libyaml parse:
+
+```
+found unexpected ':' while scanning a plain scalar at line 24 column 12
+```
+
+on the maven flow-scalar line:
+
+```
+script: [mvn -B dependency:analyze org.owasp:dependency-check-maven:check --no-transfer-progress]
+```
+
+Old libyaml (Psych / Ruby 2.6, libyaml 0.2.1) rejects colons inside plain scalars in flow
+sequences; modern parsers (PyYAML — every loader — and current GitLab stacks, whose libyaml accepts it) do, which
+is why this survived unnoticed until BL-201's closure review ran a stricter probe. Pre-existing
+since the template was written; not introduced by any recent change.
+
+**REPRO COMMAND (do not substitute a Python probe — see below):**
+
+```
+ruby -ryaml -e 'YAML.load_file("templates/pipelines/ci/gitlab/java.yml")'
+```
+
+A Python probe (`python3 -c 'import yaml; yaml.safe_load(open("templates/pipelines/ci/gitlab/java.yml"))'`)
+**wrongly passes** — PyYAML is lenient about colons in flow-context plain scalars where libyaml
+is not — so a Python check is not evidence this is fine; the ruby/libyaml probe is the one that
+reproduces the failure an older libyaml-based consumer (e.g. Psych on Ruby 2.6)
+would hit.
+
+**Status:** Open — the fix ships on this same branch (`fix/bl208-java-yaml-strict-parse`: the
+single flow-scalar script item is double-quoted as one string so strict libyaml parses it, with
+no semantic change to the executed command). This entry closes at that branch's merge commit.
+Residual, recorded per review R-BL208-1: NO check in either lane strict-parses the 30 CI
+templates (nothing greps or loads them with a strict libyaml), so a recurrence of this exact
+wart merges green — reintroducing the unquoted line passed test-bl147 63/0 and all nine lint
+jobs by identity. Candidate follow-up: a ruby-guarded strict-parse arm in test-bl147.
+
+**Related:** BL-201 (the closure UPDATE where this was first observed and deferred to
+housekeeping).
