@@ -450,7 +450,7 @@ run_child_suite "tests/test-lint-raw-read-prompt.sh" \
 # block above: run the linter's OWN behavior suite so a narrowing of its
 # predicate (or of a carve-out) can't quietly start blessing the class.
 run_child_suite "tests/test-lint-diagnostic-destruction.sh" \
-  "scripts/lint-diagnostic-destruction.sh behavior tests (18/18)" \
+  "scripts/lint-diagnostic-destruction.sh behavior tests" \
   "scripts/lint-diagnostic-destruction.sh behavior tests FAILED (run tests/test-lint-diagnostic-destruction.sh for details)"
 
 # BL-076: no test may execute init.sh in a shape that can create a REAL
