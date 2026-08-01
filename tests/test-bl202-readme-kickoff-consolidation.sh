@@ -31,15 +31,19 @@
 #       is what a well-meaning "let's show them the real one" edit would paste
 #       in).
 #   T2b STRUCTURAL backstop for a REWORDED re-introduction, which no literal
-#       can catch: every fenced code block inside § Quick Start must OPEN with
-#       an info string (```bash and friends). The stale kickoff block was a
-#       BARE ``` fence wrapping prose addressed to the agent, and a prose paste
-#       block is what that shape is for. Deliberately a little strict — a
-#       legitimate bare fence in this one section has to earn its place — and
-#       the failure message says so. M5 proves it does work T2 cannot.
-#       OPENERS ONLY: closing fences are bare by construction, so a naive
-#       `grep -Eq '^```$'` flags every healthy ```bash block. It did, on this
-#       suite's first run. The predicate tracks fence state instead.
+#       can catch: every FENCE OPENER inside § Quick Start must carry an info
+#       string (```bash and friends). The stale kickoff block was a bare fence
+#       wrapping prose addressed to the agent, and a prose paste block is what
+#       that shape is for. Deliberately a little strict — a legitimate bare
+#       fence in this one section has to earn its place — and the failure
+#       message says so. M5 proves it does work T2 cannot.
+#       BOTH fence characters count (``` and ~~~) and only the SAME character
+#       closes; the predicate's own comment block carries the three ways this
+#       has been got wrong and the shapes it still cannot see.
+#   T6  OVER-REFUSAL GUARD for that matcher: a healthy ```bash block whose
+#       CONTENT includes a ~~~ line, plus a following ```bash block, must not
+#       be reported. Pins that nobody "simplifies" the same-character rule
+#       away. M7 is its proof.
 #   T3  HONESTY. The README is read by people who have not generated a project
 #       yet, and scripts/resume.sh exists ONLY inside a generated project. A
 #       pointer that sends a pre-init reader to a script they do not have is a
@@ -63,6 +67,15 @@
 #       GREEN (stated, not papered over: literals cannot see a reword) while
 #       T2b goes red. This is the proof that the structural net is not
 #       redundant with the literal one.
+#   M6  the SAME reworded block in TILDE fences -> T2b must still go red.
+#       Added for review finding R-BL202RK-1, which reproduced here as a
+#       watched RED: the backtick-only matcher passed the tilde payload at
+#       11/1 while the header claimed it covered "every fenced code block".
+#   M7  run BOTH matchers over T6's healthy mixed-fence fixture: the shipped
+#       same-character predicate accepts it, the naive any-fence-closes
+#       variant (kept in-suite as _p2b_naive_any_fence_closes, used nowhere
+#       else) false-fails it. Proves the same-character branch changes a real
+#       outcome instead of being harmless extra code.
 #
 # Hermetic: reads README.md, writes only under its own mktemp -d.
 # No init-script invocation, no network, no remote creation.
@@ -133,22 +146,71 @@ p2_no_stale_copy() {
   return 0
 }
 
-# Every fence OPENER in § Quick Start must name a language. A bare ``` opener
-# there is the shape a prose paste block takes.
+# Every fence OPENER in § Quick Start must name a language. A bare opener there
+# is the shape a prose paste block takes.
 #
-# Openers only, deliberately: a CLOSING fence is bare by definition, so the
-# obvious one-line `grep -Eq '^```$'` reports every well-formed ```bash block
-# in the section as a violation. It did exactly that on the first run of this
-# suite. Fence state has to be tracked.
+# THREE THINGS THIS HAS TO GET RIGHT, each of which it got wrong once:
+#
+# 1. OPENERS ONLY. A CLOSING fence is bare by definition, so the obvious
+#    one-line `grep -Eq '^```$'` reports every well-formed ```bash block in the
+#    section as a violation. It did exactly that on this suite's first run.
+#    Fence state has to be tracked.
+# 2. BOTH FENCE CHARACTERS. `~~~` is a valid CommonMark fence that renders
+#    identically to ```. A backtick-only matcher let a tilde-fenced reworded
+#    paste block through while the header claimed "every fenced code block" —
+#    review finding R-BL202RK-1. M6 pins it.
+# 3. ONLY THE SAME CHARACTER CLOSES. A `~~~` line INSIDE a ```bash block is
+#    content, not a closer. Letting any fence toggle the state desynchronises
+#    everything after it: the block's real ``` closer then reads as an OPENER
+#    with no info string and the section fails for a violation that is not
+#    there. T6 is the over-refusal guard and M7 proves it load-bearing.
+#
+# KNOWN-UNCATCHABLE SHAPES, stated rather than papered over:
+#   • a 4-space-INDENTED code block carries no fence at all and is invisible
+#     here. The literal net (T2) is the only thing covering that shape.
+#   • a ```text-tagged block passes by construction. That is the deliberate
+#     escape hatch T2b's own failure message offers, not an oversight.
+#   • closer LENGTH is not checked (CommonMark wants the closer at least as
+#     long as the opener). A short closer would end the block early here and
+#     could only ever produce a FALSE POSITIVE, never a miss.
 p2b_no_bare_fence_in_quickstart() {
   local qs="$TMP/.p2b.md"
   quick_start_section "$1" "$qs" || return 1
   awk '
-    /^[[:space:]]*```/ {
+    /^[[:space:]]*(```|~~~)/ {
+      line = $0
+      sub(/^[[:space:]]*/, "", line)
+      ch = substr(line, 1, 1)
+      if (open) {
+        # Same character only — a ~~~ inside a ```bash block is content.
+        if (ch == opench) open = 0
+        next
+      }
+      open = 1
+      opench = ch
+      info = line
+      sub(/^(```+|~~~+)[[:space:]]*/, "", info)
+      if (info == "") bare = 1
+      next
+    }
+    END { exit (bare ? 1 : 0) }
+  ' "$qs"
+}
+
+# The NAIVE alternative this suite must not regress to: any fence character
+# toggles the state. Used ONLY by M7, to show the same-character rule is doing
+# real work rather than being harmless extra code.
+_p2b_naive_any_fence_closes() {
+  local qs="$TMP/.p2bnaive.md"
+  quick_start_section "$1" "$qs" || return 1
+  awk '
+    /^[[:space:]]*(```|~~~)/ {
+      line = $0
+      sub(/^[[:space:]]*/, "", line)
       if (open) { open = 0; next }
       open = 1
-      info = $0
-      sub(/^[[:space:]]*```[[:space:]]*/, "", info)
+      info = line
+      sub(/^(```+|~~~+)[[:space:]]*/, "", info)
       if (info == "") bare = 1
       next
     }
@@ -218,6 +280,25 @@ t4_bl199_activation_still_documented() {
   fi
 }
 
+# OVER-REFUSAL GUARD for the fence matcher. A ```bash block whose CONTENT
+# includes a ~~~ line, followed by a second ```bash block, is perfectly healthy
+# markdown and must not be reported. Under a naive any-fence-closes matcher the
+# ~~~ ends the first block, the real ``` closer reads as a bare OPENER, and the
+# section fails for a violation that does not exist. M7 runs both matchers over
+# this fixture to prove the difference is real.
+t6_mixed_fences_not_over_refused() {
+  local m; m="$(mutant_path t6)"
+  if ! insert_into_quickstart "$README" "$m" write_mixed_fence_healthy_block; then
+    fail_ "T6" "could not build the fixture — payload insertion produced nothing"
+    return
+  fi
+  if ! p2b_no_bare_fence_in_quickstart "$m"; then
+    fail_ "T6" "a healthy § Quick Start was REJECTED: a \`\`\`bash block containing a ~~~ line plus a following \`\`\`bash block is not a violation. The fence matcher is treating a different fence character as a closer and desyncing"
+    return
+  fi
+  pass "T6: a \`\`\`bash block containing a ~~~ line is not mistaken for a bare fence (no over-refusal)"
+}
+
 t5_blank_screen() {
   if p5_blank_screen_reassurance "$README"; then
     pass "T5: § Quick Start carries the blank-screen reassurance ('ready and waiting, not stuck')"
@@ -267,13 +348,33 @@ write_reworded_block() {
 REWORDED
 }
 
-# Insert a payload just before the § Quick Start section's closing `---`
-# separator so it lands INSIDE the section for the section-scoped predicates.
+# The same reworded block in TILDE fences. `~~~` is a valid CommonMark fence
+# and renders identically to ```; an author reaching for it is not doing
+# anything exotic. R-BL202RK-1 found T2b blind to it.
+write_tilde_reworded_block() {
+  cat <<'TILDE'
+4. Give the agent its bearings with this opening message:
+   ~~~
+   Before doing anything, open the project instructions, the product
+   definition, the methodology reference and the recorded phase, then tell me
+   what you found and start the first phase.
+   ~~~
+TILDE
+}
+
+# Insert a payload immediately BEFORE the next top-level `## ` heading — i.e.
+# at the very end of § Quick Start — so it lands inside the section the
+# section-scoped predicates read.
 insert_into_quickstart() {
   # insert_into_quickstart <src> <dst> <payload-writer>
   local src="$1" dst="$2" writer="$3"
   "$writer" > "$TMP/.payload"
-  awk -v payload="$TMP/.payload" '
+  # The payload PATH travels through ENVIRON, not `awk -v`. `-v` runs its value
+  # through escape processing, so a backslash in a temp path would be eaten —
+  # the portability class this repo recorded on 2026-07-31. ENVIRON hands awk
+  # the literal bytes.
+  SOIF_BL202_PAYLOAD="$TMP/.payload" awk '
+    BEGIN { payload = ENVIRON["SOIF_BL202_PAYLOAD"] }
     /^## Quick Start[[:space:]]*$/ { inqs = 1 }
     inqs && /^## / && !/^## Quick Start[[:space:]]*$/ {
       while ((getline line < payload) > 0) print line
@@ -283,6 +384,23 @@ insert_into_quickstart() {
     { print }
   ' "$src" > "$dst"
   [ -s "$dst" ]
+}
+
+# A HEALTHY § Quick Start that would break a naive fence matcher: a ```bash
+# block whose CONTENT includes a ~~~ line, followed by a second ```bash block.
+# Nothing here is a violation.
+write_mixed_fence_healthy_block() {
+  cat <<'MIXED'
+4. A worked example that happens to contain a tilde line:
+   ```bash
+   echo "the next line is content, not a fence"
+   ~~~
+   ```
+   And a second, ordinary block after it:
+   ```bash
+   echo "still fine"
+   ```
+MIXED
 }
 
 m1_strip_generator_pointer() {
@@ -389,9 +507,54 @@ m5_reworded_paste_block() {
   pass "M5: T2b catches a REWORDED re-introduction that no literal can (mutant RED, source GREEN)"
 }
 
+m6_tilde_fenced_paste_block() {
+  local m; m="$(mutant_path m6)"
+  if ! insert_into_quickstart "$README" "$m" write_tilde_reworded_block; then
+    fail_ "M6" "could not build the mutant — payload insertion produced nothing"
+    return
+  fi
+  if ! p2_no_stale_copy "$m"; then
+    fail_ "M6" "the tilde payload tripped a literal signature — not the reword it claims to be, so it proves nothing about T2b"
+    return
+  fi
+  if p2b_no_bare_fence_in_quickstart "$m"; then
+    fail_ "M6" "mutant survived: a REWORDED paste block in TILDE fences (~~~, valid CommonMark, renders identically to \`\`\`) passed T2b. The structural net only looks at backtick fences, so the suite header's claim that 'every fenced code block inside § Quick Start must OPEN with an info string' is FALSE as written"
+    return
+  fi
+  if ! p2b_no_bare_fence_in_quickstart "$README"; then
+    fail_ "M6" "GREEN direction failed: the unmutated README does not satisfy T2b"
+    return
+  fi
+  echo "    [mutation] M6 RED confirmed: a tilde-fenced reworded paste block is caught by T2b; unmutated README passes"
+  pass "M6: T2b sees TILDE fences, not only backticks (mutant RED, source GREEN)"
+}
+
+m7_same_char_rule_is_load_bearing() {
+  local m; m="$(mutant_path m7)"
+  if ! insert_into_quickstart "$README" "$m" write_mixed_fence_healthy_block; then
+    fail_ "M7" "could not build the fixture — payload insertion produced nothing"
+    return
+  fi
+  # The real predicate must accept it (that is T6, restated against the same
+  # fixture so this proof is self-contained).
+  if ! p2b_no_bare_fence_in_quickstart "$m"; then
+    fail_ "M7" "the shipped predicate REJECTED a healthy section — the same-character rule is not working, so T6 is red for a real reason"
+    return
+  fi
+  # The naive alternative must reject it. If it does not, the same-character
+  # branch is decorative and T6 pins nothing.
+  if _p2b_naive_any_fence_closes "$m"; then
+    fail_ "M7" "mutant survived: the naive any-fence-closes matcher ALSO accepted the mixed-fence section, so the same-character rule changes no outcome and T6 proves nothing"
+    return
+  fi
+  echo "    [mutation] M7 RED confirmed: the naive any-fence-closes matcher desyncs on a ~~~ inside a \`\`\`bash block and false-fails the section; the shipped same-character matcher accepts it"
+  pass "M7: the same-character close rule is load-bearing (naive variant RED, shipped predicate GREEN)"
+}
+
 t1_names_generator
 t2_no_stale_copy
 t2b_no_bare_fence
+t6_mixed_fences_not_over_refused
 t3_honesty
 t4_bl199_activation_still_documented
 t5_blank_screen
@@ -400,6 +563,8 @@ m2_reinsert_historical_block
 m3_strip_honesty_sentence
 m4_drop_bare_name_activation
 m5_reworded_paste_block
+m6_tilde_fenced_paste_block
+m7_same_char_rule_is_load_bearing
 
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
