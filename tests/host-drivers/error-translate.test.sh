@@ -52,64 +52,79 @@ fi
 # shellcheck disable=SC1090
 source "$LIB"
 
-# explain <raw> — capture the translator's stderr.
+# explain <raw> — capture the translator's stderr (translation + raw block).
 explain() { host_explain_error "$1" 2>&1; }
+
+# xlat <raw> — capture ONLY the two translated lines.
+#
+# WHY THIS EXISTS. The content assertions below originally matched against the
+# whole of `explain`'s output, which INCLUDES the host's raw text echoed back.
+# A mutation run caught the consequence: disabling the SSO arm entirely left
+# E1 green, because the word "authorize" it was looking for lives in the raw
+# GitHub message, not in the translation. Every content assertion about what
+# the translation SAYS must read the translation alone; assertions about the
+# raw passthrough (E5, E7-E11) still read the full output on purpose.
+xlat() { explain "$1" | grep -E "^  (What this means|What to do):"; }
 
 # ── E1-E4: each of the four named causes gets a sentence + an action ──
 
 e1_sso() {
-  local out
-  out=$(explain 'HTTP 403: Although you appear to have the correct authorization credentials, the `acme-corp` organization has enabled or enforced SAML SSO. To access this resource, you must use the full-repository-scope token and authorize it for this organization.')
-  case "$out" in
+  local t
+  t=$(xlat 'HTTP 403: Although you appear to have the correct authorization credentials, the `acme-corp` organization has enabled or enforced SAML SSO. To access this resource, you must use the full-repository-scope token and authorize it for this organization.')
+  case "$t" in
     *"$WHAT_ANCHOR"*) ;;
-    *) fail_ "E1" "SSO/SAML text produced no plain-language translation: $out"; return ;;
+    *) fail_ "E1" "SSO/SAML text produced no plain-language translation: $t"; return ;;
   esac
-  case "$out" in
+  case "$t" in
     *"$DO_ANCHOR"*) ;;
-    *) fail_ "E1" "SSO/SAML translation has no action line: $out"; return ;;
+    *) fail_ "E1" "SSO/SAML translation has no action line: $t"; return ;;
   esac
   # The sentence must be about ORG AUTHORIZATION, not generic permission.
-  if ! grep -qi 'authoriz' <<<"$out"; then
-    fail_ "E1" "SSO translation does not mention authorizing the login for the organization: $out"; return
+  if ! grep -qi 'authoriz' <<<"$t"; then
+    fail_ "E1" "SSO translation does not mention authorizing the login for the organization: $t"; return
   fi
   pass "E1: SAML/SSO org-authorization 403 gets a plain sentence + an action"
 }
 
 e2_rate_limit() {
-  local out
-  out=$(explain 'HTTP 403: API rate limit exceeded for user ID 12345. (https://api.github.com/user/repos)')
-  case "$out" in
+  local t
+  t=$(xlat 'HTTP 403: API rate limit exceeded for user ID 12345. (https://api.github.com/user/repos)')
+  case "$t" in
     *"$WHAT_ANCHOR"*) ;;
-    *) fail_ "E2" "rate-limit text produced no translation: $out"; return ;;
+    *) fail_ "E2" "rate-limit text produced no translation: $t"; return ;;
   esac
-  if ! grep -qiE 'wait|again|later|minute' <<<"$out"; then
-    fail_ "E2" "rate-limit action must tell the user to wait and retry: $out"; return
+  if ! grep -qiE 'wait|again|later|minute' <<<"$t"; then
+    fail_ "E2" "rate-limit action must tell the user to wait and retry: $t"; return
   fi
   pass "E2: rate limit gets a plain sentence + a wait-and-retry action"
 }
 
 e3_expired_auth() {
-  local out
-  out=$(explain 'HTTP 401: Bad credentials (https://api.github.com/user)')
-  case "$out" in
+  local t
+  t=$(xlat 'HTTP 401: Bad credentials (https://api.github.com/user)')
+  case "$t" in
     *"$WHAT_ANCHOR"*) ;;
-    *) fail_ "E3" "401/bad-credentials produced no translation: $out"; return ;;
+    *) fail_ "E3" "401/bad-credentials produced no translation: $t"; return ;;
   esac
-  if ! grep -qiE 'log in|login|sign in|authenticate' <<<"$out"; then
-    fail_ "E3" "expired-auth action must tell the user to log in again: $out"; return
+  if ! grep -qiE 'log in|login|sign in|authenticate' <<<"$t"; then
+    fail_ "E3" "expired-auth action must tell the user to log in again: $t"; return
+  fi
+  # Must NOT be mistaken for the permission arm — the fixes are different.
+  if grep -qi 'not allowed' <<<"$t"; then
+    fail_ "E3" "an expired login was explained as a permission problem: $t"; return
   fi
   pass "E3: expired/invalid auth gets a plain sentence + a log-in-again action"
 }
 
 e4_permission_403() {
-  local out
-  out=$(explain 'HTTP 403: Resource not accessible by personal access token')
-  case "$out" in
+  local t
+  t=$(xlat 'HTTP 403: Resource not accessible by personal access token')
+  case "$t" in
     *"$WHAT_ANCHOR"*) ;;
-    *) fail_ "E4" "generic 403 produced no translation: $out"; return ;;
+    *) fail_ "E4" "generic 403 produced no translation: $t"; return ;;
   esac
-  if ! grep -qiE 'allowed|permission|access' <<<"$out"; then
-    fail_ "E4" "permission translation must say the account is not allowed to do this: $out"; return
+  if ! grep -qiE 'not allowed|permission' <<<"$t"; then
+    fail_ "E4" "permission translation must say the account is not allowed to do this: $t"; return
   fi
   pass "E4: generic 403 permission failure gets a plain sentence + an action"
 }
@@ -134,14 +149,18 @@ e5_unknown_is_raw_only() {
 #        '403', and must not be swallowed by the generic-permission arm. ──
 
 e6_order_sso_beats_403() {
-  local out
-  out=$(explain 'HTTP 403: SAML SSO enforcement — permission denied until you authorize the token for the organization')
-  if ! grep -qi 'organization' <<<"$out"; then
-    fail_ "E6a" "a 403 that is really an SSO failure was classified as generic permission: $out"; return
+  local t
+  # Both inputs are 403s whose real cause is something else. Assert the
+  # DISTINGUISHING sentence, and assert the generic-permission sentence is
+  # absent — "contains the word organization" is not enough, because the
+  # permission sentence mentions organizations too.
+  t=$(xlat 'HTTP 403: SAML SSO enforcement — permission denied until you authorize the token for the organization')
+  if ! grep -qi 'authoriz' <<<"$t" || grep -qi 'not allowed' <<<"$t"; then
+    fail_ "E6a" "a 403 that is really an SSO failure was classified as generic permission: $t"; return
   fi
-  out=$(explain 'HTTP 403: You have exceeded a secondary rate limit. Please wait a few minutes before you try again.')
-  if ! grep -qiE 'too many requests|rate|short time' <<<"$out"; then
-    fail_ "E6b" "a 403 that is really a rate limit was classified as generic permission: $out"; return
+  t=$(xlat 'HTTP 403: You have exceeded a secondary rate limit. Please wait a few minutes before you try again.')
+  if ! grep -qiE 'too many requests|short time' <<<"$t" || grep -qi 'not allowed' <<<"$t"; then
+    fail_ "E6b" "a 403 that is really a rate limit was classified as generic permission: $t"; return
   fi
   pass "E6: SSO and rate-limit 403s outrank the generic-permission arm"
 }

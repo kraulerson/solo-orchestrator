@@ -912,12 +912,27 @@ HEOF
   [ "$C_HOST" = "bitbucket" ] || C_OK=0
   [ "$C_VIS" = "public" ] || C_OK=0
 
-  if [ "$A_OK" -eq 1 ] && [ "$B_OK" -eq 1 ] && [ "$C_OK" -eq 1 ]; then
-    pass "T-bl204-prefill (remembered values are confirmed not re-asked; with neither source the original prompts + the free-tier note still run; the two halves prefill independently)"
+  # ── Case D: visibility remembered but the user says CHANGE IT → the
+  # explanation must run on THAT path too. Added after a mutation run showed
+  # the "change it" arm's _bl204_explain_visibility call could be deleted
+  # with every case still green: A/C never reach it and B reaches the OTHER
+  # call site, so a user who actively wants to reconsider — precisely the one
+  # who needs the free-tier note — was unprotected.
+  D4=$(mktemp -d)
+  _bl204_harness "$D4"
+  printf '{"answers":{"repo_visibility":"private"}}\n' > "$D4/intake-progress.json"
+  D_ERR=$(printf '1\n2\n2\n' | bash "$D4/harness.sh" 2>&1 >/dev/null)
+  D_VIS=$(jq -r '.answers.repo_visibility // "MISSING"' "$D4/intake-progress.json")
+  D_OK=1
+  [ "$D_VIS" = "public" ] || D_OK=0
+  grep -qF "$BL204_FREETIER_ANCHOR" <<<"$D_ERR" || D_OK=0
+
+  if [ "$A_OK" -eq 1 ] && [ "$B_OK" -eq 1 ] && [ "$C_OK" -eq 1 ] && [ "$D_OK" -eq 1 ]; then
+    pass "T-bl204-prefill (remembered values are confirmed not re-asked; with neither source the original prompts + the free-tier note still run; the two halves prefill independently; 'change it' also gets the explanation)"
   else
-    fail_ "T-bl204-prefill" "A(ok=$A_OK host=$A_HOST vis=$A_VIS) B(ok=$B_OK host=$B_HOST vis=$B_VIS) C(ok=$C_OK host=$C_HOST vis=$C_VIS) — BL-204 finding 7"
+    fail_ "T-bl204-prefill" "A(ok=$A_OK host=$A_HOST vis=$A_VIS) B(ok=$B_OK host=$B_HOST vis=$B_VIS) C(ok=$C_OK host=$C_HOST vis=$C_VIS) D(ok=$D_OK vis=$D_VIS) — BL-204 finding 7"
   fi
-  rm -rf "$D" "$D2" "$D3"
+  rm -rf "$D" "$D2" "$D3" "$D4"
 fi
 
 echo ""
