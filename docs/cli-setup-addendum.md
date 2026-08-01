@@ -613,14 +613,6 @@ Run this once per project (during Phase 2 Project Initialization):
 
 ---
 
-## Document Revision History
-
-| Version | Date | Changes |
-|---|---|---|
-| 1.0 | 2026-04-02 | Initial release. |
-
----
-
 ## Git Host CLIs
 
 Solo Orchestrator uses host-specific CLIs for repo creation and protection configuration. Install the one matching your chosen host during intake (required before running `init.sh`).
@@ -701,3 +693,11 @@ on Atlassian's enforcement date. Prefer the API token path above.
 ### Other hosts (Gitea, Codeberg, self-hosted)
 
 No CLI required. During intake, choose `other`; provide the HTTPS clone URL when prompted by `init.sh` and attest that branch protection is configured per the required bar. No CI template is laid down for `other` — supply your own.
+
+---
+
+## Document Revision History
+
+| Version | Date | Changes |
+|---|---|---|
+| 1.0 | 2026-04-02 | Initial release. |

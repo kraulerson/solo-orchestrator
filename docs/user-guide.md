@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | **Document ID** | SOI-007-GUIDE |
-| **Version** | 1.4 |
+| **Version** | 1.5 |
 | **Date** | 2026-08-01 |
 | **Classification** | User Guide |
 | **Companion Documents** | SOI-002-BUILD v1.0 (Builder's Guide), SOI-003-GOV v1.0 (Governance Framework), SOI-004-INTAKE v1.0 (Project Intake Template) |
@@ -214,6 +214,8 @@ Post-launch maintenance stabilizes to 1-2 hours/week (50-80 hours/year). The fir
 |---|---|---|
 | Git | Yes | [git-scm.com](https://git-scm.com/downloads) |
 | Language runtime | Yes | Node.js, Python, Rust, Go, Java/Kotlin, C#/.NET, or Dart/Flutter — depends on your language choice |
+| jq | Yes | Init offers auto-install (brew/apt/dnf). Required by the Development Guardrails for Claude Code for JSON operations. |
+| Git host CLI (`gh` or `glab`) | Yes, if using GitHub or GitLab (default host: GitHub) | **Install and authenticate before running init** — not auto-installed. `gh`: `brew install gh`, then `gh auth login`. `glab`: `brew install glab`, then `glab auth login`. Bitbucket needs no CLI (just `curl`) — export `BITBUCKET_API_TOKEN` + `BITBUCKET_API_TOKEN_EMAIL` + `BITBUCKET_WORKSPACE` instead. See [CLI Setup Addendum § Git Host CLIs](cli-setup-addendum.md#git-host-clis). |
 | Docker | Recommended | Init offers auto-install. macOS: Colima (recommended, headless) or Docker Desktop. Linux: system package. Needed for Qdrant semantic memory and OWASP ZAP DAST scanning. |
 | Claude Code | Recommended | Installed by `init.sh`, or manually: `brew install claude-code` (macOS) |
 
@@ -221,7 +223,7 @@ Post-launch maintenance stabilizes to 1-2 hours/week (50-80 hours/year). The fir
 
 **Accounts to create:**
 
-- **GitHub** — free tier is fine
+- **GitHub** (or GitLab/Bitbucket, matching your host choice) — free tier is fine
 - **AI subscription** — Claude Max (consumer tier) works for personal projects
 
 That is everything. No governance. No approvals. No paperwork. You can start building immediately after running `init.sh`.
@@ -1649,6 +1651,7 @@ Pick the primary platform and use its module. Cross-platform concerns (e.g., a w
 
 | Version | Date | Changes |
 |---|---|---|
+| 1.5 | 2026-08-01 | Prerequisite-honesty audit: added jq and Git host CLI (`gh`/`glab`/Bitbucket credentials) rows to the Personal Project Prerequisites table (1.1), cross-referenced from the Organizational table (1.2) via "same as personal". |
 | 1.4 | 2026-08-01 | Session Start: corrected the claim that the agent acts on `CLAUDE.md` when the session opens — context is loaded at startup but not acted on until the first message, which is the dead-air this section now names; added `scripts/resume.sh` to the session-start commands and the blank-screen reassurance. The Initialization Prompt: noted that `scripts/resume.sh` prints the Intake Section 13 prompt verbatim, so it need not be found and copied by hand (the manual path is retained). |
 | 1.3 | 2026-04-10 | Added MCP Server platform to domain modules table, Extending Platforms Guide to document map, updated platform selection guidance. |
 | 1.2 | 2026-04-08 | Added Process Enforcement Details subsection (7 items) and POC Mode Lifecycle subsection (4 items) to close UAT documentation gaps. |
