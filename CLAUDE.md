@@ -11,11 +11,18 @@ itself a scaffolded project. `init.sh` scaffolds a new project elsewhere; the
 files a downstream agent reads at kickoff live in the GENERATED project, not
 here.
 
-- The README "Quick Start" kickoff prompt (README.md § Quick Start) tells the
-  downstream agent to read `CLAUDE.md`, `PROJECT_INTAKE.md`,
-  `docs/reference/builders-guide.md`, `docs/platform-modules/<platform>.md`, and
-  `.claude/phase-state.json`. Those paths exist **in generated projects only** —
-  the README even prefixes the block with "not in this framework repo".
+- The README "Quick Start" **no longer carries a kickoff prompt of its own**
+  (BL-202 residual 2). It points at `bash scripts/resume.sh` — the single
+  state-aware first-message generator, whose three branches are the intake
+  prompt, `PROJECT_INTAKE.md` § 13 verbatim, and the classic resume prompt.
+  That script and everything its output names (`CLAUDE.md`,
+  `PROJECT_INTAKE.md`, `docs/reference/…`, `.claude/phase-state.json`) exist
+  **in generated projects only**; the README says so in as many words, because
+  it is read by people who have not run init yet.
+  **Do not re-add a verbatim paste block here** — the hand-maintained copy is
+  what drifted, and `tests/test-bl202-readme-kickoff-consolidation.sh` now
+  fails if one comes back (literal signatures *and* a structural bare-fence
+  net, five mutation proofs).
 - `init.sh` ships the guide downstream to `docs/reference/`: see the
   `cp "$SCRIPT_DIR/docs/builders-guide.md" docs/reference/` line (grep
   `builders-guide` in init.sh). In THIS repo the guide is **`docs/builders-guide.md`**

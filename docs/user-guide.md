@@ -540,14 +540,17 @@ The Intake has a checklist at the bottom. Verify every item before starting:
 
 ```bash
 cd ~/projects/your-project
-claude
+bash scripts/resume.sh   # prints the exact first message for where you are
+claude                   # paste it as your first message
 ```
 
-The agent reads `CLAUDE.md` automatically. This file contains your project configuration, framework rules, and tool constraints.
+The agent loads `CLAUDE.md` — your project configuration, framework rules, and tool constraints — when you send your **first message**, not when the session opens. Until then nothing happens: a blank Claude Code screen means it is ready and waiting, not stuck.
+
+`scripts/resume.sh` is the one place that decides what that first message should be. It is state-aware: the intake prompt while your Intake is unfinished, the Section 13 initialization prompt once the Intake is done and Phase 0 has not started, and a resume prompt once work is under way.
 
 ### The Initialization Prompt
 
-Section 13 of the Intake contains a ready-to-use initialization prompt. Copy and paste it into the agent at the start of Phase 0. It tells the agent:
+Section 13 of the Intake contains a ready-to-use initialization prompt. `bash scripts/resume.sh` prints it verbatim at the point you need it, so you do not have to find and copy it by hand — but you can also paste it in yourself at the start of Phase 0. Either way, it tells the agent:
 
 - The Intake is the primary constraint
 - The Builder's Guide is the process reference
