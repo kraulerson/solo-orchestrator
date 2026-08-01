@@ -193,9 +193,10 @@ soif_ledger_blocked() {
 # BEST-EFFORT contract: a failed append prints ONE [note] and never changes
 # the hook's outcome — the receipt already NAMED the suppression loudly, and
 # unlike a refusal there is nothing here to weaken. Row type sast_suppression,
-# final_outcome "landed" (the commit DID land — that is the event; BL-161's
-# doctrine: the ledger records only real events). Called `|| true` and only
-# on landing paths (rc != 1).
+# final_outcome "recorded_only": the SAST arm observes the suppression but a
+# LATER gate can still refuse the commit (review R-HP-2's measured repro), so
+# claiming "landed" here would be a false governance record. Called `|| true`
+# on every SAST verdict except the arm's own [BLOCKED].
 soif_ledger_suppression() {
   soif_ls_n="${1:-0}"
   soif_ls_files="${2:-}"
@@ -221,7 +222,7 @@ soif_ledger_suppression() {
     --arg n "$soif_ls_n" \
     --arg f "$soif_ls_files" \
     --arg lvl "$soif_ls_level" \
-    '{timestamp:$ts, session_id:null, type:"sast_suppression", actor:"user_terminal", enforcement_level_at_event:$lvl, details:{directive_count:(($n|tonumber?) // 0), files:$f}, user_response:"n/a", final_outcome:"landed"}' 2>/dev/null) || soif_ls_row=""
+    '{timestamp:$ts, session_id:null, type:"sast_suppression", actor:"user_terminal", enforcement_level_at_event:$lvl, details:{directive_count:(($n|tonumber?) // 0), files:$f}, user_response:"n/a", final_outcome:"recorded_only"}' 2>/dev/null) || soif_ls_row=""
   if [ -z "$soif_ls_row" ]; then
     echo "[note] BL-185: could not build the ledger row — suppression printed above, not ledgered." >&2
     return 0
@@ -1189,16 +1190,20 @@ if command -v semgrep &>/dev/null; then
       # BL-185-SUPPRESSION-DETECT-BEGIN — "allow it, but log it" (Karl 2026-07-31,
       # recorded on BL-185). Count `nosemgrep` directives in the MATERIALIZED staged
       # blobs — the bytes being committed (the BL-132 doctrine), no extra scanner
-      # invocation. Word-boundary grep, deliberately imprecise in the SAFE direction:
-      # over-detection (the bare word in prose or a string) only ever QUALIFIES a
-      # receipt and adds an audit row, never blocks and never grants; under-detection
-      # of the word itself is not possible for the directive semgrep honors. Every
-      # failure mode lands on zero — exactly today's behavior — via the house
-      # `|| …=0` + case-glob plumbing.
+      # invocation. TWO SPELLINGS, CASE-INSENSITIVE — review R-HP-1 measured both on
+      # semgrep 1.157.0 and its docs agree (--enable-nosem, on by default, honors a
+      # 'nosem' comment): `nosem` and `nosemgrep`, any case, each suppresses. An
+      # earlier revision matched only lowercase `nosemgrep` and claimed under-detection
+      # impossible — refuted by execution; `// nosem` and `// NOSEMGREP` both landed
+      # sinks with the unqualified receipt. Word-boundary grep stays deliberately
+      # imprecise in the SAFE direction: over-detection (the bare word in prose) only
+      # ever QUALIFIES a receipt and adds an audit row, never blocks and never grants.
+      # Every failure mode lands on zero — exactly today's behavior — via the house
+      # `|| …=0` + case-glob plumbing. Counts are LINES carrying a directive.
       soif_sg_supp_n=0
       soif_sg_supp_files=""
       for soif_sp_f in ${soif_idx_files[@]+"${soif_idx_files[@]}"}; do
-        soif_sp_c=$(grep -cw 'nosemgrep' "$soif_sp_f" 2>/dev/null) || soif_sp_c=0
+        soif_sp_c=$(grep -ciwE 'nosem(grep)?' "$soif_sp_f" 2>/dev/null) || soif_sp_c=0
         soif_sp_c=$(printf '%s' "$soif_sp_c" | tr -d '[:space:]') || soif_sp_c=0
         case "$soif_sp_c" in ''|*[!0-9]*) soif_sp_c=0 ;; esac
         if [ "$soif_sp_c" -gt 0 ]; then
@@ -1595,13 +1600,17 @@ if command -v semgrep &>/dev/null; then
     fi
     # BL-185-SUPPRESSION-RECEIPT (record) — printed on EVERY path (a blocked
     # operator about to fix findings should know suppressions ride the same
-    # commit), ledgered only when the commit LANDS (rc!=1): on the [BLOCKED]
-    # path no suppression event occurs, and the block itself is already
-    # ledgered (BL-163). Best-effort append — `|| true`, the BL-163 contract.
+    # commit). The ROW records the SAST-arm OBSERVATION, not the commit's fate:
+    # this arm cannot know whether a LATER gate (project tests, gitleaks, TDD)
+    # will refuse the commit — review R-HP-2 proved a BL-125 refusal landing a
+    # row that claimed "landed". So the row's final_outcome is
+    # "recorded_only" (the schema's documented enum), written on every path
+    # except the SAST arm's own [BLOCKED] (there the block is the event and
+    # BL-163 ledgers it). Best-effort append — `|| true`, the BL-163 contract.
     if [ "${soif_sg_supp_n:-0}" -gt 0 ]; then
-      echo "  BL-185: ${soif_sg_supp_n} 'nosemgrep' suppression directive(s) in:${soif_sg_supp_files} — those lines were skipped BY INSTRUCTION; this commit's SAST verdict does not vouch for them (recorded to .claude/bypass-audit.json when the commit lands)."
+      echo "  BL-185: ${soif_sg_supp_n} staged line(s) carrying a semgrep suppression directive (nosemgrep/nosem, any case) in: ${soif_sg_supp_files# } — those lines were skipped BY INSTRUCTION; this commit's SAST verdict does not vouch for them (observation recorded to .claude/bypass-audit.json)."
       if [ "$soif_sg_rc" -ne 1 ]; then
-        soif_ledger_suppression "$soif_sg_supp_n" "$soif_sg_supp_files" || true   # BL-185-SUPPRESSION-LEDGER
+        soif_ledger_suppression "$soif_sg_supp_n" "${soif_sg_supp_files# }" || true   # BL-185-SUPPRESSION-LEDGER
       fi
     fi
     rm -rf "$soif_idx_tree"

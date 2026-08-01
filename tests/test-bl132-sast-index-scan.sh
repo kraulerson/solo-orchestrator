@@ -3177,38 +3177,105 @@ else
 fi
 
 # ── T-bl185-suppression-receipt: the one unrecorded escape gets its logbook ──
+# THREE SPELLINGS, one loop — review R-HP-1 proved semgrep honors `nosem`
+# (the legacy short directive, --enable-nosem default per its own docs) and
+# matches case-INSENSITIVELY (`// NOSEMGREP` measured suppressing on 1.157.0),
+# so a case-sensitive nosemgrep-only detector left the escape unrecorded under
+# two sanctioned spellings. Each spelling must forfeit, name, and row.
+# The naming pin is EXACT-MAPPED per R-HP-3: `in: app.ts` (accumulator's
+# leading space) AND a negative assert that no per-index temp segment leaks —
+# the reviewer's sed-neutralized mutant survived the old basename substring.
 echo "=== T-bl185-suppression-receipt ==="
 if [ "$HAVE_SEMGREP" -eq 0 ]; then
   skip_ "T-bl185-suppression-receipt" "semgrep ABSENT — UNPROVEN here (skip, NOT a pass)"
 else
-  SPD="$(mktemp -d)"
-  if ! mk_repo "$SPD" "$EMITTED" >/dev/null 2>&1; then
-    fail_ "T-bl185-suppression-receipt" "fixture setup failed"
-  else
-    # Generated projects SHIP scripts/lib/bypass-audit.sh (the ledger append
-    # lib); the row half of allow-but-log needs it in the fixture, exactly as
-    # BL-163's row tests do. Without it the hook degrades to its [note] arm.
+  SP_ALL=PASS
+  for SP_DIR in '// nosemgrep' '// nosem' '// NOSEMGREP'; do
+    SPD="$(mktemp -d)"
+    if ! mk_repo "$SPD" "$EMITTED" >/dev/null 2>&1; then
+      fail_ "T-bl185-suppression-receipt" "fixture setup failed ($SP_DIR)"; SP_ALL=FAIL; rm -rf "$SPD"; continue
+    fi
+    # Generated projects SHIP scripts/lib/bypass-audit.sh; the row half needs
+    # it in the fixture, exactly as BL-163's row tests do.
     mkdir -p "$SPD/scripts/lib" "$SPD/.claude"
     cp "$REPO_ROOT/scripts/lib/bypass-audit.sh" "$SPD/scripts/lib/" 2>/dev/null || true
-    printf 'export function render(pane, userText) {\n  // nosemgrep\n  pane.innerHTML = userText;\n}\n' > "$SPD/app.ts"
+    printf 'export function render(pane, userText) {\n  %s\n  pane.innerHTML = userText;\n}\n' "$SP_DIR" > "$SPD/app.ts"
     ( cd "$SPD" && git add -- app.ts ) >/dev/null 2>&1
     if ( cd "$SPD" && git commit -m "feat: renderer with a suppression" ) >"$TOPTMP/sp1.log" 2>&1; then SP_V=COMMITTED; else SP_V=REFUSED; fi
     SP_ROW=0
     if command -v jq >/dev/null 2>&1 && [ -f "$SPD/.claude/bypass-audit.json" ]; then
       SP_ROW=$(jq '[.[] | select(.type == "sast_suppression")] | length' "$SPD/.claude/bypass-audit.json" 2>/dev/null) || SP_ROW=0
     fi
+    SP_SINK=$( cd "$SPD" && git show HEAD:app.ts 2>/dev/null | grep -c innerHTML ) || SP_SINK=0
     if [ "$SP_V" != "COMMITTED" ]; then
-      fail_ "T-bl185-suppression-receipt" "the suppressed commit was REFUSED — the decision is allow-but-log, never block: $(tail -6 "$TOPTMP/sp1.log" | tr '\n' '|')"
-    elif grep -qF 'no ERROR-severity findings."' "$TOPTMP/sp1.log" || grep -qE 'no ERROR-severity findings\.$' "$TOPTMP/sp1.log"; then
-      fail_ "T-bl185-suppression-receipt" "the UNQUALIFIED receipt printed over a suppressed sink — the exact false attestation BL-185 exists to end: $(tail -6 "$TOPTMP/sp1.log" | tr '\n' '|')"
-    elif ! grep -qF 'suppression directive' "$TOPTMP/sp1.log" || ! grep -qF 'app.ts' "$TOPTMP/sp1.log"; then
-      fail_ "T-bl185-suppression-receipt" "the receipt does not NAME the suppression and its file — the logbook half of allow-but-log: $(tail -8 "$TOPTMP/sp1.log" | tr '\n' '|')"
+      fail_ "T-bl185-suppression-receipt" "($SP_DIR) the suppressed commit was REFUSED — allow-but-log, never block: $(tail -6 "$TOPTMP/sp1.log" | tr '\n' '|')"; SP_ALL=FAIL
+    elif [ "$SP_SINK" -lt 1 ]; then
+      fail_ "T-bl185-suppression-receipt" "($SP_DIR) fixture defect — the sink did not land in HEAD; the case proves nothing"; SP_ALL=FAIL
+    elif grep -qE 'no ERROR-severity findings\.$' "$TOPTMP/sp1.log"; then
+      fail_ "T-bl185-suppression-receipt" "($SP_DIR) the UNQUALIFIED receipt printed over a suppressed sink — the exact false attestation BL-185 exists to end (semgrep honors this spelling; the detector must too): $(tail -6 "$TOPTMP/sp1.log" | tr '\n' '|')"; SP_ALL=FAIL
+    elif ! grep -qF 'suppression' "$TOPTMP/sp1.log" || ! grep -qF 'in: app.ts' "$TOPTMP/sp1.log"; then
+      fail_ "T-bl185-suppression-receipt" "($SP_DIR) the receipt does not NAME the suppression with the MAPPED path 'in: app.ts': $(tail -8 "$TOPTMP/sp1.log" | tr '\n' '|')"; SP_ALL=FAIL
+    elif grep -qE 'in: .*/[0-9][0-9]*/app\.ts' "$TOPTMP/sp1.log"; then
+      fail_ "T-bl185-suppression-receipt" "($SP_DIR) the receipt leaks the materialized per-index temp path — the mapping sed is broken (R-HP-3's mutant): $(tail -8 "$TOPTMP/sp1.log" | tr '\n' '|')"; SP_ALL=FAIL
     elif [ "${SP_ROW:-0}" -lt 1 ]; then
-      fail_ "T-bl185-suppression-receipt" "no sast_suppression row in .claude/bypass-audit.json (rows=$SP_ROW) — every other escape in the repo is recorded; this was the last unrecorded one: $(tail -6 "$TOPTMP/sp1.log" | tr '\n' '|')"
-    else
-      pass "T-bl185-suppression-receipt: suppressed commit LANDS, unqualified [OK] forfeited, file+directive named, sast_suppression row written"
+      fail_ "T-bl185-suppression-receipt" "($SP_DIR) no sast_suppression row (rows=$SP_ROW) — the logbook half: $(tail -6 "$TOPTMP/sp1.log" | tr '\n' '|')"; SP_ALL=FAIL
     fi
     rm -rf "$SPD"
+  done
+  if [ "$SP_ALL" = "PASS" ]; then
+    pass "T-bl185-suppression-receipt: all three semgrep-honored spellings (nosemgrep / nosem / NOSEMGREP) forfeit the unqualified [OK], name 'in: app.ts' mapped, and write the row"
+  fi
+fi
+
+# ── T-bl185-blocked-path: refused commit => info line, NO row (R-HP-5a) ─────
+echo "=== T-bl185-blocked-path ==="
+if [ "$HAVE_SEMGREP" -eq 0 ]; then
+  skip_ "T-bl185-blocked-path" "semgrep ABSENT — UNPROVEN here (skip, NOT a pass)"
+else
+  BPD="$(mktemp -d)"
+  if ! mk_repo "$BPD" "$EMITTED" >/dev/null 2>&1; then
+    fail_ "T-bl185-blocked-path" "fixture setup failed"
+  else
+    mkdir -p "$BPD/scripts/lib" "$BPD/.claude"
+    cp "$REPO_ROOT/scripts/lib/bypass-audit.sh" "$BPD/scripts/lib/" 2>/dev/null || true
+    printf '%s\n' "$XSS_TS" > "$BPD/vuln.ts"
+    printf 'export function safe(p, t) {\n  // nosemgrep\n  p.textContent = t;\n}\n' > "$BPD/other.ts"
+    ( cd "$BPD" && git add -- vuln.ts other.ts ) >/dev/null 2>&1
+    if ( cd "$BPD" && git commit -m "feat: two files" ) >"$TOPTMP/bp185.log" 2>&1; then BP_V=COMMITTED; else BP_V=REFUSED; fi
+    BP_ROW=0
+    if command -v jq >/dev/null 2>&1 && [ -f "$BPD/.claude/bypass-audit.json" ]; then
+      BP_ROW=$(jq '[.[] | select(.type == "sast_suppression")] | length' "$BPD/.claude/bypass-audit.json" 2>/dev/null) || BP_ROW=0
+    fi
+    if [ "$BP_V" = "REFUSED" ] && grep -qF '[BLOCKED] Semgrep' "$TOPTMP/bp185.log" \
+       && grep -qF 'suppression' "$TOPTMP/bp185.log" && [ "${BP_ROW:-0}" -eq 0 ]; then
+      pass "T-bl185-blocked-path: a blocked commit still SHOWS the suppression info line but writes NO row — the block itself is the BL-163 ledger's event"
+    else
+      fail_ "T-bl185-blocked-path" "want REFUSED + [BLOCKED] + info line + rows=0; got V=$BP_V rows=$BP_ROW: $(tail -8 "$TOPTMP/bp185.log" | tr '\n' '|')"
+    fi
+    rm -rf "$BPD"
+  fi
+fi
+
+# ── T-bl185-trojan-ledger: a trojan append lib cannot change the outcome ────
+echo "=== T-bl185-trojan-ledger ==="
+if [ "$HAVE_SEMGREP" -eq 0 ]; then
+  skip_ "T-bl185-trojan-ledger" "semgrep ABSENT — UNPROVEN here (skip, NOT a pass)"
+else
+  TJD="$(mktemp -d)"
+  if ! mk_repo "$TJD" "$EMITTED" >/dev/null 2>&1; then
+    fail_ "T-bl185-trojan-ledger" "fixture setup failed"
+  else
+    mkdir -p "$TJD/scripts/lib" "$TJD/.claude"
+    printf '#!/bin/sh\nexit 3\n' > "$TJD/scripts/lib/bypass-audit.sh"
+    printf 'export function safe(p, t) {\n  // nosemgrep\n  p.textContent = t;\n}\n' > "$TJD/app.ts"
+    ( cd "$TJD" && git add -- app.ts ) >/dev/null 2>&1
+    if ( cd "$TJD" && git commit -m "feat: safe file with a suppression" ) >"$TOPTMP/tj185.log" 2>&1; then TJ_V=COMMITTED; else TJ_V=REFUSED; fi
+    if [ "$TJ_V" = "COMMITTED" ] && grep -qF '[note] BL-185: ledger append failed' "$TOPTMP/tj185.log"; then
+      pass "T-bl185-trojan-ledger: a trojan/broken append lib degrades to the loud [note] — subshell-confined, commit outcome untouched (the BL-163 T4b discipline)"
+    else
+      fail_ "T-bl185-trojan-ledger" "want COMMITTED + the loud append-failed note; got V=$TJ_V: $(tail -6 "$TOPTMP/tj185.log" | tr '\n' '|')"
+    fi
+    rm -rf "$TJD"
   fi
 fi
 
@@ -3222,10 +3289,13 @@ else
     fail_ "T-bl185-clean-control" "fixture setup failed"
   else
     # The append lib is PRESENT here too — otherwise "no audit row" would pass
-    # vacuously on a fixture that cannot write rows at all.
+    # vacuously on a fixture that cannot write rows at all. The file also
+    # carries word-boundary NEIGHBORS of the directives (nosemantic,
+    # xnosemgrepx) — semgrep ignores them and so must the detector (R-HP-1's
+    # boundary pins).
     mkdir -p "$SCD/scripts/lib" "$SCD/.claude"
     cp "$REPO_ROOT/scripts/lib/bypass-audit.sh" "$SCD/scripts/lib/" 2>/dev/null || true
-    printf '%s\n' "$SAFE_TS" > "$SCD/app.ts"
+    printf '%s\n// the nosemantic xnosemgrepx neighbors must not trip the detector\n' "$SAFE_TS" > "$SCD/app.ts"
     ( cd "$SCD" && git add -- app.ts ) >/dev/null 2>&1
     if ( cd "$SCD" && git commit -m "feat: clean renderer" ) >"$TOPTMP/sc1.log" 2>&1; then SC_V=COMMITTED; else SC_V=REFUSED; fi
     SC_ROW=0
@@ -3233,7 +3303,7 @@ else
       SC_ROW=$(jq '[.[] | select(.type == "sast_suppression")] | length' "$SCD/.claude/bypass-audit.json" 2>/dev/null) || SC_ROW=0
     fi
     if [ "$SC_V" = "COMMITTED" ] && grep -qF '[OK] semgrep: SAST ran on 1 staged file(s) — no ERROR-severity findings.' "$TOPTMP/sc1.log" \
-       && ! grep -qF 'suppression directive' "$TOPTMP/sc1.log" && [ "${SC_ROW:-0}" -eq 0 ]; then
+       && ! grep -qF 'BL-185:' "$TOPTMP/sc1.log" && [ "${SC_ROW:-0}" -eq 0 ]; then
       pass "T-bl185-clean-control: no directive => the exact unqualified receipt, no BL-185 line, no audit row — the detector does not cry wolf"
     else
       fail_ "T-bl185-clean-control" "clean commit disturbed (V=$SC_V rows=$SC_ROW): $(tail -6 "$TOPTMP/sc1.log" | tr '\n' '|')"
