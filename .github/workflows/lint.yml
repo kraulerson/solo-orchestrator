@@ -17,8 +17,9 @@
 #
 # Every job here is a PAIR of steps: a GATING step that runs the lint and
 # fails the job, and an INVENTORY step that re-runs the SAME lint with
-# `--list` to print the per-file PASS/FAIL roster. There are NINE such
-# pairs — one per job — and under `if: always()` the inventory step re-ran
+# `--list` to print the per-file PASS/FAIL roster. There are TEN such
+# pairs — one per job; it was NINE until BL-196 added bl-markers-lint —
+# and under `if: always()` the inventory step re-ran
 # the full scan on GREEN runs too, where nobody reads it. That doubled
 # every lint job. Measured on the counter-antipattern job (run 30297887996,
 # job 90083310253, main @ 9d71824): 207s gating + 204s inventory = 419s.
@@ -262,3 +263,33 @@ jobs:
       - name: Show PASS/FAIL inventory (on failure)
         if: failure()
         run: bash scripts/lint-evalprompts-portability.sh --list || true
+
+  # BL-196: citation-integrity backstop for the repo's citation PRIMITIVE.
+  # CLAUDE.md § CITATION RULE makes the grep-able `# BL-NNN-…` marker
+  # comment the only sanctioned way to cite code (never a bare file:line,
+  # because line numbers mis-resolve within 24h) — and nothing validated
+  # it. This job resolves both directions: every marker in the code
+  # surface names a real `## BL-NNN:` entry, and every marker CITED in the
+  # live prose surface resolves to a marker that still exists. A vacuity
+  # floor makes a collapsed scan exit 2 rather than pass silently. See
+  # scripts/lint-bl-markers.sh header for the surface definitions and the
+  # allowlist mechanism, and tests/test-lint-bl-markers.sh for the
+  # behavior suite (incl. the fence-excision mutation).
+  #
+  # NOT a required status check yet — adding this job does not make it
+  # one. Branch protection is Karl's call; deliberately untouched here.
+  # Same job-name-is-required-check convention as the jobs above: if it
+  # IS promoted, keep the name stable.
+  bl-markers-lint:
+    name: bl-markers-lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
+
+      - name: Lint BL marker citations (BL-196)
+        run: bash scripts/lint-bl-markers.sh
+
+      - name: Show PASS/FAIL inventory (on failure)
+        if: failure()
+        run: bash scripts/lint-bl-markers.sh --list || true
