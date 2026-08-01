@@ -6523,6 +6523,38 @@ asking why it said so little — which does not scale and did not, in fact, happ
 citation-integrity gap filed the same day), `scripts/lint-fail-emit-exit-status.sh`, and the
 silent-success class recorded in the `adversarial-verify-patterns` memory note.
 
+**UPDATE 2026-07-31 — the lint LANDED; entry stays Open for instance 3 only.** Delivered on
+`fix/bl197-diagnostic-destruction-lint` (`0585b90` + review round `ddb3f2f`;
+`scripts/lint-diagnostic-destruction.sh`, markers `# BL-197-DD1-SILENCER` /
+`# BL-197-DD1-FAILARM` / `# BL-197-CODE-SKELETON` / `# BL-197-IO-HARD-FAIL`; suite
+`tests/test-lint-diagnostic-destruction.sh`, 21/0). What ships: DD1 gating (one-line
+silenced-diagnostic failure reports, seven silencer spellings, four reporters, presence-probe
+carve-out anchored to the LAST simple command, `# lint-diag-ok: <reason>` exemption with
+empty-reason-fails), DD2 truncated-evidence census behind `--census` (489 sites, ADVISORY —
+a 216-row gating roster would itself be diagnostic destruction), heredoc bodies scanned
+(instance 3 lived in one), and hard exit-2 on unusable I/O instead of silent skips. EIGHT true
+positives on the merge-day tree were fixed in the same diff (five `bash -n` and one `jq` site in
+the full-suite aggregator, one terminal-mode case) or reason-annotated (the init.sh push
+fallback). Review arc: two adversarial rounds. Round 1 (major_concerns) proved the suite pinned
+only 3 of 7 spellings — three excision mutants survived every PR-blocking check, the thrice-
+recorded BL-181 class; killed by a 12-must-flag/10-control battery (T19), each mutant now failing
+by name. The reviewer's own template then exposed TWO false positives (a reporter merely NAMED in
+a string; the whole shape QUOTED) — fixed by quoted-span blanking and arm-head reporter matching.
+Confirm round: minor_concerns, merge unblocked; its fresh attack found only constructed
+zero-live-exposure corners, accepted as named residuals: backslash-escape blindness in the
+skeleton (FP and FN both constructible, ~4-line fix if it ever goes live), the mid-arm reporter
+after `{ echo ctx; fail_ …; }` (the one regression direction vs the per-line engine — zero tree
+sites), subshell-arm and `$'…'`-quoted reporters, `$(…)` in the probe strip set. MEASURED
+SURVIVING SHAPES beyond scope (round-1 census, recorded so the narrowness is a decision, not a
+blind spot): ~10 multi-line `|| {` reporter arms with silencers (6 in
+`tests/upgrade-path-tests.sh`, 1 in `run-phase3-validation.sh`), ~100 multi-line
+`if ! cmd 2>/dev/null` + reporter sites (~50 of them mutant-parse guards of exactly the shape
+this PR fixed in the aggregator), bare `echo "[FAIL]"`-style reporters. The lint job is in
+lint.yml but NOT a required check (Karl's promotion call, consistent with the
+evalprompts-portability precedent). **Instance 3 (symptom-instead-of-number messages) remains
+unmechanized — 1,120 zero-interpolation candidates, mostly correct — and is what this entry now
+stays Open for.**
+
 ---
 
 ## BL-198: Implementation plan v2 — TRANSCODE undecodable-but-textual staged files and scan the converted bytes; reject only as the fallback
