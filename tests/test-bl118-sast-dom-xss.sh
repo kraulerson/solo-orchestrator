@@ -245,7 +245,18 @@ fi
 echo "=== T-verify-install-fix-single-source ==="
 VI="$REPO_ROOT/scripts/verify-install.sh"
 EXTRACT="$TOPTMP/fix_precommit_hook.sh"
-awk '/^fix_precommit_hook\(\) \{/,/^\}/' "$VI" > "$EXTRACT"
+# BL-145: fix_precommit_hook opens with a repair-safety guard
+# (_bl145_refuse_unsafe_hook_write — never write THROUGH a symlinked hook,
+# never write an inert hook under core.hooksPath), so the extraction has to
+# carry its helpers. Extracted, NOT stubbed: a stub would keep this harness
+# green even if the guard were deleted. The fixture below is a plain
+# .git/hooks path with no core.hooksPath, so the real guard passes through.
+: > "$EXTRACT"
+for _vifn in _bl145_symlink_target _bl145_hookspath_is_set \
+             _bl145_configured_hookspath _bl145_hookspath_label \
+             _bl145_refuse_unsafe_hook_write fix_precommit_hook; do
+  awk -v fn="$_vifn" '$0 ~ "^" fn "\\(\\) \\{", /^\}/' "$VI" >> "$EXTRACT"
+done
 if ! grep -q 'fix_precommit_hook' "$EXTRACT"; then
   fail_ "T-verify-install-fix-single-source" "could not extract fix_precommit_hook() from verify-install.sh (function renamed/moved?)"
 else

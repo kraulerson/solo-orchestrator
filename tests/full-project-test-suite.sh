@@ -445,6 +445,14 @@ run_child_suite "tests/test-lint-raw-read-prompt.sh" \
   "scripts/lint-raw-read-prompt.sh behavior tests" \
   "scripts/lint-raw-read-prompt.sh behavior tests FAILED (run tests/test-lint-raw-read-prompt.sh for details)"
 
+# BL-197: the diagnostic-destruction backstop — a failure report that
+# discards the evidence the reader needs to act on it. Same shape as the
+# block above: run the linter's OWN behavior suite so a narrowing of its
+# predicate (or of a carve-out) can't quietly start blessing the class.
+run_child_suite "tests/test-lint-diagnostic-destruction.sh" \
+  "scripts/lint-diagnostic-destruction.sh behavior tests" \
+  "scripts/lint-diagnostic-destruction.sh behavior tests FAILED (run tests/test-lint-diagnostic-destruction.sh for details)"
+
 # BL-076: no test may execute init.sh in a shape that can create a REAL
 # remote repo against an authenticated host (the kraulerson/foo leak).
 # Run the lint against the live tree AND its own behavior suite so a
@@ -854,6 +862,17 @@ run_child_suite "tests/test-bl171-commitmsg-ledger.sh" "tests/test-bl171-commitm
 # by a marker-excision mutation. Direct hermetic fixtures, no init.sh -> both lanes.
 run_child_suite "tests/test-bl172-resume-sentinels.sh" "tests/test-bl172-resume-sentinels.sh"
 
+# BL-176: the same gates inside a LINKED GIT WORKTREE, where `.git` is a gitdir
+# POINTER FILE. Every literal `.git/<NAME>` path was blind there — the three
+# sentinel skips silently stopped firing (over-strict) AND the COMMIT_EDITMSG
+# read returned "", which silently disabled BOTH message-scoped commit-msg gates
+# (a real gate loss, the OPEN direction BL-176's own text does not name). All
+# five skip sites now route through one `_derivative_resume_in_progress` helper
+# over `git rev-parse --git-path`; bl006_check + lints_check gained
+# CHERRY_PICK_HEAD/REVERT_HEAD by that consolidation. Real `git worktree add`
+# fixtures, per-site mutation proofs. No init.sh -> both lanes.
+run_child_suite "tests/test-bl176-worktree-sentinels.sh" "tests/test-bl176-worktree-sentinels.sh"
+
 # BL-161 (Dogfood-4 F-DF4-007): the tracked bypass-audit ledger records ONLY
 # real events — a CLEAN terminal commit writes NO routine terminal_commit_passed
 # row (the tracked ledger is byte-identical; a non-tracked .claude/last-gate-pass.txt
@@ -872,6 +891,16 @@ run_child_suite "tests/test-bl161-ledger-real-events-only.sh" \
 # No init.sh -> both lanes.
 run_child_suite "tests/test-bl141-commitmsg-repair.sh" "tests/test-bl141-commitmsg-repair.sh"
 
+# BL-145 (Dogfood-3 SHOULD-fix wave, consolidated verifier S3): verify-install's
+# hook repairs must not write THROUGH a symlinked hook on the no-consent
+# --auto-fix surface (the verifier's repro mutated a dotfiles-managed target),
+# and its hook checks must not be blind to core.hooksPath (a green PASS for a
+# hook git never runs, plus an inert "repair"). Symlink -> refuse loudly naming
+# the target; core.hooksPath -> checks HONOR it, repairs refuse. Dual
+# fence-excision mutants. No init.sh -> both lanes.
+run_child_suite "tests/test-bl145-hook-symlink-hookspath.sh" \
+  "tests/test-bl145-hook-symlink-hookspath.sh"
+
 # BL-143 (Dogfood-3 wave verifier C3): the anti-self-approval control no
 # longer silently skips when the Approver row lies past the -A 20 capped
 # pre-extraction — the name is recovered from the blame walker's own
@@ -880,6 +909,19 @@ run_child_suite "tests/test-bl141-commitmsg-repair.sh" "tests/test-bl141-commitm
 # restores the silent skip exactly. No init.sh -> both lanes.
 run_child_suite "tests/test-bl143-pastcap-selfapproval.sh" \
   "tests/test-bl143-pastcap-selfapproval.sh"
+
+# BL-144 (Dogfood-3 SHOULD-fix wave verifier S1+S2): the two shapes the
+# self-approval scan stayed FULLY SILENT for after BL-143 — a malformed
+# `### ` header COMBINED with a past-cap Approver row (the recovery computed
+# NO_SECTION and discarded it, while the walker's loud refusal was
+# unreachable), and a recovered `[Name]`/blank Approver cell (recognized,
+# then dropped). Both now WARN-and-BLOCK. Fixtures are the SHIPPED org
+# approval-log template filled per its own append-design instructions, built
+# so the defect is the project's ONLY inconsistency — the oracle is rc 0→1
+# plus the rendered `issues` count, never the label. BL-143's no-Approver-row
+# boundary pinned. Per-arm fence-excision mutants. No init.sh -> both lanes.
+run_child_suite "tests/test-bl144-selfapproval-silent-arms.sh" \
+  "tests/test-bl144-selfapproval-silent-arms.sh"
 
 # BL-147 + BL-151 (PR-sweep WP-1): the ONE shared content-pin suite over
 # templates/pipelines/**. The emitted CI approval-log integrity steps are now
@@ -2452,16 +2494,28 @@ section "TEST 8: Script Syntax Validation"
 
 echo ""
 
-bash -n "$SCRIPT_DIR/init.sh" 2>/dev/null && pass "init.sh syntax OK" || fail "init.sh syntax ERROR"
-bash -n "$SCRIPT_DIR/scripts/resolve-tools.sh" 2>/dev/null && pass "resolve-tools.sh syntax OK" || fail "resolve-tools.sh syntax ERROR"
-bash -n "$SCRIPT_DIR/scripts/check-phase-gate.sh" 2>/dev/null && pass "check-phase-gate.sh syntax OK" || fail "check-phase-gate.sh syntax ERROR"
-bash -n "$SCRIPT_DIR/scripts/validate.sh" 2>/dev/null && pass "validate.sh syntax OK" || fail "validate.sh syntax ERROR"
-bash -n "$SCRIPT_DIR/scripts/intake-wizard.sh" 2>/dev/null && pass "intake-wizard.sh syntax OK" || fail "intake-wizard.sh syntax ERROR"
+# BL-197: `bash -n f 2>/dev/null || fail "... syntax ERROR"` discarded the
+# file:line:message that IS the whole actionable payload — the reader was
+# told a file was broken and nothing about where. Capture and quote it.
+for syn_target in \
+  "$SCRIPT_DIR/init.sh" \
+  "$SCRIPT_DIR/scripts/resolve-tools.sh" \
+  "$SCRIPT_DIR/scripts/check-phase-gate.sh" \
+  "$SCRIPT_DIR/scripts/validate.sh" \
+  "$SCRIPT_DIR/scripts/intake-wizard.sh" ; do
+  syn_name=$(basename "$syn_target")
+  syn_err=$(bash -n "$syn_target" 2>&1) \
+    && pass "$syn_name syntax OK" \
+    || fail "$syn_name syntax ERROR: $syn_err"
+done
 
 # Verify all JSON matrix files are valid
 for f in "$MATRIX_DIR"/*.json; do
   fname=$(basename "$f")
-  jq '.' "$f" > /dev/null 2>&1 && pass "JSON valid: $fname" || fail "JSON invalid: $fname"
+  # BL-197: jq's parse error names the offending line/column; the old
+  # `> /dev/null 2>&1` threw it away and reported only "JSON invalid".
+  # `2>&1 >/dev/null` keeps stderr (into the capture) and drops stdout.
+  jq_err=$(jq '.' "$f" 2>&1 >/dev/null) && pass "JSON valid: $fname" || fail "JSON invalid: $fname — $jq_err"
 done
 
 # ================================================================

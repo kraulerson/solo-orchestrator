@@ -17,8 +17,9 @@
 #
 # Every job here is a PAIR of steps: a GATING step that runs the lint and
 # fails the job, and an INVENTORY step that re-runs the SAME lint with
-# `--list` to print the per-file PASS/FAIL roster. There are TEN such
-# pairs — one per job; it was NINE until BL-196 added bl-markers-lint —
+# `--list` to print the per-file PASS/FAIL roster. There are ELEVEN such
+# pairs — one per job; BL-197's diagnostic-destruction-lint was the tenth
+# and BL-196's bl-markers-lint is the eleventh —
 # and under `if: always()` the inventory step re-ran
 # the full scan on GREEN runs too, where nobody reads it. That doubled
 # every lint job. Measured on the counter-antipattern job (run 30297887996,
@@ -239,6 +240,32 @@ jobs:
       - name: Show PASS/FAIL inventory (on failure)
         if: failure()
         run: bash scripts/lint-no-live-remote-in-tests.sh --list || true
+
+  # BL-197: structural backstop for the DIAGNOSTIC-DESTRUCTION class — a
+  # failure report that discards the evidence needed to act on it. The
+  # gating predicate is the narrow one: a silenced command, a `||`, and a
+  # failure reporter in that arm, all on one line. Presence probes and the
+  # `2>&1 >/dev/null` capture idiom are carved out by measurement (see the
+  # linter header), and the truncated-evidence half is advisory-only under
+  # `--census`. See tests/test-lint-diagnostic-destruction.sh for the
+  # behavior suite.
+  #
+  # NOTE: not yet a required status check in branch protection — that is
+  # Karl's call. Adding it here makes it run on every PR; promoting it to
+  # required is a separate branch-protection change.
+  diagnostic-destruction-lint:
+    name: diagnostic-destruction-lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
+
+      - name: Lint silenced-diagnostic failure reports (BL-197)
+        run: bash scripts/lint-diagnostic-destruction.sh
+
+      - name: Show PASS/FAIL inventory (on failure)
+        if: failure()
+        run: bash scripts/lint-diagnostic-destruction.sh --list || true
 
   # BL-103: portability backstop for evaluation-prompts/. The Phase 3→4 review
   # gate (BL-073) hands operators `evaluation-prompts/Projects/run-reviews.sh` as

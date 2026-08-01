@@ -272,6 +272,13 @@ teardown
 # ════════════════════════════════════════════════════════════════════
 # Section C — MUTATION: excise every # BL-172-RESUME-SENTINELS line
 # ════════════════════════════════════════════════════════════════════
+# BL-176 CONSOLIDATION: the two marked sentinel lines used to be duplicated per
+# surface (4 lines: 2 per surface x 2 surfaces). BL-176 folded all FIVE skip
+# sites onto one shared `_derivative_resume_in_progress` helper, so the two
+# lines now live ONCE — and excising them still degrades every surface to
+# MERGE_HEAD-only, which is exactly what this section asserts. The precondition
+# floor moved 4 -> 2 for that reason, NOT because coverage shrank; the RED cases
+# below are unchanged and still exercise both surfaces.
 echo ""
 echo "=== (mut) excise # BL-172-RESUME-SENTINELS -> resume pass-throughs disappear (RED); anti-blunting unchanged; real gate GREEN ==="
 # The mutant gate lives in its OWN mktemp root so per-fixture teardown() (which
@@ -288,8 +295,8 @@ case "$marker_real" in ''|*[!0-9]*) marker_real=0 ;; esac
 marker_mut=$(grep -c '# BL-172-RESUME-SENTINELS' "$MUT_GATE" 2>/dev/null) || marker_mut=0
 case "$marker_mut" in ''|*[!0-9]*) marker_mut=0 ;; esac
 
-if [ "$marker_real" -lt 4 ]; then
-  fail_ "(mut) preconditions" "expected >=4 # BL-172-RESUME-SENTINELS lines in the REAL gate (2 per surface x 2 surfaces); found $marker_real"
+if [ "$marker_real" -lt 2 ]; then
+  fail_ "(mut) preconditions" "expected >=2 # BL-172-RESUME-SENTINELS lines in the REAL gate (CHERRY_PICK_HEAD + REVERT_HEAD, once each in the shared BL-176 _derivative_resume_in_progress helper); found $marker_real"
 elif [ "$marker_mut" -ne 0 ]; then
   fail_ "(mut) preconditions" "marker still present after excision — mutation did not apply (found $marker_mut)"
 elif ! bash -n "$MUT_GATE" 2>/dev/null; then
