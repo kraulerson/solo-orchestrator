@@ -63,6 +63,11 @@ TMPL="$REPO_ROOT/templates/generated/approval-log-org.tmpl"
 
 # House rule: fixture git ops must not inherit a CI base ref.
 unset GITHUB_BASE_REF 2>/dev/null || true
+# R-BL144-2: every oracle below is an EXIT CODE. `SOIF_PHASE_GATES=warn` makes
+# check-phase-gate.sh print its inconsistency count and then `exit 0` — an
+# ambient warn-mode would false-RED every `rc = 1` assertion here (and, worse,
+# false-GREEN nothing, so the failure would look like a real regression).
+unset SOIF_PHASE_GATES 2>/dev/null || true
 
 PASSED=0
 FAILED=0

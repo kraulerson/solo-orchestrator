@@ -669,14 +669,22 @@ validate_approval_fields() {
   # placeholder predicate below no-ops on empty input and the walker still
   # runs to refuse loudly.
 
-  # BL-144: did the BL-138 predicate already report a placeholder for THIS
-  # gate? Its window is `head -20`-capped, so a past-cap placeholder Approver
-  # cell escapes it — that gap is what `# BL-144-PLACEHOLDER-CELL` covers, and
-  # this flag keeps the two from double-reporting the SAME cell when the row
-  # does sit inside the window. Declared here (outside both fences) so either
-  # fence can be excised on its own: with the BL-138 fence gone the flag stays
-  # 0 and the BL-144 arm reports the cell itself; with the BL-144 fence gone
-  # the flag is merely written and never read.
+  # BL-144: has BL-138 already reported a placeholder for THIS GATE'S WINDOW?
+  # Its window is `head -20`-capped, so a past-cap placeholder Approver cell
+  # escapes it — that gap is what `# BL-144-PLACEHOLDER-CELL` covers, and this
+  # flag keeps the two from double-reporting the same gate.
+  # WINDOW-scoped, NOT cell-scoped — say it plainly, because the difference is
+  # observable: the BL-138 predicate fires on ANY template literal
+  # (`[YYYY-MM-DD]` / `[Name` / `[Attorney`) anywhere in the capped window, so
+  # an IN-CAP DATE placeholder sets this flag and suppresses the BL-144 line
+  # for a DIFFERENT defect — a past-cap blank Approver cell (R-BL144-1,
+  # reviewer P3). That is a deliberate one-gate-one-`issues` trade, not
+  # precision: the gate still BLOCKS (rc=1) and BL-138's own message already
+  # tells the operator to fill in the approver name.
+  # Declared here (outside both fences) so either fence can be excised on its
+  # own: with the BL-138 fence gone the flag stays 0 and the BL-144 arm reports
+  # the cell itself; with the BL-144 fence gone the flag is merely written and
+  # never read.
   local bl144_placeholder_reported=0
 
   # BL-138-APPROVAL-WINDOW-BEGIN
@@ -803,9 +811,13 @@ validate_approval_fields() {
           # WARN and all three of the walker's cannot-verify WARNs increment),
           # and it keeps a past-cap `[Name]` cell exactly as blocking as the
           # in-cap `[Name]` cell the BL-138 predicate already refuses.
-          # NOT a double report: when BL-138 already spoke for this cell the
-          # flag suppresses the second line, so one defect still costs one
-          # `issues`. Return either way — an unnamed approver is unverifiable.
+          # NOT a double report: when BL-138 already reported a placeholder for
+          # this gate's WINDOW the flag suppresses this line, so one gate still
+          # costs one `issues`. The suppression is window-scoped, not
+          # cell-scoped — an in-cap DATE placeholder can therefore mute this
+          # line for a past-cap blank cell (R-BL144-1; the gate still blocks,
+          # rc=1). See the flag's declaration for why that trade is deliberate.
+          # Return either way — an unnamed approver is unverifiable.
           if [ -z "$approver_name" ] || [ "$approver_name" = "[Name]" ]; then
             if [ "$bl144_placeholder_reported" -eq 0 ]; then
               echo -e "${YELLOW}[WARN]${NC} $gate_label: APPROVAL_LOG.md Approver cell is a placeholder or blank — cannot verify self-approval. Record the approver's real name in the gate's Approver row."
