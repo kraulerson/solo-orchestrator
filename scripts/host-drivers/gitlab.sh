@@ -57,6 +57,17 @@
 #   here surfaces the gap loudly with options, instead of returning the
 #   bare exit-3 "approvals config failed" message.
 
+# BL-204-ERROR-TRANSLATE: load the plain-language host-error translator.
+# Same shape as the github driver — path derived from THIS file's location so
+# it resolves in the framework repo and in a scaffolded project alike, with a
+# pass-through fallback so a missing lib can never break the driver.
+_HOST_ERRORS_LIB="$(dirname "${BASH_SOURCE[0]}")/../lib/host-errors.sh"
+if [ -f "$_HOST_ERRORS_LIB" ]; then
+  # shellcheck disable=SC1090
+  . "$_HOST_ERRORS_LIB"
+fi
+command -v host_explain_error >/dev/null 2>&1 || host_explain_error() { [ -n "${1:-}" ] && printf '%s\n' "$1" >&2; return 0; }
+
 host_name() { echo "gitlab"; }
 
 host_require_cli() {
@@ -75,9 +86,15 @@ host_require_cli() {
       '(Self-hosted instances: `glab auth login --hostname gitlab.your-company.com`)' >&2
     return 1
   fi
-  if ! glab auth status >/dev/null 2>&1; then
+  # BL-204-ERROR-TRANSLATE: keep what glab said so an EXPIRED token reads
+  # differently from a never-logged-in machine (see the github driver).
+  local auth_err
+  if ! auth_err=$(glab auth status 2>&1); then
     printf '%s\n' \
       'gitlab driver: `glab` installed but not authenticated.' \
+      '' >&2
+    host_explain_error "$auth_err"
+    printf '%s\n' \
       '' \
       'Authenticate with: glab auth login' >&2
     return 2
@@ -95,7 +112,9 @@ host_create_repo() {
   esac
   local result
   if ! result=$(glab repo create "$name" "--$visibility" 2>&1); then
-    echo "$result" >&2; return 1
+    echo "gitlab driver: could not create the project '$name' on GitLab." >&2
+    host_explain_error "$result"   # BL-204-ERROR-TRANSLATE
+    return 1
   fi
   echo "$result" | tail -n 1
 }
@@ -169,7 +188,7 @@ host_configure_protection() {
   local glab_err
   if ! glab_err=$(glab api -X POST "projects/$project/protected_branches" --input - <<<"$payload" 2>&1 >/dev/null); then
     echo "gitlab driver: failed to configure protection on $project#$branch ($mode mode)" >&2
-    [ -n "$glab_err" ] && printf '  %s\n' "$glab_err" >&2
+    host_explain_error "$glab_err"   # BL-204-ERROR-TRANSLATE
     return 2
   fi
 

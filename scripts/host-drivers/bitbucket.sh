@@ -25,6 +25,17 @@
 #     code-host-bitbucket-5). When unset, behavior matches pre-2026
 #     drivers (Bitbucket uses the workspace's default project, if any).
 
+# BL-204-ERROR-TRANSLATE: load the plain-language host-error translator.
+# Same shape as the github/gitlab drivers — path derived from THIS file's
+# location, with a pass-through fallback so a missing lib cannot break the
+# driver.
+_HOST_ERRORS_LIB="$(dirname "${BASH_SOURCE[0]}")/../lib/host-errors.sh"
+if [ -f "$_HOST_ERRORS_LIB" ]; then
+  # shellcheck disable=SC1090
+  . "$_HOST_ERRORS_LIB"
+fi
+command -v host_explain_error >/dev/null 2>&1 || host_explain_error() { [ -n "${1:-}" ] && printf '%s\n' "$1" >&2; return 0; }
+
 host_name() { echo "bitbucket"; }
 
 _bb_api_base="https://api.bitbucket.org/2.0"
@@ -169,8 +180,8 @@ host_create_repo() {
   fi
   local resp
   if ! resp=$(echo "$payload" | _bb_curl POST "$_bb_api_base/repositories/$workspace/$name"); then
-    echo "bitbucket driver: repo create failed" >&2
-    echo "$resp" >&2
+    echo "bitbucket driver: could not create the repository '$name' in workspace '$workspace'." >&2
+    host_explain_error "$resp"   # BL-204-ERROR-TRANSLATE
     return 1
   fi
   echo "$resp" | jq -r '.links.clone[] | select(.name=="https") | .href'
