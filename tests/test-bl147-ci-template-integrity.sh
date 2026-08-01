@@ -746,7 +746,10 @@ fi
 # # BL-206-QUOTE-AWARE-STRIP), which cuts only at a `#` that is unquoted AND at a
 # line start or after a blank — the actual YAML/shell comment rule — so all three
 # carriers the review named (quoted `#`, parameter expansion, URL fragment) are
-# now caught. Cg-no-repin-quote-aware below pins that on fixtures.
+# now caught. Which ATOM catches which is measured, not assumed: the blank rule
+# alone closes all three of the review's shapes, and quote tracking is what
+# closes a `#` that sits inside quotes WITH a blank before it. Both atoms are
+# pinned separately by Cg-no-repin-quote-aware below — see the note there.
 #
 # REMAINING residuals, named rather than papered over:
 #   • line-granular — a single line carrying BOTH an acceptable and a pinned ref
@@ -783,18 +786,41 @@ else
   fail_ "Cg-no-repin" "non-:latest semgrep/semgrep reference on an executable line in: ${repin}(the ONLY accepted form is the exact tag semgrep/semgrep:latest — numeric tags, @sha256 digests, named tags like :canary, and the bare spelling all fail here; BL-201 floats the scanner deliberately, and re-pinning requires reversing that recorded decision on the backlog, not a template edit)"
 fi
 
-# ── Cg-no-repin-quote-aware: the strip is quote-aware, and still exempts comments
-# Six fixtures, run through the SAME predicate the sweep uses. The first three are
-# the carriers R-BL201-5 named and measured surviving; the next two are the
-# comments that must stay exempt (the fix must not turn documentation into a
-# failure); the last pins the deliberate unterminated-quote fallback, so removing
-# it — which would ACCUSE that line — shows up here as a verdict change instead of
-# passing unnoticed.
-echo "Cg-no-repin-quote-aware: a pin after a quoted '#' is caught; comments stay exempt"
+# ── Cg-no-repin-quote-aware: the strip's atoms, pinned one at a time ──────────
+# Seven fixtures, all run through the SAME predicate the sweep uses, so they
+# cannot drift from it. The strip has THREE atoms, and which fixture pins which
+# is MEASURED here rather than asserted — BL-181's lesson is that a fixture
+# passing for the other atom's reason is worse than an admitted gap, and this
+# case was written wrong the first time for exactly that reason (below):
+#   • BLANK RULE (`index(BLANK, p) > 0`) — a `#` opens a comment only at a line
+#     start or after a blank. Pinned EXCLUSIVELY by param-expansion and
+#     url-fragment. MEASURED: replace the guard with a bare `break` and those
+#     two report, nothing else does (suite 64/1).
+#   • QUOTE TRACKING (the SQ/DQ state machine) — a `#` inside a quoted scalar is
+#     not a comment even when a blank precedes it. Pinned EXCLUSIVELY by
+#     quoted-hash-with-blank. MEASURED: delete the two state-machine lines and
+#     that fixture alone reports (suite 64/1).
+#   • UNTERMINATED-QUOTE FALLBACK — pinned by unterminated-quote-fallback-changed.
+#     MEASURED: delete the fallback block and that fixture alone reports.
+# quoted-hash-no-blank is R-BL201-5's LITERAL measured survivor (`echo 'a#b'`)
+# and it pins NEITHER atom, which is stated rather than glossed: its `#` follows
+# a letter AND sits inside quotes, so EITHER atom catches it and removing either
+# one leaves it green. It is kept as the whole-strip reversion guard — it is the
+# fixture that fires when BOTH atoms are gone, i.e. when someone restores
+# `sed 's/#.*//'`. MEASURED: with both atoms excised all four carrier fixtures
+# report. This case's first draft claimed that fixture pinned quote-awareness;
+# the mutation run refuted it, which is why quoted-hash-with-blank exists.
+# Two further fixtures hold the OTHER direction — a whole-line and a trailing
+# comment naming an old pin must stay exempt, because turning documentation into
+# a failure is the one regression a stricter strip can cause.
+echo "Cg-no-repin-quote-aware: the blank rule AND quote tracking, each pinned; comments stay exempt"
 qa_bad=""
-file_has_repin /dev/stdin <<'QA_QUOTED' || qa_bad="$qa_bad quoted-hash"
+file_has_repin /dev/stdin <<'QA_QUOTED' || qa_bad="$qa_bad quoted-hash-no-blank"
     - run: echo 'a#b' && docker run semgrep/semgrep:1.170.0
 QA_QUOTED
+file_has_repin /dev/stdin <<'QA_QUOTED_BLANK' || qa_bad="$qa_bad quoted-hash-with-blank"
+    - run: echo 'pin # here' && docker run semgrep/semgrep:1.170.0
+QA_QUOTED_BLANK
 file_has_repin /dev/stdin <<'QA_PAREXP' || qa_bad="$qa_bad param-expansion"
     - run: echo ${TAG#v} && docker run semgrep/semgrep@sha256:0123456789abcdef
 QA_PAREXP
@@ -815,9 +841,9 @@ if file_has_repin /dev/stdin <<'QA_UNTERMINATED'
 QA_UNTERMINATED
 then qa_bad="$qa_bad unterminated-quote-fallback-changed"; fi
 if [ -z "$qa_bad" ]; then
-  pass "Cg-no-repin-quote-aware (3 quote-blind carriers caught, 2 comment forms exempt, fallback pinned)"
+  pass "Cg-no-repin-quote-aware (4 carriers caught across BOTH atoms, 2 comment forms exempt, fallback pinned)"
 else
-  fail_ "Cg-no-repin-quote-aware" "the comment strip does not implement the YAML/shell comment rule — a '#' opens a comment ONLY when it is unquoted AND at a line start or after a blank. Fixtures whose verdict is wrong:$qa_bad (a *-ACCUSED name means a genuine COMMENT was treated as executable, which false-FAILs a clean template; 'quoted-hash'/'param-expansion'/'url-fragment' mean the strip truncated inside a quote or at a non-comment '#' and threw away the pinned ref after it — the R-BL201-5 escape; 'unterminated-quote-fallback-changed' means the deliberate naive fallback for a line whose quotes never close was altered, which trades a silent DROP for a false accusation — update the residual note above before keeping that change)"
+  fail_ "Cg-no-repin-quote-aware" "the comment strip does not implement the YAML/shell comment rule — a '#' opens a comment ONLY when it is unquoted AND at a line start or after a blank. Fixtures whose verdict is wrong:$qa_bad — READ WHICH ONES, they name different atoms: 'param-expansion'/'url-fragment' mean the BLANK-RULE guard is gone or narrowed (the strip cut at a '#' no blank preceded and threw away the pinned ref after it). 'quoted-hash-with-blank' means QUOTE TRACKING is gone or narrowed, and it is the ONLY fixture that says so. 'quoted-hash-no-blank' pins NEITHER atom on its own (either one catches it) — it appearing means BOTH are gone, i.e. the strip is back to 'sed s/#.*//' and R-BL201-5 is re-opened wholesale. A '*-ACCUSED' name is the opposite failure: a genuine COMMENT was read as executable, which false-FAILs a template nobody broke. 'unterminated-quote-fallback-changed' means the deliberate naive fallback for a line whose quotes never close was altered, trading a silent DROP for a false accusation — update the residual note above before keeping that change"
 fi
 
 # ── Cg6: non-github gitleaks steps modernized (dir/git, pinned, off zricethezav)
