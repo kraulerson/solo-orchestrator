@@ -852,6 +852,16 @@ run_child_suite "tests/test-bl161-ledger-real-events-only.sh" \
 # No init.sh -> both lanes.
 run_child_suite "tests/test-bl141-commitmsg-repair.sh" "tests/test-bl141-commitmsg-repair.sh"
 
+# BL-145 (Dogfood-3 SHOULD-fix wave, consolidated verifier S3): verify-install's
+# hook repairs must not write THROUGH a symlinked hook on the no-consent
+# --auto-fix surface (the verifier's repro mutated a dotfiles-managed target),
+# and its hook checks must not be blind to core.hooksPath (a green PASS for a
+# hook git never runs, plus an inert "repair"). Symlink -> refuse loudly naming
+# the target; core.hooksPath -> checks HONOR it, repairs refuse. Dual
+# fence-excision mutants. No init.sh -> both lanes.
+run_child_suite "tests/test-bl145-hook-symlink-hookspath.sh" \
+  "tests/test-bl145-hook-symlink-hookspath.sh"
+
 # BL-143 (Dogfood-3 wave verifier C3): the anti-self-approval control no
 # longer silently skips when the Approver row lies past the -A 20 capped
 # pre-extraction — the name is recovered from the blame walker's own

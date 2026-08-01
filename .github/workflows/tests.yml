@@ -337,6 +337,7 @@ jobs:
             tests/test-bl174-gitignore-backfill.sh
             tests/test-bl184-child-suite-evidence.sh
             tests/test-bl141-commitmsg-repair.sh
+            tests/test-bl145-hook-symlink-hookspath.sh
             tests/test-bl143-pastcap-selfapproval.sh
             tests/test-bl155-phase2-init-transition-commit.sh
             tests/test-bl168-tm-table-sigpipe.sh
