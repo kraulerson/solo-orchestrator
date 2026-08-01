@@ -397,7 +397,13 @@ HEADER_SCAN=$(awk '
   {
     if (match($0, /^## BL-[0-9]+[a-z]?:/)) {
       # Drop the leading "## " (3 chars) and the trailing ":" (1 char).
-      id = substr($0, 4, RLENGTH - 4)
+      # RSTART-relative, NOT a hardcoded offset 4: under the `^` anchor
+      # RSTART is always 1 so the two are identical, but the hardcoded
+      # form silently mis-extracts (" ## BL" instead of "BL-001") if the
+      # anchor is ever dropped, which MASKED the anchor from mutation
+      # testing — M2 (anchor deleted) passed 21/0 with offset 4 and
+      # fails T15 with this form. Two atoms, each independently pinned.
+      id = substr($0, RSTART + 3, RLENGTH - 4)
       total = total + 1
       if (seen[id] == 0) { nids = nids + 1; order[nids] = id }
       seen[id] = seen[id] + 1
