@@ -3604,7 +3604,16 @@ Verifier-reproduced: with a project-local `lint-backlog-references.sh` and a bac
 **Logged:** 2026-07-19 (Dogfood-3 SHOULD-fix wave consolidated verifier, S1+S2)
 **Category:** Bug / gate precision hardening (evasion residuals, pre-existing)
 **Severity:** Low
-**Status:** Open
+**Status:** Closed — merged 2026-08-01 in PR #301 (`# BL-144-NO-SECTION`, `# BL-144-PLACEHOLDER-CELL`;
+suite tests/test-bl144-selfapproval-silent-arms.sh 12/0). Both silent arms now BLOCK via the
+`issues` increment — the CLAUDE.md `[WARN]`-trap discipline, tested on rc not labels; fixtures
+render the SHIPPED org template byte-identically (reviewer-verified pure-additive diff). Review:
+approve, zero refuted claims; its two minors (gate-window-scoped flag wording; an
+`unset SOIF_PHASE_GATES` guard the implementer MUTATION-PROVED — six false-REDs without it under
+ambient warn-mode) landed pre-merge. Post-merge verification closed the one honestly-flagged
+unknown: tests/edge-cases-scripts.sh 74/0 on the merged code — and getting that number exposed a
+case-sensitive tally grep in the sweep tooling that nearly laundered a blank into a pass, this
+entry's own defect class, recorded as the lesson.
 
 Two silent shapes survive BL-143, both executed and both byte-for-byte pre-existing on main: (a) a malformed `### `-header gate section whose Approver row also sits past the `-A 20` cap — the `# BL-143-PASTCAP-RECOVERY` awk computes `NO_SECTION` and its `''|*[!0-9]*)` arm discards it, while the walker's loud malformed-header refusal is only reachable when a name was pre-extracted (an attacker combining both evasions gets zero output); (b) a past-cap `| **Approver** | [Name] |` (or empty-cell) row — the BL-138 placeholder predicate is `head -20`-capped, and the recovery recovers `[Name]`, recognizes it in its own trigger condition, then drops it silently.
 
@@ -3619,7 +3628,16 @@ Two silent shapes survive BL-143, both executed and both byte-for-byte pre-exist
 **Logged:** 2026-07-19 (Dogfood-3 SHOULD-fix wave consolidated verifier, S3)
 **Category:** Debt / repair-surface hygiene (pre-existing class)
 **Severity:** Low
-**Status:** Open
+**Status:** Closed — merged 2026-08-01 in PR #305 (`# BL-145-SYMLINK-GUARD` leaf + DIRECTORY arms,
+`# BL-145-HOOKSPATH`, `# BL-145-RELATIVE-ANCHOR`; suite tests/test-bl145-hook-symlink-hookspath.sh
+12/0). `--auto-fix` refuses symlinked-hook writes naming the resolved target — including the
+directory-symlink bypass the review's BLOCK proved (a dotfiles 3-line hook clobbered to 1587
+lines, watched-RED then pinned); checks honor the EFFECTIVE hooks dir keyed on `git config`'s
+EXIT status (set-empty measured running NO hooks → refuses any "installed" verdict); repairs
+never write into a hooksPath dir without consent; every message states only true things. Review
+arc: block → approve, the reviewer endorsing the one deliberate boundary (a symlinked `.git` is
+the same repository — dirname depth is the guard boundary, not a hole). Residual FILED AS
+BL-209: init.sh and upgrade-project.sh's install arms share the entire blindness class.
 
 Executed: with `.git/hooks/commit-msg` symlinked to a shared out-of-tree file, `verify-install --auto-fix` appends the managed block into the symlink TARGET (target mutated, symlink kept). Pre-existing class — `fix_precommit_hook` is worse (full `soif_write_precommit_hook` clobber through the symlink), and the sync's install arm appends identically — but `--auto-fix` is a no-consent surface, so it deserves the guard first. Related observation: both hook checks read `.git/hooks/` literally, so a `core.hooksPath` project gets a PASS plus an inert "repair" (framework-generated projects never set it; parity with the pre-existing pre-commit blind spot).
 
@@ -4300,13 +4318,28 @@ BL-131 ships a new vendored artifact, `templates/semgrep/soif-dom-sinks.yml`, th
 **Logged:** 2026-07-24 (BL-172 WP-B fable verifier, findings F2+F3)
 **Category:** Gate precision / git-worktree correctness (commit-msg + PreToolUse sentinel skips)
 **Severity:** Low
-**Status:** Open
+**Status:** Closed — merged 2026-08-01 in PR #304 (`# BL-176-GITPATH`, `# BL-176-GITPATH-EDITMSG`,
+five `# BL-176-RESUME-SKIP-*` sites behind one shared helper; suite
+tests/test-bl176-worktree-sentinels.sh 30/0, watched-RED 9/13 against the old gate). Every
+sentinel consult now resolves via `git rev-parse --git-path`; `bl006_check`/`lints_check` gained
+CHERRY_PICK/REVERT per this entry's rider. THE BUILD REFUTED THIS ENTRY'S OWN CALIBRATION (struck
+above): in a linked worktree the COMMIT_EDITMSG read returned EMPTY, so the BL-072 TDD hard block
+and the BL-006 message check SILENTLY DID NOT RUN — an open-direction bypass this repo's own
+`.claude/worktrees/agent-*` flow sat in, proven by mutation G6 and reproduced end-to-end in
+review (approve; the reviewer also validated the MERGED state incl. the new BL-197 lint over the
+new suite before the PR). Residuals FILED: BL-209 (the `.git/hooks` install-path blindness class
+— 38 non-comment lines across 9 files) and BL-210 (`--check-commit-ready` has no derivative
+filter).
 
 In a **linked git worktree** `.git` is a FILE (a `gitdir:` pointer), not a directory, so the literal `[ -f .git/<SENTINEL> ]` derivative-commit skip tests are BLIND: mid-cherry-pick `[ -f .git/CHERRY_PICK_HEAD ]` is FALSE, while `git rev-parse --git-path CHERRY_PICK_HEAD` resolves to `.git/worktrees/<name>/CHERRY_PICK_HEAD` where the sentinel actually lives. Verified on git 2.50.1 by the BL-172 verifier's empirical probe, and independently reproduced in THIS repo's own `.claude/worktrees/agent-*` worktree: `.git` is a 103-byte file, `test -f .git/CHERRY_PICK_HEAD` → FALSE, and `git rev-parse --git-path CHERRY_PICK_HEAD` → `<repo>/.git/worktrees/<name>/CHERRY_PICK_HEAD`. In a normal (non-worktree) checkout `--git-path` returns `.git/<SENTINEL>`, so it is a drop-in replacement.
 
 Affects **all five** skip sites — the two BL-172 additions AND the pre-existing MERGE_HEAD lines AND `bl006_terminal_enforce`'s full three-sentinel set: `tdd_terminal_enforce`, `tdd_warn_check`, `bl006_terminal_enforce`, `bl006_check`, `lints_check`. Net: the BL-172 symptom (spurious refusal of a resumed cherry-pick/revert — and, pre-BL-172, a resumed merge) PERSISTS inside a linked worktree, because the skip never fires there.
 
-**Fail direction (calibration):** CLOSED. The blindness makes the gate MORE strict (a skip that *should* fire does not), so the only consequence is an inconvenient spurious refusal, NEVER a bypass. That is why this is Low, not a blocker.
+~~**Fail direction (calibration):** CLOSED. The blindness makes the gate MORE strict (a skip that *should* fire does not), so the only consequence is an inconvenient spurious refusal, NEVER a bypass. That is why this is Low, not a blocker.~~ — **CORRECTED 2026-08-01 (by the build,
+proven by mutation G6):** the calibration missed the class's OPEN-direction member. In a linked
+worktree `cat .git/COMMIT_EDITMSG` reads EMPTY, an empty subject matches no gate prefix, and the
+BL-072 TDD hard block plus the BL-006 message check SILENTLY DID NOT RUN — a real bypass, live in
+this repo's own agent-worktree flow until PR #304. 'Never a bypass' was wrong.
 
 **Fix shape:** replace the literal `.git/<SENTINEL>` path tests with `git rev-parse --git-path <SENTINEL>` at all five sites (a drop-in in normal checkouts, correct in linked worktrees); mutation-proof each site.
 
@@ -5532,7 +5565,14 @@ defect class, different surface).
 - It is **not Low**, for two independent reasons. (1) The check's good case is the warning's **ABSENCE**, so unlike the selection half of the invariant it *cannot* fail closed — a future semgrep that renames, reformats or drops that warning re-opens the exact R-274Rv2-1 hole, silently and in every generated project, with no test able to notice. That is a **fail-open anchor** shipped into enforcement code, and it is the first one in this arm. **BL-192 is what that risk looks like when it lands** — a different clause of the same guard, blinded by an upstream release with no spelling change at all. Treat that as a demonstration, not a coincidence. (2) The failure mode when it does fire is the worst one available: a positive false attestation over a file no rule matched.
 - **Medium is where those meet:** trigger closed, but by an instrument that is structurally weaker than the one beside it, and the arm now certifies commits on the strength of a string semgrep is not contractually obliged to print.
 
-**Status:** Open
+**Status:** Closed — merged 2026-08-01 in PR #303 per the 2026-07-31 decision recorded below:
+`--timeout=30` on the shipped invocation (T-bl187-constant pins the value exactly once); the
+dense fixture's sink is now BLOCKED outright at 30s on measured hosts — strictly better — and
+the detector + conjunct proofs are re-armed HOST-INDEPENDENTLY by T-bl187-budget-mutant-proof
+(a 30→1s budget-shrunk mutant, ENVIRON-safe). The `# BL-187-RULE-COVERAGE` detector stays, and
+so does the named-string weakness this entry records. Residue: rule-NAME attribution is unproven
+on hosts where 30s never trips (the budget mutant pins target naming and the ABANDONED sentence,
+not the rule name).
 
 **SHIPPED ON MAIN VIA THE BL-112 SPLIT — AND THE #278 REMAINDER'S COPY OF THIS ENTRY MUST BE DELETED
 DURING REBASE, NOT MERGED.** This entry, and the `# BL-187-RULE-COVERAGE` guard it describes, reached
@@ -5826,12 +5866,20 @@ these lanes).
 > BL-185…BL-189. See the note on BL-190.
 
 **Logged:** 2026-07-28
-**Status:** Open — the **duplicate-execution half is FIXED and MERGED** (PR #279, `3282c97` — the
-same merge that closed BL-190; recorded 2026-07-31, the wording here had still said "on branch");
-the **per-line fork itself is not**, and that is what this entry stays open for. Flip to Closed
-only when `scan_file` is single-pass. Current cost of the surviving half: the
-`counter-antipattern-lint` job runs ~4m24s–4m44s per PR head (measured across #292/#293/#294
-heads; the review's fuller envelope), now once per lane rather than four times.
+**Status:** Closed — the per-line-fork half merged 2026-08-01 in PR #306
+(`# BL-191-SINGLE-PASS-SCAN`; measured ~110-112x, ~5-7 min → ~3-4 s per run, and the pre-commit
+gate pays it on every local commit too). Byte-identity proven on SEEDED corpora (clean-tree
+diffs prove almost nothing) and replicated+extended in review. THE ONE DIVERGENCE DOMAIN IS
+NUL-BEARING LINES AND IT CUTS BOTH WAYS — review falsified the original 'strictly catches more'
+claim by construction: the old truncating read silently missed a real violation (T20) AND could
+accidentally hide a `sed -E` exemption string, so the rewrite catches more on T20's arms and
+LESS on T21's (flagged→exempt when the exemption text sat past a NUL; root cause is the
+PRE-EXISTING unanchored exemption scope — narrowing it is a live follow-up that SHOULD flip
+T21's characterization pin). Unreadable files now exit 2 loudly
+(`# BL-191-UNREADABLE-IS-EXIT-2`, T22 real chmod case) instead of the old silent false-clean.
+The duplicate-execution half had merged earlier (PR #279, `3282c97`). Follow-up FILED AS
+BL-211: `lint-raw-read-prompt.sh` carries the identical per-line fork (~40s, now the slowest
+lint). Final battery: 8 atoms, suite 24/0.
 **Category:** CI capacity / lint performance
 **Severity:** Medium — no correctness impact; it is the single largest cost in PR CI, and it is the
 root cause under BL-190's symptom.
@@ -6412,7 +6460,17 @@ lane shows it red again, reopen **BL-135**, do not file a new entry.
 **Category:** Enforcement gap / citation integrity
 **Severity:** Medium — silent. A marker that is renamed, typo'd or deleted breaks every citation that
 points at it, and no lint, test or gate notices.
-**Status:** Open
+**Status:** Closed — merged 2026-08-01 in PR #302 (`scripts/lint-bl-markers.sh`; suite 20/0;
+three adversarial rounds, all minor_concerns — the arc closed the transient-tree test coupling,
+the awk NR==FNR false-OK trap, the cp-defeats-self-exclusion bypass (three layers now, content
+sentinel included), and the allowlist accounting made PER-TOKEN after the confirm round proved
+the disjunction could hide a stale row). Two real broken cites on merge-day trees were the
+deliberately-withdrawn BL-186 tokens, carried as reasoned allowlist rows. Residuals recorded per
+the rounds: a deliberately de-sentinelled ARBITRARY-NAME partial copy defeats all three layers
+(sabotage-class, diff-visible — the layers defend good-faith copies and the file says so); a
+string/heredoc MENTION counts as a live marker definition (the BL-181 heredoc class); a
+truncation landing exactly on a hyphen resolves as FAMILY; split-line citations are unchecked,
+like the ~10 bare tokens. The lint job is NOT a required check — promotion is Karl's call.
 
 **The gap.** CLAUDE.md § CITATION RULE says to cite code by a grep-able `# BL-NNN-…` marker comment
 or a function name, **never** a bare `file:line`, because line numbers have mis-resolved within 24h
@@ -6524,7 +6582,7 @@ citation-integrity gap filed the same day), `scripts/lint-fail-emit-exit-status.
 silent-success class recorded in the `adversarial-verify-patterns` memory note.
 
 **UPDATE 2026-07-31 — the lint LANDED; entry stays Open for instance 3 only.** Delivered on
-`fix/bl197-diagnostic-destruction-lint` (`0585b90` + review round `ddb3f2f`;
+`fix/bl197-diagnostic-destruction-lint` (`0585b90` + review round `ddb3f2f`; merged 2026-08-01 as PR #298;
 `scripts/lint-diagnostic-destruction.sh`, markers `# BL-197-DD1-SILENCER` /
 `# BL-197-DD1-FAILARM` / `# BL-197-CODE-SKELETON` / `# BL-197-IO-HARD-FAIL`; suite
 `tests/test-lint-diagnostic-destruction.sh`, 21/0). What ships: DD1 gating (one-line
@@ -7567,7 +7625,16 @@ prose-immunity discipline, applied to the template side). Item 3 wants a quote-a
 or standing acceptance as a named limit. Item 1 stays a named limit unless the suite gains a
 render-and-execute stage.
 
-**Status:** Open
+**Status:** Closed — merged 2026-08-01 in PR #300 (six `# BL-206-*` markers; suite 67/0). Item 2
+shipped in both halves — Cg5-scan-exec (an executable scan line required in every non-github
+template) and comment-stripped extraction — both mutation-pinned after review proved the first
+cut's two atoms unpinned (their reverts had survived 65/0). Item 3 closed by RETREAT, exactly the
+alternative this entry sanctioned: the quote-aware strip was REFUTED in review (natural-prose
+false accusations — a `Karl's build # don't …` line convicts an innocent file via apostrophe
+parity), so the naive never-accuse strip semantics ship, with the quoted-`#` evasion documented
+as a fixture-enforced limit — thirteen strip-control fixtures in three groups, and MUT-S3 as the
+standing guard: re-introducing the withdrawn tracker verbatim fires seven named fixtures at once.
+Item 1 (the vacuous version-log satisfiability) stays the named limit.
 
 **Related:** BL-201 (the review that surfaced both), BL-147 (the suite), BL-181 (the
 mention-vs-execution class), BL-197 (failure-message honesty — the R2-7 sibling).
@@ -7582,7 +7649,20 @@ mention-vs-execution class), BL-197 (failure-message honesty — the R2-7 siblin
 - It reads **High** if you score it as "a one-line comment turns the security gate off." It does, and the gate then prints the full `[OK] semgrep: SAST ran on N staged file(s) — no ERROR-severity findings.` receipt, which is the same false-attestation shape R-274R-1 was rated SEVERE for.
 - It is **not** High, because the mechanism is **sanctioned, documented and deliberate** — three shipped docs instruct builders to use it (below) — and because the pre-commit hook is not a security boundary in the first place: it is unversioned, uninstallable and already has a documented WARN-on-absent contract (`# BL-112-SAST-NOTRUN` spells out why blocking a breakable scanner is theatre). Anyone willing to write `// nosemgrep` could delete the hook. The gate is a **tripwire**, and a tripwire that a builder deliberately steps over is working as designed.
 - **Medium is where those meet:** the defect is not the suppression, it is that **this is the only escape in the repo that leaves no trace.** Every other one is recorded — BL-072's `SOLO_TDD_ATTESTED=1` writes `{date, subject, reason, files}` to `.claude/process-state.json::tdd_attestations[]` and REFUSES the commit if the record cannot be written; BL-163/BL-171 write `terminal_commit_blocked` rows to `.claude/bypass-audit.json`. Suppression is the one door with no logbook, and the cost lands in **Phase 3**, where BL-113 made an un-run scan unlaunderable — a *suppressed* scan launders itself, because it is indistinguishable from a clean one in every artifact the phase gate can read.
-**Status:** Open
+**Status:** Closed — merged 2026-08-01 in PR #303 on the decided contract
+(`# BL-185-SUPPRESSION-DETECT` / `-RECEIPT` / `-LEDGER`; cases in
+tests/test-bl132-sast-index-scan.sh), with one review-forced widening that IS this entry's point:
+the detector is `grep -ciwE 'nosem(grep)?'` — the review MEASURED semgrep honoring `nosem` and
+case variants on 1.157.0 (its docs' --enable-nosem default says "nosem"), so the first cut's
+lowercase-nosemgrep-only detector left the escape unrecorded under two sanctioned spellings; all
+three spellings are suite-pinned with sink-in-HEAD guards. Rows are
+`final_outcome:"recorded_only"` — the review proved a LATER gate (BL-125's test gate) can refuse
+a commit after the SAST arm records, so "landed" would be a false governance record; the
+bypass-audit schema header carries the new type. The unqualified [OK] is forfeited for a
+qualified receipt; file+directive named in mapped form (exact-pinned after the review's
+sed-neutralize mutant survived a basename-blind assert); blocked commits show the info line but
+write no row; a trojan append lib degrades to the loud [note]. Review arc: block → approve. The
+POLICY question this entry was filed for is settled by the 2026-07-31 decision recorded below.
 
 **Evidence (reproduced, this host, semgrep 1.157.0, git 2.50.1).** Emit the hook through the shipped
 emitter `soif_write_precommit_hook`, install it as a real `.git/hooks/pre-commit`, stage:
@@ -8101,7 +8181,15 @@ numbers. TDD with the reviewer's own mutant (append a duplicate header → RED �
 When BL-093's archive split lands, the check must span BOTH files (an ID present in main AND
 archive is the same defect).
 
-**Status:** Open
+**Status:** Closed — merged 2026-08-01 in PR #299 (`# BL-207-HEADER-UNIQUENESS`; self-suite
+22/0). The arm keys `BL-[0-9]+[a-z]?` (the sketched narrow grammar would fold the real
+BL-003a/BL-003b splits), gives preserved pre-close blocks NO exemption (demonstrated: the
+splitter truncates at an un-indented inner header, so the arm agrees with the instrument it
+protects), and reports first-header order deterministically — with the order fixture's ID pair
+CHOSEN BY PROBING 14 candidates after the review's suggested pair proved vacuous on this host's
+awk. Uncovered surfaces, named in-code and here as follow-up candidates (not filed — low value
+until either surface grows): `## code-*-N:` headers (two exist) and the bugs file's `## BUG-NNN:`
+headers.
 
 **Related:** BL-093 (the split that widens the surface), BL-196 (the marker-citation validator —
 same "the citation primitive has no guard" family), the BL-200 numbering note (cross-branch
@@ -8148,9 +8236,9 @@ is not — so a Python check is not evidence this is fine; the ruby/libyaml prob
 reproduces the failure an older libyaml-based consumer (e.g. Psych on Ruby 2.6)
 would hit.
 
-**Status:** Open — the fix ships on this same branch (`fix/bl208-java-yaml-strict-parse`: the
-single flow-scalar script item is double-quoted as one string so strict libyaml parses it, with
-no semantic change to the executed command). This entry closes at that branch's merge commit.
+**Status:** Closed — merged 2026-08-01 in PR #297 (fix `4d97107`, filing `8484213`, review
+amendments on the same branch; the parsed value proven byte-identical across four parser
+configurations and cross-parser).
 Residual, recorded per review R-BL208-1: NO check in either lane strict-parses the 30 CI
 templates (nothing greps or loads them with a strict libyaml), so a recurrence of this exact
 wart merges green — reintroducing the unquoted line passed test-bl147 63/0 and all nine lint
@@ -8158,3 +8246,68 @@ jobs by identity. Candidate follow-up: a ruby-guarded strict-parse arm in test-b
 
 **Related:** BL-201 (the closure UPDATE where this was first observed and deferred to
 housekeeping).
+
+---
+
+## BL-209: The `.git/hooks` INSTALL-path class is blind to worktrees, symlinks, and core.hooksPath — 38 non-comment lines across 9 files write or probe a path git may not use
+
+**Logged:** 2026-08-01 (consolidated from BL-145's named residual and BL-176's review inventory —
+the same class observed from two directions in the quick sweep)
+**Category:** Install/upgrade surface hardening
+**Severity:** Low-Medium. The class has three members, all measured on siblings this sweep fixed
+on the VERIFY surface: writing through a symlinked hook or hooks directory (BL-145's clobber,
+still live on these arms), writing to `.git/hooks` in a linked worktree (hooks live in the COMMON
+gitdir — the write lands, but probes reading `.git/hooks` literally mis-answer), and
+`core.hooksPath` blindness (an installed hook git never runs; an inert write).
+
+**The census (BL-176 review, exact):** 38 non-comment `.git/hooks` lines — verify-install 13
+(now guarded by BL-145), upgrade-project 6, init.sh 5, install-filesystem-gates 4,
+install-contributor-hooks 4, process-checklist 2, lib/plan-staging 2, validate 1,
+lib/freshness-detect 1. The fix shape is BL-145's and BL-176's combined: resolve via
+`git rev-parse --git-path hooks` / `--git-common-dir`, refuse-not-write through symlinks on
+no-consent surfaces, and honor-or-refuse `core.hooksPath` keyed on `git config`'s exit status.
+init.sh's arm is the lowest-risk (a fresh scaffold has no worktrees or dotfiles links yet);
+upgrade-project's sync arms are the ones that touch EXISTING projects and deserve the guard
+first — the same argument BL-145's entry made for --auto-fix.
+
+**Status:** Open
+
+**Related:** BL-145 (the verify-surface fix and its `_bl145_*` helpers — reuse them), BL-176
+(the sentinel-surface fix; `# BL-176-GITPATH` is the resolution primitive), BL-088 (managed
+script delivery rides the same upgrade arms).
+
+---
+
+## BL-210: `--check-commit-ready` has no derivative-resume filter at all — a merge/cherry-pick/revert continuation is classified like any other commit
+
+**Logged:** 2026-08-01 (found by BL-176's build while isolating `bl006_check`; recorded by its
+review as a policy question, not a path fix)
+**Category:** Build Loop classifier / policy
+**Severity:** Low. Every ENFORCING surface got the derivative-skip family (BL-172 sentinels, now
+worktree-aware via BL-176); the ADVISORY `--check-commit-ready` classifier never had one, before
+or after. Whether a resume-in-progress should classify differently is a semantics decision about
+what "commit-ready" means mid-merge — Karl's call, then a two-line reuse of
+`_derivative_resume_in_progress` if yes.
+
+**Status:** Open
+
+**Related:** BL-172 (the sentinel family), BL-176 (`_derivative_resume_in_progress` — the
+ready-made predicate), BL-006 (the classifier this advises).
+
+---
+
+## BL-211: `lint-raw-read-prompt.sh` forks a subshell per LINE — the identical defect BL-191 fixed, now the slowest lint (~40s)
+
+**Logged:** 2026-08-01 (BL-191's named follow-up; the review concurred)
+**Category:** CI capacity / lint performance
+**Severity:** Low. Same mechanism as BL-191's fixed half (`echo "$line" | grep -Eq` per line),
+same fix shape (single `grep -naE` pass per rule per file with an ordered merge, engine-identical
+so byte-identity is provable), same proof obligations (SEEDED-corpus byte-identity — a clean-tree
+diff proves almost nothing — plus the NUL-domain divergence check BL-191's T20/T21 taught:
+whole-line raw evaluation moves BOTH rules and exemptions). At ~40s it is now the long pole of
+`run-lints.sh` after BL-191 took the previous ~5-7 minute pole to ~4 seconds.
+
+**Status:** Open
+
+**Related:** BL-191 (the template for the rewrite and the divergence discipline; marker
+`# BL-191-SINGLE-PASS-SCAN`), BL-190 (the lane-capacity context).
