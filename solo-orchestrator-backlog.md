@@ -2316,16 +2316,17 @@ All three are template drops covered by the BL-088 scaffold-fidelity surface (ne
 first run against a GENERATED project tree (via `--docs-dir`) found 15
 unresolved refs in the shipped `docs/reference/` guides — the ship depth is one
 level below the lint depth, a class the framework-tree dogfood can never see.
-The fixes replaced those relative links with absolute URLs pinned to
-`kraulerson/solo-orchestrator@main` because the upgrade-sync machinery
-byte-compares shipped copies against sources (a post-copy rewrite would read as
-user customization forever). Accepted cost, named here durably: absolute refs
-leave the `# BL-090-DOC-REFS` arm's scope by design (`://` is skipped), so
-future rot of those URLs is invisible to the lint estate — it would surface
-only via a manual sweep or the optional unit-lane generated-tree sibling test
-recorded in the session follow-ups list. The generated-tree pin itself lives in
-`tests/test-bl108-bl117-ship-closure.sh`'s sibling suite
-`tests/test-currency-birth-stamp.sh` (full lane, init-invoking).
+The fixes replaced those relative links with absolute GitHub URLs (`blob/main`
+for files, `tree/main` for directories, default-branch `#readme`/`#legal-notices`
+anchors for the README links; one ref reworded to the generated project's own
+`PROJECT_INTAKE.md` instead) because the upgrade-sync machinery byte-compares
+shipped copies against sources (a post-copy rewrite would read as user
+customization forever). Accepted cost, named here durably: absolute refs leave
+the `# BL-090-DOC-REFS` arm's scope by design (`://` is skipped), so future rot
+of those URLs is invisible to the lint estate — it would surface only via a
+manual sweep or the optional unit-lane generated-tree sibling test recorded as
+F-011 in `solo-orchestrator-followups.md`. The generated-tree pin itself lives
+in `tests/test-currency-birth-stamp.sh` (full lane, init-invoking).
 
 Pantheon's worst documented incident: a ghost "ADR-0003" cited in a dozen documents that never existed as a file, surviving three weeks of review. The mothership is exposed to the same class: `scripts/lint-doc-anchors.sh` validates only SAME-FILE anchors (BL-048), not relative file references or ADR-style citations. Build the missing capability:
 - **Checker:** scans markdown for relative file references and ADR/identifier-style citations; fails when a target file does not exist. Consciously decide extension-of-`lint-doc-anchors.sh` vs sibling script (one doc-integrity tool beats two drifting half-tools) — justify in the PR.
@@ -7402,9 +7403,9 @@ spelling (hardening-only, reviewer-rated), and an unreadable PROJECT_INTAKE.md r
 **UPDATE 2026-08-01 — both residuals delivered; entry CLOSED.** Residual 1
 (`initialUserMessage`) landed in PR #308: the hook emits the SessionStart JSON
 envelope — `additionalContext` byte-identical to the previous stdout, the
-auto-start message gated to `startup`/`clear` sources and read LAZILY inside
-`emit_state()` after review demonstrated a silent-state hang on a held-open
-stdin pipe (fixed by construction; pinned structurally and behaviorally, the
+auto-start message gated to `startup`/`clear` sources, with the stdin envelope
+read LAZILY inside `emit_state()` after review demonstrated a silent-state
+hang on a held-open stdin pipe (fixed by construction; pinned structurally and behaviorally, the
 behavioral case carrying a detector positive control). Per current client docs
 the field takes effect on startup/fork only; `fork` deliberately withholds.
 Residual 2 (the README kickoff copy) landed in PR #310: README § Quick Start
