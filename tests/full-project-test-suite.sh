@@ -842,6 +842,17 @@ run_child_suite "tests/test-bl171-commitmsg-ledger.sh" "tests/test-bl171-commitm
 # by a marker-excision mutation. Direct hermetic fixtures, no init.sh -> both lanes.
 run_child_suite "tests/test-bl172-resume-sentinels.sh" "tests/test-bl172-resume-sentinels.sh"
 
+# BL-176: the same gates inside a LINKED GIT WORKTREE, where `.git` is a gitdir
+# POINTER FILE. Every literal `.git/<NAME>` path was blind there — the three
+# sentinel skips silently stopped firing (over-strict) AND the COMMIT_EDITMSG
+# read returned "", which silently disabled BOTH message-scoped commit-msg gates
+# (a real gate loss, the OPEN direction BL-176's own text does not name). All
+# five skip sites now route through one `_derivative_resume_in_progress` helper
+# over `git rev-parse --git-path`; bl006_check + lints_check gained
+# CHERRY_PICK_HEAD/REVERT_HEAD by that consolidation. Real `git worktree add`
+# fixtures, per-site mutation proofs. No init.sh -> both lanes.
+run_child_suite "tests/test-bl176-worktree-sentinels.sh" "tests/test-bl176-worktree-sentinels.sh"
+
 # BL-161 (Dogfood-4 F-DF4-007): the tracked bypass-audit ledger records ONLY
 # real events — a CLEAN terminal commit writes NO routine terminal_commit_passed
 # row (the tracked ledger is byte-identical; a non-tracked .claude/last-gate-pass.txt

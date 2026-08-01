@@ -27,6 +27,48 @@ for _tdd_lib in "$SCRIPT_DIR/lib/tdd-classify.sh"; do
 done
 unset _tdd_lib
 
+# ── BL-176: git-dir-aware path resolution ────────────────────────────
+# In a LINKED GIT WORKTREE `.git` is a FILE (a `gitdir:` pointer), not a
+# directory, and the per-worktree state git writes around commit time —
+# MERGE_HEAD / CHERRY_PICK_HEAD / REVERT_HEAD / COMMIT_EDITMSG — lives in
+# `<main-checkout>/.git/worktrees/<name>/`. Every literal `.git/<NAME>` path in
+# this file was therefore BLIND inside a worktree, with two OPPOSITE failure
+# directions: the sentinel skips silently stopped firing (over-strict: a resumed
+# merge/cherry-pick/revert was spuriously refused) while the COMMIT_EDITMSG read
+# silently returned the EMPTY STRING, which made BOTH message-scoped commit-msg
+# gates no-op entirely (a real gate loss). `git rev-parse --git-path <name>` is
+# the correct resolution: it has existed since git 2.5 (2015) and returns
+# `.git/<name>` VERBATIM in a normal checkout, so it is a drop-in there. The
+# literal fallback keeps a git too old (or too broken) to answer behaving
+# exactly as this script did before.
+_soif_git_path() {   # BL-176-GITPATH
+  local p=""
+  p=$(git rev-parse --git-path "$1" 2>/dev/null) || p=""
+  [ -n "$p" ] || p=".git/$1"
+  printf '%s' "$p"
+}
+
+# _derivative_resume_in_progress — 0 iff git has a merge / cherry-pick / revert
+# in flight for THIS working tree. A derivative commit REPLAYS an
+# already-reviewed change rather than authoring one, so every commit gate passes
+# it through. The sentinel FILE is the only signal available when such a resume
+# is finished with a plain `git commit`: no merge/revert/cherry-pick keyword
+# appears in the command string for the PreToolUse command-string filters to
+# catch, and at commit-msg time there is no command string at all.
+#
+# ONE helper, FIVE call sites (BL-176 rider item 3). The previous five-way
+# duplication is exactly what let the sentinel SETS drift apart: BL-172 extended
+# two of the five to the full three-sentinel set and the other three stayed
+# MERGE_HEAD-only. Adding a sentinel here now reaches every gate at once — and
+# `bl006_check` / `lints_check` gained CHERRY_PICK_HEAD + REVERT_HEAD by this
+# consolidation (BL-176 rider item 2), matching their commit-msg siblings.
+_derivative_resume_in_progress() {
+  [ -f "$(_soif_git_path MERGE_HEAD)" ] && return 0
+  [ -f "$(_soif_git_path CHERRY_PICK_HEAD)" ] && return 0   # BL-172-RESUME-SENTINELS
+  [ -f "$(_soif_git_path REVERT_HEAD)" ] && return 0        # BL-172-RESUME-SENTINELS
+  return 1
+}
+
 # ── BL-072 Phase C2: tier-keyed TDD-ordering hard block ──────────────
 # C1 (PR #163) shipped the detector in WARN-only measurement mode. C2 makes it
 # a real gate whose severity is keyed on the project TIER:
@@ -260,9 +302,9 @@ tdd_terminal_enforce() {
   # bl006_terminal_enforce sentinel set (git writes these at commit-msg time; a
   # resumed cherry-pick/revert committed with a plain `git commit` presents no
   # command string, so the sentinel file is the only signal here). BL-172.
-  [ -f .git/MERGE_HEAD ] && return 0
-  [ -f .git/CHERRY_PICK_HEAD ] && return 0   # BL-172-RESUME-SENTINELS
-  [ -f .git/REVERT_HEAD ] && return 0        # BL-172-RESUME-SENTINELS
+  # BL-176: resolved through `git rev-parse --git-path`, so the skip also fires
+  # inside a linked worktree, where the literal `.git/<NAME>` test was blind.
+  _derivative_resume_in_progress && return 0   # BL-176-RESUME-SKIP-TDDTERM
   command -v _tdd_triggers >/dev/null 2>&1 || return 0   # classifier absent -> no-op (safe)
 
   local subject staged_status
@@ -325,10 +367,9 @@ bl006_terminal_enforce() {
   # Derivative commits: git writes these sentinels at commit-msg time. Mirrors
   # the PreToolUse bl006_check merge/revert/cherry-pick pass-throughs (the
   # PreToolUse path detects them from the command string; at commit-msg time the
-  # sentinel files are the equivalent, current signal).
-  [ -f .git/MERGE_HEAD ] && return 0
-  [ -f .git/CHERRY_PICK_HEAD ] && return 0
-  [ -f .git/REVERT_HEAD ] && return 0
+  # sentinel files are the equivalent, current signal). BL-176: git-dir-aware,
+  # so the skip fires inside a linked worktree too.
+  _derivative_resume_in_progress && return 0   # BL-176-RESUME-SKIP-BL006TERM
   # BL-087-MOTHERSHIP-PASS — the framework repo is NOT a scaffolded project,
   # but it DOES contain scripts/process-checklist.sh, so the "no checklist ->
   # no-op" layer below cannot protect it: the delegate would hard-refuse via
@@ -435,7 +476,14 @@ done
 if [ "$TERMINAL_MODE" -eq 1 ]; then
   PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "[FAIL] not a git repo" >&2; exit 1; }
   cd "$PROJECT_ROOT"
-  COMMIT_MSG=$(cat .git/COMMIT_EDITMSG 2>/dev/null || echo "")
+  # BL-176: resolve through the gitdir that actually serves THIS working tree.
+  # The literal path read the empty string inside a linked worktree (`.git` is a
+  # gitdir POINTER FILE there), which silently disabled BOTH message-scoped
+  # gates below — an empty subject matches no conventional-commit prefix, so the
+  # BL-072 TDD hard block and the BL-006 Build-Loop check both no-opped. That is
+  # an OPEN-direction failure (a gate that does not run), unlike the sentinel
+  # skips, and this repo's own `.claude/worktrees/agent-*` flow sat in it.
+  COMMIT_MSG=$(cat "$(_soif_git_path COMMIT_EDITMSG)" 2>/dev/null || echo "")   # BL-176-GITPATH-EDITMSG
 
   # BL-072 Phase C2: tier-keyed TDD-ordering gate. Runs ONLY under --tdd-only,
   # which is how the generated COMMIT-MSG hook invokes the gate. commit-msg time
@@ -892,9 +940,8 @@ tdd_warn_check() {
   # the command string, so the command-string filter below would miss it — the
   # sentinel file catches it, exactly as MERGE_HEAD already does for a merge.
   echo "$COMMAND" | grep -qE '\-\-amend\b' && return 0
-  [ -f .git/MERGE_HEAD ] && return 0
-  [ -f .git/CHERRY_PICK_HEAD ] && return 0   # BL-172-RESUME-SENTINELS
-  [ -f .git/REVERT_HEAD ] && return 0        # BL-172-RESUME-SENTINELS
+  # BL-176: git-dir-aware, so the skip fires inside a linked worktree too.
+  _derivative_resume_in_progress && return 0   # BL-176-RESUME-SKIP-TDDWARN
   echo "$COMMAND" | grep -qE '\bgit\b.*\b(merge|revert|cherry-pick)\b' && return 0
   echo "$COMMAND" | grep -qE '\bgh\b.*\bpr\b.*\bmerge\b.*\-\-squash' && return 0
 
@@ -936,8 +983,12 @@ bl006_check() {
   # Derivative-commit filters: pass through.
   # --amend is already handled above (warns, exits). Belt-and-braces.
   echo "$COMMAND" | grep -qE '\-\-amend\b' && return 0
-  # Merge in progress.
-  [ -f .git/MERGE_HEAD ] && return 0
+  # Merge / cherry-pick / revert in progress. BL-176: this site was MERGE_HEAD-
+  # ONLY until the shared helper landed — a cherry-pick or revert RESUMED with a
+  # plain `git commit` (no keyword for the command-string filter below to catch)
+  # was refused here even though its commit-msg sibling bl006_terminal_enforce
+  # passed it. Now both honor the same three sentinels, git-dir-aware.
+  _derivative_resume_in_progress && return 0   # BL-176-RESUME-SKIP-BL006CHECK
   # Other derivative commands that might embed feat: in their message.
   echo "$COMMAND" | grep -qE '\bgit\b.*\b(merge|revert|cherry-pick)\b' && return 0
   echo "$COMMAND" | grep -qE '\bgh\b.*\bpr\b.*\bmerge\b.*\-\-squash' && return 0
@@ -1061,9 +1112,10 @@ HOOKEOF
 lints_check() {
   _is_git_commit "$COMMAND" || return 0
 
-  # Derivative-commit filters: same as bl006_check.
+  # Derivative-commit filters: same as bl006_check. BL-176: this site was also
+  # MERGE_HEAD-only and is now on the shared, git-dir-aware three-sentinel set.
   echo "$COMMAND" | grep -qE '\-\-amend\b' && return 0
-  [ -f .git/MERGE_HEAD ] && return 0
+  _derivative_resume_in_progress && return 0   # BL-176-RESUME-SKIP-LINTS
   echo "$COMMAND" | grep -qE '\bgit\b.*\b(merge|revert|cherry-pick)\b' && return 0
   echo "$COMMAND" | grep -qE '\bgh\b.*\bpr\b.*\bmerge\b.*\-\-squash' && return 0
 
