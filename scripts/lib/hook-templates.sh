@@ -189,6 +189,52 @@ soif_ledger_blocked() {
   fi
   return 0
 }
+# BL-185-SUPPRESSION-LEDGER helper — soif_ledger_blocked's sibling, same
+# BEST-EFFORT contract: a failed append prints ONE [note] and never changes
+# the hook's outcome — the receipt already NAMED the suppression loudly, and
+# unlike a refusal there is nothing here to weaken. Row type sast_suppression,
+# final_outcome "landed" (the commit DID land — that is the event; BL-161's
+# doctrine: the ledger records only real events). Called `|| true` and only
+# on landing paths (rc != 1).
+soif_ledger_suppression() {
+  soif_ls_n="${1:-0}"
+  soif_ls_files="${2:-}"
+  soif_ls_root=$(git rev-parse --show-toplevel 2>/dev/null) || soif_ls_root=""
+  if [ -z "$soif_ls_root" ]; then
+    echo "[note] BL-185: project root not found — suppression printed above, not ledgered." >&2
+    return 0
+  fi
+  soif_ls_lib="$soif_ls_root/scripts/lib/bypass-audit.sh"
+  if [ ! -r "$soif_ls_lib" ]; then
+    echo "[note] BL-185: bypass-audit.sh unavailable — suppression printed above, not ledgered." >&2
+    return 0
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "[note] BL-185: jq unavailable — suppression printed above, not ledgered." >&2
+    return 0
+  fi
+  soif_ls_ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null) || soif_ls_ts=""
+  soif_ls_level=$(jq -r '.enforcement_level // "n/a"' "$soif_ls_root/.claude/manifest.json" 2>/dev/null) || soif_ls_level="n/a"
+  [ -n "$soif_ls_level" ] || soif_ls_level="n/a"
+  soif_ls_row=$(jq -nc \
+    --arg ts "$soif_ls_ts" \
+    --arg n "$soif_ls_n" \
+    --arg f "$soif_ls_files" \
+    --arg lvl "$soif_ls_level" \
+    '{timestamp:$ts, session_id:null, type:"sast_suppression", actor:"user_terminal", enforcement_level_at_event:$lvl, details:{directive_count:(($n|tonumber?) // 0), files:$f}, user_response:"n/a", final_outcome:"landed"}' 2>/dev/null) || soif_ls_row=""
+  if [ -z "$soif_ls_row" ]; then
+    echo "[note] BL-185: could not build the ledger row — suppression printed above, not ledgered." >&2
+    return 0
+  fi
+  # Same SUBSHELL confinement as soif_ledger_blocked (the trojan-exit lesson):
+  # a sourced lib that `exit`s must terminate only the append attempt.
+  # shellcheck disable=SC1090
+  if ! ( . "$soif_ls_lib" && bypass_audit_append "$soif_ls_root" "$soif_ls_row" ) >/dev/null 2>&1; then
+    echo "[note] BL-185: ledger append failed — suppression printed above, not ledgered." >&2
+    return 0
+  fi
+  return 0
+}
 # BL-163-BLOCKED-LEDGER-END
 LEDGEREOF
 }
@@ -1130,13 +1176,37 @@ if command -v semgrep &>/dev/null; then
       #   What made it safe is not the flag, it is # BL-187-RULE-COVERAGE landing beside
       #   it. Do not restate (a) or (b); they are refuted, and they are recorded here so
       #   the next reader does not re-derive them.
-      #   THE PER-RULE TIMEOUT IS LEFT AT ITS 5s DEFAULT, DELIBERATELY AND AS A DEFERRAL.
-      #   `--timeout=0` removes the limit and DOES catch the dense fixture ([BLOCKED],
-      #   ~11s wall on this host) — but "no limit" in a pre-commit hook means a rule with
-      #   catastrophic backtracking hangs the operator's terminal with no message, which is
-      #   worse than a forfeited receipt on every axis this arm cares about: not loud, not
-      #   honest, and indistinguishable from a crash. Picking a finite larger value is a
-      #   latency-budget POLICY call, not an implementation detail. Filed as BL-187.
+      #   THE PER-RULE TIMEOUT IS 30 SECONDS BY DECISION (Karl 2026-07-31, recorded on
+      #   BL-187), set explicitly below (--timeout=30) — no longer semgrep's 5s default
+      #   and no longer a deferral. 30s catches the measured dense-fixture class
+      #   (blocked in ~11s WALL at timeout=0) with headroom while keeping the hard
+      #   ceiling: `--timeout=0` would let a catastrophic-backtracking rule hang the
+      #   operator's terminal with no message — worse than a forfeited receipt on every
+      #   axis this arm cares about. The # BL-187-RULE-COVERAGE detector below STAYS:
+      #   30s shrinks the timeout class, it does not close it, and
+      #   T-bl187-budget-mutant-proof exercises the detector on every host via a
+      #   budget-shrunk mutant instead of waiting for a host slow enough to blow 30s.
+      # BL-185-SUPPRESSION-DETECT-BEGIN — "allow it, but log it" (Karl 2026-07-31,
+      # recorded on BL-185). Count `nosemgrep` directives in the MATERIALIZED staged
+      # blobs — the bytes being committed (the BL-132 doctrine), no extra scanner
+      # invocation. Word-boundary grep, deliberately imprecise in the SAFE direction:
+      # over-detection (the bare word in prose or a string) only ever QUALIFIES a
+      # receipt and adds an audit row, never blocks and never grants; under-detection
+      # of the word itself is not possible for the directive semgrep honors. Every
+      # failure mode lands on zero — exactly today's behavior — via the house
+      # `|| …=0` + case-glob plumbing.
+      soif_sg_supp_n=0
+      soif_sg_supp_files=""
+      for soif_sp_f in ${soif_idx_files[@]+"${soif_idx_files[@]}"}; do
+        soif_sp_c=$(grep -cw 'nosemgrep' "$soif_sp_f" 2>/dev/null) || soif_sp_c=0
+        soif_sp_c=$(printf '%s' "$soif_sp_c" | tr -d '[:space:]') || soif_sp_c=0
+        case "$soif_sp_c" in ''|*[!0-9]*) soif_sp_c=0 ;; esac
+        if [ "$soif_sp_c" -gt 0 ]; then
+          soif_sg_supp_n=$((soif_sg_supp_n + soif_sp_c))
+          soif_sg_supp_files="$soif_sg_supp_files $(printf '%s' "$soif_sp_f" | sed "s#${soif_idx_tree}/[0-9][0-9]*/##")"
+        fi
+      done
+      # BL-185-SUPPRESSION-DETECT-END
       # BL-200-SYNTAX-BREAK (flag) — `--verbose` exists here for ONE line of output:
       # `[WARN] Syntax error at line <target>:N`, the only known tell for a token-stream
       # break (an ordinary ASCII file whose syntax error hides its sink from every rule —
@@ -1155,6 +1225,7 @@ if command -v semgrep &>/dev/null; then
         --max-target-bytes=0 \
         --no-git-ignore \
         --verbose \
+        --timeout=30 \
         --severity=ERROR --error ${soif_idx_files[@]+"${soif_idx_files[@]}"} >"$soif_sg_out" 2>"$soif_sg_err"
       soif_sg_rc=$?
       set -e
@@ -1503,13 +1574,34 @@ if command -v semgrep &>/dev/null; then
         # # BL-112-SCAN-COVERAGE, plus BL-192 and BL-187. An earlier revision of this
         # block predicted "a FIFTH precondition will exist one day" and was right — item 5
         # is it (BL-200). The prediction stands re-armed: a SIXTH will exist one day.
-        echo "[OK] semgrep: SAST ran on ${#soif_idx_files[@]} staged file(s) — no ERROR-severity findings."
+        # BL-185-SUPPRESSION-RECEIPT (verdict) — the UNQUALIFIED receipt is forfeited
+        # when a staged blob carries a `nosemgrep` directive: semgrep reported nothing
+        # for those lines BY INSTRUCTION, so the plain "no findings" sentence would be
+        # the false-attestation shape this arm exists to prevent, sanctioned edition.
+        # Allow-but-log (Karl 2026-07-31): the commit LANDS either way; the naming and
+        # the ledger row happen once, below the verdict chain, on every landing path.
+        if [ "${soif_sg_supp_n:-0}" -gt 0 ]; then
+          echo "[OK] semgrep: SAST ran on ${#soif_idx_files[@]} staged file(s) — no ERROR-severity findings outside suppressed lines."
+        else
+          echo "[OK] semgrep: SAST ran on ${#soif_idx_files[@]} staged file(s) — no ERROR-severity findings."
+        fi
         echo "  scanner: semgrep ${soif_sg_version:-(version unknown)}"
         # BL-198: the conversion is attested, never silent — an operator whose
         # UTF-16 file was scanned via a converted copy is told so on the receipt.
         if [ "${soif_tc_count:-0}" -gt 0 ]; then
           echo "  ($soif_tc_count staged file(s) transcoded from UTF-16/UTF-32 to UTF-8 for scanning — BL-198)"
         fi
+      fi
+    fi
+    # BL-185-SUPPRESSION-RECEIPT (record) — printed on EVERY path (a blocked
+    # operator about to fix findings should know suppressions ride the same
+    # commit), ledgered only when the commit LANDS (rc!=1): on the [BLOCKED]
+    # path no suppression event occurs, and the block itself is already
+    # ledgered (BL-163). Best-effort append — `|| true`, the BL-163 contract.
+    if [ "${soif_sg_supp_n:-0}" -gt 0 ]; then
+      echo "  BL-185: ${soif_sg_supp_n} 'nosemgrep' suppression directive(s) in:${soif_sg_supp_files} — those lines were skipped BY INSTRUCTION; this commit's SAST verdict does not vouch for them (recorded to .claude/bypass-audit.json when the commit lands)."
+      if [ "$soif_sg_rc" -ne 1 ]; then
+        soif_ledger_suppression "$soif_sg_supp_n" "$soif_sg_supp_files" || true   # BL-185-SUPPRESSION-LEDGER
       fi
     fi
     rm -rf "$soif_idx_tree"

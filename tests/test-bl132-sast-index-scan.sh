@@ -3065,6 +3065,215 @@ else
   fi
 fi
 
+# ═══════════════════════════════════════════════════════════════════════════
+# BL-185 + BL-187 (Karl's 2026-07-31 decisions, recorded on their entries)
+# ═══════════════════════════════════════════════════════════════════════════
+# BL-185 "allow it, but log it": a staged `nosemgrep` directive must forfeit
+# the UNQUALIFIED [OK] receipt, print a receipt NAMING file and directive, and
+# append a `sast_suppression` row to .claude/bypass-audit.json — while the
+# commit still LANDS (blocking was explicitly not chosen). BL-187: the
+# per-rule budget is POLICY now — `--timeout=30` on the shipped invocation —
+# and the old skip-shaped timeout proofs are re-armed via a BUDGET-SHRUNK
+# mutant (30→1s) so the detector clause is provable on EVERY host instead of
+# only hosts slow enough to blow a 30s budget.
+
+# _mut_env <src> <dst> <old> <new> <want>: literal replace via ENVIRON — the
+# suite's older _mut_n passes literals through `awk -v`, which PROCESSES
+# ESCAPES; the `--timeout=30 \` literal ends in a lone backslash, the exact
+# BSD-vs-mawk/gawk divergence that broke a CI shard on PR #293. ENVIRON
+# passes bytes untouched everywhere. Numeric `want` stays -v (safe).
+_mut_env() {
+  SOIF_ME_OLD="$3" SOIF_ME_NEW="$4" awk -v want="$5" '
+    { out = ""; rest = $0
+      while ((p = index(rest, ENVIRON["SOIF_ME_OLD"])) > 0) {
+        out = out substr(rest, 1, p-1) ENVIRON["SOIF_ME_NEW"]
+        rest = substr(rest, p + length(ENVIRON["SOIF_ME_OLD"]))
+        c++
+      }
+      print out rest }
+    END { if (c != want) exit 3 }
+  ' "$1" > "$2"
+}
+
+# ── T-bl187-constant: the shipped budget is 30, exactly once, as a real flag ──
+echo "=== T-bl187-constant ==="
+TB_N=$(grep -c -- '--timeout=30 \\' "$EMITTED") || TB_N=0
+if [ "$TB_N" -eq 1 ]; then
+  pass "T-bl187-constant (the emitted invocation carries --timeout=30 exactly once — the decided budget, not semgrep's 5s default)"
+else
+  fail_ "T-bl187-constant" "found $TB_N occurrences of '--timeout=30 \\' in the emitted hook (want exactly 1) — the 2026-07-31 decision sets the per-rule budget to 30s ON the shipped invocation; absent means the 5s default silently returned, duplicated means the invocation was mangled"
+fi
+
+# ── T-bl187-budget-mutant-proof: the timeout detector, provable on EVERY host ─
+# The dense fixture's killing rule needs >5s but well under 30s on measured
+# hosts, so at the shipped budget the sink is BLOCKED outright (strictly better)
+# and the old timeout cases skip as UNPROVEN. This case re-arms the proof:
+# shrink ONLY the budget constant (30 -> 1) in a copy of the shipped hook and
+# the same fixture must FORFEIT with the timeout warn — the detector clause
+# exercised for real, every host, cheaply (a 1s budget is FASTER than today).
+# The intact control accepts the honest host disjunction: BLOCKED (rule fits
+# the budget — the decision's intent) or forfeit-with-warn (a slow host blows
+# even 30s); anything else fails.
+echo "=== T-bl187-budget-mutant-proof ==="
+if [ "$HAVE_SEMGREP" -eq 0 ]; then
+  skip_ "T-bl187-budget-mutant-proof" "semgrep ABSENT — UNPROVEN here (skip, NOT a pass)"
+else
+  MB="$TOPTMP/mut-budget-1s"
+  if ! _mut_env "$EMITTED" "$MB" '--timeout=30 \' '--timeout=1 \' 1; then
+    fail_ "T-bl187-budget-mutant-proof" "MIS-TARGETED — '--timeout=30 \\' not present exactly once in the emitted hook; retarget in lockstep with T-bl187-constant"
+  elif ! bash -n "$MB" 2>/dev/null; then
+    fail_ "T-bl187-budget-mutant-proof" "mutated hook has a syntax error — a broken mutant proves nothing"
+  else
+    chmod +x "$MB"
+    MBD="$(mktemp -d)"
+    if ! mk_repo "$MBD" "$MB" >/dev/null 2>&1; then
+      fail_ "T-bl187-budget-mutant-proof" "fixture setup failed"
+    else
+      write_oversize_dense "$MBD/dense.ts" "$XSS_TS"
+      if ! is_oversize "$MBD/dense.ts"; then
+        skip_ "T-bl187-budget-mutant-proof" "dense fixture did not clear the oversize threshold on this host — UNPROVEN (skip, not pass)"
+      else
+        ( cd "$MBD" && git add -- dense.ts ) >/dev/null 2>&1
+        if ( cd "$MBD" && git commit -m "feat: dense renderer" ) >"$TOPTMP/mb1.log" 2>&1; then MB_V=COMMITTED; else MB_V=REFUSED; fi
+        if [ "$MB_V" = "REFUSED" ] && grep -qF '[BLOCKED] Semgrep' "$TOPTMP/mb1.log"; then
+          skip_ "T-bl187-budget-mutant-proof" "this host finished the killing rule inside ONE second — nothing can time out here; the detector stays pinned only on slower hosts (skip, not pass)"
+        elif [ "$MB_V" = "COMMITTED" ] && ! grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/mb1.log" \
+             && grep -qF 'ABANDONED at least one rule' "$TOPTMP/mb1.log" \
+             && grep -qF 'dense.ts' "$TOPTMP/mb1.log"; then
+          # SECOND HALF — the conjunct-drop proof T-mutation-rule-timeout used to
+          # carry, re-armed under the 1s budget (at the shipped 30s that case now
+          # SKIPS on hosts whose rule fits the budget): drop ONLY the timeout
+          # conjunct from the 1s-budget hook and the same dense sink must buy the
+          # receipt back — the clause carries its own weight on EVERY host.
+          MB2="$TOPTMP/mut-budget-1s-no-conjunct"
+          if ! _mut_env "$MB" "$MB2" '&& [ "$soif_sg_timeouts" -eq 0 ]' '' 1; then
+            fail_ "T-bl187-budget-mutant-proof" "MIS-TARGETED second half — the timeout conjunct is not present exactly once in the budget-mutant hook"
+          elif ! bash -n "$MB2" 2>/dev/null; then
+            fail_ "T-bl187-budget-mutant-proof" "second-half mutant has a syntax error — a broken mutant proves nothing"
+          else
+            chmod +x "$MB2"
+            MBD2="$(mktemp -d)"
+            if ! mk_repo "$MBD2" "$MB2" >/dev/null 2>&1; then
+              fail_ "T-bl187-budget-mutant-proof" "second-half fixture setup failed"
+            else
+              write_oversize_dense "$MBD2/dense.ts" "$XSS_TS"
+              ( cd "$MBD2" && git add -- dense.ts ) >/dev/null 2>&1
+              ( cd "$MBD2" && git commit -m "feat: dense renderer" ) >"$TOPTMP/mb2.log" 2>&1 || true
+              if grep -qF '[OK] semgrep: SAST ran' "$TOPTMP/mb2.log"; then
+                pass "T-bl187-budget-mutant-proof: 1s budget forfeits with the warn naming dense.ts (detector real); dropping the timeout conjunct under the same budget buys the receipt back (clause load-bearing) — both halves proven on THIS host"
+              else
+                fail_ "T-bl187-budget-mutant-proof" "conjunct-drop under the 1s budget did NOT restore the receipt — the clause proof is not isolating its clause: $(tail -6 "$TOPTMP/mb2.log" | tr '\n' '|')"
+              fi
+              rm -rf "$MBD2"
+            fi
+          fi
+        else
+          fail_ "T-bl187-budget-mutant-proof" "at a 1s budget expected COMMITTED + forfeited receipt + timeout warn naming dense.ts; got $MB_V: $(tail -8 "$TOPTMP/mb1.log" | tr '\n' '|')"
+        fi
+      fi
+      rm -rf "$MBD"
+    fi
+  fi
+fi
+
+# ── T-bl185-suppression-receipt: the one unrecorded escape gets its logbook ──
+echo "=== T-bl185-suppression-receipt ==="
+if [ "$HAVE_SEMGREP" -eq 0 ]; then
+  skip_ "T-bl185-suppression-receipt" "semgrep ABSENT — UNPROVEN here (skip, NOT a pass)"
+else
+  SPD="$(mktemp -d)"
+  if ! mk_repo "$SPD" "$EMITTED" >/dev/null 2>&1; then
+    fail_ "T-bl185-suppression-receipt" "fixture setup failed"
+  else
+    # Generated projects SHIP scripts/lib/bypass-audit.sh (the ledger append
+    # lib); the row half of allow-but-log needs it in the fixture, exactly as
+    # BL-163's row tests do. Without it the hook degrades to its [note] arm.
+    mkdir -p "$SPD/scripts/lib" "$SPD/.claude"
+    cp "$REPO_ROOT/scripts/lib/bypass-audit.sh" "$SPD/scripts/lib/" 2>/dev/null || true
+    printf 'export function render(pane, userText) {\n  // nosemgrep\n  pane.innerHTML = userText;\n}\n' > "$SPD/app.ts"
+    ( cd "$SPD" && git add -- app.ts ) >/dev/null 2>&1
+    if ( cd "$SPD" && git commit -m "feat: renderer with a suppression" ) >"$TOPTMP/sp1.log" 2>&1; then SP_V=COMMITTED; else SP_V=REFUSED; fi
+    SP_ROW=0
+    if command -v jq >/dev/null 2>&1 && [ -f "$SPD/.claude/bypass-audit.json" ]; then
+      SP_ROW=$(jq '[.[] | select(.type == "sast_suppression")] | length' "$SPD/.claude/bypass-audit.json" 2>/dev/null) || SP_ROW=0
+    fi
+    if [ "$SP_V" != "COMMITTED" ]; then
+      fail_ "T-bl185-suppression-receipt" "the suppressed commit was REFUSED — the decision is allow-but-log, never block: $(tail -6 "$TOPTMP/sp1.log" | tr '\n' '|')"
+    elif grep -qF 'no ERROR-severity findings."' "$TOPTMP/sp1.log" || grep -qE 'no ERROR-severity findings\.$' "$TOPTMP/sp1.log"; then
+      fail_ "T-bl185-suppression-receipt" "the UNQUALIFIED receipt printed over a suppressed sink — the exact false attestation BL-185 exists to end: $(tail -6 "$TOPTMP/sp1.log" | tr '\n' '|')"
+    elif ! grep -qF 'suppression directive' "$TOPTMP/sp1.log" || ! grep -qF 'app.ts' "$TOPTMP/sp1.log"; then
+      fail_ "T-bl185-suppression-receipt" "the receipt does not NAME the suppression and its file — the logbook half of allow-but-log: $(tail -8 "$TOPTMP/sp1.log" | tr '\n' '|')"
+    elif [ "${SP_ROW:-0}" -lt 1 ]; then
+      fail_ "T-bl185-suppression-receipt" "no sast_suppression row in .claude/bypass-audit.json (rows=$SP_ROW) — every other escape in the repo is recorded; this was the last unrecorded one: $(tail -6 "$TOPTMP/sp1.log" | tr '\n' '|')"
+    else
+      pass "T-bl185-suppression-receipt: suppressed commit LANDS, unqualified [OK] forfeited, file+directive named, sast_suppression row written"
+    fi
+    rm -rf "$SPD"
+  fi
+fi
+
+# ── T-bl185-clean-control: no suppression => byte-identical today-behavior ──
+echo "=== T-bl185-clean-control ==="
+if [ "$HAVE_SEMGREP" -eq 0 ]; then
+  skip_ "T-bl185-clean-control" "semgrep ABSENT — UNPROVEN here (skip, NOT a pass)"
+else
+  SCD="$(mktemp -d)"
+  if ! mk_repo "$SCD" "$EMITTED" >/dev/null 2>&1; then
+    fail_ "T-bl185-clean-control" "fixture setup failed"
+  else
+    # The append lib is PRESENT here too — otherwise "no audit row" would pass
+    # vacuously on a fixture that cannot write rows at all.
+    mkdir -p "$SCD/scripts/lib" "$SCD/.claude"
+    cp "$REPO_ROOT/scripts/lib/bypass-audit.sh" "$SCD/scripts/lib/" 2>/dev/null || true
+    printf '%s\n' "$SAFE_TS" > "$SCD/app.ts"
+    ( cd "$SCD" && git add -- app.ts ) >/dev/null 2>&1
+    if ( cd "$SCD" && git commit -m "feat: clean renderer" ) >"$TOPTMP/sc1.log" 2>&1; then SC_V=COMMITTED; else SC_V=REFUSED; fi
+    SC_ROW=0
+    if command -v jq >/dev/null 2>&1 && [ -f "$SCD/.claude/bypass-audit.json" ]; then
+      SC_ROW=$(jq '[.[] | select(.type == "sast_suppression")] | length' "$SCD/.claude/bypass-audit.json" 2>/dev/null) || SC_ROW=0
+    fi
+    if [ "$SC_V" = "COMMITTED" ] && grep -qF '[OK] semgrep: SAST ran on 1 staged file(s) — no ERROR-severity findings.' "$TOPTMP/sc1.log" \
+       && ! grep -qF 'suppression directive' "$TOPTMP/sc1.log" && [ "${SC_ROW:-0}" -eq 0 ]; then
+      pass "T-bl185-clean-control: no directive => the exact unqualified receipt, no BL-185 line, no audit row — the detector does not cry wolf"
+    else
+      fail_ "T-bl185-clean-control" "clean commit disturbed (V=$SC_V rows=$SC_ROW): $(tail -6 "$TOPTMP/sc1.log" | tr '\n' '|')"
+    fi
+    rm -rf "$SCD"
+  fi
+fi
+
+# ── T-bl185-mutation: the detect fence carries its own weight ────────────────
+echo "=== T-bl185-mutation ==="
+if [ "$HAVE_SEMGREP" -eq 0 ]; then
+  skip_ "T-bl185-mutation" "semgrep ABSENT — mutation UNPROVEN here (skip, NOT a pass)"
+else
+  MSP="$TOPTMP/mut-no-suppression-detect"
+  MSP_B=$(grep -c '# BL-185-SUPPRESSION-DETECT-BEGIN' "$EMITTED") || MSP_B=0
+  MSP_E=$(grep -c '# BL-185-SUPPRESSION-DETECT-END' "$EMITTED") || MSP_E=0
+  sed '/# BL-185-SUPPRESSION-DETECT-BEGIN/,/# BL-185-SUPPRESSION-DETECT-END/d' "$EMITTED" > "$MSP"
+  if [ "$MSP_B" -ne 1 ] || [ "$MSP_E" -ne 1 ]; then
+    fail_ "T-bl185-mutation" "MIS-TARGETED — detect fence not present exactly once (begin=$MSP_B end=$MSP_E)"
+  elif ! bash -n "$MSP" 2>/dev/null; then
+    fail_ "T-bl185-mutation" "mutated hook has a syntax error — a broken mutant proves nothing"
+  else
+    chmod +x "$MSP"
+    MSD="$(mktemp -d)"
+    if ! mk_repo "$MSD" "$MSP" >/dev/null 2>&1; then
+      fail_ "T-bl185-mutation" "mutation fixture setup failed"
+    else
+      printf 'export function render(pane, userText) {\n  // nosemgrep\n  pane.innerHTML = userText;\n}\n' > "$MSD/app.ts"
+      ( cd "$MSD" && git add -- app.ts ) >/dev/null 2>&1
+      ( cd "$MSD" && git commit -m "feat: renderer with a suppression" ) >"$TOPTMP/ms1.log" 2>&1 || true
+      if grep -qF 'no ERROR-severity findings."' "$TOPTMP/ms1.log" || grep -qE 'no ERROR-severity findings\.$' "$TOPTMP/ms1.log"; then
+        pass "T-bl185-mutation: excising the detect fence brings the unrecorded escape back (RED — unqualified [OK] over the suppressed sink); the intact GREEN half is T-bl185-suppression-receipt"
+      else
+        fail_ "T-bl185-mutation" "excising the fence did NOT restore the unqualified receipt — this case is not isolating the fence: $(tail -6 "$TOPTMP/ms1.log" | tr '\n' '|')"
+      fi
+      rm -rf "$MSD"
+    fi
+  fi
+fi
+
 echo ""
 if [ "$SKIPPED" -gt 0 ]; then echo "!! $SKIPPED case(s) SKIPPED — skipped != passed."; fi
 echo "Results: $PASSED passed, $FAILED failed ($SKIPPED skipped)"
