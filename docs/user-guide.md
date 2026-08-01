@@ -14,27 +14,27 @@
 
 This guide walks you through using the Solo Orchestrator Framework from first setup to production maintenance. It covers what you do, when, and why — with separate paths for personal projects and organizational deployments.
 
-For what the framework *is*, how it works at a conceptual level, and what it is not suited for, see the [README](../README.md). This guide assumes you have read that and decided to proceed.
+For what the framework *is*, how it works at a conceptual level, and what it is not suited for, see the [README](https://github.com/kraulerson/solo-orchestrator#readme). This guide assumes you have read that and decided to proceed.
 
 ### Document Map
 
 | Document | Priority | What It Contains | When You Need It |
 |---|---|---|---|
 | **This guide** (user-guide.md) | **Follow** | What you do, step by step, from setup to maintenance | Start here |
-| [**Project Intake**](../templates/project-intake.md) | **Fill out** | Your product definition — wizard available | Pre-Phase 0 |
-| [**Platform Module**](platform-modules/) | **Reference** | Platform-specific architecture, tooling, testing, distribution | Phases 1-4 |
-| [**README**](../README.md) | Skim | Framework overview, prerequisites, platform/language support | Before starting |
+| **Project Intake** (`PROJECT_INTAKE.md`, created by `init.sh` in your project root) | **Fill out** | Your product definition — wizard available | Pre-Phase 0 |
+| [**Platform Module**](https://github.com/kraulerson/solo-orchestrator/tree/main/docs/platform-modules) | **Reference** | Platform-specific architecture, tooling, testing, distribution | Phases 1-4 |
+| [**README**](https://github.com/kraulerson/solo-orchestrator#readme) | Skim | Framework overview, prerequisites, platform/language support | Before starting |
 | [**Builder's Guide**](builders-guide.md) | Reference | The complete methodology — deep reference for phases, glossary, and advanced procedures | When you need detail beyond what this guide provides |
 | [**CLI Setup Addendum**](cli-setup-addendum.md) | Reference | Claude Code configuration, Superpowers, MCP servers | After init, before Phase 0 |
 | [**Security Scan Guide**](security-scan-guide.md) | Reference | Plain-language guide to common scan findings | When you get scan results |
 | [**Governance Framework**](governance-framework.md) | Org only | Approval authorities, compliance, risk, portfolio governance | Organizational deployments |
 | [**Executive Review**](executive-review.md) | Org only | Business case for CIO evaluation | Organizational evaluation |
 | [**Example Project**](https://github.com/kraulerson/solo-orchestrator-example-project) | Browse | Complete artifact trail from building MeshScope — see what each phase produces | Before starting, or anytime |
-| [**Extending Platforms**](extending-platforms.md) | Contributor | How to add a new platform type to the framework | When adding platforms |
-| [**Framework Evaluation Prompts**](../evaluation-prompts/Framework/) | Evaluation | Adversarial reviews of the framework itself from 6 professional perspectives | After framework updates or retooling |
-| [**Project Evaluation Prompts**](../evaluation-prompts/Projects/) | Evaluation | Adversarial reviews of any project built with the framework from 6 professional perspectives | Phase 3 validation, before production deployment |
+| [**Extending Platforms**](https://github.com/kraulerson/solo-orchestrator/blob/main/docs/extending-platforms.md) | Contributor | How to add a new platform type to the framework | When adding platforms |
+| [**Framework Evaluation Prompts**](https://github.com/kraulerson/solo-orchestrator/tree/main/evaluation-prompts/Framework) | Evaluation | Adversarial reviews of the framework itself from 6 professional perspectives | After framework updates or retooling |
+| [**Project Evaluation Prompts**](https://github.com/kraulerson/solo-orchestrator/tree/main/evaluation-prompts/Projects) | Evaluation | Adversarial reviews of any project built with the framework from 6 professional perspectives | Phase 3 validation, before production deployment |
 
-**What you actually need open:** This guide, the [Project Intake](../templates/project-intake.md), and your [Platform Module](platform-modules/). Everything else is reference material — the table above tells you when each document becomes relevant.
+**What you actually need open:** This guide, your project's `PROJECT_INTAKE.md`, and your [Platform Module](https://github.com/kraulerson/solo-orchestrator/tree/main/docs/platform-modules). Everything else is reference material — the table above tells you when each document becomes relevant.
 
 **How to read this guide:** Follow it step by step. Read the section for your current step, do the step, then read the next section. You do not need to read this guide end-to-end before starting. Each section tells you exactly what to do, what the AI agent does, and what to review before moving on.
 
@@ -46,11 +46,11 @@ For what the framework *is*, how it works at a conceptual level, and what it is 
 
 ### What This Framework Is
 
-A structured methodology for a single experienced technologist to build MVP-quality applications with a clear path to production, using AI as the execution layer. You define intent, constraints, and validation. The AI generates architecture, code, tests, and documentation within those constraints. It is phase-gated, test-driven, and security-scanned at every step. The output is a functional, tested, security-scanned MVP — production deployment requires additional hardening, operational readiness, and (for organizational projects) governance completion. See the [README](../README.md) for the full overview.
+A structured methodology for a single experienced technologist to build MVP-quality applications with a clear path to production, using AI as the execution layer. You define intent, constraints, and validation. The AI generates architecture, code, tests, and documentation within those constraints. It is phase-gated, test-driven, and security-scanned at every step. The output is a functional, tested, security-scanned MVP — production deployment requires additional hardening, operational readiness, and (for organizational projects) governance completion. See the [README](https://github.com/kraulerson/solo-orchestrator#readme) for the full overview.
 
 ### What You Should Know Before You Start
 
-**AI-generated code IP:** Software built using this framework is generated in part by AI. The copyright status of AI-generated code is legally unsettled under current U.S. and international law. The framework's human-directed phase gates strengthen copyright claims but do not guarantee protection. Do not assume full copyright protection for AI-generated code without consulting qualified IP counsel. See the [README Legal Notices](../README.md#legal-notices) for the full disclosure.
+**AI-generated code IP:** Software built using this framework is generated in part by AI. The copyright status of AI-generated code is legally unsettled under current U.S. and international law. The framework's human-directed phase gates strengthen copyright claims but do not guarantee protection. Do not assume full copyright protection for AI-generated code without consulting qualified IP counsel. See the [README Legal Notices](https://github.com/kraulerson/solo-orchestrator#legal-notices) for the full disclosure.
 
 **AI-generated legal documents:** Any Privacy Policies, Terms of Service, or other legal documents produced during the build process must be reviewed by qualified legal counsel before deployment.
 
@@ -318,7 +318,7 @@ The script prompts for 7 inputs (6 if you passed `--project-dir`):
 |---|---|---|
 | **Project name** | Lowercase, no spaces (e.g., `invoice-tool`) | This becomes the directory name and appears in generated files. |
 | **One-sentence description** | What does it do, in plain language | Used in CLAUDE.md and the Intake template. |
-| **Platform type** | Web / Desktop / Mobile / MCP Server / Other | Determines which Platform Module is loaded and which release pipeline is generated. Pick the primary delivery surface. See the [Extending Platforms Guide](extending-platforms.md) to add new platform types. |
+| **Platform type** | Web / Desktop / Mobile / MCP Server / Other | Determines which Platform Module is loaded and which release pipeline is generated. Pick the primary delivery surface. See the [Extending Platforms Guide](https://github.com/kraulerson/solo-orchestrator/blob/main/docs/extending-platforms.md) to add new platform types. |
 | **Project track** | Light / Standard / Full | **Light:** internal tools, <10 users, skip market audit. **Standard:** external users, moderate complexity. **Full:** enterprise buyers, sensitive data, pen testing mandatory. |
 | **Personal or Organizational** | Personal / Organizational | Organizational adds governance pre-flight requirements and approval authority structures. |
 | **Primary language** | TypeScript, Python, Rust, C#, Kotlin, Java, Go, Dart, Swift, Other | Determines the CI pipeline template (testing, linting, SAST, dependency audit). |
@@ -611,7 +611,7 @@ AI coding agents have context limits. For long-running projects:
 
 ## 5. Phase-by-Phase Walkthrough
 
-This section covers what **you** do at each phase — not what the agent does. For the agent's process, prompts, and remediation procedures, see the [Builder's Guide](builders-guide.md). For platform-specific instructions at each phase, see your [Platform Module](platform-modules/).
+This section covers what **you** do at each phase — not what the agent does. For the agent's process, prompts, and remediation procedures, see the [Builder's Guide](builders-guide.md). For platform-specific instructions at each phase, see your [Platform Module](https://github.com/kraulerson/solo-orchestrator/tree/main/docs/platform-modules).
 
 **How to read this section:** Each phase has a table showing your actions with separate columns for personal and organizational paths. "Same" means no difference between paths. Where the organizational path has additional requirements, they are listed explicitly.
 
@@ -1556,7 +1556,7 @@ npm install -g snyk
 
 **"My project is too complex for one person."**
 
-If your project needs multiple concurrent developers, microservices, or 99.99%+ SLA, it is outside the framework's current scope. Regulated-industry compliance (SOC 2, HIPAA, PCI-DSS) is a planned extension — the governance structure already provides role-based approval gate separation, but compliance-specific modules have not yet been built. See "What This Is Not (Today)" in the [README](../README.md).
+If your project needs multiple concurrent developers, microservices, or 99.99%+ SLA, it is outside the framework's current scope. Regulated-industry compliance (SOC 2, HIPAA, PCI-DSS) is a planned extension — the governance structure already provides role-based approval gate separation, but compliance-specific modules have not yet been built. See "What This Is Not (Today)" in the [README](https://github.com/kraulerson/solo-orchestrator#readme).
 
 ---
 
