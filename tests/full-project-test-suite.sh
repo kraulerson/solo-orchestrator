@@ -445,6 +445,14 @@ run_child_suite "tests/test-lint-raw-read-prompt.sh" \
   "scripts/lint-raw-read-prompt.sh behavior tests" \
   "scripts/lint-raw-read-prompt.sh behavior tests FAILED (run tests/test-lint-raw-read-prompt.sh for details)"
 
+# BL-197: the diagnostic-destruction backstop — a failure report that
+# discards the evidence the reader needs to act on it. Same shape as the
+# block above: run the linter's OWN behavior suite so a narrowing of its
+# predicate (or of a carve-out) can't quietly start blessing the class.
+run_child_suite "tests/test-lint-diagnostic-destruction.sh" \
+  "scripts/lint-diagnostic-destruction.sh behavior tests" \
+  "scripts/lint-diagnostic-destruction.sh behavior tests FAILED (run tests/test-lint-diagnostic-destruction.sh for details)"
+
 # BL-076: no test may execute init.sh in a shape that can create a REAL
 # remote repo against an authenticated host (the kraulerson/foo leak).
 # Run the lint against the live tree AND its own behavior suite so a
@@ -870,6 +878,19 @@ run_child_suite "tests/test-bl145-hook-symlink-hookspath.sh" \
 # restores the silent skip exactly. No init.sh -> both lanes.
 run_child_suite "tests/test-bl143-pastcap-selfapproval.sh" \
   "tests/test-bl143-pastcap-selfapproval.sh"
+
+# BL-144 (Dogfood-3 SHOULD-fix wave verifier S1+S2): the two shapes the
+# self-approval scan stayed FULLY SILENT for after BL-143 — a malformed
+# `### ` header COMBINED with a past-cap Approver row (the recovery computed
+# NO_SECTION and discarded it, while the walker's loud refusal was
+# unreachable), and a recovered `[Name]`/blank Approver cell (recognized,
+# then dropped). Both now WARN-and-BLOCK. Fixtures are the SHIPPED org
+# approval-log template filled per its own append-design instructions, built
+# so the defect is the project's ONLY inconsistency — the oracle is rc 0→1
+# plus the rendered `issues` count, never the label. BL-143's no-Approver-row
+# boundary pinned. Per-arm fence-excision mutants. No init.sh -> both lanes.
+run_child_suite "tests/test-bl144-selfapproval-silent-arms.sh" \
+  "tests/test-bl144-selfapproval-silent-arms.sh"
 
 # BL-147 + BL-151 (PR-sweep WP-1): the ONE shared content-pin suite over
 # templates/pipelines/**. The emitted CI approval-log integrity steps are now
@@ -2442,16 +2463,28 @@ section "TEST 8: Script Syntax Validation"
 
 echo ""
 
-bash -n "$SCRIPT_DIR/init.sh" 2>/dev/null && pass "init.sh syntax OK" || fail "init.sh syntax ERROR"
-bash -n "$SCRIPT_DIR/scripts/resolve-tools.sh" 2>/dev/null && pass "resolve-tools.sh syntax OK" || fail "resolve-tools.sh syntax ERROR"
-bash -n "$SCRIPT_DIR/scripts/check-phase-gate.sh" 2>/dev/null && pass "check-phase-gate.sh syntax OK" || fail "check-phase-gate.sh syntax ERROR"
-bash -n "$SCRIPT_DIR/scripts/validate.sh" 2>/dev/null && pass "validate.sh syntax OK" || fail "validate.sh syntax ERROR"
-bash -n "$SCRIPT_DIR/scripts/intake-wizard.sh" 2>/dev/null && pass "intake-wizard.sh syntax OK" || fail "intake-wizard.sh syntax ERROR"
+# BL-197: `bash -n f 2>/dev/null || fail "... syntax ERROR"` discarded the
+# file:line:message that IS the whole actionable payload — the reader was
+# told a file was broken and nothing about where. Capture and quote it.
+for syn_target in \
+  "$SCRIPT_DIR/init.sh" \
+  "$SCRIPT_DIR/scripts/resolve-tools.sh" \
+  "$SCRIPT_DIR/scripts/check-phase-gate.sh" \
+  "$SCRIPT_DIR/scripts/validate.sh" \
+  "$SCRIPT_DIR/scripts/intake-wizard.sh" ; do
+  syn_name=$(basename "$syn_target")
+  syn_err=$(bash -n "$syn_target" 2>&1) \
+    && pass "$syn_name syntax OK" \
+    || fail "$syn_name syntax ERROR: $syn_err"
+done
 
 # Verify all JSON matrix files are valid
 for f in "$MATRIX_DIR"/*.json; do
   fname=$(basename "$f")
-  jq '.' "$f" > /dev/null 2>&1 && pass "JSON valid: $fname" || fail "JSON invalid: $fname"
+  # BL-197: jq's parse error names the offending line/column; the old
+  # `> /dev/null 2>&1` threw it away and reported only "JSON invalid".
+  # `2>&1 >/dev/null` keeps stderr (into the capture) and drops stdout.
+  jq_err=$(jq '.' "$f" 2>&1 >/dev/null) && pass "JSON valid: $fname" || fail "JSON invalid: $fname — $jq_err"
 done
 
 # ================================================================

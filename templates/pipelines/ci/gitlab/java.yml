@@ -21,7 +21,7 @@ secrets:
   script: [gitleaks dir . --verbose --redact]
 dependencies:
   stage: security
-  script: [mvn -B dependency:analyze org.owasp:dependency-check-maven:check --no-transfer-progress]
+  script: ["mvn -B dependency:analyze org.owasp:dependency-check-maven:check --no-transfer-progress"]
 governance:
   stage: governance
   image: bash:5

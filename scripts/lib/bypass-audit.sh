@@ -10,7 +10,12 @@
 #     "session_id":                string-or-null,
 #     "type":                      "claude_bypass_proposal" | "terminal_commit_blocked" |
 #                                  "terminal_commit_passed" | "out_of_band_commit" |
-#                                  "enforcement_level_set" | "detector_error" | "escalation",
+#                                  "enforcement_level_set" | "detector_error" | "escalation" |
+#                                  "sast_suppression",
+#                                  (BL-185: "sast_suppression" records a staged
+#                                  nosemgrep/nosem directive observed by the SAST arm;
+#                                  final_outcome is always "recorded_only" — the arm
+#                                  cannot know whether a later gate refuses the commit.)
 #                                  (BL-161: "terminal_commit_passed" is a schema-valid
 #                                  LEGACY type — routine CLEAN terminal commits no
 #                                  longer emit it. The tracked ledger records only

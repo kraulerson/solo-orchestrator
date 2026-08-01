@@ -2470,7 +2470,7 @@ create_and_protect_remote() {
 
     print_info "Pushing initial commit..."
     # Try main first, fall back to master
-    host_push_initial main 2>/dev/null || host_push_initial master || { print_fail "Push failed — $remote_url exists but empty"; return 1; }
+    host_push_initial main 2>/dev/null || host_push_initial master || { print_fail "Push failed — $remote_url exists but empty"; return 1; } # lint-diag-ok: BL-197 — first-attempt noise only; the DECISIVE second attempt (master) is unsilenced, so the failing path still reaches the operator with the host's own words
     _record_phase2_step "pushed_initial"
 
     print_info "Configuring branch protection ($mode mode)..."

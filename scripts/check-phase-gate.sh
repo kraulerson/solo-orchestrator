@@ -622,6 +622,23 @@ validate_manifesto_content() {
   fi
 }
 
+# _cpg_warn_no_gate_section <gate_label>
+# BL-144-NO-SECTION-MESSAGE: single source for the malformed-header refusal.
+# TWO call sites emit it — the blame walker's own NO_SECTION arm (the PR #116
+# / T-blame-4 contract) and, since BL-144, the BL-143 recovery's NO_SECTION
+# arm. Sharing the string is the point: the operator must see the IDENTICAL
+# audit signal whether or not the Approver row ALSO sits past the walker
+# pre-extraction's `grep -A 20` cap. Combining the two evasions (malformed
+# `### ` header + past-cap row) used to produce ZERO output — the walker's
+# refusal was only reachable when a name had been pre-extracted.
+# This WARN INCREMENTS `issues`, i.e. it BLOCKS (the label is cosmetic; the
+# increment is the exit predicate) — lifted verbatim from the arm it now
+# serves, so both arms keep that arm's established semantics.
+_cpg_warn_no_gate_section() {
+  echo -e "${YELLOW}[WARN]${NC} $1: APPROVAL_LOG.md has no '## ' header matching gate — cannot verify self-approval (malformed file?). Refusing silent file-level fallback; restore canonical '## Phase Gate: …' header."
+  issues=$((issues + 1))
+}
+
 # --- Approval Entry Field Validation (P0-004) ---
 # Verify approval entries have populated fields, not just template defaults
 validate_approval_fields() {
@@ -652,6 +669,24 @@ validate_approval_fields() {
   # placeholder predicate below no-ops on empty input and the walker still
   # runs to refuse loudly.
 
+  # BL-144: has BL-138 already reported a placeholder for THIS GATE'S WINDOW?
+  # Its window is `head -20`-capped, so a past-cap placeholder Approver cell
+  # escapes it — that gap is what `# BL-144-PLACEHOLDER-CELL` covers, and this
+  # flag keeps the two from double-reporting the same gate.
+  # WINDOW-scoped, NOT cell-scoped — say it plainly, because the difference is
+  # observable: the BL-138 predicate fires on ANY template literal
+  # (`[YYYY-MM-DD]` / `[Name` / `[Attorney`) anywhere in the capped window, so
+  # an IN-CAP DATE placeholder sets this flag and suppresses the BL-144 line
+  # for a DIFFERENT defect — a past-cap blank Approver cell (R-BL144-1,
+  # reviewer P3). That is a deliberate one-gate-one-`issues` trade, not
+  # precision: the gate still BLOCKS (rc=1) and BL-138's own message already
+  # tells the operator to fill in the approver name.
+  # Declared here (outside both fences) so either fence can be excised on its
+  # own: with the BL-138 fence gone the flag stays 0 and the BL-144 arm reports
+  # the cell itself; with the BL-144 fence gone the flag is merely written and
+  # never read.
+  local bl144_placeholder_reported=0
+
   # BL-138-APPROVAL-WINDOW-BEGIN
   # Placeholder predicate tightened to the TEMPLATE-LITERAL shapes the
   # shipped approval-log templates actually carry — `[YYYY-MM-DD]` and
@@ -663,6 +698,7 @@ validate_approval_fields() {
   if echo "$section" | grep -qE '\[YYYY-MM-DD\]|\[Name|\[Attorney'; then
     echo -e "${YELLOW}[WARN]${NC} $gate_label: APPROVAL_LOG.md entry contains placeholder values — fill in approver name and date"
     issues=$((issues + 1))
+    bl144_placeholder_reported=1
   fi
   # BL-138-APPROVAL-WINDOW-END
 
@@ -736,10 +772,60 @@ validate_approval_fields() {
         }
       ' "$APPROVAL_LOG" 2>/dev/null || echo "")
       case "$bl143_line" in
+        # BL-144-NO-SECTION-BEGIN
+        # BL-144 shape (a): the recovery computed NO_SECTION — no `## `
+        # header matches the gate — and the generic `''|*[!0-9]*)` arm below
+        # DISCARDED it, leaving the whole control silent. The walker's own
+        # NO_SECTION refusal further down is unreachable here, because it
+        # only runs once a name has been pre-extracted, and a past-cap row
+        # yields no name. So a malformed `### ` header COMBINED with a
+        # past-cap Approver row printed nothing at all — an executed
+        # self-approval passed the gate fully green. Surface the recovery's
+        # NO_SECTION through the walker's existing WARN (shared helper =
+        # byte-identical message + the same `issues` increment, so this arm
+        # BLOCKS exactly as its in-cap twin does). Deliberate scope call
+        # carried over from the BL-144 entry: this also makes prose-only
+        # gate mentions loud. BL-143's T4 boundary (an entry with NO
+        # Approver row anywhere) maps to NO_APPROVER, not NO_SECTION, and is
+        # NOT disturbed — it still falls through the silent arm below.
+        NO_SECTION)
+          _cpg_warn_no_gate_section "$gate_label"
+          return 0
+          ;;
+        # BL-144-NO-SECTION-END
         ''|*[!0-9]*) : ;;  # nothing locatable — the declared boundary
         *)
           approver_name=$(sed -n "${bl143_line}p" "$APPROVAL_LOG" 2>/dev/null \
             | awk -F'|' '{ gsub(/^[[:space:]]+|[[:space:]]+$/, "", $3); gsub(/\*/, "", $3); print $3 }' 2>/dev/null) || approver_name=""
+          # BL-144-PLACEHOLDER-CELL-BEGIN
+          # BL-144 shape (b): the recovery LOCATED the Approver row and read
+          # back a template placeholder (`[Name]`) or a blank cell — then the
+          # `[ -n … ] && [ … != "[Name]" ]` guard below dropped it without a
+          # word. The BL-138 placeholder predicate cannot cover this: its
+          # window is `head -20`-capped, so a past-cap cell never reaches it
+          # (and a BLANK cell carries no template literal, so it escapes that
+          # predicate at ANY distance). Report it here — the row exists, it
+          # names nobody, and self-approval therefore cannot be verified.
+          # WARN + `issues` increment, i.e. BLOCKING: that is the established
+          # semantics of every arm around this one (the BL-138 placeholder
+          # WARN and all three of the walker's cannot-verify WARNs increment),
+          # and it keeps a past-cap `[Name]` cell exactly as blocking as the
+          # in-cap `[Name]` cell the BL-138 predicate already refuses.
+          # NOT a double report: when BL-138 already reported a placeholder for
+          # this gate's WINDOW the flag suppresses this line, so one gate still
+          # costs one `issues`. The suppression is window-scoped, not
+          # cell-scoped — an in-cap DATE placeholder can therefore mute this
+          # line for a past-cap blank cell (R-BL144-1; the gate still blocks,
+          # rc=1). See the flag's declaration for why that trade is deliberate.
+          # Return either way — an unnamed approver is unverifiable.
+          if [ -z "$approver_name" ] || [ "$approver_name" = "[Name]" ]; then
+            if [ "$bl144_placeholder_reported" -eq 0 ]; then
+              echo -e "${YELLOW}[WARN]${NC} $gate_label: APPROVAL_LOG.md Approver cell is a placeholder or blank — cannot verify self-approval. Record the approver's real name in the gate's Approver row."
+              issues=$((issues + 1))
+            fi
+            return 0
+          fi
+          # BL-144-PLACEHOLDER-CELL-END
           ;;
       esac
     fi
@@ -804,8 +890,10 @@ validate_approval_fields() {
           # Canonical `## ` header not present — silent fallback to
           # `git log -1` would reintroduce the self-approval evasion.
           # Surface as WARN so the malformed file becomes audit signal.
-          echo -e "${YELLOW}[WARN]${NC} $gate_label: APPROVAL_LOG.md has no '## ' header matching gate — cannot verify self-approval (malformed file?). Refusing silent file-level fallback; restore canonical '## Phase Gate: …' header."
-          issues=$((issues + 1))
+          # BL-144: the line itself moved into `_cpg_warn_no_gate_section`
+          # (message + `issues` increment unchanged) so the recovery's
+          # NO_SECTION arm above cannot drift from this one.
+          _cpg_warn_no_gate_section "$gate_label"
           return 0
           ;;
         NO_APPROVER)
