@@ -377,7 +377,14 @@ e14_bitbucket_protection_routes_through_translator() {
   local T; T=$(mktemp -d)
   stub_bin "$T/bin" curl <<'STUB'
 #!/usr/bin/env bash
-# Dispatch on argv: the listing GET carries `pattern=`, the creates carry POST.
+# Dispatch on argv for the verb, and on the PAYLOAD (stdin) for the kind —
+# every restriction POST shares one URL, so argv alone cannot tell the
+# force/delete pair from the three org-mode kinds.
+#
+# BB_ORG_ONLY_FAIL exists because of a mutation finding: without it the
+# force POST fails first and host_configure_protection returns before the
+# org-mode block is ever reached, so the org case was passing on the force
+# arm's translation and proving nothing about the org arms.
 case "$*" in
   *"branch-restrictions?pattern="*)
     if [ -n "${BB_LIST_FAIL:-}" ]; then
@@ -388,6 +395,12 @@ case "$*" in
     echo '{"values":[]}'
     exit 0 ;;
   *"-X POST"*)
+    body=$(cat)
+    if [ -n "${BB_ORG_ONLY_FAIL:-}" ]; then
+      case "$body" in
+        *'"kind":"force"'*|*'"kind":"delete"'*) echo '{"id":1}'; exit 0 ;;
+      esac
+    fi
     echo 'HTTP 403: Forbidden — your account lacks admin permission on this repository' >&2
     echo 'HTTP 403: Forbidden — your account lacks admin permission on this repository'
     exit 22 ;;
@@ -456,16 +469,29 @@ STUB
   esac
 
   # ── E14c: the ORG-mode POSTs were silent (bare `|| return 2`) ──
+  # BB_ORG_ONLY_FAIL lets force/delete succeed so control actually REACHES the
+  # org block. Without it this case passed on the force arm's translation and
+  # proved nothing about the org arms — caught by mutation M22.
   local out_c
   out_c=$(
     cd "$T"
     PATH="$T/bin:$PATH"
     export BITBUCKET_API_TOKEN=tok BITBUCKET_API_TOKEN_EMAIL=a@b.c BITBUCKET_WORKSPACE=ws
+    export BB_ORG_ONLY_FAIL=1
     # shellcheck disable=SC1090
     source "$BB_DRIVER"
     host_configure_protection main org 2>&1 >/dev/null
     printf 'RC=%s' "$?"
   )
+  case "$out_c" in
+    *"RC=2"*) ;;
+    *) fail_ "E14c" "the org-mode arm must still return 2: $out_c"; rm -rf "$T"; return ;;
+  esac
+  # Proof control reached the ORG block: only the org helper names these kinds.
+  case "$out_c" in
+    *"failed to set push restriction"*) ;;
+    *) fail_ "E14c" "org-mode failure does not name the kind that failed — the case did not reach the org block, or the arm is still silent: $out_c"; rm -rf "$T"; return ;;
+  esac
   case "$out_c" in
     *"$WHAT_ANCHOR"*) ;;
     *) fail_ "E14c" "org-mode protection failure is still silent/raw: $out_c"; rm -rf "$T"; return ;;
