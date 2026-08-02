@@ -68,7 +68,12 @@ code. Current: [designs/2026-07-12-currency-system-v1.md](designs/2026-07-12-cur
 [designs/2026-08-02-team-orchestrator-v1.md](designs/2026-08-02-team-orchestrator-v1.md)
 (**Team Orchestrator** — the architecture for a 2–10 developer fork of this framework: the
 multi-actor execution layer, the roster identity model, the imported organizational governance
-track, and the BA/PM agent roles. v1.1 post-review, r1 folded; describes a product that does not exist yet).
+track, and the BA/PM agent roles. v1.1 post-review, r1 folded; describes a product that does not exist yet), and
+[designs/2026-08-02-delta-track-v1.md](designs/2026-08-02-delta-track-v1.md)
+(**the Post-MVP Delta Track** — the maintenance and feature lifecycle a project runs after it cuts
+v1.0.0: four change classes with derived-then-confirmed attributes, a severable module with a
+dependency-direction lint, three re-fire triggers, and a tool-decided release cut. v1.0 pre-review;
+nothing of it is built).
 
 ## Reports (`Reports/`)
 
