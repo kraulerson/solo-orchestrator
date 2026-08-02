@@ -1387,6 +1387,11 @@ create_project() {
   # copies; the guide describes exactly that) — shipping them activates the
   # documented path. tests/test-bl108-bl117-ship-closure.sh closes the class.
   cp "$SCRIPT_DIR/scripts/check-maintenance.sh" scripts/
+  # Shipped lints MUST behave on a generated tree (no backlog, no tests.yml,
+  # no tests/): see `## BUG-008:` in solo-orchestrator-bugs.md. In particular
+  # lint-tests-registered.sh and lint-no-live-remote-in-tests.sh exit 2 on a
+  # generated tree today — do NOT add them to this list without giving them
+  # the same shipped-tree arm lint-backlog-references.sh carries.
   cp "$SCRIPT_DIR/scripts/lint-backlog-references.sh" scripts/
   cp "$SCRIPT_DIR/scripts/lint-counter-antipattern.sh" scripts/
   cp "$SCRIPT_DIR/scripts/lint-review-manifest.sh" scripts/
