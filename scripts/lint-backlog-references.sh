@@ -94,6 +94,11 @@
 #   structural on the backlog file, independent of git history. This is
 #   the contract scripts/pre-commit-gate.sh relies on when invoking the
 #   lint at commit time.
+#   If the backlog file does NOT exist, pre-commit mode exits 0 with no
+#   output instead of the FATAL below: init.sh ships this lint into
+#   generated projects, which have no backlog by design (BUG-008 — see
+#   `# BUG-008-SHIPPED-TREE-PASS`). Every other mode still treats a
+#   missing backlog as fatal.
 
 set -uo pipefail
 
@@ -150,10 +155,55 @@ if [ "$PRE_COMMIT_MODE" -eq 1 ] && [ -z "$PRE_COMMIT_MSG" ]; then
   PRE_COMMIT_MSG=$(cat)
 fi
 
+# ── BUG-008-SHIPPED-TREE-PASS-BEGIN ──────────────────────────────────
+# An ABSENT backlog means two opposite things depending on the mode, so
+# the existence check is mode-aware rather than unconditional.
+#
+#   --pre-commit-mode → NORMAL. init.sh ships this lint into every
+#     generated project (the `cp "$SCRIPT_DIR/scripts/
+#     lint-backlog-references.sh" scripts/` line, since 2026-07-17), and
+#     the shipped scripts/pre-commit-gate.sh `lints_check` pipes every
+#     AI-issued `git commit -m` message through it in this mode. A
+#     generated project has NO solo-orchestrator-backlog.md by design —
+#     that ledger is the framework repo's own. There is nothing on this
+#     tree to validate the message's BL tokens against, so the only
+#     correct verdict is "not this tree's concern": exit 0, and — on the
+#     gate's own flagless invocation — not one byte on either stream, so
+#     its `br_out=$(... 2>&1)` capture stays empty.
+#
+#     BUG-008: before this arm the FATAL below ran FIRST in every mode.
+#     That invocation exited 2, and lints_check turned the nonzero into
+#     a PreToolUse DENY offering SKIP_LINT=1 — a generated-project
+#     user's first plain `-m` commit was blocked outright. It went
+#     unseen through July because the dogfood walks committed via
+#     heredoc, which yields an empty extracted message that lints_check
+#     skips as the editor case.
+#
+#   any other mode → CATASTROPHE, unchanged. In the FRAMEWORK repo the
+#     backlog is the ledger this lint exists to police; CI's BASE..HEAD
+#     walk, the Closed/Resolved citation scan and the header-uniqueness
+#     arm all require the file. Passing silently there would convert the
+#     repo's own citation gate into a no-op, so the FATAL stays.
+#
+# --list still renders the verdict (house rule: a decisive judgement is
+# reviewable, never silent-on-pass). The gate never passes --list, so
+# this cannot put output back on the DENY-bearing path.
+#
+# Pinned by T21..T25 in tests/test-lint-backlog-references.sh and,
+# end-to-end at the surface that denied, by T12 in
+# tests/test-pre-commit-gate-lints.sh.
 if [ ! -f "$BACKLOG" ]; then
+  if [ "$PRE_COMMIT_MODE" -eq 1 ]; then
+    if [ "$LIST_MODE" -eq 1 ]; then
+      printf 'STATUS\tSOURCE\tTOKEN\tDETAIL\n'
+      printf 'PASS\tpre-commit\t-\tno backlog file at %s (generated project); nothing to validate against\n' "$BACKLOG"
+    fi
+    exit 0
+  fi
   echo "FATAL: backlog file not found at $BACKLOG" >&2
   exit 2
 fi
+# ── BUG-008-SHIPPED-TREE-PASS-END ────────────────────────────────────
 
 # ── Step 1: Build set of valid BL-IDs from backlog headers ─────────
 # Both the valid-set and lookup tokens are upper-cased so the lint is

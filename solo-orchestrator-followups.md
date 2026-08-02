@@ -16,6 +16,25 @@ Grammar: `## F-NNN:` header, **Raised**, **Status** (`Awaiting decision` |
 
 ---
 
+## F-013: Two pre-existing edge defects in lint-backlog-references.sh
+
+**Raised:** 2026-08-02 (BUG-008 review edge sweep — both confirmed byte-identical
+on main, i.e. NOT introduced by the fix). **Status:** Awaiting decision.
+
+(1) A backlog that exists but has zero `## BL-NNN:` headers (e.g. zero-byte) +
+`--pre-commit-mode` + a BL-citing message crashes (`VALID_IDS[@]: unbound
+variable`, bash-3.2 set -u empty-array expansion in `is_valid_id`, rc=1 → the
+gate denies with a shell error as the reason). Fail-closed, reachable only if a
+generated project creates its own backlog file. Fix: an empty-set guard at the
+head of `is_valid_id`. (2) An UNREADABLE (chmod 000) backlog in repo mode
+passes silently — `[ -f ]` passes and the awk/grep captures are not
+status-checked, so an I/O error prints `OK … consistent.` rc=0: a repo-mode
+silent-pass of exactly the class the FATAL guards against. Fix: `[ -r ]`
+beside the existence check, same mode-aware shape.
+
+**Options:** (a) small follow-up PR with both guards + tests; (b) accept —
+both are edge-reachable only.
+
 ## F-001: Suppression-grammar drift has no canary (BL-201 × BL-185 coupling)
 
 **Raised:** 2026-08-01, post-quick-sweep confidence review.
