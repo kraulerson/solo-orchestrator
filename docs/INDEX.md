@@ -68,7 +68,12 @@ code. Current: [designs/2026-07-12-currency-system-v1.md](designs/2026-07-12-cur
 [designs/2026-08-02-team-orchestrator-v1.md](designs/2026-08-02-team-orchestrator-v1.md)
 (**Team Orchestrator** — the architecture for a 2–10 developer fork of this framework: the
 multi-actor execution layer, the roster identity model, the imported organizational governance
-track, and the BA/PM agent roles. v1.1 post-review, r1 folded; describes a product that does not exist yet).
+track, and the BA/PM agent roles. v1.1 post-review, r1 folded; describes a product that does not exist yet), and
+[designs/2026-08-02-brownfield-adoption-v1.md](designs/2026-08-02-brownfield-adoption-v1.md)
+(**Brownfield adoption** — the second entry path, for a codebase that already exists: a standalone
+read-only scanner, the completed-vs-in-flight scenario chooser, the certification pass that replaces
+grandfathering, full-history secret scanning with redacted findings, and the archive-and-disclose
+collision policy. v1.0 pre-review; nothing is built).
 
 ## Reports (`Reports/`)
 
