@@ -8369,3 +8369,51 @@ whole-line raw evaluation moves BOTH rules and exemptions). At ~40s it is now th
 
 **Related:** BL-191 (the template for the rewrite and the divergence discipline; marker
 `# BL-191-SINGLE-PASS-SCAN`), BL-190 (the lane-capacity context).
+
+---
+
+## BL-212: The go-live gates never verify who authored the approval signatures — the per-line blame walker stops at Phase 1→2
+
+**Logged:** 2026-08-02 (found by the Team Orchestrator design work; independently
+confirmed by its adversarial design review with exact call-site evidence)
+**Category:** Governance enforcement gap / self-approval
+**Severity:** Medium-High (organizational deployments; the exposure is precisely the
+case the control exists for — the Orchestrator authoring every signature)
+**Status:** Open
+
+**The gap.** `validate_approval_fields` in `scripts/check-phase-gate.sh` — the
+function that runs the per-line `git blame` self-approval check (the
+`# BL-143-PASTCAP-RECOVERY` family lives inside it) — is invoked at exactly TWO
+call sites: the Phase 0→1 and Phase 1→2 gates. The Phase 2→3 gate and the Phase
+3→4 DUAL-approval sections (`### Application Owner Approval` and
+`### IT Security Approval`) are checked only by `validate_approval_section_dated`,
+which verifies a real ISO date is present — never who committed the row. Net: on
+an organizational deployment, the Orchestrator can author BOTH go-live
+signatures and nothing in any blocking path detects it.
+
+**The backstop is deliberately disarmed.** The generated-project CI step
+`Governance - Approval author verification` (all ten github CI templates) emits
+`::warning::` only, with the hard-enforcement `exit 1` shipped commented-out —
+while `docs/governance-framework.md` § V Control 4 claims "CI provides
+continuous verification." The doc overclaims the shipped default.
+
+**Mitigating context (stated honestly):** solo's non-Orchestrator signers
+typically have no git identity in the repo, so approver-committed rows are rare
+in practice today; the append-only CI guard still prevents edits to committed
+rows. But the case the walker exists to catch — one person authoring an
+approval trail — is exactly the uncovered case at the two gates that matter
+most.
+
+**Fix shape.** (1) Widen the self-approval walker to all four gates: invoke
+`validate_approval_fields` (or a section-scoped variant of its blame walk) for
+the Phase 2→3 gate section and BOTH Phase 3→4 subsections, org-gated as today,
+with the same past-cap recovery semantics; dual-direction mutation proofs per
+arm (org: self-authored signature → gate blocks; personal: unchanged). (2)
+Either promote the CI author-verification step's default to `::error::` +
+`exit 1` for organizational deployments at render time, or correct
+governance-framework § V Control 4 to describe the shipped warn-only default —
+whichever Karl picks, the doc and the shipped default must agree.
+
+**Related:** BL-143 (past-cap recovery in the same walker), BL-170 (append-only
+approval-log redesign — the blast-radius list there names the parsers that must
+move in sync), BL-138 (approval-window parsing).

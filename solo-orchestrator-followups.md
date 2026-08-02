@@ -16,6 +16,22 @@ Grammar: `## F-NNN:` header, **Raised**, **Status** (`Awaiting decision` |
 
 ---
 
+## F-014: CI runs the doc-anchors lint WITHOUT --strict-refs
+
+**Raised:** 2026-08-02 (Team Orchestrator design review, finding R-TOv1-10 —
+proven by mutation: a broken docs/INDEX.md link survived the plain-mode CI job,
+rc=0, and was caught only by local `--strict-refs`, rc=1).
+**Status:** Awaiting decision.
+
+The `doc-anchors-lint` CI job invokes `bash scripts/lint-doc-anchors.sh` bare —
+same-file anchors only. The BL-090 ref-integrity arm (`--strict-refs`) runs
+only in local sweeps, so a broken relative reference merged to main passes
+every PR-blocking check.
+
+**Options:** (a) add `--strict-refs` to the CI job (the framework tree has been
+clean at strict since BL-090 step 1 — low false-positive risk); (b) accept,
+relying on the run-lints local sweep.
+
 ## F-013: Two pre-existing edge defects in lint-backlog-references.sh
 
 **Raised:** 2026-08-02 (BUG-008 review edge sweep — both confirmed byte-identical
