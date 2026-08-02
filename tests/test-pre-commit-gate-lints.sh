@@ -387,6 +387,39 @@ else
 fi
 teardown
 
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T12: BUG-008 — a GENERATED project (no backlog) is not DENIED its first plain -m commit ==="
+# ════════════════════════════════════════════════════════════════════
+# End-to-end reproduction of BUG-008 at the surface that actually
+# denied: PreToolUse. The fixture is reshaped to the SHIPPED layout —
+# init.sh copies only lint-backlog-references.sh and
+# lint-counter-antipattern.sh into a generated project (the other four
+# lints lints_check knows about are framework-only, so their blocks
+# no-op), and a generated project has no solo-orchestrator-backlog.md
+# at all. Before the `# BUG-008-SHIPPED-TREE-PASS` arm the lint's FATAL
+# ran first in every mode, exited 2, and lints_check turned that into a
+# deny offering SKIP_LINT=1 — on a plain, blameless `-m` message.
+#
+# The message deliberately carries NO BL token: that is the generated-
+# project user's normal commit, and it is what the July dogfood walks
+# never exercised (their heredoc habit produced an empty extracted
+# message, which lints_check skips as the editor case).
+setup
+rm -f "$PROJ/solo-orchestrator-backlog.md"
+rm -f "$PROJ/scripts/lint-fix-functions-stderr.sh" \
+      "$PROJ/scripts/lint-raw-read-prompt.sh"
+stage_file "README.md" "# my generated project"
+out=$(run_hook 'git commit -m "docs: describe the project"')
+body="${out#*|}"
+if [[ "$body" != *'"permissionDecision": "deny"'* ]] && \
+   [[ "$body" != *"backlog file not found"* ]]; then
+  pass "T12: backlog-less generated project commits without a lint DENY"
+else
+  fail_ "T12" "expected no deny on a backlog-less generated project; got: $out"
+fi
+teardown
+
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ]

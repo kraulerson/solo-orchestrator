@@ -641,6 +641,159 @@ fi
 teardown
 
 # ════════════════════════════════════════════════════════════════════
+# BUG-008 — SHIPPED-TREE PASS (`# BUG-008-SHIPPED-TREE-PASS` in the lint)
+#
+# init.sh ships THIS lint into every generated project (the
+# `cp "$SCRIPT_DIR/scripts/lint-backlog-references.sh" scripts/` line,
+# shipped 2026-07-17), and the shipped scripts/pre-commit-gate.sh
+# `lints_check` pipes every AI-issued `git commit -m` message through it
+# in --pre-commit-mode. A generated project has NO
+# solo-orchestrator-backlog.md — by design; that ledger is the framework
+# repo's own. Before BUG-008 the FATAL ran first in every mode, so that
+# invocation exited 2 and the PreToolUse hook converted the nonzero into
+# a DENY: the user's first plain `-m` commit was blocked outright.
+#
+# T21..T24 pin the split. T21/T22 are the defect itself (both were RED
+# with `FATAL: backlog file not found` + rc=2 before the fix). T23 is
+# the regression guard for the framework repo — repo mode MUST still
+# treat an absent backlog as fatal. T24 is the negative control: with a
+# backlog PRESENT, pre-commit mode behaves exactly as before.
+# T25 pins the --list rendering of the new verdict (house rule: a
+# decisive judgement is reviewable, never silent-on-pass) — and, by
+# construction, that the gate's own flagless invocation stays byte-silent.
+#
+# setup_no_backlog() is the shipped-project shape: a git repo with the
+# lint at scripts/ and NO backlog file anywhere.
+# ════════════════════════════════════════════════════════════════════
+setup_no_backlog() {
+  TMP=$(mktemp -d)
+  PROJ="$TMP/repo"
+  mkdir -p "$PROJ/scripts"
+  cp "$LINTER" "$PROJ/scripts/lint-backlog-references.sh"
+  chmod +x "$PROJ/scripts/lint-backlog-references.sh"
+
+  (
+    cd "$PROJ"
+    git init -q -b main
+    git config user.email "test@example.com"
+    git config user.name "Test"
+    printf '# generated project\n' > README.md
+    git add README.md
+    git commit -q -m "chore: seed"
+    git branch base
+  )
+}
+
+# Run the fixture-local lint EXACTLY as pre-commit-gate.sh's lints_check
+# does — message on stdin, --pre-commit-mode, no other flags — capturing
+# stdout and stderr to SEPARATE files so a zero-byte assertion is real.
+# Sets: PCM_RC, PCM_OUT_BYTES, PCM_ERR_BYTES, PCM_COMBINED.
+run_pre_commit_streams() {
+  local msg="$1"
+  local outf="$TMP/pcm.out" errf="$TMP/pcm.err"
+  PCM_RC=0
+  ( cd "$PROJ" && printf '%s' "$msg" \
+      | bash scripts/lint-backlog-references.sh --pre-commit-mode ) \
+    > "$outf" 2> "$errf" || PCM_RC=$?
+  PCM_OUT_BYTES=$(wc -c < "$outf" | tr -d '[:space:]')
+  PCM_ERR_BYTES=$(wc -c < "$errf" | tr -d '[:space:]')
+  PCM_COMBINED=$(cat "$outf" "$errf")
+}
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T21: BUG-008 — pre-commit-mode + ABSENT backlog + plain feat: message → exit 0, zero bytes ==="
+# ════════════════════════════════════════════════════════════════════
+setup_no_backlog
+run_pre_commit_streams "feat(auth): add login form"
+if [ "$PCM_RC" -eq 0 ] \
+   && [ "$PCM_OUT_BYTES" = "0" ] \
+   && [ "$PCM_ERR_BYTES" = "0" ]; then
+  pass "T21: shipped tree with no backlog passes silently in pre-commit mode"
+else
+  fail_ "T21" "expected rc=0 and 0 bytes on both streams; rc=$PCM_RC stdout=${PCM_OUT_BYTES}B stderr=${PCM_ERR_BYTES}B; output:\n$PCM_COMBINED"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T22: BUG-008 — pre-commit-mode + ABSENT backlog + message citing BL-123 → exit 0, zero bytes ==="
+# ════════════════════════════════════════════════════════════════════
+# A BL token in the message is NOT a violation here: with no ledger on
+# this tree there is nothing to validate the token against, so the
+# unknown-reference verdict would be an artefact of the tree shape, not
+# of the message. Same silent pass as T21.
+setup_no_backlog
+run_pre_commit_streams "fix(api): correct pagination (BL-123)"
+if [ "$PCM_RC" -eq 0 ] \
+   && [ "$PCM_OUT_BYTES" = "0" ] \
+   && [ "$PCM_ERR_BYTES" = "0" ]; then
+  pass "T22: BL token in the message does not resurrect the failure on a backlog-less tree"
+else
+  fail_ "T22" "expected rc=0 and 0 bytes on both streams; rc=$PCM_RC stdout=${PCM_OUT_BYTES}B stderr=${PCM_ERR_BYTES}B; output:\n$PCM_COMBINED"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T23: BUG-008 regression guard — REPO mode + ABSENT backlog → FATAL, exit 2 ==="
+# ════════════════════════════════════════════════════════════════════
+# The framework repo's own backlog going missing is a catastrophe, not a
+# shipped-tree fact: CI, --list and the BASE..HEAD walk all require the
+# file. Passing silently there would turn the citation gate into a no-op.
+setup_no_backlog
+out=$( cd "$PROJ" && bash scripts/lint-backlog-references.sh --base base 2>&1 ); rc=$?
+if [ $rc -eq 2 ] && echo "$out" | grep -q "FATAL: backlog file not found"; then
+  pass "T23: repo mode still treats a missing backlog as fatal (exit 2)"
+else
+  fail_ "T23" "expected exit 2 + FATAL diagnostic; rc=$rc; output:\n$out"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T24: BUG-008 negative control — pre-commit-mode + PRESENT backlog is unchanged ==="
+# ════════════════════════════════════════════════════════════════════
+# The new arm must be reachable ONLY when the file is absent. With a
+# backlog present, pre-commit mode keeps both of its verdicts: a valid
+# reference passes, a bogus one still fails with the same diagnostic.
+setup
+write_backlog '## BL-031: real entry
+**Status:** Resolved (2026-01-01, PR #1)
+Body.
+'
+good_out=$( cd "$PROJ" && bash scripts/lint-backlog-references.sh --pre-commit-mode \
+        --message "feat(init): host-agnostic flow (BL-031)" 2>&1 ); good_rc=$?
+bad_out=$( cd "$PROJ" && bash scripts/lint-backlog-references.sh --pre-commit-mode \
+        --message "fix: typo (BL-999)" 2>&1 ); bad_rc=$?
+if [ $good_rc -eq 0 ] \
+   && [ $bad_rc -eq 1 ] \
+   && echo "$bad_out" | grep -q "unknown BL reference 'BL-999' in prospective commit message"; then
+  pass "T24: with a backlog present, pre-commit mode still passes valid and rejects unknown refs"
+else
+  fail_ "T24" "expected valid rc=0 and unknown rc=1 + diagnostic; good_rc=$good_rc bad_rc=$bad_rc; good:\n$good_out\nbad:\n$bad_out"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== T25: BUG-008 — --list renders the shipped-tree verdict (not silent-on-pass) ==="
+# ════════════════════════════════════════════════════════════════════
+# The gate never passes --list, so T21/T22's byte-silence is what the
+# DENY-bearing path sees. A reviewer auditing by hand still gets a row.
+setup_no_backlog
+out=$( cd "$PROJ" && printf '%s' "feat: thing" \
+        | bash scripts/lint-backlog-references.sh --pre-commit-mode --list 2>&1 ); rc=$?
+if [ $rc -eq 0 ] \
+   && echo "$out" | grep -q "STATUS" \
+   && echo "$out" | grep -q "no backlog file"; then
+  pass "T25: --list renders the absent-backlog PASS row"
+else
+  fail_ "T25" "expected exit 0 + a rendered absent-backlog row; rc=$rc; output:\n$out"
+fi
+teardown
+
+# ════════════════════════════════════════════════════════════════════
 echo ""
 echo "=== T9: MERGE GATE — run linter against current repo HEAD vs origin/main → exit 0 ==="
 # ════════════════════════════════════════════════════════════════════
