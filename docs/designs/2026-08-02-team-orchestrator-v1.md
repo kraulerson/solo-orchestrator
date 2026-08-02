@@ -1216,7 +1216,7 @@ would falsify parts of this design.
 
 ## Questions for Reviewing Architects
 
-Ten questions, all answerable from your own environment, each attached to a decision this design
+Eleven questions, all answerable from your own environment, each attached to a decision this design
 can still change. Answers received before the build starts are cheap; answers received after WP1
 are not.
 
