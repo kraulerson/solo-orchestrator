@@ -599,9 +599,12 @@ before the fix.
 `tests/test-pre-commit-gate-lints.sh`, `solo-orchestrator-bugs.md`.
 
 **Existing generated projects** carry the old copy at
-`scripts/lint-backlog-references.sh`. To remediate without waiting for a
-re-scaffold, copy the fixed framework file over it, or set `SKIP_LINT=1`
-for the affected commit (which is logged to `.claude/bypass-audit.json`).
+`scripts/lint-backlog-references.sh`. The supported remediation is
+`bash scripts/upgrade-project.sh --sync-framework` (its `_bl099_sync_scripts`
+pass re-copies the mechanically-derived shipped set, this lint included, from
+an updated framework clone). Without a framework update at hand: copy the
+fixed framework file over it, or set `SKIP_LINT=1` for the affected commit
+(which is logged to `.claude/bypass-audit.json`).
 
 ---
 
