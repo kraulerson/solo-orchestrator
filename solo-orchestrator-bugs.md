@@ -479,6 +479,132 @@ it doesn't need structured JSON.
 
 ---
 
+## BUG-008: shipped `lint-backlog-references.sh` DENIES a generated project's first plain `-m` commit
+
+**Found:** 2026-08-02
+**Found while:** Auditing what the six lints `lints_check` invokes actually do on a GENERATED project tree (which, by design, has none of the framework's own ledger files)
+**Severity:** High (every generated project since 2026-07-17; blocks the AI's first `git commit -m "..."` outright, with only an emergency `SKIP_LINT=1` bypass offered)
+
+### Prompt to fix
+
+```
+Working in the solo-orchestrator repo.
+
+init.sh ships scripts/lint-backlog-references.sh into every generated
+project (the `cp "$SCRIPT_DIR/scripts/lint-backlog-references.sh" scripts/`
+line, added 2026-07-17 in commit 948d4d5), and the shipped
+scripts/pre-commit-gate.sh `lints_check` extracts the commit message from
+an AI-issued `git commit -m ...` and pipes it to that lint in
+--pre-commit-mode.
+
+A generated project has NO solo-orchestrator-backlog.md — that ledger is
+the framework repo's own. The lint's first act, before any mode-specific
+logic, is an existence check on it:
+
+  FATAL: backlog file not found at <project>/solo-orchestrator-backlog.md
+  (exit 2)
+
+Nonzero → `emit_lint_block` → a PreToolUse deny:
+
+  {"hookSpecificOutput": {"hookEventName": "PreToolUse",
+   "permissionDecision": "deny", "permissionDecisionReason":
+   "pre-commit gate: scripts/lint-backlog-references.sh failed.
+    FATAL: backlog file not found at .../solo-orchestrator-backlog.md
+    Add the missing BL entry, fix the typo, or add the citation/allowlist
+    marker. Run 'SKIP_LINT=1 git commit ...' to bypass in an emergency
+    (logged to .claude/bypass-audit.json)."}}
+
+Observed vs. expected: the deny text tells the operator to "add the
+missing BL entry" or "fix the typo" — but the message is blameless and
+the tree is correctly shaped. The real cause is a framework-repo
+precondition leaking into a shipped artifact. Expected: a generated
+project commits normally.
+
+Reproduce (no init.sh run needed):
+
+  mkdir -p /tmp/fakeproj/scripts
+  cp scripts/lint-backlog-references.sh /tmp/fakeproj/scripts/
+  printf '%s' "feat(auth): add login form" \
+    | bash /tmp/fakeproj/scripts/lint-backlog-references.sh --pre-commit-mode
+  # → FATAL ... ; exit 2
+
+Why it went unseen through July: the dogfood walks wrote commit messages
+via heredoc, and `lints_check` skips the lint entirely when the extracted
+message is empty ("editor case"). Only a plain `-m "..."` message reaches
+the lint.
+
+Please:
+1. Confirm the ship path and the gate path independently (grep the init.sh
+   cp line; read `lints_check` in scripts/pre-commit-gate.sh).
+2. Confirm the FATAL sits ahead of the pre-commit fast path.
+3. Audit the other five lints `lints_check` invokes for the same class
+   (fails on an absent framework artifact rather than on the project).
+4. Propose a fix — do NOT apply until I approve.
+```
+
+### Fix — implemented, pending merge
+
+Branch `fix/shipped-backlog-lint-denies-generated-commits`. **Not yet
+merged**; this entry flips to `**Status:** Fixed.` with a PR # / commit
+SHA citation at merge, per the convention the entries above follow.
+
+**Shape.** The existence check in `scripts/lint-backlog-references.sh` is
+now mode-aware — see the `# BUG-008-SHIPPED-TREE-PASS` fence:
+
+- `--pre-commit-mode` + absent backlog → **exit 0, zero bytes on both
+  streams**. There is no ledger on that tree to validate the message's
+  `BL-NNN` tokens against, so the verdict is "not this tree's concern".
+  Byte-silence keeps the gate's `br_out=$(... 2>&1)` capture empty.
+  `--list` still renders the verdict as a PASS row (the gate never passes
+  `--list`, so the deny-bearing path stays silent).
+- **every other mode → the FATAL and exit 2 are unchanged.** In the
+  framework repo a missing backlog is a genuine catastrophe: the
+  `BASE..HEAD` walk, the Closed/Resolved citation scan and the
+  header-uniqueness arm all depend on the file, and passing silently
+  there would turn the repo's own citation gate into a no-op.
+
+**Sibling audit (the other five lints `lints_check` runs).** Probed on a
+backlog-less, `tests/`-less, `init.sh`-less fixture:
+
+| lint | shipped by init.sh? | on a generated tree | verdict |
+| --- | --- | --- | --- |
+| `lint-counter-antipattern.sh` | yes | exit 0 (`OK: no counter-capture antipatterns found.`) | safe — every target glob is `[ -e ]`-guarded, so absent dirs are skipped |
+| `lint-fix-functions-stderr.sh` | no | exit 0 if present | safe (and unreachable) |
+| `lint-raw-read-prompt.sh` | no | exit 0 if present | safe (and unreachable) |
+| `lint-tests-registered.sh` | no | exit 2 — `cannot read the tests.yml unit list … refusing to claim a clean pass` | same class, but **unreachable**: not shipped, so `lints_check` finds no copy and skips the block |
+| `lint-no-live-remote-in-tests.sh` | no | exit 2 — `scan dir not found: <proj>/tests` | same class, but **unreachable**, same reason |
+
+No sibling has a *reachable* instance of the defect, so nothing else was
+changed. The two latent ones are recorded here because they are one `cp`
+line away from becoming real: **anyone adding `lint-tests-registered.sh`
+or `lint-no-live-remote-in-tests.sh` to init.sh's copy list must first
+give them the same generated-tree arm.** (`lints_check` resolves each
+lint as `$PROJECT_ROOT/scripts/<lint>` then `$SCRIPT_DIR/<lint>`; in a
+generated project both resolve inside the project's own `scripts/`,
+because the hook is wired as `bash "$CLAUDE_PROJECT_DIR"/scripts/pre-commit-gate.sh`.)
+
+The `--terminal-mode` surface is not affected: it deliberately stopped
+feeding a message to this lint when the stale-`COMMIT_EDITMSG` defect was
+fixed (`# BL-119-NO-MSG-AT-PRECOMMIT` in `scripts/pre-commit-gate.sh`).
+
+**Tests.** `tests/test-lint-backlog-references.sh` T21–T25 (silent pass
+for a plain message and for a `BL`-bearing one; repo-mode FATAL
+regression guard; present-backlog negative control; `--list` row) and
+`tests/test-pre-commit-gate-lints.sh` T12 (end-to-end: a shipped-layout
+fixture is no longer denied). T21/T22 and T12 were RED with the FATAL
+before the fix.
+
+**Files touched:** `scripts/lint-backlog-references.sh`,
+`tests/test-lint-backlog-references.sh`,
+`tests/test-pre-commit-gate-lints.sh`, `solo-orchestrator-bugs.md`.
+
+**Existing generated projects** carry the old copy at
+`scripts/lint-backlog-references.sh`. To remediate without waiting for a
+re-scaffold, copy the fixed framework file over it, or set `SKIP_LINT=1`
+for the affected commit (which is logged to `.claude/bypass-audit.json`).
+
+---
+
 ## Template for new entries
 
 When adding a new bug, copy this block and fill it in:
