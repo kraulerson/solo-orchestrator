@@ -542,11 +542,12 @@ Please:
 4. Propose a fix — do NOT apply until I approve.
 ```
 
-### Fix — implemented, pending merge
+### Fix — merged
 
-Branch `fix/shipped-backlog-lint-denies-generated-commits`. **Not yet
-merged**; this entry flips to `**Status:** Fixed.` with a PR # / commit
-SHA citation at merge, per the convention the entries above follow.
+**Status:** Fixed. Merged in PR #314 (`70ee3e2`, 2026-08-02) after an
+adversarial review round (approve; eleven failed refutation attempts, four
+minors — two applied in-PR, two pre-existing edge defects recorded as F-013
+in `solo-orchestrator-followups.md`).
 
 **Shape.** The existence check in `scripts/lint-backlog-references.sh` is
 now mode-aware — see the `# BUG-008-SHIPPED-TREE-PASS` fence:
