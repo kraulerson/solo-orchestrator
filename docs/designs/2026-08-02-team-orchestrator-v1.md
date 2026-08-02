@@ -5,12 +5,12 @@
 | Field | Value |
 |---|---|
 | **Document ID** | TEAM-001-ARCH |
-| **Version** | v1.0, 2026-08-02 — **pre-review draft.** No adversarial round folded yet; §0.2 is the reserved amendment map. |
+| **Version** | v1.1, 2026-08-02 — **review-r1 folded** (`major_concerns`; 2 BLOCK + 3 MAJOR + a minor cluster, all mapped in §0.2). The architecture was found coherent, no settled decision contradicted, and both product findings confirmed; what failed was **verification hygiene** — four "exists today" claims were refuted, two by this document's own printed recipes. No decision table, adopted mechanism, or WP boundary changed except the **addition of WP2b**, which gives the flagship defect an owning package. |
 | **Classification** | Product architecture — normative-once-reviewed for the build |
 | **Audience** | (a) the adversarial design reviewer this document must survive; (b) IT leaders of the sister companies invited to review and shape it at the ~2026-08-11 session |
 | **Product** | **Team Orchestrator** — a fork of Solo Orchestrator for development teams of **2–10 people** |
 | **Companion documents** | SOI-002-BUILD (`docs/builders-guide.md`) · SOI-003-GOV (`docs/governance-framework.md`) · SOI-004-INTAKE (`templates/project-intake.md`) · `docs/designs/2026-07-24-operating-model-v1.md` (the delegation substrate this design consumes) |
-| **Status of the thing described** | **Nothing is built.** Team Orchestrator does not exist in any repo today (`grep -rni 'team.orchestrator'` over this tree returns zero hits outside this file). Every "exists today" claim below is about **Solo Orchestrator**, the asset base being forked. |
+| **Status of the thing described** | **Nothing is built.** No Team Orchestrator repo, code, or scaffold exists. Every "exists today" claim below is about **Solo Orchestrator**, the asset base being forked. **A prior, contradictory paper framing of a "Team-Orchestrator" does exist in this tree** and is dispositioned at §0.3-C8 and §11 — it is superseded by this document, not ignored by it. |
 
 **Provenance.** Five decisions were settled by an adversarially-verified analysis before this
 document was commissioned (§0.1). This design works **within** them; it does not relitigate
@@ -34,7 +34,10 @@ ship production software with the paperwork and safety checks a real IT departme
 It works by writing a set of small "state files" into the project — a record of which phase
 the project is in, what has been approved, who bypassed which safety check and when — and by
 installing automatic gates that refuse a commit when the rules are not met. It is deliberately
-hard to cheat: you can route around a block, but you cannot route around the record of it.
+hard to cheat: the design goal is that you can route around a block, but not around the record of
+it. That goal is largely met and not absolute — this document names the places where the record
+can still be lost or muddied (§5.4), because a design that oversells its own guarantees is the
+one failure this framework cannot afford.
 
 The catch is in the name. Every one of those records assumes **exactly one person**. There is
 one "what phase are we in" file, one "who is waiting for approval" flag, one list of tool usage.
@@ -97,11 +100,48 @@ These five were settled by prior adversarially-verified analysis. This document 
 | **D4** | **Roles verdict.** A **BA agent** and a **PM agent** are IN — both have real mechanical value over surfaces that already exist. A **scrum-master persona is OUT** — process theater with no team to unblock. | §7.2, §7.3, §7.4 |
 | **D5** | **Graduation-as-migration.** Solo's governance doctrine forbids indefinite solo operation past defined thresholds and today graduates an application to an *unstructured* receiving team. Team Orchestrator is the structured landing zone; migration from a solo-generated project is a first-class intake path. | §8 |
 
-### §0.2 — Amendment changelog (reserved)
+### §0.2 — Amendment changelog
 
-v1.0 is the pre-review draft; no adversarial round has been folded. This section is the
-reserved home for the finding → resolution map, written in the house style: corrections
-**rewritten on top, not accreted**, each naming the section it changed.
+**v1.1 (2026-08-02) — review-r1 amendment map.** Verdict `major_concerns`: the architecture was
+found coherent, no settled decision contradicted, and **both product findings independently
+confirmed** (the cross-developer false out-of-band finding, §1-2b/§5.4; and the Phase 3→4
+author-verification gap, §6.2). **Four verification claims were REFUTED — two of them by this
+document's own printed recipes.** For a document whose product *is* a verification posture, that
+is the blocking class, and it is recorded here rather than quietly patched. Corrections are
+rewritten on top, not accreted:
+
+- **R1-1 (BLOCK) → §3.3 / C7** — the "width-coupled `substr` hazard" **does not exist**.
+  `substr($0, RSTART + 3, RLENGTH - 4)` is match-relative: `## TSK-77:` and `## LONGPREFIX-9:`
+  extract cleanly (re-verified by running the awk). Worse, the code's own comment records the
+  **opposite** of what v1.0 claimed — the hardcoded-offset-4 form was the defect that masked a
+  mutation (M2 passed 21/0), and the RSTART-relative form is the **cure**, pinned by T15. The
+  claim is deleted; the site is now cited as evidence the arm is generalization-**safe**. The
+  companion "19 distinct regex literals" figure is replaced by the reproducible
+  **15 executable lines**.
+- **R1-2 (BLOCK) → Document Control / §1 / C8 / §11** — "`grep -rni 'team.orchestrator'` returns
+  zero hits outside this file" was **false**: six hits across two `evaluation-prompts/v2-concepts/`
+  papers carrying a prior, contradictory **MCP-native** framing dated 2026-04-27. Now cited and
+  explicitly superseded at §11, with its strongest argument answered rather than dropped.
+- **R1-3 (MAJOR) → C1 / §5.1** — off-by-one: the recipe and the §5.1 table both yield **20** files,
+  not nineteen. Corrected, and the omitted-file arithmetic reconciled to **nine** (adding
+  `settings.local.json`).
+- **R1-4 (MAJOR) → §6.2** — "returns 0 immediately for any non-`organizational` deployment"
+  misdescribed `validate_approval_fields`: there is **no** early return on deployment; the
+  `# BL-138-APPROVAL-WINDOW` placeholder arm runs for **all** deployments, and only the
+  self-approval blame walker is org-gated.
+- **R1-5 (MAJOR) → §10-WP2b / §5.2** — the flagship defect had **no owning work package**. WP2b now
+  owns the union-of-ledgers + roster-resolution fix with two mutation proofs, and §5.2 gains the
+  `last-checked-commit.txt` / `last-gate-pass.txt` disposition row (both stay gitignored; the fix
+  is in the *reader*, not the location).
+- **R1-6 (MINOR cluster) → §5.4 / §6.1 / plain-English opening / C3** — `claude-commits.jsonl` is
+  **tracked**, and the real mechanism is stated (a row can never ride in its own commit and nothing
+  stages the ledger, so it diverges per clone *in effect*) instead of the flat "per-clone" that
+  contradicted §5.1; `check_named_row` keys on pre-condition **keywords**, not role names, and its
+  window is an **unanchored** `grep -A 30`; the opening's absolute "you cannot route around the
+  record" is softened to what §5.4's own residuals support; C3's grep gains "outside this file"
+  because it self-invalidates once this document lands.
+
+**v1.0 (2026-08-02)** — pre-review draft.
 
 ### §0.3 — Verification posture, and where the repository corrected the brief
 
@@ -112,13 +152,14 @@ scope corrections, and all four are designed for rather than around.
 
 | # | Correction | Consequence |
 |---|---|---|
-| **C1** | **The `.claude/` singleton surface is larger than the eleven files named in the brief.** Grepping `init.sh`, `scripts/`, and `templates/` for `.claude/` paths yields **19 distinct files plus 5 directories** (§5.1). The brief's list omitted `pending-approval.json`, `tdd-warn-ledger.jsonl`, `license-policy.json`, `dast-headers.json`, `test-command`, `last-checked-commit.txt`, `last-gate-pass.txt`, and `process-audit.log`. | §5.1 designs the measured inventory, not the brief's. WP sizing in §10 reflects the larger surface. |
+| **C1** | **The `.claude/` singleton surface is larger than the eleven files named in the brief.** `grep -rhoE '\.claude/[a-zA-Z0-9._-]+' init.sh scripts/ templates/ \| sort -u`, minus `.tmp` scratch paths and the `manifest.json.soloFrameworkCommit` jq selector, yields **25 entries: 20 files plus 5 directories** (§5.1 tabulates all 25). Against the brief's eleven, the **nine** omitted files are `pending-approval.json`, `tdd-warn-ledger.jsonl`, `license-policy.json`, `dast-headers.json`, `test-command`, `settings.local.json`, `last-checked-commit.txt`, `last-gate-pass.txt`, and `process-audit.log`. | §5.1 designs the measured inventory, not the brief's. WP sizing in §10 reflects the larger surface. |
 | **C2** | **Nearly all of `.claude/` is version-controlled.** The shipped ignore template (`templates/generated/gitignore-base.tmpl`) carries exactly **two** `.claude/*` ignore lines — `last-checked-commit.txt` and `last-gate-pass.txt`, both under the `SYNC SIBLINGS (BL-174)` comment — plus an incidental `*.log` pattern that covers `.claude/process-audit.log`. Everything else under `.claude/` is committed. | This is the *reason* the fork is necessary and the reason the rearchitecture is a merge-semantics problem, not a locking problem. §5.2 is built on it. |
-| **C3** | **"STA checkpoints" is a paraphrase, not the governance document's own vocabulary.** `grep -rnw 'STA' docs/` returns **nothing**; the abbreviation does exist in `scripts/` (`check-phase-gate.sh`, `upgrade-project.sh`, `reconfigure-project.sh`, around the retroactive-approval path). The real artifact is the **Mid-Phase 2 Governance Checkpoint (Organizational)** — biweekly, 30 minutes maximum, held with the **Senior Technical Authority**, outcomes recorded as rows in the In-Phase Decision Log, explicitly *not* gate-style ("does not approve or block at this cadence"). | The substance of the settled decision is correct; §6.3 imports the real mechanism under its real name. The prose/code vocabulary split is itself worth knowing — the fork inherits both. |
+| **C3** | **"STA checkpoints" is a paraphrase, not the governance document's own vocabulary.** `grep -rnw 'STA' docs/` returns **nothing outside this file** (this document names the token in order to correct it, so the recipe self-invalidates once it lands — run it against `git show HEAD~1`); the abbreviation does exist in `scripts/` (`check-phase-gate.sh`, `upgrade-project.sh`, `reconfigure-project.sh`, around the retroactive-approval path). The real artifact is the **Mid-Phase 2 Governance Checkpoint (Organizational)** — biweekly, 30 minutes maximum, held with the **Senior Technical Authority**, outcomes recorded as rows in the In-Phase Decision Log, explicitly *not* gate-style ("does not approve or block at this cadence"). | The substance of the settled decision is correct; §6.3 imports the real mechanism under its real name. The prose/code vocabulary split is itself worth knowing — the fork inherits both. |
 | **C4** | **The delegation substrate this design consumes is itself unbuilt.** `docs/designs/2026-07-24-operating-model-v1.md` is an approved *design*; its five roles, the `operatingModel` manifest block, and the tier tokens do not exist in product code (that document's own §1 records `grep -rn 'operating_model\|operatingModel\|modelTier' scripts init.sh templates` returning nothing). | §7 is explicit that roles 1–5 are **inherited-as-designed, not inherited-as-built**, and §10 sequences accordingly. Overstating this is the single easiest way for this document to fail review. |
 | **C5** | **The state-coupled suite count is roughly double the brief's estimate.** The brief cited ~60–80 of 175. Measured 2026-08-02: `grep -l 'phase-state\|process-state\|build-progress\|bypass-audit\|manifest\.json' tests/*.sh` matches **130** of the 182 files that glob covers (175 `test-*.sh` plus 7 non-`test-` suites). Excluding the loosest token (`manifest.json`, 73 hits on its own) still leaves **122**. Per-token: `phase-state` 92, `manifest.json` 73, `process-state` 57, `bypass-audit` 30, `pending-approval` 18, `build-progress` 6. | **This strengthens D1 rather than threatening it** — the in-repo option's cost is larger than the decision was priced at. It is nonetheless a grep upper bound that over-counts (§3.2), which is why the design refuses to convert it into a build estimate. |
 | **C6** | **"Seven role slots" in `approval-log-org.tmpl` is a count of gate sections, not of roles.** The template declares no such number. Seven is the count of **signature-bearing gate/completion sections**; the count of distinct **role label strings** across the file is roughly double that, and since the `<!-- BL-170-APPEND-DESIGN -->` redesign the template ships **no pre-filled rows at all** — every table is a header row, and role names live in prose append instructions. | §6.1 maps the real, named role slots and states the section-versus-role distinction rather than inheriting the miscount. |
-| **C7** | **The backlog-prefix lint patch is larger than "~10 lines."** The `BL-` literal is embedded in **19 distinct regex literals across 15 executable lines** (6 in `scripts/lint-backlog-references.sh`, 9 in `scripts/lint-bl-markers.sh`), plus 6–10 lines of surrounding single-backlog-file infrastructure. Realistic: **~20–25 lines of lint code plus test updates.** | §3.3 states the measured figure. The decision is unaffected — the design is not prefix-*hostile* architecturally (no data structure is keyed by the string `BL`), it is merely un-parameterized. |
+| **C7** | **The backlog-prefix lint patch is larger than "~10 lines."** The `BL-` literal sits on **15 executable lines** — 6 in `scripts/lint-backlog-references.sh` and 9 in `scripts/lint-bl-markers.sh`, reproducible as `grep -vE '^\s*#' <file> \| grep -cE 'BL-'` — plus 6–10 lines of surrounding single-backlog-file infrastructure. Realistic: **~20–25 lines of lint code plus test updates.** | §3.3 states the measured figure. The decision is unaffected — the design is not prefix-*hostile* architecturally (no data structure is keyed by the string `BL`), it is merely un-parameterized. |
+| **C8** | **A prior, contradictory "Team-Orchestrator" framing exists in this tree, and v1.0 of this document wrongly claimed it did not.** `grep -rni 'team.orchestrator'` returns **six hits across two files** outside this document: `evaluation-prompts/v2-concepts/mcp-server-architecture.md` (four — including "Team-Orchestrator … is being built MCP-native from V1", a "5-7 weeks per the Team-Orchestrator estimate", and a plan for it to be "the reference for whether MCP is the right architecture") and `evaluation-prompts/v2-concepts/auto-discovery-extensibility.md` (one — "committing to auto-discovery + Checker from V1"). Both describe a **sibling project designed 2026-04-27** with an architecture this design does not adopt. | Dispositioned explicitly at §11 rather than left to be discovered at the review. The claim "nothing exists" was true of code and false of paper; the corrected Document Control row says so. |
 
 ---
 
@@ -136,10 +177,12 @@ policy in a shipped document; *design rationale* = a recorded decision, not a re
 | 3 | **The organizational governance layer is written for multiple humans and bound to none.** `docs/governance-framework.md` §V defines approval authority **by role, not individual**, mandates "Named individuals must be assigned before Phase 0 begins", forbids self-approval, and defines an escalation chain. `templates/generated/approval-log-org.tmpl` ships the log those roles sign. The binding from role to person is prose that a human maintains by hand. | `docs/governance-framework.md` § V *Approval Authority* and § V *Approval Verification Controls* 1–4; the org/personal template pair in `templates/generated/`. | Verified current state (doctrine) |
 | 4 | **Graduation has no landing zone.** `docs/governance-framework.md` § X *Graduation Criteria* mandates that an application must not remain solo-operated beyond 90 days past a trigger, and § X *Graduation Transition Plan* hands it to a "conventional engineering team" that receives a codebase, budgets 40–80 hours of knowledge transfer, and "produce[s] a remediation plan". Nothing in the framework meets that team on the other side. | `docs/governance-framework.md` § X *Graduation Criteria* (five triggers) and § X *Graduation Transition Plan* (steps 1–6). | Verified current state (doctrine) |
 
-**What does not exist today (verified).** There is no roster, no per-actor state, no
-multi-driver mode, and no team product. `grep -rni 'team.orchestrator'` over this tree returns
-nothing outside this file. The framework's only concession to a second human is the **Backup
-Maintainer** (`docs/governance-framework.md` § X), who is defined explicitly as someone who
+**What does not exist today (verified).** There is no roster, no per-actor state, no multi-driver
+mode, and no team-product code, scaffold, or repository. What **does** exist is paper: six
+`grep -rni 'team.orchestrator'` hits across two `evaluation-prompts/v2-concepts/` papers
+describing a differently-architected sibling designed 2026-04-27, superseded here and
+dispositioned at §0.3-C8 and §11. The framework's only concession to a second human is the
+**Backup Maintainer** (`docs/governance-framework.md` § X), defined explicitly as someone who
 "does not need to actively develop".
 
 ---
@@ -266,27 +309,34 @@ cite a PR # or a backticked SHA; the prefix knowledge lives in `is_valid_id` / `
 feeder regexes) and `scripts/lint-bl-markers.sh` (bidirectional marker↔entry resolution plus a
 vacuity floor, under the `# BL-196-ALLOWLIST-BEGIN`, `# BL-196-EMPTY-SET-GUARD`, and
 `# BL-196-PROSE-CITE-BEGIN` fences, plus a three-layer self-exclusion arm). The literal `BL-`
-appears in
-**19 distinct regex literals across 15 executable lines** — 6 and 9 respectively — with two lines
-carrying the prefix twice (the valid-ID builder's grep+sed pair, and the prose-cite alternation
-that handles the backticked and hash-prefixed spellings). The ID grammar is `BL-[0-9]+[a-z]?`
-throughout; the marker grammar is that plus a `-[A-Za-z][A-Za-z0-9_-]*` suffix.
+sits on **15 executable lines** — 6 and 9 respectively, reproducible per file as
+`grep -vE '^\s*#' <file> | grep -cE 'BL-'`. A few of those lines carry the prefix more than once
+(the valid-ID builder's grep+sed pair; the prose-cite alternation covering the backticked and
+hash-prefixed spellings), so the count of regex *literals* to edit is somewhat higher than 15 —
+the line count is given because it is the figure a reviewer can reproduce. The ID grammar is
+`BL-[0-9]+[a-z]?` throughout; the marker grammar is that plus a `-[A-Za-z][A-Za-z0-9_-]*` suffix.
 
 **Design shape:** replace each literal with a **prefix alternation from one constant**, so a
-third prefix is a one-line change rather than a third edit pass. **Three honest caveats:**
+third prefix is a one-line change rather than a third edit pass. **Two honest caveats, and one
+place the existing code is already safe:**
 
-1. **A width-coupled offset.** `scripts/lint-backlog-references.sh`'s `# BL-207-HEADER-UNIQUENESS`
-   arm slices the id with `substr($0, RSTART + 3, RLENGTH - 4)`. Those offsets encode `"## "` and
-   `":"`, not the prefix — so an equal-width prefix like `TL-` survives and an unequal one like
-   `TSK-` breaks **silently**. Its own comment records that this offset already masked a mutation
-   test once. `TL-` is chosen partly for this reason.
-2. **The empty-set guard inverts.** `# BL-196-EMPTY-SET-GUARD` treats an empty entry set as never
+1. **The empty-set guard inverts.** `# BL-196-EMPTY-SET-GUARD` treats an empty entry set as never
    legitimate. On a fresh fork with no `TL-` entries yet, an empty `TL-` set **is** legitimate —
    so a naive per-prefix generalization turns a vacuity floor into a false failure. This must be
    per-prefix with a "not yet used" state.
-3. **Path plumbing.** Both lints assume a single backlog file (`BACKLOG` is one path, `VALID_IDS`
+2. **Path plumbing.** Both lints assume a single backlog file (`BACKLOG` is one path, `VALID_IDS`
    one flat array), and `lint-bl-markers.sh` scopes its prose and code surfaces by path lists
    naming solo-specific files. Re-pointing those is not prefix logic but is in the same patch.
+3. **Already generalization-safe: the header-uniqueness id slice.**
+   `scripts/lint-backlog-references.sh`'s `# BL-207-HEADER-UNIQUENESS` arm extracts the id with
+   `substr($0, RSTART + 3, RLENGTH - 4)`. This is **match-relative and prefix-width independent** —
+   `+3` drops `"## "`, `-4` drops that plus the trailing `":"`, and `RLENGTH` grows with the
+   matched id, so `## TSK-77:` and `## LONGPREFIX-9:` extract as cleanly as `## BL-001:`
+   (verified by running the awk directly). The code's own comment records that this form is the
+   **cure**, not the hazard: the earlier hardcoded-offset-4 spelling "silently mis-extracts … if
+   the anchor is ever dropped, which MASKED the anchor from mutation testing — M2 (anchor deleted)
+   passed 21/0 with offset 4 and fails T15 with this form." **No prefix-width constraint on the
+   fork's choice arises here.**
 
 **Realistic total: ~20–25 lines of lint code plus updates to `tests/test-lint-backlog-references.sh`
 (T15/T16/T17 pin the anchor and the `[a-z]?` grammar) and `tests/test-lint-bl-markers.sh` (which
@@ -369,7 +419,7 @@ not change, the files they read do.
 ### §5.1 — The measured singleton inventory
 
 Derived 2026-08-02 by `grep -rhoE '\.claude/[a-zA-Z0-9._-]+' init.sh scripts/ templates/ | sort -u`.
-Nineteen files and five directories. The **contention class** column is the design's own
+Twenty files and five directories. The **contention class** column is the design's own
 classification, not a repo fact.
 
 | `.claude/` artifact | What it holds · writer | Tracked? | Contention class |
@@ -419,6 +469,7 @@ committed**, so every singleton is a merge surface. Three entries deserve separa
 | **Branch-keyed** (per workstream) | `process-state.json`, `build-progress.json` | Move to `.claude/workstreams/<slug>/`, where `<slug>` derives from the branch name; readers resolve the current workstream from `git rev-parse --abbrev-ref HEAD` with a configured fallback | Conflict-free by construction — two branches never write the same path. Merging a workstream to `main` merges its directory. |
 | **Actor-keyed** | `tool-usage.json`, `settings.local.json` | Move to `.claude/actors/<actorId>/`, `<actorId>` resolved from the roster (§5.3) | Conflict-free by construction |
 | **Ledger, append-only** | `bypass-audit.json`, `claude-commits.jsonl`, `tdd-warn-ledger.jsonl` | See §5.4 | Union-merged |
+| **Per-clone detector state, made team-aware in its *reader*, not its location** | `last-checked-commit.txt` (gitignored baseline), `last-gate-pass.txt` (gitignored receipt) | **Both stay gitignored and per-clone — moving them would be the wrong fix.** A baseline is legitimately a property of *this clone's* last scan, and tracking it re-creates the BL-174 defect it was ignored to solve (the file can never point at its own commit, so tracking it leaves the tree permanently dirty). What changes is the **consumer**: `detect-out-of-band-commits.sh` must stop treating "absent from *my* ledger" as "unattributed" and instead take the union of the team's ledgers plus a roster lookup on the commit author (§5.4, WP2b) | No conflict — nothing is shared. The correctness fix is in the inference, not the storage |
 
 **Why phase is global and build-loops are not.** The phase gates are *project* assertions —
 `scripts/check-phase-gate.sh` answers "may this project advance", a question with one answer.
@@ -502,16 +553,27 @@ derivative) as `user_terminal_inferred`. `docs/audit-log-lifecycle.md` states th
 honestly: *"the detector cannot prove the human at the keyboard; the SHA was just not in any
 other ledger."*
 
-> **This breaks on contact with a second developer, and it breaks quietly.** Both the ledger and
-> the baseline (`.claude/last-checked-commit.txt`) are **per-clone**. Every commit developer B
-> makes and developer A pulls is absent from A's ledger, so at A's next SessionStart the
-> detector labels **B's legitimate, gate-passing commits** as `user_terminal_inferred` in A's
-> audit log. Two developers therefore manufacture false out-of-band findings for each other by
-> doing nothing wrong. **This is not a merge conflict — it is an audit-correctness failure, and
-> it is the strongest single piece of evidence that the execution layer must be rearchitected
-> rather than tolerated.** The fix falls directly out of the roster: the detector must consult
-> the *union* of the team's commit ledgers, or resolve the commit's author against the roster
-> before inferring anything.
+> **This breaks on contact with a second developer, and it breaks quietly.**
+>
+> **Be precise about why, because "per-clone" is not the same as "untracked" (§5.1 lists the
+> ledger as tracked, and it is).** `.claude/claude-commits.jsonl` is a committed file, but the
+> hook that writes it is a **PostToolUse** hook: it appends the SHA of a commit that has already
+> been created, and it never stages the ledger (`>> "$LEDGER"`, no `git add`). A row therefore
+> **can never ride in its own commit**, and nothing makes anyone stage it afterwards — so in
+> practice each developer's working copy carries their own rows and the shared history carries
+> whatever happened to get swept into a later commit. **Tracked in principle, divergent per
+> clone in effect.** The baseline `.claude/last-checked-commit.txt` is different and simpler: it
+> is genuinely gitignored (`# BL-174` sibling pair), so it is per-clone by construction.
+>
+> The consequence is the same either way. Every commit developer B makes and developer A pulls is
+> absent from A's copy of the ledger, so at A's next SessionStart the detector labels **B's
+> legitimate, gate-passing commits** as `user_terminal_inferred` in A's audit log. Two developers
+> manufacture false out-of-band findings for each other by doing nothing wrong. **This is not a
+> merge conflict — it is an audit-correctness failure, and it is the strongest single piece of
+> evidence that the execution layer must be rearchitected rather than tolerated.** The fix falls
+> out of the roster: the detector must consult the **union** of the team's commit ledgers, and
+> resolve the commit's author against the roster before inferring anything. **WP2b owns it
+> (§10).**
 
 Named humans must therefore appear in the ledger. There are two ways to do that, and the choice
 is not cosmetic.
@@ -648,10 +710,18 @@ strings** is roughly double. Moreover, since the `<!-- BL-170-APPEND-DESIGN -->`
 template ships **no pre-filled rows at all**: every table is a header row and the role names live
 in prose append instructions, appended-to under an append-only contract enforced by a CI job.
 
-The **Pre-Phase 0** section alone names six roles the § V gate table does not:
+The **Pre-Phase 0** section's append instruction names six roles the § V gate table does not:
 `IT Security`, `Insurance Broker`, `Legal / CIO`, `Executive Sponsor`, `Technical Lead`,
-`ITSM / PMO` — and `scripts/check-phase-gate.sh::check_named_row` requires a dated row for each
-of the six, by name, within a 30-line window of the `## Pre-Phase 0` header.
+`ITSM / PMO`. **`scripts/check-phase-gate.sh::check_named_row` does not check those role names.**
+It is called six times with **pre-condition keyword** patterns — `AI deployment`, `[Ii]nsurance`,
+`[Ll]iability`, `[Ss]ponsor`, `[Bb]ackup maintainer`, `ITSM` — and a row "matches" if any line in
+the section contains the pattern **and** an ISO date. So the enforced set is the six
+*pre-conditions*, keyed by subject matter; the role names are prose the operator is asked to
+supply. Note also that its window is `grep -A 30 "Pre-Phase 0"` — **unanchored**, taken from any
+line mentioning that string anywhere in the file, not a bounded slice of the `## Pre-Phase 0`
+header. **Both facts matter to the fork:** a roster-aware rewrite that keys on role names would
+enforce something the current arm does not, and the unanchored window is a pre-existing
+imprecision the fork should tighten rather than replicate.
 
 | Governance role slot (org track) | Gate it holds (§ V *Approval Authority*) | Team-product roster role | Binding rule |
 |---|---|---|---|
@@ -663,12 +733,13 @@ of the six, by name, within a 30-line window of the `## Pre-Phase 0` header.
 | **Backup Maintainer** | Not a gate role — mandatory per § X, monthly sync, handoff test, quarterly access verification | `backup_maintainer` | In a team of ≥2 developers this role is **naturally satisfied** rather than specially appointed (§6.4) |
 | **CIO (or designated authority)** | Terminal escalation; the only source of a written exception to the graduation deadline | `cio` | Roster entry for evidence attribution; rarely a git identity |
 
-**The table above is the gate-bearing set, not the whole set.** Pre-Phase 0 names five further
-roles the § V gate table never mentions — `insurance_broker`, `legal`, `executive_sponsor`,
-`technical_lead`, `itsm_pmo` — each of which `check_named_row` requires a dated row for. They are
-roster roles too; they simply hold a pre-condition rather than a gate. **Seven is the count of
-gate-bearing roles, not of governance roles**, and a reviewer who counts the template's role
-strings will get a larger number (C6).
+**The table above is the gate-bearing set, not the whole set.** Pre-Phase 0's append instruction
+names five further roles the § V gate table never mentions — `insurance_broker`, `legal`,
+`executive_sponsor`, `technical_lead`, `itsm_pmo`. They are roster roles too; they simply hold a
+pre-condition rather than a gate, and what the gate script actually enforces for them is the
+six **pre-condition keywords** above, not their role names. **Seven is the count of gate-bearing
+roles, not of governance roles**, and a reviewer who counts the template's role strings will get
+a larger number (C6).
 
 **Which template is rendered is decided by `$DEPLOYMENT` alone.** `init.sh::generate_approval_log`
 is a two-arm branch: `organizational` → `approval-log-org.tmpl`, everything else →
@@ -726,8 +797,17 @@ commits a typo fix to gate B; `git log -1` returns Bob; Alice's self-approval si
 `"Phase 0.*Phase 1"` and `"Phase 1.*Phase 2"`. **There is no call for Phase 2→3 or Phase 3→4.**
 The go-live gate — the one § V protects with dual approval and the one whose failure ships to
 production — has **no approver-versus-commit-author verification at all**. Both signatures can be
-authored entirely by the Orchestrator with nothing detecting it. The function also returns 0
-immediately for any non-`organizational` deployment.
+authored entirely by the Orchestrator with nothing detecting it.
+
+**Precision about the deployment gating, because it is easy to get wrong.** The function has **no
+early return on deployment**; its only early return is `grep -q "$gate_name" … || return 0` for a
+gate that is truly absent (checked elsewhere). The `# BL-138-APPROVAL-WINDOW` placeholder-value
+arm therefore runs for **every** deployment. It is specifically the **self-approval blame walker**
+that sits inside `if [ "$deployment" = "organizational" ]`. So a personal-deployment project still
+gets placeholder detection and still gets **no** author verification — and the code comment warns
+that an early return here once "silently swallowed" the walker's contract, which is why the
+structure is shaped this way. **The team fork must widen the walker's gate coverage without
+reintroducing an early return.**
 
 **So the team predicate is a widening, not just a rewrite.** It must become: *the approver is a
 **different roster member** from the author of the work being approved, **and** holds the role
@@ -985,6 +1065,7 @@ GREEN-restored proof this framework requires of enforcement code.
 | **WP0 — Fork establishment + honest baseline** | §3.3's four obligations, in order. Then the §3.2 measurement **by execution**: run the suite against a changed-shape shim and record what actually breaks. **No code changes.** | *Deliverable:* a dated report and one `TL-` entry per red suite (fix or recorded retirement) |
 | **WP1 — Roster schema + resolution** | `.claude/roster.json` (§5.3); the `git config user.email` → `actorId` resolver; tiered unmatched-identity behaviour on the `# BL-084-TIER-KEY` ladder | Multi-identity members resolve; a retired member's historical rows still resolve; unmatched is silent at `no` / warns at `light` / blocks at `strict`. **Mutation:** neuter the strict arm → unmatched identity commits → RED |
 | **WP2 — Ledger actor fields** | `actorId` + `actorIdSource` on the `scripts/lib/bypass-audit.sh` writers and the two hook writers. Additive; the `actor` class enum untouched | Every existing row-shape assertion still passes; a matched commit writes `roster`, an unmatched one writes `unmatched`, never a blank. **Mutation:** force the resolver to always succeed → an unmatched identity is laundered as `roster` → RED |
+| **WP2b — Cross-developer attribution: kill the false out-of-band finding** | **The §1-problem-2b / §5.4 flagship defect, and the only WP that changes an inference rather than a location.** Rewrite `scripts/detect-out-of-band-commits.sh`'s attribution so a commit is classified `user_terminal_inferred` **only** when it is absent from the **union** of every roster member's `claude-commits.jsonl` **and** its `git` author does not resolve to a roster member. Keep `last-checked-commit.txt` gitignored and per-clone (§5.2) — the fix is in the reader | Developer A pulls 5 of developer B's agent-authored commits and gets **zero** `user_terminal_inferred` rows (the case that is broken today); a genuine terminal commit by a roster member is still labelled and still names the member; a commit by a non-roster identity is still flagged. **Mutation:** revert the union lookup to the single-clone ledger → B's commits are labelled out-of-band in A's log → RED. **Second mutation:** make the roster lookup always succeed → a genuine out-of-band commit is laundered as attributed → RED |
 | **WP3 — Ledger → JSONL + union merge** | `bypass-audit.json` → `.jsonl`, row UUIDs, `.gitattributes merge=union`, a parse lint. **Repair the two dead pins and the five unlocked writers of §5.4 in the same wave**, and amend all three F8-precedent surfaces: writers, integration-suite assertions, and `docs/audit-log-lifecycle.md`'s taxonomy **and cold-pickup jq recipes** | A two-branch concurrent append merges with no conflict and no row loss; duplicates detectable by UUID; a malformed line fails the lint; T5/T6 now fail on a bad value (today they cannot) |
 | **WP4 — Branch-keyed workstream state** | `process-state.json`, `build-progress.json` → `.claude/workstreams/<slug>/`; teach every reader/writer the resolver, starting at `scripts/lib/phase2-state.sh` (`_phase2_state_repo_root`, `_record_phase2_step`) | Two branches keep independent build loops with zero conflict; a merge to `main` carries the directory; detached HEAD hits the fallback rather than crashing |
 | **WP5 — Actor-keyed state** | `tool-usage.json`, `settings.local.json` → `.claude/actors/<actorId>/`; and **ignore `settings.local.json`**, closing the C2 docs-versus-behaviour mismatch | Two actors' counters never collide; a missing actor directory is created idempotently |
@@ -994,10 +1075,12 @@ GREEN-restored proof this framework requires of enforcement code.
 | **WP9 — Migration intake path** | §8's flow: state carry-over, ledger conversion preserving `actorId: null`, roster seeding | A solo-generated fixture migrates with phase preserved, zero ledger rows lost, pre-roster rows legibly marked |
 | **WP10 — Docs** | The fork's `CLAUDE.md`, `docs/INDEX.md`, and the governance-framework team delta | `lint-doc-anchors.sh --strict-refs` and `lint-backlog-references.sh` clean |
 
-**Sequencing.** WP0 → WP1 (everything keys on the roster) → WP2/WP3 (ledger) → WP4/WP5 (state
-keying) → WP6/WP7 → WP8/WP9 → WP10. **WP7 is the linchpin** — the only package that changes a
-gate predicate, and where the `[WARN]` trap will bite a careless implementer. WP6 and WP7 both
-get top-tier implementation and double-mutation verification.
+**Sequencing.** WP0 → WP1 (everything keys on the roster) → WP2/WP2b/WP3 (ledger and
+attribution) → WP4/WP5 (state keying) → WP6/WP7 → WP8/WP9 → WP10. **WP7 is the linchpin** — the
+only package that changes a gate predicate, and where the `[WARN]` trap will bite a careless
+implementer. **WP2b is the earliest package that delivers visible correctness**: it is the one
+that stops the audit trail lying about a teammate, so a pilot feels it on day one. WP2b, WP6, and
+WP7 all get top-tier implementation and double-mutation verification.
 
 ---
 
@@ -1019,6 +1102,23 @@ get top-tier implementation and double-mutation verification.
 - **Re-entering Phase 0 on migration** — rejected (§8): the phase is a fact about the
   application, not about the team.
 - **Scaling past 10 developers** — out of scope (§2), not merely unbuilt.
+- **An MCP-native Team-Orchestrator built from scratch (the April 2026 framing) — SUPERSEDED by
+  this document (C8).** Two v2-concept papers, `evaluation-prompts/v2-concepts/mcp-server-architecture.md`
+  and `evaluation-prompts/v2-concepts/auto-discovery-extensibility.md`, describe a sibling
+  "Team-Orchestrator" designed 2026-04-27 that is "being built MCP-native from V1" at a "5-7
+  weeks" estimate and would serve as Solo V2's proving ground for MCP and auto-discovery; that
+  framing predates and is **replaced by** the settled fork decision (D1), which builds the team
+  product from Solo's proven bash asset base rather than from a new MCP implementation — so those
+  two papers should now be read as **Solo-V2 concept material whose Team-Orchestrator passages are
+  historical**, not as a plan of record. **Their strongest argument survives the supersession and
+  is answered rather than dismissed:** `mcp-server-architecture.md` problem 3 holds that "there's
+  no long-running coordination layer; multi-actor coordination (which Team-Orchestrator needs)
+  cannot be cleanly implemented this way." That is correct about *long-running* coordination, and
+  it is exactly why §5.5 makes **serialized driving** the v1 default — an attested lease in the
+  repository, not a coordination daemon — and why §5.2 keeps state in git rather than a service.
+  Whether that is sufficient is Question 4 to the reviewing architects. **Adopting MCP remains
+  available later as an implementation change; it is not a precondition for the fork, and nothing
+  in this design forecloses it.**
 
 ---
 
@@ -1087,14 +1187,20 @@ would falsify parts of this design.
   with the mapping table (§6), the delegation layer including BA/PM and the scrum-master negative
   (§7), the explicit kept-set (§9), honest residuals (§12), and the reviewer questions (below) —
   plus Document Control, the plain-English opening, §0 traceability, and a build plan (§10).
-- **Every "exists today" claim anchored?** Yes, and re-derived on 2026-08-02 rather than trusted
-  from the brief — which is how C1 through C4 were found. Anchors are function names
-  (`_phase2_state_repo_root`, `_record_phase2_step`), marker comments (`# BL-084-TIER-KEY`,
-  `# BL-165-HARDENED-SERVE`, `# BL-161-NO-ROUTINE-PASS`, `# BL-174` sibling pair, `# BL-089`), or
-  named document sections (`docs/governance-framework.md` § V, § X). No bare `file:line` anywhere.
+- **Every "exists today" claim anchored — and did the anchors hold?** Anchored, yes; but
+  **review-r1 refuted four of them** and the corrections are folded at v1.1 (§0.2). Two were
+  refuted *by this document's own printed recipes*, which is the worst class of error for a
+  document whose product is a verification posture. Do not read the current anchor set as
+  self-certified: it is the set that survived one adversarial pass. Anchors are function names
+  (`_phase2_state_repo_root`, `_record_phase2_step`, `validate_approval_fields`,
+  `check_named_row`), marker comments (`# BL-084-TIER-KEY`, `# BL-165-HARDENED-SERVE`,
+  `# BL-161-NO-ROUTINE-PASS`, `# BL-174` sibling pair, `# BL-089`), or named document sections
+  (`docs/governance-framework.md` § V, § X). No bare `file:line` anywhere.
 - **Are the settled decisions designed within, not relitigated?** Yes. D1–D5 appear in §0.1 as
-  premises. Where the repository corrected the *framing* (C1–C4), the correction is flagged in
-  §0.3 and designed for. No settled decision is contradicted by any repo fact found.
+  premises. Where the repository corrected the *framing* (C1–C8), the correction is flagged in
+  §0.3 and designed for. **No settled decision is contradicted by any repo fact found** — a
+  finding review-r1 independently confirmed, including for the superseded April framing (C8),
+  which is a prior *paper* concept rather than a competing decision.
 - **Is enforcement honestly tiered?** Yes. §7.2 marks the BA agent advisory; §7.3 marks the PM
   agent auditable-not-mechanical; §5.4 states three named limits of `merge=union`; §5.5 states
   the wheel is a lease, not a lock; §6.4 refuses to claim graduation triggers are repealed; §8
