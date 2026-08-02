@@ -62,9 +62,13 @@ Adding another is covered by [extending-platforms.md](extending-platforms.md).
 
 Normative design docs authored before a build and held to the same adversarial review as
 code. Current: [designs/2026-07-12-currency-system-v1.md](designs/2026-07-12-currency-system-v1.md)
-(the currency/update pipeline, v1.1 post-review) and
+(the currency/update pipeline, v1.1 post-review),
 [designs/2026-07-24-operating-model-v1.md](designs/2026-07-24-operating-model-v1.md)
-(the configurable multi-agent operating model for BL-097/098/100).
+(the configurable multi-agent operating model for BL-097/098/100), and
+[designs/2026-08-02-team-orchestrator-v1.md](designs/2026-08-02-team-orchestrator-v1.md)
+(**Team Orchestrator** — the architecture for a 2–10 developer fork of this framework: the
+multi-actor execution layer, the roster identity model, the imported organizational governance
+track, and the BA/PM agent roles. Pre-review draft; describes a product that does not exist yet).
 
 ## Reports (`Reports/`)
 
