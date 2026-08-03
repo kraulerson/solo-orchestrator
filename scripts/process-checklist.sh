@@ -60,6 +60,161 @@ _set_current_phase_min() {
   fi
 }
 
+# ── DELTA-SEAM-BEGIN ─────────────────────────────────────────────────────────
+# THE ONE SEAM into the post-MVP delta module.
+#
+# SPEC: docs/designs/2026-08-02-delta-track-v1.md §3.1 (the module inventory and
+# "the one seam"), §7.1 (the state schema and D7's single-writer rule), §7.2
+# (the project-owned policy schema), §3.2 (NOTICE-ONLY), §0.3-C9/C10.
+#
+# WHY THIS FILE AND NO OTHER (C10). `pre-commit-gate.sh` already invokes this
+# script (`# BL-010-COMMITMSG-BL006` and the `--check-commit-ready --subject`
+# call), so it is BOTH the commit-gate classifier and D7's designated single
+# writer of `.claude/delta-state.json`. "One narrow seam into the commit gate"
+# (D1) and "single writer = process-checklist.sh" (D7) therefore name ONE
+# core -> delta edge, not two. scripts/lint-delta-boundary.sh allowlists exactly
+# this path and ASSERTS the allowlist length is 1 — a second seam is a design
+# change, not an append.
+#
+# D7, THE SINGLE-WRITER RULE, AND WHAT IT COSTS. Nothing else writes
+# `.claude/delta-state.json` — not `delta.sh`, not `cut-release.sh`, not the
+# session hook. They all ROUTE their writes through `--delta-state-update`.
+# §0.3-C9 records that this is a NEW, stricter invariant than the framework's
+# own practice (`.claude/process-state.json` has four writers today), so it is
+# not inherited and cannot be assumed: the lint is what makes it checkable.
+#
+# THE SURFACE, AND WHY IT IS THIS SMALL
+#   --delta-state-read              print the state document (§7.1), or the
+#                                   empty schema when there is none. rc 0.
+#   --delta-state-update <jq>       read -> apply the filter -> ATOMIC write
+#                                   under the APPEND rule. ONE guarded primitive
+#                                   rather than a verb per caller (activation /
+#                                   gates_completed append / retro append /
+#                                   cadence stamp / closed append): five verbs
+#                                   would be five places to forget the guard,
+#                                   and the guard — not the verb — is what D7 is
+#                                   actually about.
+#                                   WHAT THE GUARD ACTUALLY REFUSES, precisely,
+#                                   because "anything that violates the schema"
+#                                   was an over-claim: a candidate that is not an
+#                                   object with exactly the five §7.1 keys;
+#                                   schemaVersion that is not a number;
+#                                   active_delta that is neither object nor null;
+#                                   hotfix_retros / closed that are not arrays;
+#                                   cadence that is not an object; a closed row
+#                                   that is not an object; and any drop, reorder
+#                                   or rewrite of an existing closed row.
+#                                   WHAT IT DOES NOT REFUSE, deliberately:
+#                                   replacing an OPEN active_delta. One-at-a-time
+#                                   is structural here; the business refusal is
+#                                   §11-WP3's, which owns open/confirm. Recorded
+#                                   as a deferral, not an omission. Inner shapes
+#                                   of cadence / hotfix_retros / active_delta are
+#                                   likewise later WPs' — see the WHAT IT
+#                                   DELIBERATELY DOES NOT ENFORCE block in
+#                                   scripts/lib/delta-state.sh.
+#   --delta-state-ship <id> <ver>   record `shipped_in` on an already-closed
+#                                   delta — §7.1's cut-time write, which
+#                                   `cut-release.sh` (§9) reaches through here
+#                                   and never by touching the file. A SEPARATE,
+#                                   narrower pathway on purpose: the append rule
+#                                   is not widened by one character, and this
+#                                   action permits EXACTLY ONE mutation shape —
+#                                   one closed row's shipped_in going null -> a
+#                                   non-empty string, everything else identical.
+#                                   WRITE-ONCE: a row that already has a version
+#                                   is refused, never overwritten.
+#   --delta-policy-init             seed `.claude/delta-policy.json` with the
+#                                   §7.2 defaults, ONCE. Never overwrites.
+#   --delta-policy-get <key>        dotted-key read with per-key fallback to the
+#                                   framework defaults. rc 1 if the key exists
+#                                   nowhere.
+#   --delta-policy-notice           the §3.2 NOTICE-ONLY key-diff. Prints one
+#                                   line naming policy keys the framework has
+#                                   learned that the project file lacks, and
+#                                   writes nothing. Silent when there is no
+#                                   policy file or nothing is missing.
+#
+# WHY THE BLOCK IS HERE AND CONTIGUOUS. Every reference to the delta module in
+# this file lives between these two markers — including the flag matching — so
+# §3.1's severability test (WP7: delete the module, revert the seam, the full
+# suite still passes) is a single-block revert. That is also why the delta
+# actions are NOT listed in `--help` below: the help text would be a second,
+# non-contiguous delta reference in a core file.
+#
+# It sits AFTER `guard_not_in_framework` on purpose — the seam writes into
+# `.claude/`, so it must refuse to run inside the framework repo exactly like
+# every other action here. Tests therefore run in fixtures, never in-tree.
+#
+# The dispatch runs BEFORE the main argument loop so a delta action never
+# touches `.claude/process-state.json` (`ensure_state_file`) as a side effect.
+_delta_seam_dispatch() {
+  local action="${1:-}"; shift || true
+  local libdir="$SCRIPT_DIR/lib"
+
+  # The module is severable, so it can genuinely be absent. Fail loudly with a
+  # dedicated code (2 = environment/invocation) rather than crashing on a
+  # missing source file.
+  if [ ! -f "$libdir/delta-state.sh" ] || [ ! -f "$libdir/delta-policy.sh" ]; then
+    echo "process-checklist: the delta module is not installed in $libdir — no delta actions are available." >&2
+    return 2
+  fi
+  # shellcheck source=/dev/null
+  . "$libdir/delta-state.sh"
+  # shellcheck source=/dev/null
+  . "$libdir/delta-policy.sh"
+
+  # All delta paths resolve against the CWD, exactly like PROCESS_STATE and
+  # PHASE_STATE above — the whole script is already cwd-relative.
+  case "$action" in
+    --delta-state-read)
+      delta_state_read "."
+      ;;
+    --delta-state-update)
+      if [ $# -lt 1 ] || [ -z "${1:-}" ]; then
+        echo "process-checklist --delta-state-update: a jq filter argument is required." >&2
+        return 2
+      fi
+      delta_state_update "." "$1"
+      ;;
+    --delta-state-ship)
+      if [ $# -lt 2 ] || [ -z "${1:-}" ] || [ -z "${2:-}" ]; then
+        echo "process-checklist --delta-state-ship: a delta id and a version are both required (e.g. --delta-state-ship DELTA-005 v1.2.1)." >&2
+        return 2
+      fi
+      delta_state_ship "." "$1" "$2"
+      ;;
+    --delta-policy-init)
+      delta_policy_seed "."
+      ;;
+    --delta-policy-get)
+      if [ $# -lt 1 ] || [ -z "${1:-}" ]; then
+        echo "process-checklist --delta-policy-get: a dotted policy key is required (e.g. size_thresholds.small)." >&2
+        return 2
+      fi
+      delta_policy_get "." "$1"
+      ;;
+    --delta-policy-notice)
+      delta_policy_notice "."
+      ;;
+    *)
+      echo "process-checklist: unknown delta action '$action'." >&2
+      return 2
+      ;;
+  esac
+}
+
+# The `if` form is load-bearing under `set -euo pipefail`: it suspends errexit
+# for the whole dynamic extent of the call, so a legitimate non-zero return
+# (a refused write, an unknown policy key) reaches `exit` as itself instead of
+# aborting the shell somewhere inside the module.
+case "${1:-}" in
+  --delta-state-read|--delta-state-update|--delta-state-ship|--delta-policy-init|--delta-policy-get|--delta-policy-notice)
+    if _delta_seam_dispatch "$@"; then exit 0; else exit $?; fi
+    ;;
+esac
+# ── DELTA-SEAM-END ───────────────────────────────────────────────────────────
+
 # --- Argument parsing ---
 ACTION=""
 ARG_VALUE=""

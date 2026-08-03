@@ -1649,6 +1649,19 @@ run_child_suite "tests/test-bl010-commitmsg-bl006.sh" "tests/test-bl010-commitms
 # the phase fall-through it claimed to pin. No init.sh -> both lanes.
 run_child_suite "tests/test-delta-wp0-inherited-predicates.sh" \
   "tests/test-delta-wp0-inherited-predicates.sh"
+# Delta Track WP2: the module's state file (§7.1), its project-owned policy file
+# (§7.2), the ONE seam's first `--delta-*` actions in process-checklist.sh, and
+# the NOTICE-ONLY treatment in upgrade-project.sh (§3.2, the # BL-099-DOC-GUARD
+# form). Atomic tmp+mv writes; per-key fallback to the framework defaults at
+# read time; the seed writer is birth-once. Exit-code and byte assertions only.
+# Mutation-proved IN THE SUITE (M1/M1b/M2/M3/M4/M5, each mutant built and run):
+# an upgrade arm that writes the policy file -> N1 RED on bytes; one that writes
+# a .new sidecar -> N1 RED on the NAMESPACE; write-direct instead of tmp+mv ->
+# S3a/S3b RED; drop the per-key default lookup -> P3 RED; drop the birth-once
+# guard -> P2 RED; strip the inline T2 waiver on the seam invocation ->
+# lint-delta-boundary rc=1. Copies init.sh (never executes it) -> both lanes.
+run_child_suite "tests/test-delta-wp2-state-policy.sh" \
+  "tests/test-delta-wp2-state-policy.sh"
 run_child_suite "tests/test-check-phase-gate.sh" "tests/test-check-phase-gate.sh"
 run_child_suite "tests/test-check-phase-gate-poc-block-contract.sh" \
   "tests/test-check-phase-gate-poc-block-contract.sh"
