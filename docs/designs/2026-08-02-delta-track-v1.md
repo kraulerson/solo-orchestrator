@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | **Document ID** | DELTA-001-ARCH |
-| **Version** | v1.0, 2026-08-02 — pre-review draft |
+| **Version** | v1.1, 2026-08-02 — **review-r1 folded** (`major_concerns`; fidelity verdict **FAITHFUL** — all eight settled decisions intact, all twelve v1.0 §14 rows independently reproduced). One mandatory finding and six one-liners, all mapped in §0.2. No decision table, adopted mechanism, or WP boundary changed; WP6 gains one deliverable. The mandatory finding was a **docblock-trusted claim that was never executed** — the one such claim in a document that logs fourteen runs. |
 | **Classification** | Product architecture — normative-once-reviewed for the build |
 | **Audience** | (a) the adversarial design reviewer this document must survive; (b) the session that plans and builds the work packages in §11 |
 | **Product** | **The Delta Track** — the maintenance and feature lifecycle a Solo Orchestrator project runs *after* it cuts v1.0.0 |
@@ -29,7 +29,10 @@ or **function names**, never bare `file:line`.
 **Verification posture.** The blocking failure class in this document's sibling review was
 *hazards reasoned about but never executed*. So every verifiable claim printed here was
 **executed** before it was printed, and §14 is the log: the command, and what it actually
-returned. Five claims changed as a result (§0.3-C3, C5, C7, C9, C10).
+returned. Five claims changed as a result (§0.3-C3, C5, C7, C9, C10). **v1.1:** review-r1 found
+the one place the rule slipped — a claim copied from a script's own docblock rather than run
+(R-DT-1) — and executing it refuted both the docblock *and* the reviewer's proposed replacement.
+§14 now logs fourteen runs.
 
 ---
 
@@ -104,8 +107,40 @@ free for the author.
 
 ### §0.2 — Amendment changelog
 
+**v1.1 (2026-08-02) — review-r1 amendment map.** Verdict `major_concerns`; fidelity **FAITHFUL**
+(all eight settled decisions intact, all twelve §14 rows independently reproduced). One mandatory
+finding and six one-liners, all folded, corrections rewritten on top rather than accreted. No
+decision table, adopted mechanism, or WP boundary changed; WP6 gains one deliverable.
+
+- **R-DT-1 (MANDATORY) → §8.3 note 1 / §9.2 / §11-WP6 / §14-V13** — v1.0 claimed
+  `check-maintenance.sh` has a "0 / 1 / 2" exit contract. **Refuted: the script has exactly two
+  `exit` sites and no `exit 2`** — v1.0 copied the docblock instead of executing it. Corrected,
+  and the real behaviour re-derived by running it: an undeterminable date is guarded out by
+  `[ "$last_epoch" -gt 0 ]` and the arm is **silently skipped**, so the script reports "All
+  maintenance cadences current" at **rc=0**. **The reviewer's proposed mechanism — fall-through to
+  a huge `days_since` and `exit 1`, a fail-*closed* collapse — is itself refuted by that guard and
+  by the run (§14-V13); the true failure is fail-**OPEN**, the opposite direction and the worse one
+  for D5.** Author's choice taken: WP6 **adds** the advertised `exit 2` as an explicit design
+  addition (marked author-proposed), and `cut-release.sh` treats it as a refusal.
+- **R-DT-2 (MINOR) → §0.3-C5 / §13-R7** — C5 promised the stale "before Phase 3" gate wording was
+  "recorded as residual R7", but R7 was the 14-day-cadence question. The residual now exists as
+  **§13-R7** and C5 points at it.
+- **R-DT-3 (MINOR) → §1 row 1** — "five accepted keys" → **six**; the `get_steps_for_process`
+  case-arm count, re-derived with `invariant_check`'s own awk, is 6 (§14-V14).
+- **R-DT-4 (MINOR) → §0.2** — the base commit was not `fe1ba9e`; the branch's real parent is
+  **`6449838`** (`fe1ba9e` is an ancestor, not the parent).
+- **R-DT-5 (MINOR) → §7.1** — "`shipped_in` is written by `cut-release.sh`" invited a second direct
+  writer two paragraphs after the single-writer rule; reworded to "recorded at cut time **via the
+  seam**".
+- **R-DT-6 (RECOMMENDED, adopted) → §3.3 / §13-R15** — the core→delta predicate was literal-path
+  matching only, so `source "$LIB/delta-${kind}.sh"` evades it. A bare `delta-` token tier over
+  CORE files is added, with its false-positive cost and its residual stated.
+- **R-DT-7 (RECOMMENDED, adopted) → §7.2** — two equivalence notes added: hotfix's `close_review`
+  is carried by `retro_review`, and `touch_trigger`'s single token bundles the scoped scanner
+  re-run with the threat-model refresh.
+
 **v1.0 (2026-08-02)** — pre-review draft. Authored against the tree at
-`worktree-agent-a90cc6992bc16aee0`, branch `docs/delta-track-design`, from `main` at `fe1ba9e`.
+`worktree-agent-a90cc6992bc16aee0`, branch `docs/delta-track-design`, parent commit `6449838`.
 Docs-only: no product code, template, policy text, or backlog edit lands from this work package.
 
 ### §0.3 — Verification posture, and where the repository corrected the brief
@@ -121,7 +156,7 @@ decision**; all eleven are designed for rather than around.
 | **C2** | **The cadence thresholds D5 tightens are live constants in a shipped script, and the guide disagrees with the script.** `check-maintenance.sh` implements **three** cadences — CHANGELOG 35d, `sbom.json` 35d, dependency scan 95d, security scan 185d (four thresholds, three named cadences) — while `docs/builders-guide.md` Step 4.4 names **four** (Weekly / Monthly / Quarterly / Biannually) and puts the **full dependency audit** under *Biannually* while the script has it at 95d. | §8.3 is a threshold rewrite of a live script (35→14, 185→95) **plus** a guide reconciliation, not a greenfield checker. The pre-existing script/guide split is why D5's "dependency audit folds in" is a resolution, not just a retune. |
 | **C3** | **The `feat:`-requires-Build-Loop predicate is TWO surfaces with DIFFERENT phase predicates, and only one of them is live in the delta era.** `process-checklist.sh::check_commit_message` gates at `current_phase < 2 → exit 0`, i.e. **≥ 2, including 4** — verified by execution: at `current_phase: 4` with no active Build Loop, `--check-commit-message "feat: add dark mode"` **exits 1** and prints "no Build Loop active" (§14-V4). `check_commit_ready` (the file-heuristic path) requires the Build Loop only under `[ "$current_phase" -eq 2 ]` — so at phase 4 it falls through to `exit 0` and enforces nothing. | D7's ">= 2" is **true of the surface that matters** and false of the other. Two consequences: (a) the FEATURE class inherits the Build Loop **mechanically** at phase 4 with no new gate; (b) **WP0's pin must target `check_commit_message`** — a pin written against `check_commit_ready` would pass vacuously at phase 4 and prove nothing. |
 | **C4** | **Two clocks, two grammars — and neither is machine-readable today.** `templates/generated/bugs.tmpl`'s Severity Guide is SEV-1..4 with **dispositions, no times** ("No — must fix immediately"). `docs/governance-framework.md` § *Post-Release Vulnerability Response* is **CVSS-keyed**, not SEV-keyed: Critical ≥ 9.0 → 24 h or take offline; High 7.0–8.9 → 7 days; Medium → next monthly window; Low → next quarterly window. SEV *times* exist only as intake prose (`templates/project-intake.md`: "default: SEV-1 24h, SEV-2 7d, SEV-3 best effort") and three wizard prompts spelled **SEV-Critical / SEV-High / SEV-Low**. None reaches an enforced field — contrast `# BL-203-INTERVAL-PLUMB`, which exists precisely because saving an intake answer without plumbing it to the enforced field is a silent no-op. | D2's "the governance framework's severity→response-time table drives the clock" is true **for the security-patch class** (which is CVSS-shaped) and needs a *different* source for ordinary fixes. §7.2's policy config carries both, explicitly, because neither has an enforced home today. |
-| **C5** | **The SEV block is stronger than D8 assumes in one direction and weaker in another.** *Stronger:* `scripts/test-gate.sh::check_phase_gate` is invoked by `check-phase-gate.sh` under **`current_phase -ge 3`**, which includes 4 — and **all ten** GitHub CI templates plus the GitLab set run `bash scripts/check-phase-gate.sh` on every CI run. Executed at `current_phase: 4` with one `SEV-1 \| Open` row: the Bug Gate arm fires and contributes a blocking issue (§14-V5). So SEV-1/SEV-2 enforcement **does** carry into the delta era, in CI, mechanically. *Weaker:* it is still not a **queue interrupt** — it blocks a gate/CI run, it does not reorder work — and its user-facing text still says "before Phase 3", which is wrong at phase 4. | D8's "must not claim a queue mechanism" stands, and §5.4 states the mechanism precisely: a CI-time block, not an interrupt. The stale "before Phase 3" wording is recorded as residual R7. |
+| **C5** | **The SEV block is stronger than D8 assumes in one direction and weaker in another.** *Stronger:* `scripts/test-gate.sh::check_phase_gate` is invoked by `check-phase-gate.sh` under **`current_phase -ge 3`**, which includes 4 — and **all ten** GitHub CI templates plus the GitLab set run `bash scripts/check-phase-gate.sh` on every CI run. Executed at `current_phase: 4` with one `SEV-1 \| Open` row: the Bug Gate arm fires and contributes a blocking issue (§14-V5). So SEV-1/SEV-2 enforcement **does** carry into the delta era, in CI, mechanically. *Weaker:* it is still not a **queue interrupt** — it blocks a gate/CI run, it does not reorder work — and its user-facing text still says "before Phase 3", which is wrong at phase 4. | D8's "must not claim a queue mechanism" stands, and §5.4 states the mechanism precisely: a CI-time block, not an interrupt. The stale "before Phase 3" wording is recorded as **§13-R7**. |
 | **C6** | **The UAT batch counter counts features and nothing else.** `scripts/test-gate.sh::record_feature` increments `.features_since_last_test` and recomputes `.testing_required = (.features_since_last_test >= .test_interval)`; `_unrecord_feature_apply` is its exact inverse. No fix path touches it. | D8's "a fix rides the NEXT UAT session" is a consequence of the counter's arity, not a policy choice. §5.4 says so and does **not** propose a fix-counting arm. |
 | **C7** | **The release lanes are version-generic on two hosts and version-*strict* on the third.** GitHub (`templates/pipelines/release/github/*.yml`, 4 files) and Bitbucket (4 files) match `v*`. **GitLab** (4 files) matches `/^v\d+\.\d+\.\d+$/` — three numeric components, no pre-release suffix, no `v1.2`. | D6's "existing release lanes fire as-is" holds **only** for an exact `vMAJOR.MINOR.PATCH` tag. §9.3 makes that a hard constraint on `cut-release.sh`: v1 emits exactly that form and **must not** emit `-rc1`-style suffixes, or GitLab projects silently never build. |
 | **C8** | **`--finalize-phase {3\|4}` is a second orphan sitting beside `check-maintenance.sh`.** It is invoked by **nothing** — `grep -rn 'finalize-phase'` across `scripts/`, `templates/`, `.github/`, `init.sh` returns only its own parser/dispatch/comment lines plus `tests/test-phase-finalize.sh` (§14-V8). Its own comment says "CI **may** invoke it on tag push". | It is the natural pre-tag check for `cut-release.sh` — **and Karl did not decide to wire it**, so it is recorded as an adjacency and an open question (Q3), not designed in. |
@@ -139,7 +174,7 @@ a shipped document; *design rationale* = a recorded decision, not a repo fact).
 
 | # | Problem | Evidence (anchor) | Evidence tier |
 |---|---|---|---|
-| 1 | **The lifecycle ends at the tag.** Phases 0–4 are gated end to end; after Phase 4 the framework has artifacts but no loop. `PHASE4_STEPS` (`production_build … handoff_tested`) is the last enumerated sequence in `scripts/process-checklist.sh`, and `_set_current_phase_min 4` is the highest advance any code path performs. There is no phase 5 and no post-4 process key. | `PHASE4_STEPS` and the five `_set_current_phase_min` call sites in `scripts/process-checklist.sh`; `get_steps_for_process`'s five accepted keys. | Verified current state |
+| 1 | **The lifecycle ends at the tag.** Phases 0–4 are gated end to end; after Phase 4 the framework has artifacts but no loop. `PHASE4_STEPS` (`production_build … handoff_tested`) is the last enumerated sequence in `scripts/process-checklist.sh`, and `_set_current_phase_min 4` is the highest advance any code path performs. There is no phase 5 and no post-4 process key. | `PHASE4_STEPS` and the five `_set_current_phase_min` call sites in `scripts/process-checklist.sh` (count re-derived by execution); `get_steps_for_process`'s **six** accepted keys — `phase1_architecture`, `build_loop`, `uat_session`, `phase3_validation`, `phase4_release`, `phase2_init` — enumerated with `invariant_check`'s own awk (§14-V14). None of the six is post-Phase-4. | Verified current state |
 | 2 | **The post-1.0 tools exist but nothing runs them.** `check-maintenance.sh` is shipped and invoked by nothing (C1). `--finalize-phase {3\|4}` is invoked by nothing (C8). Both are the framework's own post-release aggregate checks; both are scripts nobody runs. | §14-V1 and §14-V8. | Verified current state |
 | 3 | **Post-1.0 work has no classification, so it gets one ceremony or none.** `templates/generated/bugs.tmpl` and `templates/generated/features.tmpl` are ledgers with header comments; `docs/builders-guide.md` Step 4.4 is prose. Deciding whether a given change needs a brief, a repro test, a threat-model refresh, or none of it is left to the operator's memory at the moment they are least able to exercise it (a production incident). | The two ledger templates' header comment blocks; builders-guide § Step 4.4 (four cadences, all prose obligations). | Verified current state (doctrine) |
 | 4 | **The maintenance obligations are written as calendar advice, and calendar advice is what the first five phases exist not to rely on.** Step 4.4 opens "Schedule these cadences proactively — create recurring calendar events… Do not rely on memory," then names four cadences that only a manually-invoked script partially checks (C1, C2). | `docs/builders-guide.md` § Step 4.4; `scripts/check-maintenance.sh`'s four thresholds. | Verified current state (doctrine) |
@@ -278,7 +313,25 @@ severability property is gone with no test failing. The lint makes the fusion a 
 by construction). DELTA = the §3.1 inventory. Both sets come from one literal manifest at the top
 of the lint, so adding a module file is a one-line edit and the sets can never disagree.
 
-**Executed lines only.** The scan strips whole-line comments *and* trailing comments before
+**Two match tiers, because literal paths are evadable (R-DT-6).** Clause 2 as written matches
+*literal* delta paths, and bash lets a reference be composed at runtime:
+`source "$LIB/delta-${kind}.sh"` contains no literal delta path and would pass a path-only lint
+while fusing the module exactly as thoroughly. So the scan runs two tiers over CORE files:
+
+| Tier | Pattern | Verdict | Why this severity |
+|---|---|---|---|
+| **T1 — literal path** | any `scripts/lib/delta-*.sh`, `scripts/delta.sh`, `scripts/cut-release.sh`, `delta-state.json`, `delta-policy.json`, `docs/deltas/` | **FAIL** | Unambiguous: a core file names a module file |
+| **T2 — bare `delta-` token** | the string `delta-` on any executed line of a CORE file that T1 did not already catch | **FAIL, with an allowlist** | Catches `"$LIB/delta-${kind}.sh"`, `"delta-"$x`, and the whole variable-composition family, because every such reference still carries the literal prefix |
+
+T2 is deliberately coarse and will occasionally fire on prose-in-a-string (an error message that
+says "delta-state"). That is the right trade: a false positive costs one allowlist row with a
+reason; a false negative costs the severability property silently. **The residual T2 does not
+close is stated at §13-R15** — a reference composed below the prefix boundary
+(`source "$LIB/del""ta-state.sh"`, or a path assembled from a variable holding `delta`) evades
+both tiers, and no grep-based lint can catch it. The severability test (§3.1, WP7) is the
+backstop, because it is behavioural rather than lexical.
+
+**Executed lines only.** Both tiers strip whole-line comments *and* trailing comments before
 matching, at any indent and any whitespace width, with and without a space after `#`. This is not
 a stylistic choice: `scripts/lint-tests-registered.sh` carries the repo's hard-won version of
 exactly this predicate, and CLAUDE.md records that a one-character narrowing of it re-opened the
@@ -564,7 +617,9 @@ Field notes:
 - `hotfix_retros` is an array and outlives `active_delta` deliberately: an open retro must block a
   release cut long after its delta closed (D3).
 - `cadence` holds the last-completed dates the §8.3 checker reads.
-- `closed` is an append-only audit tail; `shipped_in` is written by `cut-release.sh`.
+- `closed` is an append-only audit tail; `shipped_in` is **recorded at cut time via the seam** —
+  `cut-release.sh` asks `process-checklist.sh` to write it and never touches the file itself,
+  which is the single-writer rule below applied to the one place it is easiest to break.
 
 **Single writer (D7), and what it costs.** Only `process-checklist.sh` writes this file — a
 **new, stricter** invariant than the framework's own practice, since `process-state.json` has four
@@ -598,6 +653,23 @@ Framework defaults shown; every key is overridable and every key falls back at r
   "semver": { "feature": "minor", "fix": "patch", "hotfix": "patch", "security-patch": "patch", "breaking": "major" }
 }
 ```
+
+**Two gate-token equivalences the JSON does not make obvious (R-DT-7).** Read against §5.2's
+table, two rows look like the config has dropped a demand. Neither has:
+
+- **`hotfix` has no `close_review` token because `retro_review` carries it.** D3 puts the
+  adversarial review on *every* delta close — the hotfix does not skip it, it defers it by
+  `retro_due_days`. `retro_review` **is** that close review, arriving late and collateralised by
+  the §9.2 release refusal. A separate `close_review` token on the hotfix row would either
+  double-charge the review or, worse, let a hotfix satisfy `close_review` at ship time and make
+  the retro optional — which is precisely the loan going unrepaid.
+- **`touch_trigger` maps to one token because `threat_model_refresh` bundles both halves.** D5's
+  touch demand is a threat-model update **and** a scoped scanner re-run, and §8.1 specifies the
+  scoped subset (the threat-model and semgrep arms of `run-phase3-validation.sh`, inheriting its
+  attest-on-skip contract). The token is one gate satisfied by both, not a gate that forgot the
+  scanners. It is spelled as one because the two are never independently completable — a
+  threat-model update without a re-scan is an assertion, and a re-scan without the update is a
+  finding nobody wrote down.
 
 **Why two SLA tables, and not one.** C4: the two shipped clocks are different grammars pointed at
 different things. `fix_sla` mirrors `templates/project-intake.md`'s own defaults ("SEV-1 24h,
@@ -670,9 +742,39 @@ computes four thresholds:
 
 Three notes the build must not lose:
 
-1. **It is a threshold rewrite, not a new checker.** The script's exit contract (0 current /
-   1 overdue / 2 undeterminable) and its date-parsing portability (`date -j -f … || date -d …`)
-   are already right and stay.
+1. **It is a threshold rewrite, not a new checker — but the exit contract is not what the script
+   says it is, and the design must add the missing arm.** `check-maintenance.sh`'s docblock
+   advertises three exit codes ("0 — all maintenance cadences current / 1 — one or more cadences
+   overdue / **2 — could not determine (missing data)**"). **The script has exactly two `exit`
+   sites: `exit 1` and `exit 0`. There is no `exit 2`** (§14-V13). v1.0 of this document repeated
+   the docblock without executing it — the exact failure class §0.3 exists to catch, corrected
+   here rather than quietly patched.
+
+   **What actually happens to an undeterminable cadence, executed (§14-V13).** Each arm parses a
+   date into `last_epoch` through `date -j -f … || date -d … || echo "0"`, then computes
+   `days_since` only **inside** an `if [ "$last_epoch" -gt 0 ]` guard. So a date neither parser
+   accepts yields `last_epoch=0`, the guard is false, and **the whole arm is skipped in silence** —
+   no print, no `overdue` increment. Run against a fixture whose `CHANGELOG.md` has no git history
+   and whose only `docs/test-results/` file is `2026-13-45_semgrep_pass.txt` (a string both
+   parsers reject on this host, verified), the script prints one `[INFO] … cannot determine age`,
+   prints **nothing at all** for the security arm, and reports **"All maintenance cadences
+   current." at rc=0**.
+
+   **This is fail-OPEN, and the direction matters.** An unreadable signal is currently
+   indistinguishable from a fresh one. A reviewer of this design proposed the opposite
+   mechanism — that an unparseable date falls through into a huge `days_since` and exits 1, a
+   fail-*closed* collapse — and that is **refuted by the `-gt 0` guard and by the run above**.
+   The distinction is load-bearing for D5: a *fail-closed* checker would over-block a release cut
+   (annoying, safe); the *fail-open* one this repo actually ships would let `cut-release.sh` (§9.2)
+   pass a cadence that was never really measured.
+
+   **Design addition (author-proposed).** WP6 adds the advertised `exit 2` for real: any arm whose
+   date is present-but-unparseable, or whose signal file is missing where the project's policy
+   expects one, sets an `undetermined` counter; a non-zero `undetermined` with zero `overdue`
+   exits **2** and prints which cadence could not be read. `cut-release.sh` treats **2 as a
+   refusal**, not a pass — an unmeasurable cadence must not be silently satisfiable. The
+   date-parsing portability (`date -j -f … || date -d …`, GNU-first fallback) is already right and
+   stays untouched.
 2. **The guide must move with it.** `docs/builders-guide.md` § Step 4.4 names four cadences in
    prose and puts the full dependency audit under *Biannually*. Leaving it is the doc/script split
    that C2 measured, one notch worse.
@@ -683,7 +785,8 @@ Three notes the build must not lose:
 **Two enforcement points (D5):**
 
 - **At release cut — refuse if overdue.** `cut-release.sh` runs the checker and refuses on exit 1
-  (§9.2). This is the mechanical half.
+  **and on the new exit 2** (§9.2) — overdue and unmeasurable are both refusals. This is the
+  mechanical half.
 - **At session start — nag.** A new arm reports overdue cadences once. The house contract for
   SessionStart hooks is *silent when nothing is wrong, fail-open, zero-network*: `init.sh` already
   registers `session-version-check.sh`, `session-test-gate-check.sh`,
@@ -861,7 +964,7 @@ in the `tests.yml` unit list.
 | **WP3 — Era invariant + classification.** The `active_delta ⇒ current_phase == 4` refusal at open, the `validate.sh` assertion, `delta-classify.sh`'s three derivations, and the confirm-not-quiz transcript (§4.3) on the `# BL-204-PREFILL` pattern | Open refused at phases 0–3, allowed at 4; risk/level/severity derive from a fixture diff; a raise sticks and a lower is refused (or reason-recorded). **Mutation:** neuter the phase refusal → an open at phase 2 succeeds → RED, **asserted on the exit code, not the printed label** (the `[WARN]` trap) |
 | **WP4 — Per-class gates + the rubric bind.** `gates_required` materialised at open from class + attributes; the close gate reads the brief's done-observable section and refuses an unchecked criterion; attribute re-derivation at close ratchets and appends gates | Each class yields its §5.2 row; `risk: core` adds `brief_review`; `level: evolution` adds `brief`; a delta that grows past a threshold gains the gate at close. **Mutation:** drop the close-time re-derivation → a delta opened `small` and grown to `evolution` closes on the small checklist → RED |
 | **WP5 — Hotfix lane + retro ledger.** Fast lane on the floor, audit row at open, `hotfix_retros[]` with `due_by = shipped_at + retro_due_days`, retro close | A hotfix ships with only floor gates; the retro row is written at **open**, not at close; an open retro survives its delta's close. **Mutation:** suppress the retro-row append → a hotfix ships with no retro obligation → RED |
-| **WP6 — Cadence: wire the orphan (D5).** Thresholds in `check-maintenance.sh` move to `delta-policy.json::cadence` and retune (35→14, 185→95, dependency audit folded); the SessionStart nag arm; `docs/builders-guide.md` § Step 4.4 reconciled; a `DELTA-NNN` row in `identifiers.tmpl` | Overdue at 15 days, current at 13; exit contract 0/1/2 preserved; the hook is silent when current, exits 0 on a forced internal crash, makes no network call. **Mutation:** revert one threshold to 35 → the 15-day fixture passes → RED |
+| **WP6 — Cadence: wire the orphan (D5).** Thresholds in `check-maintenance.sh` move to `delta-policy.json::cadence` and retune (35→14, 185→95, dependency audit folded); the SessionStart nag arm; `docs/builders-guide.md` § Step 4.4 reconciled; a `DELTA-NNN` row in `identifiers.tmpl` | Overdue at 15 days, current at 13. **Exit contract (R-DT-1): the script today exits only 0 or 1 — WP6 ADDS `exit 2`** for present-but-unparseable dates and policy-expected-but-missing signals, so the tests are: an overdue arm → 1; an unparseable-date arm (`2026-13-45_semgrep_pass.txt`) → **2, and no longer the silent rc=0 of §14-V13**; all-current → 0. Hook arm: silent when current, exits 0 on a forced internal crash, makes no network call. **Mutations:** revert one threshold to 35 → the 15-day fixture passes → RED; **remove the new `undetermined` counter → the unparseable fixture reports "All maintenance cadences current" at rc=0 → RED** (this is the mutation that pins the fail-open repair, and it must assert the *exit code*, not the printed text) |
 | **WP7 — `cut-release.sh` + severability test (D6).** The three refusals in §9.2's order, semver computation, changelog promotion, `vMAJOR.MINOR.PATCH` tag (C7), major ⇒ full `run-phase3-validation.sh`. Plus the **severability test**: delete every §3.1 file and revert the seam → the full suite passes | Each refusal fires alone and in combination and **writes nothing**; a feature+fix set yields minor; fixes only yield patch; a breaking marker yields major **and** triggers revalidation; the tag matches `/^v\d+\.\d+\.\d+$/`. **Mutations:** suppress the open-retro refusal → a release cuts with a retro outstanding → RED; emit `v1.2.0-rc1` → the tag-format test goes RED (the C7 defence); delete a delta-module file → the severability test still passes, but **removing the seam revert** → RED |
 | **WP8 — Intake paths + brief template (D4).** `delta-brief.tmpl`; `delta.sh --open` (guided); the `resume.sh` fourth branch and the session greeting (§10.5); the § 6 candidate read (§10.4) | All three paths produce identical state; the `resume.sh` branch fires only at phase 4 and only in the two §10.5 sub-cases; the manifesto is never modified by the bridge. **Mutation:** make the bridge write to `PRODUCT_MANIFESTO.md` → RED |
 | **WP9 — Docs.** `docs/INDEX.md` row (this branch), builders-guide § Step 4.4 reconciliation (with WP6), a delta-track section in the generated `CLAUDE.md`, `docs/user-guide.md` | `lint-doc-anchors.sh --strict-refs`, `lint-backlog-references.sh`, and `lint-bl-markers.sh` clean; no new dead refs |
@@ -935,38 +1038,55 @@ double-mutation verification.
 6. **`delta-policy.json` drift.** NOTICE-ONLY (§3.2) means a project can sit on stale defaults
    indefinitely. The upgrade notice names new keys; nothing enforces adoption. This is the
    deliberate cost of the mechanism/policy split, not an oversight.
+7. **The bug gate's stale phase wording (C5).** `scripts/test-gate.sh::check_phase_gate` fires at
+   `current_phase ≥ 3` and therefore blocks in the delta era, but every string it prints still
+   says "before Phase 3" — `[FAIL] SEV-1 bugs open: N (BLOCKED — must resolve before Phase 3)`,
+   and `check-phase-gate.sh`'s own summary line likewise. At phase 4 that instruction is
+   unfollowable: there is no Phase 3 to be before. The **behaviour** is right and the delta track
+   depends on it (§5.4); only the wording is wrong. Left alone deliberately — retuning gate strings
+   is a product-code edit, this is a docs-only work package, and the correct owner is a backlog
+   entry rather than a design document. Named here so the next reader does not mistake the stale
+   text for stale behaviour.
 
 **Cannot be known before real use:**
 
-7. **Whether 14 days is the right routine cadence.** D5 says "tightened… for now" in as many
+8. **Whether 14 days is the right routine cadence.** D5 says "tightened… for now" in as many
    words. It is a judgment about how fast a solo-maintained project rots, and the first project to
    miss it three times running is the evidence. The threshold is policy (§7.2) precisely so
    changing it costs nothing.
-8. **Whether one question is genuinely enough.** §4.3's transcript asks one thing and confirms
+9. **Whether one question is genuinely enough.** §4.3's transcript asks one thing and confirms
    four. If the class proposal is wrong often enough, the confirm step becomes the quiz D2
    rejected — and the fix would be better phrase→class heuristics, not a second question.
-9. **Whether the hotfix loan gets repaid.** The 3-day retro is collateralised by the release
-   refusal (§9.2). If a project simply stops cutting releases, the debt sits uncollected. The
-   session nag is the only other pressure, and it is advisory.
-10. **Whether the brief-as-rubric bind holds up.** D3's strongest idea is untested here. If briefs
+10. **Whether the hotfix loan gets repaid.** The 3-day retro is collateralised by the release
+    refusal (§9.2). If a project simply stops cutting releases, the debt sits uncollected. The
+    session nag is the only other pressure, and it is advisory.
+11. **Whether the brief-as-rubric bind holds up.** D3's strongest idea is untested here. If briefs
     are written vaguely, the close review inherits the vagueness and the mechanical part of §5.3
     becomes ceremonial.
 
 **Assumptions that would falsify parts of this design if wrong:**
 
-11. **That `check_commit_message` stays the phase-≥2 surface.** §10.3's entire "no new gate needed
+12. **That `check_commit_message` stays the phase-≥2 surface.** §10.3's entire "no new gate needed
     for the feature class" argument rests on C3. WP0 pins it; if a future change makes that
     predicate phase-2-only, the feature class silently loses its Build Loop requirement in the
     delta era. **That is the single most load-bearing verified fact in this document.**
-12. **That every generated project's CI runs `check-phase-gate.sh`.** C5's "SEV enforcement
+13. **That every generated project's CI runs `check-phase-gate.sh`.** C5's "SEV enforcement
     carries into the delta era" depends on it. Measured today: **all ten** GitHub CI templates and
     the GitLab set. A project that hand-edited its pipeline has no SEV block at phase 4 and
     nothing tells it so.
-13. **That `check-maintenance.sh`'s signals mean what their filenames say.** Two of its four
+14. **That `check-maintenance.sh`'s signals mean what their filenames say.** Two of its four
     thresholds read **dates parsed out of filenames** in `docs/test-results/` (`*snyk*`, `*dep*`,
     `*audit*`, `*semgrep*`, `*sast*`). A file named with a date and containing nothing satisfies
     the cadence completely. Tightening 185→95 makes the *clock* stricter without making the
-    *evidence* stronger — recorded here rather than sold as a security improvement.
+    *evidence* stronger — recorded here rather than sold as a security improvement. **§14-V13
+    shows the sharper edge of the same assumption:** a filename whose date no parser accepts is
+    currently skipped in silence and reported as current, which is why WP6 adds `exit 2` (§8.3).
+15. **That a grep-based boundary lint can see every core→delta reference (R-DT-6).** §3.3's T2
+    tier catches the variable-composition family because such references still carry the literal
+    `delta-` prefix. A reference composed *below* that boundary — a path assembled from a variable
+    holding `delta`, or a split string literal — evades both tiers, and no lexical lint can close
+    that. The backstop is behavioural, not lexical: WP7's severability test (delete the module,
+    revert the seam, suite must pass) fails on a fused module however the fusion was spelled.
 
 ---
 
@@ -989,16 +1109,21 @@ double-mutation verification.
   block, and the phase-4 bug-gate arm). Five printed claims changed as a result. The claims most
   worth attacking are the ones that came *from* execution and could still be
   environment-specific: §14-V5's CI reach depends on the scaffolded pipeline being unmodified
-  (§13-R12).
+  (§13-R13). **v1.1 note:** review-r1 refuted one printed claim that had *not* been executed —
+  `check-maintenance.sh`'s exit contract, copied from its docblock (R-DT-1). One docblock-trust
+  defect survived a document whose §14 logs twelve runs; the corrected claim at §8.3 and §14-V13
+  is now executed, and so is the reviewer's own proposed replacement mechanism, which the run
+  refuted in turn.
 - **Is enforcement honestly tiered?** Yes. §5.3 marks the downstream reviewer **advisory** and
   says generated projects receive a prompt library, not an agent. §5.4 refuses the queue-interrupt
-  claim and names what actually exists. §10.5 marks the greeting advisory. §13-R13 refuses to sell
-  a threshold tightening as an evidence improvement.
+  claim and names what actually exists. §10.5 marks the greeting advisory. §13-R14 refuses to sell
+  a threshold tightening as an evidence improvement, and §13-R15 refuses to claim the boundary
+  lint is complete.
 - **Unresolved placeholders?** None. Every underdetermined choice is either a decision table with
   one recommendation and stated alternatives (policy-file sync semantics §3.2; refusal order §9.2;
   bridge mechanics §10.4) or is named in §13 as an explicit deferral.
 - **Biggest attack surface for the reviewer.** (a) §10.3 — the whole "no new gate for the feature
-  class" argument rests on one executed fact, and §13-R11 says so. (b) §4.2 — lines-changed is a
+  class" argument rests on one executed fact, and §13-R12 says so. (b) §4.2 — lines-changed is a
   weak size proxy and the design admits it rather than defending it. (c) §9.1 — no semver override
   is a decision, and a reviewer may reasonably argue it is the wrong one; Q1 asks.
 
@@ -1018,7 +1143,7 @@ double-mutation verification.
 3. **`--finalize-phase 4` (C8).** It is invoked by nothing, its own comment says CI "may" invoke it
    on tag push, and `cut-release.sh` is now exactly that caller. Karl did not decide to wire it, so
    this design does not. Should it be WP7 scope, or its own backlog entry?
-4. **The 14-day routine cadence against a filename-derived signal (§13-R13).** Two of the four
+4. **The 14-day routine cadence against a filename-derived signal (§13-R14).** Two of the four
    thresholds read dates out of filenames in `docs/test-results/`. Tightening the clock does not
    strengthen the evidence. Is the right v1 move to tighten the clock as decided and log the
    evidence weakness, or to tighten the clock *and* add a minimum-content check to the two
@@ -1055,3 +1180,10 @@ outside the repo. Recipes over line numbers, per the house citation rule.
 | **V10** | The floor arms and the TDD trigger | read `# BL-163-BLOCKED-LEDGER` in `scripts/lib/hook-templates.sh`; read `_tdd_triggers` in `scripts/pre-commit-gate.sh` | Blocking arms named gitleaks / semgrep / project-tests; `_tdd_triggers` matches `^(feat\|fix\|refactor)(\([^)]*\))?!?:` with **no** `current_phase` read |
 | **V11** | Nothing of the delta track exists | `grep -rl 'delta-state\|delta_state\|cut-release\|docs/deltas' .` (minus `.git/`) · `ls docs/deltas scripts/cut-release.sh` | grep: **no matches**. `ls`: "No such file or directory" for both |
 | **V12** | `init.sh` ships no `.claude/agents/`; it does ship the review prompt library | `grep -c 'claude/agents' init.sh` · `grep -n 'evaluation-prompts' init.sh` · `ls evaluation-prompts/Projects/` | **0**; a `cp -r evaluation-prompts/Projects/*` arm; `bases/ compose.sh modules/ README.md run-reviews.sh` |
+
+**Added at v1.1 (review-r1):**
+
+| # | Claim | Command | Observed |
+|---|---|---|---|
+| **V13** | `check-maintenance.sh` has **no `exit 2`**, and an undeterminable cadence is silently skipped and reported as **current** (fail-open) — refuting both v1.0's docblock-trusted "0/1/2" claim **and** the reviewer's proposed fail-closed mechanism | `grep -n '^\s*exit ' scripts/check-maintenance.sh` · `date -j -f "%Y-%m-%d" "2026-13-45" +%s` · `date -d "2026-13-45" +%s` · fixture: git repo with an **untracked** `CHANGELOG.md` and `docs/test-results/2026-13-45_semgrep_pass.txt`, then `bash scripts/check-maintenance.sh` | Exit sites: **`exit 1`, `exit 0`** — two, no `exit 2`. Both date parsers reject `2026-13-45` (`Failed conversion…` / `illegal option -- d`), so `last_epoch=0` and the `[ "$last_epoch" -gt 0 ]` guard skips the arm. Script output: `[INFO] CHANGELOG.md has no git history — cannot determine age`, **nothing at all for the security arm**, `All maintenance cadences current.` — **rc=0** |
+| **V14** | `get_steps_for_process` accepts **six** keys, not five | `awk '/^get_steps_for_process\(\) \{/,/^\}/' scripts/process-checklist.sh \| grep -cE '^[[:space:]]+[a-z][a-z0-9_]+\)'` (the extractor `invariant_check` itself uses) · same pipe without `-c` · `grep -c '^\s*_set_current_phase_min [0-9]' scripts/process-checklist.sh` | **6** — `phase1_architecture`, `build_loop`, `uat_session`, `phase3_validation`, `phase4_release`, `phase2_init`. The companion `_set_current_phase_min` call-site count re-derived as **5** (unchanged) |
