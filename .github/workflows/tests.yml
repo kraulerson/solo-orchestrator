@@ -458,6 +458,7 @@ jobs:
             tests/test-validate-phase-2-3-gate.sh
             tests/test-validate-phase-state-gates.sh
             tests/test-walk-phase-lifecycle.sh
+            tests/test-brownfield-wp2-scout-sections.sh
             tests/host-drivers/error-translate.test.sh
           )
 
