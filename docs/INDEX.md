@@ -80,6 +80,16 @@ read-only scanner, the completed-vs-in-flight scenario chooser, the certificatio
 grandfathering, full-history secret scanning with redacted findings, and the archive-and-disclose
 collision policy. v1.1 post-review, r1 folded; nothing is built).
 
+## Module contract (`docs/module-contract.md`)
+
+[module-contract.md](module-contract.md) — the normative **M1–M5 severable-module
+contract**, transcribed from the brownfield design's §3.3 and binding on every
+severable module in the repo (the delta track, Scout, the adoption driver). One
+rule per section with its enforcement pointer: the two sibling boundary lints
+(`scripts/lint-delta-boundary.sh`, `scripts/lint-module-dependencies.sh`), the
+marker lint, and M5's zero-dependency arm. Read it before adding a module file
+or touching either lint's manifest.
+
 ## Reports (`Reports/`)
 
 Dated, point-in-time artifacts — evidence, not living docs. Naming convention is
