@@ -3345,7 +3345,7 @@ else
 fi
 
 # ── T-bl185-doc-mention: PROSE naming the directive is not a suppression ────
-# Walk 2026-08-02 (walkrepo-1785713402, ISSUE-018): committing a Markdown
+# Walk of 2026-08-02, ISSUE-018: committing a Markdown
 # report whose sentences DISCUSS the directive produced a
 # `type: "sast_suppression"` row naming that .md — the security-review ledger
 # gained a false suppression event for a file that suppresses nothing, and
@@ -3370,23 +3370,39 @@ The pre-commit gate records every `nosemgrep` directive as an audited
 observation. A `// nosem` comment suppresses the following line, so the
 report has to name the directive it is reporting on.
 MD
+    # UPPERCASE and .mdx siblings make the extension CASE-FOLD load-bearing:
+    # a reviewer mutant that deleted the fold survived this case when the
+    # fixture only carried lowercase `.md` (R-GATEUX-3b, 2026-08-02 review).
+    # The uppercase file is NOT named README.MD, deliberately: mk_repo seeds a
+    # tracked `README.md`, and on a case-INSENSITIVE filesystem (macOS APFS)
+    # the two are ONE path — git stages the tracked lowercase name, the fold is
+    # never exercised, and the mutant survives again. Measured, not assumed.
+    printf '# Readme\nWe log every nosemgrep directive we see.\n' > "$DMD/WALKNOTES.MD"
+    printf '# Docs\nA `nosem` comment is recorded, never silently honoured.\n' > "$DMD/GUIDE.mdx"
     printf 'export function render(pane, userText) {\n  // nosemgrep\n  pane.innerHTML = userText;\n}\n' > "$DMD/app.ts"
-    ( cd "$DMD" && git add -- NOTES.md app.ts ) >/dev/null 2>&1
+    ( cd "$DMD" && git add -- NOTES.md WALKNOTES.MD GUIDE.mdx app.ts ) >/dev/null 2>&1
     if ( cd "$DMD" && git commit -m "docs: walk report plus renderer" ) >"$TOPTMP/dm185.log" 2>&1; then DM_V=COMMITTED; else DM_V=REFUSED; fi
     DM_ROW_FILES=""
     if command -v jq >/dev/null 2>&1 && [ -f "$DMD/.claude/bypass-audit.json" ]; then
       DM_ROW_FILES=$(jq -r '[.[] | select(.type == "sast_suppression") | .details.files] | join(",")' "$DMD/.claude/bypass-audit.json" 2>/dev/null) || DM_ROW_FILES=""
     fi
+    DM_DOC_LEAK=""
+    for DM_DOC in NOTES.md WALKNOTES.MD GUIDE.mdx; do
+      if printf '%s' "$DM_ROW_FILES" | grep -qF "$DM_DOC" \
+         || grep -F "BL-185:" "$TOPTMP/dm185.log" 2>/dev/null | grep -qF "$DM_DOC"; then
+        DM_DOC_LEAK="$DM_DOC_LEAK $DM_DOC"
+      fi
+    done
     if [ "$DM_V" != "COMMITTED" ]; then
       fail_ "T-bl185-doc-mention" "the commit was REFUSED — allow-but-log, never block: $(tail -6 "$TOPTMP/dm185.log" | tr '\n' '|')"
-    elif printf '%s' "$DM_ROW_FILES" | grep -qF 'NOTES.md' || grep -E 'BL-185:.*NOTES\.md' "$TOPTMP/dm185.log" >/dev/null 2>&1; then
-      fail_ "T-bl185-doc-mention" "a .md that only MENTIONS the directive was recorded as carrying a suppression (ledger files='$DM_ROW_FILES') — semgrep cannot suppress a line it never scans; documenting the framework must not manufacture bypass records"
+    elif [ -n "$DM_DOC_LEAK" ]; then
+      fail_ "T-bl185-doc-mention" "prose file(s) that only MENTION the directive were recorded as carrying a suppression:$DM_DOC_LEAK (ledger files='$DM_ROW_FILES') — semgrep cannot suppress a line it never scans; documenting the framework must not manufacture bypass records. An UPPERCASE or .mdx leak means the extension case-fold/list is not doing its job"
     elif ! printf '%s' "$DM_ROW_FILES" | grep -qF 'app.ts'; then
       fail_ "T-bl185-doc-mention" "the REAL suppression in app.ts stopped being recorded (ledger files='$DM_ROW_FILES') — the scoping went too far: $(tail -8 "$TOPTMP/dm185.log" | tr '\n' '|')"
     elif ! grep -qF 'in: app.ts' "$TOPTMP/dm185.log"; then
       fail_ "T-bl185-doc-mention" "the receipt no longer NAMES the real suppression: $(tail -8 "$TOPTMP/dm185.log" | tr '\n' '|')"
     else
-      pass "T-bl185-doc-mention: a staged .md naming the directive produces NO row and is not named; the .ts in the same commit still forfeits and rows"
+      pass "T-bl185-doc-mention: staged .md / .MD / .mdx naming the directive produce NO row and are not named; the .ts in the same commit still forfeits and rows"
     fi
     rm -rf "$DMD"
   fi

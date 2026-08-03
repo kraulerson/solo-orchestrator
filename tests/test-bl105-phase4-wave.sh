@@ -286,7 +286,7 @@ fi
 
 # ═══════════════════════════════════════════════════════════════════════════
 # WALK-ISSUE-017 — P4-001 monitoring evidence: a DOCUMENTED shape, not a
-# guessed one. Walk 2026-08-02 (walkrepo-1785713402, ISSUE-017, Major): a
+# guessed one. Walk of 2026-08-02, ISSUE-017 (Major): a
 # zero-telemetry static app (no server, no Sentry, CSP connect-src 'none')
 # had REAL monitoring (GitHub Actions deploy-failure alerts) and a REAL
 # error->alert->arrived cycle, and the free-text detector rejected the honest
