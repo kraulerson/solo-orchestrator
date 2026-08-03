@@ -281,12 +281,12 @@ Set it at two scopes:
 
 | Scope | How | Applies to |
 |---|---|---|
-| **Session** | `/effort` in an interactive session, `--effort` on the CLI, or the effort setting in `settings.json` | Every turn in that session until changed |
+| **Session** | `/effort` in an interactive session, `--effort` on the CLI, or `effortLevel` in `settings.json` — note a settings file cannot set `max` | Every turn in that session until changed |
 | **Subagent / skill** | an `effort:` field in the agent's or skill's YAML frontmatter | Only while that subagent or skill is active — it overrides the session level, but an environment-level effort setting still takes precedence over frontmatter |
 
 **Anthropic's recommended defaults, mapped onto this framework:**
 
-- **`high` — the default for most work.** Assume this unless a step argues otherwise. It is already the default on every model that supports effort, so most of the time the right action is to leave it alone.
+- **`high` — the default for most work.** Assume this unless a step argues otherwise. It is already the default on every current model that supports effort except Opus 4.7, which defaults to `xhigh` — so most of the time the right action is to leave it alone.
 - **`xhigh` — capability-sensitive work.** Adversarial review, security analysis and threat modeling (Step 1.3, Step 3.2), architecture selection (Step 1.2), and any gate where a missed defect is expensive. The framework's own `pr-reviewer` agent pins `effort: xhigh` in frontmatter for exactly this reason.
 - **`low` / `medium` — routine steps.** Mechanical documentation updates, changelog entries, formatting passes, and other work where the answer is not in doubt and latency and cost dominate.
 - **`max` — reach for it deliberately, not by default.** Anthropic documents it as prone to diminishing returns and overthinking, with the explicit advice to "test before adopting broadly." Treat a move to `max` as an experiment that owes you a measured comparison, not a free upgrade.
