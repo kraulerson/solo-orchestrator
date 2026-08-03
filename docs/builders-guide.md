@@ -1026,7 +1026,14 @@ This is enforced by `init.sh` via the selected host driver and verified by `scri
 scripts/check-gate.sh --setup-ci-token
 ```
 
-It explains what the token is for, walks you through a **least-privilege fine-grained PAT** (Repository access: this repo only; Repository permissions → **Administration: Read-only** — that one permission is the whole requirement, no write anywhere), **verifies the token can actually read protection before storing anything** (a stored-but-powerless token would turn today's honest WARN into a hard FAIL), stores it as the Actions secret `SOIF_PROTECTION_TOKEN` with the value on stdin rather than argv, and confirms your workflow reads it. The generated `ci.yml` already maps it into the phase-gate step (`GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}`), so the next push enforces. An unset secret evaluates to the empty string, which the gate reads as "no credential" — exactly today's warning.
+It explains what the token is for, walks you through a **least-privilege fine-grained PAT** (Repository access: this repo only; Repository permissions → **Administration: Read-only** — that one permission is the whole requirement, no write anywhere), **verifies the token can actually read protection before storing anything** (a stored-but-powerless token would turn today's honest WARN into a hard FAIL), stores it as the Actions secret `SOIF_PROTECTION_TOKEN` with the value on stdin rather than argv, and then checks your workflow against **both** conditions that enforcement depends on. An unset secret evaluates to the empty string, which the gate reads as "no credential" — exactly today's warning.
+
+Enforcement needs two things, and the command reports on each rather than assuming them:
+
+1. **The workflow maps the secret** into the phase-gate step (`GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}`). The generated `ci.yml` does.
+2. **The gate's exit code decides that step.** Until 2026-08-02, seven of the ten generated GitHub workflows ran the gate as `bash scripts/check-phase-gate.sh 2>/dev/null || echo "…skipping"`, which throws the verdict away — the gate could print `[FAIL]` and exit 1 while the step graded green (and the "not found" message was a lie: the script *was* found, its verdict failed). All ten now use the strict shape. **If you scaffolded before that date, `--setup-ci-token` will detect the swallowing `run:` line and print the replacement** — a token cannot enforce anything through a discarded exit code.
+
+When both hold, the next push enforces.
 
 Non-interactive: `SOIF_PROTECTION_TOKEN=<token> scripts/check-gate.sh --setup-ci-token`. GitLab and Bitbucket need **both** a token variable **and** the host CLI installed in the governance job (`glab` / `curl`); the same command prints those steps for those hosts. Local runs are unaffected throughout — the gate has always blocked on the dev workstation and still does.
 

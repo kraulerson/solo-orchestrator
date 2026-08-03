@@ -138,8 +138,12 @@ jobs:
         # The wiring is LIVE below — no editing needed. An unset secret
         # evaluates to the empty string, which the gate reads as "no
         # credential" (that is today's warning); once the secret exists the
-        # backstop enforces on the very next push. A warning nobody clears is
-        # a check nobody reads.
+        # backstop enforces on the very next push. That claim holds because
+        # the `run:` below lets the gate's EXIT CODE decide this step — do not
+        # "soften" it with `|| echo` / `|| true`: that discards the verdict, so
+        # the gate can print [FAIL] and exit 1 while the step still grades
+        # GREEN, and no token can enforce anything through it.
+        # A warning nobody clears is a check nobody reads.
         if: hashFiles('.claude/phase-state.json') != ''
         env:
           # WALK-ISSUE-006 wiring: set by `scripts/check-gate.sh --setup-ci-token`.
@@ -147,7 +151,12 @@ jobs:
           # gate enforces. secrets.GITHUB_TOKEN would NOT work here: it has no
           # `administration` permission and cannot read branch protection.
           GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
-        run: bash scripts/check-phase-gate.sh 2>/dev/null || echo "Phase gate check script not found — skipping"
+        run: |
+          if [ ! -f scripts/check-phase-gate.sh ]; then
+            echo "::error::Phase gate check script missing. Framework integrity compromised."
+            exit 1
+          fi
+          bash scripts/check-phase-gate.sh
 
       - name: Governance - Changelog check
         run: bash scripts/check-changelog.sh 2>/dev/null || true

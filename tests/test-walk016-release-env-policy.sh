@@ -189,25 +189,90 @@ else
   fail_ "T8-tag-pattern-override" "rc=$rc — the pattern must flow into both the match and the remediation: $out"
 fi
 
+# ── T9 (adversarial review R-3): the POLICY is a glob, not a literal ───────
+# Matching by string equality false-failed a correctly-configured repo: a `v*`
+# policy plainly admits a v1.0.0 release, but "v*" != "v1.0.0". Both directions
+# asserted, because a glob match that is too eager is just as wrong.
+echo "=== T9a-policy-glob-admits-concrete-tag ==="
+P="$TOPTMP/p9a"; mk_proj "$P" github "$ENV_CUSTOM" "$POL_WITH_TAG"
+out=$(run_cmd "$P" "$SCRIPT" --tag-pattern 'v1.0.0'); rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q "admits tag deployments"; then
+  pass "T9a-policy-glob-admits-concrete-tag (an existing v* policy satisfies a v1.0.0 release)"
+else
+  fail_ "T9a-policy-glob-admits-concrete-tag" "rc=$rc — literal equality false-fails a correctly-configured repo: $out"
+fi
+
+echo "=== T9b-narrow-policy-does-not-satisfy-class ==="
+POL_SINGLE_TAG='{"total_count":1,"branch_policies":[{"id":2,"name":"v1.0.0","type":"tag"}]}'
+P="$TOPTMP/p9b"; mk_proj "$P" github "$ENV_CUSTOM" "$POL_SINGLE_TAG"
+out=$(run_cmd "$P" "$SCRIPT"); rc=$?
+if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q "NO tag deployment policy"; then
+  pass "T9b-narrow-policy-does-not-satisfy-class (a single-tag policy does not admit all of v*)"
+else
+  fail_ "T9b-narrow-policy-does-not-satisfy-class" "rc=$rc — the glob must not match in this direction: $out"
+fi
+
+echo "=== T9c-wildcard-policy-admits-everything ==="
+POL_WILDCARD='{"total_count":1,"branch_policies":[{"id":3,"name":"*","type":"tag"}]}'
+P="$TOPTMP/p9c"; mk_proj "$P" github "$ENV_CUSTOM" "$POL_WILDCARD"
+out=$(run_cmd "$P" "$SCRIPT" --tag-pattern 'anything-goes'); rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q "admits tag deployments"; then
+  pass "T9c-wildcard-policy-admits-everything"
+else
+  fail_ "T9c-wildcard-policy-admits-everything" "rc=$rc: $out"
+fi
+
+echo "=== T9d-branch-typed-policy-never-counts ==="
+# A BRANCH policy named v* must not be read as admitting tags — the type field
+# is load-bearing, and the glob widening must not have loosened it.
+POL_BRANCH_VSTAR='{"total_count":1,"branch_policies":[{"id":4,"name":"v*","type":"branch"}]}'
+P="$TOPTMP/p9d"; mk_proj "$P" github "$ENV_CUSTOM" "$POL_BRANCH_VSTAR"
+out=$(run_cmd "$P" "$SCRIPT"); rc=$?
+if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q "NO tag deployment policy"; then
+  pass "T9d-branch-typed-policy-never-counts (type=branch is not type=tag)"
+else
+  fail_ "T9d-branch-typed-policy-never-counts" "rc=$rc — the glob widening must not have dropped the type filter: $out"
+fi
+
+# ── T10 (adversarial review R-4): protected-branches + --fix does PUT then POST
+# Previously the PUT arm had no coverage at all — the one call that rewrites an
+# environment's policy shape was untested. Order matters: the POST is invalid
+# until the PUT has switched the environment to custom policies.
+echo "=== T10-protected-fix-put-then-post ==="
+P="$TOPTMP/p10"; mk_proj "$P" github "$ENV_PROTECTED" "$POL_MAIN_ONLY"
+out=$(run_cmd "$P" "$SCRIPT" --fix); rc=$?
+put_line=$(grep -n -- '-X PUT' "$P/stub/gh.log" | head -1 | cut -d: -f1)
+post_line=$(grep -n -- '-X POST' "$P/stub/gh.log" | head -1 | cut -d: -f1)
+if [ "$rc" -eq 0 ] \
+   && [ -n "$put_line" ] && [ -n "$post_line" ] \
+   && [ "$put_line" -lt "$post_line" ] \
+   && grep -q -- '-X PUT repos/example/walk016/environments/github-pages' "$P/stub/gh.log" \
+   && grep -q 'deployment-branch-policies' "$P/stub/gh.log"; then
+  pass "T10-protected-fix-put-then-post (switch to custom policies, THEN admit the tag)"
+else
+  fail_ "T10-protected-fix-put-then-post" "rc=$rc put=$put_line post=$post_line log=[$(tr '\n' ';' < "$P/stub/gh.log")] out=$out"
+fi
+
 # ── M1: mutant — blind the tag-policy detection ────────────────────────────
 # If the `.type=="tag"` select never matches, T6 (an already-correct repo) is
 # re-reported as broken. Asserted POSITIVELY on a lib-complete copy.
 echo "=== M1-mutant-blind-tag-detection ==="
 MUT="$TOPTMP/mut/scripts"
 mkdir -p "$MUT/lib"
-sed 's/select(\.type=="tag" and/select(false and/' "$SCRIPT" > "$MUT/check-gate.sh"
+# Neuter the policy-match predicate (the glob comparison R-3 introduced).
+sed 's|^\( *\)if \[ "\$_pol" = "\$tag_pattern" \] .*|\1if false; then|' "$SCRIPT" > "$MUT/check-gate.sh"
 chmod +x "$MUT/check-gate.sh"
 cp "$REPO_ROOT/scripts/lib/"*.sh "$MUT/lib/"
-if grep -q 'select(false and' "$MUT/check-gate.sh"; then
+if grep -q '^ *if false; then$' "$MUT/check-gate.sh"; then
   P="$TOPTMP/pm1"; mk_proj "$P" github "$ENV_CUSTOM" "$POL_WITH_TAG"
   out=$(run_cmd "$P" "$MUT/check-gate.sh"); rc=$?
   if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q "NO tag deployment policy"; then
-    pass "M1-mutant-blind-tag-detection (blinded, the mutant re-reports an already-fixed repo — the select carries T6)"
+    pass "M1-mutant-blind-tag-detection (blinded, the mutant re-reports an already-fixed repo — the match carries T6)"
   else
     fail_ "M1-mutant-blind-tag-detection" "rc=$rc — the mutant behaved like the real thing; T6 proves nothing: $out"
   fi
 else
-  fail_ "M1-mutant-blind-tag-detection" "sed did not rewrite the select — mutant is vacuous"
+  fail_ "M1-mutant-blind-tag-detection" "sed did not rewrite the match predicate — mutant is vacuous"
 fi
 
 echo ""

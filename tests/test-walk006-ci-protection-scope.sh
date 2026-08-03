@@ -353,7 +353,7 @@ CHECK_GATE="$REPO_ROOT/scripts/check-gate.sh"
 GOOD_TOKEN="ghp_walk006_good"
 BAD_TOKEN="ghp_walk006_bad"
 
-# mk_tok <dir> <host> <auth: ok|unauth> [ci.yml-wires-secret: yes|no]
+# mk_tok <dir> <host> <auth: ok|unauth> [ci.yml shape: yes|no|swallow]
 mk_tok() {
   local d="$1" host="$2" auth="$3" wired="${4:-yes}"
   rm -rf "$d"
@@ -369,13 +369,19 @@ mk_tok() {
   printf '%s' "$GOOD_TOKEN" > "$d/stub/goodtoken"
   [ "$auth" = unauth ] && : > "$d/stub/unauth"
   : > "$d/stub/gh.log"
-  if [ "$wired" = yes ]; then
-    printf 'jobs:\n  test:\n    steps:\n      - name: Governance - Phase gate check\n        env:\n          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}\n' \
-      > "$d/.github/workflows/ci.yml"
-  else
-    printf 'jobs:\n  test:\n    steps:\n      - name: Governance - Phase gate check\n' \
-      > "$d/.github/workflows/ci.yml"
-  fi
+  case "$wired" in
+    yes)
+      printf 'jobs:\n  test:\n    steps:\n      - name: Governance - Phase gate check\n        env:\n          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}\n        run: |\n          bash scripts/check-phase-gate.sh\n' \
+        > "$d/.github/workflows/ci.yml" ;;
+    swallow)
+      # The pre-R-1 shape a project scaffolded before this fix still carries:
+      # the secret IS mapped, but the gate's exit code is thrown away.
+      printf 'jobs:\n  test:\n    steps:\n      - name: Governance - Phase gate check\n        env:\n          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}\n        run: bash scripts/check-phase-gate.sh 2>/dev/null || echo "Phase gate check script not found"\n' \
+        > "$d/.github/workflows/ci.yml" ;;
+    *)
+      printf 'jobs:\n  test:\n    steps:\n      - name: Governance - Phase gate check\n' \
+        > "$d/.github/workflows/ci.yml" ;;
+  esac
   cat > "$d/bin/gh" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$GH_STUB_DIR/gh.log"
@@ -451,7 +457,7 @@ printf '%s' "$out" | grep -q "Administration: \*\*Read-only\*\*" || ok=0
 printf '%s' "$out" | grep -q "Token verified" || ok=0
 printf '%s' "$log" | grep -q "^secret set SOIF_PROTECTION_TOKEN --repo example/walk006$" || ok=0
 printf '%s' "$log" | grep -q "^STDIN:$GOOD_TOKEN$" || ok=0
-printf '%s' "$out" | grep -q "already maps SOIF_PROTECTION_TOKEN" || ok=0
+printf '%s' "$out" | grep -q "maps SOIF_PROTECTION_TOKEN into the phase-gate step" || ok=0
 if [ "$ok" -eq 1 ]; then
   pass "S3-happy-path (least-privilege explained, token probed, secret stored, wiring confirmed)"
 else
@@ -505,6 +511,35 @@ if [ "$rc" -eq 0 ] \
   pass "S6-unwired-workflow-warned (names the gap and prints the exact lines to add)"
 else
   fail_ "S6-unwired-workflow-warned" "rc=$rc: $out"
+fi
+
+# ── S6c (adversarial review R-1): a mapped secret + a SWALLOWED exit code is
+# not enforcement, and this command must not claim it is. The reviewer's probe
+# showed the gate printing [FAIL] and exiting 1 while the step graded GREEN, so
+# on a project carrying the pre-R-1 `|| echo` shape the walkthrough must say the
+# token cannot enforce anything yet — and print the replacement run: block.
+echo "=== S6c-swallowed-exit-code-warned ==="
+P="$TOPTMP/s6c"; mk_tok "$P" github ok swallow
+out=$(run_tok "$P" "$GOOD_TOKEN"); rc=$?
+if [ "$rc" -eq 0 ] \
+   && printf '%s' "$out" | grep -q "DISCARDS the gate's exit code" \
+   && printf '%s' "$out" | grep -q 'bash scripts/check-phase-gate.sh' \
+   && ! printf '%s' "$out" | grep -q "The next push enforces the check"; then
+  pass "S6c-swallowed-exit-code-warned (never claims enforcement over a swallowed verdict)"
+else
+  fail_ "S6c-swallowed-exit-code-warned" "rc=$rc: $out"
+fi
+
+# ── S6d: the enforcement claim is made ONLY when both conditions hold ─────
+echo "=== S6d-enforcement-claim-is-earned ==="
+P="$TOPTMP/s6d"; mk_tok "$P" github ok yes
+out=$(run_tok "$P" "$GOOD_TOKEN"); rc=$?
+if [ "$rc" -eq 0 ] \
+   && printf '%s' "$out" | grep -q "lets the gate's exit code decide it" \
+   && printf '%s' "$out" | grep -q "The next push enforces the check"; then
+  pass "S6d-enforcement-claim-is-earned (mapped AND exit-code-honouring -> the claim is true)"
+else
+  fail_ "S6d-enforcement-claim-is-earned" "rc=$rc: $out"
 fi
 
 # ── S6b: --token-env rejects a non-identifier (the eval IS an injection sink) ─

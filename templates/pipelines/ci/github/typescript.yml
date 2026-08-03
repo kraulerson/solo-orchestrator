@@ -142,8 +142,12 @@ jobs:
         # The wiring is LIVE below — no editing needed. An unset secret
         # evaluates to the empty string, which the gate reads as "no
         # credential" (that is today's warning); once the secret exists the
-        # backstop enforces on the very next push. A warning nobody clears is
-        # a check nobody reads.
+        # backstop enforces on the very next push. That claim holds because
+        # the `run:` below lets the gate's EXIT CODE decide this step — do not
+        # "soften" it with `|| echo` / `|| true`: that discards the verdict, so
+        # the gate can print [FAIL] and exit 1 while the step still grades
+        # GREEN, and no token can enforce anything through it.
+        # A warning nobody clears is a check nobody reads.
         if: hashFiles('.claude/phase-state.json') != ''
         env:
           # WALK-ISSUE-006 wiring: set by `scripts/check-gate.sh --setup-ci-token`.

@@ -1423,6 +1423,38 @@ else
   fail_ "Cw6-wiring" "no executable 'env:' key carrying the secret mapping in:$w6_nowire"
 fi
 
+# ── Cw6-strict (adversarial review R-1): a mapped secret must reach a gate
+# whose EXIT CODE still counts. 7 of the 10 github templates ran the gate as
+#     bash scripts/check-phase-gate.sh 2>/dev/null || echo "…not found — skipping"
+# which discards the exit code entirely: a probe showed the gate printing [FAIL]
+# and exiting 1 while the step graded GREEN, and the swallow message LIED (the
+# script was found — it was the gate's verdict that failed, not the file). Under
+# that shape "set the secret and the backstop enforces" is FALSE: the check
+# would run with a real credential and its verdict would still be thrown away.
+# So the credential wiring and the exit-code contract are ONE pin, not two.
+#
+# Deliberately scoped to templates that MAP the secret: those are exactly the
+# ones making the enforcement claim. `[ ! -f … ] && exit 1` + a bare invocation
+# is the strict shape python/typescript/other already used.
+w6_swallow=""
+if [ "$CPG_COUNT" -gt 0 ]; then
+  for f in "${CPG_FILES[@]}"; do
+    case "$f" in */ci/github/*) ;; *) continue ;; esac
+    grep -Eq '^[[:space:]]*GH_TOKEN:[[:space:]]*\$\{\{' "$f" || continue
+    # Any EXECUTABLE gate invocation whose exit status is discarded — `|| echo`,
+    # `|| true`, `|| :`, or a trailing `2>/dev/null` swallow on the same line.
+    if grep -E '^[^#]*bash scripts/check-phase-gate\.sh' "$f" \
+         | grep -Eq '\|\|[[:space:]]*(echo|true|:)'; then
+      w6_swallow="$w6_swallow ${f#*/ci/}"
+    fi
+  done
+fi
+if [ -z "$w6_swallow" ]; then
+  pass "Cw6-strict (every secret-mapping github template lets the gate's EXIT CODE decide the step)"
+else
+  fail_ "Cw6-strict" "the gate's exit code is discarded (\`|| echo/true/:\`) — a mapped secret cannot enforce anything — in:$w6_swallow"
+fi
+
 # ── Cw16 (walk 2026-08-02 ISSUE-016): the tag-deploy environment trap ───────
 # The emitted release.yml is TAG-triggered, and enabling GitHub Pages
 # auto-creates a `github-pages` environment whose default deployment branch

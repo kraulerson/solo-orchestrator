@@ -63,10 +63,11 @@ Subcommands:
                     can actually read protection before storing anything, sets
                     it as the Actions secret SOIF_PROTECTION_TOKEN, and confirms
                     the workflow reads it. GitHub-only.
-                      --secret-name <n>  secret name (default SOIF_PROTECTION_TOKEN)
-                      --token-env <VAR>  read the token from $VAR instead of
-                                         prompting (scriptable opt-in)
-                      --skip-verify      store without the read-protection probe
+                      --secret-name <name>  secret name
+                                            (default SOIF_PROTECTION_TOKEN)
+                      --token-env <VAR>     read the token from $VAR instead of
+                                            prompting (scriptable opt-in)
+                      --skip-verify         store without the read-protection probe
   --release-env-policy
                     Check that the release deployment ENVIRONMENT admits
                     tag deploys before you push a version tag (walk
@@ -79,7 +80,13 @@ Subcommands:
                       --fix                 apply the policy instead of
                                             just reporting it
                       --env <name>          environment (default github-pages)
-                      --tag-pattern <glob>  tag pattern (default v*)
+                      --tag-pattern <glob>  the tag class your release must be
+                                            able to deploy (default v*). An
+                                            existing policy SATISFIES it when the
+                                            policy, read as a glob, matches this
+                                            value — so a `v*` policy satisfies
+                                            both `v*` and `v1.0.0`, while a
+                                            `v1.0.0` policy does not satisfy `v*`.
                     GitHub-only; other hosts report NOT APPLICABLE (exit 0).
 
 Flags:
@@ -588,8 +595,10 @@ cmd_setup_ci_token() {
 
   WHAT HAPPENS NEXT
     The value is stored as the Actions secret \`$secret_name\` on $owner_repo
-    and nothing else. Your generated workflow already maps it into the
-    phase-gate step as GH_TOKEN, so the very next push re-arms the check.
+    and nothing else. This command then CHECKS your workflow — it must both map
+    the secret into the phase-gate step as GH_TOKEN and let the gate's exit code
+    decide that step — and tells you exactly what to add if either is missing.
+    When both hold, the very next push re-arms the check.
     An UNSET secret evaluates to the empty string, which the gate reads as
     "no credential" — which is exactly today's warning.
 
@@ -666,12 +675,37 @@ EOM
     print_warn "Secret write reported success but '$secret_name' is not listed — check Settings > Secrets and variables > Actions."
   fi
 
-  # The last link in the chain: the workflow has to READ it. A generated
-  # project scaffolded before this shipped will not have the mapping, and a
-  # secret nothing reads is a silent no-op.
+  # The last links in the chain, and BOTH are required before this command may
+  # claim the check now enforces (adversarial review R-1):
+  #   (a) the workflow READS the secret — a secret nothing reads is a silent
+  #       no-op wearing a success message;
+  #   (b) the gate's EXIT CODE still decides the step. Generated projects
+  #       scaffolded before this shipped ran the gate as
+  #         bash scripts/check-phase-gate.sh 2>/dev/null || echo "…skipping"
+  #       which throws the verdict away: the gate can print [FAIL] and exit 1
+  #       while the step grades GREEN, and the "not found" message is a lie
+  #       (the script was found; its verdict failed). Under that shape a
+  #       correctly-scoped token changes NOTHING, so saying "the next push
+  #       enforces" would be false.
   local wf=".github/workflows/ci.yml"
-  if [ -f "$wf" ] && grep -q "secrets.$secret_name" "$wf"; then
-    print_ok "$wf already maps $secret_name into the phase-gate step. The next push enforces the check."
+  local wf_maps=0 wf_swallows=0
+  if [ -f "$wf" ]; then
+    grep -q "secrets.$secret_name" "$wf" && wf_maps=1
+    if grep -E '^[^#]*bash scripts/check-phase-gate\.sh' "$wf" \
+         | grep -Eq '\|\|[[:space:]]*(echo|true|:)'; then
+      wf_swallows=1
+    fi
+  fi
+  if [ "$wf_maps" -eq 1 ] && [ "$wf_swallows" -eq 0 ]; then
+    print_ok "$wf maps $secret_name into the phase-gate step AND lets the gate's exit code decide it. The next push enforces the check."
+  elif [ "$wf_maps" -eq 1 ] && [ "$wf_swallows" -eq 1 ]; then
+    print_warn "$wf maps $secret_name, but its phase-gate step DISCARDS the gate's exit code, so the token cannot enforce anything. Replace the swallowing 'run:' line with:"
+    echo "        run: |"
+    echo "          if [ ! -f scripts/check-phase-gate.sh ]; then"
+    echo "            echo \"::error::Phase gate check script missing. Framework integrity compromised.\""
+    echo "            exit 1"
+    echo "          fi"
+    echo "          bash scripts/check-phase-gate.sh"
   else
     print_warn "$wf does not map $secret_name yet — the secret would be stored but unread. Add these lines to the 'Governance - Phase gate check' step:"
     echo "        env:"
@@ -788,10 +822,29 @@ cmd_release_env_policy() {
     print_fail "Could not list deployment branch policies for '$env_name': $(printf '%s' "$pol_json" | head -2 | tr '\n' ' ')"
     return 1
   fi
-  local have_tag
-  have_tag=$(printf '%s' "$pol_json" \
-    | jq -r --arg p "$tag_pattern" '[.branch_policies[]? | select(.type=="tag" and (.name==$p or .name=="*"))] | length' 2>/dev/null || echo 0)
-  case "$have_tag" in ''|*[!0-9]*) have_tag=0 ;; esac
+  # Adversarial review R-3: matching by literal string equality false-failed a
+  # correctly-configured repo — an existing `v*` policy plainly admits a
+  # `--tag-pattern v1.0.0` release, but `"v*" = "v1.0.0"` is false. The POLICY
+  # is a glob and the requested pattern is the subject, which gets all four
+  # cases right:
+  #   policy v*      vs request v*      -> match (glob `v*` matches "v*")
+  #   policy v*      vs request v1.0.0  -> match (the policy admits that tag)
+  #   policy v1.0.0  vs request v*      -> NO match, correctly: a single-tag
+  #                                        policy does not admit the whole class
+  #   policy *       vs request anything-> match
+  # The policy name is repo-controlled data, so it is used as the unquoted RHS
+  # of `[[ == ]]` (bash's pattern position) and never spliced into `case` syntax.
+  local have_tag=0 _pol
+  while IFS= read -r _pol; do
+    [ -n "$_pol" ] || continue
+    # shellcheck disable=SC2053
+    if [ "$_pol" = "$tag_pattern" ] || [[ $tag_pattern == $_pol ]]; then
+      have_tag=1
+      break
+    fi
+  done <<EOF
+$(printf '%s' "$pol_json" | jq -r '.branch_policies[]? | select(.type=="tag") | .name' 2>/dev/null || true)
+EOF
 
   if [ "$have_tag" -gt 0 ]; then
     print_ok "Environment '$env_name' admits tag deployments matching '$tag_pattern' — tag-triggered releases will run."
