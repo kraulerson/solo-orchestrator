@@ -84,13 +84,21 @@
 #               strippable and the reference vanishes -> X8. (Mutant M-H:
 #               survives X1-X7, dies to X8.)
 #         C6  `#` SPELLING            -> pinned by X5 (no space after `#`).
-#         C7  `\([^[:space:]]\)` guard + `\1` back-reference -> pinned by X6.
-#             Dropping the capture eats exactly ONE character of executed code,
-#             which is not enough to make the line green — it DEMOTES the hit
-#             from T1 to T2 (the truncated token stops matching a literal path
-#             but still carries the `delta-` prefix). X6 therefore asserts the
-#             TIER, not the exit code: rc alone cannot see this. The demotion
-#             matters because T2 is inline-allowlistable and T1 is not.
+#         C7  `\([^[:space:]]\)` guard + `\1` back-reference — the executed
+#             PREFIX must survive the strip -> pinned at TWO resolutions:
+#               X1 (COARSE): a mutation that discards the whole line whenever a
+#               trailing comment is present, e.g.
+#               `s/.*[[:space:]][[:space:]]*#.*$//`, loses the violation
+#               outright. Measured: X1, X6, L2, L6 and L7 all go RED (24/5).
+#               X6 (FINE): dropping the capture eats exactly ONE character of
+#               executed code, which is NOT enough to make the line green — it
+#               DEMOTES the hit from T1 to T2 (the truncated token stops
+#               matching a literal path but still carries the `delta-` prefix).
+#               X6 therefore asserts the TIER, not the exit code: rc alone
+#               cannot see this. The demotion matters because T2 is
+#               inline-allowlistable and T1 is not.
+#             Both are kept: an edit that eats everything and one that eats a
+#             single byte are different mutations and X1 cannot see the latter.
 #         C8  `#` INSIDE a word is not a comment -> pinned by X7 and X8, which
 #             cover OPPOSITE failure modes of the same atom and are deliberately
 #             not folded together:
@@ -339,12 +347,30 @@ teardown_fixture
 
 # ════════════════════════════════════════════════════════════════════
 echo ""
-echo "=== X1 (atom C1, the E1 '^' anchor): a violation carrying a trailing"
-echo "    comment must STILL fail -> exit 1 ==="
+echo "=== X1 (atom C7, coarse form): stripping a trailing comment must leave"
+echo "    the EXECUTED PREFIX intact -> exit 1 ==="
 # ════════════════════════════════════════════════════════════════════
-# Drop the `^` from E1 and `[[:space:]]*#` matches the ` #` in the MIDDLE of
-# this line, blanking the whole line — the violation disappears and the lint
-# goes green. That is the BL-181 hole, transplanted. Assert on rc.
+# CORRECTED after adversarial review (R-WP1-2). This case used to claim it
+# pinned E1's `^` anchor, on the theory that an unanchored E1 "blanks the whole
+# line". That theory is wrong about sed: `s///` replaces only the MATCHED
+# REGION, never the line, so an unanchored E1 simply truncates at the ` #` and
+# this fixture's token — which sits BEFORE the comment — survives. X1 stayed
+# green under that mutation and the anchor was unpinned. The `^` anchor and the
+# whole over-strip/widening family are pinned by X8; see the atom -> case map
+# in this file's header.
+#
+# What X1 ACTUALLY pins, verified by executing the mutation rather than
+# reasoning about it: the trailing-comment strip must remove ONLY the comment
+# and never the executed prefix. Mutate E2 to `s/.*[[:space:]][[:space:]]*#.*$//`
+# — which discards the whole line whenever a trailing comment is present — and
+# this case goes RED (measured: X1, X6, L2, L6 and L7 all fail, 24 passed /
+# 5 failed).
+#
+# X1 is the COARSE form of that pin and X6 is the FINE one: X1 catches a
+# mutation that loses the whole prefix, X6 catches one that loses a SINGLE
+# character (by asserting the tier, because one lost character only demotes
+# T1 -> T2 and never changes the exit code). Both are kept — a mutation that
+# eats everything and one that eats one byte are different edits.
 setup_fixture
 cat > "$TMP/scripts/check-gate.sh" <<'SH'
 #!/usr/bin/env bash
@@ -352,9 +378,9 @@ source "$SCRIPT_DIR/lib/delta-state.sh"  # convenience, just this once
 SH
 out=$(run_fixture); rc=$?
 if [ "$rc" -eq 1 ] && echo "$out" | grep -q 'scripts/check-gate\.sh:2'; then
-  pass "X1: E1's '^' anchor holds — a commented violation still fails"
+  pass "X1: the executed prefix survives a trailing-comment strip"
 else
-  fail_ "X1" "expected rc=1; an unanchored E1 would blank the line; rc=$rc; output:\n$out"
+  fail_ "X1" "expected rc=1; an E2 that discards the code half loses this violation; rc=$rc; output:\n$out"
 fi
 teardown_fixture
 
