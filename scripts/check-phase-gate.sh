@@ -1181,10 +1181,62 @@ if [ "$current_phase" -ge 2 ]; then
         if host_verify_protection "main" "$mode" 2>/dev/null; then
           echo -e "${GREEN}  [OK]${NC} Phase 1→2 backstop: repo protection verified for $mode mode"
         else
-          echo -e "${RED}[FAIL]${NC} Phase 1→2 backstop: protection verification failed"
-          echo "        Remediate: scripts/check-gate.sh --repair"
-          echo "        Preflight: scripts/check-gate.sh --preflight"
-          issues=$((issues + 1))
+          # WALK-ISSUE-006-CI-PROTECTION-SCOPE-BEGIN
+          # Walk 2026-08-02, ISSUE-006 (Major): this arm made the generated
+          # project's "Governance - Phase gate check" step STRUCTURALLY
+          # unpassable on the framework's OWN default happy path (a public
+          # personal GitHub repo that init.sh had just created). Branch
+          # protection is an AUTHENTICATED API read on every first-class
+          # host, and a CI runner holds no credential for it unless the
+          # operator exports one:
+          #   • GitHub Actions puts NO token in a step's environment —
+          #     `secrets.GITHUB_TOKEN` has to be mapped explicitly, and even
+          #     mapped it CANNOT read branch protection (the workflow
+          #     `permissions:` block has no `administration` key). Only a
+          #     PAT / App token with admin-read can.
+          #   • The generated gitlab + bitbucket governance jobs run in
+          #     `bash:5` with only jq+git added — no `glab`, no `curl`, no
+          #     credential either.
+          # So the identical command exited 0 on the dev workstation and 1 on
+          # every push. The walker's only escape was SOIF_PHASE_GATES=warn,
+          # which downgrades the WHOLE gate — a far bigger hammer than this.
+          #
+          # SCOPING (mirrors `# BL-137-CI-TOOLS-SCOPE`): keyed STRICTLY on
+          # $CI *plus* the absence of a host credential — NEVER on TTY, so
+          # scripted LOCAL runs (hooks, other gates driving this one) keep
+          # blocking. Export the token and this arm BLOCKS again in CI: that
+          # is the documented hard-enforcement path, and it is spelled out at
+          # the phase-gate step of every generated ci.yml.
+          #
+          # host="other" is deliberately NOT exempt: its host_verify_protection
+          # reads a LOCAL attestation file and needs no credential at all, so
+          # a failure there is equally real on a runner and on a laptop.
+          #
+          # HONESTY: the exempt arm prints "could NOT RUN", never "verified".
+          # The contract is UNVERIFIED on such a run — it is not satisfied.
+          _cpg_walk006_credentialless_ci() {
+            [ -n "${CI:-}" ] || return 1   # WALK-ISSUE-006-CI-KEY
+            case "${1:-}" in
+              github)    [ -z "${GH_TOKEN:-}" ] && [ -z "${GITHUB_TOKEN:-}" ] ;;
+              gitlab)    [ -z "${GITLAB_TOKEN:-}" ] && [ -z "${GL_TOKEN:-}" ] ;;
+              bitbucket) [ -z "${BITBUCKET_API_TOKEN:-}" ] && [ -z "${BITBUCKET_APP_PASSWORD:-}" ] ;;
+              *)         return 1 ;;
+            esac
+          }
+          backstop_host=$(jq -r '.host // empty' .claude/manifest.json 2>/dev/null || echo "")
+          if _cpg_walk006_credentialless_ci "$backstop_host"; then
+            echo -e "${YELLOW}[WARN]${NC} Phase 1→2 backstop: protection verification COULD NOT RUN here — \$CI is set and no ${backstop_host:-host} API credential is exported on this runner."
+            echo "        This is NOT a pass. The protection contract is UNVERIFIED on this run; it is enforced on the dev workstation, where this same arm BLOCKS (WALK-ISSUE-006)."
+            echo "        Hard enforcement in CI: export a host API token that can READ branch protection, then this arm blocks again."
+            echo "          GitHub: a PAT / App token with admin read — the built-in GITHUB_TOKEN can NOT read protection. Set GH_TOKEN on the phase-gate step."
+            echo "        Verify locally: scripts/check-gate.sh --preflight"
+          else
+            echo -e "${RED}[FAIL]${NC} Phase 1→2 backstop: protection verification failed"
+            echo "        Remediate: scripts/check-gate.sh --repair"
+            echo "        Preflight: scripts/check-gate.sh --preflight"
+            issues=$((issues + 1))
+          fi
+          # WALK-ISSUE-006-CI-PROTECTION-SCOPE-END
         fi
       else
         echo -e "${YELLOW}[WARN]${NC} Phase 1→2 backstop: could not load host driver (manifest host field may be missing; run scripts/check-gate.sh --backfill-host)"

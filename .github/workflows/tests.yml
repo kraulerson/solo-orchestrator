@@ -356,6 +356,7 @@ jobs:
             tests/test-bl147-ci-template-integrity.sh
             tests/test-bl089-doc-foundations.sh
             tests/test-bl137-ci-tools-scope.sh
+            tests/test-walk006-ci-protection-scope.sh
             tests/test-bl138-approval-window.sh
             tests/test-bl170-approval-append-design.sh
             tests/test-bl166-gate-scope.sh

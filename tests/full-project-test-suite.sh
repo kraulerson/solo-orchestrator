@@ -835,6 +835,17 @@ run_child_suite "tests/test-bl106-golive-checklist.sh" "tests/test-bl106-golive-
 # lanes.
 run_child_suite "tests/test-bl137-ci-tools-scope.sh" "tests/test-bl137-ci-tools-scope.sh"
 
+# Walk 2026-08-02 ISSUE-006 (Major): BL-137's twin one arm down — the Phase
+# 1→2 PROTECTION backstop. Branch protection is an authenticated API read; a
+# runner holds no credential for it (Actions exports no token, and the
+# built-in GITHUB_TOKEN cannot read protection at all), so the generated
+# governance job could never pass on the framework's own default happy path.
+# Credential-less CI now WARNs ("could NOT run", never "verified") without
+# incrementing issues; local, token-bearing CI, and host=other all still
+# BLOCK. Real github driver + `gh` stub; three in-suite mutants (drop the $CI
+# key / blind the token probe / pre-fix repro). No init.sh -> both lanes.
+run_child_suite "tests/test-walk006-ci-protection-scope.sh" "tests/test-walk006-ci-protection-scope.sh"
+
 # BL-125 (Dogfood-2 F-DF2-009): the emitted pre-commit hook RUNS the
 # project's test command — RED tests block the commit ([BLOCKED]), green
 # tests land with a receipt, not-runnable (unconfigured / exit 127) is a
