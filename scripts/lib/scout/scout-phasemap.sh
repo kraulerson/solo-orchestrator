@@ -80,7 +80,7 @@ _scout_rung2() {
         docs/technical-design.md docs/system-design.md) && {
     printf '%s (the technical shape is documented)\n' "$hit"; return 0; }
   for d in docs/adr docs/adrs docs/designs docs/rfcs docs/architecture; do
-    if scout_dir_nonempty "$root/$d"; then
+    if scout_dir_has_entries "$root/$d"; then
       printf '%s/ (%s design documents)\n' "$d" "$(scout_count_entries "$root/$d")"
       return 0
     fi
@@ -93,7 +93,7 @@ _scout_rung2() {
 _scout_test_corpus() {
   local root="$1" d hit
   for d in tests test spec __tests__ src/test src/tests test_suite; do
-    if scout_dir_nonempty "$root/$d"; then printf '%s/\n' "$d"; return 0; fi
+    if scout_dir_has_entries "$root/$d"; then printf '%s/\n' "$d"; return 0; fi
   done
   hit=$(grep -E '(^|/)(test_[^/]+|[^/]+_test|[^/]+\.test|[^/]+\.spec)\.[A-Za-z0-9]+$' \
         "$SCOUT_FILES_LIST" 2>/dev/null | head -1)
@@ -107,9 +107,17 @@ _scout_test_corpus() {
 # directory with no way to invoke it is a folder, not a corpus. Rung 3 needs
 # BOTH a corpus and a command — or the framework's own archive of results,
 # which is proof the corpus ran at least once.
+#
+# EVERY "is there content here" question on this ladder goes through
+# `scout_dir_has_entries`, which counts NON-HIDDEN entries. A `.gitkeep` is not
+# an archived test result. Read that function's header before replacing any of
+# these calls with an inline emptiness test — the last time the predicate and
+# the count were spelled separately, this arm reported a satisfied rung and
+# "0 archived result files" in the same breath, and the design's own scenario
+# regressed to the number correction 2 exists to remove.
 _scout_rung3() {
   local root="$1" work="$2" corpus cmd
-  if scout_dir_nonempty "$root/docs/test-results"; then
+  if scout_dir_has_entries "$root/docs/test-results"; then
     printf 'docs/test-results/ (%s archived result files)\n' "$(scout_count_entries "$root/docs/test-results")"
     return 0
   fi

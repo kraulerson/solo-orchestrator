@@ -116,12 +116,22 @@ scout_reality_probes() {
   fi
 
   # ── 4. project_scaffolded ─────────────────────────────────────────────────
-  # The original's lockfile list, copied unchanged. A lockfile is the cheapest
-  # honest signal that dependencies were actually installed once.
+  # The original's lockfile list, extended. A lockfile is the cheapest honest
+  # signal that dependencies were actually installed once.
+  #
+  # CURRENCY SURFACE — keep in sync with `PMTABLE` in
+  # scripts/lib/scout/scout-stack.sh, which answers "which manager" for the
+  # same files. A spelling added to one list and forgotten in the other is how
+  # this decays, so S4 in tests/test-brownfield-wp1-scout.sh asserts both
+  # surfaces for every modern row. Spellings confirmed against each tool's own
+  # documentation: `bun.lock` is Bun's default from 1.2 (`bun.lockb` is the
+  # pre-1.2 binary form), `uv.lock`, `pdm.lock` and `deno.lock` are the uv,
+  # pdm and Deno defaults.
   _lf=""
-  for _f in package-lock.json yarn.lock pnpm-lock.yaml bun.lockb Pipfile.lock \
-            poetry.lock Cargo.lock go.sum pubspec.lock Package.resolved \
-            gradle.lockfile packages.lock.json mix.lock composer.lock; do
+  for _f in package-lock.json yarn.lock pnpm-lock.yaml bun.lock bun.lockb \
+            deno.lock Pipfile.lock poetry.lock uv.lock pdm.lock Cargo.lock \
+            go.sum pubspec.lock Package.resolved gradle.lockfile \
+            packages.lock.json mix.lock composer.lock; do
     if [ -f "$_root/$_f" ]; then _lf="$_f"; break; fi
   done
   if [ -n "$_lf" ]; then

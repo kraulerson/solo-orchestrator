@@ -136,18 +136,40 @@ scout_file_nonempty() {
   [ -f "$1" ] && [ -s "$1" ]
 }
 
-# scout_dir_nonempty PATH — a directory containing at least one entry.
-scout_dir_nonempty() {
-  [ -d "$1" ] || return 1
-  [ -n "$(ls -A "$1" 2>/dev/null)" ]
-}
-
-# scout_count_entries PATH — how many entries a directory holds (0 if absent).
+# scout_count_entries PATH — how many entries a directory holds, EXCLUDING
+# hidden ones (0 if absent).
+#
+# Hidden entries are excluded because on the ladder the question is always
+# "is there CONTENT here", and a dot-file in a content directory is
+# scaffolding: `.gitkeep`, `.DS_Store`, an editor lock. None of them is an
+# archived test result or a design document.
 scout_count_entries() {
   local n
   n=$(ls -1 "$1" 2>/dev/null | grep -c '')
   case "$n" in ''|*[!0-9]*) n=0 ;; esac
   printf '%s\n' "$n"
+}
+
+# scout_dir_has_entries PATH — the directory holds at least one non-hidden
+# entry.
+#
+# EXPRESSED IN TERMS OF THE COUNTER, and that is the entire reason this
+# function exists rather than an inline test. The first cut of this file had a
+# separate `ls -A` predicate sitting beside the `ls -1` count above, and the
+# two disagreed on exactly one input: a directory kept alive by a `.gitkeep`.
+# That input is not a corner case. **Git cannot track an empty directory**, so
+# a placeholder is how every emptied directory in every real repository
+# actually looks — including the "since-emptied docs/test-results/" that §4.4
+# correction 2 is written about. On it, rung 3 read the predicate as "there
+# are archived results" and printed "0 archived result files" as its evidence
+# in the same breath, and the design's own scenario reported 4: the exact
+# number the correction exists to remove, resurrected by a one-byte file.
+#
+# One measurement, two spellings of it. They cannot drift apart again, and
+# every ladder arm that asks "is there content here" now asks it the same way.
+scout_dir_has_entries() {
+  [ -d "$1" ] || return 1
+  [ "$(scout_count_entries "$1")" -gt 0 ]
 }
 
 # ── The file walk ───────────────────────────────────────────────────────────

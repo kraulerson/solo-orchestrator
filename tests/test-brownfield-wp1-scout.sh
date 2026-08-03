@@ -344,6 +344,40 @@ else
   fail_ "A5" "expected rc=2; rc=$rc; output:\n$o"
 fi
 
+# ── A6: a successful scan is SILENT on stderr ──────────────────────────────
+# FOUND BY ACCIDENT, KEPT ON PURPOSE. While verifying the review fixes, a
+# stray `git checkout` reverted a half-applied rename, leaving Scout calling a
+# lib function that no longer existed — and this suite still reported 34/0.
+# Every runner here drops stderr (deliberately, so a diagnostic can never be
+# read as report bytes), and `set -e` is deliberately absent, so eight
+# `command not found` failures per scan returned rc=127 into predicates that
+# fell through to the same rungs by a different route. The numbers were right
+# and the build was broken.
+#
+# A build that prints eight errors per scan is not a passing build. stdout
+# carries the report; stderr must be EMPTY on any scan that exits 0. This is
+# the cheapest possible net for undefined functions, unquoted globs, and every
+# other failure that `set -e`'s absence lets through quietly — and it is
+# exactly the class the rest of the suite is structurally blind to.
+a6_fail=""
+for f in "$NODE" "$PY" "$LADDER" "$BARE"; do
+  err=$(bash "$SCOUT" --root "$f" </dev/null 2>&1 >/dev/null); rc=$?
+  [ "$rc" -eq 0 ] && [ -z "$err" ] \
+    || a6_fail="$a6_fail [json rc=$rc err='$(printf '%s' "$err" | head -2)']"
+  err=$(bash "$SCOUT" --root "$f" --markdown </dev/null 2>&1 >/dev/null); rc=$?
+  [ "$rc" -eq 0 ] && [ -z "$err" ] \
+    || a6_fail="$a6_fail [markdown rc=$rc err='$(printf '%s' "$err" | head -2)']"
+done
+SILENT=$(newtmp)
+err=$(bash "$SCOUT" --root "$NODE" --out "$SILENT" </dev/null 2>&1 >/dev/null); rc=$?
+[ "$rc" -eq 0 ] && [ -z "$err" ] \
+  || a6_fail="$a6_fail [--out rc=$rc err='$(printf '%s' "$err" | head -2)']"
+if [ -z "$a6_fail" ]; then
+  pass "A6: every successful scan (json, markdown, --out; four fixture shapes) writes nothing to stderr"
+else
+  fail_ "A6" "$a6_fail"
+fi
+
 # ════════════════════════════════════════════════════════════════════════════
 echo ""
 echo "=== R — READ-ONLY, proven by tree hash over the whole fixture ==="
@@ -463,6 +497,39 @@ else
   fail_ "S3" "off_vocabulary=$bad distinct=$distinct tiers='$tiers'"
 fi
 
+# ── S4: the CURRENT lockfile spellings (review finding R-WP1-2) ────────────
+# A lockfile table is a currency surface: it decays silently, in the
+# false-negative direction, and the operator never sees why. Bun made a TEXT
+# lockfile named `bun.lock` its default at 1.2 (`bun.lockb` is the pre-1.2
+# binary form, and both are still in the wild). uv writes `uv.lock` beside
+# pyproject.toml; pdm writes `pdm.lock`; Deno writes `deno.lock` and creates
+# it automatically. Each spelling was confirmed against the tool's own
+# documentation, not from memory.
+#
+# Two surfaces have to agree, which is why this case asserts both: the
+# `project_scaffolded` probe (does this project look installed?) and the
+# stack's `packageManagers` (what installed it?). A spelling added to one and
+# forgotten in the other is the failure this pins. Table-driven, so adding a
+# spelling later is one row here and one row in each table.
+s4_fail=""
+for row in "bun.lock|bun" "uv.lock|uv" "deno.lock|deno" "pdm.lock|pdm"; do
+  lf="${row%%|*}"; want_pm="${row#*|}"
+  LKF=$(newtmp)
+  printf 'lock\n' > "$LKF/$lf"
+  lj=$(scout_json "$LKF")
+  got_r=$(jqv "$lj" '.reality.probes[] | select(.name=="project_scaffolded") | .result')
+  got_h=$(jqv "$lj" '.reality.probes[] | select(.name=="project_scaffolded") | .how')
+  got_pm=$(jqv "$lj" ".stack.packageManagers | index(\"$want_pm\")")
+  [ "$got_r" = "pass" ] || s4_fail="$s4_fail [$lf result=$got_r]"
+  printf '%s' "$got_h" | grep -q "$lf" || s4_fail="$s4_fail [$lf how='$got_h']"
+  [ -n "$got_pm" ] && [ "$got_pm" != "null" ] || s4_fail="$s4_fail [$lf packageManagers missing '$want_pm']"
+done
+if [ -z "$s4_fail" ]; then
+  pass "S4: bun.lock, uv.lock, deno.lock and pdm.lock each pass project_scaffolded (named in how) AND name their package manager"
+else
+  fail_ "S4" "$s4_fail"
+fi
+
 # ════════════════════════════════════════════════════════════════════════════
 echo ""
 echo "=== P — the extracted artifact ladder (§4.4, three corrections) ==="
@@ -525,6 +592,41 @@ if [ "$fw" -eq 0 ] && printf '%s' "$e1" | grep -q 'README.md' \
   pass "P5: with zero framework filenames present, rungs 1/2 resolve on README.md and ARCHITECTURE.md (python fixture places at $sp_py)"
 else
   fail_ "P5" "framework_files=$fw rung1='$e1' rung2='$e2' python_phase=$sp_py"
+fi
+
+# ── P6: a placeholder must not satisfy a rung (review finding R-WP1-1) ─────
+# THE GIT-REALISTIC FORM OF THE DESIGN'S OWN SCENARIO. Git cannot track an
+# empty directory, so a "since-emptied docs/test-results/" in a real
+# repository is not the empty directory P1 uses — it is a directory kept
+# alive by a `.gitkeep`. On that input an `ls -A` emptiness test and an
+# `ls -1` count disagree, and rung 3 came back SATISFIED on the strength of
+# the placeholder while its own evidence string said "0 archived result
+# files" in the same breath. The fixture then reported 4: the exact number
+# §4.4 correction 2 exists to remove, resurrected by a one-byte file.
+#
+# The fix made the predicate and the count ONE measurement, so this case pins
+# the whole class rather than the one symptom: the fixture also keeps a
+# placeholder-only `tests/`, and rung 3's evidence must report NO corpus
+# rather than an empty one. If a future edit reintroduces a separate
+# emptiness test anywhere on the ladder, the evidence assertion catches it
+# even when the number happens to survive.
+GK=$(newtmp)
+mkdir -p "$GK/docs/test-results" "$GK/tests"
+printf '# legacy-svc\n\nThe original order service.\n' > "$GK/README.md"
+printf '# Architecture\n\nMonolith, MySQL.\n' > "$GK/ARCHITECTURE.md"
+printf '# Handoff\n\nOwned by the platform team.\n' > "$GK/HANDOFF.md"
+: > "$GK/docs/test-results/.gitkeep"
+: > "$GK/tests/.gitkeep"
+gj=$(scout_json "$GK")
+gsp=$(jqv "$gj" '.phaseMap.suggestedPhase')
+gr3=$(jqv "$gj" '.phaseMap.rungs[] | select(.rung==3) | .satisfied')
+ghi=$(jqv "$gj" '.phaseMap.highestSatisfiedRung')
+gev=$(jqv "$gj" '.phaseMap.rungs[] | select(.rung==3) | .evidence')
+if [ "$gsp" = "2" ] && [ "$gr3" = "false" ] && [ "$ghi" = "4" ] \
+   && printf '%s' "$gev" | grep -q 'no test corpus and no test command'; then
+  pass "P6: .gitkeep-only docs/test-results/ and tests/ leave rung 3 unsatisfied — the fixture still reports 2, not 4"
+else
+  fail_ "P6" "suggestedPhase=$gsp (want 2) rung3.satisfied=$gr3 (want false) highestSatisfiedRung=$ghi (want 4) rung3.evidence='$gev'"
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -755,9 +857,17 @@ fi
 # The mutation re-introduces exactly what the extraction deleted: verify_init's
 # `ensure_state_file` — a mkdir plus a state-file create at the top of the
 # probe run. R1/R2 must go red on it, or they are decoration.
+#
+# X2's anchor is already collision-proof in a way X1's was not — it is an
+# exact whole-line match on the function signature, and a prose citation
+# always carries a leading `#` — but it carries the site-count guard anyway,
+# for uniformity. All three neuters now assert the same property in the same
+# spelling, so a reader does not have to reason case-by-case about which
+# anchors are safe and which were merely lucky.
 X2=$(newtmp); mk_scout_copy "$X2"
 ORIG="$SCOUT_LIB/scout-reality.sh"
 MUT="$X2/scripts/lib/scout/scout-reality.sh"
+rp_exec_sites=$(grep -c '^scout_reality_probes() {$' "$ORIG")
 _awk_inplace "$MUT" '
   { print
     if (!done && $0 == "scout_reality_probes() {") {
@@ -772,10 +882,11 @@ RO2=$(newtmp); mk_bare_fixture "$RO2"
 h2_before=$(_tree_hash "$RO2")
 scout_json "$RO2" >/dev/null
 h2_after=$(_tree_hash "$RO2")
-if [ "$chg" -eq 1 ] && [ "$h_before" != "$h_mut" ] && [ "$h2_before" = "$h2_after" ]; then
+if [ "$chg" -eq 1 ] && [ "$h_before" != "$h_mut" ] && [ "$h2_before" = "$h2_after" ] \
+   && [ "$rp_exec_sites" -eq 1 ]; then
   pass "X2: a state-writing probe (1 inserted line) changes the fixture's tree hash; the unmutated control leaves it identical"
 else
-  fail_ "X2" "changed_lines=$chg (want 1) mutant_before=$h_before mutant_after=$h_mut control_equal=$([ "$h2_before" = "$h2_after" ] && echo yes || echo no)"
+  fail_ "X2" "changed_lines=$chg (want 1) mutant_before=$h_before mutant_after=$h_mut control_equal=$([ "$h2_before" = "$h2_after" ] && echo yes || echo no) executed_anchor_sites=$rp_exec_sites (want exactly 1)"
 fi
 
 # ── X3: make branch_protection consult anything -> its unknown pin reds ───

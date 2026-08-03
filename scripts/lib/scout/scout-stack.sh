@@ -152,6 +152,19 @@ _scout_pkg_json_script() {
 
 # _scout_pkg_managers ROOT WORK — the package managers in evidence, deduped,
 # most-specific-first (a lockfile outranks the manifest that generated it).
+#
+# THIS TABLE IS A CURRENCY SURFACE and it decays quietly. A missing spelling
+# does not error — it reports an empty `packageManagers` on a project that
+# obviously has one, in the false-negative direction, with no clue as to why.
+# Spellings are confirmed against each tool's own documentation, never from
+# memory: Bun made the TEXT `bun.lock` its default at 1.2 and `bun.lockb` is
+# the pre-1.2 binary form (both still in the wild, so both rows stay); uv
+# writes `uv.lock` beside pyproject.toml; pdm writes `pdm.lock`; Deno creates
+# `deno.lock` automatically. Adding a spelling here means adding it to the
+# `project_scaffolded` list in scripts/lib/scout/scout-reality.sh too — S4 in
+# tests/test-brownfield-wp1-scout.sh asserts BOTH surfaces for every row,
+# because a spelling added to one and forgotten in the other is the shape this
+# defect actually takes.
 _scout_pkg_managers() {
   local root="$1" work="$2" row f m
   : > "$work/pkgmgr"
@@ -159,8 +172,12 @@ _scout_pkg_managers() {
 pnpm-lock.yaml pnpm
 yarn.lock yarn
 package-lock.json npm
+bun.lock bun
 bun.lockb bun
+deno.lock deno
+uv.lock uv
 poetry.lock poetry
+pdm.lock pdm
 Pipfile.lock pipenv
 Pipfile pipenv
 requirements.txt pip
