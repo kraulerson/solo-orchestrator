@@ -16,7 +16,7 @@ edit is a red check instead of a silent regression.
 
 | Module | Directory | Entry script | Zero-dependency (M5)? | Enforcing lint |
 |---|---|---|---|---|
-| Post-MVP delta track | `scripts/lib/` (flat `delta-*.sh` set) | `scripts/delta.sh` | no | `scripts/lint-delta-boundary.sh` |
+| Post-MVP delta track | `scripts/lib/` (flat `delta-*.sh` set — **grandfathered, see below**) | `scripts/delta.sh` (plus `scripts/cut-release.sh`) | no | `scripts/lint-delta-boundary.sh` |
 | Scout (brownfield scanner) | `scripts/lib/scout/` | `scripts/scout.sh` | **yes** | `scripts/lint-module-dependencies.sh` |
 | Adoption driver | `scripts/lib/adopt/` | `scripts/adopt-project.sh` | no | `scripts/lint-module-dependencies.sh` |
 
@@ -30,6 +30,16 @@ lints share the architecture — literal manifest, executed-lines-only comment
 stripping, two match tiers, reasoned exact-token allowlist, vacuity floor,
 `--list`, `--root` — and neither can be weakened by an edit aimed at the other.
 A single generalised engine remains available later as a rename-level change.
+
+**The delta module is GRANDFATHERED against M1**, and the table says so rather
+than leaving a reader to hit the contradiction. M1 as written requires an owned
+`scripts/lib/<module>/` directory and exactly one entry script; the delta module
+has neither — its files are a flat `delta-*.sh` set directly in `scripts/lib/`,
+and `scripts/cut-release.sh` sits beside `scripts/delta.sh` as a second entry
+point (it is in the delta manifest because it reads `delta-state.json`).
+**M1 binds NEW modules.** The delta module keeps its flat layout; its
+severability is enforced by its own lint's manifest, which does not depend on
+the directory shape. M2–M5 bind it normally.
 
 ---
 
@@ -82,10 +92,18 @@ In-core arms that support a module are *not* part of it. They are listed by
 marker in the module's header so severance has an explicit, short interface to
 preserve.
 
-*Enforced by:* review, plus `scripts/lint-bl-markers.sh`, which resolves marker
-citations in both directions — a named arm that is deleted or renamed reds. The
-brownfield arms land in WP3 and the list is empty until then; the delta module's
-seam is named in its lint's seam allowlist with its reason.
+*Enforced by:* **review.** `scripts/lint-bl-markers.sh` helps, but read what it
+actually delivers before relying on it: a marker cited in the **prose** surface
+reds when its last occurrence anywhere in the **code** surface disappears, and a
+marker in code reds when it names a `## BL-NNN:` entry nobody filed. The module
+header where M4 says the arms are listed **is itself in the code surface**, so
+that listing keeps its own markers alive — delete or rename an arm and the stale
+listing still satisfies both directions. **The lint does not red on a stale arm
+list; a human reading the list is the check.** (§3.3's own M4 row claims only
+"Review + the marker lint" — this page previously strengthened that into a
+guarantee the mechanism does not provide.) The brownfield arms land in WP3 and
+the list is empty until then; the delta module's seam is named in its lint's
+seam allowlist with its reason.
 
 ### M5 — The scanner depends on nothing
 
@@ -120,5 +138,14 @@ specified as **reuse-by-extraction** — copy the *predicate*, not the
   backstop there is behavioural, not lexical: the severability test that deletes
   the module and reverts the seam fails on a fused module however the fusion is
   spelled.
+- **What M5 does not currently catch, disclosed:** its forbidden set is core
+  **lib** basenames (`scripts/lib/*.sh`) only. A Scout file that invokes a core
+  **entry script** (`scripts/*.sh`) or `init.sh` itself passes the arm clean —
+  verified, `rc=0`. That is faithful to M5's first sentence and violates its
+  second, and it survives the behavioural backstop too: moving `scripts/lib/`
+  aside leaves `scripts/*.sh` in place, so **WP1-brownfield's hermetic test must
+  move `scripts/*.sh` aside as well, or assert against a bare tree.** Widening
+  the token set is a design decision, not an implementation detail, and is
+  pending rather than taken.
 - Run `bash scripts/lint-module-dependencies.sh --list` (or the delta sibling's
   `--list`) for the per-file PASS/FAIL roster and the population counts.
