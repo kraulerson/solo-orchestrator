@@ -1353,6 +1353,115 @@ fi
 
 # ════════════════════════════════════════════════════════════════════════════
 echo ""
+echo "=== K — the gitleaks pin's own verification cannot silently pass ==="
+# ════════════════════════════════════════════════════════════════════════════
+#
+# R-WP2-6. The CI step that installs gitleaks is what makes the planted-secret
+# proof runnable at all, so the integrity check on that download sits on the
+# critical path of this entire package. Written the obvious way it is a check
+# that cannot fail — measured on this host:
+#
+#   $ echo "THIS-IS-NOT-A-HASH  gl.tgz" | sha256sum -c -
+#   sha256sum: WARNING: 1 line is improperly formatted
+#   rc=0
+#
+# A typo in the pin, or a variable that expanded to nothing, and the download is
+# unverified while CI stays green. These cases execute every failure mode of the
+# replacement ON THIS HOST, with no appeal to what some other platform's binary
+# would have done — which is the whole reason the verification lives in a script
+# instead of three lines of workflow YAML.
+
+KV="$REPO_ROOT/scripts/ci-verify-sha256.sh"
+if [ ! -f "$KV" ]; then
+  fail_ "K1-K7" "scripts/ci-verify-sha256.sh does not exist"
+else
+  K=$(newtmp)
+  printf 'the payload\n' > "$K/asset.bin"
+  K_REAL=$( { sha256sum "$K/asset.bin" 2>/dev/null || shasum -a 256 "$K/asset.bin" 2>/dev/null; } | awk '{print $1; exit}' )
+  # A well-formed 64-hex value that is NOT the file's hash. Derived from the
+  # real one so it cannot accidentally BE the real one.
+  K_WRONG=$(printf '%s' "$K_REAL" | tr '0123456789abcdef' '1234567890fedcba')
+
+  # ── K1: the honest positive — a correct pin verifies ────────────────────
+  # Without this, an implementation that failed EVERYTHING would satisfy
+  # K2-K6 perfectly.
+  bash "$KV" "$K/asset.bin" "$K_REAL" >/dev/null 2>&1; k1=$?
+  if [ "$k1" -eq 0 ] && [ "${#K_REAL}" -eq 64 ]; then
+    pass "K1: a correct 64-hex pin verifies (rc=0) — the negative cases below are not vacuous"
+  else
+    fail_ "K1" "rc=$k1 (want 0) computed='$K_REAL' (want 64 hex chars)"
+  fi
+
+  # ── K2: a MALFORMED pin FAILS (the R-WP2-6 defect itself) ───────────────
+  bash "$KV" "$K/asset.bin" "THIS-IS-NOT-A-HASH" >/dev/null 2>&1; k2=$?
+  if [ "$k2" -eq 1 ]; then
+    pass "K2: a MALFORMED pin exits 1 — the spelling this replaced exits 0 on this host and verifies nothing"
+  else
+    fail_ "K2" "rc=$k2 (want 1) — a malformed pin is being treated as verified"
+  fi
+
+  # ── K3: an EMPTY pin FAILS (the expanded-to-nothing case) ───────────────
+  bash "$KV" "$K/asset.bin" "" >/dev/null 2>&1; k3=$?
+  if [ "$k3" -eq 1 ]; then
+    pass "K3: an EMPTY pin exits 1 — an unset or mistyped variable cannot pass as verified"
+  else
+    fail_ "K3" "rc=$k3 (want 1)"
+  fi
+
+  # ── K4: a WRONG BUT WELL-FORMED pin FAILS ──────────────────────────────
+  bash "$KV" "$K/asset.bin" "$K_WRONG" >/dev/null 2>&1; k4=$?
+  if [ "$k4" -eq 1 ] && [ "$K_WRONG" != "$K_REAL" ]; then
+    pass "K4: a well-formed pin that is not this file's hash exits 1"
+  else
+    fail_ "K4" "rc=$k4 (want 1) wrong='$K_WRONG' real='$K_REAL' (must differ)"
+  fi
+
+  # ── K5: a TAMPERED ASSET fails against a correct pin ───────────────────
+  # The threat the pin exists for: the pin is right, the bytes changed.
+  printf 'the payload with one more byte\n' > "$K/asset.bin"
+  bash "$KV" "$K/asset.bin" "$K_REAL" >/dev/null 2>&1; k5=$?
+  if [ "$k5" -eq 1 ]; then
+    pass "K5: a TAMPERED asset exits 1 against the pin that matched it moments earlier"
+  else
+    fail_ "K5" "rc=$k5 (want 1) — a replaced release asset would install silently"
+  fi
+
+  # ── K6: a MISSING file and bad usage are errors, not passes ────────────
+  bash "$KV" "$K/does-not-exist" "$K_REAL" >/dev/null 2>&1; k6a=$?
+  bash "$KV" "$K/asset.bin" >/dev/null 2>&1; k6b=$?
+  if [ "$k6a" -eq 1 ] && [ "$k6b" -eq 2 ]; then
+    pass "K6: a missing file exits 1 and a missing argument exits 2 — neither is mistaken for a verified download"
+  else
+    fail_ "K6" "missing-file rc=$k6a (want 1) missing-arg rc=$k6b (want 2)"
+  fi
+
+  # ── K7: the workflow actually CALLS it, in every job that installs ─────
+  # A verifier nothing invokes is decoration. Asserted against the real
+  # workflow file: every gitleaks download is followed by a verification, and
+  # the superseded `sha256sum -c` spelling is gone from the file entirely.
+  # COMMENTS ARE STRIPPED BEFORE THE LEGACY-SPELLING GREP, and this case caught
+  # its own author: the first version counted the two explanatory comments that
+  # NAME `sha256sum -c` and went red against a workflow that does not run it.
+  # Same defect class as this repository's unit-lane predicate reading a
+  # mention as an invocation (CLAUDE.md, `# BL-181-UNIT-LANE-PREDICATE`) — a
+  # check must read executed lines, not prose about them.
+  WF="$REPO_ROOT/.github/workflows/tests.yml"
+  WF_EXEC="$K/workflow-no-comments.txt"
+  sed -e 's/^[[:space:]]*#.*$//' -e 's/[[:space:]]#[^"'"'"']*$//' "$WF" > "$WF_EXEC"
+  k7_dl=$(grep -c 'gitleaks_.*_linux_x64\.tar\.gz"$' "$WF_EXEC" 2>/dev/null)
+  k7_verify=$(grep -c 'ci-verify-sha256\.sh /tmp/gitleaks\.tar\.gz' "$WF_EXEC" 2>/dev/null)
+  k7_old=$(grep -c 'sha256sum -c' "$WF_EXEC" 2>/dev/null)
+  k7_pin=$(grep -c 'GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"' "$WF_EXEC" 2>/dev/null)
+  if [ "$(_num "$k7_verify")" -eq 2 ] && [ "$(_num "$k7_pin")" -eq 2 ] \
+     && [ "$(_num "$k7_old")" -eq 0 ] && [ "$(_num "$k7_verify")" -eq "$(_num "$k7_dl")" ]; then
+    pass "K7: both jobs that download gitleaks verify it through the script ($k7_dl download(s), $k7_verify verification(s), $k7_pin pinned checksum(s)); the exit-0-on-malformed spelling appears nowhere"
+  else
+    fail_ "K7" "downloads=$k7_dl verifications=$k7_verify (want 2 and equal) pinned_checksums=$k7_pin (want 2) legacy 'sha256sum -c' occurrences=$k7_old (want 0)"
+  fi
+fi
+
+# ════════════════════════════════════════════════════════════════════════════
+echo ""
 if [ "$SKIPPED" -gt 0 ]; then
   echo "!! $SKIPPED case(s) SKIPPED because gitleaks is not installed — the"
   echo "!! planted-secret proof (§6.5) DID NOT RUN. This build is not certified"
