@@ -3344,6 +3344,104 @@ else
   fi
 fi
 
+# ── T-bl185-doc-mention: PROSE naming the directive is not a suppression ────
+# Walk of 2026-08-02, ISSUE-018: committing a Markdown
+# report whose sentences DISCUSS the directive produced a
+# `type: "sast_suppression"` row naming that .md — the security-review ledger
+# gained a false suppression event for a file that suppresses nothing, and
+# every honest write-up about suppressions accretes another one. semgrep has
+# no analyzer for Markdown/plain-text: a directive there cannot skip a line,
+# so those file classes are out of the detector's scope. BOTH directions in
+# ONE fixture: the .md must produce no row and must not be named, while the
+# .ts staged in the SAME commit still forfeits the receipt and rows.
+echo "=== T-bl185-doc-mention ==="
+if [ "$HAVE_SEMGREP" -eq 0 ]; then
+  skip_ "T-bl185-doc-mention" "semgrep ABSENT — UNPROVEN here (skip, NOT a pass)"
+else
+  DMD="$(mktemp -d)"
+  if ! mk_repo "$DMD" "$EMITTED" >/dev/null 2>&1; then
+    fail_ "T-bl185-doc-mention" "fixture setup failed"
+  else
+    mkdir -p "$DMD/scripts/lib" "$DMD/.claude"
+    cp "$REPO_ROOT/scripts/lib/bypass-audit.sh" "$DMD/scripts/lib/" 2>/dev/null || true
+    cat > "$DMD/NOTES.md" <<'MD'
+# Walk report
+The pre-commit gate records every `nosemgrep` directive as an audited
+observation. A `// nosem` comment suppresses the following line, so the
+report has to name the directive it is reporting on.
+MD
+    # UPPERCASE and .mdx siblings make the extension CASE-FOLD load-bearing:
+    # a reviewer mutant that deleted the fold survived this case when the
+    # fixture only carried lowercase `.md` (R-GATEUX-3b, 2026-08-02 review).
+    # The uppercase file is NOT named README.MD, deliberately: mk_repo seeds a
+    # tracked `README.md`, and on a case-INSENSITIVE filesystem (macOS APFS)
+    # the two are ONE path — git stages the tracked lowercase name, the fold is
+    # never exercised, and the mutant survives again. Measured, not assumed.
+    printf '# Readme\nWe log every nosemgrep directive we see.\n' > "$DMD/WALKNOTES.MD"
+    printf '# Docs\nA `nosem` comment is recorded, never silently honoured.\n' > "$DMD/GUIDE.mdx"
+    printf 'export function render(pane, userText) {\n  // nosemgrep\n  pane.innerHTML = userText;\n}\n' > "$DMD/app.ts"
+    ( cd "$DMD" && git add -- NOTES.md WALKNOTES.MD GUIDE.mdx app.ts ) >/dev/null 2>&1
+    if ( cd "$DMD" && git commit -m "docs: walk report plus renderer" ) >"$TOPTMP/dm185.log" 2>&1; then DM_V=COMMITTED; else DM_V=REFUSED; fi
+    DM_ROW_FILES=""
+    if command -v jq >/dev/null 2>&1 && [ -f "$DMD/.claude/bypass-audit.json" ]; then
+      DM_ROW_FILES=$(jq -r '[.[] | select(.type == "sast_suppression") | .details.files] | join(",")' "$DMD/.claude/bypass-audit.json" 2>/dev/null) || DM_ROW_FILES=""
+    fi
+    DM_DOC_LEAK=""
+    for DM_DOC in NOTES.md WALKNOTES.MD GUIDE.mdx; do
+      if printf '%s' "$DM_ROW_FILES" | grep -qF "$DM_DOC" \
+         || grep -F "BL-185:" "$TOPTMP/dm185.log" 2>/dev/null | grep -qF "$DM_DOC"; then
+        DM_DOC_LEAK="$DM_DOC_LEAK $DM_DOC"
+      fi
+    done
+    if [ "$DM_V" != "COMMITTED" ]; then
+      fail_ "T-bl185-doc-mention" "the commit was REFUSED — allow-but-log, never block: $(tail -6 "$TOPTMP/dm185.log" | tr '\n' '|')"
+    elif [ -n "$DM_DOC_LEAK" ]; then
+      fail_ "T-bl185-doc-mention" "prose file(s) that only MENTION the directive were recorded as carrying a suppression:$DM_DOC_LEAK (ledger files='$DM_ROW_FILES') — semgrep cannot suppress a line it never scans; documenting the framework must not manufacture bypass records. An UPPERCASE or .mdx leak means the extension case-fold/list is not doing its job"
+    elif ! printf '%s' "$DM_ROW_FILES" | grep -qF 'app.ts'; then
+      fail_ "T-bl185-doc-mention" "the REAL suppression in app.ts stopped being recorded (ledger files='$DM_ROW_FILES') — the scoping went too far: $(tail -8 "$TOPTMP/dm185.log" | tr '\n' '|')"
+    elif ! grep -qF 'in: app.ts' "$TOPTMP/dm185.log"; then
+      fail_ "T-bl185-doc-mention" "the receipt no longer NAMES the real suppression: $(tail -8 "$TOPTMP/dm185.log" | tr '\n' '|')"
+    else
+      pass "T-bl185-doc-mention: staged .md / .MD / .mdx naming the directive produce NO row and are not named; the .ts in the same commit still forfeits and rows"
+    fi
+    rm -rf "$DMD"
+  fi
+fi
+
+# ── T-bl185-doc-scope-mutation: the doc-class skip carries its own weight ────
+echo "=== T-bl185-doc-scope-mutation ==="
+if [ "$HAVE_SEMGREP" -eq 0 ]; then
+  skip_ "T-bl185-doc-scope-mutation" "semgrep ABSENT — mutation UNPROVEN here (skip, NOT a pass)"
+else
+  DSM="$TOPTMP/mut-no-doc-scope"
+  DSM_B=$(grep -c '# BL-185-SUPPRESSION-DOC-SCOPE-BEGIN' "$EMITTED") || DSM_B=0
+  DSM_E=$(grep -c '# BL-185-SUPPRESSION-DOC-SCOPE-END' "$EMITTED") || DSM_E=0
+  sed '/# BL-185-SUPPRESSION-DOC-SCOPE-BEGIN/,/# BL-185-SUPPRESSION-DOC-SCOPE-END/d' "$EMITTED" > "$DSM"
+  if [ "$DSM_B" -ne 1 ] || [ "$DSM_E" -ne 1 ]; then
+    fail_ "T-bl185-doc-scope-mutation" "MIS-TARGETED — the doc-scope fence is not present exactly once (begin=$DSM_B end=$DSM_E)"
+  elif ! bash -n "$DSM" 2>/dev/null; then
+    fail_ "T-bl185-doc-scope-mutation" "mutated hook has a syntax error — a broken mutant proves nothing"
+  else
+    chmod +x "$DSM"
+    DSD="$(mktemp -d)"
+    if ! mk_repo "$DSD" "$DSM" >/dev/null 2>&1; then
+      fail_ "T-bl185-doc-scope-mutation" "mutation fixture setup failed"
+    else
+      mkdir -p "$DSD/scripts/lib" "$DSD/.claude"
+      cp "$REPO_ROOT/scripts/lib/bypass-audit.sh" "$DSD/scripts/lib/" 2>/dev/null || true
+      printf '# Report\nThe gate logs every nosemgrep directive it sees.\n' > "$DSD/NOTES.md"
+      ( cd "$DSD" && git add -- NOTES.md ) >/dev/null 2>&1
+      ( cd "$DSD" && git commit -m "docs: walk report" ) >"$TOPTMP/ds185.log" 2>&1 || true
+      if grep -E 'BL-185:.*NOTES\.md' "$TOPTMP/ds185.log" >/dev/null 2>&1; then
+        pass "T-bl185-doc-scope-mutation: excising the doc-class skip brings the false suppression row back (RED) — the skip, not chance, is what keeps prose out of the ledger"
+      else
+        fail_ "T-bl185-doc-scope-mutation" "excising the fence did NOT reproduce the ISSUE-018 row — this case is not isolating the skip: $(tail -8 "$TOPTMP/ds185.log" | tr '\n' '|')"
+      fi
+      rm -rf "$DSD"
+    fi
+  fi
+fi
+
 echo ""
 if [ "$SKIPPED" -gt 0 ]; then echo "!! $SKIPPED case(s) SKIPPED — skipped != passed."; fi
 echo "Results: $PASSED passed, $FAILED failed ($SKIPPED skipped)"

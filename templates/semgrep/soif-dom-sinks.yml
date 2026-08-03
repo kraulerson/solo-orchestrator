@@ -20,7 +20,9 @@
 #     parsers do not expose the embedded <script> JS as a matchable AST (verified,
 #     semgrep 1.157.0), so precise AST rules cannot reach them. Regex is SYNTACTIC,
 #     not taint-aware — a code sample shown as prose in an .html doc can
-#     false-positive (suppress with a `nosemgrep` line comment), and a sink
+#     false-positive (suppress with a `nosemgrep` comment ON the flagged line or
+#     on the line IMMEDIATELY above it — anything in between, including your own
+#     justification, silently voids it), and a sink
 #     assembled across lines / via aliasing can evade. This is the accepted residue.
 #   • Each rule excludes a string-LITERAL argument/RHS to cut false positives
 #     (el.innerHTML = "<b>x</b>" and insertAdjacentHTML('beforeend', '<hr>') pass).

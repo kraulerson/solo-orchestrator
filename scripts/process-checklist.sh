@@ -162,28 +162,276 @@ step_is_completed() {
   jq -e --arg step "$step" ".${process}.steps_completed | index(\$step) != null" "$PROCESS_STATE" >/dev/null 2>&1
 }
 
+# WALK-ISSUE-010-SLUG: fold arbitrary prose (a feature name, a commit scope,
+# a commit description) to a lowercase `-`-separated slug so the two can be
+# compared without demanding that the operator retype a name verbatim.
+_build_loop_slug() {
+  printf '%s' "$1" \
+    | tr '[:upper:]' '[:lower:]' \
+    | tr -c 'a-z0-9' '-' \
+    | sed 's/--*/-/g; s/^-//; s/-$//'
+}
+
+# WALK-ISSUE-010-STOPLIST: tokens that name no feature. A shared token only
+# counts as an identity when it says WHICH feature — these say only that the
+# subject is software. Deliberately short and only ever consulted by the
+# single-shared-token arm below: the whole-slug arm is NOT stoplisted, so a
+# feature genuinely called "config" still matches `feat(config): …`.
+_BUILD_LOOP_GENERIC_TOKENS=" common component components config configuration feature features general handler helper helpers index initial manager module project service services setup shared support system update updates utility utilities utils version "
+
+# WALK-ISSUE-010-IDENTITY: does this commit subject NAME the given feature?
+# The identity bound is what keeps the UAT-2026-04-25 C2 grace window shut
+# while still letting a CLOSED loop authorize its own feature's commit
+# (see # WALK-ISSUE-010-CLOSED-LOOP-BEGIN).
+#   - The haystack is the SCOPE plus the DESCRIPTION, never the `feat` type
+#     token itself (otherwise every feat: subject would "name" any feature
+#     whose slug contains the word "feat" — e.g. UAT's own `uat-feat-1`).
+#   - MATCH 1: the whole feature slug as a contiguous TOKEN SEQUENCE. Token
+#     bounded at EVERY length. The first cut used a raw substring for slugs of
+#     four characters or more and the 2026-08-02 adversarial review walked
+#     straight through it in both directions: `auth2` and `authentication`
+#     both "named" the feature `auth`, and `performance` "named" `form`.
+#     Letters inside a word are not a name.
+#   - MATCH 2: ONE shared whole token, if that token is DISTINCTIVE — at
+#     least five characters AND not in the stoplist above. The same review
+#     blessed unrelated subjects through `with` and `user`; a generic
+#     engineering noun (`service`, `config`, `update`) is that defect one size
+#     up. Five is a pinned WIDTH, asserted from both sides by U32 in
+#     tests/test-check-commit-message.sh, because a reviewer mutant that
+#     loosened the old threshold by one character survived the whole suite.
+#   - REMAINING GENEROSITY, stated rather than hidden: two features that share
+#     one distinctive word ("export-pdf" / "export-csv") can still name each
+#     other. That is the price of not demanding the slug verbatim, and it is
+#     bounded by the second half of the binding — the closed loop's own files
+#     must also be staged (# WALK-ISSUE-010-PATHBIND).
+# Returns 0 on a match, 1 otherwise (including an empty subject — a caller
+# that cannot supply the subject gets no closed-loop credit, fail closed).
+_subject_names_feature() {
+  local subject="$1" feature="$2"
+  [ -n "$subject" ] && [ -n "$feature" ] || return 1
+  local scope="" desc hay feat_slug tok
+  case "$subject" in
+    *\(*\)*:*) scope=${subject#*\(}; scope=${scope%%\)*} ;;
+  esac
+  desc=${subject#*:}
+  hay=$(_build_loop_slug "$scope $desc")
+  feat_slug=$(_build_loop_slug "$feature")
+  [ -n "$feat_slug" ] && [ -n "$hay" ] || return 1
+  case "-$hay-" in
+    *"-$feat_slug-"*) return 0 ;;
+  esac
+  local IFS='-'
+  for tok in $feat_slug; do
+    [ "${#tok}" -ge 5 ] || continue
+    case "$_BUILD_LOOP_GENERIC_TOKENS" in
+      *" $tok "*) continue ;;
+    esac
+    case "-$hay-" in
+      *"-$tok-"*) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+# WALK-ISSUE-010-PATHBIND: does the staged set intersect the paths the closed
+# loop was working on? $1 = the receipt's newline-separated paths, $2 = the
+# staged paths. Whole-path equality, never a substring: `src/find.ts` must not
+# be satisfied by `src/find.ts.bak`. Returns 0 (authorized) when either list is
+# EMPTY — the two documented fallbacks (a loop closed on a clean tree; a commit
+# with nothing staged, e.g. `git commit -a` before the index is written). Both
+# are stated on the caller and pinned by U27.
+# PATH SPELLING: both sides come from git plumbing (`diff --name-only`,
+# `ls-files --others`) under the same core.quotePath setting, so an
+# unusual path is quoted identically in the receipt and at commit time and
+# still compares equal. A future caller that fed one side an unquoted or
+# absolute path would simply fail to match — toward blocking, never toward
+# granting — but nothing in the repo does that today; do not read this as a
+# claim that quoted paths cannot match, which is what an earlier revision of
+# this comment said and got wrong.
+_closed_loop_touches_staged() {
+  local receipt_paths="$1" staged="$2" sp rp
+  [ -n "$receipt_paths" ] || return 0
+  [ -n "$staged" ] || return 0
+  while IFS= read -r sp; do
+    [ -n "$sp" ] || continue
+    while IFS= read -r rp; do
+      [ -n "$rp" ] || continue
+      if [ "$sp" = "$rp" ]; then
+        return 0
+      fi
+    done <<CLOSEDLOOPPATHS
+$receipt_paths
+CLOSEDLOOPPATHS
+  done <<STAGEDPATHS
+$staged
+STAGEDPATHS
+  return 1
+}
+
+# --- Helper: P4-001 monitoring verification evidence (walk ISSUE-017) ---
+# TRUE when HANDOFF.md records a real error -> alert -> arrived cycle, dated.
+# Two accepted shapes, in order:
+#   1. the DOCUMENTED structured block (below, and in docs/builders-guide.md
+#      Step 4.3) — the contract this check advertises in its failure message;
+#   2. the legacy free-text prose the pre-ISSUE-017 detector matched, kept so
+#      every project that already satisfied this gate still does.
+# The SEMANTIC bar is unchanged in both: an event, an alert that fired, an
+# alert that ARRIVED, and a date. What changed is that the accepted shape is
+# now written down instead of discovered by trial and error.
+_p4_monitoring_verification_ok() {
+  [ -f "HANDOFF.md" ] || return 1
+  # WALK-ISSUE-017-STRUCTURED-BEGIN — the documented block:
+  #   - Error event: …        (a deliberately triggered test error OR a real failure)
+  #   - Alert fired: …
+  #   - Alert arrived: …      ("received" accepted)
+  #   - Date verified: YYYY-MM-DD
+  # Markup-tolerant (bold/list markers, any case, any indent) and each label
+  # must carry real content — an empty label line proves nothing. This arm
+  # exists because an honest ZERO-TELEMETRY write-up (no server error stream,
+  # so no "test error" and nothing "synthetic") could not express itself in
+  # the legacy arm's vocabulary and was rejected four times in the walk.
+  local _mv_dated=0
+  if grep -qiE '(test error triggered|error triggered|error event)[*[:space:]]*:[*[:space:]]*[^*[:space:]]' HANDOFF.md 2>/dev/null \
+     && grep -qiE 'alert fired[*[:space:]]*:[*[:space:]]*[^*[:space:]]' HANDOFF.md 2>/dev/null \
+     && grep -qiE 'alert (arrived|received)[*[:space:]]*:[*[:space:]]*[^*[:space:]]' HANDOFF.md 2>/dev/null; then
+    # The date must sit ON the "Date verified" line — a date anywhere else in
+    # a handoff (a release date, a cadence table) is not a verification date.
+    _mv_dated=$(grep -iE 'date verified' HANDOFF.md 2>/dev/null \
+      | grep -cE '[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])') || _mv_dated=0
+    case "$_mv_dated" in ''|*[!0-9]*) _mv_dated=0 ;; esac
+    if [ "$_mv_dated" -gt 0 ]; then
+      return 0
+    fi
+  fi
+  # WALK-ISSUE-017-STRUCTURED-END
+  if grep -qiE 'test (error|alert)|triggered|synthetic' HANDOFF.md 2>/dev/null \
+     && grep -qiE 'received|confirmed|observed|fired|arrived' HANDOFF.md 2>/dev/null; then
+    return 0
+  fi
+  return 1
+}
+
 # --- Helper: require Build Loop state sufficient for a commit ---
 # Used by both the file-heuristic path (--check-commit-ready) and the
 # commit-message-triggered path (--check-commit-message). Prints the spec's
 # Case A / Case B remediation to stderr on failure. Returns 0 if state OK,
 # 1 otherwise. Reads $PROCESS_STATE and the BUILD_LOOP_STEPS array.
+# $1 (optional) = the commit SUBJECT, used only by the closed-loop arm below.
 require_build_loop_state_for_commit() {
+  local subject="${1:-}"
   local feature
   feature=$(jq -r '.build_loop.feature // "null"' "$PROCESS_STATE")
   if [ "$feature" = "null" ]; then
-    print_fail "pre-commit gate: 'feat(...)' commit blocked — no Build Loop active."
-    echo "MVP Cutline work and all features require a Build Loop per" >&2
-    echo "docs/builders-guide.md \"MVP Cutline Work Requires the Build Loop\"." >&2
+    # WALK-ISSUE-010-CLOSED-LOOP-BEGIN — a COMPLETED loop authorizes ITS OWN
+    # feature's commit. The 2026-08-02 walk (ISSUE-010, Major) read CLAUDE.md's
+    # Build Loop the way it is written — mark the six steps in order, then
+    # commit the feature — and step 6 (feature_recorded) auto-resets
+    # .build_loop (the UAT-C2 fix), so the feature's own `feat:` commit was
+    # blocked PERMANENTLY: the only documented recovery was to re-register a
+    # loop for work that was already done, tested, audited and documented.
+    # Neither ordering is wrong, so the gate accepts both: an ACTIVE loop with
+    # steps 1-5 done (below), or the CLOSED-LOOP RECEIPT written at
+    # # WALK-ISSUE-010-RECEIPT when step 6 landed.
+    #   THE BOUND IS IDENTITY, NOT TIME. The receipt authorizes only commits
+    #   that NAME its feature (_subject_names_feature), so the C2 hole — one
+    #   completed loop unlocking ANY later feat: commit — stays shut; that is
+    #   pinned by U18/U20 in tests/test-check-commit-message.sh. What the
+    #   receipt DOES allow is more than one commit for the SAME closed
+    #   feature, deliberately: the Build Loop is per FEATURE, not per commit,
+    #   and re-blocking a split commit would rebuild the dead end this fixes.
+    #   All five work steps must be present in the receipt (U22) — a partial
+    #   record authorizes nothing.
+    #   SECOND HALF OF THE BINDING — THE LOOP'S OWN FILES (Karl, 2026-08-02).
+    #   The subject is operator-authored text: typing the closed feature's name
+    #   above unrelated work would otherwise let a stale receipt bless it. So
+    #   the receipt also records the paths the loop was working on when it
+    #   closed (# WALK-ISSUE-010-RECEIPT), and the staged set must intersect
+    #   them (_closed_loop_touches_staged, U25/U26). TWO DOCUMENTED FALLBACKS,
+    #   each pinned: a receipt with NO recorded paths (a loop closed on a clean
+    #   tree — the commit-FIRST ordering, U27) and a commit with NO staged
+    #   paths fall back to identity alone, because there is nothing to bind
+    #   against. Naming them is the honest alternative to pretending the bind
+    #   is total.
+    #   A THIRD BOUND WAS CONSIDERED AND DECLINED (R-GATEUX-6): the receipt
+    #   already carries `completed_at`, so a freshness window is one comparison
+    #   away. It is not here because expiring a receipt re-creates exactly the
+    #   dead end this fix exists to remove — a Friday loop, a Monday commit,
+    #   blocked — and because ISO-8601-to-epoch parsing is the GNU/BSD `date`
+    #   split this repo has been bitten by before. Recorded as a residual, not
+    #   an oversight: if the identity+files pair is ever judged too weak, the
+    #   timestamp is sitting in the receipt ready to be read.
+    local closed_feature="" closed_missing="" closed_paths="" staged_paths=""
+    closed_feature=$(jq -r '.build_loop.last_completed.feature // ""' "$PROCESS_STATE" 2>/dev/null) || closed_feature=""
+    if [ -n "$closed_feature" ]; then
+      for step in "${BUILD_LOOP_STEPS[@]:0:5}"; do
+        if ! jq -e --arg s "$step" '((.build_loop.last_completed.steps_completed // []) | index($s)) != null' "$PROCESS_STATE" >/dev/null 2>&1; then
+          closed_missing="$step"
+          break
+        fi
+      done
+      closed_paths=$(jq -r '(.build_loop.last_completed.paths // [])[]' "$PROCESS_STATE" 2>/dev/null) || closed_paths=""
+      staged_paths=$(git diff --cached --name-only 2>/dev/null) || staged_paths=""
+      if [ -z "$closed_missing" ] && _subject_names_feature "$subject" "$closed_feature"; then
+        if _closed_loop_touches_staged "$closed_paths" "$staged_paths"; then
+          return 0
+        fi
+        print_fail "pre-commit gate: 'feat(...)' commit blocked — the subject names the closed Build Loop \"$closed_feature\", but NONE of that loop's files are staged."
+        echo "A closed loop authorizes the commits of the work it actually did." >&2
+        echo "" >&2
+        echo "  That loop's files:  $(printf '%s' "$closed_paths" | tr '\n' ' ')" >&2
+        echo "  Staged now:         $(printf '%s' "$staged_paths" | tr '\n' ' ')" >&2
+        echo "" >&2
+        echo "This looks like DIFFERENT work. Give it its own loop:" >&2
+        echo "  scripts/process-checklist.sh --start-feature \"NAME\"" >&2
+        echo "then complete steps 1-5 and re-run your commit. (If this really is the" >&2
+        echo "same feature — e.g. a rename or a file created after the loop closed —" >&2
+        echo "start a loop for it; the gate cannot tell those apart from new work.)" >&2
+        echo "" >&2
+        echo "This commit did NOT happen. Confirm what landed with: git log -1 --oneline" >&2
+        echo "(never pipe git commit through | tail — it hides this message)." >&2
+        return 1
+      fi
+    fi
+    if [ -n "$closed_feature" ] && [ -z "$closed_missing" ]; then
+      print_fail "pre-commit gate: 'feat(...)' commit blocked — the only completed Build Loop is \"$closed_feature\", and this subject does not name it."
+      echo "A closed loop authorizes the commits of ITS OWN feature only." >&2
+      echo "" >&2
+      echo "To proceed, EITHER:" >&2
+      echo "  a. this IS \"$closed_feature\" — name it in the subject, e.g." >&2
+      echo "     feat($(_build_loop_slug "$closed_feature")): <what you built>" >&2
+      echo "     (the full name anywhere in the scope or description works, as does one" >&2
+      echo "      distinctive word of it — 5+ characters, not a generic term like 'service')" >&2
+      echo "  b. this is a DIFFERENT feature — give it its own loop:" >&2
+      echo "     scripts/process-checklist.sh --start-feature \"NAME\"" >&2
+      echo "     then complete steps 1-5 and re-run your commit." >&2
+    elif [ -n "$closed_feature" ]; then
+      print_fail "pre-commit gate: 'feat(...)' commit blocked — the closed Build Loop for \"$closed_feature\" is missing a required step: $closed_missing."
+      echo "A closed loop authorizes a commit only when all five work steps were completed." >&2
+      echo "" >&2
+      echo "To proceed: scripts/process-checklist.sh --start-feature \"$closed_feature\"" >&2
+      echo "then complete each step (scripts/process-checklist.sh --complete-step build_loop:STEP)" >&2
+      echo "and re-run your commit." >&2
+    else
+      print_fail "pre-commit gate: 'feat(...)' commit blocked — no Build Loop active."
+      echo "MVP Cutline work and all features require a Build Loop per" >&2
+      echo "docs/builders-guide.md \"MVP Cutline Work Requires the Build Loop\"." >&2
+      echo "" >&2
+      echo "To proceed:" >&2
+      echo "  1. scripts/process-checklist.sh --start-feature \"NAME\"" >&2
+      echo "  2. Write failing tests, implement, verify, update docs" >&2
+      echo "  3. Complete each step: scripts/process-checklist.sh --complete-step build_loop:STEP" >&2
+      echo "  4. Re-run your commit" >&2
+      echo "" >&2
+      echo "If this commit is NOT a feature (tooling, CI, scaffolding, docs)," >&2
+      echo "change the conventional-commit type: feat: -> chore:/build:/ci:/docs:." >&2
+    fi
+    # The walk lost FOUR commits to `git commit ... | tail`, which hid this
+    # very block: the operator saw no error and believed the work was saved.
     echo "" >&2
-    echo "To proceed:" >&2
-    echo "  1. scripts/process-checklist.sh --start-feature \"NAME\"" >&2
-    echo "  2. Write failing tests, implement, verify, update docs" >&2
-    echo "  3. Complete each step: scripts/process-checklist.sh --complete-step build_loop:STEP" >&2
-    echo "  4. Re-run your commit" >&2
-    echo "" >&2
-    echo "If this commit is NOT a feature (tooling, CI, scaffolding, docs)," >&2
-    echo "change the conventional-commit type: feat: -> chore:/build:/ci:/docs:." >&2
+    echo "This commit did NOT happen. Confirm what landed with: git log -1 --oneline" >&2
+    echo "(never pipe git commit through | tail — it hides this message)." >&2
     return 1
+    # WALK-ISSUE-010-CLOSED-LOOP-END
   fi
 
   # Check first 5 build_loop steps: tests_written, tests_verified_failing,
@@ -639,9 +887,27 @@ BL120EOF
           print_warn "HANDOFF.md does not document monitoring configuration."
           echo "  Document monitoring tool, dashboard URL, and alert channel in HANDOFF.md Section 8." >&2
           artifact_check_failed=true
-        elif ! grep -qiE 'test (error|alert)|triggered|synthetic' HANDOFF.md 2>/dev/null \
-             || ! grep -qiE 'received|confirmed|observed|fired|arrived' HANDOFF.md 2>/dev/null; then
-          print_warn "HANDOFF.md names monitoring but records NO verification event — 'configured' is not 'verified' (P4-001: trigger a test error and record that the alert arrived)."
+        elif _p4_monitoring_verification_ok; then
+          : # evidence found — structured block or legacy free-text prose
+        else
+          print_warn "HANDOFF.md names monitoring but records NO verification event — 'configured' is not 'verified' (P4-001: a real error must have produced an alert that ARRIVED)."
+          # WALK-ISSUE-017-MESSAGE: print the accepted shape. The walk spent
+          # four attempts and 18 minutes guessing what this detector wanted
+          # from an honest write-up; a check that rejects prose owes the
+          # operator the exact block that passes.
+          echo "  Add this block to HANDOFF.md (Section 8 / Monitoring), filled in:" >&2
+          echo "" >&2
+          echo "    ### Monitoring verification" >&2
+          echo "    - Error event: <the error that occurred — a deliberately triggered test error, OR a real failure>" >&2
+          echo "    - Alert fired: <the rule / workflow / channel that fired>" >&2
+          echo "    - Alert arrived: <where it was RECEIVED, and who acted on it>" >&2
+          echo "    - Date verified: YYYY-MM-DD" >&2
+          echo "" >&2
+          echo "  All four lines are required, each with real content. A ZERO-TELEMETRY project" >&2
+          echo "  qualifies: deploy-failure alerts, uptime alerts and CI-failure notifications are" >&2
+          echo "  monitoring, and a REAL failure whose alert arrived is stronger evidence than a" >&2
+          echo "  simulated one. What is NOT accepted is a monitoring section with no verified" >&2
+          echo "  error -> alert -> arrived cycle. See docs/builders-guide.md Step 4.3." >&2
           artifact_check_failed=true
         fi
       else
@@ -823,7 +1089,16 @@ BL120EOF
       print_warn "Step forced without artifact — logged to .claude/process-audit.log"
     else
       print_fail "Artifact check failed. Produce the required artifact first."
-      echo "  To force-override (Orchestrator only, logged):" >&2
+      # WALK-ISSUE-017-HATCH: advertise the override WITH its precondition.
+      # The walk's agent read this text as an available escape, spent time on
+      # it, and only then learned the override refuses without a TTY. The
+      # override stays HUMAN-ONLY by decision (Karl, 2026-08-02) — this text
+      # exists so an agent ESCALATES instead of retrying a hatch that will
+      # always refuse it.
+      echo "  To force-override: HUMAN ONLY. The override requires an INTERACTIVE" >&2
+      echo "  terminal and refuses agent/CI/non-interactive sessions by design — if you" >&2
+      echo "  are an agent, do NOT retry it: either produce the artifact, or ESCALATE to" >&2
+      echo "  the human Orchestrator and have them run, in their own terminal:" >&2
       echo "  SOIF_FORCE_STEP=true scripts/process-checklist.sh --complete-step ${process}:${step_id}" >&2
       exit 1
     fi
@@ -851,8 +1126,61 @@ BL120EOF
   # treats subsequent `feat(...)` commits as if a fresh loop is satisfied.
   # UAT 2026-04-25 bug C2 (agents 12, 43, 46): "between-features grace window."
   if [ "$process" = "build_loop" ] && [ "$step_id" = "feature_recorded" ]; then
-    jq '.build_loop = {"feature": null, "step": 0, "steps_completed": [], "started_at": null}' "$PROCESS_STATE" > "$PROCESS_STATE.tmp" && mv "$PROCESS_STATE.tmp" "$PROCESS_STATE"
-    print_ok "Build loop reset — start the next feature with: scripts/process-checklist.sh --start-feature \"NAME\""
+    # WALK-ISSUE-010-RECEIPT — the reset keeps a RECEIPT of the loop it just
+    # consumed. Without it the closing of a loop erased every trace that the
+    # feature's work was tested/implemented/audited/documented, so the
+    # feature's own `feat:` commit was blocked with no way back (ISSUE-010).
+    # The receipt is what # WALK-ISSUE-010-CLOSED-LOOP-BEGIN reads; it lives
+    # INSIDE .build_loop so `--reset build_loop` and `--reset-all` clear it
+    # with everything else, and it is overwritten by the next closed loop.
+    local bl_done_feature bl_done_steps bl_done_at bl_done_paths bl_done_paths_json
+    bl_done_feature=$(jq -r '.build_loop.feature // ""' "$PROCESS_STATE")
+    bl_done_steps=$(jq -c '.build_loop.steps_completed // []' "$PROCESS_STATE")
+    bl_done_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    # The loop's OWN FILES — the half of the binding the operator does not
+    # author (see # WALK-ISSUE-010-PATHBIND). Everything uncommitted at the
+    # moment the loop closes: staged, modified, and untracked-but-not-ignored.
+    #   THIS IS AN APPROXIMATION AND IS RECORDED AS ONE. It is "what was dirty
+    #   when the loop closed", not "the feature's files" — pre-existing dirt an
+    #   operator happened to be carrying lands in the receipt too and would
+    #   satisfy the path half later. It is a floor under the identity bound,
+    #   not an identity of its own.
+    #   THE WIDEST REMAINING OVERLAP, named rather than left to be found:
+    #   FEATURES.md and CHANGELOG.md are dirty at nearly every loop close
+    #   (`test-gate.sh --record-feature` writes them just before step 6), so
+    #   they sit in most receipts and EVERY feature touches them. They are
+    #   deliberately NOT filtered — they are the documentation_updated step's
+    #   real output, and dropping them would block the honest docs-follow-up
+    #   commit — but that means a subject naming a stale feature while staging
+    #   FEATURES.md clears the path half on shared bookkeeping. The identity
+    #   half is what refuses it. Unlike `.claude/`, these are the operator's
+    #   own work product, which is why the line is drawn here.
+    #   `.claude/` IS EXCLUDED, and that exclusion is load-bearing (R-GATEUX-1,
+    #   2026-08-02 adversarial review). Generated projects TRACK
+    #   .claude/process-state.json and CLOSING THE LOOP WRITES IT — so it was
+    #   dirty at capture time and landed in every receipt. A naive `git add -A`
+    #   then staged it, which satisfied the path binding by itself: the
+    #   reviewer committed an unrelated file under a stale feature name, rc=0.
+    #   Framework bookkeeping is never evidence of a feature's work. Pinned by
+    #   U29; without the filter the receipt is also never empty, which made the
+    #   documented empty-paths fallback dead code in real projects.
+    # An empty result stays legitimate (a loop closed on a clean tree — the
+    # commit-FIRST ordering) and falls back to identity alone rather than
+    # blocking.
+    bl_done_paths=$( { git diff --cached --name-only; git diff --name-only; \
+                       git ls-files --others --exclude-standard; } 2>/dev/null \
+                     | grep -v '^\.claude/' \
+                     | sort -u ) || bl_done_paths=""
+    bl_done_paths_json=$(printf '%s' "$bl_done_paths" \
+      | jq -R -s 'split("\n") | map(select(length > 0))' 2>/dev/null) || bl_done_paths_json="[]"
+    [ -n "$bl_done_paths_json" ] || bl_done_paths_json="[]"
+    jq --arg f "$bl_done_feature" --arg at "$bl_done_at" --argjson s "$bl_done_steps" \
+       --argjson p "$bl_done_paths_json" \
+       '.build_loop = {"feature": null, "step": 0, "steps_completed": [], "started_at": null,
+                       "last_completed": {"feature": $f, "completed_at": $at, "steps_completed": $s,
+                                          "paths": $p}}' \
+       "$PROCESS_STATE" > "$PROCESS_STATE.tmp" && mv "$PROCESS_STATE.tmp" "$PROCESS_STATE"
+    print_ok "Build loop closed for \"$bl_done_feature\" — its own feat: commit is still authorized; the NEXT feature needs: scripts/process-checklist.sh --start-feature \"NAME\""
   fi
 
   # Show next step if any
@@ -1205,6 +1533,17 @@ show_status() {
   local bl_total=${#BUILD_LOOP_STEPS[@]}
   echo "  Feature: $feature"
   echo "  Progress: $bl_completed/$bl_total steps"
+  # WALK-ISSUE-010-STATUS: with no active loop, "Feature: none" used to be the
+  # WHOLE story — an operator who had just closed a loop could not tell whether
+  # their finished feature could still be committed. Name the receipt.
+  if [ "$feature" = "none" ]; then
+    local bl_last
+    bl_last=$(jq -r '.build_loop.last_completed.feature // ""' "$PROCESS_STATE" 2>/dev/null) || bl_last=""
+    if [ -n "$bl_last" ]; then
+      echo "  Last completed: \"$bl_last\" — its own feat: commits are still authorized;"
+      echo "                  a DIFFERENT feature needs --start-feature first."
+    fi
+  fi
   if [ "$bl_completed" -lt "$bl_total" ]; then
     echo "  Remaining:"
     for step in "${BUILD_LOOP_STEPS[@]}"; do
@@ -1489,7 +1828,15 @@ check_commit_ready() {
     # a non-feat commit via --subject. See code-process-checklist-5
     # comment above for rationale.
     if [ "$subject_is_feat" = true ]; then
-      require_build_loop_state_for_commit || exit 1
+      # WALK-ISSUE-010: pass the subject through — the closed-loop arm needs it
+      # to tell "this feature's own commit" from "some other feature's". A
+      # subject-less caller reaches this line only with subject_is_feat=true,
+      # which the BL-139 subject-less default above makes unreachable — and it
+      # would get no closed-loop credit anyway: the arm fails closed on an
+      # empty subject. (Do NOT spell that fence's BEGIN token here: its
+      # excision mutant is an unanchored sed range, and a second occurrence
+      # would delete this file from here to EOF.)
+      require_build_loop_state_for_commit "$COMMIT_SUBJECT" || exit 1
     fi
 
     # If UAT session is in progress, all 9 steps must be complete. This
@@ -1716,7 +2063,8 @@ check_commit_message() {
   fi
 
   # Feat-prefixed: require Build Loop state sufficient for a commit.
-  require_build_loop_state_for_commit || exit 1
+  # WALK-ISSUE-010: the SUBJECT is the closed-loop arm's identity input.
+  require_build_loop_state_for_commit "$subject" || exit 1
 
   exit 0
 }

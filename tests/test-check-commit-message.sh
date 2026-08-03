@@ -256,6 +256,347 @@ JSON
   teardown
 }
 
+# ── WALK-ISSUE-010: a CLOSED loop authorizes ITS OWN feature's commit ────────
+# Walk of 2026-08-02, ISSUE-010 (Major): the walker read
+# CLAUDE.md's Build Loop as "mark the six steps in order, then commit the
+# feature". Completing step 6 (feature_recorded) auto-resets .build_loop (the
+# UAT-C2 fix U18 pins), so the feature's own `feat:` commit was then blocked
+# FOREVER — the gate demanded a loop that the documented order had just
+# closed, and its remediation text ("--start-feature ...") dead-ends a junior
+# into re-registering a loop for work that is already done.
+#
+# The fix records a CLOSED-LOOP RECEIPT (.build_loop.last_completed) and
+# accepts it for commits that NAME that feature. The bound is IDENTITY, not
+# time: U18/U20 prove an unrelated feat: commit is still blocked, so the C2
+# grace window stays shut.
+#
+# seed_ready_to_record <feature>: the post-step-5 state (loop active, steps
+# 1-5 done) — the same hand-seed U18 uses, parameterized by feature name.
+seed_ready_to_record() {
+  local feature="$1"
+  mkdir -p "$TMPDIR_T/.claude"
+  jq -n --arg f "$feature" '{
+    "phase2_init": {"verified": true},
+    "build_loop": {
+      "feature": $f,
+      "step": 5,
+      "steps_completed": ["tests_written","tests_verified_failing","implemented","security_audit","documentation_updated"],
+      "started_at": "2026-08-02T00:00:00Z"
+    },
+    "uat_session": {"started_at": null, "steps_completed": []}
+  }' > "$TMPDIR_T/.claude/process-state.json"
+}
+
+# record_feature: run the real --complete-step build_loop:feature_recorded
+# (the walker's actual command) so the receipt is written by the product code,
+# never hand-seeded. Echoes the rc.
+record_feature() {
+  local rc=0
+  ( cd "$TMPDIR_T" && "$REPO_ROOT/scripts/process-checklist.sh" \
+      --complete-step "build_loop:feature_recorded" >/dev/null 2>&1 ) || rc=$?
+  echo "$rc"
+}
+
+u19_closed_loop_allows_its_own_feature() {
+  setup; seed_phase 2; seed_ready_to_record "find-in-document"
+  local rc; rc=$(record_feature)
+  [ "$rc" = "0" ] || { fail_ "U19" "--complete-step build_loop:feature_recorded failed (rc=$rc)"; teardown; return; }
+  local out; out=$(run_check "feat(find-in-document): add the find bar")
+  [ "${out%%|*}" = "0" ] || { fail_ "U19" "the feature's OWN commit was blocked after its loop was completed and closed — the ISSUE-010 dead end: $out"; teardown; return; }
+  pass "U19: a completed+closed Build Loop authorizes that feature's own feat: commit"
+  teardown
+}
+
+u20_closed_loop_blocks_other_features() {
+  setup; seed_phase 2; seed_ready_to_record "find-in-document"
+  local rc; rc=$(record_feature)
+  [ "$rc" = "0" ] || { fail_ "U20" "--complete-step failed (rc=$rc)"; teardown; return; }
+  local out; out=$(run_check "feat(export): PDF export")
+  [ "${out%%|*}" = "1" ] || { fail_ "U20" "a DIFFERENT feature rode the closed loop — the UAT-C2 grace window reopened: $out"; teardown; return; }
+  [[ "${out#*|}" == *"start-feature"* ]] || { fail_ "U20" "stderr must still name the --start-feature recovery: $out"; teardown; return; }
+  [[ "${out#*|}" == *"find-in-document"* ]] || { fail_ "U20" "the block message must NAME the closed loop's feature so the recovery is not a guess: $out"; teardown; return; }
+  pass "U20: the closed-loop receipt is feature-scoped — an unrelated feat: commit is still blocked, by name"
+  teardown
+}
+
+u21_closed_loop_token_match() {
+  setup; seed_phase 2; seed_ready_to_record "Highlight removal with note-loss confirmation"
+  local rc; rc=$(record_feature)
+  [ "$rc" = "0" ] || { fail_ "U21" "--complete-step failed (rc=$rc)"; teardown; return; }
+  local out; out=$(run_check "feat(highlight): remove with confirmation")
+  [ "${out%%|*}" = "0" ] || { fail_ "U21" "a scope naming one word of the closed feature was rejected — the match must not demand the whole slug verbatim: $out"; teardown; return; }
+  pass "U21: a whole word of the closed feature's name in the scope/description matches"
+  teardown
+}
+
+u22_closed_loop_needs_all_five_steps() {
+  setup; seed_phase 2
+  mkdir -p "$TMPDIR_T/.claude"
+  cat > "$TMPDIR_T/.claude/process-state.json" <<'JSON'
+{
+  "phase2_init": {"verified": true},
+  "build_loop": {
+    "feature": null, "step": 0, "steps_completed": [], "started_at": null,
+    "last_completed": {
+      "feature": "find-in-document",
+      "completed_at": "2026-08-02T00:00:00Z",
+      "steps_completed": ["tests_written","tests_verified_failing","implemented"]
+    }
+  },
+  "uat_session": {"started_at": null, "steps_completed": []}
+}
+JSON
+  local out; out=$(run_check "feat(find-in-document): add the find bar")
+  [ "${out%%|*}" = "1" ] || { fail_ "U22" "a receipt MISSING security_audit/documentation_updated authorized a commit — the closed-loop arm must require all five: $out"; teardown; return; }
+  pass "U22: a closed-loop receipt missing required steps authorizes nothing"
+  teardown
+}
+
+# ── The receipt is bound to the CLOSED LOOP'S OWN FILES, not just its name ──
+# Karl's review emphasis (2026-08-02): a stale receipt must not bless an
+# unrelated commit. Naming the feature in the subject is operator-authored
+# text; the second, non-authored half of the binding is the WORK — the paths
+# the loop was actually working on when it closed. A `feat:` commit that names
+# the closed feature but stages none of its files is a different piece of work
+# and is blocked. Two documented fallbacks, both proven below: a receipt with
+# NO recorded paths (a loop closed with a clean tree — the commit-first
+# ordering) and a commit with NO staged paths fall back to identity alone,
+# because there is nothing to bind against.
+#
+# mk_git_fixture <feature> <loop-file> — a real repo whose loop closed with
+# <loop-file> TRACKED-AND-MODIFIED and <loop-file>.test.ts UNTRACKED, so the
+# receipt has to pick both dirty-work sources up, not just one.
+mk_git_fixture() {
+  local feature="$1" loop_file="$2"
+  mkdir -p "$TMPDIR_T/.claude"
+  ( cd "$TMPDIR_T" \
+      && git init -q \
+      && git config user.email "walk@test.invalid" \
+      && git config user.name "walk" \
+      && echo seed > seed.txt \
+      && printf 'export const x = 0;\n' > "$loop_file" \
+      && git add seed.txt "$loop_file" \
+      && git commit -q -m "chore: init" ) >/dev/null 2>&1 || return 1
+  printf 'export const x = 1;\n' > "$TMPDIR_T/$loop_file"
+  printf 'test("x", () => {});\n' > "$TMPDIR_T/${loop_file%.ts}.test.ts"
+  seed_phase 2
+  seed_ready_to_record "$feature"
+  local rc; rc=$(record_feature)
+  [ "$rc" = "0" ] || return 1
+  return 0
+}
+
+u25_receipt_binds_to_the_loops_files() {
+  setup
+  if ! mk_git_fixture "find-in-document" "find.ts"; then
+    fail_ "U25" "fixture setup failed"; teardown; return
+  fi
+  local recorded
+  recorded=$(jq -r '(.build_loop.last_completed.paths // []) | join(",")' "$TMPDIR_T/.claude/process-state.json")
+  [[ "$recorded" == *"find.ts"* ]] || { fail_ "U25" "the receipt did not record the loop's MODIFIED tracked file (got '$recorded') — there is nothing to bind a later commit to"; teardown; return; }
+  [[ "$recorded" == *"find.test.ts"* ]] || { fail_ "U25" "the receipt did not record the loop's UNTRACKED new file (got '$recorded') — a feature's brand-new files are its work too"; teardown; return; }
+  # (a) staging the loop's OWN file + naming the feature: allowed.
+  ( cd "$TMPDIR_T" && git add find.ts ) >/dev/null 2>&1
+  local out; out=$(run_check "feat(find-in-document): add the find bar")
+  [ "${out%%|*}" = "0" ] || { fail_ "U25" "the closed loop's OWN staged file was blocked: $out"; teardown; return; }
+  pass "U25: the closed-loop receipt records the loop's paths and authorizes a commit staging them"
+  teardown
+}
+
+u26_receipt_does_not_bless_unrelated_files() {
+  setup
+  if ! mk_git_fixture "find-in-document" "find.ts"; then
+    fail_ "U26" "fixture setup failed"; teardown; return
+  fi
+  # A LATER, unrelated piece of work — the subject still names the closed
+  # feature (an operator can type anything), but none of the loop's files are
+  # staged. That is a different feature's commit riding a stale receipt.
+  printf 'export const y = 2;\n' > "$TMPDIR_T/exporter.ts"
+  ( cd "$TMPDIR_T" && git add exporter.ts ) >/dev/null 2>&1
+  local out; out=$(run_check "feat(find-in-document): pdf exporter")
+  [ "${out%%|*}" = "1" ] || { fail_ "U26" "a commit staging NONE of the closed loop's files rode the receipt on subject text alone — a stale record must not bless unrelated work: $out"; teardown; return; }
+  [[ "${out#*|}" == *"exporter.ts"* || "${out#*|}" == *"none of the"* ]] || { fail_ "U26" "the block must explain that the staged files are not the closed loop's: $out"; teardown; return; }
+  pass "U26: a stale receipt cannot bless unrelated staged work — subject text alone is not the binding"
+  teardown
+}
+
+u27_no_recorded_paths_falls_back_to_identity() {
+  setup; seed_phase 2
+  mkdir -p "$TMPDIR_T/.claude"
+  # A loop closed on a CLEAN tree (the commit-first ordering): the receipt has
+  # no paths, so there is nothing to bind against and identity alone governs.
+  cat > "$TMPDIR_T/.claude/process-state.json" <<'JSON'
+{
+  "phase2_init": {"verified": true},
+  "build_loop": {
+    "feature": null, "step": 0, "steps_completed": [], "started_at": null,
+    "last_completed": {
+      "feature": "find-in-document",
+      "completed_at": "2026-08-02T00:00:00Z",
+      "steps_completed": ["tests_written","tests_verified_failing","implemented","security_audit","documentation_updated","feature_recorded"],
+      "paths": []
+    }
+  },
+  "uat_session": {"started_at": null, "steps_completed": []}
+}
+JSON
+  local out; out=$(run_check "feat(find-in-document): follow-up")
+  [ "${out%%|*}" = "0" ] || { fail_ "U27" "a receipt with no recorded paths must fall back to identity, not block: $out"; teardown; return; }
+  pass "U27: an empty path record falls back to the identity bound (documented fallback, not a silent hole)"
+  teardown
+}
+
+# ── R-GATEUX-1 (adversarial review, 2026-08-02): the framework's OWN state
+# file is not the feature's work. Generated projects TRACK
+# `.claude/process-state.json`, and closing the loop WRITES it — so it was
+# dirty at capture time and landed in every receipt. A naive `git add -A`
+# (the norm this gate exists for) then stages it, which satisfied the
+# path binding on its own: the reviewer's probe i2 committed an unrelated
+# `evil.ts` under a stale feature name with rc=0. Framework bookkeeping is
+# not evidence of a feature's work; it is filtered out of the receipt.
+u29_state_file_is_not_the_features_work() {
+  setup
+  mkdir -p "$TMPDIR_T/.claude"
+  ( cd "$TMPDIR_T" \
+      && git init -q \
+      && git config user.email "walk@test.invalid" \
+      && git config user.name "walk" ) >/dev/null 2>&1 \
+    || { fail_ "U29" "git init failed"; teardown; return; }
+  seed_phase 2
+  seed_ready_to_record "find-in-document"
+  # Generated projects TRACK .claude/ — commit it, exactly like init.sh does.
+  ( cd "$TMPDIR_T" && echo seed > seed.txt && git add -A \
+      && git commit -q -m "chore: init" ) >/dev/null 2>&1 \
+    || { fail_ "U29" "fixture commit failed"; teardown; return; }
+  # The feature's actual work, then close the loop (which dirties the state
+  # file), then LAND the feature's own commit — the loop's files are now gone
+  # from the working tree, which is the ordinary end state.
+  printf 'export const find = 1;\n' > "$TMPDIR_T/find.ts"
+  local rc; rc=$(record_feature)
+  [ "$rc" = "0" ] || { fail_ "U29" "--complete-step failed (rc=$rc)"; teardown; return; }
+  ( cd "$TMPDIR_T" && git add find.ts && git commit -q -m "feat(find-in-document): the find bar" ) >/dev/null 2>&1 \
+    || { fail_ "U29" "feature commit failed"; teardown; return; }
+  local recorded
+  recorded=$(jq -r '(.build_loop.last_completed.paths // []) | join(",")' "$TMPDIR_T/.claude/process-state.json")
+  [[ "$recorded" != *".claude/"* ]] || { fail_ "U29" "the receipt recorded the framework's own state file as the feature's work ('$recorded') — a git add -A then satisfies the path binding with bookkeeping alone (reviewer probe i2)"; teardown; return; }
+  # The naive-agent commit: unrelated work, staged wholesale, stale name.
+  printf 'export const evil = 1;\n' > "$TMPDIR_T/evil.ts"
+  ( cd "$TMPDIR_T" && git add -A ) >/dev/null 2>&1
+  local out; out=$(run_check "feat(find-in-document): unrelated exporter")
+  [ "${out%%|*}" = "1" ] || { fail_ "U29" "git add -A + a stale feature name rode the closed loop on the STATE FILE alone — the reviewer's i2 refutation: $out"; teardown; return; }
+  pass "U29: .claude/ bookkeeping is filtered from the receipt — git add -A under a stale name no longer satisfies the path binding (R-GATEUX-1)"
+  teardown
+}
+
+# seed_closed_receipt <feature> — a closed receipt with NO recorded paths, so
+# the IDENTITY half is tested in isolation (the path half is U25/U26/U29).
+seed_closed_receipt() {
+  mkdir -p "$TMPDIR_T/.claude"
+  jq -n --arg f "$1" '{
+    "phase2_init": {"verified": true},
+    "build_loop": {
+      "feature": null, "step": 0, "steps_completed": [], "started_at": null,
+      "last_completed": {
+        "feature": $f,
+        "completed_at": "2026-08-02T00:00:00Z",
+        "steps_completed": ["tests_written","tests_verified_failing","implemented","security_audit","documentation_updated","feature_recorded"],
+        "paths": []
+      }
+    },
+    "uat_session": {"started_at": null, "steps_completed": []}
+  }' > "$TMPDIR_T/.claude/process-state.json"
+}
+
+# ── R-GATEUX-2a: the whole-slug arm was a raw SUBSTRING test, so it crossed
+# word boundaries in both directions — the reviewer landed auth->auth2,
+# auth->authentication and form->performance, all rc=0. Matching is
+# token-bounded now, at every slug length.
+u30_slug_match_is_token_bounded() {
+  setup; seed_phase 2; seed_closed_receipt "auth"
+  local out
+  out=$(run_check "feat(auth2): a different service")
+  [ "${out%%|*}" = "1" ] || { fail_ "U30" "'auth2' matched the closed feature 'auth' — a substring is not a name (reviewer probe): $out"; teardown; return; }
+  out=$(run_check "feat(authentication): rewrite")
+  [ "${out%%|*}" = "1" ] || { fail_ "U30" "'authentication' matched the closed feature 'auth' — a longer word that CONTAINS the name is a different word: $out"; teardown; return; }
+  out=$(run_check "feat(auth): the actual auth work")
+  [ "${out%%|*}" = "0" ] || { fail_ "U30" "the feature's own name was rejected: $out"; teardown; return; }
+  teardown
+  setup; seed_phase 2; seed_closed_receipt "form"
+  out=$(run_check "feat(perf): performance tuning")
+  [ "${out%%|*}" = "1" ] || { fail_ "U30" "'performance' matched the closed feature 'form' — letters inside a word are not a name: $out"; teardown; return; }
+  pass "U30: the slug match is token-bounded at every length — auth2 / authentication / performance no longer name auth / form"
+  teardown
+}
+
+# ── R-GATEUX-2b: a shared token has to be DISTINCTIVE. The reviewer blessed
+# unrelated subjects through "with" and "user"; a generic engineering noun
+# ("service", "config", "update") is the same defect one size up.
+u31_generic_tokens_do_not_name_a_feature() {
+  setup; seed_phase 2; seed_closed_receipt "user-profile-avatar"
+  local out; out=$(run_check "feat(export): export the user list")
+  [ "${out%%|*}" = "1" ] || { fail_ "U31" "the stopword-grade token 'user' named a whole feature: $out"; teardown; return; }
+  teardown
+  setup; seed_phase 2; seed_closed_receipt "export-service"
+  out=$(run_check "feat(login): restart the service")
+  [ "${out%%|*}" = "1" ] || { fail_ "U31" "the generic token 'service' named a whole feature — a stoplisted noun is not an identity: $out"; teardown; return; }
+  teardown
+  setup; seed_phase 2; seed_closed_receipt "note-loss-confirmation"
+  out=$(run_check "feat(highlight): removal with confirmation")
+  [ "${out%%|*}" = "0" ] || { fail_ "U31" "a distinctive shared token ('confirmation') must still match — the tightening must not swallow the honest case: $out"; teardown; return; }
+  pass "U31: generic/short tokens no longer name a feature; a distinctive shared token still does"
+  teardown
+}
+
+# ── R-GATEUX-3a: pin the THRESHOLD WIDTH, not just its presence. A reviewer
+# mutant loosened >=4 to >=3 and the suite stayed green. The single-token arm
+# now floors at 5, and both sides of that boundary are asserted here, so a
+# one-character loosening goes red.
+u32_shared_token_floor_width() {
+  setup; seed_phase 2; seed_closed_receipt "cache-layer"
+  local out; out=$(run_check "feat(perf): cache warmup on boot")
+  [ "${out%%|*}" = "0" ] || { fail_ "U32" "a 5-character distinctive shared token ('cache') was rejected — the floor is one character too high: $out"; teardown; return; }
+  teardown
+  setup; seed_phase 2; seed_closed_receipt "note-anchor"
+  out=$(run_check "feat(export): note the export format")
+  [ "${out%%|*}" = "1" ] || { fail_ "U32" "a 4-character shared token ('note') named the feature — the floor is one character too low, which is the reviewer's surviving >=3 mutant one size up: $out"; teardown; return; }
+  pass "U32: the shared-token floor is pinned at width 5 from BOTH sides (4 blocks, 5 matches)"
+  teardown
+}
+
+u28_short_feature_name_matches_whole_token_only() {
+  setup; seed_phase 2; seed_ready_to_record "ui"
+  local rc; rc=$(record_feature)
+  [ "$rc" = "0" ] || { fail_ "U28" "--complete-step failed (rc=$rc)"; teardown; return; }
+  # "build" CONTAINS the letters "ui". A two-character feature slug must match
+  # as a whole token or the identity bound decays into letter-soup.
+  local out; out=$(run_check "feat(build): unrelated tooling")
+  [ "${out%%|*}" = "1" ] || { fail_ "U28" "the closed feature 'ui' was 'named' by the letters inside 'build' — a short slug must match a WHOLE token: $out"; teardown; return; }
+  out=$(run_check "feat(ui): the actual ui work")
+  [ "${out%%|*}" = "0" ] || { fail_ "U28" "a short feature name matched as a whole token was still blocked: $out"; teardown; return; }
+  pass "U28: a short feature slug matches only as a whole token, never as letters inside another word"
+  teardown
+}
+
+u24_status_names_the_closed_loop() {
+  setup; seed_phase 2; seed_ready_to_record "find-in-document"
+  local rc; rc=$(record_feature)
+  [ "$rc" = "0" ] || { fail_ "U24" "--complete-step failed (rc=$rc)"; teardown; return; }
+  local out
+  out=$( cd "$TMPDIR_T" && "$REPO_ROOT/scripts/process-checklist.sh" --status 2>&1 ) || true
+  [[ "$out" == *"find-in-document"* ]] || { fail_ "U24" "--status shows only 'Feature: none' after a loop closes — the operator cannot tell whether the finished feature is still committable: $(printf '%s' "$out" | head -12 | tr '\n' ' ')"; teardown; return; }
+  pass "U24: --status names the closed loop's feature, so 'Feature: none' is not the whole story"
+  teardown
+}
+
+u23_block_message_names_the_verification() {
+  setup; seed_phase 2; seed_process_state null ""
+  local out; out=$(run_check "feat(x): foo")
+  [ "${out%%|*}" = "1" ] || { fail_ "U23" "expected exit 1, got: $out"; teardown; return; }
+  [[ "${out#*|}" == *"git log -1"* ]] || { fail_ "U23" "the block message must tell the operator how to VERIFY a commit landed (the walk lost four commits to a '| tail' pipe that hid this very block): $out"; teardown; return; }
+  pass "U23: the block message names the landed-commit verification (git log -1)"
+  teardown
+}
+
 # --- Run all ---
 echo "== tests/test-check-commit-message.sh =="
 u1_phase_0_feat
@@ -276,6 +617,20 @@ u15_non_feat_all_done
 u16_empty_msg
 u17_revert_quotes_feat
 u18_no_grace_window_after_feature_recorded
+u19_closed_loop_allows_its_own_feature
+u20_closed_loop_blocks_other_features
+u21_closed_loop_token_match
+u22_closed_loop_needs_all_five_steps
+u23_block_message_names_the_verification
+u24_status_names_the_closed_loop
+u25_receipt_binds_to_the_loops_files
+u26_receipt_does_not_bless_unrelated_files
+u27_no_recorded_paths_falls_back_to_identity
+u28_short_feature_name_matches_whole_token_only
+u29_state_file_is_not_the_features_work
+u30_slug_match_is_token_bounded
+u31_generic_tokens_do_not_name_a_feature
+u32_shared_token_floor_width
 
 echo ""
 echo "== Total: $((PASSED + FAILED)) | Passed: $PASSED | Failed: $FAILED =="

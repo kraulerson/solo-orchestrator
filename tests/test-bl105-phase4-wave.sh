@@ -284,6 +284,156 @@ else
   fi
 fi
 
+# ═══════════════════════════════════════════════════════════════════════════
+# WALK-ISSUE-017 — P4-001 monitoring evidence: a DOCUMENTED shape, not a
+# guessed one. Walk of 2026-08-02, ISSUE-017 (Major): a
+# zero-telemetry static app (no server, no Sentry, CSP connect-src 'none')
+# had REAL monitoring (GitHub Actions deploy-failure alerts) and a REAL
+# error->alert->arrived cycle, and the free-text detector rejected the honest
+# write-up FOUR times until the walker happened to hit its token shape. The
+# gate is not weakened: the fix DOCUMENTS the accepted structured block, and
+# the failure message PRINTS it so nobody has to guess.
+# ───────────────────────────────────────────────────────────────────────────
+
+# mk_mon_proj <dir> — a phase-4 project ready for the monitoring step.
+mk_mon_proj() {
+  mk_p4_proj "$1" '["production_build","rollback_tested","go_live_verified"]'
+}
+
+# ── T-monitoring-structured-zero-telemetry: the documented block is accepted
+# on its OWN terms. This write-up deliberately carries NONE of the legacy
+# free-text tokens (no "test error", no "triggered", no "synthetic") because
+# the event was a REAL deploy failure — an honest zero-telemetry project must
+# not have to call a real incident a "test error" to satisfy the gate.
+echo "=== T-monitoring-structured-zero-telemetry ==="
+P="$TOPTMP/p-mon-struct"
+mk_mon_proj "$P"
+cat > "$P/HANDOFF.md" <<'MD'
+# Handoff
+## 8. Monitoring & Alerting
+Zero-telemetry static app (no server, CSP connect-src 'none'; Sentry/PostHog
+deliberately NOT used). Monitoring of record: GitHub Actions deploy-failure
+alerts to the repo owner, plus an UptimeRobot HTTP monitor.
+
+### Monitoring verification
+- **Error event:** the first v1.0.0 release workflow failed at job setup.
+- **Alert fired:** GitHub Actions workflow-failure notification.
+- **Alert arrived:** repo-owner inbox; acted on (tag policy fixed, re-run green).
+- **Date verified:** 2026-08-02
+MD
+out=$( cd "$P" && bash scripts/process-checklist.sh --complete-step phase4_release:monitoring_configured 2>&1 ); rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "T-monitoring-structured-zero-telemetry (a documented error->alert->arrived block, dated, is accepted without server telemetry keywords)"
+else
+  fail_ "T-monitoring-structured-zero-telemetry" "the documented structured verification block was rejected (rc=$rc): $(printf '%s' "$out" | tail -3 | tr '\n' ' ')"
+fi
+
+# ── T-monitoring-walker-exemplar: the exact block the walk finally landed on
+# (labels with the "Test error triggered" wording) must keep passing.
+echo "=== T-monitoring-walker-exemplar ==="
+P="$TOPTMP/p-mon-exemplar"
+mk_mon_proj "$P"
+cat > "$P/HANDOFF.md" <<'MD'
+# Handoff
+## 3a. Monitoring
+Deploy health: GitHub Actions workflow-failure emails. Site availability:
+UptimeRobot. Client errors: in-app ErrorBoundary (no telemetry by design).
+
+**Monitoring verification event (P4-001):**
+- **Date verified:** 2026-08-02
+- **Test error triggered:** a deploy error occurred on the first v1.0.0 release attempt.
+- **Alert fired:** GitHub Actions' workflow-failure alert was sent to the configured channel.
+- **Alert arrived:** confirmed — the failure notification arrived and was acted on.
+MD
+out=$( cd "$P" && bash scripts/process-checklist.sh --complete-step phase4_release:monitoring_configured 2>&1 ); rc=$?
+if [ "$rc" -eq 0 ]; then
+  pass "T-monitoring-walker-exemplar (the walk's own structured block stays accepted)"
+else
+  fail_ "T-monitoring-walker-exemplar" "the walk's landed evidence shape regressed (rc=$rc): $(printf '%s' "$out" | tail -3 | tr '\n' ' ')"
+fi
+
+# ── T-monitoring-prose-blocked-with-shape: honest prose with no verification
+# structure is STILL blocked (the gate is not weakened) — but the block must
+# now PRINT the accepted shape instead of leaving the operator to guess it.
+echo "=== T-monitoring-prose-blocked-with-shape ==="
+P="$TOPTMP/p-mon-prose"
+mk_mon_proj "$P"
+cat > "$P/HANDOFF.md" <<'MD'
+# Handoff
+## 8. Monitoring & Alerting
+DocNote is a static, client-side, zero-telemetry app by privacy design, so
+there is no server error stream. Deploy health is watched through GitHub
+Actions; site availability through an optional UptimeRobot monitor; client
+errors surface in the in-app ErrorBoundary. Alert channel of record: the
+repo owner's email.
+MD
+out=$( cd "$P" && bash scripts/process-checklist.sh --complete-step phase4_release:monitoring_configured 2>&1 ); rc=$?
+missing=""
+for lbl in "Error event:" "Alert fired:" "Alert arrived:" "Date verified:"; do
+  printf '%s' "$out" | grep -qF "$lbl" || missing="$missing [$lbl]"
+done
+if [ "$rc" -ne 0 ] && [ -z "$missing" ]; then
+  pass "T-monitoring-prose-blocked-with-shape (unverified prose still blocked, and the failure prints the exact evidence block to write)"
+elif [ "$rc" -eq 0 ]; then
+  fail_ "T-monitoring-prose-blocked-with-shape" "a write-up with NO verification event passed — 'configured' is not 'verified'"
+else
+  fail_ "T-monitoring-prose-blocked-with-shape" "the block message does not print the expected evidence structure; missing:$missing — the walk needed FOUR attempts precisely because the message never said what it wanted: $(printf '%s' "$out" | tail -4 | tr '\n' ' ')"
+fi
+
+# ── T-force-hatch-honest: the printed SOIF_FORCE_STEP hatch must say it needs
+# an INTERACTIVE terminal. ISSUE-017 sub-finding (b): an autonomous agent read
+# the hatch as available, spent time on it, and hit "requires interactive
+# terminal" only after running it. The policy is unchanged — the advertising is.
+echo "=== T-force-hatch-honest ==="
+if printf '%s' "$out" | grep -qF 'SOIF_FORCE_STEP=true' \
+   && printf '%s' "$out" | grep -qi 'interactive' \
+   && printf '%s' "$out" | grep -qiE 'escalate|human'; then
+  pass "T-force-hatch-honest (the override is advertised WITH its interactive-terminal requirement and tells an agent to escalate to the human, not retry)"
+else
+  fail_ "T-force-hatch-honest" "the hatch text does not state that SOIF_FORCE_STEP needs an interactive terminal — an agent cannot use it and must be told so up front: $(printf '%s' "$out" | tail -4 | tr '\n' ' ')"
+fi
+
+# ── T-monitoring-structured-mutation: the structured arm carries its own
+# weight — excise the fence and the zero-telemetry block must be rejected
+# again (proving the acceptance is the fence's, not the legacy free-text arm's).
+echo "=== T-monitoring-structured-mutation ==="
+MUTM="$TOPTMP/mut-mon"
+mkdir -p "$MUTM"
+MB=$(grep -c '# WALK-ISSUE-017-STRUCTURED-BEGIN' "$REPO_ROOT/scripts/process-checklist.sh") || MB=0
+ME=$(grep -c '# WALK-ISSUE-017-STRUCTURED-END' "$REPO_ROOT/scripts/process-checklist.sh") || ME=0
+if [ "$MB" -ne 1 ] || [ "$ME" -ne 1 ]; then
+  fail_ "T-monitoring-structured-mutation" "MIS-TARGETED — the structured-arm fence is not present exactly once (begin=$MB end=$ME)"
+else
+  sed '/# WALK-ISSUE-017-STRUCTURED-BEGIN/,/# WALK-ISSUE-017-STRUCTURED-END/d' \
+    "$REPO_ROOT/scripts/process-checklist.sh" > "$MUTM/process-checklist.sh"
+  if ! bash -n "$MUTM/process-checklist.sh" 2>/dev/null; then
+    fail_ "T-monitoring-structured-mutation" "the excised mutant is syntactically broken — keep the arm excision-safe"
+  else
+    P="$TOPTMP/p-mon-mut"
+    mk_mon_proj "$P"
+    cp "$MUTM/process-checklist.sh" "$P/scripts/process-checklist.sh"
+    chmod +x "$P/scripts/process-checklist.sh"
+    cat > "$P/HANDOFF.md" <<'MD'
+# Handoff
+## 8. Monitoring & Alerting
+Zero-telemetry static app. Monitoring of record: GitHub Actions deploy-failure
+alerts to the repo owner.
+
+### Monitoring verification
+- **Error event:** the first v1.0.0 release workflow failed at job setup.
+- **Alert fired:** GitHub Actions workflow-failure notification.
+- **Alert arrived:** repo-owner inbox; acted on.
+- **Date verified:** 2026-08-02
+MD
+    out=$( cd "$P" && bash scripts/process-checklist.sh --complete-step phase4_release:monitoring_configured 2>&1 ); rc=$?
+    if [ "$rc" -ne 0 ]; then
+      pass "T-monitoring-structured-mutation (excising the structured arm re-rejects the zero-telemetry block — the arm, not the legacy tokens, is what accepts it)"
+    else
+      fail_ "T-monitoring-structured-mutation" "the mutant still accepted the block — the case is not isolating the structured arm"
+    fi
+  fi
+fi
+
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
 [ "$FAILED" -eq 0 ] || exit 1

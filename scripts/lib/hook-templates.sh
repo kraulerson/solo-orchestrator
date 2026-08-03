@@ -1203,6 +1203,25 @@ if command -v semgrep &>/dev/null; then
       soif_sg_supp_n=0
       soif_sg_supp_files=""
       for soif_sp_f in ${soif_idx_files[@]+"${soif_idx_files[@]}"}; do
+        # BL-185-SUPPRESSION-DOC-SCOPE-BEGIN — walk 2026-08-02 ISSUE-018: the
+        # detector matched the bare word in ENGLISH PROSE and wrote a
+        # `sast_suppression` row against a Markdown report that merely
+        # DISCUSSED the directive. Nothing was suppressed and nothing unsafe
+        # shipped, but the bypass ledger — a security-review surface — gained
+        # a false suppression event, and it gains another every time anyone
+        # documents this behavior (the walk's own log did it twice). semgrep
+        # has NO analyzer for these file classes, so it never scans them and a
+        # directive inside one cannot skip a line: they are outside what a
+        # suppression can mean. The list is a DENYLIST of prose formats, never
+        # an allowlist of source ones — an unknown extension keeps being
+        # counted, so the over-detection this fixes stays possible only in the
+        # safe direction (qualify a receipt, never grant one). Extension is
+        # case-folded so `NOTES.MD` cannot dodge the scoping.
+        soif_sp_lc=$(printf '%s' "$soif_sp_f" | tr '[:upper:]' '[:lower:]') || soif_sp_lc="$soif_sp_f"
+        case "$soif_sp_lc" in
+          *.md|*.markdown|*.mdx|*.txt|*.text|*.rst|*.adoc|*.asciidoc|*.org) continue ;;
+        esac
+        # BL-185-SUPPRESSION-DOC-SCOPE-END
         soif_sp_c=$(grep -ciwE 'nosem(grep)?' "$soif_sp_f" 2>/dev/null) || soif_sp_c=0
         soif_sp_c=$(printf '%s' "$soif_sp_c" | tr -d '[:space:]') || soif_sp_c=0
         case "$soif_sp_c" in ''|*[!0-9]*) soif_sp_c=0 ;; esac
