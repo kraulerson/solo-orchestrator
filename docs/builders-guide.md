@@ -644,6 +644,10 @@ The following items are enforced by `scripts/check-phase-gate.sh` when `current_
 
 **Start a new Claude conversation for Phase 1.** Attach the completed `PRODUCT_MANIFESTO.md` and the Project Intake (if available).
 
+**Process checkpoint:** Start Phase 1 architecture planning: `scripts/process-checklist.sh --start-phase1`
+
+Run this **before** the Phase 1 steps below, not after. It consults the Phase 0→1 gate, opens the five-step architecture checklist (`architecture_selected`, `threat_model_complete`, `data_model_defined`, `ui_scaffolding_done`, `bible_synthesized`), and advances `current_phase` to 1 for you — do not set `current_phase` by hand. Mark each step as you finish it: `scripts/process-checklist.sh --complete-step phase1_architecture:STEP_ID`.
+
 ---
 
 ### Step 1.1: Business Strategy Gateway (Standard+ Track — skip for internal tools)
@@ -1709,6 +1713,7 @@ These artifacts serve as the audit evidence for Phase 3 completion. They are ref
 
 **Legal:**
 - [ ] Privacy Policy (if collecting any data) — **MANDATORY: must be reviewed by qualified legal counsel before deployment.** AI-generated privacy policies commonly contain inaccuracies, omissions, and generic language that fails to address specific processing activities. Do not deploy AI-generated legal documents without attorney review.
+  - **Collecting nothing still means writing the policy — a policy that says so.** The `phase3_validation:legal_review` step is fail-closed on `data_classification`: any non-public classification requires a `PRIVACY_POLICY.md`, and it is not satisfied by *not writing* the document. That is not a mismatch for a local, zero-collection tool — the classification describes the data the product **handles**, not a claim that it collects it, and "this product collects, stores and transmits no user data; all processing happens locally in your browser/on your device" is a complete and honest Privacy Policy. Write that, record the review row in `APPROVAL_LOG.md`, and the step completes normally. Do not force-override the step to avoid writing it.
 - [ ] Terms of Service (if applicable) — **MANDATORY: must be reviewed by qualified legal counsel before deployment.** Same requirement as Privacy Policy above.
 - [ ] License audit passing in CI
 - [ ] Trademark search completed

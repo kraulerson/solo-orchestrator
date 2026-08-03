@@ -800,24 +800,146 @@ reconfigure() {
           today_audit="$(date -u +%Y-%m-%d)"
           case "$FIELD" in
             data_classification)
-              audit_line="| $today_audit | data_classification set | reconfigure-project.sh | Orchestrator | Applied | new value: $NEW_VALUE (tier-crosscheck-6) |"
+              audit_event="data_classification set"
+              audit_details="new value: $NEW_VALUE (tier-crosscheck-6)"
               ;;
             zdr_attested)
-              audit_line="| $today_audit | zdr_attested set | reconfigure-project.sh | Orchestrator | Applied | new value: $NEW_VALUE${RECONF_REASON:+ (reason: $RECONF_REASON)} (tier-crosscheck-6) |"
+              audit_event="zdr_attested set"
+              audit_details="new value: $NEW_VALUE${RECONF_REASON:+ (reason: $RECONF_REASON)} (tier-crosscheck-6)"
               ;;
             zdr_attestation_reason)
-              audit_line="| $today_audit | zdr_attestation_reason set | reconfigure-project.sh | Orchestrator | Applied | reason recorded: $NEW_VALUE (tier-crosscheck-6) |"
+              audit_event="zdr_attestation_reason set"
+              audit_details="reason recorded: $NEW_VALUE (tier-crosscheck-6)"
               ;;
           esac
+          # The 6-cell shape this script has always written: Date | Gate /
+          # Event | Tool | Actor | Status | Details. It matches the header
+          # the fallback branch below creates, and the cell COUNT of the
+          # organizational approval-log template's Approval History table.
+          audit_line="| $today_audit | $audit_event | reconfigure-project.sh | Orchestrator | Applied | $audit_details |"
+
+          # WALK-ISSUE-004-APPROVAL-HISTORY-ROUTING-BEGIN
+          # WALK ISSUE-004 (2026-08-02): when the section DID exist this
+          # branch still appended to the END OF THE FILE. In the shipped
+          # personal template `## Approval History` is followed by the UAT
+          # sign-off, attorney-review and penetration-test sections, so every
+          # audit row landed visually inside "## Penetration Test (if
+          # applicable)" while the Approval History table stayed empty — the
+          # data survived, the governance trail read wrong. The BL-170
+          # append-design contract in both approval-log templates is explicit:
+          # "Append one row per post-launch change ... below" THAT header.
+          # Route the row there — inserted after the section's last table
+          # line. That is a pure INSERTION whenever the anchor is not the
+          # file's final unterminated line: no committed line is modified or
+          # deleted, so the CI approval-log integrity job stays satisfied.
+          #
+          # R-WALK-1: "pure" depends on preserving the file's own ending. A
+          # log committed WITHOUT a trailing newline (the last line carries
+          # git's "\ No newline at end of file") is rewritten by awk with a
+          # terminator, and git scores that as a MODIFICATION of a committed
+          # row — the integrity job reports tampering with a line nobody
+          # touched (numstat 2 1). So the original ending is restored below.
+          # The one case that cannot be pure is inherent to git's model, not
+          # to this code: if the anchor IS that final unterminated line, any
+          # append after it necessarily rewrites it.
+          #
+          # Cell count is read from the section's own header rather than
+          # assumed: the personal template's table is 4 cells (Date | Gate /
+          # Event | Decision | Notes) and the organizational one is 6 (Date |
+          # Gate / Event | Approver | Role | Decision | Reference). Writing
+          # the 6-cell row into the 4-cell personal table would drop the last
+          # two cells at render time — a routing fix that silently loses the
+          # tool and status. Any other width keeps the legacy 6-cell row.
+          #
+          # ENVIRON, not `awk -v`: -v processes backslash escapes, and these
+          # values carry operator-supplied free text (--reason).
+          _approval_history_cols() {
+            awk '
+              /^##[[:space:]]*Approval History/ { insec = 1; next }
+              insec && /^##[[:space:]]/ { insec = 0 }
+              insec && /^[[:space:]]*\|/ { n = gsub(/\|/, "|"); print n - 1; got = 1; exit }
+              END { if (!got) print 0 }
+            ' "$1"
+          }
+          # Insertion point: the section's last table line; failing that, its
+          # last non-blank line that is not the closing horizontal rule.
+          _approval_history_anchor() {
+            awk '
+              /^##[[:space:]]*Approval History/ { insec = 1; lastc = NR; next }
+              insec && /^##[[:space:]]/ { insec = 0 }
+              insec && /^[[:space:]]*\|/ { lastt = NR }
+              insec && /^[[:space:]]*---[[:space:]]*$/ { next }
+              insec && NF { lastc = NR }
+              END { print (lastt ? lastt : lastc) + 0 }
+            ' "$1"
+          }
+          # WALK-ISSUE-004-APPROVAL-HISTORY-ROUTING-END
+
+          # Does the committed file end WITHOUT a newline? Command
+          # substitution strips trailing newlines, so this is empty exactly
+          # when the last byte is one (or the file is empty).
+          ah_nonl=""
+          if [ -s "$APPROVAL_LOG" ] && [ -n "$(tail -c1 "$APPROVAL_LOG")" ]; then
+            ah_nonl=1
+          fi
+
           # Insert into the Approval History section if it exists,
           # otherwise append a new section.
           if grep -q "^## Approval History" "$APPROVAL_LOG"; then
-            if ! printf '%s\n' "$audit_line" >> "$APPROVAL_LOG"; then
-              _classification_rollback "APPROVAL_LOG.md append failed"
-              exit 1
+            ah_cols="$(_approval_history_cols "$APPROVAL_LOG")"
+            case "$ah_cols" in ''|*[!0-9]*) ah_cols=0 ;; esac
+            ah_anchor="$(_approval_history_anchor "$APPROVAL_LOG")"
+            case "$ah_anchor" in ''|*[!0-9]*) ah_anchor=0 ;; esac
+            if [ "$ah_cols" -eq 4 ]; then
+              # Personal template: Date | Gate / Event | Decision | Notes.
+              # The tool folds into the event cell; the Actor cell has no
+              # column here, so "Orchestrator" is dropped — it is constant in
+              # every row this script writes, so no per-row information is
+              # lost, but the 6-cell row is NOT recoverable from the 4-cell one.
+              audit_row="| $today_audit | $audit_event (reconfigure-project.sh) | Applied | $audit_details |"
+            else
+              audit_row="$audit_line"
+            fi
+            if [ "$ah_anchor" -gt 0 ]; then
+              if ! AUDIT_ROW="$audit_row" AUDIT_AT="$ah_anchor" awk '
+                     { print }
+                     NR == ENVIRON["AUDIT_AT"] + 0 { print ENVIRON["AUDIT_ROW"] }
+                   ' "$APPROVAL_LOG" > "$APPROVAL_LOG.tmp"; then
+                rm -f "$APPROVAL_LOG.tmp"
+                _classification_rollback "APPROVAL_LOG.md Approval History insert failed"
+                exit 1
+              fi
+              # Restore the original ending. awk terminates every record, so
+              # an originally-unterminated file gained exactly one trailing
+              # newline here — and that is the only one to strip.
+              if [ -n "$ah_nonl" ]; then
+                if ! printf '%s' "$(cat "$APPROVAL_LOG.tmp")" > "$APPROVAL_LOG.tmp2"; then
+                  rm -f "$APPROVAL_LOG.tmp" "$APPROVAL_LOG.tmp2"
+                  _classification_rollback "APPROVAL_LOG.md line-ending restore failed"
+                  exit 1
+                fi
+                mv "$APPROVAL_LOG.tmp2" "$APPROVAL_LOG.tmp"
+              fi
+              if ! mv "$APPROVAL_LOG.tmp" "$APPROVAL_LOG"; then
+                rm -f "$APPROVAL_LOG.tmp"
+                _classification_rollback "APPROVAL_LOG.md Approval History insert failed"
+                exit 1
+              fi
+            else
+              # No table line in the section at all — fall back to appending
+              # at EOF. Terminate an unterminated file first, or the row would
+              # be concatenated onto the last committed line.
+              if ! {
+                [ -n "$ah_nonl" ] && printf '\n'
+                printf '%s\n' "$audit_row"
+              } >> "$APPROVAL_LOG"; then
+                _classification_rollback "APPROVAL_LOG.md append failed"
+                exit 1
+              fi
             fi
           else
             if ! {
+              [ -n "$ah_nonl" ] && printf '\n'
               echo ""
               echo "---"
               echo ""
