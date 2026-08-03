@@ -33,12 +33,14 @@
 # scan time there may be no framework installed at all. A literal here is the
 # whole mechanism.
 #
-# The `-wp1` suffix is load-bearing information, not decoration: this build
-# emits three of §8.2's seven sections. A consumer that finds no `secrets` key
-# must be able to tell "not scanned yet" from "scanned and clean", and the
-# report says so twice — here, and in the `sectionsNotEmitted` array.
+# The `-wp2` suffix is load-bearing information, not decoration: this build
+# emits all seven of §8.2's sections, where `-wp1` emitted three. A consumer
+# holding an older report must be able to tell "this scanner had not been
+# taught to look yet" from "it looked and found nothing" — and within the
+# secrets section that same distinction is carried at finer grain by `status`,
+# because "gitleaks was not installed" is not a clean bill of health.
 scout_module_version() {
-  printf '%s\n' "0.2.0-wp1"
+  printf '%s\n' "0.3.0-wp2"
 }
 
 # ── JSON encoding ───────────────────────────────────────────────────────────

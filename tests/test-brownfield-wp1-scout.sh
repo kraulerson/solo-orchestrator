@@ -304,23 +304,36 @@ else
   fail_ "A2" "schemaVersion=$sv scannedAt=$at scannerVersion=$ver repoRoot=$rr headCommit=$hc"
 fi
 
-# ── A3: WP2's four sections are declared ABSENT, not silently missing ───────
-# The brief's requirement: this version emits three sections and says which
-# four it does not. A consumer that reads `sections` can tell "not scanned yet"
-# apart from "scanned and found nothing" — which for `secrets` is the whole
+# ── A3: the sections / sectionsNotEmitted contract is COHERENT ─────────────
+# A consumer that reads `sections` must be able to tell "not scanned yet" apart
+# from "scanned and found nothing" — which for `secrets` is the whole
 # difference between a survey and a false clean bill of health.
+#
+# RE-AIMED AT WP2, DELIBERATELY. This case used to pin the literal list
+# `stack,phaseMap,reality` and the literal four-name pending list, which made
+# it a snapshot of the build it was written against: WP2 emits the other four
+# sections and the case went red for being RIGHT. The property it was actually
+# protecting is the INVARIANT between the two arrays, so that is what it
+# asserts now — every name in `sections` is a key that exists, every name in
+# `sectionsNotEmitted` is a key that does not, the two never overlap, and
+# together they account for all seven of §8.2's sections. That holds for the
+# WP1 build, this one, and any build that finishes the set.
 emitted=$(jqv "$out" '.sections | join(",")')
 pending=$(jqv "$out" '.sectionsNotEmitted | join(",")')
-absent=1
-for k in testsBaseline secrets collisions intakePrefill; do
-  printf '%s' "$out" | jq -e "has(\"$k\")" >/dev/null 2>&1 && absent=0
+coherent=1
+for k in $(jqv "$out" '.sections[]'); do
+  printf '%s' "$out" | jq -e "has(\"$k\")" >/dev/null 2>&1 || coherent=0
 done
-if [ "$emitted" = "stack,phaseMap,reality" ] \
-   && [ "$pending" = "testsBaseline,secrets,collisions,intakePrefill" ] \
-   && [ "$absent" -eq 1 ]; then
-  pass "A3: sections=[stack,phaseMap,reality]; the four WP2 sections are named as not-emitted and their keys are absent"
+for k in $(jqv "$out" '.sectionsNotEmitted[]'); do
+  printf '%s' "$out" | jq -e "has(\"$k\")" >/dev/null 2>&1 && coherent=0
+done
+overlap=$(printf '%s' "$out" | jq -r '[.sections[]] - ([.sections[]] - [.sectionsNotEmitted[]]) | length' 2>/dev/null)
+accounted=$(printf '%s' "$out" | jq -r '([.sections[]] + [.sectionsNotEmitted[]]) | sort | join(",")' 2>/dev/null)
+want="collisions,intakePrefill,phaseMap,reality,secrets,stack,testsBaseline"
+if [ "$coherent" -eq 1 ] && [ "$overlap" = "0" ] && [ "$accounted" = "$want" ]; then
+  pass "A3: sections=[$emitted] all exist as keys, sectionsNotEmitted=[$pending] all do not, the two are disjoint, and together they account for all seven §8.2 sections"
 else
-  fail_ "A3" "emitted='$emitted' pending='$pending' wp2_keys_absent=$absent"
+  fail_ "A3" "emitted='$emitted' pending='$pending' keys_coherent=$coherent overlap='$overlap' accounted='$accounted' want='$want'"
 fi
 
 # ── A4: --out writes the pair, and writes NOTHING else ─────────────────────
@@ -766,11 +779,18 @@ core_entries=$(ls "$H1/scripts"/*.sh 2>/dev/null | grep -vc '/scout\.sh$')
 case "$core_entries" in ''|*[!0-9]*) core_entries=0 ;; esac
 h1out=$(bash "$H1/scripts/scout.sh" --root "$NODE" </dev/null 2>/dev/null); rc=$?
 h1sec=$(jqv "$h1out" '.sections | join(",")')
+# The assertion is that WP1's three sections SURVIVE the isolation, not that
+# they are the only ones — a later package adding sections must not make this
+# case red for succeeding. Phrased as a subset test for that reason.
+h1has=1
+for k in stack phaseMap reality; do
+  printf '%s' "$h1out" | jq -e "has(\"$k\")" >/dev/null 2>&1 || h1has=0
+done
 if [ "$rc" -eq 0 ] && [ "$core_libs" -eq 0 ] && [ "$core_entries" -eq 0 ] \
-   && [ "$h1sec" = "stack,phaseMap,reality" ]; then
-  pass "H1: Scout copied ALONE into an empty tree (0 core libs, 0 other entry scripts) emits all three sections"
+   && [ "$h1has" -eq 1 ]; then
+  pass "H1: Scout copied ALONE into an empty tree (0 core libs, 0 other entry scripts) emits its sections: $h1sec"
 else
-  fail_ "H1" "rc=$rc core_libs=$core_libs other_entry_scripts=$core_entries sections='$h1sec'"
+  fail_ "H1" "rc=$rc core_libs=$core_libs other_entry_scripts=$core_entries sections='$h1sec' wp1_sections_present=$h1has"
 fi
 
 # ── H2: the WP0 carry-forward (R-WP0-3) — move the ENTRY SCRIPTS aside too ─
@@ -794,11 +814,17 @@ case "$left_entries" in ''|*[!0-9]*) left_entries=0 ;; esac
 h2out=$(bash "$H2/scripts/scout.sh" --root "$LADDER" </dev/null 2>/dev/null); rc=$?
 h2sp=$(jqv "$h2out" '.phaseMap.suggestedPhase')
 h2sec=$(jqv "$h2out" '.sections | join(",")')
+# Subset, for the same reason as H1: the property is that stripping core does
+# not break Scout, and the ladder still reaches 2.
+h2has=1
+for k in stack phaseMap reality; do
+  printf '%s' "$h2out" | jq -e "has(\"$k\")" >/dev/null 2>&1 || h2has=0
+done
 if [ "$rc" -eq 0 ] && [ "$left_libs" -eq 0 ] && [ "$left_entries" -eq 0 ] \
-   && [ "$h2sec" = "stack,phaseMap,reality" ] && [ "$h2sp" = "2" ]; then
-  pass "H2: with every core lib AND every core entry script moved aside, Scout still reports all three sections (phase $h2sp)"
+   && [ "$h2has" -eq 1 ] && [ "$h2sp" = "2" ]; then
+  pass "H2: with every core lib AND every core entry script moved aside, Scout still reports its sections (phase $h2sp): $h2sec"
 else
-  fail_ "H2" "rc=$rc leftover_libs=$left_libs leftover_entry_scripts=$left_entries sections='$h2sec' phase=$h2sp"
+  fail_ "H2" "rc=$rc leftover_libs=$left_libs leftover_entry_scripts=$left_entries sections='$h2sec' wp1_sections_present=$h2has phase=$h2sp"
 fi
 
 # ── H3: nothing under scripts/lib/scout/ names a core lib, statically ─────

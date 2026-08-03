@@ -39,11 +39,19 @@
 # core LIB basenames only, so a Scout file that shelled out to a core entry
 # script would pass the lint clean.
 #
-# WHAT IT REPORTS, AND WHAT IT DOES NOT YET
-# This build emits three of §8.2's seven sections: `stack`, `phaseMap`,
-# `reality`. The other four are named in `sectionsNotEmitted`, because "we have
-# not looked yet" and "we looked and it was clean" are different claims and for
-# the secrets section the difference matters a great deal.
+# WHAT IT REPORTS
+# This build emits all seven of §8.2's sections: `stack`, `phaseMap`,
+# `reality`, `secrets`, `collisions`, `testsBaseline`, `intakePrefill`.
+# `sectionsNotEmitted` survives as an empty array rather than being deleted,
+# because "we have not looked yet" and "we looked and it was clean" are
+# different claims and a consumer must keep being able to tell them apart —
+# for the secrets section that difference has a credential behind it. Within
+# `secrets` the same distinction is carried by `status`, which is
+# `tool-unavailable` when nobody looked and `scanned` when somebody did.
+#
+# THE ONE PLACE SCOUT RUNS PROJECT CODE is `--run-tests`, and it is opt-in for
+# that reason. Without it `testsBaseline.commandRan` is false and the report
+# says why.
 #
 # ─────────────────────────────────────────────────────────────────────────────
 # `set -e` IS DELIBERATELY ABSENT, and this is the one place worth arguing.
@@ -59,7 +67,9 @@ set -uo pipefail
 SCOUT_SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 SCOUT_LIB_DIR="$SCOUT_SELF_DIR/lib/scout"
 
-for _part in scout-core scout-stack scout-phasemap scout-reality scout-report; do
+for _part in scout-core scout-stack scout-phasemap scout-reality \
+             scout-secrets scout-collisions scout-testsbaseline scout-prefill \
+             scout-report; do
   if [ ! -f "$SCOUT_LIB_DIR/$_part.sh" ]; then
     echo "scout: missing $SCOUT_LIB_DIR/$_part.sh — Scout needs its own lib directory beside it." >&2
     exit 2
@@ -78,11 +88,16 @@ Scout — a read-only look at a codebase.
   --markdown    print the human-readable report instead of the JSON one
   --out DIR     write BOTH reports into DIR as scout-report.json and
                 scout-report.md, and print where they went
+  --run-tests   ALSO run the project's own test command, once, to record
+                whether it passes today. This is the only thing Scout does
+                that runs your code, so it is off unless you ask. Bounded by
+                SCOUT_TEST_TIMEOUT seconds (default 300).
   --version     print Scout's version and exit
   --help        print this and exit
 
 Scout never changes the project it looks at. Without --out it writes nothing
-at all except its own output.
+at all except its own output. It needs `gitleaks` for the secrets section; if
+that is missing the section says so rather than reporting a clean scan.
 
 Exit codes: 0 a scan completed (findings are not errors); 2 bad usage or an
 unreadable target.
@@ -92,6 +107,7 @@ USAGE
 ROOT="."
 MODE="json"
 OUTDIR=""
+RUN_TESTS=0
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -101,6 +117,7 @@ while [ "$#" -gt 0 ]; do
     --out=*)     OUTDIR="${1#--out=}"; shift ;;
     --markdown)  MODE="markdown"; shift ;;
     --json)      MODE="json"; shift ;;
+    --run-tests) RUN_TESTS=1; shift ;;
     --version)   scout_module_version; exit 0 ;;
     -h|--help)   usage; exit 0 ;;
     *)           echo "scout: unrecognised option '$1'" >&2; echo "" >&2; usage >&2; exit 2 ;;
@@ -138,6 +155,15 @@ printf '%s\n' "$(scout_head_commit "$ROOT_ABS")" > "$SCOUT_WORK/headCommit"
 scout_stack_scan    "$ROOT_ABS" "$SCOUT_WORK"
 scout_phasemap_scan "$ROOT_ABS" "$SCOUT_WORK"
 scout_reality_probes "$ROOT_ABS" "$SCOUT_WORK"
+
+# The WP2 sections, and their order is a dependency order too. `testsBaseline`
+# reuses the test command the stack scan discovered rather than re-deriving it
+# — two derivations of one fact are two chances to disagree about it — and
+# `intakePrefill` reads both that and the reality probes' remote answer.
+scout_secrets_scan       "$ROOT_ABS" "$SCOUT_WORK"
+scout_collisions_scan    "$ROOT_ABS" "$SCOUT_WORK"
+scout_testsbaseline_scan "$ROOT_ABS" "$SCOUT_WORK" "$RUN_TESTS"
+scout_prefill_scan       "$ROOT_ABS" "$SCOUT_WORK"
 
 if [ -n "$OUTDIR" ]; then
   if ! mkdir -p "$OUTDIR" 2>/dev/null; then
