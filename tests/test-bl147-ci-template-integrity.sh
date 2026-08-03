@@ -1335,6 +1335,183 @@ if [ "$cp2_bad" -eq 0 ]; then
   pass "Cp2-all-pinned (every action-bearing RELEASE_SETUP_ACTION is SHA-pinned + commented)"
 fi
 
+# ── Cw6 (walk 2026-08-02 ISSUE-006): the phase-gate CREDENTIAL comment block ─
+# The gate's Phase 1→2 backstop verifies branch protection through an
+# AUTHENTICATED host API read that no generated runner can perform: Actions
+# exports no token into a step env (and the built-in GITHUB_TOKEN cannot read
+# protection at all — no `administration` key in `permissions:`), and the
+# gitlab/bitbucket governance jobs install only jq+git. That made the
+# governance job STRUCTURALLY unpassable on the framework's own default happy
+# path. `# WALK-ISSUE-006-CI-PROTECTION-SCOPE` converts that ONE check to a
+# loud WARN in credential-less CI; this case pins the OTHER half — the emitted
+# workflow has to SAY so, and has to name the token that re-arms hard
+# enforcement. A silent exemption is how a downgraded check becomes a
+# forgotten check.
+#   Cw6-floor       every CI template across the three hosts runs the gate
+#   Cw6-block       each carries the signature line, AS A COMMENT
+#   Cw6-honest      each says UNVERIFIED (never "verified") about the skip
+#   Cw6-guided      each names the guided walkthrough (--setup-ci-token) — the
+#                   token path is RECOMMENDED, not merely available
+#   Cw6-credential  each names its host's hard-enforcement credential
+#   Cw6-wiring      github templates map the secret LIVE (executable YAML under
+#                   an `env:` key, not a commented example). This is the pin
+#                   that makes the walkthrough's result real: if the mapping is
+#                   a comment, `--setup-ci-token` stores a secret NOTHING reads
+#                   and the check keeps warning forever.
+echo "Cw6: every CI template that runs check-phase-gate.sh explains the credential model"
+CPG_FILES=()
+for f in "${GH_FILES[@]}" "${GL_FILES[@]}" "${BB_FILES[@]}"; do
+  # executable invocation only — a commented-out gate line is not a gate
+  grep -Eq '^[^#]*bash scripts/check-phase-gate\.sh' "$f" && CPG_FILES+=("$f")
+done
+CPG_COUNT=${#CPG_FILES[@]}
+if [ "$CPG_COUNT" -ge 30 ]; then
+  pass "Cw6-floor ($CPG_COUNT CI templates execute check-phase-gate.sh, floor 30)"
+else
+  fail_ "Cw6-floor" "only $CPG_COUNT CI templates execute check-phase-gate.sh (floor 30) — derivation is vacuous"
+fi
+w6_noblock=""; w6_nothonest=""; w6_nocred=""; w6_noguide=""; w6_nowire=""
+if [ "$CPG_COUNT" -gt 0 ]; then
+  for f in "${CPG_FILES[@]}"; do
+    # The signature must sit on a COMMENT line: an executable line that
+    # happened to contain the phrase must not satisfy the pin.
+    grep -Eq '^[[:space:]]*#[[:space:]]*PHASE-GATE CREDENTIALS \(walk ISSUE-006\)' "$f" \
+      || w6_noblock="$w6_noblock ${f#*/ci/}"
+    grep -Eq '^[[:space:]]*#.*UNVERIFIED' "$f" \
+      || w6_nothonest="$w6_nothonest ${f#*/ci/}"
+    grep -Eq '^[[:space:]]*#.*check-gate\.sh --setup-ci-token' "$f" \
+      || w6_noguide="$w6_noguide ${f#*/ci/}"
+    case "$f" in
+      */ci/github/*)
+        # github's credential is the LIVE mapping, not prose — assert the
+        # executable form (no leading `#`) under the step.
+        grep -Eq '^[[:space:]]*GH_TOKEN:[[:space:]]*\$\{\{[[:space:]]*secrets\.SOIF_PROTECTION_TOKEN[[:space:]]*\}\}[[:space:]]*$' "$f" \
+          || w6_nocred="$w6_nocred ${f#*/ci/}"
+        grep -Eq '^[[:space:]]*env:[[:space:]]*$' "$f" \
+          || w6_nowire="$w6_nowire ${f#*/ci/}"
+        ;;
+      */ci/gitlab/*)
+        grep -Eq '^[[:space:]]*#.*GITLAB_TOKEN' "$f" || w6_nocred="$w6_nocred ${f#*/ci/}" ;;
+      */ci/bitbucket/*)
+        grep -Eq '^[[:space:]]*#.*BITBUCKET_API_TOKEN' "$f" || w6_nocred="$w6_nocred ${f#*/ci/}" ;;
+    esac
+  done
+fi
+if [ -z "$w6_noblock" ]; then
+  pass "Cw6-block (all $CPG_COUNT templates carry the credential comment block)"
+else
+  fail_ "Cw6-block" "no '# PHASE-GATE CREDENTIALS (walk ISSUE-006)' comment in:$w6_noblock"
+fi
+if [ -z "$w6_nothonest" ]; then
+  pass "Cw6-honest (each block calls the skipped check UNVERIFIED, never verified)"
+else
+  fail_ "Cw6-honest" "the block never says UNVERIFIED — a skip that reads as a pass — in:$w6_nothonest"
+fi
+if [ -z "$w6_noguide" ]; then
+  pass "Cw6-guided (every block RECOMMENDS the guided walkthrough by name)"
+else
+  fail_ "Cw6-guided" "no 'check-gate.sh --setup-ci-token' recommendation in:$w6_noguide"
+fi
+if [ -z "$w6_nocred" ]; then
+  pass "Cw6-credential (each names its host's hard-enforcement credential)"
+else
+  fail_ "Cw6-credential" "no hard-enforcement credential named in:$w6_nocred"
+fi
+if [ -z "$w6_nowire" ]; then
+  pass "Cw6-wiring (github phase-gate steps map the secret LIVE, not as a commented example)"
+else
+  fail_ "Cw6-wiring" "no executable 'env:' key carrying the secret mapping in:$w6_nowire"
+fi
+
+# ── Cw6-strict (adversarial review R-1): a mapped secret must reach a gate
+# whose EXIT CODE still counts. 7 of the 10 github templates ran the gate as
+#     bash scripts/check-phase-gate.sh 2>/dev/null || echo "…not found — skipping"
+# which discards the exit code entirely: a probe showed the gate printing [FAIL]
+# and exiting 1 while the step graded GREEN, and the swallow message LIED (the
+# script was found — it was the gate's verdict that failed, not the file). Under
+# that shape "set the secret and the backstop enforces" is FALSE: the check
+# would run with a real credential and its verdict would still be thrown away.
+# So the credential wiring and the exit-code contract are ONE pin, not two.
+#
+# Deliberately scoped to templates that MAP the secret: those are exactly the
+# ones making the enforcement claim. `[ ! -f … ] && exit 1` + a bare invocation
+# is the strict shape python/typescript/other already used.
+#
+# Scoped to the STEP, not the file: the phase-gate step is extracted by name and
+# both discard vectors are checked inside it — the shell one (`|| echo/true/:`
+# on the invocation) and the Actions-native one (`continue-on-error: true` on
+# the step, which grades a red step GREEN just as effectively). Other steps may
+# legitimately use either (java/kotlin's Lint step does); this one may not.
+w6_swallow=""; w6_coe=""
+if [ "$CPG_COUNT" -gt 0 ]; then
+  for f in "${CPG_FILES[@]}"; do
+    case "$f" in */ci/github/*) ;; *) continue ;; esac
+    grep -Eq '^[[:space:]]*GH_TOKEN:[[:space:]]*\$\{\{' "$f" || continue
+    _w6_step=$(awk '
+      /^      - name: Governance - Phase gate check$/ { inside = 1; next }
+      inside && /^      - name: / { exit }
+      inside { print }
+    ' "$f")
+    if printf '%s\n' "$_w6_step" | grep -E '^[^#]*bash scripts/check-phase-gate\.sh' \
+         | grep -Eq '(\|\||;)[[:space:]]*(echo|true|:)'; then
+      w6_swallow="$w6_swallow ${f#*/ci/}"
+    fi
+    if printf '%s\n' "$_w6_step" | grep -Eq '^[[:space:]]*continue-on-error:[[:space:]]*true'; then
+      w6_coe="$w6_coe ${f#*/ci/}"
+    fi
+  done
+fi
+if [ -z "$w6_swallow" ]; then
+  pass "Cw6-strict (every secret-mapping github template lets the gate's EXIT CODE decide the step)"
+else
+  fail_ "Cw6-strict" "the gate's exit code is discarded (\`|| echo/true/:\`) — a mapped secret cannot enforce anything — in:$w6_swallow"
+fi
+if [ -z "$w6_coe" ]; then
+  pass "Cw6-strict-no-coe (no continue-on-error on the phase-gate step — the Actions-native swallow)"
+else
+  fail_ "Cw6-strict-no-coe" "continue-on-error grades the phase-gate step GREEN regardless of the verdict, in:$w6_coe"
+fi
+
+# ── Cw16 (walk 2026-08-02 ISSUE-016): the tag-deploy environment trap ───────
+# The emitted release.yml is TAG-triggered, and enabling GitHub Pages
+# auto-creates a `github-pages` environment whose default deployment branch
+# policy admits the DEFAULT BRANCH ONLY — so `git push --tags` is rejected
+# before any step runs (empty step list, no readable error). The workflow
+# cannot self-diagnose it (a rejected run starts no job), so the template's
+# job is to NAME the trap and point at the check that can run. Pinned here
+# because a comment is the only thing standing between a first-time releaser
+# and an unreadable failure — and because the pointer must resolve:
+# Cw16-subcommand asserts the named subcommand actually dispatches.
+echo "Cw16: the web release template names the tag-deploy environment trap + a runnable check"
+REL_WEB_W16="$REPO_ROOT/templates/pipelines/release/github/web.yml"
+CHECK_GATE_W16="$REPO_ROOT/scripts/check-gate.sh"
+if [ -f "$REL_WEB_W16" ] && [ -f "$CHECK_GATE_W16" ]; then
+  pass "Cw16-floor (release/github/web.yml + scripts/check-gate.sh present)"
+else
+  fail_ "Cw16-floor" "a Cw16 target file is missing — the cases below would be vacuous"
+fi
+if grep -Eq '^[[:space:]]*#.*walk ISSUE-016' "$REL_WEB_W16"; then
+  pass "Cw16-block (the tag-deploy/environment trap is documented at the trigger, as a comment)"
+else
+  fail_ "Cw16-block" "release/github/web.yml does not name the walk ISSUE-016 tag-deploy environment trap"
+fi
+w16_missing=""
+grep -Fq 'deployment-branch-policies' "$REL_WEB_W16" || w16_missing="$w16_missing api-path"
+grep -Fq -- '--release-env-policy' "$REL_WEB_W16"    || w16_missing="$w16_missing subcommand"
+grep -Fq "type='tag'" "$REL_WEB_W16"                 || w16_missing="$w16_missing tag-type"
+if [ -z "$w16_missing" ]; then
+  pass "Cw16-remedy (names the API path, the tag policy type, and the runnable check)"
+else
+  fail_ "Cw16-remedy" "release/github/web.yml is missing:$w16_missing"
+fi
+# The pointer must RESOLVE — a comment naming a subcommand that check-gate.sh
+# does not dispatch is worse than no comment.
+if grep -Eq '^[[:space:]]*--release-env-policy\)' "$CHECK_GATE_W16"; then
+  pass "Cw16-subcommand (check-gate.sh actually dispatches --release-env-policy)"
+else
+  fail_ "Cw16-subcommand" "the template points at scripts/check-gate.sh --release-env-policy but check-gate.sh does not dispatch it"
+fi
+
 echo ""
 if [ "${SKIPPED:-0}" -gt 0 ]; then
   echo "!! ${SKIPPED} case(s) SKIPPED — skipped != passed."

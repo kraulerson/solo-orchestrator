@@ -206,6 +206,52 @@ case_12_seed_template_no_placeholder_collision() {
   fi
 }
 
+case_13_seed_template_placeholder_manifest_is_complete() {
+  # Walk 2026-08-02 ISSUE-008: the seed template's placeholders were documented
+  # one-by-one next to the markup they fill — except __FEATURE_OPTIONS__, whose
+  # only instructions sit mid-file inside addBug(). An author who worked the
+  # comments near the top replaced six of seven and was caught by the linter,
+  # which reports a line in the OUTPUT file while the fix belongs in a
+  # different, mid-file spot in the TEMPLATE.
+  #
+  # The fix is a top-of-file PLACEHOLDER MANIFEST; this case makes it
+  # self-maintaining. The token list is DERIVED, never retyped: the linter's
+  # own comment-stripper decides which placeholders survive into a populated
+  # file, so a NEW placeholder added to the template with no manifest row
+  # fails here. Floor 7 keeps the derivation from passing vacuously.
+  local template="$REPO_ROOT/templates/uat/test-session-template.html"
+  local manifest tokens count missing=""
+  # The manifest block: from the marker line to the end of that HTML comment.
+  manifest=$(awk '/AGENT: PLACEHOLDER MANIFEST/{f=1} f{print} f&&/-->/{exit}' "$template")
+  if [ -z "$manifest" ]; then
+    echo "  templates/uat/test-session-template.html has no 'AGENT: PLACEHOLDER MANIFEST' block" >&2
+    return 1
+  fi
+  # Placeholders that SURVIVE comment-stripping = the ones an author must
+  # replace. Sourced from the linter itself so the two cannot disagree.
+  set +e
+  tokens=$(bash "$LINTER" "$template" 2>&1 | grep -o '__[A-Z][A-Z_]*__' | sort -u)
+  set -e
+  count=$(printf '%s\n' "$tokens" | grep -c '__')
+  if [ "$count" -lt 7 ]; then
+    echo "  derived only $count placeholder token(s) from the seed template (floor 7) — derivation is vacuous" >&2
+    return 1
+  fi
+  local t
+  for t in $tokens; do
+    case "$manifest" in *"$t"*) ;; *) missing="$missing $t" ;; esac
+  done
+  if [ -n "$missing" ]; then
+    echo "  placeholder(s) present in the template but ABSENT from the manifest:$missing" >&2
+    return 1
+  fi
+  # And the one the walk found must be named as the easy-to-miss one.
+  case "$manifest" in *ISSUE-008*) ;; *)
+    echo "  the manifest does not flag __FEATURE_OPTIONS__ as the mid-file outlier (walk ISSUE-008)" >&2
+    return 1 ;;
+  esac
+}
+
 case_11_multiple_violations() {
   local work; work=$(mktemp -d); trap "rm -rf '$work'" RETURN
   seed_html "$work/bad.html" '[
@@ -234,6 +280,7 @@ run_case "case 9: missing input file"                case_9_missing_file
 run_case "case 10: malformed JSON"                   case_10_malformed_json
 run_case "case 11: multiple violations"              case_11_multiple_violations
 run_case "case 12: seed template no __PLACEHOLDER__" case_12_seed_template_no_placeholder_collision
+run_case "case 13: seed template placeholder manifest is complete" case_13_seed_template_placeholder_manifest_is_complete
 
 echo ""
 echo "═══════════════════════════════════════════"

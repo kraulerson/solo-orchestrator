@@ -259,6 +259,46 @@ So the receipt asserts five things, enforced in five different places: the filte
 
 **Database backup:** Configure daily automated backups. Test restoration.
 
+### 5.1a Releasing — tag deploys and deployment environments
+
+`.github/workflows/release.yml` is **tag-triggered** (`on: push: tags: ['v*']`),
+and the framework's documented release action is `git tag v1.0.0 && git push --tags`.
+
+**The trap (walk ISSUE-016).** If your deploy step targets a GitHub deployment
+**environment** — `environment: github-pages` on the job, which is what every
+GitHub Pages workflow uses — the environment's **deployment branch policy**
+decides whether a *tag* may deploy at all. Enabling Pages **auto-creates** a
+`github-pages` environment whose default policy admits **the default branch
+only**. A tag-triggered run is then rejected by the environment's protection
+rules **before any step executes**: the run fails at job setup with an **empty
+step list** and no readable error in `gh run view`. Nothing in the workflow can
+catch this — a rejected run never starts a job, so an in-workflow preflight step
+is unreachable by construction.
+
+**Check it before you tag** (dry run reports; exit 1 means tag deploys would be
+rejected):
+
+```bash
+scripts/check-gate.sh --release-env-policy          # report
+scripts/check-gate.sh --release-env-policy --fix    # apply
+```
+
+**The one-line manual equivalent** — admit the release tag pattern:
+
+```bash
+gh api -X POST repos/OWNER/REPO/environments/github-pages/deployment-branch-policies \
+  -f name='v*' -f type='tag'
+```
+
+Then re-run the failed workflow. If the environment is set to *protected
+branches only*, switch it to custom policies first (the check prints the exact
+`gh api -X PUT` for that case). Non-default environment names and tag patterns:
+`--env <name>` and `--tag-pattern <glob>`.
+
+This is GitHub-specific. GitLab protected environments and Bitbucket deployment
+permissions are opt-in and are not auto-created, so the check reports
+NOT APPLICABLE (exit 0) on those hosts.
+
 ### 5.2 Go-Live Checklist (Web-Specific)
 
 In addition to the Builder's Guide Phase 4.2:

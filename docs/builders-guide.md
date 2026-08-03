@@ -1020,6 +1020,23 @@ Interactively (no flag), init prompts and defaults to **do not proceed** (treat 
 
 This is enforced by `init.sh` via the selected host driver and verified by `scripts/check-phase-gate.sh` at every Phase 1→2 check. Drift detection is automatic — if protection is loosened later, the gate blocks until `scripts/check-gate.sh --repair` restores it.
 
+**In CI, that same check WARNs instead of enforcing until you give it a token — please clear it (walk ISSUE-006).** Verifying branch protection is an authenticated API read, and a workflow runner holds no credential for it: GitHub Actions puts no token in a step's environment, and the built-in `secrets.GITHUB_TOKEN` **cannot** read branch protection at all (the workflow `permissions:` block has no `administration` key). Rather than fail a check that is structurally impossible there, the gate prints a loud `[WARN] … COULD NOT RUN` — honest, but not enforcement, and a warning nobody clears becomes a check nobody reads. One guided command sets up the real thing:
+
+```bash
+scripts/check-gate.sh --setup-ci-token
+```
+
+It explains what the token is for, walks you through a **least-privilege fine-grained PAT** (Repository access: this repo only; Repository permissions → **Administration: Read-only** — that one permission is the whole requirement, no write anywhere), **verifies the token can actually read protection before storing anything** (a stored-but-powerless token would turn today's honest WARN into a hard FAIL), stores it as the Actions secret `SOIF_PROTECTION_TOKEN` with the value on stdin rather than argv, and then checks your workflow against **both** conditions that enforcement depends on. An unset secret evaluates to the empty string, which the gate reads as "no credential" — exactly today's warning.
+
+Enforcement needs two things, and the command reports on each rather than assuming them:
+
+1. **The workflow maps the secret** into the phase-gate step (`GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}`). The generated `ci.yml` does.
+2. **The gate's exit code decides that step.** Until 2026-08-02, seven of the ten generated GitHub workflows ran the gate as `bash scripts/check-phase-gate.sh 2>/dev/null || echo "…skipping"`, which throws the verdict away — the gate could print `[FAIL]` and exit 1 while the step graded green (and the "not found" message was a lie: the script *was* found, its verdict failed). All ten now use the strict shape. **If you scaffolded before that date, `--setup-ci-token` will detect the swallowing `run:` line and print the replacement** — a token cannot enforce anything through a discarded exit code.
+
+When both hold, the next push enforces.
+
+Non-interactive: `SOIF_PROTECTION_TOKEN=<token> scripts/check-gate.sh --setup-ci-token`. GitLab and Bitbucket need **both** a token variable **and** the host CLI installed in the governance job (`glab` / `curl`); the same command prints those steps for those hosts. Local runs are unaffected throughout — the gate has always blocked on the dev workstation and still does.
+
 **Existing projects that predate this gate:**  The first time you upgrade or cross Phase 1→2, you may need to backfill manifest + protection:
 
 ```bash
@@ -1790,6 +1807,18 @@ Artifacts marked "No" in the Gate-Checked column are included in the snapshot fo
 **Re-run protocol after major remediation:** If a fix changes application behavior (not just scan configuration), re-run the affected test steps. Security fix → re-run Steps 3.1 (integration) and 3.2 (security). Accessibility fix → re-run Step 3.4. Performance fix → re-run Step 3.5. If multiple step types are affected, use `scripts/process-checklist.sh --reset phase3_validation` to re-run the full Phase 3 sequence. For minor fixes that don't change behavior (suppression configuration, documentation), re-running is not required.
 
 **Evaluation prompts:** Run the Security Review (`evaluation-prompts/Projects/bases/03-security.md`) and Red Team Review (`evaluation-prompts/Projects/bases/06-red-team-review.md`) evaluation prompts (or the full six-reviewer suite via `evaluation-prompts/Projects/run-reviews.sh`, which writes `docs/eval-results/review-manifest.json`). Results should be archived to `docs/eval-results/`.
+
+> **Two supported routes — pick by who is running it.** Bare `run-reviews.sh <module>` launches six nested `claude -p` CLI sessions and assumes an **interactive shell that owns the terminal**. If the caller is **already an agent** (a Claude Code session, a subagent, any headless runner), use the compose route instead — it is a first-class alternative, not a fallback, and it is what the 2026-08-02 walk used for all six reviewers (ISSUE-014):
+>
+> ```bash
+> run-reviews.sh <module> --compose-only        # writes docs/eval-results/prompts/*.md, starts nothing
+> # run each prompt on the surface you already have — one subagent per reviewer, in parallel —
+> # and save each output at the artifact filename its prompt demands
+> run-reviews.sh <module> --assemble-manifest   # builds the manifest from the artifacts on disk
+> bash scripts/lint-review-manifest.sh docs/eval-results/review-manifest.json
+> ```
+>
+> Never hand-write `review-manifest.json`: `--assemble-manifest` derives it from the files that actually exist, which is what keeps the Phase 3 → 4 gate's verdict honest. Full details: `evaluation-prompts/Projects/README.md` § Usage.
 
 **Track-specific enforcement (BL-073):** the Security and Red Team reviews are a **hard Phase 3 → 4 gate** for `track=standard` and `track=full` — `scripts/check-phase-gate.sh` reads the review manifest and **FAILs the gate** if either the Security or Red Team review is missing or not `complete`. Full Track additionally requires all six reviewers (the other four WARN but still block). `track=light` / personal projects are WARN-only (POC preserved) and the bypass is logged; enforcement flips to FAIL if the project is later upgraded to `standard`/`full`. Pre-existing projects (created before this enforcement shipped, keyed on `phase-state.json::review_gate_enforced`) are grandfathered — WARN-only, never retroactively blocked. To ship an enforced project with a documented reviewer gap, attest with `SOLO_REVIEWERS_ATTESTED=1 SOLO_REVIEWERS_ATTESTED_REASON="<reason>"` (recorded to `.claude/process-state.json::phase3.attestations.reviewers`). See the Phase 3 → 4 gate checklist above for the full contract.
 

@@ -849,6 +849,17 @@ run_child_suite "tests/test-bl106-golive-checklist.sh" "tests/test-bl106-golive-
 # lanes.
 run_child_suite "tests/test-bl137-ci-tools-scope.sh" "tests/test-bl137-ci-tools-scope.sh"
 
+# Walk 2026-08-02 ISSUE-006 (Major): BL-137's twin one arm down — the Phase
+# 1→2 PROTECTION backstop. Branch protection is an authenticated API read; a
+# runner holds no credential for it (Actions exports no token, and the
+# built-in GITHUB_TOKEN cannot read protection at all), so the generated
+# governance job could never pass on the framework's own default happy path.
+# Credential-less CI now WARNs ("could NOT run", never "verified") without
+# incrementing issues; local, token-bearing CI, and host=other all still
+# BLOCK. Real github driver + `gh` stub; three in-suite mutants (drop the $CI
+# key / blind the token probe / pre-fix repro). No init.sh -> both lanes.
+run_child_suite "tests/test-walk006-ci-protection-scope.sh" "tests/test-walk006-ci-protection-scope.sh"
+
 # BL-125 (Dogfood-2 F-DF2-009): the emitted pre-commit hook RUNS the
 # project's test command — RED tests block the commit ([BLOCKED]), green
 # tests land with a receipt, not-runnable (unconfigured / exit 127) is a
@@ -1524,6 +1535,15 @@ section "BL-035 C: docs / specs / lint suites"
 run_child_suite "tests/test-docs-cluster-six-pack.sh" "tests/test-docs-cluster-six-pack.sh (28/28)"
 run_child_suite "tests/test-specs-plans-remaining-quartet.sh" \
   "tests/test-specs-plans-remaining-quartet.sh (10/10)"
+
+# Walk 2026-08-02 ISSUE-003 (Minor): check-versions.sh printed the RAW jq
+# output of `install.<key>`, and BL-033 allows that value to be an ARRAY — so
+# five shipped tools surfaced as JSON literals under "Update commands (run
+# manually)". Array now joins with " && " (resolve-tools parity); URLs and
+# missing entries are labelled instead of masquerading as commands. In-suite
+# mutant drops the normalizer and the raw JSON returns. No init.sh -> both lanes.
+run_child_suite "tests/test-walk003-update-command-render.sh" \
+  "tests/test-walk003-update-command-render.sh"
 run_child_suite "tests/test-lint-uat-scenarios.sh" "tests/test-lint-uat-scenarios.sh (12/12)"
 # --- end BL-035 wiring C ---
 
@@ -1556,6 +1576,13 @@ run_child_suite "tests/test-escalate-to-user.sh" "tests/test-escalate-to-user.sh
 
 # Gate / check family.
 run_child_suite "tests/test-check-gate.sh" "tests/test-check-gate.sh"
+# Walk 2026-08-02 ISSUE-016 (Major): `--release-env-policy` — the GitHub Pages
+# environment's default branch policy rejects TAG deploys before any job
+# starts (empty step list, no readable error), which hard-fails the
+# framework's own "git tag v1.0.0 && git push --tags" happy path. Dry-run
+# reports + exits 1; --fix applies. `gh` stub + call log; in-suite mutant
+# blinds the tag-policy detection. No init.sh -> both lanes.
+run_child_suite "tests/test-walk016-release-env-policy.sh" "tests/test-walk016-release-env-policy.sh"
 run_child_suite "tests/test-check-changelog-filter.sh" "tests/test-check-changelog-filter.sh"
 run_child_suite "tests/test-check-commit-message.sh" "tests/test-check-commit-message.sh"
 # BL-010: the BL-006 Build-Loop commit-message check now runs at the git

@@ -43,4 +43,18 @@ pipelines:
         image: bash:5
         script:
           - apk add --no-cache jq git
+          # PHASE-GATE CREDENTIALS (walk ISSUE-006): the Phase 1-2 branch-protection backstop needs a host API token this runner does not have.
+          # This step installs only jq+git: there is no curl client and no Bitbucket
+          # credential. So that ONE check prints a loud [WARN] "could NOT run" here
+          # instead of failing the step. It is UNVERIFIED on this runner, NOT
+          # satisfied, and it still BLOCKS on the dev workstation
+          # (scripts/check-gate.sh --preflight).
+          # >> STRONGLY RECOMMENDED — clear this warning permanently. BOTH halves are
+          # required, and the check still cannot run with only one of them:
+          #   1. repository variables BITBUCKET_API_TOKEN + BITBUCKET_API_TOKEN_EMAIL
+          #      (or the legacy BITBUCKET_APP_PASSWORD + BITBUCKET_USER), set under
+          #      Repository settings > Repository variables;
+          #   2. curl installed in this step.
+          # `scripts/check-gate.sh --setup-ci-token` prints these steps for Bitbucket.
+          # A warning nobody clears is a check nobody reads.
           - bash scripts/check-phase-gate.sh

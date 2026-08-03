@@ -128,7 +128,15 @@ STUB
 teardown_project() { rm -rf "$TMP"; }
 
 run_gate() {
-  ( cd "$PROJ" && PATH="$STUBDIR:$PATH" bash "$SCRIPT" 2>&1 )
+  # `env -u CI -u GH_TOKEN -u GITHUB_TOKEN` — T2 asserts the backstop BLOCKS
+  # when no attestation is recorded, and since
+  # `# WALK-ISSUE-006-CI-PROTECTION-SCOPE` the arm deliberately does NOT block
+  # on a credential-less CI runner. Inheriting this suite's own $CI (it runs in
+  # the tests.yml unit lane) would exempt the arm and turn T2 green-in-CI /
+  # red-locally — the exact split-brain the walk finding is about. These cases
+  # are about the ATTESTATION path, so they are pinned to the local context.
+  ( cd "$PROJ" && PATH="$STUBDIR:$PATH" env -u CI -u GH_TOKEN -u GITHUB_TOKEN \
+      bash "$SCRIPT" 2>&1 )
 }
 
 # ════════════════════════════════════════════════════════════════════

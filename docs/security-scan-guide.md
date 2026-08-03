@@ -174,6 +174,22 @@ window.addEventListener('message', (event) => {
 
 ## Snyk — 5 Most Common Findings
 
+### Authenticating Snyk (and what to do when you cannot)
+
+Snyk needs a token before it will scan. `snyk auth` opens a **browser OAuth flow**, so an autonomous agent session cannot complete it — the framework's setup instructions say "`snyk auth`, one-time per machine" and stop there, which leaves an agent with no path (walk 2026-08-02, ISSUE-002). Three options, in order of preference:
+
+1. **A human runs `snyk auth` once** on the machine. This is the normal path; do it at setup, not at the Phase 3 gate.
+2. **Supply a token non-interactively** — set `SNYK_TOKEN` in the environment (the CI convention), or `snyk config set api=<token>`. The Phase 3 scanner detects either form (`SNYK_TOKEN`, or a stored token via `snyk config get api`) and never triggers the interactive flow.
+3. **Attest the skip.** If neither is available, the scanner does **not** silently pass: it records an *unauthenticated* SKIP that BLOCKS the Phase 3 → 4 gate until you sign for it. That is the supported agent path — an honest, on-the-record skip:
+
+   ```bash
+   bash scripts/run-phase3-validation.sh --attest snyk \
+     --reason "snyk auth requires a browser OAuth flow this session cannot complete; no SNYK_TOKEN provisioned" \
+     --signoff "<who>"
+   ```
+
+   The attestation lands in `.claude/phase-state.json::phase3.attestations.snyk` and the summary reports `SKIP(attested)` — visible to every later reviewer. Attesting is not a way to make the finding go away; it is a way to say *who* decided to ship without this scan.
+
 ### 1. Prototype Pollution (lodash, minimist, qs, or similar)
 
 **What it means:** A dependency has a vulnerability where an attacker can inject properties into JavaScript object prototypes, potentially causing unexpected behavior or security bypasses.

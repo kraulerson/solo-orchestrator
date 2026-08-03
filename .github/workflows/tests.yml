@@ -356,6 +356,7 @@ jobs:
             tests/test-bl147-ci-template-integrity.sh
             tests/test-bl089-doc-foundations.sh
             tests/test-bl137-ci-tools-scope.sh
+            tests/test-walk006-ci-protection-scope.sh
             tests/test-bl138-approval-window.sh
             tests/test-bl170-approval-append-design.sh
             tests/test-bl166-gate-scope.sh
@@ -372,6 +373,7 @@ jobs:
             tests/test-check-changelog-filter.sh
             tests/test-check-commit-message.sh
             tests/test-check-gate.sh
+            tests/test-walk016-release-env-policy.sh
             tests/test-check-phase-gate-argv-parser.sh
             tests/test-check-phase-gate-backstop-attestation.sh
             tests/test-check-phase-gate-blame-walker.sh
@@ -428,6 +430,7 @@ jobs:
             tests/test-session-test-gate-check-merge.sh
             tests/test-specs-plans-host-aware-quartet.sh
             tests/test-specs-plans-remaining-quartet.sh
+            tests/test-walk003-update-command-render.sh
             tests/test-test-gate-counter-sanitizer.sh
             tests/test-test-gate-null-handling.sh
             tests/test-tier-crosscheck-6-followup-atomicity-and-jq.sh

@@ -63,6 +63,41 @@ cd /path/to/your-project
 /path/to/evaluation-prompts/Projects/run-reviews.sh web-app
 ```
 
+### Run all 6 reviews from inside an agent session (`--compose-only`)
+
+**Use this route whenever the caller is already an agent** — a Claude Code
+session, a subagent, or any headless runner. The command above launches nested
+`claude -p` CLI instances, which assumes an interactive shell that owns the
+terminal; from inside an agent session those nested headless sessions are
+fragile (auth/session reuse, no TTY, spend limits) and a single mid-run failure
+loses the whole suite. `--compose-only` is a first-class alternative, not a
+fallback: same prompts, same provenance headers, same manifest contract.
+
+```bash
+cd /path/to/your-project
+
+# 1. Emit all six prompts. No sessions started; `claude` need not be installed.
+/path/to/evaluation-prompts/Projects/run-reviews.sh web-app --compose-only
+#    -> docs/eval-results/prompts/{engineer,cio,security,legal,techuser,redteam}-prompt.md
+
+# 2. Run each prompt on whatever surface you already have — one subagent per
+#    reviewer is the natural shape, and they are independent, so dispatch them
+#    in parallel. Save each output at the artifact filename its prompt demands
+#    (see the Output table below).
+
+# 3. Build + validate the manifest from the artifacts on disk.
+/path/to/evaluation-prompts/Projects/run-reviews.sh web-app --assemble-manifest
+bash scripts/lint-review-manifest.sh docs/eval-results/review-manifest.json
+```
+
+Step 3 writes `docs/eval-results/review-manifest.json` — the artifact the
+Phase 3 → 4 gate reads (`scripts/check-phase-gate.sh`). Do not hand-write it;
+`--assemble-manifest` derives it from the files that actually exist, which is
+what makes the gate's verdict honest.
+
+Walk 2026-08-02 (ISSUE-014) ran exactly this route for all six reviewers and it
+is what produced the walk's highest-value finding.
+
 ### Run specific reviewers
 
 ```bash

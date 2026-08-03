@@ -2,6 +2,12 @@
 
 Reference for generating usable UAT test scenarios in solo-orchestrator projects. Complements the embedded comments in `templates/uat/test-session-template.html` — read both together when filling out a UAT session.
 
+## 0. Before you fill anything in: the placeholder manifest
+
+The template's **first HTML comment** is an `AGENT: PLACEHOLDER MANIFEST` block listing **all seven** `__TOKEN__` placeholders and where each one lives. Work that list — it is the only complete enumeration.
+
+Six of the seven are announced by a block comment sitting next to the markup they fill. The seventh, `__FEATURE_OPTIONS__`, is **mid-file inside the `addBug()` JavaScript function** (it supplies the `<option>` list for the bug form's Feature select), and it is the one authors miss (walk 2026-08-02 ISSUE-008). `scripts/lint-uat-scenarios.sh` does catch a survivor — but it reports a line number in **your populated output file**, and the edit belongs at a different place in the **template**, so the linter's line number does not lead you to the fix. Use the manifest to prevent the miss; use the linter to confirm you did.
+
 ## 1. Why UAT quality matters
 
 UAT scenarios that are schema-valid but operationally broken waste real human time. On the lancache project's first UAT session (2026-04-22), an AI agent generated scenarios that passed the template schema but failed as tester instructions: no system context, implicit working directory, cross-scenario dependencies, vague pass/fail criteria, non-deterministic expected output, informal cleanup, unmarked optional dependencies. The Orchestrator's feedback: *"The tests are not stating what system this is done on, it doesn't walk through the tests step by step and makes assumption the tester knows where everything is."* The rewrite recovered usability but cost substantial Orchestrator time. This guide codifies the rewrite recipe so every future project inherits the floor.
