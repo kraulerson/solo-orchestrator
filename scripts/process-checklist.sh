@@ -324,6 +324,35 @@ complete_step() {
     exit 1
   fi
 
+  # WALK-ISSUE-012-NULL-FEATURE-GUARD-BEGIN
+  # WALK ISSUE-012 (2026-08-02): `--complete-step build_loop:<step>` SUCCEEDED
+  # while `.build_loop.feature` was null — the walker's --start-feature had
+  # exited early, so two steps were recorded against NO feature and --status
+  # read "Feature: none / Progress: 2/6 steps". Every downstream consumer of
+  # the loop is feature-keyed (the security_audit artifact glob resolves the
+  # feature slug; --check-commit-message reports `feat($feature)`; the
+  # P2-007 previous-feature warning), so a featureless loop is not a loop —
+  # it is orphaned state that no gate can attribute. Steps are the evidence
+  # of work on a NAMED feature; refuse rather than record an unattributable
+  # one. The other processes carry their own identity (uat_session's
+  # session_id) or are singletons per phase, so this arm is build_loop-only.
+  #
+  # R-WALK-2: the predicate is a jq TYPE test, deliberately. `--start-feature
+  # "null"` is a legal name and stores the JSON STRING "null"; a shell-level
+  # `case "$feature" in null)` renders both that string and JSON null as the
+  # same four characters and refused a genuinely registered loop.
+  if [ "$process" = "build_loop" ]; then
+    if ! jq -e '(.build_loop.feature | type) == "string" and (.build_loop.feature | length) > 0' \
+           "$PROCESS_STATE" >/dev/null 2>&1; then
+      print_fail "No Build Loop is active — '$step_id' cannot be recorded against a null feature."
+      echo "  .build_loop.feature is null: either --start-feature was never run, or it exited before registering (e.g. an overdue Context Health Check), or the loop was closed by build_loop:feature_recorded." >&2
+      echo "  Start the loop first: scripts/process-checklist.sh --start-feature \"feature-name\"" >&2
+      echo "  Then verify:          scripts/process-checklist.sh --status" >&2
+      exit 1
+    fi
+  fi
+  # WALK-ISSUE-012-NULL-FEATURE-GUARD-END
+
   # Check if already completed
   if step_is_completed "$process" "$step_id"; then
     print_warn "Step '$step_id' already completed for $process"
@@ -675,6 +704,20 @@ BL120EOF
         if [ -n "$bl115_data_class" ] && [ "$bl115_data_class" != "public" ]; then
           print_warn "data_classification='$bl115_data_class' (non-public / PII-bearing) but NO privacy policy or ToS exists — legal review cannot be skipped by not writing the documents (fail closed)."
           echo "  Create PRIVACY_POLICY.md (and TERMS_OF_SERVICE.md if applicable), obtain attorney review, record the dated row in APPROVAL_LOG.md." >&2
+          # WALK-ISSUE-013-ZERO-COLLECTION-BEGIN
+          # WALK ISSUE-013 (2026-08-02): a local, zero-collection tool whose
+          # data_classification is honestly 'internal' (it handles the user's
+          # own documents IN MEMORY) reads this as "write a policy about data
+          # you don't collect" and looks like a gate to fight. It is not —
+          # the honest path the walker eventually found on their own is a
+          # policy that STATES zero collection, which is a real, useful
+          # artifact. Naming it here makes the exit discoverable instead of
+          # rediscovered. The gate is unchanged: an artifact is still
+          # required (this line adds no bypass and no `artifact_check_failed`
+          # exemption). Same sentence lives in docs/builders-guide.md
+          # Step 3.6 § Legal.
+          echo "  Collects and transmits NOTHING? That is still satisfied by a Privacy Policy that SAYS so — 'this product collects, stores and transmits no user data; all processing happens locally' is a valid, complete policy and the honest artifact for a zero-collection product. Classification describes the data you HANDLE, not a claim that you collect it." >&2
+          # WALK-ISSUE-013-ZERO-COLLECTION-END
           artifact_check_failed=true
         elif [ "$has_attorney_entry" = false ]; then
           # No legal docs, public/unset classification — likely N/A.
@@ -877,6 +920,14 @@ start_phase3() {
 start_phase4() {
   ensure_state_file
 
+  # R-WALK-3: clear any recovery scratch file left by an EARLIER run that was
+  # killed between the recovery write and the gate consult (the undo below
+  # never got to run, and a later invocation that does not enter recovery has
+  # no variable pointing at it — it would sit in .claude/ forever). It is
+  # scratch, never a journal: nothing reads it across invocations, so an
+  # unconditional sweep at entry is the whole repair.
+  rm -f "$PROCESS_STATE.start4-recovery.bak" 2>/dev/null || true
+
   # Check POC mode — Phase 4 is blocked for POC projects
   if [ -f "$PHASE_STATE" ]; then
     local poc_mode
@@ -890,6 +941,61 @@ start_phase4() {
     fi
   fi
 
+  local now
+  now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+  # BL-105-START4-DEADLOCK-RECOVERY-BEGIN
+  # WALK ISSUE-015 (2026-08-02). The generated CLAUDE.md used to tell the
+  # operator to set .current_phase by hand at EVERY gate. Do that for 3→4 and
+  # the two halves of BL-105 lock: the gate's own BL-105 arm FAILs
+  # ("current_phase is 4 but the Phase-4 release checklist was NEVER STARTED
+  # — run --start-phase4") while --start-phase4 consults that same gate first
+  # and refuses. The only command that can clear BL-105 will not run while
+  # BL-105 is failing; the escape (revert current_phase to 3, re-run) was
+  # documented nowhere. The template text is fixed too — where a
+  # --start-phaseN exists, IT owns the bump — but a project already in the
+  # bumped state needs a way OUT, so recover here.
+  #
+  # Recovery, NOT bypass: the BL-105 arm demands that the phase-4 checklist
+  # EXIST at current_phase >= 4. We SATISFY it — initialize the checklist
+  # first, then let the gate below judge the project on its real merits. If
+  # the gate still fails (a genuinely unfinished Phase 3, missing approvals,
+  # …) the initialization is ROLLED BACK and start-phase4 refuses exactly as
+  # before, so a refused command still changes no state — and the deadlock is
+  # gone either way, because the next run re-initializes before consulting.
+  # Nothing here weakens the 3→4 gate: every other check runs unchanged.
+  #
+  # Phase-scoped on purpose. --start-phase1 consults the 0→1 gate but no arm
+  # of that gate demands a started phase1_architecture checklist, and
+  # --start-phase3 consults the bug gate (test-gate.sh) rather than
+  # check-phase-gate.sh at all — both were probed at a manually-bumped
+  # current_phase and neither deadlocks. Phase 4 is the only circular pair.
+  local _sp4_recovery=0 _sp4_backup=""
+  if [ -f "$PHASE_STATE" ] && command -v jq >/dev/null 2>&1; then
+    local _sp4_cur
+    _sp4_cur=$(jq -r '.current_phase // 0' "$PHASE_STATE" 2>/dev/null) || _sp4_cur=0
+    case "$_sp4_cur" in ''|*[!0-9]*) _sp4_cur=0 ;; esac
+    if [ "$_sp4_cur" -ge 4 ] \
+       && ! jq -e '.phase4_release.started_at // empty' "$PROCESS_STATE" >/dev/null 2>&1; then
+      _sp4_recovery=1
+      print_info "current_phase is already $_sp4_cur but the Phase-4 release checklist was never started — the BL-105 deadlock state. Initializing the checklist FIRST so the 3→4 gate below is evaluated on its real merits (a manual current_phase bump is not needed for this transition: --start-phase4 owns it)."
+      _sp4_backup="$PROCESS_STATE.start4-recovery.bak"
+      cp "$PROCESS_STATE" "$_sp4_backup"
+      # The recovery itself. Deleting this ONE line restores the deadlock
+      # (the gate below still FAILs on a never-started checklist) — it is the
+      # mutation target tests/test-walk-phase-lifecycle.sh flips.
+      jq --arg now "$now" '.phase4_release = {"steps_completed": [], "started_at": $now}' "$PROCESS_STATE" > "$PROCESS_STATE.tmp" && mv "$PROCESS_STATE.tmp" "$PROCESS_STATE"  # BL-105-START4-RECOVERY-INIT
+    fi
+  fi
+  # _sp4_recovery_undo — restore the pre-recovery process-state so a REFUSED
+  # start-phase4 leaves no trace. No-op when recovery did not trigger.
+  _sp4_recovery_undo() {
+    if [ "$_sp4_recovery" -eq 1 ] && [ -n "$_sp4_backup" ] && [ -f "$_sp4_backup" ]; then
+      mv "$_sp4_backup" "$PROCESS_STATE"
+    fi
+  }
+  # BL-105-START4-DEADLOCK-RECOVERY-END
+
   # BL-105-START4-GATE-CONSULT-BEGIN
   # Walk-confirmed: --start-phase4 consulted ONLY poc_mode and advanced past
   # a FAILING 3→4 gate — from current_phase=0 it jumped straight to 4 and
@@ -899,17 +1005,18 @@ start_phase4() {
   local _sp4_gate="$SCRIPT_DIR/check-phase-gate.sh"
   if [ -x "$_sp4_gate" ]; then
     if ! bash "$_sp4_gate" --gate phase_3_to_4; then
+      _sp4_recovery_undo
       print_fail "Phase 3→4 gate is NOT clear — start-phase4 refused (see the gate output above). Satisfy the gate, then re-run."
       exit 1
     fi
   else
+    _sp4_recovery_undo
     print_fail "check-phase-gate.sh not found beside this script — cannot verify the 3→4 gate; refusing to advance blind."
     exit 1
   fi
   # BL-105-START4-GATE-CONSULT-END
 
-  local now
-  now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  rm -f "$_sp4_backup" 2>/dev/null || true
 
   jq --arg now "$now" '
     .phase4_release = {
@@ -1167,13 +1274,46 @@ show_status() {
   # Phase 2 Init
   echo ""
   echo -e "${BOLD}Phase 2 Initialization${NC}"
-  local p2_completed
-  p2_completed=$(jq '.phase2_init.steps_completed | length' "$PROCESS_STATE")
+  # WALK-ISSUE-007-PHASE2-PROGRESS-BEGIN
+  # WALK ISSUE-007 (2026-08-02): this printed "Progress: 9/7 steps". Unlike
+  # every other process, phase2_init.steps_completed has writers OUTSIDE the
+  # PHASE2_INIT_STEPS vocabulary — init.sh and check-gate.sh record
+  # `pushed_initial` and `branch_protection_verified` through
+  # lib/phase2-state.sh::_record_phase2_step — so a raw `| length` counts
+  # names the denominator does not contain. Count the TEMPLATE steps actually
+  # present instead; the extras are still reported, on their own line, so
+  # nothing is hidden.
+  #
+  # Not merely cosmetic: the `Remaining:` block below is gated on
+  # completed < total, so an inflated numerator SUPPRESSED the list of
+  # genuinely missing steps (6 template steps + 3 extras = 9 >= 7 hid a
+  # missing initialization_verified). An honest numerator restores it.
   local p2_total=${#PHASE2_INIT_STEPS[@]}
+  local p2_completed=0 step
+  for step in "${PHASE2_INIT_STEPS[@]}"; do
+    if step_is_completed "phase2_init" "$step"; then
+      p2_completed=$((p2_completed + 1))
+    fi
+  done
+  local p2_extras="" p2_name
+  while IFS= read -r p2_name; do
+    [ -n "$p2_name" ] || continue
+    case " ${PHASE2_INIT_STEPS[*]} " in
+      *" $p2_name "*) continue ;;
+    esac
+    p2_extras="${p2_extras}    - ${p2_name}
+"
+  done <<P2EXTRA
+$(jq -r '.phase2_init.steps_completed[]? // empty' "$PROCESS_STATE" 2>/dev/null)
+P2EXTRA
   local p2_verified
   p2_verified=$(jq -r '.phase2_init.verified' "$PROCESS_STATE")
   echo "  Verified: $p2_verified"
   echo "  Progress: $p2_completed/$p2_total steps"
+  if [ -n "$p2_extras" ]; then
+    echo "  Also recorded (init-time steps, not part of the $p2_total-step checklist):"
+    printf '%s' "$p2_extras"
+  fi
   if [ "$p2_completed" -lt "$p2_total" ]; then
     echo "  Remaining:"
     for step in "${PHASE2_INIT_STEPS[@]}"; do
@@ -1182,6 +1322,7 @@ show_status() {
       fi
     done
   fi
+  # WALK-ISSUE-007-PHASE2-PROGRESS-END
   echo ""
 }
 
