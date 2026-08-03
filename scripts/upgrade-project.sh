@@ -1310,6 +1310,56 @@ _bl099_doc_drift() {
   _bl099_process_doc "PROJECT_INTAKE.md" "PROJECT_INTAKE.md" "$ORCHESTRATOR_ROOT/templates/project-intake.md" true || DOC_APPLY_FAILED=true
 }
 
+# ── THE POST-MVP POLICY NOTICE — NOTICE-ONLY, the # BL-099-DOC-GUARD form ────
+# SPEC: docs/designs/2026-08-02-delta-track-v1.md §3.2 (the DECIDED sync
+# semantics for the post-MVP track's project-owned policy file) and §3.1.
+#
+# WHAT IT DOES: prints one line naming policy keys the framework has learned
+# that the project's file lacks. WHAT IT NEVER DOES: write. Not under any flag,
+# not under any env, not as a sidecar, not as a backup, not as a template copy.
+# §3.2 weighed managed-region refresh and a `.new` sidecar and rejected both —
+# the file is the PROJECT's, and a silently reverted policy floor is the exact
+# failure the mechanism/policy split exists to prevent. This is the strong
+# precedent already in this file (# BL-099-DOC-GUARD's rendered-doc fence for
+# CLAUDE.md / PROJECT_INTAKE.md), not the weaker sidecar one.
+#
+# It runs under --dry-run too, because a function that writes nothing has
+# nothing to suppress — and running it there is a standing proof of that.
+#
+# ── WHY IT IS A DELEGATION AND NOT AN IMPLEMENTATION ─────────────────────────
+# This script is CORE. The post-MVP track is a SEVERABLE MODULE (D1), and
+# scripts/lint-delta-boundary.sh forbids every core file from naming a module
+# path on an executed line (§3.3 clause 2, tier T1 — NOT inline-waivable), with
+# a file-level seam allowlist of cardinality EXACTLY ONE
+# (scripts/process-checklist.sh; §3.3 clause 3 asserts the length and reds if it
+# grows). So this arm may not source the module's policy lib, may not name its
+# JSON file, and may not add itself to the allowlist. It delegates core -> core:
+# it invokes the ONE seam, and the seam does the key-diff and prints the line.
+#
+# The residue that routing leaves is the waived line below, and it is worth
+# being precise about it. Reaching the seam means naming the seam's ACTION FLAG,
+# and every seam action carries the `delta-` prefix by design (§3.1: "a small,
+# declared set of `--delta-*` actions"). That prefix is exactly what tier T2
+# scans for. So the invocation is a genuine T2 hit — no delta-module path is
+# named (T1 is clean) and the seam allowlist does not grow, but the token is
+# there and the lint sees it. T2 exists WITH an inline, reason-required waiver
+# for precisely this case, so the line carries one. Do not "fix" the lint by
+# renaming the action to hide the prefix: that would evade the scan below the
+# prefix boundary (§13-R15) and buy nothing.
+# tests/test-delta-wp2-state-policy.sh::M5 strips the waiver marker and asserts
+# the lint goes rc=1 — the waiver is pinned as load-bearing, not decorative.
+#
+# FAIL-SOFT, deliberately: an upgrade must never fail because an advisory notice
+# could not be produced. A framework without the module installed, an older
+# vendored seam that does not know the action — both are a silent no-op here.
+_postmvp_policy_notice() {
+  local seam="$SCRIPT_DIR/process-checklist.sh"
+  [ -f "$seam" ] || return 0
+  [ -n "$PROJECT_ROOT" ] || return 0
+  ( cd "$PROJECT_ROOT" && bash "$seam" --delta-policy-notice </dev/null ) || true   # lint-delta-boundary: allow core->core delegation to the ONE declared seam — this names the seam's action FLAG, never a delta-module path (T1 is clean) and the seam allowlist stays at cardinality 1 (§3.1/§3.3)
+  return 0
+}
+
 # (4) PIN — stamp manifest.soloFrameworkCommit to the framework HEAD (with a loud
 # -dirty warn when the framework clone has uncommitted changes). camelCase, sits
 # BESIDE CDF's frameworkCommit (a SEPARATE clone) — never conflate the two.
@@ -1386,6 +1436,7 @@ _run_sync_framework() {
   _bl099_sync_commitmsg_hook
   _bl099_sync_precommit_hook
   _bl099_doc_drift
+  _postmvp_policy_notice
   if [ "$DRY_RUN" = true ]; then
     print_info "[dry-run] would stamp .claude/manifest.json.soloFrameworkCommit to the framework HEAD."
   else
