@@ -591,6 +591,28 @@ run_child_suite "scripts/lint-module-dependencies.sh" \
   "No core -> module dependency edge, and the scanner depends on nothing" \
   "Module-dependency lint found a violation (see scripts/lint-module-dependencies.sh --list)"
 
+# Brownfield adoption WP1: tests/test-brownfield-wp1-scout.sh — behaviour suite
+# for Scout, the read-only scanner (scripts/scout.sh + scripts/lib/scout/), and
+# its first three report sections (§8.2 stack / phaseMap / reality).
+# Read-only is proven by TREE HASH before/after over the whole fixture —
+# path + type + mode + content, `.git/` included — on a bare tree and a git
+# tree, with a live-instrument control (R3) so the proof cannot be vacuous.
+# M5 is proven twice: Scout alone in an EMPTY tree (H1), and the WP0
+# carry-forward R-WP0-3 with every core lib AND every core entry script moved
+# aside (H2), because the lint's M5 arm forbids core LIB basenames only.
+# The extracted ladder takes the MAXIMUM REACHED rung, not validate.sh's
+# last-wins (§4.4 correction 2), and the five reality probes are read-only
+# copies of verify_init with branch_protection pinned to `unknown`.
+# Mutation-proved IN THE SUITE (X1-X4, each mutant built, line-counted and
+# run against an unmutated control): restore last-wins -> the HANDOFF fixture
+# reports 4 not 2; a probe that writes state -> the tree-hash proof reds; a
+# branch_protection probe that consults the filesystem -> its `unknown` pin
+# reds; one source line into a Scout lib -> lint-module-dependencies rc=1 on
+# M5. Never touches the scaffolder -> both lanes.
+run_child_suite "tests/test-brownfield-wp1-scout.sh" \
+  "Scout read-only scanner (stack, phaseMap, reality)" \
+  "Scout scanner tests FAILED (run tests/test-brownfield-wp1-scout.sh for details)"
+
 # ----------------------------------------------------------------
 # TEST 0g: INTAKE WIZARD + RECONFIGURE FIELD HANDLERS
 # ----------------------------------------------------------------

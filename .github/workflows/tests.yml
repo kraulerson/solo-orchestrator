@@ -406,6 +406,7 @@ jobs:
             tests/test-lint-doc-anchors.sh
             tests/test-lint-fix-functions-stderr.sh
             tests/test-lint-module-dependencies.sh
+            tests/test-brownfield-wp1-scout.sh
             tests/test-lint-no-live-remote.sh
             tests/test-lint-raw-read-prompt.sh
             tests/test-lint-tests-registered.sh
