@@ -273,6 +273,26 @@ claude --version
 
 See the CLI Setup Addendum (SOI-005-CLI) for complete configuration including permission management, MCP servers, and CLAUDE.md setup.
 
+#### Effort
+
+**Effort is the primary dial for the intelligence / latency / cost trade-off** on current Claude models — it governs how much reasoning the agent spends before it acts, and it adapts to the task rather than applying a fixed budget. It is a separate control from model choice: a smaller model at higher effort and a larger model at lower effort are genuinely different operating points, and the framework cares about both.
+
+Set it at two scopes:
+
+| Scope | How | Applies to |
+|---|---|---|
+| **Session** | `/effort` in an interactive session, `--effort` on the CLI, or the effort setting in `settings.json` | Every turn in that session until changed |
+| **Subagent / skill** | an `effort:` field in the agent's or skill's YAML frontmatter | Only while that subagent or skill is active — it overrides the session level, but an environment-level effort setting still takes precedence over frontmatter |
+
+**Anthropic's recommended defaults, mapped onto this framework:**
+
+- **`high` — the default for most work.** Assume this unless a step argues otherwise. It is already the default on every model that supports effort, so most of the time the right action is to leave it alone.
+- **`xhigh` — capability-sensitive work.** Adversarial review, security analysis and threat modeling (Step 1.3, Step 3.2), architecture selection (Step 1.2), and any gate where a missed defect is expensive. The framework's own `pr-reviewer` agent pins `effort: xhigh` in frontmatter for exactly this reason.
+- **`low` / `medium` — routine steps.** Mechanical documentation updates, changelog entries, formatting passes, and other work where the answer is not in doubt and latency and cost dominate.
+- **`max` — reach for it deliberately, not by default.** Anthropic documents it as prone to diminishing returns and overthinking, with the explicit advice to "test before adopting broadly." Treat a move to `max` as an experiment that owes you a measured comparison, not a free upgrade.
+
+Effort is **not** wired into `init.sh` or the intake — generated projects inherit whatever effort the Orchestrator's session or subagent definitions set. Raise it per-subagent via frontmatter where a step warrants it; that is where the setting actually binds.
+
 ### 2. Version Control — Git + Repository Host
 
 **Repository requirements (non-negotiable):**
