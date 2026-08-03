@@ -148,7 +148,19 @@ DELTA_STATE_EMPTY_EOF
 #     open delta in place stays fully allowed; that is what every legitimate
 #     write does.
 #   • cadence's INNER keys and date formats — §8.3/WP6 defines them.
-#   • hotfix_retros' ROW shape — §11-WP5 materialises those rows.
+#   • hotfix_retros' ROW shape — deferred to §11-WP5, and PAID BY WP5, but
+#     deliberately NOT here. The guard lives on the WRITE side only
+#     (DELTA_RETRO_ROW_SHAPE + _delta_state_retros_is_lawful below), and the
+#     reason is this predicate's own read-side fallback: delta_state_read
+#     answers a shape violation with the EMPTY SCHEMA. Put a retro row-shape
+#     atom in here and one malformed row would make the whole ledger read as
+#     zero retros — turning a single bad row into total loan forgiveness, which
+#     is precisely the defect the guard exists to prevent, amplified. So this
+#     predicate keeps saying only "hotfix_retros is an array" (a document that
+#     survives to be repaired), and the write side is where rows are held to
+#     their shape. The same amplification is latent in SHAPE-ATOM-CLOSED-ROWS
+#     above for the audit tail; that is pre-existing and not changed here, but
+#     it is the reason no new row-type atom joins it.
 #   • active_delta's inner fields — WP3/WP4 materialise them at open.
 # Each atom is `and ( … )` on its own line with a trailing marker, so a
 # counterfactual neuters exactly one by replacing the marked line with
@@ -197,6 +209,55 @@ delta_state_read() {
     printf '%s\n' "delta-state: $f parses but is not a state document (schemaVersion present; active_delta object-or-null; hotfix_retros/closed arrays; cadence object) — reading the empty schema instead. The file was NOT modified; repair or delete it." >&2
     delta_state_default_json
     return 0
+  fi
+  jq . "$f"
+}
+
+# delta_state_read_strict [project_root]
+#   THE FAIL-CLOSED READ (R-WP5-2, added in WP5). Same document as
+#   delta_state_read, but it NEVER falls back — because for one class of caller
+#   the fallback is the bug.
+#
+#     file present and a valid state document -> the document, rc 0
+#     file present, unparseable or wrong shape -> NOTHING on stdout, rc 3
+#     file ABSENT                              -> NOTHING on stdout, rc 4
+#
+#   WHY THIS EXISTS AND WHY IT DOES NOT REPLACE delta_state_read. The tolerant
+#   read is correct for every per-delta operation: one bad file must not kill
+#   the whole toolchain, and the warning plus the empty schema keeps `--open`
+#   and `--close` usable. But an adversarial review showed what it costs the ONE
+#   caller whose question is "does anything block a release": with a retro owed,
+#   corrupting `.claude/delta-state.json` makes the read return the empty schema
+#   at rc 0 (warning on stderr only) and DELETING it is completely silent — so
+#   `delta_any_open_retro` answers "nothing owed" and §9.2's refusal never
+#   fires. `rm .claude/delta-state.json` was loan forgiveness in one keystroke,
+#   and the corrupt-file warning's own advice ("repair or delete it") named the
+#   erasure path.
+#
+#   That is BL-213's fail-open class one level up from the dates WP5 already
+#   refused it for: illegibility of a ROW is treated as overdue, so illegibility
+#   of the LEDGER must not be treated as absolution.
+#
+#   THE TWO NON-ZERO CODES ARE DISTINCT ON PURPOSE. 3 means "there is a record
+#   here and I cannot read it" — always a refusal. 4 means "there is no record
+#   at all", which for a project that has never opened a delta is the truth and
+#   not a hazard; the caller decides, and scripts/lib/delta-cadence.sh's header
+#   tells WP7 what to decide. Collapsing them would force one of the two into
+#   the wrong answer.
+#
+#   NOTHING IS PRINTED ON STDOUT IN THE FAILURE CASES. A caller that ignored the
+#   return code would otherwise read a document that does not exist — the same
+#   shape as the `|| echo 0` default WP5's date layer refuses to have.
+delta_state_read_strict() {
+  local root="${1:-.}" f
+  f="$(delta_state_path "$root")"
+  if [ ! -f "$f" ]; then
+    printf '%s\n' "delta-state: $f does not exist. If this project has ever opened a delta, that file is its record and it is gone — restore it from version control before relying on anything that reads it." >&2
+    return 4                                                          # DELTA-STATE-STRICT-ABSENT
+  fi
+  if ! jq -e "( $DELTA_STATE_SHAPE )" "$f" >/dev/null 2>&1; then
+    printf '%s\n' "delta-state: $f exists but cannot be read as a delta record. Nothing may conclude anything from it — least of all that nothing is outstanding. The file was NOT modified; repair it from version control." >&2
+    return 3                                                          # DELTA-STATE-STRICT-UNREADABLE
   fi
   jq . "$f"
 }
@@ -357,6 +418,121 @@ _delta_state_active_is_not_replaced() {
   ' >/dev/null 2>&1
 }
 
+# ── THE RETRO LEDGER'S GUARD (R-WP5-1, added in WP5) ─────────────────────────
+#
+# WHAT WAS WRONG. `closed` is a protected audit tail; `hotfix_retros` is the
+# COLLATERAL that §9.2's release refusal is built on, and until now it had
+# nothing at all. An adversarial review demonstrated the whole family through
+# the seam, every one at rc 0: `.hotfix_retros = []` (wipe), a forged
+# `closed_at` (debt "repaid" with a record nobody wrote), `due_by` pushed to
+# 2999, an id swapped out, and `["paid"]` — string rows, which pass an
+# array-only check AND read as "nothing owed", because every consumer correctly
+# does `select(type == "object")`. The only refusal was making the value not an
+# array at all. Post-close there was no backstop of any kind: nothing ever asks
+# for the row again, so a wipe was permanent, silent loan forgiveness.
+#
+# The deferral note above named §11-WP5 as the owner of this. WP5 materialised
+# the rows and shipped without the guard; this is that debt paid.
+#
+# TWO PREDICATES, NOT ONE, because they answer different questions and deserve
+# different sentences to the operator:
+#   SHAPE     — is every row in the CANDIDATE a well-formed §7.1 row? Needs no
+#               previous file, so it also guards a first-ever write.
+#   LAWFUL    — is the transition from the PREVIOUS ledger to this one one of
+#               the two things that may legitimately happen to it?
+#
+# THE TWO LEGAL MUTATIONS, and nothing else:
+#   • APPEND an OPEN row at the end (closed_at null, record null).
+#   • FILE at most one existing OPEN row: closed_at null -> non-empty string AND
+#     record null -> object, with the rest of that row byte-identical.
+# Everything else — drop, reorder, replace, un-file, re-file, or edit an
+# existing row's id/shipped_at/due_by — is refused.
+#
+# WHAT THIS DELIBERATELY DOES NOT DO, stated so the comment stops over-claiming:
+# it protects the ledger against SILENT LOSS, not against an operator who files
+# a write-up that says nothing true. A crafted filter that files a row with a
+# real record object is indistinguishable at this layer from `--retro`, and it
+# should be — the same boundary ACTIVE-ATOM-NO-REPLACE draws when it says it
+# protects identity and not content. What it buys is that the OBLIGATION cannot
+# be made to disappear, which is the property §9.2 spends.
+#
+# SCOPED TO THE `append` RULE. The `ship` pathway already requires everything
+# outside `closed` to be byte-identical (SHIP-ATOM-OUTSIDE), so retros cannot
+# move there; running these there too would only add a way for a hand-mangled
+# ledger to lock `cut-release.sh` out of recording shipped_in.
+
+# DELTA_RETRO_ROW_SHAPE — every row of the CANDIDATE is a well-formed §7.1 row.
+#
+# EACH ATOM AFTER THE FIRST IS VACUOUS FOR A NON-OBJECT ROW (`(type != "object")
+# or …`), and that is what makes RETRO-ATOM-ROW-OBJECT independently pinnable:
+# without it the later atoms would refuse a string row for their own reasons and
+# neutering it would change nothing observable, which is the "atom that looks
+# like a guard and is not" WP2 deleted three of. The short-circuit also keeps
+# `keys` off a string, where it would ERROR — and an error refuses the write,
+# which is the same masking wearing a different hat.
+DELTA_RETRO_ROW_SHAPE='
+    (true)
+    and (all(.hotfix_retros[]?; type == "object"))                                                                     # RETRO-ATOM-ROW-OBJECT
+    and (all(.hotfix_retros[]?; (type != "object") or ((keys) == ["closed_at","due_by","id","record","shipped_at"])))   # RETRO-ATOM-ROW-KEYS
+    and (all(.hotfix_retros[]?; (type != "object") or (((.id | type) == "string") and ((.id | length) > 0))))           # RETRO-ATOM-ROW-ID
+    and (all(.hotfix_retros[]?; (type != "object") or (((.shipped_at | type) == "string") and ((.due_by | type) == "string"))))   # RETRO-ATOM-ROW-DATES
+    and ([.hotfix_retros[]? | if type == "object" then .id else null end] | (length == (unique | length)))              # RETRO-ATOM-ID-UNIQUE
+'
+
+# _delta_state_retros_are_wellformed <candidate-file>
+_delta_state_retros_are_wellformed() {
+  jq -e "( $DELTA_RETRO_ROW_SHAPE )" "$1" >/dev/null 2>&1
+}
+
+# _delta_state_retros_is_lawful <old-file> <candidate-file>
+#
+#   THE TOLERANCE BRANCH IS WIDER THAN THE APPEND RULE'S, ON PURPOSE. It skips
+#   when the previous document is not a well-formed state document (the same
+#   reason as everywhere else — one bad hand edit must never lock the single
+#   writer out of the only file it owns) AND ALSO when the previous document's
+#   RETRO ROWS are malformed. That second half is load-bearing: a hand edit that
+#   puts `["paid"]` in the ledger passes the top-level shape, so without it the
+#   row-by-row comparison below would run against a string and jq would ERROR on
+#   every subsequent write, forever. With it, the next write through the seam is
+#   free to REPAIR the ledger — and the candidate still has to satisfy
+#   DELTA_RETRO_ROW_SHAPE, so the repair cannot be to something worse.
+#
+#   NO `PREFIX-IDS` ATOM, AND THAT IS DELIBERATE. The first cut carried
+#   `([$pre[]?.id] == [$or[]?.id])`. It is REDUNDANT-UNPINNABLE, the class WP2
+#   deleted rather than shipped: every prefix change it could catch — a drop, a
+#   reorder, a replacement — makes the corresponding row comparison fall to
+#   "bad" first (a differing id fails RETRO-ATOM-FILE-IDENTITY), and a shrink
+#   additionally leaves `$pre[$i]` null, which is likewise "bad". No candidate
+#   exists that only that atom refuses, so no refusal case can ever stand behind
+#   it. The PROPERTY it names is still enforced — by FILE-IDENTITY and NO-BAD,
+#   each of which has its own killing case. Do not re-add it.
+_delta_state_retros_is_lawful() {
+  local old="$1" new="$2"
+  jq -e "( $DELTA_STATE_SHAPE )" "$old" >/dev/null 2>&1 || return 0        # DELTA-STATE-RETROS-TOLERANT
+  jq -e "( $DELTA_RETRO_ROW_SHAPE )" "$old" >/dev/null 2>&1 || return 0    # DELTA-STATE-RETROS-TOLERANT-ROWS
+  jq -e -n --slurpfile o "$old" --slurpfile n "$new" '
+      (($o[0].hotfix_retros) // []) as $or
+    | (($n[0].hotfix_retros) // []) as $nr
+    | ($nr[0:($or | length)]) as $pre
+    | ([range(0; ($or | length))] | map(
+         . as $i
+         | if $or[$i] == $pre[$i] then "same"
+           elif (true)
+                and ((($pre[$i] | type) == "object") and (($or[$i] | del(.closed_at) | del(.record)) == ($pre[$i] | del(.closed_at) | del(.record))))   # RETRO-ATOM-FILE-IDENTITY
+                and ($or[$i].closed_at == null)                                    # RETRO-ATOM-FILE-WRITE-ONCE
+                and (($pre[$i].closed_at | type) == "string")                      # RETRO-ATOM-FILE-STAMP-TYPE
+                and (($pre[$i].closed_at | length) > 0)                            # RETRO-ATOM-FILE-STAMP-NONEMPTY
+                and (($pre[$i].record | type) == "object")                         # RETRO-ATOM-FILE-RECORD-OBJECT
+           then "filed"
+           else "bad"
+           end)) as $codes
+    | (true)
+      and (($codes | index("bad")) == null)                                        # RETRO-ATOM-NO-BAD
+      and (($codes | map(select(. == "filed")) | length) <= 1)                     # RETRO-ATOM-AT-MOST-ONE-FILED
+      and (all($nr[($or | length):][]?; (type != "object") or ((.closed_at == null) and (.record == null))))   # RETRO-ATOM-APPEND-OPEN
+  ' >/dev/null 2>&1
+}
+
 # delta_state_write [project_root] [closed_rule]  < candidate-document-on-stdin
 #   THE atomic write. Reads a whole candidate document on stdin, validates it,
 #   and only then lets it become the state file.
@@ -396,6 +572,18 @@ delta_state_write() {
 
   case "$closed_rule" in
     append)
+      # The retro ledger's SHAPE is checked with no reference to a previous
+      # file, so it guards a first-ever write too.
+      if ! _delta_state_retros_are_wellformed "$target"; then
+        rm -f "$target" 2>/dev/null || true
+        printf '%s\n' "delta-state: refusing to write $f — a hotfix_retros row is not a well-formed retro record. Every row is an object with exactly the five keys id / shipped_at / due_by / closed_at / record, a non-empty string id, string dates, and no two rows may share an id. The previous file was NOT touched." >&2
+        return 1
+      fi
+      if [ -f "$f" ] && ! _delta_state_retros_is_lawful "$f" "$target"; then
+        rm -f "$target" 2>/dev/null || true
+        printf '%s\n' "delta-state: refusing to write $f — the hotfix retro ledger is the COLLATERAL a fast-lane release refusal is built on, and only two things may happen to it: a new OPEN row is appended, or ONE open row is filed (closed_at null -> a timestamp, record null -> an object, nothing else on that row moving). Dropping, reordering, replacing, re-dating, un-filing or re-filing a row is refused. The previous file was NOT touched." >&2
+        return 1
+      fi
       if [ -f "$f" ] && ! _delta_state_closed_is_append "$f" "$target"; then
         rm -f "$target" 2>/dev/null || true
         printf '%s\n' "delta-state: refusing to write $f — 'closed' is an APPEND-ONLY audit tail and the candidate drops, reorders or rewrites an already-closed row. To record shipped_in on a closed delta, use the dedicated seam action --delta-state-ship. The previous file was NOT touched." >&2
