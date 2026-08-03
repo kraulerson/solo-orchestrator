@@ -706,11 +706,23 @@ echo "=== X — mutation proofs (anchored, single-site, mode-preserving) ==="
 # assignment becomes validate.sh's sequential one, where the last matching
 # test wins — and the fixture's HANDOFF.md carries it to 4 across the gap at
 # rung 3. That number, 4, is the defect §4.4 correction 2 exists to remove.
+#
+# THE ANCHOR IS TWO-PART, AND THE SECOND PART IS NOT DECORATION. The lib's
+# header CITES `# SCOUT-LADDER-MAX` in prose, as the citation rule asks it to,
+# so a marker-only anchor hits the comment on line 29 and replaces THAT — the
+# mutant then dies on an unbound variable and reports nothing at all. An empty
+# result is not "reports 4"; asserting on it would have proved nothing while
+# looking green-adjacent. This is the same defect class as the unit-lane
+# predicate that read comments as executed lines (CLAUDE.md,
+# `# BL-181-UNIT-LANE-PREDICATE`), and it gets the same fix: the anchor must
+# match a line that is EXECUTED, so it requires the assignment token too.
 X1=$(newtmp); mk_scout_copy "$X1"
 ORIG="$SCOUT_LIB/scout-phasemap.sh"
 MUT="$X1/scripts/lib/scout/scout-phasemap.sh"
+anchor_sites=$(grep -c 'SCOUT-LADDER-MAX.*$' "$ORIG")
+exec_sites=$(grep -c '_suggested="\$_rung".*# SCOUT-LADDER-MAX' "$ORIG")
 _awk_inplace "$MUT" '
-  { if (!done && index($0, "# SCOUT-LADDER-MAX") > 0) {
+  { if (!done && index($0, "# SCOUT-LADDER-MAX") > 0 && index($0, "_suggested=\"$_rung\"") > 0) {
       print "    if [ \"$_sat\" -eq 1 ]; then _suggested=\"$_rung\"; fi"
       done = 1; next }
     print }'
@@ -718,10 +730,11 @@ chg=$(_changed_lines "$ORIG" "$MUT")
 mut_sp=$(jqv "$(bash "$X1/scripts/scout.sh" --root "$LADDER" </dev/null 2>/dev/null)" '.phaseMap.suggestedPhase')
 X1C=$(newtmp); mk_scout_copy "$X1C"
 ctl_sp=$(jqv "$(bash "$X1C/scripts/scout.sh" --root "$LADDER" </dev/null 2>/dev/null)" '.phaseMap.suggestedPhase')
-if [ "$chg" -eq 2 ] && [ "$mut_sp" = "4" ] && [ "$ctl_sp" = "2" ]; then
-  pass "X1: last-wins restored (1 line) -> the HANDOFF fixture reports 4; the unmutated control reports 2"
+if [ "$chg" -eq 2 ] && [ "$mut_sp" = "4" ] && [ "$ctl_sp" = "2" ] \
+   && [ "$exec_sites" -eq 1 ] && [ "$anchor_sites" -ge 1 ]; then
+  pass "X1: last-wins restored (1 executed line of $anchor_sites marker mentions) -> the HANDOFF fixture reports 4; the unmutated control reports 2"
 else
-  fail_ "X1" "changed_lines=$chg (want 2) mutant_phase=$mut_sp (want 4) control_phase=$ctl_sp (want 2)"
+  fail_ "X1" "changed_lines=$chg (want 2) mutant_phase=$mut_sp (want 4) control_phase=$ctl_sp (want 2) executed_anchor_sites=$exec_sites (want exactly 1) total_marker_mentions=$anchor_sites"
 fi
 
 # ── X2: make a probe write state -> the read-only proof reds ──────────────
@@ -756,20 +769,26 @@ fi
 # protection must be on"). It consults the filesystem rather than the host, so
 # it is the MILDEST possible violation of "no host calls" — and V4 still has to
 # catch it, because the property being defended is `unknown`, not `no network`.
+#
+# Anchored the same two-part way as X1, and for the same reason: the marker
+# must resolve to the EXECUTED assignment, never to a line that merely names
+# it. `bp_exec_sites` is the standing guard — if a future edit adds a prose
+# citation, this case fails loudly instead of silently mutating a comment.
 X3=$(newtmp); mk_scout_copy "$X3"
 MUT="$X3/scripts/lib/scout/scout-reality.sh"
+bp_exec_sites=$(grep -c '_bp_result="unknown".*# SCOUT-PROBE-BP-UNKNOWN' "$SCOUT_LIB/scout-reality.sh")
 _awk_inplace "$MUT" '
-  { if (!done && index($0, "# SCOUT-PROBE-BP-UNKNOWN") > 0) {
+  { if (!done && index($0, "# SCOUT-PROBE-BP-UNKNOWN") > 0 && index($0, "_bp_result=\"unknown\"") > 0) {
       print "  if [ -f \"$_root/.github/workflows/ci.yml\" ]; then _bp_result=\"pass\"; else _bp_result=\"unknown\"; fi"
       done = 1; next }
     print }'
 chg=$(_changed_lines "$SCOUT_LIB/scout-reality.sh" "$MUT")
 mut_bp=$(jqv "$(bash "$X3/scripts/scout.sh" --root "$NODE" </dev/null 2>/dev/null)" \
              '.reality.probes[] | select(.name=="branch_protection_configured") | .result')
-if [ "$chg" -eq 2 ] && [ "$mut_bp" = "pass" ] && [ "$bp_n" = "unknown" ]; then
+if [ "$chg" -eq 2 ] && [ "$mut_bp" = "pass" ] && [ "$bp_n" = "unknown" ] && [ "$bp_exec_sites" -eq 1 ]; then
   pass "X3: a consulting branch_protection probe (1 line) reports pass; the unmutated control reports unknown"
 else
-  fail_ "X3" "changed_lines=$chg (want 2) mutant_result='$mut_bp' (want pass) control_result='$bp_n' (want unknown)"
+  fail_ "X3" "changed_lines=$chg (want 2) mutant_result='$mut_bp' (want pass) control_result='$bp_n' (want unknown) executed_anchor_sites=$bp_exec_sites (want exactly 1)"
 fi
 
 # ── X4: source a core lib from Scout -> the REAL lint reds ────────────────
