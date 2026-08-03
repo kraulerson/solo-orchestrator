@@ -41,7 +41,9 @@
 #         scripts/process-checklist.sh can name the state file. Cited, not
 #         re-implemented — scripts/lint-delta-boundary.sh owns that predicate
 #         and tests/test-lint-delta-boundary.sh owns its mutations.
-#     S7  every SHAPE atom, one refusal each
+#     S7  malformed candidates refused when a state file already exists
+#     S7b the same list on a FIRST-EVER write — the per-atom pin for every
+#         SHAPE-ATOM-*, because there the shape predicate is the ONLY refuser
 #
 #   THE shipped_in WRITE-ONCE PATHWAY (§7.1 Part 2)
 #     SH1 the cut-time backfill succeeds and changes nothing else
@@ -62,14 +64,39 @@
 #   THE RULE, now enforced by construction: EVERY atom of the write guard
 #   carries a marker, and every marker has at least one refusal case behind it.
 #   The per-atom counterfactual sweep (neuter one marked atom -> the suite must
-#   go RED) is the audit, and it found two more holes on its first run that a
-#   reading of the code did not:
-#     • SHIP-ATOM-OUTSIDE was unpinned — the "change outside closed" case had
-#       no accompanying fill, so EXACTLY-ONE refused it first and OUTSIDE never
-#       had to do any work. SH3 now carries a fill+outside candidate.
-#     • APPEND-ATOM-LENGTH was UNPINNABLE, not merely unpinned: prefix-equality
-#       already subsumes it. It was DELETED rather than papered over — see the
-#       note under _delta_state_closed_is_append.
+#   go RED) is the audit. The guard currently has SIXTEEN atoms:
+#     7 shape   SCHEMAVERSION ACTIVE RETROS CADENCE CLOSED CLOSED-ROWS
+#               NO-EXTRA-KEYS
+#     1 append  PREFIX
+#     8 ship    ROW-IDENTITY WRITE-ONCE STRING-TYPE STRING-NONEMPTY OUTSIDE
+#               LENGTH NO-BAD EXACTLY-ONE
+#
+#   HOW TO RUN THE SWEEP, AND THE ONE WAY IT LIES. Neuter a marked line to
+#   `and (true)` and re-run. ANCHOR THE MARKER MATCH — `/# SHAPE-ATOM-CLOSED$/`,
+#   never a bare `/SHAPE-ATOM-CLOSED/`. An unanchored address also matches
+#   SHAPE-ATOM-CLOSED-ROWS, so it neuters TWO atoms at once and credits the
+#   resulting RED to the wrong one. That is not hypothetical: it is exactly how
+#   the first sweep on this branch reported SHAPE-ATOM-CLOSED as pinned when it
+#   was not, and an adversarial re-review caught it. A sweep tool that
+#   over-matches produces false GREEN pins, which is worse than no sweep.
+#
+#   FOUR HOLES THE SWEEP HAS FOUND SO FAR, none of them visible by reading:
+#     • SHIP-ATOM-OUTSIDE — unpinned. The "change outside closed" case had no
+#       accompanying fill, so EXACTLY-ONE refused it first and OUTSIDE never had
+#       to do any work. SH3 now carries a fill+outside candidate.
+#     • SHAPE-ATOM-CLOSED — unpinned, MASKED by the seeded fixture (the append
+#       guard refused the probe before the shape atom ran). Under the neuter a
+#       first-ever write of `closed: "not-an-array"` was ACCEPTED through the
+#       production seam. S7b is the unmasked pin.
+#     • APPEND-ATOM-LENGTH — UNPINNABLE, not merely unpinned: prefix-equality
+#       subsumes it. DELETED rather than papered over.
+#     • SHAPE-ATOM-OBJECT — likewise unpinnable: every non-object candidate is
+#       already refused by the atoms that index the document. DELETED. See the
+#       notes in scripts/lib/delta-state.sh for both deletions.
+#
+#   The two categories are different and the remedy differs: an unpinned atom
+#   needs a fixture where it is the ONLY possible refuser; an unpinnable atom
+#   needs deleting, because no such fixture can exist.
 #
 #   POLICY (§7.2)
 #     P1  the seed writer emits the §7.2 defaults, key for key
@@ -448,32 +475,82 @@ else
 fi
 rm -rf "$T"
 
-# ── S7: the shape atoms, one refusal each  [pins every SHAPE-ATOM-*] ───────
-# Every one of these was ACCEPTED by the first cut (rc=0, file changed) — the
-# reviewer's probe list. Each row names the atom it kills.
+# ── S7 / S7b: the shape atoms, one refusal each ────────────────────────────
+# ONE candidate list, run under TWO fixtures, and only the second is the pin.
+#
+# S7  (seeded)  a state file already exists — the realistic case.
+# S7b (fresh)   NO state file exists, so this is a FIRST-EVER write.
+#
+# WHY BOTH, AND WHY THE FRESH ONE IS THE LOAD-BEARING HALF. The seeded fixture
+# MASKS the shape atoms: with a previous file present the append guard runs too,
+# and it refuses most of these candidates incidentally (a string prefix-sliced
+# against the old rows array is never equal to it). So a seeded refusal proves
+# the CANDIDATE is refused, not that the SHAPE ATOM refused it — and an
+# adversarial re-review used exactly that gap to delete SHAPE-ATOM-CLOSED with
+# the suite still at 30/0, then demonstrated the real hole: under the neuter, a
+# first-ever write of `closed: "not-an-array"` through the production seam was
+# ACCEPTED and landed on disk.
+#
+# On a fresh project there is no previous file, so the append guard never runs
+# and the shape predicate is the ONLY thing that can refuse. Each candidate
+# below is then refused by exactly one atom, which is what makes S7b a per-atom
+# pin instead of a per-candidate one.
+#
+# THIS IS THE SECOND TIME MASKING HAS HIDDEN A DEAD ATOM ON THIS BRANCH
+# (SHIP-ATOM-OUTSIDE was the first). The rule it teaches: when a case is meant
+# to pin atom X, put the fixture in the state where X is the only possible
+# refuser — otherwise the case pins whichever guard happens to fire first.
+SHAPE_BAD_FILTERS='del(.schemaVersion)
+.schemaVersion = "banana"
+.active_delta = "not-an-object"
+.hotfix_retros = {}
+.cadence = []
+.closed = "not-an-array"
+.closed += ["just-a-string"]
+.EVIL = {"exfil": true}'
+
+# S7 — refused when a state file already exists.
 T=$(mktemp -d); P="$T/proj"; mk_bare "$P"; seed_closed "$P"
 before=$(_md5file "$P/.claude/delta-state.json")
 leaked=""
-for f in \
-  'del(.schemaVersion)' \
-  '.schemaVersion = "banana"' \
-  '.active_delta = "not-an-object"' \
-  '.hotfix_retros = {}' \
-  '.cadence = []' \
-  '.closed = "not-an-array"' \
-  '.closed += ["just-a-string"]' \
-  '.EVIL = {"exfil": true}' \
-  ; do
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
   seam "$REPO_ROOT/scripts" "$P" --delta-state-update "$f" >/dev/null 2>&1; rc=$?
   after=$(_md5file "$P/.claude/delta-state.json")
   if [ "$rc" -eq 0 ] || [ "$after" != "$before" ]; then leaked="$leaked [$f rc=$rc]"; fi
-done
+done <<SHAPEEOF
+$SHAPE_BAD_FILTERS
+SHAPEEOF
 if [ -n "$before" ] && [ -z "$leaked" ]; then
-  pass "S7: missing/non-numeric schemaVersion, non-object active_delta, non-array hotfix_retros, non-object cadence, non-array closed, a non-object closed ROW, and an arbitrary extra top-level key are each refused with the file byte-identical (the top level is closed-world: exactly the five §7.1 keys)"
+  pass "S7: with a state file present, every malformed candidate is refused and the file stays byte-identical (realistic case; note the append guard also fires here, so this does NOT isolate the shape atoms — S7b does)"
 else
   fail_ "S7" "before='$before' (must be non-empty); accepted-when-it-should-refuse:$leaked"
 fi
 rm -rf "$T"
+
+# S7b — refused on a FIRST-EVER write  [THE per-atom pin for every SHAPE-ATOM-*]
+# Each candidate is refused by exactly one atom here: del(.schemaVersion) and
+# "banana" -> SCHEMAVERSION; non-object active_delta -> ACTIVE; {} hotfix_retros
+# -> RETROS; [] cadence -> CADENCE; "not-an-array" closed -> CLOSED (and ONLY
+# CLOSED — CLOSED-ROWS uses `.closed[]?`, which yields empty on a string, so it
+# passes); a string row -> CLOSED-ROWS; an extra key -> NO-EXTRA-KEYS.
+leaked=""
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  T=$(mktemp -d); P="$T/proj"; mk_bare "$P"
+  seam "$REPO_ROOT/scripts" "$P" --delta-state-update "$f" >/dev/null 2>&1; rc=$?
+  if [ "$rc" -eq 0 ] || [ -e "$P/.claude/delta-state.json" ]; then
+    leaked="$leaked [$f rc=$rc created=$([ -e "$P/.claude/delta-state.json" ] && echo yes || echo no)]"
+  fi
+  rm -rf "$T"
+done <<SHAPEEOF
+$SHAPE_BAD_FILTERS
+SHAPEEOF
+if [ -z "$leaked" ]; then
+  pass "S7b: on a FIRST-EVER write — no previous file, so the shape predicate is the only possible refuser — missing/non-numeric schemaVersion, non-object active_delta, non-array hotfix_retros, non-object cadence, NON-ARRAY closed, a non-object closed ROW and an arbitrary extra top-level key are each refused and NO state file is created"
+else
+  fail_ "S7b" "accepted-when-it-should-refuse (each of these landed a malformed FIRST write):$leaked"
+fi
 
 # ════════════════════════════════════════════════════════════════════════════
 echo ""

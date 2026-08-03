@@ -118,6 +118,22 @@ DELTA_STATE_EMPTY_EOF
 #     exactly how the array atom came to be deletable with everything green.
 #   • the top level is CLOSED-WORLD: exactly the five §7.1 keys, no others.
 #
+# NO `(type == "object")` ATOM, AND THAT IS DELIBERATE. The first cut opened
+# with one. It is REDUNDANT-UNPINNABLE — the same class as the deleted length
+# atom below: with it removed, every non-object candidate is still refused.
+# `[]`, `"a-string"`, `42` and `true` make `.schemaVersion` ERROR (jq refuses to
+# index a non-object, and an error refuses the write), and `null` yields
+# `null | type == "number"` = false. No candidate exists that only that atom
+# refuses, so no refusal case can ever stand behind it, so it is
+# indistinguishable from a deleted line while looking like a guard. Removed
+# rather than "pinned". Do not re-add it.
+#
+# MARKER HYGIENE, because the atom census is a grep: a live atom marker is the
+# ONLY thing allowed to sit immediately after `# ` in this file. Deleted or
+# discussed atoms are named mid-sentence, never at a comment's start — a
+# wrapped line that put a dead marker in marker position is what made the first
+# census report seventeen atoms for a sixteen-atom guard.
+#
 # WHAT IT DELIBERATELY DOES NOT ENFORCE — stated so the comment stops
 # over-claiming (R-WP2-3), because "refuses anything that violates the schema"
 # was never true:
@@ -134,7 +150,6 @@ DELTA_STATE_EMPTY_EOF
 # `(true)` exists so every real atom has the same shape.
 DELTA_STATE_SHAPE='
     (true)
-    and (type == "object")                                                 # SHAPE-ATOM-OBJECT
     and ((.schemaVersion | type) == "number")                              # SHAPE-ATOM-SCHEMAVERSION
     and ((.active_delta == null) or ((.active_delta | type) == "object"))  # SHAPE-ATOM-ACTIVE
     and ((.hotfix_retros | type) == "array")                               # SHAPE-ATOM-RETROS
