@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | **Document ID** | ADOPT-001-ARCH |
-| **Version** | v1.0, 2026-08-02 — pre-review draft |
+| **Version** | v1.1, 2026-08-02 — **review-r1 folded** (`major_concerns`, fidelity verdict **FAITHFUL**: all six settled decisions carried correctly, the chooser verbatim at all three sites, and the §8.8 Adoption Record contract held against 13 reader-pipeline probes). **Two "exists today" claims were REFUTED by execution** — both re-verified by this author rather than accepted, both recorded at §0.2 and rewritten in place. No settled decision, decision table, or WP boundary changed; one WP regression proof and one WP mutation target were **re-aimed**, because each was provably incapable of going RED. |
 | **Classification** | Product architecture — normative-once-reviewed for the build |
 | **Audience** | (a) the adversarial design reviewer this document must survive; (b) the implementer of the work packages in §10 |
 | **Subject** | **Brownfield adoption** — bringing an existing codebase, with existing history, existing CI, and existing tooling, into Solo Orchestrator |
@@ -26,12 +26,17 @@ stated rejected alternatives, honest mechanical/auditable/advisory tiering, and 
 **every "exists today" claim carries a verification anchor**. Per the house citation rule, anchors
 are **grep-able marker comments** (`# BL-NNN-…`) or **function names**, never bare `file:line`.
 
-**A note on method, because the last design in this series was blocked for exactly this.** The
-team-orchestrator review refuted four "exists today" claims, two of them by that document's own
-printed recipes. Everything printed here was **executed** before it was written, not read and
-paraphrased. §13 is an appendix of the commands actually run, with their actual output. Where an
-execution **refuted** a premise this design was handed — including two of Karl's own cited
-mechanisms — the refutation is in §0.3, not quietly designed around.
+**A note on method, and on how it failed at v1.0.** The team-orchestrator review refuted four
+"exists today" claims, two of them by that document's own printed recipes. This document quoted that
+lesson in its own preamble and then **repeated it twice**: v1.0's every claim was executed before it
+was written, and two of them were still refuted at review — not because a command was skipped, but
+because a **narrow grep was allowed to carry a wide inference** (R-BF-1: "no direct redirect in this
+file" became "no writer anywhere"; R-BF-2: "the flag is missing" became "values are printed"). Both
+refutations were re-executed by this author before folding, per the house standard that a reviewer's
+refutation is itself a claim. §13 is the appendix of commands actually run, with their actual output;
+§0.2 records what was refuted. Where an execution refuted a premise this design was handed —
+including two of Karl's own cited mechanisms — the refutation is in §0.3, not quietly designed
+around. **Read §13 as a set of measurements with dates, not as certification.**
 
 ---
 
@@ -116,9 +121,59 @@ author-proposed.
 
 ### §0.2 — Amendment changelog
 
-**v1.0 (2026-08-02)** — pre-review draft. No amendments yet. When review-r1 lands, corrections are
-rewritten on top here, not accreted, and every refuted claim is recorded rather than quietly
-patched — the convention the team-orchestrator document established at its own v1.1.
+**v1.1 (2026-08-02) — review-r1 amendment map.** Verdict `major_concerns`; fidelity **FAITHFUL**.
+**Two refutations, both re-verified by this author before folding** (house standard: a reviewer's
+refutation is a claim until executed). Corrections are rewritten on top, not accreted. The pattern
+in both refutations is the same and worth naming: **a narrow grep proved a narrow thing and the
+document printed a wide inference from it.** That is the identical failure the team-orchestrator
+review found, in a document that had quoted that lesson in its own preamble.
+
+- **R-BF-1 (REFUTED) → C2 / §8.5 / §10-WP3 / §12-12 / §13-V5** — "`verify-install.sh` has 21 `fix_*`
+  and **none writes `.claude/manifest.json`**" was a **false inference from a true grep**. The 21
+  count holds and no *direct* redirect exists in that file — but `fix_framework_manifest()`
+  delegates to `~/.claude-dev-framework/scripts/init.sh`, which writes the manifest **wholesale**
+  (`jq -n '{…}' > .claude/manifest.json`, hardcoded key set carrying **no** Solo keys — no
+  `deployment`, no `enforcement_level`, no `currency`, no `adoption`). **Re-verified here**: the CDF
+  writer read directly, and the registration confirmed as the `elif` arm of a bare
+  `[ -f ".claude/manifest.json" ]` check. **The manifest therefore has the same
+  regenerate-on-missing erasure class as `phase-state.json`, and the v1.0 rationale was wrong.**
+  The **home decision survives on corrected grounds** — the same move C2 already makes for Karl's
+  own cited mechanism: the distinguishing property is not *who has a fixer* but **merge versus
+  re-stamp on an existing file**. Both regenerators are **missing-file-gated** (the stamp is already
+  gone with the file), whereas `phase-state.json` is re-stamped **on every upgrade** against a file
+  that exists. C2's consequence cell, §8.5's Home rationale, §12's assumption 12 and WP3's proof are
+  all rewritten.
+- **R-BF-2 (REFUTED) → C8 / §6.1 / §12-2 / §13-V15** — "the emitted local pre-commit hook prints
+  secret values in the clear" was **false**. The missing-`--redact` half is true; the consequence is
+  not. **Re-verified here** on gitleaks 8.30.1: `gitleaks git --staged` without `-v` writes
+  **nothing to stdout** and only `WRN leaks found: 1` to stderr — **zero** occurrences of the
+  planted value in either stream — and the hook discards stderr (`2>/dev/null`) anyway. The value
+  appears on stdout **only** with `-v` (2 occurrences). **The honest residual is the inverse of what
+  v1.0 claimed:** the operator is told secrets exist and shown **no** rule, file, or line. All three
+  sites rewritten; the v1.0 follow-up invitation is deleted rather than softened.
+- **R-BF-3 (ride-along) → C1 / §13-V8** — C1's delta-track findings are annotated as
+  **time-of-execution facts, superseded before this document's own commit**: the branch gained
+  `5dcbe86` and `6fc3136` (a v1.1 of its own), +1195 lines including a `docs/INDEX.md` row.
+  **A `docs/INDEX.md` conflict between the two branches is therefore guaranteed** and is the
+  supervisor's to resolve at merge — both rows belong.
+- **R-BF-4 (ride-along) → §6.5 / §10-WP2 / §13-V3** — the fixture note was insufficient. The
+  `aws-access-token` rule requires the 16 characters after `AKIA` to be **BASE32-valid
+  (`[A-Z2-7]{16}`)**. **Re-verified here:** a key containing `9` yields **zero** findings in a diff
+  — so a plant chosen carelessly makes WP2's Mutation A **vacuous** (it can never go RED). v1.0's
+  own C7 message-plant contained a `9`; **C7 has been re-executed with both plants BASE32-valid and
+  the finding is unchanged and now unimpeachable** (§13-V3).
+- **R-BF-5 (ride-along) → §10-WP7** — WP7's mutation could not fire. **Re-verified here:** against a
+  clause-1-compliant record, no evidence window ever opens, so un-indenting the Date row yields
+  `rc=1` either way. The mutation is re-aimed at the **record lint**, with the joint-violation
+  fixture kept as an explicit defense-in-depth proof.
+- **R-BF-6 (ride-along) → §10-WP4** — WP4 gains a required **section→prefill mapping table**. The
+  wizard has **15** `run_section_*` runners (measured); "scan-derived versus judgment" must be
+  pinned per section, not asserted as a principle.
+- **R-BF-7 (ride-along) → §7.2** — the MANIFEST recipe overstated: `grep -n 'MANIFEST'` over
+  `upgrade-project.sh` returns **18** hits, nearly all `MANIFEST_JSON` and `PRODUCT_MANIFESTO`.
+  Recipe and sentence both tightened.
+
+**v1.0 (2026-08-02)** — pre-review draft.
 
 ### §0.3 — Verification posture, and where the repository corrected the brief
 
@@ -129,14 +184,14 @@ name — the correction strengthens his conclusion in both cases, by a different
 
 | # | Correction | Consequence |
 |---|---|---|
-| **C1** | **The "delta track" this design is told to align with has zero commits, and the dependency-direction lint it names does not exist.** `git diff --stat main...docs/delta-track-design` is **empty** and the branch head equals `main`'s head (`6449838`); `ls scripts/lint-*.sh` returns **14** lints, none of which checks module dependency direction; `grep -rni 'dependency.direction\|severable\|module-shape'` over `*.md` and `*.sh` returns **nothing**. | §3.3 states the module-shape and dependency-direction contract as **author-proposed and co-owned with the delta track**, inherited-as-*decided* rather than inherited-as-built. Overstating this is the easiest way for this document to fail review — the operating-model design's C4 is the precedent. |
-| **C2** | **Karl's cited mechanism for "upgrade re-stamps kill external markers" is REFUTED as stated — and the decision survives by two stronger mechanisms.** `scripts/upgrade-project.sh`'s `# 2. Update .claude/phase-state.json` block is a read-modify-write **merge** (`json.load` → assign → `json.dump`), so a foreign key **survives** an upgrade (executed: a `adopted_by_external_tool: true` key passes through untouched). What is true, and is the real argument: (i) the block re-asserts `data["review_gate_enforced"] = True` **unconditionally on every upgrade**, so an external kit cannot durably express an enforcement posture through any framework-owned key; and (ii) `fix_phase_state()` in `scripts/verify-install.sh` is a **wholesale `cat > .claude/phase-state.json` heredoc** whose hardcoded key set omits `review_gate_enforced` entirely **and resets `current_phase` to 0** — it fires when the state file is missing, and `upgrade-project.sh` invokes `verify-install.sh` post-upgrade. | D1's conclusion stands and is better argued (§3.2). It also **decides an implementation question**: the adoption stamp must **not** live in `phase-state.json`. `verify-install.sh` has **21** `fix_*` functions and **none writes `.claude/manifest.json`** (measured: `grep -cE '^fix_[a-z_]*\(\)'` → 21; `grep -cE '>[[:space:]]*\.claude/manifest\.json'` → 0) — the manifest is the only safe home, which is exactly where `soif_currency_stamp` writes (§8.5). |
+| **C1** | **The dependency-direction lint this design is told to align with does not exist.** `ls scripts/lint-*.sh` returns **14** lints, none of which checks module dependency direction; `grep -rni 'dependency.direction\|severable\|module-shape'` over `*.md` and `*.sh` returns **nothing**. **⚠ TIME-OF-EXECUTION, SUPERSEDED (R-BF-3).** At the moment this was executed the delta-track branch had **zero commits** and its head equalled `main`'s (`6449838`). **That is no longer true and was already false when this document was committed** — the branch has since landed `5dcbe86` and `6fc3136` (its own v1.1), +1195 lines, `docs/designs/2026-08-02-delta-track-v1.md` plus a `docs/INDEX.md` row. Re-run V8; do not quote it. | §3.3 still states the module-shape and dependency-direction contract as **author-proposed and co-owned with the delta track** — the lint's non-existence is the load-bearing half and it holds. What changes is the schedule argument: WP0's convergence partner now has a document to converge *with*, so WP0 is no longer blocked on an empty branch (§12-8 revised). **A `docs/INDEX.md` merge conflict between the two branches is guaranteed** — both add a Designs row to the same paragraph — and is the supervisor's to resolve; **both rows belong, neither supersedes the other.** |
+| **C2** | **Karl's cited mechanism for "upgrade re-stamps kill external markers" is REFUTED as stated — and the decision survives by two stronger mechanisms.** `scripts/upgrade-project.sh`'s `# 2. Update .claude/phase-state.json` block is a read-modify-write **merge** (`json.load` → assign → `json.dump`), so a foreign key **survives** an upgrade (executed: a `adopted_by_external_tool: true` key passes through untouched). What is true, and is the real argument: (i) the block re-asserts `data["review_gate_enforced"] = True` **unconditionally on every upgrade**, so an external kit cannot durably express an enforcement posture through any framework-owned key; and (ii) `fix_phase_state()` in `scripts/verify-install.sh` is a **wholesale `cat > .claude/phase-state.json` heredoc** whose hardcoded key set omits `review_gate_enforced` entirely **and resets `current_phase` to 0** — it fires when the state file is missing, and `upgrade-project.sh` invokes `verify-install.sh` post-upgrade. | D1's conclusion stands and is better argued (§3.2). It also **decides an implementation question**: the adoption stamp must **not** live in `phase-state.json`. **⚠ v1.1 — the v1.0 rationale for that was REFUTED (R-BF-1) and is replaced.** v1.0 argued the manifest is safe because `verify-install.sh` has 21 `fix_*` functions and none writes it. The count and the direct-redirect grep both hold, **and the inference did not**: `fix_framework_manifest()` delegates to `~/.claude-dev-framework/scripts/init.sh`, which writes the manifest **wholesale** (`jq -n '{ frameworkVersion, frameworkCommit, frameworkRepo, localClonePath, lastSyncDate, profile, profileInherits, files, activeRules, activeHooks, projectConfig, discovery }' > .claude/manifest.json`) — **no Solo key survives it**. The manifest has the **same regenerate-on-missing erasure class** as phase-state. **The home decision survives on the corrected ground, which is stronger:** both regenerators fire only on a **missing** file (bare `[ -f ]` guards — by then the stamp is gone with the file, and no writer *destroyed* it), whereas `phase-state.json` is **re-stamped on every upgrade against a file that exists**. Every writer that touches an **existing** manifest is an additive merge (§8.5). |
 | **C3** | **`reconfigure-project.sh --reset-detection-baseline` exists, but ships with NO migration wording.** The flag is real (`RECONF_RESET_BASELINE`, block comment `# BL-030 Task 8: --reset-detection-baseline.`) and its user-facing strings are exactly `Detection baseline reset to current HEAD.` and the commit subject `chore: reset detection baseline (reconfigure)`. `grep -rni 'migrat' scripts/reconfigure-project.sh` returns **one internal comment**, unrelated. The "migration" sentence Karl cited lives in the **archived design spec** `docs/superpowers/specs/archive/2026-04-28-bl030-enforcement-model-design.md` § 10.4. | §8.7 attributes the sentence to the archived spec, not the tool — and **that spec is this design's strongest prior art**, because it names brownfield adoption twice: *"For use after rebases, branch resets, or migration into the framework on existing repos with prior unrecorded history"*, and *"This is critical for projects adopting the framework into an existing repo."* The mechanism it describes is shipped and verified (`init.sh` writes `git rev-parse HEAD` to `.claude/last-checked-commit.txt` at two sites). |
 | **C4** | **The fail-direction asymmetry is real, and is a per-surface fact, not a global one.** Verified by execution: `check-phase-gate.sh` with no `phase-state.json` prints `No .claude/phase-state.json found — skipping phase gate check.` and exits **0** (fails OPEN); `read_enforcement_level` with no `manifest.json` — or a corrupt one — returns **`strict`**, `assert_choosable` returns **1**, and `validate_transition` permits only `strict` (fails CLOSED). **But** in `check-phase-gate.sh` itself the missing-manifest arm of the Phase 1→2 protection backstop is a **`[WARN]` with no `issues` increment** — i.e. deleting the manifest is *less* blocking there than having one with a bad `host`. | D6's ordering (phase-state → intake → manifest) is **confirmed and correct** (§8.4), and the honest statement of *why* is per-surface, not "the tier predicate fails strict on a missing manifest" flatly. §8.4 prints the two-cell table. |
 | **C5** | **`init.sh` does not "refuse existing directories" — the tree's only written statement of the brownfield gap is factually wrong.** `## F-010: Brownfield onboarding gap — still unfiled` in `solo-orchestrator-followups.md` asserts *"`init.sh` refuses existing directories, so the framework cannot onboard an existing codebase."* Executed: `--allow-existing-dir` is a documented first-class flag (`bash init.sh --help-non-interactive` prints it), and the **interactive path has no existence check at all** — the refusal lives only in `collect_inputs_non_interactive()`. | §1 restates the problem correctly: the blocker is not refusal, it is that **once init proceeds it overwrites unconditionally** (§1.2's twelve-row collision table). This matters — a design premised on "we must remove a refusal" would build the wrong thing. F-010 is also the reason this design exists; it is cited, corrected, and left unedited (no backlog or followup edits are in scope). |
 | **C6** | **There is no third tracker in `CLAUDE.md`'s map.** `CLAUDE.md` § ISSUE TRACKING describes **two** files and two grammars; the tree has **three** — `solo-orchestrator-backlog.md` (`BL-`), `solo-orchestrator-bugs.md` (`BUG-`), and `solo-orchestrator-followups.md` (`F-`), the last holding this design's only prior art. | Recorded so a reviewer looking for prior art in the two documented trackers does not conclude there is none. `grep -ci brownfield solo-orchestrator-backlog.md` → **0**. Fixing `CLAUDE.md` is out of scope here (docs-only branch, no tracker edits). |
-| **C7** | **`gitleaks --redact` does not redact the whole report.** Executed against a planted key: without `--redact` the value appears **twice** in the JSON report (`Secret`, `Match`); with `--redact` it appears **zero** times. **But** the report's 18 fields include `Message` — the full commit message, **not redacted** — and a second key planted in a commit message survives `--redact` intact (**1 occurrence** in the "redacted" report). | D4's redaction requirement cannot be met by passing `--redact`. §6.2 specifies a **field allowlist projection** instead, and §6.5 requires the planted-secret test to plant in **both** a diff and a commit message. This is the single most likely place a naive implementation would ship a leak while believing it had not. |
-| **C8** | **The framework already ships gitleaks — three different ways, two of which are weaker than this design needs.** Emitted **GitHub** CI runs `./gitleaks git --redact --exit-code 1` on `fetch-depth: 0` (**full history**, BL-151 comment block); emitted **GitLab** and **Bitbucket** CI run `gitleaks dir . --verbose --redact` (**working tree only, no history**); the emitted **local pre-commit hook** runs `gitleaks git --staged` (**index only**) and **omits `--redact`** — so the one surface a human watches at commit time prints secret values in the clear. Phase 3 has **no** secret scanner at all: `P3_SCANNERS="semgrep-full-tree license snyk zap-dast threat-model"`. | §6.1 states what adoption's full-history scan is genuinely new *for* (every non-GitHub host, and every project before its first CI run) and what it duplicates. The un-redacted local hook is named as a **pre-existing defect adjacent to this work** (§12), not silently inherited. |
+| **C7** | **`gitleaks --redact` does not redact the whole report.** Executed against a planted key: without `--redact` the value appears **twice** in the JSON report (`Secret`, `Match`); with `--redact` it appears **zero** times. **But** the report's 18 fields include `Message` — the full commit message, **not redacted** — and a second key planted in a commit message survives `--redact` intact (**1 occurrence** in the "redacted" report). **v1.1 (R-BF-4): re-executed with BOTH plants BASE32-valid.** v1.0's message plant contained a `9` and so was not a string gitleaks would ever flag, which a reviewer could fairly have called a weak demonstration. Re-run with two rule-valid keys, the result is **identical** — diff plant 0 occurrences, message plant **1** — so the finding no longer depends on the plant's shape at all. | D4's redaction requirement cannot be met by passing `--redact`. §6.2 specifies a **field allowlist projection** instead, and §6.5 requires the planted-secret test to plant in **both** a diff and a commit message, **both BASE32-valid**. This is the single most likely place a naive implementation would ship a leak while believing it had not. |
+| **C8** | **The framework already ships gitleaks — three different ways, two of which are weaker than this design needs.** Emitted **GitHub** CI runs `./gitleaks git --redact --exit-code 1` on `fetch-depth: 0` (**full history**, BL-151 comment block); emitted **GitLab** and **Bitbucket** CI run `gitleaks dir . --verbose --redact` (**working tree only, no history**); the emitted **local pre-commit hook** runs `gitleaks git --staged` (**index only**). Phase 3 has **no** secret scanner at all: `P3_SCANNERS="semgrep-full-tree license snyk zap-dast threat-model"`. **⚠ v1.1 — v1.0's added claim that the hook "prints secret values in the clear" was REFUTED (R-BF-2).** It omits `--redact`, which is true and sounds alarming, and the consequence does not follow: without `-v`, `gitleaks git --staged` writes **nothing to stdout** and only `WRN leaks found: N` to stderr (**zero** occurrences of the planted value in either stream), and the hook discards stderr with `2>/dev/null`. The value reaches stdout **only** under `-v`. | §6.1 states what adoption's full-history scan is genuinely new *for* (every non-GitHub host, and every project before its first CI run) and what it duplicates. **The real residual is the inverse of v1.0's:** the operator sees the framework's `[BLOCKED]` lines and **no finding detail whatsoever** — no rule, no file, no line (§12-2). Adding `-v` without `--redact` in the same edit is exactly how a fix here would create the leak v1.0 wrongly alleged. |
 | **C9** | **`APPROVAL_LOG.md` has eight independent readers, four with unbounded windows — "structurally unparseable" is an eight-clause predicate, not a heading choice.** Readers verified: `_cpg_gate_has_evidence` (window opens on **any line** matching `Phase N.*Phase N+1`, not a heading), `validate_approval_fields` (H2-anchored section **plus** a permissive unbounded `grep -A 20` feeding the blame walker), `validate_approval_section_dated` (substring open, stops at any `^#`), `check_named_row` (**unbounded `grep -A 30 "Pre-Phase 0"`** — measured on the shipped org template as a 31-line window carrying **three** `## ` heading lines, i.e. it reads past its own section into the next two), two whole-file greps (pen-test exemption, retroactive STA), the `# BL-115-ATTORNEY-ENTRY` awk in `process-checklist.sh`, and `check_gate` in `scripts/validate.sh` (`grep -A 10` + `grep -i "date"` — matches `update`, `Candidate`). | §8.8 states the predicate as eight clauses and cites the **existing precedent**: the BL-170 append-design commit already wrote this invariant list for the templates' own instruction prose. The design follows it rather than inventing one. |
 | **C10** | **No document in the tree restricts the framework to new projects.** `grep -ni 'new project\|from scratch\|greenfield\|empty director'` over `docs/user-guide.md`, `docs/builders-guide.md` and `README.md` returns only unrelated hits. The greenfield assumption is **implicit in code** and stated **once**, in F-010, where it is overstated (C5). The nearest thing to a scope statement is `guard_not_in_framework`'s error text — *"run init.sh from inside an empty project directory"* — and `docs/builders-guide.md` § "Retrofitting an existing project", which means `reconfigure-project.sh --field`, **not** codebase onboarding. | Two consequences. (i) This design cannot cite a doctrine statement saying the framework is greenfield-only — **there is none**, which strengthens the case that this is an unexamined default rather than a decision. (ii) The word **"retrofit" is already taken** by a narrower meaning; this document uses **"adoption"** throughout and never "retrofit" (§2). |
 
@@ -279,6 +334,12 @@ places to put such a claim and both are hostile to an outsider:
    `current_phase` to **0**. `upgrade-project.sh` calls `verify-install.sh` after every upgrade.
    And a key nothing reads is not enforcement anyway — the gates would have to be taught to read
    it, which is the in-core change the kit was invented to avoid.
+
+**A third hazard, added at v1.1 (R-BF-1), which applies to the framework's own stamp as much as to a
+kit's key.** `fix_framework_manifest()` delegates to `~/.claude-dev-framework/scripts/init.sh`,
+which writes `.claude/manifest.json` **wholesale** from a hardcoded key set carrying no Solo keys at
+all. So **both** state files have a regenerate-on-missing writer, and neither location is
+categorically safe. §8.5 states the property that actually distinguishes them.
 
 **Verdict: settled, and the mechanism is now correctly stated.** The enabling arms are in-core.
 They are also genuinely small — §10's WP3 is three arms and a stamp, against a driver (WP4–WP7)
@@ -538,7 +599,7 @@ framework already ships (C8):
 |---|---|---|
 | Emitted GitHub CI — `./gitleaks git --redact --exit-code 1` on `fetch-depth: 0` | Full history | **Timing.** CI runs after the first push; adoption runs before the first write |
 | Emitted GitLab / Bitbucket CI — `gitleaks dir . --verbose --redact` | **Working tree only** | **History**, which those hosts' templates never scan |
-| Emitted local pre-commit hook — `gitleaks git --staged` | Index only, and **without `--redact`** | Everything before the first commit under the framework |
+| Emitted local pre-commit hook — `gitleaks git --staged 2>/dev/null` | Index only | Everything before the first commit under the framework. **It also omits `--redact` — which, verified, leaks nothing** (no `-v` ⇒ empty stdout; stderr carries only `WRN leaks found: N` and is discarded by the hook). The operator gets the framework's `[BLOCKED]` lines and **no finding detail at all** (§12-2) |
 | Phase 3 — `P3_SCANNERS="semgrep-full-tree license snyk zap-dast threat-model"` | No secret scanner at all | The whole category |
 
 ### §6.2 — Redaction is a projection, not a flag (C7)
@@ -601,9 +662,17 @@ notes that will otherwise cost an implementer an afternoon:
 
 - `AKIAIOSFODNN7EXAMPLE` is **allowlisted by gitleaks' default config** and yields zero findings.
   The fixture must use a non-canonical synthetic key.
+- **Both plants must be BASE32-valid** — the `aws-access-token` rule requires the 16 characters
+  after `AKIA` to be drawn from **`[A-Z2-7]`**. Verified: a plant containing `9` yields **zero**
+  findings even in a diff. **A carelessly-chosen plant makes WP2's Mutation A vacuous** — the
+  assertion passes for the wrong reason and the mutation can never go RED. The test must therefore
+  **assert a non-zero finding count on the diff plant as a precondition**, so a dud fixture fails
+  loudly instead of certifying nothing. (v1.0 of this document shipped exactly that dud in its own
+  C7 demonstration; R-BF-4 caught it.)
 - The commit-message plant is **not itself reported as a finding** — `gitleaks git` scans diffs, not
-  messages — so it can only be caught by asserting on the artifact's bytes, never on the finding
-  count.
+  messages, **confirmed with a BASE32-valid key so the result is not an artefact of the plant**
+  (a valid key present only in a commit message yields **zero** findings). It can therefore only be
+  caught by asserting on the artifact's **bytes**, never on the finding count.
 
 ---
 
@@ -653,9 +722,14 @@ Inherited from the precedent, each verified in `upgrade-project.sh`:
 
 Two deliberate divergences, both stated as such:
 
-1. **A MANIFEST is written.** `grep -n 'MANIFEST' scripts/upgrade-project.sh` shows the precedent
-   has none — its snapshot is a bare mirrored tree, which is adequate for rollback and inadequate
-   for disclosure. D5 requires a manifest; this is an extension, not a claim of precedent.
+1. **A MANIFEST is written.** The precedent has none — its snapshot is a bare mirrored tree, which
+   is adequate for rollback and inadequate for disclosure. D5 requires a manifest; this is an
+   extension, not a claim of precedent. **Recipe corrected at v1.1 (R-BF-7):** a bare
+   `grep -n 'MANIFEST' scripts/upgrade-project.sh` returns **18** hits and proves nothing — they are
+   `MANIFEST_JSON` (the Solo manifest path variable) and `PRODUCT_MANIFESTO`. The claim is about the
+   *snapshot tree*, so scope it there:
+   `grep -n 'MANIFEST' scripts/upgrade-project.sh | grep -viE 'MANIFEST_JSON|PRODUCT_MANIFESTO'`
+   — which is what `_upgrade_snapshot_pre_mutation` writing no inventory file actually looks like.
 2. **Retention is unlimited.** The precedent prunes to keep-3. An adoption archive is written
    **once per project**, is the operator's only copy of their own configuration, and must never be
    pruned by a later run.
@@ -903,7 +977,7 @@ them"* — for exactly the two files that are ignored on purpose.
 
 | Property | Value | Rationale |
 |---|---|---|
-| **Home** | `.claude/manifest.json`, top-level `adoption` block | **C2's finding decides this.** `verify-install.sh` has **21** `fix_*` functions and **none writes `.claude/manifest.json`** — it only ever reads it. `fix_phase_state()` would erase a stamp in phase-state and reset `current_phase` to 0 |
+| **Home** | `.claude/manifest.json`, top-level `adoption` block | **C2 decides this — on merge-versus-re-stamp grounds, NOT on "the manifest has no wholesale writer" (R-BF-1 refuted that; it has one, via `fix_framework_manifest()` → CDF `init.sh`).** The property that actually separates the two files: **both** wholesale writers are **missing-file-gated** — `fix_phase_state()` and `fix_framework_manifest()` are each registered in the `else`/`elif` arm of a bare `[ -f … ]` check, so neither ever *destroys* a stamp that was there; the stamp is already gone with the file. But `phase-state.json` is additionally **re-stamped on every upgrade against a file that exists** (`data["review_gate_enforced"] = True`, unconditional), while **every writer that touches an existing `manifest.json` is an additive merge**: `jq '.host = $h'` (`check-gate.sh`, `upgrade-project.sh`), `jq '. + {deployment, poc_mode, enforcement_level}'` (the BL-030 backfill), `jq '. + {deployment, poc_mode}'` (the BL-061 refresh), and `soif_currency_stamp`'s `.currency = $c` — which additionally no-ops on a missing manifest (`[ -f "$manifest" ] \|\| return 0`). CDF refresh touches assets and the framework's own version fields, not Solo's |
 | **Shape** | `jq --argjson adoption "$json" '.adoption = $adoption'` — one additive merge, exactly the `soif_currency_stamp` filter's form | Executed and confirmed additive: unrelated top-level keys survive |
 | **Call sites** | **One**, in the driver, marked | `soif_currency_stamp` has exactly one product call site (`# BL-109-CURRENCY` in `init.sh`); the operating-model design's F1 correction records that it is **birth-stamp-only and never a backfill precedent**. The adoption stamp is the same: written once, at adoption, never re-stamped |
 | **Contents (author-proposed)** | `{schemaVersion, adoptedAt, scenario: "completed"|"in-flight", landedPhase, certification: {kindA[], kindB[], kindC[]}, blockersAccepted[], scannerReportSha256}` | Everything a later reader needs to know *how this project got here*, and nothing that duplicates state living elsewhere |
@@ -1044,13 +1118,13 @@ of an increment**; a block is its presence. A test that greps for `[WARN]` prove
 |---|---|---|
 | **WP0 — Module contract** | §3.3's M1–M5 as a written contract plus `scripts/lint-module-dependencies.sh`. **Converge with the delta track first** — this contract is co-owned and that track has zero commits (C1) | A `core → module` source line fails the lint; a `module → core` one passes; the scanner with `scripts/lib/` moved aside still runs (M5). **Mutation:** delete the direction check → a `core → module` reference passes → RED |
 | **WP1 — Scanner: stack, phaseMap, reality** | `scripts/scout.sh` + `scripts/lib/scout/`; the extracted artifact ladder (max-rung, marked) and the five read-only reality probes | Read-only proven by **tree hash before/after** over the whole fixture, not by inspection — the `plan-staging.sh` idempotency precedent. Max-rung beats last-wins on a fixture with `HANDOFF.md` and an emptied `docs/test-results/`. **Mutation:** restore last-wins → the fixture reports 4 instead of 2 → RED |
-| **WP2 — Scanner: secrets, collisions, tests-baseline, intake-prefill** | The §6.2 allowlist projection; the §1.2 collision inventory; the test-command probe and untested-file count; prefill extraction | **The planted-secret test (§6.5): two plants, one in a diff and one in a commit message; assert neither string occurs in ANY artifact byte.** **Mutation A:** drop `--redact` → the diff plant appears → RED. **Mutation B:** replace the field allowlist with a passthrough → the **message** plant appears → RED. Mutation B is the one that matters; A alone would have shipped C7's leak |
-| **WP3 — In-core enabling arms** | The `adopted` flag accessor; `soif_adoption_stamp` (one call site, manifest home); the TDD pre-adoption arm; stamp acceptance in the gate | **Dual-direction, per arm.** TDD arm: (i) neuter the exemption → an adopted project's pre-adoption commit blocks → RED; (ii) neuter the **bound** (make the exemption unscoped) → a **post-adoption** commit with no test passes → RED. Stamp: a foreign top-level manifest key survives the stamp; `fix_phase_state()` is run against the fixture and the stamp is still present afterwards (the C2 regression) |
-| **WP4 — Driver skeleton + scenario chooser + reverse intake** | `scripts/adopt-project.sh`; the D2 question verbatim; prefill/confirm on the `# BL-204-PREFILL-READ` pattern; judgment sections mandatory; **data classification non-skippable** | The chooser's wording is asserted **verbatim** (a string pin — it is a decision, not a phrasing). A scan-derived answer is confirmed with its provenance line; "change it" falls through to the full question. **Mutation:** give data classification a default → a run completes without answering it → RED, asserted by the Phase 1→2 ZDR gate failing on the resulting fixture |
+| **WP2 — Scanner: secrets, collisions, tests-baseline, intake-prefill** | The §6.2 allowlist projection; the §1.2 collision inventory; the test-command probe and untested-file count; prefill extraction | **The planted-secret test (§6.5): two plants, one in a diff and one in a commit message; assert neither string occurs in ANY artifact byte.** **Mutation A:** drop `--redact` → the diff plant appears → RED. **Mutation B:** replace the field allowlist with a passthrough → the **message** plant appears → RED. Mutation B is the one that matters; A alone would have shipped C7's leak. **Fixture precondition (R-BF-4), non-optional:** both plants BASE32-valid (`AKIA[A-Z2-7]{16}`), **and the test asserts a non-zero finding count on the diff plant before asserting anything else** — a dud plant yields zero findings, at which point Mutation A passes vacuously and proves nothing |
+| **WP3 — In-core enabling arms** | The `adopted` flag accessor; `soif_adoption_stamp` (one call site, manifest home); the TDD pre-adoption arm; stamp acceptance in the gate | **Dual-direction, per arm.** TDD arm: (i) neuter the exemption → an adopted project's pre-adoption commit blocks → RED; (ii) neuter the **bound** (make the exemption unscoped) → a **post-adoption** commit with no test passes → RED. Stamp: a foreign top-level manifest key survives the stamp, and every existing-file writer named in §8.5 is run in sequence with the stamp still present afterwards. **Regression proof RE-AIMED at v1.1 (R-BF-1).** The v1.0 proof — "run `fix_phase_state()`, assert the stamp survives" — is **trivially green and worthless**: that function never touches `manifest.json`. The meaningful proof is the **regenerate** path: delete `.claude/manifest.json` → run `verify-install.sh --auto-fix` → `fix_framework_manifest()` → CDF `init.sh` rewrites it wholesale → **assert the loss of the stamp and the `adopted` flag is DETECTED AND REPORTED LOUDLY**, not that it is prevented (it cannot be — the writer is upstream and out of this design's control). **Mutation:** remove the post-regeneration detection → the project silently un-adopts and every gate arm reads `adopted: false` → RED. This is the honest shape: the design cannot stop the erasure, so it must refuse to be quiet about it |
+| **WP4 — Driver skeleton + scenario chooser + reverse intake** | `scripts/adopt-project.sh`; the D2 question verbatim; prefill/confirm on the `# BL-204-PREFILL-READ` pattern; judgment sections mandatory; **data classification non-skippable**. **Required deliverable (R-BF-4/R-BF-6): a section→prefill mapping table**, one row per `run_section_*` runner in `scripts/intake-wizard.sh` — **15 of them** (`1`, `1_repo_setup`, `2`, `3`, `4`, `5`, `6`, `7`, `8`, `9`, `10`, `11`, `11_5`, `12`, `13`) — each classified **scan-derived / judgment / non-skippable**, with the scan field that feeds it. "Scan-derivable sections are prefilled" is a principle; the table is the specification, and without it the classification is decided ad hoc at implementation time | The chooser's wording is asserted **verbatim** (a string pin — it is a decision, not a phrasing). A scan-derived answer is confirmed with its provenance line; "change it" falls through to the full question. **Mutation:** give data classification a default → a run completes without answering it → RED, asserted by the Phase 1→2 ZDR gate failing on the resulting fixture |
 | **WP5 — Certification pass** | The three kinds; the per-gate mapping; real scanner/eval execution; the review-manifest population; severity triage; **blocker-grade blocks completion** | A fixture with a SEV-1-equivalent finding does not complete adoption; the same fixture with a recorded acceptance does, and the acceptance appears in the Adoption Record with its signer. **Mutation:** remove the blocker check → adoption completes with an unaccepted SEV-1 → RED. **Second mutation:** make acceptance implicit (no signer required) → RED |
 | **WP5b — Test-debt ledger + ratchet** | `.claude/test-debt.json`; non-growth and touch-repays arms on the tier ladder | Adding an untested file blocks at `strict`, warns at `light`, is silent at `no`. Modifying a ledgered file without adding a test blocks at `strict`. **Dual-direction:** (i) neuter the non-growth arm → the untested set grows silently → RED; (ii) neuter the tier floor → the arm blocks at `no` → RED (a gate that fires at the lenient tier is as wrong as one that never fires) |
 | **WP6 — Collision archive + disclosure + re-adds** | §7.2's layout and MANIFEST; disclosure text; the warning near-verbatim; `adoption_event` audit rows across all five surfaces of §8.9 | Archive mirrors relative paths and only existing files; MANIFEST lists every entry with a restore line; a `git-hook` entry carries a description. **The archive is scanned for secrets before staging and a matching entry refuses to stage** (§7.3's new exposure). **Mutation:** suppress the re-add audit row → a silent re-add → RED. The T6 whitelist gains `adoption_event` **and a fixture ledger containing it**, so the pin can actually fail |
-| **WP7 — CI carve-out + provenance + Adoption Record** | Framework CI at framework-owned filenames on all three hosts; the SDLC-undermining detector (report-only); keep-or-retire recorded; provenance-header lint; the eight-clause Adoption Record lint | Their `.gitlab-ci.yml` is byte-identical after a run. A workflow with `continue-on-error: true` on a security step produces a loud finding and **no edit**. The Adoption Record does **not** satisfy `_cpg_gate_has_evidence` for any gate — asserted by running the real awk against the real record. **Mutation:** un-indent the record's Date rows → the gate-evidence check passes on the record → RED |
+| **WP7 — CI carve-out + provenance + Adoption Record** | Framework CI at framework-owned filenames on all three hosts; the SDLC-undermining detector (report-only); keep-or-retire recorded; provenance-header lint; the eight-clause Adoption Record lint | Their `.gitlab-ci.yml` is byte-identical after a run. A workflow with `continue-on-error: true` on a security step produces a loud finding and **no edit**. The Adoption Record does **not** satisfy `_cpg_gate_has_evidence` for any gate — asserted by running the real awk against the real record. **Mutation RE-AIMED at v1.1 (R-BF-5).** The v1.0 mutation — "un-indent the Date rows → the gate-evidence check passes → RED" — **cannot fire**: verified, against a clause-1-compliant record no evidence window ever opens, so the pipeline returns `rc=1` indented *or* not. Two proofs replace it. **(i) The lint is the mutation target:** un-indent the Date rows → **the record lint** goes RED (clause 5 is a lint-enforced property, not a gate-observable one). **(ii) Defense-in-depth, explicitly labelled as such:** a fixture that **jointly** violates clause 1 (a `Phase 0 … Phase 1` prose line) **and** clause 5 (unindented Date row) **does** satisfy `_cpg_gate_has_evidence` — verified `rc=0` — and restoring **either** clause alone returns it to `rc=1`. That is the honest statement of what the eight clauses buy: they are **redundant by design**, and the proof should demonstrate the redundancy rather than pretend any single clause is load-bearing alone |
 | **WP8 — Docs + drive-bys** | `docs/scout.md`; the adoption page; `docs/INDEX.md` rows; the `--reset-detection-baseline` help sentence from C3 | `lint-doc-anchors.sh --strict-refs` and `lint-bl-markers.sh` clean; every new suite registered in **both** `tests/full-project-test-suite.sh` and the `tests.yml` unit list, and the exempt-row list audited **by execution**, not by grep |
 
 **Sequencing.** WP0 → WP1 → WP2 → WP3 → WP4 → WP5/WP5b → WP6 → WP7 → WP8. **WP3 is the linchpin** —
@@ -1100,9 +1174,15 @@ WP3, and WP5 get top-tier implementation and double-mutation verification.
    `git add -A && git commit --no-verify`. Adoption gives operators a correct path; it does not
    remove the incorrect one. Closing it — a guard, a refusal, or a redirect to `adopt-project.sh` —
    is a separate change and is deliberately not bundled here.
-2. **The un-redacted local pre-commit gitleaks call.** The emitted hook runs `gitleaks git --staged`
-   **without `--redact`**, so the one surface a human watches at commit time prints secret values in
-   the clear, while every emitted CI template passes the flag. Adjacent to this work, not part of it.
+2. **The local pre-commit hook tells the operator nothing about what it found.** ⚠ **v1.1 — this
+   residual is the INVERSE of what v1.0 recorded here, which was refuted (R-BF-2).** v1.0 said the
+   hook "prints secret values in the clear" because it omits `--redact`. Executed: without `-v`,
+   `gitleaks git --staged` writes **nothing** to stdout and only `WRN leaks found: N` to stderr —
+   which the hook discards. So nothing leaks, and nothing *informs*: the operator gets `[BLOCKED]`
+   and is left to find the secret unaided — no rule, no file, no line. **The fix is `-v` **and**
+   `--redact` together, in one edit; `-v` alone would manufacture the leak v1.0 wrongly alleged
+   (verified: 2 occurrences of the plant on stdout under `-v`).** Adjacent to this work, not part of
+   it, and deliberately **not** filed as an invitation to add `-v` on its own.
 3. **`bypass_audit_append` has no enum validation** — `jq -e 'type == "object"'` is the whole check,
    so `actor: "banana"` writes cleanly. The team-orchestrator design records the same finding. This
    design adds one type and does not fix the validator.
@@ -1138,9 +1218,17 @@ WP3, and WP5 get top-tier implementation and double-mutation verification.
 11. **The delta track converges on the module contract** (C1). If it lands a different shape, WP0 is
     rewritten and the driver's severability claim weakens to "one repo, one directory". That changes
     the schedule and the packaging story, not the architecture.
-12. **The `adopted` flag stays readable.** WP3's mutation includes running `fix_phase_state()` against
-    an adopted fixture precisely because a future wholesale writer for `manifest.json` would silently
-    un-adopt every adopted project. There is none today; there is no lint preventing one.
+12. **The `adopted` flag stays readable — and one wholesale writer for `manifest.json` ALREADY
+    EXISTS.** ⚠ **v1.1 correction (R-BF-1): v1.0's "there is none today" was false.**
+    `fix_framework_manifest()` → `~/.claude-dev-framework/scripts/init.sh` rewrites the manifest
+    wholesale from a hardcoded key set with no Solo keys. It is **missing-file-gated**, so it never
+    destroys a stamp that is present — but a manifest lost to any cause is regenerated *empty of
+    everything Solo wrote*, and the project silently becomes un-adopted. The writer is **upstream, in
+    a different repository, outside this design's control**, so WP3's proof asserts **loud
+    detection**, not prevention. There is still no lint preventing a *second* such writer, and the
+    real assumption is narrower and worth stating plainly: **that the CDF manifest writer stays
+    missing-file-gated.** If it ever becomes unconditional, every adopted project un-adopts on the
+    next `verify-install.sh --auto-fix`.
 13. **`gitleaks`' report schema is stable enough for an allowlist.** An allowlist fails safe when a
     field is added (it is dropped) and fails loud when a field is renamed (it goes missing). That is
     the right pair of failure modes, and it does assume the implementer notices the missing field.
@@ -1194,15 +1282,31 @@ $ jq -r '.[0] | {RuleID,File,Commit,Fingerprint,Secret,Match}' redacted.json
   "Fingerprint": "42c8c76694f07fe3f280d87ea2cfb3360c5bedab:config.ini:aws-access-token:1",
   "Secret": "REDACTED", "Match": "REDACTED" }
 ```
-Second plant, in the **commit message**, with `--redact` on:
+Second plant, in the **commit message**, with `--redact` on. **Re-executed at v1.1 (R-BF-4) with
+both plants BASE32-valid** — v1.0's message plant contained a `9`, which the rule rejects:
 ```
-$ jq -r '.[0].Message' r.json
-rotate key, old one was AKIA7YHT2QW9ZXLM4RBV
-$ grep -c "$PLANT_MSG" r.json
+$ jq -r '.[0] | {RuleID, Secret, Match, Message}' r.json
+{ "RuleID": "aws-access-token", "Secret": "REDACTED", "Match": "REDACTED",
+  "Message": "rotate key, old one was AKIAVX3T6QW2ZLMK4RBS" }
+$ grep -c "$DIFF_PLANT" r.json   # AKIAQZ7X4M2NPLKJ3HRD, in the diff
+0
+$ grep -c "$MSG_PLANT"  r.json   # AKIAVX3T6QW2ZLMK4RBS, in the commit message
 1
 ```
-Fixture note: `AKIAIOSFODNN7EXAMPLE` is allowlisted by gitleaks' default config and yields **0**
-findings — the first run of this experiment produced an empty report for exactly that reason.
+**Two fixture facts, both executed, both load-bearing for §6.5:**
+```
+# a plant with a '9' — not BASE32 [A-Z2-7] — in a DIFF:
+$ jq 'length' a.json
+0
+# a BASE32-VALID plant present ONLY in a commit message:
+$ jq 'length' b.json
+0
+```
+So (i) the rule is BASE32-sensitive and a careless plant silently yields nothing, and (ii) `gitleaks
+git` genuinely does not scan commit messages — now confirmed with a valid key rather than inferred
+from a dud one. `AKIAIOSFODNN7EXAMPLE` is separately allowlisted by gitleaks' default config and
+also yields **0** findings; the first run of this experiment produced an empty report for that
+reason.
 
 **V4 — the `[WARN]` trap, quantified.**
 ```
@@ -1234,6 +1338,71 @@ $ grep -cE '^fix_[a-z_]*\(\)' scripts/verify-install.sh
 $ grep -cE '>[[:space:]]*\.claude/manifest\.json' scripts/verify-install.sh
 0
 ```
+**⚠ v1.1 — the second figure does NOT mean what v1.0 said it meant (R-BF-1).** It proves only that
+`verify-install.sh` contains no *direct* redirect. See **V15**.
+
+**V15 — the manifest's wholesale writer, reached by delegation (R-BF-1, re-verified here).**
+```
+$ sed -n '/^fix_framework_manifest()/,/^}/p' scripts/verify-install.sh
+fix_framework_manifest() {
+  # Drop `2>/dev/null` per the same rationale as fix_framework_clone:
+  # init.sh failures (missing deps, malformed manifest) deserve a
+  # visible diagnostic rather than a silenced non-zero return.
+  local FRAMEWORK_CLONE="$HOME/.claude-dev-framework"
+  if [ -f "$FRAMEWORK_CLONE/scripts/init.sh" ]; then
+    bash "$FRAMEWORK_CLONE/scripts/init.sh" || return 1
+  else
+    return 1
+  fi
+}
+$ grep -n 'manifest.json' ~/.claude-dev-framework/scripts/init.sh
+57:  if [ -f ".claude/manifest.json" ] && command -v jq &>/dev/null; then
+58:    CANDIDATES=$(jq -r '.files | to_entries[] | select(.value.candidateForGlobal == true) | .key' .claude/manifest.json 2>/dev/null || true)
+224:rm -rf .claude/framework .claude/project .claude/manifest.json
+416:  }' > .claude/manifest.json
+439:echo "  .claude/manifest.json"
+```
+(Line 224's `rm -rf` is inside a generated `restore.sh` heredoc — a rollback script, **not** part of
+the init path. The wholesale write is line 416.)
+The key set at that write is
+`frameworkVersion, frameworkCommit, frameworkRepo, localClonePath, lastSyncDate, profile,
+profileInherits, files, activeRules, activeHooks, projectConfig, discovery` — **no Solo key, no
+`adoption`**. Its registration is missing-file-gated:
+```
+  if [ -f ".claude/manifest.json" ]; then
+    register_pass "Development Guardrails manifest exists"
+  elif [ -d "$FRAMEWORK_CLONE/.git" ] && [ -f "$FRAMEWORK_CLONE/scripts/init.sh" ]; then
+    register_fixable "Development Guardrails manifest missing" "fix_framework_manifest"
+```
+And every writer that touches an **existing** manifest is an additive merge. **Summary of a read, not
+command output** — the filter strings are verbatim, the layout is mine:
+
+| Writer | Filter |
+|---|---|
+| `scripts/check-gate.sh` | `jq --arg h "$inferred" '.host = $h'` |
+| `scripts/upgrade-project.sh` (host inference) | `jq --arg h "$inferred_host" '.host = $h'` |
+| `scripts/upgrade-project.sh` (BL-030 backfill) | `jq '. + {deployment: $dep, poc_mode: $pm, enforcement_level: "strict"}'` |
+| `scripts/upgrade-project.sh` (BL-061 refresh) | `jq '. + {deployment: $dep, poc_mode: $pm}'` |
+| `scripts/lib/currency-manifest.sh` | `soif_currency_stamp` — additive, and no-ops on a missing manifest (`[ -f "$manifest" ] \|\| return 0`) |
+
+Reproduce the population with
+`grep -n "claude/manifest\.json" --include='*.sh' -r scripts/ init.sh | grep -vE 'jq -r\|jq -e\|\[ -f'`.
+
+**V16 — `gitleaks git --staged` leaks nothing without `-v` (R-BF-2, re-verified here).**
+```
+$ gitleaks git --staged 2>/dev/null; echo "rc=$?"        # stdout only
+rc=1                                                      # <- no output at all
+$ gitleaks git --staged 2>&1 >/dev/null                   # stderr only
+… INF 0 commits scanned. … WRN leaks found: 1
+$ gitleaks git --staged 2>/dev/null   | grep -c "$PLANT"  # stdout
+0
+$ gitleaks git --staged 2>&1 >/dev/null | grep -c "$PLANT"  # stderr
+0
+$ gitleaks git --staged -v 2>/dev/null | grep -c "$PLANT"   # stdout, WITH -v
+2
+```
+The emitted hook is `if ! gitleaks git --staged 2>/dev/null; then` — stderr discarded, stdout empty.
+The operator sees only the framework's own `[BLOCKED]` lines.
 
 **V6 — `--reset-detection-baseline` exists; the migration wording does not (C3).**
 ```
@@ -1259,17 +1428,31 @@ $ grep -n -A 10 '^## F-010' solo-orchestrator-followups.md
 … `init.sh` refuses existing directories, so the framework cannot onboard an existing codebase.
 ```
 
-**V8 — the delta track has zero commits; no dependency-direction lint exists (C1).**
+**V8 — no dependency-direction lint exists (C1). ⚠ The delta-track half is time-of-execution and was
+already superseded when this document was committed (R-BF-3).**
 ```
-$ git diff --stat main...docs/delta-track-design
-                                    (empty)
-$ git log --oneline docs/delta-track-design -1
-6449838 Merge pull request #316 from kraulerson/docs/team-orchestrator-design
 $ ls scripts/lint-*.sh | wc -l
 14
 $ grep -rni 'dependency.direction\|severable\|module-shape' --include='*.md' --include='*.sh' .
                                     (no output)
 ```
+At first execution:
+```
+$ git diff --stat main...docs/delta-track-design      ->  (empty)
+$ git log --oneline docs/delta-track-design -1        ->  6449838 (== main)
+```
+Re-executed before the v1.1 fold:
+```
+$ git log --oneline docs/delta-track-design -2
+6fc3136 docs(designs): delta-track v1.1 — review-r1 folded; the exit-2 claim was docblock-trusted
+5dcbe86 docs(designs): the post-MVP Delta Track v1 — Karl's 2026-08-02 decisions transcribed
+$ git diff --stat main...docs/delta-track-design | tail -3
+ docs/INDEX.md                             |    7 +-
+ docs/designs/2026-08-02-delta-track-v1.md | 1189 ++++++++++++++++++++
+ 2 files changed, 1195 insertions(+), 1 deletion(-)
+```
+Both branches add a Designs row to the same `docs/INDEX.md` paragraph, so **a conflict at merge is
+guaranteed and expected**; both rows belong.
 
 **V9 — no `adopted` state anywhere; the namespace is free.**
 ```
@@ -1311,8 +1494,23 @@ The identical content with the table row indented four spaces:
 ```
 rc=1        # safe
 ```
-Note also that the window opened on a **prose** line ("Covers Phase 0 through Phase 1…"), not a
-heading — which is clause 1's whole reason for existing.
+Note that the window opened on a **prose** line ("Covers Phase 0 through Phase 1…"), not a heading —
+which is clause 1's whole reason for existing.
+
+**And the third cell, added at v1.1 (R-BF-5) — the one that re-aimed WP7's mutation.** With clause 1
+honored (no `Phase 0 … Phase 1` line anywhere in the record), the awk never opens a window at all,
+so the Date-row indentation becomes irrelevant:
+```
+$ printf '## Adoption Record\n\nCovers certification of the gates below.\n| **Date** | 2026-08-02 |\n' \
+  | awk -v h="Phase 0.*Phase 1" '$0 ~ h {f=1; next} f && /^## / {exit} f' | head -15 \
+  | grep -E '^\|[[:space:]]*\**[[:space:]]*Date[[:space:]]*\**[[:space:]]*\|' | head -1 \
+  | grep -qE "[0-9]{4}-..-.."; echo "rc=$?"
+rc=1        # UNINDENTED, but clause-1-compliant -> still safe
+```
+The three cells together are the actual result: **`rc=0` only when clauses 1 and 5 are violated
+jointly; restoring either one alone returns `rc=1`.** The clauses are redundant by design, and no
+single one of them is provable in isolation against this reader — which is why WP7's v1.0 mutation
+could never have gone RED.
 
 Clause 8, the unbounded Pre-Phase 0 window on the shipped org template:
 ```
@@ -1361,7 +1559,13 @@ OK: 346 marker token(s) resolve to backlog entries and 420 prose citation(s) res
   is report-only (§7.4); the ratchet's three limits are stated (§5.4); kind (b)'s weakness relative to
   a pre-build review is conceded rather than argued away (§5.2); and §5.3 states plainly that for a
   personal deployment kind (c) waives **nothing**, because the control was never running.
-- **Every "exists today" claim anchored — and executed?** Yes; §13 is the appendix. Anchors are
+- **Every "exists today" claim anchored — and executed?** Anchored and executed, yes — **and
+  review-r1 still refuted two of them (§0.2), both because a narrow grep was allowed to carry a wide
+  inference.** Do not read the current claim set as self-certified: it is the set that survived one
+  adversarial pass, with both refutations independently re-executed by this author before folding.
+  Two proofs in §10 were also found **incapable of failing** (WP3's regression, WP7's mutation) and
+  re-aimed; a proof that cannot go RED is the same defect class as a claim that was never run.
+  Anchors are
   function names (`create_project`, `fix_phase_state`, `read_enforcement_level`, `assert_choosable`,
   `verify_init`, `check_named_row`, `validate_approval_fields`, `_cpg_gate_has_evidence`,
   `soif_write_precommit_hook`, `_upgrade_snapshot_pre_mutation`, `_bl099_sync_precommit_hook`,
@@ -1406,8 +1610,11 @@ Nine, each attached to a decision this design can still change.
 7. **Kind (b)'s honesty (§5.2).** Marking only the ordering fact on a genuinely-held review is the
    smallest honest statement available. Is it small enough — or does a reviewer reading the log a year
    later need the marker to be louder?
-8. **Module severability (§3.3).** WP0 is blocked on converging with a design that has zero commits.
-   Should the adoption build proceed under a provisional contract and reconcile later, or wait?
+8. **Module severability (§3.3).** WP0 must converge with the delta track's module contract. **As of
+   v1.1 that track has landed (`5dcbe86`, `6fc3136`) — it is no longer an empty branch (C1)**, so
+   convergence is now a real comparison rather than a wait. Does the adoption build adopt the delta
+   track's contract as written, propose a joint revision, or proceed provisionally and reconcile at
+   the first severance?
 9. **The one rule we have not written.** What is the control your environment mandates that this
    adoption flow would fail on day one — and would it be a configuration, a new certification kind,
    or a reason adoption does not fit at all?
