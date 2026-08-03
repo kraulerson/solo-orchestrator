@@ -72,8 +72,13 @@ track, and the BA/PM agent roles. v1.1 post-review, r1 folded; describes a produ
 [designs/2026-08-02-delta-track-v1.md](designs/2026-08-02-delta-track-v1.md)
 (**the Post-MVP Delta Track** — the maintenance and feature lifecycle a project runs after it cuts
 v1.0.0: four change classes with derived-then-confirmed attributes, a severable module with a
-dependency-direction lint, three re-fire triggers, and a tool-decided release cut. v1.0 pre-review;
-nothing of it is built).
+dependency-direction lint, three re-fire triggers, and a tool-decided release cut. v1.1 post-review,
+r1 folded; nothing of it is built).
+[designs/2026-08-02-brownfield-adoption-v1.md](designs/2026-08-02-brownfield-adoption-v1.md)
+(**Brownfield adoption** — the second entry path, for a codebase that already exists: a standalone
+read-only scanner, the completed-vs-in-flight scenario chooser, the certification pass that replaces
+grandfathering, full-history secret scanning with redacted findings, and the archive-and-disclose
+collision policy. v1.1 post-review, r1 folded; nothing is built).
 
 ## Reports (`Reports/`)
 
