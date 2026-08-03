@@ -830,7 +830,8 @@ speaks first:
 1. **Open delta** — `active_delta != null`. "Finish or abandon DELTA-NNN first." Instant, no I/O.
 2. **Open hotfix retro** — any `hotfix_retros[]` with `closed_at == null`. Names the delta, its
    `due_by`, and how overdue it is. This is D3's collateral being called in.
-3. **Overdue cadence** — `check-maintenance.sh` exit 1. Names each overdue cadence and its
+3. **Overdue or unmeasurable cadence** — `check-maintenance.sh` exit 1 **or the new exit 2**
+   (§8.3's author-proposed addition). Names each overdue or undetermined cadence and its
    remediation (§8.3).
 
 Each refusal exits non-zero and prints exactly what would clear it. **`cut-release.sh` performs no

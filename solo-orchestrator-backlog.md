@@ -8417,3 +8417,38 @@ whichever Karl picks, the doc and the shipped default must agree.
 **Related:** BL-143 (past-cap recovery in the same walker), BL-170 (append-only
 approval-log redesign — the blast-radius list there names the parsers that must
 move in sync), BL-138 (approval-window parsing).
+
+---
+
+## BL-213: `check-maintenance.sh` fails OPEN on unparseable evidence and advertises an exit code that does not exist
+
+**Logged:** 2026-08-02 (found during the Delta Track design's verification pass;
+independently reproduced by its adversarial design review — both fixture runs
+agree)
+**Category:** Shipped-script honesty / silent-success class
+**Severity:** Low today, gate-relevant tomorrow (nothing invokes the script —
+manual runs only — but the Delta Track design wires it into release-cut
+refusals, where fail-open becomes a real hole)
+**Status:** Open
+
+**The two defects, both reproduced by execution:**
+1. **Fail-open on unparseable dates.** Every cadence verdict sits inside
+   `if [ "$last_epoch" -gt 0 ]`; a date both `date -j -f` and `date -d` reject
+   yields `last_epoch=0` and the entire arm is SKIPPED SILENTLY. Fixture: a git
+   repo with an untracked `CHANGELOG.md` and a `docs/test-results/` file dated
+   `2026-13-45` prints one INFO line, nothing for the security arm, then
+   `All maintenance cadences current.` — exit 0. Undeterminable evidence is
+   reported as current.
+2. **Phantom exit contract.** The script's own docblock advertises
+   `2 — could not determine`; the script has exactly two exit sites (`exit 1`,
+   `exit 0`). No code path produces 2.
+
+**Fix shape (already designed):** the Delta Track design
+(`docs/designs/2026-08-02-delta-track-v1.md` §8.3, WP6) adds a real
+`undetermined` counter and an explicit exit 2, with `cut-release.sh` refusing
+on 1 AND 2, and a mutation proof asserting on the exit code. If the delta build
+is delayed, the standalone minimal fix is the same counter + exit without the
+cut-release consumer.
+
+**Related:** BL-117 (shipped the script downstream in the first place — F20),
+BL-104 (the silent-success family this belongs to).
