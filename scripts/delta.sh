@@ -324,6 +324,25 @@ guard_not_in_framework || exit 1
 SEAM="$SCRIPT_DIR/process-checklist.sh"
 PHASE_STATE=".claude/phase-state.json"
 
+# ── THE ONE SPELLING OF "WHAT DOES THE LEDGER SAY ABOUT THIS DELTA?" ────────
+# `none` (no row) · `open` (owed) · `filed` (written up). TWO callers need it —
+# the close gate's waiver (`# DELTA-CLOSE-RETRO-BIND`) and `--retro`'s
+# write-once guard (`# DELTA-RETRO-STATE-GUARD`) — and an adversarial review
+# found them spelled out twice with different label vocabularies. That is the
+# sync-sibling hazard the repo has scar tissue for (`# BL-084-TIER-KEY` says
+# "SYNC SIBLINGS" for the same reason): an edit to one — say, tolerating
+# duplicate ids — would silently diverge the close's waiver from `--retro`'s
+# refusal, and nothing would fail. One definition, no siblings to keep in sync.
+#
+# `$id` is a jq variable supplied by each caller with `--arg`; bash does not
+# re-scan the expansion of this variable, so the single quotes here are the
+# whole of the quoting story.
+DELTA_RETRO_ROW_STATE_JQ='
+    [ .hotfix_retros[]? | select(type == "object") | select(.id == $id) ] as $r
+  | if ($r | length) == 0 then "none"
+    elif ($r[0].closed_at == null) then "open"
+    else "filed" end'
+
 USAGE="Usage:
   scripts/delta.sh --open [--describe TEXT] [--slug SLUG] [--confirm]
                    [--class feature|fix|hotfix|security-patch]
@@ -579,12 +598,52 @@ _slugify() {
 # ═════════════════════════════════════════════════════════════════════════════
 # --status
 # ═════════════════════════════════════════════════════════════════════════════
-# _render_retros <state-document> — the outstanding-write-up block (§7.1/§9.2).
+# _retro_dead_end_advice <class-or-empty>
+#   THE EXIT FROM THE NO-ROW STATE, NAMED (R-WP5-3). §4.3 requires a refusal to
+#   "say exactly what to do next", and an adversarial review found this path
+#   saying three things in a circle at 3am, in the lane built for 3am: `--close`
+#   pointed at `--complete-gate`, which refused and pointed at `--retro`, which
+#   refused with "nothing owes a write-up". Every command named was one that
+#   refuses.
+#
+#   There are exactly TWO ways to be here and they have DIFFERENT exits, so both
+#   are named and the class is used to say which is likely. The second is
+#   reachable with NO hand edit at all — a project that adds `retro_review` to a
+#   non-hotfix class's gates gets a permanently uncloseable delta, because only
+#   a hotfix ever books a row for the waiver to find, and nothing in the old
+#   transcript hinted that the policy was the cause.
+#
+#   ASCII bullets on purpose: these lines interpolate variables, and the house
+#   portability rule keeps multibyte characters away from expansions under
+#   `set -u` on bash 3.2.
+_retro_dead_end_advice() {
+  local class="${1:-}"
+  print_info "A write-up is only ever booked when a HOTFIX opens, and there is no row for this one. That happens in exactly two ways:"
+  print_info "  - it WAS a hotfix and the delta record lost its row. Restore the record: git checkout -- .claude/delta-state.json"
+  print_info "    (there is deliberately no command that re-books it, because a command that could would also be one that restarts the clock)"
+  if [ -n "$class" ] && [ "$class" != "hotfix" ]; then
+    print_info "  - or your own settings ask for it where it can never happen. This is a $class, and no class but hotfix books a row, so remove \"retro_review\" from classes.$class.gates in .claude/delta-policy.json."
+  else
+    print_info "  - or some class other than hotfix lists \"retro_review\" in .claude/delta-policy.json. No class but hotfix books a row, so that check can never be satisfied there — remove it from that class's gates."
+  fi
+  return 0
+}
+
+# _render_retros — the outstanding-write-up block (§7.1/§9.2).
 #
 # Rendered in BOTH `--status` branches, because the ledger outlives the delta: a
 # surface that only showed it when nothing was open would hide the debt exactly
 # when the operator is busiest. Silent when nothing is owed — a project with no
 # outstanding write-ups should not have to read a line saying so.
+#
+# IT READS STRICTLY, AND ON ITS OWN (R-WP5-2). Every other read in this file is
+# the TOLERANT one, deliberately: a corrupt state file must not stop an operator
+# closing a delta. But this block answers the release question — "what do I still
+# owe" — and for that question the tolerant read's empty-schema fallback prints
+# a clean bill of health over a file nobody could parse. So this one asks
+# `--delta-state-read-strict` and says which of the two failures it hit. Its
+# non-zero paths are the operator-facing half of the same fail-closed repair
+# that gives WP7 rc 3 and rc 4.
 #
 # The classification is delta-cadence.sh's, not this file's, so the words the
 # operator reads and the verdict `cut-release.sh` will act on can never
@@ -592,7 +651,16 @@ _slugify() {
 # can read is not a deadline that has not arrived, and rendering it as a day
 # count would invent a number the record does not contain.
 _render_retros() {
-  local doc="${1:-}" rows line id due state days
+  local doc rows line id due state days rc
+  rc=0; doc="$(_seam --delta-state-read-strict 2>/dev/null)" || rc=$?
+  if [ "$rc" -eq 3 ]; then
+    echo ""
+    print_fail "The delta record is there but cannot be read, so any write-ups you owe cannot be listed."
+    print_info "Do not read that as a clean bill of health — releases will refuse until it is repaired."
+    print_info "Restore .claude/delta-state.json from version control: git checkout -- .claude/delta-state.json"
+    return 0
+  fi
+  [ "$rc" -eq 0 ] || return 0
   rows="$(delta_retro_rows "$doc")" || rows=""
   [ -n "$rows" ] || return 0
   echo ""
@@ -629,7 +697,7 @@ cmd_status() {
   print_info "Project phase: ${phase:-unknown}"
   if [ "$(printf '%s\n' "$doc" | jq -r '.active_delta == null')" = "true" ]; then
     print_info "No delta is open. Start one with: scripts/delta.sh --open"
-    _render_retros "$doc"
+    _render_retros
     echo ""
     return 0
   fi
@@ -644,7 +712,7 @@ cmd_status() {
       "  Still to do: " + (( ($d.gates_required // []) - ($d.gates_completed // []) ) | join(", ")),
       "  Done:        " + ((($d.gates_completed // []) | join(", ")) | if . == "" then "nothing yet" else . end)
   '
-  _render_retros "$doc"
+  _render_retros
   echo ""
   return 0
 }
@@ -975,7 +1043,7 @@ _rubric_boxes() {
 # --complete-gate
 # ═════════════════════════════════════════════════════════════════════════════
 cmd_complete_gate() {
-  local doc id token gates_req present already
+  local doc id token gates_req present already gate_state gate_class
 
   token="$GATE_TOKEN"
   command -v jq >/dev/null 2>&1 || { print_fail "jq is required to record a check."; return 1; }
@@ -1023,8 +1091,17 @@ cmd_complete_gate() {
     echo ""
     print_fail "The write-up is not something you can tick off — it is something you write."
     print_info "Shipping fast borrowed the checking a normal change goes through, and the write-up is how you pay it back. Ticking a box here would be the borrowing with none of the paying."
-    print_info "File it with: scripts/delta.sh --retro $id --record \"what happened, and what stops it happening again\""
-    print_info "You can close $id before then — the write-up stays owed, and nothing can be released until it is filed."
+    # DO NOT POINT AT A COMMAND THAT WILL ALSO REFUSE (R-WP5-3). `--retro` is
+    # the right answer only when there IS a row for it to file; when there is
+    # not, that advice completes a circle instead of ending one.
+    gate_state="$(printf '%s\n' "$doc" | jq -r --arg id "$id" "$DELTA_RETRO_ROW_STATE_JQ" 2>/dev/null)" || gate_state="none"
+    if [ "$gate_state" = "none" ]; then
+      gate_class="$(printf '%s\n' "$doc" | jq -r '.active_delta.class // ""' 2>/dev/null)" || gate_class=""
+      _retro_dead_end_advice "$gate_class"
+    else
+      print_info "File it with: scripts/delta.sh --retro $id --record \"what happened, and what stops it happening again\""
+      print_info "You can close $id before then — the write-up stays owed, and nothing can be released until it is filed."
+    fi
     echo ""
     return 2
   fi
@@ -1211,13 +1288,8 @@ EOF
   # as "the mutation was caught" while proving nothing at all.
   retro_state="none"
   waived="[]"
-  retro_q='
-      [ .hotfix_retros[]? | select(type == "object") | select(.id == $id) ] as $r
-    | if ($r | length) == 0 then "none"
-      elif ($r[0].closed_at == null) then "open"
-      else "filed" end'
   if printf '%s\n' "$gates_req" | jq -e 'index("retro_review") != null' >/dev/null 2>&1; then
-    retro_state="$(printf '%s\n' "$doc" | jq -r --arg id "$id" "$retro_q" 2>/dev/null)" || retro_state="none"   # DELTA-CLOSE-RETRO-BIND
+    retro_state="$(printf '%s\n' "$doc" | jq -r --arg id "$id" "$DELTA_RETRO_ROW_STATE_JQ" 2>/dev/null)" || retro_state="none"   # DELTA-CLOSE-RETRO-BIND
     case "$retro_state" in
       open|filed) waived='["retro_review"]' ;;
       *) waived="[]" ;;
@@ -1239,7 +1311,16 @@ EOF
     echo ""
     print_fail "$id is not finished yet."
     print_info "Still to do: $outstanding"
-    print_info "Mark one done with: scripts/delta.sh --complete-gate <name>"
+    # The no-row branch gets its own exit named, because "--complete-gate <name>"
+    # is a refusal for this particular token and pointing at it was a circle.
+    case "$retro_state,$outstanding" in
+      none,*retro_review*)
+        _retro_dead_end_advice "$class"
+        print_info "Anything else on that list is marked done with: scripts/delta.sh --complete-gate <name>"
+        ;;
+      *)
+        print_info "Mark one done with: scripts/delta.sh --complete-gate <name>" ;;
+    esac
     echo ""
     return 7
   fi
@@ -1385,7 +1466,7 @@ EOF
 # delta, so filing it must work long after the delta closed, and while a
 # completely different delta is open.
 cmd_retro() {
-  local doc id state state_q now kind record_json filter
+  local doc id state now kind record_json filter known_class rc
 
   id="$RETRO_ID"
   command -v jq >/dev/null 2>&1 || { print_fail "jq is required to file a write-up."; return 1; }
@@ -1413,20 +1494,18 @@ cmd_retro() {
   # filed row — the operator is told their write-up is on the record and it is
   # not. That is m4.
   #
-  # The query lives in a variable so that verdict is a SINGLE, SELF-CONTAINED
-  # LINE; a marker on the tail of a multi-line substitution cannot be neutered
-  # by a one-line counterfactual without leaving a dangling continuation, and a
-  # mutant that dies of a syntax error proves nothing.
-  state_q='
-      [ .hotfix_retros[]? | select(type == "object") | select(.id == $id) ] as $r
-    | if ($r | length) == 0 then "NOROW"
-      elif ($r[0].closed_at == null) then "OPEN"
-      else "FILED" end'
-  state="$(printf '%s\n' "$doc" | jq -r --arg id "$id" "$state_q" 2>/dev/null)" || state="NOROW"   # DELTA-RETRO-STATE-GUARD
+  # The query is `$DELTA_RETRO_ROW_STATE_JQ`, defined once at the top of this
+  # file and shared with the close gate's waiver — see the comment there for why
+  # a second spelling is the hazard. Keeping it in a variable also makes this
+  # verdict a SINGLE, SELF-CONTAINED LINE: a marker on the tail of a multi-line
+  # substitution cannot be neutered by a one-line counterfactual without leaving
+  # a dangling continuation, and a mutant that dies of a syntax error proves
+  # nothing.
+  state="$(printf '%s\n' "$doc" | jq -r --arg id "$id" "$DELTA_RETRO_ROW_STATE_JQ" 2>/dev/null)" || state="none"   # DELTA-RETRO-STATE-GUARD
 
   case "$state" in
-    OPEN) : ;;
-    FILED)
+    open) : ;;
+    filed)
       echo ""
       print_fail "The write-up for $id is already filed."
       printf '%s\n' "$doc" | jq -r --arg id "$id" '
@@ -1435,11 +1514,17 @@ cmd_retro() {
       print_info "It is kept as it was written. If there is more to say, add it to that write-up rather than replacing what you decided at the time. Nothing was changed."
       echo ""
       return 12 ;;
-    NOROW)
+    none)
       echo ""
       print_fail "Nothing on the record owes a write-up under the name $id."
-      print_info "Write-ups are owed by hotfixes only. See what is outstanding with: scripts/delta.sh --status"
-      print_info "Nothing was filed."
+      # The class, when the record knows it, turns the generic advice into the
+      # specific one — see _retro_dead_end_advice.
+      known_class="$(printf '%s\n' "$doc" | jq -r --arg id "$id" '
+        [ (.active_delta // empty), (.closed[]? // empty) ]
+        | map(select(type == "object") | select(.id == $id) | .class)
+        | (.[0] // "")' 2>/dev/null)" || known_class=""
+      _retro_dead_end_advice "$known_class"
+      print_info "See what is outstanding with: scripts/delta.sh --status. Nothing was filed."
       echo ""
       return 11 ;;
     *)
@@ -1474,9 +1559,14 @@ cmd_retro() {
   else
     print_info "Recorded as your own summary — there is no file at \"$RECORD\", so the words you typed are what is on the record."
   fi
-  doc="$(_seam --delta-state-read)" || doc=""
-  if [ -n "$doc" ] && delta_any_open_retro "$doc"; then
-    _render_retros "$doc"
+  # rc 3 (the ledger cannot be read) must NOT print "releases are clear" — that
+  # is the fail-open sentence in its most reassuring possible costume. Capture
+  # the code rather than branching on truthiness.
+  rc=0; doc="$(_seam --delta-state-read-strict 2>/dev/null)" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    _render_retros
+  elif delta_any_open_retro "$doc"; then
+    _render_retros
   else
     print_info "Nothing else is outstanding — releases are clear."
   fi

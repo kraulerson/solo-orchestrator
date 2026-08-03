@@ -86,6 +86,26 @@ _set_current_phase_min() {
 # THE SURFACE, AND WHY IT IS THIS SMALL
 #   --delta-state-read              print the state document (§7.1), or the
 #                                   empty schema when there is none. rc 0.
+#                                   TOLERANT ON PURPOSE — a corrupt file warns
+#                                   on stderr and reads as empty, so one bad
+#                                   edit cannot kill the whole toolchain. That
+#                                   is right for every PER-DELTA operation and
+#                                   WRONG for exactly one question; see below.
+#   --delta-state-read-strict       the same document, but NEVER falling back:
+#                                   rc 0 with the document; rc 3 when the file
+#                                   exists and cannot be read as a state
+#                                   document; rc 4 when there is no file at all.
+#                                   Nothing on stdout in either failure case.
+#                                   FOR RELEASE-GATING READS (R-WP5-2). An
+#                                   adversarial review showed that with a hotfix
+#                                   retro owed, corrupting the state file makes
+#                                   the tolerant read answer with the empty
+#                                   schema at rc 0 and DELETING it is silent —
+#                                   so §9.2's "any open retro blocks the cut"
+#                                   never fires and `rm` is loan forgiveness in
+#                                   one keystroke. Illegibility of a due DATE is
+#                                   treated as overdue (WP5); illegibility of
+#                                   the LEDGER must not be treated as absolution.
 #   --delta-state-update <jq>       read -> apply the filter -> ATOMIC write
 #                                   under the APPEND rule. ONE guarded primitive
 #                                   rather than a verb per caller (activation /
@@ -178,6 +198,9 @@ _delta_seam_dispatch() {
     --delta-state-read)
       delta_state_read "."
       ;;
+    --delta-state-read-strict)
+      delta_state_read_strict "."
+      ;;
     --delta-state-update)
       if [ $# -lt 1 ] || [ -z "${1:-}" ]; then
         echo "process-checklist --delta-state-update: a jq filter argument is required." >&2
@@ -217,7 +240,7 @@ _delta_seam_dispatch() {
 # (a refused write, an unknown policy key) reaches `exit` as itself instead of
 # aborting the shell somewhere inside the module.
 case "${1:-}" in
-  --delta-state-read|--delta-state-update|--delta-state-ship|--delta-policy-init|--delta-policy-get|--delta-policy-notice)
+  --delta-state-read|--delta-state-read-strict|--delta-state-update|--delta-state-ship|--delta-policy-init|--delta-policy-get|--delta-policy-notice)
     if _delta_seam_dispatch "$@"; then exit 0; else exit $?; fi
     ;;
 esac

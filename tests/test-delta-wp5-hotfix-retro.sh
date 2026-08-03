@@ -286,19 +286,47 @@ ship_hotfix() {
   return 0
 }
 
-# age_retro <scripts-dir> <project-dir> <id> <days>
+# hand_edit <project-dir> <jq-filter>
+#   Rewrite `.claude/delta-state.json` DIRECTLY, bypassing the seam.
+#
+#   THIS IS A SIMULATION OF A HAND EDIT, AND IT HAS TO BE. Since R-WP5-1 the
+#   seam REFUSES to re-date, drop, wipe or forge a retro row (section G), so a
+#   fixture that needs a document in one of those states cannot ask the seam to
+#   produce one — that is the guard working. What these fixtures want is the
+#   resulting DOCUMENT, to prove what the readers do with it; the write path is
+#   not what they are testing. Every fixture that reaches for this is either
+#   simulating an operator with an editor or building the exact state the guard
+#   exists to make unreachable through the tool.
+hand_edit() {
+  local p="$1" filter="$2" tmp
+  tmp="$(mktemp)"
+  if jq "$filter" "$p/.claude/delta-state.json" > "$tmp" 2>/dev/null; then
+    mv "$tmp" "$p/.claude/delta-state.json"
+  else
+    rm -f "$tmp" 2>/dev/null || true
+    return 1
+  fi
+  return 0
+}
+
+# age_retro <project-dir> <id> <days>
 #   Shift one retro row BACK in time by <days>, moving `shipped_at` and `due_by`
 #   by the SAME amount. The interval between them — which is the product's own
 #   arithmetic and the thing under test — is preserved exactly; only the row's
-#   age changes. Through the seam, because the seam is the only writer (§7.1).
+#   age changes.
+#
+#   BY HAND EDIT, NOT THROUGH THE SEAM, and the reason is itself a property this
+#   suite asserts: RETRO-ATOM-FILE-IDENTITY now refuses exactly this rewrite
+#   through the tool (G's `re-date an open row` case). Backdating a ledger is
+#   something only an editor can do, so that is what the fixture uses.
 age_retro() {
-  local sd="$1" p="$2" id="$3" days="$4"
-  seam "$sd" "$p" --delta-state-update "
+  local p="$1" id="$2" days="$3"
+  hand_edit "$p" "
     .hotfix_retros = [ .hotfix_retros[]
       | if .id == \"$id\" then
             .shipped_at = ((.shipped_at | strptime(\"%Y-%m-%dT%H:%M:%SZ\") | mktime) - $days * 86400 | strftime(\"%Y-%m-%dT%H:%M:%SZ\"))
           | .due_by     = ((.due_by     | strptime(\"%Y-%m-%dT%H:%M:%SZ\") | mktime) - $days * 86400 | strftime(\"%Y-%m-%dT%H:%M:%SZ\"))
-        else . end ]" >/dev/null 2>&1
+        else . end ]"
   return 0
 }
 
@@ -564,7 +592,7 @@ rm -rf "$T"
 T=$(mktemp -d); P="$T/proj"; mk_proj "$P" 4
 open_hotfix "$REPO_ROOT/scripts" "$P" checkout
 complete_gates "$REPO_ROOT/scripts" "$P"
-seam "$REPO_ROOT/scripts" "$P" --delta-state-update '.hotfix_retros = []' >/dev/null 2>&1
+hand_edit "$P" '.hotfix_retros = []'
 before="$(_md5file "$P/.claude/delta-state.json")"
 out=$(delta_run "$REPO_ROOT/scripts" "$P" --close); rc=$?
 after="$(_md5file "$P/.claude/delta-state.json")"
@@ -711,7 +739,7 @@ _o1() {
   P="$T/$name"; mk_proj "$P" 4
   [ -n "$policy" ] && write_policy "$P" "$policy"
   ship_hotfix "$REPO_ROOT/scripts" "$P" checkout
-  age_retro "$REPO_ROOT/scripts" "$P" DELTA-001 "$age"
+  age_retro "$P" DELTA-001 "$age"
   doc="$(active_json "$P" -c '.')"
   rc=0; cad "$REPO_ROOT/scripts" delta_retro_overdue "$doc" DELTA-001 >/dev/null 2>&1 || rc=$?
   o1_detail="$o1_detail [$name=rc$rc]"
@@ -735,14 +763,14 @@ rm -rf "$T"
 # failing and not a mocked one. ASSERTED ON THE EXIT CODE, never on the text.
 T=$(mktemp -d); P="$T/proj"; mk_proj "$P" 4
 ship_hotfix "$REPO_ROOT/scripts" "$P" checkout
-seam "$REPO_ROOT/scripts" "$P" --delta-state-update '.hotfix_retros[0].due_by = "2026-13-45"' >/dev/null 2>&1
+hand_edit "$P" '.hotfix_retros[0].due_by = "2026-13-45"'
 stored="$(active_json "$P" -r '.hotfix_retros[0].due_by')"
 doc="$(active_json "$P" -c '.')"
 rc_one=0; cad "$REPO_ROOT/scripts" delta_retro_overdue "$doc" DELTA-001 >/dev/null 2>&1 || rc_one=$?
 rc_any=0; cad "$REPO_ROOT/scripts" delta_any_overdue_retro "$doc" >/dev/null 2>&1 || rc_any=$?
 state="$(cad "$REPO_ROOT/scripts" delta_retro_rows "$doc" 2>/dev/null | awk -F'\t' '{ if (NR == 1) s = $3 } END { print s }')"
 # And an ABSENT due_by is the same class of unreadable, not a free pass.
-seam "$REPO_ROOT/scripts" "$P" --delta-state-update 'del(.hotfix_retros[0].due_by)' >/dev/null 2>&1
+hand_edit "$P" 'del(.hotfix_retros[0].due_by)'
 doc2="$(active_json "$P" -c '.')"
 rc_absent=0; cad "$REPO_ROOT/scripts" delta_retro_overdue "$doc2" DELTA-001 >/dev/null 2>&1 || rc_absent=$?
 if [ "$stored" = "2026-13-45" ] && [ "$rc_one" -eq 0 ] && [ "$rc_any" -eq 0 ] \
@@ -776,7 +804,7 @@ ship_hotfix "$REPO_ROOT/scripts" "$Pc" checkout
 _o3 "one-open-current" 0 1 "$Pc"
 Po="$T/overdue"; mk_proj "$Po" 4
 ship_hotfix "$REPO_ROOT/scripts" "$Po" checkout
-age_retro "$REPO_ROOT/scripts" "$Po" DELTA-001 5
+age_retro "$Po" DELTA-001 5
 _o3 "one-open-overdue" 0 0 "$Po"
 delta_run "$REPO_ROOT/scripts" "$Po" --retro DELTA-001 --record "filed" >/dev/null 2>&1
 _o3 "all-filed" 1 1 "$Po"
@@ -832,7 +860,7 @@ T=$(mktemp -d); P="$T/proj"; mk_proj "$P" 4
 ship_hotfix "$REPO_ROOT/scripts" "$P" checkout
 out_none=$(delta_run "$REPO_ROOT/scripts" "$P" --status)
 v_none=n; printf '%s' "$out_none" | grep -qF 'DELTA-001' && v_none=y
-age_retro "$REPO_ROOT/scripts" "$P" DELTA-001 5
+age_retro "$P" DELTA-001 5
 out_over=$(delta_run "$REPO_ROOT/scripts" "$P" --status)
 v_over=n; printf '%s' "$out_over" | grep -qiE 'overdue|late' && v_over=y
 # With a NEW delta open the retro block must still render — the ledger outlives
@@ -843,11 +871,11 @@ out_busy=$(delta_run "$REPO_ROOT/scripts" "$P" --status)
 v_busy=n; printf '%s' "$out_busy" | grep -qF 'DELTA-001' && v_busy=y
 v_new=n;  printf '%s' "$out_busy" | grep -qF 'DELTA-002' && v_new=y
 # An unreadable date is named as unreadable, not rendered as a day count.
-seam "$REPO_ROOT/scripts" "$P" --delta-state-update '.hotfix_retros[0].due_by = "2026-13-45"' >/dev/null 2>&1
+hand_edit "$P" '.hotfix_retros[0].due_by = "2026-13-45"'
 out_bad=$(delta_run "$REPO_ROOT/scripts" "$P" --status)
 v_bad=n; printf '%s' "$out_bad" | grep -qiE 'cannot be read|OVERDUE' && v_bad=y
 # Filed: gone.
-seam "$REPO_ROOT/scripts" "$P" --delta-state-update '.hotfix_retros[0].due_by = "2026-08-06T00:00:00Z"' >/dev/null 2>&1
+hand_edit "$P" '.hotfix_retros[0].due_by = "2026-08-06T00:00:00Z"'
 delta_run "$REPO_ROOT/scripts" "$P" --retro DELTA-001 --record "filed" >/dev/null 2>&1
 out_filed=$(delta_run "$REPO_ROOT/scripts" "$P" --status)
 v_filed=n; printf '%s' "$out_filed" | grep -qF 'DELTA-001' && v_filed=y
@@ -940,9 +968,19 @@ rm -rf "$T"
 # exactly the right things: the delta closes, the audit tail grows, --status is
 # clean, and the debt has vanished. §5.2's "that is what makes the fast lane a
 # loan rather than a leak" is precisely what this mutant deletes.
+#
+# THE MUTANT FILES THE ROW *LAWFULLY*, AND IT HAS TO — WHICH IS THE POINT.
+# Since R-WP5-1 the seam refuses the crude spelling (`closed_at` set with
+# `record` left null dies on RETRO-ATOM-FILE-RECORD-OBJECT), so an earlier cut
+# of this mutant was killed by the guard instead of by S1 and proved nothing
+# about S1 at all — a mutant dying for the wrong reason. It now writes exactly
+# what `--retro` writes: a stamp and a record object, one row, seam-legal. That
+# is the residual the guard deliberately cannot close (a filing is a filing;
+# the state layer protects identity, not truthfulness), and it is exactly why
+# S1 has to exist as a behavioural assertion of its own.
 T=$(mktemp -d); MT="$T/mut"; mk_scripts_tree "$MT"
 _sed_inplace "$MT/scripts/delta.sh" \
-  '/# DELTA-CLOSE-ATOMIC-WRITE$/s@.*@  filter=".closed += [$row] | .active_delta = null | .hotfix_retros = [.hotfix_retros[] | .closed_at = \\"$now\\"]"@'
+  '/# DELTA-CLOSE-ATOMIC-WRITE$/s@.*@  filter=".closed += [$row] | .active_delta = null | .hotfix_retros = [.hotfix_retros[] | if .closed_at == null then (.closed_at = \\"$now\\" | .record = {\\"kind\\":\\"attested\\",\\"value\\":\\"closed with the delta\\"}) else . end]"@'
 rep="$(_mutation_report "$REPO_ROOT/scripts/delta.sh" "$MT/scripts/delta.sh" 'DELTA-CLOSE-ATOMIC-WRITE$')"
 sites="${rep%%|*}"; rest="${rep#*|}"; changed="${rest%%|*}"; nlines="${rest##*|}"
 _m2_fixture() {
@@ -959,15 +997,16 @@ pri_any=0; cad "$REPO_ROOT/scripts" delta_any_open_retro "$pri_doc" >/dev/null 2
 Pm="$T/mutant"; _m2_fixture "$MT/scripts" "$Pm"
 delta_run "$MT/scripts" "$Pm" --close >/dev/null 2>&1; mut_rc=$?
 mut_open="$(active_json "$Pm" -r '.hotfix_retros[0].closed_at == null')"
-mut_record="$(active_json "$Pm" -r '.hotfix_retros[0].record')"
+mut_record="$(active_json "$Pm" -r '.hotfix_retros[0].record.value')"
 mut_doc="$(active_json "$Pm" -c '.')"
 mut_any=0; cad "$MT/scripts" delta_any_open_retro "$mut_doc" >/dev/null 2>&1 || mut_any=$?
 if [ "$sites" = "1" ] && [ "$changed" = y ] && [ "$nlines" -eq 2 ] \
    && [ "$pri_rc" -eq 0 ] && [ "$pri_open" = "true" ] && [ "$pri_any" -eq 0 ] \
-   && [ "$mut_rc" -eq 0 ] && [ "$mut_open" = "false" ] && [ "$mut_record" = "null" ] && [ "$mut_any" -eq 1 ]; then
-  pass "m2: with the close ALSO closing the retro, the hotfix closes exactly as cleanly (rc $mut_rc) and the debt is GONE — the ledger row is marked filed with a record of $mut_record, and the predicate WP7's release refusal will call reports nothing owed (rc $mut_any) where the pristine tree reports one (rc $pri_any). S1 goes RED. This is the loan forgiven the instant it was taken out, with every surface still saying the right thing (marker sites=$sites, one line changed=$nlines/2)"
+   && [ "$mut_rc" -eq 0 ] && [ "$mut_open" = "false" ] \
+   && [ "$mut_record" = "closed with the delta" ] && [ "$mut_any" -eq 1 ]; then
+  pass "m2: with the close ALSO closing the retro, the hotfix closes exactly as cleanly (rc $mut_rc) and the debt is GONE — the ledger row is marked filed, by the close itself, with a write-up nobody wrote ("$mut_record"), and the predicate WP7's release refusal will call reports nothing owed (rc $mut_any) where the pristine tree reports one (rc $pri_any). S1 goes RED. This is the loan forgiven the instant it was taken out, with every surface still saying the right thing (marker sites=$sites, one line changed=$nlines/2)"
 else
-  fail_ "m2" "marker sites=$sites (expect 1); mutation applied=$changed (expect y); diff lines=$nlines (expect 2); PRISTINE rc=$pri_rc (expect 0) retro still open=$pri_open (expect true) any-open rc=$pri_any (expect 0); MUTANT rc=$mut_rc (expect 0) retro still open=$mut_open (expect false — the mutant closed it) record=$mut_record (expect null — filed with no substance) any-open rc=$mut_any (expect 1 = nothing owed)"
+  fail_ "m2" "marker sites=$sites (expect 1); mutation applied=$changed (expect y); diff lines=$nlines (expect 2); PRISTINE rc=$pri_rc (expect 0) retro still open=$pri_open (expect true) any-open rc=$pri_any (expect 0); MUTANT rc=$mut_rc (expect 0) retro still open=$mut_open (expect false — the mutant closed it) record.value=$mut_record (expect 'closed with the delta' — the write-up the close invented) any-open rc=$mut_any (expect 1 = nothing owed)"
 fi
 rm -rf "$T"
 
@@ -982,7 +1021,7 @@ rep="$(_mutation_report "$REPO_ROOT/scripts/lib/delta-cadence.sh" "$MT/scripts/l
 sites="${rep%%|*}"; rest="${rep#*|}"; changed="${rest%%|*}"; nlines="${rest##*|}"
 P="$T/proj"; mk_proj "$P" 4
 ship_hotfix "$REPO_ROOT/scripts" "$P" checkout
-seam "$REPO_ROOT/scripts" "$P" --delta-state-update '.hotfix_retros[0].due_by = "2026-13-45"' >/dev/null 2>&1
+hand_edit "$P" '.hotfix_retros[0].due_by = "2026-13-45"'
 doc="$(active_json "$P" -c '.')"
 pri_rc=0; cad "$REPO_ROOT/scripts" delta_retro_overdue "$doc" DELTA-001 >/dev/null 2>&1 || pri_rc=$?
 pri_any=0; cad "$REPO_ROOT/scripts" delta_any_overdue_retro "$doc" >/dev/null 2>&1 || pri_any=$?
@@ -1005,7 +1044,7 @@ rm -rf "$T"
 # told their second write-up is on the record and it is not. That is the worse
 # of the two failure modes and it is the one a rc-only assertion would miss.
 T=$(mktemp -d); MT="$T/mut"; mk_scripts_tree "$MT"
-_sed_inplace "$MT/scripts/delta.sh" '/# DELTA-RETRO-STATE-GUARD$/s@.*@  state="OPEN"@'
+_sed_inplace "$MT/scripts/delta.sh" '/# DELTA-RETRO-STATE-GUARD$/s@.*@  state="open"@'
 rep="$(_mutation_report "$REPO_ROOT/scripts/delta.sh" "$MT/scripts/delta.sh" 'DELTA-RETRO-STATE-GUARD$')"
 sites="${rep%%|*}"; rest="${rep#*|}"; changed="${rest%%|*}"; nlines="${rest##*|}"
 _m4_fixture() {
@@ -1031,8 +1070,16 @@ fi
 rm -rf "$T"
 
 # ── m5: hardcode the retro window  [L2 RED] ────────────────────────────────
+# THE NEUTER ASSIGNS THE PRODUCT'S OWN VARIABLE (`retro_days`), not a lookalike.
+# An earlier cut wrote `days=3` — a variable nothing reads — and reddened L2 only
+# INDIRECTLY: `retro_days` was then empty, the numeric `case` fell through to its
+# fallback, and that fallback PRINTS a notice. The mutant exhibited the right
+# defect class by luck and its pass-narrative claimed a silence the mutated path
+# did not have. With `retro_days=3` the case matches a numeric, nothing is
+# printed, and the mutant is exactly the defect it claims: a project's retune
+# ignored with no error and no warning.
 T=$(mktemp -d); MT="$T/mut"; mk_scripts_tree "$MT"
-_sed_inplace "$MT/scripts/delta.sh" '/# DELTA-OPEN-RETRO-DUE-DAYS$/s@.*@    days=3@'
+_sed_inplace "$MT/scripts/delta.sh" '/# DELTA-OPEN-RETRO-DUE-DAYS$/s@.*@    retro_days=3@'
 rep="$(_mutation_report "$REPO_ROOT/scripts/delta.sh" "$MT/scripts/delta.sh" 'DELTA-OPEN-RETRO-DUE-DAYS$')"
 sites="${rep%%|*}"; rest="${rep#*|}"; changed="${rest%%|*}"; nlines="${rest##*|}"
 POL='{"schemaVersion":1,"classes":{"hotfix":{"gates":["ledger_row","audit_row_at_open","retro_review","changelog"],"retro_due_days":9}}}'
@@ -1040,14 +1087,19 @@ Pp="$T/pristine"; mk_proj "$Pp" 4; write_policy "$Pp" "$POL"
 open_hotfix "$REPO_ROOT/scripts" "$Pp" checkout
 pri_days="$(interval_days "$Pp" 0)"
 Pm="$T/mutant"; mk_proj "$Pm" 4; write_policy "$Pm" "$POL"
-open_hotfix "$MT/scripts" "$Pm" checkout
+mut_out=$(delta_run "$MT/scripts" "$Pm" --open --describe "checkout is down in production right now" --class hotfix --slug checkout --confirm)
 mut_days="$(interval_days "$Pm" 0)"
 mut_policy="$(jq -r '.classes.hotfix.retro_due_days' "$Pm/.claude/delta-policy.json" 2>/dev/null)"
+# THE SILENCE IS MEASURED, NOT ASSERTED. The narrative's whole point is that the
+# operator gets no signal, so the mutant's own transcript is searched for one.
+mut_silent=y
+printf '%s' "$mut_out" | grep -qiE 'not a whole number|standard 3|could not|warn' && mut_silent=n
 if [ "$sites" = "1" ] && [ "$changed" = y ] && [ "$nlines" -eq 2 ] \
-   && [ "$pri_days" = "9" ] && [ "$mut_days" = "3" ] && [ "$mut_policy" = "9" ]; then
-  pass "m5: with the policy read replaced by a literal, a project whose own file says $mut_policy days gets a $mut_days-day window anyway, where the pristine tree honours it ($pri_days). L2 goes RED — and the failure is silent: no error, no warning, just a deadline the project did not choose (marker sites=$sites, one line changed=$nlines/2)"
+   && [ "$pri_days" = "9" ] && [ "$mut_days" = "3" ] && [ "$mut_policy" = "9" ] \
+   && [ "$mut_silent" = y ]; then
+  pass "m5: with the policy read replaced by a literal, a project whose own file says $mut_policy days gets a $mut_days-day window anyway, where the pristine tree honours it ($pri_days). L2 goes RED — and the failure is SILENT, measured rather than asserted: the mutant's own open transcript carries no notice, warning or fallback message (silent=$mut_silent), just a deadline the project did not choose (marker sites=$sites, one line changed=$nlines/2)"
 else
-  fail_ "m5" "marker sites=$sites (expect 1); mutation applied=$changed (expect y); diff lines=$nlines (expect 2); PRISTINE interval=$pri_days (expect 9); MUTANT interval=$mut_days (expect 3) while the mutant's own policy file says $mut_policy (expect 9)"
+  fail_ "m5" "marker sites=$sites (expect 1); mutation applied=$changed (expect y); diff lines=$nlines (expect 2); PRISTINE interval=$pri_days (expect 9); MUTANT interval=$mut_days (expect 3) while the mutant's own policy file says $mut_policy (expect 9); mutant transcript free of any notice=$mut_silent (expect y — if n the neuter is reaching the defect through a fallback that TELLS the operator, which is not the defect claimed):\n$mut_out"
 fi
 rm -rf "$T"
 
@@ -1064,7 +1116,7 @@ _m6_fixture() {
   mk_proj "$P" 4
   open_hotfix "$sd" "$P" checkout
   complete_gates "$sd" "$P"
-  seam "$sd" "$P" --delta-state-update '.hotfix_retros = []' >/dev/null 2>&1
+  hand_edit "$P" '.hotfix_retros = []'
 }
 Pp="$T/pristine"; _m6_fixture "$REPO_ROOT/scripts" "$Pp"
 delta_run "$REPO_ROOT/scripts" "$Pp" --close >/dev/null 2>&1; pri_rc=$?
@@ -1083,6 +1135,443 @@ else
   fail_ "m6" "marker sites=$sites (expect 1); mutation applied=$changed (expect y); diff lines=$nlines (expect 2); PRISTINE rc=$pri_rc (expect 7) closed=$pri_closed (expect 0); MUTANT rc=$mut_rc (expect 0) closed=$mut_closed (expect 1) ledger rows=$mut_ledger (expect 0) any-open rc=$mut_any (expect 1)"
 fi
 rm -rf "$T"
+
+# ════════════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== G — the retro ledger's guard at the seam (R-WP5-1) ==="
+# ════════════════════════════════════════════════════════════════════════════
+#
+# EVERY LEGITIMATE COMMAND PATH ALREADY PRESERVED THE RETRO. An adversarial
+# review found the paths that are NOT commands: a crafted --delta-state-update
+# wiped the ledger, forged a `closed_at`, pushed a `due_by` to 2999, swapped an
+# id, and turned rows into the string "paid" — all at rc 0, all silent, and all
+# reading downstream as "nothing owed". `closed` had drop/rewrite protection;
+# the COLLATERAL that §9.2's release refusal is built on had none.
+#
+# _mk_guard_proj builds the ledger every case below attacks: DELTA-001 open,
+# DELTA-002 open, DELTA-003 filed. Two open rows are needed so "file two at
+# once" is constructible; a filed row so un-file and re-file are.
+_mk_guard_proj() {
+  local p="$1"
+  mk_proj "$p" 4
+  ship_hotfix "$REPO_ROOT/scripts" "$p" checkout   # DELTA-001, open
+  ship_hotfix "$REPO_ROOT/scripts" "$p" payments   # DELTA-002, open
+  ship_hotfix "$REPO_ROOT/scripts" "$p" search     # DELTA-003
+  delta_run "$REPO_ROOT/scripts" "$p" --retro DELTA-003 --record "already written up" >/dev/null 2>&1
+}
+
+# _guard_probe <scripts-dir> <project> <filter> — run one crafted seam write and
+# classify the outcome as REFUSED / ACCEPTED / MIXED. REFUSED requires the file
+# to be BYTE-IDENTICAL afterwards, so a "refusal" that half-wrote is not one.
+_guard_probe() {
+  local sd="$1" p="$2" f="$3" before after rc moved
+  before="$(_md5file "$p/.claude/delta-state.json")"
+  seam "$sd" "$p" --delta-state-update "$f" >/dev/null 2>&1; rc=$?
+  after="$(_md5file "$p/.claude/delta-state.json")"
+  moved=n; [ "$before" = "$after" ] || moved=y
+  if [ "$rc" -eq 0 ] && [ "$moved" = y ]; then printf 'ACCEPTED'
+  elif [ "$rc" -ne 0 ] && [ "$moved" = n ]; then printf 'REFUSED'
+  else printf 'MIXED(rc=%s,moved=%s)' "$rc" "$moved"; fi
+}
+
+# A well-formed row literal, parameterised, so the append cases differ from a
+# legal append by exactly the one thing each is testing.
+GOOD_ROW='{"id":"DELTA-009","shipped_at":"2026-08-01T00:00:00Z","due_by":"2026-08-04T00:00:00Z","closed_at":null,"record":null}'
+STAMP='"2026-08-03T12:00:00Z"'
+REC='{"kind":"attested","value":"forged"}'
+
+T=$(mktemp -d)
+g_ok=y; g_detail=""
+_g() {
+  local name="$1" filter="$2" P got
+  P="$T/$name"; _mk_guard_proj "$P"
+  got="$(_guard_probe "$REPO_ROOT/scripts" "$P" "$filter")"
+  [ "$got" = "REFUSED" ] || { g_ok=n; g_detail="$g_detail [$name=$got]"; }
+}
+_g wipe              '.hotfix_retros = []'
+_g drop-one          '.hotfix_retros = [.hotfix_retros[0], .hotfix_retros[1]]'
+_g reorder           '.hotfix_retros = [.hotfix_retros[1], .hotfix_retros[0], .hotfix_retros[2]]'
+_g id-swap           '.hotfix_retros[0].id = "DELTA-999"'
+_g push-due-by       '.hotfix_retros[0].due_by = "2999-01-01T00:00:00Z"'
+_g rewrite-shipped   '.hotfix_retros[0].shipped_at = "2020-01-01T00:00:00Z"'
+_g forge-closed-only ".hotfix_retros[0].closed_at = $STAMP"
+_g un-file           '.hotfix_retros[2].closed_at = null'
+_g re-file           ".hotfix_retros[2].closed_at = $STAMP | .hotfix_retros[2].record = $REC"
+_g file-and-re-date  ".hotfix_retros[0].closed_at = $STAMP | .hotfix_retros[0].record = $REC | .hotfix_retros[0].due_by = \"2999-01-01T00:00:00Z\""
+_g file-empty-stamp  ".hotfix_retros[0].closed_at = \"\" | .hotfix_retros[0].record = $REC"
+_g file-number-stamp ".hotfix_retros[0].closed_at = 12345 | .hotfix_retros[0].record = $REC"
+_g file-two-at-once  ".hotfix_retros[0].closed_at = $STAMP | .hotfix_retros[0].record = $REC | .hotfix_retros[1].closed_at = $STAMP | .hotfix_retros[1].record = $REC"
+_g string-rows       '.hotfix_retros = ["paid"]'
+_g append-string     '.hotfix_retros += ["paid"]'
+_g append-extra-key  ".hotfix_retros += [$GOOD_ROW + {\"note\":\"x\"}]"
+_g append-missing-key ".hotfix_retros += [$GOOD_ROW | del(.due_by)]"
+_g append-number-id  ".hotfix_retros += [$GOOD_ROW | .id = 123]"
+_g append-empty-id   ".hotfix_retros += [$GOOD_ROW | .id = \"\"]"
+_g append-number-due ".hotfix_retros += [$GOOD_ROW | .due_by = 12345]"
+_g append-duplicate  ".hotfix_retros += [$GOOD_ROW | .id = \"DELTA-001\"]"
+_g append-pre-filed  ".hotfix_retros += [$GOOD_ROW | .closed_at = $STAMP | .record = $REC]"
+if [ "$g_ok" = y ]; then
+  pass "G1: every crafted seam write against the retro ledger is REFUSED with the file byte-identical — the wipe, a drop, a reorder, an id swap, a re-dating, a forged closed_at with no write-up, an un-file, a re-file, a file-while-moving-the-deadline, an empty or numeric stamp, filing two at once, string rows, and seven malformed appends. 22 attacks, 22 refusals"
+else
+  fail_ "G1" "every case must be REFUSED (rc non-zero AND the file byte-identical); got:$g_detail"
+fi
+rm -rf "$T"
+
+# ── G2: the guard is not "refuse everything" ───────────────────────────────
+# THE POSITIVE CONTROL, and it is the load-bearing half. Without it every atom
+# above would be satisfied by a predicate that returned false unconditionally,
+# and the product would be broken in a way this whole section could not see.
+T=$(mktemp -d); P="$T/proj"; _mk_guard_proj "$P"
+g2_ok=y; g2_detail=""
+_g2() {
+  local name="$1" got="$2"
+  g2_detail="$g2_detail [$name=$got]"
+  [ "$got" = "ACCEPTED" ] || g2_ok=n
+}
+_g2 legal-append "$(_guard_probe "$REPO_ROOT/scripts" "$P" ".hotfix_retros += [$GOOD_ROW]")"
+_g2 legal-file   "$(_guard_probe "$REPO_ROOT/scripts" "$P" ".hotfix_retros[0].closed_at = $STAMP | .hotfix_retros[0].record = $REC")"
+_g2 unrelated    "$(_guard_probe "$REPO_ROOT/scripts" "$P" '.cadence.last_routine_review = "2026-08-03"')"
+# And through the real commands, end to end, on a fresh project.
+Q="$T/cmds"; mk_proj "$Q" 4
+open_hotfix "$REPO_ROOT/scripts" "$Q" checkout; rc_open=$?
+complete_gates "$REPO_ROOT/scripts" "$Q"
+delta_run "$REPO_ROOT/scripts" "$Q" --close >/dev/null 2>&1; rc_close=$?
+delta_run "$REPO_ROOT/scripts" "$Q" --retro DELTA-001 --record "written up" >/dev/null 2>&1; rc_file=$?
+n_rows="$(active_json "$Q" -r '.hotfix_retros | length')"
+filed="$(active_json "$Q" -r '.hotfix_retros[0].closed_at != null')"
+if [ "$g2_ok" = y ] && [ "$rc_open" -eq 0 ] && [ "$rc_close" -eq 0 ] && [ "$rc_file" -eq 0 ] \
+   && [ "$n_rows" = "1" ] && [ "$filed" = "true" ]; then
+  pass "G2: the guard permits exactly the two legitimate mutations —$g2_detail — and every real command path still works end to end: open (rc $rc_open) books the row, close (rc $rc_close) leaves it, --retro (rc $rc_file) files it ($n_rows row, filed=$filed). Without this row the whole of G1 would be satisfied by a predicate that refused everything"
+else
+  fail_ "G2" "seam probes:$g2_detail (all expect ACCEPTED); open rc=$rc_open close rc=$rc_close retro rc=$rc_file (all expect 0); rows=$n_rows (expect 1); filed=$filed (expect true)"
+fi
+rm -rf "$T"
+
+# ── G3: a hand-mangled ledger does not lock the single writer out ──────────
+# The tolerance doctrine, inherited from the append rule and WIDENED here for a
+# reason the append rule does not have: retro ROW shape is not in the shared
+# read predicate (putting it there would make one bad row read as an empty
+# ledger — total loan forgiveness from a single typo), so a hand edit can leave
+# `["paid"]` on disk. Without the row-level tolerance the row-by-row comparison
+# would then ERROR on every subsequent write, forever, and D7's single writer
+# would be locked out of the only file it owns.
+T=$(mktemp -d); P="$T/proj"; _mk_guard_proj "$P"
+hand_edit "$P" '.hotfix_retros = ["paid"]'
+repair="$(_guard_probe "$REPO_ROOT/scripts" "$P" ".hotfix_retros = [$GOOD_ROW]")"
+after_repair="$(active_json "$P" -c '[.hotfix_retros[].id]')"
+# ...and the repair still has to BE a repair: a write that leaves it malformed
+# is refused even under tolerance.
+Q="$T/still"; _mk_guard_proj "$Q"
+hand_edit "$Q" '.hotfix_retros = ["paid"]'
+still_bad="$(_guard_probe "$REPO_ROOT/scripts" "$Q" '.hotfix_retros = ["paid","also-paid"]')"
+if [ "$repair" = "ACCEPTED" ] && [ "$after_repair" = '["DELTA-009"]' ] && [ "$still_bad" = "REFUSED" ]; then
+  pass "G3: a hand-mangled ledger is tolerated as a PREDECESSOR — the next seam write may repair it ($repair, ledger now $after_repair) — but the candidate still has to be well-formed, so a write that leaves it broken is refused ($still_bad). One bad hand edit cannot lock the single writer out, and cannot be laundered either"
+else
+  fail_ "G3" "repair write=$repair (expect ACCEPTED); ledger after=$after_repair (expect [\"DELTA-009\"]); still-malformed write=$still_bad (expect REFUSED)"
+fi
+rm -rf "$T"
+
+# ════════════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== F — an unreadable ledger is never 'nothing owed' (R-WP5-2) ==="
+# ════════════════════════════════════════════════════════════════════════════
+#
+# BL-213's FAIL-OPEN CLASS, ONE LEVEL UP FROM THE DATES. WP5 refused it for a
+# due_by and left it standing for the whole ledger: with a retro owed,
+# corrupting `.claude/delta-state.json` made the tolerant read answer with the
+# empty schema at rc 0 (warning on stderr only), and DELETING the file was
+# completely silent — so `delta_any_open_retro` said "nothing owed" through
+# exactly the calling shape this lib's header documents for WP7, and §9.2's
+# refusal would never have fired. `rm` was loan forgiveness in one keystroke.
+#
+# THE CONTRACT CHOSEN, and it is documented in delta-cadence.sh's header:
+#   the seam grows `--delta-state-read-strict`  -> rc 0 doc · rc 3 unreadable
+#                                                 · rc 4 absent, nothing on stdout
+#   the four predicates answer rc 3 UNDETERMINED on a document they cannot read,
+#   a code deliberately distinct from 1 ("none owed") and 2 ("no such retro").
+
+# ── F1: the strict read tells the three states apart ───────────────────────
+T=$(mktemp -d)
+f1_ok=y; f1_detail=""
+_f1() {
+  local name="$1" want="$2" P="$3" out rc
+  rc=0; out="$(seam "$REPO_ROOT/scripts" "$P" --delta-state-read-strict 2>/dev/null)" || rc=$?
+  f1_detail="$f1_detail [$name=rc$rc/$( [ -n "$out" ] && echo doc || echo empty)]"
+  [ "$rc" -eq "$want" ] || f1_ok=n
+  # Nothing on stdout in either failure case — a caller that ignored the code
+  # must not be handed a document that does not exist.
+  if [ "$want" -ne 0 ] && [ -n "$out" ]; then f1_ok=n; f1_detail="$f1_detail(PRINTED)"; fi
+  if [ "$want" -eq 0 ] && [ -z "$out" ]; then f1_ok=n; f1_detail="$f1_detail(NO DOC)"; fi
+}
+Ph="$T/healthy"; mk_proj "$Ph" 4; ship_hotfix "$REPO_ROOT/scripts" "$Ph" checkout
+_f1 healthy 0 "$Ph"
+Pc="$T/corrupt"; mk_proj "$Pc" 4; ship_hotfix "$REPO_ROOT/scripts" "$Pc" checkout
+printf '{"schemaVersion": 1, "hotfix_' > "$Pc/.claude/delta-state.json"
+_f1 corrupt 3 "$Pc"
+Pw="$T/wrong-shape"; mk_proj "$Pw" 4; ship_hotfix "$REPO_ROOT/scripts" "$Pw" checkout
+printf '[]\n' > "$Pw/.claude/delta-state.json"
+_f1 wrong-shape 3 "$Pw"
+Pa="$T/absent"; mk_proj "$Pa" 4; ship_hotfix "$REPO_ROOT/scripts" "$Pa" checkout
+rm -f "$Pa/.claude/delta-state.json"
+_f1 absent 4 "$Pa"
+Pe="$T/empty-ledger"; mk_proj "$Pe" 4
+delta_run "$REPO_ROOT/scripts" "$Pe" --open --describe "the CSV export crashes on unicode" --confirm >/dev/null 2>&1
+_f1 empty-ledger 0 "$Pe"
+if [ "$f1_ok" = y ]; then
+  pass "F1: --delta-state-read-strict tells the three states apart —$f1_detail — 0 with a document, 3 when the file is there and unreadable, 4 when it is gone, and NOTHING on stdout in either failure. An empty ledger stays rc 0: 'nothing owed' is a real answer, 'I cannot read it' is not"
+else
+  fail_ "F1" "expected rc 0 / 3 / 3 / 4 / 0 with a document only on the rc-0 rows; got:$f1_detail"
+fi
+rm -rf "$T"
+
+# ── F2: the predicates answer UNDETERMINED, not "none" ─────────────────────
+# The backstop for a caller that acquired the document some other way. A
+# contract that only holds when everyone uses the right front door is a
+# convention, not a property.
+T=$(mktemp -d); P="$T/proj"; mk_proj "$P" 4
+ship_hotfix "$REPO_ROOT/scripts" "$P" checkout
+healthy_doc="$(active_json "$P" -c '.')"
+f2_ok=y; f2_detail=""
+_f2() {
+  local name="$1" doc="$2" want_open="$3" want_over="$4" want_one="$5" want_rows="$6" ro rv r1 rr
+  ro=0; cad "$REPO_ROOT/scripts" delta_any_open_retro "$doc" >/dev/null 2>&1 || ro=$?
+  rv=0; cad "$REPO_ROOT/scripts" delta_any_overdue_retro "$doc" >/dev/null 2>&1 || rv=$?
+  r1=0; cad "$REPO_ROOT/scripts" delta_retro_overdue "$doc" DELTA-001 >/dev/null 2>&1 || r1=$?
+  rr=0; cad "$REPO_ROOT/scripts" delta_retro_rows "$doc" >/dev/null 2>&1 || rr=$?
+  f2_detail="$f2_detail [$name open=$ro overdue=$rv one=$r1 rows=$rr]"
+  [ "$ro" -eq "$want_open" ] || f2_ok=n
+  [ "$rv" -eq "$want_over" ] || f2_ok=n
+  [ "$r1" -eq "$want_one" ]  || f2_ok=n
+  [ "$rr" -eq "$want_rows" ] || f2_ok=n
+}
+_f2 healthy       "$healthy_doc"                      0 1 1 0
+_f2 empty-string  ""                                  3 3 3 3
+_f2 truncated     '{"schemaVersion": 1, "hotfix_'     3 3 3 3
+_f2 not-an-object '[]'                                3 3 3 3
+_f2 no-ledger-key '{"schemaVersion":1,"closed":[]}'   3 3 3 3
+_f2 empty-ledger  '{"schemaVersion":1,"active_delta":null,"hotfix_retros":[],"cadence":{},"closed":[]}' 1 1 2 0
+if [ "$f2_ok" = y ]; then
+  pass "F2: a document the predicates cannot read answers rc 3 UNDETERMINED on all four —$f2_detail — never 1 ('none owed') and never 2 ('no such retro'). The genuinely empty ledger keeps answering 1/1/2/0, so the fail-closed code costs a healthy project nothing"
+else
+  fail_ "F2" "expected healthy 0/1/1/0, every unreadable shape 3/3/3/3, empty ledger 1/1/2/0; got:$f2_detail"
+fi
+rm -rf "$T"
+
+# ── F3: the operator surface fails closed too ──────────────────────────────
+# The half of the repair the operator can see. `--status` on a corrupt record
+# must not print a clean bill of health over a file nobody could parse.
+T=$(mktemp -d); P="$T/proj"; mk_proj "$P" 4
+ship_hotfix "$REPO_ROOT/scripts" "$P" checkout
+out_ok=$(delta_run "$REPO_ROOT/scripts" "$P" --status)
+shows=n; printf '%s' "$out_ok" | grep -qF 'DELTA-001' && shows=y
+printf '{"schemaVersion": 1, "hotfix_' > "$P/.claude/delta-state.json"
+out_bad=$(delta_run "$REPO_ROOT/scripts" "$P" --status)
+warns=n; printf '%s' "$out_bad" | grep -qi 'cannot be read' && warns=y
+# THE LIE-DETECTOR IS THE PRODUCT'S OWN ALL-CLEAR SENTENCE, VERBATIM, and it is
+# spelled that precisely on purpose: a looser pattern ("nothing.*outstanding")
+# matched the fail-closed WARNING itself, so the first cut of this row failed
+# because the repair announced itself in words the detector read as the defect.
+lies=n;  printf '%s' "$out_bad" | grep -qi 'releases are clear' && lies=y
+if [ "$shows" = y ] && [ "$warns" = y ] && [ "$lies" = n ]; then
+  pass "F3: --status names the outstanding write-up on a healthy record ($shows) and, on a record it cannot parse, says so and refuses to imply anything (warned=$warns, claimed-clear=$lies) — the operator-facing half of the same fail-closed repair"
+else
+  fail_ "F3" "healthy status names the retro=$shows (expect y); corrupt status warns=$warns (expect y); corrupt status claims clear=$lies (expect n); output:\n$out_bad"
+fi
+rm -rf "$T"
+
+# ════════════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== D — the no-row refusals name an exit that works (R-WP5-3) ==="
+# ════════════════════════════════════════════════════════════════════════════
+#
+# §4.3: a refusal "must say exactly what to do next". An adversarial review
+# found this path saying three things in a circle, in the lane built for 3am:
+# --close pointed at --complete-gate, which refused and pointed at --retro,
+# which refused with "nothing owes a write-up". Every command named refuses.
+# There are exactly two ways to be here and they have different exits.
+
+# ── D1: the lost-row branch (a hotfix) ─────────────────────────────────────
+T=$(mktemp -d); P="$T/proj"; mk_proj "$P" 4
+open_hotfix "$REPO_ROOT/scripts" "$P" checkout
+complete_gates "$REPO_ROOT/scripts" "$P"
+hand_edit "$P" '.hotfix_retros = []'
+out_close=$(delta_run "$REPO_ROOT/scripts" "$P" --close); rc_close=$?
+out_gate=$(delta_run "$REPO_ROOT/scripts" "$P" --complete-gate retro_review); rc_gate=$?
+out_retro=$(delta_run "$REPO_ROOT/scripts" "$P" --retro DELTA-001 --record "x"); rc_retro=$?
+# Each refusal must name the RESTORE path, and none of the three may send the
+# operator to another command that refuses.
+d1_ok=y; d1_detail=""
+for pair in "close:$out_close" "gate:$out_gate" "retro:$out_retro"; do
+  nm="${pair%%:*}"; body="${pair#*:}"
+  says=n; printf '%s' "$body" | grep -qF 'git checkout -- .claude/delta-state.json' && says=y
+  d1_detail="$d1_detail [$nm restore=$says]"
+  [ "$says" = y ] || d1_ok=n
+done
+circle=n; printf '%s' "$out_gate" | grep -qF -- '--retro' && circle=y
+if [ "$rc_close" -eq 7 ] && [ "$rc_gate" -eq 2 ] && [ "$rc_retro" -eq 11 ] \
+   && [ "$d1_ok" = y ] && [ "$circle" = n ]; then
+  pass "D1: with the row lost, all three refusals (close rc $rc_close, --complete-gate rc $rc_gate, --retro rc $rc_retro) name the ONE thing that actually works —$d1_detail — and --complete-gate no longer points at --retro, which would refuse (circle=$circle). The dead end has an exit named"
+else
+  fail_ "D1" "close rc=$rc_close (expect 7); gate rc=$rc_gate (expect 2); retro rc=$rc_retro (expect 11); each names the restore path:$d1_detail (all expect y); --complete-gate still points at --retro=$circle (expect n); close output:\n$out_close"
+fi
+rm -rf "$T"
+
+# ── D2: the misconfigured-policy branch, reachable with NO hand edit ───────
+# A project that puts `retro_review` on a non-hotfix class gets a permanently
+# uncloseable delta — only a hotfix ever books a row, so the waiver can never
+# arm. The old transcript gave no hint the policy was the cause.
+T=$(mktemp -d); P="$T/proj"; mk_proj "$P" 4
+write_policy "$P" '{"schemaVersion":1,"classes":{"fix":{"gates":["ledger_row","retro_review","changelog"]}}}'
+delta_run "$REPO_ROOT/scripts" "$P" --open --describe "the CSV export crashes on unicode" --confirm >/dev/null 2>&1
+klass="$(active_json "$P" -r '.active_delta.class')"
+complete_gates "$REPO_ROOT/scripts" "$P"
+out=$(delta_run "$REPO_ROOT/scripts" "$P" --close); rc=$?
+names_policy=n; printf '%s' "$out" | grep -qF 'delta-policy.json' && names_policy=y
+names_class=n;  printf '%s' "$out" | grep -qF "classes.fix.gates" && names_class=y
+n_closed="$(active_json "$P" -r '.closed | length')"
+if [ "$rc" -eq 7 ] && [ "$klass" = "fix" ] && [ "$names_policy" = y ] && [ "$names_class" = y ] \
+   && [ "$n_closed" = "0" ]; then
+  pass "D2: a $klass whose policy demands retro_review is refused (rc $rc) and the refusal NAMES the misconfiguration — the file ($names_policy) and the exact key, classes.fix.gates ($names_class). Reachable with no hand edit at all, and previously a silent dead end"
+else
+  fail_ "D2" "rc=$rc (expect 7); class=$klass (expect fix); refusal names delta-policy.json=$names_policy and classes.fix.gates=$names_class (both expect y); closed length=$n_closed (expect 0); output:\n$out"
+fi
+rm -rf "$T"
+
+# ════════════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== A — the atom sweep: every guard atom, neutered, with its killing case ==="
+# ════════════════════════════════════════════════════════════════════════════
+#
+# WP2's discipline, applied to the atoms this WP adds. An atom with no refusal
+# case behind it is a DELETABLE atom that looks like a guard — WP2 found three
+# of those in its own first cut, all three survived the whole PR-blocking check
+# set. So every atom below is neutered in a fresh mutant tree and its killing
+# case is executed against both trees: the pristine must give one answer and the
+# mutant the other. Anchored end-of-line marker, sites==1, exactly one line
+# changed, mode preserved.
+#
+# NO `PREFIX-IDS` ATOM APPEARS HERE because it was not shipped: every prefix
+# change it could catch falls to RETRO-ATOM-FILE-IDENTITY / RETRO-ATOM-NO-BAD
+# first, so no candidate exists that only it refuses. That analysis is recorded
+# at the predicate in scripts/lib/delta-state.sh rather than being papered over
+# with an atom nothing can pin.
+a_ok=y; a_detail=""; a_count=0
+
+# _atom <file-rel> <marker> <neuter-replacement> <probe-fn> <want-pristine> <want-mutant> <label>
+#   The probe is called as `<probe-fn> <scripts-dir> <workdir>` and echoes one
+#   token. Fixtures inside a probe are always built with the PRISTINE tree, so
+#   the mutation is isolated to the operation under test.
+_atom() {
+  local rel="$1" marker="$2" neuter="$3" probe="$4" wp="$5" wm="$6" label="$7"
+  local T MT rep sites rest changed nlines pri mut
+  a_count=$((a_count + 1))
+  T=$(mktemp -d); MT="$T/mut"; mk_scripts_tree "$MT"
+  _sed_inplace "$MT/scripts/$rel" "/# ${marker}\$/s@.*@${neuter}@"
+  rep="$(_mutation_report "$REPO_ROOT/scripts/$rel" "$MT/scripts/$rel" "${marker}\$")"
+  sites="${rep%%|*}"; rest="${rep#*|}"; changed="${rest%%|*}"; nlines="${rest##*|}"
+  pri="$("$probe" "$REPO_ROOT/scripts" "$T/pri")"
+  mut="$("$probe" "$MT/scripts" "$T/mut-work")"
+  if [ "$sites" = "1" ] && [ "$changed" = y ] && [ "$nlines" -eq 2 ] \
+     && [ "$pri" = "$wp" ] && [ "$mut" = "$wm" ]; then
+    a_detail="$a_detail [$label OK]"
+  else
+    a_ok=n
+    a_detail="$a_detail [$label BAD sites=$sites changed=$changed lines=$nlines pri=$pri(want $wp) mut=$mut(want $wm)]"
+  fi
+  rm -rf "$T"
+}
+
+# The seam-guard probes: build the three-row ledger, run one crafted write.
+_ap_wipe()          { mkdir -p "$2"; _mk_guard_proj "$2/p"; _guard_probe "$1" "$2/p" '.hotfix_retros = []'; }
+_ap_append_string() { mkdir -p "$2"; _mk_guard_proj "$2/p"; _guard_probe "$1" "$2/p" '.hotfix_retros += ["paid"]'; }
+_ap_extra_key()     { mkdir -p "$2"; _mk_guard_proj "$2/p"; _guard_probe "$1" "$2/p" ".hotfix_retros += [$GOOD_ROW + {\"note\":\"x\"}]"; }
+_ap_number_id()     { mkdir -p "$2"; _mk_guard_proj "$2/p"; _guard_probe "$1" "$2/p" ".hotfix_retros += [$GOOD_ROW | .id = 123]"; }
+_ap_number_due()    { mkdir -p "$2"; _mk_guard_proj "$2/p"; _guard_probe "$1" "$2/p" ".hotfix_retros += [$GOOD_ROW | .due_by = 12345]"; }
+_ap_duplicate()     { mkdir -p "$2"; _mk_guard_proj "$2/p"; _guard_probe "$1" "$2/p" ".hotfix_retros += [$GOOD_ROW | .id = \"DELTA-001\"]"; }
+_ap_file_re_date()  { mkdir -p "$2"; _mk_guard_proj "$2/p"; _guard_probe "$1" "$2/p" ".hotfix_retros[0].closed_at = $STAMP | .hotfix_retros[0].record = $REC | .hotfix_retros[0].due_by = \"2999-01-01T00:00:00Z\""; }
+_ap_re_file()       { mkdir -p "$2"; _mk_guard_proj "$2/p"; _guard_probe "$1" "$2/p" ".hotfix_retros[2].closed_at = $STAMP | .hotfix_retros[2].record = $REC"; }
+_ap_number_stamp()  { mkdir -p "$2"; _mk_guard_proj "$2/p"; _guard_probe "$1" "$2/p" ".hotfix_retros[0].closed_at = 12345 | .hotfix_retros[0].record = $REC"; }
+_ap_empty_stamp()   { mkdir -p "$2"; _mk_guard_proj "$2/p"; _guard_probe "$1" "$2/p" ".hotfix_retros[0].closed_at = \"\" | .hotfix_retros[0].record = $REC"; }
+_ap_no_record()     { mkdir -p "$2"; _mk_guard_proj "$2/p"; _guard_probe "$1" "$2/p" ".hotfix_retros[0].closed_at = $STAMP"; }
+_ap_file_two()      { mkdir -p "$2"; _mk_guard_proj "$2/p"; _guard_probe "$1" "$2/p" ".hotfix_retros[0].closed_at = $STAMP | .hotfix_retros[0].record = $REC | .hotfix_retros[1].closed_at = $STAMP | .hotfix_retros[1].record = $REC"; }
+_ap_append_filed()  { mkdir -p "$2"; _mk_guard_proj "$2/p"; _guard_probe "$1" "$2/p" ".hotfix_retros += [$GOOD_ROW | .closed_at = $STAMP | .record = $REC]"; }
+# Tolerance probes: the PREVIOUS file is broken and the write REPAIRS it.
+_ap_tol_rows() {
+  mkdir -p "$2"; _mk_guard_proj "$2/p"
+  hand_edit "$2/p" '.hotfix_retros = ["paid"]'
+  _guard_probe "$1" "$2/p" ".hotfix_retros = [$GOOD_ROW]"
+}
+_ap_tol_shape() {
+  mkdir -p "$2"; _mk_guard_proj "$2/p"
+  hand_edit "$2/p" '.schemaVersion = "banana"'
+  _guard_probe "$1" "$2/p" '.schemaVersion = 1 | .hotfix_retros = []'
+}
+# Strict-read probes.
+_ap_strict_absent() {
+  mkdir -p "$2"; mk_proj "$2/p" 4; ship_hotfix "$REPO_ROOT/scripts" "$2/p" checkout
+  rm -f "$2/p/.claude/delta-state.json"
+  local rc=0; seam "$1" "$2/p" --delta-state-read-strict >/dev/null 2>&1 || rc=$?
+  printf 'rc%s' "$rc"
+}
+_ap_strict_unreadable() {
+  mkdir -p "$2"; mk_proj "$2/p" 4; ship_hotfix "$REPO_ROOT/scripts" "$2/p" checkout
+  printf '{"schemaVersion": 1, "hotfix_' > "$2/p/.claude/delta-state.json"
+  local rc=0; seam "$1" "$2/p" --delta-state-read-strict >/dev/null 2>&1 || rc=$?
+  printf 'rc%s' "$rc"
+}
+# Cadence UNDETERMINED probes — a corrupt DOCUMENT handed straight to a predicate.
+_ap_cad() {
+  local sd="$1" fn="$3" rc=0
+  cad "$sd" "$fn" '{"schemaVersion":1,"closed":[]}' >/dev/null 2>&1 || rc=$?
+  printf 'rc%s' "$rc"
+}
+_ap_cad_rows()       { _ap_cad "$1" "$2" delta_retro_rows; }
+_ap_cad_one()        { _ap_cad "$1" "$2" delta_retro_overdue; }
+_ap_cad_anyopen()    { _ap_cad "$1" "$2" delta_any_open_retro; }
+_ap_cad_anyoverdue() { _ap_cad "$1" "$2" delta_any_overdue_retro; }
+
+# ── the row-shape atoms ────────────────────────────────────────────────────
+_atom lib/delta-state.sh RETRO-ATOM-ROW-OBJECT  '    and (true)' _ap_append_string REFUSED ACCEPTED row-object
+_atom lib/delta-state.sh RETRO-ATOM-ROW-KEYS    '    and (true)' _ap_extra_key     REFUSED ACCEPTED row-keys
+_atom lib/delta-state.sh RETRO-ATOM-ROW-ID      '    and (true)' _ap_number_id     REFUSED ACCEPTED row-id
+_atom lib/delta-state.sh RETRO-ATOM-ROW-DATES   '    and (true)' _ap_number_due    REFUSED ACCEPTED row-dates
+_atom lib/delta-state.sh RETRO-ATOM-ID-UNIQUE   '    and (true)' _ap_duplicate     REFUSED ACCEPTED id-unique
+# ── the transition atoms ───────────────────────────────────────────────────
+_atom lib/delta-state.sh RETRO-ATOM-FILE-IDENTITY        '                and (true)' _ap_file_re_date  REFUSED ACCEPTED file-identity
+_atom lib/delta-state.sh RETRO-ATOM-FILE-WRITE-ONCE      '                and (true)' _ap_re_file       REFUSED ACCEPTED write-once
+_atom lib/delta-state.sh RETRO-ATOM-FILE-STAMP-TYPE      '                and (true)' _ap_number_stamp  REFUSED ACCEPTED stamp-type
+_atom lib/delta-state.sh RETRO-ATOM-FILE-STAMP-NONEMPTY  '                and (true)' _ap_empty_stamp   REFUSED ACCEPTED stamp-nonempty
+_atom lib/delta-state.sh RETRO-ATOM-FILE-RECORD-OBJECT   '                and (true)' _ap_no_record     REFUSED ACCEPTED record-object
+_atom lib/delta-state.sh RETRO-ATOM-NO-BAD               '      and (true)' _ap_wipe          REFUSED ACCEPTED no-bad
+_atom lib/delta-state.sh RETRO-ATOM-AT-MOST-ONE-FILED    '      and (true)' _ap_file_two      REFUSED ACCEPTED at-most-one-filed
+_atom lib/delta-state.sh RETRO-ATOM-APPEND-OPEN          '      and (true)' _ap_append_filed  REFUSED ACCEPTED append-open
+# ── the two tolerance atoms (INVERTED: the pristine ACCEPTS, the mutant locks
+#    the single writer out of the only file it owns) ─────────────────────────
+_atom lib/delta-state.sh DELTA-STATE-RETROS-TOLERANT-ROWS '  :' _ap_tol_rows  ACCEPTED REFUSED tolerant-rows
+_atom lib/delta-state.sh DELTA-STATE-RETROS-TOLERANT      '  :' _ap_tol_shape ACCEPTED REFUSED tolerant-shape
+# ── the strict read's two codes ────────────────────────────────────────────
+_atom lib/delta-state.sh DELTA-STATE-STRICT-ABSENT     '    return 0' _ap_strict_absent     rc4 rc0 strict-absent
+_atom lib/delta-state.sh DELTA-STATE-STRICT-UNREADABLE '    return 0' _ap_strict_unreadable rc3 rc0 strict-unreadable
+# ── the four UNDETERMINED atoms ────────────────────────────────────────────
+_atom lib/delta-cadence.sh DELTA-CADENCE-LEDGER-UNDETERMINED-ROWS        '  :' _ap_cad_rows       rc3 rc0 undetermined-rows
+_atom lib/delta-cadence.sh DELTA-CADENCE-LEDGER-UNDETERMINED-ONE         '  :' _ap_cad_one        rc3 rc2 undetermined-one
+_atom lib/delta-cadence.sh DELTA-CADENCE-LEDGER-UNDETERMINED-ANYOPEN     '  :' _ap_cad_anyopen    rc3 rc1 undetermined-anyopen
+_atom lib/delta-cadence.sh DELTA-CADENCE-LEDGER-UNDETERMINED-ANYOVERDUE  '  :' _ap_cad_anyoverdue rc3 rc1 undetermined-anyoverdue
+# ── the date atom WP5 already shipped, swept here with the rest ────────────
+_ap_unparseable() {
+  mkdir -p "$2"; mk_proj "$2/p" 4; ship_hotfix "$REPO_ROOT/scripts" "$2/p" checkout
+  hand_edit "$2/p" '.hotfix_retros[0].due_by = "2026-13-45"'
+  local rc=0
+  cad "$1" delta_retro_overdue "$(active_json "$2/p" -c '.')" DELTA-001 >/dev/null 2>&1 || rc=$?
+  printf 'rc%s' "$rc"
+}
+_atom lib/delta-cadence.sh DELTA-CADENCE-UNPARSEABLE '      state=current; days=999' _ap_unparseable rc0 rc1 date-unparseable
+
+if [ "$a_ok" = y ]; then
+  pass "A1: the atom sweep — $a_count atoms, each neutered alone at an anchored single-site marker (sites==1, exactly one line changed, mode preserved) with its killing case executed against BOTH trees:$a_detail. Every atom moves the answer when it is removed, so none of them is a line that merely looks like a guard"
+else
+  fail_ "A1" "$a_count atoms swept; each must resolve to exactly one marker line and flip its killing case:$a_detail"
+fi
 
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"

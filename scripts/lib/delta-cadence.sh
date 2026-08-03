@@ -25,20 +25,43 @@
 # Names the delta, its `due_by`, and how overdue it is." That sentence names
 # exactly three things, so this file exposes exactly three shapes: a whole-
 # ledger yes/no for the refusal itself, a per-row verdict for a targeted
-# question, and a renderable row list for the message. `cut-release.sh` calls
-# them like this and needs nothing else from here:
+# question, and a renderable row list for the message.
 #
-#     doc="$(bash scripts/process-checklist.sh --delta-state-read)"
+# ★ THE CALLING SHAPE — USE THE STRICT READ, NOT THE TOLERANT ONE (R-WP5-2):
+#
+#     doc="$(bash scripts/process-checklist.sh --delta-state-read-strict)"; rc=$?
+#     case "$rc" in
+#       0) : ;;                        # a real ledger; ask it the questions below
+#       3) refuse "the delta record exists and cannot be read — repair it before
+#                  cutting a release" ;;
+#       4) refuse "there is no delta record at all" ;;   # see the note below
+#     esac
 #     if delta_any_open_retro "$doc"; then
 #       delta_retro_rows "$doc" | while IFS= read -r r; do … done   # the message
 #       exit 1                                                       # the refusal
 #     fi
 #
+# WHY `--delta-state-read-strict` AND NOT `--delta-state-read`. The tolerant
+# read answers a corrupt file with the EMPTY SCHEMA at rc 0 (warning on stderr
+# only) and an ABSENT file with the empty schema in complete silence. An
+# adversarial review walked that straight through the shape this header used to
+# document: with a retro owed, corrupting the state file — or `rm`-ing it —
+# made `delta_any_open_retro` answer "nothing owed", so §9.2's refusal never
+# fired. That is BL-213's fail-open class one level up from the dates this file
+# already refuses it for. Illegibility of a due DATE is treated as overdue;
+# illegibility of the LEDGER must not be treated as absolution.
+#
+# ON rc 4 (no state file at all): a project that has never opened a delta has
+# nothing to release either — §9.1 already refuses a cut with "nothing closed
+# since the last tag" — so treating 4 as a refusal costs a real project nothing
+# and closes the one-keystroke erasure. It is a SEPARATE code from 3 so the
+# caller can say which one happened; do not collapse them.
+#
 # EVERY FUNCTION TAKES THE STATE DOCUMENT, NOT A PROJECT ROOT, and that is the
 # design rather than an inconvenience. `.claude/delta-state.json` has ONE reader
 # and ONE writer (§7.1/D7) — scripts/lib/delta-state.sh, reached through the
 # seam. A cadence lib that opened the file itself would be a second reader, and
-# the single-reader property is what makes the shape fallback in
+# the single-reader property is what makes the fallback contract in
 # delta_state_read a guarantee for every consumer instead of a local courtesy.
 # So callers read once, through the seam, and pass the document down.
 #
@@ -52,22 +75,36 @@
 #         0  OVERDUE — due_by is in the past, OR could not be read at all
 #         1  open and not yet due
 #         2  there is no OPEN retro with that id (filed, or no such row)
+#         3  UNDETERMINED — that document is not a readable ledger
 #     delta_any_open_retro <doc>
-#         0  at least one row has closed_at == null      1  none
+#         0  at least one row has closed_at == null   1  none   3 UNDETERMINED
 #     delta_any_overdue_retro <doc>
-#         0  at least one OPEN row is overdue or unreadable    1  none
+#         0  at least one OPEN row is overdue or unreadable
+#         1  none                                     3 UNDETERMINED
 #     delta_retro_rows <doc>
-#         one TSV row per OPEN retro, always rc 0:
+#         one TSV row per OPEN retro, rc 0:
 #             id <TAB> due_by <TAB> state <TAB> days
 #         state ∈ current | overdue | undetermined
 #         days  = whole days OVERDUE for `overdue`, whole days REMAINING for
 #                 `current`, and the literal `-` for `undetermined` (there is no
 #                 number to give, and inventing one is how a placeholder becomes
 #                 a fact three surfaces downstream)
+#         rc 3 and NOTHING printed when the document is not a readable ledger
 #
-# THE PREDICATES RETURN 1 IN THE ORDINARY CASE, so a caller under `set -e` must
-# use them in an `if`, `||` or `!` context. A bare call would abort the script.
-# That is the shell's own convention for a predicate and is deliberate.
+# ★ rc 3 IS THE SECOND HALF OF THE FAIL-CLOSED REPAIR, and it is deliberately
+# NOT folded into 1 ("none owed") or 2 ("no such open retro"). A caller that
+# treated "I cannot read the ledger" as "nothing is owed" is the defect; a
+# caller that treats it as a refusal is correct. The strict read above is what
+# normally prevents a caller ever seeing it — this is the backstop for a caller
+# that acquired the document some other way (a `cat`, a pipeline, a future
+# surface), because a contract that only holds when everyone uses the right
+# front door is a convention, not a property.
+#
+# THE PREDICATES RETURN NON-ZERO IN THE ORDINARY CASE, so a caller under `set -e`
+# must use them in an `if`, `||` or `!` context — and one that cares about the
+# difference between "no" and "cannot tell" must capture `$?` rather than
+# branching on truthiness alone. That is the shell's own convention for a
+# predicate and is deliberate.
 #
 # ═════════════════════════════════════════════════════════════════════════════
 # FAIL-CLOSED ON AN UNREADABLE DATE — BL-213's CLASS, AND WHY IT IS HERE
@@ -208,6 +245,20 @@ delta_cadence_due_by() {
 # THE LEDGER LAYER — §7.1's `hotfix_retros[]`, read as obligations
 # ─────────────────────────────────────────────────────────────────────────────
 
+# _delta_cadence_readable <state-document>
+#   rc 0 iff the argument is a document this file can answer questions about: it
+#   parses as JSON AND carries a `hotfix_retros` ARRAY. Anything else — an empty
+#   string, a truncated file, a JSON array, a document with no ledger key — is
+#   UNDETERMINED, and every public function below turns that into rc 3 rather
+#   than into an answer.
+#
+#   THE EMPTY LEDGER IS NOT UNDETERMINED. `hotfix_retros: []` is a real, readable
+#   answer meaning "nothing owed"; only an unreadable DOCUMENT is undetermined.
+#   Conflating the two would make every healthy project's release refuse.
+_delta_cadence_readable() {
+  printf '%s\n' "${1:-}" | jq -e '(type == "object") and ((.hotfix_retros | type) == "array")' >/dev/null 2>&1
+}
+
 # _delta_cadence_open_rows <state-document>
 #   `id<TAB>due_by` for every OPEN row (closed_at == null), in ledger order.
 #   A row with no `due_by`, or a null one, yields an EMPTY second field on
@@ -234,6 +285,7 @@ _delta_cadence_open_rows() {
 #   which is the fail-OPEN answer wearing the fail-closed one's clothes.
 delta_retro_rows() {
   local doc="${1:-}" now line id due e delta days state
+  _delta_cadence_readable "$doc" || return 3                          # DELTA-CADENCE-LEDGER-UNDETERMINED-ROWS
   now="$(date -u +%s 2>/dev/null)" || now=""
   case "$now" in ''|*[!0-9]*) now=0 ;; esac
   while IFS= read -r line; do
@@ -271,6 +323,7 @@ EOF
 #   the caller is an abort, not a verdict.
 delta_retro_overdue() {
   local doc="${1:-}" id="${2:-}" row state
+  _delta_cadence_readable "$doc" || return 3                          # DELTA-CADENCE-LEDGER-UNDETERMINED-ONE
   [ -n "$id" ] || return 2
   row="$(delta_retro_rows "$doc" | awk -F'\t' -v want="$id" \
     '$1 == want { if (!found) { r = $0; found = 1 } } END { if (found) print r }')" || row=""
@@ -288,6 +341,7 @@ delta_retro_overdue() {
 #   overdue or not, because the collateral is the obligation itself.
 delta_any_open_retro() {
   local doc="${1:-}" n
+  _delta_cadence_readable "$doc" || return 3                          # DELTA-CADENCE-LEDGER-UNDETERMINED-ANYOPEN
   n="$(printf '%s\n' "$doc" | jq -r \
     '[.hotfix_retros[]? | select(type == "object") | select(.closed_at == null)] | length' 2>/dev/null)" || n=0
   case "$n" in ''|*[!0-9]*) n=0 ;; esac
@@ -300,6 +354,7 @@ delta_any_open_retro() {
 #   the release refusal, which uses the one above.
 delta_any_overdue_retro() {
   local doc="${1:-}" hit
+  _delta_cadence_readable "$doc" || return 3                          # DELTA-CADENCE-LEDGER-UNDETERMINED-ANYOVERDUE
   hit="$(delta_retro_rows "$doc" | awk -F'\t' \
     '$3 == "overdue" || $3 == "undetermined" { n = n + 1 } END { if (n > 0) print "y" }')" || hit=""
   [ -n "$hit" ]
