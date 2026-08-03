@@ -829,9 +829,19 @@ reconfigure() {
           # append-design contract in both approval-log templates is explicit:
           # "Append one row per post-launch change ... below" THAT header.
           # Route the row there — inserted after the section's last table
-          # line, which is still a pure INSERTION (no committed line is
-          # modified or deleted, so the CI approval-log integrity job is
-          # satisfied exactly as before).
+          # line. That is a pure INSERTION whenever the anchor is not the
+          # file's final unterminated line: no committed line is modified or
+          # deleted, so the CI approval-log integrity job stays satisfied.
+          #
+          # R-WALK-1: "pure" depends on preserving the file's own ending. A
+          # log committed WITHOUT a trailing newline (the last line carries
+          # git's "\ No newline at end of file") is rewritten by awk with a
+          # terminator, and git scores that as a MODIFICATION of a committed
+          # row — the integrity job reports tampering with a line nobody
+          # touched (numstat 2 1). So the original ending is restored below.
+          # The one case that cannot be pure is inherent to git's model, not
+          # to this code: if the anchor IS that final unterminated line, any
+          # append after it necessarily rewrites it.
           #
           # Cell count is read from the section's own header rather than
           # assumed: the personal template's table is 4 cells (Date | Gate /
@@ -865,6 +875,14 @@ reconfigure() {
           }
           # WALK-ISSUE-004-APPROVAL-HISTORY-ROUTING-END
 
+          # Does the committed file end WITHOUT a newline? Command
+          # substitution strips trailing newlines, so this is empty exactly
+          # when the last byte is one (or the file is empty).
+          ah_nonl=""
+          if [ -s "$APPROVAL_LOG" ] && [ -n "$(tail -c1 "$APPROVAL_LOG")" ]; then
+            ah_nonl=1
+          fi
+
           # Insert into the Approval History section if it exists,
           # otherwise append a new section.
           if grep -q "^## Approval History" "$APPROVAL_LOG"; then
@@ -874,7 +892,10 @@ reconfigure() {
             case "$ah_anchor" in ''|*[!0-9]*) ah_anchor=0 ;; esac
             if [ "$ah_cols" -eq 4 ]; then
               # Personal template: Date | Gate / Event | Decision | Notes.
-              # The tool moves into the event cell so nothing is lost.
+              # The tool folds into the event cell; the Actor cell has no
+              # column here, so "Orchestrator" is dropped — it is constant in
+              # every row this script writes, so no per-row information is
+              # lost, but the 6-cell row is NOT recoverable from the 4-cell one.
               audit_row="| $today_audit | $audit_event (reconfigure-project.sh) | Applied | $audit_details |"
             else
               audit_row="$audit_line"
@@ -883,18 +904,42 @@ reconfigure() {
               if ! AUDIT_ROW="$audit_row" AUDIT_AT="$ah_anchor" awk '
                      { print }
                      NR == ENVIRON["AUDIT_AT"] + 0 { print ENVIRON["AUDIT_ROW"] }
-                   ' "$APPROVAL_LOG" > "$APPROVAL_LOG.tmp" \
-                 || ! mv "$APPROVAL_LOG.tmp" "$APPROVAL_LOG"; then
+                   ' "$APPROVAL_LOG" > "$APPROVAL_LOG.tmp"; then
                 rm -f "$APPROVAL_LOG.tmp"
                 _classification_rollback "APPROVAL_LOG.md Approval History insert failed"
                 exit 1
               fi
-            elif ! printf '%s\n' "$audit_row" >> "$APPROVAL_LOG"; then
-              _classification_rollback "APPROVAL_LOG.md append failed"
-              exit 1
+              # Restore the original ending. awk terminates every record, so
+              # an originally-unterminated file gained exactly one trailing
+              # newline here — and that is the only one to strip.
+              if [ -n "$ah_nonl" ]; then
+                if ! printf '%s' "$(cat "$APPROVAL_LOG.tmp")" > "$APPROVAL_LOG.tmp2"; then
+                  rm -f "$APPROVAL_LOG.tmp" "$APPROVAL_LOG.tmp2"
+                  _classification_rollback "APPROVAL_LOG.md line-ending restore failed"
+                  exit 1
+                fi
+                mv "$APPROVAL_LOG.tmp2" "$APPROVAL_LOG.tmp"
+              fi
+              if ! mv "$APPROVAL_LOG.tmp" "$APPROVAL_LOG"; then
+                rm -f "$APPROVAL_LOG.tmp"
+                _classification_rollback "APPROVAL_LOG.md Approval History insert failed"
+                exit 1
+              fi
+            else
+              # No table line in the section at all — fall back to appending
+              # at EOF. Terminate an unterminated file first, or the row would
+              # be concatenated onto the last committed line.
+              if ! {
+                [ -n "$ah_nonl" ] && printf '\n'
+                printf '%s\n' "$audit_row"
+              } >> "$APPROVAL_LOG"; then
+                _classification_rollback "APPROVAL_LOG.md append failed"
+                exit 1
+              fi
             fi
           else
             if ! {
+              [ -n "$ah_nonl" ] && printf '\n'
               echo ""
               echo "---"
               echo ""

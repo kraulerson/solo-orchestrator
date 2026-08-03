@@ -293,6 +293,28 @@ else
   fi
 fi
 
+echo "=== ISSUE-015: a stale recovery backup self-heals on the next run ==="
+P="$TOPTMP/stalebak"
+if ! mk_phase3_clean "$P"; then
+  fail_ "T15-g" "fixture build failed"
+else
+  # R-WALK-3: a kill between the recovery init and the gate consult leaves the
+  # scratch backup behind forever — the undo never ran, and a later run that
+  # does NOT enter recovery has no variable pointing at it. Entry must clear it.
+  bump_to_4 "$P"
+  cp "$P/.claude/process-state.json" "$P/.claude/process-state.json.start4-recovery.bak"
+  ( cd "$P" && jq '.phase4_release = {"steps_completed":[],"started_at":"2026-08-02T00:00:00Z"}' \
+      .claude/process-state.json > ps.tmp && mv ps.tmp .claude/process-state.json )
+  rc=$(start4_rc "$P")
+  if [ "$rc" != "0" ]; then
+    fail_ "T15-g" "--start-phase4 failed on the post-crash fixture (rc=$rc)"
+  elif ls "$P/.claude/"*.bak >/dev/null 2>&1; then
+    fail_ "T15-g" "a stale recovery backup from an earlier killed run survives: $(ls "$P/.claude/"*.bak)"
+  else
+    pass "T15-g: a stale recovery backup left by a killed run is cleared at entry"
+  fi
+fi
+
 # ════════════════════════════════════════════════════════════════════════════
 # ISSUE-012 — build-loop steps against a null feature
 # ════════════════════════════════════════════════════════════════════════════
@@ -331,6 +353,23 @@ $out"
     fail_ "T12-b" "a real Build Loop can no longer record tests_written (rc=$rc)"
   else
     pass "T12-b: with a registered feature the step still completes"
+  fi
+
+  # R-WALK-2: a feature LITERALLY NAMED "null" is a legal name that
+  # --start-feature accepts, and it stores the JSON STRING "null" — which a
+  # shell-level `case ... in null)` cannot tell apart from JSON null. The
+  # guard must key on the jq TYPE, not on the rendered text, or it refuses a
+  # real registered loop.
+  ( cd "$P" && bash scripts/process-checklist.sh --reset-all >/dev/null 2>&1 )
+  ( cd "$P" && bash scripts/process-checklist.sh --start-feature "null" >/dev/null 2>&1 )
+  stored=$(jq -c '.build_loop.feature' "$P/.claude/process-state.json")
+  rc=$( ( cd "$P" && bash scripts/process-checklist.sh --complete-step build_loop:tests_written >/dev/null 2>&1 ); echo $? )
+  if [ "$stored" != '"null"' ]; then
+    fail_ "T12-c" "fixture did not register the literal feature name (stored: $stored)"
+  elif [ "$rc" != "0" ]; then
+    fail_ "T12-c" "a feature literally named \"null\" was refused (rc=$rc) — the guard cannot distinguish the STRING from JSON null"
+  else
+    pass "T12-c: a feature literally named \"null\" is a real loop and completes"
   fi
 fi
 
@@ -436,6 +475,38 @@ $sec"
     fail_ "T4-a" "append-only violated: $dels line(s) deleted/modified"
   else
     pass "T4-a: personal template — 4-cell row inside the section, pure insertion"
+  fi
+fi
+
+# R-WALK-1: a log committed WITHOUT a trailing newline. A rewrite that
+# terminates the previously-unterminated last line is a MODIFICATION of that
+# line in git's model, so the generated CI approval-log integrity job reads it
+# as tampering with a committed row ("-| **Report** | … |"). The insert must
+# preserve the file's original termination.
+P="$TOPTMP/reconf-nonl"
+if ! mk_reconf "$P" approval-log-personal.tmpl; then
+  fail_ "T4-c" "fixture build failed"
+else
+  # Strip the trailing newline and re-commit so the unterminated form is the
+  # COMMITTED state (that is what the integrity job diffs against).
+  printf '%s' "$(cat "$P/APPROVAL_LOG.md")" > "$P/APPROVAL_LOG.md.nonl" \
+    && mv "$P/APPROVAL_LOG.md.nonl" "$P/APPROVAL_LOG.md"
+  ( cd "$P" && git add APPROVAL_LOG.md && git commit -q -m "chore: unterminated log" ) >/dev/null 2>&1
+  last_before=$(tail -c1 "$P/APPROVAL_LOG.md")
+  ( cd "$P" && bash scripts/reconfigure-project.sh --field data_classification --new confidential >/dev/null 2>&1 )
+  sec=$(_history_section "$P/APPROVAL_LOG.md")
+  row=$(printf '%s\n' "$sec" | grep "data_classification set" || true)
+  dels=$( cd "$P" && git diff --numstat -- APPROVAL_LOG.md | awk '{print $2}' )
+  if [ -z "$row" ]; then
+    fail_ "T4-c" "no audit row inside ## Approval History; section was:
+$sec"
+  elif [ "${dels:-0}" != "0" ]; then
+    fail_ "T4-c" "append-only violated on a log with no trailing newline: $dels line(s) deleted/modified
+$( cd "$P" && git diff -- APPROVAL_LOG.md | grep '^-' | grep -v '^---' )"
+  elif [ "$(tail -c1 "$P/APPROVAL_LOG.md")" != "$last_before" ]; then
+    fail_ "T4-c" "the file's original (unterminated) ending was not preserved"
+  else
+    pass "T4-c: unterminated log — pure insertion, original ending preserved"
   fi
 fi
 

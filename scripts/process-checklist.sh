@@ -336,11 +336,14 @@ complete_step() {
   # of work on a NAMED feature; refuse rather than record an unattributable
   # one. The other processes carry their own identity (uat_session's
   # session_id) or are singletons per phase, so this arm is build_loop-only.
+  #
+  # R-WALK-2: the predicate is a jq TYPE test, deliberately. `--start-feature
+  # "null"` is a legal name and stores the JSON STRING "null"; a shell-level
+  # `case "$feature" in null)` renders both that string and JSON null as the
+  # same four characters and refused a genuinely registered loop.
   if [ "$process" = "build_loop" ]; then
-    local _bl_feature
-    _bl_feature=$(jq -r '.build_loop.feature // ""' "$PROCESS_STATE" 2>/dev/null) || _bl_feature=""
-    case "$_bl_feature" in null) _bl_feature="" ;; esac
-    if [ -z "$_bl_feature" ]; then
+    if ! jq -e '(.build_loop.feature | type) == "string" and (.build_loop.feature | length) > 0' \
+           "$PROCESS_STATE" >/dev/null 2>&1; then
       print_fail "No Build Loop is active — '$step_id' cannot be recorded against a null feature."
       echo "  .build_loop.feature is null: either --start-feature was never run, or it exited before registering (e.g. an overdue Context Health Check), or the loop was closed by build_loop:feature_recorded." >&2
       echo "  Start the loop first: scripts/process-checklist.sh --start-feature \"feature-name\"" >&2
@@ -916,6 +919,14 @@ start_phase3() {
 
 start_phase4() {
   ensure_state_file
+
+  # R-WALK-3: clear any recovery scratch file left by an EARLIER run that was
+  # killed between the recovery write and the gate consult (the undo below
+  # never got to run, and a later invocation that does not enter recovery has
+  # no variable pointing at it — it would sit in .claude/ forever). It is
+  # scratch, never a journal: nothing reads it across invocations, so an
+  # unconditional sweep at entry is the whole repair.
+  rm -f "$PROCESS_STATE.start4-recovery.bak" 2>/dev/null || true
 
   # Check POC mode — Phase 4 is blocked for POC projects
   if [ -f "$PHASE_STATE" ]; then
