@@ -17,10 +17,11 @@
 #
 # Every job here is a PAIR of steps: a GATING step that runs the lint and
 # fails the job, and an INVENTORY step that re-runs the SAME lint with
-# `--list` to print the per-file PASS/FAIL roster. There are TWELVE such
+# `--list` to print the per-file PASS/FAIL roster. There are THIRTEEN such
 # pairs — one per job; BL-197's diagnostic-destruction-lint was the tenth,
-# BL-196's bl-markers-lint the eleventh, and the delta track's D1
-# delta-boundary-lint the twelfth —
+# BL-196's bl-markers-lint the eleventh, the delta track's D1
+# delta-boundary-lint the twelfth, and brownfield WP0's
+# module-dependencies-lint the thirteenth —
 # and under `if: always()` the inventory step re-ran
 # the full scan on GREEN runs too, where nobody reads it. That doubled
 # every lint job. Measured on the counter-antipattern job (run 30297887996,
@@ -352,3 +353,36 @@ jobs:
       - name: Show PASS/FAIL inventory (on failure)
         if: failure()
         run: bash scripts/lint-delta-boundary.sh --list || true
+
+  # Brownfield adoption (WP0): the module-dependency lint for Scout and the
+  # adoption driver. Same severability argument as the job above and a
+  # deliberate SIBLING of it rather than a generalisation — a module stops
+  # being severable one convenience call at a time, and no test fails when it
+  # does. Two match tiers (literal manifest paths, then the path-shaped
+  # segment tokens `scout/`/`adopt/` that catch the variable-composition
+  # family), M5's scout-only zero-dependency arm, a core allowlist whose
+  # cardinality is asserted at exactly ZERO — the brownfield module declares no
+  # seam — and two vacuity floors that exit 2 rather than let a collapsed scan
+  # report a pass. See scripts/lint-module-dependencies.sh header,
+  # docs/module-contract.md, and
+  # docs/designs/2026-08-02-brownfield-adoption-v1.md §3.3 for the spec, and
+  # tests/test-lint-module-dependencies.sh for the behavior suite (incl. the
+  # cardinality, empty-manifest and arm-neutering mutations).
+  #
+  # NOT a required status check — adding this job does not make it one. Branch
+  # protection is Karl's call and is deliberately untouched here. Same
+  # job-name-is-required-check convention as the jobs above: if it IS promoted,
+  # keep the name stable.
+  module-dependencies-lint:
+    name: module-dependencies-lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
+
+      - name: Lint the core -> module dependency direction (M3) and M5
+        run: bash scripts/lint-module-dependencies.sh
+
+      - name: Show PASS/FAIL inventory (on failure)
+        if: failure()
+        run: bash scripts/lint-module-dependencies.sh --list || true
