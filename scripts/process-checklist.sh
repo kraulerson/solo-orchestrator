@@ -210,6 +210,35 @@ _subject_names_feature() {
   return 1
 }
 
+# WALK-ISSUE-010-PATHBIND: does the staged set intersect the paths the closed
+# loop was working on? $1 = the receipt's newline-separated paths, $2 = the
+# staged paths. Whole-path equality, never a substring: `src/find.ts` must not
+# be satisfied by `src/find.ts.bak`. Returns 0 (authorized) when either list is
+# EMPTY — the two documented fallbacks (a loop closed on a clean tree; a commit
+# with nothing staged, e.g. `git commit -a` before the index is written). Both
+# are stated on the caller and pinned by U27; a path git has to quote (embedded
+# newline) simply will not match, which fails toward blocking, never toward
+# granting.
+_closed_loop_touches_staged() {
+  local receipt_paths="$1" staged="$2" sp rp
+  [ -n "$receipt_paths" ] || return 0
+  [ -n "$staged" ] || return 0
+  while IFS= read -r sp; do
+    [ -n "$sp" ] || continue
+    while IFS= read -r rp; do
+      [ -n "$rp" ] || continue
+      if [ "$sp" = "$rp" ]; then
+        return 0
+      fi
+    done <<CLOSEDLOOPPATHS
+$receipt_paths
+CLOSEDLOOPPATHS
+  done <<STAGEDPATHS
+$staged
+STAGEDPATHS
+  return 1
+}
+
 # --- Helper: P4-001 monitoring verification evidence (walk ISSUE-017) ---
 # TRUE when HANDOFF.md records a real error -> alert -> arrived cycle, dated.
 # Two accepted shapes, in order:
@@ -283,7 +312,18 @@ require_build_loop_state_for_commit() {
     #   and re-blocking a split commit would rebuild the dead end this fixes.
     #   All five work steps must be present in the receipt (U22) — a partial
     #   record authorizes nothing.
-    local closed_feature="" closed_missing=""
+    #   SECOND HALF OF THE BINDING — THE LOOP'S OWN FILES (Karl, 2026-08-02).
+    #   The subject is operator-authored text: typing the closed feature's name
+    #   above unrelated work would otherwise let a stale receipt bless it. So
+    #   the receipt also records the paths the loop was working on when it
+    #   closed (# WALK-ISSUE-010-RECEIPT), and the staged set must intersect
+    #   them (_closed_loop_touches_staged, U25/U26). TWO DOCUMENTED FALLBACKS,
+    #   each pinned: a receipt with NO recorded paths (a loop closed on a clean
+    #   tree — the commit-FIRST ordering, U27) and a commit with NO staged
+    #   paths fall back to identity alone, because there is nothing to bind
+    #   against. Naming them is the honest alternative to pretending the bind
+    #   is total.
+    local closed_feature="" closed_missing="" closed_paths="" staged_paths=""
     closed_feature=$(jq -r '.build_loop.last_completed.feature // ""' "$PROCESS_STATE" 2>/dev/null) || closed_feature=""
     if [ -n "$closed_feature" ]; then
       for step in "${BUILD_LOOP_STEPS[@]:0:5}"; do
@@ -292,8 +332,27 @@ require_build_loop_state_for_commit() {
           break
         fi
       done
+      closed_paths=$(jq -r '(.build_loop.last_completed.paths // [])[]' "$PROCESS_STATE" 2>/dev/null) || closed_paths=""
+      staged_paths=$(git diff --cached --name-only 2>/dev/null) || staged_paths=""
       if [ -z "$closed_missing" ] && _subject_names_feature "$subject" "$closed_feature"; then
-        return 0
+        if _closed_loop_touches_staged "$closed_paths" "$staged_paths"; then
+          return 0
+        fi
+        print_fail "pre-commit gate: 'feat(...)' commit blocked — the subject names the closed Build Loop \"$closed_feature\", but NONE of that loop's files are staged."
+        echo "A closed loop authorizes the commits of the work it actually did." >&2
+        echo "" >&2
+        echo "  That loop's files:  $(printf '%s' "$closed_paths" | tr '\n' ' ')" >&2
+        echo "  Staged now:         $(printf '%s' "$staged_paths" | tr '\n' ' ')" >&2
+        echo "" >&2
+        echo "This looks like DIFFERENT work. Give it its own loop:" >&2
+        echo "  scripts/process-checklist.sh --start-feature \"NAME\"" >&2
+        echo "then complete steps 1-5 and re-run your commit. (If this really is the" >&2
+        echo "same feature — e.g. a rename or a file created after the loop closed —" >&2
+        echo "start a loop for it; the gate cannot tell those apart from new work.)" >&2
+        echo "" >&2
+        echo "This commit did NOT happen. Confirm what landed with: git log -1 --oneline" >&2
+        echo "(never pipe git commit through | tail — it hides this message)." >&2
+        return 1
       fi
     fi
     if [ -n "$closed_feature" ] && [ -z "$closed_missing" ]; then
@@ -952,10 +1011,13 @@ BL120EOF
       # WALK-ISSUE-017-HATCH: advertise the override WITH its precondition.
       # The walk's agent read this text as an available escape, spent time on
       # it, and only then learned the override refuses without a TTY. The
-      # policy (human-in-the-loop) is unchanged; the advertising is honest now.
-      echo "  To force-override (Orchestrator only, logged): run this YOURSELF in an" >&2
-      echo "  interactive terminal — the override refuses non-interactive/agent/CI" >&2
-      echo "  sessions, which have no way to bypass this check and must produce the artifact:" >&2
+      # override stays HUMAN-ONLY by decision (Karl, 2026-08-02) — this text
+      # exists so an agent ESCALATES instead of retrying a hatch that will
+      # always refuse it.
+      echo "  To force-override: HUMAN ONLY. The override requires an INTERACTIVE" >&2
+      echo "  terminal and refuses agent/CI/non-interactive sessions by design — if you" >&2
+      echo "  are an agent, do NOT retry it: either produce the artifact, or ESCALATE to" >&2
+      echo "  the human Orchestrator and have them run, in their own terminal:" >&2
       echo "  SOIF_FORCE_STEP=true scripts/process-checklist.sh --complete-step ${process}:${step_id}" >&2
       exit 1
     fi
@@ -990,13 +1052,27 @@ BL120EOF
     # The receipt is what # WALK-ISSUE-010-CLOSED-LOOP-BEGIN reads; it lives
     # INSIDE .build_loop so `--reset build_loop` and `--reset-all` clear it
     # with everything else, and it is overwritten by the next closed loop.
-    local bl_done_feature bl_done_steps bl_done_at
+    local bl_done_feature bl_done_steps bl_done_at bl_done_paths bl_done_paths_json
     bl_done_feature=$(jq -r '.build_loop.feature // ""' "$PROCESS_STATE")
     bl_done_steps=$(jq -c '.build_loop.steps_completed // []' "$PROCESS_STATE")
     bl_done_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    # The loop's OWN FILES — the half of the binding the operator does not
+    # author (see # WALK-ISSUE-010-PATHBIND). Everything uncommitted at the
+    # moment the loop closes IS the feature's work: staged, modified, and
+    # untracked-but-not-ignored. An empty result is legitimate and recorded as
+    # such (the commit-FIRST ordering closes on a clean tree), and the reader
+    # falls back to identity alone rather than blocking.
+    bl_done_paths=$( { git diff --cached --name-only; git diff --name-only; \
+                       git ls-files --others --exclude-standard; } 2>/dev/null \
+                     | sort -u ) || bl_done_paths=""
+    bl_done_paths_json=$(printf '%s' "$bl_done_paths" \
+      | jq -R -s 'split("\n") | map(select(length > 0))' 2>/dev/null) || bl_done_paths_json="[]"
+    [ -n "$bl_done_paths_json" ] || bl_done_paths_json="[]"
     jq --arg f "$bl_done_feature" --arg at "$bl_done_at" --argjson s "$bl_done_steps" \
+       --argjson p "$bl_done_paths_json" \
        '.build_loop = {"feature": null, "step": 0, "steps_completed": [], "started_at": null,
-                       "last_completed": {"feature": $f, "completed_at": $at, "steps_completed": $s}}' \
+                       "last_completed": {"feature": $f, "completed_at": $at, "steps_completed": $s,
+                                          "paths": $p}}' \
        "$PROCESS_STATE" > "$PROCESS_STATE.tmp" && mv "$PROCESS_STATE.tmp" "$PROCESS_STATE"
     print_ok "Build loop closed for \"$bl_done_feature\" — its own feat: commit is still authorized; the NEXT feature needs: scripts/process-checklist.sh --start-feature \"NAME\""
   fi

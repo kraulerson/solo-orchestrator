@@ -352,6 +352,100 @@ JSON
   teardown
 }
 
+# ── The receipt is bound to the CLOSED LOOP'S OWN FILES, not just its name ──
+# Karl's review emphasis (2026-08-02): a stale receipt must not bless an
+# unrelated commit. Naming the feature in the subject is operator-authored
+# text; the second, non-authored half of the binding is the WORK — the paths
+# the loop was actually working on when it closed. A `feat:` commit that names
+# the closed feature but stages none of its files is a different piece of work
+# and is blocked. Two documented fallbacks, both proven below: a receipt with
+# NO recorded paths (a loop closed with a clean tree — the commit-first
+# ordering) and a commit with NO staged paths fall back to identity alone,
+# because there is nothing to bind against.
+#
+# mk_git_fixture <feature> <loop-file> — a real repo whose loop closed with
+# <loop-file> TRACKED-AND-MODIFIED and <loop-file>.test.ts UNTRACKED, so the
+# receipt has to pick both dirty-work sources up, not just one.
+mk_git_fixture() {
+  local feature="$1" loop_file="$2"
+  mkdir -p "$TMPDIR_T/.claude"
+  ( cd "$TMPDIR_T" \
+      && git init -q \
+      && git config user.email "walk@test.invalid" \
+      && git config user.name "walk" \
+      && echo seed > seed.txt \
+      && printf 'export const x = 0;\n' > "$loop_file" \
+      && git add seed.txt "$loop_file" \
+      && git commit -q -m "chore: init" ) >/dev/null 2>&1 || return 1
+  printf 'export const x = 1;\n' > "$TMPDIR_T/$loop_file"
+  printf 'test("x", () => {});\n' > "$TMPDIR_T/${loop_file%.ts}.test.ts"
+  seed_phase 2
+  seed_ready_to_record "$feature"
+  local rc; rc=$(record_feature)
+  [ "$rc" = "0" ] || return 1
+  return 0
+}
+
+u25_receipt_binds_to_the_loops_files() {
+  setup
+  if ! mk_git_fixture "find-in-document" "find.ts"; then
+    fail_ "U25" "fixture setup failed"; teardown; return
+  fi
+  local recorded
+  recorded=$(jq -r '(.build_loop.last_completed.paths // []) | join(",")' "$TMPDIR_T/.claude/process-state.json")
+  [[ "$recorded" == *"find.ts"* ]] || { fail_ "U25" "the receipt did not record the loop's MODIFIED tracked file (got '$recorded') — there is nothing to bind a later commit to"; teardown; return; }
+  [[ "$recorded" == *"find.test.ts"* ]] || { fail_ "U25" "the receipt did not record the loop's UNTRACKED new file (got '$recorded') — a feature's brand-new files are its work too"; teardown; return; }
+  # (a) staging the loop's OWN file + naming the feature: allowed.
+  ( cd "$TMPDIR_T" && git add find.ts ) >/dev/null 2>&1
+  local out; out=$(run_check "feat(find-in-document): add the find bar")
+  [ "${out%%|*}" = "0" ] || { fail_ "U25" "the closed loop's OWN staged file was blocked: $out"; teardown; return; }
+  pass "U25: the closed-loop receipt records the loop's paths and authorizes a commit staging them"
+  teardown
+}
+
+u26_receipt_does_not_bless_unrelated_files() {
+  setup
+  if ! mk_git_fixture "find-in-document" "find.ts"; then
+    fail_ "U26" "fixture setup failed"; teardown; return
+  fi
+  # A LATER, unrelated piece of work — the subject still names the closed
+  # feature (an operator can type anything), but none of the loop's files are
+  # staged. That is a different feature's commit riding a stale receipt.
+  printf 'export const y = 2;\n' > "$TMPDIR_T/exporter.ts"
+  ( cd "$TMPDIR_T" && git add exporter.ts ) >/dev/null 2>&1
+  local out; out=$(run_check "feat(find-in-document): pdf exporter")
+  [ "${out%%|*}" = "1" ] || { fail_ "U26" "a commit staging NONE of the closed loop's files rode the receipt on subject text alone — a stale record must not bless unrelated work: $out"; teardown; return; }
+  [[ "${out#*|}" == *"exporter.ts"* || "${out#*|}" == *"none of the"* ]] || { fail_ "U26" "the block must explain that the staged files are not the closed loop's: $out"; teardown; return; }
+  pass "U26: a stale receipt cannot bless unrelated staged work — subject text alone is not the binding"
+  teardown
+}
+
+u27_no_recorded_paths_falls_back_to_identity() {
+  setup; seed_phase 2
+  mkdir -p "$TMPDIR_T/.claude"
+  # A loop closed on a CLEAN tree (the commit-first ordering): the receipt has
+  # no paths, so there is nothing to bind against and identity alone governs.
+  cat > "$TMPDIR_T/.claude/process-state.json" <<'JSON'
+{
+  "phase2_init": {"verified": true},
+  "build_loop": {
+    "feature": null, "step": 0, "steps_completed": [], "started_at": null,
+    "last_completed": {
+      "feature": "find-in-document",
+      "completed_at": "2026-08-02T00:00:00Z",
+      "steps_completed": ["tests_written","tests_verified_failing","implemented","security_audit","documentation_updated","feature_recorded"],
+      "paths": []
+    }
+  },
+  "uat_session": {"started_at": null, "steps_completed": []}
+}
+JSON
+  local out; out=$(run_check "feat(find-in-document): follow-up")
+  [ "${out%%|*}" = "0" ] || { fail_ "U27" "a receipt with no recorded paths must fall back to identity, not block: $out"; teardown; return; }
+  pass "U27: an empty path record falls back to the identity bound (documented fallback, not a silent hole)"
+  teardown
+}
+
 u24_status_names_the_closed_loop() {
   setup; seed_phase 2; seed_ready_to_record "find-in-document"
   local rc; rc=$(record_feature)
@@ -398,6 +492,9 @@ u21_closed_loop_token_match
 u22_closed_loop_needs_all_five_steps
 u23_block_message_names_the_verification
 u24_status_names_the_closed_loop
+u25_receipt_binds_to_the_loops_files
+u26_receipt_does_not_bless_unrelated_files
+u27_no_recorded_paths_falls_back_to_identity
 
 echo ""
 echo "== Total: $((PASSED + FAILED)) | Passed: $PASSED | Failed: $FAILED =="

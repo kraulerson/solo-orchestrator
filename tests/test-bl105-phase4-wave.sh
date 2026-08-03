@@ -386,8 +386,9 @@ fi
 # terminal" only after running it. The policy is unchanged — the advertising is.
 echo "=== T-force-hatch-honest ==="
 if printf '%s' "$out" | grep -qF 'SOIF_FORCE_STEP=true' \
-   && printf '%s' "$out" | grep -qi 'interactive'; then
-  pass "T-force-hatch-honest (the override is advertised WITH its interactive-terminal requirement)"
+   && printf '%s' "$out" | grep -qi 'interactive' \
+   && printf '%s' "$out" | grep -qiE 'escalate|human'; then
+  pass "T-force-hatch-honest (the override is advertised WITH its interactive-terminal requirement and tells an agent to escalate to the human, not retry)"
 else
   fail_ "T-force-hatch-honest" "the hatch text does not state that SOIF_FORCE_STEP needs an interactive terminal — an agent cannot use it and must be told so up front: $(printf '%s' "$out" | tail -4 | tr '\n' ' ')"
 fi
