@@ -1757,6 +1757,18 @@ Artifacts marked "No" in the Gate-Checked column are included in the snapshot fo
 
 **Evaluation prompts:** Run the Security Review (`evaluation-prompts/Projects/bases/03-security.md`) and Red Team Review (`evaluation-prompts/Projects/bases/06-red-team-review.md`) evaluation prompts (or the full six-reviewer suite via `evaluation-prompts/Projects/run-reviews.sh`, which writes `docs/eval-results/review-manifest.json`). Results should be archived to `docs/eval-results/`.
 
+> **Two supported routes — pick by who is running it.** Bare `run-reviews.sh <module>` launches six nested `claude -p` CLI sessions and assumes an **interactive shell that owns the terminal**. If the caller is **already an agent** (a Claude Code session, a subagent, any headless runner), use the compose route instead — it is a first-class alternative, not a fallback, and it is what the 2026-08-02 walk used for all six reviewers (ISSUE-014):
+>
+> ```bash
+> run-reviews.sh <module> --compose-only        # writes docs/eval-results/prompts/*.md, starts nothing
+> # run each prompt on the surface you already have — one subagent per reviewer, in parallel —
+> # and save each output at the artifact filename its prompt demands
+> run-reviews.sh <module> --assemble-manifest   # builds the manifest from the artifacts on disk
+> bash scripts/lint-review-manifest.sh docs/eval-results/review-manifest.json
+> ```
+>
+> Never hand-write `review-manifest.json`: `--assemble-manifest` derives it from the files that actually exist, which is what keeps the Phase 3 → 4 gate's verdict honest. Full details: `evaluation-prompts/Projects/README.md` § Usage.
+
 **Track-specific enforcement (BL-073):** the Security and Red Team reviews are a **hard Phase 3 → 4 gate** for `track=standard` and `track=full` — `scripts/check-phase-gate.sh` reads the review manifest and **FAILs the gate** if either the Security or Red Team review is missing or not `complete`. Full Track additionally requires all six reviewers (the other four WARN but still block). `track=light` / personal projects are WARN-only (POC preserved) and the bypass is logged; enforcement flips to FAIL if the project is later upgraded to `standard`/`full`. Pre-existing projects (created before this enforcement shipped, keyed on `phase-state.json::review_gate_enforced`) are grandfathered — WARN-only, never retroactively blocked. To ship an enforced project with a documented reviewer gap, attest with `SOLO_REVIEWERS_ATTESTED=1 SOLO_REVIEWERS_ATTESTED_REASON="<reason>"` (recorded to `.claude/process-state.json::phase3.attestations.reviewers`). See the Phase 3 → 4 gate checklist above for the full contract.
 
 ---
