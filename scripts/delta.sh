@@ -122,22 +122,39 @@ set -euo pipefail
 #      because it needs the brief to exist, and `brief` is itself a gate that
 #      step 4 is still able to be waiting on.
 #
-# REFUSAL RESIDUE — THE STANDARD THIS FILE'S OPEN FLOW SET, AND THE ONE HONEST
-# EXCEPTION. Every refusal above prints some form of "nothing was closed", and
-# for 6/7/8/9 that sentence is true of the WHOLE TREE: no file is created,
-# modified or removed. That is asserted with a find-based manifest in
-# tests/test-delta-wp4-close-rubric.sh::N1, exactly as the open flow's E2/T2 are.
+# REFUSAL RESIDUE — THE STANDARD THIS FILE'S OPEN FLOW SET, SCOPED TO WHAT
+# EXECUTION ACTUALLY SHOWS.
 #
-# THE EXCEPTION IS THE RATCHET (exit 10), AND IT IS STATED RATHER THAN SMOOTHED.
-# §4.2 requires the close-time raise to be RECORDED — the attribute is raised
-# and the newly toggled gates are appended to `gates_required`. So that one
-# refusal writes. It is bounded and it is idempotent: it touches the delta's own
-# `attributes`, `gates_required` and `ratcheted_at` and nothing else anywhere,
-# and a second close re-measures to the same bracket, appends nothing, and does
-# not write again. N2 pins both halves. The alternative — announce the new
-# obligations without recording them — was rejected: the operator would be told
-# about a larger checklist that the record does not contain, and every
-# subsequent close would re-announce it as though it were news.
+# READ THIS AS A PROPERTY OF THE RAISE, NOT OF THE EXIT CODE. An earlier version
+# of this block said "for 6/7/8/9 that sentence is true of the WHOLE TREE", and
+# an adversarial review REFUTED it by execution. The refutation is worth keeping
+# because the mistake is the natural one to make: the ratchet writes whenever an
+# attribute ROSE, while exit 10 fires only when a gate was ALSO APPENDED, and
+# those are different conditions. A raise that toggles nothing — small ->
+# significant, which no toggle answers; or risk -> core on a class already
+# carrying brief_review — records itself and then falls through to the exit-7 or
+# exit-8 refusal. So:
+#
+#   6 and 9   ALWAYS leave the whole tree pristine. 6 returns before anything is
+#             measured, and 9 is ordered BEFORE the ratchet precisely so that a
+#             configuration error can never write. N1 pins both.
+#   7 and 8   leave the tree pristine WHEN NO RAISE OCCURRED (N1), and carry
+#             exactly the bounded ratchet record when one did (N3, N4).
+#   10        always carries that record, by construction (N2).
+#
+# THE RECORD IS BOUNDED, IDEMPOTENT AND ANNOUNCED, and those three are what make
+# the exception safe rather than merely admitted. Bounded: it touches the
+# delta's own `attributes`, `gates_required` and `ratcheted_at`, and nothing
+# else anywhere — asserted in both directions by N2/N3/N4. Idempotent: a second
+# close re-measures to the same bracket and writes nothing at all, so the record
+# cannot accrete one stamp per attempt. Announced: the transcript names the
+# old -> new value every time, so the operator is never the last to know their
+# own record moved.
+#
+# The alternative — announce the new obligations without recording them — was
+# rejected: the operator would be told about a larger checklist the record does
+# not contain, and every subsequent close would re-announce it as news. §4.2 is
+# explicit that the raise is recorded.
 #
 # GATES ARE ATTESTED, AND THE HELP TEXT MUST NOT PRETEND OTHERWISE. §5.3 tiers
 # the review honestly: the rubric is MECHANICAL, the reviewer is ADVISORY.
@@ -162,11 +179,20 @@ set -euo pipefail
 # The brief is `docs/deltas/DELTA-NNN-slug.md` (§6.3). This flow reads exactly
 # one section of it:
 #
-#   • THE SECTION is the first heading whose text begins `Done-observable`,
-#     case-insensitively, at any heading depth (`## Done-observable`, and a
-#     trailing parenthetical is fine). It ENDS at the next heading of the same
-#     depth or shallower — so a `### Nice-to-have` subsection inside it is still
-#     part of the rubric, and the next `## …` is not.
+#   • A RUBRIC SECTION is opened by ANY heading whose text begins
+#     `Done-observable`, case-insensitively, at any heading depth
+#     (`## Done-observable`, and a trailing parenthetical is fine). It ENDS at
+#     the next heading of the same depth or shallower — so a `### Nice-to-have`
+#     subsection inside it is still part of the rubric, and the next `## …` is
+#     not. A brief carrying TWO such headings has BOTH read, and the criteria
+#     are pooled.
+#     THIS SENTENCE USED TO SAY "the FIRST heading" and the code disagreed with
+#     it; an adversarial review found the mismatch by execution. The SENTENCE
+#     moved, not the code, and deliberately: the implementation is the stricter
+#     of the two readings, and a criterion the operator wrote under a second
+#     Done-observable heading is still a criterion — a first-only reader would
+#     have ignored it and closed. B5 pins both directions so it cannot drift
+#     back. WP8's template codifies THIS wording.
 #   • A CRITERION is a list item whose marker is `-`, `*` or `+`, at any indent,
 #     followed by a bracketed single character: `- [x]` / `- [X]` is CHECKED,
 #     `- [ ]` is NOT. Anything else between the brackets is treated as NOT
@@ -943,6 +969,23 @@ EOF
       print_fail "The delta record refused the re-measurement, so nothing was closed."
       return 1
     fi
+
+    # ANNOUNCE THE RAISE — ALWAYS, INCLUDING WHEN NO GATE WAS TOGGLED.
+    # This sits ABOVE the `n_appended` branch on purpose. The write above
+    # happens whenever an attribute rose; the rc-10 refusal below happens only
+    # when a gate was ALSO appended. Those two conditions are not the same, and
+    # an adversarial review found the gap by execution: a raise that toggles
+    # nothing (small -> significant, which no toggle answers; or risk -> core on
+    # a class that already carries brief_review) rewrote the operator's recorded
+    # attributes and then returned 7 or 8 without a word about it. The record
+    # changing under someone who was never told is the half of that defect that
+    # is not about doctrine, and this is the whole fix for it. Pinned by N3/N4.
+    echo ""
+    print_info "Re-measured from what you actually changed:"
+    if [ "$nrisk" != "$risk" ];   then print_info "  how risky:  $risk -> $nrisk"; fi
+    if [ "$nlevel" != "$level" ]; then print_info "  how big:    $level -> $nlevel"; fi
+    print_info "That is on the record now. It only ever goes up — a smaller change later never talks it back down."
+
     gates_req="$(printf '%s\n' "$gates_req" | jq -c ". + $appended")"
     risk="$nrisk"
     level="$nlevel"
@@ -1017,6 +1060,12 @@ EOF
   fi
 
   # ── THE CLOSE WRITE — ONE SEAM CALL, ONE ATOMIC RENAME ───────────────────
+  # "ONE" IS A CLAIM ABOUT THIS WRITE, NOT ABOUT THE INVOCATION. A close that
+  # was preceded by a silent raise performs TWO seam writes: the ratchet record
+  # above, then this one. That is fine and is not what the property is about —
+  # the load-bearing guarantee is that the `closed` APPEND and the slot NULL are
+  # a single filter and therefore a single atomic rename, so no crash can land
+  # between them. m3 kills the split; W1/W2 pin the result.
   # THE `closed` APPEND AND THE SLOT NULL ARE ONE FILTER, and that is not
   # tidiness. `_next_id` reads ids out of closed[] + hotfix_retros[] +
   # active_delta, so a close that empties the slot without appending ERASES the

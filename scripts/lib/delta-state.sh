@@ -327,6 +327,21 @@ _delta_state_closed_is_ship_fill() {
 #   ids equal                     -> allowed (the delta mutating itself)
 #   ids differ                    -> REFUSED
 #
+# WHAT THIS ATOM DELIBERATELY DOES NOT ENFORCE, recorded in the same style as
+# the deferrals above rather than left as an unstated hole (found and assessed
+# by adversarial review, R-WP4-3):
+#   • IT PROTECTS IDENTITY, NOT CONTENT. A same-id write may gut the row —
+#     `.active_delta.gates_required = [] | .active_delta.gates_completed = []`
+#     is accepted, and the delta then closes with an empty archived checklist.
+#     That is consistent with D7 and is not a hole this layer should close: the
+#     file is the PROJECT's, a hand edit is exactly equivalent, and every
+#     legitimate caller mutates this row (see below), so a content predicate
+#     here would have to encode each caller's intent and would be a second copy
+#     of the business logic. The cheat is also legible after the fact — an empty
+#     `gates_completed` is archived into the audit tail rather than hidden.
+#   • A CANDIDATE WITH NO `id` reads as a differing id and is REFUSED, which is
+#     the fail-closed direction and is intentional.
+#
 # The tolerance branch mirrors the append rule's, for the same reason: a
 # previous file that is not a well-formed state document has no defensible open
 # delta to protect, and holding it against the candidate would let one bad hand

@@ -668,6 +668,55 @@ else
 fi
 rm -rf "$T"
 
+# ── B5: EVERY Done-observable heading opens a rubric section, not just the
+#        first ───────────────────────────────────────────────────────────────
+# THE CONTRACT SENTENCE WAS WRONG, NOT THE CODE. The header used to say "the
+# FIRST heading whose text begins Done-observable"; the awk re-enters the
+# section on any later matching heading, so a brief with two of them has BOTH
+# read. An adversarial review found the mismatch by execution.
+#
+# Which one moves matters, because this header is the normative contract WP8's
+# delta-brief.tmpl will codify. The implementation is the STRICTER of the two —
+# a criterion the operator wrote under a second Done-observable heading is still
+# a criterion, and a first-only reader would silently ignore it — so the
+# sentence moved to match the mechanism. This row is what stops it drifting
+# back, and it pins BOTH directions: the later section's unchecked box refuses
+# (a first-only reader would have closed), and two fully-checked sections close
+# (so "read them all" did not become "refuse anything with two headings").
+T=$(mktemp -d)
+_b5_brief() {
+  local p="$1" second="$2"
+  mkdir -p "$p/docs/deltas"
+  {
+    printf '# DELTA-001 — dark-mode\n\n'
+    printf '## Done-observable\n\n- [x] the settings screen offers a dark theme\n\n'
+    printf '## Notes\n\nsome prose that is not a rubric\n\n'
+    printf '## Done-observable (continued)\n\n%s\n\n' "$second"
+    printf '## Must-not-change\n\n- [ ] never read, wrong section\n'
+  } > "$p/docs/deltas/DELTA-001-dark-mode.md"
+}
+Pu="$T/unchecked"; mk_proj "$Pu" 4
+delta_run "$REPO_ROOT/scripts" "$Pu" --open --describe "add dark mode" --class feature --slug dark-mode --confirm >/dev/null 2>&1
+_b5_brief "$Pu" '- [ ] the choice survives a restart'
+complete_gates "$REPO_ROOT/scripts" "$Pu"
+out_u=$(delta_run "$REPO_ROOT/scripts" "$Pu" --close); rc_u=$?
+names_u=n; printf '%s' "$out_u" | grep -qF 'the choice survives a restart' && names_u=y
+leaks_u=n; printf '%s' "$out_u" | grep -qF 'wrong section' && leaks_u=y
+
+Pc="$T/checked"; mk_proj "$Pc" 4
+delta_run "$REPO_ROOT/scripts" "$Pc" --open --describe "add dark mode" --class feature --slug dark-mode --confirm >/dev/null 2>&1
+_b5_brief "$Pc" '- [x] the choice survives a restart'
+complete_gates "$REPO_ROOT/scripts" "$Pc"
+delta_run "$REPO_ROOT/scripts" "$Pc" --close >/dev/null 2>&1; rc_c=$?
+n_closed="$(active_json "$Pc" -r '.closed | length')"
+if [ "$rc_u" -eq 8 ] && [ "$names_u" = y ] && [ "$leaks_u" = n ] \
+   && [ "$rc_c" -eq 0 ] && [ "$n_closed" = "1" ]; then
+  pass "B5: a SECOND '## Done-observable' heading opens a second rubric section — its unchecked criterion refuses the close (rc $rc_u) and is named, where a first-heading-only reader would have closed clean; with both sections ticked the same brief closes (rc $rc_c). The intervening '## Notes' section and the trailing Must-not-change box are still out of scope (leaked=$leaks_u)"
+else
+  fail_ "B5" "second-section-unchecked rc=$rc_u (expect 8) names it=$names_u (expect y) leaked an out-of-scope box=$leaks_u (expect n); both-checked rc=$rc_c (expect 0) closed length=$n_closed (expect 1)"
+fi
+rm -rf "$T"
+
 # ════════════════════════════════════════════════════════════════════════════
 echo ""
 echo "=== U — the gate-token vocabulary (§5.2) ==="
@@ -721,11 +770,32 @@ echo ""
 echo "=== N — refusal residue: every refused close leaves the tree as found ==="
 # ════════════════════════════════════════════════════════════════════════════
 
-# The WP3 standard, applied to all five refusal shapes at once. `find` over the
-# WHOLE tree with a per-file md5 — not `[ -e ]` on one expected filename, which
-# cannot see a file nobody thought to look for. The ratchet refusal (10) is
-# deliberately EXCLUDED from this list and gets its own honest treatment below:
-# it is the one refusal that is SUPPOSED to record something.
+# THE RESIDUE DOCTRINE, SCOPED TO WHAT EXECUTION SHOWS (R-WP4-1).
+#
+# The first cut of this section claimed that "every PURE refusal leaves the tree
+# byte-for-byte as found" and let the reader infer that exits 6/7/8/9 never
+# write. An adversarial review REFUTED the generalization by execution, and it
+# was right: the ratchet writes whenever the re-measure RAISES an attribute,
+# while exit 10 fires only when gates were also APPENDED. A raise whose toggled
+# gates are already on the list — a SILENT RAISE — records itself and then falls
+# through to the exit-7 or exit-8 refusal. So the true doctrine is not about
+# which exit code you got; it is about whether a raise happened:
+#
+#   6 and 9   ALWAYS whole-tree pristine. 6 returns before anything is measured
+#             and 9 runs BEFORE the ratchet, deliberately (see delta.sh) — which
+#             is the whole reason the vocabulary check is ordered first.
+#   7 and 8   pristine WHEN NO RAISE OCCURRED (this section), and carrying
+#             exactly the bounded ratchet record when one did (N3, N4).
+#  10         always carries that record, by construction (N2).
+#
+# N1's fixtures are non-git on purpose, so `git diff` measures nothing, no raise
+# is possible, and these four paths are the no-raise ones. That is a FIXTURE
+# PROPERTY and not a property of the exit codes — N3 and N4 build the other half
+# rather than leaving it to the reader.
+#
+# The instrument is unchanged: `find` over the WHOLE tree with a per-file md5,
+# not `[ -e ]` on one expected filename, which cannot see a file nobody thought
+# to look for.
 T=$(mktemp -d)
 n1_detail=""; n1_ok=y
 _n1() {
@@ -758,7 +828,7 @@ n1_detail="$n1_detail [nothing-open=rc$rc]"
 [ "$rc" -eq 6 ] || n1_ok=n
 [ "$before" = "$after" ] || { n1_ok=n; n1_detail="$n1_detail(TREE MOVED)"; }
 if [ "$n1_ok" = y ]; then
-  pass "N1: every PURE refusal —$n1_detail — leaves the whole tree byte-for-byte as it found it, asserted as a find-based manifest with a per-file md5 and not against one expected filename"
+  pass "N1: with NO raise in play —$n1_detail — every refusal leaves the whole tree byte-for-byte as it found it, asserted as a find-based manifest with a per-file md5 and not against one expected filename. (These fixtures are non-git, so nothing can be measured and nothing can raise; N3/N4 build the composite where one does.)"
 else
   fail_ "N1" "expected rc 7/8/9/6 with an unchanged tree; got:$n1_detail"
 fi
@@ -797,6 +867,107 @@ else
   fail_ "N2" "rc=$rc (expect 10); a file other than the state file moved=$others_moved (expect n); the state change is confined to attributes+gates_required=$confined (expect true); state file actually changed=$([ "$before" != "$after" ] && echo y || echo n) (expect y)"
 fi
 rm -rf "$T"
+
+# ── N3 / N4: THE SILENT-RAISE COMPOSITE — a refusal that is NOT rc 10 and
+#             STILL carries the ratchet record ────────────────────────────────
+# THE CASE THE FIRST CUT OF THIS SUITE DID NOT BUILD, and the one an adversarial
+# review found by execution. The ratchet write is gated on "an attribute rose";
+# the rc-10 refusal is gated on "and a gate was appended". Those two conditions
+# are NOT the same, and every attribute raise that toggles nothing falls through
+# the gap: the record is updated and then a LATER refusal returns.
+#
+# There are exactly two ways to raise without appending, and both are built:
+#   N3  a level raise into a bracket that toggles nothing. Only
+#       `level: evolution` carries a toggle (§5.2), so small -> significant is
+#       structurally silent — it can never append.
+#   N4  a raise whose toggled gate is ALREADY on the list. `risk: core` toggles
+#       brief_review, which a feature already carries, so the append set is
+#       empty by set arithmetic rather than by policy.
+# Two different mechanisms reaching the same state; pinning one would have left
+# the other free to drift.
+#
+# Each asserts FOUR things, and the last two are what make it a bound rather
+# than an observation: the raise LANDED, gates_required did NOT grow (which is
+# what distinguishes this from X1 and is the reason the exit code is 7/8 and not
+# 10), no file outside the state document moved, and inside it nothing but
+# attributes / gates_required / ratcheted_at changed. Plus IDEMPOTENCE on N3: a
+# second close re-measures to the same bracket and writes nothing at all, so the
+# record cannot accrete across repeated refused closes.
+
+_silent_raise_case() {
+  # $1 label · $2 want-rc · $3 project dir · sets: sr_ok / sr_detail
+  local label="$1" want="$2" P="$3"
+  local before after b_others a_others others_moved snapshot now_json confined
+  local rc out grew attr_after
+  before="$(tree_manifest "$P")"
+  snapshot="$(active_json "$P" -c '.')"
+  out=$(delta_run "$REPO_ROOT/scripts" "$P" --close); rc=$?
+  after="$(tree_manifest "$P")"
+  b_others="$(printf '%s\n' "$before" | grep -v 'delta-state.json' || true)"
+  a_others="$(printf '%s\n' "$after"  | grep -v 'delta-state.json' || true)"
+  others_moved=n; [ "$b_others" = "$a_others" ] || others_moved=y
+  now_json="$(active_json "$P" -c '.')"
+  confined=$(jq -n --argjson a "$snapshot" --argjson b "$now_json" '
+      ($a | .active_delta |= (del(.attributes) | del(.gates_required) | del(.ratcheted_at)))
+   == ($b | .active_delta |= (del(.attributes) | del(.gates_required) | del(.ratcheted_at)))' 2>/dev/null)
+  confined="${confined:-READ-FAILED}"
+  grew=$(jq -n --argjson a "$snapshot" --argjson b "$now_json" \
+    '($b.active_delta.gates_required | length) > ($a.active_delta.gates_required | length)' 2>/dev/null)
+  grew="${grew:-READ-FAILED}"
+  attr_after="$(active_json "$P" -c '.active_delta.attributes | {risk, level}')"
+  # The raise must be ANNOUNCED. An operator whose recorded attributes were
+  # rewritten with no word about it would have to diff the state file to find
+  # out — which is the half of this defect that is not about doctrine.
+  sr_announced=n; printf '%s' "$out" | grep -qiE 're-measured|re-measure' && sr_announced=y
+  sr_detail="$sr_detail [$label rc=$rc changed=$([ "$before" != "$after" ] && echo y || echo n) others=$others_moved confined=$confined grew=$grew attrs=$attr_after announced=$sr_announced]"
+  [ "$rc" -eq "$want" ]        || sr_ok=n
+  [ "$before" != "$after" ]    || sr_ok=n
+  [ "$others_moved" = n ]      || sr_ok=n
+  [ "$confined" = "true" ]     || sr_ok=n
+  [ "$grew" = "false" ]        || sr_ok=n
+  [ "$sr_announced" = y ]      || sr_ok=n
+  return 0
+}
+
+sr_ok=y; sr_detail=""; sr_announced=n
+
+# N3 — a LEVEL raise that no toggle answers: small -> significant, exit 7.
+T=$(mktemp -d); P="$T/proj"; mk_git_proj "$P" 4
+write_policy "$P" '{"schemaVersion":1,"risk_surfaces":[],"size_thresholds":{"small":5,"significant":20}}'
+delta_run "$REPO_ROOT/scripts" "$P" --open --describe "the export is broken" --class fix --slug export --confirm >/dev/null 2>&1
+complete_gates "$REPO_ROOT/scripts" "$P" repro_test_red_first
+grow "$P/src/ui/theme.ts" 10
+_silent_raise_case "level-raise/rc7" 7 "$P"
+lvl_after="$(active_json "$P" -r '.active_delta.attributes.level')"
+[ "$lvl_after" = "significant" ] || { sr_ok=n; sr_detail="$sr_detail(LEVEL DID NOT RISE)"; }
+# Idempotence: a second refused close re-measures to the same bracket and must
+# write nothing, or the record accretes one ratcheted_at per attempt.
+stamp1="$(active_json "$P" -r '.active_delta.ratcheted_at')"
+md1="$(_md5file "$P/.claude/delta-state.json")"
+delta_run "$REPO_ROOT/scripts" "$P" --close >/dev/null 2>&1; rc2=$?
+md2="$(_md5file "$P/.claude/delta-state.json")"
+stamp2="$(active_json "$P" -r '.active_delta.ratcheted_at')"
+[ "$rc2" -eq 7 ] && [ "$md1" = "$md2" ] && [ "$stamp1" = "$stamp2" ] \
+  || { sr_ok=n; sr_detail="$sr_detail(NOT IDEMPOTENT rc2=$rc2 md $md1->$md2 stamp $stamp1->$stamp2)"; }
+rm -rf "$T"
+
+# N4 — a RISK raise whose toggled gate the class already carries, exit 8.
+T=$(mktemp -d); P="$T/proj"; mk_git_proj "$P" 4
+write_policy "$P" '{"schemaVersion":1,"risk_surfaces":["src/auth/**"],"size_thresholds":{"small":500,"significant":900}}'
+delta_run "$REPO_ROOT/scripts" "$P" --open --describe "add dark mode" --class feature --slug dark-mode --confirm >/dev/null 2>&1
+write_brief "$P" DELTA-001 dark-mode '- [ ] the choice survives a restart'
+complete_gates "$REPO_ROOT/scripts" "$P"
+grow "$P/src/auth/login.ts" 3
+_silent_raise_case "risk-raise/rc8" 8 "$P"
+risk_after="$(active_json "$P" -r '.active_delta.attributes.risk')"
+[ "$risk_after" = "core" ] || { sr_ok=n; sr_detail="$sr_detail(RISK DID NOT RISE)"; }
+rm -rf "$T"
+
+if [ "$sr_ok" = y ]; then
+  pass "N3/N4: a raise that appends NO gate still records itself and then refuses with a LATER code —$sr_detail — so 'rc 7/8 means nothing was written' is false and this suite says so. Both mechanisms are built (a bracket with no toggle; a toggle the class already carries), the residue is bounded exactly as N2's is, gates_required does NOT grow (which is why the code is 7/8 and not 10), the raise is ANNOUNCED to the operator rather than applied silently, and a second refused close writes nothing at all"
+else
+  fail_ "N3/N4" "each case must be rc 7 / rc 8 respectively WITH the state file changed, no other file moved, the change confined to attributes+gates_required+ratcheted_at, gates_required NOT grown, and the raise announced in the transcript; got:$sr_detail"
+fi
 
 # ════════════════════════════════════════════════════════════════════════════
 echo ""
