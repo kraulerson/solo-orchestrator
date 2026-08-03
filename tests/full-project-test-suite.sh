@@ -1675,8 +1675,10 @@ run_child_suite "tests/test-delta-wp2-state-policy.sh" \
 # second-activation refusal -> a double-open overwrites -> A1 RED; hardcode a
 # size threshold -> the policy-retune case D3 RED; drop an attribute_toggle
 # read -> risk:core stops adding brief_review -> G2 RED; swap the validate.sh
-# arm's warn for fail -> V1's exit-code-unchanged pin RED; a near-miss waiver
-# spelling -> the boundary lint reds. Never executes init.sh -> both lanes.
+# arm's warn for fail -> the exit code moves while the arm's message body does
+# not, so V1's exit-code-unchanged pin goes RED; replace the waived seam
+# invocation -> the lint un-reds AND the arm falls silent, so V3's rc 0->1 is
+# the waiver's absence and nothing else. Never executes init.sh -> both lanes.
 run_child_suite "tests/test-delta-wp3-era-classify.sh" \
   "tests/test-delta-wp3-era-classify.sh"
 run_child_suite "tests/test-check-phase-gate.sh" "tests/test-check-phase-gate.sh"

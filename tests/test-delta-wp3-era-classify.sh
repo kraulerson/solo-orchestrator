@@ -31,7 +31,8 @@
 #
 #   E — THE ERA INVARIANT (§10.1), the load-bearing refusal
 #     E1  --open REFUSED at phases 0, 1, 2, 3 and ALLOWED at 4  KILLS m1
-#     E2  a refused open writes NOTHING — no state file appears
+#     E2  a refused open writes NOTHING — asserted over the WHOLE tree with
+#         `find`, not against one expected filename
 #     E3  an unreadable / absent phase records fails CLOSED (refused), because
 #         "cannot tell" must not read as "phase 4"
 #
@@ -76,7 +77,8 @@
 #         a provenance parenthetical, and the one-question footer. Shape, not
 #         prose — the wording is the design's and may be tuned.
 #     T2  a scripted run with nobody to confirm REFUSES rather than
-#         auto-accepting a side-effectful open (the repo's hard-N policy)
+#         auto-accepting a side-effectful open (the repo's hard-N policy), and
+#         leaves no new file of ANY kind — the same whole-tree evidence E2 owes
 #
 #   S — --status
 #     S1  reports "no delta open" and then the open delta, rc 0 both ways
@@ -101,6 +103,17 @@
 #     intact);
 #   • EXACTLY ONE LINE changed (one `<` and one `>` in the diff), so a mutation
 #     cannot quietly demolish half the file and credit the RED to the guard.
+#
+# AND THE ADDRESS MUST NAME THE THING BEING DISPROVED. Those three checks are
+# necessary and not sufficient: they all pass for a sed that cleanly mutates one
+# line of the WRONG code. m6's first cut did exactly that — it neutered the arm's
+# `warn` line while asserting something about the seam invocation two lines
+# above, which survived untouched, so its assertion could not fail. An
+# adversarial review caught it. A mutation whose expected result is that
+# something does NOT happen (a lint staying clean, a report staying silent) is
+# the shape most at risk, because a mis-aimed sed produces exactly the answer the
+# test wants. Every such row here now also asserts a POSITIVE consequence of the
+# mutation having landed — see m6.
 #
 # FRESH-FIXTURE ISOLATION. Every mutation builds its own mktemp project. m2's
 # case in particular MUST start from a tree where the era guard would pass
@@ -302,15 +315,20 @@ else
 fi
 rm -rf "$T"
 
-# ── E2: a refused open writes NOTHING ───────────────────────────────────────
+# ── E2: a refused open writes NOTHING — the WHOLE tree, not just one file ───
+# `find`, not a single `[ -e ]`: a refusal that says "nothing was opened" is a
+# claim about the FILESYSTEM, and checking one expected filename cannot see a
+# file nobody thought to look for. (That is not hypothetical — the
+# no-confirmation refusal at T2 was leaving a freshly seeded policy file behind
+# while printing exactly that sentence, and only the whole-tree form catches it.)
 T=$(mktemp -d); P="$T/proj"; mk_proj "$P" 2
 delta_run "$REPO_ROOT/scripts" "$P" --open --describe "add dark mode" --confirm >/dev/null 2>&1
 rc=$?
-created=n; [ -e "$P/.claude/delta-state.json" ] && created=y
-if [ "$rc" -eq 3 ] && [ "$created" = n ]; then
-  pass "E2: a refused open creates no state at all (rc $rc, state file created=$created) — the refusal is before the write, not a write that is later undone"
+left="$( ( cd "$P" && find . -type f | LC_ALL=C sort ) | tr '\n' ' ')"
+if [ "$rc" -eq 3 ] && [ "$left" = "./.claude/phase-state.json " ]; then
+  pass "E2: a refused open leaves the project byte-for-byte as it found it (rc $rc; the tree still holds exactly the one file it started with) — the refusal is before every write, not a write that is later undone"
 else
-  fail_ "E2" "rc=$rc (expect 3); state file created=$created (expect n)"
+  fail_ "E2" "rc=$rc (expect 3); files after the refusal='$left' (expect exactly './.claude/phase-state.json ')"
 fi
 rm -rf "$T"
 
@@ -691,12 +709,17 @@ rm -rf "$T"
 # auto-proceed just because the operator was absent.
 T=$(mktemp -d); P="$T/proj"; mk_proj "$P" 4
 out=$(delta_run "$REPO_ROOT/scripts" "$P" --open --describe "add dark mode"); rc=$?
-created=n; [ -e "$P/.claude/delta-state.json" ] && created=y
+# THE SAME WHOLE-TREE ASSERTION E2 MAKES, and for the same reason: this refusal
+# prints "nothing was opened" too, so it owes the same evidence. It used to leave
+# a freshly seeded policy file behind — the seed ran before the confirm gate —
+# and the old single-filename check could not see it. The seed now sits AFTER
+# confirmation; this is what holds it there.
 shown=n; printf '%s' "$out" | grep -qF '[1] Keep all four' && shown=y
-if [ "$rc" -eq 2 ] && [ "$created" = n ] && [ "$shown" = y ]; then
-  pass "T2: a scripted run with no terminal and no --confirm still SHOWS the proposal, then refuses (rc $rc) and opens nothing — confirmation is never assumed from silence"
+left="$( ( cd "$P" && find . -type f | LC_ALL=C sort ) | tr '\n' ' ')"
+if [ "$rc" -eq 2 ] && [ "$left" = "./.claude/phase-state.json " ] && [ "$shown" = y ]; then
+  pass "T2: a scripted run with no terminal and no --confirm still SHOWS the proposal, then refuses (rc $rc) and leaves NO new file of any kind — confirmation is never assumed from silence, and the refusal's own sentence is true of the whole tree"
 else
-  fail_ "T2" "rc=$rc (expect 2); state file created=$created (expect n); transcript shown=$shown (expect y)"
+  fail_ "T2" "rc=$rc (expect 2); files after the refusal='$left' (expect exactly './.claude/phase-state.json '); transcript shown=$shown (expect y)"
 fi
 rm -rf "$T"
 
@@ -819,43 +842,107 @@ fi
 rm -rf "$T"
 
 # ── m5: make the validate.sh arm BLOCKING -> V1's exit-code pin goes RED ───
-# THE `[WARN]` TRAP, IN BOTH DIRECTIONS. One character of intent — `warn` for
-# `fail` — changes nothing about the printed line's meaning and everything about
-# the script's exit status. This is the mutation that proves V1 is asserting the
-# code and not the banner.
+# THE `[WARN]` TRAP, STATED PRECISELY.
+#
+# WHAT MOVES under `warn` -> `fail`, measured rather than assumed: the EXIT CODE
+# (13 -> 14), the printed LABEL (`[WARN]` -> `[FAIL]`, because print_warn and
+# print_fail are different functions), and the summary counter line
+# (13 errors/11 warnings -> 14/10).
+#
+# WHAT DOES NOT MOVE: the arm's own MESSAGE — every character after the label.
+# The operator reads the same sentence in both trees.
+#
+# THAT ASYMMETRY IS THE TRAP. An earlier version of this row claimed the output
+# was "byte-identical", which is false and was refuted by an adversarial review
+# on the first pass. The correction matters beyond tidiness: if the output really
+# were unchanged, a test could not tell the two trees apart at all, and the row
+# would be arguing for something stronger than what is true. What IS true is
+# sharper and is the whole lesson — the visible difference is COSMETIC (a label,
+# a tally) while the consequential difference is the exit status, so a reader
+# checking the banner learns nothing about whether the arm blocks. Hence V1
+# asserts the code. This row now measures all three quantities and asserts each
+# in the direction execution shows.
 T=$(mktemp -d); MT="$T/mut"; mk_scripts_tree "$MT"
 _sed_inplace "$MT/scripts/validate.sh" '/# DELTA-ERA-REPORT-ONLY$/s@warn @fail @'
 rep="$(_mutation_report "$REPO_ROOT/scripts/validate.sh" "$MT/scripts/validate.sh" 'DELTA-ERA-REPORT-ONLY$')"
 sites="${rep%%|*}"; rest="${rep#*|}"; changed="${rest%%|*}"; nlines="${rest##*|}"
 Pn="$T/none"; mk_validate_proj "$Pn" 2
+validate_run "$REPO_ROOT/scripts" "$Pn" >/dev/null 2>&1; pri_none=$?
 validate_run "$MT/scripts" "$Pn" >/dev/null 2>&1; mut_none=$?
 Po="$T/open"; mk_validate_proj "$Po" 2
 printf '%s\n' '{"schemaVersion":1,"active_delta":{"id":"DELTA-007","slug":"dark-mode"},"hotfix_retros":[],"cadence":{},"closed":[]}' \
   > "$Po/.claude/delta-state.json"
+pri_out=$(validate_run "$REPO_ROOT/scripts" "$Po"); pri_open=$?
 mut_out=$(validate_run "$MT/scripts" "$Po"); mut_open=$?
-still_reported=n; printf '%s' "$mut_out" | grep -qF 'DELTA-007' && still_reported=y
+# The message BODY, with the label (and any colour escape before it) cut away:
+# everything from the arm's first content word onward.
+_arm_msg() { printf '%s\n' "$1" | grep -F 'Post-release work' | sed -e 's/^.*Post-release work/Post-release work/'; }
+pri_msg="$(_arm_msg "$pri_out")"
+mut_msg="$(_arm_msg "$mut_out")"
 if [ "$sites" = "1" ] && [ "$changed" = y ] && [ "$nlines" -eq 2 ] \
-   && [ "$mut_open" -ne "$mut_none" ] && [ "$still_reported" = y ]; then
-  pass "m5: swapping the arm's warn for fail moves validate.sh's exit code (rc $mut_none -> $mut_open) while the PRINTED LINE is unchanged (still reported=$still_reported) — V1 goes RED, and this is the [WARN] trap in one line (marker sites=$sites, one line changed=$nlines/2)"
+   && [ "$pri_open" -eq "$pri_none" ] && [ "$mut_open" -ne "$mut_none" ] \
+   && [ -n "$pri_msg" ] && [ "$pri_msg" = "$mut_msg" ]; then
+  pass "m5: swapping the arm's warn for fail moves validate.sh's EXIT CODE (pristine rc $pri_none==$pri_open, mutant rc $mut_none -> $mut_open) while the arm's MESSAGE BODY is character-for-character the same in both trees — only the [WARN]/[FAIL] label and the summary tally move with it. V1 goes RED. That asymmetry IS the [WARN] trap: what a reader sees changes cosmetically, what the exit predicate does changes completely (marker sites=$sites, one line changed=$nlines/2)"
 else
-  fail_ "m5" "marker sites=$sites (expect 1); mutation applied=$changed (expect y); diff lines=$nlines (expect 2); mutant rc without delta=$mut_none, with delta=$mut_open (must DIFFER); line still printed=$still_reported (expect y — the point is that the OUTPUT does not move)"
+  fail_ "m5" "marker sites=$sites (expect 1); mutation applied=$changed (expect y); diff lines=$nlines (expect 2); PRISTINE rc none=$pri_none open=$pri_open (must be EQUAL — that is V1); MUTANT rc none=$mut_none open=$mut_open (must DIFFER); message body pristine='$pri_msg' mutant='$mut_msg' (must be non-empty and IDENTICAL — the label flips, the sentence does not)"
 fi
 rm -rf "$T"
 
-# ── m6: strip the T2 waiver -> the boundary lint reds -> V3 RED ────────────
-# The lint-forced-routing pin, mutated. Covered inside V3 itself (control vs
-# stripped), so this row asserts the OTHER half: that the waiver's absence is
-# what reds it, and not the seam invocation merely existing.
+# ── m6: the waived line is the ONLY thing the waiver waives -> V3 RED ─────
+# THE TRIANGULATION V3 CANNOT DO ALONE. V3 strips the waiver and keeps the
+# invocation: lint rc 0 -> 1. That alone is consistent with a lint that reds on
+# this tree for some reason having nothing to do with either. The missing leg is
+# the third corner — REMOVE THE INVOCATION and the lint must go clean again.
+#
+# THE FIRST CUT OF THIS ROW AIMED THE WRONG SED. It addressed
+# `# DELTA-ERA-REPORT-ONLY$` — the `warn` line — which leaves the waived seam
+# invocation fully intact at its original line, so the boundary lint's verdict
+# was trivially identical to the control's and `rc 0` COULD NOT FAIL. It was a
+# vacuous assertion that read like a proof, caught by an adversarial review on
+# the first pass. It is the exact defect class this suite's header warns about,
+# committed by this suite. The address now names the WAIVED LINE ITSELF.
+#
+# And because "the lint is clean" is a NEGATIVE result — the same answer a
+# broken lint would give — this arm no longer stops there. It asserts the removal
+# was REAL, in two ways, and the SECOND one is the load-bearing one:
+#
+#   (a) BEHAVIOURAL: with the invocation gone the arm can no longer read the
+#       record, so it falls silent and V1's detection half goes RED.
+#   (b) STRUCTURAL, AND THIS IS THE DISCRIMINATOR: the mutant tree contains
+#       ZERO seam invocations where the pristine tree contains exactly ONE.
+#
+# (b) exists because a meta-counterfactual on this very row showed (a) is NOT
+# enough. Re-aim the sed back at the `warn` line — the refuted first cut — and
+# the arm ALSO falls silent (its printer was just neutered) and the lint is ALSO
+# clean (the invocation it waives is untouched), so every other assertion here
+# still passes and the row goes green while proving nothing. Only counting the
+# invocation itself tells the two mutants apart. Generalise the lesson: when a
+# mutation's expected result is an absence, assert the absence of the THING YOU
+# EDITED, not merely of its downstream effect — several different edits share the
+# same downstream effect.
 T=$(mktemp -d); MT="$T/tree"; mk_scripts_tree "$MT"
-_sed_inplace "$MT/scripts/validate.sh" '/# DELTA-ERA-REPORT-ONLY$/s@.*@  return 0@'
-after_arm_rc=0; bash "$LINTER" --root "$MT" >/dev/null 2>&1 || after_arm_rc=$?
+_sed_inplace "$MT/scripts/validate.sh" '/# lint-delta-boundary: allow/s@.*@  :@'
+rep="$(_mutation_report "$REPO_ROOT/scripts/validate.sh" "$MT/scripts/validate.sh" '# lint-delta-boundary: allow')"
+sites="${rep%%|*}"; rest="${rep#*|}"; changed="${rest%%|*}"; nlines="${rest##*|}"
+# The seam invocation, counted directly. (tests/ is outside the boundary lint's
+# CORE set, so naming the action here costs nothing.)
+seam_pristine="$(grep -c 'delta-state-read' "$REPO_ROOT/scripts/validate.sh" || true)"
+seam_mutant="$(grep -c 'delta-state-read' "$MT/scripts/validate.sh" || true)"
+no_seam_rc=0; bash "$LINTER" --root "$MT" >/dev/null 2>&1 || no_seam_rc=$?
+Pq="$T/open"; mk_validate_proj "$Pq" 2
+printf '%s\n' '{"schemaVersion":1,"active_delta":{"id":"DELTA-007","slug":"dark-mode"},"hotfix_retros":[],"cadence":{},"closed":[]}' \
+  > "$Pq/.claude/delta-state.json"
+quiet_out=$(validate_run "$MT/scripts" "$Pq"); quiet_rc=$?
+went_quiet=y; printf '%s' "$quiet_out" | grep -qF 'DELTA-007' && went_quiet=n
 MT2="$T/tree2"; mk_scripts_tree "$MT2"
 _sed_inplace "$MT2/scripts/validate.sh" 's|lint-delta-boundary: allow|lint-delta-boundary: allowed because|'
 typo_rc=0; bash "$LINTER" --root "$MT2" >/dev/null 2>&1 || typo_rc=$?
-if [ "$after_arm_rc" -eq 0 ] && [ "$typo_rc" -eq 1 ]; then
-  pass "m6: the waiver is what waives — a NEAR-MISS spelling ('allowed because …') is not the marker and reds the lint (rc $typo_rc), while removing the invocation entirely leaves it clean (rc $after_arm_rc). The exemption fails CLOSED, so a typo cannot silently waive a real edge"
+if [ "$sites" = "1" ] && [ "$changed" = y ] && [ "$nlines" -eq 2 ] \
+   && [ "$seam_pristine" = "1" ] && [ "$seam_mutant" = "0" ] \
+   && [ "$no_seam_rc" -eq 0 ] && [ "$went_quiet" = y ] && [ "$typo_rc" -eq 1 ]; then
+  pass "m6: the sed reached the seam invocation itself (pristine carries $seam_pristine, the mutant carries $seam_mutant), which takes the lint back to clean (rc $no_seam_rc) AND silences the arm (rc $quiet_rc, no report) — so V3's rc 0->1 is caused by the waiver's absence and nothing else. A NEAR-MISS marker spelling ('allowed because …') waives nothing and reds the lint (rc $typo_rc), so the exemption fails CLOSED (marker sites=$sites, one line changed=$nlines/2)"
 else
-  fail_ "m6" "lint rc with the arm removed=$after_arm_rc (expect 0); lint rc with a near-miss waiver spelling=$typo_rc (expect 1)"
+  fail_ "m6" "marker sites=$sites (expect 1); mutation applied=$changed (expect y); diff lines=$nlines (expect 2); seam invocations pristine=$seam_pristine (expect 1) mutant=$seam_mutant (expect 0 — if this is 1 the sed missed the invocation and every assertion below is vacuous); lint rc with the invocation replaced=$no_seam_rc (expect 0); arm fell silent=$went_quiet (expect y); lint rc with a near-miss waiver spelling=$typo_rc (expect 1)"
 fi
 rm -rf "$T"
 

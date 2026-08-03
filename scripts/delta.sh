@@ -437,11 +437,6 @@ cmd_open() {
     return 4
   fi
 
-  # The policy file is project-owned from birth. Seeding it here is the §7.2
-  # "the first delta.sh --open" moment — and it goes through the seam like every
-  # other write, even though this one is birth-once and never overwrites.
-  _seam --delta-policy-init >/dev/null 2>&1 || true
-
   if [ -z "$DESCRIBE" ]; then
     if [ -t 0 ] && [ -z "${CI:-}" ] && [ -z "${SOIF_NONINTERACTIVE:-}" ]; then
       DESCRIBE="$(prompt_input "In your own words — what needs doing?" "")"
@@ -497,6 +492,20 @@ cmd_open() {
     print_info "Re-run in a terminal, or add --confirm to accept the four lines above as they stand."
     return 2
   fi
+
+  # The policy file is project-owned from birth, and this is §7.2's "the first
+  # delta.sh --open" seeding moment. It goes through the seam like every other
+  # write, even though it is birth-once and never overwrites.
+  #
+  # IT SITS AFTER THE CONFIRMATION, DELIBERATELY. Every refusal above says
+  # "nothing was opened", and a refusal that says that while leaving a new file
+  # behind is a refusal the operator cannot trust. Seeding earlier costs nothing
+  # in derivation accuracy — an absent policy file already resolves every key to
+  # the framework default at read time (§3.2), so the transcript the operator
+  # just confirmed was computed from exactly the values this seed writes. Pinned
+  # by T2: after the no-confirmation refusal the project contains exactly the one
+  # file it started with.
+  _seam --delta-policy-init >/dev/null 2>&1 || true
 
   # ── §7.1: gates_required MATERIALISED AT OPEN from class + attributes ────
   if ! gates="$(delta_classify_gates "." "$CLASS" "$RISK" "$LEVEL")"; then
