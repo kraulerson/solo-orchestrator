@@ -25,6 +25,20 @@
 #         and is therefore INERT at phase 4 — W4 asserts that inertness
 #         directly so nobody "moves the pin" onto a surface where it would
 #         pass vacuously.
+#         W4 MUST REACH THE ARM TO MEAN ANYTHING. check_commit_ready exits 0
+#         early and SILENTLY when nothing is staged (`git diff --cached
+#         --name-only` is empty — which is what a non-git fixture dir yields)
+#         and again when every staged path is docs/dep-manifest. The first
+#         cut of W4 used a bare mktemp dir and so asserted the no-staged-files
+#         short-circuit while claiming to assert the phase fall-through: the
+#         `-eq 2` -> `-ge 2` drift it exists to catch survived it (WP0
+#         adversarial review, R-WP0-1). Hence the git-backed fixture with a
+#         staged SOURCE file and an explicit `--subject "feat: ..."`, plus a
+#         staged-files PRECONDITION that fails loudly rather than passing
+#         vacuously, plus W4b.
+#         MUTATION PROOF (W4): widen BOTH check_commit_ready phase arms
+#         `-eq 2` -> `-ge 2` (the "consolidation" drift) -> W4 RED; W4b stays
+#         green, since 2 satisfies `-ge 2` either way. Restore -> GREEN.
 #
 #   (b) scripts/test-gate.sh::check_phase_gate exits 1 on `SEV-1 | Open`,
 #       `SEV-2 | Open` and `SEV-2 | Deferred` rows. This gate is reached at
@@ -131,6 +145,33 @@ seed_features() {
     > "$FIXTURE/FEATURES.md"
 }
 
+# Make the fixture a real git repo with ONE STAGED SOURCE FILE, so that
+# check_commit_ready is driven past BOTH of its silent early exits — the
+# no-staged-files short-circuit and the docs/dep-manifest exemption — and
+# actually reaches its `[ "$current_phase" -eq 2 ]` arms. `src/` is chosen
+# because it matches the classifier's source_dirs; a .md file here would exit
+# 0 at the docs exemption and re-create the vacuous assertion this replaces.
+# Fixture-local git identity per house rules; GITHUB_BASE_REF is already unset
+# at suite start. Nothing is ever committed and no remote is configured.
+seed_git_staged_source() {
+  mkdir -p "$FIXTURE/src"
+  printf '%s\n' 'def main():' '    return 0' > "$FIXTURE/src/main.py"
+  ( cd "$FIXTURE" \
+    && git init -q . \
+    && git config user.email "wp0-fixture@example.invalid" \
+    && git config user.name "WP0 Fixture" \
+    && git add src/main.py ) > "$FIXTURE/git.log" 2>&1
+}
+
+# The precondition W4/W4b assert before trusting their own result. An empty
+# staged set means check_commit_ready exits 0 upstream of everything those
+# tests claim to exercise — the failure mode must be LOUD, not a pass.
+fixture_has_staged_files() {
+  local staged
+  staged=$( cd "$FIXTURE" && git diff --cached --name-only 2>/dev/null || true )
+  [ -n "$staged" ]
+}
+
 # --- Runners (exit code is the ONLY signal) ----------------------------
 
 rc_checklist() {
@@ -190,16 +231,44 @@ w3_non_feat_allowed_at_phase4() {
 
 w4_check_commit_ready_is_inert_at_phase4() {
   # The reason the pin lives on check_commit_message. check_commit_ready's
-  # Build Loop arm is phase-2-only, so on THIS fixture — phase 4, no Build
-  # Loop — it lets the commit through. A pin written against it would pass
-  # vacuously and prove nothing. If this ever starts returning 1, the delta
-  # design's C3 reasoning has changed and must be re-derived, not "fixed".
-  new_fixture; seed_phase 4; seed_no_build_loop
-  local rc; rc=$(rc_checklist --check-commit-ready)
+  # Build Loop arm is phase-2-only, so on THIS fixture — phase 4, a STAGED
+  # SOURCE FILE, and a feat SUBJECT, i.e. every condition that would make the
+  # arm fire at phase 2 — it still lets the commit through. A pin written
+  # against it would enforce nothing in the delta era. If this ever starts
+  # returning 1, the delta design's C3 reasoning has changed and must be
+  # re-derived, not "fixed".
+  new_fixture; seed_phase 4; seed_no_build_loop; seed_git_staged_source
+  if ! fixture_has_staged_files; then
+    fail_ "W4" "fixture precondition failed — nothing staged, so check_commit_ready would exit 0 at its no-staged-files short-circuit and this assertion would be vacuous"
+    teardown; return
+  fi
+  local rc; rc=$(rc_checklist --check-commit-ready --subject "feat: add dark mode")
   if [ "$rc" = "0" ]; then
     pass "W4: check_commit_ready is INERT at phase 4 (rc=0) — pin target stays check_commit_message"
   else
-    fail_ "W4" "expected rc=0 (inert) from check_commit_ready at phase 4, got rc=$rc"
+    fail_ "W4" "expected rc=0 (phase fall-through) from check_commit_ready at phase 4, got rc=$rc"
+  fi
+  teardown
+}
+
+w4b_check_commit_ready_arm_is_reachable_at_phase2() {
+  # Anti-vacuity for W4, and the half that makes W4's rc=0 informative: the
+  # SAME fixture at phase 2 — where the arm IS live — is refused (rc=1,
+  # no Build Loop). That proves execution genuinely reaches the phase-scoped
+  # Build Loop arm on this fixture, so W4's rc=0 at phase 4 is the arm being
+  # SKIPPED and not an upstream short-circuit.
+  # Under the `-eq 2` -> `-ge 2` drift this stays green while W4 goes red,
+  # which is the whole point: measure the boundary from both sides.
+  new_fixture; seed_phase 2; seed_no_build_loop; seed_git_staged_source
+  if ! fixture_has_staged_files; then
+    fail_ "W4b" "fixture precondition failed — nothing staged, so check_commit_ready would exit 0 at its no-staged-files short-circuit and this assertion would be vacuous"
+    teardown; return
+  fi
+  local rc; rc=$(rc_checklist --check-commit-ready --subject "feat: add dark mode")
+  if [ "$rc" = "1" ]; then
+    pass "W4b: the same fixture at phase 2 IS refused (rc=1) — the arm is genuinely reached"
+  else
+    fail_ "W4b" "expected rc=1 at current_phase 2 (Build Loop arm live), got rc=$rc"
   fi
   teardown
 }
@@ -332,6 +401,7 @@ w1_feat_blocked_at_phase4
 w2_scoped_feat_blocked_at_phase4
 w3_non_feat_allowed_at_phase4
 w4_check_commit_ready_is_inert_at_phase4
+w4b_check_commit_ready_arm_is_reachable_at_phase2
 w5_sev1_open_blocks
 w6_sev2_open_blocks
 w7_sev2_deferred_blocks
