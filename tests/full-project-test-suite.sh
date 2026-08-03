@@ -1703,6 +1703,27 @@ run_child_suite "tests/test-delta-wp2-state-policy.sh" \
 # the waiver's absence and nothing else. Never executes init.sh -> both lanes.
 run_child_suite "tests/test-delta-wp3-era-classify.sh" \
   "tests/test-delta-wp3-era-classify.sh"
+# Delta Track WP4: the CLOSE flow — the per-class gate refusal (§5.2), the
+# gate-token vocabulary (policy-derived, so a project's retuned token is KNOWN
+# and only a typo fails closed), the close-time re-derivation and its RATCHET
+# (§4.2: raises and appends, never lowers), the RUBRIC BIND (§5.3 — the brief's
+# Done-observable checkboxes are the close review, and an unchecked box refuses
+# the close), and the ONE atomic seam write that appends to `closed` as the slot
+# nulls. Five refusal codes, told apart by CODE and never by label: 6 nothing
+# open, 7 gates outstanding, 8 rubric, 9 unknown token, 10 the ratchet added
+# obligations. Every PURE refusal leaves the whole tree byte-identical
+# (find-based manifest); the ratchet is the one refusal that records, and its
+# residue is bounded and asserted. Also carries R-WP3-3: the seam now refuses a
+# crafted active_delta REPLACEMENT (id swap) while still allowing every in-place
+# mutation. Mutation-proved IN THE SUITE (m1-m6, each mutant built and run):
+# drop the close-time re-derivation -> a delta grown to evolution closes on the
+# small checklist -> X1 RED; neuter the unchecked-box refusal -> B1 RED; null
+# the slot without appending -> the audit tail stays empty and the next open
+# REUSES the id -> W1/W2 RED; neuter the vocabulary check -> U1 RED; neuter the
+# outstanding-gates refusal -> C1 RED; neuter the seam's replacement atom -> R1
+# RED. Never executes init.sh -> both lanes.
+run_child_suite "tests/test-delta-wp4-close-rubric.sh" \
+  "tests/test-delta-wp4-close-rubric.sh"
 run_child_suite "tests/test-check-phase-gate.sh" "tests/test-check-phase-gate.sh"
 run_child_suite "tests/test-check-phase-gate-poc-block-contract.sh" \
   "tests/test-check-phase-gate-poc-block-contract.sh"

@@ -436,3 +436,51 @@ delta_classify_gates() {
   printf '%s\n' "$out"
   return 0
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# THE GATE-TOKEN VOCABULARY (§5.2) — what the close gate validates against
+# ─────────────────────────────────────────────────────────────────────────────
+
+# delta_classify_gate_vocabulary <project_root>
+#   Every gate token this project can legitimately carry, one per line, sorted
+#   and de-duplicated. Always rc 0.
+#
+#   WHY THIS IS A UNION AND NOT §5.2's TABLE. The obvious implementation is the
+#   thirteen tokens of §5.2, compiled in. It is wrong, and the repo already
+#   proves it wrong: tests/test-delta-wp3-era-classify.sh::G4 pins that a
+#   project may retune `attribute_toggles.risk_core` to `["second_reviewer"]`
+#   and get ITS gate materialised (§7.2 — "every key is overridable"). A close
+#   gate holding that project's own token against a framework table would
+#   refuse every close it ever attempts, and the operator's only escape would be
+#   to un-retune the policy the framework told them was theirs.
+#
+#   So the vocabulary is the UNION of two things:
+#     • THE FRAMEWORK FLOOR — §5.2's table, spelled out below. It is here so a
+#       project whose policy file omits a class row (or omits `classes`
+#       entirely) still recognises the tokens the framework's own defaults can
+#       produce, and so the floor is greppable from one place.
+#     • THE RESOLVED POLICY — every string under `classes.*.gates` and under
+#       `attribute_toggles.*`, read through delta_policy_get so a project value
+#       wins per key and an absent key falls back (§3.2).
+#
+#   WHAT IS STILL REFUSED, which is the point: a token that appears in NEITHER.
+#   That is a hand-edited state file or a typo in a policy edit — `close_reviw`
+#   would otherwise become a gate that can never be completed and never be
+#   questioned, because nothing else in the system reads these strings. It fails
+#   CLOSED at the close gate, named, which is the only place the operator is
+#   still able to act on it.
+delta_classify_gate_vocabulary() {
+  local root="${1:-.}" classes toggles
+  classes="$(delta_policy_get "$root" "classes")" || classes="{}"                    # DELTA-CLASSIFY-VOCAB-CLASSES
+  toggles="$(delta_policy_get "$root" "attribute_toggles")" || toggles="{}"          # DELTA-CLASSIFY-VOCAB-TOGGLES
+  {
+    # §5.2's table, read top to bottom. THE FRAMEWORK FLOOR.
+    printf '%s\n' \
+      brief brief_review ledger_row build_loop repro_test_red_first \
+      audit_row_at_open retro_review threat_model_refresh dependency_scan \
+      sbom_refresh flagged_release_note close_review changelog
+    printf '%s\n' "$classes" | jq -r '.[]?.gates[]? | select(type == "string")' 2>/dev/null || true
+    printf '%s\n' "$toggles" | jq -r '.[]?[]? | select(type == "string")' 2>/dev/null || true
+  } | sed '/^$/d' | LC_ALL=C sort -u
+  return 0
+}

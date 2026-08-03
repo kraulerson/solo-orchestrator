@@ -137,10 +137,16 @@ DELTA_STATE_EMPTY_EOF
 # WHAT IT DELIBERATELY DOES NOT ENFORCE — stated so the comment stops
 # over-claiming (R-WP2-3), because "refuses anything that violates the schema"
 # was never true:
-#   • THE SECOND-ACTIVATION REFUSAL IS WP3's, NOT THIS LAYER'S. Overwriting an
-#     OPEN active_delta (losing its gates_completed) is accepted here. §11-WP3
-#     owns open/confirm and owns that business-logic refusal; one-at-a-time is
-#     only structural until then. This is a recorded deferral, not an oversight.
+#   • THE SECOND-ACTIVATION REFUSAL IS WP3's, NOT THIS LAYER'S — it is the
+#     OPERATOR-FACING one, and scripts/delta.sh's DELTA-OPEN-ACTIVE-GUARD is
+#     where it lives, because only the caller can name the delta in the way and
+#     tell the operator what to do about it. SUPERSEDED IN PART BY WP4: the
+#     shape predicate still says nothing about active_delta beyond
+#     object-or-null, but the WRITE path now carries a narrow structural atom of
+#     its own — see _delta_state_active_is_not_replaced below, which refuses a
+#     candidate that swaps a DIFFERENT id into an occupied slot. Mutating the
+#     open delta in place stays fully allowed; that is what every legitimate
+#     write does.
 #   • cadence's INNER keys and date formats — §8.3/WP6 defines them.
 #   • hotfix_retros' ROW shape — §11-WP5 materialises those rows.
 #   • active_delta's inner fields — WP3/WP4 materialise them at open.
@@ -295,6 +301,62 @@ _delta_state_closed_is_ship_fill() {
   ' >/dev/null 2>&1
 }
 
+# ── THE `active_delta` REPLACEMENT REFUSAL (R-WP3-3, added in WP4) ───────────
+#
+# WHAT CHANGED, AND WHY THE DEFERRAL ABOVE IS NOW ONLY HALF TRUE. The "WHAT IT
+# DELIBERATELY DOES NOT ENFORCE" block says overwriting an OPEN active_delta is
+# accepted here because §11-WP3 owns the business refusal. WP3 delivered that
+# refusal — scripts/delta.sh's DELTA-OPEN-ACTIVE-GUARD — and an adversarial
+# review of it named the residual precisely: the guard lives in the CALLER, and
+# `--delta-state-update` is a GENERAL primitive, so a crafted filter still
+# replaces the open delta at the seam and takes its `gates_completed` with it.
+# The audit trail of everything already done is exactly what is lost, which is
+# the loss the WP3 guard exists to prevent — so the invariant belongs in both
+# places, and this is the second one.
+#
+# THE ATOM KEYS ON THE ID, NOT ON NULLNESS, AND THAT IS THE WHOLE DESIGN. The
+# two-character-shorter spelling — refuse every non-null -> non-null transition
+# — is WRONG, and wrong in a way that would have shipped green: every legitimate
+# write against an OPEN delta has that exact shape. `--complete-gate` appends to
+# `gates_completed`; WP4's close-time ratchet raises `attributes` and appends to
+# `gates_required`; WP5's retro arm will touch the row again. All of them keep
+# the id. Only a SWAP changes it, and only a swap is refused.
+#
+#   old.active_delta == null      -> allowed (an open)
+#   new.active_delta == null      -> allowed (a close)
+#   ids equal                     -> allowed (the delta mutating itself)
+#   ids differ                    -> REFUSED
+#
+# WHAT THIS ATOM DELIBERATELY DOES NOT ENFORCE, recorded in the same style as
+# the deferrals above rather than left as an unstated hole (found and assessed
+# by adversarial review, R-WP4-3):
+#   • IT PROTECTS IDENTITY, NOT CONTENT. A same-id write may gut the row —
+#     `.active_delta.gates_required = [] | .active_delta.gates_completed = []`
+#     is accepted, and the delta then closes with an empty archived checklist.
+#     That is consistent with D7 and is not a hole this layer should close: the
+#     file is the PROJECT's, a hand edit is exactly equivalent, and every
+#     legitimate caller mutates this row (see below), so a content predicate
+#     here would have to encode each caller's intent and would be a second copy
+#     of the business logic. The cheat is also legible after the fact — an empty
+#     `gates_completed` is archived into the audit tail rather than hidden.
+#   • A CANDIDATE WITH NO `id` reads as a differing id and is REFUSED, which is
+#     the fail-closed direction and is intentional.
+#
+# The tolerance branch mirrors the append rule's, for the same reason: a
+# previous file that is not a well-formed state document has no defensible open
+# delta to protect, and holding it against the candidate would let one bad hand
+# edit lock the single writer out of the only file it owns.
+_delta_state_active_is_not_replaced() {
+  local old="$1" new="$2"
+  jq -e "( $DELTA_STATE_SHAPE )" "$old" >/dev/null 2>&1 || return 0   # DELTA-STATE-ACTIVE-TOLERANT
+  jq -e -n --slurpfile o "$old" --slurpfile n "$new" '
+      ($o[0].active_delta) as $oa
+    | ($n[0].active_delta) as $na
+    | (true)
+      and (($oa == null) or ($na == null) or ($oa.id == $na.id))   # ACTIVE-ATOM-NO-REPLACE
+  ' >/dev/null 2>&1
+}
+
 # delta_state_write [project_root] [closed_rule]  < candidate-document-on-stdin
 #   THE atomic write. Reads a whole candidate document on stdin, validates it,
 #   and only then lets it become the state file.
@@ -337,6 +399,11 @@ delta_state_write() {
       if [ -f "$f" ] && ! _delta_state_closed_is_append "$f" "$target"; then
         rm -f "$target" 2>/dev/null || true
         printf '%s\n' "delta-state: refusing to write $f — 'closed' is an APPEND-ONLY audit tail and the candidate drops, reorders or rewrites an already-closed row. To record shipped_in on a closed delta, use the dedicated seam action --delta-state-ship. The previous file was NOT touched." >&2
+        return 1
+      fi
+      if [ -f "$f" ] && ! _delta_state_active_is_not_replaced "$f" "$target"; then
+        rm -f "$target" 2>/dev/null || true
+        printf '%s\n' "delta-state: refusing to write $f — the candidate swaps a DIFFERENT delta into an already-occupied active_delta slot, which would discard the open delta's gates_completed history. One delta at a time (§7.1). Close the open one first; the slot may be emptied, filled or mutated in place, but not replaced. The previous file was NOT touched." >&2
         return 1
       fi
       ;;
