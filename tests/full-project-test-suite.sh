@@ -567,6 +567,30 @@ run_child_suite "scripts/lint-delta-boundary.sh" \
   "No core -> delta dependency edge outside the one declared seam" \
   "Delta boundary lint found a core -> delta edge (see scripts/lint-delta-boundary.sh --list)"
 
+# Brownfield adoption WP0: tests/test-lint-module-dependencies.sh — behavior
+# suite for the module-dependency lint covering Scout and the adoption driver.
+# Pins both match tiers (literal manifest paths, then the path-shaped segment
+# tokens that catch variable composition), M5's scout-only zero-dependency arm
+# IN BOTH DIRECTIONS, the CORE surface, the core allowlist's cardinality-of-
+# ZERO, the reason-bearing inline allowlist, two vacuity floors, and — case by
+# case, atom by atom, in both the narrowing and the widening direction — the
+# executed-lines stripper whose sibling predicate re-opened the same hole three
+# times (CLAUDE.md, `# BL-181-UNIT-LANE-PREDICATE`). See
+# docs/module-contract.md and
+# docs/designs/2026-08-02-brownfield-adoption-v1.md §3.3.
+section "Module-dependency lint (brownfield severability backstop)"
+run_child_suite "tests/test-lint-module-dependencies.sh" \
+  "scripts/lint-module-dependencies.sh behavior tests" \
+  "scripts/lint-module-dependencies.sh behavior tests FAILED (run tests/test-lint-module-dependencies.sh for details)"
+
+# Brownfield adoption WP0: repo-wide lint invocation. Fails when a core file
+# names a brownfield-module path on an executed line (M3), or when a Scout file
+# names a core lib (M5) — the two fusions that would silently end the module's
+# severability and Scout's run-anywhere property.
+run_child_suite "scripts/lint-module-dependencies.sh" \
+  "No core -> module dependency edge, and the scanner depends on nothing" \
+  "Module-dependency lint found a violation (see scripts/lint-module-dependencies.sh --list)"
+
 # ----------------------------------------------------------------
 # TEST 0g: INTAKE WIZARD + RECONFIGURE FIELD HANDLERS
 # ----------------------------------------------------------------
