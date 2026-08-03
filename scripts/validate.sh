@@ -270,6 +270,70 @@ if [ -f ".claude/process-audit.log" ]; then
   fi
 fi
 
+# ── THE ERA ASSERTION — REPORT-ONLY BY CONSTRUCTION ──────────────────────────
+# SPEC: docs/designs/2026-08-02-delta-track-v1.md §10.1 (the invariant
+# `active_delta != null => current_phase == 4` and its SECOND enforcement point),
+# §11-WP3.
+#
+# The load-bearing enforcement of that invariant is a REFUSAL at open, in the
+# post-1.0 track's own front door, and it is not here. This is the other half:
+# §10.1 observes that this script "already reads phase-state.json::current_phase
+# and already warns on a phase/artifact mismatch", and that an open piece of
+# post-release work at phase < 4 "is that same class of inconsistency and belongs
+# in that same report."
+#
+# ── THE `[WARN]` TRAP, AND WHY THIS ARM CALLS `warn` AND NOT `fail` ──────────
+# CLAUDE.md's trap is that in check-phase-gate.sh the `[WARN]`/`[FAIL]` TEXT is
+# cosmetic — the exit predicate is a counter, so a "WARN" arm that increments it
+# BLOCKS, and two arms printing the same word can have opposite outcomes. This
+# script has the same shape: it ends `exit $errors`, `fail` increments `errors`,
+# and `warn` increments `warnings`, which nothing reads. So the choice of helper
+# IS the choice of exit behaviour, and this arm is deliberately REPORT-ONLY:
+#   • validate.sh is a drift report an operator runs voluntarily. Turning a
+#     recoverable state inconsistency into a non-zero exit here would fail
+#     pipelines that run it advisorily, for a condition the operator may be
+#     halfway through resolving.
+#   • The refusal that actually protects the invariant is unconditional and
+#     lives at open. This one only has to be SEEN.
+# tests/test-delta-wp3-era-classify.sh pins it in BOTH directions on the EXIT
+# CODE, never the label: the report fires, and the exit code is identical to the
+# same tree without the inconsistency. Its m5 mutation swaps this one `warn` for
+# `fail` and requires the exit-code-unchanged assertion to go RED.
+#
+# ── WHY THE READ IS A SEAM CALL AND NOT A `jq` ──────────────────────────────
+# This script is CORE. The post-1.0 track is a SEVERABLE MODULE (D1) and
+# scripts/lint-delta-boundary.sh forbids every core file from naming a module
+# path on an executed line (§3.3 clause 2, tier T1 — NOT inline-waivable), with a
+# file-level seam allowlist whose cardinality is asserted at exactly ONE. So the
+# obvious implementation — `jq -r '.active_delta.id' .claude/…` — is unavailable:
+# that JSON file is a T1 path, and naming it in a core file is precisely the
+# fusion the lint exists to stop. The read therefore routes core -> core through
+# the ONE seam, exactly as scripts/upgrade-project.sh's policy notice does; this
+# is the SECOND instance of that waived routing, which is expected and recorded.
+# The residue is the one waived line below: reaching the seam means naming a seam
+# ACTION FLAG, and every seam action carries the `delta-` prefix by design, which
+# is exactly what tier T2 scans for. T2 exists WITH a reason-required inline
+# waiver for this case. Do not rename the action to hide the prefix — that evades
+# the scan below the prefix boundary (§13-R15) and buys nothing.
+#
+# FAIL-SOFT: a framework without the module installed, an older vendored seam
+# that does not know the action, or a project with no record at all are all a
+# silent no-op. A validation report must never fail because an advisory read
+# could not be made.
+_postmvp_era_assertion() {
+  local seam="$SCRIPT_DIR/process-checklist.sh" doc="" open_id=""
+  [ -f "$seam" ] || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  [ "$phase" -lt 4 ] || return 0
+  doc=$( bash "$seam" --delta-state-read </dev/null 2>/dev/null ) || return 0   # lint-delta-boundary: allow core->core delegation to the ONE declared seam — this names the seam's action FLAG, never a module path (T1 is clean) and the seam allowlist stays at cardinality 1 (§3.1/§3.3)
+  [ -n "$doc" ] || return 0
+  open_id=$(printf '%s\n' "$doc" | jq -r '.active_delta.id // ""' 2>/dev/null || echo "")
+  [ -n "$open_id" ] || return 0
+  warn "Post-release work $open_id is recorded as open, but this project is at phase $phase — that work only exists after launch (phase 4). One of the two records is wrong."   # DELTA-ERA-REPORT-ONLY
+  return 0
+}
+_postmvp_era_assertion
+
 # ================================================================
 # 6. Approval Log Completeness
 # ================================================================

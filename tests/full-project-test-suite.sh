@@ -1662,6 +1662,23 @@ run_child_suite "tests/test-delta-wp0-inherited-predicates.sh" \
 # lint-delta-boundary rc=1. Copies init.sh (never executes it) -> both lanes.
 run_child_suite "tests/test-delta-wp2-state-policy.sh" \
   "tests/test-delta-wp2-state-policy.sh"
+# Delta Track WP3: the ERA INVARIANT (§10.1) — `active_delta != null =>
+# current_phase == 4` — at both of its enforcement points, plus the
+# second-activation refusal WP2 explicitly deferred here (§7.1), the §4.2
+# derivations in scripts/lib/delta-classify.sh, §5.2's gates_required
+# materialisation, and §4.3's confirm-not-quiz transcript. Exit codes only,
+# never labels: §10.1 repeats CLAUDE.md's [WARN] trap specifically for the
+# scripts/validate.sh arm, which is REPORT-ONLY and is pinned in BOTH
+# directions (the report fires; the exit code does not move). Mutation-proved
+# IN THE SUITE (m1-m6, each mutant built and run): neuter the phase refusal ->
+# an open at phase 2 succeeds -> E1 RED on the exit code; neuter the
+# second-activation refusal -> a double-open overwrites -> A1 RED; hardcode a
+# size threshold -> the policy-retune case D3 RED; drop an attribute_toggle
+# read -> risk:core stops adding brief_review -> G2 RED; swap the validate.sh
+# arm's warn for fail -> V1's exit-code-unchanged pin RED; a near-miss waiver
+# spelling -> the boundary lint reds. Never executes init.sh -> both lanes.
+run_child_suite "tests/test-delta-wp3-era-classify.sh" \
+  "tests/test-delta-wp3-era-classify.sh"
 run_child_suite "tests/test-check-phase-gate.sh" "tests/test-check-phase-gate.sh"
 run_child_suite "tests/test-check-phase-gate-poc-block-contract.sh" \
   "tests/test-check-phase-gate-poc-block-contract.sh"
