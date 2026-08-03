@@ -400,6 +400,7 @@ jobs:
             tests/test-lint-backlog-references.sh
             tests/test-lint-bl-markers.sh
             tests/test-lint-counter-antipattern.sh
+            tests/test-lint-delta-boundary.sh
             tests/test-lint-diagnostic-destruction.sh
             tests/test-lint-doc-anchors.sh
             tests/test-lint-fix-functions-stderr.sh

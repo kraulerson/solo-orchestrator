@@ -17,9 +17,10 @@
 #
 # Every job here is a PAIR of steps: a GATING step that runs the lint and
 # fails the job, and an INVENTORY step that re-runs the SAME lint with
-# `--list` to print the per-file PASS/FAIL roster. There are ELEVEN such
-# pairs — one per job; BL-197's diagnostic-destruction-lint was the tenth
-# and BL-196's bl-markers-lint is the eleventh —
+# `--list` to print the per-file PASS/FAIL roster. There are TWELVE such
+# pairs — one per job; BL-197's diagnostic-destruction-lint was the tenth,
+# BL-196's bl-markers-lint the eleventh, and the delta track's D1
+# delta-boundary-lint the twelfth —
 # and under `if: always()` the inventory step re-ran
 # the full scan on GREEN runs too, where nobody reads it. That doubled
 # every lint job. Measured on the counter-antipattern job (run 30297887996,
@@ -320,3 +321,34 @@ jobs:
       - name: Show PASS/FAIL inventory (on failure)
         if: failure()
         run: bash scripts/lint-bl-markers.sh --list || true
+
+  # Delta track (D1): the dependency-direction boundary lint. The delta track
+  # is a SEVERABLE module — delta may import core, core may never import delta
+  # — and settled decision D1 requires that boundary lint-enforced FROM THE
+  # FIRST COMMIT, because a severable module stops being severable one
+  # convenience call at a time and no test fails when it does. Two match tiers
+  # (literal module paths, then the bare `delta-` prefix that catches the
+  # variable-composition family), a seam allowlist whose cardinality is
+  # asserted at exactly one, and a vacuity floor that exits 2 rather than let a
+  # collapsed scan report a pass. See scripts/lint-delta-boundary.sh header and
+  # docs/designs/2026-08-02-delta-track-v1.md §3.3 for the spec, and
+  # tests/test-lint-delta-boundary.sh for the behavior suite (incl. the
+  # cardinality and empty-manifest mutations).
+  #
+  # NOT a required status check — adding this job does not make it one.
+  # Branch protection is Karl's call and is deliberately untouched here. Same
+  # job-name-is-required-check convention as the jobs above: if it IS promoted,
+  # keep the name stable.
+  delta-boundary-lint:
+    name: delta-boundary-lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (v7.0.1)
+
+      - name: Lint the core -> delta dependency direction (D1)
+        run: bash scripts/lint-delta-boundary.sh
+
+      - name: Show PASS/FAIL inventory (on failure)
+        if: failure()
+        run: bash scripts/lint-delta-boundary.sh --list || true
