@@ -349,33 +349,47 @@ echo ""
 echo "=== R — READ-ONLY, proven by tree hash over the whole fixture ==="
 # ════════════════════════════════════════════════════════════════════════════
 
+# BOTH R-cases build their OWN fixture rather than reusing one an earlier case
+# already scanned, and that independence is not tidiness — it is the proof.
+# verify_init's `ensure_state_file` is CREATE-IF-MISSING. Point a mutant
+# carrying it at a tree some earlier case has already scanned and the file is
+# already there: the `before` hash includes it, the write is idempotent, and
+# the case passes while the scanner writes to the operator's repository on
+# every run. Measured, not theorised — an earlier cut of R2 reused the node
+# fixture and stayed GREEN under the X2 mutation for exactly that reason.
+SIDE=$(newtmp)
+
 # ── R1: a BARE (non-git) fixture is byte-identical after every mode ─────────
-before=$(_tree_hash "$BARE")
-scout_json "$BARE" >/dev/null
-scout_md   "$BARE" >/dev/null
-SIDE=$(newtmp); bash "$SCOUT" --root "$BARE" --out "$SIDE" </dev/null >/dev/null 2>&1
-after=$(_tree_hash "$BARE")
+R1F=$(newtmp); mk_bare_fixture "$R1F"
+before=$(_tree_hash "$R1F")
+scout_json "$R1F" >/dev/null
+scout_md   "$R1F" >/dev/null
+bash "$SCOUT" --root "$R1F" --out "$SIDE" </dev/null >/dev/null 2>&1
+after=$(_tree_hash "$R1F")
 if [ "$before" = "$after" ]; then
   pass "R1: bare fixture unchanged after json + markdown + --out runs (tree hash equal)"
 else
-  fail_ "R1" "tree hash changed: $before -> $after\n$(diff <(_tree_manifest "$BARE") /dev/null | head -20)"
+  _tree_manifest "$R1F" > "$SIDE/r1-after.txt"
+  fail_ "R1" "tree hash changed: $before -> $after\nafter-manifest:\n$(head -20 "$SIDE/r1-after.txt")"
 fi
 
 # ── R2: a GIT fixture is byte-identical, `.git/` included ───────────────────
 # This is the case that would catch the extracted verify_init's writes: the
-# original appends to .claude/process-state.json on every passing probe, and
-# the node fixture makes four of the five probes pass.
-_tree_manifest "$NODE" > "$SIDE/node-before.txt"
-before=$(_tree_hash "$NODE")
-scout_json "$NODE" >/dev/null
-scout_md   "$NODE" >/dev/null
-bash "$SCOUT" --root "$NODE" --out "$SIDE" </dev/null >/dev/null 2>&1
-after=$(_tree_hash "$NODE")
+# original appends to .claude/process-state.json on every passing probe, and a
+# node-shaped fixture makes four of the five probes pass — the maximum write
+# pressure the original applies.
+R2F=$(newtmp); mk_node_fixture "$R2F"
+_tree_manifest "$R2F" > "$SIDE/r2-before.txt"
+before=$(_tree_hash "$R2F")
+scout_json "$R2F" >/dev/null
+scout_md   "$R2F" >/dev/null
+bash "$SCOUT" --root "$R2F" --out "$SIDE" </dev/null >/dev/null 2>&1
+after=$(_tree_hash "$R2F")
 if [ "$before" = "$after" ]; then
   pass "R2: git fixture unchanged (.git/ included) after json + markdown + --out runs"
 else
-  _tree_manifest "$NODE" > "$SIDE/node-after.txt"
-  fail_ "R2" "tree hash changed: $before -> $after\n$(diff "$SIDE/node-before.txt" "$SIDE/node-after.txt" | head -20)"
+  _tree_manifest "$R2F" > "$SIDE/r2-after.txt"
+  fail_ "R2" "tree hash changed: $before -> $after\n$(diff "$SIDE/r2-before.txt" "$SIDE/r2-after.txt" | head -20)"
 fi
 
 # ── R3: the recipe is not vacuous — it detects a one-byte write ─────────────
