@@ -1724,6 +1724,26 @@ run_child_suite "tests/test-delta-wp3-era-classify.sh" \
 # RED. Never executes init.sh -> both lanes.
 run_child_suite "tests/test-delta-wp4-close-rubric.sh" \
   "tests/test-delta-wp4-close-rubric.sh"
+# Delta Track WP5: the HOTFIX FAST LANE and the RETRO LEDGER that collateralises
+# it (§5.2). A hotfix materialises exactly the §5.2 row and nothing heavier; the
+# audit row is written AT OPEN (a hotfix that never closes still left its
+# trace); `hotfix_retros[]` is appended AT OPEN with due_by = shipped_at +
+# `classes.hotfix.retro_due_days` read from policy; and — the property the whole
+# suite exists for — THE RETRO OUTLIVES THE DELTA'S CLOSE, because a hotfix
+# ships fast by borrowing rigor and the retro is the repayment. `--retro` files
+# the write-up, write-once. scripts/lib/delta-cadence.sh ships the overdue
+# predicates §9.2's release refusal will call (WP7), and an UNREADABLE due_by is
+# OVERDUE, never silently current — BL-213's fail-open class, refused, asserted
+# on the exit code. Mutation-proved IN THE SUITE (m1-m6, each mutant built and
+# run): suppress the retro-row append -> a hotfix ships owing nothing -> L1 RED;
+# make the close ALSO close the retro -> the loan is forgiven the instant it is
+# taken out -> S1 RED; neuter the fail-closed date arm -> O2 RED on the exit
+# code; neuter the write-once guard -> a second write-up reports success and is
+# discarded -> T2 RED; hardcode the retro window -> L2 RED; waive retro_review
+# unconditionally -> a hotfix closes with no collateral -> S2 RED. Never
+# executes init.sh -> both lanes.
+run_child_suite "tests/test-delta-wp5-hotfix-retro.sh" \
+  "tests/test-delta-wp5-hotfix-retro.sh"
 run_child_suite "tests/test-check-phase-gate.sh" "tests/test-check-phase-gate.sh"
 run_child_suite "tests/test-check-phase-gate-poc-block-contract.sh" \
   "tests/test-check-phase-gate-poc-block-contract.sh"
