@@ -1287,6 +1287,17 @@ show_status() {
   local bl_total=${#BUILD_LOOP_STEPS[@]}
   echo "  Feature: $feature"
   echo "  Progress: $bl_completed/$bl_total steps"
+  # WALK-ISSUE-010-STATUS: with no active loop, "Feature: none" used to be the
+  # WHOLE story — an operator who had just closed a loop could not tell whether
+  # their finished feature could still be committed. Name the receipt.
+  if [ "$feature" = "none" ]; then
+    local bl_last
+    bl_last=$(jq -r '.build_loop.last_completed.feature // ""' "$PROCESS_STATE" 2>/dev/null) || bl_last=""
+    if [ -n "$bl_last" ]; then
+      echo "  Last completed: \"$bl_last\" — its own feat: commits are still authorized;"
+      echo "                  a DIFFERENT feature needs --start-feature first."
+    fi
+  fi
   if [ "$bl_completed" -lt "$bl_total" ]; then
     echo "  Remaining:"
     for step in "${BUILD_LOOP_STEPS[@]}"; do

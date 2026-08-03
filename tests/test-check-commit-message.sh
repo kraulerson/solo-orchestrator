@@ -352,6 +352,17 @@ JSON
   teardown
 }
 
+u24_status_names_the_closed_loop() {
+  setup; seed_phase 2; seed_ready_to_record "find-in-document"
+  local rc; rc=$(record_feature)
+  [ "$rc" = "0" ] || { fail_ "U24" "--complete-step failed (rc=$rc)"; teardown; return; }
+  local out
+  out=$( cd "$TMPDIR_T" && "$REPO_ROOT/scripts/process-checklist.sh" --status 2>&1 ) || true
+  [[ "$out" == *"find-in-document"* ]] || { fail_ "U24" "--status shows only 'Feature: none' after a loop closes — the operator cannot tell whether the finished feature is still committable: $(printf '%s' "$out" | head -12 | tr '\n' ' ')"; teardown; return; }
+  pass "U24: --status names the closed loop's feature, so 'Feature: none' is not the whole story"
+  teardown
+}
+
 u23_block_message_names_the_verification() {
   setup; seed_phase 2; seed_process_state null ""
   local out; out=$(run_check "feat(x): foo")
@@ -386,6 +397,7 @@ u20_closed_loop_blocks_other_features
 u21_closed_loop_token_match
 u22_closed_loop_needs_all_five_steps
 u23_block_message_names_the_verification
+u24_status_names_the_closed_loop
 
 echo ""
 echo "== Total: $((PASSED + FAILED)) | Passed: $PASSED | Failed: $FAILED =="
