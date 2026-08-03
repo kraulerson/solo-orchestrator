@@ -1399,6 +1399,46 @@ else
   fail_ "Cw6-remedy" "no hard-enforcement credential named in:$w6_noremedy"
 fi
 
+# ── Cw16 (walk 2026-08-02 ISSUE-016): the tag-deploy environment trap ───────
+# The emitted release.yml is TAG-triggered, and enabling GitHub Pages
+# auto-creates a `github-pages` environment whose default deployment branch
+# policy admits the DEFAULT BRANCH ONLY — so `git push --tags` is rejected
+# before any step runs (empty step list, no readable error). The workflow
+# cannot self-diagnose it (a rejected run starts no job), so the template's
+# job is to NAME the trap and point at the check that can run. Pinned here
+# because a comment is the only thing standing between a first-time releaser
+# and an unreadable failure — and because the pointer must resolve:
+# Cw16-subcommand asserts the named subcommand actually dispatches.
+echo "Cw16: the web release template names the tag-deploy environment trap + a runnable check"
+REL_WEB_W16="$REPO_ROOT/templates/pipelines/release/github/web.yml"
+CHECK_GATE_W16="$REPO_ROOT/scripts/check-gate.sh"
+if [ -f "$REL_WEB_W16" ] && [ -f "$CHECK_GATE_W16" ]; then
+  pass "Cw16-floor (release/github/web.yml + scripts/check-gate.sh present)"
+else
+  fail_ "Cw16-floor" "a Cw16 target file is missing — the cases below would be vacuous"
+fi
+if grep -Eq '^[[:space:]]*#.*walk ISSUE-016' "$REL_WEB_W16"; then
+  pass "Cw16-block (the tag-deploy/environment trap is documented at the trigger, as a comment)"
+else
+  fail_ "Cw16-block" "release/github/web.yml does not name the walk ISSUE-016 tag-deploy environment trap"
+fi
+w16_missing=""
+grep -Fq 'deployment-branch-policies' "$REL_WEB_W16" || w16_missing="$w16_missing api-path"
+grep -Fq -- '--release-env-policy' "$REL_WEB_W16"    || w16_missing="$w16_missing subcommand"
+grep -Fq "type='tag'" "$REL_WEB_W16"                 || w16_missing="$w16_missing tag-type"
+if [ -z "$w16_missing" ]; then
+  pass "Cw16-remedy (names the API path, the tag policy type, and the runnable check)"
+else
+  fail_ "Cw16-remedy" "release/github/web.yml is missing:$w16_missing"
+fi
+# The pointer must RESOLVE — a comment naming a subcommand that check-gate.sh
+# does not dispatch is worse than no comment.
+if grep -Eq '^[[:space:]]*--release-env-policy\)' "$CHECK_GATE_W16"; then
+  pass "Cw16-subcommand (check-gate.sh actually dispatches --release-env-policy)"
+else
+  fail_ "Cw16-subcommand" "the template points at scripts/check-gate.sh --release-env-policy but check-gate.sh does not dispatch it"
+fi
+
 echo ""
 if [ "${SKIPPED:-0}" -gt 0 ]; then
   echo "!! ${SKIPPED} case(s) SKIPPED — skipped != passed."

@@ -7,6 +7,28 @@ name: Release — __PROJECT_NAME__
 # Light-track projects: this pipeline is optional for internal-only use.
 # ─────────────────────────────────────────────────────────────────
 
+# ─────────────────────────────────────────────────────────────────
+# TAG DEPLOYS vs DEPLOYMENT ENVIRONMENTS (walk ISSUE-016) — read this BEFORE
+# your first `git push --tags`, not after it fails.
+# This workflow is TAG-triggered. If your deploy step targets a GitHub
+# deployment ENVIRONMENT (`environment:` on the job — GitHub Pages is the
+# common case), the environment's deployment BRANCH POLICY decides whether a
+# tag may deploy at all. Enabling Pages auto-creates a `github-pages`
+# environment that admits the DEFAULT BRANCH ONLY, so a tag-triggered run is
+# rejected by the protection rules BEFORE any step executes: the run fails at
+# job setup with an EMPTY step list and no readable error in `gh run view`.
+# There is no in-workflow fix — a rejected run never starts a job, so a
+# preflight step here could never execute. Check it from your workstation
+# before you tag:
+#     scripts/check-gate.sh --release-env-policy          # report
+#     scripts/check-gate.sh --release-env-policy --fix    # apply
+# The one-line manual equivalent:
+#     gh api -X POST repos/OWNER/REPO/environments/github-pages/deployment-branch-policies \
+#       -f name='v*' -f type='tag'
+# See docs/platform-modules/web.md § "Releasing — tag deploys and deployment
+# environments".
+# ─────────────────────────────────────────────────────────────────
+
 on:
   push:
     tags: ['v*']
