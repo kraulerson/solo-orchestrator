@@ -219,6 +219,51 @@ jobs:
         # project templates float too, sequenced behind BL-198 — see BL-201.
         run: pip install semgrep
 
+      - name: Install gitleaks (pinned + checksum-verified)
+        # R-WP2-1. WITHOUT THIS STEP THE BROWNFIELD LEAK PROOF GATES NOTHING.
+        # The ubuntu runner image does NOT ship gitleaks, and
+        # tests/test-brownfield-wp2-scout-sections.sh degrades its twelve
+        # gitleaks-gated cases — the §6.5 planted-secret byte-absence proof AND
+        # all four mutation proofs — to a loud SKIP. Loud in the log, and still
+        # exit 0: a green required check credited with a proof that never ran.
+        # That is the silent-success class one level up, sitting on the highest-
+        # stakes property in the brownfield design, whose failure mode is a
+        # leaked credential in a committed file. The suite's own CI arm now
+        # FAILS when gitleaks is missing and CI is set, so this step is not
+        # optional — remove it and the lane goes red rather than quietly blind.
+        #
+        # PINNED, unlike semgrep two steps up, and the difference is deliberate.
+        # BL-192's reasoning for floating semgrep is that a stale SCANNER stops
+        # catching new vulnerabilities — it is used there as a live detector.
+        # gitleaks is used here as a FIXTURE ORACLE: the suite asserts exact
+        # finding counts, an exact 18-field report shape, and the precise
+        # BASE32 rule behaviour that makes the plants valid. A floating version
+        # that changed its report schema or its aws-access-token rule would not
+        # find new secrets in this repository — it would silently invalidate
+        # the proof's fixtures. 8.30.1 is the version every fixture fact in
+        # §13-V3 and in the WP2 suite was verified against.
+        #
+        # The checksum is the release's own published value for this asset,
+        # confirmed by downloading the tarball and hashing it (2026-08-03).
+        # Verifying it means a replaced release asset breaks the lane instead
+        # of silently changing what the proof runs against.
+        env:
+          GITLEAKS_VERSION: "8.30.1"
+          GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+        run: |
+          set -euo pipefail
+          url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL --retry 3 -o /tmp/gitleaks.tar.gz "$url"
+          # NOT `sha256sum -c` (R-WP2-6): a malformed pin makes that spelling
+          # warn and exit 0, silently verifying nothing. The script computes and
+          # compares in the shell, rejects a badly-formed value on EITHER side,
+          # and — being a script — has its failure modes executed by the K cases
+          # in tests/test-brownfield-wp2-scout-sections.sh.
+          bash scripts/ci-verify-sha256.sh /tmp/gitleaks.tar.gz "${GITLEAKS_SHA256}"
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
       - name: Run fast unit tests — shard ${{ matrix.shard }}
         env:
           SHARD: ${{ matrix.shard }}
@@ -458,6 +503,7 @@ jobs:
             tests/test-validate-phase-2-3-gate.sh
             tests/test-validate-phase-state-gates.sh
             tests/test-walk-phase-lifecycle.sh
+            tests/test-brownfield-wp2-scout-sections.sh
             tests/host-drivers/error-translate.test.sh
           )
 
@@ -735,6 +781,33 @@ jobs:
         # filesystem gate would silently degrade to the fallback driver.
         # Install failure fails the shard LOUDLY rather than quietly downgrading.
         run: sudo apt-get update && sudo apt-get install -y expect
+
+      - name: Install gitleaks (pinned + checksum-verified)
+        # R-WP2-1, full-lane half. This lane reaches the same suite through
+        # tests/full-project-test-suite.sh, on the same runner image that does
+        # not ship gitleaks — so the twelve gitleaks-gated cases were skipping
+        # here too. Since the suite now FAILS rather than skips when gitleaks
+        # is absent and CI is set, this step is REQUIRED for the lane to pass;
+        # it is not a nice-to-have that can be dropped to save 2 seconds.
+        # Pinned for the same fixture-oracle reason as the unit-shard copy —
+        # see the long comment on that step; 8.30.1 is the version every WP2
+        # fixture fact was verified against.
+        env:
+          GITLEAKS_VERSION: "8.30.1"
+          GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+        run: |
+          set -euo pipefail
+          url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL --retry 3 -o /tmp/gitleaks.tar.gz "$url"
+          # NOT `sha256sum -c` (R-WP2-6): a malformed pin makes that spelling
+          # warn and exit 0, silently verifying nothing. The script computes and
+          # compares in the shell, rejects a badly-formed value on EITHER side,
+          # and — being a script — has its failure modes executed by the K cases
+          # in tests/test-brownfield-wp2-scout-sections.sh.
+          bash scripts/ci-verify-sha256.sh /tmp/gitleaks.tar.gz "${GITLEAKS_SHA256}"
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
 
       - name: Run shard — ${{ matrix.shard }}
         # SKIP_KNOWN_FAILING left unset -> 0, so known-RED guards still run.

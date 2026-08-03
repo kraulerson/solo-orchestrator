@@ -613,6 +613,31 @@ run_child_suite "tests/test-brownfield-wp1-scout.sh" \
   "Scout read-only scanner (stack, phaseMap, reality)" \
   "Scout scanner tests FAILED (run tests/test-brownfield-wp1-scout.sh for details)"
 
+# Brownfield adoption WP2: tests/test-brownfield-wp2-scout-sections.sh — the
+# remaining four report sections (§8.2 secrets / collisions / testsBaseline /
+# intakePrefill), and the package where a defect is worst: its failure mode is
+# a leaked credential in a committed file.
+# THE PLANTED-SECRET PROOF (§6.5) is the reason this suite exists. Four
+# BASE32-valid synthetic AWS keys are planted — one in a DIFF, one in a COMMIT
+# MESSAGE, one carrying that message's commit so the message reaches the report
+# at all, and one inside a git hook — and NONE of them may occur in any byte of
+# any artifact Scout writes, temp residue included. The non-zero finding count
+# on the diff plant is asserted FIRST, because a dud plant (a non-BASE32
+# character, or the allowlisted AKIAIOSFODNN7EXAMPLE) yields zero findings and
+# makes every later assertion pass for the wrong reason.
+# Mutation-proved IN THE SUITE: dropping --redact alone leaves the artifacts
+# clean (the allowlist holds); adding Secret/Match to the allowlist alone
+# leaves them clean (--redact holds); doing BOTH leaks the diff plant; and
+# replacing the allowlist with the tool's full 18-field report — ONE line, with
+# --redact still on — leaks the COMMIT MESSAGE plant, which is C7 and the
+# mutation that matters. gitleaks is detected, and a skip is LOUD: the tally
+# line reports it and the suite prints a banner, because a silently-skipped
+# planted-secret proof is the defect class this package is written against.
+# Never touches the scaffolder -> both lanes.
+run_child_suite "tests/test-brownfield-wp2-scout-sections.sh" \
+  "Scout secrets/collisions/tests/prefill (planted-secret allowlist proof)" \
+  "Scout WP2 section tests FAILED (run tests/test-brownfield-wp2-scout-sections.sh for details)"
+
 # ----------------------------------------------------------------
 # TEST 0g: INTAKE WIZARD + RECONFIGURE FIELD HANDLERS
 # ----------------------------------------------------------------
