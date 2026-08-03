@@ -1335,6 +1335,70 @@ if [ "$cp2_bad" -eq 0 ]; then
   pass "Cp2-all-pinned (every action-bearing RELEASE_SETUP_ACTION is SHA-pinned + commented)"
 fi
 
+# ── Cw6 (walk 2026-08-02 ISSUE-006): the phase-gate CREDENTIAL comment block ─
+# The gate's Phase 1→2 backstop verifies branch protection through an
+# AUTHENTICATED host API read that no generated runner can perform: Actions
+# exports no token into a step env (and the built-in GITHUB_TOKEN cannot read
+# protection at all — no `administration` key in `permissions:`), and the
+# gitlab/bitbucket governance jobs install only jq+git. That made the
+# governance job STRUCTURALLY unpassable on the framework's own default happy
+# path. `# WALK-ISSUE-006-CI-PROTECTION-SCOPE` converts that ONE check to a
+# loud WARN in credential-less CI; this case pins the OTHER half — the emitted
+# workflow has to SAY so, and has to name the token that re-arms hard
+# enforcement. A silent exemption is how a downgraded check becomes a
+# forgotten check.
+#   Cw6-floor       every CI template across the three hosts runs the gate
+#   Cw6-block       each carries the signature line, AS A COMMENT
+#   Cw6-honest      each says UNVERIFIED (never "verified") about the skip
+#   Cw6-remedy      each names its host's hard-enforcement credential
+echo "Cw6: every CI template that runs check-phase-gate.sh explains the credential model"
+CPG_FILES=()
+for f in "${GH_FILES[@]}" "${GL_FILES[@]}" "${BB_FILES[@]}"; do
+  # executable invocation only — a commented-out gate line is not a gate
+  grep -Eq '^[^#]*bash scripts/check-phase-gate\.sh' "$f" && CPG_FILES+=("$f")
+done
+CPG_COUNT=${#CPG_FILES[@]}
+if [ "$CPG_COUNT" -ge 30 ]; then
+  pass "Cw6-floor ($CPG_COUNT CI templates execute check-phase-gate.sh, floor 30)"
+else
+  fail_ "Cw6-floor" "only $CPG_COUNT CI templates execute check-phase-gate.sh (floor 30) — derivation is vacuous"
+fi
+w6_noblock=""; w6_nothonest=""; w6_noremedy=""
+if [ "$CPG_COUNT" -gt 0 ]; then
+  for f in "${CPG_FILES[@]}"; do
+    # The signature must sit on a COMMENT line: an executable line that
+    # happened to contain the phrase must not satisfy the pin.
+    grep -Eq '^[[:space:]]*#[[:space:]]*PHASE-GATE CREDENTIALS \(walk ISSUE-006\)' "$f" \
+      || w6_noblock="$w6_noblock ${f#*/ci/}"
+    grep -Eq '^[[:space:]]*#.*UNVERIFIED' "$f" \
+      || w6_nothonest="$w6_nothonest ${f#*/ci/}"
+    case "$f" in
+      */ci/github/*)    _w6_tok='GH_TOKEN' ;;
+      */ci/gitlab/*)    _w6_tok='GITLAB_TOKEN' ;;
+      */ci/bitbucket/*) _w6_tok='BITBUCKET_API_TOKEN' ;;
+      *)                _w6_tok='' ;;
+    esac
+    if [ -n "$_w6_tok" ]; then
+      grep -Eq "^[[:space:]]*#.*$_w6_tok" "$f" || w6_noremedy="$w6_noremedy ${f#*/ci/}"
+    fi
+  done
+fi
+if [ -z "$w6_noblock" ]; then
+  pass "Cw6-block (all $CPG_COUNT templates carry the credential comment block)"
+else
+  fail_ "Cw6-block" "no '# PHASE-GATE CREDENTIALS (walk ISSUE-006)' comment in:$w6_noblock"
+fi
+if [ -z "$w6_nothonest" ]; then
+  pass "Cw6-honest (each block calls the skipped check UNVERIFIED, never verified)"
+else
+  fail_ "Cw6-honest" "the block never says UNVERIFIED — a skip that reads as a pass — in:$w6_nothonest"
+fi
+if [ -z "$w6_noremedy" ]; then
+  pass "Cw6-remedy (each block names its host's hard-enforcement credential)"
+else
+  fail_ "Cw6-remedy" "no hard-enforcement credential named in:$w6_noremedy"
+fi
+
 echo ""
 if [ "${SKIPPED:-0}" -gt 0 ]; then
   echo "!! ${SKIPPED} case(s) SKIPPED — skipped != passed."

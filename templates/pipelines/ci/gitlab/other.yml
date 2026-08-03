@@ -21,4 +21,12 @@ governance:
   stage: governance
   script:
     - apk add --no-cache jq git
+    # PHASE-GATE CREDENTIALS (walk ISSUE-006): the Phase 1-2 branch-protection backstop needs a host API token this runner does not have.
+    # This job installs only jq+git: there is no `glab` client, and CI_JOB_TOKEN
+    # cannot read protected-branch settings. So that ONE check prints a loud
+    # [WARN] "could NOT run" here instead of failing the job. It is UNVERIFIED on
+    # this runner, NOT satisfied, and it still BLOCKS on the dev workstation
+    # (scripts/check-gate.sh --preflight).
+    # For HARD enforcement in CI, add a masked CI/CD variable GITLAB_TOKEN (a PAT
+    # with `api` scope) and install glab in this job — the backstop blocks again.
     - bash scripts/check-phase-gate.sh

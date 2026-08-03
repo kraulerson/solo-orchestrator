@@ -134,6 +134,18 @@ jobs:
           fi
 
       - name: Governance - Phase gate check
+        # PHASE-GATE CREDENTIALS (walk ISSUE-006): the Phase 1-2 branch-protection backstop needs a host API token this runner does not have.
+        # GitHub Actions exports NO token into a step environment, and even a mapped
+        # secrets.GITHUB_TOKEN cannot read branch protection — the workflow
+        # `permissions:` block has no `administration` key. So that ONE check prints a
+        # loud [WARN] "could NOT run" here instead of failing the job. It is
+        # UNVERIFIED on this runner, NOT satisfied, and it still BLOCKS on the dev
+        # workstation (scripts/check-gate.sh --preflight).
+        # For HARD enforcement in CI, hand it a token that CAN read protection — a
+        # fine-grained PAT / GitHub App token with admin read, never
+        # secrets.GITHUB_TOKEN — and the backstop blocks here again:
+        #   env:
+        #     GH_TOKEN: ${{ secrets.PROTECTION_READ_TOKEN }}
         if: hashFiles('.claude/phase-state.json') != ''
         run: bash scripts/check-phase-gate.sh 2>/dev/null || echo "Phase gate check script not found — skipping"
 
