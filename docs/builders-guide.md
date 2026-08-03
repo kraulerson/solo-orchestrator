@@ -1126,6 +1126,10 @@ During the Phase 2 initialization steps above, some scaffolding work produces co
 
 **Mechanical enforcement.** This rule is enforced by the pre-commit gate: any `git commit` with a message subject starting with `feat`, `feat(scope)`, `feat!`, or `feat(scope)!` is blocked unless a Build Loop is active and its first five steps (`tests_written`, `tests_verified_failing`, `implemented`, `security_audit`, `documentation_updated`) are complete. Non-feature scaffolding — tooling, CI, build configs — should use the correct Conventional Commits type (`chore:`, `build:`, `ci:`, `docs:`), which the gate does not enforce against. See `docs/superpowers/specs/2026-04-23-build-loop-precommit-enforcement-design.md` for the full design.
 
+**Committing after `feature_recorded` (step 6) is fine.** Completing step 6 *closes* the loop and clears `build_loop` — the next feature must start its own. It does not strand the feature you just finished: the checklist keeps a receipt of the closed loop, and the gate still accepts commits **that name that feature** (`feat(<feature-name>): …`, or any whole word of the name in the scope or the description). A `feat:` commit for a *different* feature is blocked, as it always was. So both orderings work — commit while the loop is open, or close the loop and then commit — and neither one paints you into a corner. (Walkthrough 2026-08-02, ISSUE-010: before this, closing the loop before committing made the feature's own commit impossible.)
+
+**Verify every commit actually landed.** A blocked commit prints its reason and exits non-zero — and `git commit … | tail -5` can scroll that reason away and leave you believing the work was saved. The same walkthrough lost four commits that way. Never pipe `git commit`; after committing, confirm with `git log -1 --oneline`.
+
 ---
 
 ### Scripted / Non-Interactive Project Initialization
@@ -1226,13 +1230,31 @@ After verifying tests fail: `scripts/process-checklist.sh --complete-step build_
 
 #### Step 2.4 — Security & Quality Audit
 
-1. Run SAST:
+1. Run SAST — **the same rule set your pre-commit gate enforces, plus the audit pack:**
    ```bash
-   semgrep scan --config=p/owasp-top-ten --config=p/security-audit src/
+   semgrep scan --config=p/owasp-top-ten \
+     --config=p/security-audit \
+     --config=r/javascript.browser.security.insecure-document-method \
+     --config=.semgrep/soif-dom-sinks.yml \
+     --max-target-bytes=0 \
+     src/
    ```
 
+   > **Why the extra configs.** The generated pre-commit hook scans staged files with
+   > `p/owasp-top-ten` **plus** the browser DOM-sink pack **plus** the project's own
+   > `.semgrep/soif-dom-sinks.yml` (BL-118 / BL-131 — the rules that catch
+   > `innerHTML`, `document.write`, `insertAdjacentHTML` and friends), and disables
+   > semgrep's 1 MB file-size filter. An audit command narrower than the gate gives you
+   > a clean audit and then a blocked commit on a finding the audit never ran — that is
+   > exactly what happened on the 2026-08-02 walkthrough (ISSUE-009). Keep this command
+   > in step with the hook: the authority is the emitted `.git/hooks/pre-commit`
+   > (framework side: the `# BL-194-HOOK-SEMGREP-POLICY` anchor in
+   > `scripts/lib/hook-templates.sh`). The audit adds `p/security-audit` and leaves the
+   > severity bound off on purpose — an audit should see more than the gate blocks on,
+   > never less.
+
 **Parallel execution (if Superpowers available):** Dispatch these as parallel subagents — they have no cross-dependencies:
-1. **SAST agent:** Runs `semgrep scan --config=p/owasp-top-ten --config=p/security-audit src/`
+1. **SAST agent:** Runs the SAST command above (the gate's config set + `p/security-audit`)
 2. **Threat model agent:** Reviews implementation against Phase 1.3 Threat Model
 3. **Data isolation agent:** Tests whether one user/context can access another's data
 4. **Input validation agent:** Tests all entry points with injection payloads
@@ -1880,6 +1902,37 @@ Core requirements:
 - **Trigger a test error and verify the alert is received.** Do not mark this step complete until you have confirmed that a deliberately triggered error appears in the monitoring dashboard and fires the expected alert. "Configured" is not "verified" — an untested monitoring setup is indistinguishable from no monitoring.
 
 Document the monitoring configuration in `HANDOFF.md` Section 8 (Monitoring & Alerting subsection): tool name, dashboard URL, alert channel, and access instructions.
+
+**Record the verification event in this exact block** (P4-001 reads it; the checklist prints it back at you if it is missing):
+
+```markdown
+### Monitoring verification
+- Error event: <the error that occurred — a deliberately triggered test error, OR a real failure>
+- Alert fired: <the rule / workflow / channel that fired>
+- Alert arrived: <where it was RECEIVED, and who acted on it>
+- Date verified: YYYY-MM-DD
+```
+
+All four lines are required and each needs real content. Bold/list markup and any
+capitalisation are fine; `Alert received:` is accepted for `Alert arrived:`, and
+`Test error triggered:` for `Error event:`.
+
+**Zero-telemetry projects qualify — you do not need Sentry.** A static site, a local
+CLI, a desktop tool with no server error stream still has monitoring: deploy-failure
+alerts from CI, uptime checks, release-workflow notifications, store-review alerts.
+Those are the alert channels that matter for that project, and a **real** failure whose
+alert arrived is *stronger* evidence than a simulated one — record it honestly as an
+`Error event:` rather than calling it a test error. What the step will not accept is a
+monitoring section with no verified error → alert → arrived cycle: "configured" is not
+"verified", and an untested alert channel is indistinguishable from no monitoring.
+(Walkthrough 2026-08-02, ISSUE-017: an honest zero-telemetry write-up was rejected four
+times by a detector that only spoke server-telemetry vocabulary. The block above is the
+contract now, not a shape to be guessed.)
+
+If the check still blocks a legitimately-monitored project, the `SOIF_FORCE_STEP=true`
+override exists — but it **requires an interactive terminal by design**: the human
+Orchestrator must run it, and an agent or CI session cannot. Fix the evidence rather
+than waiting for a hatch that will refuse you.
 
 **Process checkpoint:** `scripts/process-checklist.sh --complete-step phase4_release:monitoring_configured`
 

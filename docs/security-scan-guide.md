@@ -248,6 +248,17 @@ const pattern = new RegExp(config.searchPattern);
 
 Always include a comment explaining WHY it is a false positive. A suppression without explanation is indistinguishable from someone ignoring a real vulnerability.
 
+**Placement is exact — and silently fails when it is wrong.** semgrep honours `nosemgrep` only on the **same line** as the finding or on the line **immediately above** it. A directive-then-explanation layout —
+
+```typescript
+// nosemgrep: rule-id
+// This fixture is a hardcoded literal, not user input, so the sink is safe.
+// (…two more lines of justification…)
+el.innerHTML = SAMPLE_HTML;   // <-- still flagged: the directive is 3 lines away
+```
+
+— does nothing: the explanation pushed the directive out of range, semgrep says nothing about it, and the commit stays blocked with the same finding. Put the justification **above** the directive (or on the same line after it), so the directive is the last line before the finding. Observed on the 2026-08-02 walkthrough (ISSUE-011).
+
 ## License Compliance — Deny Policy
 
 The Phase-3 `license` scanner (`scripts/run-phase3-validation.sh`) does two jobs: it **inventories** every dependency's license (per-language tool: `license-checker` / `pip-licenses` / `cargo license` / `go-licenses` / `dotnet-project-licenses`), and — since **BL-086** — it enforces a **tier-keyed deny policy** on that inventory. It flags **strong copyleft** licenses and either BLOCKS the Phase 3→4 gate or emits a loud warning, depending on the project's tier.
