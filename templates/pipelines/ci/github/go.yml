@@ -121,12 +121,27 @@ jobs:
         # loud [WARN] "could NOT run" here instead of failing the job. It is
         # UNVERIFIED on this runner, NOT satisfied, and it still BLOCKS on the dev
         # workstation (scripts/check-gate.sh --preflight).
-        # For HARD enforcement in CI, hand it a token that CAN read protection — a
-        # fine-grained PAT / GitHub App token with admin read, never
-        # secrets.GITHUB_TOKEN — and the backstop blocks here again:
-        #   env:
-        #     GH_TOKEN: ${{ secrets.PROTECTION_READ_TOKEN }}
+        # >> STRONGLY RECOMMENDED — clear this warning permanently. ONE guided
+        # command sets up real enforcement end to end: it explains what the
+        # token is for, walks you through a least-privilege fine-grained PAT
+        # (Administration: Read-only, this repository only), PROVES the token
+        # can read protection before storing anything, and sets the Actions
+        # secret this step already reads:
+        #
+        #     scripts/check-gate.sh --setup-ci-token
+        #
+        # The wiring is LIVE below — no editing needed. An unset secret
+        # evaluates to the empty string, which the gate reads as "no
+        # credential" (that is today's warning); once the secret exists the
+        # backstop enforces on the very next push. A warning nobody clears is
+        # a check nobody reads.
         if: hashFiles('.claude/phase-state.json') != ''
+        env:
+          # WALK-ISSUE-006 wiring: set by `scripts/check-gate.sh --setup-ci-token`.
+          # Unset -> empty string -> the gate WARNs (cannot verify). Set -> the
+          # gate enforces. secrets.GITHUB_TOKEN would NOT work here: it has no
+          # `administration` permission and cannot read branch protection.
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
         run: bash scripts/check-phase-gate.sh 2>/dev/null || echo "Phase gate check script not found — skipping"
 
       - name: Governance - Changelog check

@@ -73,8 +73,14 @@ governance:
     # [WARN] "could NOT run" here instead of failing the job. It is UNVERIFIED on
     # this runner, NOT satisfied, and it still BLOCKS on the dev workstation
     # (scripts/check-gate.sh --preflight).
-    # For HARD enforcement in CI, add a masked CI/CD variable GITLAB_TOKEN (a PAT
-    # with `api` scope) and install glab in this job — the backstop blocks again.
+    # >> STRONGLY RECOMMENDED — clear this warning permanently. BOTH halves are
+    # required, and the check still cannot run with only one of them:
+    #   1. a masked, protected CI/CD variable GITLAB_TOKEN holding a PAT with
+    #      the `api` scope (Settings > CI/CD > Variables — GitLab injects it
+    #      into this job's environment automatically, no wiring needed);
+    #   2. `glab` installed in this job.
+    # `scripts/check-gate.sh --setup-ci-token` prints these steps for GitLab.
+    # A warning nobody clears is a check nobody reads.
     - bash scripts/check-phase-gate.sh
     - bash scripts/check-changelog.sh 2>/dev/null || true
     # APPROVAL_LOG.md append-only enforcement

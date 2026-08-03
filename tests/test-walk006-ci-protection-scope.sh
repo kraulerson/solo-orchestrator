@@ -198,6 +198,23 @@ else
   fail_ "T2b-ci-warn-is-honest" "the exempt arm must not read as a pass: $(printf '%s' "$out" | grep -i backstop | tr '\n' ' ')"
 fi
 
+# ── T2c: an EMPTY GH_TOKEN is the runtime shape of an UNSET secret ─────────
+# The generated workflow maps `GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}`
+# LIVE. Before the operator runs --setup-ci-token that secret does not exist,
+# and Actions substitutes the EMPTY STRING — GH_TOKEN is SET but empty. If the
+# probe tested for set-ness rather than non-emptiness, every generated project
+# would hard-fail the moment the mapping shipped. Distinct input from T2.
+echo "=== T2c-empty-token-is-absent ==="
+P="$TOPTMP/p2c"; mk_proj "$P" github fail
+out=$(run_gate "$P" "$SCRIPT" CI=true GH_TOKEN=); rc=$?
+if [ "$rc" -eq 0 ] \
+   && printf '%s' "$out" | grep -q "$WARN_SIG" \
+   && ! printf '%s' "$out" | grep -q "$FAIL_SIG"; then
+  pass "T2c-empty-token-is-absent (an unset secret substitutes to '' and must read as no credential)"
+else
+  fail_ "T2c-empty-token-is-absent" "rc=$rc — the live secret mapping would hard-fail every project with no secret set yet: $(printf '%s' "$out" | grep -i backstop | tr '\n' ' ')"
+fi
+
 # ── T3: CI + an exported token → BLOCKS again (hard-enforcement path) ───────
 echo "=== T3-ci-with-token-still-blocks ==="
 P="$TOPTMP/p3"; mk_proj "$P" github fail
@@ -319,6 +336,192 @@ if grep -q 'if false; then' "$M3"; then
   fi
 else
   fail_ "M3-mutant-prefix-repro" "sed did not rewrite the guard call — mutant is vacuous"
+fi
+
+# ════════════════════════════════════════════════════════════════════════════
+# PART 2 — the way BACK to enforcement: `check-gate.sh --setup-ci-token`
+# (# WALK-ISSUE-006-SETUP-CI-TOKEN)
+#
+# Part 1 above stops a structurally-impossible check from blocking. It does NOT
+# restore the check, and a permanently-warning check is a check on its way to
+# being ignored — so the token path is RECOMMENDED, and guided end to end. This
+# section pins the walkthrough's contract and, critically, the LINK between its
+# output and the gate's input: the secret it stores must be the one the emitted
+# workflow maps, or the walkthrough writes a secret nothing reads.
+# ════════════════════════════════════════════════════════════════════════════
+CHECK_GATE="$REPO_ROOT/scripts/check-gate.sh"
+GOOD_TOKEN="ghp_walk006_good"
+BAD_TOKEN="ghp_walk006_bad"
+
+# mk_tok <dir> <host> <auth: ok|unauth> [ci.yml-wires-secret: yes|no]
+mk_tok() {
+  local d="$1" host="$2" auth="$3" wired="${4:-yes}"
+  rm -rf "$d"
+  mkdir -p "$d/.claude" "$d/scripts/lib" "$d/scripts/host-drivers" "$d/bin" "$d/stub" \
+           "$d/.github/workflows"
+  jq -n --arg h "$host" '{frameworkVersion:"test", host:$h, mode:"personal"}' \
+    > "$d/.claude/manifest.json"
+  ( cd "$d" && git init -q \
+      && git config user.email t@t.invalid && git config user.name t \
+      && git remote add origin https://github.com/example/walk006.git ) || return 1
+  cp "$REPO_ROOT/scripts/lib/"*.sh "$d/scripts/lib/"
+  cp "$REPO_ROOT/scripts/host-drivers/github.sh" "$d/scripts/host-drivers/"
+  printf '%s' "$GOOD_TOKEN" > "$d/stub/goodtoken"
+  [ "$auth" = unauth ] && : > "$d/stub/unauth"
+  : > "$d/stub/gh.log"
+  if [ "$wired" = yes ]; then
+    printf 'jobs:\n  test:\n    steps:\n      - name: Governance - Phase gate check\n        env:\n          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}\n' \
+      > "$d/.github/workflows/ci.yml"
+  else
+    printf 'jobs:\n  test:\n    steps:\n      - name: Governance - Phase gate check\n' \
+      > "$d/.github/workflows/ci.yml"
+  fi
+  cat > "$d/bin/gh" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$GH_STUB_DIR/gh.log"
+case "$1 ${2:-}" in
+  "auth status") [ -f "$GH_STUB_DIR/unauth" ] && exit 1; exit 0 ;;
+  "secret set")
+      # value arrives on STDIN, never argv — record what we were handed
+      value=$(cat)
+      printf 'STDIN:%s\n' "$value" >> "$GH_STUB_DIR/gh.log"
+      printf '%s\n' "$3" > "$GH_STUB_DIR/stored"
+      exit 0 ;;
+  "secret list")
+      [ -f "$GH_STUB_DIR/stored" ] && { printf '%s\tUpdated\n' "$(cat "$GH_STUB_DIR/stored")"; exit 0; }
+      exit 0 ;;
+esac
+case "$*" in
+  *protection*)
+      # the probe passes ONLY when the caller actually exported the good token
+      if [ "${GH_TOKEN:-}" = "$(cat "$GH_STUB_DIR/goodtoken")" ]; then
+        echo '{"allow_force_pushes":{"enabled":false},"enforce_admins":{"enabled":true}}'; exit 0
+      fi
+      echo '{"message":"Resource not accessible by personal access token","status":"403"}' >&2
+      exit 1 ;;
+esac
+exit 0
+STUB
+  chmod +x "$d/bin/gh"
+}
+
+# run_tok <dir> <token-or-EMPTY> [args...]
+run_tok() {
+  local d="$1" tok="$2"; shift 2
+  if [ "$tok" = EMPTY ]; then
+    ( cd "$d" && PATH="$d/bin:$PATH" GH_STUB_DIR="$d/stub" \
+        env -u SOIF_PROTECTION_TOKEN bash "$CHECK_GATE" --setup-ci-token "$@" </dev/null 2>&1 )
+  else
+    ( cd "$d" && PATH="$d/bin:$PATH" GH_STUB_DIR="$d/stub" \
+        env SOIF_PROTECTION_TOKEN="$tok" bash "$CHECK_GATE" --setup-ci-token "$@" </dev/null 2>&1 )
+  fi
+}
+
+# ── S1: non-github host → NOT APPLICABLE + the manual per-host steps ───────
+echo "=== S1-non-github-not-applicable ==="
+P="$TOPTMP/s1"; mk_tok "$P" gitlab ok
+out=$(run_tok "$P" EMPTY); rc=$?
+if [ "$rc" -eq 0 ] \
+   && printf '%s' "$out" | grep -q "NOT APPLICABLE" \
+   && printf '%s' "$out" | grep -q "GITLAB_TOKEN" \
+   && printf '%s' "$out" | grep -q "glab"; then
+  pass "S1-non-github-not-applicable (prints the GitLab steps, incl. the glab half)"
+else
+  fail_ "S1-non-github-not-applicable" "rc=$rc: $out"
+fi
+
+# ── S2: gh not authenticated → refuse with the actionable next step ────────
+echo "=== S2-gh-unauthenticated ==="
+P="$TOPTMP/s2"; mk_tok "$P" github unauth
+out=$(run_tok "$P" "$GOOD_TOKEN"); rc=$?
+if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q "gh auth login"; then
+  pass "S2-gh-unauthenticated (refuses, names the fix)"
+else
+  fail_ "S2-gh-unauthenticated" "rc=$rc: $out"
+fi
+
+# ── S3: happy path — explains, verifies, stores, confirms the wiring ───────
+echo "=== S3-happy-path ==="
+P="$TOPTMP/s3"; mk_tok "$P" github ok yes
+out=$(run_tok "$P" "$GOOD_TOKEN"); rc=$?
+log=$(cat "$P/stub/gh.log")
+ok=1
+[ "$rc" -eq 0 ] || ok=0
+printf '%s' "$out" | grep -q "Administration: \*\*Read-only\*\*" || ok=0
+printf '%s' "$out" | grep -q "Token verified" || ok=0
+printf '%s' "$log" | grep -q "^secret set SOIF_PROTECTION_TOKEN --repo example/walk006$" || ok=0
+printf '%s' "$log" | grep -q "^STDIN:$GOOD_TOKEN$" || ok=0
+printf '%s' "$out" | grep -q "already maps SOIF_PROTECTION_TOKEN" || ok=0
+if [ "$ok" -eq 1 ]; then
+  pass "S3-happy-path (least-privilege explained, token probed, secret stored, wiring confirmed)"
+else
+  fail_ "S3-happy-path" "rc=$rc log=[$(printf '%s' "$log" | tr '\n' ';')] out=$out"
+fi
+
+# ── S3b: the secret VALUE never appears on argv ────────────────────────────
+# `ps` exposes argv to every process on the box. The value must ride stdin.
+echo "=== S3b-secret-not-on-argv ==="
+if printf '%s' "$log" | grep -v '^STDIN:' | grep -q "$GOOD_TOKEN"; then
+  fail_ "S3b-secret-not-on-argv" "the token value appeared in a gh ARGV line: $(printf '%s' "$log" | grep -v '^STDIN:' | grep "$GOOD_TOKEN")"
+else
+  pass "S3b-secret-not-on-argv (value rides stdin; argv carries only the secret NAME)"
+fi
+
+# ── S4: a token that cannot read protection is REFUSED, nothing stored ────
+# Storing a powerless token would convert today's honest WARN into a hard FAIL
+# — strictly worse than the state we started in.
+echo "=== S4-powerless-token-refused ==="
+P="$TOPTMP/s4"; mk_tok "$P" github ok yes
+out=$(run_tok "$P" "$BAD_TOKEN"); rc=$?
+log=$(cat "$P/stub/gh.log")
+if [ "$rc" -ne 0 ] \
+   && printf '%s' "$out" | grep -q "could NOT read branch protection" \
+   && printf '%s' "$out" | grep -q "Administration: Read-only" \
+   && ! printf '%s' "$log" | grep -q "^secret set"; then
+  pass "S4-powerless-token-refused (fails closed — verify BEFORE store)"
+else
+  fail_ "S4-powerless-token-refused" "rc=$rc log=[$(printf '%s' "$log" | tr '\n' ';')] out=$out"
+fi
+
+# ── S5: --skip-verify is the explicit, named escape ────────────────────────
+echo "=== S5-skip-verify-stores ==="
+P="$TOPTMP/s5"; mk_tok "$P" github ok yes
+out=$(run_tok "$P" "$BAD_TOKEN" --skip-verify); rc=$?
+if [ "$rc" -eq 0 ] && grep -q "^secret set SOIF_PROTECTION_TOKEN" "$P/stub/gh.log"; then
+  pass "S5-skip-verify-stores (the escape exists and is opt-in only)"
+else
+  fail_ "S5-skip-verify-stores" "rc=$rc: $out"
+fi
+
+# ── S6: an unwired workflow is CALLED OUT, not silently succeeded ──────────
+# A project scaffolded before the mapping shipped would otherwise get a secret
+# nothing reads — a silent no-op wearing a success message.
+echo "=== S6-unwired-workflow-warned ==="
+P="$TOPTMP/s6"; mk_tok "$P" github ok no
+out=$(run_tok "$P" "$GOOD_TOKEN"); rc=$?
+if [ "$rc" -eq 0 ] \
+   && printf '%s' "$out" | grep -q "does not map SOIF_PROTECTION_TOKEN yet" \
+   && printf '%s' "$out" | grep -q 'GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}'; then
+  pass "S6-unwired-workflow-warned (names the gap and prints the exact lines to add)"
+else
+  fail_ "S6-unwired-workflow-warned" "rc=$rc: $out"
+fi
+
+# ── S7: THE CHAIN — the stored secret is the one the templates map ────────
+# The walkthrough's result only "genuinely flips the check to enforcing" if the
+# secret it writes is the secret the emitted workflow reads into GH_TOKEN, and
+# GH_TOKEN is what the gate's credential probe looks at. Three files, one name:
+# assert it end to end rather than trusting three separate string literals.
+echo "=== S7-chain-secret-name-agrees ==="
+chain_ok=1
+grep -q 'secret_name="SOIF_PROTECTION_TOKEN"' "$CHECK_GATE" || chain_ok=0
+grep -Eq '^[[:space:]]*GH_TOKEN:[[:space:]]*\$\{\{[[:space:]]*secrets\.SOIF_PROTECTION_TOKEN[[:space:]]*\}\}' \
+  "$REPO_ROOT/templates/pipelines/ci/github/typescript.yml" || chain_ok=0
+grep -q 'GH_TOKEN' "$REPO_ROOT/scripts/check-phase-gate.sh" || chain_ok=0
+if [ "$chain_ok" -eq 1 ]; then
+  pass "S7-chain-secret-name-agrees (walkthrough writes -> workflow maps -> gate probes, one name)"
+else
+  fail_ "S7-chain-secret-name-agrees" "the walkthrough's secret name, the template's mapping and the gate's probe variable do not line up — the walkthrough would store a secret nothing reads"
 fi
 
 echo ""

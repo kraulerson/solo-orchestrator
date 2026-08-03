@@ -1016,6 +1016,16 @@ Interactively (no flag), init prompts and defaults to **do not proceed** (treat 
 
 This is enforced by `init.sh` via the selected host driver and verified by `scripts/check-phase-gate.sh` at every Phase 1→2 check. Drift detection is automatic — if protection is loosened later, the gate blocks until `scripts/check-gate.sh --repair` restores it.
 
+**In CI, that same check WARNs instead of enforcing until you give it a token — please clear it (walk ISSUE-006).** Verifying branch protection is an authenticated API read, and a workflow runner holds no credential for it: GitHub Actions puts no token in a step's environment, and the built-in `secrets.GITHUB_TOKEN` **cannot** read branch protection at all (the workflow `permissions:` block has no `administration` key). Rather than fail a check that is structurally impossible there, the gate prints a loud `[WARN] … COULD NOT RUN` — honest, but not enforcement, and a warning nobody clears becomes a check nobody reads. One guided command sets up the real thing:
+
+```bash
+scripts/check-gate.sh --setup-ci-token
+```
+
+It explains what the token is for, walks you through a **least-privilege fine-grained PAT** (Repository access: this repo only; Repository permissions → **Administration: Read-only** — that one permission is the whole requirement, no write anywhere), **verifies the token can actually read protection before storing anything** (a stored-but-powerless token would turn today's honest WARN into a hard FAIL), stores it as the Actions secret `SOIF_PROTECTION_TOKEN` with the value on stdin rather than argv, and confirms your workflow reads it. The generated `ci.yml` already maps it into the phase-gate step (`GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}`), so the next push enforces. An unset secret evaluates to the empty string, which the gate reads as "no credential" — exactly today's warning.
+
+Non-interactive: `SOIF_PROTECTION_TOKEN=<token> scripts/check-gate.sh --setup-ci-token`. GitLab and Bitbucket need **both** a token variable **and** the host CLI installed in the governance job (`glab` / `curl`); the same command prints those steps for those hosts. Local runs are unaffected throughout — the gate has always blocked on the dev workstation and still does.
+
 **Existing projects that predate this gate:**  The first time you upgrade or cross Phase 1→2, you may need to backfill manifest + protection:
 
 ```bash

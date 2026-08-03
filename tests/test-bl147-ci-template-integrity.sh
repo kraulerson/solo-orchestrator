@@ -1350,7 +1350,14 @@ fi
 #   Cw6-floor       every CI template across the three hosts runs the gate
 #   Cw6-block       each carries the signature line, AS A COMMENT
 #   Cw6-honest      each says UNVERIFIED (never "verified") about the skip
-#   Cw6-remedy      each names its host's hard-enforcement credential
+#   Cw6-guided      each names the guided walkthrough (--setup-ci-token) — the
+#                   token path is RECOMMENDED, not merely available
+#   Cw6-credential  each names its host's hard-enforcement credential
+#   Cw6-wiring      github templates map the secret LIVE (executable YAML under
+#                   an `env:` key, not a commented example). This is the pin
+#                   that makes the walkthrough's result real: if the mapping is
+#                   a comment, `--setup-ci-token` stores a secret NOTHING reads
+#                   and the check keeps warning forever.
 echo "Cw6: every CI template that runs check-phase-gate.sh explains the credential model"
 CPG_FILES=()
 for f in "${GH_FILES[@]}" "${GL_FILES[@]}" "${BB_FILES[@]}"; do
@@ -1363,7 +1370,7 @@ if [ "$CPG_COUNT" -ge 30 ]; then
 else
   fail_ "Cw6-floor" "only $CPG_COUNT CI templates execute check-phase-gate.sh (floor 30) — derivation is vacuous"
 fi
-w6_noblock=""; w6_nothonest=""; w6_noremedy=""
+w6_noblock=""; w6_nothonest=""; w6_nocred=""; w6_noguide=""; w6_nowire=""
 if [ "$CPG_COUNT" -gt 0 ]; then
   for f in "${CPG_FILES[@]}"; do
     # The signature must sit on a COMMENT line: an executable line that
@@ -1372,15 +1379,22 @@ if [ "$CPG_COUNT" -gt 0 ]; then
       || w6_noblock="$w6_noblock ${f#*/ci/}"
     grep -Eq '^[[:space:]]*#.*UNVERIFIED' "$f" \
       || w6_nothonest="$w6_nothonest ${f#*/ci/}"
+    grep -Eq '^[[:space:]]*#.*check-gate\.sh --setup-ci-token' "$f" \
+      || w6_noguide="$w6_noguide ${f#*/ci/}"
     case "$f" in
-      */ci/github/*)    _w6_tok='GH_TOKEN' ;;
-      */ci/gitlab/*)    _w6_tok='GITLAB_TOKEN' ;;
-      */ci/bitbucket/*) _w6_tok='BITBUCKET_API_TOKEN' ;;
-      *)                _w6_tok='' ;;
+      */ci/github/*)
+        # github's credential is the LIVE mapping, not prose — assert the
+        # executable form (no leading `#`) under the step.
+        grep -Eq '^[[:space:]]*GH_TOKEN:[[:space:]]*\$\{\{[[:space:]]*secrets\.SOIF_PROTECTION_TOKEN[[:space:]]*\}\}[[:space:]]*$' "$f" \
+          || w6_nocred="$w6_nocred ${f#*/ci/}"
+        grep -Eq '^[[:space:]]*env:[[:space:]]*$' "$f" \
+          || w6_nowire="$w6_nowire ${f#*/ci/}"
+        ;;
+      */ci/gitlab/*)
+        grep -Eq '^[[:space:]]*#.*GITLAB_TOKEN' "$f" || w6_nocred="$w6_nocred ${f#*/ci/}" ;;
+      */ci/bitbucket/*)
+        grep -Eq '^[[:space:]]*#.*BITBUCKET_API_TOKEN' "$f" || w6_nocred="$w6_nocred ${f#*/ci/}" ;;
     esac
-    if [ -n "$_w6_tok" ]; then
-      grep -Eq "^[[:space:]]*#.*$_w6_tok" "$f" || w6_noremedy="$w6_noremedy ${f#*/ci/}"
-    fi
   done
 fi
 if [ -z "$w6_noblock" ]; then
@@ -1393,10 +1407,20 @@ if [ -z "$w6_nothonest" ]; then
 else
   fail_ "Cw6-honest" "the block never says UNVERIFIED — a skip that reads as a pass — in:$w6_nothonest"
 fi
-if [ -z "$w6_noremedy" ]; then
-  pass "Cw6-remedy (each block names its host's hard-enforcement credential)"
+if [ -z "$w6_noguide" ]; then
+  pass "Cw6-guided (every block RECOMMENDS the guided walkthrough by name)"
 else
-  fail_ "Cw6-remedy" "no hard-enforcement credential named in:$w6_noremedy"
+  fail_ "Cw6-guided" "no 'check-gate.sh --setup-ci-token' recommendation in:$w6_noguide"
+fi
+if [ -z "$w6_nocred" ]; then
+  pass "Cw6-credential (each names its host's hard-enforcement credential)"
+else
+  fail_ "Cw6-credential" "no hard-enforcement credential named in:$w6_nocred"
+fi
+if [ -z "$w6_nowire" ]; then
+  pass "Cw6-wiring (github phase-gate steps map the secret LIVE, not as a commented example)"
+else
+  fail_ "Cw6-wiring" "no executable 'env:' key carrying the secret mapping in:$w6_nowire"
 fi
 
 # ── Cw16 (walk 2026-08-02 ISSUE-016): the tag-deploy environment trap ───────

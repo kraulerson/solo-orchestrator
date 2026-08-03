@@ -53,6 +53,20 @@ Subcommands:
                     project that met the free-tier 403 unattested can recover
                     without destroy-and-recreate.
   --backfill-host   Infer host from git remote URL and write to manifest.
+  --setup-ci-token  RECOMMENDED. Guided end-to-end setup of the CI branch-
+                    protection token (walk ISSUE-006). A workflow runner has no
+                    credential to verify branch protection — the built-in
+                    secrets.GITHUB_TOKEN cannot read it at all — so that one
+                    gate check WARNs instead of enforcing until you finish this.
+                    Walks you through creating a least-privilege fine-grained
+                    PAT (Administration: Read-only, this repo only), VERIFIES it
+                    can actually read protection before storing anything, sets
+                    it as the Actions secret SOIF_PROTECTION_TOKEN, and confirms
+                    the workflow reads it. GitHub-only.
+                      --secret-name <n>  secret name (default SOIF_PROTECTION_TOKEN)
+                      --token-env <VAR>  read the token from $VAR instead of
+                                         prompting (scriptable opt-in)
+                      --skip-verify      store without the read-protection probe
   --release-env-policy
                     Check that the release deployment ENVIRONMENT admits
                     tag deploys before you push a version tag (walk
@@ -473,6 +487,189 @@ cmd_repair() {
   print_ok "Repair complete"
 }
 
+# WALK-ISSUE-006-SETUP-CI-TOKEN-BEGIN
+# Walk 2026-08-02, ISSUE-006 remediation, part 3 of 3. Part 1 stops the gate's
+# branch-protection backstop from blocking a runner that structurally cannot
+# perform the check (`grep -n 'WALK-ISSUE-006' scripts/check-phase-gate.sh`);
+# part 2 makes every generated ci.yml SAY so at the step. Neither of those
+# RESTORES the check — and a permanently-warning check is a check on its way to
+# being ignored. This arm is the guided path back to hard enforcement: it
+# explains what the token is for, names the MINIMUM permission, stores it as an
+# Actions secret, and verifies the workflow will actually read it.
+#
+# WHY A WALKTHROUGH AND NOT A DOC LINE: the failure mode this closes is not
+# ignorance of the option, it is the five separate steps between knowing and
+# having (which token type, which permission, where it goes, what it is called,
+# what reads it) — each of which is a place to stop.
+#
+# GitHub-only: `gh secret set` has no gitlab/bitbucket equivalent worth
+# pretending about here, so those hosts get the manual instruction and exit 0.
+cmd_setup_ci_token() {
+  _require_manifest || return 1
+
+  local secret_name="SOIF_PROTECTION_TOKEN"
+  local token_env="SOIF_PROTECTION_TOKEN"
+  local skip_verify=0
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --secret-name)   shift; secret_name="${1:?--secret-name requires a value}" ;;
+      --secret-name=*) secret_name="${1#--secret-name=}" ;;
+      --token-env)     shift; token_env="${1:?--token-env requires a value}" ;;
+      --token-env=*)   token_env="${1#--token-env=}" ;;
+      --skip-verify)   skip_verify=1 ;;
+      *) print_fail "--setup-ci-token: unknown flag '$1'"; return 1 ;;
+    esac
+    shift || true
+  done
+
+  local host
+  host=$(jq -r '.host // empty' .claude/manifest.json 2>/dev/null || echo "")
+  if [ "$host" != "github" ]; then
+    print_info "CI protection token: NOT APPLICABLE for host='${host:-unset}' — this walkthrough drives \`gh secret set\`."
+    case "$host" in
+      gitlab)
+        echo "  GitLab: add a masked, protected CI/CD variable GITLAB_TOKEN (Settings > CI/CD > Variables)"
+        echo "          holding a PAT with the \`api\` scope, AND install \`glab\` in the governance job."
+        echo "          GitLab injects CI/CD variables into the job environment automatically, so no"
+        echo "          workflow wiring is needed — but WITHOUT glab the check still cannot run."
+        ;;
+      bitbucket)
+        echo "  Bitbucket: add repository variables BITBUCKET_API_TOKEN + BITBUCKET_API_TOKEN_EMAIL"
+        echo "             (Repository settings > Repository variables), AND install curl in the"
+        echo "             Governance step. Both are required before the check can run."
+        ;;
+    esac
+    return 0
+  fi
+
+  if ! command -v gh >/dev/null 2>&1; then
+    print_fail "CI protection token: \`gh\` CLI not found — install it, run \`gh auth login\`, then re-run."
+    return 1
+  fi
+  if ! gh auth status >/dev/null 2>&1; then
+    print_fail "CI protection token: \`gh\` is not authenticated — run \`gh auth login\`, then re-run."
+    return 1
+  fi
+
+  # shellcheck disable=SC1090
+  source "$SCRIPT_DIR/lib/host.sh"
+  host_load_driver || {
+    print_fail "Dispatcher load failed — check manifest host field (scripts/check-gate.sh --backfill-host)"
+    return 1
+  }
+  local owner_repo
+  owner_repo=$(_github_parse_origin) || {
+    print_fail "Could not parse a GitHub owner/repo from 'origin'"
+    return 1
+  }
+
+  print_step "CI protection token for $owner_repo"
+  cat <<EOM
+
+  WHAT THIS IS FOR
+    Your CI's phase-gate step verifies that branch protection on main is still
+    configured. That is an AUTHENTICATED GitHub API read, and a workflow runner
+    has no credential for it: Actions puts no token in a step's environment, and
+    the built-in secrets.GITHUB_TOKEN CANNOT read branch protection at all —
+    there is no \`administration\` key in the workflow \`permissions:\` block.
+    Until you finish this, that one check WARNS on every run instead of
+    enforcing. Everything else in the gate keeps blocking as normal.
+
+  THE TOKEN YOU NEED (least privilege — read-only, one repo)
+    1. Open:  https://github.com/settings/personal-access-tokens/new
+    2. Token name:        soif-protection-read ($owner_repo)
+       Expiration:        your policy (90 days is a reasonable default)
+       Repository access: "Only select repositories" -> $owner_repo
+    3. Repository permissions -> Administration: **Read-only**
+       That single permission is the whole requirement. Do NOT grant write.
+       (A classic PAT with the \`repo\` scope also works but is far broader —
+       prefer the fine-grained token.)
+    4. Generate, then copy the value once.
+
+  WHAT HAPPENS NEXT
+    The value is stored as the Actions secret \`$secret_name\` on $owner_repo
+    and nothing else. Your generated workflow already maps it into the
+    phase-gate step as GH_TOKEN, so the very next push re-arms the check.
+    An UNSET secret evaluates to the empty string, which the gate reads as
+    "no credential" — which is exactly today's warning.
+
+EOM
+
+  # Token source. An exported \$$token_env is an explicit, scriptable opt-in
+  # (and is how the hermetic tests drive this arm); otherwise prompt with echo
+  # OFF. `read -rs` carries no -p, so the raw-prompt lint's target does not
+  # apply — but the non-interactive guard it exists to enforce still does, and
+  # is implemented here explicitly rather than inherited.
+  local token=""
+  eval "token=\${$token_env:-}"
+  if [ -n "$token" ]; then
+    print_info "Using the token from \$$token_env (explicit opt-in — no prompt)."
+  else
+    if [ "${ASSUME_YES:-0}" -ne 1 ]; then
+      if ! prompt_yes_no "Create the $secret_name secret on $owner_repo now? [y/N]" N; then
+        print_info "Nothing changed. Re-run this command when you have the token, or export $token_env=<token> and re-run non-interactively."
+        return 0
+      fi
+    fi
+    if [ ! -t 0 ] || [ -n "${CI:-}" ] || [ -n "${SOIF_NONINTERACTIVE:-}" ]; then
+      print_fail "No terminal to read the token from. Export it instead and re-run:  $token_env=<token> scripts/check-gate.sh --setup-ci-token"
+      return 1
+    fi
+    printf '  Paste the token (input hidden), then press Enter: ' >&2
+    read -rs token
+    printf '\n' >&2
+  fi
+  if [ -z "$token" ]; then
+    print_fail "Empty token — nothing stored."
+    return 1
+  fi
+
+  # VERIFY BEFORE STORING. A secret that cannot read protection turns today's
+  # honest WARN into tomorrow's hard FAIL, which is strictly worse than the
+  # state we started in — so the walkthrough proves the token works first.
+  if [ "$skip_verify" -eq 0 ]; then
+    local probe
+    if probe=$(GH_TOKEN="$token" gh api "repos/$owner_repo/branches/main/protection" 2>&1); then
+      print_ok "Token verified — it can read branch protection on $owner_repo."
+    else
+      print_fail "That token could NOT read branch protection on $owner_repo — refusing to store it (a stored-but-powerless token converts the current WARN into a hard FAIL)."
+      echo "  GitHub said: $(printf '%s' "$probe" | head -2 | tr '\n' ' ')"
+      echo "  Most likely: the fine-grained token is missing 'Administration: Read-only', or it does not include this repository."
+      echo "  If branch protection is genuinely not configured yet, fix that first: scripts/check-gate.sh --repair"
+      echo "  To store anyway (you accept the risk): scripts/check-gate.sh --setup-ci-token --skip-verify"
+      return 1
+    fi
+  fi
+
+  # The value goes in on STDIN, never on argv — an argv secret is visible to
+  # every other process on the box via `ps`.
+  if ! printf '%s' "$token" | gh secret set "$secret_name" --repo "$owner_repo" >/dev/null 2>&1; then
+    print_fail "Could not set the Actions secret '$secret_name' on $owner_repo (does your gh login have repo admin?)"
+    return 1
+  fi
+  if gh secret list --repo "$owner_repo" 2>/dev/null | grep -q "^$secret_name"; then
+    print_ok "Actions secret '$secret_name' is set on $owner_repo."
+  else
+    print_warn "Secret write reported success but '$secret_name' is not listed — check Settings > Secrets and variables > Actions."
+  fi
+
+  # The last link in the chain: the workflow has to READ it. A generated
+  # project scaffolded before this shipped will not have the mapping, and a
+  # secret nothing reads is a silent no-op.
+  local wf=".github/workflows/ci.yml"
+  if [ -f "$wf" ] && grep -q "secrets.$secret_name" "$wf"; then
+    print_ok "$wf already maps $secret_name into the phase-gate step. The next push enforces the check."
+  else
+    print_warn "$wf does not map $secret_name yet — the secret would be stored but unread. Add these lines to the 'Governance - Phase gate check' step:"
+    echo "        env:"
+    echo "          GH_TOKEN: \${{ secrets.$secret_name }}"
+  fi
+  echo ""
+  print_info "Verify locally any time with: scripts/check-gate.sh --preflight"
+  return 0
+}
+# WALK-ISSUE-006-SETUP-CI-TOKEN-END
+
 # WALK-ISSUE-016-RELEASE-ENV-POLICY-BEGIN
 # Walk 2026-08-02, ISSUE-016 (Major): the documented happy path — "release is
 # triggered by version tags: git tag v1.0.0 && git push --tags" — HARD-FAILS on
@@ -618,6 +815,7 @@ case "${1:-}" in
   --repair)        shift || true; cmd_repair "$@" ;;
   --backfill-host) shift || true; cmd_backfill_host "$@" ;;
   --release-env-policy) shift || true; cmd_release_env_policy "$@" ;;
+  --setup-ci-token)     shift || true; cmd_setup_ci_token "$@" ;;
   -h|--help|"")    usage; exit 0 ;;
   *)               echo "Unknown subcommand: $1" >&2; usage; exit 1 ;;
 esac

@@ -1201,8 +1201,16 @@ if [ "$current_phase" -ge 2 ]; then
           # every push. The walker's only escape was SOIF_PHASE_GATES=warn,
           # which downgrades the WHOLE gate — a far bigger hammer than this.
           #
-          # SCOPING (mirrors `# BL-137-CI-TOOLS-SCOPE`): keyed STRICTLY on
-          # $CI *plus* the absence of a host credential — NEVER on TTY, so
+          # SCOPING mirrors the BL-137 "Tools needed" fence further down this
+          # same file — `grep -n 'BL-137' "$0"` finds it. Its marker token is
+          # deliberately NOT spelled out here: tests/test-bl137-ci-tools-scope.sh
+          # ::T5 excises that fence by line range and then asserts NO residual
+          # occurrence of the marker text anywhere in the script, so a second
+          # mention of it — even in a comment, even as a citation — fails the
+          # excision guard. Do not "helpfully" add one back.
+          #
+          # Keyed STRICTLY on $CI *plus* the absence of a host credential —
+          # NEVER on TTY, so
           # scripted LOCAL runs (hooks, other gates driving this one) keep
           # blocking. Export the token and this arm BLOCKS again in CI: that
           # is the documented hard-enforcement path, and it is spelled out at
@@ -1227,9 +1235,17 @@ if [ "$current_phase" -ge 2 ]; then
           if _cpg_walk006_credentialless_ci "$backstop_host"; then
             echo -e "${YELLOW}[WARN]${NC} Phase 1→2 backstop: protection verification COULD NOT RUN here — \$CI is set and no ${backstop_host:-host} API credential is exported on this runner."
             echo "        This is NOT a pass. The protection contract is UNVERIFIED on this run; it is enforced on the dev workstation, where this same arm BLOCKS (WALK-ISSUE-006)."
-            echo "        Hard enforcement in CI: export a host API token that can READ branch protection, then this arm blocks again."
-            echo "          GitHub: a PAT / App token with admin read — the built-in GITHUB_TOKEN can NOT read protection. Set GH_TOKEN on the phase-gate step."
-            echo "        Verify locally: scripts/check-gate.sh --preflight"
+            echo ""
+            echo "        >> FIX THIS ONCE, and this warning is replaced by real enforcement:"
+            echo "               scripts/check-gate.sh --setup-ci-token"
+            echo "           A guided, least-privilege walkthrough: it explains what the token is for, walks"
+            echo "           you through a fine-grained PAT with the ONE permission needed (Administration:"
+            echo "           Read-only, this repo only), proves the token can read protection BEFORE storing"
+            echo "           it, and sets it as the Actions secret your workflow already reads."
+            echo "           The built-in GITHUB_TOKEN cannot do this — it has no admin-read permission."
+            echo "           A warning nobody clears is a check nobody reads. Please clear it."
+            echo ""
+            echo "        Verify locally any time: scripts/check-gate.sh --preflight"
           else
             echo -e "${RED}[FAIL]${NC} Phase 1→2 backstop: protection verification failed"
             echo "        Remediate: scripts/check-gate.sh --repair"
