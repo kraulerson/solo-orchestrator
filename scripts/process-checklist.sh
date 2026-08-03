@@ -103,16 +103,24 @@ _set_current_phase_min() {
 #                                   hotfix_retros / closed that are not arrays;
 #                                   cadence that is not an object; a closed row
 #                                   that is not an object; and any drop, reorder
-#                                   or rewrite of an existing closed row.
+#                                   or rewrite of an existing closed row. WP4
+#                                   added one more: a candidate that swaps a
+#                                   DIFFERENT delta id into an already-occupied
+#                                   active_delta slot, which would discard the
+#                                   open delta's gates_completed history. The
+#                                   operator-facing refusal stays in delta.sh
+#                                   where it can name the delta in the way; this
+#                                   one closes the crafted-filter path into the
+#                                   same loss.
 #                                   WHAT IT DOES NOT REFUSE, deliberately:
-#                                   replacing an OPEN active_delta. One-at-a-time
-#                                   is structural here; the business refusal is
-#                                   §11-WP3's, which owns open/confirm. Recorded
-#                                   as a deferral, not an omission. Inner shapes
-#                                   of cadence / hotfix_retros / active_delta are
-#                                   likewise later WPs' — see the WHAT IT
-#                                   DELIBERATELY DOES NOT ENFORCE block in
-#                                   scripts/lib/delta-state.sh.
+#                                   MUTATING an open active_delta in place — a
+#                                   gates_completed append, a close-time
+#                                   attribute raise. Every legitimate write has
+#                                   that shape, so only the id swap is refused.
+#                                   Inner shapes of cadence / hotfix_retros /
+#                                   active_delta are likewise later WPs' — see
+#                                   the WHAT IT DELIBERATELY DOES NOT ENFORCE
+#                                   block in scripts/lib/delta-state.sh.
 #   --delta-state-ship <id> <ver>   record `shipped_in` on an already-closed
 #                                   delta — §7.1's cut-time write, which
 #                                   `cut-release.sh` (§9) reaches through here

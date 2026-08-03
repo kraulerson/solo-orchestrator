@@ -96,14 +96,118 @@ set -euo pipefail
 # person reading it has just shipped a product and wants to fix a bug.
 #
 # ═════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════
+# THE CLOSE FLOW (WP4) — FIVE REFUSALS, IN THIS ORDER, AND WHY THE ORDER IS THE
+# DESIGN
+#
+# `--close` walks the delta's own record and refuses at the first thing that is
+# not true. The ORDER is load-bearing, not cosmetic:
+#
+#   1. NOTHING OPEN                    exit 6.  Nothing to reason about.
+#   2. UNKNOWN GATE TOKEN              exit 9.  A configuration error, and it
+#      goes FIRST among the substantive checks because it is the only one whose
+#      answer cannot be trusted otherwise: if a token is meaningless, so is
+#      "outstanding" and so is "complete". It fails CLOSED and writes nothing.
+#   3. CLOSE-TIME RE-DERIVATION        exit 10 (only when it appends).
+#      §4.2: the open-time derivation was a FORECAST; this measures the real
+#      diff. A higher bracket RAISES the attribute and APPENDS the gates that
+#      raise toggles on. It never lowers. It runs BEFORE the outstanding-gates
+#      check because the whole point is that the checklist may have grown —
+#      running it after would let a delta opened `small` and grown into an auth
+#      rewrite close on the small checklist, which is §11-WP4's own mutation.
+#   4. GATES OUTSTANDING               exit 7.  gates_required minus
+#      gates_completed, named.
+#   5. THE RUBRIC BIND                 exit 8.  §5.3's strongest sentence: "the
+#      brief's acceptance criteria ARE the close review's rubric". It runs LAST
+#      because it needs the brief to exist, and `brief` is itself a gate that
+#      step 4 is still able to be waiting on.
+#
+# REFUSAL RESIDUE — THE STANDARD THIS FILE'S OPEN FLOW SET, AND THE ONE HONEST
+# EXCEPTION. Every refusal above prints some form of "nothing was closed", and
+# for 6/7/8/9 that sentence is true of the WHOLE TREE: no file is created,
+# modified or removed. That is asserted with a find-based manifest in
+# tests/test-delta-wp4-close-rubric.sh::N1, exactly as the open flow's E2/T2 are.
+#
+# THE EXCEPTION IS THE RATCHET (exit 10), AND IT IS STATED RATHER THAN SMOOTHED.
+# §4.2 requires the close-time raise to be RECORDED — the attribute is raised
+# and the newly toggled gates are appended to `gates_required`. So that one
+# refusal writes. It is bounded and it is idempotent: it touches the delta's own
+# `attributes`, `gates_required` and `ratcheted_at` and nothing else anywhere,
+# and a second close re-measures to the same bracket, appends nothing, and does
+# not write again. N2 pins both halves. The alternative — announce the new
+# obligations without recording them — was rejected: the operator would be told
+# about a larger checklist that the record does not contain, and every
+# subsequent close would re-announce it as though it were news.
+#
+# GATES ARE ATTESTED, AND THE HELP TEXT MUST NOT PRETEND OTHERWISE. §5.3 tiers
+# the review honestly: the rubric is MECHANICAL, the reviewer is ADVISORY.
+# `--complete-gate` records that the OPERATOR SAYS a gate is satisfied. The
+# framework does not verify that the adversarial review happened, that the
+# changelog entry is under the right heading, or that the repro test was RED
+# first. The two things it does check itself are the two this WP makes real: the
+# brief's done-observable boxes, and the close-time re-measurement of size and
+# risk. Do not widen the wording beyond those two.
+#
+# `retro_review` IS CLOSE-REFUSING BUT NOT YET IMPLEMENTABLE, and that is
+# deliberate at this WP. A hotfix carries it (§7.2) and this flow will refuse
+# the close until it is attested — but the retro LEDGER (`hotfix_retros[]`, the
+# `due_by` arithmetic, the release-cut refusal that collateralises the deferral)
+# is §11-WP5's. Until then the token is satisfiable only by attestation, which
+# is a weaker thing than the design promises. Recorded here rather than papered
+# over.
+#
+# ═════════════════════════════════════════════════════════════════════════════
+# THE RUBRIC PARSE CONTRACT (§5.3/§6.2) — WP8's template must match this
+#
+# The brief is `docs/deltas/DELTA-NNN-slug.md` (§6.3). This flow reads exactly
+# one section of it:
+#
+#   • THE SECTION is the first heading whose text begins `Done-observable`,
+#     case-insensitively, at any heading depth (`## Done-observable`, and a
+#     trailing parenthetical is fine). It ENDS at the next heading of the same
+#     depth or shallower — so a `### Nice-to-have` subsection inside it is still
+#     part of the rubric, and the next `## …` is not.
+#   • A CRITERION is a list item whose marker is `-`, `*` or `+`, at any indent,
+#     followed by a bracketed single character: `- [x]` / `- [X]` is CHECKED,
+#     `- [ ]` is NOT. Anything else between the brackets is treated as NOT
+#     checked and named — an undefined marker is a criterion nobody has decided
+#     about, and guessing in the permissive direction is how a rubric quietly
+#     stops being one.
+#   • ONLY that section is read. Checkboxes under What / Must-not-change /
+#     Touched surfaces are ignored, which is pinned in both directions (the
+#     refusal never names them; a brief whose rubric is fully checked closes
+#     even though other sections carry unchecked boxes).
+#   • IT FAILS CLOSED. No brief file, two files matching the id, no
+#     Done-observable section, or a section containing NO checkboxes at all are
+#     each a refusal. A rubric that cannot be read is not a rubric that passed —
+#     and the zero-checkbox case is the one worth naming, because it is the
+#     shape a brief takes when the section heading was copied from the template
+#     and never filled in.
+#
+# ═════════════════════════════════════════════════════════════════════════════
 # EXIT CODES — CODES, NEVER LABELS
-#   0  the delta was opened, or `--status` reported successfully
+#   0  the delta was opened or closed, a gate was recorded, or `--status`
+#      reported successfully
 #   1  an operation failed (the seam refused a write, jq is missing, …)
-#   2  invocation error: bad flag, missing argument, or a confirmation that
-#      could not be obtained (no terminal and no `--confirm`)
+#   2  invocation error: bad flag, missing argument, a gate this delta does not
+#      owe, or a confirmation that could not be obtained (no terminal and no
+#      `--confirm`)
 #   3  ERA REFUSAL — the project is not at phase 4          (§10.1)
 #   4  SECOND-ACTIVATION REFUSAL — a delta is already open  (§7.1)
 #   5  an attribute was LOWERED with no reason recorded     (§4.2)
+#   6  there is nothing open to close or to record against  (§7.1)
+#   7  required gates are still outstanding                 (§5.2)
+#   8  the brief's rubric has an unchecked or unreadable criterion  (§5.3)
+#   9  an unknown gate token — a configuration error, failing CLOSED (§5.2)
+#  10  the close-time re-measurement RAISED an attribute and added obligations,
+#      so the close refuses on the LARGER checklist          (§4.2)
+#
+# There is NO era refusal on `--close`, and that is a decision. §10.1 places the
+# invariant's enforcement at OPEN (load-bearing) and in scripts/validate.sh
+# (report-only). An `active_delta` at phase < 4 is already the inconsistency
+# validate.sh reports, and closing it is the ONLY path back to a consistent
+# record — a close that refused there would strand the delta permanently in the
+# state the invariant forbids. Pinned by W3.
 #
 # BASH 3.2: no associative arrays, no ${var,,} (hence `tr`), no `((x++))`.
 
@@ -131,8 +235,17 @@ USAGE="Usage:
                    [--risk core|feature-local] [--level small|significant|evolution]
                    [--severity SEV-1|SEV-2|SEV-3|SEV-4] [--reason TEXT]
                    [--touched-file FILE]
+  scripts/delta.sh --complete-gate TOKEN
+  scripts/delta.sh --close
   scripts/delta.sh --status
-  scripts/delta.sh --help"
+  scripts/delta.sh --help
+
+  --complete-gate records that YOU say a check is done. Most of them are
+  attested that way: the framework does not re-run your review, re-read your
+  changelog entry or watch your test go red. The two it checks itself are the
+  brief's done-observable boxes and the size/risk re-measurement at close.
+
+  --close runs those two checks and refuses while anything is outstanding."
 
 # ── The seam, and nothing but the seam ──────────────────────────────────────
 # Every state read and every state write in this file goes through here. The
@@ -557,6 +670,387 @@ cmd_open() {
 }
 
 # ═════════════════════════════════════════════════════════════════════════════
+# CLOSE-FLOW HELPERS (§4.2 / §5.3)
+# ═════════════════════════════════════════════════════════════════════════════
+
+# _json_str <value> — the value as a JSON string literal, quoting and escaping
+# included. Every value this file splices into a jq filter goes through here.
+# Some of them originate in `.claude/delta-state.json`, which a human can edit,
+# so "it came from our own record" is not the same as "it is safe to paste into
+# a program". One helper is cheaper than one audit per splice site.
+_json_str() { jq -c -n --arg v "${1:-}" '$v'; }
+
+# _higher <attribute> <a> <b> — whichever of the two ranks HIGHER on that
+# attribute's ordering, `a` on a tie or when neither ranks. THE RATCHET, as one
+# expression (§4.2: "it never lowers"). An unrecognised value ranks -1, so a
+# measurement that could not be taken can only ever lose — which is the
+# fail-safe direction here and is what makes the m1 mutant's `measured=""` a
+# clean, total neuter rather than a crash.
+_higher() {
+  local attr="$1" a="$2" b="$3" ra rb
+  ra="$(_rank "$attr" "$a")"
+  rb="$(_rank "$attr" "$b")"
+  if [ "$rb" -gt "$ra" ]; then printf '%s' "$b"; else printf '%s' "$a"; fi
+}
+
+# _close_measure <root> <touched-file-list> <changed-lines>
+#   `<risk><TAB><level>` measured from the REAL diff at close, using the SAME
+#   formulas the open flow used on its forecast (§4.2 is explicit that
+#   delta-classify.sh "computes the same way at both moments; it does not know
+#   which moment it is in"). The ratchet is applied to these outputs, not here.
+_close_measure() {
+  local root="${1:-.}" files="${2:-}" lines="${3:-0}" r l
+  r="$(delta_classify_risk "$root" "$files" | cut -f1)"
+  l="$(delta_classify_level "$root" "$lines" | cut -f1)"
+  printf '%s\t%s' "$r" "$l"
+}
+
+# _brief_path <delta-id> <recorded-path>
+#   Echo the brief's path. rc 0 = found; 1 = none; 2 = AMBIGUOUS (two files
+#   claim the same id — the paths are echoed so the operator can see both).
+#
+#   The recorded path wins when there is one: §11-WP8 owns the guided intake
+#   that writes `active_delta.brief`, and a delta that names its own brief is
+#   not to be second-guessed by a glob. Until WP8 lands, that field is null and
+#   the glob over §6.3's `docs/deltas/DELTA-NNN-slug.md` is the whole answer.
+#   Ambiguity is a refusal rather than a first-match: picking one of two briefs
+#   silently means the close review ran against a document the operator may not
+#   have been looking at.
+_brief_path() {
+  local id="$1" recorded="${2:-}" hits n
+  if [ -n "$recorded" ] && [ "$recorded" != "null" ]; then
+    printf '%s' "$recorded"
+    return 0
+  fi
+  [ -d "docs/deltas" ] || return 1
+  hits="$(find docs/deltas -maxdepth 1 -type f \( -name "$id-*.md" -o -name "$id.md" \) 2>/dev/null | LC_ALL=C sort)"
+  [ -n "$hits" ] || return 1
+  n="$(printf '%s\n' "$hits" | grep -c '' || true)"
+  case "$n" in ''|*[!0-9]*) n=0 ;; esac
+  printf '%s' "$hits"
+  [ "$n" -eq 1 ] || return 2
+  return 0
+}
+
+# _rubric_boxes <brief-file>
+#   One `checked<TAB>text` or `unchecked<TAB>text` line per criterion in the
+#   brief's Done-observable section, in document order. Empty output means the
+#   section is absent OR carries no checkboxes — the caller treats both as a
+#   refusal, so this function does not need to tell them apart.
+#
+#   THE CONTRACT IS SPELLED OUT IN THIS FILE'S HEADER and WP8's
+#   `delta-brief.tmpl` must match it. The two decisions worth restating at the
+#   code: the section ends at the next heading of the same depth or SHALLOWER
+#   (so a `###` sub-list is still rubric), and a bracket holding anything other
+#   than `x`/`X` counts as NOT checked. A permissive reading of an undefined
+#   marker is how a rubric quietly stops being one.
+_rubric_boxes() {
+  local f="$1"
+  [ -f "$f" ] || return 1
+  awk '
+    function hashes(s,   n) { n = 0; while (substr(s, n + 1, 1) == "#") n++; return n }
+    {
+      line = $0
+      sub(/^[ \t]+/, "", line)
+      if (line ~ /^#+[ \t]/) {
+        d = hashes(line)
+        rest = substr(line, d + 1)
+        sub(/^[ \t]+/, "", rest)
+        if (tolower(rest) ~ /^done-observable/) { insec = 1; depth = d; next }
+        if (insec == 1 && d <= depth) { insec = 0 }
+        next
+      }
+      if (insec != 1) next
+      if (line ~ /^[-*+][ \t]+\[.\]/) {
+        mark = substr(line, index(line, "[") + 1, 1)
+        text = substr(line, index(line, "]") + 1)
+        sub(/^[ \t]+/, "", text)
+        sub(/[ \t]+$/, "", text)
+        if (mark == "x" || mark == "X") printf "checked\t%s\n", text
+        else printf "unchecked\t%s\n", text
+      }
+    }
+  ' "$f" 2>/dev/null
+  return 0
+}
+
+# ═════════════════════════════════════════════════════════════════════════════
+# --complete-gate
+# ═════════════════════════════════════════════════════════════════════════════
+cmd_complete_gate() {
+  local doc id token gates_req present already
+
+  token="$GATE_TOKEN"
+  command -v jq >/dev/null 2>&1 || { print_fail "jq is required to record a check."; return 1; }
+  if [ -z "$token" ]; then
+    print_fail "Name the check you finished: scripts/delta.sh --complete-gate ledger_row"
+    return 2
+  fi
+
+  if ! doc="$(_seam --delta-state-read)"; then
+    print_fail "Could not read the delta record."
+    return 1
+  fi
+  if [ "$(printf '%s\n' "$doc" | jq -r '.active_delta == null')" = "true" ]; then
+    echo ""
+    print_fail "There is nothing open, so there is no check to record against."
+    print_info "Start a piece of work with: scripts/delta.sh --open"
+    echo ""
+    return 6
+  fi
+
+  id="$(printf '%s\n' "$doc" | jq -r '.active_delta.id // "unknown"')"
+  gates_req="$(printf '%s\n' "$doc" | jq -c '.active_delta.gates_required // []')"
+
+  # A token this delta does not owe is an INVOCATION error, not a config one:
+  # the vocabulary may well know the word, this delta simply is not carrying it.
+  present=n
+  if printf '%s\n' "$gates_req" | jq -r '.[]? | select(type == "string")' | grep -qxF "$token"; then
+    present=y
+  fi
+  if [ "$present" = n ]; then
+    echo ""
+    print_fail "$id does not need '$token'."
+    printf '%s\n' "$gates_req" | jq -r '"  What it does need: " + join(", ")'
+    echo ""
+    return 2
+  fi
+
+  # Idempotent by design. Re-recording is the most likely repeat invocation
+  # there is, and making it an error would teach the operator to fear the tool.
+  already=n
+  if printf '%s\n' "$doc" | jq -r '.active_delta.gates_completed[]? | select(type == "string")' | grep -qxF "$token"; then
+    already=y
+  fi
+  if [ "$already" = y ]; then
+    print_ok "$token was already recorded for $id — nothing to do."
+    return 0
+  fi
+
+  if ! _seam --delta-state-update ".active_delta.gates_completed += [$(_json_str "$token")]"; then
+    print_fail "The delta record refused the change, so nothing was recorded."
+    return 1
+  fi
+
+  echo ""
+  print_ok "Recorded: $token is done for $id."
+  # §5.3's honest tiering, in the operator's own words. Do not widen this.
+  print_info "This is your word for it — the record now says you did it, and nothing here re-checks it."
+  print_info "The two things this tool does check for itself are the tick-boxes in your brief and how big the change actually turned out to be, both when you close."
+  print_info "See where you are with: scripts/delta.sh --status"
+  echo ""
+  return 0
+}
+
+# ═════════════════════════════════════════════════════════════════════════════
+# --close
+# ═════════════════════════════════════════════════════════════════════════════
+cmd_close() {
+  local doc id class sev risk level recorded gates_req gates_done
+  local vocab unknown g outstanding
+  local touched lines measured mrisk mlevel nrisk nlevel
+  local newgates appended n_appended now row filter
+  local brief brc boxes unchecked
+
+  command -v jq >/dev/null 2>&1 || { print_fail "jq is required to close a delta."; return 1; }
+
+  if ! doc="$(_seam --delta-state-read)"; then
+    print_fail "Could not read the delta record."
+    return 1
+  fi
+
+  # ── REFUSAL 1 — NOTHING IS OPEN ──────────────────────────────────────────
+  if [ "$(printf '%s\n' "$doc" | jq -r '.active_delta == null')" = "true" ]; then
+    echo ""
+    print_fail "There is nothing open to close."
+    print_info "Start a piece of work with: scripts/delta.sh --open"
+    echo ""
+    return 6
+  fi
+
+  id="$(printf '%s\n' "$doc" | jq -r '.active_delta.id // "unknown"')"
+  class="$(printf '%s\n' "$doc" | jq -r '.active_delta.class // ""')"
+  sev="$(printf '%s\n' "$doc" | jq -r '.active_delta.attributes.severity // ""')"
+  risk="$(printf '%s\n' "$doc" | jq -r '.active_delta.attributes.risk // ""')"
+  level="$(printf '%s\n' "$doc" | jq -r '.active_delta.attributes.level // ""')"
+  recorded="$(printf '%s\n' "$doc" | jq -r '.active_delta.brief // ""')"
+  gates_req="$(printf '%s\n' "$doc" | jq -c '.active_delta.gates_required // []')"
+  gates_done="$(printf '%s\n' "$doc" | jq -c '.active_delta.gates_completed // []')"
+
+  # ── REFUSAL 2 — AN UNKNOWN GATE TOKEN, FAILING CLOSED ────────────────────
+  # FIRST among the substantive checks, deliberately: if a token is meaningless
+  # then "outstanding" and "complete" are both meaningless too, so every answer
+  # downstream of it is untrustworthy. It also means this refusal is reached
+  # before the ratchet, which is what keeps its residue at zero.
+  vocab="$(delta_classify_gate_vocabulary ".")"
+  unknown=""
+  while IFS= read -r g; do
+    [ -n "$g" ] || continue
+    if printf '%s\n' "$vocab" | grep -qxF "$g"; then continue; fi
+    unknown="$unknown $g"
+  done <<EOF
+$(printf '%s\n' "$gates_req" | jq -r '.[]? | select(type == "string")')
+EOF
+  if [ -n "$unknown" ]; then                                          # DELTA-CLOSE-VOCAB-GUARD
+    echo ""
+    print_fail "This piece of work lists a check nothing here recognises:$unknown."
+    print_info "That is not something you can finish — nothing in the project knows what would satisfy it, so it would block you forever."
+    print_info "It is almost always a typo. Fix the spelling in .claude/delta-policy.json and re-open, or correct the delta's own record. Nothing was closed."
+    echo ""
+    return 9
+  fi
+
+  # ── THE CLOSE-TIME RE-DERIVATION AND ITS RATCHET (§4.2) ──────────────────
+  # The open-time values were a FORECAST measured against an empty diff. This is
+  # the measurement. A higher bracket raises the attribute and appends whatever
+  # gates that raise toggles on; a lower one changes nothing at all.
+  touched="$TOUCHED_FILE"
+  if [ -z "$touched" ]; then
+    touched="$(mktemp)"
+    TOUCHED_TMP="$touched"
+    delta_classify_touched "." > "$touched" 2>/dev/null || : > "$touched"
+  fi
+  lines="$LINES_OVERRIDE"
+  [ -n "$lines" ] || lines="$(delta_classify_lines ".")"
+
+  measured="$(_close_measure "." "$touched" "$lines")"                # DELTA-CLOSE-RATCHET
+  mrisk="$(printf '%s' "$measured" | cut -f1)"
+  mlevel="$(printf '%s' "$measured" | cut -f2)"
+  nrisk="$(_higher risk "$risk" "$mrisk")"
+  nlevel="$(_higher level "$level" "$mlevel")"
+
+  if [ "$nrisk" != "$risk" ] || [ "$nlevel" != "$level" ]; then
+    if ! newgates="$(delta_classify_gates "." "$class" "$nrisk" "$nlevel")"; then
+      print_fail "Could not work out what the bigger change needs, so nothing was closed."
+      return 1
+    fi
+    # APPEND-ONLY, never recompute-and-replace (§7.1): a policy edit mid-delta
+    # must not be able to drop a gate the operator was already told about, so
+    # the recomputed set contributes only what is NEW.
+    if ! appended="$(jq -c -n --argjson have "$gates_req" --argjson want "$newgates" \
+        '[ $want[] | . as $g | select(($have | index($g)) == null) ]')"; then
+      print_fail "Could not work out what the bigger change needs, so nothing was closed."
+      return 1
+    fi
+    n_appended="$(printf '%s' "$appended" | jq -r 'length' 2>/dev/null)" || n_appended=0
+    case "$n_appended" in ''|*[!0-9]*) n_appended=0 ;; esac
+    now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    if ! _seam --delta-state-update \
+        ".active_delta.attributes.risk = $(_json_str "$nrisk") \
+       | .active_delta.attributes.level = $(_json_str "$nlevel") \
+       | .active_delta.gates_required = (.active_delta.gates_required + $appended) \
+       | .active_delta.ratcheted_at = $(_json_str "$now")"; then
+      print_fail "The delta record refused the re-measurement, so nothing was closed."
+      return 1
+    fi
+    gates_req="$(printf '%s\n' "$gates_req" | jq -c ". + $appended")"
+    risk="$nrisk"
+    level="$nlevel"
+
+    if [ "$n_appended" -gt 0 ]; then
+      echo ""
+      print_fail "This turned out to be a bigger change than it looked when you started, so it needs more checking before it can close."
+      printf '%s\n' "$appended" | jq -r '"  Now also needed: " + join(", ")'
+      print_info "That is measured from what you actually changed, not from what you said at the start — and it only ever goes up."
+      print_info "Do those, mark them done with --complete-gate, then close again."
+      echo ""
+      return 10
+    fi
+  fi
+
+  # ── REFUSAL 3 — REQUIRED GATES STILL OUTSTANDING (§5.2) ──────────────────
+  if ! outstanding="$(jq -r -n --argjson req "$gates_req" --argjson done "$gates_done" \
+      '[ $req[] | . as $g | select(($done | index($g)) == null) ] | join(", ")')"; then
+    print_fail "Could not work out what is left to do, so nothing was closed."
+    return 1
+  fi
+  if [ -n "$outstanding" ]; then                                      # DELTA-CLOSE-GATES-GUARD
+    echo ""
+    print_fail "$id is not finished yet."
+    print_info "Still to do: $outstanding"
+    print_info "Mark one done with: scripts/delta.sh --complete-gate <name>"
+    echo ""
+    return 7
+  fi
+
+  # ── REFUSAL 4 — THE RUBRIC BIND (§5.3) ───────────────────────────────────
+  # Keyed on the GATE, not on the class: a fix that grew past the evolution
+  # threshold gains `brief` at the ratchet above and gains this check with it.
+  if printf '%s\n' "$gates_req" | jq -e 'index("brief") != null' >/dev/null 2>&1; then
+    brc=0
+    brief="$(_brief_path "$id" "$recorded")" || brc=$?
+    if [ "$brc" -eq 2 ]; then
+      echo ""
+      print_fail "More than one write-up claims to be $id's, so it is not clear which one to check against."
+      printf '%s\n' "$brief" | sed -e 's/^/  /'
+      print_info "Keep one and rename or remove the other. Nothing was closed."
+      echo ""
+      return 8
+    fi
+    if [ "$brc" -ne 0 ] || [ -z "$brief" ] || [ ! -f "$brief" ]; then
+      echo ""
+      print_fail "$id needs a written-up plan and there isn't one to check against."
+      print_info "It should be at docs/deltas/$id-<short-name>.md, with a '## Done-observable' section listing what has to be true when this is finished."
+      print_info "Nothing was closed."
+      echo ""
+      return 8
+    fi
+    boxes="$(_rubric_boxes "$brief")" || boxes=""
+    if [ -z "$boxes" ]; then
+      echo ""
+      print_fail "$brief has no list of things that have to be true when this is done, so there is nothing to check it against."
+      print_info "Add a '## Done-observable' section with one '- [ ] …' line per thing you will be able to see working."
+      print_info "An empty list would let this close on nothing at all, so it is refused rather than passed. Nothing was closed."
+      echo ""
+      return 8
+    fi
+    unchecked="$(printf '%s\n' "$boxes" | awk -F'\t' '$1 == "unchecked" { print "  - " $2 }')"
+    if [ -n "$unchecked" ]; then                                      # DELTA-CLOSE-RUBRIC-GUARD
+      echo ""
+      print_fail "You wrote down what would be true when $id is done, and some of it is not ticked off yet."
+      printf '%s\n' "$unchecked"
+      print_info "That list is in $brief, and it is the whole review — you wrote it before you were invested in how you built this."
+      print_info "Finish those, tick them, then close. Nothing was closed."
+      echo ""
+      return 8
+    fi
+  fi
+
+  # ── THE CLOSE WRITE — ONE SEAM CALL, ONE ATOMIC RENAME ───────────────────
+  # THE `closed` APPEND AND THE SLOT NULL ARE ONE FILTER, and that is not
+  # tidiness. `_next_id` reads ids out of closed[] + hotfix_retros[] +
+  # active_delta, so a close that empties the slot without appending ERASES the
+  # id from the record and the very next open is handed it again — two pieces of
+  # work sharing one identifier in the audit tail, with nothing anywhere that
+  # would notice. Splitting this into two seam calls would additionally make the
+  # window between them a crash away from exactly that state.
+  now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  if ! row="$(jq -c -n --arg id "$id" --arg class "$class" --arg sev "$sev" \
+      --arg at "$now" --arg risk "$risk" --arg level "$level" --argjson done "$gates_done" '
+      ($sev | if . == "" then null else . end) as $s
+      | { id: $id, class: $class, severity: $s,
+          closed_at: $at, shipped_in: null,
+          attributes: { risk: $risk, level: $level, severity: $s },
+          gates_completed: $done }')"; then
+    print_fail "Could not write up the finished record, so nothing was closed."
+    return 1
+  fi
+
+  filter=".closed += [$row] | .active_delta = null"                   # DELTA-CLOSE-ATOMIC-WRITE
+  if ! _seam --delta-state-update "$filter"; then
+    print_fail "The delta record refused the change, so nothing was closed."
+    return 1
+  fi
+
+  echo ""
+  print_ok "Closed $id ($class)."
+  print_info "It is on the record with everything you ticked off, and it will be listed in the next release you cut."
+  print_info "Start the next one with: scripts/delta.sh --open"
+  echo ""
+  return 0
+}
+
+# ═════════════════════════════════════════════════════════════════════════════
 # Argument parsing
 # ═════════════════════════════════════════════════════════════════════════════
 ACTION=""
@@ -571,6 +1065,7 @@ REASON=""
 TOUCHED_FILE=""
 TOUCHED_TMP=""
 LINES_OVERRIDE=""
+GATE_TOKEN=""
 
 CLASS=""; CLASS_WHY=""
 SEV="";   SEV_WHY=""
@@ -589,6 +1084,8 @@ _need() {
 while [ $# -gt 0 ]; do
   case "$1" in
     --open)     ACTION="open"; shift ;;
+    --close)    ACTION="close"; shift ;;
+    --complete-gate) _need "$1" $#; ACTION="complete-gate"; GATE_TOKEN="$2"; shift 2 ;;
     --status)   ACTION="status"; shift ;;
     --describe) _need "$1" $#; DESCRIBE="$2"; shift 2 ;;
     --slug)     _need "$1" $#; SLUG="$2"; shift 2 ;;
@@ -600,7 +1097,12 @@ while [ $# -gt 0 ]; do
     # An explicit touched-file list and an explicit line count exist so the
     # derivations can be exercised against a KNOWN input. At open the real diff
     # is usually empty (§4.2's forecast), so a test that relied on the ambient
-    # git state would be pinning the host, not the formula.
+    # git state would be pinning the host, not the formula. BOTH FLOWS honour
+    # them — `--close` re-measures with the same two functions, so the same
+    # override is the same override there. The WP4 ratchet cases deliberately do
+    # NOT use them: the design's own mutation is about a REAL diff crossing a
+    # bracket, and feeding that measurement by hand would prove the arithmetic
+    # while assuming away the thing being measured.
     --touched-file) _need "$1" $#; TOUCHED_FILE="$2"; shift 2 ;;
     --lines)        _need "$1" $#; LINES_OVERRIDE="$2"; shift 2 ;;
     --confirm)  CONFIRMED=1; shift ;;
@@ -614,8 +1116,10 @@ trap _cleanup EXIT
 
 RC=0
 case "$ACTION" in
-  open)   cmd_open   || RC=$? ;;
-  status) cmd_status || RC=$? ;;
-  *)      echo "$USAGE" >&2; RC=2 ;;
+  open)          cmd_open          || RC=$? ;;
+  close)         cmd_close         || RC=$? ;;
+  complete-gate) cmd_complete_gate || RC=$? ;;
+  status)        cmd_status        || RC=$? ;;
+  *)             echo "$USAGE" >&2; RC=2 ;;
 esac
 exit "$RC"

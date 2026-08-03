@@ -781,10 +781,32 @@ else
 fi
 rm -rf "$T"
 
-# ── m2: neuter the SECOND-ACTIVATION refusal -> double-open succeeds -> A1 RED
+# ── m2: neuter the SECOND-ACTIVATION refusal -> A1 RED ─────────────────────
 # FRESH FIXTURE AT PHASE 4 on purpose: at any lower phase the era guard refuses
 # first, this guard never executes, and the mutant would look pinned when it is
 # not. That masking is the failure WP2's per-atom sweep found twice.
+#
+# RE-AIMED BY WP4, AND THE REASON MATTERS MORE THAN THE EDIT. This row used to
+# assert that the mutant's second `--open` SUCCEEDS and OVERWRITES the open
+# delta — "bytes moved; class now feature". That was true of the tree it was
+# written against and is no longer true of this one, because WP4 took the
+# R-WP3-3 carry-forward: `scripts/lib/delta-state.sh`'s ACTIVE-ATOM-NO-REPLACE
+# now refuses, AT THE SEAM, any candidate that swaps a different id into an
+# occupied slot. So the overwrite is caught twice, and the honest question this
+# row now answers is what the BUSINESS guard uniquely delivers once the data
+# loss is prevented elsewhere.
+#
+# The answer, asserted below, is the whole operator-facing outcome: a dedicated
+# exit code (4) that a caller can branch on, and a sentence that NAMES the delta
+# in the way. With the guard neutered the operator instead gets rc 1 and "the
+# delta record refused the change" — a generic write failure that tells them
+# nothing about what to do next. A1 asserts rc == 4 AND that the output names
+# DELTA-001, so A1 still goes RED on both halves.
+#
+# AND THE THIRD CORNER, because "the mutant refused" is also what a
+# comprehensively broken tree would report: the SAME mutant tree opens a delta
+# cleanly (rc 0) in a fixture where nothing is open. The mutant is not broken;
+# it has lost exactly one behaviour.
 T=$(mktemp -d); MT="$T/mut"; mk_scripts_tree "$MT"
 _sed_inplace "$MT/scripts/delta.sh" '/# DELTA-OPEN-ACTIVE-GUARD$/s@.*@  if false; then@'
 rep="$(_mutation_report "$REPO_ROOT/scripts/delta.sh" "$MT/scripts/delta.sh" 'DELTA-OPEN-ACTIVE-GUARD$')"
@@ -792,15 +814,21 @@ sites="${rep%%|*}"; rest="${rep#*|}"; changed="${rest%%|*}"; nlines="${rest##*|}
 P="$T/proj"; mk_proj "$P" 4
 delta_run "$MT/scripts" "$P" --open --describe "the CSV export crashes on unicode" --confirm >/dev/null 2>&1
 before="$(_md5file "$P/.claude/delta-state.json")"
-delta_run "$MT/scripts" "$P" --open --describe "add dark mode" --confirm >/dev/null 2>&1
+mut_out=$(delta_run "$MT/scripts" "$P" --open --describe "add dark mode" --confirm)
 mut_rc=$?
 after="$(_md5file "$P/.claude/delta-state.json")"
 second_class="$(active_json "$P" -r '.active_delta.class')"
+names=n; printf '%s' "$mut_out" | grep -qF 'DELTA-001' && names=y
+# The third corner: the same mutant tree still opens normally.
+Pf="$T/fresh"; mk_proj "$Pf" 4
+delta_run "$MT/scripts" "$Pf" --open --describe "add dark mode" --confirm >/dev/null 2>&1
+fresh_rc=$?
 if [ "$sites" = "1" ] && [ "$changed" = y ] && [ "$nlines" -eq 2 ] \
-   && [ "$mut_rc" -eq 0 ] && [ "$before" != "$after" ] && [ "$second_class" = "feature" ]; then
-  pass "m2: with the second-activation guard neutered, a second --open SUCCEEDS (rc $mut_rc) and OVERWRITES the open delta (bytes moved; class now $second_class) — A1 goes RED, and this is exactly the loss WP2 deferred to WP3 (marker sites=$sites, one line changed=$nlines/2)"
+   && [ "$mut_rc" -eq 1 ] && [ "$names" = n ] \
+   && [ "$before" = "$after" ] && [ "$second_class" = "fix" ] && [ "$fresh_rc" -eq 0 ]; then
+  pass "m2: with the second-activation guard neutered, a second --open no longer produces the refusal the operator can act on — rc $mut_rc instead of 4, and the open delta is never named (names=$names) — so A1 goes RED on both of its halves. The record itself survives (bytes identical, still a $second_class) because WP4's ACTIVE-ATOM-NO-REPLACE catches the same overwrite at the seam: the loss WP2 deferred to WP3 is now guarded twice, and this guard's remaining job is telling the operator WHICH delta is in the way. The mutant tree is otherwise healthy — it opens cleanly with nothing active (rc $fresh_rc) (marker sites=$sites, one line changed=$nlines/2)"
 else
-  fail_ "m2" "marker sites=$sites (expect 1); mutation applied=$changed (expect y); diff lines=$nlines (expect 2); mutant rc=$mut_rc (expect 0); bytes before=$before after=$after (must DIFFER); overwritten class=$second_class (expect feature)"
+  fail_ "m2" "marker sites=$sites (expect 1); mutation applied=$changed (expect y); diff lines=$nlines (expect 2); mutant rc=$mut_rc (expect 1 — the seam's generic refusal, NOT 4); names the open delta=$names (expect n); bytes before=$before after=$after (must MATCH — the seam atom holds the record); class still=$second_class (expect fix); mutant opens cleanly on a fresh fixture rc=$fresh_rc (expect 0)"
 fi
 rm -rf "$T"
 
