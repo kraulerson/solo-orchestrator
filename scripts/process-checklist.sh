@@ -399,7 +399,8 @@ require_build_loop_state_for_commit() {
       echo "To proceed, EITHER:" >&2
       echo "  a. this IS \"$closed_feature\" — name it in the subject, e.g." >&2
       echo "     feat($(_build_loop_slug "$closed_feature")): <what you built>" >&2
-      echo "     (any whole word of that name, in the scope or the description, is enough)" >&2
+      echo "     (the full name anywhere in the scope or description works, as does one" >&2
+      echo "      distinctive word of it — 5+ characters, not a generic term like 'service')" >&2
       echo "  b. this is a DIFFERENT feature — give it its own loop:" >&2
       echo "     scripts/process-checklist.sh --start-feature \"NAME\"" >&2
       echo "     then complete steps 1-5 and re-run your commit." >&2
