@@ -257,7 +257,7 @@ JSON
 }
 
 # ── WALK-ISSUE-010: a CLOSED loop authorizes ITS OWN feature's commit ────────
-# Walk 2026-08-02 (walkrepo-1785713402, ISSUE-010, Major): the walker read
+# Walk of 2026-08-02, ISSUE-010 (Major): the walker read
 # CLAUDE.md's Build Loop as "mark the six steps in order, then commit the
 # feature". Completing step 6 (feature_recorded) auto-resets .build_loop (the
 # UAT-C2 fix U18 pins), so the feature's own `feat:` commit was then blocked
@@ -446,6 +446,123 @@ JSON
   teardown
 }
 
+# ── R-GATEUX-1 (adversarial review, 2026-08-02): the framework's OWN state
+# file is not the feature's work. Generated projects TRACK
+# `.claude/process-state.json`, and closing the loop WRITES it — so it was
+# dirty at capture time and landed in every receipt. A naive `git add -A`
+# (the norm this gate exists for) then stages it, which satisfied the
+# path binding on its own: the reviewer's probe i2 committed an unrelated
+# `evil.ts` under a stale feature name with rc=0. Framework bookkeeping is
+# not evidence of a feature's work; it is filtered out of the receipt.
+u29_state_file_is_not_the_features_work() {
+  setup
+  mkdir -p "$TMPDIR_T/.claude"
+  ( cd "$TMPDIR_T" \
+      && git init -q \
+      && git config user.email "walk@test.invalid" \
+      && git config user.name "walk" ) >/dev/null 2>&1 \
+    || { fail_ "U29" "git init failed"; teardown; return; }
+  seed_phase 2
+  seed_ready_to_record "find-in-document"
+  # Generated projects TRACK .claude/ — commit it, exactly like init.sh does.
+  ( cd "$TMPDIR_T" && echo seed > seed.txt && git add -A \
+      && git commit -q -m "chore: init" ) >/dev/null 2>&1 \
+    || { fail_ "U29" "fixture commit failed"; teardown; return; }
+  # The feature's actual work, then close the loop (which dirties the state
+  # file), then LAND the feature's own commit — the loop's files are now gone
+  # from the working tree, which is the ordinary end state.
+  printf 'export const find = 1;\n' > "$TMPDIR_T/find.ts"
+  local rc; rc=$(record_feature)
+  [ "$rc" = "0" ] || { fail_ "U29" "--complete-step failed (rc=$rc)"; teardown; return; }
+  ( cd "$TMPDIR_T" && git add find.ts && git commit -q -m "feat(find-in-document): the find bar" ) >/dev/null 2>&1 \
+    || { fail_ "U29" "feature commit failed"; teardown; return; }
+  local recorded
+  recorded=$(jq -r '(.build_loop.last_completed.paths // []) | join(",")' "$TMPDIR_T/.claude/process-state.json")
+  [[ "$recorded" != *".claude/"* ]] || { fail_ "U29" "the receipt recorded the framework's own state file as the feature's work ('$recorded') — a git add -A then satisfies the path binding with bookkeeping alone (reviewer probe i2)"; teardown; return; }
+  # The naive-agent commit: unrelated work, staged wholesale, stale name.
+  printf 'export const evil = 1;\n' > "$TMPDIR_T/evil.ts"
+  ( cd "$TMPDIR_T" && git add -A ) >/dev/null 2>&1
+  local out; out=$(run_check "feat(find-in-document): unrelated exporter")
+  [ "${out%%|*}" = "1" ] || { fail_ "U29" "git add -A + a stale feature name rode the closed loop on the STATE FILE alone — the reviewer's i2 refutation: $out"; teardown; return; }
+  pass "U29: .claude/ bookkeeping is filtered from the receipt — git add -A under a stale name no longer satisfies the path binding (R-GATEUX-1)"
+  teardown
+}
+
+# seed_closed_receipt <feature> — a closed receipt with NO recorded paths, so
+# the IDENTITY half is tested in isolation (the path half is U25/U26/U29).
+seed_closed_receipt() {
+  mkdir -p "$TMPDIR_T/.claude"
+  jq -n --arg f "$1" '{
+    "phase2_init": {"verified": true},
+    "build_loop": {
+      "feature": null, "step": 0, "steps_completed": [], "started_at": null,
+      "last_completed": {
+        "feature": $f,
+        "completed_at": "2026-08-02T00:00:00Z",
+        "steps_completed": ["tests_written","tests_verified_failing","implemented","security_audit","documentation_updated","feature_recorded"],
+        "paths": []
+      }
+    },
+    "uat_session": {"started_at": null, "steps_completed": []}
+  }' > "$TMPDIR_T/.claude/process-state.json"
+}
+
+# ── R-GATEUX-2a: the whole-slug arm was a raw SUBSTRING test, so it crossed
+# word boundaries in both directions — the reviewer landed auth->auth2,
+# auth->authentication and form->performance, all rc=0. Matching is
+# token-bounded now, at every slug length.
+u30_slug_match_is_token_bounded() {
+  setup; seed_phase 2; seed_closed_receipt "auth"
+  local out
+  out=$(run_check "feat(auth2): a different service")
+  [ "${out%%|*}" = "1" ] || { fail_ "U30" "'auth2' matched the closed feature 'auth' — a substring is not a name (reviewer probe): $out"; teardown; return; }
+  out=$(run_check "feat(authentication): rewrite")
+  [ "${out%%|*}" = "1" ] || { fail_ "U30" "'authentication' matched the closed feature 'auth' — a longer word that CONTAINS the name is a different word: $out"; teardown; return; }
+  out=$(run_check "feat(auth): the actual auth work")
+  [ "${out%%|*}" = "0" ] || { fail_ "U30" "the feature's own name was rejected: $out"; teardown; return; }
+  teardown
+  setup; seed_phase 2; seed_closed_receipt "form"
+  out=$(run_check "feat(perf): performance tuning")
+  [ "${out%%|*}" = "1" ] || { fail_ "U30" "'performance' matched the closed feature 'form' — letters inside a word are not a name: $out"; teardown; return; }
+  pass "U30: the slug match is token-bounded at every length — auth2 / authentication / performance no longer name auth / form"
+  teardown
+}
+
+# ── R-GATEUX-2b: a shared token has to be DISTINCTIVE. The reviewer blessed
+# unrelated subjects through "with" and "user"; a generic engineering noun
+# ("service", "config", "update") is the same defect one size up.
+u31_generic_tokens_do_not_name_a_feature() {
+  setup; seed_phase 2; seed_closed_receipt "user-profile-avatar"
+  local out; out=$(run_check "feat(export): export the user list")
+  [ "${out%%|*}" = "1" ] || { fail_ "U31" "the stopword-grade token 'user' named a whole feature: $out"; teardown; return; }
+  teardown
+  setup; seed_phase 2; seed_closed_receipt "export-service"
+  out=$(run_check "feat(login): restart the service")
+  [ "${out%%|*}" = "1" ] || { fail_ "U31" "the generic token 'service' named a whole feature — a stoplisted noun is not an identity: $out"; teardown; return; }
+  teardown
+  setup; seed_phase 2; seed_closed_receipt "note-loss-confirmation"
+  out=$(run_check "feat(highlight): removal with confirmation")
+  [ "${out%%|*}" = "0" ] || { fail_ "U31" "a distinctive shared token ('confirmation') must still match — the tightening must not swallow the honest case: $out"; teardown; return; }
+  pass "U31: generic/short tokens no longer name a feature; a distinctive shared token still does"
+  teardown
+}
+
+# ── R-GATEUX-3a: pin the THRESHOLD WIDTH, not just its presence. A reviewer
+# mutant loosened >=4 to >=3 and the suite stayed green. The single-token arm
+# now floors at 5, and both sides of that boundary are asserted here, so a
+# one-character loosening goes red.
+u32_shared_token_floor_width() {
+  setup; seed_phase 2; seed_closed_receipt "cache-layer"
+  local out; out=$(run_check "feat(perf): cache warmup on boot")
+  [ "${out%%|*}" = "0" ] || { fail_ "U32" "a 5-character distinctive shared token ('cache') was rejected — the floor is one character too high: $out"; teardown; return; }
+  teardown
+  setup; seed_phase 2; seed_closed_receipt "note-anchor"
+  out=$(run_check "feat(export): note the export format")
+  [ "${out%%|*}" = "1" ] || { fail_ "U32" "a 4-character shared token ('note') named the feature — the floor is one character too low, which is the reviewer's surviving >=3 mutant one size up: $out"; teardown; return; }
+  pass "U32: the shared-token floor is pinned at width 5 from BOTH sides (4 blocks, 5 matches)"
+  teardown
+}
+
 u28_short_feature_name_matches_whole_token_only() {
   setup; seed_phase 2; seed_ready_to_record "ui"
   local rc; rc=$(record_feature)
@@ -510,6 +627,10 @@ u25_receipt_binds_to_the_loops_files
 u26_receipt_does_not_bless_unrelated_files
 u27_no_recorded_paths_falls_back_to_identity
 u28_short_feature_name_matches_whole_token_only
+u29_state_file_is_not_the_features_work
+u30_slug_match_is_token_bounded
+u31_generic_tokens_do_not_name_a_feature
+u32_shared_token_floor_width
 
 echo ""
 echo "== Total: $((PASSED + FAILED)) | Passed: $PASSED | Failed: $FAILED =="

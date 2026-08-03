@@ -172,21 +172,38 @@ _build_loop_slug() {
     | sed 's/--*/-/g; s/^-//; s/-$//'
 }
 
+# WALK-ISSUE-010-STOPLIST: tokens that name no feature. A shared token only
+# counts as an identity when it says WHICH feature — these say only that the
+# subject is software. Deliberately short and only ever consulted by the
+# single-shared-token arm below: the whole-slug arm is NOT stoplisted, so a
+# feature genuinely called "config" still matches `feat(config): …`.
+_BUILD_LOOP_GENERIC_TOKENS=" common component components config configuration feature features general handler helper helpers index initial manager module project service services setup shared support system update updates utility utilities utils version "
+
 # WALK-ISSUE-010-IDENTITY: does this commit subject NAME the given feature?
 # The identity bound is what keeps the UAT-2026-04-25 C2 grace window shut
 # while still letting a CLOSED loop authorize its own feature's commit
-# (see # WALK-ISSUE-010-CLOSED-LOOP-BEGIN). Deliberately generous, in the
-# direction that cannot grant anything to an unrelated feature:
-#   - the haystack is the SCOPE plus the DESCRIPTION, never the `feat` type
+# (see # WALK-ISSUE-010-CLOSED-LOOP-BEGIN).
+#   - The haystack is the SCOPE plus the DESCRIPTION, never the `feat` type
 #     token itself (otherwise every feat: subject would "name" any feature
-#     whose slug contains the word "feat" — e.g. UAT's own `uat-feat-1`);
-#   - the whole feature slug appearing anywhere in the haystack matches —
-#     but only when the slug is >=4 characters. A SHORT slug ("ui", "db")
-#     must match as a whole token, or `feat(build): …` would "name" the
-#     feature `ui` on the strength of the letters inside "build";
-#   - otherwise any WHOLE token of >=4 characters shared by both matches
-#     ("highlight" for "Highlight removal with note-loss confirmation").
-#     Whole tokens, not substrings: "featured" must not match "feat".
+#     whose slug contains the word "feat" — e.g. UAT's own `uat-feat-1`).
+#   - MATCH 1: the whole feature slug as a contiguous TOKEN SEQUENCE. Token
+#     bounded at EVERY length. The first cut used a raw substring for slugs of
+#     four characters or more and the 2026-08-02 adversarial review walked
+#     straight through it in both directions: `auth2` and `authentication`
+#     both "named" the feature `auth`, and `performance` "named" `form`.
+#     Letters inside a word are not a name.
+#   - MATCH 2: ONE shared whole token, if that token is DISTINCTIVE — at
+#     least five characters AND not in the stoplist above. The same review
+#     blessed unrelated subjects through `with` and `user`; a generic
+#     engineering noun (`service`, `config`, `update`) is that defect one size
+#     up. Five is a pinned WIDTH, asserted from both sides by U32 in
+#     tests/test-check-commit-message.sh, because a reviewer mutant that
+#     loosened the old threshold by one character survived the whole suite.
+#   - REMAINING GENEROSITY, stated rather than hidden: two features that share
+#     one distinctive word ("export-pdf" / "export-csv") can still name each
+#     other. That is the price of not demanding the slug verbatim, and it is
+#     bounded by the second half of the binding — the closed loop's own files
+#     must also be staged (# WALK-ISSUE-010-PATHBIND).
 # Returns 0 on a match, 1 otherwise (including an empty subject — a caller
 # that cannot supply the subject gets no closed-loop credit, fail closed).
 _subject_names_feature() {
@@ -200,18 +217,15 @@ _subject_names_feature() {
   hay=$(_build_loop_slug "$scope $desc")
   feat_slug=$(_build_loop_slug "$feature")
   [ -n "$feat_slug" ] && [ -n "$hay" ] || return 1
-  if [ "${#feat_slug}" -ge 4 ]; then
-    case "$hay" in
-      *"$feat_slug"*) return 0 ;;
-    esac
-  else
-    case "-$hay-" in
-      *"-$feat_slug-"*) return 0 ;;
-    esac
-  fi
+  case "-$hay-" in
+    *"-$feat_slug-"*) return 0 ;;
+  esac
   local IFS='-'
   for tok in $feat_slug; do
-    [ "${#tok}" -ge 4 ] || continue
+    [ "${#tok}" -ge 5 ] || continue
+    case "$_BUILD_LOOP_GENERIC_TOKENS" in
+      *" $tok "*) continue ;;
+    esac
     case "-$hay-" in
       *"-$tok-"*) return 0 ;;
     esac
@@ -225,9 +239,15 @@ _subject_names_feature() {
 # be satisfied by `src/find.ts.bak`. Returns 0 (authorized) when either list is
 # EMPTY — the two documented fallbacks (a loop closed on a clean tree; a commit
 # with nothing staged, e.g. `git commit -a` before the index is written). Both
-# are stated on the caller and pinned by U27; a path git has to quote (embedded
-# newline) simply will not match, which fails toward blocking, never toward
-# granting.
+# are stated on the caller and pinned by U27.
+# PATH SPELLING: both sides come from git plumbing (`diff --name-only`,
+# `ls-files --others`) under the same core.quotePath setting, so an
+# unusual path is quoted identically in the receipt and at commit time and
+# still compares equal. A future caller that fed one side an unquoted or
+# absolute path would simply fail to match — toward blocking, never toward
+# granting — but nothing in the repo does that today; do not read this as a
+# claim that quoted paths cannot match, which is what an earlier revision of
+# this comment said and got wrong.
 _closed_loop_touches_staged() {
   local receipt_paths="$1" staged="$2" sp rp
   [ -n "$receipt_paths" ] || return 0
@@ -332,6 +352,14 @@ require_build_loop_state_for_commit() {
     #   paths fall back to identity alone, because there is nothing to bind
     #   against. Naming them is the honest alternative to pretending the bind
     #   is total.
+    #   A THIRD BOUND WAS CONSIDERED AND DECLINED (R-GATEUX-6): the receipt
+    #   already carries `completed_at`, so a freshness window is one comparison
+    #   away. It is not here because expiring a receipt re-creates exactly the
+    #   dead end this fix exists to remove — a Friday loop, a Monday commit,
+    #   blocked — and because ISO-8601-to-epoch parsing is the GNU/BSD `date`
+    #   split this repo has been bitten by before. Recorded as a residual, not
+    #   an oversight: if the identity+files pair is ever judged too weak, the
+    #   timestamp is sitting in the receipt ready to be read.
     local closed_feature="" closed_missing="" closed_paths="" staged_paths=""
     closed_feature=$(jq -r '.build_loop.last_completed.feature // ""' "$PROCESS_STATE" 2>/dev/null) || closed_feature=""
     if [ -n "$closed_feature" ]; then
@@ -1110,12 +1138,27 @@ BL120EOF
     bl_done_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     # The loop's OWN FILES — the half of the binding the operator does not
     # author (see # WALK-ISSUE-010-PATHBIND). Everything uncommitted at the
-    # moment the loop closes IS the feature's work: staged, modified, and
-    # untracked-but-not-ignored. An empty result is legitimate and recorded as
-    # such (the commit-FIRST ordering closes on a clean tree), and the reader
-    # falls back to identity alone rather than blocking.
+    # moment the loop closes: staged, modified, and untracked-but-not-ignored.
+    #   THIS IS AN APPROXIMATION AND IS RECORDED AS ONE. It is "what was dirty
+    #   when the loop closed", not "the feature's files" — pre-existing dirt an
+    #   operator happened to be carrying lands in the receipt too and would
+    #   satisfy the path half later. It is a floor under the identity bound,
+    #   not an identity of its own.
+    #   `.claude/` IS EXCLUDED, and that exclusion is load-bearing (R-GATEUX-1,
+    #   2026-08-02 adversarial review). Generated projects TRACK
+    #   .claude/process-state.json and CLOSING THE LOOP WRITES IT — so it was
+    #   dirty at capture time and landed in every receipt. A naive `git add -A`
+    #   then staged it, which satisfied the path binding by itself: the
+    #   reviewer committed an unrelated file under a stale feature name, rc=0.
+    #   Framework bookkeeping is never evidence of a feature's work. Pinned by
+    #   U29; without the filter the receipt is also never empty, which made the
+    #   documented empty-paths fallback dead code in real projects.
+    # An empty result stays legitimate (a loop closed on a clean tree — the
+    # commit-FIRST ordering) and falls back to identity alone rather than
+    # blocking.
     bl_done_paths=$( { git diff --cached --name-only; git diff --name-only; \
                        git ls-files --others --exclude-standard; } 2>/dev/null \
+                     | grep -v '^\.claude/' \
                      | sort -u ) || bl_done_paths=""
     bl_done_paths_json=$(printf '%s' "$bl_done_paths" \
       | jq -R -s 'split("\n") | map(select(length > 0))' 2>/dev/null) || bl_done_paths_json="[]"
