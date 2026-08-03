@@ -8452,3 +8452,34 @@ cut-release consumer.
 
 **Related:** BL-117 (shipped the script downstream in the first place — F20),
 BL-104 (the silent-success family this belongs to).
+
+---
+
+## BL-214: `check-phase-gate.sh` stales its own next run — PASS-time snapshots dirty the tree the BL-082 freshness check reads
+
+**Logged:** 2026-08-03 (noticed by the walk fix wave's W1 implementer; independently
+REPRODUCED by its adversarial review with a two-run fixture)
+**Category:** Gate self-consistency / silent-friction class
+**Severity:** Medium (every generated project at phase 3+: a fully PASSING gate
+run plants the seed of its own next failure)
+**Status:** Open
+
+**The defect, reproduced:** on a clean phase-4 project where `docs/snapshots/`
+is not gitignored, gate run 1 exits 0 and prints
+`[OK] Phase gate snapshot created: docs/snapshots/phase-N-to-M_<date>` — and
+`git status` now shows `?? docs/snapshots/`. Gate run 2 exits 1:
+`[STALE] Phase 3→4: there are uncommitted changes since this summary was
+generated … regenerating.` then FAILs when auto-regeneration is off or
+unavailable. Cause: `create_gate_snapshot` writes into `docs/snapshots/` at
+PASS time, and `_cpg_scoped_dirty` excludes `.claude/` and the results dir but
+NOT `docs/snapshots/`. Real projects either eat a spurious stale-fail or a
+costly re-validation until the snapshot is committed.
+
+**Fix shape:** add `:(exclude)docs/snapshots` to `_cpg_scoped_dirty` — AND its
+sync sibling `_p3_scoped_dirty` in `run-phase3-validation.sh` (the two are
+kept textually identical per their own comments; change them together), with
+dual-direction mutation proofs (snapshot-only dirt no longer stales; real
+dirt still does).
+
+**Related:** BL-082 (the staleness contract this trips), BL-105 (the phase-4
+arm whose walk fix surfaced the reproduction fixture that found this).

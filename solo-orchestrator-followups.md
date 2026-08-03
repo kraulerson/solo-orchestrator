@@ -16,6 +16,27 @@ Grammar: `## F-NNN:` header, **Raised**, **Status** (`Awaiting decision` |
 
 ---
 
+## F-015: The Cw6-strict tamper-pin is a blacklist — `|| exit 0` slips it
+
+**Raised:** 2026-08-03 (BUG-009's confirm review, finding R-C1 — proven by
+mutation: `bash scripts/check-phase-gate.sh || exit 0` in swift.yml passed the
+full bl147 suite while `; true` variants are caught).
+**Status:** Awaiting decision.
+
+The shipped template content is correct and execution-verified (all 10 strict);
+this is about the regression detector only. The pin's blacklist is
+`(\|\||;)\s*(echo|true|:)` — `exit` isn't in the alternation, and blacklists
+lose to creativity generally. Reviewer-suggested hardening: ALLOWLIST the
+exact bare invocation line inside the extracted phase-gate step instead of
+enumerating swallow shapes. Same note in miniature for the project-side
+detector in `cmd_setup_ci_token` (`||`-only, no `;` arm — acceptable there
+because it targets the one shape the framework ever emitted). Also R-C2 nit:
+walk006's S6b comment references an in-suite mutant that doesn't exist (the
+property was proven by hand in review) — fix the comment when next touched.
+
+**Options:** (a) small hardening PR converting both pins to allowlists;
+(b) accept — the content is right, the pin catches the historical shape.
+
 ## F-014: CI runs the doc-anchors lint WITHOUT --strict-refs
 
 **Raised:** 2026-08-02 (Team Orchestrator design review, finding R-TOv1-10 —

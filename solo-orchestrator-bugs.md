@@ -609,6 +609,39 @@ fixed framework file over it, or set `SKIP_LINT=1` for the affected commit
 
 ---
 
+## BUG-009: 7 of 10 GitHub CI templates discarded the phase gate's exit code — the gate could FAIL and the step still graded green
+
+**Found:** 2026-08-03 (by the adversarial review of the walk fix wave's CI
+package — the reviewer probed why only the TypeScript walker ever saw
+ISSUE-006 and found the answer: seven language templates could not fail)
+**Found while:** reviewing `fix/walk-ci-release`'s claim that token setup
+"flips the check to enforcing" — the claim was true in only 3 of 10 templates
+**Severity:** High (silent-success class — every generated csharp/dart/go/
+java/kotlin/rust/swift project's CI phase gate was decorative: the step ran
+`bash scripts/check-phase-gate.sh 2>/dev/null || echo "Phase gate check
+script not found — skipping"`, so a `[FAIL]` + exit 1 graded GREEN and the
+swallow message itself was false — the script HAD run)
+
+**Status:** Fixed. Merged in PR #321 (`c9877a3`, 2026-08-03): all seven
+templates converted to the strict shape python/typescript/other already used —
+safe because the same PR's credential-less-CI WARN arm means strict templates
+go red only on REAL gate failures, never on the impossible protection check.
+The class is pinned two ways in `tests/test-bl147-ci-template-integrity.sh`:
+`Cw6-strict` (the swallow shapes, watched-RED naming exactly the seven) and
+`Cw6-strict-no-coe` (the `continue-on-error` vector the author found itself,
+step-scoped so java/kotlin's legitimate lint-step usage isn't accused).
+**Named residual (recorded, not fixed):** `|| exit 0` would slip the
+`Cw6-strict` blacklist — the shipped content is correct and execution-verified,
+but the tamper-pin is a blacklist; the suggested hardening is an allowlist on
+the exact bare invocation line (see `solo-orchestrator-followups.md` F-015).
+Existing generated projects in the seven languages: CI workflow files are
+project-owned after birth and are NOT re-copied by `--sync-framework`, so the
+remediation is manual — replace the swallowing phase-gate line with the strict
+shape (the updated templates' comment block shows it verbatim), or regenerate
+the workflow from an updated framework clone.
+
+---
+
 ## Template for new entries
 
 When adding a new bug, copy this block and fill it in:
