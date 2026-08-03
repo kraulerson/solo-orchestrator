@@ -118,6 +118,25 @@ fi
 HAVE_GITLEAKS=0
 command -v gitleaks >/dev/null 2>&1 && HAVE_GITLEAKS=1
 
+# GITLEAKS-ABSENT IS A SKIP LOCALLY AND A FAILURE IN CI (R-WP2-1).
+#
+# The original posture — detect and skip, loudly — was the brief's, and it
+# produced a hole the review found: the runner image does not ship gitleaks and
+# no workflow installed it, so the §6.5 byte-absence proof and all four
+# mutation proofs skipped in BOTH lanes and the suite still exited 0. A green
+# required check, credited with a proof that never ran, guarding the property
+# whose failure mode is a leaked credential in a committed file.
+#
+# A loud log line does not gate a merge; an exit code does. So the two audiences
+# are separated. A developer without gitleaks gets a banner and a skip, because
+# failing their local run for a missing optional tool teaches them to ignore the
+# suite. CI gets a FAILURE, because CI is the only place the skip is invisible —
+# nobody reads a green check's log. `CI` is set by GitHub Actions (and by every
+# other major provider) and the workflows now install a pinned gitleaks, so this
+# arm fires only if that install is removed or breaks.
+GITLEAKS_ABSENT_IS_FATAL=0
+[ -n "${CI:-}" ] && GITLEAKS_ABSENT_IS_FATAL=1
+
 TMPS=""
 cleanup() { [ -n "$TMPS" ] && rm -rf $TMPS; return 0; }
 trap cleanup EXIT
@@ -362,11 +381,18 @@ echo ""
 if [ "$HAVE_GITLEAKS" -eq 0 ]; then
   echo "  ***********************************************************************"
   echo "  *  gitleaks IS NOT INSTALLED ON THIS HOST.                            *"
-  echo "  *  The PLANTED-SECRET PROOF (§6.5) and BOTH mutation proofs will be   *"
-  echo "  *  SKIPPED. A skipped planted-secret proof is NOT a passing build —   *"
-  echo "  *  the secrets section is the highest-stakes surface in the design.   *"
+  echo "  *  The PLANTED-SECRET PROOF (§6.5) and ALL FOUR mutation proofs       *"
+  echo "  *  cannot run. A skipped planted-secret proof is NOT a passing build  *"
+  echo "  *  — the secrets section is the highest-stakes surface in the design. *"
   echo "  *  Install it:  brew install gitleaks                                 *"
   echo "  ***********************************************************************"
+  if [ "$GITLEAKS_ABSENT_IS_FATAL" -eq 1 ]; then
+    echo "  *  CI IS SET, SO THIS IS A FAILURE, NOT A SKIP. The workflows install *"
+    echo "  *  a pinned gitleaks precisely so this proof cannot sit out a merge.  *"
+    echo "  *  If you are seeing this, that install step is gone or broken.       *"
+    echo "  ***********************************************************************"
+    fail_ "GITLEAKS MISSING IN CI" "the planted-secret proof and all four mutation proofs cannot run, and a green check that skipped them is exactly the silent success this suite exists to prevent"
+  fi
   echo ""
 fi
 
@@ -551,20 +577,15 @@ else
 fi
 
 # ── G8: gitleaks ABSENT is reported as tool-unavailable, never as clean ────
-# The silent-success class, aimed at the one section where it matters most. A
-# shim directory of PATH stubs makes `command -v gitleaks` fail while leaving
-# git and the rest of the environment intact.
-G8=$(newtmp)
-mkdir -p "$G8/bin"
-cat > "$G8/bin/gitleaks" <<'EOF'
-#!/bin/sh
-echo "gitleaks: masked for the tool-unavailable test" >&2
-exit 127
-EOF
-chmod +x "$G8/bin/gitleaks"
-# PATH_MASK makes the binary un-findable rather than merely broken: Scout must
-# key on presence, and reporting "unavailable" for a tool that IS present but
-# failed is a different (also honest) status.
+# The silent-success class, aimed at the one section where it matters most.
+#
+# THE SEAM IS SCOUT_GITLEAKS_BIN, AND THE COMMENT NOW SAYS SO (R-WP2-5). An
+# earlier version of this case also built a PATH-stub gitleaks that nothing
+# ever used, and described a "PATH_MASK" mechanism that was not the one being
+# exercised — dead fixture code plus a comment about a test that did not run.
+# The env seam hits the SAME predicate the real absence would (`command -v`
+# against the configured name), which is what makes it a valid stand-in, and
+# it does not require making the host's real gitleaks unreachable.
 gl_out=$(SCOUT_GITLEAKS_BIN="definitely-not-a-real-binary-name" bash "$SCOUT" --root "$SEC" </dev/null 2>/dev/null)
 gl_st=$(jqv "$gl_out" '.secrets.status')
 gl_fc=$(jqv "$gl_out" '.secrets.findingCount')
@@ -601,6 +622,60 @@ EOF
   fi
 else
   skip_ "G9 (repo-local gitleaks config disclosure)" "gitleaks not installed"
+fi
+
+# ── G10: a CORRUPT report is scan-failed, never a clean read (R-WP2-3) ────
+# The scan-failed arm used to key on `rc != 0 || report missing`, so a scanner
+# that exited 0 having written garbage — the disk-full / truncated-write class
+# — parsed to zero findings and was reported as `scanned` with a clean count.
+# Against a fixture with two live plants in history. That is a false clean bill
+# of health in the one section where the consequence is a credential, and it
+# contradicts the file's own stated doctrine.
+#
+# Three shapes, because the first two failed DIFFERENTLY before the fix: braced
+# garbage produced phantom findings and an all-seven `fieldsMissing`, while
+# brace-free garbage and a bare `[` produced a completely silent clean read.
+# The fourth run is the positive control that keeps the fix from being "call
+# everything corrupt".
+G10=$(newtmp)
+_mk_fake_gitleaks() {
+  cat > "$1" <<FAKEEOF
+#!/bin/sh
+# Emulates gitleaks: writes \$2 of the -r flag, exits 0.
+out=""
+while [ \$# -gt 0 ]; do
+  case "\$1" in
+    -r) out="\$2"; shift 2 ;;
+    version) echo "9.9.9-fake"; exit 0 ;;
+    *) shift ;;
+  esac
+done
+[ -n "\$out" ] && printf '%s' '$2' > "\$out"
+exit 0
+FAKEEOF
+  chmod +x "$1"
+}
+g10_fail=""
+g10_n=0
+for shape in 'this is not json' 'this is not json {{{' '[' '[]'; do
+  g10_n=$((g10_n + 1))
+  _mk_fake_gitleaks "$G10/fake$g10_n" "$shape"
+  g10_out=$(SCOUT_GITLEAKS_BIN="$G10/fake$g10_n" bash "$SCOUT" --root "$SEC" </dev/null 2>/dev/null)
+  g10_st=$(jqv "$g10_out" '.secrets.status')
+  g10_fc=$(jqv "$g10_out" '.secrets.findingCount')
+  if [ "$shape" = "[]" ]; then
+    # The control: a VALID empty report is still a real, positive result.
+    [ "$g10_st" = "scanned" ] && [ "$g10_fc" = "0" ] \
+      || g10_fail="$g10_fail [valid-empty-report got status='$g10_st' count='$g10_fc', want scanned/0]"
+  else
+    [ "$g10_st" = "scan-failed" ] && [ "$g10_fc" = "null" ] \
+      || g10_fail="$g10_fail [corrupt '$shape' got status='$g10_st' count='$g10_fc', want scan-failed/null]"
+  fi
+done
+if [ -z "$g10_fail" ]; then
+  pass "G10: three shapes of corrupt report (brace-free garbage, braced garbage, truncated '[') all report scan-failed with findingCount null; a valid empty report still reports scanned/0"
+else
+  fail_ "G10" "$g10_fail"
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -717,8 +792,46 @@ if [ "$HAVE_GITLEAKS" -eq 1 ]; then
   else
     fail_ "XB" "changed_lines=$chg_b (want 2) mutant_files_leaking_MSG=$b_leak (want >=1) control=$b_ctl (want 0) mutant_files_leaking_DIFF=$b_diff_leak (want 0) allowlist_anchor_sites=$allow_sites (want 1)"
   fi
+  # ── XT: neuter the cleanup trap -> G1's TEMP-RESIDUE leg must go RED ─────
+  # THE COUNTERFACTUAL THAT LEG NEVER HAD, and it is here because it was
+  # already exploited. The WP2 review neutered exactly this line and the whole
+  # suite stayed 44/0 GREEN while ~44 work directories — each holding the RAW
+  # gitleaks report with the message plant intact in `Message`, which
+  # `--redact` does not touch — piled up in shared temp, unseen.
+  #
+  # The root cause was not the assertion, it was the address it read. BSD
+  # `mktemp -d` IGNORES an overridden TMPDIR (measured: `TMPDIR=$P mktemp -d`
+  # returns a path under /var/folders, not under $P), so G1 was grepping a
+  # directory Scout had never written to. scout.sh now uses the template form
+  # `mktemp -d "${TMPDIR:-/tmp}/scout-work.XXXXXXXX"`, which both BSD and GNU
+  # honour — and this case is what proves the leg is live rather than merely
+  # re-worded. It asserts BOTH directions in one place: the mutant leaves the
+  # plant-bearing work directory behind under a TMPDIR this case owns, and the
+  # unmutated control leaves that directory empty.
+  XT=$(newtmp); mk_scout_copy "$XT"
+  XTTMP=$(newtmp)
+  XTCTMP=$(newtmp)
+  trap_sites=$(grep -c "^trap 'rm -rf \"\$SCOUT_WORK\"' EXIT INT TERM$" "$SCOUT")
+  _awk_inplace "$XT/scripts/scout.sh" '
+    { if (!done && $0 == "trap '"'"'rm -rf \"$SCOUT_WORK\"'"'"' EXIT INT TERM") {
+        print "trap '"'"':'"'"' EXIT INT TERM"
+        done = 1; next }
+      print }'
+  chg_t=$(_changed_lines "$SCOUT" "$XT/scripts/scout.sh")
+  TMPDIR="$XTTMP" bash "$XT/scripts/scout.sh" --root "$SEC" </dev/null >/dev/null 2>&1
+  xt_leak=$(_grep_tree_for "$XTTMP" "$MSG_PLANT")
+  XTC=$(newtmp); mk_scout_copy "$XTC"
+  TMPDIR="$XTCTMP" bash "$XTC/scripts/scout.sh" --root "$SEC" </dev/null >/dev/null 2>&1
+  xt_ctl=$(_grep_tree_for "$XTCTMP" "$MSG_PLANT")
+  xt_ctl_entries=$( (cd "$XTCTMP" && LC_ALL=C ls -1A 2>/dev/null) | grep -c '')
+  if [ "$chg_t" -eq 2 ] && [ "$xt_leak" -ge 1 ] && [ "$xt_ctl" -eq 0 ] \
+     && [ "$xt_ctl_entries" -eq 0 ] && [ "$trap_sites" -eq 1 ]; then
+    pass "XT: with Scout's cleanup trap neutered (1 line), the raw report carrying the MESSAGE plant is left behind in $xt_leak file(s) under an owned TMPDIR; the unmutated control leaves the directory completely empty — G1's temp-residue leg is live, not decorative"
+  else
+    fail_ "XT" "changed_lines=$chg_t (want 2) mutant_residue_files=$xt_leak (want >=1) control_residue_files=$xt_ctl (want 0) control_tmpdir_entries=$xt_ctl_entries (want 0) trap_anchor_sites=$trap_sites (want 1) — if the mutant leaks 0, Scout is not honouring TMPDIR and the residue leg is scanning a directory it never used"
+  fi
 else
-  skip_ "XA1/XA2/XA/XB (all four mutation proofs)" "gitleaks not installed — see the banner above"
+  skip_ "XA1/XA2/XA/XB/XT (all five mutation proofs)" "gitleaks not installed — see the banner above"
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1244,6 +1357,9 @@ if [ "$SKIPPED" -gt 0 ]; then
   echo "!! $SKIPPED case(s) SKIPPED because gitleaks is not installed — the"
   echo "!! planted-secret proof (§6.5) DID NOT RUN. This build is not certified"
   echo "!! against the defect WP2 exists to prevent. Install gitleaks and re-run."
+  if [ "$GITLEAKS_ABSENT_IS_FATAL" -eq 1 ]; then
+    echo "!! CI is set, so this run is also FAILED, not merely incomplete."
+  fi
 fi
 echo "Results: $PASSED passed, $FAILED failed, $SKIPPED skipped"
 [ "$FAILED" -eq 0 ] || exit 1

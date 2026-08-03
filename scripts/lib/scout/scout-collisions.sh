@@ -236,7 +236,7 @@ _scout_ci_files() {
 #   colentries  `<path>\t<class>\t<bucket>\t<description>\t<note>\t<findings>`
 #   coldetail   `<rule>\t<path>\t<line>\t<why>`
 scout_collisions_scan() {
-  local root="$1" work="$2" f n rules line why nsamples desc hookbase
+  local root="$1" work="$2" f n r rules line why nsamples desc hookbase
   : > "$work/colentries"
   : > "$work/coldetail"
 

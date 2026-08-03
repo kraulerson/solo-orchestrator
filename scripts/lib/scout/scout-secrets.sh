@@ -102,11 +102,22 @@ _scout_secret_json_key() {
 # THE ALLOWLIST IS ENFORCED HERE, AT THE POINT OF EXTRACTION, not later at the
 # point of rendering. A refused field is never read into a variable, never
 # staged in a temp file, and never present to be leaked by a downstream bug.
+#
+# RETURNS NON-ZERO WHEN THE REPORT DID NOT PARSE (R-WP2-3). The walker emits a
+# terminal `E ok` sentinel only when the document really was a JSON array that
+# opened and closed — the first non-whitespace character was `[` and container
+# depth returned to zero at EOF. Without that, a truncated or corrupt report
+# (gitleaks exiting 0 having written garbage — the disk-full/truncation class)
+# parsed to zero findings and was reported as `scanned` with a clean count.
+# A false clean bill of health in the one section where that has a credential
+# behind it is the exact silent-success class this file is written against, so
+# it is now `scan-failed`. awk's own exit status is checked for the same
+# reason: a walker crash must not take the clean path either.
 _scout_secrets_project() {
-  local report="$1" work="$2"
+  local report="$1" work="$2" _awkrc
   : > "$work/secfields"
   : > "$work/secmissing"
-  [ -f "$report" ] || return 0
+  [ -f "$report" ] || return 1
 
   awk -v want="$_SCOUT_SECRET_FIELDS" '
     function readstr(   body, c) {
@@ -133,8 +144,17 @@ _scout_secrets_project() {
     { buf = buf $0 "\n" }
     END {
       L = length(buf); i = 1; depth = 0; idx = 0; curkey = ""; awaiting = 0
+      opened = 0
       while (i <= L) {
         ch = substr(buf, i, 1)
+        # The document must BEGIN as a JSON array. Checking only that depth
+        # returns to 0 would accept `this is not json` — no braces, depth never
+        # moves — as a well-formed empty report.
+        if (!opened) {
+          if (ch == " " || ch == "\t" || ch == "\r" || ch == "\n") { i++; continue }
+          if (ch != "[") { exit 0 }
+          opened = 1
+        }
         if (ch == "\"") {
           s = readstr()
           if (depth == 2 && stk[2] == "{") {
@@ -164,11 +184,18 @@ _scout_secrets_project() {
       # reporting seven renamed fields for a clean scan would be a loud false
       # alarm in a section whose whole value is that its alarms are true.
       if (idx > 0) for (k = 1; k <= n; k++) if (!(W[k] in seen)) printf "M\t%s\n", W[k]
+      # The completion sentinel. Reached only by falling off the end of a
+      # document that opened as an array and closed every container it opened.
+      if (opened && depth == 0) printf "E\tok\n"
     }
-  ' "$report" > "$work/secraw" 2>/dev/null
+  ' "$report" > "$work/secraw"
+  _awkrc=$?
 
   grep '	F	' "$work/secraw" 2>/dev/null | sed -e 's/	F	/	/' > "$work/secfields"
   grep '^M	' "$work/secraw" 2>/dev/null | cut -f2 > "$work/secmissing"
+
+  [ "$_awkrc" -eq 0 ] || return 1
+  grep -q '^E	ok$' "$work/secraw" 2>/dev/null || return 1
   return 0
 }
 
@@ -228,7 +255,7 @@ _scout_secrets_render() {
 # false clean bill of health has a credential behind it.
 scout_secrets_scan() {
   local root="$1" work="$2"
-  local _bin _mode _scope _flags _rc _version _count _cfg
+  local _bin _mode _scope _flags _rc _version _count _cfg f
 
   printf 'gitleaks\n' > "$work/sectool"
   : > "$work/secjson"
@@ -299,7 +326,17 @@ scout_secrets_scan() {
     return 0
   fi
 
-  _scout_secrets_project "$work/gl.json" "$work"
+  # A report that exists and an exit code of 0 are NOT the same thing as a
+  # report that parsed (R-WP2-3). Degrading a corrupt one to "scanned, zero
+  # findings" would issue a clean bill of health on the strength of garbage.
+  if ! _scout_secrets_project "$work/gl.json" "$work"; then
+    : > "$work/secjson"
+    : > "$work/secmissing"
+    printf 'scan-failed\n' > "$work/secstatus"
+    printf '%s\n' "The scanner exited cleanly but its report did not parse, so NOTHING here can be trusted — treat this as unknown, not as clean. A truncated or corrupt report is usually a full disk or a killed process; re-run Scout." \
+      > "$work/secnote"
+    return 0
+  fi
   _scout_secrets_render "$work"
   _count=$(grep -c '' "$work/secjson" 2>/dev/null)
   case "$_count" in ''|*[!0-9]*) _count=0 ;; esac

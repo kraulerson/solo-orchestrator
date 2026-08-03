@@ -133,7 +133,24 @@ fi
 # The private work directory. Everything Scout computes is staged here as
 # tab-separated files and removed on exit — bash 3.2 has no associative arrays,
 # and staging beats trying to thread a dozen parallel arrays through five libs.
-SCOUT_WORK="$(mktemp -d 2>/dev/null)" || {
+#
+# THE TEMPLATE FORM IS LOAD-BEARING AND THE BARE FORM IS A LIE ON THIS PLATFORM.
+# BSD `mktemp -d` (macOS) IGNORES an overridden `TMPDIR` and always allocates
+# under the per-user temp dir; GNU honours it. Measured here:
+#
+#   $ TMPDIR="$P" mktemp -d                      -> /var/folders/…/T/tmp.4EvtJVKmHQ   (NOT $P)
+#   $ mktemp -d "${TMPDIR:-/tmp}/scout-work.XXXXXXXX" -> $P/scout-work.PPrvG4S0        (honoured)
+#
+# That difference is not cosmetic. This directory holds the RAW gitleaks report,
+# whose `Message` field carries the unredacted commit message — the one place a
+# planted secret genuinely exists on disk during a scan. A caller that sets
+# TMPDIR to a directory it owns in order to prove no residue is left behind was,
+# under the bare form, auditing a directory Scout never touched: the WP2 review
+# neutered the cleanup trap below and the whole suite stayed green while
+# plant-bearing work dirs piled up in shared temp, unseen. The template form
+# makes the promise in this header ("a private working directory under
+# $TMPDIR") true on both platforms, and makes that audit real.
+SCOUT_WORK="$(mktemp -d "${TMPDIR:-/tmp}/scout-work.XXXXXXXX" 2>/dev/null)" || {
   echo "scout: could not create a temporary working directory." >&2
   exit 2
 }
