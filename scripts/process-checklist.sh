@@ -86,15 +86,44 @@ _set_current_phase_min() {
 # THE SURFACE, AND WHY IT IS THIS SMALL
 #   --delta-state-read              print the state document (§7.1), or the
 #                                   empty schema when there is none. rc 0.
-#   --delta-state-update <jq>       read -> apply the filter -> ATOMIC write,
-#                                   refusing anything that violates the schema
-#                                   or drops an append-only `closed` row.
-#                                   ONE guarded primitive rather than a verb per
-#                                   caller (activation / gates_completed append /
-#                                   retro append / cadence stamp / closed
-#                                   append): five verbs would be five places to
-#                                   forget the guard, and the guard — not the
-#                                   verb — is what D7 is actually about.
+#   --delta-state-update <jq>       read -> apply the filter -> ATOMIC write
+#                                   under the APPEND rule. ONE guarded primitive
+#                                   rather than a verb per caller (activation /
+#                                   gates_completed append / retro append /
+#                                   cadence stamp / closed append): five verbs
+#                                   would be five places to forget the guard,
+#                                   and the guard — not the verb — is what D7 is
+#                                   actually about.
+#                                   WHAT THE GUARD ACTUALLY REFUSES, precisely,
+#                                   because "anything that violates the schema"
+#                                   was an over-claim: a candidate that is not an
+#                                   object with exactly the five §7.1 keys;
+#                                   schemaVersion that is not a number;
+#                                   active_delta that is neither object nor null;
+#                                   hotfix_retros / closed that are not arrays;
+#                                   cadence that is not an object; a closed row
+#                                   that is not an object; and any drop, reorder
+#                                   or rewrite of an existing closed row.
+#                                   WHAT IT DOES NOT REFUSE, deliberately:
+#                                   replacing an OPEN active_delta. One-at-a-time
+#                                   is structural here; the business refusal is
+#                                   §11-WP3's, which owns open/confirm. Recorded
+#                                   as a deferral, not an omission. Inner shapes
+#                                   of cadence / hotfix_retros / active_delta are
+#                                   likewise later WPs' — see the WHAT IT
+#                                   DELIBERATELY DOES NOT ENFORCE block in
+#                                   scripts/lib/delta-state.sh.
+#   --delta-state-ship <id> <ver>   record `shipped_in` on an already-closed
+#                                   delta — §7.1's cut-time write, which
+#                                   `cut-release.sh` (§9) reaches through here
+#                                   and never by touching the file. A SEPARATE,
+#                                   narrower pathway on purpose: the append rule
+#                                   is not widened by one character, and this
+#                                   action permits EXACTLY ONE mutation shape —
+#                                   one closed row's shipped_in going null -> a
+#                                   non-empty string, everything else identical.
+#                                   WRITE-ONCE: a row that already has a version
+#                                   is refused, never overwritten.
 #   --delta-policy-init             seed `.claude/delta-policy.json` with the
 #                                   §7.2 defaults, ONCE. Never overwrites.
 #   --delta-policy-get <key>        dotted-key read with per-key fallback to the
@@ -148,6 +177,13 @@ _delta_seam_dispatch() {
       fi
       delta_state_update "." "$1"
       ;;
+    --delta-state-ship)
+      if [ $# -lt 2 ] || [ -z "${1:-}" ] || [ -z "${2:-}" ]; then
+        echo "process-checklist --delta-state-ship: a delta id and a version are both required (e.g. --delta-state-ship DELTA-005 v1.2.1)." >&2
+        return 2
+      fi
+      delta_state_ship "." "$1" "$2"
+      ;;
     --delta-policy-init)
       delta_policy_seed "."
       ;;
@@ -173,7 +209,7 @@ _delta_seam_dispatch() {
 # (a refused write, an unknown policy key) reaches `exit` as itself instead of
 # aborting the shell somewhere inside the module.
 case "${1:-}" in
-  --delta-state-read|--delta-state-update|--delta-policy-init|--delta-policy-get|--delta-policy-notice)
+  --delta-state-read|--delta-state-update|--delta-state-ship|--delta-policy-init|--delta-policy-get|--delta-policy-notice)
     if _delta_seam_dispatch "$@"; then exit 0; else exit $?; fi
     ;;
 esac

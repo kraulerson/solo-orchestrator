@@ -34,11 +34,42 @@
 #         must not lock the single writer out of its own file)
 #     S5  `closed` is append-only: an update that DROPS a closed row is refused
 #         and writes nothing
+#     S5b the REWRITE half of append-only — reorder, equal-length replacement,
+#         in-place field rewrite, and the bare shipped_in fill
 #     S6  single writer (D7): the boundary lint passes on the real tree and its
 #         seam allowlist is still cardinality ONE, so no core file other than
 #         scripts/process-checklist.sh can name the state file. Cited, not
 #         re-implemented — scripts/lint-delta-boundary.sh owns that predicate
 #         and tests/test-lint-delta-boundary.sh owns its mutations.
+#     S7  every SHAPE atom, one refusal each
+#
+#   THE shipped_in WRITE-ONCE PATHWAY (§7.1 Part 2)
+#     SH1 the cut-time backfill succeeds and changes nothing else
+#     SH2 write-once: a second ship, an unknown id, a missing argument
+#     SH3 every OTHER closed[] mutation is refused by the ship predicate too
+#     SH4 an unrecognised closed-rule fails CLOSED; ship with no previous file
+#         is refused
+#
+#   ── WHY S5b / S7 / SH3 EXIST, AND THE RULE THEY ENCODE ──────────────────
+#   The first cut of this suite pinned only the DROP half of append-only and
+#   none of the shape atoms. An adversarial review (R-WP2-1) then deleted three
+#   atoms of the shipped write guard — the prefix-equality atom, the
+#   closed-is-array atom, and the schemaVersion atom — and the suite stayed at
+#   24/0 with all 14 lints green. That is the repo's own recorded defect class
+#   (CLAUDE.md / `# BL-181-UNIT-LANE-PREDICATE`: a one-character narrowing
+#   passed both PR-blocking checks three times).
+#
+#   THE RULE, now enforced by construction: EVERY atom of the write guard
+#   carries a marker, and every marker has at least one refusal case behind it.
+#   The per-atom counterfactual sweep (neuter one marked atom -> the suite must
+#   go RED) is the audit, and it found two more holes on its first run that a
+#   reading of the code did not:
+#     • SHIP-ATOM-OUTSIDE was unpinned — the "change outside closed" case had
+#       no accompanying fill, so EXACTLY-ONE refused it first and OUTSIDE never
+#       had to do any work. SH3 now carries a fill+outside candidate.
+#     • APPEND-ATOM-LENGTH was UNPINNABLE, not merely unpinned: prefix-equality
+#       already subsumes it. It was DELETED rather than papered over — see the
+#       note under _delta_state_closed_is_append.
 #
 #   POLICY (§7.2)
 #     P1  the seed writer emits the §7.2 defaults, key for key
@@ -212,12 +243,22 @@ _neuter_fn() {
   chmod +x "$file"
 }
 
-# _sed_inplace <file> <sed-expr> — portable in-place sed (no GNU -i semantics).
+# _sed_inplace <file> <sed-expr> — portable in-place sed (no GNU -i semantics),
+# PRESERVING the file's mode.
+#
+# The obvious spelling ends `chmod +x "$file"`, because mktemp hands back 0600
+# and the mv would otherwise narrow an executable. That idiom is a trap and it
+# has now cost this branch two commits: applied to an in-tree file it silently
+# turns a sourced 0644 lib into 0755, `git status` shows only "M", and the mode
+# change rides along in the next commit. Read the mode first and put it back
+# instead — GNU-first with the BSD fallback, per the house portability rule.
 _sed_inplace() {
-  local file="$1" expr="$2" tmp
+  local file="$1" expr="$2" tmp mode
+  mode="$(stat -c '%a' "$file" 2>/dev/null || stat -f '%Lp' "$file" 2>/dev/null || echo "")"
   tmp="$(mktemp)"
   sed -e "$expr" "$file" > "$tmp" && mv "$tmp" "$file"
-  chmod +x "$file" 2>/dev/null || true
+  [ -n "$mode" ] && chmod "$mode" "$file" 2>/dev/null
+  return 0
 }
 
 echo "== tests/test-delta-wp2-state-policy.sh =="
@@ -355,6 +396,190 @@ if [ "$rc" -eq 0 ] && [ "$card" = "1" ]; then
 else
   fail_ "S6" "lint rc=$rc (expect 0); cardinality-1 rows=$card (expect 1); out:\n$out"
 fi
+
+# ── Fixture + probes for the guard-atom cases (S5b / S7 / SH*) ─────────────
+# WHY THESE EXIST. The first cut of this suite pinned only the DROP half of the
+# append-only property and none of the shape atoms, so three atoms of the
+# shipped write guard could be deleted with every PR-blocking check green
+# (adversarial review R-WP2-1). The cases below are refusal assertions against
+# the UN-mutated tree, one per atom — which is the cheap way to pin an atom that
+# lives inside a jq program.
+
+# Seed two closed rows, both unshipped. The §7.1 flow: a delta is CLOSED before
+# it is SHIPPED, so `shipped_in` starts null and is backfilled at cut time.
+seed_closed() {
+  seam "$REPO_ROOT/scripts" "$1" --delta-state-update \
+    '.closed = [{"id":"DELTA-004","class":"fix","closed_at":"2026-07-01T00:00:00Z","shipped_in":null},{"id":"DELTA-005","class":"feature","closed_at":"2026-07-28T10:00:00Z","shipped_in":null}]' >/dev/null
+}
+
+# Render a candidate document by applying a jq filter to the CURRENT state file.
+cand_from() { jq -c "$2" "$1/.claude/delta-state.json"; }
+
+# Feed a candidate straight to the writer under a named closed-rule, bypassing
+# the actions. This is a unit probe of the PREDICATE — the only way to reach
+# mutation shapes that no seam action can emit — not a second production writer.
+lib_write() {
+  local sd="$1" p="$2" rule="$3" doc="$4"
+  ( cd "$p" && . "$sd/lib/delta-state.sh" && printf '%s\n' "$doc" | delta_state_write "." "$rule" ) >/dev/null 2>&1
+}
+
+# ── S5b: the REWRITE half of append-only  [pins APPEND-ATOM-PREFIX] ────────
+# S5 pins the DROP (a truncation is caught by the length atom alone). Nothing
+# pinned reorder, equal-length replacement or in-place field rewrite — so the
+# prefix-equality atom was deletable with the suite at 24/0. Each filter below
+# preserves the array LENGTH, so the length atom cannot catch any of them.
+T=$(mktemp -d); P="$T/proj"; mk_bare "$P"; seed_closed "$P"
+before=$(_md5file "$P/.claude/delta-state.json")
+leaked=""
+for f in \
+  '.closed |= reverse' \
+  '.closed[0] = {"id":"DELTA-999","class":"fix","closed_at":"2026-07-01T00:00:00Z","shipped_in":null}' \
+  '.closed[-1].class = "hotfix"' \
+  '.closed[-1].shipped_in = "v1.2.1"' \
+  ; do
+  seam "$REPO_ROOT/scripts" "$P" --delta-state-update "$f" >/dev/null 2>&1; rc=$?
+  after=$(_md5file "$P/.claude/delta-state.json")
+  if [ "$rc" -eq 0 ] || [ "$after" != "$before" ]; then leaked="$leaked [$f rc=$rc]"; fi
+done
+if [ -n "$before" ] && [ -z "$leaked" ]; then
+  pass "S5b: reorder, equal-length row replacement, in-place field rewrite AND the bare shipped_in fill are all refused through --delta-state-update, file byte-identical each time — the REWRITE half of append-only, not just the drop"
+else
+  fail_ "S5b" "before='$before' (must be non-empty); accepted-when-it-should-refuse:$leaked"
+fi
+rm -rf "$T"
+
+# ── S7: the shape atoms, one refusal each  [pins every SHAPE-ATOM-*] ───────
+# Every one of these was ACCEPTED by the first cut (rc=0, file changed) — the
+# reviewer's probe list. Each row names the atom it kills.
+T=$(mktemp -d); P="$T/proj"; mk_bare "$P"; seed_closed "$P"
+before=$(_md5file "$P/.claude/delta-state.json")
+leaked=""
+for f in \
+  'del(.schemaVersion)' \
+  '.schemaVersion = "banana"' \
+  '.active_delta = "not-an-object"' \
+  '.hotfix_retros = {}' \
+  '.cadence = []' \
+  '.closed = "not-an-array"' \
+  '.closed += ["just-a-string"]' \
+  '.EVIL = {"exfil": true}' \
+  ; do
+  seam "$REPO_ROOT/scripts" "$P" --delta-state-update "$f" >/dev/null 2>&1; rc=$?
+  after=$(_md5file "$P/.claude/delta-state.json")
+  if [ "$rc" -eq 0 ] || [ "$after" != "$before" ]; then leaked="$leaked [$f rc=$rc]"; fi
+done
+if [ -n "$before" ] && [ -z "$leaked" ]; then
+  pass "S7: missing/non-numeric schemaVersion, non-object active_delta, non-array hotfix_retros, non-object cadence, non-array closed, a non-object closed ROW, and an arbitrary extra top-level key are each refused with the file byte-identical (the top level is closed-world: exactly the five §7.1 keys)"
+else
+  fail_ "S7" "before='$before' (must be non-empty); accepted-when-it-should-refuse:$leaked"
+fi
+rm -rf "$T"
+
+# ════════════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== SH — the shipped_in write-once pathway (§7.1 Part 2) ==="
+# ════════════════════════════════════════════════════════════════════════════
+# §7.1: "shipped_in is recorded at cut time via the seam — cut-release.sh asks
+# process-checklist.sh to write it and never touches the file itself." That
+# write is a null->value fill on an ALREADY-CLOSED row, which the append rule
+# refuses (S5b's fourth filter). Resolution (adversarial review R-WP2-2): the
+# append rule is NOT widened; the fill gets a dedicated action whose predicate
+# permits exactly one mutation shape.
+
+# ── SH1: (i) the backfill succeeds and changes NOTHING else ────────────────
+T=$(mktemp -d); P="$T/proj"; mk_bare "$P"; seed_closed "$P"
+pre_doc=$(jq -S -c '.' "$P/.claude/delta-state.json")
+out=$(seam "$REPO_ROOT/scripts" "$P" --delta-state-ship DELTA-005 v1.2.1); rc=$?
+shipped=$(jq -r '.closed[] | select(.id=="DELTA-005") | .shipped_in' "$P/.claude/delta-state.json" 2>/dev/null)
+other=$(jq -r '.closed[] | select(.id=="DELTA-004") | .shipped_in' "$P/.claude/delta-state.json" 2>/dev/null)
+# The whole document with that ONE field reverted must equal the original.
+post_reverted=$(jq -S -c '(.closed[] | select(.id=="DELTA-005") | .shipped_in) = null' "$P/.claude/delta-state.json")
+if [ "$rc" -eq 0 ] && [ "$shipped" = "v1.2.1" ] && [ "$other" = "null" ] \
+   && [ "$pre_doc" = "$post_reverted" ]; then
+  pass "SH1: --delta-state-ship records shipped_in on a closed row (rc 0) and the document is otherwise byte-for-byte what it was — the §7.1 cut-time write is expressible through the seam again"
+else
+  fail_ "SH1" "rc=$rc shipped='$shipped' (expect v1.2.1) other='$other' (expect null) doc-otherwise-identical=$([ "$pre_doc" = "$post_reverted" ] && echo yes || echo NO); out:\n$out"
+fi
+rm -rf "$T"
+
+# ── SH2: (ii) WRITE-ONCE — a second ship, and an unknown id, are refused ───
+T=$(mktemp -d); P="$T/proj"; mk_bare "$P"; seed_closed "$P"
+seam "$REPO_ROOT/scripts" "$P" --delta-state-ship DELTA-005 v1.2.1 >/dev/null 2>&1
+before=$(_md5file "$P/.claude/delta-state.json")
+seam "$REPO_ROOT/scripts" "$P" --delta-state-ship DELTA-005 v9.9.9 >/dev/null 2>&1; rc_again=$?
+a1=$(_md5file "$P/.claude/delta-state.json")
+seam "$REPO_ROOT/scripts" "$P" --delta-state-ship DELTA-404 v1.0.0 >/dev/null 2>&1; rc_norow=$?
+a2=$(_md5file "$P/.claude/delta-state.json")
+seam "$REPO_ROOT/scripts" "$P" --delta-state-ship DELTA-004 >/dev/null 2>&1; rc_args=$?
+still=$(jq -r '.closed[] | select(.id=="DELTA-005") | .shipped_in' "$P/.claude/delta-state.json" 2>/dev/null)
+if [ -n "$before" ] && [ "$rc_again" -ne 0 ] && [ "$a1" = "$before" ] \
+   && [ "$rc_norow" -ne 0 ] && [ "$a2" = "$before" ] \
+   && [ "$rc_args" -eq 2 ] && [ "$still" = "v1.2.1" ]; then
+  pass "SH2: shipped_in is WRITE-ONCE — a second ship of the same delta is refused (file byte-identical, original version intact); an unknown id is refused; a missing version argument is a usage error (rc 2)"
+else
+  fail_ "SH2" "before='$before'; second-ship rc=$rc_again md5=$a1; unknown-id rc=$rc_norow md5=$a2; missing-arg rc=$rc_args (expect 2); shipped_in now='$still' (expect v1.2.1)"
+fi
+rm -rf "$T"
+
+# ── SH3: (iii) every OTHER closed[] mutation is refused through the ship
+#        predicate too  [pins every SHIP-ATOM-*] ─────────────────────────────
+# These candidates cannot be produced by the action (it only ever emits a
+# single-row fill), so they are fed to the writer directly. Without them the
+# ship pathway's atoms would be exactly as deletable as the append atoms were.
+T=$(mktemp -d); P="$T/proj"; mk_bare "$P"; seed_closed "$P"
+before=$(_md5file "$P/.claude/delta-state.json")
+leaked=""
+#   filter                                                                    | atom it pins
+#   ------------------------------------------------------------------------- | ------------
+for f in \
+  '.active_delta = {"id":"DELTA-006"}' \
+  '.closed[1].shipped_in = "v1.2.1" | .active_delta = {"id":"DELTA-006"}' \
+  '.closed += [{"id":"DELTA-006","shipped_in":null}] | .closed[1].shipped_in = "v1.2.1"' \
+  '.closed[1].shipped_in = "v1.2.1" | .closed[1].class = "hotfix"' \
+  '.closed[1].shipped_in = 5' \
+  '.closed[1].shipped_in = ""' \
+  '.closed[0].shipped_in = "v1.0.0" | .closed[1].shipped_in = "v1.2.1"' \
+  '.closed[0].class = "hotfix" | .closed[1].shipped_in = "v1.2.1"' \
+  '.closed |= reverse' \
+  '.' \
+  ; do
+  doc=$(cand_from "$P" "$f")
+  lib_write "$REPO_ROOT/scripts" "$P" ship "$doc"; rc=$?
+  after=$(_md5file "$P/.claude/delta-state.json")
+  if [ "$rc" -eq 0 ] || [ "$after" != "$before" ]; then leaked="$leaked [$f rc=$rc]"; fi
+done
+# And an already-shipped row cannot be re-filled at the PREDICATE level either,
+# not merely at delta_state_ship's friendlier check.
+seam "$REPO_ROOT/scripts" "$P" --delta-state-ship DELTA-004 v1.0.0 >/dev/null 2>&1
+before2=$(_md5file "$P/.claude/delta-state.json")
+doc=$(cand_from "$P" '.closed[0].shipped_in = "v9.9.9"')
+lib_write "$REPO_ROOT/scripts" "$P" ship "$doc"; rc_over=$?
+after2=$(_md5file "$P/.claude/delta-state.json")
+if [ -n "$before" ] && [ -z "$leaked" ] && [ "$rc_over" -ne 0 ] && [ "$before2" = "$after2" ]; then
+  pass "SH3: the ship predicate refuses a change outside closed — alone AND riding along with an otherwise-legal fill — plus a length change, a second field changed on the filled row, a non-string version, an empty version, a two-row fill, a fill accompanied by a rewrite, a reorder, a no-op, and an overwrite of an already-set shipped_in. Exactly one mutation shape is permitted and nothing else"
+else
+  fail_ "SH3" "before='$before'; accepted-when-it-should-refuse:$leaked; overwrite rc=$rc_over md5 $before2 -> $after2"
+fi
+rm -rf "$T"
+
+# ── SH4: there is no unguarded write path ─────────────────────────────────
+T=$(mktemp -d); P="$T/proj"; mk_bare "$P"; seed_closed "$P"
+before=$(_md5file "$P/.claude/delta-state.json")
+doc=$(cand_from "$P" '.closed = []')
+lib_write "$REPO_ROOT/scripts" "$P" "" "$doc"; rc_empty=$?
+lib_write "$REPO_ROOT/scripts" "$P" "none" "$doc"; rc_none=$?
+after=$(_md5file "$P/.claude/delta-state.json")
+# A ship-rule write with NO previous file must also refuse: you cannot ship what
+# was never closed.
+Q="$T/fresh"; mk_bare "$Q"
+lib_write "$REPO_ROOT/scripts" "$Q" ship '{"schemaVersion":1,"active_delta":null,"hotfix_retros":[],"cadence":{},"closed":[]}'; rc_fresh=$?
+if [ -n "$before" ] && [ "$rc_empty" -ne 0 ] && [ "$rc_none" -ne 0 ] && [ "$before" = "$after" ] \
+   && [ "$rc_fresh" -ne 0 ] && [ ! -e "$Q/.claude/delta-state.json" ]; then
+  pass "SH4: an unrecognised closed-rule fails CLOSED (a typo is a refusal, not an unguarded write) and the ship rule refuses when there is no previous file — you cannot ship what was never closed"
+else
+  fail_ "SH4" "before='$before'; empty-rule rc=$rc_empty none-rule rc=$rc_none md5 $before -> $after; fresh-ship rc=$rc_fresh created=$([ -e "$Q/.claude/delta-state.json" ] && echo yes || echo no)"
+fi
+rm -rf "$T"
 
 # ════════════════════════════════════════════════════════════════════════════
 echo ""

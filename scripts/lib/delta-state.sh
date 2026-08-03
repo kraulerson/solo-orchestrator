@@ -90,22 +90,58 @@ delta_state_default_json() {
 DELTA_STATE_EMPTY_EOF
 }
 
-# The §7.1 shape, as a jq boolean. This is the WRITE-side gate: reads are
-# deliberately permissive (parse-only) so a hand-edited file can still be seen
-# and repaired, but nothing gets PAST this predicate onto disk.
+# ── THE SHAPE PREDICATE ──────────────────────────────────────────────────────
+# The §7.1 shape, as a jq boolean, and the WRITE-side gate. Reads run it too
+# (delta_state_read falls back to the empty schema rather than handing a caller
+# a document it cannot index), but nothing gets PAST it onto disk.
 #
-#   • active_delta is object-or-null — the structural half of one-at-a-time.
-#   • hotfix_retros / closed are arrays — hotfix_retros outlives active_delta
-#     (an open retro must block a release cut long after its delta closed), and
-#     closed is the append-only audit tail.
+# WHAT IT ENFORCES, exactly — one atom per line, each individually pinned by a
+# refusal case in tests/test-delta-wp2-state-policy.sh. Every atom carries a
+# marker so a counterfactual can address it without a line number (CLAUDE.md's
+# citation rule), and an atom with no refusal case behind it is a deletable
+# atom — R-WP2-1 found three of those in the first cut of this file, all three
+# survived the whole PR-blocking check set, and the repo's own scar tissue
+# (`# BL-181-UNIT-LANE-PREDICATE`) says that is how guards quietly die.
+#
+#   • the document is an object.
+#   • schemaVersion is a NUMBER. Presence alone was the first cut, and it let
+#     `.schemaVersion = "banana"` through. Type, not value: pinning `== 1` would
+#     refuse a future v2 document, and version negotiation is not this layer's
+#     job.
+#   • active_delta is object-or-null — the STRUCTURAL half of one-at-a-time.
+#   • hotfix_retros is an array — it outlives active_delta, because an open
+#     retro must block a release cut long after its delta closed.
 #   • cadence is an object — §8.3's checker reads dates out of it.
+#   • closed is an array of OBJECTS. The row-type atom uses `.closed[]?` so it
+#     is independently observable: without the `?` it would ERROR whenever the
+#     array atom was deleted, and an error refuses the write too — which is
+#     exactly how the array atom came to be deletable with everything green.
+#   • the top level is CLOSED-WORLD: exactly the five §7.1 keys, no others.
+#
+# WHAT IT DELIBERATELY DOES NOT ENFORCE — stated so the comment stops
+# over-claiming (R-WP2-3), because "refuses anything that violates the schema"
+# was never true:
+#   • THE SECOND-ACTIVATION REFUSAL IS WP3's, NOT THIS LAYER'S. Overwriting an
+#     OPEN active_delta (losing its gates_completed) is accepted here. §11-WP3
+#     owns open/confirm and owns that business-logic refusal; one-at-a-time is
+#     only structural until then. This is a recorded deferral, not an oversight.
+#   • cadence's INNER keys and date formats — §8.3/WP6 defines them.
+#   • hotfix_retros' ROW shape — §11-WP5 materialises those rows.
+#   • active_delta's inner fields — WP3/WP4 materialise them at open.
+# Each atom is `and ( … )` on its own line with a trailing marker, so a
+# counterfactual neuters exactly one by replacing the marked line with
+# `and (true)` and the jq program stays syntactically whole. The leading
+# `(true)` exists so every real atom has the same shape.
 DELTA_STATE_SHAPE='
-    (type == "object")
-    and (has("schemaVersion"))
-    and ((.active_delta == null) or ((.active_delta | type) == "object"))
-    and ((.hotfix_retros | type) == "array")
-    and ((.cadence | type) == "object")
-    and ((.closed | type) == "array")
+    (true)
+    and (type == "object")                                                 # SHAPE-ATOM-OBJECT
+    and ((.schemaVersion | type) == "number")                              # SHAPE-ATOM-SCHEMAVERSION
+    and ((.active_delta == null) or ((.active_delta | type) == "object"))  # SHAPE-ATOM-ACTIVE
+    and ((.hotfix_retros | type) == "array")                               # SHAPE-ATOM-RETROS
+    and ((.cadence | type) == "object")                                    # SHAPE-ATOM-CADENCE
+    and ((.closed | type) == "array")                                      # SHAPE-ATOM-CLOSED
+    and (all(.closed[]?; type == "object"))                                # SHAPE-ATOM-CLOSED-ROWS
+    and ((((keys) - ["schemaVersion","active_delta","hotfix_retros","cadence","closed"]) | length) == 0)   # SHAPE-ATOM-NO-EXTRA-KEYS
 '
 
 # delta_state_read [project_root]
@@ -144,11 +180,37 @@ delta_state_read() {
   jq . "$f"
 }
 
-# _delta_state_closed_is_append <old-file> <candidate-file>
-#   True when the candidate's `closed` array EXTENDS the old one — same rows, in
-#   the same order, plus zero or more at the end. §7.1 calls `closed` an
-#   append-only audit tail; this is what makes that a property rather than a
-#   comment.
+# ── THE `closed` INVARIANT, IN TWO PARTS (§7.1) ──────────────────────────────
+#
+# §7.1 says two things about `closed` that read as one, and the first cut of
+# this file implemented only the first:
+#
+#   PART 1 — APPEND-ONLY AUDIT TAIL. Rows are never deleted, never reordered,
+#            never replaced. The array only ever grows at the end.
+#   PART 2 — `shipped_in` IS A WRITE-ONCE FIELD, BACKFILLED AT CUT TIME.
+#            "`shipped_in` is recorded at cut time via the seam — cut-release.sh
+#            asks process-checklist.sh to write it and never touches the file
+#            itself." A delta is closed BEFORE it is shipped, so the row exists
+#            with `shipped_in: null` and is filled later.
+#
+# Those two are not in conflict, but a guard that enforces only Part 1 makes the
+# Part 2 write impossible — which is exactly what R-WP2-2 found: the design's
+# own named hardest case, `.closed[-1].shipped_in = "v1.2.1"`, was refused as a
+# history rewrite. The reconciliation, decided here rather than in the middle of
+# WP7:
+#
+#   The APPEND rule stays absolutely strict — it is not widened by one
+#   character. The `shipped_in` backfill gets its OWN pathway
+#   (delta_state_ship + the seam's --delta-state-ship), guarded by its OWN
+#   predicate that permits EXACTLY ONE mutation shape: closed[i].shipped_in
+#   transitioning null -> non-empty string, with the rest of the document
+#   byte-for-byte identical. Widening the generic guard was the alternative and
+#   was rejected: it would have put the carve-out inside the atom that protects
+#   every other row, so a bug in the carve-out would open the whole tail.
+#
+# _delta_state_closed_is_append <old-file> <candidate-file>  — PART 1.
+#   True when the candidate's `closed` EXTENDS the old one: same rows, same
+#   order, plus zero or more at the end.
 #
 #   A previous file that is not a well-formed state document has no defensible
 #   prefix to protect, so it is not held against the candidate — and it MUST NOT
@@ -161,11 +223,64 @@ _delta_state_closed_is_append() {
   jq -e -n --slurpfile o "$old" --slurpfile n "$new" '
       (($o[0].closed) // []) as $oc
     | (($n[0].closed) // []) as $nc
-    | (($nc | length) >= ($oc | length)) and ($nc[0:($oc | length)] == $oc)
+    | (true)
+      and ($nc[0:($oc | length)] == $oc)         # APPEND-ATOM-PREFIX
+  ' >/dev/null 2>&1
+}
+#   ONE atom, not two. The first cut also carried
+#   `(($nc | length) >= ($oc | length))`, and the per-atom counterfactual sweep
+#   showed it was UNPINNABLE: deleting it changed no behaviour at all, because
+#   prefix-equality already subsumes it — if the candidate is SHORTER than the
+#   old array then `$nc[0:len($oc)]` is all of `$nc`, an array of a different
+#   length, and arrays of different lengths are never equal. A redundant atom
+#   can never have a refusal case behind it, so it is permanently indistinguishable
+#   from a deleted one; shipping it would have meant shipping a line that looks
+#   like a guard and is not. Removed rather than "pinned". Do not re-add it.
+
+# _delta_state_closed_is_ship_fill <old-file> <candidate-file>  — PART 2.
+#   True for EXACTLY ONE mutation shape and nothing else:
+#     • nothing outside `closed` moved;
+#     • `closed` has the same length (no append, no truncation);
+#     • every row is identical to its old self EXCEPT at most one;
+#     • that one row differs ONLY in `shipped_in`, whose old value was null (or
+#       absent) and whose new value is a non-empty string;
+#     • exactly one row differs — a batch fill is refused, because a release
+#       cuts one version at a time and a two-row diff means something else
+#       happened.
+#
+#   Note what this predicate does NOT do: it does not care WHICH row, and it
+#   does not read ids. Row selection is delta_state_ship's job; this is the
+#   arithmetic that makes the pathway safe no matter who calls it.
+#
+#   Unlike the append rule there is NO tolerance branch for a malformed previous
+#   file: you cannot ship what was never closed, so an unreadable predecessor is
+#   a refusal, not a pass. (delta_state_write enforces the file's existence.)
+_delta_state_closed_is_ship_fill() {
+  local old="$1" new="$2"
+  jq -e "( $DELTA_STATE_SHAPE )" "$old" >/dev/null 2>&1 || return 1
+  jq -e -n --slurpfile o "$old" --slurpfile n "$new" '
+      ($o[0]) as $od | ($n[0]) as $nd
+    | ($od.closed) as $oc | ($nd.closed) as $nc
+    | ([range(0; ($oc | length))] | map(
+         . as $i
+         | if $oc[$i] == $nc[$i] then "same"
+           elif (true)
+                and (($oc[$i] | del(.shipped_in)) == ($nc[$i] | del(.shipped_in)))   # SHIP-ATOM-ROW-IDENTITY
+                and ($oc[$i].shipped_in == null)                                     # SHIP-ATOM-WRITE-ONCE
+                and (($nc[$i].shipped_in | type) == "string")                        # SHIP-ATOM-STRING-TYPE
+                and (($nc[$i].shipped_in | length) > 0)                              # SHIP-ATOM-STRING-NONEMPTY
+           then "fill"
+           else "bad"
+           end)) as $codes
+    | (true)
+      and (($od | del(.closed)) == ($nd | del(.closed)))   # SHIP-ATOM-OUTSIDE
+      and (($oc | length) == ($nc | length))               # SHIP-ATOM-LENGTH
+      and (($codes | index("bad")) == null)                # SHIP-ATOM-NO-BAD
+      and (($codes | map(select(. == "fill")) | length) == 1)   # SHIP-ATOM-EXACTLY-ONE
   ' >/dev/null 2>&1
 }
 
-# delta_state_write [project_root]  < candidate-document-on-stdin
+# delta_state_write [project_root] [closed_rule]  < candidate-document-on-stdin
 #   THE atomic write. Reads a whole candidate document on stdin, validates it,
 #   and only then lets it become the state file.
 #
@@ -175,8 +290,18 @@ _delta_state_closed_is_append() {
 #   replaced by that rename or not at all. A rejected or half-written candidate
 #   dies on the tmp. A truncated state file would strand an open delta with no
 #   way to close it, which is why this is not "validate then write".
+#
+#   `closed_rule` selects which of the TWO `closed` predicates the candidate is
+#   held to (see the two-part invariant above). It is NOT a bypass and there is
+#   no "none": an unrecognised value is a refusal, so a typo fails closed rather
+#   than writing unguarded.
+#     append (default) — the audit-tail rule. Every seam action but one uses it.
+#     ship             — the write-once shipped_in backfill, and ONLY that. It
+#                        additionally requires the previous file to EXIST: you
+#                        cannot ship what was never closed, so there is no
+#                        "no previous file" pass here.
 delta_state_write() {
-  local root="${1:-.}" f dir
+  local root="${1:-.}" closed_rule="${2:-append}" f dir
   f="$(delta_state_path "$root")"
   dir="${f%/*}"
   if [ ! -d "$dir" ]; then
@@ -188,22 +313,39 @@ delta_state_write() {
 
   if ! jq "if ( $DELTA_STATE_SHAPE ) then . else error(\"delta-state shape violation\") end" > "$target" 2>/dev/null; then
     rm -f "$target" 2>/dev/null || true
-    printf '%s\n' "delta-state: refusing to write $f — the candidate is not valid JSON or violates the schema (schemaVersion present; active_delta object-or-null; hotfix_retros/closed arrays; cadence object). The previous file was NOT touched." >&2
+    printf '%s\n' "delta-state: refusing to write $f — the candidate is not valid JSON, or fails the schema: object with exactly the five keys schemaVersion (number) / active_delta (object-or-null) / hotfix_retros (array) / cadence (object) / closed (array of objects). The previous file was NOT touched." >&2
     return 1
   fi
 
-  if [ -f "$f" ] && ! _delta_state_closed_is_append "$f" "$target"; then
-    rm -f "$target" 2>/dev/null || true
-    printf '%s\n' "delta-state: refusing to write $f — 'closed' is APPEND-ONLY and the candidate drops or rewrites an already-closed row. The previous file was NOT touched." >&2
-    return 1
-  fi
+  case "$closed_rule" in
+    append)
+      if [ -f "$f" ] && ! _delta_state_closed_is_append "$f" "$target"; then
+        rm -f "$target" 2>/dev/null || true
+        printf '%s\n' "delta-state: refusing to write $f — 'closed' is an APPEND-ONLY audit tail and the candidate drops, reorders or rewrites an already-closed row. To record shipped_in on a closed delta, use the dedicated seam action --delta-state-ship. The previous file was NOT touched." >&2
+        return 1
+      fi
+      ;;
+    ship)
+      if [ ! -f "$f" ] || ! _delta_state_closed_is_ship_fill "$f" "$target"; then
+        rm -f "$target" 2>/dev/null || true
+        printf '%s\n' "delta-state: refusing to write $f — the ship pathway permits EXACTLY ONE change: a single closed row's shipped_in going from null to a non-empty string, with the rest of the document untouched. The previous file was NOT touched." >&2
+        return 1
+      fi
+      ;;
+    *)
+      rm -f "$target" 2>/dev/null || true
+      printf '%s\n' "delta-state: refusing to write $f — unknown closed-rule '$closed_rule'. There is no unguarded write path. The previous file was NOT touched." >&2
+      return 1
+      ;;
+  esac
 
   mv "$target" "$f" || { rm -f "$target" 2>/dev/null || true; return 1; }   # DELTA-STATE-ATOMIC-RENAME
   return 0
 }
 
 # delta_state_update <project_root> <jq-filter>
-#   Read → transform → atomic write, the only mutation shape the seam exposes.
+#   Read → transform → atomic write under the APPEND rule. The general mutation
+#   shape the seam exposes.
 #   The filter runs against the CURRENT document (or the empty one), and its
 #   output is handed to delta_state_write, which is where validation lives — so
 #   a filter that produces valid JSON of the wrong shape is still refused, and
@@ -222,5 +364,59 @@ delta_state_update() {
     printf '%s\n' "delta-state: the jq filter failed — nothing was written. jq said: $cand" >&2
     return 1
   fi
-  printf '%s\n' "$cand" | delta_state_write "$root"
+  printf '%s\n' "$cand" | delta_state_write "$root" append
+}
+
+# delta_state_ship <project_root> <delta-id> <version>
+#   PART 2 of the `closed` invariant: record `shipped_in` on an already-closed
+#   delta. This is §7.1's cut-time write — "cut-release.sh asks
+#   process-checklist.sh to write it and never touches the file itself" — and it
+#   is a SEPARATE, narrower pathway rather than a carve-out in the append rule
+#   (see the two-part invariant above for why).
+#
+#   WRITE-ONCE. A row whose shipped_in is already set is refused, not
+#   overwritten: a delta ships in exactly one version, and a second cut claiming
+#   the same delta is a bug worth stopping. The refusal is at THIS layer as well
+#   as in the predicate, so the operator gets a sentence instead of a shape
+#   error.
+#
+#   Row selection is by id and takes the FIRST match. `closed` ids are unique by
+#   construction (they are delta ids); if duplicates ever appear, the predicate
+#   still bounds the damage — it permits exactly one row to change.
+delta_state_ship() {
+  local root="${1:-.}" id="${2:-}" version="${3:-}"
+  if [ -z "$id" ] || [ -z "$version" ]; then
+    printf '%s\n' "delta_state_ship: a delta id and a version are both required" >&2
+    return 2
+  fi
+  local cur status cand
+  cur="$(delta_state_read "$root")" || return 1
+
+  status="$(printf '%s\n' "$cur" | jq -r --arg id "$id" '
+      ([.closed[]? | .id] | index($id)) as $i
+    | if $i == null then "NOROW"
+      elif (.closed[$i].shipped_in == null) then "FILLABLE"
+      else "ALREADY"
+      end' 2>/dev/null)" || status="ERROR"
+
+  case "$status" in
+    FILLABLE) : ;;
+    NOROW)
+      printf '%s\n' "delta-state: refusing to record shipped_in — no row in 'closed' has id '$id'. A delta must be closed before it can be shipped. Nothing was written." >&2
+      return 1 ;;
+    ALREADY)
+      printf '%s\n' "delta-state: refusing to record shipped_in for '$id' — it is already set. shipped_in is WRITE-ONCE: a delta ships in exactly one version. Nothing was written." >&2
+      return 1 ;;
+    *)
+      printf '%s\n' "delta-state: could not inspect 'closed' while recording shipped_in for '$id'. Nothing was written." >&2
+      return 1 ;;
+  esac
+
+  if ! cand="$(printf '%s\n' "$cur" | jq --arg id "$id" --arg v "$version" '
+      ([.closed[]? | .id] | index($id)) as $i
+    | .closed[$i].shipped_in = $v' 2>&1)"; then
+    printf '%s\n' "delta-state: could not render the shipped_in backfill for '$id' — nothing was written. jq said: $cand" >&2
+    return 1
+  fi
+  printf '%s\n' "$cand" | delta_state_write "$root" ship
 }
