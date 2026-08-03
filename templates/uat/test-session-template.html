@@ -1,4 +1,30 @@
 <!DOCTYPE html>
+<!--
+  AGENT: PLACEHOLDER MANIFEST — every token you must replace, in ONE place.
+  There are SEVEN. Each also carries its own instructions where it appears;
+  this list exists so none of them can be discovered late.
+
+    1. __SESSION_TITLE__      <title> and <h1>
+    2. __SESSION_DATE__       the meta line, and again in exportResults()
+    3. __SESSION_FEATURES__   the meta line, and again in exportResults()
+    4. __TESTER_PRE_FLIGHT__  the fixture-ref block above the progress bar
+    5. __FEATURE_SECTIONS__   one <h2> + <div id="featureN"> block per feature
+    6. __SCENARIOS_JSON__     the `const scenarios = …` array in <script>
+    7. __FEATURE_OPTIONS__    MID-FILE, inside the addBug() function — one
+                              <option> per feature for the bug form's Feature
+                              select. This is the one that gets missed (walk
+                              ISSUE-008): it is the only placeholder whose
+                              instructions live down in the JS rather than in
+                              a block comment near the markup it fills.
+
+  Backstop, not a substitute for this list: `scripts/lint-uat-scenarios.sh
+  <your-populated-file>` exits 1 with "file-level: unreplaced placeholder" on
+  any survivor — but it reports a line in YOUR OUTPUT file, which is not where
+  the fix goes. Work this list; use the linter to confirm.
+
+  Authoring rules, quality checklist and the co-build protocol for 'other'
+  platforms: docs/reference/uat-authoring-guide.md
+-->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
