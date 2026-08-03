@@ -388,6 +388,7 @@ jobs:
             tests/test-delta-wp0-inherited-predicates.sh
             tests/test-delta-wp2-state-policy.sh
             tests/test-delta-wp3-era-classify.sh
+            tests/test-delta-wp4-close-rubric.sh
             tests/test-docs-cluster-six-pack.sh
             tests/test-enforcement-level-lib.sh
             tests/test-escalate-to-user.sh
