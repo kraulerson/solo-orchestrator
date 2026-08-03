@@ -1591,6 +1591,16 @@ run_child_suite "tests/test-check-commit-message.sh" "tests/test-check-commit-me
 # Mutation-proof: excising the marked `# BL-010-COMMITMSG-BL006` delegation line
 # removes the refusal, flipping T-bl010-commitmsg-bl006-blocks RED.
 run_child_suite "tests/test-bl010-commitmsg-bl006.sh" "tests/test-bl010-commitmsg-bl006.sh"
+# Delta Track WP0: pins the three predicates the post-1.0 delta track inherits
+# from core, BEFORE any delta code lands — check_commit_message live at phase 4
+# (the feature class's Build Loop inheritance), check_phase_gate's SEV-1/SEV-2
+# block, and _set_current_phase_min's no-downgrade rule. Phase-4 hermetic
+# fixtures, exit-code assertions only, `gh` PATH-shadowed. Mutation-proved:
+# widen the phase guard to `-lt 5` -> W1/W2 RED; neuter the sev2_deferred arm
+# -> W7 RED; invert the setter's `-lt` to `-gt` -> W11/W12 RED. No init.sh ->
+# both lanes.
+run_child_suite "tests/test-delta-wp0-inherited-predicates.sh" \
+  "tests/test-delta-wp0-inherited-predicates.sh"
 run_child_suite "tests/test-check-phase-gate.sh" "tests/test-check-phase-gate.sh"
 run_child_suite "tests/test-check-phase-gate-poc-block-contract.sh" \
   "tests/test-check-phase-gate-poc-block-contract.sh"
