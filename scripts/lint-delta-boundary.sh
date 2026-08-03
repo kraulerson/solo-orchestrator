@@ -88,27 +88,50 @@
 #   E1 BLANKS rather than DELETES, so the stripped file has the same number of
 #   lines as the original and `grep -n` on it yields true source line numbers.
 #   That is the whole reason for the blank-not-delete choice; do not "simplify"
-#   it to `grep -v`.
+#   it to `grep -v`. (Note what "blanks" does and does NOT mean: `s///` replaces
+#   only the MATCHED REGION. On a whole-line comment the match spans the line so
+#   the result is empty; on any other line it removes only what it matched. A
+#   mutation to this expression therefore truncates lines, it does not erase
+#   them — an earlier version of this header claimed otherwise and an
+#   adversarial review refuted it.)
 #
 #   This predicate has repo scar tissue. scripts/lint-tests-registered.sh
 #   carries the sibling version (`# BL-181-UNIT-LANE-PREDICATE`) and CLAUDE.md
 #   records that a ONE-CHARACTER narrowing of it — a quantifier, a character
 #   class, or `#` -> `#[[:space:]]` — re-opened the same hole THREE times while
-#   passing both PR-blocking checks every time. Each atom is therefore pinned
-#   for WIDTH and SPELLING (not merely presence) by tests/test-lint-delta-
-#   boundary.sh cases X1-X7; that file's header maps atom -> case. Before
-#   changing one character here, read it.
+#   passing both PR-blocking checks every time.
+#
+#   BOTH DIRECTIONS ARE HAZARDS, AND THEY ARE NOT SYMMETRIC IN COST TO DETECT:
+#     • NARROWING (strips too little) -> false POSITIVES -> any clean fixture
+#       reds. Cheap to catch; cases X2/X3/X4/X5 do it.
+#     • WIDENING (strips too much) -> false NEGATIVES -> the tree goes QUIETER,
+#       and no clean fixture can ever notice. Caught only by a VIOLATION fixture
+#       positioned where the widened match would reach: case X8. Three separate
+#       one-character-class widenings (drop E1's `^`; E1 -> `s/#.*$//`; E2's
+#       `[[:space:]][[:space:]]*` -> `[[:space:]]*`) each survived the other 27
+#       cases and every PR-blocking check until X8 existed.
+#   Each atom is pinned for WIDTH and SPELLING (not merely presence) by
+#   tests/test-lint-delta-boundary.sh cases X1-X8; that file's header maps
+#   atom -> case, IN BOTH DIRECTIONS, and records which mutant each row kills.
+#   Before changing one character here, read it — and if you add a stripper
+#   atom, add its widening pin too, not just its narrowing pin.
 #
 #   Both stages require the `#` to sit at line start or after whitespace, which
-#   is bash's own rule: `echo delta-state.sh#frag` is one WORD, not a comment,
-#   and stripping it would be an over-strip and a false negative (case X7).
+#   is bash's own rule: `echo "ref=x#delta-state.sh"` is one WORD, not a
+#   comment, so the path is genuinely referenced (cases X7 and X8 — X7 guards
+#   the line from being deleted wholesale, X8 guards the token after the `#`
+#   from being truncated away).
 #   Known limit, inherited from the sibling predicate: a `#` inside a quoted
 #   string that follows whitespace (`sed 's/ #.*//'`) truncates the line early,
 #   so a delta token AFTER such a `#` is missed. Quote-awareness costs a
 #   char-by-char scan; the trade is the same one lint-tests-registered.sh made.
 #
-# ALLOWLIST — inline, reason REQUIRED
-#   Append `# lint-delta-boundary: allow <reason>` to a T2-flagged line. An
+# ALLOWLIST — inline, reason REQUIRED, marker matched as an EXACT TOKEN
+#   Append `# lint-delta-boundary: allow <reason>` to a T2-flagged line. The
+#   marker must be followed by whitespace or end-of-line: `allowed because …`
+#   and `allowlist …` are NOT the marker and do not waive anything (case L7).
+#   Prefix matching would have parsed `allowed because x` as the marker with
+#   reason "ed because x", so a typo could silently waive a real violation. An
 #   empty reason FAILS, matching the allowlist semantics of
 #   lint-fix-functions-stderr.sh and lint-bl-markers.sh. The marker lives in a
 #   comment, so it is read off the RAW line after the tiers have matched
@@ -326,16 +349,34 @@ fi
 STRIPPED="$TMPD/stripped"
 
 # parse_allow RAW — echoes "<has_marker>\t<reason>" for the inline T2 allowlist.
+#
+# EXACT-TOKEN matching, not prefix matching. A bare substring test accepts
+# `# lint-delta-boundary: allowed because …` as a marker and silently parses
+# the reason as "ed because …", so a typo'd or merely similar-looking marker
+# waives a real violation. The token must be followed by whitespace or by
+# end-of-line — nothing else — which fails CLOSED: a near-miss spelling is not
+# a marker at all, so the line stays a violation.
+#
+# The empty-reason case must still REGISTER as a marker (tail = ""), because an
+# empty reason is REJECTED loudly rather than ignored; treating it as "no
+# marker" would downgrade it to an ordinary unexplained violation and lose the
+# specific diagnostic.
+ALLOW_MARKER="# lint-delta-boundary: allow"
 parse_allow() {
   local line="$1"
   local reason=""
   local has=0
+  local tail
   case "$line" in
-    *"# lint-delta-boundary: allow"*)
-      has=1
-      reason="${line##*# lint-delta-boundary: allow}"
-      reason="${reason#"${reason%%[![:space:]]*}"}"
-      reason="${reason%"${reason##*[![:space:]]}"}"
+    *"$ALLOW_MARKER"*)
+      tail="${line##*"$ALLOW_MARKER"}"
+      case "$tail" in
+        ""|[[:space:]]*)
+          has=1
+          reason="${tail#"${tail%%[![:space:]]*}"}"
+          reason="${reason%"${reason##*[![:space:]]}"}"
+          ;;
+      esac
       ;;
   esac
   printf '%d\t%s\n' "$has" "$reason"

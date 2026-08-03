@@ -32,38 +32,74 @@
 #     scripts/lint-tests-registered.sh (# BL-181-UNIT-LANE-PREDICATE) re-opened
 #     the same hole THREE times while passing both PR-blocking checks each
 #     time. So the pins below name each ATOM of the two sed expressions and
-#     pin its WIDTH and its SPELLING, not merely its presence:
+#     pin its WIDTH and its SPELLING, not merely its presence.
+#
+#     TWO DIRECTIONS, AND ONLY ONE OF THEM IS CHEAP TO CATCH. Read this before
+#     trusting any row of the map:
+#       • NARROWING (the stripper does too LITTLE) leaves comments looking
+#         executed, so it produces FALSE POSITIVES. Any exit-0 fixture catches
+#         it. X2/X3/X4/X5 are all of this kind and they are easy.
+#       • WIDENING (the stripper does too MUCH) eats executed code, so it
+#         produces FALSE NEGATIVES. NO exit-0 fixture can ever see it, because
+#         an over-stripped tree is a QUIETER tree. It is caught only by a
+#         VIOLATION fixture whose token sits where the widened match would
+#         reach. X8 is that fixture and it is the load-bearing one.
+#
+#     The original version of this map got two rows wrong, and an adversarial
+#     review caught it (WP1 R-WP1-1/R-WP1-2). The false claim was that dropping
+#     E1's `^` "blanks the whole line": sed's s/// replaces only the MATCHED
+#     REGION, never the line, so the code prefix and its token survive and the
+#     case that claimed to pin the anchor did not. Three separate mutations
+#     survived all 27 cases as a result. The rows below describe what each case
+#     ACTUALLY kills, verified by executing the mutants.
 #
 #       E1 = 's/^[[:space:]]*#.*$//'                     (whole-line comments)
-#         C1  the `^` anchor          -> pinned by X1 (a violation carrying a
-#             trailing comment must STILL fail; without `^`, E1 matches the
-#             ` #` mid-line and blanks the whole line, so every commented
-#             violation goes silently green — the exact BL-181 hole)
+#         C1  the `^` anchor          -> pinned by X8, NOT by X1. Dropping `^`
+#             does not blank anything; it lets the leftmost match START at any
+#             `#` that has only optional whitespace before it, so `x#token`
+#             truncates to `x` and the reference vanishes. That is a widening,
+#             so only a violation fixture sees it. (Mutant M-A: survives
+#             X1-X7, dies to X8.)
 #         C2  `[[:space:]]*` WIDTH    -> pinned by X2 (0, 1, 4, 8 spaces, tab,
 #             tab+spaces, all ignored). Narrowing to `^#` false-positives on
-#             every indented comment; widening past `*` is not expressible.
+#             every indented comment. NOTE the asymmetry: `*` cannot be widened
+#             further, so C2's only failure mode is the narrowing X2 catches.
 #         C3  `#` SPELLING            -> pinned by X3 (no space required after
 #             `#`). Narrowing to `#[[:space:]]` false-positives on `#code`.
 #         C4  `.*$` reach             -> pinned by X2/X3 implicitly: the token
 #             sits AFTER the `#`, so a non-greedy or anchored variant leaves it
 #             behind and reds.
+#         C4b THE WHOLE-EXPRESSION widening (`s/#.*$//`, any `#` anywhere)
+#             -> pinned by X8. (Mutant M-B: survives X1-X7, dies to X8.)
 #
 #       E2 = 's/\([^[:space:]]\)[[:space:]][[:space:]]*#.*$/\1/'  (trailing)
-#         C5  `[[:space:]][[:space:]]*` WIDTH -> pinned by X4 (ONE space, TAB,
-#             and many spaces all strip). Narrowing to two-or-more
-#             (`[[:space:]][[:space:]][[:space:]]*`) false-positives on the
-#             single-space form, which is the commonest spelling in this repo.
+#         C5  `[[:space:]][[:space:]]*` WIDTH -> pinned in BOTH directions, by
+#             two different cases, because this atom can fail either way:
+#               narrowing to two-or-more
+#               (`[[:space:]][[:space:]][[:space:]]*`) false-positives on the
+#               single-space form -> X4 (which carries ONE space, TAB, two and
+#               six spaces; the single-space form is the commonest spelling in
+#               this repo);
+#               widening to zero-or-more (`[[:space:]]*`) makes `x#token`
+#               strippable and the reference vanishes -> X8. (Mutant M-H:
+#               survives X1-X7, dies to X8.)
 #         C6  `#` SPELLING            -> pinned by X5 (no space after `#`).
-#         C7  `\([^[:space:]]\)` guard + `\1` back-reference -> pinned by X6:
-#             the CODE half of the line must survive the strip. A mutation that
-#             drops the capture (replacing with the empty string) destroys the
-#             code half, so a line that is BOTH a real violation AND carries a
-#             trailing comment stops failing. CLAUDE.md calls this guard
-#             behaviour-neutral in the BL-181 predicate; it is NOT neutral here,
-#             because here the surviving prefix is what the tiers match on.
-#         C8  `#` INSIDE a word is not a comment -> pinned by X7
-#             (`code#word` is a single bash word, not a comment; stripping it
-#             would be an over-strip and a false negative).
+#         C7  `\([^[:space:]]\)` guard + `\1` back-reference -> pinned by X6.
+#             Dropping the capture eats exactly ONE character of executed code,
+#             which is not enough to make the line green — it DEMOTES the hit
+#             from T1 to T2 (the truncated token stops matching a literal path
+#             but still carries the `delta-` prefix). X6 therefore asserts the
+#             TIER, not the exit code: rc alone cannot see this. The demotion
+#             matters because T2 is inline-allowlistable and T1 is not.
+#         C8  `#` INSIDE a word is not a comment -> pinned by X7 and X8, which
+#             cover OPPOSITE failure modes of the same atom and are deliberately
+#             not folded together:
+#               X7 = the DELETION direction (a `grep -v '#'` refactor, or an E1
+#               rewritten `s/^.*#.*$//`, discards the whole line). X7's token
+#               sits BEFORE the `#`, so it survives a truncating mutant — X7
+#               alone does NOT pin over-stripping, and the earlier claim that
+#               it did was the second refuted claim.
+#               X8 = the TRUNCATION direction (token AFTER the `#`).
 #
 #   ALLOWLISTS (§3.3 clause 3 + the T2 row)
 #     L1  T2 inline allow WITH a reason is honored       -> 0
@@ -73,6 +109,8 @@
 #         (mutation, executed here against a lint COPY)
 #     L5  a seam row with no reason                      -> 1
 #     L6  T1 is NOT inline-allowlistable (only the file-level seam is)
+#     L7  a NEAR-MISS marker (`allowed`, `allowlist`) does not allowlist -> 1
+#         (the marker is an exact token, not a prefix)
 #
 #   VACUITY FLOOR (§3.3 clause 4)
 #     V1  no delta-module file present                   -> 2 (not 0, not 1)
@@ -440,12 +478,16 @@ teardown_fixture
 
 # ════════════════════════════════════════════════════════════════════
 echo ""
-echo "=== X7 (atom C8): '#' inside a word is NOT a comment -> exit 1 ==="
+echo "=== X7 (atom C8, whole-line-deletion direction): a line carrying a"
+echo "    mid-word '#' is not discarded wholesale -> exit 1 ==="
 # ════════════════════════════════════════════════════════════════════
-# `echo delta-state.sh#x` is a single bash WORD; bash executes it. A stripper
-# that treated any `#` as a comment start would over-strip and go green on a
-# real reference. Both E1 and E2 require the `#` to follow whitespace (or be
-# at the start of the line), which is exactly bash's own rule.
+# `echo delta-state.sh#x` is a single bash WORD; bash executes it. This case
+# guards the DELETION direction — a refactor to `grep -v '#'`, or an E1
+# rewritten as `s/^.*#.*$//`, drops the entire line and the reference with it.
+# It does NOT guard the truncation direction: the token here sits BEFORE the
+# `#`, so an over-stripping mutant leaves it intact and X7 still passes. X8
+# below is the case that covers truncation, and the two are deliberately kept
+# apart rather than folded, because they die to different mutations.
 setup_fixture
 {
   printf '#!/usr/bin/env bash\n'
@@ -453,9 +495,52 @@ setup_fixture
 } > "$TMP/scripts/check-gate.sh"
 out=$(run_fixture); rc=$?
 if [ "$rc" -eq 1 ] && echo "$out" | grep -q 'scripts/check-gate\.sh:2'; then
-  pass "X7: a mid-word '#' does not start a comment (no over-strip)"
+  pass "X7: a line with a mid-word '#' is not deleted wholesale"
 else
   fail_ "X7" "expected rc=1; rc=$rc; output:\n$out"
+fi
+teardown_fixture
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== X8 (atoms C1/C5/C8, the OVER-STRIP direction): a delta token"
+echo "    AFTER a mid-word '#' must still be seen -> exit 1 ==="
+# ════════════════════════════════════════════════════════════════════
+# THE CASE THAT PINS THE STRIPPER'S UPPER BOUND. Every other X case pins a
+# narrowing (the stripper doing too little, producing false positives, which
+# any exit-0 fixture catches). This one pins a WIDENING — the stripper doing
+# too MUCH, silently eating executed code, which no exit-0 fixture can ever
+# see because an over-stripped tree is a QUIETER tree.
+#
+# `echo "ref=x#delta-state.sh"` is one bash WORD after `ref=`: bash does not
+# treat that `#` as a comment (a comment `#` must start a word), so the delta
+# path is genuinely referenced on an executed line. Three separate
+# one-character-class mutations all make the stripper eat from that `#`
+# onward, and all three were verified to survive the other 27 cases AND every
+# PR-blocking check before this case existed:
+#
+#   M-A  E1 `s/^[[:space:]]*#.*$//` -> `s/[[:space:]]*#.*$//`  (drop `^`)
+#        sed's s/// replaces only the MATCHED REGION, not the line, so the
+#        leftmost match simply starts at the `#` and truncates there.
+#   M-B  E1 -> `s/#.*$//`                              (strip from any `#`)
+#   M-H  E2 `[[:space:]][[:space:]]*` -> `[[:space:]]*`  (one-or-more becomes
+#        zero-or-more, so `x#word` becomes strippable)
+#
+# Measured on the real tree with the same construct planted in
+# scripts/lib/freshness-detect.sh: shipped lint rc=1, M-A/M-B/M-H rc=0 each.
+# If this case is ever deleted or its `#` given a leading space, all three
+# holes re-open silently — which is precisely how BL-181 was re-opened three
+# times.
+setup_fixture
+{
+  printf '#!/usr/bin/env bash\n'
+  printf 'echo "ref=x#delta-state.sh"\n'
+} > "$TMP/scripts/check-gate.sh"
+out=$(run_fixture); rc=$?
+if [ "$rc" -eq 1 ] && echo "$out" | grep -q 'scripts/check-gate\.sh:2'; then
+  pass "X8: a delta token AFTER a mid-word '#' is still on an executed line"
+else
+  fail_ "X8" "expected rc=1 — an over-stripping mutant eats the token; rc=$rc; output:\n$out"
 fi
 teardown_fixture
 
@@ -577,6 +662,32 @@ if [ "$rc" -eq 1 ]; then
   pass "L6: an inline allow cannot suppress a T1 literal-path reference"
 else
   fail_ "L6" "expected rc=1; rc=$rc; output:\n$out"
+fi
+teardown_fixture
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== L7: a near-miss allowlist marker does NOT allowlist -> exit 1 ==="
+# ════════════════════════════════════════════════════════════════════
+# The marker is matched as an EXACT TOKEN, not as a prefix. Under a prefix
+# test, `allowed because …` parses as marker + reason "ed because …" and
+# waives the violation — a typo, or a sentence that merely starts with the
+# right letters, becomes a silent opt-out. Exact-token matching fails CLOSED:
+# a near-miss is not a marker, so the line stays a violation. Both spellings
+# below are near-misses of the SAME token and must both be refused.
+setup_fixture
+{
+  printf '#!/usr/bin/env bash\n'
+  printf 'echo "unknown delta-class"  # lint-delta-boundary: allowed because it is prose\n'
+  printf 'echo "another delta-class"  # lint-delta-boundary: allowlist prose too\n'
+} > "$TMP/scripts/check-gate.sh"
+out=$(run_fixture); rc=$?
+if [ "$rc" -eq 1 ] \
+   && echo "$out" | grep -q 'scripts/check-gate\.sh:2' \
+   && echo "$out" | grep -q 'scripts/check-gate\.sh:3'; then
+  pass "L7: 'allowed'/'allowlist' are not the 'allow' token — both stay violations"
+else
+  fail_ "L7" "expected rc=1 naming BOTH lines; rc=$rc; output:\n$out"
 fi
 teardown_fixture
 
