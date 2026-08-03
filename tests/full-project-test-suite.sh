@@ -547,6 +547,26 @@ run_child_suite "scripts/lint-bl-markers.sh" \
   "Every live marker citation resolves to a marker in code" \
   "Marker-citation lint found broken citation(s) (see scripts/lint-bl-markers.sh --list)"
 
+# Delta track D1: tests/test-lint-delta-boundary.sh — behavior suite for the
+# dependency-direction boundary lint. Pins both match tiers (literal module
+# path, then the bare `delta-` prefix that catches variable composition), the
+# CORE surface, the seam allowlist's cardinality-of-one, the reason-bearing
+# inline allowlist, the vacuity floor, and — case by case, atom by atom — the
+# executed-lines stripper whose sibling predicate re-opened the same hole three
+# times (CLAUDE.md, `# BL-181-UNIT-LANE-PREDICATE`). See
+# docs/designs/2026-08-02-delta-track-v1.md §3.3.
+section "Delta boundary lint (D1 severability backstop)"
+run_child_suite "tests/test-lint-delta-boundary.sh" \
+  "scripts/lint-delta-boundary.sh behavior tests" \
+  "scripts/lint-delta-boundary.sh behavior tests FAILED (run tests/test-lint-delta-boundary.sh for details)"
+
+# Delta track D1: repo-wide lint invocation. Fails when a core file names a
+# delta-module path (or carries a bare `delta-` token) on an executed line —
+# the fusion that would silently end the module's severability.
+run_child_suite "scripts/lint-delta-boundary.sh" \
+  "No core -> delta dependency edge outside the one declared seam" \
+  "Delta boundary lint found a core -> delta edge (see scripts/lint-delta-boundary.sh --list)"
+
 # ----------------------------------------------------------------
 # TEST 0g: INTAKE WIZARD + RECONFIGURE FIELD HANDLERS
 # ----------------------------------------------------------------
