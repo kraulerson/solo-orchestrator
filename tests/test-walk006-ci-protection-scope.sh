@@ -507,6 +507,25 @@ else
   fail_ "S6-unwired-workflow-warned" "rc=$rc: $out"
 fi
 
+# ── S6b: --token-env rejects a non-identifier (the eval IS an injection sink) ─
+# The indirect read is `eval "token=\${$token_env:-}"`. Without a name check, a
+# `--token-env` value carrying a command substitution EXECUTES — demonstrated,
+# not asserted: the mutation run below (validation arms deleted) creates the
+# canary file, and this run must not.
+echo "=== S6b-token-env-name-validated ==="
+CANARY="$TOPTMP/s6b-canary"
+rm -f "$CANARY"
+P="$TOPTMP/s6b"; mk_tok "$P" github ok yes
+out=$(run_tok "$P" "$GOOD_TOKEN" --token-env "X:-\$(touch $CANARY)"); rc=$?
+if [ "$rc" -ne 0 ] \
+   && printf '%s' "$out" | grep -q "not a valid environment variable name" \
+   && [ ! -e "$CANARY" ]; then
+  pass "S6b-token-env-name-validated (name validated before eval; canary not created)"
+else
+  fail_ "S6b-token-env-name-validated" "rc=$rc canary=$([ -e "$CANARY" ] && echo CREATED || echo absent): $out"
+fi
+rm -f "$CANARY"
+
 # ── S7: THE CHAIN — the stored secret is the one the templates map ────────
 # The walkthrough's result only "genuinely flips the check to enforcing" if the
 # secret it writes is the secret the emitted workflow reads into GH_TOKEN, and

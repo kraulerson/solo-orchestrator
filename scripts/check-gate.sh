@@ -601,6 +601,16 @@ EOM
   # apply — but the non-interactive guard it exists to enforce still does, and
   # is implemented here explicitly rather than inherited.
   local token=""
+  # The indirect read is an `eval`, so the variable NAME is validated as a
+  # shell identifier first — `--token-env` is operator-supplied and an
+  # unvalidated name would be a command-injection sink.
+  case "$token_env" in
+    [A-Za-z_]*) : ;;
+    *) print_fail "--token-env: '$token_env' is not a valid environment variable name"; return 1 ;;
+  esac
+  case "$token_env" in
+    *[!A-Za-z0-9_]*) print_fail "--token-env: '$token_env' is not a valid environment variable name"; return 1 ;;
+  esac
   eval "token=\${$token_env:-}"
   if [ -n "$token" ]; then
     print_info "Using the token from \$$token_env (explicit opt-in — no prompt)."
@@ -647,7 +657,10 @@ EOM
     print_fail "Could not set the Actions secret '$secret_name' on $owner_repo (does your gh login have repo admin?)"
     return 1
   fi
-  if gh secret list --repo "$owner_repo" 2>/dev/null | grep -q "^$secret_name"; then
+  # -qxF: whole-line, FIXED string. An anchored regex would both mis-handle a
+  # name containing regex metacharacters and match a longer secret that merely
+  # starts with this one.
+  if gh secret list --repo "$owner_repo" 2>/dev/null | cut -f1 | grep -qxF -- "$secret_name"; then
     print_ok "Actions secret '$secret_name' is set on $owner_repo."
   else
     print_warn "Secret write reported success but '$secret_name' is not listed — check Settings > Secrets and variables > Actions."
