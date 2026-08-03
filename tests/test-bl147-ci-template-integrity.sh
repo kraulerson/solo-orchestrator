@@ -1436,16 +1436,28 @@ fi
 # Deliberately scoped to templates that MAP the secret: those are exactly the
 # ones making the enforcement claim. `[ ! -f … ] && exit 1` + a bare invocation
 # is the strict shape python/typescript/other already used.
-w6_swallow=""
+#
+# Scoped to the STEP, not the file: the phase-gate step is extracted by name and
+# both discard vectors are checked inside it — the shell one (`|| echo/true/:`
+# on the invocation) and the Actions-native one (`continue-on-error: true` on
+# the step, which grades a red step GREEN just as effectively). Other steps may
+# legitimately use either (java/kotlin's Lint step does); this one may not.
+w6_swallow=""; w6_coe=""
 if [ "$CPG_COUNT" -gt 0 ]; then
   for f in "${CPG_FILES[@]}"; do
     case "$f" in */ci/github/*) ;; *) continue ;; esac
     grep -Eq '^[[:space:]]*GH_TOKEN:[[:space:]]*\$\{\{' "$f" || continue
-    # Any EXECUTABLE gate invocation whose exit status is discarded — `|| echo`,
-    # `|| true`, `|| :`, or a trailing `2>/dev/null` swallow on the same line.
-    if grep -E '^[^#]*bash scripts/check-phase-gate\.sh' "$f" \
-         | grep -Eq '\|\|[[:space:]]*(echo|true|:)'; then
+    _w6_step=$(awk '
+      /^      - name: Governance - Phase gate check$/ { inside = 1; next }
+      inside && /^      - name: / { exit }
+      inside { print }
+    ' "$f")
+    if printf '%s\n' "$_w6_step" | grep -E '^[^#]*bash scripts/check-phase-gate\.sh' \
+         | grep -Eq '(\|\||;)[[:space:]]*(echo|true|:)'; then
       w6_swallow="$w6_swallow ${f#*/ci/}"
+    fi
+    if printf '%s\n' "$_w6_step" | grep -Eq '^[[:space:]]*continue-on-error:[[:space:]]*true'; then
+      w6_coe="$w6_coe ${f#*/ci/}"
     fi
   done
 fi
@@ -1453,6 +1465,11 @@ if [ -z "$w6_swallow" ]; then
   pass "Cw6-strict (every secret-mapping github template lets the gate's EXIT CODE decide the step)"
 else
   fail_ "Cw6-strict" "the gate's exit code is discarded (\`|| echo/true/:\`) — a mapped secret cannot enforce anything — in:$w6_swallow"
+fi
+if [ -z "$w6_coe" ]; then
+  pass "Cw6-strict-no-coe (no continue-on-error on the phase-gate step — the Actions-native swallow)"
+else
+  fail_ "Cw6-strict-no-coe" "continue-on-error grades the phase-gate step GREEN regardless of the verdict, in:$w6_coe"
 fi
 
 # ── Cw16 (walk 2026-08-02 ISSUE-016): the tag-deploy environment trap ───────
