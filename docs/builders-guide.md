@@ -1134,7 +1134,7 @@ During the Phase 2 initialization steps above, some scaffolding work produces co
 
 **If you closed the loop first, you are not stuck.** Completing step 6 *closes* the loop and clears `build_loop` — the next feature must start its own — but it does not strand the feature you just finished. The checklist keeps a receipt of the closed loop (feature name, the five completed steps, and the files that loop was working on), and the gate still accepts a `feat:` commit when **both** hold:
 
-1. the subject **names that feature** — `feat(<feature-name>): …`, or any whole word of the name in the scope or the description; and
+1. the subject **names that feature** — the full name anywhere in the scope or description, or one *distinctive* word of it (five characters or more, and not a generic term like `service`, `config` or `update`). Matching is by whole word, so `feat(auth2): …` does **not** name the feature `auth`; and
 2. the commit **stages at least one of that loop's own files** — the half you do not author, so typing an old feature's name above unrelated work does not get it through.
 
 A `feat:` commit for a *different* feature is blocked exactly as it always was. If you genuinely continue the same feature with files that did not exist when the loop closed (a rename, a new file), start a fresh loop for it — the gate cannot distinguish that from new work, and it says so when it blocks. (Walkthrough 2026-08-02, ISSUE-010: before this, closing the loop before committing made the feature's own commit impossible, and the gate's only advice was to re-register a loop for finished work.)
