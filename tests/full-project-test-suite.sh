@@ -1521,6 +1521,15 @@ section "BL-035 C: docs / specs / lint suites"
 run_child_suite "tests/test-docs-cluster-six-pack.sh" "tests/test-docs-cluster-six-pack.sh (28/28)"
 run_child_suite "tests/test-specs-plans-remaining-quartet.sh" \
   "tests/test-specs-plans-remaining-quartet.sh (10/10)"
+
+# Walk 2026-08-02 ISSUE-003 (Minor): check-versions.sh printed the RAW jq
+# output of `install.<key>`, and BL-033 allows that value to be an ARRAY — so
+# five shipped tools surfaced as JSON literals under "Update commands (run
+# manually)". Array now joins with " && " (resolve-tools parity); URLs and
+# missing entries are labelled instead of masquerading as commands. In-suite
+# mutant drops the normalizer and the raw JSON returns. No init.sh -> both lanes.
+run_child_suite "tests/test-walk003-update-command-render.sh" \
+  "tests/test-walk003-update-command-render.sh"
 run_child_suite "tests/test-lint-uat-scenarios.sh" "tests/test-lint-uat-scenarios.sh (12/12)"
 # --- end BL-035 wiring C ---
 

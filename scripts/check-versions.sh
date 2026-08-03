@@ -34,6 +34,35 @@ else
   print_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 fi
 
+# WALK-ISSUE-003-UPDATE-CMD-BEGIN
+# Walk 2026-08-02, ISSUE-003: "Update commands (run manually):" printed the
+# RAW jq output of `.install.<key>`, and BL-033 explicitly allows that value to
+# be an ARRAY of stages. Colima therefore surfaced as
+#     Colima: [ "brew install colima", "brew services start colima" ]
+# — a JSON literal under a heading that promises a runnable command. A junior
+# cannot tell whether that is one command, two, or an error.
+#
+# _cv_jq_install_cmd is the jq tail that normalizes the two BL-033 shapes into
+# ONE runnable string, joined with ` && ` exactly as
+# scripts/resolve-tools.sh's `install_cmd` does — the two readers of the same
+# matrix must not disagree about what a multi-stage install means.
+#
+# _cv_render_update_cmd is the DISPLAY side, shared by the interactive and
+# non-interactive printers so they cannot drift: an empty value and a bare URL
+# are both NOT commands, and this heading must never present them as if they
+# were. A plain string is echoed VERBATIM (the `<name>: <cmd>` grammar that
+# tests/test-specs-plans-remaining-quartet.sh::T-CV-MULTIWORD pins).
+_cv_jq_install_cmd='if type=="array" then (map(select(type=="string")) | join(" && ")) else . end'
+
+_cv_render_update_cmd() {
+  case "${1:-}" in
+    "")                 echo "(no install command in the tool matrix — see the tool's own docs)" ;;
+    http://*|https://*) echo "see $1" ;;
+    *)                  echo "$1" ;;
+  esac
+}
+# WALK-ISSUE-003-UPDATE-CMD-END
+
 # --- Argument parsing ---
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -424,10 +453,10 @@ for i in $(seq 0 $((TOOL_COUNT - 1))); do
       # Find update command
       local_update_cmd=""
       if command -v brew &>/dev/null; then
-        local_update_cmd=$(echo "$TOOL" | jq -r '.install.darwin_brew // empty')
+        local_update_cmd=$(echo "$TOOL" | jq -r "(.install.darwin_brew // empty) | $_cv_jq_install_cmd")
       fi
       if [ -z "$local_update_cmd" ]; then
-        local_update_cmd=$(echo "$TOOL" | jq -r '.install.npm // .install.linux_pip // .install.manual // empty')
+        local_update_cmd=$(echo "$TOOL" | jq -r "(.install.npm // .install.linux_pip // .install.manual // empty) | $_cv_jq_install_cmd")
       fi
       UPDATES+=("$NAME $INSTALLED → ${LATEST:-latest} (BELOW MINIMUM)")
       UPDATE_CMDS+=("$local_update_cmd")
@@ -437,10 +466,10 @@ for i in $(seq 0 $((TOOL_COUNT - 1))); do
       # Find update command
       local_update_cmd=""
       if command -v brew &>/dev/null; then
-        local_update_cmd=$(echo "$TOOL" | jq -r '.install.darwin_brew // empty')
+        local_update_cmd=$(echo "$TOOL" | jq -r "(.install.darwin_brew // empty) | $_cv_jq_install_cmd")
       fi
       if [ -z "$local_update_cmd" ]; then
-        local_update_cmd=$(echo "$TOOL" | jq -r '.install.npm // .install.linux_pip // .install.manual // empty')
+        local_update_cmd=$(echo "$TOOL" | jq -r "(.install.npm // .install.linux_pip // .install.manual // empty) | $_cv_jq_install_cmd")
       fi
       UPDATES+=("$NAME $INSTALLED → $LATEST")
       UPDATE_CMDS+=("$local_update_cmd")
@@ -541,7 +570,10 @@ if [ ${#UPDATES[@]} -gt 0 ] && [ -t 0 ]; then
           # `${UPDATES[$idx]%%  *}` (two-space split) which left the
           # whole display string ("Claude Code 0.0.1 → latest (BELOW
           # MINIMUM)") in front of the colon.
-          echo "  ${UPDATE_NAMES[$idx]}: ${UPDATE_CMDS[$idx]}"
+          # WALK-ISSUE-003: render, never echo raw — a multi-stage install is
+          # joined into one runnable line, and a URL / missing entry is labelled
+          # instead of masquerading as a command.
+          echo "  ${UPDATE_NAMES[$idx]}: $(_cv_render_update_cmd "${UPDATE_CMDS[$idx]}")"
         done
       fi
       ;;
@@ -553,7 +585,9 @@ elif [ ${#UPDATES[@]} -gt 0 ]; then
   echo ""
   echo "Update commands (run manually):"
   for idx in "${!UPDATES[@]}"; do
-    echo "  ${UPDATE_NAMES[$idx]}: ${UPDATE_CMDS[$idx]}"
+    # WALK-ISSUE-003: same renderer as the interactive branch — the two
+    # printers of this heading must not disagree about what is runnable.
+    echo "  ${UPDATE_NAMES[$idx]}: $(_cv_render_update_cmd "${UPDATE_CMDS[$idx]}")"
   done
 fi
 

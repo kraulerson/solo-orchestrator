@@ -430,6 +430,7 @@ jobs:
             tests/test-session-test-gate-check-merge.sh
             tests/test-specs-plans-host-aware-quartet.sh
             tests/test-specs-plans-remaining-quartet.sh
+            tests/test-walk003-update-command-render.sh
             tests/test-test-gate-counter-sanitizer.sh
             tests/test-test-gate-null-handling.sh
             tests/test-tier-crosscheck-6-followup-atomicity-and-jq.sh
