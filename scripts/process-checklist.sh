@@ -1145,6 +1145,16 @@ BL120EOF
     #   operator happened to be carrying lands in the receipt too and would
     #   satisfy the path half later. It is a floor under the identity bound,
     #   not an identity of its own.
+    #   THE WIDEST REMAINING OVERLAP, named rather than left to be found:
+    #   FEATURES.md and CHANGELOG.md are dirty at nearly every loop close
+    #   (`test-gate.sh --record-feature` writes them just before step 6), so
+    #   they sit in most receipts and EVERY feature touches them. They are
+    #   deliberately NOT filtered — they are the documentation_updated step's
+    #   real output, and dropping them would block the honest docs-follow-up
+    #   commit — but that means a subject naming a stale feature while staging
+    #   FEATURES.md clears the path half on shared bookkeeping. The identity
+    #   half is what refuses it. Unlike `.claude/`, these are the operator's
+    #   own work product, which is why the line is drawn here.
     #   `.claude/` IS EXCLUDED, and that exclusion is load-bearing (R-GATEUX-1,
     #   2026-08-02 adversarial review). Generated projects TRACK
     #   .claude/process-state.json and CLOSING THE LOOP WRITES IT — so it was
