@@ -33,7 +33,9 @@ Never trade a higher-priority attribute for a lower one. If a faster approach is
 ### Best Practices Over Shortcuts
 - Follow established best practices for the language, framework, and platform. Use idiomatic patterns, not clever workarounds.
 - Use proper architectural patterns (separation of concerns, n-tier structure, dependency injection where appropriate). Do not collapse layers for convenience.
-- When multiple approaches exist within best practices, **present the options to the Orchestrator** with the trade-offs of each (performance, complexity, maintainability, scalability) and let them decide. Do not silently choose the fastest path.
+- When multiple approaches exist within best practices, escalate by reversibility and blast radius — not by default:
+  - **Present the options to the Orchestrator**, with the trade-offs of each (performance, complexity, maintainability, scalability), when the choice is **hard to reverse** (changing your mind later costs a data migration, a public API break, or a contract with another system) or when it moves **security, cost, or architecture**. Any decision meeting the ADR bar also clears this one — see the `grill-with-docs` skill, § "Offer ADRs sparingly" (**all three** of: hard to reverse + surprising without context + a real trade-off) — so anything heading for an ADR goes to the Orchestrator first. This bar is the wider of the two: a reversible, unsurprising choice that still moves security or cost escalates here even though it warrants no ADR.
+  - **Decide routine choices yourself, and note the decision.** Naming, library idiom, test structure, refactor shape, error-message wording — anything inside established best practice and cheap to reverse. Record what you chose and why in the commit message or the feature's documentation. Do not stall the loop on a reversible choice, and do not silently take the fastest path over the sound one.
 - Prefer well-tested, well-documented patterns over novel approaches. The goal is a production application that can be maintained, not a showcase of techniques.
 - When the AI-suggested approach and the established best practice conflict, follow the best practice and explain why.
 
@@ -89,7 +91,7 @@ At the start of every new session, before any other work:
 - **Structured logging:** Every significant operation produces a log entry with timestamp, severity, and correlation ID.
 - **No direct data model changes:** All changes go through versioned migrations.
 - **Document as you go:** Update CHANGELOG.md (8 categories: Security, Data Model, Added, Changed, Fixed, Removed, Infrastructure, Documentation), FEATURES.md, docs in `docs/api and interfaces/`, and the Project Bible after every feature. For non-trivial decisions, create an ADR in `docs/ADR documentation/` using the template.
-- **Context Health Check:** Every 3-4 features, summarize features built, features remaining, current data model, and known issues. Verify against PROJECT_BIBLE.md. If the summary contradicts the Bible, start a fresh session.
+- **Context Health Check:** Run it on signal, not on a fixed count — when you suspect your working picture has drifted from `PROJECT_BIBLE.md`, when you notice repeated confusion or rework on ground already covered, and at phase transitions. Summarize features built, features remaining, current data model, and known issues, then verify that summary against PROJECT_BIBLE.md. **If the summary contradicts the Bible, start a fresh session.** A counter still backstops the signal: `scripts/process-checklist.sh --start-feature` warns at 3 features since the last check and **blocks at 4**. Clear it with `scripts/test-gate.sh --reset-health-check` only after actually running a check — never to silence the gate.
 - **Process enforcement:** Before starting each feature, run:
   `scripts/process-checklist.sh --start-feature "feature-name"`
   After completing each Build Loop step, mark it:
@@ -100,6 +102,7 @@ At the start of every new session, before any other work:
   - Documentation updated: `scripts/process-checklist.sh --complete-step build_loop:documentation_updated`
   - Feature recorded: `scripts/process-checklist.sh --complete-step build_loop:feature_recorded`
   **Commits are blocked until all steps are completed in order.**
+- **If a security step is refused, re-run it on Opus — never skip it.** Claude Fable 5 runs safety classifiers aimed at offensive cybersecurity content, and Anthropic notes that benign security work can trigger them too — the Build Loop's `security_audit` step and Phase 1's threat model are exactly that kind of legitimate work. If a step is refused on Fable, re-run **that step** on Opus (dispatch it as a subagent pinned `model: opus`, or switch the session with `/model`), then continue the loop. A refusal is a classifier artifact, not a finding that the audit was unnecessary — skipping the step leaves a real hole in the security record.
 
 ### When a hook blocks you (BL-029 / BL-030)
 
