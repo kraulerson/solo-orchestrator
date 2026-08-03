@@ -373,6 +373,7 @@ jobs:
             tests/test-check-changelog-filter.sh
             tests/test-check-commit-message.sh
             tests/test-check-gate.sh
+            tests/test-walk016-release-env-policy.sh
             tests/test-check-phase-gate-argv-parser.sh
             tests/test-check-phase-gate-backstop-attestation.sh
             tests/test-check-phase-gate-blame-walker.sh

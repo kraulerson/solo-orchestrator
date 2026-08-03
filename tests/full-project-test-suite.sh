@@ -1553,6 +1553,13 @@ run_child_suite "tests/test-escalate-to-user.sh" "tests/test-escalate-to-user.sh
 
 # Gate / check family.
 run_child_suite "tests/test-check-gate.sh" "tests/test-check-gate.sh"
+# Walk 2026-08-02 ISSUE-016 (Major): `--release-env-policy` — the GitHub Pages
+# environment's default branch policy rejects TAG deploys before any job
+# starts (empty step list, no readable error), which hard-fails the
+# framework's own "git tag v1.0.0 && git push --tags" happy path. Dry-run
+# reports + exits 1; --fix applies. `gh` stub + call log; in-suite mutant
+# blinds the tag-policy detection. No init.sh -> both lanes.
+run_child_suite "tests/test-walk016-release-env-policy.sh" "tests/test-walk016-release-env-policy.sh"
 run_child_suite "tests/test-check-changelog-filter.sh" "tests/test-check-changelog-filter.sh"
 run_child_suite "tests/test-check-commit-message.sh" "tests/test-check-commit-message.sh"
 # BL-010: the BL-006 Build-Loop commit-message check now runs at the git

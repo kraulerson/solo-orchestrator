@@ -53,6 +53,20 @@ Subcommands:
                     project that met the free-tier 403 unattested can recover
                     without destroy-and-recreate.
   --backfill-host   Infer host from git remote URL and write to manifest.
+  --release-env-policy
+                    Check that the release deployment ENVIRONMENT admits
+                    tag deploys before you push a version tag (walk
+                    ISSUE-016). Enabling GitHub Pages auto-creates a
+                    `github-pages` environment whose default policy admits
+                    the default branch only, so a tag-triggered release is
+                    rejected before any step runs — empty step list, no
+                    readable error. Exits 1 when tag deploys would be
+                    rejected and prints the exact remediation.
+                      --fix                 apply the policy instead of
+                                            just reporting it
+                      --env <name>          environment (default github-pages)
+                      --tag-pattern <glob>  tag pattern (default v*)
+                    GitHub-only; other hosts report NOT APPLICABLE (exit 0).
 
 Flags:
   --yes, -y         Skip confirmation prompts (for non-interactive use,
@@ -459,6 +473,136 @@ cmd_repair() {
   print_ok "Repair complete"
 }
 
+# WALK-ISSUE-016-RELEASE-ENV-POLICY-BEGIN
+# Walk 2026-08-02, ISSUE-016 (Major): the documented happy path — "release is
+# triggered by version tags: git tag v1.0.0 && git push --tags" — HARD-FAILS on
+# a fresh GitHub Pages repo, opaquely. Enabling Pages auto-creates a
+# `github-pages` deployment environment whose default branch policy admits the
+# DEFAULT BRANCH ONLY, so a run triggered from a TAG is rejected by the
+# environment's protection rules BEFORE any step executes: an empty step list,
+# no readable error in `gh run view`, and no doc anywhere connecting the two.
+#
+# WHY THIS LIVES IN A SCRIPT AND NOT IN release.yml: a run that the environment
+# rejects never starts a job, so an in-workflow preflight step is unreachable by
+# construction. The check has to run somewhere that CAN execute — here, from the
+# workstation, before the tag is pushed.
+#
+# Dry-run by default (report + exact commands, exit 1 when tag deploys would be
+# rejected); `--fix` applies. Non-github hosts are NOT APPLICABLE, not failures:
+# GitLab protected environments and Bitbucket deployment permissions are
+# different mechanisms and neither auto-creates a default-branch-only policy on
+# a fresh repo.
+cmd_release_env_policy() {
+  _require_manifest || return 1
+
+  local env_name="github-pages" tag_pattern="v*" do_fix=0
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --fix)         do_fix=1 ;;
+      --env)         shift; env_name="${1:-github-pages}" ;;
+      --env=*)       env_name="${1#--env=}" ;;
+      --tag-pattern) shift; tag_pattern="${1:-v*}" ;;
+      --tag-pattern=*) tag_pattern="${1#--tag-pattern=}" ;;
+      *) print_fail "--release-env-policy: unknown flag '$1'"; return 1 ;;
+    esac
+    shift || true
+  done
+
+  local host
+  host=$(jq -r '.host // empty' .claude/manifest.json 2>/dev/null || echo "")
+  if [ "$host" != "github" ]; then
+    print_info "Release environment policy: NOT APPLICABLE for host='${host:-unset}' — the default-branch-only deployment policy that rejects tag deploys is a GitHub environments behavior. (GitLab protected environments / Bitbucket deployment permissions are opt-in and are not auto-created.)"
+    return 0
+  fi
+  if ! command -v gh >/dev/null 2>&1; then
+    print_fail "Release environment policy: \`gh\` CLI not found — install it and re-run (this check is a GitHub API read)."
+    return 1
+  fi
+
+  # shellcheck disable=SC1090
+  source "$SCRIPT_DIR/lib/host.sh"
+  host_load_driver || {
+    print_fail "Dispatcher load failed — check manifest host field (scripts/check-gate.sh --backfill-host)"
+    return 1
+  }
+  local owner_repo
+  owner_repo=$(_github_parse_origin) || {
+    print_fail "Could not parse a GitHub owner/repo from 'origin'"
+    return 1
+  }
+
+  print_step "Release environment policy: $owner_repo environment '$env_name'"
+
+  local env_json
+  if ! env_json=$(gh api "repos/$owner_repo/environments/$env_name" 2>&1); then
+    if printf '%s' "$env_json" | grep -q 'Not Found'; then
+      print_ok "Environment '$env_name' does not exist yet — nothing can reject a tag deploy. Re-run this check AFTER you enable Pages (or first create the environment); GitHub creates it with a default-branch-only policy."
+      return 0
+    fi
+    print_fail "Could not read environment '$env_name': $(printf '%s' "$env_json" | head -2 | tr '\n' ' ')"
+    return 1
+  fi
+
+  local protected custom
+  protected=$(printf '%s' "$env_json" | jq -r '.deployment_branch_policy.protected_branches // false' 2>/dev/null || echo false)
+  custom=$(printf '%s' "$env_json" | jq -r '.deployment_branch_policy.custom_branch_policies // false' 2>/dev/null || echo false)
+
+  if [ "$protected" != "true" ] && [ "$custom" != "true" ]; then
+    print_ok "Environment '$env_name' has no deployment branch policy — every branch AND tag may deploy. Tag-triggered releases are fine."
+    return 0
+  fi
+
+  local post_cmd="gh api -X POST repos/$owner_repo/environments/$env_name/deployment-branch-policies -f name='$tag_pattern' -f type='tag'"
+
+  if [ "$protected" = "true" ]; then
+    # protected_branches:true admits protected BRANCHES only and refuses
+    # custom policies outright — a tag can never deploy until the env is
+    # switched to custom policies.
+    print_fail "Environment '$env_name' allows PROTECTED BRANCHES only — a tag-triggered release ('$tag_pattern') is rejected before any step runs (that is the empty-step-list failure with no readable error)."
+    echo "  Switch the environment to custom policies, then admit the tag pattern:"
+    echo "    gh api -X PUT repos/$owner_repo/environments/$env_name --input - <<'JSON'"
+    echo "    {\"deployment_branch_policy\":{\"protected_branches\":false,\"custom_branch_policies\":true}}"
+    echo "    JSON"
+    echo "    $post_cmd"
+    if [ "$do_fix" -eq 1 ]; then
+      printf '{"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}' \
+        | gh api -X PUT "repos/$owner_repo/environments/$env_name" --input - >/dev/null || {
+          print_fail "Could not switch '$env_name' to custom branch policies"; return 1; }
+    else
+      return 1
+    fi
+  fi
+
+  local pol_json
+  if ! pol_json=$(gh api "repos/$owner_repo/environments/$env_name/deployment-branch-policies" 2>&1); then
+    print_fail "Could not list deployment branch policies for '$env_name': $(printf '%s' "$pol_json" | head -2 | tr '\n' ' ')"
+    return 1
+  fi
+  local have_tag
+  have_tag=$(printf '%s' "$pol_json" \
+    | jq -r --arg p "$tag_pattern" '[.branch_policies[]? | select(.type=="tag" and (.name==$p or .name=="*"))] | length' 2>/dev/null || echo 0)
+  case "$have_tag" in ''|*[!0-9]*) have_tag=0 ;; esac
+
+  if [ "$have_tag" -gt 0 ]; then
+    print_ok "Environment '$env_name' admits tag deployments matching '$tag_pattern' — tag-triggered releases will run."
+    return 0
+  fi
+
+  print_fail "Environment '$env_name' has NO tag deployment policy — 'git push --tags' will be rejected by the environment before any step runs (empty step list, no readable error in \`gh run view\`)."
+  echo "  Admit the release tag pattern:"
+  echo "    $post_cmd"
+  echo "  Or apply it now:  scripts/check-gate.sh --release-env-policy --fix"
+  if [ "$do_fix" -eq 1 ]; then
+    gh api -X POST "repos/$owner_repo/environments/$env_name/deployment-branch-policies" \
+      -f "name=$tag_pattern" -f 'type=tag' >/dev/null || {
+        print_fail "Could not add the '$tag_pattern' tag deployment policy"; return 1; }
+    print_ok "Added tag deployment policy '$tag_pattern' to '$env_name' — re-run the failed release workflow."
+    return 0
+  fi
+  return 1
+}
+# WALK-ISSUE-016-RELEASE-ENV-POLICY-END
+
 ASSUME_YES=0
 ARGS=()
 for arg in "$@"; do
@@ -473,6 +617,7 @@ case "${1:-}" in
   --preflight)     shift || true; cmd_preflight "$@" ;;
   --repair)        shift || true; cmd_repair "$@" ;;
   --backfill-host) shift || true; cmd_backfill_host "$@" ;;
+  --release-env-policy) shift || true; cmd_release_env_policy "$@" ;;
   -h|--help|"")    usage; exit 0 ;;
   *)               echo "Unknown subcommand: $1" >&2; usage; exit 1 ;;
 esac
