@@ -145,6 +145,26 @@
 #   module however the fusion is spelled. Second residual: matching is
 #   CASE-SENSITIVE, because every path in the inventory is lower-case and a
 #   case-insensitive tier would fire on ordinary prose.
+#
+#   FOURTH RESIDUAL, AND THE WIDEST ONE — M5's forbidden set is core LIB
+#   basenames only. A Scout file that invokes a core ENTRY SCRIPT
+#   (`scripts/*.sh`) or `init.sh` itself passes this arm clean. Reproduced:
+#   a scout file carrying
+#       bash "$(dirname "$0")/../../check-gate.sh" --probe
+#       out=$(bash "$(dirname "$0")/../../../init.sh")
+#   scans to rc=0.
+#   That is faithful to §3.3 M5's FIRST sentence ("sources no core lib") and
+#   violates its SECOND ("its bootstrap must work in a clone that has never run
+#   init.sh") together with §3.1's "zero dependency on the installer". The
+#   escape survives the planned behavioural backstop too: moving scripts/lib/
+#   aside does not disturb scripts/*.sh, so WP1-brownfield's hermetic test as
+#   currently specified would ALSO miss it — that test should move
+#   scripts/*.sh aside as well, or assert against a bare tree.
+#   Widening M5_TOKENS to `scripts/*.sh` basenames plus `init.sh` is a
+#   DESIGN-LEVEL call — it would make every Scout file that so much as names a
+#   core entry script a violation — and is deliberately NOT taken unilaterally
+#   here. It sits in the same pending queue as the host-drivers glob question.
+#   Named now so the gap is disclosed rather than discovered.
 #   Third residual, specific to the M5 arm: its forbidden tokens are core-lib
 #   BASENAMES, so a module file that reused a core lib's basename inside its
 #   own directory would false-positive on a legitimate same-dir source. M1

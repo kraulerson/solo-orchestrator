@@ -129,6 +129,11 @@
 #     V4  zero-dependency module files present but NO core lib -> 2
 #         (the M5 arm's own anti-vacuity clause: an empty forbidden-token set
 #         would let M5 pass trivially)
+#     V5  mutation M-KNOWN: a typo'd MODULE COLUMN in a lint copy -> 2 (not 0)
+#         Added in the pre-PR review round (R-WP0-1) after the reviewer's novel
+#         mutant — deleting the `is_known_module` guard — survived all 39 of
+#         the original cases. See the case body for why the typo is invisible
+#         to both vacuity floors.
 #
 #   MANIFEST EROSION
 #     E1  deleting a manifest ROW does not fully disarm the lint: the T2 token
@@ -1022,6 +1027,49 @@ if [ "$rc" -eq 2 ]; then
   pass "V4: an empty M5 forbidden-token set exits 2, not 0"
 else
   fail_ "V4" "expected rc=2; rc=$rc; output:\n$out"
+fi
+teardown_fixture
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== V5 (mutation M-KNOWN): a typo'd module column -> exit 2, not 0 ==="
+# ════════════════════════════════════════════════════════════════════
+# ADDED IN THE WP0 PRE-PR REVIEW ROUND (R-WP0-1). The reviewer's novel mutant —
+# delete the `is_known_module` integrity check from the T1-token derivation
+# loop — SURVIVED all 39 cases of the original suite. The guard was load-bearing
+# and unpinned, which is the one thing this suite is built not to allow.
+#
+# WHY THE GUARD MATTERS. The manifest's first column is what binds a row to M5:
+# ZERO_DEP_MODULES names `scout`, and the zero-dependency population is the set
+# of rows whose module column matches. A ONE-CHARACTER typo in that column
+# (`scuot|scripts/lib/scout/`) therefore drops every Scout file out of M5's
+# population — while the row still contributes its T1 token and still counts
+# toward MODULE_PRESENT, so the main vacuity floor is satisfied and nothing
+# looks wrong. The M5 anti-vacuity clause cannot catch it either: that clause is
+# guarded by `ZERODEP_COUNT >= 1`, and the typo makes the count ZERO, so the
+# clause is skipped rather than tripped. The lint would exit 0 with M5 silently
+# disarmed — a one-character edit passing every PR-blocking check, which is
+# precisely the BL-181 scar class (`# BL-181-UNIT-LANE-PREDICATE`).
+#
+# Uses V3's copy mechanism so the real lint is never mutated, and asserts the
+# copy really was mutated (`typoed`) so a no-op edit cannot be read as a proof —
+# the lesson L3 paid for. The control run pins that the same fixture is green
+# under the pristine lint, so exit 2 can only be coming from the guard.
+setup_fixture
+COPY="$TMP/lint-copy-badmodule.sh"
+awk '/^  "scout[|]scripts\/lib\/scout\/"$/ {
+       print "  \"scuot|scripts/lib/scout/\""
+       next
+     }
+     { print }' "$LINTER" > "$COPY"
+typoed=$(grep -c '"scuot|scripts/lib/scout/"' "$COPY")
+out=$(bash "$COPY" --root "$TMP" 2>&1); rc=$?
+out_ctl=$(run_fixture); rc_ctl=$?
+if [ "$rc" -eq 2 ] && [ "$rc_ctl" -eq 0 ] && [ "$typoed" -eq 1 ] \
+   && echo "$out" | grep -q 'scuot'; then
+  pass "V5: a typo'd module column exits 2 naming the unknown module (control green)"
+else
+  fail_ "V5" "expected mutated rc=2 naming 'scuot', control rc=0, typoed=1; rc=$rc rc_ctl=$rc_ctl typoed=$typoed; output:\n$out"
 fi
 teardown_fixture
 
