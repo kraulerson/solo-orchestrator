@@ -728,6 +728,20 @@ run_child_suite "tests/test-bl119-stale-editmsg.sh" "tests/test-bl119-stale-edit
 # Matrix is WARN-first visible. Double-fence mutation in-suite. Both lanes.
 run_child_suite "tests/test-bl105-phase4-wave.sh" "tests/test-bl105-phase4-wave.sh"
 
+# WALK 2026-08-02 phase-lifecycle findings (ISSUE-004/005/007/012/013/015).
+# THE DEADLOCK (ISSUE-015): the generated CLAUDE.md told the operator to set
+# current_phase by hand at every gate; at 4 the BL-105 arm FAILs because the
+# Phase-4 checklist was never started, and --start-phase4 consults that gate
+# before running — the only command that clears BL-105 refuses while BL-105
+# fails. start_phase4 now SATISFIES the arm (initializes the checklist before
+# the consult) and rolls back if the gate fails for any real reason. Also:
+# build-loop steps refuse a null feature; phase2_init --status counts only
+# template steps (the 9/7 numerator also hid the Remaining: list); reconfigure
+# audit rows route into ## Approval History at the section's own column count;
+# the legal_review refusal and the guide name the zero-collection privacy
+# policy. No scaffolder invocation -> ALSO in the unit lane.
+run_child_suite "tests/test-walk-phase-lifecycle.sh" "tests/test-walk-phase-lifecycle.sh"
+
 # BL-107 (High): every language gets the TDD/BL-006 commit-msg gate. Hermetic
 # half: the # BL-107-RUST-INLINE-TESTS content probe (inline #[cfg(test)]
 # additions count as tests — without it universal install would false-block
