@@ -180,7 +180,10 @@ _build_loop_slug() {
 #   - the haystack is the SCOPE plus the DESCRIPTION, never the `feat` type
 #     token itself (otherwise every feat: subject would "name" any feature
 #     whose slug contains the word "feat" — e.g. UAT's own `uat-feat-1`);
-#   - the whole feature slug appearing anywhere in the haystack matches;
+#   - the whole feature slug appearing anywhere in the haystack matches —
+#     but only when the slug is >=4 characters. A SHORT slug ("ui", "db")
+#     must match as a whole token, or `feat(build): …` would "name" the
+#     feature `ui` on the strength of the letters inside "build";
 #   - otherwise any WHOLE token of >=4 characters shared by both matches
 #     ("highlight" for "Highlight removal with note-loss confirmation").
 #     Whole tokens, not substrings: "featured" must not match "feat".
@@ -197,9 +200,15 @@ _subject_names_feature() {
   hay=$(_build_loop_slug "$scope $desc")
   feat_slug=$(_build_loop_slug "$feature")
   [ -n "$feat_slug" ] && [ -n "$hay" ] || return 1
-  case "$hay" in
-    *"$feat_slug"*) return 0 ;;
-  esac
+  if [ "${#feat_slug}" -ge 4 ]; then
+    case "$hay" in
+      *"$feat_slug"*) return 0 ;;
+    esac
+  else
+    case "-$hay-" in
+      *"-$feat_slug-"*) return 0 ;;
+    esac
+  fi
   local IFS='-'
   for tok in $feat_slug; do
     [ "${#tok}" -ge 4 ] || continue

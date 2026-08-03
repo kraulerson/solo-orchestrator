@@ -446,6 +446,20 @@ JSON
   teardown
 }
 
+u28_short_feature_name_matches_whole_token_only() {
+  setup; seed_phase 2; seed_ready_to_record "ui"
+  local rc; rc=$(record_feature)
+  [ "$rc" = "0" ] || { fail_ "U28" "--complete-step failed (rc=$rc)"; teardown; return; }
+  # "build" CONTAINS the letters "ui". A two-character feature slug must match
+  # as a whole token or the identity bound decays into letter-soup.
+  local out; out=$(run_check "feat(build): unrelated tooling")
+  [ "${out%%|*}" = "1" ] || { fail_ "U28" "the closed feature 'ui' was 'named' by the letters inside 'build' — a short slug must match a WHOLE token: $out"; teardown; return; }
+  out=$(run_check "feat(ui): the actual ui work")
+  [ "${out%%|*}" = "0" ] || { fail_ "U28" "a short feature name matched as a whole token was still blocked: $out"; teardown; return; }
+  pass "U28: a short feature slug matches only as a whole token, never as letters inside another word"
+  teardown
+}
+
 u24_status_names_the_closed_loop() {
   setup; seed_phase 2; seed_ready_to_record "find-in-document"
   local rc; rc=$(record_feature)
@@ -495,6 +509,7 @@ u24_status_names_the_closed_loop
 u25_receipt_binds_to_the_loops_files
 u26_receipt_does_not_bless_unrelated_files
 u27_no_recorded_paths_falls_back_to_identity
+u28_short_feature_name_matches_whole_token_only
 
 echo ""
 echo "== Total: $((PASSED + FAILED)) | Passed: $PASSED | Failed: $FAILED =="
