@@ -1786,6 +1786,27 @@ run_child_suite "tests/test-delta-wp5-hotfix-retro.sh" \
 # init script -> both lanes.
 run_child_suite "tests/test-delta-wp6-cadence.sh" \
   "tests/test-delta-wp6-cadence.sh"
+
+# Delta Track WP7 — scripts/cut-release.sh (§9). The three refusals in §9.2's
+# order, each fired alone AND in combination, every one asserted with a
+# whole-tree find + per-file md5 manifest PLUS a separate tag-set count (a
+# `git tag` writes into .git/, which a working-tree manifest cannot see); the
+# semver arithmetic, where the class->bump MAP is project policy and the
+# PRECEDENCE is machinery with no configuration surface at all; the §9.3
+# promotion, whose eight categories are compared against the template's own
+# bytes rather than a list retyped in the test; and the C7 tag constraint —
+# exactly vMAJOR.MINOR.PATCH, because GitLab's release lanes are version-strict
+# while GitHub's and Bitbucket's are not, so a pre-release suffix builds on two
+# hosts and silently does nothing on the third. Mutation-proved IN THE SUITE
+# (m1-m5, m7, each mutant built and run): suppress the open-retro refusal -> a
+# release cuts over an unfiled retro -> R2 RED; emit `v1.2.0-rc1` -> T1 RED (the
+# C7 defence); collapse the cadence checker's rc 2 into a pass -> R4 RED
+# (BL-213's fail-open, one level up); reorder the semver precedence -> a feature
+# ships as a patch -> S1/S6 RED; suppress the open-delta refusal -> R1/R5 RED;
+# neuter the §8.2 major revalidation -> S3 RED. Never executes the init script
+# -> both lanes.
+run_child_suite "tests/test-delta-wp7-cut-release.sh" \
+  "tests/test-delta-wp7-cut-release.sh"
 run_child_suite "tests/test-check-phase-gate.sh" "tests/test-check-phase-gate.sh"
 run_child_suite "tests/test-check-phase-gate-poc-block-contract.sh" \
   "tests/test-check-phase-gate-poc-block-contract.sh"
