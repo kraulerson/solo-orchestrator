@@ -96,6 +96,11 @@
 #     H5  ZERO NETWORK: curl/wget/nc/ping shadowed in PATH are never invoked
 #     H6  registered and shipped by init.sh the way its five siblings are —
 #         and check-maintenance.sh is NOT re-shipped (§0.3-C1)
+#     H7  DAY-ZERO SILENCE: the nag is post-launch only, so a pre-launch
+#         project is byte-silent even while the checker says 2   KILLS m5
+#     H8  NO EVIDENCE, NO HEADLINE: rc 1 is also `set -e`'s abort code, so a
+#         checker that DIED must not be announced as an overdue — and an rc 1
+#         that carries a real OVERDUE line still speaks         KILLS m6
 #
 #   I — IDENTIFIERS (§11-WP6's template deliverable)
 #     I1  the generated identifier registry carries the DELTA- row
@@ -108,6 +113,10 @@
 #     m3  neuter the policy read                -> the retune stops moving
 #     m4  neuter the hook's fail-open arm       -> a crashing checker takes
 #         the session's SessionStart with it
+#     m5  neuter the era gate                   -> day zero gets noisy again,
+#         at rc 0 both ways, so only a byte count can see it
+#     m6  neuter the evidence guard             -> a checker that merely died is
+#         announced to the session as an overdue cadence
 #
 # LANE: registered in tests/full-project-test-suite.sh AND in the tests.yml
 # `unit-shard` list. Its executed lines never name the init script — H6 reads
@@ -157,6 +166,8 @@ epoch_of() {   # <YYYY-MM-DDTHH:MM:SSZ> -> epoch seconds, computed INDEPENDENTLY
 mk_proj() {    # a git repo with an identity and a .claude dir, and NOTHING else
   local d="$1"
   mkdir -p "$d/.claude"
+  # Phase 4 by default: the cadence surfaces are post-launch by construction,
+  # and H7 is the row that sets it lower on purpose.
   (
     cd "$d" && unset GITHUB_BASE_REF
     git init -q .
@@ -168,15 +179,44 @@ mk_proj() {    # a git repo with an identity and a .claude dir, and NOTHING else
     > "$d/.claude/phase-state.json"
 }
 
-commit_dated() {   # <dir> <file> <days-ago> — commit with a fixed +0000 author date
-  local d="$1" f="$2" n="$3" stamp
-  stamp="$(days_ago "$n")T12:00:00+0000"
-  printf 'fixture content for %s\n' "$f" > "$d/$f"
+# commit_dated <dir> <file> <days-ago>
+#   Commit <file> with a fixed +0000 author date <days-ago> days back.
+#
+#   THE VERIFICATION IS THE LIVE HALF; THE VARYING CONTENT IS BELT AND BRACES.
+#   Several rows below re-date a file the baseline fixture already committed,
+#   and with identical bytes `git commit` is a SILENT no-op: the tip stays at
+#   the old date and a threshold test passes without ever crossing the
+#   threshold. That is what happened on the first draft of this suite — eight
+#   rows agreed the checker was fine because none of their 15-day fixtures had
+#   taken. So the call VERIFIES that the tree records the date it asked for and
+#   counts a loud failure if it does not.
+#
+#   Measured, not assumed, and the review re-measured it: removing FIXTURE_SEQ
+#   ALONE does not reproduce the no-op, because the days-back text in the line
+#   below still varies the bytes. Forcing the content genuinely constant makes
+#   the guard fire ten times and the suite go RED. Both belong here — the seq
+#   makes collisions unlikely, the guard is what would catch one anyway.
+#
+#   A fixture that quietly did not happen is the same silent-success class this
+#   whole WP exists to close; a suite that cannot see it in its own scaffolding
+#   has no business asserting it about a product.
+FIXTURE_SEQ=0
+commit_dated() {
+  local d="$1" f="$2" n="$3" stamp want got
+  FIXTURE_SEQ=$((FIXTURE_SEQ + 1))
+  want="$(days_ago "$n")"
+  stamp="${want}T12:00:00+0000"
+  printf 'fixture content for %s - revision %s, dated %s days back\n' "$f" "$FIXTURE_SEQ" "$n" > "$d/$f"
   (
     cd "$d" && unset GITHUB_BASE_REF
     GIT_AUTHOR_DATE="$stamp" GIT_COMMITTER_DATE="$stamp" git add "$f"
-    GIT_AUTHOR_DATE="$stamp" GIT_COMMITTER_DATE="$stamp" git commit -q -m "chore: $f"
+    GIT_AUTHOR_DATE="$stamp" GIT_COMMITTER_DATE="$stamp" git commit -q -m "chore: $f r$FIXTURE_SEQ"
   ) >/dev/null 2>&1
+  got="$( cd "$d" && git log -1 --format='%ai' -- "$f" 2>/dev/null | awk '{ print $1 }' )"
+  if [ "$got" != "$want" ]; then
+    echo "  [FIXTURE] commit_dated $f wanted $want but the tree records '$got' — the fixture did not take" >&2
+    FAILED=$((FAILED + 1))
+  fi
   return 0
 }
 
@@ -197,6 +237,22 @@ mk_current_proj() {   # every surface present, every one fresh -> the rc 0 basel
 write_policy() { printf '%s\n' "$2" > "$1/.claude/delta-policy.json"; }
 
 mk_scripts_tree() { mkdir -p "$1"; cp -R "$REPO_ROOT/scripts" "$1/scripts"; }
+
+# strip_delta_module <tree> — remove the post-1.0 module from a copied scripts
+#   tree, so the seam refuses every `--delta-*` action.
+#
+#   THIS IS THE SHIPPED DOWNSTREAM SHAPE, NOT AN EXOTIC ONE: init.sh copies the
+#   checker and the seam but ships no delta libs at all today, so in every
+#   generated project the seam answers "the delta module is not installed" and
+#   the checker's OWN default constants are the live values. With the module
+#   present the seam answers from §7.2's defaults instead — the same 14 and 95,
+#   from a different file. Two sources for one number is a drift waiting to
+#   happen, so P1 measures BOTH and requires them to agree.
+strip_delta_module() {
+  rm -f "$1/scripts/lib/delta-state.sh" "$1/scripts/lib/delta-policy.sh" \
+        "$1/scripts/lib/delta-classify.sh" "$1/scripts/lib/delta-cadence.sh" 2>/dev/null
+  return 0
+}
 
 # ── Runners ─────────────────────────────────────────────────────────────────
 
@@ -269,10 +325,18 @@ mk_current_proj "$T/under"; commit_dated "$T/under" CHANGELOG.md 13
 run_check "$REPO_ROOT/scripts" "$T/under"; under_rc=$CHK_RC
 had_policy=n
 [ -f "$T/over/.claude/delta-policy.json" ] && had_policy=y
-if [ "$over_rc" -eq 1 ] && [ "$under_rc" -eq 0 ] && [ "$had_policy" = n ]; then
-  pass "P1: with NO policy file anywhere (had_policy=$had_policy) the framework default of 14 days still measures — 15 days is overdue (rc $over_rc) and 13 days is current (rc $under_rc). The checker does not require the post-1.0 module"
+# And again with the module GONE — the shape init.sh actually ships today, where
+# the seam refuses and the checker's own constants are the live values. Both
+# sources of the same default must give the same answer, or the drift between
+# them is silent.
+NOMOD="$T/nomod"; mk_scripts_tree "$NOMOD"; strip_delta_module "$NOMOD"
+run_check "$NOMOD/scripts" "$T/over"; nm_over_rc=$CHK_RC
+run_check "$NOMOD/scripts" "$T/under"; nm_under_rc=$CHK_RC
+if [ "$over_rc" -eq 1 ] && [ "$under_rc" -eq 0 ] && [ "$had_policy" = n ] \
+   && [ "$nm_over_rc" -eq 1 ] && [ "$nm_under_rc" -eq 0 ]; then
+  pass "P1: with NO policy file anywhere (had_policy=$had_policy) the 14-day default still measures — 15 days overdue (rc $over_rc), 13 days current (rc $under_rc) — and it measures identically with the whole post-1.0 module deleted (rc $nm_over_rc / $nm_under_rc), which is the shape init.sh ships today. The checker does not require the module, and the two places that hold the same default agree"
 else
-  fail_ "P1" "15-day rc=$over_rc (expect 1); 13-day rc=$under_rc (expect 0); policy file present=$had_policy (expect n)"
+  fail_ "P1" "module present: 15-day rc=$over_rc (expect 1), 13-day rc=$under_rc (expect 0); policy file present=$had_policy (expect n); module DELETED: 15-day rc=$nm_over_rc (expect 1), 13-day rc=$nm_under_rc (expect 0 — a disagreement here means the seam's defaults and the script's constants have drifted)"
 fi
 rm -rf "$T"
 
@@ -553,18 +617,30 @@ rm -rf "$T"
 # ── D4: STRUCTURAL ABSENCE of the two atoms that made the defect ──────────
 # An absence has to be discriminated structurally, and both halves are named
 # because either one alone would have been survivable: the `|| echo "0"` tail
-# is what manufactured the sentinel and the `-gt 0` guard is what turned the
+# is what manufactured the sentinel, and the epoch guard is what turned the
 # sentinel into silence.
-tail_hits="$(grep -c '|| echo "\{0,1\}0"\{0,1\}' "$CHECKER" || true)"
+#
+# COUNTED ON EXECUTED LINES ONLY, with the repo's own two-stage stripper. The
+# file DESCRIBES the defect at length in its header — quoting the dead idiom is
+# how the next reader learns not to reintroduce it — so a whole-file grep would
+# fail this row for documenting the bug it fixes, which is precisely backwards.
+T=$(mktemp -d)
+sed -e 's/^[[:space:]]*#.*$//' -e 's/\([^[:space:]]\)[[:space:]][[:space:]]*#.*$/\1/' \
+  "$CHECKER" > "$T/stripped"
+tail_hits="$(grep -c '|| echo "\{0,1\}0"\{0,1\}' "$T/stripped" || true)"
 case "$tail_hits" in ''|*[!0-9]*) tail_hits=0 ;; esac
-guard_hits="$(grep -c 'last_epoch' "$CHECKER" || true)"
+guard_hits="$(grep -c 'last_epoch' "$T/stripped" || true)"
 case "$guard_hits" in ''|*[!0-9]*) guard_hits=0 ;; esac
-gt0_hits="$(grep -c -- '-gt 0 \]' "$CHECKER" || true)"
-case "$gt0_hits" in ''|*[!0-9]*) gt0_hits=0 ;; esac
-if [ "$tail_hits" -eq 0 ] && [ "$guard_hits" -eq 0 ] && [ "$gt0_hits" -eq 0 ]; then
-  pass "D4: neither half of the shipped defect survives anywhere in the file — no '|| echo 0' capture tail ($tail_hits), no last_epoch sentinel ($guard_hits), no '-gt 0 ]' arm guard ($gt0_hits). The counters are compared with -gt at the verdict, which is a different shape and deliberately not matched here"
+epoch_guard_hits="$(grep -c -- '[Ee]poch[a-z_]*" \{0,1\}-gt 0 \]' "$T/stripped" || true)"
+case "$epoch_guard_hits" in ''|*[!0-9]*) epoch_guard_hits=0 ;; esac
+stripped_lines="$(grep -c . "$T/stripped" || true)"
+case "$stripped_lines" in ''|*[!0-9]*) stripped_lines=0 ;; esac
+rm -rf "$T"
+if [ "$tail_hits" -eq 0 ] && [ "$guard_hits" -eq 0 ] && [ "$epoch_guard_hits" -eq 0 ] \
+   && [ "$stripped_lines" -gt 40 ]; then
+  pass "D4: across $stripped_lines executed lines neither half of the shipped defect survives — no '|| echo 0' capture tail ($tail_hits), no last_epoch sentinel ($guard_hits), no '\$…epoch -gt 0' arm guard ($epoch_guard_hits). The two '-gt 0' tests that DO remain are the overdue/undetermined counters at the closing verdict, which is a different shape and deliberately not matched"
 else
-  fail_ "D4" "'|| echo 0' tails=$tail_hits (expect 0); last_epoch mentions=$guard_hits (expect 0); '-gt 0 ]' guards=$gt0_hits (expect 0)"
+  fail_ "D4" "'|| echo 0' tails=$tail_hits (expect 0); last_epoch mentions=$guard_hits (expect 0); epoch '-gt 0' guards=$epoch_guard_hits (expect 0); executed lines seen=$stripped_lines (expect >40 — a stripper that ate the file would make this row vacuous)"
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -652,6 +728,77 @@ else
   fi
   rm -rf "$T"
 
+  # ── H8: NO EVIDENCE, NO HEADLINE (R-WP6-3) ─────────────────────────────
+  # rc 1 is also the code a shell hands back when it aborts under `set -e`, so a
+  # checker that DIED looks exactly like one that measured an overdue — until
+  # you look for the verdict line. The pre-review hook printed "a cadence is
+  # OVERDUE" over a crash that had said nothing at all. Asserted in BOTH
+  # directions from the same exit code, which is the only way to tell "suppress
+  # a false headline" apart from "suppress the headline": a bare rc 1 is silent,
+  # and an rc 1 that carries a real OVERDUE line still speaks.
+  T=$(mktemp -d); mk_current_proj "$T/p"
+  h8_ok=y; h8_detail=""
+  for kind in crash1-silent crash1-noisy crash2-silent real1; do
+    ST="$T/tree-$kind"; mk_scripts_tree "$ST"
+    case "$kind" in
+      crash1-silent) printf '#!/usr/bin/env bash\nexit 1\n' > "$ST/scripts/check-maintenance.sh"; want=quiet ;;
+      crash1-noisy)  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "[WARN] Routine review (CHANGELOG.md) OVERDUE: last signal 40 days ago (threshold: 14 days)"\nexit 1\n' \
+                       > "$ST/scripts/check-maintenance.sh"; want=loud ;;
+      crash2-silent) printf '#!/usr/bin/env bash\nprintf "%%s\\n" "some unrelated chatter"\nexit 2\n' > "$ST/scripts/check-maintenance.sh"; want=quiet ;;
+      real1)         : ;;   # the SHIPPED checker against a genuinely overdue tree
+    esac
+    if [ "$kind" = real1 ]; then
+      commit_dated "$T/p" CHANGELOG.md 40; want=loud
+    fi
+    run_hook "$ST/scripts" "$T/p"
+    h8_detail="$h8_detail ${kind}->rc$HOOK_RC/${#HOOK_OUT}b"
+    case "$want" in
+      quiet) { [ "$HOOK_RC" -eq 0 ] && [ "${#HOOK_OUT}" -eq 0 ] && [ "${#HOOK_ERR}" -eq 0 ]; } || h8_ok=n ;;
+      loud)  { [ "$HOOK_RC" -eq 0 ] && [ "${#HOOK_OUT}" -gt 0 ]; } || h8_ok=n ;;
+    esac
+  done
+  if [ "$h8_ok" = y ]; then
+    pass "H8: a headline is only spoken when the verdict line it is about actually exists —$h8_detail. A checker that dies at rc 1 saying nothing is silent (it is a crash, not a measurement), one that dies at rc 1 having genuinely printed an OVERDUE line still speaks, and the shipped checker against a real 40-day-old CHANGELOG speaks too. The suppression is of the false claim, not of the report"
+  else
+    fail_ "H8" "crash-with-no-verdict-line must be silent while a real verdict must still speak:$h8_detail"
+  fi
+  rm -rf "$T"
+
+  # ── H7: DAY-ZERO SILENCE — the nag is a POST-LAUNCH surface ────────────
+  # Found by scaffolding a real project rather than by reasoning about one:
+  # init.sh creates docs/test-results/ at birth, so a brand-new tree has the
+  # evidence surface with nothing in it, the checker correctly answers 2, and
+  # an ungated nag printed 354 bytes at the FIRST SessionStart of every
+  # generated project — about a security scan a phase-0 project has never had
+  # any reason to run. Silence is asserted at every pre-launch phase and for a
+  # record that cannot be read at all, on BOTH streams; and the checker itself
+  # must keep answering honestly underneath, or the gate has been put in the
+  # wrong place.
+  T=$(mktemp -d)
+  h7_ok=y; h7_detail=""
+  for ph in 0 1 2 3 missing garbage; do
+    P="$T/p$ph"
+    mk_proj "$P"                                   # writes current_phase 4
+    commit_dated "$P" CHANGELOG.md 1
+    mkdir -p "$P/docs/test-results"                # the birth shape: surface, no artefact
+    case "$ph" in
+      missing) rm -f "$P/.claude/phase-state.json" ;;
+      garbage) printf 'not json at all\n' > "$P/.claude/phase-state.json" ;;
+      *)       printf '{"track":"light","deployment":"personal","poc_mode":null,"current_phase":%s,"phases":{}}\n' "$ph" \
+                 > "$P/.claude/phase-state.json" ;;
+    esac
+    run_hook "$REPO_ROOT/scripts" "$P"
+    run_check "$REPO_ROOT/scripts" "$P"
+    h7_detail="$h7_detail ${ph}->nag(rc$HOOK_RC/${#HOOK_OUT}b/${#HOOK_ERR}e,check rc$CHK_RC)"
+    { [ "$HOOK_RC" -eq 0 ] && [ "${#HOOK_OUT}" -eq 0 ] && [ "${#HOOK_ERR}" -eq 0 ] && [ "$CHK_RC" -eq 2 ]; } || h7_ok=n
+  done
+  if [ "$h7_ok" = y ]; then
+    pass "H7: at every pre-launch phase — and for a phase record that is missing or unreadable — the nag is byte-silent on both streams while the checker underneath still answers 2:$h7_detail. The gate is on the ADVISORY surface only, so WP7's release cut, which calls the checker directly at phase 4, is untouched"
+  else
+    fail_ "H7" "each case must be a silent rc 0 nag over an honest rc 2 checker:$h7_detail"
+  fi
+  rm -rf "$T"
+
   # ── H6: shipped and registered the way its five siblings are ───────────
   # THE SPLIT TOKEN IS LOAD-BEARING, and it is the house idiom (the identical
   # split and the identical reason are in tests/test-intake-wizard-fixes.sh):
@@ -704,18 +851,25 @@ echo "=== M — mutations: anchored, sites==1, one line changed, mode preserved 
 # ════════════════════════════════════════════════════════════════════════════
 
 # ── m1: revert the routine default 14 -> 35 ────────────────────────────────
-T=$(mktemp -d); MT="$T/mut"; mk_scripts_tree "$MT"
+# BOTH trees have the module stripped, and that is the whole point of the row
+# rather than a convenience. With the module present the seam answers the same
+# 14 from §7.2 and the script's constant is dead code — a first version of this
+# mutant reverted the constant to 35 and NOTHING MOVED, which is how the second
+# source got found. The stripped tree is the shape init.sh ships, so this row
+# tests the value that is actually live in a generated project.
+T=$(mktemp -d); MT="$T/mut"; mk_scripts_tree "$MT"; PT="$T/pri"; mk_scripts_tree "$PT"
+strip_delta_module "$MT"; strip_delta_module "$PT"
 pre_mode="$(_mode_of "$MT/scripts/check-maintenance.sh")"
-_sed_inplace "$MT/scripts/check-maintenance.sh" 's|^.*CADENCE-DEFAULT-ROUTINE.*$|ROUTINE_DEFAULT_DAYS=35|'
+_sed_inplace "$MT/scripts/check-maintenance.sh" 's|^.*CADENCE-DEFAULT-ROUTINE$|ROUTINE_DEFAULT_DAYS=35|'
 post_mode="$(_mode_of "$MT/scripts/check-maintenance.sh")"
-rep="$(_mutation_report "$REPO_ROOT/scripts/check-maintenance.sh" "$MT/scripts/check-maintenance.sh" 'CADENCE-DEFAULT-ROUTINE')"
+rep="$(_mutation_report "$REPO_ROOT/scripts/check-maintenance.sh" "$MT/scripts/check-maintenance.sh" 'CADENCE-DEFAULT-ROUTINE$')"
 sites="${rep%%|*}"; rest="${rep#*|}"; changed="${rest%%|*}"; nlines="${rest##*|}"
 mk_current_proj "$T/p"; commit_dated "$T/p" CHANGELOG.md 15
-run_check "$REPO_ROOT/scripts" "$T/p"; pri_rc=$CHK_RC
+run_check "$PT/scripts" "$T/p"; pri_rc=$CHK_RC
 run_check "$MT/scripts" "$T/p"; mut_rc=$CHK_RC
 if [ "$sites" = "1" ] && [ "$changed" = y ] && [ "$nlines" -eq 2 ] && [ "$pre_mode" = "$post_mode" ] \
    && [ "$pri_rc" -eq 1 ] && [ "$mut_rc" -eq 0 ]; then
-  pass "m1: with the routine default reverted to the shipped 35, a CHANGELOG untouched for 15 days passes clean (rc $mut_rc) where the tuned tree refuses it (rc $pri_rc). P1 goes RED — the 35 -> 14 retune is load-bearing and not decoration (marker sites=$sites, one line changed=$nlines/2, mode $pre_mode -> $post_mode)"
+  pass "m1: with the routine default reverted to the shipped 35 — in the module-less tree init.sh actually produces — a CHANGELOG untouched for 15 days passes clean (rc $mut_rc) where the tuned tree refuses it (rc $pri_rc). P1's second arm goes RED; the 35 -> 14 retune is load-bearing and not decoration (marker sites=$sites, one line changed=$nlines/2, mode $pre_mode -> $post_mode)"
 else
   fail_ "m1" "marker sites=$sites (expect 1); applied=$changed (expect y); diff lines=$nlines (expect 2); mode $pre_mode -> $post_mode; PRISTINE rc=$pri_rc (expect 1); MUTANT rc=$mut_rc (expect 0)"
 fi
@@ -727,9 +881,9 @@ rm -rf "$T"
 # and it is the sentence BL-213 was filed about — but the predicate is the code.
 T=$(mktemp -d); MT="$T/mut"; mk_scripts_tree "$MT"
 pre_mode="$(_mode_of "$MT/scripts/check-maintenance.sh")"
-_sed_inplace "$MT/scripts/check-maintenance.sh" 's|^.*CADENCE-UNDETERMINED-COUNTER.*$|  :|'
+_sed_inplace "$MT/scripts/check-maintenance.sh" 's|^.*CADENCE-UNDETERMINED-COUNTER$|  :|'
 post_mode="$(_mode_of "$MT/scripts/check-maintenance.sh")"
-rep="$(_mutation_report "$REPO_ROOT/scripts/check-maintenance.sh" "$MT/scripts/check-maintenance.sh" 'CADENCE-UNDETERMINED-COUNTER')"
+rep="$(_mutation_report "$REPO_ROOT/scripts/check-maintenance.sh" "$MT/scripts/check-maintenance.sh" 'CADENCE-UNDETERMINED-COUNTER$')"
 sites="${rep%%|*}"; rest="${rep#*|}"; changed="${rest%%|*}"; nlines="${rest##*|}"
 mk_proj "$T/p"; commit_dated "$T/p" CHANGELOG.md 1; commit_dated "$T/p" sbom.json 1
 add_scan "$T/p" "2026-13-45_semgrep_pass.txt"
@@ -756,13 +910,22 @@ mk_current_proj "$T/p"; commit_dated "$T/p" CHANGELOG.md 15
 write_policy "$T/p" '{"schemaVersion":1,"cadence":{"routine_review_days":30,"deep_security_days":95}}'
 run_check "$REPO_ROOT/scripts" "$T/p"; pri_rc=$CHK_RC
 run_check "$MT/scripts" "$T/p"; mut_rc=$CHK_RC
-mut_silent=y
-printf '%s' "$CHK_OUT" | grep -qi 'policy\|could not read' && mut_silent=n
+# WHAT THE MUTANT DOES NOT SAY, PROBED HONESTLY (R-WP6-6). A bare `policy` grep
+# is useless here and the first version of this row used one: EVERY rc-1 run
+# prints the standing recommendation "Both windows are policy, not constants",
+# so the probe matched the boilerplate and the narrative then claimed a silence
+# its own token was reporting as absent. The probe is now the set of phrases a
+# script would use to REPORT a failed read, and the boilerplate is measured
+# separately so the sentence can name what the match actually was.
+mut_diag=n
+printf '%s' "$CHK_OUT" | grep -qiE 'could not read|could not resolve|falling back|fall back|unavailable|ignoring' && mut_diag=y
+mut_boiler=n
+printf '%s' "$CHK_OUT" | grep -qF 'Both windows are policy, not constants' && mut_boiler=y
 if [ "$sites" = "1" ] && [ "$changed" = y ] && [ "$nlines" -eq 2 ] && [ "$pre_mode" = "$post_mode" ] \
-   && [ "$pri_rc" -eq 0 ] && [ "$mut_rc" -eq 1 ]; then
-  pass "m3: with the seam read neutered, a project whose own policy says 30 days is refused at 15 anyway (rc $mut_rc) where the tuned tree honours it (rc $pri_rc) — and the failure is SILENT, measured rather than asserted: the mutant's transcript says nothing about a policy it could not read (silent=$mut_silent). P2 goes RED (marker sites=$sites, one line changed=$nlines/2, mode $pre_mode -> $post_mode)"
+   && [ "$pri_rc" -eq 0 ] && [ "$mut_rc" -eq 1 ] && [ "$mut_diag" = n ]; then
+  pass "m3: with the seam read neutered, a project whose own policy says 30 days is refused at 15 anyway (rc $mut_rc) where the tuned tree honours it (rc $pri_rc) — and the damage is SILENT: the mutant's transcript carries no diagnostic that a read failed (diagnostic phrases=$mut_diag), and the only mention of the word 'policy' in it is the standing recommendation every overdue run prints (boilerplate=$mut_boiler). P2 goes RED (marker sites=$sites, one line changed=$nlines/2, mode $pre_mode -> $post_mode)"
 else
-  fail_ "m3" "marker sites=$sites (expect 1); applied=$changed (expect y); diff lines=$nlines (expect 2); mode $pre_mode -> $post_mode; PRISTINE rc=$pri_rc (expect 0); MUTANT rc=$mut_rc (expect 1); mutant silent about the lost policy=$mut_silent"
+  fail_ "m3" "marker sites=$sites (expect 1); applied=$changed (expect y); diff lines=$nlines (expect 2); mode $pre_mode -> $post_mode; PRISTINE rc=$pri_rc (expect 0); MUTANT rc=$mut_rc (expect 1); mutant diagnostic about the lost policy=$mut_diag (expect n); rc-1 boilerplate present=$mut_boiler"
 fi
 rm -rf "$T"
 
@@ -770,9 +933,9 @@ rm -rf "$T"
 if [ -f "$HOOK" ]; then
   T=$(mktemp -d); MT="$T/mut"; mk_scripts_tree "$MT"; PT="$T/pri"; mk_scripts_tree "$PT"
   pre_mode="$(_mode_of "$MT/scripts/session-cadence-check.sh")"
-  _sed_inplace "$MT/scripts/session-cadence-check.sh" 's|^.*CADENCE-NAG-FAILOPEN.*$|  *) exit "$rc" ;;|'
+  _sed_inplace "$MT/scripts/session-cadence-check.sh" 's|^.*CADENCE-NAG-FAILOPEN$|  *) exit "$rc" ;;|'
   post_mode="$(_mode_of "$MT/scripts/session-cadence-check.sh")"
-  rep="$(_mutation_report "$HOOK" "$MT/scripts/session-cadence-check.sh" 'CADENCE-NAG-FAILOPEN')"
+  rep="$(_mutation_report "$HOOK" "$MT/scripts/session-cadence-check.sh" 'CADENCE-NAG-FAILOPEN$')"
   sites="${rep%%|*}"; rest="${rep#*|}"; changed="${rest%%|*}"; nlines="${rest##*|}"
   # BOTH trees get the identical crashing checker, so the only difference
   # between the two runs is the mutated line.
@@ -785,6 +948,55 @@ if [ -f "$HOOK" ]; then
     pass "m4: with the fail-open arm neutered, a checker that crashes takes SessionStart down with it (hook rc $mut_rc) where the shipped hook stays inert (rc $pri_rc). H4 goes RED — fail-open is a line, not a promise in a header (marker sites=$sites, one line changed=$nlines/2, mode $pre_mode -> $post_mode)"
   else
     fail_ "m4" "marker sites=$sites (expect 1); applied=$changed (expect y); diff lines=$nlines (expect 2); mode $pre_mode -> $post_mode; PRISTINE hook rc=$pri_rc (expect 0); MUTANT hook rc=$mut_rc (expect 42)"
+  fi
+  rm -rf "$T"
+fi
+
+# ── m5: neuter the era gate -> day zero gets noisy again ──────────────────
+if [ -f "$HOOK" ]; then
+  T=$(mktemp -d); MT="$T/mut"; mk_scripts_tree "$MT"; PT="$T/pri"; mk_scripts_tree "$PT"
+  pre_mode="$(_mode_of "$MT/scripts/session-cadence-check.sh")"
+  _sed_inplace "$MT/scripts/session-cadence-check.sh" 's|^.*CADENCE-NAG-ERA-GATE$|:|'
+  post_mode="$(_mode_of "$MT/scripts/session-cadence-check.sh")"
+  rep="$(_mutation_report "$HOOK" "$MT/scripts/session-cadence-check.sh" 'CADENCE-NAG-ERA-GATE$')"
+  sites="${rep%%|*}"; rest="${rep#*|}"; changed="${rest%%|*}"; nlines="${rest##*|}"
+  # The birth shape, exactly: phase 0, one commit, an empty evidence surface.
+  P="$T/p"; mk_proj "$P"; commit_dated "$P" CHANGELOG.md 1
+  mkdir -p "$P/docs/test-results"
+  printf '{"track":"light","deployment":"personal","poc_mode":null,"current_phase":0,"phases":{}}\n' \
+    > "$P/.claude/phase-state.json"
+  run_hook "$PT/scripts" "$P"; pri_rc=$HOOK_RC; pri_len=${#HOOK_OUT}
+  run_hook "$MT/scripts" "$P"; mut_rc=$HOOK_RC; mut_len=${#HOOK_OUT}
+  if [ "$sites" = "1" ] && [ "$changed" = y ] && [ "$nlines" -eq 2 ] && [ "$pre_mode" = "$post_mode" ] \
+     && [ "$pri_len" -eq 0 ] && [ "$mut_len" -gt 0 ] && [ "$pri_rc" -eq 0 ] && [ "$mut_rc" -eq 0 ]; then
+    pass "m5: with the era gate neutered, a phase-0 project one commit old is nagged about a quarterly security scan at its very first SessionStart — $mut_len bytes where the shipped hook writes $pri_len. H7 goes RED. Both still exit 0, which is the point: this failure is invisible to an exit-code assertion and needs a BYTE COUNT to see (marker sites=$sites, one line changed=$nlines/2, mode $pre_mode -> $post_mode)"
+  else
+    fail_ "m5" "marker sites=$sites (expect 1); applied=$changed (expect y); diff lines=$nlines (expect 2); mode $pre_mode -> $post_mode; PRISTINE bytes=$pri_len rc=$pri_rc (expect 0 bytes, rc 0); MUTANT bytes=$mut_len rc=$mut_rc (expect >0 bytes, rc 0)"
+  fi
+  rm -rf "$T"
+fi
+
+# ── m6: neuter the evidence guard -> a crash speaks as an overdue again ───
+if [ -f "$HOOK" ]; then
+  T=$(mktemp -d); MT="$T/mut"; mk_scripts_tree "$MT"; PT="$T/pri"; mk_scripts_tree "$PT"
+  pre_mode="$(_mode_of "$MT/scripts/session-cadence-check.sh")"
+  _sed_inplace "$MT/scripts/session-cadence-check.sh" 's|^.*CADENCE-NAG-EVIDENCE$|:|'
+  post_mode="$(_mode_of "$MT/scripts/session-cadence-check.sh")"
+  rep="$(_mutation_report "$HOOK" "$MT/scripts/session-cadence-check.sh" 'CADENCE-NAG-EVIDENCE$')"
+  sites="${rep%%|*}"; rest="${rep#*|}"; changed="${rest%%|*}"; nlines="${rest##*|}"
+  # Both trees get the identical silently-crashing checker: rc 1, no output.
+  for t in "$PT" "$MT"; do printf '#!/usr/bin/env bash\nexit 1\n' > "$t/scripts/check-maintenance.sh"; done
+  P="$T/p"; mk_current_proj "$P"
+  run_hook "$PT/scripts" "$P"; pri_rc=$HOOK_RC; pri_len=${#HOOK_OUT}
+  run_hook "$MT/scripts" "$P"; mut_rc=$HOOK_RC; mut_len=${#HOOK_OUT}
+  mut_claims=n
+  printf '%s' "$HOOK_OUT" | grep -qF 'a cadence is OVERDUE' && mut_claims=y
+  if [ "$sites" = "1" ] && [ "$changed" = y ] && [ "$nlines" -eq 2 ] && [ "$pre_mode" = "$post_mode" ] \
+     && [ "$pri_len" -eq 0 ] && [ "$mut_len" -gt 0 ] && [ "$mut_claims" = y ] \
+     && [ "$pri_rc" -eq 0 ] && [ "$mut_rc" -eq 0 ]; then
+    pass "m6: with the evidence guard neutered, a checker that simply died — rc 1, not one byte of output — is announced to the session as 'a cadence is OVERDUE' (claim present=$mut_claims, $mut_len bytes) where the shipped hook stays silent ($pri_len bytes). H8 goes RED. Both exit 0, so like m5 this failure is invisible to an exit-code assertion; it needs the byte count and the claim probe (marker sites=$sites, one line changed=$nlines/2, mode $pre_mode -> $post_mode)"
+  else
+    fail_ "m6" "marker sites=$sites (expect 1); applied=$changed (expect y); diff lines=$nlines (expect 2); mode $pre_mode -> $post_mode; PRISTINE bytes=$pri_len rc=$pri_rc (expect 0 bytes, rc 0); MUTANT bytes=$mut_len rc=$mut_rc (expect >0 bytes, rc 0) claiming OVERDUE=$mut_claims (expect y)"
   fi
   rm -rf "$T"
 fi

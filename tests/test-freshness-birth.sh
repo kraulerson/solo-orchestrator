@@ -102,6 +102,28 @@ else
   fail_ "bl202-hook-birth" "shipped=$( [ -f "$PROJ/scripts/session-intake-check.sh" ] && echo yes || echo no ) exec=$( [ -x "$PROJ/scripts/session-intake-check.sh" ] && echo yes || echo no ) injected=$( jq -e '.hooks.SessionStart[]?.hooks[]? | select(.command | contains("session-intake-check.sh"))' "$PROJ/.claude/settings.json" >/dev/null 2>&1 && echo yes || echo no )"
 fi
 
+# ── WP6 (delta §8.3): the cadence nag must SHIP, INJECT and STAY SILENT ─────
+# Same birth-level obligation as the BL-202 row above, plus a third clause this
+# hook needs and that no fixture could have supplied: init.sh CREATES
+# docs/test-results/ at birth, so a day-zero project has the evidence surface
+# with nothing in it and check-maintenance.sh correctly answers 2. An ungated
+# nag therefore printed 354 bytes at the first SessionStart of every generated
+# project — measured on this very scaffold, which is how the era gate came to
+# exist. tests/test-delta-wp6-cadence.sh::H7/m5 pin the gate itself; this row is
+# the end-to-end statement that a REAL new project is quiet.
+echo "=== WP6 cadence nag shipped + injected + day-zero silent ==="
+_wp6_out="$( cd "$PROJ" && CLAUDE_PROJECT_DIR="$PROJ" bash scripts/session-cadence-check.sh 2>"$TOPTMP/wp6.err" )"
+_wp6_rc=$?
+_wp6_err="$(cat "$TOPTMP/wp6.err" 2>/dev/null || true)"
+if [ -f "$PROJ/scripts/session-cadence-check.sh" ] && [ -x "$PROJ/scripts/session-cadence-check.sh" ] \
+   && jq -e '.hooks.SessionStart[]?.hooks[]? | select(.command | contains("session-cadence-check.sh"))' \
+        "$PROJ/.claude/settings.json" >/dev/null 2>&1 \
+   && [ "$_wp6_rc" -eq 0 ] && [ "${#_wp6_out}" -eq 0 ] && [ "${#_wp6_err}" -eq 0 ]; then
+  pass "session-cadence-check.sh shipped (executable), injected into SessionStart, and byte-silent at day zero"
+else
+  fail_ "wp6-cadence-hook-birth" "shipped=$( [ -f "$PROJ/scripts/session-cadence-check.sh" ] && echo yes || echo no ) exec=$( [ -x "$PROJ/scripts/session-cadence-check.sh" ] && echo yes || echo no ) injected=$( jq -e '.hooks.SessionStart[]?.hooks[]? | select(.command | contains("session-cadence-check.sh"))' "$PROJ/.claude/settings.json" >/dev/null 2>&1 && echo yes || echo no ) rc=$_wp6_rc stdout=${#_wp6_out}b stderr=${#_wp6_err}b"
+fi
+
 # ── DAY-ZERO SILENCE — zero bytes stdout+stderr, exit 0 ──────────────────────
 echo "=== day-zero silence ==="
 d0_out="$(CDF_HOME="$NOCDF" CLAUDE_PROJECT_DIR="$PROJ" bash "$SUT" 2>"$TOPTMP/d0.err")"; d0_rc=$?
