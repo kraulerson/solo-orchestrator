@@ -23,12 +23,37 @@
 #                                     (WP3's §10.1 report-only assertion)
 #   4. scripts/check-maintenance.sh   the cadence policy read (WP6)
 #
+# ...and a FIFTH that is not a script at all:
+#
+#   5. .github/workflows/lint.yml    the `delta-boundary-lint` job, which runs
+#                                    scripts/lint-delta-boundary.sh (WP1)
+#
 # Nobody wrote that list down in one place, and a list written from memory is
 # exactly what this test refuses to be. V1 is a COMPLETENESS scan: after the
-# declared revert it sweeps the whole severed executable surface for any
-# surviving mention of the module. A fifth consumer added later without touching
-# the revert manifest below makes V1 go RED and NAMES the file. That, not the
-# manifest, is what keeps the enumeration honest.
+# declared revert it sweeps the whole severed surface for any surviving mention
+# of the module, and a consumer added later without touching the revert manifest
+# below makes V1 go RED and NAMES the file.
+#
+# THE FIRST VERSION OF THAT CLAIM WAS FALSE, AND THE FIFTH CONSUMER IS WHY.
+# `_residual_scan` swept `scripts/*.sh` plus the scaffolder and nothing else, so
+# the `delta-boundary-lint` job — which already existed — sat outside the sweep
+# entirely: V1 reported 0 hits while the severed tree still had CI invoking a
+# DELETED file. An adversarial review found it by reading the workflow the sweep
+# never opened. The scan now covers `.github/workflows/*.yml`, the sever removes
+# the job as a whole block, and V2d parses the result, because a YAML file with
+# a job key and no steps is not severable, it is broken.
+#
+# TWO PROSE-GRADE RESIDUALS ARE NAMED AND NOT CHASED. Neither is an edge:
+# nothing executes them, nothing breaks when the module leaves, and sweeping
+# them would make this test a documentation linter.
+#   • `templates/generated/identifiers.tmpl` carries a `DELTA-` row in a
+#     template that documents an ID prefix — a severed project has one unused
+#     row in a registry.
+#   • `.github/workflows/lint.yml`'s own job-inventory COMMENT names
+#     `delta-boundary-lint` while listing what the file contains. V2d measures
+#     and reports that survivor explicitly rather than letting a blunt grep
+#     count it as a live job; the executable half is what must be zero.
+# Recorded so the next reader knows they were seen and weighed, not missed.
 #
 # ═════════════════════════════════════════════════════════════════════════════
 # THE MEASURED FINDING THIS TEST EXISTS TO RECORD (V0)
@@ -150,10 +175,32 @@ sever_module() {
       *)  rm -f  "$d/$e" 2>/dev/null || true ;;
     esac
   done
-  rm -f "$d"/tests/test-delta-*.sh "$d"/tests/test-lint-delta-boundary.sh 2>/dev/null || true
+  rm -f "$d"/tests/test-delta-*.sh "$d"/tests/test-lint-delta-boundary.sh \
+        "$d"/tests/test-delta-severability.sh 2>/dev/null || true
   # Their registrations leave with them.
   _drop_lines "$d/tests/full-project-test-suite.sh" 'tests/test-delta-\|tests/test-lint-delta-boundary'
   _drop_lines "$d/.github/workflows/tests.yml"      'tests/test-delta-\|tests/test-lint-delta-boundary\|delta-boundary'
+  # THE FIFTH CONSUMER: the CI job that runs the module's own lint. Removed as a
+  # WHOLE JOB BLOCK, not line-by-line — dropping the two `run:` lines would leave
+  # a job key with no steps, which is not a severed workflow, it is a broken one.
+  _drop_yaml_job "$d/.github/workflows/lint.yml" "delta-boundary-lint"
+  return 0
+}
+
+# _drop_yaml_job <workflow> <job-key> — remove a top-level job (2-space indent)
+#   and every line under it, up to the next 2-space-indented key. The comment
+#   block ABOVE the job is prose and stays; V1 strips comments before matching,
+#   so it does not count as an edge.
+_drop_yaml_job() {
+  local f="$1" job="$2" tmp
+  [ -f "$f" ] || return 0
+  tmp="$(mktemp)"
+  awk -v job="$job" '
+    $0 ~ "^  " job ":[[:space:]]*$" { skip = 1; next }
+    skip == 1 && /^  [A-Za-z0-9_-]+:/ { skip = 0 }
+    skip == 1 { next }
+    { print }
+  ' "$f" > "$tmp" && mv "$tmp" "$f"
   return 0
 }
 
@@ -227,7 +274,13 @@ _residual_scan() {   # <tree> -> "file:line:text" per hit
     done
     printf '%s\n' '--delta-'
   } | grep -v '^$' | LC_ALL=C sort -u > "$tmp"
-  for f in $(find "$d/scripts" -type f -name '*.sh' | LC_ALL=C sort) "$d/$INIT_FILE"; do
+  # THE WORKFLOW FILES ARE IN SCOPE, and their absence is what made the header's
+  # "a fifth consumer lands here, named" claim false until an adversarial review
+  # caught it. A CI job invoking a deleted script is every bit the dangling edge
+  # a sourced lib would be — more so, because nothing local fails.
+  for f in $(find "$d/scripts" -type f -name '*.sh' | LC_ALL=C sort) \
+           "$d/$INIT_FILE" \
+           $(find "$d/.github/workflows" -type f -name '*.yml' 2>/dev/null | LC_ALL=C sort); do
     [ -f "$f" ] || continue
     grep -vE '^[[:space:]]*#' "$f" 2>/dev/null \
       | grep -nFf "$tmp" 2>/dev/null \
@@ -290,7 +343,7 @@ V1_HITS="$(_residual_scan "$SEV")"
 V1_N="$(printf '%s\n' "$V1_HITS" | grep -c . || true)"
 case "$V1_N" in ''|*[!0-9]*) V1_N=0 ;; esac
 if [ "$V1_N" -eq 0 ]; then
-  pass "V1: after the four-file revert, NOT ONE executed line under scripts/ or in the scaffolder names a module path or a --delta-* action. This is the arm that keeps the revert manifest honest: a fifth consumer added later without updating it lands here, named"
+  pass "V1: after the five-consumer revert, NOT ONE executed line under scripts/, in the scaffolder, or in .github/workflows/*.yml names a module path or a --delta-* action. This is the arm that keeps the revert manifest honest, and m3 proves the workflow half of it is live rather than merely declared"
 else
   fail_ "V1" "$V1_N surviving reference(s) to the module — the revert list in this file's header is incomplete:
 $V1_HITS"
@@ -331,17 +384,79 @@ else
   fail_ "V2c" "severed seam rc=$SEAM_RC (want non-zero), intact seam rc=$INTACT_SEAM_RC (want 0)"
 fi
 
+# ── V2d: the severed WORKFLOWS still parse ─────────────────────────────────
+# Removing a CI job is a structural edit to YAML, and "the delta references are
+# gone" is worth nothing if what is left will not load. Skipped with a stated
+# reason rather than silently when no YAML parser is available — a row that
+# quietly turns into a no-op is the silent-success class this whole track is
+# about.
+if python3 -c 'import yaml' >/dev/null 2>&1; then
+  V2D_BAD=""
+  V2D_N=0
+  for f in $(find "$SEV/.github/workflows" -type f -name '*.yml' | LC_ALL=C sort); do
+    V2D_N=$((V2D_N + 1))
+    python3 -c 'import sys,yaml; yaml.safe_load(open(sys.argv[1]))' "$f" >/dev/null 2>&1 \
+      || V2D_BAD="$V2D_BAD ${f#$SEV/}"
+  done
+  # Comment lines are stripped first, EXACTLY as V1 does and for the same
+  # reason. lint.yml carries a prose header that enumerates its jobs by name
+  # ("...delta-boundary-lint the twelfth..."), and that line survives the sever.
+  # It is documentation that has gone stale, not a CI job invoking a deleted
+  # file — the same prose-grade class as identifiers.tmpl's DELTA- row, and
+  # named in this file's header rather than chased. What must be gone is the
+  # executable half: the job key and its steps.
+  V2D_JOB="$(grep -vE '^[[:space:]]*#' "$SEV/.github/workflows/lint.yml" 2>/dev/null \
+    | grep -c 'delta-boundary-lint' || true)"
+  case "$V2D_JOB" in ''|*[!0-9]*) V2D_JOB=0 ;; esac
+  V2D_PROSE="$(grep -cE '^[[:space:]]*#.*delta-boundary-lint' "$SEV/.github/workflows/lint.yml" 2>/dev/null || true)"
+  case "$V2D_PROSE" in ''|*[!0-9]*) V2D_PROSE=0 ;; esac
+  if [ -z "$V2D_BAD" ] && [ "$V2D_JOB" -eq 0 ] && [ "$V2D_N" -gt 0 ]; then
+    pass "V2d: all $V2D_N severed workflow files still parse as YAML, and no EXECUTED line in lint.yml names the delta-boundary-lint job — the fifth consumer was removed as a whole block, not by deleting the two lines that named the module and leaving a job key with no steps. ($V2D_PROSE prose mention(s) survive in the file's own job-inventory comment: stale documentation, not an edge, and named in this file's header)"
+  else
+    fail_ "V2d" "unparseable after the sever:$V2D_BAD; surviving EXECUTED delta-boundary-lint lines in lint.yml: $V2D_JOB (want 0); files checked: $V2D_N"
+  fi
+else
+  pass "V2d: SKIPPED with a reason — no python3 yaml module on this host, so the severed workflows' parseability cannot be checked here. V1 still proves the references are gone; this row would prove what is left still loads"
+fi
+
 # ════════════════════════════════════════════════════════════════════════════
 echo ""
 echo "=== V3 — a declared set of core suites, run INSIDE the severed tree ==="
 # ════════════════════════════════════════════════════════════════════════════
 
-# Chosen because they exercise the files the revert touches. NOT the ~3h full
-# suite — CLAUDE.md records that it is workflow_dispatch-only, and a unit-lane
-# test that claimed to run it would be lying about its own scope.
+# NOT the ~3h full suite — CLAUDE.md records that it is workflow_dispatch-only,
+# and a unit-lane test that claimed to run it would be lying about its own scope.
+#
+# THE SELECTION RATIONALE, STATED ACCURATELY BECAUSE THE FIRST ONE WAS NOT.
+# This set used to be introduced as "chosen because they exercise the files the
+# revert touches", and an adversarial review mapped the invocations: of the four
+# original suites, ZERO executed validate.sh, upgrade-project.sh or
+# check-maintenance.sh — three of the four reverted files. Only the seam host
+# was covered. The honest map, per reverted file:
+#
+#   process-checklist.sh   COVERED — test-check-phase-gate-poc-block-contract.sh
+#   check-phase-gate.sh /  COVERED — test-check-phase-gate.sh and
+#     run-phase3-validation.sh          test-bl214-gate-snapshot-staleness.sh
+#                                       (not reverted files, but the gate pair
+#                                       the revert's siblings live in)
+#   validate.sh            COVERED — the two validate suites added below, which
+#                                    were in the unit lane and unused all along
+#   upgrade-project.sh     NOT COVERED, deliberately: its suites invoke the
+#                          scaffolder, which would drag an init run into a
+#                          unit-lane test. Named, not hidden.
+#   check-maintenance.sh   NOT COVERED, and it CANNOT BE: its only behaviour
+#                          suite is tests/test-delta-wp6-cadence.sh, a delta
+#                          suite this very sever deletes. That is the coverage
+#                          gap this file's header records as a real cost, seen
+#                          here from the other side.
+#
+# test-gate-principles.sh is kept for breadth (a BL-030 message-table suite) and
+# is NOT claimed to cover a reverted file.
 V3_SUITES="tests/test-check-phase-gate.sh
 tests/test-bl214-gate-snapshot-staleness.sh
 tests/test-check-phase-gate-poc-block-contract.sh
+tests/test-validate-phase-state-gates.sh
+tests/test-validate-counter-sanitizer.sh
 tests/test-gate-principles.sh"
 
 V3_DETAIL=""
@@ -407,6 +522,28 @@ if [ "$MUT2_LEFT" -eq 3 ] && [ "$MUT2_SEAM_RC" -ne 0 ]; then
   pass "m2: the opposite half-sever — seam reverted, module files LEFT IN PLACE ($MUT2_LEFT of 3 still present) — leaves the module unreachable (a delta action answers rc $MUT2_SEAM_RC). Severability is a property of the PAIR, and this row is why the revert and the deletion are one operation and not two"
 else
   fail_ "m2" "module files still present=$MUT2_LEFT (want 3); seam rc=$MUT2_SEAM_RC (want non-zero)"
+fi
+
+# ── m3: the WORKFLOW half of the sweep is live, not merely added ────────────
+# A scan extended to a new file class proves nothing until something in that
+# class is shown to trip it. This severs everything EXCEPT the lint.yml job —
+# the exact state the test shipped in before an adversarial review found the
+# fifth consumer — and requires V1's instrument to name the workflow.
+MUT3="$TD/mutant3"; mk_tree "$MUT3"
+sever_module "$MUT3"
+# ...and put the fifth consumer back, so this is the pre-review state exactly.
+cp "$REPO_ROOT/.github/workflows/lint.yml" "$MUT3/.github/workflows/lint.yml"
+sever_seam "$MUT3"
+MUT3_HITS="$(_residual_scan "$MUT3")"
+MUT3_WF="$(printf '%s\n' "$MUT3_HITS" | grep -c '^\.github/workflows/' || true)"
+case "$MUT3_WF" in ''|*[!0-9]*) MUT3_WF=0 ;; esac
+MUT3_SCRIPTS="$(printf '%s\n' "$MUT3_HITS" | grep -c '^scripts/' || true)"
+case "$MUT3_SCRIPTS" in ''|*[!0-9]*) MUT3_SCRIPTS=0 ;; esac
+if [ "$MUT3_WF" -gt 0 ] && [ "$MUT3_SCRIPTS" -eq 0 ]; then
+  pass "m3: with every script consumer reverted but the delta-boundary-lint JOB left in place, V1 names the workflow — $MUT3_WF hit(s) under .github/workflows/ and $MUT3_SCRIPTS under scripts/. That is the pre-review state of this very test, in which V1 reported zero hits while the severed tree still had CI invoking a deleted file. The sweep's new file class has a witness"
+else
+  fail_ "m3" "workflow hits=$MUT3_WF (want > 0 — the extended sweep is not live), script hits=$MUT3_SCRIPTS (want 0 — the script revert should be complete). Hits:
+$MUT3_HITS"
 fi
 
 rm -rf "$TD"

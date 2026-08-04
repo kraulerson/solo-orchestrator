@@ -82,10 +82,28 @@ set -euo pipefail
 # THE FAIL-CLOSED DIRECTION IS THE SAME EVERYWHERE. Refusal 2 refuses on
 # anything that is not a definite "none owed" — an UNDETERMINED ledger refuses
 # too. Refusal 3 refuses on any non-zero the checker can produce, not on a
-# whitelist of two. An unmapped class refuses rather than defaulting to patch.
-# Every one of those is the same judgement: under-refusing ships a release over
-# an obligation nobody could see, and over-refusing costs an operator one
-# command and a clear message.
+# whitelist of two. An unmapped class refuses rather than defaulting to patch,
+# and so does a class nobody could READ. Every one of those is the same
+# judgement: under-refusing ships a release over an obligation nobody could
+# see, and over-refusing costs an operator one command and a clear message.
+#
+# REFUSAL 3's `*)` ARM IS NOT DECORATION, AND IT IS THE ONE MOST EASILY
+# MISTAKEN FOR IT. `# CUTREL-CADENCE-OTHER` catches every exit code the checker
+# is not documented to produce — including 127, which is what `bash` answers
+# when the checker HAS BEEN DELETED. Without that arm, `rm
+# scripts/check-maintenance.sh` is cadence forgiveness in one keystroke: the
+# same `rm`-as-loan-forgiveness class WP5's strict read was built to close, one
+# surface over. An adversarial review found the arm unpinned and its weakening
+# mutant surviving the whole suite; R11 and m6 exist because of that.
+#
+# WHERE REFUSAL 2's rc-3 HALF IS REACHABLE FROM, STATED RATHER THAN LEFT
+# UNEXPLAINED. Through this script's own flow it is NOT reachable, and the
+# argument is a subset one: `_delta_cadence_readable` accepts an object with a
+# `hotfix_retros` ARRAY, which is a STRICT SUBSET of what `DELTA_STATE_SHAPE`
+# accepts, so any document that survived the strict read above also satisfies
+# the predicate. The arm is a backstop for a caller that acquired the document
+# some other way — delta-cadence.sh's header makes the same argument about its
+# own rc 3 — and A5 pins it AT THE LINE rather than leaving it merely unkilled.
 #
 # ═════════════════════════════════════════════════════════════════════════════
 # THE TAG IS CONSTRAINED, NOT CHOSEN (§9.3 + C7) — DO NOT "IMPROVE" IT
@@ -139,6 +157,23 @@ set -euo pipefail
 #     `--no-verify` is never an option in this framework. So the cut ends by
 #     telling the operator, in order, to commit what it wrote and to move the
 #     (unpushed, therefore free to move) tag onto that commit before pushing.
+#     THE COMMIT-VS-NO-COMMIT QUESTION IS KARL'S, AND IT IS OPEN. An
+#     adversarial review independently recommended committing then tagging.
+#     Until it is decided this flow ships as-is, and the `git tag -f` step is
+#     printed as the LOUDEST line on the screen — because an operator who does
+#     steps 1, 2 and 4 and skips 3 pushes a tag naming a tree without its own
+#     changelog entry, and the pipelines go green over it.
+#
+# TWO GAPS THAT ARE TRACKED ELSEWHERE, POINTED AT HERE SO THE NEXT READER OF
+# THIS FILE FINDS THEM RATHER THAN REDISCOVERING THEM:
+#   • THE `breaking` MARKER HAS NO WRITER. §9.1's major row and §8.2's full
+#     revalidation lane are fully built and tested but production-unreachable
+#     in v1: nothing in delta.sh's close pathway sets the field this file
+#     reads. Filed as a tracked item; the writer belongs to the close/confirm
+#     surface, not here.
+#   • SEVERING THE MODULE TAKES check-maintenance.sh's ONLY BEHAVIOUR COVERAGE
+#     WITH IT (tests/test-delta-wp6-cadence.sh is a delta suite that is also a
+#     core script's only rc-contract tests). Filed as a tracked item.
 #
 # ═════════════════════════════════════════════════════════════════════════════
 # EXIT CODES ARE THE ANSWER; THE LABELS ARE DECORATION
@@ -490,7 +525,32 @@ if [ -n "$UNMAPPED" ]; then
   exit 9
 fi
 
-if [ -z "$BUMP" ]; then BUMP=patch; fi
+# AND THE SAME REFUSAL WHEN NOTHING COULD BE SCORED AT ALL. This looks like a
+# defensive impossibility and is not: `UNSHIPPED_IDS` and `ROW_TOKENS` are two
+# jq programs over the same document, and only the second one uses `@tsv`. A
+# closed row whose `class` is an OBJECT (`"class": {}`) makes `@tsv` error out
+# and takes the WHOLE program with it — so `ROW_TOKENS` is empty while
+# `UNSHIPPED_IDS` happily lists the row. The loop then never runs, `UNMAPPED`
+# stays empty because nothing reached it, and `BUMP` is unset.
+#
+# THE ORIGINAL SPELLING HERE WAS `BUMP=patch`, and it was wrong in the exact
+# direction this file's own header calls dangerous: a release whose classes
+# nobody could read would have shipped as a PATCH. An adversarial review
+# flagged the fallback on principle; the reachable fixture above is what turns
+# the principle into a defect. S9 pins it.
+if [ -z "$BUMP" ]; then                                              # CUTREL-SEMVER-UNREADABLE
+  _refuse 9 "The closed work could not be read well enough to compute a version." || true
+  echo "  $UNSHIPPED_N change(s) are waiting to be released, and not one of them yielded a class"
+  echo "  this tool could score. That usually means a row in the record has a malformed 'class'"
+  echo "  (an object or a list where a name should be)."
+  echo ""
+  echo "  Defaulting to a patch release here would be the dangerous guess: it would ship work"
+  echo "  nobody could classify under the version number that promises nothing changed."
+  echo ""
+  echo "To clear this: check the 'closed' rows in .claude/delta-state.json — each one needs a"
+  echo "  'class' that is a plain name (feature, fix, hotfix, security-patch) — then run this again."
+  exit 9
+fi
 
 case "$BUMP" in
   major) NEXT_MAJOR=$((CUR_MAJOR + 1)); NEXT_MINOR=0;                  NEXT_PATCH=0 ;;
@@ -667,13 +727,31 @@ fi
 echo ""
 print_ok "$TAG is cut."
 echo ""
+# THE LOUDEST LINE ON THE SCREEN, and deliberately so. An adversarial review
+# named the natural mistake precisely: an operator who does 1, 2 and 4 and
+# skips 3 pushes a tag naming a tree WITHOUT its own changelog entry, the
+# pipelines go green, and wrong content is published — the same "green on the
+# host you tested" shape C7 exists to prevent, guarded here only by prose. So
+# the warning comes BEFORE the steps, is banner-weight, and step 3 is repeated
+# inside it. If the commit-vs-no-commit question is ever decided in favour of
+# committing, this whole block goes away rather than getting quieter.
+echo -e "${YELLOW}${BOLD}=======================================================================${NC}"
+echo -e "${YELLOW}${BOLD} READ THIS BEFORE YOU PUSH: $TAG POINTS AT THE WRONG COMMIT RIGHT NOW${NC}"
+echo -e "${YELLOW}${BOLD}=======================================================================${NC}"
+echo -e "${YELLOW}${BOLD} The tag names the commit you were on BEFORE the changelog was promoted.${NC}"
+echo -e "${YELLOW}${BOLD} Push it as it stands and your pipeline builds a release whose changelog${NC}"
+echo -e "${YELLOW}${BOLD} does not contain this version. It goes GREEN while publishing the wrong${NC}"
+echo -e "${YELLOW}${BOLD} thing, which is the failure you would not notice.${NC}"
+echo ""
+echo -e "${YELLOW}${BOLD}   >>>  git tag -f $TAG   <<<  is NOT optional. Do it in step 3 below.${NC}"
+echo -e "${YELLOW}${BOLD}        The tag has not been pushed, so moving it costs nothing.${NC}"
+echo -e "${YELLOW}${BOLD}=======================================================================${NC}"
+echo ""
 echo "What happens next, in this order:"
 echo "  1. git add $CHANGELOG .claude/delta-state.json"
 echo "  2. git commit -m \"chore(release): $TAG\""
-echo "  3. git tag -f $TAG          # the tag is not pushed yet, so moving it onto the commit is free"
+echo "  3. git tag -f $TAG          <-- the step above. Do not skip it."
 echo "  4. git push && git push origin $TAG"
 echo ""
-echo "  Step 3 is not optional: the tag currently names the commit you were on BEFORE the changelog"
-echo "  was promoted, so a pipeline building from it would publish a changelog without this version"
-echo "  in it. Your release pipeline fires on the tag push in step 4."
+echo "  Your release pipeline fires on the tag push in step 4, and not before."
 exit 0

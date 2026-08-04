@@ -90,6 +90,13 @@
 #     R10 EVERY refusal above leaves the repository's TAG SET identical —
 #         a `git tag` writes nothing into the working tree, so the file
 #         manifest in R1-R9 is structurally blind to it
+#     R11 a checker answering an UNDOCUMENTED code, and a checker that has
+#         been DELETED (bash answers 127), are BOTH refusals    KILLS m6
+#         — the row an adversarial review had to add for me. R3/R4 cover
+#         only rc 1 and rc 2, so the `*)` arm that catches everything else
+#         had no witness and its weakening mutant survived at 31/0. What it
+#         costs to lose: `rm scripts/check-maintenance.sh` becomes cadence
+#         forgiveness in one keystroke
 #
 #   S — SEMVER, DECIDED BY THE TOOL (§9.1)
 #     S1  a feature + a fix        -> minor
@@ -105,6 +112,8 @@
 #     S7  no tag in the repository at all -> the base is 0.0.0
 #     S8  a closed row whose class maps to no bump -> 9, fail-closed,
 #         nothing written
+#     S9  a class nobody could READ (`"class": {}` makes the token jq's
+#         @tsv error while the id jq succeeds) -> 9, not a patch  KILLS m9
 #
 #   P — PROMOTION (§9.3)
 #     P1  `## [Unreleased]` becomes `## [X.Y.Z] — YYYY-MM-DD`, and a FRESH
@@ -134,6 +143,10 @@
 #     A2  there is NO semver override flag (§9.1, §13-R2)
 #     A3  the boundary lint stays rc 0 and the seam allowlist stays at ONE
 #     A4  every refusal prints what would clear it (§4.3's plain register)
+#     A5  refusal 2's rc-3 backstop, pinned AT THE LINE — plus the subset
+#         argument BY EXECUTION that makes rc 3 unreachable through the
+#         front door, so the arm is a genuine backstop and not dead code
+#                                                                 KILLS m8
 #
 #   M — MUTATIONS (anchored, sites==1, one line changed, mode preserved,
 #       fresh fixtures, both trees executed)
@@ -146,6 +159,19 @@
 #     m5  suppress the open-delta refusal   -> a release cuts mid-delta
 #     m7  neuter the major revalidation     -> a breaking release skips the
 #         §8.2 full re-run
+#     m6  weaken the catch-everything-else cadence arm -> DELETING the
+#         checker cuts a release. THE REVIEWER'S SURVIVING MUTANT
+#     m8  narrow the retro backstop to rc 0 only -> an UNDETERMINED ledger
+#         stops refusing. The reviewer's second survivor
+#     m9  restore the old `BUMP=patch` fallback -> an unreadable class
+#         ships as a patch
+#
+# THREE OF THOSE NINE EXIST BECAUSE THIS SUITE WAS NOT GOOD ENOUGH. m6 and m8
+# are mutants an adversarial review built against MARKED arms of this product
+# and watched survive the whole suite at 31/0; m9 is the reachable form of a
+# fallback the same review flagged on principle. A marker that calls itself a
+# mutation address and has no mutant is a promise the file does not keep, so
+# every CUTREL-* marker now carries one.
 #
 # LANE: registered in tests/full-project-test-suite.sh AND in the tests.yml
 # `unit-shard` list. Its executed lines never name the init script — the one
@@ -451,6 +477,52 @@ if [ "$CUT_RC" -eq 5 ] && [ "$r4_named" = y ]; then
 else
   fail_ "R4" "rc=$CUT_RC (want 5); the unmeasurable arms were named=$r4_named. Output was: $CUT_OUT"
 fi
+
+# ── R11: EVERY OTHER EXIT CODE THE CHECKER CAN PRODUCE IS ALSO A REFUSAL ────
+#
+# THE ROW AN ADVERSARIAL REVIEW HAD TO ADD FOR ME. `# CUTREL-CADENCE-OTHER` —
+# the `*)` arm — was reachable, load-bearing and completely unpinned: weakening
+# it to `CADENCE_REFUSE=n` survived this whole suite at 31/0. R3 and R4 only
+# cover rc 1 and rc 2, so the arm that catches everything else had no witness.
+#
+# WHAT IT COSTS TO LOSE, MEASURED AND NOT ASSUMED: `bash` answers 127 when the
+# script it was asked to run DOES NOT EXIST, so without this arm
+# `rm scripts/check-maintenance.sh` is cadence forgiveness in one keystroke —
+# the same `rm`-as-loan-forgiveness class WP5's strict read closed for the
+# ledger, one surface over. Both spellings are exercised: a checker that
+# answers an UNDOCUMENTED code, and a checker that is not there at all.
+R11_DETAIL=""
+R11_OK=y
+_r11_case() {
+  local name="$1" mode="$2" P SD before after tags_before tags_after rc=0
+  P="$RT/$name"; SD="$RT/$name-scripts"
+  mk_proj "$P"; tag_at "$P" "v1.2.0"
+  write_state "$P" "$(state_doc 'null' '[]' "[$(closed_row DELTA-008 fix)]")"
+  mk_scripts_tree "$SD"
+  case "$mode" in
+    exit7)
+      printf '#!/usr/bin/env bash\n# WP7 test stub: an exit code the contract does not document.\nexit 7\n' \
+        > "$SD/scripts/check-maintenance.sh"
+      chmod +x "$SD/scripts/check-maintenance.sh" ;;
+    absent)
+      rm -f "$SD/scripts/check-maintenance.sh" ;;
+  esac
+  before="$(tree_manifest "$P")"; tags_before="$(tag_list "$P")"
+  CUT_OUT="$( cd "$P" && unset GITHUB_BASE_REF; bash "$SD/scripts/cut-release.sh" </dev/null 2>&1 )" || rc=$?
+  after="$(tree_manifest "$P")"; tags_after="$(tag_list "$P")"
+  R11_DETAIL="$R11_DETAIL [$name=rc$rc]"
+  [ "$rc" -eq 5 ] || { R11_OK=n; R11_DETAIL="$R11_DETAIL(want 5)"; }
+  [ "$before" = "$after" ] || { R11_OK=n; R11_DETAIL="$R11_DETAIL(TREE MOVED)"; }
+  [ "$tags_before" = "$tags_after" ] || { R11_OK=n; R11_DETAIL="$R11_DETAIL(TAGGED)"; }
+  case "$CUT_OUT" in *"To clear this:"*) : ;; *) R11_OK=n; R11_DETAIL="$R11_DETAIL(NO REMEDY)" ;; esac
+}
+_r11_case checker-exit7  exit7
+_r11_case checker-absent absent
+if [ "$R11_OK" = y ]; then
+  pass "R11: a checker that answers an UNDOCUMENTED code, and a checker that has been DELETED (bash answers 127), are both refusals —$R11_DETAIL — with the whole tree and the tag set unmoved and a remedy printed. Without this row, 'rm scripts/check-maintenance.sh' would be cadence forgiveness in one keystroke"
+else
+  fail_ "R11" "expected rc 5 from both with an unchanged tree; got:$R11_DETAIL"
+fi
 rm -rf "$RT"
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -576,6 +648,28 @@ if [ "$CUT_RC" -eq 9 ] && [ "$s8_before" = "$s8_after" ] && [ "$s8_tags_before" 
   pass "S8: a closed row whose class maps to no bump refuses at rc $CUT_RC with nothing written — fail-closed, because the alternative is a class nobody scored shipping as a patch"
 else
   fail_ "S8" "rc=$CUT_RC (want 9); tree moved=$([ "$s8_before" = "$s8_after" ] && echo n || echo y)"
+fi
+
+# S9 — a class nobody could READ, as opposed to one nobody scored.
+#
+# THIS FIXTURE IS WHY THE `BUMP=patch` FALLBACK HAD TO GO. An adversarial
+# review flagged the fallback on principle and judged it "practically a
+# jq-crash-only path". It is not: `ROW_TOKENS` runs the closed rows through
+# `@tsv`, and `@tsv` ERRORS on an object — so `"class": {}` takes the whole jq
+# program down while `UNSHIPPED_IDS`, which never touches @tsv, lists the row
+# perfectly happily. The loop then never runs, nothing reaches the unmapped
+# check, and the old code shipped a PATCH release over work whose class nobody
+# could read. Reachable in one hand-edit of the record, and in exactly the
+# under-bump direction the script's own header calls the dangerous one.
+P9="$ST/unreadable-class"; mk_proj "$P9"; tag_at "$P9" "v1.2.0"
+write_state "$P9" '{"schemaVersion":1,"active_delta":null,"hotfix_retros":[],"cadence":{},"closed":[{"id":"DELTA-013","class":{},"severity":null,"closed_at":"2026-08-01T00:00:00Z","shipped_in":null}]}'
+s9_before="$(tree_manifest "$P9")"; s9_tags_before="$(tag_list "$P9")"
+run_cut "$REPO_ROOT/scripts" "$P9"
+s9_after="$(tree_manifest "$P9")"; s9_tags_after="$(tag_list "$P9")"
+if [ "$CUT_RC" -eq 9 ] && [ "$s9_before" = "$s9_after" ] && [ "$s9_tags_before" = "$s9_tags_after" ]; then
+  pass "S9: a closed row whose 'class' is an object — which makes the token jq fail while the id jq succeeds — refuses at rc $CUT_RC with nothing written and no tag. The fallback this replaced would have cut a PATCH over work nobody could classify"
+else
+  fail_ "S9" "rc=$CUT_RC (want 9); tree moved=$([ "$s9_before" = "$s9_after" ] && echo n || echo y); tagged=$([ "$s9_tags_before" = "$s9_tags_after" ] && echo n || echo y). Output: $CUT_OUT"
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -793,6 +887,96 @@ else
   fail_ "A3" "lint rc=$a3_rc (want 0); cardinality-1 rows=$a3_card; in DELTA manifest=$a3_manifest"
 fi
 
+# ── A5: refusal 2's rc-3 half, pinned AT THE LINE ──────────────────────────
+#
+# An adversarial review found this half unkilled: weakening `-ne 1` to `-eq 0`
+# survives the whole suite, because rc 3 is UNREACHABLE through the script's
+# own flow. The review's own mitigation argument is a subset one, and the
+# honest response is not to shrug at it but to make BOTH halves checkable.
+#
+#   (a) THE SUBSET ARGUMENT, BY EXECUTION. WP5's `_delta_cadence_readable`
+#       accepts "an object with a hotfix_retros ARRAY"; WP2's
+#       `DELTA_STATE_SHAPE` accepts strictly less. So every document that
+#       survives --delta-state-read-strict also satisfies the predicate, and
+#       rc 3 cannot arrive through the front door. Asserted, not assumed.
+#   (b) THE ARM ITSELF, DRIVEN DIRECTLY. The marked line is lifted out of the
+#       product and evaluated against each code WP5's predicate can return.
+#       This is what kills the `-eq 0` mutant: it changes rc 3 from a refusal
+#       into a pass, and nothing else in the suite can see that.
+#
+# Pinning an unreachable backstop is worth the twenty lines because that is
+# exactly what a backstop IS — the thing that has no reachable witness until
+# the day the front door changes.
+# _arm_probe <product-file> <rc> — lift the marked line and evaluate it with
+#   RETRO_RC set to <rc>; echo the resulting RETRO_REFUSE.
+#
+#   EVERY STATEMENT GOES ON ITS OWN LINE, and that is not tidiness. The first
+#   draft joined them with `;` and the lifted line ENDS IN ITS OWN TRAILING
+#   COMMENT — so the `printf` that reads the answer was commented out and every
+#   probe returned the empty string. The row went RED, which is the only reason
+#   it was caught; a harness that had defaulted to "n" on an empty read would
+#   have reported a passing pin over a probe that never ran.
+_arm_probe() {
+  local file="$1" rc="$2" line f out
+  line="$(grep -n '# CUTREL-REFUSE-RETRO$' "$file" | head -1 | cut -d: -f2-)"
+  [ -n "$line" ] || { printf 'NOLINE'; return 0; }
+  f="$(mktemp)"
+  {
+    printf 'RETRO_RC=%s\n' "$rc"
+    printf 'RETRO_REFUSE=n\n'
+    printf '%s\n' "$line"
+    printf 'printf "%%s" "$RETRO_REFUSE"\n'
+  } > "$f"
+  out="$(bash "$f" 2>/dev/null)" || out="ERR"
+  rm -f "$f" 2>/dev/null || true
+  [ -n "$out" ] || out="EMPTY"
+  printf '%s' "$out"
+}
+
+a5_arm=""
+a5_arm_ok=y
+for rc in 0 1 2 3; do
+  got="$(_arm_probe "$CUTREL" "$rc")"
+  a5_arm="$a5_arm [$rc=$got]"
+done
+case "$a5_arm" in
+  *"[0=y]"*) : ;; *) a5_arm_ok=n ;;
+esac
+case "$a5_arm" in
+  *"[1=n]"*) : ;; *) a5_arm_ok=n ;;
+esac
+case "$a5_arm" in
+  *"[2=y]"*) : ;; *) a5_arm_ok=n ;;
+esac
+case "$a5_arm" in
+  *"[3=y]"*) : ;; *) a5_arm_ok=n ;;
+esac
+
+# The subset property, by execution: documents that pass the strict read must
+# also satisfy the cadence lib's readability predicate.
+a5_subset=y
+PS5="$ST/subset"; mk_proj "$PS5"
+# shellcheck source=/dev/null
+. "$REPO_ROOT/scripts/lib/delta-cadence.sh"
+for doc in \
+  "$(state_doc 'null' '[]' '[]')" \
+  "$(state_doc "$ACTIVE_JSON" "[$(open_retro DELTA-007 2)]" "[$(closed_row DELTA-008 fix)]")" \
+  "$(state_doc 'null' "[$(open_retro DELTA-007 0)]" '[]')"
+do
+  write_state "$PS5" "$doc"
+  strict_rc=0
+  strict_doc="$( cd "$PS5" && unset GITHUB_BASE_REF; bash "$REPO_ROOT/scripts/process-checklist.sh" --delta-state-read-strict </dev/null 2>/dev/null )" || strict_rc=$?
+  [ "$strict_rc" -eq 0 ] || { a5_subset=n; continue; }
+  pred_rc=0
+  delta_any_open_retro "$strict_doc" || pred_rc=$?
+  [ "$pred_rc" -ne 3 ] || a5_subset=n
+done
+if [ "$a5_arm_ok" = y ] && [ "$a5_subset" = y ]; then
+  pass "A5: refusal 2's arm, lifted from the product and driven directly, refuses every code that is not a definite 'none owed' —$a5_arm (0 open, 1 none, 2 and 3 refuse) — and the subset argument holds by execution: every document the strict read accepts also satisfies WP5's readability predicate, so rc 3 is unreachable through the front door and this is a genuine backstop rather than dead code"
+else
+  fail_ "A5" "arm behaviour:$a5_arm (want [0=y] [1=n] [2=y] [3=y]); strict-read/predicate subset property holds=$a5_subset"
+fi
+
 rm -rf "$ST"
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -933,6 +1117,64 @@ _m7_check() {
   fi
 }
 _mutate m7 '# CUTREL-MAJOR-REVALIDATE$' 's|^\(.*# CUTREL-MAJOR-REVALIDATE\)$|  if false; then :; fi   # CUTREL-MAJOR-REVALIDATE|' _m7_check
+
+# ── m6: the arm that catches every OTHER checker exit code ──────────────────
+# THE REVIEWER'S SURVIVING MUTANT, now with a witness. It weakens `*)` from a
+# refusal to a pass; R11 is the only row that can see it, which is the whole
+# point of adding R11.
+_m6_check() {
+  local name="$1" P SD rc tags_before tags_after
+  P="$MT/$name-proj"; SD="$MT/$name-sd"
+  mk_proj "$P"; tag_at "$P" "v1.2.0"
+  write_state "$P" "$(state_doc 'null' '[]' "[$(closed_row DELTA-008 fix)]")"
+  # The mutant tree already exists in $MUT_SD; give it a checker that is GONE,
+  # which is the keystroke the arm exists to refuse.
+  mkdir -p "$SD"; cp -R "$MUT_SD" "$SD/scripts"
+  rm -f "$SD/scripts/check-maintenance.sh"
+  tags_before="$(tag_list "$P")"
+  rc=0
+  ( cd "$P" && unset GITHUB_BASE_REF; bash "$SD/scripts/cut-release.sh" </dev/null >/dev/null 2>&1 ) || rc=$?
+  tags_after="$(tag_list "$P")"
+  if [ "$rc" -eq 0 ] && [ "$tags_before" != "$tags_after" ]; then
+    pass "m6: with the catch-everything-else arm weakened to a pass, DELETING scripts/check-maintenance.sh lets the mutant cut a release (rc $rc, a new tag appeared) — cadence forgiveness in one keystroke. R11 sees it; before R11 existed this mutant survived the entire suite at 31/0. $MUT_REPORT"
+  else
+    fail_ "m6" "the mutant still refused (rc $rc, tags unchanged=$([ "$tags_before" = "$tags_after" ] && echo y || echo n)) — R11 cannot see this line. $MUT_REPORT"
+  fi
+}
+_mutate m6 '# CUTREL-CADENCE-OTHER$' 's|^\(.*\)# CUTREL-CADENCE-OTHER$|  *) CADENCE_REFUSE=n ;;   # CUTREL-CADENCE-OTHER|' _m6_check
+
+# ── m8: refusal 2's rc-3 half ───────────────────────────────────────────────
+# The reviewer's second surviving mutant. It is killed by A5's line-level arm
+# and by nothing else, because rc 3 is unreachable through the front door —
+# which is exactly why A5 drives the line directly instead of a fixture.
+_m8_check() {
+  local name="$1" got_3 got_0 got_1
+  got_3="$(_arm_probe "$MUT_SD/cut-release.sh" 3)"
+  got_0="$(_arm_probe "$MUT_SD/cut-release.sh" 0)"
+  got_1="$(_arm_probe "$MUT_SD/cut-release.sh" 1)"
+  if [ "$got_3" = n ] && [ "$got_0" = y ]; then
+    pass "m8: with the backstop narrowed from 'anything but a definite none-owed' to 'only rc 0', an UNDETERMINED ledger (rc 3) stops refusing (rc3=$got_3, rc0=$got_0, rc1=$got_1) — A5 sees it, and only A5 can, since rc 3 has no reachable fixture. $MUT_REPORT"
+  else
+    fail_ "m8" "the mutant still refuses rc 3 (rc3=$got_3, rc0=$got_0, rc1=$got_1) — A5 cannot see this line. $MUT_REPORT"
+  fi
+}
+_mutate m8 '# CUTREL-REFUSE-RETRO$' 's|^\(.*# CUTREL-REFUSE-RETRO\)$|  if [ "$RETRO_RC" -eq 0 ]; then RETRO_REFUSE=y; fi   # CUTREL-REFUSE-RETRO|' _m8_check
+
+# ── m9: the semver fallback that used to be `BUMP=patch` ────────────────────
+_m9_check() {
+  local name="$1" P rc newtag
+  P="$MT/$name-proj"; mk_proj "$P"; tag_at "$P" "v1.2.0"
+  write_state "$P" '{"schemaVersion":1,"active_delta":null,"hotfix_retros":[],"cadence":{},"closed":[{"id":"DELTA-013","class":{},"severity":null,"closed_at":"2026-08-01T00:00:00Z","shipped_in":null}]}'
+  rc=0
+  ( cd "$P" && unset GITHUB_BASE_REF; bash "$MUT_SD/cut-release.sh" </dev/null >/dev/null 2>&1 ) || rc=$?
+  newtag="$(tag_list "$P" | grep -v '^v1\.2\.0$' || true)"
+  if [ "$rc" -eq 0 ] && [ "$newtag" = "v1.2.1" ]; then
+    pass "m9: restoring the old \`BUMP=patch\` fallback makes the mutant cut $newtag (rc $rc) over a row whose class nobody could read — S9 sees it. This is the reachable form of the under-bump the file's own header calls dangerous. $MUT_REPORT"
+  else
+    fail_ "m9" "the mutant did not cut a patch ('$newtag', rc $rc) — S9 cannot see this line. $MUT_REPORT"
+  fi
+}
+_mutate m9 '# CUTREL-SEMVER-UNREADABLE$' 's|^\(.*\)# CUTREL-SEMVER-UNREADABLE$|if [ -z "$BUMP" ]; then BUMP=patch; fi; if false; then   # CUTREL-SEMVER-UNREADABLE|' _m9_check
 
 rm -rf "$MT"
 
