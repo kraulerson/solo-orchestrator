@@ -1807,6 +1807,23 @@ run_child_suite "tests/test-delta-wp6-cadence.sh" \
 # -> both lanes.
 run_child_suite "tests/test-delta-wp7-cut-release.sh" \
   "tests/test-delta-wp7-cut-release.sh"
+
+# Delta Track §3.1's SEVERABILITY test (WP7). Builds a real severed tree —
+# every §3.1 module file deleted, the seam reverted in all FOUR core consumers
+# — and proves the framework still parses, still behaves, and carries not one
+# dangling reference. The module inventory is READ OUT OF
+# scripts/lint-delta-boundary.sh's own manifest rather than retyped, so the two
+# can never disagree about what "the module" is. §3.1 says the revert is "the
+# seam block in process-checklist.sh", singular; running this test enumerates
+# the real set (process-checklist.sh, upgrade-project.sh, validate.sh,
+# check-maintenance.sh) and V1's completeness sweep is what keeps that list
+# honest when a fifth consumer arrives. The §11-WP7 mutation — delete a module
+# file but NOT the seam revert — is killed by V1 and ONLY by V1, and m1
+# measures why: every consumer fails soft by design, so the probes stay
+# identical to the intact tree and no functional arm could ever see it.
+# Never executes the init script -> both lanes.
+run_child_suite "tests/test-delta-severability.sh" \
+  "tests/test-delta-severability.sh"
 run_child_suite "tests/test-check-phase-gate.sh" "tests/test-check-phase-gate.sh"
 
 # BL-214 — the gate stalled its own next run. create_gate_snapshot writes into
