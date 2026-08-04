@@ -509,32 +509,55 @@ atk_base() {
 }
 
 # atk_verdict DIR — stage an impl-only change, run the real commit-msg surface
-# with a post-adoption `feat:` subject, echo "<rc>|<exempt-banner-seen>".
+# with a post-adoption `feat:` subject, echo "<rc>|<banner>|<blocked-for-reason>".
+#
+# THE THIRD FIELD IS THE POINT (adversarial re-review R-WP3-7). "rc non-zero and
+# no exemption banner" is satisfied by a row that never reached the gate at all
+# — a fixture that rots and exits 127 scores rc=127, banner=0 and would be
+# credited as BLOCKED. That is the same vacuity class that let the original
+# bound hole hide behind 19/19 green, and its cousin already bit this file once
+# (T7d's aborted cherry-pick died at the derivative-resume sentinel, rc 0 and no
+# banner, reading exactly like a hole while proving nothing). So a row only
+# counts as blocked when the BL-072 gate itself says it blocked. `grep -F` is
+# load-bearing here: `[FAIL]` is a character class in a basic regex and would
+# never match the literal text.
 atk_verdict() {
-  local d="$1" out rc=0 banner=0
+  local d="$1" out rc=0 banner=0 reason=0
   stage_impl_only "$d" >/dev/null 2>&1
   out=$(run_tdd "$d" "feat: work written AFTER adoption day") || rc=$?
   printf '%s' "$out" | grep -q 'PRE-ADOPTION commit' && banner=1
-  printf '%s|%s\n' "$rc" "$banner"
+  printf '%s' "$out" | grep -qF '[FAIL] BL-072 TDD ordering' && reason=1
+  printf '%s|%s|%s\n' "$rc" "$banner" "$reason"
 }
 
-# atk_report LABEL DIR EXPECT — EXPECT is `blocked` (rc non-zero) or `exempt`.
+# _atk_split VALUE — parse atk_verdict's triple into ATK_RC/ATK_BANNER/
+# ATK_REASON. Called from the PARENT shell (never a subshell) so the globals
+# survive; `${v##*|}` alone silently reads the wrong field once there are three.
+_atk_split() {
+  local v="$1" rest
+  ATK_RC="${v%%|*}"; rest="${v#*|}"
+  ATK_BANNER="${rest%%|*}"; ATK_REASON="${rest##*|}"
+}
+
+# atk_report LABEL DIR EXPECT — EXPECT is `blocked` or `exempt`. Verdict is the
+# EXIT CODE; the banner and the block-reason are discriminators that say WHICH
+# path produced it.
 atk_report() {
-  local label="$1" d="$2" expect="$3" v rc banner
-  v="$(atk_verdict "$d")"
-  rc="${v%%|*}"; banner="${v##*|}"
+  local label="$1" d="$2" expect="$3" rc banner reason
+  _atk_split "$(atk_verdict "$d")"
+  rc="$ATK_RC"; banner="$ATK_BANNER"; reason="$ATK_REASON"
   ATK_RCS="${ATK_RCS}${label}=rc:${rc} "
   if [ "$expect" = "blocked" ]; then
-    if [ "$rc" -ne 0 ] && [ "$banner" -eq 0 ]; then
-      pass "$label: BLOCKED (rc=$rc, no exemption banner) — the bound holds"
+    if [ "$rc" -ne 0 ] && [ "$banner" -eq 0 ] && [ "$reason" -eq 1 ]; then
+      pass "$label: BLOCKED (rc=$rc, no exemption banner, blocked BY the BL-072 gate) — the bound holds"
     else
-      fail_ "$label" "rc=$rc (want non-zero) exemption_banner=$banner (want 0) — a POST-adoption commit was exempted"
+      fail_ "$label" "rc=$rc (want non-zero) exemption_banner=$banner (want 0) blocked_by_tdd_gate=$reason (want 1) — either a POST-adoption commit was exempted, or the fixture never reached the gate and the row would have false-passed"
     fi
   else
-    if [ "$rc" -eq 0 ] && [ "$banner" -eq 1 ]; then
-      pass "$label: EXEMPT (rc=0, banner printed) — the adoption window is preserved"
+    if [ "$rc" -eq 0 ] && [ "$banner" -eq 1 ] && [ "$reason" -eq 0 ]; then
+      pass "$label: EXEMPT (rc=0, banner printed, no gate block) — the adoption window is preserved"
     else
-      fail_ "$label" "rc=$rc (want 0) exemption_banner=$banner (want 1)"
+      fail_ "$label" "rc=$rc (want 0) exemption_banner=$banner (want 1) blocked_by_tdd_gate=$reason (want 0)"
     fi
   fi
 }
@@ -681,7 +704,7 @@ T8A="$(newtmp)"; T8AD="$T8A/p"
 if ! atk_base "$T8AD"; then fail_ "T8a" "fixture setup failed"; else
   h=$( cd "$T8AD" && git rev-parse HEAD )
   ( cd "$T8AD" && jq --arg h "$h" '.adoption.adoptedAtCommit = $h' .claude/manifest.json > m.tmp && mv m.tmp .claude/manifest.json ) >/dev/null 2>&1
-  ctl="$(atk_verdict "$T8AD")"; ctl_rc="${ctl%%|*}"
+  _atk_split "$(atk_verdict "$T8AD")"; ctl_rc="$ATK_RC"; ctl_reason="$ATK_REASON"
   MUT8A="$T8AD/scripts/lib/adoption-stamp.sh"
   bound_sites=$(grep -c 'BF-ADOPT-BOUND$' "$LIB" 2>/dev/null); bound_sites=$(_num "$bound_sites")
   cp "$LIB" "$T8A/orig-lib.ref"
@@ -689,12 +712,12 @@ if ! atk_base "$T8AD"; then fail_ "T8a" "fixture setup failed"; else
   chg8a=$(_changed_lines "$T8A/orig-lib.ref" "$MUT8A")
   p8a=$(_parses "$MUT8A")
   ( cd "$T8AD" && git reset -q ) >/dev/null 2>&1
-  mut="$(atk_verdict "$T8AD")"; mut_rc="${mut%%|*}"; mut_banner="${mut##*|}"
-  if [ "$ctl_rc" -ne 0 ] && [ "$mut_rc" -eq 0 ] && [ "$mut_banner" -eq 1 ] \
+  _atk_split "$(atk_verdict "$T8AD")"; mut_rc="$ATK_RC"; mut_banner="$ATK_BANNER"
+  if [ "$ctl_rc" -ne 0 ] && [ "$ctl_reason" -eq 1 ] && [ "$mut_rc" -eq 0 ] && [ "$mut_banner" -eq 1 ] \
      && [ "$chg8a" -eq 2 ] && [ "$bound_sites" -eq 1 ] && [ "$p8a" -eq 1 ]; then
-    pass "T8a: dropping the COMMITTED-WITNESS conjunct (1 line, mutant parses) lets a tampered anchor exempt a post-adoption commit (rc 0, banner); the unmutated control blocks (rc $ctl_rc) — conjunct 2 is load-bearing"
+    pass "T8a: dropping the COMMITTED-WITNESS conjunct (1 line, mutant parses) lets a tampered anchor exempt a post-adoption commit (rc 0, banner); the unmutated control blocks BY the BL-072 gate (rc $ctl_rc) — conjunct 2 is load-bearing"
   else
-    fail_ "T8a" "control_rc=$ctl_rc (want non-zero) mutant_rc=$mut_rc (want 0) mutant_banner=$mut_banner (want 1) changed_lines=$chg8a (want 2) bound_sites=$bound_sites (want 1) parses=$p8a (want 1)"
+    fail_ "T8a" "control_rc=$ctl_rc (want non-zero) control_blocked_by_gate=$ctl_reason (want 1) mutant_rc=$mut_rc (want 0) mutant_banner=$mut_banner (want 1) changed_lines=$chg8a (want 2) bound_sites=$bound_sites (want 1) parses=$p8a (want 1)"
   fi
 fi
 
@@ -708,19 +731,19 @@ if ! mk_tdd_proj "$T8BD"; then fail_ "T8b" "fixture setup failed"; else
   adopt_proj "$T8BD" >/dev/null 2>&1
   ( cd "$T8BD" && mkdir -p src && echo 'export const a=1;' > src/unrelated.js \
       && git add src/unrelated.js && git commit -q -m "chore: unrelated work" ) >/dev/null 2>&1
-  ctl="$(atk_verdict "$T8BD")"; ctl_rc="${ctl%%|*}"
+  _atk_split "$(atk_verdict "$T8BD")"; ctl_rc="$ATK_RC"; ctl_reason="$ATK_REASON"
   MUT8B="$T8BD/scripts/lib/adoption-stamp.sh"
   cp "$LIB" "$T8B/orig-lib.ref"
   _sed_inplace "$MUT8B" 's|^.*BF-ADOPT-BOUND$|  if _soif_adoption_head_copy_adopted "$manifest"; then   # BF-ADOPT-BOUND|'
   chg8b=$(_changed_lines "$T8B/orig-lib.ref" "$MUT8B")
   p8b=$(_parses "$MUT8B")
   ( cd "$T8BD" && git reset -q ) >/dev/null 2>&1
-  mut="$(atk_verdict "$T8BD")"; mut_rc="${mut%%|*}"; mut_banner="${mut##*|}"
-  if [ "$ctl_rc" -ne 0 ] && [ "$mut_rc" -eq 0 ] && [ "$mut_banner" -eq 1 ] \
+  _atk_split "$(atk_verdict "$T8BD")"; mut_rc="$ATK_RC"; mut_banner="$ATK_BANNER"
+  if [ "$ctl_rc" -ne 0 ] && [ "$ctl_reason" -eq 1 ] && [ "$mut_rc" -eq 0 ] && [ "$mut_banner" -eq 1 ] \
      && [ "$chg8b" -eq 2 ] && [ "$p8b" -eq 1 ]; then
-    pass "T8b: dropping the anchor==HEAD conjunct (1 line, mutant parses) exempts a commit made AFTER the stamp on a still-uncommitted manifest (rc 0, banner); the unmutated control blocks (rc $ctl_rc) — conjunct 1 is load-bearing"
+    pass "T8b: dropping the anchor==HEAD conjunct (1 line, mutant parses) exempts a commit made AFTER the stamp on a still-uncommitted manifest (rc 0, banner); the unmutated control blocks BY the BL-072 gate (rc $ctl_rc) — conjunct 1 is load-bearing"
   else
-    fail_ "T8b" "control_rc=$ctl_rc (want non-zero) mutant_rc=$mut_rc (want 0) mutant_banner=$mut_banner (want 1) changed_lines=$chg8b (want 2) parses=$p8b (want 1)"
+    fail_ "T8b" "control_rc=$ctl_rc (want non-zero) control_blocked_by_gate=$ctl_reason (want 1) mutant_rc=$mut_rc (want 0) mutant_banner=$mut_banner (want 1) changed_lines=$chg8b (want 2) parses=$p8b (want 1)"
   fi
 fi
 
