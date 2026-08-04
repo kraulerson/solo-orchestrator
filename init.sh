@@ -1419,9 +1419,21 @@ create_project() {
   #     upgrade. The source-closure check (tests/test-scaffold-source-closure.sh)
   #     is the class fix: it fails if any shipped script sources an unshipped
   #     sibling.
+  #   • adoption-stamp.sh — BOTH check-phase-gate.sh and pre-commit-gate.sh
+  #     source it (the brownfield adoption enabling arms: the `adopted` flag
+  #     accessor, the pre-adoption TDD bound, the regenerate-path loss
+  #     detector). It is a sourced lib like its neighbours above, so it gets NO
+  #     chmod — the `chmod +x` list below is entry scripts only. Shipping it is
+  #     NOT a behaviour change for a greenfield project: with no adoption block
+  #     in the manifest the accessor reads NOT ADOPTED and every arm no-ops
+  #     (pinned by A2/T5 in tests/test-brownfield-wp3-adoption-arms.sh). It
+  #     closes a DANGLING SOURCE in two shipped gates — and the closure test is
+  #     what caught it after two reviews had both graded the omission
+  #     "harmless today". It was not: it is a hard gate.
   cp "$SCRIPT_DIR/scripts/lib/tdd-classify.sh"      scripts/lib/
   cp "$SCRIPT_DIR/scripts/lib/phase2-state.sh"      scripts/lib/
   cp "$SCRIPT_DIR/scripts/lib/cdf-refresh.sh"       scripts/lib/
+  cp "$SCRIPT_DIR/scripts/lib/adoption-stamp.sh"    scripts/lib/
   cp "$SCRIPT_DIR/scripts/install-filesystem-gates.sh" scripts/
   cp "$SCRIPT_DIR/scripts/detect-out-of-band-commits.sh" scripts/
   cp "$SCRIPT_DIR/scripts/hooks/record-claude-commit.sh" scripts/hooks/
