@@ -27,6 +27,20 @@ for _tdd_lib in "$SCRIPT_DIR/lib/tdd-classify.sh"; do
 done
 unset _tdd_lib
 
+# Brownfield adoption WP3 — the in-core enabling arms. Sourced for the
+# `adopted` flag accessor and the pre-adoption BOUND that the BL-072 arm below
+# consults. Absent (an older installed project, or a checkout that predates
+# adoption) -> the helper is simply undefined and the arm no-ops via its
+# `command -v` guard, which is the safe direction: no exemption.
+for _adopt_lib in "$SCRIPT_DIR/lib/adoption-stamp.sh"; do
+  if [ -f "$_adopt_lib" ]; then
+    # shellcheck source=scripts/lib/adoption-stamp.sh
+    . "$_adopt_lib"
+    break
+  fi
+done
+unset _adopt_lib
+
 # ── BL-176: git-dir-aware path resolution ────────────────────────────
 # In a LINKED GIT WORKTREE `.git` is a FILE (a `gitdir:` pointer), not a
 # directory, and the per-worktree state git writes around commit time —
@@ -317,6 +331,51 @@ tdd_terminal_enforce() {
 
   local impl_files
   impl_files=$(printf '%s\n' "$staged_status" | _bl072_impl_files)
+
+  # ── Brownfield adoption: the PRE-ADOPTION exemption ────────────────
+  # BF-ADOPT-TDD-BEGIN
+  # Design §5.3 classifies TDD ordering as kind (c) — INHERENTLY HISTORICAL.
+  # The ordering of an adoptee's 2023 commits is not a re-runnable fact, so
+  # nothing is measured for it; what is recorded instead is a dated exemption
+  # SCOPED to commits at or before the adoption commit. That scope is the whole
+  # design: soif_adoption_pre_adoption_commit owns the bound, and an unbounded
+  # version of this arm would be a permanent TDD waiver wearing an adoption
+  # badge (§4.5: no arm anywhere exempts a commit written after adoption day).
+  #
+  # THIS IS ONE ARM AND IT CHANGES NOTHING ELSE (§9). The trigger predicate
+  # (_tdd_triggers), the tier behaviour (_bl072_tier_bypassable and both
+  # emitters) and the ledger rows are untouched — this arm deliberately writes
+  # NO ledger row, because the row vocabulary is part of what §9 keeps fixed.
+  # It is placed AFTER the trigger so it only ever speaks when the gate would
+  # otherwise fire, and BEFORE the tier split because the exemption is a fact
+  # about history, not a severity.
+  #
+  # HONEST LIMIT, stated rather than implied: kind (c)'s forward equivalent is
+  # the test-debt ledger and its ratchet (§5.4). It is NAMED here and it is NOT
+  # IMPLEMENTED — WP5b owns it. Until it lands, this exemption's forward
+  # counterpart does not exist, and the arm claims only what it does: it
+  # exempts pre-adoption commits and nothing else.
+  #
+  # The decision is computed FIRST and the guard is a single line, so the
+  # dual-direction mutation proof can neuter exactly one line without splicing
+  # a multi-line `if` condition into nonsense — a "one-line" edit that lands
+  # mid-continuation changes the parse, not the semantics, and a proof built on
+  # it measures the wrong thing. `A && B && var=1` is set -e safe (the AND-OR
+  # list exemption), and it is the shape the BL-072 `_fire=1` line above uses.
+  local _bf_preadopt=0
+  command -v soif_adoption_pre_adoption_commit >/dev/null 2>&1 \
+    && soif_adoption_pre_adoption_commit && _bf_preadopt=1
+  if [ "$_bf_preadopt" = "1" ]; then   # BF-ADOPT-TDD-GUARD
+    {
+      echo "[OK] BL-072 TDD ordering: PRE-ADOPTION commit — exempt (brownfield adoption, design §5.3 kind (c))."
+      echo "[OK]   Subject: $subject"
+      echo "[OK]   This commit sits at or before the adoption commit recorded in"
+      echo "[OK]   .claude/manifest.json::adoption.adoptedAtCommit. Commits written after"
+      echo "[OK]   adoption day are fully enforced — this exemption does not extend to them."
+    } >&2
+    return 0
+  fi
+  # BF-ADOPT-TDD-END
 
   if _bl072_tier_bypassable; then
     tdd_emit_warn_term "$subject" "$impl_files"

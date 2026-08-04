@@ -16,6 +16,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # BL-046: uses run_with_timeout + prompt_yes_no only — source core subset.
 source "$SCRIPT_DIR/lib/helpers-core.sh"
+# Brownfield adoption WP3 — the in-core enabling arms (the `adopted` flag
+# accessor and the regenerate-path loss detector). Guarded: a checkout that
+# predates adoption simply has no such file, and the arm below no-ops.
+if [ -f "$SCRIPT_DIR/lib/adoption-stamp.sh" ]; then
+  # shellcheck source=scripts/lib/adoption-stamp.sh
+  source "$SCRIPT_DIR/lib/adoption-stamp.sh"
+fi
 
 # ── Argv parser (BL-060) ─────────────────────────────────────────
 # Adversarial cert re-walker-4 surfaced that scenarios invoke this
@@ -2532,6 +2539,50 @@ if [ "$current_phase" -ge 2 ] && [ -f "PRODUCT_MANIFESTO.md" ]; then
   fi
 fi
 # BL-102-MARKET-SIGNAL-END
+
+# --- Brownfield adoption: stamp acceptance + loss detection ---
+# BF-ADOPT-GATE-BEGIN
+# The gate's half of the brownfield enabling arms (design §10-WP3 deliverable
+# 4, §12-12). It READS the adoption flag through the single accessor and adds
+# no logic to any existing predicate (§9).
+#
+# THE [WARN] TRAP APPLIES HERE AND THE CHOICE IS DELIBERATE. In this script the
+# label is cosmetic — the exit predicate is `if [ $issues -eq 0 ]`, so an
+# exemption is the ABSENCE of an increment and a block is its presence. This
+# arm INCREMENTS, on purpose: a project whose committed manifest records an
+# adoption while the live manifest no longer does has silently un-adopted, and
+# a silent un-adoption is precisely the failure §12-12 says cannot be prevented
+# and must therefore never be quiet. The upstream regenerating writer lives in
+# another repository; the only thing in this design's control is refusing to
+# pass the gate while the record is missing. Removing the increment — or the
+# detector it calls — turns the failure back into silence.
+#
+# DELIBERATELY NOT FENCED BY `skip_later_gate`. BL-166 confines a `--gate`
+# scoped run to the NAMED gate's checks, and that fence is right for checks
+# that BELONG to a later gate. This one belongs to no gate: the adoption record
+# is a precondition of every arm that reads the flag, so a scoped run that
+# passed while the record was missing would be the same silence under a
+# narrower heading. Stated here because the omission is a decision, not an
+# oversight.
+if command -v soif_adoption_integrity_lost >/dev/null 2>&1; then
+  if soif_adoption_integrity_lost ".claude/manifest.json"; then
+    echo ""
+    echo -e "${BOLD}Adoption Stamp Integrity${NC}"
+    soif_adoption_report_loss ".claude/manifest.json"
+    issues=$((issues + 1))   # BF-ADOPT-GATE-ISSUES
+  elif soif_adoption_adopted ".claude/manifest.json"; then
+    echo ""
+    echo -e "${BOLD}Adoption Stamp Integrity${NC}"
+    # `|| var=…` is not decoration: this script runs under `set -e`, and a bare
+    # `var=$(cmd)` takes cmd's exit status, so a jq that failed here would abort
+    # the WHOLE gate mid-run — a reporting line taking the enforcement down with
+    # it. The fallbacks keep a cosmetic read cosmetic.
+    cpg_adopt_scenario=$(soif_adoption_read ".claude/manifest.json" '.adoption.scenario // "unknown"') || cpg_adopt_scenario="unknown"
+    cpg_adopt_at=$(soif_adoption_read ".claude/manifest.json" '.adoption.adoptedAt // "unknown"') || cpg_adopt_at="unknown"
+    echo -e "${GREEN}[OK]${NC} Adoption stamp present and intact (scenario: $cpg_adopt_scenario, adopted: $cpg_adopt_at)"
+  fi
+fi
+# BF-ADOPT-GATE-END
 
 echo ""
 if [ $issues -eq 0 ]; then
