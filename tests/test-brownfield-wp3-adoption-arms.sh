@@ -1,0 +1,581 @@
+#!/usr/bin/env bash
+# tests/test-brownfield-wp3-adoption-arms.sh
+#
+# Brownfield adoption WP3 — the IN-CORE ENABLING ARMS. Design:
+# docs/designs/2026-08-02-brownfield-adoption-v1.md §10-WP3 (deliverables and
+# proofs), §3.1/§3.2 (why the arms are in-core), §5.3 (the per-gate mapping;
+# the TDD ordering row is kind (c)), §8.5 (the stamp's home, its
+# merge-versus-re-stamp reasoning, and the five existing-file writers), §9
+# (what does not change).
+#
+# WP3 is the design's own named LINCHPIN: it is the only brownfield package
+# that touches a gate.
+#
+# ── THE [WARN] TRAP (repo CLAUDE.md; §10's preamble) ────────────────────────
+# In check-phase-gate.sh the `[WARN]` / `[FAIL]` text is COSMETIC — the exit
+# predicate is `if [ $issues -eq 0 ]`. An exemption is the ABSENCE of an
+# `issues=$((issues + 1))`; a block is its presence. Of the 66 increment sites,
+# 34 print `[WARN]` and 10 print `[FAIL]`. So EVERY verdict in this file is
+# asserted on an EXIT CODE. Printed strings appear only as PATH DISCRIMINATORS
+# (see below) and never as a verdict.
+#
+# ── Structural discriminators (this wave's harness standard) ────────────────
+# Three of the proofs below expect an ABSENCE as the mutant's result (no block,
+# no finding, no report). Several DIFFERENT edits share that one downstream
+# silence — a mutant that dies on a syntax error is also silent. Every such
+# proof therefore carries a discriminator that only the INTENDED path can
+# satisfy: the mutant must still load its library and still answer the accessor
+# correctly, and (where the path is observable) must print the arm's own
+# message. The exit code remains the verdict; the discriminator only proves
+# WHICH path produced it.
+#
+# ── Scenarios ───────────────────────────────────────────────────────────────
+#   A1..A4  The `adopted` flag accessor. Absent file, absent block and
+#           `adopted:false` all read NOT ADOPTED — a greenfield project must be
+#           untouched by every arm in this WP (§10-WP3 deliverable 1).
+#   S1      soif_adoption_stamp is an ADDITIVE merge: a foreign top-level
+#           manifest key survives it, and the written block carries §8.5's
+#           schema.
+#   S2      No-op on a missing manifest (the `[ -f … ] || return 0` idiom
+#           soif_currency_stamp uses).
+#   S3      The five existing-file manifest writers named in §8.5 are run IN
+#           SEQUENCE over a stamped manifest and the stamp is still present
+#           afterwards. Each writer's jq filter is PINNED at sites==1 in its
+#           own shipped source, so a writer that changes shape fails this test
+#           loudly instead of leaving it exercising a stale copy.
+#   S4      A scenario outside §8.5's `completed|in-flight` enum is REFUSED —
+#           a durable record must not be written malformed.
+#   T1/T2   TDD arm, DIRECTION (i): an adopted project's pre-adoption commit is
+#           exempt (T1, rc 0); neuter the exemption guard and the SAME fixture
+#           blocks (T2, rc 1).
+#   T3/T4   TDD arm, DIRECTION (ii) — THE ONE THAT MATTERS. A post-adoption
+#           commit with no test BLOCKS (T3, rc 1); neuter the BOUND and it
+#           PASSES (T4, rc 0). An unbounded exemption is a permanent TDD waiver
+#           wearing an adoption badge, so T4 is the proof this WP turns on.
+#   T5      Greenfield regression: no adoption block ⇒ the gate behaves exactly
+#           as it did before this WP (rc 1 on a non-bypassable tier).
+#   T6      Tier behaviour is UNTOUCHED (§9): a bypassable tier still warns and
+#           allows post-adoption.
+#   G1..G4  Stamp acceptance in the gate, and the loss detector: intact ⇒ no
+#           finding (G1); committed-at-HEAD but gone from the working tree ⇒
+#           the gate exits NON-ZERO (G2); neuter the detector ⇒ the project
+#           SILENTLY un-adopts and the gate exits 0 (G3); a mid-adoption
+#           project whose stamp is not yet committed raises no false alarm
+#           (G4).
+#
+# The REAL regenerate path (delete the manifest → verify-install.sh --auto-fix
+# → fix_framework_manifest → the upstream CDF writer rewrites it wholesale) is
+# proved in tests/test-brownfield-wp3-regenerate-path.sh, which is deliberately
+# a separate suite: it executes the upstream installer and is therefore
+# unit-lane exempt, while everything here stays in the fast lane.
+#
+# Hermetic: temp dirs only, no network, no remote creation.
+set -o pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+LIB="$REPO_ROOT/scripts/lib/adoption-stamp.sh"
+GATE="$REPO_ROOT/scripts/check-phase-gate.sh"
+PCG="$REPO_ROOT/scripts/pre-commit-gate.sh"
+
+PASSED=0
+FAILED=0
+pass()  { echo "  [PASS] $1"; PASSED=$((PASSED + 1)); }
+fail_() { echo "  [FAIL] $1 — $2"; FAILED=$((FAILED + 1)); }
+
+TOPTMP="$(mktemp -d)"
+trap 'rm -rf "$TOPTMP"' EXIT INT TERM
+# newtmp — a FRESH directory per scenario. `mktemp -d`, not an incrementing
+# counter: newtmp is always called in a command substitution, i.e. a SUBSHELL,
+# so a counter variable never survives back to the parent and every scenario
+# silently lands in the same directory. That is not a hypothetical — it is what
+# this file did on its first run, and it made one mutation proof pass against a
+# fixture the previous scenario had already committed into.
+newtmp() { mktemp -d "$TOPTMP/fixXXXXXX"; }
+
+# _mode_of FILE — octal permission bits, GNU-first then BSD (house portability
+# rule). "?" when neither answers.
+_mode_of() {
+  stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1" 2>/dev/null || printf '?\n'
+}
+
+# _sed_inplace FILE SED-EXPR — in-place sed PRESERVING the file's mode. The
+# obvious spelling ends in `chmod +x`, which silently widens a 0644 lib to 0755
+# and rides along in the next commit.
+_sed_inplace() {
+  local file="$1" expr="$2" tmp mode
+  mode="$(_mode_of "$file")"
+  tmp="$(mktemp)"
+  sed "$expr" "$file" > "$tmp" && mv "$tmp" "$file"
+  [ "$mode" != "?" ] && chmod "$mode" "$file" 2>/dev/null
+  return 0
+}
+
+# _changed_lines A B — lines diff reports added or removed. A one-line
+# SUBSTITUTION is 2. Asserting it stops a mutation from becoming a rewrite and
+# stops a NO-OP edit from being read as a proof.
+_changed_lines() {
+  local n
+  n=$(diff "$1" "$2" 2>/dev/null | grep -c '^[<>]')
+  case "$n" in ''|*[!0-9]*) n=0 ;; esac
+  printf '%s\n' "$n"
+}
+
+# _num VALUE — a shell-comparable integer (jq prints a missing field as the
+# four-character string "null", which `[ "$x" -eq 1 ]` rejects with a
+# diagnostic AND a false branch — a missing field would otherwise take the same
+# path as a zero).
+_num() { case "$1" in ''|null|*[!0-9]*) printf '0\n' ;; *) printf '%s\n' "$1" ;; esac }
+
+# _parses FILE — 1 iff the mutant is still valid shell. THE discriminator this
+# file exists to carry, and it is not theoretical: the first cut of T2 replaced
+# a line that sat MID-CONTINUATION of a two-line `if` condition. diff reported
+# the expected 2 changed lines, the anchor resolved at sites==1, and the result
+# was a MANGLED PARSE that took the exemption branch for a reason having nothing
+# to do with the exemption. A mutation proof whose mutant does not parse is
+# measuring a syntax error. Every mutant below must parse.
+_parses() { bash -n "$1" >/dev/null 2>&1 && printf '1\n' || printf '0\n'; }
+
+if [ ! -f "$LIB" ]; then
+  echo "  [FAIL] setup — $LIB not found (WP3 deliverable 1/2 missing)"
+  echo ""
+  echo "Results: 0 passed, 1 failed"
+  exit 1
+fi
+
+# shellcheck source=/dev/null
+. "$LIB"
+
+echo "=== A — the adopted flag accessor (§10-WP3 deliverable 1) ==="
+
+A="$(newtmp)"
+if soif_adoption_adopted "$A/nope.json"; then
+  fail_ "A1" "a missing manifest read as ADOPTED"
+else
+  pass "A1: a missing manifest reads NOT ADOPTED (rc non-zero)"
+fi
+
+printf '%s\n' '{"host":"github","frameworkVersion":"1"}' > "$A/greenfield.json"
+if soif_adoption_adopted "$A/greenfield.json"; then
+  fail_ "A2" "a manifest with no adoption block read as ADOPTED — every arm in this WP would fire on a greenfield project"
+else
+  pass "A2: absent adoption block reads NOT ADOPTED (greenfield unaffected)"
+fi
+
+printf '%s\n' '{"adoption":{"adopted":true,"schemaVersion":1}}' > "$A/adopted.json"
+if soif_adoption_adopted "$A/adopted.json"; then
+  pass "A3: adoption.adopted=true reads ADOPTED (rc 0)"
+else
+  fail_ "A3" "adoption.adopted=true did not read as ADOPTED"
+fi
+
+printf '%s\n' '{"adoption":{"adopted":false,"schemaVersion":1}}' > "$A/notadopted.json"
+if soif_adoption_adopted "$A/notadopted.json"; then
+  fail_ "A4" "adoption.adopted=false read as ADOPTED"
+else
+  pass "A4: adoption.adopted=false reads NOT ADOPTED"
+fi
+
+echo ""
+echo "=== S — soif_adoption_stamp (§8.5: one additive merge, one call site) ==="
+
+S="$(newtmp)"
+( cd "$S" && git init -q . && git config user.email s@t.invalid && git config user.name S \
+    && echo x > f.txt && git add f.txt && git commit -q -m "chore: base" ) >/dev/null 2>&1
+printf '%s\n' '{"foreignKey":"keep-me","host":"gitlab","currency":{"schemaVersion":1}}' > "$S/manifest.json"
+
+( cd "$S" && soif_adoption_stamp "manifest.json" "completed" 3 \
+    '["phase-0-docs"]' '["sponsor-approval"]' '["tdd-ordering"]' '[]' "deadbeef" ) >/dev/null 2>&1
+s1_foreign=$(jq -r '.foreignKey // "MISSING"' "$S/manifest.json" 2>/dev/null)
+s1_currency=$(jq -r '.currency.schemaVersion // "MISSING"' "$S/manifest.json" 2>/dev/null)
+s1_adopted=$(jq -r '.adoption.adopted // "MISSING"' "$S/manifest.json" 2>/dev/null)
+s1_scenario=$(jq -r '.adoption.scenario // "MISSING"' "$S/manifest.json" 2>/dev/null)
+s1_landed=$(jq -r '.adoption.landedPhase // "MISSING"' "$S/manifest.json" 2>/dev/null)
+s1_kc=$(jq -r '.adoption.certification.kindC[0] // "MISSING"' "$S/manifest.json" 2>/dev/null)
+s1_sha=$(jq -r '.adoption.scannerReportSha256 // "MISSING"' "$S/manifest.json" 2>/dev/null)
+s1_at=$(jq -r '.adoption.adoptedAt // "MISSING"' "$S/manifest.json" 2>/dev/null)
+s1_anchor=$(jq -r '.adoption.adoptedAtCommit // "MISSING"' "$S/manifest.json" 2>/dev/null)
+s1_head=$( cd "$S" && git rev-parse HEAD 2>/dev/null )
+if [ "$s1_foreign" = "keep-me" ] && [ "$s1_currency" = "1" ] && [ "$s1_adopted" = "true" ] \
+   && [ "$s1_scenario" = "completed" ] && [ "$s1_landed" = "3" ] && [ "$s1_kc" = "tdd-ordering" ] \
+   && [ "$s1_sha" = "deadbeef" ] && [ "$s1_anchor" = "$s1_head" ] \
+   && printf '%s' "$s1_at" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T'; then
+  pass "S1: the stamp is ADDITIVE — foreignKey and .currency both survive — and the block carries §8.5's schema (adoptedAtCommit = the pre-adoption tip)"
+else
+  fail_ "S1" "foreign=$s1_foreign currency=$s1_currency adopted=$s1_adopted scenario=$s1_scenario landed=$s1_landed kindC=$s1_kc sha=$s1_sha adoptedAt=$s1_at anchor=$s1_anchor head=$s1_head"
+fi
+
+S2D="$(newtmp)"
+if ( cd "$S2D" && soif_adoption_stamp "absent-manifest.json" "completed" 1 '[]' '[]' '[]' '[]' "" ) >/dev/null 2>&1; then
+  if [ -e "$S2D/absent-manifest.json" ]; then
+    fail_ "S2" "the stamp CREATED a manifest that did not exist"
+  else
+    pass "S2: no-op on a missing manifest (rc 0, nothing created)"
+  fi
+else
+  fail_ "S2" "the stamp returned non-zero on a missing manifest (expected a silent no-op)"
+fi
+
+# ── S3: the five §8.5 existing-file writers, run IN SEQUENCE ────────────────
+# Each writer is exercised by the jq filter EXTRACTED from its own shipped
+# source, and each anchor is asserted at sites==1 first. That pin is the point:
+# if any writer changes shape, this test fails loudly rather than continuing to
+# exercise a hard-coded copy that no longer matches the tree. (Invoking the
+# whole surrounding script instead would drag an installer into a fast-lane
+# suite; the property under test is the ADDITIVITY OF THE FILTER.)
+W_CG="$REPO_ROOT/scripts/check-gate.sh"
+W_UP="$REPO_ROOT/scripts/upgrade-project.sh"
+W_CM="$REPO_ROOT/scripts/lib/currency-manifest.sh"
+F_HOST_CG='jq --arg h "$inferred" '"'"'.host = $h'"'"''
+F_HOST_UP='jq --arg h "$inferred_host" '"'"'.host = $h'"'"''
+F_BL030="'. + {deployment: \$dep, poc_mode: \$pm, enforcement_level: \"strict\"}'"
+F_BL061="'. + {deployment: \$dep, poc_mode: \$pm}'"
+F_CURR="'.currency = \$currency'"
+n_cg=$(grep -cF -- "$F_HOST_CG" "$W_CG" 2>/dev/null); n_cg=$(_num "$n_cg")
+n_up=$(grep -cF -- "$F_HOST_UP" "$W_UP" 2>/dev/null); n_up=$(_num "$n_up")
+n_30=$(grep -cF -- "$F_BL030" "$W_UP" 2>/dev/null); n_30=$(_num "$n_30")
+n_61=$(grep -cF -- "$F_BL061" "$W_UP" 2>/dev/null); n_61=$(_num "$n_61")
+n_cu=$(grep -cF -- "$F_CURR" "$W_CM" 2>/dev/null); n_cu=$(_num "$n_cu")
+
+S3D="$(newtmp)"
+cp "$S/manifest.json" "$S3D/manifest.json"
+_w() { # _w <jq-filter> <args...>  — apply one writer with the atomic-rename pattern
+  local filter="$1"; shift
+  jq "$@" "$filter" "$S3D/manifest.json" > "$S3D/manifest.json.tmp" && mv "$S3D/manifest.json.tmp" "$S3D/manifest.json"
+}
+w_ok=1
+_w '.host = $h' --arg h "github"                                                        || w_ok=0
+_w '.host = $h' --arg h "gitlab"                                                        || w_ok=0
+_w '. + {deployment: $dep, poc_mode: $pm, enforcement_level: "strict"}' --arg dep organizational --arg pm sponsored_poc || w_ok=0
+_w '. + {deployment: $dep, poc_mode: $pm}' --arg dep organizational --arg pm sponsored_poc || w_ok=0
+_w '.currency = $currency' --argjson currency '{"schemaVersion":1,"files":{}}'           || w_ok=0
+s3_adopted=$(jq -r '.adoption.adopted // "MISSING"' "$S3D/manifest.json" 2>/dev/null)
+s3_scen=$(jq -r '.adoption.scenario // "MISSING"' "$S3D/manifest.json" 2>/dev/null)
+s3_foreign=$(jq -r '.foreignKey // "MISSING"' "$S3D/manifest.json" 2>/dev/null)
+if [ "$w_ok" -eq 1 ] && [ "$s3_adopted" = "true" ] && [ "$s3_scen" = "completed" ] \
+   && [ "$s3_foreign" = "keep-me" ] \
+   && [ "$n_cg" -eq 1 ] && [ "$n_up" -eq 1 ] && [ "$n_30" -eq 1 ] && [ "$n_61" -eq 1 ] && [ "$n_cu" -eq 1 ]; then
+  pass "S3: all five §8.5 existing-file writers run in sequence (host×2, BL-030 backfill, BL-061 refresh, .currency) and the adoption block survives every one; each filter pinned at sites==1 in its shipped source"
+else
+  fail_ "S3" "writers_ok=$w_ok adopted=$s3_adopted scenario=$s3_scen foreign=$s3_foreign sites: check-gate=$n_cg upgrade-host=$n_up bl030=$n_30 bl061=$n_61 currency=$n_cu (each want 1)"
+fi
+
+S4D="$(newtmp)"
+printf '%s\n' '{"host":"github"}' > "$S4D/manifest.json"
+if ( cd "$S4D" && soif_adoption_stamp "manifest.json" "sideways" 1 '[]' '[]' '[]' '[]' "" ) >/dev/null 2>&1; then
+  fail_ "S4" "a scenario outside completed|in-flight was ACCEPTED"
+else
+  if jq -e '.adoption' "$S4D/manifest.json" >/dev/null 2>&1; then
+    fail_ "S4" "the stamp refused (rc non-zero) but still wrote an adoption block"
+  else
+    pass "S4: a scenario outside §8.5's completed|in-flight enum is refused and nothing is written"
+  fi
+fi
+
+echo ""
+echo "=== T — the TDD pre-adoption arm (§5.3 kind (c); dual-direction) ==="
+
+# mk_tdd_proj DIR TIER — a scratch project on the NON-bypassable tier by
+# default, so a firing TDD gate HARD-BLOCKS (rc 1) rather than warns and the
+# exit code is an unambiguous verdict. current_phase=1 keeps the BL-006
+# message check short-circuited (< 2) so the TDD arm alone decides.
+mk_tdd_proj() {
+  local d="$1" tier="${2:-strict}"
+  mkdir -p "$d/.claude" "$d/scripts/lib"
+  ( cd "$d" \
+      && git init -q \
+      && git config user.email "wp3@test.invalid" \
+      && git config user.name  "WP3 Test" \
+      && echo "# scratch" > README.md \
+      && git add README.md \
+      && git commit -q -m "chore: their history" ) || return 1
+  if [ "$tier" = "strict" ]; then
+    printf '%s\n' '{"current_phase":1,"track":"full","deployment":"organizational","poc_mode":"sponsored_poc","phases":{}}' > "$d/.claude/phase-state.json"
+  else
+    printf '%s\n' '{"current_phase":1,"track":"light","deployment":"personal","poc_mode":null,"phases":{}}' > "$d/.claude/phase-state.json"
+  fi
+  printf '%s\n' '{"phase2_init":{"steps_completed":[],"verified":false},"build_loop":{"feature":null,"step":0,"steps_completed":[]},"uat_session":{},"phase3_validation":{},"phase4_release":{}}' > "$d/.claude/process-state.json"
+  printf '%s\n' '{"frameworkVersion":"test","host":"other","mode":"personal"}' > "$d/.claude/manifest.json"
+  cp "$PCG" "$d/scripts/"
+  cp "$REPO_ROOT/scripts/lib/helpers.sh" \
+     "$REPO_ROOT/scripts/lib/helpers-core.sh" \
+     "$REPO_ROOT/scripts/lib/helpers-full.sh" \
+     "$REPO_ROOT/scripts/lib/tdd-classify.sh" \
+     "$LIB" "$d/scripts/lib/"
+  chmod +x "$d/scripts/pre-commit-gate.sh"
+}
+
+# adopt_proj DIR — write a real adoption stamp into the fixture's manifest with
+# the anchor at the CURRENT tip (this is the adoption window: the stamp exists,
+# the adoption commit has not landed yet).
+adopt_proj() {
+  local d="$1"
+  ( cd "$d" && soif_adoption_stamp ".claude/manifest.json" "completed" 3 '[]' '[]' '["tdd-ordering"]' '[]' "sha" )
+}
+
+# stage_impl_only DIR — one implementation file, no test, staged.
+stage_impl_only() {
+  local d="$1"
+  mkdir -p "$d/src"
+  printf 'export function add(a,b){return a+b;}\n' > "$d/src/add.js"
+  ( cd "$d" && git add src/add.js )
+}
+
+# run_tdd DIR SUBJECT — the commit-msg surface. Echoes output; rc is the verdict.
+run_tdd() {
+  local d="$1" subject="$2"
+  printf '%s\n' "$subject" > "$d/.git/COMMIT_EDITMSG"
+  ( cd "$d" && bash scripts/pre-commit-gate.sh --terminal-mode --tdd-only 2>&1 )
+}
+
+# ── T1 — direction (i) CONTROL: a pre-adoption commit is exempt ─────────────
+T1D="$(newtmp)/p"
+if ! mk_tdd_proj "$T1D"; then
+  fail_ "T1" "fixture setup failed"
+else
+  adopt_proj "$T1D" >/dev/null 2>&1
+  stage_impl_only "$T1D"
+  t1_out=$(run_tdd "$T1D" "feat: their pre-adoption work"); t1_rc=$?
+  if [ "$t1_rc" -eq 0 ]; then
+    pass "T1 (direction i, control): an adopted project's PRE-adoption commit is exempt on a NON-bypassable tier — rc 0"
+  else
+    fail_ "T1" "rc=$t1_rc (want 0). Output: $(printf '%s' "$t1_out" | tail -3 | tr '\n' ' ')"
+  fi
+fi
+
+# ── T2 — direction (i) MUTATION: neuter the exemption guard ────────────────
+T2R="$(newtmp)"; T2D="$T2R/p"
+if ! mk_tdd_proj "$T2D"; then
+  fail_ "T2" "fixture setup failed"
+else
+  adopt_proj "$T2D" >/dev/null 2>&1
+  stage_impl_only "$T2D"
+  MUT="$T2D/scripts/pre-commit-gate.sh"
+  guard_sites=$(grep -c 'BF-ADOPT-TDD-GUARD$' "$PCG" 2>/dev/null); guard_sites=$(_num "$guard_sites")
+  cp "$PCG" "$T2R/orig.ref"
+  _sed_inplace "$MUT" 's|^.*BF-ADOPT-TDD-GUARD$|  if false; then   # BF-ADOPT-TDD-GUARD|'
+  chg2=$(_changed_lines "$T2R/orig.ref" "$MUT")
+  p2=$(_parses "$MUT")
+  t2_out=$(run_tdd "$T2D" "feat: their pre-adoption work"); t2_rc=$?
+  if [ "$t2_rc" -ne 0 ] && [ "$chg2" -eq 2 ] && [ "$guard_sites" -eq 1 ] && [ "$p2" -eq 1 ]; then
+    pass "T2 (direction i, mutation): with the exemption guard neutered (1 line, mutant still parses), the SAME pre-adoption fixture BLOCKS — rc $t2_rc; the exemption is load-bearing"
+  else
+    fail_ "T2" "rc=$t2_rc (want non-zero) changed_lines=$chg2 (want 2) guard_anchor_sites=$guard_sites (want 1) mutant_parses=$p2 (want 1)"
+  fi
+fi
+
+# ── T3 — direction (ii) CONTROL: a POST-adoption commit blocks ─────────────
+# The adoption commit has landed, so the anchor is a STRICT ancestor of HEAD.
+T3R="$(newtmp)"; T3D="$T3R/p"
+if ! mk_tdd_proj "$T3D"; then
+  fail_ "T3" "fixture setup failed"
+else
+  adopt_proj "$T3D" >/dev/null 2>&1
+  ( cd "$T3D" && git add -A .claude && git commit -q -m "chore: adopt project" ) >/dev/null 2>&1
+  stage_impl_only "$T3D"
+  t3_out=$(run_tdd "$T3D" "feat: work written AFTER adoption day"); t3_rc=$?
+  if [ "$t3_rc" -ne 0 ]; then
+    pass "T3 (direction ii, control): a POST-adoption commit with no test BLOCKS — rc $t3_rc. §4.5: no arm exempts a commit written after adoption day"
+  else
+    fail_ "T3" "rc=$t3_rc (want non-zero) — the exemption leaked past the adoption commit"
+  fi
+fi
+
+# ── T4 — direction (ii) MUTATION: neuter the BOUND. THE PROOF THAT MATTERS ──
+# An unbounded exemption is a permanent TDD waiver wearing an adoption badge.
+# The expected mutant result is an ABSENCE (no block), so this carries a
+# structural discriminator: the mutant must PRINT the arm's own exemption line,
+# which only the exemption path can emit. rc is still the verdict.
+T4R="$(newtmp)"; T4D="$T4R/p"
+if ! mk_tdd_proj "$T4D"; then
+  fail_ "T4" "fixture setup failed"
+else
+  adopt_proj "$T4D" >/dev/null 2>&1
+  ( cd "$T4D" && git add -A .claude && git commit -q -m "chore: adopt project" ) >/dev/null 2>&1
+  stage_impl_only "$T4D"
+  MUT4="$T4D/scripts/lib/adoption-stamp.sh"
+  bound_sites=$(grep -c 'BF-ADOPT-BOUND$' "$LIB" 2>/dev/null); bound_sites=$(_num "$bound_sites")
+  cp "$LIB" "$T4R/orig-lib.ref"
+  _sed_inplace "$MUT4" 's|^.*BF-ADOPT-BOUND$|  if false; then   # BF-ADOPT-BOUND|'
+  chg4=$(_changed_lines "$T4R/orig-lib.ref" "$MUT4")
+  p4=$(_parses "$MUT4")
+  t4_out=$(run_tdd "$T4D" "feat: work written AFTER adoption day"); t4_rc=$?
+  # Discriminator 1: the mutant library still LOADS and still answers the
+  # accessor — so an rc 0 cannot be a crashed-and-silent mutant.
+  d4_load=0
+  ( . "$MUT4" && soif_adoption_adopted "$T4D/.claude/manifest.json" ) >/dev/null 2>&1 && d4_load=1
+  # Discriminator 2: the EXEMPTION path announced itself. rc 0 alone is shared
+  # by "exempted" and "the gate never fired"; only the exemption emits this.
+  d4_msg=0
+  printf '%s' "$t4_out" | grep -q 'PRE-ADOPTION commit' && d4_msg=1
+  if [ "$t4_rc" -eq 0 ] && [ "$chg4" -eq 2 ] && [ "$bound_sites" -eq 1 ] \
+     && [ "$p4" -eq 1 ] && [ "$d4_load" -eq 1 ] && [ "$d4_msg" -eq 1 ]; then
+    pass "T4 (direction ii, mutation — THE ONE THAT MATTERS): with the BOUND neutered (1 line, mutant still parses), a POST-adoption commit with no test PASSES (rc 0) via the exemption path; the unmutated control (T3) blocks"
+  else
+    fail_ "T4" "rc=$t4_rc (want 0) changed_lines=$chg4 (want 2) bound_anchor_sites=$bound_sites (want 1) mutant_parses=$p4 (want 1) mutant_lib_loads=$d4_load (want 1) exemption_path_announced=$d4_msg (want 1)"
+  fi
+fi
+
+# ── T5 — greenfield regression: the arm must not leak ──────────────────────
+T5R="$(newtmp)"; T5D="$T5R/p"
+if ! mk_tdd_proj "$T5D"; then
+  fail_ "T5" "fixture setup failed"
+else
+  stage_impl_only "$T5D"
+  t5_out=$(run_tdd "$T5D" "feat: ordinary greenfield work"); t5_rc=$?
+  if [ "$t5_rc" -ne 0 ]; then
+    pass "T5: a project with NO adoption block behaves exactly as before — rc $t5_rc on a non-bypassable tier"
+  else
+    fail_ "T5" "rc=$t5_rc (want non-zero) — the WP3 arm changed greenfield behaviour"
+  fi
+fi
+
+# ── T6 — tier behaviour untouched (§9) ─────────────────────────────────────
+T6R="$(newtmp)"; T6D="$T6R/p"
+if ! mk_tdd_proj "$T6D" bypassable; then
+  fail_ "T6" "fixture setup failed"
+else
+  adopt_proj "$T6D" >/dev/null 2>&1
+  ( cd "$T6D" && git add -A .claude && git commit -q -m "chore: adopt project" ) >/dev/null 2>&1
+  stage_impl_only "$T6D"
+  t6_out=$(run_tdd "$T6D" "feat: post-adoption on a bypassable tier"); t6_rc=$?
+  t6_warned=0
+  printf '%s' "$t6_out" | grep -q 'BL-072 TDD ordering' && t6_warned=1
+  if [ "$t6_rc" -eq 0 ] && [ "$t6_warned" -eq 1 ]; then
+    pass "T6: tier behaviour is UNTOUCHED — a bypassable tier still warns-and-allows post-adoption (rc 0, BL-072 line emitted)"
+  else
+    fail_ "T6" "rc=$t6_rc (want 0) bl072_line_emitted=$t6_warned (want 1)"
+  fi
+fi
+
+echo ""
+echo "=== G — stamp acceptance in the gate + the loss detector ==="
+
+# mk_gate_proj DIR — a project check-phase-gate.sh will actually evaluate.
+mk_gate_proj() {
+  local d="$1"
+  mkdir -p "$d/.claude" "$d/scripts/lib" "$d/docs"
+  ( cd "$d" \
+      && git init -q \
+      && git config user.email "wp3g@test.invalid" \
+      && git config user.name  "WP3 Gate Test" ) || return 1
+  printf '%s\n' '{"current_phase":0,"track":"light","deployment":"personal","poc_mode":null,"gates":{}}' > "$d/.claude/phase-state.json"
+  printf '%s\n' '# Approval Log' > "$d/APPROVAL_LOG.md"
+  printf '%s\n' '{"frameworkVersion":"test","host":"other","mode":"personal"}' > "$d/.claude/manifest.json"
+  cp "$GATE" "$d/scripts/"
+  cp "$REPO_ROOT/scripts/lib/helpers.sh" \
+     "$REPO_ROOT/scripts/lib/helpers-core.sh" \
+     "$REPO_ROOT/scripts/lib/helpers-full.sh" \
+     "$LIB" "$d/scripts/lib/"
+  chmod +x "$d/scripts/check-phase-gate.sh"
+}
+
+run_gate() { ( cd "$1" && bash scripts/check-phase-gate.sh 2>&1 ); }
+
+# ── G1 — intact adoption ⇒ no finding (baseline parity) ────────────────────
+G1D="$(newtmp)/p"
+if ! mk_gate_proj "$G1D"; then
+  fail_ "G1" "fixture setup failed"
+else
+  g1_base_out=$(run_gate "$G1D"); g1_base_rc=$?
+  ( cd "$G1D" && soif_adoption_stamp ".claude/manifest.json" "completed" 0 '[]' '[]' '[]' '[]' "sha" ) >/dev/null 2>&1
+  ( cd "$G1D" && git add -A && git commit -q -m "chore: adopt" ) >/dev/null 2>&1
+  g1_out=$(run_gate "$G1D"); g1_rc=$?
+  if [ "$g1_rc" -eq "$g1_base_rc" ] && [ "$g1_rc" -eq 0 ]; then
+    pass "G1: an adopted project with an INTACT stamp exits exactly as the unadopted control (rc $g1_rc) — the arm adds no finding when nothing is wrong"
+  else
+    fail_ "G1" "adopted_rc=$g1_rc unadopted_control_rc=$g1_base_rc (want both 0)"
+  fi
+fi
+
+# ── G2 — the stamp is committed at HEAD but gone from the working tree ─────
+G2D="$(newtmp)/p"
+if ! mk_gate_proj "$G2D"; then
+  fail_ "G2" "fixture setup failed"
+else
+  ( cd "$G2D" && soif_adoption_stamp ".claude/manifest.json" "completed" 0 '[]' '[]' '[]' '[]' "sha" ) >/dev/null 2>&1
+  ( cd "$G2D" && git add -A && git commit -q -m "chore: adopt" ) >/dev/null 2>&1
+  # Simulate the wholesale regeneration: an upstream key set with no Solo keys.
+  printf '%s\n' '{"frameworkVersion":"9","frameworkRepo":"kraulerson/claude-dev-framework","files":{}}' > "$G2D/.claude/manifest.json"
+  g2_out=$(run_gate "$G2D"); g2_rc=$?
+  g2_named=0
+  printf '%s' "$g2_out" | grep -q 'adoption' && g2_named=1
+  if [ "$g2_rc" -ne 0 ] && [ "$g2_named" -eq 1 ]; then
+    pass "G2: a manifest regenerated without the adoption block makes the gate exit NON-ZERO (rc $g2_rc) and the report names the loss — detected, not prevented"
+  else
+    fail_ "G2" "rc=$g2_rc (want non-zero) loss_reported=$g2_named (want 1)"
+  fi
+fi
+
+# ── G3 — MUTATION: remove the detection ⇒ the project SILENTLY un-adopts ───
+# Expected mutant result is an ABSENCE, so the discriminators matter: the
+# mutant gate must still RUN to completion (it prints its own consistency
+# verdict) and the mutant library must still answer the accessor.
+G3R="$(newtmp)"; G3D="$G3R/p"
+if ! mk_gate_proj "$G3D"; then
+  fail_ "G3" "fixture setup failed"
+else
+  ( cd "$G3D" && soif_adoption_stamp ".claude/manifest.json" "completed" 0 '[]' '[]' '[]' '[]' "sha" ) >/dev/null 2>&1
+  ( cd "$G3D" && git add -A && git commit -q -m "chore: adopt" ) >/dev/null 2>&1
+  printf '%s\n' '{"frameworkVersion":"9","frameworkRepo":"kraulerson/claude-dev-framework","files":{}}' > "$G3D/.claude/manifest.json"
+  MUT3="$G3D/scripts/lib/adoption-stamp.sh"
+  det_sites=$(grep -c 'BF-ADOPT-LOSS-DETECT$' "$LIB" 2>/dev/null); det_sites=$(_num "$det_sites")
+  cp "$LIB" "$G3R/orig-lib.ref"
+  _sed_inplace "$MUT3" 's|^.*BF-ADOPT-LOSS-DETECT$|  return 1   # BF-ADOPT-LOSS-DETECT|'
+  chg3=$(_changed_lines "$G3R/orig-lib.ref" "$MUT3")
+  p3=$(_parses "$MUT3")
+  g3_out=$(run_gate "$G3D"); g3_rc=$?
+  d3_ran=0
+  printf '%s' "$g3_out" | grep -q 'Phase gates consistent' && d3_ran=1
+  d3_load=0
+  ( . "$MUT3" && ! soif_adoption_adopted "$G3D/.claude/manifest.json" ) >/dev/null 2>&1 && d3_load=1
+  if [ "$g3_rc" -eq 0 ] && [ "$chg3" -eq 2 ] && [ "$det_sites" -eq 1 ] && [ "$p3" -eq 1 ] \
+     && [ "$d3_ran" -eq 1 ] && [ "$d3_load" -eq 1 ]; then
+    pass "G3 (mutation): with the post-regeneration detection removed (1 line), the project SILENTLY un-adopts — the gate exits 0 on the same fixture G2 blocks; the mutant gate still ran to its own verdict and the mutant library still loads"
+  else
+    fail_ "G3" "rc=$g3_rc (want 0) changed_lines=$chg3 (want 2) detect_anchor_sites=$det_sites (want 1) mutant_parses=$p3 (want 1) gate_ran_to_verdict=$d3_ran (want 1) mutant_lib_loads=$d3_load (want 1)"
+  fi
+fi
+
+# ── G4 — mid-adoption: the stamp is not committed yet ⇒ no false alarm ─────
+G4D="$(newtmp)/p"
+if ! mk_gate_proj "$G4D"; then
+  fail_ "G4" "fixture setup failed"
+else
+  ( cd "$G4D" && git add -A && git commit -q -m "chore: their history" ) >/dev/null 2>&1
+  ( cd "$G4D" && soif_adoption_stamp ".claude/manifest.json" "in-flight" 0 '[]' '[]' '[]' '[]' "sha" ) >/dev/null 2>&1
+  g4_out=$(run_gate "$G4D"); g4_rc=$?
+  if [ "$g4_rc" -eq 0 ]; then
+    pass "G4: a mid-adoption project (stamp written, not yet committed) raises NO loss finding — rc 0"
+  else
+    fail_ "G4" "rc=$g4_rc (want 0) — false alarm before the adoption commit lands"
+  fi
+fi
+
+# ── G5 — no FALSE ALARM from a subdirectory ────────────────────────────────
+# `git show HEAD:<p>` resolves from the REPO ROOT; `[ -f <p> ]` resolves from
+# the CWD. Off-root those name different files, and the mismatch reads exactly
+# like "committed but missing from the working tree". A false FAIL is the
+# failure direction this repo has already paid for twice, so the guard against
+# it gets its own pin rather than riding on the happy path.
+G5D="$(newtmp)/p"
+if ! mk_gate_proj "$G5D"; then
+  fail_ "G5" "fixture setup failed"
+else
+  ( cd "$G5D" && soif_adoption_stamp ".claude/manifest.json" "completed" 0 '[]' '[]' '[]' '[]' "sha" ) >/dev/null 2>&1
+  ( cd "$G5D" && git add -A && git commit -q -m "chore: adopt" ) >/dev/null 2>&1
+  mkdir -p "$G5D/src/deep"
+  g5_root_lost=0
+  ( cd "$G5D" && soif_adoption_integrity_lost ".claude/manifest.json" ) >/dev/null 2>&1 && g5_root_lost=1
+  g5_sub_lost=0
+  ( cd "$G5D/src/deep" && soif_adoption_integrity_lost ".claude/manifest.json" ) >/dev/null 2>&1 && g5_sub_lost=1
+  if [ "$g5_root_lost" -eq 0 ] && [ "$g5_sub_lost" -eq 0 ]; then
+    pass "G5: an intact adopted project reports no loss from the repo root AND none from a subdirectory — the off-root path mismatch cannot manufacture a false FAIL"
+  else
+    fail_ "G5" "loss_at_root=$g5_root_lost (want 0) loss_in_subdir=$g5_sub_lost (want 0)"
+  fi
+fi
+
+echo ""
+echo "Results: $PASSED passed, $FAILED failed"
+[ "$FAILED" -eq 0 ]
