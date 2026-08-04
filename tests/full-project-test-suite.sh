@@ -1769,6 +1769,23 @@ run_child_suite "tests/test-delta-wp4-close-rubric.sh" \
 # executes init.sh -> both lanes.
 run_child_suite "tests/test-delta-wp5-hotfix-retro.sh" \
   "tests/test-delta-wp5-hotfix-retro.sh"
+# Delta Track WP6 (§8.3) — the calendar trigger, and BL-213's fail-open repair.
+# The thresholds move to `.claude/delta-policy.json::cadence` and are read
+# through the ONE seam (the checker is CORE, so it may not name the module);
+# absent policy or an absent module still measures on the framework defaults.
+# The exit contract WP7's release cut consumes is pinned on the EXIT CODE, never
+# on the printed sentence: 0 measured-and-current, 1 overdue, 2 UNMEASURABLE —
+# the code §14-V13 proved did not exist, where a date neither parser accepted
+# was skipped in silence and reported as "All maintenance cadences current" at
+# rc 0. Mutation-proved IN THE SUITE (m1-m4, each mutant built and run): revert
+# the routine default 14 -> 35 -> the 15-day fixture passes -> P1 RED; REMOVE
+# THE UNDETERMINED COUNTER -> the unparseable fixture reports all-current at
+# rc 0 -> E3 RED (the pin that matters most); neuter the seam read -> the
+# retune stops moving the boundary -> P2 RED; neuter the nag's fail-open arm ->
+# a crashing checker takes SessionStart with it -> H4 RED. Never executes the
+# init script -> both lanes.
+run_child_suite "tests/test-delta-wp6-cadence.sh" \
+  "tests/test-delta-wp6-cadence.sh"
 run_child_suite "tests/test-check-phase-gate.sh" "tests/test-check-phase-gate.sh"
 run_child_suite "tests/test-check-phase-gate-poc-block-contract.sh" \
   "tests/test-check-phase-gate-poc-block-contract.sh"

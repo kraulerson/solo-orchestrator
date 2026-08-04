@@ -1365,6 +1365,10 @@ create_project() {
   cp "$SCRIPT_DIR/scripts/session-freshness-check.sh" scripts/   # BL-109 S2 (Currency System, Layer 1)
   cp "$SCRIPT_DIR/scripts/session-test-gate-check.sh" scripts/
   cp "$SCRIPT_DIR/scripts/session-intake-check.sh" scripts/   # BL-202 (intake/Phase-0 dead-air)
+  # The SessionStart nag arm for the cadence checker (design v1 §8.3's second
+  # enforcement point). check-maintenance.sh itself is already copied below —
+  # §0.3-C1: the orphan was never the shipping, only the invocation.
+  cp "$SCRIPT_DIR/scripts/session-cadence-check.sh" scripts/
   cp "$SCRIPT_DIR/scripts/session-end-qdrant-reminder.sh" scripts/
   cp "$SCRIPT_DIR/scripts/session-mcp-gate.sh" scripts/
   cp "$SCRIPT_DIR/scripts/process-checklist.sh" scripts/
@@ -1434,7 +1438,7 @@ create_project() {
   cp "$SCRIPT_DIR/scripts/lib/host-errors.sh" scripts/lib/
   cp "$SCRIPT_DIR/scripts/host-drivers/"*.sh scripts/host-drivers/
   chmod +x scripts/host-drivers/*.sh
-  chmod +x scripts/validate.sh scripts/check-phase-gate.sh scripts/run-phase3-validation.sh scripts/check-gate.sh scripts/check-updates.sh scripts/resume.sh scripts/intake-wizard.sh scripts/resolve-tools.sh scripts/upgrade-project.sh scripts/reconfigure-project.sh scripts/verify-install.sh scripts/test-gate.sh scripts/check-versions.sh scripts/session-version-check.sh scripts/session-freshness-check.sh scripts/session-test-gate-check.sh scripts/session-intake-check.sh scripts/session-end-qdrant-reminder.sh scripts/session-mcp-gate.sh scripts/process-checklist.sh scripts/pre-commit-gate.sh scripts/track-tool-usage.sh scripts/pending-approval.sh scripts/lint-uat-scenarios.sh scripts/check-maintenance.sh scripts/lint-backlog-references.sh scripts/lint-counter-antipattern.sh scripts/lint-review-manifest.sh
+  chmod +x scripts/validate.sh scripts/check-phase-gate.sh scripts/run-phase3-validation.sh scripts/check-gate.sh scripts/check-updates.sh scripts/resume.sh scripts/intake-wizard.sh scripts/resolve-tools.sh scripts/upgrade-project.sh scripts/reconfigure-project.sh scripts/verify-install.sh scripts/test-gate.sh scripts/check-versions.sh scripts/session-version-check.sh scripts/session-freshness-check.sh scripts/session-test-gate-check.sh scripts/session-intake-check.sh scripts/session-cadence-check.sh scripts/session-end-qdrant-reminder.sh scripts/session-mcp-gate.sh scripts/process-checklist.sh scripts/pre-commit-gate.sh scripts/track-tool-usage.sh scripts/pending-approval.sh scripts/lint-uat-scenarios.sh scripts/check-maintenance.sh scripts/lint-backlog-references.sh scripts/lint-counter-antipattern.sh scripts/lint-review-manifest.sh
 
   # Copy intake suggestion files
   mkdir -p templates/intake-suggestions
@@ -1911,6 +1915,18 @@ PERMEOF
           hooks_added=true
         fi
         # BL-202-INTAKE-HOOK-END
+        # CADENCE-NAG-HOOK-BEGIN — the maintenance-cadence nag (design v1 §8.3's
+        # SessionStart enforcement point, the soft half of the pair whose hard
+        # half is the release cut). Silent when every cadence is current,
+        # zero-network, fail-open (exit 0 under every failure mode). Injected
+        # exactly like the four hooks above; fenced so the registration is
+        # excisable for a mutation proof without touching its siblings.
+        if ! jq -e '.hooks.SessionStart[0].hooks[] | select(.command | contains("session-cadence-check.sh"))' .claude/settings.json >/dev/null 2>&1; then
+          jq '.hooks.SessionStart[0].hooks += [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/session-cadence-check.sh"}]' .claude/settings.json > .claude/settings.json.tmp \
+            && mv .claude/settings.json.tmp .claude/settings.json
+          hooks_added=true
+        fi
+        # CADENCE-NAG-HOOK-END
         # Add Qdrant reminder to Stop hook
         if jq -e '.hooks.Stop' .claude/settings.json >/dev/null 2>&1; then
           if ! jq -e '.hooks.Stop[0].hooks[] | select(.command | contains("session-end-qdrant-reminder.sh"))' .claude/settings.json >/dev/null 2>&1; then

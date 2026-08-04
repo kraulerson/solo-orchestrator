@@ -435,6 +435,7 @@ jobs:
             tests/test-delta-wp3-era-classify.sh
             tests/test-delta-wp4-close-rubric.sh
             tests/test-delta-wp5-hotfix-retro.sh
+            tests/test-delta-wp6-cadence.sh
             tests/test-docs-cluster-six-pack.sh
             tests/test-enforcement-level-lib.sh
             tests/test-escalate-to-user.sh

@@ -2003,35 +2003,66 @@ always refuse. Fixing the evidence is usually faster than the escalation.
 
 ### Step 4.4: Ongoing Maintenance Cadence
 
-**Schedule these cadences proactively** — create recurring calendar events for each application. Do not rely on memory. Run `scripts/check-maintenance.sh` to verify whether any cadence is overdue.
+**Schedule these cadences proactively** — create recurring calendar events for each application. Do not rely on memory. `scripts/check-maintenance.sh` is the tool that says whether any of them is overdue, and you can run it by hand at any time.
 
-**Weekly (30 minutes):**
+**Does it also run on its own? That depends on how this project got here.**
+
+- **Scaffolded by `init.sh`:** yes. `scripts/session-cadence-check.sh` is registered as a SessionStart hook, so every session opens with a check.
+- **Upgraded from an older version by `scripts/upgrade-project.sh`:** the upgrade delivers **both scripts** — so the checker itself is current, including the repaired exit codes below — but it does **not** add the SessionStart registration. Until it does, run the checker by hand on your own cadence, or register the hook yourself by adding `bash "$CLAUDE_PROJECT_DIR"/scripts/session-cadence-check.sh` to `hooks.SessionStart` in `.claude/settings.json`.
+
+#### The two cadences the tool measures
+
+Two of the buckets below are **mechanically checked**; the rest are practice the tool cannot see. Both windows are **policy, not constants** — a project on a slower schedule changes a config, it does not fork the script:
+
+| Cadence | Signal it reads | Default window | Policy key |
+|---|---|---|---|
+| **Routine review** | the last commit that touched `CHANGELOG.md`, and the last that touched `sbom.json` | 14 days | `cadence.routine_review_days` |
+| **Deep security scan** (the dependency audit is folded into it) | the newest dated file in `docs/test-results/` matching `*snyk*`, `*dep*`, `*audit*`, `*semgrep*` or `*sast*` | 95 days | `cadence.deep_security_days` |
+
+Both keys live in the project's post-1.0 policy file (`.claude/delta-policy.json`, `cadence` block). An absent file, an absent key — or a project that has never opened any post-release work at all — falls back to the defaults above, so the checker works everywhere.
+
+**Its three exit codes, and what they mean.** Read the code, not the closing sentence:
+
+- **0** — every applicable cadence was **measured** and is current.
+- **1** — one or more cadences are **overdue**.
+- **2** — one or more **could not be measured**, and none is overdue. A `CHANGELOG.md` with no git history, an empty `docs/test-results/`, a scan file with no date in its name, or a date no parser accepts all land here.
+
+A release cut **refuses on 1 and on 2**. Unmeasurable is not a pass: before this was fixed, an unreadable date was silently skipped and reported as current, so a cadence nobody had actually measured could sail through a tag.
+
+**What the check does NOT prove.** Two of these signals are **dates parsed out of filenames**. A file named with today's date and containing nothing satisfies the cadence completely. The windows above make the *schedule* stricter; they do not make the *evidence* stronger. Treat a green run as "the calendar is being kept", never as "the scan found nothing".
+
+**A cadence surface you do not have is not a failure.** No `CHANGELOG.md`, no `sbom.json` or no `docs/test-results/` is reported as *not applicable* and does not move any counter — the tool measures a cadence, it does not audit whether you have a maintenance practice. Where the session-start nag is registered, it stays completely quiet unless something is wrong, and says nothing at all until the project reaches Phase 4 — none of this applies to a product that has not launched. It also stays quiet if the checker itself fails to run: a hook that cannot measure anything reports nothing rather than guessing.
+
+#### The practice
+
+**Weekly (30 minutes) — habit, not checked:**
 - Review error dashboard and monitoring alerts
 - Health check: application is up and responsive
 - Review any user feedback or support requests
 
-**Monthly (1-2 hours):**
-- Dependency and security audit
+**Routine review (1-2 hours, every 14 days by default) — CHECKED:**
 - Apply non-breaking security patches
 - Review error dashboard. Fix recurring errors.
 - Rotate API keys/tokens approaching expiration
-- Update SBOM
-- Run full E2E test suite before each maintenance release
+- Update the SBOM (`sbom.json`)
+- Run the full E2E test suite before each maintenance release
 - Triage incoming bugs from production monitoring (same severity classification as Phase 2)
+- Write the CHANGELOG entry — it is half of what the check reads
 
-**Quarterly (2-3 hours):**
+**Quarterly (2-3 hours) — habit, not checked:**
 - Review usage: what are users doing? What are they requesting?
 - Performance comparison to last quarter
 - Infrastructure/distribution cost review
 - Prioritize post-MVP backlog based on real user signals
 - Run full regression test suite (all Phase 2 + Phase 3 tests)
 
-**Biannually (3-4 hours):**
-- Full dependency audit. Identify deprecated packages.
+**Deep security scan (3-4 hours, every 95 days by default) — CHECKED:**
+- **Full dependency audit. Identify deprecated packages.** (This used to sit under a separate biannual bucket and a separate 95-day check; it is one activity on one clock now.)
 - Plan version upgrades.
-- Re-run full Phase 3 security and performance audit.
+- Re-run the full Phase 3 security and performance audit.
 - Verify AI provider terms (if using AI in development).
 - Review platform requirements (SDK versions, OS support, store policies).
+- **Leave the evidence where the tool looks:** a dated artefact in `docs/test-results/` (for example `2026-08-03_semgrep_pass.txt`). A scan you ran and did not record is a scan the cadence cannot see.
 
 ---
 
