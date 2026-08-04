@@ -638,6 +638,58 @@ run_child_suite "tests/test-brownfield-wp2-scout-sections.sh" \
   "Scout secrets/collisions/tests/prefill (planted-secret allowlist proof)" \
   "Scout WP2 section tests FAILED (run tests/test-brownfield-wp2-scout-sections.sh for details)"
 
+# Brownfield adoption WP3: tests/test-brownfield-wp3-adoption-arms.sh — the
+# IN-CORE ENABLING ARMS, and the design's own named LINCHPIN: the only
+# brownfield package that touches a gate. The `adopted` flag accessor,
+# soif_adoption_stamp, the TDD pre-adoption exemption, and stamp acceptance in
+# check-phase-gate.sh.
+# EVERY VERDICT IS AN EXIT CODE. In check-phase-gate.sh the [WARN]/[FAIL] label
+# is cosmetic and an exemption is the ABSENCE of an `issues` increment, so a
+# test that greps a label proves nothing.
+# The TDD arm is proved in BOTH DIRECTIONS and direction (ii) is the one that
+# matters: neuter the exemption and a pre-adoption commit blocks; neuter the
+# BOUND and a POST-adoption commit with no test passes — an unbounded exemption
+# is a permanent TDD waiver wearing an adoption badge.
+# T7 IS THE ATTACK BATTERY AND IT IS NOT OPTIONAL. The first cut of this WP
+# shipped 19/19 green with a bound that everyday git defeated: the T-series
+# never constructed a divergent history, and six of ten histories exempted a
+# POST-adoption commit — a local rebase, a SQUASH MERGE (a GitHub default, and
+# the worst: it exempts every subsequent mainline commit forever), an orphan
+# branch, a cherry-pick, a second stamp, and a working-copy anchor tamper. All
+# ten are pinned here, T1 stays as the control that a predicate which merely
+# blocked everything would fail, and T8 proves EACH of the corrected bound's two
+# conjuncts load-bearing separately — one conjunct proven only jointly can be
+# dead code, and dead code here is a reopened hole. The stamp is proved
+# additive against a foreign top-level key AND against all five §8.5
+# existing-file writers run in sequence, each writer's jq filter pinned at
+# sites==1 in its own shipped source so a changed writer fails loudly instead
+# of leaving a stale copy under test. Every mutant is anchored at sites==1,
+# line-counted at exactly one changed line, mode-preserving, run in a FRESH
+# fixture, and asserted TO STILL PARSE — the first cut of one mutation landed
+# mid-continuation of a two-line `if`, counted 2 changed lines, and proved a
+# syntax error. Never touches the scaffolder -> both lanes.
+run_child_suite "tests/test-brownfield-wp3-adoption-arms.sh" \
+  "Adoption enabling arms (flag, stamp, bounded TDD exemption, gate acceptance)" \
+  "Adoption WP3 arm tests FAILED (run tests/test-brownfield-wp3-adoption-arms.sh for details)"
+
+# Brownfield adoption WP3: tests/test-brownfield-wp3-regenerate-path.sh — the
+# regenerate-path proof, RE-AIMED at v1.1 (design §0.2 R-BF-1) because v1.0's
+# version was refuted as trivially green: it ran fix_phase_state(), which never
+# touches manifest.json and so could not have failed.
+# The real path is exercised for real: a committed adoption stamp, the manifest
+# deleted, and the SHIPPED fix_framework_manifest executed, which delegates to
+# the UPSTREAM framework installer and rewrites the manifest wholesale from a
+# key set carrying none of this framework's keys. The loss CANNOT be prevented
+# — the writer is in a different repository — so what is proved is that it is
+# DETECTED AND REPORTED LOUDLY, and that removing the detection makes the
+# project SILENTLY un-adopt. R2 is a non-vacuity gate for R3/R4: a manifest that
+# never regenerated would make the detector fire for the wrong reason.
+# EXECUTES the upstream installer, so it is legitimately unit-lane exempt and
+# lives here only; it SKIPS cleanly when the upstream clone is absent.
+run_child_suite "tests/test-brownfield-wp3-regenerate-path.sh" \
+  "Adoption stamp regenerate path (loud detection of an unpreventable loss)" \
+  "Adoption WP3 regenerate-path tests FAILED (run tests/test-brownfield-wp3-regenerate-path.sh for details)"
+
 # ----------------------------------------------------------------
 # TEST 0g: INTAKE WIZARD + RECONFIGURE FIELD HANDLERS
 # ----------------------------------------------------------------
