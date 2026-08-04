@@ -436,6 +436,8 @@ jobs:
             tests/test-delta-wp4-close-rubric.sh
             tests/test-delta-wp5-hotfix-retro.sh
             tests/test-delta-wp6-cadence.sh
+            tests/test-delta-wp7-cut-release.sh
+            tests/test-delta-severability.sh
             tests/test-docs-cluster-six-pack.sh
             tests/test-enforcement-level-lib.sh
             tests/test-escalate-to-user.sh
@@ -446,6 +448,7 @@ jobs:
             tests/test-host-verify-protection-date-parse.sh
             tests/test-bl202-readme-kickoff-consolidation.sh
             tests/test-bl202-session-intake-check.sh
+            tests/test-bl214-gate-snapshot-staleness.sh
             tests/test-intake-wizard-fixes.sh
             tests/test-lint-backlog-references.sh
             tests/test-lint-bl-markers.sh

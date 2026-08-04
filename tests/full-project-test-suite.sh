@@ -1786,7 +1786,59 @@ run_child_suite "tests/test-delta-wp5-hotfix-retro.sh" \
 # init script -> both lanes.
 run_child_suite "tests/test-delta-wp6-cadence.sh" \
   "tests/test-delta-wp6-cadence.sh"
+
+# Delta Track WP7 — scripts/cut-release.sh (§9). The three refusals in §9.2's
+# order, each fired alone AND in combination, every one asserted with a
+# whole-tree find + per-file md5 manifest PLUS a separate tag-set count (a
+# `git tag` writes into .git/, which a working-tree manifest cannot see); the
+# semver arithmetic, where the class->bump MAP is project policy and the
+# PRECEDENCE is machinery with no configuration surface at all; the §9.3
+# promotion, whose eight categories are compared against the template's own
+# bytes rather than a list retyped in the test; and the C7 tag constraint —
+# exactly vMAJOR.MINOR.PATCH, because GitLab's release lanes are version-strict
+# while GitHub's and Bitbucket's are not, so a pre-release suffix builds on two
+# hosts and silently does nothing on the third. Mutation-proved IN THE SUITE
+# (m1-m5, m7, each mutant built and run): suppress the open-retro refusal -> a
+# release cuts over an unfiled retro -> R2 RED; emit `v1.2.0-rc1` -> T1 RED (the
+# C7 defence); collapse the cadence checker's rc 2 into a pass -> R4 RED
+# (BL-213's fail-open, one level up); reorder the semver precedence -> a feature
+# ships as a patch -> S1/S6 RED; suppress the open-delta refusal -> R1/R5 RED;
+# neuter the §8.2 major revalidation -> S3 RED. Never executes the init script
+# -> both lanes.
+run_child_suite "tests/test-delta-wp7-cut-release.sh" \
+  "tests/test-delta-wp7-cut-release.sh"
+
+# Delta Track §3.1's SEVERABILITY test (WP7). Builds a real severed tree —
+# every §3.1 module file deleted, the seam reverted in all FOUR core consumers
+# — and proves the framework still parses, still behaves, and carries not one
+# dangling reference. The module inventory is READ OUT OF
+# scripts/lint-delta-boundary.sh's own manifest rather than retyped, so the two
+# can never disagree about what "the module" is. §3.1 says the revert is "the
+# seam block in process-checklist.sh", singular; running this test enumerates
+# the real set (process-checklist.sh, upgrade-project.sh, validate.sh,
+# check-maintenance.sh) and V1's completeness sweep is what keeps that list
+# honest when a fifth consumer arrives. The §11-WP7 mutation — delete a module
+# file but NOT the seam revert — is killed by V1 and ONLY by V1, and m1
+# measures why: every consumer fails soft by design, so the probes stay
+# identical to the intact tree and no functional arm could ever see it.
+# Never executes the init script -> both lanes.
+run_child_suite "tests/test-delta-severability.sh" \
+  "tests/test-delta-severability.sh"
 run_child_suite "tests/test-check-phase-gate.sh" "tests/test-check-phase-gate.sh"
+
+# BL-214 — the gate stalled its own next run. create_gate_snapshot writes into
+# docs/snapshots/ at PASS time and BL-082's scoped porcelain did not exclude it,
+# so a fully PASSING gate run left `?? docs/snapshots/` behind and the next run
+# reported the Phase 3 summary STALE. The fix is one pathspec in TWO sync
+# siblings (`# BL-214-SNAPSHOT-EXCLUDE` in _cpg_scoped_dirty and
+# _p3_scoped_dirty), and B1 makes "kept textually identical" a checked property
+# by comparing the two bodies byte-for-byte. Dual-direction, both files, four
+# mutants built and run: remove the pathspec from any ONE of the four call sites
+# -> snapshot-only dirt stales again -> B2 RED while B3 (real dirt) stays green,
+# which is what shows the mutant broke the fix and not the predicate. Never
+# executes the init script -> both lanes.
+run_child_suite "tests/test-bl214-gate-snapshot-staleness.sh" \
+  "tests/test-bl214-gate-snapshot-staleness.sh"
 run_child_suite "tests/test-check-phase-gate-poc-block-contract.sh" \
   "tests/test-check-phase-gate-poc-block-contract.sh"
 run_child_suite "tests/test-check-phase-gate-counter-sanitizer.sh" \
