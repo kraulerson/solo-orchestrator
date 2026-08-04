@@ -23,16 +23,37 @@
 #                                     (WP3's §10.1 report-only assertion)
 #   4. scripts/check-maintenance.sh   the cadence policy read (WP6)
 #
-# ...and a FIFTH that is not a script at all:
+# ...and TWO more that are not scripts at all:
 #
 #   5. .github/workflows/lint.yml    the `delta-boundary-lint` job, which runs
 #                                    scripts/lint-delta-boundary.sh (WP1)
+#   6. tests/full-project-test-suite.sh
+#                                    `run_child_suite "scripts/lint-delta-boundary.sh"`
+#                                    — the aggregator invoking the module's
+#                                    lint DIRECTLY, not through a tests/ path
+#
+# CONSUMER 6 IS THE ONE THAT FALSIFIED THIS TEST'S OWN CENTRAL CLAIM. §3.1
+# defines severability as "the full suite must pass" after the sever; the file
+# that IS the full suite registered a module script directly, the drop pattern
+# only ever matched `tests/test-…` paths, and the sweep did not open the file.
+# Post-sever that registration is `bash` on a deleted script — rc 127 — so the
+# very run the property is stated in terms of went red. V1b and V1c exist for
+# it, and m4 rebuilds the old state to prove they fire.
 #
 # Nobody wrote that list down in one place, and a list written from memory is
-# exactly what this test refuses to be. V1 is a COMPLETENESS scan: after the
-# declared revert it sweeps the whole severed surface for any surviving mention
+# exactly what this test refuses to be. V1/V1b are a COMPLETENESS scan: after
+# the declared revert they sweep the severed surface for any surviving mention
 # of the module, and a consumer added later without touching the revert manifest
-# below makes V1 go RED and NAMES the file.
+# below makes them go RED and NAMES the file. V1c closes the gap a text sweep
+# structurally cannot: a registration whose target the sweep never recognises
+# still fails to RESOLVE, and V1c stats every one of them.
+#
+# THAT CLAIM HAS NOW BEEN FALSIFIED TWICE, BOTH TIMES BY THE SAME SHAPE — a
+# consumer living in a file class the sweep did not open (a workflow, then the
+# aggregator). Both times the fix was to widen the scope AND add a mutant that
+# rebuilds the old blindness, because a scope extension proves nothing until
+# something in the new class is shown to trip it. If a third one turns up, the
+# lesson is the scope list, not the manifest.
 #
 # THE FIRST VERSION OF THAT CLAIM WAS FALSE, AND THE FIFTH CONSUMER IS WHY.
 # `_residual_scan` swept `scripts/*.sh` plus the scaffolder and nothing else, so
@@ -177,8 +198,9 @@ sever_module() {
   done
   rm -f "$d"/tests/test-delta-*.sh "$d"/tests/test-lint-delta-boundary.sh \
         "$d"/tests/test-delta-severability.sh 2>/dev/null || true
-  # Their registrations leave with them.
-  _drop_lines "$d/tests/full-project-test-suite.sh" 'tests/test-delta-\|tests/test-lint-delta-boundary'
+  # Their registrations leave with them. THE AGGREGATOR IS DROPPED BY WHOLE
+  # `run_child_suite` CALL, never by line — see _drop_child_suite_calls.
+  _drop_child_suite_calls "$d/tests/full-project-test-suite.sh"
   _drop_lines "$d/.github/workflows/tests.yml"      'tests/test-delta-\|tests/test-lint-delta-boundary\|delta-boundary'
   # THE FIFTH CONSUMER: the CI job that runs the module's own lint. Removed as a
   # WHOLE JOB BLOCK, not line-by-line — dropping the two `run:` lines would leave
@@ -210,6 +232,60 @@ _drop_lines() {   # <file> <BRE>
   tmp="$(mktemp)"
   grep -v "$pat" "$f" > "$tmp" 2>/dev/null || true
   mv "$tmp" "$f"
+  return 0
+}
+
+# _drop_child_suite_calls <aggregator> — remove every `run_child_suite` CALL
+#   that names a module file or one of the module's own suites. WHOLE CALL, and
+#   the emphasis is the finding.
+#
+#   A LINE-BASED DROP IS WRONG HERE IN TWO WAYS, AND BOTH WERE LIVE. This used
+#   to be `_drop_lines … 'tests/test-delta-\|tests/test-lint-delta-boundary'`,
+#   and an adversarial review's follow-up hunt found:
+#
+#     1. A SIXTH CONSUMER the pattern never matched at all —
+#        `run_child_suite "scripts/lint-delta-boundary.sh"`, the aggregator
+#        invoking the module's lint DIRECTLY rather than through a tests/ path.
+#        Post-sever that is `bash` on a deleted file: rc 127, and the very
+#        full-suite run §3.1 defines severability BY goes red. That falsifies
+#        this test's own central claim, which is why it is a fix and not a
+#        fast-follow.
+#     2. AN ORPHANED CONTINUATION LINE. `run_child_suite` calls span three
+#        backslash-continued lines. The head and the third argument named
+#        `tests/test-lint-delta-boundary.sh` and were dropped; the SECOND
+#        argument names `scripts/lint-delta-boundary.sh` and was not — so a
+#        bare dangling string survived, still carrying its trailing backslash.
+#        `bash -n` PASSES on it (it is a syntactically valid command), so no
+#        parse check could ever have caught it; only reading the surviving
+#        references does.
+#
+#   Same lesson as the YAML job two functions down, arriving from the other
+#   direction: a multi-line construct is dropped as a construct or not at all.
+#
+#   THE PATTERN IS DERIVED from the module manifest, so a module file that is
+#   later registered directly is covered without anyone remembering to add it.
+_drop_child_suite_calls() {
+  local f="$1" pat e tmp
+  [ -f "$f" ] || return 0
+  pat='tests/test-delta-|tests/test-lint-delta-boundary'
+  while IFS= read -r e; do
+    [ -n "$e" ] || continue
+    case "$e" in */) continue ;; esac
+    pat="$pat|$(printf '%s' "$e" | sed -e 's/\./\\./g')"
+  done <<EOF
+$MODULE_FILES
+EOF
+  tmp="$(mktemp)"
+  awk -v pat="$pat" '
+    {
+      buf = buf $0 "\n"
+      if ($0 ~ /\\$/) { next }          # the call continues on the next line
+      if (buf ~ /^run_child_suite[ \t]/ && buf ~ pat) { buf = ""; next }
+      printf "%s", buf
+      buf = ""
+    }
+    END { if (buf != "") printf "%s", buf }
+  ' "$f" > "$tmp" && mv "$tmp" "$f"
   return 0
 }
 
@@ -261,9 +337,9 @@ sever_seam() {
 # else is matched as a FIXED string — `delta.sh` as a regex would match
 # `deltaXsh`, and a scan that reports what is not there is as useless as one
 # that misses what is.
-_residual_scan() {   # <tree> -> "file:line:text" per hit
-  local d="$1" f pat tmp
-  tmp="$(mktemp)"
+# _residual_tokens <out-file> — the fixed strings a surviving edge would name.
+_residual_tokens() {
+  local tmp="$1" pat
   {
     printf '%s\n' "$MODULE_FILES" | while IFS= read -r pat; do
       [ -n "$pat" ] || continue
@@ -274,6 +350,26 @@ _residual_scan() {   # <tree> -> "file:line:text" per hit
     done
     printf '%s\n' '--delta-'
   } | grep -v '^$' | LC_ALL=C sort -u > "$tmp"
+  return 0
+}
+
+# _residual_scan_file <tree> <relative-path> -> "file:line:text" per hit
+_residual_scan_file() {
+  local d="$1" rel="$2" tmp
+  [ -f "$d/$rel" ] || return 0
+  tmp="$(mktemp)"
+  _residual_tokens "$tmp"
+  grep -vE '^[[:space:]]*#' "$d/$rel" 2>/dev/null \
+    | grep -nFf "$tmp" 2>/dev/null \
+    | sed -e "s|^|$rel:|" || true
+  rm -f "$tmp" 2>/dev/null || true
+  return 0
+}
+
+_residual_scan() {   # <tree> -> "file:line:text" per hit
+  local d="$1" f tmp
+  tmp="$(mktemp)"
+  _residual_tokens "$tmp"
   # THE WORKFLOW FILES ARE IN SCOPE, and their absence is what made the header's
   # "a fifth consumer lands here, named" claim false until an adversarial review
   # caught it. A CI job invoking a deleted script is every bit the dangling edge
@@ -349,19 +445,74 @@ else
 $V1_HITS"
 fi
 
+# ── V1b: the AGGREGATOR is in scope too ────────────────────────────────────
+# THE SWEEP-SCOPE ROW. `tests/full-project-test-suite.sh` is the file §3.1's
+# property is stated ABOUT ("the full suite must pass"), and until an
+# adversarial review's follow-up hunt it was the one file the sweep never
+# opened. Two things were hiding there: a direct `run_child_suite
+# "scripts/lint-delta-boundary.sh"` registration, and an orphaned continuation
+# line left behind by the old line-based drop. Both name a module path on an
+# executed line, so this row sees both.
+#
+# THE REST OF tests/ IS DELIBERATELY OUT OF SCOPE, with the reason stated
+# rather than the scope quietly drawn: the module's own suites LEAVE with the
+# module, and the one remaining hit — tests/test-lint-module-dependencies.sh
+# writing a self-contained stub named `lint-delta-boundary.sh` into its own
+# $TMP — is a FIXTURE WRITE, not a reference. It never touches the real file
+# and severing the module cannot break it. Sweeping it would be the
+# heredoc-false-positive class this repo already has scar tissue for.
+V1B_HITS="$(_residual_scan_file "$SEV" "tests/full-project-test-suite.sh")"
+V1B_N="$(printf '%s\n' "$V1B_HITS" | grep -c . || true)"
+case "$V1B_N" in ''|*[!0-9]*) V1B_N=0 ;; esac
+if [ "$V1B_N" -eq 0 ]; then
+  pass "V1b: the severed aggregator — the file §3.1's 'the full suite must pass' is a claim ABOUT — names no module path on any executed line. It was outside the sweep until a follow-up hunt found a direct lint registration and an orphaned continuation line living in it"
+else
+  fail_ "V1b" "$V1B_N surviving module reference(s) in the severed aggregator:
+$V1B_HITS"
+fi
+
+# ── V1c: every registration in the severed aggregator RESOLVES ─────────────
+# The decisive row for the sixth consumer, and it tests the actual claim rather
+# than a proxy for it. Running the real full suite is ~3h and workflow_dispatch
+# -only, but "would it go red?" reduces to "does every suite it registers still
+# exist?" — and `run_child_suite` on a missing file is `bash` answering 127.
+# A reference the residual sweep cannot see (a variable, a renamed path) still
+# lands here, because this row reads the targets and stats them.
+V1C_MISSING=""
+V1C_N=0
+while IFS= read -r target; do
+  [ -n "$target" ] || continue
+  V1C_N=$((V1C_N + 1))
+  [ -f "$SEV/$target" ] || V1C_MISSING="$V1C_MISSING $target"
+done <<EOF
+$(grep -oE 'run_child_suite "[^"]+"' "$SEV/tests/full-project-test-suite.sh" 2>/dev/null \
+  | sed -e 's/run_child_suite "//' -e 's/"$//' | LC_ALL=C sort -u)
+EOF
+if [ -z "$V1C_MISSING" ] && [ "$V1C_N" -gt 50 ]; then
+  pass "V1c: all $V1C_N distinct suites the severed aggregator registers still EXIST in the severed tree — so the ~3h run §3.1 defines severability by would not die on a missing file. This is the row that would have caught the sixth consumer on its own: run_child_suite on a deleted script is bash answering 127"
+else
+  fail_ "V1c" "$V1C_N targets checked; these no longer exist after the sever, so the full-suite run would go red on them:$V1C_MISSING"
+fi
+
 # ════════════════════════════════════════════════════════════════════════════
 echo ""
 echo "=== V2 — the severed tree still parses, and still behaves ==="
 # ════════════════════════════════════════════════════════════════════════════
 
 V2_BAD=""
-for f in $(find "$SEV/scripts" -type f -name '*.sh' | LC_ALL=C sort); do
+for f in $(find "$SEV/scripts" "$SEV/tests" -type f -name '*.sh' | LC_ALL=C sort); do
   bash -n "$f" 2>/dev/null || V2_BAD="$V2_BAD ${f#$SEV/}"
 done
 bash -n "$SEV/$INIT_FILE" 2>/dev/null || V2_BAD="$V2_BAD $INIT_FILE"
-V2_N="$(find "$SEV/scripts" -type f -name '*.sh' | grep -c . || true)"
+V2_N="$(find "$SEV/scripts" "$SEV/tests" -type f -name '*.sh' | grep -c . || true)"
+# THE AGGREGATOR IS IN THIS SET NOW, and the honest note is that parsing is NOT
+# what caught the orphaned continuation line the old line-based drop left there:
+# a dangling `"...string..." \` is a syntactically valid command, so `bash -n`
+# passed on it happily. V1b and V1c are what see that class. This row is here
+# for the fragments a construct-level drop could still produce, not as the
+# aggregator's only guard.
 if [ -z "$V2_BAD" ]; then
-  pass "V2a: every one of the $V2_N shell scripts left in the severed tree still parses, and so does the scaffolder — the revert cut whole functions and a whole fence, not fragments"
+  pass "V2a: every one of the $V2_N shell scripts left in the severed tree still parses — scripts/, tests/ (the aggregator included) and the scaffolder. The revert cut whole functions, a whole fence, a whole YAML job and whole run_child_suite calls, not fragments"
 else
   fail_ "V2a" "these files no longer parse after the revert:$V2_BAD"
 fi
@@ -544,6 +695,42 @@ if [ "$MUT3_WF" -gt 0 ] && [ "$MUT3_SCRIPTS" -eq 0 ]; then
 else
   fail_ "m3" "workflow hits=$MUT3_WF (want > 0 — the extended sweep is not live), script hits=$MUT3_SCRIPTS (want 0 — the script revert should be complete). Hits:
 $MUT3_HITS"
+fi
+
+# ── m4: the aggregator drop must be a CONSTRUCT drop, not a line drop ───────
+# The counterfactual for the sixth consumer. This severs exactly as the test did
+# BEFORE the follow-up hunt — the old line-based `_drop_lines` on the aggregator
+# — and requires both new rows to see it. Two distinct defects have to surface:
+# the DIRECT `run_child_suite "scripts/lint-delta-boundary.sh"` registration the
+# old pattern never matched, and the ORPHANED CONTINUATION LINE it produced by
+# dropping two of a three-line call.
+MUT4="$TD/mutant4"; mk_tree "$MUT4"
+rm -f "$MUT4"/tests/test-delta-*.sh "$MUT4"/tests/test-lint-delta-boundary.sh 2>/dev/null || true
+printf '%s\n' "$MODULE_FILES" | while IFS= read -r e; do
+  [ -n "$e" ] || continue
+  case "$e" in */) rm -rf "$MUT4/$e" 2>/dev/null || true ;; *) rm -f "$MUT4/$e" 2>/dev/null || true ;; esac
+done
+_drop_lines "$MUT4/tests/full-project-test-suite.sh" 'tests/test-delta-\|tests/test-lint-delta-boundary'
+_drop_lines "$MUT4/.github/workflows/tests.yml" 'tests/test-delta-\|tests/test-lint-delta-boundary\|delta-boundary'
+_drop_yaml_job "$MUT4/.github/workflows/lint.yml" "delta-boundary-lint"
+sever_seam "$MUT4"
+M4_HITS="$(_residual_scan_file "$MUT4" "tests/full-project-test-suite.sh")"
+M4_N="$(printf '%s\n' "$M4_HITS" | grep -c . || true)"
+case "$M4_N" in ''|*[!0-9]*) M4_N=0 ;; esac
+M4_MISSING=""
+while IFS= read -r target; do
+  [ -n "$target" ] || continue
+  [ -f "$MUT4/$target" ] || M4_MISSING="$M4_MISSING $target"
+done <<EOF
+$(grep -oE 'run_child_suite "[^"]+"' "$MUT4/tests/full-project-test-suite.sh" 2>/dev/null \
+  | sed -e 's/run_child_suite "//' -e 's/"$//' | LC_ALL=C sort -u)
+EOF
+M4_PARSE=ok
+bash -n "$MUT4/tests/full-project-test-suite.sh" 2>/dev/null || M4_PARSE=broken
+if [ "$M4_N" -gt 0 ] && [ -n "$M4_MISSING" ]; then
+  pass "m4: severed the old way (line-based drop on the aggregator), V1b finds $M4_N surviving module reference(s) and V1c finds a registration pointing at a file that no longer exists —$M4_MISSING. Both rows fire. Note the aggregator still PARSES ($M4_PARSE): the orphaned continuation line is a syntactically valid command, so no parse check could have caught this and only reading the references does"
+else
+  fail_ "m4" "the old-style sever was not caught: V1b hits=$M4_N (want > 0), V1c missing targets='$M4_MISSING' (want non-empty), aggregator parse=$M4_PARSE"
 fi
 
 rm -rf "$TD"
