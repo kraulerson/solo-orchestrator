@@ -1739,6 +1739,14 @@ _cpg_phase3_attested() {
 # porcelain scope already → exclusion skipped. Not a git repo → conservative
 # "yes". Kept textually identical to _p3_scoped_dirty in
 # scripts/run-phase3-validation.sh.
+#
+# BL-214-SNAPSHOT-EXCLUDE: `docs/snapshots` is excluded for the SAME reason
+# `.claude/` is — `create_gate_snapshot` writes there on PASS, so without this
+# a fully passing gate run planted its own next failure: run 1 exits 0 and
+# leaves `?? docs/snapshots/`, run 2 reports the summary STALE and FAILs when
+# auto-regeneration is off. THIS FUNCTION AND ITS SIBLING MUST CHANGE TOGETHER;
+# tests/test-bl214-gate-snapshot-staleness.sh::B1 compares the two bodies
+# byte-for-byte so an edit to one alone goes RED even where it behaves.
 _cpg_scoped_dirty() {
   local rdir out
   rdir="${1:-}"
@@ -1748,9 +1756,9 @@ _cpg_scoped_dirty() {
   fi
   case "$rdir" in
     ""|/*|../*|..)
-      out=$(git status --porcelain -- . ':(exclude).claude' 2>/dev/null || true) ;;
+      out=$(git status --porcelain -- . ':(exclude).claude' ':(exclude)docs/snapshots' 2>/dev/null || true) ;;
     *)
-      out=$(git status --porcelain -- . ':(exclude).claude' ":(exclude)$rdir" 2>/dev/null || true) ;;
+      out=$(git status --porcelain -- . ':(exclude).claude' ':(exclude)docs/snapshots' ":(exclude)$rdir" 2>/dev/null || true) ;;
   esac
   if [ -n "$out" ]; then echo "yes"; else echo "no"; fi
   return 0

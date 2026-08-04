@@ -1808,6 +1808,20 @@ run_child_suite "tests/test-delta-wp6-cadence.sh" \
 run_child_suite "tests/test-delta-wp7-cut-release.sh" \
   "tests/test-delta-wp7-cut-release.sh"
 run_child_suite "tests/test-check-phase-gate.sh" "tests/test-check-phase-gate.sh"
+
+# BL-214 — the gate stalled its own next run. create_gate_snapshot writes into
+# docs/snapshots/ at PASS time and BL-082's scoped porcelain did not exclude it,
+# so a fully PASSING gate run left `?? docs/snapshots/` behind and the next run
+# reported the Phase 3 summary STALE. The fix is one pathspec in TWO sync
+# siblings (`# BL-214-SNAPSHOT-EXCLUDE` in _cpg_scoped_dirty and
+# _p3_scoped_dirty), and B1 makes "kept textually identical" a checked property
+# by comparing the two bodies byte-for-byte. Dual-direction, both files, four
+# mutants built and run: remove the pathspec from any ONE of the four call sites
+# -> snapshot-only dirt stales again -> B2 RED while B3 (real dirt) stays green,
+# which is what shows the mutant broke the fix and not the predicate. Never
+# executes the init script -> both lanes.
+run_child_suite "tests/test-bl214-gate-snapshot-staleness.sh" \
+  "tests/test-bl214-gate-snapshot-staleness.sh"
 run_child_suite "tests/test-check-phase-gate-poc-block-contract.sh" \
   "tests/test-check-phase-gate-poc-block-contract.sh"
 run_child_suite "tests/test-check-phase-gate-counter-sanitizer.sh" \
