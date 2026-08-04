@@ -15,6 +15,18 @@
 # gate whose TARGET is below 4, the 3→4 readiness region is announced as ONE
 # non-counted [NEXT] line and its block-counting checks do not run.
 #
+# KNOWN CARVE-OUT ON BL-166's CONTRACT — recorded here so it is discoverable
+# from BL-166's own side, not only from the arm that takes it. The brownfield
+# adoption arm in check-phase-gate.sh (`# BF-ADOPT-GATE-BEGIN`) is deliberately
+# NOT fenced by `skip_later_gate`: the adoption record is a PRECONDITION of
+# every arm that reads the adoption flag rather than any one gate's check, so a
+# scoped run passing while that record was silently lost would be the same
+# silence under a narrower heading. Measured harmless when the stamp is intact —
+# a scoped `--gate phase_1_to_2` run on an adopted fixture and on an unadopted
+# control produce the SAME issue count, the only difference being one cosmetic
+# `[OK] Adoption stamp present and intact` line. It counts an issue only when
+# the committed manifest records an adoption the working copy has lost.
+#
 # BL-158 (header label): under a --gate override the header printed
 # "Current phase: <forced>" — reading like recorded state on an audit trail even
 # when phase-state.json records a different phase. The fix (# BL-158-GATE-LABEL)

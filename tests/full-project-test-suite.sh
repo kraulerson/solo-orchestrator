@@ -649,7 +649,17 @@ run_child_suite "tests/test-brownfield-wp2-scout-sections.sh" \
 # The TDD arm is proved in BOTH DIRECTIONS and direction (ii) is the one that
 # matters: neuter the exemption and a pre-adoption commit blocks; neuter the
 # BOUND and a POST-adoption commit with no test passes — an unbounded exemption
-# is a permanent TDD waiver wearing an adoption badge. The stamp is proved
+# is a permanent TDD waiver wearing an adoption badge.
+# T7 IS THE ATTACK BATTERY AND IT IS NOT OPTIONAL. The first cut of this WP
+# shipped 19/19 green with a bound that everyday git defeated: the T-series
+# never constructed a divergent history, and six of ten histories exempted a
+# POST-adoption commit — a local rebase, a SQUASH MERGE (a GitHub default, and
+# the worst: it exempts every subsequent mainline commit forever), an orphan
+# branch, a cherry-pick, a second stamp, and a working-copy anchor tamper. All
+# ten are pinned here, T1 stays as the control that a predicate which merely
+# blocked everything would fail, and T8 proves EACH of the corrected bound's two
+# conjuncts load-bearing separately — one conjunct proven only jointly can be
+# dead code, and dead code here is a reopened hole. The stamp is proved
 # additive against a foreign top-level key AND against all five §8.5
 # existing-file writers run in sequence, each writer's jq filter pinned at
 # sites==1 in its own shipped source so a changed writer fails loudly instead

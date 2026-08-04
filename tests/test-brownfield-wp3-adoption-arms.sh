@@ -272,6 +272,33 @@ else
   fi
 fi
 
+# ── S5: "written once, at adoption, never re-stamped" is ENFORCED ──────────
+# §8.5 states the property; the first cut only asserted it in a header, and a
+# second stamp was accepted — silently moving adoptedAtCommit to the current
+# tip, which re-opens the TDD exemption window at will (adversarial review
+# R-WP3-2). Both directions are pinned here: the FIRST stamp must succeed
+# (otherwise a refusal that refused everything would pass this test), and the
+# SECOND must be refused with the anchor unmoved.
+S5D="$(newtmp)"
+( cd "$S5D" && git init -q . && git config user.email s5@t.invalid && git config user.name S5 \
+    && echo x > f.txt && git add f.txt && git commit -q -m "chore: base" ) >/dev/null 2>&1
+printf '%s\n' '{"host":"github"}' > "$S5D/manifest.json"
+s5_first=0
+( cd "$S5D" && soif_adoption_stamp "manifest.json" "completed" 1 '[]' '[]' '[]' '[]' "one" ) >/dev/null 2>&1 && s5_first=1
+s5_anchor_1=$(jq -r '.adoption.adoptedAtCommit // "MISSING"' "$S5D/manifest.json" 2>/dev/null)
+s5_sha_1=$(jq -r '.adoption.scannerReportSha256 // "MISSING"' "$S5D/manifest.json" 2>/dev/null)
+( cd "$S5D" && echo y > g.txt && git add g.txt && git commit -q -m "chore: adopt" ) >/dev/null 2>&1
+s5_second_rc=0
+( cd "$S5D" && soif_adoption_stamp "manifest.json" "in-flight" 4 '[]' '[]' '[]' '[]' "two" ) >/dev/null 2>&1 || s5_second_rc=$?
+s5_anchor_2=$(jq -r '.adoption.adoptedAtCommit // "MISSING"' "$S5D/manifest.json" 2>/dev/null)
+s5_sha_2=$(jq -r '.adoption.scannerReportSha256 // "MISSING"' "$S5D/manifest.json" 2>/dev/null)
+if [ "$s5_first" -eq 1 ] && [ "$s5_second_rc" -ne 0 ] \
+   && [ "$s5_anchor_1" = "$s5_anchor_2" ] && [ "$s5_sha_1" = "one" ] && [ "$s5_sha_2" = "one" ]; then
+  pass "S5: the FIRST stamp is written and the SECOND is REFUSED (rc $s5_second_rc) with the anchor and the whole block unmoved — §8.5's 'never re-stamped' is structural, not a convention"
+else
+  fail_ "S5" "first_stamp_ok=$s5_first (want 1) second_rc=$s5_second_rc (want non-zero) anchor_before=$s5_anchor_1 anchor_after=$s5_anchor_2 (want equal) sha_before=$s5_sha_1 sha_after=$s5_sha_2 (want both 'one')"
+fi
+
 echo ""
 echo "=== T — the TDD pre-adoption arm (§5.3 kind (c); dual-direction) ==="
 
@@ -445,6 +472,255 @@ else
     pass "T6: tier behaviour is UNTOUCHED — a bypassable tier still warns-and-allows post-adoption (rc 0, BL-072 line emitted)"
   else
     fail_ "T6" "rc=$t6_rc (want 0) bl072_line_emitted=$t6_warned (want 1)"
+  fi
+fi
+
+echo ""
+echo "=== T7 — THE BOUND ATTACK BATTERY (adversarial review R-WP3-1) ==="
+# WHY THIS SECTION EXISTS. T1-T6 shipped 19/19 green while the bound was
+# DEFEATABLE BY EVERYDAY GIT. The refuted model was this file's own first
+# comment: "P not an ancestor => a branch cut before adoption => EXEMPT". That
+# state is UNREACHABLE for a genuinely pre-adoption branch — such a branch has
+# the PRE-adoption manifest checked out, so the accessor reads NOT ADOPTED and
+# the arm never runs. Every state that actually reaches the "not an ancestor"
+# arm carries the STAMPED tree, which means adoption already happened. The old
+# arm therefore exempted only post-adoption commits — the exact inversion of
+# §4.5.
+#
+# The T-series never constructed a divergent history, which is precisely why
+# the hole and a green suite coexisted. So this battery is not one regression
+# for one attack: it pins ALL TEN histories the reviewer drove, six of which
+# produced an exempt post-adoption commit (rc 0 + the exemption banner) against
+# the shipped code. Four of the six need no intent at all — a local `git
+# rebase`, a SQUASH MERGE (a GitHub default, and the worst: it exempts every
+# subsequent mainline commit forever), an orphan branch, and a cherry-pick.
+#
+# T1 remains the indispensable control: a predicate that simply blocked
+# everything would pass all ten of these and be just as wrong.
+# Verdicts are EXIT CODES. Non-zero = the gate refused the commit = correct.
+
+# atk_base DIR — an adopted project whose adoption commit HAS LANDED.
+# C1 "chore: their history" (the anchor) -> stamp -> C2 "chore: adopt project".
+atk_base() {
+  local d="$1"
+  mk_tdd_proj "$d" || return 1
+  adopt_proj "$d" >/dev/null 2>&1 || return 1
+  ( cd "$d" && git add -A .claude && git commit -q -m "chore: adopt project" ) || return 1
+}
+
+# atk_verdict DIR — stage an impl-only change, run the real commit-msg surface
+# with a post-adoption `feat:` subject, echo "<rc>|<exempt-banner-seen>".
+atk_verdict() {
+  local d="$1" out rc=0 banner=0
+  stage_impl_only "$d" >/dev/null 2>&1
+  out=$(run_tdd "$d" "feat: work written AFTER adoption day") || rc=$?
+  printf '%s' "$out" | grep -q 'PRE-ADOPTION commit' && banner=1
+  printf '%s|%s\n' "$rc" "$banner"
+}
+
+# atk_report LABEL DIR EXPECT — EXPECT is `blocked` (rc non-zero) or `exempt`.
+atk_report() {
+  local label="$1" d="$2" expect="$3" v rc banner
+  v="$(atk_verdict "$d")"
+  rc="${v%%|*}"; banner="${v##*|}"
+  ATK_RCS="${ATK_RCS}${label}=rc:${rc} "
+  if [ "$expect" = "blocked" ]; then
+    if [ "$rc" -ne 0 ] && [ "$banner" -eq 0 ]; then
+      pass "$label: BLOCKED (rc=$rc, no exemption banner) — the bound holds"
+    else
+      fail_ "$label" "rc=$rc (want non-zero) exemption_banner=$banner (want 0) — a POST-adoption commit was exempted"
+    fi
+  else
+    if [ "$rc" -eq 0 ] && [ "$banner" -eq 1 ]; then
+      pass "$label: EXEMPT (rc=0, banner printed) — the adoption window is preserved"
+    else
+      fail_ "$label" "rc=$rc (want 0) exemption_banner=$banner (want 1)"
+    fi
+  fi
+}
+ATK_RCS=""
+
+# ── T7a — local `git rebase` rewrites the anchor commit ────────────────────
+D="$(newtmp)/p"
+if ! mk_tdd_proj "$D"; then fail_ "T7a" "fixture setup failed"; else
+  ( cd "$D" && git checkout -q -b adopt-work \
+      && echo work > work.txt && git add work.txt && git commit -q -m "chore: pre-stamp work" ) >/dev/null 2>&1
+  adopt_proj "$D" >/dev/null 2>&1
+  ( cd "$D" && git add -A .claude && git commit -q -m "chore: adopt project" ) >/dev/null 2>&1
+  ( cd "$D" && git checkout -q main 2>/dev/null || git checkout -q master ) >/dev/null 2>&1
+  ( cd "$D" && git commit -q --allow-empty -m "chore: mainline moves on" ) >/dev/null 2>&1
+  ( cd "$D" && git checkout -q adopt-work && git rebase -q main ) >/dev/null 2>&1
+  atk_report "T7a [local git rebase rewrote the anchor]" "$D" blocked
+fi
+
+# ── T7b — SQUASH-MERGED adoption branch (a GitHub default; the worst hole) ─
+D="$(newtmp)/p"
+if ! mk_tdd_proj "$D"; then fail_ "T7b" "fixture setup failed"; else
+  ( cd "$D" && git checkout -q -b adopt-branch \
+      && echo work > work.txt && git add work.txt && git commit -q -m "chore: pre-stamp work" ) >/dev/null 2>&1
+  adopt_proj "$D" >/dev/null 2>&1
+  ( cd "$D" && git add -A .claude && git commit -q -m "chore: adopt project" ) >/dev/null 2>&1
+  ( cd "$D" && ( git checkout -q main 2>/dev/null || git checkout -q master ) \
+      && git merge -q --squash adopt-branch && git commit -q -m "chore: adopt project (squashed)" ) >/dev/null 2>&1
+  atk_report "T7b [squash-merged adoption branch]" "$D" blocked
+fi
+
+# ── T7c — orphan branch carrying the stamped tree ──────────────────────────
+D="$(newtmp)/p"
+if ! atk_base "$D"; then fail_ "T7c" "fixture setup failed"; else
+  ( cd "$D" && git checkout -q --orphan orph && git commit -q -m "chore: orphan root" ) >/dev/null 2>&1
+  atk_report "T7c [orphan branch]" "$D" blocked
+fi
+
+# ── T7d — adoption commit cherry-picked onto a branch that diverged earlier ─
+# `.claude/` is TRACKED before the branch point on purpose. Left untracked, the
+# cherry-pick aborts ("untracked working tree file would be overwritten"), git
+# leaves CHERRY_PICK_HEAD behind, and `tdd_terminal_enforce` returns 0 at its
+# derivative-resume sentinel WITHOUT EVER REACHING THE BOUND — rc 0 and no
+# banner, which reads exactly like a hole while proving nothing about one. The
+# first cut of this fixture did precisely that.
+D="$(newtmp)/p"
+if ! mk_tdd_proj "$D"; then fail_ "T7d" "fixture setup failed"; else
+  ( cd "$D" && git add -A .claude && git commit -q -m "chore: their tooling" ) >/dev/null 2>&1
+  ( cd "$D" && git branch divergent ) >/dev/null 2>&1
+  ( cd "$D" && echo more > more.txt && git add more.txt && git commit -q -m "chore: their later history" ) >/dev/null 2>&1
+  adopt_proj "$D" >/dev/null 2>&1
+  ( cd "$D" && git add -A .claude && git commit -q -m "chore: adopt project" ) >/dev/null 2>&1
+  adopt_sha=$( cd "$D" && git rev-parse HEAD )
+  ( cd "$D" && git checkout -q divergent && git commit -q --allow-empty -m "chore: divergent work" \
+      && git cherry-pick "$adopt_sha" ) >/dev/null 2>&1
+  d7d_clean=0
+  [ -f "$D/.git/CHERRY_PICK_HEAD" ] || d7d_clean=1
+  if [ "$d7d_clean" -eq 0 ]; then
+    fail_ "T7d" "cherry-pick did not complete (CHERRY_PICK_HEAD present) — the fixture would hit the derivative-resume skip and prove nothing about the bound"
+  else
+    atk_report "T7d [cherry-picked adoption onto a divergent branch]" "$D" blocked
+  fi
+fi
+
+# ── T7e — bogus 40-hex anchor (fail-closed; defeats the any-40-hex class) ──
+D="$(newtmp)/p"
+if ! atk_base "$D"; then fail_ "T7e" "fixture setup failed"; else
+  ( cd "$D" && jq '.adoption.adoptedAtCommit = "0123456789abcdef0123456789abcdef01234567"' .claude/manifest.json > m.tmp && mv m.tmp .claude/manifest.json ) >/dev/null 2>&1
+  atk_report "T7e [bogus 40-hex anchor]" "$D" blocked
+fi
+
+# ── T7f — shallow clone: the anchor object is not in this repository ───────
+D="$(newtmp)"
+if ! atk_base "$D/src"; then fail_ "T7f" "fixture setup failed"; else
+  ( cd "$D/src" && git add -A && git commit -q -m "chore: track everything" ) >/dev/null 2>&1
+  ( cd "$D/src" && echo later > later.txt && git add later.txt && git commit -q -m "chore: later work" ) >/dev/null 2>&1
+  if ( cd "$D" && git clone -q --depth 1 "file://$D/src" shallow ) >/dev/null 2>&1; then
+    cp "$PCG" "$D/shallow/scripts/" 2>/dev/null
+    cp "$REPO_ROOT/scripts/lib/helpers.sh" "$REPO_ROOT/scripts/lib/helpers-core.sh" \
+       "$REPO_ROOT/scripts/lib/helpers-full.sh" "$REPO_ROOT/scripts/lib/tdd-classify.sh" \
+       "$LIB" "$D/shallow/scripts/lib/" 2>/dev/null
+    ( cd "$D/shallow" && git config user.email "wp3@test.invalid" && git config user.name "WP3 Test" ) >/dev/null 2>&1
+    atk_report "T7f [shallow clone, anchor object absent]" "$D/shallow" blocked
+  else
+    fail_ "T7f" "shallow clone fixture could not be built"
+  fi
+fi
+
+# ── T7g — a SECOND adoption stamp (re-stamp silently moving the anchor) ────
+D="$(newtmp)/p"
+if ! atk_base "$D"; then fail_ "T7g" "fixture setup failed"; else
+  before=$( cd "$D" && jq -r '.adoption.adoptedAtCommit' .claude/manifest.json )
+  restamp_rc=0
+  ( cd "$D" && soif_adoption_stamp ".claude/manifest.json" "completed" 3 '[]' '[]' '[]' '[]' "sha2" ) >/dev/null 2>&1 || restamp_rc=$?
+  after=$( cd "$D" && jq -r '.adoption.adoptedAtCommit' .claude/manifest.json )
+  atk_report "T7g [second adoption stamp]" "$D" blocked
+  if [ "$restamp_rc" -ne 0 ] && [ "$before" = "$after" ]; then
+    pass "T7g-stamp: the re-stamp itself was REFUSED (rc $restamp_rc) and the anchor did not move — §8.5's 'written once, never re-stamped' is enforced, not merely asserted"
+  else
+    fail_ "T7g-stamp" "restamp_rc=$restamp_rc (want non-zero) anchor_before=$before anchor_after=$after (want equal)"
+  fi
+fi
+
+# ── T7h — working-copy anchor tamper (no commit needed) ────────────────────
+D="$(newtmp)/p"
+if ! atk_base "$D"; then fail_ "T7h" "fixture setup failed"; else
+  head_sha=$( cd "$D" && git rev-parse HEAD )
+  ( cd "$D" && jq --arg h "$head_sha" '.adoption.adoptedAtCommit = $h' .claude/manifest.json > m.tmp && mv m.tmp .claude/manifest.json ) >/dev/null 2>&1
+  atk_report "T7h [working-copy anchor tampered to HEAD]" "$D" blocked
+fi
+
+# ── T7i — detached HEAD at the adoption commit ─────────────────────────────
+D="$(newtmp)/p"
+if ! atk_base "$D"; then fail_ "T7i" "fixture setup failed"; else
+  ( cd "$D" && git checkout -q --detach HEAD ) >/dev/null 2>&1
+  atk_report "T7i [detached HEAD at the adoption commit]" "$D" blocked
+fi
+
+# ── T7j — a pre-adoption branch that has since MERGED adopted main ─────────
+D="$(newtmp)/p"
+if ! mk_tdd_proj "$D"; then fail_ "T7j" "fixture setup failed"; else
+  ( cd "$D" && git branch feature ) >/dev/null 2>&1
+  adopt_proj "$D" >/dev/null 2>&1
+  ( cd "$D" && git add -A .claude && git commit -q -m "chore: adopt project" ) >/dev/null 2>&1
+  mainref=$( cd "$D" && git rev-parse --abbrev-ref HEAD )
+  ( cd "$D" && git checkout -q feature && git merge -q --no-edit "$mainref" ) >/dev/null 2>&1
+  atk_report "T7j [pre-adoption branch after merging adopted main]" "$D" blocked
+fi
+
+echo "  [rc table] $ATK_RCS"
+
+echo ""
+echo "=== T8 — each conjunct of the corrected bound is load-bearing ==="
+# T4 mutates the WHOLE bound line, which proves the line matters but not that
+# BOTH halves do. A two-conjunct predicate needs two proofs, or one half can be
+# dead code that nothing would notice — and a dead conjunct here is a reopened
+# hole. Each mutation below deletes exactly ONE conjunct from the single
+# `# BF-ADOPT-BOUND` line and pairs it with the fixture that ONLY that conjunct
+# defends, plus the unmutated control on the same fixture.
+
+# ── T8a — drop conjunct 2 (the committed witness) ──────────────────────────
+# Fixture: the working-copy anchor tamper. anchor == HEAD, so conjunct 1 lets it
+# through; only "HEAD's committed manifest is already adopted" refuses it.
+T8A="$(newtmp)"; T8AD="$T8A/p"
+if ! atk_base "$T8AD"; then fail_ "T8a" "fixture setup failed"; else
+  h=$( cd "$T8AD" && git rev-parse HEAD )
+  ( cd "$T8AD" && jq --arg h "$h" '.adoption.adoptedAtCommit = $h' .claude/manifest.json > m.tmp && mv m.tmp .claude/manifest.json ) >/dev/null 2>&1
+  ctl="$(atk_verdict "$T8AD")"; ctl_rc="${ctl%%|*}"
+  MUT8A="$T8AD/scripts/lib/adoption-stamp.sh"
+  bound_sites=$(grep -c 'BF-ADOPT-BOUND$' "$LIB" 2>/dev/null); bound_sites=$(_num "$bound_sites")
+  cp "$LIB" "$T8A/orig-lib.ref"
+  _sed_inplace "$MUT8A" 's|^.*BF-ADOPT-BOUND$|  if [ "$anchor" != "$head" ]; then   # BF-ADOPT-BOUND|'
+  chg8a=$(_changed_lines "$T8A/orig-lib.ref" "$MUT8A")
+  p8a=$(_parses "$MUT8A")
+  ( cd "$T8AD" && git reset -q ) >/dev/null 2>&1
+  mut="$(atk_verdict "$T8AD")"; mut_rc="${mut%%|*}"; mut_banner="${mut##*|}"
+  if [ "$ctl_rc" -ne 0 ] && [ "$mut_rc" -eq 0 ] && [ "$mut_banner" -eq 1 ] \
+     && [ "$chg8a" -eq 2 ] && [ "$bound_sites" -eq 1 ] && [ "$p8a" -eq 1 ]; then
+    pass "T8a: dropping the COMMITTED-WITNESS conjunct (1 line, mutant parses) lets a tampered anchor exempt a post-adoption commit (rc 0, banner); the unmutated control blocks (rc $ctl_rc) — conjunct 2 is load-bearing"
+  else
+    fail_ "T8a" "control_rc=$ctl_rc (want non-zero) mutant_rc=$mut_rc (want 0) mutant_banner=$mut_banner (want 1) changed_lines=$chg8a (want 2) bound_sites=$bound_sites (want 1) parses=$p8a (want 1)"
+  fi
+fi
+
+# ── T8b — drop conjunct 1 (anchor == HEAD) ─────────────────────────────────
+# Fixture: the stamp is written, then an UNRELATED commit lands (src only, the
+# manifest still uncommitted). anchor != HEAD, but HEAD's committed manifest is
+# not adopted — so only conjunct 1 refuses. Without it every commit after the
+# stamp stays exempt until the manifest is finally committed.
+T8B="$(newtmp)"; T8BD="$T8B/p"
+if ! mk_tdd_proj "$T8BD"; then fail_ "T8b" "fixture setup failed"; else
+  adopt_proj "$T8BD" >/dev/null 2>&1
+  ( cd "$T8BD" && mkdir -p src && echo 'export const a=1;' > src/unrelated.js \
+      && git add src/unrelated.js && git commit -q -m "chore: unrelated work" ) >/dev/null 2>&1
+  ctl="$(atk_verdict "$T8BD")"; ctl_rc="${ctl%%|*}"
+  MUT8B="$T8BD/scripts/lib/adoption-stamp.sh"
+  cp "$LIB" "$T8B/orig-lib.ref"
+  _sed_inplace "$MUT8B" 's|^.*BF-ADOPT-BOUND$|  if _soif_adoption_head_copy_adopted "$manifest"; then   # BF-ADOPT-BOUND|'
+  chg8b=$(_changed_lines "$T8B/orig-lib.ref" "$MUT8B")
+  p8b=$(_parses "$MUT8B")
+  ( cd "$T8BD" && git reset -q ) >/dev/null 2>&1
+  mut="$(atk_verdict "$T8BD")"; mut_rc="${mut%%|*}"; mut_banner="${mut##*|}"
+  if [ "$ctl_rc" -ne 0 ] && [ "$mut_rc" -eq 0 ] && [ "$mut_banner" -eq 1 ] \
+     && [ "$chg8b" -eq 2 ] && [ "$p8b" -eq 1 ]; then
+    pass "T8b: dropping the anchor==HEAD conjunct (1 line, mutant parses) exempts a commit made AFTER the stamp on a still-uncommitted manifest (rc 0, banner); the unmutated control blocks (rc $ctl_rc) — conjunct 1 is load-bearing"
+  else
+    fail_ "T8b" "control_rc=$ctl_rc (want non-zero) mutant_rc=$mut_rc (want 0) mutant_banner=$mut_banner (want 1) changed_lines=$chg8b (want 2) parses=$p8b (want 1)"
   fi
 fi
 
