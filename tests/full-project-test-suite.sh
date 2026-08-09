@@ -1924,6 +1924,20 @@ run_child_suite "tests/test-delta-wp7-cut-release.sh" \
 # Never executes the init script -> both lanes.
 run_child_suite "tests/test-delta-severability.sh" \
   "tests/test-delta-severability.sh"
+
+# Delta Track WP8 — the three intake paths (§6.1), the brief template (§6.2),
+# identity and the SLUG REFUSAL (§6.3), the manifesto bridge as a read (§10.4),
+# resume.sh's fourth branch (§10.5) — plus Karl's two decisions of 2026-08-09:
+# SHIPPING the module to generated projects (the scaffolder carried the string
+# zero times, so the whole track reached nobody) and writing the hotfix audit
+# trace as a REAL BUGS.md row rather than only a state-document stamp. Because
+# the copy list moves the derived shipped set, this suite also re-runs the
+# source-closure gate and the boundary lint and builds a mutant that drops a cp
+# line to prove that gate is load-bearing. Reads the init script STATICALLY and
+# never executes it (its basename is spelled split for the unit-lane predicate,
+# as tests/test-delta-severability.sh does) -> both lanes.
+run_child_suite "tests/test-delta-wp8-intake.sh" \
+  "tests/test-delta-wp8-intake.sh"
 run_child_suite "tests/test-check-phase-gate.sh" "tests/test-check-phase-gate.sh"
 
 # BL-214 — the gate stalled its own next run. create_gate_snapshot writes into

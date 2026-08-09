@@ -58,8 +58,17 @@
 #   H — THE HOTFIX FAST LANE AT OPEN (§5.2)
 #     H1  a hotfix materialises EXACTLY the §5.2 row and NOTHING heavier — the
 #         set is asserted whole, not as a subset; no brief is demanded anywhere;
-#         and the open writes no file outside the two `.claude/` documents, so
-#         the floor (§5.1) is inherited rather than re-implemented
+#         and the open CREATES no file outside the two `.claude/` documents, so
+#         the floor (§5.1) is inherited rather than re-implemented.
+#         AMENDED BY WP8 / Karl's decision of 2026-08-09: the open now also
+#         APPENDS one row to the existing BUGS.md. That is the hotfix audit
+#         trace made visible — the reviewer's evidence was that the state
+#         document's `audit_row_at_open` stamp survives neither an abandoned
+#         hotfix nor a lost state file, so the audit trail it promises does not
+#         persist. H1 therefore no longer demands that BUGS.md be byte-identical;
+#         it demands that BUGS.md be the ONLY thing that moved, and that it moved
+#         by exactly one added line naming the delta. That is a stronger
+#         assertion than the one it replaced, not a relaxation of it.
 #     H2  the AUDIT ROW IS WRITTEN AT OPEN, not at close: the stamp is on the
 #         record and the gate is already complete the moment the delta opens —
 #         it is the one gate in the system nobody attests, because the framework
@@ -195,9 +204,10 @@ mk_proj() {
 }
 
 # A project carrying DECOYS: a generated pre-commit hook and the two ledgers a
-# real post-1.0 project has. H1 asserts the fast lane touches none of them —
-# §5.1's floor is INHERITED, and the delta track adds no floor arm. A fixture
-# with nothing to disturb could not tell "added no arm" from "found nothing".
+# real post-1.0 project has. H1 asserts the fast lane touches none of them
+# EXCEPT the one row WP8 appends to BUGS.md — §5.1's floor is INHERITED, and the
+# delta track adds no floor arm. A fixture with nothing to disturb could not
+# tell "added no arm" from "found nothing".
 mk_decoy_proj() {
   local d="$1" phase="$2"
   mk_proj "$d" "$phase"
@@ -400,6 +410,9 @@ echo "=== H — the hotfix fast lane at open (§5.2) ==="
 # added exactly the two `.claude/` documents and disturbed nothing else.
 T=$(mktemp -d); P="$T/proj"; mk_decoy_proj "$P" 4
 before="$(tree_manifest "$P")"
+# The one permitted move is measured line-by-line, so the ledger is snapshotted
+# HERE — before the open — alongside the whole-tree manifest.
+cp "$P/BUGS.md" "$T/bugs.before" 2>/dev/null || : > "$T/bugs.before"
 out=$(delta_run "$REPO_ROOT/scripts" "$P" --open --describe "checkout is down in production right now" --class hotfix --slug checkout --confirm); rc=$?
 after_files="$(tree_files "$P" | tr '\n' ' ')"
 gates="$(active_json "$P" -c '.active_delta.gates_required')"
@@ -409,22 +422,41 @@ klass="$(active_json "$P" -r '.active_delta.class')"
 heavy=n
 printf '%s' "$gates" | grep -qE 'brief|build_loop' && heavy=y
 had_deltas=n; [ -d "$P/docs/deltas" ] && had_deltas=y
-# Everything that existed before is byte-identical afterwards.
+# Everything that existed before is byte-identical afterwards — EXCEPT BUGS.md,
+# which gains exactly one row (Karl's decision of 2026-08-09: the hotfix audit
+# trace is a visible ledger row, not only a state-document stamp). The
+# exemption is spelled as "BUGS.md is the ONLY file that moved" plus "it moved
+# by one added line naming the delta", so a fast lane that started rewriting
+# the pre-commit hook, the changelog or the feature list would still be caught.
 undisturbed=y
+ledger_delta=""
 printf '%s\n' "$before" | while IFS= read -r row; do
   [ -n "$row" ] || continue
   f="${row#*  }"
   printf '%s  %s\n' "$(_md5file "$P/$f")" "$f"
 done > "$T/recheck"
 printf '%s\n' "$before" | grep -v '^$' > "$T/before"
-diff -q "$T/before" "$T/recheck" >/dev/null 2>&1 || undisturbed=n
+moved="$(diff "$T/before" "$T/recheck" 2>/dev/null | grep '^[<>]' || true)"
+if [ -n "$moved" ]; then
+  printf '%s\n' "$moved" | grep -qv 'BUGS\.md' && undisturbed=n
+fi
+# ...and the shape of the one permitted move. The diff goes to a FILE and the
+# assertions read the file: `diff` exits 1 when the files differ, and under
+# `set -o pipefail` that 1 propagates out of any `diff | grep -q …` pipeline
+# and turns a successful match into a failed test.
+diff "$T/bugs.before" "$P/BUGS.md" > "$T/bugs.diff" 2>/dev/null || true
+ledger_delta="$(grep -c '^[<>]' "$T/bugs.diff" || true)"
+case "$ledger_delta" in ''|*[!0-9]*) ledger_delta=0 ;; esac
+ledger_names=n
+if [ "$ledger_delta" -eq 1 ] && grep -q '^>.*DELTA-001' "$T/bugs.diff"; then ledger_names=y; fi
+[ "$ledger_names" = y ] || undisturbed=n
 if [ "$rc" -eq 0 ] && [ "$klass" = "hotfix" ] \
    && [ "$gates" = '["ledger_row","audit_row_at_open","retro_review","changelog"]' ] \
    && [ "$heavy" = n ] && [ "$had_deltas" = n ] && [ "$undisturbed" = y ] \
    && [ "$after_files" = "./.claude/delta-policy.json ./.claude/delta-state.json ./.claude/phase-state.json ./BUGS.md ./CHANGELOG.md ./FEATURES.md " ]; then
-  pass "H1: a hotfix materialises EXACTLY the §5.2 row ($gates) and nothing heavier (no brief, no brief_review, no build_loop: heavy=$heavy, docs/deltas created=$had_deltas); the open adds only the two .claude documents and leaves the pre-commit hook and all three ledgers byte-identical (undisturbed=$undisturbed) — the floor is inherited, not re-implemented"
+  pass "H1: a hotfix materialises EXACTLY the §5.2 row ($gates) and nothing heavier (no brief, no brief_review, no build_loop: heavy=$heavy, docs/deltas created=$had_deltas); the open CREATES only the two .claude documents, leaves the pre-commit hook, CHANGELOG.md and FEATURES.md byte-identical, and moves BUGS.md by exactly $ledger_delta added line naming the delta (undisturbed=$undisturbed) — the floor is inherited, not re-implemented, and the one write is the audit row Karl's decision of 2026-08-09 requires to be VISIBLE"
 else
-  fail_ "H1" "rc=$rc (expect 0); class=$klass; gates=$gates (expect the §5.2 hotfix row EXACTLY); heavy token present=$heavy (expect n); docs/deltas created=$had_deltas (expect n); pre-existing files undisturbed=$undisturbed (expect y); files after='$after_files'; output:\n$out"
+  fail_ "H1" "rc=$rc (expect 0); class=$klass; gates=$gates (expect the §5.2 hotfix row EXACTLY); heavy token present=$heavy (expect n); docs/deltas created=$had_deltas (expect n); everything but BUGS.md undisturbed AND BUGS.md moved by exactly one delta-naming line=$undisturbed (expect y; BUGS.md diff lines=$ledger_delta, names the delta=$ledger_names); files after='$after_files'; output:\n$out"
 fi
 rm -rf "$T"
 

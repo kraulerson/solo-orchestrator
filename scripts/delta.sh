@@ -345,6 +345,7 @@ DELTA_RETRO_ROW_STATE_JQ='
 
 USAGE="Usage:
   scripts/delta.sh --open [--describe TEXT] [--slug SLUG] [--confirm]
+                   [--via guided|conversational|manual]
                    [--class feature|fix|hotfix|security-patch]
                    [--risk core|feature-local] [--level small|significant|evolution]
                    [--severity SEV-1|SEV-2|SEV-3|SEV-4] [--reason TEXT]
@@ -595,6 +596,281 @@ _slugify() {
   [ -n "$s" ] && printf '%s' "$s" || printf '%s' "delta"
 }
 
+# _slug_path_safe <raw> — rc 0 when the operator's `--slug` may be sanitised,
+# rc 2 when it is PATH-SHAPED and must be refused outright.
+#
+# WP8 IS WHERE A USER STRING BECOMES A FILESYSTEM PATH, and that is why the
+# refusal lives here rather than anywhere earlier. WP3's adversarial review
+# recorded `--slug ../../../etc/cron.d/evil` stored VERBATIM: harmless at the
+# time, because WP3 only ever wrote it into JSON. This work package composes
+# `docs/deltas/<id>-<slug>.md` out of it, so the same string is now a write
+# target.
+#
+# WHY REFUSE AND NOT JUST SANITISE. `_slugify` would in fact flatten every one
+# of these to something harmless — but silently, and the operator would find
+# their delta under a name they did not choose with no idea why. Worse, a
+# future edit that composed the path before slugifying (or slugified with a
+# looser expression) would re-open the hole with nothing failing. A refusal is
+# a fact the operator can see and a line a mutation can kill; sanitisation
+# alone is a property that has to keep being true. So it is BOTH: refuse the
+# path-shaped spellings loudly, sanitise everything else.
+#
+# The four spellings are one class and are matched as one, because a guard that
+# catches `../` and misses `..\` or a leading `.` is not a guard:
+#   */*      any separator, which covers `/etc/passwd` and `a/../b`
+#   *\\*     a Windows separator
+#   *..*     a traversal segment anywhere, even without a separator
+#   .*       a leading dot: `.hidden`, `.` and `..` all land here
+# An EMPTY slug is accepted — it means the operator did not pass `--slug` at
+# all, and the description is slugified instead.
+#
+# THE FIFTH SPELLING IS NOT A SEPARATOR AT ALL (review R-WP8-3). A NEWLINE
+# passes every pattern above — it is not `/`, not `\`, not `..`, not a leading
+# dot — and `_slugify` PRESERVES it, because sed is line-oriented and processes
+# each half independently. The composed name `docs/deltas/$id-$slug.md` then
+# carries an embedded newline. No traversal and no injection is reachable
+# through it (each half is still reduced to [a-z0-9-], the ledger cell strips
+# `\n\r|`, and the state value goes through `jq --arg`), so this is robustness
+# rather than security — but a file whose name contains a line break is a file
+# the operator cannot type, and the guard is the honest place to say no.
+#
+# `tr -d '[:cntrl:]'` and not a pattern: it covers tab and carriage return by
+# the same stroke, and it leaves accented UTF-8 bytes alone — those are not
+# control characters, and `_slugify` already folds them to a hyphen, so a slug
+# like "Café Export" should be SANITISED rather than refused. Note the command
+# substitution strips trailing newlines from its own output, which is why a
+# slug that merely ENDS in a newline also compares unequal and is refused.
+_slug_path_safe() {
+  local raw="${1:-}"
+  [ -n "$raw" ] || return 0
+  case "$raw" in
+    */*|*\\*|*..*|.*) return 2 ;;
+  esac
+  [ "$(printf '%s' "$raw" | tr -d '[:cntrl:]')" = "$raw" ] || return 2
+  return 0
+}
+
+# ── The brief (§6.2/§6.3) ───────────────────────────────────────────────────
+# _brief_template — the template to render, project copy first.
+#
+# The PROJECT's own templates/generated/delta-brief.tmpl wins, because a
+# project may edit it and the manual path (§6.1) tells the operator to copy
+# THAT file. The framework-side sibling is the fallback for a scaffold that
+# predates the template shipping.
+_brief_template() {
+  if [ -f "templates/generated/delta-brief.tmpl" ]; then
+    printf '%s' "templates/generated/delta-brief.tmpl"; return 0
+  fi
+  if [ -f "$SCRIPT_DIR/../templates/generated/delta-brief.tmpl" ]; then
+    printf '%s' "$SCRIPT_DIR/../templates/generated/delta-brief.tmpl"; return 0
+  fi
+  return 1
+}
+
+# _brief_render <template> <dest> <id> <slug> <class> <at> <risk> <level> <sev>
+#   Substitute the {{…}} tokens and write the file. Every value spliced here is
+#   already constrained — the id matches DELTA-[0-9]+, the slug has been through
+#   `_slugify` so it is [a-z0-9-] only, the class and the attributes come from
+#   fixed vocabularies, and the timestamp is this script's own `date -u`. None
+#   of them can carry a `#`, a `&` or a newline into the sed replacement.
+#
+# THERE IS A BUILT-IN FALLBACK AND IT IS NOT A CONVENIENCE. A project whose
+# template file is missing — deleted, or scaffolded before the template
+# shipped — must still be able to open a feature delta. Refusing would make a
+# missing DOCUMENT stop the WORK, and it would do it at the worst moment: the
+# operator has just described what they need and confirmed four lines about it.
+# The fallback carries the same five sections and the same parse contract, so
+# the close gate behaves identically; only the prose guidance is thinner.
+_brief_builtin() {
+  local dest="$1" id="$2" slug="$3" class="$4" at="$5" risk="$6" level="$7" sev="$8"
+  [ -n "$sev" ] || sev="not applicable"
+  {
+    printf '# %s — %s\n\n' "$id" "$slug"
+    printf '**Class:** %s\n' "$class"
+    printf '**Opened:** %s\n' "$at"
+    printf '**Risk:** %s · **Level:** %s · **Severity:** %s\n\n' "$risk" "$level" "$sev"
+    printf '## What\n\n[One paragraph, in your own words.]\n\n'
+    printf '## Why\n\n[The user signal — what someone did, said, or failed to do.]\n\n'
+    printf '## Done-observable\n\n'
+    printf '<!-- One line per thing you will be able to SEE working. Tick a box\n'
+    printf '     only when you have watched that thing happen. This list is the\n'
+    printf '     whole review at close, and the close refuses while any box here\n'
+    printf '     is unticked. -->\n\n'
+    printf -- '- [ ] [the first thing you will be able to see working]\n'
+    printf -- '- [ ] [the second thing you will be able to see working]\n\n'
+    printf '## Must-not-change\n\n- [what must still work exactly as it does today]\n\n'
+    printf '## Touched surfaces\n\n- [file or area]\n'
+  } > "$dest"
+}
+
+_brief_render() {
+  local tmpl="$1" dest="$2" id="$3" slug="$4" class="$5" at="$6" risk="$7" level="$8" sev="$9"
+  [ -n "$sev" ] || sev="not applicable"
+  sed -e "s#{{DELTA_ID}}#$id#g" \
+      -e "s#{{SLUG}}#$slug#g" \
+      -e "s#{{CLASS}}#$class#g" \
+      -e "s#{{OPENED_AT}}#$at#g" \
+      -e "s#{{RISK}}#$risk#g" \
+      -e "s#{{LEVEL}}#$level#g" \
+      -e "s#{{SEVERITY}}#$sev#g" \
+      "$tmpl" > "$dest"
+}
+
+# ── The ledger row (§6.3) ───────────────────────────────────────────────────
+# THE HARD CONSTRAINT, restated at the code because it is the one thing here
+# that cannot be undone by an edit that looks tidy: `BUGS.md`'s table format is
+# PARSED BY SCRIPTS. Its own header says "Do NOT change the table format", and
+# scripts/test-gate.sh greps `SEV-1.*Open`, `SEV-2.*Open`, `SEV-2.*Deferred`
+# and `SEV-3.*Open` across it. So the delta link goes in the EXISTING
+# `Fix Reference` column — which already takes "PR #12"-shaped values — and
+# never in a new one. A new column shifts nothing today and is exactly the
+# edit that silently breaks a `grep -c` months later.
+
+# _ledger_for <class> — which ledger this class's row belongs in (§5.2).
+_ledger_for() {
+  case "${1:-}" in
+    feature) printf 'FEATURES.md' ;;
+    *)       printf 'BUGS.md' ;;
+  esac
+}
+
+# _cell <text> — a value safe to put in a markdown table cell: pipes would add
+# columns, newlines would add rows.
+_cell() {
+  printf '%s' "${1:-}" | tr '\n\r|' '   ' | sed -e 's/[[:space:]]\{1,\}/ /g' -e 's/^ //' -e 's/ $//'
+}
+
+# _bugs_next_num <file> — max of the `#` column + 1. Only the FIRST table's rows
+# carry a bare integer there, so the Status and Severity guide tables below it
+# cannot contribute.
+_bugs_next_num() {
+  local f="$1" n
+  n="$(grep -oE '^\|[[:space:]]*[0-9]+[[:space:]]*\|' "$f" 2>/dev/null \
+        | grep -oE '[0-9]+' | sort -n | tail -1)"
+  case "$n" in ''|*[!0-9]*) printf '1' ;; *) printf '%s' "$((n + 1))" ;; esac
+}
+
+# _bugs_append_row <file> <row> — append to the FIRST table only.
+#   The insertion point is the last line of the run of `|`-rows that begins at
+#   the separator, so the row lands at the bottom of the bug table and never
+#   inside the Status Guide or Severity Guide tables further down the file.
+_bugs_append_row() {
+  local f="$1" row="$2" tmp
+  tmp="$(mktemp)" || return 1
+  awk -v row="$row" '
+    { lines[NR] = $0 }
+    sep == 0 && /^\|---/ { sep = NR; last = NR; next }
+    sep > 0 && last == NR - 1 && /^\|/ { last = NR }
+    END {
+      if (last == 0) { for (i = 1; i <= NR; i++) print lines[i]; print row; exit }
+      for (i = 1; i <= NR; i++) { print lines[i]; if (i == last) print row }
+    }
+  ' "$f" > "$tmp" && mv "$tmp" "$f"
+}
+
+# _features_next_num <file>
+_features_next_num() {
+  local f="$1" n
+  n="$(grep -oE '^##[[:space:]]+Feature[[:space:]]+[0-9]+' "$f" 2>/dev/null \
+        | grep -oE '[0-9]+' | sort -n | tail -1)"
+  case "$n" in ''|*[!0-9]*) printf '1' ;; *) printf '%s' "$((n + 1))" ;; esac
+}
+
+# _ledger_write <class> <id> <slug> <describe> <severity> <brief-or-empty>
+#   Writes the delta's row and echoes the ledger's filename, or echoes nothing
+#   when there is no ledger to write into. rc is always 0: a project that has
+#   deleted its ledger should not be unable to open a delta, it should be told.
+#
+#   THE CONTRACT IS "ECHO NOTHING UNLESS THE ROW LANDED", AND BOTH BRANCHES MUST
+#   HONOUR IT. The caller distinguishes "no ledger here" from "the write did not
+#   complete" by asking whether the file exists — and that discrimination only
+#   works if a failed write actually produces the empty result it is looking for.
+#   The BUGS branch got `|| return 0` when that discrimination was added; the
+#   FEATURE branch did not, and its unguarded `} >> "$ledger"` fell straight
+#   through to the `printf` below, returning the FILENAME on failure. So a
+#   read-only FEATURES.md produced: rc 0, "A row for DELTA-001 is on
+#   FEATURES.md", `grep -c DELTA-001` = 0, and `ledger: "FEATURES.md"` recorded
+#   in the state document — the lie reaching the audit record, not just the
+#   transcript. Measured, then fixed; L5 pins it by forcing the write to fail.
+#   Any third ledger branch added here needs the same guard, for the same
+#   reason: silence is the signal, so silence has to be reachable.
+#
+#   THE ROW IS SEEDED, NOT ATTESTED. `ledger_row` stays an operator-attested
+#   gate (WP5: "the operator's own BUGS.md row … stays attested like every
+#   other class's"). The framework writes what it knows — the id, the class's
+#   severity, the link — and the operator fills in the description and ticks
+#   the gate. For a HOTFIX this same row is Karl's decision-3 audit trace: a
+#   visible ledger row written the moment the fast lane opens, which survives
+#   an abandoned hotfix and a lost state file, neither of which the state
+#   document's own `audit_row_at_open` stamp does.
+_ledger_write() {
+  local class="$1" id="$2" slug="$3" desc="$4" sev="$5" brief="$6"
+  local ledger num row link feat
+  ledger="$(_ledger_for "$class")"
+  [ -f "$ledger" ] || return 0
+  if [ -n "$brief" ]; then link="$id ($brief)"; else link="$id"; fi
+  if [ "$ledger" = "BUGS.md" ]; then
+    num="$(_bugs_next_num "$ledger")"
+    [ -n "$sev" ] || sev="SEV-3"
+    # THE NINE SHIPPED COLUMNS, IN ORDER, AND NOT A TENTH:
+    # # | Severity | Status | Feature | Description | Session | Disposition |
+    # Fix Reference | Verified In
+    row="| $num | $sev | Open | $(_cell "$slug") | $(_cell "$desc") | - | Fix Now | $link | - |"   # DELTA-OPEN-LEDGER-COLUMN
+    _bugs_append_row "$ledger" "$row" || return 0
+  else
+    feat="$(_features_next_num "$ledger")"
+    {
+      printf '\n## Feature %s: %s\n\n' "$feat" "$(_cell "$slug")"
+      printf '**Phase Built:** 4 (post-1.0 %s)\n' "$id"
+      printf '**Status:** In Progress\n'
+      printf '**Summary:** %s\n' "$(_cell "$desc")"
+      if [ -n "$brief" ]; then printf '**Brief:** %s\n' "$brief"; fi
+      printf '**Key Interfaces:** [to be filled in at close]\n'
+      printf '**Related ADRs:** [to be filled in at close]\n'
+      printf '**Test Coverage:** [to be filled in at close]\n'
+      printf '**Known Limitations:** [to be filled in at close]\n\n---\n'
+    } >> "$ledger" || return 0
+  fi
+  printf '%s' "$ledger"
+  return 0
+}
+
+# ── The bridge (§10.4): the manifesto's § 6 read as CANDIDATES ──────────────
+# D7's bridge at v1.0, and the whole of it is a READ. § 6 Post-MVP Backlog
+# items become candidates listed by `--status`; nothing is auto-opened, nothing
+# is deleted from the manifesto, and the § 5 MVP-cutline governance is
+# untouched — because § 6's own text says these are candidates prioritised
+# "after launch based on real usage data", and auto-promoting them into a queue
+# would contradict the document being read.
+#
+# The awk program is a VARIABLE and the invocation is ONE self-contained line,
+# on purpose: `# DELTA-BRIDGE-READ-ONLY` is a mutation address, and a marker on
+# the last line of a multi-line quoted program would let a mutant delete the
+# closing quote and produce a parse error that reads as "the guard caught it".
+_MANIFESTO_S6_AWK='/^##[ \t]*6[. ]/ { insec = 1; next }
+/^##.*Post-MVP Backlog/ { insec = 1; next }
+insec && /^##/ { insec = 0 }
+insec && /^[-*+][ \t]+/ { print }'
+
+_manifesto_candidates() {
+  local mf="PRODUCT_MANIFESTO.md"
+  [ -f "$mf" ] || return 1
+  awk "$_MANIFESTO_S6_AWK" "$mf" 2>/dev/null || true                  # DELTA-BRIDGE-READ-ONLY
+  return 0
+}
+
+_render_candidates() {
+  local cands n
+  cands="$(_manifesto_candidates)" || return 0
+  [ -n "$cands" ] || return 0
+  n="$(printf '%s\n' "$cands" | grep -c '' || true)"
+  case "$n" in ''|*[!0-9]*) n=0 ;; esac
+  echo ""
+  print_info "From your Post-MVP Backlog — $n candidate(s). Nothing here is scheduled and nothing has been opened; this is a read of PRODUCT_MANIFESTO.md section 6, which stays the place they live:"
+  printf '%s\n' "$cands" | sed -e 's/^[-*+][[:space:]]*/  - /'
+  return 0
+}
+
 # ═════════════════════════════════════════════════════════════════════════════
 # --status
 # ═════════════════════════════════════════════════════════════════════════════
@@ -698,6 +974,7 @@ cmd_status() {
   if [ "$(printf '%s\n' "$doc" | jq -r '.active_delta == null')" = "true" ]; then
     print_info "No delta is open. Start one with: scripts/delta.sh --open"
     _render_retros
+    _render_candidates
     echo ""
     return 0
   fi
@@ -723,6 +1000,7 @@ cmd_status() {
 cmd_open() {
   local phase doc active_id pair touched lines gates obj now id slug reasons rc
   local retro_days retro_due retro_row audit_at gates_done filter
+  local brief_rel brief_created brief_json ledger_json ledger_file tmpl existing
 
   command -v jq >/dev/null 2>&1 || { print_fail "jq is required to open a delta."; return 1; }
 
@@ -760,6 +1038,35 @@ cmd_open() {
     echo ""
     return 4
   fi
+
+  # ── REFUSAL 3 — THE SLUG IS A WRITE TARGET (§6.3, WP8) ───────────────────
+  # It sits HERE — after the two refusals that describe the project's state,
+  # before anything at all is written — because it is an invocation error, not
+  # a state error: the operator typed something this flow cannot turn into a
+  # file name. Ordering it after the era guard keeps the load-bearing refusal
+  # first; ordering it before every write is what makes "nothing was opened"
+  # true of the whole tree.
+  if ! _slug_path_safe "$SLUG"; then                                  # DELTA-OPEN-SLUG-GUARD
+    echo ""
+    print_fail "That short name cannot be used: it looks like a file path, not a name."
+    print_info "The short name becomes part of a file name, so it can only contain letters, numbers and hyphens — no slashes, no dots at the start, and no \"..\"."
+    print_info "Try something like: --slug csv-export-unicode"
+    print_info "Nothing was opened."
+    echo ""
+    return 2
+  fi
+
+  # The recorded path is the one the operator asked for and the one they will
+  # be shown, so it is validated here too. Neither is a substitute for the
+  # other: `--via` is a vocabulary check, the slug guard above is a path check.
+  case "$VIA" in
+    guided|conversational|manual) : ;;
+    *)
+      print_fail "'$VIA' is not one of the three ways a piece of work gets started."
+      print_info "Use --via guided (you ran this script), --via conversational (an agent walked you through it) or --via manual (you wrote the plan by hand first)."
+      print_info "Nothing was opened."
+      return 2 ;;
+  esac
 
   if [ -z "$DESCRIBE" ]; then
     if [ -t 0 ] && [ -z "${CI:-}" ] && [ -z "${SOIF_NONINTERACTIVE:-}" ]; then
@@ -838,8 +1145,11 @@ cmd_open() {
   fi
 
   id="$(_next_id "$doc")"
-  slug="$SLUG"
-  [ -n "$slug" ] || slug="$(_slugify "$DESCRIBE")"
+  # BOTH sources go through `_slugify`, and the operator's is no exception.
+  # The guard above already refused the path-shaped spellings; this is the
+  # second half of the same defence — whatever survives is reduced to
+  # [a-z0-9-], so the composed file name cannot be anything else.
+  if [ -n "$SLUG" ]; then slug="$(_slugify "$SLUG")"; else slug="$(_slugify "$DESCRIBE")"; fi
   now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
   reasons="$(jq -c -n --arg r "$REASON_RISK" --arg l "$REASON_LEVEL" --arg s "$REASON_SEVERITY" '
@@ -883,17 +1193,94 @@ cmd_open() {
     fi
   fi
 
-  # `brief` and `ledger` stay null on purpose: §11-WP8 owns the brief template
-  # and the guided intake's ledger-row write. Materialising them here would
-  # invent a path to a file nothing creates yet.
+  # ── §6.1's OTHER TWO WRITES (WP8) ────────────────────────────────────────
+  # All three creation paths converge on the same three writes — the brief
+  # file, the ledger row and the state activation — and this is where the first
+  # two happen. The third has exactly one writer (the seam) and it is the call
+  # below.
+  #
+  # THE ORDER IS THE DESIGN. The brief and the ledger row are written FIRST and
+  # rolled back if the state write is refused, so the refusal's "nothing was
+  # opened" stays true of the whole tree. The reverse order would be worse in
+  # the way that matters: a state document pointing at a brief that does not
+  # exist closes on `_brief_path`'s "there isn't one to check against", which
+  # reads like the operator's fault.
+  brief_rel=""
+  brief_created=""
+  brief_json="null"
+  ledger_json="null"
+
+  # THE BRIEF IS WRITTEN ONLY WHEN THE CLASS OWES ONE (§5.2). A hotfix ships on
+  # the floor plus an audit row and nothing heavier; rendering it a brief would
+  # be exactly the ceremony the fast lane exists to skip.
+  if printf '%s\n' "$gates" | jq -e 'index("brief") != null' >/dev/null 2>&1; then
+    rc=0; existing="$(_brief_path "$id" "")" || rc=$?
+    if [ "$rc" -eq 2 ]; then
+      echo ""
+      print_fail "More than one written-up plan already claims to be $id's, so it is not clear which one this work would be reviewed against."
+      printf '%s\n' "$existing" | sed -e 's/^/  /'
+      print_info "Keep one and rename or remove the other. Nothing was opened."
+      echo ""
+      return 2
+    fi
+    if [ "$rc" -eq 0 ] && [ -n "$existing" ] && [ -f "$existing" ]; then
+      # THE MANUAL PATH (§6.1). The operator wrote their own plan before
+      # running anything; it is ADOPTED, never overwritten. A template render
+      # on top of it would destroy the very thing they came here with.
+      brief_rel="$existing"
+      print_info "Using the plan you already wrote at $existing."
+    else
+      brief_rel="docs/deltas/$id-$slug.md"
+      mkdir -p "docs/deltas" 2>/dev/null || true
+      rc=0
+      if tmpl="$(_brief_template)"; then
+        _brief_render "$tmpl" "$brief_rel" "$id" "$slug" "$CLASS" "$now" \
+          "$RISK" "$LEVEL" "$SEV" || rc=$?
+      else
+        _brief_builtin "$brief_rel" "$id" "$slug" "$CLASS" "$now" \
+          "$RISK" "$LEVEL" "$SEV" || rc=$?
+        print_info "There is no brief template in this project, so a plain one was written for you. If you want the fuller version back, restore templates/generated/delta-brief.tmpl."
+      fi
+      if [ "$rc" -ne 0 ]; then
+        rm -f "$brief_rel" 2>/dev/null || true
+        print_fail "Could not write the plan file, so nothing was opened."
+        return 1
+      fi
+      brief_created="$brief_rel"
+    fi
+    brief_json="$(_json_str "$brief_rel")"
+  fi
+
+  # THE EMPTY RESULT HAS TWO CAUSES AND THEY MUST NOT SHARE A MESSAGE.
+  # `_ledger_write` runs in a command substitution, so anything that kills it
+  # kills only the SUBSHELL — the parent carries on with an empty string and a
+  # zero exit code. So "" means either "this project has no such ledger" (fine,
+  # and common) or "the write did not complete" (not fine at all). Reporting
+  # both as the first is the reassuring version of a silent failure, and it is
+  # the shape this repo keeps finding. Ask the filesystem which one it was.
+  #
+  # Found by the CI-only failure of tests/test-delta-wp8-intake.sh::m3, where a
+  # mutant died inside this very substitution: the delta opened, rc was 0, and
+  # the only trace was a ledger row that silently never appeared.
+  ledger_file="$(_ledger_write "$CLASS" "$id" "$slug" "$DESCRIBE" "$SEV" "$brief_rel")"   # DELTA-OPEN-LEDGER-ROW
+  if [ -n "$ledger_file" ]; then
+    ledger_json="$(_json_str "$ledger_file")"
+  elif [ -f "$(_ledger_for "$CLASS")" ]; then
+    print_warn "$(_ledger_for "$CLASS") is here, but the row for $id could not be added to it."
+    print_info "Everything else about $id was recorded. Add a row for it by hand before you mark the ledger check done."
+  else
+    print_info "There is no ledger file here to add a row to, so this delta is recorded only in its own record."
+  fi
+
   obj="$(jq -c -n \
     --arg id "$id" --arg slug "$slug" --arg class "$CLASS" \
-    --arg at "$now" --arg via "guided" \
+    --arg at "$now" --arg via "$VIA" \
+    --argjson brief "$brief_json" --argjson ledger "$ledger_json" \
     --arg risk "$RISK" --arg level "$LEVEL" --arg sev "$SEV" \
     --argjson gates "$gates" --argjson reasons "$reasons" \
     --argjson audit "$audit_at" --argjson done "$gates_done" '
     { id: $id, slug: $slug, class: $class,
-      brief: null, ledger: null,
+      brief: $brief, ledger: $ledger,
       opened_at: $at, opened_via: $via,
       attributes: { risk: $risk, level: $level,
                     severity: (if $sev == "" then null else $sev end) },
@@ -914,12 +1301,25 @@ cmd_open() {
     filter="$filter | .hotfix_retros += [$retro_row]"                 # DELTA-OPEN-RETRO-APPEND
   fi
   if ! _seam --delta-state-update "$filter"; then
+    # THE ROLLBACK. Only a brief THIS run created is removed — an adopted one
+    # is the operator's own file and was here before we were. Spelled as an
+    # `if` and not `[ -n … ] && rm`: this arm only runs when the seam has
+    # already refused, so it is the least-exercised path in the flow, and an
+    # AND-list whose left side is false is exactly the shape that trips `set -e`
+    # readings nobody has tested.
+    if [ -n "$brief_created" ]; then rm -f "$brief_created" 2>/dev/null || true; fi
     print_fail "The delta record refused the change, so nothing was opened."
     return 1
   fi
 
   echo ""
   print_ok "Opened $id — $slug ($CLASS)."
+  if [ -n "$brief_rel" ]; then
+    print_info "Write down what has to be TRUE when this is finished, in $brief_rel under 'Done-observable'. That list is the whole review at the end — you are writing it now, before you are invested in how you built it."
+  fi
+  if [ -n "$ledger_file" ]; then
+    print_info "A row for $id is on $ledger_file. Fill in what it says before you mark that check done."
+  fi
   printf '%s\n' "$gates" | jq -r '"  Before this can ship: " + join(", ")'
   if [ -n "$retro_row" ]; then
     # §4.3's plain register, and it is read at 3am: say what was borrowed, when
@@ -981,19 +1381,35 @@ _close_measure() {
 #   Ambiguity is a refusal rather than a first-match: picking one of two briefs
 #   silently means the close review ran against a document the operator may not
 #   have been looking at.
+#   WP8 AMENDMENT — THE AMBIGUITY CHECK NOW RUNS FIRST, AND UNCONDITIONALLY.
+#   The recorded path still wins, but it no longer SKIPS the glob. Once WP8's
+#   guided intake started filling `active_delta.brief`, an early return on the
+#   recorded value made the two-files-claim-one-id refusal unreachable through
+#   the front door: the close would review the framework's own render while the
+#   operator had been editing the other file all week, and if that other file
+#   happened to be complete, nothing anywhere would say so. Order matters here
+#   and it is the only thing that changed — a delta that names its own brief is
+#   still not second-guessed about WHICH file to read, it is only refused when
+#   there is genuinely more than one candidate to be confused by.
 _brief_path() {
-  local id="$1" recorded="${2:-}" hits n
+  local id="$1" recorded="${2:-}" hits="" n
+  if [ -d "docs/deltas" ]; then
+    hits="$(find docs/deltas -maxdepth 1 -type f \( -name "$id-*.md" -o -name "$id.md" \) 2>/dev/null | LC_ALL=C sort)"
+    if [ -n "$hits" ]; then
+      n="$(printf '%s\n' "$hits" | grep -c '' || true)"
+      case "$n" in ''|*[!0-9]*) n=0 ;; esac
+      if [ "$n" -gt 1 ]; then
+        printf '%s' "$hits"
+        return 2
+      fi
+    fi
+  fi
   if [ -n "$recorded" ] && [ "$recorded" != "null" ]; then
     printf '%s' "$recorded"
     return 0
   fi
-  [ -d "docs/deltas" ] || return 1
-  hits="$(find docs/deltas -maxdepth 1 -type f \( -name "$id-*.md" -o -name "$id.md" \) 2>/dev/null | LC_ALL=C sort)"
   [ -n "$hits" ] || return 1
-  n="$(printf '%s\n' "$hits" | grep -c '' || true)"
-  case "$n" in ''|*[!0-9]*) n=0 ;; esac
   printf '%s' "$hits"
-  [ "$n" -eq 1 ] || return 2
   return 0
 }
 
@@ -1580,6 +1996,11 @@ cmd_retro() {
 ACTION=""
 DESCRIBE=""
 SLUG=""
+# §6.1's three creation paths. They differ ONLY in who authored the brief; all
+# three end in this script performing the same three writes, which is what
+# keeps the state single-writer rule intact no matter how the operator got
+# here. `guided` is the default because that is what running this script IS.
+VIA="guided"
 CONFIRMED=0
 WANT_CLASS=""
 WANT_RISK=""
@@ -1622,6 +2043,7 @@ while [ $# -gt 0 ]; do
     --status)   ACTION="status"; shift ;;
     --describe) _need "$1" $#; DESCRIBE="$2"; shift 2 ;;
     --slug)     _need "$1" $#; SLUG="$2"; shift 2 ;;
+    --via)      _need "$1" $#; VIA="$2"; shift 2 ;;
     --class)    _need "$1" $#; WANT_CLASS="$2"; shift 2 ;;
     --risk)     _need "$1" $#; WANT_RISK="$2"; shift 2 ;;
     --level)    _need "$1" $#; WANT_LEVEL="$2"; shift 2 ;;

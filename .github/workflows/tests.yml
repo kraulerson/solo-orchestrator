@@ -438,6 +438,7 @@ jobs:
             tests/test-delta-wp5-hotfix-retro.sh
             tests/test-delta-wp6-cadence.sh
             tests/test-delta-wp7-cut-release.sh
+            tests/test-delta-wp8-intake.sh
             tests/test-delta-severability.sh
             tests/test-docs-cluster-six-pack.sh
             tests/test-enforcement-level-lib.sh
@@ -566,6 +567,13 @@ jobs:
             tests/test-pre-commit-gate-lints.sh        # 122s — runs 4 lint copies inside fixture projects
             tests/test-upgrade-sync-framework.sh       #  37s
             tests/test-plan-staging.sh                 #  34s
+            # ── Re-pinned 2026-08-09, measured from runs 31332638444 (main @
+            #    faffd7a, complement leg 626s/720s) and 31332771622 (WP8 branch,
+            #    complement leg CANCELED at 736s). Nothing failed on that run —
+            #    the cap fired. Per the doctrine above, that is the RE-PIN
+            #    signal, not a reason to raise the cap.
+            tests/test-delta-wp5-hotfix-retro.sh       # 181s — THE long pole of the whole wave, and 3x the next one. It opens and closes deltas dozens of times, and each open now also renders a brief and seeds a ledger row, so it got slower as the feature landed rather than as the test grew
+            tests/test-brownfield-wp1-scout.sh         #  55s — the second pole. Moved WITH the first deliberately: the first alone left the complement leg at ~77% of the cap, which is the same "approaching" state the sast note below was written about, and the complement has taken a new suite in nearly every work package this wave
           )
 
           # The ONLY thing that maps a roster name to a pin array. Both the
