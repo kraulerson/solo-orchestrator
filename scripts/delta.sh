@@ -781,6 +781,20 @@ _features_next_num() {
 #   when there is no ledger to write into. rc is always 0: a project that has
 #   deleted its ledger should not be unable to open a delta, it should be told.
 #
+#   THE CONTRACT IS "ECHO NOTHING UNLESS THE ROW LANDED", AND BOTH BRANCHES MUST
+#   HONOUR IT. The caller distinguishes "no ledger here" from "the write did not
+#   complete" by asking whether the file exists — and that discrimination only
+#   works if a failed write actually produces the empty result it is looking for.
+#   The BUGS branch got `|| return 0` when that discrimination was added; the
+#   FEATURE branch did not, and its unguarded `} >> "$ledger"` fell straight
+#   through to the `printf` below, returning the FILENAME on failure. So a
+#   read-only FEATURES.md produced: rc 0, "A row for DELTA-001 is on
+#   FEATURES.md", `grep -c DELTA-001` = 0, and `ledger: "FEATURES.md"` recorded
+#   in the state document — the lie reaching the audit record, not just the
+#   transcript. Measured, then fixed; L5 pins it by forcing the write to fail.
+#   Any third ledger branch added here needs the same guard, for the same
+#   reason: silence is the signal, so silence has to be reachable.
+#
 #   THE ROW IS SEEDED, NOT ATTESTED. `ledger_row` stays an operator-attested
 #   gate (WP5: "the operator's own BUGS.md row … stays attested like every
 #   other class's"). The framework writes what it knows — the id, the class's
@@ -815,7 +829,7 @@ _ledger_write() {
       printf '**Related ADRs:** [to be filled in at close]\n'
       printf '**Test Coverage:** [to be filled in at close]\n'
       printf '**Known Limitations:** [to be filled in at close]\n\n---\n'
-    } >> "$ledger"
+    } >> "$ledger" || return 0
   fi
   printf '%s' "$ledger"
   return 0

@@ -661,6 +661,59 @@ else
   fail_ "L4" "gates_completed=$l4_done — ledger_row ticked=$l4_has_ledger (want n), audit_row_at_open ticked=$l4_has_audit (want y)"
 fi
 
+# ── L5: A LEDGER WRITE THAT FAILS MUST SAY SO ───────────────────────────────
+# The silent-success class, pinned on the branch that had it live.
+#
+# `_ledger_write` echoes the ledger's filename on success and NOTHING when there
+# is nothing to write into, and the caller tells "no ledger here" apart from
+# "the write did not complete" by asking whether the file exists. That
+# discrimination only works if a failed write actually produces the empty
+# result it is looking for. The BUGS branch returned empty; the FEATURE branch's
+# unguarded `} >> "$ledger"` fell through and returned the FILENAME, so a
+# read-only FEATURES.md yielded rc 0, "A row for DELTA-001 is on FEATURES.md",
+# no row, and `ledger: "FEATURES.md"` in the state document — the lie reaching
+# the AUDIT RECORD, not just the transcript. Both branches are asserted here so
+# the two can never drift apart again.
+PLF="$TMPROOT/ledger-write-fails"; mk_proj "$PLF" 4
+chmod 444 "$PLF/FEATURES.md" 2>/dev/null || true
+# THE PRECONDITION, and it is the m3 lesson applied one row over: if the forced
+# failure does not take effect — a root runner, an exotic filesystem — then
+# every assertion below is vacuous, and a vacuous row must say so rather than
+# pass quietly.
+l5_forced=y
+if ( printf 'x\n' >> "$PLF/FEATURES.md" ) 2>/dev/null; then l5_forced=n; fi
+open_feature "$REPO_ROOT/scripts" "$PLF" "csv-import"
+l5_rc=$DRC
+l5_told=n
+printf '%s\n' "$DOUT" | grep -q 'could not be added' && l5_told=y
+l5_claimed=n
+printf '%s\n' "$DOUT" | grep -q 'A row for .* is on' && l5_claimed=y
+l5_rows="$(grep -c 'DELTA-001' "$PLF/FEATURES.md" 2>/dev/null || true)"
+case "$l5_rows" in ''|*[!0-9]*) l5_rows=0 ;; esac
+l5_ledger="$(active_json "$PLF" -r '.active_delta.ledger // "null"')"
+chmod 644 "$PLF/FEATURES.md" 2>/dev/null || true
+
+# THE BENIGN CONTROL. A guard that also breaks the working path is not a fix.
+PLG="$TMPROOT/ledger-write-ok"; mk_proj "$PLG" 4
+open_feature "$REPO_ROOT/scripts" "$PLG" "csv-import"
+l5g_rc=$DRC
+l5g_rows="$(grep -c 'DELTA-001' "$PLG/FEATURES.md" 2>/dev/null || true)"
+case "$l5g_rows" in ''|*[!0-9]*) l5g_rows=0 ;; esac
+l5g_ledger="$(active_json "$PLG" -r '.active_delta.ledger // "null"')"
+l5g_told=n
+printf '%s\n' "$DOUT" | grep -q 'could not be added' && l5g_told=y
+
+if [ "$l5_forced" = n ]; then
+  fail_ "L5 (vacuous)" "the forced failure did not take effect — FEATURES.md stayed writable, so nothing below was actually exercised. Running as root, or on a filesystem that ignores the mode bit"
+elif [ "$l5_rc" -eq 0 ] && [ "$l5_told" = y ] && [ "$l5_claimed" = n ] \
+     && [ "$l5_rows" -eq 0 ] && [ "$l5_ledger" = "null" ] \
+     && [ "$l5g_rc" -eq 0 ] && [ "$l5g_rows" -gt 0 ] && [ "$l5g_ledger" = "FEATURES.md" ] \
+     && [ "$l5g_told" = n ]; then
+  pass "L5: when the FEATURES.md write FAILS the operator is TOLD (rc $l5_rc, 'could not be added'), the framework does not also claim the row exists ($l5_claimed), the file really has no row ($l5_rows) and the state records ledger=$l5_ledger rather than naming a file it never wrote — so the audit record does not carry the lie either. The benign path is untouched: row written ($l5g_rows), ledger=$l5g_ledger, no warning ($l5g_told)"
+else
+  fail_ "L5" "forced-failure arm: rc=$l5_rc (want 0) told=$l5_told (want y) also-claimed-success=$l5_claimed (want n) rows=$l5_rows (want 0) ledger=$l5_ledger (want null); benign arm: rc=$l5g_rc (want 0) rows=$l5g_rows (want >0) ledger=$l5g_ledger (want FEATURES.md) warned=$l5g_told (want n)"
+fi
+
 # ════════════════════════════════════════════════════════════════════════════
 echo ""
 echo "=== BR — the bridge (§10.4): a READ, never a move ==="
