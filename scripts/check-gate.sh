@@ -699,11 +699,35 @@ EOM
   #
   # So: an executable line naming the gate script may be the bare invocation or
   # the existence guard the emitted templates wrap it in, and NOTHING else.
-  # Normalization is limited to what cannot change what bash runs — indentation,
-  # a YAML sequence dash, the `run:` key of an inline scalar, trailing blanks —
-  # which is why an older project whose step is `run: bash scripts/…` on one
-  # line still reads as honest. Whole-line comments are dropped because they are
-  # inert; a `#` on the invocation line is not, and makes the line deviate.
+  #
+  # WHAT THE NORMALIZATION DOES AND DOES NOT CLAIM. It strips indentation, a
+  # YAML sequence dash, the `run:` key of an inline scalar, and trailing blanks
+  # — which is why an older project whose step is `run: bash scripts/…` on one
+  # line still reads as honest. Whole-LINE comments are dropped before the
+  # comparison. It does NOT follow that everything surviving the comparison is
+  # execution-relevant: a TRAILING comment (`bash scripts/… # keep`) is
+  # perfectly inert to bash, and this predicate rejects it anyway, because what
+  # is compared is the line's exact TEXT. That is deliberate and it is the safe
+  # direction — an unexpected byte on the gate line is a thing to look at, not a
+  # thing to wave through — but it is a byte comparison, not an execution
+  # analysis, and the comment must not pretend otherwise.
+  #
+  # NOTE THE ASYMMETRY with the bl147 sibling (Cw6-strict). That pin freezes the
+  # phase-gate step's whole run: body byte-for-byte and therefore rejects the
+  # inline `run: bash scripts/…` form outright. This one accepts it, because it
+  # runs against a REAL user's ci.yml of unknown vintage rather than against the
+  # ten templates the framework itself emits. Same doctrine, deliberately
+  # different tolerance; do not "align" one to the other without re-reading why.
+  #
+  # HOST TRAP for anyone replicating this predicate by hand: `grep -qvxF` over
+  # EMPTY input must exit non-zero (no lines, so no non-matching line). That is
+  # what /usr/bin/grep does, and it is what runs here — this script is executed
+  # by a child bash with no interactive aliases. But at least one dev box in
+  # this project aliases interactive `grep` to ugrep, which INVERTS the
+  # empty-input result and will make the pipeline below look like it reports a
+  # swallow on a workflow that has no gate line at all. Shipped behaviour is
+  # unaffected; a hand-run reproduction in an interactive shell is not. Use
+  # `/usr/bin/grep` explicitly when checking this by hand.
   local wf=".github/workflows/ci.yml"
   local wf_maps=0 wf_swallows=0
   if [ -f "$wf" ]; then
