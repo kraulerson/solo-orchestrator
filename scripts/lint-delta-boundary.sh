@@ -7,10 +7,14 @@
 # D1 requires this lint FROM THE FIRST COMMIT, which is why it lands alongside
 # the first module file rather than at the end of the track.
 #
-# (Deliberately NO `# BL-NNN-…` marker: no backlog entry exists for the delta
-# build, and CLAUDE.md's citation rule is satisfied by the design-doc path
-# above plus the grep-able `DELTA-BOUNDARY-*` fences below. Do not mint a BL
-# marker here — scripts/lint-bl-markers.sh would red on an id nobody filed.)
+# (Deliberately NO `# BL-NNN-…` marker for the lint AS A WHOLE: no backlog
+# entry exists for the delta build, and CLAUDE.md's citation rule is satisfied
+# by the design-doc path above plus the grep-able `DELTA-BOUNDARY-*` fences
+# below. Do not mint one for the build — scripts/lint-bl-markers.sh would red
+# on an id nobody filed. ONE LINE IS THE EXCEPTION and it is filed: the fifth
+# CORE glob carries `# BL-215-CORE-GLOB-SYNC`, because BL-215 is a real entry
+# and because that line has a SYNC SIBLING in another file — which is exactly
+# the case the marker primitive exists for, cf. `# BL-084-TIER-KEY`.)
 #
 # THE DEFECT CLASS
 #   A severable module stops being severable one convenience call at a time.
@@ -45,13 +49,33 @@
 # THE SETS — one manifest, so they can never disagree
 #   DELTA = the §3.1 inventory, spelled once in the DELTA-BOUNDARY-MANIFEST
 #           fence below. Adding a module file is a one-line edit there.
-#   CORE  = init.sh + scripts/*.sh + scripts/lib/*.sh + scripts/hooks/*.sh,
-#           MINUS the delta inventory and MINUS this script (which names every
-#           delta path by construction). The self-exclusion is by BOTH manifest
-#           membership and the explicit SELF_REL path, per §3.3.
-#           scripts/host-drivers/*.sh is NOT in the CORE set: §3.3 names four
-#           globs and this is the fourth-glob-faithful reading. Widen it only
-#           by amending the design.
+#   CORE  = init.sh + scripts/*.sh + scripts/lib/*.sh + scripts/hooks/*.sh +
+#           scripts/host-drivers/*.sh, MINUS the delta inventory and MINUS this
+#           script (which names every delta path by construction). The
+#           self-exclusion is by BOTH manifest membership and the explicit
+#           SELF_REL path, per §3.3.
+#
+#           THE FIFTH GLOB IS A CORRECTION, NOT A GROWTH SPURT (BL-215, §3.3
+#           v1.2, Karl's approval 2026-08-09). v1.0/v1.1 named FOUR globs, this
+#           lint was built faithful to that number, and this header used to say
+#           the exclusion of scripts/host-drivers/*.sh was the faithful reading
+#           and should be widened "only by amending the design". The design was
+#           amended, and what it was amended ON is worth keeping: the gap was
+#           measured, not argued. A planted
+#           `source "$SCRIPT_DIR/lib/delta-state.sh"` in
+#           scripts/host-drivers/github.sh left this lint at rc=0, while the
+#           IDENTICAL line in scripts/validate.sh red at rc=1 on T1. The
+#           positive control is the whole argument: the predicate was sound and
+#           the POPULATION was short, so nothing below this line changed. Host
+#           drivers are core by every other measure — init.sh,
+#           scripts/lib/host.sh and scripts/intake-wizard.sh source them by
+#           path, and init.sh ships them downstream — so a convenience call
+#           added to one fuses the module exactly as thoroughly as the same
+#           call in check-phase-gate.sh.
+#           Pinned by tests/test-lint-delta-boundary.sh S4 (the plant reds at
+#           T1), S5 (a clean host driver is IN the population — structural,
+#           because rc=0 cannot tell that from "not scanned") and S6 (drop the
+#           glob and the plant passes again).
 #
 #   A RENAMED COPY of this script inside scripts/ is NOT self-excluded, and
 #   that is deliberate. Unlike scripts/lint-bl-markers.sh — where a copy could
@@ -420,11 +444,18 @@ fi
 # a literal and is filtered by the `[ -f ]` test.
 CORE_FILES="$TMPD/core-files"
 : > "$CORE_FILES"
+# BL-215-CORE-GLOB-SYNC — SYNC SIBLINGS. The host-drivers glob below is
+# duplicated verbatim in scripts/lint-module-dependencies.sh's CORE_GLOBS and
+# the two must be changed TOGETHER: the designs keep the two CORE sets at exact
+# parity by construction (delta §3.3, brownfield §3.3, docs/module-contract.md
+# M3 all state the same five globs), so a one-sided edit silently re-opens the
+# hole on the other module. Grep the marker to find the sibling.
 CORE_GLOBS=(
   "$ROOT/init.sh"
   "$ROOT/scripts"/*.sh
   "$ROOT/scripts/lib"/*.sh
   "$ROOT/scripts/hooks"/*.sh
+  "$ROOT/scripts/host-drivers"/*.sh
 )
 for entry in "${CORE_GLOBS[@]}"; do
   [ -f "$entry" ] || continue

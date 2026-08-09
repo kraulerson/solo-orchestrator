@@ -7,11 +7,14 @@
 # §10-WP0. The rules are transcribed as a standing contract in
 # docs/module-contract.md; this script is M2/M3/M5's enforcement half.
 #
-# (Deliberately NO `# BL-NNN-…` marker: no backlog entry exists for the
-# brownfield build, and CLAUDE.md's citation rule is satisfied by the
-# design-doc path above plus the grep-able `MODULE-DEPS-*` fences below. Do not
-# mint a BL marker here — scripts/lint-bl-markers.sh would red on an id nobody
-# filed.)
+# (Deliberately NO `# BL-NNN-…` marker for the lint AS A WHOLE: no backlog
+# entry exists for the brownfield build, and CLAUDE.md's citation rule is
+# satisfied by the design-doc path above plus the grep-able `MODULE-DEPS-*`
+# fences below. Do not mint one for the build — scripts/lint-bl-markers.sh
+# would red on an id nobody filed. ONE LINE IS THE EXCEPTION and it is filed:
+# the fifth CORE glob carries `# BL-215-CORE-GLOB-SYNC`, because BL-215 is a
+# real entry and because that line has a SYNC SIBLING in another file — which
+# is exactly the case the marker primitive exists for, cf. `# BL-084-TIER-KEY`.)
 #
 # WHY A SIBLING AND NOT A GENERALISATION
 #   The post-MVP delta track ships its own boundary lint, whose architecture
@@ -66,13 +69,37 @@
 #            fence below as `<module>|<path>` rows. The module column is what
 #            makes M5's scout-only bound derivable from the same list instead
 #            of from a second one that could drift out of step with it.
-#   CORE   = init.sh + scripts/*.sh + scripts/lib/*.sh + scripts/hooks/*.sh,
-#            MINUS the module inventory, MINUS this script, and MINUS sibling
-#            boundary lints. scripts/host-drivers/*.sh is NOT in the CORE set:
-#            §3.3's co-owned contract names four globs and this is the
-#            fourth-glob-faithful reading, kept at exact parity with the delta
-#            lint. The gap is a known, pending design question for BOTH lints —
-#            widen it only by amending the design, and then in both places.
+#   CORE   = init.sh + scripts/*.sh + scripts/lib/*.sh + scripts/hooks/*.sh +
+#            scripts/host-drivers/*.sh, MINUS the module inventory, MINUS this
+#            script, and MINUS sibling boundary lints.
+#
+#            THE FIFTH GLOB IS A CORRECTION, NOT A GROWTH SPURT (BL-215, §3.3
+#            v1.2 + docs/module-contract.md M3, Karl's approval 2026-08-09).
+#            The co-owned contract named FOUR globs, both lints were built
+#            faithful to that number at exact parity, and this header used to
+#            call the exclusion a pending design question to be widened "only
+#            by amending the design, and then in both places". The design was
+#            amended and both places moved in the same commit. What it was
+#            amended ON is worth keeping: the gap was measured, not argued. A
+#            planted `source "$SCRIPT_DIR/lib/scout/scout-phasemap.sh"` in
+#            scripts/host-drivers/gitlab.sh left this lint at rc=0, while the
+#            IDENTICAL line in scripts/check-maintenance.sh red at rc=1 on T2.
+#            The positive control is the whole argument: the predicate was
+#            sound and the POPULATION was short, so nothing below this line
+#            changed. Host drivers are core by every other measure — init.sh,
+#            scripts/lib/host.sh and scripts/intake-wizard.sh source them by
+#            path — so a convenience call added to one fuses a module exactly
+#            as thoroughly as the same call in check-phase-gate.sh.
+#            Pinned by tests/test-lint-module-dependencies.sh S5 (the plant
+#            reds at T2), S6 (a clean host driver is IN the population —
+#            structural, because rc=0 cannot tell that from "not scanned") and
+#            S7 (drop the glob and the plant passes again).
+#
+#            NOTE ON THE SIBLING EXCLUSION, which the fifth glob does NOT
+#            disturb: `scripts/lint-*-boundary.sh` requires the literal
+#            `scripts/lint-` prefix, so no host driver can ever match it and
+#            neither lint starts scanning the other as a result of this
+#            widening. That exclusion is load-bearing — see below.
 #
 #   SELF-EXCLUSION IS BY EXACT PATH, and that is deliberate: a RENAMED COPY of
 #   this script inside scripts/ is NOT self-excluded. A copy is a core file
@@ -514,11 +541,18 @@ case "$ZERODEP_COUNT" in ''|*[!0-9]*) ZERODEP_COUNT=0 ;; esac
 # literal and is filtered by the `[ -f ]` test.
 CORE_FILES="$TMPD/core-files"
 : > "$CORE_FILES"
+# BL-215-CORE-GLOB-SYNC — SYNC SIBLINGS. The host-drivers glob below is
+# duplicated verbatim in scripts/lint-delta-boundary.sh's CORE_GLOBS and the
+# two must be changed TOGETHER: the designs keep the two CORE sets at exact
+# parity by construction (brownfield §3.3, delta §3.3, docs/module-contract.md
+# M3 all state the same five globs), so a one-sided edit silently re-opens the
+# hole on the other module. Grep the marker to find the sibling.
 CORE_GLOBS=(
   "$ROOT/init.sh"
   "$ROOT/scripts"/*.sh
   "$ROOT/scripts/lib"/*.sh
   "$ROOT/scripts/hooks"/*.sh
+  "$ROOT/scripts/host-drivers"/*.sh
 )
 for entry in "${CORE_GLOBS[@]}"; do
   [ -f "$entry" ] || continue
