@@ -51,16 +51,25 @@ adopt_blank() { printf '\n'; }
 # returns 1; every caller propagates. §5.5: "adoption does not complete" is a
 # real state and it must be a safe one — refusing before or between writes
 # leaves the project in the §8.4 safe row, never the unsafe one.
-ADOPT_REFUSED_REASON=""
+#
+# The reason is PRINTED and not also stashed in a global. An earlier cut kept
+# an ADOPT_REFUSED_REASON that nothing ever read (R-WP4-4): a variable nothing
+# reads is a claim nothing keeps, and it would have been read as a resume seam
+# that does not exist.
 adopt_refuse() {
-  ADOPT_REFUSED_REASON="$1"
   printf '\n[REFUSED] %s\n' "$1" >&2
   printf '          Adoption did not complete. Nothing has been committed.\n' >&2
   return 1
 }
 
-# The mandatory-question refusal, spelled ONCE so the transcript is consistent
-# and a test has one string to look for.
+# The mandatory-question refusal, spelled ONCE so the transcript is consistent.
+#
+# IT IS A PREFIX AND THE LABEL AFTER IT IS THE DISCRIMINATOR. Every mandatory
+# question in the driver prints this same sentence, so a test that greps only
+# this cannot tell WHICH question stopped the run — and one that cannot tell is
+# blind to a default-on-empty in the shared reader below, which is exactly the
+# hole R-WP4-1 found. Callers pass a label; tests match
+# "no answer was given: <label>".
 ADOPT_MANDATORY_REFUSAL="This question has no default and no skip, and no answer was given:"
 
 # ── Reading one answer ──────────────────────────────────────────────────────

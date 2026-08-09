@@ -56,13 +56,28 @@ adopt_stub_test_debt_ledger() {
 
 # WP6 — the collision archive, its MANIFEST, the disclosure and the re-add
 # warning (§7.2/§7.3). WP4 refuses to overwrite; it does not archive.
+# adopt_stub_collision_archive N [LIST] — LIST is passed explicitly rather than
+# read from a global, because there are two call sites with two different sets
+# (the framework scripts, and the adoptee's own pre-commit hook) and a shared
+# global would print the first site's paths under the second site's heading.
 adopt_stub_collision_archive() {
-  local n="${1:-0}"
+  local n="${1:-0}" list="${2:-}" p
   [ "$n" -gt 0 ] || return 0
   adopt_stub_notice "the collision archive" "WP6" \
     "$n of your files sit where a framework file would go. They were LEFT ALONE — not archived,"
   adopt_note "not replaced, not listed in a restorable manifest. The framework's version of each"
   adopt_note "of those files is therefore NOT installed, so anything that depends on it is inert."
+  # The PATHS, not just the count. Until WP6 writes a durable MANIFEST this
+  # transcript is the only place they are ever named, and "3 collisions" tells
+  # an operator nothing they can act on. Bounded, because a heavily-occupied
+  # tree could otherwise bury the rest of the run.
+  if [ -n "$list" ]; then
+    printf '%s\n' "$list" | head -20 | while IFS= read -r p; do
+      [ -n "$p" ] && adopt_note "  yours, kept: $p"
+    done
+    [ "$n" -gt 20 ] && adopt_note "  ...and $((n - 20)) more."
+  fi
+  return 0
 }
 
 # §6.3 — per-finding secrets disposition. Scout already reported the findings

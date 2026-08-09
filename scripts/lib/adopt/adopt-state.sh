@@ -79,12 +79,18 @@ _adopt_halt_requested() {
 # and collisions belong to §7/WP6; this driver records them and refuses to
 # overwrite. §1.2's measured problem with init.sh is unguarded overwrites, and
 # a driver that reproduced them would have earned nothing by being separate.
-ADOPT_COLLISIONS=""
+#
+# The collision LIST is kept in memory and PRINTED by the stub, not staged into
+# the run's temp directory. An earlier cut wrote it to a file under $ADOPT_WORK,
+# which the EXIT trap deletes — so the list evaporated unread and only the count
+# was ever used (R-WP4-4). A seam that disappears before anything can consume it
+# is not a seam; WP6 owns the durable archive and its MANIFEST, and until then
+# the operator gets the paths on screen.
+ADOPT_COLLISION_LIST=""
 adopt_install_framework() {
   local root="$1"
   local rel src dst n_copied=0 n_collided=0
-  ADOPT_COLLISIONS="$ADOPT_WORK/collisions"
-  : > "$ADOPT_COLLISIONS"
+  ADOPT_COLLISION_LIST=""
   adopt_head "Installing the framework's own scripts"
   while IFS= read -r rel; do
     [ -n "$rel" ] || continue
@@ -92,7 +98,8 @@ adopt_install_framework() {
     dst="$root/$rel"
     [ -f "$src" ] || continue
     if [ -e "$dst" ]; then
-      printf '%s\n' "$rel" >> "$ADOPT_COLLISIONS"
+      ADOPT_COLLISION_LIST="$ADOPT_COLLISION_LIST$rel
+"
       n_collided=$((n_collided + 1))
       continue
     fi
@@ -109,8 +116,31 @@ adopt_install_framework() {
 $(soif_parse_shipped_scripts "$ADOPT_FRAMEWORK_ROOT/init.sh" "$ADOPT_FRAMEWORK_ROOT/scripts")
 INSTALL_SET
   adopt_note "Installed $n_copied framework script(s); left $n_collided of your own file(s) untouched."
-  [ "$n_copied" -gt 0 ] || { adopt_refuse "no framework scripts could be installed — is this a complete clone?"; return 1; }
-  adopt_stub_collision_archive "$n_collided"
+  if [ "$n_copied" -eq 0 ]; then
+    # TWO CAUSES, AND THEY NEED DIFFERENT SENTENCES (R-WP4-2). The first cut
+    # blamed the clone for both, which is a misdiagnosis in the commonest case:
+    # a run that halted at the commit stage leaves every framework file already
+    # present, so the operator's obvious next move — fix the problem, re-run —
+    # met "is this a complete clone?" about the one thing that was fine. Name
+    # the real state, and say plainly that resuming is not built yet rather
+    # than implying a retry will work.
+    if [ "$n_collided" -gt 0 ]; then
+      adopt_refuse "every framework script is already present, so nothing was installed."
+      {
+        echo "          This project looks partly or fully adopted already — most likely an earlier"
+        echo "          adoption ran and stopped before it finished."
+        echo "          RESUMING AN INTERRUPTED ADOPTION IS NOT BUILT YET: collisions belong to WP6"
+        echo "          and the adoption record to WP7, so re-running cannot pick up where it left"
+        echo "          off, and the stamp refuses to be written twice by design."
+        echo "          Meanwhile the project is in the SAFE state: the gates are live at the"
+        echo "          strictest tier, so nothing slips through while this is unresolved."
+      } >&2
+      return 1
+    fi
+    adopt_refuse "no framework scripts could be installed and none were already there — is this a complete clone?"
+    return 1
+  fi
+  adopt_stub_collision_archive "$n_collided" "$ADOPT_COLLISION_LIST"
   return 0
 }
 
@@ -200,6 +230,17 @@ adopt_write_manifest() {
   fi
 
   sha="$(adopt_sha256 "$root/.claude/adoption/scout-report.json")"
+  # REFUSE ON AN EMPTY HASH (R-WP4-3), and refuse HERE rather than hoping the
+  # stamp will. `soif_adoption_stamp` takes `scanner_sha="${8:-}"` and writes
+  # whatever it is given, so an empty string would land in the durable record
+  # as a hash that ties the adoption decision to nothing — the same
+  # silent-empty shape as adopt_sha256's old unreachable fallback, one layer
+  # further out. There is no scenario in which "we could not hash the evidence"
+  # should still produce a record claiming to have hashed it.
+  if [ -z "$sha" ]; then                                                       # BF-ADOPT-SHA-REQUIRED
+    adopt_refuse "cannot hash the kept scan report — neither shasum nor sha256sum is available, and the adoption record must not claim an evidence hash it does not have"
+    return 1
+  fi
 
   # THE ONE CALL SITE. adoptedAtCommit is not passed — the stamp takes it from
   # `git rev-parse HEAD` at stamp time, i.e. the PRE-ADOPTION TIP, the parent
@@ -318,7 +359,7 @@ adopt_install_hooks() {
 
   if [ -e "$hooks/pre-commit" ]; then
     adopt_note "You already have a pre-commit hook. It has been LEFT ALONE."
-    adopt_stub_collision_archive 1
+    adopt_stub_collision_archive 1 ".git/hooks/pre-commit"
   fi
   adopt_stub_hooks
   adopt_stub_project_docs

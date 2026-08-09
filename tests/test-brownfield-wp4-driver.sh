@@ -323,25 +323,44 @@ else
   fi
 
   # ── Q5 — NOT PREFILLED (§4.2's rejected alternative) ──────────────────────
-  # Two halves. Behaviourally: with the answer withheld the driver STOPS rather
-  # than choosing. Structurally: nothing around the question offers a default,
-  # so there is no guess for a tired operator to accept without reading.
+  # Behaviourally the driver must STOP rather than choose; structurally nothing
+  # around the question may offer a default.
+  #
+  # THE REFUSAL IS MATCHED BY ITS LABEL, NOT BY THE GENERIC PREFIX, AND THAT IS
+  # THE WHOLE PIN (R-WP4-1). This case first shipped grepping
+  # "This question has no default and no skip", which every mandatory question
+  # in the driver prints. A one-line default-on-empty in the SHARED choice
+  # reader — `raw="${ADOPT_ANSWER:-1}"` in adopt_ask_choice — silently answers
+  # the chooser "built out" and lets the run continue to the first free-text
+  # judgment question, whose refusal carries that same prefix. All four of this
+  # case's arms stayed green under it and the mutant survived the entire
+  # PR-blocking set: 36/0 and 15/15 lints. A default here is exactly the change
+  # someone makes for convenience, on the one property §4.2 is most emphatic
+  # about, so the pin now names the question:
+  #   * the refusal must name THE CHOOSER'S OWN LABEL; and
+  #   * neither landing note may appear — a run that reached a placement
+  #     answered the chooser, whatever it printed. That is the structural
+  #     discriminator for an expected ABSENCE.
   Q5D="$(newtmp)"
   if mk_adoptee "$Q5D/p"; then
     report_with_phase 2 "$Q5D/report.json"
     : > "$Q5D/answers"      # the operator walked away before answering
     run_adopt "$Q5D/p" "$Q5D/answers" "$Q5D/report.json"; q5_rc=$RUN_RC
     q5_refused=0
-    grep -q "This question has no default and no skip" "$RUN_ERR" && q5_refused=1
+    grep -q "no answer was given: the project's situation" "$RUN_ERR" && q5_refused=1
+    q5_noplacement=1
+    grep -q 'This project lands where a finished project lands' "$RUN_OUT" && q5_noplacement=0
+    grep -q 'the scan placed this project at rung' "$RUN_OUT" && q5_noplacement=0
     q5_untouched=1
     [ -e "$Q5D/p/.claude/phase-state.json" ] && q5_untouched=0
     [ -e "$Q5D/p/.claude/manifest.json" ] && q5_untouched=0
     q5_nodefault=1
     grep -qiE 'suggested|recommended|\[default|press enter to accept' "$RUN_OUT" && q5_nodefault=0
-    if [ "$q5_rc" -ne 0 ] && [ "$q5_refused" -eq 1 ] && [ "$q5_untouched" -eq 1 ] && [ "$q5_nodefault" -eq 1 ]; then
-      pass "Q5: the chooser is NOT prefilled — withheld, it stops the run (rc $q5_rc) with nothing written, and no default is offered anywhere in the transcript"
+    if [ "$q5_rc" -ne 0 ] && [ "$q5_refused" -eq 1 ] && [ "$q5_noplacement" -eq 1 ] \
+       && [ "$q5_untouched" -eq 1 ] && [ "$q5_nodefault" -eq 1 ]; then
+      pass "Q5: the chooser is NOT prefilled — withheld, the run stops AT THE CHOOSER (the refusal names it), no placement is ever reached, nothing is written, and no default is offered anywhere in the transcript"
     else
-      fail_ "Q5" "rc=$q5_rc (want non-zero) refused=$q5_refused untouched=$q5_untouched no_default_offered=$q5_nodefault"
+      fail_ "Q5" "rc=$q5_rc (want non-zero) refused_AT_THE_CHOOSER=$q5_refused no_placement_reached=$q5_noplacement untouched=$q5_untouched no_default_offered=$q5_nodefault"
     fi
   else
     fail_ "Q5" "fixture setup failed"
@@ -513,15 +532,23 @@ else
   # Answers run out exactly at the first JUDGMENT question (section 2).
   printf '2\n3\n2\n1\n1\n' > "$I3D/answers"
   run_adopt "$I3D/p" "$I3D/answers" "$I3D/report.json"; i3_rc=$RUN_RC
-  i3_refused=0; i3_asked=0; i3_untouched=1
-  grep -q "This question has no default and no skip" "$RUN_ERR" && i3_refused=1
+  i3_refused=0; i3_asked=0; i3_untouched=1; i3_gotpast=0
+  # By LABEL, for R-WP4-1's reason: every mandatory question prints the same
+  # prefix, so matching it would accept a refusal from any of the five
+  # questions before this one — including the chooser, which is a different
+  # property with its own case.
+  grep -q "no answer was given: Business Context" "$RUN_ERR" && i3_refused=1
   grep -q 'What problem does this project solve' "$RUN_OUT" && i3_asked=1
+  # …and the run genuinely REACHED the interview: the placement note is printed
+  # only after the chooser and the ladder were both answered.
+  grep -q 'the scan placed this project at rung' "$RUN_OUT" && i3_gotpast=1
   [ -e "$I3D/p/.claude/phase-state.json" ] && i3_untouched=0
   [ -e "$I3D/p/PROJECT_INTAKE.md" ] && i3_untouched=0
-  if [ "$i3_rc" -ne 0 ] && [ "$i3_refused" -eq 1 ] && [ "$i3_asked" -eq 1 ] && [ "$i3_untouched" -eq 1 ]; then
-    pass "I3: a judgment section REFUSES to proceed unattended — the question was asked (rc $i3_rc), no answer was invented, and nothing was written"
+  if [ "$i3_rc" -ne 0 ] && [ "$i3_refused" -eq 1 ] && [ "$i3_asked" -eq 1 ] \
+     && [ "$i3_gotpast" -eq 1 ] && [ "$i3_untouched" -eq 1 ]; then
+    pass "I3: a judgment section REFUSES to proceed unattended — the run reached the interview, asked the question, and stopped AT IT by name (rc $i3_rc) with nothing written"
   else
-    fail_ "I3" "rc=$i3_rc (want non-zero) refusal_printed=$i3_refused question_was_asked=$i3_asked project_untouched=$i3_untouched"
+    fail_ "I3" "rc=$i3_rc (want non-zero) refused_AT_BUSINESS_CONTEXT=$i3_refused question_was_asked=$i3_asked reached_the_interview=$i3_gotpast project_untouched=$i3_untouched"
   fi
 fi
 
@@ -559,13 +586,18 @@ else
   # I6 reuses this identical file against the mutated driver.
   _ans_s2 3 "" yes > "$I5D/answers"
   run_adopt "$I5D/p" "$I5D/answers" "$I5D/report.json"; i5_rc=$RUN_RC
-  i5_refused=0; i5_untouched=1
+  i5_refused=0; i5_untouched=1; i5_asked=0
+  # This refusal is ALREADY question-specific — ADOPT_DC_REFUSAL is its own
+  # sentence with one call site, not the shared prefix R-WP4-1 was about — so
+  # matching it cannot accept a refusal from another question. The "was it even
+  # asked" arm is here so the row reads the same way as Q5 and I3.
   grep -q 'no default, no guess and no skip' "$RUN_ERR" && i5_refused=1
+  grep -q 'The highest classification of any data this system handles' "$RUN_OUT" && i5_asked=1
   [ -e "$I5D/p/.claude/phase-state.json" ] && i5_untouched=0
-  if [ "$i5_rc" -ne 0 ] && [ "$i5_refused" -eq 1 ] && [ "$i5_untouched" -eq 1 ]; then
-    pass "I5 (control): an unanswered data classification STOPS the adoption (rc $i5_rc) — no default, no inference, nothing written"
+  if [ "$i5_rc" -ne 0 ] && [ "$i5_refused" -eq 1 ] && [ "$i5_asked" -eq 1 ] && [ "$i5_untouched" -eq 1 ]; then
+    pass "I5 (control): an unanswered data classification STOPS the adoption (rc $i5_rc) with its OWN refusal — no default, no inference, nothing written"
   else
-    fail_ "I5" "rc=$i5_rc (want non-zero) refusal_named_the_question=$i5_refused untouched=$i5_untouched"
+    fail_ "I5" "rc=$i5_rc (want non-zero) refusal_is_the_DC_one=$i5_refused question_was_asked=$i5_asked untouched=$i5_untouched"
   fi
 fi
 
@@ -994,6 +1026,109 @@ else
     pass "H4: the installed framework files keep their own modes (lib $h4_lib_dst, entry script $h4_gate_dst — genuinely different, so the comparison is not vacuous) and adoption-stamp.sh reaches the adoptee"
   else
     fail_ "H4" "rc=$h4_rc lib_mode $h4_lib_src->$h4_lib_dst entry_mode $h4_gate_src->$h4_gate_dst (the two source modes must differ, else this proves nothing) adoption_stamp_installed=$h4_stamp"
+  fi
+fi
+
+echo ""
+echo "=== R — the halted-run exits, and the record's evidence hash ==="
+
+# R1 — a re-run of an adoption that already installed everything must NAME the
+# real cause. This is the operator's most likely second move (something went
+# wrong at the commit, fix it, run again) and the first cut answered it by
+# blaming the clone — the one thing that was fine.
+R1D="$(newtmp)"
+if ! mk_adoptee "$R1D/p"; then
+  fail_ "R1" "fixture setup failed"
+else
+  report_with_phase 2 "$R1D/report.json"
+  _ans_s2 3 > "$R1D/answers"
+  run_adopt "$R1D/p" "$R1D/answers" "$R1D/report.json"; r1_first=$RUN_RC
+  run_adopt "$R1D/p" "$R1D/answers" "$R1D/report.json"; r1_second=$RUN_RC
+  r1_true=0; r1_false=0; r1_resume=0
+  grep -q 'every framework script is already present' "$RUN_ERR" && r1_true=1
+  grep -q 'is this a complete clone' "$RUN_ERR" && r1_false=1
+  grep -q 'RESUMING AN INTERRUPTED ADOPTION IS NOT BUILT YET' "$RUN_ERR" && r1_resume=1
+  # …and the safe row still holds after the refused re-run.
+  gate_in "$R1D/p"; r1_gate=$GATE_RC
+  if [ "$r1_first" -eq 0 ] && [ "$r1_second" -ne 0 ] && [ "$r1_true" -eq 1 ] \
+     && [ "$r1_false" -eq 0 ] && [ "$r1_resume" -eq 1 ] && [ "$r1_gate" -ne 0 ]; then
+    pass "R1: a second run on an already-installed project refuses with the TRUE cause, never the clone misdiagnosis, says resuming is not built yet, and leaves the gate still blocking"
+  else
+    fail_ "R1" "first_rc=$r1_first second_rc=$r1_second (want non-zero) named_true_cause=$r1_true blamed_the_clone=$r1_false (want 0) said_resume_unbuilt=$r1_resume gate_rc=$r1_gate (want non-zero)"
+  fi
+fi
+
+# R2/R3 — the stamp must never record an evidence hash it does not have.
+#
+# Driven at the FUNCTION level, with adopt_sha256 stubbed, because the real
+# trigger is a host with neither `shasum` nor `sha256sum` and there is no
+# honest way to manufacture that from a test without either shipping a
+# test-only backdoor in the driver or rebuilding PATH around a guess at every
+# tool the driver uses. The guard is what is under test; the tool probe itself
+# is one `command -v` pair. Dual direction, so a guard that refused everything
+# would fail R3.
+_stamp_fixture() {
+  local d="$1"
+  mkdir -p "$d/.claude/adoption" || return 1
+  ( cd "$d" && git init -q . && git config user.email r@t.invalid && git config user.name R \
+      && echo x > f.txt && git add f.txt && git commit -q -m "chore: base" ) >/dev/null 2>&1 || return 1
+  printf '%s\n' '{"stack":{"ciHost":"github"}}' > "$d/.claude/adoption/scout-report.json"
+  return 0
+}
+
+# _run_write_manifest DIR STUB_EMPTY — source the module, set the globals
+# adopt_write_manifest reads, optionally stub the hash, and call it. Echoes rc.
+_run_write_manifest() {
+  local d="$1" stub="$2"
+  (
+    # shellcheck source=/dev/null
+    . "$REPO_ROOT/scripts/lib/adoption-stamp.sh"
+    # shellcheck source=/dev/null
+    . "$REPO_ROOT/scripts/lib/adopt/adopt-core.sh"
+    # shellcheck source=/dev/null
+    . "$REPO_ROOT/scripts/lib/adopt/adopt-state.sh"
+    # shellcheck source=/dev/null
+    . "$REPO_ROOT/scripts/lib/adopt/adopt-stubs.sh"
+    adopt_ledger_init "$d/.ledger" >/dev/null 2>&1
+    ADOPT_SCENARIO="in-flight"; ADOPT_LANDED_PHASE=1; ADOPT_DEPLOYMENT="personal"
+    [ "$stub" = "empty" ] && adopt_sha256() { printf ''; }
+    cd "$d" || exit 9
+    adopt_write_manifest "$d" "$d/.claude/adoption/scout-report.json"
+  ) >/dev/null 2>&1
+  printf '%s\n' "$?"
+}
+
+R2D="$(newtmp)/p"
+if ! _stamp_fixture "$R2D"; then
+  fail_ "R2" "fixture setup failed"
+  fail_ "R3" "fixture setup failed"
+else
+  r2_rc=$(_run_write_manifest "$R2D" empty)
+  # Structural discriminator for an expected ABSENCE: the manifest exists (the
+  # function ran and got past its first write) but carries NO adoption block,
+  # so this is a refusal at the guard and not a crash before it.
+  r2_manifest=0; [ -f "$R2D/.claude/manifest.json" ] && r2_manifest=1
+  r2_block=1
+  jq -e '.adoption' "$R2D/.claude/manifest.json" >/dev/null 2>&1 || r2_block=0
+  r2_sites=$(_sites "$L_STATE" 'BF-ADOPT-SHA-REQUIRED')
+  if [ "$r2_rc" -ne 0 ] && [ "$r2_manifest" -eq 1 ] && [ "$r2_block" -eq 0 ] && [ "$r2_sites" -eq 1 ]; then
+    pass "R2: an unhashable scan report REFUSES the stamp (rc $r2_rc) — the manifest exists but carries no adoption block, so the record never claims an evidence hash it does not have"
+  else
+    fail_ "R2" "rc=$r2_rc (want non-zero) manifest_written=$r2_manifest (want 1) adoption_block_present=$r2_block (want 0) guard_sites=$r2_sites (want 1)"
+  fi
+
+  R3D="$(newtmp)/p"
+  if ! _stamp_fixture "$R3D"; then
+    fail_ "R3" "fixture setup failed"
+  else
+    r3_rc=$(_run_write_manifest "$R3D" real)
+    r3_sha=$(jq -r '.adoption.scannerReportSha256 // ""' "$R3D/.claude/manifest.json" 2>/dev/null)
+    r3_real=$(shasum -a 256 "$R3D/.claude/adoption/scout-report.json" 2>/dev/null | awk '{print $1}')
+    if [ "$r3_rc" -eq 0 ] && [ -n "$r3_real" ] && [ "$r3_sha" = "$r3_real" ]; then
+      pass "R3 (control): with a working hash the same call succeeds and records the real one — R2's guard refuses the empty case, not every case"
+    else
+      fail_ "R3" "rc=$r3_rc (want 0) recorded=$r3_sha real=$r3_real"
+    fi
   fi
 fi
 
