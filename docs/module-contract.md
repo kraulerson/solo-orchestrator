@@ -87,9 +87,11 @@ rc=0 — while the same lines in `scripts/validate.sh` and
 drivers are core by every other measure (`init.sh`, `scripts/lib/host.sh` and
 `scripts/intake-wizard.sh` source them by path), so a convenience call added to
 one fuses a module with nothing going red. **As of 2026-08-09 the `CORE_GLOBS`
-arrays in both lints still list four entries** — widening them is a separate
-follow-up, not yet filed as a backlog entry, and this page is ahead of the code
-by exactly that one glob. Amended in both designs' §3.3 in the same pass.
+arrays in both lints still list four entries** — widening them is tracked as
+`## BL-215:` in `solo-orchestrator-backlog.md`, which carries the full
+measurement table and the both-lints-in-sync fix shape, so this page is ahead of
+the code by exactly that one glob. Amended in both designs' §3.3 in the same
+pass.
 
 *Enforced by:* both lints, in two match tiers. T1 is the literal manifest path
 and is **not** waivable. T2 is a path-shaped token that catches runtime

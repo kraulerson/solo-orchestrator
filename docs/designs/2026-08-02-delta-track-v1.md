@@ -135,9 +135,9 @@ rows are prefixed `A-` to distinguish them from the review findings below, which
   it at rc=0**, while the identical line in `scripts/validate.sh` reds at rc=1 on T1 — re-executed in
   both directions for this amendment. The predicate is sound; the population was short. Karl approved extending coverage, so the CORE set is now
   **five globs** here, in the brownfield design's §3.3, and in `docs/module-contract.md` M3 — the
-  three surfaces are kept at parity by design. **The lint edit is a separate follow-up:** as of
-  2026-08-09 both `CORE_GLOBS` arrays still list four entries, and §3.3 says so rather than reading
-  as a description of shipped behaviour.
+  three surfaces are kept at parity by design. **The lint edit is a separate follow-up, tracked as
+  `## BL-215:`:** as of 2026-08-09 both `CORE_GLOBS` arrays still list four entries, and §3.3 says
+  so rather than reading as a description of shipped behaviour.
 
 **v1.1 (2026-08-02) — review-r1 amendment map.** Verdict `major_concerns`; fidelity **FAITHFUL**
 (all eight settled decisions intact, all twelve §14 rows independently reproduced). One mandatory
@@ -409,8 +409,9 @@ property is gone with no check failing. **The sibling brownfield lint has the sa
 reason and takes the same correction** (`docs/designs/2026-08-02-brownfield-adoption-v1.md` §3.3 and
 `docs/module-contract.md` M3), because the two lints are kept at exact parity by design.
 **Not yet implemented:** the `CORE_GLOBS` arrays in both lints still list four entries as of
-2026-08-09. Widening them is a separate follow-up, **not yet filed as a backlog entry**; until it
-lands, this section states the contract and the lints under-enforce it.
+2026-08-09. Widening them is tracked as **`## BL-215:`**, which carries the measurement table above
+and the both-lints-in-sync fix shape; until it lands, this section states the contract and the lints
+under-enforce it.
 
 **Two match tiers, because literal paths are evadable (R-DT-6).** Clause 2 as written matches
 *literal* delta paths, and bash lets a reference be composed at runtime:

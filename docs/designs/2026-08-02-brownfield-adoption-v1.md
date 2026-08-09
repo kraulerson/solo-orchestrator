@@ -155,9 +155,9 @@ pass it. No settled decision, decision table, or WP boundary changes. Amendment 
   `source …/delta-state.sh` to `scripts/host-drivers/github.sh`, and **both lints passed at rc=0**,
   while the identical lines in four-glob-covered core files red at rc=1. Karl approved extending
   coverage; the CORE set is now **five globs** here, in the delta design's §3.3, and in
-  `docs/module-contract.md`. **The lint edit is a separate follow-up** — as of 2026-08-09 both
-  `CORE_GLOBS` arrays still list four entries, and this document is ahead of the code by that one
-  glob, deliberately and in writing.
+  `docs/module-contract.md`. **The lint edit is a separate follow-up, tracked as `## BL-215:`** —
+  as of 2026-08-09 both `CORE_GLOBS` arrays still list four entries, and this document is ahead of
+  the code by that one glob, deliberately and in writing.
 
 *(Note for a reader working from Document Control: its "Nothing is built" row is stamped 2026-08-02
 and is no longer true — WP0–WP3 have shipped, and all three v1.2 corrections are derived from that
@@ -418,10 +418,11 @@ predicate is sound; the population was short. Host drivers are core by every oth
 (`init.sh`, `scripts/lib/host.sh` and `scripts/intake-wizard.sh` source them by path), so a
 convenience call added to one severs nothing and fuses everything, which is precisely the Tuesday-
 afternoon failure M3 exists to make red. **Not yet implemented:** the `CORE_GLOBS` arrays in both
-lints still list four entries as of 2026-08-09; widening them is a separate follow-up, **not yet
-filed as a backlog entry**, and until it lands this contract is stated here and under-enforced
-there. The same correction lands on the delta design's §3.3 and on `docs/module-contract.md` M3,
-which is the standing normative transcription of this section.
+lints still list four entries as of 2026-08-09; widening them is tracked as **`## BL-215:`**, which
+carries the measurement table above and the both-lints-in-sync fix shape, and until it lands this
+contract is stated here and under-enforced there. The same correction lands on the delta design's
+§3.3 and on `docs/module-contract.md` M3, which is the standing normative transcription of this
+section.
 
 **M5 is the load-bearing one and it has a cost worth stating.** Zero dependency means the scanner
 cannot reuse `scripts/lib/helpers-core.sh`'s printers, its `soif_read_*` state readers, or its host

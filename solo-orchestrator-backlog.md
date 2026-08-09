@@ -8511,3 +8511,77 @@ dirt still does).
 
 **Related:** BL-082 (the staleness contract this trips), BL-105 (the phase-4
 arm whose walk fix surfaced the reproduction fixture that found this).
+
+---
+
+## BL-215: Both boundary lints' CORE set is four globs — `scripts/host-drivers/*.sh` is outside it, so a `core → module` edge planted there passes clean
+
+**Logged:** 2026-08-09 (found by adversarial review of the boundary lints;
+independently RE-EXECUTED with positive controls when the design amendment was
+written — both runs agree)
+**Category:** Enforcement gap / silent-success class — a lint that passes a
+violation it exists to catch
+**Severity:** Medium. Nothing is broken today (no host driver references either
+module), so this is not a live defect — it is an unguarded surface. The cost is
+the same one `# BL-181-UNIT-LANE-PREDICATE` paid: an exemption nobody chose,
+invisible until someone plants the edge, at which point the severability
+property is gone with every check green.
+**Status:** Open
+
+**The gap.** `scripts/lint-delta-boundary.sh` and
+`scripts/lint-module-dependencies.sh` both build their CORE population from a
+literal `CORE_GLOBS` array of **four** entries — `init.sh`, `scripts/*.sh`,
+`scripts/lib/*.sh`, `scripts/hooks/*.sh`. `scripts/host-drivers/*.sh`
+(`github.sh`, `gitlab.sh`, `bitbucket.sh`) is in none of them. Both lints
+disclose the exclusion in their own headers and both defer it to a design
+amendment ("widen it only by amending the design, and then in both places") —
+**that amendment has now landed** and the lints have not moved, so the contract
+is stated in three documents and enforced in neither script.
+
+**The evidence — measured, both directions, on a fixture tree driven with
+`--root`:**
+
+| Plant | Lint | Result |
+|---|---|---|
+| `source "$SCRIPT_DIR/lib/delta-state.sh"` appended to `scripts/host-drivers/github.sh` | `lint-delta-boundary.sh` | **rc=0** — `OK: no core -> delta edge (72 core file(s) scanned against 6 delta-module file(s); seam: scripts/process-checklist.sh)` |
+| `source "$SCRIPT_DIR/lib/scout/scout-phasemap.sh"` appended to `scripts/host-drivers/gitlab.sh` | `lint-module-dependencies.sh` | **rc=0** — `OK: no core -> module edge and no scanner dependency (76 core file(s) scanned against 2 module path(s); …; core allowlist empty)` |
+| *positive control* — the **identical** delta line appended to `scripts/validate.sh` | `lint-delta-boundary.sh` | **rc=1** — `T1 — core file names delta-module path 'delta-state.sh'` |
+| *positive control* — the **identical** scout line appended to `scripts/check-maintenance.sh` | `lint-module-dependencies.sh` | **rc=1** — `T2 — path-shaped module token 'scout/' on an executed line of a core file` |
+
+The positive controls are what make this a population defect rather than a
+predicate defect: the same line, in a file the four globs reach, reds on both
+tiers. **The predicate is sound; the population is short.** Host drivers are
+core by every other measure — `init.sh`, `scripts/lib/host.sh` and
+`scripts/intake-wizard.sh` all source them by path, and `init.sh` ships them
+downstream — so a convenience call added to one fuses a severable module
+exactly as thoroughly as the same call in `check-phase-gate.sh`.
+
+**Fix shape:** add `"$ROOT/scripts/host-drivers"/*.sh` to the `CORE_GLOBS` array
+in **both** lints (they are kept at exact parity by design — change them
+together, like the `# BL-084-TIER-KEY` sync siblings), correct both header
+SETS blocks so they stop describing the four-glob reading as deliberate, and
+mutation-prove it in each lint's behaviour suite: plant the edge in a
+host-driver fixture → RED → remove → GREEN. Assert on the **exit code**, never
+on the printed tier label. Re-measure the vacuity floor's core count after the
+widening so the floor still means what it says.
+
+**Ride-along, same branch (it touches `.sh`, which the docs-only amendment
+branch could not):** `tests/test-delta-severability.sh`'s header `SPEC:` block
+quotes the pre-v1.2 §3.1 sentence verbatim — *"delete every delta-module file
+and revert the seam block in process-checklist.sh"*. §3.1 now says "revert
+**every core consumer of the module**" and carries the six-row table, so that
+quote no longer resolves to text in the design. Comment-only, nothing breaks,
+one-line fix.
+
+**Where the contract is already written** (all three amended 2026-08-09, Karl's
+approval): `docs/designs/2026-08-02-delta-track-v1.md` §3.3 (amendment row
+A-DT-2 in §0.2), `docs/designs/2026-08-02-brownfield-adoption-v1.md` §3.3
+(A-BF-3 in §0.2), and `docs/module-contract.md` M3. All three state the
+five-glob CORE set **and** state that the lints do not yet implement it — this
+entry is the tracker that closes that gap.
+
+**Related:** BL-181 (the executed-lines predicate both lints copy, and the
+worked example of a one-character narrowing re-opening a hole three times while
+passing every PR-blocking check), BL-196 (the citation-integrity lint whose
+"a passing lint that proves nothing is worse than no lint" reasoning both
+boundary lints' vacuity floors inherit), BL-104 (the silent-success family).
