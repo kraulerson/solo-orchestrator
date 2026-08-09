@@ -690,6 +690,39 @@ run_child_suite "tests/test-brownfield-wp3-regenerate-path.sh" \
   "Adoption stamp regenerate path (loud detection of an unpreventable loss)" \
   "Adoption WP3 regenerate-path tests FAILED (run tests/test-brownfield-wp3-regenerate-path.sh for details)"
 
+# Brownfield adoption WP4: tests/test-brownfield-wp4-driver.sh — the DRIVER
+# (scripts/adopt-project.sh), the scenario chooser, scenario placement and
+# reverse intake.
+# THREE PROPERTIES CARRY THE WEIGHT AND EACH IS PINNED TWICE.
+# (1) The chooser is Karl's sentence VERBATIM and is a DECISION, not a
+#     phrasing: pinned by STRING EQUALITY against a literal spelled
+#     independently in the suite, again as a whole line of the real
+#     transcript, and — because §4.2 explicitly rejects presenting a guess as
+#     a default for the most consequential answer in the flow — by withholding
+#     the answer and requiring the run to STOP rather than choose.
+# (2) The floor rule is ONE-DIRECTIONAL: both directions are asserted (an
+#     interview that lowers the placement does, one that raises it does not)
+#     and the mutation neuters the floor so the SAME interview raises S2 from
+#     2 to 4.
+# (3) The state-creation order is phase-state -> intake -> manifest because
+#     the failure directions are ASYMMETRIC. Every interruption point is
+#     executed, and the safe row is asserted through BOTH of §8.4's surfaces —
+#     the gate's exit code AND read_enforcement_level — never a label.
+#     Reversing the order makes the unsafe row reachable: a manifest, no
+#     phase-state, and a gate that skips entirely at rc 0.
+# Data classification's non-skippability is asserted THROUGH THE GATE that
+# makes it mechanical: the mutant completes a run without it and the resulting
+# project then FAILS its own Phase 1->2 ZDR backstop, with a positive control
+# so that failure cannot be vacuous. The TDD bound WP3 shipped is proved END TO
+# END on the adopted project, running the project's OWN installed gate, and the
+# blocked direction asserts exit 3 — the BL-072 TDD arm specifically — rather
+# than merely non-zero. Mutants run against a scratch framework MIRROR, so a
+# failure here can never leave this repository mutated. Never invokes the
+# scaffolder (it copies init.sh into the mirror; it does not run it) -> both lanes.
+run_child_suite "tests/test-brownfield-wp4-driver.sh" \
+  "Adoption driver (chooser verbatim, floor rule, reverse intake, fail-safe write order)" \
+  "Adoption WP4 driver tests FAILED (run tests/test-brownfield-wp4-driver.sh for details)"
+
 # ----------------------------------------------------------------
 # TEST 0g: INTAKE WIZARD + RECONFIGURE FIELD HANDLERS
 # ----------------------------------------------------------------
