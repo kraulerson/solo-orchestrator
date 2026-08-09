@@ -1438,38 +1438,100 @@ fi
 # is the strict shape python/typescript/other already used.
 #
 # Scoped to the STEP, not the file: the phase-gate step is extracted by name and
-# both discard vectors are checked inside it — the shell one (`|| echo/true/:`
-# on the invocation) and the Actions-native one (`continue-on-error: true` on
-# the step, which grades a red step GREEN just as effectively). Other steps may
-# legitimately use either (java/kotlin's Lint step does); this one may not.
-w6_swallow=""; w6_coe=""
-if [ "$CPG_COUNT" -gt 0 ]; then
-  for f in "${CPG_FILES[@]}"; do
-    case "$f" in */ci/github/*) ;; *) continue ;; esac
-    grep -Eq '^[[:space:]]*GH_TOKEN:[[:space:]]*\$\{\{' "$f" || continue
+# both discard vectors are checked inside it — the shell one (on the invocation)
+# and the Actions-native one (`continue-on-error: true` on the step, which
+# grades a red step GREEN just as effectively). Other steps may legitimately use
+# either (java/kotlin's Lint step does); this one may not.
+#
+# F-015 (Karl, 2026-08-09 — "Harden it"): this pin used to enumerate FORBIDDEN
+# swallow shapes, `(\|\||;)[[:space:]]*(echo|true|:)`. BUG-009's confirm review
+# (R-C1) proved by mutation that `bash scripts/check-phase-gate.sh || exit 0`
+# walked through the entire suite — `exit` was simply not in the alternation —
+# and a pipe, a trailing `&`, an `if !` wrapper, an interpreter swap and a
+# command appended AFTER the invocation all walked through it too. Blacklists
+# lose to creativity. So the pin now states what is PERMITTED: the step's `run:`
+# body must be the known-good script VERBATIM. Everything else fails, including
+# the shapes nobody has imagined yet.
+#
+# Normalization is limited to the three edits that cannot change what bash
+# executes — leading/trailing whitespace, blank lines, whole-line comments — so
+# the pin is strict without being superstitious (tests/test-f015-tamper-pin-
+# allowlist.sh pins that tolerance, and pins each of the six shapes above going
+# red).
+#
+# The KEY allowlist is the same idea on the Actions side: only `if`, `env` and
+# `run` may appear on this step. `continue-on-error` keeps its own named case
+# because it deserves a specific diagnostic, but the key allowlist is what
+# catches its unimagined siblings.
+#
+# CHANGING THE STEP IS A DELIBERATE ACT. If the templates' phase-gate body
+# legitimately changes, this literal changes with it, in the same commit.
+W6_EXPECTED_BODY='if [ ! -f scripts/check-phase-gate.sh ]; then
+echo "::error::Phase gate check script missing. Framework integrity compromised."
+exit 1
+fi
+bash scripts/check-phase-gate.sh'
+#
+# The candidate set is every github template that MAPS the secret — NOT
+# CPG_FILES, which is itself derived by grepping for a `bash …` invocation. A
+# template that swapped the interpreter would have dropped out of CPG_FILES and
+# so out of this pin's reach; scoping on the mapping instead keeps it in, which
+# is the same allowlist discipline applied to the candidate set.
+w6_swallow=""; w6_coe=""; w6_keys=""; w6_examined=0
+if [ "$GH_COUNT" -gt 0 ]; then
+  for f in "${GH_FILES[@]}"; do
+    grep -Eq '^[[:space:]]*GH_TOKEN:[[:space:]]*\$\{\{' "$f" || continue   # F-015-STRICT-SCOPE-FILTER
+    w6_examined=$((w6_examined + 1))
     _w6_step=$(awk '
       /^      - name: Governance - Phase gate check$/ { inside = 1; next }
       inside && /^      - name: / { exit }
       inside { print }
     ' "$f")
-    if printf '%s\n' "$_w6_step" | grep -E '^[^#]*bash scripts/check-phase-gate\.sh' \
-         | grep -Eq '(\|\||;)[[:space:]]*(echo|true|:)'; then
-      w6_swallow="$w6_swallow ${f#*/ci/}"
+    _w6_body=$(printf '%s\n' "$_w6_step" \
+      | awk '/^[[:space:]]*run:[[:space:]]*\|[-+]?[[:space:]]*$/ { body = 1; next } body { print }' \
+      | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
+      | grep -v '^$' | grep -v '^#')
+    if [ "$_w6_body" != "$W6_EXPECTED_BODY" ]; then   # F-015-BODY-ALLOWLIST-VERDICT
+      # Report the offending line, not just the file: "it deviates" is not a
+      # diagnosis. An empty deviation set means a permitted line went missing.
+      _w6_dev=$(printf '%s\n' "$_w6_body" | grep -vxF "$W6_EXPECTED_BODY" | head -2 | tr '\n' '|')
+      [ -n "$_w6_dev" ] || _w6_dev='a permitted line is missing, reordered, or the run: block did not parse'
+      w6_swallow="$w6_swallow ${f#*/ci/}[$_w6_dev]"
     fi
     if printf '%s\n' "$_w6_step" | grep -Eq '^[[:space:]]*continue-on-error:[[:space:]]*true'; then
       w6_coe="$w6_coe ${f#*/ci/}"
     fi
+    # The step's own keys sit at exactly 8 spaces; the env: mapping and the
+    # run: body are deeper, so they are not candidates.
+    for _w6_k in $(printf '%s\n' "$_w6_step" | grep -E '^        [a-zA-Z][a-zA-Z0-9_-]*:' | sed 's/^ *//;s/:.*//'); do
+      case "$_w6_k" in
+        if|env|run) ;;
+        *) w6_keys="$w6_keys ${f#*/ci/}:$_w6_k" ;;
+      esac
+    done
   done
 fi
-if [ -z "$w6_swallow" ]; then
-  pass "Cw6-strict (every secret-mapping github template lets the gate's EXIT CODE decide the step)"
+# Cw6-strict's green is an ABSENCE, and an empty candidate set produces the same
+# absence. This floor is what tells clean apart from vacuous.
+if [ "$w6_examined" -ge 10 ]; then
+  pass "Cw6-strict-scope ($w6_examined secret-mapping github templates examined by the allowlist, floor 10)"
 else
-  fail_ "Cw6-strict" "the gate's exit code is discarded (\`|| echo/true/:\`) — a mapped secret cannot enforce anything — in:$w6_swallow"
+  fail_ "Cw6-strict-scope" "the allowlist examined only $w6_examined secret-mapping github templates (floor 10) — the Cw6-strict verdicts below are vacuous"
+fi
+if [ -z "$w6_swallow" ]; then
+  pass "Cw6-strict (all $w6_examined secret-mapping github templates run the ALLOWLISTED phase-gate body verbatim — the gate's exit code decides the step)"
+else
+  fail_ "Cw6-strict" "the phase-gate run: body is not the allowlisted script, so the gate's verdict may never reach the step — in:$w6_swallow"
 fi
 if [ -z "$w6_coe" ]; then
   pass "Cw6-strict-no-coe (no continue-on-error on the phase-gate step — the Actions-native swallow)"
 else
   fail_ "Cw6-strict-no-coe" "continue-on-error grades the phase-gate step GREEN regardless of the verdict, in:$w6_coe"
+fi
+if [ -z "$w6_keys" ]; then
+  pass "Cw6-strict-keys (the phase-gate step carries only the allowlisted keys: if, env, run)"
+else
+  fail_ "Cw6-strict-keys" "a non-allowlisted key on the phase-gate step can change how its verdict is graded — in:$w6_keys"
 fi
 
 # ── Cw16 (walk 2026-08-02 ISSUE-016): the tag-deploy environment trap ───────
