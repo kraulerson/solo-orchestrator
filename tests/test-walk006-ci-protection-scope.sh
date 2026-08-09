@@ -694,9 +694,12 @@ fi
 # the full "the next push enforces the check" claim — the exact false statement
 # F-015 exists to prevent.
 echo "=== S6m-neutered-allowlist-claims-false-enforcement ==="
+# The verdict is REPLACED by a no-op rather than deleted: it is the only
+# statement in its `if`, and an empty then-block is a syntax error — a mutant
+# that fails to parse would prove nothing about the allowlist.
 if mk_cg_mutant projverdict \
      '^[[:space:]]*wf_swallows=1[[:space:]]*# F-015-PROJECT-ALLOWLIST-VERDICT$' \
-     '/# F-015-PROJECT-ALLOWLIST-VERDICT$/d' 1 0; then
+     's@^\([[:space:]]*\)wf_swallows=1[[:space:]]*# F-015-PROJECT-ALLOWLIST-VERDICT$@\1:@' 1 1; then
   P="$TOPTMP/s6m"; mk_tok "$P" github ok custom 'bash scripts/check-phase-gate.sh || exit 0'
   out=$(run_tok_with "$CG_MUT" "$P" "$GOOD_TOKEN"); rc=$?
   if [ "$rc" -eq 0 ] \

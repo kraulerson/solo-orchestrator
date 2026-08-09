@@ -618,7 +618,7 @@ EOM
     *) print_fail "--token-env: '$token_env' is not a valid environment variable name"; return 1 ;;
   esac
   case "$token_env" in
-    *[!A-Za-z0-9_]*) print_fail "--token-env: '$token_env' is not a valid environment variable name"; return 1 ;;
+    *[!A-Za-z0-9_]*) print_fail "--token-env: '$token_env' is not a valid environment variable name"; return 1 ;;   # F-015-TOKEN-ENV-CHARSET
   esac
   eval "token=\${$token_env:-}"
   if [ -n "$token" ]; then
@@ -687,13 +687,34 @@ EOM
   #       (the script was found; its verdict failed). Under that shape a
   #       correctly-scoped token changes NOTHING, so saying "the next push
   #       enforces" would be false.
+  #
+  # F-015 (Karl, 2026-08-09 — "Harden it"): this test is an ALLOWLIST. It used
+  # to enumerate FORBIDDEN shapes — `\|\|[[:space:]]*(echo|true|:)` — and the
+  # sibling pin in bl147 was proven by mutation to let `|| exit 0` through for
+  # exactly that reason (BUG-009 confirm review, R-C1). A pipe, a trailing `&`,
+  # an `if !` wrapper, an interpreter swap and a command appended after the
+  # invocation all walked through it too, each earning the "the next push
+  # enforces the check" claim while the verdict went in the bin. Blacklists lose
+  # to creativity.
+  #
+  # So: an executable line naming the gate script may be the bare invocation or
+  # the existence guard the emitted templates wrap it in, and NOTHING else.
+  # Normalization is limited to what cannot change what bash runs — indentation,
+  # a YAML sequence dash, the `run:` key of an inline scalar, trailing blanks —
+  # which is why an older project whose step is `run: bash scripts/…` on one
+  # line still reads as honest. Whole-line comments are dropped because they are
+  # inert; a `#` on the invocation line is not, and makes the line deviate.
   local wf=".github/workflows/ci.yml"
   local wf_maps=0 wf_swallows=0
   if [ -f "$wf" ]; then
     grep -q "secrets.$secret_name" "$wf" && wf_maps=1
-    if grep -E '^[^#]*bash scripts/check-phase-gate\.sh' "$wf" \
-         | grep -Eq '\|\|[[:space:]]*(echo|true|:)'; then
-      wf_swallows=1
+    if grep -v '^[[:space:]]*#' "$wf" \
+         | grep -F 'scripts/check-phase-gate.sh' \
+         | sed -e 's/^[[:space:]]*//' -e 's/^-[[:space:]]*//' \
+               -e 's/^run:[[:space:]]*//' -e 's/[[:space:]]*$//' \
+         | grep -qvxF -e 'bash scripts/check-phase-gate.sh' \
+                      -e 'if [ ! -f scripts/check-phase-gate.sh ]; then'; then
+      wf_swallows=1   # F-015-PROJECT-ALLOWLIST-VERDICT
     fi
   fi
   if [ "$wf_maps" -eq 1 ] && [ "$wf_swallows" -eq 0 ]; then
