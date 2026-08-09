@@ -1,0 +1,94 @@
+# {{DELTA_ID}} — {{SLUG}}
+
+<!--
+  THE POST-1.0 DELTA BRIEF — one page, five sections.
+
+  SPEC: docs/designs/2026-08-02-delta-track-v1.md §6.2 (the five sections and
+  why each one is here), §6.3 (this file lives at
+  docs/deltas/DELTA-NNN-<slug>.md), §5.3 (the done-observable list IS the close
+  review's rubric), §11-WP8.
+
+  THREE WAYS THIS FILE GETS HERE, and they all end in the same place:
+    • guided        scripts/delta.sh --open renders this template for you
+    • conversational  you say what you need in plain words and the agent fills
+                      these sections in with you, then opens the delta
+    • manual        copy this file to docs/deltas/DELTA-NNN-<slug>.md yourself,
+                    fill it in, then run scripts/delta.sh --open --slug <slug>;
+                    an existing brief for that id is ADOPTED, never overwritten
+
+  ─────────────────────────────────────────────────────────────────────────────
+  THE ONE SECTION A PROGRAM READS — "## Done-observable"
+
+  Everything else on this page is for humans. The Done-observable section is
+  parsed by scripts/delta.sh at close, and the close REFUSES while any box is
+  unticked. The contract, spelled out so this template and that parser can
+  never drift apart:
+
+    • The section is opened by ANY heading whose text begins "Done-observable",
+      case-insensitively, at ANY heading depth. A trailing parenthetical is
+      fine.
+    • It ENDS at the next heading of the SAME depth or SHALLOWER. A "###"
+      sub-heading nested inside it is still part of the rubric.
+    • A brief carrying TWO Done-observable headings has BOTH read, and the
+      criteria are POOLED. There is no "first one wins".
+    • A criterion is a list item whose marker is "-", "*" or "+", at any
+      indent, followed by a bracketed single character. "- [x]" and "- [X]"
+      are DONE; "- [ ]" is not. Anything else between the brackets counts as
+      NOT done and is named in the refusal — an undefined marker is a
+      criterion nobody has decided about.
+    • It FAILS CLOSED: no file, two files claiming the same id, no
+      Done-observable heading, or a heading with no checkboxes under it are
+      each a refusal to close. An empty rubric would let the work close on
+      nothing at all.
+
+  So: write the boxes BEFORE you start building. That is the whole point — you
+  are writing the review criteria while you are still able to be honest about
+  them.
+-->
+
+**Class:** {{CLASS}}
+**Opened:** {{OPENED_AT}}
+**Risk:** {{RISK}} · **Level:** {{LEVEL}} · **Severity:** {{SEVERITY}}
+
+## What
+
+[One paragraph, in your own words. What is being changed? Write it the way you
+would say it out loud to someone who has not seen the code.]
+
+## Why
+
+[The user signal. What did someone actually do, say, or fail to do that makes
+this worth building now? If this came off the Post-MVP Backlog in
+PRODUCT_MANIFESTO.md § 6, that entry already answers this — paste it.]
+
+## Done-observable
+
+<!--
+  One line per thing you will be able to SEE working when this is finished.
+  Observable, not aspirational: "the export downloads a file with the unicode
+  name intact", not "unicode handling is improved". Tick a box only when you
+  have actually seen that thing happen.
+-->
+
+- [ ] [the first thing you will be able to see working]
+- [ ] [the second thing you will be able to see working]
+
+## Must-not-change
+
+<!--
+  The regression contract. What would you be upset to discover had broken while
+  this was being built? Name it here and it becomes part of the close review.
+-->
+
+- [what must still work exactly as it does today]
+
+## Touched surfaces
+
+<!--
+  Your forecast of the files and areas this will touch. It feeds the risk
+  derivation when the delta opens, and it is compared against the REAL diff
+  when it closes — so a forecast that turns out wrong is information, not a
+  failure. Guess honestly.
+-->
+
+- [file or area]

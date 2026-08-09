@@ -207,11 +207,44 @@ DELTA_MANIFEST=(
   "scripts/delta.sh"
   "scripts/cut-release.sh"
   "scripts/lint-delta-boundary.sh"
+  "templates/generated/delta-brief.tmpl"
   "docs/deltas/"
   ".claude/delta-state.json"
   ".claude/delta-policy.json"
 )
 # ── DELTA-BOUNDARY-MANIFEST-END ─────────────────────────────────────────
+
+# ── DELTA-BOUNDARY-INSTALLER-BEGIN ──────────────────────────────────────
+# THE INSTALLER, AND WHY IT IS NOT A SECOND SEAM.
+#
+# WP8 ships the module to generated projects, which means the scaffolder has to
+# NAME every module file it copies — and it has to name them LITERALLY, because
+# scripts/lib/scaffold-shipped-set.sh derives the shipped set by parsing those
+# very `cp` lines. A derived or composed spelling would satisfy this lint and
+# break the source-closure gate, which is the worse of the two failures.
+#
+# A `cp` is not a dependency edge. init.sh copies BYTES; it never sources a
+# module lib, never calls delta.sh, and would not notice if the module's
+# behaviour changed. Sever the module and these lines have nothing to copy —
+# which is why the severability revert removes the block outright, and why
+# tests/test-delta-severability.sh's V1 sweep reads the scaffolder.
+#
+# SO THE EXEMPTION IS BOUNDED THREE WAYS, and it is deliberately TIGHTER than
+# the seam's (which exempts a whole file):
+#   1. ONE installer file, cardinality asserted exactly as the seam's is. A
+#      second installer is a design change, not an appended row.
+#   2. Only lines INSIDE a `# DELTA-INSTALL-BEGIN` / `# DELTA-INSTALL-END`
+#      fence are exempt. A module path anywhere else in init.sh is still a
+#      violation, in both tiers.
+#   3. Only INSTALLATION STATEMENTS may live inside the fence — `cp`, `chmod`,
+#      `mkdir`. A `source scripts/lib/delta-state.sh` smuggled in there is a
+#      real fusion wearing an installer's coat, and it FAILS (tier I1). An
+#      unbalanced or nested fence fails too, because an unterminated BEGIN
+#      would exempt the rest of the file.
+INSTALLER_ALLOWLIST=(
+  "init.sh|WP8 ships the §3.1 module to generated projects; the copy list must name each file LITERALLY because scripts/lib/scaffold-shipped-set.sh parses these cp lines to derive the shipped set. Copying bytes is installation, not a dependency edge — and only cp/chmod/mkdir statements inside the DELTA-INSTALL fence are exempt"
+)
+# ── DELTA-BOUNDARY-INSTALLER-END ────────────────────────────────────────
 
 # ── DELTA-BOUNDARY-SEAM-BEGIN ───────────────────────────────────────────
 # The ONE seam (§3.1). Rows are `path|reason`; the reason is REQUIRED and is
@@ -264,6 +297,34 @@ if [ -z "$SEAM_REASON" ] || [ "$SEAM_REASON" = "${SEAM_ALLOWLIST[0]}" ]; then
   exit 1
 fi
 LIST_ROWS="${LIST_ROWS}INFO\tseam\t${SEAM_PATH}\tallowlisted (cardinality 1/1): ${SEAM_REASON}\n"
+
+# ── DELTA-BOUNDARY-INSTALLER-CARDINALITY ────────────────────────────────
+# The same assertion as the seam's, for the same reason and with the same
+# answer: one, or argue it in the design.
+INSTALLER_COUNT=0
+[ "${#INSTALLER_ALLOWLIST[@]}" -gt 0 ] && INSTALLER_COUNT=${#INSTALLER_ALLOWLIST[@]}
+if [ "$INSTALLER_COUNT" -ne 1 ]; then
+  echo "lint-delta-boundary: installer allowlist cardinality is $INSTALLER_COUNT, must be exactly 1." >&2
+  echo "The scaffolder is the ONE file allowed to name module paths inside a DELTA-INSTALL fence. A second installer is a design change — amend docs/designs/2026-08-02-delta-track-v1.md §3.1 and argue it, do not append a row." >&2
+  LIST_ROWS="${LIST_ROWS}FAIL\tinstaller\t${SELF_REL}\tcardinality ${INSTALLER_COUNT}, must be exactly 1\n"
+  emit_list
+  exit 1
+fi
+
+INSTALLER_PATH="${INSTALLER_ALLOWLIST[0]%%|*}"
+INSTALLER_REASON="${INSTALLER_ALLOWLIST[0]#*|}"
+if [ -z "$INSTALLER_REASON" ] || [ "$INSTALLER_REASON" = "${INSTALLER_ALLOWLIST[0]}" ]; then
+  echo "lint-delta-boundary: installer allowlist row '$INSTALLER_PATH' carries no reason. Every allowlist row requires a reason string (see this script's ALLOWLIST section)." >&2
+  LIST_ROWS="${LIST_ROWS}FAIL\tinstaller\t${INSTALLER_PATH}\tallowlist row has an empty reason\n"
+  emit_list
+  exit 1
+fi
+# THE WORDING IS DELIBERATELY NOT "cardinality 1/1". That exact string is the
+# SEAM's, and tests/test-delta-wp2-state-policy.sh::S6 counts its occurrences to
+# assert the seam allowlist is still one. A second row spelling it the same way
+# would make that count read 2 and break a WP2 assertion for a cosmetic reason —
+# so the installer says "1 of 1" and the two remain separately countable.
+LIST_ROWS="${LIST_ROWS}INFO\tinstaller\t${INSTALLER_PATH}\tDELTA-INSTALL fence exempt (installer allowlist 1 of 1): ${INSTALLER_REASON}\n"
 
 # ── Set derivation ──────────────────────────────────────────────────────
 
@@ -382,11 +443,49 @@ parse_allow() {
   printf '%d\t%s\n' "$has" "$reason"
 }
 
+# ── DELTA-BOUNDARY-INSTALL-FENCE ────────────────────────────────────────
+# _install_fence <file> — one record per line, on stdout:
+#     EXEMPT <n>              this line is inside a fence and is installation
+#     BAD <n> <what>          a fence problem, or a non-installation statement
+#                             inside a fence
+# The fence markers themselves are comments, so the stripper has already
+# blanked them by the time the tiers run; they are read off the RAW file here.
+#
+# EVERY FAILURE MODE FAILS CLOSED. An unterminated BEGIN would exempt the whole
+# rest of the scaffolder, so it is an error rather than a tolerated sloppiness;
+# a nested BEGIN is the same hazard wearing a second coat; and a statement that
+# is not `cp`, `chmod` or `mkdir` is the fusion this whole lint exists to catch,
+# so it is reported at the line rather than waived by its neighbours.
+_install_fence() {
+  awk '
+    /^[[:space:]]*#.*DELTA-INSTALL-BEGIN/ {
+      if (open == 1) printf "BAD %d nested-DELTA-INSTALL-BEGIN\n", NR
+      open = 1; next
+    }
+    /^[[:space:]]*#.*DELTA-INSTALL-END/ {
+      if (open == 0) printf "BAD %d DELTA-INSTALL-END-with-no-BEGIN\n", NR
+      open = 0; next
+    }
+    open == 1 {
+      printf "EXEMPT %d\n", NR
+      s = $0
+      sub(/^[[:space:]]*/, "", s)
+      if (s == "") next
+      if (s ~ /^#/) next
+      if (s !~ /^(cp|chmod|mkdir)[[:space:]]/)
+        printf "BAD %d non-installation-statement-inside-the-fence\n", NR
+    }
+    END { if (open == 1) printf "BAD %d unterminated-DELTA-INSTALL-fence\n", NR }
+  ' "$1" 2>/dev/null
+  return 0
+}
+
 scan_core_file() {
   local rel="$1"
   local file="$ROOT/$rel"
-  local hits line n raw tok parsed has reason
+  local hits line n raw tok parsed has reason rec kind
   local t1_lines="|"
+  local exempt_lines="|"
 
   # The one seam is exempt from BOTH tiers. §3.3 clause 3 names it "the sole
   # allowlisted core file" without qualifying by tier, and that is the honest
@@ -411,6 +510,29 @@ scan_core_file() {
     return 2
   fi
 
+  # THE INSTALLER'S FENCE, read before either tier so the exempt set exists by
+  # the time they need it. Only the ONE allowlisted installer gets it: a
+  # DELTA-INSTALL fence in any other core file exempts nothing, which is the
+  # fail-closed direction.
+  if [ "$rel" = "$INSTALLER_PATH" ]; then
+    while IFS= read -r rec; do
+      [ -n "$rec" ] || continue
+      kind="${rec%% *}"
+      rec="${rec#* }"
+      n="${rec%% *}"
+      case "$kind" in
+        EXEMPT) exempt_lines="${exempt_lines}${n}|" ;;
+        BAD)
+          echo "${rel}:${n}: lint-delta-boundary: I1 — ${rec#* } in the DELTA-INSTALL fence. Only cp / chmod / mkdir may live between the fence markers, and the fence must be balanced: an unterminated BEGIN would exempt the rest of this file. Move the statement out of the fence, or fix the markers." >&2
+          VIOLATIONS=$((VIOLATIONS + 1))
+          LIST_ROWS="${LIST_ROWS}FAIL\tI1\t${rel}:${n}\t${rec#* }\n"
+          ;;
+      esac
+    done <<EOF
+$(_install_fence "$file")
+EOF
+  fi
+
   # T1 — literal manifest tokens. Fixed-string matching: the tokens contain
   # `.` and `-`, and a BRE would let `delta.sh` match `deltaXsh`.
   if [ -s "$T1_TOKENS" ]; then
@@ -420,6 +542,10 @@ scan_core_file() {
         [ -n "$line" ] || continue
         n="${line%%:*}"
         t1_lines="${t1_lines}${n}|"
+        case "$exempt_lines" in *"|${n}|"*)
+          LIST_ROWS="${LIST_ROWS}PASS\tT1\t${rel}:${n}\tinstaller fence: installation, not a dependency edge\n"
+          continue ;;
+        esac
         # `sed -n '1p'` and not `head -1`: head exits on its first line, the
         # upstream grep dies of SIGPIPE, and `pipefail` (set at the top of this
         # script) promotes rc=141 into the substitution. `sed -n 1p` consumes
@@ -442,6 +568,10 @@ scan_core_file() {
       [ -n "$line" ] || continue
       n="${line%%:*}"
       case "$t1_lines" in *"|${n}|"*) continue ;; esac
+      case "$exempt_lines" in *"|${n}|"*)
+        LIST_ROWS="${LIST_ROWS}PASS\tT2\t${rel}:${n}\tinstaller fence: installation, not a dependency edge\n"
+        continue ;;
+      esac
       # The allowlist marker lives in the COMMENT the stripper just removed, so
       # it is read off the RAW line — after the tiers have matched against the
       # stripped one.

@@ -1434,6 +1434,40 @@ create_project() {
   cp "$SCRIPT_DIR/scripts/lib/phase2-state.sh"      scripts/lib/
   cp "$SCRIPT_DIR/scripts/lib/cdf-refresh.sh"       scripts/lib/
   cp "$SCRIPT_DIR/scripts/lib/adoption-stamp.sh"    scripts/lib/
+  # ── DELTA-INSTALL-BEGIN ────────────────────────────────────────────────────
+  # THE POST-1.0 DELTA MODULE (design 2026-08-02-delta-track-v1 §3.1, §11-WP8).
+  # Karl's decision of 2026-08-09: until this block existed the scaffolder
+  # carried the string zero times, so the entire post-release track reached no
+  # generated project — every script, every gate and every refusal in it was
+  # framework-only code that nothing downstream could run.
+  #
+  # THE SPLIT MATCHES THE NEIGHBOURS EXACTLY. The four libs are SOURCED, so
+  # they get a plain cp and no chmod, like adoption-stamp.sh and every lib
+  # above them. The two entry scripts are RUN by the operator, so they get the
+  # +x — given locally rather than appended to the long chmod line below, which
+  # is the same shape the BL-029 and host-drivers blocks use.
+  #
+  # scripts/lint-delta-boundary.sh is deliberately NOT here. It is a FRAMEWORK
+  # lint: it scans init.sh and scripts/lib/*.sh for a module boundary that only
+  # exists in the framework repo, so downstream it would either scan nothing or
+  # scan the wrong thing. `## BUG-008:` records what a shipped lint that
+  # misbehaves on a generated tree costs, and the other unshipped lint-*.sh are
+  # treated the same way.
+  #
+  # These lines are INSTALLATION, not a dependency edge — init.sh copies bytes,
+  # it never sources or calls the module. scripts/lint-delta-boundary.sh knows
+  # that through its DELTA-BOUNDARY-INSTALLER fence, which exempts exactly the
+  # lines between these two markers and nothing else in this file; a `source`
+  # smuggled in here is still a violation, and cases SH7-SH9 in
+  # tests/test-delta-wp8-intake.sh are the fixtures that prove it.
+  cp "$SCRIPT_DIR/scripts/lib/delta-state.sh"       scripts/lib/
+  cp "$SCRIPT_DIR/scripts/lib/delta-policy.sh"      scripts/lib/
+  cp "$SCRIPT_DIR/scripts/lib/delta-classify.sh"    scripts/lib/
+  cp "$SCRIPT_DIR/scripts/lib/delta-cadence.sh"     scripts/lib/
+  cp "$SCRIPT_DIR/scripts/delta.sh"                 scripts/
+  cp "$SCRIPT_DIR/scripts/cut-release.sh"           scripts/
+  chmod +x scripts/delta.sh scripts/cut-release.sh
+  # ── DELTA-INSTALL-END ──────────────────────────────────────────────────────
   cp "$SCRIPT_DIR/scripts/install-filesystem-gates.sh" scripts/
   cp "$SCRIPT_DIR/scripts/detect-out-of-band-commits.sh" scripts/
   cp "$SCRIPT_DIR/scripts/hooks/record-claude-commit.sh" scripts/hooks/
@@ -1553,6 +1587,14 @@ create_project() {
   cp "$SCRIPT_DIR/templates/generated/changelog.tmpl" templates/generated/
   cp "$SCRIPT_DIR/templates/generated/bugs.tmpl" templates/generated/
   cp "$SCRIPT_DIR/templates/generated/release-notes.tmpl" templates/generated/
+  # ── DELTA-INSTALL-BEGIN ────────────────────────────────────────────────────
+  # The post-1.0 delta brief (§6.2). Class T — shipped VERBATIM, so the
+  # currency inventory tracks its drift like every other template here. It has
+  # to be in the PROJECT because §6.1's manual path is "copy this file to
+  # docs/deltas/ yourself", and because scripts/delta.sh renders the project's
+  # own copy first so an edited template is the one that gets used.
+  cp "$SCRIPT_DIR/templates/generated/delta-brief.tmpl" templates/generated/
+  # ── DELTA-INSTALL-END ──────────────────────────────────────────────────────
   # Verifier nit-2 follow-up (PR #92 review): copy the canonical
   # claude-md.tmpl into the project so verify-install.sh's self-
   # bootstrap fallback in fix_claude_md (scripts/verify-install.sh:645
