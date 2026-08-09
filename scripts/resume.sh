@@ -125,6 +125,14 @@ insec && /^##/ { insec = 0 }
 insec && /^[-*+][ \t]+/ { print }' PRODUCT_MANIFESTO.md 2>/dev/null | grep -c '' || true)
       case "$pmv_cands" in ''|*[!0-9]*) pmv_cands=0 ;; esac
     fi
+    # THE ONE PIECE OF THE CLASSIC PROMPT THAT IS CARRIED OVER. This branch
+    # REPLACES the classic prompt (§10.5: it sits ahead of it), and for a
+    # shipped product that is now the first message of every session forever.
+    # Dropping "what happened last" entirely would be an information regression
+    # nobody asked for, so the cheapest and most useful line of it comes along.
+    # The tool-version check deliberately does NOT: it can reach the network,
+    # and a greeting that stalls is worse than a greeting that is shorter.
+    pmv_commits="$(git log --oneline -3 2>/dev/null || true)"
     pmv_maint=""
     if [ -f "$SCRIPT_DIR/check-maintenance.sh" ]; then
       pmv_mrc=0
@@ -159,6 +167,11 @@ insec && /^[-*+][ \t]+/ { print }' PRODUCT_MANIFESTO.md 2>/dev/null | grep -c ''
         printf '%s\n' "$pmv_owed"
       fi
       if [ -n "$pmv_maint" ]; then echo ""; echo "**Maintenance:** $pmv_maint"; fi
+      if [ -n "$pmv_commits" ]; then
+        echo ""
+        echo "**Recent commits:**"
+        printf '%s\n' "$pmv_commits"
+      fi
       echo ""
       echo "Read CLAUDE.md for full product context, then pick this up where we left off. The plan file above is the review at the end — if what we build stops matching it, say so rather than quietly changing the plan."
       echo ""
@@ -183,6 +196,11 @@ insec && /^[-*+][ \t]+/ { print }' PRODUCT_MANIFESTO.md 2>/dev/null | grep -c ''
     fi
     if [ "$pmv_cands" -gt 0 ]; then
       echo "**Post-MVP Backlog:** PRODUCT_MANIFESTO.md section 6 is holding $pmv_cands candidate(s). They are candidates, not commitments — nothing there is scheduled, and nothing moves out of that document without me saying so."
+      echo ""
+    fi
+    if [ -n "$pmv_commits" ]; then
+      echo "**Recent commits:**"
+      printf '%s\n' "$pmv_commits"
       echo ""
     fi
     echo "Read CLAUDE.md for full product context and for how post-release work is run here. Then ask me what I need."
