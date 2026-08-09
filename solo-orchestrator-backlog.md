@@ -8565,13 +8565,25 @@ host-driver fixture → RED → remove → GREEN. Assert on the **exit code**, n
 on the printed tier label. Re-measure the vacuity floor's core count after the
 widening so the floor still means what it says.
 
-**Ride-along, same branch (it touches `.sh`, which the docs-only amendment
-branch could not):** `tests/test-delta-severability.sh`'s header `SPEC:` block
-quotes the pre-v1.2 §3.1 sentence verbatim — *"delete every delta-module file
-and revert the seam block in process-checklist.sh"*. §3.1 now says "revert
-**every core consumer of the module**" and carries the six-row table, so that
-quote no longer resolves to text in the design. Comment-only, nothing breaks,
-one-line fix.
+**Ride-along, same branch (all three touch `.sh`, which the docs-only amendment
+branch could not).** The pre-v1.2 §3.1 sentence is quoted in the **present
+tense** at THREE sites, and §3.1 no longer contains it — it now reads "revert
+**every core consumer of the module**" and carries the six-row consumer table:
+
+1. `tests/test-delta-severability.sh`, header `SPEC:` block — *"delete every
+   delta-module file and revert the seam block in process-checklist.sh"*.
+2. `tests/test-delta-severability.sh`, the `THE ENUMERATION IS THE POINT`
+   banner — *"§3.1 says 'the seam block in process-checklist.sh', singular."*
+3. `tests/full-project-test-suite.sh`, the severability registration comment —
+   the same *"seam block in process-checklist.sh", singular* phrasing.
+
+Sites 2 and 3 were **missed by the first sweep and found by adversarial
+review**; they are listed here so the lint branch fixes all three together
+instead of discovering the remainder later. All three are comment-only —
+nothing executes them and nothing breaks — and the smallest honest fix is to
+put each quote in the **past tense** (it is accurate history: the singular
+spelling is exactly why these tests enumerate by running rather than by
+remembering) rather than to delete it.
 
 **Where the contract is already written** (all three amended 2026-08-09, Karl's
 approval): `docs/designs/2026-08-02-delta-track-v1.md` §3.3 (amendment row

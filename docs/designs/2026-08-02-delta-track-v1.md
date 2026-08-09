@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | **Document ID** | DELTA-001-ARCH |
-| **Version** | v1.2, 2026-08-09 — **build-evidence amendment folded** (Karl's approval, 2026-08-09). Two corrections the implementers *proved by execution*, mapped in §0.2: §3.1's severability revert is **six** consumers and not one (enumerated by running the test, across three review rounds), and §3.3's CORE set gains `scripts/host-drivers/*.sh` (a planted `core → delta` source line passed the lint at rc=0). No settled decision, decision table, adopted mechanism, or WP boundary changed. · v1.1, 2026-08-02 — **review-r1 folded** (`major_concerns`; fidelity verdict **FAITHFUL** — all eight settled decisions intact, all twelve v1.0 §14 rows independently reproduced). One mandatory finding and six one-liners, all mapped in §0.2. No decision table, adopted mechanism, or WP boundary changed; WP6 gains one deliverable. The mandatory finding was a **docblock-trusted claim that was never executed** — the one such claim in a document that logs fourteen runs. |
+| **Version** | v1.2, 2026-08-09 — **build-evidence amendment folded** (Karl's approval, 2026-08-09). Two corrections the implementers *proved by execution*, mapped in §0.2: §3.1's severability revert is **six** consumers and not one (enumerated by running the test, across three review rounds), and §3.3's CORE set gains `scripts/host-drivers/*.sh` (a planted `core → delta` source line passed the lint at rc=0) — plus **A-DT-3**, the front-matter correction they forced: the "Status of the thing described" row below no longer says "Nothing is built". No settled decision, decision table, adopted mechanism, or WP boundary changed. · v1.1, 2026-08-02 — **review-r1 folded** (`major_concerns`; fidelity verdict **FAITHFUL** — all eight settled decisions intact, all twelve v1.0 §14 rows independently reproduced). One mandatory finding and six one-liners, all mapped in §0.2. No decision table, adopted mechanism, or WP boundary changed; WP6 gains one deliverable. The mandatory finding was a **docblock-trusted claim that was never executed** — the one such claim in a document that logs fourteen runs. |
 | **Classification** | Product architecture — normative-once-reviewed for the build |
 | **Audience** | (a) the adversarial design reviewer this document must survive; (b) the session that plans and builds the work packages in §11 |
 | **Product** | **The Delta Track** — the maintenance and feature lifecycle a Solo Orchestrator project runs *after* it cuts v1.0.0 |
@@ -107,9 +107,10 @@ free for the author.
 
 ### §0.2 — Amendment changelog
 
-**v1.2 (2026-08-09) — build-evidence amendment. Approved by Karl, 2026-08-09.** Two corrections,
-both **produced by running the thing this document specified** rather than by preferring a different
-wording. No settled decision, decision table, adopted mechanism, or WP boundary changes. Amendment
+**v1.2 (2026-08-09) — build-evidence amendment. Approved by Karl, 2026-08-09.** Two substantive
+corrections, both **produced by running the thing this document specified** rather than by
+preferring a different wording, plus a third row (A-DT-3) recording the front-matter correction they
+forced. No settled decision, decision table, adopted mechanism, or WP boundary changes. Amendment
 rows are prefixed `A-` to distinguish them from the review findings below, which are `R-`.
 
 - **A-DT-1 (REVERT SET) → §3.1** — the severability test's revert was specified as "the seam block in
@@ -138,6 +139,17 @@ rows are prefixed `A-` to distinguish them from the review findings below, which
   three surfaces are kept at parity by design. **The lint edit is a separate follow-up, tracked as
   `## BL-215:`:** as of 2026-08-09 both `CORE_GLOBS` arrays still list four entries, and §3.3 says
   so rather than reading as a description of shipped behaviour.
+- **A-DT-3 (FRONT MATTER) → Document Control, "Status of the thing described"** — that row read
+  **"Nothing is built."** through v1.1, verified at the time against §14-V11. True at that commit;
+  false by 2026-08-09, because **WP0–WP7 have shipped** (PRs #323, #324, #327, #328, #330, #332,
+  #333, #334) and both corrections above are derived from that shipped code. Corrected in this same
+  v1.2 pass: the row now names what is built, what is not (WP8's intake paths and `resume.sh`
+  branch, WP9's docs), and the PR for each. One clause is **retired rather than updated** — v1.0
+  cited the absence of `docs/deltas/` and `.claude/delta-state.json` as evidence that nothing
+  existed, but those are **generated-project** artifacts that will never exist in the framework
+  repo, so their absence was never evidence of anything and would have read as a false negative
+  indefinitely. The "exists today" caveat is kept and rescoped: those claims are stamped 2026-08-02,
+  and §14 is a log of what commands returned at that commit, not a standing property.
 
 **v1.1 (2026-08-02) — review-r1 amendment map.** Verdict `major_concerns`; fidelity **FAITHFUL**
 (all eight settled decisions intact, all twelve §14 rows independently reproduced). One mandatory

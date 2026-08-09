@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | **Document ID** | ADOPT-001-ARCH |
-| **Version** | v1.2, 2026-08-09 — **build-evidence amendment folded** (Karl's approval, 2026-08-09). Three corrections the implementers *proved by execution*, mapped in §0.2: the phase ladder is a **reached** rung and not a plain maximum (refuted by this document's own WP1 fixture arithmetic); §6.5's planted-secret recipe gains a required **carrier plant** (without it WP2's Mutation B is vacuous, measured); and the boundary lints' CORE set gains `scripts/host-drivers/*.sh` (a planted `core → module` source line passed both lints). No settled decision, decision table, or WP boundary changed. · v1.1, 2026-08-02 — **review-r1 folded** (`major_concerns`, fidelity verdict **FAITHFUL**: all six settled decisions carried correctly, the chooser verbatim at all three sites, and the §8.8 Adoption Record contract held against 13 reader-pipeline probes). **Two "exists today" claims were REFUTED by execution** — both re-verified by this author rather than accepted, both recorded at §0.2 and rewritten in place. No settled decision, decision table, or WP boundary changed; one WP regression proof and one WP mutation target were **re-aimed**, because each was provably incapable of going RED. |
+| **Version** | v1.2, 2026-08-09 — **build-evidence amendment folded** (Karl's approval, 2026-08-09). Three corrections the implementers *proved by execution*, mapped in §0.2: the phase ladder is a **reached** rung and not a plain maximum (refuted by this document's own WP1 fixture arithmetic); §6.5's planted-secret recipe gains a required **carrier plant** (without it WP2's Mutation B is vacuous, measured); and the boundary lints' CORE set gains `scripts/host-drivers/*.sh` (a planted `core → module` source line passed both lints) — plus **A-BF-4**, the front-matter correction those three forced: the "Status of the thing described" row below no longer says "Nothing is built". No settled decision, decision table, or WP boundary changed. · v1.1, 2026-08-02 — **review-r1 folded** (`major_concerns`, fidelity verdict **FAITHFUL**: all six settled decisions carried correctly, the chooser verbatim at all three sites, and the §8.8 Adoption Record contract held against 13 reader-pipeline probes). **Two "exists today" claims were REFUTED by execution** — both re-verified by this author rather than accepted, both recorded at §0.2 and rewritten in place. No settled decision, decision table, or WP boundary changed; one WP regression proof and one WP mutation target were **re-aimed**, because each was provably incapable of going RED. |
 | **Classification** | Product architecture — normative-once-reviewed for the build |
 | **Audience** | (a) the adversarial design reviewer this document must survive; (b) the implementer of the work packages in §10 |
 | **Subject** | **Brownfield adoption** — bringing an existing codebase, with existing history, existing CI, and existing tooling, into Solo Orchestrator |
@@ -121,11 +121,12 @@ author-proposed.
 
 ### §0.2 — Amendment changelog
 
-**v1.2 (2026-08-09) — build-evidence amendment. Approved by Karl, 2026-08-09.** Three corrections,
-each **proved by execution during the build** and none of them a matter of preference: two of them
-name a place where this document specified something its own fixture arithmetic could not deliver,
-and the third names a coverage hole a reviewer closed by planting a violation and watching the lint
-pass it. No settled decision, decision table, or WP boundary changes. Amendment rows are prefixed
+**v1.2 (2026-08-09) — build-evidence amendment. Approved by Karl, 2026-08-09.** Three substantive
+corrections, each **proved by execution during the build** and none of them a matter of preference:
+two of them name a place where this document specified something its own fixture arithmetic could
+not deliver, and the third names a coverage hole a reviewer closed by planting a violation and
+watching the lint pass it. A fourth row (A-BF-4) records the front-matter correction those three
+forced. No settled decision, decision table, or WP boundary changes. Amendment rows are prefixed
 `A-` to distinguish them from the review findings above, which are `R-`.
 
 - **A-BF-1 (LADDER) → §4.4 correction 2 / §8.2 / §10-WP1** — "take the **maximum** satisfied rung"
@@ -159,9 +160,18 @@ pass it. No settled decision, decision table, or WP boundary changes. Amendment 
   as of 2026-08-09 both `CORE_GLOBS` arrays still list four entries, and this document is ahead of
   the code by that one glob, deliberately and in writing.
 
-*(Note for a reader working from Document Control: its "Nothing is built" row is stamped 2026-08-02
-and is no longer true — WP0–WP3 have shipped, and all three v1.2 corrections are derived from that
-shipped code. The row is left as stamped; correcting it is not part of this amendment.)*
+- **A-BF-4 (FRONT MATTER) → Document Control, "Status of the thing described"** — that row read
+  **"Nothing is built."** through v1.1. True when written; false by 2026-08-09, because WP0–WP3 have
+  shipped (PRs #325, #329, #331, #335) and **all three corrections above are derived from that
+  shipped code**. A design document whose front matter contradicts its own amendment log misleads
+  the next reader on first contact, so the row is **corrected in this same v1.2 pass**: it now names
+  what is built, what is not, and the PRs for each, and it rescopes — without weakening — the caveat
+  that every "exists today" claim below is stamped 2026-08-02 and does **not** describe the shipped
+  WP code. **Recorded because the drafting of it is the lesson:** an earlier draft of this changelog
+  said the row was "left as stamped; correcting it is not part of this amendment", and the branch's
+  own final commit falsified that sentence — a fresh self-contradiction introduced into the document
+  whose amendments exist to remove exactly that class. Caught by adversarial review (R-PRE-2), not
+  by the author.
 
 **v1.1 (2026-08-02) — review-r1 amendment map.** Verdict `major_concerns`; fidelity **FAITHFUL**.
 **Two refutations, both re-verified by this author before folding** (house standard: a reviewer's
@@ -965,9 +975,10 @@ view of the same data — the currency system's precedent, where `plan-staging.s
               "ciHost": "github" },
 
   "phaseMap": { "suggestedPhase": 2, "highestSatisfiedRung": 4, "rungs": [
-                  {"rung":1,"evidence":"docs/architecture.md","satisfied":true},
-                  {"rung":3,"evidence":"test results archive","satisfied":false},
-                  {"rung":4,"evidence":"deploy lane (.github/workflows/deploy.yml)","satisfied":true}],
+                  {"rung":1,"evidence":"README.md (the product is described in writing)","satisfied":true},
+                  {"rung":2,"evidence":"docs/architecture.md (the technical shape is documented)","satisfied":true},
+                  {"rung":3,"evidence":"no test corpus and no test command found; docs/test-results/ is absent or empty","satisfied":false},
+                  {"rung":4,"evidence":"HANDOFF.md (a handover / release record exists)","satisfied":true}],
                 "note": "maximum satisfied rung; the interview may only lower this" },
 
   "reality": { "probes": [
@@ -1010,7 +1021,13 @@ arithmetic refuted plain-max — and **that difference is itself the finding**, 
 one number would discard the most useful thing the scan learned. It is consumed by the **WP4
 interview**: the floor rule lets the operator move the placement only *down*, and an operator cannot
 argue a ceiling down if they were never shown it. Emitted by `scout_emit_json` in
-`scripts/lib/scout/scout-report.sh`, immediately after `suggestedPhase`. **The `note` string stays
+`scripts/lib/scout/scout-report.sh`, immediately after `suggestedPhase`. **The example above is the
+{1, 2, 4} case itself** — corrected in v1.2 after review (R-PRE-3) found it internally unarithmetic:
+it published `highestSatisfiedRung: 4` over a rung list that omitted rung 2 entirely and gave rung 1
+rung-2-class evidence. `scout_phasemap_scan` always writes **all four rungs, ascending, satisfied or
+not**, each with the evidence string it decided on — including the sentence it prints when a rung
+fails, which is why an unsatisfied rung is still worth reading. The example now matches that shape
+and demonstrates the gap the two numbers exist to expose. **The `note` string stays
 verbatim** as printed above — it is pinned byte-for-byte in the emitter and in
 `tests/test-brownfield-wp1-scout.sh`, so re-wording it here would fork the document from the code it
 specifies. Its wart is disclosed rather than papered over: with two numbers in the object, the
