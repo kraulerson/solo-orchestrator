@@ -46,6 +46,12 @@
 #                                        of framework scripts an adoptee
 #                                        receives is DERIVED from init.sh's own
 #                                        copy list rather than duplicated here
+#   scripts/lib/hook-templates.sh        soif_write_precommit_hook and
+#                                        soif_emit_tdd_commitmsg_block — the
+#                                        SAME emitters init.sh and the
+#                                        framework sync use, so an adopted
+#                                        project's hooks are byte-identical to
+#                                        a scaffolded one's
 #
 # Direction (M3) holds in one direction only: this module sources core, and no
 # core file names this module. That is why `init.sh` does NOT ship
@@ -87,7 +93,7 @@ ADOPT_LIB_DIR="$ADOPT_SELF_DIR/lib/adopt"
 ADOPT_CORE_LIB_DIR="$ADOPT_SELF_DIR/lib"
 
 # ── Core libs (M2's declared set) ───────────────────────────────────────────
-for _core in helpers-core.sh adoption-stamp.sh scaffold-shipped-set.sh; do
+for _core in helpers-core.sh adoption-stamp.sh scaffold-shipped-set.sh hook-templates.sh; do
   if [ ! -f "$ADOPT_CORE_LIB_DIR/$_core" ]; then
     echo "adopt-project: missing $ADOPT_CORE_LIB_DIR/$_core — run this from a complete framework clone." >&2
     exit 2

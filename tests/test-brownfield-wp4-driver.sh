@@ -883,6 +883,90 @@ else
 fi
 
 echo ""
+echo "=== H — the gates are actually ON afterwards (§4.5: no forward exemption) ==="
+
+# The run's closing line names two gates as live from the next commit onward.
+# H1 makes git ITSELF prove that claim: in the adopted project, through its own
+# installed hook, a test-less feature commit is refused. The pair matters — a
+# hook that refused EVERYTHING would satisfy the blocking half on its own, and
+# that is not a hypothetical: installing the framework's FALLBACK PRE-COMMIT
+# hook here did exactly that, refusing an ordinary `docs:` commit, which is why
+# the driver does not install it and says so instead.
+H1D="$(newtmp)"
+if ! mk_adoptee "$H1D/p"; then
+  fail_ "H1" "fixture setup failed"
+  fail_ "H2" "fixture setup failed"
+else
+  report_with_phase 2 "$H1D/report.json"
+  _ans_s2 2 > "$H1D/answers"
+  run_adopt "$H1D/p" "$H1D/answers" "$H1D/report.json"; h1_rc=$RUN_RC
+  h1_hook=0
+  [ -x "$H1D/p/.git/hooks/commit-msg" ] && h1_hook=1
+  mkdir -p "$H1D/p/src"
+  printf 'export function add(a,b){return a+b;}\n' > "$H1D/p/src/add.js"
+  ( cd "$H1D/p" && git add src/add.js ) >/dev/null 2>&1
+  h1_feat=0
+  ( cd "$H1D/p" && git commit -q -m "feat: add without a test" ) >/dev/null 2>&1 || h1_feat=$?
+  printf 'a note\n' > "$H1D/p/NOTES.md"
+  ( cd "$H1D/p" && git add NOTES.md ) >/dev/null 2>&1
+  h1_chore=0
+  ( cd "$H1D/p" && git commit -q -m "docs: a note" ) >/dev/null 2>&1 || h1_chore=$?
+  if [ "$h1_rc" -eq 0 ] && [ "$h1_hook" -eq 1 ] && [ "$h1_feat" -ne 0 ] && [ "$h1_chore" -eq 0 ]; then
+    pass "H1: after adoption the project's OWN hooks are live — git itself refuses a test-less feature commit (rc $h1_feat) while an ordinary commit still lands"
+  else
+    fail_ "H1" "run_rc=$h1_rc commit_msg_hook_executable=$h1_hook feat_commit_rc=$h1_feat (want non-zero) ordinary_commit_rc=$h1_chore (want 0)"
+  fi
+fi
+
+# H2 — an adoptee's own pre-commit hook is a §7 collision, not something to
+# overwrite. The whole-file writer would destroy it, so it is not run.
+H2D="$(newtmp)"
+if ! mk_adoptee "$H2D/p"; then
+  fail_ "H2" "fixture setup failed"
+else
+  report_with_phase 2 "$H2D/report.json"
+  _ans_s2 3 > "$H2D/answers"
+  mkdir -p "$H2D/p/.git/hooks"
+  printf '#!/usr/bin/env bash\n# their own hook\nexit 0\n' > "$H2D/p/.git/hooks/pre-commit"
+  chmod +x "$H2D/p/.git/hooks/pre-commit"
+  h2_before=$(shasum -a 256 "$H2D/p/.git/hooks/pre-commit" 2>/dev/null | awk '{print $1}')
+  run_adopt "$H2D/p" "$H2D/answers" "$H2D/report.json"; h2_rc=$RUN_RC
+  h2_after=$(shasum -a 256 "$H2D/p/.git/hooks/pre-commit" 2>/dev/null | awk '{print $1}')
+  h2_said=0
+  grep -q 'LEFT ALONE' "$RUN_OUT" && h2_said=1
+  h2_stub=0
+  grep -q 'NOT DONE — the collision archive' "$RUN_OUT" && h2_stub=1
+  if [ "$h2_rc" -eq 0 ] && [ -n "$h2_before" ] && [ "$h2_before" = "$h2_after" ] && [ "$h2_said" -eq 1 ] && [ "$h2_stub" -eq 1 ]; then
+    pass "H2: an adoptee's existing pre-commit hook is byte-for-byte untouched, said out loud, and handed to WP6's collision stub rather than overwritten"
+  else
+    fail_ "H2" "rc=$h2_rc sha_before=$h2_before sha_after=$h2_after said_left_alone=$h2_said collision_stub_fired=$h2_stub"
+  fi
+fi
+
+# H3 — the omission is DISCLOSED, not silent. An adopted project without the
+# commit-time scanners is a defensible state; one whose operator does not know
+# it is not. The run must name what is not running and what to do instead.
+H3D="$(newtmp)"
+if ! mk_adoptee "$H3D/p"; then
+  fail_ "H3" "fixture setup failed"
+else
+  report_with_phase 2 "$H3D/report.json"
+  _ans_s2 3 > "$H3D/answers"
+  run_adopt "$H3D/p" "$H3D/answers" "$H3D/report.json"; h3_rc=$RUN_RC
+  h3_named=0; h3_remedy=0; h3_nooverclaim=0; h3_precommit=0
+  grep -q 'NOT DONE — the commit-time scanners' "$RUN_OUT" && h3_named=1
+  grep -q 'scripts/pre-commit-gate.sh --terminal-mode' "$RUN_OUT" && h3_remedy=1
+  grep -q "the framework's two message gates are live" "$RUN_OUT" && h3_nooverclaim=1
+  [ -e "$H3D/p/.git/hooks/pre-commit" ] && h3_precommit=1
+  if [ "$h3_rc" -eq 0 ] && [ "$h3_named" -eq 1 ] && [ "$h3_remedy" -eq 1 ] \
+     && [ "$h3_nooverclaim" -eq 1 ] && [ "$h3_precommit" -eq 0 ]; then
+    pass "H3: the run claims only the gates it installed — it names the commit-time scanners as NOT running and gives the command to run them by hand"
+  else
+    fail_ "H3" "rc=$h3_rc scanners_named_absent=$h3_named remedy_given=$h3_remedy claim_is_narrow=$h3_nooverclaim pre_commit_hook_written=$h3_precommit (want 0)"
+  fi
+fi
+
+echo ""
 echo "=== W — the honest stubs (§10: WP5/WP5b/WP6/WP7 are NOT built here) ==="
 
 W1D="$(newtmp)"

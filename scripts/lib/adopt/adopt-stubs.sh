@@ -98,6 +98,20 @@ adopt_stub_adoption_record() {
   adopt_note "nowhere else yet."
 }
 
+# The fallback PRE-COMMIT hook. Not attributed to a work package, because §10
+# names no owner for it on the adoption path — that is the honest statement and
+# the WP4 report records it as an open decision. Measured, not assumed: with
+# that hook installed at this point in the build an adopted fixture could not
+# land an ordinary `docs:` commit, because the hook expects framework artifacts
+# a WP4 adoption has not produced.
+adopt_stub_hooks() {
+  adopt_stub_notice "the commit-time scanners (the fallback pre-commit hook)" "nobody yet — §10 names no owner" \
+    "The message gates ARE on. The secret scan, the static-analysis pass and the schema-migration"
+  adopt_note "checks that normally run on every commit are NOT — installing that hook today refuses"
+  adopt_note "every commit, because it expects artifacts an adoption does not yet produce. Run them"
+  adopt_note "by hand until it lands: bash scripts/pre-commit-gate.sh --terminal-mode"
+}
+
 # WP7 — §8.6's provenance headers on reconstructed documents.
 adopt_stub_provenance_headers() {
   adopt_stub_notice "the provenance headers on reconstructed documents" "WP7" \

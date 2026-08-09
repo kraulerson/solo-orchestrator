@@ -252,6 +252,66 @@ STAGE_SET
   return 0
 }
 
+# ── The hooks (§4.5: no forward exemption) ──────────────────────────────────
+# adopt_install_hooks ROOT — put the framework's git hooks in place.
+#
+# WHY AFTER THE ADOPTION COMMIT, AND NOT BEFORE. The adoption commit belongs to
+# the adoptee's world: whatever hooks THEY already had should judge it, and the
+# framework's should not. Everything AFTER it belongs to the framework's world,
+# which is exactly §4.5's rule that no arm anywhere exempts a commit written
+# after adoption day. Installing here draws that line at the commit itself, and
+# it removes any temptation to reach for `--no-verify` to get past a gate the
+# driver had just installed on itself.
+#
+# Nothing here is staged, and nothing needs to be: `.git/hooks/` is not tracked.
+#
+# ONLY THE COMMIT-MSG HOOK IS INSTALLED, AND THE OMISSION IS MEASURED.
+#
+# The commit-msg hook carries the two MESSAGE-SCOPED gates — the BL-072
+# TDD-ordering gate, whose pre-adoption exemption this WP's stamp bounds, and
+# the BL-006 Build-Loop check. It COMPOSES: the shared emitter appends a MARKED
+# block, so an adoptee's existing commit-msg hook keeps working and gains the
+# framework's gates, and a second run finds the marker and stops.
+#
+# The FALLBACK PRE-COMMIT HOOK IS NOT INSTALLED, and this is a measurement
+# rather than a preference. Installed on an adoptee at this point in the build
+# it BRICKS the repository: with it in place a fixture here could not land an
+# ordinary `docs:` commit (rc 1) because the hook expects framework artifacts
+# — the Adoption Record among them — that WP7 has not landed yet. Shipping a
+# gate that refuses every commit is not enforcement, it is a broken project,
+# and the operator's only way out would be the `--no-verify` this framework
+# forbids. §10 names no owner for that hook on the adoption path, so it is
+# recorded as an open decision rather than quietly assumed; adopt_stub_hooks
+# says which checks are consequently NOT running.
+#
+# The shared writer also writes the WHOLE pre-commit file, so an adoptee's own
+# pre-commit hook is §7's own archive-and-replace example, belongs to WP6, and
+# is left untouched either way.
+adopt_install_hooks() {
+  local root="$1"
+  local hooks="$root/.git/hooks"
+  adopt_head "Turning the gates on"
+  mkdir -p "$hooks" 2>/dev/null || { adopt_refuse "could not create $hooks"; return 1; }
+
+  if [ ! -f "$hooks/commit-msg" ]; then
+    printf '%s\n' '#!/usr/bin/env bash' > "$hooks/commit-msg" || { adopt_refuse "could not create the commit-msg hook"; return 1; }
+  fi
+  if grep -qF "$SOIF_TDD_OPEN" "$hooks/commit-msg" 2>/dev/null; then
+    adopt_note "The commit-msg gate was already present — left as it was."
+  else
+    soif_emit_tdd_commitmsg_block >> "$hooks/commit-msg" || { adopt_refuse "could not extend the commit-msg hook"; return 1; }
+    adopt_note "Commit-msg gate installed (it composes with whatever was already in that hook)."
+  fi
+  chmod +x "$hooks/commit-msg" 2>/dev/null
+
+  if [ -e "$hooks/pre-commit" ]; then
+    adopt_note "You already have a pre-commit hook. It has been LEFT ALONE."
+    adopt_stub_collision_archive 1
+  fi
+  adopt_stub_hooks
+  return 0
+}
+
 # ── The run ─────────────────────────────────────────────────────────────────
 ADOPT_WORK=""
 
@@ -344,8 +404,15 @@ STATE_ORDER
   adopt_stub_adoption_record "$ADOPT_SCENARIO" "$ADOPT_LANDED_PHASE"
   adopt_stage_and_commit "$root" || return 1
 
+  # AFTER the commit, and that ordering is the point — see adopt_install_hooks.
+  adopt_install_hooks "$root" || return 1
+
   adopt_head "Adopted"
   adopt_note "Scenario: $ADOPT_SCENARIO. Landed at phase $ADOPT_LANDED_PHASE."
-  adopt_note "The framework's gates are live in this project from the next commit onward."
+  # Say exactly WHICH gates, and no more. "The gates are live" would be a claim
+  # the run has not earned: the message-scoped ones are on from the next commit,
+  # and adopt_stub_hooks has just listed the ones that are not.
+  adopt_note "From your next commit onward the framework's two message gates are live in"
+  adopt_note "this project: test-before-code ordering, and the Build-Loop commit check."
   return $rc
 }
