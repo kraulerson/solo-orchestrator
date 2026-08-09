@@ -623,12 +623,30 @@ _slugify() {
 #   .*       a leading dot: `.hidden`, `.` and `..` all land here
 # An EMPTY slug is accepted — it means the operator did not pass `--slug` at
 # all, and the description is slugified instead.
+#
+# THE FIFTH SPELLING IS NOT A SEPARATOR AT ALL (review R-WP8-3). A NEWLINE
+# passes every pattern above — it is not `/`, not `\`, not `..`, not a leading
+# dot — and `_slugify` PRESERVES it, because sed is line-oriented and processes
+# each half independently. The composed name `docs/deltas/$id-$slug.md` then
+# carries an embedded newline. No traversal and no injection is reachable
+# through it (each half is still reduced to [a-z0-9-], the ledger cell strips
+# `\n\r|`, and the state value goes through `jq --arg`), so this is robustness
+# rather than security — but a file whose name contains a line break is a file
+# the operator cannot type, and the guard is the honest place to say no.
+#
+# `tr -d '[:cntrl:]'` and not a pattern: it covers tab and carriage return by
+# the same stroke, and it leaves accented UTF-8 bytes alone — those are not
+# control characters, and `_slugify` already folds them to a hyphen, so a slug
+# like "Café Export" should be SANITISED rather than refused. Note the command
+# substitution strips trailing newlines from its own output, which is why a
+# slug that merely ENDS in a newline also compares unequal and is refused.
 _slug_path_safe() {
   local raw="${1:-}"
   [ -n "$raw" ] || return 0
   case "$raw" in
     */*|*\\*|*..*|.*) return 2 ;;
   esac
+  [ "$(printf '%s' "$raw" | tr -d '[:cntrl:]')" = "$raw" ] || return 2
   return 0
 }
 

@@ -34,6 +34,13 @@
 #      trivially, and a passing lint that proves nothing is worse than no lint
 #      — this repo has the scar (see the BL-104 scoring inversions in
 #      CLAUDE.md, where an empty manifest scored better than no manifest).
+#   5. THE INSTALLER FENCE (WP8, added after §3.3 was written). The scaffolder
+#      must NAME every module file it copies, so it gets a second, narrower
+#      exemption than the seam's: only inside a `# DELTA-INSTALL` fence, only
+#      for lines matching an installation GRAMMAR, only in one file, and only
+#      up to a bounded number of fences. See the DELTA-BOUNDARY-INSTALLER
+#      block for why each of those four bounds exists and which one was
+#      missing when it first landed.
 #
 # THE SETS — one manifest, so they can never disagree
 #   DELTA = the §3.1 inventory, spelled once in the DELTA-BOUNDARY-MANIFEST
@@ -236,14 +243,48 @@ DELTA_MANIFEST=(
 #   2. Only lines INSIDE a `# DELTA-INSTALL-BEGIN` / `# DELTA-INSTALL-END`
 #      fence are exempt. A module path anywhere else in init.sh is still a
 #      violation, in both tiers.
-#   3. Only INSTALLATION STATEMENTS may live inside the fence — `cp`, `chmod`,
-#      `mkdir`. A `source scripts/lib/delta-state.sh` smuggled in there is a
-#      real fusion wearing an installer's coat, and it FAILS (tier I1). An
-#      unbalanced or nested fence fails too, because an unterminated BEGIN
-#      would exempt the rest of the file.
+#   3. Only INSTALLATION STATEMENTS may live inside the fence, and "installation
+#      statement" is defined by a POSITIVE GRAMMAR (`_install_stmt_ok`), not by
+#      a leading token. A `source scripts/lib/delta-state.sh` smuggled in there
+#      is a real fusion wearing an installer's coat and it FAILS (tier I1) —
+#      whether it stands alone OR rides on a `cp` line after a `;`, `&&`, `|`,
+#      a subshell or a backslash continuation. An unbalanced or nested fence
+#      fails too, because an unterminated BEGIN would exempt the rest of the
+#      file.
+#   4. The NUMBER OF FENCES inside that one file is bounded and asserted, so
+#      the exempt surface cannot grow by adding a fence somewhere else in the
+#      scaffolder.
+#
+#   CLAUSE 3 WAS FALSE WHEN THIS FENCE FIRST LANDED, and the correction is the
+#   reason clauses 3 and 4 read the way they do. The original check tested only
+#   whether a line's FIRST TOKEN was cp/chmod/mkdir and then exempted the WHOLE
+#   line, so `cp X ; source "$SCRIPT_DIR/lib/delta-state.sh"` passed this lint
+#   at rc 0 and rode through the PR-blocking `delta-boundary-lint` job. The
+#   severability suite could not see it either, because the revert drops the
+#   fence wholesale. An adversarial review found it by execution (R-WP8-1,
+#   cases A/C/E/F for the compound form and K for the extra-fence form); the
+#   tightness guarantee is the entire argument for accepting this exemption at
+#   all, so it now has to be TRUE, not merely written down.
 INSTALLER_ALLOWLIST=(
-  "init.sh|WP8 ships the §3.1 module to generated projects; the copy list must name each file LITERALLY because scripts/lib/scaffold-shipped-set.sh parses these cp lines to derive the shipped set. Copying bytes is installation, not a dependency edge — and only cp/chmod/mkdir statements inside the DELTA-INSTALL fence are exempt"
+  "init.sh|WP8 ships the §3.1 module to generated projects; the copy list must name each file LITERALLY because scripts/lib/scaffold-shipped-set.sh parses these cp lines to derive the shipped set. Copying bytes is installation, not a dependency edge — and only lines matching the installation GRAMMAR inside a DELTA-INSTALL fence are exempt"
 )
+# The fenced surface inside that one file, bounded (R-WP8-2). Two: the
+# scripts-copy block and the templates-copy block. They cannot be merged —
+# templates/generated/ is not created until well after the scripts block runs.
+#
+# A CEILING, NOT AN EQUALITY, and the difference is not laziness. The hazard is
+# an EXTRA fence — more exempt surface. FEWER is not a hazard in any direction:
+# a tree that ships no module at all has zero, and this lint runs under `--root`
+# against hermetic fixtures whose stub scaffolder has no fence. An equality
+# assertion reds all of those for being SAFER than the shipped tree, which is
+# the wrong direction for a boundary check to fail in.
+#
+# NAMED RESIDUAL: this bounds the COUNT, not the LOCATION. Merging the two real
+# fences and adding one elsewhere keeps the count at two. That is deliberate and
+# it is cheap to accept, because a third fence still cannot hold anything but
+# `cp`/`chmod`/`mkdir` — the grammar applies to every fence wherever it sits, so
+# the worst an unnoticed one can do is exempt a copy, never a `source`.
+INSTALLER_FENCE_MAX=2
 # ── DELTA-BOUNDARY-INSTALLER-END ────────────────────────────────────────
 
 # ── DELTA-BOUNDARY-SEAM-BEGIN ───────────────────────────────────────────
@@ -444,46 +485,79 @@ parse_allow() {
 }
 
 # ── DELTA-BOUNDARY-INSTALL-FENCE ────────────────────────────────────────
-# _install_fence <file> — one record per line, on stdout:
-#     EXEMPT <n>              this line is inside a fence and is installation
-#     BAD <n> <what>          a fence problem, or a non-installation statement
-#                             inside a fence
-# The fence markers themselves are comments, so the stripper has already
-# blanked them by the time the tiers run; they are read off the RAW file here.
+# _install_fence <file> — the fence GEOMETRY only, one record per line:
+#     IN <n>                  line n is inside a fence (classified by the
+#                             caller, against the STRIPPED line)
+#     BAD <n> <what>          a geometry problem
+#     FENCES <k>              how many BEGIN markers the file carries
+#
+# GEOMETRY HERE, CLASSIFICATION IN THE CALLER, and the split is deliberate.
+# Geometry needs the RAW file, because the markers are comments and the
+# stripper has already blanked them. Classification needs the STRIPPED file, so
+# that a trailing `# note` on a cp line cannot fail the grammar below. The two
+# files have identical line numbering — E1 BLANKS whole-line comments rather
+# than deleting them, precisely so `grep -n` and `sed -n Np` agree across both.
 #
 # EVERY FAILURE MODE FAILS CLOSED. An unterminated BEGIN would exempt the whole
-# rest of the scaffolder, so it is an error rather than a tolerated sloppiness;
-# a nested BEGIN is the same hazard wearing a second coat; and a statement that
-# is not `cp`, `chmod` or `mkdir` is the fusion this whole lint exists to catch,
-# so it is reported at the line rather than waived by its neighbours.
+# rest of the scaffolder, so it is an error rather than tolerated sloppiness; a
+# nested BEGIN is the same hazard wearing a second coat.
 _install_fence() {
   awk '
     /^[[:space:]]*#.*DELTA-INSTALL-BEGIN/ {
       if (open == 1) printf "BAD %d nested-DELTA-INSTALL-BEGIN\n", NR
-      open = 1; next
+      open = 1; fences++; next
     }
     /^[[:space:]]*#.*DELTA-INSTALL-END/ {
       if (open == 0) printf "BAD %d DELTA-INSTALL-END-with-no-BEGIN\n", NR
       open = 0; next
     }
-    open == 1 {
-      printf "EXEMPT %d\n", NR
-      s = $0
-      sub(/^[[:space:]]*/, "", s)
-      if (s == "") next
-      if (s ~ /^#/) next
-      if (s !~ /^(cp|chmod|mkdir)[[:space:]]/)
-        printf "BAD %d non-installation-statement-inside-the-fence\n", NR
+    open == 1 { printf "IN %d\n", NR }
+    END {
+      if (open == 1) printf "BAD %d unterminated-DELTA-INSTALL-fence\n", NR
+      printf "FENCES %d\n", fences + 0
     }
-    END { if (open == 1) printf "BAD %d unterminated-DELTA-INSTALL-fence\n", NR }
   ' "$1" 2>/dev/null
   return 0
+}
+
+# _install_stmt_ok <stripped-trimmed-line> — STAGE 2, the POSITIVE GRAMMAR.
+#
+# THIS IS A WHITELIST, NOT A BLACKLIST, AND THAT IS THE WHOLE POINT. The first
+# version of this check asked "does the line START with cp/chmod/mkdir?" and
+# then exempted the WHOLE line — so `cp X ; source "$SCRIPT_DIR/lib/delta-state.sh"`
+# was installation as far as the lint was concerned, and laundered a genuine
+# core->module `source` past a PR-blocking check (review R-WP8-1, cases A/C/E/F).
+# A leading-token test cannot see what follows the token; only a whole-line
+# grammar can.
+#
+# Three shapes, spelled out, and nothing else is installation:
+#   cp "$SCRIPT_DIR/<path>" <dest>
+#   chmod +x <path>...
+#   mkdir -p <path>...
+# The argument character class is `[A-Za-z0-9_./-]` — no `$`, no quotes beyond
+# the one `$SCRIPT_DIR` source form, no spaces in paths, and NO shell
+# metacharacter can appear anywhere in a matching line. That is what makes the
+# whole-line exemption sound again: a line that matches one of these is
+# provably a single simple command whose only arguments are paths, so exempting
+# the line exempts exactly the module paths that command copies — which is the
+# "exempt only the matched token" property, obtained structurally rather than
+# by trying to enumerate every way a second command can be smuggled on.
+#
+# It is deliberately BRITTLE in the fail-closed direction: a new installer
+# spelling reds until somebody adds it here, on purpose. This exemption is a
+# hole in a boundary; widening it should cost a reviewed edit.
+_install_stmt_ok() {
+  grep -qE \
+    -e '^cp[[:space:]]+"\$SCRIPT_DIR/[A-Za-z0-9_./-]+"[[:space:]]+[A-Za-z0-9_./-]+$' \
+    -e '^chmod[[:space:]]+\+x([[:space:]]+[A-Za-z0-9_./-]+)+$' \
+    -e '^mkdir[[:space:]]+-p([[:space:]]+[A-Za-z0-9_./-]+)+$' \
+    <<< "$1"
 }
 
 scan_core_file() {
   local rel="$1"
   local file="$ROOT/$rel"
-  local hits line n raw tok parsed has reason rec kind
+  local hits line n raw tok parsed has reason rec kind stmt stmt_nobs fences
   local t1_lines="|"
   local exempt_lines="|"
 
@@ -515,22 +589,83 @@ scan_core_file() {
   # DELTA-INSTALL fence in any other core file exempts nothing, which is the
   # fail-closed direction.
   if [ "$rel" = "$INSTALLER_PATH" ]; then
+    fences=0
     while IFS= read -r rec; do
       [ -n "$rec" ] || continue
       kind="${rec%% *}"
       rec="${rec#* }"
       n="${rec%% *}"
       case "$kind" in
-        EXEMPT) exempt_lines="${exempt_lines}${n}|" ;;
+        FENCES) fences="$n" ;;
         BAD)
-          echo "${rel}:${n}: lint-delta-boundary: I1 — ${rec#* } in the DELTA-INSTALL fence. Only cp / chmod / mkdir may live between the fence markers, and the fence must be balanced: an unterminated BEGIN would exempt the rest of this file. Move the statement out of the fence, or fix the markers." >&2
+          echo "${rel}:${n}: lint-delta-boundary: I1 — ${rec#* } in the DELTA-INSTALL fence. The fence must be balanced: an unterminated BEGIN would exempt the rest of this file." >&2
           VIOLATIONS=$((VIOLATIONS + 1))
           LIST_ROWS="${LIST_ROWS}FAIL\tI1\t${rel}:${n}\t${rec#* }\n"
+          ;;
+        IN)
+          # Classified against the STRIPPED line, so a trailing comment on an
+          # otherwise-clean cp cannot fail the grammar.
+          stmt="$(sed -n "${n}p" "$STRIPPED")"
+          stmt="${stmt#"${stmt%%[![:space:]]*}"}"
+          stmt="${stmt%"${stmt##*[![:space:]]}"}"
+          # A blank line (or one the stripper blanked because it was a comment)
+          # carries nothing to exempt and nothing to check.
+          [ -n "$stmt" ] || continue
+          # ── STAGE 1 — COMMAND CHAINING ──────────────────────────────────
+          # Ordered FIRST so the diagnostic names what actually happened, and
+          # kept even though STAGE 2's grammar already excludes every one of
+          # these characters. That redundancy is the point: this repo's scar
+          # tissue (`# BL-181-UNIT-LANE-PREDICATE`, three re-openings) is that
+          # a ONE-CHARACTER widening of a character class goes unnoticed. If
+          # somebody ever loosens the grammar's argument class, this stage is
+          # what still stops `cp X ; source Y`. Both stages are reachable on
+          # distinct inputs and each has its own fixture.
+          # The trailing `\` is tested with a suffix EXPANSION, not as a case
+          # pattern. `case … in *"\\")` looks like it works and does not: a
+          # backslash surviving quote removal into a pattern quotes the NEXT
+          # character, and there is no next character, so the arm never fires.
+          # Case G caught that — a `cp X \` continuation was reported by its
+          # SECOND line rather than its first, leaving this arm dead. A dead
+          # arm in a guard is the thing this file's own header warns about.
+          stmt_nobs="${stmt%\\}"
+          if [ "$stmt_nobs" != "$stmt" ]; then
+            echo "${rel}:${n}: lint-delta-boundary: I1 — command-chaining-inside-the-fence. A '\\' continuation carries the next line into this statement while the exemption stops at this one. One plain command per fenced line." >&2
+            VIOLATIONS=$((VIOLATIONS + 1))
+            LIST_ROWS="${LIST_ROWS}FAIL\tI1\t${rel}:${n}\tcommand-chaining-inside-the-fence\n"
+            continue
+          fi
+          case "$stmt" in
+            *";"*|*"&"*|*"|"*|*'`'*|*"("*|*")"*)
+              echo "${rel}:${n}: lint-delta-boundary: I1 — command-chaining-inside-the-fence. A second command riding on an installation line (';', '&&', '||', '|', a subshell, a backtick, or a '\\' continuation) is exempted along with the first, which is how a core -> module 'source' gets laundered. One plain command per fenced line." >&2
+              VIOLATIONS=$((VIOLATIONS + 1))
+              LIST_ROWS="${LIST_ROWS}FAIL\tI1\t${rel}:${n}\tcommand-chaining-inside-the-fence\n"
+              continue ;;
+          esac
+          # ── STAGE 2 — THE POSITIVE GRAMMAR ──────────────────────────────
+          if _install_stmt_ok "$stmt"; then
+            exempt_lines="${exempt_lines}${n}|"
+          else
+            echo "${rel}:${n}: lint-delta-boundary: I1 — not-a-plain-installation-statement. Only 'cp \"\$SCRIPT_DIR/<path>\" <dest>', 'chmod +x <path>...' and 'mkdir -p <path>...' may live between the fence markers. Move this line out of the fence." >&2
+            VIOLATIONS=$((VIOLATIONS + 1))
+            LIST_ROWS="${LIST_ROWS}FAIL\tI1\t${rel}:${n}\tnot-a-plain-installation-statement\n"
+          fi
           ;;
       esac
     done <<EOF
 $(_install_fence "$file")
 EOF
+    # ── DELTA-BOUNDARY-INSTALLER-FENCE-COUNT (review R-WP8-2) ────────────
+    # Cardinality bounds installer FILES to one; on its own that left the
+    # exempt SURFACE inside that one file unbounded, so an extra fence
+    # anywhere in the scaffolder was a fresh place to smuggle from.
+    if [ "$fences" -gt "$INSTALLER_FENCE_MAX" ]; then
+      echo "${rel}: lint-delta-boundary: I2 — DELTA-INSTALL-fence-count: the scaffolder carries $fences fence(s), at most $INSTALLER_FENCE_MAX are allowed." >&2
+      echo "The two sanctioned ones are the scripts-copy block and the templates-copy block, which sit in different regions of the file because templates/generated/ does not exist yet at the first one. A third fence is a third place the boundary is exempt — argue it in docs/designs/2026-08-02-delta-track-v1.md §3.1 and raise INSTALLER_FENCE_MAX, do not just add it." >&2
+      VIOLATIONS=$((VIOLATIONS + 1))
+      LIST_ROWS="${LIST_ROWS}FAIL\tI2\t${rel}\tDELTA-INSTALL-fence-count-${fences}-over-max-${INSTALLER_FENCE_MAX}\n"
+    else
+      LIST_ROWS="${LIST_ROWS}INFO\tI2\t${rel}\tDELTA-INSTALL fences: ${fences}/${INSTALLER_FENCE_MAX}\n"
+    fi
   fi
 
   # T1 — literal manifest tokens. Fixed-string matching: the tokens contain

@@ -519,6 +519,26 @@ else
   fail_ "S2" "these spellings were not refused cleanly:$s2_bad"
 fi
 
+# S2b — THE SPELLING THAT IS NOT A SEPARATOR (review R-WP8-3). A newline passes
+# every pattern S2 covers — it is not `/`, not `\`, not `..`, not a leading dot
+# — and `_slugify`'s sed is LINE-oriented, so it survives into the composed file
+# name. Measured, not assumed: the assertion below reads the recorded slug back
+# and requires the tree to be untouched.
+PSN="$TMPROOT/slug-newline"; mk_proj "$PSN" 4
+s2b_before="$(tree_manifest "$PSN")"
+open_feature "$REPO_ROOT/scripts" "$PSN" "$(printf 'csv\nexport')"
+s2b_rc=$DRC
+s2b_after="$(tree_manifest "$PSN")"
+s2b_diff="$(diff <(printf '%s\n' "$s2b_before") <(printf '%s\n' "$s2b_after") 2>/dev/null | grep -c '^[<>]' || true)"
+case "$s2b_diff" in ''|*[!0-9]*) s2b_diff=0 ;; esac
+s2b_files="$(find "$PSN/docs/deltas" -type f 2>/dev/null | grep -c '' || true)"
+case "$s2b_files" in ''|*[!0-9]*) s2b_files=0 ;; esac
+if [ "$s2b_rc" -eq 2 ] && [ "$s2b_diff" -eq 0 ] && [ "$s2b_files" -eq 0 ]; then
+  pass "S2b: a --slug containing a NEWLINE is refused (rc $s2b_rc), the tree is byte-identical ($s2b_diff files changed) and no brief was written ($s2b_files files under docs/deltas) — no file name gains a line break the operator could never type"
+else
+  fail_ "S2b" "rc=$s2b_rc (want 2); tree changed on $s2b_diff line(s) (want 0); brief files written=$s2b_files (want 0)"
+fi
+
 # S3 — AND THE GUARD IS NOT A BLANKET REFUSAL. An ordinary messy human slug
 # still opens, and the basename it produces contains only [a-z0-9-].
 PS3="$TMPROOT/slug-sanitise"; mk_proj "$PS3" 4
@@ -854,32 +874,115 @@ lint_root() {
   return 0
 }
 
-# SH6b — THE BASELINE. Rows SH7-SH9 all assert a NON-ZERO lint, and a fixture
-# tree that reds for some unrelated reason would satisfy all three while
-# measuring nothing. So the unmodified fixture is linted first and must be
+# SH6b — THE BASELINE. Every row from SH7 on asserts a NON-ZERO lint, and a
+# fixture tree that reds for some unrelated reason would satisfy all of them
+# while measuring nothing. So the unmodified fixture is linted first and must be
 # clean.
 LRB="$TMPROOT/lint-baseline"; mk_lint_root "$LRB"
 lint_root "$LRB"
 if [ "$LINT_RC" -eq 0 ]; then
-  pass "SH6b: the unmodified fixture tree lints CLEAN (rc $LINT_RC) — so the three non-zero results below are caused by the edits, not by the fixture"
+  pass "SH6b: the unmodified fixture tree lints CLEAN (rc $LINT_RC) — so every non-zero result below is caused by the edit under test, not by the fixture"
 else
   fail_ "SH6b" "the baseline fixture tree already reds (rc $LINT_RC):
 $(tail -20 "$LINT_FILE")"
 fi
 
-# SH7 — a REAL fusion smuggled inside the fence. A `source` of a module lib is
-# the exact defect the whole lint exists to catch, and an installer coat must
-# not launder it.
-LR7="$TMPROOT/lint-fence-source"; mk_lint_root "$LR7"
-awk '{ print; if ($0 ~ /DELTA-INSTALL-BEGIN/ && !d) { print "  source \"$SCRIPT_DIR/scripts/lib/delta-state.sh\""; d = 1 } }' \
-  "$LR7/$INIT_FILE" > "$LR7/tmp.$INIT_FILE" && mv "$LR7/tmp.$INIT_FILE" "$LR7/$INIT_FILE"
-lint_root "$LR7"; sh7_rc="$LINT_RC"
-sh7_i1=n
-grep -q 'non-installation-statement-inside-the-fence' "$LINT_FILE" && sh7_i1=y
-if [ "$sh7_rc" != "0" ] && [ "$sh7_i1" = y ]; then
-  pass "SH7: a 'source' of a module lib INSIDE the DELTA-INSTALL fence still fails (rc $sh7_rc, tier I1) — only cp/chmod/mkdir are installation, so the fence cannot launder a real dependency edge"
+# ── SH7 — THE SMUGGLING BATTERY (review R-WP8-1 / R-WP8-2) ─────────────────
+#
+# THE FIRST VERSION OF THIS ROW TESTED ONE CASE AND GAVE FALSE CONFIDENCE. It
+# injected a STANDALONE `source` (case B below), watched it fail, and concluded
+# "the fence cannot launder a real dependency edge". The fence could: the check
+# read only a line's LEADING TOKEN, so
+#     cp "$SCRIPT_DIR/scripts/lib/delta-cadence.sh" scripts/lib/ ; source "$SCRIPT_DIR/scripts/lib/delta-state.sh"
+# was "installation" and the WHOLE line — the `source` with it — was exempted.
+# That passed the lint at rc 0 and rode straight through the PR-blocking
+# `delta-boundary-lint` job; the severability suite could not see it either,
+# because the revert drops the fence wholesale. An adversarial review found it
+# by execution.
+#
+# So this is a BATTERY, and every row asserts the RIGHT REASON, not merely a
+# non-zero exit — a fixture that reds for an unrelated reason is a row that
+# measures nothing. The two families are deliberately separated:
+#   chaining      a second command riding on an installation line
+#   grammar       a line that is not an installation statement at all
+# and case L is the one that matters most for R-WP8-2: a PERFECTLY CLEAN cp in
+# an extra fence, which no I1 arm can see and which only the fence-count bound
+# catches. Without L that bound could rot untested behind the chaining check.
+#
+# The payload is injected through a FILE, never `awk -v`: -v performs escape
+# processing and silently eats a trailing backslash, which would have made case
+# G test something other than what it says.
+_inject_in_fence() {   # <tree> <payload…>
+  local d="$1"; shift
+  printf '%s\n' "$@" > "$d/inject"
+  awk -v f="$d/inject" '
+    { print }
+    /DELTA-INSTALL-BEGIN/ && !d { while ((getline l < f) > 0) print l; d = 1 }
+  ' "$d/$INIT_FILE" > "$d/tmp.$INIT_FILE" && mv "$d/tmp.$INIT_FILE" "$d/$INIT_FILE"
+}
+_append_extra_fence() {   # <tree> <payload…>
+  local d="$1"; shift
+  {
+    printf '\n  # -- DELTA-INSTALL-BEGIN --\n'
+    printf '%s\n' "$@"
+    printf '  # -- DELTA-INSTALL-END --\n'
+  } >> "$d/$INIT_FILE"
+}
+
+SH7_SRC='  source "$SCRIPT_DIR/scripts/lib/delta-state.sh"'
+SH7_CP='  cp "$SCRIPT_DIR/scripts/lib/delta-cadence.sh" scripts/lib/'
+sh7_detail=""
+sh7_ok=y
+
+# _sh7 <tag> <expect-token> <where> <payload…>
+_sh7() {
+  local tag="$1" want="$2" where="$3"; shift 3
+  local d="$TMPROOT/lint-case-$tag"
+  mk_lint_root "$d"
+  case "$where" in
+    in)    _inject_in_fence "$d" "$@" ;;
+    extra) _append_extra_fence "$d" "$@" ;;
+  esac
+  lint_root "$d"
+  local got=n
+  grep -q "$want" "$LINT_FILE" && got=y
+  sh7_detail="$sh7_detail [$tag=rc$LINT_RC/$got]"
+  if [ "$LINT_RC" -eq 0 ] || [ "$got" = n ]; then sh7_ok=n; fi
+}
+
+CHAIN='command-chaining-inside-the-fence'
+GRAM='not-a-plain-installation-statement'
+COUNT='DELTA-INSTALL-fence-count'
+
+_sh7 A "$CHAIN" in    "$SH7_CP ; ${SH7_SRC# }"
+_sh7 B "$GRAM"  in    "$SH7_SRC"
+_sh7 C "$CHAIN" in    '  chmod +x scripts/delta.sh && source "$SCRIPT_DIR/scripts/lib/delta-state.sh"'
+_sh7 D "$GRAM"  in    '  ln -s scripts/lib/delta-state.sh /tmp/x'
+_sh7 E "$CHAIN" in    "$SH7_CP && ( ${SH7_SRC# } )"
+_sh7 F "$CHAIN" in    '  mkdir -p docs/deltas ; . "$SCRIPT_DIR/scripts/lib/delta-state.sh"'
+_sh7 G "$CHAIN" in    "$SH7_CP \\" "$SH7_SRC"
+_sh7 H "$CHAIN" in    '  cp "$SCRIPT_DIR/scripts/lib/delta-state.sh" $(dirname scripts/lib)/'
+_sh7 J "$COUNT" extra "$SH7_SRC"
+_sh7 K "$CHAIN" extra "$SH7_CP ; ${SH7_SRC# }"
+_sh7 L "$COUNT" extra "$SH7_CP"
+
+# L's STRUCTURAL DISCRIMINATOR. L is a clean cp — if it reds because some I1 arm
+# fired, the fence-count bound is not what caught it and R-WP8-2 is unpinned.
+sh7_l_clean=y
+grep -qE "$CHAIN|$GRAM" "$TMPROOT/lint-lint-case-L.out" 2>/dev/null && sh7_l_clean=n
+
+# And the SMUGGLED REFERENCE ITSELF must now be visible to tier T1 — the point
+# is not that the line was flagged, it is that the module path stopped being
+# exempt.
+sh7_t1=y
+for t in A B C D E F G H; do
+  grep -qE '^FAIL.T1' "$TMPROOT/lint-lint-case-$t.out" 2>/dev/null || sh7_t1=n
+done
+
+if [ "$sh7_ok" = y ] && [ "$sh7_l_clean" = y ] && [ "$sh7_t1" = y ]; then
+  pass "SH7: all eleven smuggling attempts fail, each for the RIGHT reason —$sh7_detail (tag=rc/expected-diagnostic-found). A-H are in-fence: the four chaining spellings (';', '&&', a subshell, a '\\' continuation), a command substitution, a standalone 'source', a bare 'ln', and in every one of them the module path is now visible to tier T1 again. J/K/L are extra fences, and L is a PERFECTLY CLEAN cp caught by the fence-count bound alone (no I1 row: $sh7_l_clean) — which is the only thing that pins R-WP8-2 independently"
 else
-  fail_ "SH7" "lint rc=$sh7_rc (want non-zero); I1 diagnostic present=$sh7_i1"
+  fail_ "SH7" "cases:$sh7_detail (want every rc non-zero and every expected diagnostic found); L caught by count alone=$sh7_l_clean; T1 visible on all of A-H=$sh7_t1"
 fi
 
 # SH8 — an UNTERMINATED fence. Left tolerated, one stray BEGIN near the top of

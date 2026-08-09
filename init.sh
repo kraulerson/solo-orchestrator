@@ -1456,10 +1456,13 @@ create_project() {
   #
   # These lines are INSTALLATION, not a dependency edge — init.sh copies bytes,
   # it never sources or calls the module. scripts/lint-delta-boundary.sh knows
-  # that through its DELTA-BOUNDARY-INSTALLER fence, which exempts exactly the
-  # lines between these two markers and nothing else in this file; a `source`
-  # smuggled in here is still a violation, and cases SH7-SH9 in
-  # tests/test-delta-wp8-intake.sh are the fixtures that prove it.
+  # that through its DELTA-BOUNDARY-INSTALLER fence, which exempts only lines
+  # matching its installation GRAMMAR, only between these two markers, and only
+  # in this one file — and which bounds the number of fences here at two. A
+  # `source` smuggled in is still a violation whether it stands alone or rides
+  # on a `cp` after a `;`. Cases SH7 (eleven smuggling attempts), SH8 and SH9 in
+  # tests/test-delta-wp8-intake.sh are the fixtures that prove it; the
+  # leading-token version of that check did NOT, and shipped a laundering hole.
   cp "$SCRIPT_DIR/scripts/lib/delta-state.sh"       scripts/lib/
   cp "$SCRIPT_DIR/scripts/lib/delta-policy.sh"      scripts/lib/
   cp "$SCRIPT_DIR/scripts/lib/delta-classify.sh"    scripts/lib/
