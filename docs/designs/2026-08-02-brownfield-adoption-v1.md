@@ -5,12 +5,12 @@
 | Field | Value |
 |---|---|
 | **Document ID** | ADOPT-001-ARCH |
-| **Version** | v1.1, 2026-08-02 — **review-r1 folded** (`major_concerns`, fidelity verdict **FAITHFUL**: all six settled decisions carried correctly, the chooser verbatim at all three sites, and the §8.8 Adoption Record contract held against 13 reader-pipeline probes). **Two "exists today" claims were REFUTED by execution** — both re-verified by this author rather than accepted, both recorded at §0.2 and rewritten in place. No settled decision, decision table, or WP boundary changed; one WP regression proof and one WP mutation target were **re-aimed**, because each was provably incapable of going RED. |
+| **Version** | v1.2, 2026-08-09 — **build-evidence amendment folded** (Karl's approval, 2026-08-09). Three corrections the implementers *proved by execution*, mapped in §0.2: the phase ladder is a **reached** rung and not a plain maximum (refuted by this document's own WP1 fixture arithmetic); §6.5's planted-secret recipe gains a required **carrier plant** (without it WP2's Mutation B is vacuous, measured); and the boundary lints' CORE set gains `scripts/host-drivers/*.sh` (a planted `core → module` source line passed both lints) — plus **A-BF-4**, the front-matter correction those three forced: the "Status of the thing described" row below no longer says "Nothing is built". No settled decision, decision table, or WP boundary changed. · v1.1, 2026-08-02 — **review-r1 folded** (`major_concerns`, fidelity verdict **FAITHFUL**: all six settled decisions carried correctly, the chooser verbatim at all three sites, and the §8.8 Adoption Record contract held against 13 reader-pipeline probes). **Two "exists today" claims were REFUTED by execution** — both re-verified by this author rather than accepted, both recorded at §0.2 and rewritten in place. No settled decision, decision table, or WP boundary changed; one WP regression proof and one WP mutation target were **re-aimed**, because each was provably incapable of going RED. |
 | **Classification** | Product architecture — normative-once-reviewed for the build |
 | **Audience** | (a) the adversarial design reviewer this document must survive; (b) the implementer of the work packages in §10 |
 | **Subject** | **Brownfield adoption** — bringing an existing codebase, with existing history, existing CI, and existing tooling, into Solo Orchestrator |
 | **Companion documents** | SOI-002-BUILD (`docs/builders-guide.md`) · SOI-003-GOV (`docs/governance-framework.md`) · SOI-004-INTAKE (`templates/project-intake.md`) · `docs/designs/2026-08-02-team-orchestrator-v1.md` (sibling fork design, same session) · the **delta track** design (in flight — see §0.3-C1) |
-| **Status of the thing described** | **Nothing is built.** There is no adoption driver, no scanner, no `adopted` flag, and no backlog entry. The only prior art in the tree is one unfiled followup (`## F-010` in `solo-orchestrator-followups.md`) and two concept papers, all dispositioned in §0.3 and §1. Every "exists today" claim below is about the **greenfield** product as it stands on 2026-08-02. |
+| **Status of the thing described** | **Partly built as of 2026-08-09 — WP0–WP3 have shipped; WP4–WP8 have not.** *(v1.2 correction: this row read "Nothing is built" through v1.1, which was true when written and is now false — all three v1.2 amendments in §0.2 are derived from the shipped code.)* **Built:** the severable-module contract and `scripts/lint-module-dependencies.sh` (WP0, PR #325); **Scout**, complete through its scanner sections — `scripts/scout.sh` plus the nine `scripts/lib/scout/*.sh` files covering stack, phaseMap, reality probes, secrets, collisions, tests-baseline and intake-prefill (WP1, PR #329; WP2, PR #331); and the **in-core enabling arms** — `scripts/lib/adoption-stamp.sh`, the `adopted` flag, the adoption-window-bounded TDD exemption, stamp acceptance in the gate, and loud loss detection (WP3, PR #335). **Not built:** the driver `scripts/adopt-project.sh` and `scripts/lib/adopt/`, the scenario chooser and reverse intake (WP4), the certification pass and test-debt ledger (WP5/WP5b), the collision archive and disclosure (WP6), the CI carve-out, provenance and Adoption Record (WP7), and the docs (WP8). The adoption feature itself still has **no backlog entry** — its only tracker remains the unfiled `## F-010` in `solo-orchestrator-followups.md` (`## BL-215:` tracks a lint gap inside WP0's deliverable, not this work). **Scope of the caveat that follows, unchanged in force:** every "exists today" claim below is stamped **2026-08-02** and describes the **greenfield** product as it stood then. Those claims are *not* descriptions of the WP0–WP3 code, which post-dates every one of them — §13 is a log of what commands returned at that commit, not a standing property. Re-run a claim before quoting it. |
 
 **Provenance.** Six architecture decisions were settled by Karl in a joint working session on
 **2026-08-02**. This document **transcribes** them and designs *within* them; it does not
@@ -120,6 +120,58 @@ author-proposed.
 | **D6** | **Mechanics**, carried as settled from the verified analysis: a **new `scripts/adopt-project.sh` driver — not an `init.sh` mode**, because init's interactive path is the verified destructive path. Scanner report sections: **stack / phaseMap / reality / tests-baseline / secrets / collisions / intake-prefill**, built by **reuse-by-extraction** of `validate.sh`'s artifact-phase inference and `process-checklist.sh --verify-init`'s reality probes. **Reverse intake**: scan-derivable sections prefilled and confirmed on the `# BL-204-PREFILL-READ` pattern, judgment sections human-mandatory, data classification non-skippable. **Fail-safe state-creation order: phase-state → intake → manifest**, because the tier predicate fails *bypassable* on a missing phase-state and *strict* on a missing manifest. **Explicit-path staging, never `git add -A`.** An **adoption stamp** (`soif_adoption_stamp`, sited beside `soif_currency_stamp`, one call site) plus **provenance headers on every reconstructed doc**. Detection baselines reset through the existing `reconfigure-project.sh --reset-detection-baseline`. The **Adoption Record** section in `APPROVAL_LOG.md` must be **structurally unparseable as a gate approval**. | §8 | The report's JSON schema; the extraction boundary; the stamp's key set; the Adoption Record's exact shape |
 
 ### §0.2 — Amendment changelog
+
+**v1.2 (2026-08-09) — build-evidence amendment. Approved by Karl, 2026-08-09.** Three substantive
+corrections, each **proved by execution during the build** and none of them a matter of preference:
+two of them name a place where this document specified something its own fixture arithmetic could
+not deliver, and the third names a coverage hole a reviewer closed by planting a violation and
+watching the lint pass it. A fourth row (A-BF-4) records the front-matter correction those three
+forced. No settled decision, decision table, or WP boundary changes. Amendment rows are prefixed
+`A-` to distinguish them from the review findings above, which are `R-`.
+
+- **A-BF-1 (LADDER) → §4.4 correction 2 / §8.2 / §10-WP1** — "take the **maximum** satisfied rung"
+  is **refuted by this document's own WP1 fixture**. That fixture's satisfied set is {1, 2, 4}, so
+  plain-max returns **4** — the exact value WP1's mutation watches for as the *failing* result. The
+  required output of **2** was unreachable and the mutation could never have gone RED against a
+  spec-faithful build. Corrected to the **highest *reached* rung** (a contiguous climb that stops at
+  the first gap), which is also the only reading coherent with §4.4's own certification-scope rule:
+  landing at phase N certifies every gate *below* N, and that is a prefix property. §8.2 gains the
+  additive **`highestSatisfiedRung`** transparency field, which publishes the plain max beside the
+  reached rung so the gap between them — the finding — is not thrown away; the emitted `note` string
+  is kept **verbatim** and its resulting two-number wart is disclosed rather than silently reworded.
+- **A-BF-2 (CARRIER PLANT) → §6.5 / §10-WP2** — the planted-secret recipe was incomplete in the one
+  way that makes **WP2's Mutation B vacuous**. Measured during the build and independently
+  re-verified by review: a finding's `Message` field carries the message of **the commit that
+  produced that finding**, so a BASE32-valid key planted in the message of a *clean* commit scores
+  **zero** findings even under a full report passthrough — Mutation B would have gone green against
+  a correct implementation and a broken one alike. §6.5 now requires a **third "carrier" plant** in
+  the diff of the message plant's own commit, so that commit produces a finding and its message
+  actually reaches the report. Verified on gitleaks 8.30.1: redacted report → diff plant ×0, carrier
+  ×0, message plant ×1 in `Message`. The two existing fixture facts (BASE32-validity, the non-zero
+  finding-count precondition) are unchanged and the carrier joins them as a third precondition.
+- **A-BF-3 (CORE GLOBS) → §3.3 / `docs/module-contract.md` M3** — M3's "no file **outside** the
+  module directory" is rendered by both boundary lints as a four-glob CORE set that **excludes
+  `scripts/host-drivers/*.sh`**. Proof by plant, not inference: a reviewer added
+  `source …/scout-phasemap.sh` to `scripts/host-drivers/gitlab.sh` and
+  `source …/delta-state.sh` to `scripts/host-drivers/github.sh`, and **both lints passed at rc=0**,
+  while the identical lines in four-glob-covered core files red at rc=1. Karl approved extending
+  coverage; the CORE set is now **five globs** here, in the delta design's §3.3, and in
+  `docs/module-contract.md`. **The lint edit is a separate follow-up, tracked as `## BL-215:`** —
+  as of 2026-08-09 both `CORE_GLOBS` arrays still list four entries, and this document is ahead of
+  the code by that one glob, deliberately and in writing.
+
+- **A-BF-4 (FRONT MATTER) → Document Control, "Status of the thing described"** — that row read
+  **"Nothing is built."** through v1.1. True when written; false by 2026-08-09, because WP0–WP3 have
+  shipped (PRs #325, #329, #331, #335) and **all three corrections above are derived from that
+  shipped code**. A design document whose front matter contradicts its own amendment log misleads
+  the next reader on first contact, so the row is **corrected in this same v1.2 pass**: it now names
+  what is built, what is not, and the PRs for each, and it rescopes — without weakening — the caveat
+  that every "exists today" claim below is stamped 2026-08-02 and does **not** describe the shipped
+  WP code. **Recorded because the drafting of it is the lesson:** an earlier draft of this changelog
+  said the row was "left as stamped; correcting it is not part of this amendment", and the branch's
+  own final commit falsified that sentence — a fresh self-contradiction introduced into the document
+  whose amendments exist to remove exactly that class. Caught by adversarial review (R-PRE-2), not
+  by the author.
 
 **v1.1 (2026-08-02) — review-r1 amendment map.** Verdict `major_concerns`; fidelity **FAITHFUL**.
 **Two refutations, both re-verified by this author before folding** (house standard: a reviewer's
@@ -360,6 +412,28 @@ something built.
 | **M4 — The enabling arms are core, and are named** | The in-core arms of §3.1 are *not* part of the module. They are listed by marker in the module's header so severance has an explicit, short interface to preserve. | Review + the marker lint (`scripts/lint-bl-markers.sh` already resolves marker citations both directions) |
 | **M5 — The scanner depends on nothing** | The scanner sources **no** core lib. Its bootstrap must work in a clone that has never run `init.sh`. | The lint's zero-dependency arm, plus a hermetic test that runs the scanner with `scripts/lib/` moved aside |
 
+**The CORE set M3 is checked over — five globs. v1.2 (2026-08-09), evidence-led, approved by Karl.**
+M3 says "no file **outside** `scripts/lib/<module>/`", and both boundary lints render that universal
+as a literal glob set: CORE = `init.sh` + `scripts/*.sh` + `scripts/lib/*.sh` + `scripts/hooks/*.sh`
++ **`scripts/host-drivers/*.sh`**, minus the module inventory, minus the lint itself, minus sibling
+boundary lints. The fifth glob is the correction. The co-owned contract named **four**, both lints
+were built faithful to that number at exact parity, and both disclose the exclusion in their own
+headers as a design question pending this amendment. **The gap is proved by plant, not inferred:**
+`source "$SCRIPT_DIR/lib/scout/scout-phasemap.sh"` appended to `scripts/host-drivers/gitlab.sh` in a
+fixture tree leaves `scripts/lint-module-dependencies.sh` at **rc=0**
+(`OK: no core -> module edge and no scanner dependency`, 76 core files scanned), and the delta
+sibling passes its own equivalent plant identically. The **identical** line appended to
+`scripts/check-maintenance.sh` — a file the four globs do reach — reds at **rc=1** on T2. The
+predicate is sound; the population was short. Host drivers are core by every other measure
+(`init.sh`, `scripts/lib/host.sh` and `scripts/intake-wizard.sh` source them by path), so a
+convenience call added to one severs nothing and fuses everything, which is precisely the Tuesday-
+afternoon failure M3 exists to make red. **Not yet implemented:** the `CORE_GLOBS` arrays in both
+lints still list four entries as of 2026-08-09; widening them is tracked as **`## BL-215:`**, which
+carries the measurement table above and the both-lints-in-sync fix shape, and until it lands this
+contract is stated here and under-enforced there. The same correction lands on the delta design's
+§3.3 and on `docs/module-contract.md` M3, which is the standing normative transcription of this
+section.
+
 **M5 is the load-bearing one and it has a cost worth stating.** Zero dependency means the scanner
 cannot reuse `scripts/lib/helpers-core.sh`'s printers, its `soif_read_*` state readers, or its host
 drivers — it re-implements the small subset it needs. That is deliberate duplication in exchange
@@ -454,9 +528,19 @@ diagnostic and not a decision procedure:
 1. **It is not in a function and carries no marker.** It is straight-line top-level script body
    under the `print_section "Phase State & Artifacts"` banner. Extraction means lifting a
    *predicate*, and the extracted copy should be the one that gets a marker.
-2. **Assignments are sequential, not `max`** — the *last* matching test wins, so a project with
-   `HANDOFF.md` and a since-emptied `docs/test-results/` reports 4. The extracted version must take
-   the **maximum** satisfied rung.
+2. **Assignments are sequential, so the *last* matching test wins** — a project with `HANDOFF.md`
+   and a since-emptied `docs/test-results/` reports 4. The extracted version must take the
+   **highest *reached* rung**: a rung advances the placement only when the rung below it was itself
+   reached, so the ladder stops at the first gap. **v1.2 (2026-08-09) — evidence-led correction.**
+   v1.0/v1.1 said "the **maximum** satisfied rung", and **this document's own WP1 fixture refutes
+   it**: on that fixture the satisfied set is {1, 2, 4}, so a plain maximum returns **4** — which is
+   exactly the number §10-WP1's mutation watches for as the *failing* result. The required output of
+   **2** is unreachable under plain-max, and the mutation could therefore never have gone RED
+   against a spec-faithful build. The reached-rung reading is also the only one coherent with this
+   section's own **certification scope** row: landing at phase N certifies every gate *below* N,
+   which is a property of a contiguous prefix and not of a satisfied set with a hole in it. Shipped
+   as `scout_phasemap_scan` in `scripts/lib/scout/scout-phasemap.sh`, load-bearing line
+   `# SCOUT-LADDER-MAX`.
 3. **The ladder keys on framework artifact names**, which a brownfield project does not have. For
    adoption the ladder must be re-expressed over **the adoptee's own evidence** — architecture
    documentation of any name, a test corpus that runs, a deploy lane — with the framework filenames
@@ -656,9 +740,11 @@ never the surprise.
 
 ### §6.5 — The planted-secret test (D4's assertion, made precise)
 
-The test plants **two** synthetic keys — one in a **diff** and one in a **commit message** — and
-asserts that **neither string occurs anywhere** in any artifact the driver writes. Two fixture
-notes that will otherwise cost an implementer an afternoon:
+The test plants **three** synthetic keys — one in a **diff**, one in a **commit message**, and a
+**carrier** in the diff of the same commit that carries the message plant — and asserts that **none
+of those strings occurs anywhere** in any artifact the driver writes. (v1.0/v1.1 specified two;
+the third is a v1.2 evidence-led addition, below.) Three fixture notes that will otherwise cost an
+implementer an afternoon:
 
 - `AKIAIOSFODNN7EXAMPLE` is **allowlisted by gitleaks' default config** and yields zero findings.
   The fixture must use a non-canonical synthetic key.
@@ -673,6 +759,23 @@ notes that will otherwise cost an implementer an afternoon:
   messages, **confirmed with a BASE32-valid key so the result is not an artefact of the plant**
   (a valid key present only in a commit message yields **zero** findings). It can therefore only be
   caught by asserting on the artifact's **bytes**, never on the finding count.
+- **A THIRD "CARRIER" PLANT IS REQUIRED, in the diff of the same commit that carries the message
+  plant. v1.2 (2026-08-09) — evidence-led; measured during the WP2 build and independently
+  re-verified by review.** What the note above leaves unsaid is the half that decides whether the
+  test works at all: a finding's `Message` field holds the message of **the commit that produced
+  that finding**. A message plant on a commit whose diff is *clean* therefore produces no finding,
+  populates no `Message`, and **reaches no artifact byte even under a full report passthrough** — so
+  **WP2's Mutation B (replace the field allowlist with a passthrough → the message plant appears →
+  RED) would go green against a correct implementation and a broken one alike.** The carrier key
+  puts a real finding on that commit, which is the only thing that makes its message reach the
+  report. Verified on gitleaks 8.30.1: in the redacted report the diff plant and the carrier occur
+  **0** times and the message plant occurs **1** time, in `Message`. Without the carrier that count
+  is **0**, and Mutation B is vacuous. The carrier is a *fixture precondition*, exactly like
+  BASE32-validity and the non-zero-finding assertion above — all three exist so a dud fixture fails
+  loudly instead of certifying nothing. (The shipped suite
+  `tests/test-brownfield-wp2-scout-sections.sh` carries a fourth plant in the fixture's
+  `.git/hooks/pre-commit`; that one belongs to §7.3's separate hook-description hazard, not to this
+  recipe.)
 
 ---
 
@@ -871,9 +974,11 @@ view of the same data — the currency system's precedent, where `plan-staging.s
               "testCommand": {"value":"pnpm test","source":"package.json scripts.test"},
               "ciHost": "github" },
 
-  "phaseMap": { "suggestedPhase": 2, "rungs": [
-                  {"rung":1,"evidence":"docs/architecture.md","satisfied":true},
-                  {"rung":3,"evidence":"test results archive","satisfied":false}],
+  "phaseMap": { "suggestedPhase": 2, "highestSatisfiedRung": 4, "rungs": [
+                  {"rung":1,"evidence":"README.md (the product is described in writing)","satisfied":true},
+                  {"rung":2,"evidence":"docs/architecture.md (the technical shape is documented)","satisfied":true},
+                  {"rung":3,"evidence":"no test corpus and no test command found; docs/test-results/ is absent or empty","satisfied":false},
+                  {"rung":4,"evidence":"HANDOFF.md (a handover / release record exists)","satisfied":true}],
                 "note": "maximum satisfied rung; the interview may only lower this" },
 
   "reality": { "probes": [
@@ -908,11 +1013,33 @@ view of the same data — the currency system's precedent, where `plan-staging.s
 **The `secrets.findings[]` objects are the §6.2 allowlist projection and nothing else.** The schema
 does not have a `secret` field to forget to strip.
 
+**`phaseMap.highestSatisfiedRung` is additive, and it is a transparency field — v1.2 (2026-08-09),
+evidence-led.** §4.4's correction makes `suggestedPhase` the rung the ladder **reaches** (it stops
+at the first gap); this field publishes the **plain maximum** beside it. The two differ exactly when
+the evidence has a hole — phase-4 artifacts with no phase-3 evidence, the very fixture whose
+arithmetic refuted plain-max — and **that difference is itself the finding**, so collapsing it into
+one number would discard the most useful thing the scan learned. It is consumed by the **WP4
+interview**: the floor rule lets the operator move the placement only *down*, and an operator cannot
+argue a ceiling down if they were never shown it. Emitted by `scout_emit_json` in
+`scripts/lib/scout/scout-report.sh`, immediately after `suggestedPhase`. **The example above is the
+{1, 2, 4} case itself** — corrected in v1.2 after review (R-PRE-3) found it internally unarithmetic:
+it published `highestSatisfiedRung: 4` over a rung list that omitted rung 2 entirely and gave rung 1
+rung-2-class evidence. `scout_phasemap_scan` always writes **all four rungs, ascending, satisfied or
+not**, each with the evidence string it decided on — including the sentence it prints when a rung
+fails, which is why an unsatisfied rung is still worth reading. The example now matches that shape
+and demonstrates the gap the two numbers exist to expose. **The `note` string stays
+verbatim** as printed above — it is pinned byte-for-byte in the emitter and in
+`tests/test-brownfield-wp1-scout.sh`, so re-wording it here would fork the document from the code it
+specifies. Its wart is disclosed rather than papered over: with two numbers in the object, the
+"maximum satisfied rung" clause reads onto `highestSatisfiedRung` and the "the interview may only
+lower this" clause onto `suggestedPhase`. Re-wording it is a separate decision, not part of this
+amendment.
+
 **Reuse-by-extraction, precisely.** Two predicates are lifted, neither is sourced (M5):
 
 | Extracted from | What is taken | What is corrected in the copy |
 |---|---|---|
-| `scripts/validate.sh` — the top-level `print_section "Phase State & Artifacts"` block's `artifact_phase=` ladder | The artifact→phase rung mapping | It is not a function and carries no marker in the original; the extracted copy gets both. Assignments become **max**, not last-wins. Rungs are re-expressed over the adoptee's own evidence (§4.4) |
+| `scripts/validate.sh` — the top-level `print_section "Phase State & Artifacts"` block's `artifact_phase=` ladder | The artifact→phase rung mapping | It is not a function and carries no marker in the original; the extracted copy gets both. Assignments become a **contiguous climb to the highest *reached* rung**, not last-wins — v1.2 corrects "max" here for the reason §4.4 gives. Rungs are re-expressed over the adoptee's own evidence (§4.4) |
 | `scripts/process-checklist.sh` — `verify_init()` | Five of the seven reality probes (`remote_repo_created`, `ci_pipeline_configured`, `project_scaffolded`, `pre_commit_hooks_installed`, and the shape of the derived rollup) | **The original mutates state** — its first statement is `ensure_state_file` and each pass writes `.phase2_init.steps_completed`. The scanner's copy is **read-only, always**. `branch_protection_configured` reports `unknown` rather than consulting the host, because a read-only tool must not make authenticated API calls on the operator's behalf; note the original's `# BL-126-ATTEST-CONSULT-BEGIN` fence short-circuits on a recorded attestation and never contacts the host either. `data_model_applied` is not probeable and is omitted rather than faked |
 
 ### §8.3 — Reverse intake
@@ -1117,8 +1244,8 @@ of an increment**; a block is its presence. A test that greps for `[WARN]` prove
 | WP | Scope | Test intent · mutation proofs |
 |---|---|---|
 | **WP0 — Module contract** | §3.3's M1–M5 as a written contract plus `scripts/lint-module-dependencies.sh`. **Converge with the delta track first** — this contract is co-owned and that track has zero commits (C1) | A `core → module` source line fails the lint; a `module → core` one passes; the scanner with `scripts/lib/` moved aside still runs (M5). **Mutation:** delete the direction check → a `core → module` reference passes → RED |
-| **WP1 — Scanner: stack, phaseMap, reality** | `scripts/scout.sh` + `scripts/lib/scout/`; the extracted artifact ladder (max-rung, marked) and the five read-only reality probes | Read-only proven by **tree hash before/after** over the whole fixture, not by inspection — the `plan-staging.sh` idempotency precedent. Max-rung beats last-wins on a fixture with `HANDOFF.md` and an emptied `docs/test-results/`. **Mutation:** restore last-wins → the fixture reports 4 instead of 2 → RED |
-| **WP2 — Scanner: secrets, collisions, tests-baseline, intake-prefill** | The §6.2 allowlist projection; the §1.2 collision inventory; the test-command probe and untested-file count; prefill extraction | **The planted-secret test (§6.5): two plants, one in a diff and one in a commit message; assert neither string occurs in ANY artifact byte.** **Mutation A:** drop `--redact` → the diff plant appears → RED. **Mutation B:** replace the field allowlist with a passthrough → the **message** plant appears → RED. Mutation B is the one that matters; A alone would have shipped C7's leak. **Fixture precondition (R-BF-4), non-optional:** both plants BASE32-valid (`AKIA[A-Z2-7]{16}`), **and the test asserts a non-zero finding count on the diff plant before asserting anything else** — a dud plant yields zero findings, at which point Mutation A passes vacuously and proves nothing |
+| **WP1 — Scanner: stack, phaseMap, reality** | `scripts/scout.sh` + `scripts/lib/scout/`; the extracted artifact ladder (reached-rung, marked) and the five read-only reality probes | Read-only proven by **tree hash before/after** over the whole fixture, not by inspection — the `plan-staging.sh` idempotency precedent. Reached-rung beats last-wins on a fixture with `HANDOFF.md` and an emptied `docs/test-results/`. **Mutation:** restore last-wins → the fixture reports 4 instead of 2 → RED. **v1.2:** this row's own arithmetic is the evidence that refuted "max" in §4.4 — the fixture's satisfied set is {1, 2, 4}, so a plain maximum also reports 4 and this mutation would have passed against a correct build and a broken one alike |
+| **WP2 — Scanner: secrets, collisions, tests-baseline, intake-prefill** | The §6.2 allowlist projection; the §1.2 collision inventory; the test-command probe and untested-file count; prefill extraction | **The planted-secret test (§6.5): three plants — one in a diff, one in a commit message, and a carrier in the diff of the message plant's own commit; assert none of those strings occurs in ANY artifact byte.** **Mutation A:** drop `--redact` → the diff plant appears → RED. **Mutation B:** replace the field allowlist with a passthrough → the **message** plant appears → RED. Mutation B is the one that matters; A alone would have shipped C7's leak. **Fixture preconditions, all non-optional:** every plant BASE32-valid (`AKIA[A-Z2-7]{16}`) (R-BF-4); **the test asserts a non-zero finding count on the diff plant before asserting anything else** — a dud plant yields zero findings, at which point Mutation A passes vacuously and proves nothing; **and the v1.2 carrier plant** (§6.5), without which the message plant's commit produces no finding, its message never populates a `Message` field, and **Mutation B passes vacuously too** |
 | **WP3 — In-core enabling arms** | The `adopted` flag accessor; `soif_adoption_stamp` (one call site, manifest home); the TDD pre-adoption arm; stamp acceptance in the gate | **Dual-direction, per arm.** TDD arm: (i) neuter the exemption → an adopted project's pre-adoption commit blocks → RED; (ii) neuter the **bound** (make the exemption unscoped) → a **post-adoption** commit with no test passes → RED. Stamp: a foreign top-level manifest key survives the stamp, and every existing-file writer named in §8.5 is run in sequence with the stamp still present afterwards. **Regression proof RE-AIMED at v1.1 (R-BF-1).** The v1.0 proof — "run `fix_phase_state()`, assert the stamp survives" — is **trivially green and worthless**: that function never touches `manifest.json`. The meaningful proof is the **regenerate** path: delete `.claude/manifest.json` → run `verify-install.sh --auto-fix` → `fix_framework_manifest()` → CDF `init.sh` rewrites it wholesale → **assert the loss of the stamp and the `adopted` flag is DETECTED AND REPORTED LOUDLY**, not that it is prevented (it cannot be — the writer is upstream and out of this design's control). **Mutation:** remove the post-regeneration detection → the project silently un-adopts and every gate arm reads `adopted: false` → RED. This is the honest shape: the design cannot stop the erasure, so it must refuse to be quiet about it |
 | **WP4 — Driver skeleton + scenario chooser + reverse intake** | `scripts/adopt-project.sh`; the D2 question verbatim; prefill/confirm on the `# BL-204-PREFILL-READ` pattern; judgment sections mandatory; **data classification non-skippable**. **Required deliverable (R-BF-4/R-BF-6): a section→prefill mapping table**, one row per `run_section_*` runner in `scripts/intake-wizard.sh` — **15 of them** (`1`, `1_repo_setup`, `2`, `3`, `4`, `5`, `6`, `7`, `8`, `9`, `10`, `11`, `11_5`, `12`, `13`) — each classified **scan-derived / judgment / non-skippable**, with the scan field that feeds it. "Scan-derivable sections are prefilled" is a principle; the table is the specification, and without it the classification is decided ad hoc at implementation time | The chooser's wording is asserted **verbatim** (a string pin — it is a decision, not a phrasing). A scan-derived answer is confirmed with its provenance line; "change it" falls through to the full question. **Mutation:** give data classification a default → a run completes without answering it → RED, asserted by the Phase 1→2 ZDR gate failing on the resulting fixture |
 | **WP5 — Certification pass** | The three kinds; the per-gate mapping; real scanner/eval execution; the review-manifest population; severity triage; **blocker-grade blocks completion** | A fixture with a SEV-1-equivalent finding does not complete adoption; the same fixture with a recorded acceptance does, and the acceptance appears in the Adoption Record with its signer. **Mutation:** remove the blocker check → adoption completes with an unaccepted SEV-1 → RED. **Second mutation:** make acceptance implicit (no signer required) → RED |

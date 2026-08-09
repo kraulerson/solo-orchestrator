@@ -70,6 +70,29 @@ and review is the check until a module actually accrues a listed dependency.
 `scripts/lib/<module>/` may source or invoke module code. This is the property
 that makes severance a `git mv`, not a refactor.
 
+**The set "outside" means — five globs. Corrected 2026-08-09 (Karl's approval);
+evidence-led, and not yet implemented.** Both lints render M3's universal as a
+literal CORE glob set: `init.sh` + `scripts/*.sh` + `scripts/lib/*.sh` +
+`scripts/hooks/*.sh` + **`scripts/host-drivers/*.sh`**, minus the module
+inventory, minus the lint itself, minus sibling boundary lints. The fifth glob
+is the correction; the designs named four and both lints were built faithful to
+that number, each disclosing the exclusion in its own header as a pending design
+question. **It was closed by plant, not by argument:** appending
+`source "$SCRIPT_DIR/lib/delta-state.sh"` to `scripts/host-drivers/github.sh`
+leaves `scripts/lint-delta-boundary.sh` at rc=0, and
+`source "$SCRIPT_DIR/lib/scout/scout-phasemap.sh"` in
+`scripts/host-drivers/gitlab.sh` leaves `scripts/lint-module-dependencies.sh` at
+rc=0 — while the same lines in `scripts/validate.sh` and
+`scripts/check-maintenance.sh` red at rc=1 on T1 and T2 respectively. Host
+drivers are core by every other measure (`init.sh`, `scripts/lib/host.sh` and
+`scripts/intake-wizard.sh` source them by path), so a convenience call added to
+one fuses a module with nothing going red. **As of 2026-08-09 the `CORE_GLOBS`
+arrays in both lints still list four entries** — widening them is tracked as
+`## BL-215:` in `solo-orchestrator-backlog.md`, which carries the full
+measurement table and the both-lints-in-sync fix shape, so this page is ahead of
+the code by exactly that one glob. Amended in both designs' §3.3 in the same
+pass.
+
 *Enforced by:* both lints, in two match tiers. T1 is the literal manifest path
 and is **not** waivable. T2 is a path-shaped token that catches runtime
 composition (`"$SCRIPT_DIR/lib/scout/${part}.sh"` carries no literal manifest
