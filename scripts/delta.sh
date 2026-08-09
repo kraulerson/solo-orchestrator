@@ -1237,9 +1237,23 @@ cmd_open() {
     brief_json="$(_json_str "$brief_rel")"
   fi
 
+  # THE EMPTY RESULT HAS TWO CAUSES AND THEY MUST NOT SHARE A MESSAGE.
+  # `_ledger_write` runs in a command substitution, so anything that kills it
+  # kills only the SUBSHELL — the parent carries on with an empty string and a
+  # zero exit code. So "" means either "this project has no such ledger" (fine,
+  # and common) or "the write did not complete" (not fine at all). Reporting
+  # both as the first is the reassuring version of a silent failure, and it is
+  # the shape this repo keeps finding. Ask the filesystem which one it was.
+  #
+  # Found by the CI-only failure of tests/test-delta-wp8-intake.sh::m3, where a
+  # mutant died inside this very substitution: the delta opened, rc was 0, and
+  # the only trace was a ledger row that silently never appeared.
   ledger_file="$(_ledger_write "$CLASS" "$id" "$slug" "$DESCRIBE" "$SEV" "$brief_rel")"   # DELTA-OPEN-LEDGER-ROW
   if [ -n "$ledger_file" ]; then
     ledger_json="$(_json_str "$ledger_file")"
+  elif [ -f "$(_ledger_for "$CLASS")" ]; then
+    print_warn "$(_ledger_for "$CLASS") is here, but the row for $id could not be added to it."
+    print_info "Everything else about $id was recorded. Add a row for it by hand before you mark the ledger check done."
   else
     print_info "There is no ledger file here to add a row to, so this delta is recorded only in its own record."
   fi

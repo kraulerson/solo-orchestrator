@@ -484,20 +484,54 @@ echo ""
 echo "=== S — the slug is where a user string becomes a path ==="
 # ════════════════════════════════════════════════════════════════════════════
 
-PS="$TMPROOT/slug-traversal"; mk_proj "$PS" 4
-s1_before="$(tree_manifest "$PS")"
+# THE FIRST VERSION OF THIS ROW READ THE HOST'S FILESYSTEM, NOT THE PRODUCT,
+# and it took a Linux CI runner to show it. The probe was
+#     [ -e "$PS/../../../etc" ] && [ -e "$PS/../../../etc/cron.d" ]
+# with $PS one level under `mktemp -d`. On this laptop `mktemp -d` yields
+# /var/folders/<hash>/<hash>/T/tmp.XXXX, so `../../..` lands deep inside
+# /var/folders and the probe was ALWAYS false. On a GitHub runner `mktemp -d`
+# yields /tmp/tmp.XXXX, so `../../..` IS `/` — and Ubuntu ships /etc/cron.d. The
+# probe therefore went TRUE on CI with the product having written nothing at
+# all, and it was unfalsifiable in BOTH directions: it could fire with no write,
+# and on macOS it could not fire even if a real write had happened. A check that
+# reads the host is not a check.
+#
+# THE FIX IS TO MAKE THE TRAVERSAL LAND SOMEWHERE MEASURABLE. The project sits
+# three levels below a private sandbox root, so `../../../etc` resolves to
+# $S1_SB/etc on EVERY host, and the manifest covers the WHOLE sandbox rather
+# than just the project — so a write anywhere the traversal could reach shows up
+# as a changed line instead of as an existence test nobody can trust.
+S1_SB="$TMPROOT/s1-sandbox"
+PS="$S1_SB/a/b/proj"; mk_proj "$PS" 4
+s1_before="$(tree_manifest "$S1_SB")"
 open_feature "$REPO_ROOT/scripts" "$PS" "../../../etc/cron.d/evil"
 s1_rc=$DRC
-s1_after="$(tree_manifest "$PS")"
+s1_after="$(tree_manifest "$S1_SB")"
 s1_diff="$(diff <(printf '%s\n' "$s1_before") <(printf '%s\n' "$s1_after") 2>/dev/null | grep -c '^[<>]' || true)"
 case "$s1_diff" in ''|*[!0-9]*) s1_diff=0 ;; esac
 s1_escaped=n
-[ -e "$TMPROOT/etc/cron.d/evil" ] && s1_escaped=y
-[ -e "$PS/../../../etc" ] && [ -e "$PS/../../../etc/cron.d" ] && s1_escaped=y
-if [ "$s1_rc" -eq 2 ] && [ "$s1_diff" -eq 0 ] && [ "$s1_escaped" = n ]; then
-  pass "S1: --slug '../../../etc/cron.d/evil' is REFUSED (rc $s1_rc) and the whole project tree is byte-identical afterwards ($s1_diff files changed) — the traversal never became a path"
+[ -e "$S1_SB/etc" ] && s1_escaped=y
+
+# THE POSITIVE CONTROL, and it is the whole lesson of the CI failure. A probe
+# that cannot be made to fire is the same no-op the old one was, so the
+# IDENTICAL predicate runs against a sandbox where the escape is planted BY
+# HAND and must report it. Without this the row could rot back into a check
+# that passes because nothing can ever trip it.
+S1_CTL="$TMPROOT/s1-control"
+mkdir -p "$S1_CTL/a/b/proj"
+s1_ctl_before="$(tree_manifest "$S1_CTL")"
+mkdir -p "$S1_CTL/etc/cron.d" && : > "$S1_CTL/etc/cron.d/evil"
+s1_ctl_after="$(tree_manifest "$S1_CTL")"
+s1_ctl_diff="$(diff <(printf '%s\n' "$s1_ctl_before") <(printf '%s\n' "$s1_ctl_after") 2>/dev/null | grep -c '^[<>]' || true)"
+case "$s1_ctl_diff" in ''|*[!0-9]*) s1_ctl_diff=0 ;; esac
+s1_ctl_seen=n
+[ -e "$S1_CTL/etc" ] && s1_ctl_seen=y
+
+if [ "$s1_rc" -eq 2 ] && [ "$s1_diff" -eq 0 ] && [ "$s1_escaped" = n ] \
+   && [ "$s1_ctl_seen" = y ] && [ "$s1_ctl_diff" -gt 0 ]; then
+  pass "S1: --slug '../../../etc/cron.d/evil' is REFUSED (rc $s1_rc) and the whole SANDBOX — not just the project — is byte-identical afterwards ($s1_diff files changed), with nothing at the traversal's landing site. The same predicate DOES fire on a hand-planted escape ($s1_ctl_diff file(s), detected=$s1_ctl_seen), so this measures a write rather than the host's own /etc"
 else
-  fail_ "S1" "rc=$s1_rc (want 2); tree changed on $s1_diff line(s) (want 0); escaped-write detected=$s1_escaped"
+  fail_ "S1" "rc=$s1_rc (want 2); sandbox changed on $s1_diff line(s) (want 0); escaped-write detected=$s1_escaped (want n); POSITIVE CONTROL detected=$s1_ctl_seen on $s1_ctl_diff changed line(s) (want y and >0 — if this half fails the probe is a no-op again)"
 fi
 
 # S2 — the neighbouring shapes, each on its OWN fresh fixture. An absolute
@@ -1108,21 +1142,52 @@ _m2_check() {
 # §6.3's hard constraint, and the failure it names is silent: a new column
 # shifts nothing today and breaks a `grep -c 'SEV-2.*Deferred'` later.
 _m3_check() {
-  local name="$1" P rc row width sep
+  local name="$1" P rc row width sep out fixref
   P="$MT/$name-proj"; mk_proj "$P" 4; seed_bugs_rows "$P/BUGS.md"
   sep="$(grep '^|---' "$P/BUGS.md" | head -1 | awk -F'|' '{print NF}')"
   rc=0
-  ( cd "$P" && unset GITHUB_BASE_REF; bash "$MUT_SD/delta.sh" --open \
+  out="$( cd "$P" && unset GITHUB_BASE_REF; bash "$MUT_SD/delta.sh" --open \
       --describe "checkout is down for everyone right now" --class hotfix --risk core \
       --level small --lines 5 --slug "checkout-down" --confirm \
-      </dev/null >/dev/null 2>&1 ) || rc=$?
+      </dev/null 2>&1 )" || rc=$?
   row="$(grep -n 'DELTA-001' "$P/BUGS.md" | head -1)"
   row="${row#*:}"
   width="$(printf '%s\n' "$row" | awk -F'|' '{print NF}')"
-  if [ -n "$row" ] && [ "$width" != "$sep" ]; then
-    pass "m3: with the row written to a NEW column the appended row has $width fields against the table's $sep — L1's column-count discriminator sees it. $MUT_REPORT"
+
+  # ── PRECONDITIONS, ASSERTED BEFORE ANY VERDICT IS BELIEVED ───────────────
+  # THIS IS THE VACUITY CLASS, FOUND IN THIS HARNESS BY CI. An absent row
+  # trivially "differs in width" from the table, so the old form could report a
+  # mutation KILLED on the strength of a row that never existed.
+  #
+  # WHAT ACTUALLY HAPPENED ON CI, and it is sharper than "the mutant crashed".
+  # The previous mutant read `$row` before assignment. bash 3.2 — this repo's
+  # local shell — treats a bare `local row` as empty and sails through, so it
+  # passed here. bash 5 aborts on it under `set -u`. But `_ledger_write` is
+  # called in a COMMAND SUBSTITUTION, so that abort killed only the subshell:
+  # `--open` carried on, recorded the delta, and returned **rc 0** with no
+  # ledger row anywhere. Measured, not assumed — the reproduction below prints
+  # `open rc=0`.
+  #
+  # THAT IS WHY BOTH HALVES OF THIS PRECONDITION EXIST, and why the exit code
+  # alone would have been useless: rc was fine. The row's PRESENCE is the
+  # load-bearing half. The failure says VACUOUS rather than quoting a width,
+  # because a mutation that proved nothing must never read as a measurement,
+  # and the mutant's own output is captured (not sent to /dev/null) so the next
+  # reader sees why instead of re-running CI to find out.
+  if [ "$rc" -ne 0 ] || [ -z "$row" ]; then
+    fail_ "$name (vacuous)" "the mutant produced NO row to judge — open rc=$rc, row='$row'. A missing row is not a killed mutation. $MUT_REPORT
+    last lines of the mutant's own output: $(printf '%s' "$out" | tail -3 | tr '\n' ' ')"
+    return 0
+  fi
+
+  # Two independent discriminators, because the mutation now writes a
+  # WELL-FORMED row with a TENTH column rather than a mangled fragment: the
+  # field count moves, AND the delta link is no longer in Fix Reference.
+  fixref="$(printf '%s\n' "$row" | awk -F'|' '{gsub(/^[ \t]+|[ \t]+$/, "", $9); print $9}')"
+  if [ "$width" != "$sep" ] && ! printf '%s' "$fixref" | grep -q 'DELTA-001'; then
+    pass "m3: with the link written to a NEW tenth column the appended row carries $width fields against the table's $sep AND its Fix Reference cell is now '$fixref' rather than the delta — L1 sees it twice over, on the column count and on the cell. $MUT_REPORT"
   else
-    fail_ "m3" "the mutant's row width was $width against $sep (row='$row') — L1 cannot see this line. $MUT_REPORT"
+    fail_ "m3" "the mutant's row width was $width against $sep and its Fix Reference cell was '$fixref' (row='$row') — L1 cannot see this line. $MUT_REPORT"
   fi
 }
 
@@ -1134,8 +1199,18 @@ _mutate m2 scripts/delta.sh '# DELTA-OPEN-SLUG-GUARD$' \
   's|^\(.*\)# DELTA-OPEN-SLUG-GUARD$|  if false; then   # DELTA-OPEN-SLUG-GUARD|' \
   _m2_check
 
+# THE MUTANT BUILDS A COMPLETE ROW AND READS NOTHING IT HAS NOT ASSIGNED.
+# Its first form was `row="$row | $link |"`, which had two faults. It depended
+# on `$row` before assignment — harmless on bash 3.2, fatal under `set -u` on
+# bash 5, so the mutant died on CI instead of mutating. And even when it ran it
+# produced a mangled three-field fragment, which L1 caught almost by accident.
+# This form writes a well-formed row with a TENTH column and the delta link
+# moved OUT of Fix Reference into it — which is literally §6.3's hazard ("the
+# delta link goes in an EXISTING column, never a new one") rather than a
+# lookalike, and it is shell-version independent because `$num`, `$sev` and
+# `$link` are all assigned above the marked line.
 _mutate m3 scripts/delta.sh '# DELTA-OPEN-LEDGER-COLUMN$' \
-  's@^\(.*\)# DELTA-OPEN-LEDGER-COLUMN$@    row="$row | $link |"   # DELTA-OPEN-LEDGER-COLUMN@' \
+  's@^\(.*\)# DELTA-OPEN-LEDGER-COLUMN$@    row="| $num | $sev | Open | m3 | m3 | - | Fix Now | | - | $link |"   # DELTA-OPEN-LEDGER-COLUMN@' \
   _m3_check
 
 # ── m4: drop a shipped file from the copy list -> the CLOSURE suite goes RED ─
