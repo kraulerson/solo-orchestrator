@@ -97,8 +97,12 @@ adopt_install_framework() {
       continue
     fi
     mkdir -p "$(dirname "$dst")" 2>/dev/null || { adopt_refuse "could not create $(dirname "$rel")"; return 1; }
-    cp "$src" "$dst" 2>/dev/null || { adopt_refuse "could not install $rel"; return 1; }
-    chmod +x "$dst" 2>/dev/null
+    # `cp -p`, and NOT `cp` followed by `chmod +x`. The framework's own modes
+    # are already right — entry scripts are 0755 and libs are 0644 — and a
+    # blanket +x would land every sourced lib in the adoptee at 0755, a
+    # difference from a scaffolded project that nothing downstream would ever
+    # explain. Preserving the source mode keeps the two births identical.
+    cp -p "$src" "$dst" 2>/dev/null || { adopt_refuse "could not install $rel"; return 1; }
     adopt_record_write "$rel"
     n_copied=$((n_copied + 1))
   done <<INSTALL_SET
@@ -167,10 +171,18 @@ adopt_write_intake() {
 # a birth stamp that acquires a second caller has become a backfill. WP3 made
 # that structural — a second stamp is REFUSED — but the budget here is one call
 # either way.
+# The `cmd … | awk … || fallback` spelling does NOT work here and is worth
+# naming: the `||` binds to the whole PIPELINE, whose status is awk's, and awk
+# succeeds happily on empty input — so a host without `shasum` would silently
+# record an empty hash instead of trying `sha256sum`. Probe for the tool.
 adopt_sha256() {
-  shasum -a 256 "$1" 2>/dev/null | awk '{print $1}' \
-    || sha256sum "$1" 2>/dev/null | awk '{print $1}' \
-    || printf ''
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" 2>/dev/null | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" 2>/dev/null | awk '{print $1}'
+  else
+    printf ''
+  fi
 }
 
 adopt_write_manifest() {

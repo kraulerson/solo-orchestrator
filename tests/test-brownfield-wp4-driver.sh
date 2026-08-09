@@ -745,11 +745,17 @@ else
   t1_blocks=$(jq -r '[.. | objects | select(has("adopted"))] | length' "$T1D/p/.claude/manifest.json" 2>/dev/null)
   t1_scen=$(jq -r '.adoption.scenario // "MISSING"' "$T1D/p/.claude/manifest.json" 2>/dev/null)
   t1_landed=$(jq -r '.adoption.landedPhase // "MISSING"' "$T1D/p/.claude/manifest.json" 2>/dev/null)
+  # scannerReportSha256 must be the hash of the report the project actually
+  # KEEPS, not merely non-empty: the field exists so a later reader can tell
+  # whether the evidence beside it is the evidence the decision was made on.
+  t1_sha=$(jq -r '.adoption.scannerReportSha256 // ""' "$T1D/p/.claude/manifest.json" 2>/dev/null)
+  t1_real=$(shasum -a 256 "$T1D/p/.claude/adoption/scout-report.json" 2>/dev/null | awk '{print $1}')
   if [ "$t1_rc" -eq 0 ] && [ -n "$t1_parent" ] && [ "$t1_anchor" = "$t1_parent" ] \
-     && [ "$(_num "$t1_blocks")" -eq 1 ] && [ "$t1_scen" = "in-flight" ] && [ "$t1_landed" = "1" ]; then
-    pass "T1: the stamp lands ONCE and adoptedAtCommit is the PRE-adoption tip — the parent the adoption commit landed on"
+     && [ "$(_num "$t1_blocks")" -eq 1 ] && [ "$t1_scen" = "in-flight" ] && [ "$t1_landed" = "1" ] \
+     && [ -n "$t1_real" ] && [ "$t1_sha" = "$t1_real" ]; then
+    pass "T1: the stamp lands ONCE, adoptedAtCommit is the PRE-adoption tip, and scannerReportSha256 hashes the report the project kept"
   else
-    fail_ "T1" "rc=$t1_rc anchor=$t1_anchor parent=$t1_parent adoption_blocks=$t1_blocks (want 1) scenario=$t1_scen landed=$t1_landed"
+    fail_ "T1" "rc=$t1_rc anchor=$t1_anchor parent=$t1_parent adoption_blocks=$t1_blocks (want 1) scenario=$t1_scen landed=$t1_landed report_sha=$t1_sha kept_report_sha=$t1_real"
   fi
 
   # T4 — a POST-adoption commit blocks, and blocks for the RIGHT REASON.
@@ -963,6 +969,31 @@ else
     pass "H3: the run claims only the gates it installed — it names the commit-time scanners as NOT running and gives the command to run them by hand"
   else
     fail_ "H3" "rc=$h3_rc scanners_named_absent=$h3_named remedy_given=$h3_remedy claim_is_narrow=$h3_nooverclaim pre_commit_hook_written=$h3_precommit (want 0)"
+  fi
+fi
+
+# H4 — an adopted project's framework files are born the same way a scaffolded
+# one's are. Modes included: a blanket `chmod +x` over the installed set would
+# leave every sourced lib at 0755 downstream, a difference from a scaffolded
+# project that nothing there would ever explain.
+H4D="$(newtmp)"
+if ! mk_adoptee "$H4D/p"; then
+  fail_ "H4" "fixture setup failed"
+else
+  report_with_phase 2 "$H4D/report.json"
+  _ans_s2 3 > "$H4D/answers"
+  run_adopt "$H4D/p" "$H4D/answers" "$H4D/report.json"; h4_rc=$RUN_RC
+  h4_lib_src=$(_mode_of "$REPO_ROOT/scripts/lib/helpers-core.sh")
+  h4_lib_dst=$(_mode_of "$H4D/p/scripts/lib/helpers-core.sh")
+  h4_gate_src=$(_mode_of "$REPO_ROOT/scripts/pre-commit-gate.sh")
+  h4_gate_dst=$(_mode_of "$H4D/p/scripts/pre-commit-gate.sh")
+  h4_stamp=0
+  [ -f "$H4D/p/scripts/lib/adoption-stamp.sh" ] && h4_stamp=1
+  if [ "$h4_rc" -eq 0 ] && [ "$h4_lib_src" = "$h4_lib_dst" ] && [ "$h4_gate_src" = "$h4_gate_dst" ] \
+     && [ "$h4_lib_src" != "$h4_gate_src" ] && [ "$h4_stamp" -eq 1 ]; then
+    pass "H4: the installed framework files keep their own modes (lib $h4_lib_dst, entry script $h4_gate_dst — genuinely different, so the comparison is not vacuous) and adoption-stamp.sh reaches the adoptee"
+  else
+    fail_ "H4" "rc=$h4_rc lib_mode $h4_lib_src->$h4_lib_dst entry_mode $h4_gate_src->$h4_gate_dst (the two source modes must differ, else this proves nothing) adoption_stamp_installed=$h4_stamp"
   fi
 fi
 
