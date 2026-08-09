@@ -399,6 +399,7 @@ jobs:
             tests/test-bl165-dast-hardened-serve.sh
             tests/test-bl169-gitignore-anchor.sh
             tests/test-bl147-ci-template-integrity.sh
+            tests/test-f015-tamper-pin-allowlist.sh
             tests/test-bl089-doc-foundations.sh
             tests/test-bl137-ci-tools-scope.sh
             tests/test-walk006-ci-protection-scope.sh

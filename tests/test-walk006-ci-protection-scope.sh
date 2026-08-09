@@ -353,9 +353,13 @@ CHECK_GATE="$REPO_ROOT/scripts/check-gate.sh"
 GOOD_TOKEN="ghp_walk006_good"
 BAD_TOKEN="ghp_walk006_bad"
 
-# mk_tok <dir> <host> <auth: ok|unauth> [ci.yml shape: yes|no|swallow]
+# mk_tok <dir> <host> <auth: ok|unauth> [ci.yml shape: yes|no|swallow|emitted|custom] [run-line]
+# `custom` writes an arbitrary phase-gate `run:` line, which is how the F-015
+# allowlist gets driven against swallow shapes nobody enumerated. `emitted` is
+# the byte-shape the templates actually ship (guard + bare invocation, block
+# scalar) — the false-positive guard.
 mk_tok() {
-  local d="$1" host="$2" auth="$3" wired="${4:-yes}"
+  local d="$1" host="$2" auth="$3" wired="${4:-yes}" run_line="${5:-}"
   rm -rf "$d"
   mkdir -p "$d/.claude" "$d/scripts/lib" "$d/scripts/host-drivers" "$d/bin" "$d/stub" \
            "$d/.github/workflows"
@@ -377,6 +381,16 @@ mk_tok() {
       # The pre-R-1 shape a project scaffolded before this fix still carries:
       # the secret IS mapped, but the gate's exit code is thrown away.
       printf 'jobs:\n  test:\n    steps:\n      - name: Governance - Phase gate check\n        env:\n          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}\n        run: bash scripts/check-phase-gate.sh 2>/dev/null || echo "Phase gate check script not found"\n' \
+        > "$d/.github/workflows/ci.yml" ;;
+    emitted)
+      # Byte-for-byte the shape templates/pipelines/ci/github/*.yml ships: the
+      # existence guard AND the bare invocation, in a block scalar. The
+      # allowlist must accept BOTH lines — a detector that warns about the
+      # emitted workflow is worse than one that misses a swallow.
+      printf 'jobs:\n  test:\n    steps:\n      - name: Governance - Phase gate check\n        env:\n          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}\n        run: |\n          if [ ! -f scripts/check-phase-gate.sh ]; then\n            echo "::error::Phase gate check script missing. Framework integrity compromised."\n            exit 1\n          fi\n          bash scripts/check-phase-gate.sh\n' \
+        > "$d/.github/workflows/ci.yml" ;;
+    custom)
+      printf 'jobs:\n  test:\n    steps:\n      - name: Governance - Phase gate check\n        env:\n          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}\n        run: %s\n' "$run_line" \
         > "$d/.github/workflows/ci.yml" ;;
     *)
       printf 'jobs:\n  test:\n    steps:\n      - name: Governance - Phase gate check\n' \
@@ -421,6 +435,50 @@ run_tok() {
     ( cd "$d" && PATH="$d/bin:$PATH" GH_STUB_DIR="$d/stub" \
         env SOIF_PROTECTION_TOKEN="$tok" bash "$CHECK_GATE" --setup-ci-token "$@" </dev/null 2>&1 )
   fi
+}
+
+# run_tok_with <script> <dir> <token> [args...] — run_tok against a MUTANT copy
+# of check-gate.sh. The copy is lib-complete (check-gate sources
+# scripts/lib/helpers-core.sh relative to its own path) and the host driver is
+# read from the fixture project, exactly as in the real run.
+run_tok_with() {
+  local s="$1" d="$2" tok="$3"; shift 3
+  ( cd "$d" && PATH="$d/bin:$PATH" GH_STUB_DIR="$d/stub" \
+      env SOIF_PROTECTION_TOKEN="$tok" bash "$s" --setup-ci-token "$@" </dev/null 2>&1 )
+}
+
+# mk_cg_mutant <name> <anchored-marker-ERE> <sed-expr> <exp-removed> <exp-added>
+# Sets CG_MUT to the mutant path on success; sets CG_WHY and returns 1 on
+# failure. Asserts the mutation-harness invariants the same way the rest of this
+# wave does: sites==1, exactly-N-lines-changed, and `bash -n` on the result — a
+# mutant that merely fails to parse proves nothing.
+CG_MUT=""; CG_WHY=""
+mk_cg_mutant() {
+  local name="$1" ere="$2" expr="$3" exp_rm="$4" exp_add="$5"
+  CG_MUT=""; CG_WHY=""
+  local m="$TOPTMP/cgmut-$name"
+  rm -rf "$m"; mkdir -p "$m/scripts/lib" || { CG_WHY="mkdir failed"; return 1; }
+  local sites
+  sites=$(grep -Ec "$ere" "$CHECK_GATE")
+  if [ "$sites" -ne 1 ]; then
+    CG_WHY="sites==$sites for /$ere/ in scripts/check-gate.sh (expected exactly 1) — the mutant is ambiguous or vacuous"
+    return 1
+  fi
+  sed "$expr" "$CHECK_GATE" > "$m/scripts/check-gate.sh" || { CG_WHY="sed failed"; return 1; }
+  cp "$REPO_ROOT/scripts/lib/"*.sh "$m/scripts/lib/" || { CG_WHY="lib copy failed"; return 1; }
+  local n_rm n_add
+  n_rm=$(diff "$CHECK_GATE" "$m/scripts/check-gate.sh" | grep -c '^<')
+  n_add=$(diff "$CHECK_GATE" "$m/scripts/check-gate.sh" | grep -c '^>')
+  if [ "$n_rm" -ne "$exp_rm" ] || [ "$n_add" -ne "$exp_add" ]; then
+    CG_WHY="the edit changed $n_rm removed / $n_add added lines (expected $exp_rm / $exp_add)"
+    return 1
+  fi
+  if ! bash -n "$m/scripts/check-gate.sh" 2>"$m/bn.txt"; then
+    CG_WHY="the mutant is not valid bash: $(tr '\n' ' ' < "$m/bn.txt")"
+    return 1
+  fi
+  CG_MUT="$m/scripts/check-gate.sh"
+  return 0
 }
 
 # ── S1: non-github host → NOT APPLICABLE + the manual per-host steps ───────
@@ -542,11 +600,129 @@ else
   fail_ "S6d-enforcement-claim-is-earned" "rc=$rc: $out"
 fi
 
+# ════════════════════════════════════════════════════════════════════════════
+# S6e-S6k (F-015, Karl 2026-08-09 — "Harden it"): the project-side detector is
+# an ALLOWLIST too.
+#
+# The check above used to ask whether the workflow's gate line matched a list of
+# FORBIDDEN shapes — `\|\|[[:space:]]*(echo|true|:)`. BUG-009's confirm review
+# (R-C1) proved the sibling pin in bl147 let `|| exit 0` through for exactly
+# that reason, and this one was narrower still (no `;` arm at all). So it now
+# states what is PERMITTED: an executable line naming the gate script may be the
+# bare invocation or the existence guard the emitted templates wrap it in, and
+# nothing else. Normalization is limited to what cannot change what bash runs —
+# indentation, a YAML sequence dash, the `run:` key of an inline scalar,
+# trailing blanks.
+#
+# Every case below is a shape nobody enumerated, and each is a REAL discard of
+# the gate's verdict, not a cosmetic difference. The assertion is that the
+# walkthrough refuses for the RIGHT REASON — it names the discarded exit code
+# and withholds the enforcement claim — never merely that it printed something.
+# ════════════════════════════════════════════════════════════════════════════
+
+# assert_swallow_warned <case> <fixture-tag> <run-line> <why>
+assert_swallow_warned() {
+  local case_name="$1" tag="$2" line="$3" why="$4"
+  # The tamper must be valid shell. A shape that cannot run is a typo, and a
+  # detector catching typos would prove nothing about swallows.
+  if ! printf '%s\n' "$line" | bash -n 2>"$TOPTMP/bn-$tag"; then
+    fail_ "$case_name" "the fixture's run: line is not valid bash, so it is a typo rather than a swallow: $(tr '\n' ' ' < "$TOPTMP/bn-$tag")"
+    return
+  fi
+  local P="$TOPTMP/$tag"
+  mk_tok "$P" github ok custom "$line"
+  local out rc
+  out=$(run_tok "$P" "$GOOD_TOKEN"); rc=$?
+  if [ "$rc" -eq 0 ] \
+     && printf '%s' "$out" | grep -q "DISCARDS the gate's exit code" \
+     && ! printf '%s' "$out" | grep -q "The next push enforces the check"; then
+    pass "$case_name ($why)"
+  else
+    fail_ "$case_name" "rc=$rc — the allowlist did not refuse '$line': $(printf '%s' "$out" | grep -E 'phase-gate step|next push|maps SOIF' | tr '\n' ' ')"
+  fi
+}
+
+echo "=== S6e-allowlist-refuses-or-exit ==="
+assert_swallow_warned S6e-allowlist-refuses-or-exit s6e \
+  'bash scripts/check-phase-gate.sh || exit 0' \
+  'the R-C1 escape: `exit` was never in the old alternation'
+
+echo "=== S6f-allowlist-refuses-pipe ==="
+assert_swallow_warned S6f-allowlist-refuses-pipe s6f \
+  'bash scripts/check-phase-gate.sh | cat' \
+  "a pipe: the status reported is cat's, never the gate's"
+
+echo "=== S6g-allowlist-refuses-background ==="
+assert_swallow_warned S6g-allowlist-refuses-background s6g \
+  'bash scripts/check-phase-gate.sh &' \
+  'a trailing `&`: the step exits 0 before the gate has decided anything'
+
+echo "=== S6h-allowlist-refuses-interpreter-swap ==="
+assert_swallow_warned S6h-allowlist-refuses-interpreter-swap s6h \
+  'sh scripts/check-phase-gate.sh; exit 0' \
+  'a different interpreter: the old pre-filter required the literal `bash `, so this line was never even inspected'
+
+echo "=== S6i-allowlist-refuses-wrapper ==="
+assert_swallow_warned S6i-allowlist-refuses-wrapper s6i \
+  'if ! bash scripts/check-phase-gate.sh; then echo "::warning::soft"; fi' \
+  'an `if !` wrapper: the compound command succeeds however the gate votes'
+
+echo "=== S6j-allowlist-refuses-trailing-command ==="
+assert_swallow_warned S6j-allowlist-refuses-trailing-command s6j \
+  'bash scripts/check-phase-gate.sh; echo "phase gate step complete"' \
+  'a command after the invocation: the last command owns the exit status'
+
+# ── S6k: the EMITTED shape is not a swallow ────────────────────────────────
+# The false-positive guard, and the reason the allowlist permits two spellings
+# rather than one: every shipped template wraps the bare invocation in an
+# existence guard that also names the script. A detector that warned about the
+# workflow the framework itself writes would be worse than the blacklist.
+echo "=== S6k-allowlist-accepts-the-emitted-shape ==="
+P="$TOPTMP/s6k"; mk_tok "$P" github ok emitted
+out=$(run_tok "$P" "$GOOD_TOKEN"); rc=$?
+if [ "$rc" -eq 0 ] \
+   && printf '%s' "$out" | grep -q "The next push enforces the check" \
+   && ! printf '%s' "$out" | grep -q "DISCARDS the gate's exit code"; then
+  pass "S6k-allowlist-accepts-the-emitted-shape (guard + bare invocation, exactly as templates/pipelines/ci/github/*.yml ships it)"
+else
+  fail_ "S6k-allowlist-accepts-the-emitted-shape" "rc=$rc — the hardened detector warns about the framework's OWN emitted workflow: $(printf '%s' "$out" | grep -E 'phase-gate step|next push' | tr '\n' ' ')"
+fi
+
+# ── S6m: DUAL DIRECTION — neuter the verdict and the escape claims success ──
+# Everything above shows shapes being refused. This shows that the allowlist is
+# what refuses them: delete its verdict line and the `|| exit 0` workflow gets
+# the full "the next push enforces the check" claim — the exact false statement
+# F-015 exists to prevent.
+echo "=== S6m-neutered-allowlist-claims-false-enforcement ==="
+# The verdict is REPLACED by a no-op rather than deleted: it is the only
+# statement in its `if`, and an empty then-block is a syntax error — a mutant
+# that fails to parse would prove nothing about the allowlist.
+if mk_cg_mutant projverdict \
+     '^[[:space:]]*wf_swallows=1[[:space:]]*# F-015-PROJECT-ALLOWLIST-VERDICT$' \
+     's@^\([[:space:]]*\)wf_swallows=1[[:space:]]*# F-015-PROJECT-ALLOWLIST-VERDICT$@\1:@' 1 1; then
+  P="$TOPTMP/s6m"; mk_tok "$P" github ok custom 'bash scripts/check-phase-gate.sh || exit 0'
+  out=$(run_tok_with "$CG_MUT" "$P" "$GOOD_TOKEN"); rc=$?
+  if [ "$rc" -eq 0 ] \
+     && printf '%s' "$out" | grep -q "The next push enforces the check" \
+     && ! printf '%s' "$out" | grep -q "DISCARDS the gate's exit code"; then
+    pass "S6m-neutered-allowlist-claims-false-enforcement (without the verdict line the escape is told the next push enforces — the allowlist carries S6e-S6j)"
+  else
+    fail_ "S6m-neutered-allowlist-claims-false-enforcement" "rc=$rc — the neutered detector did not produce the false claim, so S6e-S6j may be measuring something else: $(printf '%s' "$out" | grep -E 'phase-gate step|next push' | tr '\n' ' ')"
+  fi
+else
+  fail_ "S6m-neutered-allowlist-claims-false-enforcement" "$CG_WHY"
+fi
+
 # ── S6b: --token-env rejects a non-identifier (the eval IS an injection sink) ─
 # The indirect read is `eval "token=\${$token_env:-}"`. Without a name check, a
-# `--token-env` value carrying a command substitution EXECUTES — demonstrated,
-# not asserted: the mutation run below (validation arms deleted) creates the
-# canary file, and this run must not.
+# `--token-env` value carrying a command substitution EXECUTES. Demonstrated,
+# not asserted, in BOTH directions: this run must leave the canary file absent,
+# and S6b-mut below — which deletes the character-class arm of the validation,
+# the arm this payload actually trips — must create it.
+#
+# The canary is a STRUCTURAL discriminator, not decoration: "rejected" and
+# "rejected only after the eval already ran" produce the same message and the
+# same exit code, and only the canary's absence tells them apart.
 echo "=== S6b-token-env-name-validated ==="
 CANARY="$TOPTMP/s6b-canary"
 rm -f "$CANARY"
@@ -560,6 +736,31 @@ else
   fail_ "S6b-token-env-name-validated" "rc=$rc canary=$([ -e "$CANARY" ] && echo CREATED || echo absent): $out"
 fi
 rm -f "$CANARY"
+
+# ── S6b-mut: the other direction of S6b (R-C2) ─────────────────────────────
+# S6b's comment used to promise a mutation run that did not exist — the property
+# had been proven by hand during review. Here it is, executed: delete the
+# character-class arm (the one `X:-$(…)` trips; the identifier-start arm lets
+# that payload past) and the eval fires, creating the canary. That is the
+# injection S6b claims to prevent, so S6b is now a real two-sided proof.
+echo "=== S6b-mut-unvalidated-name-executes ==="
+if mk_cg_mutant tokencharset \
+     '^[[:space:]]*\*\[!A-Za-z0-9_\]\*\).*# F-015-TOKEN-ENV-CHARSET$' \
+     '/# F-015-TOKEN-ENV-CHARSET$/d' 1 0; then
+  CANARY="$TOPTMP/s6b-mut-canary"
+  rm -f "$CANARY"
+  P="$TOPTMP/s6bmut"; mk_tok "$P" github ok yes
+  out=$(run_tok_with "$CG_MUT" "$P" "$GOOD_TOKEN" --token-env "X:-\$(touch $CANARY)"); rc=$?
+  if [ -e "$CANARY" ] \
+     && ! printf '%s' "$out" | grep -q "not a valid environment variable name"; then
+    pass "S6b-mut-unvalidated-name-executes (without the charset arm the payload EXECUTES — the validation, not luck, is what keeps S6b's canary absent)"
+  else
+    fail_ "S6b-mut-unvalidated-name-executes" "rc=$rc canary=$([ -e "$CANARY" ] && echo CREATED || echo absent) — the mutant did not reproduce the injection, so S6b proves nothing: $(printf '%s' "$out" | tail -3 | tr '\n' ' ')"
+  fi
+  rm -f "$CANARY"
+else
+  fail_ "S6b-mut-unvalidated-name-executes" "$CG_WHY"
+fi
 
 # ── S7: THE CHAIN — the stored secret is the one the templates map ────────
 # The walkthrough's result only "genuinely flips the check to enforcing" if the
