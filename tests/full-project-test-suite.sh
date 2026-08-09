@@ -1110,12 +1110,15 @@ run_child_suite "tests/test-bl147-ci-template-integrity.sh" \
 # F-015 (Karl, 2026-08-09 — "Harden it"): the detector-of-the-detector for the
 # bl147 Cw6-strict tamper-pin, which BUG-009's confirm review (R-C1) proved was
 # a blacklist that `|| exit 0` walked straight through. The pin is now an
-# ALLOWLIST over the phase-gate step's whole run: body, its step keys and its
-# if: condition; this suite drives the REAL bl147 suite against tampered mirrors
-# of the REAL templates and proves SEVEN unenumerated swallow shapes go red, the
-# ten shipped templates stay green, an inert comment is still tolerated, and —
-# dual direction, twice — a neutered pin lets the tamper through.
-# No init.sh -> both lanes.
+# ALLOWLIST at three levels — the phase-gate step (body, keys, if:), the JOB
+# that holds it, and the workflow's on: trigger. This suite drives the REAL
+# bl147 suite against tampered mirrors of the REAL templates and proves SEVEN
+# unenumerated step-level swallow shapes go red, plus review R-F015-1's three
+# level-up cases (job `if: false`, job `if: ${{ …always-false }}`, `on:` gutted
+# to workflow_dispatch — each of which passed all 82 checks at rc=0 before the
+# pins existed); that the ten shipped templates stay green; that an inert
+# comment is still tolerated; and — dual direction, four times — that a neutered
+# verdict lets the tamper through. No init.sh -> both lanes.
 run_child_suite "tests/test-f015-tamper-pin-allowlist.sh" \
   "tests/test-f015-tamper-pin-allowlist.sh"
 
