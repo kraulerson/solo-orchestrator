@@ -54,6 +54,20 @@
 #         passes the ENTIRE suite — body allowlist, key allowlist, floor and
 #         all. That is M10's watched-RED, made permanent.
 #
+# R-F015-1 (review, 2026-08-09) — THE SAME DEFECT ONE LEVEL UP. A step-scoped
+#   pin cannot see a JOB that never runs or a WORKFLOW that never triggers, and
+#   those discard the verdict exactly as completely as `if: false` on the step
+#   did. Measured before the fix: job-level `if: false` passed all 82 checks at
+#   rc=0, and `on:` gutted to `workflow_dispatch` only passed all 82 at rc=0.
+#     A/RA  job-level `if: false`
+#     C/RC  job-level `if: ${{ github.event_name == 'never' }}` — before the fix
+#           this was caught only INCIDENTALLY, by an unrelated pin that objects
+#           to `${{ }}` (Cg8-env-indirection). RC therefore asserts the
+#           Cw6-strict-job verdict BY NAME: an incidental catch is not a pin.
+#     B/RB  `on:` reduced to `workflow_dispatch:` — the workflow stops running
+#           on push and pull_request, so the gate never executes on any change.
+#     RA2/RB2  dual direction for each new verdict line.
+#
 # MUTATION-HARNESS STANDARD (all asserted, none assumed): anchored end-of-line
 #   target patterns; sites==1; exactly-N-lines-changed; every mutant is checked
 #   with `bash -n` (for a YAML template, the extracted run: body is what gets
@@ -98,6 +112,10 @@ FAIL_COE='^[[:space:]]*\[FAIL\] Cw6-strict-no-coe[[:space:]]'
 FAIL_KEYS='^[[:space:]]*\[FAIL\] Cw6-strict-keys[[:space:]]'
 PASS_KEYS='^[[:space:]]*\[PASS\] Cw6-strict-keys[[:space:]]'
 PASS_GATING='^[[:space:]]*\[PASS\] Cw6-strict-gating[[:space:]]'
+FAIL_JOB='^[[:space:]]*\[FAIL\] Cw6-strict-job[[:space:]]'
+PASS_JOB='^[[:space:]]*\[PASS\] Cw6-strict-job[[:space:]]'
+FAIL_TRIGGER='^[[:space:]]*\[FAIL\] Cw6-strict-trigger[[:space:]]'
+PASS_TRIGGER='^[[:space:]]*\[PASS\] Cw6-strict-trigger[[:space:]]'
 
 # ── The fixture mirror ──────────────────────────────────────────────────────
 # bl147 derives every path from REPO_ROOT = the parent of its own directory, so
@@ -209,7 +227,9 @@ if [ "$g1_rc" -eq 0 ] \
    && printf '%s\n' "$g1_out" | grep -Eq "$PASS_STRICT" \
    && printf '%s\n' "$g1_out" | grep -Eq "$PASS_SCOPE" \
    && printf '%s\n' "$g1_out" | grep -Eq "$PASS_KEYS" \
-   && printf '%s\n' "$g1_out" | grep -Eq "$PASS_GATING"; then
+   && printf '%s\n' "$g1_out" | grep -Eq "$PASS_GATING" \
+   && printf '%s\n' "$g1_out" | grep -Eq "$PASS_JOB" \
+   && printf '%s\n' "$g1_out" | grep -Eq "$PASS_TRIGGER"; then
   pass "G1-shipped-templates-still-pass (the real bl147 suite is green on the tracked templates; the allowlist passes all ten)"
 else
   fail_ "G1-shipped-templates-still-pass" "rc=$g1_rc — the hardened pin reds the SHIPPED templates, which is worse than the blacklist it replaced: $(printf '%s\n' "$g1_out" | grep -E '\[FAIL\]' | tr '\n' ' ')"
@@ -361,6 +381,121 @@ if prep_mutant m10 templates/pipelines/ci/github/kotlin.yml \
   fi
 else
   fail_ "M10-unenumerated-step-never-runs" "$MUT_WHY"
+fi
+
+# ════════════════════════════════════════════════════════════════════════════
+# R-F015-1 — the class one level up: the JOB and the WORKFLOW
+# ════════════════════════════════════════════════════════════════════════════
+# The step allowlist is necessary and not sufficient. A step that runs perfectly
+# inside a job that never starts, or a workflow that never triggers on a change,
+# discards the verdict as completely as `|| true` ever did — and by exactly the
+# argument that earned Cw6-strict-gating its place at the step level.
+#
+# assert_caught_by <case> <fixture> <FAIL-ere> <case-label> <template> <why>
+# Same "right reason" discipline as assert_caught, parameterised on which of the
+# new verdicts must be the one that fires.
+assert_caught_by() {
+  local case_name="$1" fx="$2" fail_ere="$3" label="$4" tmpl="$5" why="$6"
+  local out rc line
+  out=$(run_pin "$fx"); rc=$?
+  line=$(printf '%s\n' "$out" | grep -E "$fail_ere")
+  if [ "$rc" -ne 0 ] \
+     && [ -n "$line" ] \
+     && printf '%s\n' "$line" | grep -Fq "$tmpl" \
+     && printf '%s\n' "$out" | grep -Eq "$PASS_SCOPE"; then
+    pass "$case_name ($why — $label names $tmpl)"
+  else
+    fail_ "$case_name" "rc=$rc; $label FAIL line=[${line:-<none>}]; scope=[$(printf '%s\n' "$out" | grep -E 'Cw6-strict-scope' | tr '\n' ' ')] — not caught by $label for the right reason"
+  fi
+}
+
+# The job header the tamper attaches to. Anchored, and `test:` is the job that
+# holds the phase-gate step in all ten templates (RA0 proves that rather than
+# assuming it).
+JOB_ERE='^  test:$'
+
+t_ra() { awk '{ print } /^  test:$/ { print "    if: false" }'; }
+echo "=== RA-job-level-if-false ==="
+if prep_mutant ra templates/pipelines/ci/github/python.yml "$JOB_ERE" t_ra 0 1; then
+  assert_caught_by RA-job-level-if-false "$MK_FIX" "$FAIL_JOB" Cw6-strict-job github/python.yml \
+    'reviewer case A: the JOB never runs, so a perfectly-allowlisted step never executes'
+else
+  fail_ "RA-job-level-if-false" "$MUT_WHY"
+fi
+
+# Reviewer case C. Before the fix this was caught only incidentally, by a pin
+# that objects to `${{ }}` appearing where it does not belong — so the assertion
+# here is deliberately on Cw6-strict-job BY NAME. An incidental catch is not a
+# pin: it moves the moment the incidental pin changes.
+t_rc() { awk '{ print } /^  test:$/ { print "    if: ${{ github.event_name == '\''never'\'' }}" }'; }
+echo "=== RC-job-level-if-expression ==="
+if prep_mutant rc templates/pipelines/ci/github/csharp.yml "$JOB_ERE" t_rc 0 1; then
+  assert_caught_by RC-job-level-if-expression "$MK_FIX" "$FAIL_JOB" Cw6-strict-job github/csharp.yml \
+    'reviewer case C: an always-false job condition, caught on the job allowlist rather than incidentally on a ${{ }} pin'
+else
+  fail_ "RC-job-level-if-expression" "$MUT_WHY"
+fi
+
+# Reviewer case B. The `on:` block is replaced wholesale, so the site count is
+# taken on the block opener and the delta is the whole stanza — declared
+# explicitly rather than waved at.
+t_rb() { awk '
+  /^on:$/ { print; print "  workflow_dispatch:"; skip = 1; next }
+  skip && (/^[^[:space:]]/ || $0 == "") { skip = 0 }
+  skip { next }
+  { print }
+'; }
+echo "=== RB-workflow-never-triggers ==="
+if prep_mutant rb templates/pipelines/ci/github/go.yml '^on:$' t_rb 4 1; then
+  assert_caught_by RB-workflow-never-triggers "$MK_FIX" "$FAIL_TRIGGER" Cw6-strict-trigger github/go.yml \
+    'reviewer case B: the WORKFLOW no longer runs on push or pull_request, so the gate never executes on any change'
+else
+  fail_ "RB-workflow-never-triggers" "$MUT_WHY"
+fi
+
+# ── RA2 / RB2: DUAL DIRECTION for each new verdict ──────────────────────────
+t_ra2() { sed 's@^\([[:space:]]*\)\[ "\$_w6_jobkeys" = "\$W6_EXPECTED_JOBKEYS" \].*# F-015-JOB-ALLOWLIST-VERDICT$@\1:@'; }
+echo "=== RA2-neutered-job-allowlist-lets-a-dead-job-through ==="
+if prep_mutant ra2 "$BL147_REL" \
+     '^[[:space:]]*\[ "\$_w6_jobkeys" = "\$W6_EXPECTED_JOBKEYS" \].*# F-015-JOB-ALLOWLIST-VERDICT$' \
+     t_ra2 1 1; then
+  ra2_tmpl="$MK_FIX/templates/pipelines/ci/github/python.yml"
+  ra2_sites=$(grep -Ec "$JOB_ERE" "$ra2_tmpl")
+  t_ra < "$ra2_tmpl" > "$TOPTMP/ra2-tampered"
+  cat "$TOPTMP/ra2-tampered" > "$ra2_tmpl"
+  ra2_out=$(run_pin "$MK_FIX"); ra2_rc=$?
+  if [ "$ra2_sites" -eq 1 ] \
+     && grep -Fq '    if: false' "$ra2_tmpl" \
+     && [ "$ra2_rc" -eq 0 ] \
+     && printf '%s\n' "$ra2_out" | grep -Eq "$PASS_SCOPE"; then
+    pass "RA2-neutered-job-allowlist-lets-a-dead-job-through (with the job verdict gone, a job that never runs passes the ENTIRE suite — reproducing the pre-fix measurement exactly)"
+  else
+    fail_ "RA2-neutered-job-allowlist-lets-a-dead-job-through" "sites=$ra2_sites rc=$ra2_rc — the neutered pin did not go quiet: $(printf '%s\n' "$ra2_out" | grep -E '\[FAIL\]' | tr '\n' ' ')"
+  fi
+else
+  fail_ "RA2-neutered-job-allowlist-lets-a-dead-job-through" "$MUT_WHY"
+fi
+
+t_rb2() { sed 's@^\([[:space:]]*\)\[ "\$_w6_on" = "\$W6_EXPECTED_ON" \].*# F-015-TRIGGER-ALLOWLIST-VERDICT$@\1:@'; }
+echo "=== RB2-neutered-trigger-allowlist-lets-a-dead-workflow-through ==="
+if prep_mutant rb2 "$BL147_REL" \
+     '^[[:space:]]*\[ "\$_w6_on" = "\$W6_EXPECTED_ON" \].*# F-015-TRIGGER-ALLOWLIST-VERDICT$' \
+     t_rb2 1 1; then
+  rb2_tmpl="$MK_FIX/templates/pipelines/ci/github/go.yml"
+  rb2_sites=$(grep -Ec '^on:$' "$rb2_tmpl")
+  t_rb < "$rb2_tmpl" > "$TOPTMP/rb2-tampered"
+  cat "$TOPTMP/rb2-tampered" > "$rb2_tmpl"
+  rb2_out=$(run_pin "$MK_FIX"); rb2_rc=$?
+  if [ "$rb2_sites" -eq 1 ] \
+     && ! grep -q '^  push:$' "$rb2_tmpl" \
+     && [ "$rb2_rc" -eq 0 ] \
+     && printf '%s\n' "$rb2_out" | grep -Eq "$PASS_SCOPE"; then
+    pass "RB2-neutered-trigger-allowlist-lets-a-dead-workflow-through (with the trigger verdict gone, a workflow that never runs on push passes the ENTIRE suite — reproducing the pre-fix measurement exactly)"
+  else
+    fail_ "RB2-neutered-trigger-allowlist-lets-a-dead-workflow-through" "sites=$rb2_sites rc=$rb2_rc — the neutered pin did not go quiet: $(printf '%s\n' "$rb2_out" | grep -E '\[FAIL\]' | tr '\n' ' ')"
+  fi
+else
+  fail_ "RB2-neutered-trigger-allowlist-lets-a-dead-workflow-through" "$MUT_WHY"
 fi
 
 # ── M8: DUAL DIRECTION — neuter the pin, the tamper sails through ───────────
