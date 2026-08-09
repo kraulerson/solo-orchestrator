@@ -8429,7 +8429,24 @@ agree)
 **Severity:** Low today, gate-relevant tomorrow (nothing invokes the script —
 manual runs only — but the Delta Track design wires it into release-cut
 refusals, where fail-open becomes a real hole)
-**Status:** Open
+**Status:** Closed — merged 2026-08-04 in PR #333 (`e8fc70b`, the delta track's
+WP6). Both defects are fixed, and the second fix is what makes the first one
+reachable. **Defect 1:** `cadence_epoch` now returns NON-ZERO and prints
+**nothing** when neither `date -j -f` nor `date -d` accepts its input — the
+`|| echo 0` tail that manufactured the `last_epoch=0` sentinel is gone, so an
+undeterminable date no longer disappears inside the `[ "$last_epoch" -gt 0 ]`
+guard. Every arm that cannot date its signal calls `mark_undetermined`, which
+holds the only line that moves the counter (`# CADENCE-UNDETERMINED-COUNTER`),
+and the closing verdict reports the counter. **Defect 2:** the advertised third
+exit code now exists in code rather than only in the docblock —
+`# CADENCE-EXIT-UNDETERMINED` is a real `exit 2` site. The consumer half landed
+with WP7: `cut-release.sh` refuses on **1 AND 2** (`# CUTREL-CADENCE-OVERDUE`
+and `# CUTREL-CADENCE-UNMEASURABLE`, with `# CUTREL-CADENCE-OTHER` catching
+every other code so a new exit value cannot be mistaken for success), so
+"could not determine" blocks a release cut exactly as "overdue" does. The
+mutation proof asserts on the exit code, never on the sentence: deleting the
+one counter line returns the unparseable fixture to "All maintenance cadences
+current" at rc 0.
 
 **The two defects, both reproduced by execution:**
 1. **Fail-open on unparseable dates.** Every cadence verdict sits inside
@@ -8462,7 +8479,18 @@ REPRODUCED by its adversarial review with a two-run fixture)
 **Category:** Gate self-consistency / silent-friction class
 **Severity:** Medium (every generated project at phase 3+: a fully PASSING gate
 run plants the seed of its own next failure)
-**Status:** Open
+**Status:** Closed — merged 2026-08-04 in PR #334 (`70f159a`).
+`:(exclude)docs/snapshots` was added at **all four** call sites — both
+`git status --porcelain` arms of `_cpg_scoped_dirty` in `check-phase-gate.sh`
+and both of the sync sibling `_p3_scoped_dirty` in `run-phase3-validation.sh`,
+marked `# BL-214-SNAPSHOT-EXCLUDE` in each file. Four, not two, because each
+function has a with-results-dir arm and a without-results-dir arm and a fix to
+only one of them leaves the defect live on the other path. The fix also ships
+the thing that keeps it fixed: a new **byte-for-byte sibling-identity check**
+(`tests/test-bl214-gate-snapshot-staleness.sh` row B1) asserts the two
+functions are identical modulo their names, so editing one sibling and not the
+other goes RED — the two files' own comments already claimed that identity, and
+BL-214 exists because nothing was checking the claim.
 
 **The defect, reproduced:** on a clean phase-4 project where `docs/snapshots/`
 is not gitignored, gate run 1 exits 0 and prints
