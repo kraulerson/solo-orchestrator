@@ -1007,15 +1007,24 @@ else
   report_with_phase 2 "$W1D/report.json"
   _ans_s2 3 > "$W1D/answers"
   run_adopt "$W1D/p" "$W1D/answers" "$W1D/report.json"; w1_rc=$RUN_RC
-  w1_cert=0; w1_record=0; w1_empty_named=0
+  w1_cert=0; w1_record=0; w1_empty_named=0; w1_docs=0; w1_debt=0
   grep -q 'NOT DONE — the certification pass' "$RUN_OUT" && w1_cert=1
   grep -q 'NOT DONE — the Adoption Record' "$RUN_OUT" && w1_record=1
+  grep -q 'NOT DONE — the test-debt ledger' "$RUN_OUT" && w1_debt=1
+  grep -q "NOT DONE — your project's framework documents" "$RUN_OUT" && w1_docs=1
   grep -q "means 'not measured', not 'measured and clean'" "$RUN_OUT" && w1_empty_named=1
   w1_kinds=$(jq -r '[.adoption.certification.kindA, .adoption.certification.kindB, .adoption.certification.kindC] | map(length) | add' "$W1D/p/.claude/manifest.json" 2>/dev/null)
-  if [ "$w1_rc" -eq 0 ] && [ "$w1_cert" -eq 1 ] && [ "$w1_record" -eq 1 ] && [ "$w1_empty_named" -eq 1 ] && [ "$(_num "$w1_kinds")" -eq 0 ]; then
-    pass "W1: the unbuilt packages announce themselves — the certification lists in the stamp are empty AND the run says an empty list means 'not measured', not 'measured and clean'"
+  # The CLAUDE.md half is asserted as an ABSENCE, so it carries a structural
+  # discriminator: the file is not there AND the run said so. Either alone is
+  # satisfied by a driver that simply forgot.
+  w1_no_claude=1
+  [ -e "$W1D/p/CLAUDE.md" ] && w1_no_claude=0
+  if [ "$w1_rc" -eq 0 ] && [ "$w1_cert" -eq 1 ] && [ "$w1_record" -eq 1 ] && [ "$w1_debt" -eq 1 ] \
+     && [ "$w1_docs" -eq 1 ] && [ "$w1_no_claude" -eq 1 ] \
+     && [ "$w1_empty_named" -eq 1 ] && [ "$(_num "$w1_kinds")" -eq 0 ]; then
+    pass "W1: every unbuilt package announces itself — certification, the test-debt ledger, the Adoption Record and the project documents — and the run says an empty certification list means 'not measured', not 'measured and clean'"
   else
-    fail_ "W1" "rc=$w1_rc certification_stub=$w1_cert adoption_record_stub=$w1_record empty_means_unmeasured_stated=$w1_empty_named certification_entries=$w1_kinds (want 0)"
+    fail_ "W1" "rc=$w1_rc certification_stub=$w1_cert test_debt_stub=$w1_debt adoption_record_stub=$w1_record project_docs_stub=$w1_docs claude_md_absent=$w1_no_claude empty_means_unmeasured_stated=$w1_empty_named certification_entries=$w1_kinds (want 0)"
   fi
 fi
 

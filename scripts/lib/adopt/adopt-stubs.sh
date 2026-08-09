@@ -112,6 +112,20 @@ adopt_stub_hooks() {
   adopt_note "by hand until it lands: bash scripts/pre-commit-gate.sh --terminal-mode"
 }
 
+# The adoptee's own framework DOCUMENTS — CLAUDE.md, the generated templates,
+# docs/reference/, the .gitignore additions. Every one of them is a path an
+# adoptee may already occupy (a CLAUDE.md especially), which makes writing them
+# §7's collision question and therefore WP6's, not this package's. Named here
+# because the absence is not cosmetic: CLAUDE.md is what a downstream agent
+# reads at kickoff, so an adopted project without it starts every session
+# without its orientation.
+adopt_stub_project_docs() {
+  adopt_stub_notice "your project's framework documents" "WP6 (they are collision decisions before they are writes)" \
+    "CLAUDE.md, the document templates and the reference docs are NOT written. The scripts and the"
+  adopt_note "state are here, so the gates work; the reading material an agent picks up at the start"
+  adopt_note "of a session is not, and a CLAUDE.md you already have would be a collision, not a gap."
+}
+
 # WP7 — §8.6's provenance headers on reconstructed documents.
 adopt_stub_provenance_headers() {
   adopt_stub_notice "the provenance headers on reconstructed documents" "WP7" \

@@ -321,6 +321,7 @@ adopt_install_hooks() {
     adopt_stub_collision_archive 1
   fi
   adopt_stub_hooks
+  adopt_stub_project_docs
   return 0
 }
 
