@@ -40,12 +40,19 @@
 #         never even selected for inspection.
 #     M7  `continue-on-error: true` — the Actions-native swallow, plus the new
 #         step-KEY allowlist that catches its unimagined siblings.
+#    M10  `if: false` — the swallow that leaves the run: body byte-identical and
+#         the key set untouched. A step that never runs discards the verdict
+#         more completely than `|| true` ever could, so the if: VALUE is
+#         allowlisted too, and this is the only case that can see it.
 #     M8  DUAL DIRECTION: neuter the allowlist verdict in the pin itself and the
 #         M1 tamper sails through — the pin, not something else, is what caught
 #         it.
 #     M9  the vacuity discriminator earns its place: neuter the scope filter so
 #         zero templates are examined, and Cw6-strict-scope goes red while
 #         Cw6-strict would otherwise pass over an empty set.
+#    M11  DUAL DIRECTION for M10: with the if: verdict neutered, `if: false`
+#         passes the ENTIRE suite — body allowlist, key allowlist, floor and
+#         all. That is M10's watched-RED, made permanent.
 #
 # MUTATION-HARNESS STANDARD (all asserted, none assumed): anchored end-of-line
 #   target patterns; sites==1; exactly-N-lines-changed; every mutant is checked
@@ -90,6 +97,7 @@ PASS_SCOPE='^[[:space:]]*\[PASS\] Cw6-strict-scope[[:space:]]'
 FAIL_COE='^[[:space:]]*\[FAIL\] Cw6-strict-no-coe[[:space:]]'
 FAIL_KEYS='^[[:space:]]*\[FAIL\] Cw6-strict-keys[[:space:]]'
 PASS_KEYS='^[[:space:]]*\[PASS\] Cw6-strict-keys[[:space:]]'
+PASS_GATING='^[[:space:]]*\[PASS\] Cw6-strict-gating[[:space:]]'
 
 # ── The fixture mirror ──────────────────────────────────────────────────────
 # bl147 derives every path from REPO_ROOT = the parent of its own directory, so
@@ -200,7 +208,8 @@ g1_out=$(bash "$BL147" 2>&1); g1_rc=$?
 if [ "$g1_rc" -eq 0 ] \
    && printf '%s\n' "$g1_out" | grep -Eq "$PASS_STRICT" \
    && printf '%s\n' "$g1_out" | grep -Eq "$PASS_SCOPE" \
-   && printf '%s\n' "$g1_out" | grep -Eq "$PASS_KEYS"; then
+   && printf '%s\n' "$g1_out" | grep -Eq "$PASS_KEYS" \
+   && printf '%s\n' "$g1_out" | grep -Eq "$PASS_GATING"; then
   pass "G1-shipped-templates-still-pass (the real bl147 suite is green on the tracked templates; the allowlist passes all ten)"
 else
   fail_ "G1-shipped-templates-still-pass" "rc=$g1_rc — the hardened pin reds the SHIPPED templates, which is worse than the blacklist it replaced: $(printf '%s\n' "$g1_out" | grep -E '\[FAIL\]' | tr '\n' ' ')"
@@ -333,6 +342,27 @@ else
   fail_ "M7-actions-native-swallow" "$MUT_WHY"
 fi
 
+# ── M10: the swallow that leaves the body untouched ─────────────────────────
+# A key allowlist alone would have missed this: `if:` is a PERMITTED key, and
+# the run: body is byte-identical to the allowlisted script. A step that never
+# runs discards the verdict more completely than `|| true` ever could, so the
+# if: VALUE is allowlisted too.
+t_m10() { sed "s#^        if: hashFiles('\.claude/phase-state\.json') != ''\$#        if: false#"; }
+echo "=== M10-unenumerated-step-never-runs ==="
+if prep_mutant m10 templates/pipelines/ci/github/kotlin.yml \
+     "^        if: hashFiles\('\.claude/phase-state\.json'\) != ''\$" t_m10 1 1; then
+  m10_out=$(run_pin "$MK_FIX"); m10_rc=$?
+  if [ "$m10_rc" -ne 0 ] \
+     && printf '%s\n' "$m10_out" | grep -E '^[[:space:]]*\[FAIL\] Cw6-strict-gating[[:space:]]' | grep -Fq github/kotlin.yml \
+     && printf '%s\n' "$m10_out" | grep -Eq "$PASS_STRICT"; then
+    pass "M10-unenumerated-step-never-runs (\`if: false\` leaves the allowlisted body intact and is still caught — by the if: allowlist, which is the only case that can see it)"
+  else
+    fail_ "M10-unenumerated-step-never-runs" "rc=$m10_rc gating=[$(printf '%s\n' "$m10_out" | grep -E 'Cw6-strict-gating' | tr '\n' ' ')] — a step that never runs was graded as enforcing"
+  fi
+else
+  fail_ "M10-unenumerated-step-never-runs" "$MUT_WHY"
+fi
+
 # ── M8: DUAL DIRECTION — neuter the pin, the tamper sails through ───────────
 # Everything above shows tampers going red. This shows WHY: remove the
 # allowlist's verdict line from the pin and M1's tamper stops being detected.
@@ -359,6 +389,32 @@ if prep_mutant m8 "$BL147_REL" \
   fi
 else
   fail_ "M8-neutered-pin-lets-the-tamper-through" "$MUT_WHY"
+fi
+
+# ── M11: DUAL DIRECTION for the if: allowlist ───────────────────────────────
+# The other half of M10, and its watched-RED made permanent: with the if:
+# verdict neutered, `if: false` passes the whole suite — body allowlist, key
+# allowlist, count floor and all. Nothing else in bl147 can see it.
+t_m11() { sed 's@^\([[:space:]]*\)\[ "\$_w6_if" = "\$W6_EXPECTED_IF" \].*# F-015-IF-ALLOWLIST-VERDICT$@\1:@'; }
+echo "=== M11-neutered-if-allowlist-lets-a-dead-step-through ==="
+if prep_mutant m11 "$BL147_REL" \
+     '^[[:space:]]*\[ "\$_w6_if" = "\$W6_EXPECTED_IF" \].*# F-015-IF-ALLOWLIST-VERDICT$' \
+     t_m11 1 1; then
+  m11_tmpl="$MK_FIX/templates/pipelines/ci/github/kotlin.yml"
+  m11_sites=$(grep -Ec "^        if: hashFiles\('\.claude/phase-state\.json'\) != ''\$" "$m11_tmpl")
+  t_m10 < "$m11_tmpl" > "$TOPTMP/m11-tampered"
+  cat "$TOPTMP/m11-tampered" > "$m11_tmpl"
+  m11_out=$(run_pin "$MK_FIX"); m11_rc=$?
+  if [ "$m11_sites" -eq 1 ] \
+     && grep -Fq '        if: false' "$m11_tmpl" \
+     && [ "$m11_rc" -eq 0 ] \
+     && printf '%s\n' "$m11_out" | grep -Eq "$PASS_SCOPE"; then
+    pass "M11-neutered-if-allowlist-lets-a-dead-step-through (with the if: verdict gone, a step that never runs passes the ENTIRE suite — the if: allowlist is the only thing standing between the tree and that swallow)"
+  else
+    fail_ "M11-neutered-if-allowlist-lets-a-dead-step-through" "sites=$m11_sites rc=$m11_rc — the neutered pin did not go quiet, so M10 may be measuring another case: $(printf '%s\n' "$m11_out" | grep -E '\[FAIL\]' | tr '\n' ' ')"
+  fi
+else
+  fail_ "M11-neutered-if-allowlist-lets-a-dead-step-through" "$MUT_WHY"
 fi
 
 # ── M9: the absence-discriminator earns its place ───────────────────────────

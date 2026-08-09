@@ -1464,6 +1464,11 @@ fi
 # because it deserves a specific diagnostic, but the key allowlist is what
 # catches its unimagined siblings.
 #
+# And the `if:` VALUE is allowlisted, not just the key. A key allowlist alone
+# leaves `if: false` — a step that never runs discards the verdict more
+# completely than `|| true` ever could, and it would have sailed through a pin
+# that only inspected the body.
+#
 # CHANGING THE STEP IS A DELIBERATE ACT. If the templates' phase-gate body
 # legitimately changes, this literal changes with it, in the same commit.
 W6_EXPECTED_BODY='if [ ! -f scripts/check-phase-gate.sh ]; then
@@ -1477,7 +1482,8 @@ bash scripts/check-phase-gate.sh'
 # template that swapped the interpreter would have dropped out of CPG_FILES and
 # so out of this pin's reach; scoping on the mapping instead keeps it in, which
 # is the same allowlist discipline applied to the candidate set.
-w6_swallow=""; w6_coe=""; w6_keys=""; w6_examined=0
+W6_EXPECTED_IF="if: hashFiles('.claude/phase-state.json') != ''"
+w6_swallow=""; w6_coe=""; w6_keys=""; w6_gating=""; w6_examined=0
 if [ "$GH_COUNT" -gt 0 ]; then
   for f in "${GH_FILES[@]}"; do
     grep -Eq '^[[:space:]]*GH_TOKEN:[[:space:]]*\$\{\{' "$f" || continue   # F-015-STRICT-SCOPE-FILTER
@@ -1509,6 +1515,8 @@ if [ "$GH_COUNT" -gt 0 ]; then
         *) w6_keys="$w6_keys ${f#*/ci/}:$_w6_k" ;;
       esac
     done
+    _w6_if=$(printf '%s\n' "$_w6_step" | grep -E '^        if:' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    [ "$_w6_if" = "$W6_EXPECTED_IF" ] || w6_gating="$w6_gating ${f#*/ci/}[${_w6_if:-<no if: on the step>}]"   # F-015-IF-ALLOWLIST-VERDICT
   done
 fi
 # Cw6-strict's green is an ABSENCE, and an empty candidate set produces the same
@@ -1532,6 +1540,11 @@ if [ -z "$w6_keys" ]; then
   pass "Cw6-strict-keys (the phase-gate step carries only the allowlisted keys: if, env, run)"
 else
   fail_ "Cw6-strict-keys" "a non-allowlisted key on the phase-gate step can change how its verdict is graded — in:$w6_keys"
+fi
+if [ -z "$w6_gating" ]; then
+  pass "Cw6-strict-gating (the step's if: is the allowlisted phase-state condition — a step that never runs cannot enforce)"
+else
+  fail_ "Cw6-strict-gating" "the phase-gate step's if: is not the allowlisted condition, so the step may be skipped rather than obeyed — in:$w6_gating"
 fi
 
 # ── Cw16 (walk 2026-08-02 ISSUE-016): the tag-deploy environment trap ───────
