@@ -510,6 +510,7 @@ jobs:
             tests/test-walk-phase-lifecycle.sh
             tests/test-brownfield-wp2-scout-sections.sh
             tests/test-brownfield-wp3-adoption-arms.sh
+            tests/test-brownfield-wp4-driver.sh
             tests/host-drivers/error-translate.test.sh
           )
 
