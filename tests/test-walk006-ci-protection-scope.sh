@@ -534,6 +534,26 @@ mk_tok_wf() {
   mk_wf "$d/.github/workflows/ci.yml" "$@"
 }
 
+# ── CRLF fixture mechanics (R-dA-1) ─────────────────────────────────────────
+# The bytes are WRITTEN, never described. `awk … %c,13` rather than
+# `sed 's/$/\r/'` because BSD sed inserts a literal `r` for that escape, which
+# would produce a fixture that merely LOOKS like CRLF in the source of this file
+# — the exact vacuity these proofs exist to prevent. n_cr() counts the actual CR
+# bytes so every CRLF case can assert its own premise before asserting anything
+# else.
+to_crlf() { awk '{ printf "%s%c\n", $0, 13 }' "$1" > "$2"; }
+n_cr()    { tr -dc '\r' < "$1" | wc -c | tr -d ' '; }
+
+# mk_tok_wf_crlf <dir> <mk_wf args…> — mk_tok_wf, then rewrite ci.yml with CRLF
+# line terminators. Nothing else about the fixture differs, so a difference in
+# verdict is attributable to the line endings and to nothing else.
+mk_tok_wf_crlf() {
+  local d="$1"; shift
+  mk_tok_wf "$d" "$@" || return 1
+  local w="$d/.github/workflows/ci.yml"
+  to_crlf "$w" "$w.crlf" && mv "$w.crlf" "$w"
+}
+
 # The legacy leftover: the emitted step, plus the pre-R-1 soft step a project
 # upgraded from an older vintage still carries. The ONLY thing wrong with it is
 # the deviating gate line — it maps, and it does carry a real invocation — which
@@ -595,6 +615,63 @@ assert_mutant_false_ok() {
     pass "$case_name ($why)"
   else
     fail_ "$case_name" "rc=$rc — the neutered detector did not produce the false OK, so the positive case may be measuring something else: $(printf '%s' "$out" | grep -E 'next push|WILL NOT|^  - ' | tr '\n' ' ')"
+  fi
+}
+
+# assert_mutant_false_ok_ctl <case> <mut> <ere> <sed> <rm> <add> <dir> <sig>
+#                            <ctl-dir> <ctl-sig> <why>
+#   assert_mutant_false_ok PLUS a liveness discriminator, required for every
+#   mutant that edits the awk program inside _wf_gate_scope. `bash -n` only
+#   parses the SHELL: an awk program mangled into a syntax error still passes it,
+#   and a dead awk prints nothing, which reads downstream as "no swallowing key
+#   found" — i.e. the false OK, for entirely the wrong reason. So the same mutant
+#   is also driven against a control fixture whose swallow is spelled the ORDINARY
+#   way, and that one must STILL be refused with its own cause named. Only then
+#   is the false OK attributable to the removed line.
+assert_mutant_false_ok_ctl() {
+  local case_name="$1" mut="$2" ere="$3" expr="$4" n_rm="$5" n_add="$6" d="$7" sig="$8"
+  local ctl="${9}" ctl_sig="${10}" why="${11}"
+  if ! mk_cg_mutant "$mut" "$ere" "$expr" "$n_rm" "$n_add"; then
+    fail_ "$case_name" "$CG_WHY"
+    return
+  fi
+  local out rc cout crc
+  out=$(run_tok_with "$CG_MUT" "$d" "$GOOD_TOKEN"); rc=$?
+  cout=$(run_tok_with "$CG_MUT" "$ctl" "$GOOD_TOKEN"); crc=$?
+  if [ "$crc" -ne 0 ] \
+     || printf '%s' "$cout" | grep -q "The next push enforces the check" \
+     || ! printf '%s' "$cout" | grep -qF -- "$ctl_sig"; then
+    fail_ "$case_name" "the mutant stopped detecting the ORDINARY spelling too (crc=$crc), so it did not isolate one line — most likely the awk program no longer runs: $(printf '%s' "$cout" | grep -E 'next push|WILL NOT|^  - ' | tr '\n' ' ')"
+    return
+  fi
+  if [ "$rc" -eq 0 ] \
+     && printf '%s' "$out" | grep -q "The next push enforces the check" \
+     && ! printf '%s' "$out" | grep -qF -- "$sig"; then
+    pass "$case_name ($why)"
+  else
+    fail_ "$case_name" "rc=$rc — the neutered detector did not produce the false OK, so the positive case may be measuring something else: $(printf '%s' "$out" | grep -E 'next push|WILL NOT|^  - ' | tr '\n' ' ')"
+  fi
+}
+
+# assert_mutant_refuses <case> <mut> <ere> <sed> <rm> <add> <dir> <sig> <why>
+#   The INVERTED mutation direction, for a line whose job is to prevent a false
+#   RED rather than a false OK. Neuter it and a LEGITIMATE setup is refused —
+#   and refused with a named cause, so a mutant that broke something unrelated
+#   cannot pass. (R-dA-1: the CRLF strip is that kind of line.)
+assert_mutant_refuses() {
+  local case_name="$1" mut="$2" ere="$3" expr="$4" n_rm="$5" n_add="$6" d="$7" sig="$8" why="$9"
+  if ! mk_cg_mutant "$mut" "$ere" "$expr" "$n_rm" "$n_add"; then
+    fail_ "$case_name" "$CG_WHY"
+    return
+  fi
+  local out rc
+  out=$(run_tok_with "$CG_MUT" "$d" "$GOOD_TOKEN"); rc=$?
+  if [ "$rc" -eq 0 ] \
+     && ! printf '%s' "$out" | grep -q "The next push enforces the check" \
+     && printf '%s' "$out" | grep -qF -- "$sig"; then
+    pass "$case_name ($why)"
+  else
+    fail_ "$case_name" "rc=$rc — with that line neutered the legitimate fixture was NOT falsely refused for the named reason [$sig], so the positive case is not measuring the line it claims to: $(printf '%s' "$out" | grep -E 'next push|WILL NOT|^  - ' | tr '\n' ' ')"
   fi
 }
 
@@ -1110,6 +1187,155 @@ else
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
+# D15-D27 — FIX ROUND (reviewer findings R-dA-1 and R-dA-2). Two false verdicts
+# in OPPOSITE directions, both produced by reading a workflow as bytes rather
+# than as YAML:
+#
+#   R-dA-1  CRLF. A ci.yml with CRLF terminators earned the claim before the
+#           step/job scope existed and was REFUSED after it, because the
+#           trailing \r rides on every key and value the scan reads. The
+#           refusal was self-refuting on its face — it quoted back an `if:`
+#           and told the user to replace it with the same bytes.
+#   R-dA-2  QUOTED KEYS. The scope report only emitted keys matching
+#           /^[A-Za-z_]/, so `"continue-on-error": true` and `'if': false`
+#           were never emitted and never reached the swallow scan: the claim
+#           was EARNED while the step was inert. Confirmed against a real YAML
+#           parser — all of these load to the identical effective config.
+#           A YAML merge key (`<<: *anchor`) is the third case: the effective
+#           configuration is not in the block being read at all, so it is
+#           treated the way every other unreadable structure is — fail CLOSED.
+# ════════════════════════════════════════════════════════════════════════════
+
+# ── D15: the CRLF fixtures are really CRLF ─────────────────────────────────
+# The premise before any conclusion. A "CRLF test" whose fixture is quietly LF
+# asserts nothing at all, and `sed 's/$/\r/'` — the obvious way to write one —
+# produces exactly that on BSD sed. So the bytes are counted.
+echo "=== D15-crlf-fixture-is-really-crlf ==="
+P="$TOPTMP/d15"; mk_tok_wf_crlf "$P" "" "$STEP_KEYS_GOOD" yes emitted
+d15_wf="$P/.github/workflows/ci.yml"
+d15_cr=$(n_cr "$d15_wf"); d15_ln=$(wc -l < "$d15_wf" | tr -d ' ')
+if [ "$d15_cr" -gt 0 ] && [ "$d15_cr" -eq "$d15_ln" ]; then
+  pass "D15-crlf-fixture-is-really-crlf ($d15_cr CR bytes over $d15_ln lines — every line terminator is CRLF)"
+else
+  fail_ "D15-crlf-fixture-is-really-crlf" "the fixture is not CRLF ($d15_cr CR bytes over $d15_ln lines) — every CRLF case below would be vacuous"
+fi
+
+# ── D16: R-dA-1 — a CRLF workflow that IS wired earns the claim ────────────
+# Same fixture as D15. This is one assertion over all three conditions at once:
+# `maps`, the `invokes` floor and every arm of `!swallows` must each survive
+# CRLF for the claim to appear.
+echo "=== D16-crlf-good-earns-the-claim ==="
+assert_earns_ok D16-crlf-good-earns-the-claim "$P" \
+  'R-dA-1: CRLF is a line ENDING, not a configuration difference — GitHub Actions parses this file identically to its LF twin'
+
+# ── D17: …and the fix did not neuter the condition ─────────────────────────
+echo "=== D17-crlf-swallow-still-refused ==="
+P="$TOPTMP/d17"; mk_tok_wf_crlf "$P" "" "$STEP_KEYS_GOOD
+        continue-on-error: true" yes emitted
+assert_withheld D17-crlf-swallow-still-refused "$P" \
+  "carries 'continue-on-error: true'" \
+  'stripping the line endings must not make CRLF workflows unjudgeable — a real swallow is still caught'
+
+# ── D18: the strip is ANCHORED — a CR inside a value is not eaten ──────────
+# The paired direction of the same fix. `gsub(/\r/,"")` would silently repair a
+# value that does NOT equal the shipped condition into one that does, turning a
+# genuinely different `if:` into a claim of enforcement. Only a TRAILING CR is a
+# line ending.
+echo "=== D18-crlf-mid-value-not-eaten ==="
+CRB=$(printf '\r')
+P="$TOPTMP/d18"; mk_tok_wf_crlf "$P" "" "        if: hashFiles('.claude/phase-state.json')${CRB} != ''" yes emitted
+assert_withheld D18-crlf-mid-value-not-eaten "$P" \
+  "which is not the one this framework ships" \
+  'a CR in the MIDDLE of a value is content, not a terminator — the strip must not widen into it'
+
+# ── D19-D22: R-dA-2 — the quoted-key evasion, all four spellings ───────────
+# YAML permits both quote styles for a key and generated / round-tripped
+# workflows emit them. Each of these was confirmed to EARN the claim on the
+# pre-fix code while the step or job was inert.
+echo "=== D19-double-quoted-step-coe-withheld ==="
+P="$TOPTMP/d19"; mk_tok_wf "$P" "" "$STEP_KEYS_GOOD
+        \"continue-on-error\": true" yes emitted
+assert_withheld D19-double-quoted-step-coe-withheld "$P" \
+  "carries 'continue-on-error: true'" \
+  'a double-quoted key is the same key — the step is still graded green however the gate votes'
+
+echo "=== D20-single-quoted-step-if-withheld ==="
+P="$TOPTMP/d20"; mk_tok_wf "$P" "" "        'if': false" yes emitted
+assert_withheld D20-single-quoted-step-if-withheld "$P" \
+  "condition is 'if: false'" \
+  'a single-quoted key is the same key — the step never runs'
+
+echo "=== D21-double-quoted-job-coe-withheld ==="
+P="$TOPTMP/d21"; mk_tok_wf "$P" "    \"continue-on-error\": true" "$STEP_KEYS_GOOD" yes emitted
+assert_withheld D21-double-quoted-job-coe-withheld "$P" \
+  "so that job's failure does not count" \
+  'the evasion works one level up too, and the job arm must read quoted keys as well'
+
+echo "=== D22-single-quoted-job-if-withheld ==="
+P="$TOPTMP/d22"; mk_tok_wf "$P" "    'if': false" "$STEP_KEYS_GOOD" yes emitted
+assert_withheld D22-single-quoted-job-if-withheld "$P" \
+  "The job that HOLDS the phase-gate step carries 'if: false'" \
+  'a quoted job-level if: false starts no job at all'
+
+# ── D23: the false-positive direction of the same fix ──────────────────────
+# Unquoting the key must make it COMPARABLE, not automatically suspect. A step
+# whose keys are quoted but whose values are the shipped ones is a legitimate
+# setup and must still earn the claim, or the fix has traded one false verdict
+# for another.
+echo "=== D23-quoted-good-keys-still-earn ==="
+P="$TOPTMP/d23"; mk_tok_wf "$P" "" "        \"if\": hashFiles('.claude/phase-state.json') != ''
+        'continue-on-error': false" yes emitted
+assert_earns_ok D23-quoted-good-keys-still-earn "$P" \
+  'the key is unquoted for COMPARISON only — a quoted spelling of the shipped configuration is the shipped configuration'
+
+# ── D24: a sibling evasion the review did not name ─────────────────────────
+# NOT IN THE BRIEF. The same emit() guard rejected `continue-on-error : true`
+# (a space before the colon) for the same reason it rejected the quoted form,
+# and YAML permits it — `s-separate-in-line?` sits between an implicit key and
+# its `:`. Verified against a real parser: it loads to {continue-on-error: true},
+# byte-identically to the ordinary spelling, and it earned the claim pre-fix.
+# Reported rather than papered over; carried here so it cannot come back.
+echo "=== D24-spaced-colon-step-coe-withheld ==="
+P="$TOPTMP/d24"; mk_tok_wf "$P" "" "$STEP_KEYS_GOOD
+        continue-on-error : true" yes emitted
+assert_withheld D24-spaced-colon-step-coe-withheld "$P" \
+  "carries 'continue-on-error: true'" \
+  'YAML allows whitespace between an implicit key and its colon — the key is the same key'
+
+# ── D25/D26: the THIRD case — configuration that is not in the block ───────
+# A merge key pulls the effective `continue-on-error:` / `if:` in from an anchor
+# elsewhere in the file. Resolving anchors is not attempted; unverifiable must
+# not read as verified, which is the same doctrine as D8.
+merge_sig() { printf "A YAML merge key on the gate's %s pulls in keys from ELSEWHERE in the file" "$1"; }
+echo "=== D25-step-merge-key-fails-closed ==="
+P="$TOPTMP/d25"; mk_tok_wf "$P" "" "$STEP_KEYS_GOOD
+        <<: *soft" yes emitted
+printf 'x-soft: &soft\n  continue-on-error: true\n' >> "$P/.github/workflows/ci.yml"
+assert_withheld D25-step-merge-key-fails-closed "$P" \
+  "$(merge_sig step)" \
+  'the swallow can live in the anchor, so the block being read does not settle the question'
+
+echo "=== D26-job-merge-key-fails-closed ==="
+P="$TOPTMP/d26"; mk_tok_wf "$P" "    <<: *soft" "$STEP_KEYS_GOOD" yes emitted
+printf 'x-soft: &soft\n  continue-on-error: true\n' >> "$P/.github/workflows/ci.yml"
+assert_withheld D26-job-merge-key-fails-closed "$P" \
+  "$(merge_sig job)" \
+  'the same argument one level up — a merged job-level continue-on-error is invisible here'
+
+# ── D27: a step REPLACED by an alias already fails closed ──────────────────
+# The remaining anchor shape, pinned rather than assumed: when the step itself is
+# `- *gate_step`, the gate line lives in the anchor definition, which has no
+# enclosing sequence item — so the EXISTING unlocatable arm catches it and no
+# new code is needed. Asserting it here is what keeps that true.
+echo "=== D27-alias-step-fails-closed ==="
+P="$TOPTMP/d27"; mk_tok "$P" github ok yes
+printf 'name: CI\non:\n  push:\n    branches: [main]\nx-gate: &gate_step\n  name: Governance - Phase gate check\n  continue-on-error: true\n  env:\n    GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}\n  run: |\n    bash scripts/check-phase-gate.sh\n\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - *gate_step\n' \
+  > "$P/.github/workflows/ci.yml"
+assert_withheld D27-alias-step-fails-closed "$P" \
+  "Could not locate the step that runs the gate" \
+  'an aliased step keeps its configuration outside the block, and the existing fail-closed arm already refuses it'
+
+# ════════════════════════════════════════════════════════════════════════════
 # DM1-DM8 — the other direction. Each mutant neuters ONE line and the false
 # claim comes back. mk_cg_mutant asserts the harness standard for every one of
 # them: sites==1 for the anchored end-of-line marker, exactly-N-lines-changed,
@@ -1182,6 +1408,76 @@ assert_mutant_false_ok DM8-unlocated-verdict-carries-D8 unlocated \
   's@^\([[:space:]]*\)wf_swallows=1[[:space:]]*# D-A-UNLOCATED-VERDICT$@\1:@' 1 1 \
   "$P" "Could not locate the job that runs the gate" \
   'without the fail-closed arm an unreadable structure is told the next push enforces'
+
+# ════════════════════════════════════════════════════════════════════════════
+# DM9-DM14 — the fix round's mutants. Four of the six edit the awk program
+# inside _wf_gate_scope, where `bash -n` proves nothing: a mangled awk program
+# is still valid SHELL, and a dead awk prints an empty scope report, which reads
+# downstream as "no swallowing key found" — the false OK, for the wrong reason.
+# Those four therefore use assert_mutant_false_ok_ctl, which also drives the
+# same mutant against a fixture whose swallow is spelled the ORDINARY way and
+# requires it to STILL be refused.
+# ════════════════════════════════════════════════════════════════════════════
+
+# The liveness control, shared: the plainest swallow there is.
+DMCTL="$TOPTMP/dmctl"; mk_tok_wf "$DMCTL" "" "$STEP_KEYS_GOOD
+        continue-on-error: true" yes emitted
+DMCTL_SIG="carries 'continue-on-error: true'"
+
+echo "=== DM9-crlf-strip-carries-D16 ==="
+P="$TOPTMP/dm9"; mk_tok_wf_crlf "$P" "" "$STEP_KEYS_GOOD" yes emitted
+assert_mutant_refuses DM9-crlf-strip-carries-D16 crlfstrip \
+  '# D-A-CRLF-STRIP$' '/# D-A-CRLF-STRIP$/d' 1 0 \
+  "$P" "which is not the one this framework ships" \
+  'without the strip a correctly-wired CRLF workflow is falsely refused — R-dA-1, reproduced'
+
+echo "=== DM10-crlf-strip-is-anchored-carries-D18 ==="
+P="$TOPTMP/dm10"; mk_tok_wf_crlf "$P" "" "        if: hashFiles('.claude/phase-state.json')${CRB} != ''" yes emitted
+DMCTL_CRLF="$TOPTMP/dmctlcrlf"; mk_tok_wf_crlf "$DMCTL_CRLF" "" "$STEP_KEYS_GOOD
+        continue-on-error: true" yes emitted
+assert_mutant_false_ok_ctl DM10-crlf-strip-is-anchored-carries-D18 crlfgsub \
+  '# D-A-CRLF-STRIP$' \
+  's@^\([[:space:]]*\){ sub(CR .*# D-A-CRLF-STRIP$@\1{ gsub(CR, "", L[NR]) }@' 1 1 \
+  "$P" "which is not the one this framework ships" \
+  "$DMCTL_CRLF" "$DMCTL_SIG" \
+  'widened from sub(…$) to gsub, a CR inside the value is eaten and a DIFFERENT if: is repaired into the shipped one'
+
+echo "=== DM11-quoted-key-dq-carries-D19 ==="
+P="$TOPTMP/dm11"; mk_tok_wf "$P" "" "$STEP_KEYS_GOOD
+        \"continue-on-error\": true" yes emitted
+assert_mutant_false_ok_ctl DM11-quoted-key-dq-carries-D19 quotedq \
+  '# D-A-QUOTED-KEY-DQ$' '/# D-A-QUOTED-KEY-DQ$/d' 1 0 \
+  "$P" "$DMCTL_SIG" \
+  "$DMCTL" "$DMCTL_SIG" \
+  'without the double-quote arm an inert step is told the next push enforces — R-dA-2, reproduced'
+
+echo "=== DM12-quoted-key-sq-carries-D20 ==="
+P="$TOPTMP/dm12"; mk_tok_wf "$P" "" "        'if': false" yes emitted
+assert_mutant_false_ok_ctl DM12-quoted-key-sq-carries-D20 quotesq \
+  '# D-A-QUOTED-KEY-SQ$' '/# D-A-QUOTED-KEY-SQ$/d' 1 0 \
+  "$P" "condition is 'if: false'" \
+  "$DMCTL" "$DMCTL_SIG" \
+  'the single-quote arm is a SEPARATE arm — the double-quote one does not cover it'
+
+echo "=== DM13-spaced-key-carries-D24 ==="
+P="$TOPTMP/dm13"; mk_tok_wf "$P" "" "$STEP_KEYS_GOOD
+        continue-on-error : true" yes emitted
+assert_mutant_false_ok_ctl DM13-spaced-key-carries-D24 spacedkey \
+  '# D-A-SPACED-KEY$' \
+  's@^\([[:space:]]*\)if (c !~ .*# D-A-SPACED-KEY$@\1if (c !~ /^[A-Za-z_][A-Za-z0-9_-]*:/) return@' 1 1 \
+  "$P" "$DMCTL_SIG" \
+  "$DMCTL" "$DMCTL_SIG" \
+  'narrow the key guard by the one [ ]* and the spaced spelling goes invisible again'
+
+echo "=== DM14-merge-verdict-carries-D25 ==="
+P="$TOPTMP/dm14"; mk_tok_wf "$P" "" "$STEP_KEYS_GOOD
+        <<: *soft" yes emitted
+printf 'x-soft: &soft\n  continue-on-error: true\n' >> "$P/.github/workflows/ci.yml"
+assert_mutant_false_ok "DM14-merge-verdict-carries-D25" mergeverdict \
+  '^[[:space:]]*wf_swallows=1[[:space:]]*# D-A-MERGE-VERDICT$' \
+  's@^\([[:space:]]*\)wf_swallows=1[[:space:]]*# D-A-MERGE-VERDICT$@\1:@' 1 1 \
+  "$P" "$(merge_sig step)" \
+  'without the fail-closed merge arm a step whose real configuration is in an anchor is told the next push enforces'
 
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
