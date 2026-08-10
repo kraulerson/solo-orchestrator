@@ -531,16 +531,50 @@ cmd_repair() {
 # Tabs are not handled because YAML forbids tab indentation outright.
 _wf_gate_scope() {
   awk '
+    # CR, DQ and SQ are built with sprintf rather than written literally. This
+    # whole program lives inside a single-quoted shell string, so an apostrophe
+    # cannot appear in it at all; building all three the same way keeps the two
+    # quote arms visibly parallel for review instead of one being a special
+    # case. Dynamic regexes ("^" DQ ...) are POSIX awk and behave identically on
+    # BSD awk, gawk and mawk.
+    BEGIN { CR = sprintf("%c", 13); DQ = sprintf("%c", 34); SQ = sprintf("%c", 39) }
     function ind(s,   t) { t = s; sub(/[^ ].*$/, "", t); return length(t) }
     function emit(pfx, c,   k, v) {
-      if (c !~ /^[A-Za-z_][A-Za-z0-9_-]*:/) return
-      k = c; sub(/:.*$/, "", k)
-      v = c; sub(/^[A-Za-z_][A-Za-z0-9_-]*:[ ]*/, "", v); sub(/[ ]+$/, "", v)
+      # A QUOTED key is the same key (R-dA-2). YAML permits both quote styles
+      # for an implicit key and generated / round-tripped workflows emit them,
+      # so a double-quoted continue-on-error and a single-quoted if are ordinary
+      # spellings of the two swallows this scan exists to find. Reading only the
+      # bare spelling let them through UNSEEN and the claim was earned while the
+      # step was inert — the unsafe direction. The key is unquoted for
+      # COMPARISON only; the value keeps its existing handling, so a quoted key
+      # with a deviating value is still refused on the value.
+      if (c ~ ("^" DQ "[A-Za-z_][A-Za-z0-9_-]*" DQ "[ ]*:")) { sub("^" DQ, "", c); sub(DQ "[ ]*:", ":", c) }  # D-A-QUOTED-KEY-DQ
+      if (c ~ ("^" SQ "[A-Za-z_][A-Za-z0-9_-]*" SQ "[ ]*:")) { sub("^" SQ, "", c); sub(SQ "[ ]*:", ":", c) }  # D-A-QUOTED-KEY-SQ
+      # A merge key pulls the effective configuration in from an anchor
+      # ELSEWHERE in the file, so the block being read does not settle the
+      # question and the swallow may be in the anchor. Anchors are deliberately
+      # NOT resolved — this reports the merge and lets the caller fail closed,
+      # the same doctrine the unlocatable structure already gets.
+      if (substr(c, 1, 3) == "<<:") { print pfx "MERGE " c; return }                                          # D-A-MERGE-KEY
+      # …and YAML allows whitespace between an implicit key and its colon
+      # (`s-separate-in-line?`), which is why the guard and both extractors read
+      # `[ ]*:` and not `:`. Same evasion class as the quoted key, same fix.
+      if (c !~ /^[A-Za-z_][A-Za-z0-9_-]*[ ]*:/) return                                                        # D-A-SPACED-KEY
+      k = c; sub(/[ ]*:.*$/, "", k)
+      v = c; sub(/^[A-Za-z_][A-Za-z0-9_-]*[ ]*:[ ]*/, "", v); sub(/[ ]+$/, "", v)
       print pfx "KEY " k
       if (k == "if")                print pfx "IF " v
       if (k == "continue-on-error") print pfx "COE " v
     }
     { L[NR] = $0; n = NR }
+    # CRLF is a line ENDING, not a configuration difference: GitHub Actions
+    # parses a CRLF workflow identically to its LF twin, and before this strip
+    # the trailing \r rode along on every key value and on the `steps:` / job-id
+    # anchors, so a correctly-wired CRLF ci.yml was told its own `if:` was not
+    # its own `if:` and its job could not be located. ANCHORED at end of line on
+    # purpose: a CR *inside* a value is content, and eating it would repair a
+    # genuinely different condition into the shipped one — a false OK.
+    { sub(CR "$", "", L[NR]) }                                                                                # D-A-CRLF-STRIP
     END {
       hit = 0
       for (i = 1; i <= n; i++) {
@@ -889,6 +923,7 @@ EOM
   local wf_exec="" wf_gate="" wf_dev="" wf_scope="" wf_n_inv=0
   local wf_step_coe="" wf_step_if="" wf_job_coe="" wf_job_if=""
   local wf_has_step_coe=0 wf_has_step_if=0 wf_bad_key="" wf_unlocated="" wf_k=""
+  local wf_merge="" wf_merge_txt=""
   if [ -f "$wf" ]; then
     # Whole-line comments are dropped up front: everything below reasons about
     # what the runner EXECUTES, and the emitted step carries a 25-line comment
@@ -946,6 +981,13 @@ EOM
     done
     if printf '%s\n' "$wf_scope" | grep -qx 'STEP none'; then wf_unlocated="step"; fi
     if printf '%s\n' "$wf_scope" | grep -qx 'JOB none';  then wf_unlocated="job";  fi
+    # A merge key is unlocatable structure of a subtler kind: the step and the
+    # job ARE found, but their effective keys are not all in the block that was
+    # read. Named separately from $wf_unlocated so the two stay independently
+    # neuterable and the user gets the edit that actually applies to them.
+    if printf '%s\n' "$wf_scope" | grep -q '^STEPMERGE '; then wf_merge="step"; fi
+    if printf '%s\n' "$wf_scope" | grep -q '^JOBMERGE ';  then wf_merge="${wf_merge:+$wf_merge and }job"; fi
+    wf_merge_txt=$(printf '%s\n' "$wf_scope" | sed -n -e 's/^STEPMERGE //p' -e 's/^JOBMERGE //p' | head -1 || true)
 
     if [ "$wf_has_step_coe" -ge 1 ] && [ "$wf_step_coe" != "false" ]; then
       wf_swallows=1   # D-A-STEP-COE-VERDICT
@@ -961,6 +1003,9 @@ EOM
     fi
     if [ -n "$wf_unlocated" ]; then
       wf_swallows=1   # D-A-UNLOCATED-VERDICT
+    fi
+    if [ -n "$wf_merge" ]; then
+      wf_swallows=1   # D-A-MERGE-VERDICT
     fi
   fi
 
@@ -1017,6 +1062,9 @@ EOM
     if [ -n "$wf_unlocated" ]; then
       echo "  - Could not locate the $wf_unlocated that runs the gate in $wf, so how its verdict is graded cannot be verified. Check the file by hand against this shape:"
       _wf_print_gate_step "$secret_name"
+    fi
+    if [ -n "$wf_merge" ]; then
+      echo "  - A YAML merge key on the gate's $wf_merge pulls in keys from ELSEWHERE in the file: $wf_merge_txt. The effective 'continue-on-error:' and 'if:' are therefore not in the block this check reads, so a swallow could be sitting in the anchor. Anchors are not resolved here — write the keys out on the $wf_merge itself and re-run this command."
     fi
   fi
   echo ""
