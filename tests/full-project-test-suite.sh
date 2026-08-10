@@ -723,6 +723,30 @@ run_child_suite "tests/test-brownfield-wp4-driver.sh" \
   "Adoption driver (chooser verbatim, floor rule, reverse intake, fail-safe write order)" \
   "Adoption WP4 driver tests FAILED (run tests/test-brownfield-wp4-driver.sh for details)"
 
+# Brownfield adoption WP5b: tests/test-brownfield-wp5b-test-debt.sh — the
+# TEST-DEBT LEDGER (.claude/test-debt.json) and its tier ratchet, which is
+# kind (c)'s forward equivalent: the ordering of pre-adoption commits is not a
+# re-runnable fact, so what is enforced instead is that the untested set may
+# not GROW and that a ledgered file which is TOUCHED must leave the set.
+# THE SECOND MUTATION DIRECTION IS THE POINT. Neutering an arm and watching
+# the untested set grow silently is the obvious half. The other half — neuter
+# the TIER FLOOR and watch the arm refuse a `no`-tier project — is the one
+# that usually gets skipped, and a ratchet that blocks a poc_mode project is
+# not a stricter ratchet, it is the shape that makes an operator disable the
+# framework (the false-FAIL doctrine of BL-122/BL-149). Both directions are
+# proved for BOTH arms: M1/M2 neuter the arms, M3/M4 neuter the floor and
+# observe it through each arm's own fixture, M5 promotes the `light` row so
+# the identical WARN becomes a block (the `[WARN]` trap, asserted as an exit
+# code and never as a label).
+# The tier read consumes read_enforcement_level and assert_choosable and
+# RAISES ONLY, so `## BL-221:`'s live fail-open — `.deployment // "personal"`
+# resolving an ABSENT key to the choosable tier — cannot lower anything; M6
+# deletes the key-presence guard and the same manifest buys silence.
+# Never invokes the scaffolder -> both lanes.
+run_child_suite "tests/test-brownfield-wp5b-test-debt.sh" \
+  "Adoption test-debt ledger + tier ratchet (non-growth, touch-repays, both mutation directions)" \
+  "Adoption WP5b test-debt tests FAILED (run tests/test-brownfield-wp5b-test-debt.sh for details)"
+
 # ----------------------------------------------------------------
 # TEST 0g: INTAKE WIZARD + RECONFIGURE FIELD HANDLERS
 # ----------------------------------------------------------------
