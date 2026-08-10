@@ -1335,6 +1335,64 @@ assert_withheld D27-alias-step-fails-closed "$P" \
   "Could not locate the step that runs the gate" \
   'an aliased step keeps its configuration outside the block, and the existing fail-closed arm already refuses it'
 
+# ── D28-D30: the same evasion ONE LEVEL UP, in the job LOCATOR ─────────────
+# Found while probing the residual surface of R-dA-2, and the worst of the set
+# because it fails OPEN. Locating the job was a climb for the nearest line
+# matching /^ +[A-Za-z_][A-Za-z0-9_-]*: *$/, and a line it could not read was
+# SKIPPED rather than stopped at — so a quoted job id sent it climbing out of
+# `jobs:` entirely and it bound "the job" to `push:` inside the `on:` block.
+# Observed directly: the scope report for such a file reads `JOBKEY branches`.
+# It then scanned the TRIGGER for job-level swallows, found none, and awarded
+# the claim while a real `continue-on-error: true` on the actual job was never
+# read. The fix is to stop at the nearest ENCLOSING line and fail closed when it
+# is not a readable job id — guessing further is what produced this.
+JOB_ID_FIXTURE_HEAD='name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:'
+JOB_ID_FIXTURE_TAIL="    steps:
+      - name: Governance - Phase gate check
+$STEP_KEYS_GOOD
+        env:
+          GH_TOKEN: \${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          if [ ! -f scripts/check-phase-gate.sh ]; then
+            echo \"::error::Phase gate check script missing. Framework integrity compromised.\"
+            exit 1
+          fi
+          bash scripts/check-phase-gate.sh"
+# mk_jobid_wf <dir> <job-id-line> <job-keys-or-empty>
+mk_jobid_wf() {
+  local d="$1" idline="$2" jobkeys="${3:-}"
+  mk_tok "$d" github ok yes || return 1
+  {
+    printf '%s\n' "$JOB_ID_FIXTURE_HEAD"
+    printf '%s\n' "$idline"
+    [ -n "$jobkeys" ] && printf '%s\n' "$jobkeys"
+    printf '    runs-on: ubuntu-latest\n'
+    printf '%s\n' "$JOB_ID_FIXTURE_TAIL"
+  } > "$d/.github/workflows/ci.yml"
+}
+
+echo "=== D28-quoted-job-id-still-reads-the-job ==="
+P="$TOPTMP/d28"; mk_jobid_wf "$P" '  "test":' "    continue-on-error: true"
+assert_withheld D28-quoted-job-id-still-reads-the-job "$P" \
+  "so that job's failure does not count" \
+  'a quoted job id must not make the job unreadable — the swallow on it is a real swallow'
+
+echo "=== D29-unreadable-job-id-fails-closed ==="
+P="$TOPTMP/d29"; mk_jobid_wf "$P" '  test: &jobdefaults' ""
+assert_withheld D29-unreadable-job-id-fails-closed "$P" \
+  "Could not locate the job that runs the gate" \
+  'an id line that is not a plain job id must STOP the search, not send it climbing into the on: block'
+
+echo "=== D30-quoted-job-id-clean-job-still-earns ==="
+P="$TOPTMP/d30"; mk_jobid_wf "$P" '  "test":' ""
+assert_earns_ok D30-quoted-job-id-clean-job-still-earns "$P" \
+  'the locator must read the quoted id, not merely refuse it — failing every quoted job closed would be a false red'
+
 # ════════════════════════════════════════════════════════════════════════════
 # DM1-DM8 — the other direction. Each mutant neuters ONE line and the false
 # claim comes back. mk_cg_mutant asserts the harness standard for every one of
@@ -1478,6 +1536,14 @@ assert_mutant_false_ok "DM14-merge-verdict-carries-D25" mergeverdict \
   's@^\([[:space:]]*\)wf_swallows=1[[:space:]]*# D-A-MERGE-VERDICT$@\1:@' 1 1 \
   "$P" "$(merge_sig step)" \
   'without the fail-closed merge arm a step whose real configuration is in an anchor is told the next push enforces'
+
+echo "=== DM15-job-id-closed-carries-D29 ==="
+P="$TOPTMP/dm15"; mk_jobid_wf "$P" '  test: &jobdefaults' ""
+assert_mutant_false_ok_ctl DM15-job-id-closed-carries-D29 jobidclosed \
+  '# D-A-JOB-ID-CLOSED$' '/# D-A-JOB-ID-CLOSED$/d' 1 0 \
+  "$P" "Could not locate the job that runs the gate" \
+  "$DMCTL" "$DMCTL_SIG" \
+  'without the fail-closed job-id guard an unreadable enclosing line is scanned as if it were the job'
 
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
