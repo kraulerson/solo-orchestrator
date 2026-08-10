@@ -567,6 +567,24 @@ ratchet, it is the thing that makes people turn the framework off.
 | 3 | **Blocked by non-growth** |
 | 4 | **Blocked by touch-repays** |
 
+### Renames
+
+A **pure** rename of a ledgered file passes. Neither rule is met — the set
+gained no member, and nothing was modified — so blocking it would be a
+false-FAIL, and an earlier cut that did block it had no way out: re-baselining
+put the new path in the ledger and the same rename blocked again from the other
+arm. What you get instead is a note, and the run still succeeds:
+
+```text
+[NOTE] test-debt: 1 ledgered file(s) were renamed. The ledger still names the old path(s):
+          src/ledger.js -> src/ledger-v2.js
+          Re-baseline so the debt follows the file:  --write --root .
+```
+
+A rename that **also changes the file** is a modification, and the obligation
+follows the file to its new path — otherwise `git mv` plus an edit would be a
+one-commit way to shed it.
+
 ### Three things it does not claim
 
 1. **"Has a test" is not "is tested."** The ledger answers a filename question

@@ -109,6 +109,41 @@
 # nothing. grep, sed, tr and shell only; the failure mode is removed rather
 # than defended against, and the suite pins the property.
 #
+# ─────────────────────────────────────────────────────────────────────────────
+# THREE BEHAVIOURS THAT ARE DECISIONS, NOT ACCIDENTS. Each is pinned by a test,
+# because an undocumented edge in a blocking gate becomes a bug report about
+# the framework rather than about the edge.
+#
+# 1. `git -c core.quotePath=false` ON EVERY GIT READ. Without it git renders a
+#    non-ASCII path as `"src/caf\303\251.js"` — quotes included — and that
+#    string has no recognised source extension, so the file drops out of the
+#    census silently and neither arm can ever see it. Measured on a fixture
+#    before the flag was added: `src/café.js` was untested and absent from the
+#    ledger. Paths containing a literal TAB or NEWLINE are still beyond this
+#    (the name-status reader splits on tabs), the same bound the BL-072 gate
+#    has.
+#
+# 2. A PURE RENAME (`R100`) OF A LEDGERED FILE PASSES, WITH A `[NOTE]`. Neither
+#    arm's rule is met — the set gained no member and nothing was modified — and
+#    an earlier cut that blocked it produced a trap worth recording: the block
+#    fired as non-growth on the new path, re-baselining then put the new path in
+#    the ledger, and the SAME staged rename immediately blocked again as
+#    touch-repays. There was no way out of that loop except writing a test for a
+#    file the operator had only moved, which is exactly the false-FAIL that
+#    teaches people to switch a gate off. It also blocked renames of TESTED
+#    files, because the new stem stopped matching the test's name. So the rename
+#    passes — and, because a rename is the one way debt can leave the ledger
+#    without being paid, the run says so and tells you to re-baseline. A rename
+#    that ALSO changes content (`R090`) is a modification and does owe a test,
+#    at the new path.
+#
+# 3. THE INLINE-TEST PROBE READS THE WORKING TREE, not the staged blob. For the
+#    census that is the only file there is. For the arms it means a `.rs` file
+#    staged WITH its `#[cfg(test)]` block and then stripped in the worktree
+#    reads as tested. The gate's own copy of the probe reads the staged diff;
+#    this one cannot, because the same function serves a census that has no
+#    diff to read.
+#
 # bash-3.2 safe: no ${var,,}, no associative arrays, no mapfile, no nullglob,
 # no ((x++)) (this file may be sourced into a caller running under errexit).
 # shellcheck shell=bash
@@ -201,7 +236,7 @@ _td_has_inline_tests() {
 # differently-spelled lookup over the staged diff.
 _td_test_names() {
   local p
-  ( cd "$1" 2>/dev/null && git ls-files 2>/dev/null ) | while IFS= read -r p; do
+  ( cd "$1" 2>/dev/null && git -c core.quotePath=false ls-files 2>/dev/null ) | while IFS= read -r p; do
     [ -n "$p" ] || continue
     _bl072_is_test_file "$p" && printf '%s\n' "${p##*/}"
   done
@@ -244,7 +279,7 @@ _td_in_ledger() {
 # would then demand tests for them.
 _td_census() {
   local root="$1" names="$2" p
-  ( cd "$root" 2>/dev/null && git ls-files 2>/dev/null ) > "$TD_TMP/all"
+  ( cd "$root" 2>/dev/null && git -c core.quotePath=false ls-files 2>/dev/null ) > "$TD_TMP/all"
   : > "$TD_TMP/untested"
   while IFS= read -r p; do
     [ -n "$p" ] || continue
@@ -402,10 +437,32 @@ adopt_test_debt_write() {
 
 # ── The ratchet ─────────────────────────────────────────────────────────────
 
+# _td_owes_repayment STATUS OLDPATH EFFPATH — is this staged entry a TOUCH of a
+# ledgered file?
+#
+# `R100` / `C100` is git's own statement that the content is byte-identical, so
+# it is a MOVE and not a modification: the design's arm is "a file in the set
+# that is MODIFIED must leave it", and a move modifies nothing. Below 100 the
+# content did change, and then the obligation follows the file to its new path
+# — otherwise `git mv` plus an edit would be a one-commit way to shed the
+# obligation entirely, which is a worse hole than the one this closes.
+_td_owes_repayment() {
+  local status="$1" old="$2" eff="$3"
+  case "$status" in
+    R100|C100) return 1 ;;
+    R*|C*)
+      _td_in_ledger "$old" "$TD_TMP/ledgered" && return 0
+      _td_in_ledger "$eff" "$TD_TMP/ledgered" && return 0
+      return 1
+      ;;
+  esac
+  _td_in_ledger "$eff" "$TD_TMP/ledgered"
+}
+
 _td_check_body() {
   local root="$1"
   local ledger="$root/$TD_LEDGER_REL"
-  local tier sev staged names status path extra eff n_grow n_touch
+  local tier sev staged names status path extra eff n_grow n_touch n_moved moved_row
 
   tier="$(adopt_test_debt_tier "$root")"
   sev="$(_td_severity "$tier")"
@@ -434,20 +491,29 @@ _td_check_body() {
   jq -r '.files[]? // empty' "$ledger" 2>/dev/null > "$TD_TMP/ledgered"
   names="$TD_TMP/names"
   _td_test_names "$root" > "$names"
-  staged="$( cd "$root" 2>/dev/null && git diff --cached --name-status 2>/dev/null )"
+  staged="$( cd "$root" 2>/dev/null && git -c core.quotePath=false diff --cached --name-status 2>/dev/null )"
 
   : > "$TD_TMP/grow"
   : > "$TD_TMP/touch"
+  : > "$TD_TMP/moved"
 
-  # ── Arm 1: NON-GROWTH — the untested set may not gain a member ────────────
-  # ADDITIONS only. A pure deletion is carved out upstream by
-  # _bl072_status_effective_path (removing a source file is not shipping
-  # implementation); a modification belongs to the other arm.
+  # ── Arm 1: NON-GROWTH — the untested set may not GAIN a member ────────────
+  # ADDITIONS ONLY, and the word is the design's. A rename does not create a
+  # member — the file was already in the repository under another name — so
+  # R/C statuses are the other arm's business, and were measured producing two
+  # false blocks here before this narrowing: renaming an untested file read as
+  # growth, and renaming a TESTED file read as growth too, because the new
+  # stem no longer matched its test's name. A pure deletion is carved out
+  # upstream by _bl072_status_effective_path.
+  #
+  # `C` (copy) genuinely would create a member, and is deliberately not
+  # matched: git emits it only under `-C`, which nothing here passes, so a
+  # branch for it would be unreachable code pretending to be coverage.
   while IFS="$(printf '\t')" read -r status path extra; do
     [ -n "$status" ] || continue
     eff="$(_bl072_status_effective_path "$status" "$path" "$extra")"
     [ -z "$eff" ] && continue
-    case "$status" in A|A[0-9]*|R*|C*) ;; *) continue ;; esac
+    case "$status" in A|A[0-9]*) ;; *) continue ;; esac
     _td_is_candidate "$eff" || continue
     _td_in_ledger "$eff" "$TD_TMP/ledgered" && continue
     _td_has_test "$root" "$eff" "$names" && continue
@@ -465,7 +531,10 @@ TD_STAGED_ADDS
     [ -n "$status" ] || continue
     eff="$(_bl072_status_effective_path "$status" "$path" "$extra")"
     [ -z "$eff" ] && continue
-    _td_in_ledger "$eff" "$TD_TMP/ledgered" || continue
+    case "$status" in
+      R*|C*) _td_in_ledger "$path" "$TD_TMP/ledgered" && printf '%s -> %s\n' "$path" "$eff" >> "$TD_TMP/moved" ;;
+    esac
+    _td_owes_repayment "$status" "$path" "$eff" || continue
     _td_has_test "$root" "$eff" "$names" && continue
     printf '%s\n' "$eff" >> "$TD_TMP/touch"   # BF-TD-TOUCH-ARM
   done <<TD_STAGED_TOUCHES
@@ -474,6 +543,21 @@ TD_STAGED_TOUCHES
 
   n_grow="$(grep -c . "$TD_TMP/grow" 2>/dev/null)";  case "$n_grow"  in ''|*[!0-9]*) n_grow=0 ;;  esac
   n_touch="$(grep -c . "$TD_TMP/touch" 2>/dev/null)"; case "$n_touch" in ''|*[!0-9]*) n_touch=0 ;; esac
+  n_moved="$(grep -c . "$TD_TMP/moved" 2>/dev/null)"; case "$n_moved" in ''|*[!0-9]*) n_moved=0 ;; esac
+
+  # The stale-ledger NOTE, and why it is not a block. A pure rename of a
+  # ledgered file is the one way debt can leave the ledger without being paid:
+  # the recorded path stops existing and the new one was never recorded, so
+  # touch-repays will never see that file again. Blocking would be wrong — the
+  # design says the set may not GAIN a member and that a MODIFIED member must
+  # leave, and a move is neither. Staying silent would be worse: it is a
+  # laundering route with no trace. So it is said, and the run still passes.
+  if [ "$n_moved" -gt 0 ]; then
+    echo "[NOTE] test-debt: $n_moved ledgered file(s) were renamed. The ledger still names the old path(s):"
+    while IFS= read -r moved_row; do [ -n "$moved_row" ] && echo "          $moved_row"; done < "$TD_TMP/moved"
+    echo "          Re-baseline so the debt follows the file:  --write --root ."
+  fi
+
   [ "$n_grow" -eq 0 ] && [ "$n_touch" -eq 0 ] && return 0
 
   _td_report "$sev" "$n_grow" "$n_touch"

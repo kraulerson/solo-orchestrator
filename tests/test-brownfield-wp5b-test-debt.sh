@@ -472,6 +472,85 @@ if ! _c_fixture "$C6D" strict; then fail_ "C6" "fixture setup failed"; else
   fi
 fi
 
+# C7 — a PURE RENAME (git reports R100) of a ledgered untested file. Neither
+# arm's rule is met: the set gained no member and nothing was modified. An
+# earlier cut of this module blocked it as non-growth on the new path, and the
+# result was a TRAP worth pinning against: re-baselining put the new path in
+# the ledger, and the same staged rename immediately blocked again as
+# touch-repays — no way out but writing a test for a file that had only moved.
+#
+# So the rename passes, and because a rename is the one way debt can leave the
+# ledger unpaid, the run must SAY the ledger is now stale. The pin asserts all
+# three: rc 0, the note naming both paths, and — after re-baselining — that the
+# debt FOLLOWED the file instead of evaporating.
+C7D="$(newtmp)/p"
+if ! _c_fixture "$C7D" strict; then fail_ "C7" "fixture setup failed"; else
+  gitq "$C7D" reset -q
+  gitq "$C7D" mv src/debt.js src/renamed-debt.js
+  check_in "$C7D"; c7_rc=$CHK_RC
+  c7_noted=0; grep -q 'src/debt\.js -> src/renamed-debt\.js' "$CHK_OUT" && c7_noted=1
+  write_ledger "$C7D"
+  c7_carried=$(jq -r '[.files[] | select(. == "src/renamed-debt.js")] | length' "$C7D/.claude/test-debt.json" 2>/dev/null)
+  c7_rows=$(jq -r '.audit | length' "$C7D/.claude/test-debt.json" 2>/dev/null)
+  if [ "$c7_rc" -eq 0 ] && [ "$c7_noted" -eq 1 ] \
+     && [ "$(_num "$c7_carried")" -eq 1 ] && [ "$(_num "$c7_rows")" -eq 2 ]; then
+    pass "C7: a PURE rename of a ledgered untested file passes (rc 0) and is NOTED with both paths; re-baselining carries the debt to the new path and leaves a second audit row — the move is not growth, not a modification, and not a silent way out"
+  else
+    fail_ "C7" "rc=$c7_rc (want 0) stale_ledger_noted=$c7_noted (want 1) debt_carried_to_new_path=$c7_carried (want 1) audit_rows=$c7_rows (want 2)"
+  fi
+fi
+
+# C9 — the same rename WITH a content change (git reports R090 here). Now it IS
+# a modification, so the obligation follows the file to its new path. Without
+# this row, `git mv` plus an edit would be a one-commit way to shed the
+# obligation entirely — a bigger hole than the false block C7 removed. The
+# control is C7 itself: identical fixture, identical rename, no edit, rc 0.
+C9D="$(newtmp)/p"
+if ! mk_repo "$C9D"; then fail_ "C9" "fixture setup failed"; else
+  # A file big enough for git to score the rename instead of reporting A+D.
+  : > "$C9D/src/wide.js"
+  for c9_i in 1 2 3 4 5 6 7 8 9 10; do
+    printf 'export function f%s() { return %s; }\n' "$c9_i" "$c9_i" >> "$C9D/src/wide.js"
+  done
+  gitq "$C9D" add src/wide.js
+  gitq "$C9D" commit -q -m "chore: a wide untested file"
+  write_ledger "$C9D"
+  set_tier "$C9D" '{"deployment":"personal","poc_mode":"production","enforcement_level":"strict"}'
+  gitq "$C9D" mv src/wide.js src/wider.js
+  printf 'export function added() { return 99; }\n' >> "$C9D/src/wider.js"
+  gitq "$C9D" add src/wider.js
+  c9_status=$( unset GITHUB_BASE_REF; cd "$C9D" && git -c core.quotePath=false diff --cached --name-status 2>/dev/null | cut -f1 )
+  check_in "$C9D"
+  c9_named=0; grep -q 'src/wider\.js' "$CHK_OUT" && c9_named=1
+  case "$c9_status" in R100|A) c9_shape=0 ;; R*) c9_shape=1 ;; *) c9_shape=0 ;; esac
+  if [ "$CHK_RC" -eq 4 ] && [ "$c9_named" -eq 1 ] && [ "$c9_shape" -eq 1 ]; then
+    pass "C9: a rename that ALSO changes content ($c9_status) owes a test at the NEW path — rc 4, touch-repays, so `git mv` plus an edit is not a way to shed the obligation"
+  else
+    fail_ "C9" "rc=$CHK_RC (want 4) new_path_named=$c9_named (want 1) git_status='$c9_status' partial_rename_shape=$c9_shape (want 1; a plain A or R100 would mean the fixture stopped testing what it names)"
+  fi
+fi
+
+# C8 — a NON-ASCII path must not vanish. git renders it as "src/caf\303\251.js"
+# — quotes included — unless core.quotePath is off, and that string has no
+# recognised source extension, so the file drops out of the census in silence
+# and neither arm can ever see it. Measured on a fixture before the flag was
+# added: absent from the ledger. A silent exclusion from a blocking gate is
+# worse than a noisy one, so it gets its own row.
+C8D="$(newtmp)/p"
+if ! mk_repo "$C8D"; then fail_ "C8" "fixture setup failed"; else
+  printf 'export function cafe() { return 1; }\n' > "$C8D/src/café.js"
+  gitq "$C8D" add "src/café.js"
+  gitq "$C8D" commit -q -m "chore: a non-ascii path"
+  write_ledger "$C8D"
+  c8_listed=$(jq -r '[.files[] | select(. == "src/café.js")] | length' "$C8D/.claude/test-debt.json" 2>/dev/null)
+  c8_quoted=$(jq -r '[.files[] | select(startswith("\""))] | length' "$C8D/.claude/test-debt.json" 2>/dev/null)
+  if [ "$(_num "$c8_listed")" -eq 1 ] && [ "$(_num "$c8_quoted")" -eq 0 ]; then
+    pass "C8: a non-ASCII source path is ledgered under its REAL name — core.quotePath is off on every git read, so the file cannot drop out of the census as an unrecognised extension"
+  else
+    fail_ "C8" "unicode_path_listed=$c8_listed (want 1) quoted_paths_in_ledger=$c8_quoted (want 0) files=$(jq -c '.files' "$C8D/.claude/test-debt.json" 2>/dev/null)"
+  fi
+fi
+
 echo ""
 echo "=== D — the TOUCH-REPAYS arm (§5.4: a modified ledgered file must leave the set) ==="
 
