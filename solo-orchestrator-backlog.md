@@ -8652,6 +8652,16 @@ permission bits, because the question is whether *this process* can open it,
 which is what `awk` is about to attempt. `tests/test-delta-db-ledger-close.sh`
 rows S2/S3 pin both ledgers and m11 pins the guard's deletion.
 
+**A residual the probe shape cannot close, recorded so the surface stays named.**
+A ledger made unreadable *between* the `# CUTREL-LEDGER-READGUARD` probe and the
+read it protects reinstates the original silent death — rc 2 mid-write, no
+message, no tag. It needs an active racer during the run, and there is no fix
+that is not worse: any guard that would *catch* the failed read is the
+`|| fallback` shape this entry is about, which on the FEATURES branch reopens the
+`none` conflation measured above, and guarding those reads would additionally
+mask m11 — the only thing pinning the probe's existence. Left open deliberately,
+not overlooked.
+
 **THE SCAN, AND WHAT IT ACTUALLY FOUND — READ THIS BEFORE ASSUMING THE SURFACE
 IS CLEAR.** The first draft of this entry was going to say "every surviving
 `|| x=` guard wraps an external (`jq`, `awk`, `mktemp`) with nothing internal to
@@ -8661,11 +8671,20 @@ suspend". **Running the scan disproved that.** Recipe:
 grep -rn '="\$(' scripts/ init.sh | grep '||'
 ```
 
-**21** of those hits wrap a **project function** rather than a binary, and **9
-of the 21 callees nest bare command substitutions of their own** — i.e. they are
-in the suspect shape today:
+Of the hits that wrap a **project function** rather than a binary, **nine
+distinct callees nest further command substitutions of their own** — i.e. they
+are in the suspect shape today — and those nine are reached from **21 guard
+sites**. Read 21 as *guard sites over suspect callees*, **not** as the number of
+project-function hits: re-running the recipe finds roughly twice that many, and
+the extras were checked and dropped. Adversarial review re-ran the recipe
+independently and confirmed every project-function callee omitted from the table
+nests **zero** substitutions (`prompt_choice` — the `helpers-core.sh` definition
+`delta.sh` actually binds — `_seam`, `_manifesto_candidates`, `_rubric_boxes`,
+`soif_currency_sha256`/`_mode`, `soif_adoption_read`, `adopt_obtain_report`,
+`_p3_license_pairs`, `_soif_plan_cmfield`, `soif_currency_file_field`), so the
+worklist below is **complete rather than sampled**.
 
-| callee | nested bare substitutions | guard sites |
+| callee | nested substitutions | guard sites |
 |---|---|---|
 | `soif_freshness_run` | 11 | 1 |
 | `delta_classify_lines` | 5 | 2 |
@@ -8676,6 +8695,14 @@ in the suspect shape today:
 | `delta_classify_risk_matches` | 2 | 1 |
 | `delta_cadence_epoch` | 2 | 1 |
 | `delta_state_read` | 1 | 2 |
+
+Two rows are deliberate **over-inclusion**, not confirmed suspects:
+`delta_classify_risk_matches` and `delta_cadence_epoch` nest only *locally
+`||`-guarded* substitutions rather than bare ones, and `delta_cadence_epoch` is
+fail-closed by design — its digits-only `case "$e" in ''|*[!0-9]*) return 1`
+validates the result before returning it. They stay on the worklist because an
+audit should confirm rather than assume, but they are the two least likely to
+yield anything.
 
 **One family spot-checked, and it is safe BY ACCIDENT rather than by design.**
 `delta_policy_get` (the widest, 10 guard sites) does
