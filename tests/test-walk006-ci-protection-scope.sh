@@ -481,6 +481,123 @@ mk_cg_mutant() {
   return 0
 }
 
+# ── D-A fixture writer (Karl 2026-08-09) ────────────────────────────────────
+# mk_wf <out> <job-extra-keys> <step-keys> <mapped:yes|no> <body:emitted|nogate>
+#       [extra-steps]
+# Writes a COMPLETE, structurally-valid github workflow whose phase-gate step is
+# the shape templates/pipelines/ci/github/*.yml ships, differing from it only by
+# what the caller splices in. One writer for every structural case below, so a
+# refusal is attributable to exactly one cause and "withheld alone" means what
+# it says.
+#
+# <step-keys> is the WHOLE step key block, not an addition to a fixed one: an
+# `if:` case must REPLACE the shipped condition rather than sit beside it as a
+# duplicate YAML key, which would be a malformed fixture testing nothing.
+STEP_KEYS_GOOD="        if: hashFiles('.claude/phase-state.json') != ''"
+mk_wf() {
+  local out="$1" jobkeys="$2" stepkeys="$3" mapped="$4" body="$5" extra="${6:-}"
+  {
+    printf 'name: CI\n'
+    printf 'on:\n  push:\n    branches: [main]\n  pull_request:\n    branches: [main]\n\n'
+    printf 'jobs:\n  test:\n    runs-on: ubuntu-latest\n'
+    [ -n "$jobkeys" ] && printf '%s\n' "$jobkeys"
+    printf '    steps:\n'
+    printf '      - name: Governance - Phase gate check\n'
+    [ -n "$stepkeys" ] && printf '%s\n' "$stepkeys"
+    if [ "$mapped" = yes ]; then
+      printf '        env:\n          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}\n'
+    fi
+    printf '        run: |\n'
+    if [ "$body" = emitted ]; then
+      printf '          if [ ! -f scripts/check-phase-gate.sh ]; then\n'
+      printf '            echo "::error::Phase gate check script missing. Framework integrity compromised."\n'
+      printf '            exit 1\n'
+      printf '          fi\n'
+      printf '          bash scripts/check-phase-gate.sh\n'
+    else
+      printf '          npm test\n'
+    fi
+    [ -n "$extra" ] && printf '%s\n' "$extra"
+  } > "$out"
+  return 0
+}
+
+# mk_tok_wf <dir> <mk_wf args…> — a fixture PROJECT (manifest, git, gh stub)
+# whose ci.yml is written by mk_wf. Every fixture lives under $TOPTMP; nothing
+# here reads or writes the host filesystem, and no probe resolves a path
+# relative to the fixture's parent (the `../../..` trap: from a mktemp dir that
+# is /var/folders on macOS and / on Ubuntu, so a probe there is unfalsifiable in
+# both directions).
+mk_tok_wf() {
+  local d="$1"; shift
+  mk_tok "$d" github ok yes || return 1
+  mk_wf "$d/.github/workflows/ci.yml" "$@"
+}
+
+# The legacy leftover: the emitted step, plus the pre-R-1 soft step a project
+# upgraded from an older vintage still carries. The ONLY thing wrong with it is
+# the deviating gate line — it maps, and it does carry a real invocation — which
+# is what makes it the right fixture for the allowlist's dual-direction proof.
+WF_LEGACY_STEP='      - name: Governance - Phase gate check (legacy)
+        run: bash scripts/check-phase-gate.sh 2>/dev/null || echo "skipping"'
+
+# assert_withheld <case> <dir> <cause-signature> <why>
+#   Three assertions, not one: the claim is withheld, the refusal SAYS it is
+#   withholding, and it NAMES the cause. A refusal that does not name its cause
+#   is the 3am-lane defect this wave already fixed once, so "it printed
+#   something" is not the bar.
+assert_withheld() {
+  local case_name="$1" d="$2" sig="$3" why="$4"
+  local out rc
+  out=$(run_tok "$d" "$GOOD_TOKEN"); rc=$?
+  if [ "$rc" -eq 0 ] \
+     && ! printf '%s' "$out" | grep -q "The next push enforces the check" \
+     && printf '%s' "$out" | grep -qF "will NOT enforce the check on the next push" \
+     && printf '%s' "$out" | grep -qF -- "$sig"; then
+    pass "$case_name ($why)"
+  else
+    fail_ "$case_name" "rc=$rc — expected the claim WITHHELD and the cause named [$sig], got: $(printf '%s' "$out" | grep -E 'next push|WILL NOT|^  - ' | tr '\n' ' ')"
+  fi
+}
+
+# assert_earns_ok <case> <dir> <why> — the false-positive direction. A hardened
+# detector that reds correct setups is worse than the weak one it replaced.
+assert_earns_ok() {
+  local case_name="$1" d="$2" why="$3"
+  local out rc
+  out=$(run_tok "$d" "$GOOD_TOKEN"); rc=$?
+  if [ "$rc" -eq 0 ] \
+     && printf '%s' "$out" | grep -q "The next push enforces the check" \
+     && ! printf '%s' "$out" | grep -q "will NOT enforce"; then
+    pass "$case_name ($why)"
+  else
+    fail_ "$case_name" "rc=$rc — a LEGITIMATE setup was refused: $(printf '%s' "$out" | grep -E 'next push|WILL NOT|^  - ' | tr '\n' ' ')"
+  fi
+}
+
+# assert_mutant_false_ok <case> <mut> <ere> <sed> <rm> <add> <dir> <sig> <why>
+#   Dual direction: with this one line neutered, the fixture that was just
+#   refused earns the full enforcement claim — the exact false statement the
+#   line exists to prevent. The verdict is CONDITIONAL on observing the thing it
+#   judges: the claim must appear AND the cause signature must be gone, so a
+#   mutant that merely broke something else cannot pass.
+assert_mutant_false_ok() {
+  local case_name="$1" mut="$2" ere="$3" expr="$4" n_rm="$5" n_add="$6" d="$7" sig="$8" why="$9"
+  if ! mk_cg_mutant "$mut" "$ere" "$expr" "$n_rm" "$n_add"; then
+    fail_ "$case_name" "$CG_WHY"
+    return
+  fi
+  local out rc
+  out=$(run_tok_with "$CG_MUT" "$d" "$GOOD_TOKEN"); rc=$?
+  if [ "$rc" -eq 0 ] \
+     && printf '%s' "$out" | grep -q "The next push enforces the check" \
+     && ! printf '%s' "$out" | grep -qF -- "$sig"; then
+    pass "$case_name ($why)"
+  else
+    fail_ "$case_name" "rc=$rc — the neutered detector did not produce the false OK, so the positive case may be measuring something else: $(printf '%s' "$out" | grep -E 'next push|WILL NOT|^  - ' | tr '\n' ' ')"
+  fi
+}
+
 # ── S1: non-github host → NOT APPLICABLE + the manual per-host steps ───────
 echo "=== S1-non-github-not-applicable ==="
 P="$TOPTMP/s1"; mk_tok "$P" gitlab ok
@@ -688,30 +805,36 @@ else
   fail_ "S6k-allowlist-accepts-the-emitted-shape" "rc=$rc — the hardened detector warns about the framework's OWN emitted workflow: $(printf '%s' "$out" | grep -E 'phase-gate step|next push' | tr '\n' ' ')"
 fi
 
-# ── S6m: DUAL DIRECTION — neuter the verdict and the escape claims success ──
-# Everything above shows shapes being refused. This shows that the allowlist is
-# what refuses them: delete its verdict line and the `|| exit 0` workflow gets
-# the full "the next push enforces the check" claim — the exact false statement
-# F-015 exists to prevent.
+# ── S6L / S6m: DUAL DIRECTION — neuter the verdict and the deviation is waved
+# through. Everything above shows shapes being refused. This shows that the
+# ALLOWLIST is what refuses them: delete its verdict line and a workflow whose
+# only defect is a deviating gate line gets the full "the next push enforces the
+# check" claim — the exact false statement F-015 exists to prevent.
+#
+# WHY THE FIXTURE CHANGED (D-A, 2026-08-09). S6m used to drive the mutant with a
+# bare `|| exit 0` run line. That workflow now fails the NEW `invokes` floor as
+# well (no line is the allowlisted invocation), so neutering the allowlist alone
+# no longer produces the false OK and the mutant would have gone vacuous —
+# passing on a fixture it no longer isolates. The fixture is now the realistic
+# shape whose ONLY defect is the deviation: the emitted step, kept intact, plus
+# the pre-R-1 soft step an upgraded project still carries. S6L is its positive
+# control — without it, S6m's "the claim came back" would not be attributable.
+echo "=== S6L-legacy-leftover-step-withheld ==="
+P="$TOPTMP/s6L"; mk_tok_wf "$P" "" "$STEP_KEYS_GOOD" yes emitted "$WF_LEGACY_STEP"
+assert_withheld S6L-legacy-leftover-step-withheld "$P" \
+  "DISCARDS the gate's exit code" \
+  'a leftover soft gate step: the emitted step is intact, so ONLY the deviating line is wrong'
+
 echo "=== S6m-neutered-allowlist-claims-false-enforcement ==="
 # The verdict is REPLACED by a no-op rather than deleted: it is the only
 # statement in its `if`, and an empty then-block is a syntax error — a mutant
 # that fails to parse would prove nothing about the allowlist.
-if mk_cg_mutant projverdict \
-     '^[[:space:]]*wf_swallows=1[[:space:]]*# F-015-PROJECT-ALLOWLIST-VERDICT$' \
-     's@^\([[:space:]]*\)wf_swallows=1[[:space:]]*# F-015-PROJECT-ALLOWLIST-VERDICT$@\1:@' 1 1; then
-  P="$TOPTMP/s6m"; mk_tok "$P" github ok custom 'bash scripts/check-phase-gate.sh || exit 0'
-  out=$(run_tok_with "$CG_MUT" "$P" "$GOOD_TOKEN"); rc=$?
-  if [ "$rc" -eq 0 ] \
-     && printf '%s' "$out" | grep -q "The next push enforces the check" \
-     && ! printf '%s' "$out" | grep -q "DISCARDS the gate's exit code"; then
-    pass "S6m-neutered-allowlist-claims-false-enforcement (without the verdict line the escape is told the next push enforces — the allowlist carries S6e-S6j)"
-  else
-    fail_ "S6m-neutered-allowlist-claims-false-enforcement" "rc=$rc — the neutered detector did not produce the false claim, so S6e-S6j may be measuring something else: $(printf '%s' "$out" | grep -E 'phase-gate step|next push' | tr '\n' ' ')"
-  fi
-else
-  fail_ "S6m-neutered-allowlist-claims-false-enforcement" "$CG_WHY"
-fi
+P="$TOPTMP/s6m"; mk_tok_wf "$P" "" "$STEP_KEYS_GOOD" yes emitted "$WF_LEGACY_STEP"
+assert_mutant_false_ok S6m-neutered-allowlist-claims-false-enforcement projverdict \
+  '^[[:space:]]*wf_swallows=1[[:space:]]*# F-015-PROJECT-ALLOWLIST-VERDICT$' \
+  's@^\([[:space:]]*\)wf_swallows=1[[:space:]]*# F-015-PROJECT-ALLOWLIST-VERDICT$@\1:@' 1 1 \
+  "$P" "DISCARDS the gate's exit code" \
+  'without the verdict line the deviating gate line is told the next push enforces — the allowlist carries S6e-S6j and S6L'
 
 # ── S6b: --token-env rejects a non-identifier (the eval IS an injection sink) ─
 # The indirect read is `eval "token=\${$token_env:-}"`. Without a name check, a
@@ -778,6 +901,287 @@ if [ "$chain_ok" -eq 1 ]; then
 else
   fail_ "S7-chain-secret-name-agrees" "the walkthrough's secret name, the template's mapping and the gate's probe variable do not line up — the walkthrough would store a secret nothing reads"
 fi
+
+# ════════════════════════════════════════════════════════════════════════════
+# PART 3 — D-A (Karl, 2026-08-09): the enforcement claim is gated on
+#     maps && invokes && !swallows
+#
+# Two independent reviewers reproduced two situations where this command told a
+# REAL user "The next push enforces the check" and it was false:
+#   1. NO GATE AT ALL. The old predicate asked only whether a line naming the
+#      gate DEVIATED from the allowlist. A ci.yml that maps the secret and
+#      invokes nothing has no deviating line, so it satisfied the predicate
+#      VACUOUSLY. Nothing ran; nothing enforced.
+#   2. A GATE THAT CANNOT FAIL. The detector was not step-scoped, so it could
+#      not see `continue-on-error: true` (which grades a FAILED step as success)
+#      or a step-level `if: false`. Both kept the enforcement claim while the
+#      verdict went in the bin.
+#
+# Every case below states which of the three conditions it violates, and asserts
+# the refusal NAMES that condition — "it refused" is not the bar, because a
+# refusal that does not name its cause is the defect this wave already fixed
+# once. The mutants are the other direction: neuter the one line that carries a
+# condition and the false claim comes back.
+# ════════════════════════════════════════════════════════════════════════════
+
+# ── D1: `invokes` violated ALONE — the vacuous case, reproduced ────────────
+echo "=== D1-no-invocation-withheld ==="
+P="$TOPTMP/d1"; mk_tok_wf "$P" "" "$STEP_KEYS_GOOD" yes nogate
+assert_withheld D1-no-invocation-withheld "$P" \
+  "INVOKES the phase gate" \
+  'the secret is mapped and NOTHING runs the gate — the case the old predicate satisfied vacuously'
+
+# ── D2: `maps` violated ALONE ──────────────────────────────────────────────
+echo "=== D2-unmapped-withheld ==="
+P="$TOPTMP/d2"; mk_tok_wf "$P" "" "$STEP_KEYS_GOOD" no emitted
+assert_withheld D2-unmapped-withheld "$P" \
+  "does not map SOIF_PROTECTION_TOKEN yet" \
+  'the gate runs and honours its exit code, but nothing reads the secret'
+
+# ── D2b: a mapping that exists only in a COMMENT is not a mapping ──────────
+# Behaviour change shipped with D-A and pinned here so it is deliberate: the
+# maps test used to be an unanchored regex over the whole file, so a
+# commented-out example mapping — the shape a half-finished edit leaves behind —
+# earned the enforcement claim while the runner read no secret at all. Same
+# defect class as the two the reviewers found, on the same line of reasoning.
+echo "=== D2b-commented-out-mapping-is-not-mapped ==="
+P="$TOPTMP/d2b"; mk_tok_wf "$P" "" "$STEP_KEYS_GOOD" no emitted
+printf '        # GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}\n' >> "$P/.github/workflows/ci.yml"
+assert_withheld D2b-commented-out-mapping-is-not-mapped "$P" \
+  "does not map SOIF_PROTECTION_TOKEN yet" \
+  'a commented-out mapping injects nothing into the step environment'
+
+# ── D3: `!swallows` violated ALONE — the Actions-native swallow ────────────
+# continue-on-error grades a FAILED step as success (confirmed against the
+# GitHub docs), so the run: body can be byte-perfect and still enforce nothing.
+echo "=== D3-continue-on-error-withheld ==="
+P="$TOPTMP/d3"; mk_tok_wf "$P" "" "$STEP_KEYS_GOOD
+        continue-on-error: true" yes emitted
+assert_withheld D3-continue-on-error-withheld "$P" \
+  "carries 'continue-on-error: true'" \
+  'the emitted body, graded as success however the gate votes'
+
+# ── D4: `!swallows` violated ALONE — a step that never runs ────────────────
+echo "=== D4-step-if-false-withheld ==="
+P="$TOPTMP/d4"; mk_tok_wf "$P" "" "        if: false" yes emitted
+assert_withheld D4-step-if-false-withheld "$P" \
+  "condition is 'if: false'" \
+  'a step-level if: false discards the verdict more completely than || true ever could'
+
+# ── D5: `!swallows` violated ALONE — the sibling nobody has named ──────────
+# The step key set is an ALLOWLIST, so a key outside the documented run-step
+# schema is refused without anyone having to imagine it first.
+echo "=== D5-unknown-step-key-withheld ==="
+P="$TOPTMP/d5"; mk_tok_wf "$P" "" "$STEP_KEYS_GOOD
+        on-failure: continue" yes emitted
+assert_withheld D5-unknown-step-key-withheld "$P" \
+  "does not recognise: on-failure" \
+  'an unrecognised step key could change how the verdict is graded'
+
+# ── D6/D7: the same argument one level up (Cw6-strict-job's reasoning) ─────
+echo "=== D6-job-if-withheld ==="
+P="$TOPTMP/d6"; mk_tok_wf "$P" "    if: false" "$STEP_KEYS_GOOD" yes emitted
+assert_withheld D6-job-if-withheld "$P" \
+  "The job that HOLDS the phase-gate step carries 'if: false'" \
+  'a job that never starts runs no step, however perfect the step is'
+
+echo "=== D7-job-continue-on-error-withheld ==="
+P="$TOPTMP/d7"; mk_tok_wf "$P" "    continue-on-error: true" "$STEP_KEYS_GOOD" yes emitted
+assert_withheld D7-job-continue-on-error-withheld "$P" \
+  "so that job's failure does not count" \
+  "a job whose failure does not count cannot enforce"
+
+# ── D8: fail CLOSED when the structure cannot be read ──────────────────────
+# A composite-action file: the gate step is real and the body is the emitted
+# one, but there is no job above it, so how its verdict is graded cannot be
+# determined. Unverifiable must not read as verified.
+echo "=== D8-unlocatable-job-withheld ==="
+P="$TOPTMP/d8"; mk_tok "$P" github ok yes
+printf 'runs:\n  using: composite\n  steps:\n    - name: Governance - Phase gate check\n      env:\n        GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}\n      run: |\n        if [ ! -f scripts/check-phase-gate.sh ]; then\n          echo "::error::Phase gate check script missing. Framework integrity compromised."\n          exit 1\n        fi\n        bash scripts/check-phase-gate.sh\n' \
+  > "$P/.github/workflows/ci.yml"
+assert_withheld D8-unlocatable-job-withheld "$P" \
+  "Could not locate the job that runs the gate" \
+  'fail-closed: an unreadable structure is not a verified one'
+
+# ── D9: THE FALSE-POSITIVE GUARD — every shipped template still earns it ───
+# Run against the REAL emitted workflows, not fixtures: init.sh lays these down
+# with a verbatim `cp` (grep `cp "$template_path" "$target_path"` in init.sh),
+# so the file a user's detector reads IS this file. A hardened detector that
+# reds correct setups is worse than the weak one it replaced.
+echo "=== D9-emitted-templates-earn-the-claim ==="
+GH_CI_DIR="$REPO_ROOT/templates/pipelines/ci/github"
+d9_examined=0; d9_bad=""
+for tpl in "$GH_CI_DIR"/*.yml; do
+  [ -f "$tpl" ] || continue
+  d9_examined=$((d9_examined + 1))
+  P="$TOPTMP/d9-$(basename "$tpl" .yml)"
+  mk_tok "$P" github ok yes
+  cp "$tpl" "$P/.github/workflows/ci.yml"
+  out=$(run_tok "$P" "$GOOD_TOKEN")
+  printf '%s' "$out" | grep -q "The next push enforces the check" \
+    || d9_bad="$d9_bad $(basename "$tpl")[$(printf '%s' "$out" | grep -E '^  - ' | head -1 | cut -c1-90)]"
+done
+# A green that is really an empty loop is the vacuity this repo keeps catching:
+# the floor is what tells "all clean" apart from "nothing examined".
+if [ "$d9_examined" -ge 10 ]; then
+  pass "D9-scope ($d9_examined shipped github CI templates driven through the detector, floor 10)"
+else
+  fail_ "D9-scope" "only $d9_examined github CI templates were examined (floor 10) — D9's verdict is vacuous"
+fi
+if [ -z "$d9_bad" ]; then
+  pass "D9-emitted-templates-earn-the-claim (all $d9_examined shipped templates still earn the enforcement claim)"
+else
+  fail_ "D9-emitted-templates-earn-the-claim" "the hardened detector REFUSES the framework's own emitted workflows — in:$d9_bad"
+fi
+
+# ════════════════════════════════════════════════════════════════════════════
+# D10-D14 — PARITY with the bl147 pin (tests/test-bl147-ci-template-integrity.sh
+# `Cw6-strict*`). The two detectors judge the same property on two different
+# populations: bl147 reads the ten templates the framework wrote, this one reads
+# a real user's ci.yml of unknown vintage. Where they agree, they must keep
+# agreeing on the SPELLING (D14). Where they deliberately differ, the difference
+# is pinned behaviourally (D10-D12) and named in the product comment (D13), so
+# "aligning" them goes red rather than quiet.
+# ════════════════════════════════════════════════════════════════════════════
+BL147="$REPO_ROOT/tests/test-bl147-ci-template-integrity.sh"
+
+# ── D10: parity difference 1 — the inline `run:` form is accepted here ─────
+echo "=== D10-parity-inline-run-accepted ==="
+P="$TOPTMP/d10"; mk_tok "$P" github ok custom 'bash scripts/check-phase-gate.sh'
+assert_earns_ok D10-parity-inline-run-accepted "$P" \
+  '# D-A-PARITY-1-INLINE-RUN: bl147 freezes the block scalar byte-for-byte; a pre-block-scalar vintage is honest and must not be redded'
+
+# ── D11: parity difference 2 — an ABSENT step if: is accepted here ─────────
+echo "=== D11-parity-absent-step-if-accepted ==="
+P="$TOPTMP/d11"; mk_tok_wf "$P" "" "" yes emitted
+assert_earns_ok D11-parity-absent-step-if-accepted "$P" \
+  '# D-A-PARITY-2-ABSENT-IF: a step with no condition ALWAYS runs — the safest shape there is, and a red there would be backwards'
+
+# ── D12: parity difference 3 — the wider step key set is accepted here ─────
+echo "=== D12-parity-wider-step-keyset-accepted ==="
+P="$TOPTMP/d12"; mk_tok_wf "$P" "" "$STEP_KEYS_GOOD
+        id: phase-gate
+        shell: bash
+        working-directory: .
+        timeout-minutes: 10" yes emitted
+assert_earns_ok D12-parity-wider-step-keyset-accepted "$P" \
+  '# D-A-PARITY-3-STEP-KEYSET: none of id/shell/working-directory/timeout-minutes can change how the verdict is graded'
+
+# ── D13: every recorded parity difference is still recorded, both sides ────
+echo "=== D13-parity-differences-are-recorded ==="
+d13_missing=""
+for mk in D-A-PARITY-1-INLINE-RUN D-A-PARITY-2-ABSENT-IF D-A-PARITY-3-STEP-KEYSET D-A-PARITY-4-NO-TRIGGER-PIN; do
+  grep -qF "# $mk" "$CHECK_GATE" || d13_missing="$d13_missing check-gate.sh:$mk"
+done
+# …and the bl147 counterparts each difference is a difference FROM. If one of
+# these disappears the asymmetry note is describing a pin that no longer exists,
+# which is how a "deliberate difference" quietly becomes an accident.
+for pin in Cw6-strict-keys Cw6-strict-gating Cw6-strict-job Cw6-strict-trigger; do
+  grep -qF "$pin" "$BL147" || d13_missing="$d13_missing bl147:$pin"
+done
+if [ -z "$d13_missing" ]; then
+  pass "D13-parity-differences-are-recorded (all four asymmetries named in the product, all four bl147 counterparts still present)"
+else
+  fail_ "D13-parity-differences-are-recorded" "a recorded parity difference or its bl147 counterpart is gone — the asymmetry is now accidental:$d13_missing"
+fi
+
+# ── D14: the SHARED vocabulary is one vocabulary ───────────────────────────
+# Both sides are extracted from their own file at runtime and compared, rather
+# than re-typed here as a third copy that could agree with neither.
+echo "=== D14-parity-shared-vocabulary-agrees ==="
+cg_inv=$(sed -n "s/^  local wf_allow_invoke='\(.*\)'\$/\1/p" "$CHECK_GATE" | head -1)
+cg_guard=$(sed -n "s/^  local wf_allow_guard='\(.*\)'\$/\1/p" "$CHECK_GATE" | head -1)
+cg_if=$(sed -n 's/^  local wf_allow_if="\(.*\)"$/\1/p' "$CHECK_GATE" | head -1)
+b7_guard=$(sed -n "s/^W6_EXPECTED_BODY='\(.*\)\$/\1/p" "$BL147" | head -1)
+b7_inv=$(sed -n "/^W6_EXPECTED_BODY=/,/'\$/p" "$BL147" | tail -1 | sed "s/'\$//")
+b7_if=$(sed -n 's/^W6_EXPECTED_IF="\(.*\)"$/\1/p' "$BL147" | head -1)
+d14_why=""
+[ -n "$cg_inv" ] && [ -n "$cg_guard" ] && [ -n "$cg_if" ] \
+  || d14_why="$d14_why; a check-gate.sh literal did not extract (inv=[$cg_inv] guard=[$cg_guard] if=[$cg_if])"
+[ -n "$b7_inv" ] && [ -n "$b7_guard" ] && [ -n "$b7_if" ] \
+  || d14_why="$d14_why; a bl147 literal did not extract (inv=[$b7_inv] guard=[$b7_guard] if=[$b7_if])"
+[ "$cg_inv" = "$b7_inv" ]     || d14_why="$d14_why; invocation differs ([$cg_inv] vs [$b7_inv])"
+[ "$cg_guard" = "$b7_guard" ] || d14_why="$d14_why; existence guard differs ([$cg_guard] vs [$b7_guard])"
+[ "$cg_if" = "$b7_if" ]       || d14_why="$d14_why; allowlisted if: differs ([$cg_if] vs [$b7_if])"
+if [ -z "$d14_why" ]; then
+  pass "D14-parity-shared-vocabulary-agrees (invocation, existence guard and allowlisted if: are byte-identical across both detectors)"
+else
+  fail_ "D14-parity-shared-vocabulary-agrees" "the two detectors no longer speak one vocabulary$d14_why"
+fi
+
+# ════════════════════════════════════════════════════════════════════════════
+# DM1-DM8 — the other direction. Each mutant neuters ONE line and the false
+# claim comes back. mk_cg_mutant asserts the harness standard for every one of
+# them: sites==1 for the anchored end-of-line marker, exactly-N-lines-changed,
+# a lib-complete copy, and `bash -n` on the result — a mutant that merely fails
+# to parse proves nothing. Each gets a FRESH fixture.
+# ════════════════════════════════════════════════════════════════════════════
+
+echo "=== DM1-maps-gate-carries-D2 ==="
+P="$TOPTMP/dm1"; mk_tok_wf "$P" "" "$STEP_KEYS_GOOD" no emitted
+assert_mutant_false_ok DM1-maps-gate-carries-D2 mapsgate \
+  '# D-A-MAPS-GATE$' '/# D-A-MAPS-GATE$/d' 1 0 \
+  "$P" "does not map SOIF_PROTECTION_TOKEN yet" \
+  'without the maps term an unmapped workflow is told the next push enforces'
+
+echo "=== DM2-invokes-gate-carries-D1 ==="
+P="$TOPTMP/dm2"; mk_tok_wf "$P" "" "$STEP_KEYS_GOOD" yes nogate
+assert_mutant_false_ok DM2-invokes-gate-carries-D1 invokesgate \
+  '# D-A-INVOKES-GATE$' '/# D-A-INVOKES-GATE$/d' 1 0 \
+  "$P" "INVOKES the phase gate" \
+  'without the invokes term a workflow that runs NO gate is told the next push enforces — defect 1, reproduced'
+
+echo "=== DM3-swallows-gate-carries-D3 ==="
+P="$TOPTMP/dm3"; mk_tok_wf "$P" "" "$STEP_KEYS_GOOD
+        continue-on-error: true" yes emitted
+assert_mutant_false_ok DM3-swallows-gate-carries-D3 swallowsgate \
+  '# D-A-SWALLOWS-GATE$' '/# D-A-SWALLOWS-GATE$/d' 1 0 \
+  "$P" "carries 'continue-on-error: true'" \
+  'without the swallows term a step graded green regardless of the verdict is told the next push enforces — defect 2, reproduced'
+
+echo "=== DM4-step-coe-verdict-carries-D3 ==="
+P="$TOPTMP/dm4"; mk_tok_wf "$P" "" "$STEP_KEYS_GOOD
+        continue-on-error: true" yes emitted
+assert_mutant_false_ok DM4-step-coe-verdict-carries-D3 stepcoe \
+  '^[[:space:]]*wf_swallows=1[[:space:]]*# D-A-STEP-COE-VERDICT$' \
+  's@^\([[:space:]]*\)wf_swallows=1[[:space:]]*# D-A-STEP-COE-VERDICT$@\1:@' 1 1 \
+  "$P" "carries 'continue-on-error: true'" \
+  'the continue-on-error arm, not something else, is what refuses D3'
+
+echo "=== DM5-step-if-verdict-carries-D4 ==="
+P="$TOPTMP/dm5"; mk_tok_wf "$P" "" "        if: false" yes emitted
+assert_mutant_false_ok DM5-step-if-verdict-carries-D4 stepif \
+  '^[[:space:]]*wf_swallows=1[[:space:]]*# D-A-STEP-IF-VERDICT$' \
+  's@^\([[:space:]]*\)wf_swallows=1[[:space:]]*# D-A-STEP-IF-VERDICT$@\1:@' 1 1 \
+  "$P" "condition is 'if: false'" \
+  'the if: allowlist, not the key allowlist, is what refuses D4'
+
+echo "=== DM6-step-key-verdict-carries-D5 ==="
+P="$TOPTMP/dm6"; mk_tok_wf "$P" "" "$STEP_KEYS_GOOD
+        on-failure: continue" yes emitted
+assert_mutant_false_ok DM6-step-key-verdict-carries-D5 stepkey \
+  '^[[:space:]]*wf_swallows=1[[:space:]]*# D-A-STEP-KEY-VERDICT$' \
+  's@^\([[:space:]]*\)wf_swallows=1[[:space:]]*# D-A-STEP-KEY-VERDICT$@\1:@' 1 1 \
+  "$P" "does not recognise: on-failure" \
+  'the step key allowlist is what refuses the unimagined sibling'
+
+echo "=== DM7-job-verdict-carries-D6 ==="
+P="$TOPTMP/dm7"; mk_tok_wf "$P" "    if: false" "$STEP_KEYS_GOOD" yes emitted
+assert_mutant_false_ok DM7-job-verdict-carries-D6 jobverdict \
+  '^[[:space:]]*wf_swallows=1[[:space:]]*# D-A-JOB-VERDICT$' \
+  's@^\([[:space:]]*\)wf_swallows=1[[:space:]]*# D-A-JOB-VERDICT$@\1:@' 1 1 \
+  "$P" "The job that HOLDS the phase-gate step carries 'if: false'" \
+  'the job-level arm is what refuses D6 — a step-scoped detector alone is blind to it'
+
+echo "=== DM8-unlocated-verdict-carries-D8 ==="
+P="$TOPTMP/dm8"; mk_tok "$P" github ok yes
+printf 'runs:\n  using: composite\n  steps:\n    - name: Governance - Phase gate check\n      env:\n        GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}\n      run: |\n        if [ ! -f scripts/check-phase-gate.sh ]; then\n          echo "::error::Phase gate check script missing. Framework integrity compromised."\n          exit 1\n        fi\n        bash scripts/check-phase-gate.sh\n' \
+  > "$P/.github/workflows/ci.yml"
+assert_mutant_false_ok DM8-unlocated-verdict-carries-D8 unlocated \
+  '^[[:space:]]*wf_swallows=1[[:space:]]*# D-A-UNLOCATED-VERDICT$' \
+  's@^\([[:space:]]*\)wf_swallows=1[[:space:]]*# D-A-UNLOCATED-VERDICT$@\1:@' 1 1 \
+  "$P" "Could not locate the job that runs the gate" \
+  'without the fail-closed arm an unreadable structure is told the next push enforces'
 
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
