@@ -851,12 +851,50 @@ _cutrel_bugs_flip() {
   ' "$1" 2>/dev/null
 }
 
+# THE BUGS TABLE HAS A COLUMN FOR THE LINK AND FEATURES.md DOES NOT, so the two
+# matchers cannot be the same shape. §6.3 gives the delta id one cell —
+# `Fix Reference` — which is why the readers above can demand a nine-column row
+# and read field 9, and why free text elsewhere in BUGS.md cannot reach them. A
+# `## Feature` block is prose with a few bolded labels. Accepting the id
+# ANYWHERE inside one accepts it in a Summary: a feature whose description said
+# "superseded by DELTA-007" would be stamped `**Status:** Complete (shipped in
+# vX.Y.Z)`, and the run would print `[OK] Closed 1` and exit 0. That is a FALSE
+# CLOSE REPORTED AS A CLEAN CUT — the defect class this whole change removes one
+# level up, reintroduced one level down by the fix for it. So the id is matched
+# on the writer's own structural line and nowhere else.
+#
+# WHAT `delta.sh::_ledger_write` EMITS for the feature class, which is where the
+# anchor comes from:
+#
+#     ## Feature <n>: <slug>
+#     **Phase Built:** 4 (post-1.0 <id>)
+#     **Status:** In Progress
+#     **Summary:** <describe>
+#     …
+#
+# The id lands on `**Phase Built:**` — and on `**Brief:**` too when a brief path
+# happens to carry it, which is exactly why the anchor is the line the writer
+# emits UNCONDITIONALLY for every feature it opens. SYNC SIBLING: change that
+# line in `_ledger_write` and this anchor has to move with it, or every feature
+# opened afterwards will read as "no row naming it" at its cut.
+#
+# A BLOCK WITHOUT THAT LINE IS NOT A BLOCK THIS FRAMEWORK WROTE, and the cut
+# says so — "FEATURES.md has no row naming it", rc 12, close it by hand — rather
+# than guessing. That is the safe direction: the alternative is stamping a
+# shipped version onto somebody else's feature and reporting it as done.
+
 # _cutrel_features_block <file> <id> — the 1-based index of the `## Feature`
-#   block that names the delta, or 0.
+#   block WHOSE OWN `**Phase Built:**` LINE NAMES THE DELTA, or 0.
+#
+#   THIS IS THE ONLY PLACE THAT DECIDES WHICH BLOCK BELONGS TO A DELTA. The
+#   state reader below takes the index from here rather than looking the id up
+#   a second time; two readers with two spellings of the same question is how
+#   they drift apart, and the drift would be silent — a block chosen one way
+#   and flipped another closes the wrong feature and re-reads as closed.
 _cutrel_features_block() {
   awk -v id="$2" '
     /^## Feature / { blk++ }
-    blk > 0 && !hit {
+    blk > 0 && !hit && /^\*\*Phase Built:\*\*/ {   # CUTREL-LEDGER-FEATANCHOR
       p = index($0, id)
       if (p > 0 && substr($0, p + length(id), 1) !~ /[0-9A-Za-z]/) { hit = blk }
     }
@@ -864,24 +902,24 @@ _cutrel_features_block() {
   ' "$1" 2>/dev/null
 }
 
-# _cutrel_features_state <file> <id> — none | open | fixed.
+# _cutrel_features_state <file> <id> — none | open | fixed, read from the block
+#   `_cutrel_features_block` chose. A block that exists but carries no
+#   `**Status:**` line reads `open`: there is nothing there to have been
+#   completed, and the flip that follows will leave the file unchanged and be
+#   reported as unclosed, which is the honest answer for a block nobody can
+#   edit mechanically.
 _cutrel_features_state() {
-  awk -v id="$2" '
-    /^## Feature / { blk++; got[blk] = ""; has[blk] = 0 }
-    blk > 0 {
-      p = index($0, id)
-      if (p > 0 && substr($0, p + length(id), 1) !~ /[0-9A-Za-z]/) { has[blk] = 1 }
+  local blk
+  blk="$(_cutrel_features_block "$1" "$2")"
+  case "$blk" in ''|*[!0-9]*) blk=0 ;; esac
+  if [ "$blk" -eq 0 ]; then printf 'none'; return 0; fi
+  awk -v want="$blk" '
+    /^## Feature / { b++ }
+    b == want && !got && /^\*\*Status:\*\*/ {
+      got = 1
+      if ($0 ~ /^\*\*Status:\*\*[ \t]*Complete/) { print "fixed" } else { print "open" }
     }
-    blk > 0 && /^\*\*Status:\*\*/ { if (got[blk] == "") got[blk] = $0 }
-    END {
-      for (i = 1; i <= blk; i++) {
-        if (has[i]) {
-          if (got[i] ~ /^\*\*Status:\*\*[ \t]*Complete/) { print "fixed" } else { print "open" }
-          exit
-        }
-      }
-      print "none"
-    }
+    END { if (!got) print "open" }
   ' "$1" 2>/dev/null
 }
 
@@ -899,15 +937,24 @@ _cutrel_features_flip() {
 }
 
 # _cutrel_ledger_apply <target> <staged> — the ONLY write in this block.
-#   The staged content is required NON-EMPTY first: a transform that died
-#   halfway must not be allowed to blank a project's bug record. The redirect
-#   is wrapped so the SHELL's own "permission denied" is captured too — the
-#   error belongs to the redirection, not to `cat`, and `cat 2>/dev/null` alone
-#   would let it through to the operator's screen as noise beside a message
-#   that already explains it properly.
+#   The staged content is required NON-EMPTY first, and the difference between
+#   that guard and the obvious `-e` spelling is the difference between "the flip
+#   did not happen" and "the project's bug record is now a zero byte file". The
+#   write is a TRUNCATING REDIRECT: it opens the target and empties it before a
+#   byte is copied in, so empty staged content does not fail, it DESTROYS. The
+#   temp file exists from the moment `mktemp` returns, which is why existence is
+#   not the question — content is. A transform that died halfway produces
+#   exactly this, and the transform's own exit status is deliberately discarded
+#   at the call site for the reason WP8 measured, so this guard is the only
+#   thing standing between it and the ledger.
+#
+#   The redirect is wrapped so the SHELL's own "permission denied" is captured
+#   too — the error belongs to the redirection, not to `cat`, and
+#   `cat 2>/dev/null` alone would let it through to the operator's screen as
+#   noise beside a message that already explains it properly.
 _cutrel_ledger_apply() {
   local f="$1" src="$2"
-  [ -s "$src" ] || return 1
+  [ -s "$src" ] || return 1   # CUTREL-LEDGER-STAGE
   { cat "$src" > "$f"; } 2>/dev/null || return 1
   return 0
 }
