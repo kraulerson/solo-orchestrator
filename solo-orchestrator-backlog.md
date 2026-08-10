@@ -9115,10 +9115,28 @@ decides it.
 finding instead of fixing only the instance: if one delta-track file asserts
 tracking it does not have, the sibling files are worth the same grep)
 **Category:** False tracking claim, and the evidence weakness it conceals
-**Severity:** Medium. The residuals themselves are disclosed accurately and in
-detail **in the product**, which is the important half. What is false is the one
-clause claiming they are filed — and because they were not, the weakest of the
-three has sat unexamined under a clock the release cut now refuses on.
+**Severity:** Medium for the tracking clause — **but read residual 1 before you
+triage this by the header.** R-WP6-4's operational half is live and was
+reproduced end-to-end by adversarial review: a phase-4 project whose
+`docs/test-results/` holds nothing but `deployment-notes-2026-08-10.md` reports
+`[OK] Deep security scan (dependency audit folded in) current` and **cuts a
+release at rc 0 with the tag written**, having never run a scan. Delete that one
+file and the same project refuses at `check-maintenance` rc 2 and
+`cut-release` rc 5 (refusal 3). The stray note is provably the sole thing
+standing between "refused" and "cut", and any dated file matching the glob
+within the window refreshes the clock indefinitely.
+
+Two properties make this worse than the sibling residuals. It sits on the
+release gate's **only** security clock, because WP6 folded the dependency audit
+into the deep-security cadence — so one match satisfies both. And unlike the
+dated-empty-file residual, which requires someone to fabricate evidence, this
+one requires **no intent whatsoever**: an honest project writing deployment
+notes defeats the clock without ever knowing there was a clock.
+
+Disclosure mitigates the deception, not the hole. The residuals are described
+accurately in the product; what was false is the clause claiming they were
+filed — and because they were not, the weakest of the three sat unexamined
+under a gate that refuses releases.
 **Status:** Open
 
 **The false clause.** `scripts/check-maintenance.sh`'s header, in the block
