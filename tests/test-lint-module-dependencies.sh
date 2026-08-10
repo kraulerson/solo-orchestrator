@@ -27,13 +27,25 @@
 #     D7  `module -> core` is permitted for the DRIVER        -> 0
 #     D8  T1 and T2 do not double-report the same line        -> exactly one row
 #
-#   SURFACE — the four CORE globs, minus module files and BOTH boundary lints
+#   SURFACE — the five CORE globs, minus module files and BOTH boundary lints
 #     S1  init.sh is scanned
 #     S2  scripts/hooks/*.sh is scanned
 #     S3  scripts/lib/*.sh (non-module members) is scanned
 #     S4  the two boundary lints are NOT scanned (self + sibling exclusion)
-#     A narrowed surface would pass D1-D8 while seeing nothing; S1-S3 are the
-#     anti-vacuity pins for the CORE half specifically.
+#     S5  scripts/host-drivers/*.sh is scanned         (BL-215, the fifth glob)
+#     S6  a CLEAN host driver joins the CORE POPULATION — a structural pin,
+#         because rc=0 cannot tell "scanned and clean" from "never scanned"
+#     S7  mutant M-HD: revert the fifth glob and the S5 plant passes again
+#     A narrowed surface would pass D1-D8 while seeing nothing; S1-S3 and S5-S7
+#     are the anti-vacuity pins for the CORE half specifically. S5-S7 exist
+#     because that failure mode was not hypothetical: this lint shipped with a
+#     FOUR-glob CORE set, `scripts/host-drivers/*.sh` sat outside all of them,
+#     and a planted `source .../scout-phasemap.sh` in a host driver passed at
+#     rc=0 while the IDENTICAL line in scripts/check-maintenance.sh red at rc=1
+#     on T2 (`## BL-215:`, measured with positive controls in both directions,
+#     and reproduced on the delta sibling with its own plant). Every other case
+#     in this file was green throughout. A population defect is invisible to a
+#     suite that only ever pins the predicate.
 #
 #   M5 — the scanner depends on NOTHING
 #     M1  a scout module file sourcing a core lib             -> 1   kills M-M5
@@ -217,6 +229,58 @@ run_fixture() { bash "$LINTER" --root "$TMP" 2>&1; return $?; }
 # --list asserts on the TABLE, so stderr is dropped: the per-violation
 # diagnostics carry the same file:line text and would double every row count.
 run_fixture_list() { bash "$LINTER" --root "$TMP" --list 2>/dev/null; return $?; }
+
+# core_in_scope LIST-OUTPUT — the CORE population count off the --list INFO row.
+# The count is the only thing that can distinguish "scanned and clean" from
+# "never in the population", and those two are the same exit code.
+core_in_scope() {
+  printf '%s\n' "$1" | sed -n 's/.*, \([0-9][0-9]*\) core file(s) in scope.*/\1/p'
+}
+
+# ── Mutation harness ────────────────────────────────────────────────────
+# A mutation proof is only a proof if the mutant is the edit it claims to be,
+# so the harness MEASURES the edit and hands the numbers back for the case to
+# assert on rather than assuming any of them:
+#   sites     the ANCHORED pattern must match exactly ONE line of the lint.
+#             An unanchored or over-broad pattern that hit two lines would
+#             mutate more than the case describes; one that hit zero would
+#             produce a pristine "mutant" and a green run that proves nothing.
+#             That second failure is not hypothetical — L3's first version was
+#             a no-op edit reported as a proof, which is why every mutation in
+#             this file now asserts that it really mutated something.
+#   removed   exactly one line fewer than the original.
+#   changed   diff shows exactly one changed line — `removed` alone cannot see
+#             a deletion silently paired with an insertion.
+#   syntax_ok `bash -n` on the mutant. A mutant that does not PARSE exits
+#             non-zero for a reason that has nothing to do with the predicate,
+#             which would read as a kill and prove nothing.
+#   mode_ok   the copy carries the original's mode. Mode-preserving so the
+#             mutant differs from the shipped lint in exactly one dimension.
+# Callers keep the copy inside their own mktemp fixture — never in the repo —
+# and pair it with a positive control (the pristine lint on the same fixture).
+_file_mode() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1" 2>/dev/null; }
+
+mutate_drop_line() {
+  local src="$1" dst="$2" pat="$3"
+  local sites before after removed changed syntax_ok mode mode_ok
+  sites=$(grep -c "$pat" "$src")
+  grep -v "$pat" "$src" > "$dst"
+  before=$(grep -c '' "$src")
+  after=$(grep -c '' "$dst")
+  removed=$((before - after))
+  changed=$(diff "$src" "$dst" | grep -c '^[<>]')
+  if bash -n "$dst" 2>/dev/null; then syntax_ok=1; else syntax_ok=0; fi
+  mode=$(_file_mode "$src")
+  [ -n "$mode" ] && chmod "$mode" "$dst"
+  mode_ok=0
+  if [ -n "$mode" ] && [ "$(_file_mode "$dst")" = "$mode" ]; then mode_ok=1; fi
+  printf '%s|%s|%s|%s|%s\n' "$sites" "$removed" "$changed" "$syntax_ok" "$mode_ok"
+}
+
+# The ANCHORED end-of-line pattern for the fifth CORE glob (`# BL-215-CORE-GLOB-SYNC`).
+# Anchored at both ends and spelled with the literal two-space indent, so it
+# cannot drift onto the prose that also names this path.
+HD_GLOB_PAT='^  "\$ROOT/scripts/host-drivers"/\*\.sh$'
 
 # ════════════════════════════════════════════════════════════════════
 echo "=== D1: a clean tree -> exit 0 ==="
@@ -473,6 +537,126 @@ if [ "$rc" -eq 0 ]; then
   pass "S4: neither boundary lint is scanned as a core file"
 else
   fail_ "S4" "expected rc=0; rc=$rc; output:\n$out"
+fi
+teardown_fixture
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== S5 (BL-215): scripts/host-drivers/*.sh is inside the CORE surface"
+echo "    -> the reviewer's plant reds at tier T2 ==="
+# ════════════════════════════════════════════════════════════════════
+# THE FIFTH GLOB. The co-owned contract named FOUR globs and both boundary
+# lints were built faithful to that number at exact parity, each disclosing the
+# exclusion in its own header as a pending design question. `## BL-215:`
+# measured what the exclusion cost, with positive controls in both directions:
+# the plant below left this lint at rc=0 in `scripts/host-drivers/gitlab.sh`,
+# while the IDENTICAL line in `scripts/check-maintenance.sh` red at rc=1 on T2.
+# That pairing is what makes it a POPULATION defect and not a PREDICATE defect
+# — the tiers were right, they were simply not looking there — and it is why no
+# other case in this file could ever have caught it. §3.3 v1.2 and
+# docs/module-contract.md M3 widened the contract to five globs; this case is
+# the enforcement half, and its delta-track sibling (S4-S6 of
+# tests/test-lint-delta-boundary.sh) is the other one. The two lints are SYNC
+# SIBLINGS for this glob: change one and change the other.
+#
+# THE TIER IS T2, AND THE REASON IS STRUCTURAL rather than incidental. T1's
+# directory token is the FULL prefix `scripts/lib/scout/`; the plant spells the
+# house's dominant idiom `"$SCRIPT_DIR/lib/scout/…"`, which carries no
+# `scripts/` segment, so T1 is blind to it and the bare `scout/` segment token
+# is what catches it. Asserting the tier therefore pins the surface AND keeps
+# the S3 token decision honest on the new glob.
+setup_fixture
+mkdir -p "$TMP/scripts/host-drivers"
+{
+  printf '#!/usr/bin/env bash\n'
+  printf 'SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"\n'
+  printf 'source "$SCRIPT_DIR/lib/scout/scout-phasemap.sh"\n'
+} > "$TMP/scripts/host-drivers/gitlab.sh"
+out=$(run_fixture_list); rc=$?
+if [ "$rc" -eq 1 ] \
+   && echo "$out" | grep -q '^FAIL.*T2.*scripts/host-drivers/gitlab\.sh:3'; then
+  pass "S5: a core -> module source line in a host driver reds at tier T2"
+else
+  fail_ "S5" "expected rc=1 with a T2 row for scripts/host-drivers/gitlab.sh:3; rc=$rc; output:\n$out"
+fi
+teardown_fixture
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== S6 (BL-215): a CLEAN host driver is IN the CORE population — pinned"
+echo "    structurally, because 'scanned and clean' and 'never scanned' share"
+echo "    an exit code ==="
+# ════════════════════════════════════════════════════════════════════
+# THE ABSENCE HALF OF S5, AND IT NEEDS A STRUCTURAL DISCRIMINATOR. `rc=0` is
+# exactly what a four-glob lint returned on the S5 plant, so an exit-0
+# assertion here would have been green before BL-215 and green after it, and
+# would have pinned nothing at all. The pin is therefore the POPULATION COUNT
+# off the --list INFO row: adding the host driver must raise `core file(s) in
+# scope` by exactly one and removing it must lower it by exactly one, with
+# rc=0 on both sides. That distinguishes the two readings the exit code
+# cannot, and it also pins the bash-3.2 no-nullglob behaviour in the other
+# direction — the unmatched `scripts/host-drivers/*.sh` glob must survive as a
+# literal and be filtered by `[ -f ]`, not counted.
+setup_fixture
+mkdir -p "$TMP/scripts/host-drivers"
+{
+  printf '#!/usr/bin/env bash\n'
+  printf 'host_create_repo() { echo "create"; }\n'
+} > "$TMP/scripts/host-drivers/gitlab.sh"
+out_with=$(run_fixture_list); rc_with=$?
+n_with=$(core_in_scope "$out_with")
+rm -f "$TMP/scripts/host-drivers/gitlab.sh"
+out_without=$(run_fixture_list); rc_without=$?
+n_without=$(core_in_scope "$out_without")
+if [ "$rc_with" -eq 0 ] && [ "$rc_without" -eq 0 ] \
+   && [ -n "$n_with" ] && [ -n "$n_without" ] \
+   && [ "$n_with" -eq $((n_without + 1)) ]; then
+  pass "S6: a clean host driver joins the CORE population ($n_without -> $n_with) and passes"
+else
+  fail_ "S6" "expected rc=0 both sides and the core count to rise by exactly 1; rc=$rc_with/$rc_without counts=$n_without/$n_with; output:\n$out_with"
+fi
+teardown_fixture
+
+# ════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== S7 (mutant M-HD, BL-215): REVERTING the fifth glob makes the S5"
+echo "    plant pass again -> the glob is what catches it ==="
+# ════════════════════════════════════════════════════════════════════
+# THE DIRECTION THAT MATTERS MORE. S5 proves the plant reds TODAY; it does not
+# prove WHICH line does the work, and a surface pin that would stay green
+# under the very edit it exists to forbid is the BL-181 scar exactly (a
+# one-character narrowing re-opened that hole three times while passing every
+# PR-blocking check). So this case deletes the fifth glob from a COPY of the
+# lint and asserts the plant goes QUIET again.
+#
+# Everything here is measured rather than assumed — see the mutate_drop_line
+# header for why each of sites/removed/changed/syntax_ok/mode_ok is asserted.
+# The copy lives inside this case's own mktemp fixture and is pointed at that
+# same fixture with --root, so the probe never reads the host tree; the
+# pristine lint on the SAME fixture is the positive control, which is what
+# makes `rc=0` here a kill and not an artefact of a broken mutant.
+setup_fixture
+mkdir -p "$TMP/scripts/host-drivers"
+{
+  printf '#!/usr/bin/env bash\n'
+  printf 'SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"\n'
+  printf 'source "$SCRIPT_DIR/lib/scout/scout-phasemap.sh"\n'
+} > "$TMP/scripts/host-drivers/gitlab.sh"
+COPY="$TMP/lint-copy-hostdrivers.sh"
+probe=$(mutate_drop_line "$LINTER" "$COPY" "$HD_GLOB_PAT")
+m_sites=$(printf '%s' "$probe" | cut -d'|' -f1)
+m_removed=$(printf '%s' "$probe" | cut -d'|' -f2)
+m_changed=$(printf '%s' "$probe" | cut -d'|' -f3)
+m_syntax=$(printf '%s' "$probe" | cut -d'|' -f4)
+m_mode=$(printf '%s' "$probe" | cut -d'|' -f5)
+out=$(bash "$COPY" --root "$TMP" 2>&1); rc=$?
+out_ctl=$(run_fixture); rc_ctl=$?
+if [ "$m_sites" -eq 1 ] && [ "$m_removed" -eq 1 ] && [ "$m_changed" -eq 1 ] \
+   && [ "$m_syntax" -eq 1 ] && [ "$m_mode" -eq 1 ] \
+   && [ "$rc" -eq 0 ] && [ "$rc_ctl" -eq 1 ]; then
+  pass "S7: dropping the host-drivers glob lets the plant through (mutant rc=0, control rc=1)"
+else
+  fail_ "S7" "expected sites/removed/changed/syntax/mode = 1/1/1/1/1, mutant rc=0, control rc=1; got $m_sites/$m_removed/$m_changed/$m_syntax/$m_mode rc=$rc rc_ctl=$rc_ctl; output:\n$out"
 fi
 teardown_fixture
 

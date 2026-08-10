@@ -156,9 +156,9 @@ forced. No settled decision, decision table, or WP boundary changes. Amendment r
   `source …/delta-state.sh` to `scripts/host-drivers/github.sh`, and **both lints passed at rc=0**,
   while the identical lines in four-glob-covered core files red at rc=1. Karl approved extending
   coverage; the CORE set is now **five globs** here, in the delta design's §3.3, and in
-  `docs/module-contract.md`. **The lint edit is a separate follow-up, tracked as `## BL-215:`** —
-  as of 2026-08-09 both `CORE_GLOBS` arrays still list four entries, and this document is ahead of
-  the code by that one glob, deliberately and in writing.
+  `docs/module-contract.md`. **The lint edit shipped separately and has now landed
+  (`## BL-215:`)** — both `CORE_GLOBS` arrays carry the fifth glob under the sync-sibling marker
+  `# BL-215-CORE-GLOB-SYNC`, so this document is no longer ahead of the code by that one glob.
 
 - **A-BF-4 (FRONT MATTER) → Document Control, "Status of the thing described"** — that row read
   **"Nothing is built."** through v1.1. True when written; false by 2026-08-09, because WP0–WP3 have
@@ -427,12 +427,19 @@ sibling passes its own equivalent plant identically. The **identical** line appe
 predicate is sound; the population was short. Host drivers are core by every other measure
 (`init.sh`, `scripts/lib/host.sh` and `scripts/intake-wizard.sh` source them by path), so a
 convenience call added to one severs nothing and fuses everything, which is precisely the Tuesday-
-afternoon failure M3 exists to make red. **Not yet implemented:** the `CORE_GLOBS` arrays in both
-lints still list four entries as of 2026-08-09; widening them is tracked as **`## BL-215:`**, which
-carries the measurement table above and the both-lints-in-sync fix shape, and until it lands this
-contract is stated here and under-enforced there. The same correction lands on the delta design's
-§3.3 and on `docs/module-contract.md` M3, which is the standing normative transcription of this
-section.
+afternoon failure M3 exists to make red. **Implemented (`## BL-215:`).** Both `CORE_GLOBS` arrays
+now carry the fifth glob, under the sync-sibling marker `# BL-215-CORE-GLOB-SYNC` — grep it to find
+the pair, and change them together. This contract is no longer stated here and under-enforced
+there. On the real tree the widening raised this lint's scanned CORE population from **76 to 79**
+files with no new violation, so the three host drivers carried no pre-existing `core → module`
+edge. The enforcement half is pinned three ways in `tests/test-lint-module-dependencies.sh`, and
+the third pin is the load-bearing one: **S5** plants the line above in a host driver and requires
+tier **T2**; **S6** requires a *clean* host driver to raise the reported CORE population by exactly
+one, because `rc=0` cannot distinguish "scanned and clean" from "never scanned" and that ambiguity
+is the whole reason this gap survived from WP0; and **S7** deletes the glob from a copy of the lint
+and requires the plant to pass again, so the pin cannot stay green under the very edit it forbids.
+The same correction lands on the delta design's §3.3 and on `docs/module-contract.md` M3, which is
+the standing normative transcription of this section.
 
 **M5 is the load-bearing one and it has a cost worth stating.** Zero dependency means the scanner
 cannot reuse `scripts/lib/helpers-core.sh`'s printers, its `soif_read_*` state readers, or its host

@@ -71,7 +71,7 @@ and review is the check until a module actually accrues a listed dependency.
 that makes severance a `git mv`, not a refactor.
 
 **The set "outside" means — five globs. Corrected 2026-08-09 (Karl's approval);
-evidence-led, and not yet implemented.** Both lints render M3's universal as a
+evidence-led, and now implemented in both lints.** Both lints render M3's universal as a
 literal CORE glob set: `init.sh` + `scripts/*.sh` + `scripts/lib/*.sh` +
 `scripts/hooks/*.sh` + **`scripts/host-drivers/*.sh`**, minus the module
 inventory, minus the lint itself, minus sibling boundary lints. The fifth glob
@@ -86,12 +86,23 @@ rc=0 — while the same lines in `scripts/validate.sh` and
 `scripts/check-maintenance.sh` red at rc=1 on T1 and T2 respectively. Host
 drivers are core by every other measure (`init.sh`, `scripts/lib/host.sh` and
 `scripts/intake-wizard.sh` source them by path), so a convenience call added to
-one fuses a module with nothing going red. **As of 2026-08-09 the `CORE_GLOBS`
-arrays in both lints still list four entries** — widening them is tracked as
-`## BL-215:` in `solo-orchestrator-backlog.md`, which carries the full
-measurement table and the both-lints-in-sync fix shape, so this page is ahead of
-the code by exactly that one glob. Amended in both designs' §3.3 in the same
-pass.
+one fuses a module with nothing going red. **Both `CORE_GLOBS` arrays now carry
+the fifth glob** (`## BL-215:`), under the sync-sibling marker
+`# BL-215-CORE-GLOB-SYNC` — grep it to find the pair, and change them together;
+a one-sided edit silently re-opens the hole on the other module. This page is no
+longer ahead of the code. Widening the population found **no** pre-existing
+violation in `scripts/host-drivers/`: the delta lint went from 73 to 76 scanned
+core files and the module lint from 76 to 79, both still at rc=0. Amended in
+both designs' §3.3 in the same pass.
+
+**Each lint pins the new glob three ways, and the third is the load-bearing
+one** (`tests/test-lint-delta-boundary.sh` S4-S6,
+`tests/test-lint-module-dependencies.sh` S5-S7): the plant reds at the right
+tier; a *clean* host driver must raise the reported CORE population by exactly
+one, because `rc=0` cannot distinguish "scanned and clean" from "never scanned"
+and that ambiguity is what let this gap survive; and deleting the glob from a
+copy of the lint must let the plant through again, so neither pin can stay green
+under the very edit it forbids.
 
 *Enforced by:* both lints, in two match tiers. T1 is the literal manifest path
 and is **not** waivable. T2 is a path-shaped token that catches runtime

@@ -2,18 +2,32 @@
 # tests/test-delta-severability.sh — Delta Track §3.1's severability test.
 #
 # SPEC: docs/designs/2026-08-02-delta-track-v1.md §3.1 ("delete every
-# delta-module file and revert the seam block in process-checklist.sh, and the
+# delta-module file and revert EVERY CORE CONSUMER OF THE MODULE, and the
 # full suite must pass — that is the property 'severable' means operationally;
 # §11-WP7 makes it a test"), §3.3 (the dependency-direction lint this protects),
 # §0.3-C10 (the seam and the single writer are the same file, which is what
 # makes the edge cardinality ONE), §11-WP7.
 #
+# THAT IS THE v1.2 WORDING. Through v1.1 the same sentence SAID "revert the seam
+# block in process-checklist.sh", SINGULAR, and this header quoted it in the
+# present tense for as long as that was true. The old spelling is kept below in
+# the PAST tense rather than deleted, because it is not a stale detail — it is
+# the reason this file has the shape it has. A design that named one consumer is
+# what made enumerating by RUNNING the only trustworthy method; delete the quote
+# and the next reader has no explanation for the banner that follows.
+#
 # ═════════════════════════════════════════════════════════════════════════════
 # THE ENUMERATION IS THE POINT — AND IT IS DONE BY RUNNING, NOT BY REMEMBERING
 #
-# §3.1 says "the seam block in process-checklist.sh", singular. By the time WP7
-# arrived the revert was FOUR core files, and each one arrived in a different
-# work package with its own good reason:
+# §3.1 SAID "the seam block in process-checklist.sh", singular — the v1.0/v1.1
+# wording, and running this test is what refuted it. §3.1 v1.2 now says "revert
+# every core consumer of the module" and carries a consumer table, so the
+# singular is history; it is quoted here in the past tense, and kept, because it
+# is the premise of everything below. A design sentence that named ONE consumer
+# is precisely why this test enumerates by RUNNING rather than by remembering,
+# and the enumeration outran the design twice after that sentence was corrected.
+# By the time WP7 arrived the revert was FOUR core files, and each one arrived
+# in a different work package with its own good reason:
 #
 #   1. scripts/process-checklist.sh   the DELTA-SEAM fence (WP2) — the seam
 #                                     itself, and the only allowlisted edge

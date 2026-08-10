@@ -136,9 +136,10 @@ rows are prefixed `A-` to distinguish them from the review findings below, which
   it at rc=0**, while the identical line in `scripts/validate.sh` reds at rc=1 on T1 — re-executed in
   both directions for this amendment. The predicate is sound; the population was short. Karl approved extending coverage, so the CORE set is now
   **five globs** here, in the brownfield design's §3.3, and in `docs/module-contract.md` M3 — the
-  three surfaces are kept at parity by design. **The lint edit is a separate follow-up, tracked as
-  `## BL-215:`:** as of 2026-08-09 both `CORE_GLOBS` arrays still list four entries, and §3.3 says
-  so rather than reading as a description of shipped behaviour.
+  three surfaces are kept at parity by design. **The lint edit shipped separately and has now
+  landed (`## BL-215:`):** both `CORE_GLOBS` arrays carry the fifth glob under the sync-sibling
+  marker `# BL-215-CORE-GLOB-SYNC`, so §3.3 is a description of shipped behaviour again rather
+  than a contract running ahead of it.
 - **A-DT-3 (FRONT MATTER) → Document Control, "Status of the thing described"** — that row read
   **"Nothing is built."** through v1.1, verified at the time against §14-V11. True at that commit;
   false by 2026-08-09, because **WP0–WP7 have shipped** (PRs #323, #324, #327, #328, #330, #332,
@@ -420,10 +421,18 @@ module exactly as thoroughly as the same line in `check-phase-gate.sh`, and the 
 property is gone with no check failing. **The sibling brownfield lint has the same hole for the same
 reason and takes the same correction** (`docs/designs/2026-08-02-brownfield-adoption-v1.md` §3.3 and
 `docs/module-contract.md` M3), because the two lints are kept at exact parity by design.
-**Not yet implemented:** the `CORE_GLOBS` arrays in both lints still list four entries as of
-2026-08-09. Widening them is tracked as **`## BL-215:`**, which carries the measurement table above
-and the both-lints-in-sync fix shape; until it lands, this section states the contract and the lints
-under-enforce it.
+**Implemented (`## BL-215:`).** Both `CORE_GLOBS` arrays now carry the fifth glob, under the
+sync-sibling marker `# BL-215-CORE-GLOB-SYNC` — grep it to find the pair, and change them together.
+This section describes shipped behaviour again; it is no longer a contract stated here and
+under-enforced there. On the real tree the widening raised this lint's scanned CORE population from
+**73 to 76** files with no new violation, so the three host drivers carried no pre-existing
+`core → delta` edge. The enforcement half is pinned three ways in
+`tests/test-lint-delta-boundary.sh`, and the third pin is the load-bearing one: **S4** plants the
+line above in a host driver and requires tier **T1**; **S5** requires a *clean* host driver to raise
+the reported CORE population by exactly one, because `rc=0` cannot distinguish "scanned and clean"
+from "never scanned" and that ambiguity is the whole reason this gap survived several work packages;
+and **S6** deletes the glob from a copy of the lint and requires the plant to pass again, so the pin
+cannot stay green under the very edit it forbids.
 
 **Two match tiers, because literal paths are evadable (R-DT-6).** Clause 2 as written matches
 *literal* delta paths, and bash lets a reference be composed at runtime:
