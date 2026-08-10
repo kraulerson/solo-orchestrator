@@ -1697,20 +1697,51 @@ YML
 assert_earns_ok D39-trailing-comment-on-step-coe-still-earns "$P" \
   'the same for the one continue-on-error value that is SAFE — an explicit false with a note is still an explicit false'
 
-# The strip's other direction, which is the one that could go wrong. A `#`
-# inside a quoted scalar is CONTENT, not a comment, and a naive tail-strip eats
-# it. The reviewer's safety argument — a strip can only turn a refusal into an
+# The strip's other direction, which is the one that could go wrong — and where
+# the obvious implementation is WRONG in a way only a real parser catches.
+#
+# The reviewer's safety argument (a strip can only turn a refusal into an
 # acceptance when the remainder is byte-exact the shipped value, so it cannot
-# create a false OK — was VERIFIED rather than accepted, and it holds for a
-# reason worth writing down: both allowlisted values start unquoted, and a
-# quote opened after the first character can only close before a content `#` by
-# ending the quoted region, so a naive remainder always keeps an unbalanced
-# opening quote and can never equal the shipped bytes. What a naive strip DOES
-# break is the message: the refusal quotes a MANGLED condition back at the user,
-# which is the self-refuting-message defect this branch already fixed once for
-# CRLF. So both directions are pinned — refused, AND quoted back intact.
-echo "=== D40-hash-inside-quoted-value-is-not-a-comment ==="
+# create a false OK) was VERIFIED, not accepted, and it holds: both allowlisted
+# values start unquoted, so a naive remainder always keeps an unbalanced opening
+# quote and can never equal the shipped bytes. What a naive strip DOES break is
+# the message — it quotes a MANGLED condition back at the user, the same
+# self-refuting message the CRLF fix removed.
+#
+# But "do not strip inside quotes" is only right for a QUOTED scalar, and a YAML
+# scalar is quoted only when it OPENS with a quote. Inside a PLAIN scalar an
+# apostrophe is ordinary content and YAML really does end the value at the
+# ` #`. Measured, not reasoned — PyYAML loads
+#   if: contains(m, ' #skip')
+# as the plain scalar `contains(m, '`. A scan that tracks quotes from anywhere
+# gets that case wrong (conservatively: it under-strips, so it can only produce
+# a false RED, never a false OK — but it is still the wrong reading and it is
+# still a mangled message). D40 pins the genuinely quoted form; D40b pins the
+# plain one, against what the parser actually says.
+echo "=== D40-hash-inside-quoted-scalar-is-content ==="
 P="$TOPTMP/d40"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        if: "hashFiles('.claude/phase-state.json') != '' # not really"
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_withheld D40-hash-inside-quoted-scalar-is-content "$P" \
+  "condition is 'if: \"hashFiles('.claude/phase-state.json') != '' # not really\"'" \
+  'the value OPENS with a quote, so it is a quoted scalar and the # is content — refused, and quoted back whole rather than truncated at the hash'
+
+echo "=== D40b-hash-in-plain-scalar-ends-the-value ==="
+P="$TOPTMP/d40b"; mk_raw_wf "$P" <<'YML'
 name: CI
 on:
   push:
@@ -1727,9 +1758,9 @@ jobs:
         run: |
           bash scripts/check-phase-gate.sh
 YML
-assert_withheld D40-hash-inside-quoted-value-is-not-a-comment "$P" \
-  "condition is 'if: contains(github.event.head_commit.message, ' #skip')'" \
-  'a # inside a quoted scalar is content — the condition is refused AND quoted back whole, not truncated at the hash'
+assert_withheld D40b-hash-in-plain-scalar-ends-the-value "$P" \
+  "condition is 'if: contains(github.event.head_commit.message, ''" \
+  'and the mirror: this value does NOT open with a quote, so the apostrophes are content and YAML ends it at the space-hash — which is what the message must say'
 
 echo "=== D41-trailing-comment-on-steps-anchor-still-earns ==="
 P="$TOPTMP/d41"; mk_raw_wf "$P" <<'YML'
@@ -1899,7 +1930,7 @@ jobs:
 YML
 assert_withheld D47-duplicate-step-key-fails-closed "$P" \
   "declared TWICE" \
-  'only one of the two takes effect and this check cannot tell you which — and GitHub rejects the file outright'
+  'parsers disagree about which one wins — PyYAML takes the LAST (so the effective value here is the swallow), GitHub is documented to reject duplicate keys — and an answer nobody can predict is not one to claim enforcement on'
 
 # ════════════════════════════════════════════════════════════════════════════
 # D48-D53 — THE ATOM SWEEP. R-CTE-4 was a threshold that survived the whole
@@ -1914,7 +1945,12 @@ assert_withheld D47-duplicate-step-key-fails-closed "$P" \
 # hand-written style and reading it as no keys at all would fail OPEN"). It was
 # never driven. Mutating the anchor search from `<= si` to `< si` left the suite
 # at 79/0, which is what an unexercised promise looks like.
-echo "=== D48-dash-at-steps-column-swallow-caught ==="
+# The step keys are emitted BEFORE the job is located, so a step-level swallow
+# is reported either way and asserting one here would NOT have exercised the
+# anchor at all — which is exactly why the mutation survived. The decisive pair
+# is a clean file that must EARN (a job it cannot locate fails closed) and a
+# JOB-level swallow that must be caught (which needs the job located first).
+echo "=== D48-dash-at-steps-column-still-earns ==="
 P="$TOPTMP/d48"; mk_raw_wf "$P" <<'YML'
 name: CI
 on:
@@ -1926,15 +1962,35 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Governance - Phase gate check
-      continue-on-error: true
       env:
         GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
       run: |
         bash scripts/check-phase-gate.sh
 YML
-assert_withheld D48-dash-at-steps-column-swallow-caught "$P" \
-  "carries 'continue-on-error: true'" \
-  'the dash at the same column as steps: is ordinary YAML, and the anchor search has to accept an equal indent or the whole job goes unread'
+assert_earns_ok D48-dash-at-steps-column-still-earns "$P" \
+  'the dash at the same column as steps: is ordinary YAML, and the anchor search has to accept an EQUAL indent or a correctly-wired job goes unlocatable'
+
+echo "=== D48b-dash-at-steps-column-job-swallow-caught ==="
+P="$TOPTMP/d48b"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+    - name: Governance - Phase gate check
+      env:
+        GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+      run: |
+        bash scripts/check-phase-gate.sh
+YML
+assert_withheld D48b-dash-at-steps-column-job-swallow-caught "$P" \
+  "so that job's failure does not count" \
+  'and the job-level scan has to reach it there too — that half is unreachable unless the anchor matched'
 
 echo "=== D49-single-character-step-key-withheld ==="
 P="$TOPTMP/d49"; mk_tok_wf "$P" "" "$STEP_KEYS_GOOD
@@ -2019,6 +2075,79 @@ assert_withheld D53a-swallowed-inline-names-invokes "$P" \
 assert_withheld D53b-swallowed-inline-names-deviation "$P" \
   "DISCARDS the gate's exit code" \
   'and the deviation scan names the line itself — two causes, two edits'
+
+# ── D55-D57: three more atoms the POST-fix sweep found still unpinned ──────
+# The sweep was re-run against the fixed code, not just the old one, because a
+# fix moves which atoms are load-bearing: the maps scoping made two indentation
+# comparisons decisive that were inert before, and left three others open.
+
+# An `if:` whose value is NOTHING BUT a comment is the NULL condition, and the
+# refusal has to say so rather than read the comment text back as if it were a
+# condition — the self-refuting message again, in its smallest form.
+echo "=== D55-comment-only-value-is-the-null-value ==="
+P="$TOPTMP/d55"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        if: # decide later
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_withheld D55-comment-only-value-is-the-null-value "$P" \
+  "condition is 'if: '" \
+  'PyYAML loads this as if: None — a present key with no value, which is neither absent nor the shipped condition'
+
+# The workflow-level `env:` block has to END at the next column-0 key. Let it run
+# to end of file and every secret anywhere below it counts as workflow env,
+# which puts the file-wide match back through the side door.
+echo "=== D56-workflow-env-block-ends-at-column-zero ==="
+P="$TOPTMP/d56"; mk_raw_wf "$P" <<'YML'
+name: CI
+env:
+  NODE_ENV: test
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Other step
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: echo hi
+      - name: Governance - Phase gate check
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_withheld D56-workflow-env-block-ends-at-column-zero "$P" \
+  "does not map SOIF_PROTECTION_TOKEN into the phase-gate step" \
+  'a workflow env that does NOT carry the secret must not drag the rest of the file into scope with it'
+
+# TABS. Recorded, not handled: YAML permits a tab inside a quoted scalar
+# (`run: "echo a<TAB>b"` loads fine) but NOT as separation, and PyYAML rejects
+# every tab-as-separator spelling outright — a tab before a `#`, a tab between a
+# key and its colon, a tab after the colon. So this program treats a tab as
+# CONTENT everywhere and never as white space, which keeps every one of those
+# files refused (the safe direction) and keeps a legitimate tab in a quoted
+# command from being a false red. The one that would matter if a parser ever
+# accepted it — a tab-spaced colon hiding continue-on-error — is recorded rather
+# than fixed, because a blanket "tab in the block ⇒ fail closed" WOULD red
+# `run: "echo a<TAB>b"`, which is valid.
+echo "=== D57-tab-separator-residual-is-recorded ==="
+grep -qF '# D-A-RESIDUAL-TAB-SEPARATOR' "$CHECK_GATE" \
+  && pass "D57-tab-separator-residual-is-recorded (the tab reading is stated in the product, with what the parser says)" \
+  || fail_ "D57-tab-separator-residual-is-recorded" "the tab residual is no longer recorded — the reading becomes accidental"
 
 # ── D54: R-CTE-3 recorded, not fixed, and recorded EXECUTABLY ──────────────
 # The `invokes` floor counts a byte-exact gate line inside a heredoc — data
@@ -2385,7 +2514,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Governance - Phase gate check
-        if: contains(github.event.head_commit.message, ' #skip')
+        if: "hashFiles('.claude/phase-state.json') != '' # not really"
         env:
           GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
         run: |
@@ -2393,8 +2522,32 @@ jobs:
 YML
 assert_mutant_drops_cause DM22-comment-strip-is-quote-aware-carries-D40 naivestrip \
   '# D-A-COMMENT-INSIDE-QUOTES$' '/# D-A-COMMENT-INSIDE-QUOTES$/d' 1 0 \
-  "$P" "condition is 'if: contains(github.event.head_commit.message, ' #skip')'" \
-  'stop tracking quotes and the strip eats content: still refused, but the condition quoted back at the user is truncated at the hash'
+  "$P" "condition is 'if: \"hashFiles('.claude/phase-state.json') != '' # not really\"'" \
+  'stop opening the quote and the strip eats content out of a genuinely quoted scalar: still refused, but the condition quoted back at the user is truncated at the hash'
+
+echo "=== DM22b-quotes-only-open-a-scalar-carries-D40b ==="
+P="$TOPTMP/dm22b"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        if: contains(github.event.head_commit.message, ' #skip')
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_mutant_drops_cause DM22b-quotes-only-open-a-scalar-carries-D40b scalarstart \
+  '# D-A-COMMENT-INSIDE-QUOTES$' \
+  's@^\([[:space:]]*\)if (st == 0 \&\& ch != " ") @\1if (ch != " ") @' 1 1 \
+  "$P" "condition is 'if: contains(github.event.head_commit.message, ''" \
+  'drop the opens-the-scalar test and a quote ANYWHERE starts quoting, which is the reading PyYAML contradicts: the plain scalar is no longer ended at the space-hash'
 
 echo "=== DM23-anchor-comment-carries-D41 ==="
 P="$TOPTMP/dm23"; mk_raw_wf "$P" <<'YML'
