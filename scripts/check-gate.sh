@@ -504,6 +504,10 @@ cmd_repair() {
 #   STEPKEY <k> / JOBKEY <k> a key at that level's own key column
 #   STEPIF <v> / JOBIF <v>   the value of an `if:` at that level
 #   STEPCOE <v> / JOBCOE <v> the value of a `continue-on-error:` at that level
+#   STEPFOLD <v>             the step's `run:` is a FOLDED block scalar
+#   MAPSCOPE <line>          a line a secret mapping must live on to reach the
+#                            gate step: the step's own block, or the gate job's
+#                            or the workflow's `env:`
 #
 # WHY THIS EXISTS (D-A, Karl 2026-08-09). The project-side detector in
 # cmd_setup_ci_token used to read the workflow as a flat list of lines, so it
@@ -529,6 +533,15 @@ cmd_repair() {
 # at the same column as its key) is ordinary hand-written style and reading it
 # as "no keys at all" would fail OPEN — the direction that produced this defect.
 # Tabs are not handled because YAML forbids tab indentation outright.
+#
+# WHAT THIS IS NOT. It is a structural reader, not a YAML parser: it answers
+# "which lines belong to the gate step and its job" and leaves every judgement
+# to the caller. Everything it cannot answer that way is reported as such —
+# `STEP none` / `JOB none` for structure it cannot locate, `MERGE` for keys that
+# live in an anchor, `FOLD` for a command that is assembled by the emitter
+# rather than written down — and the caller fails CLOSED on all of them. That
+# is the whole design: the alternative is guessing, and every defect this
+# function has had was a guess that went the permissive way.
 _wf_gate_scope() {
   awk '
     # CR, DQ and SQ are built with sprintf rather than written literally. This
@@ -537,7 +550,7 @@ _wf_gate_scope() {
     # quote arms visibly parallel for review instead of one being a special
     # case. Dynamic regexes ("^" DQ ...) are POSIX awk and behave identically on
     # BSD awk, gawk and mawk.
-    BEGIN { CR = sprintf("%c", 13); DQ = sprintf("%c", 34); SQ = sprintf("%c", 39) }
+    BEGIN { CR = sprintf("%c", 13); DQ = sprintf("%c", 34); SQ = sprintf("%c", 39); TB = sprintf("%c", 9) }
     function ind(s,   t) { t = s; sub(/[^ ].*$/, "", t); return length(t) }
     # A QUOTED key is the same key (R-dA-2). YAML permits both quote styles for
     # an implicit key and generated / round-tripped workflows emit them, so a
@@ -554,6 +567,39 @@ _wf_gate_scope() {
       if (c ~ ("^" SQ "[A-Za-z_][A-Za-z0-9_-]*" SQ "[ ]*:")) { sub("^" SQ, "", c); sub(SQ "[ ]*:", ":", c) }  # D-A-QUOTED-KEY-SQ
       return c
     }
+    # A TRAILING COMMENT IS NOT PART OF THE VALUE (R-CTE-5). The shipped phase
+    # gate condition, and that same condition with ` # phase gate` after it, are
+    # the same configuration — YAML ends a scalar at a `#` that follows white
+    # space — and refusing the second one told a correctly-wired project that
+    # its own condition was not its own condition: the CRLF regression one notch
+    # subtler. The same applies to the STRUCTURAL anchors, not just to values:
+    # one comment on `steps:` or on the job id used to put the whole job out of
+    # reach. (No apostrophe appears anywhere in this program — see the note on
+    # CR/DQ/SQ above; the whole thing is one single-quoted shell string.)
+    #
+    # QUOTE-TRACKED, because a `#` INSIDE a quoted scalar is content, and a
+    # naive tail-strip eats it — `contains(msg, " #skip")` is an ordinary
+    # condition. That direction cannot produce a false OK (a strip only turns a
+    # refusal into an acceptance if what remains is byte-exact an allowlisted
+    # value, and both of those start UNQUOTED, so a quote opened after the first
+    # character leaves the naive remainder holding an unbalanced quote that can
+    # never equal them) — but it does make the refusal quote a MANGLED condition
+    # back at the user, which is the same self-refuting message the CRLF fix
+    # removed. Single quotes: YAML escapes one by doubling it, and a doubled
+    # quote reads here as "close, then reopen", which lands on the same state.
+    function decomment(s,   i, ch, pv, q, out) {
+      q = ""; out = ""
+      for (i = 1; i <= length(s); i++) {
+        ch = substr(s, i, 1)
+        if (q != "") { out = out ch; if (ch == q) q = ""; continue }
+        if (ch == DQ || ch == SQ) { q = ch; out = out ch; continue }                                          # D-A-COMMENT-INSIDE-QUOTES
+        pv = (i > 1) ? substr(s, i - 1, 1) : ""
+        if (ch == "#" && (pv == " " || pv == TB)) break                                                       # D-A-COMMENT-STRIP
+        out = out ch
+      }
+      sub(/[ ]+$/, "", out)
+      return out
+    }
     function emit(pfx, c,   k, v) {
       c = unq(c)
       # A merge key pulls the effective configuration in from an anchor
@@ -567,10 +613,27 @@ _wf_gate_scope() {
       # `[ ]*:` and not `:`. Same evasion class as the quoted key, same fix.
       if (c !~ /^[A-Za-z_][A-Za-z0-9_-]*[ ]*:/) return                                                        # D-A-SPACED-KEY
       k = c; sub(/[ ]*:.*$/, "", k)
-      v = c; sub(/^[A-Za-z_][A-Za-z0-9_-]*[ ]*:[ ]*/, "", v); sub(/[ ]+$/, "", v)
+      # The blanks after the colon are kept until decomment() has run, so that a
+      # value which is NOTHING BUT a comment (`if: # later`) is read as the null
+      # value it is rather than as the literal text of the comment.
+      v = c; sub(/^[A-Za-z_][A-Za-z0-9_-]*[ ]*:/, "", v); v = decomment(v); sub(/^[ ]+/, "", v)
       print pfx "KEY " k
       if (k == "if")                print pfx "IF " v
       if (k == "continue-on-error") print pfx "COE " v
+      # A FOLDED block scalar (`run: >`, with any chomping or indentation
+      # indicator) joins its source lines together with SPACES before bash ever
+      # sees them, so the command the runner executes is not any line in this
+      # file: `bash scripts/check-phase-gate.sh` on one line and `|| true` on the
+      # next fold into the canonical swallow while every line-wise check passes
+      # — the visible gate line is byte-exact the allowlisted invocation and the
+      # `|| true` line names nothing. The `run: |` equivalents all deviate
+      # line-wise and are already caught; only FOLDING evades, because the join
+      # happens in YAML rather than in bash. Same doctrine as the merge key: the
+      # effective command is not in the lines being read, so report it and let
+      # the caller fail closed. A plain scalar cannot begin with `>` (it is an
+      # indicator character), so the first byte settles it and no indicator
+      # spelling can slip past by being enumerated wrong.
+      if (k == "run" && substr(v, 1, 1) == ">") print pfx "FOLD " v                                           # D-A-FOLDED-RUN
     }
     { L[NR] = $0; n = NR }
     # CRLF is a line ENDING, not a configuration difference: GitHub Actions
@@ -589,23 +652,64 @@ _wf_gate_scope() {
         if (index(L[i], "scripts/check-phase-gate.sh") > 0) { hit = i; break }
       }
       if (hit == 0) { print "GATE none"; exit }
+      # A LONE `-` on its own line, with the keys below it, is an ordinary
+      # sequence item — hand-written and emitter-produced (R-CTE-1). The climb
+      # used to require a space after the dash, so it walked PAST that line and
+      # bound the gate to the previous step, reading the wrong keys
+      # entirely: `continue-on-error: true` on the real step was never seen and
+      # the claim was earned. The space is still REQUIRED — a dash with no space
+      # after it is an option (`-w packages/app` continued onto its own line in
+      # a run body), not a sequence item, and accepting those would bind the step
+      # to a line inside its own command. So the line is read with a space
+      # APPENDED: one regex, still anchored on "dash then a space", and the only
+      # thing that changes is that end-of-line now supplies the space.
       st = 0
-      for (i = hit; i >= 1; i--) if (L[i] ~ /^ *- /) { st = i; break }
+      for (i = hit; i >= 1; i--) if ((L[i] " ") ~ /^ *- /) { st = i; break }                                   # D-A-LONE-DASH-CLIMB
       if (st == 0) { print "STEP none"; exit }
       si = ind(L[st])
       c = L[st]; sub(/^ *- */, "", c)
       kl = length(L[st]) - length(c)
+      # …and FINDING that step is only half of it. The key column is normally
+      # derived from the dash line itself, which has no keys on it when the dash
+      # stands alone — that arithmetic put the column one past the dash, so no
+      # key ever matched it. Worse with trailing blanks after the dash: the
+      # column landed four deeper and an `env:` entry (`GH_TOKEN`) was read AS A
+      # STEP KEY, refusing the file for a key that is not a step key while the
+      # real swallow went unread. Both spellings are the same case — the dash
+      # line carries no inline content — so the column comes from the first line
+      # below it instead, and a step with no readable key line at all is
+      # unlocatable rather than silently keyless.
+      if (c == "") {                                                                                          # D-A-LONE-DASH-KEYCOL
+        kl = 0
+        for (i = st + 1; i <= n; i++) {
+          if (L[i] ~ /^ *$/) continue
+          if (ind(L[i]) <= si) break
+          d = L[i]; sub(/^ +/, "", d)
+          if (substr(d, 1, 1) == "#") continue
+          kl = ind(L[i]); break
+        }
+        if (kl == 0) { print "STEP none"; exit }
+      }
       emit("STEP", c)
+      # `se` is the step block end, captured by the SAME walk that reads the
+      # keys so the two cannot disagree about where the step stops. The maps
+      # scope below depends on it: a step boundary read one step too far is how
+      # a secret in a sibling step would count as one in this step.
+      se = n
       for (i = st + 1; i <= n; i++) {
         if (L[i] ~ /^ *$/) continue
-        if (ind(L[i]) <= si) break
+        if (ind(L[i]) <= si) { se = i - 1; break }
         if (ind(L[i]) != kl) continue
         c = L[i]; sub(/^ +/, "", c)
         if (substr(c, 1, 1) == "#") continue
         emit("STEP", c)
       }
+      # The anchors get the same comment handling the values do, for the same
+      # reason: `steps: # the governance job` is `steps:`, and a `$`-anchored
+      # regex that misses it puts the entire job out of reach and fails closed on
+      # a correctly-wired file.
       sp = 0
-      for (i = st; i >= 1; i--) if (L[i] ~ /^ +steps: *$/ && ind(L[i]) <= si) { sp = i; break }
+      for (i = st; i >= 1; i--) if (decomment(L[i]) ~ /^ +steps: *$/ && ind(L[i]) <= si) { sp = i; break }     # D-A-ANCHOR-COMMENT
       if (sp == 0) { print "JOB none"; exit }
       spi = ind(L[sp])
       # THE JOB IS THE NEAREST ENCLOSING LINE, not the nearest one that happens
@@ -631,7 +735,7 @@ _wf_gate_scope() {
       # this is what keeps a composite action (`runs:` at column 0) unlocatable
       # rather than scanned as if `runs` were a job.
       if (jb == 0 || ind(L[jb]) == 0) { print "JOB none"; exit }
-      c = L[jb]; sub(/^ +/, "", c); c = unq(c)
+      c = L[jb]; sub(/^ +/, "", c); c = decomment(unq(c))
       if (c !~ /^[A-Za-z_][A-Za-z0-9_-]*[ ]*: *$/) { print "JOB none"; exit }                                  # D-A-JOB-ID-CLOSED
       ji = ind(L[jb])
       for (i = jb + 1; i <= n; i++) {
@@ -641,6 +745,48 @@ _wf_gate_scope() {
         c = L[i]; sub(/^ +/, "", c)
         if (substr(c, 1, 1) == "#") continue
         emit("JOB", c)
+      }
+      # WHERE A SECRET HAS TO BE FOR THE GATE STEP TO READ IT (R-CTE-6). Three
+      # places, and only three: the whole block of the gate STEP — its `env:`
+      # and also its `run:` body, because `${{ secrets.X }}` written straight
+      # into a command is a real mapping too — plus the `env:` of the gate JOB,
+      # plus the `env:` of the WORKFLOW. Both of the outer two are inherited by
+      # every step of the job, so narrowing to the step block alone would red
+      # them; the `env:` of a SIBLING step, or of ANOTHER job, is inherited by
+      # nothing here, which is exactly what the old file-wide substring match
+      # could not tell apart.
+      for (i = st; i <= se; i++) {
+        if (L[i] ~ /^ *$/) continue
+        c = L[i]; sub(/^ +/, "", c)
+        if (substr(c, 1, 1) == "#") continue
+        print "MAPSCOPE " L[i]
+      }
+      for (i = jb + 1; i <= n; i++) {
+        if (L[i] ~ /^ *$/) continue
+        if (ind(L[i]) <= ji) break
+        if (ind(L[i]) != spi) continue
+        c = L[i]; sub(/^ +/, "", c)
+        if (substr(c, 1, 1) == "#" || unq(c) !~ /^env[ ]*:/) continue
+        print "MAPSCOPE " L[i]
+        for (j = i + 1; j <= n; j++) {
+          if (L[j] ~ /^ *$/) continue
+          if (ind(L[j]) <= spi) break
+          c = L[j]; sub(/^ +/, "", c)
+          if (substr(c, 1, 1) == "#") continue
+          print "MAPSCOPE " L[j]
+        }
+      }
+      for (i = 1; i <= n; i++) {
+        if (L[i] ~ /^ *$/ || ind(L[i]) != 0) continue
+        if (substr(L[i], 1, 1) == "#" || unq(L[i]) !~ /^env[ ]*:/) continue
+        print "MAPSCOPE " L[i]
+        for (j = i + 1; j <= n; j++) {
+          if (L[j] ~ /^ *$/) continue
+          if (ind(L[j]) == 0) break
+          c = L[j]; sub(/^ +/, "", c)
+          if (substr(c, 1, 1) == "#") continue
+          print "MAPSCOPE " L[j]
+        }
       }
     }
   ' "$1"
@@ -924,6 +1070,31 @@ EOM
   #     "the next push enforces" is false for it. Recorded deliberately —
   #     D-A's decided scope is maps && invokes && !swallows.
   #
+  # RECORDED RESIDUALS — known, unfixed, and deliberate. Named here rather than
+  # in a report so the next reader of this code meets them, and pinned in
+  # tests/test-walk006-ci-protection-scope.sh so closing one is a change with a
+  # proof rather than a surprise.
+  #   # D-A-RESIDUAL-HEREDOC-DATA  The `invokes` floor asks whether an
+  #     executable LINE is the allowlisted invocation. A byte-exact gate line
+  #     inside a heredoc (`cat > helper.sh <<'DONE' … DONE`) is DATA — written
+  #     to a file, never run — and it counts, so a workflow that only WRITES the
+  #     invocation earns the claim. This is the same "names on executed lines is
+  #     not the same as invokes" gap CLAUDE.md records for BL-181, so it is not
+  #     academic. It is unfixed because telling code from data inside a `run:`
+  #     body needs a bash lexer (quoted and unquoted delimiters, `<<-`, nesting,
+  #     command substitution, `#` in strings) and BL-181 is this repo's own
+  #     record of a lexical approximation of "executed" being narrowed one
+  #     character at a time and re-opening three times. The direction matters
+  #     too: `wf_gate` feeds BOTH the floor and the deviation scan, so a heredoc
+  #     skip that is one delimiter form too greedy would hide a real swallowing
+  #     line — fail OPEN, the worse half. A correct fix is a lexer, and a lexer
+  #     is its own change.
+  #   # D-A-RESIDUAL-QUOTED-STEPS-KEY  A quoted `"steps":` is not read as the
+  #     sequence anchor, so the job goes unlocatable and the file fails CLOSED.
+  #     Left alone because the direction is safe (a false red, not a false OK)
+  #     and `steps:` is structure rather than one of the keys this scan judges.
+  #     Same for a flow-style step mapping (`- {name: …, run: …}`).
+  #
   # JOB SCOPE IS PART OF !swallows, NOT A FOURTH CONDITION. A job-level `if:`
   # stops the step running and a job-level `continue-on-error:` stops its
   # failure counting; both discard the verdict exactly as a step-level swallow
@@ -952,17 +1123,34 @@ EOM
   local wf_step_coe="" wf_step_if="" wf_job_coe="" wf_job_if=""
   local wf_has_step_coe=0 wf_has_step_if=0 wf_bad_key="" wf_unlocated="" wf_k=""
   local wf_merge="" wf_merge_txt=""
+  local wf_folded="" wf_dupkey="" wf_mapscope="" wf_maps_src=""
   if [ -f "$wf" ]; then
     # Whole-line comments are dropped up front: everything below reasons about
     # what the runner EXECUTES, and the emitted step carries a 25-line comment
     # block that would otherwise be read as workflow content.
     wf_exec=$(grep -v '^[[:space:]]*#' "$wf" || true)
 
-    # (a) maps. A literal match, not a regex — `$secret_name` is
+    # The structural read comes FIRST now, because `maps` depends on it.
+    wf_scope=$(_wf_gate_scope "$wf" || true)
+
+    # (a) maps — a literal match (not a regex: `$secret_name` is
     # operator-supplied via --secret-name and its `.`/`*` would otherwise be
-    # metacharacters, and a mapping that only exists inside a comment is not a
-    # mapping at all.
-    case "$wf_exec" in
+    # metacharacters), over the lines a mapping has to live on to reach the gate
+    # step. It used to run over the WHOLE FILE, so a secret mapped into a
+    # different step — or a different job — earned the sentence "maps
+    # $secret_name into the phase-gate step" while the gate step got no token at
+    # all. Claiming a scope nobody checked is this branch's whole subject, so
+    # the check now covers what the sentence says: the step's own block, the
+    # gate job's `env:`, the workflow's `env:`.
+    #
+    # MAPSCOPE is empty ONLY when _wf_gate_scope could not read the structure at
+    # all, and every one of those exits is already refused below by the
+    # fail-closed arms. Falling back to the file-wide text there is therefore
+    # not a hole — the claim is withheld either way — it just stops the refusal
+    # printing a "does not map" cause it has no standing to assert.
+    wf_mapscope=$(printf '%s\n' "$wf_scope" | sed -n 's/^MAPSCOPE //p' || true)
+    if [ -n "$wf_mapscope" ]; then wf_maps_src="$wf_mapscope"; else wf_maps_src="$wf_exec"; fi   # D-A-MAPS-SCOPE
+    case "$wf_maps_src" in
       *"secrets.$secret_name"*) wf_maps=1 ;;   # D-A-MAPS-VERDICT
     esac
 
@@ -974,9 +1162,19 @@ EOM
       # (a2) invokes — a POSITIVE floor. `grep -c` (not `-q`) because it reads
       # its whole input: a `-q` that exits early can SIGPIPE the upstream stage
       # and, under `pipefail`, turn a found match into a non-zero pipeline.
-      wf_n_inv=$(printf '%s\n' "$wf_gate" | grep -cxF -- "$wf_allow_invoke" || true)
+      # `-x` is whole-LINE on purpose: a line that merely CONTAINS the
+      # invocation (`bash scripts/check-phase-gate.sh || true`) is not an
+      # invocation, and while the deviation scan below refuses that file anyway,
+      # the user needs BOTH edits named — restore the invocation, and drop the
+      # swallow — not one of them.
+      wf_n_inv=$(printf '%s\n' "$wf_gate" | grep -cxF -- "$wf_allow_invoke" || true)   # D-A-INVOKES-WHOLE-LINE
       case "$wf_n_inv" in ''|*[!0-9]*) wf_n_inv=0 ;; esac
-      if [ "$wf_n_inv" -ge 1 ]; then
+      # A THRESHOLD, and the threshold is the point: `-ge 1`, not `-ge 0`. The
+      # shape that reaches it is a workflow carrying the framework's existence
+      # GUARD with the invocation deleted — `wf_gate` is non-empty (the guard
+      # names the script) and the count is zero. `-ge 0` is satisfied by nothing
+      # at all and hands that file the claim.
+      if [ "$wf_n_inv" -ge 1 ]; then   # D-A-INVOKES-FLOOR
         wf_invokes=1   # D-A-INVOKES-VERDICT
       fi
       wf_dev=$(printf '%s\n' "$wf_gate" \
@@ -988,7 +1186,7 @@ EOM
 
     # (b2) the Actions-native swallows, which live in the step's KEYS rather
     # than in its `run:` body and are therefore invisible to any line scan.
-    wf_scope=$(_wf_gate_scope "$wf" || true)
+    # ($wf_scope was read above — `maps` needs it too.)
     wf_step_coe=$(printf '%s\n' "$wf_scope" | sed -n 's/^STEPCOE //p' | head -1 || true)
     wf_step_if=$(printf  '%s\n' "$wf_scope" | sed -n 's/^STEPIF //p'  | head -1 || true)
     wf_job_coe=$(printf  '%s\n' "$wf_scope" | sed -n 's/^JOBCOE //p'  | head -1 || true)
@@ -1016,6 +1214,24 @@ EOM
     if printf '%s\n' "$wf_scope" | grep -q '^STEPMERGE '; then wf_merge="step"; fi
     if printf '%s\n' "$wf_scope" | grep -q '^JOBMERGE ';  then wf_merge="${wf_merge:+$wf_merge and }job"; fi
     wf_merge_txt=$(printf '%s\n' "$wf_scope" | sed -n -e 's/^STEPMERGE //p' -e 's/^JOBMERGE //p' | head -1 || true)
+    # A folded `run:` is the same kind of unreadable as a merge key, one level
+    # down: the block IS found, but the command it runs is assembled by the YAML
+    # emitter out of lines that individually say nothing wrong.
+    wf_folded=$(printf '%s\n' "$wf_scope" | sed -n 's/^STEPFOLD //p' | head -1 || true)
+    # DUPLICATE KEYS. Every value above is read with `head -1`, which picks the
+    # FIRST of a repeated key — so `continue-on-error: false` followed by
+    # `continue-on-error: true` looked hard while the effective value was true.
+    # There is no correct choice to make here: GitHub's own parser REJECTS
+    # duplicate mapping keys, so a workflow carrying one does not run at all and
+    # "the next push enforces the check" is false for it twice over. Failing
+    # closed is the answer, and it deletes the ambiguity rather than pinning an
+    # arbitrary resolution of it.
+    for wf_k in $(printf '%s\n' "$wf_scope" | sed -n 's/^STEPKEY //p' | sort | uniq -d); do
+      wf_dupkey="$wf_dupkey step:$wf_k"
+    done
+    for wf_k in $(printf '%s\n' "$wf_scope" | sed -n 's/^JOBKEY //p' | sort | uniq -d); do
+      wf_dupkey="$wf_dupkey job:$wf_k"
+    done
 
     if [ "$wf_has_step_coe" -ge 1 ] && [ "$wf_step_coe" != "false" ]; then
       wf_swallows=1   # D-A-STEP-COE-VERDICT
@@ -1034,6 +1250,12 @@ EOM
     fi
     if [ -n "$wf_merge" ]; then
       wf_swallows=1   # D-A-MERGE-VERDICT
+    fi
+    if [ -n "$wf_folded" ]; then
+      wf_swallows=1   # D-A-FOLDED-RUN-VERDICT
+    fi
+    if [ -n "$wf_dupkey" ]; then
+      wf_swallows=1   # D-A-DUP-KEY-VERDICT
     fi
   fi
 
@@ -1059,7 +1281,7 @@ EOM
       _wf_print_gate_step "$secret_name"
     fi
     if [ -f "$wf" ] && [ "$wf_maps" -eq 0 ]; then
-      echo "  - $wf does not map $secret_name yet — the secret would be stored but unread. Add these lines to the 'Governance - Phase gate check' step:"
+      echo "  - $wf does not map $secret_name into the phase-gate step — the secret would be stored but unread. A mapping on a DIFFERENT step, or in a different job, does not reach it. Add these lines to the 'Governance - Phase gate check' step (its job's 'env:' or the workflow's 'env:' work too, since a step inherits both):"
       echo "        env:"
       echo "          GH_TOKEN: \${{ secrets.$secret_name }}"
     fi
@@ -1093,6 +1315,13 @@ EOM
     fi
     if [ -n "$wf_merge" ]; then
       echo "  - A YAML merge key on the gate's $wf_merge pulls in keys from ELSEWHERE in the file: $wf_merge_txt. The effective 'continue-on-error:' and 'if:' are therefore not in the block this check reads, so a swallow could be sitting in the anchor. Anchors are not resolved here — write the keys out on the $wf_merge itself and re-run this command."
+    fi
+    if [ -n "$wf_folded" ]; then
+      echo "  - The phase-gate step's 'run:' is a FOLDED block scalar ('run: $wf_folded'), which joins its lines together with spaces before bash sees them — so the command that actually runs is not any line in this file, and something as invisible as '|| true' on a line of its own becomes part of the invocation. Rewrite it as a literal block scalar:"
+      _wf_print_gate_run
+    fi
+    if [ -n "$wf_dupkey" ]; then
+      echo "  - The same key is declared TWICE where the gate runs:$wf_dupkey. Only one of them takes effect and this check cannot tell you which — and GitHub's own parser rejects duplicate mapping keys, so this workflow does not run at all. Delete the duplicate."
     fi
   fi
   echo ""
