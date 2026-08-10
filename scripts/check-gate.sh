@@ -539,17 +539,23 @@ _wf_gate_scope() {
     # BSD awk, gawk and mawk.
     BEGIN { CR = sprintf("%c", 13); DQ = sprintf("%c", 34); SQ = sprintf("%c", 39) }
     function ind(s,   t) { t = s; sub(/[^ ].*$/, "", t); return length(t) }
-    function emit(pfx, c,   k, v) {
-      # A QUOTED key is the same key (R-dA-2). YAML permits both quote styles
-      # for an implicit key and generated / round-tripped workflows emit them,
-      # so a double-quoted continue-on-error and a single-quoted if are ordinary
-      # spellings of the two swallows this scan exists to find. Reading only the
-      # bare spelling let them through UNSEEN and the claim was earned while the
-      # step was inert — the unsafe direction. The key is unquoted for
-      # COMPARISON only; the value keeps its existing handling, so a quoted key
-      # with a deviating value is still refused on the value.
+    # A QUOTED key is the same key (R-dA-2). YAML permits both quote styles for
+    # an implicit key and generated / round-tripped workflows emit them, so a
+    # double-quoted continue-on-error and a single-quoted if are ordinary
+    # spellings of the two swallows this scan exists to find. Reading only the
+    # bare spelling let them through UNSEEN and the claim was earned while the
+    # step was inert — the unsafe direction. The key is unquoted for COMPARISON
+    # only; the value keeps its existing handling, so a quoted key with a
+    # deviating value is still refused on the value. ONE writer, because the job
+    # LOCATOR has to read the same spellings the key scan does — a quoted job id
+    # it could not read is what let the locator wander (see D-A-JOB-ID-CLOSED).
+    function unq(c) {
       if (c ~ ("^" DQ "[A-Za-z_][A-Za-z0-9_-]*" DQ "[ ]*:")) { sub("^" DQ, "", c); sub(DQ "[ ]*:", ":", c) }  # D-A-QUOTED-KEY-DQ
       if (c ~ ("^" SQ "[A-Za-z_][A-Za-z0-9_-]*" SQ "[ ]*:")) { sub("^" SQ, "", c); sub(SQ "[ ]*:", ":", c) }  # D-A-QUOTED-KEY-SQ
+      return c
+    }
+    function emit(pfx, c,   k, v) {
+      c = unq(c)
       # A merge key pulls the effective configuration in from an anchor
       # ELSEWHERE in the file, so the block being read does not settle the
       # question and the swallow may be in the anchor. Anchors are deliberately
@@ -602,9 +608,31 @@ _wf_gate_scope() {
       for (i = st; i >= 1; i--) if (L[i] ~ /^ +steps: *$/ && ind(L[i]) <= si) { sp = i; break }
       if (sp == 0) { print "JOB none"; exit }
       spi = ind(L[sp])
+      # THE JOB IS THE NEAREST ENCLOSING LINE, not the nearest one that happens
+      # to look like a job id. This search used to climb until something matched
+      # /^ +[A-Za-z_][A-Za-z0-9_-]*: *$/ and SKIP whatever it could not read — so
+      # a job id it could not read (a quoted one, or one carrying an anchor) sent
+      # it climbing straight out of `jobs:` and it bound "the job" to `push:`
+      # inside the `on:` block. It then scanned the TRIGGER for job-level
+      # swallows, found none, and the claim was EARNED while a real
+      # `continue-on-error: true` on the actual job was never read — fail OPEN,
+      # the worst direction, and the same defect class as the quoted step key.
+      # So: stop at the enclosing line, then judge it. Blank lines and comments
+      # are skipped because neither encloses anything.
       jb = 0
-      for (i = sp; i >= 1; i--) if (L[i] ~ /^ +[A-Za-z_][A-Za-z0-9_-]*: *$/ && ind(L[i]) < spi) { jb = i; break }
-      if (jb == 0) { print "JOB none"; exit }
+      for (i = sp - 1; i >= 1; i--) {
+        if (L[i] ~ /^ *$/) continue
+        c = L[i]; sub(/^ +/, "", c)
+        if (substr(c, 1, 1) == "#") continue
+        if (ind(L[i]) >= spi) continue
+        jb = i; break
+      }
+      # ind == 0 is not a job: a job id is always indented under `jobs:`, and
+      # this is what keeps a composite action (`runs:` at column 0) unlocatable
+      # rather than scanned as if `runs` were a job.
+      if (jb == 0 || ind(L[jb]) == 0) { print "JOB none"; exit }
+      c = L[jb]; sub(/^ +/, "", c); c = unq(c)
+      if (c !~ /^[A-Za-z_][A-Za-z0-9_-]*[ ]*: *$/) { print "JOB none"; exit }                                  # D-A-JOB-ID-CLOSED
       ji = ind(L[jb])
       for (i = jb + 1; i <= n; i++) {
         if (L[i] ~ /^ *$/) continue
