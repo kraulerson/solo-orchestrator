@@ -1466,6 +1466,12 @@ assert_earns_ok D30-quoted-job-id-clean-job-still-earns "$P" \
 
 # ── D31-D34: R-CTE-1, the lone-dash sequence item, in BOTH directions ──────
 echo "=== D31-lone-dash-step-hides-swallow ==="
+# The secret is mapped at JOB level here, not on the step. That is deliberate
+# and it is what makes DM17 isolate one line: with the climb narrowed back, the
+# scan binds to `Setup`, and a step-level mapping would then make it fail on
+# `maps` — refusing for a second reason and proving nothing about the climb.
+# Mapped at job level, every step inherits it, so the ONLY thing the mutant
+# changes is which step's keys are read.
 P="$TOPTMP/d31"; mk_raw_wf "$P" <<'YML'
 name: CI
 on:
@@ -1475,14 +1481,14 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
     steps:
       - name: Setup
         run: echo hi
       -
         name: Governance - Phase gate check
         continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
         run: |
           bash scripts/check-phase-gate.sh
 YML
@@ -2251,14 +2257,14 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
     steps:
       - name: Setup
         run: echo hi
       -
         name: Governance - Phase gate check
         continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
         run: |
           bash scripts/check-phase-gate.sh
 YML
