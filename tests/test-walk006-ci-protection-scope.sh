@@ -2217,6 +2217,400 @@ assert_earns_ok D54b-heredoc-residual-behaves-as-recorded "$P" \
   'RECORDED RESIDUAL, not an endorsement: the floor still counts a gate line that is heredoc DATA. Pinned so that closing it is a deliberate change with its own proof'
 
 # ════════════════════════════════════════════════════════════════════════════
+# ROUND 3 — the scope report is a GRAMMAR, and MAPSCOPE re-emits raw run-body
+# lines into the very stream the verdict greps read.
+#
+# The round-2 report argued that the `-x` flags on the greps that read
+# _wf_gate_scope's report "cannot change a verdict", on the structural grounds
+# that `STEP none` / `JOB none` are terminal and that a proper superstring of
+# `STEPKEY continue-on-error` would be refused as an unrecognised key anyway.
+# That argument overlooked `MAPSCOPE`, which prints RAW LINES of the gate step's
+# own block — its `run:` body included — into the same stream. A gate step whose
+# command echoes any sentinel token then matches a NON-anchored grep, and every
+# one of those greps turns a correctly-wired workflow into a refusal. The atoms
+# are anchors against this function's OWN output, not merely against structure.
+#
+# ONE fixture carries every sentinel in the grammar, which is the stronger
+# statement: a legitimate workflow that names the whole report vocabulary in its
+# command still earns the claim, and each mutant below removes exactly one
+# anchor and gets exactly one named refusal back. An argument is not a
+# measurement — this is the measurement.
+mk_sentinel_wf() {
+  mk_raw_wf "$1" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          echo "scope grammar: STEP none"
+          echo "scope grammar: JOB none"
+          echo "scope grammar: STEPKEY continue-on-error"
+          echo "scope grammar: STEPKEY if"
+          echo "scope grammar: STEPKEY shell"
+          echo "scope grammar: STEPMERGE <<: *soft"
+          echo "scope grammar: JOBMERGE <<: *soft"
+          echo "scope grammar: STEPOPAQUE !!str continue-on-error: true"
+          echo "scope grammar: JOBOPAQUE ? continue-on-error"
+          bash scripts/check-phase-gate.sh
+YML
+}
+# The step deliberately carries NEITHER `if:` NOR `shell:`. Both are permitted
+# absent (# D-A-PARITY-2-ABSENT-IF, and an absent shell is the documented
+# default), and only their ABSENCE makes the two `STEPKEY` sentinels decisive:
+# with a real `if:` present the count is already 1 and the mutant proves nothing.
+echo "=== D59-report-grammar-in-a-run-body-still-earns ==="
+P="$TOPTMP/d59"; mk_sentinel_wf "$P"
+assert_earns_ok D59-report-grammar-in-a-run-body-still-earns "$P" \
+  'a correctly-wired gate step may echo every sentinel token of the scope-report grammar; the anchors are what keep MAPSCOPE re-emission from being read as structure'
+
+# ── D60-D63: node tags and explicit keys — the fail-open the key guard left ──
+# `emit()` skips any line that is not a plain `key:`, so a key written with a
+# YAML node tag (`!!str continue-on-error: true`) or in explicit-key form
+# (`? continue-on-error` / `: true`) was never reported at all and the swallow
+# was invisible. SETTLED, not assumed, and it settles the same way under both
+# readings of GitHub's parser:
+#   • PyYAML 6.0.3 loads all four spellings below as a REAL
+#     `continue-on-error: true` at the level written (measured, not argued);
+#   • the public `actions/runner` YAML reader
+#     (src/Sdk/DTPipelines/Pipelines/ObjectTemplating/YamlObjectReader.cs)
+#     HONOURS the five standard scalar tags — `tag:yaml.org,2002:str` among them
+#     — so a tagged key is a real key to Actions too, while an explicit key
+#     reaches no handler at all and errors out.
+# Honoured ⇒ a real swallow. Rejected ⇒ the workflow does not run, so "the next
+# push enforces the check" is false twice over. The verdict does not depend on
+# which, so it is decided rather than guessed: fail CLOSED with its own cause.
+OPAQUE_SIG="cannot read as a key"
+echo "=== D60-tagged-step-key-withheld ==="
+P="$TOPTMP/d60"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        !!str continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_withheld D60-tagged-step-key-withheld "$P" "$OPAQUE_SIG" \
+  'a node tag on the key is the same key to a YAML parser, so the step is soft and the claim was earned'
+
+echo "=== D61-explicit-step-key-withheld ==="
+P="$TOPTMP/d61"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        ? continue-on-error
+        : true
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_withheld D61-explicit-step-key-withheld "$P" "$OPAQUE_SIG" \
+  'the explicit-key form is the same mapping entry, and Actions own reader errors on it — unearned either way'
+
+echo "=== D62-tagged-job-key-withheld ==="
+P="$TOPTMP/d62"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    !!str continue-on-error: true
+    steps:
+      - name: Governance - Phase gate check
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_withheld D62-tagged-job-key-withheld "$P" "$OPAQUE_SIG" \
+  'the same evasion one level up — the JOB is soft and the step below it cannot enforce'
+
+echo "=== D63-explicit-job-key-withheld ==="
+P="$TOPTMP/d63"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    ? continue-on-error
+    : true
+    steps:
+      - name: Governance - Phase gate check
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_withheld D63-explicit-job-key-withheld "$P" "$OPAQUE_SIG" \
+  'explicit key at job level, same disposition'
+
+# ── D64-D70: the FOURTH condition — the step's shell must fail fast ──────────
+# R-CTE-8, Karl 2026-08-10. `shell:` was allowlisted as a documented run-step
+# key on the false ground that it "cannot change how the step's verdict is
+# graded". It is the one key on that list that decides exactly that. Per
+# GitHub's own workflow syntax reference ("Exit codes and error action
+# preference"): for the BUILT-IN `bash` and `sh` keywords GitHub enforces
+# fail-fast with `set -e` (bash also `-o pipefail`), and "you can override these
+# defaults by providing a custom shell template string". Under a custom template
+# such as `shell: bash {0}` the script runs bare, so a FAILING
+# `bash scripts/check-phase-gate.sh` no longer aborts and any line after it sets
+# the step's exit code to 0 — the gate's verdict is discarded exactly as
+# `continue-on-error: true` discards it, and the file was told the next push
+# enforces the check.
+SHELL_SIG="which GitHub does not run with 'set -e'"
+echo "=== D64-custom-shell-template-withheld ==="
+P="$TOPTMP/d64"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        shell: bash {0}
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+          echo "gate done"
+YML
+assert_withheld D64-custom-shell-template-withheld "$P" "$SHELL_SIG" \
+  'a custom template runs the script with no -e, so the trailing echo grades a FAILED gate as success'
+
+echo "=== D65-non-fail-fast-keyword-withheld ==="
+P="$TOPTMP/d65"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        shell: python
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_withheld D65-non-fail-fast-keyword-withheld "$P" "$SHELL_SIG" \
+  'an ALLOWLIST, not a blacklist: python is a documented keyword and it is still refused, because it is not documented fail-fast for this body'
+
+echo "=== D66-shell-bash-still-earns ==="
+P="$TOPTMP/d66"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_earns_ok D66-shell-bash-still-earns "$P" \
+  'the built-in bash keyword is documented with set -e -o pipefail — writing it out explicitly must not be a red'
+
+echo "=== D67-shell-sh-still-earns ==="
+P="$TOPTMP/d67"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        shell: sh
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_earns_ok D67-shell-sh-still-earns "$P" \
+  'sh is documented with set -e as well, and the allowlist is the documented fail-fast set rather than one favoured spelling'
+
+# The same vector one LEVEL UP. `defaults.run.shell` sets the interpreter for
+# every run step of a job (or of the whole workflow) with no `shell:` key on the
+# step at all, so a detector that reads only the step key would have shipped a
+# condition anyone could step around by moving one line. Handled by precedence
+# rather than by a blanket refusal: step > job defaults > workflow defaults.
+echo "=== D68-job-defaults-shell-withheld ==="
+P="$TOPTMP/d68"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash {0}
+    steps:
+      - name: Governance - Phase gate check
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+          echo "gate done"
+YML
+assert_withheld D68-job-defaults-shell-withheld "$P" "the job's 'defaults.run.shell' is 'bash {0}'" \
+  'the job default reaches the gate step with no shell: key on the step, and it is the same swallow'
+
+echo "=== D69-workflow-defaults-shell-withheld ==="
+P="$TOPTMP/d69"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+defaults:
+  run:
+    shell: bash {0}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+          echo "gate done"
+YML
+assert_withheld D69-workflow-defaults-shell-withheld "$P" "the workflow's 'defaults.run.shell' is 'bash {0}'" \
+  'and again at workflow level, which no step-scoped read would ever see'
+
+echo "=== D70-step-shell-overrides-a-bad-job-default ==="
+P="$TOPTMP/d70"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+defaults:
+  run:
+    shell: bash {0}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash {0}
+    steps:
+      - name: Governance - Phase gate check
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_earns_ok D70-step-shell-overrides-a-bad-job-default "$P" \
+  'PRECEDENCE, not a blanket refusal: the step key wins over both defaults blocks, so a file that is actually fail-fast is not a false red'
+
+# ── D71 / D72: two more recorded residuals, in the product and pinned ────────
+# Same treatment as # D-A-RESIDUAL-HEREDOC-DATA: the marker lives in the code so
+# the next reader meets it, and the behaviour it describes is ASSERTED, so
+# closing one is a deliberate change with its own proof rather than a surprise.
+echo "=== D71-env-shadow-residual-is-recorded ==="
+grep -qF '# D-A-RESIDUAL-ENV-SHADOW' "$CHECK_GATE" \
+  && pass "D71-env-shadow-residual-is-recorded (the presence-test blind spot is named where MAPSCOPE is built)" \
+  || fail_ "D71-env-shadow-residual-is-recorded" "the env-shadow residual is no longer recorded — a known fail-open becomes an undocumented one"
+P="$TOPTMP/d71"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+env:
+  GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_earns_ok D71b-env-shadow-behaves-as-recorded "$P" \
+  'RECORDED RESIDUAL, not an endorsement: maps is a PRESENCE test over the union of the three scopes, so a step-level GH_TOKEN that SHADOWS the workflow-level mapping is invisible to it'
+
+echo "=== D72-run-body-disarm-residual-is-recorded ==="
+grep -qF '# D-A-RESIDUAL-RUN-BODY-DISARM' "$CHECK_GATE" \
+  && pass "D72-run-body-disarm-residual-is-recorded (the OK sentence does not silently overclaim for bash control flow)" \
+  || fail_ "D72-run-body-disarm-residual-is-recorded" "the run-body residual is gone — the shell condition would read as more than it is"
+P="$TOPTMP/d72"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          set +e
+          bash scripts/check-phase-gate.sh
+          exit 0
+YML
+assert_earns_ok D72b-run-body-disarm-behaves-as-recorded "$P" \
+  'RECORDED RESIDUAL: `set +e` … `exit 0` inside the run body disarms the gate with a fail-fast shell and a byte-exact invocation. Telling code from data in a run body needs a bash lexer — same difficulty as # D-A-RESIDUAL-HEREDOC-DATA, and the reason BL-218 exists'
+
+# ════════════════════════════════════════════════════════════════════════════
 # DM1-DM8 — the other direction. Each mutant neuters ONE line and the false
 # claim comes back. mk_cg_mutant asserts the harness standard for every one of
 # them: sites==1 for the anchored end-of-line marker, exactly-N-lines-changed,
@@ -2684,6 +3078,300 @@ assert_mutant_drops_cause DM26-invokes-whole-line-carries-D53 invwholeline \
   's@grep -cxF -- "\$wf_allow_invoke" || true)   # D-A-INVOKES-WHOLE-LINE$@grep -cF -- "$wf_allow_invoke" || true)@' 1 1 \
   "$P" "INVOKES the phase gate" \
   'drop the whole-line anchor and a swallowed line COUNTS as an invocation: the verdict survives on the deviation scan alone, but the user loses one of the two edits they need'
+
+# ════════════════════════════════════════════════════════════════════════════
+# DM27-DM35 — the scope-report anchors. ONE fixture (mk_sentinel_wf, D59), nine
+# mutants, each removing exactly ONE anchor character and each getting exactly
+# ONE named refusal back on a workflow that is correctly wired. These are the
+# INVERTED direction — the atoms prevent a false RED — so assert_mutant_refuses
+# is the right assertion and the named cause is what proves the mutant did not
+# simply break something else. The round-2 report claimed these atoms "cannot
+# change a verdict"; every one of them can, and this is the measurement.
+# ════════════════════════════════════════════════════════════════════════════
+
+echo "=== DM27-scope-anchor-step-none-carries-D59 ==="
+P="$TOPTMP/dm27"; mk_sentinel_wf "$P"
+assert_mutant_refuses DM27-scope-anchor-step-none-carries-D59 anchstepnone \
+  '# D-A-SCOPE-GRAMMAR-STEP-NONE$' \
+  's@grep -qx \(.\)STEP none\(.\)\(.*\)# D-A-SCOPE-GRAMMAR-STEP-NONE$@grep -q \1STEP none\2\3# D-A-SCOPE-GRAMMAR-STEP-NONE@' 1 1 \
+  "$P" "Could not locate the step that runs the gate" \
+  'drop -x and a run body that echoes the sentinel is re-read as MAPSCOPE structure: the step is reported unlocatable and a correct file is refused'
+
+echo "=== DM28-scope-anchor-job-none-carries-D59 ==="
+P="$TOPTMP/dm28"; mk_sentinel_wf "$P"
+assert_mutant_refuses DM28-scope-anchor-job-none-carries-D59 anchjobnone \
+  '# D-A-SCOPE-GRAMMAR-JOB-NONE$' \
+  's@grep -qx \(.\)JOB none\(.\)\(.*\)# D-A-SCOPE-GRAMMAR-JOB-NONE$@grep -q \1JOB none\2\3# D-A-SCOPE-GRAMMAR-JOB-NONE@' 1 1 \
+  "$P" "Could not locate the job that runs the gate" \
+  'same one level up — terminality does not save it, because MAPSCOPE lines are printed by a DIFFERENT exit path than the one that prints JOB none'
+
+echo "=== DM29-scope-anchor-stepkey-coe-carries-D59 ==="
+P="$TOPTMP/dm29"; mk_sentinel_wf "$P"
+assert_mutant_refuses DM29-scope-anchor-stepkey-coe-carries-D59 anchstepcoe \
+  '# D-A-SCOPE-GRAMMAR-STEPKEY-COE$' \
+  's@grep -cx \(.\)STEPKEY continue-on-error\(.\)\(.*\)# D-A-SCOPE-GRAMMAR-STEPKEY-COE$@grep -c \1STEPKEY continue-on-error\2\3# D-A-SCOPE-GRAMMAR-STEPKEY-COE@' 1 1 \
+  "$P" "which grades a FAILED step as success" \
+  'the superstring argument was answered with the wrong stream: a MAPSCOPE line CONTAINS the token without being a step key at all'
+
+echo "=== DM30-scope-anchor-stepkey-if-carries-D59 ==="
+P="$TOPTMP/dm30"; mk_sentinel_wf "$P"
+assert_mutant_refuses DM30-scope-anchor-stepkey-if-carries-D59 anchstepif \
+  '# D-A-SCOPE-GRAMMAR-STEPKEY-IF$' \
+  's@grep -cx \(.\)STEPKEY if\(.\)\(.*\)# D-A-SCOPE-GRAMMAR-STEPKEY-IF$@grep -c \1STEPKEY if\2\3# D-A-SCOPE-GRAMMAR-STEPKEY-IF@' 1 1 \
+  "$P" "which is not the one this framework ships" \
+  'and the file is then told its own ABSENT condition is the wrong condition — the self-refuting refusal the CRLF fix removed once already'
+
+echo "=== DM31-scope-anchor-stepkey-shell-carries-D59 ==="
+P="$TOPTMP/dm31"; mk_sentinel_wf "$P"
+assert_mutant_refuses DM31-scope-anchor-stepkey-shell-carries-D59 anchstepshell \
+  '# D-A-SCOPE-GRAMMAR-STEPKEY-SHELL$' \
+  's@grep -cx \(.\)STEPKEY shell\(.\)\(.*\)# D-A-SCOPE-GRAMMAR-STEPKEY-SHELL$@grep -c \1STEPKEY shell\2\3# D-A-SCOPE-GRAMMAR-STEPKEY-SHELL@' 1 1 \
+  "$P" "$SHELL_SIG" \
+  'the FOURTH condition reads the same grammar and inherits the same trap — pinned when it was written, not three rounds later'
+
+echo "=== DM32-scope-anchor-stepmerge-carries-D59 ==="
+P="$TOPTMP/dm32"; mk_sentinel_wf "$P"
+assert_mutant_refuses DM32-scope-anchor-stepmerge-carries-D59 anchstepmerge \
+  '# D-A-SCOPE-GRAMMAR-STEPMERGE$' \
+  's@grep -q \(.\)\(.\)STEPMERGE \(.\)\(.*\)# D-A-SCOPE-GRAMMAR-STEPMERGE$@grep -q \1STEPMERGE \3\4# D-A-SCOPE-GRAMMAR-STEPMERGE@' 1 1 \
+  "$P" "A YAML merge key on the gate's step" \
+  'the ^ anchors are the same class as the -x flags, and nobody named these two: measured, then pinned'
+
+echo "=== DM33-scope-anchor-jobmerge-carries-D59 ==="
+P="$TOPTMP/dm33"; mk_sentinel_wf "$P"
+assert_mutant_refuses DM33-scope-anchor-jobmerge-carries-D59 anchjobmerge \
+  '# D-A-SCOPE-GRAMMAR-JOBMERGE$' \
+  's@grep -q \(.\)\(.\)JOBMERGE \(.\)\(.*\)# D-A-SCOPE-GRAMMAR-JOBMERGE$@grep -q \1JOBMERGE \3\4# D-A-SCOPE-GRAMMAR-JOBMERGE@' 1 1 \
+  "$P" "A YAML merge key on the gate's job" \
+  'and its sibling'
+
+echo "=== DM34-scope-anchor-stepopaque-carries-D59 ==="
+P="$TOPTMP/dm34"; mk_sentinel_wf "$P"
+assert_mutant_refuses DM34-scope-anchor-stepopaque-carries-D59 anchstepopaque \
+  '# D-A-SCOPE-GRAMMAR-STEPOPAQUE$' \
+  's@grep -q \(.\)\(.\)STEPOPAQUE \(.\)\(.*\)# D-A-SCOPE-GRAMMAR-STEPOPAQUE$@grep -q \1STEPOPAQUE \3\4# D-A-SCOPE-GRAMMAR-STEPOPAQUE@' 1 1 \
+  "$P" "$OPAQUE_SIG" \
+  'the new arm ships with its anchor pinned, so the grammar cannot grow another hole quietly'
+
+echo "=== DM35-scope-anchor-jobopaque-carries-D59 ==="
+P="$TOPTMP/dm35"; mk_sentinel_wf "$P"
+assert_mutant_refuses DM35-scope-anchor-jobopaque-carries-D59 anchjobopaque \
+  '# D-A-SCOPE-GRAMMAR-JOBOPAQUE$' \
+  's@grep -q \(.\)\(.\)JOBOPAQUE \(.\)\(.*\)# D-A-SCOPE-GRAMMAR-JOBOPAQUE$@grep -q \1JOBOPAQUE \3\4# D-A-SCOPE-GRAMMAR-JOBOPAQUE@' 1 1 \
+  "$P" "$OPAQUE_SIG" \
+  'and its sibling'
+
+# ════════════════════════════════════════════════════════════════════════════
+# DM36-DM43 — the two new arms: the opaque key shapes and the FOURTH condition.
+# Every mutant that edits the awk program inside _wf_gate_scope is driven
+# against the ordinary-spelling control as well, because `bash -n` cannot tell a
+# live awk program from a dead one and a dead one prints the false OK.
+# ════════════════════════════════════════════════════════════════════════════
+
+echo "=== DM36-opaque-key-carries-D60 ==="
+P="$TOPTMP/dm36"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        !!str continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_mutant_false_ok_ctl DM36-opaque-key-carries-D60 opaquekey \
+  '# D-A-OPAQUE-KEY$' '/# D-A-OPAQUE-KEY$/d' 1 0 \
+  "$P" "$OPAQUE_SIG" \
+  "$DMCTL" "$DMCTL_SIG" \
+  'without the report the tagged key is not a key at all, the swallow is unseen and the claim comes back'
+
+echo "=== DM37-opaque-verdict-carries-D60 ==="
+P="$TOPTMP/dm37"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        ? continue-on-error
+        : true
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_mutant_false_ok DM37-opaque-verdict-carries-D60 opaqueverdict \
+  '^[[:space:]]*wf_swallows=1[[:space:]]*# D-A-OPAQUE-VERDICT$' \
+  's@^\([[:space:]]*\)wf_swallows=1[[:space:]]*# D-A-OPAQUE-VERDICT$@\1:@' 1 1 \
+  "$P" "$OPAQUE_SIG" \
+  'reporting the shape without failing closed on it is the silent-ignore this whole surface keeps re-learning'
+
+echo "=== DM38-failfast-gate-carries-D64 ==="
+P="$TOPTMP/dm38"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        shell: bash {0}
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+          echo "gate done"
+YML
+assert_mutant_false_ok DM38-failfast-gate-carries-D64 failfastgate \
+  '# D-A-FAILFAST-GATE$' '/# D-A-FAILFAST-GATE$/d' 1 0 \
+  "$P" "$SHELL_SIG" \
+  'ONE TERM PER LINE: neuter the fourth term alone and the custom-template file is told the next push enforces the check — R-CTE-8, reproduced'
+
+echo "=== DM39-shell-value-carries-D66 ==="
+P="$TOPTMP/dm39"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_mutant_refuses DM39-shell-value-carries-D66 shellvalue \
+  '# D-A-SHELL-VALUE$' '/# D-A-SHELL-VALUE$/d' 1 0 \
+  "$P" "$SHELL_SIG" \
+  'stop emitting the value and presence alone survives, so an explicitly CORRECT shell: bash is refused — the arm fails closed on its own blindness, which is right, and that is exactly why the emission has to be pinned separately'
+
+echo "=== DM40-defaults-job-carries-D68 ==="
+P="$TOPTMP/dm40"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash {0}
+    steps:
+      - name: Governance - Phase gate check
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+          echo "gate done"
+YML
+assert_mutant_false_ok_ctl DM40-defaults-job-carries-D68 defaultsjob \
+  '# D-A-DEFAULTS-JOB$' '/# D-A-DEFAULTS-JOB$/d' 1 0 \
+  "$P" "$SHELL_SIG" \
+  "$DMCTL" "$DMCTL_SIG" \
+  'without the job defaults walk the condition is bypassable by moving one line up one level — the shape a step-scoped read can never see'
+
+echo "=== DM41-defaults-wf-carries-D69 ==="
+P="$TOPTMP/dm41"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+defaults:
+  run:
+    shell: bash {0}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+          echo "gate done"
+YML
+assert_mutant_false_ok_ctl DM41-defaults-wf-carries-D69 defaultswf \
+  '# D-A-DEFAULTS-WF$' '/# D-A-DEFAULTS-WF$/d' 1 0 \
+  "$P" "$SHELL_SIG" \
+  "$DMCTL" "$DMCTL_SIG" \
+  'and the workflow-level block, which is not even inside the job the scan reads'
+
+echo "=== DM42-shell-allowlist-carries-D67 ==="
+P="$TOPTMP/dm42"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        shell: sh
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_mutant_refuses DM42-shell-allowlist-carries-D67 shellallow \
+  '# D-A-SHELL-ALLOWLIST$' \
+  's@bash|sh) ;;\(.*\)# D-A-SHELL-ALLOWLIST$@bash) ;;\1# D-A-SHELL-ALLOWLIST@' 1 1 \
+  "$P" "$SHELL_SIG" \
+  'narrow the allowlist by one documented fail-fast keyword and a legitimate sh step is refused — the WIDTH of the set is contract, not just its existence'
+
+echo "=== DM43-shell-precedence-step-carries-D70 ==="
+P="$TOPTMP/dm43"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+defaults:
+  run:
+    shell: bash {0}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash {0}
+    steps:
+      - name: Governance - Phase gate check
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_mutant_refuses DM43-shell-precedence-step-carries-D70 shellprec \
+  '# D-A-SHELL-PRECEDENCE-STEP$' '/# D-A-SHELL-PRECEDENCE-STEP$/d' 1 0 \
+  "$P" "$SHELL_SIG" \
+  'the arms are written LAST-WINS in GitHub precedence order, so deleting the step arm lets a job default outrank the key that actually governs and a fail-fast file is falsely refused'
 
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
