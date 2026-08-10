@@ -550,7 +550,7 @@ _wf_gate_scope() {
     # quote arms visibly parallel for review instead of one being a special
     # case. Dynamic regexes ("^" DQ ...) are POSIX awk and behave identically on
     # BSD awk, gawk and mawk.
-    BEGIN { CR = sprintf("%c", 13); DQ = sprintf("%c", 34); SQ = sprintf("%c", 39); TB = sprintf("%c", 9) }
+    BEGIN { CR = sprintf("%c", 13); DQ = sprintf("%c", 34); SQ = sprintf("%c", 39) }
     function ind(s,   t) { t = s; sub(/[^ ].*$/, "", t); return length(t) }
     # A QUOTED key is the same key (R-dA-2). YAML permits both quote styles for
     # an implicit key and generated / round-tripped workflows emit them, so a
@@ -577,24 +577,34 @@ _wf_gate_scope() {
     # reach. (No apostrophe appears anywhere in this program — see the note on
     # CR/DQ/SQ above; the whole thing is one single-quoted shell string.)
     #
-    # QUOTE-TRACKED, because a `#` INSIDE a quoted scalar is content, and a
-    # naive tail-strip eats it — `contains(msg, " #skip")` is an ordinary
-    # condition. That direction cannot produce a false OK (a strip only turns a
-    # refusal into an acceptance if what remains is byte-exact an allowlisted
-    # value, and both of those start UNQUOTED, so a quote opened after the first
-    # character leaves the naive remainder holding an unbalanced quote that can
-    # never equal them) — but it does make the refusal quote a MANGLED condition
-    # back at the user, which is the same self-refuting message the CRLF fix
-    # removed. Single quotes: YAML escapes one by doubling it, and a doubled
-    # quote reads here as "close, then reopen", which lands on the same state.
-    function decomment(s,   i, ch, pv, q, out) {
-      q = ""; out = ""
+    # A `#` inside a QUOTED scalar is content, and eating it makes the refusal
+    # quote a MANGLED condition back — the same self-refuting message the CRLF
+    # fix removed. But a YAML scalar is quoted only when it OPENS with a quote:
+    # inside a PLAIN scalar an apostrophe is ordinary content and the value
+    # really does end at the ` #`. That is measured, not reasoned — PyYAML loads
+    # `if: contains(m, SQ #skip SQ)` as the plain scalar `contains(m, SQ`. So
+    # the quote state is armed at the first NON-BLANK character and nowhere
+    # else; a scan that armed it anywhere read plain scalars whole, which
+    # under-strips (a false RED, never a false OK, because a strip can only turn
+    # a refusal into an acceptance when what remains is byte-exact an
+    # allowlisted value) but is still the wrong reading.
+    #
+    # TABS ARE CONTENT HERE, NEVER SEPARATION — `# D-A-RESIDUAL-TAB-SEPARATOR`.
+    # YAML permits a tab inside a quoted scalar (`run: "echo a<TAB>b"` loads
+    # fine, so redding it would be a false red) but PyYAML rejects every
+    # tab-as-SEPARATOR spelling outright: a tab before a `#`, between a key and
+    # its colon, or after the colon. Reading a tab as content keeps all of those
+    # refused, which is the safe direction on files no parser here accepts. The
+    # one that would matter if some parser did accept it is a tab-spaced colon
+    # hiding `continue-on-error` — recorded, because the only blanket defence
+    # (fail closed on any tab in the block) reds the legitimate quoted case.
+    function decomment(s,   i, ch, q, st, out) {
+      q = ""; st = 0; out = ""
       for (i = 1; i <= length(s); i++) {
         ch = substr(s, i, 1)
         if (q != "") { out = out ch; if (ch == q) q = ""; continue }
-        if (ch == DQ || ch == SQ) { q = ch; out = out ch; continue }                                          # D-A-COMMENT-INSIDE-QUOTES
-        pv = (i > 1) ? substr(s, i - 1, 1) : ""
-        if (ch == "#" && (pv == " " || pv == TB)) break                                                       # D-A-COMMENT-STRIP
+        if (ch == "#" && i > 1 && substr(s, i - 1, 1) == " ") break                                           # D-A-COMMENT-STRIP
+        if (st == 0 && ch != " ") { st = 1; if (ch == DQ || ch == SQ) q = ch }                                # D-A-COMMENT-INSIDE-QUOTES
         out = out ch
       }
       sub(/[ ]+$/, "", out)
@@ -1321,7 +1331,7 @@ EOM
       _wf_print_gate_run
     fi
     if [ -n "$wf_dupkey" ]; then
-      echo "  - The same key is declared TWICE where the gate runs:$wf_dupkey. Only one of them takes effect and this check cannot tell you which — and GitHub's own parser rejects duplicate mapping keys, so this workflow does not run at all. Delete the duplicate."
+      echo "  - The same key is declared TWICE where the gate runs:$wf_dupkey. Parsers disagree about which one wins — some take the LAST, and GitHub is documented to reject duplicate mapping keys outright — so neither the effective value nor whether this workflow runs at all can be determined from the file. Delete the duplicate."
     fi
   fi
   echo ""
