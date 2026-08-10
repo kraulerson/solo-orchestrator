@@ -8775,3 +8775,92 @@ a real loss.
 
 **Related:** BL-213 (a closing sentence that disagreed with the work — the same
 family, one severity up), BL-104 (silent success).
+
+---
+
+## BL-218: The ci.yml enforcement detector enumerates ways a file can be wrong; three adversarial rounds say the fork is canonical-shape-or-refuse
+
+**Logged:** 2026-08-10 (found by the third adversarial round on
+`fix/ci-token-enforcement-claim`; every count below was measured on that branch,
+not estimated)
+**Category:** Design fork / detector shape — an enumerating checker on a surface
+whose input space is not enumerable
+**Severity:** Medium. Nothing shipped is wrong today: the three rounds closed
+every hole they found, the four conditions are pinned by 158 rows with a mutant
+per atom, and every remaining gap is recorded in the product with its own
+marker. What is unresolved is whether the SHAPE of the detector can converge.
+**Status:** Open
+
+**The fork.** `cmd_setup_ci_token` in `scripts/check-gate.sh` decides whether a
+project's `.github/workflows/ci.yml` turns a stored secret into enforcement, and
+prints "The next push enforces the check" when it does. It decides that by
+enumeration: read the gate step and its job, and refuse each way the file can
+discard the gate's verdict. Three adversarial rounds each found new spellings
+the enumeration had not reached.
+
+- **Rounds 1-2 found YAML spellings** — CRLF line endings, quoted keys in both
+  quote styles, a space before the colon, merge keys, a lone-dash sequence item,
+  a folded block scalar, duplicate keys, a quoted job id that sent the job
+  locator climbing out of `jobs:` and binding "the job" to `push:` inside `on:`.
+  Every one earned the claim on a file whose effective configuration was a
+  swallow. These are *reachable* by enumeration — each closed for good, each
+  pinned by a marker and a mutant (`# D-A-CRLF-STRIP`, `# D-A-QUOTED-KEY-DQ`,
+  `# D-A-SPACED-KEY`, `# D-A-MERGE-KEY`, `# D-A-LONE-DASH-CLIMB`,
+  `# D-A-FOLDED-RUN`, `# D-A-DUP-KEY-VERDICT`, `# D-A-JOB-ID-CLOSED`).
+- **Round 3 found something different in kind: bash semantics inside the `run:`
+  body.** No amount of YAML parsing reaches it. The scanner inspects lines that
+  NAME the gate script plus a small set of keys; arbitrary shell control flow on
+  any other line is structurally invisible to a detector of this shape. A body
+  reading `set +e` / `bash scripts/check-phase-gate.sh` / `exit 0` runs under the
+  fail-fast default, carries a byte-exact invocation, passes every one of the
+  four conditions, and grades a failed gate green. Measured, not argued —
+  recorded in the product as `# D-A-RESIDUAL-RUN-BODY-DISARM`.
+
+**The decided direction (Karl, 2026-08-10): canonical-shape-or-refuse.** Require
+the gate step to match one shipped shape and tell anyone who deviates *"I cannot
+verify this file — here is the shape I need"*, instead of enumerating the ways a
+file can be wrong. This is the repo's own allowlist-over-blacklist doctrine —
+F-015's invocation allowlist, the `DELTA-INSTALL` fence grammar, and on this very
+branch `# D-A-PARITY-3-STEP-KEYSET` and `# D-A-SHELL-ALLOWLIST` — applied to the
+one part of this surface still doing the opposite. The bl147 sibling already
+works this way (`Cw6-strict-keys` / `-gating` / `-job` / `-trigger` freeze the
+ten templates byte-for-byte), which is why that pin has needed no rounds.
+
+**Why it is not being improvised into a fix round.** It is a product decision
+about how much customisation the framework tolerates, and the risk it carries
+runs the other way: **false reds for users who legitimately customised** — added
+a `working-directory:`, renamed the step, put the gate in a job with a
+`strategy:`. That is the direction that makes people ignore the tool, and it is
+worse than the gap. The four recorded parity asymmetries
+(`# D-A-PARITY-1-INLINE-RUN` … `# D-A-PARITY-4-NO-TRIGGER-PIN`) exist precisely
+because this surface faces a real user's file of unknown vintage rather than the
+ten the framework wrote. Deciding how far that tolerance goes needs a design
+doc, an inventory of the shapes real projects actually carry, and a migration
+story for the ones that would newly red. It does not need a patch.
+
+**What it would subsume, and what survives it.**
+
+| Recorded residual | Subsumed by canonical-shape-or-refuse? |
+|---|---|
+| `# D-A-RESIDUAL-HEREDOC-DATA` — a byte-exact gate line inside a heredoc is DATA and still satisfies the invokes floor | **Yes.** A canonical body has no heredoc; anything else is refused unverified. |
+| `# D-A-RESIDUAL-RUN-BODY-DISARM` — `set +e` … `exit 0` in the body | **Yes**, and this is the residual that motivates the whole entry. |
+| `# D-A-RESIDUAL-ENV-SHADOW` — `maps` is a PRESENCE test, so a step-level `GH_TOKEN` that shadows a workflow-level mapping is invisible (R-CTE-9) | **Partly.** A canonical STEP pins the step's own `env:`, so the shadowing spelling is refused. A secret mapped at job or workflow `env:` is still legitimate and outside any step-shaped canon, so the resolution question survives unless the canon reaches upward too. |
+| `# D-A-RESIDUAL-TAB-SEPARATOR` — a tab-spaced colon hiding `continue-on-error` | **Yes**, trivially: a canonical shape is byte-compared. |
+| `# D-A-RESIDUAL-QUOTED-STEPS-KEY` — a quoted `"steps":` or a flow-style step mapping | Already fails CLOSED; a canon changes the message, not the verdict. |
+| `!!str continue-on-error: true` and the explicit-key form (`? continue-on-error` / `: true`) | **Not a survivor — SETTLED and CLOSED in round 3**, `# D-A-OPAQUE-KEY`. Listed here only so the record shows it was answered rather than deferred. |
+| `# D-A-PARITY-4-NO-TRIGGER-PIN` — a workflow with no `push:` trigger still earns "the next push enforces" | **Yes** — the bl147 sibling freezes the `on:` block for exactly this reason. Still Karl's separate open call today. |
+
+**Fix shape (for the design doc, not for a patch).** Decide the canon; decide
+whether it is one shape or a small set (the ten templates are not identical);
+decide whether a non-matching file gets a REFUSAL or an "unverified" third
+verdict distinct from both the OK and the ten cause bullets; measure the false-red
+population before shipping it, because that is the risk. Whatever lands must keep
+the property this branch has: one term per line, one marker per atom, a mutant
+per marker, and no claim that outruns what was measured.
+
+**Related:** BL-181 (a one-character narrowing re-opening the same hole three
+times while passing every PR-blocking check — the reason "enumerate the wrong
+spellings" is treated here as a shape problem rather than a diligence problem),
+BL-104 (label and predicate disagreeing, so the printed word was not the
+verdict), BL-196 (a passing check that proves nothing is worse than no check —
+why every atom on this branch is pinned by a mutant rather than asserted).
