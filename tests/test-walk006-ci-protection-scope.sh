@@ -534,6 +534,19 @@ mk_tok_wf() {
   mk_wf "$d/.github/workflows/ci.yml" "$@"
 }
 
+# mk_raw_wf <dir> — a fixture PROJECT whose ci.yml is read VERBATIM from stdin.
+# mk_wf writes one canonical shape with splice points, which is right when the
+# thing under test is a step key. The round-2 findings are about the SHAPE of the
+# file itself — a lone `-` sequence item, a folded scalar, a comment on the
+# `steps:` anchor, a secret in a different step — so those fixtures have to be
+# written out whole. Quoted heredocs throughout: `${{ secrets.… }}` must reach
+# the file as those bytes, and an unquoted heredoc would not survive `${{`.
+mk_raw_wf() {
+  local d="$1"
+  mk_tok "$d" github ok yes || return 1
+  cat > "$d/.github/workflows/ci.yml"
+}
+
 # ── CRLF fixture mechanics (R-dA-1) ─────────────────────────────────────────
 # The bytes are WRITTEN, never described. `awk … %c,13` rather than
 # `sed 's/$/\r/'` because BSD sed inserts a literal `r` for that escape, which
@@ -675,6 +688,36 @@ assert_mutant_refuses() {
   fi
 }
 
+# assert_mutant_drops_cause <case> <mut> <ere> <sed> <rm> <add> <dir> <sig>
+#                           <why>
+#   The THIRD mutation direction, for a line that decides WHICH CAUSE is named
+#   rather than whether the claim is withheld. Both of round 2's cases are real:
+#   `grep -cxF` vs `grep -cF` on the invokes floor cannot change the verdict (a
+#   line that is a strict superstring of the invocation is always caught by the
+#   deviation scan as well), and a naive comment strip cannot change the verdict
+#   either (proved below at D40). What they DO change is what the user is told,
+#   and "a refusal that does not name its cause" is the defect this whole wave
+#   exists to fix — so the bullet set is contract, and it is pinned as one. The
+#   mutant must therefore still WITHHOLD (proving it did not simply break the
+#   detector) while the named cause is GONE.
+assert_mutant_drops_cause() {
+  local case_name="$1" mut="$2" ere="$3" expr="$4" n_rm="$5" n_add="$6" d="$7" sig="$8" why="$9"
+  if ! mk_cg_mutant "$mut" "$ere" "$expr" "$n_rm" "$n_add"; then
+    fail_ "$case_name" "$CG_WHY"
+    return
+  fi
+  local out rc
+  out=$(run_tok_with "$CG_MUT" "$d" "$GOOD_TOKEN"); rc=$?
+  if [ "$rc" -eq 0 ] \
+     && ! printf '%s' "$out" | grep -q "The next push enforces the check" \
+     && printf '%s' "$out" | grep -qF "will NOT enforce the check on the next push" \
+     && ! printf '%s' "$out" | grep -qF -- "$sig"; then
+    pass "$case_name ($why)"
+  else
+    fail_ "$case_name" "rc=$rc — expected the claim still WITHHELD but the cause [$sig] no longer named; got: $(printf '%s' "$out" | grep -E 'next push|WILL NOT|^  - ' | tr '\n' ' ')"
+  fi
+}
+
 # ── S1: non-github host → NOT APPLICABLE + the manual per-host steps ───────
 echo "=== S1-non-github-not-applicable ==="
 P="$TOPTMP/s1"; mk_tok "$P" gitlab ok
@@ -758,7 +801,7 @@ echo "=== S6-unwired-workflow-warned ==="
 P="$TOPTMP/s6"; mk_tok "$P" github ok no
 out=$(run_tok "$P" "$GOOD_TOKEN"); rc=$?
 if [ "$rc" -eq 0 ] \
-   && printf '%s' "$out" | grep -q "does not map SOIF_PROTECTION_TOKEN yet" \
+   && printf '%s' "$out" | grep -q "does not map SOIF_PROTECTION_TOKEN into the phase-gate step" \
    && printf '%s' "$out" | grep -q 'GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}'; then
   pass "S6-unwired-workflow-warned (names the gap and prints the exact lines to add)"
 else
@@ -1012,7 +1055,7 @@ assert_withheld D1-no-invocation-withheld "$P" \
 echo "=== D2-unmapped-withheld ==="
 P="$TOPTMP/d2"; mk_tok_wf "$P" "" "$STEP_KEYS_GOOD" no emitted
 assert_withheld D2-unmapped-withheld "$P" \
-  "does not map SOIF_PROTECTION_TOKEN yet" \
+  "does not map SOIF_PROTECTION_TOKEN into the phase-gate step" \
   'the gate runs and honours its exit code, but nothing reads the secret'
 
 # ── D2b: a mapping that exists only in a COMMENT is not a mapping ──────────
@@ -1025,7 +1068,7 @@ echo "=== D2b-commented-out-mapping-is-not-mapped ==="
 P="$TOPTMP/d2b"; mk_tok_wf "$P" "" "$STEP_KEYS_GOOD" no emitted
 printf '        # GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}\n' >> "$P/.github/workflows/ci.yml"
 assert_withheld D2b-commented-out-mapping-is-not-mapped "$P" \
-  "does not map SOIF_PROTECTION_TOKEN yet" \
+  "does not map SOIF_PROTECTION_TOKEN into the phase-gate step" \
   'a commented-out mapping injects nothing into the step environment'
 
 # ── D3: `!swallows` violated ALONE — the Actions-native swallow ────────────
@@ -1394,6 +1437,622 @@ assert_earns_ok D30-quoted-job-id-clean-job-still-earns "$P" \
   'the locator must read the quoted id, not merely refuse it — failing every quoted job closed would be a false red'
 
 # ════════════════════════════════════════════════════════════════════════════
+# D31-D53 — FIX ROUND 2 (reviewer findings R-CTE-1…R-CTE-7, plus the atoms the
+# sweep those findings forced turned up). Every case here is ORDINARY,
+# parser-valid GitHub Actions YAML: none of it is exotic, all of it is emitted
+# by some hand or some tool, and each one either earned the enforcement claim
+# while the gate was inert or was refused while it was perfectly wired.
+#
+#   R-CTE-1  a LONE `-` sequence item. The step-climb required a space after
+#            the dash, so the gate bound to the PREVIOUS step and never read the
+#            real step's `continue-on-error:` (D31); the same style with the
+#            gate step first in the job failed closed instead (D32); and a dash
+#            with trailing blanks matched the climb but derived the wrong key
+#            column, so it read a line out of the env block as a step key (D34).
+#   R-CTE-2  a FOLDED scalar (`run: >`) joins its lines with spaces before bash
+#            sees them, so `|| true` on a line of its own is part of the
+#            invocation while every line-wise check passes (D35/D36).
+#   R-CTE-4  the invokes floor's THRESHOLD, reachable only from a guard-only
+#            workflow (D37) — the one shape that gets past `wf_gate` empty.
+#   R-CTE-5  a trailing YAML comment is not part of a value (D38/D39) nor of the
+#            `steps:` anchor (D41) nor of a job id (D42) — and a `#` INSIDE a
+#            quoted value is not a comment at all (D40).
+#   R-CTE-6  `maps` was file-wide while the OK sentence says step-scoped: a
+#            secret in a DIFFERENT step's env (D43) or a DIFFERENT job's env
+#            (D46) earned "maps … into the phase-gate step". Job- and
+#            workflow-level env DO reach the step and must still earn (D44/D45).
+#   R-CTE-7  duplicate mapping keys — `head -1` read the benign first one (D47).
+# ════════════════════════════════════════════════════════════════════════════
+
+# ── D31-D34: R-CTE-1, the lone-dash sequence item, in BOTH directions ──────
+echo "=== D31-lone-dash-step-hides-swallow ==="
+P="$TOPTMP/d31"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup
+        run: echo hi
+      -
+        name: Governance - Phase gate check
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_withheld D31-lone-dash-step-hides-swallow "$P" \
+  "carries 'continue-on-error: true'" \
+  'a bare dash on its own line is an ordinary sequence item — binding the gate to the PREVIOUS step read the wrong keys entirely'
+
+echo "=== D32-lone-dash-first-step-still-earns ==="
+P="$TOPTMP/d32"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      -
+        name: Governance - Phase gate check
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_earns_ok D32-lone-dash-first-step-still-earns "$P" \
+  'the mirror direction: the same style with nothing above it used to fail closed as "could not locate the step" — a false red on a correctly-wired file'
+
+echo "=== D33-lone-dash-first-step-swallow-still-caught ==="
+P="$TOPTMP/d33"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      -
+        name: Governance - Phase gate check
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_withheld D33-lone-dash-first-step-swallow-still-caught "$P" \
+  "carries 'continue-on-error: true'" \
+  'reading the lone-dash step is not enough — its KEY COLUMN has to come from the first line below it, or the keys are still never read'
+
+# NOT IN THE BRIEF. A dash followed by trailing blanks DID match the old climb
+# (there is a space after the dash), but `sub(/^ *- */, …)` then consumed the
+# blanks too and the key column came out four columns too deep — so the scan
+# read `GH_TOKEN` out of the env block AS A STEP KEY and refused for that,
+# while the real `continue-on-error: true` was never seen. Observed directly:
+# the scope report for such a file reads `STEPKEY GH_TOKEN`. Third spelling of
+# the same defect; one fix covers all three because the test is now "the dash
+# line carries no inline content", not "how many blanks follow the dash".
+echo "=== D34-lone-dash-trailing-blanks-swallow-caught ==="
+# The blanks after the dash are WRITTEN, never described: a heredoc in this file
+# would carry them invisibly and the next editor to trim whitespace would make
+# this case silently vacuous — the same reason to_crlf() exists above. n_trail
+# asserts the premise before anything else is asserted.
+P="$TOPTMP/d34"; mk_tok "$P" github ok yes
+{
+  printf 'name: CI\non:\n  push:\n    branches: [main]\n\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n'
+  printf '      -%s\n' "   "
+  printf '        name: Governance - Phase gate check\n        continue-on-error: true\n        env:\n          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}\n        run: |\n          bash scripts/check-phase-gate.sh\n'
+} > "$P/.github/workflows/ci.yml"
+d34_trail=$(grep -c '^ *-  *$' "$P/.github/workflows/ci.yml")
+if [ "$d34_trail" -eq 1 ]; then
+  pass "D34-premise (the fixture really carries a dash followed by trailing blanks)"
+else
+  fail_ "D34-premise" "the dash-plus-blanks line was not written ($d34_trail matches) — D34 would be vacuous"
+fi
+assert_withheld D34-lone-dash-trailing-blanks-swallow-caught "$P" \
+  "carries 'continue-on-error: true'" \
+  'trailing blanks after the dash used to shift the key column and turn an env entry into a bogus step key'
+
+# ── D35/D36: R-CTE-2, the folded scalar ────────────────────────────────────
+# `run: >` folds its source lines together with SPACES, so the command the
+# runner executes is `bash scripts/check-phase-gate.sh || true` — the canonical
+# swallow, verbatim — while the visible gate line is byte-exact the allowlisted
+# invocation and `|| true` sits on a line naming nothing. Every line-wise check
+# passes. The `run: |` equivalents are all caught already (a trailing `\` or a
+# trailing `||` deviates line-wise); only FOLDING evades, because the join
+# happens in YAML rather than in bash. Same doctrine as the merge key: the
+# effective command is not in the lines being read, so fail CLOSED.
+echo "=== D35-folded-run-fails-closed ==="
+P="$TOPTMP/d35"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        if: hashFiles('.claude/phase-state.json') != ''
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: >
+          bash scripts/check-phase-gate.sh
+          || true
+YML
+assert_withheld D35-folded-run-fails-closed "$P" \
+  "FOLDED block scalar" \
+  'the effective command is not any line in the file, so no line-wise check can settle the question'
+
+echo "=== D36-folded-run-chomping-indicator-fails-closed ==="
+P="$TOPTMP/d36"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: >-
+          bash scripts/check-phase-gate.sh
+          || true
+YML
+assert_withheld D36-folded-run-chomping-indicator-fails-closed "$P" \
+  "FOLDED block scalar" \
+  'the chomping and indentation indicators are part of the same folded form — reading only a bare > would leave three spellings open'
+
+# ── D37: R-CTE-4 — the invokes floor's THRESHOLD, not its presence ─────────
+# A PR-blocking-check survivor before this case existed: `-ge 1` → `-ge 0` left
+# the suite at 79/0, because every invokes-path fixture leaves `wf_gate` empty
+# and the threshold is never reached. The one shape that reaches it is a
+# GUARD-ONLY workflow — the framework's existence guard present, the invocation
+# deleted — which is exactly what a half-finished edit leaves behind.
+# CLAUDE.md's BL-181 lesson, verbatim: pin each atom's WIDTH, not its presence.
+echo "=== D37-guard-only-workflow-withheld ==="
+P="$TOPTMP/d37"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          if [ ! -f scripts/check-phase-gate.sh ]; then
+            echo "::error::Phase gate check script missing. Framework integrity compromised."
+            exit 1
+          fi
+YML
+assert_withheld D37-guard-only-workflow-withheld "$P" \
+  "INVOKES the phase gate" \
+  'the guard NAMES the gate script but never runs it — the floor has to count invocations, not mentions'
+
+# ── D38-D42: R-CTE-5 — a YAML comment is not part of the value ─────────────
+echo "=== D38-trailing-comment-on-step-if-still-earns ==="
+P="$TOPTMP/d38"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        if: hashFiles('.claude/phase-state.json') != '' # phase gate
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_earns_ok D38-trailing-comment-on-step-if-still-earns "$P" \
+  'semantically identical config: a comment is not part of the value, and refusing it is the CRLF regression one notch subtler'
+
+echo "=== D39-trailing-comment-on-step-coe-still-earns ==="
+P="$TOPTMP/d39"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        continue-on-error: false # deliberately hard
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_earns_ok D39-trailing-comment-on-step-coe-still-earns "$P" \
+  'the same for the one continue-on-error value that is SAFE — an explicit false with a note is still an explicit false'
+
+# The strip's other direction, which is the one that could go wrong. A `#`
+# inside a quoted scalar is CONTENT, not a comment, and a naive tail-strip eats
+# it. The reviewer's safety argument — a strip can only turn a refusal into an
+# acceptance when the remainder is byte-exact the shipped value, so it cannot
+# create a false OK — was VERIFIED rather than accepted, and it holds for a
+# reason worth writing down: both allowlisted values start unquoted, and a
+# quote opened after the first character can only close before a content `#` by
+# ending the quoted region, so a naive remainder always keeps an unbalanced
+# opening quote and can never equal the shipped bytes. What a naive strip DOES
+# break is the message: the refusal quotes a MANGLED condition back at the user,
+# which is the self-refuting-message defect this branch already fixed once for
+# CRLF. So both directions are pinned — refused, AND quoted back intact.
+echo "=== D40-hash-inside-quoted-value-is-not-a-comment ==="
+P="$TOPTMP/d40"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        if: contains(github.event.head_commit.message, ' #skip')
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_withheld D40-hash-inside-quoted-value-is-not-a-comment "$P" \
+  "condition is 'if: contains(github.event.head_commit.message, ' #skip')'" \
+  'a # inside a quoted scalar is content — the condition is refused AND quoted back whole, not truncated at the hash'
+
+echo "=== D41-trailing-comment-on-steps-anchor-still-earns ==="
+P="$TOPTMP/d41"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps: # the governance job's steps
+      - name: Governance - Phase gate check
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_earns_ok D41-trailing-comment-on-steps-anchor-still-earns "$P" \
+  'NOT IN THE BRIEF: the same comment defect on the STRUCTURAL anchor — the $-anchored steps: regex missed it and the whole job went unlocatable'
+
+echo "=== D42-trailing-comment-on-job-id-still-earns ==="
+P="$TOPTMP/d42"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test: # the governance job
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_earns_ok D42-trailing-comment-on-job-id-still-earns "$P" \
+  'NOT IN THE BRIEF: and on the job id, where the same regex is what D-A-JOB-ID-CLOSED reads'
+
+# ── D43-D46: R-CTE-6 — `maps` has to be SCOPED to what reaches the step ────
+# The OK sentence says "maps SOIF_PROTECTION_TOKEN into the phase-gate step".
+# The test behind it was a file-wide substring match, so a secret mapped into a
+# DIFFERENT step's env earned that sentence while the gate step got no token at
+# all — the sentence claimed a scope nobody had checked, which is this branch's
+# whole subject. The correct scope is the gate step's own block (its env: AND
+# its run: body, because `${{ secrets.X }}` used directly in a command is a real
+# mapping too) plus the gate job's env: and the workflow's env:, both of which
+# DO reach the step. D44/D45/D46 are the false-red guards that keep the fix from
+# over-narrowing — the failure mode a scoping change invites.
+echo "=== D43-secret-mapped-into-another-step-withheld ==="
+P="$TOPTMP/d43"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Other step
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: echo hi
+      - name: Governance - Phase gate check
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_withheld D43-secret-mapped-into-another-step-withheld "$P" \
+  "does not map SOIF_PROTECTION_TOKEN into the phase-gate step" \
+  'a secret in a sibling step never enters the gate step environment — the OK sentence said step scope and nothing checked it'
+
+echo "=== D44-workflow-level-env-still-earns ==="
+P="$TOPTMP/d44"; mk_raw_wf "$P" <<'YML'
+name: CI
+env:
+  GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_earns_ok D44-workflow-level-env-still-earns "$P" \
+  'workflow-level env IS inherited by every step, so narrowing to the step block alone would have redded it'
+
+echo "=== D45-job-level-env-still-earns ==="
+P="$TOPTMP/d45"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+    steps:
+      - name: Governance - Phase gate check
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_earns_ok D45-job-level-env-still-earns "$P" \
+  'and so is the gate job own env — the third of the three routes into the step environment'
+
+echo "=== D46-secret-mapped-into-another-job-withheld ==="
+P="$TOPTMP/d46"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        run: |
+          bash scripts/check-phase-gate.sh
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+    steps:
+      - name: Ship
+        run: echo ship
+YML
+assert_withheld D46-secret-mapped-into-another-job-withheld "$P" \
+  "does not map SOIF_PROTECTION_TOKEN into the phase-gate step" \
+  'the same argument one level up: another job env is a different runner and a different environment'
+
+# ── D47: R-CTE-7 — duplicate keys, where head -1 read the benign one ───────
+# `head -1` picked `false` and the gate looked hard while the effective value
+# was `true`. Mitigating and decisive at once: GitHub own parser REJECTS
+# duplicate mapping keys, so this workflow does not run at all — which means
+# "the next push enforces the check" is false for it twice over. Failing closed
+# on the duplicate is therefore the correct answer AND it removes the ambiguity
+# `head -1` was resolving arbitrarily, which is why the sweep found that
+# selector unpinned: the right fix is to delete the choice, not to pin it.
+echo "=== D47-duplicate-step-key-fails-closed ==="
+P="$TOPTMP/d47"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        continue-on-error: false
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_withheld D47-duplicate-step-key-fails-closed "$P" \
+  "declared TWICE" \
+  'only one of the two takes effect and this check cannot tell you which — and GitHub rejects the file outright'
+
+# ════════════════════════════════════════════════════════════════════════════
+# D48-D53 — THE ATOM SWEEP. R-CTE-4 was a threshold that survived the whole
+# suite, so per the brief every other numeric and quantifier atom in this
+# surface was mutated the same way and the survivors triaged. These six pin the
+# survivors that are behaviourally REAL. The rest are recorded in the report
+# with the argument for why they cannot change a verdict.
+# ════════════════════════════════════════════════════════════════════════════
+
+# The product comment promises this shape works ("a four-space `steps:` sequence
+# — YAML permits the dash at the same column as its key — is ordinary
+# hand-written style and reading it as no keys at all would fail OPEN"). It was
+# never driven. Mutating the anchor search from `<= si` to `< si` left the suite
+# at 79/0, which is what an unexercised promise looks like.
+echo "=== D48-dash-at-steps-column-swallow-caught ==="
+P="$TOPTMP/d48"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Governance - Phase gate check
+      continue-on-error: true
+      env:
+        GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+      run: |
+        bash scripts/check-phase-gate.sh
+YML
+assert_withheld D48-dash-at-steps-column-swallow-caught "$P" \
+  "carries 'continue-on-error: true'" \
+  'the dash at the same column as steps: is ordinary YAML, and the anchor search has to accept an equal indent or the whole job goes unread'
+
+echo "=== D49-single-character-step-key-withheld ==="
+P="$TOPTMP/d49"; mk_tok_wf "$P" "" "$STEP_KEYS_GOOD
+        x: true" yes emitted
+assert_withheld D49-single-character-step-key-withheld "$P" \
+  "does not recognise: x" \
+  'the key guard quantifier: narrowing [A-Za-z0-9_-]* to + makes a one-character key invisible, and an invisible key is not an allowlisted one'
+
+echo "=== D50-spaced-colon-job-id-still-reads-the-job ==="
+P="$TOPTMP/d50"; mk_jobid_wf "$P" '  test :' "    continue-on-error: true"
+assert_withheld D50-spaced-colon-job-id-still-reads-the-job "$P" \
+  "so that job's failure does not count" \
+  'YAML allows a space before the colon on a job id too — D24 doctrine, one level up, and dropping the [ ]* there loses the whole job'
+
+# A `run:` body line that starts with a dash but is NOT a sequence item — a
+# continued command-line option is the everyday case. The climb REQUIRES the
+# space after the dash for exactly this reason; widen it to /^ *-/ and the step
+# binds to a line inside its own run body, the key column comes out nonsense,
+# and the swallow above goes unread. The suite did not notice that widening.
+echo "=== D51-dash-option-in-run-body-does-not-open-a-step ==="
+P="$TOPTMP/d51"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          npm run lint \
+            -w packages/app
+          bash scripts/check-phase-gate.sh
+YML
+assert_withheld D51-dash-option-in-run-body-does-not-open-a-step "$P" \
+  "carries 'continue-on-error: true'" \
+  'a dash with no space after it is an option, not a sequence item — the climb must not bind the step to it'
+
+# A COMMENTED-OUT gate line in an earlier, clean step. The gate-line search
+# skips comments; stop skipping them and the scan binds to that comment step
+# instead — a step with nothing wrong with it — while the real gate step
+# carries the swallow. Verified as a false OK, not merely a wrong report.
+echo "=== D52-commented-gate-line-does-not-steal-the-step ==="
+P="$TOPTMP/d52"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup
+        run: echo hi
+        # bash scripts/check-phase-gate.sh
+      - name: Governance - Phase gate check
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_withheld D52-commented-gate-line-does-not-steal-the-step "$P" \
+  "carries 'continue-on-error: true'" \
+  'a commented gate line is not the gate — binding to it moves the whole scan onto an innocent step'
+
+# The bullet SET is contract, not decoration. A workflow whose only gate line is
+# the swallowed inline form fails TWO conditions — no line IS the invocation,
+# and that line is not in the allowlist — and both have to be said, because the
+# fix for one is not the fix for the other.
+echo "=== D53-swallowed-inline-invocation-names-both-causes ==="
+P="$TOPTMP/d53"; mk_tok "$P" github ok custom 'bash scripts/check-phase-gate.sh || true'
+assert_withheld D53a-swallowed-inline-names-invokes "$P" \
+  "INVOKES the phase gate" \
+  'the whole-line match on the floor: a line that merely CONTAINS the invocation is not the invocation'
+assert_withheld D53b-swallowed-inline-names-deviation "$P" \
+  "DISCARDS the gate's exit code" \
+  'and the deviation scan names the line itself — two causes, two edits'
+
+# ── D54: R-CTE-3 recorded, not fixed, and recorded EXECUTABLY ──────────────
+# The `invokes` floor counts a byte-exact gate line inside a heredoc — data
+# written to a file and never executed. That is the same "names on executed
+# lines ≠ invokes" gap CLAUDE.md documents for BL-181, so it is not academic.
+# It is recorded rather than fixed because telling data from code inside a
+# `run:` body needs a bash lexer (quoted and unquoted delimiters, `<<-`, nesting,
+# command substitution), and BL-181 is this repo's own record of a lexical
+# approximation of "executed" being narrowed one character at a time and
+# re-opening three times. Worse, `wf_gate` feeds BOTH the floor and the
+# deviation scan, so a heredoc skip that is one delimiter form too greedy hides
+# a real swallowing line — the fail-OPEN direction. The residual is pinned in
+# BOTH halves: the marker is in the product, and the behaviour it describes is
+# asserted, so changing it goes RED rather than quiet.
+echo "=== D54-heredoc-residual-is-recorded ==="
+grep -qF '# D-A-RESIDUAL-HEREDOC-DATA' "$CHECK_GATE" \
+  && pass "D54-heredoc-residual-is-recorded (the residual is named in the product, beside the parity notes)" \
+  || fail_ "D54-heredoc-residual-is-recorded" "the recorded-residual marker is gone — an unfixed known defect is now an undocumented one"
+P="$TOPTMP/d54"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate helper
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          cat > helper.sh <<'DONE'
+          bash scripts/check-phase-gate.sh
+          DONE
+YML
+assert_earns_ok D54b-heredoc-residual-behaves-as-recorded "$P" \
+  'RECORDED RESIDUAL, not an endorsement: the floor still counts a gate line that is heredoc DATA. Pinned so that closing it is a deliberate change with its own proof'
+
+# ════════════════════════════════════════════════════════════════════════════
 # DM1-DM8 — the other direction. Each mutant neuters ONE line and the false
 # claim comes back. mk_cg_mutant asserts the harness standard for every one of
 # them: sites==1 for the anchored end-of-line marker, exactly-N-lines-changed,
@@ -1405,7 +2064,7 @@ echo "=== DM1-maps-gate-carries-D2 ==="
 P="$TOPTMP/dm1"; mk_tok_wf "$P" "" "$STEP_KEYS_GOOD" no emitted
 assert_mutant_false_ok DM1-maps-gate-carries-D2 mapsgate \
   '# D-A-MAPS-GATE$' '/# D-A-MAPS-GATE$/d' 1 0 \
-  "$P" "does not map SOIF_PROTECTION_TOKEN yet" \
+  "$P" "does not map SOIF_PROTECTION_TOKEN into the phase-gate step" \
   'without the maps term an unmapped workflow is told the next push enforces'
 
 echo "=== DM2-invokes-gate-carries-D1 ==="
@@ -1544,6 +2203,274 @@ assert_mutant_false_ok_ctl DM15-job-id-closed-carries-D29 jobidclosed \
   "$P" "Could not locate the job that runs the gate" \
   "$DMCTL" "$DMCTL_SIG" \
   'without the fail-closed job-id guard an unreadable enclosing line is scanned as if it were the job'
+
+# ════════════════════════════════════════════════════════════════════════════
+# DM16-DM26 — fix round 2. Eight of the eleven edit the awk program inside
+# _wf_gate_scope, so they carry the liveness control: `bash -n` only parses the
+# SHELL, and a dead awk prints an empty scope report which reads downstream as
+# "no swallowing key found". Two of them use assert_mutant_refuses instead,
+# because the line they neuter exists to prevent a false RED — and that assert
+# is itself dead-awk-proof, since a dead awk earns the claim rather than
+# refusing. One uses assert_mutant_drops_cause, for a line that decides which
+# cause is named rather than whether the claim is withheld.
+# ════════════════════════════════════════════════════════════════════════════
+
+echo "=== DM16-invokes-floor-threshold-carries-D37 ==="
+P="$TOPTMP/dm16"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          if [ ! -f scripts/check-phase-gate.sh ]; then
+            echo "::error::Phase gate check script missing. Framework integrity compromised."
+            exit 1
+          fi
+YML
+assert_mutant_false_ok DM16-invokes-floor-threshold-carries-D37 invfloor \
+  '# D-A-INVOKES-FLOOR$' \
+  's@^\([[:space:]]*\)if \[ "\$wf_n_inv" -ge 1 \]; then.*# D-A-INVOKES-FLOOR$@\1if [ "$wf_n_inv" -ge 0 ]; then@' 1 1 \
+  "$P" "INVOKES the phase gate" \
+  'the THRESHOLD, not the marker: -ge 0 is satisfied by zero invocations and a guard-only workflow is told the next push enforces'
+
+echo "=== DM17-lone-dash-climb-carries-D31 ==="
+P="$TOPTMP/dm17"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup
+        run: echo hi
+      -
+        name: Governance - Phase gate check
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_mutant_false_ok_ctl DM17-lone-dash-climb-carries-D31 lonedashclimb \
+  '# D-A-LONE-DASH-CLIMB$' \
+  's@^\([[:space:]]*\)for (i = hit; i >= 1; i--) if ((L\[i\] " ") ~ /\^ \*- /) { st = i; break }.*# D-A-LONE-DASH-CLIMB$@\1for (i = hit; i >= 1; i--) if (L[i] ~ /^ *- /) { st = i; break }@' 1 1 \
+  "$P" "$DMCTL_SIG" \
+  "$DMCTL" "$DMCTL_SIG" \
+  'take the appended space away and the climb needs a space after the dash again, binds to the PREVIOUS step and reads its keys — R-CTE-1, reproduced'
+
+echo "=== DM18-lone-dash-keycol-carries-D33 ==="
+P="$TOPTMP/dm18"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      -
+        name: Governance - Phase gate check
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_mutant_false_ok_ctl DM18-lone-dash-keycol-carries-D33 lonedashkeycol \
+  '# D-A-LONE-DASH-KEYCOL$' \
+  's@^\([[:space:]]*\)if (c == "") {.*# D-A-LONE-DASH-KEYCOL$@\1if (0) {@' 1 1 \
+  "$P" "$DMCTL_SIG" \
+  "$DMCTL" "$DMCTL_SIG" \
+  'finding the lone-dash step is only half of it — without the derived key column the column is one past the dash and NO key is ever read'
+
+echo "=== DM19-folded-run-emit-carries-D35 ==="
+P="$TOPTMP/dm19"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        if: hashFiles('.claude/phase-state.json') != ''
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: >
+          bash scripts/check-phase-gate.sh
+          || true
+YML
+assert_mutant_false_ok_ctl DM19-folded-run-emit-carries-D35 foldedemit \
+  '# D-A-FOLDED-RUN$' '/# D-A-FOLDED-RUN$/d' 1 0 \
+  "$P" "FOLDED block scalar" \
+  "$DMCTL" "$DMCTL_SIG" \
+  'without the folded-scalar report every line-wise check passes on a step whose effective command is the canonical swallow — R-CTE-2, reproduced'
+
+echo "=== DM20-folded-run-verdict-carries-D35 ==="
+P="$TOPTMP/dm20"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: >
+          bash scripts/check-phase-gate.sh
+          || true
+YML
+assert_mutant_false_ok DM20-folded-run-verdict-carries-D35 foldedverdict \
+  '^[[:space:]]*wf_swallows=1[[:space:]]*# D-A-FOLDED-RUN-VERDICT$' \
+  's@^\([[:space:]]*\)wf_swallows=1[[:space:]]*# D-A-FOLDED-RUN-VERDICT$@\1:@' 1 1 \
+  "$P" "FOLDED block scalar" \
+  'and the fail-closed arm is a term of its own — reporting the fold without acting on it would claim enforcement anyway'
+
+echo "=== DM21-comment-strip-carries-D38 ==="
+P="$TOPTMP/dm21"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        if: hashFiles('.claude/phase-state.json') != '' # phase gate
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_mutant_refuses DM21-comment-strip-carries-D38 commentstrip \
+  '# D-A-COMMENT-STRIP$' '/# D-A-COMMENT-STRIP$/d' 1 0 \
+  "$P" "which is not the one this framework ships" \
+  'without the strip the comment rides on the value and a correctly-wired project is told its own condition is not its own condition — R-CTE-5, reproduced'
+
+echo "=== DM22-comment-strip-is-quote-aware-carries-D40 ==="
+P="$TOPTMP/dm22"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        if: contains(github.event.head_commit.message, ' #skip')
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_mutant_drops_cause DM22-comment-strip-is-quote-aware-carries-D40 naivestrip \
+  '# D-A-COMMENT-INSIDE-QUOTES$' '/# D-A-COMMENT-INSIDE-QUOTES$/d' 1 0 \
+  "$P" "condition is 'if: contains(github.event.head_commit.message, ' #skip')'" \
+  'stop tracking quotes and the strip eats content: still refused, but the condition quoted back at the user is truncated at the hash'
+
+echo "=== DM23-anchor-comment-carries-D41 ==="
+P="$TOPTMP/dm23"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps: # the governance job's steps
+      - name: Governance - Phase gate check
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_mutant_refuses DM23-anchor-comment-carries-D41 anchorcomment \
+  '# D-A-ANCHOR-COMMENT$' \
+  's@^\([[:space:]]*\)for (i = st; i >= 1; i--) if (decomment(L\[i\]) ~ @\1for (i = st; i >= 1; i--) if (L[i] ~ @' 1 1 \
+  "$P" "Could not locate the job that runs the gate" \
+  'the anchors need the same comment handling the values do, or one comment on steps: takes the whole job out of reach'
+
+echo "=== DM24-maps-scope-carries-D43 ==="
+P="$TOPTMP/dm24"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Other step
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: echo hi
+      - name: Governance - Phase gate check
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_mutant_false_ok_ctl DM24-maps-scope-carries-D43 mapsscope \
+  '# D-A-MAPS-SCOPE$' \
+  's@^\([[:space:]]*\)if \[ -n "\$wf_mapscope" \].*# D-A-MAPS-SCOPE$@\1wf_maps_src="$wf_exec"@' 1 1 \
+  "$P" "does not map SOIF_PROTECTION_TOKEN into the phase-gate step" \
+  "$DMCTL" "$DMCTL_SIG" \
+  'read the whole file again and a secret in a sibling step earns "maps it into the phase-gate step" — R-CTE-6, reproduced'
+
+echo "=== DM25-dup-key-verdict-carries-D47 ==="
+P="$TOPTMP/dm25"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        continue-on-error: false
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_mutant_false_ok DM25-dup-key-verdict-carries-D47 dupkey \
+  '^[[:space:]]*wf_swallows=1[[:space:]]*# D-A-DUP-KEY-VERDICT$' \
+  's@^\([[:space:]]*\)wf_swallows=1[[:space:]]*# D-A-DUP-KEY-VERDICT$@\1:@' 1 1 \
+  "$P" "declared TWICE" \
+  'without the duplicate arm the first value wins by accident of head -1 and a step whose effective continue-on-error is true is told the next push enforces — R-CTE-7, reproduced'
+
+echo "=== DM26-invokes-whole-line-carries-D53 ==="
+P="$TOPTMP/dm26"; mk_tok "$P" github ok custom 'bash scripts/check-phase-gate.sh || true'
+assert_mutant_drops_cause DM26-invokes-whole-line-carries-D53 invwholeline \
+  '# D-A-INVOKES-WHOLE-LINE$' \
+  's@grep -cxF -- "\$wf_allow_invoke" || true)   # D-A-INVOKES-WHOLE-LINE$@grep -cF -- "$wf_allow_invoke" || true)@' 1 1 \
+  "$P" "INVOKES the phase gate" \
+  'drop the whole-line anchor and a swallowed line COUNTS as an invocation: the verdict survives on the deviation scan alone, but the user loses one of the two edits they need'
 
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
