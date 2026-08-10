@@ -575,6 +575,19 @@ jobs:
             #    signal, not a reason to raise the cap.
             tests/test-delta-wp5-hotfix-retro.sh       # 181s — THE long pole of the whole wave, and 3x the next one. It opens and closes deltas dozens of times, and each open now also renders a brief and seeds a ledger row, so it got slower as the feature landed rather than as the test grew
             tests/test-brownfield-wp1-scout.sh         #  55s — the second pole. Moved WITH the first deliberately: the first alone left the complement leg at ~77% of the cap, which is the same "approaching" state the sast note below was written about, and the complement has taken a new suite in nearly every work package this wave
+            # ── Re-pinned 2026-08-10. Not a long pole in itself — it is the
+            #    GROWTH that moved it. Measured locally: 87s at 125 rows before
+            #    the D-A round-3 work, 118s at 158 rows after (~0.75s/row), and
+            #    the file gained rows in all three adversarial rounds. The
+            #    complement leg was already at 598s/720s on PR #341, so leaving
+            #    it there put the leg at roughly 10.5m against a 12m cap. Per
+            #    the doctrine above, approaching the cap is the RE-PIN signal.
+            #    The specific cost of not acting: on this stack a complement
+            #    cancellation ALREADY hid two real CI-only failures once (a
+            #    host-reading probe and a mutant that did not mutate), so a
+            #    timeout here does not merely delay the answer — it replaces a
+            #    red with a cancellation and the failures go unread.
+            tests/test-walk006-ci-protection-scope.sh  # 118s at 158 rows — see note above
           )
 
           # The ONLY thing that maps a roster name to a pin array. Both the
