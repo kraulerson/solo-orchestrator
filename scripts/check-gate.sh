@@ -494,6 +494,117 @@ cmd_repair() {
   print_ok "Repair complete"
 }
 
+# D-A-GATE-SCOPE-BEGIN
+# _wf_gate_scope <workflow-file> — the STEP that runs the phase gate, and the
+# JOB that holds it, reduced to a tiny tagged report:
+#
+#   GATE none                no executable line names the gate script
+#   STEP none                a gate line exists but no enclosing `- ` step
+#   JOB none                 a step exists but no enclosing job
+#   STEPKEY <k> / JOBKEY <k> a key at that level's own key column
+#   STEPIF <v> / JOBIF <v>   the value of an `if:` at that level
+#   STEPCOE <v> / JOBCOE <v> the value of a `continue-on-error:` at that level
+#
+# WHY THIS EXISTS (D-A, Karl 2026-08-09). The project-side detector in
+# cmd_setup_ci_token used to read the workflow as a flat list of lines, so it
+# could not see the two Actions-native ways a gate stops mattering while its
+# `run:` body stays byte-perfect: `continue-on-error: true` (which grades a
+# FAILED step as success) and a step-level `if: false` (a step that never runs
+# cannot enforce). Both earned "The next push enforces the check". The bl147
+# sibling has been step- and job-scoped since F-015 (`Cw6-strict-keys`,
+# `Cw6-strict-gating`, `Cw6-strict-job`); this brings the user-facing surface up
+# to the same doctrine.
+#
+# LOCATED BY CONTAINMENT, NOT BY NAME. bl147 can anchor on
+# `- name: Governance - Phase gate check` because it is reading the ten
+# templates the framework itself wrote. This faces a REAL user's ci.yml of
+# unknown vintage, where the step may have been renamed or re-indented, so it
+# walks up from the gate line to the enclosing sequence item, up again to the
+# enclosing `steps:`, and up once more to the job id. Same reasoning
+# `Cw6-strict-job` gives for locating the JOB by containment: a rename must not
+# be a false red.
+#
+# The key column is DERIVED from the step's own first key rather than assumed to
+# be eight spaces, because a four-space `steps:` sequence (YAML permits the dash
+# at the same column as its key) is ordinary hand-written style and reading it
+# as "no keys at all" would fail OPEN — the direction that produced this defect.
+# Tabs are not handled because YAML forbids tab indentation outright.
+_wf_gate_scope() {
+  awk '
+    function ind(s,   t) { t = s; sub(/[^ ].*$/, "", t); return length(t) }
+    function emit(pfx, c,   k, v) {
+      if (c !~ /^[A-Za-z_][A-Za-z0-9_-]*:/) return
+      k = c; sub(/:.*$/, "", k)
+      v = c; sub(/^[A-Za-z_][A-Za-z0-9_-]*:[ ]*/, "", v); sub(/[ ]+$/, "", v)
+      print pfx "KEY " k
+      if (k == "if")                print pfx "IF " v
+      if (k == "continue-on-error") print pfx "COE " v
+    }
+    { L[NR] = $0; n = NR }
+    END {
+      hit = 0
+      for (i = 1; i <= n; i++) {
+        c = L[i]; sub(/^ +/, "", c)
+        if (substr(c, 1, 1) == "#") continue
+        if (index(L[i], "scripts/check-phase-gate.sh") > 0) { hit = i; break }
+      }
+      if (hit == 0) { print "GATE none"; exit }
+      st = 0
+      for (i = hit; i >= 1; i--) if (L[i] ~ /^ *- /) { st = i; break }
+      if (st == 0) { print "STEP none"; exit }
+      si = ind(L[st])
+      c = L[st]; sub(/^ *- */, "", c)
+      kl = length(L[st]) - length(c)
+      emit("STEP", c)
+      for (i = st + 1; i <= n; i++) {
+        if (L[i] ~ /^ *$/) continue
+        if (ind(L[i]) <= si) break
+        if (ind(L[i]) != kl) continue
+        c = L[i]; sub(/^ +/, "", c)
+        if (substr(c, 1, 1) == "#") continue
+        emit("STEP", c)
+      }
+      sp = 0
+      for (i = st; i >= 1; i--) if (L[i] ~ /^ +steps: *$/ && ind(L[i]) <= si) { sp = i; break }
+      if (sp == 0) { print "JOB none"; exit }
+      spi = ind(L[sp])
+      jb = 0
+      for (i = sp; i >= 1; i--) if (L[i] ~ /^ +[A-Za-z_][A-Za-z0-9_-]*: *$/ && ind(L[i]) < spi) { jb = i; break }
+      if (jb == 0) { print "JOB none"; exit }
+      ji = ind(L[jb])
+      for (i = jb + 1; i <= n; i++) {
+        if (L[i] ~ /^ *$/) continue
+        if (ind(L[i]) <= ji) break
+        if (ind(L[i]) != spi) continue
+        c = L[i]; sub(/^ +/, "", c)
+        if (substr(c, 1, 1) == "#") continue
+        emit("JOB", c)
+      }
+    }
+  ' "$1"
+}
+
+# The step shape the framework emits, printed verbatim wherever the walkthrough
+# has to tell someone what to add. One writer, so the advice cannot drift from
+# templates/pipelines/ci/github/*.yml the way a second hand-kept copy would.
+_wf_print_gate_step() {
+  echo "      - name: Governance - Phase gate check"
+  echo "        if: hashFiles('.claude/phase-state.json') != ''"
+  echo "        env:"
+  echo "          GH_TOKEN: \${{ secrets.${1:-SOIF_PROTECTION_TOKEN} }}"
+  _wf_print_gate_run
+}
+
+_wf_print_gate_run() {
+  echo "        run: |"
+  echo "          if [ ! -f scripts/check-phase-gate.sh ]; then"
+  echo "            echo \"::error::Phase gate check script missing. Framework integrity compromised.\""
+  echo "            exit 1"
+  echo "          fi"
+  echo "          bash scripts/check-phase-gate.sh"
+}
+# D-A-GATE-SCOPE-END
+
 # WALK-ISSUE-006-SETUP-CI-TOKEN-BEGIN
 # Walk 2026-08-02, ISSUE-006 remediation, part 3 of 3. Part 1 stops the gate's
 # branch-protection backstop from blocking a runner that structurally cannot
@@ -675,10 +786,18 @@ EOM
     print_warn "Secret write reported success but '$secret_name' is not listed — check Settings > Secrets and variables > Actions."
   fi
 
-  # The last links in the chain, and BOTH are required before this command may
-  # claim the check now enforces (adversarial review R-1):
+  # The last links in the chain, and ALL THREE are required before this command
+  # may claim the check now enforces (adversarial review R-1; third condition
+  # added by D-A, Karl 2026-08-09):
   #   (a) the workflow READS the secret — a secret nothing reads is a silent
   #       no-op wearing a success message;
+  #   (a2) something actually INVOKES the gate. Two independent reviewers
+  #       reproduced the vacuous case: the old predicate asked only whether any
+  #       line naming the gate DEVIATED from the allowlist, and a workflow with
+  #       no gate line at all has no deviating line — so a ci.yml that maps the
+  #       secret and runs nothing earned "The next push enforces the check".
+  #       Nothing ran, so nothing enforced. The floor is now positive: at least
+  #       one executable line must BE the allowlisted invocation.
   #   (b) the gate's EXIT CODE still decides the step. Generated projects
   #       scaffolded before this shipped ran the gate as
   #         bash scripts/check-phase-gate.sh 2>/dev/null || echo "…skipping"
@@ -712,49 +831,193 @@ EOM
   # thing to wave through — but it is a byte comparison, not an execution
   # analysis, and the comment must not pretend otherwise.
   #
-  # NOTE THE ASYMMETRY with the bl147 sibling (Cw6-strict). That pin freezes the
-  # phase-gate step's whole run: body byte-for-byte and therefore rejects the
-  # inline `run: bash scripts/…` form outright. This one accepts it, because it
-  # runs against a REAL user's ci.yml of unknown vintage rather than against the
-  # ten templates the framework itself emits. Same doctrine, deliberately
-  # different tolerance; do not "align" one to the other without re-reading why.
+  # THE FOUR RECORDED ASYMMETRIES with the bl147 sibling (Cw6-strict). That pin
+  # reads the ten templates the framework itself wrote; this one reads a REAL
+  # user's ci.yml of unknown vintage, so it is deliberately more tolerant in
+  # four named places. Each is a decision, not an oversight — do not "align"
+  # either side without re-reading why, and
+  # tests/test-walk006-ci-protection-scope.sh pins all four so that "aligning"
+  # them goes red rather than quiet.
+  #   # D-A-PARITY-1-INLINE-RUN     bl147 freezes the step's whole `run:` body
+  #     byte-for-byte and so rejects the inline `run: bash scripts/…` form.
+  #     This accepts it: a project scaffolded before the block scalar shipped
+  #     is honest, and telling its owner otherwise would be a false red.
+  #   # D-A-PARITY-2-ABSENT-IF      bl147 requires the step's `if:` to BE the
+  #     allowlisted phase-state condition; an absent `if:` is a red there.
+  #     Here an absent `if:` is ACCEPTED — a step with no condition always
+  #     runs, which is the safest shape there is, and pre-`if:` vintages are
+  #     exactly what this surface faces. Any OTHER `if:` is still refused.
+  #   # D-A-PARITY-3-STEP-KEYSET    bl147 allowlists {if, env, run} on the step.
+  #     Here the allowlist is the documented run-step key set, so a user's
+  #     `id:`/`shell:`/`working-directory:`/`timeout-minutes:` is not a false
+  #     red — none of them can change how the verdict is graded. It is still an
+  #     ALLOWLIST (a closed set refuses the sibling nobody has imagined);
+  #     `continue-on-error` is inside it only so that it produces ONE specific
+  #     diagnostic instead of two vague ones.
+  #   # D-A-PARITY-4-NO-TRIGGER-PIN bl147 freezes the workflow's `on:` block
+  #     (`Cw6-strict-trigger`). This does NOT inspect the trigger: a real user
+  #     legitimately adds `workflow_dispatch`, extra branches or a merge queue,
+  #     and redding those would be worse than the gap. KNOWN RESIDUAL: a
+  #     workflow with no `push:` trigger at all still earns the claim, and
+  #     "the next push enforces" is false for it. Recorded deliberately —
+  #     D-A's decided scope is maps && invokes && !swallows.
   #
-  # HOST TRAP for anyone replicating this predicate by hand: `grep -qvxF` over
-  # EMPTY input must exit non-zero (no lines, so no non-matching line). That is
-  # what /usr/bin/grep does, and it is what runs here — this script is executed
-  # by a child bash with no interactive aliases. But at least one dev box in
-  # this project aliases interactive `grep` to ugrep, which INVERTS the
-  # empty-input result and will make the pipeline below look like it reports a
-  # swallow on a workflow that has no gate line at all. Shipped behaviour is
-  # unaffected; a hand-run reproduction in an interactive shell is not. Use
-  # `/usr/bin/grep` explicitly when checking this by hand.
+  # JOB SCOPE IS PART OF !swallows, NOT A FOURTH CONDITION. A job-level `if:`
+  # stops the step running and a job-level `continue-on-error:` stops its
+  # failure counting; both discard the verdict exactly as a step-level swallow
+  # does (`Cw6-strict-job` makes the same argument one level up). At job level
+  # the two keys are named explicitly rather than allowlisted as a set, because
+  # a real user's job legitimately carries `needs`, `strategy`, `permissions`,
+  # `container`, `outputs` and more — a job key allowlist would red almost
+  # every customised workflow.
+  #
+  # HOST TRAP, now defused: this predicate used to depend on `grep -qvxF` over
+  # EMPTY input exiting non-zero (no lines, so no non-matching line). That is
+  # what /usr/bin/grep does and what runs here, but at least one dev box in this
+  # project aliases interactive `grep` to ugrep, which INVERTS the empty-input
+  # result — so a hand-run reproduction read backwards. The empty case is now
+  # handled by an explicit `[ -n "$wf_gate" ]` guard instead of by grep's
+  # empty-input convention, so the reproduction and the shipped behaviour agree.
   local wf=".github/workflows/ci.yml"
-  local wf_maps=0 wf_swallows=0
+  # The permitted spellings, named ONCE and consumed by both halves of the
+  # verdict — the `invokes` floor and the deviation scan — so a future edit
+  # cannot teach one half a spelling the other has never heard of.
+  local wf_allow_invoke='bash scripts/check-phase-gate.sh'
+  local wf_allow_guard='if [ ! -f scripts/check-phase-gate.sh ]; then'
+  local wf_allow_if="if: hashFiles('.claude/phase-state.json') != ''"
+  local wf_maps=0 wf_invokes=0 wf_swallows=0 wf_enforces=1
+  local wf_exec="" wf_gate="" wf_dev="" wf_scope="" wf_n_inv=0
+  local wf_step_coe="" wf_step_if="" wf_job_coe="" wf_job_if=""
+  local wf_has_step_coe=0 wf_has_step_if=0 wf_bad_key="" wf_unlocated="" wf_k=""
   if [ -f "$wf" ]; then
-    grep -q "secrets.$secret_name" "$wf" && wf_maps=1
-    if grep -v '^[[:space:]]*#' "$wf" \
-         | grep -F 'scripts/check-phase-gate.sh' \
-         | sed -e 's/^[[:space:]]*//' -e 's/^-[[:space:]]*//' \
-               -e 's/^run:[[:space:]]*//' -e 's/[[:space:]]*$//' \
-         | grep -qvxF -e 'bash scripts/check-phase-gate.sh' \
-                      -e 'if [ ! -f scripts/check-phase-gate.sh ]; then'; then
-      wf_swallows=1   # F-015-PROJECT-ALLOWLIST-VERDICT
+    # Whole-line comments are dropped up front: everything below reasons about
+    # what the runner EXECUTES, and the emitted step carries a 25-line comment
+    # block that would otherwise be read as workflow content.
+    wf_exec=$(grep -v '^[[:space:]]*#' "$wf" || true)
+
+    # (a) maps. A literal match, not a regex — `$secret_name` is
+    # operator-supplied via --secret-name and its `.`/`*` would otherwise be
+    # metacharacters, and a mapping that only exists inside a comment is not a
+    # mapping at all.
+    case "$wf_exec" in
+      *"secrets.$secret_name"*) wf_maps=1 ;;   # D-A-MAPS-VERDICT
+    esac
+
+    wf_gate=$(printf '%s\n' "$wf_exec" \
+      | grep -F 'scripts/check-phase-gate.sh' \
+      | sed -e 's/^[[:space:]]*//' -e 's/^-[[:space:]]*//' \
+            -e 's/^run:[[:space:]]*//' -e 's/[[:space:]]*$//' || true)
+    if [ -n "$wf_gate" ]; then
+      # (a2) invokes — a POSITIVE floor. `grep -c` (not `-q`) because it reads
+      # its whole input: a `-q` that exits early can SIGPIPE the upstream stage
+      # and, under `pipefail`, turn a found match into a non-zero pipeline.
+      wf_n_inv=$(printf '%s\n' "$wf_gate" | grep -cxF -- "$wf_allow_invoke" || true)
+      case "$wf_n_inv" in ''|*[!0-9]*) wf_n_inv=0 ;; esac
+      if [ "$wf_n_inv" -ge 1 ]; then
+        wf_invokes=1   # D-A-INVOKES-VERDICT
+      fi
+      wf_dev=$(printf '%s\n' "$wf_gate" \
+        | grep -vxF -e "$wf_allow_invoke" -e "$wf_allow_guard" || true)
+      if [ -n "$wf_dev" ]; then
+        wf_swallows=1   # F-015-PROJECT-ALLOWLIST-VERDICT
+      fi
+    fi
+
+    # (b2) the Actions-native swallows, which live in the step's KEYS rather
+    # than in its `run:` body and are therefore invisible to any line scan.
+    wf_scope=$(_wf_gate_scope "$wf" || true)
+    wf_step_coe=$(printf '%s\n' "$wf_scope" | sed -n 's/^STEPCOE //p' | head -1 || true)
+    wf_step_if=$(printf  '%s\n' "$wf_scope" | sed -n 's/^STEPIF //p'  | head -1 || true)
+    wf_job_coe=$(printf  '%s\n' "$wf_scope" | sed -n 's/^JOBCOE //p'  | head -1 || true)
+    wf_job_if=$(printf   '%s\n' "$wf_scope" | sed -n 's/^JOBIF //p'   | head -1 || true)
+    # Presence is read from the KEY list, not from the value: `if:` with an
+    # empty value is present and unverifiable, and an absent key and an empty
+    # one must not collapse into the same answer.
+    wf_has_step_coe=$(printf '%s\n' "$wf_scope" | grep -cx 'STEPKEY continue-on-error' || true)
+    case "$wf_has_step_coe" in ''|*[!0-9]*) wf_has_step_coe=0 ;; esac
+    wf_has_step_if=$(printf  '%s\n' "$wf_scope" | grep -cx 'STEPKEY if' || true)
+    case "$wf_has_step_if" in ''|*[!0-9]*) wf_has_step_if=0 ;; esac
+    for wf_k in $(printf '%s\n' "$wf_scope" | sed -n 's/^STEPKEY //p'); do
+      case "$wf_k" in
+        # The documented run-step key set (# D-A-PARITY-3-STEP-KEYSET).
+        name|id|if|env|run|shell|working-directory|timeout-minutes|continue-on-error) ;;
+        *) wf_bad_key="$wf_bad_key $wf_k" ;;
+      esac
+    done
+    if printf '%s\n' "$wf_scope" | grep -qx 'STEP none'; then wf_unlocated="step"; fi
+    if printf '%s\n' "$wf_scope" | grep -qx 'JOB none';  then wf_unlocated="job";  fi
+
+    if [ "$wf_has_step_coe" -ge 1 ] && [ "$wf_step_coe" != "false" ]; then
+      wf_swallows=1   # D-A-STEP-COE-VERDICT
+    fi
+    if [ "$wf_has_step_if" -ge 1 ] && [ "$wf_step_if" != "${wf_allow_if#if: }" ]; then
+      wf_swallows=1   # D-A-STEP-IF-VERDICT
+    fi
+    if [ -n "$wf_bad_key" ]; then
+      wf_swallows=1   # D-A-STEP-KEY-VERDICT
+    fi
+    if [ -n "$wf_job_if" ] || { [ -n "$wf_job_coe" ] && [ "$wf_job_coe" != "false" ]; }; then
+      wf_swallows=1   # D-A-JOB-VERDICT
+    fi
+    if [ -n "$wf_unlocated" ]; then
+      wf_swallows=1   # D-A-UNLOCATED-VERDICT
     fi
   fi
-  if [ "$wf_maps" -eq 1 ] && [ "$wf_swallows" -eq 0 ]; then
+
+  # ONE TERM PER LINE. The three conditions gate the claim independently, and
+  # writing them as three lines is what lets each be neutered on its own in the
+  # mutation proofs — a single `&&` chain can only be broken all at once, which
+  # is how you end up with a "proof" that never separated the conditions.
+  [ "$wf_maps" -eq 1 ]     || wf_enforces=0   # D-A-MAPS-GATE
+  [ "$wf_invokes" -eq 1 ]  || wf_enforces=0   # D-A-INVOKES-GATE
+  [ "$wf_swallows" -eq 0 ] || wf_enforces=0   # D-A-SWALLOWS-GATE
+
+  if [ "$wf_enforces" -eq 1 ]; then
     print_ok "$wf maps $secret_name into the phase-gate step AND lets the gate's exit code decide it. The next push enforces the check."
-  elif [ "$wf_maps" -eq 1 ] && [ "$wf_swallows" -eq 1 ]; then
-    print_warn "$wf maps $secret_name, but its phase-gate step DISCARDS the gate's exit code, so the token cannot enforce anything. Replace the swallowing 'run:' line with:"
-    echo "        run: |"
-    echo "          if [ ! -f scripts/check-phase-gate.sh ]; then"
-    echo "            echo \"::error::Phase gate check script missing. Framework integrity compromised.\""
-    echo "            exit 1"
-    echo "          fi"
-    echo "          bash scripts/check-phase-gate.sh"
   else
-    print_warn "$wf does not map $secret_name yet — the secret would be stored but unread. Add these lines to the 'Governance - Phase gate check' step:"
-    echo "        env:"
-    echo "          GH_TOKEN: \${{ secrets.$secret_name }}"
+    # A refusal that does not name its cause is the 3am-lane defect this wave
+    # already fixed once, so EVERY failing condition is reported, each with the
+    # edit that clears it. Withholding the claim is the point of D-A: a setup
+    # that used to read "you're all set" is now told, specifically, that it is
+    # not protected.
+    print_warn "$wf will NOT enforce the check on the next push. The secret is stored, but this project does not yet turn it into enforcement. Cause(s) and fix(es):"
+    if [ ! -f "$wf" ]; then
+      echo "  - There is no $wf in this project, so nothing reads the secret. Add a phase-gate step to your workflow:"
+      _wf_print_gate_step "$secret_name"
+    fi
+    if [ -f "$wf" ] && [ "$wf_maps" -eq 0 ]; then
+      echo "  - $wf does not map $secret_name yet — the secret would be stored but unread. Add these lines to the 'Governance - Phase gate check' step:"
+      echo "        env:"
+      echo "          GH_TOKEN: \${{ secrets.$secret_name }}"
+    fi
+    if [ -f "$wf" ] && [ "$wf_invokes" -eq 0 ]; then
+      echo "  - No step in $wf INVOKES the phase gate: not one executable line is 'bash scripts/check-phase-gate.sh', so there is no check for the token to arm. Add (or restore) the step:"
+      _wf_print_gate_step "$secret_name"
+    fi
+    if [ -n "$wf_dev" ]; then
+      echo "  - The phase-gate step DISCARDS the gate's exit code, so the token cannot enforce anything. This line is neither the bare invocation nor the framework's existence guard: $(printf '%s' "$wf_dev" | head -1)"
+      echo "    Replace the swallowing 'run:' line with:"
+      _wf_print_gate_run
+    fi
+    if [ "$wf_has_step_coe" -ge 1 ] && [ "$wf_step_coe" != "false" ]; then
+      echo "  - The phase-gate step carries 'continue-on-error: $wf_step_coe', which grades a FAILED step as success — the gate's verdict is thrown away before it can block. Delete that key from the step."
+    fi
+    if [ "$wf_has_step_if" -ge 1 ] && [ "$wf_step_if" != "${wf_allow_if#if: }" ]; then
+      echo "  - The phase-gate step's condition is 'if: $wf_step_if', which is not the one this framework ships, so the step may be SKIPPED rather than obeyed — and a step that never runs cannot enforce. Use \"$wf_allow_if\", or drop the 'if:' line entirely (a step with no condition always runs)."
+    fi
+    if [ -n "$wf_bad_key" ]; then
+      echo "  - The phase-gate step carries a key this check does not recognise:$wf_bad_key. An unrecognised key can change how the step's verdict is graded, so enforcement cannot be claimed. Remove it, or move the gate into a step without it."
+    fi
+    if [ -n "$wf_job_if" ]; then
+      echo "  - The job that HOLDS the phase-gate step carries 'if: $wf_job_if'. A job that never starts discards the gate's verdict as completely as any step-level swallow. Remove that key from the job."
+    fi
+    if [ -n "$wf_job_coe" ] && [ "$wf_job_coe" != "false" ]; then
+      echo "  - The job that HOLDS the phase-gate step carries 'continue-on-error: $wf_job_coe', so that job's failure does not count against the run. Remove that key from the job."
+    fi
+    if [ -n "$wf_unlocated" ]; then
+      echo "  - Could not locate the $wf_unlocated that runs the gate in $wf, so how its verdict is graded cannot be verified. Check the file by hand against this shape:"
+      _wf_print_gate_step "$secret_name"
+    fi
   fi
   echo ""
   print_info "Verify locally any time with: scripts/check-gate.sh --preflight"
