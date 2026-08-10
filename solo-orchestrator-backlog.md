@@ -8850,6 +8850,23 @@ story for the ones that would newly red. It does not need a patch.
 | `!!str continue-on-error: true` and the explicit-key form (`? continue-on-error` / `: true`) | **Not a survivor — SETTLED and CLOSED in round 3**, `# D-A-OPAQUE-KEY`. Listed here only so the record shows it was answered rather than deferred. |
 | `# D-A-PARITY-4-NO-TRIGGER-PIN` — a workflow with no `push:` trigger still earns "the next push enforces" | **Yes** — the bl147 sibling freezes the `on:` block for exactly this reason. Still Karl's separate open call today. |
 
+**An input to the false-red measurement, recorded 2026-08-10 (R-CTE-12).**
+GitHub's current documentation **actively recommends YAML anchors and aliases**
+— the reusing-workflow-configurations page carries worked examples anchoring
+whole jobs and `env:` blocks — while `actions/runner` still throws
+`Anchors are not currently supported` from **two** files
+(`src/Sdk/WorkflowParser/Conversion/YamlObjectReader.cs` and its DTPipelines
+sibling). Both halves independently verified by adversarial review.
+
+No verdict changes today: `# D-A-MERGE-VERDICT` fails CLOSED on a merge key
+either way, which is correct under both readings. **The population does.** If
+anchors work in the service, GitHub's own docs are steering users toward exactly
+the shapes this detector refuses — and a plain alias on the gate job or step
+surfaces as a less precise "does not map" or unlocatable refusal rather than the
+merge-key cause bullet. That is the false-red population C must be measured
+against, so it belongs in the inventory below rather than in a session note.
+Round 1 assumed anchors were rare; that assumption is now the thing to check.
+
 **Fix shape (for the design doc, not for a patch).** Decide the canon; decide
 whether it is one shape or a small set (the ten templates are not identical);
 decide whether a non-matching file gets a REFUSAL or an "unverified" third

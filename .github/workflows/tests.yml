@@ -579,9 +579,16 @@ jobs:
             #    GROWTH that moved it. Measured locally: 87s at 125 rows before
             #    the D-A round-3 work, 118s at 158 rows after (~0.75s/row), and
             #    the file gained rows in all three adversarial rounds. The
-            #    complement leg was already at 598s/720s on PR #341, so leaving
-            #    it there put the leg at roughly 10.5m against a 12m cap. Per
-            #    the doctrine above, approaching the cap is the RE-PIN signal.
+            #    complement leg was already at 598s/720s on PR #341. A first
+            #    draft of this note called the unpinned landing point "roughly
+            #    10.5m" by adding only the GROWTH to 598s; review corrected it —
+            #    that 598s was measured on MAIN's tree, which carries the 785-line
+            #    pre-branch copy of this file, not the branch's 3379-line one. The
+            #    real landing point is 598 - t(main's copy) + 118, i.e. ~11.2-11.9m
+            #    against the 720s cap. The error ran in the safe direction, but it
+            #    understated the case: this pin is closer to necessary than
+            #    optional. Per the doctrine above, approaching the cap is the
+            #    RE-PIN signal.
             #    The specific cost of not acting: on this stack a complement
             #    cancellation ALREADY hid two real CI-only failures once (a
             #    host-reading probe and a mutant that did not mutate), so a
