@@ -94,10 +94,27 @@
 #         writes, not just BUGS.md", proven together rather than separately
 #     L4  a project with NO ledger files at all still cuts clean (rc 0): the
 #         benign case must not be turned into a failure by the guard
-#     L5  THE PREFIX COLLISION — shipping `DELTA-1000` must not close the
-#         `DELTA-100` row. The allocator zero-pads to three and keeps
-#         counting, so a bare `index(cell, id)` closes a bug nobody fixed
-#         the moment a project passes 999 deltas
+#     L5  THE PREFIX COLLISION, IN THE ONLY DIRECTION THAT CAN FAIL — shipping
+#         `DELTA-100` (the SHORTER id) with a `DELTA-1000` row present. The
+#         allocator zero-pads to three and keeps counting, so the two coexist
+#         the moment a project passes 999 deltas.
+#         *** THIS ROW USED TO SHIP THE LONGER ID AND WAS VACUOUS. ***
+#         `index(cell, "DELTA-1000")` cannot mis-hit inside a `DELTA-100`
+#         cell — there is nothing left of the cell for the extra `0` to match
+#         — so a bare-`index()` regression passed the old L5 BY
+#         CONSTRUCTION. An adversarial review stripped the boundary conjunct
+#         at all three matcher sites and this suite returned 26/0 while the
+#         mutant stamped `DELTA-1000 shipped in v1.2.1` onto a bug that
+#         release never carried and reported `Closed 1` at rc 0. The live
+#         direction is the short id; only it can collide  KILLS m8, m9
+#     L6  THE SAME COLLISION IN FEATURES.md — a block whose `**Phase Built:**`
+#         anchor names `DELTA-1000`, sitting AHEAD of the block that names
+#         `DELTA-100`, while `DELTA-100` ships                     KILLS m10
+#     L7  A FIX REFERENCE CELL NAMING TWO DELTAS — `DELTA-1000, DELTA-100`.
+#         A single `index()` finds the prefix first, fails the boundary test
+#         and stops, so the row that plainly names the shipped delta is
+#         reported "no row naming it" at rc 12. The search must retry past a
+#         rejected hit: narrowing must not lose a real match
 #
 #   A — THE FEATURES MATCHER IS ANCHORED TO THE WRITER'S OWN STRUCTURAL LINE
 #     A1  a prose block that merely NAMES the delta, sitting ahead of the block
@@ -111,10 +128,31 @@
 #         mention changes neither which block closes for its own id nor the
 #         foreign id's answer ("no row naming it")
 #
-#   S — THE STAGING GUARD (`-s`, not `-e`)
+#   S — THE STAGING GUARD (`-s`, not `-e`) AND THE UNREADABLE LEDGER
 #     S1  the flip transform dies producing NOTHING -> the write is refused and
 #         the ledger is byte-identical. `-e` would pass empty content to a
 #         truncating redirect and blank the project's bug record   KILLS m6
+#     S2  BUGS.md AT MODE 000 -> the release COMPLETES (changelog, shipped_in,
+#         TAG) and answers rc 12 naming unreadability specifically.
+#         *** THIS HAZARD IS CREATED BY THIS BRANCH. *** The base
+#         (`git show 27393de:scripts/cut-release.sh | grep -c 'BUGS.md\|
+#         FEATURES.md'` -> 0) never opened a ledger, so there was no abort
+#         window between `shipped_in` and the tag. Every read here is an
+#         unguarded command substitution under `set -euo pipefail` and awk
+#         exits 2 on a file it cannot open, so before this row the cut died
+#         at rc 2 with NOT ONE WORD printed — after promoting the changelog
+#         and recording `shipped_in`, and before the tag. `shipped_in` is
+#         write-once, so the next run refuses at 8 and the operator can never
+#         reach the tag through this tool again              KILLS m11
+#     S3  THE SAME AT FEATURES.md, AND IT IS NOT THE SAME CODE PATH. The
+#         obvious guard — `rstate="$(_cutrel_bugs_state …)" || rstate=
+#         unreadable` — is WRONG BY LEDGER on bash 3.2: `set -e` is suspended
+#         underneath a guarded command, so inside it the FEATURES reader's own
+#         `blk="$(_cutrel_features_block …)"` stops aborting, normalises to
+#         block 0 and answers `none` — SUCCESSFULLY. That guard reports
+#         `unreadable` for BUGS.md and `none` for FEATURES.md over the same
+#         `chmod 000`, and `none` prints "has no row naming it" about a row
+#         that may be sitting right there. Measured, not reasoned
 #
 #   G — §6.3's HARD CONSTRAINT: THE TABLE STILL PARSES
 #     G1  every `|`-row in BUGS.md still has exactly NINE columns, the header
@@ -123,9 +161,27 @@
 #         shipped row has left the `SEV-1.*Open` count by exactly one
 #
 #   N — §9.2: A REFUSAL WRITES NOTHING, WITH LEDGERS PRESENT
-#     N1  all nine WP7 refusals, singly and in combination, over a project
-#         that HAS an open BUGS.md row and an open FEATURES.md block —
-#         whole-tree manifest and tag set both unmoved
+#     N1  ALL TWELVE refusals, singly and in combination, over a project that
+#         HAS an open BUGS.md row and an open FEATURES.md block — whole-tree
+#         manifest and tag set both unmoved. The original nine were
+#         {3,4,5,5,3,4,6,7,8}; rc 9 (both arms — an unscored class AND a class
+#         nobody could READ) and rc 10 (a breaking release with no validator
+#         installed) are added here because WP7 pins rc 9 WITHOUT ledgers and
+#         "it is pre-ledger by code read" is an argument, not a measurement.
+#         rc 10's OTHER arm — the validator installed and failing — is
+#         deliberately absent: that arm runs the real Phase 3 validation,
+#         which writes its own scan summaries by design, so a manifest row
+#         over it would assert something false
+#
+#   NS — WHAT THE OPERATOR IS TOLD TO COMMIT
+#     NS1 step 1 of the printed next-steps NAMES THE LEDGERS THIS CUT WROTE.
+#         It used to read `git add CHANGELOG.md .claude/delta-state.json` even
+#         when the run had just reported closing rows, so an operator
+#         following the four steps verbatim pushed a release whose commit
+#         OMITTED the closes — the flip left uncommitted in the working tree,
+#         the branch's bug record still reading Open. Asserted in both
+#         directions: named when rows closed (both ledgers, from L3's
+#         two-class cut), absent when nothing closed (L4)
 #
 #   F — HONESTY WHEN THE FLIP FAILS (WP8's lesson, one layer up)
 #     F1  the ledger is UNWRITABLE -> the run names the row specifically,
@@ -170,6 +226,28 @@
 #         killed on the FILE, because both guards answer rc 12 here     S1 RED
 #     m7  unanchor the FEATURES match  -> the prose block is stamped and the
 #         run reports `Closed 1` at rc 0                                A1 RED
+#     m8  strip the boundary conjunct in the STATE reader -> the shipped row
+#         really is flipped and the mutant STILL answers rc 12 over it,
+#         because the re-read mis-hits the neighbouring open row. Killed on
+#         the CONTRADICTION between the verdict and the bytes            L5 RED
+#     m9  strip it in the FLIPPER      -> the DELTA-1000 row this release
+#         never touched is stamped `shipped in v1.2.1`. Killed on THE WRONG
+#         ROW'S BYTES — the brief's requirement, and the m6 lesson: a
+#         message-based predicate passes over harm it never looks at   L5 RED
+#     m10 strip it in the FEATURES block chooser -> the wrong feature block is
+#         completed. Killed on THE WRONG BLOCK'S BYTES                  L6 RED
+#     m11 delete the readability guard -> `chmod 000 BUGS.md` kills the run
+#         dead at rc 2 with no message, after `shipped_in` and before the
+#         tag. Killed on STATE, not on silence: the record says the work
+#         shipped in a version that `git tag --list` does not contain  S2 RED
+#
+#   THE THREE `# CUTREL-LEDGER-IDBOUND-*` SITES ARE MUTATED SEPARATELY, and that
+#   is the whole point of m8/m9/m10 being three rows. They are one rule written
+#   out three times because they are three awk programs, and each is separately
+#   lethal in a different direction — a false FAILURE, a false CLOSE, and a
+#   false close on the other ledger. A single mutant that stripped all three at
+#   once would still be one address, and one address is what let the previous
+#   version of this suite return 26/0 with every one of them gone.
 #
 # LANE: registered in tests/full-project-test-suite.sh AND in the tests.yml
 # `unit-shard` list. No executed line names the scaffolder.
@@ -316,6 +394,41 @@ feat_insert_prose() {
     { print }
   ' "$f" > "$tmp" && mv "$tmp" "$f"
 }
+
+# feat_collide <features-file> <seed-id> <first-id> <second-id> — turn the ONE
+#   block `delta.sh --open` appended into TWO, both of them the product's own
+#   bytes with nothing changed but the delta id, the <first-id> copy placed
+#   AHEAD of the <second-id> one.
+#
+#   THE IDS CANNOT BE SEEDED DIRECTLY — `_next_id` allocates from the record and
+#   a fixture cannot ask it for DELTA-1000 — so the collision has to be built.
+#   Substituting into the writer's own output is what keeps this from becoming a
+#   hand-typed block: if `_ledger_write` changes the shape of the line the
+#   matcher anchors to, these blocks change with it, and the rows below assert
+#   the resulting shape rather than assuming it.
+#
+#   FIRST, not second, on purpose: `_cutrel_features_block` takes the FIRST
+#   block whose anchor matches, so an unbounded match lands on the DELTA-1000
+#   copy and the difference between the two matchers becomes observable.
+feat_collide() {
+  local f="$1" seed="$2" first="$3" second="$4" n tmp
+  n="$(grep -n '^## Feature ' "$f" | tail -1 | cut -d: -f1)"
+  case "$n" in ''|*[!0-9]*) return 1 ;; esac
+  tmp="$f.db.collide"
+  awk -v n="$n" -v seed="$seed" -v first="$first" -v second="$second" '
+    NR < n { print; next }
+    { blk[++bn] = $0 }
+    END {
+      for (i = 1; i <= bn; i++) { l = blk[i]; gsub(seed, first, l); print l }
+      print ""
+      print "---"
+      print ""
+      for (i = 1; i <= bn; i++) { l = blk[i]; gsub(seed, second, l); print l }
+    }
+  ' "$f" > "$tmp" && mv "$tmp" "$f"
+}
+# feat_count <file> — how many `## Feature` blocks there are.
+feat_count() { grep -c '^## Feature ' "$1" 2>/dev/null || true; }
 
 # ── Fixtures ────────────────────────────────────────────────────────────────
 # EVERY case builds its own tree. Nothing is shared, so no case can inherit a
@@ -562,6 +675,7 @@ retire_active "$PL3"
 L3_FEAT="$(seeded_id "$PL3")"
 mk_scripts_tree "$SL3"; stub_revalidation "$SL3/scripts" 0
 run_cut "$SL3/scripts" "$PL3"
+L3_OUT="$CUT_OUT"   # NS1 reads this: the only cut in the suite that closes BOTH ledgers
 l3_bug="$(bugs_cell "$PL3/BUGS.md" "$L3_FIX" 4)"
 l3_bugref="$(bugs_cell "$PL3/BUGS.md" "$L3_FIX" 9)"
 l3_feat="$(feat_status "$PL3/FEATURES.md" "$L3_FEAT")"
@@ -587,6 +701,7 @@ mk_proj "$PL4" 1 n; tag_at "$PL4" "v1.2.0"
 write_state "$PL4" "$(state_doc 'null' '[]' "[$(closed_row DELTA-008 fix)]")"
 mk_scripts_tree "$SL4"; stub_revalidation "$SL4/scripts" 0
 run_cut "$SL4/scripts" "$PL4"
+L4_OUT="$CUT_OUT"   # NS1's negative control: a clean cut that closed nothing
 l4_newtag="$(tag_list "$PL4" | grep -v '^v1\.2\.0$' || true)"
 if [ "$CUT_RC" -eq 0 ] && [ "$l4_newtag" = "v1.2.1" ]; then
   pass "L4: a project with NO BUGS.md and NO FEATURES.md still cuts clean (rc $CUT_RC, $l4_newtag) — 'there is no row to close' is not a failure, and this is the fixture shape every WP7 happy-path row uses"
@@ -594,11 +709,17 @@ else
   fail_ "L4" "rc=$CUT_RC (want 0), new tag='$l4_newtag' (want v1.2.1). Output: $CUT_OUT"
 fi
 
-# L5 — THE PREFIX COLLISION. `index(cell, id) > 0` alone makes `DELTA-100`
-# match a `DELTA-1000` row: the allocator zero-pads to three and keeps counting,
-# so the two coexist the moment a project passes 999 deltas, and the failure
-# would be a release closing a bug it did not fix. Both rows are seeded here and
-# only one delta ships; the other row must be untouched, byte for byte.
+# L5 — THE PREFIX COLLISION, SHIPPING THE SHORT ID. `index(cell, id) > 0` alone
+# makes `DELTA-100` match a `DELTA-1000` row: the allocator zero-pads to three
+# and keeps counting, so the two coexist the moment a project passes 999 deltas.
+#
+# THE DIRECTION IS THE WHOLE ROW. Shipping DELTA-1000 — which is what this row
+# used to do — cannot fail: `index(cell, "DELTA-1000")` has nothing to mis-hit
+# inside a `DELTA-100` cell, so a bare-`index()` regression passed it by
+# construction, and a review proved exactly that by stripping the boundary test
+# at all three matcher sites and watching this suite return 26/0 while the
+# mutant stamped a version onto a bug the release never carried. DELTA-100 ships
+# here, and the DELTA-1000 row must come back byte for byte as it went in.
 PL5="$RT/l5"; SL5="$RT/l5-scripts"
 mk_proj "$PL5" 1 n; tag_at "$PL5" "v1.2.0"
 cp "$REPO_ROOT/templates/generated/bugs.tmpl" "$PL5/BUGS.md"
@@ -611,18 +732,89 @@ awk '
     done = 1
   }
 ' "$PL5/BUGS.md" > "$l5_tmp" && mv "$l5_tmp" "$PL5/BUGS.md"
-write_state "$PL5" "$(state_doc 'null' '[]' "[$(closed_row DELTA-1000 fix false null SEV-2)]")"
-l5_100_before="$(bugs_row "$PL5/BUGS.md" "DELTA-100 ")"
+write_state "$PL5" "$(state_doc 'null' '[]' "[$(closed_row DELTA-100 fix false null SEV-2)]")"
+l5_1000_before="$(bugs_row "$PL5/BUGS.md" "DELTA-1000")"
 mk_scripts_tree "$SL5"; stub_revalidation "$SL5/scripts" 0
 run_cut "$SL5/scripts" "$PL5"
-l5_100_after="$(bugs_row "$PL5/BUGS.md" "DELTA-100 ")"
+l5_1000_after="$(bugs_row "$PL5/BUGS.md" "DELTA-1000")"
 l5_1000_status="$(bugs_cell "$PL5/BUGS.md" "DELTA-1000" 4)"
 l5_100_status="$(bugs_cell "$PL5/BUGS.md" "DELTA-100 " 4)"
-if [ "$CUT_RC" -eq 0 ] && [ -n "$l5_100_before" ] && [ "$l5_100_before" = "$l5_100_after" ] \
-   && [ "$l5_1000_status" = "Fixed" ] && [ "$l5_100_status" = "Open" ]; then
-  pass "L5: shipping DELTA-1000 closed only its own row (Status='$l5_1000_status') and left the DELTA-100 row byte-identical and still '$l5_100_status'. A bare substring match on the id would have closed a bug this release never fixed"
+l5_100_ref="$(bugs_cell "$PL5/BUGS.md" "DELTA-100 " 9)"
+l5_shipver=n; case "$l5_100_ref" in *v1.2.1*) l5_shipver=y ;; esac
+if [ "$CUT_RC" -eq 0 ] && [ -n "$l5_1000_before" ] && [ "$l5_1000_before" = "$l5_1000_after" ] \
+   && [ "$l5_100_status" = "Fixed" ] && [ "$l5_shipver" = y ] && [ "$l5_1000_status" = "Open" ]; then
+  pass "L5: shipping DELTA-100 closed only its own row (Status='$l5_100_status', FixRef='$l5_100_ref') and left the DELTA-1000 row BYTE-IDENTICAL and still '$l5_1000_status'. This is the collision's only failing direction — the shorter id is the one that can mis-hit — and a bare substring match here stamps a shipped version onto a bug this release never carried, at rc 0"
 else
-  fail_ "L5" "rc=$CUT_RC (want 0); DELTA-1000 Status='$l5_1000_status' (want Fixed); DELTA-100 Status='$l5_100_status' (want Open); DELTA-100 row before='$l5_100_before' after='$l5_100_after' (want identical and non-empty). Output: $CUT_OUT"
+  fail_ "L5" "rc=$CUT_RC (want 0); DELTA-100 Status='$l5_100_status' (want Fixed) FixRef='$l5_100_ref' (want it to name v1.2.1); DELTA-1000 Status='$l5_1000_status' (want Open); DELTA-1000 row before='$l5_1000_before' after='$l5_1000_after' (want identical and non-empty). Output: $CUT_OUT"
+fi
+
+# L6 — THE SAME COLLISION IN FEATURES.md. BUGS.md has a column for the delta
+# link and FEATURES.md does not, so the two matchers are different code and the
+# boundary test has to be proved at both. Two blocks, both written by the
+# product and differing only in their id, the DELTA-1000 one FIRST.
+PL6="$RT/l6"; SL6="$RT/l6-scripts"
+mk_proj "$PL6"; tag_at "$PL6" "v1.2.0"
+write_state "$PL6" "$(state_doc 'null' '[]' '[]')"
+seed_open "$PL6" feature dark-mode "add a dark mode"
+retire_active "$PL6"
+L6_SEED="$(seeded_id "$PL6")"
+feat_collide "$PL6/FEATURES.md" "$L6_SEED" DELTA-1000 DELTA-100 || true
+write_state "$PL6" "$(state_doc 'null' '[]' "[$(closed_row DELTA-100 feature)]")"
+# The fixture's own shape is asserted rather than assumed: three blocks, the
+# template's, then the DELTA-1000 copy, then the DELTA-100 one, both carrying
+# the writer's `**Phase Built:**` anchor and both still In Progress.
+l6_n="$(feat_count "$PL6/FEATURES.md")"
+case "$l6_n" in ''|*[!0-9]*) l6_n=0 ;; esac
+l6_wide_before="$(feat_block "$PL6/FEATURES.md" 2)"
+l6_narrow_before="$(feat_block "$PL6/FEATURES.md" 3)"
+l6_shape=y
+[ "$l6_n" -eq 3 ] || l6_shape=n
+case "$l6_wide_before"   in *"**Phase Built:** 4 (post-1.0 DELTA-1000)"*) : ;; *) l6_shape=n ;; esac
+case "$l6_narrow_before" in *"**Phase Built:** 4 (post-1.0 DELTA-100)"*)  : ;; *) l6_shape=n ;; esac
+case "$l6_wide_before"   in *"**Status:** In Progress"*) : ;; *) l6_shape=n ;; esac
+mk_scripts_tree "$SL6"; stub_revalidation "$SL6/scripts" 0
+run_cut "$SL6/scripts" "$PL6"
+l6_wide_after="$(feat_block "$PL6/FEATURES.md" 2)"
+l6_narrow_status="$(feat_status_at "$PL6/FEATURES.md" 3)"
+l6_claimed=n; case "$CUT_OUT" in *"Closed 1 bug/feature row(s) with v1.3.0"*) l6_claimed=y ;; esac
+if [ "$l6_shape" = y ] && [ "$CUT_RC" -eq 0 ] \
+   && [ "$l6_wide_before" = "$l6_wide_after" ] \
+   && [ "$l6_narrow_status" = "**Status:** Complete (shipped in v1.3.0)" ] \
+   && [ "$l6_claimed" = y ]; then
+  pass "L6: with a DELTA-1000 feature block sitting AHEAD of the DELTA-100 one, shipping DELTA-100 completed its own block ('$l6_narrow_status') and left the DELTA-1000 block byte-identical — rc $CUT_RC, one row claimed. The anchor line is where the id lives, so the boundary test has to hold there too, and an unbounded match takes the first block it sees"
+else
+  fail_ "L6" "fixture shape ok=$l6_shape (blocks=$l6_n, want 3); rc=$CUT_RC (want 0); DELTA-1000 block changed=$([ "$l6_wide_before" = "$l6_wide_after" ] && echo n || echo YES) (want n); DELTA-100 block Status='$l6_narrow_status' (want Complete + v1.3.0); claimed=$l6_claimed (want y). Output: $CUT_OUT"
+fi
+
+# L7 — TWO IDS IN ONE `Fix Reference` CELL. That column is free text and it
+# legitimately carries more than one reference; §6.3's own example value is
+# "PR #12". `DELTA-1000, DELTA-100` shipping `DELTA-100` hits the PREFIX first,
+# and a matcher that tests the boundary but does not RETRY reports "no row
+# naming it" over a row that names it in plain sight — a missed close, in the
+# honest direction, with a reason line that is simply untrue.
+PL7="$RT/l7"; SL7="$RT/l7-scripts"
+mk_proj "$PL7" 1 n; tag_at "$PL7" "v1.2.0"
+cp "$REPO_ROOT/templates/generated/bugs.tmpl" "$PL7/BUGS.md"
+l7_tmp="$PL7/BUGS.md.seed"
+awk '
+  { print }
+  /^\|---/ && !done {
+    print "| 1 | SEV-2 | Open | joint-fix | one row, two references | - | Fix Now | DELTA-1000, DELTA-100 | - |"
+    done = 1
+  }
+' "$PL7/BUGS.md" > "$l7_tmp" && mv "$l7_tmp" "$PL7/BUGS.md"
+write_state "$PL7" "$(state_doc 'null' '[]' "[$(closed_row DELTA-100 fix false null SEV-2)]")"
+mk_scripts_tree "$SL7"; stub_revalidation "$SL7/scripts" 0
+run_cut "$SL7/scripts" "$PL7"
+l7_status="$(bugs_cell "$PL7/BUGS.md" "DELTA-1000" 4)"
+l7_ref="$(bugs_cell "$PL7/BUGS.md" "DELTA-1000" 9)"
+l7_absent=n; case "$CUT_OUT" in *"no row naming it"*) l7_absent=y ;; esac
+l7_ver=n;    case "$l7_ref" in *"shipped in v1.2.1"*) l7_ver=y ;; esac
+if [ "$CUT_RC" -eq 0 ] && [ "$l7_status" = "Fixed" ] && [ "$l7_ver" = y ] \
+   && [ "$l7_absent" = n ]; then
+  pass "L7: a Fix Reference of 'DELTA-1000, DELTA-100' is closed by shipping DELTA-100 — Status='$l7_status', cell now '$l7_ref', rc $CUT_RC — because the search retries past the prefix hit it rejects. Narrowing the match must not lose a real one; F2 is the positive control for the 'no row naming it' wording this row asserts absent"
+else
+  fail_ "L7" "rc=$CUT_RC (want 0); Status='$l7_status' (want Fixed); FixRef='$l7_ref' (want it to name v1.2.1); wrongly-reported-absent=$l7_absent (want n). Output: $CUT_OUT"
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -816,8 +1008,9 @@ echo "=== N — §9.2: a refusal writes NOTHING, with ledgers present ==="
 
 N_DETAIL=""
 N_OK=y
-_n_case() {   # <name> <want-rc> <setup-fn> [age]
-  local name="$1" want="$2" setup="$3" age="${4:-1}" P before after tags_before tags_after
+_n_case() {   # <name> <want-rc> <setup-fn> [age] [scripts-dir]
+  local name="$1" want="$2" setup="$3" age="${4:-1}" sd="${5:-$REPO_ROOT/scripts}"
+  local P before after tags_before tags_after
   P="$RT/$name"
   mk_proj "$P" "$age"
   tag_at "$P" "v1.2.0"
@@ -828,7 +1021,7 @@ _n_case() {   # <name> <want-rc> <setup-fn> [age]
   retire_active "$P"
   "$setup" "$P"
   before="$(tree_manifest "$P")"; tags_before="$(tag_list "$P")"
-  run_cut "$REPO_ROOT/scripts" "$P"
+  run_cut "$sd" "$P"
   after="$(tree_manifest "$P")"; tags_after="$(tag_list "$P")"
   N_DETAIL="$N_DETAIL [$name=rc$CUT_RC]"
   [ "$CUT_RC" -eq "$want" ] || { N_OK=n; N_DETAIL="$N_DETAIL(want $want)"; }
@@ -849,6 +1042,21 @@ _n_two_three(){ _n_retro "$1"; _break_cadence2 "$1"; }
 _n_corrupt()  { printf '{"schemaVersion": 1, "active_delta"\n' > "$1/.claude/delta-state.json"; }
 _n_absent()   { rm -f "$1/.claude/delta-state.json"; }
 _n_shipped()  { local d; d="$(jq -c '.closed = [.closed[] | .shipped_in = "v1.2.0"]' "$1/.claude/delta-state.json")"; printf '%s\n' "$d" > "$1/.claude/delta-state.json"; }
+# rc 9, both arms. The first is a class the policy does not score; the second is
+# a class nobody could READ — `"class": {}` makes the `@tsv` in the token query
+# error out and take the whole jq program with it, so the loop never runs and
+# `BUMP` is unset while the id query happily lists the row.
+_n_unscored() { local d; d="$(jq -c '.closed = [.closed[] | .class = "mystery"]' "$1/.claude/delta-state.json")"; printf '%s\n' "$d" > "$1/.claude/delta-state.json"; }
+_n_classobj() { local d; d="$(jq -c '.closed = [.closed[] | .class = {}]' "$1/.claude/delta-state.json")"; printf '%s\n' "$d" > "$1/.claude/delta-state.json"; }
+# rc 10 — a breaking row makes this a major, and a major demands the full
+# revalidation before the tag. Driven against a scripts tree with the validator
+# REMOVED, which is the arm that writes nothing; the other rc-10 arm runs the
+# real Phase 3 validation, which writes its own scan summaries by design, so a
+# manifest assertion over it would be asserting something false.
+_n_breaking() { local d; d="$(jq -c '.closed = [.closed[] | .breaking = true]' "$1/.claude/delta-state.json")"; printf '%s\n' "$d" > "$1/.claude/delta-state.json"; }
+N_NOREVAL="$RT/n-noreval-scripts"
+mk_scripts_tree "$N_NOREVAL"
+rm -f "$N_NOREVAL/scripts/run-phase3-validation.sh"
 
 _n_case n-open-delta      3 _n_active
 _n_case n-open-retro      4 _n_retro
@@ -859,11 +1067,14 @@ _n_case n-two-and-three   4 _n_two_three
 _n_case n-corrupt         6 _n_corrupt
 _n_case n-absent          7 _n_absent
 _n_case n-nothing-closed  8 _n_shipped
+_n_case n-unscored-class  9 _n_unscored
+_n_case n-unreadable-cls  9 _n_classobj
+_n_case n-breaking-noval 10 _n_breaking 1 "$N_NOREVAL/scripts"
 
 if [ "$N_OK" = y ]; then
-  pass "N1: all nine refusals still leave the WHOLE TREE byte-for-byte as they found it (find + per-file md5) and the tag set unmoved, over a project that HAS an open BUGS.md row and an open FEATURES.md block —$N_DETAIL. §9.2's property is absolute: the flip is Phase B only"
+  pass "N1: all twelve refusals still leave the WHOLE TREE byte-for-byte as they found it (find + per-file md5) and the tag set unmoved, over a project that HAS an open BUGS.md row and an open FEATURES.md block —$N_DETAIL. §9.2's property is absolute: the flip is Phase B only. rc 9 (both arms) and rc 10 are pinned here because WP7 pins rc 9 with NO ledgers in the tree, and 'it is pre-ledger by code read' is an argument rather than a measurement"
 else
-  fail_ "N1" "expected rc 3/4/5/5/3/4/6/7/8 with an unchanged tree, unchanged tags and a remedy line; got:$N_DETAIL"
+  fail_ "N1" "expected rc 3/4/5/5/3/4/6/7/8/9/9/10 with an unchanged tree, unchanged tags and a remedy line; got:$N_DETAIL"
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -901,7 +1112,7 @@ f1_rc=$CUT_RC
 f1_out="$CUT_OUT"
 f1_status="$(bugs_cell "$PF1/BUGS.md" "$F1_ID" 4)"
 chmod 644 "$PF1/BUGS.md" 2>/dev/null || true
-f1_named=n;      case "$f1_out" in *"$F1_ID"*"could not be written"*) f1_named=y ;; esac
+f1_named=n;      case "$f1_out" in *"$F1_ID"*"still reads open after the write"*) f1_named=y ;; esac
 f1_claimed=n;    case "$f1_out" in *"Closed 1 "*) f1_claimed=y ;; esac
 f1_remedy=n;     case "$f1_out" in *"To clear this:"*) f1_remedy=y ;; esac
 f1_newtag="$(tag_list "$PF1" | grep -v '^v1\.2\.0$' || true)"
@@ -922,7 +1133,7 @@ mk_scripts_tree "$SF1G"; stub_revalidation "$SF1G/scripts" 0
 run_cut "$SF1G/scripts" "$PF1G"
 f1g_rc=$CUT_RC
 f1g_claimed=n;  case "$CUT_OUT" in *"Closed 1 "*) f1g_claimed=y ;; esac
-f1g_named=n;    case "$CUT_OUT" in *"could not be written"*) f1g_named=y ;; esac
+f1g_named=n;    case "$CUT_OUT" in *"still reads open after the write"*) f1g_named=y ;; esac
 f1g_status="$(bugs_cell "$PF1G/BUGS.md" "$F1G_ID" 4)"
 
 if [ "$f1_forced" = n ]; then
@@ -933,7 +1144,7 @@ elif [ "$f1_rc" -eq 12 ] && [ "$f1_named" = y ] && [ "$f1_claimed" = n ] \
      && [ "$f1_changelog_before" != "$f1_changelog_after" ] \
      && [ "$f1g_rc" -eq 0 ] && [ "$f1g_claimed" = y ] && [ "$f1g_named" = n ] \
      && [ "$f1g_status" = "Fixed" ]; then
-  pass "F1: with BUGS.md unwritable the run NAMES $F1_ID and says specifically that the file could not be written, claims nothing it did not honour (no 'Closed 1' line), prints a remedy, and leaves the row reading '$f1_status' — while THE RELEASE STILL COMPLETES: changelog promoted, shipped_in='$f1_shipped', tag $f1_newtag created. The verdict is rc $f1_rc, not 0, so the cut does not report clean. Positive control on the same probe with a writable ledger: rc $f1g_rc, success claimed=$f1g_claimed, failure line=$f1g_named, row='$f1g_status'"
+  pass "F1: with BUGS.md unwritable the run NAMES $F1_ID and says its row still reads open after the write, claims nothing it did not honour (no 'Closed 1' line), prints a remedy, and leaves the row reading '$f1_status' — while THE RELEASE STILL COMPLETES: changelog promoted, shipped_in='$f1_shipped', tag $f1_newtag created. The verdict is rc $f1_rc, not 0, so the cut does not report clean. Positive control on the same probe with a writable ledger: rc $f1g_rc, success claimed=$f1g_claimed, failure line=$f1g_named, row='$f1g_status'"
 else
   fail_ "F1" "forced arm: rc=$f1_rc (want 12) named=$f1_named (want y) false-claim=$f1_claimed (want n) remedy=$f1_remedy (want y) row='$f1_status' (want Open) tag='$f1_newtag' (want v1.2.1) shipped_in='$f1_shipped' (want v1.2.1) changelog-moved=$([ "$f1_changelog_before" != "$f1_changelog_after" ] && echo y || echo n) (want y); control arm: rc=$f1g_rc (want 0) claimed=$f1g_claimed (want y) failure-line=$f1g_named (want n) row='$f1g_status' (want Fixed). Forced output: $f1_out"
 fi
@@ -949,7 +1160,7 @@ mk_scripts_tree "$SF2"; stub_revalidation "$SF2/scripts" 0
 run_cut "$SF2/scripts" "$PF2"
 f2_rc=$CUT_RC
 f2_named=n;   case "$CUT_OUT" in *"DELTA-042"*"no row naming it"*) f2_named=y ;; esac
-f2_wrongmsg=n; case "$CUT_OUT" in *"could not be written"*) f2_wrongmsg=y ;; esac
+f2_wrongmsg=n; case "$CUT_OUT" in *"still reads open after the write"*) f2_wrongmsg=y ;; esac
 f2_newtag="$(tag_list "$PF2" | grep -v '^v1\.2\.0$' || true)"
 if [ "$f2_rc" -eq 12 ] && [ "$f2_named" = y ] && [ "$f2_wrongmsg" = n ] \
    && [ "$f2_newtag" = "v1.2.1" ]; then
@@ -990,7 +1201,7 @@ s1_after="$(_md5file "$PS1/BUGS.md")"
 s1_size="$(wc -c < "$PS1/BUGS.md" | tr -d ' ')"
 s1_fired="$(probe_fired "$PS1_LOG")"
 s1_status="$(bugs_cell "$PS1/BUGS.md" "$S1_ID" 4)"
-s1_named=n;   case "$s1_out" in *"$S1_ID"*"could not be written"*) s1_named=y ;; esac
+s1_named=n;   case "$s1_out" in *"$S1_ID"*"still reads open after the write"*) s1_named=y ;; esac
 s1_claimed=n; case "$s1_out" in *"Closed 1 "*) s1_claimed=y ;; esac
 s1_newtag="$(tag_list "$PS1" | grep -v '^v1\.2\.0$' || true)"
 s1_shipped="$(jq -r --arg i "$S1_ID" '.closed[] | select(.id == $i) | .shipped_in // "null"' "$PS1/.claude/delta-state.json" 2>/dev/null)"
@@ -1025,6 +1236,103 @@ elif [ "$s1_rc" -eq 12 ] && [ "$s1_before" = "$s1_after" ] && [ "$s1_size" -gt 0
   pass "S1: the flip transform died producing nothing (probe fired $s1_fired time, at the flip and nowhere else) and the staging guard REFUSED the write — BUGS.md is byte-identical ($s1_after, $s1_size bytes) with its row still '$s1_status', the run names $S1_ID specifically, claims nothing, and answers rc $s1_rc while the release completes (shipped_in='$s1_shipped', tag $s1_newtag, changelog promoted). Mechanism control: the passthru twin over the same PATH override cut clean at rc $s1g_rc with its row '$s1g_status' and $s1g_fired suppressions"
 else
   fail_ "S1" "forced arm: probe fired=$s1_fired (want 1) rc=$s1_rc (want 12) BUGS.md md5 $s1_before -> $s1_after (want identical) size=$s1_size (want >0) row='$s1_status' (want Open) named=$s1_named (want y) false-claim=$s1_claimed (want n) tag='$s1_newtag' (want v1.2.1) shipped_in='$s1_shipped' (want v1.2.1) changelog-moved=$([ "$s1_changelog_before" != "$s1_changelog_after" ] && echo y || echo n) (want y); control arm: rc=$s1g_rc (want 0) row='$s1g_status' (want Fixed) fired=$s1g_fired (want 0). Forced output: $s1_out"
+fi
+
+# S2 / S3 — AN UNREADABLE LEDGER MUST NOT KILL THE RUN, AND MUST NOT BE CALLED
+# ABSENT. This hazard is CREATED BY THIS BRANCH and was reported up the chain as
+# pre-existing, which was wrong: `git show 27393de:scripts/cut-release.sh |
+# grep -c 'BUGS.md\|FEATURES.md'` returns 0, so the base never opened a ledger
+# and there was no abort window between `shipped_in` and the tag at all.
+#
+# Every read in the close loop is an unguarded command substitution under
+# `set -euo pipefail`, and awk exits 2 on a file it cannot open. So `chmod 000
+# BUGS.md` used to kill the cut STONE DEAD, at rc 2, with nothing printed —
+# after the changelog was promoted and `shipped_in` recorded, and before the
+# tag. rc 2 is what this script's own header reserves for "invocation /
+# environment error", and rc 11's promise that the message says exactly how far
+# it got is bypassed entirely. `shipped_in` is write-once, so the next run
+# refuses at 8 with nothing to release: the repository is left permanently
+# holding a record that says the work shipped in a version no tag names.
+#
+# AND `unreadable` IS NOT `none`. Collapsing them would print "has no row naming
+# it" about a row that may well be sitting there — asserting the contents of a
+# file nobody could open. So the reason line is its own, and both rows assert
+# the row-absent wording ABSENT (F2 and A2 are the positive controls that show
+# the same probe finding that wording when it is really there).
+_s_unreadable_case() {   # <name> <class> <ledger> <want-tag>
+  local name="$1" cls="$2" ledger="$3" wanttag="$4"
+  local P S id before after rc out forced named absent claimed newtag shipped clog_before clog_after
+  P="$RT/$name"; S="$RT/$name-scripts"
+  mk_proj "$P"; tag_at "$P" "v1.2.0"
+  write_state "$P" "$(state_doc 'null' '[]' '[]')"
+  # `--severity` belongs to the BUGS classes only; handing it to `--open
+  # --class feature` makes delta.sh refuse, and a fixture that seeded nothing
+  # cuts at rc 8 and asserts nothing. Asserted below rather than hoped for.
+  if [ "$cls" = feature ]; then
+    seed_open "$P" "$cls" a-change "a change that needs shipping"
+  else
+    seed_open "$P" "$cls" a-change "a change that needs shipping" --severity SEV-1
+  fi
+  retire_active "$P"
+  id="$(seeded_id "$P")"
+  if [ -z "$id" ]; then
+    fail_ "$name (vacuous)" "the fixture seeded no delta at all, so the cut has nothing to release and this row asserts nothing"
+    return 0
+  fi
+  mk_scripts_tree "$S"; stub_revalidation "$S/scripts" 0
+  before="$(_md5file "$P/$ledger")"
+  clog_before="$(_md5file "$P/CHANGELOG.md")"
+  chmod 000 "$P/$ledger" 2>/dev/null || true
+  # THE PRECONDITION IS ASSERTED, NOT ASSUMED. Under a root runner or a
+  # filesystem that ignores the mode bit every assertion below is vacuous.
+  forced=y
+  if ( : < "$P/$ledger" ) 2>/dev/null; then forced=n; fi
+  run_cut "$S/scripts" "$P"
+  rc=$CUT_RC; out="$CUT_OUT"
+  chmod 644 "$P/$ledger" 2>/dev/null || true
+  after="$(_md5file "$P/$ledger")"
+  clog_after="$(_md5file "$P/CHANGELOG.md")"
+  newtag="$(tag_list "$P" | grep -v '^v1\.2\.0$' || true)"
+  shipped="$(jq -r --arg i "$id" '.closed[] | select(.id == $i) | .shipped_in // "null"' "$P/.claude/delta-state.json" 2>/dev/null)"
+  named=n;   case "$out" in *"$id"*"could not be read"*) named=y ;; esac
+  absent=n;  case "$out" in *"no row naming it"*) absent=y ;; esac
+  claimed=n; case "$out" in *"bug/feature row(s) with"*) claimed=y ;; esac
+  if [ "$forced" = n ]; then
+    fail_ "$name (vacuous)" "chmod 000 did not bite on $ledger — it stayed readable, so nothing below was exercised. Running as root, or on a filesystem that ignores the mode bit"
+  elif [ "$rc" -eq 12 ] && [ "$named" = y ] && [ "$absent" = n ] && [ "$claimed" = n ] \
+       && [ "$before" = "$after" ] && [ "$newtag" = "$wanttag" ] && [ "$shipped" = "$wanttag" ] \
+       && [ "$clog_before" != "$clog_after" ]; then
+    pass "$name: with $ledger at mode 000 the run NAMES $id and says its ledger could not be READ — not that it has no row, which would be an assertion about the contents of a file nobody could open — claims nothing, leaves $ledger byte-identical ($after), and THE RELEASE STILL COMPLETES: changelog promoted, shipped_in='$shipped', tag $newtag created, verdict rc $rc. Before this row the same fixture died at rc 2 with an empty screen, after shipped_in and before the tag"
+  else
+    fail_ "$name" "rc=$rc (want 12); named-unreadable=$named (want y); wrongly-said-absent=$absent (want n); claimed=$claimed (want n); $ledger md5 $before -> $after (want identical); new tag='$newtag' (want $wanttag); shipped_in='$shipped' (want $wanttag); changelog-moved=$([ "$clog_before" != "$clog_after" ] && echo y || echo n) (want y). Output: $out"
+  fi
+}
+_s_unreadable_case S2 fix     BUGS.md     v1.2.1
+_s_unreadable_case S3 feature FEATURES.md v1.3.0
+
+# ════════════════════════════════════════════════════════════════════════════
+echo ""
+echo "=== NS — what the operator is told to commit ==="
+# ════════════════════════════════════════════════════════════════════════════
+
+# NS1 — THE PRINTED NEXT STEPS MUST NAME THE LEDGERS THIS CUT WROTE. Step 1 used
+# to read `git add CHANGELOG.md .claude/delta-state.json` unconditionally, two
+# screens under an `[OK] Closed N bug/feature row(s)` line — so an operator who
+# followed the four steps verbatim committed and pushed a release whose commit
+# LEFT THE CLOSES OUT. The tag goes up, the pipeline goes green, and the bug
+# record on the branch still reads Open while the working tree quietly disagrees
+# with it. Read out of the two cuts that already ran: L3 closed BOTH ledgers,
+# L4 closed nothing at all.
+ns_step1="$(printf '%s\n' "$L3_OUT" | grep '^  1\. git add ' | head -1)"
+ns_step1_none="$(printf '%s\n' "$L4_OUT" | grep '^  1\. git add ' | head -1)"
+ns_bugs=n;  case "$ns_step1" in *BUGS.md*)     ns_bugs=y ;; esac
+ns_feat=n;  case "$ns_step1" in *FEATURES.md*) ns_feat=y ;; esac
+ns_clean=n; case "$ns_step1_none" in *BUGS.md*|*FEATURES.md*) : ;; *) ns_clean=y ;; esac
+if [ -n "$ns_step1" ] && [ -n "$ns_step1_none" ] \
+   && [ "$ns_bugs" = y ] && [ "$ns_feat" = y ] && [ "$ns_clean" = y ]; then
+  pass "NS1: the cut that closed both ledgers tells the operator to stage them — '$ns_step1' — and the cut that closed nothing does not, leaving '$ns_step1_none'. The instruction and the work now agree; following these four steps verbatim no longer pushes a release whose commit omits the closes the same run just reported"
+else
+  fail_ "NS1" "L3 step 1='$ns_step1' (want it to name BUGS.md=$ns_bugs and FEATURES.md=$ns_feat, both y); L4 step 1='$ns_step1_none' (want neither ledger named, clean=$ns_clean)"
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1262,10 +1570,14 @@ _m1_check() {
   rc=0
   ( cd "$P" && unset GITHUB_BASE_REF; bash "$MUT_SD/cut-release.sh" </dev/null >/dev/null 2>&1 ) || rc=$?
   st="$(bugs_cell "$P/BUGS.md" "$id" 4)"
-  if [ "$st" = "Open" ]; then
-    pass "m1: with the marked write suppressed the mutant ships $id and leaves its row reading '$st' (rc $rc) — L1 sees it, and this is precisely the defect the brief describes: a permanent apparently-open SEV-N row for work that shipped. $MUT_REPORT"
+  # THE rc IS PART OF THE KILL, and that is a correction rather than a
+  # refinement: `Status = Open` is also what a mutant that DIED before reaching
+  # the flip leaves behind, so without the rc this row would salute a sed slip
+  # as a proof. Every mutant below carries the same requirement now.
+  if [ "$st" = "Open" ] && [ "$rc" -eq 12 ]; then
+    pass "m1: with the marked write suppressed the mutant ships $id, leaves its row reading '$st' AND runs on to its own honesty verdict at rc $rc — L1 sees it, and this is precisely the defect the brief describes: a permanent apparently-open SEV-N row for work that shipped. $MUT_REPORT"
   else
-    fail_ "m1" "the mutant still closed the row (Status='$st', rc $rc) — L1 cannot see this line. $MUT_REPORT"
+    fail_ "m1" "the mutant did not both produce the defect and complete (Status='$st' want Open; rc=$rc want 12) — a mutant that died early leaves the row Open too, which is why the rc is asserted. L1 cannot see this line. $MUT_REPORT"
   fi
 }
 _mutate m1 '# CUTREL-LEDGER-CLOSE$' \
@@ -1274,7 +1586,7 @@ _mutate m1 '# CUTREL-LEDGER-CLOSE$' \
 # ── m2: suppress the honesty arm ────────────────────────────────────────────
 # The BL-213 shape: the work fails, and the closing verdict says it did not.
 _m2_check() {
-  local name="$1" P rc id forced out
+  local name="$1" P rc id forced out st
   P="$MT/$name-proj"; _mut_proj "$P" fix csv-encoding --severity SEV-1
   id="$(seeded_id "$P")"
   chmod 444 "$P/BUGS.md" 2>/dev/null || true
@@ -1283,12 +1595,15 @@ _m2_check() {
   rc=0
   out="$( cd "$P" && unset GITHUB_BASE_REF; bash "$MUT_SD/cut-release.sh" </dev/null 2>&1 )" || rc=$?
   chmod 644 "$P/BUGS.md" 2>/dev/null || true
+  st="$(bugs_cell "$P/BUGS.md" "$id" 4)"
+  # rc 0 ALONE IS NOT THE LIE — a clean cut over a row that really closed is rc
+  # 0 too. The lie is rc 0 WITH the row still open, so the file is asserted.
   if [ "$forced" = n ]; then
     fail_ "m2 (vacuous)" "chmod 444 did not bite, so the mutant was never given a failure to hide. $MUT_REPORT"
-  elif [ "$rc" -eq 0 ]; then
-    pass "m2: with the honesty arm suppressed a flip that FAILED reports a clean cut (rc $rc instead of 12) over a row that never closed — F1 sees it. The release really did happen, which is exactly why the silence is convincing. $MUT_REPORT"
+  elif [ "$rc" -eq 0 ] && [ "$st" = "Open" ]; then
+    pass "m2: with the honesty arm suppressed a flip that FAILED reports a clean cut (rc $rc instead of 12) over a row that still reads '$st' — F1 sees it. The release really did happen, which is exactly why the silence is convincing. $MUT_REPORT"
   else
-    fail_ "m2" "the mutant still answered rc $rc — F1 cannot see this line. $MUT_REPORT"
+    fail_ "m2" "the mutant did not produce the lie (rc=$rc want 0; row='$st' want Open) — F1 cannot see this line. $MUT_REPORT"
   fi
 }
 _mutate m2 '# CUTREL-LEDGER-HONEST$' \
@@ -1332,10 +1647,21 @@ _m4_check() {
   ( cd "$P" && unset GITHUB_BASE_REF; bash "$MUT_SD/cut-release.sh" </dev/null >/dev/null 2>&1 ) || rc=$?
   st="$(bugs_cell "$P/BUGS.md" "$id" 4)"
   ref="$(bugs_cell "$P/BUGS.md" "$id" 9)"
-  case "$ref" in
-    *v1.2.1*) fail_ "m4" "the mutant still recorded the version in the Fix Reference cell ('$ref') — L1 cannot see this line. $MUT_REPORT" ;;
-    *) pass "m4: with the version append dropped, the mutant leaves Status='$st' but a Fix Reference of '$ref' that names no release (rc $rc) — L1 sees it. §6.3's whole point is that the version rides that existing cell. $MUT_REPORT" ;;
-  esac
+  # THE ROW MUST STILL READ `Fixed`. The kill here is an ABSENCE — the version
+  # is not in the cell — and an absence proves nothing unless the mutant is
+  # otherwise WORKING. `bash -n` does not syntax-check awk, and the marked line
+  # lives inside an awk program, so a sed slip that produced dead awk would
+  # leave the cell version-free too and this row would have called that a proof.
+  # A sibling branch measured exactly that hole this week. `Fixed` is the
+  # structural discriminator: only a live flip can put it there.
+  if [ "$st" != "Fixed" ]; then
+    fail_ "m4 (vacuous)" "the mutant's row does not read Fixed (Status='$st'), so the flip did not run at all — the missing version proves nothing. A dead awk program reads exactly like this and bash -n cannot see it. $MUT_REPORT"
+  else
+    case "$ref" in
+      *v1.2.1*) fail_ "m4" "the mutant still recorded the version in the Fix Reference cell ('$ref') — L1 cannot see this line. $MUT_REPORT" ;;
+      *) pass "m4: with the version append dropped, the mutant's flip still RAN — the row reads Status='$st' — but its Fix Reference is '$ref' and names no release (rc $rc). L1 sees it, and the live flip is what makes the absence mean something. §6.3's whole point is that the version rides that existing cell. $MUT_REPORT" ;;
+    esac
+  fi
 }
 _mutate m4 '# CUTREL-LEDGER-VERSION$' \
   's|^\(.*\)# CUTREL-LEDGER-VERSION$|        if (0) { fr = fr " shipped in " ver }   # CUTREL-LEDGER-VERSION|' _m4_check
@@ -1350,10 +1676,12 @@ _m5_check() {
   rc=0
   ( cd "$P" && unset GITHUB_BASE_REF; bash "$MUT_SD/cut-release.sh" </dev/null >/dev/null 2>&1 ) || rc=$?
   st="$(feat_status "$P/FEATURES.md" "$id")"
-  if [ "$st" = "**Status:** In Progress" ]; then
-    pass "m5: with the feature class routed to the wrong ledger, the mutant ships $id and its FEATURES.md block still reads '$st' (rc $rc) — L2 sees it. Nothing errors on this path, which is why the class map needed a driven agreement check (C1) and not a comment. $MUT_REPORT"
+  # Same correction as m1: an untouched block is also what a mutant that died
+  # early leaves, so the run has to reach its verdict for the absence to count.
+  if [ "$st" = "**Status:** In Progress" ] && [ "$rc" -eq 12 ]; then
+    pass "m5: with the feature class routed to the wrong ledger, the mutant ships $id, runs to its verdict at rc $rc, and its FEATURES.md block still reads '$st' — L2 sees it. Nothing errors on this path, which is why the class map needed a driven agreement check (C1) and not a comment. $MUT_REPORT"
   else
-    fail_ "m5" "the mutant still closed the feature block ('$st', rc $rc) — L2 cannot see this line. $MUT_REPORT"
+    fail_ "m5" "the mutant did not both leave the block open and complete ('$st' want '**Status:** In Progress'; rc=$rc want 12) — L2 cannot see this line. $MUT_REPORT"
   fi
 }
 _mutate m5 '# CUTREL-LEDGER-CLASS$' \
@@ -1420,6 +1748,145 @@ _m7_check() {
 }
 _mutate m7 '# CUTREL-LEDGER-FEATANCHOR$' \
   's@^.*# CUTREL-LEDGER-FEATANCHOR$@    blk > 0 \&\& !hit {   # CUTREL-LEDGER-FEATANCHOR@' _m7_check
+
+# ── m8, m9, m10: the bounded-id match, at each of its three sites ────────────
+# THE THREE ARE MUTATED SEPARATELY AND THAT IS THE POINT. A reviewer stripped
+# the boundary conjunct at all three at once and the previous version of this
+# suite returned 26 passed, 0 failed — because its L5 shipped the LONGER id,
+# where `index()` has nothing to mis-hit. Each site is now its own address and
+# each fails in its own direction.
+#
+# THE MUTATION IS THE REAL REGRESSION, not a nonsense edit: replacing the
+# conjunct with a bare `return p` makes `idhit()` return the first occurrence
+# unconditionally, which is exactly `index(cell, id) > 0`.
+_m_collide_proj() {   # <dir> — the L5 fixture: DELTA-100 ships, DELTA-1000 sits beside it
+  local d="$1" t
+  mk_proj "$d" 1 n; tag_at "$d" "v1.2.0"
+  cp "$REPO_ROOT/templates/generated/bugs.tmpl" "$d/BUGS.md"
+  t="$d/BUGS.md.seed"
+  awk '
+    { print }
+    /^\|---/ && !done {
+      print "| 1 | SEV-2 | Open | narrow-fix | the older one | - | Fix Now | DELTA-100 | - |"
+      print "| 2 | SEV-2 | Open | wide-fix | the newer one | - | Fix Now | DELTA-1000 | - |"
+      done = 1
+    }
+  ' "$d/BUGS.md" > "$t" && mv "$t" "$d/BUGS.md"
+  write_state "$d" "$(state_doc 'null' '[]' "[$(closed_row DELTA-100 fix false null SEV-2)]")"
+}
+
+# m8 — the STATE reader. The flip is still bounded, so the shipped row really is
+# written; the RE-READ then mis-hits the untouched DELTA-1000 row, calls the
+# ledger open, and the cut reports a failure it did not have. KILLED ON THE
+# CONTRADICTION between the verdict and the bytes — rc 12 over a row that the
+# file itself says is Fixed — which is a structural discriminator and not a
+# message.
+_m8_check() {
+  local name="$1" P rc st ref wide
+  P="$MT/$name-proj"; _m_collide_proj "$P"
+  rc=0
+  ( cd "$P" && unset GITHUB_BASE_REF; bash "$MUT_SD/cut-release.sh" </dev/null >/dev/null 2>&1 ) || rc=$?
+  st="$(bugs_cell "$P/BUGS.md" "DELTA-100 " 4)"
+  ref="$(bugs_cell "$P/BUGS.md" "DELTA-100 " 9)"
+  wide="$(bugs_cell "$P/BUGS.md" "DELTA-1000" 4)"
+  if [ "$rc" -eq 12 ] && [ "$st" = "Fixed" ] && [ "$wide" = "Open" ]; then
+    pass "m8: with the boundary test gone from the STATE reader, the re-read mis-hits the neighbouring DELTA-1000 row (still '$wide'), so the mutant answers rc $rc — 'not every row could be closed' — over a DELTA-100 row that the file says is '$st' ('$ref'). L5 sees it: the verdict and the bytes contradict each other. $MUT_REPORT"
+  else
+    fail_ "m8" "the mutant did not produce the contradiction (rc=$rc want 12; DELTA-100 Status='$st' want Fixed; DELTA-1000 Status='$wide' want Open) — L5 cannot see this line. $MUT_REPORT"
+  fi
+}
+_mutate m8 '# CUTREL-LEDGER-IDBOUND-STATE$' \
+  's@^.*# CUTREL-LEDGER-IDBOUND-STATE$@        return p   # CUTREL-LEDGER-IDBOUND-STATE@' _m8_check
+
+# m9 — the FLIPPER. This is the one the brief names, and the harm is a FALSE
+# CLOSE at rc 0: a bug this release never carried is stamped `DELTA-1000 shipped
+# in v1.2.1` and the run says `[OK] Closed 1 bug/feature row(s)`. KILLED ON THE
+# WRONG ROW'S BYTES — the m6 lesson applied where it was measured to be needed:
+# a predicate on the message would pass over the stamped row entirely.
+_m9_check() {
+  local name="$1" P rc before after wide claimed out
+  P="$MT/$name-proj"; _m_collide_proj "$P"
+  before="$(bugs_row "$P/BUGS.md" "DELTA-1000")"
+  rc=0
+  out="$( cd "$P" && unset GITHUB_BASE_REF; bash "$MUT_SD/cut-release.sh" </dev/null 2>&1 )" || rc=$?
+  after="$(bugs_row "$P/BUGS.md" "DELTA-1000")"
+  wide="$(bugs_cell "$P/BUGS.md" "DELTA-1000" 4)"
+  claimed=n; case "$out" in *"Closed 1 bug/feature row(s) with v1.2.1"*) claimed=y ;; esac
+  if [ -z "$before" ]; then
+    fail_ "m9 (vacuous)" "the DELTA-1000 row was never seeded, so the mutant had nothing to mis-hit. $MUT_REPORT"
+  elif [ "$before" != "$after" ] && [ "$wide" = "Fixed" ] && [ "$claimed" = y ] && [ "$rc" -eq 0 ]; then
+    pass "m9: with the boundary test gone from the FLIPPER, shipping DELTA-100 rewrote the DELTA-1000 row — '$before' became '$after' — stamping a release onto a bug that release never carried, while the run reported 'Closed 1' at rc $rc. L5 sees it ON THE WRONG ROW'S BYTES, which is the only place this harm exists: the message is identical to a correct run's. $MUT_REPORT"
+  else
+    fail_ "m9" "the mutant did not stamp the wrong row (changed=$([ "$before" = "$after" ] && echo n || echo y); DELTA-1000 Status='$wide' want Fixed; claimed=$claimed want y; rc=$rc want 0) — L5 cannot see this line. $MUT_REPORT"
+  fi
+}
+_mutate m9 '# CUTREL-LEDGER-IDBOUND-FLIP$' \
+  's@^.*# CUTREL-LEDGER-IDBOUND-FLIP$@        return p   # CUTREL-LEDGER-IDBOUND-FLIP@' _m9_check
+
+# m10 — the FEATURES BLOCK CHOOSER. Same harm on the other ledger: the first
+# block whose anchor merely CONTAINS the id is completed, so a DELTA-1000
+# feature is marked shipped and the DELTA-100 one that really shipped is not.
+# KILLED ON THE WRONG BLOCK'S BYTES.
+_m10_check() {
+  local name="$1" P rc seed wide_before wide_after narrow claimed out
+  P="$MT/$name-proj"; _mut_proj "$P" feature dark-mode
+  seed="$(seeded_id "$P")"
+  feat_collide "$P/FEATURES.md" "$seed" DELTA-1000 DELTA-100 || true
+  write_state "$P" "$(state_doc 'null' '[]' "[$(closed_row DELTA-100 feature)]")"
+  wide_before="$(feat_block "$P/FEATURES.md" 2)"
+  rc=0
+  out="$( cd "$P" && unset GITHUB_BASE_REF; bash "$MUT_SD/cut-release.sh" </dev/null 2>&1 )" || rc=$?
+  wide_after="$(feat_block "$P/FEATURES.md" 2)"
+  narrow="$(feat_status_at "$P/FEATURES.md" 3)"
+  claimed=n; case "$out" in *"Closed 1 bug/feature row(s) with v1.3.0"*) claimed=y ;; esac
+  if [ -z "$wide_before" ]; then
+    fail_ "m10 (vacuous)" "the DELTA-1000 block was never built, so the mutant had only one block to choose from. $MUT_REPORT"
+  elif [ "$wide_before" != "$wide_after" ] && [ "$claimed" = y ] && [ "$rc" -eq 0 ] \
+       && [ "$narrow" = "**Status:** In Progress" ]; then
+    pass "m10: with the boundary test gone from the FEATURES block chooser, shipping DELTA-100 completed the DELTA-1000 block instead — its bytes moved — while the block that really shipped still reads '$narrow' and the run reported 'Closed 1' at rc $rc. L6 sees it on the wrong block's bytes: a feature nobody shipped marked shipped, and the one that did left open, in one clean-looking cut. $MUT_REPORT"
+  else
+    fail_ "m10" "the mutant did not complete the wrong block (changed=$([ "$wide_before" = "$wide_after" ] && echo n || echo y); DELTA-100 block='$narrow' want In Progress; claimed=$claimed want y; rc=$rc want 0) — L6 cannot see this line. $MUT_REPORT"
+  fi
+}
+_mutate m10 '# CUTREL-LEDGER-IDBOUND-FEAT$' \
+  's@^.*# CUTREL-LEDGER-IDBOUND-FEAT$@        return p   # CUTREL-LEDGER-IDBOUND-FEAT@' _m10_check
+
+# ── m11: delete the readability guard ───────────────────────────────────────
+# The reads underneath it are deliberately BARE command substitutions under
+# `set -euo pipefail`, so removing this one line brings the silent death
+# straight back rather than being caught somewhere quieter.
+#
+# KILLED ON STATE, NOT ON SILENCE. "It printed nothing" is an absence and would
+# be satisfied by any mutant that failed to start; the discriminator is that the
+# RECORD SAYS THE WORK SHIPPED IN A VERSION `git tag --list` DOES NOT CONTAIN —
+# a repository left in a state the product can never produce, and one no later
+# run can clear, because `shipped_in` is write-once and the next cut refuses at
+# 8 with nothing to release. S2 is the positive control: the same fixture, the
+# guard present, rc 12 with the tag written.
+_m11_check() {
+  local name="$1" P rc id forced out before after tags shipped
+  P="$MT/$name-proj"; _mut_proj "$P" fix csv-encoding --severity SEV-1
+  id="$(seeded_id "$P")"
+  before="$(_md5file "$P/BUGS.md")"
+  chmod 000 "$P/BUGS.md" 2>/dev/null || true
+  forced=y
+  if ( : < "$P/BUGS.md" ) 2>/dev/null; then forced=n; fi
+  rc=0
+  out="$( cd "$P" && unset GITHUB_BASE_REF; bash "$MUT_SD/cut-release.sh" </dev/null 2>&1 )" || rc=$?
+  chmod 644 "$P/BUGS.md" 2>/dev/null || true
+  after="$(_md5file "$P/BUGS.md")"
+  tags="$(tag_list "$P" | grep -v '^v1\.2\.0$' || true)"
+  shipped="$(jq -r --arg i "$id" '.closed[] | select(.id == $i) | .shipped_in // "null"' "$P/.claude/delta-state.json" 2>/dev/null)"
+  if [ "$forced" = n ]; then
+    fail_ "m11 (vacuous)" "chmod 000 did not bite, so the mutant was never handed an unreadable ledger. $MUT_REPORT"
+  elif [ "$rc" -eq 2 ] && [ -z "$tags" ] && [ "$shipped" = "v1.2.1" ] && [ "$before" = "$after" ]; then
+    pass "m11: with the readability guard deleted, a mode-000 BUGS.md kills the cut at rc $rc — the code this script's own header reserves for an invocation error — leaving the record saying $id shipped in '$shipped' while \`git tag --list\` holds no such tag ('$tags'). The changelog is promoted, the ledger untouched ($after), and nothing on screen says how far it got; \`shipped_in\` is write-once, so no later run can finish the job. S2 sees it, on the repository's state rather than on the silence. $MUT_REPORT"
+  else
+    fail_ "m11" "the mutant did not die mid-write (rc=$rc want 2; new tags='$tags' want none; shipped_in='$shipped' want v1.2.1; BUGS.md md5 $before -> $after want identical) — S2 cannot see this line. $MUT_REPORT"
+  fi
+}
+_mutate m11 '# CUTREL-LEDGER-READGUARD$' \
+  's@^.*# CUTREL-LEDGER-READGUARD$@  if false; then   # CUTREL-LEDGER-READGUARD@' _m11_check
 
 rm -rf "$MT"
 rm -rf "$RT"
