@@ -7,8 +7,9 @@ place any file without guessing.
 
 ## Guides (`docs/*.md`)
 
-Ten top-level guides — the platform-agnostic methodology and its operator- and
-executive-facing companions.
+Thirteen top-level guides — the platform-agnostic methodology and its operator- and
+executive-facing companions. The last three cover what happens *outside* the
+five-phase build: after v1.0 ships, and before a project that already exists comes in.
 
 | Guide | What it is |
 |---|---|
@@ -22,6 +23,9 @@ executive-facing companions.
 | [cli-setup-addendum.md](cli-setup-addendum.md) | Claude Code-specific setup: plugins (Superpowers), MCP servers, permission allowlists, session-resume tooling. |
 | [extending-platforms.md](extending-platforms.md) | How to add a new platform module (the co-build protocol for platforms beyond the four first-class ones). |
 | [step5-dogfood-walker-rubric.md](step5-dogfood-walker-rubric.md) | The pass/partial/fail rubric the Step-5 dogfood walker uses to disposition scenario outcomes. |
+| [delta-track.md](delta-track.md) | **After v1.0** — the post-release lifecycle `init.sh` installs into every project: the phase-4 activation gate, the four change classes and their confirm-not-quiz open, the brief whose Done-observable checklist *is* the close review, the close-time attribute ratchet, the hotfix lane and its release-blocking retro, the cadence clock's current/overdue/**unmeasurable** contract, `cut-release.sh`'s three refusals and tool-decided semver, and `.claude/delta-policy.json`. Worked transcripts throughout, all executed. |
+| [scout.md](scout.md) | **Scout** — the read-only survey (`scripts/scout.sh`). All seven report sections, the read-only proof, the opt-in `--run-tests`, full-history secret scanning with the value never printed, and the limits Scout states about itself (the untested-file count is a name-match heuristic; branch protection is `unknown`, not `no`). |
+| [adoption.md](adoption.md) | **Brownfield adoption** — `scripts/adopt-project.sh`: the chooser question verbatim, the floor rule, the reverse intake, the fail-safe write order, the adoption stamp and its loud loss detection, and the TDD exemption's bound. **Carries the prominent "what is not built yet" section** — the certification pass, test-debt ledger, collision archive, CI carve-out and Adoption Record are designed and not implemented. |
 
 ## Handoffs (`docs/handoffs/`)
 
@@ -72,13 +76,16 @@ track, and the BA/PM agent roles. v1.1 post-review, r1 folded; describes a produ
 [designs/2026-08-02-delta-track-v1.md](designs/2026-08-02-delta-track-v1.md)
 (**the Post-MVP Delta Track** — the maintenance and feature lifecycle a project runs after it cuts
 v1.0.0: four change classes with derived-then-confirmed attributes, a severable module with a
-dependency-direction lint, three re-fire triggers, and a tool-decided release cut. v1.1 post-review,
-r1 folded; nothing of it is built).
+dependency-direction lint, three re-fire triggers, and a tool-decided release cut. v1.2, build-evidence
+amendment folded. **Built and shipping** — the user-facing page is [delta-track.md](delta-track.md)).
 [designs/2026-08-02-brownfield-adoption-v1.md](designs/2026-08-02-brownfield-adoption-v1.md)
 (**Brownfield adoption** — the second entry path, for a codebase that already exists: a standalone
 read-only scanner, the completed-vs-in-flight scenario chooser, the certification pass that replaces
 grandfathering, full-history secret scanning with redacted findings, and the archive-and-disclose
-collision policy. v1.1 post-review, r1 folded; nothing is built).
+collision policy. v1.2, build-evidence amendment folded. **Half built** — Scout and the adoption
+driver ship; the certification pass, test-debt ledger, collision archive, CI carve-out and Adoption
+Record do not. User-facing pages: [scout.md](scout.md) and [adoption.md](adoption.md), which name
+every gap).
 
 ## Module contract (`docs/module-contract.md`)
 

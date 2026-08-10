@@ -31,6 +31,8 @@ The methodology itself — the phases, TDD discipline, threat modeling, document
 
 The User Guide is your operating manual. The other documents (Builder's Guide, Governance Framework, Platform Modules, Security Scan Guide, Evaluation Prompts) are reference material the guide points you to at the right time. The [Intake Wizard](docs/user-guide.md#using-the-intake-wizard) guides you through filling out your project definition.
 
+Three further pages cover what happens outside the five-phase build — [The Delta Track](docs/delta-track.md) (life after v1.0), [Scout](docs/scout.md) (a read-only look at a codebase you already have) and [Brownfield Adoption](docs/adoption.md) (bringing that codebase in). See [The Three Modules](#the-three-modules) below.
+
 **Want to see what it produces?** The [Example Project](https://github.com/kraulerson/solo-orchestrator-example-project) contains the complete artifact trail from building [MeshScope](https://github.com/kraulerson/meshscope) — a cross-platform 3D mesh viewer. Browse the artifacts from each phase to see what the framework produces before you commit to using it.
 
 ---
@@ -101,6 +103,90 @@ See the [User Guide](docs/user-guide.md) for detailed walkthrough of each step.
 
 ---
 
+## The Three Modules
+
+Beyond the five-phase build, three modules cover the two situations `init.sh`
+alone does not: **a product that has already shipped**, and **a codebase that
+already exists**. Each has its own page; this is the "what it is, when you'd
+reach for it, how you start it" summary.
+
+| Module | What it is | When you reach for it | Where you run it | Detail |
+|---|---|---|---|---|
+| **Delta track** | The maintenance and feature lifecycle for a product that has shipped v1.0 — four change classes, per-class gates, a cadence clock, and a release cut | The day after your first release, and every day after that | **Your generated project** — `init.sh` installs it | [docs/delta-track.md](docs/delta-track.md) |
+| **Scout** | A read-only survey of any codebase. It writes nothing | Before you decide whether to adopt an existing project | **The framework clone**, pointed at their project | [docs/scout.md](docs/scout.md) |
+| **Adoption** | The second way in: bringing an existing codebase under the framework | When the project already exists and `init.sh` would trample it | **The framework clone**, run from inside their project | [docs/adoption.md](docs/adoption.md) |
+
+### The delta track — after v1.0
+
+Phases 0 through 4 end at a tag. The delta track is the loop that starts there.
+You say what you need in plain words; it asks **one** question — is this a
+feature, a fix, a hotfix, or a security patch? — proposes the answer from your
+own wording, and works out the rest from what it can measure.
+
+```bash
+cd your-project
+bash scripts/delta.sh --open --describe "the CSV export crashes on unicode"
+bash scripts/delta.sh --status
+bash scripts/delta.sh --close
+bash scripts/cut-release.sh
+```
+
+**Activation is automatic and gated:** the machinery is installed by `init.sh`,
+and `--open` refuses until `current_phase` is exactly **4**. You cannot use the
+maintenance loop to avoid building the product properly the first time.
+
+What it gives you: a written brief whose *Done-observable* checklist **is** the
+close review; a hotfix lane that ships on the floor alone and collateralises the
+speed with a retro that **blocks the next release** until it is filed; a
+14-day/95-day cadence clock that refuses a release when a window is overdue **or
+unmeasurable**; and a release cut that decides the semver itself, promotes the
+changelog, closes the ledger rows, and tags. Policy — thresholds, class gates,
+risk surfaces — lives in `.claude/delta-policy.json`, which an upgrade never
+overwrites.
+
+### Scout — look before you leap
+
+```bash
+cd solo-orchestrator
+bash scripts/scout.sh --root /path/to/their-app --markdown
+```
+
+Seven sections: what it is built with, how far along it looks, what is already
+set up, **secrets across the whole git history** (reported with the rule, file,
+commit and fingerprint — never the value), what would collide with the
+framework, what the tests do today, and what the setup interview can skip.
+
+It needs nothing installed in the target project and it changes nothing there.
+`--run-tests` is the single exception — it runs the project's own test command
+once, and it is off unless you ask.
+
+### Adoption — the second way in
+
+```bash
+cd /path/to/their-project
+bash /path/to/solo-orchestrator/scripts/scout.sh --out ./scan
+bash /path/to/solo-orchestrator/scripts/adopt-project.sh --scan-report ./scan/scout-report.json
+```
+
+It shows you what the scan found as *evidence*, then asks the one question the
+scan cannot answer — whether the project is finished and needs supporting, or
+still being built — and lands it accordingly, writing state in a fail-safe order
+and committing exactly the files it wrote.
+
+> **⚠ Adoption is half built.** The driver, chooser, reverse intake, state
+> writes and adoption stamp ship and work. **The certification pass, the
+> test-debt ledger, the collision archive, the CI carve-out and the Adoption
+> Record do not exist yet.** The driver prints a labelled `NOT DONE` block for
+> each during the run rather than papering over it. Do not read an adopted
+> project as a certified one.
+> [docs/adoption.md](docs/adoption.md) lists every gap and what it costs you.
+
+**These three pages live in this repo and are not copied into generated
+projects** — `init.sh` ships seven guides into `docs/reference/`, and these are
+not among them. Read them here.
+
+---
+
 ## Key Features
 
 - **Phase-gated development** — Five phases (Discovery, Architecture, Construction, Validation, Release) with explicit gate criteria. No skipping ahead.
@@ -111,6 +197,9 @@ See the [User Guide](docs/user-guide.md) for detailed walkthrough of each step.
 - **Enterprise governance** — Approval authorities, compliance screening, insurance requirements, backup maintainer, and audit trail. Full documentation suite for CIO/CISO/Legal review.
 - **POC modes** — Sponsored and Private POC modes defer governance overhead while you validate the approach with production-quality technical work.
 - **One command setup** — `./init.sh` handles everything: tool installation, project scaffolding, CI/CD generation, security tooling, Git initialization, and health check.
+- **A lifecycle after v1.0** — the [delta track](docs/delta-track.md) ships into every project: one classified unit of post-release change at a time, a brief whose acceptance checklist is the close review, a hotfix lane whose deferred retro blocks the next release, a maintenance cadence that refuses a release when a window is overdue *or unmeasurable*, and `scripts/cut-release.sh`, which decides the semver from what actually shipped, promotes the changelog, closes the `BUGS.md`/`FEATURES.md` rows, and tags.
+- **Look before you install** — [Scout](docs/scout.md) (`scripts/scout.sh`) is a read-only survey of any codebase: stack, phase evidence, reality probes, **full-history secret scanning with the value never printed**, an inventory of what the framework would otherwise overwrite, a tests baseline, and an intake prefill. It writes nothing and needs nothing installed.
+- **A second way in for existing code** — [brownfield adoption](docs/adoption.md) (`scripts/adopt-project.sh`) brings a codebase that already exists under the framework, asking one plain-English question and landing it at the phase its own evidence supports. **Half built today** — the certification pass, test-debt ledger, collision archive, CI carve-out and Adoption Record are designed and not yet implemented; the driver says so, per capability, during the run.
 
 ---
 
@@ -190,6 +279,8 @@ your-project/
 │   ├── tool-preferences.json             # Resolved tool matrix context for this project
 │   ├── tool-usage.json                   # MCP tool usage tracking (per session)
 │   ├── build-progress.json               # Features completed + test gate state
+│   ├── delta-state.json                  # Post-1.0 delta track state — created on first `delta.sh --open`
+│   ├── delta-policy.json                 # Post-1.0 policy you own — written once, never overwritten by an upgrade
 │   └── orchestrator-source.json          # Path to solo-orchestrator source (for reconfigure/verify)
 ├── docs/
 │   ├── reference/
@@ -203,6 +294,7 @@ your-project/
 │   ├── api and interfaces/                # Interface/API documentation
 │   ├── phase-0/                           # FRD, user journey, data contract (pre-Manifesto)
 │   ├── security-audits/                   # Per-feature security audit findings
+│   ├── deltas/                            # Post-1.0 delta briefs (DELTA-NNN-slug.md) — created on first feature delta
 │   ├── snapshots/                         # Phase gate document snapshots
 │   ├── platform-modules/
 │   │   └── [web|desktop|mobile|mcp_server].md  # Platform-specific guidance
@@ -221,7 +313,9 @@ your-project/
 │   ├── check-phase-gate.sh                # Phase gate validator + snapshot creator
 │   ├── check-versions.sh                  # Tool version check against minimums + latest
 │   ├── check-updates.sh                   # Upstream framework doc update checker
-│   ├── check-maintenance.sh               # Maintenance cadence (weekly/monthly/quarterly)
+│   ├── check-maintenance.sh               # Maintenance cadence — routine review + deep security scan; exits 0/1/2
+│   ├── delta.sh                           # Post-1.0 delta track: --open / --status / --complete-gate / --close / --retro
+│   ├── cut-release.sh                     # Release cut: three refusals, tool-decided semver, changelog promotion, tag
 │   ├── check-changelog.sh                 # Changelog freshness (CI annotation)
 │   ├── check-session-state.sh             # CLAUDE.md staleness (CI annotation)
 │   ├── resolve-tools.sh                   # Tool matrix resolver (by platform/lang/track/phase)
@@ -234,11 +328,17 @@ your-project/
 │   ├── session-version-check.sh           # SessionStart hook: version check
 │   ├── session-test-gate-check.sh         # SessionStart hook: test gate + MCP gate init
 │   ├── session-mcp-gate.sh                # PreToolUse hook: block Write/Edit until MCP called
+│   ├── session-cadence-check.sh           # SessionStart hook: maintenance cadence nag (silent when current)
 │   ├── session-end-qdrant-reminder.sh     # Stop hook: Qdrant storage reminder
-│   ├── resume.sh                          # Prints the exact first message to paste (state-aware: intake / Phase 0 / resume)
+│   ├── resume.sh                          # Prints the exact first message to paste (state-aware: intake / Phase 0 / open delta / resume)
+│   ├── lib/delta-state.sh                 # Delta track: state read/write (atomic tmp+mv)
+│   ├── lib/delta-policy.sh                # Delta track: policy read with per-key framework fallback
+│   ├── lib/delta-classify.sh              # Delta track: phrase→class proposal, risk/level/severity derivation
+│   ├── lib/delta-cadence.sh               # Delta track: cadence arithmetic and overdue predicates
+│   ├── lib/adoption-stamp.sh              # Brownfield: the `adopted` flag, the stamp, the TDD bound, loss detection
 │   └── lib/helpers.sh                     # Shared shell helpers (colors, logging, MCP detection)
 ├── templates/
-│   ├── generated/                         # 24 .tmpl files (CLAUDE.md, Manifesto, Bible, ADR, ...)
+│   ├── generated/                         # 22 .tmpl files (CLAUDE.md, Manifesto, Bible, ADR, delta brief, ...)
 │   ├── tool-matrix/                       # Tool resolution matrix per platform
 │   │   ├── common.json                    # Universal tools (git, node, jq, docker, ...)
 │   │   ├── web.json

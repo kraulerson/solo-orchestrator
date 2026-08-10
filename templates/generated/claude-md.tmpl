@@ -245,6 +245,44 @@ Before moving to Phase 3, verify:
   Steps: production_build, rollback_tested, go_live_verified, monitoring_configured, handoff_written, handoff_tested.
   **The rollback_tested step must be completed before go_live_verified can be marked.**
 
+### After v1.0 — the delta track
+Once this project reaches Phase 4 and cuts v1.0.0, `current_phase` stays 4 forever and every
+later change is a **delta**: one unit of post-release work, one at a time.
+
+- **Open one from the Orchestrator's plain words** — do not ask them to classify it. Run
+  `scripts/delta.sh --open --describe "<what they said>"`. It proposes the class (feature /
+  fix / hotfix / security-patch), the severity, the risk and the size, each with its
+  reasoning, and asks them to confirm rather than answer. Override a wrong proposal with
+  `--class` / `--risk` / `--level` / `--severity`.
+- **`--open` refuses before Phase 4** (exit 3). That is deliberate: the maintenance loop is
+  not a way to skip building the product.
+- **The brief is the review.** For a feature (and for anything measured as `evolution`) a
+  brief lands at `docs/deltas/DELTA-NNN-<slug>.md`. Write the `## Done-observable` boxes
+  BEFORE building — `scripts/delta.sh --close` refuses while any box is unticked, and fails
+  closed if the section is missing or empty.
+- **Working:** `scripts/delta.sh --status` shows what is outstanding.
+  `scripts/delta.sh --complete-gate <token>` records that a check is done — most gates are
+  the Orchestrator's word and nothing re-checks them; the two the tool checks itself are the
+  brief's boxes and the close-time size/risk re-measurement. A re-measurement that lands in a
+  higher bracket **raises** the attribute and can **add** a gate (exit 10). It never lowers.
+- **A hotfix ships fast and owes a write-up within 3 days.** File it with
+  `scripts/delta.sh --retro DELTA-NNN --record "<what happened>"`. An unfiled retro **blocks
+  the next release**, and survives its own delta's close.
+- **Releases:** `scripts/cut-release.sh`. It refuses on an open delta, an unfiled hotfix
+  retro, or a maintenance cadence that is overdue **or unmeasurable** — and writes nothing at
+  all until all three pass. It decides the semver itself (no override), promotes
+  `CHANGELOG.md`, closes the `BUGS.md` / `FEATURES.md` rows, and tags `vMAJOR.MINOR.PATCH`.
+  **Read its closing banner and run the `git tag -f` step** — the tag it creates points at the
+  commit before the changelog promotion. Exit **12** means the release is real but one or more
+  ledger rows could not be closed; it names them, and the next cut will not offer them again.
+- **Policy is the project's:** `.claude/delta-policy.json` (class gates, size thresholds,
+  cadence windows, `risk_surfaces`). An upgrade never overwrites it. `risk_surfaces` ships
+  **empty** — until it lists this project's auth and data-contract paths, every delta reads
+  `feature-local`. Filling it in is worth proposing to the Orchestrator at first release.
+- Full guide: `docs/delta-track.md` **in the solo-orchestrator framework clone** — it is not
+  copied into this project. `scripts/delta.sh --help` and `scripts/cut-release.sh --help` are
+  authoritative here.
+
 ### UAT Test Sessions
 - Generate UAT test sessions as interactive HTML files using the template at `templates/uat/templates/test-session-template.html` (preferred) or the Markdown template at `tests/uat/templates/test-session-template.md` (fallback for environments where HTML is impractical).
 - Working location: `tests/uat/sessions/<date>-session-N/` with subdirectories: `templates/`, `agent-results/`, `submissions/`.
