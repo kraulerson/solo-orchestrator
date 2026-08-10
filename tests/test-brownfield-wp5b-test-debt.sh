@@ -76,6 +76,7 @@ LIB="$REPO_ROOT/scripts/lib/adopt/adopt-test-debt.sh"
 DRIVER="$REPO_ROOT/scripts/adopt-project.sh"
 CORE_ENF="$REPO_ROOT/scripts/lib/enforcement-level.sh"
 CORE_TDD="$REPO_ROOT/scripts/lib/tdd-classify.sh"
+CORE_SHIPPED="$REPO_ROOT/scripts/lib/scaffold-shipped-set.sh"
 
 PASSED=0
 FAILED=0
@@ -808,11 +809,160 @@ ANS
     # untested debt, and the touch-repays arm would then demand tests for the
     # framework's own gate scripts.
     g2_fw=$(jq -r '[.files[] | select(startswith("scripts/"))] | length' "$g_file" 2>/dev/null)
+    g2_count=$(jq -r '.count // -1' "$g_file" 2>/dev/null)
     if [ "$(_num "$g2_fw")" -eq 0 ]; then
       pass "G2: the ledger contains NONE of the framework scripts the adoption installed — the census is of the adoptee's own tracked source, not of the tree the driver leaves behind"
     else
       fail_ "G2" "framework scripts ledgered: $g2_fw (want 0)"
     fi
+
+    # G3 — THE SECOND WRITE, and the reason this row exists at all.
+    #
+    # G2 above passes for a reason that is NOT a defence: at adoption time the
+    # framework's scripts are copied but not yet TRACKED, and the census reads
+    # `git ls-files`. That is timing, not exclusion — and a defence that works
+    # by timing is a coincidence with a schedule. Every write after the
+    # adoption commit is exposed, and this tool ACTIVELY INSTRUCTS the operator
+    # to perform one: the rename [NOTE] and the rc-2 refusal both print
+    # `--write --root .`.
+    #
+    # Measured before the fix, on exactly this fixture: count 1 / 0 framework
+    # entries at adoption, then count 58 / 57 framework entries after running
+    # the advertised command — after which touch-repays demanded tests for
+    # check-gate.sh and check-phase-gate.sh on any framework sync. The tool
+    # told the user to break themselves.
+    #
+    # A THIRD assertion is here on purpose: the audit row count. "Unchanged" and
+    # "the write never ran" are the same bytes on disk, and only the audit row
+    # tells them apart.
+    write_ledger "$GD/p"
+    g3_fw=$(jq -r '[.files[] | select(startswith("scripts/"))] | length' "$g_file" 2>/dev/null)
+    g3_count=$(jq -r '.count // -1' "$g_file" 2>/dev/null)
+    g3_rows=$(jq -r '.audit | length' "$g_file" 2>/dev/null)
+    if [ "$(_num "$g3_fw")" -eq 0 ] && [ "$(_num "$g3_count")" = "$(_num "$g2_count")" ] \
+       && [ "$(_num "$g3_rows")" -eq 2 ]; then
+      pass "G3: running the re-baseline command the tool itself advertises, AFTER the adoption commit, still ledgers zero framework scripts and the same count ($g3_count) — and the second audit row proves the write actually ran"
+    else
+      fail_ "G3" "framework scripts after re-baseline: $g3_fw (want 0) count=$g3_count (want $g2_count) audit_rows=$g3_rows (want 2 — 1 means the write never happened and this row proves nothing)"
+    fi
+  fi
+fi
+
+echo ""
+echo "=== P — the adoptee's own git config must not be able to switch the arms off ==="
+
+# A fix a user's .gitconfig can silently disable is not a fix. Both rows below
+# were REPRODUCED before being fixed, and both carry a structural discriminator
+# proving the fixture really is running under the hostile config — without it a
+# green row would only mean "the config had no effect here".
+
+# P1 — `diff.renames=copies`. Staging a copy of a TESTED file plus a touch of
+# its source made git report `C100 src/paid.js src/clone.js`, and src/clone.js —
+# an untested source file — ENTERED the working set at rc 0 with zero bytes of
+# output. That is the silent-bypass class: no refusal, no warning, no trace.
+P1D="$(newtmp)/p"
+if ! mk_repo "$P1D"; then fail_ "P1" "fixture setup failed"; else
+  write_ledger "$P1D"
+  set_tier "$P1D" '{"deployment":"personal","poc_mode":"production","enforcement_level":"strict"}'
+  gitq "$P1D" config diff.renames copies
+  cp "$P1D/src/paid.js" "$P1D/src/clone.js"
+  printf 'export function paid() { return 2; }\n' > "$P1D/src/paid.js"
+  gitq "$P1D" add -A
+  # The discriminator: git's OWN reading of this index, with nothing pinned.
+  p1_raw=$( unset GITHUB_BASE_REF; cd "$P1D" && git diff --cached --name-status 2>/dev/null | grep -c '^C' )
+  p1_raw=$(_num "$p1_raw")
+  check_in "$P1D"
+  p1_named=0; grep -q 'src/clone\.js' "$CHK_OUT" && p1_named=1
+  if [ "$CHK_RC" -eq 3 ] && [ "$p1_named" -eq 1 ] && [ "$p1_raw" -ge 1 ]; then
+    pass "P1: under the adoptee's own diff.renames=copies the copied untested file still BLOCKS at strict (rc 3, named) — the read pins diff.renames=true, so a config that makes git say C100 cannot make the arm say nothing"
+  else
+    fail_ "P1" "rc=$CHK_RC (want 3) clone_named=$p1_named (want 1) unpinned_git_reports_C_rows=$p1_raw (want >=1; 0 means the fixture is not exercising the hostile config and this row proves nothing)"
+  fi
+fi
+
+# P2 — `diff.renames=false`. The rename loop the previous commit is named after
+# comes back VERBATIM: git reports D+A instead of R100, non-growth blocks at
+# rc 3, re-baselining puts the new path in the ledger, and the same staged
+# rename blocks again at rc 4. Reproduced before the fix.
+P2D="$(newtmp)/p"
+if ! mk_repo "$P2D"; then fail_ "P2" "fixture setup failed"; else
+  write_ledger "$P2D"
+  set_tier "$P2D" '{"deployment":"personal","poc_mode":"production","enforcement_level":"strict"}'
+  gitq "$P2D" config diff.renames false
+  gitq "$P2D" mv src/debt.js src/debt2.js
+  p2_raw=$( unset GITHUB_BASE_REF; cd "$P2D" && git diff --cached --name-status 2>/dev/null | grep -c '^D' )
+  p2_raw=$(_num "$p2_raw")
+  check_in "$P2D"
+  p2_noted=0; grep -q 'src/debt\.js -> src/debt2\.js' "$CHK_OUT" && p2_noted=1
+  if [ "$CHK_RC" -eq 0 ] && [ "$p2_noted" -eq 1 ] && [ "$p2_raw" -ge 1 ]; then
+    pass "P2: under the adoptee's own diff.renames=false the pure rename is still seen as a rename — rc 0 with the stale-ledger note, not the rc 3 -> re-baseline -> rc 4 loop the config resurrected"
+  else
+    fail_ "P2" "rc=$CHK_RC (want 0) rename_noted=$p2_noted (want 1) unpinned_git_reports_D_rows=$p2_raw (want >=1; 0 means the fixture is not exercising the hostile config)"
+  fi
+fi
+
+echo ""
+echo "=== Q — status atoms every fixture can actually reach ==="
+
+# Q1 — a staged MODIFICATION of a file that is NEITHER ledgered NOR tested.
+#
+# This row exists because a reviewer's mutation survived a 42/0 suite: widening
+# the non-growth match from `A` to `A|M` — which REVERSES the documented
+# "additions only" decision and turns the arm into the coverage mandate §5.4
+# limit 3 declines to write — changed nothing, because every other fixture's
+# staged `M` row is either ledgered (skipped by the ledger check) or tested
+# (skipped by the test check). The `M` branch was unreachable, so it was pinned
+# by nothing.
+#
+# The fixture reaches it by deleting the test AFTER baselining: src/paid.js is
+# then unledgered (it had a test when the ledger was written) and untested (the
+# test is gone), which is the one combination that lands in the `M` branch.
+Q1D="$(newtmp)/p"
+if ! mk_repo "$Q1D"; then fail_ "Q1" "fixture setup failed"; else
+  write_ledger "$Q1D"
+  set_tier "$Q1D" '{"deployment":"personal","poc_mode":"production","enforcement_level":"strict"}'
+  gitq "$Q1D" rm -q tests/paid.test.js
+  gitq "$Q1D" commit -q -m "chore: the test goes away"
+  printf 'export function paid() { return 3; }\n' > "$Q1D/src/paid.js"
+  gitq "$Q1D" add src/paid.js
+  # Three discriminators, because a green row here must not be reachable by a
+  # fixture that drifted into some other shape.
+  q1_status=$( unset GITHUB_BASE_REF; cd "$Q1D" && git diff --cached --name-status 2>/dev/null | cut -f1 | tr -d '\n' )
+  q1_ledgered=$(jq -r '[.files[] | select(. == "src/paid.js")] | length' "$Q1D/.claude/test-debt.json" 2>/dev/null)
+  q1_tested=0; [ -e "$Q1D/tests/paid.test.js" ] && q1_tested=1
+  check_in "$Q1D"
+  if [ "$CHK_RC" -eq 0 ] && [ "$q1_status" = "M" ] \
+     && [ "$(_num "$q1_ledgered")" -eq 0 ] && [ "$q1_tested" -eq 0 ]; then
+    pass "Q1: a staged M of an UNLEDGERED, UNTESTED file passes at strict (rc 0) — non-growth is additions-only, and this is the only fixture shape that can reach the branch which says so"
+  else
+    fail_ "Q1" "rc=$CHK_RC (want 0) staged_status='$q1_status' (want M) ledgered=$q1_ledgered (want 0) test_file_still_present=$q1_tested (want 0)"
+  fi
+fi
+
+# Q2 — a MODE-ONLY change. `chmod +x` on a ledgered file reads as `M` and used
+# to block at rc 4, although git's own raw output shows the SAME blob SHA on
+# both sides. That is the identical fact the R100 carve-out rests on, so the
+# two postures were inconsistent, and inconsistent in the false-FAIL direction.
+# The control is the same file with its CONTENT changed: that must still block,
+# or this row would be pinning "touch-repays never fires".
+Q2D="$(newtmp)/p"
+if ! mk_repo "$Q2D"; then fail_ "Q2" "fixture setup failed"; else
+  write_ledger "$Q2D"
+  set_tier "$Q2D" '{"deployment":"personal","poc_mode":"production","enforcement_level":"strict"}'
+  chmod +x "$Q2D/src/debt.js"
+  gitq "$Q2D" add src/debt.js
+  q2_same=$( unset GITHUB_BASE_REF; cd "$Q2D" && git diff --cached --raw --abbrev=40 2>/dev/null \
+             | sed -n 's/^:[0-7]* [0-7]* \([0-9a-f]*\) \([0-9a-f]*\) .*/\1 \2/p' \
+             | while read -r a b; do [ "$a" = "$b" ] && echo same; done | grep -c 'same' )
+  q2_same=$(_num "$q2_same")
+  check_in "$Q2D"; q2_mode_rc=$CHK_RC
+  printf 'export function debt() { return 77; }\n' > "$Q2D/src/debt.js"
+  gitq "$Q2D" add src/debt.js
+  check_in "$Q2D"; q2_content_rc=$CHK_RC
+  if [ "$q2_mode_rc" -eq 0 ] && [ "$q2_content_rc" -eq 4 ] && [ "$q2_same" -ge 1 ]; then
+    pass "Q2: a mode-only chmod +x on a ledgered file passes (rc 0) because git reports identical blob SHAs — the same fact R100 rests on — while a real content change on the SAME file still blocks at rc 4"
+  else
+    fail_ "Q2" "mode_only_rc=$q2_mode_rc (want 0) content_change_rc=$q2_content_rc (want 4) git_reports_identical_blobs=$q2_same (want >=1; 0 means the fixture never made a mode-only change)"
   fi
 fi
 
@@ -822,11 +972,26 @@ echo "=== M — mutations (both arms, both directions) ==="
 # Every mutant runs against a MIRROR of the module plus the two core libs it
 # sources. The tree under test is never edited: a failure here cannot leave
 # this repository mutated.
+#
+# LANE NOTE. The line below NAMES init.sh, which is the exemption predicate
+# `# BL-181-UNIT-LANE-PREDICATE` reads — but this suite only COPIES that file so
+# the shipped-set parser has something to parse; it never runs it. The suite
+# belongs in the fast unit lane and is registered there. The lint says so
+# itself: "an exempted file that is in the unit list anyway decided nothing and
+# is not rendered". Spelling the name plainly and registering the suite is the
+# honest combination; dodging the predicate with a glob would hide the decision.
+#
+# init.sh and scaffold-shipped-set.sh are in the mirror because the module now
+# REFUSES when it cannot derive the framework's own installed inventory. A
+# mirror without them is an incomplete clone, and the module is supposed to say
+# so rather than fall back to a census that ledgers the framework.
 mk_mirror() {
   local m="$1"
   mkdir -p "$m/scripts/lib/adopt" || return 1
   cp -p "$CORE_ENF" "$m/scripts/lib/" || return 1
   cp -p "$CORE_TDD" "$m/scripts/lib/" || return 1
+  cp -p "$CORE_SHIPPED" "$m/scripts/lib/" || return 1
+  cp -p "$REPO_ROOT/init.sh" "$m/" || return 1
   cp -p "$LIB" "$m/scripts/lib/adopt/" || return 1
   return 0
 }
@@ -988,6 +1153,91 @@ else
     pass "M7 (the census): control ledgers 1 untested file; with the candidate predicate neutered the writer still emits VALID JSON with count 0 — an empty ledger is a real, reachable state and it is not the same fact as a clean tree"
   else
     fail_ "M7" "control_count=$m7_ctl (want 1) mutant_ledger_valid=$m7_valid (want 1) mutant_count=$m7_mut (want 0) sites=$m7_sites (want 1) changed_lines=$m7_changed (want 2) parses=$m7_parses (want 1)"
+  fi
+fi
+
+# ── M9: the additions-only decision, pinned against the `M` widening ───────
+# The mutation a reviewer landed on a 42/0 suite. Widening the non-growth
+# status match to include `M` reverses the documented decision and turns the
+# arm into a coverage mandate; Q1's fixture is the only shape that reaches the
+# branch, so it is the only thing that can kill this.
+M9D="$(newtmp)"
+if ! mk_repo "$M9D/p" || ! mk_mirror "$M9D/m"; then
+  fail_ "M9" "fixture setup failed"
+else
+  write_ledger "$M9D/p"
+  set_tier "$M9D/p" '{"deployment":"personal","poc_mode":"production","enforcement_level":"strict"}'
+  gitq "$M9D/p" rm -q tests/paid.test.js
+  gitq "$M9D/p" commit -q -m "chore: the test goes away"
+  printf 'export function paid() { return 3; }\n' > "$M9D/p/src/paid.js"
+  gitq "$M9D/p" add src/paid.js
+  check_in "$M9D/p" "$(_mlib "$M9D/m")"; m9_ctl=$CHK_RC
+  m9_ctl_bytes=$(_bytes "$CHK_OUT")
+  m9_meta=$(_mutate "$M9D/m" '# BF-TD-NONGROWTH-ADDITIONS-ONLY' '    case "$status" in A|M) ;; *) continue ;; esac')
+  set -- $m9_meta; m9_sites=$1; m9_changed=$2; m9_parses=$3
+  check_in "$M9D/p" "$(_mlib "$M9D/m")"; m9_mut=$CHK_RC
+  if [ "$m9_ctl" -eq 0 ] && [ "$m9_ctl_bytes" -eq 0 ] && [ "$m9_mut" -eq 3 ] \
+     && [ "$m9_sites" -eq 1 ] && [ "$m9_changed" -eq 2 ] && [ "$m9_parses" -eq 1 ]; then
+    pass "M9 (additions-only): control passes a staged M of an unledgered untested file silently; widening the status match to A|M refuses it with rc 3 — the coverage mandate §5.4 limit 3 declines to write"
+  else
+    fail_ "M9" "control_rc=$m9_ctl (want 0) control_bytes=$m9_ctl_bytes (want 0) mutant_rc=$m9_mut (want 3) sites=$m9_sites (want 1) changed_lines=$m9_changed (want 2) parses=$m9_parses (want 1)"
+  fi
+fi
+
+# ── M10: the framework-path exclusion, killed on the SECOND write ──────────
+# The exclusion replaced a defence that worked by TIMING (the framework's
+# scripts were merely untracked at adoption time). So the mutant is observed
+# where the timing defence used to hold and no longer does: a repository that
+# already TRACKS a framework path.
+M10D="$(newtmp)"
+if ! mk_repo "$M10D/p" || ! mk_mirror "$M10D/m"; then
+  fail_ "M10" "fixture setup failed"
+else
+  mkdir -p "$M10D/p/scripts"
+  printf '#!/usr/bin/env bash\necho gate\n' > "$M10D/p/scripts/check-gate.sh"
+  gitq "$M10D/p" add scripts/check-gate.sh
+  gitq "$M10D/p" commit -q -m "chore: the framework's own script, tracked"
+  write_ledger "$M10D/p" "$(_mlib "$M10D/m")"
+  m10_ctl=$(jq -r '[.files[] | select(. == "scripts/check-gate.sh")] | length' "$M10D/p/.claude/test-debt.json" 2>/dev/null)
+  m10_meta=$(_mutate "$M10D/m" '# BF-TD-FRAMEWORK-EXCLUDE' '  :')
+  set -- $m10_meta; m10_sites=$1; m10_changed=$2; m10_parses=$3
+  write_ledger "$M10D/p" "$(_mlib "$M10D/m")"
+  m10_valid=0; jq -e . "$M10D/p/.claude/test-debt.json" >/dev/null 2>&1 && m10_valid=1
+  m10_mut=$(jq -r '[.files[] | select(. == "scripts/check-gate.sh")] | length' "$M10D/p/.claude/test-debt.json" 2>/dev/null)
+  if [ "$(_num "$m10_ctl")" -eq 0 ] && [ "$m10_valid" -eq 1 ] && [ "$(_num "$m10_mut")" -eq 1 ] \
+     && [ "$m10_sites" -eq 1 ] && [ "$m10_changed" -eq 2 ] && [ "$m10_parses" -eq 1 ]; then
+    pass "M10 (the census exclusion): control keeps a TRACKED scripts/check-gate.sh out of the ledger; with the exclusion neutered the framework's own gate script becomes the adoptee's untested debt — asserted on ledger BYTES, because an absent entry and an absent write look the same"
+  else
+    fail_ "M10" "control_entry=$m10_ctl (want 0) mutant_ledger_valid=$m10_valid (want 1) mutant_entry=$m10_mut (want 1) sites=$m10_sites (want 1) changed_lines=$m10_changed (want 2) parses=$m10_parses (want 1)"
+  fi
+fi
+
+# ── M11: the git-config pin on the staged read ────────────────────────────
+# Deleting `-c diff.renames=true` restores the measured silent bypass: under
+# the adoptee's own `diff.renames=copies` the copied untested file enters the
+# working set at rc 0 with zero bytes. A fix a user's .gitconfig can disable is
+# not a fix, and this is what proves the pin is load-bearing rather than
+# decorative.
+M11D="$(newtmp)"
+if ! mk_repo "$M11D/p" || ! mk_mirror "$M11D/m"; then
+  fail_ "M11" "fixture setup failed"
+else
+  write_ledger "$M11D/p" "$(_mlib "$M11D/m")"
+  set_tier "$M11D/p" '{"deployment":"personal","poc_mode":"production","enforcement_level":"strict"}'
+  gitq "$M11D/p" config diff.renames copies
+  cp "$M11D/p/src/paid.js" "$M11D/p/src/clone.js"
+  printf 'export function paid() { return 2; }\n' > "$M11D/p/src/paid.js"
+  gitq "$M11D/p" add -A
+  check_in "$M11D/p" "$(_mlib "$M11D/m")"; m11_ctl=$CHK_RC
+  m11_meta=$(_mutate "$M11D/m" '# BF-TD-STAGED-READ' '  staged="$( cd "$root" 2>/dev/null && git -c core.quotePath=false diff --cached --name-status 2>/dev/null )"')
+  set -- $m11_meta; m11_sites=$1; m11_changed=$2; m11_parses=$3
+  check_in "$M11D/p" "$(_mlib "$M11D/m")"; m11_mut=$CHK_RC
+  m11_bytes=$(_bytes "$CHK_OUT")
+  if [ "$m11_ctl" -eq 3 ] && [ "$m11_mut" -eq 0 ] && [ "$m11_bytes" -eq 0 ] \
+     && [ "$m11_sites" -eq 1 ] && [ "$m11_changed" -eq 2 ] && [ "$m11_parses" -eq 1 ]; then
+    pass "M11 (the config pin): control blocks the copied untested file with rc 3; dropping -c diff.renames=true from the staged read makes the SAME commit pass with zero bytes — the silent-bypass class, reproduced on demand"
+  else
+    fail_ "M11" "control_rc=$m11_ctl (want 3) mutant_rc=$m11_mut (want 0) mutant_bytes=$m11_bytes (want 0) sites=$m11_sites (want 1) changed_lines=$m11_changed (want 2) parses=$m11_parses (want 1)"
   fi
 fi
 
