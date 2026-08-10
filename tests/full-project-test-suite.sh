@@ -1942,6 +1942,31 @@ run_child_suite "tests/test-delta-severability.sh" \
 # as tests/test-delta-severability.sh does) -> both lanes.
 run_child_suite "tests/test-delta-wp8-intake.sh" \
   "tests/test-delta-wp8-intake.sh"
+
+# Delta Track D-B (Karl, 2026-08-09) — THE RELEASE CUT CLOSES THE LEDGER ROWS IT
+# SHIPPED. `delta.sh --open` writes a real row for every class and NOTHING ever
+# flipped one, so every post-1.0 fix left a permanent apparently-open SEV-N row
+# in BUGS.md. Marking it at `--close` was rejected on the merits — close is not
+# ship, and a closed delta has reached nobody — so the flip lives in
+# cut-release.sh's PHASE B, after `shipped_in` and before the tag. Both classes
+# WP8 writes are handled (BUGS.md and FEATURES.md) and the rows under test are
+# written by the PRODUCT, not retyped, so the writer's shape cannot drift away
+# from the closer's matcher with this suite still green. §6.3's hard constraint
+# is asserted structurally: the version rides the EXISTING Fix Reference column,
+# every table row still splits into nine, and the gate's own four `SEV-N.*`
+# greps still read the file. The honesty half is WP8's `_ledger_write` lesson
+# one layer up — the ONLY thing that promotes a row to "closed" is a RE-READ of
+# the file, never the writer's exit code — and the forced-failure arm proves an
+# unwritable ledger is named specifically, claims nothing, and still lets the
+# release complete at rc 12 rather than a clean 0. Mutation-proved (m1-m5, each
+# mutant built, `bash -n`-checked and run): suppress the flip -> the row stays
+# Open -> L1 RED; suppress the honesty arm -> a failed flip reports a clean cut
+# -> F1 RED; promote without re-reading -> a failed flip is CLAIMED -> F1 RED;
+# drop the version append -> the row names no release -> L1 RED; route feature
+# to the wrong ledger -> the block never closes, silently -> L2 RED.
+# Never executes the scaffolder -> both lanes.
+run_child_suite "tests/test-delta-db-ledger-close.sh" \
+  "tests/test-delta-db-ledger-close.sh"
 run_child_suite "tests/test-check-phase-gate.sh" "tests/test-check-phase-gate.sh"
 
 # BL-214 — the gate stalled its own next run. create_gate_snapshot writes into

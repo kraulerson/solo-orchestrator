@@ -8597,3 +8597,181 @@ worked example of a one-character narrowing re-opening a hole three times while
 passing every PR-blocking check), BL-196 (the citation-integrity lint whose
 "a passing lint that proves nothing is worse than no lint" reasoning both
 boundary lints' vacuity floors inherit), BL-104 (the silent-success family).
+
+---
+
+## BL-216: `x="$(fn …)" || x=fallback` is weaker than it reads — bash 3.2 suspends `set -e` inside the guarded call, so a nested substitution returns a *successful wrong answer*
+
+**Logged:** 2026-08-10 (found while closing the D-B unreadable-ledger blocker;
+the mechanism was independently reproduced by adversarial review on this host)
+**Category:** Language trap / silent-success class — a guard that reads as
+fail-closed and is fail-open on the branch whose callee nests a substitution
+**Severity:** Medium. The *exact* shape that caused the D-B defect is gone
+(`grep -rn '\$(_cutrel_' scripts/ | grep '||'` returns one hit and it is
+**prose inside a comment** recording the rejected spelling). But the surface is
+**not** clear, and the audit below is this entry's actual work item, not a
+formality.
+**Status:** Open
+
+**The trap.** POSIX `set -e` is suspended for a command in a guarded context —
+an `if` condition, a `!`, either side of `&&`/`||`. On bash 3.2 that suspension
+**propagates into the called function's body and into command substitutions
+inside it**. So in
+
+```
+x="$(fn "$@")" || x=fallback
+```
+
+if `fn` performs its own `inner="$(g …)"` and `g` fails, that inner assignment
+**stops aborting**. `fn` runs on to its final statement and returns 0 with a
+normalised, wrong value — and `|| x=fallback` never fires, because nothing ever
+reported failure. A guard that looks fail-closed silently fails open, and only
+on the branch whose reader happens to nest a substitution.
+
+**The measurement that made it concrete** (`scripts/cut-release.sh`, one
+`chmod 000` file, one guard shape, its two ledger readers):
+
+```
+BUGS  branch under a || guard: [unreadable]
+FEAT  branch under a || guard: [none]
+```
+
+`_cutrel_bugs_state` ends in `awk`, so its non-zero status is the function's and
+the guard fires. `_cutrel_features_state` first does
+`blk="$(_cutrel_features_block …)"`; under suspension that returns empty,
+normalises to block 0, and the function answers `none` — **successfully**. Same
+guard, same unreadable file, two different answers, and the wrong one is the
+dangerous one: `none` means "has no row naming it", an assertion about the
+contents of a file nobody could open.
+
+**The mitigation chosen there**, and the recommended shape generally: do not
+infer readability from an exit status at all. Probe it directly and let the
+probe be the single marked guard — `# CUTREL-LEDGER-READGUARD`, which OPENS the
+file (`( : < "$1" ) 2>/dev/null`) rather than asking `[ -r ]` about the
+permission bits, because the question is whether *this process* can open it,
+which is what `awk` is about to attempt. `tests/test-delta-db-ledger-close.sh`
+rows S2/S3 pin both ledgers and m11 pins the guard's deletion.
+
+**A residual the probe shape cannot close, recorded so the surface stays named.**
+A ledger made unreadable *between* the `# CUTREL-LEDGER-READGUARD` probe and the
+read it protects reinstates the original silent death — rc 2 mid-write, no
+message, no tag. It needs an active racer during the run, and there is no fix
+that is not worse: any guard that would *catch* the failed read is the
+`|| fallback` shape this entry is about, which on the FEATURES branch reopens the
+`none` conflation measured above, and guarding those reads would additionally
+mask m11 — the only thing pinning the probe's existence. Left open deliberately,
+not overlooked.
+
+**THE SCAN, AND WHAT IT ACTUALLY FOUND — READ THIS BEFORE ASSUMING THE SURFACE
+IS CLEAR.** The first draft of this entry was going to say "every surviving
+`|| x=` guard wraps an external (`jq`, `awk`, `mktemp`) with nothing internal to
+suspend". **Running the scan disproved that.** Recipe:
+
+```
+grep -rn '="\$(' scripts/ init.sh | grep '||'
+```
+
+Of the hits that wrap a **project function** rather than a binary, **nine
+distinct callees nest further command substitutions of their own** — i.e. they
+are in the suspect shape today — and those nine are reached from **21 guard
+sites**. Read 21 as *guard sites over suspect callees*, **not** as the number of
+project-function hits: re-running the recipe finds roughly twice that many, and
+the extras were checked and dropped. Adversarial review re-ran the recipe
+independently and confirmed every project-function callee omitted from the table
+nests **zero** substitutions (`prompt_choice` — the `helpers-core.sh` definition
+`delta.sh` actually binds — `_seam`, `_manifesto_candidates`, `_rubric_boxes`,
+`soif_currency_sha256`/`_mode`, `soif_adoption_read`, `adopt_obtain_report`,
+`_p3_license_pairs`, `_soif_plan_cmfield`, `soif_currency_file_field`), so the
+worklist below is **complete rather than sampled**.
+
+| callee | nested substitutions | guard sites |
+|---|---|---|
+| `soif_freshness_run` | 11 | 1 |
+| `delta_classify_lines` | 5 | 2 |
+| `delta_retro_rows` | 4 | 1 |
+| `delta_policy_get` | 3 | 10 |
+| `delta_policy_missing_keys` | 3 | 1 |
+| `_brief_path` | 2 | 2 |
+| `delta_classify_risk_matches` | 2 | 1 |
+| `delta_cadence_epoch` | 2 | 1 |
+| `delta_state_read` | 1 | 2 |
+
+Two rows are deliberate **over-inclusion**, not confirmed suspects:
+`delta_classify_risk_matches` and `delta_cadence_epoch` nest only *locally
+`||`-guarded* substitutions rather than bare ones, and `delta_cadence_epoch` is
+fail-closed by design — its digits-only `case "$e" in ''|*[!0-9]*) return 1`
+validates the result before returning it. They stay on the worklist because an
+audit should confirm rather than assume, but they are the two least likely to
+yield anything.
+
+**One family spot-checked, and it is safe BY ACCIDENT rather than by design.**
+`delta_policy_get` (the widest, 10 guard sites) does
+`defaults="$(delta_policy_defaults)"` and `proj="$(_delta_policy_project_doc …)"`
+bare. Under suspension either would yield `""` — and `""` is not valid JSON, so
+the downstream `jq -r -n --argjson d "$defaults" --argjson p "$proj"` fails, its
+own `if ! out="$(jq …)"` catches that, and the function returns 1, so the
+caller's fallback does fire. **Correct outcome, incidental cause**: it holds
+because a later consumer happens to validate the inner result, not because
+anything guards it. Change that jq to tolerate an empty argument and the
+protection disappears with no test moving.
+
+**The remaining 8 callees are UNAUDITED.** That audit is the work item. The only
+question that matters per site: *if the nested substitution silently returns
+empty, does anything downstream still fail?* Where nothing does, replace the
+exit-status guard with a direct probe of the condition, as `cut-release.sh` did.
+
+**Related:** BL-104 (the silent-success family, and the `[WARN]`/`issues`
+mismatch — the same "label and predicate disagree" shape), BL-181 (a
+one-character narrowing re-opening a hole three times while passing every
+PR-blocking check), BL-196 (a passing check that proves nothing is worse than no
+check).
+
+---
+
+## BL-217: `cut-release.sh`'s rc-10 refusal says "Nothing has been written." after invoking a validator that may have written scan summaries
+
+**Logged:** 2026-08-10 (found by adversarial review of the D-B branch; **not**
+introduced by it — WP7-era, and explicitly out of that branch's scope)
+**Category:** Message accuracy / operator trust
+**Severity:** Low. **This is a wording tension, not a write on a refusal path,
+and that distinction is the whole entry** — read the next-but-one paragraph
+before treating it as a §9.2 violation, because it is not one.
+**Status:** Open
+
+**The tension.** The breaking-release arm runs the full Phase 3 validation
+before the tag, and when that run fails it refuses:
+
+```
+_refuse 10 "The full validation re-run did not pass (it exited $REVAL_RC), so the breaking release is refused."
+…
+echo "To clear this: fix what the run above reported, or attest each skipped scanner with a"
+echo "  reason and a sign-off, then run this again. Nothing has been written."
+```
+
+`scripts/run-phase3-validation.sh` archives scan JSON and summaries under
+`RESULTS_DIR="docs/test-results/phase3"`. So by the time that sentence prints,
+files may well have appeared in the project — written by the validator, during
+the run the operator was just told about.
+
+**Why this is NOT a §9.2 violation, stated plainly so nobody hunts one.**
+§9.2's property constrains what **`cut-release.sh`** writes before its refusals,
+and on this path it writes **nothing**: it invokes a component that writes its
+own artefacts, which is exactly why the design puts the revalidation in Phase B
+rather than Phase A. `cut-release.sh`'s own comment says so — "it writes its OWN
+scan summaries, which is why it is here and not in Phase A". The refusal
+ordering is correct. What is inaccurate is one sentence's *scope*: it reads as a
+whole-tree claim and is only true of this script.
+
+`tests/test-delta-db-ledger-close.sh` N1 pins the whole-tree manifest across
+this arm driven against a **stubbed** validator, where the claim is true; that
+row holds and is not affected by this entry.
+
+**The fix when someone picks it up** is a wording change, not a behaviour one —
+something that owns the distinction, e.g. "This release was not cut and no tag
+was created. The validation run above may have written its own scan summaries
+under docs/test-results/phase3." Do **not** "fix" it by suppressing the
+validator's output or by moving the call: both trade an inaccurate sentence for
+a real loss.
+
+**Related:** BL-213 (a closing sentence that disagreed with the work — the same
+family, one severity up), BL-104 (silent success).
