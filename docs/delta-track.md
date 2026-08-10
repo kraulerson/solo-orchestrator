@@ -535,6 +535,16 @@ of **filenames**. A file named with today's date and containing nothing
 satisfies the cadence completely. The windows make the *schedule* stricter; they
 do not make the *evidence* stronger.
 
+It is wider than "a dated empty file", and worth knowing before you rely on the
+release refusal (`## BL-222:`): the deep-security arm matches `*snyk*`, `*dep*`,
+`*audit*`, `*semgrep*` or `*sast*`, so **`*dep*` matches a
+`deployment-notes-2026-08-10.md`** — and since the dependency audit was *folded
+into* the deep-security cadence, one stray match now satisfies the whole clock
+that `cut-release.sh` refuses on. A freshly-dated empty **directory** or a
+dangling symlink satisfies it too. Treat a green cadence as "somebody is keeping
+the calendar", and put a real scan artefact in `docs/test-results/` because you
+want the scan, not because you want the gate to pass.
+
 ---
 
 ## Cutting a release
@@ -586,9 +596,18 @@ reorder it could make a feature release a patch.
 **The major lane is unreachable in v1, and this page will not pretend
 otherwise.** The breaking-marker row and the full-revalidation lane are built and
 tested, but **nothing in `delta.sh`'s close pathway ever sets the field
-`cut-release.sh` reads**. Every cut on a real project today computes minor or
-patch. `scripts/cut-release.sh`'s own header records this as a tracked gap; the
-writer belongs to the close/confirm surface.
+`cut-release.sh` reads** — not `--open`, not `--close`, not `--complete-gate`,
+and there is no flag for it. Every cut on a real project today computes minor or
+patch. Tracked as **`## BL-219:`**, where the writer's proper home (the
+close/confirm surface, routed through the seam) is recorded.
+
+`scripts/cut-release.sh`'s header says of this gap that it is "filed as a tracked
+item". **It was not** — checked against `solo-orchestrator-backlog.md` and
+`solo-orchestrator-followups.md` on `main` at `1943172`, neither this gap nor its
+companion was filed anywhere. BL-219 and `## BL-220:` exist because of that
+check. The lesson is worth carrying off this page: **a "this is tracked"
+sentence is a claim like any other, and repeating it without looking is how an
+unverified assertion acquires a second source.**
 
 ### The tag format is constrained, not chosen
 
@@ -833,10 +852,15 @@ The remaining rows are transcribed from the scripts and were not exercised here.
 
 ## What is not built
 
-- **The `breaking` marker has no writer.** The major-bump lane and the
-  full-revalidation re-run are built and tested but production-unreachable in
+- **The `breaking` marker has no writer** (`## BL-219:`). The major-bump lane and
+  the full-revalidation re-run are built and tested but production-unreachable in
   v1: nothing sets the field the cut reads. Every real cut computes minor or
   patch.
+- **Severing the delta module takes `check-maintenance.sh`'s only behaviour
+  coverage with it** (`## BL-220:`). `tests/test-delta-wp6-cadence.sh` is a
+  delta-track suite that is also the only test of a CORE script's three-code exit
+  contract, and the severability sever deletes it along with the rest of the
+  module's suites. It costs nothing until the day someone actually severs.
 - **Concurrent deltas.** One at a time, encoded structurally in the state
   schema. A second concurrent delta would need a queue, a per-delta gate ledger,
   and an ordering rule for the release cut.

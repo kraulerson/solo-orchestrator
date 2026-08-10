@@ -445,12 +445,38 @@ $ bash scripts/pre-commit-gate.sh --terminal-mode --tdd-only
 rc=1
 ```
 
-An adopted project gets exactly the same treatment as a scaffolded one from its
-adoption commit onward. As everywhere else in this framework, **the tier decides
-whether that is a hard block**: `deployment: organizational` or
+An adopted project gets **the same commit-time treatment** as a scaffolded one
+from its adoption commit onward. As everywhere else in this framework, the tier
+decides whether that is a hard block: `deployment: organizational` or
 `poc_mode: sponsored_poc` blocks the commit, as above; `personal` and
 `private_poc` do not. That predicate is unchanged by adoption — it reads
-`.claude/phase-state.json`, exactly as it does in a scaffolded project.
+`.claude/phase-state.json`, which the driver writes correctly, exactly as it does
+in a scaffolded project.
+
+> **⚠ Scope that sentence to the commit-time surface, because one other surface
+> is NOT the same.** The two birth paths write **different manifests**, and one
+> tier reader fails open on the difference.
+>
+> | Key in `.claude/manifest.json` | Scaffolded by `init.sh` | Adopted |
+> |---|---|---|
+> | `deployment` | `"personal"` | **absent** |
+> | `poc_mode` | `null` | absent |
+> | `enforcement_level` | `"strict"` | **absent** |
+>
+> `assert_choosable` in `scripts/lib/enforcement-level.sh` reads
+> `jq -r '.deployment // "personal"'`, so an **absent** key resolves to the
+> **permissive** tier. `validate_transition` calls it, `reconfigure-project.sh`
+> calls `validate_transition`, and `reconfigure-project.sh` is one of the 63
+> scripts adoption installs. Measured: an organizational project with the key
+> present refuses a move to `enforcement_level: no`; **the same project with only
+> that key removed allows it.**
+>
+> `read_enforcement_level`, in the same library file, fails *closed* to `strict`
+> on the same manifest — so the two readers disagree, and the commit-time gates
+> are unaffected. Filed as **`## BL-221:`** with both candidate fixes and the
+> `# BL-084-TIER-KEY` sync-sibling warning. **Until it is resolved: if you adopt
+> an organizational project, set the manifest's tier keys by hand before anyone
+> runs `reconfigure-project.sh`.**
 
 ---
 
@@ -571,11 +597,17 @@ NOT DONE — the commit-time scanners (the fallback pre-commit hook)
    by hand until it lands: bash scripts/pre-commit-gate.sh --terminal-mode
 ```
 
-**Karl's decision: the commit-time hook is installed by WP7, once the artifacts
-it reads exist.** Installing it today would refuse every commit. Until then the
-two **message** gates are live — test-before-code ordering, and the Build-Loop
-commit check, both demonstrated above — and the scanner arms are not. Run them by
-hand.
+**Read that "Owner: nobody yet" against the decision, not instead of it.** The
+string above is what the driver actually prints, and it predates the call:
+**Karl's decision is that the commit-time hook is installed by WP7**, once the
+artifacts it reads exist. So the owner is WP7, and the driver's text will say so
+once it is next touched. It is quoted here unedited because this page reproduces
+what the tool prints rather than what it ought to print.
+
+The behaviour either way is what the block describes: installing that hook today
+would refuse every commit, so until WP7 the two **message** gates are live —
+test-before-code ordering, and the Build-Loop commit check, both demonstrated
+above — and the scanner arms are not. Run them by hand.
 
 ### And one more, from this page rather than the driver
 
@@ -600,6 +632,7 @@ not among them. Read them here, in the framework clone you run the driver from.
 | A readable record of how this project entered the framework | ❌ Adoption Record — **not built** |
 | Secret scanning, SAST and migration checks on every commit | ❌ Deferred to WP7, by decision |
 | A `CLAUDE.md` in the adopted project | ❌ Deferred to WP6 |
+| The manifest's tier keys, so enforcement cannot be downgraded | ❌ **Not written — `## BL-221:`.** Set them by hand on an organizational adoptee |
 
 ---
 

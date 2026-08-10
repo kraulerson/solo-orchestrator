@@ -8881,3 +8881,301 @@ spellings" is treated here as a shape problem rather than a diligence problem),
 BL-104 (label and predicate disagreeing, so the printed word was not the
 verdict), BL-196 (a passing check that proves nothing is worse than no check —
 why every atom on this branch is pinned by a mutant rather than asserted).
+
+---
+
+## BL-219: `cut-release.sh`'s `breaking` marker has no writer — the major-bump lane is built, tested, and production-unreachable
+
+**Logged:** 2026-08-10 (found by the WP9 documentation pass, which set out to
+document the major-bump lane and could not reach it from any operator surface)
+**Category:** Dead lane / a shipped capability with no way to invoke it
+**Severity:** Medium. Nothing is *wrong* — every cut computes a correct bump for
+the classes it can see, and the fail-closed arm (`exit 9`, a class mapping to no
+bump) still fires. What is missing is a whole documented behaviour: **no real
+project can ever cut a major release through the tool.**
+**Status:** Open
+
+**The gap.** `scripts/cut-release.sh` reads a per-row `breaking` boolean out of
+`.claude/delta-state.json::closed[]`:
+
+```
+| [ (.id // "?"), (if (.breaking // false) == true then "breaking" else (.class // "") end) ] | @tsv
+```
+
+`breaking` is what selects the design's §9.1 **major** row and, with it, §8.2's
+full `run-phase3-validation.sh` re-run before the tag is written (the `_refuse 10`
+arm). Both are implemented and both are covered by
+`tests/test-delta-wp7-cut-release.sh`, which drives them from a **hand-written
+fixture state file**.
+
+**Nothing in `scripts/delta.sh` ever sets that field.** Not `--open`, not
+`--confirm`, not `--complete-gate`, not `--close`. There is no flag for it and no
+derivation that produces it. So on any project driven through the shipped
+operator surfaces, `.breaking` is always absent, `// false` always fires, and the
+bump is always minor or patch. Verified by execution during the WP9 pass: a full
+cut over five closed deltas (one feature, three fix/hotfix, one more feature)
+produced `v0.1.0 (a minor release, decided from the classes above)`, and no
+sequence of `delta.sh` calls can produce any other precedence outcome.
+
+**Where the writer belongs.** The close/confirm surface, not here —
+`cut-release.sh` reads state through the seam and must not grow a second writer
+(§7.1's single-writer rule). The natural shape is a confirmed attribute on the
+§4.3 transcript, or a `--breaking` flag on `--close` that routes its write
+through the seam like every other state change. That is a design decision about
+the classification surface, so it is filed rather than improvised.
+
+**Why this entry exists at all — the tracking claim was false.**
+`scripts/cut-release.sh`'s own header says of this gap and of BL-220:
+
+> TWO GAPS THAT ARE TRACKED ELSEWHERE, POINTED AT HERE SO THE NEXT READER OF
+> THIS FILE FINDS THEM RATHER THAN REDISCOVERING THEM … **Filed as a tracked
+> item**
+
+Neither was filed. Checked on `main` at `1943172`: no entry in this file and no
+entry in `solo-orchestrator-followups.md` matches either gap. A reader who
+trusted that sentence would have stopped looking — and the WP9 documentation pass
+nearly propagated the claim into `docs/delta-track.md` before checking it. **A
+"filed as tracked" assertion is a claim like any other and must be verified
+before it is repeated.** This entry and BL-220 make the header true; the header
+sentence should be updated to name them the next time that file is touched
+(product-code edit, deliberately not bundled with a docs-only package).
+
+**Related:** BL-220 (the other half of the same false-tracking sentence),
+BL-104 (a printed label disagreeing with the behaviour behind it), BL-196 (a
+check that proves nothing is worse than no check — the same shape one level up:
+a test that proves a lane no operator can reach).
+
+---
+
+## BL-220: severing the delta module takes `check-maintenance.sh`'s only behaviour coverage with it
+
+**Logged:** 2026-08-10 (WP9 documentation pass; the coupling is stated in
+`scripts/cut-release.sh`'s header and in the delta design's §3.1, and was
+confirmed against the suite estate)
+**Category:** Test-estate coupling / a core script whose only coverage lives in a
+module that is designed to be removable
+**Severity:** Low-Medium. It costs nothing today. It costs exactly one core
+script's entire rc-contract coverage on the day someone exercises the
+severability property the module was built to have.
+**Status:** Open
+
+**The coupling.** `tests/test-delta-wp6-cadence.sh` is a delta-track suite. It is
+also the **only** behavioural coverage of `scripts/check-maintenance.sh`, a CORE
+script — specifically of its three-code exit contract (0 current / 1 overdue /
+2 unmeasurable), including the `undetermined` counter WP6 added to close a
+fail-OPEN hole where an unparseable date was skipped in silence and reported as
+current.
+
+`tests/test-delta-severability.sh`'s `sever_module` deletes
+`tests/test-delta-*.sh` wholesale, by design and for a good reason: a module
+whose own suites stayed behind would leave a suite full of red, which is not
+something "severable" can mean. So the sever removes a delta suite **and** a core
+script's only tests, and the severed tree still passes — because nothing is left
+to fail.
+
+**Why it is not simply "move the test".** The suite genuinely tests both things
+at once: the cadence thresholds it drives are read from
+`.claude/delta-policy.json` (the `# CADENCE-POLICY-READ` line is consumer 4 of
+§3.1's revert set), so a core-only copy would have to either duplicate the policy
+plumbing or test the framework-constant fallback path only — which is not the
+path a real project runs. The honest options are (a) split the suite along the
+seam, with a core half pinning the exit contract against framework constants and
+a delta half pinning the policy override; or (b) accept the coupling and record
+it, which is what the design does today. Either is a decision, not a patch.
+
+**Same false-tracking note as BL-219.** `scripts/cut-release.sh`'s header
+declares this "filed as a tracked item"; it was not, on `main` at `1943172`, in
+this file or in `solo-orchestrator-followups.md`. This entry makes that sentence
+true.
+
+**Related:** BL-219 (the other half of the same sentence), BL-038 /
+`## BL-181:` (test-registration invariants — the same family of "a suite that
+does not run proves nothing", here reached by deletion rather than by
+misregistration).
+
+---
+
+## BL-221: `assert_choosable` fails OPEN on a manifest with no `deployment` key — an adopted organizational project can downgrade its own enforcement
+
+**Logged:** 2026-08-10 (found by adversarial review of the WP9 documentation
+branch, refuting that branch's own "nothing is broken today" note; reproduced
+independently twice before filing)
+**Category:** Enforcement fail-open — a tier predicate defaulting to the
+permissive tier on absent data
+**Severity:** **Real, not cosmetic.** This is a fail-OPEN on the surface that
+decides whether a project is *allowed to weaken its own enforcement*. Every other
+tier reader in the framework fails closed on absent data; this one does not.
+**Status:** Open
+
+**The predicate.** `assert_choosable` in `scripts/lib/enforcement-level.sh`:
+
+```
+deployment=$(jq -r '.deployment // "personal"' "$manifest" 2>/dev/null)
+poc_mode=$(jq -r '.poc_mode // ""' "$manifest" 2>/dev/null)
+if [ "$deployment" = "personal" ]; then
+  return 0
+fi
+```
+
+`// "personal"` makes an **absent** key resolve to the **choosable** tier.
+Contrast its sibling in the same file: `read_enforcement_level` treats a missing
+file or an unreadable one as `strict`, which is the direction the rest of this
+framework fails in.
+
+**The reachable path.** `validate_transition` calls `assert_choosable`;
+`scripts/reconfigure-project.sh` calls `validate_transition`
+(`if ! validate_transition "$PROJECT_ROOT" "$RECONF_LEVEL"; then`); and
+`reconfigure-project.sh` is in the 63-script set `scripts/adopt-project.sh`
+installs into an adopted project. So this is not a library-level curiosity — it is
+reachable from an operator command in every adopted project.
+
+**Why adoption is the trigger.** The two birth paths write different manifests.
+Measured on one tree, same day, a project scaffolded by `init.sh` versus a
+project brought in by `adopt-project.sh`:
+
+| Key | Scaffolded | Adopted |
+|---|---|---|
+| `deployment` | `"personal"` | **absent** |
+| `poc_mode` | `null` | absent |
+| `enforcement_level` | `"strict"` | **absent** |
+
+`.claude/phase-state.json` *is* written correctly by the driver
+(`deployment: "personal"`, `poc_mode: "production"`), so the **commit-time** tier
+predicate — `_bl072_tier_bypassable`, which reads phase-state — behaves
+identically on both paths. It is only the manifest-reading surface that diverges.
+
+**The probe, verbatim, and the decisive third case.** Run against a real adopted
+project with `scripts/lib/enforcement-level.sh` sourced in its own root:
+
+```
+=== A. as adopted (manifest has NO deployment key) ===
+{"deployment":null,"poc_mode":null,"enforcement_level":null}
+adopted: assert_choosable -> 0 (CHOOSABLE)
+adopted: validate_transition '.' no -> 0 (ALLOWED)
+
+=== B. same project, manifest tier keys written as init.sh would for ORGANIZATIONAL ===
+{"deployment":"organizational","poc_mode":"production","enforcement_level":"strict"}
+organizational: assert_choosable -> 1 (forced strict)
+organizational: validate_transition '.' no -> 1 (refused)
+
+=== C. the SAME organizational project with the deployment key DELETED ===
+{"deployment":null,"poc_mode":"production","enforcement_level":"strict"}
+org-minus-key: assert_choosable -> 0 (CHOOSABLE)
+org-minus-key: validate_transition '.' no -> 0 (ALLOWED)
+
+=== E. read_enforcement_level on each (the fail-CLOSED sibling) ===
+adoptee: strict
+adoptee-org: strict
+adoptee-orgless: strict
+```
+
+**Case C is the finding.** One key removed, nothing else changed: a project that
+refuses to move to `enforcement_level: no` starts allowing it. And case E shows
+the two readers in the *same library file* disagree about the same manifest — one
+fails closed, one fails open.
+
+**Two candidate fixes, both real, neither taken here.**
+
+1. **Write the tier keys into the adopted manifest** (WP4's
+   `adopt_write_manifest`, which today writes only `.host` and `.mode`). It
+   closes the divergence at the source and makes the two birth paths produce the
+   same shape. It does **not** fix the predicate for any other cause of an absent
+   key — a hand-edited manifest, or the upstream regenerate path that
+   `soif_adoption_integrity_lost` exists to detect, both reproduce it.
+2. **Default `assert_choosable` closed** — `// ""` with an explicit refusal on the
+   empty value, matching `read_enforcement_level`'s posture. It fixes every
+   cause at once and is the smaller diff. Its cost is that any project whose
+   manifest legitimately predates the key stops being able to reconfigure until
+   it is backfilled, which is a real migration question and the reason this is a
+   decision rather than a patch.
+
+The right answer is plausibly both.
+
+**This is a `# BL-084-TIER-KEY` sync-sibling surface.** CLAUDE.md records that
+the deployment + poc_mode predicate is implemented in `pre-commit-gate.sh`,
+`check-phase-gate.sh`, `init.sh` and `scripts/lib/enforcement-level.sh` and
+**must be changed in sync**. Whichever fix lands, grep that marker first: a
+one-sided change here is exactly the drift the marker exists to prevent.
+
+**Documented, not fixed.** `docs/adoption.md` names the divergence and points
+here, and scopes its "same treatment as a scaffolded project" sentence to the
+commit-time surface it is actually true of. The code is deliberately untouched:
+this is an enforcement-posture change on a sync-sibling surface, and the owner
+decides it.
+
+**Related:** `## BL-084:` (the tier predicate and its sync siblings), BL-104
+(fail-open by a predicate that read as safe), BL-030 (grandfathering by the
+*absence* of a field — the same shape: absent data read as permission).
+
+---
+
+## BL-222: `check-maintenance.sh`'s three named evidence residuals say "Filed as backlog lines" and were never filed
+
+**Logged:** 2026-08-10 (found while filing BL-219/BL-220, by generalising their
+finding instead of fixing only the instance: if one delta-track file asserts
+tracking it does not have, the sibling files are worth the same grep)
+**Category:** False tracking claim, and the evidence weakness it conceals
+**Severity:** Medium. The residuals themselves are disclosed accurately and in
+detail **in the product**, which is the important half. What is false is the one
+clause claiming they are filed — and because they were not, the weakest of the
+three has sat unexamined under a clock the release cut now refuses on.
+**Status:** Open
+
+**The false clause.** `scripts/check-maintenance.sh`'s header, in the block
+introducing the WP6 review's measured residuals:
+
+> THREE SHAPES OF THAT RESIDUAL, MEASURED BY THE WP6 REVIEW AND NAMED HERE SO
+> THE DISCLOSURE IS NOT NARROWER THAN THE BEHAVIOUR. **Filed as backlog lines**;
+> none is changed by this WP…
+
+Checked on `main` at `1943172`: `R-WP6-4`, `R-WP6-5` and `R-WP6-7` appear in
+**neither** `solo-orchestrator-backlog.md` nor `solo-orchestrator-followups.md`,
+and neither does any entry describing the substring-breadth or non-file-artefact
+shapes. This entry is the filing.
+
+**The three residuals, transcribed from the product so this entry stands alone.**
+
+1. **SUBSTRING BREADTH (R-WP6-4) — the one that matters.** The deep-security arm
+   reads the newest dated filename in `docs/test-results/` matching `*snyk*`,
+   `*dep*`, `*audit*`, `*semgrep*` or `*sast*`. `*dep*` matches far more than a
+   dependency audit: a `deployment-notes-2026-08-10.md` satisfies the cadence
+   completely. **The WP6 fold raises the stakes rather than leaving them flat** —
+   the separate 95-day dependency row and the 185-day biannual row became ONE
+   cadence, so a single stray match now satisfies the **whole** deep-security
+   clock, and that clock is what `scripts/cut-release.sh` refuses on
+   (refusal 3, exit 5). A project that never runs a security scan but does write
+   dated deployment notes cuts releases indefinitely.
+2. **NON-FILE ARTEFACTS (R-WP6-7).** A freshly-dated empty **directory**, or a
+   dangling symlink, satisfies it too — `ls` supplies the name and the date is
+   read off the name. One shape wider than "a dated empty file", which is itself
+   the known limit.
+3. **CROSS-HOST DATE DIVERGENCE (R-WP6-5).** `2026-13-45` is refused by both date
+   parsers, but an in-range impossibility like `2026-02-30` **normalises on BSD**
+   (to 2026-03-02) and is refused by GNU. **Both answers refuse a release cut** —
+   measured-and-stale or undetermined — so neither host skips anything silently.
+   Recorded, per the product's own note, so that nobody later "fixes" the
+   divergence by loosening the fail-closed side.
+
+**Scope, stated so this is not read as a bigger claim than it is.** The glob set
+is **inherited verbatim from the pre-WP6 script**; WP6 did not widen it. And the
+framework has never claimed these signals prove a scan happened — both
+`docs/builders-guide.md` § Step 4.4 and `docs/delta-track.md` say in as many
+words that two of the signals are dates parsed out of filenames and that a green
+run means "the calendar is being kept", not "the scan found nothing". What is new
+here is (a) the tracking clause being false, and (b) the fold concentrating the
+consequence onto one clock.
+
+**Fix shape, not decided here.** Options, cheapest first: tighten `*dep*` to a
+narrower stem (`*depaudit*` / `*dependency*`) and accept that existing projects'
+artefacts stop matching until renamed; require the match to be a regular file
+(closes R-WP6-7 outright, one `[ -f ]`); or add a minimum-content check to the
+two filename-derived arms, which is the only option that changes evidence rather
+than naming. The delta design already asks this as its own open question — §13-R14
+and reviewer question 4, *"tighten the clock as decided and log the evidence
+weakness, or tighten the clock and add a minimum-content check"* — so this entry
+is the evidence half of a question already on the record.
+
+**Related:** BL-219 and BL-220 (the same false-tracking clause in
+`scripts/cut-release.sh`, found first; this entry is what generalising that
+finding produced), BL-104 (a check whose printed result outran what it measured),
+BL-196 (a passing check that proves nothing is worse than no check).
