@@ -785,18 +785,42 @@ _cutrel_ledger_for() {
   esac
 }
 
-# THE ID MATCH IS BOUNDED, AND `index()` ALONE IS NOT ENOUGH. Every reader
-# below asks `index(cell, id) > 0` AND that the character immediately after the
-# hit is not alphanumeric, because a bare substring test makes `DELTA-100` match
-# a `DELTA-1000` row — the allocator zero-pads to three and keeps counting, so
-# the two coexist the moment a project passes 999 deltas, and the failure would
-# be closing the wrong bug. A REGEX built from the id would be the tidier
-# spelling and is the wrong one: an id that ever carried a `.` or a `*` would
-# WIDEN the match rather than narrow it, and widening is the direction that
-# closes a row nobody shipped. `substr` past the end of a string returns "",
-# which is correctly not alphanumeric, so a cell ending in the id still matches.
+# THE ID MATCH IS BOUNDED, AND `index()` ALONE IS NOT ENOUGH. Every reader below
+# goes through an `idhit()` of its own, which asks for a hit whose FOLLOWING
+# character is not alphanumeric. A bare substring test makes `DELTA-100` match a
+# `DELTA-1000` row — the allocator zero-pads to three and keeps counting, so the
+# two coexist the moment a project passes 999 deltas, and the failure is closing
+# a bug nobody fixed AND stamping a version onto it that never carried it. A
+# REGEX built from the id would be the tidier spelling and is the wrong one: an
+# id that ever carried a `.` or a `*` would WIDEN the match rather than narrow
+# it, and widening is the direction that closes a row nobody shipped. `substr`
+# past the end of a string returns "", which is correctly not alphanumeric, so a
+# cell ending in the id still matches.
+#
+# THE BOUNDARY TEST EXISTS AT THREE SITES AND THEY ARE SYNC SIBLINGS — the state
+# reader, the flipper and the FEATURES block chooser, marked
+# `# CUTREL-LEDGER-IDBOUND-*`. They are three copies of one rule because they are
+# three separate awk programs, and each one is separately lethal:
+#   * lose it in the STATE reader and a shipped row that really did close is
+#     re-read as open, so the cut reports a failure it did not have;
+#   * lose it in the FLIPPER and a row this release never touched is stamped
+#     `shipped in vX.Y.Z` — a false close, at rc 0, reported as a clean cut;
+#   * lose it in the BLOCK chooser and the wrong feature is completed.
+# tests/test-delta-db-ledger-close.sh drives m8/m9/m10 at the three of them
+# INDEPENDENTLY for that reason; stripping all three at once was measured to
+# survive an earlier version of that suite.
+#
+# AND THE SEARCH DOES NOT STOP AT THE FIRST HIT. `Fix Reference` is free text
+# that legitimately carries more than one id, so `DELTA-1000, DELTA-100` shipping
+# `DELTA-100` would hit the prefix first, fail the boundary test, and — with a
+# single `index()` — report "no row naming it" over a row that names it plainly.
+# The loop retries past every rejected hit, so a rejection narrows the match
+# without ever losing a real one.
 
-# _cutrel_bugs_state <file> <id> — none | open | fixed.
+# _cutrel_bugs_state <file> <id> — `<state> 0`, state being none | open | fixed.
+#   The trailing `0` is the FEATURES block index, which BUGS.md does not have —
+#   the two readers answer in one shape so the loop below has ONE read to guard
+#   rather than two spellings of it.
 #   THE ROW IS IDENTIFIED STRUCTURALLY, not by a bare grep for the id: it must
 #   be a table line of exactly the nine shipped columns (ten `|`-delimited
 #   fields plus the empty one each side => NF 11) whose FIX REFERENCE cell
@@ -808,9 +832,16 @@ _cutrel_ledger_for() {
 #   report itself closed on the strength of its twin.
 _cutrel_bugs_state() {
   awk -F'[|]' -v id="$2" '
+    function idhit(cell, want,   p, q) {
+      p = 0
+      while ((q = index(substr(cell, p + 1), want)) > 0) {
+        p += q
+        if (substr(cell, p + length(want), 1) !~ /[0-9A-Za-z]/) { return p }   # CUTREL-LEDGER-IDBOUND-STATE
+      }
+      return 0
+    }
     NF == 11 && $1 == "" {
-      p = index($9, id)
-      if (p > 0 && substr($9, p + length(id), 1) !~ /[0-9A-Za-z]/) {
+      if (idhit($9, id) > 0) {
         seen = 1
         st = $4
         sub(/^[ \t]+/, "", st); sub(/[ \t]+$/, "", st)
@@ -818,9 +849,9 @@ _cutrel_bugs_state() {
       }
     }
     END {
-      if (!seen) { print "none" }
-      else if (anyopen) { print "open" }
-      else { print "fixed" }
+      if (!seen) { print "none 0" }
+      else if (anyopen) { print "open 0" }
+      else { print "fixed 0" }
     }
   ' "$1" 2>/dev/null
 }
@@ -833,9 +864,16 @@ _cutrel_bugs_state() {
 #   would leave the pair permanently disagreeing.
 _cutrel_bugs_flip() {
   awk -F'[|]' -v OFS='|' -v id="$2" -v ver="$3" '
+    function idhit(cell, want,   p, q) {
+      p = 0
+      while ((q = index(substr(cell, p + 1), want)) > 0) {
+        p += q
+        if (substr(cell, p + length(want), 1) !~ /[0-9A-Za-z]/) { return p }   # CUTREL-LEDGER-IDBOUND-FLIP
+      }
+      return 0
+    }
     NF == 11 && $1 == "" {
-      p = index($9, id)
-      if (p > 0 && substr($9, p + length(id), 1) !~ /[0-9A-Za-z]/) {
+      if (idhit($9, id) > 0) {
         st = $4
         sub(/^[ \t]+/, "", st); sub(/[ \t]+$/, "", st)
         if (st != "Fixed") {
@@ -893,34 +931,78 @@ _cutrel_bugs_flip() {
 #   and flipped another closes the wrong feature and re-reads as closed.
 _cutrel_features_block() {
   awk -v id="$2" '
+    function idhit(cell, want,   p, q) {
+      p = 0
+      while ((q = index(substr(cell, p + 1), want)) > 0) {
+        p += q
+        if (substr(cell, p + length(want), 1) !~ /[0-9A-Za-z]/) { return p }   # CUTREL-LEDGER-IDBOUND-FEAT
+      }
+      return 0
+    }
     /^## Feature / { blk++ }
     blk > 0 && !hit && /^\*\*Phase Built:\*\*/ {   # CUTREL-LEDGER-FEATANCHOR
-      p = index($0, id)
-      if (p > 0 && substr($0, p + length(id), 1) !~ /[0-9A-Za-z]/) { hit = blk }
+      if (idhit($0, id) > 0) { hit = blk }
     }
     END { print hit + 0 }
   ' "$1" 2>/dev/null
 }
 
-# _cutrel_features_state <file> <id> — none | open | fixed, read from the block
-#   `_cutrel_features_block` chose. A block that exists but carries no
-#   `**Status:**` line reads `open`: there is nothing there to have been
-#   completed, and the flip that follows will leave the file unchanged and be
-#   reported as unclosed, which is the honest answer for a block nobody can
-#   edit mechanically.
+# _cutrel_features_state <file> <id> — `<state> <block>`: none | open | fixed,
+#   read from the block `_cutrel_features_block` chose, and THAT BLOCK'S INDEX.
+#   A block that exists but carries no `**Status:**` line reads `open`: there is
+#   nothing there to have been completed, and the flip that follows will leave
+#   the file unchanged and be reported as unclosed, which is the honest answer
+#   for a block nobody can edit mechanically.
+#
+#   THE INDEX IS RETURNED RATHER THAN LOOKED UP AGAIN. The flip needs the same
+#   block this state was read from, and asking a second time is a second answer:
+#   two reads of a file that anything may have touched in between, promoted by
+#   the first read's verdict and applied at the second read's address.
 _cutrel_features_state() {
   local blk
   blk="$(_cutrel_features_block "$1" "$2")"
   case "$blk" in ''|*[!0-9]*) blk=0 ;; esac
-  if [ "$blk" -eq 0 ]; then printf 'none'; return 0; fi
+  if [ "$blk" -eq 0 ]; then printf 'none 0'; return 0; fi
   awk -v want="$blk" '
     /^## Feature / { b++ }
     b == want && !got && /^\*\*Status:\*\*/ {
       got = 1
-      if ($0 ~ /^\*\*Status:\*\*[ \t]*Complete/) { print "fixed" } else { print "open" }
+      if ($0 ~ /^\*\*Status:\*\*[ \t]*Complete/) { print "fixed " want } else { print "open " want }
     }
-    END { if (!got) print "open" }
+    END { if (!got) print "open " want }
   ' "$1" 2>/dev/null
+}
+
+# _cutrel_row_state <ledger> <id> — `<state> <block>` for either ledger.
+_cutrel_row_state() {
+  if [ "$1" = "FEATURES.md" ]; then
+    _cutrel_features_state "$1" "$2"
+  else
+    _cutrel_bugs_state "$1" "$2"
+  fi
+}
+
+# _cutrel_ledger_readable <file> — can this process actually OPEN it for reading?
+#
+#   THIS IS THE GUARD, AND IT HAD TO BE A PROBE RATHER THAN AN EXIT STATUS. The
+#   obvious spelling is to let the reader fail and catch it —
+#   `rstate="$(_cutrel_bugs_state …)" || rstate=unreadable`. It was measured on
+#   bash 3.2 and it is WRONG BY LEDGER: `set -e` is suspended for everything
+#   underneath a command that is itself guarded, so inside a guarded call the
+#   FEATURES reader's own `blk="$(_cutrel_features_block …)"` no longer aborts —
+#   it returns empty, normalises to block 0, and the function answers `none`,
+#   successfully. The same guard over the same unreadable file therefore says
+#   `unreadable` for BUGS.md and `none` for FEATURES.md, and `none` is the one
+#   answer this must never give: "has no row naming it" about a row that may
+#   well be sitting there, on a file nobody could look at.
+#
+#   `[ -r ]` was not enough either — it reads the permission bits and answers a
+#   question about the file, where the question that matters is whether THIS
+#   process can open it. So the probe opens it, which is exactly what awk is
+#   about to do, and the subshell keeps the failed redirection's message off the
+#   operator's screen.
+_cutrel_ledger_readable() {
+  ( : < "$1" ) 2>/dev/null
 }
 
 # _cutrel_features_flip <file> <ver> <block> — the whole file, transformed.
@@ -963,6 +1045,7 @@ LEDGER_CLOSED=0
 LEDGER_NOFILE=0
 LEDGER_NOTES=""
 LEDGER_UNCLOSED=""
+LEDGER_TOUCHED=""
 while IFS= read -r rid; do
   [ -n "$rid" ] || continue
   rclass="$(printf '%s\n' "$STATE_DOC" | jq -r --arg i "$rid" \
@@ -980,11 +1063,27 @@ while IFS= read -r rid; do
     LEDGER_NOFILE=$((LEDGER_NOFILE + 1))
     continue
   fi
-  if [ "$rledger" = "FEATURES.md" ]; then
-    rstate="$(_cutrel_features_state "$rledger" "$rid")"
-  else
-    rstate="$(_cutrel_bugs_state "$rledger" "$rid")"
+  # AN UNREADABLE LEDGER IS NOT AN ABSENT ONE, and it is not a dead run either.
+  # Every read below is an unguarded command substitution under `set -euo
+  # pipefail`, and awk exits 2 on a file it cannot open — so without this line a
+  # `chmod 000 BUGS.md` kills the cut STONE DEAD between `shipped_in` and the
+  # tag: the changelog promoted, the record saying the work shipped in a version
+  # that no tag names, rc 2 (which this file's own header reserves for
+  # "invocation / environment error"), and not one word about how far it got.
+  # `shipped_in` is write-once, so the next run refuses at 8 with nothing to
+  # release and the operator can never reach the tag through this tool again.
+  #
+  # The guard is deliberately the ONLY one on this path: the reads stay bare so
+  # that deleting this line brings the silent death straight back rather than
+  # being caught somewhere quieter, and m11 is that mutation.
+  if ! _cutrel_ledger_readable "$rledger"; then   # CUTREL-LEDGER-READGUARD
+    LEDGER_UNCLOSED="${LEDGER_UNCLOSED}    $rid - $rledger could not be read, so its row could not be closed
+"
+    continue
   fi
+  rrow="$(_cutrel_row_state "$rledger" "$rid")"
+  rstate="${rrow%% *}"
+  rblock="${rrow##* }"
   case "$rstate" in
     fixed)
       # NOT AN ERROR. An operator who closed the row by hand before cutting has
@@ -1003,7 +1102,6 @@ while IFS= read -r rid; do
   stage="$(mktemp 2>/dev/null)" || stage=""
   if [ -n "$stage" ]; then
     if [ "$rledger" = "FEATURES.md" ]; then
-      rblock="$(_cutrel_features_block "$rledger" "$rid")"
       _cutrel_features_flip "$rledger" "$TAG" "$rblock" > "$stage" 2>/dev/null || true
     else
       _cutrel_bugs_flip "$rledger" "$rid" "$TAG" > "$stage" 2>/dev/null || true
@@ -1011,18 +1109,29 @@ while IFS= read -r rid; do
     _cutrel_ledger_apply "$rledger" "$stage" || true   # CUTREL-LEDGER-CLOSE
     rm -f "$stage" 2>/dev/null || true
   fi
-  if [ "$rledger" = "FEATURES.md" ]; then
-    rafter="$(_cutrel_features_state "$rledger" "$rid")"
-  else
-    rafter="$(_cutrel_bugs_state "$rledger" "$rid")"
-  fi
+  rafter="$(_cutrel_row_state "$rledger" "$rid")"
+  rafter="${rafter%% *}"
   # THE RE-READ IS THE PROMOTER. Nothing above this line is allowed to count as
   # a closed row — not the transform's exit code, not the write's. Only the
   # file gets to say what the file says.
+  #
+  # AND THE FAILURE REASON DOES NOT NAME A CAUSE IT CANNOT KNOW. This arm used
+  # to say "could not be written", which is a guess that is WRONG on two
+  # reachable paths where the write plainly succeeded: a FEATURES block whose
+  # anchor line matches but that carries no `**Status:**` line for the flip to
+  # rewrite, and a block index shifted by a fenced `## Feature` heading inside
+  # somebody's Summary. Both leave the row open with nothing to fix in the
+  # permissions the message sends the operator to check. What this line KNOWS is
+  # what it just read, so that is all it says; the remedy paragraph below tells
+  # them what to do either way.
   if [ "$rafter" = fixed ]; then   # CUTREL-LEDGER-VERIFY
     LEDGER_CLOSED=$((LEDGER_CLOSED + 1))
+    case " $LEDGER_TOUCHED " in
+      *" $rledger "*) : ;;
+      *) LEDGER_TOUCHED="$LEDGER_TOUCHED $rledger" ;;
+    esac
   else
-    LEDGER_UNCLOSED="${LEDGER_UNCLOSED}    $rid - $rledger could not be written, so its row still reads open
+    LEDGER_UNCLOSED="${LEDGER_UNCLOSED}    $rid - $rledger still reads open after the write, so nothing was recorded as closed
 "
   fi
 done <<EOF
@@ -1094,7 +1203,17 @@ echo -e "${YELLOW}${BOLD}        The tag has not been pushed, so moving it costs
 echo -e "${YELLOW}${BOLD}=======================================================================${NC}"
 echo ""
 echo "What happens next, in this order:"
-echo "  1. git add $CHANGELOG .claude/delta-state.json"
+# STEP 1 NAMES THE LEDGERS THIS CUT ACTUALLY WROTE. It used to name the changelog
+# and the record and nothing else, while the run two screens up said "[OK] Closed
+# N bug/feature row(s)" — so an operator who followed these four steps verbatim
+# committed and pushed a release whose commit LEFT THE CLOSES BEHIND. The bug
+# record on the branch still reads Open, the working tree quietly disagrees with
+# it, and the next person to touch BUGS.md commits the flip under some unrelated
+# message or reverts it without noticing. Only the files that were really written
+# are listed — a row that was already closed by hand, or one that could not be
+# closed at all, adds nothing here, because a `git add` of an untouched file is
+# noise that teaches operators to stop reading the list.
+echo "  1. git add $CHANGELOG .claude/delta-state.json$LEDGER_TOUCHED"   # CUTREL-LEDGER-NEXTSTEP
 echo "  2. git commit -m \"chore(release): $TAG\""
 echo "  3. git tag -f $TAG          <-- the step above. Do not skip it."
 echo "  4. git push && git push origin $TAG"
