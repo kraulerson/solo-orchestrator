@@ -161,17 +161,24 @@
 #         shipped row has left the `SEV-1.*Open` count by exactly one
 #
 #   N — §9.2: A REFUSAL WRITES NOTHING, WITH LEDGERS PRESENT
-#     N1  ALL TWELVE refusals, singly and in combination, over a project that
+#     N1  ALL THIRTEEN refusals, singly and in combination, over a project that
 #         HAS an open BUGS.md row and an open FEATURES.md block — whole-tree
 #         manifest and tag set both unmoved. The original nine were
 #         {3,4,5,5,3,4,6,7,8}; rc 9 (both arms — an unscored class AND a class
-#         nobody could READ) and rc 10 (a breaking release with no validator
-#         installed) are added here because WP7 pins rc 9 WITHOUT ledgers and
-#         "it is pre-ledger by code read" is an argument, not a measurement.
-#         rc 10's OTHER arm — the validator installed and failing — is
-#         deliberately absent: that arm runs the real Phase 3 validation,
-#         which writes its own scan summaries by design, so a manifest row
-#         over it would assert something false
+#         nobody could READ) and BOTH rc 10 arms are added here because WP7
+#         pins rc 9 WITHOUT ledgers and "it is pre-ledger by code read" is an
+#         argument, not a measurement.
+#
+#         THE rc-10-FAILS ARM WAS EXCLUDED ONCE, ON A RATIONALE THAT WAS
+#         OVER-SCOPED, and the razor above is what retired it. The factual
+#         half is true — `run-phase3-validation.sh` archives scan JSON and
+#         summaries under `RESULTS_DIR="docs/test-results/phase3"` — but it
+#         only forces an exclusion if the row runs the REAL validator.
+#         `cut-release.sh` writes nothing on that path itself; the component
+#         it invokes does. Driven against a stub exiting 1 — the same
+#         `stub_revalidation` every other row here already uses — the arm is
+#         hermetic and the manifest holds. An assertion that is measurable
+#         today does not get to be an argument
 #
 #   NS — WHAT THE OPERATOR IS TOLD TO COMMIT
 #     NS1 step 1 of the printed next-steps NAMES THE LEDGERS THIS CUT WROTE.
@@ -1048,15 +1055,24 @@ _n_shipped()  { local d; d="$(jq -c '.closed = [.closed[] | .shipped_in = "v1.2.
 # `BUMP` is unset while the id query happily lists the row.
 _n_unscored() { local d; d="$(jq -c '.closed = [.closed[] | .class = "mystery"]' "$1/.claude/delta-state.json")"; printf '%s\n' "$d" > "$1/.claude/delta-state.json"; }
 _n_classobj() { local d; d="$(jq -c '.closed = [.closed[] | .class = {}]' "$1/.claude/delta-state.json")"; printf '%s\n' "$d" > "$1/.claude/delta-state.json"; }
-# rc 10 — a breaking row makes this a major, and a major demands the full
-# revalidation before the tag. Driven against a scripts tree with the validator
-# REMOVED, which is the arm that writes nothing; the other rc-10 arm runs the
-# real Phase 3 validation, which writes its own scan summaries by design, so a
-# manifest assertion over it would be asserting something false.
+# rc 10, BOTH ARMS — a breaking row makes this a major, and a major demands the
+# full revalidation before the tag. One tree has the validator REMOVED, the
+# other has it STUBBED TO FAIL.
+#
+# THE FAILING ARM IS HERMETIC AND THAT IS WHY IT IS HERE. It was left out once
+# on the grounds that it "runs the real Phase 3 validation, which writes its own
+# scan summaries" — true of the real validator (`RESULTS_DIR=
+# "docs/test-results/phase3"`), and irrelevant to this row, which does not run
+# it. `cut-release.sh` writes nothing on that path; the component it invokes
+# does. `stub_revalidation … 1` is the same instrument every other row in this
+# suite already uses, so the arm costs one line and asserts a real property.
 _n_breaking() { local d; d="$(jq -c '.closed = [.closed[] | .breaking = true]' "$1/.claude/delta-state.json")"; printf '%s\n' "$d" > "$1/.claude/delta-state.json"; }
 N_NOREVAL="$RT/n-noreval-scripts"
 mk_scripts_tree "$N_NOREVAL"
 rm -f "$N_NOREVAL/scripts/run-phase3-validation.sh"
+N_FAILVAL="$RT/n-failval-scripts"
+mk_scripts_tree "$N_FAILVAL"
+stub_revalidation "$N_FAILVAL/scripts" 1
 
 _n_case n-open-delta      3 _n_active
 _n_case n-open-retro      4 _n_retro
@@ -1070,11 +1086,12 @@ _n_case n-nothing-closed  8 _n_shipped
 _n_case n-unscored-class  9 _n_unscored
 _n_case n-unreadable-cls  9 _n_classobj
 _n_case n-breaking-noval 10 _n_breaking 1 "$N_NOREVAL/scripts"
+_n_case n-breaking-fails 10 _n_breaking 1 "$N_FAILVAL/scripts"
 
 if [ "$N_OK" = y ]; then
-  pass "N1: all twelve refusals still leave the WHOLE TREE byte-for-byte as they found it (find + per-file md5) and the tag set unmoved, over a project that HAS an open BUGS.md row and an open FEATURES.md block —$N_DETAIL. §9.2's property is absolute: the flip is Phase B only. rc 9 (both arms) and rc 10 are pinned here because WP7 pins rc 9 with NO ledgers in the tree, and 'it is pre-ledger by code read' is an argument rather than a measurement"
+  pass "N1: all thirteen refusals still leave the WHOLE TREE byte-for-byte as they found it (find + per-file md5) and the tag set unmoved, over a project that HAS an open BUGS.md row and an open FEATURES.md block —$N_DETAIL. §9.2's property is absolute: the flip is Phase B only. rc 9 (both arms) and rc 10 (BOTH arms — validator absent, and validator present and failing) are pinned here because WP7 pins rc 9 with NO ledgers in the tree, and 'it is pre-ledger by code read' is an argument rather than a measurement"
 else
-  fail_ "N1" "expected rc 3/4/5/5/3/4/6/7/8/9/9/10 with an unchanged tree, unchanged tags and a remedy line; got:$N_DETAIL"
+  fail_ "N1" "expected rc 3/4/5/5/3/4/6/7/8/9/9/10/10 with an unchanged tree, unchanged tags and a remedy line; got:$N_DETAIL"
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
