@@ -1048,12 +1048,39 @@ scripts/check-gate.sh --setup-ci-token
 
 It explains what the token is for, walks you through a **least-privilege fine-grained PAT** (Repository access: this repo only; Repository permissions → **Administration: Read-only** — that one permission is the whole requirement, no write anywhere), **verifies the token can actually read protection before storing anything** (a stored-but-powerless token would turn today's honest WARN into a hard FAIL), stores it as the Actions secret `SOIF_PROTECTION_TOKEN` with the value on stdin rather than argv, and then checks your workflow against **both** conditions that enforcement depends on. An unset secret evaluates to the empty string, which the gate reads as "no credential" — exactly today's warning.
 
-Enforcement needs two things, and the command reports on each rather than assuming them:
+Enforcement needs **four** things, and the command reports on each rather than assuming them. Each condition is checked independently, so a run tells you *every* reason your workflow will not enforce, not just the first:
 
-1. **The workflow maps the secret** into the phase-gate step (`GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}`). The generated `ci.yml` does.
-2. **The gate's exit code decides that step.** Until 2026-08-02, seven of the ten generated GitHub workflows ran the gate as `bash scripts/check-phase-gate.sh 2>/dev/null || echo "…skipping"`, which throws the verdict away — the gate could print `[FAIL]` and exit 1 while the step graded green (and the "not found" message was a lie: the script *was* found, its verdict failed). All ten now use the strict shape. **If you scaffolded before that date, `--setup-ci-token` will detect the swallowing `run:` line and print the replacement** — a token cannot enforce anything through a discarded exit code.
+1. **The workflow maps the secret** into the phase-gate step (`GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}`). The generated `ci.yml` does. A mapping on a *different* step, or in a different job, does not reach it — though the gate step's own job `env:` or the workflow `env:` do, because a step inherits both.
+2. **Some step actually invokes the gate.** If not one executable line in the file is `bash scripts/check-phase-gate.sh`, there is no check for the token to arm.
+3. **Nothing swallows the gate's verdict.** Until 2026-08-02, seven of the ten generated GitHub workflows ran the gate as `bash scripts/check-phase-gate.sh 2>/dev/null || echo "…skipping"`, which throws the verdict away — the gate could print `[FAIL]` and exit 1 while the step graded green (and the "not found" message was a lie: the script *was* found, its verdict failed). All ten now use the strict shape. The check also catches the Actions-native swallows a line-oriented reader cannot see: `continue-on-error: true` (which grades a *failed* step as success) and a step- or job-level `if:` that is not the one this framework ships, at **both** the step and the job level.
+4. **The step's shell fails fast.** Only the built-in `bash` and `sh` keywords are documented to run with `set -e` (and `bash` also gets `-o pipefail`). A custom template such as `shell: bash {0}` runs the script bare — a *failing* `bash scripts/check-phase-gate.sh` does not end the step, and any line after it resets the step's exit code to 0.
 
-When both hold, the next push enforces.
+**The command will now decline to claim enforcement it cannot verify — read this as the tool becoming honest, not as a new restriction.** The success sentence for a correctly-wired project is unchanged, byte for byte:
+
+```text
+  [OK] .github/workflows/ci.yml maps SOIF_PROTECTION_TOKEN into the phase-gate step AND lets the gate's exit code decide it. The next push enforces the check.
+```
+
+Where a condition does not hold, the claim is **withheld with a named cause and the exact edit that clears it** — the secret is still stored, and you are told plainly that it is not yet enforcement:
+
+```text
+[WARN] .github/workflows/ci.yml will NOT enforce the check on the next push. The secret is stored, but this project does not yet turn it into enforcement. Cause(s) and fix(es):
+  - The phase-gate step carries 'continue-on-error: true', which grades a FAILED step as success — the gate's verdict is thrown away before it can block. Delete that key from the step.
+```
+
+Two more shapes it now refuses, both of which used to earn "the next push enforces the check":
+
+```text
+  - the step's own 'shell:' is 'bash {0}', which GitHub does not run with 'set -e'. … Use 'shell: bash', or delete the key and take the default.
+
+  - The phase-gate step's 'run:' is a FOLDED block scalar ('run: >'), which joins its lines together with spaces before bash sees them — so the command that actually runs is not any line in this file, and something as invisible as '|| true' on a line of its own becomes part of the invocation. Rewrite it as a literal block scalar: …
+```
+
+A hand-edited workflow, a YAML merge key that pulls `continue-on-error` in from an anchor, a duplicated key, or a key written in a form the reader cannot parse are all reported the same way: the claim is withheld and the reason is named. **If you scaffolded before 2026-08-02, or have edited `ci.yml` by hand, expect this command to have something to say.**
+
+**The honest limit of this check.** It *enumerates* ways a workflow can fail to enforce, and a YAML file's space of wrong shapes is not enumerable — so the right reading of a clean run is "none of the known swallows is present", not "this workflow is proven to enforce". Whether the detector should instead refuse anything that is not the exact shape this framework ships is an open design question, tracked in the framework's own backlog as BL-218. Nothing shipped is wrong today; the gap is one of guarantee strength, and it is recorded rather than papered over.
+
+When all four hold, the next push enforces.
 
 Non-interactive: `SOIF_PROTECTION_TOKEN=<token> scripts/check-gate.sh --setup-ci-token`. GitLab and Bitbucket need **both** a token variable **and** the host CLI installed in the governance job (`glab` / `curl`); the same command prints those steps for those hosts. Local runs are unaffected throughout — the gate has always blocked on the dev workstation and still does.
 
@@ -2087,6 +2114,35 @@ Direct the agent to generate `HANDOFF.md`:
 **Then test the handoff (Step 4.5b — required 6th step):** have a fresh session (or the New-Maintainer persona with no prior context) follow HANDOFF.md end-to-end and record the result in `docs/test-results/YYYY-MM-DD_handoff-test.md`; then `scripts/process-checklist.sh --complete-step phase4_release:handoff_tested`. `--finalize-phase 4` requires all SIX steps — production_build, rollback_tested, go_live_verified, monitoring_configured, handoff_written, **handoff_tested** (this step was previously undocumented here: BL-105 D-6).
 
 **Agent persona — New Maintainer:** When writing handoff documentation, the agent adopts the mindset of a developer who is taking over this project on Monday with zero context. This is a business application — quality is more important than positivity. Be critical, extremely thorough, and meticulous. "I have 2 hours to get a dev environment running and fix a production bug. Every command must work verbatim. Every file path must be correct. Every dependency must be listed with version and install command." Test your own docs: could someone follow these instructions from a blank machine to a running dev environment to a fixed bug, using nothing but this document?
+
+---
+
+### Step 4.6: After the tag — the delta track
+
+Phase 4 ends at a tag, and `current_phase` stays 4 from then on. **There is no Phase 5.** What replaces it is the **delta track**: a loop *inside* phase 4 in which every post-release change — a feature, a fix, an urgent fix, a security patch — is opened, gated, closed and released one at a time.
+
+It is installed by `init.sh` in every project (`scripts/delta.sh`, `scripts/cut-release.sh`, the four `scripts/lib/delta-*.sh` libraries, `templates/generated/delta-brief.tmpl`, and the SessionStart cadence nag). It refuses to start before Phase 4 is complete — `scripts/delta.sh --open` exits 3 at any lower phase, so the maintenance loop can never substitute for building the product properly.
+
+The one-screen version:
+
+| You want to | Run |
+|---|---|
+| Start a piece of post-release work | `scripts/delta.sh --open --describe "<what you need, in plain words>"` |
+| See what it is still waiting on | `scripts/delta.sh --status` |
+| Record that a check is done | `scripts/delta.sh --complete-gate <token>` |
+| Finish it | `scripts/delta.sh --close` |
+| Pay off a hotfix's deferred review | `scripts/delta.sh --retro DELTA-NNN --record "<what happened>"` |
+| Ship | `scripts/cut-release.sh` |
+
+Three things worth knowing before you first use it:
+
+- **The brief's `## Done-observable` list is the close review.** `--close` refuses while any box is unticked, and fails closed if the section is missing or empty. Write the boxes before you build.
+- **A hotfix borrows the checks it skipped.** The write-up is due in 3 days, it outlives the delta's close, and an unfiled one **blocks the next release cut**.
+- **The cut refuses on an overdue *or unmeasurable* cadence** — the exit-2 case from Step 4.4 above. It also refuses on an open delta and on an unfiled retro, and it writes nothing at all until all three refusals pass.
+
+**Post-1.0 ledger rows carry their delta id.** A delta links an existing `BUGS.md` or `FEATURES.md` row rather than creating a parallel tracker: in `BUGS.md` the `DELTA-NNN` id rides the existing **`Fix Reference`** column (the table format is script-parsed and its own header forbids new columns), and a `FEATURES.md` block gains a `**Phase Built:** 4 (post-1.0 DELTA-NNN)` line plus a `**Brief:**` pointer. `scripts/cut-release.sh` closes those rows at cut time — `BUGS.md` goes `Open` → `Fixed` with the version appended to that same `Fix Reference` cell, and `FEATURES.md`'s `**Status:**` becomes `Complete (shipped in vX.Y.Z)`. **A `FEATURES.md` block with no `**Phase Built:**` line naming the delta is not matched at all**, which is the safe direction — the alternative is stamping a shipped version onto somebody else's feature — but it means hand-written or pre-delta-track blocks will not close automatically. When that happens the cut exits **12**, names every row it could not close, and tells you to close them by hand; the release itself is real and the next cut will not re-offer those rows. Everything that has shipped is also recorded, with its version, in `.claude/delta-state.json`'s `closed[]` — that record and the ledgers are meant to agree, and exit 12 is the tool telling you they do not.
+
+The full guide, with worked transcripts, is **`docs/delta-track.md` in the solo-orchestrator framework clone** (it is not among the seven guides `init.sh` copies into `docs/reference/`). In a generated project, `scripts/delta.sh --help` and `scripts/cut-release.sh --help` are authoritative, and your project's own `CLAUDE.md` carries a short delta-track section.
 
 ---
 
