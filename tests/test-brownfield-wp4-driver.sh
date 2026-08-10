@@ -1145,8 +1145,18 @@ else
   w1_cert=0; w1_record=0; w1_empty_named=0; w1_docs=0; w1_debt=0
   grep -q 'NOT DONE — the certification pass' "$RUN_OUT" && w1_cert=1
   grep -q 'NOT DONE — the Adoption Record' "$RUN_OUT" && w1_record=1
-  grep -q 'NOT DONE — the test-debt ledger' "$RUN_OUT" && w1_debt=1
   grep -q "NOT DONE — your project's framework documents" "$RUN_OUT" && w1_docs=1
+  # WP5b RETIRED ITS STUB, so this row flipped: the test-debt notice must be
+  # GONE and the thing it apologised for must be PRESENT. The absence alone
+  # would also be satisfied by a driver that simply stopped printing it, so it
+  # is asserted together with the artefact — the ledger has to exist on disk.
+  # Its contents, its tier ratchet and both mutation directions belong to
+  # tests/test-brownfield-wp5b-test-debt.sh; what W1 owns is the honesty
+  # accounting, and a package that has shipped must not still announce itself
+  # as NOT DONE.
+  w1_debt=1
+  grep -q 'NOT DONE — the test-debt ledger' "$RUN_OUT" && w1_debt=0
+  [ -s "$W1D/p/.claude/test-debt.json" ] || w1_debt=0
   grep -q "means 'not measured', not 'measured and clean'" "$RUN_OUT" && w1_empty_named=1
   w1_kinds=$(jq -r '[.adoption.certification.kindA, .adoption.certification.kindB, .adoption.certification.kindC] | map(length) | add' "$W1D/p/.claude/manifest.json" 2>/dev/null)
   # The CLAUDE.md half is asserted as an ABSENCE, so it carries a structural
@@ -1157,9 +1167,9 @@ else
   if [ "$w1_rc" -eq 0 ] && [ "$w1_cert" -eq 1 ] && [ "$w1_record" -eq 1 ] && [ "$w1_debt" -eq 1 ] \
      && [ "$w1_docs" -eq 1 ] && [ "$w1_no_claude" -eq 1 ] \
      && [ "$w1_empty_named" -eq 1 ] && [ "$(_num "$w1_kinds")" -eq 0 ]; then
-    pass "W1: every unbuilt package announces itself — certification, the test-debt ledger, the Adoption Record and the project documents — and the run says an empty certification list means 'not measured', not 'measured and clean'"
+    pass "W1: every STILL-unbuilt package announces itself — certification, the Adoption Record and the project documents — the run says an empty certification list means 'not measured', not 'measured and clean', and the one package that HAS shipped (WP5b's test-debt ledger) no longer announces itself as NOT DONE and left its artefact behind"
   else
-    fail_ "W1" "rc=$w1_rc certification_stub=$w1_cert test_debt_stub=$w1_debt adoption_record_stub=$w1_record project_docs_stub=$w1_docs claude_md_absent=$w1_no_claude empty_means_unmeasured_stated=$w1_empty_named certification_entries=$w1_kinds (want 0)"
+    fail_ "W1" "rc=$w1_rc certification_stub=$w1_cert test_debt_retired_and_written=$w1_debt (want 1) adoption_record_stub=$w1_record project_docs_stub=$w1_docs claude_md_absent=$w1_no_claude empty_means_unmeasured_stated=$w1_empty_named certification_entries=$w1_kinds (want 0)"
   fi
 fi
 

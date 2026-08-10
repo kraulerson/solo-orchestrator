@@ -12,9 +12,10 @@ bash /path/to/solo-orchestrator/scripts/adopt-project.sh
 > ## ⚠ Read this before you plan around adoption
 >
 > **Adoption is half built.** The driver, the scenario chooser, the reverse
-> intake, the state writes, the adoption stamp and the commit-time enabling arms
-> all ship and all work. **The certification pass, the test-debt ledger, the
-> collision archive, the CI carve-out and the Adoption Record do not exist.**
+> intake, the state writes, the adoption stamp, the commit-time enabling arms
+> and the test-debt ledger with its ratchet all ship and all work. **The
+> certification pass, the collision archive, the CI carve-out and the Adoption
+> Record do not exist.**
 >
 > The driver does not paper over that. It prints a labelled `NOT DONE` block for
 > every one of them, in the run, naming the work package that owns it. The full
@@ -35,6 +36,7 @@ Everything on this page is output that was observed, pasted as it printed.
 - [What gets written, and in what order](#what-gets-written-and-in-what-order)
 - [The adoption stamp, and what happens when it is lost](#the-adoption-stamp-and-what-happens-when-it-is-lost)
 - [The TDD exemption and its bound](#the-tdd-exemption-and-its-bound)
+- [The test-debt ledger and its ratchet](#the-test-debt-ledger-and-its-ratchet)
 - [What is not built yet](#what-is-not-built-yet)
 - [Exit codes](#exit-codes)
 
@@ -480,6 +482,114 @@ in a scaffolded project.
 
 ---
 
+## The test-debt ledger and its ratchet
+
+The exemption above is the one thing adoption genuinely cannot re-run, so it
+does not stand alone: it comes with a **forward equivalent** that is fully
+enforced from adoption day. The adoption measures your test debt once, writes it
+down, and from then on holds you to two rules about the future.
+
+`.claude/test-debt.json`, written during the run and committed with the rest of
+the adoption:
+
+```json
+{
+  "schema": "test-debt/v1",
+  "writtenAt": "2026-08-10T23:08:35Z",
+  "atCommit": "0d1effdce6abcb4dbb78253374e0c12357ee3b76",
+  "method": "A source file counts as untested when no test file's NAME contains its basename stem and it carries no inline test attribute. This is a name-match heuristic, not coverage: ...",
+  "count": 1,
+  "files": [
+    "src/ledger.js"
+  ],
+  "audit": [
+    {
+      "at": "2026-08-10T23:08:35Z",
+      "action": "created",
+      "atCommit": "0d1effdce6abcb4dbb78253374e0c12357ee3b76",
+      "previousCount": null,
+      "count": 1
+    }
+  ]
+}
+```
+
+### The two arms, and the tier they sit on
+
+| Arm | Rule | `no` | `light` | `strict` |
+|---|---|---|---|---|
+| **Non-growth** | The untested set may not gain a member | silent | warn | **block** |
+| **Touch-repays** | A file in the set that is modified must leave it in the same commit | silent | warn | **block** |
+
+Run it against a staged commit:
+
+```text
+bash <framework>/scripts/lib/adopt/adopt-test-debt.sh --check --root .
+```
+
+At `strict`, adding a file with no test:
+
+```text
+[BLOCKED] test-debt (non-growth): 1 file(s) would ENTER the untested set.
+          + src/billing.js
+          A test whose NAME carries the file's stem clears it; for Rust, inline #[cfg(test)] counts.
+          This project's enforcement tier is strict, so this is a refusal, not a note.
+rc=3
+```
+
+At `strict`, editing a file that is already in the ledger:
+
+```text
+[BLOCKED] test-debt (touch-repays): 1 ledgered file(s) were modified without gaining a test.
+          ~ src/ledger.js
+          A test whose NAME carries the file's stem clears it; for Rust, inline #[cfg(test)] counts.
+rc=4
+```
+
+The **same** staged change at `light` — a note, not a refusal:
+
+```text
+[WARN] test-debt (touch-repays): 1 ledgered file(s) were modified without gaining a test.
+          ~ src/ledger.js
+          A test whose NAME carries the file's stem clears it; for Rust, inline #[cfg(test)] counts.
+rc=0
+```
+
+And at `no`, nothing at all — no output, `rc=0`. That is deliberate and it is
+tested in both directions: **a gate that fires at the lenient tier is as wrong
+as one that never fires.** A ratchet that blocks a POC project is not a stricter
+ratchet, it is the thing that makes people turn the framework off.
+
+| Code | Meaning |
+|---|---|
+| 0 | Clean, or a tier that does not block |
+| 2 | Unusable — no ledger to ratchet against, not a git repository, no `jq` |
+| 3 | **Blocked by non-growth** |
+| 4 | **Blocked by touch-repays** |
+
+### Three things it does not claim
+
+1. **"Has a test" is not "is tested."** The ledger answers a filename question
+   (plus, for Rust, an inline `#[cfg(test)]` probe), not a coverage question. A
+   file with an empty test file beside it satisfies it. The framework has no
+   coverage instrumentation in any language, and the `method` field in the file
+   says so where the number is actually read.
+2. **The ledger is a committed file and you can edit it.** Same property as
+   `enforcement_level`: you can route around the block, not around the record.
+   Every write appends an `audit` row carrying the count it replaced. Deleting
+   the file outright is not a quiet route around the block — at `strict` the
+   ratchet then refuses with `rc=2` rather than passing.
+3. **Non-growth is weaker than shrinkage.** There is no burn-down schedule. A
+   rate is a business decision, and a rate you cannot meet teaches you to
+   disable the gate.
+
+**What is still missing, plainly:** nothing yet runs this on every commit. The
+commit-time hook belongs to WP7, so today the ratchet is a command you run — by
+hand, or from a CI step — not an automatic gate. The tier ladder, both arms and
+the ledger are real; the *automatic* part is not.
+
+---
+
 ## What is not built yet
 
 This is the honest half of the page. Everything below is **designed and not
@@ -507,19 +617,16 @@ fixed or explicitly accepted with a recorded signer.
 **Today, none of that runs.** An adopted project lands at its phase with its
 certification lists empty. Do not read an adopted project as a certified one.
 
-### The test-debt ledger — WP5b
+### The test-debt ledger — WP5b — **shipped**
 
-```text
-NOT DONE — the test-debt ledger
-   Owner: WP5b. This build does not do it, and does not pretend to.
-   Existing untested files are not recorded, so nothing yet stops that set from growing.
-```
+This one used to be on this list and is not any more. The driver no longer
+prints a `NOT DONE` block for it: it writes `.claude/test-debt.json` during the
+run and both tier-floored arms exist. See
+[The test-debt ledger and its ratchet](#the-test-debt-ledger-and-its-ratchet).
 
-The forward equivalent of the TDD exemption: `.claude/test-debt.json`, recording
-the set of source files with no test, with two tier-floored arms — the untested
-set may not **grow**, and a file in the set that gets **modified** must leave it
-in the same commit. Neither exists. Scout's untested-file count is a starting
-figure for a ledger that has nowhere to go yet.
+The residue is named there rather than hidden here: **nothing invokes the arms
+automatically yet**, because the commit-time hook is WP7's. Today it is a
+command you run.
 
 ### The collision archive, disclosure and re-adds — WP6
 
@@ -609,6 +716,17 @@ would refuse every commit, so until WP7 the two **message** gates are live —
 test-before-code ordering, and the Build-Loop commit check, both demonstrated
 above — and the scanner arms are not. Run them by hand.
 
+**The test-debt ratchet is in the same position, for the same reason and one
+more.** Its two arms exist and are enforced on the tier ladder, but nothing
+calls them on commit yet, so it is `adopt-test-debt.sh --check` by hand or from
+CI until WP7 lands. The extra reason is structural rather than schedule:
+`scripts/pre-commit-gate.sh` is **core** and the ratchet is **module** code, so
+a call from the gate to the ratchet is exactly the `core → module` edge
+[the module contract](module-contract.md)'s M3 forbids and
+`scripts/lint-module-dependencies.sh` reds on. Whatever WP7 does about the hook
+has to reach the ratchet without spending the module's severability on one
+convenience call.
+
 ### And one more, from this page rather than the driver
 
 **This page is not shipped into adopted or generated projects.** `init.sh` copies
@@ -626,7 +744,7 @@ not among them. Read them here, in the framework clone you run the driver from.
 | Test-first ordering enforced from adoption day forward | ✅ Ships and works |
 | Gates that were skipped actually run and recorded | ❌ Certification pass — **not built** |
 | Adoption that can *fail* on a serious finding | ❌ Certification pass — **not built** |
-| A recorded, non-growing set of untested files | ❌ Test-debt ledger — **not built** |
+| A recorded, non-growing set of untested files | ✅ [Test-debt ledger + ratchet](#the-test-debt-ledger-and-its-ratchet) — ships and works, **but you run it; nothing calls it on commit yet (WP7)** |
 | Your colliding hooks/settings archived with a restore path | ❌ Collision archive — **not built** |
 | Framework CI installed beside yours, with a recorded keep-or-retire | ❌ CI carve-out — **not built** |
 | A readable record of how this project entered the framework | ❌ Adoption Record — **not built** |

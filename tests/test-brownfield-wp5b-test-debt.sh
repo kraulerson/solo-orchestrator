@@ -52,7 +52,12 @@
 #   • a CONTROL beside every mutant: the same fixture against the UNMUTATED
 #     mirror, asserted GREEN in the same run. A mutant killed with no control
 #     cannot distinguish "the mutation broke the arm" from "the fixture never
-#     worked".
+#     worked";
+#   • NO BACKSLASH ESCAPES IN A REPLACEMENT STRING. `\n` in the RHS of `s///`
+#     is a newline to GNU sed and a literal `n` to BSD sed, so the same mutant
+#     would change one line on macOS and two on Linux — and the
+#     exactly-N-lines-changed assertion would then be a platform test. Every
+#     replacement below is plain text.
 #
 # ── NO awk IN THE CODE UNDER TEST, DELIBERATELY ─────────────────────────────
 # `bash -n` does not syntax-check awk: a dead awk program emits an empty
@@ -604,15 +609,43 @@ fi
 
 # F2 — M3 from the other direction, asserted directly rather than trusted to
 # the lint: the lint's CORE set is a glob list, and a file it does not scan
-# cannot red. This greps the whole tree for the new module file's basename
-# outside the module's own directory and its own test.
-f2_hits=$(grep -rl 'adopt-test-debt' "$REPO_ROOT/init.sh" "$REPO_ROOT/scripts" 2>/dev/null \
-  | grep -v '^'"$REPO_ROOT"'/scripts/lib/adopt/' | wc -l | tr -d ' ')
-f2_hits=$(_num "$f2_hits")
-if [ "$f2_hits" -eq 0 ]; then
-  pass "F2 (M3): no file outside scripts/lib/adopt/ names the new module file — core -> module stays unreachable by grep as well as by lint"
+# cannot red, which is exactly how `## BL-215:`'s missing fifth glob survived
+# from WP0. This greps the whole tree for the new file's basename and then
+# subtracts the module's own inventory.
+#
+# The inventory is READ FROM THE LINT'S OWN MANIFEST FENCE, not spelled again
+# here. Hardcoding it would mean an edit that moved a module path could widen
+# this exclusion silently — and `scripts/adopt-project.sh` is precisely such a
+# path: it is the module's ENTRY SCRIPT, so it is module code by the manifest's
+# own definition even though it lives beside core scripts.
+f2_hits="$TOPTMP/f2-hits"
+f2_mods="$TOPTMP/f2-modules"
+grep -rl 'adopt-test-debt' "$REPO_ROOT/init.sh" "$REPO_ROOT/scripts" 2>/dev/null > "$f2_hits"
+sed -n '/MODULE-DEPS-MANIFEST-BEGIN/,/MODULE-DEPS-MANIFEST-END/p' "$REPO_ROOT/scripts/lint-module-dependencies.sh" \
+  | grep -o '"adopt|[^"]*"' | sed 's/^"adopt|//; s/"$//' > "$f2_mods"
+f2_total=$(grep -c . "$f2_hits"); f2_total=$(_num "$f2_total")
+f2_modrows=$(grep -c . "$f2_mods"); f2_modrows=$(_num "$f2_modrows")
+f2_core=0
+f2_names=""
+while IFS= read -r f2_hit; do
+  [ -n "$f2_hit" ] || continue
+  f2_rel="${f2_hit#"$REPO_ROOT"/}"
+  f2_is_module=0
+  while IFS= read -r f2_mp; do
+    [ -n "$f2_mp" ] || continue
+    case "$f2_rel" in "$f2_mp"|"$f2_mp"*) f2_is_module=1 ;; esac
+  done < "$f2_mods"
+  if [ "$f2_is_module" -eq 0 ]; then
+    f2_core=$((f2_core + 1))
+    f2_names="$f2_names $f2_rel"
+  fi
+done < "$f2_hits"
+# The vacuity floor: "no core file names it" must not be reachable by scanning
+# nothing. The module's own files DO name it, so a zero total is a broken probe.
+if [ "$f2_core" -eq 0 ] && [ "$f2_total" -gt 0 ] && [ "$f2_modrows" -gt 0 ]; then
+  pass "F2 (M3): every file that names adopt-test-debt is in the adopt module's own manifest inventory ($f2_total naming files, $f2_modrows manifest rows) — core -> module stays unreachable by grep as well as by lint"
 else
-  fail_ "F2" "core files naming adopt-test-debt: $f2_hits (want 0): $(grep -rl 'adopt-test-debt' "$REPO_ROOT/init.sh" "$REPO_ROOT/scripts" 2>/dev/null | grep -v '^'"$REPO_ROOT"'/scripts/lib/adopt/' | tr '\n' ' ')"
+  fail_ "F2" "core files naming adopt-test-debt: $f2_core (want 0):$f2_names | total_naming_files=$f2_total (want >0) manifest_rows=$f2_modrows (want >0)"
 fi
 
 # F3 — M2: the entry script's declared core-lib list must actually name the
@@ -784,7 +817,7 @@ if ! _c_fixture "$M3D/p" no || ! mk_mirror "$M3D/m"; then
 else
   check_in "$M3D/p" "$(_mlib "$M3D/m")"; m3_ctl=$CHK_RC
   m3_ctl_bytes=$(_bytes "$CHK_OUT")
-  m3_meta=$(_mutate "$M3D/m" '# BF-TD-FLOOR-NO' "    no)     printf 'block\\n' ;;")
+  m3_meta=$(_mutate "$M3D/m" '# BF-TD-FLOOR-NO' "    no)     echo block ;;")
   set -- $m3_meta; m3_sites=$1; m3_changed=$2; m3_parses=$3
   check_in "$M3D/p" "$(_mlib "$M3D/m")"; m3_mut=$CHK_RC
   if [ "$m3_ctl" -eq 0 ] && [ "$m3_ctl_bytes" -eq 0 ] && [ "$m3_mut" -eq 3 ] \
@@ -806,7 +839,7 @@ if ! _d_fixture "$M4D/p" no || ! mk_mirror "$M4D/m"; then
 else
   check_in "$M4D/p" "$(_mlib "$M4D/m")"; m4_ctl=$CHK_RC
   m4_ctl_bytes=$(_bytes "$CHK_OUT")
-  m4_meta=$(_mutate "$M4D/m" '# BF-TD-FLOOR-NO' "    no)     printf 'block\\n' ;;")
+  m4_meta=$(_mutate "$M4D/m" '# BF-TD-FLOOR-NO' "    no)     echo block ;;")
   set -- $m4_meta; m4_sites=$1; m4_changed=$2; m4_parses=$3
   check_in "$M4D/p" "$(_mlib "$M4D/m")"; m4_mut=$CHK_RC
   if [ "$m4_ctl" -eq 0 ] && [ "$m4_ctl_bytes" -eq 0 ] && [ "$m4_mut" -eq 4 ] \
@@ -824,7 +857,7 @@ if ! _c_fixture "$M5D/p" light || ! mk_mirror "$M5D/m"; then
 else
   check_in "$M5D/p" "$(_mlib "$M5D/m")"; m5_ctl=$CHK_RC
   m5_ctl_warn=0; grep -qi 'warn' "$CHK_OUT" && m5_ctl_warn=1
-  m5_meta=$(_mutate "$M5D/m" '# BF-TD-FLOOR-LIGHT' "    light)  printf 'block\\n' ;;")
+  m5_meta=$(_mutate "$M5D/m" '# BF-TD-FLOOR-LIGHT' "    light)  echo block ;;")
   set -- $m5_meta; m5_sites=$1; m5_changed=$2; m5_parses=$3
   check_in "$M5D/p" "$(_mlib "$M5D/m")"; m5_mut=$CHK_RC
   if [ "$m5_ctl" -eq 0 ] && [ "$m5_ctl_warn" -eq 1 ] && [ "$m5_mut" -eq 3 ] \
@@ -884,7 +917,14 @@ fi
 # parse check while a dead awk emitted an empty result that reads as "nothing
 # wrong". The defence is structural: this module drives no awk. Pinned here so
 # that introducing one has to argue with a test rather than slip in.
-m8_awk=$(grep -c '\bawk\b' "$LIB" 2>/dev/null); m8_awk=$(_num "$m8_awk")
+#
+# Whole-line comments are stripped before counting, and only those: the module
+# has to be able to EXPLAIN this rule in its own header, and a check that
+# forbade the word would forbid the explanation. A trailing comment mentioning
+# it would still count, which is the conservative direction — a false red on a
+# comment costs a sentence, a false green on a live pipeline costs the
+# property.
+m8_awk=$(grep -v '^[[:space:]]*#' "$LIB" | grep -c '\bawk\b'); m8_awk=$(_num "$m8_awk")
 if [ "$m8_awk" -eq 0 ]; then
   pass "M8: the module drives no awk — the 'a dead awk emits empty and empty reads as fine' failure mode is removed rather than defended against"
 else
