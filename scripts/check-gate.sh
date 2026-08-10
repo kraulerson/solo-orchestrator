@@ -838,12 +838,20 @@ _wf_gate_scope() {
       # GitHub documents, so the gate runs with a token the tests in this repo
       # say cannot read branch protection, while "maps <name> into the phase-gate
       # step" is still earned. Pre-existing: the file-wide match this replaced
-      # had the identical blind spot. UNFIXED because the fix is not free — it
-      # means resolving the effective value of one named variable across three
-      # env scopes, and the variable is not knowable here: `--token-env` is
-      # operator-supplied, and a `${{ secrets.X }}` written straight into the
-      # `run:` body (which this scope deliberately accepts as a real mapping)
-      # carries no variable name at all. A narrowing that guessed wrong would
+      # had the identical blind spot. UNFIXED because the fix is not free, and
+      # the reason is SCOPE COLLAPSE, not an unknown variable name — an earlier
+      # draft of this comment blamed `--token-env`, which is wrong and adversarial
+      # review caught it: that flag names the local shell variable the SETUP
+      # command reads the token value from, and the workflow-side name is
+      # hard-coded (`_wf_print_gate_step` emits `GH_TOKEN:`), so for the
+      # same-name shadow the name is right there on the outer mapping line.
+      # What actually costs: this emitter deliberately UNIONS the three env
+      # scopes into one stream, so nothing downstream can tell an outer binding
+      # from an inner one — seeing a shadow means emitting scope-tagged lines and
+      # teaching every consumer to read them. It also needs an exemption for a
+      # `${{ secrets.X }}` written straight into the `run:` body, which this
+      # scope deliberately accepts as a real mapping and which carries no
+      # variable name to compare. A narrowing that guessed wrong would
       # red a legitimately-wired file, which is the direction this branch treats
       # as the worse one. Karl owns behaviour changes; this is recorded, and
       # pinned in tests/test-walk006-ci-protection-scope.sh, so closing it is a
