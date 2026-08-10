@@ -101,6 +101,28 @@ The SessionStart detector or the bypass-audit library hit an unrecoverable error
 - **`actor`:** `framework`.
 - **`details`:** `{reason}`.
 
+### `adoption_event`
+
+A **brownfield adoption** did something to the operator's project that they are entitled to find again later. One type covers all of them, discriminated by `details.event` — [the brownfield design](designs/2026-08-02-brownfield-adoption-v1.md) §8.9 chose one member with a discriminator over five members, because adding a row type touches five surfaces and five types would be five times that work for no extra fidelity.
+
+- **Writer:** the adoption driver (`--re-add`, and the collision archive during an adoption run).
+- **Lifecycle:** terminal on write. `user_response: "n/a"`, `final_outcome: "recorded_only"`.
+- **`actor`:** `framework`.
+- **`enforcement_level_at_event`:** always `"n/a"`, deliberately. These are disclosure events, not gate outcomes; reading a tier for them would fork the `# BL-084-TIER-KEY` predicate into a sixth site that must be changed in sync with the other five.
+- **`details`:** `{event, …}`, where `event` is one of:
+
+| `details.event` | Recorded when | Extra `details` |
+| - | - | - |
+| `collision_archive` | The collision archive is written during an adoption | `archiveDir`, `entryCount`, `secretsScanStatus` |
+| `collision_re_add` | The operator puts one of their archived files back | `path`, `archivedPath`, `warningShown` |
+| `adoption` | The adoption itself completes | *no emitter yet* |
+| `blocker_acceptance` | A certification blocker is accepted | *no emitter yet* |
+| `secrets_disposition` | A finding is dispositioned `accepted risk` | *no emitter yet* |
+
+The three "no emitter yet" rows are named because the vocabulary is closed and a reader of a ledger should be able to tell "this never happened" from "this happens and is not recorded". Today only the two collision events are written.
+
+**A `collision_re_add` row is the operator overriding the framework, on purpose.** §7.3 permits re-adds — *"the framework's premise is opinionated enforcement, not confiscation"* — and asks only that the choice be legible to whoever reads the ledger next. A project with re-add rows is not a misconfigured project; it is one whose owner made a decision you can now go and read.
+
 ## Lifecycle per enforcement level
 
 The user-guide table gives you the high-level matrix. The audit log's *content* is what concretely differs across levels:
@@ -132,6 +154,9 @@ jq '[.[] | select(.type == "escalation")] | .[] | {ts: .timestamp, response: .us
 
 # 5. Detector errors (gaps in coverage that should be investigated).
 jq '[.[] | select(.type == "detector_error")] | .[] | {ts: .timestamp, level: .enforcement_level_at_event, reason: .details.reason}' .claude/bypass-audit.json
+
+# 7. Brownfield adoption: what the archive took, and what the operator took back.
+jq '[.[] | select(.type == "adoption_event")] | sort_by(.timestamp) | .[] | {ts: .timestamp, event: .details.event, path: (.details.path // .details.archiveDir // "n/a"), details: .details}' .claude/bypass-audit.json
 
 # 6. Quick health summary — counts by type, by actor.
 jq 'group_by(.type) | map({type: .[0].type, count: length})' .claude/bypass-audit.json

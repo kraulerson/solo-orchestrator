@@ -13,9 +13,10 @@ bash /path/to/solo-orchestrator/scripts/adopt-project.sh
 >
 > **Adoption is half built.** The driver, the scenario chooser, the reverse
 > intake, the state writes, the adoption stamp, the commit-time enabling arms
-> and the test-debt ledger with its ratchet all ship and all work. **The
-> certification pass, the collision archive, the CI carve-out and the Adoption
-> Record do not exist.**
+> the test-debt ledger with its ratchet, and — as of WP6 — **the collision
+> archive, its disclosure and its recorded re-adds** all ship and all work.
+> **The certification pass, the CI carve-out and the Adoption Record do not
+> exist.**
 >
 > The driver does not paper over that. It prints a labelled `NOT DONE` block for
 > every one of them, in the run, naming the work package that owns it. The full
@@ -681,27 +682,96 @@ The residue is named there rather than hidden here: **nothing invokes the arms
 automatically yet**, because the commit-time hook is WP7's. Today it is a
 command you run.
 
-### The collision archive, disclosure and re-adds — WP6
+### The collision archive, disclosure and re-adds — SHIPS (WP6)
 
-Scout **reports** collisions (see [scout.md](scout.md#collisions--what-the-framework-would-otherwise-trample));
-nothing archives them. The designed behaviour — inventory, then archive your
-version into a timestamped directory **with a written MANIFEST and restore
-instructions**, then install the framework's clean set, then disclose plainly
-what moved — does not exist. Nor do the `adoption_event` audit rows.
+**This section used to say the archive did not exist. It does now.**
 
-Related, and printed by the driver:
+Before any framework writer runs, adoption copies the files it would otherwise
+land on into `.claude/adoption-archive/<UTC-timestamp>-<pid>/`, mirroring your
+paths, and writes a `MANIFEST.json` and a `MANIFEST.md` beside them. The
+population is the archive-and-replace bucket: `.claude/settings.json`,
+`.claude/settings.local.json`, `.mcp.json`, your `.claude/skills/*/SKILL.md`,
+and every non-`.sample` file in `.git/hooks/`. **Only files that exist are
+archived** — an absent surface produces no file and no manifest row.
+
+Nothing is deleted. Every entry carries a `restore` line you can paste, and
+every git-hook entry carries a short **advisory** description of what it
+invoked, assembled from a fixed list of tool names so that no byte of your hook
+can reach the manifest.
+
+The run then discloses it in full — the sentence, **the list** (every path, not
+a count), and the restore instructions:
+
+```text
+══ Your own configuration has been archived
+   The files below were moved to ensure the framework operates properly.
+   Nothing was deleted. Every one of them is in .claude/adoption-archive/… and can be put back.
+
+   yours: .git/hooks/pre-commit
+      archived as: .claude/adoption-archive/…/git-hooks/pre-commit
+      what it did: Ran `lint-staged`, `npx`, and other commands.
+      put it back: cp .claude/adoption-archive/…/git-hooks/pre-commit .git/hooks/pre-commit
+```
+
+#### Your files are yours — `--re-add`
+
+```bash
+bash /path/to/solo-orchestrator/scripts/adopt-project.sh --re-add .git/hooks/pre-commit
+```
+
+It prints the warning, asks you to confirm (there is no default and no skip),
+restores the file byte-for-byte at its recorded mode, and writes the choice
+into `.claude/bypass-audit.json` as an `adoption_event` row. The framework's
+premise is opinionated enforcement, not confiscation; it asks only that the
+override be findable by whoever reads the ledger next. See
+[audit-log-lifecycle.md](audit-log-lifecycle.md#adoption_event).
+
+#### The archive is scanned before anything is committed
+
+`.git/hooks/` is **not** tracked by git; `.claude/` is. So copying a hook into
+the archive and committing it would take a credential git had never seen and
+put it in your history — **adoption would create the leak.** So the archive is
+scanned with `gitleaks` *before* staging, and any entry that matches is written
+to disk and **kept out of the commit**, with the reason recorded:
+
+```text
+   1 of those copies were NOT added to the commit.
+   NOT COMMITTED — secret-match
+   A credential in a file git had never seen would have become a credential in
+   your history. Rotate it at the source; deleting the file does not un-leak it.
+```
+
+Two more refusals share that path. If gitleaks is **not installed**, the scan
+reports `tool-unavailable` and **the whole archive is withheld** — "nobody
+looked" is not "clean", and an unexamined tree does not enter version control.
+And if your own `.gitignore` excludes an archived path, that entry is withheld
+too (`gitignored`), because `git add` on an ignored path fails and would
+otherwise abort the entire adoption commit.
+
+This is a mitigation, not a proof: a hook can contain something a secret
+scanner does not recognise. Read `MANIFEST.md` before you push.
+
+#### Still not built by this package
 
 ```text
 NOT DONE — your project's framework documents
-   Owner: WP6 (they are collision decisions before they are writes). This build does not do it, and does not pretend to.
+   Owner: unassigned — §10 names no owner. This build does not do it, and does not pretend to.
    CLAUDE.md, the document templates and the reference docs are NOT written. The scripts and the
    state are here, so the gates work; the reading material an agent picks up at the start
    of a session is not, and a CLAUDE.md you already have would be a collision, not a gap.
+   WP6's archive covers your AI-layer settings and your git hooks; documents are neither.
 ```
 
 So an adopted project has working gates and **no `CLAUDE.md`** — the file an
 agent reads at the start of every session. Write one by hand, or copy
 `templates/generated/claude-md.tmpl` from the framework clone and fill it in.
+
+The other gap is the **replacement** half for framework-script collisions: a
+file of yours sitting where a framework *script* would go is still left alone
+and still not replaced, so the framework's version of it is not installed. That
+class is deliberately outside the archive — swapping out a `scripts/validate.sh`
+your own build may call is a decision nobody has made yet — and the run names
+it with its own `NOT DONE` block.
 
 ### The CI carve-out, provenance headers and the Adoption Record — WP7
 
@@ -739,7 +809,9 @@ how this project entered the framework, carrying the scenario, the landed phase,
 the certification inventory, the blocker acceptances, the secrets dispositions,
 the collision archive path and the CI keep-or-retire decisions — does not exist.
 Neither does the eight-clause lint that keeps it structurally unparseable as a
-gate approval.
+gate approval. (The archive path it would carry is real now — it is in
+`.claude/adoption-archive/*/MANIFEST.json` and in an `adoption_event` audit
+row. What is missing is the Record that gathers it with everything else.)
 
 The **CI carve-out** does not exist either. Nothing installs framework CI as its
 own files, and nothing records a keep-or-retire decision about your pipelines.
@@ -798,11 +870,15 @@ not among them. Read them here, in the framework clone you run the driver from.
 | Gates that were skipped actually run and recorded | ❌ Certification pass — **not built** |
 | Adoption that can *fail* on a serious finding | ❌ Certification pass — **not built** |
 | A recorded, non-growing set of untested files | ✅ [Test-debt ledger + ratchet](#the-test-debt-ledger-and-its-ratchet) — ships and works, **but you run it; nothing calls it on commit yet (WP7)** |
-| Your colliding hooks/settings archived with a restore path | ❌ Collision archive — **not built** |
+| Your colliding hooks/settings archived with a restore path | ✅ Collision archive — ships |
+| Plain disclosure of what was archived, path by path | ✅ Ships |
+| Putting one of your own files back, warned and recorded | ✅ `--re-add`, ships |
+| A guarantee adoption will not commit a secret out of your hooks | ✅ Ships — the archive is scanned before staging, and a match is withheld |
 | Framework CI installed beside yours, with a recorded keep-or-retire | ❌ CI carve-out — **not built** |
 | A readable record of how this project entered the framework | ❌ Adoption Record — **not built** |
 | Secret scanning, SAST and migration checks on every commit | ❌ Deferred to WP7, by decision |
-| A `CLAUDE.md` in the adopted project | ❌ Deferred to WP6 |
+| The framework's version of a colliding `scripts/*.sh` installed | ❌ Replacement half — **not built**, and unassigned |
+| A `CLAUDE.md` in the adopted project | ❌ **Not built** — unassigned; §10 names no owner |
 | The manifest's tier keys, so enforcement cannot be downgraded | ❌ **Not written — `## BL-221:`.** Set them by hand on an organizational adoptee |
 
 ---
