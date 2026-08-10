@@ -11,7 +11,23 @@
 #     "type":                      "claude_bypass_proposal" | "terminal_commit_blocked" |
 #                                  "terminal_commit_passed" | "out_of_band_commit" |
 #                                  "enforcement_level_set" | "detector_error" | "escalation" |
-#                                  "sast_suppression",
+#                                  "sast_suppression" | "adoption_event",
+#                                  (Brownfield §8.9: "adoption_event" records a
+#                                  brownfield ADOPTION event, discriminated by
+#                                  details.event rather than by a type of its
+#                                  own — one enum member is one five-surface
+#                                  change and five members would be five. The
+#                                  event vocabulary is: adoption,
+#                                  blocker_acceptance, secrets_disposition,
+#                                  collision_archive, collision_re_add. Written
+#                                  by the adoption driver; actor is always
+#                                  "framework", final_outcome always
+#                                  "recorded_only", and
+#                                  enforcement_level_at_event always "n/a" —
+#                                  these are disclosure events, not gate
+#                                  outcomes, and reading a tier for them would
+#                                  fork the # BL-084-TIER-KEY predicate into a
+#                                  sixth site.)
 #                                  (BL-185: "sast_suppression" records a staged
 #                                  nosemgrep/nosem directive observed by the SAST arm;
 #                                  final_outcome is always "recorded_only" — the arm

@@ -191,10 +191,25 @@ mk_adoptee() {
 # to be worth asserting, and a fixture that carries every surface can only
 # prove the positive half.
 #
-# The pre-commit hook invokes two tools from the description generator's closed
+# The pre-commit hook names two tools from the description generator's closed
 # vocabulary (`npx`, `lint-staged`) so the §7.2 description requirement has a
 # POSITIVE control, and — when a plant is passed — carries a BASE32-valid key
 # in an `export` line, which is the §7.3 hazard in its most ordinary form.
+#
+# THE HOOK MUST EXIT 0, AND FINDING OUT WHY COST A FAILING MUTATION. WP4
+# installs the framework's hooks AFTER the adoption commit on purpose: the
+# adoptee's OWN hooks judge that commit. A fixture hook that really ran
+# `npx lint-staged` therefore exited 127 on a host without npx, the adoption
+# commit was REJECTED, and two probes went quiet about it — S1's `git ls-files`
+# reads the INDEX, which is populated whether or not the commit lands, and S2's
+# "the plant is in no committed file" was trivially true because there was no
+# adoption commit at all. S4's mutation is what surfaced it: the mutant staged
+# the secret-bearing entry exactly as predicted and the plant still could not
+# be found in HEAD. The hook now names its tools in a comment and exits 0 —
+# §7.2's description is a SHALLOW STATIC READ of the whole file, so the
+# positive control is unaffected — every tracked-ness probe reads
+# `git ls-tree HEAD`, and every case that depends on a commit asserts the
+# commit landed.
 _add_surfaces() {
   local d="$1" plant="${2:-}"
   mkdir -p "$d/.claude/skills/invoice-helper" "$d/.git/hooks" || return 1
@@ -203,7 +218,8 @@ _add_surfaces() {
   {
     printf '#!/usr/bin/env bash\n'
     [ -n "$plant" ] && printf 'export AWS_ACCESS_KEY_ID=%s\n' "$plant"
-    printf 'npx lint-staged\n'
+    printf '# on a developer machine this hook runs: npx lint-staged\n'
+    printf 'exit 0\n'
   } > "$d/.git/hooks/pre-commit"
   chmod 755 "$d/.git/hooks/pre-commit"
   printf '#!/usr/bin/env bash\n# their own commit-msg hook\nexit 0\n' > "$d/.git/hooks/commit-msg"
@@ -289,6 +305,31 @@ run_readd() {
 arch_dir_of() {
   ( cd "$1" 2>/dev/null || return 1
     find .claude/adoption-archive -mindepth 1 -maxdepth 1 -type d 2>/dev/null | LC_ALL=C sort | head -1 )
+}
+
+# _in_head DIR PATH — 1 when PATH is in the COMMIT, 0 otherwise.
+#
+# `git ls-tree HEAD` and NOT `git ls-files`, and the difference is the whole
+# reason this helper exists rather than being written inline. `git ls-files`
+# reads the INDEX: a path that was `git add`ed reports as tracked even if the
+# commit that was supposed to carry it was refused by a hook. Every assertion
+# in this suite about what adoption COMMITTED must read the commit.
+_in_head() {
+  local n
+  n=$( cd "$1" 2>/dev/null && git ls-tree -r --name-only HEAD 2>/dev/null | grep -cxF -- "$2" )
+  _num "$n"
+}
+
+# _adoption_commit_landed DIR — 1 when HEAD is the adoption commit.
+# The control every committed-tree assertion needs: "the plant is in no
+# committed file" is satisfied just as well by there being no commit.
+_adoption_commit_landed() {
+  local s
+  s=$( cd "$1" 2>/dev/null && git log -1 --format=%s 2>/dev/null )
+  case "$s" in
+    "chore: adopt "*) printf '1\n' ;;
+    *)               printf '0\n' ;;
+  esac
 }
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -521,15 +562,18 @@ if [ "$HAVE_GITLEAKS" -eq 1 ]; then
   # ── S1 — the matching entry REFUSES TO STAGE ─────────────────────────────
   s1_staged=$(jq -r '.entries[] | select(.originalPath == ".git/hooks/pre-commit") | .stagedForCommit' "$S_MJ" 2>/dev/null)
   s1_reason=$(jq -r '.entries[] | select(.originalPath == ".git/hooks/pre-commit") | .withheldReason // ""' "$S_MJ" 2>/dev/null)
-  s1_tracked=$( cd "$S_D/p" && git ls-files -- "$S_ARCH/git-hooks/pre-commit" 2>/dev/null | grep -c . ); s1_tracked=$(_num "$s1_tracked")
+  s1_tracked=$(_in_head "$S_D/p" "$S_ARCH/git-hooks/pre-commit")
   # The clean sibling in the SAME archive must still be committed, or "nothing
-  # was staged" would satisfy this assertion just as well as a targeted refusal.
-  s1_sib=$( cd "$S_D/p" && git ls-files -- "$S_ARCH/.claude/settings.json" 2>/dev/null | grep -c . ); s1_sib=$(_num "$s1_sib")
+  # was staged" would satisfy this assertion just as well as a targeted
+  # refusal — and the adoption commit itself must have LANDED, or "not in the
+  # commit" would be a statement about a commit that does not exist.
+  s1_sib=$(_in_head "$S_D/p" "$S_ARCH/.claude/settings.json")
+  s1_landed=$(_adoption_commit_landed "$S_D/p")
   if [ "$s1_staged" = "false" ] && [ "$s1_reason" = "secret-match" ] \
-     && [ "$s1_tracked" -eq 0 ] && [ "$s1_sib" -eq 1 ]; then
-    pass "S1: the matching entry REFUSES TO STAGE (stagedForCommit=false, withheldReason=secret-match, untracked) while its clean sibling in the same archive IS committed"
+     && [ "$s1_landed" -eq 1 ] && [ "$s1_tracked" -eq 0 ] && [ "$s1_sib" -eq 1 ]; then
+    pass "S1: the matching entry REFUSES TO STAGE (stagedForCommit=false, withheldReason=secret-match, absent from HEAD) while its clean sibling in the same archive IS in the adoption commit"
   else
-    fail_ "S1" "stagedForCommit='$s1_staged' (want false) withheldReason='$s1_reason' (want secret-match) tracked=$s1_tracked (want 0) clean-sibling-tracked=$s1_sib (want 1)"
+    fail_ "S1" "stagedForCommit='$s1_staged' (want false) withheldReason='$s1_reason' (want secret-match) adoption commit landed=$s1_landed (want 1) in HEAD=$s1_tracked (want 0) clean-sibling in HEAD=$s1_sib (want 1)"
   fi
 
   # ── S2 — the plant reaches NO artifact byte ──────────────────────────────
@@ -551,11 +595,12 @@ if [ "$HAVE_GITLEAKS" -eq 1 ]; then
   s2_err=$(_count_in "$RUN_ERR" "$HOOK_PLANT")
   s2_ledger=$(_count_in "$S_D/p/.claude/bypass-audit.json" "$HOOK_PLANT")
   if [ "$s0_copy" -eq 1 ] && [ "$s0_count" -ge 1 ] && [ -s "$S_MJ" ] && [ -s "$S_MD" ] \
+     && [ "$(_adoption_commit_landed "$S_D/p")" -eq 1 ] \
      && [ "$s2_ctrl" -ge 1 ] && [ "$s2_tree" -eq 0 ] && [ "$s2_mj" -eq 0 ] && [ "$s2_md" -eq 0 ] \
      && [ "$s2_out" -eq 0 ] && [ "$s2_err" -eq 0 ] && [ "$s2_ledger" -eq 0 ]; then
     pass "S2: the plant occurs in ZERO bytes of the committed tree, MANIFEST.json, MANIFEST.md, the transcript and the audit ledger — while provably present once in the archive copy, and with the tree probe proven able to see a committed token ($s2_ctrl file)"
   else
-    fail_ "S2" "precondition: plant-in-archive-copy=$s0_copy (want 1) findingCount=$s0_count (want >=1) MANIFEST.json non-empty=$([ -s "$S_MJ" ] && echo 1 || echo 0) MANIFEST.md non-empty=$([ -s "$S_MD" ] && echo 1 || echo 0); probe control=$s2_ctrl (want >=1); committed tree=$s2_tree MANIFEST.json=$s2_mj MANIFEST.md=$s2_md stdout=$s2_out stderr=$s2_err ledger=$s2_ledger (all want 0)"
+    fail_ "S2" "precondition: plant-in-archive-copy=$s0_copy (want 1) findingCount=$s0_count (want >=1) MANIFEST.json non-empty=$([ -s "$S_MJ" ] && echo 1 || echo 0) MANIFEST.md non-empty=$([ -s "$S_MD" ] && echo 1 || echo 0) adoption commit landed=$(_adoption_commit_landed "$S_D/p") (want 1); probe control=$s2_ctrl (want >=1); committed tree=$s2_tree MANIFEST.json=$s2_mj MANIFEST.md=$s2_md stdout=$s2_out stderr=$s2_err ledger=$s2_ledger (all want 0)"
   fi
 
   # ── S3 — POSITIVE CONTROL: a CLEAN archive IS staged ─────────────────────
@@ -564,11 +609,13 @@ if [ "$HAVE_GITLEAKS" -eq 1 ]; then
   s3_staged=$(jq -r '.entries[] | select(.originalPath == ".git/hooks/pre-commit") | .stagedForCommit' "$A_MJ" 2>/dev/null)
   s3_status=$(jq -r '.secretsScan.status // "MISSING"' "$A_MJ" 2>/dev/null)
   s3_count=$(jq -r '.secretsScan.findingCount // "null"' "$A_MJ" 2>/dev/null)
-  s3_tracked=$( cd "$A_D/p" && git ls-files -- "$A_ARCH/git-hooks/pre-commit" 2>/dev/null | grep -c . ); s3_tracked=$(_num "$s3_tracked")
-  if [ "$s3_staged" = "true" ] && [ "$s3_status" = "scanned" ] && [ "$s3_count" = "0" ] && [ "$s3_tracked" -eq 1 ]; then
-    pass "S3 POSITIVE CONTROL: with no plant the same entry IS staged and committed (status=scanned, findingCount=0) — the refusal is targeted, not a blanket"
+  s3_tracked=$(_in_head "$A_D/p" "$A_ARCH/git-hooks/pre-commit")
+  s3_landed=$(_adoption_commit_landed "$A_D/p")
+  if [ "$s3_staged" = "true" ] && [ "$s3_status" = "scanned" ] && [ "$s3_count" = "0" ] \
+     && [ "$s3_landed" -eq 1 ] && [ "$s3_tracked" -eq 1 ]; then
+    pass "S3 POSITIVE CONTROL: with no plant the same entry IS staged and lands in the adoption commit (status=scanned, findingCount=0) — the refusal is targeted, not a blanket"
   else
-    fail_ "S3" "stagedForCommit='$s3_staged' (want true) status='$s3_status' findingCount='$s3_count' (want 0) tracked=$s3_tracked (want 1)"
+    fail_ "S3" "stagedForCommit='$s3_staged' (want true) status='$s3_status' findingCount='$s3_count' (want 0) adoption commit landed=$s3_landed (want 1) in HEAD=$s3_tracked (want 1)"
   fi
 
   # ── S4 — MUTATION: remove the pre-staging scan ───────────────────────────
@@ -585,13 +632,14 @@ if [ "$HAVE_GITLEAKS" -eq 1 ]; then
     _ans > "$S4/answers"
     run_adopt "$S4/p" "$S4/answers" "$S4/fw"
     s4_arch="$(arch_dir_of "$S4/p")"
-    s4_tracked=$( cd "$S4/p" && git ls-files -- "$s4_arch/git-hooks/pre-commit" 2>/dev/null | grep -c . ); s4_tracked=$(_num "$s4_tracked")
+    s4_tracked=$(_in_head "$S4/p" "$s4_arch/git-hooks/pre-commit")
+    s4_landed=$(_adoption_commit_landed "$S4/p")
     s4_tree=$( cd "$S4/p" && git grep -F -l -- "$HOOK_PLANT" HEAD 2>/dev/null | grep -c . ); s4_tree=$(_num "$s4_tree")
     if [ "$s4_sites" -eq 1 ] && [ "$s4_chg" -eq 2 ] && [ "$s4_parses" -eq 1 ] \
-       && [ "$s4_tracked" -eq 1 ] && [ "$s4_tree" -ge 1 ]; then
+       && [ "$s4_landed" -eq 1 ] && [ "$s4_tracked" -eq 1 ] && [ "$s4_tree" -ge 1 ]; then
       pass "S4 (MUTATION): with the pre-staging scan neutered (1 site, 2 lines, mutant parses) the secret-bearing entry IS committed and the plant appears in $s4_tree committed file(s) — RED"
     else
-      fail_ "S4" "sites=$s4_sites (want 1) changed_lines=$s4_chg (want 2) parses=$s4_parses (want 1) entry_tracked=$s4_tracked (want 1) plant_in_tree=$s4_tree (want >=1)"
+      fail_ "S4" "sites=$s4_sites (want 1) changed_lines=$s4_chg (want 2) parses=$s4_parses (want 1) adoption commit landed=$s4_landed (want 1) entry in HEAD=$s4_tracked (want 1) plant_in_tree=$s4_tree (want >=1)"
     fi
   fi
 else
@@ -851,10 +899,43 @@ echo "=== C — the collision archive is recorded, and the module stays severabl
 c1_rows=$(jq -r '[.[] | select(.type == "adoption_event") | select(.details.event == "collision_archive")] | length' "$A_D/p/.claude/bypass-audit.json" 2>/dev/null); c1_rows=$(_num "$c1_rows")
 c1_dir=$(jq -r '[.[] | select(.type == "adoption_event") | select(.details.event == "collision_archive")] | .[0].details.archiveDir // ""' "$A_D/p/.claude/bypass-audit.json" 2>/dev/null)
 c1_count=$(jq -r '[.[] | select(.type == "adoption_event") | select(.details.event == "collision_archive")] | .[0].details.entryCount // -1' "$A_D/p/.claude/bypass-audit.json" 2>/dev/null); c1_count=$(_num "$c1_count")
-if [ "$c1_rows" -eq 1 ] && [ "$c1_dir" = "$A_ARCH" ] && [ "$c1_count" -ge 4 ]; then
-  pass "C1: the collision archive writes exactly one adoption_event/collision_archive row naming the directory and its $c1_count entries"
+# AND THE LEDGER IS IN THE COMMIT. A row that exists only in an untracked file
+# is a record no clone carries — docs/audit-log-lifecycle.md calls this the
+# TRACKED ledger, and an adopted project must get the same thing a scaffolded
+# one does.
+c1_ledger=$(_in_head "$A_D/p" ".claude/bypass-audit.json")
+if [ "$c1_rows" -eq 1 ] && [ "$c1_dir" = "$A_ARCH" ] && [ "$c1_count" -ge 4 ] && [ "$c1_ledger" -eq 1 ]; then
+  pass "C1: the collision archive writes exactly one adoption_event/collision_archive row naming the directory and its $c1_count entries — and the ledger carrying it is IN the adoption commit"
 else
-  fail_ "C1" "rows=$c1_rows (want 1) archiveDir='$c1_dir' (want $A_ARCH) entryCount=$c1_count (want >=4)"
+  fail_ "C1" "rows=$c1_rows (want 1) archiveDir='$c1_dir' (want $A_ARCH) entryCount=$c1_count (want >=4) ledger in HEAD=$c1_ledger (want 1)"
+fi
+
+# C1b — the same, with the operator's .gitignore excluding the ledger: the run
+# must NOT abort. `git add` on an ignored path fails, and the driver stages
+# every recorded path in one command, so an unguarded record here would take
+# the whole adoption down. Positive control built in: the adoption commit must
+# still land and the archive's own MANIFEST must still be in it.
+C1B="$(newtmp)"
+if ! mk_adoptee "$C1B/p" || ! _add_surfaces "$C1B/p"; then
+  fail_ "C1b" "fixture setup failed"
+else
+  printf '.claude/bypass-audit.json\n' > "$C1B/p/.gitignore"
+  ( cd "$C1B/p" && git add .gitignore && git commit -q -m "chore: their ignore rules" ) >/dev/null 2>&1
+  _ans > "$C1B/answers"
+  run_adopt "$C1B/p" "$C1B/answers"
+  c1b_rc=$RUN_RC
+  c1b_landed=$(_adoption_commit_landed "$C1B/p")
+  c1b_arch="$(arch_dir_of "$C1B/p")"
+  c1b_ledger=$(_in_head "$C1B/p" ".claude/bypass-audit.json")
+  c1b_manifest=0
+  [ -n "$c1b_arch" ] && c1b_manifest=$(_in_head "$C1B/p" "$c1b_arch/MANIFEST.json")
+  c1b_ondisk=0; [ -f "$C1B/p/.claude/bypass-audit.json" ] && c1b_ondisk=1
+  if [ "$c1b_rc" -eq 0 ] && [ "$c1b_landed" -eq 1 ] && [ "$c1b_ledger" -eq 0 ] \
+     && [ "$c1b_manifest" -eq 1 ] && [ "$c1b_ondisk" -eq 1 ]; then
+    pass "C1b: when the operator's .gitignore excludes the ledger the adoption still COMPLETES (rc 0) — the ledger is on disk and out of the commit, and the archive MANIFEST still lands"
+  else
+    fail_ "C1b" "rc=$c1b_rc (want 0) adoption commit landed=$c1b_landed (want 1) ledger in HEAD=$c1b_ledger (want 0) ledger on disk=$c1b_ondisk (want 1) MANIFEST in HEAD=$c1b_manifest (want 1)"
+  fi
 fi
 
 # C2 — M3: no CORE file may name this module. Run the real lint.

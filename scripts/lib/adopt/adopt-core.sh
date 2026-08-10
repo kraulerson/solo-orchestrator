@@ -33,11 +33,12 @@
 
 # adopt_module_version — the driver's own version marker. A literal, for the
 # same reason Scout's is: at adoption time there may be no framework state to
-# read a version out of. The `-wp4` suffix is information, not decoration —
-# this build carries the skeleton, the chooser, placement and reverse intake,
-# and HONEST STUBS where WP5/WP5b/WP6/WP7 will land.
+# read a version out of. The suffix is information, not decoration — this build
+# carries the skeleton, the chooser, placement, reverse intake AND WP6's
+# collision archive, disclosure, recorded re-adds and archive-secrets refusal,
+# with HONEST STUBS where WP5/WP5b/WP7 will land.
 adopt_module_version() {
-  printf '%s\n' "0.1.0-wp4"
+  printf '%s\n' "0.2.0-wp6"
 }
 
 # ── Output. One transcript, on stdout, so a test can pin it. ────────────────

@@ -68,6 +68,32 @@ fi
 esc_rows=$(jq '[.[] | select(.type=="escalation")] | length' "$PROJ/.claude/bypass-audit.json")
 if [ "$esc_rows" = "1" ]; then pass "T4: escalation audit row"; else fail_ "T4" "rows=$esc_rows"; fi
 
+# T4b (brownfield §8.9): put a REAL adoption_event row in the ledger, written
+# by the REAL emitter, BEFORE the T5 and T6 enum invariants read it.
+#
+# THIS IS THE POINT OF THE CASE AND IT IS NOT DECORATION. §8.9's indictment of
+# the two most recent row-type additions is that their pins "pass today only
+# because they run over fixture ledgers that never contain those types — a test
+# that cannot fail is not a pin." `sast_suppression` is in the docblock and
+# absent from T6's whitelist; `freshness_enforcement_snooze` is in neither.
+# Both go unnoticed because no fixture ever carries them.
+#
+# So `adoption_event` arrives with a fixture. The row below is produced by
+# adopt_audit_event — the shipped emitter, not a hand-written stand-in — which
+# means the ledger T5 and T6 read now contains the real thing. Drift the
+# emitter's type literal by one character and T6 goes RED for real; drop
+# adoption_event from T6's whitelist and it goes RED for real. Neither is true
+# of a whitelist entry with no fixture behind it.
+( . "$REPO_ROOT/scripts/lib/bypass-audit.sh" >/dev/null 2>&1
+  . "$REPO_ROOT/scripts/lib/adopt/adopt-archive.sh" >/dev/null 2>&1
+  adopt_audit_event "$PROJ" "collision_re_add" '{"path":".git/hooks/pre-commit"}' ) >/dev/null 2>&1
+ae_rows=$(jq '[.[] | select(.type=="adoption_event")] | length' "$PROJ/.claude/bypass-audit.json" 2>/dev/null)
+if [ "$ae_rows" = "1" ]; then
+  pass "T4b: the real emitter wrote an adoption_event row — T5 and T6 below now run over a ledger that CONTAINS the type they whitelist"
+else
+  fail_ "T4b" "adoption_event rows=$ae_rows (want 1) — without it the T6 pin below cannot fail"
+fi
+
 # T5: actor enum invariant — every row's actor is one of the documented values.
 ACTORS=$(jq -r '[.[].actor] | unique | .[]' "$PROJ/.claude/bypass-audit.json")
 ALL_OK=1
@@ -82,7 +108,7 @@ TYPES=$(jq -r '[.[].type] | unique | .[]' "$PROJ/.claude/bypass-audit.json")
 TYPE_OK=1
 for t in $TYPES; do
   case "$t" in
-    claude_bypass_proposal|terminal_commit_blocked|terminal_commit_passed|out_of_band_commit|enforcement_level_set|detector_error|escalation) ;;
+    claude_bypass_proposal|terminal_commit_blocked|terminal_commit_passed|out_of_band_commit|enforcement_level_set|detector_error|escalation|adoption_event) ;;
     *) TYPE_OK=0 ;;
   esac
 done

@@ -140,7 +140,7 @@ INSTALL_SET
     adopt_refuse "no framework scripts could be installed and none were already there — is this a complete clone?"
     return 1
   fi
-  adopt_stub_collision_archive "$n_collided" "$ADOPT_COLLISION_LIST"
+  adopt_stub_framework_script_collisions "$n_collided" "$ADOPT_COLLISION_LIST"
   return 0
 }
 
@@ -358,8 +358,12 @@ adopt_install_hooks() {
   chmod +x "$hooks/commit-msg" 2>/dev/null
 
   if [ -e "$hooks/pre-commit" ]; then
-    adopt_note "You already have a pre-commit hook. It has been LEFT ALONE."
-    adopt_stub_collision_archive 1 ".git/hooks/pre-commit"
+    # LEFT ALONE, AND ARCHIVED. WP6's archive already took a copy before any of
+    # this ran, so the operator has a restorable record of the hook they wrote
+    # even though nothing here replaces it. The WP4 stub that used to fire here
+    # is gone: it announced the archive as missing, and it is not.
+    adopt_note "You already have a pre-commit hook. It has been LEFT ALONE, and a copy is in"
+    adopt_note "the archive with a restore line — see ${ADOPT_ARCHIVE_DIR:-the archive}/MANIFEST.md."
   fi
   adopt_stub_hooks
   adopt_stub_project_docs
@@ -444,6 +448,16 @@ adopt_main() {
   # before any state write, so a run that cannot measure the debt leaves the
   # project exactly as it found it rather than adopting it with no baseline.
   adopt_test_debt_record "$root" || return 1
+
+  # §7 — THE COLLISION ARCHIVE, BEFORE ANY FRAMEWORK WRITER RUNS.
+  #
+  # It has to precede adopt_install_framework and adopt_install_hooks for one
+  # reason: an archive taken AFTER a writer has run is a copy of the
+  # framework's file, not of theirs, and the restore line would put the
+  # framework's own output back under the operator's name. The commit-msg hook
+  # is the live case — adopt_install_hooks appends a marked block to it — so
+  # the archived copy is deliberately the PRE-composition one.
+  adopt_archive_write "$root" "$ADOPT_WORK" || return 1
 
   adopt_install_framework "$root" || return 1
   if _adopt_halt_requested install; then
