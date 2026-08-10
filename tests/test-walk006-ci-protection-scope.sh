@@ -2134,6 +2134,35 @@ assert_withheld D56-workflow-env-block-ends-at-column-zero "$P" \
   "does not map SOIF_PROTECTION_TOKEN into the phase-gate step" \
   'a workflow env that does NOT carry the secret must not drag the rest of the file into scope with it'
 
+# A `#` that is NOT preceded by white space does not start a comment — it is an
+# ordinary character in the value. Measured: PyYAML loads
+# `continue-on-error: false#note` as the STRING 'false#note', which GitHub
+# evaluates as truthy, so that step IS soft and refusing it is the correct
+# answer. Drop the white-space requirement from the strip and the value becomes
+# `false`, which is the one continue-on-error value that earns the claim — a
+# false OK, from one relaxed condition in a comment scanner.
+echo "=== D58-hash-without-preceding-space-is-not-a-comment ==="
+P="$TOPTMP/d58"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        continue-on-error: false#note
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_withheld D58-hash-without-preceding-space-is-not-a-comment "$P" \
+  "carries 'continue-on-error: false#note'" \
+  'the value is the string false#note, not the boolean false — truthy, so the step is soft, and the strip must not manufacture a false out of it'
+
 # TABS. Recorded, not handled: YAML permits a tab inside a quoted scalar
 # (`run: "echo a<TAB>b"` loads fine) but NOT as separation, and PyYAML rejects
 # every tab-as-separator spelling outright — a tab before a `#`, a tab between a
@@ -2548,6 +2577,31 @@ assert_mutant_drops_cause DM22b-quotes-only-open-a-scalar-carries-D40b scalarsta
   's@^\([[:space:]]*\)if (st == 0 \&\& ch != " ") @\1if (ch != " ") @' 1 1 \
   "$P" "condition is 'if: contains(github.event.head_commit.message, ''" \
   'drop the opens-the-scalar test and a quote ANYWHERE starts quoting, which is the reading PyYAML contradicts: the plain scalar is no longer ended at the space-hash'
+
+echo "=== DM22c-comment-needs-preceding-space-carries-D58 ==="
+P="$TOPTMP/dm22c"; mk_raw_wf "$P" <<'YML'
+name: CI
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Governance - Phase gate check
+        continue-on-error: false#note
+        env:
+          GH_TOKEN: ${{ secrets.SOIF_PROTECTION_TOKEN }}
+        run: |
+          bash scripts/check-phase-gate.sh
+YML
+assert_mutant_false_ok_ctl DM22c-comment-needs-preceding-space-carries-D58 hashnospace \
+  '# D-A-COMMENT-STRIP$' \
+  's@^\([[:space:]]*\)if (ch == "#" \&\& i > 1 \&\& substr(s, i - 1, 1) == " ") break.*# D-A-COMMENT-STRIP$@\1if (ch == "#" \&\& i > 1) break@' 1 1 \
+  "$P" "carries 'continue-on-error: false#note'" \
+  "$DMCTL" "$DMCTL_SIG" \
+  'relax the strip to any # and a value that is really the string false#note is truncated into the boolean false — the one value that earns the claim'
 
 echo "=== DM23-anchor-comment-carries-D41 ==="
 P="$TOPTMP/dm23"; mk_raw_wf "$P" <<'YML'
