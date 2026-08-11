@@ -148,6 +148,32 @@ export GIT_CONFIG_NOSYSTEM=1
 export XDG_CONFIG_HOME="$TOPTMP/xdg"
 mkdir -p "$XDG_CONFIG_HOME"
 
+# THE FILE SCOPES ARE NOT ALL THE SCOPES (R-WP6-13). Three more channels reach
+# git without touching any file the four exports above neutralise, and the
+# first of them OUTRANKS every one of them:
+#
+#   GIT_CONFIG_COUNT / GIT_CONFIG_KEY_n / GIT_CONFIG_VALUE_n
+#       COMMAND scope, which is the highest precedence git has. Measured: with
+#       every file scope pointed at /dev/null, one of these pairs setting
+#       `core.excludesFile` still decides a fixture path. Unsetting COUNT is
+#       sufficient and is the whole gate — git reads it first and ignores the
+#       KEY_n/VALUE_n pairs entirely without it.
+#   GIT_TEMPLATE_DIR
+#       Seeds `info/exclude` into EVERY repository `git init` creates, so it
+#       reaches fixtures that are created after this line runs. Measured: a
+#       template `info/exclude` decides a fresh fixture's paths.
+#   GIT_DIR / GIT_WORK_TREE / GIT_INDEX_FILE / GIT_OBJECT_DIRECTORY / …
+#       Live whenever anything runs a suite from inside a git hook, which
+#       points fixture operations at the WRONG REPOSITORY.
+#
+# None is set on this host, so this is a completeness fix against the principle
+# the block above states — the fixture must own every input git reads — rather
+# than a live hazard. H0b measures the first two in both directions anyway,
+# because "not set today" is a property of today.
+unset GIT_CONFIG_COUNT GIT_TEMPLATE_DIR
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
+unset GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE GIT_COMMON_DIR
+
 # ── Portable primitives (house pattern, WP2/WP4 parity) ─────────────────────
 _mode_of() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1" 2>/dev/null || printf '?\n'; }
 _num()     { case "$1" in ''|null|*[!0-9]*) printf '0\n' ;; *) printf '%s\n' "$1" ;; esac }
@@ -392,6 +418,34 @@ if [ "$h0_ok" -eq 1 ] && [ "$h0_with" -eq 1 ] && [ "$h0_without" -eq 0 ]; then
   pass "H0: a global excludes file DOES decide an archive path (ignored=$h0_with with one in scope) and the suite's isolated XDG_CONFIG_HOME removes it (ignored=$h0_without) — the fixtures below are the suite's, not the host's"
 else
   fail_ "H0" "setup=$h0_ok ignored-with-host-excludes=$h0_with (want 1 — the knob must be live, or this proves nothing) ignored-under-isolation=$h0_without (want 0)"
+fi
+
+# H0b — the other two channels, same two-direction shape as H0.
+H0B="$(newtmp)"
+h0b_ok=0
+if mk_adoptee "$H0B/p"; then
+  printf 'settings.local.json\n' > "$H0B/inject"
+  h0b_probe=".claude/adoption-archive/T-1/.claude/settings.local.json"
+  h0b_cfg_with=1
+  ( cd "$H0B/p" && GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.excludesFile GIT_CONFIG_VALUE_0="$H0B/inject" \
+      git check-ignore -q -- "$h0b_probe" ) 2>/dev/null || h0b_cfg_with=0
+  h0b_cfg_without=1
+  ( cd "$H0B/p" && git check-ignore -q -- "$h0b_probe" ) 2>/dev/null || h0b_cfg_without=0
+  # GIT_TEMPLATE_DIR reaches repositories created AFTER it is set, so the probe
+  # creates one each way rather than reusing the fixture above.
+  mkdir -p "$H0B/tpl/info"; printf 'settings.local.json\n' > "$H0B/tpl/info/exclude"
+  mkdir -p "$H0B/t1" "$H0B/t2"
+  h0b_tpl_with=1
+  ( cd "$H0B/t1" && GIT_TEMPLATE_DIR="$H0B/tpl" git init -q . && git check-ignore -q -- "$h0b_probe" ) 2>/dev/null || h0b_tpl_with=0
+  h0b_tpl_without=1
+  ( cd "$H0B/t2" && git init -q . && git check-ignore -q -- "$h0b_probe" ) 2>/dev/null || h0b_tpl_without=0
+  h0b_ok=1
+fi
+if [ "$h0b_ok" -eq 1 ] && [ "$h0b_cfg_with" -eq 1 ] && [ "$h0b_cfg_without" -eq 0 ] \
+   && [ "$h0b_tpl_with" -eq 1 ] && [ "$h0b_tpl_without" -eq 0 ]; then
+  pass "H0b (R-WP6-13): GIT_CONFIG_COUNT (command scope, outranking every file scope) and GIT_TEMPLATE_DIR both DO decide a fixture path when set, and neither does under the suite's unset preamble"
+else
+  fail_ "H0b" "setup=$h0b_ok GIT_CONFIG_COUNT decides when set=$h0b_cfg_with (want 1 — else the channel is not real) and when unset=$h0b_cfg_without (want 0); GIT_TEMPLATE_DIR when set=$h0b_tpl_with (want 1) and when unset=$h0b_tpl_without (want 0)"
 fi
 
 echo ""
@@ -909,6 +963,39 @@ else
   fi
 fi
 
+# ── R5 (R-WP6-12) — a re-add that fails BEFORE the copy leaves no row ───────
+#
+# The record-before-restore fix (R-WP6-4) buys "no re-add without a row" and
+# costs a documented over-record: a failure between the row and the copy leaves
+# a row describing something that did not happen. That window had TWO
+# statements in it, not one — the `mkdir -p` as well as the `cp` — and only the
+# `cp` was disclosed. The mkdir governs nothing the archive owns, so it belongs
+# ABOVE the record, which shrinks the window to the `cp` alone and makes the
+# documented residual the true one.
+#
+# Forced by making the parent path un-creatable: a regular FILE where the
+# restore needs a directory.
+R5="$(newtmp)"
+if ! mk_adoptee "$R5/p" || ! _add_surfaces "$R5/p"; then
+  fail_ "R5" "fixture setup failed"
+else
+  _ans > "$R5/answers"
+  run_adopt "$R5/p" "$R5/answers"
+  r5_rows_before=$(jq -r '[.[] | select(.details.event == "collision_re_add")] | length' "$R5/p/.claude/bypass-audit.json" 2>/dev/null); r5_rows_before=$(_num "$r5_rows_before")
+  rm -rf "$R5/p/.claude/skills"
+  printf 'a file where a directory needs to be\n' > "$R5/p/.claude/skills"
+  printf '1\n' > "$R5/confirm"
+  run_readd "$R5/p" ".claude/skills/invoice-helper/SKILL.md" "$R5/confirm"
+  r5_rc=$READD_RC
+  r5_rows_after=$(jq -r '[.[] | select(.details.event == "collision_re_add")] | length' "$R5/p/.claude/bypass-audit.json" 2>/dev/null); r5_rows_after=$(_num "$r5_rows_after")
+  r5_isfile=0; [ -f "$R5/p/.claude/skills" ] && r5_isfile=1
+  if [ "$r5_rc" -ne 0 ] && [ "$r5_isfile" -eq 1 ] && [ "$r5_rows_after" -eq "$r5_rows_before" ]; then
+    pass "R5 (R-WP6-12): a re-add that cannot create its parent directory refuses (rc $r5_rc) and writes NO row — the mkdir sits above the record, so the documented over-record window is the cp alone"
+  else
+    fail_ "R5" "rc=$r5_rc (want non-zero) blocking file still present=$r5_isfile (want 1) re-add rows before=$r5_rows_before after=$r5_rows_after (want equal — a row here would mean the record ran before a step that failed)"
+  fi
+fi
+
 echo ""
 echo "=== G — the operator's .gitignore is an instruction, not a hint ==="
 
@@ -932,7 +1019,20 @@ PRIVATE_PAYLOAD="internal-proxy.corp.example-jdoe"
 G1="$(newtmp)"
 G1_OK=0
 if mk_adoptee "$G1/p" && _add_surfaces "$G1/p" && _add_local_settings "$G1/p" "$PRIVATE_PAYLOAD"; then
-  printf '.claude/settings.local.json\n' > "$G1/p/.gitignore"
+  # TWO RULES, AND THE SECOND ONE IS THE ONE THAT BITES (R-WP6-10).
+  #
+  # `.git/` is a cargo-cult line real repositories commonly carry. It reaches
+  # NO framework-written path, so it looks inert — and it is not. Measured
+  # hermetically: `git check-ignore` applies patterns to any pathname it is
+  # handed, `.git/` paths INCLUDED. `*`, `hooks/` and `.git/` all report
+  # `.git/hooks/pre-commit` as IGNORED (rc 0). The earlier claim that
+  # "`.git/hooks/*` is not reported as ignored because git excludes `.git/` by
+  # construction" was a property of THE ANCHORED PATTERN in this fixture, not
+  # of git — and G1b, testing only that anchored rule, structurally could not
+  # see it. With this line present and no exemption, adoption completes at
+  # rc 0 while silently withholding the hooks: §7.3's carrier and the archive's
+  # whole point, withheld under an instruction git itself would never honour.
+  printf '.claude/settings.local.json\n.git/\n' > "$G1/p/.gitignore"
   ( cd "$G1/p" && git add .gitignore && git commit -q -m "chore: their ignore rules" ) >/dev/null 2>&1
   _ans > "$G1/answers"
   run_adopt "$G1/p" "$G1/answers"
@@ -966,16 +1066,84 @@ else
     fail_ "G1" "rc=$RUN_RC landed=$g1_landed stagedForCommit='$g1_staged' (want false) withheldReason='$g1_reason' (want original-gitignored) in HEAD=$g1_inhead (want 0) payload in archive copy=$g1_ondisk (want >=1) tree probe control=$g1_ctrl (want >=1) payload in committed tree=$g1_tree (want 0) findingCount='$g1_findings' (want 0 — a non-zero count would mean the SCANNER caught it and this proves nothing about the ignore rule) clean sibling in HEAD=$g1_sib (want 1)"
   fi
 
-  # G1b — the bound. `.git/hooks/*` is NOT an operator ignore statement: git
-  # simply never tracks `.git/`. Verified hermetically that `git check-ignore`
-  # reports rc 1 for it, so the new arm must not swallow the hooks — which are
-  # the whole point of the archive and §7.3's carrier.
+  # G1b — THE BOUND, now tested against a pattern that actually reaches.
+  #
+  # THE PROBE CONTROL IS THE POINT OF THIS VERSION. The fixture's `.git/` rule
+  # must genuinely make `git check-ignore` report the hook as IGNORED —
+  # asserted below — or this case is back to testing the anchored rule, which
+  # cannot reach `.git/` paths and therefore proved nothing about the bound.
+  # That is precisely how the false claim survived a full review round.
+  g1b_reaches=1
+  ( cd "$G1/p" && git check-ignore -q -- ".git/hooks/pre-commit" ) 2>/dev/null || g1b_reaches=0
   g1b_hook_staged=$(jq -r '.entries[] | select(.originalPath == ".git/hooks/pre-commit") | .stagedForCommit' "$g1_mj" 2>/dev/null)
+  g1b_hook_reason=$(jq -r '.entries[] | select(.originalPath == ".git/hooks/pre-commit") | .withheldReason // ""' "$g1_mj" 2>/dev/null)
   g1b_hook_head=$(_in_head "$G1/p" "$g1_arch/git-hooks/pre-commit")
-  if [ "$g1b_hook_staged" = "true" ] && [ "$g1b_hook_head" -eq 1 ]; then
-    pass "G1b (the bound): in the same run the git hooks are still archived AND committed — the original-ignore arm does not swallow .git/hooks, which git excludes by construction rather than by the operator's instruction"
+  if [ "$g1b_reaches" -eq 1 ] && [ "$g1b_hook_staged" = "true" ] \
+     && [ -z "$g1b_hook_reason" ] && [ "$g1b_hook_head" -eq 1 ]; then
+    pass "G1b (the bound, R-WP6-10): the fixture's '.git/' rule DOES make check-ignore report the hook ignored (probe=$g1b_reaches), and the hooks are still archived AND committed anyway — a gitignore statement about a .git/ path is not an instruction git can honour, so the arm must not act on it"
   else
-    fail_ "G1b" "hook stagedForCommit='$g1b_hook_staged' (want true) hook in HEAD=$g1b_hook_head (want 1) — the new arm is over-withholding"
+    fail_ "G1b" "fixture rule reaches .git/hooks/pre-commit=$g1b_reaches (want 1 — else this case tests nothing) hook stagedForCommit='$g1b_hook_staged' (want true) withheldReason='$g1b_hook_reason' (want empty) hook in HEAD=$g1b_hook_head (want 1)"
+  fi
+fi
+
+# ── G1c — MUTATION: neuter the .git/* exemption ─────────────────────────────
+G1C="$(newtmp)"
+if ! mk_adoptee "$G1C/p" || ! _add_surfaces "$G1C/p" || ! mk_mirror "$G1C/fw"; then
+  fail_ "G1c (MUTATION)" "fixture setup failed"
+else
+  printf '.git/\n' > "$G1C/p/.gitignore"
+  ( cd "$G1C/p" && git add .gitignore && git commit -q -m "chore: their ignore rules" ) >/dev/null 2>&1
+  MUTGC="$G1C/fw/scripts/lib/adopt/adopt-archive.sh"
+  g1c_sites=$(_sites "$L_ARCHIVE" 'BF-ADOPT-GITDIR-EXEMPT')
+  cp "$L_ARCHIVE" "$G1C/orig.ref"
+  _sed_inplace "$MUTGC" 's|^.*BF-ADOPT-GITDIR-EXEMPT$|  case "$rel" in .git/*) : ;; esac   # BF-ADOPT-GITDIR-EXEMPT|'
+  g1c_chg=$(_changed_lines "$G1C/orig.ref" "$MUTGC")
+  g1c_parses=$(_parses "$MUTGC")
+  _ans > "$G1C/answers"
+  run_adopt "$G1C/p" "$G1C/answers" "$G1C/fw"
+  g1c_arch="$(arch_dir_of "$G1C/p")"
+  g1c_mj="$G1C/p/$g1c_arch/MANIFEST.json"
+  g1c_reason=$(jq -r '.entries[] | select(.originalPath == ".git/hooks/pre-commit") | .withheldReason // ""' "$g1c_mj" 2>/dev/null)
+  g1c_head=$(_in_head "$G1C/p" "$g1c_arch/git-hooks/pre-commit")
+  g1c_landed=$(_adoption_commit_landed "$G1C/p")
+  if [ "$g1c_sites" -eq 1 ] && [ "$g1c_chg" -eq 2 ] && [ "$g1c_parses" -eq 1 ] \
+     && [ "$g1c_reason" = "original-gitignored" ] && [ "$g1c_head" -eq 0 ] && [ "$g1c_landed" -eq 1 ]; then
+    pass "G1c (MUTATION): with the .git/* exemption neutered (1 site, 2 lines, mutant parses) an inert '.git/' line silently withholds the hooks (reason=original-gitignored, absent from HEAD) while adoption still reports success — RED"
+  else
+    fail_ "G1c" "sites=$g1c_sites (want 1) changed_lines=$g1c_chg (want 2) parses=$g1c_parses (want 1) hook withheldReason='$g1c_reason' (want original-gitignored) hook in HEAD=$g1c_head (want 0) adoption landed=$g1c_landed (want 1)"
+  fi
+fi
+
+# ── G6 (R-WP6-11) — a corrupt ledger must not be committed in silence ───────
+#
+# The re-add treats "recorded" as a precondition; the archive's own row did not
+# check the rc at all. Measured before the fix: adoption completed rc 0, the
+# row was dropped without a word, and the STILL-CORRUPT ledger was committed
+# into HEAD as the project's first governance record.
+#
+# The asymmetry with the re-add is deliberate and is not silence: the archive
+# has a primary committed record (the MANIFEST), so a failed row degrades it
+# rather than invalidating it. What it must not do is degrade quietly.
+G6="$(newtmp)"
+if ! mk_adoptee "$G6/p" || ! _add_surfaces "$G6/p"; then
+  fail_ "G6" "fixture setup failed"
+else
+  mkdir -p "$G6/p/.claude"
+  printf 'this is not json at all\n' > "$G6/p/.claude/bypass-audit.json"
+  _ans > "$G6/answers"
+  run_adopt "$G6/p" "$G6/answers"
+  g6_rc=$RUN_RC
+  g6_landed=$(_adoption_commit_landed "$G6/p")
+  g6_arch="$(arch_dir_of "$G6/p")"
+  g6_manifest=0
+  [ -n "$g6_arch" ] && g6_manifest=$(_in_head "$G6/p" "$g6_arch/MANIFEST.json")
+  g6_ledger=$(_in_head "$G6/p" ".claude/bypass-audit.json")
+  g6_loud=$(_count_in "$RUN_OUT" "could not be recorded")
+  if [ "$g6_rc" -eq 0 ] && [ "$g6_landed" -eq 1 ] && [ "$g6_manifest" -eq 1 ] \
+     && [ "$g6_ledger" -eq 0 ] && [ "$g6_loud" -ge 1 ]; then
+    pass "G6 (R-WP6-11): with the ledger already corrupt the adoption still completes (rc 0) and the MANIFEST still commits, but the failed audit row is announced LOUDLY and the corrupt ledger is kept OUT of the commit"
+  else
+    fail_ "G6" "rc=$g6_rc (want 0) landed=$g6_landed (want 1) MANIFEST in HEAD=$g6_manifest (want 1) corrupt ledger in HEAD=$g6_ledger (want 0) failure announced=$g6_loud (want >=1)"
   fi
 fi
 
