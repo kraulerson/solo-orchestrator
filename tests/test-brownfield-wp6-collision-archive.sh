@@ -123,6 +123,31 @@ TOPTMP="$(mktemp -d)"
 trap 'rm -rf "$TOPTMP"' EXIT INT TERM
 newtmp() { mktemp -d "$TOPTMP/fixXXXXXX"; }
 
+# ── HOST GIT CONFIG IS NEUTRALIZED, AND IT HAD TO BE (R-WP6-3) ─────────────
+#
+# MEASURED ON THIS HOST, NOT ANTICIPATED. `~/.config/git/ignore` contains
+# `**/.claude/settings.local.json`. That is the ecosystem-standard line, it is
+# on a great many developer machines, and it is a GLOBAL EXCLUDES FILE — so
+# `git check-ignore` inside a fixture consulted it and reported the fixture's
+# ARCHIVE COPY as ignored. On this laptop the R-WP6-1 exposure was therefore
+# invisible; on a CI runner, which has no such file, it was live. A fixture
+# whose verdict is decided by whose machine it runs on is not a fixture.
+#
+# `GIT_CONFIG_GLOBAL` DOES NOT COVER THIS and that is the trap worth spelling
+# out: the excludes file is found at `$XDG_CONFIG_HOME/git/ignore` (falling
+# back to `$HOME/.config/git/ignore`), which is a PATH DEFAULT, not a config
+# key. Pointing GIT_CONFIG_GLOBAL at /dev/null neutralizes `core.excludesFile`
+# and nothing else. XDG_CONFIG_HOME is the knob that matters, and H0 below
+# proves it in both directions rather than asserting it.
+#
+# Same class as the house rules' `GITHUB_BASE_REF` provision: the fixture must
+# own every input git reads.
+export GIT_CONFIG_GLOBAL=/dev/null
+export GIT_CONFIG_SYSTEM=/dev/null
+export GIT_CONFIG_NOSYSTEM=1
+export XDG_CONFIG_HOME="$TOPTMP/xdg"
+mkdir -p "$XDG_CONFIG_HOME"
+
 # ── Portable primitives (house pattern, WP2/WP4 parity) ─────────────────────
 _mode_of() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1" 2>/dev/null || printf '?\n'; }
 _num()     { case "$1" in ''|null|*[!0-9]*) printf '0\n' ;; *) printf '%s\n' "$1" ;; esac }
@@ -332,7 +357,44 @@ _adoption_commit_landed() {
   esac
 }
 
+# _add_local_settings DIR PAYLOAD — the modal adoptee shape: a gitignored
+# `.claude/settings.local.json` holding something private that IS NOT
+# SECRET-SHAPED. An internal hostname and a username match no scanner pattern,
+# which is the point — the only thing standing between them and the commit is
+# the operator's own ignore rule.
+_add_local_settings() {
+  local d="$1" payload="$2"
+  mkdir -p "$d/.claude" || return 1
+  printf '{"env":{"HTTPS_PROXY":"%s"},"user":"%s"}\n' "$payload" "$payload" > "$d/.claude/settings.local.json"
+  return 0
+}
+
 # ═══════════════════════════════════════════════════════════════════════════
+echo "=== H0 — the fixtures are isolated from host git config (R-WP6-3) ==="
+
+# TWO DIRECTIONS, because a neutralization nobody tested is a comment. The
+# probe writes the exact line this host really carries into a THROWAWAY
+# XDG_CONFIG_HOME, proves git honours it (so the knob is live and the hazard is
+# real), then proves the suite's own isolated XDG_CONFIG_HOME does not.
+H0="$(newtmp)"
+h0_ok=0
+if mk_adoptee "$H0/p"; then
+  mkdir -p "$H0/xdg-host/git"
+  printf '**/.claude/settings.local.json\n' > "$H0/xdg-host/git/ignore"
+  h0_probe=".claude/adoption-archive/T-1/.claude/settings.local.json"
+  h0_with=1
+  ( cd "$H0/p" && XDG_CONFIG_HOME="$H0/xdg-host" git check-ignore -q -- "$h0_probe" ) 2>/dev/null || h0_with=0
+  h0_without=1
+  ( cd "$H0/p" && git check-ignore -q -- "$h0_probe" ) 2>/dev/null || h0_without=0
+  h0_ok=1
+fi
+if [ "$h0_ok" -eq 1 ] && [ "$h0_with" -eq 1 ] && [ "$h0_without" -eq 0 ]; then
+  pass "H0: a global excludes file DOES decide an archive path (ignored=$h0_with with one in scope) and the suite's isolated XDG_CONFIG_HOME removes it (ignored=$h0_without) — the fixtures below are the suite's, not the host's"
+else
+  fail_ "H0" "setup=$h0_ok ignored-with-host-excludes=$h0_with (want 1 — the knob must be live, or this proves nothing) ignored-under-isolation=$h0_without (want 0)"
+fi
+
+echo ""
 echo "=== A — the archive layout and its MANIFEST (§7.2) ==="
 
 A_D="$(newtmp)"
@@ -642,8 +704,53 @@ if [ "$HAVE_GITLEAKS" -eq 1 ]; then
       fail_ "S4" "sites=$s4_sites (want 1) changed_lines=$s4_chg (want 2) parses=$s4_parses (want 1) adoption commit landed=$s4_landed (want 1) entry in HEAD=$s4_tracked (want 1) plant_in_tree=$s4_tree (want >=1)"
     fi
   fi
+  # ── S6 (R-WP6-9) — an inherited GITLEAKS_CONFIG must not switch the scan off
+  #
+  # This is a SUPPRESSION VECTOR, not a documentation nit. Measured on gitleaks
+  # 8.30.1: exporting GITLEAKS_CONFIG (or GITLEAKS_CONFIG_TOML) at a config
+  # whose rules match nothing takes the plant from 1 finding to 0 — and those
+  # variables OUTRANK the scanned path, so the "the archive dir cannot contain
+  # a .gitleaks.toml" argument does not cover them. Anything in the operator's
+  # environment — a shell profile, a CI job env, a direnv file in the adoptee —
+  # would have silently disabled §7.3's refusal while the MANIFEST still said
+  # `status: scanned`, which is the worst available combination.
+  #
+  # TWO DIRECTIONS. The vector is proved live against the real binary first
+  # (or the fix could be pinned against a threat that does not exist), then the
+  # driver is run with the same variables exported and must be unaffected.
+  S6="$(newtmp)"
+  if ! mk_adoptee "$S6/p" || ! _add_surfaces "$S6/p" "$HOOK_PLANT"; then
+    fail_ "S6 (R-WP6-9)" "fixture setup failed"
+  else
+    mkdir -p "$S6/probe"
+    cp "$S6/p/.git/hooks/pre-commit" "$S6/probe/hook.sh"
+    printf 'title = "suppress"\n[[rules]]\nid = "never-matches"\ndescription = "matches nothing"\nregex = %s\n' \
+      "'''NEVERMATCHESANYTHING12345'''" > "$S6/allow.toml"
+    ( cd "$S6/probe" && gitleaks dir --no-banner --redact --exit-code 0 -f json -r "$S6/base.json" . ) >/dev/null 2>&1
+    ( cd "$S6/probe" && GITLEAKS_CONFIG="$S6/allow.toml" gitleaks dir --no-banner --redact --exit-code 0 -f json -r "$S6/supp.json" . ) >/dev/null 2>&1
+    s6_base=$(jq 'length' "$S6/base.json" 2>/dev/null); s6_base=$(_num "$s6_base")
+    s6_supp=$(jq 'length' "$S6/supp.json" 2>/dev/null); s6_supp=$(_num "$s6_supp")
+    _ans > "$S6/answers"
+    RUN_RC=0
+    RUN_OUT="$S6/run-out"; RUN_ERR="$S6/run-err"
+    ( cd "$S6/p" && GITLEAKS_CONFIG="$S6/allow.toml" GITLEAKS_CONFIG_TOML="$(cat "$S6/allow.toml")" \
+        bash "$REPO_ROOT/scripts/adopt-project.sh" --scan-report "$TOPTMP/report.json" ) \
+      < "$S6/answers" > "$RUN_OUT" 2> "$RUN_ERR" || RUN_RC=$?
+    s6_arch="$(arch_dir_of "$S6/p")"
+    s6_mj="$S6/p/$s6_arch/MANIFEST.json"
+    s6_count=$(jq -r '.secretsScan.findingCount // "null"' "$s6_mj" 2>/dev/null); s6_count=$(_num "$s6_count")
+    s6_reason=$(jq -r '.entries[] | select(.originalPath == ".git/hooks/pre-commit") | .withheldReason // ""' "$s6_mj" 2>/dev/null)
+    s6_head=$(_in_head "$S6/p" "$s6_arch/git-hooks/pre-commit")
+    if [ "$s6_base" -ge 1 ] && [ "$s6_supp" -eq 0 ] \
+       && [ "$s6_count" -ge 1 ] && [ "$s6_reason" = "secret-match" ] && [ "$s6_head" -eq 0 ]; then
+      pass "S6 (R-WP6-9): the vector is real — GITLEAKS_CONFIG takes the same file from $s6_base finding(s) to $s6_supp against the raw binary — and the driver is IMMUNE to it: findingCount=$s6_count, the entry is still withheld as secret-match and still absent from HEAD"
+    else
+      fail_ "S6" "raw binary baseline=$s6_base (want >=1) raw binary under GITLEAKS_CONFIG=$s6_supp (want 0 — else the vector is not real and this proves nothing); driver findingCount=$s6_count (want >=1) withheldReason='$s6_reason' (want secret-match) entry in HEAD=$s6_head (want 0)"
+    fi
+  fi
 else
   skip_ "S0-S4 (§7.3 archive-secrets proof and its mutation)" "gitleaks not installed — see the banner above"
+  skip_ "S6 (inherited GITLEAKS_CONFIG cannot suppress the scan)" "gitleaks not installed"
 fi
 
 # ── S5 — "nobody looked" is never "clean" ──────────────────────────────────
@@ -766,6 +873,242 @@ else
   fi
 fi
 
+# ── R4 (R-WP6-4) — a re-add that CANNOT be recorded must not happen ─────────
+#
+# The R2 mutation forbids a silent re-add by sed. This one forbids the same
+# thing AT RUNTIME, which is the version an operator can actually hit:
+# `bypass_audit_append` returns 1 on a corrupt ledger (its jq filter fails) or
+# on a lock timeout. Before this fix the driver ignored that rc and printed
+# "The choice is recorded in .claude/bypass-audit.json" regardless — a false
+# claim in the one artifact the re-add's legitimacy rests on.
+#
+# The ledger is corrupted rather than mocked, because the real failure is the
+# real jq refusing real garbage.
+R4="$(newtmp)"
+if ! mk_adoptee "$R4/p" || ! _add_surfaces "$R4/p"; then
+  fail_ "R4" "fixture setup failed"
+else
+  _ans > "$R4/answers"
+  run_adopt "$R4/p" "$R4/answers"
+  r4_arch="$(arch_dir_of "$R4/p")"
+  printf '#!/usr/bin/env bash\n# replaced\nexit 0\n' > "$R4/p/.git/hooks/pre-commit"
+  r4_before="$(_sha "$R4/p/.git/hooks/pre-commit")"
+  printf 'this is not json at all\n' > "$R4/p/.claude/bypass-audit.json"
+  printf '1\n' > "$R4/confirm"
+  run_readd "$R4/p" ".git/hooks/pre-commit" "$R4/confirm"
+  r4_rc=$READD_RC
+  r4_after="$(_sha "$R4/p/.git/hooks/pre-commit")"
+  # The false claim must be ABSENT, and the refusal must name the real cause.
+  r4_falseclaim=$(_count_in "$READD_OUT" "The choice is recorded")
+  r4_loud=$(_count_in "$READD_ERR" "could not be recorded")
+  if [ "$r4_rc" -ne 0 ] && [ -n "$r4_before" ] && [ "$r4_before" = "$r4_after" ] \
+     && [ "$r4_falseclaim" -eq 0 ] && [ "$r4_loud" -ge 1 ]; then
+    pass "R4 (R-WP6-4): with the ledger corrupt the re-add REFUSES (rc $r4_rc) and does NOT restore the file — no row, no re-add, and the 'choice is recorded' claim is never printed"
+  else
+    fail_ "R4" "rc=$r4_rc (want non-zero) sha before=$r4_before after=$r4_after (want equal — the file must NOT be restored) false 'recorded' claim printed=$r4_falseclaim (want 0) refusal names the cause=$r4_loud (want >=1)"
+  fi
+fi
+
+echo ""
+echo "=== G — the operator's .gitignore is an instruction, not a hint ==="
+
+# THE PRIVATE PAYLOAD IS DELIBERATELY NOT SECRET-SHAPED.
+# `internal-proxy.corp.example` matches no gitleaks rule — verified by G1's own
+# `findingCount == 0` assertion. That is what makes G1 a test of the IGNORE
+# rule rather than an accidental second test of the scanner: if the scanner
+# could catch this, the withhold would be attributable to the wrong arm and the
+# mutation could not isolate anything.
+PRIVATE_PAYLOAD="internal-proxy.corp.example-jdoe"
+
+# ── G1 (R-WP6-1) — a gitignored ORIGINAL is never committed under a new name ─
+#
+# The exposure this case exists for: the operator wrote
+# `.claude/settings.local.json` in their .gitignore — an explicit statement
+# that this CONTENT must never enter history — and the archive copied it to
+# `.claude/adoption-archive/<dir>/.claude/settings.local.json`, a path the
+# ANCHORED rule cannot match. Asking `git check-ignore` about the NEW path
+# answers a question nobody asked. Verified hermetically: anchored rule vs
+# original -> ignored; vs archive copy -> NOT ignored.
+G1="$(newtmp)"
+G1_OK=0
+if mk_adoptee "$G1/p" && _add_surfaces "$G1/p" && _add_local_settings "$G1/p" "$PRIVATE_PAYLOAD"; then
+  printf '.claude/settings.local.json\n' > "$G1/p/.gitignore"
+  ( cd "$G1/p" && git add .gitignore && git commit -q -m "chore: their ignore rules" ) >/dev/null 2>&1
+  _ans > "$G1/answers"
+  run_adopt "$G1/p" "$G1/answers"
+  G1_OK=1
+fi
+if [ "$G1_OK" -ne 1 ]; then
+  fail_ "G1" "fixture setup failed"
+  fail_ "G1b" "fixture setup failed"
+else
+  g1_arch="$(arch_dir_of "$G1/p")"
+  g1_mj="$G1/p/$g1_arch/MANIFEST.json"
+  g1_staged=$(jq -r '.entries[] | select(.originalPath == ".claude/settings.local.json") | .stagedForCommit' "$g1_mj" 2>/dev/null)
+  g1_reason=$(jq -r '.entries[] | select(.originalPath == ".claude/settings.local.json") | .withheldReason // ""' "$g1_mj" 2>/dev/null)
+  g1_landed=$(_adoption_commit_landed "$G1/p")
+  g1_inhead=$(_in_head "$G1/p" "$g1_arch/.claude/settings.local.json")
+  # THE PROBE CONTROLS. The archive copy on disk MUST hold the payload (the
+  # copy really happened and the probe can see it), the committed-tree probe
+  # MUST be able to find something that IS committed, and the scanner MUST
+  # have found nothing — so the withhold is the ignore rule's doing.
+  g1_ondisk=$(_count_in "$G1/p/$g1_arch/.claude/settings.local.json" "$PRIVATE_PAYLOAD")
+  g1_ctrl=$( cd "$G1/p" && git grep -F -l -- "acme-api" HEAD 2>/dev/null | grep -c . ); g1_ctrl=$(_num "$g1_ctrl")
+  g1_tree=$( cd "$G1/p" && git grep -F -l -- "$PRIVATE_PAYLOAD" HEAD 2>/dev/null | grep -c . ); g1_tree=$(_num "$g1_tree")
+  g1_findings=$(jq -r '.secretsScan.findingCount // "null"' "$g1_mj" 2>/dev/null)
+  g1_sib=$(_in_head "$G1/p" "$g1_arch/.claude/settings.json")
+  if [ "$RUN_RC" -eq 0 ] && [ "$g1_landed" -eq 1 ] && [ "$g1_staged" = "false" ] \
+     && [ "$g1_reason" = "original-gitignored" ] && [ "$g1_inhead" -eq 0 ] \
+     && [ "$g1_ondisk" -ge 1 ] && [ "$g1_ctrl" -ge 1 ] && [ "$g1_tree" -eq 0 ] \
+     && [ "$g1_findings" = "0" ] && [ "$g1_sib" -eq 1 ]; then
+    pass "G1 (R-WP6-1): a file the operator gitignored is archived but NEVER committed under its new name — withheldReason=original-gitignored, absent from HEAD, and its payload is in 0 committed files while present in the archive copy. The scanner found $g1_findings, so the ignore rule is what saved it"
+  else
+    fail_ "G1" "rc=$RUN_RC landed=$g1_landed stagedForCommit='$g1_staged' (want false) withheldReason='$g1_reason' (want original-gitignored) in HEAD=$g1_inhead (want 0) payload in archive copy=$g1_ondisk (want >=1) tree probe control=$g1_ctrl (want >=1) payload in committed tree=$g1_tree (want 0) findingCount='$g1_findings' (want 0 — a non-zero count would mean the SCANNER caught it and this proves nothing about the ignore rule) clean sibling in HEAD=$g1_sib (want 1)"
+  fi
+
+  # G1b — the bound. `.git/hooks/*` is NOT an operator ignore statement: git
+  # simply never tracks `.git/`. Verified hermetically that `git check-ignore`
+  # reports rc 1 for it, so the new arm must not swallow the hooks — which are
+  # the whole point of the archive and §7.3's carrier.
+  g1b_hook_staged=$(jq -r '.entries[] | select(.originalPath == ".git/hooks/pre-commit") | .stagedForCommit' "$g1_mj" 2>/dev/null)
+  g1b_hook_head=$(_in_head "$G1/p" "$g1_arch/git-hooks/pre-commit")
+  if [ "$g1b_hook_staged" = "true" ] && [ "$g1b_hook_head" -eq 1 ]; then
+    pass "G1b (the bound): in the same run the git hooks are still archived AND committed — the original-ignore arm does not swallow .git/hooks, which git excludes by construction rather than by the operator's instruction"
+  else
+    fail_ "G1b" "hook stagedForCommit='$g1b_hook_staged' (want true) hook in HEAD=$g1b_hook_head (want 1) — the new arm is over-withholding"
+  fi
+fi
+
+# ── G2 (R-WP6-2) — the archive-path arm, which had NO test at all ───────────
+#
+# `git-hooks/` is chosen precisely because it reaches the ARCHIVE COPY and NOT
+# the original: the original is `.git/hooks/pre-commit`, whose directory is
+# `hooks`, not `git-hooks`. So this case exercises the archive-path arm ALONE
+# and cannot be satisfied by G1's original-path arm.
+G2="$(newtmp)"
+G2_OK=0
+if mk_adoptee "$G2/p" && _add_surfaces "$G2/p"; then
+  printf 'git-hooks/\n' > "$G2/p/.gitignore"
+  ( cd "$G2/p" && git add .gitignore && git commit -q -m "chore: their ignore rules" ) >/dev/null 2>&1
+  _ans > "$G2/answers"
+  run_adopt "$G2/p" "$G2/answers"
+  G2_OK=1
+fi
+if [ "$G2_OK" -ne 1 ]; then
+  fail_ "G2" "fixture setup failed"
+else
+  g2_arch="$(arch_dir_of "$G2/p")"
+  g2_mj="$G2/p/$g2_arch/MANIFEST.json"
+  g2_reason=$(jq -r '.entries[] | select(.originalPath == ".git/hooks/pre-commit") | .withheldReason // ""' "$g2_mj" 2>/dev/null)
+  g2_staged=$(jq -r '.entries[] | select(.originalPath == ".git/hooks/pre-commit") | .stagedForCommit' "$g2_mj" 2>/dev/null)
+  g2_landed=$(_adoption_commit_landed "$G2/p")
+  g2_head=$(_in_head "$G2/p" "$g2_arch/git-hooks/pre-commit")
+  g2_manifest=$(_in_head "$G2/p" "$g2_arch/MANIFEST.json")
+  g2_sib=$(_in_head "$G2/p" "$g2_arch/.claude/settings.json")
+  # The ORIGINAL must not be ignored, or this case would be indistinguishable
+  # from G1 and would pass on the wrong arm.
+  g2_orig_ign=1
+  ( cd "$G2/p" && git check-ignore -q -- ".git/hooks/pre-commit" ) 2>/dev/null || g2_orig_ign=0
+  if [ "$RUN_RC" -eq 0 ] && [ "$g2_landed" -eq 1 ] && [ "$g2_staged" = "false" ] \
+     && [ "$g2_reason" = "gitignored" ] && [ "$g2_head" -eq 0 ] \
+     && [ "$g2_orig_ign" -eq 0 ] && [ "$g2_manifest" -eq 1 ] && [ "$g2_sib" -eq 1 ]; then
+    pass "G2 (R-WP6-2): an ignore rule that reaches only the ARCHIVE COPY withholds that entry (withheldReason=gitignored) while the run completes rc 0 and the MANIFEST and clean sibling still commit — the original is NOT ignored, so this is the archive-path arm and no other"
+  else
+    fail_ "G2" "rc=$RUN_RC landed=$g2_landed stagedForCommit='$g2_staged' (want false) withheldReason='$g2_reason' (want gitignored) entry in HEAD=$g2_head (want 0) original ignored=$g2_orig_ign (want 0 — else this is G1's arm) MANIFEST in HEAD=$g2_manifest (want 1) sibling in HEAD=$g2_sib (want 1)"
+  fi
+fi
+
+# ── G3 — MUTATION for R-WP6-1: neuter the ORIGINAL-path check ───────────────
+G3="$(newtmp)"
+if ! mk_adoptee "$G3/p" || ! _add_surfaces "$G3/p" || ! _add_local_settings "$G3/p" "$PRIVATE_PAYLOAD" || ! mk_mirror "$G3/fw"; then
+  fail_ "G3 (MUTATION)" "fixture setup failed"
+else
+  printf '.claude/settings.local.json\n' > "$G3/p/.gitignore"
+  ( cd "$G3/p" && git add .gitignore && git commit -q -m "chore: their ignore rules" ) >/dev/null 2>&1
+  MUTG="$G3/fw/scripts/lib/adopt/adopt-archive.sh"
+  g3_sites=$(_sites "$L_ARCHIVE" 'BF-ADOPT-IGNORE-ORIGINAL')
+  cp "$L_ARCHIVE" "$G3/orig.ref"
+  _sed_inplace "$MUTG" 's|^.*BF-ADOPT-IGNORE-ORIGINAL$|    elif false; then   # BF-ADOPT-IGNORE-ORIGINAL|'
+  g3_chg=$(_changed_lines "$G3/orig.ref" "$MUTG")
+  g3_parses=$(_parses "$MUTG")
+  _ans > "$G3/answers"
+  run_adopt "$G3/p" "$G3/answers" "$G3/fw"
+  g3_arch="$(arch_dir_of "$G3/p")"
+  g3_head=$(_in_head "$G3/p" "$g3_arch/.claude/settings.local.json")
+  g3_tree=$( cd "$G3/p" && git grep -F -l -- "$PRIVATE_PAYLOAD" HEAD 2>/dev/null | grep -c . ); g3_tree=$(_num "$g3_tree")
+  if [ "$g3_sites" -eq 1 ] && [ "$g3_chg" -eq 2 ] && [ "$g3_parses" -eq 1 ] \
+     && [ "$g3_head" -eq 1 ] && [ "$g3_tree" -ge 1 ]; then
+    pass "G3 (MUTATION): with the original-path check neutered (1 site, 2 lines, mutant parses) the gitignored file's copy IS committed and its private payload appears in $g3_tree committed file(s) — RED"
+  else
+    fail_ "G3" "sites=$g3_sites (want 1) changed_lines=$g3_chg (want 2) parses=$g3_parses (want 1) copy in HEAD=$g3_head (want 1) payload in tree=$g3_tree (want >=1)"
+  fi
+fi
+
+# ── G4 — MUTATION for R-WP6-2: neuter the ARCHIVE-path check ────────────────
+#
+# Its observable is different from G3's and that difference is the arm's whole
+# purpose: `git add` on an ignored path FAILS, and the driver stages every
+# recorded path in ONE command, so removing this guard does not leak anything —
+# it takes the entire adoption down. Asserted as an exit code AND as the
+# absence of an adoption commit, with the archive on disk proving the run got
+# that far rather than falling over earlier.
+G4="$(newtmp)"
+if ! mk_adoptee "$G4/p" || ! _add_surfaces "$G4/p" || ! mk_mirror "$G4/fw"; then
+  fail_ "G4 (MUTATION)" "fixture setup failed"
+else
+  printf 'git-hooks/\n' > "$G4/p/.gitignore"
+  ( cd "$G4/p" && git add .gitignore && git commit -q -m "chore: their ignore rules" ) >/dev/null 2>&1
+  MUTG4="$G4/fw/scripts/lib/adopt/adopt-archive.sh"
+  g4_sites=$(_sites "$L_ARCHIVE" 'BF-ADOPT-IGNORE-ARCHIVE')
+  cp "$L_ARCHIVE" "$G4/orig.ref"
+  _sed_inplace "$MUTG4" 's|^.*BF-ADOPT-IGNORE-ARCHIVE$|    elif false; then   # BF-ADOPT-IGNORE-ARCHIVE|'
+  g4_chg=$(_changed_lines "$G4/orig.ref" "$MUTG4")
+  g4_parses=$(_parses "$MUTG4")
+  _ans > "$G4/answers"
+  run_adopt "$G4/p" "$G4/answers" "$G4/fw"
+  g4_rc=$RUN_RC
+  g4_landed=$(_adoption_commit_landed "$G4/p")
+  g4_arch="$(arch_dir_of "$G4/p")"
+  g4_ondisk=0; [ -n "$g4_arch" ] && [ -f "$G4/p/$g4_arch/MANIFEST.json" ] && g4_ondisk=1
+  if [ "$g4_sites" -eq 1 ] && [ "$g4_chg" -eq 2 ] && [ "$g4_parses" -eq 1 ] \
+     && [ "$g4_rc" -ne 0 ] && [ "$g4_landed" -eq 0 ] && [ "$g4_ondisk" -eq 1 ]; then
+    pass "G4 (MUTATION): with the archive-path check neutered (1 site, 2 lines, mutant parses) git add refuses the ignored path and the WHOLE adoption fails (rc $g4_rc, no adoption commit) — the archive is on disk, so the run reached staging — RED"
+  else
+    fail_ "G4" "sites=$g4_sites (want 1) changed_lines=$g4_chg (want 2) parses=$g4_parses (want 1) run rc=$g4_rc (want non-zero) adoption commit landed=$g4_landed (want 0) archive on disk=$g4_ondisk (want 1)"
+  fi
+fi
+
+# ── G5 — the operator may ignore the ARCHIVE ITSELF, and adoption survives ──
+# `.claude/adoption-archive/` is a plausible thing to gitignore: it is a local
+# backup directory. It reaches every entry AND both MANIFEST files, so the
+# MANIFEST's own staging has to go through the same guard — otherwise the one
+# unconditional `adopt_record_write` pair takes the adoption down.
+G5="$(newtmp)"
+if ! mk_adoptee "$G5/p" || ! _add_surfaces "$G5/p"; then
+  fail_ "G5" "fixture setup failed"
+else
+  printf '.claude/adoption-archive/\n' > "$G5/p/.gitignore"
+  ( cd "$G5/p" && git add .gitignore && git commit -q -m "chore: their ignore rules" ) >/dev/null 2>&1
+  _ans > "$G5/answers"
+  run_adopt "$G5/p" "$G5/answers"
+  g5_rc=$RUN_RC
+  g5_landed=$(_adoption_commit_landed "$G5/p")
+  g5_arch="$(arch_dir_of "$G5/p")"
+  g5_mj=""; [ -n "$g5_arch" ] && g5_mj="$G5/p/$g5_arch/MANIFEST.json"
+  g5_ondisk=0; [ -n "$g5_mj" ] && [ -f "$g5_mj" ] && g5_ondisk=1
+  g5_staged=$(jq -r '[.entries[] | select(.stagedForCommit == true)] | length' "$g5_mj" 2>/dev/null); g5_staged=$(_num "$g5_staged")
+  g5_manifest=0
+  [ -n "$g5_arch" ] && g5_manifest=$(_in_head "$G5/p" "$g5_arch/MANIFEST.json")
+  g5_disclosed=0
+  [ -n "$g5_arch" ] && g5_disclosed=$(_count_in "$RUN_OUT" "$g5_arch")
+  if [ "$g5_rc" -eq 0 ] && [ "$g5_landed" -eq 1 ] && [ "$g5_ondisk" -eq 1 ] \
+     && [ "$g5_staged" -eq 0 ] && [ "$g5_manifest" -eq 0 ] && [ "$g5_disclosed" -ge 1 ]; then
+    pass "G5: an operator who gitignores the archive directory still gets a COMPLETED adoption (rc 0) — nothing archive-shaped is committed, including the MANIFEST, and the archive is still on disk and still disclosed on screen"
+  else
+    fail_ "G5" "rc=$g5_rc (want 0) landed=$g5_landed (want 1) MANIFEST on disk=$g5_ondisk (want 1) entries staged=$g5_staged (want 0) MANIFEST in HEAD=$g5_manifest (want 0) archive named in transcript=$g5_disclosed (want >=1)"
+  fi
+fi
+
 echo ""
 echo "=== E — adoption_event across §8.9's five surfaces ==="
 
@@ -777,18 +1120,27 @@ else
   fail_ "E1" "occurrences in the docblock=$e1 (want >=1)"
 fi
 
-# Surface 2 — the T6 whitelist AND a fixture ledger containing it.
-# §8.9's indictment of the two previous row types is that their pins run over
-# fixtures that never carry them, so BOTH halves are asserted here.
+# Surface 2 — §8.9's second surface is PRESENT in test-bl029-integration.sh.
+#
+# WHAT THIS CASE CLAIMS, NARROWED (R-WP6-8). It is a PRESENCE check: the type
+# is named in that file and that file writes a row with the real emitter. Its
+# earlier wording claimed the pin "can make it fail", which this case cannot
+# show — its whitelist half is a BRE whose second alternative
+# (`adoption_event.*)`) is satisfied by T4b's own fail-message text, so the
+# whitelist could be gone and this would stay green. The falsifiability claim
+# belongs to E6, which runs the REAL extracted predicate against a mutated
+# emitter, and to tests/test-bl029-integration.sh itself, which goes to
+# 7 passed / 1 failed when adoption_event is dropped from the whitelist.
+# Overlapping coverage is fine; an overstated claim is not.
 e2_case=$(grep -c 'adoption_event' "$BL029" 2>/dev/null); e2_case=$(_num "$e2_case")
 e2_white=0
-grep -q 'claude_bypass_proposal|.*adoption_event\|adoption_event.*)' "$BL029" 2>/dev/null && e2_white=1
+grep -q '|adoption_event)' "$BL029" 2>/dev/null && e2_white=1
 e2_fixture=0
 grep -q 'adopt_audit_event' "$BL029" 2>/dev/null && e2_fixture=1
 if [ "$e2_case" -ge 2 ] && [ "$e2_white" -eq 1 ] && [ "$e2_fixture" -eq 1 ]; then
-  pass "E2 (surface 2/5): T6's type-enum whitelist lists adoption_event AND the suite writes such a row into the ledger T6 reads — the pin has a fixture that can make it fail"
+  pass "E2 (surface 2/5, PRESENCE): adoption_event is a case-arm alternative in T6's whitelist and test-bl029-integration.sh writes such a row with the real emitter. Falsifiability is E6's and bl029's own, not this case's"
 else
-  fail_ "E2" "adoption_event mentions in test-bl029=$e2_case (want >=2) in the whitelist=$e2_white writes a row via the real emitter=$e2_fixture"
+  fail_ "E2" "adoption_event mentions in test-bl029=$e2_case (want >=2) present as a '|adoption_event)' case alternative=$e2_white writes a row via the real emitter=$e2_fixture"
 fi
 
 # Surface 3 — the emitter, marked, with exactly one site.
