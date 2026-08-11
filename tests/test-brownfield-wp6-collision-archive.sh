@@ -1036,10 +1036,18 @@ for spelling in empty null multidoc nonarray garbage valid; do
     [ "$g6c_rc" -ne 0 ] || g6c_fail="$g6c_fail $spelling:rc=0(want non-zero)"
   fi
 done
-if [ -z "$g6c_fail" ] && [ "$g6c_rows_valid" -eq 1 ]; then
-  pass "G6c (R-WP6-14, library contract): bypass_audit_append REFUSES every corrupt ledger spelling — empty, null, multi-document, non-array and garbage — and still appends exactly one row to a valid [] (rows=$g6c_rows_valid), so the guard is a predicate and not a blanket refusal"
+# THE GUARD RETURNS FROM INSIDE THE LOCK, so it has to release it. Asserted
+# rather than inferred: the loop above takes the failure path five times, and a
+# leaked `.lockdir` would make every later append spin for the full 10-second
+# timeout and then fail for the WRONG reason — which this case would still have
+# scored as a refusal. The valid append that follows the five failures is the
+# behavioural half of the same proof.
+g6c_lock=0
+[ -d "$G6C/proj/.claude/bypass-audit.json.lockdir" ] && g6c_lock=1
+if [ -z "$g6c_fail" ] && [ "$g6c_rows_valid" -eq 1 ] && [ "$g6c_lock" -eq 0 ]; then
+  pass "G6c (R-WP6-14, library contract): bypass_audit_append REFUSES every corrupt ledger spelling — empty, null, multi-document, non-array and garbage — releases its lock on each refusal, and still appends exactly one row to a valid [] (rows=$g6c_rows_valid), so the guard is a predicate and not a blanket refusal"
 else
-  fail_ "G6c" "spellings that did not refuse:$g6c_fail; rows appended to a VALID ledger=$g6c_rows_valid (want 1)"
+  fail_ "G6c" "spellings that did not refuse:$g6c_fail; rows appended to a VALID ledger=$g6c_rows_valid (want 1); lockdir leaked=$g6c_lock (want 0)"
 fi
 
 # ── R5 (R-WP6-12) — a re-add that fails BEFORE the copy leaves no row ───────
