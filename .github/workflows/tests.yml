@@ -597,6 +597,20 @@ jobs:
             #    timeout here does not merely delay the answer — it replaces a
             #    red with a cancellation and the failures go unread.
             tests/test-walk006-ci-protection-scope.sh  # 118s at 158 rows — see note above
+            # ── Re-pinned 2026-08-10, the second time today. The complement is
+            #    at 93% of the cap and the two brownfield suites are why.
+            #    Derived from the shard history rather than a local stopwatch,
+            #    because the pin doctrine is keyed to MEASURED CI TIME and this
+            #    host runs both suites in roughly half:
+            #      PR #343 (neither)          rest = 561s
+            #      PR #344 (+ wp5b)           rest = 606s   → wp5b ~45s
+            #      PR #345 (+ wp5b + wp6)     rest = 667s   → wp6  ~61s
+            #    Moving both: rest ~561s (78%), slow-misc ~584s (81%). Neither
+            #    leg is then the one to watch, which is the point — pinning only
+            #    the larger would have left the complement at 87% and bought one
+            #    work package of headroom.
+            tests/test-brownfield-wp5b-test-debt.sh          #  ~45s in CI (30s local)
+            tests/test-brownfield-wp6-collision-archive.sh   #  ~61s in CI (36s local)
           )
 
           # The ONLY thing that maps a roster name to a pin array. Both the
