@@ -41,6 +41,18 @@ here.
 - **bash is 3.2** (`/bin/bash`, GNU bash 3.2.57). In product code: no `${var,,}`
   lowercasing, no associative arrays (`declare -A`), no `nullglob`. Use temp
   files / indexed arrays instead.
+- **`sed` with a `|` delimiter and a shell-code replacement bites, and it bites
+  SILENTLY.** Shell replacements are `|`-dense (`||`), so `s|old|new|` where
+  `new` contains `||` either errors (`bad flag in substitute command`) or —
+  worse — terminates the expression early and **leaves the file unchanged while
+  sed reports success**. It has bitten three times (twice inside a mutation
+  harness, once ad-hoc), and 25 files carry `s|`-delimited `sed`. Two rules:
+  pick a delimiter absent from the replacement, and **assert the edit actually
+  applied** (a changed-line count), because "sed ran" is not "sed edited".
+  A related one-liner: `&` in a `sed` replacement means *the whole match* —
+  an unescaped `&&` splices the original line back in, and that mutant passes
+  `bash -n`. See `## BL-224:` for the sibling case where a lint's own regex
+  over-matched for the same reason.
 - **Two repos required.** Tests and `init.sh` need the Claude Dev Framework
   cloned at `~/.claude-dev-framework` (the path is hard-required). Per
   CONTRIBUTING.md:

@@ -48,11 +48,14 @@ adopt_stub_certification() {
   adopt_note "An empty list here means 'not measured', not 'measured and clean'."
 }
 
-# WP5b — the test-debt ledger and its ratchet (§5.4).
-adopt_stub_test_debt_ledger() {
-  adopt_stub_notice "the test-debt ledger" "WP5b" \
-    "Existing untested files are not recorded, so nothing yet stops that set from growing."
-}
+# WP5b — the test-debt ledger and its ratchet (§5.4) — RETIRED, NOT DELETED IN
+# SPIRIT. The stub that used to live here said "existing untested files are not
+# recorded, so nothing yet stops that set from growing". They are recorded now:
+# scripts/lib/adopt/adopt-test-debt.sh writes .claude/test-debt.json during the
+# run and adopt_test_debt_record announces what it measured. The one thing WP5b
+# does NOT ship is an automatic commit-time invocation — §10 gives WP7 the
+# commit-time hook — and adopt_stub_hooks below already carries that sentence,
+# so a second stub here would be a duplicate notice, not an extra honesty.
 
 # WP6 — the collision archive, its MANIFEST, the disclosure and the re-add
 # warning (§7.2/§7.3). WP4 refuses to overwrite; it does not archive.

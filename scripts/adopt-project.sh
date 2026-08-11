@@ -52,6 +52,16 @@
 #                                        framework sync use, so an adopted
 #                                        project's hooks are byte-identical to
 #                                        a scaffolded one's
+#   scripts/lib/enforcement-level.sh     read_enforcement_level and
+#                                        assert_choosable, which WP5b's ratchet
+#                                        CONSUMES rather than re-deriving. The
+#                                        `# BL-084-TIER-KEY` predicate already
+#                                        has four spellings and a fifth would
+#                                        be a defect the moment it landed
+#   scripts/lib/tdd-classify.sh          the BL-072 file classifier the TDD
+#                                        gate itself uses, so the test-debt
+#                                        ledger and the gate cannot disagree
+#                                        about what an implementation file is
 #
 # Direction (M3) holds in one direction only: this module sources core, and no
 # core file names this module. That is why `init.sh` does NOT ship
@@ -93,7 +103,7 @@ ADOPT_LIB_DIR="$ADOPT_SELF_DIR/lib/adopt"
 ADOPT_CORE_LIB_DIR="$ADOPT_SELF_DIR/lib"
 
 # ── Core libs (M2's declared set) ───────────────────────────────────────────
-for _core in helpers-core.sh adoption-stamp.sh scaffold-shipped-set.sh hook-templates.sh; do
+for _core in helpers-core.sh adoption-stamp.sh scaffold-shipped-set.sh hook-templates.sh enforcement-level.sh tdd-classify.sh; do
   if [ ! -f "$ADOPT_CORE_LIB_DIR/$_core" ]; then
     echo "adopt-project: missing $ADOPT_CORE_LIB_DIR/$_core — run this from a complete framework clone." >&2
     exit 2
@@ -105,7 +115,7 @@ done
 # THE GUARD, BEFORE ARGUMENT PARSING — see the header. Sibling posture, kept.
 guard_not_in_framework || exit 1
 
-for _part in adopt-core adopt-chooser adopt-intake adopt-state adopt-stubs; do
+for _part in adopt-core adopt-chooser adopt-intake adopt-state adopt-stubs adopt-test-debt; do
   if [ ! -f "$ADOPT_LIB_DIR/$_part.sh" ]; then
     echo "adopt-project: missing $ADOPT_LIB_DIR/$_part.sh — the driver needs its own lib directory." >&2
     exit 2

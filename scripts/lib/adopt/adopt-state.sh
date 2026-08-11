@@ -431,7 +431,19 @@ adopt_main() {
 
   adopt_stub_secrets_disposition "$report"
   adopt_stub_certification "$ADOPT_SCENARIO" "$ADOPT_LANDED_PHASE"
-  adopt_stub_test_debt_ledger
+
+  # WP5b. Was adopt_stub_test_debt_ledger; it is a real measurement now.
+  # BEFORE adopt_install_framework, and that ordering is stated rather than
+  # inherited: the census reads `git ls-files`, so the ~60 framework scripts
+  # the install is about to copy in could not enter the ledger even if this ran
+  # after it — they are untracked until adopt_stage_and_commit. Running it here
+  # keeps the two facts independent instead of resting the property on the
+  # index's timing.
+  #
+  # A REFUSAL HERE ABORTS THE ADOPTION, and that is the safe direction: this is
+  # before any state write, so a run that cannot measure the debt leaves the
+  # project exactly as it found it rather than adopting it with no baseline.
+  adopt_test_debt_record "$root" || return 1
 
   adopt_install_framework "$root" || return 1
   if _adopt_halt_requested install; then
