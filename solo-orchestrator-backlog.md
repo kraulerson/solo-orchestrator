@@ -9667,3 +9667,69 @@ question should reuse), `## BL-084:` (the sync-siblings cautionary tale),
 `## BL-221:` (what a schema change does to an un-widened reader),
 `## BL-095:` (centralize state parsing — a polyglot `language` is exactly the
 field that argues for it).
+
+---
+
+## BL-229: the Phase 3→4 release-pipeline check hardcodes the GitHub path, so on GitLab and Bitbucket it silently never fires
+
+**Logged:** 2026-08-11 (found while verifying `workflow.html` against the tree —
+the page described the check, and describing it required reading it)
+**Category:** Silent-success / host-parity — a gate that does not gate, and says
+nothing about it
+**Severity:** Medium-High. Not a wrong answer: an **absent** answer, on two of
+the three supported hosts, with no output distinguishing "checked and clean" from
+"never looked".
+**Status:** Open
+
+**The gap, measured on `main` @ `b709576`.** `scripts/check-phase-gate.sh`
+guards the release-TODO check on a literal path:
+
+```
+if [ -f ".github/workflows/release.yml" ]; then
+  todo_count=$(grep -c "TODO" .github/workflows/release.yml 2>/dev/null) || todo_count=0
+```
+
+`init.sh` writes that file **per host** (grep `target_file="$target_dir/release.yml"`):
+
+| host | path init.sh writes |
+|---|---|
+| github | `.github/workflows/release.yml` |
+| **gitlab** | **`.gitlab-ci/release.yml`** |
+| **bitbucket** | **`bitbucket-pipelines/release.yml`** |
+| unknown | falls back to the GitHub path, with a warning |
+
+On a GitLab or Bitbucket project the `-f` test is false, the block is skipped
+entirely, and **nothing is printed** — so a release pipeline still full of
+unconfigured `TODO` items passes the 3→4 gate on those hosts without comment.
+
+**Why this is the wave's own defect class.** The failure is not a false verdict,
+it is a **missing** one that is indistinguishable from a clean one. It is the
+same shape as `## BL-222:` (the security clock a filename satisfies) and the
+`# BL-112-SAST-NOTRUN` doctrine's whole point: *"the scanner did not run" must
+never be silently equivalent to "the scanner found nothing."* That doctrine is
+already written down in this repo and this check predates its application here.
+
+**Fix shape.** Resolve the release path the way `init.sh` does — from the
+recorded host — and then **fail closed on absence rather than skipping**: if the
+project's expected release file is missing, say so. Two constraints:
+
+- **Do not just add three `-f` tests.** The host→path mapping would then exist in
+  two places, which is the `# BL-084-TIER-KEY` sync-siblings trap that this repo
+  has paid for repeatedly. Read the host from the manifest and derive the path
+  once, or expose `init.sh`'s mapping as a shared accessor.
+- **Mind the `[WARN]` trap.** The existing arm prints `[WARN]` and increments
+  `issues`, so it **blocks** today on GitHub. Whatever replaces it must decide
+  deliberately whether a missing release file blocks, and pin that decision with
+  a dual-direction mutation proof — the label is cosmetic, the `issues`
+  increment is the behaviour.
+
+**Proof it should carry.** A GitLab fixture with a TODO-bearing
+`.gitlab-ci/release.yml` must be caught; the same fixture with the TODOs removed
+must pass; and a mutation reverting the path resolution must make the first
+fixture pass silently again — because "it passed" and "it was never examined"
+are the two states this entry exists to separate.
+
+**Related:** `## BL-222:` (a clock satisfied by a filename — same class, same
+silence), `## BL-084:` (the sync-siblings trap the two-places fix would walk
+into), `## BL-104:` (the `[WARN]`/`issues` mismatch), and `## BL-112:` (the
+"did not run ≠ found nothing" doctrine this check should inherit).
