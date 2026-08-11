@@ -9357,7 +9357,7 @@ three times.
 
 ---
 
-## BL-225: The adoption driver writes ~69 files into an adoptee before it discovers their `.gitignore` refuses one — no preflight, no rollback
+## BL-225: The adoption driver writes 64 files into an adoptee before it discovers their `.gitignore` refuses one — no preflight, no rollback, and a refusal that says "nothing has been committed"
 
 **Logged:** 2026-08-10 (found by adversarial review of the brownfield WP6
 branch; the WP6-local instances of the same class were fixed there, this is the
@@ -9380,11 +9380,31 @@ framework-owned paths recorded unconditionally in `adopt-state.sh` and
 files the adoption *is*; skipping one produces a broken install rather than a
 disclosed omission.
 
-So an adoptee whose `.gitignore` contains `.claude/` wholesale, or `hooks/`
-(which catches the framework's own `scripts/hooks/`), gets: ~69 files written
-into their tree, then a refusal at staging, then no adoption commit and no
-rollback. The gates are live at the strictest tier, which is the safe row, but
-the operator is left to clean up by hand and the driver does not tell them how.
+**Reproduced, hermetically, on an adoptee whose `.gitignore` is the single line
+`.claude/`** (framework clone at `feat/brownfield-wp6-collision-archive`, host
+git config neutralised):
+
+```
+run rc                   : 1
+adoption commit landed   : chore: their history   <- their own, not adoption's
+untracked files before   : 0
+untracked files after    : 64                     <- written into their tree
+framework scripts on disk: 63
+phase-state written      : yes
+```
+
+**64 files, no commit, no rollback.** The gates are live at the strictest tier,
+which is the safe row, but the operator is left to clean up by hand.
+
+**Two things make the refusal worse than the abort itself.**
+
+1. It says **"Adoption did not complete. Nothing has been committed."** That is
+   literally true and reads as "nothing happened" — while 64 files sit in their
+   working tree. The sentence should distinguish *committed* from *written*.
+2. Git names the culprit (`.claude`) in a hint on stderr, and the driver's own
+   line then **asks the question git just answered**: *"are any of them ignored
+   by .gitignore?"*. The information is present and the framework declines to
+   use it.
 
 **The right shape** is a preflight `git check-ignore` over the whole write-set
 BEFORE anything is written, with a legible refusal naming the offending
