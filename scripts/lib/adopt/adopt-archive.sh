@@ -448,6 +448,48 @@ adopt_audit_event() {
   return 0
 }
 
+# _adopt_original_is_ignored ROOT REL — does the operator's own .gitignore
+# cover the ORIGINAL file, in a way git would actually act on?
+#
+# ⚠ THE `.git/` EXEMPTION, AND THE CLAIM IT REPLACES (R-WP6-10). An earlier cut
+# of this file asserted, and `docs/adoption.md` repeated, that "`.git/hooks/*`
+# is NOT reported as ignored because git excludes `.git/` by construction".
+# THAT IS FALSE, and it was verified false by measurement:
+#
+#     .gitignore = '*'        -> check-ignore .git/hooks/pre-commit  rc 0
+#     .gitignore = 'hooks/'   -> rc 0   (.gitignore:1:hooks/)
+#     .gitignore = '.git/'    -> rc 0   (.gitignore:1:.git/)
+#     .gitignore = '.claude/settings.local.json' -> rc 1
+#
+# `git check-ignore` applies patterns to ANY pathname it is handed, `.git/`
+# paths included; there is no check-ignore exemption for them, only a
+# tracked-file one. The rc 1 originally observed was a property of the ANCHORED
+# PATTERN in the fixture, not of git — and the test that "pinned the bound"
+# used only that pattern, so it could not have seen the difference. A bound
+# claim, a comment and a manual page were all wrong together.
+#
+# WHY THE EXEMPTION IS STILL RIGHT, on the corrected reasoning: the arm above
+# exists to honour an operator INSTRUCTION about content. A gitignore statement
+# about a `.git/` path is not an instruction git can honour — git never tracks
+# `.git/`, so the rule changes nothing about git's own behaviour and expresses
+# no decision about whether that content may be preserved. The "content, not
+# path" doctrine has nothing to anchor to there. Without this guard a single
+# cargo-cult `.git/` line — inert against every framework-written path, and
+# common in real repositories — silently withholds the hooks, which are §7.3's
+# carrier and the archive's entire purpose, while adoption reports success and
+# the disclosure attributes to the operator an instruction git would never act
+# on. Measured end to end before the fix: rc 0, hooks `original-gitignored`,
+# zero hook copies in HEAD, every suite row green.
+#
+# G1b pins it against a rule that genuinely reaches (asserting the probe reaches
+# first, so the case cannot silently revert to testing the anchored rule), and
+# G1c mutates the guard away and watches the hooks disappear.
+_adopt_original_is_ignored() {
+  local root="$1" rel="$2"
+  case "$rel" in .git/*) return 1 ;; esac   # BF-ADOPT-GITDIR-EXEMPT
+  ( cd "$root" && git check-ignore -q -- "$rel" ) 2>/dev/null
+}
+
 # ── Writing the archive ─────────────────────────────────────────────────────
 # adopt_archive_write ROOT WORK — inventory, copy, scan, MANIFEST, disclose,
 # and record only the entries that may be committed.
@@ -531,7 +573,7 @@ adopt_archive_write() {
       staged="false"; reason="not-scanned"
     elif grep -qxF -- "$arel" "$work/archits" 2>/dev/null; then
       staged="false"; reason="secret-match"
-    elif ( cd "$root" && git check-ignore -q -- "$rel" ) 2>/dev/null; then   # BF-ADOPT-IGNORE-ORIGINAL
+    elif _adopt_original_is_ignored "$root" "$rel"; then   # BF-ADOPT-IGNORE-ORIGINAL
       # A GITIGNORE ENTRY IS THE OPERATOR'S EXPLICIT STATEMENT THAT THIS
       # CONTENT MUST NEVER ENTER HISTORY (R-WP6-1). Copying it to a new path
       # and re-asking the question about the NEW path answers a question
@@ -545,11 +587,8 @@ adopt_archive_write() {
       # of those is secret-SHAPED, so the scanner is no defence: G1 asserts
       # findingCount == 0 precisely to prove the ignore rule is what saved it.
       #
-      # SCOPE, and it is narrower than it looks: `.git/hooks/*` is NOT
-      # reported as ignored (verified, rc 1) because git excludes `.git/` by
-      # construction rather than by the operator's instruction. So the hooks —
-      # the archive's whole point and §7.3's carrier — are untouched by this
-      # arm, and G1b pins that bound in the same run.
+      # The `.git/` bound lives in the helper, with the measurement that
+      # corrected it.
       staged="false"; reason="original-gitignored"
     elif ( cd "$root" && git check-ignore -q -- "$arc_rel/$arel" ) 2>/dev/null; then   # BF-ADOPT-IGNORE-ARCHIVE
       # The MECHANICAL guard, and a different question from the one above:
@@ -610,18 +649,44 @@ STAGEABLE
   _adopt_archive_disclose "$root" "$arc_rel" "$arc_abs/MANIFEST.json"
 
   # §8.9: "every collision archive" is one of the five events.
-  adopt_audit_event "$root" "collision_archive" \
-    "$(jq -n --arg d "$arc_rel" --argjson n "$ADOPT_ARCHIVE_ENTRIES" --arg s "$status" \
-        '{archiveDir: $d, entryCount: $n, secretsScanStatus: $s}' 2>/dev/null)"
-
-  # AND THE LEDGER ITSELF IS COMMITTED, because this is the first row an
-  # adopted project ever has. docs/audit-log-lifecycle.md draws a deliberate
-  # line between the TRACKED ledger and the non-tracked
-  # `.claude/last-gate-pass.txt` receipt, and a scaffolded project gets the
-  # tracked side by way of init's blanket add. An adopted project stages only
-  # what the driver wrote, so without this line its governance record would sit
-  # untracked — the archive row would exist and no clone would carry it.
-  _adopt_record_if_stageable "$root" ".claude/bypass-audit.json"
+  #
+  # THE rc IS CHECKED HERE TOO (R-WP6-11), and the asymmetry with the re-add is
+  # deliberate rather than an oversight — which is why it is written down on
+  # BOTH sides now instead of only on the re-add's. The re-add REFUSES when the
+  # row cannot be written, because the row is the re-add's ONLY record and an
+  # unrecorded override is the thing §7.3 forbids. The archive does NOT refuse,
+  # because it has a primary committed record — the MANIFEST — so a failed row
+  # degrades the trail rather than invalidating the act. What it must never do
+  # is degrade QUIETLY. Measured before this fix, with a ledger that was already
+  # corrupt when adoption started: rc 0, the row silently dropped, no mention
+  # anywhere in the transcript, and THE STILL-CORRUPT LEDGER COMMITTED INTO HEAD
+  # as the project's first governance record.
+  if adopt_audit_event "$root" "collision_archive" \
+       "$(jq -n --arg d "$arc_rel" --argjson n "$ADOPT_ARCHIVE_ENTRIES" --arg s "$status" \
+           '{archiveDir: $d, entryCount: $n, secretsScanStatus: $s}' 2>/dev/null)"; then
+    # AND THE LEDGER ITSELF IS COMMITTED, because this is the first row an
+    # adopted project ever has. docs/audit-log-lifecycle.md draws a deliberate
+    # line between the TRACKED ledger and the non-tracked
+    # `.claude/last-gate-pass.txt` receipt, and a scaffolded project gets the
+    # tracked side by way of init's blanket add. An adopted project stages only
+    # what the driver wrote, so without this the governance record would sit
+    # untracked — the archive row would exist and no clone would carry it.
+    #
+    # ONLY ON SUCCESS. A successful append proves the ledger parsed, since the
+    # appender's own jq had to read it. Staging it on the failure path would
+    # commit whatever unparseable bytes are there — turning a corrupt file into
+    # the permanent first entry of the project's audit history.
+    _adopt_record_if_stageable "$root" ".claude/bypass-audit.json"
+  else
+    adopt_blank
+    adopt_say "   THE ARCHIVE HAPPENED. THE AUDIT ROW FOR IT could not be recorded."
+    adopt_note "$arc_rel is written, disclosed above, and listed in its own MANIFEST — none of"
+    adopt_note "that is in doubt. What is missing is the line in .claude/bypass-audit.json that"
+    adopt_note "would let someone find it later without being told. The ledger would not accept"
+    adopt_note "the row; it is most likely not valid JSON. It has been LEFT OUT of the commit"
+    adopt_note "rather than committed in that state — check it by hand:"
+    adopt_note "  jq . .claude/bypass-audit.json"
+  fi
   return 0
 }
 
@@ -832,6 +897,15 @@ adopt_archive_readd() {
   # afternoon; an override with no row is the thing §7.3 forbids — and the
   # refusal that follows a failed `cp` is loud.
   #
+  # AND THE WINDOW IS EXACTLY ONE STATEMENT WIDE, WHICH IT WAS NOT (R-WP6-12).
+  # The `mkdir -p` used to sit inside it too, undisclosed, so a re-add that
+  # could not even create its parent directory still wrote a row claiming it
+  # happened. The mkdir mutates nothing the archive governs, so it belongs
+  # ABOVE the record and now runs there — which makes the residual documented
+  # above the WHOLE residual rather than most of it. R5 forces that failure
+  # with a regular file where a directory has to go and asserts zero rows.
+  mkdir -p "$(dirname "$root/$want")" 2>/dev/null || { adopt_refuse "could not create $(dirname "$want") — nothing has been changed and nothing recorded"; return 1; }
+  #
   # THE DETAILS ARE BUILT ON THEIR OWN LINE so that the emit is a COMPLETE
   # ONE-LINE STATEMENT. A marker on the last line of a multi-line continuation
   # cannot be neutered by a one-line substitution without leaving a dangling
@@ -852,7 +926,6 @@ adopt_archive_readd() {
     return 1
   fi
 
-  mkdir -p "$(dirname "$root/$want")" 2>/dev/null || { adopt_refuse "could not create $(dirname "$want")"; return 1; }
   cp -p "$restored_from" "$root/$want" || { adopt_refuse "could not restore $want — the audit row was already written, so the ledger records an intent that did not complete"; return 1; }
   case "$mode" in ''|*[!0-7]*) : ;; *) chmod "$mode" "$root/$want" 2>/dev/null ;; esac
 
