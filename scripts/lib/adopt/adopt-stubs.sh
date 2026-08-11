@@ -1,11 +1,20 @@
 #!/usr/bin/env bash
-# scripts/lib/adopt/adopt-stubs.sh — the parts of adoption WP4 does NOT build,
+# scripts/lib/adopt/adopt-stubs.sh — the parts of adoption that are NOT built,
 # said out loud at the point in the run where they belong.
 #
 # SPEC: docs/designs/2026-08-02-brownfield-adoption-v1.md §10 — WP5 (the
-# certification pass), WP5b (the test-debt ledger), WP6 (the collision archive,
-# the disclosure and the re-add warning), WP7 (the CI carve-out, the provenance
-# headers and the Adoption Record), §6.3 (per-finding secrets disposition).
+# certification pass), WP5b (the test-debt ledger), WP7 (the CI carve-out, the
+# provenance headers and the Adoption Record), §6.3 (per-finding secrets
+# disposition, which §10 assigns to no package).
+#
+# WP6 IS NO LONGER IN THAT LIST, and the header is the first place that had to
+# change when it landed: §7's collision archive, its MANIFEST, the disclosure
+# and the recorded re-adds all ship (scripts/lib/adopt/adopt-archive.sh). What
+# remains unbuilt around it is named honestly by the two stubs below — the
+# adoptee's framework DOCUMENTS and the REPLACEMENT half for framework-script
+# collisions — and both are attributed to nobody, because nobody owns them.
+# A stub file whose own header still claims a delivered package is exactly the
+# "measured and clean" misreading these stubs exist to prevent, one level up.
 #
 # ─────────────────────────────────────────────────────────────────────────────
 # WHY STUBS EXIST AT ALL, AND WHAT MAKES ONE HONEST.

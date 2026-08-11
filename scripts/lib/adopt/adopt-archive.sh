@@ -51,10 +51,16 @@
 #
 # THE ARCHIVE SCAN IS A `gitleaks dir` OVER THE ARCHIVE DIRECTORY ALONE, and
 # that has a second, deliberate property: the adoptee's own `.gitleaks.toml`
-# lives at their project root, not inside the archive, so a repo-local config
+# lives at their project root, not inside the archive, so a REPO-LOCAL config
 # that allowlists `AKIA[A-Z2-7]{16}` cannot suppress this scan. A clean bill of
 # health issued under rules written by the thing being audited is a different
 # claim, and this is the one place the framework refuses to accept it.
+#
+# THAT ARGUMENT COVERS THE FILE AND NOT THE ENVIRONMENT, and saying so is the
+# difference between a property and a slogan: `GITLEAKS_CONFIG` and
+# `GITLEAKS_CONFIG_TOML` outrank the scanned path entirely and are inherited
+# from whatever launched the driver. They are unset inside the scan subshell
+# for exactly that reason — see the scrub in `adopt_archive_scan`.
 #
 # ─────────────────────────────────────────────────────────────────────────────
 # M2/M3: this file is MODULE code. It sources nothing itself — the driver
@@ -254,6 +260,20 @@ VOCAB
 # of the vocabulary lost most often, because grep reaches them soonest. A6's
 # positive control caught it only because it looks for a specific tool name; a
 # "the description is non-empty" assertion would have passed every time.
+#
+# THE EXACT BOUNDARY, MEASURED, BECAUSE IT DECIDES WHAT A FUTURE EDITOR MAY DO.
+# The race needs a producer that writes MORE THAN ONCE. With a SINGLE `write(2)`
+# — one `printf` of a whole table — it is impossible rather than merely
+# unlikely: grep cannot match, and therefore cannot exit, before the producer's
+# only write has completed, and after it there is nothing left to SIGPIPE.
+# 3000 iterations of the single-write form: zero failures. A per-LINE writer
+# under the identical pipeline: 300 failures in 300. So the hazard is not the
+# `| grep -q` idiom by itself — it is the idiom plus a multi-write producer,
+# which a table grown past the single-write chunk (~4KiB stdio worst case) also
+# becomes. **The guard this note exists for: do not "tidy" a producer here into
+# per-line emission, and do not let the vocabulary grow past a single write
+# while a pipeline consumes it.** The `case` form below has neither exposure,
+# which is why it is the form that ships.
 adopt_archive_hook_description() {
   local f="$1" tok seen="" pretty="" others=0 vocab
   [ -f "$f" ] || { printf 'An empty or unreadable hook.'; return 0; }
@@ -336,7 +356,18 @@ adopt_archive_scan() {
   # and failures share an exit code and the three honest statuses collapse into
   # two. `--redact` is defence in depth and is NOT what makes this safe — the
   # three-field read below is.
+  # THE SCAN'S ENVIRONMENT IS SCRUBBED, AND THIS IS A SUPPRESSION VECTOR RATHER
+  # THAN A TIDY-UP (R-WP6-9). `GITLEAKS_CONFIG` and `GITLEAKS_CONFIG_TOML`
+  # OUTRANK the scanned path, so the "the archive directory structurally cannot
+  # contain a .gitleaks.toml" argument — which is true, and is why a repo-local
+  # config cannot reach this scan — does not cover them. Measured on 8.30.1:
+  # exporting either one at a config whose rules match nothing takes the same
+  # planted key from 1 finding to 0, while the MANIFEST still says
+  # `status: scanned`. A shell profile, a CI job env or a direnv file in the
+  # adoptee would therefore have switched §7.3's refusal off silently. Unset
+  # inside the subshell so the driver's own environment is untouched.
   ( cd "$arc" 2>/dev/null || exit 2
+    unset GITLEAKS_CONFIG GITLEAKS_CONFIG_TOML
     "$_bin" dir --no-banner --redact --exit-code 0 -f json -r "$work/arc-gl.json" . ) \
     >"$work/arc-gl.out" 2>"$work/arc-gl.err"
   _rc=$?
@@ -398,15 +429,22 @@ adopt_audit_event() {
   local root="$1" event="$2" details="${3:-\{\}}"
   local _ae_type _ts row
   _ae_type="adoption_event"   # BF-ADOPT-AUDIT-ROW
-  command -v jq >/dev/null 2>&1 || return 0
+  command -v jq >/dev/null 2>&1 || return 1
   _ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
   row="$(jq -n --arg t "$_ae_type" --arg ts "$_ts" --arg e "$event" --argjson d "$details" \
     '{timestamp: $ts, session_id: null, type: $t, actor: "framework",
       enforcement_level_at_event: "n/a",
       details: ($d + {event: $e}),
       user_response: "n/a", final_outcome: "recorded_only"}' 2>/dev/null)"
-  [ -n "$row" ] || return 0
-  bypass_audit_append "$root" "$row" >/dev/null 2>&1
+  [ -n "$row" ] || return 1
+  # EVERY FAILURE PATH RETURNS NON-ZERO (R-WP6-4). This function used to answer
+  # 0 unconditionally — missing jq, an unrenderable row, and a REFUSED APPEND
+  # all reported success. `bypass_audit_append` genuinely returns 1: its jq
+  # filter fails on a corrupt ledger, and it gives up after a 10s lock timeout.
+  # A caller that treats "recorded" as a precondition cannot do so against a
+  # function that never says no, and the re-add path below is exactly such a
+  # caller — so this rc is load-bearing, not tidiness.
+  bypass_audit_append "$root" "$row" >/dev/null 2>&1 || return 1
   return 0
 }
 
@@ -482,18 +520,44 @@ adopt_archive_write() {
       *)                     dispo="kept" ;;
     esac
 
+    # ── THE WITHHOLD CHAIN, IN PRECEDENCE ORDER ────────────────────────────
+    #
+    # Ordered by how strong the statement is, so the MANIFEST names the most
+    # important reason when more than one applies: nothing was checked, then a
+    # scanner match, then the operator's own instruction, then the mechanical
+    # `git add` guard.
     staged="true"; reason=""
     if [ "$status" != "scanned" ]; then
       staged="false"; reason="not-scanned"
     elif grep -qxF -- "$arel" "$work/archits" 2>/dev/null; then
       staged="false"; reason="secret-match"
-    elif ( cd "$root" && git check-ignore -q -- "$arc_rel/$arel" ) 2>/dev/null; then
-      # THEIR .gitignore WINS, AND NOT ONLY OUT OF POLITENESS. `git add` on an
-      # ignored path FAILS, and the driver stages every recorded path in one
-      # command — so a single ignored archive entry would abort the whole
-      # adoption commit. Withholding it keeps the operator's ignore rules
-      # intact AND keeps the run alive, and the MANIFEST says which entry and
-      # why instead of leaving them a git error to decode.
+    elif ( cd "$root" && git check-ignore -q -- "$rel" ) 2>/dev/null; then   # BF-ADOPT-IGNORE-ORIGINAL
+      # A GITIGNORE ENTRY IS THE OPERATOR'S EXPLICIT STATEMENT THAT THIS
+      # CONTENT MUST NEVER ENTER HISTORY (R-WP6-1). Copying it to a new path
+      # and re-asking the question about the NEW path answers a question
+      # nobody asked — and answers it wrongly, because the ecosystem-standard
+      # rule is ANCHORED: `.claude/settings.local.json` matches the original
+      # and cannot match `.claude/adoption-archive/<dir>/.claude/settings.local.json`.
+      # Measured hermetically: original -> ignored, archive copy -> NOT
+      # ignored. Before this arm the archive committed a copy of a gitignored
+      # `settings.local.json` — the MODAL adoptee shape, and the one file most
+      # likely to hold an internal hostname, a proxy URL or a username. None
+      # of those is secret-SHAPED, so the scanner is no defence: G1 asserts
+      # findingCount == 0 precisely to prove the ignore rule is what saved it.
+      #
+      # SCOPE, and it is narrower than it looks: `.git/hooks/*` is NOT
+      # reported as ignored (verified, rc 1) because git excludes `.git/` by
+      # construction rather than by the operator's instruction. So the hooks —
+      # the archive's whole point and §7.3's carrier — are untouched by this
+      # arm, and G1b pins that bound in the same run.
+      staged="false"; reason="original-gitignored"
+    elif ( cd "$root" && git check-ignore -q -- "$arc_rel/$arel" ) 2>/dev/null; then   # BF-ADOPT-IGNORE-ARCHIVE
+      # The MECHANICAL guard, and a different question from the one above:
+      # `git add` on an ignored path FAILS, and the driver stages every
+      # recorded path in ONE command — so a single ignored archive entry would
+      # abort the whole adoption commit. Withholding keeps the operator's
+      # rules intact AND keeps the run alive, and the MANIFEST says which
+      # entry and why instead of leaving them a git error to decode.
       staged="false"; reason="gitignored"
     fi
 
@@ -524,12 +588,18 @@ adopt_archive_write() {
   ADOPT_ARCHIVE_ENTRIES=$(jq -r '.entries | length' "$arc_abs/MANIFEST.json" 2>/dev/null)
   case "$ADOPT_ARCHIVE_ENTRIES" in ''|*[!0-9]*) ADOPT_ARCHIVE_ENTRIES=0 ;; esac
 
-  # THE MANIFEST ITSELF IS ALWAYS STAGED, and it carries no file bytes — only
-  # paths, hashes, modes and rule names. It is the record of what was withheld
-  # as much as of what was kept, and withholding the record along with the
-  # files would leave the operator with an unexplained directory.
-  adopt_record_write "$arc_rel/MANIFEST.json"
-  adopt_record_write "$arc_rel/MANIFEST.md"
+  # THE MANIFEST CARRIES NO FILE BYTES — only paths, hashes, modes and rule
+  # names — so it is committed wherever it can be. It is the record of what was
+  # withheld as much as of what was kept.
+  #
+  # BUT IT GOES THROUGH THE IGNORE GUARD LIKE EVERYTHING ELSE. An earlier cut
+  # recorded both MANIFESTs unconditionally, and an operator who gitignores
+  # `.claude/adoption-archive/` — an entirely reasonable thing to do to a local
+  # backup directory — then hit `git add` refusing an ignored path, which took
+  # THE WHOLE ADOPTION down (measured: rc 1, no adoption commit). Two arms
+  # guarding the entries and one unconditional pair beside them is not a guard.
+  _adopt_record_if_stageable "$root" "$arc_rel/MANIFEST.json"
+  _adopt_record_if_stageable "$root" "$arc_rel/MANIFEST.md"
   while IFS= read -r arel; do
     [ -n "$arel" ] || continue
     adopt_record_write "$arc_rel/$arel"
@@ -646,6 +716,14 @@ _adopt_archive_disclose() {
     if jq -e '.secretsScan.status != "scanned"' "$mj" >/dev/null 2>&1; then
       adopt_note "NOTHING WAS SCANNED, so this is not a clean result — it is the absence of one."
     fi
+    # THE OPERATOR'S OWN RULE, EXPLAINED IN THEIR TERMS. "original-gitignored"
+    # is a manifest token; a person reading a transcript needs the sentence.
+    if jq -e '[.entries[] | select(.withheldReason == "original-gitignored")] | length > 0' "$mj" >/dev/null 2>&1; then
+      adopt_note "Some of those are files your own .gitignore says never to commit. The archive"
+      adopt_note "keeps a copy so you can restore them, and does NOT commit that copy under a"
+      adopt_note "different name — your rule is about the contents, not about the path."
+      jq -r '.entries[] | select(.withheldReason == "original-gitignored") | "   your .gitignore covers: " + .originalPath' "$mj" 2>/dev/null
+    fi
     adopt_blank
   fi
   adopt_note "The full record, including a restore line for every file, is in"
@@ -678,7 +756,7 @@ adopt_archive_latest() {
 # file exactly as it was, and it WRITES THE ROW.
 adopt_archive_readd() {
   local root="$1" want="$2"
-  local arc mj entry ap mode restored_from _readd_details
+  local arc mj entry ap mode restored_from _readd_details _readd_recorded=1
 
   arc="$(adopt_archive_latest "$root")"
   if [ -z "$arc" ] || [ ! -f "$root/$arc/MANIFEST.json" ]; then
@@ -733,15 +811,26 @@ adopt_archive_readd() {
       ;;
   esac
 
-  mkdir -p "$(dirname "$root/$want")" 2>/dev/null || { adopt_refuse "could not create $(dirname "$want")"; return 1; }
-  cp -p "$restored_from" "$root/$want" || { adopt_refuse "could not restore $want"; return 1; }
-  case "$mode" in ''|*[!0-7]*) : ;; *) chmod "$mode" "$root/$want" 2>/dev/null ;; esac
-
   # §7.3: "every re-add is recorded in the audit trail". THE ROW IS THE POINT.
   # A re-add nobody can find later is exactly the silent confiscation-in-
   # reverse this design refuses: the framework permits the operator to override
   # it, and asks only that the override be legible to whoever reads the ledger
   # next. Suppress the marked line and the re-add still happens — silently.
+  #
+  # THE RECORD IS WRITTEN BEFORE THE RESTORE, AND THAT ORDER IS THE FIX
+  # (R-WP6-4). Recording afterwards made "recorded" unenforceable: on a corrupt
+  # ledger or a lock timeout `bypass_audit_append` returns 1, the file had
+  # already been restored, and the driver went on to print "The choice is
+  # recorded in .claude/bypass-audit.json" — a false claim about the only
+  # artifact the re-add's legitimacy rests on. That is the R2 mutation's
+  # failure mode reachable at RUNTIME rather than by sed. Recording first makes
+  # the row a PRECONDITION: no row, no re-add.
+  #
+  # The residual is stated rather than hidden: if the `cp` below fails, a row
+  # exists for a re-add that did not happen. Over-recording is the safe
+  # direction — an operator investigating a row that describes nothing loses an
+  # afternoon; an override with no row is the thing §7.3 forbids — and the
+  # refusal that follows a failed `cp` is loud.
   #
   # THE DETAILS ARE BUILT ON THEIR OWN LINE so that the emit is a COMPLETE
   # ONE-LINE STATEMENT. A marker on the last line of a multi-line continuation
@@ -750,7 +839,22 @@ adopt_archive_readd() {
   # code — it only proves sed can break a file.
   _readd_details="$(jq -n --arg p "$want" --arg a "$arc/$ap" --arg w "$ADOPT_READD_WARNING" \
       '{path: $p, archivedPath: $a, warningShown: $w}' 2>/dev/null)"
-  adopt_audit_event "$root" "collision_re_add" "$_readd_details"   # BF-ADOPT-READD-AUDIT
+  adopt_audit_event "$root" "collision_re_add" "$_readd_details" || _readd_recorded=0   # BF-ADOPT-READD-AUDIT
+  if [ "$_readd_recorded" -eq 0 ]; then
+    adopt_refuse "the re-add could not be recorded in .claude/bypass-audit.json, so it was NOT made"
+    {
+      echo "          Every re-add is written into the audit trail — that is the whole basis on"
+      echo "          which the framework lets you override it. The ledger would not accept the"
+      echo "          row (it may be corrupt, or another process may be holding it), so $want"
+      echo "          has been LEFT AS IT IS rather than changed with no record of who chose it."
+      echo "          Check .claude/bypass-audit.json is valid JSON, then run this again."
+    } >&2
+    return 1
+  fi
+
+  mkdir -p "$(dirname "$root/$want")" 2>/dev/null || { adopt_refuse "could not create $(dirname "$want")"; return 1; }
+  cp -p "$restored_from" "$root/$want" || { adopt_refuse "could not restore $want — the audit row was already written, so the ledger records an intent that did not complete"; return 1; }
+  case "$mode" in ''|*[!0-7]*) : ;; *) chmod "$mode" "$root/$want" 2>/dev/null ;; esac
 
   adopt_blank
   adopt_note "$want is back, exactly as it was, at mode $mode."
