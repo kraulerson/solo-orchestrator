@@ -174,8 +174,9 @@ still being built — and lands it accordingly, writing state in a fail-safe ord
 and committing exactly the files it wrote.
 
 > **⚠ Adoption is half built.** The driver, chooser, reverse intake, state
-> writes and adoption stamp ship and work. **The certification pass, the
-> test-debt ledger, the collision archive, the CI carve-out and the Adoption
+> writes, adoption stamp and the collision archive (with its disclosure,
+> recorded re-adds and pre-staging secret scan) ship and work. **The
+> certification pass, the test-debt ledger, the CI carve-out and the Adoption
 > Record do not exist yet.** The driver prints a labelled `NOT DONE` block for
 > each during the run rather than papering over it. Do not read an adopted
 > project as a certified one.
@@ -199,7 +200,7 @@ not among them. Read them here.
 - **One command setup** — `./init.sh` handles everything: tool installation, project scaffolding, CI/CD generation, security tooling, Git initialization, and health check.
 - **A lifecycle after v1.0** — the [delta track](docs/delta-track.md) ships into every project: one classified unit of post-release change at a time, a brief whose acceptance checklist is the close review, a hotfix lane whose deferred retro blocks the next release, a maintenance cadence that refuses a release when a window is overdue *or unmeasurable*, and `scripts/cut-release.sh`, which decides the semver from what actually shipped, promotes the changelog, closes the `BUGS.md`/`FEATURES.md` rows, and tags.
 - **Look before you install** — [Scout](docs/scout.md) (`scripts/scout.sh`) is a read-only survey of any codebase: stack, phase evidence, reality probes, **full-history secret scanning with the value never printed**, an inventory of what the framework would otherwise overwrite, a tests baseline, and an intake prefill. It writes nothing and needs nothing installed.
-- **A second way in for existing code** — [brownfield adoption](docs/adoption.md) (`scripts/adopt-project.sh`) brings a codebase that already exists under the framework, asking one plain-English question and landing it at the phase its own evidence supports. **Half built today** — the certification pass, test-debt ledger, collision archive, CI carve-out and Adoption Record are designed and not yet implemented; the driver says so, per capability, during the run.
+- **A second way in for existing code** — [brownfield adoption](docs/adoption.md) (`scripts/adopt-project.sh`) brings a codebase that already exists under the framework, asking one plain-English question and landing it at the phase its own evidence supports. **Half built today** — the certification pass, test-debt ledger, CI carve-out and Adoption Record are designed and not yet implemented; the driver says so, per capability, during the run. The collision archive ships: it copies the files the framework would land on into a timestamped, manifested, restorable directory, discloses every one of them by name, permits recorded re-adds, and refuses to commit an archived file a secret scanner matched.
 
 ---
 

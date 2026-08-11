@@ -972,12 +972,25 @@ else
   h2_after=$(shasum -a 256 "$H2D/p/.git/hooks/pre-commit" 2>/dev/null | awk '{print $1}')
   h2_said=0
   grep -q 'LEFT ALONE' "$RUN_OUT" && h2_said=1
-  h2_stub=0
-  grep -q 'NOT DONE — the collision archive' "$RUN_OUT" && h2_stub=1
-  if [ "$h2_rc" -eq 0 ] && [ -n "$h2_before" ] && [ "$h2_before" = "$h2_after" ] && [ "$h2_said" -eq 1 ] && [ "$h2_stub" -eq 1 ]; then
-    pass "H2: an adoptee's existing pre-commit hook is byte-for-byte untouched, said out loud, and handed to WP6's collision stub rather than overwritten"
+  # RE-AIMED WHEN WP6 LANDED. This case used to require the WP6 STUB to fire
+  # ("NOT DONE — the collision archive"), which was the right assertion while
+  # the archive did not exist and is the wrong one now: an honest stub for
+  # delivered work is a false claim, so WP6 removed it. The property H2 was
+  # always about — their hook is byte-for-byte untouched and the run says so —
+  # is unchanged and still asserted. What replaces the stub check is the
+  # STRONGER version of the same intent: the hook is now RECOVERABLE, so the
+  # archive must hold a copy of it with a restore line.
+  h2_arch=$( cd "$H2D/p" && find .claude/adoption-archive -mindepth 1 -maxdepth 1 -type d 2>/dev/null | LC_ALL=C sort | head -1 )
+  h2_copy=""
+  [ -n "$h2_arch" ] && h2_copy=$(shasum -a 256 "$H2D/p/$h2_arch/git-hooks/pre-commit" 2>/dev/null | awk '{print $1}')
+  h2_restore=0
+  [ -n "$h2_arch" ] && jq -e '[.entries[] | select(.originalPath == ".git/hooks/pre-commit") | select((.restore // "") != "")] | length == 1' \
+    "$H2D/p/$h2_arch/MANIFEST.json" >/dev/null 2>&1 && h2_restore=1
+  if [ "$h2_rc" -eq 0 ] && [ -n "$h2_before" ] && [ "$h2_before" = "$h2_after" ] && [ "$h2_said" -eq 1 ] \
+     && [ -n "$h2_copy" ] && [ "$h2_copy" = "$h2_before" ] && [ "$h2_restore" -eq 1 ]; then
+    pass "H2: an adoptee's existing pre-commit hook is byte-for-byte untouched, said out loud, AND archived byte-identically with a restore line (WP6) rather than overwritten"
   else
-    fail_ "H2" "rc=$h2_rc sha_before=$h2_before sha_after=$h2_after said_left_alone=$h2_said collision_stub_fired=$h2_stub"
+    fail_ "H2" "rc=$h2_rc sha_before=$h2_before sha_after=$h2_after said_left_alone=$h2_said archive=$h2_arch archived_copy_sha=$h2_copy restore_line_present=$h2_restore"
   fi
 fi
 

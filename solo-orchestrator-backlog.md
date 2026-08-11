@@ -9354,3 +9354,195 @@ still reds.
 **Related:** `## BL-076:` (the lint itself). Sibling shape:
 `## BL-181:`, where narrowing a predicate by one character re-opened a hole
 three times.
+
+---
+
+## BL-225: The adoption driver writes 78 files into an adoptee, STAGES 64 of them, then discovers their `.gitignore` refuses one — no preflight, no rollback, no `git reset`, and a refusal that says "nothing has been committed"
+
+**Logged:** 2026-08-10 (found by adversarial review of the brownfield WP6
+branch; the WP6-local instances of the same class were fixed there, this is the
+residual one level down)
+**Category:** Fail-loud-but-late — a refusal that arrives after the mutation it
+should have prevented
+**Severity:** Real, not cosmetic. The failure direction is safe (nothing leaks,
+git names the culprit) but the adoptee is left half-written with no way back
+except by hand.
+**Status:** Open
+
+**What happens.** `scripts/adopt-project.sh` stages every recorded path in ONE
+`git add`, and `git add` on a gitignored path FAILS. WP6 fixed this for the
+paths it owns — the collision archive's entries, both MANIFESTs and the audit
+ledger all route through `_adopt_record_if_stageable`, which withholds an
+ignored path and says so. **Withholding is not available for the rest.** The
+framework-owned paths recorded unconditionally in `adopt-state.sh` and
+`adopt-core.sh` — the shipped script set, `.claude/phase-state.json`,
+`.claude/manifest.json`, `PROJECT_INTAKE.md`, the kept scan report — are the
+files the adoption *is*; skipping one produces a broken install rather than a
+disclosed omission.
+
+**Reproduced, hermetically, on an adoptee whose `.gitignore` is the single line
+`.claude/`** (framework clone at `feat/brownfield-wp6-collision-archive`, host
+git config neutralised; the adoptee carries the ordinary AI-layer surfaces, so
+the collision archive has entries to write):
+
+```
+adopt rc                 : 1
+HEAD subject             : chore: their history   <- their own, not adoption's
+files WRITTEN (delta)    : 78
+  of which under .claude : 14    <- hidden from `git status` by their own rule
+git status 'A ' (staged) : 64
+git status '??'          : 0
+paths in INDEX vs HEAD   : 64
+```
+
+⚠ **Amended: an earlier revision of this entry said "64 untracked". Both halves
+of that were wrong** — the number was the staged count, and nothing was
+untracked at all. The experiment was right and the *reading* of it was not; the
+correction is recorded rather than silently overwritten because misreading a
+measurement is the same defect class as not taking one. On a bare adoptee with
+no AI-layer surfaces the written total is **69** (5 under `.claude/`); the
+78/14 figures are the realistic shape, where the archive has files to write.
+
+**The 64 are STAGED, not stray, and that is the hazard.** The partially-failed
+`git add` stages every non-ignored path *before* erroring on `.claude`, and the
+refusal path does no `git reset`. So the operator is left with 64 framework
+files pre-loaded in their index. Measured consequence — their next innocent
+commit:
+
+```
+$ echo 'a routine edit' >> README.md && git add README.md && git commit -m "docs: a routine edit of my own"
+files in that commit     : 65
+  framework scripts in it: 63
+```
+
+**Three things make the aftermath worse than the abort itself.**
+
+1. The refusal says **"Adoption did not complete. Nothing has been committed."**
+   Literally true, and it reads as "nothing happened" — while 78 files sit in
+   the tree and 64 are staged. It should distinguish *committed* from *written*
+   from *staged*.
+2. Git names the culprit (`.claude`) in a hint on stderr, and the driver's own
+   line then **asks the question git just answered**: *"are any of them ignored
+   by .gitignore?"*. The information is present and the framework declines to
+   use it.
+3. Cleanup guidance is absent, and `git reset` is the first step of it — without
+   it the residue is not merely untidy, it is armed.
+
+**The right shape** is a preflight `git check-ignore` over the whole write-set
+BEFORE anything is written, with a legible refusal naming the offending
+patterns and the paths they cover — the same information the post-hoc git error
+carries, delivered while it is still actionable. `adopt_written_paths` already
+knows the set for the withheld half; the preflight needs the framework-owned
+half enumerated before the run rather than accumulated during it.
+
+**Not in scope for WP6**, which owns §7's archive. Filing rather than fixing
+because the write-set enumeration is a driver-skeleton change (WP4's surface)
+and deserves its own TDD pass.
+
+**Related:** BL-221 (the other adoption-path fail-direction finding), and
+`# BF-ADOPT-STAGE-EXPLICIT` for the staging call this refuses at.
+
+---
+
+## BL-226: Adoption tells the operator their files were "moved" when for most of them nothing moved
+
+**Logged:** 2026-08-10 (found during the brownfield WP6 build; carried forward
+by review rather than resolved, because the wording is design-mandated)
+**Category:** Honest-output defect — spec-conformant text contradicted by the
+program's own per-entry data
+**Severity:** Cosmetic in mechanism, not in consequence: it is the sentence an
+operator reads while deciding whether to trust the tool with their repository.
+**Status:** Open
+
+**The contradiction.** §7.3 mandates the disclosure sentence *"moved to ensure
+the framework operates properly"*, and `MANIFEST.md` repeats it. Both ship. But
+§7.1's other half — install the framework's clean set over the archived
+original — **is not built for the AI-layer surfaces**, because `init.sh` writes
+`.claude/settings.json` inline inside `create_project()` with no extractable
+emitter, and §8.1 forbids the driver from reaching into that function. So the
+archive COPIES and leaves the originals in place and in charge.
+
+The program already knows this and records it correctly: every entry carries a
+`disposition`, and every value is `kept` except `.git/hooks/commit-msg`, which
+is `composed`. **Nothing is `replaced`.** The per-entry field and the headline
+sentence disagree, and the sentence is the one a person reads first.
+
+**Options, none taken here:** (a) build the replacement half for the AI layer,
+which needs an extractable settings emitter and is a real piece of work;
+(b) re-word the disclosure to match the dispositions, which contradicts a
+verbatim design mandate and so is Karl's call, not an implementer's; (c) print
+the mandated sentence scoped to the entries it is true of, and a different one
+for `kept`. The WP6 build chose to ship the mandate and file the contradiction
+rather than quietly re-word a design-decided string.
+
+**Related:** BL-225 (the other WP6-adjacent residual), and
+docs/designs/2026-08-02-brownfield-adoption-v1.md §7.1/§7.3/§7.5.
+
+---
+
+## BL-227: seven inline `jq '. + [$r]'` appends bypass `bypass_audit_append` entirely — and a live doc sentence says none do
+
+**Logged:** 2026-08-10 (found by adversarial review while verifying WP6's
+appender-level fix; the count was then re-derived and came out one higher than
+the review's)
+**Category:** Chokepoint that is not one / silent-success class — the guard that
+makes ledger corruption loud is installed at a door six of the seven writers do
+not use
+**Severity:** Medium. Pre-existing and outside WP6's diff, so nothing shipped
+today regressed. But WP6 fixed a real silent-loss defect **at the library** on
+the stated rationale that "every caller that trusts the rc" is protected there —
+and that rationale is bounded by this entry.
+**Status:** Open
+
+**The claim that is refuted.** `docs/audit-log-lifecycle.md` § Ledger states:
+
+> **Writer:** every writer goes through
+> `scripts/lib/bypass-audit.sh::bypass_audit_append`. Direct edits are not part
+> of the contract.
+
+`git grep -c "jq --argjson r" -- 'scripts/*' 'init.sh'`, minus the library
+itself, returns **seven sites in five files**:
+
+| file | sites |
+|---|---|
+| `init.sh` | 1 |
+| `scripts/detect-out-of-band-commits.sh` | 1 |
+| `scripts/install-filesystem-gates.sh` | 1 |
+| `scripts/reconfigure-project.sh` | 2 |
+| `scripts/upgrade-project.sh` | 2 |
+
+**Derive this number, do not quote it.** The review that found the class named
+**six**, omitting `install-filesystem-gates.sh`; re-running the grep at filing
+time produced seven. The recipe is in this paragraph precisely so the next
+reader re-runs it rather than trusting either figure.
+
+**Why it matters, measured.** Each site is the identical
+`jq '. + [$r]' "$f" > tmp && mv` shape whose behaviour on a **zero-byte** ledger
+was measured during WP6 round 3: jq runs the filter over zero input documents,
+emits nothing, and **exits 0** — the append "succeeds", writes an empty file
+over an empty file, and drops the row. A `null` ledger is worse: `null + [$r]`
+evaluates to `[$r]`, so the corrupt state a reader would have investigated is
+silently **repaired away**. So, e.g., `detect-out-of-band-commits.sh` can print
+that it recorded a bypass to `.claude/bypass-audit.json` having written nothing.
+
+`bypass_audit_append` now refuses all of empty / `null` / multi-document /
+non-array with a loud failure and an untouched file
+(`jq -es 'length == 1 and (.[0] | type == "array")'`). **None of the seven
+inline sites inherits that.**
+
+**Fix shape.** Route all seven through `bypass_audit_append`. Two constraints
+worth knowing before starting: some sites run in contexts where the library is
+not sourced (`init.sh` scaffolds *into* a project rather than running inside
+one), so this is a real refactor rather than a sed; and the archived BL-029 /
+BL-030 plans already scheduled these rewrites and they did not happen, which is
+itself evidence that "route it through the library later" does not survive
+contact with a work package.
+
+**The weaker alternative, if the refactor is not taken:** correct the
+`audit-log-lifecycle.md` sentence to say what is true. A doc that overstates a
+chokepoint is worse than no doc, because the next author reads it and installs
+their guard at the door nobody uses — which is exactly what WP6 nearly did.
+
+**Related:** `## BL-225:` (the other WP6-adjacent residual), `## BL-029:` /
+`## BL-030:` (the archived plans that scheduled this), and BL-104's
+silent-success family.

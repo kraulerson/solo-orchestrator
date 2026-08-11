@@ -746,6 +746,29 @@ run_child_suite "tests/test-brownfield-wp4-driver.sh" \
 run_child_suite "tests/test-brownfield-wp5b-test-debt.sh" \
   "Adoption test-debt ledger + tier ratchet (non-growth, touch-repays, both mutation directions)" \
   "Adoption WP5b test-debt tests FAILED (run tests/test-brownfield-wp5b-test-debt.sh for details)"
+# Brownfield adoption WP6: tests/test-brownfield-wp6-collision-archive.sh — the
+# COLLISION ARCHIVE (§7.2's layout and MANIFEST), the disclosure, the re-add
+# warning and its audit row, and §7.3's archive-secrets refusal.
+# THE SECURITY HALF IS THE POINT. Archiving a `.git/hooks/` file promotes an
+# UNTRACKED file into version control, so adoption can commit a credential that
+# was never committed before. The suite plants a BASE32-valid AWS key in the
+# fixture's pre-commit hook and asserts, IN THIS ORDER: that the plant is live
+# and the scan found it (a dud plant makes every later assertion vacuous — the
+# §6.5 lesson applied to a different surface); that the matching entry refuses
+# to stage while its CLEAN SIBLING in the same archive still commits; and that
+# the plant reaches zero bytes of the committed tree, the MANIFEST, the
+# transcript and the ledger. Every absence has a positive control, including
+# the `git grep HEAD` probe, which must find a token that IS committed.
+# Three mutations: neuter the pre-staging scan (the secret is committed);
+# suppress the re-add audit row (the file is still restored and nothing is
+# recorded — a SILENT re-add); and drift the emitter's type literal by one
+# character, which the REAL T6 predicate — extracted from
+# tests/test-bl029-integration.sh rather than re-typed — must reject.
+# Never invokes the scaffolder (it copies init.sh into a mutation mirror; it
+# does not run it) -> both lanes.
+run_child_suite "tests/test-brownfield-wp6-collision-archive.sh" \
+  "Collision archive (layout, MANIFEST, disclosure, re-add audit, archive-secrets refusal)" \
+  "Adoption WP6 collision-archive tests FAILED (run tests/test-brownfield-wp6-collision-archive.sh for details)"
 
 # ----------------------------------------------------------------
 # TEST 0g: INTAKE WIZARD + RECONFIGURE FIELD HANDLERS

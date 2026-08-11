@@ -62,6 +62,18 @@
 #                                        gate itself uses, so the test-debt
 #                                        ledger and the gate cannot disagree
 #                                        about what an implementation file is
+#   scripts/lib/bypass-audit.sh          bypass_audit_append, the contract
+#                                        writer of .claude/bypass-audit.json.
+#                                        §8.9's `adoption_event` rows go through
+#                                        it rather than through a second
+#                                        appender, because the ledger's
+#                                        flock-equivalent lock and its atomic
+#                                        adjacent-mktemp rename are the reason
+#                                        concurrent writers do not truncate it —
+#                                        and because it is the only writer that
+#                                        VALIDATES the ledger's shape before
+#                                        appending (`## BL-227:` records the
+#                                        seven inline sites that still do not)
 #
 # Direction (M3) holds in one direction only: this module sources core, and no
 # core file names this module. That is why `init.sh` does NOT ship
@@ -103,7 +115,7 @@ ADOPT_LIB_DIR="$ADOPT_SELF_DIR/lib/adopt"
 ADOPT_CORE_LIB_DIR="$ADOPT_SELF_DIR/lib"
 
 # ── Core libs (M2's declared set) ───────────────────────────────────────────
-for _core in helpers-core.sh adoption-stamp.sh scaffold-shipped-set.sh hook-templates.sh enforcement-level.sh tdd-classify.sh; do
+for _core in helpers-core.sh adoption-stamp.sh scaffold-shipped-set.sh hook-templates.sh enforcement-level.sh tdd-classify.sh bypass-audit.sh; do
   if [ ! -f "$ADOPT_CORE_LIB_DIR/$_core" ]; then
     echo "adopt-project: missing $ADOPT_CORE_LIB_DIR/$_core — run this from a complete framework clone." >&2
     exit 2
@@ -115,7 +127,7 @@ done
 # THE GUARD, BEFORE ARGUMENT PARSING — see the header. Sibling posture, kept.
 guard_not_in_framework || exit 1
 
-for _part in adopt-core adopt-chooser adopt-intake adopt-state adopt-stubs adopt-test-debt; do
+for _part in adopt-core adopt-chooser adopt-intake adopt-state adopt-archive adopt-stubs adopt-test-debt; do
   if [ ! -f "$ADOPT_LIB_DIR/$_part.sh" ]; then
     echo "adopt-project: missing $ADOPT_LIB_DIR/$_part.sh — the driver needs its own lib directory." >&2
     exit 2
@@ -133,8 +145,16 @@ adopt-project — bring an existing project under the framework.
 
   --root DIR          the project to adopt (default: the current directory)
   --scan-report FILE  consume this Scout report instead of running a new scan
+  --re-add PATH       put one of YOUR archived files back, warned and recorded
   --version           print the driver's version and exit
   --help              print this and exit
+
+--re-add is the other half of the collision archive and it does NOT run an
+adoption. Point it at one of your own files as the archive MANIFEST names it
+(for example .git/hooks/pre-commit); it shows you what the framework thinks
+that trade costs, asks you to confirm, puts the file back exactly as it was,
+and records the choice in the audit trail. The framework's premise is
+opinionated enforcement, not confiscation — your files are yours.
 
 What it does, in order: reads the survey, offers what the survey found as
 EVIDENCE, asks you the one question the survey cannot answer, confirms the
@@ -152,6 +172,7 @@ USAGE
 
 ADOPT_ROOT="."
 ADOPT_REPORT=""
+ADOPT_READD=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -159,6 +180,8 @@ while [ "$#" -gt 0 ]; do
     --root=*)        ADOPT_ROOT="${1#--root=}"; shift ;;
     --scan-report)   [ "$#" -ge 2 ] || { echo "adopt-project: --scan-report needs a file" >&2; exit 2; }; ADOPT_REPORT="$2"; shift 2 ;;
     --scan-report=*) ADOPT_REPORT="${1#--scan-report=}"; shift ;;
+    --re-add)        [ "$#" -ge 2 ] || { echo "adopt-project: --re-add needs a path" >&2; exit 2; }; ADOPT_READD="$2"; shift 2 ;;
+    --re-add=*)      ADOPT_READD="${1#--re-add=}"; shift ;;
     --version)       adopt_module_version; exit 0 ;;
     -h|--help)       usage; exit 0 ;;
     *)               echo "adopt-project: unrecognised option '$1'" >&2; echo "" >&2; usage >&2; exit 2 ;;
@@ -173,6 +196,15 @@ fi
 # The target arm of the same guard: --root must not point at a framework clone
 # either (the security-audits-1 vector that the cwd-only check missed).
 guard_not_in_framework "$ADOPT_ROOT_ABS" || exit 1
+
+# --re-add is a DIFFERENT OPERATION, not a mode of the adoption run: it touches
+# no state, writes no commit, and is the only thing this driver does that is
+# meant to be run long after adoption day. Dispatching before adopt_main keeps
+# the adoption path exactly as WP4 shipped it.
+if [ -n "$ADOPT_READD" ]; then
+  adopt_readd_main "$ADOPT_ROOT_ABS" "$ADOPT_READD"
+  exit $?
+fi
 
 adopt_main "$ADOPT_ROOT_ABS" "$ADOPT_REPORT"
 exit $?

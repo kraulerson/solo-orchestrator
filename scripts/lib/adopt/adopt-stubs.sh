@@ -1,11 +1,20 @@
 #!/usr/bin/env bash
-# scripts/lib/adopt/adopt-stubs.sh — the parts of adoption WP4 does NOT build,
+# scripts/lib/adopt/adopt-stubs.sh — the parts of adoption that are NOT built,
 # said out loud at the point in the run where they belong.
 #
 # SPEC: docs/designs/2026-08-02-brownfield-adoption-v1.md §10 — WP5 (the
-# certification pass), WP5b (the test-debt ledger), WP6 (the collision archive,
-# the disclosure and the re-add warning), WP7 (the CI carve-out, the provenance
-# headers and the Adoption Record), §6.3 (per-finding secrets disposition).
+# certification pass), WP5b (the test-debt ledger), WP7 (the CI carve-out, the
+# provenance headers and the Adoption Record), §6.3 (per-finding secrets
+# disposition, which §10 assigns to no package).
+#
+# WP6 IS NO LONGER IN THAT LIST, and the header is the first place that had to
+# change when it landed: §7's collision archive, its MANIFEST, the disclosure
+# and the recorded re-adds all ship (scripts/lib/adopt/adopt-archive.sh). What
+# remains unbuilt around it is named honestly by the two stubs below — the
+# adoptee's framework DOCUMENTS and the REPLACEMENT half for framework-script
+# collisions — and both are attributed to nobody, because nobody owns them.
+# A stub file whose own header still claims a delivered package is exactly the
+# "measured and clean" misreading these stubs exist to prevent, one level up.
 #
 # ─────────────────────────────────────────────────────────────────────────────
 # WHY STUBS EXIST AT ALL, AND WHAT MAKES ONE HONEST.
@@ -57,23 +66,34 @@ adopt_stub_certification() {
 # commit-time hook — and adopt_stub_hooks below already carries that sentence,
 # so a second stub here would be a duplicate notice, not an extra honesty.
 
-# WP6 — the collision archive, its MANIFEST, the disclosure and the re-add
-# warning (§7.2/§7.3). WP4 refuses to overwrite; it does not archive.
-# adopt_stub_collision_archive N [LIST] — LIST is passed explicitly rather than
-# read from a global, because there are two call sites with two different sets
-# (the framework scripts, and the adoptee's own pre-commit hook) and a shared
-# global would print the first site's paths under the second site's heading.
-adopt_stub_collision_archive() {
+# THE FRAMEWORK-SCRIPT COLLISION CLASS — a file of theirs sitting at a path a
+# framework SCRIPT wants. WP6 landed the collision archive, so this notice no
+# longer says "not archived": it says what is genuinely still missing, which is
+# the REPLACEMENT half.
+#
+# WHY WP6'S ARCHIVE DOES NOT COVER THIS CLASS, stated rather than left as a
+# gap. §7.1's archive-and-replace population is their AI-LAYER surfaces and
+# their GIT HOOKS, and that boundary is deliberate: archiving-and-replacing an
+# adoptee's `scripts/validate.sh` with the framework's would swap out a file
+# their own CI may call, on day one, with no operator decision in between —
+# the same class of harm §7.4 refuses for their pipelines. Which package owns
+# that decision is not settled in §10, so it is named here and not assumed.
+#
+# adopt_stub_framework_script_collisions N [LIST] — LIST is passed explicitly
+# rather than read from a global, so the paths printed are the caller's own.
+adopt_stub_framework_script_collisions() {
   local n="${1:-0}" list="${2:-}" p
   [ "$n" -gt 0 ] || return 0
-  adopt_stub_notice "the collision archive" "WP6" \
-    "$n of your files sit where a framework file would go. They were LEFT ALONE — not archived,"
-  adopt_note "not replaced, not listed in a restorable manifest. The framework's version of each"
-  adopt_note "of those files is therefore NOT installed, so anything that depends on it is inert."
-  # The PATHS, not just the count. Until WP6 writes a durable MANIFEST this
-  # transcript is the only place they are ever named, and "3 collisions" tells
-  # an operator nothing they can act on. Bounded, because a heavily-occupied
-  # tree could otherwise bury the rest of the run.
+  adopt_stub_notice "installing the framework's version of $n colliding script(s)" \
+    "unassigned — §10 gives this class to no work package" \
+    "$n of your files sit where a framework SCRIPT would go. They were LEFT ALONE, which is"
+  adopt_note "the safe direction, and it has a cost: the framework's version of each of those"
+  adopt_note "files is NOT installed, so anything that depends on it is inert. The collision"
+  adopt_note "ARCHIVE (WP6) covers your AI-layer settings and your git hooks; these are neither,"
+  adopt_note "and replacing a script your own build may call is a decision nobody has made yet."
+  # The PATHS, not just the count — "3 collisions" tells an operator nothing
+  # they can act on. Bounded, because a heavily-occupied tree could otherwise
+  # bury the rest of the run.
   if [ -n "$list" ]; then
     printf '%s\n' "$list" | head -20 | while IFS= read -r p; do
       [ -n "$p" ] && adopt_note "  yours, kept: $p"
@@ -91,13 +111,17 @@ adopt_stub_secrets_disposition() {
   n="$(adopt_int "$(adopt_report_read "$report" '.secrets.findingCount // 0')")"
   local status
   status="$(adopt_report_read "$report" '.secrets.status // ""')"
+  # OWNER CORRECTED AT WP6. §6.3's per-finding disposition of the project's
+  # HISTORY is a different surface from §7.3's archive scan, which WP6 did
+  # build, and §10 assigns §6.3 to no work package at all. Naming WP6 here now
+  # that WP6 has landed would read as "already done".
   if [ "$status" != "scanned" ]; then
-    adopt_stub_notice "the secrets disposition" "WP6" \
+    adopt_stub_notice "the secrets disposition" "unassigned — §10 gives §6.3 to no work package" \
       "The scan did not run a secrets tool, so this adoption knows nothing about credentials in your history."
     return 0
   fi
   [ "$n" -gt 0 ] || return 0
-  adopt_stub_notice "the secrets disposition" "WP6" \
+  adopt_stub_notice "the secrets disposition" "unassigned — §10 gives §6.3 to no work package" \
     "The scan found $n secret-shaped finding(s) in this repository's history. Each one needs a"
   adopt_note "recorded decision and this build does not collect one. Read"
   adopt_note ".claude/adoption/scout-report.json's secrets section before you trust this repo."
@@ -137,11 +161,19 @@ adopt_stub_hooks() {
 # because the absence is not cosmetic: CLAUDE.md is what a downstream agent
 # reads at kickoff, so an adopted project without it starts every session
 # without its orientation.
+#
+# OWNER CORRECTED AT WP6, for the same reason as the secrets stub above. WP6
+# built §7's collision ARCHIVE — the AI-layer surfaces and the git hooks. It
+# does not write the adoptee's framework DOCUMENTS, and §10-WP6's scope row
+# does not ask it to. Leaving "WP6" here after WP6 landed would announce a
+# delivered owner for undelivered work, which is the one thing an honest stub
+# must not do.
 adopt_stub_project_docs() {
-  adopt_stub_notice "your project's framework documents" "WP6 (they are collision decisions before they are writes)" \
+  adopt_stub_notice "your project's framework documents" "unassigned — §10 names no owner" \
     "CLAUDE.md, the document templates and the reference docs are NOT written. The scripts and the"
   adopt_note "state are here, so the gates work; the reading material an agent picks up at the start"
   adopt_note "of a session is not, and a CLAUDE.md you already have would be a collision, not a gap."
+  adopt_note "WP6's archive covers your AI-layer settings and your git hooks; documents are neither."
 }
 
 # WP7 — §8.6's provenance headers on reconstructed documents.

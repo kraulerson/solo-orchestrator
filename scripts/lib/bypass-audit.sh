@@ -11,7 +11,23 @@
 #     "type":                      "claude_bypass_proposal" | "terminal_commit_blocked" |
 #                                  "terminal_commit_passed" | "out_of_band_commit" |
 #                                  "enforcement_level_set" | "detector_error" | "escalation" |
-#                                  "sast_suppression",
+#                                  "sast_suppression" | "adoption_event",
+#                                  (Brownfield §8.9: "adoption_event" records a
+#                                  brownfield ADOPTION event, discriminated by
+#                                  details.event rather than by a type of its
+#                                  own — one enum member is one five-surface
+#                                  change and five members would be five. The
+#                                  event vocabulary is: adoption,
+#                                  blocker_acceptance, secrets_disposition,
+#                                  collision_archive, collision_re_add. Written
+#                                  by the adoption driver; actor is always
+#                                  "framework", final_outcome always
+#                                  "recorded_only", and
+#                                  enforcement_level_at_event always "n/a" —
+#                                  these are disclosure events, not gate
+#                                  outcomes, and reading a tier for them would
+#                                  fork the # BL-084-TIER-KEY predicate into a
+#                                  sixth site.)
 #                                  (BL-185: "sast_suppression" records a staged
 #                                  nosemgrep/nosem directive observed by the SAST arm;
 #                                  final_outcome is always "recorded_only" — the arm
@@ -104,6 +120,42 @@ bypass_audit_append() {
     fi
     sleep 0.1
   done
+
+  # THE LEDGER MUST BE ONE JSON ARRAY, AND `jq` EXITING 0 DOES NOT PROVE IT.
+  #
+  # AN EXIT CODE IS NOT A RECEIPT. `jq FILTER file` over a ZERO-BYTE file runs
+  # the filter across zero input documents, emits nothing, and exits 0 — so the
+  # append below "succeeds", renames an empty temp over the empty ledger, and
+  # writes NOTHING. Every caller that trusts the rc then reports success for a
+  # row that does not exist. Measured, one row per corruption spelling:
+  #
+  #   ledger        append rc   docs out   rows written
+  #   empty (0 B)      0           0          none        <- SILENT LOSS
+  #   null             0           1          1           <- silently "repairs"
+  #   `[]\n[]`         0           2          2           <- silently DUPLICATES
+  #   {"x":1}          5           0          none
+  #   garbage          5           0          none
+  #   `[]`             0           1          1
+  #
+  # A zero-byte file is THE canonical truncation artifact — the D3 note below
+  # is itself about a SIGKILL truncating this very file mid-write — so the
+  # silent cases are the likely ones, not the exotic ones.
+  #
+  # THE GUARD BELONGS HERE AND NOT IN A CALLER. Six files call this function.
+  # The two loud-fail arms in scripts/lib/hook-templates.sh (`# BL-163`,
+  # `# BL-185`) already test this rc and print a `[note]` when it fails, so
+  # before this check they announced nothing on a truncated ledger and dropped
+  # the row in silence. Fixing one caller would have left five.
+  #
+  # `-s` slurps every document into an array, so `length == 1` rejects both the
+  # zero-document and the multi-document cases, and the `type == "array"` test
+  # rejects `null` and any other scalar or object. `-e` turns a `false` result
+  # into a non-zero exit. A parse error exits non-zero on its own.
+  if ! jq -es 'length == 1 and (.[0] | type == "array")' "$file" >/dev/null 2>&1; then
+    rmdir "$lock_dir" 2>/dev/null
+    echo "[FAIL] bypass_audit_append: $file is not a single JSON array (empty, truncated, multi-document or the wrong type) — refusing to append rather than silently losing the row. Inspect it with: jq . \"$file\"" >&2
+    return 1
+  fi
 
   # D3 fix (post-PR-A): create the temp file ADJACENT to the audit
   # file so the subsequent `mv` is a same-filesystem rename — atomic
