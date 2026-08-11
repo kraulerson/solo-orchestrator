@@ -741,15 +741,30 @@ to disk and **kept out of the commit**, with the reason recorded:
    your history. Rotate it at the source; deleting the file does not un-leak it.
 ```
 
-Two more refusals share that path. If gitleaks is **not installed**, the scan
-reports `tool-unavailable` and **the whole archive is withheld** — "nobody
-looked" is not "clean", and an unexamined tree does not enter version control.
-And if your own `.gitignore` excludes an archived path, that entry is withheld
-too (`gitignored`), because `git add` on an ignored path fails and would
-otherwise abort the entire adoption commit.
+**A pattern scanner is a mitigation, not a proof, and this page will not call
+it a guarantee.** It recognises credential *shapes*. An internal hostname, a
+proxy URL, a customer name or a username matches nothing, and a hook can hold
+any of them. Read `MANIFEST.md` before you push.
 
-This is a mitigation, not a proof: a hook can contain something a secret
-scanner does not recognise. Read `MANIFEST.md` before you push.
+Which is why the scan is not the only gate. Three more reasons withhold an
+entry, and the MANIFEST names whichever applies:
+
+| `withheldReason` | What happened |
+|---|---|
+| `secret-match` | The scanner matched something in that file. |
+| `not-scanned` | gitleaks was **not installed** or the scan failed, so **the whole archive is withheld**. "Nobody looked" is not "clean", and an unexamined tree does not enter version control. |
+| `original-gitignored` | **Your `.gitignore` excludes the original.** A gitignore entry is your explicit statement that this *content* must never enter history, so the archive keeps a copy you can restore and never commits that copy under a different name. |
+| `gitignored` | Your `.gitignore` excludes the archived path itself. Withheld because `git add` on an ignored path fails and would otherwise abort the entire adoption commit. |
+
+`original-gitignored` is the one that will fire most often, and the file it
+usually fires on is `.claude/settings.local.json` — the standard place for a
+proxy setting, an internal endpoint or a personal token, and standardly
+gitignored. The ordinary ignore rule for it is *anchored*
+(`.claude/settings.local.json`), so it matches the original and **cannot** match
+`.claude/adoption-archive/…/.claude/settings.local.json`. Asking git about the
+copy's path would answer a question you never asked. Your git hooks are
+unaffected: git excludes `.git/` by construction rather than by your
+instruction, so hooks are still archived and still committed.
 
 #### Still not built by this package
 
@@ -873,7 +888,8 @@ not among them. Read them here, in the framework clone you run the driver from.
 | Your colliding hooks/settings archived with a restore path | ✅ Collision archive — ships |
 | Plain disclosure of what was archived, path by path | ✅ Ships |
 | Putting one of your own files back, warned and recorded | ✅ `--re-add`, ships |
-| A guarantee adoption will not commit a secret out of your hooks | ✅ Ships — the archive is scanned before staging, and a match is withheld |
+| Adoption refusing to commit a *recognised* secret out of your hooks | ✅ Ships — the archive is scanned before staging and a match is withheld. **A mitigation, not a guarantee** — see below |
+| Adoption never committing a file your `.gitignore` excludes | ✅ Ships — the **original's** ignore status decides, not the archive copy's |
 | Framework CI installed beside yours, with a recorded keep-or-retire | ❌ CI carve-out — **not built** |
 | A readable record of how this project entered the framework | ❌ Adoption Record — **not built** |
 | Secret scanning, SAST and migration checks on every commit | ❌ Deferred to WP7, by decision |

@@ -155,10 +155,10 @@ jq '[.[] | select(.type == "escalation")] | .[] | {ts: .timestamp, response: .us
 # 5. Detector errors (gaps in coverage that should be investigated).
 jq '[.[] | select(.type == "detector_error")] | .[] | {ts: .timestamp, level: .enforcement_level_at_event, reason: .details.reason}' .claude/bypass-audit.json
 
-# 7. Brownfield adoption: what the archive took, and what the operator took back.
+# 6. Brownfield adoption: what the archive took, and what the operator took back.
 jq '[.[] | select(.type == "adoption_event")] | sort_by(.timestamp) | .[] | {ts: .timestamp, event: .details.event, path: (.details.path // .details.archiveDir // "n/a"), details: .details}' .claude/bypass-audit.json
 
-# 6. Quick health summary — counts by type, by actor.
+# 7. Quick health summary — counts by type, by actor.
 jq 'group_by(.type) | map({type: .[0].type, count: length})' .claude/bypass-audit.json
 jq 'group_by(.actor) | map({actor: .[0].actor, count: length})' .claude/bypass-audit.json
 ```
