@@ -9667,3 +9667,138 @@ question should reuse), `## BL-084:` (the sync-siblings cautionary tale),
 `## BL-221:` (what a schema change does to an un-widened reader),
 `## BL-095:` (centralize state parsing — a polyglot `language` is exactly the
 field that argues for it).
+
+---
+
+## BL-229: the Phase 3→4 release-pipeline check hardcodes the GitHub path, so on GitLab and Bitbucket it silently never fires
+
+**Logged:** 2026-08-11 (found while verifying `workflow.html` against the tree —
+the page described the check, and describing it required reading it)
+**Category:** Silent-success / host-parity — a gate that does not gate, and says
+nothing about it
+**Severity:** Medium-High. Not a wrong answer: an **absent** answer, on two of
+the three supported hosts, with no output distinguishing "checked and clean" from
+"never looked".
+**Status:** Open
+
+**The gap, measured on `main` @ `b709576`.** `scripts/check-phase-gate.sh`
+guards the release-TODO check on a literal path:
+
+```
+if [ -f ".github/workflows/release.yml" ]; then
+  todo_count=$(grep -c "TODO" .github/workflows/release.yml 2>/dev/null) || todo_count=0
+```
+
+`init.sh` writes that file **per host** (grep `target_file="$target_dir/release.yml"`):
+
+| host | path init.sh writes |
+|---|---|
+| github | `.github/workflows/release.yml` |
+| **gitlab** | **`.gitlab-ci/release.yml`** |
+| **bitbucket** | **`bitbucket-pipelines/release.yml`** |
+| unknown | falls back to the GitHub path, with a warning |
+
+On a GitLab or Bitbucket project the `-f` test is false, the block is skipped
+entirely, and **nothing is printed** — so a release pipeline still full of
+unconfigured `TODO` items passes the 3→4 gate on those hosts without comment.
+
+**Why this is the wave's own defect class.** The failure is not a false verdict,
+it is a **missing** one that is indistinguishable from a clean one. It is the
+same shape as `## BL-222:` (the security clock a filename satisfies) and the
+`# BL-112-SAST-NOTRUN` doctrine's whole point: *"the scanner did not run" must
+never be silently equivalent to "the scanner found nothing."* That doctrine is
+already written down in this repo and this check predates its application here.
+
+**Fix shape.** Resolve the release path the way `init.sh` does — from the
+recorded host — and then **fail closed on absence rather than skipping**: if the
+project's expected release file is missing, say so. Two constraints:
+
+- **Do not just add three `-f` tests.** The host→path mapping would then exist in
+  two places, which is the `# BL-084-TIER-KEY` sync-siblings trap that this repo
+  has paid for repeatedly. Read the host from the manifest and derive the path
+  once, or expose `init.sh`'s mapping as a shared accessor.
+- **Mind the `[WARN]` trap.** The existing arm prints `[WARN]` and increments
+  `issues`, so it **blocks** today on GitHub. Whatever replaces it must decide
+  deliberately whether a missing release file blocks, and pin that decision with
+  a dual-direction mutation proof — the label is cosmetic, the `issues`
+  increment is the behaviour.
+
+**Proof it should carry.** A GitLab fixture with a TODO-bearing
+`.gitlab-ci/release.yml` must be caught; the same fixture with the TODOs removed
+must pass; and a mutation reverting the path resolution must make the first
+fixture pass silently again — because "it passed" and "it was never examined"
+are the two states this entry exists to separate.
+
+**Related:** `## BL-222:` (a clock satisfied by a filename — same class, same
+silence), `## BL-084:` (the sync-siblings trap the two-places fix would walk
+into), `## BL-104:` (the `[WARN]`/`issues` mismatch), and `## BL-112:` (the
+"did not run ≠ found nothing" doctrine this check should inherit).
+
+---
+
+## BL-230: `workflow.html` cites 18 code markers and 7 doc paths and sits outside every lint surface — nothing can tell you when it rots
+
+**Logged:** 2026-08-11 (found by adversarial review of the `workflow.html`
+refresh, **by mutation** — the reviewer corrupted a link and a marker and watched
+both lints stay green)
+**Category:** Silent-success / unguarded surface — the file whose entire value is
+that an operator can trust it has no mechanism that notices when it stops being
+true
+**Severity:** Medium. Nothing is wrong today: the page was just verified
+claim-by-claim against the tree. That is exactly why this is worth filing —
+**the accuracy has no way of surviving.** It went six weeks and ~40 PRs out of
+date last time, and the only thing that caught it was a human asking.
+**Status:** Open
+
+**Measured on the refresh branch.** The page cites **18 distinct code markers**
+(`BL-070-GATE-CHECK`, `BL-071-WRITE`, `BL-073-ESCALATE`, `BL-104-MANIFEST-ARM`,
+`BL-115-DATE-CELL`, `BL-170-APPEND-DESIGN`, `BF-ADOPT-BOUND`,
+`BF-ADOPT-GATE-ISSUES`, `CUTREL-TAG-FORMAT`, `CADENCE-DEFAULT-ROUTINE`,
+`CADENCE-DEFAULT-DEEP`, `CADENCE-POLICY-READ`, `DELTA-OPEN-ERA-GUARD`, …) and
+**7 relative doc links**. Re-derive both:
+
+```
+grep -oE '(BL|BF|CUTREL|CADENCE|DELTA|WALK)-[A-Z0-9]+(-[A-Z0-9]+)*' workflow.html | sort -u
+grep -oE 'href="(docs/[^"]+|[A-Za-z][^":]*\.md)"' workflow.html | sort -u
+```
+
+**Neither lint can see the file, and the reason is structural in both:**
+
+- `scripts/lint-doc-anchors.sh` walks `find "$DOCS_DIR" -type f -name '*.md'` —
+  `workflow.html` is neither `*.md` nor under `docs/`.
+- `scripts/lint-bl-markers.sh`'s live prose surface is `CLAUDE.md`, `README.md`,
+  `CONTRIBUTING.md`, `solo-orchestrator-backlog.md` and `docs/**`. A root-level
+  `.html` is in none of them.
+
+**The proof is a mutation, not an argument.** Adversarial review broke a relative
+link (`docs/scout.md` → a nonexistent path) **and** corrupted a cited marker
+(`BF-ADOPT-GATE-ISSUES` → `…ISSUEZ`) in the page, then ran both lints: **rc 0
+both times.** So the marker half of the CITATION RULE — which `## BL-196:` made
+lint-enforced precisely because line cites rot — does not reach the one document
+most likely to be read by someone who will act on it.
+
+**Two live specimens of the rot class, found during the same review**, offered as
+evidence that this is not hypothetical: `scripts/resume.sh` now has **four**
+branches, and both `CLAUDE.md` and `resume.sh`'s **own header** still say three
+(`# DELTA-RESUME-BEGIN` is literally labelled "THE FOURTH BRANCH"). Prose lags
+code by default; a lint is the only thing that makes lag visible.
+
+**Fix shape.** Extend both lints' surfaces to include `workflow.html`
+specifically — not `*.html` wholesale, because `templates/uat/**` ships HTML
+fixtures that are *meant* to carry placeholder paths and would red immediately.
+Two constraints:
+
+- **`lint-bl-markers.sh` counts a citation only when prose marks it as code**
+  (backticked or `#`-prefixed, per CLAUDE.md). The page uses `<code>` tags, not
+  backticks, so the prose-surface reader needs an HTML-aware arm or the marker
+  half will pass **vacuously** — green because it found nothing to check. Give
+  that arm a **vacuity floor** (assert it finds ≥ N citations) or it is the same
+  defect one level up.
+- The page's footer carries a "Verified against the tree on YYYY-MM-DD" stamp.
+  A lint that checks the stamp's **age** against the file's last-modified commit
+  would catch staleness the marker check cannot — a cited marker can still exist
+  while the sentence around it has become false.
+
+**Related:** `## BL-196:` (made the marker half lint-enforced, and named exactly
+this rot), `## BL-181:` (a green lint that was not proof), `## BL-227:` (a doc
+sentence refuted by a grep), and `## BL-222:` (a check satisfied without looking).
