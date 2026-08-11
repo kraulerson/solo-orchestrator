@@ -9197,3 +9197,120 @@ is the evidence half of a question already on the record.
 `scripts/cut-release.sh`, found first; this entry is what generalising that
 finding produced), BL-104 (a check whose printed result outran what it measured),
 BL-196 (a passing check that proves nothing is worse than no check).
+
+---
+
+## BL-223: `soif_parse_shipped_scripts` re-parses `init.sh` once per caller invocation — a single-pass rewrite is worth ~125ms a call, and it is a core lib with three consumers
+
+**Logged:** 2026-08-10 (measured during the WP5b brownfield fix round; filed
+because the follow-up otherwise existed only in a commit-body sentence)
+**Category:** Performance / core-lib hygiene — a hot loop in a shared parser
+**Severity:** Low. Nothing is wrong; it is slower than it needs to be, and the
+cost only became visible when a third consumer started calling it on every
+invocation rather than once per test run.
+**Status:** Open — DEFERRED
+
+**What it is.** `soif_parse_shipped_scripts` in
+`scripts/lib/scaffold-shipped-set.sh` greps `init.sh` for its `cp` lines and
+then spawns **one `sed` subshell per matched line** to extract the path:
+
+```
+grep -E 'cp[[:space:]]+"\$SCRIPT_DIR/scripts/' "$init_file" | while IFS= read -r line; do
+  rel="$(printf '%s\n' "$line" | sed -n 's#...#\1#p')"
+```
+
+With ~60 matched lines that is ~120 process spawns per call.
+
+**Measured, 2026-08-10:** **125 ms per call.** WP5b's
+`scripts/lib/adopt/adopt-test-debt.sh` calls it once per `--check` and once per
+`--write` — **67 invocation sites** across
+`tests/test-brownfield-wp5b-test-debt.sh` — which is the bulk of that suite's
+jump from ~11.4s to ~28.8s. A single-pass `sed -n 's#...#\1p'` over the file
+(no `grep`, no per-line subshell) does the same work in one process.
+
+**Why it was NOT done as a drive-by, and this is the load-bearing half of the
+entry.** It is a **core lib with three consumers**, each with its own
+correctness story:
+
+| Consumer | What breaks if the parse changes |
+|---|---|
+| `tests/test-scaffold-source-closure.sh` | the BL-088 source-closure check — its whole claim is that the derived set is byte-identical to init.sh's real copy list |
+| `scripts/upgrade-project.sh --sync-framework` | BL-099 SLICE-A copies exactly this set framework→project |
+| `scripts/lib/adopt/adopt-test-debt.sh` | the test-debt census's framework exclusion; a set that shrinks silently re-opens the ledger poisoning the WP5b fix round closed |
+
+The parser's own header says its full-line matching "mirrors the original inline
+parser in `tests/test-scaffold-source-closure.sh` **byte-for-byte** so both
+consumers observe an identical set". A rewrite has to preserve the glob-expansion
+branch (`host-drivers/`) and the sort/dedup, and it needs its own mutation proof
+that the emitted set is unchanged on the real `init.sh` — not a passing suite,
+which a *smaller* set also produces.
+
+**Acceptance:** the rewritten parser emits a byte-identical set to the current
+one on the real `init.sh` (diff of both outputs, asserted, not eyeballed); all
+three consumers' suites stay green; a mutation that drops the glob-expansion
+branch reds. Re-measure and record the per-call cost.
+
+**Related:** `## BL-088:` (source closure, consumer 1), `## BL-099:` (framework
+sync, consumer 2). The WP5b consumer arrived 2026-08-10 with the brownfield
+test-debt ledger.
+
+---
+
+## BL-224: `lint-no-live-remote-in-tests.sh` reds any test that WRITES an `init.sh` carrying a `#!/usr/bin/env` shebang — the shebang string satisfies its own `env …` alternation
+
+**Logged:** 2026-08-10 (hit while building the WP5b brownfield fix round's
+incomplete-clone fixtures; reproduced and reduced to one line before filing)
+**Category:** Lint false positive — a hermetic-tests check firing on a file that
+is written, never executed
+**Severity:** Low, with one aggravating property: the workaround a contributor
+reaches for first is to SPELL AROUND the lint, which is the dodging pathology
+this repo already has scar tissue for on the unit-lane predicate.
+**Status:** Open — DEFERRED
+
+**The reproduction, one line.** In any `tests/test-*.sh`:
+
+```
+printf '#!/usr/bin/env bash\n# no copy lines\n' > "$m/init.sh"
+```
+
+reds as:
+
+```
+lint-no-live-remote: init.sh run can reach LIVE remote creation — add --no-remote-creation …
+```
+
+Delete the shebang from the printf and the same line passes. Nothing is
+executed either way.
+
+**Why.** `line_is_init_exec`'s rule B is
+
+```
+(^|[(;&|]|&&|env[[:space:]][^;&|]*)[[:space:]]*"?<init-token>"?[[:space:]]
+```
+
+The `env[[:space:]][^;&|]*` alternative exists to catch `env FOO=bar "$INIT" …`.
+The literal text `/usr/bin/env bash\n# no copy lines\n' > ` also satisfies it —
+`env`, a space, then a run with no `;`/`&`/`|` — after which `"$m/init.sh"`
+matches the init token in apparent command position. The lint cannot tell a
+redirect TARGET from a command word here, and a shebang inside a single-quoted
+string is not code at all.
+
+**Scope, measured on the tree of 2026-08-10:** one occurrence, in
+`tests/test-brownfield-wp5b-test-debt.sh`'s `mk_mirror`, worked around by
+omitting the shebang from a stub that is only ever parsed. The stub's header
+says why in as many words, so the next reader does not "fix" it back.
+
+**Candidate fixes, none taken here.** (a) Require the init token to be preceded
+by a command terminator that is not inside a quoted string — a real shell-aware
+parse, and a large change to a lint with its own suite. (b) Exclude logical
+lines whose init token is immediately preceded by a redirect operator (`>`,
+`>>`) — narrow, cheap, and covers this class exactly. (c) Anchor the `env`
+alternative so it must be at command position too. **(b) is the smallest
+honest fix**; it needs its own mutation proof that a genuine
+`env FOO=bar "$INIT"` still reds, because the risk of narrowing a hermeticity
+lint is a live `gh repo create` — which this repo has already leaked once
+(2026-07-06).
+
+**Related:** `## BL-076:` (the lint itself). Sibling shape:
+`## BL-181:`, where narrowing a predicate by one character re-opened a hole
+three times.

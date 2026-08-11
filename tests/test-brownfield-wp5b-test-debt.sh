@@ -985,16 +985,50 @@ echo "=== M — mutations (both arms, both directions) ==="
 # REFUSES when it cannot derive the framework's own installed inventory. A
 # mirror without them is an incomplete clone, and the module is supposed to say
 # so rather than fall back to a census that ledgers the framework.
+#
+# The optional VARIANT makes a mirror INCOMPLETE in exactly one way, so each of
+# the three guards in _td_shipped_init has a fixture that reaches it:
+#   (default)  a complete clone
+#   noinit     no init.sh                    -> the BF-TD-SHIPPED-REQUIRED guard
+#   emptyinit  an init.sh with no copy lines -> the BF-TD-SHIPPED-NONEMPTY guard
+#   noparser   no scaffold-shipped-set.sh    -> the BF-TD-SHIPPED-PARSER guard
 mk_mirror() {
-  local m="$1"
+  local m="$1" variant="${2:-full}"
   mkdir -p "$m/scripts/lib/adopt" || return 1
   cp -p "$CORE_ENF" "$m/scripts/lib/" || return 1
   cp -p "$CORE_TDD" "$m/scripts/lib/" || return 1
-  cp -p "$CORE_SHIPPED" "$m/scripts/lib/" || return 1
-  cp -p "$REPO_ROOT/init.sh" "$m/" || return 1
+  [ "$variant" = "noparser" ] || cp -p "$CORE_SHIPPED" "$m/scripts/lib/" || return 1
+  case "$variant" in
+    noinit)    ;;
+    # NO SHEBANG IN THIS STUB, and the omission is load-bearing rather than
+    # tidy: with `#!/usr/bin/env bash` in it, lint-no-live-remote-in-tests.sh
+    # reds this very line as "init.sh run can reach LIVE remote creation". Its
+    # rule-B alternation carries `env[[:space:]][^;&|]*`, which the SHEBANG
+    # STRING satisfies, and the redirect target then reads as a command word.
+    # The stub is never executed — it exists only to be parsed for copy lines,
+    # of which it has none — so dropping the shebang removes a false positive
+    # without spelling around a real check. Filed as `## BL-224:`.
+    emptyinit) printf '# a clone whose copy list is empty\n' > "$m/init.sh" || return 1 ;;
+    *)         cp -p "$REPO_ROOT/init.sh" "$m/" || return 1 ;;
+  esac
   cp -p "$LIB" "$m/scripts/lib/adopt/" || return 1
   return 0
 }
+
+# mk_repo_fw DIR — mk_repo plus a TRACKED file at a framework path, so that a
+# ledger written by a module whose exclusion has gone inert is visibly wrong
+# rather than merely one entry larger.
+mk_repo_fw() {
+  mk_repo "$1" || return 1
+  mkdir -p "$1/scripts" || return 1
+  printf '#!/usr/bin/env bash\necho gate\n' > "$1/scripts/check-gate.sh" || return 1
+  gitq "$1" add scripts/check-gate.sh
+  gitq "$1" commit -q -m "chore: a framework path, tracked"
+  return 0
+}
+
+# write_via MIRROR DIR — run the mirror's writer; sets LEDGER_RC.
+write_via() { write_ledger "$2" "$(_mlib "$1")"; }
 
 # _mutate MIRROR MARKER REPLACEMENT — one anchored, end-of-line-marked line,
 # excised and replaced. Echoes "sites changed parses" for the caller to assert.
@@ -1002,15 +1036,37 @@ mk_mirror() {
 # TWO SED METACHARACTERS IN THE REPLACEMENT, BOTH LEARNED THE HARD WAY IN THIS
 # FILE. `|` was the delimiter, so a replacement containing one — `case $status
 # in A|M)`, the exact widening a reviewer used to survive a green suite —
-# terminated the expression, sed errored, and the mutant was NOT APPLIED: the
-# harness reported `changed_lines=0` rather than a passing mutant, which is the
-# lucky direction but only by accident. `&` in a replacement means THE WHOLE
-# MATCH, so `cmd_a && cmd_b` spliced the original line back in twice and
-# produced a mutant nobody had designed. The delimiter is now `%` (no marker or
-# replacement in this file contains one) and `&` is escaped.
+# terminated the expression, sed errored, and the mutant was NOT APPLIED. `&` in
+# a replacement means THE WHOLE MATCH, so `cmd_a && cmd_b` spliced the original
+# line back in twice and produced a mutant nobody had designed. The delimiter is
+# now `%` (no marker or replacement in this file contains one) and `&` is
+# escaped.
 #
-# The exactly-N-lines-changed assertion is what caught both. A harness that only
-# checked the mutant's exit code would have called each of them a kill.
+# WHICH CHECK CAUGHT WHICH — corrected, because the first version of this
+# comment credited the wrong layer and a future author would then trust the
+# wrong thing:
+#
+#   • the DELIMITER defect was caught by the exactly-N-lines-changed assertion.
+#     sed exits 1, the file is untouched, `changed_lines=0`. Meta-assertion,
+#     working exactly as intended.
+#   • the `&`-SPLICE defect was NOT. Measured under the old semantics: the
+#     splice yields `changed_lines=2` AND `bash -n` PASSES, so every
+#     meta-assertion here stays green. What caught it was M11's FUNCTIONAL
+#     assertion — the spliced module dies at runtime (`bad substitution: no
+#     closing ')'`), rc 1 and 564 bytes against a wanted rc 0 / 0 bytes.
+#
+# So the meta-assertions are NOT the defence against `&`-class accidents; the
+# CONTROL plus the functional assertion is. Note the generalisation, because it
+# is this wave's "bash -n does not syntax-check awk" one step further in:
+# **`bash -n` accepts a file bash rejects at runtime.** A parse check is not an
+# execution check, and only a mutant that RUNS proves anything.
+#
+# RESIDUAL, stated rather than left to be discovered: backslash sequences in a
+# replacement are the remaining unhandled metacharacter class. `\n` fails LOUD
+# (`changed=3`, since GNU sed turns it into a newline), but a `\.`-style escape
+# would substitute silently wrong. Nothing enforces their absence — it is header
+# convention only. `%` is verified safe today (no call site carries one) and a
+# `%`-bearing replacement would fail loud for the same reason `|` did.
 _mutate() {
   local m="$1" marker="$2" repl="$3"
   local f="$m/scripts/lib/adopt/adopt-test-debt.sh"
@@ -1274,6 +1330,147 @@ if [ "$m8_awk" -eq 0 ]; then
   pass "M8: the module drives no awk — the 'a dead awk emits empty and empty reads as fine' failure mode is removed rather than defended against"
 else
   fail_ "M8" "awk occurrences in $LIB: $m8_awk (want 0)"
+fi
+
+echo ""
+echo "=== R — the refusal branches, which were the least-pinned code on this branch ==="
+
+# WHY THIS SECTION EXISTS. The framework-exclusion fix introduced three
+# refusals — refuse to write, block a check at strict, warn at light — and
+# pinned NONE of them, because every mirror in this file was a complete clone.
+# A reviewer flipped ONE character on the init.sh guard (`|| return 1` ->
+# `|| return 0`) and the suite stayed at 50 passed, 0 failed: the mutant WROTE a
+# ledger with the exclusion silently inert, which is exactly the guessing the
+# fix advertised as foreclosed. The doctrine this file states twice about
+# matcher atoms — a branch no fixture can reach is pinned by nothing — was not
+# applied to the branch the fix was proudest of. No repo lint executes this
+# module, so nothing else would have caught it either.
+
+# R1 — --write from an incomplete clone: refuse, AND leave no file behind.
+# Both halves, because "refused" and "wrote nothing" are separate facts and a
+# writer that refuses after writing is the failure being prevented. The CONTROL
+# is the same fixture against a COMPLETE mirror: without it this row is
+# satisfied by any mirror too broken to run at all.
+R1D="$(newtmp)"
+if ! mk_repo_fw "$R1D/p" || ! mk_mirror "$R1D/m" noinit || ! mk_mirror "$R1D/full"; then
+  fail_ "R1" "fixture setup failed"
+else
+  write_via "$R1D/m" "$R1D/p"; r1_rc=$LEDGER_RC
+  r1_file=0; [ -e "$R1D/p/.claude/test-debt.json" ] && r1_file=1
+  write_via "$R1D/full" "$R1D/p"; r1_ctl_rc=$LEDGER_RC
+  r1_ctl_file=0; [ -s "$R1D/p/.claude/test-debt.json" ] && r1_ctl_file=1
+  r1_ctl_fw=$(jq -r '[.files[] | select(. == "scripts/check-gate.sh")] | length' "$R1D/p/.claude/test-debt.json" 2>/dev/null)
+  if [ "$r1_rc" -eq 2 ] && [ "$r1_file" -eq 0 ] \
+     && [ "$r1_ctl_rc" -eq 0 ] && [ "$r1_ctl_file" -eq 1 ] && [ "$(_num "$r1_ctl_fw")" -eq 0 ]; then
+    pass "R1: --write from a clone with no init.sh REFUSES at rc 2 and writes NO ledger; the same fixture against a complete mirror writes one (rc 0) that excludes the tracked framework path — refusal and silence are asserted separately"
+  else
+    fail_ "R1" "incomplete_clone_rc=$r1_rc (want 2) ledger_written_anyway=$r1_file (want 0) complete_clone_rc=$r1_ctl_rc (want 0) complete_clone_wrote=$r1_ctl_file (want 1) framework_path_in_control_ledger=$r1_ctl_fw (want 0)"
+  fi
+fi
+
+# R2/R3 — the CHECK side of the same refusal, on both tiers that can speak.
+# The ledger is written by the REAL module first, so the only thing the
+# incomplete mirror changes is whether the arms can run at all.
+R2D="$(newtmp)"
+if ! mk_repo_fw "$R2D/p" || ! mk_mirror "$R2D/m" noinit; then
+  fail_ "R2" "fixture setup failed"
+else
+  write_ledger "$R2D/p"
+  set_tier "$R2D/p" '{"deployment":"personal","poc_mode":"production","enforcement_level":"strict"}'
+  printf 'export function fresh() { return 9; }\n' > "$R2D/p/src/fresh.js"
+  gitq "$R2D/p" add src/fresh.js
+  check_in "$R2D/p" "$(_mlib "$R2D/m")"; r2_rc=$CHK_RC
+  r2_said=0; grep -q 'inventory could not be derived' "$CHK_OUT" && r2_said=1
+  if [ "$r2_rc" -eq 2 ] && [ "$r2_said" -eq 1 ]; then
+    pass "R2: --check at strict from a clone with no init.sh is rc 2 (unusable), NOT rc 3 — it refuses to judge rather than judging with a census that cannot tell your code from the framework's"
+  else
+    fail_ "R2" "rc=$r2_rc (want 2, and specifically not 3) reason_stated=$r2_said (want 1)"
+  fi
+
+  set_tier "$R2D/p" '{"deployment":"personal","poc_mode":"production","enforcement_level":"light"}'
+  check_in "$R2D/p" "$(_mlib "$R2D/m")"; r3_rc=$CHK_RC
+  r3_warn=0; grep -q '^\[WARN\]' "$CHK_OUT" && r3_warn=1
+  r3_block=0; grep -q 'BLOCKED' "$CHK_OUT" && r3_block=1
+  if [ "$r3_rc" -eq 0 ] && [ "$r3_warn" -eq 1 ] && [ "$r3_block" -eq 0 ]; then
+    pass "R3: the SAME incomplete clone at light WARNS and exits 0 — the refusal is tier-floored like everything else here, so an unusable clone cannot block a project that never asked for blocking"
+  else
+    fail_ "R3" "rc=$r3_rc (want 0) warned=$r3_warn (want 1) said_BLOCKED=$r3_block (want 0)"
+  fi
+fi
+
+# R4 — an init.sh that exists but names no copy list at all. Reaches the
+# NONEMPTY guard, which the noinit fixture short-circuits past.
+R4D="$(newtmp)"
+if ! mk_repo_fw "$R4D/p" || ! mk_mirror "$R4D/m" emptyinit; then
+  fail_ "R4" "fixture setup failed"
+else
+  write_via "$R4D/m" "$R4D/p"; r4_rc=$LEDGER_RC
+  r4_file=0; [ -e "$R4D/p/.claude/test-debt.json" ] && r4_file=1
+  if [ "$r4_rc" -eq 2 ] && [ "$r4_file" -eq 0 ]; then
+    pass "R4: an init.sh that parses to an EMPTY copy list is refused too (rc 2, no ledger) — an empty exclusion set is indistinguishable from no exclusion at all, and this is the guard that says so"
+  else
+    fail_ "R4" "rc=$r4_rc (want 2) ledger_written_anyway=$r4_file (want 0)"
+  fi
+fi
+
+# R5 — the parser itself missing. Reaches the third guard.
+R5D="$(newtmp)"
+if ! mk_repo_fw "$R5D/p" || ! mk_mirror "$R5D/m" noparser; then
+  fail_ "R5" "fixture setup failed"
+else
+  write_via "$R5D/m" "$R5D/p"; r5_rc=$LEDGER_RC
+  r5_file=0; [ -e "$R5D/p/.claude/test-debt.json" ] && r5_file=1
+  if [ "$r5_rc" -eq 2 ] && [ "$r5_file" -eq 0 ]; then
+    pass "R5: a clone missing scaffold-shipped-set.sh is refused (rc 2, no ledger) — the third of three guards now has a fixture, so none of them is load-bearing on faith"
+  else
+    fail_ "R5" "rc=$r5_rc (want 2) ledger_written_anyway=$r5_file (want 0)"
+  fi
+fi
+
+# ── M12: the reviewer's one-character mutant ──────────────────────────────
+# `|| return 1` -> `|| return 0` on the init.sh guard. Verified to survive the
+# 50/0 suite before R1-R5 existed. The mutant's expected result is a WRITE, so
+# it is asserted on ledger BYTES: the file exists, it is valid JSON, and it
+# names the framework path the exclusion should have removed.
+M12D="$(newtmp)"
+if ! mk_repo_fw "$M12D/p" || ! mk_mirror "$M12D/m" noinit; then
+  fail_ "M12" "fixture setup failed"
+else
+  write_via "$M12D/m" "$M12D/p"; m12_ctl=$LEDGER_RC
+  m12_ctl_file=0; [ -e "$M12D/p/.claude/test-debt.json" ] && m12_ctl_file=1
+  m12_meta=$(_mutate "$M12D/m" '# BF-TD-SHIPPED-REQUIRED' '  [ -f "$TD_FRAMEWORK_ROOT/init.sh" ] || return 0')
+  set -- $m12_meta; m12_sites=$1; m12_changed=$2; m12_parses=$3
+  write_via "$M12D/m" "$M12D/p"; m12_mut=$LEDGER_RC
+  m12_valid=0; jq -e . "$M12D/p/.claude/test-debt.json" >/dev/null 2>&1 && m12_valid=1
+  m12_fw=$(jq -r '[.files[] | select(. == "scripts/check-gate.sh")] | length' "$M12D/p/.claude/test-debt.json" 2>/dev/null)
+  if [ "$m12_ctl" -eq 2 ] && [ "$m12_ctl_file" -eq 0 ] && [ "$m12_mut" -eq 0 ] \
+     && [ "$m12_valid" -eq 1 ] && [ "$(_num "$m12_fw")" -eq 1 ] \
+     && [ "$m12_sites" -eq 1 ] && [ "$m12_changed" -eq 2 ] && [ "$m12_parses" -eq 1 ]; then
+    pass "M12: control refuses an incomplete clone (rc 2, no file); flipping ONE character on the init.sh guard makes the module WRITE a ledger that names scripts/check-gate.sh — the exclusion silently inert, which is the guessing this guard exists to forbid"
+  else
+    fail_ "M12" "control_rc=$m12_ctl (want 2) control_wrote=$m12_ctl_file (want 0) mutant_rc=$m12_mut (want 0) mutant_ledger_valid=$m12_valid (want 1) framework_path_in_mutant_ledger=$m12_fw (want 1) sites=$m12_sites (want 1) changed_lines=$m12_changed (want 2) parses=$m12_parses (want 1)"
+  fi
+fi
+
+# ── M13: the same flip on the NONEMPTY guard ──────────────────────────────
+# The other reachable spelling of the same mistake, and the reason R4 exists:
+# without an emptyinit fixture this guard would be exactly as unpinned as the
+# init.sh one was.
+M13D="$(newtmp)"
+if ! mk_repo_fw "$M13D/p" || ! mk_mirror "$M13D/m" emptyinit; then
+  fail_ "M13" "fixture setup failed"
+else
+  write_via "$M13D/m" "$M13D/p"; m13_ctl=$LEDGER_RC
+  m13_meta=$(_mutate "$M13D/m" '# BF-TD-SHIPPED-NONEMPTY' '  [ -s "$TD_TMP/shipped" ] || return 0')
+  set -- $m13_meta; m13_sites=$1; m13_changed=$2; m13_parses=$3
+  write_via "$M13D/m" "$M13D/p"; m13_mut=$LEDGER_RC
+  m13_fw=$(jq -r '[.files[] | select(. == "scripts/check-gate.sh")] | length' "$M13D/p/.claude/test-debt.json" 2>/dev/null)
+  if [ "$m13_ctl" -eq 2 ] && [ "$m13_mut" -eq 0 ] && [ "$(_num "$m13_fw")" -eq 1 ] \
+     && [ "$m13_sites" -eq 1 ] && [ "$m13_changed" -eq 2 ] && [ "$m13_parses" -eq 1 ]; then
+    pass "M13: the same flip on the empty-inventory guard produces the same silent guess — asserted on the ledger's bytes, not on an exit code, because a written ledger is what makes it dangerous"
+  else
+    fail_ "M13" "control_rc=$m13_ctl (want 2) mutant_rc=$m13_mut (want 0) framework_path_in_mutant_ledger=$m13_fw (want 1) sites=$m13_sites (want 1) changed_lines=$m13_changed (want 2) parses=$m13_parses (want 1)"
+  fi
 fi
 
 echo ""

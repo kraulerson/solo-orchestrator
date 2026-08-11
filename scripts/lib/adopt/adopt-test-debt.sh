@@ -256,12 +256,21 @@ _td_is_source_ext() {
 # overwrite it. The trade is a small under-count against a large false-FAIL, and
 # it is taken in the direction that does not teach an operator to switch the
 # gate off.
+# EACH OF THE THREE GUARDS BELOW IS A REFUSAL, AND EACH HAS ITS OWN FIXTURE.
+# A reviewer flipped `|| return 1` to `|| return 0` on the init.sh guard — one
+# character — and the whole suite stayed at 50/0, because no fixture ever ran
+# this module from an incomplete clone. The mutant WROTE a ledger with the
+# exclusion silently inert, which is precisely the guessing the fix that
+# introduced these lines advertised as foreclosed. The lesson is the one this
+# file already states twice about matcher atoms, turned on the refusal itself:
+# a branch no fixture can reach is pinned by nothing. Section R's rows reach all
+# three, and no repo lint executes this module, so a test is the only backstop.
 _td_shipped_init() {
   : > "$TD_TMP/shipped"
-  command -v soif_parse_shipped_scripts >/dev/null 2>&1 || return 1
-  [ -f "$TD_FRAMEWORK_ROOT/init.sh" ] || return 1
+  command -v soif_parse_shipped_scripts >/dev/null 2>&1 || return 1   # BF-TD-SHIPPED-PARSER
+  [ -f "$TD_FRAMEWORK_ROOT/init.sh" ] || return 1                     # BF-TD-SHIPPED-REQUIRED
   soif_parse_shipped_scripts "$TD_FRAMEWORK_ROOT/init.sh" "$TD_FRAMEWORK_ROOT/scripts" > "$TD_TMP/shipped" 2>/dev/null
-  [ -s "$TD_TMP/shipped" ] || return 1
+  [ -s "$TD_TMP/shipped" ] || return 1                                # BF-TD-SHIPPED-NONEMPTY
   return 0
 }
 
