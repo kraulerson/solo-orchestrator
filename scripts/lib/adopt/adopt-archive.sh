@@ -672,10 +672,27 @@ STAGEABLE
     # what the driver wrote, so without this the governance record would sit
     # untracked — the archive row would exist and no clone would carry it.
     #
-    # ONLY ON SUCCESS. A successful append proves the ledger parsed, since the
-    # appender's own jq had to read it. Staging it on the failure path would
-    # commit whatever unparseable bytes are there — turning a corrupt file into
-    # the permanent first entry of the project's audit history.
+    # ONLY ON SUCCESS. Staging on the failure path would commit whatever
+    # unparseable bytes are there — turning a corrupt file into the permanent
+    # first entry of the project's audit history.
+    #
+    # ⚠ THE REASON THIS IS SAFE IS NOT THE ONE ORIGINALLY WRITTEN HERE
+    # (R-WP6-14). That comment said "a successful append proves the ledger
+    # parsed, since the appender's own jq had to read it". REFUTED by
+    # measurement: `jq FILTER file` over a ZERO-BYTE file runs across zero
+    # documents, emits nothing and EXITS 0 — the append succeeded, read no
+    # document, and wrote no row. Measured end to end at that commit: adopt
+    # rc 0, zero "could not be recorded" in the transcript, the row lost, and
+    # the zero-byte ledger COMMITTED into HEAD. Same hole via `[]\n[]`, which
+    # exits 0 and duplicates the row into each document.
+    #
+    # An exit code is not a receipt. "jq exited 0" and "jq read a document" are
+    # different facts. What makes this safe now is an explicit predicate in
+    # `bypass_audit_append` — `jq -es 'length == 1 and (.[0] | type ==
+    # "array")'` — which rejects empty, null, multi-document and non-array
+    # ledgers before the append and routes them all into the failure arm below.
+    # The guard lives in the appender because six files call it and two of them
+    # already announce its rc; a guard here would have fixed one caller.
     _adopt_record_if_stageable "$root" ".claude/bypass-audit.json"
   else
     adopt_blank
