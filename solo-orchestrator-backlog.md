@@ -9357,7 +9357,7 @@ three times.
 
 ---
 
-## BL-225: The adoption driver writes 64 files into an adoptee before it discovers their `.gitignore` refuses one — no preflight, no rollback, and a refusal that says "nothing has been committed"
+## BL-225: The adoption driver writes 78 files into an adoptee, STAGES 64 of them, then discovers their `.gitignore` refuses one — no preflight, no rollback, no `git reset`, and a refusal that says "nothing has been committed"
 
 **Logged:** 2026-08-10 (found by adversarial review of the brownfield WP6
 branch; the WP6-local instances of the same class were fixed there, this is the
@@ -9382,29 +9382,51 @@ disclosed omission.
 
 **Reproduced, hermetically, on an adoptee whose `.gitignore` is the single line
 `.claude/`** (framework clone at `feat/brownfield-wp6-collision-archive`, host
-git config neutralised):
+git config neutralised; the adoptee carries the ordinary AI-layer surfaces, so
+the collision archive has entries to write):
 
 ```
-run rc                   : 1
-adoption commit landed   : chore: their history   <- their own, not adoption's
-untracked files before   : 0
-untracked files after    : 64                     <- written into their tree
-framework scripts on disk: 63
-phase-state written      : yes
+adopt rc                 : 1
+HEAD subject             : chore: their history   <- their own, not adoption's
+files WRITTEN (delta)    : 78
+  of which under .claude : 14    <- hidden from `git status` by their own rule
+git status 'A ' (staged) : 64
+git status '??'          : 0
+paths in INDEX vs HEAD   : 64
 ```
 
-**64 files, no commit, no rollback.** The gates are live at the strictest tier,
-which is the safe row, but the operator is left to clean up by hand.
+⚠ **Amended: an earlier revision of this entry said "64 untracked". Both halves
+of that were wrong** — the number was the staged count, and nothing was
+untracked at all. The experiment was right and the *reading* of it was not; the
+correction is recorded rather than silently overwritten because misreading a
+measurement is the same defect class as not taking one. On a bare adoptee with
+no AI-layer surfaces the written total is **69** (5 under `.claude/`); the
+78/14 figures are the realistic shape, where the archive has files to write.
 
-**Two things make the refusal worse than the abort itself.**
+**The 64 are STAGED, not stray, and that is the hazard.** The partially-failed
+`git add` stages every non-ignored path *before* erroring on `.claude`, and the
+refusal path does no `git reset`. So the operator is left with 64 framework
+files pre-loaded in their index. Measured consequence — their next innocent
+commit:
 
-1. It says **"Adoption did not complete. Nothing has been committed."** That is
-   literally true and reads as "nothing happened" — while 64 files sit in their
-   working tree. The sentence should distinguish *committed* from *written*.
+```
+$ echo 'a routine edit' >> README.md && git add README.md && git commit -m "docs: a routine edit of my own"
+files in that commit     : 65
+  framework scripts in it: 63
+```
+
+**Three things make the aftermath worse than the abort itself.**
+
+1. The refusal says **"Adoption did not complete. Nothing has been committed."**
+   Literally true, and it reads as "nothing happened" — while 78 files sit in
+   the tree and 64 are staged. It should distinguish *committed* from *written*
+   from *staged*.
 2. Git names the culprit (`.claude`) in a hint on stderr, and the driver's own
    line then **asks the question git just answered**: *"are any of them ignored
    by .gitignore?"*. The information is present and the framework declines to
    use it.
+3. Cleanup guidance is absent, and `git reset` is the first step of it — without
+   it the residue is not merely untidy, it is armed.
 
 **The right shape** is a preflight `git check-ignore` over the whole write-set
 BEFORE anything is written, with a legible refusal naming the offending
