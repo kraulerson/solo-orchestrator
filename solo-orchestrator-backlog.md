@@ -9354,3 +9354,84 @@ still reds.
 **Related:** `## BL-076:` (the lint itself). Sibling shape:
 `## BL-181:`, where narrowing a predicate by one character re-opened a hole
 three times.
+
+---
+
+## BL-225: The adoption driver writes ~69 files into an adoptee before it discovers their `.gitignore` refuses one — no preflight, no rollback
+
+**Logged:** 2026-08-10 (found by adversarial review of the brownfield WP6
+branch; the WP6-local instances of the same class were fixed there, this is the
+residual one level down)
+**Category:** Fail-loud-but-late — a refusal that arrives after the mutation it
+should have prevented
+**Severity:** Real, not cosmetic. The failure direction is safe (nothing leaks,
+git names the culprit) but the adoptee is left half-written with no way back
+except by hand.
+**Status:** Open
+
+**What happens.** `scripts/adopt-project.sh` stages every recorded path in ONE
+`git add`, and `git add` on a gitignored path FAILS. WP6 fixed this for the
+paths it owns — the collision archive's entries, both MANIFESTs and the audit
+ledger all route through `_adopt_record_if_stageable`, which withholds an
+ignored path and says so. **Withholding is not available for the rest.** The
+framework-owned paths recorded unconditionally in `adopt-state.sh` and
+`adopt-core.sh` — the shipped script set, `.claude/phase-state.json`,
+`.claude/manifest.json`, `PROJECT_INTAKE.md`, the kept scan report — are the
+files the adoption *is*; skipping one produces a broken install rather than a
+disclosed omission.
+
+So an adoptee whose `.gitignore` contains `.claude/` wholesale, or `hooks/`
+(which catches the framework's own `scripts/hooks/`), gets: ~69 files written
+into their tree, then a refusal at staging, then no adoption commit and no
+rollback. The gates are live at the strictest tier, which is the safe row, but
+the operator is left to clean up by hand and the driver does not tell them how.
+
+**The right shape** is a preflight `git check-ignore` over the whole write-set
+BEFORE anything is written, with a legible refusal naming the offending
+patterns and the paths they cover — the same information the post-hoc git error
+carries, delivered while it is still actionable. `adopt_written_paths` already
+knows the set for the withheld half; the preflight needs the framework-owned
+half enumerated before the run rather than accumulated during it.
+
+**Not in scope for WP6**, which owns §7's archive. Filing rather than fixing
+because the write-set enumeration is a driver-skeleton change (WP4's surface)
+and deserves its own TDD pass.
+
+**Related:** BL-221 (the other adoption-path fail-direction finding), and
+`# BF-ADOPT-STAGE-EXPLICIT` for the staging call this refuses at.
+
+---
+
+## BL-226: Adoption tells the operator their files were "moved" when for most of them nothing moved
+
+**Logged:** 2026-08-10 (found during the brownfield WP6 build; carried forward
+by review rather than resolved, because the wording is design-mandated)
+**Category:** Honest-output defect — spec-conformant text contradicted by the
+program's own per-entry data
+**Severity:** Cosmetic in mechanism, not in consequence: it is the sentence an
+operator reads while deciding whether to trust the tool with their repository.
+**Status:** Open
+
+**The contradiction.** §7.3 mandates the disclosure sentence *"moved to ensure
+the framework operates properly"*, and `MANIFEST.md` repeats it. Both ship. But
+§7.1's other half — install the framework's clean set over the archived
+original — **is not built for the AI-layer surfaces**, because `init.sh` writes
+`.claude/settings.json` inline inside `create_project()` with no extractable
+emitter, and §8.1 forbids the driver from reaching into that function. So the
+archive COPIES and leaves the originals in place and in charge.
+
+The program already knows this and records it correctly: every entry carries a
+`disposition`, and every value is `kept` except `.git/hooks/commit-msg`, which
+is `composed`. **Nothing is `replaced`.** The per-entry field and the headline
+sentence disagree, and the sentence is the one a person reads first.
+
+**Options, none taken here:** (a) build the replacement half for the AI layer,
+which needs an extractable settings emitter and is a real piece of work;
+(b) re-word the disclosure to match the dispositions, which contradicts a
+verbatim design mandate and so is Karl's call, not an implementer's; (c) print
+the mandated sentence scoped to the entries it is true of, and a different one
+for `kept`. The WP6 build chose to ship the mandate and file the contradiction
+rather than quietly re-word a design-decided string.
+
+**Related:** BL-225 (the other WP6-adjacent residual), and
+docs/designs/2026-08-02-brownfield-adoption-v1.md §7.1/§7.3/§7.5.

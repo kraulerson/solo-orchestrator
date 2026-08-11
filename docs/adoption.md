@@ -762,9 +762,19 @@ proxy setting, an internal endpoint or a personal token, and standardly
 gitignored. The ordinary ignore rule for it is *anchored*
 (`.claude/settings.local.json`), so it matches the original and **cannot** match
 `.claude/adoption-archive/…/.claude/settings.local.json`. Asking git about the
-copy's path would answer a question you never asked. Your git hooks are
-unaffected: git excludes `.git/` by construction rather than by your
-instruction, so hooks are still archived and still committed.
+copy's path would answer a question you never asked.
+
+**Your git hooks are exempt from this rule, and the reason is worth stating
+because an earlier version of this page got it wrong.** It claimed hooks were
+safe because "git excludes `.git/` by construction" — they are not:
+`git check-ignore` applies your patterns to any path it is given, `.git/`
+included, so a `.gitignore` containing `*`, `hooks/` or even the cargo-cult
+line `.git/` reports `.git/hooks/pre-commit` as ignored. The exemption is
+deliberate instead: a `.gitignore` line about a `.git/` path is not an
+instruction git can act on — git never tracks `.git/`, so the rule changes
+nothing and expresses no decision about whether that content may be preserved.
+Without the exemption a single inert `.git/` line would silently withhold your
+hooks, which are the most important thing the archive holds.
 
 #### Still not built by this package
 
