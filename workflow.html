@@ -620,7 +620,7 @@
     <div class="mod-card">
       <h4>A separate driver, on purpose</h4>
       <p><code>bash scripts/adopt-project.sh</code> (options: <code>--root</code>,
-      <code>--scan-report FILE</code>, <code>--version</code>, <code>--help</code>). It can consume a Scout
+      <code>--scan-report FILE</code>, <code>--re-add PATH</code>, <code>--version</code>, <code>--help</code>). It can consume a Scout
       report instead of re-scanning.</p>
       <p>It is not <code>init.sh --brownfield</code> because <code>init.sh</code>'s interactive path has
       unguarded overwrite sites. <strong>The driver never calls <code>create_project()</code></strong> — those
@@ -725,7 +725,8 @@
       <p>Before any framework writer runs, the files it would land on are copied into
       <code>.claude/adoption-archive/&lt;UTC-timestamp&gt;-&lt;pid&gt;/</code> with a
       <code>MANIFEST.json</code> and a <code>MANIFEST.md</code> beside them. The population is your AI-layer
-      settings and every non-<code>.sample</code> file in <code>.git/hooks/</code>. <strong>Nothing is
+      <em>surfaces</em> — Claude settings, <code>.claude/skills/*/SKILL.md</code>, MCP connections —
+      and every non-<code>.sample</code> file in <code>.git/hooks/</code>. <strong>Nothing is
       deleted</strong>, only files that exist are archived, and every entry carries a
       <code>restore</code> line you can paste.</p>
       <p>The run then discloses it in full — every path, not a count. <code>--re-add &lt;path&gt;</code> puts
@@ -822,7 +823,7 @@
       <h3>What the framework does</h3>
       <ul>
         <li>Checks four prerequisites — Git, Node.js, jq, Docker — and offers to install any missing (all but Git are prompt-and-install).</li>
-        <li>Resolves the tool matrix for your platform and offers the security tools that apply <em>at this phase</em>: Semgrep, gitleaks and Snyk for every project, plus Lighthouse for web. <strong>Anything the matrix marks for a later phase is deferred, not offered</strong> — OWASP ZAP is a Phase 3 DAST tool, so init records it and moves on.</li>
+        <li>Resolves the tool matrix for your platform and offers the security tools that apply <em>at this phase</em>: Semgrep, gitleaks and Snyk for every project. Lighthouse rides along for web — but it is a <code>performance</code> tool in the matrix, not a security one, and it is gated to the <code>standard</code> and <code>full</code> tracks, so a Light-track web project is never offered it. <strong>Anything the matrix marks for a later phase is deferred, not offered</strong> — OWASP ZAP is a Phase 3 DAST tool, so init records it and moves on.</li>
         <li>Clones the <em>Development Guardrails for Claude Code</em> (git hooks + session rules).</li>
         <li>Generates your project folder, CI + release pipelines, CLAUDE.md, and about ten state artifacts under <code>.claude/</code>. The three that matter most: <code>.claude/phase-state.json</code> (phase + gate dates), <code>.claude/process-state.json</code> (build-loop / UAT / Phase 3 ledger, and where <code>phase1_artifacts</code> lives), and <code>.claude/manifest.json</code> (host, mode, remote URL, deployment, poc_mode, enforcement level, plus the pinned framework commit and a currency inventory). Others include <code>settings.json</code>, <code>build-progress.json</code>, <code>tool-usage.json</code>, <code>tool-preferences.json</code> and <code>intake-progress.json</code>.</li>
         <li>Initializes git, seeds <code>.claude/bypass-audit.json</code> with its first <code>enforcement_level_set</code> row, and finishes by running <code>scripts/verify-install.sh --auto-fix</code>.</li>
@@ -1422,8 +1423,12 @@
     </table>
   </div>
   <p class="cite">Two attribute toggles add gates on top of the class list: <code>risk: core</code> adds
-  <code>brief_review</code>, and <code>level: evolution</code> adds <code>brief</code>. A third fires when the
-  touched-file set hits a configured risk surface. All of it is retunable in
+  <code>brief_review</code>, and <code>level: evolution</code> adds <code>brief</code>. A third toggle
+  (<code>touch_trigger</code> &rarr; <code>threat_model_refresh</code>) ships in the policy schema and is
+  <strong>inert</strong> — <code>delta-classify.sh</code> deliberately does not apply it
+  (&ldquo;a §8.1 re-fire trigger keyed on what gets touched during the work, not an attribute
+  confirmed at open&rdquo;), so filling in <code>risk_surfaces</code> does <em>not</em> make a
+  threat-model-refresh gate appear. All of it is retunable in
   <code>.claude/delta-policy.json</code>, which ships with <code>risk_surfaces</code>
   <strong>empty</strong> — until you fill it in, every delta reads <code>feature-local</code>, and the tool
   says so on every open rather than hiding it.</p>
@@ -1652,6 +1657,12 @@
       contract forbids.</li>
       <li><strong>Cadence evidence is weaker than the schedule</strong> (<code>## BL-222:</code>) — see
       "What a green cadence does not prove" above.</li>
+      <li><strong>The third attribute toggle is inert.</strong> <code>touch_trigger</code> is in the
+      policy schema and maps to a <code>threat_model_refresh</code> gate, but
+      <code>delta-classify.sh</code> deliberately does not apply it — it is a §8.1 re-fire trigger
+      keyed on what gets touched <em>during</em> the work, not an attribute confirmed at open, and
+      WP6 owns it. Filling in <code>risk_surfaces</code> changes the <em>risk</em> attribute (which
+      does add <code>brief_review</code>); it does not make a threat-model gate fire on its own.</li>
       <li><strong>Concurrent deltas are not supported</strong>, by design; one at a time is encoded in the
       state schema. <strong>No semver override flag</strong>, by decision. <strong>No pre-release or channel
       tags</strong> in v1 — the GitLab release lane's regex would have to change first.</li>
@@ -1774,7 +1785,7 @@
     </div>
     <div class="gloss-item">
       <dt>Phase Gate Snapshot</dt>
-      <dd>Point-in-time immutable copy of key documents at each phase transition. Auto-created by <code>check-phase-gate.sh</code> at <code>docs/snapshots/phase-N-to-M_YYYY-MM-DD/</code>, only when the gate passes and only if that directory does not already exist. <strong>Contents are per-gate</strong>, widening as the project grows: 0→1 takes Manifesto + APPROVAL_LOG + PROJECT_INTAKE + <code>docs/phase-0/</code>; 1→2 takes Bible + Manifesto + APPROVAL_LOG; 2→3 adds FEATURES/CHANGELOG/BUGS; 3→4 is the full set (Manifesto, Bible, FEATURES, CHANGELOG, BUGS, USER_GUIDE, HANDOFF, RELEASE_NOTES, APPROVAL_LOG, sbom, INCIDENT_RESPONSE, plus a listing of <code>docs/test-results/</code>).</dd>
+      <dd>Point-in-time immutable copy of key documents at each phase transition. Auto-created by <code>check-phase-gate.sh</code> at <code>docs/snapshots/phase-N-to-M_YYYY-MM-DD/</code>, only when the gate passes and only if that directory does not already exist. <strong>Contents are per-gate</strong>, widening as the project grows: 0→1 takes Manifesto + APPROVAL_LOG + PROJECT_INTAKE + <code>docs/phase-0/</code>; 1→2 takes Bible + Manifesto + APPROVAL_LOG; 2→3 takes Bible + FEATURES/CHANGELOG/BUGS + APPROVAL_LOG (the Manifesto drops out here, and returns at 3→4); 3→4 is the full set (Manifesto, Bible, FEATURES, CHANGELOG, BUGS, USER_GUIDE, HANDOFF, RELEASE_NOTES, APPROVAL_LOG, sbom, INCIDENT_RESPONSE, plus a listing of <code>docs/test-results/</code>).</dd>
     </div>
     <div class="gloss-item">
       <dt>Bypass Audit Ledger</dt>

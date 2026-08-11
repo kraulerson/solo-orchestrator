@@ -9733,3 +9733,72 @@ are the two states this entry exists to separate.
 silence), `## BL-084:` (the sync-siblings trap the two-places fix would walk
 into), `## BL-104:` (the `[WARN]`/`issues` mismatch), and `## BL-112:` (the
 "did not run ≠ found nothing" doctrine this check should inherit).
+
+---
+
+## BL-230: `workflow.html` cites 18 code markers and 7 doc paths and sits outside every lint surface — nothing can tell you when it rots
+
+**Logged:** 2026-08-11 (found by adversarial review of the `workflow.html`
+refresh, **by mutation** — the reviewer corrupted a link and a marker and watched
+both lints stay green)
+**Category:** Silent-success / unguarded surface — the file whose entire value is
+that an operator can trust it has no mechanism that notices when it stops being
+true
+**Severity:** Medium. Nothing is wrong today: the page was just verified
+claim-by-claim against the tree. That is exactly why this is worth filing —
+**the accuracy has no way of surviving.** It went six weeks and ~40 PRs out of
+date last time, and the only thing that caught it was a human asking.
+**Status:** Open
+
+**Measured on the refresh branch.** The page cites **18 distinct code markers**
+(`BL-070-GATE-CHECK`, `BL-071-WRITE`, `BL-073-ESCALATE`, `BL-104-MANIFEST-ARM`,
+`BL-115-DATE-CELL`, `BL-170-APPEND-DESIGN`, `BF-ADOPT-BOUND`,
+`BF-ADOPT-GATE-ISSUES`, `CUTREL-TAG-FORMAT`, `CADENCE-DEFAULT-ROUTINE`,
+`CADENCE-DEFAULT-DEEP`, `CADENCE-POLICY-READ`, `DELTA-OPEN-ERA-GUARD`, …) and
+**7 relative doc links**. Re-derive both:
+
+```
+grep -oE '(BL|BF|CUTREL|CADENCE|DELTA|WALK)-[A-Z0-9]+(-[A-Z0-9]+)*' workflow.html | sort -u
+grep -oE 'href="(docs/[^"]+|[A-Za-z][^":]*\.md)"' workflow.html | sort -u
+```
+
+**Neither lint can see the file, and the reason is structural in both:**
+
+- `scripts/lint-doc-anchors.sh` walks `find "$DOCS_DIR" -type f -name '*.md'` —
+  `workflow.html` is neither `*.md` nor under `docs/`.
+- `scripts/lint-bl-markers.sh`'s live prose surface is `CLAUDE.md`, `README.md`,
+  `CONTRIBUTING.md`, `solo-orchestrator-backlog.md` and `docs/**`. A root-level
+  `.html` is in none of them.
+
+**The proof is a mutation, not an argument.** Adversarial review broke a relative
+link (`docs/scout.md` → a nonexistent path) **and** corrupted a cited marker
+(`BF-ADOPT-GATE-ISSUES` → `…ISSUEZ`) in the page, then ran both lints: **rc 0
+both times.** So the marker half of the CITATION RULE — which `## BL-196:` made
+lint-enforced precisely because line cites rot — does not reach the one document
+most likely to be read by someone who will act on it.
+
+**Two live specimens of the rot class, found during the same review**, offered as
+evidence that this is not hypothetical: `scripts/resume.sh` now has **four**
+branches, and both `CLAUDE.md` and `resume.sh`'s **own header** still say three
+(`# DELTA-RESUME-BEGIN` is literally labelled "THE FOURTH BRANCH"). Prose lags
+code by default; a lint is the only thing that makes lag visible.
+
+**Fix shape.** Extend both lints' surfaces to include `workflow.html`
+specifically — not `*.html` wholesale, because `templates/uat/**` ships HTML
+fixtures that are *meant* to carry placeholder paths and would red immediately.
+Two constraints:
+
+- **`lint-bl-markers.sh` counts a citation only when prose marks it as code**
+  (backticked or `#`-prefixed, per CLAUDE.md). The page uses `<code>` tags, not
+  backticks, so the prose-surface reader needs an HTML-aware arm or the marker
+  half will pass **vacuously** — green because it found nothing to check. Give
+  that arm a **vacuity floor** (assert it finds ≥ N citations) or it is the same
+  defect one level up.
+- The page's footer carries a "Verified against the tree on YYYY-MM-DD" stamp.
+  A lint that checks the stamp's **age** against the file's last-modified commit
+  would catch staleness the marker check cannot — a cited marker can still exist
+  while the sentence around it has become false.
+
+**Related:** `## BL-196:` (made the marker half lint-enforced, and named exactly
+this rot), `## BL-181:` (a green lint that was not proof), `## BL-227:` (a doc
+sentence refuted by a grep), and `## BL-222:` (a check satisfied without looking).
