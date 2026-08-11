@@ -180,6 +180,14 @@ mkdir -p "$XDG_CONFIG_HOME"
 unset GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS GIT_TEMPLATE_DIR
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
 unset GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE GIT_COMMON_DIR
+# The pathspec-magic family (R-WP6-18). Not a silent decision like the config
+# channels above — it is a FATAL: with `sub/*.txt` ignored,
+# `GIT_NOGLOB_PATHSPECS=1 git check-ignore -q -- sub/a.txt` dies
+# "pathspec magic not supported by this command", which every probe here wraps
+# in 2>/dev/null and therefore scores as NOT ignored. A fixture verdict flips
+# on an environment variable no fixture set. Unset for the same reason as the
+# rest: "not set on this host" is a property of today.
+unset GIT_LITERAL_PATHSPECS GIT_NOGLOB_PATHSPECS GIT_GLOB_PATHSPECS GIT_ICASE_PATHSPECS
 
 # ── Portable primitives (house pattern, WP2/WP4 parity) ─────────────────────
 _mode_of() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1" 2>/dev/null || printf '?\n'; }

@@ -12,7 +12,7 @@ The W7 use case (successor handoff under the Solo Orchestrator governance framew
 
 - **Path:** `.claude/bypass-audit.json` (tracked in git — must survive `git clone`).
 - **Schema:** JSON array of rows. Each row has a fixed seven-field shape (see [Row schema](#row-schema)).
-- **Writer:** every writer goes through `scripts/lib/bypass-audit.sh::bypass_audit_append`. Direct edits are not part of the contract.
+- **Writer:** the *contract* writer is `scripts/lib/bypass-audit.sh::bypass_audit_append`, and it is the only writer that validates the ledger's shape before appending (refusing empty / `null` / multi-document / non-array loudly, with the file untouched). **Seven inline `jq '. + [$r]'` sites in five files still bypass it** — see `## BL-227:`, which carries the derivation command; an earlier version of this line claimed every writer went through the library, and a grep refutes it. Direct edits are not part of the contract.
 - **Atomic append:** `bypass_audit_append` holds a portable `mkdir`-based advisory lock for the read-modify-write window, then writes via an adjacent `mktemp` so the final `mv` is a same-filesystem atomic rename. A SIGKILL during the write window leaves the previous valid ledger untouched.
 - **Pending-row resolution:** `bypass_audit_close_pending` flips PENDING rows whose `type == "claude_bypass_proposal"` to `accepted/bypassed` or `declined/abandoned`. It is intentionally scoped to that row type — escalations are not collapsed into the same lifecycle.
 

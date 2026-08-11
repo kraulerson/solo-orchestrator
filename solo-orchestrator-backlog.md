@@ -9477,3 +9477,72 @@ rather than quietly re-word a design-decided string.
 
 **Related:** BL-225 (the other WP6-adjacent residual), and
 docs/designs/2026-08-02-brownfield-adoption-v1.md §7.1/§7.3/§7.5.
+
+---
+
+## BL-227: seven inline `jq '. + [$r]'` appends bypass `bypass_audit_append` entirely — and a live doc sentence says none do
+
+**Logged:** 2026-08-10 (found by adversarial review while verifying WP6's
+appender-level fix; the count was then re-derived and came out one higher than
+the review's)
+**Category:** Chokepoint that is not one / silent-success class — the guard that
+makes ledger corruption loud is installed at a door six of the seven writers do
+not use
+**Severity:** Medium. Pre-existing and outside WP6's diff, so nothing shipped
+today regressed. But WP6 fixed a real silent-loss defect **at the library** on
+the stated rationale that "every caller that trusts the rc" is protected there —
+and that rationale is bounded by this entry.
+**Status:** Open
+
+**The claim that is refuted.** `docs/audit-log-lifecycle.md` § Ledger states:
+
+> **Writer:** every writer goes through
+> `scripts/lib/bypass-audit.sh::bypass_audit_append`. Direct edits are not part
+> of the contract.
+
+`git grep -c "jq --argjson r" -- 'scripts/*' 'init.sh'`, minus the library
+itself, returns **seven sites in five files**:
+
+| file | sites |
+|---|---|
+| `init.sh` | 1 |
+| `scripts/detect-out-of-band-commits.sh` | 1 |
+| `scripts/install-filesystem-gates.sh` | 1 |
+| `scripts/reconfigure-project.sh` | 2 |
+| `scripts/upgrade-project.sh` | 2 |
+
+**Derive this number, do not quote it.** The review that found the class named
+**six**, omitting `install-filesystem-gates.sh`; re-running the grep at filing
+time produced seven. The recipe is in this paragraph precisely so the next
+reader re-runs it rather than trusting either figure.
+
+**Why it matters, measured.** Each site is the identical
+`jq '. + [$r]' "$f" > tmp && mv` shape whose behaviour on a **zero-byte** ledger
+was measured during WP6 round 3: jq runs the filter over zero input documents,
+emits nothing, and **exits 0** — the append "succeeds", writes an empty file
+over an empty file, and drops the row. A `null` ledger is worse: `null + [$r]`
+evaluates to `[$r]`, so the corrupt state a reader would have investigated is
+silently **repaired away**. So, e.g., `detect-out-of-band-commits.sh` can print
+that it recorded a bypass to `.claude/bypass-audit.json` having written nothing.
+
+`bypass_audit_append` now refuses all of empty / `null` / multi-document /
+non-array with a loud failure and an untouched file
+(`jq -es 'length == 1 and (.[0] | type == "array")'`). **None of the seven
+inline sites inherits that.**
+
+**Fix shape.** Route all seven through `bypass_audit_append`. Two constraints
+worth knowing before starting: some sites run in contexts where the library is
+not sourced (`init.sh` scaffolds *into* a project rather than running inside
+one), so this is a real refactor rather than a sed; and the archived BL-029 /
+BL-030 plans already scheduled these rewrites and they did not happen, which is
+itself evidence that "route it through the library later" does not survive
+contact with a work package.
+
+**The weaker alternative, if the refactor is not taken:** correct the
+`audit-log-lifecycle.md` sentence to say what is true. A doc that overstates a
+chokepoint is worse than no doc, because the next author reads it and installs
+their guard at the door nobody uses — which is exactly what WP6 nearly did.
+
+**Related:** `## BL-225:` (the other WP6-adjacent residual), `## BL-029:` /
+`## BL-030:` (the archived plans that scheduled this), and BL-104's
+silent-success family.
