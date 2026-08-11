@@ -28,6 +28,12 @@
     --phase4-fill: #e8f4ec;
     --gate: #8b2f8b;
     --gate-fill: #f7e9f7;
+    --brownfield: #17706b;
+    --brownfield-fill: #e5f1f0;
+    --delta: #9c2f5f;
+    --delta-fill: #fbe9f1;
+    --warn-fill: #fff8e6;
+    --warn-border: #c48a1f;
   }
 
   * { box-sizing: border-box; }
@@ -352,6 +358,103 @@
   .cross-card h4 { margin: 0 0 6px; font-size: 15px; }
   .cross-card p { margin: 0; font-size: 13px; color: var(--ink-soft); line-height: 1.45; }
 
+  /* ---- Module sections: brownfield adoption + the delta track ---- */
+  section.module {
+    max-width: 1200px;
+    margin: 30px auto;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    padding: 24px 28px 28px;
+    border-top: 4px solid;
+  }
+  section.module.brownfield { border-top-color: var(--brownfield); }
+  section.module.delta      { border-top-color: var(--delta); }
+  section.module h2 {
+    margin: 0 0 6px;
+    font-size: 22px;
+  }
+  section.module.brownfield h2 { color: var(--brownfield); }
+  section.module.delta h2      { color: var(--delta); }
+  section.module p.intro {
+    font-size: 15px;
+    color: var(--ink-soft);
+    margin: 0 0 18px;
+  }
+  section.module h3 {
+    font-size: 15px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    font-weight: 700;
+    margin: 22px 0 10px;
+  }
+  section.module.brownfield h3 { color: var(--brownfield); }
+  section.module.delta h3      { color: var(--delta); }
+  section.module code {
+    background: rgba(0,0,0,0.06);
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 12.5px;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+  }
+  .mod-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 12px;
+  }
+  .mod-card {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 13px 15px;
+  }
+  section.module.brownfield .mod-card { background: var(--brownfield-fill); border-color: rgba(23, 112, 107, 0.28); }
+  section.module.delta .mod-card      { background: var(--delta-fill);      border-color: rgba(156, 47, 95, 0.25); }
+  .mod-card h4 { margin: 0 0 6px; font-size: 15px; }
+  .mod-card p  { margin: 0 0 7px; font-size: 13px; color: var(--ink-soft); line-height: 1.45; }
+  .mod-card p:last-child { margin-bottom: 0; }
+
+  table.mod-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    margin: 0 0 4px;
+  }
+  table.mod-table th,
+  table.mod-table td {
+    border: 1px solid #dde1e8;
+    padding: 7px 10px;
+    text-align: left;
+    vertical-align: top;
+  }
+  table.mod-table th {
+    background: #f2f4f8;
+    font-size: 12px;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  table.mod-table td code { font-size: 12px; }
+  .table-scroll { overflow-x: auto; }
+
+  .not-built {
+    margin-top: 18px;
+    padding: 14px 16px 16px;
+    background: var(--warn-fill);
+    border-left: 4px solid var(--warn-border);
+    border-radius: 4px;
+    font-size: 13.5px;
+  }
+  .not-built h4 { margin: 0 0 8px; font-size: 15px; }
+  .not-built ul { margin: 0; padding-left: 20px; }
+  .not-built li { margin-bottom: 6px; line-height: 1.45; }
+  .not-built li:last-child { margin-bottom: 0; }
+
+  .cite {
+    font-size: 12px;
+    color: var(--ink-soft);
+    font-style: italic;
+  }
+  .cite code { font-style: normal; }
+
   section.glossary {
     max-width: 1200px;
     margin: 30px auto 0;
@@ -418,10 +521,14 @@
   <h1>The Solo Orchestrator Journey</h1>
   <p class="subtitle">
     How a single person builds a real, production-ready application with an AI coding agent —
-    from empty folder to shipped release, one step at a time. Each step below shows what
+    from empty folder to shipped release and beyond, one step at a time. Each step below shows what
     <strong>you do</strong> on the left and what the <strong>framework and AI do</strong> on the right.
+    There are <strong>two ways in</strong> — a new project, or
+    <a href="#brownfield">adopting a codebase you already have</a> — and the journey does not stop at
+    v1.0.0: post-release change runs through the <a href="#delta-track">Delta Track</a>.
   </p>
   <div class="legend">
+    <span><span class="swatch" style="background:var(--brownfield-fill);border-color:var(--brownfield)"></span>Brownfield Adoption (second entrance)</span>
     <span><span class="swatch" style="background:var(--setup-fill);border-color:var(--setup)"></span>Setup</span>
     <span><span class="swatch" style="background:var(--phase0-fill);border-color:var(--phase0)"></span>Phase 0 · Discovery</span>
     <span><span class="swatch" style="background:var(--phase1-fill);border-color:var(--phase1)"></span>Phase 1 · Architecture</span>
@@ -429,8 +536,266 @@
     <span><span class="swatch" style="background:var(--phase3-fill);border-color:var(--phase3)"></span>Phase 3 · Validation</span>
     <span><span class="swatch" style="background:var(--phase4-fill);border-color:var(--phase4)"></span>Phase 4 · Release</span>
     <span><span class="swatch" style="background:var(--gate-fill);border-color:var(--gate);border-style:dashed"></span>Phase Gate</span>
+    <span><span class="swatch" style="background:var(--delta-fill);border-color:var(--delta)"></span>Delta Track (post-v1.0)</span>
   </div>
 </header>
+
+<!-- ============================================================ -->
+<!--        BROWNFIELD ADOPTION — THE SECOND ENTRANCE              -->
+<!-- ============================================================ -->
+
+<section class="module brownfield" id="brownfield">
+  <h2>A second way in: adopting a codebase you already have</h2>
+  <p class="intro">
+    Everything below this section starts from an empty folder — <code>./init.sh</code> creates the project.
+    <strong>Adoption is the other entrance</strong>, for a codebase that already exists with its own history,
+    its own pipeline and its own habits. It has its own driver, and it never calls
+    <code>init.sh</code>'s project creator. If this is you, read this section first, then join the journey
+    at the phase adoption lands you in.
+  </p>
+
+  <div class="not-built" style="background:var(--brownfield-fill);border-left-color:var(--brownfield)">
+    <h4>Read this before you plan around adoption</h4>
+    <p style="margin:0 0 8px;font-size:13.5px">
+      <strong>Adoption is half built.</strong> The driver, the scenario chooser, the reverse intake, the state
+      writes, the adoption stamp with its loss detection, the commit-time enabling arms, the test-debt ledger
+      and the collision archive all ship and all work. <strong>The certification pass, the CI carve-out and the
+      Adoption Record do not exist.</strong> The driver prints a labelled <code>NOT DONE</code> block for each
+      one during the run, naming the work package that owns it. The full list is at the end of this section.
+      <strong>Do not read an adopted project as a certified one.</strong>
+    </p>
+  </div>
+
+  <h3>Step A · Scout — the read-only survey that comes first</h3>
+  <div class="mod-grid">
+    <div class="mod-card">
+      <h4>It writes nothing</h4>
+      <p><code>bash scripts/scout.sh --root ../their-app</code>. Scout changes nothing in the tree it is
+      pointed at — no cache, no state file, no marker. Its only writes are a private working directory
+      under <code>$TMPDIR</code> and, when you ask with <code>--out DIR</code>, exactly two files:
+      <code>scout-report.json</code> and <code>scout-report.md</code>.</p>
+      <p>Run it, read it, walk away. Nothing is installed and nothing is decided.</p>
+    </div>
+    <div class="mod-card">
+      <h4>Runs from the framework clone</h4>
+      <p>Scout is <em>not</em> copied into scaffolded projects and does not need the framework installed in
+      the project it is surveying — a survey that requires installing the thing it surveys is not a survey.
+      It sources no core library and does not need <code>jq</code>.</p>
+    </div>
+    <div class="mod-card">
+      <h4>Seven sections</h4>
+      <p><code>stack</code> (languages, build files, test command), <code>phaseMap</code> (an artifact
+      ladder over the project's own evidence), <code>reality</code> (five probes),
+      <code>secrets</code>, <code>collisions</code>, <code>testsBaseline</code>,
+      <code>intakePrefill</code>. <code>sectionsNotEmitted</code> survives as an empty array rather than
+      being deleted — "we have not looked" and "we looked and it was clean" are different claims.</p>
+    </div>
+    <div class="mod-card">
+      <h4>Secrets: full history, value never printed</h4>
+      <p>Scout scans <strong>every commit</strong>, not just current files. Findings are a field-allowlist
+      projection (rule, file, commit, fingerprint, line, date, description) — there is no secret field in the
+      schema to forget to strip, and the commit message is refused outright.</p>
+      <p><strong>A missing scanner is reported as a missing scanner.</strong> With <code>gitleaks</code> off
+      <code>PATH</code>, status is <code>tool-unavailable</code> and <code>findingCount</code> is
+      <code>null</code> — not <code>0</code>.</p>
+    </div>
+    <div class="mod-card">
+      <h4>Branch protection is <em>unknown</em>, not <em>no</em></h4>
+      <p>Scout makes no authenticated calls to your git host and will not use your credentials, so it cannot
+      see whether your main branch is protected. It says "unknown" and means it.</p>
+    </div>
+    <div class="mod-card">
+      <h4>The one thing that runs your code</h4>
+      <p><code>--run-tests</code> runs the project's own test command once, output discarded, bounded by
+      <code>SCOUT_TEST_TIMEOUT</code> (default 300s). It is <strong>off unless you ask</strong>. Scout's
+      read-only guarantee covers Scout — it does not cover your test suite.</p>
+    </div>
+  </div>
+  <p class="cite">Exit codes: <strong>0</strong> a scan completed (findings are not errors — a report full of
+  secrets still exits 0); <strong>2</strong> bad usage or an unreadable target. See
+  <em>docs/scout.md</em>.</p>
+
+  <h3>Step B · The adoption driver, and the one question</h3>
+  <div class="mod-grid">
+    <div class="mod-card">
+      <h4>A separate driver, on purpose</h4>
+      <p><code>bash scripts/adopt-project.sh</code> (options: <code>--root</code>,
+      <code>--scan-report FILE</code>, <code>--version</code>, <code>--help</code>). It can consume a Scout
+      report instead of re-scanning.</p>
+      <p>It is not <code>init.sh --brownfield</code> because <code>init.sh</code>'s interactive path has
+      unguarded overwrite sites. <strong>The driver never calls <code>create_project()</code></strong> — those
+      sites are unreachable by construction rather than by audit.</p>
+    </div>
+    <div class="mod-card">
+      <h4>The one question the scan cannot answer</h4>
+      <p>The scan's findings are shown first as <strong>evidence, never as an answer</strong>, each line
+      carrying its own confidence. Then, verbatim: <em>"Is the project built out and needs to be able to be
+      supported (i.e. bug fixes, maintenance, new features add), or are you still in the process of building
+      your project?"</em></p>
+      <p><strong>There is no default and no skip.</strong> With no answer the run prints
+      <code>[REFUSED]</code> and stops: <em>"Adoption did not complete. Nothing has been committed."</em></p>
+    </div>
+    <div class="mod-card">
+      <h4>Two scenarios</h4>
+      <p><strong>S1 — completed:</strong> lands at <code>current_phase: 4</code>, straight into the
+      maintenance era; everything after arrives as a delta. Certification scope is every gate 0→1 through
+      3→4, which makes it the heaviest pass.</p>
+      <p><strong>S2 — in-flight:</strong> lands at the phase its artifacts support and reaches the
+      maintenance era the ordinary way, by shipping v1 through the gates.</p>
+    </div>
+    <div class="mod-card">
+      <h4>The floor rule — the interview can only move the placement DOWN</h4>
+      <p>The scan proposes a rung from the code. Your answer <strong>can lower it and cannot raise it</strong>:
+      "evidence you have not produced is not evidence." A project placed too low certifies more than it
+      strictly needed; one placed too high certifies less than it owed.</p>
+    </div>
+    <div class="mod-card">
+      <h4>Reverse intake, three classes</h4>
+      <p>Scan-derived answers are prefilled <em>with their provenance</em> and you keep or change them.
+      Judgement answers get no prefill, no default and no skip. <strong>Data classification is
+      non-skippable in both scenarios</strong> — the Phase 1→2 ZDR gate is a hard FAIL without it, so an
+      adoption that skipped it would produce a project that cannot pass its own next gate.</p>
+    </div>
+    <div class="mod-card">
+      <h4>A halted run leaves you MORE enforced, never less</h4>
+      <p>The write order is <code>phase-state.json</code> → intake → <code>manifest.json</code>, and it is
+      chosen because the two half-states are not symmetrical: phase-state without a manifest leaves the gates
+      live at the strictest tier (blocked, safe), while a manifest without phase-state makes the gate skip
+      entirely. Writing phase-state first means every interruption lands in the safe row.</p>
+      <p>Staging is an explicit file list — <strong>never <code>git add -A</code></strong> — so work you had
+      in progress stays unstaged and untouched.</p>
+    </div>
+  </div>
+  <p class="cite">Exit codes: <strong>0</strong> adoption completed; <strong>1</strong> adoption did not
+  complete (a refusal, a blocker, or a halt); <strong>2</strong> bad usage or an unusable target. See
+  <em>docs/adoption.md</em>.</p>
+
+  <h3>Step C · What adoption turns on from day one</h3>
+  <div class="mod-grid">
+    <div class="mod-card">
+      <h4>The adoption stamp</h4>
+      <p>One additive <code>adoption</code> block in <code>.claude/manifest.json</code> — the flag, the
+      timestamp, the anchor commit, the scenario, the landed phase, the certification lists and the scan
+      report's hash. Written <strong>once, from one call site, never re-stamped</strong>; a second stamp
+      attempt is refused rather than overwriting the anchor.</p>
+      <p>Its three certification lists are <strong>empty, and empty means "not measured"</strong>, not
+      "measured and clean".</p>
+    </div>
+    <div class="mod-card">
+      <h4>Loud loss detection — and it blocks</h4>
+      <p>The manifest has a wholesale writer <em>in a different repository</em> (a repair path that
+      regenerates it from an upstream key set carrying none of this framework's keys), so a lost stamp cannot
+      be prevented from here. It is therefore reported loudly instead. The witness is the copy committed at
+      <code>HEAD</code>, which a working-copy regeneration does not touch.</p>
+      <p><code>check-phase-gate.sh</code> prints an <strong>Adoption Stamp Integrity</strong> block and, on
+      loss, <strong>increments <code>issues</code> — so the gate genuinely fails</strong>, deliberately and
+      not merely cosmetically.</p>
+      <p class="cite">Functions <code>soif_adoption_integrity_lost</code> / <code>soif_adoption_report_loss</code>;
+      the blocking increment carries the marker <code>#&nbsp;BF-ADOPT-GATE-ISSUES</code>.</p>
+    </div>
+    <div class="mod-card">
+      <h4>The TDD exemption, and its bound</h4>
+      <p>You cannot go back and write the tests first for code written in 2023, so that one requirement gets
+      an exemption — <strong>bounded to the adoption run itself</strong>. It applies only while the stamp's
+      anchor commit equals <code>HEAD</code> <em>and</em> the manifest committed at <code>HEAD</code> does not
+      yet record the adoption. <strong>Once the adoption commit lands the exemption closes permanently</strong>
+      and every later commit is post-adoption by construction.</p>
+      <p>From that commit on, an adopted project gets the same commit-time treatment as a scaffolded one —
+      including the tier-keyed TDD ordering block.</p>
+      <p class="cite">Function <code>soif_adoption_pre_adoption_commit</code>; the bound carries the marker
+      <code>#&nbsp;BF-ADOPT-BOUND</code>.</p>
+    </div>
+    <div class="mod-card">
+      <h4>The test-debt ledger and its ratchet</h4>
+      <p>The exemption does not stand alone: adoption measures your untested-file set once into
+      <code>.claude/test-debt.json</code> and then holds you to two forward rules —
+      <strong>non-growth</strong> (the set may not gain a member) and <strong>touch-repays</strong> (a
+      ledgered file you modify must leave the set in the same commit).</p>
+      <p>Both are floored on the enforcement tier: silent at <code>no</code>, a warning at
+      <code>light</code>, a refusal at <code>strict</code>. Exit codes:
+      <strong>0</strong> clean or a non-blocking tier, <strong>2</strong> unusable (no ledger, no git repo,
+      no <code>jq</code>), <strong>3</strong> blocked by non-growth, <strong>4</strong> blocked by
+      touch-repays.</p>
+      <p><strong>Nothing invokes it on commit yet</strong> — verified: no call site exists outside the driver
+      that sources it. Today it is <code>adopt-test-debt.sh --check</code> by hand or from a CI step. WP7
+      owns the commit-time hook.</p>
+    </div>
+    <div class="mod-card">
+      <h4>The collision archive</h4>
+      <p>Before any framework writer runs, the files it would land on are copied into
+      <code>.claude/adoption-archive/&lt;UTC-timestamp&gt;-&lt;pid&gt;/</code> with a
+      <code>MANIFEST.json</code> and a <code>MANIFEST.md</code> beside them. The population is your AI-layer
+      settings and every non-<code>.sample</code> file in <code>.git/hooks/</code>. <strong>Nothing is
+      deleted</strong>, only files that exist are archived, and every entry carries a
+      <code>restore</code> line you can paste.</p>
+      <p>The run then discloses it in full — every path, not a count. <code>--re-add &lt;path&gt;</code> puts
+      one back byte-for-byte at its recorded mode, after a warning and a confirmation with no default and no
+      skip, and records the choice as an <code>adoption_event</code> row in
+      <code>.claude/bypass-audit.json</code>.</p>
+    </div>
+    <div class="mod-card">
+      <h4>The archive is scanned before anything is staged</h4>
+      <p><code>.git/hooks/</code> is not tracked by git; <code>.claude/</code> is. Committing an archived hook
+      could take a credential git had never seen and put it in your history — <em>adoption would create the
+      leak</em>. So the archive is scanned with <code>gitleaks</code> <strong>before</strong> staging, and a
+      matching entry is written to disk but kept out of the commit.</p>
+      <p>Four reasons withhold an entry, each named in the MANIFEST:
+      <code>secret-match</code>; <code>not-scanned</code> (gitleaks absent or the scan failed — the
+      <em>whole</em> archive is withheld, because "nobody looked" is not "clean");
+      <code>original-gitignored</code>; <code>gitignored</code>.</p>
+      <p><strong>A pattern scanner is a mitigation, not a proof.</strong> It recognises credential shapes; an
+      internal hostname, a proxy URL or a customer name matches nothing. Read the MANIFEST before you push.</p>
+    </div>
+  </div>
+
+  <div class="not-built">
+    <h4>What adoption does NOT do yet — read this before you rely on it</h4>
+    <p style="margin:0 0 8px;font-size:13px;color:var(--ink-soft)">
+      Re-derived from the driver's own <code>adopt_stub_*</code> notices rather than copied from prose,
+      because this line has moved twice and will move again. Each block names its owner during the run.
+      The last three fire only when the run encounters the condition.
+    </p>
+    <ul>
+      <li><strong>The certification pass — WP5.</strong> The largest gap and the one that matters most. It
+      would run every skipped gate's requirements <em>for real, today</em>, and it would be able to
+      <strong>fail</strong> — a blocker-grade finding would stop the adoption. None of that runs, which is why
+      the stamp's certification lists are empty.</li>
+      <li><strong>The Adoption Record, the audit rows and the CI carve-out — WP7.</strong> No
+      <code>APPROVAL_LOG.md</code> is written, so this adoption is recorded in the manifest and nowhere else.
+      The consequence is immediate: <code>check-phase-gate.sh</code> exits 1 on <code>[FAIL] APPROVAL_LOG.md
+      not found but .claude/phase-state.json exists.</code> — and because that exit happens near the top of the
+      script while the Adoption Stamp Integrity arm runs at the very end, <strong>the loss detector never gets
+      to speak on such a project.</strong> Nothing records a keep-or-retire decision about your pipelines
+      either.</li>
+      <li><strong>The provenance headers on reconstructed documents — WP7.</strong>
+      <code>PROJECT_INTAKE.md</code> records where each answer came from, but carries no machine-readable
+      provenance header; a near-miss header is worse than none.</li>
+      <li><strong>The commit-time scanners (the fallback pre-commit hook) — no owner in the design; assigned
+      to WP7 by decision.</strong> The two <em>message</em> gates are on. The secret scan, the static-analysis
+      pass and the schema-migration checks that normally run on every commit are <strong>not</strong> —
+      installing that hook today would refuse every commit, because it expects artifacts an adoption does not
+      yet produce. Run them by hand: <code>bash scripts/pre-commit-gate.sh --terminal-mode</code>.</li>
+      <li><strong>Your project's framework documents — unassigned.</strong> <code>CLAUDE.md</code>, the
+      document templates and the reference docs are not written. So an adopted project has working gates and
+      <strong>no <code>CLAUDE.md</code></strong> — the file an agent reads at the start of every session.
+      Write one by hand or copy <code>templates/generated/claude-md.tmpl</code> from the framework clone.</li>
+      <li><strong>The replacement half for colliding framework <em>scripts</em> — unassigned.</strong> A file
+      of yours sitting where a framework script would go is left alone and not replaced, so the framework's
+      version is not installed and anything depending on it is inert. That class is deliberately outside the
+      archive.</li>
+      <li><strong>The per-finding secrets disposition — unassigned.</strong> Scout reports what is in your
+      history (redacted); nothing collects a recorded decision — rotated / false alarm / accepted risk — for
+      each finding. Read the scan report's secrets section before you trust the repo.</li>
+      <li><strong>The manifest's tier keys are not written</strong> (tracked as <code>## BL-221:</code>).
+      A scaffolded manifest carries <code>deployment</code>, <code>poc_mode</code> and
+      <code>enforcement_level</code>; an adopted one does not, and one tier reader
+      (<code>assert_choosable</code>) resolves an absent <code>deployment</code> to the <em>permissive</em>
+      default while its sibling <code>read_enforcement_level</code> fails closed to strict. The commit-time
+      gates are unaffected. <strong>If you adopt an organizational project, set those keys by hand before
+      anyone runs <code>reconfigure-project.sh</code>.</strong></li>
+    </ul>
+  </div>
+</section>
 
 <main class="flow">
 
@@ -456,11 +821,11 @@
     <div class="side right">
       <h3>What the framework does</h3>
       <ul>
-        <li>Checks prerequisites (Git, Node.js, jq, Docker) and offers to install any missing.</li>
-        <li>Resolves the tool matrix for your platform and offers to install the applicable security tools (Semgrep, gitleaks, Snyk for all projects; Lighthouse + OWASP ZAP for web).</li>
+        <li>Checks four prerequisites — Git, Node.js, jq, Docker — and offers to install any missing (all but Git are prompt-and-install).</li>
+        <li>Resolves the tool matrix for your platform and offers the security tools that apply <em>at this phase</em>: Semgrep, gitleaks and Snyk for every project, plus Lighthouse for web. <strong>Anything the matrix marks for a later phase is deferred, not offered</strong> — OWASP ZAP is a Phase 3 DAST tool, so init records it and moves on.</li>
         <li>Clones the <em>Development Guardrails for Claude Code</em> (git hooks + session rules).</li>
-        <li>Generates your project folder, CI + release pipelines, CLAUDE.md, and three state files: <code>phase-state.json</code>, <code>.claude/process-state.json</code> (build-loop/UAT/Phase 3 ledger), and <code>.claude/manifest.json</code> (host, deployment, poc_mode, enforcement level).</li>
-        <li>Initializes git, seeds <code>.claude/bypass-audit.json</code>, and runs a health check.</li>
+        <li>Generates your project folder, CI + release pipelines, CLAUDE.md, and about ten state artifacts under <code>.claude/</code>. The three that matter most: <code>.claude/phase-state.json</code> (phase + gate dates), <code>.claude/process-state.json</code> (build-loop / UAT / Phase 3 ledger, and where <code>phase1_artifacts</code> lives), and <code>.claude/manifest.json</code> (host, mode, remote URL, deployment, poc_mode, enforcement level, plus the pinned framework commit and a currency inventory). Others include <code>settings.json</code>, <code>build-progress.json</code>, <code>tool-usage.json</code>, <code>tool-preferences.json</code> and <code>intake-progress.json</code>.</li>
+        <li>Initializes git, seeds <code>.claude/bypass-audit.json</code> with its first <code>enforcement_level_set</code> row, and finishes by running <code>scripts/verify-install.sh --auto-fix</code>.</li>
       </ul>
     </div>
   </div>
@@ -472,12 +837,13 @@
       <h3>What you do</h3>
       <ul>
         <li>Run the intake wizard and answer plain-language questions.</li>
-        <li>Describe project name, what it does, who uses it, platform (web/desktop/mobile/etc), language, success criteria, and the four independent settings the framework tracks:
+        <li>Describe project name, what it does, who uses it, platform (web/desktop/mobile/etc), language and success criteria, across the wizard's <strong>fourteen</strong> sections.</li>
+        <li>Four independent settings govern everything downstream. <strong>Only one of them is set here</strong> — the other three are chosen at <code>./init.sh</code> time and the wizard merely reads them:
           <ul>
-            <li><strong>Deployment</strong>: personal or organizational.</li>
-            <li><strong>Track</strong>: Light / Standard / Full (depth of Phase 3 rigor).</li>
-            <li><strong>POC mode</strong>: production, Sponsored POC, or Private POC (Sponsored is org-only; Phase 4 is blocked in POC mode until <code>scripts/upgrade-project.sh --to-production</code>).</li>
-            <li><strong>Enforcement level</strong>: strict / light / no (strict is default and forced for organizational Sponsored POC + Production).</li>
+            <li><strong>POC mode</strong> — <em>set by the wizard</em>: Production Build, Sponsored POC (org knows, non-technical approvals deferred) or Private POC. Phase 4 is hard-blocked in either POC mode until <code>scripts/upgrade-project.sh --to-production</code>.</li>
+            <li><strong>Deployment</strong>: personal or organizational (init.sh).</li>
+            <li><strong>Track</strong>: Light / Standard / Full — depth of Phase 3 rigor (init.sh).</li>
+            <li><strong>Enforcement level</strong>: strict / light / no (init.sh). Strict is the default and is <strong>forced for every organizational project</strong>; only <code>deployment: personal</code> makes it choosable at all.</li>
           </ul>
         </li>
         <li>Review the generated <code>PROJECT_INTAKE.md</code> before moving on.</li>
@@ -489,7 +855,7 @@
       <h2>Project Intake</h2>
       <p class="tagline">Tell the framework exactly what you're building and why.</p>
       <span class="cmd">bash scripts/intake-wizard.sh</span>
-      <div class="outputs">Produces: PROJECT_INTAKE.md — the AI's product brief. Also seeds <code>data_classification</code> + ZDR attestation for the Phase 1 → 2 gate.</div>
+      <div class="outputs">Produces: PROJECT_INTAKE.md — the AI's product brief. Also persists <code>data_classification</code> + ZDR attestation into <code>.claude/process-state.json</code> under <code>phase1_artifacts</code>, which is exactly where the Phase 1 → 2 gate reads them.</div>
     </div>
     <div class="connector-side from-center"><div class="line"></div></div>
     <div class="side right">
@@ -510,8 +876,9 @@
     <div class="side left">
       <h3>What you do</h3>
       <ul>
-        <li>Start Claude Code (or your AI agent of choice).</li>
-        <li>Paste the context-loading prompt from the README.</li>
+        <li><code>cd</code> into the project <code>init.sh</code> created (the sibling folder, <em>not</em> the framework clone).</li>
+        <li>Run <code>bash scripts/resume.sh</code> — the single state-aware first-message generator — and copy what it prints between its two banner lines.</li>
+        <li>Start Claude Code and paste that as your very first message.</li>
         <li>Read the AI's summary. Correct any misunderstanding <em>before</em> it starts work.</li>
       </ul>
     </div>
@@ -520,16 +887,17 @@
       <div class="num">3</div>
       <h2>Give the AI Its Context</h2>
       <p class="tagline">The agent reads its instructions before it does anything.</p>
-      <span class="cmd">claude</span>
+      <span class="cmd">bash scripts/resume.sh</span>
       <div class="outputs">Produces: an AI that understands your project, its phase, and its constraints.</div>
     </div>
     <div class="connector-side from-center"><div class="line"></div></div>
     <div class="side right">
       <h3>What the framework does</h3>
       <ul>
-        <li>The AI reads five files in order: <code>CLAUDE.md</code> (its rules), <code>PROJECT_INTAKE.md</code> (what to build), the Builder's Guide (how to build), the Platform Module (platform know-how), and <code>phase-state.json</code> (current stage).</li>
+        <li><strong>There is no hand-maintained prompt to paste from the README any more.</strong> <code>scripts/resume.sh</code> reads <code>.claude/phase-state.json</code> and picks one of four branches: the intake prompt, <code>PROJECT_INTAKE.md</code> § 13 verbatim, the phase-4 delta greeting, or the classic resume prompt. (The script lives in generated projects only.)</li>
+        <li>The § 13 initialization prompt attaches <strong>three</strong> documents: the Project Intake (the primary constraint), the Builder's Guide at <code>docs/reference/builders-guide.md</code> (the process reference), and the Platform Module. The other resume branches additionally tell the agent to read <code>CLAUDE.md</code> for project context.</li>
         <li>Summarizes the goal, constraints, current phase, and available tools.</li>
-        <li>Asks you clarifying questions — it does not start coding blind.</li>
+        <li>Asks you clarifying questions — its rules require it to flag a blank or conflicting intake field before proceeding past the step that needs it.</li>
       </ul>
     </div>
   </div>
@@ -549,26 +917,32 @@
       <div class="num">0</div>
       <h2>Pre-Phase 0 · Organizational Pre-Conditions</h2>
       <p class="tagline">Six governance rows before Day 1 for organizational deployments.
-        See <em>docs/governance-framework.md §V &amp; §IX.4</em>.</p>
+        See <em>governance-framework.md § V (Approval Authority / POC Modes)</em> and
+        <em>§ XIV → "Pre-Conditions (Before Day 1)"</em>.</p>
       <span class="cmd">check-phase-gate.sh (Pre-Phase 0)</span>
     </div>
     <div class="connector-side from-center"><div class="line"></div></div>
     <div class="side right">
       <h3>What the framework checks</h3>
       <ul>
-        <li><strong>Six named rows</strong> each with an ISO-dated approval (per <code>templates/generated/approval-log-org.tmpl</code> lines 16–28):
+        <li><strong>Six named rows</strong>, each with an ISO-dated approval. Numbering matters — <code>upgrade-project.sh</code> parses these row numbers:
           <ol>
             <li>AI deployment path — IT Security approval.</li>
-            <li>Insurance clearance / broker confirmation.</li>
-            <li>Liability entity designation.</li>
-            <li>Named Project Sponsor.</li>
-            <li>Backup maintainer designation.</li>
-            <li>ITSM registration.</li>
+            <li>Insurance coverage confirmed — Insurance Broker.</li>
+            <li>Liability entity designated — Legal / CIO.</li>
+            <li>Project sponsor assigned — Executive Sponsor.</li>
+            <li>Backup maintainer designated — Technical Lead.</li>
+            <li>ITSM project registered — ITSM / PMO.</li>
           </ol>
+          <span class="cite">Source: <code>templates/generated/approval-log-org.tmpl</code>,
+          § <em>Pre-Phase 0: Organizational Pre-Conditions</em> — the
+          <code>&lt;!-- BL-170-APPEND-DESIGN --&gt;</code> row-list paragraph.</span>
         </li>
-        <li>Sponsored POC: rows 1 &amp; 4 required, rows 2/3/5/6 deferred (verified later by <code>scripts/upgrade-project.sh --to-production</code>).</li>
-        <li>Private POC: all six deferred.</li>
-        <li>Governance mode is forced <strong>strict</strong> for organizational Sponsored POC + Production.</li>
+        <li>Each row is checked by name, and a missing dated row prints <code>[WARN]</code> but
+        <strong>increments the gate's issue counter — so it blocks.</strong></li>
+        <li><strong>This whole block is skipped whenever <code>poc_mode</code> is set.</strong> Sponsored POC owes rows 1 &amp; 4 up front and defers 2/3/5/6 — but that is enforced later, by <code>scripts/upgrade-project.sh --to-production</code>, not by the Phase 0 → 1 gate.</li>
+        <li>Private POC: all six deferred. Personal: the template pre-fills all six as <em>N/A — personal project</em>.</li>
+        <li>Enforcement level is forced <strong>strict</strong> for every organizational project.</li>
       </ul>
     </div>
   </div>
@@ -595,9 +969,10 @@
     <div class="side right">
       <h3>What the framework does</h3>
       <ul>
-        <li>AI walks the seven Phase 0 sub-steps: 0.1 FRD, 0.2 User Journey (Skeptical PM persona), 0.3 Data Contract, 0.4 Product Manifesto &amp; MVP Cutline, 0.5 Revenue Model (Std+), 0.6 Competency Matrix (drives mandatory CI tooling for any "No" domain), 0.7 Trademark &amp; Legal (Std+).</li>
-        <li>Generates supporting artifacts: user journey, data contract.</li>
-        <li>Organizational deployments: sponsor reviews the Compliance Screening Matrix (SOX / PCI / GDPR / HIPAA / GLBA / SEC / records-retention / EU-AI-Act) — see <em>governance-framework.md §VIII.11</em>.</li>
+        <li>AI walks the seven Phase 0 sub-steps: 0.1 Functional Feature Set (the FRD), 0.2 User Personas &amp; Interaction Flow (Skeptical Product Manager persona), 0.3 Data Input/Output &amp; State Logic (the data contract), 0.4 Product Manifesto &amp; MVP Cutline, 0.5 Revenue Model &amp; Unit Economics (Std+), 0.6 Orchestrator Competency Matrix, 0.7 Trademark &amp; Legal Pre-Check (Std+).</li>
+        <li>Generates supporting artifacts under <code>docs/phase-0/</code>: <code>frd.md</code>, <code>user-journey.md</code>, <code>data-contract.md</code>.</li>
+        <li><strong>0.6 is not advisory</strong> — for each domain marked "No", the corresponding automated tool MUST be installed and active in CI before Phase 2 begins.</li>
+        <li>Organizational deployments: sponsor reviews the <strong>Compliance Screening Matrix</strong> — ten rows covering SOX-adjacent financial reporting, PCI, multi-state/international personal data, EU users, OFAC sanctioned jurisdictions, records retention, EU-AI-Act end-user AI features, HIPAA, GLBA and SEC cyber disclosure. See <em>governance-framework.md § VIII.11</em>. (The intake wizard asks a related but <em>different</em> eight-item list — they are not the same set.)</li>
         <li>Cannot proceed to Phase 1 until the phase gate is approved. (STRIDE threat model is Phase 1.3, not here.)</li>
       </ul>
     </div>
@@ -626,8 +1001,8 @@
       <h3>What the framework checks</h3>
       <ul>
         <li>Reads <code>APPROVAL_LOG.md</code> and (organizational) runs <code>git blame --line-porcelain</code> on the Approver row itself — the git-commit author of that specific line must not equal the approver's name (anti-self-approval FAIL). Personal deployments skip this check.</li>
-        <li>Confirms <code>PRODUCT_MANIFESTO.md</code> has all 8 numbered sections filled with content (no placeholders), and NO <code>Status: Open</code> lines remain — either causes a FAIL.</li>
-        <li>Compares the dated Phase 0 → 1 entry against <code>phase-state.json::gates.phase_0_to_1</code>. (Note: the gate script <em>reads</em> both dates; the JSON value itself is populated by <code>scripts/upgrade-project.sh</code> or edited by the approver during the sign-off commit — the gate does not auto-write it.)</li>
+        <li>Confirms <code>PRODUCT_MANIFESTO.md</code> has all 8 numbered sections filled with content, and NO <code>Status: Open</code> lines remain. A missing section and an unresolved Open Question are both <code>[FAIL]</code>; a placeholder-only section prints <code>[WARN]</code> — but it increments the issue counter too, so <strong>all three block</strong>.</li>
+        <li>Compares the dated Phase 0 → 1 entry against <code>.claude/phase-state.json::gates.phase_0_to_1</code> — and <strong>writes it if the APPROVAL_LOG evidence is there and the JSON slot is empty</strong>, atomically and under a lock, alongside a companion <code>phase_0_to_1_by</code> key. The write is idempotent (an existing date is preserved) and deliberately still fires in warn mode. <span class="cite">Function <code>_cpg_record_gate_date</code>; marker <code>#&nbsp;BL-071-WRITE</code>.</span></li>
         <li>On PASS, <code>check-phase-gate.sh</code> creates a point-in-time snapshot at <code>docs/snapshots/phase-0-to-1_YYYY-MM-DD/</code>.</li>
       </ul>
     </div>
@@ -639,7 +1014,7 @@
     <div class="side left">
       <h3>What you do</h3>
       <ul>
-        <li>Review architecture options with tradeoffs (usually 2–3 candidates).</li>
+        <li>Review the <strong>three</strong> architecture options the AI is required to propose, with tradeoffs.</li>
         <li>Pick the architecture. Read the test plan.</li>
         <li>Approve at the Phase 1 → 2 gate.</li>
       </ul>
@@ -649,16 +1024,16 @@
       <div class="num">5</div>
       <h2>Phase 1 · Architecture &amp; Planning</h2>
       <p class="tagline">Design the system on paper before writing any code.</p>
-      <div class="outputs">Produces: Project Bible (architecture, ADRs, data contract, threat model, test plan).</div>
+      <div class="outputs">Produces: the Project Bible — 16 numbered sections covering architecture, ADRs, threat model, data model and the test strategy. (The data <em>contract</em> is a Phase 0 artifact at <code>docs/phase-0/data-contract.md</code>, not a Bible section.)</div>
     </div>
     <div class="connector-side from-center"><div class="line"></div></div>
     <div class="side right">
       <h3>What the framework does</h3>
       <ul>
-        <li>AI walks the Phase 1 sub-steps: 1.1 Business Strategy Gateway (Std+ Go/No-Go), 1.1.5 Market Signal Validation, 1.2 Architecture &amp; Stack Selection (3 candidates, 10 first-class decisions, Competency Matrix as required input), 1.3 STRIDE Threat Model (Penetration Tester persona), 1.4 Data Model, 1.4.5 Data Migration Plan (only if replacing an existing system), 1.5 UI/UX Scaffolding (four-state Empty/Loading/Error/Success), 1.6 Project Bible (16 sections), 1.7 Data Classification &amp; ZDR Attestation.</li>
-        <li>Writes Architecture Decision Records (ADRs) explaining <em>why</em> each big choice was made, and rejected alternatives.</li>
-        <li>Configures branch protection against the real git-host API (GitHub/GitLab/Bitbucket) via <code>scripts/lib/host.sh</code> — free-tier limitations use an attestation escape hatch (<code>github_free_tier</code>, <code>gitlab_free_tier_approvals</code>).</li>
-        <li>Produces a test plan mapped to intake acceptance criteria.</li>
+        <li>AI walks the Phase 1 sub-steps: 1.1 Business Strategy Gateway (Std+ Go/No-Go), 1.1.5 Market Signal Validation (Std+), 1.2 Architecture &amp; Stack Selection (3 candidates, 10 first-class decisions, Competency Matrix as required input), 1.3 <strong>Threat Model &amp; Stress Test</strong> (STRIDE, Penetration Tester persona), 1.4 Data Model, 1.4.5 Data Migration Plan (only if replacing an existing system), 1.5 UI &amp; UX Scaffolding (four required states — Empty / Loading / Error / Success), 1.6 The Project Bible (16 sections), 1.7 Data Classification &amp; ZDR Attestation.</li>
+        <li>Writes Architecture Decision Records (ADRs) from <code>templates/generated/adr.tmpl</code>, with <em>Options Evaluated</em> and <em>Rejected Alternatives</em> sections — why each big choice was made, and what was turned down.</li>
+        <li><strong>Configures</strong> branch protection against the real git-host API (GitHub / GitLab / Bitbucket) via <code>scripts/lib/host.sh</code> — <code>host_configure_protection</code>, called from <code>init.sh</code> and <code>scripts/check-gate.sh</code>. The phase gate later calls only <code>host_verify_protection</code>; it verifies, it does not configure. Free-tier limitations use an attestation escape hatch (<code>github_free_tier</code>, <code>gitlab_free_tier_approvals</code>).</li>
+        <li>Produces the test strategy in Bible § 12, with entry/exit criteria for Phase 3 and per-category pass/fail bars.</li>
       </ul>
     </div>
   </div>
@@ -686,10 +1061,10 @@
       <h3>What the framework checks</h3>
       <ul>
         <li>Dated "Phase 1 → Phase 2" entry in <code>APPROVAL_LOG.md</code>; organizational adds a per-line git-blame check on the STA row.</li>
-        <li><code>PROJECT_BIBLE.md</code> exists with ≥14 numbered sections and no YYYY-MM-DD placeholder dates remaining.</li>
-        <li><strong>Mandatory ZDR gate (Invariant #16)</strong>: <code>phase1_artifacts.data_classification</code> must be one of <em>public / internal / confidential / pii / financial / health / regulated</em>. Anything above <em>public</em> requires <code>zdr_attested=true</code> OR a written <code>zdr_attestation_reason</code>. FAIL otherwise.</li>
-        <li><strong>Branch protection backstop</strong>: real API call verifies force-push disabled + (org) 1+ PR approver + CI status checks. Free-tier attestation limits are accepted only if recorded in <code>process-state.json</code>.</li>
-        <li>Personal → organizational upgrades: recurring WARN until the <em>Retroactive Phase 1 → 2 STA Approval</em> row is filled.</li>
+        <li><code>PROJECT_BIBLE.md</code> exists with <strong>≥ 14</strong> numbered sections (the template ships 16) and no <code>YYYY-MM-DD</code> placeholder dates remaining. Both arms print <code>[WARN]</code> and both <strong>block</strong>.</li>
+        <li><strong>Mandatory ZDR gate (Invariant #16)</strong>: <code>.claude/process-state.json::phase1_artifacts.data_classification</code> must be one of <em>public / internal / confidential / pii / financial / health / regulated</em>. Anything above <em>public</em> requires <code>zdr_attested=true</code> OR a written <code>zdr_attestation_reason</code>. FAIL otherwise, and it fails <em>closed</em> — no jq or no state file resolves to unset, which is also a FAIL.</li>
+        <li><strong>Branch protection backstop</strong>: a real API call verifies <strong>four</strong> things — force-push disabled, admin enforcement on, and (org) at least one required PR approver plus non-empty required status checks. Free-tier attestation limits are accepted only if recorded in <code>.claude/process-state.json</code> under <code>phase2_init.attestations.branch_protection.reason</code>. <em>Carve-out worth knowing:</em> in CI with no host token exported, the check reports "could not run" and does <strong>not</strong> block; run locally it blocks.</li>
+        <li>Personal → organizational upgrades: a <strong>genuinely non-blocking</strong> recurring WARN until the <em>Retroactive Phase 1 → 2 STA Approval</em> row is filled — this arm deliberately omits the issue increment. It is one of the few WARNs on this page that really is only a nudge.</li>
       </ul>
     </div>
   </div>
@@ -718,12 +1093,13 @@
       <h3>What the framework does</h3>
       <ul>
         <li>Runs the <strong>Feature Build Loop</strong> for every feature (detailed diagram below).</li>
-        <li>Enforces the Build Loop checklist on <code>feat:</code> commits: <code>process-checklist.sh</code> requires the first five steps (tests_written → documentation_updated) done before allowing the commit. Non-<code>feat:</code> prefixes (<code>chore:</code>, <code>fix:</code>, <code>refactor:</code>, etc.) bypass this check — this is a scope-limited, not universal, gate. The TDD file-ordering check is <em>warning-only</em> (per <em>README §Enforcement</em>).</li>
-        <li>Runs gitleaks + Semgrep (staged-files) on every commit; blocks <code>--no-verify</code> and captures any that get through in <code>.claude/bypass-audit.json</code>.</li>
-        <li>Blocks <code>gh pr create</code> when UAT is in progress with &lt; 9 steps completed, or Build Loop steps 1–4 done but not step 5.</li>
-        <li>Test-gate reminds you when <code>features_since_last_test</code> reaches the interval; you invoke <code>scripts/test-gate.sh --check-batch</code> to trigger the UAT.</li>
+        <li>Enforces the Build Loop checklist on <code>feat:</code> commits: from Phase 2 onward, <code>process-checklist.sh</code> requires the first five of six steps (tests_written → documentation_updated) before allowing the commit. Other prefixes (<code>chore:</code>, <code>fix:</code>, <code>refactor:</code>) bypass <em>this</em> check — it is scope-limited, not universal. They do <strong>not</strong> bypass the TDD ordering gate, which fires on <code>feat</code>/<code>fix</code>/<code>refactor</code> alike.</li>
+        <li><strong>TDD ordering is tier-keyed, not warning-only.</strong> A commit that ships implementation with no accompanying test is a <strong>HARD BLOCK</strong> on organizational / Sponsored-POC projects and a logged warning on personal / Private-POC ones — keyed on <code>deployment</code> + <code>poc_mode</code>, never the spoofable <code>track</code>. The only escape is <code>SOLO_TDD_ATTESTED=1</code> with a reason, recorded to <code>process-state.json::tdd_attestations[]</code>; if that record cannot be written the commit is still refused.</li>
+        <li>Runs gitleaks + Semgrep (staged files) on every commit — both live in the generated <code>.git/hooks/pre-commit</code>, and both block on a hit. Agent-issued <code>--no-verify</code> is denied outright, and commits that get through out-of-band are captured by the SessionStart detector in <code>.claude/bypass-audit.json</code>.</li>
+        <li>Blocks <code>gh pr create</code> when a UAT session is in progress with &lt; 9 of 9 steps completed, or when a Build Loop is active with 1–4 of its 5 required steps recorded.</li>
+        <li>Test-gate reminds you when <code>features_since_last_test</code> reaches the interval (default <strong>2</strong>, set with <code>--set-interval N</code>); you invoke <code>scripts/test-gate.sh --check-batch</code> to trigger the UAT.</li>
         <li>Blocks Phase 2 → 3 on any open SEV-1 OR any SEV-2 (open OR <em>deferred</em> — deferred SEV-2 must be resolved or the feature removed; no third option).</li>
-        <li>Organizational: biweekly <strong>Mid-Phase 2 Governance Checkpoint</strong> with the Senior Technical Authority (30-min status review, escalation on ADR-less architecture deviation, test pass &lt; 80%, unresolved security findings, AI quality degradation).</li>
+        <li>Organizational: biweekly <strong>Mid-Phase 2 Governance Checkpoint</strong> with the Senior Technical Authority — a 30-minute maximum status review of features delivered vs Bible scope, architectural deviations from the Phase 1 design, test-pass-rate trend, unresolved security findings, and the risk-register delta. <strong>The STA does not approve or block at this cadence</strong>; it is course-correction, not a gate. Escalation is a separate path with its own triggers (budget/timeline overrun &gt; 20%, cross-business-unit scope, a security finding beyond the Orchestrator's competency, a data-classification dispute, an unresolvable license concern).</li>
       </ul>
     </div>
   </div>
@@ -736,7 +1112,7 @@
       <ul>
         <li>Personal: self-review in <code>APPROVAL_LOG.md</code>.</li>
         <li>Organizational: <strong>Senior Technical Authority</strong> signs.</li>
-        <li>Reconcile <code>FEATURES.md</code> vs the Manifesto MVP Cutline — any additions require documented orchestrator approval.</li>
+        <li>Reconcile scope against the Manifesto MVP Cutline. The mechanical check compares the Manifesto's <em>Must-Have</em> bullet count against <code>.claude/build-progress.json::features_completed</code> and flags a mismatch in either direction. The "additions require documented orchestrator approval" rule is <strong>prose guidance — nothing verifies an approval record.</strong></li>
       </ul>
     </div>
     <div class="connector-side to-center"><div class="line"></div></div>
@@ -752,8 +1128,9 @@
       <h3>What the framework checks</h3>
       <ul>
         <li>Dated "Phase 2 → Phase 3" entry in <code>APPROVAL_LOG.md</code>.</li>
-        <li><code>FEATURES.md</code> and <code>CHANGELOG.md</code> exist and are non-empty.</li>
-        <li>Bug gate via <code>test-gate.sh --check-phase-gate</code>: SEV-1 open &gt; 0 → BLOCKED; SEV-2 open &gt; 0 → BLOCKED; SEV-2 Deferred &gt; 0 → BLOCKED (must resolve or remove feature); SEV-3 open → WARN.</li>
+        <li><code>FEATURES.md</code> and <code>CHANGELOG.md</code> <strong>exist</strong> — the gate tests presence only, not content. (A separate advisory in <code>test-gate.sh</code> notices an empty <code>FEATURES.md</code>; <code>CHANGELOG.md</code> is never checked for content by any gate.) Both arms print <code>[WARN]</code> and both block.</li>
+        <li>Bug gate via <code>test-gate.sh --check-phase-gate</code>: SEV-1 open &gt; 0 → BLOCKED; SEV-2 open &gt; 0 → BLOCKED; SEV-2 Deferred &gt; 0 → BLOCKED (must resolve or remove the feature). <strong>SEV-3 open prints WARN and blocks too</strong> — it makes <code>test-gate.sh</code> exit 2, and the caller increments its issue counter on exit 2. So does "no bug tracking source found."</li>
+        <li class="cite"><strong>Read the increment, not the label.</strong> In <code>check-phase-gate.sh</code> the <code>[WARN]</code>/<code>[FAIL]</code> text is cosmetic — the exit predicate is <em>zero issues</em>. Nearly every WARN on this page increments and therefore blocks; the exceptions are called out individually.</li>
       </ul>
     </div>
   </div>
@@ -765,9 +1142,9 @@
       <h3>What you do</h3>
       <ul>
         <li>Walk the mechanically-enforced 9-step Phase 3 checklist (<code>process-checklist.sh --start-phase3</code>): integration testing, security hardening, chaos testing, accessibility audit, performance audit, contract testing, results archived, pre-launch preparation, legal review.</li>
-        <li>Run <code>evaluation-prompts/Projects/run-reviews.sh &lt;module&gt;</code> to produce the six adversarial reviewer reports (Standard: recommended; <strong>Full: Security + Red Team REQUIRED</strong>). Address all Critical / High findings.</li>
+        <li>Run <code>evaluation-prompts/Projects/run-reviews.sh &lt;module&gt;</code> to produce the six adversarial reviewer reports. <strong>Security + Red Team are REQUIRED on Standard <em>and</em> Full</strong> — a missing one is a hard FAIL at the Phase 3 → 4 gate; Full additionally requires all six. Light is warn-only, with the bypass logged. Address all Critical / High findings.</li>
         <li>Personal: self-review recorded. <strong>Organizational: gather written sign-offs from both Application Owner AND IT Security</strong> — see the Gate 3 → 4 row below.</li>
-        <li>Security-domain "No" or "Partially" on the Competency Matrix → <strong>mandatory Security Peer Review</strong> before go-live, regardless of track (<em>governance-framework.md §V.C</em>).</li>
+        <li>Security-domain "No" or "Partially" on the Competency Matrix → <strong>mandatory Security Peer Review</strong> at Phase 3 before go-live, regardless of track (<em>governance-framework.md § V › "Security Peer Review (Competency-Gated)"</em>).</li>
       </ul>
     </div>
     <div class="connector-side to-center"><div class="line"></div></div>
@@ -776,21 +1153,21 @@
       <h2>Phase 3 · Validation &amp; Security</h2>
       <p class="tagline">Nine substeps + adversarial reviews + track-specific pen test + attorney legal review.
         Exit rule: <strong>zero Critical or High-severity findings</strong>.</p>
-      <div class="outputs">Produces: <code>docs/test-results/</code> archive, sbom.json, HANDOFF.md, INCIDENT_RESPONSE.md, SECURITY.md, review manifest, penetration test report (Std+).</div>
+      <div class="outputs">Produces: <code>docs/test-results/</code> archive, <code>sbom.json</code>, <code>HANDOFF.md</code>, <code>docs/INCIDENT_RESPONSE.md</code>, <code>SECURITY.md</code>, <code>docs/eval-results/review-manifest.json</code>, penetration test report (Std+).</div>
     </div>
     <div class="connector-side from-center"><div class="line"></div></div>
     <div class="side right">
       <h3>What the framework does</h3>
       <ul>
         <li><strong>3.1 Integration Testing</strong> — Platform Module E2E suite over the full User Journey.</li>
-        <li><strong>3.2 Security Hardening</strong> — you run Semgrep (<code>--config=p/owasp-top-ten --config=p/security-audit</code>) + Snyk + gitleaks + license check + SBOM (CycloneDX/syft) + threat-model validation. Web: OWASP ZAP baseline (all tracks) / active (Full). Framework archives artifacts to <code>docs/test-results/[date]_[scan-type]_[pass|fail].[ext]</code>.</li>
-        <li><strong>3.3 Chaos &amp; Edge-Case Testing</strong> — input abuse defenses, error recovery, concurrency, global error boundaries.</li>
+        <li><strong>3.2 Security Hardening</strong> — Semgrep (<code>--config=p/owasp-top-ten --config=p/security-audit</code>) + Snyk + gitleaks + license check + SBOM (CycloneDX/syft) + threat-model validation. Web: OWASP ZAP baseline (all tracks) / active (Full). <strong>You (or the agent) archive the artifacts</strong> to <code>docs/test-results/[date]_[scan-type]_[pass|fail].[ext]</code> — that naming convention is the guide's, not an automatic writer's. The one script that writes results itself is <code>scripts/run-phase3-validation.sh</code>, into <code>docs/test-results/phase3</code>, and since BL-070 all five of its registered scanners really run.</li>
+        <li><strong>3.3 Chaos &amp; Edge-Case Testing</strong> — input abuse defenses, error recovery, concurrency protection, resource limits, global error boundaries.</li>
         <li><strong>3.4 UX &amp; Accessibility Audit</strong> — WCAG AA baseline; Lighthouse ≥ 90 for web; Full Track requires explicit screen-reader testing.</li>
         <li><strong>3.5 Performance Audit</strong> — latency vs data contract, memory stability, minimum-supported-hardware validation.</li>
-        <li><strong>3.5.5 Contract Testing</strong> (Std+ for APIs/IPC/file formats); <strong>3.5.7 Load/Stress Testing</strong> (Full).</li>
+        <li><strong>3.5.5 Contract Testing</strong> (Std+, for applications with interfaces other systems consume — APIs, IPC, file formats); <strong>3.5.7 Load/Stress Testing</strong> (<strong>Full only</strong>, if applicable — Standard does not require it).</li>
         <li><strong>3.5.9 Test Results Archive</strong> — <code>docs/test-results/</code> is referenced from the Phase 3 → 4 APPROVAL_LOG entry and folded into HANDOFF.md.</li>
         <li><strong>3.6 Pre-Launch Preparation</strong> (Std+) — Final UAT with formal acceptance sign-off (Sponsored POC / Production); <strong>MANDATORY attorney review of Privacy Policy AND Terms of Service</strong> recorded in APPROVAL_LOG (<em>builders-guide.md §Phase 3.6</em>); license audit passing; trademark search.</li>
-        <li>Six evaluation prompts are <em>operator-invoked</em> via <code>run-reviews.sh</code>; <code>check-phase-gate.sh</code> only WARNs (not FAILs) when <code>docs/eval-results/review-manifest.json</code> is missing. Personas: Senior Engineer (01), CIO (02), <strong>SVP IT Security</strong> (03), <strong>Corporate Legal</strong> (04), Technical User (05), Red Team (06).</li>
+        <li>Six evaluation prompts are <em>operator-invoked</em> via <code>run-reviews.sh</code>. Personas: Senior Engineer (01), CIO (02), <strong>SVP IT Security</strong> (03), <strong>Corporate Legal</strong> (04), Technical User (05), Red Team (06). <strong>A missing <code>docs/eval-results/review-manifest.json</code> BLOCKS the Phase 3 → 4 gate</strong> — under track-aware enforcement it prints FAIL, and even the plain "manifest not found" arm increments the issue counter. A manifest with zero completed reviews blocks too; only a <em>partial</em> manifest on a light or grandfathered track takes the truly non-blocking arm. <code>scripts/lint-review-manifest.sh</code> validates the file's <em>shape</em> only and says so — an absent manifest is a gate concern, not a schema concern.</li>
       </ul>
     </div>
   </div>
@@ -826,17 +1203,24 @@
     </div>
     <div class="connector-side from-center"><div class="line"></div></div>
     <div class="side right">
-      <h3>What the framework checks (check-phase-gate.sh:901–1056)</h3>
+      <h3>What the framework checks</h3>
+      <p class="cite" style="margin:0 0 8px">In <code>scripts/check-phase-gate.sh</code>: the region opened by
+      <code>#&nbsp;Phase&nbsp;3→4&nbsp;readiness&nbsp;region</code>, plus the functions
+      <code>validate_approval_section_dated</code>, <code>_cpg_gate_has_evidence</code> and
+      <code>create_gate_snapshot</code>, and the marker families
+      <code>#&nbsp;BL-073-ESCALATE</code>, <code>#&nbsp;BL-104-MANIFEST-ARM</code>,
+      <code>#&nbsp;BL-070-GATE-CHECK</code> and <code>#&nbsp;BL-115-DATE-CELL</code>.</p>
       <ul>
-        <li>Dated "Phase 3 → Phase 4" entry within 15 lines of the header.</li>
-        <li>Organizational: BOTH Application Owner AND IT Security Date rows populated — either missing → FAIL.</li>
-        <li>Required artifacts: <code>HANDOFF.md</code>, <code>docs/INCIDENT_RESPONSE.md</code>, <code>sbom.json</code>, non-empty <code>docs/test-results/</code> (empty → FAIL), <code>SECURITY.md</code> (missing → WARN), <code>docs/eval-results/review-manifest.json</code>.</li>
-        <li><strong>Penetration test</strong>: Standard track requires <code>*pen-test*|*pentest*|*penetration*</code> files in <code>docs/test-results/</code> or an <em>IT Security exemption</em> recorded in <code>APPROVAL_LOG.md</code>. <strong>Full track has NO exemption path</strong>.</li>
-        <li><strong>POC hard-block</strong>: if <code>poc_mode</code> is set in <code>phase-state.json</code>, Phase 4 is BLOCKED with <code>::error::</code>. Points at <code>scripts/upgrade-project.sh --to-production</code>, which verifies each of the six deferred Pre-Phase 0 rows (or requires <code>--ack-preconditions=&lt;N1,N2,…&gt;</code>, recorded in <code>.claude/bypass-audit.json</code>).</li>
-        <li>Release pipeline TODO check: <code>.github/workflows/release.yml</code> unconfigured TODOs → WARN.</li>
-        <li>Bug gate (via <code>test-gate.sh --check-phase-gate</code>) must pass.</li>
-        <li>On PASS: point-in-time snapshot copied to <code>docs/snapshots/phase-3-to-4_YYYY-MM-DD/</code> containing gate-checked artifacts plus PRODUCT_MANIFESTO / PROJECT_BIBLE / FEATURES / CHANGELOG / BUGS / USER_GUIDE / RELEASE_NOTES / APPROVAL_LOG / HANDOFF / INCIDENT_RESPONSE / sbom (see <em>builders-guide.md §Phase 3 → 4 Snapshot Mechanism</em>).</li>
-        <li>Every enforcement decision (proposal, block, pass, out-of-band commit, escalation) is appended to <code>.claude/bypass-audit.json</code> — the durable audit ledger.</li>
+        <li>Dated "Phase 3 → Phase 4" entry — the date must sit in a <code>| Date |</code> <strong>row</strong> within the first 15 lines of that section, not merely somewhere nearby.</li>
+        <li>Organizational: BOTH Application Owner AND IT Security Date rows populated. A template's placeholder <code>[Date]</code> or <code>YYYY-MM-DD</code> does not count. Either missing → the gate fails (printed as <code>[WARN]</code>, but it increments).</li>
+        <li>Required artifacts — <strong>every one of these blocks</strong>, whatever label it prints: <code>HANDOFF.md</code>, <code>docs/INCIDENT_RESPONSE.md</code>, <code>sbom.json</code>, non-empty <code>docs/test-results/</code>, <code>SECURITY.md</code>, and <code>docs/eval-results/review-manifest.json</code>. <strong><code>SECURITY.md</code> is <em>not</em> advisory</strong> — the "WARN if missing" wording in the Builder's Guide is cosmetically true and materially false.</li>
+        <li>Phase 3 checklist cross-check: the gate blocks at 0/9 steps <em>and</em> at 1–8/9.</li>
+        <li><strong>Penetration test</strong>: Standard track requires <code>*pen-test*</code> / <code>*pentest*</code> / <code>*penetration*</code> files in <code>docs/test-results/</code>, or an exemption recorded in <code>APPROVAL_LOG.md</code> — note the exemption grep does not verify it came from IT Security. <strong>Full track has NO exemption path</strong>. On Standard, having neither also blocks.</li>
+        <li><strong>POC hard-block</strong>: if <code>poc_mode</code> is set in <code>.claude/phase-state.json</code>, Phase 4 is BLOCKED with <code>::error::</code>. Points at <code>scripts/upgrade-project.sh --to-production</code>, which walks the six numbered Pre-Phase 0 rows (or requires <code>--ack-preconditions=&lt;N1,N2,…&gt;</code> — the value form is mandatory — recorded in <code>.claude/bypass-audit.json</code>).</li>
+        <li>Release pipeline TODO check: unconfigured TODOs in the release workflow <strong>block</strong>. Note the path is hardcoded to <code>.github/workflows/release.yml</code>, so on GitLab and Bitbucket projects — where init writes <code>.gitlab-ci/release.yml</code> and <code>bitbucket-pipelines/release.yml</code> — this check silently never fires.</li>
+        <li>Bug gate (via <code>test-gate.sh --check-phase-gate</code>) must pass. Its <em>warning</em> exit code blocks here as well as its failure code.</li>
+        <li>On PASS <em>only</em>, and only if no such directory exists yet: a snapshot at <code>docs/snapshots/phase-3-to-4_YYYY-MM-DD/</code> containing PRODUCT_MANIFESTO / PROJECT_BIBLE / FEATURES / CHANGELOG / BUGS / USER_GUIDE / HANDOFF / RELEASE_NOTES / APPROVAL_LOG / sbom.json, plus <code>docs/INCIDENT_RESPONSE.md</code> and a <code>test-results-listing.txt</code> (a listing, not the files). See <em>builders-guide.md § Phase 3 → Phase 4 Gate › "Gate-Checked vs. Snapshot-Only Artifacts"</em>.</li>
+        <li>Enforcement decisions are appended to <code>.claude/bypass-audit.json</code> — the durable audit ledger. <strong>Routine clean passes are no longer among them</strong>: a clean terminal commit writes an untracked <code>.claude/last-gate-pass.txt</code> receipt instead, and the ledger's <code>terminal_commit_passed</code> type survives as schema-valid legacy.</li>
       </ul>
     </div>
   </div>
@@ -849,29 +1233,30 @@
       <ul>
         <li><strong>POC → Production upgrade first</strong>: Phase 4 is <em>hard-blocked</em> for <code>poc_mode</code> projects at BOTH <code>check-phase-gate.sh</code> AND <code>process-checklist.sh --start-phase4</code>. Run <code>scripts/upgrade-project.sh --to-production</code> BEFORE Phase 4 can start.</li>
         <li>Walk the 6-step Phase 4 checklist: production build, rollback tested, go-live verified, monitoring configured, handoff written, handoff tested.</li>
-        <li>Kick off the release (signing keys, store credentials, deploy) using your chosen strategy: cut-over (Light), blue/green (Std+ web), rolling/canary (Std+ >1000 users), feature flags (any track, high-risk).</li>
+        <li>Kick off the release (signing keys, store credentials, deploy) using your chosen strategy: cut-over (Light, internal tools), blue/green (Std+ web), rolling/canary (Std+ with &gt;1,000 users — route 5–10% of traffic first), feature flags (high-risk features on any track).</li>
         <li>Update <code>RELEASE_NOTES.md</code> and hand off to users.</li>
-        <li><strong>Organizational</strong>: file the ITSM deployment change ticket (ID recorded in the APPROVAL_LOG Phase 4 Completion row); the <strong>backup maintainer validates <code>HANDOFF.md</code></strong> — must be able to build, test, deploy, and run scans from the doc alone.</li>
+        <li><strong>Organizational</strong>: file the ITSM deployment change ticket (ID recorded in the APPROVAL_LOG Phase 4 Completion row); the <strong>backup maintainer validates <code>HANDOFF.md</code></strong> — two tasks, from that document alone: set up a development environment from zero, and triage a simulated production issue.</li>
       </ul>
     </div>
     <div class="connector-side to-center"><div class="line"></div></div>
     <div class="step phase4">
       <div class="num">8</div>
       <h2>Phase 4 · Release &amp; Maintenance</h2>
-      <p class="tagline">Ship the MVP with a tested rollback and verified monitoring. Then maintain on a four-cadence schedule.</p>
-      <div class="outputs">Produces: signed release, CHANGELOG.md, RELEASE_NOTES.md, <code>HANDOFF.md</code>, <code>docs/INCIDENT_RESPONSE.md</code> (SEV-1..SEV-4 severity matrix + notification chains), monitoring configuration, Phase 4 Completion row in APPROVAL_LOG.md.</div>
+      <p class="tagline">Ship the MVP with a tested rollback and verified monitoring. Then maintain on a two-cadence schedule — and everything after this arrives through the <a href="#delta-track">Delta Track</a>.</p>
+      <div class="outputs">Produces: the release (signed where the platform requires it — desktop and mobile release pipelines sign; the web ones do not), RELEASE_NOTES.md, <code>HANDOFF.md</code>, <code>docs/INCIDENT_RESPONSE.md</code> (SEV-1..SEV-4 severity matrix + notification chains), monitoring configuration, Phase 4 Completion row in APPROVAL_LOG.md. <code>CHANGELOG.md</code> is not new here — it is a Phase 2+ artifact this step updates.</div>
     </div>
     <div class="connector-side from-center"><div class="line"></div></div>
     <div class="side right">
       <h3>What the framework does</h3>
       <ul>
-        <li>Runs the release pipeline (<code>.github/workflows/release.yml</code>) for your platform: build, sign, package, distribute.</li>
+        <li>Runs the release pipeline for your platform — build, package, distribute, and sign on desktop/mobile. The path is host-conditional: <code>.github/workflows/release.yml</code> on GitHub, <code>.gitlab-ci/release.yml</code> on GitLab, <code>bitbucket-pipelines/release.yml</code> on Bitbucket.</li>
         <li><strong>MANDATORY rollback test</strong> BEFORE go-live (Step 4.1.5): deploy candidate → execute documented rollback → verify data integrity + revert. <em>"A rollback procedure that has never been tested is not a rollback procedure — it is a hope."</em></li>
         <li><strong>MANDATORY monitoring verification</strong> (Step 4.3): trigger a test error, confirm the alert was received. <em>"Configured is not verified."</em></li>
         <li><strong>PLATFORM MODULE MANDATORY go-live checklist</strong> (Step 4.2): SSL/security headers (web), code signing/auto-updater (desktop), app-store metadata &amp; certificates (mobile). Failure may result in deployment rejection.</li>
         <li>Updates CHANGELOG + RELEASE_NOTES with what shipped.</li>
-        <li>Turns on the maintenance cadence — actual cadences are <strong>monthly (CHANGELOG + SBOM, 35d), quarterly (dependency audit, 95d), biannually (full Phase 3 security+perf re-run + AI provider terms re-verification, 185d)</strong>. Verified on demand by <code>scripts/check-maintenance.sh</code>.</li>
-        <li>Records the release + all post-launch changes in the APPROVAL_LOG "Approval History" table; the point-in-time <code>docs/snapshots/phase-3-to-4_YYYY-MM-DD/</code> stays immutable.</li>
+        <li>Turns on the maintenance cadence. There are <strong>two</strong>, not four: a <strong>routine review every 14 days</strong> (signal: the last commit touching <code>CHANGELOG.md</code>, and the last touching <code>sbom.json</code>) and a <strong>deep security scan every 95 days</strong> with the dependency audit folded into it (signal: the newest dated scan artefact in <code>docs/test-results/</code>). Both windows are <strong>project-owned policy, not constants</strong>, read through the delta-policy seam. Measured on demand by <code>scripts/check-maintenance.sh</code>, nagged at session start by <code>scripts/session-cadence-check.sh</code>, and enforced at the tag by <code>scripts/cut-release.sh</code>. <span class="cite">The separate 95-day dependency row and 185-day biannual row were merged into one 95-day cadence, and 185→95 and 35→14 were deliberate tightenings — see the <a href="#delta-track">Delta Track</a>.</span></li>
+        <li>Records the release + all post-launch changes in the APPROVAL_LOG "Approval History" table; the point-in-time <code>docs/snapshots/phase-3-to-4_YYYY-MM-DD/</code> stays immutable — the writer returns early rather than overwrite an existing snapshot.</li>
+        <li><strong>The journey does not end here.</strong> Every change after the v1.0.0 tag goes through the <a href="#delta-track">Delta Track</a> below. Note that nothing in the enforcement path points you there: <code>check-phase-gate.sh</code> knows nothing about deltas, and neither <code>process-checklist.sh</code>'s completion message nor <code>resume.sh</code>'s phase-4 greeting names <code>scripts/delta.sh</code>. Your project's <code>CLAUDE.md</code> and the Builder's Guide § Step 4.6 are where that pointer lives.</li>
       </ul>
     </div>
   </div>
@@ -893,9 +1278,9 @@
 
   <div class="loop-grid">
     <div class="loop-step">
-      <div class="idx">STEP 1</div>
+      <div class="idx">STEP 1 · convention</div>
       <h4>Context7 Docs Review</h4>
-      <p>AI queries Context7 for <em>current</em> documentation on any libraries in play. Prevents "I remember the API from training data" errors on stale libraries.</p>
+      <p>AI queries Context7 for <em>current</em> documentation on any libraries in play, preventing "I remember the API from training data" errors. <strong>This is a convention, not a Build Loop step</strong> — the Builder's Guide's loop opens at "write the test first". What is real is a <em>non-blocking</em> commit-time reminder: a usage tracker counts commits since the last Context7 call and the gate appends a warning, never a block.</p>
     </div>
     <div class="loop-step">
       <div class="idx">STEP 2</div>
@@ -914,13 +1299,13 @@
     </div>
     <div class="loop-step">
       <div class="idx">STEP 5</div>
-      <h4>Pre-commit Gate</h4>
-      <p>Automatic hooks run: gitleaks (blocks on hit), Semgrep on staged files (blocks on hit), framework-hygiene lints, TDD file-ordering check (warning-only, per README §Enforcement).</p>
+      <h4>Commit-Time Gates</h4>
+      <p>The generated <code>pre-commit</code> hook runs gitleaks (blocks on hit) and Semgrep on staged files (blocks on hit). The <strong>TDD file-ordering check runs in the <code>commit-msg</code> hook</strong>, not pre-commit — git only writes the message file after pre-commit has run — and it is <strong>tier-keyed: a hard block on organizational / Sponsored-POC projects, a logged warning on personal / Private-POC ones.</strong> Not warning-only.</p>
     </div>
     <div class="loop-step">
       <div class="idx">STEP 6</div>
       <h4>Security Audit</h4>
-      <p>Senior Security Engineer persona reviews the change: injection, authz, secrets, data isolation, N+1, structured logging. Findings marked in <code>process-state.json.build_loop.steps_completed[security_audit]</code>.</p>
+      <p>Senior Security Engineer persona reviews the change: injection, authz, secrets, data isolation, N+1, structured logging. <strong>Findings live in <code>docs/security-audits/&lt;feature-slug&gt;-security-audit.md</code></strong>, and the gate parses that file's verdict line — an audit reading "CRITICAL — VULNERABLE" does not pass. <code>process-state.json</code>'s <code>build_loop.steps_completed</code> is a plain array of step names; it records only that the step happened.</p>
     </div>
     <div class="loop-step">
       <div class="idx">STEP 7</div>
@@ -930,12 +1315,12 @@
     <div class="loop-step">
       <div class="idx">STEP 8</div>
       <h4>Iterate If Needed</h4>
-      <p>If steps 5–7 raised issues: back to Step 3 to fix, then re-run 4–7. Loop continues until reviews are clean. (Refactor, Red Team, and Iterate are AI conventions — not framework-enforced Build Loop steps.)</p>
+      <p>If steps 5–7 raised issues: back to Step 3 to fix, then re-run 4–7. Loop continues until reviews are clean. (Context7, Refactor, Red Team and Iterate are AI conventions — not framework-enforced Build Loop steps. Red Team <em>is</em> enforced, but at the Phase 3 → 4 gate, not per feature.)</p>
     </div>
     <div class="loop-step">
       <div class="idx">STEP 9</div>
       <h4>Feature Recorded</h4>
-      <p>Feature is added to <code>FEATURES.md</code>; build progress is recorded in <code>build-progress.json</code>; <code>test-gate.sh --record-feature</code> bumps the UAT counter. Marked complete in <code>process-state.json</code>.</p>
+      <p>Feature is added to <code>FEATURES.md</code>; build progress is recorded in <code>.claude/build-progress.json</code>; <code>test-gate.sh --record-feature</code> appends the feature and bumps the UAT counter. Marked complete in <code>process-state.json</code>.</p>
     </div>
   </div>
 
@@ -943,9 +1328,11 @@
     <strong>Enforced vs documented:</strong> <code>process-checklist.sh</code> mechanically enforces
     <em>six</em> Build Loop steps: <code>tests_written → tests_verified_failing → implemented →
     security_audit → documentation_updated → feature_recorded</code>. The Context7 lookup, Refactor,
-    Red Team Review, and Iterate steps above are AI conventions the Builder's Guide describes but
-    that are not gate-blocking on their own. The <code>feat:</code>-commit gate blocks a commit until the
-    first five enforced steps are complete; non-<code>feat:</code> prefixes bypass this check.
+    Red Team Review and Iterate steps above are AI conventions, not gate-blocking on their own. From
+    Phase 2 onward the <code>feat:</code>-commit gate blocks a commit until the <strong>first five</strong>
+    of those six are complete (<code>feature_recorded</code> is explicitly not required at commit time);
+    other prefixes bypass <em>this</em> check. They do not bypass the TDD ordering gate, which fires on
+    <code>feat</code>, <code>fix</code> and <code>refactor</code> alike.
   </div>
 
   <div class="loop-note">
@@ -956,6 +1343,322 @@
     a disposition (Fix Now / Defer / Won't Fix / Post-MVP). Fix-Now bugs re-enter the Build Loop.
     The framework will refuse to advance Phase 2 → 3 while any SEV-1 is open OR any SEV-2 is open
     OR deferred (SEV-2 must be resolved or the feature removed; no third option).
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!--            POST-MVP: THE DELTA TRACK (after v1.0)            -->
+<!-- ============================================================ -->
+
+<section class="module delta" id="delta-track">
+  <h2>After v1.0: the Delta Track</h2>
+  <p class="intro">
+    Phases 0 through 4 take a product from an idea to a tagged v1.0.0. Then the map ends and the product
+    starts living: users ask for things, bugs arrive from real usage, a dependency advisory lands at three in
+    the morning. <strong>The delta track is the loop for that.</strong> One unit of post-1.0 change is a
+    <em>delta</em>. You say what you need in plain words, answer one question about what kind of change it is,
+    and the track works out how much ceremony it owes, what has to be true before it can close, and what
+    version it ships in.
+  </p>
+  <p class="cite">
+    <code>scripts/delta.sh</code>, <code>scripts/cut-release.sh</code>,
+    <code>scripts/check-maintenance.sh</code>, <code>scripts/session-cadence-check.sh</code> and the four
+    <code>scripts/lib/delta-*.sh</code> libraries are installed into your generated project by
+    <code>init.sh</code> — run them from there. The two that write refuse outright if you run them inside the
+    framework clone, including for <code>--help</code>. See <em>docs/delta-track.md</em>.
+  </p>
+
+  <h3>The track cannot start early</h3>
+  <div class="mod-grid">
+    <div class="mod-card">
+      <h4>Phase 4 completion is the entry condition</h4>
+      <p>A delta can only be opened when <code>.claude/phase-state.json</code> says
+      <code>current_phase</code> is <strong>exactly 4</strong>. The invariant is
+      <em>a delta is open ⇒ the project is at phase 4</em>, and <code>scripts/delta.sh --open</code> is its
+      load-bearing enforcement point. Refusal is <strong>exit 3</strong>:
+      <em>"This project is not finished yet, so there is nothing to maintain."</em></p>
+      <p class="cite">Marker <code>#&nbsp;DELTA-OPEN-ERA-GUARD</code>. Equality, not <code>&gt;=</code>.</p>
+    </div>
+    <div class="mod-card">
+      <h4>Why the gate exists</h4>
+      <p>Post-release maintenance ceremony is <em>cheaper</em> than building the product properly. Without
+      this refusal, a project that found Phase 1 hard could discover that opening "deltas" is an easier way to
+      write code — and the cheaper path always wins. The delta track is a loop <em>inside</em> phase 4, not a
+      sixth phase, and <code>current_phase</code> never moves again.</p>
+      <p><code>--status</code> works at any phase and simply tells you where you are.</p>
+    </div>
+  </div>
+
+  <h3>One question, four classes</h3>
+  <div class="table-scroll">
+    <table class="mod-table">
+      <thead>
+        <tr><th>Class</th><th>Your situation</th><th>What it buys you</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>feature</strong></td>
+          <td>"I want the product to do something new"</td>
+          <td>Full ceremony — a brief, an adversarial review of that brief <em>before</em> you build, the
+          Build Loop, a close review, a changelog entry</td>
+        </tr>
+        <tr>
+          <td><strong>fix</strong></td>
+          <td>"Something is broken; it can wait for the normal loop"</td>
+          <td>A reproduction test written RED first, a lighter close</td>
+        </tr>
+        <tr>
+          <td><strong>hotfix</strong></td>
+          <td>"Something is broken <strong>now</strong>, in production"</td>
+          <td>Speed — the standing safety checks and nothing heavier — paid for with a write-up that blocks
+          the next release until it is filed</td>
+        </tr>
+        <tr>
+          <td><strong>security-patch</strong></td>
+          <td>"Someone could exploit this"</td>
+          <td>Fix ceremony plus a forced dependency scan, an SBOM refresh, and a flagged release note</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="cite">Two attribute toggles add gates on top of the class list: <code>risk: core</code> adds
+  <code>brief_review</code>, and <code>level: evolution</code> adds <code>brief</code>. A third fires when the
+  touched-file set hits a configured risk surface. All of it is retunable in
+  <code>.claude/delta-policy.json</code>, which ships with <code>risk_surfaces</code>
+  <strong>empty</strong> — until you fill it in, every delta reads <code>feature-local</code>, and the tool
+  says so on every open rather than hiding it.</p>
+
+  <div class="mod-grid">
+    <div class="mod-card">
+      <h4>Confirm, don't quiz</h4>
+      <p>You answer <strong>one</strong> thing. Class, severity, risk and level are each <em>proposed</em>
+      with their reasoning and their provenance shown — a proposal whose provenance is hidden is a quiz with
+      extra steps. Non-interactively, <code>--confirm</code> accepts the four lines as they stand; with no
+      terminal and no <code>--confirm</code> the run refuses rather than guessing.</p>
+      <p><strong>The class proposal is a wording heuristic and it is wrong sometimes</strong> — read the four
+      lines before you confirm them, and override with <code>--class</code>, <code>--risk</code>,
+      <code>--level</code> or <code>--severity</code>. Raising an attribute is free; lowering one records a
+      reason.</p>
+    </div>
+    <div class="mod-card">
+      <h4>One delta at a time — structurally</h4>
+      <p>The state file holds a single <code>active_delta</code> slot rather than an array, so "one at a time"
+      is a property of the schema and not a rule someone has to remember. A second open is refused by name,
+      exit 4.</p>
+    </div>
+    <div class="mod-card">
+      <h4>Most gates are your word; two are checked</h4>
+      <p><code>--complete-gate &lt;name&gt;</code> records a gate and says so plainly: <em>"This is your word
+      for it — the record now says you did it, and nothing here re-checks it."</em> The two the tool checks
+      for itself are the tick-boxes in your brief and how big the change actually turned out to be, both at
+      close.</p>
+    </div>
+  </div>
+
+  <h3>The brief — and the one section a program reads</h3>
+  <div class="mod-grid">
+    <div class="mod-card">
+      <h4><code>## Done-observable</code> <em>is</em> the close review</h4>
+      <p>A brief has five sections — What, Why, Done-observable, Must-not-change, Touched surfaces. Four are
+      for humans. <strong>Done-observable is parsed, and it is the whole review at the end.</strong> You write
+      it at the start, <em>before</em> you are invested in how you built the thing.</p>
+      <p>Criteria are list items with a bracketed single character. <code>- [x]</code> is done;
+      <strong>anything else between the brackets counts as not done</strong> and is named in the refusal — an
+      undefined marker is a criterion nobody has decided about.</p>
+    </div>
+    <div class="mod-card">
+      <h4>It fails closed</h4>
+      <p>No brief file, two files claiming the same id, no Done-observable heading, or a heading with no
+      checkboxes under it are each a <strong>refusal to close</strong> (exit 8). An empty rubric would let the
+      work close on nothing at all. Two Done-observable headings are both read and their criteria pooled —
+      there is no "first one wins".</p>
+    </div>
+  </div>
+
+  <h3>The close-time ratchet</h3>
+  <div class="mod-grid">
+    <div class="mod-card">
+      <h4>Re-measured from what you actually changed</h4>
+      <p>At open the diff is usually empty, so risk and level are forecasts. At close they are re-derived from
+      the real diff. A re-derivation that lands in a higher bracket <strong>raises</strong> the attribute, and
+      the raise is announced, not silent: <em>"It only ever goes up — a smaller change later never talks it
+      back down."</em></p>
+      <p>A raise that crosses a toggle <strong>gains a gate</strong>, and the close refuses on it
+      (<strong>exit 10</strong>). Without the ratchet, a delta opened small and grown into an auth rewrite
+      would close on the small checklist.</p>
+    </div>
+    <div class="mod-card">
+      <h4>Two honest limits</h4>
+      <p><code>level</code> is lines changed, and lines are a poor proxy — a 12-line auth change is riskier
+      than a 900-line locale file. That is exactly why <code>risk</code> is a separate axis derived from
+      <em>paths</em>, and why you can raise either freely.</p>
+      <p>And <code>risk</code> is only as good as <code>risk_surfaces</code>, which ships empty. A
+      framework-guessed default would be wrong for most projects and, worse, would look authoritative.</p>
+    </div>
+  </div>
+
+  <h3>The hotfix lane and its debt</h3>
+  <div class="mod-grid">
+    <div class="mod-card">
+      <h4>It defers the review; it does not skip it</h4>
+      <p>A hotfix ships on the standing floor plus an audit row. That borrows the checking a normal change
+      goes through, and the loan is collateralised: <strong>the retro row is written at OPEN, not at
+      close</strong>, with a due date (default 3 days), and it <strong>outlives the delta</strong>. Close the
+      hotfix and the row is still there.</p>
+      <p>A hotfix carries no separate <code>close_review</code> because the retro <em>is</em> that review,
+      arriving late — giving it both would let a hotfix satisfy the review at ship time and make the retro
+      optional, which is the loan going unrepaid.</p>
+    </div>
+    <div class="mod-card">
+      <h4>An open retro blocks the next release</h4>
+      <p><code>cut-release.sh</code> refuses with <strong>exit 4</strong> while any hotfix still owes its
+      write-up, naming each one and its due date. File it with
+      <code>scripts/delta.sh --retro DELTA-NNN --record "…"</code>, taking either a path to a file you wrote
+      or the short version in quotes. The write-up is write-once.</p>
+      <p><strong>The honest limit:</strong> the release refusal is the only thing that ever collects. A
+      project that simply stops cutting releases leaves the debt uncollected, with the session-start nag as
+      the only other pressure. That is a real limit of the mechanism, not a gap in it.</p>
+    </div>
+  </div>
+
+  <h3>The maintenance cadence — two clocks, both policy</h3>
+  <div class="table-scroll">
+    <table class="mod-table">
+      <thead>
+        <tr><th>Cadence</th><th>Signal it reads</th><th>Default window</th><th>Policy key</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Routine review</strong></td>
+          <td>last commit touching <code>CHANGELOG.md</code>, and last touching <code>sbom.json</code></td>
+          <td><strong>14 days</strong></td>
+          <td><code>cadence.routine_review_days</code></td>
+        </tr>
+        <tr>
+          <td><strong>Deep security scan</strong><br><em>(dependency audit folded in)</em></td>
+          <td>newest dated file in <code>docs/test-results/</code> matching <code>*snyk*</code>,
+          <code>*dep*</code>, <code>*audit*</code>, <code>*semgrep*</code> or <code>*sast*</code></td>
+          <td><strong>95 days</strong></td>
+          <td><code>cadence.deep_security_days</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="cite">Markers <code>#&nbsp;CADENCE-DEFAULT-ROUTINE</code> and
+  <code>#&nbsp;CADENCE-DEFAULT-DEEP</code>; both are read through the delta-policy seam
+  (<code>#&nbsp;CADENCE-POLICY-READ</code>), so they are <strong>project-owned policy, not constants</strong>.
+  The previously separate 95-day dependency row and 185-day biannual row are now <strong>one</strong> cadence
+  at 95, and both windows were deliberately tightened (185→95 and 35→14).</p>
+
+  <div class="mod-grid">
+    <div class="mod-card">
+      <h4>Three answers, and the third is the point</h4>
+      <p><code>scripts/check-maintenance.sh</code> exits <strong>0</strong> (every applicable cadence measured
+      and current), <strong>1</strong> (one or more <em>overdue</em>), or <strong>2</strong> (one or more
+      <em>could not be measured</em>, and none is overdue).</p>
+      <p><strong>A release cut refuses on 1 AND on 2. Unmeasurable is not a pass</strong> — a cadence nobody
+      could read must not be silently satisfiable at a tag. 2 is deliberately the zero-overdue code, so a real
+      overdue is never hidden behind an unreadable date.</p>
+    </div>
+    <div class="mod-card">
+      <h4>A surface you do not have is not a failure</h4>
+      <p>No <code>sbom.json</code> reports <em>not applicable</em> and moves no counter. The tool measures
+      cadences you keep; it does not audit whether you keep them.</p>
+      <p><code>scripts/session-cadence-check.sh</code> is a SessionStart nag: silent when nothing is wrong,
+      and it exits 0 either way — a nag that could fail a session start would be a worse problem than a stale
+      cadence.</p>
+    </div>
+    <div class="mod-card">
+      <h4>What a green cadence does not prove</h4>
+      <p>Two of these signals are dates parsed out of <strong>filenames</strong>. A file named with today's
+      date and containing nothing satisfies the cadence completely; so does a freshly-dated empty directory.
+      Worse, <code>*dep*</code> matches a <code>deployment-notes-2026-08-10.md</code>. The windows make the
+      <em>schedule</em> stricter; they do not make the <em>evidence</em> stronger.</p>
+      <p>Put a real scan artefact in <code>docs/test-results/</code> because you want the scan, not because
+      you want the gate to pass.</p>
+    </div>
+  </div>
+
+  <h3>Cutting a release</h3>
+  <p class="intro" style="margin-bottom:12px">
+    <code>bash scripts/cut-release.sh</code> refuses three times before it writes anything at all, in this
+    order — cheapest and clearest first. <strong>No write of any kind happens before all three pass</strong>: a
+    partially-cut release (changelog promoted, tag absent) is a worse state than a refused one, because it is
+    a repository whose changelog claims a version no tag names.
+  </p>
+  <div class="mod-grid">
+    <div class="mod-card">
+      <h4>The three refusals</h4>
+      <p><strong>1 · An open delta</strong> (exit 3) — a release names what is finished, and open work is
+      neither in it nor out of it.<br>
+      <strong>2 · An unfiled hotfix retro</strong> (exit 4).<br>
+      <strong>3 · An overdue or unmeasurable cadence</strong> (exit 5) — the expensive one, which is why it
+      speaks last.</p>
+    </div>
+    <div class="mod-card">
+      <h4>Semver is decided by the tool — no override</h4>
+      <p>Any closed row carrying a breaking marker ⇒ <strong>major</strong> (plus a full
+      <code>run-phase3-validation.sh</code> re-run before the tag); else any <code>feature</code> ⇒
+      <strong>minor</strong>; else <strong>patch</strong>; nothing closed ⇒ <strong>refuse</strong>.</p>
+      <p><strong>There is no override flag</strong>, and the script rejects the version-override spellings
+      someone will reach for first. An operator who disagrees has to change what they shipped or move the tag
+      by hand outside the tool. The class→bump map is retunable; the <em>precedence</em> is machinery,
+      because a project that could reorder it could make a feature release a patch.</p>
+    </div>
+    <div class="mod-card">
+      <h4>The tag format is constrained, not chosen</h4>
+      <p>The cut emits <strong>exactly <code>vMAJOR.MINOR.PATCH</code></strong> — no <code>-rc1</code>, no
+      <code>-beta</code>, no two-component tag — and checks its own output against that regex before using it.
+      The reason is a measured asymmetry in the shipped release lanes: GitHub and Bitbucket match
+      <code>v*</code>, but GitLab matches <code>/^v\d+\.\d+\.\d+$/</code>. A <code>v1.2.0-rc1</code> would
+      build on two hosts and silently do nothing on the third.</p>
+      <p class="cite">Marker <code>#&nbsp;CUTREL-TAG-FORMAT</code>.</p>
+    </div>
+    <div class="mod-card">
+      <h4>Read the banner and re-tag</h4>
+      <p>The tool tags <em>before</em> you commit the changelog promotion, so the tag as created points one
+      commit too early. The run prints a loud banner: <code>git tag -f vX.Y.Z</code> after the release commit
+      is <strong>not optional</strong>. Nothing has been pushed at that point, so moving it is free — and a
+      pipeline that builds a release whose changelog does not contain this version goes <em>green</em> while
+      publishing the wrong thing.</p>
+    </div>
+    <div class="mod-card">
+      <h4>The cut closes the ledger rows it shipped</h4>
+      <p><code>BUGS.md</code> goes Open → Fixed with the version appended to the existing
+      <code>Fix Reference</code> cell; a <code>FEATURES.md</code> block's <code>**Status:**</code> becomes
+      <code>Complete (shipped in vX.Y.Z)</code>. A FEATURES block that does not carry a
+      <code>**Phase Built:**</code> line naming the delta is <strong>not matched at all</strong> — the safe
+      direction, but real for a <code>FEATURES.md</code> that predates the delta track.</p>
+      <p><strong>Exit 12 means "the release is real, the paperwork is not."</strong> The changelog was
+      promoted, <code>shipped_in</code> was recorded and the tag exists — so it is not failed for a ledger
+      problem — but one or more rows could not be closed and every one of them is named. <strong>The next cut
+      will not offer them again</strong>; close them by hand from the list the cut printed.</p>
+    </div>
+  </div>
+
+  <div class="not-built">
+    <h4>Known and recorded — so the page does not overstate</h4>
+    <ul>
+      <li><strong>The <code>breaking</code> marker has no writer</strong> (<code>## BL-219:</code>). The
+      major-bump lane and its full-revalidation re-run are built and tested, but <strong>nothing in
+      <code>delta.sh</code> ever sets the field <code>cut-release.sh</code> reads</strong> — not
+      <code>--open</code>, not <code>--close</code>, not <code>--complete-gate</code>, and there is no flag
+      for it. <strong>Every cut on a real project today computes minor or patch</strong>, so the major lane is
+      production-unreachable in v1.</li>
+      <li><strong>The test-debt ratchet ships, but nothing calls it at commit time yet.</strong> Both arms and
+      the tier ladder are real; the <em>automatic</em> part is not. WP7 owns the hook — and there is a
+      structural reason as well as a schedule one: <code>pre-commit-gate.sh</code> is <em>core</em> and the
+      ratchet is <em>module</em> code, so a direct call is the <code>core → module</code> edge the module
+      contract forbids.</li>
+      <li><strong>Cadence evidence is weaker than the schedule</strong> (<code>## BL-222:</code>) — see
+      "What a green cadence does not prove" above.</li>
+      <li><strong>Concurrent deltas are not supported</strong>, by design; one at a time is encoded in the
+      state schema. <strong>No semver override flag</strong>, by decision. <strong>No pre-release or channel
+      tags</strong> in v1 — the GitLab release lane's regex would have to change first.</li>
+      <li><strong>Neither <code>docs/delta-track.md</code> nor <code>docs/adoption.md</code> is shipped into
+      generated projects.</strong> <code>init.sh</code> copies seven guides into <code>docs/reference/</code>
+      and these are not among them — read them in the framework clone.</li>
+    </ul>
   </div>
 </section>
 
@@ -972,7 +1675,7 @@
   <div class="cross-grid">
     <div class="cross-card">
       <h4>Phase Gate Enforcement</h4>
-      <p>Every phase-to-phase transition requires a written approval in <code>APPROVAL_LOG.md</code> plus green tests plus completed gate criteria. Enforced by <code>check-phase-gate.sh</code>. On PASS, an immutable point-in-time snapshot is written to <code>docs/snapshots/phase-N-to-M_YYYY-MM-DD/</code>.</p>
+      <p>Every phase-to-phase transition requires a written approval in <code>APPROVAL_LOG.md</code> plus completed gate criteria. Enforced by <code>check-phase-gate.sh</code>. On PASS, an immutable point-in-time snapshot is written to <code>docs/snapshots/phase-N-to-M_YYYY-MM-DD/</code>, with per-gate contents. Note the gate does <em>not</em> run your test suite — the delegation it makes is to the <strong>bug gate</strong>, and only from phase 3 onward.</p>
     </div>
     <div class="cross-card">
       <h4>Enforcement Level (strict / light / no)</h4>
@@ -980,7 +1683,7 @@
     </div>
     <div class="cross-card">
       <h4>Bypass Audit Ledger</h4>
-      <p><code>.claude/bypass-audit.json</code> is the append-only, git-tracked audit trail. Records seven row types: <em>claude_bypass_proposal</em>, <em>terminal_commit_blocked/passed</em>, <em>out_of_band_commit</em>, <em>enforcement_level_set</em>, <em>escalation</em>, <em>detector_error</em>. SessionStart runs <code>detect-out-of-band-commits.sh</code> against the last-checked-commit baseline. Guarantee: "you can route around the block, you cannot route around the audit." See <em>docs/audit-log-lifecycle.md</em>.</p>
+      <p><code>.claude/bypass-audit.json</code> is the append-only, git-tracked audit trail. The schema defines <strong>nine</strong> row types, all with live writers: <em>claude_bypass_proposal</em>, <em>terminal_commit_blocked</em>, <em>terminal_commit_passed</em> (legacy — routine clean commits no longer emit it), <em>out_of_band_commit</em>, <em>enforcement_level_set</em>, <em>escalation</em>, <em>detector_error</em>, <em>sast_suppression</em>, and <em>adoption_event</em> (new with brownfield adoption). SessionStart runs <code>detect-out-of-band-commits.sh</code> against the last-checked-commit baseline. Guarantee: "you can route around the block, you cannot route around the audit." See <em>docs/audit-log-lifecycle.md</em>.</p>
     </div>
     <div class="cross-card">
       <h4>Pending-Approval Sentinel</h4>
@@ -988,23 +1691,24 @@
     </div>
     <div class="cross-card">
       <h4>Session Hooks</h4>
-      <p>Every time you start the AI, hooks run: version check, test-gate, out-of-band commit detector, MCP-usage gate. If the Development Guardrails are out of date or the test-gate is red, you're told before any work begins. Qdrant / Context7 requirements only fire when you have those MCP servers configured — the gate expects one call per session, not per library.</p>
+      <p>Every time you start the AI, <strong>six</strong> SessionStart hooks run: version check, test-gate check, freshness check, intake check, maintenance-cadence nag, and the out-of-band commit detector. If the Development Guardrails are out of date or the test-gate is red, you are told before any work begins. A seventh hook fires on session <em>end</em> (the Qdrant reminder).</p>
+      <p><strong>The MCP-usage gate is not a SessionStart hook.</strong> It runs on <code>Write</code> and <code>Edit</code>, so it blocks file modifications rather than commits.</p>
     </div>
     <div class="cross-card">
       <h4>Live Docs (Context7)</h4>
-      <p>When Context7 is configured as an MCP server, the framework requires at least one lookup per session before allowing commits (session-mcp-gate). The Build Loop's first step invokes Context7 to prevent "API remembered from training data" errors on library-touching features.</p>
+      <p>When Context7 is configured as an MCP server, the framework requires at least one lookup per session <strong>before allowing a Write or Edit</strong> — the gate is bound to those tools, not to commits, and its own message says "before writing". One call per session satisfies it, not one per library. Separately, a non-blocking commit-time warning appears if Context7 has not been consulted in the last couple of commits.</p>
     </div>
     <div class="cross-card">
       <h4>Persistent Memory (Qdrant)</h4>
-      <p>When Qdrant is configured as an MCP server, the framework requires at least one <code>qdrant-store</code>/<code>qdrant-find</code> call per session. Decisions, review findings, and context notes are stored in a local semantic memory the AI can search across sessions — so the AI remembers <em>why</em> something was done, not just what.</p>
+      <p>When Qdrant is configured as an MCP server, the gate requires at least one <strong><code>qdrant-find</code></strong> call per session — retrieve prior context before starting work. <em>A <code>qdrant-store</code> call does not satisfy it</em>: the tracker records both flags but the gate reads only the find one. Decisions, review findings and context notes are stored in a local semantic memory the AI can search across sessions — so it remembers <em>why</em> something was done, not just what.</p>
     </div>
     <div class="cross-card">
       <h4>Audit Trail</h4>
-      <p>Every phase gate, every UAT session, every bug disposition, every release — all recorded in <code>APPROVAL_LOG.md</code>, <code>docs/snapshots/</code>, <code>docs/test-results/</code>, <code>sbom.json</code>, and <code>.claude/bypass-audit.json</code>. Six canonical jq recipes in <em>docs/audit-log-lifecycle.md</em> support cold-pickup successor handoff (W7 use case).</p>
+      <p>Every phase gate, every UAT session, every bug disposition, every release — all recorded in <code>APPROVAL_LOG.md</code>, <code>docs/snapshots/</code>, <code>docs/test-results/</code>, <code>sbom.json</code>, and <code>.claude/bypass-audit.json</code>. Seven canonical jq recipes in <em>docs/audit-log-lifecycle.md</em> support cold-pickup successor handoff (the W7 use case) — the newest reads what a brownfield adoption's collision archive took.</p>
     </div>
     <div class="cross-card">
       <h4>Organizational Governance (opt-in)</h4>
-      <p>If you selected "organizational" deployment: Project Sponsor (Phase 0 → 1), Senior Technical Authority (Phase 1 → 2 &amp; 2 → 3), Application Owner + IT Security (Phase 3 → 4), Attorney (Phase 3.6 for Privacy Policy + ToS), ITSM ticket linkage (Phase 4 Completion row). Each sign-off is verified with per-line git blame; anti-self-approval is a FAIL. The Pre-Phase 0 organizational roster (six named rows) must be dated before Day 1. POC modes let you defer parts of that roster; <code>upgrade-project.sh --to-production</code> is the only way to unlock Phase 4 from a POC.</p>
+      <p>If you selected "organizational" deployment: IT Security (Pre-Phase 0), Project Sponsor (Phase 0 → 1), Senior Technical Authority (Phase 1 → 2 <em>and</em> 2 → 3 — on personal projects 2 → 3 is self-approved), Application Owner + IT Security (Phase 3 → 4), Attorney (Privacy Policy + ToS, inside Step 3.6), ITSM ticket linkage (Phase 4 Completion row). Each sign-off is verified with per-line git blame; anti-self-approval is a FAIL, and so is every "cannot verify" arm. The Pre-Phase 0 roster (six named rows) must be dated before Day 1. POC modes let you defer parts of that roster; <code>upgrade-project.sh --to-production</code> is the only way to unlock Phase 4 from a POC.</p>
     </div>
     <div class="cross-card">
       <h4>Gate Denial Path</h4>
@@ -1046,7 +1750,7 @@
     </div>
     <div class="gloss-item">
       <dt>Sponsored POC</dt>
-      <dd>Organizational-only POC mode: the organization knows and has approved. Requires AI-deployment-path approval + named sponsor up front; defers insurance, liability, ITSM, exit criteria, and backup maintainer. Phase 4 hard-blocked until <code>upgrade-project.sh --to-production</code>.</dd>
+      <dd>Organizational-only POC mode: the organization knows and has approved. Requires AI-deployment-path approval + named sponsor (rows 1 &amp; 4) up front; defers rows 2, 3, 5 and 6 — insurance, liability entity, backup maintainer and ITSM. Phase 4 hard-blocked until <code>upgrade-project.sh --to-production</code>. <em>Note:</em> several guides add "exit criteria" to that deferred list, but it is not one of the six APPROVAL_LOG rows the tooling parses — it is tracked elsewhere, and the governance framework says it is required up front rather than deferred.</dd>
     </div>
     <div class="gloss-item">
       <dt>Private POC</dt>
@@ -1054,7 +1758,7 @@
     </div>
     <div class="gloss-item">
       <dt>Track (Light / Standard / Full)</dt>
-      <dd>Depth of Phase 3 rigor. Light skips Business Strategy Gateway, Market Signal Validation, Revenue Model, contract testing, load/stress testing, and Std+ pre-launch preparation. Standard adds them; Full also requires screen-reader accessibility testing and has no penetration-test exemption.</dd>
+      <dd>Depth of Phase 3 rigor. Light skips the Business Strategy Gateway, Market Signal Validation, Revenue Model, Trademark &amp; Legal pre-check, contract testing and Std+ pre-launch preparation. Standard adds those, and requires Security + Red Team reviews and a penetration test (with an IT Security exemption available). Full requires all six evaluation reviews, screen-reader accessibility testing, a penetration test with <strong>no</strong> exemption path, and is the <strong>only</strong> track that requires load/stress testing.</dd>
     </div>
     <div class="gloss-item">
       <dt>Enforcement Level (strict / light / no)</dt>
@@ -1070,7 +1774,7 @@
     </div>
     <div class="gloss-item">
       <dt>Phase Gate Snapshot</dt>
-      <dd>Point-in-time immutable copy of key documents at each phase transition. Auto-created by <code>check-phase-gate.sh</code> at <code>docs/snapshots/phase-N-to-M_YYYY-MM-DD/</code>. Preserves whatever state Manifesto, Bible, FEATURES, CHANGELOG, BUGS, USER_GUIDE, RELEASE_NOTES, APPROVAL_LOG, HANDOFF, INCIDENT_RESPONSE, and sbom are in at gate time.</dd>
+      <dd>Point-in-time immutable copy of key documents at each phase transition. Auto-created by <code>check-phase-gate.sh</code> at <code>docs/snapshots/phase-N-to-M_YYYY-MM-DD/</code>, only when the gate passes and only if that directory does not already exist. <strong>Contents are per-gate</strong>, widening as the project grows: 0→1 takes Manifesto + APPROVAL_LOG + PROJECT_INTAKE + <code>docs/phase-0/</code>; 1→2 takes Bible + Manifesto + APPROVAL_LOG; 2→3 adds FEATURES/CHANGELOG/BUGS; 3→4 is the full set (Manifesto, Bible, FEATURES, CHANGELOG, BUGS, USER_GUIDE, HANDOFF, RELEASE_NOTES, APPROVAL_LOG, sbom, INCIDENT_RESPONSE, plus a listing of <code>docs/test-results/</code>).</dd>
     </div>
     <div class="gloss-item">
       <dt>Bypass Audit Ledger</dt>
@@ -1094,7 +1798,7 @@
     </div>
     <div class="gloss-item">
       <dt>Red Team Review</dt>
-      <dd>An adversarial review that assumes the worst and tries to find failure modes: edge cases, hostile inputs, misuse. Runs on every feature and again in Phase 3.</dd>
+      <dd>An adversarial review that assumes the worst and tries to find failure modes: edge cases, hostile inputs, misuse. It is <strong>a Phase 3 evaluation prompt (reviewer 06), enforced at the Phase 3 → 4 gate</strong> on Standard and Full via the review manifest — <em>not</em> a Build Loop step. The per-feature review that <em>is</em> enforced is the security audit.</dd>
     </div>
     <div class="gloss-item">
       <dt>Context7</dt>
@@ -1114,7 +1818,53 @@
     </div>
     <div class="gloss-item">
       <dt>SEV-1 / SEV-2 / SEV-3 / SEV-4</dt>
-      <dd>Bug severity levels. SEV-1 = blocks basic use; SEV-2 = major broken feature; SEV-3 = noticeable but livable; SEV-4 = polish. Phase 2 can't finish while any SEV-1 or SEV-2 is open.</dd>
+      <dd>Bug severity levels. SEV-1 = data loss, security breach, crash on a core flow, complete feature failure; SEV-2 = feature broken but a workaround exists; SEV-3 = minor UX or cosmetic; SEV-4 = enhancement or polish. Phase 2 can't finish while any SEV-1 or SEV-2 is open — <em>or deferred</em>, in SEV-2's case.</dd>
+    </div>
+
+    <!-- ---------- Brownfield adoption + delta track terms ---------- -->
+    <div class="gloss-item">
+      <dt>Brownfield Adoption</dt>
+      <dd>The second entrance: bringing a codebase that already exists under the framework, via <code>scripts/adopt-project.sh</code> rather than <code>init.sh</code>. It asks one question, lands the project at a phase, writes state fail-safe and commits exactly the files it wrote. <strong>Half built</strong> — the certification pass, the CI carve-out and the Adoption Record do not exist.</dd>
+    </div>
+    <div class="gloss-item">
+      <dt>Scout</dt>
+      <dd>The read-only survey that comes before adoption (<code>scripts/scout.sh</code>). It writes nothing into the tree it looks at, needs no <code>jq</code>, and reports seven sections including a full-history secrets scan whose findings never carry the secret value. A missing scanner is reported as a missing scanner, never as a clean result.</dd>
+    </div>
+    <div class="gloss-item">
+      <dt>Adoption Stamp</dt>
+      <dd>The <code>adoption</code> block in <code>.claude/manifest.json</code> recording how a project entered the framework. Written once, never re-stamped. Because an upstream repair path can regenerate the manifest and silently un-adopt the project, <code>check-phase-gate.sh</code> compares the working copy against the copy committed at <code>HEAD</code> and <strong>fails the gate</strong> when the stamp is lost.</dd>
+    </div>
+    <div class="gloss-item">
+      <dt>Test-Debt Ledger</dt>
+      <dd><code>.claude/test-debt.json</code> — the untested-file set measured once at adoption, with two forward rules: the set may not grow, and a ledgered file you touch must gain a test in the same commit. Tier-floored (silent / warn / block). "Has a test" is a filename question, not coverage. <strong>Nothing calls it at commit time yet.</strong></dd>
+    </div>
+    <div class="gloss-item">
+      <dt>Collision Archive</dt>
+      <dd><code>.claude/adoption-archive/&lt;timestamp&gt;-&lt;pid&gt;/</code> — copies of your settings and git hooks taken before the framework's writers run, with a MANIFEST, a restore line per entry, and a <code>gitleaks</code> scan performed <em>before</em> staging so adoption cannot commit a credential out of an untracked hook. Nothing is deleted; <code>--re-add</code> puts a file back and records the choice.</dd>
+    </div>
+    <div class="gloss-item">
+      <dt>Delta</dt>
+      <dd>One unit of post-1.0 change. Opened with <code>scripts/delta.sh --open</code>, classified as feature / fix / hotfix / security-patch, and carrying a gate list derived from that class plus its risk and size attributes. One at a time, enforced by the state schema.</dd>
+    </div>
+    <div class="gloss-item">
+      <dt>Delta Track</dt>
+      <dd>The maintenance loop that runs <em>inside</em> phase 4, after v1.0.0. It cannot start before Phase 4 completion — <code>--open</code> requires <code>current_phase</code> to be exactly 4 — because post-release ceremony is cheaper than building properly, and the cheaper path always wins.</dd>
+    </div>
+    <div class="gloss-item">
+      <dt>Done-observable</dt>
+      <dd>The one section of a delta brief that a program parses. You write it before you build; its checkboxes <em>are</em> the close review. It fails closed — a missing brief, a missing heading, or a heading with no checkboxes each refuse the close.</dd>
+    </div>
+    <div class="gloss-item">
+      <dt>Hotfix Retro</dt>
+      <dd>The write-up a hotfix owes for shipping on the safety floor alone. The row is written at <em>open</em>, not at close, with a due date (default 3 days), and it outlives the delta. An unfiled retro blocks the next release cut — which is the only thing that ever collects it.</dd>
+    </div>
+    <div class="gloss-item">
+      <dt>Maintenance Cadence</dt>
+      <dd>Two clocks measured by <code>scripts/check-maintenance.sh</code>: a routine review (default 14 days) and a deep security scan with the dependency audit folded in (default 95 days). Both are project-owned policy. A release cut refuses on <em>overdue</em> and on <em>unmeasurable</em> alike — a cadence nobody could read is not a pass.</dd>
+    </div>
+    <div class="gloss-item">
+      <dt>Release Cut</dt>
+      <dd><code>scripts/cut-release.sh</code>. Refuses three times before writing anything (open delta, unfiled hotfix retro, cadence), then decides the semver bump itself with <strong>no override flag</strong>, promotes the changelog, closes the ledger rows it shipped, and tags. Exit 12 means the release is real but one or more ledger rows could not be closed.</dd>
     </div>
   </dl>
 </section>
@@ -1125,7 +1875,13 @@
     <a href="README.md">README</a> ·
     <a href="docs/user-guide.md">User Guide</a> ·
     <a href="docs/builders-guide.md">Builder's Guide</a> ·
-    <a href="docs/governance-framework.md">Governance</a>
+    <a href="docs/governance-framework.md">Governance</a> ·
+    <a href="docs/scout.md">Scout</a> ·
+    <a href="docs/adoption.md">Brownfield Adoption</a> ·
+    <a href="docs/delta-track.md">Delta Track</a>
+  </p>
+  <p style="margin-top:10px">
+    Verified against the tree on 2026-08-11. Where a guide and a gate script disagreed, the script won.
   </p>
 </footer>
 
