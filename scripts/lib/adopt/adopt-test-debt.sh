@@ -150,10 +150,11 @@
 
 TD_SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TD_CORE_LIB_DIR="$(cd "$TD_SELF_DIR/.." && pwd)"
+TD_FRAMEWORK_ROOT="$(cd "$TD_CORE_LIB_DIR/../.." && pwd)"
 
 # M3 direction: module -> core, which is permitted. Sourced defensively so the
-# file works both ways — the driver declares both libs in its own M2 header and
-# sources them first, and a direct invocation from a framework clone has to
+# file works both ways — the driver declares all three libs in its own M2 header
+# and sources them first, and a direct invocation from a framework clone has to
 # bring them in itself.
 if ! command -v read_enforcement_level >/dev/null 2>&1; then
   # shellcheck disable=SC1090
@@ -163,9 +164,37 @@ if ! command -v _bl072_is_impl_file >/dev/null 2>&1; then
   # shellcheck disable=SC1090
   [ -f "$TD_CORE_LIB_DIR/tdd-classify.sh" ] && . "$TD_CORE_LIB_DIR/tdd-classify.sh"
 fi
+if ! command -v soif_parse_shipped_scripts >/dev/null 2>&1; then
+  # shellcheck disable=SC1090
+  [ -f "$TD_CORE_LIB_DIR/scaffold-shipped-set.sh" ] && . "$TD_CORE_LIB_DIR/scaffold-shipped-set.sh"
+fi
 
 TD_LEDGER_REL=".claude/test-debt.json"
 TD_TMP=""
+
+# TD_GIT — EVERY git read in this file goes through these two `-c` settings, and
+# both of them are load-bearing rather than tidy. A user's own `.gitconfig` is
+# input to this tool, and a fix a user's config can silently disable is not a
+# fix.
+#
+#   core.quotePath=false   without it git renders a non-ASCII path as
+#                          `"src/caf\303\251.js"` — quotes included — which has
+#                          no recognised source extension, so the file drops out
+#                          of the census in silence.
+#   diff.renames=true      `diff.renames=copies` made a COPIED untested file
+#                          arrive as `C100` and enter the working set at rc 0
+#                          with zero output (the silent-bypass class);
+#                          `diff.renames=false` made a pure rename arrive as
+#                          `D`+`A` and resurrected the rename loop verbatim
+#                          (rc 3, re-baseline, rc 4). Both measured. Pinning to
+#                          `true` forces rename detection ON and copy detection
+#                          OFF, which is why nothing below matches a `C` status:
+#                          under this pin git cannot emit one, and a branch no
+#                          fixture can reach is pinned by nothing.
+#
+# `-c` on the command line outranks repo, global and system config, so this
+# cannot be overridden from the adoptee's side.
+TD_GIT_CONF="-c core.quotePath=false -c diff.renames=true"
 
 # ── The membership predicate ────────────────────────────────────────────────
 
@@ -199,15 +228,71 @@ _td_is_source_ext() {
   return 1
 }
 
+# ── The framework's own installed inventory ─────────────────────────────────
+# _td_shipped_init — write the set of paths the adoption INSTALLS into an
+# adoptee, DERIVED from init.sh's own `cp` lines through the shared parser
+# (soif_parse_shipped_scripts) rather than duplicated here. Returns non-zero if
+# it cannot be derived.
+#
+# WHY THIS EXISTS AND WHAT IT REPLACED. The first cut of this module kept the
+# framework's ~60 scripts out of the ledger by TIMING: the census reads
+# `git ls-files`, and at adoption time those files were copied but not yet
+# tracked. That is not a defence, it is a coincidence with a schedule — and
+# every write AFTER the adoption commit was exposed. Worse, this tool actively
+# instructs the operator to perform one (the rename [NOTE] and the rc-2 refusal
+# both print `--write --root .`). Measured on a real driver run: the ledger held
+# 1 entry and 0 framework scripts at adoption, and 58 entries with 57 of the
+# framework's own scripts after running the advertised command — after which
+# touch-repays demanded tests for check-gate.sh and check-phase-gate.sh on any
+# framework sync. The tool told the user to break themselves.
+#
+# The exclusion is applied in _td_is_candidate, so it binds the CENSUS and BOTH
+# ARMS from one place. A later framework sync that adds a script is therefore
+# not growth either.
+#
+# HONEST COST: an adoptee that legitimately owns a file at a framework path
+# (their own `scripts/validate.sh`, say) has it excluded from their debt. That
+# path is a COLLISION and belongs to WP6; the driver already refuses to
+# overwrite it. The trade is a small under-count against a large false-FAIL, and
+# it is taken in the direction that does not teach an operator to switch the
+# gate off.
+_td_shipped_init() {
+  : > "$TD_TMP/shipped"
+  command -v soif_parse_shipped_scripts >/dev/null 2>&1 || return 1
+  [ -f "$TD_FRAMEWORK_ROOT/init.sh" ] || return 1
+  soif_parse_shipped_scripts "$TD_FRAMEWORK_ROOT/init.sh" "$TD_FRAMEWORK_ROOT/scripts" > "$TD_TMP/shipped" 2>/dev/null
+  [ -s "$TD_TMP/shipped" ] || return 1
+  return 0
+}
+
+# _td_is_framework_path PATH — is this one of the files the adoption installs?
+_td_is_framework_path() {
+  [ -s "$TD_TMP/shipped" ] || return 1
+  grep -qxF -- "$1" "$TD_TMP/shipped" 2>/dev/null
+}
+
 # _td_is_candidate PATH — a file the ledger and both arms can be about.
 _td_is_candidate() {
   _bl072_is_impl_file "$1" || return 1
   _td_is_source_ext "$1"  || return 1
+  _td_is_framework_path "$1" && return 1   # BF-TD-FRAMEWORK-EXCLUDE
   return 0
 }
 
 # _td_has_inline_tests FILE — `# BL-107-RUST-INLINE-TESTS`, re-aimed from a
 # staged diff to file content.
+#
+# SYNC SIBLINGS — the attribute family below is now spelled in THREE places and
+# they must change together, the same hazard `# BL-084-TIER-KEY` names:
+#   scripts/pre-commit-gate.sh          `_bl107_attr_re` — the original, over a
+#                                       staged .rs diff's ADDED lines
+#   scripts/lib/scout/scout-testsbaseline.sh  `_scout_has_inline_tests` — over
+#                                       file content, M5 forbids sourcing
+#   this file                           `_td_has_inline_tests` — over file
+#                                       content, because a census has no diff
+# Grep `BL-107-RUST-INLINE-TESTS` to find all three. A family that gains a macro
+# in one copy and not the others reports a correctly-tested file as untested,
+# and the touch-repays arm then blocks every edit to it.
 #
 # CARRIED, NOT SOURCED, and the copy is disclosed rather than hidden: the
 # gate's version lives in scripts/pre-commit-gate.sh (not in the classifier
@@ -236,7 +321,7 @@ _td_has_inline_tests() {
 # differently-spelled lookup over the staged diff.
 _td_test_names() {
   local p
-  ( cd "$1" 2>/dev/null && git -c core.quotePath=false ls-files 2>/dev/null ) | while IFS= read -r p; do
+  ( cd "$1" 2>/dev/null && git $TD_GIT_CONF ls-files 2>/dev/null ) | while IFS= read -r p; do
     [ -n "$p" ] || continue
     _bl072_is_test_file "$p" && printf '%s\n' "${p##*/}"
   done
@@ -279,7 +364,7 @@ _td_in_ledger() {
 # would then demand tests for them.
 _td_census() {
   local root="$1" names="$2" p
-  ( cd "$root" 2>/dev/null && git -c core.quotePath=false ls-files 2>/dev/null ) > "$TD_TMP/all"
+  ( cd "$root" 2>/dev/null && git $TD_GIT_CONF ls-files 2>/dev/null ) > "$TD_TMP/all"
   : > "$TD_TMP/untested"
   while IFS= read -r p; do
     [ -n "$p" ] || continue
@@ -365,6 +450,18 @@ _td_write_body() {
     return 2
   }
 
+  # FAIL CLOSED AND LOUD. If the framework's own inventory cannot be derived,
+  # the census cannot tell the adoptee's code from the framework's — and the
+  # failure mode it prevents is a ledger full of the framework's gate scripts,
+  # which then demands tests for them. Refusing is the only honest answer; the
+  # previous version had no answer at all because it relied on timing.
+  if ! _td_shipped_init; then
+    echo "test-debt: could not derive the framework's installed inventory from $TD_FRAMEWORK_ROOT/init.sh." >&2
+    echo "  Without it the census cannot tell your source from the framework's, and a ledger that" >&2
+    echo "  names the framework's own scripts would demand tests for them. Run this from a complete clone." >&2
+    return 2
+  fi
+
   names="$TD_TMP/names"
   _td_test_names "$root" > "$names"
   _td_census "$root" "$names" > "$TD_TMP/ledgered"
@@ -437,25 +534,63 @@ adopt_test_debt_write() {
 
 # ── The ratchet ─────────────────────────────────────────────────────────────
 
+# _td_unchanged_blobs ROOT — every staged path whose CONTENT did not change.
+#
+# git's raw format carries the pre- and post-image blob names, so an entry whose
+# two SHAs are equal changed something OTHER than content — in practice a file
+# mode. `chmod +x` on a ledgered file arrives as a plain `M` and used to owe a
+# test, while `R100` — which rests on exactly the same fact, git saying the
+# content is identical — did not. Two postures for one fact, and the `M` one was
+# in the false-FAIL direction, so they are reconciled here rather than argued
+# about in a comment.
+#
+# `--abbrev=40` because the default raw output abbreviates, and comparing two
+# abbreviations is comparing prefixes.
+_td_unchanged_blobs() {
+  local root="$1" line meta path oldsha newsha st
+  ( cd "$root" 2>/dev/null && git $TD_GIT_CONF diff --cached --raw --abbrev=40 2>/dev/null ) \
+  | while IFS= read -r line; do
+      case "$line" in :*) ;; *) continue ;; esac
+      meta="${line%%	*}"
+      path="${line#*	}"
+      set -- $meta
+      [ "$#" -ge 5 ] || continue
+      oldsha="$3"; newsha="$4"; st="$5"
+      # Renames carry TWO paths after the tab and are the other carve-out's
+      # business; only same-path entries are read here.
+      case "$st" in M|M[0-9]*|T|T[0-9]*) ;; *) continue ;; esac
+      [ "$oldsha" = "$newsha" ] && printf '%s\n' "$path"
+    done
+  return 0
+}
+
 # _td_owes_repayment STATUS OLDPATH EFFPATH — is this staged entry a TOUCH of a
 # ledgered file?
 #
-# `R100` / `C100` is git's own statement that the content is byte-identical, so
-# it is a MOVE and not a modification: the design's arm is "a file in the set
-# that is MODIFIED must leave it", and a move modifies nothing. Below 100 the
-# content did change, and then the obligation follows the file to its new path
-# — otherwise `git mv` plus an edit would be a one-commit way to shed the
+# `R100` is git's own statement that the content is byte-identical, so it is a
+# MOVE and not a modification: the design's arm is "a file in the set that is
+# MODIFIED must leave it", and a move modifies nothing. Below 100 the content
+# did change, and then the obligation follows the file to its new path —
+# otherwise `git mv` plus an edit would be a one-commit way to shed the
 # obligation entirely, which is a worse hole than the one this closes.
+#
+# There is no `C` branch, and its ABSENCE is the pin: every git read in this
+# file goes through `-c diff.renames=true`, which forces copy detection off, so
+# git cannot emit a `C` status here. A branch no fixture can reach is pinned by
+# nothing, and the config pin is what makes the reachable set small enough to
+# pin completely.
 _td_owes_repayment() {
   local status="$1" old="$2" eff="$3"
   case "$status" in
-    R100|C100) return 1 ;;
-    R*|C*)
+    R100) return 1 ;;
+    R*)
       _td_in_ledger "$old" "$TD_TMP/ledgered" && return 0
       _td_in_ledger "$eff" "$TD_TMP/ledgered" && return 0
       return 1
       ;;
   esac
+  # A mode-only change is not a modification — same fact as R100, same answer.
+  _td_in_ledger "$eff" "$TD_TMP/unchanged" && return 1   # BF-TD-MODE-ONLY
   _td_in_ledger "$eff" "$TD_TMP/ledgered"
 }
 
@@ -488,10 +623,21 @@ _td_check_body() {
     return 0
   fi
 
+  if ! _td_shipped_init; then
+    if [ "$sev" = "block" ]; then
+      echo "[BLOCKED] test-debt: the framework's own installed inventory could not be derived from init.sh,"
+      echo "          so the census cannot tell your code from the framework's. Run this from a complete clone."
+      return 2
+    fi
+    echo "[WARN] test-debt: the framework's installed inventory could not be derived — the arms did not run."
+    return 0
+  fi
+
   jq -r '.files[]? // empty' "$ledger" 2>/dev/null > "$TD_TMP/ledgered"
   names="$TD_TMP/names"
   _td_test_names "$root" > "$names"
-  staged="$( cd "$root" 2>/dev/null && git -c core.quotePath=false diff --cached --name-status 2>/dev/null )"
+  _td_unchanged_blobs "$root" > "$TD_TMP/unchanged"
+  staged="$( cd "$root" 2>/dev/null && git $TD_GIT_CONF diff --cached --name-status 2>/dev/null )"   # BF-TD-STAGED-READ
 
   : > "$TD_TMP/grow"
   : > "$TD_TMP/touch"
@@ -506,14 +652,23 @@ _td_check_body() {
   # stem no longer matched its test's name. A pure deletion is carved out
   # upstream by _bl072_status_effective_path.
   #
-  # `C` (copy) genuinely would create a member, and is deliberately not
-  # matched: git emits it only under `-C`, which nothing here passes, so a
-  # branch for it would be unreachable code pretending to be coverage.
+  # `C` (copy) genuinely WOULD create a member — and the reason it is not
+  # matched is the config pin, not an assumption. An earlier version of this
+  # comment claimed git emits `C` only under `-C`; that is refuted:
+  # `diff.renames=copies` in the adoptee's own .gitconfig makes porcelain emit
+  # `C100`, and `git diff --cached` is porcelain. Measured — a copied untested
+  # file entered the working set at rc 0 with zero output. Every read here is
+  # now pinned to `-c diff.renames=true`, which forces copy detection OFF, so a
+  # copy arrives as `A` and this arm catches it.
+  #
+  # `A[0-9]*` is NOT matched: git scores only `R` and `C`, so an `A` with a
+  # score cannot occur and the branch would be unreachable — which is the very
+  # shape a reviewer's `A|M` mutation exploited to survive a green suite.
   while IFS="$(printf '\t')" read -r status path extra; do
     [ -n "$status" ] || continue
     eff="$(_bl072_status_effective_path "$status" "$path" "$extra")"
     [ -z "$eff" ] && continue
-    case "$status" in A|A[0-9]*) ;; *) continue ;; esac
+    case "$status" in A) ;; *) continue ;; esac   # BF-TD-NONGROWTH-ADDITIONS-ONLY
     _td_is_candidate "$eff" || continue
     _td_in_ledger "$eff" "$TD_TMP/ledgered" && continue
     _td_has_test "$root" "$eff" "$names" && continue
@@ -532,7 +687,7 @@ TD_STAGED_ADDS
     eff="$(_bl072_status_effective_path "$status" "$path" "$extra")"
     [ -z "$eff" ] && continue
     case "$status" in
-      R*|C*) _td_in_ledger "$path" "$TD_TMP/ledgered" && printf '%s -> %s\n' "$path" "$eff" >> "$TD_TMP/moved" ;;
+      R*) _td_in_ledger "$path" "$TD_TMP/ledgered" && printf '%s -> %s\n' "$path" "$eff" >> "$TD_TMP/moved" ;;
     esac
     _td_owes_repayment "$status" "$path" "$eff" || continue
     _td_has_test "$root" "$eff" "$names" && continue
@@ -647,6 +802,24 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   [ -n "$TD_MODE" ] || { echo "$TD_USAGE" >&2; exit 2; }
   TD_ROOT_ABS="$(cd "$TD_ROOT" 2>/dev/null && pwd)"
   [ -n "$TD_ROOT_ABS" ] || { echo "adopt-test-debt: '$TD_ROOT' is not a directory this can read." >&2; exit 2; }
+  # THE TARGET GUARD, ON `--write` ONLY, and the asymmetry is deliberate.
+  # `--write` creates a file in the target, and `--root .` run from a framework
+  # clone would drop a ledger into the framework itself. `--check` writes
+  # nothing, and running it from the mothership is legitimate, so it is not
+  # guarded — the sibling entry scripts guard the CWD because they all write.
+  # guard_target_not_in_framework (`# BL-199-TARGET-GUARD`) is the accessor that
+  # checks the TARGET and ignores the cwd, which is exactly this shape; running
+  # the tool FROM the clone against someone else's project is the documented
+  # usage and must keep working.
+  if [ "$TD_MODE" = "write" ]; then
+    if [ -f "$TD_CORE_LIB_DIR/helpers-core.sh" ] && ! command -v guard_target_not_in_framework >/dev/null 2>&1; then
+      # shellcheck disable=SC1090
+      . "$TD_CORE_LIB_DIR/helpers-core.sh"
+    fi
+    if command -v guard_target_not_in_framework >/dev/null 2>&1; then
+      guard_target_not_in_framework "$TD_ROOT_ABS" "$TD_FRAMEWORK_ROOT" || exit 1
+    fi
+  fi
   if [ "$TD_MODE" = "write" ]; then
     adopt_test_debt_write "$TD_ROOT_ABS"
     exit $?

@@ -567,7 +567,36 @@ ratchet, it is the thing that makes people turn the framework off.
 | 3 | **Blocked by non-growth** |
 | 4 | **Blocked by touch-repays** |
 
-### Renames
+### It is about your code, not the framework's
+
+Adoption installs about sixty of the framework's own scripts into your project.
+None of them is ever in your ledger: the census subtracts the framework's
+installed inventory, derived from `init.sh`'s own copy list rather than a
+hand-kept second copy of it. That holds on **every** write, not just the one the
+adoption performs — including the re-baseline this page tells you to run. If the
+tool cannot derive that inventory it refuses rather than guessing, because the
+alternative is a ledger that demands tests for `check-phase-gate.sh`.
+
+The cost, stated: if you already own a file at a framework path, it is excluded
+from your debt too. That path is a collision — the driver refuses to overwrite
+it — and the trade is a small under-count instead of a large false refusal.
+
+### Your `.gitconfig` cannot switch the arms off
+
+Every git read the ratchet makes is pinned with `-c core.quotePath=false -c
+diff.renames=true`, and both pins are there because their absence was measured:
+
+- without the first, a path like `src/café.js` is rendered quoted and escaped,
+  has no recognised source extension, and drops out of the census in silence;
+- without the second, `diff.renames=copies` lets a **copied** untested file
+  enter the working set at `strict` with no output at all, and
+  `diff.renames=false` turns a pure rename back into a delete-plus-add that
+  blocks — and keeps blocking after you re-baseline.
+
+Command-line `-c` outranks your repo, global and system config, so these are not
+suggestions.
+
+### Renames, and other changes that are not modifications
 
 A **pure** rename of a ledgered file passes. Neither rule is met — the set
 gained no member, and nothing was modified — so blocking it would be a
@@ -584,6 +613,12 @@ arm. What you get instead is a note, and the run still succeeds:
 A rename that **also changes the file** is a modification, and the obligation
 follows the file to its new path — otherwise `git mv` plus an edit would be a
 one-commit way to shed it.
+
+A **mode-only** change — `chmod +x` on a ledgered file — passes for the same
+reason: git reports the identical blob on both sides, which is the exact fact
+the pure-rename carve-out rests on. Treating one as a modification and not the
+other would be two postures for one fact, and the strict one was in the
+false-refusal direction.
 
 ### Three things it does not claim
 

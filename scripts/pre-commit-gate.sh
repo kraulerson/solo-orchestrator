@@ -351,9 +351,14 @@ tdd_terminal_enforce() {
   # about history, not a severity.
   #
   # HONEST LIMIT, stated rather than implied: kind (c)'s forward equivalent is
-  # the test-debt ledger and its ratchet (§5.4). It is NAMED here and it is NOT
-  # IMPLEMENTED — WP5b owns it. Until it lands, this exemption's forward
-  # counterpart does not exist, and the arm claims only what it does: it
+  # the test-debt ledger and its ratchet (§5.4). WP5b SHIPPED it — the ledger is
+  # written at adoption and both arms exist — but NOTHING CALLS IT FROM HERE and
+  # nothing will: the ratchet is module code under scripts/lib/adopt/ and this
+  # file is core, so a call from here is the `core -> module` edge M3 forbids
+  # and scripts/lint-module-dependencies.sh reds on. The commit-time caller is
+  # WP7's, in the ADOPTED project. Until it lands the arms are a command an
+  # operator or a CI step runs, and this exemption's forward counterpart is
+  # therefore real but not automatic. The arm here claims only what it does: it
   # exempts pre-adoption commits and nothing else.
   #
   # The decision is computed FIRST and the guard is a single line, so the

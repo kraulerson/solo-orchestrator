@@ -998,14 +998,28 @@ mk_mirror() {
 
 # _mutate MIRROR MARKER REPLACEMENT — one anchored, end-of-line-marked line,
 # excised and replaced. Echoes "sites changed parses" for the caller to assert.
+#
+# TWO SED METACHARACTERS IN THE REPLACEMENT, BOTH LEARNED THE HARD WAY IN THIS
+# FILE. `|` was the delimiter, so a replacement containing one — `case $status
+# in A|M)`, the exact widening a reviewer used to survive a green suite —
+# terminated the expression, sed errored, and the mutant was NOT APPLIED: the
+# harness reported `changed_lines=0` rather than a passing mutant, which is the
+# lucky direction but only by accident. `&` in a replacement means THE WHOLE
+# MATCH, so `cmd_a && cmd_b` spliced the original line back in twice and
+# produced a mutant nobody had designed. The delimiter is now `%` (no marker or
+# replacement in this file contains one) and `&` is escaped.
+#
+# The exactly-N-lines-changed assertion is what caught both. A harness that only
+# checked the mutant's exit code would have called each of them a kill.
 _mutate() {
   local m="$1" marker="$2" repl="$3"
   local f="$m/scripts/lib/adopt/adopt-test-debt.sh"
-  local before sites changed parses
+  local before sites changed parses safe
+  safe="${repl//&/\\&}"
   before="$(mktemp)"
   cp -p "$f" "$before"
   sites=$(_sites "$f" "$marker")
-  _sed_inplace "$f" "s|^.*${marker}\$|${repl}|"
+  _sed_inplace "$f" "s%^.*${marker}\$%${safe}%"
   changed=$(_changed_lines "$before" "$f")
   parses=$(_parses "$f")
   rm -f "$before"
@@ -1229,6 +1243,8 @@ else
   printf 'export function paid() { return 2; }\n' > "$M11D/p/src/paid.js"
   gitq "$M11D/p" add -A
   check_in "$M11D/p" "$(_mlib "$M11D/m")"; m11_ctl=$CHK_RC
+  # The real line MINUS the diff.renames pin and nothing else — the `&&` is
+  # carried verbatim, which is what proves _mutate's `&` escaping works.
   m11_meta=$(_mutate "$M11D/m" '# BF-TD-STAGED-READ' '  staged="$( cd "$root" 2>/dev/null && git -c core.quotePath=false diff --cached --name-status 2>/dev/null )"')
   set -- $m11_meta; m11_sites=$1; m11_changed=$2; m11_parses=$3
   check_in "$M11D/p" "$(_mlib "$M11D/m")"; m11_mut=$CHK_RC
