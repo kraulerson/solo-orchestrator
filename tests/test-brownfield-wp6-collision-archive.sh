@@ -170,7 +170,14 @@ mkdir -p "$XDG_CONFIG_HOME"
 # the block above states — the fixture must own every input git reads — rather
 # than a live hazard. H0b measures the first two in both directions anyway,
 # because "not set today" is a property of today.
-unset GIT_CONFIG_COUNT GIT_TEMPLATE_DIR
+#   GIT_CONFIG_PARAMETERS (R-WP6-15)
+#       The fourth channel, and it arrives in EXACTLY the scenario the GIT_DIR
+#       line above names: `git -c foo.bar=baz` exports it to every child, so a
+#       suite run from inside a hook inherits it. Measured: with every file
+#       scope neutralised and GIT_CONFIG_COUNT unset,
+#       GIT_CONFIG_PARAMETERS="'core.excludesFile'='…'" still decides a fixture
+#       path. H0b's third direction pins it.
+unset GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS GIT_TEMPLATE_DIR
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
 unset GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE GIT_COMMON_DIR
 
@@ -439,13 +446,23 @@ if mk_adoptee "$H0B/p"; then
   ( cd "$H0B/t1" && GIT_TEMPLATE_DIR="$H0B/tpl" git init -q . && git check-ignore -q -- "$h0b_probe" ) 2>/dev/null || h0b_tpl_with=0
   h0b_tpl_without=1
   ( cd "$H0B/t2" && git init -q . && git check-ignore -q -- "$h0b_probe" ) 2>/dev/null || h0b_tpl_without=0
+  # Third direction (R-WP6-15): GIT_CONFIG_PARAMETERS, which is what
+  # `git -c foo.bar=baz` exports to every child process — so it is live in
+  # exactly the run-from-inside-a-hook scenario the preamble's GIT_DIR line
+  # already names.
+  h0b_par_with=1
+  ( cd "$H0B/p" && GIT_CONFIG_PARAMETERS="'core.excludesFile'='$H0B/inject'" \
+      git check-ignore -q -- "$h0b_probe" ) 2>/dev/null || h0b_par_with=0
+  h0b_par_without=1
+  ( cd "$H0B/p" && git check-ignore -q -- "$h0b_probe" ) 2>/dev/null || h0b_par_without=0
   h0b_ok=1
 fi
 if [ "$h0b_ok" -eq 1 ] && [ "$h0b_cfg_with" -eq 1 ] && [ "$h0b_cfg_without" -eq 0 ] \
-   && [ "$h0b_tpl_with" -eq 1 ] && [ "$h0b_tpl_without" -eq 0 ]; then
-  pass "H0b (R-WP6-13): GIT_CONFIG_COUNT (command scope, outranking every file scope) and GIT_TEMPLATE_DIR both DO decide a fixture path when set, and neither does under the suite's unset preamble"
+   && [ "$h0b_tpl_with" -eq 1 ] && [ "$h0b_tpl_without" -eq 0 ] \
+   && [ "$h0b_par_with" -eq 1 ] && [ "$h0b_par_without" -eq 0 ]; then
+  pass "H0b (R-WP6-13/15): all three remaining channels — GIT_CONFIG_COUNT (command scope), GIT_TEMPLATE_DIR (seeds info/exclude) and GIT_CONFIG_PARAMETERS (what 'git -c' exports) — DO decide a fixture path when set, and none does under the suite's unset preamble"
 else
-  fail_ "H0b" "setup=$h0b_ok GIT_CONFIG_COUNT decides when set=$h0b_cfg_with (want 1 — else the channel is not real) and when unset=$h0b_cfg_without (want 0); GIT_TEMPLATE_DIR when set=$h0b_tpl_with (want 1) and when unset=$h0b_tpl_without (want 0)"
+  fail_ "H0b" "setup=$h0b_ok GIT_CONFIG_COUNT decides when set=$h0b_cfg_with (want 1 — else the channel is not real) and when unset=$h0b_cfg_without (want 0); GIT_TEMPLATE_DIR when set=$h0b_tpl_with (want 1) and when unset=$h0b_tpl_without (want 0); GIT_CONFIG_PARAMETERS when set=$h0b_par_with (want 1) and when unset=$h0b_par_without (want 0)"
 fi
 
 echo ""
@@ -963,6 +980,68 @@ else
   fi
 fi
 
+# ── G6b / G6c (R-WP6-14) — AN EXIT CODE IS NOT A RECEIPT ────────────────────
+#
+# G6 pinned "a corrupt ledger must not be committed in silence" using ONE
+# corruption spelling — a file of garbage — which `jq` refuses with rc 5. The
+# fix rested on the inference that a zero rc from `bypass_audit_append` proves
+# the ledger parsed, "since the appender's own jq had to read it". THAT IS
+# FALSE, and it is false for the most ordinary corruption there is. Measured:
+#
+#   ledger      append rc   docs out   rows written   proposed guard rc
+#   ----------------------------------------------------------------------
+#   empty         0            0          none              1     <- SILENT LOSS
+#   null          0            1          1                 1     <- silent repair
+#   multidoc      0            2          2                 1     <- silent DUPLICATE
+#   non-array     5            0          none              1
+#   garbage       5            0          none              5
+#   valid []      0            1          1                 0
+#
+# `jq FILTER file` over a ZERO-BYTE file runs the filter across zero input
+# documents, emits nothing and exits 0. The append "succeeds", `mv`s an empty
+# temp over the empty file, and appends nothing. A zero-byte file is THE
+# canonical truncation artifact — bypass-audit.sh's own D3 comment worries
+# about a SIGKILL truncating this very file — so this is not an exotic input.
+#
+# THE FIX BELONGS TO THE APPENDER, NOT TO THIS PACKAGE'S CALLER. Six files call
+# `bypass_audit_append`, and the two loud-fail arms in hook-templates.sh
+# (`# BL-163`, `# BL-185`) already test its rc and announce a `[note]` when it
+# fails — so today they announce nothing on a truncated ledger and lose the row.
+# Guarding here would have fixed one caller and left five.
+#
+# G6c pins the LIBRARY CONTRACT over every spelling, with the valid case as the
+# positive control so the guard cannot be "always refuse". G6b pins the
+# end-to-end consequence for the zero-byte spelling specifically, which is the
+# one G6 could not see.
+G6C="$(newtmp)"
+g6c_fail=""
+g6c_rows_valid=0
+mkdir -p "$G6C/proj/.claude"
+for spelling in empty null multidoc nonarray garbage valid; do
+  case "$spelling" in
+    empty)    : > "$G6C/proj/.claude/bypass-audit.json" ;;
+    null)     printf 'null\n'        > "$G6C/proj/.claude/bypass-audit.json" ;;
+    multidoc) printf '[]\n[]\n'      > "$G6C/proj/.claude/bypass-audit.json" ;;
+    nonarray) printf '{"x":1}\n'     > "$G6C/proj/.claude/bypass-audit.json" ;;
+    garbage)  printf 'not json\n'    > "$G6C/proj/.claude/bypass-audit.json" ;;
+    valid)    printf '[]\n'          > "$G6C/proj/.claude/bypass-audit.json" ;;
+  esac
+  g6c_rc=0
+  ( . "$BYPASS_LIB" >/dev/null 2>&1
+    bypass_audit_append "$G6C/proj" '{"type":"adoption_event","actor":"framework"}' ) >/dev/null 2>&1 || g6c_rc=$?
+  if [ "$spelling" = "valid" ]; then
+    [ "$g6c_rc" -eq 0 ] || g6c_fail="$g6c_fail valid:rc=$g6c_rc(want 0)"
+    g6c_rows_valid=$(jq -r 'length' "$G6C/proj/.claude/bypass-audit.json" 2>/dev/null); g6c_rows_valid=$(_num "$g6c_rows_valid")
+  else
+    [ "$g6c_rc" -ne 0 ] || g6c_fail="$g6c_fail $spelling:rc=0(want non-zero)"
+  fi
+done
+if [ -z "$g6c_fail" ] && [ "$g6c_rows_valid" -eq 1 ]; then
+  pass "G6c (R-WP6-14, library contract): bypass_audit_append REFUSES every corrupt ledger spelling — empty, null, multi-document, non-array and garbage — and still appends exactly one row to a valid [] (rows=$g6c_rows_valid), so the guard is a predicate and not a blanket refusal"
+else
+  fail_ "G6c" "spellings that did not refuse:$g6c_fail; rows appended to a VALID ledger=$g6c_rows_valid (want 1)"
+fi
+
 # ── R5 (R-WP6-12) — a re-add that fails BEFORE the copy leaves no row ───────
 #
 # The record-before-restore fix (R-WP6-4) buys "no re-add without a row" and
@@ -1144,6 +1223,36 @@ else
     pass "G6 (R-WP6-11): with the ledger already corrupt the adoption still completes (rc 0) and the MANIFEST still commits, but the failed audit row is announced LOUDLY and the corrupt ledger is kept OUT of the commit"
   else
     fail_ "G6" "rc=$g6_rc (want 0) landed=$g6_landed (want 1) MANIFEST in HEAD=$g6_manifest (want 1) corrupt ledger in HEAD=$g6_ledger (want 0) failure announced=$g6_loud (want >=1)"
+  fi
+fi
+
+# ── G6b (R-WP6-14) — the same, for the spelling G6 structurally could not see ─
+# A ZERO-BYTE ledger, which `jq` accepts at rc 0 while reading nothing. Before
+# the appender guard this reached: adopt rc 0, zero "could not be recorded" in
+# the transcript, the row silently dropped, and the zero-byte file COMMITTED
+# into HEAD as the project's first governance record — G6's exact forbidden
+# outcome, through a door G6's garbage fixture never opened.
+G6B="$(newtmp)"
+if ! mk_adoptee "$G6B/p" || ! _add_surfaces "$G6B/p"; then
+  fail_ "G6b" "fixture setup failed"
+else
+  mkdir -p "$G6B/p/.claude"
+  : > "$G6B/p/.claude/bypass-audit.json"
+  g6b_size_before=$(wc -c < "$G6B/p/.claude/bypass-audit.json" | tr -d ' ')
+  _ans > "$G6B/answers"
+  run_adopt "$G6B/p" "$G6B/answers"
+  g6b_rc=$RUN_RC
+  g6b_landed=$(_adoption_commit_landed "$G6B/p")
+  g6b_arch="$(arch_dir_of "$G6B/p")"
+  g6b_manifest=0
+  [ -n "$g6b_arch" ] && g6b_manifest=$(_in_head "$G6B/p" "$g6b_arch/MANIFEST.json")
+  g6b_ledger=$(_in_head "$G6B/p" ".claude/bypass-audit.json")
+  g6b_loud=$(_count_in "$RUN_OUT" "could not be recorded")
+  if [ "$g6b_size_before" -eq 0 ] && [ "$g6b_rc" -eq 0 ] && [ "$g6b_landed" -eq 1 ] \
+     && [ "$g6b_manifest" -eq 1 ] && [ "$g6b_ledger" -eq 0 ] && [ "$g6b_loud" -ge 1 ]; then
+    pass "G6b (R-WP6-14, end to end): a ZERO-BYTE ledger — the canonical truncation artifact, which jq accepts at rc 0 while reading nothing — is announced LOUDLY and kept out of the commit, exactly as the garbage spelling is"
+  else
+    fail_ "G6b" "ledger size before=$g6b_size_before (want 0) rc=$g6b_rc (want 0) landed=$g6b_landed (want 1) MANIFEST in HEAD=$g6b_manifest (want 1) zero-byte ledger in HEAD=$g6b_ledger (want 0) failure announced=$g6b_loud (want >=1)"
   fi
 fi
 
