@@ -9546,3 +9546,124 @@ their guard at the door nobody uses — which is exactly what WP6 nearly did.
 **Related:** `## BL-225:` (the other WP6-adjacent residual), `## BL-029:` /
 `## BL-030:` (the archived plans that scheduled this), and BL-104's
 silent-success family.
+
+---
+
+## BL-228: `language` is a single-select scalar, so a polyglot project cannot be described — and nothing ever asks for the system architecture
+
+**Logged:** 2026-08-11 (Karl, from a concrete case: a client/server product whose
+frontend is C++ with a couple of Python modules and whose backend is Rust over
+PostgreSQL. Today that project must claim to be one language.)
+**Category:** Product gap / intake expressiveness — the scaffold models a
+single-language project, and real projects routinely are not one
+**Severity:** Medium-High. Nothing is broken for the projects the model fits, and
+the escape hatch (`other`) keeps a polyglot project *working*. But everything
+downstream that is language-derived is then derived from a fiction: the operator
+picks the language they care most about, and the tooling, the CI lane and the
+generated docs quietly serve that one.
+**Status:** Open
+
+### What exists today, measured on `main` @ `b24627c`
+
+**The selection is singular, at one site.** `init.sh` asks
+`prompt_choice "Primary language:"` (grep `Primary language:` — one occurrence),
+and the answer is written to `.claude/manifest.json` as a **scalar**:
+
+```
+  "language": "typescript",
+```
+
+The word *Primary* is doing real work in that prompt: it already concedes there
+may be others, and then offers nowhere to put them.
+
+**15 files read it**, as of `b24627c`:
+
+```
+git grep -l '\.language\b\|LANGUAGE\|\$language' -- scripts/ init.sh templates/ | wc -l
+```
+
+**Re-derive it; do not quote it.** The first draft of this entry said *14* — the
+author miscounted their own grep output while writing the sentence that tells you
+not to trust the number. That is the fourth wrong enumeration in this backlog
+inside a week (the delta consumer table said six and was eight, `## BL-223:` said
+three and was nine, `## BL-227:` said six and was seven), which is the whole
+reason the recipe is printed here instead of the answer.
+
+The load-bearing consumers:
+
+| consumer | what the single value decides |
+|---|---|
+| `scripts/resolve-tools.sh` | which tools are required. Filters the tool matrix at the `.languages` predicate |
+| `templates/pipelines/ci/github/*.yml` | **one template per language** — `csharp`, `dart`, `go`, `java`, `kotlin`, `python`, `rust`, `swift`, `typescript`, and `other` |
+| `scripts/lib/hook-templates.sh` | the emitted pre-commit hook's test/lint invocations |
+| `scripts/run-phase3-validation.sh` | which scanners run |
+| `scripts/lib/render-project-docs.sh`, `templates/generated/claude-md.tmpl` | what the generated project tells its own agent it is written in |
+
+**Half the data model is already plural.** Every tool-matrix row carries
+`"languages"` as a **list** (`jq '.tools[0] | keys' templates/tool-matrix/common.json`),
+and `resolve-tools.sh` matches against it. So the *catalogue* is polyglot-ready;
+it is the *selection* that is scalar. That asymmetry is the cheapest place to
+start and it is why this is not a rewrite.
+
+**The CI lane is the hard part, and it should be scoped honestly.** One template
+per language means the C++/Python/Rust example gets exactly one lane. Whether the
+answer is a composed multi-job workflow, per-component lanes, or a documented
+limitation is a design question, not an implementation detail — and `other.yml`
+exists precisely because this was already known to be lossy.
+
+**Nothing asks for the system architecture.** `scripts/intake-wizard.sh` § 6.4 is
+titled "Architecture Preferences", and what it actually asks is *data storage*,
+*authentication strategy*, and then per-platform *frontend framework* / *UI
+framework* / *hosting*. Those are **component choices**. Nowhere does the intake
+ask — or offer to suggest — the **shape** of the system: monolith, client/server,
+N-tier, microservices, event-driven, serverless, or a hybrid. A project's
+architecture drives its phase plan, its test strategy, its deployment surface and
+its Phase 3 validation scope, and today the framework infers none of it.
+
+### What is wanted
+
+1. **Multiple languages, with roles.** Not a flat list — the example is
+   structured: a C++ *frontend client* with Python *modules*, a Rust *backend*, a
+   PostgreSQL *datastore*. A flat `["cpp","python","rust"]` loses which is which,
+   and the CI and tooling questions are answerable only with the structure.
+   Whether that is components-with-languages or languages-with-roles is the first
+   design decision.
+2. **Architecture asked, and suggested.** The intake should ask for the system
+   shape and be able to **propose** one from what it already knows (platform,
+   deployment tier, the component set above) — as a *suggestion the operator
+   confirms or overrides*, never a silent default. The house pattern for this
+   already exists: `# BL-204-PREFILL-READ` (offer what is known as evidence, with
+   its provenance, and let "change it" fall through to the full question), and
+   the brownfield chooser's rule that a judgement the framework has never made
+   gets **no default and no skip**.
+3. **Backward compatibility is not optional.** Every existing project has a
+   scalar `"language"`. A plural model has to read those without a migration
+   step, and `scripts/upgrade-project.sh` has to carry existing projects forward.
+
+### Constraints whoever takes this should know before designing
+
+- **`# BL-084-TIER-KEY` is the cautionary tale.** A predicate spread across four
+  scripts had to be kept in sync by hand; a fifth spelling would be a defect on
+  arrival. A polyglot model touches *more* consumers than that one does — so the
+  read path wants to be a single accessor from the start, not four `jq` calls
+  that drift.
+- **`BL-221` is the live example of what a widened schema does to a reader that
+  did not widen with it**: `jq -r '.deployment // "personal"'` turns a *missing*
+  key into a *permissive* answer. Any `.language` reader that meets a `languages`
+  array — or vice versa — must fail closed and loud, never quietly pick a
+  default.
+- **Do not let the scaffold and the tool matrix disagree.** The matrix's
+  `languages` list is the existing plural vocabulary; a second, differently
+  spelled list in the manifest is the drift shape this repo keeps paying for.
+
+### Fix shape
+
+Design doc first — this is a schema change with 14 consumers, a CI story that has
+no obvious answer, and a new intake section. Not a work package that starts by
+editing `init.sh`.
+
+**Related:** `## BL-204:` (the prefill-with-provenance pattern the architecture
+question should reuse), `## BL-084:` (the sync-siblings cautionary tale),
+`## BL-221:` (what a schema change does to an un-widened reader),
+`## BL-095:` (centralize state parsing — a polyglot `language` is exactly the
+field that argues for it).
