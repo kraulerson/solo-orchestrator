@@ -9229,14 +9229,23 @@ jump from ~11.4s to ~28.8s. A single-pass `sed -n 's#...#\1p'` over the file
 (no `grep`, no per-line subshell) does the same work in one process.
 
 **Why it was NOT done as a drive-by, and this is the load-bearing half of the
-entry.** It is a **core lib with three consumers**, each with its own
-correctness story:
+entry.** It is a **core lib with NINE calling files**, each with its own
+correctness story. *A first draft of this entry said three, naming only the ones
+this work package had touched; adversarial review counted the rest. Derive the
+list, do not remember it —* `git grep -ln soif_parse_shipped_scripts -- 'scripts/*' 'tests/*'`
+*minus the lib itself:*
 
 | Consumer | What breaks if the parse changes |
 |---|---|
 | `tests/test-scaffold-source-closure.sh` | the BL-088 source-closure check — its whole claim is that the derived set is byte-identical to init.sh's real copy list |
 | `scripts/upgrade-project.sh --sync-framework` | BL-099 SLICE-A copies exactly this set framework→project |
 | `scripts/lib/adopt/adopt-test-debt.sh` | the test-debt census's framework exclusion; a set that shrinks silently re-opens the ledger poisoning the WP5b fix round closed |
+| `scripts/lib/adopt/adopt-state.sh` | the adoption **install** set — the same derivation the exclusion above subtracts, which is *why* they cannot diverge |
+| `scripts/adopt-project.sh` | the driver's own set reference |
+| `scripts/lib/currency-manifest.sh` | the currency manifest's shipped-file inventory |
+| `scripts/lib/plan-staging.sh` | plan staging iterates the set |
+| `tests/test-currency-birth-stamp.sh` | asserts against the derived set |
+| `tests/test-delta-wp8-intake.sh` | asserts against the derived set |
 
 The parser's own header says its full-line matching "mirrors the original inline
 parser in `tests/test-scaffold-source-closure.sh` **byte-for-byte** so both
@@ -9246,13 +9255,20 @@ that the emitted set is unchanged on the real `init.sh` — not a passing suite,
 which a *smaller* set also produces.
 
 **Acceptance:** the rewritten parser emits a byte-identical set to the current
-one on the real `init.sh` (diff of both outputs, asserted, not eyeballed); all
-three consumers' suites stay green; a mutation that drops the glob-expansion
-branch reds. Re-measure and record the per-call cost.
+one on the real `init.sh` (diff of both outputs, asserted, not eyeballed); **every
+calling file's suite stays green — re-derive the list at the time, do not trust
+the table above**; a mutation that drops the glob-expansion branch reds.
+Re-measure and record the per-call cost.
 
-**Related:** `## BL-088:` (source closure, consumer 1), `## BL-099:` (framework
-sync, consumer 2). The WP5b consumer arrived 2026-08-10 with the brownfield
-test-debt ledger.
+The byte-identical criterion is what makes the under-count survivable: it
+protects every caller regardless of whether the table names them. That is the
+reason to keep it even if a future rewrite looks obviously safe.
+
+**Related:** `## BL-088:` (source closure), `## BL-099:` (framework sync). The
+WP5b consumer arrived 2026-08-10 with the brownfield test-debt ledger.
+Measured cost: 125 ms/call on the implementer's run, 144 ms on the reviewer's —
+same magnitude, and the spread is why the entry says re-measure rather than
+quoting one number.
 
 ---
 
@@ -9270,8 +9286,15 @@ this repo already has scar tissue for on the unit-lane predicate.
 **The reproduction, one line.** In any `tests/test-*.sh`:
 
 ```
-printf '#!/usr/bin/env bash\n# no copy lines\n' > "$m/init.sh"
+printf '#!/usr/bin/env bash\n# no copy lines\n' > "$m/init.sh" || true
 ```
+
+**The trailing `|| true` is load-bearing and was missing from the first draft of
+this entry** — rule B requires `[[:space:]]` *after* the init token, so the bare
+redirect does not red (measured: rc 0, zero hits) and a future fixer running the
+recipe verbatim would conclude the bug was already gone. The real `mk_mirror`
+shape that first fired it ends `|| return 1 ;;`. Reproduce, then fix; the entry
+that sends you looking is only as good as its recipe.
 
 reds as:
 
@@ -9304,12 +9327,29 @@ says why in as many words, so the next reader does not "fix" it back.
 by a command terminator that is not inside a quoted string — a real shell-aware
 parse, and a large change to a lint with its own suite. (b) Exclude logical
 lines whose init token is immediately preceded by a redirect operator (`>`,
-`>>`) — narrow, cheap, and covers this class exactly. (c) Anchor the `env`
-alternative so it must be at command position too. **(b) is the smallest
-honest fix**; it needs its own mutation proof that a genuine
+`>>`) — narrow, cheap, and covers *the redirect class* exactly. (c) Anchor the
+`env` alternative so it must be at command position too.
+
+**Whichever is taken needs its own mutation proof** that a genuine
 `env FOO=bar "$INIT"` still reds, because the risk of narrowing a hermeticity
 lint is a live `gh repo create` — which this repo has already leaked once
 (2026-07-06).
+
+**(b) is NOT sufficient — two more over-broad shapes, measured by adversarial
+review 2026-08-10.** The first draft of this entry called (b) "the smallest
+honest fix"; that was written from one instance rather than from a survey.
+Rule B also reds:
+- a **heredoc body** line — `uses env FOO=bar "$m/init.sh" here` inside a
+  `<<'DOC'` block reds at rc 1, though nothing there is a command at all;
+- a **mid-word `env`** — `run_getenv "$m/init.sh" now` fires, because the
+  `env[[:space:]]` alternative has no left word-boundary.
+
+**(b) covers neither. (c) covers all three**, which makes command-position
+anchoring the fix to price rather than the redirect exclusion. Negative controls
+behaved correctly and should be kept as the preservation half of the proof:
+comments are stripped, an `scripts/env-setup.sh`-style path passes (`env`
+followed by `-`), and the genuine `env SOIF_FAKE=1 "$m/init.sh" --whatever`
+still reds.
 
 **Related:** `## BL-076:` (the lint itself). Sibling shape:
 `## BL-181:`, where narrowing a predicate by one character re-opened a hole
