@@ -9818,7 +9818,9 @@ advisory
 satisfied, writes are unblocked, and **zero prior context is retrieved**. The
 feature's entire purpose — call the database instead of re-loading context — is
 silently not happening, and no surface anywhere says so.
-**Status:** Open
+**Status:** Open — **the fix is owned by `## BL-233:`** (the shared enforcement
+mechanism). This entry is the evidence; do not patch it in isolation, because a
+fix here leaves the mechanism intact.
 
 ### What exists, and it is the right intent
 
@@ -9935,7 +9937,9 @@ string names documentation, and documentation is never required
 reachable and working** (verified: `resolve-library-id` returned five Qdrant
 libraries with snippet counts and reputation scores). So this is not a dead
 dependency — it is a live one whose gate does not check what it says it checks.
-**Status:** Open
+**Status:** Open — **the fix is owned by `## BL-233:`** (the shared enforcement
+mechanism). This entry is the evidence; do not patch it in isolation, because a
+fix here leaves the mechanism intact.
 
 ### The gate, and what it says it is for
 
@@ -10013,3 +10017,112 @@ mistake the prompt's effect for the gate's.
 together), `## BL-222:` (a check satisfied by a proxy), `## BL-149:` (a gate
 people route around is worse than none), `## BL-112:` ("did not run" must never
 read as "found nothing").
+
+---
+
+## BL-233: the MCP enforcement mechanism records DECLARATIONS, never OUTCOMES — one root cause behind BL-231 and BL-232, and the fix belongs here
+
+**Logged:** 2026-08-12 (Karl, on reading `## BL-231:` and `## BL-232:`:
+*"This is the same as qdrant. We need to fix enforcement."* He is right, and
+they are not two bugs. They are two faces of one mechanism.)
+**Category:** Enforcement architecture — a gate whose every layer asks whether
+something was *declared* rather than whether it *happened*
+**Severity:** High. This entry owns the fix. `## BL-231:` and `## BL-232:`
+document the two visible symptoms and should be read first for the evidence;
+neither should be fixed on its own, because a patch to either leaves the
+mechanism intact.
+**Status:** Open
+
+### The mechanism
+
+Three files, 435 lines total, registered by `init.sh` into generated projects:
+
+| file | role |
+|---|---|
+| `scripts/session-test-gate-check.sh` | SessionStart — decides what is *required* |
+| `scripts/track-tool-usage.sh` | PostToolUse — records what was *done* |
+| `scripts/session-mcp-gate.sh` | PreToolUse on `Write`/`Edit` — *blocks* until satisfied |
+
+The intent is sound and its own header says so: *"session-start MCP requirements
+were advisory only. This hook makes them mechanical — the agent cannot produce
+output until it has loaded prior context and verified library documentation."*
+
+### The single root cause
+
+**At every layer the mechanism substitutes a declaration for an outcome.** Once
+that frame is applied, the seven separately-filed defects collapse into one:
+
+| layer | what it asks | what it should ask |
+|---|---|---|
+| availability | is a server **named** `qdrant`/`context7` listed in settings? | does it **answer**? |
+| satisfaction | was a tool **whose name matches** called? | did the call **return usefully**? |
+| sufficiency | was *any* matching tool called? | was the tool that **does the work** called (`query-docs`, not `resolve-library-id`) |
+| requirement | is `mcp_requirements.X_required` **present and true**? | absent must not mean **no** |
+| persistence | was the gate satisfied **once**? | is it satisfied **now**, this session? |
+| dependency | did the agent **read** memory? | was anything ever **written** for it to read? |
+| degradation | is the tracking file / `jq` **present**? | absent must **fail closed**, not exit 0 |
+
+Every row is the same substitution. That is why patching Qdrant and Context7
+separately would produce two patches and no fix.
+
+### What the redesign has to do
+
+1. **Probe, do not infer.** Availability is a round trip, not a config key. Three
+   states, distinguishable in output: reachable / configured-but-unreachable /
+   not-configured. `# BL-112-SAST-NOTRUN` is the shipped precedent — *"did not
+   run" must never read as "found nothing."*
+2. **Read `.tool_response`.** The PostToolUse payload carries the result; the
+   tracker currently reads only `.tool_name`. An error must not satisfy anything.
+3. **Name the tool that does the work.** `resolve-library-id` is the argument
+   step. Require `query-docs` (or require both, in order).
+4. **Seed `mcp_requirements` in `init.sh`.** A missing key must not be a silent
+   opt-out — `## BL-221:` is the same shape one subsystem over.
+5. **Decide the latch deliberately.** `mcp_gate_satisfied` lives in a file the
+   agent can edit, and `5b1a081` already had to fix this file's
+   merge-vs-overwrite behaviour across `/resume`, `/compact` and `/clear`.
+6. **Decide whether the write half is enforced** — see `## BL-231:`. A retrieval
+   requirement with no accumulation requirement is a ratchet with nothing
+   behind it.
+7. **Register the hooks in this repo.** None of this fires in
+   solo-orchestrator; `init.sh` wires it into generated projects only, and the
+   framework repo has no `.claude/settings.json`. The same gap hides the
+   version-check hook.
+
+### The constraint that decides the design
+
+**A gate people cannot satisfy honestly is a gate they delete** (`## BL-149:`).
+Offline work, a session that touches no libraries, a project with no prior
+memory — all are legitimate, and all must have an honest path through.
+
+The model already in the tree is the BL-072 TDD gate: **hard block, with an
+attested escape that must be durably recorded, and a refusal if the record
+cannot be written** (`SOLO_TDD_ATTESTED=1` plus a reason; the commit is refused
+if the attestation cannot be logged). Copy that shape. An escape that leaves no
+trace is the advisory posture this entry exists to replace.
+
+### Proof it must carry
+
+Dual-direction, per requirement, and the failing direction is the one that
+matters:
+- unreachable server ⇒ **RED**; reachable ⇒ GREEN;
+- an **erroring** tool call ⇒ **RED** (this is the test that would have caught
+  today's behaviour, where a call returning *"All connection attempts failed"*
+  satisfied the gate);
+- `resolve-library-id` alone ⇒ **RED**;
+- a tracking file with **no** `mcp_requirements` key ⇒ **RED**, not silently
+  unenforced;
+- deleting the tracking file, or `jq` ⇒ **RED**, not exit 0;
+- and each proof must itself fail if the probe is removed.
+
+**A test that passes because a tool was *called* is this bug, restated in the
+test suite.** That failure mode has appeared five times in one week —
+`## BL-227:` (`jq` exiting 0 having read nothing), a `sed` reporting success
+having edited nothing, a mutant scored as killed that was never applied,
+`## BL-222:` (a clock satisfied by a filename), and this. **An exit code is not
+a receipt.**
+
+**Related:** `## BL-231:` and `## BL-232:` (the two symptoms and their measured
+evidence — read first), `## BL-221:` (missing key ⇒ permissive default),
+`## BL-222:` (a proxy that does not measure the thing), `## BL-112:` and
+`## BL-149:` (the two doctrines that bound the design), `## BL-104:` (the
+`[WARN]`/`issues` mismatch — the label is never the behaviour).
