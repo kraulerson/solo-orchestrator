@@ -9920,3 +9920,96 @@ gate satisfied without looking), `## BL-227:` (an exit code that is not a
 receipt), `## BL-112:` ("did not run" ≠ "found nothing"), `## BL-149:` (a gate
 people route around is worse than none), `## BL-230:` (the sibling
 "nothing watches this" finding filed the same week).
+
+---
+
+## BL-232: the Context7 session gate is satisfied by looking up a library ID and never reading a document
+
+**Logged:** 2026-08-12 (Karl: *"validate the use of context7 as a reference
+before each build session"* — filed with `## BL-231:`, which covers the Qdrant
+half of the same gate. Everything below measured on `main` @ `9060d31`,
+including a live call.)
+**Category:** Proxy that does not measure the thing — the gate's own reason
+string names documentation, and documentation is never required
+**Severity:** Medium-High. Unlike its Qdrant sibling, **Context7 is genuinely
+reachable and working** (verified: `resolve-library-id` returned five Qdrant
+libraries with snippet counts and reputation scores). So this is not a dead
+dependency — it is a live one whose gate does not check what it says it checks.
+**Status:** Open
+
+### The gate, and what it says it is for
+
+`scripts/session-mcp-gate.sh` blocks `Write`/`Edit` until Context7 has been
+called, with this reason, verbatim:
+
+> `context7 resolve-library-id or query-docs (verify library documentation is
+> current before writing).`
+
+### The defect specific to Context7
+
+`scripts/track-tool-usage.sh` sets `context7_called = true` when the tool name
+matches `grep -q "context7"`. Both MCP tools match:
+
+| tool | satisfies the gate? | returns documentation? |
+|---|---|---|
+| `mcp__context7__resolve-library-id` | **yes** | **no — a list of library IDs** |
+| `mcp__context7__query-docs` | yes | yes |
+
+**`resolve-library-id` fetches no documentation at all.** It answers "what is
+this library's Context7 ID?" — a lookup step whose entire purpose is to produce
+an argument for the call that *does* fetch docs. So the gate that exists to
+ensure the agent read current documentation is satisfied by an act that reads
+none, and the agent is then free to write code against remembered APIs.
+
+The same call also resets `commits_since_last_context7 = 0`, so an ID lookup
+silences the commit-time staleness nudge as well.
+
+This is `## BL-222:`'s shape on a different surface: a check that measures a
+**proxy** for the thing it is named after, where the proxy is satisfiable
+without the thing happening.
+
+### Everything BL-231 documents applies here too — same gate, same layers
+
+`.mcp_requirements.context7_required // false` (missing key ⇒ **not required**);
+`init.sh`'s `tool-usage.json` seed contains **no `mcp_requirements` object**;
+`track-tool-usage.sh:56` re-seeds `"context7_required": false`; absent tracking
+file or absent `jq` ⇒ silent no-enforcement; and `mcp_gate_satisfied` latches
+after the first pass. **And `context7_called` is set from the tool NAME, never
+from `.tool_response`** — so a Context7 call that errors satisfies the gate
+exactly as a Qdrant one does.
+
+### The commit-time half does not block
+
+`scripts/pre-commit-gate.sh` checks `commits_since_last_context7 >= 2` and
+appends to `WARNINGS`, which is emitted with
+`"permissionDecision": "allow"` — **explicitly non-blocking**. So after the
+session-start gate is satisfied once, Context7 staleness never stops anything;
+it is a nudge, and a nudge an ID lookup resets.
+
+### What "validated before each build session" should mean
+
+1. **Require the call that actually fetches documentation.** `query-docs` should
+   satisfy the gate; `resolve-library-id` alone should not — it is the argument
+   step, not the reference step. If the pair must be allowed, require **both**,
+   in that order.
+2. **Verify the response, not the invocation** (`## BL-231:` item 2). Read
+   `.tool_response`; an error must not count.
+3. **Decide what "before each build session" means when no library is involved.**
+   A session that touches only shell scripts has nothing to look up, and a gate
+   that cannot be satisfied honestly is one people route around — `## BL-149:`.
+   The likely shape is: required when the change touches a language with
+   dependencies, skippable-with-a-reason otherwise, and the skip recorded.
+4. **Seed `mcp_requirements` in `init.sh`** so the default is not silence.
+
+### Worth knowing before designing it
+
+What actually causes Context7 to be consulted today is **not this gate** — it is
+a prompt-level instruction in the operator's own Claude configuration, outside
+this repo. That is why the feature appears to work in practice while the
+enforcement measured above does essentially nothing. A redesign should not
+mistake the prompt's effect for the gate's.
+
+**Related:** `## BL-231:` (the Qdrant half of the same gate — read them
+together), `## BL-222:` (a check satisfied by a proxy), `## BL-149:` (a gate
+people route around is worse than none), `## BL-112:` ("did not run" must never
+read as "found nothing").
