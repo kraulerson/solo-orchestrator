@@ -58,7 +58,15 @@
 #   • EVERY mutant asserts `bash -n` — a mutation that lands as a syntax error
 #     kills every test for the wrong reason and would score as a pass;
 #   • mode-preserving (`stat -c || stat -f`, GNU-first);
-#   • a FRESH fixture per mutant, so no mutant inherits another's ledger;
+#   • a FRESH fixture per mutant — and per DIRECTION. Sharing one project
+#     directory between a control run and its mutant run is not merely untidy
+#     here, it is wrong: the gate REWRITES mcp_gate_satisfied on every
+#     invocation, so a control run that denied left the flag false and the
+#     latch mutant (M5) then had nothing to latch onto. It survived, and it
+#     survived silently — the meta-assertions were all green because the
+#     mutation applied perfectly. Only the direction assertion caught it;
+#   • every mutant that changes a project's ledger re-runs its own tracker
+#     calls against the fresh fixture rather than inheriting them;
 #   • structural discriminators for ABSENCES — an absence cannot be greped for,
 #     so the two absence properties (the gate takes NO latch fast path; the
 #     tracker re-seed carries NO mcp_requirements) are each pinned by a real
@@ -173,6 +181,21 @@ LEDGER_NONE_REQUIRED='{
   "mcp_gate_satisfied": false,
   "mcp_requirements": {
     "qdrant_required": false,
+    "context7_required": false,
+    "additional_required": []
+  }
+}'
+
+# One key present, the OTHER missing — the fixture M3 needs. With both keys
+# absent, flipping one default cannot change the verdict (the other still
+# blocks) and the mutant would survive for a reason that has nothing to do with
+# the line under test.
+LEDGER_MISSING_QDRANT_KEY='{
+  "session_id": "2026-08-13T00:00:00Z",
+  "calls": [],
+  "commits_since_last_context7": 0,
+  "mcp_gate_satisfied": false,
+  "mcp_requirements": {
     "context7_required": false,
     "additional_required": []
   }
@@ -703,12 +726,19 @@ else
   g2_created=0
   [ -f "$G2D/.claude/tool-usage.json" ] && g2_created=1
   g2_has_req=$(jq -r 'has("mcp_requirements")' "$G2D/.claude/tool-usage.json" 2>/dev/null)
+  # Both fail-closed requirements are live on a ledger with no requirements
+  # object, so BOTH have to be genuinely satisfied for the gate to allow —
+  # which is the point: the re-seed did not switch either of them off.
+  run_gate "$GATE" "$G2D"
+  g2_dec_partial=$(decision_of "$GATE_OUT")
+  run_tracker "$TRACKER" "$G2D" "$(ev_success 'mcp__context7__query-docs' 'the docs')" --event PostToolUse
   run_gate "$GATE" "$G2D"
   g2_dec=$(decision_of "$GATE_OUT")
-  if [ "$g2_rc" -eq 0 ] && [ "$g2_created" -eq 1 ] && [ "$g2_has_req" = "false" ] && [ "$g2_dec" = "allow" ]; then
-    pass "G2: when the tracker re-creates a missing ledger it writes NO mcp_requirements object, so a re-created file can never turn a requirement OFF. Requirements are SessionStart's to derive; an absent object makes the gate fail closed. (Here the qdrant call SUCCEEDED, so the fail-closed requirement is met and the gate allows — the requirement was not silently switched off, it was satisfied)"
+  if [ "$g2_rc" -eq 0 ] && [ "$g2_created" -eq 1 ] && [ "$g2_has_req" = "false" ] \
+     && [ "$g2_dec_partial" = "deny" ] && [ "$g2_dec" = "allow" ]; then
+    pass "G2: when the tracker re-creates a missing ledger it writes NO mcp_requirements object, so a re-created file can never turn a requirement OFF — it used to write qdrant_required=false and context7_required=false, disarming the gate it feeds. Both requirements stay live (one satisfied still denies) and only both satisfied allows"
   else
-    fail_ "G2" "tracker_rc=$g2_rc (want 0) ledger_created=$g2_created (want 1) reseed_has_mcp_requirements=$g2_has_req (want false) gate_decision=$g2_dec (want allow)"
+    fail_ "G2" "tracker_rc=$g2_rc (want 0) ledger_created=$g2_created (want 1) reseed_has_mcp_requirements=$g2_has_req (want false) decision_with_one_of_two_satisfied=$g2_dec_partial (want deny) decision_with_both_satisfied=$g2_dec (want allow)"
   fi
 fi
 
@@ -823,7 +853,8 @@ else
   run_gate "$M1D/m/gate.sh" "$M1D/p"; m1_ctl=$(decision_of "$GATE_OUT")
   m1_meta=$(_mutate "$M1D/m/gate.sh" '# BL-233-FAILCLOSED-NOFILE' '  BLOCK_REASON=""')
   set -- $m1_meta; m1_sites=$1; m1_changed=$2; m1_parses=$3
-  run_gate "$M1D/m/gate.sh" "$M1D/p"; m1_mut=$(decision_of "$GATE_OUT")
+  mk_proj "$M1D/p2" ""
+  run_gate "$M1D/m/gate.sh" "$M1D/p2"; m1_mut=$(decision_of "$GATE_OUT")
   if [ "$m1_ctl" = "deny" ] && [ "$m1_mut" = "allow" ] \
      && [ "$m1_sites" -eq 1 ] && [ "$m1_changed" -eq 2 ] && [ "$m1_parses" -eq 1 ]; then
     pass "M1: control denies with no ledger; with the fail-closed arm neutered the same absent ledger ALLOWS — the pre-BL-233 behaviour, restored on demand"
@@ -840,7 +871,8 @@ else
   run_gate "$M2D/m/gate.sh" "$M2D/p" "PATH="; m2_ctl=$(decision_of "$GATE_OUT")
   m2_meta=$(_mutate "$M2D/m/gate.sh" '# BL-233-FAILCLOSED-JQ' '  exit 0')
   set -- $m2_meta; m2_sites=$1; m2_changed=$2; m2_parses=$3
-  run_gate "$M2D/m/gate.sh" "$M2D/p" "PATH="; m2_mut=$(decision_of "$GATE_OUT")
+  mk_proj "$M2D/p2" "$LEDGER_BOTH_REQUIRED"
+  run_gate "$M2D/m/gate.sh" "$M2D/p2" "PATH="; m2_mut=$(decision_of "$GATE_OUT")
   if [ "$m2_ctl" = "deny" ] && [ "$m2_mut" = "allow" ] \
      && [ "$m2_sites" -eq 1 ] && [ "$m2_changed" -eq 2 ] && [ "$m2_parses" -eq 1 ]; then
     pass "M2: control denies with jq unavailable; with the arm turned back into 'exit 0' the missing toolchain silently disables enforcement again"
@@ -851,13 +883,14 @@ fi
 
 # ── M3: flip the missing-key default back to permissive ─────────────────────
 M3D="$(newtmp)"
-if ! mk_proj "$M3D/p" "$LEDGER_NO_REQUIREMENTS" || ! mk_mirror "$M3D/m"; then
+if ! mk_proj "$M3D/p" "$LEDGER_MISSING_QDRANT_KEY" || ! mk_mirror "$M3D/m"; then
   fail_ "M3" "fixture setup failed"
 else
   run_gate "$M3D/m/gate.sh" "$M3D/p"; m3_ctl=$(decision_of "$GATE_OUT")
   m3_meta=$(_mutate "$M3D/m/gate.sh" '# BL-233-FAILCLOSED-REQ' 'QDRANT_REQUIRED=$(_flag ".mcp_requirements.qdrant_required" false)')
   set -- $m3_meta; m3_sites=$1; m3_changed=$2; m3_parses=$3
-  run_gate "$M3D/m/gate.sh" "$M3D/p"; m3_mut=$(decision_of "$GATE_OUT")
+  mk_proj "$M3D/p2" "$LEDGER_MISSING_QDRANT_KEY"
+  run_gate "$M3D/m/gate.sh" "$M3D/p2"; m3_mut=$(decision_of "$GATE_OUT")
   if [ "$m3_ctl" = "deny" ] && [ "$m3_mut" = "allow" ] \
      && [ "$m3_sites" -eq 1 ] && [ "$m3_changed" -eq 2 ] && [ "$m3_parses" -eq 1 ]; then
     pass "M3: control denies on a ledger with no mcp_requirements; with the default flipped from true to false the missing key is a silent opt-out again — one character, and BL-221's shape is back"
@@ -877,7 +910,9 @@ else
   run_gate "$M4D/m/gate.sh" "$M4D/p"; m4_ctl=$(decision_of "$GATE_OUT")
   m4_meta=$(_mutate "$M4D/m/gate.sh" '# BL-233-OUTCOME-QDRANT' 'QDRANT_OK=$(_flag ".qdrant_find_called" false)')
   set -- $m4_meta; m4_sites=$1; m4_changed=$2; m4_parses=$3
-  run_gate "$M4D/m/gate.sh" "$M4D/p"; m4_mut=$(decision_of "$GATE_OUT")
+  mk_proj "$M4D/p2" "$LEDGER_BOTH_REQUIRED"
+  run_tracker "$TRACKER" "$M4D/p2" "$(ev_failure 'mcp__qdrant__qdrant-find' "$QDRANT_DOWN")" --event PostToolUseFailure
+  run_gate "$M4D/m/gate.sh" "$M4D/p2"; m4_mut=$(decision_of "$GATE_OUT")
   if [ "$m4_ctl" = "deny" ] && [ "$m4_mut" = "allow" ] \
      && [ "$m4_sites" -eq 1 ] && [ "$m4_changed" -eq 2 ] && [ "$m4_parses" -eq 1 ]; then
     pass "M4 (the root cause, mutated back in): reading .qdrant_find_called — 'a matching tool was called' — instead of .qdrant_find_succeeded makes a call that reached NOTHING satisfy the gate. Same ledger, same failing round trip, opposite verdict"
@@ -897,7 +932,8 @@ else
   run_gate "$M5D/m/gate.sh" "$M5D/p"; m5_ctl=$(decision_of "$GATE_OUT")
   m5_meta=$(_mutate "$M5D/m/gate.sh" '# BL-233-NO-LATCH' 'GATE_PRIOR=$(_flag ".mcp_gate_satisfied" false); [ "$GATE_PRIOR" = "true" ] && exit 0')
   set -- $m5_meta; m5_sites=$1; m5_changed=$2; m5_parses=$3
-  run_gate "$M5D/m/gate.sh" "$M5D/p"; m5_mut=$(decision_of "$GATE_OUT")
+  mk_proj "$M5D/p2" "$(printf '%s' "$LEDGER_BOTH_REQUIRED" | jq '.mcp_gate_satisfied = true')"
+  run_gate "$M5D/m/gate.sh" "$M5D/p2"; m5_mut=$(decision_of "$GATE_OUT")
   if [ "$m5_ctl" = "deny" ] && [ "$m5_mut" = "allow" ] \
      && [ "$m5_sites" -eq 1 ] && [ "$m5_changed" -eq 2 ] && [ "$m5_parses" -eq 1 ]; then
     pass "M5: control denies despite mcp_gate_satisfied=true; restore the fast path and a flag the agent itself can write ends the enforcement — 'was it satisfied once' replacing 'is it satisfied now'"
@@ -915,7 +951,9 @@ else
   run_gate "$M6D/m/gate.sh" "$M6D/p" "SOLO_MCP_ATTESTED=1" "SOLO_MCP_REASON=hostile disk"; m6_ctl=$(decision_of "$GATE_OUT")
   m6_meta=$(_mutate "$M6D/m/gate.sh" '# BL-233-ATTEST-REFUSE' '  exit 0')
   set -- $m6_meta; m6_sites=$1; m6_changed=$2; m6_parses=$3
-  run_gate "$M6D/m/gate.sh" "$M6D/p" "SOLO_MCP_ATTESTED=1" "SOLO_MCP_REASON=hostile disk"; m6_mut=$(decision_of "$GATE_OUT")
+  mk_proj "$M6D/p2" "$LEDGER_BOTH_REQUIRED"
+  mkdir -p "$M6D/p2/.claude/process-state.json" "$M6D/p2/.claude/mcp-attestations.jsonl"
+  run_gate "$M6D/m/gate.sh" "$M6D/p2" "SOLO_MCP_ATTESTED=1" "SOLO_MCP_REASON=hostile disk"; m6_mut=$(decision_of "$GATE_OUT")
   if [ "$m6_ctl" = "deny" ] && [ "$m6_mut" = "allow" ] \
      && [ "$m6_sites" -eq 1 ] && [ "$m6_changed" -eq 2 ] && [ "$m6_parses" -eq 1 ]; then
     pass "M6: control refuses an escape it could not record; drop the refusal and the escape passes leaving NO trace anywhere — which is precisely the advisory posture BL-233 exists to replace"
@@ -932,7 +970,8 @@ else
   run_gate "$M7D/m/gate.sh" "$M7D/p" "SOLO_MCP_ATTESTED=1"; m7_ctl=$(decision_of "$GATE_OUT")
   m7_meta=$(_mutate "$M7D/m/gate.sh" '# BL-233-ATTEST-REASON' '  ATTEST_REASON="${SOLO_MCP_REASON:-unspecified}"')
   set -- $m7_meta; m7_sites=$1; m7_changed=$2; m7_parses=$3
-  run_gate "$M7D/m/gate.sh" "$M7D/p" "SOLO_MCP_ATTESTED=1"; m7_mut=$(decision_of "$GATE_OUT")
+  mk_proj "$M7D/p2" "$LEDGER_BOTH_REQUIRED"
+  run_gate "$M7D/m/gate.sh" "$M7D/p2" "SOLO_MCP_ATTESTED=1"; m7_mut=$(decision_of "$GATE_OUT")
   if [ "$m7_ctl" = "deny" ] && [ "$m7_mut" = "allow" ] \
      && [ "$m7_sites" -eq 1 ] && [ "$m7_changed" -eq 2 ] && [ "$m7_parses" -eq 1 ]; then
     pass "M7: control refuses a reasonless attestation; default the reason instead and SOLO_MCP_ATTESTED=1 becomes a bare bypass flag with a placeholder in the ledger"
@@ -948,7 +987,12 @@ if ! mk_proj "$M8D/p" "$LEDGER_BOTH_REQUIRED" || ! mk_mirror "$M8D/m"; then
 else
   run_tracker "$M8D/m/tracker.sh" "$M8D/p" "$(ev_failure 'mcp__qdrant__qdrant-find' "$QDRANT_DOWN")" --event PostToolUseFailure
   m8_ctl=$(jqf "$M8D/p" '.qdrant_find_succeeded // false')
-  m8_meta=$(_mutate "$M8D/m/tracker.sh" '# BL-233-EVENT-OUTCOME' 'OUTCOME=success')
+  # The marker sits on an `esac`, so the replacement must carry one: dropping
+  # it leaves the `case` unterminated and the mutant does not parse. The
+  # `bash -n` assertion is what said so — a mutation that lands as a syntax
+  # error kills every downstream test for the wrong reason and would otherwise
+  # have scored as a clean kill.
+  m8_meta=$(_mutate "$M8D/m/tracker.sh" '# BL-233-EVENT-OUTCOME' 'esac; OUTCOME=success')
   set -- $m8_meta; m8_sites=$1; m8_changed=$2; m8_parses=$3
   mk_proj "$M8D/p2" "$LEDGER_BOTH_REQUIRED"
   run_tracker "$M8D/m/tracker.sh" "$M8D/p2" "$(ev_failure 'mcp__qdrant__qdrant-find' "$QDRANT_DOWN")" --event PostToolUseFailure
@@ -968,7 +1012,7 @@ if ! mk_proj "$M9D/p" "$LEDGER_BOTH_REQUIRED" || ! mk_mirror "$M9D/m"; then
 else
   run_tracker "$M9D/m/tracker.sh" "$M9D/p" "$(ev_success 'mcp__context7__resolve-library-id' '/qdrant/qdrant')" --event PostToolUse
   m9_ctl=$(jqf "$M9D/p" '.context7_query_docs_succeeded // false')
-  m9_meta=$(_mutate "$M9D/m/tracker.sh" '# BL-233-C7-QUERYDOCS' 'C7KIND=query')
+  m9_meta=$(_mutate "$M9D/m/tracker.sh" '# BL-233-C7-QUERYDOCS' 'esac; C7KIND=query')
   set -- $m9_meta; m9_sites=$1; m9_changed=$2; m9_parses=$3
   mk_proj "$M9D/p2" "$LEDGER_BOTH_REQUIRED"
   run_tracker "$M9D/m/tracker.sh" "$M9D/p2" "$(ev_success 'mcp__context7__resolve-library-id' '/qdrant/qdrant')" --event PostToolUse
