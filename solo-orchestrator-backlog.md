@@ -10091,7 +10091,23 @@ None of these blocks the WP-A work; all three are real and none is fixed:
    tracker matches tool names by suffix and handles both spellings correctly;
    only the derivation is name-based. This is the `availability` row of the
    table above surviving in a narrower form.
-3. **`session-end-qdrant-reminder.sh` still counts DECLARATIONS.** It reads
+3. **Where the control-character fix STOPS, measured rather than assumed.** The
+   fix scrubs U+0001-U+001F because a raw control byte is a **hard syntax
+   error** in every conforming JSON parser — that is what turned a deny into an
+   allow. The adjacent case is **invalid UTF-8**, which can still reach both the
+   deny envelope and the jq-free jsonl sink (neither is scrubbed for it). It was
+   probed: parsers **substitute U+FFFD rather than erroring** (`jq` confirmed
+   accepting `{"a":"x\xffy"}` while rejecting `{"a":"x\ry"}`), and on the
+   tracker path jq sanitizes the bytes on the way *into* the ledger, so the gate
+   never reads them back. The residual is therefore a mangled character inside a
+   message, **not a lost decision** — a different severity class from the one
+   that was fixed, and the reason it is recorded here instead of patched.
+   Separately verified in the same sweep: a **malformed regex** in an
+   operator-supplied `additional_required` entry (`"[unclosed"`) makes jq error,
+   which falls through to **deny** with a parseable envelope and no stderr leak
+   — fail-closed, as intended, though the message does not tell the operator
+   their pattern is the problem.
+4. **`session-end-qdrant-reminder.sh` still counts DECLARATIONS.** It reads
    `.calls | length` and the `*_called` flags, so its end-of-session summary
    reports calls that FAILED as calls that happened — it now disagrees with the
    gate. It is a Stop-hook reminder and nothing enforces on it, so this is
