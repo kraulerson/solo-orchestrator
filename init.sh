@@ -2036,15 +2036,38 @@ PERMEOF
           fi
         done
 
-        # Add tool usage tracking to PostToolUse hook
+        # Add tool usage tracking to PostToolUse hook.
+        #
+        # BL-233: registered on PostToolUse ALONE, this tracker never saw a
+        # failure. A failed MCP call fires PostToolUseFailure and NOT
+        # PostToolUse (measured 2026-08-13 with a probe on both events), so
+        # failures were not miscounted by the framework — they were INVISIBLE
+        # to it, and a call that reached nothing left the same trace as no call
+        # at all. Both events are registered, each passing its own --event
+        # argument so the tracker can score the outcome without depending on a
+        # payload field, and can refuse to guess when the two disagree.
         if jq -e '.hooks.PostToolUse' .claude/settings.json >/dev/null 2>&1; then
           if ! jq -e '.hooks.PostToolUse[0].hooks[] | select(.command | contains("track-tool-usage.sh"))' .claude/settings.json >/dev/null 2>&1; then
-            jq '.hooks.PostToolUse[0].hooks += [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/track-tool-usage.sh"}]' .claude/settings.json > .claude/settings.json.tmp \
+            jq '.hooks.PostToolUse[0].hooks += [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/track-tool-usage.sh --event PostToolUse"}]' .claude/settings.json > .claude/settings.json.tmp \
               && mv .claude/settings.json.tmp .claude/settings.json
             hooks_added=true
           fi
         else
-          jq '.hooks.PostToolUse = [{"hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/track-tool-usage.sh"}]}]' .claude/settings.json > .claude/settings.json.tmp \
+          jq '.hooks.PostToolUse = [{"hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/track-tool-usage.sh --event PostToolUse"}]}]' .claude/settings.json > .claude/settings.json.tmp \
+            && mv .claude/settings.json.tmp .claude/settings.json
+          hooks_added=true
+        fi
+
+        # Add the SAME tracker to PostToolUseFailure — the event a failing MCP
+        # call actually fires.
+        if jq -e '.hooks.PostToolUseFailure' .claude/settings.json >/dev/null 2>&1; then
+          if ! jq -e '.hooks.PostToolUseFailure[0].hooks[] | select(.command | contains("track-tool-usage.sh"))' .claude/settings.json >/dev/null 2>&1; then
+            jq '.hooks.PostToolUseFailure[0].hooks += [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/track-tool-usage.sh --event PostToolUseFailure"}]' .claude/settings.json > .claude/settings.json.tmp \
+              && mv .claude/settings.json.tmp .claude/settings.json
+            hooks_added=true
+          fi
+        else
+          jq '.hooks.PostToolUseFailure = [{"hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/track-tool-usage.sh --event PostToolUseFailure"}]}]' .claude/settings.json > .claude/settings.json.tmp \
             && mv .claude/settings.json.tmp .claude/settings.json
           hooks_added=true
         fi
@@ -2196,13 +2219,40 @@ BPEOF
 PSEOF
 
   # Generate tool usage tracking file
+  # BL-233: this seed used to carry NO `mcp_requirements` object at all, so
+  # `.mcp_requirements.qdrant_required // false` resolved to FALSE in every
+  # generated project and every MCP requirement defaulted to OFF — a missing
+  # key defaulting to the permissive answer, which is `## BL-221:`'s shape one
+  # subsystem over. The requirements are seeded fail-CLOSED (true); the
+  # SessionStart hook (scripts/session-test-gate-check.sh) re-derives them from
+  # the MCP servers actually configured on the very first session, before an
+  # agent can write anything, so a project with no MCP servers is not blocked —
+  # it is asked the question honestly instead of being silently exempted.
+  #
+  # The outcome fields are seeded too, so a generated ledger has the same schema
+  # session-mcp-gate.sh derives from. `*_called` are observability only; the
+  # gate reads `*_succeeded`.
   cat > .claude/tool-usage.json << 'TUEOF'
 {
   "session_id": null,
   "calls": [],
   "commits_since_last_context7": 0,
   "qdrant_find_called": false,
-  "qdrant_store_called": false
+  "qdrant_find_succeeded": false,
+  "qdrant_find_failed": 0,
+  "qdrant_find_empty": false,
+  "qdrant_find_empty_count": 0,
+  "qdrant_store_called": false,
+  "qdrant_store_succeeded": false,
+  "context7_called": false,
+  "context7_query_docs_succeeded": false,
+  "context7_resolve_only_count": 0,
+  "mcp_gate_satisfied": false,
+  "mcp_requirements": {
+    "qdrant_required": true,
+    "context7_required": true,
+    "additional_required": []
+  }
 }
 TUEOF
 
