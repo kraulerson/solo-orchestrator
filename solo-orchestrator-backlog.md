@@ -9802,3 +9802,327 @@ Two constraints:
 **Related:** `## BL-196:` (made the marker half lint-enforced, and named exactly
 this rot), `## BL-181:` (a green lint that was not proof), `## BL-227:` (a doc
 sentence refuted by a grep), and `## BL-222:` (a check satisfied without looking).
+
+---
+
+## BL-231: redo Qdrant so it is forced to work — today a dead database satisfies the gate, and the half that builds the memory is never enforced
+
+**Logged:** 2026-08-12 (Karl: *"redo the qdrant so it's forced to work
+properly"* — after asking whether the semantic-memory setup was doing the
+context-reduction job it was built for. It is not, and every claim below was
+measured, including a live call to the database.)
+**Category:** Silent-success, end to end — "configured" is treated as
+"reachable", "invoked" is treated as "succeeded", and the write half is
+advisory
+**Severity:** High. Nothing crashes; that is the problem. The gate reports
+satisfied, writes are unblocked, and **zero prior context is retrieved**. The
+feature's entire purpose — call the database instead of re-loading context — is
+silently not happening, and no surface anywhere says so.
+**Status:** Open — **the fix is owned by `## BL-233:`** (the shared enforcement
+mechanism). This entry is the evidence; do not patch it in isolation, because a
+fix here leaves the mechanism intact.
+
+### What exists, and it is the right intent
+
+`scripts/session-mcp-gate.sh` is a PreToolUse hook on `Write`/`Edit` whose own
+reason string is *"qdrant-find (retrieve prior session context before starting
+work)"*. Its header states the goal plainly: *"session-start MCP requirements
+were advisory only. This hook makes them mechanical — the agent cannot produce
+output until it has loaded prior context."* `scripts/session-end-qdrant-reminder.sh`
+is the Stop-hook counterpart. Both ship via `init.sh`. Landed in `0352ef3`
+(PR #3) and `92190bf`.
+
+**The design is what it should be. The enforcement is not.**
+
+### Measured on `main` @ `9060d31` — the chain, end to end
+
+1. **The database is not running.** MCP config points at `http://localhost:6333`,
+   collection `solo-orchestrator`. Ports 6333/6334 closed, no containers. A live
+   call returns:
+   ```
+   qdrant-find("architecture decisions solo orchestrator")
+   → Error: All connection attempts failed
+   ```
+2. **Detection asks the wrong question.** `session-test-gate-check.sh` sets
+   `QDRANT_CONFIGURED=true` by matching a server *named* `qdrant` in the MCP
+   settings. It never probes reachability. A dead database is "configured".
+3. **A FAILED call satisfies the gate.** `scripts/track-tool-usage.sh` reads
+   `.tool_name` from the PostToolUse payload and sets `qdrant_find_called = true`
+   on the **name alone** — it never inspects `.tool_response` for an error. So
+   the call above, which connected to nothing, would mark the requirement met.
+4. **The gate then latches.** `session-mcp-gate.sh` writes
+   `mcp_gate_satisfied = true` and every later `Write`/`Edit` takes the fast path.
+
+**Net: the agent "loads prior context" from a database that is not there, is told
+it succeeded, and proceeds.**
+
+### And it is fail-open at four more layers
+
+| layer | line | behaviour |
+|---|---|---|
+| tracking file absent | `session-mcp-gate.sh` — `[ ! -f "$TOOL_USAGE" ] && exit 0` | no file ⇒ **no enforcement**, silently |
+| `jq` absent | `command -v jq &>/dev/null \|\| exit 0` | no jq ⇒ **no enforcement**, silently |
+| **the requirement key is missing from the seed** | `init.sh`'s `tool-usage.json` heredoc contains **no `mcp_requirements` object at all** (verified: 0 occurrences) | `.mcp_requirements.qdrant_required // false` ⇒ **false** ⇒ Qdrant not required |
+| tracker re-seed | `track-tool-usage.sh:55` writes `"qdrant_required": false` | a re-created file turns the requirement **off** |
+
+The third row is `## BL-221:` exactly — a **missing key defaulting to the
+permissive answer**. The requirement is only ever switched on later, by
+`session-test-gate-check.sh`, and only if that hook runs.
+
+### The deepest problem: the half that builds the memory is not enforced
+
+`qdrant-store` **satisfies nothing, anywhere** — not the session gate, not
+`pre-commit-gate.sh`. Retrieval is mandatory; accumulation is a Stop-hook
+suggestion, delivered *after* the work is done and the session is ending.
+
+**You cannot retrieve what was never stored.** The only enforced half depends
+entirely on the unenforced half having happened, which makes the whole thing a
+ratchet with nothing behind it — and explains why it never reduced context bloat
+even before the database went down.
+
+### What "forced to work properly" has to mean
+
+1. **Probe reachability, do not infer it from configuration.** A named server is
+   not a running one. `# BL-112-SAST-NOTRUN`'s shipped doctrine is the precedent
+   and it is already this repo's law: *"the scanner did not run" must never be
+   silently equivalent to "the scanner found nothing."*
+2. **Verify the call succeeded, not that it was made.** Read `.tool_response`.
+   This session alone produced four siblings of this bug — `jq` exiting 0 without
+   reading a document (`## BL-227:`), `sed` reporting success without editing,
+   a mutant scored as killed that was never applied, a gate satisfied by a
+   filename (`## BL-222:`). **An exit code is not a receipt.**
+3. **Enforce the write half**, or state plainly that the memory is
+   operator-curated and stop implying otherwise. A session that made source
+   commits and stored nothing is the case to decide about.
+4. **Fail closed, loudly, when Qdrant is required and unreachable** — and make
+   that distinguishable from "not configured". Three states, not two:
+   configured-and-reachable, configured-and-down, not-configured.
+5. **Seed `mcp_requirements` in `init.sh`** so the default is not silence.
+6. **Register the hooks in this repo.** They are wired into *generated* projects
+   only; solo-orchestrator has no `.claude/settings.json`, so none of this fires
+   where the framework is actually built. Same gap as the version-check hook.
+
+### Traps for whoever does it
+
+- **Do not make it unbypassable without an escape.** A gate that cannot be
+  satisfied when the operator is offline, or on a plane, is one people delete —
+  the `## BL-149:` false-FAIL doctrine. The BL-072 TDD gate is the model: hard
+  block, with an attested escape that must be **durably recorded**, and a refusal
+  if the record cannot be written.
+- **Mind the latch.** `mcp_gate_satisfied` is written into a file the agent can
+  edit. Decide deliberately whether a satisfied gate should survive `/compact`,
+  `/clear` and a new session — `5b1a081` already had to fix this file's
+  merge-vs-overwrite behaviour once.
+- **Any fix needs a dual-direction mutation proof**: unreachable database ⇒ RED;
+  reachable database ⇒ GREEN; and the proof must fail if the probe is deleted.
+  A test that passes because the tool was *called* is the bug, restated.
+
+**Related:** `## BL-221:` (missing key ⇒ permissive default), `## BL-222:` (a
+gate satisfied without looking), `## BL-227:` (an exit code that is not a
+receipt), `## BL-112:` ("did not run" ≠ "found nothing"), `## BL-149:` (a gate
+people route around is worse than none), `## BL-230:` (the sibling
+"nothing watches this" finding filed the same week).
+
+---
+
+## BL-232: the Context7 session gate is satisfied by looking up a library ID and never reading a document
+
+**Logged:** 2026-08-12 (Karl: *"validate the use of context7 as a reference
+before each build session"* — filed with `## BL-231:`, which covers the Qdrant
+half of the same gate. Everything below measured on `main` @ `9060d31`,
+including a live call.)
+**Category:** Proxy that does not measure the thing — the gate's own reason
+string names documentation, and documentation is never required
+**Severity:** Medium-High. Unlike its Qdrant sibling, **Context7 is genuinely
+reachable and working** (verified: `resolve-library-id` returned five Qdrant
+libraries with snippet counts and reputation scores). So this is not a dead
+dependency — it is a live one whose gate does not check what it says it checks.
+**Status:** Open — **the fix is owned by `## BL-233:`** (the shared enforcement
+mechanism). This entry is the evidence; do not patch it in isolation, because a
+fix here leaves the mechanism intact.
+
+### The gate, and what it says it is for
+
+`scripts/session-mcp-gate.sh` blocks `Write`/`Edit` until Context7 has been
+called, with this reason, verbatim:
+
+> `context7 resolve-library-id or query-docs (verify library documentation is
+> current before writing).`
+
+### The defect specific to Context7
+
+`scripts/track-tool-usage.sh` sets `context7_called = true` when the tool name
+matches `grep -q "context7"`. Both MCP tools match:
+
+| tool | satisfies the gate? | returns documentation? |
+|---|---|---|
+| `mcp__context7__resolve-library-id` | **yes** | **no — a list of library IDs** |
+| `mcp__context7__query-docs` | yes | yes |
+
+**`resolve-library-id` fetches no documentation at all.** It answers "what is
+this library's Context7 ID?" — a lookup step whose entire purpose is to produce
+an argument for the call that *does* fetch docs. So the gate that exists to
+ensure the agent read current documentation is satisfied by an act that reads
+none, and the agent is then free to write code against remembered APIs.
+
+The same call also resets `commits_since_last_context7 = 0`, so an ID lookup
+silences the commit-time staleness nudge as well.
+
+This is `## BL-222:`'s shape on a different surface: a check that measures a
+**proxy** for the thing it is named after, where the proxy is satisfiable
+without the thing happening.
+
+### Everything BL-231 documents applies here too — same gate, same layers
+
+`.mcp_requirements.context7_required // false` (missing key ⇒ **not required**);
+`init.sh`'s `tool-usage.json` seed contains **no `mcp_requirements` object**;
+`track-tool-usage.sh:56` re-seeds `"context7_required": false`; absent tracking
+file or absent `jq` ⇒ silent no-enforcement; and `mcp_gate_satisfied` latches
+after the first pass. **And `context7_called` is set from the tool NAME, never
+from `.tool_response`** — so a Context7 call that errors satisfies the gate
+exactly as a Qdrant one does.
+
+### The commit-time half does not block
+
+`scripts/pre-commit-gate.sh` checks `commits_since_last_context7 >= 2` and
+appends to `WARNINGS`, which is emitted with
+`"permissionDecision": "allow"` — **explicitly non-blocking**. So after the
+session-start gate is satisfied once, Context7 staleness never stops anything;
+it is a nudge, and a nudge an ID lookup resets.
+
+### What "validated before each build session" should mean
+
+1. **Require the call that actually fetches documentation.** `query-docs` should
+   satisfy the gate; `resolve-library-id` alone should not — it is the argument
+   step, not the reference step. If the pair must be allowed, require **both**,
+   in that order.
+2. **Verify the response, not the invocation** (`## BL-231:` item 2). Read
+   `.tool_response`; an error must not count.
+3. **Decide what "before each build session" means when no library is involved.**
+   A session that touches only shell scripts has nothing to look up, and a gate
+   that cannot be satisfied honestly is one people route around — `## BL-149:`.
+   The likely shape is: required when the change touches a language with
+   dependencies, skippable-with-a-reason otherwise, and the skip recorded.
+4. **Seed `mcp_requirements` in `init.sh`** so the default is not silence.
+
+### Worth knowing before designing it
+
+What actually causes Context7 to be consulted today is **not this gate** — it is
+a prompt-level instruction in the operator's own Claude configuration, outside
+this repo. That is why the feature appears to work in practice while the
+enforcement measured above does essentially nothing. A redesign should not
+mistake the prompt's effect for the gate's.
+
+**Related:** `## BL-231:` (the Qdrant half of the same gate — read them
+together), `## BL-222:` (a check satisfied by a proxy), `## BL-149:` (a gate
+people route around is worse than none), `## BL-112:` ("did not run" must never
+read as "found nothing").
+
+---
+
+## BL-233: the MCP enforcement mechanism records DECLARATIONS, never OUTCOMES — one root cause behind BL-231 and BL-232, and the fix belongs here
+
+**Logged:** 2026-08-12 (Karl, on reading `## BL-231:` and `## BL-232:`:
+*"This is the same as qdrant. We need to fix enforcement."* He is right, and
+they are not two bugs. They are two faces of one mechanism.)
+**Category:** Enforcement architecture — a gate whose every layer asks whether
+something was *declared* rather than whether it *happened*
+**Severity:** High. This entry owns the fix. `## BL-231:` and `## BL-232:`
+document the two visible symptoms and should be read first for the evidence;
+neither should be fixed on its own, because a patch to either leaves the
+mechanism intact.
+**Status:** Open
+
+### The mechanism
+
+Three files, 435 lines total, registered by `init.sh` into generated projects:
+
+| file | role |
+|---|---|
+| `scripts/session-test-gate-check.sh` | SessionStart — decides what is *required* |
+| `scripts/track-tool-usage.sh` | PostToolUse — records what was *done* |
+| `scripts/session-mcp-gate.sh` | PreToolUse on `Write`/`Edit` — *blocks* until satisfied |
+
+The intent is sound and its own header says so: *"session-start MCP requirements
+were advisory only. This hook makes them mechanical — the agent cannot produce
+output until it has loaded prior context and verified library documentation."*
+
+### The single root cause
+
+**At every layer the mechanism substitutes a declaration for an outcome.** Once
+that frame is applied, the seven separately-filed defects collapse into one:
+
+| layer | what it asks | what it should ask |
+|---|---|---|
+| availability | is a server **named** `qdrant`/`context7` listed in settings? | does it **answer**? |
+| satisfaction | was a tool **whose name matches** called? | did the call **return usefully**? |
+| sufficiency | was *any* matching tool called? | was the tool that **does the work** called (`query-docs`, not `resolve-library-id`) |
+| requirement | is `mcp_requirements.X_required` **present and true**? | absent must not mean **no** |
+| persistence | was the gate satisfied **once**? | is it satisfied **now**, this session? |
+| dependency | did the agent **read** memory? | was anything ever **written** for it to read? |
+| degradation | is the tracking file / `jq` **present**? | absent must **fail closed**, not exit 0 |
+
+Every row is the same substitution. That is why patching Qdrant and Context7
+separately would produce two patches and no fix.
+
+### What the redesign has to do
+
+1. **Probe, do not infer.** Availability is a round trip, not a config key. Three
+   states, distinguishable in output: reachable / configured-but-unreachable /
+   not-configured. `# BL-112-SAST-NOTRUN` is the shipped precedent — *"did not
+   run" must never read as "found nothing."*
+2. **Read `.tool_response`.** The PostToolUse payload carries the result; the
+   tracker currently reads only `.tool_name`. An error must not satisfy anything.
+3. **Name the tool that does the work.** `resolve-library-id` is the argument
+   step. Require `query-docs` (or require both, in order).
+4. **Seed `mcp_requirements` in `init.sh`.** A missing key must not be a silent
+   opt-out — `## BL-221:` is the same shape one subsystem over.
+5. **Decide the latch deliberately.** `mcp_gate_satisfied` lives in a file the
+   agent can edit, and `5b1a081` already had to fix this file's
+   merge-vs-overwrite behaviour across `/resume`, `/compact` and `/clear`.
+6. **Decide whether the write half is enforced** — see `## BL-231:`. A retrieval
+   requirement with no accumulation requirement is a ratchet with nothing
+   behind it.
+7. **Register the hooks in this repo.** None of this fires in
+   solo-orchestrator; `init.sh` wires it into generated projects only, and the
+   framework repo has no `.claude/settings.json`. The same gap hides the
+   version-check hook.
+
+### The constraint that decides the design
+
+**A gate people cannot satisfy honestly is a gate they delete** (`## BL-149:`).
+Offline work, a session that touches no libraries, a project with no prior
+memory — all are legitimate, and all must have an honest path through.
+
+The model already in the tree is the BL-072 TDD gate: **hard block, with an
+attested escape that must be durably recorded, and a refusal if the record
+cannot be written** (`SOLO_TDD_ATTESTED=1` plus a reason; the commit is refused
+if the attestation cannot be logged). Copy that shape. An escape that leaves no
+trace is the advisory posture this entry exists to replace.
+
+### Proof it must carry
+
+Dual-direction, per requirement, and the failing direction is the one that
+matters:
+- unreachable server ⇒ **RED**; reachable ⇒ GREEN;
+- an **erroring** tool call ⇒ **RED** (this is the test that would have caught
+  today's behaviour, where a call returning *"All connection attempts failed"*
+  satisfied the gate);
+- `resolve-library-id` alone ⇒ **RED**;
+- a tracking file with **no** `mcp_requirements` key ⇒ **RED**, not silently
+  unenforced;
+- deleting the tracking file, or `jq` ⇒ **RED**, not exit 0;
+- and each proof must itself fail if the probe is removed.
+
+**A test that passes because a tool was *called* is this bug, restated in the
+test suite.** That failure mode has appeared five times in one week —
+`## BL-227:` (`jq` exiting 0 having read nothing), a `sed` reporting success
+having edited nothing, a mutant scored as killed that was never applied,
+`## BL-222:` (a clock satisfied by a filename), and this. **An exit code is not
+a receipt.**
+
+**Related:** `## BL-231:` and `## BL-232:` (the two symptoms and their measured
+evidence — read first), `## BL-221:` (missing key ⇒ permissive default),
+`## BL-222:` (a proxy that does not measure the thing), `## BL-112:` and
+`## BL-149:` (the two doctrines that bound the design), `## BL-104:` (the
+`[WARN]`/`issues` mismatch — the label is never the behaviour).
