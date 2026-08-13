@@ -9886,7 +9886,10 @@ even before the database went down.
    not a running one. `# BL-112-SAST-NOTRUN`'s shipped doctrine is the precedent
    and it is already this repo's law: *"the scanner did not run" must never be
    silently equivalent to "the scanner found nothing."*
-2. **Verify the call succeeded, not that it was made.** Read `.tool_response`.
+2. **Verify the call succeeded, not that it was made.** ~~Read
+   `.tool_response`.~~ **Corrected 2026-08-13 — see `## BL-233:` item 2: a
+   failed MCP call fires `PostToolUseFailure`, not `PostToolUse`, so the EVENT
+   is the success signal and `.tool_response` is not.** The requirement stands.
    This session alone produced four siblings of this bug — `jq` exiting 0 without
    reading a document (`## BL-227:`), `sed` reporting success without editing,
    a mutant scored as killed that was never applied, a gate satisfied by a
@@ -10031,7 +10034,41 @@ something was *declared* rather than whether it *happened*
 document the two visible symptoms and should be read first for the evidence;
 neither should be fixed on its own, because a patch to either leaves the
 mechanism intact.
-**Status:** Open
+**Status:** Open — **WP-A landed** on `feat/bl233-mcp-enforcement`; **WP-B (the
+storing half: warn at commit, block at the phase gate) is still open**, and so
+is item 6's underlying question of whether accumulation is enforced at all.
+
+**WP-A, 2026-08-13 — what shipped and what was decided.** Items 1-5 and 7 are
+done for the retrieval half; `tests/test-bl233-mcp-outcome-enforcement.sh` is
+the first test that ever executed `scripts/session-mcp-gate.sh` (watched RED
+against the shipped code at 5 passed / 37 failed, 42/0 after, 11 mutants).
+Four decisions are recorded here because they are not recoverable from the diff:
+
+- **The latch (item 5) is not an authority.** `mcp_gate_satisfied` lives in a
+  file the agent can edit, so the gate re-derives on EVERY Write/Edit and never
+  fast-paths on it (`# BL-233-NO-LATCH`); the field is still written, as a
+  record of the last derivation, and a stale `true` is corrected downward on a
+  blocking run. Session scope comes from the ledger's own lifecycle, left
+  exactly as `5b1a081` fixed it — `startup` resets, resume/compact/clear merge —
+  because re-arming mid-Build-Loop is the destructive behaviour that commit
+  removed, and resetting the latch at a session boundary would have reintroduced
+  it through the back door.
+- **The attested escape** is `SOLO_MCP_ATTESTED=1` plus a **mandatory**
+  `SOLO_MCP_REASON`, recorded to `.claude/process-state.json::mcp_attestations[]`
+  and **refused if it cannot be written** (`# BL-233-ATTEST-REFUSE`) — BL-072's
+  shape, plus one addition: a jq-free `.claude/mcp-attestations.jsonl` fallback
+  sink, because "jq is missing" is itself one of the blocking states and a
+  jq-only recorder would have made that refusal unescapable (`## BL-149:`).
+- **Availability is probed by the agent's own round trip**, not by a synchronous
+  reachability check inside a PreToolUse hook that runs on every Write. A
+  recorded `PostToolUseFailure` IS the failed round trip, which satisfies item 1
+  without putting a network call on the write path.
+- **Item 7 (register the hooks in this repo) has a blast radius**, stated so it
+  is decided rather than discovered: `.claude/settings.json` now registers the
+  Write/Edit gate here, and with Qdrant down (`## BL-231:`) that blocks writes in
+  solo-orchestrator itself until the server is up or an operator attests. That is
+  the intended posture — configured-but-unreachable blocks — but it takes effect
+  the moment this merges.
 
 ### The mechanism
 
@@ -10071,8 +10108,27 @@ separately would produce two patches and no fix.
    states, distinguishable in output: reachable / configured-but-unreachable /
    not-configured. `# BL-112-SAST-NOTRUN` is the shipped precedent — *"did not
    run" must never read as "found nothing."*
-2. **Read `.tool_response`.** The PostToolUse payload carries the result; the
-   tracker currently reads only `.tool_name`. An error must not satisfy anything.
+2. ~~**Read `.tool_response`.** The PostToolUse payload carries the result; the
+   tracker currently reads only `.tool_name`. An error must not satisfy
+   anything.~~ **CORRECTED 2026-08-13 (WP-A) — the instruction was wrong, the
+   requirement was right.** The payload was measured, not read from the docs
+   (there is no worked MCP example in them): a probe registered on both events
+   fired one failing and one succeeding MCP call. **A failed MCP call fires
+   `PostToolUseFailure`; it does NOT fire `PostToolUse`.** On failure
+   `tool_response` is **absent** and an `error` string is present; on success
+   `tool_response` is an array of MCP content blocks. **There is no `isError`
+   key anywhere** — MCP's own `isError` is not preserved by either event.
+   So `.tool_response` cannot tell you the call succeeded, only what came
+   **back**: **the EVENT is the only success signal**, and the tracker has to be
+   registered on **both** events or failures are not miscounted — they are
+   **invisible**. A **third state** exists: a call rejected before execution
+   (unknown tool, schema validation) fires **neither** event, which under
+   fail-closed correctly leaves the requirement unsatisfied but must never look
+   like success. What `.tool_response` IS good for is the separate question
+   Karl's decision made load-bearing: **"succeeded" and "returned something" are
+   separable**, so a successful-but-empty retrieval satisfies the requirement and
+   is reported and recorded rather than blocking. Implemented at
+   `# BL-233-EVENT-OUTCOME` (tracker) and `# BL-233-OUTCOME-QDRANT` (gate).
 3. **Name the tool that does the work.** `resolve-library-id` is the argument
    step. Require `query-docs` (or require both, in order).
 4. **Seed `mcp_requirements` in `init.sh`.** A missing key must not be a silent

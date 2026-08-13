@@ -2014,6 +2014,23 @@ run_child_suite "tests/test-delta-wp8-intake.sh" \
 # Never executes the scaffolder -> both lanes.
 run_child_suite "tests/test-delta-db-ledger-close.sh" \
   "tests/test-delta-db-ledger-close.sh"
+
+# BL-233 WP-A — the first tests for the MCP enforcement mechanism.
+# scripts/session-mcp-gate.sh, the PreToolUse hook that blocks Write/Edit, was
+# executed by NO test before this suite; the one suite that touched the surface
+# asserted only that SessionStart WROTE the fields, never that the gate acted on
+# them. Watched RED against the shipped code at 5 passed / 37 failed, including
+# the headline: a qdrant-find that returned "All connection attempts failed"
+# satisfied the gate. 42/0 after. Eleven mutants, each sites==1, exactly-2-lines
+# changed, `bash -n`-checked, mode-preserving, fresh fixture PER DIRECTION (the
+# gate rewrites mcp_gate_satisfied on every call, so a shared fixture let the
+# latch mutant survive with every meta-assertion green). Two absences carry
+# structural discriminators: the gate takes no latch fast path, and the
+# tracker's recovery seed writes no mcp_requirements. Reads init.sh statically
+# for the seed and the PostToolUseFailure registration; never executes it, so it
+# runs in the unit lane too.
+run_child_suite "tests/test-bl233-mcp-outcome-enforcement.sh" \
+  "tests/test-bl233-mcp-outcome-enforcement.sh"
 run_child_suite "tests/test-check-phase-gate.sh" "tests/test-check-phase-gate.sh"
 
 # BL-214 — the gate stalled its own next run. create_gate_snapshot writes into
