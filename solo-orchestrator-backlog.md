@@ -10041,7 +10041,7 @@ is item 6's underlying question of whether accumulation is enforced at all.
 **WP-A, 2026-08-13 — what shipped and what was decided.** Items 1-5 and 7 are
 done for the retrieval half; `tests/test-bl233-mcp-outcome-enforcement.sh` is
 the first test that ever executed `scripts/session-mcp-gate.sh` (watched RED
-against the shipped code at 5 passed / 37 failed, 42/0 after, 11 mutants).
+against the base tree at **6 passed / 45 failed**, 51/0 after, 13 mutants).
 Four decisions are recorded here because they are not recoverable from the diff:
 
 - **The latch (item 5) is not an authority.** `mcp_gate_satisfied` lives in a
@@ -10069,6 +10069,35 @@ Four decisions are recorded here because they are not recoverable from the diff:
   solo-orchestrator itself until the server is up or an operator attests. That is
   the intended posture — configured-but-unreachable blocks — but it takes effect
   the moment this merges.
+
+**WP-A residuals — carried here because they outlive any handoff document.**
+None of these blocks the WP-A work; all three are real and none is fixed:
+
+1. **The escape is LAUNCH-TIME ONLY.** A PreToolUse hook inherits the
+   environment the session started with. BL-072's TDD escape rides the
+   `git commit` command line, so it can be supplied per commit; there is no
+   equivalent for a single `Write`, so `SOLO_MCP_ATTESTED` must be exported
+   before `claude` starts. Decision 3's letter is met and the ergonomics are
+   not. The deny text now names the real mid-session paths (start the server,
+   or restart the session with the vars exported) instead of saying "re-run",
+   which was advice that could not be followed. A per-Write channel — a
+   sentinel file the operator can touch, say — is the obvious follow-up.
+2. **Requirement derivation misses PLUGIN-provided MCP servers.**
+   `session-test-gate-check.sh` classifies by NAME from `.mcpServers` across
+   four settings files. A server provided by a plugin (this host also exposes
+   `mcp__plugin_context7_context7__*`) does not appear there, so
+   `context7_required` derives **false** in a project where Context7 is
+   available only via a plugin — the requirement silently switches off. The
+   tracker matches tool names by suffix and handles both spellings correctly;
+   only the derivation is name-based. This is the `availability` row of the
+   table above surviving in a narrower form.
+3. **`session-end-qdrant-reminder.sh` still counts DECLARATIONS.** It reads
+   `.calls | length` and the `*_called` flags, so its end-of-session summary
+   reports calls that FAILED as calls that happened — it now disagrees with the
+   gate. It is a Stop-hook reminder and nothing enforces on it, so this is
+   cosmetic today, but the outcome fields it needs
+   (`qdrant_find_succeeded`, `qdrant_find_failed`, `qdrant_find_interrupted`)
+   are already in the ledger. **WP-B pickup.**
 
 ### The mechanism
 

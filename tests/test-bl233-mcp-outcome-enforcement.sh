@@ -561,10 +561,17 @@ else
   run_tracker "$TRACKER" "$D2D" "$(ev_success 'mcp__qdrant__qdrant-find' '<entry>prior context</entry>')" --event PostToolUse
   run_gate "$GATE" "$D2D"
   d2_dec=$(decision_of "$GATE_OUT")
-  if [ "$d2_dec" = "allow" ]; then
-    pass "D2 (direction 2): the same fixture with a SUCCEEDING round trip allows — the two directions differ only in which hook event fired, which is the whole point: the event is the signal"
+  # The UPWARD half of the re-derivation. D3 pins the downward correction (a
+  # stale true is reset to false when a run blocks); without this line the
+  # opposite direction is unpinned, and replacing the allow-path write with `:`
+  # leaves the whole suite green — nothing else in scripts/, init.sh or
+  # templates/ reads the field. A property stated in the gate header, the
+  # backlog entry and the report deserves an assertion, not three prose claims.
+  d2_flag=$(jqf "$D2D" '.mcp_gate_satisfied // false')
+  if [ "$d2_dec" = "allow" ] && [ "$d2_flag" = "true" ]; then
+    pass "D2 (direction 2): the same fixture with a SUCCEEDING round trip allows — the two directions differ only in which hook event fired, which is the whole point: the event is the signal — AND the derivation is recorded upward (mcp_gate_satisfied=true), which is the half D3 does not cover"
   else
-    fail_ "D2" "decision=$d2_dec (want allow) transcript='$(cat "$GATE_OUT" 2>/dev/null)'"
+    fail_ "D2" "decision=$d2_dec (want allow) mcp_gate_satisfied_after_allow=$d2_flag (want true) transcript='$(cat "$GATE_OUT" 2>/dev/null)'"
   fi
 fi
 
@@ -834,6 +841,162 @@ if [ -z "$h4_missing" ]; then
   pass "H4: this repository's own .claude/settings.json registers the SessionStart check, the tracker on BOTH post-tool events, and the Write/Edit gate — the mechanism now fires where the framework is BUILT, not only in generated projects. The same gap hides the version-check hook"
 else
   fail_ "H4" "missing from $REPO_SETTINGS: $h4_missing"
+fi
+
+echo ""
+echo "=== R — control characters in text the framework does NOT control ==="
+
+# The deny envelope splices `last_mcp_error` — the REMOTE SERVER'S OWN MESSAGE —
+# into permissionDecisionReason, and SOLO_MCP_REASON — the operator's free text —
+# into the refusal paths. Neither is ours.
+#
+# A raw control byte in either one makes the emitted JSON unparseable, and the
+# hook contract turns that into a FAIL-OPEN: the hook exits 0, stdout is parsed
+# for a decision, and no parseable decision means "no decision — normal
+# permission flow applies". The block is silently dropped. Worse, last_mcp_error
+# PERSISTS in the ledger, so the gate keeps failing open for the rest of the
+# session. The strictest posture and the weakest outcome, from the same input.
+#
+# The original escaping handled `\\`, `"`, `\n` and `\t` — the characters that
+# came to mind, not the CLASS. `\r` alone defeated it, and `jq -r '.error'`
+# emits the raw byte, so the tracker writes exactly that. These rows assert the
+# property that actually matters: the envelope PARSES **and** the decision is
+# still deny. A parsing envelope that allows would be no better.
+
+# _parses_json FILE — 1 if the file is a single parseable JSON value.
+_parses_json() { jq -e . "$1" >/dev/null 2>&1 && printf '1\n' || printf '0\n'; }
+
+# ctl_ledger DIR ERRTEXT — a blocked-on-unreachable ledger carrying ERRTEXT
+# verbatim in last_mcp_error. Built with jq so the control bytes are correctly
+# \u-escaped ON DISK; the gate then reads them back as RAW bytes via `jq -r`,
+# which is exactly the production path.
+ctl_ledger() {
+  local d="$1" err="$2"
+  mkdir -p "$d/.claude" || return 1
+  jq -n --arg e "$err" '{session_id:"s", calls:[], commits_since_last_context7:0,
+     qdrant_find_called:true, qdrant_find_succeeded:false, qdrant_find_failed:1,
+     context7_query_docs_succeeded:false, last_mcp_error:$e, mcp_gate_satisfied:false,
+     mcp_requirements:{qdrant_required:true, context7_required:false, additional_required:[]}}' \
+     > "$d/.claude/tool-usage.json" 2>/dev/null || return 1
+  return 0
+}
+
+# R1 — the reported blocker, with the exact byte that produced it.
+R1D="$(newtmp)/p"
+r1_err="Error calling tool 'qdrant-find': connection reset$(printf '\r')retrying"
+if ! ctl_ledger "$R1D" "$r1_err"; then
+  fail_ "R1" "fixture setup failed"
+else
+  run_gate "$GATE" "$R1D"
+  r1_parses=$(_parses_json "$GATE_OUT")
+  r1_dec=$(decision_of "$GATE_OUT")
+  if [ "$r1_parses" -eq 1 ] && [ "$r1_dec" = "deny" ]; then
+    pass "R1 (blocker): a CARRIAGE RETURN in the server's own error text still produces a PARSEABLE deny envelope. Unescaped, it made the envelope invalid JSON at exit 0 — which the hook contract reads as 'no decision', so the intended block became an allow, and kept doing so all session because last_mcp_error persists"
+  else
+    fail_ "R1" "envelope_parses=$r1_parses (want 1) decision=$r1_dec (want deny) raw='$(cat "$GATE_OUT" 2>/dev/null | head -c 200)'"
+  fi
+fi
+
+# R2 — the whole class, not the one byte that was reported. U+0000 is excluded
+# because a bash string cannot hold a NUL: it would terminate the value, so it
+# can never reach the envelope through a shell variable in the first place.
+R2D="$(newtmp)/p"
+r2_err="down:"
+for _i in 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f 10 11 12 13 14 15 16 17 18 19 1a 1b 1c 1d 1e 1f; do
+  printf -v _ch "\\x$_i"
+  r2_err="${r2_err}${_ch}x"
+done
+if ! ctl_ledger "$R2D" "$r2_err"; then
+  fail_ "R2" "fixture setup failed"
+else
+  run_gate "$GATE" "$R2D"
+  r2_parses=$(_parses_json "$GATE_OUT")
+  r2_dec=$(decision_of "$GATE_OUT")
+  r2_len=$(jq -r '.hookSpecificOutput.permissionDecisionReason | length' "$GATE_OUT" 2>/dev/null)
+  if [ "$r2_parses" -eq 1 ] && [ "$r2_dec" = "deny" ] && [ "$(_num "$r2_len")" -gt 0 ]; then
+    pass "R2: EVERY control byte U+0001-U+001F in the error text is neutralised — the envelope parses, the decision is still deny, and the reason is non-empty. Escaping the characters someone thought of is what left the hole; this asserts the class"
+  else
+    fail_ "R2" "envelope_parses=$r2_parses (want 1) decision=$r2_dec (want deny) reason_len=$r2_len (want >0)"
+  fi
+fi
+
+# R3 — the same splice, through the OPERATOR's text instead of the server's,
+# on the refusal path where an attestation could not be recorded.
+R3D="$(newtmp)/p"
+if ! mk_proj "$R3D" "$LEDGER_BOTH_REQUIRED"; then
+  fail_ "R3" "fixture setup failed"
+else
+  mkdir -p "$R3D/.claude/process-state.json" "$R3D/.claude/mcp-attestations.jsonl"
+  run_gate "$GATE" "$R3D" "SOLO_MCP_ATTESTED=1" "SOLO_MCP_REASON=offline$(printf '\r')on a plane"
+  r3_parses=$(_parses_json "$GATE_OUT")
+  r3_dec=$(decision_of "$GATE_OUT")
+  if [ "$r3_parses" -eq 1 ] && [ "$r3_dec" = "deny" ]; then
+    pass "R3: a control byte in SOLO_MCP_REASON does not break the REFUSAL envelope either — an operator could otherwise turn a refused escape into a silent allow by pasting a reason with a stray CR in it"
+  else
+    fail_ "R3" "envelope_parses=$r3_parses (want 1) decision=$r3_dec (want deny)"
+  fi
+fi
+
+# R4 — an escape that leaves an UNPARSEABLE trace is not a trace. The jq-free
+# fallback sink hand-builds its JSON line, so it has the same exposure, and it
+# counted the write as "recorded" regardless of whether the line was valid.
+R4D="$(newtmp)/p"
+if ! mk_proj "$R4D" "$LEDGER_BOTH_REQUIRED"; then
+  fail_ "R4" "fixture setup failed"
+else
+  run_gate "$GATE" "$R4D" "PATH=" "SOLO_MCP_ATTESTED=1" "SOLO_MCP_REASON=no jq$(printf '\r')and a stray CR"
+  r4_dec=$(decision_of "$GATE_OUT")
+  r4_rows=0
+  r4_valid=0
+  if [ -f "$R4D/.claude/mcp-attestations.jsonl" ]; then
+    r4_rows=$(_num "$(wc -l < "$R4D/.claude/mcp-attestations.jsonl" | tr -d ' ')")
+    if [ "$r4_rows" -ge 1 ] && jq -e . < "$R4D/.claude/mcp-attestations.jsonl" >/dev/null 2>&1; then
+      r4_valid=1
+    fi
+  fi
+  if [ "$r4_dec" = "allow" ] && [ "$r4_rows" -eq 1 ] && [ "$r4_valid" -eq 1 ]; then
+    pass "R4: the jq-free fallback sink writes a line that actually PARSES when the reason carries a control byte. A record nothing can read is the advisory posture this sink exists to prevent, one level down"
+  else
+    fail_ "R4" "decision=$r4_dec (want allow) jsonl_rows=$r4_rows (want 1) jsonl_is_valid_json=$r4_valid (want 1) raw='$(cat "$R4D/.claude/mcp-attestations.jsonl" 2>/dev/null | head -c 200)'"
+  fi
+fi
+
+# R5 — the tracker emits JSON too, and its failure report splices the same
+# uncontrolled error text.
+R5D="$(newtmp)/p"
+if ! mk_proj "$R5D" "$LEDGER_BOTH_REQUIRED"; then
+  fail_ "R5" "fixture setup failed"
+else
+  r5_env=$(_ev "$(jq -nc --arg e "connection reset$(printf '\r')retrying" \
+    '{session_id:"s1",cwd:"/tmp",hook_event_name:"PostToolUseFailure",tool_name:"mcp__qdrant__qdrant-find",tool_input:{query:"q"},error:$e,is_interrupt:false}')")
+  run_tracker "$TRACKER" "$R5D" "$r5_env" --event PostToolUseFailure
+  r5_parses=$(_parses_json "$TRK_OUT")
+  r5_recorded=$(_num "$(jqf "$R5D" '.qdrant_find_failed // 0')")
+  if [ "$r5_parses" -eq 1 ] && [ "$r5_recorded" -eq 1 ]; then
+    pass "R5: the tracker's own failure report stays valid JSON when the server's error carries a control byte, and the failure is still recorded. It hand-escaped four characters; it now delegates the whole job to jq, which is present on that path by construction"
+  else
+    fail_ "R5" "report_parses=$r5_parses (want 1) qdrant_find_failed=$r5_recorded (want 1) raw='$(cat "$TRK_OUT" 2>/dev/null | head -c 200)'"
+  fi
+fi
+
+# R6 — emptiness by SHAPE, not by wording. A zero-length tool_response array is
+# a call that returned no content blocks at all; no phrase list can be relied on
+# for that, and a server that phrases zero results in its own words must not
+# silently read as a healthy retrieval.
+R6D="$(newtmp)/p"
+if ! mk_proj "$R6D" "$LEDGER_BOTH_REQUIRED"; then
+  fail_ "R6" "fixture setup failed"
+else
+  r6_env=$(_ev "$(printf '{"session_id":"s1","cwd":"/tmp","hook_event_name":"PostToolUse","tool_name":"mcp__qdrant__qdrant-find","tool_input":{"query":"q"},"tool_response":[]}')")
+  run_tracker "$TRACKER" "$R6D" "$r6_env" --event PostToolUse
+  r6_ok=$(jqf "$R6D" '.qdrant_find_succeeded // false')
+  r6_empty=$(jqf "$R6D" '.qdrant_find_empty // false')
+  r6_reported=$(_bytes "$TRK_OUT")
+  if [ "$r6_ok" = "true" ] && [ "$r6_empty" = "true" ] && [ "$r6_reported" -gt 0 ]; then
+    pass "R6: a zero-length tool_response ARRAY is recognised as empty by shape — no content blocks came back at all. The phrase list is the best-effort half of this detector; the shape checks are the half that does not depend on guessing a server's wording"
+  else
+    fail_ "R6" "succeeded=$r6_ok (want true) empty_flag=$r6_empty (want true) report_bytes=$r6_reported (want >0)"
+  fi
 fi
 
 echo ""
@@ -1112,6 +1275,49 @@ if [ "$z1_bad" -eq 0 ]; then
 else
   fail_ "Z1" "$z1_bad malformed envelope(s) were fed to a hook — every assertion using one is meaningless:
 $(cat "$BAD_ENVELOPES")"
+fi
+
+# ── M12: drop the upward latch record ───────────────────────────────────────
+# The mutant a reviewer wrote that survived every PR-blocking check.
+M12D="$(newtmp)"
+if ! mk_proj "$M12D/p" "$LEDGER_BOTH_REQUIRED" || ! mk_mirror "$M12D/m"; then
+  fail_ "M12" "fixture setup failed"
+else
+  run_tracker "$TRACKER" "$M12D/p" "$(ev_success 'mcp__qdrant__qdrant-find' 'ctx')" --event PostToolUse
+  run_gate "$M12D/m/gate.sh" "$M12D/p"; m12_ctl_dec=$(decision_of "$GATE_OUT")
+  m12_ctl=$(jqf "$M12D/p" '.mcp_gate_satisfied // false')
+  m12_meta=$(_mutate "$M12D/m/gate.sh" '# BL-233-LATCH-RECORD-UP' '    :')
+  set -- $m12_meta; m12_sites=$1; m12_changed=$2; m12_parses=$3
+  mk_proj "$M12D/p2" "$LEDGER_BOTH_REQUIRED"
+  run_tracker "$TRACKER" "$M12D/p2" "$(ev_success 'mcp__qdrant__qdrant-find' 'ctx')" --event PostToolUse
+  run_gate "$M12D/m/gate.sh" "$M12D/p2"; m12_mut_dec=$(decision_of "$GATE_OUT")
+  m12_mut=$(jqf "$M12D/p2" '.mcp_gate_satisfied // false')
+  if [ "$m12_ctl" = "true" ] && [ "$m12_mut" = "false" ] \
+     && [ "$m12_ctl_dec" = "allow" ] && [ "$m12_mut_dec" = "allow" ] \
+     && [ "$m12_sites" -eq 1 ] && [ "$m12_changed" -eq 2 ] && [ "$m12_parses" -eq 1 ]; then
+    pass "M12: control records the satisfied derivation; drop the write and the field stays false while the gate still allows — the ledger then says the requirement was never met by a session that was writing files. Both directions ALLOW, so only the state assertion separates them; a decision-only proof cannot see this at all"
+  else
+    fail_ "M12" "control_flag=$m12_ctl (want true) mutant_flag=$m12_mut (want false) control_decision=$m12_ctl_dec (want allow) mutant_decision=$m12_mut_dec (want allow) sites=$m12_sites (want 1) changed=$m12_changed (want 2) parses=$m12_parses (want 1)"
+  fi
+fi
+
+# ── M13: remove the control-character scrub ─────────────────────────────────
+M13D="$(newtmp)"
+if ! ctl_ledger "$M13D/p" "boom$(printf '\r')x" || ! mk_mirror "$M13D/m"; then
+  fail_ "M13" "fixture setup failed"
+else
+  run_gate "$M13D/m/gate.sh" "$M13D/p"; m13_ctl_parses=$(_parses_json "$GATE_OUT"); m13_ctl_dec=$(decision_of "$GATE_OUT")
+  m13_meta=$(_mutate "$M13D/m/gate.sh" '# BL-233-CTL-SCRUB' '  reason="$reason"')
+  set -- $m13_meta; m13_sites=$1; m13_changed=$2; m13_parses=$3
+  ctl_ledger "$M13D/p2" "boom$(printf '\r')x"
+  run_gate "$M13D/m/gate.sh" "$M13D/p2"; m13_mut_parses=$(_parses_json "$GATE_OUT"); m13_mut_dec=$(decision_of "$GATE_OUT")
+  if [ "$m13_ctl_parses" -eq 1 ] && [ "$m13_ctl_dec" = "deny" ] \
+     && [ "$m13_mut_parses" -eq 0 ] && [ "$m13_mut_dec" != "deny" ] \
+     && [ "$m13_sites" -eq 1 ] && [ "$m13_changed" -eq 2 ] && [ "$m13_parses" -eq 1 ]; then
+    pass "M13: control emits a parseable deny; remove the scrub and the SAME ledger yields an unparseable envelope at exit 0 — which the hook contract reads as no decision at all, so the block evaporates. The mutation changes nothing about the gate's logic and everything about whether its verdict is heard"
+  else
+    fail_ "M13" "control_parses=$m13_ctl_parses (want 1) control_decision=$m13_ctl_dec (want deny) mutant_parses=$m13_mut_parses (want 0) mutant_decision=$m13_mut_dec (want != deny) sites=$m13_sites (want 1) changed=$m13_changed (want 2) parses=$m13_parses (want 1)"
+  fi
 fi
 
 END_EPOCH=$(date +%s)

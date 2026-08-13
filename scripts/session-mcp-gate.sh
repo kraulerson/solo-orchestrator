@@ -67,19 +67,62 @@ TOOL_USAGE=".claude/tool-usage.json"
 PROCESS_STATE=".claude/process-state.json"
 ATTEST_JSONL=".claude/mcp-attestations.jsonl"
 
-ESCAPE_HINT="If this cannot be satisfied honestly — offline, a project with no prior memory, a change that involves no library — attest the exception: SOLO_MCP_ATTESTED=1 SOLO_MCP_REASON='<why>'. The reason is MANDATORY, the escape is RECORDED to .claude/process-state.json::mcp_attestations[], and it is REFUSED if that record cannot be written."
+# THE ESCAPE IS LAUNCH-TIME, and the hint must say so rather than implying a
+# retry. A PreToolUse hook inherits the environment Claude Code started with,
+# and unlike BL-072's TDD escape — which rides the `git commit` command line, so
+# an operator can set it per commit — there is no way to attach an env var to a
+# single Write. "Re-run with SOLO_MCP_REASON=…" is advice that cannot be
+# followed mid-session; a gate whose escape route does not exist is one people
+# route around (`## BL-149:`), so the honest paths are named explicitly and in
+# preference order.
+ESCAPE_HINT="MID-SESSION, the ways through are: (1) make the call succeed — start the server (Qdrant: docker start, port 6333) and call the tool again, which is the outcome this gate exists to produce; or (2) if it genuinely cannot be satisfied — offline, a project with no prior memory, a change that involves no library — EXIT and restart the session with the attestation exported: SOLO_MCP_ATTESTED=1 SOLO_MCP_REASON='<why>' claude. The variables are read from the session's environment, so they cannot be attached to a single Write after the session has started. The reason is MANDATORY, the escape is RECORDED to .claude/process-state.json::mcp_attestations[] (or .claude/mcp-attestations.jsonl if jq is unavailable), and it is REFUSED if neither record can be written."
+
+# _scrub_ctl STRING — sets SCRUBBED to STRING with every control byte
+# U+0001-U+001F replaced by a space.
+#
+# WHY THE WHOLE CLASS AND NOT A LIST. This function replaces an escaper that
+# handled `\\`, `"`, `\n` and `\t` — the characters that came to mind, not the
+# class. `\r` alone defeated it, and the text being escaped is NOT OURS: the
+# UNREACHABLE arm splices `last_mcp_error`, which is the remote server's own
+# message, and the attestation arms splice the operator's free text. `jq -r`
+# emits those bytes raw, so whatever the server says arrives intact.
+#
+# What an unescaped control byte costs is a FAIL-OPEN, and a durable one. The
+# hook exits 0, Claude Code parses stdout for a decision, and an unparseable
+# envelope means "no decision — normal permission flow applies": the block is
+# silently dropped. Because `last_mcp_error` persists in the ledger, the gate
+# then keeps failing open for the rest of the session. The strictest posture
+# and the weakest outcome, from the same input.
+#
+# `printf -v` and parameter expansion are BUILTINS, so this works with an empty
+# PATH — which it must, because the no-jq refusal is emitted through here and
+# cannot use jq to build its JSON the way the tracker does. U+0000 is not in
+# the loop: a bash string cannot hold a NUL (it would terminate the value), so
+# one can never reach the envelope through a shell variable.
+SCRUBBED=""
+_scrub_ctl() {
+  local s="$1" i ch
+  for i in 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f 10 11 12 13 14 15 16 17 18 19 1a 1b 1c 1d 1e 1f; do
+    printf -v ch "\\x$i"
+    s=${s//"$ch"/ }
+  done
+  SCRUBBED="$s"
+}
 
 # deny REASON — emit the PreToolUse deny envelope, then exit 0.
 #
 # printf and parameter expansion only, no cat/heredoc/sed: the no-jq arm must
 # be able to report a missing toolchain without depending on that toolchain,
 # and this function is what it reports through. It works with an EMPTY PATH.
+#
+# Order matters: scrub the control class FIRST, then escape `\` and `"`. The
+# scrub only ever introduces spaces, so it cannot manufacture an escape the
+# following two lines would then miss.
 deny() {
   local reason="$1"
+  _scrub_ctl "$reason"; reason="$SCRUBBED"  # BL-233-CTL-SCRUB
   reason=${reason//\\/\\\\}
   reason=${reason//\"/\\\"}
-  reason=${reason//$'\n'/ }
-  reason=${reason//$'\t'/ }
   printf '{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "%s"}}\n' "$reason"
   exit 0
 }
@@ -158,10 +201,16 @@ mcp_record_attestation() {
     fi
   fi
 
-  # Fallback sink — builtins only, so it survives the no-jq state.
-  local r="$reason" b="$blocked"
-  r=${r//\\/\\\\}; r=${r//\"/\\\"}; r=${r//$'\n'/ }
-  b=${b//\\/\\\\}; b=${b//\"/\\\"}; b=${b//$'\n'/ }
+  # Fallback sink — builtins only, so it survives the no-jq state. Same
+  # control-class scrub as deny(): this line is hand-built JSON carrying the
+  # operator's free text, and a record nothing can parse is not a record. The
+  # sink counted the write as "recorded" whether or not the line was valid,
+  # so a stray CR in a reason produced an escape whose only trace was corrupt.
+  local r b
+  _scrub_ctl "$reason"; r="$SCRUBBED"
+  _scrub_ctl "$blocked"; b="$SCRUBBED"
+  r=${r//\\/\\\\}; r=${r//\"/\\\"}
+  b=${b//\\/\\\\}; b=${b//\"/\\\"}
   if ( printf '{"date": "%s", "reason": "%s", "blocked_on": "%s"}\n' "${now:-unknown}" "$r" "$b" >> "$ATTEST_JSONL" ) 2>/dev/null; then
     ok=0
   fi
@@ -232,7 +281,11 @@ fi
 # ── Allow ───────────────────────────────────────────────────────────────────
 if [ -z "$BLOCK_REASON" ]; then
   if command -v jq >/dev/null 2>&1 && [ -f "$TOOL_USAGE" ]; then
-    jq '.mcp_gate_satisfied = true' "$TOOL_USAGE" > "$TOOL_USAGE.tmp" 2>/dev/null && mv "$TOOL_USAGE.tmp" "$TOOL_USAGE" 2>/dev/null
+    # The UPWARD half of the re-derivation. Nothing else in the framework reads
+    # this field, so deleting this line changes no decision and no other test —
+    # which is exactly why it needs its own assertion (D2) and its own mutant
+    # (M12) rather than three prose claims that it happens.
+    jq '.mcp_gate_satisfied = true' "$TOOL_USAGE" > "$TOOL_USAGE.tmp" 2>/dev/null && mv "$TOOL_USAGE.tmp" "$TOOL_USAGE" 2>/dev/null  # BL-233-LATCH-RECORD-UP
   fi
   exit 0
 fi

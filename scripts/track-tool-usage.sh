@@ -194,15 +194,29 @@ RESPONSE_TEXT=$(echo "$INPUT" | jq -r '
     elif ($r | type) == "object" then ($r | tostring)
     else "" end' 2>/dev/null)
 
+# Emptiness is decided by SHAPE first and by WORDING only as a fallback, and
+# the two halves are not equally trustworthy. A zero-length content array, an
+# absent tool_response, and text that is all whitespace are structural facts
+# about what came back. A phrase list is a guess about how a particular server
+# writes "nothing here" — it covers the ones we have seen and it will miss a
+# server that words it differently. That residual is stated rather than hidden:
+# a missed phrase records qdrant_find_empty=false and reports nothing, so an
+# empty memory would look like a healthy one. The shape checks are what keep
+# that from being the common case.
 IS_EMPTY=0
 if [ "$OUTCOME" = "success" ]; then
+  # Shape: no content blocks at all (`[]`), or tool_response absent entirely.
+  RESPONSE_BLOCKS=$(echo "$INPUT" | jq -r 'if (.tool_response // null | type) == "array" then (.tool_response | length) else -1 end' 2>/dev/null)
+  case "$RESPONSE_BLOCKS" in ''|*[!0-9-]*) RESPONSE_BLOCKS=-1 ;; esac
   _stripped=$(printf '%s' "$RESPONSE_TEXT" | tr -d '[:space:]')
-  if [ -z "$_stripped" ]; then
+  if [ "$RESPONSE_BLOCKS" = "0" ]; then
     IS_EMPTY=1
-  elif printf '%s' "$RESPONSE_TEXT" | grep -qiE 'no information found|no results found|no matching (documents|entries|results)' 2>/dev/null; then
-    # The qdrant MCP server's own zero-result phrasing. A gate that reads this
-    # as content is the "returned something" question answered by a sentence
-    # that says nothing was returned.
+  elif [ -z "$_stripped" ]; then
+    IS_EMPTY=1
+  elif printf '%s' "$RESPONSE_TEXT" | grep -qiE 'no (information|results?|matches|matching|entries|entry|documents?|data|content|context) (found|available|returned)?|nothing found|empty (result|collection)|0 results|found 0 ' 2>/dev/null; then
+    # Known zero-result phrasings, the qdrant MCP server's own included. A gate
+    # that reads these as content answers "did it return something?" with a
+    # sentence that says nothing was returned.
     IS_EMPTY=1
   fi
 fi
@@ -286,11 +300,19 @@ fi
 # field written above, and it is written whether or not this line is reached.
 # Only the two states worth interrupting for are reported: a retrieval that
 # returned nothing, and a call that failed.
+#
+# BUILT BY jq, NOT BY printf. The failure report splices $TOOL_ERROR — the
+# remote server's own message, which is not ours and can carry any byte. It
+# used to be hand-escaped for `\`, `"`, `\n`, `\r` and `\t`; that is a list, not
+# the control CLASS, and an unparseable hook envelope is worse than no envelope.
+# jq is guaranteed present here (the script exits above without it), so there is
+# no reason to hand-build JSON on this path — unlike session-mcp-gate.sh's
+# deny(), which must be able to report a MISSING jq and therefore scrubs the
+# class with builtins instead.
 if [ "$IS_EMPTY" = "1" ] && echo "$TOOL_NAME" | grep -q "qdrant" 2>/dev/null; then
-  printf '{"hookSpecificOutput": {"hookEventName": "%s", "additionalContext": "QDRANT EMPTY RESULT: %s returned no stored context. This does NOT block you — an empty semantic memory is expected on a new project. On an established one it means nothing was ever stored, so the retrieval half has nothing behind it. Report it to the Orchestrator and store what this session learns."}}\n' "$EVENT" "$TOOL_NAME"  # BL-233-EMPTY-REPORT
+  jq -nc --arg ev "$EVENT" --arg tool "$TOOL_NAME" '{hookSpecificOutput: {hookEventName: $ev, additionalContext: ("QDRANT EMPTY RESULT: " + $tool + " returned no stored context. This does NOT block you — an empty semantic memory is expected on a new project. On an established one it means nothing was ever stored, so the retrieval half has nothing behind it. Report it to the Orchestrator and store what this session learns.")}}'  # BL-233-EMPTY-REPORT
 elif [ "$OUTCOME" = "failure" ]; then
-  _err_escaped=$(printf '%s' "$TOOL_ERROR" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | tr -d '\n\r\t')
-  printf '{"hookSpecificOutput": {"hookEventName": "%s", "additionalContext": "MCP CALL FAILED: %s did not execute (%s). This is RECORDED and it does NOT satisfy any session requirement — the framework now distinguishes configured-but-unreachable from not-configured. Fix the server or attest the exception; do not retry silently and proceed."}}\n' "$EVENT" "$TOOL_NAME" "$_err_escaped"
+  jq -nc --arg ev "$EVENT" --arg tool "$TOOL_NAME" --arg err "$TOOL_ERROR" '{hookSpecificOutput: {hookEventName: $ev, additionalContext: ("MCP CALL FAILED: " + $tool + " did not execute (" + $err + "). This is RECORDED and it does NOT satisfy any session requirement — the framework now distinguishes configured-but-unreachable from not-configured. Fix the server or attest the exception; do not retry silently and proceed.")}}'
 fi
 
 exit 0
