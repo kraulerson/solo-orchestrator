@@ -378,6 +378,35 @@ else
   fi
 fi
 
+# A5 — the fourth state, and the reason the ground-truth table lists
+# `is_interrupt` at all. A call the OPERATOR cancelled also arrives on
+# PostToolUseFailure, but "you pressed Esc" and "the server is not there" are
+# different facts. Both leave the requirement unsatisfied — that part must not
+# soften — but only one of them is evidence about the server, and a gate that
+# announces CONFIGURED BUT UNREACHABLE because someone cancelled a query is
+# `## BL-104:`'s lesson restated: the label is never the behaviour.
+A5D="$(newtmp)/p"
+if ! mk_proj "$A5D" "$LEDGER_BOTH_REQUIRED"; then
+  fail_ "A5" "fixture setup failed"
+else
+  a5_env=$(_ev "$(printf '{"session_id":"s1","cwd":"/tmp","hook_event_name":"PostToolUseFailure","tool_name":"mcp__qdrant__qdrant-find","tool_input":{"query":"q"},"error":"The user doesn'"'"'t want to take this action right now.","is_interrupt":true}')")
+  run_tracker "$TRACKER" "$A5D" "$a5_env" --event PostToolUseFailure
+  a5_ok=$(jqf "$A5D" '.qdrant_find_succeeded // false')
+  a5_fails=$(_num "$(jqf "$A5D" '.qdrant_find_failed // 0')")
+  a5_int=$(_num "$(jqf "$A5D" '.qdrant_find_interrupted // 0')")
+  a5_outcome=$(jqf "$A5D" '[.calls[] | .outcome] | first // ""')
+  run_gate "$GATE" "$A5D"
+  a5_dec=$(decision_of "$GATE_OUT")
+  a5_claims_down=0
+  printf '%s' "$(reason_of "$GATE_OUT")" | grep -qi 'unreachable' && a5_claims_down=1
+  if [ "$a5_ok" = "false" ] && [ "$a5_dec" = "deny" ] && [ "$a5_claims_down" -eq 0 ] \
+     && [ "$a5_fails" -eq 0 ] && [ "$a5_int" -eq 1 ] && [ "$a5_outcome" = "interrupted" ]; then
+    pass "A5: an OPERATOR-CANCELLED call (is_interrupt=true on PostToolUseFailure) still leaves the requirement unsatisfied and still denies — but it is recorded as interrupted, not failed, and the gate does NOT diagnose the server as unreachable on the strength of it. Unsatisfied is a verdict; unreachable is a claim about the world, and only a real failed round trip earns it"
+  else
+    fail_ "A5" "succeeded=$a5_ok (want false) gate=$a5_dec (want deny) claims_unreachable=$a5_claims_down (want 0) qdrant_find_failed=$a5_fails (want 0) qdrant_find_interrupted=$a5_int (want 1) call_outcome='$a5_outcome' (want interrupted)"
+  fi
+fi
+
 echo ""
 echo "=== B — Context7: the gate must require the call that FETCHES DOCUMENTATION ==="
 

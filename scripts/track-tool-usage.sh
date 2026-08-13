@@ -99,6 +99,18 @@ case "$EVENT" in
   *)                  OUTCOME=unknown ;;
 esac  # BL-233-EVENT-OUTCOME
 
+# A call the OPERATOR cancelled also arrives on PostToolUseFailure, carrying
+# is_interrupt=true. It did not succeed, so it must not satisfy anything — that
+# does not soften. But "you pressed Esc" is not evidence that the server is
+# down, and the gate's unreachable arm makes a CLAIM ABOUT THE WORLD from the
+# failure count. Scoring an interrupt as a failure would have the gate announce
+# CONFIGURED BUT UNREACHABLE because someone cancelled a query, which is
+# `## BL-104:`'s lesson restated: the label is never the behaviour. Recorded
+# separately, counted separately, still unsatisfied.
+if [ "$OUTCOME" = "failure" ] && [ "$(echo "$INPUT" | jq -r '.is_interrupt // false' 2>/dev/null)" = "true" ]; then
+  OUTCOME=interrupted  # BL-233-INTERRUPT
+fi
+
 # The error text is present only on the failure event.
 TOOL_ERROR=$(echo "$INPUT" | jq -r '.error // ""' 2>/dev/null)
 
@@ -251,7 +263,12 @@ if echo "$TOOL_NAME" | grep -q "qdrant" 2>/dev/null; then
          | .qdrant_find_empty = ($empty == 1)
          | .qdrant_find_empty_count = ((.qdrant_find_empty_count // 0) + $empty)' \
         "$TOOL_USAGE" > "$TOOL_USAGE.tmp" 2>/dev/null && mv "$TOOL_USAGE.tmp" "$TOOL_USAGE" 2>/dev/null
+    elif [ "$OUTCOME" = "interrupted" ]; then
+      jq '.qdrant_find_interrupted = ((.qdrant_find_interrupted // 0) + 1)' \
+        "$TOOL_USAGE" > "$TOOL_USAGE.tmp" 2>/dev/null && mv "$TOOL_USAGE.tmp" "$TOOL_USAGE" 2>/dev/null
     else
+      # Only a real failed round trip counts toward the evidence the gate uses
+      # to call the server unreachable.
       jq '.qdrant_find_failed = ((.qdrant_find_failed // 0) + 1)' \
         "$TOOL_USAGE" > "$TOOL_USAGE.tmp" 2>/dev/null && mv "$TOOL_USAGE.tmp" "$TOOL_USAGE" 2>/dev/null
     fi
