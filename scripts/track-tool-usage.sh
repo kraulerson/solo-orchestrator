@@ -194,15 +194,31 @@ RESPONSE_TEXT=$(echo "$INPUT" | jq -r '
     elif ($r | type) == "object" then ($r | tostring)
     else "" end' 2>/dev/null)
 
-# Emptiness is decided by SHAPE first and by WORDING only as a fallback, and
-# the two halves are not equally trustworthy. A zero-length content array, an
-# absent tool_response, and text that is all whitespace are structural facts
-# about what came back. A phrase list is a guess about how a particular server
-# writes "nothing here" — it covers the ones we have seen and it will miss a
-# server that words it differently. That residual is stated rather than hidden:
-# a missed phrase records qdrant_find_empty=false and reports nothing, so an
-# empty memory would look like a healthy one. The shape checks are what keep
-# that from being the common case.
+# ── BL-234: emptiness is decided by SHAPE ONLY. The phrase half is GONE ─────
+# This block used to fall back to a list of "nothing here" phrasings when the
+# shape checks did not fire. It was wrong on its FIRST LIVE FIRING, an hour
+# after it shipped: a qdrant-find returning TEN substantial memories was
+# recorded qdrant_find_empty=true, because one of the STORED MEMORIES contained
+# the sentence
+#
+#     D8 empty result returns 200 with {games: [], meta.total: 0}
+#
+# — a design decision from an unrelated project — and the fallback matched
+# `empty (result|collection)`. IT MATCHED A MEMORY ABOUT EMPTINESS AND CONCLUDED
+# THE RETRIEVAL WAS EMPTY, then told the agent its semantic memory was empty
+# while handing it a full one.
+#
+# A zero-length content array, an absent tool_response, and all-whitespace text
+# are FACTS ABOUT THE RESPONSE. A phrase list is a GUESS ABOUT ANOTHER SERVER'S
+# PROSE, and it guesses in both directions — the old comment conceded the
+# missed-phrase direction (a true empty read as healthy) and treated it as the
+# residual. The inverse is the one that actually happened and it is worse: it
+# manufactures a false alarm about the exact thing the operator was told to
+# trust, and it does so on a payload that contains real retrieved context.
+#
+# The accepted loss is real and is pinned by a test (C5): a server that words a
+# true zero result in prose inside a content block now records false and says
+# nothing. That is the lesser error. SHAPE IS DECIDABLE; PROSE IS NOT.
 IS_EMPTY=0
 if [ "$OUTCOME" = "success" ]; then
   # Shape: no content blocks at all (`[]`), or tool_response absent entirely.
@@ -211,13 +227,7 @@ if [ "$OUTCOME" = "success" ]; then
   _stripped=$(printf '%s' "$RESPONSE_TEXT" | tr -d '[:space:]')
   if [ "$RESPONSE_BLOCKS" = "0" ]; then
     IS_EMPTY=1
-  elif [ -z "$_stripped" ]; then
-    IS_EMPTY=1
-  elif printf '%s' "$RESPONSE_TEXT" | grep -qiE 'no (information|results?|matches|matching|entries|entry|documents?|data|content|context) (found|available|returned)?|nothing found|empty (result|collection)|0 results|found 0 ' 2>/dev/null; then
-    # Known zero-result phrasings, the qdrant MCP server's own included. A gate
-    # that reads these as content answers "did it return something?" with a
-    # sentence that says nothing was returned.
-    IS_EMPTY=1
+  elif [ -z "$_stripped" ]; then IS_EMPTY=1   # BL-234-EMPTY-SHAPE-ONLY
   fi
 fi
 

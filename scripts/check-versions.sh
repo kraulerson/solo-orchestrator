@@ -169,9 +169,19 @@ check_for_update() {
         return
       fi
 
-      # Fetch latest from remote (quiet, with timeout)
+      # Fetch latest from remote (quiet, BOUNDED).
+      #
+      # BL-234: this comment said "with timeout" for as long as the line
+      # existed, above a bare `git fetch` that had none. A comment describing an
+      # intention nobody implemented is the same defect as a `[WARN]` label over
+      # an `issues` increment (`## BL-104:`) — the text and the behaviour
+      # disagree, and readers trust the text. NETWORK_AVAILABLE is a coarse
+      # pre-check, not a bound: a reachable host that never answers hangs this
+      # script indefinitely, and it runs from a session hook.
+      # run_with_timeout is the only bounded runner available — there is no
+      # timeout(1)/gtimeout(1) on the dev host (they yield a spurious rc=127).
       if [ "$NETWORK_AVAILABLE" = true ]; then
-        git -C "$repo_path" fetch --quiet 2>/dev/null || true
+        run_with_timeout "${SOLO_FETCH_TIMEOUT:-10}" git -C "$repo_path" fetch --quiet >/dev/null 2>&1 || true   # BL-234-CHECKVERSIONS-TIMEOUT
         local local_rev remote_rev behind_count
         local_rev=$(git -C "$repo_path" rev-parse HEAD 2>/dev/null)
         remote_rev=$(git -C "$repo_path" rev-parse origin/main 2>/dev/null || git -C "$repo_path" rev-parse origin/master 2>/dev/null || echo "")

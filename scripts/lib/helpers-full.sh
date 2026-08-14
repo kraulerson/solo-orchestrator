@@ -79,10 +79,103 @@ is_context7_mcp_registered() {
   ([ -f "$HOME/.claude/settings.json" ] && jq -e '.enabledPlugins | to_entries[] | select(.key | test("^context7"; "i")) | select(.value == true)' "$HOME/.claude/settings.json" >/dev/null 2>&1)
 }
 
-is_qdrant_mcp_registered() {
+# ── Qdrant: registered is not the same question as working (BL-234) ─────────
+# `is_qdrant_mcp_registered` used to BE the function below — a pure read of
+# `~/.claude.json`. Its three callers in init.sh all treat a true answer as
+# "the semantic memory is available", so a stale global entry left by an
+# unrelated project made every later project conclude Qdrant was installed and
+# SKIP PROVISIONING THE DATABASE ENTIRELY. That is why `powerpoint-voice` never
+# had a Qdrant: not a missing feature, a predicate answering a different
+# question from the one being asked.
+#
+# The config read survives under its honest name, because one caller genuinely
+# wants it (writing a project-local collection override is correct whether or
+# not the server happens to be up).
+is_qdrant_mcp_entry_present() {
   command -v jq &>/dev/null || return 1
   ([ -f "$HOME/.claude/settings.json" ] && jq -e '.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // empty' "$HOME/.claude/settings.json" >/dev/null 2>&1) || \
   ([ -f "$HOME/.claude.json" ] && jq -e '.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // empty' "$HOME/.claude.json" >/dev/null 2>&1)
+}
+
+# qdrant_mcp_url — the URL the REGISTRATION itself names, never a hard-coded
+# one. Probing localhost while the entry points somewhere else would answer a
+# question nobody asked. Falls back to the documented default only when the
+# entry carries no QDRANT_URL.
+qdrant_mcp_url() {
+  local u=""
+  if command -v jq &>/dev/null; then
+    [ -f "$HOME/.claude.json" ] && u=$(jq -r '(.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // {}) | (.env.QDRANT_URL // empty)' "$HOME/.claude.json" 2>/dev/null)
+    if [ -z "$u" ] && [ -f "$HOME/.claude/settings.json" ]; then
+      u=$(jq -r '(.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // {}) | (.env.QDRANT_URL // empty)' "$HOME/.claude/settings.json" 2>/dev/null)
+    fi
+  fi
+  [ -n "$u" ] && [ "$u" != "null" ] || u="http://localhost:6333"
+  printf '%s' "$u"
+}
+
+# qdrant_probe_reachable [url] — does the database ANSWER?
+#   0 = reachable   1 = definitively unreachable   2 = cannot tell
+#
+# THREE returns, not two, and the third is reachable code: with neither curl nor
+# nc there is no bounded way to open a socket from bash that can be trusted not
+# to hang, and "I could not look" is a different fact from "it is not there".
+# `# BL-112-SAST-NOTRUN`'s doctrine, one subsystem over. Each caller decides
+# what to do with a 2 — the directions and their reasons are on `## BL-234:`.
+#
+# BOUNDED TWICE on purpose: curl's own --max-time is the precise bound, and
+# run_with_timeout is the backstop for the states --max-time does not cover (a
+# curl wedged before it starts its timer, a stub, a DNS resolver that blocks).
+# There is no timeout(1) on the dev host, so run_with_timeout is the only outer
+# bound available.
+#
+# /readyz is Qdrant's documented readiness probe ("checks the instance to see
+# when it can start accepting traffic" — api.qdrant.tech/api-reference/service/readyz),
+# which is the question being asked. The root endpoint is tried second so a
+# build predating /readyz is not called dead; only after BOTH fail is the
+# server unreachable.
+qdrant_probe_reachable() {
+  local url="${1:-}" base secs host port hostport
+  [ -n "$url" ] || url="$(qdrant_mcp_url)"
+  base="${url%/}"
+  secs="${SOLO_QDRANT_PROBE_TIMEOUT:-3}"
+  case "$secs" in ''|*[!0-9]*|0) secs=3 ;; esac
+
+  if command -v curl &>/dev/null; then
+    run_with_timeout "$secs" curl -fsS --max-time "$secs" -o /dev/null "$base/readyz" >/dev/null 2>&1 && return 0  # BL-234-QDRANT-REACHABLE
+    run_with_timeout "$secs" curl -fsS --max-time "$secs" -o /dev/null "$base/" >/dev/null 2>&1 && return 0
+    return 1
+  fi
+
+  if command -v nc &>/dev/null; then
+    hostport="${base#*://}"; hostport="${hostport%%/*}"
+    host="${hostport%%:*}"; port="${hostport##*:}"
+    case "$port" in ''|*[!0-9]*) port=6333 ;; esac
+    [ -n "$host" ] || return 2
+    run_with_timeout "$secs" nc -z -w "$secs" "$host" "$port" >/dev/null 2>&1 && return 0
+    return 1
+  fi
+
+  return 2
+}
+
+# is_qdrant_mcp_registered — registered AND reachable. The name is unchanged
+# because it is what every caller already believed it meant.
+#
+# QDRANT_MCP_STATE carries the answer callers cannot get from an exit code:
+#   reachable | unreachable | unknown | unregistered
+# It is set on EVERY path, so a caller reading it after a false return is never
+# reading a value from a previous call.
+QDRANT_MCP_STATE=""
+is_qdrant_mcp_registered() {
+  local _qmr_rc=0
+  QDRANT_MCP_STATE="unregistered"
+  is_qdrant_mcp_entry_present || return 1
+  qdrant_probe_reachable "$(qdrant_mcp_url)" || _qmr_rc=$?   # BL-234-QDRANT-PREDICATE
+  case "$_qmr_rc" in
+    0) QDRANT_MCP_STATE="reachable";   return 0 ;;
+    1) QDRANT_MCP_STATE="unreachable"; return 1 ;;
+    *) QDRANT_MCP_STATE="unknown";     return 1 ;;
+  esac
 }
 
 # Check if a Qdrant container is running via docker ps (5s timeout, no docker info).

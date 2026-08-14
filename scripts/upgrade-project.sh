@@ -644,6 +644,17 @@ _run_idempotent_backfill() {
         printf '.claude/last-gate-pass.txt\n'
       } >> .gitignore && _bl174_added=1 || true
     fi
+    if ! grep -qxF '.claude/tool-usage.json' .gitignore 2>/dev/null; then
+      {
+        printf '\n# BL-236-LEDGER-IGNORE — the MCP tool-usage ledger. Per-session mutable\n'
+        printf '# runtime state, mutated after EVERY MCP tool call, and (since BL-233) the\n'
+        printf '# MCP gate ledger — so a COMMITTED copy is shared state a clone inherits.\n'
+        printf '# Ignoring it stops new commits; an ALREADY-tracked copy needs one manual\n'
+        printf '# step the framework will not take for you:\n'
+        printf '#     git rm --cached .claude/tool-usage.json\n'
+        printf '.claude/tool-usage.json\n'
+      } >> .gitignore && _bl174_added=1 || true
+    fi
     if [ "$_bl174_added" -eq 1 ]; then
       print_ok "gitignore sidecar ignore-lines backfilled (BL-174)"
     fi

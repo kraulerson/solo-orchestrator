@@ -73,11 +73,26 @@ build_fw() {
   printf 'CLAUDE template v1\n'          > "$fw/templates/generated/claude-md.tmpl"
   printf 'builders guide v1\n'          > "$fw/docs/builders-guide.md"
   printf 'cp "$SCRIPT_DIR/docs/builders-guide.md" docs/reference/\n' > "$fw/init.sh"
-  git -C "$fw" init -q >/dev/null 2>&1
+  git -C "$fw" init -q -b main >/dev/null 2>&1 || git -C "$fw" init -q >/dev/null 2>&1
   git -C "$fw" config user.email t@t.t
   git -C "$fw" config user.name  tester
   git -C "$fw" add -A >/dev/null 2>&1
   git -C "$fw" commit -qm "fw v1" >/dev/null 2>&1
+  # BL-234: a LOCAL BARE ORIGIN, pushed to and fetched from. Never the network —
+  # a bare repo two directories away is a real remote for every purpose this
+  # detector has.
+  #
+  # WHY THE FIXTURE NEEDED THIS. Before BL-234 the detector never fetched, so a
+  # framework clone with no remote was indistinguishable from a current one and
+  # every "silent when current" case below passed for the wrong reason: there
+  # was nothing to be behind. The detector now refreshes its reference and
+  # reports the reference's own age when it cannot, so a remote-less fixture
+  # correctly produces a `fw-reference-age` line. Anchoring the fixture makes
+  # these cases assert what they always claimed to.
+  git init -q --bare "$fw.origin" >/dev/null 2>&1
+  git -C "$fw" remote add origin "$fw.origin" >/dev/null 2>&1
+  git -C "$fw" push -q -u origin HEAD >/dev/null 2>&1
+  git -C "$fw" fetch -q origin >/dev/null 2>&1
   FW="$fw"
   PIN="$(git -C "$fw" rev-parse HEAD 2>/dev/null)"
 }
@@ -443,11 +458,18 @@ if printf '%s' "$mach" | jq -e . >/dev/null 2>&1; then
   tools="$(printf '%s' "$mach" | jq -r '.toolsCovered')"
   net="$(printf '%s' "$mach" | jq -r '.network')"
   ikeys="$(printf '%s' "$mach" | jq -r '.items[0] | keys | join(",")')"
-  if [ "$keys" = "$want" ] && [ "$schema" = "soif-freshness/1" ] && [ "$tools" = "false" ] && [ "$net" = "none" ] \
+  # BL-234: `network` used to be asserted as the literal "none", matching a
+  # hard-coded field. It now reports the mode that actually ran, so the
+  # assertion moved with it — and the OPT-OUT direction is asserted too, because
+  # a field that reports only one value is the declaration this entry removed.
+  net_off="$(SOIF_FRESHNESS_FETCH=0 CDF_HOME="$TOP/no-cdf" CLAUDE_PROJECT_DIR="$D/proj" bash "$SUT" 2>/dev/null \
+             | sed -n '/```soif-freshness/,/```/p' | sed '1d;$d' | jq -r '.network' 2>/dev/null)"
+  if [ "$keys" = "$want" ] && [ "$schema" = "soif-freshness/1" ] && [ "$tools" = "false" ] \
+     && [ "$net" = "fetch-bounded" ] && [ "$net_off" = "none" ] \
      && [ "$ikeys" = "check,id,message,path,tier,verb" ]; then
-    pass "machine block is valid JSON with the stable documented key set (tools not covered; network none)"
+    pass "machine block is valid JSON with the stable documented key set, and `network` reports the mode that RAN (fetch-bounded by default, none under SOIF_FRESHNESS_FETCH=0)"
   else
-    fail_ "machine-keys" "keys=[$keys] schema=[$schema] tools=[$tools] net=[$net] ikeys=[$ikeys]"
+    fail_ "machine-keys" "keys=[$keys] schema=[$schema] tools=[$tools] net=[$net] net_off=[$net_off] ikeys=[$ikeys]"
   fi
 else
   fail_ "machine-json" "not valid JSON: [$mach]"

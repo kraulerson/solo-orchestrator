@@ -487,8 +487,16 @@ check_prerequisites() {
   fi
 
   # --- Qdrant MCP (recommended for persistent semantic memory) ---
+  # BL-234, caller 1 of 4. Direction on "cannot tell": report it as UNDETERMINED,
+  # never as [OK]. This surface only informs the operator, and the one thing it
+  # must not do is claim a working memory it has not seen — that claim is what
+  # sent four projects into a build with no prior context.
   if is_qdrant_mcp_registered; then
-    print_ok "Qdrant MCP server configured"
+    print_ok "Qdrant MCP server configured and answering at $(qdrant_mcp_url)"
+  elif [ "${QDRANT_MCP_STATE:-}" = "unreachable" ]; then
+    print_warn "Qdrant MCP is registered but nothing answered at $(qdrant_mcp_url) — a stale registration, not a working memory. Setup will provision it."
+  elif [ "${QDRANT_MCP_STATE:-}" = "unknown" ]; then
+    print_warn "Qdrant MCP is registered but reachability could NOT be determined (no curl, no nc). Treating it as not-yet-provisioned rather than assuming it works."
   elif is_qdrant_container_running; then
     print_ok "Qdrant container already running"
     if ! command -v uvx &>/dev/null; then
@@ -815,7 +823,24 @@ resolve_and_install_tools() {
 
     # Qdrant MCP: resolver always marks manual (auto_installable: false).
     # Reclassify based on actual state: registered → installed, container running → configure, docker available → auto.
+    #
+    # BL-234, caller 2 of 4 — THE DEFECT SITE. The chain below is unchanged and
+    # was always right; its FIRST branch was reading a predicate that answered a
+    # different question. `is_qdrant_mcp_registered` now means registered AND
+    # reachable, so a stale global entry with no database falls through to the
+    # docker arm and Qdrant is actually provisioned.
+    #
+    # Direction on "cannot tell": FALL THROOUGH, i.e. do NOT mark it installed.
+    # "The probe could not run" must never read as "it is there" (`## BL-112:`),
+    # and the fall-through is cheap: the docker arm starts an existing container
+    # or creates one, both idempotent. The cost of the other direction is a
+    # project that silently never gets a memory, which is what happened.
+    #
+    # The BEGIN/END fence is load-bearing: tests/test-bl234-currency-and-availability.sh
+    # EXTRACTS this block and executes it, so the assertion lands on the shipped
+    # chain rather than on a copy that can drift away from it.
     if echo "$resolver_output" | jq -e '.manual_install[] | select(.name == "Qdrant MCP")' >/dev/null 2>&1; then
+      # BL-234-QDRANT-RECLASSIFY-BEGIN
       if is_qdrant_mcp_registered; then
         resolver_output=$(echo "$resolver_output" | jq '
           .already_installed += [{ name: "Qdrant MCP", version: "configured", category: "mcp_server" }] |
@@ -833,6 +858,7 @@ resolve_and_install_tools() {
           .manual_install |= map(select(.name != "Qdrant MCP"))
         ')
       fi
+      # BL-234-QDRANT-RECLASSIFY-END
     fi
 
     # Development Guardrails: resolver marks manual but init.sh handles it.
@@ -2265,9 +2291,19 @@ TUEOF
   # Configure Qdrant MCP with per-project collection (isolates semantic memory)
   # If Qdrant container is running but MCP isn't registered yet, register it now.
   # Then write a project-local override using the project name as the collection.
+  # BL-234, caller 3 of 4 — the one caller that genuinely wants the CONFIG READ,
+  # so it calls `is_qdrant_mcp_entry_present` and says so. The question here is
+  # "should this project get its own collection name written down?", and the
+  # answer does not depend on whether the container happens to be up right now:
+  # the override is harmless while the server is down and correct the moment it
+  # starts. Gating it on reachability would leave a properly configured project
+  # permanently pointed at the wrong collection because a container was stopped
+  # during init — a real regression in exchange for no safety.
+  # Direction on "cannot tell" is therefore PERMISSIVE, and it is the only
+  # caller where that is the safe direction.
   if command -v jq &>/dev/null; then
     local _qd_global=false
-    if is_qdrant_mcp_registered; then
+    if is_qdrant_mcp_entry_present; then
       _qd_global=true
     elif is_qdrant_container_running && command -v uvx &>/dev/null; then
       print_info "Registering Qdrant MCP server..."
@@ -3233,8 +3269,15 @@ print_next_steps() {
   fi
 
   # Qdrant MCP status (not in resolver — checked separately)
+  # BL-234, caller 4 of 4. Same direction as caller 1: the three states are
+  # reported as three states. A closing summary that prints a green tick for a
+  # database nothing answered is precisely the false comfort `## BL-231:` measured.
   if is_qdrant_mcp_registered; then
     echo -e "  ${GREEN}✓${NC} Qdrant MCP (persistent semantic memory — collection: $PROJECT_NAME)"
+  elif [ "${QDRANT_MCP_STATE:-}" = "unreachable" ]; then
+    echo -e "  ${YELLOW}!${NC} Qdrant MCP registered but UNREACHABLE at $(qdrant_mcp_url) — semantic memory will not work until the server is started (docker start qdrant)"
+  elif [ "${QDRANT_MCP_STATE:-}" = "unknown" ]; then
+    echo -e "  ${YELLOW}!${NC} Qdrant MCP registered; reachability UNDETERMINED (no curl, no nc) — verify with: curl -fsS $(qdrant_mcp_url)/readyz"
   elif is_qdrant_container_running; then
     echo ""
     echo -e "${BOLD}── Will Be Configured Later ──${NC}"

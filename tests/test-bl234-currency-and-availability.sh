@@ -478,10 +478,13 @@ run_reclassify() {
     resolver_output=$(jq -n "{already_installed:[],auto_install:[],manual_install:[{name:\"Qdrant MCP\"}]}")
     configure_items="[]"
     . "$BLOCK"
+    # Count, never `if (stream)` — a jq `if` over an EMPTY stream produces no
+    # output at all, so the "which lane" question would answer with silence and
+    # the assertion would compare against an empty string.
     printf "%s\n" "$resolver_output" | jq -r "
-      if (.already_installed[]? | select(.name==\"Qdrant MCP\")) then \"already_installed\"
-      elif (.auto_install[]? | select(.name==\"Qdrant MCP\")) then \"auto_install\"
-      else \"manual\" end" | head -1
+      if (((.already_installed // []) | map(select(.name==\"Qdrant MCP\")) | length) > 0) then \"already_installed\"
+      elif (((.auto_install // []) | map(select(.name==\"Qdrant MCP\")) | length) > 0) then \"auto_install\"
+      else \"manual\" end"
   ' 2>/dev/null
 }
 
@@ -581,8 +584,14 @@ fi
 # records false. Asserting the loss keeps the trade honest instead of implied.
 C5="$(newtmp)"
 C5_EMPTY="$(run_tracker "$C5/p" '{"hook_event_name":"PostToolUse","tool_name":"mcp__qdrant__qdrant-find","tool_response":[{"type":"text","text":"No results found for that query."}]}')"
+# Comments are stripped before the grep: the shipped file DOCUMENTS the deleted
+# regex verbatim (that documentation is the point — the next reader must be able
+# to see what was removed and why), so a raw grep would match the explanation
+# and report the code. Executed lines are what the claim is about. This strip is
+# deliberately crude and is NOT the load-bearing proof — M5 is, by mutating a
+# shape branch back into a phrase test and watching the incident fixture flip.
 C5_REGEX=1
-grep -q 'empty (result|collection)' "$TRACKER" 2>/dev/null && C5_REGEX=0
+sed 's/[[:space:]]*#.*$//' "$TRACKER" 2>/dev/null | grep -q 'empty (result|collection)' && C5_REGEX=0
 if [ "$C5_REGEX" = "1" ] && [ "$C5_EMPTY" = "false" ]; then
   pass "C5: the phrase regex is absent from the shipped tracker, and the accepted loss is real — prose-only 'No results found' inside a content block now records false (the lesser error: a missed true-empty, never a false alarm on a full memory)"
 else
@@ -670,14 +679,22 @@ M1="$(newtmp)"
 if ! mk_mirror_lib "$M1/m"; then
   fail_ "M1" "mirror setup failed"
 else
-  build_fw "$M1/fw" "$M1/origin"; M1PIN="$PIN"
-  advance_origin "$M1/origin" "$M1/adv" || true
-  build_proj "$M1/p1" "$M1/fw" "$M1PIN"
+  # A FRESH FRAMEWORK CLONE PER DIRECTION, not just a fresh project. The control
+  # run FETCHES, and a fetch mutates the clone's remote-tracking refs — so a
+  # mutant sharing that clone would read an origin/main the control run already
+  # advanced and "report drift" with the fetch removed. This suite hit that
+  # exact failure and it is the sharpest form of the fresh-fixture rule: the
+  # thing under test writes to the fixture.
+  build_fw "$M1/fw1" "$M1/origin1"; M1PIN1="$PIN"
+  advance_origin "$M1/origin1" "$M1/adv1" || true
+  build_proj "$M1/p1" "$M1/fw1" "$M1PIN1"
   run_fresh_at "$M1/m/scripts/session-freshness-check.sh" "$M1/p1"
   m1_ctl=no; printf '%s' "$FOUT" | grep -q 'pin-behind-upstream' && m1_ctl=yes
   m1_meta=$(_mutate "$M1/m/scripts/lib/freshness-detect.sh" '# BL-234-FETCH-REVERSAL' '  _fetch_rc=2')
   set -- $m1_meta; m1_sites=$1; m1_changed=$2; m1_parses=$3
-  build_proj "$M1/p2" "$M1/fw" "$M1PIN"
+  build_fw "$M1/fw2" "$M1/origin2"; M1PIN2="$PIN"
+  advance_origin "$M1/origin2" "$M1/adv2" || true
+  build_proj "$M1/p2" "$M1/fw2" "$M1PIN2"
   run_fresh_at "$M1/m/scripts/session-freshness-check.sh" "$M1/p2"
   m1_mut=no; printf '%s' "$FOUT" | grep -q 'pin-behind-upstream' && m1_mut=yes
   if [ "$m1_ctl" = "yes" ] && [ "$m1_mut" = "no" ] \
@@ -782,7 +799,7 @@ m5_ctl="$(run_tracker_at "$M5/m/tracker.sh" "$M5/p1" "$C1_PAYLOAD")"
 # unchanged WHILE SED REPORTS SUCCESS (CLAUDE.md's sed trap). The first draft
 # used `printf "%s"` here and sed refused it outright; a quieter `%` would have
 # produced a mutant that was never applied and scored as killed.
-m5_meta=$(_mutate "$M5/m/tracker.sh" '# BL-234-EMPTY-SHAPE-ONLY' '  elif echo "$RESPONSE_TEXT" | grep -qiE "empty (result|collection)" 2>/dev/null; then')
+m5_meta=$(_mutate "$M5/m/tracker.sh" '# BL-234-EMPTY-SHAPE-ONLY' '  elif echo "$RESPONSE_TEXT" | grep -qiE "empty (result|collection)" 2>/dev/null; then IS_EMPTY=1')
 set -- $m5_meta; m5_sites=$1; m5_changed=$2; m5_parses=$3
 m5_mut="$(run_tracker_at "$M5/m/tracker.sh" "$M5/p2" "$C1_PAYLOAD")"
 if [ "$m5_ctl" = "false" ] && [ "$m5_mut" = "true" ] \

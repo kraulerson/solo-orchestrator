@@ -92,3 +92,24 @@ terraform.tfvars.json
 # (Dogfood-4 F-DF4-007). The audit trail of REAL events (bypass / blocked /
 # out-of-band / enforcement-level) still lives in the TRACKED .claude/bypass-audit.json.
 .claude/last-gate-pass.txt
+
+# BL-236-LEDGER-IGNORE — the MCP tool-usage ledger. Per-session mutable runtime
+# state: written by init.sh, rewritten by session-test-gate-check.sh on every
+# SessionStart, and mutated by track-tool-usage.sh after EVERY MCP tool call. It
+# was tracked, so it dirtied the tree every session and its calls[] array grew
+# without bound in git history.
+#
+# It is also the MCP gate's ledger (BL-233), which makes a COMMITTED copy shared
+# state a clone inherits — and the gate reads `.qdrant_find_succeeded` /
+# `.context7_query_docs_succeeded`, exactly the fields a committed ledger carries
+# forward at `true`. What stops that pre-satisfying the gate today is narrow and
+# accidental: SessionStart's `startup` heredoc happens to omit those two keys, so
+# a fresh write erases them. The merge path (resume/compact/clear) does NOT, and
+# neither does a session where SessionStart never fires. Ignoring the file
+# removes the class instead of relying on the accident.
+#
+# EXISTING projects need one manual step, once — the framework deliberately does
+# not do it for you, because rewriting someone's index unprompted is worse than
+# the untidiness it fixes:
+#     git rm --cached .claude/tool-usage.json
+.claude/tool-usage.json
