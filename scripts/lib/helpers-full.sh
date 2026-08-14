@@ -192,12 +192,19 @@ _qdrant_answered() {
 # 22 is therefore REACHABLE; only "nothing answered" is unreachable. The key
 # from the registration is sent as well, so a secured server also answers 200.
 qdrant_probe_reachable() {
-  local url="${1:-}" base secs host port hostport key
+  local url="${1:-}" base secs host port hostport key reg
   [ -n "$url" ] || url="$(qdrant_mcp_url)"
   base="${url%/}"
   secs="${SOLO_QDRANT_PROBE_TIMEOUT:-3}"
   case "$secs" in ''|*[!0-9]*|0) secs=3 ;; esac
-  key="$(qdrant_mcp_api_key)"   # BL-234-QDRANT-KEY-HEADER
+  # THE KEY ONLY GOES TO THE HOST IT WAS REGISTERED FOR. This function takes an
+  # OPTIONAL url, so sending the registration's credential to whatever url a
+  # caller passes would make the fix that added the header a leak surface of its
+  # own. Today's single caller passes qdrant_mcp_url and would never trip it —
+  # which is an argument for the guard, not against it: the invariant should not
+  # depend on that staying true. Costs one jq read.
+  key=""; reg="$(qdrant_mcp_url)"; reg="${reg%/}"
+  [ "$base" = "$reg" ] && key="$(qdrant_mcp_api_key)"   # BL-234-QDRANT-KEY-HEADER
 
   if command -v curl &>/dev/null; then
     _qdrant_answered "$secs" "$key" "$base/readyz" && return 0

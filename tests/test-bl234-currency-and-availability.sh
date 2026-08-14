@@ -704,6 +704,32 @@ else
   fi
 fi
 
+# ── B9: the key goes to the REGISTERED host and nowhere else. The fix that made
+# the probe send a credential also made it possible to send that credential to
+# any url a caller passes — qdrant_probe_reachable takes an OPTIONAL one. The
+# registration here names a DIFFERENT host, so the keyed stub must see an
+# UNKEYED request. Asserted on the server's own log, because both directions
+# return "reachable" and a state assertion could not tell them apart.
+B9="$(newtmp)"
+if ! start_keyed_qdrant "$B9" "sekret"; then
+  fail_ "B9" "fixture: could not start the local keyed stub HTTP server"
+else
+  mk_home "$B9/home" "http://127.0.0.1:1" "sekret"     # registered elsewhere, with a key
+  B9_RC="$(env -i HOME="$B9/home" PATH="$PATH" QPORT="$QSRV_PORT" "$BASH_BIN" -c '
+    set -uo pipefail
+    . "'"$HELPERS_FULL"'" >/dev/null 2>&1
+    rc=0; qdrant_probe_reachable "http://127.0.0.1:$QPORT" || rc=$?
+    printf "%s\n" "$rc"' 2>/dev/null)"
+  B9_AUTH="$(grep -c 'AUTH' "$B9/hits.log" 2>/dev/null | tr -d ' ')"
+  B9_NOKEY="$(grep -c 'NOKEY' "$B9/hits.log" 2>/dev/null | tr -d ' ')"
+  stop_stub_qdrant
+  if [ "$B9_RC" = "0" ] && [ "${B9_NOKEY:-0}" != "0" ] && [ "${B9_AUTH:-0}" = "0" ]; then
+    pass "B9: probing a host the registration does NOT name sends no credential ($B9_NOKEY unkeyed request(s), $B9_AUTH keyed) — the api-key travels with its own URL and with nothing else"
+  else
+    fail_ "B9" "rc=$B9_RC (want 0) nokey=$B9_NOKEY (want >0) auth=$B9_AUTH (want 0)"
+  fi
+fi
+
 echo ""
 echo "=== C — emptiness is decided by SHAPE; the phrase half is gone ==="
 
@@ -1291,6 +1317,36 @@ else
     pass "M11: control authenticates ($m11_ctl keyed request(s) seen by the server); with the registration's key discarded the same probe arrives UNKEYED ($m11_mut_nokey 401s) — asserted on the server's log, because the predicate's answer is 'reachable' either way"
   else
     fail_ "M11" "control_auth=$m11_ctl (want >0) mutant_auth=$m11_mut_auth (want 0) mutant_nokey=$m11_mut_nokey (want >0) sites=$m11_sites changed=$m11_changed parses=$m11_parses"
+  fi
+fi
+
+# ── M12: send the key unconditionally. Both directions still return 0, so the
+# ONLY visible difference is that the credential now arrives at a host the
+# registration never named. M11 mutates the same line in the other direction
+# (never send it); together they pin that the key is sent EXACTLY when it should
+# be, which neither mutant proves alone.
+M12="$(newtmp)"
+mkdir -p "$M12/lib"
+cp -p "$HELPERS_FULL" "$M12/lib/helpers-full.sh"
+cp -p "$REPO_ROOT/scripts/lib/helpers-core.sh" "$M12/lib/helpers-core.sh"
+if ! start_keyed_qdrant "$M12" "sekret"; then
+  fail_ "M12" "fixture: could not start the local keyed stub HTTP server"
+else
+  mk_home "$M12/home" "http://127.0.0.1:1" "sekret"
+  env -i HOME="$M12/home" PATH="$PATH" QPORT="$QSRV_PORT" "$BASH_BIN" -c '. "'"$M12/lib/helpers-full.sh"'" >/dev/null 2>&1; qdrant_probe_reachable "http://127.0.0.1:$QPORT"' >/dev/null 2>&1
+  m12_ctl_auth="$(grep -c 'AUTH' "$M12/hits.log" 2>/dev/null | tr -d ' ')"
+  : > "$M12/hits.log"
+  m12_meta=$(_mutate "$M12/lib/helpers-full.sh" '# BL-234-QDRANT-KEY-HEADER' '  key="$(qdrant_mcp_api_key)"')
+  set -- $m12_meta; m12_sites=$1; m12_changed=$2; m12_parses=$3
+  mk_home "$M12/home2" "http://127.0.0.1:1" "sekret"
+  env -i HOME="$M12/home2" PATH="$PATH" QPORT="$QSRV_PORT" "$BASH_BIN" -c '. "'"$M12/lib/helpers-full.sh"'" >/dev/null 2>&1; qdrant_probe_reachable "http://127.0.0.1:$QPORT"' >/dev/null 2>&1
+  m12_mut_auth="$(grep -c 'AUTH' "$M12/hits.log" 2>/dev/null | tr -d ' ')"
+  stop_stub_qdrant
+  if [ "${m12_ctl_auth:-0}" = "0" ] && [ "${m12_mut_auth:-0}" != "0" ] \
+     && [ "$m12_sites" -eq 1 ] && [ "$m12_changed" -eq 2 ] && [ "$m12_parses" -eq 1 ]; then
+    pass "M12: control sends no credential to an unregistered host ($m12_ctl_auth keyed request(s)); with the scope test removed the same probe hands the api-key to a server the registration never named ($m12_mut_auth) — and returns 0 either way"
+  else
+    fail_ "M12" "control_auth=$m12_ctl_auth (want 0) mutant_auth=$m12_mut_auth (want >0) sites=$m12_sites changed=$m12_changed parses=$m12_parses"
   fi
 fi
 
