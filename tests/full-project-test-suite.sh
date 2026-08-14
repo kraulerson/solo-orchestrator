@@ -1724,7 +1724,7 @@ run_child_suite "tests/test-validate-counter-sanitizer.sh" \
 run_child_suite "tests/test-record-claude-commit.sh" "tests/test-record-claude-commit.sh (9/9)"
 run_child_suite "tests/test-unrecord-feature.sh" "tests/test-unrecord-feature.sh (7/7)"
 run_child_suite "tests/test-session-test-gate-check-merge.sh" \
-  "tests/test-session-test-gate-check-merge.sh (9/9)"
+  "tests/test-session-test-gate-check-merge.sh (11/11)"
 
 # ----------------------------------------------------------------
 # Process-checklist / pending-approval / poc-modes (BL-035 C)
