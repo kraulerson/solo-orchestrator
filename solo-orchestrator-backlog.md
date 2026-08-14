@@ -10449,6 +10449,80 @@ pipeline's status is the last command's (see `## BL-231:`'s ⚠ CORRECTION block
 the clearest statement of this defect class in the file). **Every fallback arm in
 this package has a test that makes it fire.**
 
+### Fix round — an adversarial review returned major_concerns, and it was right
+
+The verdict was *"pin what you shipped"*, not *"the fix is wrong"*: every
+functional claim reproduced. But **three behaviours this entry argues are
+load-bearing were guaranteed by comments, not tests** — this entry's own thesis,
+turned on this entry.
+
+1. **A ONE-CHARACTER MUTANT SURVIVED THE WHOLE ESTATE.** `[ "$sz" -eq 0 ]` →
+   `[ "$sz" -lt 0 ]` in `_soif_fresh_last_fetch` makes the `failed` arm
+   unreachable (a size is never negative), so every truncated `FETCH_HEAD` reads
+   as a SUCCESS whose mtime is *our own failed attempt* — and the tool then says
+   *"last fetched 0 day(s) ago"* forever on an offline machine. **Permanent false
+   reassurance, which is strictly worse than the silence this entry removes.**
+   Measured: the mutant left `test-bl234` at 29/0, `test-freshness-check` at
+   26/0, `test-freshness-birth` at 8/0 **and all 172 unit-lane suites green**.
+   `A3` pinned `ok <epoch>` and `A4` pinned `never`; the third state had no test
+   anywhere. Now `# BL-234-FETCH-FAILED-SIZE`, pinned by **A8** (two-sided: the
+   honest wording present, the false one absent) and killed by **M7**.
+2. **THE §8 FINDING WAS STILL LIVE IN THE ORDINARY PATH.** `E2` fixed the exotic
+   case (no bounded runner at all) and left the common one: `|| true` discarded
+   the bounded fetch's own outcome, so a fetch that failed *within* the bound
+   fell through and compared `HEAD` against an `origin/main` no fetch had
+   refreshed. Reproduced on a clone genuinely one commit behind its deleted local
+   bare origin with `NETWORK_AVAILABLE=true` → **`verdict: up_to_date`**. Now
+   `# BL-234-CHECKVERSIONS-FETCHFAIL`: status `unknown`, *"could not refresh refs
+   … — NOT compared"*. Pinned by **E3**, and **M6** — which used to assert only
+   that the shipped file *contains* the word `run_with_timeout`, i.e. exactly the
+   declaration-grade assertion this suite's charter forbids — now RUNS both
+   directions and shows the mutant reporting `up_to_date`.
+3. **A GARBAGE BOUND IS NOT A BOUND.** `run_with_timeout abc sleep 3` returns
+   **rc 0 after 3039 ms**: the `-ge` test errors on every iteration, the kill
+   never fires, and the caller's `>/dev/null 2>&1` swallows the complaint. A
+   non-numeric `SOLO_FETCH_TIMEOUT` therefore *silently unbounded* the
+   `check-versions.sh` fetch — the resurrected defect, one env var away. The two
+   sibling call sites validated their seconds; this one did not
+   (`# BL-234-CHECKVERSIONS-SECS`, **E5**/**M8**). **E4** replaces M6's old
+   spelling-check with a wall-clock proof: a `git` stub sleeping 12s on `fetch`,
+   `SOLO_FETCH_TIMEOUT=2`, cut off at a measured 2s.
+4. **ONE RETURN CODE FOR THREE CAUSES MADE THE TOOL STATE A FALSE FACT.**
+   `_soif_fresh_try_fetch` returned `2` for opt-out, no-bounded-runner **and**
+   no-remote, and the caller's else-branch asserted the third as fact: *"no fetch
+   was attempted (the clone has no remote configured)"* — printed verbatim on a
+   clone with one perfectly good remote. A false factual claim in the one feature
+   whose entire point is honest wording. Now `2`/`3`/`4`
+   (`# BL-234-TRYFETCH-NORUNNER`, `# BL-234-TRYFETCH-NOREMOTE`), switched on
+   rather than guessed (**A9**/**M9**).
+5. **THE REACHABILITY PROBE CALLED A WORKING SECURED SERVER DEAD.** Qdrant's
+   `/readyz` declares `api-key` as a REQUIRED header (verified against
+   api.qdrant.tech), so a keyed instance answers an unkeyed probe **401** — and
+   `curl -fsS` exits **22** on any status ≥ 400, the same "failure" it returns
+   for a dead port. Measured: unkeyed rc 22, keyed rc 0, dead port rc 7, and the
+   shipped predicate scored the healthy secured server `state=unreachable`.
+   Caller 1 then calls a working memory *"a stale registration"* while caller 2
+   provisions a redundant container beside it. **For a reachability question, an
+   HTTP error status IS an answer**: 22 is now reachable, and
+   `qdrant_mcp_api_key` sends the registration's own key so a secured server
+   answers 200 (**B7**/**B8**/**M10**/**M11**).
+
+**Two residuals, named rather than fixed:**
+
+- `qdrant_mcp_url` reads `~/.claude.json` **before** `~/.claude/settings.json`
+  while `is_qdrant_mcp_entry_present` reads them in the **opposite order**. With
+  entries in both files the probe may test a different URL than the one that
+  satisfied the presence check. `qdrant_mcp_api_key` deliberately mirrors
+  `qdrant_mcp_url`'s precedence so the URL and the key at least come from the
+  same file in the common case; unifying the two orders is a separate change with
+  its own blast radius.
+- The `# BL-234-QDRANT-REACHABLE` decision was originally duplicated per probed
+  endpoint, and **M10 mutating one of them left the other still answering
+  "reachable"** — a mutant killed by nothing. Collapsed to a single
+  `_qdrant_answered` decision point, recorded at the function, because *"one
+  marker, several equivalent decisions"* is a general way for this harness to
+  score a survivor as dead.
+
 **Related:** `## BL-231:` (the correction block is the proof standard),
 `## BL-233:` (the mechanism this rides on), `## BL-235:` (surface 4, filed not
 fixed), `## BL-236:` (the tracked ledger, found during this work),
@@ -10563,9 +10637,31 @@ hold on the paths that do not reset:
 
 So the accurate finding is: **a committed ledger can pre-satisfy the MCP gate,
 and the only thing preventing it in the common case is an omission in an
-unrelated heredoc that no test pins.** That is one refactor away from being a
-live fail-open. Ignoring the file removes the class rather than relying on the
-accident.
+unrelated heredoc.** That is one refactor away from being a live fail-open.
+Ignoring the file removes the class rather than relying on the accident.
+
+**The omission is now PINNED, and the heredoc says so.** It was documented as
+load-bearing on three surfaces and tested nowhere: `T5` asserted only `calls` /
+`commits_since_last_context7` / `context7_called`, and no test anywhere seeded
+`*_succeeded=true` before a startup. `tests/test-session-test-gate-check-merge.sh`
+now carries:
+
+- **T5b** — a ledger exactly as `git clone` hands it over (both outcome flags
+  `true`), `source=startup`, asserting BOTH that the flags read absent-or-false
+  AND that the shipped `session-mcp-gate.sh` **DENIES** the first Write. The flag
+  is the mechanism; the deny envelope is the consequence, and the consequence is
+  what is asserted.
+- **T5c** — the structural discriminator for an ABSENCE: an omission cannot be
+  greped for as proof, so the two keys are spliced back INTO the startup heredoc
+  (the *second* of the two in the file, anchored on the heredoc-open count) and
+  the same first Write that T5b blocked is shown being **allowed**.
+
+Measured: with the two keys spliced into the shipped hook, the suite goes 10/1
+and the gate flips to allow. Both cases run the hook under a **private HOME**
+with project-local `mcpServers`, so MCP-requirement discovery is a property of
+the fixture and not of the developer's `~/.claude.json`, and the gate runs under
+`env -i` so an exported `SOLO_MCP_ATTESTED` cannot turn a deny into an allow and
+score as a pass.
 
 Two smaller consequences, for completeness:
 - **Merge conflicts.** A file rewritten every session, on every branch, is a
