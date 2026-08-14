@@ -10256,3 +10256,342 @@ evidence — read first), `## BL-221:` (missing key ⇒ permissive default),
 `## BL-222:` (a proxy that does not measure the thing), `## BL-112:` and
 `## BL-149:` (the two doctrines that bound the design), `## BL-104:` (the
 `[WARN]`/`issues` mismatch — the label is never the behaviour).
+
+---
+
+## BL-234: currency and availability were measured by DECLARATION — four checks that asked "is it configured?" and reported the answer as "does it work?"
+
+**Logged:** 2026-08-14 (Karl: *"Let's fix the update gap"*, then twice more
+*"fix that as part of the update gap work"* — the Qdrant install short-circuit
+and the empty detector. Filed as one entry because fixing them separately would
+produce four patches and leave the pattern intact.)
+**Category:** Silent-success — the same substitution `## BL-231:` and
+`## BL-233:` are about, on four new surfaces.
+**Status:** Open — fix implemented on branch `fix/solo-currency-and-availability`
+(test/fix commits below); close on merge with the PR number.
+
+### The one root cause
+
+**A check asks whether something is DECLARED rather than whether it WORKS.**
+
+| # | surface | asked | should ask |
+|---|---|---|---|
+| 1 | `scripts/lib/freshness-detect.sh::_soif_fresh_check_framework` | pin vs the LOCAL clone's HEAD, never fetching | pin vs the clone's UPSTREAM, and say how stale the reference is when it cannot fetch |
+| 2 | `scripts/lib/helpers-full.sh::is_qdrant_mcp_registered` | is there an `mcpServers.qdrant` key in `~/.claude.json`? | is it registered **and** does the database answer? |
+| 3 | `scripts/track-tool-usage.sh` empty detector | does the response text *say* something about emptiness? | is the response *shaped* empty? |
+| 4 | `templates/tool-matrix/common.json` → `Qdrant MCP.check_command` | is there an MCP config entry? | filed separately as `## BL-235:` |
+
+### 1 — Solo's own currency was never checked against reality
+
+`_soif_fresh_check_framework` compared `manifest.json::soloFrameworkCommit`
+against **the local clone the project was built from**, and never fetched
+(the code said so: *"per M1's never-fetch rule"*). Measured on
+`powerpoint-voice`:
+
+```
+project pin:             6417a255
+source clone HEAD:       6417a255   ← identical by construction, so `pin-behind` can never fire
+source clone last fetch: NEVER (.git/FETCH_HEAD absent)
+solo main:               161 commits ahead
+```
+
+The pin and the clone HEAD are the same object **because the project was
+scaffolded from that clone**. The comparison was structurally incapable of
+reporting drift, and it reported none — for 161 commits.
+
+**The asymmetry that makes this a defect and not a policy:** CDF is checked by
+`scripts/check-versions.sh`'s `git_repo` handler, which **does** `git fetch`, and
+it correctly reported CDF drift on that same project in the same session. Two
+checks, one repo, opposite answers.
+
+**Fixed:** a bounded `git fetch` (`# BL-234-FETCH-REVERSAL`) via
+`scripts/lib/helpers-core.sh::run_with_timeout` — there is no `timeout(1)` on the
+dev host — then a comparison against the clone's UPSTREAM ref
+(`# BL-234-PIN-BEHIND-UPSTREAM`), with the existing pin-vs-local-HEAD arm kept
+because it is a different fact.
+
+**The honest fallback is the point of the whole item** (`# BL-234-REFERENCE-AGE`).
+When the fetch cannot run — offline, no remote, timed out — the check does NOT
+fall silent. It reports **the reference's own age**: *"measured against a local
+clone last fetched N day(s) ago"*, or *"NEVER fetched"*, which was the true
+answer on `powerpoint-voice`. **A comparison is only as good as its reference,
+and the reference's freshness is a fact the operator needs.**
+
+**THE REVERSAL, RECORDED.** Design v1.1 review-r1 **M1** established a
+*never-fetch* rule for the session-start detector, and the lib's contract header
+said `ZERO network — ever`. That rule is **deliberately overridden** here on the
+owner's instruction (Karl, 2026-08-14). It is named at the site, in the contract
+header, and here — because *a decision quietly reversed is how the next reader
+concludes the rule never existed*. The opt-out survives: `SOIF_FRESHNESS_FETCH=0`
+restores the zero-network, byte-silent behaviour exactly, and the machine block's
+`network` field reports which mode ran instead of hard-coding `"none"` — that
+field was a **declaration** too, and it would have gone on saying `"none"` while
+the detector fetched.
+
+**Also fixed, next door:** `check-versions.sh` carried the comment
+*"# Fetch latest from remote (quiet, with timeout)"* above a bare
+`git … fetch --quiet 2>/dev/null || true`. **There was no timeout** — the comment
+described an intention nobody implemented, which is the same defect class as a
+lint whose label does not match its `issues` increment (`## BL-104:`). Now
+bounded for real (`# BL-234-CHECKVERSIONS-TIMEOUT`).
+
+### 2 — a stale global MCP entry silently disabled Qdrant installation
+
+This is the answer to *"why has `powerpoint-voice` never installed Qdrant"*, and
+it is **not** a missing feature. `init.sh` already reclassifies Qdrant to
+auto-install when Docker is present. But the chain's FIRST branch was:
+
+```
+if is_qdrant_mcp_registered; then   → mark already_installed: "configured"
+```
+
+and `is_qdrant_mcp_registered` tested exactly one thing: **does `~/.claude.json`
+contain an `mcpServers.qdrant` entry?** A stale global entry — left by an
+unrelated project, pointing at a different collection — made every subsequent
+project conclude Qdrant was installed and **skip provisioning the database
+entirely**.
+
+**Fixed:** the predicate now means what its callers assume — *registered **and**
+reachable* (`# BL-234-QDRANT-PREDICATE`). The chain is unchanged
+(`# BL-234-QDRANT-RECLASSIFY-BEGIN`/`-END` fence it for the test to extract and
+execute): no database ⇒ falls through to the docker branch ⇒ auto-installs. The
+intent was already correct; the precondition was not.
+
+**Three-way probe, not two** (`# BL-234-QDRANT-REACHABLE`). `GET /readyz` on the
+URL taken from the registration's own `QDRANT_URL` (never hard-coded), bounded
+twice — `curl --max-time` **and** `run_with_timeout` — falling back to `nc -z -w`.
+It returns **reachable / unreachable / cannot-tell**, and cannot-tell is a real
+returnable state (no `curl`, no `nc`), not a coin flip. Per-caller safe
+directions are in the table under §"cannot tell" below.
+
+### 3 — the empty detector reported a full memory as empty
+
+Shipped in `## BL-233:` WP-A an hour before this entry was filed, and **wrong on
+its first live firing**. A `qdrant-find` returning **ten substantial memories**
+was recorded `qdrant_find_empty=true` and the agent was told
+`QDRANT EMPTY RESULT: … returned no stored context`.
+
+Cause: one of the *stored memories* contained the sentence
+`D8 empty result returns 200 with {games: [], meta.total: 0}` — a design decision
+from an unrelated project — and the detector's fallback matched
+`empty (result|collection)`.
+
+**It matched a memory ABOUT emptiness and concluded the retrieval was empty.**
+
+Reproduced live on 2026-08-14 in this repo's own session: `qdrant_find_empty=true`,
+`qdrant_find_empty_count=3`, on retrievals that returned full payloads.
+
+**Fixed by deleting the phrase-matching half entirely**
+(`# BL-234-EMPTY-SHAPE-ONLY`). Emptiness is now decided by **shape only** — zero
+content blocks, absent `tool_response`, or all-whitespace text. Those are facts
+about the response. **A phrase list is a guess about another server's prose, and
+it guessed wrong in the direction that matters**: telling the operator their
+memory is empty when it is full.
+
+The accepted loss is stated rather than hidden: a server that words a true zero
+result in prose (`"No results found"`) inside a non-empty content block now
+records `qdrant_find_empty=false`, and the operator is not told. That is the
+lesser error. Losing the wording half loses some true-empty detections; keeping
+it manufactured false alarms about the exact thing the operator was told to
+trust. **Shape is decidable; prose is not.**
+
+### "Cannot tell" — decided per caller, deliberately
+
+`## BL-112:`'s doctrine is that *"the probe did not run"* must never read as
+*"nothing is there"*. It also must not read as *"everything is fine"*. Each
+caller of the Qdrant predicate gets the direction that is safe **for what it
+does**, and the reason is recorded here rather than left to be re-derived:
+
+| caller (init.sh) | question it is really asking | direction on `cannot-tell` | why |
+|---|---|---|---|
+| prerequisite report | what do I tell the operator? | report it as *undetermined*, never `[OK]` | claiming OK is the bug; the operator can act on "I could not check" |
+| tool-resolver reclassification | may I skip provisioning? | **NO** — fall through to the docker branch | this is the defect site. Falling through re-runs an idempotent `docker start` / `docker run`; the cost of a false "installed" is a project with no memory, which is what happened |
+| per-project collection override | should I write `.claude/settings.local.json`? | **YES** — presence alone is enough | writing the collection override is harmless when the server is down and correct once it comes up; gating it on reachability would leave a configured project without its collection because a container happened to be stopped at init time. This caller uses `is_qdrant_mcp_entry_present`, the pure config read, and says so |
+| final summary | what do I print? | report all three states | same as the prerequisite report |
+
+The residual is named, not hidden: with **neither** `curl` **nor** `nc`, a
+Qdrant reachable only at a REMOTE `QDRANT_URL` is scored cannot-tell, falls
+through, and init.sh may start a redundant LOCAL container. A stopped container
+and a wasted container are not the same size of mistake as a project that never
+gets a memory.
+
+### Proof
+
+`tests/test-bl234-currency-and-availability.sh`, dual-direction throughout, with
+the failing directions carrying the weight:
+
+- source clone **behind its remote** ⇒ REPORTED (the silent case; RED against
+  pre-fix code);
+- clone current ⇒ **silent**, no false noise;
+- fetch **impossible** (origin path deleted / no remote / bound exceeded) ⇒ no
+  crash, no block, **and the reference-age line still appears**. *A test
+  asserting only "did not crash" passes over the silence this package exists to
+  remove;*
+- **the bound actually bounds** — proved with a `git` stub that sleeps 30s and a
+  wall-clock assertion, not by asserting a flag;
+- a stale global MCP entry with **no** reachable database ⇒ install proceeds
+  (the shipped `if/elif` chain is EXTRACTED from init.sh between its fence
+  markers and executed, so the assertion is on the real chain, not a copy);
+- a **full** retrieval whose text contains `D8 empty result returns 200 with
+  {games: [], meta.total: 0}` — **the incident's phrase, verbatim** — ⇒
+  `qdrant_find_empty=false`;
+- a genuinely empty retrieval ⇒ still detected, by shape.
+
+Hermetic: **local bare repos as origins, never the internet**; no `timeout`; no
+live remotes. `build_fw` in `tests/test-freshness-check.sh` grew a local bare
+origin for the same reason — its "silent when current" claim was true only
+because the fixture had no remote to be behind.
+
+**Do not let a test pass because a fetch or a probe was ATTEMPTED.** That is this
+repo's signature bug, and the author of the brief committed it himself the same
+week: a `docker ps … | head` whose `|| echo` fallback could never fire, because a
+pipeline's status is the last command's (see `## BL-231:`'s ⚠ CORRECTION block —
+the clearest statement of this defect class in the file). **Every fallback arm in
+this package has a test that makes it fire.**
+
+**Related:** `## BL-231:` (the correction block is the proof standard),
+`## BL-233:` (the mechanism this rides on), `## BL-235:` (surface 4, filed not
+fixed), `## BL-236:` (the tracked ledger, found during this work),
+`## BL-112:` ("did not run" ≠ "found nothing"), `## BL-104:` (the label is never
+the behaviour), `## BL-221:` (missing key ⇒ permissive default).
+
+---
+
+## BL-235: the tool matrix records "Qdrant MCP installed" from a config entry and never asks the database
+
+**Logged:** 2026-08-14 (found while fixing `## BL-234:` — same root cause, a
+different surface, deliberately left unfixed there so the fix is not smuggled in
+under an unrelated diff)
+**Category:** Silent-success — declaration read as capability
+**Status:** Open
+
+`templates/tool-matrix/common.json`'s `Qdrant MCP` entry has:
+
+```
+"check_command": "command -v jq &>/dev/null && (( [ -f \"$HOME/.claude/settings.json\" ] && jq -e '.mcpServers.qdrant …' ) || ( [ -f \"$HOME/.claude.json\" ] && jq -e '.mcpServers.qdrant …' ))"
+"version_command": "echo 'configured'"
+```
+
+Both are **declarations**. The check tests for an MCP config entry and never
+whether the database answers; the version command is a hard-coded string that
+cannot be wrong. So a project with **no running database** is recorded
+`already_installed` and reported `[OK] configured` by every surface that consumes
+the resolver — the same false-comfort `## BL-231:` measured end to end, one layer
+up.
+
+`## BL-234:` fixed the sibling predicate in `scripts/lib/helpers-full.sh`
+(`is_qdrant_mcp_registered` now means *registered AND reachable*) and init.sh's
+call sites with it. **This entry is the matrix half, and it is deliberately not
+fixed there**, because the matrix is data consumed by `scripts/resolve-tools.sh`
+and `scripts/check-versions.sh` on a different contract: `check_command` is an
+arbitrary shell string with no timeout discipline, so making it probe a network
+service needs a bound the matrix schema does not currently express. Putting an
+unbounded `curl` in a JSON data file is how a tool resolver learns to hang.
+
+### What it needs
+
+1. A **bounded** probe primitive the matrix can name, rather than an arbitrary
+   command string — the resolver should own the bound, not each row.
+2. `version_command` that reports something falsifiable (the server's own
+   `/` version payload), or is dropped. `echo 'configured'` is a value that
+   cannot be wrong, which means it carries no information.
+3. The three states `## BL-234:` established — reachable /
+   configured-but-unreachable / not-configured — surfaced through the resolver
+   output, not collapsed to a boolean.
+4. A sweep for siblings: **every** `check_command` in `templates/tool-matrix/**`
+   that greps a config file rather than exercising the tool has this shape. The
+   Qdrant row is the one that was measured; it is unlikely to be the only one.
+
+**Related:** `## BL-234:` (the same substitution, fixed on four other surfaces),
+`## BL-233:` (the enforcement mechanism), `## BL-231:` (measured evidence),
+`## BL-112:` ("did not run" ≠ "found nothing").
+
+---
+
+## BL-236: `.claude/tool-usage.json` is TRACKED in generated projects — per-session runtime state committed as if it were content
+
+**Logged:** 2026-08-14 (found during `## BL-234:`; verified in a real generated
+project — `git ls-files` matches it, and it is absent from `.gitignore` while
+its three siblings ARE ignored there)
+**Category:** Operational state tracked as project content — the `## BL-174:`
+family, with a security-adjacent twist the sidecars did not have
+**Status:** Open — **new projects fixed** by `# BL-236-LEDGER-IGNORE` (the
+ignore rule ships in `templates/generated/gitignore-base.tmpl` and is backfilled
+by `scripts/upgrade-project.sh`). **Existing projects need one manual step that
+this framework must NOT take for them** (below).
+
+### The file
+
+`.claude/tool-usage.json` is written by `init.sh`, rewritten by
+`scripts/session-test-gate-check.sh` on every SessionStart, and mutated by
+`scripts/track-tool-usage.sh` after **every MCP tool call**. It is per-session
+mutable runtime state. It dirties the working tree every session, lands in
+commits and diffs, and its `calls[]` array grows without bound in git history.
+
+Its three siblings are already ignored: `.claude/last-checked-commit.txt`
+(`## BL-030:`), `.claude/last-gate-pass.txt` (`## BL-161:`), and `.claude/cache/`
+(BL-109 S2). It was missed because it was born before the MCP work made it
+load-bearing.
+
+### The consequence that matters, assessed rather than asserted
+
+Since `## BL-233:` WP-A this file is **the MCP gate's ledger**, so a committed
+copy is shared state a clone inherits. The real question is not "is sharing
+state bad" but **which fields survive a clone, and can any of them pre-satisfy
+the gate.** Traced:
+
+`scripts/session-mcp-gate.sh` re-derives on every invocation and takes **no
+latch fast path** on `mcp_gate_satisfied` (`# BL-233-NO-LATCH`) — so the
+committed `mcp_gate_satisfied` is inert. Good. But the fields it *does* read are
+`.qdrant_find_succeeded` and `.context7_query_docs_succeeded`
+(`# BL-233-OUTCOME-QDRANT`, `# BL-233-OUTCOME-C7`), and **those are exactly the
+fields a committed ledger carries forward at `true`.**
+
+What saves it today is narrow and undocumented: SessionStart's `startup` path in
+`session-test-gate-check.sh` writes a **fresh** ledger whose heredoc omits both
+`*_succeeded` keys, and the gate's `_flag` defaults a missing key to `false`. So
+on a clone whose first session is a real `startup`, the inherited `true` is
+erased before any Write. **That is a fail-safe by accident, not by design** —
+it holds only because one heredoc happens not to list two keys, and it does not
+hold on the paths that do not reset:
+
+- the **merge** path (`resume` / `compact` / `clear`) preserves `$orig`
+  wholesale, so an inherited `true` survives it;
+- any session where SessionStart does not fire before the first `Write` — hooks
+  not installed, a bare tool invocation, a harness that skips SessionStart —
+  reads the committed ledger directly and **allows**.
+
+So the accurate finding is: **a committed ledger can pre-satisfy the MCP gate,
+and the only thing preventing it in the common case is an omission in an
+unrelated heredoc that no test pins.** That is one refactor away from being a
+live fail-open. Ignoring the file removes the class rather than relying on the
+accident.
+
+Two smaller consequences, for completeness:
+- **Merge conflicts.** A file rewritten every session, on every branch, is a
+  guaranteed conflict on any branch-based workflow, in a file no human edits.
+- **Leakage.** `last_mcp_error` stores the remote server's own message verbatim.
+  It is not a credential store, but it is untrusted third-party text being
+  committed to a repository, and `calls[]` is a per-session activity log.
+
+### Existing projects — recommended, NOT performed
+
+The ignore rule alone does nothing for a file git is already tracking. An
+existing project needs, **once, at the operator's discretion**:
+
+```
+git rm --cached .claude/tool-usage.json
+```
+
+**The framework must not do this for anyone unprompted.** It rewrites a user's
+index and produces a deletion in their next commit; a tool that quietly
+un-tracks files in someone's repository is worse than the untidiness it fixes.
+`scripts/upgrade-project.sh` therefore backfills only the `.gitignore` line — the
+same posture as the `## BL-174:` backfill — and the step above belongs in release
+notes.
+
+**Related:** `## BL-174:` (the sidecar ignore-lines and their SYNC SIBLINGS
+constraint — this line ships through the same two writers and is subject to the
+same lockstep rule), `## BL-030:` and `## BL-161:` (the two siblings),
+`## BL-233:` (what made this file load-bearing), `## BL-234:` (the work that
+found it).
