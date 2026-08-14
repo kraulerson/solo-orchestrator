@@ -238,7 +238,9 @@ awk '/cat > "\$TOOL_USAGE" << TUEOF/ { n++ }
      }
      { print }' "$HOOK" > "$MUT"
 mut_sites=$(grep -c 'cat > "\$TOOL_USAGE" << TUEOF' "$HOOK" 2>/dev/null || echo 0)
+case "$mut_sites" in ''|*[!0-9]*) mut_sites=0 ;; esac
 mut_added=$(diff "$HOOK" "$MUT" 2>/dev/null | grep -c '^[<>]')
+case "$mut_added" in ''|*[!0-9]*) mut_added=0 ;; esac
 mut_parses=0; bash -n "$MUT" >/dev/null 2>&1 && mut_parses=1
 chmod "$(stat -c '%a' "$HOOK" 2>/dev/null || stat -f '%Lp' "$HOOK" 2>/dev/null)" "$MUT" 2>/dev/null
 run_hook_at "$MUT" "startup"
