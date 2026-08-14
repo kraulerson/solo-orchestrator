@@ -1,0 +1,55 @@
+{
+  "$comment": "BL-233 deliverable 8 — the MCP enforcement mechanism now fires in the framework repo itself, not only in the projects init.sh generates. Before this file existed, solo-orchestrator had no .claude/settings.json at all, so scripts/session-test-gate-check.sh, scripts/track-tool-usage.sh and scripts/session-mcp-gate.sh were wired into generated projects ONLY and none of it ran where the framework is actually built. The same gap still hides the version-check hook. The tracker is registered on BOTH post-tool events because a failed MCP call fires PostToolUseFailure and NOT PostToolUse (measured 2026-08-13); each registration passes its own --event so the tracker scores the outcome from the registration rather than guessing. BLAST RADIUS, stated rather than discovered: the PreToolUse entry BLOCKS Write and Edit until the required MCP tools have SUCCEEDED, and Qdrant is currently down (see BL-231), so this will block writes in this repo until the server is up. That is the intended posture — configured-but-unreachable blocks — and the honest way through is SOLO_MCP_ATTESTED=1 SOLO_MCP_REASON='<why>', which is recorded to .claude/process-state.json::mcp_attestations[] and refused if it cannot be written.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/session-test-gate-check.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/track-tool-usage.sh --event PostToolUse"
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/track-tool-usage.sh --event PostToolUseFailure"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/session-mcp-gate.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/session-mcp-gate.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
