@@ -10507,6 +10507,18 @@ turned on this entry.
    `qdrant_mcp_api_key` sends the registration's own key so a secured server
    answers 200 (**B7**/**B8**/**M10**/**M11**).
 
+**And the fix that sent the key needed its own scope.** Making the probe carry
+`QDRANT_API_KEY` also made it possible to send that credential to any URL a
+caller passes, because `qdrant_probe_reachable` takes an OPTIONAL one. Measured
+on the unscoped code: a registration naming one host, a probe issued against
+another, and the second server logged an **authenticated** request. The key is
+now looked up only when the probed base equals the registered URL
+(`# BL-234-QDRANT-KEY-HEADER`, **B9**/**M12** — asserted on the server's own
+request log, because both directions return 0 and a state assertion cannot tell
+them apart). **This entry's own defect class appeared inside its own fix for the
+third time**, and again it was only found by asking *what happens when this is
+called differently?*
+
 **Two residuals, named rather than fixed:**
 
 - `qdrant_mcp_url` reads `~/.claude.json` **before** `~/.claude/settings.json`
