@@ -180,7 +180,17 @@ check_for_update() {
       # script indefinitely, and it runs from a session hook.
       # run_with_timeout is the only bounded runner available — there is no
       # timeout(1)/gtimeout(1) on the dev host (they yield a spurious rc=127).
-      if [ "$NETWORK_AVAILABLE" = true ]; then
+      #
+      # The `command -v run_with_timeout` guard is not defensive padding. This
+      # script has a FALLBACK that defines the colours and print_* inline when
+      # scripts/lib/helpers-core.sh is missing, and that fallback does NOT define
+      # run_with_timeout. Without the guard the bounded call would exit 127,
+      # `|| true` would swallow it, and the comparison below would silently run
+      # against STALE refs — a fetch that never happened, reported as a currency
+      # verdict. That is the precise defect this entry exists to remove, so the
+      # unbounded state is reported as "cannot tell" rather than run unbounded
+      # (which would hang a session hook) or skipped in silence.
+      if [ "$NETWORK_AVAILABLE" = true ] && command -v run_with_timeout >/dev/null 2>&1; then
         run_with_timeout "${SOLO_FETCH_TIMEOUT:-10}" git -C "$repo_path" fetch --quiet >/dev/null 2>&1 || true   # BL-234-CHECKVERSIONS-TIMEOUT
         local local_rev remote_rev behind_count
         local_rev=$(git -C "$repo_path" rev-parse HEAD 2>/dev/null)
@@ -198,6 +208,9 @@ check_for_update() {
           UPDATE_CHECK_MSG="$behind_count commit(s) behind"
           UPDATE_CHECK_CMD="cd $repo_path && git pull"
         fi
+      elif [ "$NETWORK_AVAILABLE" = true ]; then
+        UPDATE_CHECK_STATUS="unknown"
+        UPDATE_CHECK_MSG="cannot bound a fetch (scripts/lib/helpers-core.sh unavailable) — skipped rather than compared against stale refs"   # BL-234-CHECKVERSIONS-UNBOUNDABLE
       else
         UPDATE_CHECK_STATUS="unknown"
         UPDATE_CHECK_MSG="network unavailable — skipped"

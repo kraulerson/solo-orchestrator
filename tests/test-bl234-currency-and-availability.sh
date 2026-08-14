@@ -599,6 +599,58 @@ else
 fi
 
 echo ""
+echo "=== E — check-versions.sh: the bound is real, and an UNBOUNDABLE fetch is 'cannot tell' ==="
+
+# check_for_update is EXTRACTED from the shipped script and executed. Sourcing
+# check-versions.sh whole would run its main body (it sets NETWORK_AVAILABLE and
+# starts checking tools), so the function is lifted from its own opening line to
+# its column-0 closing brace and run against stubs.
+run_check_for_update() {
+  local d="$1" repo="$2" with_rwt="$3"
+  awk '/^check_for_update\(\)/{f=1} f{print} f&&/^}$/{exit}' "$CHECKVER" > "$d/fn.sh"
+  [ -s "$d/fn.sh" ] || { printf 'NOFN\n'; return 1; }
+  local pre=""
+  [ "$with_rwt" = "yes" ] && pre=". \"$REPO_ROOT/scripts/lib/helpers-core.sh\" >/dev/null 2>&1"
+  "$BASH_BIN" -c "
+    set -uo pipefail
+    $pre
+    . '$d/fn.sh'
+    NETWORK_AVAILABLE=true
+    check_for_update git_repo \"\$(jq -nc --arg p '$repo' '{path:\$p}')\"
+    printf '%s|%s\n' \"\$UPDATE_CHECK_STATUS\" \"\$UPDATE_CHECK_MSG\"
+  " 2>/dev/null
+}
+
+# ── E1: with the bounded runner available, the handler does its job.
+E1="$(newtmp)"
+build_fw "$E1/fw" "$E1/origin"
+E1PIN="$PIN"
+advance_origin "$E1/origin" "$E1/adv" || true
+E1_OUT="$(run_check_for_update "$E1" "$E1/fw" yes)"
+if printf '%s' "$E1_OUT" | grep -q '^behind|'; then
+  pass "E1: with run_with_timeout available the git_repo handler fetches and reports the clone as behind ($E1_OUT)"
+else
+  fail_ "E1" "got '$E1_OUT' — wanted status 'behind' after a real bounded fetch of a local bare origin"
+fi
+
+# ── E2: THE ARM THE GUARD EXISTS FOR. check-versions.sh has a fallback that
+# defines the colours and print_* inline when helpers-core.sh is missing — and
+# that fallback does NOT define run_with_timeout. Unguarded, the bounded fetch
+# would exit 127, `|| true` would swallow it, and the handler would compare
+# STALE refs and report a currency verdict from a fetch that never ran. It must
+# say "cannot tell" instead.
+E2="$(newtmp)"
+build_fw "$E2/fw" "$E2/origin"
+advance_origin "$E2/origin" "$E2/adv" || true
+E2_OUT="$(run_check_for_update "$E2" "$E2/fw" no)"
+E2_STATUS="${E2_OUT%%|*}"
+if [ "$E2_STATUS" = "unknown" ] && printf '%s' "$E2_OUT" | grep -qi 'cannot bound'; then
+  pass "E2: with no bounded runner the handler reports 'unknown — cannot bound a fetch', instead of comparing refs a swallowed rc=127 left stale ($E2_OUT)"
+else
+  fail_ "E2" "got '$E2_OUT' — wanted status 'unknown' naming the unboundable fetch"
+fi
+
+echo ""
 echo "=== D — the MCP ledger is runtime state, and git must be told so (BL-236) ==="
 
 # ── D1: measured with git itself, not by greping the template.
