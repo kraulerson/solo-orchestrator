@@ -224,7 +224,13 @@ _soif_fresh_last_fetch() {
   [ -f "$f" ] || { printf 'never'; return 0; }
   sz="$(wc -c "$f" 2>/dev/null | awk '{print $1}')"
   case "$sz" in ''|*[!0-9]*) sz=0 ;; esac
-  if [ "$sz" -eq 0 ]; then printf 'failed'; return 0; fi
+  # THE WHOLE MEASUREMENT LIVES IN THIS COMPARISON. `-eq 0` -> `-lt 0` is one
+  # character, parses, and turns every failed-fetch state into "last fetched 0
+  # day(s) ago" — permanent false reassurance on an offline machine, which is
+  # strictly worse than the silence this entry removes. It survived all 172
+  # unit-lane suites when it had no marker; A8 pins the behaviour and M7 kills
+  # the mutant by name.
+  if [ "$sz" -eq 0 ]; then printf 'failed'; return 0; fi   # BL-234-FETCH-FAILED-SIZE
   printf 'ok %s' "$(stat -c '%Y' "$f" 2>/dev/null || stat -f '%m' "$f" 2>/dev/null)"
 }
 

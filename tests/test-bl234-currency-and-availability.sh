@@ -172,6 +172,32 @@ advance_origin() {
   _git -C "$work" push -q origin HEAD:main >/dev/null 2>&1
 }
 
+# _fh_of <fwdir> — the absolute path of that clone's FETCH_HEAD.
+_fh_of() {
+  local f
+  f="$(_git -C "$1" rev-parse --git-dir 2>/dev/null)/FETCH_HEAD"
+  case "$f" in /*) : ;; *) f="$1/$f" ;; esac
+  printf '%s' "$f"
+}
+# _fh_size <path> — size in bytes, 0 when absent/unreadable.
+_fh_size() { local n; n=$(wc -c < "$1" 2>/dev/null | tr -d ' '); _num "$n"; }
+
+# build_fw_failed_fetch <casedir> — a framework clone whose LAST fetch FAILED,
+# leaving FETCH_HEAD at ZERO BYTES with a FRESH mtime.
+#
+# MEASURED on this host, not assumed: after a successful fetch FETCH_HEAD was
+# 130 bytes; after a fetch against a deleted origin it was 0 bytes with a NEWER
+# mtime. So the mtime dates the last ATTEMPT and the SIZE is the only thing that
+# separates success from failure. Reading the mtime alone reports "last fetched
+# 0 day(s) ago" forever on an offline machine — active false reassurance, worse
+# than the silence this package removes. A8 and M7 exist for that one byte.
+build_fw_failed_fetch() {
+  local d="$1"
+  build_fw "$d/fw" "$d/origin"
+  rm -rf "$d/origin"                       # the remote path is gone
+  _git -C "$d/fw" fetch -q >/dev/null 2>&1 || true   # this fetch FAILS and truncates FETCH_HEAD
+}
+
 # build_proj <projdir> <fwdir> <pin> — a scaffolded project whose currency block
 # is EMPTY except for the pin, so only the framework check can speak. Any other
 # emitted line would be a fixture bug, not a finding.
@@ -336,6 +362,31 @@ if [ "$A7_ON" = "fetch-bounded" ] && [ "$A7_ON_AGE" = "yes" ] \
   pass "A7: the machine block reports the mode that actually ran — 'fetch-bounded' by default, 'none' under SOIF_FRESHNESS_FETCH=0, which restores M1's zero-network contract INCLUDING its silence"
 else
   fail_ "A7" "default: network='$A7_ON' (want fetch-bounded) age=$A7_ON_AGE (want yes); opt-out: network='$A7_OFF' (want none) age=$A7_OFF_AGE (want no)"
+fi
+
+# ── A8: THE `failed` ARM. A3 pins `ok <epoch>` and A4 pins `never`; until this
+# case existed the third state — a PREVIOUS session's failed fetch, FETCH_HEAD
+# truncated to zero bytes — had no test anywhere, and the one-character mutant
+# `-eq 0` -> `-lt 0` passed every suite in the repo while making the tool say
+# "last fetched 0 day(s) ago" forever on an offline machine. The assertion is
+# two-sided on purpose: the honest wording must be PRESENT and the false
+# reassurance must be ABSENT, because only the second half dies under the mutant.
+A8="$(newtmp)"
+build_fw_failed_fetch "$A8"
+build_proj "$A8/proj" "$A8/fw" "$PIN"
+A8_FH="$(_fh_of "$A8/fw")"
+A8_SZ="$(_fh_size "$A8_FH")"
+if [ ! -f "$A8_FH" ] || [ "$A8_SZ" != "0" ]; then
+  fail_ "A8" "fixture: wanted a ZERO-byte FETCH_HEAD from a failed fetch; got size=$A8_SZ at $A8_FH"
+else
+  run_fresh "$A8/proj"
+  if [ "$FRC" -eq 0 ] \
+     && printf '%s' "$FOUT" | grep -q 'UNKNOWN time' \
+     && ! printf '%s' "$FOUT" | grep -q 'last fetched 0 day'; then
+    pass "A8: a clone whose last fetch FAILED (FETCH_HEAD truncated to 0 bytes) reports an UNKNOWN fetch time — and does NOT report 'last fetched 0 day(s) ago', which is what reading the mtime alone would say forever while offline"
+  else
+    fail_ "A8" "rc=$FRC — wanted 'UNKNOWN time' and NOT 'last fetched 0 day'; got: $(printf '%s' "$FOUT" | tr '\n' '|' | cut -c1-500)"
+  fi
 fi
 
 echo ""
@@ -874,6 +925,40 @@ if [ "$m6_bound" = "1" ] && [ "$m6_sites" -eq 1 ] && [ "$m6_changed" -eq 2 ] && 
   pass "M6: the shipped fetch is bounded by run_with_timeout, and the unbounded form is one marked line away — the comment now describes the code"
 else
   fail_ "M6" "bounded=$m6_bound (want 1) sites=$m6_sites changed=$m6_changed parses=$m6_parses"
+fi
+
+# ── M7: THE ONE-CHARACTER MUTANT, KILLED BY NAME. `-eq 0` -> `-lt 0` in
+# _soif_fresh_last_fetch. A size is never negative, so the `failed` arm becomes
+# unreachable and every truncated FETCH_HEAD is read as a SUCCESS whose mtime is
+# our own failed attempt. Measured before this test existed: the mutant left
+# this suite at 29/0, test-freshness-check at 26/0, test-freshness-birth at 8/0
+# and all 172 unit-lane suites green, while the shipped wrapper emitted
+# "last fetched 0 day(s) ago" on a clone that had not fetched successfully in
+# months. The discriminator is the EMITTED SENTENCE in both directions, not the
+# presence of the branch.
+M7="$(newtmp)"
+if ! mk_mirror_lib "$M7/m"; then
+  fail_ "M7" "mirror setup failed"
+else
+  build_fw_failed_fetch "$M7/c"
+  build_proj "$M7/p1" "$M7/c/fw" "$PIN"
+  m7_ctl_sz="$(_fh_size "$(_fh_of "$M7/c/fw")")"
+  run_fresh_at "$M7/m/scripts/session-freshness-check.sh" "$M7/p1"
+  m7_ctl=no; printf '%s' "$FOUT" | grep -q 'UNKNOWN time' && m7_ctl=yes
+  m7_meta=$(_mutate "$M7/m/scripts/lib/freshness-detect.sh" '# BL-234-FETCH-FAILED-SIZE' '  if [ "$sz" -lt 0 ]; then printf '"'"'failed'"'"'; return 0; fi')
+  set -- $m7_meta; m7_sites=$1; m7_changed=$2; m7_parses=$3
+  build_fw_failed_fetch "$M7/d"          # FRESH clone: the control run's own fetch rewrites FETCH_HEAD
+  build_proj "$M7/p2" "$M7/d/fw" "$PIN"
+  m7_mut_sz="$(_fh_size "$(_fh_of "$M7/d/fw")")"
+  run_fresh_at "$M7/m/scripts/session-freshness-check.sh" "$M7/p2"
+  m7_mut=no; printf '%s' "$FOUT" | grep -q 'last fetched 0 day' && m7_mut=yes
+  if [ "$m7_ctl_sz" = "0" ] && [ "$m7_mut_sz" = "0" ] \
+     && [ "$m7_ctl" = "yes" ] && [ "$m7_mut" = "yes" ] \
+     && [ "$m7_sites" -eq 1 ] && [ "$m7_changed" -eq 2 ] && [ "$m7_parses" -eq 1 ]; then
+    pass "M7: control calls a truncated FETCH_HEAD an UNKNOWN fetch time; with -eq 0 changed to -lt 0 the SAME clone reports 'last fetched 0 day(s) ago' — one character, still parses, and it is false reassurance rather than silence"
+  else
+    fail_ "M7" "ctl_size=$m7_ctl_sz mut_size=$m7_mut_sz (both want 0) control=$m7_ctl (want yes) mutant=$m7_mut (want yes) sites=$m7_sites changed=$m7_changed parses=$m7_parses"
+  fi
 fi
 
 echo ""
