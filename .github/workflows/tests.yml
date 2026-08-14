@@ -517,6 +517,7 @@ jobs:
             tests/test-brownfield-wp5b-test-debt.sh
             tests/test-brownfield-wp6-collision-archive.sh
             tests/test-bl233-mcp-outcome-enforcement.sh
+            tests/test-bl234-currency-and-availability.sh
             tests/host-drivers/error-translate.test.sh
           )
 
