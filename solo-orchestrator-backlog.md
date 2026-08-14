@@ -9837,12 +9837,41 @@ is the Stop-hook counterpart. Both ship via `init.sh`. Landed in `0352ef3`
 ### Measured on `main` @ `9060d31` — the chain, end to end
 
 1. **The database is not running.** MCP config points at `http://localhost:6333`,
-   collection `solo-orchestrator`. Ports 6333/6334 closed, no containers. A live
-   call returns:
+   collection `solo-orchestrator`. Ports 6333/6334 closed. A live call returns:
    ```
    qdrant-find("architecture decisions solo orchestrator")
    → Error: All connection attempts failed
    ```
+
+   > **⚠ CORRECTION (2026-08-14).** This row originally read *"Ports 6333/6334
+   > closed, **no containers**"*. **"No containers" was false**, and the author
+   > filed it as measured fact. A stopped `qdrant` container existed the whole
+   > time, with two populated collections (`meshscope`, `solo-orchestrator`);
+   > Colima's VM had wedged (it reported `Running` with a socket dead since
+   > 18 July). A `colima stop && colima start` plus `docker start qdrant`
+   > restored it, and the retrieval then returned real prior context.
+   >
+   > **How the false claim was produced, because the mechanism is the lesson:**
+   > the probe was
+   > `docker ps --format '…' 2>/dev/null | head -5 || echo "(docker not responding)"`.
+   > Two independent defects, both of which this backlog already documents in
+   > other people's code:
+   > 1. **The fallback arm could not fire.** A pipeline's exit status is the
+   >    LAST command's — `head` succeeded reading nothing, so `rc=0` and the
+   >    `|| echo` never ran, while `2>/dev/null` swallowed docker's real error.
+   >    A broken daemon was indistinguishable from an empty result. This is
+   >    `## BL-104:`'s shape (the arm that cannot fire) applied to a diagnostic.
+   > 2. **Wrong command.** `docker ps` lists RUNNING containers only; a stopped
+   >    one requires `docker ps -a`, which was never run. Even a healthy daemon
+   >    would have produced the same empty output.
+   >
+   > The measurement supported *"not running"*. It was written up as *"no
+   > containers"* and later escalated in conversation to *"never installed"* —
+   > neither of which anything run supported. **"The probe returned nothing" is
+   > "cannot tell", not "nothing is there"** — the exact rule `## BL-112:` states
+   > and this entry's own §"What forced to work has to mean" demands of the
+   > product. Kept struck-through rather than deleted: an entry that quietly
+   > loses its own error teaches nothing.
 2. **Detection asks the wrong question.** `session-test-gate-check.sh` sets
    `QDRANT_CONFIGURED=true` by matching a server *named* `qdrant` in the MCP
    settings. It never probes reachability. A dead database is "configured".
