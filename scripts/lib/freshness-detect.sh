@@ -348,7 +348,7 @@ _soif_fresh_check_framework() {
         _ref_when="last fetched at an UNKNOWN time (its previous fetch also failed, and git truncates the record on failure)"
         _ref_sig="refage@failed" ;;
       *)
-        _ref_when="NEVER fetched"
+        _ref_when="that was NEVER fetched"
         _ref_sig="refage@never" ;;
     esac
     if [ "$_fetch_rc" -eq 1 ]; then
