@@ -253,12 +253,23 @@ _soif_fresh_upstream_ref() {
 }
 
 # _soif_fresh_try_fetch <dir> — refresh the reference, BOUNDED.
-#   0 = the fetch landed        1 = attempted and did not land
-#   2 = not attempted (opt-out, no remote, or no bounded runner available)
+#   0 = the fetch landed
+#   1 = attempted and did not land
+#   2 = not attempted: the operator opted out (SOIF_FRESHNESS_FETCH=0)
+#   3 = not attempted: no bounded runner, so no fetch can be made SAFELY
+#   4 = not attempted: the clone has no remote configured
 #
-# The two non-zero returns are kept apart because the operator-facing sentence
-# differs: "I tried and could not reach it" vs "there was nothing to try". They
-# are NOT collapsed into "unknown", because both are determinate facts.
+# THE THREE not-attempted CAUSES GET THEIR OWN RETURNS, and that is a fix, not
+# taste. They were one code, and the caller's sentence asserted the third of
+# them — "the clone has no remote configured" — as a FACT for all three. A false
+# factual claim, in the one feature whose entire point is honest wording: a
+# missing bounded runner would have been reported to the operator as a missing
+# remote, sending them to fix the wrong thing. `# BL-234-REFERENCE-AGE` now
+# switches on the cause instead of guessing it.
+#
+# The attempted/not-attempted split stays because the operator-facing sentence
+# differs — "I tried and could not reach it" vs "there was nothing to try" — and
+# neither is collapsed into "unknown", because both are determinate facts.
 #
 # `>/dev/null 2>&1` is on run_with_timeout, not on git, and that placement is
 # load-bearing. run_with_timeout backgrounds its child and kills it on the
@@ -269,8 +280,8 @@ _soif_fresh_upstream_ref() {
 _soif_fresh_try_fetch() {
   local d="$1" secs
   [ "$(soif_fresh_fetch_mode)" = "none" ] && return 2
-  command -v run_with_timeout >/dev/null 2>&1 || return 2
-  git -C "$d" remote 2>/dev/null | grep -q . || return 2
+  command -v run_with_timeout >/dev/null 2>&1 || return 3   # BL-234-TRYFETCH-NORUNNER
+  git -C "$d" remote 2>/dev/null | grep -q . || return 4    # BL-234-TRYFETCH-NOREMOTE
   secs="$(_soif_fresh_fetch_secs)"
   if run_with_timeout "$secs" git -C "$d" fetch --quiet --no-tags >/dev/null 2>&1; then  # BL-234-FETCH-BOUND
     return 0
@@ -357,11 +368,15 @@ _soif_fresh_check_framework() {
         _ref_when="that was NEVER fetched"
         _ref_sig="refage@never" ;;
     esac
-    if [ "$_fetch_rc" -eq 1 ]; then
-      _ref_why="the remote could not be reached (offline, gone, or slower than the $(_soif_fresh_fetch_secs)s bound)"
-    else
-      _ref_why="no fetch was attempted (the clone has no remote configured)"
-    fi
+    # SAY WHICH CAUSE IT WAS. This arm used to have two branches for four
+    # states, so a missing bounded runner was reported as a missing remote — a
+    # false factual claim in the one feature whose point is honest wording.
+    case "$_fetch_rc" in
+      1) _ref_why="the remote could not be reached (offline, gone, or slower than the $(_soif_fresh_fetch_secs)s bound)" ;;
+      3) _ref_why="no fetch was attempted (no bounded runner is available here, and an UNBOUNDED fetch could hang this session-start hook)" ;;
+      4) _ref_why="no fetch was attempted (the clone has no remote configured)" ;;
+      *) _ref_why="no fetch was attempted (the reason was not recorded)" ;;
+    esac
     _ref_msg="framework currency was measured against a LOCAL clone ${_ref_when} — ${_ref_why}. Your pin may match a reference that is itself stale, so 'no drift' here does not mean 'up to date'."
     _soif_fresh_emit "fw-reference-age" framework informational "-" update "$_ref_sig" "$_ref_msg"  # BL-234-REFERENCE-AGE
   fi

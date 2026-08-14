@@ -227,6 +227,17 @@ run_fresh() {
   rm -f "$errf"
 }
 
+# run_fresh_at <sut> <projdir> [env assignments...] — the same, against an
+# arbitrary (mirrored or MUTATED) copy of the wrapper.
+run_fresh_at() {
+  local sut="$1" proj="$2"; shift 2
+  local errf
+  errf="$TOPTMP/merr.$$"
+  FOUT="$(env "$@" CDF_HOME="$TOPTMP/no-cdf" CLAUDE_PROJECT_DIR="$proj" "$BASH_BIN" "$sut" 2>"$errf")"
+  FRC=$?
+  FERR="$(cat "$errf" 2>/dev/null)"; rm -f "$errf"
+}
+
 echo "=== A — framework currency is measured against the REMOTE, and says so when it cannot be ==="
 
 # ── A1: the silent case. The clone is behind its origin; today nothing says so.
@@ -387,6 +398,32 @@ else
   else
     fail_ "A8" "rc=$FRC — wanted 'UNKNOWN time' and NOT 'last fetched 0 day'; got: $(printf '%s' "$FOUT" | tr '\n' '|' | cut -c1-500)"
   fi
+fi
+
+# ── A9: NAME THE RIGHT CAUSE. _soif_fresh_try_fetch returned one code for three
+# different not-attempted states, and the caller's sentence asserted the third
+# of them — "the clone has no remote configured" — as a FACT for all three. On a
+# clone that HAS a remote but has no bounded runner, that sentence sent the
+# operator to fix a remote that was never broken. The fixture is a mirror with
+# helpers-core.sh withheld, so run_with_timeout genuinely does not exist; the
+# clone keeps a real local bare origin, so the false claim is falsifiable.
+A9="$(newtmp)"
+mkdir -p "$A9/m/scripts/lib"
+cp -p "$REPO_ROOT/scripts/session-freshness-check.sh" "$A9/m/scripts/"
+cp -p "$FRESH_LIB" "$A9/m/scripts/lib/"
+for f in currency-manifest.sh hook-templates.sh bypass-audit.sh; do
+  [ -f "$REPO_ROOT/scripts/lib/$f" ] && cp -p "$REPO_ROOT/scripts/lib/$f" "$A9/m/scripts/lib/"
+done                                    # helpers-core.sh deliberately WITHHELD
+build_fw "$A9/fw" "$A9/origin"
+build_proj "$A9/proj" "$A9/fw" "$PIN"
+A9_REMOTES="$(_git -C "$A9/fw" remote 2>/dev/null | wc -l | tr -d ' ')"
+run_fresh_at "$A9/m/scripts/session-freshness-check.sh" "$A9/proj"
+if [ "$A9_REMOTES" != "0" ] && [ "$FRC" -eq 0 ] \
+   && printf '%s' "$FOUT" | grep -q 'no bounded runner' \
+   && ! printf '%s' "$FOUT" | grep -q 'no remote configured'; then
+  pass "A9: with no bounded runner available, a clone that HAS a remote is told the runner is missing — not that its remote is, which is what one shared return code made the tool claim"
+else
+  fail_ "A9" "remotes=$A9_REMOTES (want >0) rc=$FRC — wanted 'no bounded runner' and NOT 'no remote configured'; got: $(printf '%s' "$FOUT" | tr '\n' '|' | cut -c1-400)"
 fi
 
 echo ""
@@ -858,15 +895,6 @@ mk_mirror_lib() {
   return 0
 }
 
-run_fresh_at() {
-  local sut="$1" proj="$2"; shift 2
-  local errf
-  errf="$TOPTMP/merr.$$"
-  FOUT="$(env "$@" CDF_HOME="$TOPTMP/no-cdf" CLAUDE_PROJECT_DIR="$proj" "$BASH_BIN" "$sut" 2>"$errf")"
-  FRC=$?
-  FERR="$(cat "$errf" 2>/dev/null)"; rm -f "$errf"
-}
-
 # ── M1: delete the fetch. This is the shipped code before BL-234, and A1 is the
 # direction that must die.
 M1="$(newtmp)"
@@ -1087,6 +1115,34 @@ else
   else
     fail_ "M7" "ctl_size=$m7_ctl_sz mut_size=$m7_mut_sz (both want 0) control=$m7_ctl (want yes) mutant=$m7_mut (want yes) sites=$m7_sites changed=$m7_changed parses=$m7_parses"
   fi
+fi
+
+# ── M9: collapse the two not-attempted causes back into one. The runner-missing
+# return becomes the no-remote return, and the shipped wrapper then tells an
+# operator whose remote is fine that their clone has no remote configured. The
+# discriminator is the SENTENCE, in both directions — the exit code is 0 either
+# way, which is precisely why one code for three causes survived review.
+M9="$(newtmp)"
+mkdir -p "$M9/m/scripts/lib"
+cp -p "$REPO_ROOT/scripts/session-freshness-check.sh" "$M9/m/scripts/"
+cp -p "$FRESH_LIB" "$M9/m/scripts/lib/"
+for f in currency-manifest.sh hook-templates.sh bypass-audit.sh; do
+  [ -f "$REPO_ROOT/scripts/lib/$f" ] && cp -p "$REPO_ROOT/scripts/lib/$f" "$M9/m/scripts/lib/"
+done                                    # helpers-core.sh withheld, as in A9
+build_fw "$M9/fw" "$M9/origin"; M9PIN="$PIN"
+build_proj "$M9/p1" "$M9/fw" "$M9PIN"
+run_fresh_at "$M9/m/scripts/session-freshness-check.sh" "$M9/p1"
+m9_ctl=no; printf '%s' "$FOUT" | grep -q 'no bounded runner' && m9_ctl=yes
+m9_meta=$(_mutate "$M9/m/scripts/lib/freshness-detect.sh" '# BL-234-TRYFETCH-NORUNNER' '  command -v run_with_timeout >/dev/null 2>&1 || return 4')
+set -- $m9_meta; m9_sites=$1; m9_changed=$2; m9_parses=$3
+build_proj "$M9/p2" "$M9/fw" "$M9PIN"
+run_fresh_at "$M9/m/scripts/session-freshness-check.sh" "$M9/p2"
+m9_mut=no; printf '%s' "$FOUT" | grep -q 'no remote configured' && m9_mut=yes
+if [ "$m9_ctl" = "yes" ] && [ "$m9_mut" = "yes" ] \
+   && [ "$m9_sites" -eq 1 ] && [ "$m9_changed" -eq 2 ] && [ "$m9_parses" -eq 1 ]; then
+  pass "M9: control names the missing bounded runner; with the two causes sharing one return code the SAME clone — remote intact — is told it has no remote configured, which is a false factual claim in the one feature about honest wording"
+else
+  fail_ "M9" "control=$m9_ctl (want yes) mutant=$m9_mut (want yes) sites=$m9_sites changed=$m9_changed parses=$m9_parses"
 fi
 
 echo ""
