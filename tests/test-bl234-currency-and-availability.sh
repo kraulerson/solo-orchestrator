@@ -658,18 +658,51 @@ echo "=== E — check-versions.sh: the bound is real, and an UNBOUNDABLE fetch i
 # its column-0 closing brace and run against stubs.
 run_check_for_update() {
   local d="$1" repo="$2" with_rwt="$3"
-  awk '/^check_for_update\(\)/{f=1} f{print} f&&/^}$/{exit}' "$CHECKVER" > "$d/fn.sh"
-  [ -s "$d/fn.sh" ] || { printf 'NOFN\n'; return 1; }
-  local pre=""
+  run_check_for_update_at "$CHECKVER" "$d" "$repo" "$with_rwt" || { printf 'NOFN\n'; return 1; }
+  printf '%s\n' "$CVOUT"
+}
+
+# run_check_for_update_at <src> <workdir> <repo> <with_rwt> [env assignments...]
+# The same extraction against an arbitrary (possibly MUTATED) copy of
+# check-versions.sh, with env assignments and a WALL-CLOCK measurement — because
+# "the fetch is bounded" is a claim about elapsed time, and greping the shipped
+# file for the word `run_with_timeout` is a claim about spelling.
+CVOUT=""; CVSECS=0
+run_check_for_update_at() {
+  local src="$1" d="$2" repo="$3" with_rwt="$4"; shift 4
+  awk '/^check_for_update\(\)/{f=1} f{print} f&&/^}$/{exit}' "$src" > "$d/fn.sh"
+  [ -s "$d/fn.sh" ] || { CVOUT="NOFN"; return 1; }
+  local pre="" t0 t1
   [ "$with_rwt" = "yes" ] && pre=". \"$REPO_ROOT/scripts/lib/helpers-core.sh\" >/dev/null 2>&1"
-  "$BASH_BIN" -c "
+  t0=$(date +%s)
+  CVOUT="$(env "$@" "$BASH_BIN" -c "
     set -uo pipefail
     $pre
     . '$d/fn.sh'
     NETWORK_AVAILABLE=true
     check_for_update git_repo \"\$(jq -nc --arg p '$repo' '{path:\$p}')\"
     printf '%s|%s\n' \"\$UPDATE_CHECK_STATUS\" \"\$UPDATE_CHECK_MSG\"
-  " 2>/dev/null
+  " 2>/dev/null)"
+  t1=$(date +%s)
+  CVSECS=$((t1 - t0))
+  return 0
+}
+
+# mk_git_fetch_stub <bindir> <seconds> — a `git` that sleeps on `fetch` and is
+# the real git for everything else. Exits 0 after sleeping, so an UNBOUNDED
+# caller reads it as a SUCCESSFUL fetch — which is the failure mode being
+# measured, not a crash.
+mk_git_fetch_stub() {
+  local b="$1" secs="$2"
+  mkdir -p "$b"
+  cat > "$b/git" << STUBEOF
+#!/usr/bin/env bash
+for a in "\$@"; do
+  if [ "\$a" = "fetch" ]; then sleep $secs; exit 0; fi
+done
+exec "$REAL_GIT" "\$@"
+STUBEOF
+  chmod 755 "$b/git"
 }
 
 # ── E1: with the bounded runner available, the handler does its job.
@@ -699,6 +732,64 @@ if [ "$E2_STATUS" = "unknown" ] && printf '%s' "$E2_OUT" | grep -qi 'cannot boun
   pass "E2: with no bounded runner the handler reports 'unknown — cannot bound a fetch', instead of comparing refs a swallowed rc=127 left stale ($E2_OUT)"
 else
   fail_ "E2" "got '$E2_OUT' — wanted status 'unknown' naming the unboundable fetch"
+fi
+
+# ── E3: THE ORDINARY PATH, which stayed broken while E2's exotic one was fixed.
+# A fetch that FAILS WITHIN the bound — offline, remote deleted, auth gone — used
+# to be swallowed by `|| true`, and the handler then compared HEAD against an
+# origin/main no fetch had refreshed. Reproduced before the fix on a clone
+# genuinely ONE COMMIT BEHIND its deleted origin with NETWORK_AVAILABLE=true:
+# verdict `up_to_date`. Silent false reassurance for CDF and every `git_repo`
+# tool while offline. The fixture is BEHIND on purpose: a fixture that is
+# actually current would pass with the bug present.
+E3="$(newtmp)"
+build_fw "$E3/fw" "$E3/origin"
+advance_origin "$E3/origin" "$E3/adv" || true
+E3_LOCAL="$(_git -C "$E3/fw" rev-parse HEAD 2>/dev/null)"
+E3_TRUE="$(_git -C "$E3/origin" rev-parse main 2>/dev/null)"
+rm -rf "$E3/origin"                     # now unreachable, exactly like being offline
+E3_OUT="$(run_check_for_update "$E3" "$E3/fw" yes)"
+E3_STATUS="${E3_OUT%%|*}"
+if [ -n "$E3_TRUE" ] && [ "$E3_LOCAL" != "$E3_TRUE" ] \
+   && [ "$E3_STATUS" = "unknown" ] && printf '%s' "$E3_OUT" | grep -qi 'could not refresh refs'; then
+  pass "E3: a clone genuinely behind an UNREACHABLE origin reports 'unknown — could not refresh refs' instead of the 'up_to_date' a failed fetch used to produce from stale refs ($E3_OUT)"
+else
+  fail_ "E3" "local=$E3_LOCAL true_origin=$E3_TRUE (must differ) got '$E3_OUT' — wanted status 'unknown' naming the failed refresh"
+fi
+
+# ── E4: THE BOUND, MEASURED. M6 asserted that the shipped file CONTAINS the
+# word run_with_timeout, which this suite's own charter forbids ("not one
+# assertion is satisfied by the presence of a call"). This one runs a git that
+# sleeps 12s on `fetch` and asserts the WALL CLOCK, the same standard as A5/B6.
+E4="$(newtmp)"
+build_fw "$E4/fw" "$E4/origin"
+mk_git_fetch_stub "$E4/bin" 12
+run_check_for_update_at "$CHECKVER" "$E4" "$E4/fw" yes "PATH=$E4/bin:$PATH" "SOLO_FETCH_TIMEOUT=2"
+E4_STATUS="${CVOUT%%|*}"
+if [ "$CVSECS" -le 8 ] && [ "$E4_STATUS" = "unknown" ] \
+   && printf '%s' "$CVOUT" | grep -qi 'could not refresh refs'; then
+  pass "E4: a fetch that would hang for 12s is cut off at the 2s bound (measured ${CVSECS}s wall clock) and the handler says so rather than comparing stale refs"
+else
+  fail_ "E4" "elapsed=${CVSECS}s (want <=8) status='$E4_STATUS' (want unknown) out='$CVOUT'"
+fi
+
+# ── E5: A GARBAGE BOUND IS NOT A BOUND. Measured on this host:
+# `run_with_timeout abc sleep 3` returns rc 0 after 3039ms — the `-ge` test
+# errors on every iteration, the kill never fires, and the caller's
+# `>/dev/null 2>&1` swallows the complaint. So a non-numeric SOLO_FETCH_TIMEOUT
+# silently UNBOUNDS this fetch: the resurrected defect, one env var away. The
+# assertion is on the EMITTED SENTENCE, which names the seconds actually used —
+# `10s` once the value has been sanitized, `abcs` if it never was.
+E5="$(newtmp)"
+build_fw "$E5/fw" "$E5/origin"
+rm -rf "$E5/origin"
+run_check_for_update_at "$CHECKVER" "$E5" "$E5/fw" yes "SOLO_FETCH_TIMEOUT=abc"
+E5_STATUS="${CVOUT%%|*}"
+if [ "$E5_STATUS" = "unknown" ] && printf '%s' "$CVOUT" | grep -q '10s bound' \
+   && ! printf '%s' "$CVOUT" | grep -q 'abcs bound'; then
+  pass "E5: SOLO_FETCH_TIMEOUT=abc is sanitized to the 10s default before it reaches run_with_timeout — the emitted sentence names a NUMBER, so the bound can actually fire ($CVOUT)"
+else
+  fail_ "E5" "status='$E5_STATUS' (want unknown) out='$CVOUT' — wanted the message to name '10s bound' and never 'abcs bound'"
 fi
 
 echo ""
@@ -912,19 +1003,56 @@ else
   fail_ "M5" "control=$m5_ctl (want false) mutant=$m5_mut (want true) sites=$m5_sites changed=$m5_changed parses=$m5_parses"
 fi
 
-# ── M6: check-versions.sh's comment claimed a timeout that did not exist. The
-# mutant removes the real one and shows the claim going hollow again.
+# ── M6: restore `|| true` — the bounded-but-DISCARDED fetch outcome. This mutant
+# used to assert only that the shipped file CONTAINS `run_with_timeout`, which is
+# a claim about spelling and is exactly what this suite's charter refuses. It now
+# RUNS both directions against E3's fixture: a clone behind an unreachable
+# origin. Control says it could not refresh; the mutant swallows the failure and
+# reports `up_to_date` — the §8 finding, restored in one marked line.
 M6="$(newtmp)"
 mkdir -p "$M6/scripts/lib"
 cp -p "$CHECKVER" "$M6/scripts/check-versions.sh"
+build_fw "$M6/fw" "$M6/origin"
+advance_origin "$M6/origin" "$M6/adv" || true
+rm -rf "$M6/origin"
+m6_ctl_out="$(run_check_for_update "$M6" "$M6/fw" yes)"
+m6_ctl="${m6_ctl_out%%|*}"
 m6_meta=$(_mutate "$M6/scripts/check-versions.sh" '# BL-234-CHECKVERSIONS-TIMEOUT' '        git -C "$repo_path" fetch --quiet 2>/dev/null || true')
 set -- $m6_meta; m6_sites=$1; m6_changed=$2; m6_parses=$3
-m6_bound=0
-grep -q 'run_with_timeout .* git -C "\$repo_path" fetch' "$CHECKVER" 2>/dev/null && m6_bound=1
-if [ "$m6_bound" = "1" ] && [ "$m6_sites" -eq 1 ] && [ "$m6_changed" -eq 2 ] && [ "$m6_parses" -eq 1 ]; then
-  pass "M6: the shipped fetch is bounded by run_with_timeout, and the unbounded form is one marked line away — the comment now describes the code"
+build_fw "$M6/fw2" "$M6/origin2"
+advance_origin "$M6/origin2" "$M6/adv2" || true
+rm -rf "$M6/origin2"
+run_check_for_update_at "$M6/scripts/check-versions.sh" "$M6" "$M6/fw2" yes
+m6_mut="${CVOUT%%|*}"
+if [ "$m6_ctl" = "unknown" ] && [ "$m6_mut" = "up_to_date" ] \
+   && [ "$m6_sites" -eq 1 ] && [ "$m6_changed" -eq 2 ] && [ "$m6_parses" -eq 1 ]; then
+  pass "M6: control refuses to compare refs a failed fetch left stale; with the outcome discarded by \`|| true\` the same behind-and-offline clone is reported '$m6_mut' — a currency verdict from a fetch that never landed"
 else
-  fail_ "M6" "bounded=$m6_bound (want 1) sites=$m6_sites changed=$m6_changed parses=$m6_parses"
+  fail_ "M6" "control=$m6_ctl (want unknown) mutant=$m6_mut (want up_to_date) sites=$m6_sites changed=$m6_changed parses=$m6_parses"
+fi
+
+# ── M8: delete the seconds guard. E5's sanitized `10s` becomes the raw `abcs`,
+# which run_with_timeout cannot compare against — so the kill never fires and the
+# fetch is unbounded again, silently. One line, and the only visible difference
+# is three characters in a sentence nobody reads until they are offline.
+M8="$(newtmp)"
+mkdir -p "$M8/scripts"
+cp -p "$CHECKVER" "$M8/scripts/check-versions.sh"
+build_fw "$M8/fw" "$M8/origin"
+rm -rf "$M8/origin"
+run_check_for_update_at "$CHECKVER" "$M8" "$M8/fw" yes "SOLO_FETCH_TIMEOUT=abc"
+m8_ctl=no; printf '%s' "$CVOUT" | grep -q '10s bound' && m8_ctl=yes
+m8_meta=$(_mutate "$M8/scripts/check-versions.sh" '# BL-234-CHECKVERSIONS-SECS' '        _cv_secs="${SOLO_FETCH_TIMEOUT:-10}"')
+set -- $m8_meta; m8_sites=$1; m8_changed=$2; m8_parses=$3
+build_fw "$M8/fw2" "$M8/origin2"
+rm -rf "$M8/origin2"
+run_check_for_update_at "$M8/scripts/check-versions.sh" "$M8" "$M8/fw2" yes "SOLO_FETCH_TIMEOUT=abc"
+m8_mut=no; printf '%s' "$CVOUT" | grep -q 'abcs bound' && m8_mut=yes
+if [ "$m8_ctl" = "yes" ] && [ "$m8_mut" = "yes" ] \
+   && [ "$m8_sites" -eq 1 ] && [ "$m8_changed" -eq 2 ] && [ "$m8_parses" -eq 1 ]; then
+  pass "M8: control sanitizes a garbage SOLO_FETCH_TIMEOUT to 10s; with the guard removed the raw 'abc' reaches run_with_timeout, whose -ge test then errors on every iteration and never kills"
+else
+  fail_ "M8" "control=$m8_ctl (want yes) mutant=$m8_mut (want yes) sites=$m8_sites changed=$m8_changed parses=$m8_parses"
 fi
 
 # ── M7: THE ONE-CHARACTER MUTANT, KILLED BY NAME. `-eq 0` -> `-lt 0` in
