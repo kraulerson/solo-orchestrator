@@ -432,10 +432,13 @@ echo "=== B — 'registered' must mean 'registered AND the database answers' ===
 # A private HOME so nothing here can read or write the developer's real
 # ~/.claude.json. Every B case gets its own.
 mk_home() {
-  local h="$1" url="$2"     # url empty => no qdrant entry at all
+  local h="$1" url="$2" key="${3:-}"    # url empty => no qdrant entry at all
   mkdir -p "$h/.claude"
   if [ -n "$url" ]; then
-    jq -n --arg u "$url" '{mcpServers:{qdrant:{type:"stdio",command:"uvx",args:["mcp-server-qdrant"],env:{QDRANT_URL:$u,COLLECTION_NAME:"c"}}}}' > "$h/.claude.json"
+    jq -n --arg u "$url" --arg k "$key" \
+      '{mcpServers:{qdrant:{type:"stdio",command:"uvx",args:["mcp-server-qdrant"],
+        env:(if $k == "" then {QDRANT_URL:$u,COLLECTION_NAME:"c"}
+             else {QDRANT_URL:$u,COLLECTION_NAME:"c",QDRANT_API_KEY:$k} end)}}}' > "$h/.claude.json"
   else
     printf '{}\n' > "$h/.claude.json"
   fi
@@ -484,6 +487,51 @@ PYEOF
   kill "$QSRV_PID" 2>/dev/null; QSRV_PID=""
   return 1
 }
+
+# start_keyed_qdrant <dir> <required-key> — a SECURED Qdrant: 200 when the
+# `api-key` header matches, 401 otherwise. Qdrant's own /readyz declares that
+# header as required (api.qdrant.tech/api-reference/service/readyz), so this is
+# the state a real keyed server is in, not an invented one. Every request is
+# appended to <dir>/hits.log as AUTH or NOKEY, which is how a test can tell
+# "the header was sent" from "the probe got lucky".
+start_keyed_qdrant() {
+  local d="$1" key="$2" py
+  py="$(command -v python3 || command -v python)"
+  [ -n "$py" ] || return 1
+  QSRV_PORT=$(( 18000 + (RANDOM % 2000) ))
+  : > "$d/hits.log"
+  "$py" - "$QSRV_PORT" "$key" "$d/hits.log" > "$d/srv.log" 2>&1 << 'PYEOF' &
+import sys
+try:
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+except ImportError:
+    sys.exit(1)
+KEY = sys.argv[2]
+LOG = sys.argv[3]
+class H(BaseHTTPRequestHandler):
+    def do_GET(self):
+        ok = self.headers.get("api-key") == KEY
+        with open(LOG, "a") as fh:
+            fh.write(("AUTH" if ok else "NOKEY") + "\n")
+        if ok:
+            self.send_response(200); self.send_header("Content-Length", "2")
+            self.end_headers(); self.wfile.write(b"ok")
+        else:
+            self.send_response(401); self.send_header("Content-Length", "1")
+            self.end_headers(); self.wfile.write(b"!")
+    def log_message(self, *a): pass
+HTTPServer(("127.0.0.1", int(sys.argv[1])), H).serve_forever()
+PYEOF
+  QSRV_PID=$!
+  local i=0
+  while [ "$i" -lt 40 ]; do
+    curl -sS --max-time 1 -o /dev/null "http://127.0.0.1:$QSRV_PORT/readyz" 2>/dev/null && { : > "$d/hits.log"; return 0; }
+    i=$((i + 1)); sleep 0.1
+  done
+  kill "$QSRV_PID" 2>/dev/null; QSRV_PID=""
+  return 1
+}
+stop_stub_qdrant() { [ -n "$QSRV_PID" ] && { kill "$QSRV_PID" 2>/dev/null; wait "$QSRV_PID" 2>/dev/null; QSRV_PID=""; }; return 0; }
 
 # ── B1: THE DEFECT. A registered entry whose database does not answer.
 B1="$(newtmp)"
@@ -608,6 +656,52 @@ if [ "$B6_RC" != "0" ] && [ "$B6_EL" -le 10 ]; then
   pass "B6: a curl that would hang for 30s is cut off at the 2s bound (measured ${B6_EL}s) — init.sh cannot be made to hang by an unresponsive Qdrant"
 else
   fail_ "B6" "rc=$B6_RC elapsed=${B6_EL}s (want <=10 and a non-zero rc)"
+fi
+
+# ── B7: A SECURED SERVER IS NOT A DEAD SERVER. Qdrant's /readyz declares
+# `api-key` as a required header, so a keyed instance answers an unkeyed probe
+# with 401 — and `curl -fsS` exits 22 on any status >= 400, the same "failure"
+# the code used for a dead port. Measured on the pre-fix predicate against a
+# local 401 responder: rc=1, state=unreachable, for a server that was answering.
+# Caller 1 then calls a working memory "a stale registration" while caller 2
+# provisions a redundant container beside it. For a REACHABILITY question, an
+# HTTP error status IS an answer.
+B7="$(newtmp)"
+if ! start_keyed_qdrant "$B7" "sekret"; then
+  fail_ "B7" "fixture: could not start the local keyed stub HTTP server"
+else
+  mk_home "$B7/home" "http://127.0.0.1:$QSRV_PORT"     # registration carries NO key
+  B7_OUT="$(probe_state "$B7/home")"
+  B7_HITS="$(grep -c 'NOKEY' "$B7/hits.log" 2>/dev/null | tr -d ' ')"
+  stop_stub_qdrant
+  B7_RC="${B7_OUT%% *}"; B7_ST="${B7_OUT##* }"
+  if [ "$B7_RC" = "0" ] && [ "$B7_ST" = "reachable" ] && [ "${B7_HITS:-0}" != "0" ]; then
+    pass "B7: a server that answers 401 (secured, unkeyed probe — $B7_HITS request(s) logged) is REACHABLE, not dead — the pre-fix predicate returned state=unreachable for exactly this healthy server"
+  else
+    fail_ "B7" "rc=$B7_RC state=$B7_ST 401_requests=$B7_HITS — wanted rc=0, state=reachable, and at least one request actually reaching the server"
+  fi
+fi
+
+# ── B8: and the key the REGISTRATION carries is actually sent. B7 alone cannot
+# tell a probe that authenticated from one that merely tolerated a 401, so the
+# server records every request as AUTH or NOKEY and this case asserts on that
+# log — the server's observation, not ours.
+B8="$(newtmp)"
+if ! start_keyed_qdrant "$B8" "sekret"; then
+  fail_ "B8" "fixture: could not start the local keyed stub HTTP server"
+else
+  mk_home "$B8/home" "http://127.0.0.1:$QSRV_PORT" "sekret"
+  B8_OUT="$(probe_state "$B8/home")"
+  B8_AUTH="$(grep -c 'AUTH' "$B8/hits.log" 2>/dev/null | tr -d ' ')"
+  B8_NOKEY="$(grep -c 'NOKEY' "$B8/hits.log" 2>/dev/null | tr -d ' ')"
+  stop_stub_qdrant
+  B8_RC="${B8_OUT%% *}"; B8_ST="${B8_OUT##* }"
+  if [ "$B8_RC" = "0" ] && [ "$B8_ST" = "reachable" ] \
+     && [ "${B8_AUTH:-0}" != "0" ] && [ "${B8_NOKEY:-0}" = "0" ]; then
+    pass "B8: with QDRANT_API_KEY in the registration the probe AUTHENTICATES (server logged $B8_AUTH keyed request(s), $B8_NOKEY unkeyed) — the key travels with the URL it belongs to"
+  else
+    fail_ "B8" "rc=$B8_RC state=$B8_ST auth=$B8_AUTH (want >0) nokey=$B8_NOKEY (want 0)"
+  fi
 fi
 
 echo ""
@@ -1143,6 +1237,61 @@ if [ "$m9_ctl" = "yes" ] && [ "$m9_mut" = "yes" ] \
   pass "M9: control names the missing bounded runner; with the two causes sharing one return code the SAME clone — remote intact — is told it has no remote configured, which is a false factual claim in the one feature about honest wording"
 else
   fail_ "M9" "control=$m9_ctl (want yes) mutant=$m9_mut (want yes) sites=$m9_sites changed=$m9_changed parses=$m9_parses"
+fi
+
+# ── M10: drop 22 from the reachable set. The secured server that B7 calls
+# reachable goes back to being called dead, in one line, with no exit code
+# anywhere in the framework changing except the predicate's own.
+M10="$(newtmp)"
+mkdir -p "$M10/lib"
+cp -p "$HELPERS_FULL" "$M10/lib/helpers-full.sh"
+cp -p "$REPO_ROOT/scripts/lib/helpers-core.sh" "$M10/lib/helpers-core.sh"
+if ! start_keyed_qdrant "$M10" "sekret"; then
+  fail_ "M10" "fixture: could not start the local keyed stub HTTP server"
+else
+  mk_home "$M10/home" "http://127.0.0.1:$QSRV_PORT"
+  m10_ctl="$(env -i HOME="$M10/home" PATH="$PATH" "$BASH_BIN" -c '. "'"$M10/lib/helpers-full.sh"'" >/dev/null 2>&1; rc=0; is_qdrant_mcp_registered || rc=$?; printf "%s\n" "${QDRANT_MCP_STATE:-UNSET}"' 2>/dev/null)"
+  m10_meta=$(_mutate "$M10/lib/helpers-full.sh" '# BL-234-QDRANT-REACHABLE' '  case "$rc" in 0) return 0 ;; esac')
+  set -- $m10_meta; m10_sites=$1; m10_changed=$2; m10_parses=$3
+  mk_home "$M10/home2" "http://127.0.0.1:$QSRV_PORT"
+  m10_mut="$(env -i HOME="$M10/home2" PATH="$PATH" "$BASH_BIN" -c '. "'"$M10/lib/helpers-full.sh"'" >/dev/null 2>&1; rc=0; is_qdrant_mcp_registered || rc=$?; printf "%s\n" "${QDRANT_MCP_STATE:-UNSET}"' 2>/dev/null)"
+  stop_stub_qdrant
+  if [ "$m10_ctl" = "reachable" ] && [ "$m10_mut" = "unreachable" ] \
+     && [ "$m10_sites" -eq 1 ] && [ "$m10_changed" -eq 2 ] && [ "$m10_parses" -eq 1 ]; then
+    pass "M10: control calls a 401-answering server reachable; with 22 dropped from the reachable set the SAME answering server is scored '$m10_mut' — a working secured memory reported as a stale registration"
+  else
+    fail_ "M10" "control=$m10_ctl (want reachable) mutant=$m10_mut (want unreachable) sites=$m10_sites changed=$m10_changed parses=$m10_parses"
+  fi
+fi
+
+# ── M11: stop sending the key. Both directions still say "reachable" (22 is an
+# answer), so the ONLY discriminator is what the SERVER saw — which is why the
+# stub logs AUTH/NOKEY per request. A test asserting the state alone would have
+# passed with the header silently dropped.
+M11="$(newtmp)"
+mkdir -p "$M11/lib"
+cp -p "$HELPERS_FULL" "$M11/lib/helpers-full.sh"
+cp -p "$REPO_ROOT/scripts/lib/helpers-core.sh" "$M11/lib/helpers-core.sh"
+if ! start_keyed_qdrant "$M11" "sekret"; then
+  fail_ "M11" "fixture: could not start the local keyed stub HTTP server"
+else
+  mk_home "$M11/home" "http://127.0.0.1:$QSRV_PORT" "sekret"
+  env -i HOME="$M11/home" PATH="$PATH" "$BASH_BIN" -c '. "'"$M11/lib/helpers-full.sh"'" >/dev/null 2>&1; is_qdrant_mcp_registered' >/dev/null 2>&1
+  m11_ctl="$(grep -c 'AUTH' "$M11/hits.log" 2>/dev/null | tr -d ' ')"
+  : > "$M11/hits.log"
+  m11_meta=$(_mutate "$M11/lib/helpers-full.sh" '# BL-234-QDRANT-KEY-HEADER' '  key=""')
+  set -- $m11_meta; m11_sites=$1; m11_changed=$2; m11_parses=$3
+  mk_home "$M11/home2" "http://127.0.0.1:$QSRV_PORT" "sekret"
+  env -i HOME="$M11/home2" PATH="$PATH" "$BASH_BIN" -c '. "'"$M11/lib/helpers-full.sh"'" >/dev/null 2>&1; is_qdrant_mcp_registered' >/dev/null 2>&1
+  m11_mut_auth="$(grep -c 'AUTH' "$M11/hits.log" 2>/dev/null | tr -d ' ')"
+  m11_mut_nokey="$(grep -c 'NOKEY' "$M11/hits.log" 2>/dev/null | tr -d ' ')"
+  stop_stub_qdrant
+  if [ "${m11_ctl:-0}" != "0" ] && [ "${m11_mut_auth:-0}" = "0" ] && [ "${m11_mut_nokey:-0}" != "0" ] \
+     && [ "$m11_sites" -eq 1 ] && [ "$m11_changed" -eq 2 ] && [ "$m11_parses" -eq 1 ]; then
+    pass "M11: control authenticates ($m11_ctl keyed request(s) seen by the server); with the registration's key discarded the same probe arrives UNKEYED ($m11_mut_nokey 401s) — asserted on the server's log, because the predicate's answer is 'reachable' either way"
+  else
+    fail_ "M11" "control_auth=$m11_ctl (want >0) mutant_auth=$m11_mut_auth (want 0) mutant_nokey=$m11_mut_nokey (want >0) sites=$m11_sites changed=$m11_changed parses=$m11_parses"
+  fi
 fi
 
 echo ""

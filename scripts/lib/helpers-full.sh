@@ -113,6 +113,54 @@ qdrant_mcp_url() {
   printf '%s' "$u"
 }
 
+# qdrant_mcp_api_key — the api-key the REGISTRATION itself carries, or empty.
+#
+# Qdrant's /readyz declares `api-key` as a REQUIRED header parameter, and the
+# service's security scheme is `apiKey in header: api-key`
+# (api.qdrant.tech/api-reference/service/readyz — verified 2026-08-14). A server
+# started with an API key therefore answers an UNKEYED probe with 401, and the
+# probe below used to score that healthy server as dead. Same file precedence as
+# qdrant_mcp_url, so in the common case the URL and the key come from the same
+# registration rather than from two different files.
+qdrant_mcp_api_key() {
+  local k=""
+  if command -v jq &>/dev/null; then
+    [ -f "$HOME/.claude.json" ] && k=$(jq -r '(.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // {}) | (.env.QDRANT_API_KEY // empty)' "$HOME/.claude.json" 2>/dev/null)
+    if [ -z "$k" ] && [ -f "$HOME/.claude/settings.json" ]; then
+      k=$(jq -r '(.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // {}) | (.env.QDRANT_API_KEY // empty)' "$HOME/.claude/settings.json" 2>/dev/null)
+    fi
+  fi
+  [ "$k" = "null" ] && k=""
+  printf '%s' "$k"
+}
+
+# _qdrant_curl <secs> <key> <url> — ONE bounded GET. Returns curl's own exit
+# status, so the caller can tell "nothing answered" (7) from "the server
+# answered with an error status" (22). Two spellings rather than an array
+# because `"${arr[@]}"` on an EMPTY array is an unbound-variable error under
+# `set -u` in bash 3.2, and this file is sourced by scripts that set it.
+_qdrant_curl() {
+  local secs="$1" key="$2" u="$3" rc=0
+  if [ -n "$key" ]; then
+    run_with_timeout "$secs" curl -fsS --max-time "$secs" -H "api-key: $key" -o /dev/null "$u" >/dev/null 2>&1 || rc=$?
+  else
+    run_with_timeout "$secs" curl -fsS --max-time "$secs" -o /dev/null "$u" >/dev/null 2>&1 || rc=$?
+  fi
+  return "$rc"
+}
+
+# _qdrant_answered <secs> <key> <url> — 0 iff the server ANSWERED AT ALL.
+#
+# ONE decision point for every endpoint tried, deliberately. When each probe
+# carried its own `0|22` test, mutating one of them left the other still
+# answering "reachable" and the mutant scored as killed by nothing.
+_qdrant_answered() {
+  local rc=0
+  _qdrant_curl "$1" "$2" "$3" || rc=$?
+  case "$rc" in 0|22) return 0 ;; esac   # BL-234-QDRANT-REACHABLE
+  return 1
+}
+
 # qdrant_probe_reachable [url] — does the database ANSWER?
 #   0 = reachable   1 = definitively unreachable   2 = cannot tell
 #
@@ -133,16 +181,27 @@ qdrant_mcp_url() {
 # which is the question being asked. The root endpoint is tried second so a
 # build predating /readyz is not called dead; only after BOTH fail is the
 # server unreachable.
+#
+# FOR A REACHABILITY QUESTION, AN HTTP ERROR STATUS IS AN ANSWER. `curl -f`
+# exits 22 on any status >= 400, so a Qdrant secured with an api-key — which
+# answers an unkeyed probe 401 — scored identically to a dead port. Measured
+# against a local 401 responder: unkeyed rc=22, keyed rc=0, dead port rc=7, and
+# the shipped predicate returned state=unreachable for the healthy secured
+# server. One caller then told the operator their working memory was "a stale
+# registration", while another provisioned a redundant container next to it.
+# 22 is therefore REACHABLE; only "nothing answered" is unreachable. The key
+# from the registration is sent as well, so a secured server also answers 200.
 qdrant_probe_reachable() {
-  local url="${1:-}" base secs host port hostport
+  local url="${1:-}" base secs host port hostport key
   [ -n "$url" ] || url="$(qdrant_mcp_url)"
   base="${url%/}"
   secs="${SOLO_QDRANT_PROBE_TIMEOUT:-3}"
   case "$secs" in ''|*[!0-9]*|0) secs=3 ;; esac
+  key="$(qdrant_mcp_api_key)"   # BL-234-QDRANT-KEY-HEADER
 
   if command -v curl &>/dev/null; then
-    run_with_timeout "$secs" curl -fsS --max-time "$secs" -o /dev/null "$base/readyz" >/dev/null 2>&1 && return 0  # BL-234-QDRANT-REACHABLE
-    run_with_timeout "$secs" curl -fsS --max-time "$secs" -o /dev/null "$base/" >/dev/null 2>&1 && return 0
+    _qdrant_answered "$secs" "$key" "$base/readyz" && return 0
+    _qdrant_answered "$secs" "$key" "$base/" && return 0
     return 1
   fi
 
