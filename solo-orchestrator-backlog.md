@@ -10605,6 +10605,75 @@ this entry's `0|22` reachability semantics now **depend** on that propagation.
 Worth one line whenever `helpers-core.sh` is next opened; changing a shared
 primitive's contract text mid-package is how an unrelated caller gets surprised.
 
+### The suite was green on a Mac and red on CI, and the reason was this entry's own defect class
+
+PR #351 landed **48/0 locally and 44/4 on CI** (`unit-shard (rest)`, therefore
+the required `unit` aggregator). A1, E1, E3 and M1 failed, all four repeating
+one line — `…/adv/scripts/validate.sh: No such file or directory` from inside
+`advance_origin`.
+
+**Root cause, reproduced before it was fixed.** `build_fw` created the working
+repo with `git init -q -b main` but the bare origin with a bare
+`git init -q --bare` — no branch named. So the bare's HEAD follows **the host's**
+`init.defaultBranch`, while the push creates `main`:
+
+| host | bare HEAD after `init --bare` | result |
+|---|---|---|
+| this Mac | `refs/heads/main` | works — Xcode ships `.../git-core/gitconfig` carrying `init.defaultbranch=main` |
+| ubuntu-latest | `refs/heads/master` | HEAD **dangles**; `refs/heads/master` is never created |
+
+`git clone` of a repo whose HEAD is a dangling symref prints
+`warning: remote HEAD refers to nonexistent ref, unable to checkout`, **exits 0**,
+and leaves a directory containing nothing but `.git`. So `|| return 1` saw rc 0
+and the next line redirected into a `scripts/` directory that never existed.
+
+**The diagnosis was invisible for the same reason the product bug was.** Every
+git call in `build_fw` and `advance_origin` was `>/dev/null 2>&1` with no rc
+check, so git's own warning — which names the cause exactly — was discarded.
+*An exit code thrown away is an exit code that cannot testify*, inside the
+harness written to catch that.
+
+**Fixed, and provable on any host.** The bare's default branch is now named
+explicitly (`# BL-234-FIXTURE-BARE-HEAD`); every fixture git call is rc-checked
+through `_gitq`, which prints git's own words to **stderr** (never stdout — a
+stray line corrupts a capture); `advance_origin` asserts a **working tree**
+rather than trusting the clone's exit code (`# BL-234-FIXTURE-CLONE-RECEIPT`);
+and the seven `advance_origin … || true` call sites now attribute the failure to
+the case instead of discarding it.
+
+**Two new cases pin it, and neither depends on the host's git config:**
+`H1` asserts on refs — the bare's HEAD resolves to a branch that exists **and**
+`advance_origin` genuinely moves `origin/main` — and `H2` writes the dangling
+HEAD itself, so the runner's condition is reproduced on a Mac and the new
+receipt is **watched firing**.
+
+Reproduce the runner's git anywhere:
+
+```
+GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+  bash tests/test-bl234-currency-and-availability.sh
+```
+
+Measured: **44/4 before the fix under that command — the CI failure exactly, on
+a Mac — and 50/0 after, in both directions.** Mutation: deleting the one
+`symbolic-ref` line (sites==1, 1 line changed, `bash -n` clean) puts the runner
+direction at **45/12**, with **zero** `No such file or directory` — the receipt
+now catches it first and names the dangling HEAD and git's warning.
+
+**Latent elsewhere, deliberately not touched here:** six other suites create
+bare origins the same way — `tests/test-bl157-remote-marker-record.sh`,
+`tests/test-walk006-ci-protection-scope.sh`, `tests/test-upgrade-cdf-refresh.sh`,
+`tests/test-bl084-tier-aware-remote-policy.sh` and the three
+`tests/host-drivers/e2e-init*.test.sh`. Derive the list rather than trusting it:
+
+```
+grep -rn -- "init .*--bare\|init --bare" tests/
+```
+
+**None is currently broken**, because none clones back out of its bare (checked:
+zero `git clone` calls across all six), and a push plus a ref read never consult
+HEAD. Hardening them is a separate change with its own review.
+
 **Related:** `## BL-231:` (the correction block is the proof standard),
 `## BL-233:` (the mechanism this rides on), `## BL-235:` (surface 4, filed not
 fixed), `## BL-236:` (the tracked ledger, found during this work),

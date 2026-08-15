@@ -53,6 +53,27 @@ here.
   an unescaped `&&` splices the original line back in, and that mutant passes
   `bash -n`. See `## BL-224:` for the sibling case where a lint's own regex
   over-matched for the same reason.
+- **This Mac's git is configured and an ubuntu-latest runner's is not — and the
+  difference is silent.** Xcode ships
+  `/Applications/Xcode.app/Contents/Developer/usr/share/git-core/gitconfig`
+  carrying **`init.defaultbranch=main`**, so `git init --bare` here produces
+  `HEAD -> refs/heads/main` for free. On CI there is no such setting and you get
+  `refs/heads/master`. A fixture that inits a bare, pushes `main`, then clones
+  it back out therefore **works locally and is broken on CI**: cloning a repo
+  whose HEAD is a dangling symref prints a warning, **exits 0**, and produces a
+  directory with nothing but `.git` in it — so `|| return 1` cannot see it and
+  the next line fails on a path that was never created. That is BL-234's PR #351
+  in one paragraph. **Name the branch on every bare you create**
+  (`# BL-234-FIXTURE-BARE-HEAD`), and never treat a clone's exit code as proof
+  it checked anything out (`# BL-234-FIXTURE-CLONE-RECEIPT`). Reproduce the
+  runner's git on this host — this turns a CI-only failure into a local one:
+  ```
+  GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null bash tests/<file>.sh
+  ```
+  Run it before blaming CI for anything a fixture does with git. Six other
+  suites create bare origins the same way; none clones back out, so none is
+  broken today — derive the list with
+  `grep -rn -- "init .*--bare\|init --bare" tests/`, do not trust a count.
 - **Two repos required.** Tests and `init.sh` need the Claude Dev Framework
   cloned at `~/.claude-dev-framework` (the path is hard-required). Per
   CONTRIBUTING.md:
