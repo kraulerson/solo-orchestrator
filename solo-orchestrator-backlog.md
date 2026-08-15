@@ -10612,6 +10612,22 @@ the required `unit` aggregator). A1, E1, E3 and M1 failed, all four repeating
 one line — `…/adv/scripts/validate.sh: No such file or directory` from inside
 `advance_origin`.
 
+**The reported blast radius was smaller than the real one, and the gap is the
+finding.** The red CI log carries that error for **eight** clone directories
+across **six** cases — A1, E1, **E2**, E3, M1 (×2) and **M6** (×2) — but only
+four cases went red. **E2 and M6 absorbed a broken fixture and reported PASS**,
+because their assertions never depended on the origin having advanced (M6's
+control expects `unknown` from a deleted origin; its mutant expects
+`up_to_date`, which a *never-advanced* fixture also produces). Two vacuous
+passes, invisible in the tally. Derive it rather than trusting this paragraph:
+
+```
+gh run view --log --job <the red job> | grep -o 'case[A-Za-z0-9]*/adv[0-9]*' | sort -u
+```
+
+The `|| fail_` conversions below close it going forward — under the mutation
+proof, E2 and M6 now go red with the rest.
+
 **Root cause, reproduced before it was fixed.** `build_fw` created the working
 repo with `git init -q -b main` but the bare origin with a bare
 `git init -q --bare` — no branch named. So the bare's HEAD follows **the host's**
@@ -10641,11 +10657,25 @@ rather than trusting the clone's exit code (`# BL-234-FIXTURE-CLONE-RECEIPT`);
 and the seven `advance_origin … || true` call sites now attribute the failure to
 the case instead of discarding it.
 
-**Two new cases pin it, and neither depends on the host's git config:**
-`H1` asserts on refs — the bare's HEAD resolves to a branch that exists **and**
-`advance_origin` genuinely moves `origin/main` — and `H2` writes the dangling
-HEAD itself, so the runner's condition is reproduced on a Mac and the new
-receipt is **watched firing**.
+**Three new cases pin it.** `H1` asserts on refs — the bare's HEAD resolves to a
+branch that exists **and** `advance_origin` genuinely moves `origin/main`. `H2`
+writes the dangling HEAD itself, so the runner's condition is reproduced on a
+Mac and the new receipt is **watched firing** rather than asserted.
+
+`H3` exists because **adversarial review refuted the first pair.** The claim was
+*"neither depends on the host's git config"*; the reviewer deleted the fixed
+line, ran it on this Mac, and got **50/0** — Xcode's gitconfig supplies
+`init.defaultBranch=main`, so H1 could not discriminate here and only CI killed
+the mutant. `git-init(1)` adds an expiry date: the built-in fallback *"will
+change to `main` when Git 3.0 is released"*, at which point the runner stops
+reproducing the condition too and the canary erodes **everywhere**, silently.
+So H3 **forces** the condition through the environment instead of inheriting it
+—
+`GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=init.defaultBranch GIT_CONFIG_VALUE_0=master`
+— and first builds an **unfixed** bare under that same environment to show the
+forcing bites, because a control that lands on `main` would make H3 vacuous.
+Measured: the same one-line mutant now goes **50/1 on this Mac** (H3 naming the
+dangling HEAD) where it was 50/0 and invisible.
 
 Reproduce the runner's git anywhere:
 
@@ -10655,24 +10685,55 @@ GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
 ```
 
 Measured: **44/4 before the fix under that command — the CI failure exactly, on
-a Mac — and 50/0 after, in both directions.** Mutation: deleting the one
+a Mac — and 51/0 after, in both directions.** Mutation: deleting the one
 `symbolic-ref` line (sites==1, 1 line changed, `bash -n` clean) puts the runner
-direction at **45/12**, with **zero** `No such file or directory` — the receipt
-now catches it first and names the dangling HEAD and git's warning.
+direction at **45/13** and the **host** direction at **50/1**, with **zero**
+`No such file or directory` in either — the receipt catches it first and names
+the dangling HEAD and git's warning.
 
-**Latent elsewhere, deliberately not touched here:** six other suites create
-bare origins the same way — `tests/test-bl157-remote-marker-record.sh`,
-`tests/test-walk006-ci-protection-scope.sh`, `tests/test-upgrade-cdf-refresh.sh`,
-`tests/test-bl084-tier-aware-remote-policy.sh` and the three
-`tests/host-drivers/e2e-init*.test.sh`. Derive the list rather than trusting it:
+`build_fw` was hardened to return non-zero and say why, so **all 25 of its call
+sites now handle that** (23 converted here) rather than the two that did. An
+unattributed downstream mystery is the defect class this entry is named for;
+leaving the new return code discarded would have re-created it one layer up.
+
+### The audit of neighbouring suites was wrong, and the omission was in this PR
+
+The first version of this section named a hand-copied list. Adversarial review
+refuted it: it **said six, named seven, and its own derivation command finds
+eight** — and the omitted file, `tests/test-freshness-check.sh`, is one **this
+same PR had just given a bare origin**, in the PR-blocking lane, spelled the
+exact wrong way. The audit was run against `main` instead of the branch, so the
+branch's own additions were invisible to it. That is the third time a
+grep-based audit has under-read a surface in this repo; the grep was fine, the
+transcription was not.
+
+Derive it, do not read it from here:
 
 ```
-grep -rn -- "init .*--bare\|init --bare" tests/
+grep -rln -- "init .*--bare\|init --bare" tests/
 ```
 
-**None is currently broken**, because none clones back out of its bare (checked:
-zero `git clone` calls across all six), and a push plus a ref read never consult
-HEAD. Hardening them is a separate change with its own review.
+Nine hits today: this suite plus eight others — `test-freshness-check.sh`,
+`test-bl157-remote-marker-record.sh`, `test-walk006-ci-protection-scope.sh`,
+`test-upgrade-cdf-refresh.sh` (fast lane) and
+`test-bl084-tier-aware-remote-policy.sh` plus the three
+`host-drivers/e2e-init*.test.sh` (**full lane only** — a break there gates
+nothing).
+
+**`tests/test-freshness-check.sh` is fixed here** (`# BL-234-FIXTURE-BARE-HEAD`
+in its `build_fw`, plus a resolvable-HEAD receipt on stderr). It was not broken:
+its `push -u` sets an upstream, so `_soif_fresh_upstream_ref` resolves `@{u}`
+and never reaches its `origin/HEAD` fallback — but that fallback is the only
+place product code resolves `origin/HEAD` against a fixture bare, and
+"survives by luck" is not the standard the sibling suite was just held to.
+
+**None of the remaining seven is broken *by this defect*** — none clones back
+out of its bare, and a push plus a ref read never consult HEAD. That is not the
+same as "not broken": `tests/full-project-test-suite.sh` records the
+`e2e-init*` trio as already red on main for unrelated reasons. Note also that
+those three init their bare **before** exporting the per-test `GIT_CONFIG_GLOBAL`
+that sets `defaultBranch = main`, so their protection against this is
+decorative. Hardening them is a separate change with its own review.
 
 **Related:** `## BL-231:` (the correction block is the proof standard),
 `## BL-233:` (the mechanism this rides on), `## BL-235:` (surface 4, filed not

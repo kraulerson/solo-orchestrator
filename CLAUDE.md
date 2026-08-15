@@ -70,10 +70,28 @@ here.
   ```
   GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null bash tests/<file>.sh
   ```
-  Run it before blaming CI for anything a fixture does with git. Six other
-  suites create bare origins the same way; none clones back out, so none is
-  broken today — derive the list with
-  `grep -rn -- "init .*--bare\|init --bare" tests/`, do not trust a count.
+  It emulates **git configuration** divergence only — not the runner's git
+  *version*, and not its filesystem (this Mac is case-insensitive, ext4 is not).
+  Run it before blaming CI for anything a fixture does with git *config*.
+  **Derive the affected set, never transcribe it** — a hand-copied list of this
+  is what the reviewer refuted on PR #351 (said six, named seven, derived
+  eight, and the omitted file was the one the same PR had just edited):
+  ```
+  grep -rln -- "init .*--bare\|init --bare" tests/
+  ```
+  Every hit that later **clones back out of its bare** must name the branch.
+  None but the BL-234 suite does today, so none of the rest is broken *by this
+  defect* — which is not the same as "not broken": the `e2e-init*` trio is
+  already red on main for unrelated reasons, and four of the hits
+  (`test-bl084-tier-aware-remote-policy.sh` plus that trio) are **full-lane
+  only**, so a break there would not gate a PR at all.
+  **Do not pin this on the host's default branch.** `git-init(1)` says the
+  built-in fallback *"will change to `main` when Git 3.0 is released"* — a test
+  that relies on a runner producing `master` stops discriminating everywhere,
+  silently, the day runners ship it. Force the condition instead:
+  `GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=init.defaultBranch GIT_CONFIG_VALUE_0=master`
+  (that is what case `H3` in the BL-234 suite does, and it is why that suite's
+  mutant now dies on this Mac rather than only on CI).
 - **Two repos required.** Tests and `init.sh` need the Claude Dev Framework
   cloned at `~/.claude-dev-framework` (the path is hard-required). Per
   CONTRIBUTING.md:
