@@ -10721,11 +10721,54 @@ Nine hits today: this suite plus eight others — `test-freshness-check.sh`,
 nothing).
 
 **`tests/test-freshness-check.sh` is fixed here** (`# BL-234-FIXTURE-BARE-HEAD`
-in its `build_fw`, plus a resolvable-HEAD receipt on stderr). It was not broken:
-its `push -u` sets an upstream, so `_soif_fresh_upstream_ref` resolves `@{u}`
-and never reaches its `origin/HEAD` fallback — but that fallback is the only
-place product code resolves `origin/HEAD` against a fixture bare, and
-"survives by luck" is not the standard the sibling suite was just held to.
+in its `build_fw`, plus a resolvable-HEAD receipt). It was not broken: its
+`push -u` sets an upstream, so `_soif_fresh_upstream_ref` resolves `@{u}` and
+never reaches its `origin/HEAD` fallback — but that fallback is the only place
+product code resolves `origin/HEAD` against a fixture bare, and "survives by
+luck" is not the standard the sibling suite was just held to.
+
+#### The receipt shipped vacuous, and the review caught that too
+
+**`git rev-parse HEAD` does not detect a dangling HEAD.** On a bare whose HEAD
+points at a branch that does not exist — the exact condition the receipt exists
+for — it **exits 0 and echoes the literal string `HEAD`**. `rev-parse` only
+errors on an unresolvable ref when asked to verify. Measured here:
+
+| bare | `rev-parse HEAD` | `rev-parse --verify 'HEAD^{commit}'` |
+|---|---|---|
+| HEAD → `refs/heads/master` (dangling) | **rc 0**, echoes `HEAD` | rc 128 |
+| HEAD → `refs/heads/main` (good) | rc 0, echoes the sha | rc 0 |
+
+The first spelling is what this branch shipped, and against a deliberately
+broken bare it fired **zero** times while the suite reported 26/0 and exit 0.
+A guard with no discriminating power is worse than no guard, because it reads
+as coverage. Same family as `## BL-147:`.
+
+**And nothing consumed it.** All 23 call sites are the bare middle statement of
+`D="$(newdir)"; build_fw "$D/fw"; build_proj_current …`, so even a repaired
+predicate would have printed and been ignored — `## BL-234:`'s own defect, one
+layer up, for the second time in one branch. The failure is therefore raised
+**inside `build_fw`** rather than at 23 call sites: it cannot be forgotten by
+the next call site anyone adds, and it avoids 23 mechanical edits of the kind
+that produced the glued-comment slip below.
+
+Proof, one line deleted (sites==1, 1 line changed, `bash -n` clean): under the
+runner's git the suite goes **26/23 with the receipt firing 23 times**, where
+before the repair it was **26/0, exit 0, receipt silent**.
+
+**Residual, named not fixed:** that mutant is only visible where the host's
+default branch is `master`. Under this Mac's git the suite is correctly green —
+there is no dangling HEAD to catch. When Git 3.0 flips the built-in default the
+runner direction stops reproducing it too. The BL-234 suite carries the standing
+pin for the rule (`H3`, which forces the condition); this file's receipt has no
+equivalent, and adding one is scope creep into BL-109's suite.
+
+**A third finding from the same round, recorded because the shape recurs:** one
+of the 23 `|| fail_` conversions in the sibling suite glued a trailing comment
+to the message with no space (`…clone"# no bare origin…`), turning an
+explanatory comment into eight positional arguments. `bash -n` clean, runtime
+harmless, invisible to every check — which is exactly why a batch find-and-
+replace needs a spacing guard and a `grep -n '"#'` afterwards.
 
 **None of the remaining seven is broken *by this defect*** — none clones back
 out of its bare, and a push plus a ref read never consult HEAD. That is not the
