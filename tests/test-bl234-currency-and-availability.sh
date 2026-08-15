@@ -510,9 +510,14 @@ KEY = sys.argv[2]
 LOG = sys.argv[3]
 class H(BaseHTTPRequestHandler):
     def do_GET(self):
-        ok = self.headers.get("api-key") == KEY
+        # THREE outcomes, not two. A WRONG key and NO key both fail
+        # authentication, but they are opposite facts about the client: one sent
+        # a credential and one did not. Collapsing them hid a leaked cross-file
+        # key behind the same NOKEY the honest case produces.
+        sent = self.headers.get("api-key")
+        ok = sent == KEY
         with open(LOG, "a") as fh:
-            fh.write(("AUTH" if ok else "NOKEY") + "\n")
+            fh.write(("AUTH" if ok else ("WRONGKEY" if sent is not None else "NOKEY")) + "\n")
         if ok:
             self.send_response(200); self.send_header("Content-Length", "2")
             self.end_headers(); self.wfile.write(b"ok")
@@ -728,6 +733,88 @@ else
   else
     fail_ "B9" "rc=$B9_RC (want 0) nokey=$B9_NOKEY (want >0) auth=$B9_AUTH (want 0)"
   fi
+fi
+
+# mk_home_settings <home> <url> <key> — a qdrant entry in the OTHER config file,
+# ~/.claude/settings.json. Used to build the cross-file fixture; either field may
+# be empty, which is the point.
+mk_home_settings() {
+  local h="$1" url="$2" key="$3"
+  mkdir -p "$h/.claude"
+  jq -n --arg u "$url" --arg k "$key" \
+    '{mcpServers:{qdrant:{type:"stdio",command:"uvx",
+      env:( ({} | if $u == "" then . else .QDRANT_URL = $u end)
+                | if $k == "" then . else .QDRANT_API_KEY = $k end )}}}' > "$h/.claude/settings.json"
+}
+
+# mk_curl_stub <bindir> <recorddir> — a `curl` that RECORDS its argv and the
+# content of any -K config it was given, then exits 0. Nothing leaves the
+# machine, and no port is touched — which is why the key-without-URL case uses
+# it: that path resolves to the hard-coded localhost:6333, and a real Qdrant may
+# be listening there on a developer box.
+mk_curl_stub() {
+  local b="$1" rec="$2"
+  mkdir -p "$b" "$rec"
+  cat > "$b/curl" << STUBEOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$rec/argv.log"
+prev=""
+for a in "\$@"; do
+  if [ "\$prev" = "-K" ]; then cat "\$a" >> "$rec/config.log" 2>/dev/null; fi
+  prev="\$a"
+done
+exit 0
+STUBEOF
+  chmod 755 "$b/curl"
+}
+
+# ── B10: THE CROSS-FILE PAIRING. qdrant_mcp_url and qdrant_mcp_api_key applied
+# claude.json-first fallback PER FIELD, so they could take the URL from one
+# registration and the key from the other. Measured on the pre-fix code:
+# claude.json with a URL and no key, settings.json with a DIFFERENT url and
+# QDRANT_API_KEY=crosskey => the probe delivered `crosskey` to claude.json's
+# host. The `base == qdrant_mcp_url` guard cannot see it: it scopes the key to
+# whatever the URL lookup returned, not to the entry the key came from.
+B10="$(newtmp)"
+if ! start_keyed_qdrant "$B10" "sekret"; then
+  fail_ "B10" "fixture: could not start the local keyed stub HTTP server"
+else
+  mk_home "$B10/home" "http://127.0.0.1:$QSRV_PORT"              # claude.json: URL, NO key
+  mk_home_settings "$B10/home" "http://127.0.0.1:1" "crosskey"   # settings.json: other url + a key
+  B10_OUT="$(probe_state "$B10/home")"
+  # ANY credential at all is the failure, not just a correct one: a leaked
+  # cross-file key is a WRONG key here, and a stub that only distinguished
+  # AUTH from NOKEY would have logged it identically to the honest case.
+  B10_SENT="$(grep -cE 'AUTH|WRONGKEY' "$B10/hits.log" 2>/dev/null | tr -d ' ')"
+  B10_NOKEY="$(grep -c 'NOKEY' "$B10/hits.log" 2>/dev/null | tr -d ' ')"
+  stop_stub_qdrant
+  B10_ST="${B10_OUT##* }"
+  if [ "$B10_ST" = "reachable" ] && [ "${B10_SENT:-0}" = "0" ] && [ "${B10_NOKEY:-0}" != "0" ]; then
+    pass "B10: a key living in the OTHER config file is not paired with this entry's URL — the probed host saw $B10_NOKEY unkeyed request(s) and $B10_SENT carrying any credential; pre-fix it received 'crosskey', which its own registration never mentioned"
+  else
+    fail_ "B10" "state=$B10_ST requests_carrying_a_key=$B10_SENT (want 0) nokey=$B10_NOKEY (want >0)"
+  fi
+fi
+
+# ── B11: A KEY WITH NO URL OF ITS OWN. The entry carries QDRANT_API_KEY and no
+# QDRANT_URL, so qdrant_mcp_url substitutes the hard-coded http://localhost:6333
+# — a host the operator never named. It must get NO credential. Asserted against
+# a curl STUB, deliberately: this path resolves to port 6333 and a real Qdrant
+# may be listening there on a developer machine.
+B11="$(newtmp)"
+mk_curl_stub "$B11/bin" "$B11/rec"
+mkdir -p "$B11/home/.claude"
+jq -n '{mcpServers:{qdrant:{type:"stdio",command:"uvx",env:{QDRANT_API_KEY:"lonelykey",COLLECTION_NAME:"c"}}}}' > "$B11/home/.claude.json"
+env -i HOME="$B11/home" PATH="$B11/bin:$PATH" "$BASH_BIN" -c '
+  . "'"$HELPERS_FULL"'" >/dev/null 2>&1
+  qdrant_probe_reachable' >/dev/null 2>&1
+B11_ARGV="$(cat "$B11/rec/argv.log" 2>/dev/null)"
+B11_CFG="$(cat "$B11/rec/config.log" 2>/dev/null)"
+if printf '%s' "$B11_ARGV" | grep -q 'localhost:6333' \
+   && ! printf '%s' "$B11_ARGV$B11_CFG" | grep -q 'lonelykey'; then
+  pass "B11: an entry with a key but NO QDRANT_URL probes the documented default and sends NOTHING with it — the fallback host is not a host the registration named, so it gets no credential"
+else
+  fail_ "B11" "argv='$(printf '%s' "$B11_ARGV" | tr '\n' '|' | cut -c1-200)' config='$(printf '%s' "$B11_CFG" | tr '\n' '|' | cut -c1-120)' — wanted the localhost fallback probed and 'lonelykey' nowhere"
 fi
 
 echo ""
@@ -1347,6 +1434,52 @@ else
     pass "M12: control sends no credential to an unregistered host ($m12_ctl_auth keyed request(s)); with the scope test removed the same probe hands the api-key to a server the registration never named ($m12_mut_auth) — and returns 0 either way"
   else
     fail_ "M12" "control_auth=$m12_ctl_auth (want 0) mutant_auth=$m12_mut_auth (want >0) sites=$m12_sites changed=$m12_changed parses=$m12_parses"
+  fi
+fi
+
+# ── M13: restore the PER-FIELD fallback. The key is read with claude.json-first
+# fallback of its own instead of from the entry the URL came from, and B10's
+# cross-file fixture immediately hands `crosskey` to a host whose registration
+# never mentioned it. The predicate answers "reachable" in both directions —
+# only the SERVER'S log distinguishes them, which is why B10 reads it.
+M13="$(newtmp)"
+mkdir -p "$M13/lib"
+cp -p "$HELPERS_FULL" "$M13/lib/helpers-full.sh"
+cp -p "$REPO_ROOT/scripts/lib/helpers-core.sh" "$M13/lib/helpers-core.sh"
+if ! start_keyed_qdrant "$M13" "sekret"; then
+  fail_ "M13" "fixture: could not start the local keyed stub HTTP server"
+else
+  mk_home "$M13/home" "http://127.0.0.1:$QSRV_PORT"
+  mk_home_settings "$M13/home" "http://127.0.0.1:1" "crosskey"
+  env -i HOME="$M13/home" PATH="$PATH" "$BASH_BIN" -c '. "'"$M13/lib/helpers-full.sh"'" >/dev/null 2>&1; is_qdrant_mcp_registered' >/dev/null 2>&1
+  m13_ctl="$(grep -cE 'AUTH|WRONGKEY' "$M13/hits.log" 2>/dev/null | tr -d ' ')"
+  case "$m13_ctl" in ''|*[!0-9]*) m13_ctl=0 ;; esac
+  : > "$M13/hits.log"
+  # ONE marked line: the key read stops using the entry the URL came from and
+  # goes back to its OWN claude.json-then-settings.json fallback. That is the
+  # whole pre-fix behaviour, and it is all the pairing defect ever was.
+  #
+  # THE jq FILTER IS SINGLE-QUOTED HERE, and that is not style. The first draft
+  # wrote it double-quoted with `\"` around the mcp-server-qdrant alias — and
+  # SED'S REPLACEMENT COLLAPSES `\"` TO `"`, so the file received a bare `"`
+  # inside an already-double-quoted argument. The result parsed (`bash -n` said
+  # yes), jq then failed on a broken filter, the key came back EMPTY, and the
+  # mutant scored as killed while testing nothing. Same family as CLAUDE.md's
+  # `s|` and `&` traps: a mutant that lands, parses, and is inert. Caught only
+  # because this assertion reads the SERVER'S log instead of an exit code.
+  m13_meta=$(_mutate "$M13/lib/helpers-full.sh" '# BL-234-QDRANT-KEY-ENTRY' '  k=$(jq -r '"'"'.mcpServers.qdrant.env.QDRANT_API_KEY // empty'"'"' "$HOME/.claude.json" 2>/dev/null); [ -n "$k" ] || k=$(jq -r '"'"'.mcpServers.qdrant.env.QDRANT_API_KEY // empty'"'"' "$HOME/.claude/settings.json" 2>/dev/null)')
+  set -- $m13_meta; m13_sites=$1; m13_changed=$2; m13_parses=$3
+  mk_home "$M13/home2" "http://127.0.0.1:$QSRV_PORT"
+  mk_home_settings "$M13/home2" "http://127.0.0.1:1" "crosskey"
+  env -i HOME="$M13/home2" PATH="$PATH" "$BASH_BIN" -c '. "'"$M13/lib/helpers-full.sh"'" >/dev/null 2>&1; is_qdrant_mcp_registered' >/dev/null 2>&1
+  m13_mut="$(grep -cE 'AUTH|WRONGKEY' "$M13/hits.log" 2>/dev/null | tr -d ' ')"
+  case "$m13_mut" in ''|*[!0-9]*) m13_mut=0 ;; esac
+  stop_stub_qdrant
+  if [ "$m13_ctl" = "0" ] && [ "$m13_mut" != "0" ] \
+     && [ "$m13_sites" -eq 1 ] && [ "$m13_changed" -eq 2 ] && [ "$m13_parses" -eq 1 ]; then
+    pass "M13: control sends NO credential to a host whose own entry carries none ($m13_ctl requests carried one); with the key read per-file instead of per-entry the OTHER file's key arrives at this host ($m13_mut) — the cross-file pairing, restored in one line"
+  else
+    fail_ "M13" "control_auth=$m13_ctl (want 0) mutant_auth=$m13_mut (want >0) sites=$m13_sites changed=$m13_changed parses=$m13_parses"
   fi
 fi
 

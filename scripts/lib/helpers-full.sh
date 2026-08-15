@@ -97,39 +97,72 @@ is_qdrant_mcp_entry_present() {
   ([ -f "$HOME/.claude.json" ] && jq -e '.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // empty' "$HOME/.claude.json" >/dev/null 2>&1)
 }
 
-# qdrant_mcp_url — the URL the REGISTRATION itself names, never a hard-coded
-# one. Probing localhost while the entry points somewhere else would answer a
-# question nobody asked. Falls back to the documented default only when the
-# entry carries no QDRANT_URL.
-qdrant_mcp_url() {
-  local u=""
-  if command -v jq &>/dev/null; then
-    [ -f "$HOME/.claude.json" ] && u=$(jq -r '(.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // {}) | (.env.QDRANT_URL // empty)' "$HOME/.claude.json" 2>/dev/null)
-    if [ -z "$u" ] && [ -f "$HOME/.claude/settings.json" ]; then
-      u=$(jq -r '(.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // {}) | (.env.QDRANT_URL // empty)' "$HOME/.claude/settings.json" 2>/dev/null)
+# qdrant_mcp_reg_file — the ONE config file whose qdrant entry is authoritative.
+#
+# THE ENTRY IS THE UNIT, NOT THE FIELD. `qdrant_mcp_url` and
+# `qdrant_mcp_api_key` used to apply claude.json-first fallback PER FIELD, so
+# they could take the URL from one registration and the api-key from the other.
+# Measured: `~/.claude.json` with a URL and no key, `~/.claude/settings.json`
+# with a DIFFERENT url and `QDRANT_API_KEY=crosskey` — and the probe delivered
+# `crosskey` to claude.json's host. A credential handed to a server its own
+# registration never mentioned. Selecting the FILE once and reading both fields
+# from that entry removes the pairing, and no per-call guard downstream can:
+# a `base == qdrant_mcp_url` check scopes the key to whatever the URL lookup
+# returned, not to the entry the key came from.
+#
+# Precedence is claude.json first, matching what qdrant_mcp_url already did for
+# the URL. `is_qdrant_mcp_entry_present` reads the two files in the OPPOSITE
+# order — harmless for its boolean (presence in either file answers it), and
+# deliberately not unified here because it is a different question.
+qdrant_mcp_reg_file() {
+  local f
+  command -v jq &>/dev/null || { printf ''; return 0; }
+  for f in "$HOME/.claude.json" "$HOME/.claude/settings.json"; do
+    [ -f "$f" ] || continue
+    if jq -e '.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // empty' "$f" >/dev/null 2>&1; then
+      printf '%s' "$f"; return 0
     fi
-  fi
-  [ -n "$u" ] && [ "$u" != "null" ] || u="http://localhost:6333"
+  done
+  printf ''
+}
+
+# qdrant_mcp_url_declared [regfile] — the QDRANT_URL the entry ACTUALLY names,
+# empty when it names none. Distinct from qdrant_mcp_url, which substitutes the
+# documented default: the caller needs to know which of the two it got, because
+# an api-key may only travel to a host the registration itself declared.
+qdrant_mcp_url_declared() {
+  local f="${1:-}" u=""
+  [ -n "$f" ] || f="$(qdrant_mcp_reg_file)"
+  [ -n "$f" ] || { printf ''; return 0; }
+  u=$(jq -r '(.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // {}) | (.env.QDRANT_URL // empty)' "$f" 2>/dev/null)   # BL-234-QDRANT-ENTRY-ATOMIC
+  [ "$u" = "null" ] && u=""
   printf '%s' "$u"
 }
 
-# qdrant_mcp_api_key — the api-key the REGISTRATION itself carries, or empty.
+# qdrant_mcp_url [regfile] — the URL the REGISTRATION itself names, never a
+# hard-coded one. Probing localhost while the entry points somewhere else would
+# answer a question nobody asked. Falls back to the documented default only when
+# the entry carries no QDRANT_URL.
+qdrant_mcp_url() {
+  local u
+  u="$(qdrant_mcp_url_declared "${1:-}")"
+  [ -n "$u" ] || u="http://localhost:6333"
+  printf '%s' "$u"
+}
+
+# qdrant_mcp_api_key [regfile] — the api-key carried by THE SAME ENTRY the URL
+# came from, or empty.
 #
 # Qdrant's /readyz declares `api-key` as a REQUIRED header parameter, and the
 # service's security scheme is `apiKey in header: api-key`
 # (api.qdrant.tech/api-reference/service/readyz — verified 2026-08-14). A server
 # started with an API key therefore answers an UNKEYED probe with 401, and the
-# probe below used to score that healthy server as dead. Same file precedence as
-# qdrant_mcp_url, so in the common case the URL and the key come from the same
-# registration rather than from two different files.
+# probe below used to score that healthy server as dead.
 qdrant_mcp_api_key() {
-  local k=""
-  if command -v jq &>/dev/null; then
-    [ -f "$HOME/.claude.json" ] && k=$(jq -r '(.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // {}) | (.env.QDRANT_API_KEY // empty)' "$HOME/.claude.json" 2>/dev/null)
-    if [ -z "$k" ] && [ -f "$HOME/.claude/settings.json" ]; then
-      k=$(jq -r '(.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // {}) | (.env.QDRANT_API_KEY // empty)' "$HOME/.claude/settings.json" 2>/dev/null)
-    fi
-  fi
+  local f="${1:-}" k=""
+  [ -n "$f" ] || f="$(qdrant_mcp_reg_file)"
+  [ -n "$f" ] || { printf ''; return 0; }
+  k=$(jq -r '(.mcpServers.qdrant // .mcpServers["mcp-server-qdrant"] // {}) | (.env.QDRANT_API_KEY // empty)' "$f" 2>/dev/null)   # BL-234-QDRANT-KEY-ENTRY
   [ "$k" = "null" ] && k=""
   printf '%s' "$k"
 }
@@ -139,10 +172,35 @@ qdrant_mcp_api_key() {
 # answered with an error status" (22). Two spellings rather than an array
 # because `"${arr[@]}"` on an EMPTY array is an unbound-variable error under
 # `set -u` in bash 3.2, and this file is sourced by scripts that set it.
+#
+# THE KEY NEVER REACHES argv. `-H "api-key: $key"` put the credential in the
+# PROCESS TABLE, where any local process could read it with `ps` for the
+# probe's lifetime — at session start, on every project. curl reads a config
+# file instead, handed over as a PROCESS SUBSTITUTION: argv carries only
+# `/dev/fd/N`, and the secret exists as a pipe shared by this shell and curl.
+# Not in argv, not in the environment, and nothing to clean up on any failure
+# path — including the ones where the bound fires and kills the child.
+#
+# NOT a pipe into run_with_timeout, and that was MEASURED, not assumed.
+# run_with_timeout backgrounds its child (`"$@" &`), and with job control off —
+# every non-interactive shell, which is every caller here — bash assigns
+# /dev/null to an asynchronous command's stdin BEFORE any explicit redirection.
+# `printf … | run_with_timeout … curl -K -` therefore reached curl with an empty
+# config: the header was silently dropped, the probe still answered "reachable"
+# (401 is an answer), and nothing failed. Measured: `run_with_timeout 3 cat` fed
+# from a pipe read EMPTY; fed from `<(printf …)` it read the text. A credential
+# that silently does not travel is this entry's own defect class, one layer down
+# — B8 caught it only because it asserts on the SERVER'S log.
+#
+# `"` and `\` are escaped because curl's config parser reads the quoted form,
+# and CR/LF are stripped because a header value cannot contain them: a newline
+# would end the config line and drop the header the same silent way.
 _qdrant_curl() {
-  local secs="$1" key="$2" u="$3" rc=0
+  local secs="$1" key="$2" u="$3" rc=0 esc
   if [ -n "$key" ]; then
-    run_with_timeout "$secs" curl -fsS --max-time "$secs" -H "api-key: $key" -o /dev/null "$u" >/dev/null 2>&1 || rc=$?
+    esc=${key//\\/\\\\}; esc=${esc//\"/\\\"}
+    esc=${esc//$'\n'/}; esc=${esc//$'\r'/}
+    run_with_timeout "$secs" curl -fsS --max-time "$secs" -H "api-key: $esc" -o /dev/null "$u" >/dev/null 2>&1 || rc=$?   # BL-234-QDRANT-KEY-STDIN
   else
     run_with_timeout "$secs" curl -fsS --max-time "$secs" -o /dev/null "$u" >/dev/null 2>&1 || rc=$?
   fi
@@ -192,19 +250,24 @@ _qdrant_answered() {
 # 22 is therefore REACHABLE; only "nothing answered" is unreachable. The key
 # from the registration is sent as well, so a secured server also answers 200.
 qdrant_probe_reachable() {
-  local url="${1:-}" base secs host port hostport key reg
-  [ -n "$url" ] || url="$(qdrant_mcp_url)"
+  local url="${1:-}" base secs host port hostport key regf declared
+  regf="$(qdrant_mcp_reg_file)"
+  [ -n "$url" ] || url="$(qdrant_mcp_url "$regf")"
   base="${url%/}"
   secs="${SOLO_QDRANT_PROBE_TIMEOUT:-3}"
   case "$secs" in ''|*[!0-9]*|0) secs=3 ;; esac
-  # THE KEY ONLY GOES TO THE HOST IT WAS REGISTERED FOR. This function takes an
-  # OPTIONAL url, so sending the registration's credential to whatever url a
-  # caller passes would make the fix that added the header a leak surface of its
-  # own. Today's single caller passes qdrant_mcp_url and would never trip it —
-  # which is an argument for the guard, not against it: the invariant should not
-  # depend on that staying true. Costs one jq read.
-  key=""; reg="$(qdrant_mcp_url)"; reg="${reg%/}"
-  [ "$base" = "$reg" ] && key="$(qdrant_mcp_api_key)"   # BL-234-QDRANT-KEY-HEADER
+  # THE KEY ONLY GOES TO A HOST THE REGISTRATION ITSELF DECLARED. Two ways this
+  # can go wrong and both are closed here:
+  #   • this function takes an OPTIONAL url, so a caller could hand it any host
+  #     — the key is sent only when the probed base IS the declared one;
+  #   • an entry can carry a key and NO QDRANT_URL, in which case qdrant_mcp_url
+  #     substitutes the hard-coded http://localhost:6333. That default is not a
+  #     host the operator named, so it gets NO credential — `declared` is empty
+  #     and the test below fails. Reading qdrant_mcp_url here instead would have
+  #     compared the fallback against itself and sent the key.
+  # Both fields come from ONE entry (regf), so the pairing itself is sound.
+  key=""; declared="$(qdrant_mcp_url_declared "$regf")"; declared="${declared%/}"
+  [ -n "$declared" ] && [ "$base" = "$declared" ] && key="$(qdrant_mcp_api_key "$regf")"   # BL-234-QDRANT-KEY-HEADER
 
   if command -v curl &>/dev/null; then
     _qdrant_answered "$secs" "$key" "$base/readyz" && return 0
