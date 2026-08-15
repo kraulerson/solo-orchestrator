@@ -10519,21 +10519,83 @@ them apart). **This entry's own defect class appeared inside its own fix for the
 third time**, and again it was only found by asking *what happens when this is
 called differently?*
 
-**Two residuals, named rather than fixed:**
+### ⚠ CORRECTION — the precedence residual was a CREDENTIAL hole, and the wording understated it
 
-- `qdrant_mcp_url` reads `~/.claude.json` **before** `~/.claude/settings.json`
-  while `is_qdrant_mcp_entry_present` reads them in the **opposite order**. With
-  entries in both files the probe may test a different URL than the one that
-  satisfied the presence check. `qdrant_mcp_api_key` deliberately mirrors
-  `qdrant_mcp_url`'s precedence so the URL and the key at least come from the
-  same file in the common case; unifying the two orders is a separate change with
-  its own blast radius.
+The residual below originally read *"the URL and the key at least come from the
+same file in the common case"*. That is true and it is not the point. The
+fallback was applied **per FIELD, not per ENTRY**, so in the **un**common case
+the two came from different files — and one of them was a secret.
+
+**Measured (review probe P3):** `~/.claude.json` carrying a qdrant entry with a
+`QDRANT_URL` and **no** key, `~/.claude/settings.json` carrying a **different**
+url **and** `QDRANT_API_KEY=crosskey` → the probe delivered **`crosskey` to
+claude.json's host**. A credential handed to a server whose own registration
+never mentioned it. The `base == qdrant_mcp_url` guard added in the first fix
+round **cannot** catch this: it scopes the key to whatever the URL lookup
+returned, not to the entry the key came from.
+
+The same path had a second exit: an entry carrying a key and **no**
+`QDRANT_URL` paired that key with the hard-coded `http://localhost:6333` — a
+host the operator never named.
+
+**Fixed** by making the ENTRY the unit: `qdrant_mcp_reg_file` selects one config
+file and `# BL-234-QDRANT-ENTRY-ATOMIC` / `# BL-234-QDRANT-KEY-ENTRY` read both
+fields from it; `qdrant_mcp_url_declared` separates *"the entry says this"* from
+*"we substituted the default"*, and the default gets no credential (**B10**,
+**B11**, **M13**).
+
+**And the key was on `argv`.** `-H "api-key: …"` put it in the **process table**,
+readable by any local process for the probe's lifetime, at session start, on
+every project — an exposure the header fix introduced. It now travels as a curl
+config passed by **process substitution** (`# BL-234-QDRANT-KEY-STDIN`): argv
+carries only `/dev/fd/N` (**B12**, **M14**).
+
+**The obvious spelling of that fix was silently broken, and it was measured
+rather than assumed.** `printf … | run_with_timeout … curl -K -` does not work:
+`run_with_timeout` backgrounds its child, and with job control off — every
+non-interactive shell — bash assigns **`/dev/null`** to an asynchronous
+command's stdin *before* any explicit redirection. Measured:
+`run_with_timeout 3 cat` fed from a pipe read **EMPTY**; fed from
+`<(printf …)` it read the text. The header was dropped in silence, the probe
+still answered *"reachable"* (401 is an answer), and nothing failed — caught
+only because **B8 asserts on the SERVER'S log**.
+
+**One residual survives, named rather than fixed:**
+
+- `qdrant_mcp_reg_file` reads `~/.claude.json` **before**
+  `~/.claude/settings.json` while `is_qdrant_mcp_entry_present` reads them in the
+  **opposite order**. Harmless for that function's boolean — presence in either
+  file answers it — but the two orders disagreeing is the kind of thing that
+  grows a second bug. Unifying them is a separate change with its own blast
+  radius.
 - The `# BL-234-QDRANT-REACHABLE` decision was originally duplicated per probed
   endpoint, and **M10 mutating one of them left the other still answering
   "reachable"** — a mutant killed by nothing. Collapsed to a single
   `_qdrant_answered` decision point, recorded at the function, because *"one
   marker, several equivalent decisions"* is a general way for this harness to
   score a survivor as dead.
+
+**Two more ways a mutant dies of nothing, both hit while writing M13:**
+
+- **A two-outcome fixture cannot see a leaked credential.** The keyed stub
+  server logged only `AUTH` / `NOKEY`, and a leaked cross-file key is a **wrong**
+  key — recorded identically to the honest unkeyed request. The stub now records
+  `AUTH` / `WRONGKEY` / `NOKEY`, because *"sent the wrong secret"* and *"sent no
+  secret"* are opposite facts about the client.
+- **`sed`'s replacement collapses `\"` to `"`.** A mutant written with
+  `\"`-escaped quotes inside an already-double-quoted jq argument landed, **passed
+  `bash -n`**, broke the jq filter, returned an empty key, and scored as killed
+  while testing nothing. Same family as CLAUDE.md's `s|`-delimiter and `&` traps:
+  *sed ran* is not *sed produced the mutant you wrote*. Single-quote the filter,
+  and assert on behaviour rather than on the exit code.
+
+**One pre-existing wrinkle, recorded and deliberately NOT touched here:**
+`run_with_timeout`'s doc comment in `scripts/lib/helpers-core.sh` still says
+*"Returns 0 on success, 1 on timeout or failure"*. It has not been true since the
+function ended on `wait "$pid"` — it **propagates the child's exit status**, and
+this entry's `0|22` reachability semantics now **depend** on that propagation.
+Worth one line whenever `helpers-core.sh` is next opened; changing a shared
+primitive's contract text mid-package is how an unrelated caller gets surprised.
 
 **Related:** `## BL-231:` (the correction block is the proof standard),
 `## BL-233:` (the mechanism this rides on), `## BL-235:` (surface 4, filed not
