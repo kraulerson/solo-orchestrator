@@ -817,6 +817,26 @@ else
   fail_ "B11" "argv='$(printf '%s' "$B11_ARGV" | tr '\n' '|' | cut -c1-200)' config='$(printf '%s' "$B11_CFG" | tr '\n' '|' | cut -c1-120)' — wanted the localhost fallback probed and 'lonelykey' nowhere"
 fi
 
+# ── B12: THE CREDENTIAL IS NOT ON argv. `-H "api-key: …"` put it in the process
+# table, readable by any local process with `ps` for the probe's lifetime, at
+# session start, on every project. It now travels as a curl config handed over by
+# process substitution: argv carries only /dev/fd/N. The stub records both, so
+# this asserts on where the secret WAS and where it WAS NOT.
+B12="$(newtmp)"
+mk_curl_stub "$B12/bin" "$B12/rec"
+mk_home "$B12/home" "http://127.0.0.1:6399" "argvsecret"
+env -i HOME="$B12/home" PATH="$B12/bin:$PATH" "$BASH_BIN" -c '
+  . "'"$HELPERS_FULL"'" >/dev/null 2>&1
+  qdrant_probe_reachable' >/dev/null 2>&1
+B12_ARGV="$(cat "$B12/rec/argv.log" 2>/dev/null)"
+B12_CFG="$(cat "$B12/rec/config.log" 2>/dev/null)"
+if ! printf '%s' "$B12_ARGV" | grep -q 'argvsecret' \
+   && printf '%s' "$B12_CFG" | grep -q 'api-key: argvsecret'; then
+  pass "B12: the api-key is absent from curl's argv and present in the config curl actually read — off the process table, still delivered"
+else
+  fail_ "B12" "argv contains secret=$(printf '%s' "$B12_ARGV" | grep -c 'argvsecret') (want 0); config carries header=$(printf '%s' "$B12_CFG" | grep -c 'api-key: argvsecret') (want >0)"
+fi
+
 echo ""
 echo "=== C — emptiness is decided by SHAPE; the phrase half is gone ==="
 
@@ -1481,6 +1501,32 @@ else
   else
     fail_ "M13" "control_auth=$m13_ctl (want 0) mutant_auth=$m13_mut (want >0) sites=$m13_sites changed=$m13_changed parses=$m13_parses"
   fi
+fi
+
+# ── M14: put the credential back on argv. Both directions authenticate and both
+# return 0 — the ONLY difference is that `ps` can read the secret in one of them.
+# A test asserting "the probe worked" cannot see this; the stub's argv log can.
+M14="$(newtmp)"
+mkdir -p "$M14/lib"
+cp -p "$HELPERS_FULL" "$M14/lib/helpers-full.sh"
+cp -p "$REPO_ROOT/scripts/lib/helpers-core.sh" "$M14/lib/helpers-core.sh"
+mk_curl_stub "$M14/bin" "$M14/rec"
+mk_home "$M14/home" "http://127.0.0.1:6399" "argvsecret"
+env -i HOME="$M14/home" PATH="$M14/bin:$PATH" "$BASH_BIN" -c '. "'"$M14/lib/helpers-full.sh"'" >/dev/null 2>&1; qdrant_probe_reachable' >/dev/null 2>&1
+m14_ctl=$(grep -c 'argvsecret' "$M14/rec/argv.log" 2>/dev/null | tr -d ' ')
+case "$m14_ctl" in ''|*[!0-9]*) m14_ctl=0 ;; esac
+: > "$M14/rec/argv.log"; : > "$M14/rec/config.log"
+m14_meta=$(_mutate "$M14/lib/helpers-full.sh" '# BL-234-QDRANT-KEY-STDIN' '    run_with_timeout "$secs" curl -fsS --max-time "$secs" -o /dev/null -H "api-key: $esc" "$u" >/dev/null 2>&1 || rc=$?')
+set -- $m14_meta; m14_sites=$1; m14_changed=$2; m14_parses=$3
+mk_home "$M14/home2" "http://127.0.0.1:6399" "argvsecret"
+env -i HOME="$M14/home2" PATH="$M14/bin:$PATH" "$BASH_BIN" -c '. "'"$M14/lib/helpers-full.sh"'" >/dev/null 2>&1; qdrant_probe_reachable' >/dev/null 2>&1
+m14_mut=$(grep -c 'argvsecret' "$M14/rec/argv.log" 2>/dev/null | tr -d ' ')
+case "$m14_mut" in ''|*[!0-9]*) m14_mut=0 ;; esac
+if [ "$m14_ctl" = "0" ] && [ "$m14_mut" != "0" ] \
+   && [ "$m14_sites" -eq 1 ] && [ "$m14_changed" -eq 2 ] && [ "$m14_parses" -eq 1 ]; then
+  pass "M14: control keeps the api-key out of curl's argv ($m14_ctl occurrences); with the header spelled back onto the command line it appears in the process table ($m14_mut) — and the probe succeeds either way"
+else
+  fail_ "M14" "control_argv_hits=$m14_ctl (want 0) mutant_argv_hits=$m14_mut (want >0) sites=$m14_sites changed=$m14_changed parses=$m14_parses"
 fi
 
 echo ""

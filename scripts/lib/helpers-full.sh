@@ -200,7 +200,8 @@ _qdrant_curl() {
   if [ -n "$key" ]; then
     esc=${key//\\/\\\\}; esc=${esc//\"/\\\"}
     esc=${esc//$'\n'/}; esc=${esc//$'\r'/}
-    run_with_timeout "$secs" curl -fsS --max-time "$secs" -H "api-key: $esc" -o /dev/null "$u" >/dev/null 2>&1 || rc=$?   # BL-234-QDRANT-KEY-STDIN
+    run_with_timeout "$secs" curl -fsS --max-time "$secs" -o /dev/null \
+      -K <(printf 'header = "api-key: %s"\n' "$esc") "$u" >/dev/null 2>&1 || rc=$?   # BL-234-QDRANT-KEY-STDIN
   else
     run_with_timeout "$secs" curl -fsS --max-time "$secs" -o /dev/null "$u" >/dev/null 2>&1 || rc=$?
   fi
