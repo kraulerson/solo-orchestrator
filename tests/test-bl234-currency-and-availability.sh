@@ -492,7 +492,9 @@ PYEOF
 # `api-key` header matches, 401 otherwise. Qdrant's own /readyz declares that
 # header as required (api.qdrant.tech/api-reference/service/readyz), so this is
 # the state a real keyed server is in, not an invented one. Every request is
-# appended to <dir>/hits.log as AUTH or NOKEY, which is how a test can tell
+# appended to <dir>/hits.log as AUTH, WRONGKEY or NOKEY — three outcomes, because
+# a LEAKED cross-file key is a WRONG key and a two-outcome log records it
+# identically to an honest unkeyed request. That is how a test can tell
 # "the header was sent" from "the probe got lucky".
 start_keyed_qdrant() {
   local d="$1" key="$2" py
@@ -689,7 +691,7 @@ fi
 
 # ── B8: and the key the REGISTRATION carries is actually sent. B7 alone cannot
 # tell a probe that authenticated from one that merely tolerated a 401, so the
-# server records every request as AUTH or NOKEY and this case asserts on that
+# server records every request as AUTH, WRONGKEY or NOKEY and this case asserts on that
 # log — the server's observation, not ours.
 B8="$(newtmp)"
 if ! start_keyed_qdrant "$B8" "sekret"; then

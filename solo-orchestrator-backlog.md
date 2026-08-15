@@ -10560,6 +10560,14 @@ command's stdin *before* any explicit redirection. Measured:
 still answered *"reachable"* (401 is an answer), and nothing failed — caught
 only because **B8 asserts on the SERVER'S log**.
 
+**It was written and caught pre-commit: no committed tree ever carried the pipe
+spelling**, so every full-lane-green tally recorded before this entry stands.
+(`git log --all -S 'curl -K -'` finds it only in comment and doc text;
+`fce9a10`'s code line was `-H "api-key: $esc"`, and `f2881fe` onward is
+`-K <(printf …)`.) Stated outright because the paragraph above reads like a
+shipped defect, and a reader deciding whether to distrust earlier green runs
+needs the answer rather than the anecdote.
+
 **One residual survives, named rather than fixed:**
 
 - `qdrant_mcp_reg_file` reads `~/.claude.json` **before**
