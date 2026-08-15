@@ -134,6 +134,45 @@ _mutate() {
 
 _git() { git -c user.email=t@t.t -c user.name=tester -c commit.gpgsign=false "$@"; }
 
+# ── FIXTURE DIAGNOSTICS — why every git call below is now rc-checked ────────
+# Every git call in these fixtures used to be `>/dev/null 2>&1` with no rc
+# check. That is this suite's own subject matter living inside the harness
+# written to catch it: an exit code thrown away is an exit code that cannot
+# testify. It cost a day and four failures wearing one cause.
+#
+# The cause: `git init --bare` was never told a branch, while the working repo
+# one line above it was (`init -q -b main`). So the bare's HEAD follows the
+# HOST's `init.defaultBranch` — `master` on an ubuntu-latest runner — while the
+# push creates `main`. HEAD is then a DANGLING symref, and `git clone` of such a
+# repo prints `warning: remote HEAD refers to nonexistent ref, unable to
+# checkout`, EXITS 0, and leaves a directory with nothing but `.git` in it. The
+# `|| return 1` guard saw rc 0; the next line redirected into a `scripts/`
+# directory that was never created. This Mac hid it for free: Xcode ships
+# /Applications/Xcode.app/Contents/Developer/usr/share/git-core/gitconfig
+# carrying `init.defaultbranch=main`, so the dangling HEAD never happened here.
+#
+# Reproduce the runner's git on ANY host — this is the command that turned a
+# CI-only failure into a local one:
+#   GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+#     bash tests/test-bl234-currency-and-availability.sh
+# H1/H2 below pin both halves so neither can come back silently, and H2 does not
+# depend on the host's git config at all.
+
+GITQ_OUT=""
+# _gitq DESC <git args…> — run a fixture git command; on failure print git's OWN
+# words to STDERR. Never stdout: a stray git line corrupts a capture.
+_gitq() {
+  local desc="$1"; shift
+  local rc
+  GITQ_OUT="$(_git "$@" 2>&1)"; rc=$?
+  if [ "$rc" -ne 0 ]; then
+    printf '  [FIXTURE] %s failed (rc=%s): %s\n' \
+      "$desc" "$rc" "$(printf '%s' "$GITQ_OUT" | tr '\n' '|')" >&2
+  fi
+  return "$rc"
+}
+_fixture_fail() { printf '  [FIXTURE] %s\n' "$1" >&2; }
+
 # ════════════════════════════════════════════════════════════════════════════
 # FIXTURES — a framework clone, optionally anchored to a LOCAL BARE ORIGIN.
 # ════════════════════════════════════════════════════════════════════════════
@@ -147,29 +186,54 @@ build_fw() {
   local fw="$1" bare="${2:-}"
   mkdir -p "$fw/scripts"
   printf 'echo fw v1\n' > "$fw/scripts/validate.sh"
-  _git -C "$fw" init -q -b main >/dev/null 2>&1 || { _git -C "$fw" init -q >/dev/null 2>&1; _git -C "$fw" symbolic-ref HEAD refs/heads/main >/dev/null 2>&1; }
-  _git -C "$fw" add -A >/dev/null 2>&1
-  _git -C "$fw" commit -qm "fw v1" >/dev/null 2>&1
+  if ! _gitq "init $fw" -C "$fw" init -q -b main; then
+    _gitq "init $fw (no -b)"  -C "$fw" init -q                            || return 1
+    _gitq "HEAD->main $fw"    -C "$fw" symbolic-ref HEAD refs/heads/main  || return 1
+  fi
+  _gitq "add $fw"    -C "$fw" add -A             || return 1
+  _gitq "commit $fw" -C "$fw" commit -qm "fw v1" || return 1
   if [ -n "$bare" ]; then
-    _git init -q --bare "$bare" >/dev/null 2>&1
-    _git -C "$fw" remote add origin "$bare" >/dev/null 2>&1
-    _git -C "$fw" push -q -u origin main >/dev/null 2>&1
-    _git -C "$fw" fetch -q origin >/dev/null 2>&1
+    _gitq "init --bare $bare" init -q --bare "$bare" || return 1
+    # BL-234-FIXTURE-BARE-HEAD: name the bare's default branch EXPLICITLY.
+    # Left to the host, `git init --bare` follows init.defaultBranch — `master`
+    # on a runner — while the push below creates `main`. HEAD then dangles and
+    # every later clone is empty-but-successful. H1/H2 pin this line.
+    _gitq "HEAD->main $bare"  -C "$bare" symbolic-ref HEAD refs/heads/main || return 1
+    _gitq "remote add $bare"  -C "$fw" remote add origin "$bare"           || return 1
+    _gitq "push -u $fw"       -C "$fw" push -q -u origin main              || return 1
+    _gitq "fetch $fw"         -C "$fw" fetch -q origin                     || return 1
   fi
   FW="$fw"
   PIN="$(_git -C "$fw" rev-parse HEAD 2>/dev/null)"
+  if [ -z "$PIN" ]; then
+    _fixture_fail "build_fw: no HEAD sha after commit in $fw"
+    return 1
+  fi
+  return 0
 }
 
 # advance_origin <baredir> <workdir> — push one NEW commit to the bare origin
 # from a throwaway clone, so the framework checkout is genuinely behind its
 # remote without its own refs knowing it yet.
 advance_origin() {
-  local bare="$1" work="$2"
-  _git clone -q "$bare" "$work" >/dev/null 2>&1 || return 1
+  local bare="$1" work="$2" head refs said
+  _gitq "clone $bare" clone -q "$bare" "$work" || return 1
+  # BL-234-FIXTURE-CLONE-RECEIPT: an exit code is not a receipt. A clone whose
+  # remote HEAD is a dangling symref WARNS and exits 0 having checked nothing
+  # out, so the rc above structurally cannot see it. Assert the working tree
+  # the next line writes into actually exists. H2 makes this arm fire.
+  if [ ! -f "$work/scripts/validate.sh" ]; then
+    head="$(_git -C "$bare" symbolic-ref HEAD 2>&1)"
+    refs="$(_git -C "$bare" for-each-ref --format='%(refname)' 2>/dev/null | tr '\n' ' ')"
+    said="$(printf '%s' "$GITQ_OUT" | tr '\n' '|')"
+    _fixture_fail "advance_origin: clone of $bare exited 0 but produced NO working tree — bare HEAD=$head refs=[$refs] git said: $said"
+    return 1
+  fi
   printf 'echo fw v2\n' > "$work/scripts/validate.sh"
-  _git -C "$work" add -A >/dev/null 2>&1
-  _git -C "$work" commit -qm "fw v2" >/dev/null 2>&1
-  _git -C "$work" push -q origin HEAD:main >/dev/null 2>&1
+  _gitq "add $work"    -C "$work" add -A                   || return 1
+  _gitq "commit $work" -C "$work" commit -qm "fw v2"       || return 1
+  _gitq "push $work"   -C "$work" push -q origin HEAD:main || return 1
+  return 0
 }
 
 # _fh_of <fwdir> — the absolute path of that clone's FETCH_HEAD.
@@ -237,6 +301,56 @@ run_fresh_at() {
   FRC=$?
   FERR="$(cat "$errf" 2>/dev/null)"; rm -f "$errf"
 }
+
+echo "=== H — the HARNESS itself: the bare origin is a real remote on every host ==="
+
+# ── H1: build_fw's bare origin is a usable remote, asserted on STATE.
+# Not "the git calls returned 0" — the bare's HEAD must resolve to the branch
+# that actually exists, and advance_origin must MOVE the origin's ref. The old
+# fixture satisfied every rc and still handed back an origin nothing could
+# clone; only a state assertion separates those two worlds.
+H1="$(newtmp)"
+if ! build_fw "$H1/fw" "$H1/origin"; then
+  fail_ "H1" "fixture: build_fw could not construct the framework clone"
+else
+  H1PIN="$PIN"
+  h1_head="$(_git -C "$H1/origin" symbolic-ref HEAD 2>&1)"
+  h1_before="$(_git -C "$H1/origin" rev-parse refs/heads/main 2>/dev/null)"
+  if advance_origin "$H1/origin" "$H1/adv"; then h1_adv=0; else h1_adv=1; fi
+  h1_after="$(_git -C "$H1/origin" rev-parse refs/heads/main 2>/dev/null)"
+  if [ "$h1_head" = "refs/heads/main" ] && [ "$h1_adv" -eq 0 ] \
+     && [ -n "$h1_before" ] && [ -n "$h1_after" ] && [ "$h1_before" != "$h1_after" ] \
+     && [ "$h1_before" = "$H1PIN" ]; then
+    pass "H1: the bare origin's HEAD resolves to the branch that exists (refs/heads/main), and advance_origin genuinely MOVES origin/main ($h1_before -> $h1_after) — asserted on refs, not on exit codes"
+  else
+    fail_ "H1" "bare HEAD='$h1_head' (want refs/heads/main) advance_rc=$h1_adv origin/main $h1_before -> $h1_after (must differ, and before must equal the pin $H1PIN)"
+  fi
+fi
+
+# ── H2: the clone receipt FIRES. A fallback arm nobody has watched fire is a
+# fallback arm you cannot claim. This rebuilds the exact runner condition on ANY
+# host — no dependence on init.defaultBranch, because the dangling HEAD is
+# written directly — and asserts advance_origin REFUSES instead of dying one
+# line later on a redirect. This is the CI failure, pinned.
+H2="$(newtmp)"
+if ! build_fw "$H2/fw" "$H2/origin"; then
+  fail_ "H2" "fixture: build_fw could not construct the framework clone"
+else
+  # refs/heads/master is what `git init --bare` picks on a host with no
+  # init.defaultBranch — an ubuntu-latest runner. It is never created here.
+  _git -C "$H2/origin" symbolic-ref HEAD refs/heads/master >/dev/null 2>&1
+  h2_err="$(advance_origin "$H2/origin" "$H2/adv" 2>&1 >/dev/null)"; h2_rc=$?
+  h2_wrote=no; [ -f "$H2/adv/scripts/validate.sh" ] && h2_wrote=yes
+  h2_moved=no
+  [ "$(_git -C "$H2/origin" rev-parse refs/heads/main 2>/dev/null)" != "$PIN" ] && h2_moved=yes
+  if [ "$h2_rc" -ne 0 ] && [ "$h2_wrote" = "no" ] && [ "$h2_moved" = "no" ] \
+     && printf '%s' "$h2_err" | grep -q 'produced NO working tree' \
+     && printf '%s' "$h2_err" | grep -q 'refs/heads/master'; then
+    pass "H2: a bare whose HEAD dangles (refs/heads/master, never created — the runner's default) makes advance_origin REFUSE (rc=$h2_rc), name the dangling HEAD, and leave the origin unmoved — the clone still exits 0, so only the receipt can see it"
+  else
+    fail_ "H2" "rc=$h2_rc (want non-zero) wrote=$h2_wrote (want no) moved=$h2_moved (want no) err='$(printf '%s' "$h2_err" | tr '\n' '|' | cut -c1-300)'"
+  fi
+fi
 
 echo "=== A — framework currency is measured against the REMOTE, and says so when it cannot be ==="
 
@@ -975,7 +1089,7 @@ STUBEOF
 E1="$(newtmp)"
 build_fw "$E1/fw" "$E1/origin"
 E1PIN="$PIN"
-advance_origin "$E1/origin" "$E1/adv" || true
+advance_origin "$E1/origin" "$E1/adv" || fail_ "E1" "fixture: could not advance the local bare origin"
 E1_OUT="$(run_check_for_update "$E1" "$E1/fw" yes)"
 if printf '%s' "$E1_OUT" | grep -q '^behind|'; then
   pass "E1: with run_with_timeout available the git_repo handler fetches and reports the clone as behind ($E1_OUT)"
@@ -991,7 +1105,7 @@ fi
 # say "cannot tell" instead.
 E2="$(newtmp)"
 build_fw "$E2/fw" "$E2/origin"
-advance_origin "$E2/origin" "$E2/adv" || true
+advance_origin "$E2/origin" "$E2/adv" || fail_ "E2" "fixture: could not advance the local bare origin"
 E2_OUT="$(run_check_for_update "$E2" "$E2/fw" no)"
 E2_STATUS="${E2_OUT%%|*}"
 if [ "$E2_STATUS" = "unknown" ] && printf '%s' "$E2_OUT" | grep -qi 'cannot bound'; then
@@ -1010,7 +1124,7 @@ fi
 # actually current would pass with the bug present.
 E3="$(newtmp)"
 build_fw "$E3/fw" "$E3/origin"
-advance_origin "$E3/origin" "$E3/adv" || true
+advance_origin "$E3/origin" "$E3/adv" || fail_ "E3" "fixture: could not advance the local bare origin"
 E3_LOCAL="$(_git -C "$E3/fw" rev-parse HEAD 2>/dev/null)"
 E3_TRUE="$(_git -C "$E3/origin" rev-parse main 2>/dev/null)"
 rm -rf "$E3/origin"                     # now unreachable, exactly like being offline
@@ -1137,14 +1251,14 @@ else
   # exact failure and it is the sharpest form of the fresh-fixture rule: the
   # thing under test writes to the fixture.
   build_fw "$M1/fw1" "$M1/origin1"; M1PIN1="$PIN"
-  advance_origin "$M1/origin1" "$M1/adv1" || true
+  advance_origin "$M1/origin1" "$M1/adv1" || fail_ "M1" "fixture: could not advance the local bare origin (control)"
   build_proj "$M1/p1" "$M1/fw1" "$M1PIN1"
   run_fresh_at "$M1/m/scripts/session-freshness-check.sh" "$M1/p1"
   m1_ctl=no; printf '%s' "$FOUT" | grep -q 'pin-behind-upstream' && m1_ctl=yes
   m1_meta=$(_mutate "$M1/m/scripts/lib/freshness-detect.sh" '# BL-234-FETCH-REVERSAL' '  _fetch_rc=2')
   set -- $m1_meta; m1_sites=$1; m1_changed=$2; m1_parses=$3
   build_fw "$M1/fw2" "$M1/origin2"; M1PIN2="$PIN"
-  advance_origin "$M1/origin2" "$M1/adv2" || true
+  advance_origin "$M1/origin2" "$M1/adv2" || fail_ "M1" "fixture: could not advance the local bare origin (mutant)"
   build_proj "$M1/p2" "$M1/fw2" "$M1PIN2"
   run_fresh_at "$M1/m/scripts/session-freshness-check.sh" "$M1/p2"
   m1_mut=no; printf '%s' "$FOUT" | grep -q 'pin-behind-upstream' && m1_mut=yes
@@ -1270,14 +1384,14 @@ M6="$(newtmp)"
 mkdir -p "$M6/scripts/lib"
 cp -p "$CHECKVER" "$M6/scripts/check-versions.sh"
 build_fw "$M6/fw" "$M6/origin"
-advance_origin "$M6/origin" "$M6/adv" || true
+advance_origin "$M6/origin" "$M6/adv" || fail_ "M6" "fixture: could not advance the local bare origin (control)"
 rm -rf "$M6/origin"
 m6_ctl_out="$(run_check_for_update "$M6" "$M6/fw" yes)"
 m6_ctl="${m6_ctl_out%%|*}"
 m6_meta=$(_mutate "$M6/scripts/check-versions.sh" '# BL-234-CHECKVERSIONS-TIMEOUT' '        git -C "$repo_path" fetch --quiet 2>/dev/null || true')
 set -- $m6_meta; m6_sites=$1; m6_changed=$2; m6_parses=$3
 build_fw "$M6/fw2" "$M6/origin2"
-advance_origin "$M6/origin2" "$M6/adv2" || true
+advance_origin "$M6/origin2" "$M6/adv2" || fail_ "M6" "fixture: could not advance the local bare origin (mutant)"
 rm -rf "$M6/origin2"
 run_check_for_update_at "$M6/scripts/check-versions.sh" "$M6" "$M6/fw2" yes
 m6_mut="${CVOUT%%|*}"
