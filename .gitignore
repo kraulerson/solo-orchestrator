@@ -44,3 +44,16 @@ test-logs/
 # ~600-file project here and the interpreter dies before cleanup, it must not
 # be committable by a `git add -A`.
 .bl199-t2-guard-probe/
+
+# BL-236-LEDGER-IGNORE (framework repo) — the MCP tool-usage ledger, same rule
+# the scaffold now ships to generated projects via
+# templates/generated/gitignore-base.tmpl. Per-session mutable runtime state:
+# written by scripts/session-test-gate-check.sh at SessionStart and mutated by
+# scripts/track-tool-usage.sh after every MCP tool call. Tracking it dirties the
+# tree every session AND makes the MCP gate's ledger shared state that a clone
+# inherits — see `## BL-236:` for the measured pre-satisfaction path.
+#
+# This repo needed the rule too, and did not have it: the branch that fixes the
+# tracked-ledger defect for generated projects committed its own ledger here on
+# the first `git add -A`. The scaffold's rule does not cover the framework repo.
+.claude/tool-usage.json
