@@ -109,15 +109,25 @@ build_fw() {
   git -C "$fw" fetch -q origin >/dev/null 2>&1
   # An exit code is not a receipt, and the four calls above discard theirs.
   # Assert the ONE fact every caller depends on: the origin resolves to a real
-  # commit through its own HEAD. Diagnostics go to stderr — this fixture's
-  # callers capture stdout.
+  # COMMIT through its own HEAD.
+  #
+  # `--verify` is load-bearing and its absence is a vacuous guard. Bare
+  # `git rev-parse HEAD` on a dangling HEAD — the exact condition this catches —
+  # **exits 0 and echoes the literal string `HEAD`**; rev-parse only errors on an
+  # unresolvable ref when asked to verify. Measured on this host: dangling HEAD
+  # gives `rev-parse HEAD` rc=0 but `rev-parse --verify HEAD^{commit}` rc=128,
+  # while a good HEAD gives rc=0 to both. The first spelling shipped in this
+  # branch and fired ZERO times against a deliberately broken bare.
   rc=0
-  git -C "$fw.origin" rev-parse HEAD >/dev/null 2>&1 || rc=1
+  git -C "$fw.origin" rev-parse --verify 'HEAD^{commit}' >/dev/null 2>&1 || rc=1
   if [ "$rc" -ne 0 ]; then
-    printf '  [FIXTURE] build_fw: %s.origin has no resolvable HEAD (HEAD=%s refs=[%s])\n' \
-      "$fw" \
-      "$(git -C "$fw.origin" symbolic-ref HEAD 2>&1)" \
-      "$(git -C "$fw.origin" for-each-ref --format='%(refname)' 2>/dev/null | tr '\n' ' ')" >&2
+    # Consumed HERE, not at the call sites. All 23 of them are the bare middle
+    # statement of `D="$(newdir)"; build_fw "$D/fw"; build_proj_current …`, and
+    # a returned rc that every caller drops is the silent-success shape this
+    # whole branch exists to remove. Failing from inside cannot be forgotten by
+    # the next call site anyone adds. Safe to use stdout: no caller captures it.
+    fail_ "fixture:$(basename "$fw")" \
+      "build_fw: $fw.origin has no resolvable HEAD (HEAD=$(git -C "$fw.origin" symbolic-ref HEAD 2>&1) refs=[$(git -C "$fw.origin" for-each-ref --format='%(refname)' 2>/dev/null | tr '\n' ' ')])"
   fi
   FW="$fw"
   PIN="$(git -C "$fw" rev-parse HEAD 2>/dev/null)"

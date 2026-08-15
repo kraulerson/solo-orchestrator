@@ -437,7 +437,7 @@ fi
 # ── A4: NEVER fetched — powerpoint-voice's true state, and the one the old code
 # reported as "current".
 A4="$(newtmp)"
-build_fw "$A4/fw" || fail_ "A4" "fixture: build_fw could not construct the framework clone"# no bare origin: nothing has ever been fetched
+build_fw "$A4/fw" || fail_ "A4" "fixture: build_fw could not construct the framework clone"  # no bare origin: nothing has ever been fetched
 _git -C "$A4/fw" remote add origin "$A4/nonexistent-bare" >/dev/null 2>&1
 build_proj "$A4/proj" "$A4/fw" "$PIN"
 A4_FH="$(_git -C "$A4/fw" rev-parse --git-dir 2>/dev/null)/FETCH_HEAD"
