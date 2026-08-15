@@ -89,12 +89,39 @@ build_fw() {
   # reports the reference's own age when it cannot, so a remote-less fixture
   # correctly produces a `fw-reference-age` line. Anchoring the fixture makes
   # these cases assert what they always claimed to.
+  local br rc
   git init -q --bare "$fw.origin" >/dev/null 2>&1
+  # BL-234-FIXTURE-BARE-HEAD: name the bare's default branch EXPLICITLY, after
+  # the branch $fw is actually on. Left to the host, `git init --bare` follows
+  # init.defaultBranch — `main` on this Mac only because Xcode's gitconfig says
+  # so, `master` on an ubuntu-latest runner — while the push below creates
+  # whatever branch HEAD names. A mismatch leaves the bare's HEAD DANGLING, and
+  # `origin/HEAD` is precisely what freshness-detect.sh's
+  # `_soif_fresh_upstream_ref` falls back to when a clone has no upstream. This
+  # fixture happens to survive without it (the `push -u` sets an upstream, so
+  # the fallback is never reached), but "survives by luck" is not the standard
+  # this suite's sibling was fixed to.
+  br="$(git -C "$fw" symbolic-ref --short HEAD 2>/dev/null)"
+  [ -n "$br" ] || br=main
+  git -C "$fw.origin" symbolic-ref HEAD "refs/heads/$br" >/dev/null 2>&1
   git -C "$fw" remote add origin "$fw.origin" >/dev/null 2>&1
   git -C "$fw" push -q -u origin HEAD >/dev/null 2>&1
   git -C "$fw" fetch -q origin >/dev/null 2>&1
+  # An exit code is not a receipt, and the four calls above discard theirs.
+  # Assert the ONE fact every caller depends on: the origin resolves to a real
+  # commit through its own HEAD. Diagnostics go to stderr — this fixture's
+  # callers capture stdout.
+  rc=0
+  git -C "$fw.origin" rev-parse HEAD >/dev/null 2>&1 || rc=1
+  if [ "$rc" -ne 0 ]; then
+    printf '  [FIXTURE] build_fw: %s.origin has no resolvable HEAD (HEAD=%s refs=[%s])\n' \
+      "$fw" \
+      "$(git -C "$fw.origin" symbolic-ref HEAD 2>&1)" \
+      "$(git -C "$fw.origin" for-each-ref --format='%(refname)' 2>/dev/null | tr '\n' ' ')" >&2
+  fi
   FW="$fw"
   PIN="$(git -C "$fw" rev-parse HEAD 2>/dev/null)"
+  return "$rc"
 }
 
 # build_proj_current <projdir> <fwdir> <pin> — a project whose manifest currency

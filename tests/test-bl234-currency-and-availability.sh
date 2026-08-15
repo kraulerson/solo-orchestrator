@@ -257,7 +257,7 @@ _fh_size() { local n; n=$(wc -c < "$1" 2>/dev/null | tr -d ' '); _num "$n"; }
 # than the silence this package removes. A8 and M7 exist for that one byte.
 build_fw_failed_fetch() {
   local d="$1"
-  build_fw "$d/fw" "$d/origin"
+  build_fw "$d/fw" "$d/origin" || return 1
   rm -rf "$d/origin"                       # the remote path is gone
   _git -C "$d/fw" fetch -q >/dev/null 2>&1 || true   # this fetch FAILS and truncates FETCH_HEAD
 }
@@ -352,11 +352,39 @@ else
   fi
 fi
 
+# ── H3: the fix is pinned on EVERY host, and outlives Git 3.0.
+# H1 discriminates only where `init.defaultBranch` is unset. On this Mac it is
+# set to `main` by the gitconfig Xcode ships, so deleting the fixed line changes
+# nothing here and H1 passes anyway — the mutant is invisible locally and only
+# CI kills it. Worse, git-init(1) says the built-in fallback "will change to
+# `main` when Git 3.0 is released"; when runners ship that, the runner stops
+# reproducing the condition too and the canary erodes EVERYWHERE with no signal.
+# So force the condition through the environment rather than inheriting it, and
+# show the forcing biting first — an unforced control would make H3 vacuous.
+H3="$(newtmp)"
+GIT_CONFIG_COUNT=1; GIT_CONFIG_KEY_0=init.defaultBranch; GIT_CONFIG_VALUE_0=master
+export GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0
+_git init -q --bare "$H3/control" >/dev/null 2>&1     # the UNFIXED spelling
+h3_ctlhead="$(_git -C "$H3/control" symbolic-ref HEAD 2>&1)"
+if build_fw "$H3/fw" "$H3/origin"; then h3_built=0; else h3_built=1; fi
+h3_pin="$PIN"
+h3_head="$(_git -C "$H3/origin" symbolic-ref HEAD 2>&1)"
+if advance_origin "$H3/origin" "$H3/adv"; then h3_adv=0; else h3_adv=1; fi
+h3_after="$(_git -C "$H3/origin" rev-parse refs/heads/main 2>/dev/null)"
+unset GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0
+if [ "$h3_ctlhead" = "refs/heads/master" ] && [ "$h3_built" -eq 0 ] \
+   && [ "$h3_head" = "refs/heads/main" ] && [ "$h3_adv" -eq 0 ] \
+   && [ -n "$h3_after" ] && [ -n "$h3_pin" ] && [ "$h3_after" != "$h3_pin" ]; then
+  pass "H3: with the host forced to init.defaultBranch=master — and an unfixed bare shown landing on '$h3_ctlhead' under that same environment — build_fw's origin still resolves to refs/heads/main and advance_origin still moves it. This pins the fix on any host and outlives Git 3.0 flipping the built-in default"
+else
+  fail_ "H3" "control bare HEAD='$h3_ctlhead' (want refs/heads/master, else the forcing is vacuous and H3 asserts nothing) built_rc=$h3_built origin HEAD='$h3_head' (want refs/heads/main) advance_rc=$h3_adv origin/main $h3_pin -> $h3_after (must differ)"
+fi
+
 echo "=== A — framework currency is measured against the REMOTE, and says so when it cannot be ==="
 
 # ── A1: the silent case. The clone is behind its origin; today nothing says so.
 A1="$(newtmp)"
-build_fw "$A1/fw" "$A1/origin"
+build_fw "$A1/fw" "$A1/origin" || fail_ "A1" "fixture: build_fw could not construct the framework clone"
 A1PIN="$PIN"
 if ! advance_origin "$A1/origin" "$A1/adv"; then
   fail_ "A1" "fixture: could not advance the local bare origin"
@@ -372,7 +400,7 @@ fi
 
 # ── A2: no false noise. Clone current with its origin -> byte-silent.
 A2="$(newtmp)"
-build_fw "$A2/fw" "$A2/origin"
+build_fw "$A2/fw" "$A2/origin" || fail_ "A2" "fixture: build_fw could not construct the framework clone"
 build_proj "$A2/proj" "$A2/fw" "$PIN"
 run_fresh "$A2/proj"
 if [ "$FRC" -eq 0 ] && [ -z "$FOUT" ] && [ -z "$FERR" ]; then
@@ -385,7 +413,7 @@ fi
 # Asserting only "did not crash" would pass over the exact silence this package
 # exists to remove, so the age text itself is asserted.
 A3="$(newtmp)"
-build_fw "$A3/fw" "$A3/origin"
+build_fw "$A3/fw" "$A3/origin" || fail_ "A3" "fixture: build_fw could not construct the framework clone"
 build_proj "$A3/proj" "$A3/fw" "$PIN"
 rm -rf "$A3/origin"                     # the remote path is now gone: fetch cannot succeed
 A3_FH="$(_git -C "$A3/fw" rev-parse --git-dir 2>/dev/null)/FETCH_HEAD"
@@ -409,7 +437,7 @@ fi
 # ── A4: NEVER fetched — powerpoint-voice's true state, and the one the old code
 # reported as "current".
 A4="$(newtmp)"
-build_fw "$A4/fw"                       # no bare origin: nothing has ever been fetched
+build_fw "$A4/fw" || fail_ "A4" "fixture: build_fw could not construct the framework clone"# no bare origin: nothing has ever been fetched
 _git -C "$A4/fw" remote add origin "$A4/nonexistent-bare" >/dev/null 2>&1
 build_proj "$A4/proj" "$A4/fw" "$PIN"
 A4_FH="$(_git -C "$A4/fw" rev-parse --git-dir 2>/dev/null)/FETCH_HEAD"
@@ -431,7 +459,7 @@ fi
 # command-substitution pipe open: run_with_timeout kills the stub, but a
 # surviving grandchild that inherited stdout would stall the capture for 30s.
 A5="$(newtmp)"
-build_fw "$A5/fw" "$A5/origin"
+build_fw "$A5/fw" "$A5/origin" || fail_ "A5" "fixture: build_fw could not construct the framework clone"
 build_proj "$A5/proj" "$A5/fw" "$PIN"
 mkdir -p "$A5/bin"
 REAL_GIT="$(command -v git)"
@@ -453,7 +481,7 @@ fi
 # ── A6: no remote at all. A fetch that was never ATTEMPTED is still a fetch that
 # did not happen, and the reference is still unanchored.
 A6="$(newtmp)"
-build_fw "$A6/fw"
+build_fw "$A6/fw" || fail_ "A6" "fixture: build_fw could not construct the framework clone"
 build_proj "$A6/proj" "$A6/fw" "$PIN"
 run_fresh "$A6/proj"
 if [ "$FRC" -eq 0 ] && printf '%s' "$FOUT" | grep -q 'fw-reference-age'; then
@@ -468,7 +496,7 @@ fi
 # machine block exists to read in both — otherwise the opt-out run is silent and
 # the field could not be compared at all.
 A7="$(newtmp)"
-build_fw "$A7/fw"
+build_fw "$A7/fw" || fail_ "A7" "fixture: build_fw could not construct the framework clone"
 A7PIN="$PIN"
 printf 'echo fw v2\n' > "$A7/fw/scripts/validate.sh"
 _git -C "$A7/fw" add -A >/dev/null 2>&1
@@ -528,7 +556,7 @@ cp -p "$FRESH_LIB" "$A9/m/scripts/lib/"
 for f in currency-manifest.sh hook-templates.sh bypass-audit.sh; do
   [ -f "$REPO_ROOT/scripts/lib/$f" ] && cp -p "$REPO_ROOT/scripts/lib/$f" "$A9/m/scripts/lib/"
 done                                    # helpers-core.sh deliberately WITHHELD
-build_fw "$A9/fw" "$A9/origin"
+build_fw "$A9/fw" "$A9/origin" || fail_ "A9" "fixture: build_fw could not construct the framework clone"
 build_proj "$A9/proj" "$A9/fw" "$PIN"
 A9_REMOTES="$(_git -C "$A9/fw" remote 2>/dev/null | wc -l | tr -d ' ')"
 run_fresh_at "$A9/m/scripts/session-freshness-check.sh" "$A9/proj"
@@ -1087,7 +1115,7 @@ STUBEOF
 
 # ── E1: with the bounded runner available, the handler does its job.
 E1="$(newtmp)"
-build_fw "$E1/fw" "$E1/origin"
+build_fw "$E1/fw" "$E1/origin" || fail_ "E1" "fixture: build_fw could not construct the framework clone"
 E1PIN="$PIN"
 advance_origin "$E1/origin" "$E1/adv" || fail_ "E1" "fixture: could not advance the local bare origin"
 E1_OUT="$(run_check_for_update "$E1" "$E1/fw" yes)"
@@ -1104,7 +1132,7 @@ fi
 # STALE refs and report a currency verdict from a fetch that never ran. It must
 # say "cannot tell" instead.
 E2="$(newtmp)"
-build_fw "$E2/fw" "$E2/origin"
+build_fw "$E2/fw" "$E2/origin" || fail_ "E2" "fixture: build_fw could not construct the framework clone"
 advance_origin "$E2/origin" "$E2/adv" || fail_ "E2" "fixture: could not advance the local bare origin"
 E2_OUT="$(run_check_for_update "$E2" "$E2/fw" no)"
 E2_STATUS="${E2_OUT%%|*}"
@@ -1123,7 +1151,7 @@ fi
 # tool while offline. The fixture is BEHIND on purpose: a fixture that is
 # actually current would pass with the bug present.
 E3="$(newtmp)"
-build_fw "$E3/fw" "$E3/origin"
+build_fw "$E3/fw" "$E3/origin" || fail_ "E3" "fixture: build_fw could not construct the framework clone"
 advance_origin "$E3/origin" "$E3/adv" || fail_ "E3" "fixture: could not advance the local bare origin"
 E3_LOCAL="$(_git -C "$E3/fw" rev-parse HEAD 2>/dev/null)"
 E3_TRUE="$(_git -C "$E3/origin" rev-parse main 2>/dev/null)"
@@ -1142,7 +1170,7 @@ fi
 # assertion is satisfied by the presence of a call"). This one runs a git that
 # sleeps 12s on `fetch` and asserts the WALL CLOCK, the same standard as A5/B6.
 E4="$(newtmp)"
-build_fw "$E4/fw" "$E4/origin"
+build_fw "$E4/fw" "$E4/origin" || fail_ "E4" "fixture: build_fw could not construct the framework clone"
 mk_git_fetch_stub "$E4/bin" 12
 run_check_for_update_at "$CHECKVER" "$E4" "$E4/fw" yes "PATH=$E4/bin:$PATH" "SOLO_FETCH_TIMEOUT=2"
 E4_STATUS="${CVOUT%%|*}"
@@ -1161,7 +1189,7 @@ fi
 # assertion is on the EMITTED SENTENCE, which names the seconds actually used —
 # `10s` once the value has been sanitized, `abcs` if it never was.
 E5="$(newtmp)"
-build_fw "$E5/fw" "$E5/origin"
+build_fw "$E5/fw" "$E5/origin" || fail_ "E5" "fixture: build_fw could not construct the framework clone"
 rm -rf "$E5/origin"
 run_check_for_update_at "$CHECKVER" "$E5" "$E5/fw" yes "SOLO_FETCH_TIMEOUT=abc"
 E5_STATUS="${CVOUT%%|*}"
@@ -1250,14 +1278,14 @@ else
   # advanced and "report drift" with the fetch removed. This suite hit that
   # exact failure and it is the sharpest form of the fresh-fixture rule: the
   # thing under test writes to the fixture.
-  build_fw "$M1/fw1" "$M1/origin1"; M1PIN1="$PIN"
+  build_fw "$M1/fw1" "$M1/origin1" || fail_ "M1" "fixture: build_fw could not construct the framework clone"; M1PIN1="$PIN"
   advance_origin "$M1/origin1" "$M1/adv1" || fail_ "M1" "fixture: could not advance the local bare origin (control)"
   build_proj "$M1/p1" "$M1/fw1" "$M1PIN1"
   run_fresh_at "$M1/m/scripts/session-freshness-check.sh" "$M1/p1"
   m1_ctl=no; printf '%s' "$FOUT" | grep -q 'pin-behind-upstream' && m1_ctl=yes
   m1_meta=$(_mutate "$M1/m/scripts/lib/freshness-detect.sh" '# BL-234-FETCH-REVERSAL' '  _fetch_rc=2')
   set -- $m1_meta; m1_sites=$1; m1_changed=$2; m1_parses=$3
-  build_fw "$M1/fw2" "$M1/origin2"; M1PIN2="$PIN"
+  build_fw "$M1/fw2" "$M1/origin2" || fail_ "M1" "fixture: build_fw could not construct the framework clone"; M1PIN2="$PIN"
   advance_origin "$M1/origin2" "$M1/adv2" || fail_ "M1" "fixture: could not advance the local bare origin (mutant)"
   build_proj "$M1/p2" "$M1/fw2" "$M1PIN2"
   run_fresh_at "$M1/m/scripts/session-freshness-check.sh" "$M1/p2"
@@ -1277,7 +1305,7 @@ M2="$(newtmp)"
 if ! mk_mirror_lib "$M2/m"; then
   fail_ "M2" "mirror setup failed"
 else
-  build_fw "$M2/fw"; M2PIN="$PIN"
+  build_fw "$M2/fw" || fail_ "M2" "fixture: build_fw could not construct the framework clone"; M2PIN="$PIN"
   build_proj "$M2/p1" "$M2/fw" "$M2PIN"
   run_fresh_at "$M2/m/scripts/session-freshness-check.sh" "$M2/p1"
   m2_ctl=no; printf '%s' "$FOUT" | grep -q 'fw-reference-age' && m2_ctl=yes
@@ -1299,7 +1327,7 @@ M3="$(newtmp)"
 if ! mk_mirror_lib "$M3/m"; then
   fail_ "M3" "mirror setup failed"
 else
-  build_fw "$M3/fw" "$M3/origin"; M3PIN="$PIN"
+  build_fw "$M3/fw" "$M3/origin" || fail_ "M3" "fixture: build_fw could not construct the framework clone"; M3PIN="$PIN"
   mkdir -p "$M3/bin"
   cat > "$M3/bin/git" << STUBEOF
 #!/usr/bin/env bash
@@ -1383,14 +1411,14 @@ fi
 M6="$(newtmp)"
 mkdir -p "$M6/scripts/lib"
 cp -p "$CHECKVER" "$M6/scripts/check-versions.sh"
-build_fw "$M6/fw" "$M6/origin"
+build_fw "$M6/fw" "$M6/origin" || fail_ "M6" "fixture: build_fw could not construct the framework clone"
 advance_origin "$M6/origin" "$M6/adv" || fail_ "M6" "fixture: could not advance the local bare origin (control)"
 rm -rf "$M6/origin"
 m6_ctl_out="$(run_check_for_update "$M6" "$M6/fw" yes)"
 m6_ctl="${m6_ctl_out%%|*}"
 m6_meta=$(_mutate "$M6/scripts/check-versions.sh" '# BL-234-CHECKVERSIONS-TIMEOUT' '        git -C "$repo_path" fetch --quiet 2>/dev/null || true')
 set -- $m6_meta; m6_sites=$1; m6_changed=$2; m6_parses=$3
-build_fw "$M6/fw2" "$M6/origin2"
+build_fw "$M6/fw2" "$M6/origin2" || fail_ "M6" "fixture: build_fw could not construct the framework clone"
 advance_origin "$M6/origin2" "$M6/adv2" || fail_ "M6" "fixture: could not advance the local bare origin (mutant)"
 rm -rf "$M6/origin2"
 run_check_for_update_at "$M6/scripts/check-versions.sh" "$M6" "$M6/fw2" yes
@@ -1409,13 +1437,13 @@ fi
 M8="$(newtmp)"
 mkdir -p "$M8/scripts"
 cp -p "$CHECKVER" "$M8/scripts/check-versions.sh"
-build_fw "$M8/fw" "$M8/origin"
+build_fw "$M8/fw" "$M8/origin" || fail_ "M8" "fixture: build_fw could not construct the framework clone"
 rm -rf "$M8/origin"
 run_check_for_update_at "$CHECKVER" "$M8" "$M8/fw" yes "SOLO_FETCH_TIMEOUT=abc"
 m8_ctl=no; printf '%s' "$CVOUT" | grep -q '10s bound' && m8_ctl=yes
 m8_meta=$(_mutate "$M8/scripts/check-versions.sh" '# BL-234-CHECKVERSIONS-SECS' '        _cv_secs="${SOLO_FETCH_TIMEOUT:-10}"')
 set -- $m8_meta; m8_sites=$1; m8_changed=$2; m8_parses=$3
-build_fw "$M8/fw2" "$M8/origin2"
+build_fw "$M8/fw2" "$M8/origin2" || fail_ "M8" "fixture: build_fw could not construct the framework clone"
 rm -rf "$M8/origin2"
 run_check_for_update_at "$M8/scripts/check-versions.sh" "$M8" "$M8/fw2" yes "SOLO_FETCH_TIMEOUT=abc"
 m8_mut=no; printf '%s' "$CVOUT" | grep -q 'abcs bound' && m8_mut=yes
@@ -1472,7 +1500,7 @@ cp -p "$FRESH_LIB" "$M9/m/scripts/lib/"
 for f in currency-manifest.sh hook-templates.sh bypass-audit.sh; do
   [ -f "$REPO_ROOT/scripts/lib/$f" ] && cp -p "$REPO_ROOT/scripts/lib/$f" "$M9/m/scripts/lib/"
 done                                    # helpers-core.sh withheld, as in A9
-build_fw "$M9/fw" "$M9/origin"; M9PIN="$PIN"
+build_fw "$M9/fw" "$M9/origin" || fail_ "M9" "fixture: build_fw could not construct the framework clone"; M9PIN="$PIN"
 build_proj "$M9/p1" "$M9/fw" "$M9PIN"
 run_fresh_at "$M9/m/scripts/session-freshness-check.sh" "$M9/p1"
 m9_ctl=no; printf '%s' "$FOUT" | grep -q 'no bounded runner' && m9_ctl=yes
