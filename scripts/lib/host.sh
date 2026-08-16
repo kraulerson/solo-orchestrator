@@ -71,8 +71,12 @@ host_read_from_manifest() {
 # HOST_RELEASE_PATH outright: init.sh's `case "$host"` was its only other copy
 # and is now a call. HOST_CI_PATH still has live siblings that this branch does
 # NOT convert — `scripts/verify-install.sh` (`_ci_dest`, and the fix_ci_pipeline
-# writer) and `scripts/reconfigure-project.sh`. Derive the current set rather
-# than trusting this sentence:
+# writer), `scripts/reconfigure-project.sh`, `scripts/validate.sh`'s
+# Competency-Matrix guard, `scripts/check-updates.sh` and `scripts/check-gate.sh`.
+# The first enumeration here named three and its own recipe found six; the
+# validate.sh one matters most, because it makes that whole check SILENTLY SKIP
+# on GitLab and Bitbucket — this entry's defect class, in the file this entry
+# fixes. Derive the current set rather than trusting this sentence:
 #
 #   grep -rn '\.gitlab-ci\|bitbucket-pipelines\|\.github/workflows' scripts/ init.sh
 #
@@ -134,20 +138,44 @@ host_pipeline_resolve() {
 #      key that YAML then discarded, taking the real declaration with it.
 # Hence: merge into an existing block rather than emitting a rival one, and
 # verify STRUCTURE — anchored keys, and the reference actually invoked.
+# _hwr_verify <ci> <rel> <how> — is the release file genuinely reachable?
+#
+#   0  wired
+#   1  NOT wired — a real defect
+#   2  CANNOT TELL — the file's shape is beyond these greps
+#
+# THE THIRD STATE IS NOT PEDANTRY. This is anchored-grep matching, not a YAML
+# parse, so flow style (`definitions: {imports: {...}}`) and multi-document
+# files are shapes it cannot read. Answering "not wired" there would tell a
+# CORRECTLY wired project that its release will never run — which is BL-229's
+# own false-failure symptom, relocated. Callers must fail closed on 2 (a gate
+# that cannot measure must not pass) while SAYING something different from 1.
+# Same distinction `## BL-213:` forced on the cadence checker.
 _hwr_verify() {                                                      # BL-229-WIRE-VERIFY
-  local ci="$1" rel="$2" how="$3"
+  local ci="$1" rel="$2" how="$3" norm
+  # CRLF is not a defect. A Windows contributor's checkout is a healthy project
+  # and must not be told its release pipeline is broken.
+  norm="$(tr -d '\r' < "$ci" 2>/dev/null)"
+  case "$norm" in
+    *"---"*)  ;;   # checked properly below; this arm only cheapens the common case
+  esac
+  # Shapes these greps cannot read -> "cannot tell", never "not wired".
+  if printf '%s\n' "$norm" | grep -qE '^(definitions|pipelines):[[:space:]]*[{[]' \
+     || printf '%s\n' "$norm" | grep -qE '^---[[:space:]]*$'; then
+    return 2
+  fi
   case "$how" in
     include)
-      # anchored, so a path named in a comment cannot satisfy it
-      grep -q "^  - local: /${rel}\$" "$ci" 2>/dev/null || return 1
+      printf '%s\n' "$norm" | grep -q "^  - local: /${rel}\$" || return 1
       ;;
     import)
       # exactly ONE imports: block — two means YAML keeps the last and silently
-      # drops the other, which is how this passed while being broken
-      [ "$(grep -c '^  imports:$' "$ci" 2>/dev/null)" -eq 1 ] || return 1
-      grep -q "^    release: ${rel}\$" "$ci" 2>/dev/null || return 1
-      # DECLARED IS NOT INVOKED: an import source nothing references never runs
-      grep -q 'import: release-pipeline@release' "$ci" 2>/dev/null || return 1
+      # discards the other, which is how an earlier version passed while broken
+      [ "$(printf '%s\n' "$norm" | grep -c '^  imports:$')" -eq 1 ] || return 1
+      printf '%s\n' "$norm" | grep -q "^    release: ${rel}\$" || return 1
+      # DECLARED IS NOT INVOKED, and the reference must be ANCHORED: unanchored,
+      # a commented-out line satisfied it.
+      printf '%s\n' "$norm" | grep -q "^      import: release-pipeline@release\$" || return 1
       ;;
   esac
   return 0

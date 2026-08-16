@@ -9772,9 +9772,13 @@ of the blocks:
 
 Mutations, each `sites==1`, 2 lines changed, `bash -n` clean: **M1** collapses
 the host mapping to the GitHub spelling; **M2** emits the import declaration
-empty. Two further mutants that **survived the previous version at 12/12** now
-die at 13/2 — dropping the `import:` reference while keeping the declaration,
-and emitting a rival `imports:` block.
+empty. Two further mutants that **survived the previous version at 12/12** now die —
+dropping the `import:` reference while keeping the declaration, and emitting a
+rival `imports:` block. **Both at 14 passed / 1 failed, not the 13/2 an earlier
+draft of this entry claimed**; review re-derived it and the draft was wrong.
+Each fails on `N2` alone, which is the right shape: one case, one reason. The
+kills were real; the numbers were not, and this entry is the wrong place to be
+approximate about a tally.
 
 **The gap, measured on `main` @ `b709576`.** `scripts/check-phase-gate.sh`
 guards the release-TODO check on a literal path:

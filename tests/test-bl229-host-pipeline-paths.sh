@@ -440,6 +440,60 @@ else
   fail_ "N3" "declared-not-invoked rc=$n3_rc (want non-zero) comment-only rc=$n3b_rc (want non-zero) — the predicate is still satisfiable without a working reference"
 fi
 
+# ── G4: THE READERS MUST ASK THE SHARED PREDICATE, NOT RE-DERIVE IT. Review
+# found `_hwr_verify` wired into the WRITER only, while both readers kept a
+# private `grep -q "$path" "$ci"` — so the Phase 3→4 gate, the thing that
+# actually blocks a release, blessed all three inert states the writer's own
+# verifier rejected. Two predicates for one question, disagreeing, inside the
+# entry whose thesis is single ownership. These are those three states.
+g4_bad=""
+# Each shape is written EXPLICITLY. A shared "append the reference" step made the
+# declared-never-invoked row genuinely wired, and the case then failed for the
+# right reason against the wrong fixture — caught on the first run.
+_g4_case() {   # <label> <ci-content>
+  local label="$1" content="$2" d out
+  d="$(newtmp)"; mk_proj "$d/p" bitbucket
+  printf '{"current_phase":3}\n' > "$d/p/.claude/phase-state.json"
+  mkdir -p "$d/p/.bitbucket"
+  printf 'steps:\n  - echo release\n' > "$d/p/.bitbucket/release-pipelines.yml"
+  printf '%s' "$content" > "$d/p/bitbucket-pipelines.yml"
+  out="$( cd "$d/p" && "$BASH_BIN" "$GATE" --gate phase_3_to_4 2>&1 || true )"
+  printf '%s' "$out" | grep -qi 'Release pipeline configured' && g4_bad="$g4_bad $label"
+  return 0
+}
+
+# 1. the path appears ONLY in a comment
+_g4_case comment '# TODO wire .bitbucket/release-pipelines.yml one day
+pipelines:
+  default:
+    - step: {script: [echo ci]}
+'
+# 2. DECLARED as an import source, never invoked by any pipeline
+_g4_case declared 'definitions:
+  imports:
+    release: .bitbucket/release-pipelines.yml
+pipelines:
+  default:
+    - step: {script: [echo ci]}
+'
+# 3. declaration SHADOWED — two imports: blocks, YAML keeps the last, so the
+#    release source is discarded while the reference still points at it
+_g4_case shadowed 'definitions:
+  imports:
+    release: .bitbucket/release-pipelines.yml
+  imports:
+    other: .bitbucket/other-pipelines.yml
+pipelines:
+  custom:
+    release:
+      import: release-pipeline@release
+'
+if [ -z "$g4_bad" ]; then
+  pass "G4: the gate refuses all three inert shapes its old private grep blessed — a path named only in a COMMENT, a source DECLARED but never invoked, and a declaration SHADOWED by a rival imports: block. It asks the same predicate the writer does, so the two cannot disagree"
+else
+  fail_ "G4" "the gate still reports 'configured' for:$g4_bad — it is re-deriving the answer instead of asking # BL-229-WIRE-VERIFY"
+fi
+
 echo "=== M — mutation proofs (sites==1, N lines changed, bash -n, fresh fixture) ==="
 
 # ── M1: the resolver's mapping is load-bearing for the gate. Neuter it and the

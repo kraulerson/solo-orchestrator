@@ -121,12 +121,19 @@ else
   [ -f "$_v_ci" ] && print_ok "CI pipeline ($_v_ci)" || fail "CI pipeline missing ($_v_ci)"
 
   if [ -f "$_v_rel" ] && [ "$_v_how" != "file" ] \
-     && { [ ! -f "$_v_ci" ] || ! grep -q "$_v_rel" "$_v_ci" 2>/dev/null; }; then
+     && { _hwr_verify "$_v_ci" "$_v_rel" "$_v_how"; _v_wire=$?; [ "$_v_wire" -ne 0 ]; }; then
     # BL-229-VALIDATE-RELEASE-WIRED: existence is not execution. On GitLab and
     # Bitbucket the release file is inert until the root pipeline references it,
     # and init.sh shipped unreferenced release files on both hosts for months.
     # Reporting "configured" here would bless exactly that state.
-    warn "Release pipeline $_v_rel is NOT WIRED into $_v_ci ($_v_how) — it will never run"
+    # Same shared predicate as the gate (# BL-229-WIRE-VERIFY). Two readers
+    # answering one question with two different greps is how the gate came to
+    # bless states the writer's own verifier rejected.
+    if [ "$_v_wire" -eq 2 ]; then
+      warn "Could NOT VERIFY that $_v_rel is wired into $_v_ci ($_v_how) — the pipeline file uses a shape this check cannot read; confirm by hand"
+    else
+      warn "Release pipeline $_v_rel is NOT WIRED into $_v_ci ($_v_how) — it will never run"
+    fi
   elif [ -f "$_v_rel" ]; then
     # Check if release pipeline still has uncommented TODO placeholders
     todo_count=$(grep -cE "# TODO|echo.*TODO" "$_v_rel" 2>/dev/null || true)

@@ -1218,7 +1218,24 @@ echo "  2. git commit -m \"chore(release): $TAG\""
 echo "  3. git tag -f $TAG          <-- the step above. Do not skip it."
 echo "  4. git push && git push origin $TAG"
 echo ""
-echo "  Your release pipeline fires on the tag push in step 4, and not before."
+# BL-229-CUTREL-TRIGGER: true on GitHub and GitLab, which really are
+# tag-triggered. NOT true on Bitbucket, where the release is a `custom:`
+# pipeline (Atlassian documents `import:` under `custom:`/`branches:` only, and
+# `branches:` would fire on every push). Saying "the tag fires it" to a
+# Bitbucket operator is the framework claiming something ran when it did not —
+# this entry's whole subject.
+_cr_how=""
+if [ -f "$SCRIPT_DIR/lib/host.sh" ]; then
+  # shellcheck disable=SC1090
+  . "$SCRIPT_DIR/lib/host.sh" 2>/dev/null
+  host_pipeline_resolve >/dev/null 2>&1 && _cr_how="$HOST_RELEASE_EXECUTES"
+fi
+if [ "$_cr_how" = "import" ]; then
+  echo "  On this host the release pipeline is a MANUAL pipeline: pushing the tag does"
+  echo "  NOT start it. Run it from Pipelines > Run pipeline > custom: release."
+else
+  echo "  Your release pipeline fires on the tag push in step 4, and not before."
+fi
 
 # THE LAST WORD IS NOT ALLOWED TO BE A CLEAN ONE WHEN THE CUT WAS NOT. The
 # release happened and the operator needs the four steps above regardless, so

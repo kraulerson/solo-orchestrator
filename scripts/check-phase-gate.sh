@@ -1995,15 +1995,27 @@ if [ "$current_phase" -ge 3 ] && [ "$skip_later_gate" -eq 0 ]; then   # BL-166-G
     echo -e "${YELLOW}[WARN]${NC} Phase 3→4: release pipeline not found at $_rel_path"
     echo "  A configured release pipeline is required before production release."
     issues=$((issues + 1))
-  elif [ "$_rel_how" != "file" ] && { [ ! -f "$_rel_ci" ] || ! grep -q "$_rel_path" "$_rel_ci" 2>/dev/null; }; then
+  elif [ "$_rel_how" != "file" ] && { _hwr_verify "$_rel_ci" "$_rel_path" "$_rel_how"; _wire_rc=$?; [ "$_wire_rc" -ne 0 ]; }; then
     # BL-229-GATE-RELEASE-WIRED: existence is not execution. On GitLab and
     # Bitbucket the release file is INERT until the root pipeline references it
     # — GitLab by `include:`, Bitbucket by `definitions.imports` plus an
     # `import:`. init.sh shipped unreferenced release files on both hosts for
     # months, so a gate that stops at `[ -f ]` would bless exactly the state
     # this entry exists to end.
-    echo -e "${YELLOW}[WARN]${NC} Phase 3→4: release pipeline $_rel_path is NOT WIRED into $_rel_ci — it will never run"
-    echo "  This host reaches the release file by '$_rel_how'; without that reference the file is inert."
+    # ASK the shared predicate (# BL-229-WIRE-VERIFY) rather than re-deriving it.
+    # A private `grep -q "$path" "$ci"` here was satisfied by a mention in a
+    # comment, by a source declared and never invoked, and by a declaration
+    # YAML had already discarded — so the gate blessed three inert states the
+    # writer's own verifier rejected. Two predicates for one question, and they
+    # disagreed: a fresh sync sibling inside the entry about sync siblings.
+    if [ "$_wire_rc" -eq 2 ]; then
+      echo -e "${YELLOW}[WARN]${NC} Phase 3→4: could NOT VERIFY that $_rel_path is wired into $_rel_ci"
+      echo "  The pipeline file uses a shape this check cannot read (flow style, or multiple documents)."
+      echo "  Cannot-measure is not a pass — confirm the '$_rel_how' reference by hand."
+    else
+      echo -e "${YELLOW}[WARN]${NC} Phase 3→4: release pipeline $_rel_path is NOT WIRED into $_rel_ci — it will never run"
+      echo "  This host reaches the release file by '$_rel_how'; without that reference the file is inert."
+    fi
     issues=$((issues + 1))
   else
     todo_count=$(grep -c "TODO" "$_rel_path" 2>/dev/null) || todo_count=0

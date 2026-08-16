@@ -1,11 +1,17 @@
-# Bitbucket Pipelines release for desktop (tag-triggered).
+# Bitbucket Pipelines release for desktop (manual / scheduled release).
 # macOS/Windows require runners with appropriate self-hosted labels.
 #
 # EXPORT FILE (BL-229). Bitbucket reaches a same-repo file through
 # `definitions: imports:` plus an `import:` reference — it has no transparent
 # `include:` like GitLab — so this file declares `export: true` and puts its
-# steps under `definitions.pipelines`. The `tags: 'v*':` start-condition lives
-# in bitbucket-pipelines.yml, next to the import that names this pipeline.
+# steps under `definitions.pipelines`.
+#
+# TRIGGERED FROM `pipelines.custom.release` in bitbucket-pipelines.yml, NOT from
+# a tag. Atlassian documents `import:` under `custom:` and `branches:` only; the
+# `tags:` case is undocumented for imports, and `branches:` would fire a release
+# on every push. `custom:` is "triggered manually or by a schedule", which is
+# what a release is. Run it from Pipelines > Run pipeline > custom: release.
+# This differs from the GitHub and GitLab templates, which ARE tag-triggered.
 export: true
 definitions:
   pipelines:
