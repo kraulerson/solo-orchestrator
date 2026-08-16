@@ -1,14 +1,21 @@
 # Bitbucket Pipelines release for desktop (tag-triggered).
 # macOS/Windows require runners with appropriate self-hosted labels.
-pipelines:
-  tags:
-    'v*':
-      - step:
-          name: Build (Linux)
-          image: __SETUP_ACTION__
-          script: [__INSTALL_COMMAND__, __BUILD_COMMAND__]
-          artifacts: [dist/**, target/release/**]
-      - step:
-          name: Sign + Deploy
-          trigger: manual
-          script: [echo "Configure signing (codesign/signtool) and distribution"]
+#
+# EXPORT FILE (BL-229). Bitbucket reaches a same-repo file through
+# `definitions: imports:` plus an `import:` reference — it has no transparent
+# `include:` like GitLab — so this file declares `export: true` and puts its
+# steps under `definitions.pipelines`. The `tags: 'v*':` start-condition lives
+# in bitbucket-pipelines.yml, next to the import that names this pipeline.
+export: true
+definitions:
+  pipelines:
+    release-pipeline:
+        - step:
+            name: Build (Linux)
+            image: __SETUP_ACTION__
+            script: [__INSTALL_COMMAND__, __BUILD_COMMAND__]
+            artifacts: [dist/**, target/release/**]
+        - step:
+            name: Sign + Deploy
+            trigger: manual
+            script: [echo "Configure signing (codesign/signtool) and distribution"]

@@ -9679,7 +9679,102 @@ nothing about it
 **Severity:** Medium-High. Not a wrong answer: an **absent** answer, on two of
 the three supported hosts, with no output distinguishing "checked and clean" from
 "never looked".
-**Status:** Open
+**Status:** Open — fix implemented on branch `fix/bl229-release-paths`; close on
+merge with the PR number.
+
+### The entry said one site. It is five, and the worst one is not the filed one
+
+| site | symptom | this branch |
+|---|---|---|
+| `scripts/check-phase-gate.sh` | **as filed** — block skipped, prints nothing | **converted** |
+| `scripts/validate.sh` | **false `[FAIL]`** on a HEALTHY project | **converted** |
+| `scripts/verify-install.sh` | two sites: the fixer AND the registration arm | **release path converted; `_ci_dest` and the CI writer are NOT** |
+| `scripts/reconfigure-project.sh` | writes to the GitHub path unconditionally | **NOT converted** — its CI arm is already dead code (it resolves `templates/pipelines/ci/<lang>.yml`, a layout that no longer exists) |
+| `init.sh` | wrote release files **nothing could execute** | **converted** |
+
+`validate.sh` used the same hardcoded paths with `fail`, and `fail` increments
+`errors` while the script ends `exit $errors` — so a correct GitLab project
+FAILED VALIDATION for keeping its files where GitLab puts them. Measured as a
+DELTA rather than absolute exits (the absolutes are fixture-dependent and an
+earlier draft of this entry quoted unreproducible ones): identical projects
+differing only in `.host` produce **exactly one extra `[FAIL]`** on the
+non-GitHub hosts, and it is `[FAIL] CI pipeline missing (.github/workflows/ci.yml)`.
+
+### The one underneath: the release pipeline could not run on two of three hosts
+
+`init.sh` wrote `.gitlab-ci/release.yml` and `bitbucket-pipelines/release.yml`
+and **nothing referenced either**. Fixing only the readers would have made the
+3→4 gate carefully validate a file that could never execute.
+
+- **GitLab** — `include: local` supports a subdirectory file; it was legitimate
+  and merely unwired.
+- **Bitbucket** — reached by `definitions: imports:` with a same-repo path plus
+  an `import:` reference, the imported file declaring `export: true`. Two wiring
+  points, not one.
+
+### Three attempts at the Bitbucket half, and the same defect each time
+
+Recorded in full because the pattern is the lesson, not the fix:
+
+| attempt | mechanism | claimed |
+|---|---|---|
+| 1 | `awk -v` with a multi-line body — BSD awk rejects the newline, so the splice never ran, the `&&` short-circuited, and `rm -f` destroyed the rendered content | "folded" |
+| 2 | `[ -f ]` on a release path that equalled the CI path — existence is not execution | "configured" |
+| 3 | `grep -q "$rel" "$ci"` — a SUBSTRING test, satisfied by a mention in a comment, by a declared-but-never-invoked source, and by a path sitting under a key YAML had already discarded | "wired" |
+
+Each fix verified the previous mechanism and introduced a weaker one. **The
+proof kept measuring text where it needed to measure structure.** Attempt 1 also
+rested on a false premise — that Bitbucket had no same-repo include — which was
+asserted in four places and drove an owner decision before Atlassian's docs
+refuted it.
+
+### What the shipped version does
+
+- **`# BL-229-BITBUCKET-EXPORT-NAME`** — the export file is
+  `.bitbucket/release-pipelines.yml`. Atlassian states the rule twice: *"create
+  a separate file with a `*pipelines.yml` suffix"*. Attempt 3 shipped
+  `bitbucket-pipelines/release.yml`, where the DIRECTORY matched and the
+  filename did not, so Bitbucket would not have loaded it — the same
+  never-executes defect in a new costume. Case `N1` pins the suffix.
+- **`# BL-229-WIRE-RELEASE`** is the single owner of the wiring, with two
+  callers. It **merges into an existing `imports:` block** rather than emitting a
+  rival one (`N2`), because a second `imports:` key makes YAML discard the
+  first — silently taking the release declaration with it.
+- **`# BL-229-WIRE-VERIFY`** is structural, not textual: exactly ONE `imports:`
+  block, the `release:` key anchored beneath it, and the `import:` reference
+  actually present. `N3` pins that a path named only in a comment, and a source
+  declared but never invoked, are both refused.
+- **`custom:` is the reference site, not `tags:`.** Atlassian documents
+  `import:` under `custom:` and `branches:` only; the `tags:` example shows a
+  step list, and the prose *"various start conditions"* is not an enumeration.
+  `branches:` would fire a release on every push, so `custom:` — documented as
+  *"triggered manually or by a schedule"* — is both the documented shape and the
+  right semantics. **Recorded as an inference about a vendor surface**, resolved
+  by choosing the documented option rather than by guessing at the undocumented
+  one.
+- **Existence is not execution, in the readers too**
+  (`# BL-229-GATE-RELEASE-WIRED`, `# BL-229-VALIDATE-RELEASE-WIRED`).
+
+### Proof
+
+`tests/test-bl229-host-pipeline-paths.sh`, 15 cases. The ones that exist because
+of the blocks:
+
+- **W1 EXECUTES the shipped `generate_release`** on all three hosts. Nothing in
+  the PR-blocking set ran the release writer before, which is why attempts 1–3
+  all scored green while broken.
+- **G3** requires the gate to refuse a release file that is present, fully
+  configured, and referenced by nothing.
+- **N1/N2/N3** pin the suffix rule, the merge-not-rival invariant, and the
+  declared-is-not-invoked distinction.
+- **S1** pins that the wiring has ONE owner — it caught a real duplicate in
+  `verify-install.sh` the moment it was written.
+
+Mutations, each `sites==1`, 2 lines changed, `bash -n` clean: **M1** collapses
+the host mapping to the GitHub spelling; **M2** emits the import declaration
+empty. Two further mutants that **survived the previous version at 12/12** now
+die at 13/2 — dropping the `import:` reference while keeping the declaration,
+and emitting a rival `imports:` block.
 
 **The gap, measured on `main` @ `b709576`.** `scripts/check-phase-gate.sh`
 guards the release-TODO check on a literal path:

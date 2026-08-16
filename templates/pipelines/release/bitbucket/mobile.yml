@@ -1,14 +1,21 @@
 # Bitbucket Pipelines release for mobile (tag-triggered).
-pipelines:
-  tags:
-    'v*':
-      - step:
-          name: Build Android
-          image: reactnativecommunity/react-native-android:latest
-          script: [__INSTALL_COMMAND__, __BUILD_COMMAND__]
-          artifacts: [android/app/build/outputs/**]
-      - step:
-          name: Deploy
-          deployment: production
-          trigger: manual
-          script: [echo "Play Store / App Store deployment (fastlane recommended)"]
+#
+# EXPORT FILE (BL-229). Bitbucket reaches a same-repo file through
+# `definitions: imports:` plus an `import:` reference — it has no transparent
+# `include:` like GitLab — so this file declares `export: true` and puts its
+# steps under `definitions.pipelines`. The `tags: 'v*':` start-condition lives
+# in bitbucket-pipelines.yml, next to the import that names this pipeline.
+export: true
+definitions:
+  pipelines:
+    release-pipeline:
+        - step:
+            name: Build Android
+            image: reactnativecommunity/react-native-android:latest
+            script: [__INSTALL_COMMAND__, __BUILD_COMMAND__]
+            artifacts: [android/app/build/outputs/**]
+        - step:
+            name: Deploy
+            deployment: production
+            trigger: manual
+            script: [echo "Play Store / App Store deployment (fastlane recommended)"]

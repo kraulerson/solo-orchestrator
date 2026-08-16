@@ -3170,30 +3170,31 @@ generate_release() {
     return 0
   fi
 
-  # Host-specific output path: GitHub workflows live under .github/workflows,
-  # GitLab pipelines under .gitlab-ci/, Bitbucket under bitbucket-pipelines/
-  # (deploy phase is appended to bitbucket-pipelines.yml via include).
-  local target_dir target_file
-  case "$host" in
-    github)
-      target_dir=".github/workflows"
-      target_file="$target_dir/release.yml"
-      ;;
-    gitlab)
-      target_dir=".gitlab-ci"
-      target_file="$target_dir/release.yml"
-      ;;
-    bitbucket)
-      target_dir="bitbucket-pipelines"
-      target_file="$target_dir/release.yml"
-      ;;
-    *)
-      print_warn "Unknown host '$host'; defaulting release output to .github/workflows/release.yml"
-      target_dir=".github/workflows"
-      target_file="$target_dir/release.yml"
-      ;;
-  esac
-  mkdir -p "$target_dir"
+  # BL-229-INIT-RELEASE-PATH: ask the resolver. This `case` WAS the only copy of
+  # the host->path mapping, and five readers had each grown their own hardcoded
+  # GitHub spelling because of it. It is now a call, so writer and readers
+  # cannot drift — the sync-sibling failure `# BL-084-TIER-KEY` exists for.
+  #
+  # The comment this replaced claimed the Bitbucket "deploy phase is appended to
+  # bitbucket-pipelines.yml via include". No such include existed anywhere in
+  # the repo, and Bitbucket has no mechanism to create one: its sharing is
+  # CROSS-REPOSITORY (`definitions.imports.<name>: <repo-slug>:<ref>:<path>`,
+  # needing `export: true` in the other repo). So the file this function used to
+  # write at bitbucket-pipelines/release.yml could never execute. GitLab is the
+  # opposite case — `include: local` genuinely supports a subdirectory file, so
+  # its release file was legitimate and merely unwired.
+  # host.sh's only other source site in this file is conditional and runs much
+  # earlier, so do not assume the function exists here. Guarded, not repeated:
+  # sourcing twice is harmless, calling an undefined function is not.
+  if ! command -v host_pipeline_resolve >/dev/null 2>&1; then
+    # shellcheck disable=SC1090
+    source "$SCRIPT_DIR/scripts/lib/host.sh"
+  fi
+  if ! host_pipeline_resolve "$host" 2>/dev/null; then
+    print_warn "Unknown host '$host' — no release pipeline laid down. Record a supported host and re-run."
+    return 0
+  fi
+  local target_file="$HOST_RELEASE_PATH"
 
   # Get language-specific build variables
   get_release_vars
@@ -3205,6 +3206,8 @@ generate_release() {
   # shipped suppression would silence the mutable-action-tag rule on that line in
   # every downstream repo. Stripping is keyed on the marker token alone so no
   # suppression directive text exists in any shipped script either.
+  local _rendered
+  _rendered="$(mktemp)"
   sed -e 's|[[:space:]]*#.*__SOLO_TEMPLATE_ONLY__[[:space:]]*$||' \
       -e "s|__SETUP_ACTION__|$RELEASE_SETUP_ACTION|g" \
       -e "s|__SETUP_VERSION_KEY__|$RELEASE_SETUP_VERSION_KEY|g" \
@@ -3212,7 +3215,32 @@ generate_release() {
       -e "s|__INSTALL_COMMAND__|$RELEASE_INSTALL_COMMAND|g" \
       -e "s|__BUILD_COMMAND__|$RELEASE_BUILD_COMMAND|g" \
       -e "s|__PROJECT_NAME__|$PROJECT_NAME|g" \
-      "$release_template" > "$target_file"
+      "$release_template" > "$_rendered"
+
+  # How the rendered steps reach the runner differs per host, and getting this
+  # wrong is what left two of three hosts with a release pipeline on disk that
+  # nothing ever executed.
+  # How the rendered steps reach the runner differs per host, and getting this
+  # wrong is what left two of three hosts with a release pipeline on disk that
+  # nothing ever executed. The WIRING itself lives in one place —
+  # `host_wire_release` (# BL-229-WIRE-RELEASE) — because verify-install.sh
+  # auto-fixes the same thing and a second copy is the drift this entry is about.
+  mkdir -p "$(dirname "$target_file")"
+  mv "$_rendered" "$target_file"
+  if host_wire_release "$HOST_CI_PATH" "$target_file" "$HOST_RELEASE_EXECUTES"; then
+    case "$HOST_RELEASE_EXECUTES" in
+      file) : ;;   # GitHub needs no wiring; saying so would be noise
+      *)    print_info "Wired $target_file into $HOST_CI_PATH ($HOST_RELEASE_EXECUTES)" ;;
+    esac
+  else
+    # A WRITE THAT DID NOT HAPPEN MUST NOT REPORT SUCCESS. The previous attempt
+    # at the Bitbucket arm printed "folded" over a splice that never ran.
+    print_warn "Could NOT wire $target_file into $HOST_CI_PATH — the release pipeline will NOT run."
+    case "$HOST_RELEASE_EXECUTES" in
+      include) print_warn "  Add by hand: include: [{ local: /$target_file }]" ;;
+      import)  print_warn "  Add by hand: 'definitions: imports: release: $target_file' and 'import: release-pipeline@release' under a pipelines start-condition." ;;
+    esac
+  fi
 
   print_info "Release pipeline created at $target_file (host: $host, platform: $PLATFORM)"
   case "$TRACK" in
