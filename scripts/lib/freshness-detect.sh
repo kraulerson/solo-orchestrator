@@ -8,8 +8,25 @@
 #
 # CONTRACT (design v1.1 §2-L1 + I7 + review-r1 M5/M6/M9):
 #   • SILENT when current — zero bytes on stdout/stderr (Appendix P rung 1).
-#   • ZERO network — ever. Reads the LOCAL framework/CDF clones' files + refs
-#     only; never git fetch / ls-remote / curl.
+#   • ONE BOUNDED FETCH of the framework clone's remote, then zero network.
+#     ── BL-234: M1's "ZERO network — ever" rule is DELIBERATELY REVERSED ──
+#     This line used to read "ZERO network — ever. … never git fetch". That rule
+#     made the framework check structurally incapable of doing its job: it
+#     compared the project's pin against the LOCAL clone the project was
+#     scaffolded FROM, which is the same object by construction, so `pin-behind`
+#     could never fire. Measured on `powerpoint-voice`: pin 6417a255, clone HEAD
+#     6417a255, clone never fetched, upstream 161 commits ahead, detector
+#     silent. The asymmetry that settled it: check-versions.sh's `git_repo`
+#     handler DOES fetch, and reported CDF drift on that same project in the
+#     same session.
+#     Reversed on the owner's instruction (Karl, 2026-08-14) and recorded here,
+#     at the site (`# BL-234-FETCH-REVERSAL`) and on `## BL-234:` — a decision
+#     quietly reversed is how the next reader concludes the rule never existed.
+#     The opt-out survives verbatim: SOIF_FRESHNESS_FETCH=0 restores the
+#     zero-network path AND its silence, and the machine block's `network` field
+#     now reports which mode ran instead of hard-coding "none" (that field was a
+#     declaration too, and would have gone on saying "none" while we fetched).
+#     CDF is still read locally only — the fetch is the framework clone's alone.
 #   • Writes NOTHING in the project tree except `.claude/cache/freshness.json`
 #     (temp-write in the SAME dir + atomic rename; torn/invalid = cold start,
 #     never fatal; embedded FUTURE timestamps are clamped to expired).
@@ -26,7 +43,9 @@
 # CHECKS (all local; §2-L1 a–f):
 #   (a) LOCAL-EDIT     — project's framework-owned files (class M/T) vs files{}
 #                        → informational ('local edits … sync would archive-and-replace').
-#   (b) FRAMEWORK-DRIFT— via soloFrameworkPath: pin vs framework HEAD
+#   (b) FRAMEWORK-DRIFT— via soloFrameworkPath: pin vs the clone's UPSTREAM
+#                        (BL-234 — the comparison that can actually move) and
+#                        pin vs framework HEAD
 #                        (informational 'N commits behind') + per-file shas of
 #                        the framework's CURRENT shipped set vs files{}
 #                        (gate scripts/hooks → ENFORCEMENT; other → informational).
@@ -64,6 +83,13 @@ fi
 if ! command -v soif_tdd_region_body >/dev/null 2>&1; then
   # shellcheck source=/dev/null
   [ -f "$_soif_fd_dir/hook-templates.sh" ] && . "$_soif_fd_dir/hook-templates.sh"
+fi
+# BL-234: run_with_timeout is the ONLY bounded-run primitive available here —
+# there is no timeout(1)/gtimeout(1) on the dev host, and wrapping a command in
+# one yields a spurious rc=127 (command-not-found) that reads as a failed fetch.
+if ! command -v run_with_timeout >/dev/null 2>&1; then
+  # shellcheck source=/dev/null
+  [ -f "$_soif_fd_dir/helpers-core.sh" ] && . "$_soif_fd_dir/helpers-core.sh"
 fi
 unset _soif_fd_dir
 
@@ -149,6 +175,120 @@ _soif_fresh_is_git_checkout() {
   git -C "$1" rev-parse --is-inside-work-tree >/dev/null 2>&1
 }
 
+# ── BL-234: the reference, and how good it is ────────────────────────────────
+# Everything below exists because a comparison is only as good as the thing it
+# compares against, and the old code never asked how good that was.
+
+# soif_fresh_fetch_mode — "fetch-bounded" (default) or "none" (opt-out).
+# Read at RENDER time in the parent shell, so it must be a function over the
+# environment and not a variable set inside a check (checks run in the command
+# substitution that captures their TSV, i.e. a subshell).
+soif_fresh_fetch_mode() {
+  if [ "${SOIF_FRESHNESS_FETCH:-1}" = "0" ]; then printf 'none'; else printf 'fetch-bounded'; fi
+}
+
+# _soif_fresh_fetch_secs — the bound, in whole seconds. run_with_timeout polls
+# at 1s granularity, so the real ceiling is this + ~1s.
+_soif_fresh_fetch_secs() {
+  local s="${SOIF_FRESHNESS_FETCH_TIMEOUT:-5}"
+  case "$s" in ''|*[!0-9]*|0) s=5 ;; esac
+  printf '%s' "$s"
+}
+
+# _soif_fresh_last_fetch <dir> — how fresh is the reference we are about to
+# compare against? Echoes one of:
+#   "ok <epoch>"  the clone was last fetched SUCCESSFULLY at <epoch>
+#   "failed"      the last fetch ATTEMPT failed; git destroyed the prior record
+#   "never"       nothing has ever been fetched into this clone
+#
+# ── MEASURED 2026-08-14, because assuming this is how the bug gets rebuilt ──
+# `git fetch` against an unreachable remote does NOT leave FETCH_HEAD alone. It
+# CREATES it (or truncates an existing one) to ZERO BYTES, and bumps the mtime:
+#
+#   after a successful fetch                 size=196  mtime=…388
+#   after a second, up-to-date, successful   size=196  mtime=…390
+#   after a failed fetch (remote deleted)    size=0    mtime=…392
+#
+# So FETCH_HEAD's mtime records the last ATTEMPT, not the last SUCCESS — the
+# exact substitution `## BL-234:` exists to remove, sitting inside its own fix.
+# Reading the mtime alone would have reported "last fetched 0 day(s) ago" on an
+# offline machine forever: not silence, but active false reassurance, which is
+# worse. The SIZE is what separates the two, and the CALLER must read this
+# BEFORE its own fetch attempt, because a failure of ours truncates the very
+# record we are reporting.
+_soif_fresh_last_fetch() {
+  local d="$1" gd f sz
+  gd="$(git -C "$d" rev-parse --git-dir 2>/dev/null)" || { printf 'never'; return 0; }
+  [ -n "$gd" ] || { printf 'never'; return 0; }
+  case "$gd" in /*) f="$gd/FETCH_HEAD" ;; *) f="$d/$gd/FETCH_HEAD" ;; esac
+  [ -f "$f" ] || { printf 'never'; return 0; }
+  sz="$(wc -c "$f" 2>/dev/null | awk '{print $1}')"
+  case "$sz" in ''|*[!0-9]*) sz=0 ;; esac
+  # THE WHOLE MEASUREMENT LIVES IN THIS COMPARISON. `-eq 0` -> `-lt 0` is one
+  # character, parses, and turns every failed-fetch state into "last fetched 0
+  # day(s) ago" — permanent false reassurance on an offline machine, which is
+  # strictly worse than the silence this entry removes. It survived all 172
+  # unit-lane suites when it had no marker; A8 pins the behaviour and M7 kills
+  # the mutant by name.
+  if [ "$sz" -eq 0 ]; then printf 'failed'; return 0; fi   # BL-234-FETCH-FAILED-SIZE
+  printf 'ok %s' "$(stat -c '%Y' "$f" 2>/dev/null || stat -f '%m' "$f" 2>/dev/null)"
+}
+
+# _soif_fresh_upstream_ref <dir> — the remote-tracking ref to compare the pin
+# against. The branch's own @{u} first; then the conventional heads, because a
+# framework clone checked out on a feature branch has no upstream configured and
+# would otherwise fall back to "no reference at all".
+_soif_fresh_upstream_ref() {
+  local d="$1" ref
+  ref="$(git -C "$d" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)"
+  if [ -n "$ref" ] && git -C "$d" rev-parse --verify --quiet "$ref" >/dev/null 2>&1; then
+    printf '%s' "$ref"; return 0
+  fi
+  for ref in origin/HEAD origin/main origin/master; do
+    if git -C "$d" rev-parse --verify --quiet "$ref" >/dev/null 2>&1; then
+      printf '%s' "$ref"; return 0
+    fi
+  done
+  printf ''
+}
+
+# _soif_fresh_try_fetch <dir> — refresh the reference, BOUNDED.
+#   0 = the fetch landed
+#   1 = attempted and did not land
+#   2 = not attempted: the operator opted out (SOIF_FRESHNESS_FETCH=0)
+#   3 = not attempted: no bounded runner, so no fetch can be made SAFELY
+#   4 = not attempted: the clone has no remote configured
+#
+# THE THREE not-attempted CAUSES GET THEIR OWN RETURNS, and that is a fix, not
+# taste. They were one code, and the caller's sentence asserted the third of
+# them — "the clone has no remote configured" — as a FACT for all three. A false
+# factual claim, in the one feature whose entire point is honest wording: a
+# missing bounded runner would have been reported to the operator as a missing
+# remote, sending them to fix the wrong thing. `# BL-234-REFERENCE-AGE` now
+# switches on the cause instead of guessing it.
+#
+# The attempted/not-attempted split stays because the operator-facing sentence
+# differs — "I tried and could not reach it" vs "there was nothing to try" — and
+# neither is collapsed into "unknown", because both are determinate facts.
+#
+# `>/dev/null 2>&1` is on run_with_timeout, not on git, and that placement is
+# load-bearing. run_with_timeout backgrounds its child and kills it on the
+# bound; a killed child can leave a grandchild alive, and a grandchild that
+# inherited THIS function's stdout would hold the caller's command substitution
+# open until it exited — turning a 5s bound into a 30s stall with every timing
+# assertion still green. Redirecting here means no descendant ever holds it.
+_soif_fresh_try_fetch() {
+  local d="$1" secs
+  [ "$(soif_fresh_fetch_mode)" = "none" ] && return 2
+  command -v run_with_timeout >/dev/null 2>&1 || return 3   # BL-234-TRYFETCH-NORUNNER
+  git -C "$d" remote 2>/dev/null | grep -q . || return 4    # BL-234-TRYFETCH-NOREMOTE
+  secs="$(_soif_fresh_fetch_secs)"
+  if run_with_timeout "$secs" git -C "$d" fetch --quiet --no-tags >/dev/null 2>&1; then  # BL-234-FETCH-BOUND
+    return 0
+  fi
+  return 1
+}
+
 # ── Item emitter ─────────────────────────────────────────────────────────────
 # Every drift item is one TSV line, all fields present (empty allowed):
 #   id \t check \t tier \t path \t verb \t sig \t message
@@ -191,12 +331,82 @@ _soif_fresh_check_framework() {
   _soif_fresh_is_git_checkout "$fw" || return 0
   [ -n "$pin" ] || return 0
 
+  # ── BL-234: refresh the reference BEFORE comparing against it ─────────────
+  # Reverses M1's never-fetch rule (see the contract header). Bounded, offline-
+  # safe, silent when it lands.
+  #
+  # The reference's age is read FIRST and deliberately: our own failed fetch
+  # truncates FETCH_HEAD (measured — see _soif_fresh_last_fetch), so reading it
+  # afterwards would report the age of our own failure instead of the age of the
+  # reference. `|| _fetch_rc=$?` rather than `; _fetch_rc=$?` so the non-zero
+  # returns stay harmless if a future caller runs under `set -e`.
+  local _ref_state _fetch_rc=0
+  _ref_state="$(_soif_fresh_last_fetch "$fw")"
+  _soif_fresh_try_fetch "$fw" || _fetch_rc=$?   # BL-234-FETCH-REVERSAL
+
+  # THE HONEST FALLBACK — the point of the whole item. When the reference could
+  # not be refreshed, the check does NOT fall silent: silence is what let a
+  # 161-commit gap go unreported for months. It reports the REFERENCE'S OWN AGE,
+  # a fact the operator can act on and cannot get anywhere else.
+  #
+  # SOIF_FRESHNESS_FETCH=0 is the ONE case that stays silent, because it is not
+  # a failure — it is the operator restoring M1's zero-network contract on
+  # purpose. An explicit opt-out may be quiet; a default may not.
+  if [ "$_fetch_rc" -ne 0 ] && [ "$(soif_fresh_fetch_mode)" != "none" ]; then
+    local _ref_now _ref_age _ref_sig _ref_when _ref_why _ref_msg
+    _ref_now="$(soif_freshness_now)"
+    case "$_ref_state" in
+      ok\ *)
+        _ref_age=$(( ( _ref_now - ${_ref_state#ok } ) / 86400 ))
+        [ "$_ref_age" -ge 0 ] || _ref_age=0      # a clone stamped in the future is not "negative days old"
+        _ref_when="last fetched ${_ref_age} day(s) ago"
+        _ref_sig="refage@${_ref_age}" ;;
+      failed)
+        _ref_when="last fetched at an UNKNOWN time (its previous fetch also failed, and git truncates the record on failure)"
+        _ref_sig="refage@failed" ;;
+      *)
+        _ref_when="that was NEVER fetched"
+        _ref_sig="refage@never" ;;
+    esac
+    # SAY WHICH CAUSE IT WAS. This arm used to have two branches for four
+    # states, so a missing bounded runner was reported as a missing remote — a
+    # false factual claim in the one feature whose point is honest wording.
+    case "$_fetch_rc" in
+      1) _ref_why="the remote could not be reached (offline, gone, or slower than the $(_soif_fresh_fetch_secs)s bound)" ;;
+      3) _ref_why="no fetch was attempted (no bounded runner is available here, and an UNBOUNDED fetch could hang this session-start hook)" ;;
+      4) _ref_why="no fetch was attempted (the clone has no remote configured)" ;;
+      *) _ref_why="no fetch was attempted (the reason was not recorded)" ;;
+    esac
+    _ref_msg="framework currency was measured against a LOCAL clone ${_ref_when} — ${_ref_why}. Your pin may match a reference that is itself stale, so 'no drift' here does not mean 'up to date'."
+    _soif_fresh_emit "fw-reference-age" framework informational "-" update "$_ref_sig" "$_ref_msg"  # BL-234-REFERENCE-AGE
+  fi
+
   head="$(git -C "$fw" rev-parse HEAD 2>/dev/null)"
   sig="${pin}..${head}"
 
+  # ── pin vs UPSTREAM — the comparison that can actually move (BL-234) ──────
+  # The arm below compares the pin to the clone's LOCAL HEAD. That is a real
+  # fact, but it is not the currency question: a scaffolded project's pin IS its
+  # source clone's HEAD, so on the machine that built the project those two are
+  # equal by construction and the arm below is dead code. This one asks the
+  # question the operator meant.
+  local _up _up_head _up_n
+  _up="$(_soif_fresh_upstream_ref "$fw")"
+  if [ -n "$_up" ]; then
+    _up_head="$(git -C "$fw" rev-parse "$_up" 2>/dev/null)"
+    if [ -n "$_up_head" ] && [ "$pin" != "$_up_head" ] \
+       && git -C "$fw" merge-base --is-ancestor "$pin" "$_up_head" >/dev/null 2>&1; then
+      _up_n="$(git -C "$fw" rev-list --count "$pin".."$_up_head" 2>/dev/null)"
+      if [ -n "$_up_n" ] && [ "$_up_n" != "0" ]; then
+        _soif_fresh_emit "pin-behind-upstream" framework informational "-" update "${pin}..${_up_head}" "framework UPSTREAM ($_up) is $_up_n commit(s) ahead of your pin (${pin} -> ${_up_head})"  # BL-234-PIN-BEHIND-UPSTREAM
+      fi
+    fi
+  fi
+
   # pin vs HEAD — informational "N commits behind" (only when the pin is a known
-  # ancestor of HEAD; a shallow/absent pin object → no history line, per M1's
-  # never-fetch rule; per-file drift below still runs).
+  # ancestor of HEAD; a shallow/absent pin object → no history line). Kept
+  # alongside the upstream arm above because it is a DIFFERENT fact: the local
+  # clone has moved and the project has not been synced to it.
   if [ -n "$head" ] && [ "$pin" != "$head" ]; then
     if git -C "$fw" merge-base --is-ancestor "$pin" HEAD >/dev/null 2>&1; then
       local n
@@ -471,8 +681,14 @@ _soif_fresh_machine_json() {
     items_json='[]'
   fi
   if [ "$items_json" = "[]" ]; then current=true; else current=false; fi
+  # BL-234: `network` was the literal string "none", asserted by nobody and
+  # checked against nothing. It is a claim about behaviour, so it now reports
+  # the mode that actually ran — otherwise this block would have gone on
+  # promising zero network while the detector fetched, which is the same
+  # declaration-instead-of-measurement defect this whole entry is about.
   jq -n \
     --arg gen "$gen" \
+    --arg net "$(soif_fresh_fetch_mode)" \
     --argjson items "$items_json" \
     --argjson current "$current" \
     --argjson snoozed "$enf_snoozed" \
@@ -481,7 +697,7 @@ _soif_fresh_machine_json() {
        current: $current,
        enforcementSnoozed: $snoozed,
        toolsCovered: false,
-       network: "none",
+       network: $net,
        items: $items }'
 }
 

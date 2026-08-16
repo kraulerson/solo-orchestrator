@@ -53,6 +53,45 @@ here.
   an unescaped `&&` splices the original line back in, and that mutant passes
   `bash -n`. See `## BL-224:` for the sibling case where a lint's own regex
   over-matched for the same reason.
+- **This Mac's git is configured and an ubuntu-latest runner's is not — and the
+  difference is silent.** Xcode ships
+  `/Applications/Xcode.app/Contents/Developer/usr/share/git-core/gitconfig`
+  carrying **`init.defaultbranch=main`**, so `git init --bare` here produces
+  `HEAD -> refs/heads/main` for free. On CI there is no such setting and you get
+  `refs/heads/master`. A fixture that inits a bare, pushes `main`, then clones
+  it back out therefore **works locally and is broken on CI**: cloning a repo
+  whose HEAD is a dangling symref prints a warning, **exits 0**, and produces a
+  directory with nothing but `.git` in it — so `|| return 1` cannot see it and
+  the next line fails on a path that was never created. That is BL-234's PR #351
+  in one paragraph. **Name the branch on every bare you create**
+  (`# BL-234-FIXTURE-BARE-HEAD`), and never treat a clone's exit code as proof
+  it checked anything out (`# BL-234-FIXTURE-CLONE-RECEIPT`). Reproduce the
+  runner's git on this host — this turns a CI-only failure into a local one:
+  ```
+  GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null bash tests/<file>.sh
+  ```
+  It emulates **git configuration** divergence only — not the runner's git
+  *version*, and not its filesystem (this Mac is case-insensitive, ext4 is not).
+  Run it before blaming CI for anything a fixture does with git *config*.
+  **Derive the affected set, never transcribe it** — a hand-copied list of this
+  is what the reviewer refuted on PR #351 (said six, named seven, derived
+  eight, and the omitted file was the one the same PR had just edited):
+  ```
+  grep -rln -- "init .*--bare\|init --bare" tests/
+  ```
+  Every hit that later **clones back out of its bare** must name the branch.
+  None but the BL-234 suite does today, so none of the rest is broken *by this
+  defect* — which is not the same as "not broken": the `e2e-init*` trio is
+  already red on main for unrelated reasons, and four of the hits
+  (`test-bl084-tier-aware-remote-policy.sh` plus that trio) are **full-lane
+  only**, so a break there would not gate a PR at all.
+  **Do not pin this on the host's default branch.** `git-init(1)` says the
+  built-in fallback *"will change to `main` when Git 3.0 is released"* — a test
+  that relies on a runner producing `master` stops discriminating everywhere,
+  silently, the day runners ship it. Force the condition instead:
+  `GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=init.defaultBranch GIT_CONFIG_VALUE_0=master`
+  (that is what case `H3` in the BL-234 suite does, and it is why that suite's
+  mutant now dies on this Mac rather than only on CI).
 - **Two repos required.** Tests and `init.sh` need the Claude Dev Framework
   cloned at `~/.claude-dev-framework` (the path is hard-required). Per
   CONTRIBUTING.md:

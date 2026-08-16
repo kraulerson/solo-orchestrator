@@ -143,6 +143,118 @@ else
 fi
 teardown
 
+# ════════════════════════════════════════════════════════════════════
+# BL-236 — the startup fresh-init is what keeps a COMMITTED ledger from
+# pre-satisfying the MCP gate, and until T5b/T5c that was guaranteed by an
+# omission in this heredoc that no test pinned.
+#
+# session-mcp-gate.sh takes no latch fast path (`# BL-233-NO-LATCH`), so a
+# committed `mcp_gate_satisfied` is inert. But it DOES read
+# `.qdrant_find_succeeded` and `.context7_query_docs_succeeded`, and those are
+# exactly the fields a committed ledger carries forward at `true`. The startup
+# heredoc happens not to list them and `_flag` defaults a missing key to false —
+# a fail-safe by coincidence. One "let's complete this object" refactor turns it
+# into a live fail-open, and nothing failed if you did.
+#
+# Both cases assert on the GATE'S EMITTED DECISION, not on the flags alone: the
+# ledger field is the mechanism, the deny envelope is the consequence.
+# ════════════════════════════════════════════════════════════════════
+
+# setup_inherited — a ledger as a fresh CLONE would find it: both MCP outcome
+# flags already true, exactly what `git clone` hands the next machine.
+setup_inherited() {
+  TMP=$(mktemp -d); PROJ="$TMP/p"
+  mkdir -p "$PROJ/.claude" "$TMP/home/.claude"
+  # The hook derives the REQUIREMENTS from configured MCP servers. Declare them
+  # project-locally and give the hook a private HOME, so this case cannot read
+  # (or be rescued by) the developer's real ~/.claude.json.
+  cat > "$PROJ/.claude/settings.local.json" <<'JSON'
+{"mcpServers": {"qdrant": {"command": "uvx"}, "context7": {"command": "npx"}}}
+JSON
+  cat > "$PROJ/.claude/tool-usage.json" <<'JSON'
+{
+  "session_id": "2026-01-01T00:00:00Z",
+  "calls": [],
+  "commits_since_last_context7": 0,
+  "qdrant_find_called": true,
+  "qdrant_store_called": false,
+  "context7_called": true,
+  "qdrant_find_succeeded": true,
+  "context7_query_docs_succeeded": true,
+  "mcp_gate_satisfied": true,
+  "mcp_requirements": {
+    "qdrant_required": true,
+    "context7_required": true,
+    "additional_required": []
+  }
+}
+JSON
+}
+
+# run_hook_at <hookpath> <source> — private HOME, so MCP-server discovery is a
+# property of the fixture and not of the machine.
+run_hook_at() {
+  ( cd "$PROJ" && printf '{"hook_event_name":"SessionStart","source":"%s"}' "$2" \
+      | env -i HOME="$TMP/home" PATH="$PATH" bash "$1" >/dev/null 2>&1 ) || true
+}
+
+# run_mcp_gate — the SHIPPED PreToolUse gate against the ledger as it now
+# stands. Echoes its stdout: a deny envelope, or nothing at all (= allow).
+# env -i so an exported SOLO_MCP_ATTESTED in the developer's shell cannot turn
+# a deny into an allow and score as a pass.
+run_mcp_gate() {
+  ( cd "$PROJ" && printf '{"tool_name":"Write"}' \
+      | env -i HOME="$TMP/home" PATH="$PATH" bash "$REPO_ROOT/scripts/session-mcp-gate.sh" 2>/dev/null ) || true
+}
+
+echo "T5b: source=startup ERASES an inherited MCP success, and the gate still denies"
+setup_inherited
+run_hook_at "$HOOK" "startup"
+q_ok=$(jq -r '.qdrant_find_succeeded // false' "$PROJ/.claude/tool-usage.json" 2>/dev/null)
+c_ok=$(jq -r '.context7_query_docs_succeeded // false' "$PROJ/.claude/tool-usage.json" 2>/dev/null)
+q_req=$(jq -r '.mcp_requirements.qdrant_required // false' "$PROJ/.claude/tool-usage.json" 2>/dev/null)
+gate_out=$(run_mcp_gate)
+gate_denied=no; printf '%s' "$gate_out" | grep -q '"permissionDecision": "deny"' && gate_denied=yes
+if [ "$q_ok" = "false" ] && [ "$c_ok" = "false" ] && [ "$q_req" = "true" ] && [ "$gate_denied" = "yes" ]; then
+  pass "T5b: a cloned ledger carrying qdrant_find_succeeded=true and context7_query_docs_succeeded=true is erased by the startup fresh-init (absent-or-false), and session-mcp-gate.sh DENIES the first Write"
+else
+  fail_ "T5b" "qdrant_succeeded=$q_ok context7_succeeded=$c_ok (both want false) qdrant_required=$q_req (want true) gate_denied=$gate_denied (want yes)"
+fi
+teardown
+
+echo "T5c: MUTANT — put the two keys back into the startup heredoc, gate flips to allow"
+setup_inherited
+MUT="$TMP/hook-mutant.sh"
+# Structural discriminator for an ABSENCE: an omission cannot be greped for as
+# proof, so the two keys are spliced back INTO the startup heredoc (the SECOND
+# of the two in the file — the first is the jq-failure fallback) and the gate's
+# decision is read again. Anchored on the heredoc-open count, not on a line
+# number and not on the em-dash comment.
+awk '/cat > "\$TOOL_USAGE" << TUEOF/ { n++ }
+     n==2 && /"mcp_gate_satisfied": false,/ && !done {
+       print "  \"qdrant_find_succeeded\": true,";
+       print "  \"context7_query_docs_succeeded\": true,";
+       done=1
+     }
+     { print }' "$HOOK" > "$MUT"
+mut_sites=$(grep -c 'cat > "\$TOOL_USAGE" << TUEOF' "$HOOK" 2>/dev/null || echo 0)
+case "$mut_sites" in ''|*[!0-9]*) mut_sites=0 ;; esac
+mut_added=$(diff "$HOOK" "$MUT" 2>/dev/null | grep -c '^[<>]')
+case "$mut_added" in ''|*[!0-9]*) mut_added=0 ;; esac
+mut_parses=0; bash -n "$MUT" >/dev/null 2>&1 && mut_parses=1
+chmod "$(stat -c '%a' "$HOOK" 2>/dev/null || stat -f '%Lp' "$HOOK" 2>/dev/null)" "$MUT" 2>/dev/null
+run_hook_at "$MUT" "startup"
+m_q=$(jq -r '.qdrant_find_succeeded // false' "$PROJ/.claude/tool-usage.json" 2>/dev/null)
+mut_out=$(run_mcp_gate)
+mut_denied=no; printf '%s' "$mut_out" | grep -q '"permissionDecision": "deny"' && mut_denied=yes
+if [ "$mut_sites" = "2" ] && [ "$mut_added" = "2" ] && [ "$mut_parses" = "1" ] \
+   && [ "$m_q" = "true" ] && [ "$mut_denied" = "no" ]; then
+  pass "T5c: with the two outcome keys written as true by the startup heredoc, the SAME first-Write that T5b blocked is ALLOWED — the omission is the whole fail-safe, and it is one 'complete the object' edit from gone"
+else
+  fail_ "T5c" "heredocs=$mut_sites (want 2) lines_added=$mut_added (want 2) parses=$mut_parses (want 1) qdrant_succeeded=$m_q (want true) gate_denied=$mut_denied (want no)"
+fi
+teardown
+
 # T6: invocation with NO envelope on stdin (legacy / unknown caller)
 # defaults to startup behavior — backwards compat.
 echo "T6: invocation with no envelope defaults to startup (legacy compat)"

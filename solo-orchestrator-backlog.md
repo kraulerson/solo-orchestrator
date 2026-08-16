@@ -9837,12 +9837,41 @@ is the Stop-hook counterpart. Both ship via `init.sh`. Landed in `0352ef3`
 ### Measured on `main` @ `9060d31` — the chain, end to end
 
 1. **The database is not running.** MCP config points at `http://localhost:6333`,
-   collection `solo-orchestrator`. Ports 6333/6334 closed, no containers. A live
-   call returns:
+   collection `solo-orchestrator`. Ports 6333/6334 closed. A live call returns:
    ```
    qdrant-find("architecture decisions solo orchestrator")
    → Error: All connection attempts failed
    ```
+
+   > **⚠ CORRECTION (2026-08-14).** This row originally read *"Ports 6333/6334
+   > closed, **no containers**"*. **"No containers" was false**, and the author
+   > filed it as measured fact. A stopped `qdrant` container existed the whole
+   > time, with two populated collections (`meshscope`, `solo-orchestrator`);
+   > Colima's VM had wedged (it reported `Running` with a socket dead since
+   > 18 July). A `colima stop && colima start` plus `docker start qdrant`
+   > restored it, and the retrieval then returned real prior context.
+   >
+   > **How the false claim was produced, because the mechanism is the lesson:**
+   > the probe was
+   > `docker ps --format '…' 2>/dev/null | head -5 || echo "(docker not responding)"`.
+   > Two independent defects, both of which this backlog already documents in
+   > other people's code:
+   > 1. **The fallback arm could not fire.** A pipeline's exit status is the
+   >    LAST command's — `head` succeeded reading nothing, so `rc=0` and the
+   >    `|| echo` never ran, while `2>/dev/null` swallowed docker's real error.
+   >    A broken daemon was indistinguishable from an empty result. This is
+   >    `## BL-104:`'s shape (the arm that cannot fire) applied to a diagnostic.
+   > 2. **Wrong command.** `docker ps` lists RUNNING containers only; a stopped
+   >    one requires `docker ps -a`, which was never run. Even a healthy daemon
+   >    would have produced the same empty output.
+   >
+   > The measurement supported *"not running"*. It was written up as *"no
+   > containers"* and later escalated in conversation to *"never installed"* —
+   > neither of which anything run supported. **"The probe returned nothing" is
+   > "cannot tell", not "nothing is there"** — the exact rule `## BL-112:` states
+   > and this entry's own §"What forced to work has to mean" demands of the
+   > product. Kept struck-through rather than deleted: an entry that quietly
+   > loses its own error teaches nothing.
 2. **Detection asks the wrong question.** `session-test-gate-check.sh` sets
    `QDRANT_CONFIGURED=true` by matching a server *named* `qdrant` in the MCP
    settings. It never probes reachability. A dead database is "configured".
@@ -10227,3 +10256,693 @@ evidence — read first), `## BL-221:` (missing key ⇒ permissive default),
 `## BL-222:` (a proxy that does not measure the thing), `## BL-112:` and
 `## BL-149:` (the two doctrines that bound the design), `## BL-104:` (the
 `[WARN]`/`issues` mismatch — the label is never the behaviour).
+
+---
+
+## BL-234: currency and availability were measured by DECLARATION — four checks that asked "is it configured?" and reported the answer as "does it work?"
+
+**Logged:** 2026-08-14 (Karl: *"Let's fix the update gap"*, then twice more
+*"fix that as part of the update gap work"* — the Qdrant install short-circuit
+and the empty detector. Filed as one entry because fixing them separately would
+produce four patches and leave the pattern intact.)
+**Category:** Silent-success — the same substitution `## BL-231:` and
+`## BL-233:` are about, on four new surfaces.
+**Status:** Open — fix implemented on branch `fix/solo-currency-and-availability`
+(test/fix commits below); close on merge with the PR number.
+
+### The one root cause
+
+**A check asks whether something is DECLARED rather than whether it WORKS.**
+
+| # | surface | asked | should ask |
+|---|---|---|---|
+| 1 | `scripts/lib/freshness-detect.sh::_soif_fresh_check_framework` | pin vs the LOCAL clone's HEAD, never fetching | pin vs the clone's UPSTREAM, and say how stale the reference is when it cannot fetch |
+| 2 | `scripts/lib/helpers-full.sh::is_qdrant_mcp_registered` | is there an `mcpServers.qdrant` key in `~/.claude.json`? | is it registered **and** does the database answer? |
+| 3 | `scripts/track-tool-usage.sh` empty detector | does the response text *say* something about emptiness? | is the response *shaped* empty? |
+| 4 | `templates/tool-matrix/common.json` → `Qdrant MCP.check_command` | is there an MCP config entry? | filed separately as `## BL-235:` |
+
+### 1 — Solo's own currency was never checked against reality
+
+`_soif_fresh_check_framework` compared `manifest.json::soloFrameworkCommit`
+against **the local clone the project was built from**, and never fetched
+(the code said so: *"per M1's never-fetch rule"*). Measured on
+`powerpoint-voice`:
+
+```
+project pin:             6417a255
+source clone HEAD:       6417a255   ← identical by construction, so `pin-behind` can never fire
+source clone last fetch: NEVER (.git/FETCH_HEAD absent)
+solo main:               161 commits ahead
+```
+
+The pin and the clone HEAD are the same object **because the project was
+scaffolded from that clone**. The comparison was structurally incapable of
+reporting drift, and it reported none — for 161 commits.
+
+**The asymmetry that makes this a defect and not a policy:** CDF is checked by
+`scripts/check-versions.sh`'s `git_repo` handler, which **does** `git fetch`, and
+it correctly reported CDF drift on that same project in the same session. Two
+checks, one repo, opposite answers.
+
+**Fixed:** a bounded `git fetch` (`# BL-234-FETCH-REVERSAL`) via
+`scripts/lib/helpers-core.sh::run_with_timeout` — there is no `timeout(1)` on the
+dev host — then a comparison against the clone's UPSTREAM ref
+(`# BL-234-PIN-BEHIND-UPSTREAM`), with the existing pin-vs-local-HEAD arm kept
+because it is a different fact.
+
+**The honest fallback is the point of the whole item** (`# BL-234-REFERENCE-AGE`).
+When the fetch cannot run — offline, no remote, timed out — the check does NOT
+fall silent. It reports **the reference's own age**: *"measured against a local
+clone last fetched N day(s) ago"*, or *"NEVER fetched"*, which was the true
+answer on `powerpoint-voice`. **A comparison is only as good as its reference,
+and the reference's freshness is a fact the operator needs.**
+
+**THE REVERSAL, RECORDED.** Design v1.1 review-r1 **M1** established a
+*never-fetch* rule for the session-start detector, and the lib's contract header
+said `ZERO network — ever`. That rule is **deliberately overridden** here on the
+owner's instruction (Karl, 2026-08-14). It is named at the site, in the contract
+header, and here — because *a decision quietly reversed is how the next reader
+concludes the rule never existed*. The opt-out survives: `SOIF_FRESHNESS_FETCH=0`
+restores the zero-network, byte-silent behaviour exactly, and the machine block's
+`network` field reports which mode ran instead of hard-coding `"none"` — that
+field was a **declaration** too, and it would have gone on saying `"none"` while
+the detector fetched.
+
+**Also fixed, next door:** `check-versions.sh` carried the comment
+*"# Fetch latest from remote (quiet, with timeout)"* above a bare
+`git … fetch --quiet 2>/dev/null || true`. **There was no timeout** — the comment
+described an intention nobody implemented, which is the same defect class as a
+lint whose label does not match its `issues` increment (`## BL-104:`). Now
+bounded for real (`# BL-234-CHECKVERSIONS-TIMEOUT`).
+
+### 2 — a stale global MCP entry silently disabled Qdrant installation
+
+This is the answer to *"why has `powerpoint-voice` never installed Qdrant"*, and
+it is **not** a missing feature. `init.sh` already reclassifies Qdrant to
+auto-install when Docker is present. But the chain's FIRST branch was:
+
+```
+if is_qdrant_mcp_registered; then   → mark already_installed: "configured"
+```
+
+and `is_qdrant_mcp_registered` tested exactly one thing: **does `~/.claude.json`
+contain an `mcpServers.qdrant` entry?** A stale global entry — left by an
+unrelated project, pointing at a different collection — made every subsequent
+project conclude Qdrant was installed and **skip provisioning the database
+entirely**.
+
+**Fixed:** the predicate now means what its callers assume — *registered **and**
+reachable* (`# BL-234-QDRANT-PREDICATE`). The chain is unchanged
+(`# BL-234-QDRANT-RECLASSIFY-BEGIN`/`-END` fence it for the test to extract and
+execute): no database ⇒ falls through to the docker branch ⇒ auto-installs. The
+intent was already correct; the precondition was not.
+
+**Three-way probe, not two** (`# BL-234-QDRANT-REACHABLE`). `GET /readyz` on the
+URL taken from the registration's own `QDRANT_URL` (never hard-coded), bounded
+twice — `curl --max-time` **and** `run_with_timeout` — falling back to `nc -z -w`.
+It returns **reachable / unreachable / cannot-tell**, and cannot-tell is a real
+returnable state (no `curl`, no `nc`), not a coin flip. Per-caller safe
+directions are in the table under §"cannot tell" below.
+
+### 3 — the empty detector reported a full memory as empty
+
+Shipped in `## BL-233:` WP-A an hour before this entry was filed, and **wrong on
+its first live firing**. A `qdrant-find` returning **ten substantial memories**
+was recorded `qdrant_find_empty=true` and the agent was told
+`QDRANT EMPTY RESULT: … returned no stored context`.
+
+Cause: one of the *stored memories* contained the sentence
+`D8 empty result returns 200 with {games: [], meta.total: 0}` — a design decision
+from an unrelated project — and the detector's fallback matched
+`empty (result|collection)`.
+
+**It matched a memory ABOUT emptiness and concluded the retrieval was empty.**
+
+Reproduced live on 2026-08-14 in this repo's own session: `qdrant_find_empty=true`,
+`qdrant_find_empty_count=3`, on retrievals that returned full payloads.
+
+**Fixed by deleting the phrase-matching half entirely**
+(`# BL-234-EMPTY-SHAPE-ONLY`). Emptiness is now decided by **shape only** — zero
+content blocks, absent `tool_response`, or all-whitespace text. Those are facts
+about the response. **A phrase list is a guess about another server's prose, and
+it guessed wrong in the direction that matters**: telling the operator their
+memory is empty when it is full.
+
+The accepted loss is stated rather than hidden: a server that words a true zero
+result in prose (`"No results found"`) inside a non-empty content block now
+records `qdrant_find_empty=false`, and the operator is not told. That is the
+lesser error. Losing the wording half loses some true-empty detections; keeping
+it manufactured false alarms about the exact thing the operator was told to
+trust. **Shape is decidable; prose is not.**
+
+### "Cannot tell" — decided per caller, deliberately
+
+`## BL-112:`'s doctrine is that *"the probe did not run"* must never read as
+*"nothing is there"*. It also must not read as *"everything is fine"*. Each
+caller of the Qdrant predicate gets the direction that is safe **for what it
+does**, and the reason is recorded here rather than left to be re-derived:
+
+| caller (init.sh) | question it is really asking | direction on `cannot-tell` | why |
+|---|---|---|---|
+| prerequisite report | what do I tell the operator? | report it as *undetermined*, never `[OK]` | claiming OK is the bug; the operator can act on "I could not check" |
+| tool-resolver reclassification | may I skip provisioning? | **NO** — fall through to the docker branch | this is the defect site. Falling through re-runs an idempotent `docker start` / `docker run`; the cost of a false "installed" is a project with no memory, which is what happened |
+| per-project collection override | should I write `.claude/settings.local.json`? | **YES** — presence alone is enough | writing the collection override is harmless when the server is down and correct once it comes up; gating it on reachability would leave a configured project without its collection because a container happened to be stopped at init time. This caller uses `is_qdrant_mcp_entry_present`, the pure config read, and says so |
+| final summary | what do I print? | report all three states | same as the prerequisite report |
+
+The residual is named, not hidden: with **neither** `curl` **nor** `nc`, a
+Qdrant reachable only at a REMOTE `QDRANT_URL` is scored cannot-tell, falls
+through, and init.sh may start a redundant LOCAL container. A stopped container
+and a wasted container are not the same size of mistake as a project that never
+gets a memory.
+
+### Proof
+
+`tests/test-bl234-currency-and-availability.sh`, dual-direction throughout, with
+the failing directions carrying the weight:
+
+- source clone **behind its remote** ⇒ REPORTED (the silent case; RED against
+  pre-fix code);
+- clone current ⇒ **silent**, no false noise;
+- fetch **impossible** (origin path deleted / no remote / bound exceeded) ⇒ no
+  crash, no block, **and the reference-age line still appears**. *A test
+  asserting only "did not crash" passes over the silence this package exists to
+  remove;*
+- **the bound actually bounds** — proved with a `git` stub that sleeps 30s and a
+  wall-clock assertion, not by asserting a flag;
+- a stale global MCP entry with **no** reachable database ⇒ install proceeds
+  (the shipped `if/elif` chain is EXTRACTED from init.sh between its fence
+  markers and executed, so the assertion is on the real chain, not a copy);
+- a **full** retrieval whose text contains `D8 empty result returns 200 with
+  {games: [], meta.total: 0}` — **the incident's phrase, verbatim** — ⇒
+  `qdrant_find_empty=false`;
+- a genuinely empty retrieval ⇒ still detected, by shape.
+
+Hermetic: **local bare repos as origins, never the internet**; no `timeout`; no
+live remotes. `build_fw` in `tests/test-freshness-check.sh` grew a local bare
+origin for the same reason — its "silent when current" claim was true only
+because the fixture had no remote to be behind.
+
+**Do not let a test pass because a fetch or a probe was ATTEMPTED.** That is this
+repo's signature bug, and the author of the brief committed it himself the same
+week: a `docker ps … | head` whose `|| echo` fallback could never fire, because a
+pipeline's status is the last command's (see `## BL-231:`'s ⚠ CORRECTION block —
+the clearest statement of this defect class in the file). **Every fallback arm in
+this package has a test that makes it fire.**
+
+### Fix round — an adversarial review returned major_concerns, and it was right
+
+The verdict was *"pin what you shipped"*, not *"the fix is wrong"*: every
+functional claim reproduced. But **three behaviours this entry argues are
+load-bearing were guaranteed by comments, not tests** — this entry's own thesis,
+turned on this entry.
+
+1. **A ONE-CHARACTER MUTANT SURVIVED THE WHOLE ESTATE.** `[ "$sz" -eq 0 ]` →
+   `[ "$sz" -lt 0 ]` in `_soif_fresh_last_fetch` makes the `failed` arm
+   unreachable (a size is never negative), so every truncated `FETCH_HEAD` reads
+   as a SUCCESS whose mtime is *our own failed attempt* — and the tool then says
+   *"last fetched 0 day(s) ago"* forever on an offline machine. **Permanent false
+   reassurance, which is strictly worse than the silence this entry removes.**
+   Measured: the mutant left `test-bl234` at 29/0, `test-freshness-check` at
+   26/0, `test-freshness-birth` at 8/0 **and all 172 unit-lane suites green**.
+   `A3` pinned `ok <epoch>` and `A4` pinned `never`; the third state had no test
+   anywhere. Now `# BL-234-FETCH-FAILED-SIZE`, pinned by **A8** (two-sided: the
+   honest wording present, the false one absent) and killed by **M7**.
+2. **THE §8 FINDING WAS STILL LIVE IN THE ORDINARY PATH.** `E2` fixed the exotic
+   case (no bounded runner at all) and left the common one: `|| true` discarded
+   the bounded fetch's own outcome, so a fetch that failed *within* the bound
+   fell through and compared `HEAD` against an `origin/main` no fetch had
+   refreshed. Reproduced on a clone genuinely one commit behind its deleted local
+   bare origin with `NETWORK_AVAILABLE=true` → **`verdict: up_to_date`**. Now
+   `# BL-234-CHECKVERSIONS-FETCHFAIL`: status `unknown`, *"could not refresh refs
+   … — NOT compared"*. Pinned by **E3**, and **M6** — which used to assert only
+   that the shipped file *contains* the word `run_with_timeout`, i.e. exactly the
+   declaration-grade assertion this suite's charter forbids — now RUNS both
+   directions and shows the mutant reporting `up_to_date`.
+3. **A GARBAGE BOUND IS NOT A BOUND.** `run_with_timeout abc sleep 3` returns
+   **rc 0 after 3039 ms**: the `-ge` test errors on every iteration, the kill
+   never fires, and the caller's `>/dev/null 2>&1` swallows the complaint. A
+   non-numeric `SOLO_FETCH_TIMEOUT` therefore *silently unbounded* the
+   `check-versions.sh` fetch — the resurrected defect, one env var away. The two
+   sibling call sites validated their seconds; this one did not
+   (`# BL-234-CHECKVERSIONS-SECS`, **E5**/**M8**). **E4** replaces M6's old
+   spelling-check with a wall-clock proof: a `git` stub sleeping 12s on `fetch`,
+   `SOLO_FETCH_TIMEOUT=2`, cut off at a measured 2s.
+4. **ONE RETURN CODE FOR THREE CAUSES MADE THE TOOL STATE A FALSE FACT.**
+   `_soif_fresh_try_fetch` returned `2` for opt-out, no-bounded-runner **and**
+   no-remote, and the caller's else-branch asserted the third as fact: *"no fetch
+   was attempted (the clone has no remote configured)"* — printed verbatim on a
+   clone with one perfectly good remote. A false factual claim in the one feature
+   whose entire point is honest wording. Now `2`/`3`/`4`
+   (`# BL-234-TRYFETCH-NORUNNER`, `# BL-234-TRYFETCH-NOREMOTE`), switched on
+   rather than guessed (**A9**/**M9**).
+5. **THE REACHABILITY PROBE CALLED A WORKING SECURED SERVER DEAD.** Qdrant's
+   `/readyz` declares `api-key` as a REQUIRED header (verified against
+   api.qdrant.tech), so a keyed instance answers an unkeyed probe **401** — and
+   `curl -fsS` exits **22** on any status ≥ 400, the same "failure" it returns
+   for a dead port. Measured: unkeyed rc 22, keyed rc 0, dead port rc 7, and the
+   shipped predicate scored the healthy secured server `state=unreachable`.
+   Caller 1 then calls a working memory *"a stale registration"* while caller 2
+   provisions a redundant container beside it. **For a reachability question, an
+   HTTP error status IS an answer**: 22 is now reachable, and
+   `qdrant_mcp_api_key` sends the registration's own key so a secured server
+   answers 200 (**B7**/**B8**/**M10**/**M11**).
+
+**And the fix that sent the key needed its own scope.** Making the probe carry
+`QDRANT_API_KEY` also made it possible to send that credential to any URL a
+caller passes, because `qdrant_probe_reachable` takes an OPTIONAL one. Measured
+on the unscoped code: a registration naming one host, a probe issued against
+another, and the second server logged an **authenticated** request. The key is
+now looked up only when the probed base equals the registered URL
+(`# BL-234-QDRANT-KEY-HEADER`, **B9**/**M12** — asserted on the server's own
+request log, because both directions return 0 and a state assertion cannot tell
+them apart). **This entry's own defect class appeared inside its own fix for the
+third time**, and again it was only found by asking *what happens when this is
+called differently?*
+
+### ⚠ CORRECTION — the precedence residual was a CREDENTIAL hole, and the wording understated it
+
+The residual below originally read *"the URL and the key at least come from the
+same file in the common case"*. That is true and it is not the point. The
+fallback was applied **per FIELD, not per ENTRY**, so in the **un**common case
+the two came from different files — and one of them was a secret.
+
+**Measured (review probe P3):** `~/.claude.json` carrying a qdrant entry with a
+`QDRANT_URL` and **no** key, `~/.claude/settings.json` carrying a **different**
+url **and** `QDRANT_API_KEY=crosskey` → the probe delivered **`crosskey` to
+claude.json's host**. A credential handed to a server whose own registration
+never mentioned it. The `base == qdrant_mcp_url` guard added in the first fix
+round **cannot** catch this: it scopes the key to whatever the URL lookup
+returned, not to the entry the key came from.
+
+The same path had a second exit: an entry carrying a key and **no**
+`QDRANT_URL` paired that key with the hard-coded `http://localhost:6333` — a
+host the operator never named.
+
+**Fixed** by making the ENTRY the unit: `qdrant_mcp_reg_file` selects one config
+file and `# BL-234-QDRANT-ENTRY-ATOMIC` / `# BL-234-QDRANT-KEY-ENTRY` read both
+fields from it; `qdrant_mcp_url_declared` separates *"the entry says this"* from
+*"we substituted the default"*, and the default gets no credential (**B10**,
+**B11**, **M13**).
+
+**And the key was on `argv`.** `-H "api-key: …"` put it in the **process table**,
+readable by any local process for the probe's lifetime, at session start, on
+every project — an exposure the header fix introduced. It now travels as a curl
+config passed by **process substitution** (`# BL-234-QDRANT-KEY-STDIN`): argv
+carries only `/dev/fd/N` (**B12**, **M14**).
+
+**The obvious spelling of that fix was silently broken, and it was measured
+rather than assumed.** `printf … | run_with_timeout … curl -K -` does not work:
+`run_with_timeout` backgrounds its child, and with job control off — every
+non-interactive shell — bash assigns **`/dev/null`** to an asynchronous
+command's stdin *before* any explicit redirection. Measured:
+`run_with_timeout 3 cat` fed from a pipe read **EMPTY**; fed from
+`<(printf …)` it read the text. The header was dropped in silence, the probe
+still answered *"reachable"* (401 is an answer), and nothing failed — caught
+only because **B8 asserts on the SERVER'S log**.
+
+**It was written and caught pre-commit: no committed tree ever carried the pipe
+spelling**, so every full-lane-green tally recorded before this entry stands.
+(`git log --all -S 'curl -K -'` finds it only in comment and doc text;
+`fce9a10`'s code line was `-H "api-key: $esc"`, and `f2881fe` onward is
+`-K <(printf …)`.) Stated outright because the paragraph above reads like a
+shipped defect, and a reader deciding whether to distrust earlier green runs
+needs the answer rather than the anecdote.
+
+**One residual survives, named rather than fixed:**
+
+- `qdrant_mcp_reg_file` reads `~/.claude.json` **before**
+  `~/.claude/settings.json` while `is_qdrant_mcp_entry_present` reads them in the
+  **opposite order**. Harmless for that function's boolean — presence in either
+  file answers it — but the two orders disagreeing is the kind of thing that
+  grows a second bug. Unifying them is a separate change with its own blast
+  radius.
+- The `# BL-234-QDRANT-REACHABLE` decision was originally duplicated per probed
+  endpoint, and **M10 mutating one of them left the other still answering
+  "reachable"** — a mutant killed by nothing. Collapsed to a single
+  `_qdrant_answered` decision point, recorded at the function, because *"one
+  marker, several equivalent decisions"* is a general way for this harness to
+  score a survivor as dead.
+
+**Two more ways a mutant dies of nothing, both hit while writing M13:**
+
+- **A two-outcome fixture cannot see a leaked credential.** The keyed stub
+  server logged only `AUTH` / `NOKEY`, and a leaked cross-file key is a **wrong**
+  key — recorded identically to the honest unkeyed request. The stub now records
+  `AUTH` / `WRONGKEY` / `NOKEY`, because *"sent the wrong secret"* and *"sent no
+  secret"* are opposite facts about the client.
+- **`sed`'s replacement collapses `\"` to `"`.** A mutant written with
+  `\"`-escaped quotes inside an already-double-quoted jq argument landed, **passed
+  `bash -n`**, broke the jq filter, returned an empty key, and scored as killed
+  while testing nothing. Same family as CLAUDE.md's `s|`-delimiter and `&` traps:
+  *sed ran* is not *sed produced the mutant you wrote*. Single-quote the filter,
+  and assert on behaviour rather than on the exit code.
+
+**One pre-existing wrinkle, recorded and deliberately NOT touched here:**
+`run_with_timeout`'s doc comment in `scripts/lib/helpers-core.sh` still says
+*"Returns 0 on success, 1 on timeout or failure"*. It has not been true since the
+function ended on `wait "$pid"` — it **propagates the child's exit status**, and
+this entry's `0|22` reachability semantics now **depend** on that propagation.
+Worth one line whenever `helpers-core.sh` is next opened; changing a shared
+primitive's contract text mid-package is how an unrelated caller gets surprised.
+
+### The suite was green on a Mac and red on CI, and the reason was this entry's own defect class
+
+PR #351 landed **48/0 locally and 44/4 on CI** (`unit-shard (rest)`, therefore
+the required `unit` aggregator). A1, E1, E3 and M1 failed, all four repeating
+one line — `…/adv/scripts/validate.sh: No such file or directory` from inside
+`advance_origin`.
+
+**The reported blast radius was smaller than the real one, and the gap is the
+finding.** The red CI log carries that error for **eight** clone directories
+across **six** cases — A1, E1, **E2**, E3, M1 (×2) and **M6** (×2) — but only
+four cases went red. **E2 and M6 absorbed a broken fixture and reported PASS**,
+because their assertions never depended on the origin having advanced (M6's
+control expects `unknown` from a deleted origin; its mutant expects
+`up_to_date`, which a *never-advanced* fixture also produces). Two vacuous
+passes, invisible in the tally. Derive it rather than trusting this paragraph:
+
+```
+gh run view --log --job <the red job> | grep -o 'case[A-Za-z0-9]*/adv[0-9]*' | sort -u
+```
+
+The `|| fail_` conversions below close it going forward — under the mutation
+proof, E2 and M6 now go red with the rest.
+
+**Root cause, reproduced before it was fixed.** `build_fw` created the working
+repo with `git init -q -b main` but the bare origin with a bare
+`git init -q --bare` — no branch named. So the bare's HEAD follows **the host's**
+`init.defaultBranch`, while the push creates `main`:
+
+| host | bare HEAD after `init --bare` | result |
+|---|---|---|
+| this Mac | `refs/heads/main` | works — Xcode ships `.../git-core/gitconfig` carrying `init.defaultbranch=main` |
+| ubuntu-latest | `refs/heads/master` | HEAD **dangles**; `refs/heads/master` is never created |
+
+`git clone` of a repo whose HEAD is a dangling symref prints
+`warning: remote HEAD refers to nonexistent ref, unable to checkout`, **exits 0**,
+and leaves a directory containing nothing but `.git`. So `|| return 1` saw rc 0
+and the next line redirected into a `scripts/` directory that never existed.
+
+**The diagnosis was invisible for the same reason the product bug was.** Every
+git call in `build_fw` and `advance_origin` was `>/dev/null 2>&1` with no rc
+check, so git's own warning — which names the cause exactly — was discarded.
+*An exit code thrown away is an exit code that cannot testify*, inside the
+harness written to catch that.
+
+**Fixed, and provable on any host.** The bare's default branch is now named
+explicitly (`# BL-234-FIXTURE-BARE-HEAD`); every fixture git call is rc-checked
+through `_gitq`, which prints git's own words to **stderr** (never stdout — a
+stray line corrupts a capture); `advance_origin` asserts a **working tree**
+rather than trusting the clone's exit code (`# BL-234-FIXTURE-CLONE-RECEIPT`);
+and the seven `advance_origin … || true` call sites now attribute the failure to
+the case instead of discarding it.
+
+**Three new cases pin it.** `H1` asserts on refs — the bare's HEAD resolves to a
+branch that exists **and** `advance_origin` genuinely moves `origin/main`. `H2`
+writes the dangling HEAD itself, so the runner's condition is reproduced on a
+Mac and the new receipt is **watched firing** rather than asserted.
+
+`H3` exists because **adversarial review refuted the first pair.** The claim was
+*"neither depends on the host's git config"*; the reviewer deleted the fixed
+line, ran it on this Mac, and got **50/0** — Xcode's gitconfig supplies
+`init.defaultBranch=main`, so H1 could not discriminate here and only CI killed
+the mutant. `git-init(1)` adds an expiry date: the built-in fallback *"will
+change to `main` when Git 3.0 is released"*, at which point the runner stops
+reproducing the condition too and the canary erodes **everywhere**, silently.
+So H3 **forces** the condition through the environment instead of inheriting it
+—
+`GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=init.defaultBranch GIT_CONFIG_VALUE_0=master`
+— and first builds an **unfixed** bare under that same environment to show the
+forcing bites, because a control that lands on `main` would make H3 vacuous.
+Measured: the same one-line mutant now goes **50/1 on this Mac** (H3 naming the
+dangling HEAD) where it was 50/0 and invisible.
+
+Reproduce the runner's git anywhere:
+
+```
+GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+  bash tests/test-bl234-currency-and-availability.sh
+```
+
+Measured: **44/4 before the fix under that command — the CI failure exactly, on
+a Mac — and 51/0 after, in both directions.** Mutation: deleting the one
+`symbolic-ref` line (sites==1, 1 line changed, `bash -n` clean) puts the runner
+direction at **45/13** and the **host** direction at **50/1**, with **zero**
+`No such file or directory` in either — the receipt catches it first and names
+the dangling HEAD and git's warning.
+
+`build_fw` was hardened to return non-zero and say why, so **all 25 of its call
+sites now handle that** (23 converted here) rather than the two that did. An
+unattributed downstream mystery is the defect class this entry is named for;
+leaving the new return code discarded would have re-created it one layer up.
+
+### The audit of neighbouring suites was wrong, and the omission was in this PR
+
+The first version of this section named a hand-copied list. Adversarial review
+refuted it: it **said six, named seven, and its own derivation command finds
+eight** — and the omitted file, `tests/test-freshness-check.sh`, is one **this
+same PR had just given a bare origin**, in the PR-blocking lane, spelled the
+exact wrong way. The audit was run against `main` instead of the branch, so the
+branch's own additions were invisible to it. That is the third time a
+grep-based audit has under-read a surface in this repo; the grep was fine, the
+transcription was not.
+
+Derive it, do not read it from here:
+
+```
+grep -rln -- "init .*--bare\|init --bare" tests/
+```
+
+Nine hits today: this suite plus eight others — `test-freshness-check.sh`,
+`test-bl157-remote-marker-record.sh`, `test-walk006-ci-protection-scope.sh`,
+`test-upgrade-cdf-refresh.sh` (fast lane) and
+`test-bl084-tier-aware-remote-policy.sh` plus the three
+`host-drivers/e2e-init*.test.sh` (**full lane only** — a break there gates
+nothing).
+
+**`tests/test-freshness-check.sh` is fixed here** (`# BL-234-FIXTURE-BARE-HEAD`
+in its `build_fw`, plus a resolvable-HEAD receipt). It was not broken: its
+`push -u` sets an upstream, so `_soif_fresh_upstream_ref` resolves `@{u}` and
+never reaches its `origin/HEAD` fallback — but that fallback is the only place
+product code resolves `origin/HEAD` against a fixture bare, and "survives by
+luck" is not the standard the sibling suite was just held to.
+
+#### The receipt shipped vacuous, and the review caught that too
+
+**`git rev-parse HEAD` does not detect a dangling HEAD.** On a bare whose HEAD
+points at a branch that does not exist — the exact condition the receipt exists
+for — it **exits 0 and echoes the literal string `HEAD`**. `rev-parse` only
+errors on an unresolvable ref when asked to verify. Measured here:
+
+| bare | `rev-parse HEAD` | `rev-parse --verify 'HEAD^{commit}'` |
+|---|---|---|
+| HEAD → `refs/heads/master` (dangling) | **rc 0**, echoes `HEAD` | rc 128 |
+| HEAD → `refs/heads/main` (good) | rc 0, echoes the sha | rc 0 |
+
+The first spelling is what this branch shipped, and against a deliberately
+broken bare it fired **zero** times while the suite reported 26/0 and exit 0.
+A guard with no discriminating power is worse than no guard, because it reads
+as coverage. Same family as `## BL-147:`.
+
+**And nothing consumed it.** All 23 call sites are the bare middle statement of
+`D="$(newdir)"; build_fw "$D/fw"; build_proj_current …`, so even a repaired
+predicate would have printed and been ignored — `## BL-234:`'s own defect, one
+layer up, for the second time in one branch. The failure is therefore raised
+**inside `build_fw`** rather than at 23 call sites: it cannot be forgotten by
+the next call site anyone adds, and it avoids 23 mechanical edits of the kind
+that produced the glued-comment slip below.
+
+Proof, one line deleted (sites==1, 1 line changed, `bash -n` clean): under the
+runner's git the suite goes **26/23 with the receipt firing 23 times**, where
+before the repair it was **26/0, exit 0, receipt silent**.
+
+**Residual, named not fixed:** that mutant is only visible where the host's
+default branch is `master`. Under this Mac's git the suite is correctly green —
+there is no dangling HEAD to catch. When Git 3.0 flips the built-in default the
+runner direction stops reproducing it too. The BL-234 suite carries the standing
+pin for the rule (`H3`, which forces the condition); this file's receipt has no
+equivalent, and adding one is scope creep into BL-109's suite.
+
+**A third finding from the same round, recorded because the shape recurs:** one
+of the 23 `|| fail_` conversions in the sibling suite glued a trailing comment
+to the message with no space (`…clone"# no bare origin…`), turning an
+explanatory comment into eight positional arguments. `bash -n` clean, runtime
+harmless, invisible to every check — which is exactly why a batch find-and-
+replace needs a spacing guard and a `grep -n '"#'` afterwards.
+
+**None of the remaining seven is broken *by this defect*** — none clones back
+out of its bare, and a push plus a ref read never consult HEAD. That is not the
+same as "not broken": `tests/full-project-test-suite.sh` records the
+`e2e-init*` trio as already red on main for unrelated reasons. Note also that
+those three init their bare **before** exporting the per-test `GIT_CONFIG_GLOBAL`
+that sets `defaultBranch = main`, so their protection against this is
+decorative. Hardening them is a separate change with its own review.
+
+**Related:** `## BL-231:` (the correction block is the proof standard),
+`## BL-233:` (the mechanism this rides on), `## BL-235:` (surface 4, filed not
+fixed), `## BL-236:` (the tracked ledger, found during this work),
+`## BL-112:` ("did not run" ≠ "found nothing"), `## BL-104:` (the label is never
+the behaviour), `## BL-221:` (missing key ⇒ permissive default).
+
+---
+
+## BL-235: the tool matrix records "Qdrant MCP installed" from a config entry and never asks the database
+
+**Logged:** 2026-08-14 (found while fixing `## BL-234:` — same root cause, a
+different surface, deliberately left unfixed there so the fix is not smuggled in
+under an unrelated diff)
+**Category:** Silent-success — declaration read as capability
+**Status:** Open
+
+`templates/tool-matrix/common.json`'s `Qdrant MCP` entry has:
+
+```
+"check_command": "command -v jq &>/dev/null && (( [ -f \"$HOME/.claude/settings.json\" ] && jq -e '.mcpServers.qdrant …' ) || ( [ -f \"$HOME/.claude.json\" ] && jq -e '.mcpServers.qdrant …' ))"
+"version_command": "echo 'configured'"
+```
+
+Both are **declarations**. The check tests for an MCP config entry and never
+whether the database answers; the version command is a hard-coded string that
+cannot be wrong. So a project with **no running database** is recorded
+`already_installed` and reported `[OK] configured` by every surface that consumes
+the resolver — the same false-comfort `## BL-231:` measured end to end, one layer
+up.
+
+`## BL-234:` fixed the sibling predicate in `scripts/lib/helpers-full.sh`
+(`is_qdrant_mcp_registered` now means *registered AND reachable*) and init.sh's
+call sites with it. **This entry is the matrix half, and it is deliberately not
+fixed there**, because the matrix is data consumed by `scripts/resolve-tools.sh`
+and `scripts/check-versions.sh` on a different contract: `check_command` is an
+arbitrary shell string with no timeout discipline, so making it probe a network
+service needs a bound the matrix schema does not currently express. Putting an
+unbounded `curl` in a JSON data file is how a tool resolver learns to hang.
+
+### What it needs
+
+1. A **bounded** probe primitive the matrix can name, rather than an arbitrary
+   command string — the resolver should own the bound, not each row.
+2. `version_command` that reports something falsifiable (the server's own
+   `/` version payload), or is dropped. `echo 'configured'` is a value that
+   cannot be wrong, which means it carries no information.
+3. The three states `## BL-234:` established — reachable /
+   configured-but-unreachable / not-configured — surfaced through the resolver
+   output, not collapsed to a boolean.
+4. A sweep for siblings: **every** `check_command` in `templates/tool-matrix/**`
+   that greps a config file rather than exercising the tool has this shape. The
+   Qdrant row is the one that was measured; it is unlikely to be the only one.
+
+**Related:** `## BL-234:` (the same substitution, fixed on four other surfaces),
+`## BL-233:` (the enforcement mechanism), `## BL-231:` (measured evidence),
+`## BL-112:` ("did not run" ≠ "found nothing").
+
+---
+
+## BL-236: `.claude/tool-usage.json` is TRACKED in generated projects — per-session runtime state committed as if it were content
+
+**Logged:** 2026-08-14 (found during `## BL-234:`; verified in a real generated
+project — `git ls-files` matches it, and it is absent from `.gitignore` while
+its three siblings ARE ignored there)
+**Category:** Operational state tracked as project content — the `## BL-174:`
+family, with a security-adjacent twist the sidecars did not have
+**Status:** Open — **new projects fixed** by `# BL-236-LEDGER-IGNORE` (the
+ignore rule ships in `templates/generated/gitignore-base.tmpl` and is backfilled
+by `scripts/upgrade-project.sh`). **Existing projects need one manual step that
+this framework must NOT take for them** (below).
+
+### The file
+
+`.claude/tool-usage.json` is written by `init.sh`, rewritten by
+`scripts/session-test-gate-check.sh` on every SessionStart, and mutated by
+`scripts/track-tool-usage.sh` after **every MCP tool call**. It is per-session
+mutable runtime state. It dirties the working tree every session, lands in
+commits and diffs, and its `calls[]` array grows without bound in git history.
+
+Its three siblings are already ignored: `.claude/last-checked-commit.txt`
+(`## BL-030:`), `.claude/last-gate-pass.txt` (`## BL-161:`), and `.claude/cache/`
+(BL-109 S2). It was missed because it was born before the MCP work made it
+load-bearing.
+
+### The consequence that matters, assessed rather than asserted
+
+Since `## BL-233:` WP-A this file is **the MCP gate's ledger**, so a committed
+copy is shared state a clone inherits. The real question is not "is sharing
+state bad" but **which fields survive a clone, and can any of them pre-satisfy
+the gate.** Traced:
+
+`scripts/session-mcp-gate.sh` re-derives on every invocation and takes **no
+latch fast path** on `mcp_gate_satisfied` (`# BL-233-NO-LATCH`) — so the
+committed `mcp_gate_satisfied` is inert. Good. But the fields it *does* read are
+`.qdrant_find_succeeded` and `.context7_query_docs_succeeded`
+(`# BL-233-OUTCOME-QDRANT`, `# BL-233-OUTCOME-C7`), and **those are exactly the
+fields a committed ledger carries forward at `true`.**
+
+What saves it today is narrow and undocumented: SessionStart's `startup` path in
+`session-test-gate-check.sh` writes a **fresh** ledger whose heredoc omits both
+`*_succeeded` keys, and the gate's `_flag` defaults a missing key to `false`. So
+on a clone whose first session is a real `startup`, the inherited `true` is
+erased before any Write. **That is a fail-safe by accident, not by design** —
+it holds only because one heredoc happens not to list two keys, and it does not
+hold on the paths that do not reset:
+
+- the **merge** path (`resume` / `compact` / `clear`) preserves `$orig`
+  wholesale, so an inherited `true` survives it;
+- any session where SessionStart does not fire before the first `Write` — hooks
+  not installed, a bare tool invocation, a harness that skips SessionStart —
+  reads the committed ledger directly and **allows**.
+
+So the accurate finding is: **a committed ledger can pre-satisfy the MCP gate,
+and the only thing preventing it in the common case is an omission in an
+unrelated heredoc.** That is one refactor away from being a live fail-open.
+Ignoring the file removes the class rather than relying on the accident.
+
+**The omission is now PINNED, and the heredoc says so.** It was documented as
+load-bearing on three surfaces and tested nowhere: `T5` asserted only `calls` /
+`commits_since_last_context7` / `context7_called`, and no test anywhere seeded
+`*_succeeded=true` before a startup. `tests/test-session-test-gate-check-merge.sh`
+now carries:
+
+- **T5b** — a ledger exactly as `git clone` hands it over (both outcome flags
+  `true`), `source=startup`, asserting BOTH that the flags read absent-or-false
+  AND that the shipped `session-mcp-gate.sh` **DENIES** the first Write. The flag
+  is the mechanism; the deny envelope is the consequence, and the consequence is
+  what is asserted.
+- **T5c** — the structural discriminator for an ABSENCE: an omission cannot be
+  greped for as proof, so the two keys are spliced back INTO the startup heredoc
+  (the *second* of the two in the file, anchored on the heredoc-open count) and
+  the same first Write that T5b blocked is shown being **allowed**.
+
+Measured: with the two keys spliced into the shipped hook, the suite goes 10/1
+and the gate flips to allow. Both cases run the hook under a **private HOME**
+with project-local `mcpServers`, so MCP-requirement discovery is a property of
+the fixture and not of the developer's `~/.claude.json`, and the gate runs under
+`env -i` so an exported `SOLO_MCP_ATTESTED` cannot turn a deny into an allow and
+score as a pass.
+
+Two smaller consequences, for completeness:
+- **Merge conflicts.** A file rewritten every session, on every branch, is a
+  guaranteed conflict on any branch-based workflow, in a file no human edits.
+- **Leakage.** `last_mcp_error` stores the remote server's own message verbatim.
+  It is not a credential store, but it is untrusted third-party text being
+  committed to a repository, and `calls[]` is a per-session activity log.
+
+### Existing projects — recommended, NOT performed
+
+The ignore rule alone does nothing for a file git is already tracking. An
+existing project needs, **once, at the operator's discretion**:
+
+```
+git rm --cached .claude/tool-usage.json
+```
+
+**The framework must not do this for anyone unprompted.** It rewrites a user's
+index and produces a deletion in their next commit; a tool that quietly
+un-tracks files in someone's repository is worse than the untidiness it fixes.
+`scripts/upgrade-project.sh` therefore backfills only the `.gitignore` line — the
+same posture as the `## BL-174:` backfill — and the step above belongs in release
+notes.
+
+**Related:** `## BL-174:` (the sidecar ignore-lines and their SYNC SIBLINGS
+constraint — this line ships through the same two writers and is subject to the
+same lockstep rule), `## BL-030:` and `## BL-161:` (the two siblings),
+`## BL-233:` (what made this file load-bearing), `## BL-234:` (the work that
+found it).

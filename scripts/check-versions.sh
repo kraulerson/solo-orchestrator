@@ -169,14 +169,58 @@ check_for_update() {
         return
       fi
 
-      # Fetch latest from remote (quiet, with timeout)
-      if [ "$NETWORK_AVAILABLE" = true ]; then
-        git -C "$repo_path" fetch --quiet 2>/dev/null || true
+      # Fetch latest from remote (quiet, BOUNDED).
+      #
+      # BL-234: this comment said "with timeout" for as long as the line
+      # existed, above a bare `git fetch` that had none. A comment describing an
+      # intention nobody implemented is the same defect as a `[WARN]` label over
+      # an `issues` increment (`## BL-104:`) — the text and the behaviour
+      # disagree, and readers trust the text. NETWORK_AVAILABLE is a coarse
+      # pre-check, not a bound: a reachable host that never answers hangs this
+      # script indefinitely, and it runs from a session hook.
+      # run_with_timeout is the only bounded runner available — there is no
+      # timeout(1)/gtimeout(1) on the dev host (they yield a spurious rc=127).
+      #
+      # The `command -v run_with_timeout` guard is not defensive padding. This
+      # script has a FALLBACK that defines the colours and print_* inline when
+      # scripts/lib/helpers-core.sh is missing, and that fallback does NOT define
+      # run_with_timeout. Without the guard the bounded call would exit 127,
+      # `|| true` would swallow it, and the comparison below would silently run
+      # against STALE refs — a fetch that never happened, reported as a currency
+      # verdict. That is the precise defect this entry exists to remove, so the
+      # unbounded state is reported as "cannot tell" rather than run unbounded
+      # (which would hang a session hook) or skipped in silence.
+      # AND THE FETCH'S OWN OUTCOME IS PART OF THE ANSWER. `|| true` discarded
+      # it, so a fetch that failed WITHIN the bound — offline, remote deleted,
+      # auth gone — fell through to compare `HEAD` against an `origin/main` no
+      # fetch had refreshed. Reproduced on a clone genuinely one commit behind
+      # its (deleted) origin with NETWORK_AVAILABLE=true: verdict `up_to_date`.
+      # That is silent false reassurance for CDF and every `git_repo` tool while
+      # offline, and it is the same substitution as the unboundable arm below —
+      # a currency verdict from a fetch that never landed. Pre-existing, not a
+      # regression, and undisclosed until now.
+      #
+      # THE BOUND IS ONLY A BOUND IF THE SECONDS ARE A NUMBER. Measured:
+      # `run_with_timeout abc sleep 3` returns rc 0 after 3039 ms — the
+      # `[ "$elapsed" -ge "$secs" ]` test errors on every iteration, the kill
+      # never fires, and the caller's `>/dev/null 2>&1` swallows the complaint.
+      # A garbage SOLO_FETCH_TIMEOUT would therefore UNBOUND this fetch in
+      # silence: the resurrected defect, one env var away. The two sibling call
+      # sites (`_soif_fresh_fetch_secs`, `qdrant_probe_reachable`) already
+      # validate their seconds; this one did not.
+      if [ "$NETWORK_AVAILABLE" = true ] && command -v run_with_timeout >/dev/null 2>&1; then
+        local _cv_secs _cv_fetch_rc=0
+        _cv_secs="${SOLO_FETCH_TIMEOUT:-10}"
+        case "$_cv_secs" in ''|*[!0-9]*|0) _cv_secs=10 ;; esac   # BL-234-CHECKVERSIONS-SECS
+        run_with_timeout "$_cv_secs" git -C "$repo_path" fetch --quiet >/dev/null 2>&1 || _cv_fetch_rc=$?   # BL-234-CHECKVERSIONS-TIMEOUT
         local local_rev remote_rev behind_count
         local_rev=$(git -C "$repo_path" rev-parse HEAD 2>/dev/null)
         remote_rev=$(git -C "$repo_path" rev-parse origin/main 2>/dev/null || git -C "$repo_path" rev-parse origin/master 2>/dev/null || echo "")
 
-        if [ -z "$remote_rev" ]; then
+        if [ "$_cv_fetch_rc" -ne 0 ]; then
+          UPDATE_CHECK_STATUS="unknown"
+          UPDATE_CHECK_MSG="could not refresh refs from the remote (offline, unreachable, or slower than the ${_cv_secs}s bound) — NOT compared, because the refs on disk are whatever the last successful fetch left"   # BL-234-CHECKVERSIONS-FETCHFAIL
+        elif [ -z "$remote_rev" ]; then
           UPDATE_CHECK_STATUS="unknown"
           UPDATE_CHECK_MSG="could not determine remote branch"
         elif [ "$local_rev" = "$remote_rev" ]; then
@@ -188,6 +232,9 @@ check_for_update() {
           UPDATE_CHECK_MSG="$behind_count commit(s) behind"
           UPDATE_CHECK_CMD="cd $repo_path && git pull"
         fi
+      elif [ "$NETWORK_AVAILABLE" = true ]; then
+        UPDATE_CHECK_STATUS="unknown"
+        UPDATE_CHECK_MSG="cannot bound a fetch (scripts/lib/helpers-core.sh unavailable) — skipped rather than compared against stale refs"   # BL-234-CHECKVERSIONS-UNBOUNDABLE
       else
         UPDATE_CHECK_STATUS="unknown"
         UPDATE_CHECK_MSG="network unavailable — skipped"

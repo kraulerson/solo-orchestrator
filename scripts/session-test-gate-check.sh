@@ -123,6 +123,17 @@ TUEOF
     fi
   else
     # startup (or missing envelope, or file absent) — fresh init.
+    #
+    # BL-236: THE OMISSION BELOW IS LOAD-BEARING, and it used to be an accident.
+    # This heredoc does NOT list `qdrant_find_succeeded` or
+    # `context7_query_docs_succeeded`, and session-mcp-gate.sh's `_flag` reads a
+    # MISSING key as false (`# BL-233-OUTCOME-QDRANT` / `# BL-233-OUTCOME-C7`).
+    # That is the only thing that stops a COMMITTED .claude/tool-usage.json from
+    # carrying an inherited `true` into a clone's first session and pre-satisfying
+    # the MCP gate before any Write. Add either key here — at any value that can
+    # be true — and you have re-opened it. T5b pins the erasure AND the gate's
+    # refusal; T5c is the mutant that puts the keys back and shows the gate flip
+    # to allow. Do not "complete" this object.
     cat > "$TOOL_USAGE" << TUEOF
 {
   "session_id": "$SESSION_ID",

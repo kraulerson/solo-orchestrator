@@ -645,17 +645,31 @@ else
   fi
 fi
 
-# E3 — the qdrant MCP server's literal zero-result phrase.
+# E3 — REVERSED BY `## BL-234:`, deliberately, and kept rather than deleted.
+#
+# This assertion used to demand the opposite: that a response whose TEXT reads
+# "No information found" be recorded empty. That was the phrase-matching half of
+# the detector, and it was WRONG ON ITS FIRST LIVE FIRING an hour after it
+# shipped — a qdrant-find returning ten substantial memories was recorded
+# `qdrant_find_empty=true` because one of the STORED MEMORIES contained the
+# sentence "D8 empty result returns 200 with {games: [], meta.total: 0}". It
+# matched a memory ABOUT emptiness and reported the retrieval as empty.
+#
+# BL-234 deleted the phrase half. Emptiness is now decided by SHAPE only, which
+# E1/E2 cover. This case is retained, inverted, as the record of the trade: the
+# lost detection is real, and it is the LESSER error. A missed true-empty tells
+# the operator nothing; a false empty tells them their memory is gone while
+# handing them a full one.
 E3D="$(newtmp)/p"
 if ! mk_proj "$E3D" "$LEDGER_BOTH_REQUIRED"; then
   fail_ "E3" "fixture setup failed"
 else
   run_tracker "$TRACKER" "$E3D" "$(ev_success 'mcp__qdrant__qdrant-find' 'No information found')" --event PostToolUse
   e3_empty=$(jqf "$E3D" '.qdrant_find_empty // false')
-  if [ "$e3_empty" = "true" ]; then
-    pass "E3: the qdrant MCP server's own zero-result phrase ('No information found') is recognised as empty rather than as content"
+  if [ "$e3_empty" = "false" ]; then
+    pass "E3 (inverted by BL-234): prose alone no longer decides emptiness — a non-empty content block reading 'No information found' records false. The phrase half was deleted because it read a memory ABOUT emptiness as an empty retrieval"
   else
-    fail_ "E3" "empty_flag=$e3_empty (want true)"
+    fail_ "E3" "empty_flag=$e3_empty (want false — BL-234 removed the phrase half; shape decides)"
   fi
 fi
 

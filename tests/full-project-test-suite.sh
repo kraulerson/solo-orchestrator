@@ -1724,7 +1724,7 @@ run_child_suite "tests/test-validate-counter-sanitizer.sh" \
 run_child_suite "tests/test-record-claude-commit.sh" "tests/test-record-claude-commit.sh (9/9)"
 run_child_suite "tests/test-unrecord-feature.sh" "tests/test-unrecord-feature.sh (7/7)"
 run_child_suite "tests/test-session-test-gate-check-merge.sh" \
-  "tests/test-session-test-gate-check-merge.sh (9/9)"
+  "tests/test-session-test-gate-check-merge.sh (11/11)"
 
 # ----------------------------------------------------------------
 # Process-checklist / pending-approval / poc-modes (BL-035 C)
@@ -2031,6 +2031,19 @@ run_child_suite "tests/test-delta-db-ledger-close.sh" \
 # runs in the unit lane too.
 run_child_suite "tests/test-bl233-mcp-outcome-enforcement.sh" \
   "tests/test-bl233-mcp-outcome-enforcement.sh"
+
+# BL-234 — currency and availability MEASURED, not declared. Four checks read a
+# declaration as a capability: freshness never fetched (so `pin-behind` compared
+# the pin against the clone it was cut from), `is_qdrant_mcp_registered` tested
+# for a config KEY, the empty detector matched a memory ABOUT emptiness, and the
+# tool matrix (filed as BL-235, not fixed). Local BARE repos as origins — never
+# the network. Three arms that could silently never fire each have a test whose
+# job is to make them fire: the reference-age fallback, the two bounds (proved
+# with stubs that sleep and a wall clock), and the cannot-tell probe state.
+# Extracts init.sh's Qdrant chain and the BL-174 gitignore backfill from between
+# their fence markers and EXECUTES them, so the assertions land on shipped code.
+run_child_suite "tests/test-bl234-currency-and-availability.sh" \
+  "tests/test-bl234-currency-and-availability.sh"
 run_child_suite "tests/test-check-phase-gate.sh" "tests/test-check-phase-gate.sh"
 
 # BL-214 — the gate stalled its own next run. create_gate_snapshot writes into
