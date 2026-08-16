@@ -548,12 +548,44 @@ jobs:
           #
           # Seconds are measured CI time from run 30297887329 (main @ 9d71824).
           pin_lint_sweep=(
-            tests/test-run-lints.sh                    # 318s — runs the WHOLE lint sweep over the real repo
+            tests/test-run-lints.sh                    # 318s at pin time; the lint-sweep leg now measures 131s TOTAL — BL-191's rewrite landed after this figure and it is stale. Re-measure before relying on it.
+            # ── Re-pinned 2026-08-15. The `rest` leg was CANCELLED at the
+            #    12-minute cap on PR #351 having printed "ran 156 unit test
+            #    file(s); 0 failed" — a cancellation, not a red, which is the
+            #    outcome the walk006 note below warns about: it replaces a
+            #    readable answer with none.
+            #    Derived from that run's OWN log (per-suite group timestamps),
+            #    not a local stopwatch, because the pin doctrine is keyed to
+            #    MEASURED CI TIME:
+            #      rest leg total       700s / 720s   (cancelled at 12m05)
+            #      wp2-scout-sections   108.5s  ← top pole, moved to lint-scan
+            #      THIS suite            66.0s  ← second pole
+            #    Moving both: rest ~526s (73%), lint-sweep ~197s (27%),
+            #    lint-scan ~206s (29%). Pinning only the larger would have left
+            #    the complement at ~88% — the same "approaching" state the sast
+            #    and walk006 notes were written about, and worth one work
+            #    package of headroom at best.
+            #    NOT this suite's growth, measured across this PR's three runs:
+            #    64s at 48 cases, 65s at 50, 66s at 51. The complement leg went
+            #    567s -> 701s -> 700s over those same commits for ~2s of added
+            #    test, so the pressure is the leg's, not the suite's.
+            tests/test-bl234-currency-and-availability.sh  # 66.0s in CI (51 cases; ~62s local)
           )
           pin_lint_scan=(
             tests/test-lint-counter-antipattern.sh     # 243s at pin time — T9 re-scans the real repo; BL-191 made that scan single-pass, so re-measure before repinning
             tests/test-lint-raw-read-prompt.sh         #  41s — real-repo arm
             tests/test-lint-doc-anchors.sh             #  16s — real-repo arm
+            # ── Re-pinned 2026-08-15, the partner move to the lint-sweep note
+            #    above. This was the `rest` leg's TOP pole at 108.5s measured
+            #    CI time, 1.6x the next one, and it is the third brownfield
+            #    suite to need pinning (wp1, wp5b and wp6 all went to
+            #    slow-misc) — a pattern rather than three accidents: each work
+            #    package adds a driver-shaped suite to the complement.
+            #    Landed HERE rather than slow-misc because that leg already
+            #    measures 468s/720s (65%) and would have gone to ~80%, whereas
+            #    lint-scan measures 97s TOTAL — the three figures above it
+            #    pre-date BL-191 and overstate it by roughly 3x.
+            tests/test-brownfield-wp2-scout-sections.sh  # 108.5s in CI
           )
           pin_sast=(
             tests/test-bl132-sast-index-scan.sh        #  77s on main, 213s on PR #278 — pinned at the worst case
