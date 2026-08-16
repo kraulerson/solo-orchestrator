@@ -2045,6 +2045,9 @@ run_child_suite "tests/test-bl233-mcp-outcome-enforcement.sh" \
 run_child_suite "tests/test-bl234-currency-and-availability.sh" \
   "tests/test-bl234-currency-and-availability.sh"
 
+run_child_suite "tests/test-bl222-security-clock-evidence.sh" \
+  "tests/test-bl222-security-clock-evidence.sh"
+
 run_child_suite "tests/test-bl229-host-pipeline-paths.sh" \
   "tests/test-bl229-host-pipeline-paths.sh"
 run_child_suite "tests/test-check-phase-gate.sh" "tests/test-check-phase-gate.sh"

@@ -9137,7 +9137,78 @@ Disclosure mitigates the deception, not the hole. The residuals are described
 accurately in the product; what was false is the clause claiming they were
 filed — and because they were not, the weakest of the three sat unexamined
 under a gate that refuses releases.
-**Status:** Open
+**Status:** Open — all three residuals FIXED on branch
+`fix/bl222-security-clock`; close on merge with the PR number.
+
+### All three fixed, and the false tracking clause corrected
+
+- **R-WP6-4** (`# BL-222-DEP-GLOB`) — `*dep*` narrowed to `*dependency*`,
+  `*deps*`, `*dep-scan*` and `*dependabot*`. None spells `deployment`, which is
+  the only thing the narrowing is meant to exclude. `*audit*` already covered
+  dep-audit / npm-audit / pip-audit / cargo-audit, so the broad glob was mostly
+  **redundant before it was wrong**.
+  **Adversarial review caught a real coverage loss in the first narrowing** and
+  it is fixed here: `dep-scan` (OWASP's vulnerability scanner) and
+  `dependabot-alerts` (the commonest dependency artefact on the default host)
+  were both caught by the old glob and reached by none of the replacements.
+  The loss direction was fail-safe — rc 2 blocks a release cut rather than
+  waving one through — but a false alarm on a project that DID run its scan is
+  still a defect. Case D2 now pins all eight spellings.
+- **R-WP6-7** (`# BL-222-ARTEFACT-MUST-BE-FILE`) — candidates are filtered
+  through `[ -f ]`, which follows symlinks and so rejects the dated empty
+  directory and the dangling symlink with one test.
+- **R-WP6-5** (`# BL-222-DATE-ROUNDTRIP`) — `cadence_epoch` round-trips the
+  parsed epoch back to a date and requires it to equal the input. That catches
+  BSD's normalisation of an in-range impossibility (`2026-02-30` → March 2) on
+  whichever `date(1)` is installed, rather than enumerating impossibilities one
+  platform at a time.
+- The header no longer asserts the residuals were filed as backlog lines. They
+  were not filed anywhere; **this entry is that filing**, and case H2 pins that
+  the disclosure survives the correction rather than being deleted with it.
+
+**RESIDUAL, pinned rather than papered over.** "Fixed" means the three MEASURED
+holes are closed, not that the shapes can no longer occur. Matching is still a
+SUBSTRING heuristic, so a deployment artefact that happens to spell `deps` or
+`dependency` still counts:
+
+| name | verdict |
+|---|---|
+| `deployment-notes-<date>.md` | rejected — the headline hole, closed |
+| `deployment-deps-<date>.md` | **still satisfies** — spells `deps` |
+| `deployment-dependency-<date>.md` | **still satisfies** — spells `dependency` |
+| `deployment-dependencies-<date>.md` | rejected — no literal `dependency` |
+
+That singular/plural split is not something a reader would predict, which is
+exactly why case **D6** now pins the boundary: the day someone closes it
+properly — by asserting on CONTENT rather than a name — D6 goes red and tells
+them the disclosure needs updating too. It is **not a regression**: all of these
+are accepted on `main` as well.
+
+**Proof:** `tests/test-bl222-security-clock-evidence.sh`, 11 cases, ~3s,
+asserting on EXIT CODES because the script's contract is one (0 current /
+1 overdue / **2 undetermined**, and `cut-release.sh` refuses on 2). Case B1
+establishes an rc-0 baseline first, so no row can pass by making everything
+undetermined — the "narrowed until nothing matches" failure mode, which is
+exactly what the review's coverage finding turned out to be a mild case of.
+
+**One expectation corrected mid-proof, and the correction is sharper than the
+original.** M2 first expected the mutant to answer rc 0. It answers **rc 1**:
+`2026-02-30` normalises to a March date old enough to read as overdue. The real
+discriminator is **rc 2 versus any measured verdict** — the mutant does not
+mis-date the artefact, it **fabricates a measurement from a date that does not
+exist**. Asserted that way the proof is also immune to calendar drift, where a
+hardcoded impossible date would wander in and out of the 95-day window as the
+real date moves and start failing for the wrong reason.
+
+**Stated limit:** on a GNU-date host M2 **cannot fire at all**, because GNU
+refuses `2026-02-30` outright. The failure message says so, rather than letting
+a structurally-unfirable mutant read as a kill.
+
+**Split from `## BL-229:` deliberately.** The two shipped as one branch until
+adversarial review blocked the BL-229 half on a Bitbucket defect. This half
+cleared — the one coverage finding against it is fixed above, and the one
+wording finding is the residual note below — so it is not held hostage to that
+rework.
 
 **The false clause.** `scripts/check-maintenance.sh`'s header, in the block
 introducing the WP6 review's measured residuals:
