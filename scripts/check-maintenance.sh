@@ -99,8 +99,16 @@ set -euo pipefail
 #   whose date nobody can read is no longer reported as fresh.
 #
 #   THREE SHAPES OF THAT RESIDUAL, MEASURED BY THE WP6 REVIEW AND NAMED HERE SO
-#   THE DISCLOSURE IS NOT NARROWER THAN THE BEHAVIOUR. **All three are now
-#   FIXED, and the filing is `## BL-222:`.** The sentence that used to stand
+#   THE DISCLOSURE IS NOT NARROWER THAN THE BEHAVIOUR. **All three MEASURED
+#   holes are now CLOSED, and the filing is `## BL-222:`.** Not "the shapes can
+#   no longer happen": matching is still SUBSTRING-based, so a deployment
+#   artefact that happens to spell `deps` or `dependency` still counts —
+#   `deployment-deps-<date>.md` satisfies the clock, `deployment-notes-<date>.md`
+#   no longer does, and `deployment-dependency` differs from
+#   `deployment-dependencies` for no reason a reader would predict. Case D6
+#   pins that boundary so the residual is regression-tested rather than merely
+#   worded. Closing it properly means asserting on CONTENT, not on a name.
+#   The sentence that used to stand
 #   here asserted a backlog filing that did not exist — no entry described any
 #   of the three — and BL-222 exists because a false tracking claim is worse
 #   than an untracked residual: it stops anyone from looking. Kept in place
@@ -359,7 +367,7 @@ if [ -d "docs/test-results" ]; then
   # reached by `*dependency*`, `*deps*` or `*audit*`. None of the four spells
   # `deployment`, which is the only thing this narrowing is meant to exclude.
   _dep_glob='docs/test-results/*dependency* docs/test-results/*deps* docs/test-results/*dep-scan* docs/test-results/*dependabot*'   # BL-222-DEP-GLOB
-  # shellcheck disable=SC2086  # intentional split+glob: two patterns, not one word
+  # shellcheck disable=SC2086  # intentional split+glob: several patterns, not one word
   latest_scan="$( { ls -t docs/test-results/*snyk* $_dep_glob \
                          docs/test-results/*audit* docs/test-results/*semgrep* \
                          docs/test-results/*sast* 2>/dev/null || true; } \

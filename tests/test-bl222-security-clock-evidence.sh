@@ -219,6 +219,26 @@ else
   fail_ "D4" "rc=$CHK_RC (want 2) — a broken symlink is still passing as a security scan"
 fi
 
+# ── D6 / the RESIDUAL, pinned rather than papered over. The narrowing is a
+# SUBSTRING heuristic, not a semantic test, so a deployment artefact that
+# happens to spell `deps` or `dependency` still counts. That is disclosed in the
+# script header; this case makes it regression-tested, so the day someone
+# closes it properly (by asserting on CONTENT rather than a name) this row goes
+# red and tells them the disclosure needs updating too.
+D6="$(newtmp)"; mk_base "$D6/p"
+printf 'the deps we shipped\n' > "$D6/p/docs/test-results/deployment-deps-$(days_ago 3).md"
+run_check "$REPO_ROOT/scripts" "$D6/p"
+d6_deps_rc="$CHK_RC"
+D6b="$(newtmp)"; mk_base "$D6b/p"
+printf 'we deployed on tuesday\n' > "$D6b/p/docs/test-results/deployment-notes-$(days_ago 3).md"
+run_check "$REPO_ROOT/scripts" "$D6b/p"
+d6_notes_rc="$CHK_RC"
+if [ "$d6_deps_rc" -eq 0 ] && [ "$d6_notes_rc" -eq 2 ]; then
+  pass "D6: the residual is exactly where the header says it is — 'deployment-deps' still SATISFIES the clock (rc $d6_deps_rc) because it spells 'deps', while 'deployment-notes' does not (rc $d6_notes_rc). A substring heuristic, disclosed and now pinned; closing it needs a content assertion, not another pattern"
+else
+  fail_ "D6" "deployment-deps rc=$d6_deps_rc (want 0) deployment-notes rc=$d6_notes_rc (want 2) — the residual moved, so the header's disclosure is now wrong in one direction or the other"
+fi
+
 echo "=== C — the same date must mean the same thing on every host ==="
 
 # ── D5 / R-WP6-5: 2026-02-30 does not exist. GNU refuses it; BSD NORMALISES it

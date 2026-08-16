@@ -9166,7 +9166,25 @@ under a gate that refuses releases.
   were not filed anywhere; **this entry is that filing**, and case H2 pins that
   the disclosure survives the correction rather than being deleted with it.
 
-**Proof:** `tests/test-bl222-security-clock-evidence.sh`, 10 cases, ~3s,
+**RESIDUAL, pinned rather than papered over.** "Fixed" means the three MEASURED
+holes are closed, not that the shapes can no longer occur. Matching is still a
+SUBSTRING heuristic, so a deployment artefact that happens to spell `deps` or
+`dependency` still counts:
+
+| name | verdict |
+|---|---|
+| `deployment-notes-<date>.md` | rejected — the headline hole, closed |
+| `deployment-deps-<date>.md` | **still satisfies** — spells `deps` |
+| `deployment-dependency-<date>.md` | **still satisfies** — spells `dependency` |
+| `deployment-dependencies-<date>.md` | rejected — no literal `dependency` |
+
+That singular/plural split is not something a reader would predict, which is
+exactly why case **D6** now pins the boundary: the day someone closes it
+properly — by asserting on CONTENT rather than a name — D6 goes red and tells
+them the disclosure needs updating too. It is **not a regression**: all of these
+are accepted on `main` as well.
+
+**Proof:** `tests/test-bl222-security-clock-evidence.sh`, 11 cases, ~3s,
 asserting on EXIT CODES because the script's contract is one (0 current /
 1 overdue / **2 undetermined**, and `cut-release.sh` refuses on 2). Case B1
 establishes an rc-0 baseline first, so no row can pass by making everything
@@ -9187,8 +9205,10 @@ refuses `2026-02-30` outright. The failure message says so, rather than letting
 a structurally-unfirable mutant read as a kill.
 
 **Split from `## BL-229:` deliberately.** The two shipped as one branch until
-adversarial review blocked the BL-229 half on a Bitbucket defect; this entry
-survived every probe and is not held hostage to that rework.
+adversarial review blocked the BL-229 half on a Bitbucket defect. This half
+cleared — the one coverage finding against it is fixed above, and the one
+wording finding is the residual note below — so it is not held hostage to that
+rework.
 
 **The false clause.** `scripts/check-maintenance.sh`'s header, in the block
 introducing the WP6 review's measured residuals:
