@@ -9137,8 +9137,17 @@ Disclosure mitigates the deception, not the hole. The residuals are described
 accurately in the product; what was false is the clause claiming they were
 filed — and because they were not, the weakest of the three sat unexamined
 under a gate that refuses releases.
-**Status:** Open — all three residuals FIXED on branch
-`fix/bl222-security-clock`; close on merge with the PR number.
+**Status:** Closed — merged in **PR #353** (`fed2c5c`). All three WP6 residuals
+fixed, and the header's false tracking clause corrected.
+
+**One CI-only failure on the way, and it is the entry's own subject.** `M2`
+carried a note saying the mutant could not fire on a GNU-date host — and then
+failed on CI, which runs GNU date. **Writing a limit down is not handling it.**
+M2 is now host-aware: where neither parser accepts `2026-02-30` the round-trip
+guard is never reached, so it asserts what is provable there and names the mode.
+The detection is "neither parser accepts it", NOT "this host is GNU" — BSD
+refuses `-d` as an illegal option too, so a `-d`-only probe answers yes on both
+hosts and would send a BSD run down the wrong branch.
 
 ### All three fixed, and the false tracking clause corrected
 
@@ -9750,8 +9759,20 @@ nothing about it
 **Severity:** Medium-High. Not a wrong answer: an **absent** answer, on two of
 the three supported hosts, with no output distinguishing "checked and clean" from
 "never looked".
-**Status:** Open — fix implemented on branch `fix/bl229-release-paths`; close on
-merge with the PR number.
+**Status:** Closed — merged in **PR #354** (`c0d067a`). Five sites converted or
+named, the scaffolded release pipeline made reachable on all three hosts, and
+the readers taught that existence is not execution.
+
+**Five review rounds, three of them blocking.** The mechanism was never the
+problem — **rigour stopped one layer short of where the answer is consumed**,
+every time. That table is below and is the durable part of this entry.
+
+**Two CI-only failures on the way**, both scope this branch added rather than
+defects it was filed for: a missing release pipeline, and an unrecorded host,
+each newly BLOCKING the 3→4 gate on every host. Thirteen assertions across three
+suites encoded the old contract, and their fixtures are light-track personal
+projects — a legitimate shape. Karl's decision: report always (silence was the
+filed defect), block only where the tier expects a release pipeline.
 
 ### The entry said one site. It is five, and the worst one is not the filed one
 

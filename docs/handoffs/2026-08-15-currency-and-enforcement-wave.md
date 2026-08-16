@@ -183,11 +183,18 @@ lints 15/15). **The failure is in the fixture, not the product change** — whic
 is a claim to verify, not inherit.
 
 ### 4.1 Live holes in shipped code
-1. **`## BL-229:`** — the Phase 3→4 release check hardcodes
+
+> **UPDATE 2026-08-16 — items 1 and 2 are CLOSED.** `## BL-222:` merged in
+> **PR #353** (`fed2c5c`), `## BL-229:` in **PR #354** (`c0d067a`). BL-229 was
+> filed as one site and was five, plus a scaffolding defect underneath: the
+> release pipeline could not execute at all on GitLab or Bitbucket. It took five
+> review rounds, three of them blocking. **Items 3 and 4 below are still open.**
+
+1. ~~**`## BL-229:`**~~ **CLOSED (PR #354)** — — the Phase 3→4 release check hardcodes
    `.github/workflows/release.yml`, so on **GitLab and Bitbucket it is skipped
    and prints nothing**. A pipeline full of TODOs passes the gate. Not a wrong
    answer — a *missing* one that reads as clean.
-2. **`## BL-222:`** — the release gate's **only** security clock is satisfied by
+2. ~~**`## BL-222:`**~~ **CLOSED (PR #353)** — the release gate's **only** security clock was satisfied by
    any dated file matching `*dep*`. Reproduced end-to-end: a
    `deployment-notes-<date>.md` cuts a release with no scan ever run. **Needs no
    intent** to trip.
