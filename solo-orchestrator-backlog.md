@@ -10895,22 +10895,35 @@ and it is what leaves the residual permanently undone.
    valid-JSON and exists arms). A tracked ledger is one predicate away:
    `git ls-files --error-unmatch .claude/tool-usage.json` → `warn` naming the
    `git rm --cached` step.
-2. **`scripts/upgrade-project.sh` prints `[OK]` for a case it did not handle.**
-   The backfill gates solely on the `.gitignore` TEXT
-   (`grep -qxF '.claude/tool-usage.json' .gitignore`), never on the index, then
-   reports `print_ok "gitignore sidecar ignore-lines backfilled (BL-174)"`. For
-   an already-tracking project that `[OK]` is true about the file it wrote and
-   misleading about the operator's actual state.
+2. **`scripts/upgrade-project.sh` reports success for an operation that is
+   INAPPLICABLE to the affected projects.** The backfill gates solely on the
+   `.gitignore` TEXT (`grep -qxF '.claude/tool-usage.json' .gitignore`), never
+   on the index, then reports
+   `print_ok "gitignore sidecar ignore-lines backfilled (BL-174)"`. For an
+   already-tracking project the rule it adds is a **complete no-op** — measured
+   below — so the `[OK]` is true about the file it wrote and describes no change
+   whatsoever to the condition this entry exists for, for exactly the population
+   this entry's residual concerns.
 
 **One thing this is NOT, measured rather than assumed.** The backfilled rule
 does **not** hide the still-tracked file: `.gitignore` has no effect on paths
-already in the index, so a project whose ledger is tracked keeps seeing
-` M .claude/tool-usage.json` in `git status` after every session. Verified on a
-throwaway repo — tracked file, rewrite, `git status` shows it; add the ignore
-rule, rewrite again, `git status` still shows it. A review draft claimed the
-rule "removes the last symptom that would have prompted the operator"; it does
-not, and that matters for triage: the churn stays visible, so this is an
-inadequate-disclosure defect, not a symptom-suppressing one.
+already in the index. A review draft claimed the rule *"removes the last symptom
+that would have prompted the operator"*; it does not. Measured on throwaway
+repos, twice and independently — every operator-visible symptom is **byte-
+identical before and after** the rule is added:
+
+| probe | before rule | after rule | after `git rm --cached` |
+|---|---|---|---|
+| `git status --short` | ` M .claude/tool-usage.json` | ` M .claude/tool-usage.json` | *(empty)* |
+| `git ls-files` | present | present | absent |
+| does `git add -A` stage it | yes | yes | no |
+| does a fresh clone inherit it | yes, tracked | yes, tracked | no |
+
+So the rule is not merely non-suppressing, it is a **no-op** for an
+already-tracked ledger, and only the documented manual step clears any of it.
+Two consequences for triage: the session-by-session churn stays fully visible
+(this is an **inadequate-disclosure** defect, not a symptom-suppressing one),
+and item 2 above is reporting success for an operation that cannot apply.
 
 **Status stays Open for those two items** — not as a standing recommendation
 that can never close, which is how a backlog rots.
