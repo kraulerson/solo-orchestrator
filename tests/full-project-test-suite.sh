@@ -2044,6 +2044,9 @@ run_child_suite "tests/test-bl233-mcp-outcome-enforcement.sh" \
 # their fence markers and EXECUTES them, so the assertions land on shipped code.
 run_child_suite "tests/test-bl234-currency-and-availability.sh" \
   "tests/test-bl234-currency-and-availability.sh"
+
+run_child_suite "tests/test-bl222-security-clock-evidence.sh" \
+  "tests/test-bl222-security-clock-evidence.sh"
 run_child_suite "tests/test-check-phase-gate.sh" "tests/test-check-phase-gate.sh"
 
 # BL-214 — the gate stalled its own next run. create_gate_snapshot writes into
