@@ -178,15 +178,21 @@ fi
 # count, or the fix trades a false pass for a false alarm. Every spelling here is
 # one a real toolchain emits.
 d2_bad=""
+# `dep-scan` is OWASP's vulnerability scanner and `dependabot-alerts` is the
+# commonest dependency artefact on the default host — both were caught by the
+# old broad `*dep*` and both are lost by a naive narrowing. The loss direction
+# is fail-safe (rc 2 blocks a release cut rather than waving one through), but a
+# false alarm on a project that DID run its scan is still a defect.
 for name in "dep-audit-DATE.json" "npm-audit-DATE.txt" "pip-audit-DATE.json" \
-            "cargo-audit-DATE.txt" "dependency-check-DATE.html" "deps-report-DATE.txt"; do
+            "cargo-audit-DATE.txt" "dependency-check-DATE.html" "deps-report-DATE.txt" \
+            "dep-scan-DATE.json" "dependabot-alerts-DATE.json"; do
   d="$(newtmp)"; mk_base "$d/p"
   printf 'findings: none\n' > "$d/p/docs/test-results/${name/DATE/$(days_ago 5)}"
   run_check "$REPO_ROOT/scripts" "$d/p"
   [ "$CHK_RC" -eq 0 ] || d2_bad="$d2_bad ${name}(rc=$CHK_RC)"
 done
 if [ -z "$d2_bad" ]; then
-  pass "D2: every real dependency-audit spelling still satisfies the clock — dep-audit, npm-audit, pip-audit, cargo-audit, dependency-check, deps-report. The narrowing removed 'deployment', not the coverage"
+  pass "D2: every real dependency-audit spelling still satisfies the clock — dep-audit, npm-audit, pip-audit, cargo-audit, dependency-check, deps-report, dep-scan (OWASP) and dependabot-alerts. The narrowing removed 'deployment', not the coverage"
 else
   fail_ "D2" "these legitimate artefacts stopped counting:$d2_bad"
 fi

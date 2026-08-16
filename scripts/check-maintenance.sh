@@ -353,7 +353,12 @@ if [ -d "docs/test-results" ]; then
   # Deliberately its own line so it can be mutated on its own: the whole point
   # of this fix is one pattern, and a proof that swaps it back must not have to
   # rewrite the surrounding pipeline.
-  _dep_glob='docs/test-results/*dependency* docs/test-results/*deps*'   # BL-222-DEP-GLOB
+  # `*dep-scan*` (OWASP's vulnerability scanner) and `*dependabot*` (the
+  # commonest dependency artefact on the default host) are here because a naive
+  # narrowing loses them: both were caught by the old broad glob and neither is
+  # reached by `*dependency*`, `*deps*` or `*audit*`. None of the four spells
+  # `deployment`, which is the only thing this narrowing is meant to exclude.
+  _dep_glob='docs/test-results/*dependency* docs/test-results/*deps* docs/test-results/*dep-scan* docs/test-results/*dependabot*'   # BL-222-DEP-GLOB
   # shellcheck disable=SC2086  # intentional split+glob: two patterns, not one word
   latest_scan="$( { ls -t docs/test-results/*snyk* $_dep_glob \
                          docs/test-results/*audit* docs/test-results/*semgrep* \
