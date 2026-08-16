@@ -90,7 +90,7 @@ next one will wear a different costume:
 
 ## 4. High-priority open work — ranked, with reasons
 
-### 4.0 ~~BLOCKING~~ — RESOLVED. PR #351 merged as `a49ceaf` (2026-08-16).
+### 4.0 ~~BLOCKING~~ — RESOLVED. PR #351 merged as `a49ceaf` (2026-08-15).
 
 > ⚠ **CORRECTION — the diagnosis below was wrong, and wrong in an instructive
 > way.** This section reasoned that "cloning an EMPTY repository succeeds". The
@@ -104,9 +104,12 @@ next one will wear a different costume:
 >
 > The section's *method* advice held and is worth keeping: the swallowed rc was
 > the reason the diagnosis was invisible, and fixing the swallowing first is what
-> surfaced git's own warning. The section's instruction to reproduce on CI was
-> **unnecessary** — `GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null` runs the
-> runner's git configuration on this host and reproduced 44/4 exactly, locally.
+> surfaced git's own warning. Its instruction to reproduce on CI was **correct
+> given what was then known, and was superseded only once the cause was known to
+> be a config divergence** — an empty-bare theory gives no reason to suspect host
+> git *configuration*, so the local reproduction was not reachable from it.
+> `GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null` runs the runner's git
+> configuration on this host and reproduced 44/4 exactly, locally.
 >
 > Three adversarial-review rounds followed a clean product change, and each found
 > this document's own defect class **inside the fix for it** — including a

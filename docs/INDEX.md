@@ -33,7 +33,8 @@ Session handoff documents. **One live state-of-record at the top level; finished
 handoffs move to `archive/` and leave a pointer stub at the old path** so every
 citation still resolves. Convention: [handoffs/archive/README.md](handoffs/archive/README.md).
 
-- **Live:** [handoffs/2026-07-31-bl201-bl200-close.md](handoffs/2026-07-31-bl201-bl200-close.md) — the current state-of-record (`main` at `1be4264`; BL-201 #292 and BL-200 #293 shipped and merged; next is the § 4 pick-list). Its § 8 is a paste-ready resume prompt.
+- **Live:** [handoffs/2026-08-15-currency-and-enforcement-wave.md](handoffs/2026-08-15-currency-and-enforcement-wave.md) — the current state-of-record (`main` at `a49ceaf`; #341–#351 shipped and merged; `## BL-234:` Closed; next is `## BL-222:` + `## BL-229:`, the Phase 3→4 release gate). Its § 10 is a paste-ready resume prompt, and its § 4.0 carries a ⚠ CORRECTION — read that before acting on the section.
+- **Superseded but still full-length:** [handoffs/2026-07-31-bl201-bl200-close.md](handoffs/2026-07-31-bl201-bl200-close.md) — the previous state-of-record, kept at top level rather than archived. **So the "everything else at top level is a stub" rule below has exactly one exception today**; CLAUDE.md's "trust the non-stub" tie-break does not resolve between two, so use the newer date.
 - **Archived:** [handoffs/archive/](handoffs/archive/) — eleven finished handoffs, 2026-07-08 through 2026-07-31, each with a pointer stub left at its old top-level path. See [handoffs/archive/README.md](handoffs/archive/README.md) for the per-file status (superseded vs fully executed). Everything at the top level of `docs/handoffs/` other than the live doc above is a stub.
 
 ## Superpowers (`docs/superpowers/`)

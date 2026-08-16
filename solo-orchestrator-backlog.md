@@ -10286,9 +10286,18 @@ guard:
 
 Shard note: the merge also re-pinned two poles out of the `unit-shard (rest)`
 leg, which was CANCELLED at its 12-minute cap on this PR having printed
-`ran 156 unit test file(s); 0 failed`. Measured after: `rest` 725s → **530s**
-(74% of cap), no leg above 75%. Per the cap's own doctrine, approaching it is
-the re-pin signal, never a raise.
+`ran 156 unit test file(s); 0 failed`. `rest` went from **cancelled at 725s**
+— a truncation point, not a duration; its true cost was some unknown value
+above 720s — to **530s (74% of cap)**.
+
+**Do not read that as comfortable.** The longest leg is now `slow-misc` at
+540s, which is **exactly 75.0% of the cap**, and it drifted **468s → 540s
+between those two runs with nothing pinned into it** (`sast` likewise 467s →
+526s). Unchanged legs therefore move 12–15% run to run, which is the same
+order as the remaining margin — so by the doctrine this entry quotes,
+`slow-misc` is the **next re-pin candidate**, not a spare. Re-measure before
+adding anything to it. Per that doctrine, approaching the cap is the re-pin
+signal, never a raise.
 
 ### The one root cause
 
@@ -10871,13 +10880,40 @@ now ignored too (verified on `main` after the merge: `.claude/tool-usage.json`
 no longer appears in `git status`). **Existing projects need one manual step
 that this framework must NOT take for them** (below).
 
-**What would close this:** nothing the framework can do. The residual is an
-operator action on repositories this project does not own
-(`git rm --cached .claude/tool-usage.json`), so the entry stays Open as a
-standing recommendation rather than as outstanding work. Karl's call whether
-that warrants Closed with the recommendation preserved — the vocabulary has no
-"shipped, residual is someone else's to run" state, and this is the second
-entry to want one.
+**What would close this — and a first answer to it that was wrong.** A draft of
+this paragraph said *"nothing the framework can do."* That is false, and it is
+the kind of false claim that forecloses its own correction, so it is recorded
+rather than quietly replaced. Refusing to **mutate** a repository this project
+does not own is correct restraint. Refusing to **tell the operator something
+true about the repository they just pointed the tool at** is not the same thing,
+and it is what leaves the residual permanently undone.
+
+**Two concrete items remain, both on surfaces the framework unambiguously owns:**
+
+1. **`scripts/validate.sh` has no detection.** It already inspects this exact
+   file and already has a `warn` arm for it (grep `tool-usage.json` there — the
+   valid-JSON and exists arms). A tracked ledger is one predicate away:
+   `git ls-files --error-unmatch .claude/tool-usage.json` → `warn` naming the
+   `git rm --cached` step.
+2. **`scripts/upgrade-project.sh` prints `[OK]` for a case it did not handle.**
+   The backfill gates solely on the `.gitignore` TEXT
+   (`grep -qxF '.claude/tool-usage.json' .gitignore`), never on the index, then
+   reports `print_ok "gitignore sidecar ignore-lines backfilled (BL-174)"`. For
+   an already-tracking project that `[OK]` is true about the file it wrote and
+   misleading about the operator's actual state.
+
+**One thing this is NOT, measured rather than assumed.** The backfilled rule
+does **not** hide the still-tracked file: `.gitignore` has no effect on paths
+already in the index, so a project whose ledger is tracked keeps seeing
+` M .claude/tool-usage.json` in `git status` after every session. Verified on a
+throwaway repo — tracked file, rewrite, `git status` shows it; add the ignore
+rule, rewrite again, `git status` still shows it. A review draft claimed the
+rule "removes the last symptom that would have prompted the operator"; it does
+not, and that matters for triage: the churn stays visible, so this is an
+inadequate-disclosure defect, not a symptom-suppressing one.
+
+**Status stays Open for those two items** — not as a standing recommendation
+that can never close, which is how a backlog rots.
 
 ### The file
 
