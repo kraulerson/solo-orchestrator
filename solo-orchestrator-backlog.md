@@ -9137,7 +9137,46 @@ Disclosure mitigates the deception, not the hole. The residuals are described
 accurately in the product; what was false is the clause claiming they were
 filed — and because they were not, the weakest of the three sat unexamined
 under a gate that refuses releases.
-**Status:** Open
+**Status:** Open — all three residuals FIXED on branch
+`fix/bl222-bl229-release-gate`; close on merge with the PR number.
+
+### All three fixed, and the false tracking clause corrected
+
+- **R-WP6-4** (`# BL-222-DEP-GLOB`) — `*dep*` narrowed to `*dependency*` and
+  `*deps*`, neither of which spells `deployment`. `*audit*` already covered
+  dep-audit / npm-audit / pip-audit / cargo-audit, so the broad glob was mostly
+  **redundant before it was wrong**. Case D2 pins all six real spellings, so the
+  narrowing cannot quietly trade a false pass for a false alarm.
+- **R-WP6-7** (`# BL-222-ARTEFACT-MUST-BE-FILE`) — candidates are filtered
+  through `[ -f ]`, which follows symlinks and so rejects the dated empty
+  directory and the dangling symlink with one test.
+- **R-WP6-5** (`# BL-222-DATE-ROUNDTRIP`) — `cadence_epoch` now round-trips the
+  parsed epoch back to a date and requires it to equal the input. That catches
+  BSD's normalisation of an in-range impossibility (`2026-02-30` → March 2) on
+  whichever `date(1)` is installed, rather than enumerating impossibilities one
+  platform at a time.
+- The header no longer asserts the residuals were filed as backlog lines. They
+  were not filed anywhere; **this entry is that filing**, and case H2 pins that
+  the disclosure survives the correction rather than being deleted with it.
+
+**Proof:** `tests/test-bl222-security-clock-evidence.sh`, 10 cases, 3s,
+asserting on EXIT CODES because the script's contract is one (0 current /
+1 overdue / **2 undetermined**, and `cut-release.sh` refuses on 2). Case B1
+establishes an rc-0 baseline first, so no row can pass by making everything
+undetermined — the "narrowed until nothing matches" failure mode.
+
+**One expectation corrected mid-proof, and the correction is sharper than the
+original.** M2 first expected the mutant to answer rc 0. It answers **rc 1**:
+`2026-02-30` normalises to a March date old enough to read as overdue. The real
+discriminator is **rc 2 versus any measured verdict** — the mutant does not
+mis-date the artefact, it **fabricates a measurement from a date that does not
+exist**. Asserted that way the proof is also immune to calendar drift, where a
+hardcoded impossible date would wander in and out of the 95-day window as the
+real date moves and start failing for the wrong reason.
+
+**Stated limit:** on a GNU-date host M2 **cannot fire at all**, because GNU
+refuses `2026-02-30` outright. The failure message says so, rather than letting
+a structurally-unfirable mutant read as a kill.
 
 **The false clause.** `scripts/check-maintenance.sh`'s header, in the block
 introducing the WP6 review's measured residuals:
@@ -9679,7 +9718,77 @@ nothing about it
 **Severity:** Medium-High. Not a wrong answer: an **absent** answer, on two of
 the three supported hosts, with no output distinguishing "checked and clean" from
 "never looked".
-**Status:** Open
+**Status:** Open — fix implemented on branch `fix/bl222-bl229-release-gate`;
+close on merge with the PR number.
+
+### It was FIVE sites, not one — and the entry understated the severity
+
+Measured on the branch base. The filed symptom is a silent skip; the site the
+entry did not name is a **false failure**, and it is louder:
+
+| site | symptom |
+|---|---|
+| `scripts/check-phase-gate.sh` | **as filed** — block skipped, prints nothing |
+| `scripts/validate.sh` | **false `[FAIL]`** on a HEALTHY project |
+| `scripts/verify-install.sh` | two sites: the fixer AND the registration arm |
+| `scripts/reconfigure-project.sh` | writes to the GitHub path unconditionally |
+| `init.sh` | wrote release files that **nothing could execute** |
+
+`validate.sh` used the same hardcoded paths with `fail`, and `fail` increments
+`errors` while the script ends `exit $errors`. Three projects, each healthy for
+its own host, differing only in `.host`:
+
+```
+GitHub     exit 10   [OK]   CI pipeline / [OK] Release pipeline (configured)
+GitLab     exit 11   [FAIL] CI pipeline missing (.github/workflows/ci.yml)
+Bitbucket  exit 11   [FAIL] CI pipeline missing (.github/workflows/ci.yml)
+```
+
+### The one underneath: the release pipeline could not run on two of three hosts
+
+`init.sh` wrote `.gitlab-ci/release.yml` and `bitbucket-pipelines/release.yml`
+and **nothing included either**. The writer's own comment claimed the Bitbucket
+"deploy phase is appended to bitbucket-pipelines.yml via include"; no such
+include existed anywhere in the repo. Fixing only the readers would have made
+the 3→4 gate carefully validate a file that could never execute.
+
+**The two hosts are NOT symmetric, and treating them as one caused both bugs:**
+
+- **GitLab** — `include: local` genuinely supports a subdirectory file, so
+  `.gitlab-ci/release.yml` was legitimate and merely unwired
+  (`# BL-229-GITLAB-RELEASE-INCLUDE`). Wired at ONE site in `init.sh`, not in
+  the ten per-language CI templates: ten copies of one line is the drift this
+  entry is about, and the include is only correct when a release file was
+  actually written.
+- **Bitbucket** — sharing is **cross-repository only**
+  (`definitions.imports.<name>: <repo-slug>:<ref>:<path>`, needing
+  `export: true` in the other repo). A same-repo release file can never be
+  reached, so Karl's decision was to fold the steps into
+  `bitbucket-pipelines.yml` (`# BL-229-BITBUCKET-RELEASE-INLINE`). The release
+  templates were already shaped for it — each is a top-level `pipelines:` block
+  carrying `tags: 'v*':`.
+
+`verify-install.sh` was **right about Bitbucket and wrong about GitLab**, and
+applied the Bitbucket answer to both — in two places, only one of which was
+visible from this entry.
+
+### The fix shape the entry asked for
+
+`scripts/lib/host.sh::host_pipeline_resolve` (`# BL-229-HOST-PIPELINE-PATHS`)
+is the single owner. It returns the CI path, the release path, and **how the
+release steps reach the runner** (`file` / `include` / `inline`). That third
+field is what stops every caller re-deriving "…but Bitbucket is different"
+locally, which is the duplication that produced this. `init.sh`'s `case` — the
+only previous copy — is now a call, so the `# BL-084-TIER-KEY` sync-sibling
+trap is not re-created. An unknown host **fails closed and names itself**
+everywhere, where the old arm defaulted to GitHub behind a warning.
+
+`host.sh` is already in `init.sh`'s downstream copy list and already sourced by
+`check-phase-gate.sh`, so every consumer reaches it in a generated project.
+
+**Proof:** `tests/test-bl229-host-pipeline-paths.sh`, 10 cases, 5s. Mutation:
+collapse the mapping to the GitHub spelling (sites==1, 1 line, `bash -n` clean)
+and a TODO-laden GitLab pipeline goes back to unreported.
 
 **The gap, measured on `main` @ `b709576`.** `scripts/check-phase-gate.sh`
 guards the release-TODO check on a literal path:
