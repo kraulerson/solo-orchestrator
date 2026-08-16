@@ -9750,7 +9750,149 @@ nothing about it
 **Severity:** Medium-High. Not a wrong answer: an **absent** answer, on two of
 the three supported hosts, with no output distinguishing "checked and clean" from
 "never looked".
-**Status:** Open
+**Status:** Open — fix implemented on branch `fix/bl229-release-paths`; close on
+merge with the PR number.
+
+### The entry said one site. It is five, and the worst one is not the filed one
+
+| site | symptom | this branch |
+|---|---|---|
+| `scripts/check-phase-gate.sh` | **as filed** — block skipped, prints nothing | **converted** |
+| `scripts/validate.sh` | **false `[FAIL]`** on a HEALTHY project | **converted** |
+| `scripts/verify-install.sh` | two sites: the fixer AND the registration arm | **release path converted; `_ci_dest` and the CI writer are NOT** |
+| `scripts/reconfigure-project.sh` | writes to the GitHub path unconditionally | **NOT converted** — its CI arm is already dead code (it resolves `templates/pipelines/ci/<lang>.yml`, a layout that no longer exists) |
+| `init.sh` | wrote release files **nothing could execute** | **converted** |
+
+`validate.sh` used the same hardcoded paths with `fail`, and `fail` increments
+`errors` while the script ends `exit $errors` — so a correct GitLab project
+FAILED VALIDATION for keeping its files where GitLab puts them. Measured as a
+DELTA rather than absolute exits (the absolutes are fixture-dependent and an
+earlier draft of this entry quoted unreproducible ones): identical projects
+differing only in `.host` produce **exactly one extra `[FAIL]`** on the
+non-GitHub hosts, and it is `[FAIL] CI pipeline missing (.github/workflows/ci.yml)`.
+
+### The one underneath: the release pipeline could not run on two of three hosts
+
+`init.sh` wrote `.gitlab-ci/release.yml` and `bitbucket-pipelines/release.yml`
+and **nothing referenced either**. Fixing only the readers would have made the
+3→4 gate carefully validate a file that could never execute.
+
+- **GitLab** — `include: local` supports a subdirectory file; it was legitimate
+  and merely unwired.
+- **Bitbucket** — reached by `definitions: imports:` with a same-repo path plus
+  an `import:` reference, the imported file declaring `export: true`. Two wiring
+  points, not one.
+
+### Three attempts at the Bitbucket half, and the same defect each time
+
+Recorded in full because the pattern is the lesson, not the fix:
+
+| attempt | mechanism | claimed |
+|---|---|---|
+| 1 | `awk -v` with a multi-line body — BSD awk rejects the newline, so the splice never ran, the `&&` short-circuited, and `rm -f` destroyed the rendered content | "folded" |
+| 2 | `[ -f ]` on a release path that equalled the CI path — existence is not execution | "configured" |
+| 3 | `grep -q "$rel" "$ci"` — a SUBSTRING test, satisfied by a mention in a comment, by a declared-but-never-invoked source, and by a path sitting under a key YAML had already discarded | "wired" |
+
+Each fix verified the previous mechanism and introduced a weaker one. **The
+proof kept measuring text where it needed to measure structure.** Attempt 1 also
+rested on a false premise — that Bitbucket had no same-repo include — which was
+asserted in four places and drove an owner decision before Atlassian's docs
+refuted it.
+
+### What the shipped version does
+
+- **`# BL-229-BITBUCKET-EXPORT-NAME`** — the export file is
+  `.bitbucket/release-pipelines.yml`. Atlassian states the rule twice: *"create
+  a separate file with a `*pipelines.yml` suffix"*. Attempt 3 shipped
+  `bitbucket-pipelines/release.yml`, where the DIRECTORY matched and the
+  filename did not, so Bitbucket would not have loaded it — the same
+  never-executes defect in a new costume. Case `N1` pins the suffix.
+- **`# BL-229-WIRE-RELEASE`** is the single owner of the wiring, with two
+  callers. It **merges into an existing `imports:` block** rather than emitting a
+  rival one (`N2`), because a second `imports:` key makes YAML discard the
+  first — silently taking the release declaration with it.
+- **`# BL-229-WIRE-VERIFY`** is structural, not textual: exactly ONE `imports:`
+  block, the `release:` key anchored beneath it, and the `import:` reference
+  actually present. `N3` pins that a path named only in a comment, and a source
+  declared but never invoked, are both refused.
+- **`custom:` is the reference site, not `tags:`.** Atlassian documents
+  `import:` under `custom:` and `branches:` only; the `tags:` example shows a
+  step list, and the prose *"various start conditions"* is not an enumeration.
+  `branches:` would fire a release on every push, so `custom:` — documented as
+  *"triggered manually or by a schedule"* — is both the documented shape and the
+  right semantics. **Recorded as an inference about a vendor surface**, resolved
+  by choosing the documented option rather than by guessing at the undocumented
+  one.
+- **Existence is not execution, in the readers too**
+  (`# BL-229-GATE-RELEASE-WIRED`, `# BL-229-VALIDATE-RELEASE-WIRED`).
+
+### Proof
+
+`tests/test-bl229-host-pipeline-paths.sh`, 15 cases. The ones that exist because
+of the blocks:
+
+- **W1 EXECUTES the shipped `generate_release`** on all three hosts. Nothing in
+  the PR-blocking set ran the release writer before, which is why attempts 1–3
+  all scored green while broken.
+- **G3** requires the gate to refuse a release file that is present, fully
+  configured, and referenced by nothing.
+- **N1/N2/N3** pin the suffix rule, the merge-not-rival invariant, and the
+  declared-is-not-invoked distinction.
+- **G4** pins that the READERS ask the shared predicate rather than re-deriving
+  it, across all three inert shapes — and, since review found G4 to be a pure
+  absence assertion, it now carries its **positive counterpart** too. Renaming
+  the gate's success string previously left all three negative rows passing for
+  the wrong reason at 16/16; that mutant now dies at 15/1. **That is this
+  entry's own lesson one level up: the check guarding the fix was itself
+  asserted on one side only.**
+### Absence is not the same defect as silence — corrected after CI
+
+The first version made a MISSING release pipeline block the 3→4 gate on every
+host. CI refused it: **13 assertions across three suites** encode the old
+contract, and their fixtures are light-track personal projects — a legitimate
+shape with no release pipeline, not a finding. The same over-reach applied to an
+unrecorded host.
+
+BL-229 is about the check not RUNNING; **blocking on absence was scope this
+branch added.** Karl's decision: report always, block only where the tier
+expects a release pipeline — the same predicate as `# BL-084-TIER-KEY`
+(`deployment = organizational` or `poc_mode = sponsored_poc`), and the same
+applicable-vs-unmeasurable rule `scripts/check-maintenance.sh` already
+documents. `# BL-229-RELEASE-ABSENT-TIER` covers both arms; **T1** pins that
+reporting is unconditional and blocking is not.
+
+An existing release file that is UNWIRED still blocks at every tier — that is a
+broken file, not an absent one.
+
+- **S1** pins that the wiring has ONE owner — it caught a real duplicate in
+  `verify-install.sh` the moment it was written.
+
+### The recurring failure, named once
+
+Four review rounds, and the mechanism was never the problem — **rigour stopped
+one layer short of where the answer is consumed**, every time:
+
+| round | rigour applied at | answer consumed at | result |
+|---|---|---|---|
+| 1 | the splice | the operator's project | reported a merge it never made |
+| 2 | the file's existence | the release gate | "configured" over zero release steps |
+| 3 | the writer's verifier | the gate's own grep | gate blessed what the writer refused |
+| 4 | G4's negative rows | the canary string they depend on | a rename would make all three vacuous |
+
+The structural answer is the shared predicate plus the three-state contract
+(**0** wired / **1** not wired / **2** cannot tell, callers failing closed on 2
+while saying something different). `## BL-213:` forced the same distinction on
+the cadence checker, and this entry is the second surface to need it.
+
+Mutations, each `sites==1`, 2 lines changed, `bash -n` clean: **M1** collapses
+the host mapping to the GitHub spelling; **M2** emits the import declaration
+empty. Two further mutants that **survived the previous version at 12/12** now die —
+dropping the `import:` reference while keeping the declaration, and emitting a
+rival `imports:` block. **Both at 14 passed / 1 failed, not the 13/2 an earlier
+draft of this entry claimed**; review re-derived it and the draft was wrong.
+Each fails on `N2` alone, which is the right shape: one case, one reason. The
+kills were real; the numbers were not, and this entry is the wrong place to be
+approximate about a tally.
 
 **The gap, measured on `main` @ `b709576`.** `scripts/check-phase-gate.sh`
 guards the release-TODO check on a literal path:

@@ -1,14 +1,27 @@
-# Bitbucket Pipelines release for web platform (tag-triggered).
+# Bitbucket Pipelines release for web platform (manual / scheduled release).
+#
+# EXPORT FILE (BL-229). Bitbucket reaches a same-repo file through
+# `definitions: imports:` plus an `import:` reference — it has no transparent
+# `include:` like GitLab — so this file declares `export: true` and puts its
+# steps under `definitions.pipelines`.
+#
+# TRIGGERED FROM `pipelines.custom.release` in bitbucket-pipelines.yml, NOT from
+# a tag. Atlassian documents `import:` under `custom:` and `branches:` only; the
+# `tags:` case is undocumented for imports, and `branches:` would fire a release
+# on every push. `custom:` is "triggered manually or by a schedule", which is
+# what a release is. Run it from Pipelines > Run pipeline > custom: release.
+# This differs from the GitHub and GitLab templates, which ARE tag-triggered.
+export: true
 image: node:20
-pipelines:
-  tags:
-    'v*':
-      - step:
-          name: Build Release
-          script: [npm ci, npm run build]
-          artifacts: [dist/**, build/**]
-      - step:
-          name: Deploy
-          deployment: production
-          trigger: manual
-          script: [echo "Configure deploy per hosting target"]
+definitions:
+  pipelines:
+    release-pipeline:
+        - step:
+            name: Build Release
+            script: [npm ci, npm run build]
+            artifacts: [dist/**, build/**]
+        - step:
+            name: Deploy
+            deployment: production
+            trigger: manual
+            script: [echo "Configure deploy per hosting target"]

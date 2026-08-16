@@ -1962,12 +1962,101 @@ fi
 
 # Release pipeline configuration check (Phase 3→4)
 if [ "$current_phase" -ge 3 ] && [ "$skip_later_gate" -eq 0 ]; then   # BL-166-GATE-SCOPE
-  if [ -f ".github/workflows/release.yml" ]; then
-    todo_count=$(grep -c "TODO" .github/workflows/release.yml 2>/dev/null) || todo_count=0
+  # BL-229-GATE-RELEASE-PATH: resolve the release pipeline from the RECORDED
+  # host rather than assuming the GitHub spelling. Before this the `-f` test was
+  # false on GitLab and Bitbucket, so the whole block was skipped and printed
+  # NOTHING — a release pipeline full of unconfigured TODOs passed the 3→4 gate
+  # on two of three hosts, and the silence read exactly like a clean result.
+  # That is the `# BL-112-SAST-NOTRUN` prohibition: "did not run" must never be
+  # spelled the same as "found nothing".
+  #
+  # All three failure arms below increment `issues`, i.e. they BLOCK. Read the
+  # increment, not the [WARN] label (CLAUDE.md's WARN trap) — and note the
+  # artifact loop immediately below has always failed closed this way for
+  # HANDOFF.md / sbom.json. This block is now consistent with its neighbour.
+  # Reuse SCRIPT_DIR_CPG when the phase>=2 block already derived it; the >=3
+  # guard above implies it ran, but derive as a fallback rather than assume.
+  _cpg_lib_dir="${SCRIPT_DIR_CPG:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+  _rel_path=""; _rel_how=""; _rel_ci=""
+  if [ -f "$_cpg_lib_dir/lib/host.sh" ]; then
+    # shellcheck disable=SC1090
+    . "$_cpg_lib_dir/lib/host.sh"
+    if host_pipeline_resolve >/dev/null 2>&1; then
+      _rel_path="$HOST_RELEASE_PATH"
+      _rel_how="$HOST_RELEASE_EXECUTES"
+      _rel_ci="$HOST_CI_PATH"
+    fi
+  fi
+  if [ -z "$_rel_path" ]; then
+    # Same tier rule as the absence arm below (# BL-229-RELEASE-ABSENT-TIER /
+    # BL-084-TIER-KEY). An unrecorded host is "cannot tell", and cannot-tell
+    # must never read as clean — so it is ALWAYS reported. But requiring a
+    # recorded host to clear 3→4 is a new gate condition BL-229 never asked
+    # for, and it blocked light-track personal fixtures that have no manifest
+    # at all. Block where the tier expects a release pipeline; inform otherwise.
+    if [ "$deployment" = "organizational" ] || [ "$poc_mode" = "sponsored_poc" ]; then
+      echo -e "${YELLOW}[WARN]${NC} Phase 3→4: release pipeline NOT CHECKED — could not resolve this project's host"
+      echo "  This tier (deployment=$deployment) needs the check to run. Record the host with: bash scripts/check-gate.sh --backfill-host"
+      issues=$((issues + 1))
+    else
+      echo -e "${BLUE}  [INFO]${NC} Phase 3→4: release pipeline not checked — no host recorded (deployment=$deployment). Record one with: bash scripts/check-gate.sh --backfill-host"
+    fi
+  elif [ ! -f "$_rel_path" ]; then
+    # BL-229-RELEASE-ABSENT-TIER / BL-084-TIER-KEY (SYNC SIBLINGS — same
+    # predicate as the bypass-eligibility arm above, and as pre-commit-gate.sh,
+    # init.sh and scripts/lib/enforcement-level.sh).
+    #
+    # ABSENCE IS NOT THE SAME DEFECT AS SILENCE. BL-229 is about the check not
+    # RUNNING on two of three hosts; a light-track personal project with no
+    # release pipeline is a legitimate shape, not a finding. An earlier version
+    # of this block made absence BLOCK on every host, which imposed a new
+    # requirement the entry never asked for and broke 13 assertions across three
+    # suites whose fixtures encode exactly that shape. So: always REPORT — never
+    # silent, which was the real defect — and BLOCK only where the tier expects
+    # a release pipeline to exist.
+    if [ "$deployment" = "organizational" ] || [ "$poc_mode" = "sponsored_poc" ]; then
+      echo -e "${YELLOW}[WARN]${NC} Phase 3→4: release pipeline not found at $_rel_path"
+      echo "  This tier (deployment=$deployment, poc_mode=${poc_mode:-none}) requires one before production release."
+      issues=$((issues + 1))
+    else
+      echo -e "${BLUE}  [INFO]${NC} Phase 3→4: no release pipeline at $_rel_path (deployment=$deployment) — not required at this tier, and not checked further"
+    fi
+  elif [ "$_rel_how" != "file" ] && { _hwr_verify "$_rel_ci" "$_rel_path" "$_rel_how"; _wire_rc=$?; [ "$_wire_rc" -ne 0 ]; }; then
+    # BL-229-GATE-RELEASE-WIRED: existence is not execution. On GitLab and
+    # Bitbucket the release file is INERT until the root pipeline references it
+    # — GitLab by `include:`, Bitbucket by `definitions.imports` plus an
+    # `import:`. init.sh shipped unreferenced release files on both hosts for
+    # months, so a gate that stops at `[ -f ]` would bless exactly the state
+    # this entry exists to end.
+    # ASK the shared predicate (# BL-229-WIRE-VERIFY) rather than re-deriving it.
+    # A private `grep -q "$path" "$ci"` here was satisfied by a mention in a
+    # comment, by a source declared and never invoked, and by a declaration
+    # YAML had already discarded — so the gate blessed three inert states the
+    # writer's own verifier rejected. Two predicates for one question, and they
+    # disagreed: a fresh sync sibling inside the entry about sync siblings.
+    if [ "$_wire_rc" -eq 2 ]; then
+      echo -e "${YELLOW}[WARN]${NC} Phase 3→4: could NOT VERIFY that $_rel_path is wired into $_rel_ci"
+      echo "  The pipeline file uses a shape this check cannot read (flow style, or multiple documents)."
+      echo "  Cannot-measure is not a pass. Confirm by hand that $_rel_ci contains:"
+      case "$_rel_how" in
+        include) echo "    include: [{ local: /$_rel_path }]" ;;
+        import)  echo "    definitions.imports.release: $_rel_path"
+                 echo "    and, under a pipelines start-condition: import: release-pipeline@release" ;;
+      esac
+    else
+      echo -e "${YELLOW}[WARN]${NC} Phase 3→4: release pipeline $_rel_path is NOT WIRED into $_rel_ci — it will never run"
+      echo "  This host reaches the release file by '$_rel_how'; without that reference the file is inert."
+    fi
+    issues=$((issues + 1))
+  else
+    todo_count=$(grep -c "TODO" "$_rel_path" 2>/dev/null) || todo_count=0
+    case "$todo_count" in ''|*[!0-9]*) todo_count=0 ;; esac
     if [ "$todo_count" -gt 0 ]; then
-      echo -e "${YELLOW}[WARN]${NC} Release pipeline has $todo_count unconfigured TODO items in .github/workflows/release.yml"
+      echo -e "${YELLOW}[WARN]${NC} Release pipeline has $todo_count unconfigured TODO items in $_rel_path"
       echo "  Configure code signing, deployment secrets, and store credentials before production release."
       issues=$((issues + 1))
+    else
+      echo -e "${GREEN}  [OK]${NC} Release pipeline configured ($_rel_path; steps run: $_rel_how)"
     fi
   fi
 fi

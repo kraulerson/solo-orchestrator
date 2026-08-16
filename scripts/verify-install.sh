@@ -264,16 +264,34 @@ check_project_structure() {
     # (bring-your-own CD), NOT a blocking MANUAL.
     register_warn "Release pipeline: configure manually" "Host '$_ci_host' has no canonical release destination — supply your own (bring-your-own CI/CD)"
   elif [ -n "$PLATFORM" ] && has_source && [ -f "$SOURCE_DIR/templates/pipelines/release/$_ci_host/${PLATFORM}.yml" ]; then
+    # BL-229-VERIFY-RELEASE-REGISTER: github and gitlab both have a real
+    # destination the fixer can write, so both register FIXABLE and both ask the
+    # resolver where that is. Only Bitbucket is genuinely manual, because it has
+    # no same-repo include and the steps must be merged into the CI file by
+    # hand. Registering gitlab as "manual" alongside bitbucket was the same
+    # wrong premise the fixer carried.
+    _reg_rel=""
+    if [ -f "$SOURCE_DIR/scripts/lib/host.sh" ]; then
+      # shellcheck disable=SC1090
+      source "$SOURCE_DIR/scripts/lib/host.sh"
+      host_pipeline_resolve "$_ci_host" >/dev/null 2>&1 && _reg_rel="$HOST_RELEASE_PATH"
+    fi
     case "$_ci_host" in
-      github)
-        if [ -f ".github/workflows/release.yml" ]; then
+      github|gitlab)
+        if [ -n "$_reg_rel" ] && [ -f "$_reg_rel" ]; then
           register_pass "Release pipeline exists"
         else
           register_fixable "Release pipeline missing" "fix_release_pipeline"
         fi
         ;;
-      bitbucket|gitlab)
-        register_manual "Release pipeline (host=$_ci_host)" "Integrate release steps from templates/pipelines/release/$_ci_host/${PLATFORM}.yml into the unified pipeline file"
+      bitbucket)
+        # BL-229: no longer manual. Bitbucket reaches a same-repo file through
+        # definitions.imports, so fix_release_pipeline writes AND wires it.
+        if [ -n "$_reg_rel" ] && [ -f "$_reg_rel" ]; then
+          register_pass "Release pipeline exists"
+        else
+          register_fixable "Release pipeline missing" "fix_release_pipeline"
+        fi
         ;;
     esac
   fi
@@ -1236,19 +1254,47 @@ fix_release_pipeline() {
     print_warn "fix_release_pipeline: no release template for host=$host platform=$PLATFORM at $src"
     return 1
   fi
+  # BL-229-VERIFY-RELEASE-PATH: take the destinations from the shared resolver
+  # rather than spelling them here, so this writer cannot drift from the gate
+  # and validate.sh that read them.
+  local _vi_ci="" _vi_rel=""
+  if [ -f "$SOURCE_DIR/scripts/lib/host.sh" ]; then
+    # shellcheck disable=SC1090
+    source "$SOURCE_DIR/scripts/lib/host.sh"
+    # stderr deliberately NOT silenced here (lint-fix-functions-stderr): the
+    # resolver's only output is its unknown-host diagnostic, which names the
+    # offending host — exactly what an operator needs to act on, and exactly
+    # what a `2>&1` would swallow.
+    if host_pipeline_resolve "$host" >/dev/null; then
+      _vi_ci="$HOST_CI_PATH"; _vi_rel="$HOST_RELEASE_PATH"
+    fi
+  fi
+  if [ -z "$_vi_rel" ]; then
+    print_warn "fix_release_pipeline: could not resolve a release destination for host '$host'"
+    return 1
+  fi
   case "$host" in
     github)
-      mkdir -p .github/workflows
-      cp "$src" .github/workflows/release.yml
+      mkdir -p "$(dirname "$_vi_rel")"
+      cp "$src" "$_vi_rel"
       ;;
-    bitbucket|gitlab)
-      # bitbucket and gitlab carry release steps inside the single
-      # bitbucket-pipelines.yml / .gitlab-ci.yml respectively — there
-      # is no separate release file at repo root. Surface a
-      # non-blocking warning rather than silently writing to
-      # .github/workflows/release.yml (the pre-fix bug).
-      print_warn "fix_release_pipeline: host '$host' carries release steps in the unified pipeline file; manual integration required (template at $src)"
-      return 1
+    gitlab|bitbucket)
+      # BL-229-VERIFY-WIRED-RELEASE: this arm used to be `bitbucket|gitlab)`
+      # refusing BOTH, on the stated grounds that neither has a same-repo
+      # include. That was false for GitLab (`include: local` takes a
+      # subdirectory path) AND false for Bitbucket (Atlassian documents
+      # `definitions: imports:` with a same-repo path). Both are auto-fixable;
+      # they differ only in HOW the root pipeline reaches the file, which is
+      # exactly what HOST_RELEASE_EXECUTES carries.
+      mkdir -p "$(dirname "$_vi_rel")"
+      cp "$src" "$_vi_rel"
+      # The wiring is host_wire_release's job, not this file's. A second copy
+      # here is the drift BL-229 is about, and the BL-229 suite's S1 fails if
+      # one reappears.
+      if ! host_wire_release "$_vi_ci" "$_vi_rel" "$HOST_RELEASE_EXECUTES"; then
+        print_warn "fix_release_pipeline: wrote $_vi_rel but could NOT wire it into $_vi_ci — the release pipeline will not run until it is referenced"
+        return 1
+      fi
       ;;
     *)
       print_warn "fix_release_pipeline: unsupported host '$host' — no canonical release destination"
