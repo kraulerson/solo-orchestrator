@@ -130,7 +130,12 @@ else
     # answering one question with two different greps is how the gate came to
     # bless states the writer's own verifier rejected.
     if [ "$_v_wire" -eq 2 ]; then
-      warn "Could NOT VERIFY that $_v_rel is wired into $_v_ci ($_v_how) — the pipeline file uses a shape this check cannot read; confirm by hand"
+      case "$_v_how" in
+        include) _v_expect="include: [{ local: /$_v_rel }]" ;;
+        import)  _v_expect="definitions.imports.release: $_v_rel plus 'import: release-pipeline@release'" ;;
+        *)       _v_expect="a reference to $_v_rel" ;;
+      esac
+      warn "Could NOT VERIFY that $_v_rel is wired into $_v_ci ($_v_how) — this check cannot read that file's shape. Confirm by hand that it contains: $_v_expect"
     else
       warn "Release pipeline $_v_rel is NOT WIRED into $_v_ci ($_v_how) — it will never run"
     fi

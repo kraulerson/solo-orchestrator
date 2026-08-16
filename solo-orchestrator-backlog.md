@@ -9767,8 +9767,32 @@ of the blocks:
   configured, and referenced by nothing.
 - **N1/N2/N3** pin the suffix rule, the merge-not-rival invariant, and the
   declared-is-not-invoked distinction.
+- **G4** pins that the READERS ask the shared predicate rather than re-deriving
+  it, across all three inert shapes — and, since review found G4 to be a pure
+  absence assertion, it now carries its **positive counterpart** too. Renaming
+  the gate's success string previously left all three negative rows passing for
+  the wrong reason at 16/16; that mutant now dies at 15/1. **That is this
+  entry's own lesson one level up: the check guarding the fix was itself
+  asserted on one side only.**
 - **S1** pins that the wiring has ONE owner — it caught a real duplicate in
   `verify-install.sh` the moment it was written.
+
+### The recurring failure, named once
+
+Four review rounds, and the mechanism was never the problem — **rigour stopped
+one layer short of where the answer is consumed**, every time:
+
+| round | rigour applied at | answer consumed at | result |
+|---|---|---|---|
+| 1 | the splice | the operator's project | reported a merge it never made |
+| 2 | the file's existence | the release gate | "configured" over zero release steps |
+| 3 | the writer's verifier | the gate's own grep | gate blessed what the writer refused |
+| 4 | G4's negative rows | the canary string they depend on | a rename would make all three vacuous |
+
+The structural answer is the shared predicate plus the three-state contract
+(**0** wired / **1** not wired / **2** cannot tell, callers failing closed on 2
+while saying something different). `## BL-213:` forced the same distinction on
+the cadence checker, and this entry is the second surface to need it.
 
 Mutations, each `sites==1`, 2 lines changed, `bash -n` clean: **M1** collapses
 the host mapping to the GitHub spelling; **M2** emits the import declaration

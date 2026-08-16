@@ -2011,7 +2011,12 @@ if [ "$current_phase" -ge 3 ] && [ "$skip_later_gate" -eq 0 ]; then   # BL-166-G
     if [ "$_wire_rc" -eq 2 ]; then
       echo -e "${YELLOW}[WARN]${NC} Phase 3→4: could NOT VERIFY that $_rel_path is wired into $_rel_ci"
       echo "  The pipeline file uses a shape this check cannot read (flow style, or multiple documents)."
-      echo "  Cannot-measure is not a pass — confirm the '$_rel_how' reference by hand."
+      echo "  Cannot-measure is not a pass. Confirm by hand that $_rel_ci contains:"
+      case "$_rel_how" in
+        include) echo "    include: [{ local: /$_rel_path }]" ;;
+        import)  echo "    definitions.imports.release: $_rel_path"
+                 echo "    and, under a pipelines start-condition: import: release-pipeline@release" ;;
+      esac
     else
       echo -e "${YELLOW}[WARN]${NC} Phase 3→4: release pipeline $_rel_path is NOT WIRED into $_rel_ci — it will never run"
       echo "  This host reaches the release file by '$_rel_how'; without that reference the file is inert."

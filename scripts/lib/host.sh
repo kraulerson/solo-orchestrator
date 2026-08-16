@@ -153,12 +153,14 @@ host_pipeline_resolve() {
 # Same distinction `## BL-213:` forced on the cadence checker.
 _hwr_verify() {                                                      # BL-229-WIRE-VERIFY
   local ci="$1" rel="$2" how="$3" norm
+  # The readers gave up their own `[ -f ]` guard when they adopted this
+  # function, so the guard has to live here. Without it the redirection below
+  # fails BEFORE `2>/dev/null` applies and the operator sees a raw
+  # "host.sh: line N: <file>: No such file or directory" through the gate.
+  [ -f "$ci" ] || return 1
   # CRLF is not a defect. A Windows contributor's checkout is a healthy project
   # and must not be told its release pipeline is broken.
   norm="$(tr -d '\r' < "$ci" 2>/dev/null)"
-  case "$norm" in
-    *"---"*)  ;;   # checked properly below; this arm only cheapens the common case
-  esac
   # Shapes these greps cannot read -> "cannot tell", never "not wired".
   if printf '%s\n' "$norm" | grep -qE '^(definitions|pipelines):[[:space:]]*[{[]' \
      || printf '%s\n' "$norm" | grep -qE '^---[[:space:]]*$'; then

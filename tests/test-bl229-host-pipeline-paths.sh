@@ -488,10 +488,32 @@ pipelines:
     release:
       import: release-pipeline@release
 '
-if [ -z "$g4_bad" ]; then
-  pass "G4: the gate refuses all three inert shapes its old private grep blessed — a path named only in a COMMENT, a source DECLARED but never invoked, and a declaration SHADOWED by a rival imports: block. It asks the same predicate the writer does, so the two cannot disagree"
+# 4. THE POSITIVE COUNTERPART. Without it G4 is a pure absence assertion and its
+#    canary is unpinned: rename the gate's success message and all three rows
+#    above pass for the wrong reason simultaneously. Review proved that mutant
+#    (rename the [OK] string) survived 16/16. This row is what kills it — and it
+#    is the same shape as this whole entry's lesson, one level up: the check
+#    that guards the fix was itself asserted on one side only.
+g4_pos=no
+_g4_wired="$(newtmp)"; mk_proj "$_g4_wired/p" bitbucket
+printf '{"current_phase":3}\n' > "$_g4_wired/p/.claude/phase-state.json"
+mkdir -p "$_g4_wired/p/.bitbucket"
+printf 'steps:\n  - echo release\n' > "$_g4_wired/p/.bitbucket/release-pipelines.yml"
+printf 'definitions:
+  imports:
+    release: .bitbucket/release-pipelines.yml
+pipelines:
+  custom:
+    release:
+      import: release-pipeline@release
+' > "$_g4_wired/p/bitbucket-pipelines.yml"
+g4_pos_out="$( cd "$_g4_wired/p" && "$BASH_BIN" "$GATE" --gate phase_3_to_4 2>&1 || true )"
+printf '%s' "$g4_pos_out" | grep -qi 'Release pipeline configured' && g4_pos=yes
+
+if [ -z "$g4_bad" ] && [ "$g4_pos" = "yes" ]; then
+  pass "G4: the gate refuses all three inert shapes its old private grep blessed — a path named only in a COMMENT, a source DECLARED but never invoked, and a declaration SHADOWED by a rival imports: block. AND it still reports a correctly-wired project as configured, so the negative rows cannot go vacuous by a message rename. It asks the same predicate the writer does, so the two cannot disagree"
 else
-  fail_ "G4" "the gate still reports 'configured' for:$g4_bad — it is re-deriving the answer instead of asking # BL-229-WIRE-VERIFY"
+  fail_ "G4" "inert shapes still reported configured:${g4_bad:- none} | correctly-wired project reported configured: $g4_pos (want yes) — if the negatives pass but the positive does not, the canary string moved and all three negative rows are now vacuous"
 fi
 
 echo "=== M — mutation proofs (sites==1, N lines changed, bash -n, fresh fixture) ==="
