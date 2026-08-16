@@ -308,12 +308,37 @@ run_check "$M2/scripts" "$d/p"
 # proven by D5). Asserted this way the proof is also immune to calendar drift:
 # a hardcoded impossible date would wander in and out of the 95-day window as
 # the real date moves, and this suite would start failing for the wrong reason.
+# HOST-AWARE, because the mutant is structurally unfirable on GNU date. This
+# suite's first version merely NARRATED that limit in its failure message and
+# then failed on CI, which is a limit stated instead of handled — the exact
+# thing this entry is about. Detect the host's parser and assert what is
+# actually provable here.
+# The predicate is "NEITHER parser accepts 2026-02-30", not "this host is GNU":
+# BSD refuses `-d` as an illegal option too, so a `-d`-only probe answers yes on
+# both hosts and would send a BSD run down the wrong branch. Measured here:
+# BSD `-d` -> illegal option (fails), BSD `-j -f` -> 1772409600 (succeeds, and
+# that IS the normalisation D5 pins); GNU `-d` -> invalid date (fails), GNU has
+# no `-j` (fails). Only the second host reaches the mutation-is-unfirable arm.
+m2_d_ok=yes;  date -u -d '2026-02-30T00:00:00Z' +%s >/dev/null 2>&1 || m2_d_ok=no
+m2_jf_ok=yes; date -u -j -f '%Y-%m-%dT%H:%M:%SZ' '2026-02-30T00:00:00Z' +%s >/dev/null 2>&1 || m2_jf_ok=no
+if [ "$m2_d_ok" = "no" ] && [ "$m2_jf_ok" = "no" ]; then
+  # Neither parser accepts it: the date is refused before the round-trip is
+  # reached, so removing the round-trip changes nothing and there is no mutant
+  # to kill. Assert the marked line EXISTS at sites==1 and that the control
+  # still refuses the date — real, and true on every host.
+  if [ "$m2_sites" -eq 1 ] && [ "$m2_parses" -eq 1 ] && [ "$CHK_RC" -eq 2 ]; then
+    pass "M2 (GNU-date host): the round-trip mutant is structurally UNFIRABLE here — this host's date(1) refuses 2026-02-30 outright, so the guard is never reached. Asserted instead: the marked line exists at sites==$m2_sites and the tree still answers rc 2 (d_ok=$m2_d_ok jf_ok=$m2_jf_ok). The BSD half of this proof runs on a BSD host; D5 covers the behaviour on both"
+  else
+    fail_ "M2" "GNU-date host: sites=$m2_sites (want 1) parses=$m2_parses (want 1) rc=$CHK_RC (want 2)"
+  fi
+else
 m2_measured=no
 [ "$CHK_RC" -ne 2 ] && m2_measured=yes
 if [ "$m2_sites" -eq 1 ] && [ "$m2_parses" -eq 1 ] && [ "$m2_measured" = "yes" ]; then
   pass "M2: with the round-trip removed, this host turns 2026-02-30 into a real measurement (rc $CHK_RC) where the repaired tree refuses to measure at all (rc 2) — a date that does not exist becomes a security verdict (sites=$m2_sites changed=$m2_changed parses=$m2_parses)"
 else
-  fail_ "M2" "sites=$m2_sites (want 1) parses=$m2_parses (want 1) changed=$m2_changed rc=$CHK_RC (want anything but 2) — NOTE: on a GNU-date host this mutant cannot fire at all, because GNU refuses 2026-02-30 outright. That is a real limit of this proof and not a pass"
+  fail_ "M2" "BSD-date host: sites=$m2_sites (want 1) parses=$m2_parses (want 1) changed=$m2_changed rc=$CHK_RC (want anything but 2)"
+fi
 fi
 
 echo ""
