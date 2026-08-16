@@ -285,7 +285,13 @@ check_project_structure() {
         fi
         ;;
       bitbucket)
-        register_manual "Release pipeline (host=$_ci_host)" "Bitbucket has no same-repo include — merge the release steps from templates/pipelines/release/$_ci_host/${PLATFORM}.yml into bitbucket-pipelines.yml"
+        # BL-229: no longer manual. Bitbucket reaches a same-repo file through
+        # definitions.imports, so fix_release_pipeline writes AND wires it.
+        if [ -n "$_reg_rel" ] && [ -f "$_reg_rel" ]; then
+          register_pass "Release pipeline exists"
+        else
+          register_fixable "Release pipeline missing" "fix_release_pipeline"
+        fi
         ;;
     esac
   fi
@@ -1272,29 +1278,23 @@ fix_release_pipeline() {
       mkdir -p "$(dirname "$_vi_rel")"
       cp "$src" "$_vi_rel"
       ;;
-    gitlab)
-      # BL-229-VERIFY-GITLAB-RELEASE: this arm used to be `bitbucket|gitlab)`
-      # and refused BOTH, on the stated grounds that neither has "a separate
-      # release file at repo root". That is true of Bitbucket and FALSE of
-      # GitLab — `include: local` supports a subdirectory file, init.sh writes
-      # `.gitlab-ci/release.yml`, and lumping the two together contradicted the
-      # scaffolder and left GitLab with no auto-fix for no reason.
+    gitlab|bitbucket)
+      # BL-229-VERIFY-WIRED-RELEASE: this arm used to be `bitbucket|gitlab)`
+      # refusing BOTH, on the stated grounds that neither has a same-repo
+      # include. That was false for GitLab (`include: local` takes a
+      # subdirectory path) AND false for Bitbucket (Atlassian documents
+      # `definitions: imports:` with a same-repo path). Both are auto-fixable;
+      # they differ only in HOW the root pipeline reaches the file, which is
+      # exactly what HOST_RELEASE_EXECUTES carries.
       mkdir -p "$(dirname "$_vi_rel")"
       cp "$src" "$_vi_rel"
-      # No stderr silencer: the `-f` test above already guards the only expected
-      # failure, so anything grep still has to say here is worth an operator's
-      # eyes rather than /dev/null (lint-fix-functions-stderr).
-      if [ -f "$_vi_ci" ] && ! grep -q "$_vi_rel" "$_vi_ci"; then
-        printf '\ninclude:\n  - local: %s\n' "/$_vi_rel" >> "$_vi_ci"
+      # The wiring is host_wire_release's job, not this file's. A second copy
+      # here is the drift BL-229 is about, and the BL-229 suite's S1 fails if
+      # one reappears.
+      if ! host_wire_release "$_vi_ci" "$_vi_rel" "$HOST_RELEASE_EXECUTES"; then
+        print_warn "fix_release_pipeline: wrote $_vi_rel but could NOT wire it into $_vi_ci — the release pipeline will not run until it is referenced"
+        return 1
       fi
-      ;;
-    bitbucket)
-      # Bitbucket genuinely has no same-repo include: its sharing is
-      # CROSS-REPOSITORY (`definitions.imports.<name>: <repo-slug>:<ref>:<path>`
-      # with `export: true` in the other repo). A separate release file here
-      # could never execute, so refusing is correct — but say the real reason.
-      print_warn "fix_release_pipeline: Bitbucket has no same-repo include, so release steps must live INSIDE $_vi_ci; manual integration required (template at $src)"
-      return 1
       ;;
     *)
       print_warn "fix_release_pipeline: unsupported host '$host' — no canonical release destination"

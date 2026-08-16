@@ -1,0 +1,62 @@
+{
+  "session_id": "2026-08-16T13:26:14Z",
+  "calls": [
+    {
+      "tool": "mcp__qdrant__qdrant-find",
+      "timestamp": "2026-08-16T13:26:17Z",
+      "event": "PostToolUse",
+      "outcome": "success",
+      "empty_result": false
+    },
+    {
+      "tool": "mcp__context7__resolve-library-id",
+      "timestamp": "2026-08-16T13:26:26Z",
+      "event": "PostToolUse",
+      "outcome": "success",
+      "empty_result": false
+    },
+    {
+      "tool": "mcp__context7__query-docs",
+      "timestamp": "2026-08-16T13:26:31Z",
+      "event": "PostToolUse",
+      "outcome": "success",
+      "empty_result": false
+    },
+    {
+      "tool": "mcp__context7__resolve-library-id",
+      "timestamp": "2026-08-16T13:29:24Z",
+      "event": "PostToolUse",
+      "outcome": "success",
+      "empty_result": false
+    },
+    {
+      "tool": "mcp__context7__query-docs",
+      "timestamp": "2026-08-16T13:29:29Z",
+      "event": "PostToolUse",
+      "outcome": "success",
+      "empty_result": false
+    },
+    {
+      "tool": "mcp__context7__resolve-library-id",
+      "timestamp": "2026-08-16T14:53:12Z",
+      "event": "PostToolUse",
+      "outcome": "success",
+      "empty_result": false
+    }
+  ],
+  "commits_since_last_context7": 0,
+  "qdrant_find_called": true,
+  "qdrant_store_called": false,
+  "context7_called": true,
+  "mcp_gate_satisfied": true,
+  "mcp_requirements": {
+    "qdrant_required": true,
+    "context7_required": true,
+    "additional_required": []
+  },
+  "qdrant_find_succeeded": true,
+  "qdrant_find_empty": false,
+  "qdrant_find_empty_count": 0,
+  "context7_resolve_only_count": 3,
+  "context7_query_docs_succeeded": true
+}

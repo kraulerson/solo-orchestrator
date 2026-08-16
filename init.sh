@@ -3220,52 +3220,27 @@ generate_release() {
   # How the rendered steps reach the runner differs per host, and getting this
   # wrong is what left two of three hosts with a release pipeline on disk that
   # nothing ever executed.
-  case "$HOST_RELEASE_EXECUTES" in
-    file)
-      mkdir -p "$(dirname "$target_file")"
-      mv "$_rendered" "$target_file"
-      ;;
-    include)
-      # BL-229-GITLAB-RELEASE-INCLUDE: the file we just wrote is inert until the
-      # root pipeline pulls it in. One `include: local` line does that, and
-      # GitLab supports a subdirectory path there.
-      mkdir -p "$(dirname "$target_file")"
-      mv "$_rendered" "$target_file"
-      if [ -f "$HOST_CI_PATH" ]; then
-        if ! grep -q "$target_file" "$HOST_CI_PATH" 2>/dev/null; then
-          {
-            printf '\n# Release pipeline (solo-orchestrator). Without this include the\n'
-            printf '# file below is never evaluated by GitLab.\n'
-            printf 'include:\n'
-            printf '  - local: %s\n' "/$target_file"
-          } >> "$HOST_CI_PATH"
-          print_info "Wired $target_file into $HOST_CI_PATH via include:"
-        fi
-      else
-        print_warn "$HOST_CI_PATH not found — $target_file is written but NOT included, so it will not run. Add: include: [{local: /$target_file}]"
-      fi
-      ;;
-    inline)
-      # BL-229-BITBUCKET-RELEASE-INLINE: Bitbucket cannot include a same-repo
-      # file, so the steps must live INSIDE bitbucket-pipelines.yml. The release
-      # templates are already shaped for this — each is a top-level `pipelines:`
-      # block carrying `tags: 'v*':` — so the merge is: drop the template's own
-      # `pipelines:` header and splice the remainder under the CI file's.
-      if [ -f "$target_file" ] && grep -q '^pipelines:' "$target_file" 2>/dev/null; then
-        local _body _merged
-        _body="$(sed '1,/^pipelines:/d' "$_rendered")"
-        _merged="$(mktemp)"
-        awk -v add="$_body" '
-          { print }
-          /^pipelines:[[:space:]]*$/ && !done { print add; done = 1 }
-        ' "$target_file" > "$_merged" && mv "$_merged" "$target_file"
-        rm -f "$_rendered"
-        print_info "Release steps folded into $target_file under its pipelines: key (Bitbucket has no same-repo include)"
-      else
-        mv "$_rendered" "$target_file"
-      fi
-      ;;
-  esac
+  # How the rendered steps reach the runner differs per host, and getting this
+  # wrong is what left two of three hosts with a release pipeline on disk that
+  # nothing ever executed. The WIRING itself lives in one place —
+  # `host_wire_release` (# BL-229-WIRE-RELEASE) — because verify-install.sh
+  # auto-fixes the same thing and a second copy is the drift this entry is about.
+  mkdir -p "$(dirname "$target_file")"
+  mv "$_rendered" "$target_file"
+  if host_wire_release "$HOST_CI_PATH" "$target_file" "$HOST_RELEASE_EXECUTES"; then
+    case "$HOST_RELEASE_EXECUTES" in
+      file) : ;;   # GitHub needs no wiring; saying so would be noise
+      *)    print_info "Wired $target_file into $HOST_CI_PATH ($HOST_RELEASE_EXECUTES)" ;;
+    esac
+  else
+    # A WRITE THAT DID NOT HAPPEN MUST NOT REPORT SUCCESS. The previous attempt
+    # at the Bitbucket arm printed "folded" over a splice that never ran.
+    print_warn "Could NOT wire $target_file into $HOST_CI_PATH — the release pipeline will NOT run."
+    case "$HOST_RELEASE_EXECUTES" in
+      include) print_warn "  Add by hand: include: [{ local: /$target_file }]" ;;
+      import)  print_warn "  Add by hand: 'definitions: imports: release: $target_file' and 'import: release-pipeline@release' under a pipelines start-condition." ;;
+    esac
+  fi
 
   print_info "Release pipeline created at $target_file (host: $host, platform: $PLATFORM)"
   case "$TRACK" in

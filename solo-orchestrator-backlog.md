@@ -9752,25 +9752,56 @@ and **nothing included either**. The writer's own comment claimed the Bitbucket
 include existed anywhere in the repo. Fixing only the readers would have made
 the 3→4 gate carefully validate a file that could never execute.
 
-**The two hosts are NOT symmetric, and treating them as one caused both bugs:**
+**The two hosts differ, but far less than a first attempt at this claimed.**
 
-- **GitLab** — `include: local` genuinely supports a subdirectory file, so
-  `.gitlab-ci/release.yml` was legitimate and merely unwired
-  (`# BL-229-GITLAB-RELEASE-INCLUDE`). Wired at ONE site in `init.sh`, not in
-  the ten per-language CI templates: ten copies of one line is the drift this
-  entry is about, and the include is only correct when a release file was
-  actually written.
-- **Bitbucket** — sharing is **cross-repository only**
-  (`definitions.imports.<name>: <repo-slug>:<ref>:<path>`, needing
-  `export: true` in the other repo). A same-repo release file can never be
-  reached, so Karl's decision was to fold the steps into
-  `bitbucket-pipelines.yml` (`# BL-229-BITBUCKET-RELEASE-INLINE`). The release
-  templates were already shaped for it — each is a top-level `pipelines:` block
-  carrying `tags: 'v*':`.
+- **GitLab** — `include: local` supports a subdirectory file, so
+  `.gitlab-ci/release.yml` was legitimate and merely unwired.
+- **Bitbucket** — reached by `definitions: imports: <name>: <path>` with a
+  same-repo path, plus an `import: <pipeline>@<source>` reference; the imported
+  file declares `export: true`. The four Bitbucket release templates are now
+  shaped as export files, and the `tags: 'v*':` start-condition moved to the
+  importing file, which is where a reference has to live.
 
-`verify-install.sh` was **right about Bitbucket and wrong about GitLab**, and
-applied the Bitbucket answer to both — in two places, only one of which was
-visible from this entry.
+### The first attempt at the Bitbucket half was BLOCKED, and the reasons are the record
+
+Adversarial review refused it on three counts, all reproduced independently
+before acting:
+
+1. **A false premise, asserted in four places.** The design claimed Bitbucket
+   had no same-repo include and therefore folded the release steps INTO
+   `bitbucket-pipelines.yml`. Atlassian documents the opposite. The owner made
+   the fold decision on that claim, which makes it the most costly of the three.
+2. **The fold never executed.** It passed a multi-line body through `awk -v`,
+   and BSD awk rejects a newline in a `-v` assignment. Measured: `awk rc=2`, the
+   `&&` short-circuits so the CI file is byte-identical, `rm -f` then destroys
+   the rendered content, and the scaffolder prints success anyway. **Worse than
+   the pre-fix state**, which at least left a dead file an operator could find.
+3. **The gate then printed a false green.** Because the fold made
+   `HOST_RELEASE_PATH == HOST_CI_PATH`, `[ -f ]` was satisfied by the CI file:
+   a Bitbucket project with ZERO release steps got
+   `[OK] Release pipeline configured` from both readers. A **regression in
+   kind** — the original defect was silence; that one asserts health. It is the
+   `# BL-112-SAST-NOTRUN` prohibition, violated by the change that cites it.
+
+**Why none of it was caught:** nothing in the PR-blocking set executed the
+release writer. The reviewer broke the arm outright and both suites still
+reported 10/10.
+
+### What the rework changes, beyond the host
+
+- **`host_wire_release`** (`# BL-229-WIRE-RELEASE`) is the single owner of the
+  wiring, because there are now two callers — `init.sh` at scaffold time and
+  `verify-install.sh` as an auto-fix. It uses `sed`'s `r` (which reads a FILE,
+  so no multi-line variable), **verifies the file actually changed**, and
+  returns non-zero when it did not. Callers own the reporting; the contract is
+  the exit code and the bytes on disk.
+- **Existence is not execution.** Both readers now assert that the CI file
+  REFERENCES the release file for the two wiring hosts
+  (`# BL-229-GATE-RELEASE-WIRED`, `# BL-229-VALIDATE-RELEASE-WIRED`). This is
+  the deepest form of the entry: `init.sh` shipped unreferenced release files on
+  two hosts for months, and an existence-only check calls that configured.
+- **Bitbucket is auto-fixable** rather than manual
+  (`# BL-229-VERIFY-WIRED-RELEASE`), on both the fixer and the registration arm.
 
 ### The fix shape the entry asked for
 
@@ -9786,9 +9817,23 @@ everywhere, where the old arm defaulted to GitHub behind a warning.
 `host.sh` is already in `init.sh`'s downstream copy list and already sourced by
 `check-phase-gate.sh`, so every consumer reaches it in a generated project.
 
-**Proof:** `tests/test-bl229-host-pipeline-paths.sh`, 10 cases, 5s. Mutation:
-collapse the mapping to the GitHub spelling (sites==1, 1 line, `bash -n` clean)
-and a TODO-laden GitLab pipeline goes back to unreported.
+**Proof:** `tests/test-bl229-host-pipeline-paths.sh`, 12 cases. Two of them
+exist because of the block and are the ones that matter:
+
+- **W1 EXECUTES the shipped `generate_release`** on all three hosts and asserts
+  on the artefacts — a non-empty release file, a CI file that did not shrink,
+  and, for the two wiring hosts, a CI file that REFERENCES the release file.
+  This is the gap that let both blockers through: nothing ran the writer.
+- **G3** presents a release file that is present and fully configured and
+  **referenced by nothing**, and requires the gate to say so.
+
+Mutations, each `sites==1` and `bash -n` clean: **M1** collapses the host
+mapping to the GitHub spelling and a TODO-laden GitLab pipeline goes back to
+unreported; **M2** emits the import declaration EMPTY — the mutant that survived
+the entire PR-blocking set last time — and now fails on both halves at once, the
+release file landing unwired AND the scaffolder refusing to claim a write it did
+not make. `S1` separately pins that the wiring has one owner, which W1 cannot
+see.
 
 **The gap, measured on `main` @ `b709576`.** `scripts/check-phase-gate.sh`
 guards the release-TODO check on a literal path:

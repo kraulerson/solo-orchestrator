@@ -112,6 +112,41 @@ mk_proj() {
   printf '# APPROVAL_LOG\n' > "$d/APPROVAL_LOG.md"
 }
 
+# _extract_fn <file> <name> — the SHIPPED function body. Executing a COPY of
+# init.sh's release writer would prove nothing about init.sh; this is the same
+# idiom the BL-234 suite uses for init.sh's Qdrant chain.
+_extract_fn() {
+  awk -v fn="$2" '
+    $0 ~ "^" fn "\\(\\) \\{" { inf = 1 }
+    inf { print }
+    inf && /^}/ && $0 == "}" { exit }
+  ' "$1"
+}
+
+# run_generate_release <projdir> <host> <language> <platform>
+#   Executes init.sh::generate_release inside <projdir>. THIS IS THE R-3 GAP:
+#   before this existed, nothing in the PR-blocking set ran the release writer,
+#   so a mutant that broke the Bitbucket arm outright left both suites at 10/10.
+GR_OUT=""; GR_RC=0
+run_generate_release() {
+  local proj="$1" host="$2" lang="$3" plat="$4"
+  GR_RC=0
+  GR_OUT="$(
+    cd "$proj" || exit 9
+    SCRIPT_DIR="$REPO_ROOT"
+    GIT_HOST="$host"; LANGUAGE="$lang"; PLATFORM="$plat"
+    TRACK="light"; PROJECT_NAME="fixture"
+    # shellcheck disable=SC1090
+    . "$REPO_ROOT/scripts/lib/helpers-core.sh" 2>/dev/null
+    # shellcheck disable=SC1090
+    . "$REPO_ROOT/scripts/lib/host.sh" 2>/dev/null
+    eval "$(_extract_fn "$REPO_ROOT/init.sh" get_release_vars)"
+    eval "$(_extract_fn "$REPO_ROOT/init.sh" generate_release)"
+    generate_release 2>&1
+  )" || GR_RC=$?
+  return 0
+}
+
 echo "=== R — the resolver owns the mapping, once ==="
 
 # ── R1: every supported host resolves to the paths init.sh actually writes,
@@ -132,9 +167,9 @@ r1_out="$(
 )"
 r1_want="github|.github/workflows/ci.yml|.github/workflows/release.yml|file
 gitlab|.gitlab-ci.yml|.gitlab-ci/release.yml|include
-bitbucket|bitbucket-pipelines.yml|bitbucket-pipelines.yml|inline"
+bitbucket|bitbucket-pipelines.yml|bitbucket-pipelines/release.yml|import"
 if [ "$r1_out" = "$r1_want" ]; then
-  pass "R1: all three hosts resolve to the paths init.sh writes, each carrying HOW the release artefact runs (file / include / inline)"
+  pass "R1: all three hosts resolve to the paths init.sh writes, each carrying HOW the release artefact runs (file / include / import)"
 else
   fail_ "R1" "got:
 $r1_out
@@ -208,12 +243,23 @@ echo "=== G — the Phase 3→4 gate runs on every host, and fails CLOSED ==="
 g1_bad=""
 for spec in "github:.github/workflows/release.yml" \
             "gitlab:.gitlab-ci/release.yml" \
-            "bitbucket:bitbucket-pipelines.yml"; do
+            "bitbucket:bitbucket-pipelines/release.yml"; do
   h="${spec%%:*}"; rel="${spec#*:}"
   d="$(newtmp)"; mk_proj "$d/p" "$h"
   mkdir -p "$d/p/$(dirname "$rel")"
   printf 'steps:\n  - echo TODO configure signing\n  - echo TODO deployment secrets\n' > "$d/p/$rel"
   printf '{"current_phase":3}\n' > "$d/p/.claude/phase-state.json"
+  # WIRE the release file for the hosts that need it, so this case measures TODO
+  # DETECTION rather than tripping G3's wiring check first. An unwired file's
+  # TODOs are moot — that is G3's point, and keeping the two separable is what
+  # makes each failure attributable.
+  case "$h" in
+    gitlab)
+      printf 'stages: [test]\ninclude:\n  - local: /%s\n' "$rel" > "$d/p/.gitlab-ci.yml" ;;
+    bitbucket)
+      printf 'definitions:\n  imports:\n    release: %s\npipelines:\n  tags:\n    %s:\n      import: release-pipeline@release\n' \
+        "$rel" "'v*'" > "$d/p/bitbucket-pipelines.yml" ;;
+  esac
   out="$( cd "$d/p" && "$BASH_BIN" "$GATE" --gate phase_3_to_4 2>&1 || true )"
   printf '%s' "$out" | grep -qi 'unconfigured TODO' || g1_bad="$g1_bad $h"
 done
@@ -241,28 +287,23 @@ fi
 
 echo "=== S — the scaffolded release pipeline can actually RUN ==="
 
-# ── S1: GitLab. init.sh writes `.gitlab-ci/release.yml`; the root
-# `.gitlab-ci.yml` must INCLUDE it or the file is decorative. GitLab's
-# `include: local` supports a subdirectory path, so this is the whole fix.
-# Wired in init.sh, at ONE site, rather than in the ten per-language GitLab CI
-# templates: ten copies of the same line is the drift this whole entry is about,
-# and the include is only correct when a release file was actually written.
-if [ "$(_num "$(grep -c 'BL-229-GITLAB-RELEASE-INCLUDE' "$REPO_ROOT/init.sh" 2>/dev/null)")" -ge 1 ] \
-   && grep -A20 'BL-229-GITLAB-RELEASE-INCLUDE' "$REPO_ROOT/init.sh" 2>/dev/null | grep -q 'include:' \
-   && grep -A20 'BL-229-GITLAB-RELEASE-INCLUDE' "$REPO_ROOT/init.sh" 2>/dev/null | grep -q 'local: '; then
-  pass "S1: the scaffolded GitLab pipeline INCLUDES .gitlab-ci/release.yml — the release file is reachable rather than decorative"
+# ── S1: the wiring has ONE OWNER. W1 proves the wiring WORKS by executing it;
+# this proves it exists in exactly one place, which W1 cannot see. Two callers
+# now need it — init.sh at scaffold time and verify-install.sh as an auto-fix —
+# and a second copy is precisely the drift that produced BL-229 in the first
+# place (five scripts, five hardcoded GitHub paths). Read on EXECUTED LINES
+# only: both files legitimately mention the wiring in comments.
+s1_owner=$(_num "$(grep -c 'host_wire_release()' "$REPO_ROOT/scripts/lib/host.sh" 2>/dev/null)")
+s1_dupes=0
+for f in "$REPO_ROOT/init.sh" "$REPO_ROOT/scripts/verify-install.sh"; do
+  n=$(sed -e 's/[[:space:]]*#.*$//' "$f" 2>/dev/null \
+      | grep -cE "printf '.*imports:|printf '.*include:|sed .*/\^definitions:")
+  s1_dupes=$((s1_dupes + $(_num "$n")))
+done
+if [ "$s1_owner" -eq 1 ] && [ "$s1_dupes" -eq 0 ]; then
+  pass "S1: host_wire_release is the single owner of the wiring — no caller emits its own include:/imports: fragment. W1 proves it works; this proves there is only one of it"
 else
-  fail_ "S1" "no include of .gitlab-ci/release.yml found in the scaffolded GitLab pipeline; the release file would never execute"
-fi
-
-# ── S2: Bitbucket. A separate file can never execute there, so the scaffolder
-# must NOT write one. Karl's decision: fold the steps into
-# bitbucket-pipelines.yml. Asserted as an ABSENCE with a structural
-# discriminator — the dead path must not be written anywhere.
-if [ "$(_num "$(grep -c 'target_dir="bitbucket-pipelines"' "$REPO_ROOT/init.sh" 2>/dev/null)")" -eq 0 ]; then
-  pass "S2: init.sh no longer writes bitbucket-pipelines/release.yml — a file Bitbucket cannot include, and therefore cannot run"
-else
-  fail_ "S2" "init.sh still writes bitbucket-pipelines/release.yml, which Bitbucket has no mechanism to execute"
+  fail_ "S1" "owners=$s1_owner (want 1) caller-side wiring emissions=$s1_dupes (want 0) — a second copy of the wiring is the drift this entry exists to remove"
 fi
 
 # ── S3: the false comment. verify-install.sh asserted there is "no separate
@@ -279,6 +320,70 @@ if [ "$(_num "$s3_hits")" -eq 0 ]; then
   pass "S3: verify-install.sh no longer lumps gitlab in with bitbucket — the auto-fix path is restored for the host that supports it"
 else
   fail_ "S3" "verify-install.sh still refuses gitlab and bitbucket together on a premise that is only true of bitbucket"
+fi
+
+echo "=== W — the release writer is EXECUTED, not merely inspected ==="
+
+# ── W1: THE GAP THAT LET TWO BLOCKERS THROUGH. Nothing in the PR-blocking set
+# ran init.sh::generate_release, so an arm that produced NOTHING scored 10/10.
+# This runs the shipped writer per host and asserts on the artefacts it leaves:
+# the release steps exist, the CI file still has its own content, and — for the
+# two hosts whose release file is inert without wiring — the CI file REFERENCES
+# the release file. Existence was never the property that mattered.
+w1_bad=""
+for spec in "github:.github/workflows/ci.yml:.github/workflows/release.yml:" \
+            "gitlab:.gitlab-ci.yml:.gitlab-ci/release.yml:include" \
+            "bitbucket:bitbucket-pipelines.yml:bitbucket-pipelines/release.yml:import"; do
+  h="${spec%%:*}"; r1="${spec#*:}"; ci="${r1%%:*}"; r2="${r1#*:}"; rel="${r2%%:*}"; how="${r2#*:}"
+  d="$(newtmp)"; mkdir -p "$d/p"
+  # a CI file shaped like the one init.sh lays down for this host
+  mkdir -p "$d/p/$(dirname "$ci")"
+  cp "$REPO_ROOT/templates/pipelines/ci/$h/typescript.yml" "$d/p/$ci" 2>/dev/null \
+    || printf 'pipelines:\n  default:\n    - step: {script: [echo ci]}\n' > "$d/p/$ci"
+  ci_before="$(wc -c < "$d/p/$ci" | tr -d ' ')"
+  run_generate_release "$d/p" "$h" typescript web
+  if [ ! -s "$d/p/$rel" ]; then
+    w1_bad="$w1_bad ${h}(no-release-artefact)"
+    continue
+  fi
+  ci_after="$(wc -c < "$d/p/$ci" | tr -d ' ')"
+  if [ "$ci_after" -lt "$ci_before" ]; then
+    w1_bad="$w1_bad ${h}(ci-file-shrank:${ci_before}->${ci_after})"
+  fi
+  if [ -n "$how" ]; then
+    # the release file is INERT unless the CI file points at it
+    grep -q "$(basename "$rel")" "$d/p/$ci" 2>/dev/null \
+      || w1_bad="$w1_bad ${h}(release-file-not-wired-into-$ci)"
+  fi
+done
+if [ -z "$w1_bad" ]; then
+  pass "W1: the SHIPPED generate_release runs on all three hosts — each leaves a non-empty release artefact, none shrinks the CI file it was given, and both wiring hosts leave the CI file REFERENCING the release file. A release artefact nothing points at is the defect this whole entry is about"
+else
+  fail_ "W1" "executing the shipped writer left these wrong:$w1_bad"
+fi
+
+echo "=== G3 — a release file nothing executes is not a release pipeline ==="
+
+# ── G3: the deepest form of BL-229. A release file can exist and still never
+# run — that is precisely what init.sh shipped for two hosts. Existence-only
+# checks call that configured; the gate must not.
+g3_bad=""
+for spec in "gitlab:.gitlab-ci.yml:.gitlab-ci/release.yml" \
+            "bitbucket:bitbucket-pipelines.yml:bitbucket-pipelines/release.yml"; do
+  h="${spec%%:*}"; r1="${spec#*:}"; ci="${r1%%:*}"; rel="${r1#*:}"
+  d="$(newtmp)"; mk_proj "$d/p" "$h"
+  printf '{"current_phase":3}\n' > "$d/p/.claude/phase-state.json"
+  mkdir -p "$d/p/$(dirname "$ci")" "$d/p/$(dirname "$rel")"
+  printf 'pipelines:\n  default:\n    - step: {script: [echo ci]}\n' > "$d/p/$ci"
+  printf 'steps:\n  - echo release\n' > "$d/p/$rel"        # present, fully configured, and UNREFERENCED
+  out="$( cd "$d/p" && "$BASH_BIN" "$GATE" --gate phase_3_to_4 2>&1 || true )"
+  printf '%s' "$out" | grep -qi 'not wired\|never run\|not referenced\|unwired' \
+    || g3_bad="$g3_bad ${h}"
+done
+if [ -z "$g3_bad" ]; then
+  pass "G3: a release file that EXISTS but is referenced by nothing is reported on both wiring hosts — the gate stops accepting an artefact it has no reason to believe ever executes"
+else
+  fail_ "G3" "an unwired release file was accepted as configured on:$g3_bad"
 fi
 
 echo "=== M — mutation proofs (sites==1, N lines changed, bash -n, fresh fixture) ==="
@@ -304,6 +409,38 @@ if [ "$m1_sites" -eq 1 ] && [ "$m1_parses" -eq 1 ] && [ "$m1_caught" = "no" ]; t
   pass "M1: with the host mapping collapsed to the GitHub spelling, a TODO-laden GitLab release pipeline goes UNREPORTED again — G1 is load-bearing (sites=$m1_sites changed=$m1_changed parses=$m1_parses)"
 else
   fail_ "M1" "sites=$m1_sites (want 1) parses=$m1_parses (want 1) changed=$m1_changed caught=$m1_caught (want no)"
+fi
+
+# ── M2: THE MUTANT THAT SURVIVED THE WHOLE PR-BLOCKING SET. Adversarial review
+# broke the Bitbucket release arm outright and both suites still reported 10/10,
+# because nothing executed the writer. W1 exists to kill exactly this. Here the
+# import declaration is emitted EMPTY, so the release file is written and never
+# referenced — the shipped-broken state, reproduced deliberately.
+M2="$(newtmp)"; cp -R "$REPO_ROOT" "$M2/repo" 2>/dev/null
+m2_meta=$(_mutate "$M2/repo/scripts/lib/host.sh" '# BL-229-IMPORT-WIRE' '      : > "$frag"')
+m2_sites="${m2_meta%% *}"; m2_rest="${m2_meta#* }"; m2_changed="${m2_rest%% *}"; m2_parses="${m2_rest##* }"
+m2_d="$(newtmp)"; mkdir -p "$m2_d/p"
+cp "$REPO_ROOT/templates/pipelines/ci/bitbucket/typescript.yml" "$m2_d/p/bitbucket-pipelines.yml"
+m2_out="$(
+  cd "$m2_d/p" || exit 9
+  SCRIPT_DIR="$M2/repo"
+  GIT_HOST=bitbucket; LANGUAGE=typescript; PLATFORM=web; TRACK=light; PROJECT_NAME=fixture
+  # shellcheck disable=SC1090
+  . "$M2/repo/scripts/lib/helpers-core.sh" 2>/dev/null
+  # shellcheck disable=SC1090
+  . "$M2/repo/scripts/lib/host.sh" 2>/dev/null
+  eval "$(_extract_fn "$M2/repo/init.sh" get_release_vars)"
+  eval "$(_extract_fn "$M2/repo/init.sh" generate_release)"
+  generate_release 2>&1
+)"
+m2_wired=yes
+grep -q 'bitbucket-pipelines/release.yml' "$m2_d/p/bitbucket-pipelines.yml" 2>/dev/null || m2_wired=no
+m2_warned=no
+printf '%s' "$m2_out" | grep -qi 'could not wire' && m2_warned=yes
+if [ "$m2_sites" -eq 1 ] && [ "$m2_parses" -eq 1 ] && [ "$m2_wired" = "no" ] && [ "$m2_warned" = "yes" ]; then
+  pass "M2: with the import declaration emitted empty, the release file lands UNWIRED — and the writer says so ('Could NOT wire') instead of reporting success. Both halves matter: W1 catches the broken state, and the scaffolder refuses to claim a write it did not make (sites=$m2_sites changed=$m2_changed parses=$m2_parses)"
+else
+  fail_ "M2" "sites=$m2_sites (want 1) parses=$m2_parses (want 1) changed=$m2_changed wired=$m2_wired (want no) warned=$m2_warned (want yes) — if wired=no but warned=no, the scaffolder is silently shipping an inert release pipeline, which is the exact defect this entry was blocked on"
 fi
 
 echo ""

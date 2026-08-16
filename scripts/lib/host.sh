@@ -38,8 +38,13 @@ host_read_from_manifest() {
 #                           file    — its own file, executed directly (GitHub)
 #                           include — its own file, pulled in by the root
 #                                     pipeline's `include:` (GitLab)
-#                           inline  — no separate file exists; the steps live
-#                                     INSIDE HOST_CI_PATH (Bitbucket)
+#                           import  — its own file, pulled in by the root
+#                                     pipeline's `definitions.imports` plus an
+#                                     `import:` reference (Bitbucket)
+#
+# `file` needs no wiring. `include` and `import` DO, and a release file nothing
+# references never executes — which is the deepest form of this entry's defect
+# and what a reader must check beyond `[ -f ]`.
 #
 # THE THIRD FIELD IS NOT DECORATION. Without it every caller re-derives
 # "…but Bitbucket is different" locally, which is exactly the duplication that
@@ -48,14 +53,18 @@ host_read_from_manifest() {
 # a skipped block indistinguishable from a clean one) or said something false
 # (validate.sh, `[FAIL] CI pipeline missing` on a healthy project).
 #
-# WHY BITBUCKET HAS NO SEPARATE FILE. Bitbucket Pipelines' sharing mechanism is
-# CROSS-REPOSITORY (`definitions.imports.<name>: <repo-slug>:<ref>:<path>`, and
-# the exporting file needs `export: true` in that other repo). There is no
-# same-repo local include, so a `bitbucket-pipelines/release.yml` could never be
-# reached by anything — init.sh wrote one for months and nothing executed it.
-# GitLab is different and the difference is real: `include: local` does support
-# a subdirectory path, so `.gitlab-ci/release.yml` is legitimate once the root
-# pipeline includes it.
+# BITBUCKET DOES SUPPORT A SAME-REPO IMPORT, AND AN EARLIER VERSION OF THIS
+# COMMENT SAID IT DID NOT. That false premise shipped in four places and drove a
+# design decision; it is corrected here rather than quietly deleted. Atlassian
+# documents `definitions: imports: <name>: <path>` with a same-repo path, and
+# the imported file declares `export: true`. So Bitbucket gets a separate
+# release file like the other two — it simply needs two wiring points instead of
+# GitLab's one (the `imports` declaration, and an `import:` reference under the
+# start-condition).
+#
+# What is genuinely NOT available on Bitbucket is GitLab's transparent
+# `include:` — the imported pipeline must be referenced by name. That is the
+# real asymmetry, and it is smaller than the one previously claimed.
 #
 # SYNC SIBLINGS: none, and keep it that way. This function replaced init.sh's
 # own `case "$host"` precisely so the mapping has one owner — cf.
@@ -82,8 +91,8 @@ host_pipeline_resolve() {
       ;;
     bitbucket)
       HOST_CI_PATH="bitbucket-pipelines.yml"
-      HOST_RELEASE_PATH="bitbucket-pipelines.yml"
-      HOST_RELEASE_EXECUTES="inline"
+      HOST_RELEASE_PATH="bitbucket-pipelines/release.yml"
+      HOST_RELEASE_EXECUTES="import"
       ;;
     *)
       # FAIL CLOSED, and name the value. The arm this replaced defaulted an
@@ -94,6 +103,65 @@ host_pipeline_resolve() {
       return 4
       ;;
   esac
+  return 0
+}
+
+# host_wire_release <ci_path> <release_path> <how> — make the release file
+# REACHABLE from the root pipeline, and return non-zero if that did not happen.
+#
+# One owner, because there are now two callers (init.sh at scaffold time,
+# verify-install.sh as an auto-fix) and a second copy of this is exactly the
+# drift `# BL-229-HOST-PIPELINE-PATHS` exists to prevent.
+#
+# Prints NOTHING: callers own their own reporting vocabulary (print_info /
+# register_fixable / …). The contract is the exit code and the file on disk.
+#
+#   0  the release file is referenced by the CI file (newly, or already)
+#   1  it is not, and the caller must say so — an unreferenced release file
+#      never executes, which is the defect this whole entry is about
+#
+# `sed`'s `r` reads a FILE after the matched line. Deliberately not `awk -v`:
+# BSD awk rejects a newline in a -v assignment, and the first attempt at the
+# Bitbucket wiring used exactly that — the splice never ran, the `&&`
+# short-circuited, and the caller reported success anyway.
+host_wire_release() {                                                # BL-229-WIRE-RELEASE
+  local ci="$1" rel="$2" how="$3"
+  [ "$how" = "file" ] && return 0            # GitHub: its own file, no wiring
+  [ -f "$ci" ] || return 1                   # nothing to wire it into
+  grep -q "$rel" "$ci" 2>/dev/null && return 0   # already wired; idempotent
+
+  local frag tmp before after
+  frag="$(mktemp)"; tmp="$(mktemp)"
+  before="$(cksum < "$ci")"
+  case "$how" in
+    include)
+      { printf '\n# Release pipeline (solo-orchestrator). Without this include the\n'
+        printf '# file below is never evaluated by GitLab.\n'
+        printf 'include:\n'
+        printf '  - local: %s\n' "/$rel"
+      } >> "$ci"
+      ;;
+    import)
+      printf '  imports:\n    release: %s\n' "$rel" > "$frag"   # BL-229-IMPORT-WIRE
+      if grep -q '^definitions:' "$ci"; then
+        sed "/^definitions:[[:space:]]*\$/r $frag" "$ci" > "$tmp" && cat "$tmp" > "$ci"
+      else
+        { printf '\ndefinitions:\n'; cat "$frag"; } >> "$ci"
+      fi
+      printf "  tags:\n    'v*':\n      import: release-pipeline@release\n" > "$frag"
+      if grep -q '^pipelines:' "$ci"; then
+        sed "/^pipelines:[[:space:]]*\$/r $frag" "$ci" > "$tmp" && cat "$tmp" > "$ci"
+      else
+        { printf '\npipelines:\n'; cat "$frag"; } >> "$ci"
+      fi
+      ;;
+    *) rm -f "$frag" "$tmp"; return 1 ;;
+  esac
+  after="$(cksum < "$ci")"
+  rm -f "$frag" "$tmp"
+  # VERIFY, then let the caller claim. "The command ran" is not "the file changed".
+  [ "$before" != "$after" ] || return 1
+  grep -q "$rel" "$ci" 2>/dev/null || return 1
   return 0
 }
 

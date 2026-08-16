@@ -1975,13 +1975,14 @@ if [ "$current_phase" -ge 3 ] && [ "$skip_later_gate" -eq 0 ]; then   # BL-166-G
   # artifact loop immediately below has always failed closed this way for
   # HANDOFF.md / sbom.json. This block is now consistent with its neighbour.
   _cpg_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  _rel_path=""; _rel_how=""
+  _rel_path=""; _rel_how=""; _rel_ci=""
   if [ -f "$_cpg_lib_dir/lib/host.sh" ]; then
     # shellcheck disable=SC1090
     . "$_cpg_lib_dir/lib/host.sh"
     if host_pipeline_resolve >/dev/null 2>&1; then
       _rel_path="$HOST_RELEASE_PATH"
       _rel_how="$HOST_RELEASE_EXECUTES"
+      _rel_ci="$HOST_CI_PATH"
     fi
   fi
   if [ -z "$_rel_path" ]; then
@@ -1991,6 +1992,16 @@ if [ "$current_phase" -ge 3 ] && [ "$skip_later_gate" -eq 0 ]; then   # BL-166-G
   elif [ ! -f "$_rel_path" ]; then
     echo -e "${YELLOW}[WARN]${NC} Phase 3→4: release pipeline not found at $_rel_path"
     echo "  A configured release pipeline is required before production release."
+    issues=$((issues + 1))
+  elif [ "$_rel_how" != "file" ] && { [ ! -f "$_rel_ci" ] || ! grep -q "$_rel_path" "$_rel_ci" 2>/dev/null; }; then
+    # BL-229-GATE-RELEASE-WIRED: existence is not execution. On GitLab and
+    # Bitbucket the release file is INERT until the root pipeline references it
+    # — GitLab by `include:`, Bitbucket by `definitions.imports` plus an
+    # `import:`. init.sh shipped unreferenced release files on both hosts for
+    # months, so a gate that stops at `[ -f ]` would bless exactly the state
+    # this entry exists to end.
+    echo -e "${YELLOW}[WARN]${NC} Phase 3→4: release pipeline $_rel_path is NOT WIRED into $_rel_ci — it will never run"
+    echo "  This host reaches the release file by '$_rel_how'; without that reference the file is inert."
     issues=$((issues + 1))
   else
     todo_count=$(grep -c "TODO" "$_rel_path" 2>/dev/null) || todo_count=0

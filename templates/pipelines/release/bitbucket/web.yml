@@ -1,14 +1,21 @@
 # Bitbucket Pipelines release for web platform (tag-triggered).
+#
+# EXPORT FILE (BL-229). Bitbucket reaches a same-repo file through
+# `definitions: imports:` plus an `import:` reference — it has no transparent
+# `include:` like GitLab — so this file declares `export: true` and puts its
+# steps under `definitions.pipelines`. The `tags: 'v*':` start-condition lives
+# in bitbucket-pipelines.yml, next to the import that names this pipeline.
+export: true
 image: node:20
-pipelines:
-  tags:
-    'v*':
-      - step:
-          name: Build Release
-          script: [npm ci, npm run build]
-          artifacts: [dist/**, build/**]
-      - step:
-          name: Deploy
-          deployment: production
-          trigger: manual
-          script: [echo "Configure deploy per hosting target"]
+definitions:
+  pipelines:
+    release-pipeline:
+        - step:
+            name: Build Release
+            script: [npm ci, npm run build]
+            artifacts: [dist/**, build/**]
+        - step:
+            name: Deploy
+            deployment: production
+            trigger: manual
+            script: [echo "Configure deploy per hosting target"]
