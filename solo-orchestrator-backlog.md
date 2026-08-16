@@ -10267,8 +10267,28 @@ and the empty detector. Filed as one entry because fixing them separately would
 produce four patches and leave the pattern intact.)
 **Category:** Silent-success — the same substitution `## BL-231:` and
 `## BL-233:` are about, on four new surfaces.
-**Status:** Open — fix implemented on branch `fix/solo-currency-and-availability`
-(test/fix commits below); close on merge with the PR number.
+**Status:** Closed — merged in **PR #351** (`a49ceaf`). All four surfaces
+measured rather than declared; the fifth, `## BL-235:`, was filed and
+deliberately not fixed.
+
+The PR took three adversarial-review rounds after the product change was
+already clean, and every round found the same defect class **inside the fix
+for it** — worth reading the two subsections below before writing any similar
+guard:
+1. the fixture's bare origin had no branch, so CI cloned nothing and reported
+   success (a Mac-only pass, from a gitconfig Xcode ships);
+2. the audit of neighbouring suites was transcribed rather than derived, and
+   was run against `main` instead of the branch, so it missed a file the same
+   PR had just broken;
+3. the receipt added to catch (1) used `git rev-parse HEAD`, which **exits 0 on
+   a dangling HEAD** — a guard with no discriminating power, which read as
+   coverage.
+
+Shard note: the merge also re-pinned two poles out of the `unit-shard (rest)`
+leg, which was CANCELLED at its 12-minute cap on this PR having printed
+`ran 156 unit test file(s); 0 failed`. Measured after: `rest` 725s → **530s**
+(74% of cap), no leg above 75%. Per the cap's own doctrine, approaching it is
+the re-pin signal, never a raise.
 
 ### The one root cause
 
@@ -10844,10 +10864,20 @@ project — `git ls-files` matches it, and it is absent from `.gitignore` while
 its three siblings ARE ignored there)
 **Category:** Operational state tracked as project content — the `## BL-174:`
 family, with a security-adjacent twist the sidecars did not have
-**Status:** Open — **new projects fixed** by `# BL-236-LEDGER-IGNORE` (the
-ignore rule ships in `templates/generated/gitignore-base.tmpl` and is backfilled
-by `scripts/upgrade-project.sh`). **Existing projects need one manual step that
-this framework must NOT take for them** (below).
+**Status:** Open — **the framework half shipped** in **PR #351** (`a49ceaf`):
+`# BL-236-LEDGER-IGNORE` in `templates/generated/gitignore-base.tmpl`,
+backfilled by `scripts/upgrade-project.sh`, and the framework repo's own copy
+now ignored too (verified on `main` after the merge: `.claude/tool-usage.json`
+no longer appears in `git status`). **Existing projects need one manual step
+that this framework must NOT take for them** (below).
+
+**What would close this:** nothing the framework can do. The residual is an
+operator action on repositories this project does not own
+(`git rm --cached .claude/tool-usage.json`), so the entry stays Open as a
+standing recommendation rather than as outstanding work. Karl's call whether
+that warrants Closed with the recommendation preserved — the vocabulary has no
+"shipped, residual is someone else's to run" state, and this is the second
+entry to want one.
 
 ### The file
 
