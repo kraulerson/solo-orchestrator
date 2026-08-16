@@ -244,8 +244,12 @@ echo "=== S — the scaffolded release pipeline can actually RUN ==="
 # ── S1: GitLab. init.sh writes `.gitlab-ci/release.yml`; the root
 # `.gitlab-ci.yml` must INCLUDE it or the file is decorative. GitLab's
 # `include: local` supports a subdirectory path, so this is the whole fix.
-if grep -rq "include" "$REPO_ROOT/templates/pipelines/ci/" 2>/dev/null \
-   && grep -rq "gitlab-ci/release.yml" "$REPO_ROOT/templates/" "$REPO_ROOT/init.sh" 2>/dev/null; then
+# Wired in init.sh, at ONE site, rather than in the ten per-language GitLab CI
+# templates: ten copies of the same line is the drift this whole entry is about,
+# and the include is only correct when a release file was actually written.
+if [ "$(_num "$(grep -c 'BL-229-GITLAB-RELEASE-INCLUDE' "$REPO_ROOT/init.sh" 2>/dev/null)")" -ge 1 ] \
+   && grep -A20 'BL-229-GITLAB-RELEASE-INCLUDE' "$REPO_ROOT/init.sh" 2>/dev/null | grep -q 'include:' \
+   && grep -A20 'BL-229-GITLAB-RELEASE-INCLUDE' "$REPO_ROOT/init.sh" 2>/dev/null | grep -q 'local: '; then
   pass "S1: the scaffolded GitLab pipeline INCLUDES .gitlab-ci/release.yml — the release file is reachable rather than decorative"
 else
   fail_ "S1" "no include of .gitlab-ci/release.yml found in the scaffolded GitLab pipeline; the release file would never execute"
@@ -265,7 +269,13 @@ fi
 # release file" for BOTH gitlab and bitbucket. That is true for bitbucket and
 # false for gitlab, and it contradicted init.sh. A wrong reason in a comment is
 # how the next reader re-derives the wrong fix.
-if ! grep -q 'bitbucket|gitlab)' "$REPO_ROOT/scripts/verify-install.sh" 2>/dev/null; then
+# EXECUTED LINES ONLY (the BL-181 predicate): this file now CITES the old
+# `bitbucket|gitlab)` arm in a comment explaining why it was split, and a naive
+# grep counts that citation as the defect. Strip whole-line and trailing
+# comments before matching, or the fix can never satisfy its own test.
+s3_hits=$(sed -e 's/[[:space:]]*#.*$//' "$REPO_ROOT/scripts/verify-install.sh" 2>/dev/null \
+          | grep -c 'bitbucket|gitlab)')
+if [ "$(_num "$s3_hits")" -eq 0 ]; then
   pass "S3: verify-install.sh no longer lumps gitlab in with bitbucket — the auto-fix path is restored for the host that supports it"
 else
   fail_ "S3" "verify-install.sh still refuses gitlab and bitbucket together on a premise that is only true of bitbucket"

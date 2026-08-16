@@ -3170,30 +3170,31 @@ generate_release() {
     return 0
   fi
 
-  # Host-specific output path: GitHub workflows live under .github/workflows,
-  # GitLab pipelines under .gitlab-ci/, Bitbucket under bitbucket-pipelines/
-  # (deploy phase is appended to bitbucket-pipelines.yml via include).
-  local target_dir target_file
-  case "$host" in
-    github)
-      target_dir=".github/workflows"
-      target_file="$target_dir/release.yml"
-      ;;
-    gitlab)
-      target_dir=".gitlab-ci"
-      target_file="$target_dir/release.yml"
-      ;;
-    bitbucket)
-      target_dir="bitbucket-pipelines"
-      target_file="$target_dir/release.yml"
-      ;;
-    *)
-      print_warn "Unknown host '$host'; defaulting release output to .github/workflows/release.yml"
-      target_dir=".github/workflows"
-      target_file="$target_dir/release.yml"
-      ;;
-  esac
-  mkdir -p "$target_dir"
+  # BL-229-INIT-RELEASE-PATH: ask the resolver. This `case` WAS the only copy of
+  # the host->path mapping, and five readers had each grown their own hardcoded
+  # GitHub spelling because of it. It is now a call, so writer and readers
+  # cannot drift — the sync-sibling failure `# BL-084-TIER-KEY` exists for.
+  #
+  # The comment this replaced claimed the Bitbucket "deploy phase is appended to
+  # bitbucket-pipelines.yml via include". No such include existed anywhere in
+  # the repo, and Bitbucket has no mechanism to create one: its sharing is
+  # CROSS-REPOSITORY (`definitions.imports.<name>: <repo-slug>:<ref>:<path>`,
+  # needing `export: true` in the other repo). So the file this function used to
+  # write at bitbucket-pipelines/release.yml could never execute. GitLab is the
+  # opposite case — `include: local` genuinely supports a subdirectory file, so
+  # its release file was legitimate and merely unwired.
+  # host.sh's only other source site in this file is conditional and runs much
+  # earlier, so do not assume the function exists here. Guarded, not repeated:
+  # sourcing twice is harmless, calling an undefined function is not.
+  if ! command -v host_pipeline_resolve >/dev/null 2>&1; then
+    # shellcheck disable=SC1090
+    source "$SCRIPT_DIR/scripts/lib/host.sh"
+  fi
+  if ! host_pipeline_resolve "$host" 2>/dev/null; then
+    print_warn "Unknown host '$host' — no release pipeline laid down. Record a supported host and re-run."
+    return 0
+  fi
+  local target_file="$HOST_RELEASE_PATH"
 
   # Get language-specific build variables
   get_release_vars
@@ -3205,6 +3206,8 @@ generate_release() {
   # shipped suppression would silence the mutable-action-tag rule on that line in
   # every downstream repo. Stripping is keyed on the marker token alone so no
   # suppression directive text exists in any shipped script either.
+  local _rendered
+  _rendered="$(mktemp)"
   sed -e 's|[[:space:]]*#.*__SOLO_TEMPLATE_ONLY__[[:space:]]*$||' \
       -e "s|__SETUP_ACTION__|$RELEASE_SETUP_ACTION|g" \
       -e "s|__SETUP_VERSION_KEY__|$RELEASE_SETUP_VERSION_KEY|g" \
@@ -3212,7 +3215,57 @@ generate_release() {
       -e "s|__INSTALL_COMMAND__|$RELEASE_INSTALL_COMMAND|g" \
       -e "s|__BUILD_COMMAND__|$RELEASE_BUILD_COMMAND|g" \
       -e "s|__PROJECT_NAME__|$PROJECT_NAME|g" \
-      "$release_template" > "$target_file"
+      "$release_template" > "$_rendered"
+
+  # How the rendered steps reach the runner differs per host, and getting this
+  # wrong is what left two of three hosts with a release pipeline on disk that
+  # nothing ever executed.
+  case "$HOST_RELEASE_EXECUTES" in
+    file)
+      mkdir -p "$(dirname "$target_file")"
+      mv "$_rendered" "$target_file"
+      ;;
+    include)
+      # BL-229-GITLAB-RELEASE-INCLUDE: the file we just wrote is inert until the
+      # root pipeline pulls it in. One `include: local` line does that, and
+      # GitLab supports a subdirectory path there.
+      mkdir -p "$(dirname "$target_file")"
+      mv "$_rendered" "$target_file"
+      if [ -f "$HOST_CI_PATH" ]; then
+        if ! grep -q "$target_file" "$HOST_CI_PATH" 2>/dev/null; then
+          {
+            printf '\n# Release pipeline (solo-orchestrator). Without this include the\n'
+            printf '# file below is never evaluated by GitLab.\n'
+            printf 'include:\n'
+            printf '  - local: %s\n' "/$target_file"
+          } >> "$HOST_CI_PATH"
+          print_info "Wired $target_file into $HOST_CI_PATH via include:"
+        fi
+      else
+        print_warn "$HOST_CI_PATH not found — $target_file is written but NOT included, so it will not run. Add: include: [{local: /$target_file}]"
+      fi
+      ;;
+    inline)
+      # BL-229-BITBUCKET-RELEASE-INLINE: Bitbucket cannot include a same-repo
+      # file, so the steps must live INSIDE bitbucket-pipelines.yml. The release
+      # templates are already shaped for this — each is a top-level `pipelines:`
+      # block carrying `tags: 'v*':` — so the merge is: drop the template's own
+      # `pipelines:` header and splice the remainder under the CI file's.
+      if [ -f "$target_file" ] && grep -q '^pipelines:' "$target_file" 2>/dev/null; then
+        local _body _merged
+        _body="$(sed '1,/^pipelines:/d' "$_rendered")"
+        _merged="$(mktemp)"
+        awk -v add="$_body" '
+          { print }
+          /^pipelines:[[:space:]]*$/ && !done { print add; done = 1 }
+        ' "$target_file" > "$_merged" && mv "$_merged" "$target_file"
+        rm -f "$_rendered"
+        print_info "Release steps folded into $target_file under its pipelines: key (Bitbucket has no same-repo include)"
+      else
+        mv "$_rendered" "$target_file"
+      fi
+      ;;
+  esac
 
   print_info "Release pipeline created at $target_file (host: $host, platform: $PLATFORM)"
   case "$TRACK" in
