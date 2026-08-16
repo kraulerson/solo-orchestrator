@@ -10267,8 +10267,37 @@ and the empty detector. Filed as one entry because fixing them separately would
 produce four patches and leave the pattern intact.)
 **Category:** Silent-success — the same substitution `## BL-231:` and
 `## BL-233:` are about, on four new surfaces.
-**Status:** Open — fix implemented on branch `fix/solo-currency-and-availability`
-(test/fix commits below); close on merge with the PR number.
+**Status:** Closed — merged in **PR #351** (`a49ceaf`). All four surfaces
+measured rather than declared; the fifth, `## BL-235:`, was filed and
+deliberately not fixed.
+
+The PR took three adversarial-review rounds after the product change was
+already clean, and every round found the same defect class **inside the fix
+for it** — worth reading the two subsections below before writing any similar
+guard:
+1. the fixture's bare origin had no branch, so CI cloned nothing and reported
+   success (a Mac-only pass, from a gitconfig Xcode ships);
+2. the audit of neighbouring suites was transcribed rather than derived, and
+   was run against `main` instead of the branch, so it missed a file the same
+   PR had just broken;
+3. the receipt added to catch (1) used `git rev-parse HEAD`, which **exits 0 on
+   a dangling HEAD** — a guard with no discriminating power, which read as
+   coverage.
+
+Shard note: the merge also re-pinned two poles out of the `unit-shard (rest)`
+leg, which was CANCELLED at its 12-minute cap on this PR having printed
+`ran 156 unit test file(s); 0 failed`. `rest` went from **cancelled at 725s**
+— a truncation point, not a duration; its true cost was some unknown value
+above 720s — to **530s (74% of cap)**.
+
+**Do not read that as comfortable.** The longest leg is now `slow-misc` at
+540s, which is **exactly 75.0% of the cap**, and it drifted **468s → 540s
+between those two runs with nothing pinned into it** (`sast` likewise 467s →
+526s). Unchanged legs therefore move 12–15% run to run, which is the same
+order as the remaining margin — so by the doctrine this entry quotes,
+`slow-misc` is the **next re-pin candidate**, not a spare. Re-measure before
+adding anything to it. Per that doctrine, approaching the cap is the re-pin
+signal, never a raise.
 
 ### The one root cause
 
@@ -10844,10 +10873,60 @@ project — `git ls-files` matches it, and it is absent from `.gitignore` while
 its three siblings ARE ignored there)
 **Category:** Operational state tracked as project content — the `## BL-174:`
 family, with a security-adjacent twist the sidecars did not have
-**Status:** Open — **new projects fixed** by `# BL-236-LEDGER-IGNORE` (the
-ignore rule ships in `templates/generated/gitignore-base.tmpl` and is backfilled
-by `scripts/upgrade-project.sh`). **Existing projects need one manual step that
-this framework must NOT take for them** (below).
+**Status:** Open — **the framework half shipped** in **PR #351** (`a49ceaf`):
+`# BL-236-LEDGER-IGNORE` in `templates/generated/gitignore-base.tmpl`,
+backfilled by `scripts/upgrade-project.sh`, and the framework repo's own copy
+now ignored too (verified on `main` after the merge: `.claude/tool-usage.json`
+no longer appears in `git status`). **Existing projects need one manual step
+that this framework must NOT take for them** (below).
+
+**What would close this — and a first answer to it that was wrong.** A draft of
+this paragraph said *"nothing the framework can do."* That is false, and it is
+the kind of false claim that forecloses its own correction, so it is recorded
+rather than quietly replaced. Refusing to **mutate** a repository this project
+does not own is correct restraint. Refusing to **tell the operator something
+true about the repository they just pointed the tool at** is not the same thing,
+and it is what leaves the residual permanently undone.
+
+**Two concrete items remain, both on surfaces the framework unambiguously owns:**
+
+1. **`scripts/validate.sh` has no detection.** It already inspects this exact
+   file and already has a `warn` arm for it (grep `tool-usage.json` there — the
+   valid-JSON and exists arms). A tracked ledger is one predicate away:
+   `git ls-files --error-unmatch .claude/tool-usage.json` → `warn` naming the
+   `git rm --cached` step.
+2. **`scripts/upgrade-project.sh` reports success for an operation that is
+   INAPPLICABLE to the affected projects.** The backfill gates solely on the
+   `.gitignore` TEXT (`grep -qxF '.claude/tool-usage.json' .gitignore`), never
+   on the index, then reports
+   `print_ok "gitignore sidecar ignore-lines backfilled (BL-174)"`. For an
+   already-tracking project the rule it adds is a **complete no-op** — measured
+   below — so the `[OK]` is true about the file it wrote and describes no change
+   whatsoever to the condition this entry exists for, for exactly the population
+   this entry's residual concerns.
+
+**One thing this is NOT, measured rather than assumed.** The backfilled rule
+does **not** hide the still-tracked file: `.gitignore` has no effect on paths
+already in the index. A review draft claimed the rule *"removes the last symptom
+that would have prompted the operator"*; it does not. Measured on throwaway
+repos, twice and independently — every operator-visible symptom is **byte-
+identical before and after** the rule is added:
+
+| probe | before rule | after rule | after `git rm --cached` |
+|---|---|---|---|
+| `git status --short` | ` M .claude/tool-usage.json` | ` M .claude/tool-usage.json` | *(empty)* |
+| `git ls-files` | present | present | absent |
+| does `git add -A` stage it | yes | yes | no |
+| does a fresh clone inherit it | yes, tracked | yes, tracked | no |
+
+So the rule is not merely non-suppressing, it is a **no-op** for an
+already-tracked ledger, and only the documented manual step clears any of it.
+Two consequences for triage: the session-by-session churn stays fully visible
+(this is an **inadequate-disclosure** defect, not a symptom-suppressing one),
+and item 2 above is reporting success for an operation that cannot apply.
+
+**Status stays Open for those two items** — not as a standing recommendation
+that can never close, which is how a backlog rots.
 
 ### The file
 
