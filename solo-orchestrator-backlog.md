@@ -9774,6 +9774,25 @@ of the blocks:
   the wrong reason at 16/16; that mutant now dies at 15/1. **That is this
   entry's own lesson one level up: the check guarding the fix was itself
   asserted on one side only.**
+### Absence is not the same defect as silence — corrected after CI
+
+The first version made a MISSING release pipeline block the 3→4 gate on every
+host. CI refused it: **13 assertions across three suites** encode the old
+contract, and their fixtures are light-track personal projects — a legitimate
+shape with no release pipeline, not a finding. The same over-reach applied to an
+unrecorded host.
+
+BL-229 is about the check not RUNNING; **blocking on absence was scope this
+branch added.** Karl's decision: report always, block only where the tier
+expects a release pipeline — the same predicate as `# BL-084-TIER-KEY`
+(`deployment = organizational` or `poc_mode = sponsored_poc`), and the same
+applicable-vs-unmeasurable rule `scripts/check-maintenance.sh` already
+documents. `# BL-229-RELEASE-ABSENT-TIER` covers both arms; **T1** pins that
+reporting is unconditional and blocking is not.
+
+An existing release file that is UNWIRED still blocks at every tier — that is a
+broken file, not an absent one.
+
 - **S1** pins that the wiring has ONE owner — it caught a real duplicate in
   `verify-install.sh` the moment it was written.
 

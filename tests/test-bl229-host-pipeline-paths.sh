@@ -322,6 +322,38 @@ else
   fail_ "S3" "verify-install.sh still refuses gitlab and bitbucket together on a premise that is only true of bitbucket"
 fi
 
+# ── T1: ABSENCE IS REPORTED ALWAYS, BUT BLOCKS ONLY WHERE THE TIER EXPECTS A
+# RELEASE PIPELINE. Silence was the filed defect; blocking was never asked for.
+# An earlier version of this branch made absence block on every host, which
+# imposed a new gate condition and broke 13 assertions across three suites whose
+# fixtures are light-track personal projects — a legitimate shape, not a
+# finding. Same predicate as `# BL-084-TIER-KEY`.
+t1_bad=""
+for spec in "personal:null:info" "organizational:null:block" "personal:sponsored_poc:block"; do
+  dep="${spec%%:*}"; r="${spec#*:}"; poc="${r%%:*}"; want="${r#*:}"
+  d="$(newtmp)"; mk_proj "$d/p" github
+  # `null` is a JSON literal; anything else must be QUOTED. Writing
+  # "poc_mode":sponsored_poc unquoted produced invalid JSON, the reader saw no
+  # poc_mode at all, and the case failed against its own broken fixture.
+  if [ "$poc" = "null" ]; then _t1_poc="null"; else _t1_poc="\"$poc\""; fi
+  printf '{"current_phase":3,"track":"light","deployment":"%s","poc_mode":%s}\n' "$dep" "$_t1_poc" \
+    > "$d/p/.claude/phase-state.json"
+  # NO release pipeline anywhere — that is the condition under test
+  rc=0
+  out="$( cd "$d/p" && "$BASH_BIN" "$GATE" --gate phase_3_to_4 2>&1 )" || rc=$?
+  said=no; printf '%s' "$out" | grep -qi 'release pipeline' && said=yes
+  blocked=no; printf '%s' "$out" | grep -qiE '\[WARN\].*release pipeline (not found|NOT CHECKED)' && blocked=yes
+  # reporting is unconditional; blocking is not
+  [ "$said" = "yes" ] || t1_bad="$t1_bad ${dep}/${poc}(silent)"
+  [ "$blocked" = "$( [ "$want" = "block" ] && echo yes || echo no )" ] \
+    || t1_bad="$t1_bad ${dep}/${poc}(blocked=$blocked want=$want)"
+done
+if [ -z "$t1_bad" ]; then
+  pass "T1: a missing release pipeline is REPORTED at every tier — never silent, which was the filed defect — but blocks only where the tier expects one (organizational, or sponsored_poc). A light-track personal project with no release pipeline is a legitimate shape"
+else
+  fail_ "T1" "tier handling wrong for:$t1_bad"
+fi
+
 echo "=== W — the release writer is EXECUTED, not merely inspected ==="
 
 # ── W1: THE GAP THAT LET TWO BLOCKERS THROUGH. Nothing in the PR-blocking set

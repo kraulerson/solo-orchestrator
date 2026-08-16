@@ -1988,13 +1988,39 @@ if [ "$current_phase" -ge 3 ] && [ "$skip_later_gate" -eq 0 ]; then   # BL-166-G
     fi
   fi
   if [ -z "$_rel_path" ]; then
-    echo -e "${YELLOW}[WARN]${NC} Phase 3→4: release pipeline NOT CHECKED — could not resolve this project's host"
-    echo "  Record it with: bash scripts/check-gate.sh --backfill-host"
-    issues=$((issues + 1))
+    # Same tier rule as the absence arm below (# BL-229-RELEASE-ABSENT-TIER /
+    # BL-084-TIER-KEY). An unrecorded host is "cannot tell", and cannot-tell
+    # must never read as clean — so it is ALWAYS reported. But requiring a
+    # recorded host to clear 3→4 is a new gate condition BL-229 never asked
+    # for, and it blocked light-track personal fixtures that have no manifest
+    # at all. Block where the tier expects a release pipeline; inform otherwise.
+    if [ "$deployment" = "organizational" ] || [ "$poc_mode" = "sponsored_poc" ]; then
+      echo -e "${YELLOW}[WARN]${NC} Phase 3→4: release pipeline NOT CHECKED — could not resolve this project's host"
+      echo "  This tier (deployment=$deployment) needs the check to run. Record the host with: bash scripts/check-gate.sh --backfill-host"
+      issues=$((issues + 1))
+    else
+      echo -e "${BLUE}  [INFO]${NC} Phase 3→4: release pipeline not checked — no host recorded (deployment=$deployment). Record one with: bash scripts/check-gate.sh --backfill-host"
+    fi
   elif [ ! -f "$_rel_path" ]; then
-    echo -e "${YELLOW}[WARN]${NC} Phase 3→4: release pipeline not found at $_rel_path"
-    echo "  A configured release pipeline is required before production release."
-    issues=$((issues + 1))
+    # BL-229-RELEASE-ABSENT-TIER / BL-084-TIER-KEY (SYNC SIBLINGS — same
+    # predicate as the bypass-eligibility arm above, and as pre-commit-gate.sh,
+    # init.sh and scripts/lib/enforcement-level.sh).
+    #
+    # ABSENCE IS NOT THE SAME DEFECT AS SILENCE. BL-229 is about the check not
+    # RUNNING on two of three hosts; a light-track personal project with no
+    # release pipeline is a legitimate shape, not a finding. An earlier version
+    # of this block made absence BLOCK on every host, which imposed a new
+    # requirement the entry never asked for and broke 13 assertions across three
+    # suites whose fixtures encode exactly that shape. So: always REPORT — never
+    # silent, which was the real defect — and BLOCK only where the tier expects
+    # a release pipeline to exist.
+    if [ "$deployment" = "organizational" ] || [ "$poc_mode" = "sponsored_poc" ]; then
+      echo -e "${YELLOW}[WARN]${NC} Phase 3→4: release pipeline not found at $_rel_path"
+      echo "  This tier (deployment=$deployment, poc_mode=${poc_mode:-none}) requires one before production release."
+      issues=$((issues + 1))
+    else
+      echo -e "${BLUE}  [INFO]${NC} Phase 3→4: no release pipeline at $_rel_path (deployment=$deployment) — not required at this tier, and not checked further"
+    fi
   elif [ "$_rel_how" != "file" ] && { _hwr_verify "$_rel_ci" "$_rel_path" "$_rel_how"; _wire_rc=$?; [ "$_wire_rc" -ne 0 ]; }; then
     # BL-229-GATE-RELEASE-WIRED: existence is not execution. On GitLab and
     # Bitbucket the release file is INERT until the root pipeline references it
