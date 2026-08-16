@@ -1962,12 +1962,45 @@ fi
 
 # Release pipeline configuration check (Phase 3→4)
 if [ "$current_phase" -ge 3 ] && [ "$skip_later_gate" -eq 0 ]; then   # BL-166-GATE-SCOPE
-  if [ -f ".github/workflows/release.yml" ]; then
-    todo_count=$(grep -c "TODO" .github/workflows/release.yml 2>/dev/null) || todo_count=0
+  # BL-229-GATE-RELEASE-PATH: resolve the release pipeline from the RECORDED
+  # host rather than assuming the GitHub spelling. Before this the `-f` test was
+  # false on GitLab and Bitbucket, so the whole block was skipped and printed
+  # NOTHING — a release pipeline full of unconfigured TODOs passed the 3→4 gate
+  # on two of three hosts, and the silence read exactly like a clean result.
+  # That is the `# BL-112-SAST-NOTRUN` prohibition: "did not run" must never be
+  # spelled the same as "found nothing".
+  #
+  # All three failure arms below increment `issues`, i.e. they BLOCK. Read the
+  # increment, not the [WARN] label (CLAUDE.md's WARN trap) — and note the
+  # artifact loop immediately below has always failed closed this way for
+  # HANDOFF.md / sbom.json. This block is now consistent with its neighbour.
+  _cpg_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  _rel_path=""; _rel_how=""
+  if [ -f "$_cpg_lib_dir/lib/host.sh" ]; then
+    # shellcheck disable=SC1090
+    . "$_cpg_lib_dir/lib/host.sh"
+    if host_pipeline_resolve >/dev/null 2>&1; then
+      _rel_path="$HOST_RELEASE_PATH"
+      _rel_how="$HOST_RELEASE_EXECUTES"
+    fi
+  fi
+  if [ -z "$_rel_path" ]; then
+    echo -e "${YELLOW}[WARN]${NC} Phase 3→4: release pipeline NOT CHECKED — could not resolve this project's host"
+    echo "  Record it with: bash scripts/check-gate.sh --backfill-host"
+    issues=$((issues + 1))
+  elif [ ! -f "$_rel_path" ]; then
+    echo -e "${YELLOW}[WARN]${NC} Phase 3→4: release pipeline not found at $_rel_path"
+    echo "  A configured release pipeline is required before production release."
+    issues=$((issues + 1))
+  else
+    todo_count=$(grep -c "TODO" "$_rel_path" 2>/dev/null) || todo_count=0
+    case "$todo_count" in ''|*[!0-9]*) todo_count=0 ;; esac
     if [ "$todo_count" -gt 0 ]; then
-      echo -e "${YELLOW}[WARN]${NC} Release pipeline has $todo_count unconfigured TODO items in .github/workflows/release.yml"
+      echo -e "${YELLOW}[WARN]${NC} Release pipeline has $todo_count unconfigured TODO items in $_rel_path"
       echo "  Configure code signing, deployment secrets, and store credentials before production release."
       issues=$((issues + 1))
+    else
+      echo -e "${GREEN}  [OK]${NC} Release pipeline configured ($_rel_path; steps run: $_rel_how)"
     fi
   fi
 fi

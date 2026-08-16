@@ -28,6 +28,75 @@ host_read_from_manifest() {
   echo "$host"
 }
 
+# ── Pipeline paths ─────────────────────────────────────────────────────────
+# host_pipeline_resolve [host] — the ONE place that knows where each host keeps
+# its CI and release pipelines. Sets three globals:
+#
+#   HOST_CI_PATH          the root pipeline file the host actually executes
+#   HOST_RELEASE_PATH     where the release steps live
+#   HOST_RELEASE_EXECUTES how those steps reach the runner:
+#                           file    — its own file, executed directly (GitHub)
+#                           include — its own file, pulled in by the root
+#                                     pipeline's `include:` (GitLab)
+#                           inline  — no separate file exists; the steps live
+#                                     INSIDE HOST_CI_PATH (Bitbucket)
+#
+# THE THIRD FIELD IS NOT DECORATION. Without it every caller re-derives
+# "…but Bitbucket is different" locally, which is exactly the duplication that
+# produced BL-229: five scripts each hardcoded `.github/workflows/release.yml`,
+# so on GitLab and Bitbucket the readers either said nothing (check-phase-gate,
+# a skipped block indistinguishable from a clean one) or said something false
+# (validate.sh, `[FAIL] CI pipeline missing` on a healthy project).
+#
+# WHY BITBUCKET HAS NO SEPARATE FILE. Bitbucket Pipelines' sharing mechanism is
+# CROSS-REPOSITORY (`definitions.imports.<name>: <repo-slug>:<ref>:<path>`, and
+# the exporting file needs `export: true` in that other repo). There is no
+# same-repo local include, so a `bitbucket-pipelines/release.yml` could never be
+# reached by anything — init.sh wrote one for months and nothing executed it.
+# GitLab is different and the difference is real: `include: local` does support
+# a subdirectory path, so `.gitlab-ci/release.yml` is legitimate once the root
+# pipeline includes it.
+#
+# SYNC SIBLINGS: none, and keep it that way. This function replaced init.sh's
+# own `case "$host"` precisely so the mapping has one owner — cf.
+# `# BL-084-TIER-KEY`, which exists because a different predicate did grow
+# copies. Callers ask; they do not re-derive.
+HOST_CI_PATH=""
+HOST_RELEASE_PATH=""
+HOST_RELEASE_EXECUTES=""
+host_pipeline_resolve() {
+  local host="${1:-}"
+  if [ -z "$host" ]; then
+    host="$(host_read_from_manifest)" || return $?
+  fi
+  case "$host" in   # BL-229-HOST-PIPELINE-PATHS
+    github)
+      HOST_CI_PATH=".github/workflows/ci.yml"
+      HOST_RELEASE_PATH=".github/workflows/release.yml"
+      HOST_RELEASE_EXECUTES="file"
+      ;;
+    gitlab)
+      HOST_CI_PATH=".gitlab-ci.yml"
+      HOST_RELEASE_PATH=".gitlab-ci/release.yml"   # BL-229-HOST-PIPELINE-GITLAB
+      HOST_RELEASE_EXECUTES="include"
+      ;;
+    bitbucket)
+      HOST_CI_PATH="bitbucket-pipelines.yml"
+      HOST_RELEASE_PATH="bitbucket-pipelines.yml"
+      HOST_RELEASE_EXECUTES="inline"
+      ;;
+    *)
+      # FAIL CLOSED, and name the value. The arm this replaced defaulted an
+      # unknown host to the GitHub paths behind a warning, which is how a
+      # mis-recorded host silently produced a GitHub-shaped answer everywhere.
+      HOST_CI_PATH=""; HOST_RELEASE_PATH=""; HOST_RELEASE_EXECUTES=""
+      echo "host.sh: cannot resolve pipeline paths for host '$host'. Valid: github, gitlab, bitbucket" >&2
+      return 4
+      ;;
+  esac
+  return 0
+}
+
 host_load_driver() {
   local host
   host=$(host_read_from_manifest) || return $?

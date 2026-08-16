@@ -277,7 +277,12 @@ echo "=== M — mutation proofs (sites==1, N lines changed, bash -n, fresh fixtu
 # gitlab arm must go back to silence.
 M1="$(newtmp)"
 cp -R "$REPO_ROOT/scripts" "$M1/scripts" 2>/dev/null
-m1_meta=$(_mutate "$M1/scripts/lib/host.sh" '# BL-229-HOST-PIPELINE-PATHS' '  HOST_CI_PATH=".github/workflows/ci.yml"; HOST_RELEASE_PATH=".github/workflows/release.yml"; HOST_RELEASE_EXECUTES=file')
+# Target the GitLab arm's release-path line, NOT the `case` line: replacing the
+# `case` orphans its arms and the mutant lands as a SYNTAX ERROR, which kills
+# every case for the wrong reason and would score as a kill. Measured on the
+# first draft of this suite: parses=0. This mutant stays valid bash and is
+# behaviourally decisive.
+m1_meta=$(_mutate "$M1/scripts/lib/host.sh" '# BL-229-HOST-PIPELINE-GITLAB' '      HOST_RELEASE_PATH=".github/workflows/release.yml"')
 m1_sites="${m1_meta%% *}"; m1_rest="${m1_meta#* }"; m1_changed="${m1_rest%% *}"; m1_parses="${m1_rest##* }"
 d="$(newtmp)"; mk_proj "$d/p" gitlab
 mkdir -p "$d/p/.gitlab-ci"

@@ -96,19 +96,42 @@ fi
 # ================================================================
 print_section "CI/CD Pipelines"
 
-[ -f ".github/workflows/ci.yml" ] && print_ok "CI pipeline" || fail "CI pipeline missing (.github/workflows/ci.yml)"
-
-if [ -f ".github/workflows/release.yml" ]; then
-  # Check if release pipeline still has uncommented TODO placeholders
-  todo_count=$(grep -cE "# TODO|echo.*TODO" .github/workflows/release.yml 2>/dev/null || true)
-  case "$todo_count" in ''|*[!0-9]*) todo_count=0 ;; esac
-  if [ "$todo_count" -gt 0 ]; then
-    print_ok "Release pipeline (${todo_count} TODOs remaining — configure before first release)"
-  else
-    print_ok "Release pipeline (configured)"
+# BL-229-VALIDATE-PIPELINE-PATH: resolve both paths from the RECORDED host.
+# Before this, both checks assumed the GitHub spelling, so a HEALTHY GitLab or
+# Bitbucket project was told `[FAIL] CI pipeline missing
+# (.github/workflows/ci.yml)`. That is not cosmetic: `fail` increments `errors`
+# and this script ends `exit $errors`, so a correct project failed validation
+# for having its files where its own host puts them. Measured before the fix on
+# two projects identical but for the host — GitHub exit 10, GitLab exit 11, the
+# difference being exactly this false failure.
+_v_ci=""; _v_rel=""; _v_how=""
+if [ -f "$SCRIPT_DIR/lib/host.sh" ]; then
+  # shellcheck disable=SC1090
+  source "$SCRIPT_DIR/lib/host.sh"
+  if host_pipeline_resolve >/dev/null 2>&1; then
+    _v_ci="$HOST_CI_PATH"; _v_rel="$HOST_RELEASE_PATH"; _v_how="$HOST_RELEASE_EXECUTES"
   fi
+fi
+
+if [ -z "$_v_ci" ]; then
+  # Unresolvable host is "cannot tell", which is NOT "clean" — say so rather
+  # than silently checking nothing, and rather than guessing GitHub.
+  warn "CI/release pipelines NOT CHECKED — could not resolve this project's host (record it: bash scripts/check-gate.sh --backfill-host)"
 else
-  warn "Release pipeline missing (.github/workflows/release.yml)"
+  [ -f "$_v_ci" ] && print_ok "CI pipeline ($_v_ci)" || fail "CI pipeline missing ($_v_ci)"
+
+  if [ -f "$_v_rel" ]; then
+    # Check if release pipeline still has uncommented TODO placeholders
+    todo_count=$(grep -cE "# TODO|echo.*TODO" "$_v_rel" 2>/dev/null || true)
+    case "$todo_count" in ''|*[!0-9]*) todo_count=0 ;; esac
+    if [ "$todo_count" -gt 0 ]; then
+      print_ok "Release pipeline (${todo_count} TODOs remaining — configure before first release)"
+    else
+      print_ok "Release pipeline (configured; steps run: $_v_how)"
+    fi
+  else
+    warn "Release pipeline missing ($_v_rel)"
+  fi
 fi
 
 # ================================================================
