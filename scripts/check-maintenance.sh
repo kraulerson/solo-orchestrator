@@ -99,9 +99,12 @@ set -euo pipefail
 #   whose date nobody can read is no longer reported as fresh.
 #
 #   THREE SHAPES OF THAT RESIDUAL, MEASURED BY THE WP6 REVIEW AND NAMED HERE SO
-#   THE DISCLOSURE IS NOT NARROWER THAN THE BEHAVIOUR. Filed as backlog lines;
-#   none is changed by this WP, and the glob set is inherited verbatim from the
-#   pre-WP6 script:
+#   THE DISCLOSURE IS NOT NARROWER THAN THE BEHAVIOUR. **All three are now
+#   FIXED, and the filing is `## BL-222:`.** The sentence that used to stand
+#   here asserted a backlog filing that did not exist — no entry described any
+#   of the three — and BL-222 exists because a false tracking claim is worse
+#   than an untracked residual: it stops anyone from looking. Kept in place
+#   rather than deleted, because the shapes are what the tests pin:
 #     • SUBSTRING BREADTH (R-WP6-4). `*dep*` matches far more than a dependency
 #       audit — `deployment-notes-<date>.md` satisfies the cadence completely.
 #       The fold raises the stakes: one stray match now satisfies the WHOLE
@@ -231,6 +234,17 @@ cadence_epoch() {
     e="$(date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$s" +%s 2>/dev/null)" || e=""
   fi
   case "$e" in ''|*[!0-9]*) return 1 ;; esac
+  # BL-222 (R-WP6-5): a parser accepting the string is not the same as the date
+  # existing. `2026-13-45` is refused by both, but an IN-RANGE impossibility like
+  # `2026-02-30` NORMALISES on BSD (to March 2) and is refused by GNU — same
+  # repo, same artefact, two verdicts depending on whose laptop ran the check.
+  # Round-trip the epoch back to a date and require it to equal the input: that
+  # catches normalisation on whichever date(1) is installed, rather than
+  # enumerating the impossibilities one host at a time.
+  local rt=""
+  rt="$(date -u -d "@$e" +%Y-%m-%d 2>/dev/null)" || rt=""
+  [ -n "$rt" ] || rt="$(date -u -r "$e" +%Y-%m-%d 2>/dev/null)" || rt=""
+  [ "$rt" = "${s%%T*}" ] || return 1                                            # BL-222-DATE-ROUNDTRIP
   printf '%s\n' "$e"
   return 0
 }
@@ -329,9 +343,29 @@ fi
 # "no evidence at all", which is an exit 2 nobody could explain. Caught by E1
 # going rc 2 on an all-current fixture.
 if [ -d "docs/test-results" ]; then
-  latest_scan="$( { ls -t docs/test-results/*snyk* docs/test-results/*dep* \
+  # BL-222 (R-WP6-4): `*dep*` used to sit in this list and it matched
+  # `deployment-notes-<date>.md`, so an honest project writing deployment notes
+  # satisfied the release gate's ONLY security clock — no intent required, and
+  # the WP6 fold means one match covers the whole deep-security window. Narrowed
+  # to the dependency-audit vocabulary that does NOT spell `deployment`.
+  # `*audit*` below already covers dep-audit / npm-audit / pip-audit /
+  # cargo-audit, so the broad glob was mostly redundant before it was wrong.
+  # Deliberately its own line so it can be mutated on its own: the whole point
+  # of this fix is one pattern, and a proof that swaps it back must not have to
+  # rewrite the surrounding pipeline.
+  _dep_glob='docs/test-results/*dependency* docs/test-results/*deps*'   # BL-222-DEP-GLOB
+  # shellcheck disable=SC2086  # intentional split+glob: two patterns, not one word
+  latest_scan="$( { ls -t docs/test-results/*snyk* $_dep_glob \
                          docs/test-results/*audit* docs/test-results/*semgrep* \
                          docs/test-results/*sast* 2>/dev/null || true; } \
+                 | while IFS= read -r _cand; do
+                     # BL-222 (R-WP6-7): a name in the listing is not evidence.
+                     # A freshly dated empty DIRECTORY, or a dangling symlink,
+                     # used to satisfy this — `ls` supplies the name and the
+                     # date is read off the name. `-f` follows symlinks, so it
+                     # rejects both shapes with one test.
+                     [ -f "$_cand" ] && printf '%s\n' "$_cand"   # BL-222-ARTEFACT-MUST-BE-FILE
+                   done \
                  | awk 'NR == 1 { r = $0 } END { if (r != "") print r }')" || latest_scan=""
   if [ -n "$latest_scan" ]; then
     signal_date="$(printf '%s\n' "$latest_scan" \
