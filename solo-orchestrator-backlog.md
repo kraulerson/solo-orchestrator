@@ -11112,7 +11112,41 @@ that contacts the daemon is `docker version`, without the dashes, and the matrix
 does not ship it. The hazard is real and `colima version` carries it; the second
 example was wrong and citing two made the claim feel twice as established.
 
-**And the bound had a PRICE that shipping it did not measure.** The first
+**AND THE BOUND WAS DECORATIVE FOR HALF THE MATRIX, which the first fix
+certified as working.** `T1`/`T2` proved it with `sleep 12` — the one shape it
+handles. `kill -9` reaps the `bash -c` child; a pipeline's OTHER members survive
+it holding the pipe open, and a caller reading through a command substitution
+then waits for them. Measured: `sleep 12 | cat` at a 2s bound took **12s**, as
+did `(sleep 12)` and the verbatim shipped `Colima` version command. Derived
+across all four matrices, **21 of the 41 checkable rows** are pipeline- or
+subshell-shaped — including Colima, the row this entry names as the reason a
+bound was needed. Fixed at both consumers by taking the output through a FILE
+(`# BL-235-VERSION-CAPTURE`, `# BL-235-RESOLVE-CAPTURE`) so the reader does not
+depend on who still holds the write end; `set -m` plus a process-group kill was
+tried first and does not work, because a command substitution runs with job
+control disabled. `T2b` pins the pipeline shape and `M8` restores the
+substitution and watches it hang again.
+
+**And the three-state contract was discarded one layer before the operator.**
+`check-versions.sh` ran the check as `>/dev/null 2>&1`, throwing away both the
+exit code and the probe's note — so a database that is UP and answering **403**
+because it wants an api-key rendered as `[WARN] Qdrant MCP: not installed`,
+identical to one never installed, while the probe's own stderr said exactly what
+to change. `D9` asserted that note ON THE PROBE, one layer short of where it is
+consumed — the same mistake `D3` made, in a different place. `# BL-235-THIRD-STATE`
+now renders rc 2 as *"configured, but working could not be confirmed"* with the
+note, and **`C3` asserts it in this script's OUTPUT**. This is need #3 of "What
+it needs" below, for the human-facing consumer; the resolver half (a distinct
+bucket in `resolve-tools.sh`'s JSON) is a schema change with many consumers and
+is NOT done.
+
+**And a non-numeric bound meant zero.** `$(( now + abc ))` is `now`, so
+`CHECKVER_EVAL_TIMEOUT=abc` put every deadline in the past and reported a whole
+healthy matrix as "not installed" — silently, from one environment variable.
+`# BL-235-DEADLINE-SANE` clamps to the default; `M10` proves it in both
+directions.
+
+**The bound had a PRICE that shipping it did not measure.** The first
 implementation used `run_with_timeout`, which polls a `sleep 1` counter, so every
 bounded call costs ~1s regardless of the command. This loop makes two per row;
 on the 21-row shipped matrix `check-versions.sh` went from **5-6s to 50-51s** —
@@ -11225,6 +11259,16 @@ and **the review blocked it.** Everything below is that round.
   probe — cannot occur, because the rows only ever arrive via `init.sh`, which
   copies both. The consequence is that an existing project keeps the old
   declaration behaviour until it is re-initialised, not that it breaks.
+- **Five rows now leave `check-versions.sh` entirely.** The rows with genuinely
+  no version dropped `version_command`, and `CHECKABLE_TOOLS` filters on a
+  non-empty one — so `Android Studio`, both Apple Developer Program rows, the
+  Android keystore and the ZAP image no longer appear in the version report at
+  all. That is correct (they have no version to check) and it matches the
+  filter's own "skip presence-only tools" comment, but it IS a visible change to
+  the report. `resolve-tools.sh` is unaffected: it guards on
+  `[ -n "$TOOL_VERSION_CMD" ]` and still buckets those rows. `version_command`
+  has exactly two consumers (`grep -rn VERSION_CMD scripts/ init.sh`), so there
+  is no third-party fallout.
 - **Seeding `enforcement_level: "strict"` at adoption makes
   `upgrade-project.sh`'s BL-030 backfill SKIP adopted manifests.** That is
   correct — the backfill exists to fill an absent key, and the key is no longer
@@ -11451,19 +11495,23 @@ replaced mode **755 with 644**. `mv` from a fresh temp file does not carry the
 destination's mode, and nothing in the edit reported it: the content assertion
 that accompanied the edit passed, because the content was right.
 
-`scripts/resolve-tools.sh` is invoked **directly** — no `bash` prefix — by
-`init.sh`, `scripts/verify-install.sh`, `scripts/check-phase-gate.sh` and
-`scripts/intake-wizard.sh`. A non-executable file makes the shell return
-**126**, and init.sh's call site reads:
+**The four callers do NOT degrade alike, and a first draft of this entry said
+they did.** That draft claimed all four invoke the resolver directly and all
+four get 126. Derived instead:
 
-```
-resolver_output=$("$SCRIPT_DIR/scripts/resolve-tools.sh" … 2>/dev/null) || {
-  print_warn "Tool resolver failed. Falling back to basic tool checks."
-  return 0
-}
-```
+| caller | how it invokes | at mode 644 |
+|---|---|---|
+| `init.sh` | `resolver_output=$("$SCRIPT_DIR/scripts/resolve-tools.sh" …)` | **rc=126** → `[WARN] Tool resolver failed. Falling back to basic tool checks.` → `return 0` |
+| `scripts/verify-install.sh` | gated `[ ! -x … ] → register_manual "Tool check skipped …"; return`, and the call itself carries a **`bash ` prefix** | skipped; the mode never reaches `execve` |
+| `scripts/intake-wizard.sh` | gated `[ -x "scripts/resolve-tools.sh" ] && …` | **silently skipped** |
+| `scripts/check-phase-gate.sh` | gated `[ -x "$RESOLVER" ]` | **silently skipped** |
 
-So init.sh **printed one `[WARN]` line, exited 0, and scaffolded a project
+So exactly **one** caller produces 126; the other three **silently skip**, which
+is the worse arm — init.sh at least prints something. That correction matters
+for the general rule below: a mode check cannot be justified by "the shell will
+tell you", because for three of the four callers it will not.
+
+init.sh **printed one `[WARN]` line, exited 0, and scaffolded a project
 anyway** — one whose `.claude/tool-preferences.json` came from the fallback
 writer rather than from resolver output (`installed: {}`, and three context
 values that had silently acquired a leading space, which then propagated into a

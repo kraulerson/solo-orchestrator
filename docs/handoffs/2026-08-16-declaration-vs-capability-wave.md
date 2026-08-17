@@ -173,6 +173,82 @@ his: the shared wall-clock runner, and fixing all eight other-matrix rows.
 | RC-4 | Corrected in both live prose sites. `docker --version` is client-only — 26ms here; `colima version` carries the hazard alone. |
 | RC-6 | Re-derived from `tests.yml`: `rest ~561s (78%)`, `slow-misc ~584s (81%)`. § 4 was already right. |
 
+## 2.4 Round two — the review of the fixes also returned `block`, and it was right
+
+The § 2.3 round was reviewed adversarially before any PR was opened. It came
+back **`block`** on three claims that observation contradicts — all three in
+this wave's own defect class, all three now fixed. The reviewer also wrote six
+independent mutants against the new suite (drop `| strings`, force the npx
+branch, delete the `SOLO_SCRIPTS_DIR` export, delete `probe-tool.sh`, collapse
+state 2 into 1, inject three declaration rows into `web.json`) and **every one
+was killed for the right reason** — which is the evidence behind the "fixed"
+verdicts above, and the thing the previous round was missing.
+
+- **F-1, and this is the serious one: the bound was decorative for half the
+  matrix.** `T2` certified it with `sleep 12` — the ONE shape that works.
+  `kill -9` reaps the `bash -c` child; a pipeline's other members survive it
+  holding the pipe open, and a caller reading through a COMMAND SUBSTITUTION
+  waits for THEM. Reproduced independently here: `sleep 12 | cat` at a 2s bound
+  → **12s**; `(sleep 12)` → 12s; the verbatim shipped `Colima` row → 12s. Then
+  derived: **21 of the 41 checkable rows** across the four matrices are
+  pipeline- or subshell-shaped, Colima included — the row `0221c5e`'s message
+  names as the reason the bound was added at all. Fixed by taking the output
+  through a FILE at both consumers (`# BL-235-VERSION-CAPTURE`,
+  `# BL-235-RESOLVE-CAPTURE`); `set -m` + `kill -- -$pid` was tried first and
+  does not work, because a command substitution disables job control. `T2b`
+  pins the pipeline shape, `M8` restores the substitution and watches it hang.
+- **F-2: the probe's diagnosis was binned one layer before the operator.**
+  `_cv_bounded_eval "$CHECK_CMD" >/dev/null 2>&1` discarded the check's stderr
+  AND its exit code, so a database that is UP and answering **403** because it
+  wants an api-key rendered as `[WARN] Qdrant MCP: not installed` — identical to
+  one that was never set up — while the probe's own note said exactly what to
+  do. `D9` asserted that note ON THE PROBE, which is one layer short of where it
+  is consumed: the same mistake as `D3`, in a new place. Now
+  `# BL-235-THIRD-STATE` renders rc 2 as *"configured, but working could not be
+  confirmed"* with the note attached, and **`C3` asserts it in check-versions.sh
+  OUTPUT**. `M9` throws the stderr away again and watches the repair vanish.
+- **F-3: `## BL-237:` misdescribed three of its own four callers.** Only
+  `init.sh` executes the resolver directly and gets 126. `verify-install.sh`
+  calls it with a `bash ` prefix behind an `[ ! -x ]` guard;
+  `intake-wizard.sh` and `check-phase-gate.sh` are `[ -x ]`-gated and **silently
+  skip**. Silent skip is the WORSE arm — init.sh at least warns. Corrected in
+  the entry and in `X1`'s header.
+- **F-5: a count this branch added was falsified by this branch.**
+  `helpers-core.sh` said `run_with_timeout` has "eleven call sites across six
+  product files" — true of `main`, false at HEAD (**14 across 7**), because this
+  branch's own Qdrant work added three. Re-derived and replaced with the recipe.
+- **F-7: a non-numeric bound meant ZERO.** `$(( now + abc ))` is `now`, so
+  `CHECKVER_EVAL_TIMEOUT=abc` made every deadline already-past and reported an
+  entire healthy matrix as "not installed". `# BL-235-DEADLINE-SANE` clamps;
+  `M10` proves it both ways.
+- **F-4: the shard figure was wrong and the suite is now pinned.** The handoff
+  said "~22s"; measured 38-40s. `tests/test-bl235-tool-matrix-probes.sh` moves
+  to `pin_lint_scan` (~97-206s) out of `rest` (~561s/720s, **cancelled at the
+  cap on PR #351**). The estimate and its method are in the file, flagged for
+  re-measurement on CI — it is an estimate, not data.
+- **F-6, F-8** taken: the hard-exit message now says *does not provide
+  `run_with_deadline`* rather than "missing" (a present-but-older
+  `helpers-core.sh` reaches it too), and the BL-221 suite's `_mutate` adopts the
+  `\001` delimiter its sibling already proved the `%` one fails on.
+- **F-9** accepted as informational and recorded on the entry: the five rows
+  that dropped `version_command` leave `check-versions.sh` entirely, because
+  `CHECKABLE_TOOLS` filters on a non-empty `version_command`. `resolve-tools.sh`
+  is unaffected. `version_command` has exactly two consumers, so there is no
+  third-party fallout.
+- **RF-4, cosmetic and inherited:** the refuted-claim labels run RC-1…RC-4, RC-6
+  — there is no RC-5 anywhere in the repo. Five bullets, six labels. Left as-is
+  because every citation in flight uses these numbers.
+
+**Two things I broke in round two and caught before they shipped**, both worth
+more than the fixes: `grep -v` exits 1 when it selects no lines, so reading a
+note out of an EMPTY stderr file killed `check-versions.sh` mid-row under
+`set -euo pipefail` — every healthy row silently vanished from the report, and
+the suite caught it. And a `perl -pi -e` one-liner with nested shell escaping
+matched backslash-pairs across the whole test file and corrupted it; it was
+restored from the commit and the edits re-applied through the editor. **Do not
+write multi-substitution `perl`/`sed` one-liners against a file you cannot
+immediately diff** — that is the same lesson as `## BL-237:`, one tool over.
+
 **And the fix wave produced one defect of its own, which is filed rather than
 buried: `## BL-237:`.** An edit written as `sed … > tmp && mv tmp file` replaced
 `scripts/resolve-tools.sh`'s mode **755 → 644**. Every direct caller then got
