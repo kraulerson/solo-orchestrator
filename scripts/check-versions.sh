@@ -341,7 +341,27 @@ _cv_bounded_eval() {
   fi
 }
 
-# _cv_note_safe <text> — make a tool's stderr safe to render.
+# _cv_render_safe <text> — make TOOL-SUPPLIED text safe to render.
+#
+# It is `_render_` and not `_note_` because the note was one of TWO surfaces and
+# fixing only it was the sync-sibling trap in miniature. `INSTALLED` comes from
+# a version_command's STDOUT and reaches the same `echo -e` at nine places —
+# six direct (`$INSTALLED` / `$INSTALLED_DISPLAY`) and three via `UPDATES[]` —
+# and it was not escaped. Measured: a version_command emitting
+# `1.0\n\x20\x20[OK]\x20Totally\x20Installed:\x209.9.9` produced
+#
+#     [OK] P: 1.0
+#     [OK] Totally Installed: 9.9.9 — up to date
+#
+# a fabricated row byte-identical to a genuine one. `tr -d '[:space:]'` does not
+# stop it, because `\x20` is not whitespace until `echo -e` expands it. That
+# path has the same external-input vector as the notes: `probe_superpowers` and
+# `probe_context7` print a `version` field straight out of
+# `~/.claude/plugins/installed_plugins.json`.
+#
+# So this is applied at the SOURCE of each value — once where the note is read
+# and once where the version is captured — rather than at the render sites,
+# because there are nine of the latter and the next one added would be unguarded.
 #
 # `print_warn` renders through `echo -e`, which INTERPRETS backslash escapes in
 # whatever it is given. The note comes from a `check_command`'s stderr, so a
@@ -356,8 +376,21 @@ _cv_bounded_eval() {
 # Doubling the backslashes makes `echo -e` emit them literally. The rows ship
 # with the framework today, but the probe notes interpolate `$(qdrant_mcp_url)`
 # read out of `~/.claude.json`, so the text is not wholly ours. C4 pins it.
-_cv_note_safe() {
-  printf '%s' "${1//\\/\\\\}"                                                   # BL-235-NOTE-SAFE
+# RAW CONTROL BYTES ARE STRIPPED AS WELL AS BACKSLASHES DOUBLED, and the range
+# is `\000-\037\177` — everything below space, plus DEL. A carriage return is
+# not a backslash, so doubling alone leaves it, and on a terminal it returns the
+# cursor to column 0 so the following text OVERWRITES the `[WARN]` prefix and
+# renders a complete fake row. The narrower range `\000-\010\013\014\016-\037`
+# was proposed for this and does NOT strip CR — `\015` falls in the gap between
+# `\014` and `\016`. Measured before adopting it: `printf 'a\rb' | tr -d
+# '\000-\010\013\014\016-\037\177'` still emits `a \r b`. Take the whole range;
+# a tab or newline inside a version string or a one-line note is worth nothing.
+# Two lines, not one, so a mutation proof can target the RANGE independently of
+# the doubling — a single line can only be mutated as a whole, and then a test
+# cannot tell "the tr is gone" from "the tr is too narrow".
+_cv_render_safe() {
+  local _s="${1//\\/\\\\}"
+  printf '%s' "$_s" | tr -d '\000-\037\177'                                     # BL-235-NOTE-SAFE
 }
 
 # _cv_version_bounded <cmd> — run a version_command under the bound and put its
@@ -392,7 +425,11 @@ _cv_version_bounded() {
   # the script mid-row. Measured with the sibling `grep -v` this line used to
   # carry — on an EMPTY stderr file it exits 1, which is the NORMAL case, and
   # every healthy row vanished from the report after the first category header.
-  INSTALLED="$(tr -d '[:space:]' < "$_out" 2>/dev/null || :)"
+  # Sanitised HERE, at the single point of capture, so all nine downstream
+  # render sites are covered and a tenth added later cannot be forgotten.
+  # `version_gte` strips to digits before comparing, so this cannot change a
+  # version verdict.
+  INSTALLED="$(_cv_render_safe "$(tr -d '[:space:]' < "$_out" 2>/dev/null || :)")"   # BL-235-VERSION-SAFE
   rm -f "$_out"
 }
 
@@ -553,7 +590,7 @@ for i in $(seq 0 $((TOOL_COUNT - 1))); do
   # `|| :` for the same reason as in _cv_version_bounded: an empty stderr file
   # makes `grep -v` exit 1, and under `set -euo pipefail` that ends the run.
   CHECK_NOTE="$( { grep -v '^[[:space:]]*$' "$CHECK_ERR" 2>/dev/null || :; } | tail -1 | cut -c1-200)"
-  CHECK_NOTE="$(_cv_note_safe "$CHECK_NOTE")"
+  CHECK_NOTE="$(_cv_render_safe "$CHECK_NOTE")"
   rm -f "$CHECK_ERR"
   if [ "$CHECK_RC" -ne 0 ]; then
     if [ "$CHECK_RC" -eq 2 ]; then                                              # BL-235-THIRD-STATE

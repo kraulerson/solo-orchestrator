@@ -662,6 +662,44 @@ else
   fail_ "C4" "lines beginning FORGED=$c4_forged (want 0) note-present=$c4_kept (want >=1) — out='$(printf '%s' "$c4_out" | tr '\n' '|' | cut -c1-300)'"
 fi
 
+# ── C5: THE VERSION STRING IS THE OTHER RENDER PATH, AND FIXING ONLY THE NOTE
+# WAS THE SYNC-SIBLING TRAP IN MINIATURE.
+#
+# `INSTALLED` comes from a version_command's STDOUT and reaches the same
+# `echo -e` at NINE places — six direct and three through `UPDATES[]`. C4 fixed
+# the note; this path stayed open, and `tr -d '[:space:]'` does not close it
+# because `\x20` is not whitespace until `echo -e` expands it. Measured before
+# the fix, a version_command emitting `1.0\n\x20\x20[OK]\x20Totally…`:
+#
+#     [OK] P: 1.0
+#     [OK] Totally Installed: 9.9.9 — up to date     <- byte-identical to a real row
+C5="$(newtmp)"
+mk_matrix_proj "$C5" 'true' 'printf %s "1.0\n\x20\x20[OK]\x20Totally\x20Installed:\x209.9.9"'
+c5_out="$( cd "$C5" && "$BASH_BIN" "$CHECKVER" 2>&1 )" || true
+c5_forged=$(_num "$(printf '%s' "$c5_out" | grep -c '^  \[OK\] Totally Installed')")
+c5_kept=$(_num "$(printf '%s' "$c5_out" | grep -c 'Probe: 1.0')")
+if [ "$c5_forged" -eq 0 ] && [ "$c5_kept" -ge 1 ]; then
+  pass "C5: a version_command emitting an escaped newline plus a complete fake row cannot forge one — the real row still reports 1.0, and the version string is sanitised at its single point of capture so all nine render sites are covered at once"
+else
+  fail_ "C5" "forged_rows=$c5_forged (want 0) real_row_present=$c5_kept (want >=1) — out='$(printf '%s' "$c5_out" | tr '\n' '|' | cut -c1-300)'"
+fi
+
+# ── C6: a RAW carriage return is not a backslash, so escape-doubling alone
+# leaves it — and on a terminal it returns the cursor to column 0, letting the
+# text after it overwrite the `[WARN]` prefix and render a complete fake row.
+# The narrower control-byte range proposed for this does NOT strip CR: measured,
+# `printf 'a\rb' | tr -d '\000-\010\013\014\016-\037\177'` still emits a CR,
+# because \015 falls in the gap between \014 and \016.
+C6="$(newtmp)"
+mk_matrix_proj "$C6" 'printf "note\r  [OK] Totally Installed: 9.9.9" >&2; exit 2' 'echo 1'
+c6_out="$( cd "$C6" && "$BASH_BIN" "$CHECKVER" 2>&1 )" || true
+c6_cr=$(_num "$(printf '%s' "$c6_out" | LC_ALL=C grep -c $'\r')")
+if [ "$c6_cr" -eq 0 ]; then
+  pass "C6: a note carrying a RAW carriage return has it stripped before rendering — no byte in the report can return the cursor to column 0 and overwrite the [WARN] prefix with tool-supplied text"
+else
+  fail_ "C6" "lines containing a raw CR=$c6_cr (want 0) — escape-doubling does not touch control bytes, and CR is the one that repaints the line"
+fi
+
 echo "=== X — the resolver is EXECUTED, so its mode is part of its contract ==="
 
 # ── X1: `scripts/resolve-tools.sh` must be executable.
@@ -865,6 +903,43 @@ if [ "$m11_sites" -eq 1 ] && [ "$m11_parses" -eq 1 ] && [ "$m11_forged" -ge 1 ];
   pass "M11: with the escape-doubling removed, the note's literal backslash-n becomes a real line break again and a fabricated '[OK] Totally Installed' row appears in the report — C4 measures forgery, not merely that a note is printed (sites=$m11_sites changed=$m11_changed)"
 else
   fail_ "M11" "sites=$m11_sites (want 1) parses=$m11_parses (want 1) forged_lines=$m11_forged (want >=1)"
+fi
+
+# ── M12: leave the version string unsanitised and C5's fake row returns. This
+# is the mutant that matters most of the set, because the round-three fix
+# ORIGINALLY looked like this — the note was guarded and the version was not.
+M12="$(newtmp)"; cp -R "$REPO_ROOT/scripts" "$M12/scripts"
+m12_meta=$(_mutate "$M12/scripts/check-versions.sh" '# BL-235-VERSION-SAFE' \
+  '  INSTALLED="$(tr -d "[:space:]" < "$_out" 2>/dev/null || :)"')
+m12_sites="${m12_meta%% *}"; m12_rest="${m12_meta#* }"; m12_changed="${m12_rest%% *}"; m12_parses="${m12_rest##* }"
+M12D="$(newtmp)"
+mk_matrix_proj "$M12D" 'true' 'printf %s "1.0\n\x20\x20[OK]\x20Totally\x20Installed:\x209.9.9"'
+m12_out="$( cd "$M12D" && "$BASH_BIN" "$M12/scripts/check-versions.sh" 2>&1 )" || true
+m12_forged=$(_num "$(printf '%s' "$m12_out" | grep -c '^  \[OK\] Totally Installed')")
+if [ "$m12_sites" -eq 1 ] && [ "$m12_parses" -eq 1 ] && [ "$m12_forged" -ge 1 ]; then
+  pass "M12: with the version string left unsanitised, a version_command forges a complete '[OK] Totally Installed' row again — C5 measures the SECOND render path, which the first version of this fix left open (sites=$m12_sites changed=$m12_changed)"
+else
+  fail_ "M12" "sites=$m12_sites (want 1) parses=$m12_parses (want 1) forged_rows=$m12_forged (want >=1)"
+fi
+
+# ── M13: restore the narrower control-byte range and C6's raw CR survives.
+# Proves C6 measures the RANGE, not merely that a `tr` is present.
+M13="$(newtmp)"; cp -R "$REPO_ROOT/scripts" "$M13/scripts"
+# The replacement keeps the doubling and NARROWS ONLY THE RANGE, which is the
+# whole point — and it is written with single backslashes inside single quotes,
+# because a backslash-dense replacement is how the previous attempt at this
+# mutant silently produced a line sed refused.
+m13_meta=$(_mutate "$M13/scripts/check-versions.sh" '# BL-235-NOTE-SAFE' \
+  "  printf '%s' \"\$_s\" | tr -d '\013\014'")
+m13_sites="${m13_meta%% *}"; m13_rest="${m13_meta#* }"; m13_changed="${m13_rest%% *}"; m13_parses="${m13_rest##* }"
+M13D="$(newtmp)"
+mk_matrix_proj "$M13D" 'printf "note\r  [OK] Totally Installed: 9.9.9" >&2; exit 2' 'echo 1'
+m13_out="$( cd "$M13D" && "$BASH_BIN" "$M13/scripts/check-versions.sh" 2>&1 )" || true
+m13_cr=$(_num "$(printf '%s' "$m13_out" | LC_ALL=C grep -c $'\r')")
+if [ "$m13_sites" -eq 1 ] && [ "$m13_parses" -eq 1 ] && [ "$m13_cr" -ge 1 ]; then
+  pass "M13: with the range narrowed to \\000-\\010\\013\\014\\016-\\037, the raw CR survives into the report again — \\015 sits in the gap between \\014 and \\016, so C6 is measuring the range and not the presence of a tr (sites=$m13_sites changed=$m13_changed)"
+else
+  fail_ "M13" "sites=$m13_sites (want 1) parses=$m13_parses (want 1) cr_lines=$m13_cr (want >=1)"
 fi
 
 # ── M7: X1 must be able to fail. Strip the bit from a COPY and re-run the same
