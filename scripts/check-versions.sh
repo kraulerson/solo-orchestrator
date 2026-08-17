@@ -301,6 +301,31 @@ check_for_update() {
 }
 
 # --- Load tool matrix ---
+# BL-235: `check_command` and `version_command` are ARBITRARY SHELL read out of
+# a JSON data file, and this consumer ran both through a bare `eval` with no
+# bound — while its sibling scripts/resolve-tools.sh has wrapped the identical
+# strings in a 10s timeout since 2026-06-26. Two readers of one data file,
+# asymmetric bounding.
+#
+# That was already a live hazard, not a hypothetical: the shipped matrix carries
+# `colima version` and `docker --version`, and resolve-tools.sh's own header
+# records that those "can hang indefinitely when the daemon is unreachable" —
+# which is why it bounds them. This script could hang on an unreachable Docker
+# daemon before any of BL-235's probes existed.
+#
+# The `command -v run_with_timeout` guard is the same one BL-234 established
+# lower down: helpers-core.sh may be absent, and the fallback path does not
+# define it, so an unguarded call would exit 127 and read as "not installed".
+CHECKVER_EVAL_TIMEOUT="${CHECKVER_EVAL_TIMEOUT:-10}"
+_cv_bounded_eval() {
+  local _cmd="$1"
+  if command -v run_with_timeout >/dev/null 2>&1; then
+    run_with_timeout "$CHECKVER_EVAL_TIMEOUT" bash -c "$_cmd"
+  else
+    bash -c "$_cmd"
+  fi
+}
+
 MATRIX_DIR="templates/tool-matrix"
 if [ ! -d "$MATRIX_DIR" ]; then
   # Try from orchestrator source
@@ -425,7 +450,7 @@ for i in $(seq 0 $((TOOL_COUNT - 1))); do
   # Disable set -u: check_commands may reference env vars (e.g., $ANDROID_HOME)
   # that are legitimately unset on this system.
   set +u
-  if ! eval "$CHECK_CMD" &>/dev/null 2>&1; then
+  if ! _cv_bounded_eval "$CHECK_CMD" >/dev/null 2>&1; then                      # BL-235-BOUND-CHECK
     set -u
     print_warn "$NAME: not installed"
     continue
@@ -435,7 +460,7 @@ for i in $(seq 0 $((TOOL_COUNT - 1))); do
   # Get installed version
   INSTALLED=""
   if [ -n "$VERSION_CMD" ]; then
-    INSTALLED=$(eval "$VERSION_CMD" 2>/dev/null | tr -d '[:space:]' || echo "")
+    INSTALLED=$(_cv_bounded_eval "$VERSION_CMD" 2>/dev/null | tr -d '[:space:]' || echo "")   # BL-235-BOUND-VERSION
   fi
 
   # Check minimum version
