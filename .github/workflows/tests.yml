@@ -523,6 +523,7 @@ jobs:
             tests/test-bl221-tier-fail-closed.sh
             tests/test-bl235-tool-matrix-probes.sh
             tests/test-bl239-contributor-hooks.sh
+            tests/test-bl230-workflow-html-lint-surface.sh
             tests/host-drivers/error-translate.test.sh
           )
 
